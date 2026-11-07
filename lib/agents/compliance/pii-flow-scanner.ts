@@ -118,8 +118,38 @@ const FOREIGN_LLM_HOSTS: ReadonlySet<string> = new Set(LLM_ENDPOINTS.filter((e) 
  * `fetch('https://openrouter.ai/…')` собирает тело запроса тут же, и его
  * `content:` — сток (седьмое ревью PR #3104).
  */
-function fileTalksAbroad(src: string): boolean {
-  return FOREIGN_DOOR_WORD.test(src) || extractLLMHosts(src).some((h) => FOREIGN_LLM_HOSTS.has(h)) || LLM_API_PATH.test(src);
+function fileTalksAbroad(src: string, extraDoors: readonly string[] = []): boolean {
+  return FOREIGN_DOOR_WORD.test(src) || hasWord(src, extraDoors) || directEgress(src);
+}
+
+/** Файл сам ходит к модели: зарубежный хост модели или путь API модели в тексте. */
+function directEgress(src: string): boolean {
+  const talks = (t: string) => extractLLMHosts(t).some((h) => FOREIGN_LLM_HOSTS.has(h)) || LLM_API_PATH.test(t);
+  // Адрес живёт в строке. Путь в комментарии или в регулярке (как в этом
+  // файле) — не выход: иначе всякий вызов `put(…)` здесь стал бы запросом.
+  return talks(src) && talks(stringTexts(src, maskCode(src)));
+}
+
+/** Содержимое строк и шаблонов файла: в маске кода у них остаются кавычки, а комментарии и регулярки стёрты целиком. */
+function stringTexts(src: string, code: string): string {
+  const out: string[] = [];
+  for (let i = 0; i < code.length; i++) {
+    const q = code[i];
+    if (q !== "'" && q !== '"' && q !== '`') continue;
+    const j = code.indexOf(q, i + 1);
+    if (j < 0) break;
+    out.push(src.slice(i + 1, j));
+    i = j;
+  }
+  return out.join('\n');
+}
+
+function hasWord(src: string, names: readonly string[]): boolean {
+  return names.length > 0 && new RegExp(`(?<![\\w$])(?:${names.map(escapeRe).join('|')})(?![\\w$])`).test(src);
+}
+
+function escapeRe(s: string): string {
+  return s.replace(/[$]/g, '\\$');
 }
 
 /**
@@ -868,68 +898,440 @@ function patternFields(pattern: string): Array<[string, string]> {
   return out;
 }
 
-/** Стоки файла: значения `content:`/`system:`/…, аргументы зарубежной двери, правая часть переменной `*prompt*`. */
 /**
- * Дверь под другим именем (шестнадцатое ревью PR #3104): `import { callAIFast
- * as ask }`, `const ask = callAIFast`, `const { callAIFast: ask } = await
- * import(…)`. Вызов такого имени — тот же сток, что вызов самой двери.
+ * Дверь и какие её аргументы уходят модели: `null` — все, иначе номера
+ * позиций. Обёртка `synthesize(chatId, notes)`, которая шлёт модели только
+ * `notes`, делает стоком второй аргумент, а не `chatId` (восемнадцатое ревью).
  */
-function doorAliases(code: string): string[] {
-  const doors = new Set(FOREIGN_DOORS);
-  const out = new Set<string>();
-  const pair = (part: string, sep: RegExp) => {
-    const m = new RegExp(`^\\s*(?:type\\s+)?([A-Za-z_$][\\w$]*)${sep.source}([A-Za-z_$][\\w$]*)\\s*$`).exec(part);
-    if (m && doors.has(m[1]) && m[2] !== m[1]) out.add(m[2]);
-  };
-  for (const m of code.matchAll(/\bimport\s*(?:type\s+)?\{([^{}]*)\}/g)) for (const part of m[1].split(',')) pair(part, /\s+as\s+/);
-  for (const m of code.matchAll(/\b(?:const|let|var)\s*\{([^{}]*)\}\s*=/g)) for (const part of m[1].split(',')) pair(part, /\s*:\s*/);
-  for (const m of code.matchAll(/\b(?:const|let|var)\s+([A-Za-z_$][\w$]*)\s*(?::[^=;]*)?=\s*(?:await\s+)?([A-Za-z_$][\w$]*)\s*(?:\.\s*bind\b|[;,)\n])/g)) {
-    if (doors.has(m[2]) && m[1] !== m[2]) out.add(m[1]);
-  }
-  return [...out];
+export type DoorArgs = readonly number[] | null;
+export type DoorSet = ReadonlyMap<string, DoorArgs>;
+
+/** Двери провайдеров (все аргументы) и пришедшие извне: список имён или набор с позициями. */
+function doorSetOf(extra: DoorSet | readonly string[]): Map<string, DoorArgs> {
+  const out = new Map<string, DoorArgs>(FOREIGN_DOORS.map((d) => [d, null]));
+  if (Array.isArray(extra)) for (const n of extra as readonly string[]) out.set(n, null);
+  else for (const [n, a] of extra as DoorSet) out.set(n, a);
+  return out;
+}
+
+function namesOf(extra: DoorSet | readonly string[]): string[] {
+  return Array.isArray(extra) ? [...(extra as readonly string[])] : [...(extra as DoorSet).keys()];
+}
+
+const doorWordCache = new WeakMap<object, { size: number; re: RegExp }>();
+
+/** Регулярка «имя одной из дверей» — одна на набор, пока он не вырос. */
+function doorWord(doors: ReadonlyMap<string, DoorArgs>): RegExp {
+  const hit = doorWordCache.get(doors);
+  if (hit && hit.size === doors.size) return hit.re;
+  const re = new RegExp(`(?<![\\w$])(${[...doors.keys()].map(escapeRe).join('|')})(?![\\w$])`, 'g');
+  doorWordCache.set(doors, { size: doors.size, re });
+  return re;
 }
 
 /**
- * Запрос к модели напрямую: `fetch` на адрес с путём API модели
- * (`/chat/completions`, `:generateContent`) — все его аргументы сток, а не
- * только `content:` (шестнадцатое ревью PR #3104: тело Gemini —
- * `contents: [{ parts: [{ text }] }]`). Адрес из переменной файла
- * (`const url = \`${BASE}/chat/completions\``) тоже читается.
+ * Где дверь стоит значением, а не вызывается: `door`, `ns.door`, `(door)`,
+ * `door as T`, `door!`, `door.bind(…)`. Не значение: `door(…)`,
+ * `door.call(…)`, `door.length` и ключ объекта `{ door: … }`.
  */
-function modelFetchArgs(src: string, code: string): FlowSpan[] {
-  const out: FlowSpan[] = [];
-  for (const m of code.matchAll(/(?<![\w$.])fetch(?:WithRetry)?\s*\(/g)) {
-    const open = (m.index ?? 0) + m[0].length - 1;
-    const args = argSpans(code, open);
-    if (args.length === 0) continue;
-    let url = src.slice(args[0].from, args[0].to);
-    const name = /^\s*([A-Za-z_$][\w$]*)\s*$/.exec(url)?.[1];
-    if (name) url = new RegExp(`\\b(?:const|let|var)\\s+${name}\\s*(?::[^=;]*)?=([^;]*)`).exec(src)?.[1] ?? url;
-    if (LLM_API_PATH.test(url)) out.push({ from: args[0].from, to: args[args.length - 1].to });
+function doorValueRefs(text: string, doors: ReadonlyMap<string, DoorArgs>): Array<{ at: number; name: string }> {
+  if (doors.size === 0) return [];
+  const out: Array<{ at: number; name: string }> = [];
+  for (const m of text.matchAll(doorWord(doors))) {
+    const at = m.index ?? 0;
+    const after = text.slice(at + m[0].length, at + m[0].length + 40);
+    if (/^\s*\(/.test(after)) continue;
+    if (/^\s*\.\s*(?!bind\b)[\w$]/.test(after)) continue;
+    if (/^\s*:(?!:)/.test(after) && /[{,]\s*$/.test(text.slice(Math.max(0, at - 40), at))) continue;
+    out.push({ at, name: m[1] });
   }
   return out;
 }
 
-function seedsOf(code: string, edges: readonly Edge[], hasForeign: boolean, src = code): Seed[] {
+/** Дверь значением в тексте: её позиции аргументов, или undefined — двери нет. */
+function heldDoor(text: string, doors: ReadonlyMap<string, DoorArgs>): DoorArgs | undefined {
+  const ref = doorValueRefs(text, doors)[0];
+  return ref ? doors.get(ref.name) ?? null : undefined;
+}
+
+/**
+ * Кто получает значение в позиции `at`: имя слева от `=` или ключ объекта.
+ * Идём назад по выражению: скобки-группировки, массивы, тернарий и `as`
+ * пропускаются; аргумент вызова, тело функции, `return`, стрелка и конец
+ * инструкции — получателя нет.
+ */
+function binderOf(code: string, at: number): string | null {
+  let depth = 0;
+  for (let i = at - 1; i >= 0; i--) {
+    const c = code[i];
+    if (c === ')' || c === ']' || c === '}') { depth++; continue; }
+    if (c === '(' || c === '[' || c === '{') {
+      if (depth > 0) { depth--; continue; }
+      if (c === '(' && /[\w$]\s*$/.test(code.slice(Math.max(0, i - 30), i)) && !/\b(?:return|typeof|await|as|in|of)\s*$/.test(code.slice(Math.max(0, i - 30), i))) return null;
+      if (c === '{') return null;
+      continue;
+    }
+    if (depth > 0) continue;
+    if (c === ';') return null;
+    if (c === '>' && code[i - 1] === '=') return null;
+    if (c === ':' && code[i - 1] !== ':') {
+      // Ключ объекта `{ ask: callAIFast }`; иначе — ветка тернария.
+      const before = code.slice(Math.max(0, i - 80), i);
+      const key = /([A-Za-z_$][\w$]*)\s*$/.exec(before);
+      if (key && /[{,]\s*$/.test(before.slice(0, before.length - key[0].length))) return key[1];
+      continue;
+    }
+    if (c === '=' && !/[=!<>+\-*/%&|^?]/.test(code[i - 1] ?? '') && code[i + 1] !== '=') {
+      const lhs = /([A-Za-z_$][\w$]*)\s*(?::[^=;{}()]*)?$/.exec(code.slice(Math.max(0, i - 200), i));
+      return lhs ? lhs[1] : null;
+    }
+    if (c === 'n' && /(?<![\w$])return$/.test(code.slice(Math.max(0, i - 6), i + 1)) && !/[\w$]/.test(code[i + 1] ?? '')) return null;
+  }
+  return null;
+}
+
+interface DoorCall { at: number; name: string; spans: FlowSpan[] }
+
+/**
+ * Вызовы дверей и отрезки аргументов, которые уходят модели: `door(…)`,
+ * `door.call(this, …)`, `door.apply(this, […])`. Объявление (`function
+ * door(…)`, метод `door(…) {`) — не вызов.
+ */
+function doorCalls(code: string, doors: ReadonlyMap<string, DoorArgs>): DoorCall[] {
+  if (doors.size === 0) return [];
+  const re = new RegExp(`(?<![\\w$])(${[...doors.keys()].map(escapeRe).join('|')})\\s*(?:\\.\\s*(call|apply)\\s*)?\\(`, 'g');
+  const out: DoorCall[] = [];
+  for (const m of code.matchAll(re)) {
+    const at = m.index ?? 0;
+    if (/\bfunction\s*\*?\s*$/.test(code.slice(Math.max(0, at - 40), at))) continue;
+    const open = at + m[0].length - 1;
+    const all = argSpans(code, open);
+    const close = all.length ? all[all.length - 1].to : open + 1;
+    // Метод `door(p) {` / `door(p): T {` — объявление: перед именем `{`, `}`, `;`, `,` (и модификаторы).
+    const lead = code.slice(Math.max(0, at - 60), at).replace(/(?:\b(?:async|static|public|private|protected|override|readonly|get|set)\s+|\*\s*)*$/, '');
+    if (/^\s*(?::[^;={}]*)?\{/.test(code.slice(close + 1, close + 120)) && /(?:^|[{};,])\s*$/.test(lead)) continue;
+    const forwarded = doors.get(m[1]) ?? null;
+    let spans: FlowSpan[];
+    if (m[2] === 'apply') spans = all.slice(1);
+    else {
+      const args = m[2] === 'call' ? all.slice(1) : all;
+      spans = forwarded === null
+        ? (args.length ? [{ from: args[0].from, to: args[args.length - 1].to }] : [])
+        : args.filter((_, k) => forwarded.includes(k));
+    }
+    out.push({ at, name: m[1], spans });
+  }
+  return out;
+}
+
+/** Номера параметров функции, которые доходят до вызова двери в её теле. */
+function forwardedParams(code: string, body: FnBody, calls: readonly DoorCall[]): number[] {
+  const out: number[] = [];
+  const inBody = calls.filter((c) => c.at >= body.from && c.at < body.to);
+  if (inBody.length === 0) return out;
+  const tokens = new Set(inBody.flatMap((c) => c.spans.flatMap((sp) => code.slice(sp.from, sp.to).match(/(?<![\w$.])[A-Za-z_$][\w$]*/g) ?? [])));
+  body.params.forEach((names, k) => { if (names.some((n) => tokens.has(n))) out.push(k); });
+  return out;
+}
+
+/**
+ * Имена, связанные с дверью, — та же дверь (шестнадцатое, семнадцатое и
+ * восемнадцатое ревью PR #3104, #3125, #3128). Правило, а не перечень
+ * написаний:
+ * - имя, которому присвоено выражение, где дверь стоит значением, — дверь с
+ *   теми же аргументами: `const ask = callAIFast`, `ask = providers.callAIFast`
+ *   без объявления, `(callAIFast)`, `callAIFast as AskFn`, `callAIFast!`,
+ *   тернарий двух дверей, поле `obj.ask = …`, ключ объекта `{ ask: callAIFast }`,
+ *   импорт `{ callAIFast as ask }`, деструктуризация `{ callAIFast: ask } = …`;
+ * - функция, передающая параметр в вызов двери, — дверь по этим параметрам:
+ *   `const ask = (p) => callAIFast(p)`, `function ask(id, p) { … callAIFast(\`…${p}\`) }`
+ *   (сток — второй аргумент, не `id`), метод `ask(p) { … }`. Страница с именем
+ *   двери в тексте JSX двери не зовёт и дверью не становится.
+ * Проход повторяется, пока набор растёт: `const ask2 = ask` и обёртка над
+ * обёрткой — тоже двери. `sc` — области видимости файла; без них функции не
+ * разбираются.
+ */
+export function doorAliases(code: string, extraDoors: DoorSet | readonly string[] = [], sc: Scopes | null = null): Map<string, DoorArgs> {
+  const doors = doorSetOf(extraDoors);
+  const out = new Map<string, DoorArgs>();
+  let grew = true;
+  const add = (name: string, args: DoorArgs) => {
+    if (doors.has(name) || name === 'default') return;
+    doors.set(name, args);
+    out.set(name, args);
+    grew = true;
+  };
+  for (let round = 0; grew && round < 10; round++) {
+    grew = false;
+    for (const m of code.matchAll(/\bimport\s+(?:type\s+)?(?:[A-Za-z_$][\w$]*\s*,\s*)?\{([^{}]*)\}/g)) {
+      for (const part of m[1].split(',')) {
+        const p = /^\s*(?:type\s+)?([A-Za-z_$][\w$]*)\s+as\s+([A-Za-z_$][\w$]*)\s*$/.exec(part);
+        if (p && doors.has(p[1])) add(p[2], doors.get(p[1]) ?? null);
+      }
+    }
+    for (const m of code.matchAll(/\{([^{}]*)\}\s*(?::[^=;]*)?=(?![=>])/g)) {
+      for (const part of m[1].split(',')) {
+        const p = /^\s*([A-Za-z_$][\w$]*)\s*:\s*([A-Za-z_$][\w$]*)\s*(?:=[\s\S]*)?$/.exec(part);
+        if (p && doors.has(p[1])) add(p[2], doors.get(p[1]) ?? null);
+      }
+    }
+    for (const ref of doorValueRefs(code, doors)) {
+      const binder = binderOf(code, ref.at);
+      if (binder) add(binder, doors.get(ref.name) ?? null);
+    }
+    if (sc) {
+      const calls = doorCalls(code, doors);
+      if (calls.length === 0) continue;
+      for (const [name, bodies] of sc.functions) {
+        if (doors.has(name)) continue;
+        const params = [...new Set(bodies.flatMap((b) => forwardedParams(code, b, calls)))].sort((a, b) => a - b);
+        if (params.length) add(name, params);
+      }
+    }
+  }
+  return out;
+}
+
+/** Двери модулей репозитория: модуль → имя экспорта (`default` — по умолчанию) → аргументы, уходящие модели. */
+export type ModuleDoors = ReadonlyMap<string, DoorSet>;
+
+/**
+ * Что модуль отдаёт наружу как дверь: `export { callAIFast as ask }`,
+ * `export const ask = callAIFast`, функция-обёртка `export function ask(p) {…}`,
+ * `export default …` — значение-дверь или функция, передающая параметр в
+ * дверь. Псевдоним живёт на границе файлов (семнадцатое и восемнадцатое
+ * ревью): обёртка из одной строки — и потребитель зовёт `ask(…)`, не упоминая
+ * ни двери, ни хоста. Обход репозитория (`scan-repo`) идёт по графу импортов.
+ */
+export function exportedDoors(raw: string, extraDoors: DoorSet | readonly string[] = []): { named: Map<string, DoorArgs>; defaultDoor: DoorArgs | undefined } {
+  const named = new Map<string, DoorArgs>();
+  // Без имени двери в тексте отдавать нечего — дорогой разбор не нужен.
+  if (!/\bexport\b/.test(raw) || (!FOREIGN_DOOR_WORD.test(raw) && !hasWord(raw, namesOf(extraDoors)))) return { named, defaultDoor: undefined };
+  const code = maskCode(bracketsToDots(raw));
+  const sc = buildScopes(code);
+  const doors = doorSetOf(extraDoors);
+  for (const [n, a] of doorAliases(code, extraDoors, sc)) doors.set(n, a);
+  let defaultDoor: DoorArgs | undefined;
+  for (const m of code.matchAll(/\bexport\s+(?:type\s+)?\{([^{}]*)\}/g)) {
+    for (const part of m[1].split(',')) {
+      const p = /^\s*(?:type\s+)?([A-Za-z_$][\w$]*)(?:\s+as\s+([A-Za-z_$][\w$]*))?\s*$/.exec(part);
+      if (!p || !doors.has(p[1])) continue;
+      if (p[2] === 'default') defaultDoor = doors.get(p[1]) ?? null;
+      else named.set(p[2] ?? p[1], doors.get(p[1]) ?? null);
+    }
+  }
+  for (const m of code.matchAll(/\bexport\s+(?:const|let|var|(?:async\s+)?function\s*\*?)\s*([A-Za-z_$][\w$]*)/g)) {
+    if (doors.has(m[1])) named.set(m[1], doors.get(m[1]) ?? null);
+  }
+  // По умолчанию: значение-дверь (`export default callAIFast`) или функция,
+  // передающая параметр в дверь, — с именем или без. `export default function
+  // Page() {…}` с именем двери в тексте JSX — не дверь: двери она не зовёт.
+  const calls = doorCalls(code, doors);
+  for (const m of code.matchAll(/\bexport\s+default\s+/g)) {
+    const from = (m.index ?? 0) + m[0].length;
+    const head = code.slice(from, from + 200);
+    const fn = /^(?:async\s+)?function\s*\*?\s*([A-Za-z_$][\w$]*)?/.exec(head);
+    if (fn?.[1] && doors.has(fn[1])) defaultDoor = doors.get(fn[1]) ?? null;
+    else if (fn || /^(?:async\s+)?(?:\(|[A-Za-z_$][\w$]*\s*=>)/.test(head)) {
+      const body = sc.bodies.filter((b) => b.from > from).sort((a, b) => a.from - b.from)[0];
+      const params = body ? forwardedParams(code, body, calls) : [];
+      if (params.length) defaultDoor = params;
+    } else if (!/^class\b/.test(head)) {
+      const held = heldDoor(valueAfter(code, from), doors);
+      if (held !== undefined) defaultDoor = held;
+    }
+  }
+  for (const n of FOREIGN_DOORS) named.delete(n);
+  return { named, defaultDoor };
+}
+
+/** Модуль по пути файла: без расширения и без `/index`. */
+export function moduleKey(rel: string): string {
+  return rel.replace(/\.(?:tsx?|jsx?|mjs|cjs)$/, '').replace(/\/index$/, '');
+}
+
+/** Модуль, на который указывает импорт `spec` из файла `fromRel`; пакет — null. */
+export function resolveImport(fromRel: string, spec: string): string | null {
+  if (spec.startsWith('@/')) return moduleKey(spec.slice(2));
+  if (!spec.startsWith('.')) return null;
+  const parts = fromRel.split('/').slice(0, -1);
+  for (const seg of spec.split('/')) {
+    if (seg === '..') parts.pop();
+    else if (seg !== '.' && seg !== '') parts.push(seg);
+  }
+  return moduleKey(parts.join('/'));
+}
+
+/**
+ * Двери, пришедшие в файл импортом из модулей репозитория (восемнадцатое
+ * ревью): `import { ask } from './wrap'`, `import ask from './relay'`,
+ * `import * as relay from './relay'` (тогда `relay.ask(…)` — по имени `ask`),
+ * `const { ask, default: d } = await import('./relay')` и `const m = await
+ * import('./relay')`. Имя получает только файл, который его импортирует из
+ * модуля-двери, — своя `ask(…)` в чужом файле стоком не становится.
+ */
+export function importedDoors(fromRel: string, raw: string, modules: ModuleDoors): Map<string, DoorArgs> {
+  const out = new Map<string, DoorArgs>();
+  if (modules.size === 0) return out;
+  const doorsOf = (spec: string) => {
+    const mod = resolveImport(fromRel, spec);
+    return mod ? modules.get(mod) : undefined;
+  };
+  const named = (list: string, doors: DoorSet, sep: RegExp) => {
+    for (const part of list.split(',')) {
+      const p = new RegExp(`^\\s*(?:type\\s+)?([A-Za-z_$][\\w$]*)(?:${sep.source}([A-Za-z_$][\\w$]*))?\\s*(?:=[\\s\\S]*)?$`).exec(part);
+      if (p && doors.has(p[1])) out.set(p[2] ?? p[1], doors.get(p[1]) ?? null);
+    }
+  };
+  const all = (doors: DoorSet) => { for (const [d, a] of doors) if (d !== 'default') out.set(d, a); };
+  for (const m of raw.matchAll(/\bimport\s+(?:type\s+)?([^'";]*?)\s*from\s*['"]([^'"]+)['"]/g)) {
+    const doors = doorsOf(m[2]);
+    if (!doors) continue;
+    const clause = m[1];
+    const def = /^\s*([A-Za-z_$][\w$]*)\s*(?:,|$)/.exec(clause);
+    if (def && doors.has('default')) out.set(def[1], doors.get('default') ?? null);
+    const list = /\{([^{}]*)\}/.exec(clause);
+    if (list) named(list[1], doors, /\s+as\s+/);
+    if (/\*\s*as\s+[A-Za-z_$]/.test(clause)) all(doors);
+  }
+  for (const m of raw.matchAll(/(?:const|let|var)\s+(\{[^{}]*\}|[A-Za-z_$][\w$]*)\s*(?::[^=]*)?=\s*await\s+import\s*\(\s*['"]([^'"]+)['"]\s*\)/g)) {
+    const doors = doorsOf(m[2]);
+    if (!doors) continue;
+    if (m[1].startsWith('{')) named(m[1].slice(1, -1), doors, /\s*:\s*/);
+    else all(doors);
+  }
+  return out;
+}
+
+/** Переэкспорт двери из другого модуля: `export { default as ask } from './relay'`, `export * from './relay'`. */
+export function reExportedDoors(fromRel: string, raw: string, modules: ModuleDoors): Map<string, DoorArgs> {
+  const out = new Map<string, DoorArgs>();
+  if (modules.size === 0) return out;
+  for (const m of raw.matchAll(/\bexport\s+(?:type\s+)?(\{[^{}]*\}|\*(?:\s*as\s+[A-Za-z_$][\w$]*)?)\s*from\s*['"]([^'"]+)['"]/g)) {
+    const mod = resolveImport(fromRel, m[2]);
+    const doors = mod ? modules.get(mod) : undefined;
+    if (!doors) continue;
+    if (m[1].startsWith('*')) { for (const [d, a] of doors) if (d !== 'default') out.set(d, a); continue; }
+    for (const part of m[1].slice(1, -1).split(',')) {
+      const p = /^\s*(?:type\s+)?([A-Za-z_$][\w$]*)(?:\s+as\s+([A-Za-z_$][\w$]*))?\s*$/.exec(part);
+      if (p && doors.has(p[1])) out.set(p[2] ?? p[1], doors.get(p[1]) ?? null);
+    }
+  }
+  return out;
+}
+
+/** Текст выражения без содержимого скобок; строки и шаблоны целиком, аргументы `new URL(…)` — тоже. */
+function topLevelText(text: string): string {
+  let out = '';
+  let depth = 0;
+  for (let i = 0; i < text.length;) {
+    const c = text[i];
+    if (c === '"' || c === "'" || c === '`') {
+      const end = c === '`' ? templateParts(text, i).end : skipString(text, i);
+      if (depth === 0) out += text.slice(i, end);
+      i = end;
+      continue;
+    }
+    if (c === '(' && depth === 0 && /\bnew\s+URL\s*$/.test(text.slice(Math.max(0, i - 12), i))) { out += c; i++; continue; }
+    if (c === '(' || c === '[' || c === '{') depth++;
+    else if ((c === ')' || c === ']' || c === '}') && depth > 0) depth--;
+    else if (depth === 0) out += c;
+    i++;
+  }
+  return out;
+}
+
+/**
+ * Вызов похож на HTTP-запрос: клиент назван как запрос (`fetch…`, `post`,
+ * `request`, `http…`) или второй аргумент — объект настроек запроса (`body`,
+ * `json`, `method`, `headers`). Восемнадцатое ревью: `deps.post(url, { body })`
+ * и `client.send(url, { method, body })` — тот же выход, что `fetch(url, { body })`.
+ * Имя `put`/`send`/`set` само по себе запросом не делает: так зовут и Map, и
+ * отправку в мессенджер.
+ */
+function requestLike(code: string, callee: string, args: readonly FlowSpan[]): boolean {
+  if (/fetch|^(?:post|request)$|^http/i.test(callee)) return true;
+  if (args.length < 2) return false;
+  const init = code.slice(args[1].from, args[1].to);
+  return /^\s*\{/.test(init) && /(?:^\s*\{|,)\s*(?:body|json|method|headers)\s*:/.test(init);
+}
+
+const NOT_CALLEE = new Set(['if', 'for', 'while', 'switch', 'catch', 'function', 'return', 'typeof', 'await', 'new',
+  'super', 'import', 'yield', 'void', 'delete', 'in', 'of', 'do', 'else', 'case', 'throw', 'instanceof', 'as', 'satisfies']);
+
+/**
+ * Запрос к модели напрямую — по АРГУМЕНТАМ вызова, а не по имени клиента
+ * (семнадцатое ревью, находка 3): `fetch`, `deps.fetchImpl`, `relayFetch`,
+ * `globalThis.fetch` — все один и тот же выход. Все аргументы вызова — сток,
+ * если первый аргумент:
+ * - сам несёт путь API модели или зарубежный хост модели;
+ * - называет имя, которому где-либо в файле присвоен такой адрес (все
+ *   объявления, а не первое: переменная, поле, `this.endpoint`);
+ * - у клиента с `fetch` в имени не разрешается в адрес НЕ к модели (литерал
+ *   без пути модели или имя только с такими литералами). Адрес из параметра
+ *   функции в файле, который сам ходит к модели, считается адресом модели:
+ *   проверка, которая не смогла прочитать адрес, не отвечает «не модель».
+ * Смотрит только файлы, которые сами ходят к модели (хост или путь в тексте).
+ */
+function modelRequestArgs(src: string, code: string): FlowSpan[] {
+  if (!directEgress(src)) return [];
+  const talks = (t: string) => LLM_API_PATH.test(t) || extractLLMHosts(t).some((h) => FOREIGN_LLM_HOSTS.has(h));
+  const urlNames = new Set<string>();
+  const literalNames = new Set<string>();
+  for (const m of code.matchAll(/(?<![\w$])([A-Za-z_$][\w$]*)\s*(?:(?::[^=;{}()]*)?=(?![=>])|:(?!:))/g)) {
+    const rhs = valueAfter(src, (m.index ?? 0) + m[0].length);
+    // Адрес — значение, где путь или хост стоит на верхнем уровне (литерал,
+    // склейка, `new URL(…)`), а не где-то в аргументах вызова: `probes =
+    // await Promise.all([probe('…/v1/models')])` — ответы проб, не адрес.
+    if (talks(topLevelText(rhs))) urlNames.add(m[1]);
+    else if (/^\s*[`'"]/.test(rhs)) literalNames.add(m[1]);
+  }
+  const out: FlowSpan[] = [];
+  for (let open = code.indexOf('('); open >= 0; open = code.indexOf('(', open + 1)) {
+    const before = code.slice(Math.max(0, open - 60), open);
+    const callee = /([A-Za-z_$][\w$]*)\s*$/.exec(before)?.[1] ?? (/[)\]]\s*$/.test(before) ? '' : null);
+    if (callee === null || NOT_CALLEE.has(callee)) continue;
+    const args = argSpans(code, open);
+    if (args.length === 0) continue;
+    const close = args[args.length - 1].to;
+    // `name(…) {`, `name(…): T {` и `function name(…) {` — объявление, не вызов.
+    if (/^\s*(?:\{|:\s*[\w<[{(])/.test(code.slice(close + 1, close + 40))) continue;
+    const firstSrc = src.slice(args[0].from, args[0].to);
+    const tokens = code.slice(args[0].from, args[0].to).match(/[A-Za-z_$][\w$]*/g) ?? [];
+    const toModel = talks(firstSrc) || tokens.some((t) => urlNames.has(t));
+    const last = tokens[tokens.length - 1];
+    const notModel = /^\s*[`'"]/.test(firstSrc) || (last !== undefined && literalNames.has(last) && !urlNames.has(last));
+    if (toModel || (requestLike(code, callee, args) && !notModel)) out.push({ from: args[0].from, to: close });
+  }
+  return out;
+}
+
+/** Стоки файла: значения `content:`/`system:`/…, аргументы зарубежной двери и запроса к модели, правая часть переменной `*prompt*`. */
+function seedsOf(code: string, edges: readonly Edge[], hasForeign: boolean, src = code, extraDoors: DoorSet | readonly string[] = []): Seed[] {
   const seeds: Seed[] = [];
   // Сток `content:` и дверь — только в файле, говорящем с зарубежной моделью
   // (то же условие, что у метки `content`); переменная `*prompt*` — промпт везде.
   if (hasForeign) {
-    SINK_KEY_HEAD.lastIndex = 0;
-    for (let m = SINK_KEY_HEAD.exec(code); m; m = SINK_KEY_HEAD.exec(code)) {
-      const from = m.index + m[0].length;
-      seeds.push({ span: { from, to: from + valueAfter(code, from).length }, context: m[1] });
+    // Ключ ищется по исходнику: в маске кода содержимое строк затёрто, и
+    // `'contents':` в кавычках был невидим. Двоеточие сверяется с маской —
+    // ключ внутри строки или комментария стоком не становится; `case
+    // 'content':` в switch — метка, а не ключ тела.
+    for (const m of src.matchAll(SINK_KEY_HEAD)) {
+      const at = m.index ?? 0;
+      const colon = at + m[0].length - 1;
+      if (code[colon] !== ':') continue;
+      if (!m[1] && at > 0 && /[\w$]/.test(src[at - 1])) continue;
+      if (/\bcase\s*$/.test(code.slice(Math.max(0, at - 10), at))) continue;
+      const from = colon + 1;
+      seeds.push({ span: { from, to: from + valueAfter(code, from).length }, context: m[2] });
     }
-    const aliases = doorAliases(code);
-    const callHead = aliases.length ? new RegExp(`\\b(${[...FOREIGN_DOORS, ...aliases].join('|')})\\s*\\(`, 'g') : FOREIGN_CALL_HEAD;
-    callHead.lastIndex = 0;
-    for (let m = callHead.exec(code); m; m = callHead.exec(code)) {
-      // Объявление самой функции (`async function callAIFast(prompt: string)`) — не вызов.
-      if (/\bfunction\s*$/.test(code.slice(Math.max(0, m.index - 40), m.index))) continue;
-      const open = m.index + m[0].length - 1;
-      seeds.push({ span: { from: open + 1, to: open + 1 + argsAfter(code, open).length }, context: m[1] });
-    }
-    for (const span of modelFetchArgs(src, code)) seeds.push({ span, context: 'fetch' });
+    // Функции своего файла дверями здесь не считаются: параметр обёртки до
+    // модели ведёт поток (с точностью до поля). Обёртка — дверь для других
+    // файлов, и туда она приходит импортом (`extraDoors`).
+    const doors = doorSetOf(extraDoors);
+    for (const [n, a] of doorAliases(code, extraDoors)) doors.set(n, a);
+    for (const call of doorCalls(code, doors)) for (const span of call.spans) seeds.push({ span, context: call.name });
+    for (const span of modelRequestArgs(src, code)) seeds.push({ span, context: 'fetch' });
   }
   for (const e of edges) if (PROMPT_NAME.test(e.name)) seeds.push({ span: e.span, context: e.name, key: e.key });
   return seeds;
@@ -951,9 +1353,19 @@ function withoutHoles([a, b]: readonly [number, number], holes: ReadonlyArray<re
 /** Текст с затёртыми отрезками (длина и переводы строк те же). */
 function blankAll(text: string, ranges: ReadonlyArray<readonly [number, number]>): string {
   if (ranges.length === 0) return text;
-  const chars = text.split('');
-  for (const [a, b] of ranges) for (let k = Math.max(0, a); k < Math.min(b, chars.length); k++) if (chars[k] !== '\n') chars[k] = ' ';
-  return chars.join('');
+  // Срезами, а не массивом символов: зовётся на каждый сток, и посимвольная
+  // копия большого файла (lib/ai/providers.ts) стоила основное время переписи.
+  const sorted = [...ranges].sort((x, y) => x[0] - y[0]);
+  let out = '';
+  let at = 0;
+  for (const [a0, b0] of sorted) {
+    const a = Math.max(a0, at, 0);
+    const b = Math.min(b0, text.length);
+    if (b <= a) continue;
+    out += text.slice(at, a) + text.slice(a, b).replace(/[^\n]/g, ' ');
+    at = b;
+  }
+  return out + text.slice(at);
 }
 
 /** Бэктик-литералы кода верхнего уровня (с их `${…}`) — отрезками. */
@@ -1980,7 +2392,7 @@ function functionName(code: string, open: number): string {
  * ближайшей объемлющей области, где оно объявлено; не объявленное в файле
  * (импорт, `this.x`) — общее на файл.
  */
-function buildScopes(code: string): Scopes {
+export function buildScopes(code: string): Scopes {
   const len = code.length;
   const scopes: Scope[] = [{ from: 0, to: len + 1, parent: -1, names: new Set() }];
   const blockAt = new Map<number, number>();
@@ -2096,9 +2508,9 @@ function balancedType(text: string): boolean {
   return depth === 0;
 }
 /** Ключ стока: `content:`/`system:`, у агента SDK — `systemPrompt:`/`userMessage:`; значение уходит модели. */
-const SINK_KEY_HEAD = /\b(content|contents|system|systemPrompt|systemInstruction|userMessage)\s*:/g;
+/** Ключи тела запроса к модели: значение — сток. В кавычках тоже: `'contents': …` (семнадцатое ревью). */
+const SINK_KEY_HEAD = /(['"]?)(content|contents|parts|input|system|systemPrompt|systemInstruction|userMessage)\1\s*:/g;
 /** Зарубежный вызов: `callAIFast(…)`, `runSDKAgent(…)` и т. п. */
-const FOREIGN_CALL_HEAD = new RegExp(`\\b(${FOREIGN_DOORS.join('|')})\\s*\\(`, 'g');
 /** Слова языка — не имена переменных. */
 const NOT_ROOT = new Set([
   'this', 'await', 'new', 'typeof', 'void', 'delete', 'in', 'of', 'instanceof', 'return', 'async', 'function',
@@ -2478,14 +2890,14 @@ export function bracketsToDots(src: string): string {
   });
 }
 
-function viewOf(raw: string): FileView {
+function viewOf(raw: string, extraDoors: DoorSet | readonly string[] = []): FileView {
   const src = bracketsToDots(raw);
   const code = maskCode(src);
   const sc = buildScopes(code);
-  const hasForeign = fileTalksAbroad(src);
+  const hasForeign = fileTalksAbroad(src, namesOf(extraDoors));
   const links: Link[] = [];
   const edges = buildEdges(code, sc, links);
-  const seeds = seedsOf(code, edges, hasForeign, src);
+  const seeds = seedsOf(code, edges, hasForeign, src, extraDoors);
   return {
     src, code, sc, hasForeign, edges, seeds,
     literals: extractTemplateLiterals(src, code),
@@ -2665,11 +3077,11 @@ function skipBack(code: string, at: number): number {
  * (redactPII имён не чистит). Литерал, дошедший до модели только сквозь
  * redactPII, проверяется на имя, но не на телефон.
  */
-export function scanSource(file: string, src: string): PIIFinding[] {
+export function scanSource(file: string, src: string, extraDoors: DoorSet | readonly string[] = []): PIIFinding[] {
   const findings: PIIFinding[] = [];
   // Без зарубежной модели, промпта по метке и переменной `*prompt*` — смотреть нечего.
-  if (!fileTalksAbroad(src) && !PROMPT_NAME.test(src)) return findings;
-  const v = viewOf(src);
+  if (!fileTalksAbroad(src, namesOf(extraDoors)) && !PROMPT_NAME.test(src)) return findings;
+  const v = viewOf(src, extraDoors);
   const { code, sc, literals, hasForeign, taints } = v;
   const flowContact = promptFlow(code, sc, literals, hasForeign, v.edges, v.seeds, CONTACT_SANITIZERS);
   const flowName = promptFlow(code, sc, literals, hasForeign, v.edges, v.seeds, NO_SANITIZERS);
