@@ -383,8 +383,7 @@ describe('D1 — ПД через массив строк и дописывани
   it('имя и телефон туриста в массиве, склеенном в системную подсказку, — находки', () => {
     const f = scanSource('app/api/safety/rescue-chat/route.ts', RESCUE);
     expect(f.map((x) => [x.kind, x.context, x.line])).toEqual([['name', 'ctx.push', 5], ['contact', 'ctx.push', 6]]);
-    expect(promptFlowOf(RESCUE)).toMatchObject({ arrays: ['ctx'] });
-    expect(promptFlowOf(RESCUE).sinks).toContain('systemContent');
+    expect(promptFlowOf(RESCUE).reach).toEqual(expect.arrayContaining(['ctx', 'systemContent']));
   });
 
   it('сквозь redactPII — не находка', () => {
@@ -446,5 +445,75 @@ describe('D1 — ПД через массив строк и дописывани
   it('без зарубежного вызова в файле массив промптом не считается (то же условие, что у content:)', () => {
     const src = RESCUE.replace("import { callAIWaterfall } from '@/lib/ai/providers';", '').replace('callAIWaterfall(', 'localModel(');
     expect(scanSource('f.ts', src)).toEqual([]);
+  });
+});
+
+describe('D1 — где первая редакция рвала цепочку (ревью PR #3104, deepseek-flash)', () => {
+  /** Сборщик подсказки: ctx с телефоном → склейка → сток. Меняется одно звено. */
+  const build = (pushLine: string, joinLine: string, sinkLine: string) => [
+    "import { callAIFast } from '@/lib/ai/providers';",
+    'const ctx: string[] = [];',
+    pushLine,
+    'let systemContent = BASE;',
+    joinLine,
+    sinkLine,
+  ].join('\n');
+  const PUSH = 'ctx.push(`Тел: ${lead.phone}`);';
+  const SINK = "await callAIFast([{ role: 'system', content: systemContent }]);";
+  const found = (src: string) => scanSource('g.ts', src).map((x) => [x.kind, x.context]);
+
+  it('находка 1: склейка через цепочку методов и через this — массив найден', () => {
+    expect(found(build(PUSH, "systemContent += `\\n${ctx.filter(Boolean).join('\\n')}`;", SINK))).toEqual([['contact', 'ctx.push']]);
+    expect(found(build(PUSH, "systemContent += `\\n${ctx.map((s) => s.trim()).filter(Boolean).join('\\n')}`;", SINK))).toEqual([['contact', 'ctx.push']]);
+    expect(found(build('this.ctx.push(`Тел: ${lead.phone}`);', "systemContent += `\\n${this.ctx.join('\\n')}`;", SINK))).toEqual([['contact', 'ctx.push']]);
+  });
+
+  it('находка 2: промежуточная переменная между склейкой и стоком', () => {
+    const src = build(PUSH, "const joined = ctx.join('\\n');\nsystemContent += `\\n\\nСОБЕСЕДНИК:\\n${joined}`;", SINK);
+    expect(found(src)).toEqual([['contact', 'ctx.push']]);
+    // Две промежуточные — тоже: неподвижная точка, а не один проход.
+    const two = build(PUSH, "const joined = ctx.join('\\n');\nconst block = `СОБЕСЕДНИК:\\n${joined}`;\nsystemContent += block.trim();", SINK);
+    expect(found(two)).toEqual([['contact', 'ctx.push']]);
+  });
+
+  it('находка 3: значение стока — выражение, а не голое имя', () => {
+    const join = "systemContent += `\\n${ctx.join('\\n')}`;";
+    for (const sink of [
+      "await callAIFast([{ role: 'system', content: systemContent.trim() }]);",
+      "await callAIFast([{ role: 'system', content: withContext(systemContent) }]);",
+      "await callAIFast([{ role: 'system', content: BASE + systemContent }]);",
+      "await callAIFast([{ role: 'system', content: this.systemContent }]);",
+      'await callAIFast(withFooter(systemContent));',
+    ]) {
+      const src = build(PUSH, join, sink).replace('let systemContent = BASE;', sink.includes('this.') ? 'this.systemContent = BASE;' : 'let systemContent = BASE;')
+        .replace(join, sink.includes('this.') ? "this.systemContent += `\\n${ctx.join('\\n')}`;" : join);
+      expect([sink, found(src)]).toEqual([sink, [['contact', 'ctx.push']]]);
+    }
+    // Сообщения собраны отдельно от вызова: сток — само значение `content:`.
+    const separate = build(PUSH, join, "const messages = [{ role: 'system', content: withContext(systemContent) }];\nawait callAIFast(messages);");
+    expect(found(separate)).toEqual([['contact', 'ctx.push']]);
+  });
+
+  it('узко по-прежнему: текст, ушедший в вызов при присваивании, в промпт не течёт', () => {
+    // SQL с телефоном уходит в базу; модели — строки ответа. Это не промпт.
+    const src = [
+      "import { callAIFast } from '@/lib/ai/providers';",
+      'const sql = `SELECT note FROM leads WHERE phone = ${lead.phone}`;',
+      'const rows = await pool.query(sql);',
+      "await callAIFast([{ role: 'user', content: rows.map((r) => r.note).join('\\n') }]);",
+    ].join('\n');
+    expect(scanSource('h.ts', src)).toEqual([]);
+    expect(promptFlowOf(src).reach).toContain('rows');
+    expect(promptFlowOf(src).reach).not.toContain('sql');
+  });
+
+  it('объявление зарубежной функции — не вызов: её параметры промптом не становятся', () => {
+    const src = [
+      'export async function callAIFast(prompt: string, opts?: Options) {',
+      '  const log = `Запрос от ${user.phone}`;',
+      '  return fetch(URL, { body: prompt });',
+      '}',
+    ].join('\n');
+    expect(promptFlowOf(src).reach).toEqual([]);
   });
 });

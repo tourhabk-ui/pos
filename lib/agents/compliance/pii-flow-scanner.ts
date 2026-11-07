@@ -361,14 +361,135 @@ function isPromptLiteral(label: string, hasForeignCaller: boolean): boolean {
 
 /** Присваивание: `const x = …`, `x = …`, `x += …` (не `==`, `=>`, `<=`, `>=`, `!=`). */
 const ASSIGN_HEAD = /(?<![\w$.])([A-Za-z_$][\w$]*)\s*(?::[^=;\n]+)?\+?=(?![=>])/g;
-/** `A.join(` — массив строк, склеиваемый в текст; A — корень, не свойство. */
-const JOIN_ROOT = /(?<![\w$.])([A-Za-z_$][\w$]*)\s*\.\s*join\s*\(/g;
-/** Значение ключа `content:`/`system:` — имя переменной или склейка массива. */
-const SINK_KEY = /\b(?:content|system)\s*:\s*([A-Za-z_$][\w$]*)\s*(?:(?=[,}\n])|\.\s*join\s*\()/g;
-const SINK_CALL = new RegExp(`\\b(?:${FOREIGN_LLM_CALLERS.join('|')})\\s*\\(\\s*([A-Za-z_$][\\w$]*)\\s*(?:[,)]|\\.\\s*join\\s*\\()`, 'g');
+/** Ключ стока: `content:`/`system:` — значение уходит модели. */
+const SINK_KEY_HEAD = /\b(?:content|system)\s*:/g;
+/** Зарубежный вызов: `callAIFast(…)` и т. п. */
+const FOREIGN_CALL_HEAD = new RegExp(`\\b(?:${FOREIGN_LLM_CALLERS.join('|')})\\s*\\(`, 'g');
+/** Слова языка — не имена переменных. */
+const NOT_ROOT = new Set([
+  'this', 'await', 'new', 'typeof', 'void', 'delete', 'in', 'of', 'instanceof', 'return', 'async', 'function',
+  'const', 'let', 'var', 'if', 'else', 'as', 'satisfies', 'true', 'false', 'null', 'undefined', 'yield',
+]);
+/** Перед `(` — вызов, а не группировка; ключевое слово перед `(` — группировка. */
+const CALL_BEFORE = /[\w$)\]]$/;
+const KEYWORD_BEFORE = /(?:^|[^\w$])(?:if|for|while|switch|catch|return|typeof|await|new|in|of|yield|void|delete)$/;
+
+/** Конец бэктик-литерала, начатого на `open`, и выражения его `${…}`. */
+function templateSpan(text: string, open: number): { end: number; exprs: string[] } {
+  const exprs: string[] = [];
+  let i = open + 1;
+  while (i < text.length) {
+    const ch = text[i];
+    if (ch === '\\') { i += 2; continue; }
+    if (ch === '`') return { end: i + 1, exprs };
+    if (ch === '$' && text[i + 1] === '{') {
+      const from = i + 2;
+      i = from;
+      let depth = 1;
+      while (i < text.length && depth > 0) {
+        const c = text[i];
+        if (c === '{') { depth++; i++; }
+        else if (c === '}') { depth--; i++; }
+        else if (c === '`') i = templateSpan(text, i).end;
+        else if (c === '"' || c === "'") i = skipString(text, i);
+        else i++;
+      }
+      exprs.push(text.slice(from, Math.max(from, i - 1)));
+      continue;
+    }
+    i++;
+  }
+  return { end: i, exprs };
+}
 
 /**
- * Куда в файле уходит промпт и какие массивы строк в него склеиваются.
+ * Корни выражения — имена переменных, из которых собран его текст.
+ * - имя свойства после точки — не корень, кроме `this.x` (это x);
+ * - имя вызываемой функции — не корень; получатель метода — корень:
+ *   `ctx.filter(Boolean).join('\n')` и `this.ctx.join('\n')` → ctx;
+ * - аргументы вызова — корни только при `intoCalls`. Значение стока
+ *   `withContext(x)` несёт x в промпт, а `const rows = query(SQL, …)` SQL в
+ *   rows не несёт: широкое «всё, что течёт» на пробе по репозиторию затянуло
+ *   SQL, fetch и заголовки — шум вместо стража;
+ * - ключ объектного литерала — не корень; строки пропускаются, `${…}` в
+ *   бэктиках разбираются как выражения.
+ */
+function rootsOf(expr: string, intoCalls: boolean, out: Set<string> = new Set(), inArgs = false): Set<string> {
+  const calls: boolean[] = [];
+  const inCallArgs = () => inArgs || calls.includes(true);
+  let i = 0;
+  while (i < expr.length) {
+    const c = expr[i];
+    if (c === '/' && expr[i + 1] === '/') { const e = expr.indexOf('\n', i); i = e === -1 ? expr.length : e; continue; }
+    if (c === '/' && expr[i + 1] === '*') { const e = expr.indexOf('*/', i + 2); i = e === -1 ? expr.length : e + 2; continue; }
+    if (c === '"' || c === "'") { i = skipString(expr, i); continue; }
+    if (c === '`') {
+      const span = templateSpan(expr, i);
+      if (!inCallArgs() || intoCalls) for (const e of span.exprs) rootsOf(e, intoCalls, out, inCallArgs());
+      i = span.end;
+      continue;
+    }
+    if (/[A-Za-z_$]/.test(c)) {
+      let j = i;
+      while (j < expr.length && /[\w$]/.test(expr[j])) j++;
+      const name = expr.slice(i, j);
+      const before = expr.slice(0, i).replace(/\s+$/, '');
+      const after = expr.slice(j).replace(/^\s+/, '');
+      // Одна точка (не `...x`) — свойство; `this.x` — само имя x.
+      const isProp = /(?<!\.)\.$/.test(before);
+      const viaThis = isProp && /(?:^|[^\w$.])this\s*\??\.$/.test(before);
+      const isCallee = after.startsWith('(') || after.startsWith('?.(');
+      const isKey = after.startsWith(':') && !after.startsWith('::') && /(?:^|[{,])$/.test(before);
+      if (!NOT_ROOT.has(name) && !isCallee && !isKey && (!isProp || viaThis) && (!inCallArgs() || intoCalls)) out.add(name);
+      i = j;
+      continue;
+    }
+    if (c === '(') {
+      const before = expr.slice(0, i).replace(/\s+$/, '');
+      calls.push(CALL_BEFORE.test(before) && !KEYWORD_BEFORE.test(before));
+      i++;
+      continue;
+    }
+    if (c === '[' || c === '{') { calls.push(false); i++; continue; }
+    if (c === ')' || c === ']' || c === '}') { calls.pop(); i++; continue; }
+    i++;
+  }
+  return out;
+}
+
+/** Значение после `ключ:` — до `,`/закрывающей скобки на нулевой вложенности; строки и бэктики целиком. */
+function valueAfter(src: string, from: number): string {
+  let depth = 0;
+  let i = from;
+  while (i < src.length) {
+    const c = src[i];
+    if (c === '"' || c === "'") { i = skipString(src, i); continue; }
+    if (c === '`') { i = templateSpan(src, i).end; continue; }
+    if (c === '(' || c === '[' || c === '{') depth++;
+    else if (c === ')' || c === ']' || c === '}') { if (depth === 0) break; depth--; }
+    else if ((c === ',' || c === ';') && depth === 0) break;
+    i++;
+  }
+  return src.slice(from, i);
+}
+
+/** Аргументы вызова: от `(` на `open` до парной `)`; строки и бэктики целиком. */
+function argsAfter(src: string, open: number): string {
+  let depth = 1;
+  let i = open + 1;
+  while (i < src.length && depth > 0) {
+    const c = src[i];
+    if (c === '"' || c === "'") { i = skipString(src, i); continue; }
+    if (c === '`') { i = templateSpan(src, i).end; continue; }
+    if (c === '(' || c === '[' || c === '{') depth++;
+    else if (c === ')' || c === ']' || c === '}') depth--;
+    i++;
+  }
+  return src.slice(open + 1, Math.max(open + 1, i - 1));
+}
+
+/**
+ * Имена, текст которых доходит до зарубежной модели: неподвижная точка.
  *
  * Дыра, найденная ревьюером deepseek-flash в пробе 07.11 (run 2, откат #2506):
  *
@@ -377,47 +498,66 @@ const SINK_CALL = new RegExp(`\\b(?:${FOREIGN_LLM_CALLERS.join('|')})\\s*\\(\\s*
  *     return [{ role: 'system', content: systemContent }, …];
  *
  * Ни один литерал не был «промптом» по метке (`push`, `+=` без имени), и страж
- * молчал — утечку ловил только отдельный тест этого файла.
+ * молчал. Ревью PR #3104 (тот же ревьюер) нашло, где первая редакция рвала
+ * цепочку: склейка через цепочку методов (`ctx.filter(Boolean).join`) и
+ * `this.ctx`, промежуточная переменная (`const joined = ctx.join(…)`), значение
+ * стока не голым именем (`content: x.trim()`, `withContext(x)`, `BASE + x`).
  *
- * Правило узкое намеренно: широкое «всё, что течёт в промпт» затягивает в
- * промпт почти каждое имя файла (проба по репозиторию: SQL, fetch, заголовки)
- * и превращается в шум. Поэтому:
- * - сток — значение `content:`/`system:` и аргумент зарубежного вызова (только
- *   в файле с таким вызовом, как у метки `content`);
- * - промпт — и литерал, записанный в сток (`systemContent += \`…\``);
- * - массив строк — промпт, если его `.join(` стоит в промпте, в значении стока
- *   или в правой части присваивания стоку; литерал, положенный в такой массив
- *   `push`, — промпт.
+ * Поэтому — не узоры, а корни выражений (`rootsOf`) и неподвижная точка:
+ * - начало — корни значений `content:`/`system:`, аргументов зарубежного
+ *   вызова и `${…}` в промпт-литералах по метке (вместе с аргументами
+ *   вызовов: `withContext(x)` несёт x);
+ * - имя в множестве — корни правой части его присваивания (без аргументов
+ *   вызовов) и `${…}` литералов, записанных в него или положенных в него `push`.
+ * Только в файле с зарубежным вызовом — то же условие, что у метки `content`.
  */
-function promptFlow(src: string, literals: TemplateLiteral[], hasForeign: boolean): { sinks: Set<string>; arrays: Set<string> } {
-  const sinks = new Set<string>();
-  const arrays = new Set<string>();
-  if (!hasForeign) return { sinks, arrays };
-  for (const re of [SINK_KEY, SINK_CALL]) {
-    re.lastIndex = 0;
-    for (let m = re.exec(src); m; m = re.exec(src)) {
-      if (/\.\s*join\s*\($/.test(m[0])) arrays.add(m[1]);
-      else sinks.add(m[1]);
-    }
-  }
-  const joins = (text: string) => {
-    JOIN_ROOT.lastIndex = 0;
-    for (let m = JOIN_ROOT.exec(text); m; m = JOIN_ROOT.exec(text)) arrays.add(m[1]);
+function promptFlow(src: string, literals: TemplateLiteral[], hasForeign: boolean): { reach: Set<string> } {
+  const reach = new Set<string>();
+  if (!hasForeign) return { reach };
+  const add = (names: Iterable<string>): boolean => {
+    let grew = false;
+    for (const n of names) if (!reach.has(n)) { reach.add(n); grew = true; }
+    return grew;
   };
-  for (const lit of literals) {
-    if (isPromptLiteral(lit.label, hasForeign) || sinks.has(lit.label)) joins(lit.body);
+
+  SINK_KEY_HEAD.lastIndex = 0;
+  for (let m = SINK_KEY_HEAD.exec(src); m; m = SINK_KEY_HEAD.exec(src)) {
+    add(rootsOf(valueAfter(src, m.index + m[0].length), true));
   }
+  FOREIGN_CALL_HEAD.lastIndex = 0;
+  for (let m = FOREIGN_CALL_HEAD.exec(src); m; m = FOREIGN_CALL_HEAD.exec(src)) {
+    // Объявление самой функции (`async function callAIFast(prompt: string)`) — не вызов.
+    if (/\bfunction\s*$/.test(src.slice(Math.max(0, m.index - 40), m.index))) continue;
+    add(rootsOf(argsAfter(src, m.index + m[0].length - 1), true));
+  }
+  for (const lit of literals) {
+    if (!isPromptLiteral(lit.label, hasForeign)) continue;
+    for (const { expr } of interpolations(lit.body)) add(rootsOf(expr, true));
+  }
+
+  const assigns: Array<{ name: string; rhs: string }> = [];
   ASSIGN_HEAD.lastIndex = 0;
   for (let m = ASSIGN_HEAD.exec(src); m; m = ASSIGN_HEAD.exec(src)) {
-    if (sinks.has(m[1]) || /prompt|instruction/i.test(m[1])) joins(rhsAfter(src, m.index + m[0].length));
+    assigns.push({ name: m[1], rhs: rhsAfter(src, m.index + m[0].length) });
   }
-  return { sinks, arrays };
+  // Цепочки в коде короткие; предел — от патологии.
+  for (let pass = 0; pass < 12; pass++) {
+    let grew = false;
+    for (const a of assigns) if (reach.has(a.name) && add(rootsOf(a.rhs, false))) grew = true;
+    for (const lit of literals) {
+      const into = (lit.label !== '' && reach.has(lit.label)) || (lit.receiver !== undefined && reach.has(lit.receiver));
+      if (!into) continue;
+      for (const { expr } of interpolations(lit.body)) if (add(rootsOf(expr, true))) grew = true;
+    }
+    if (!grew) break;
+  }
+  return { reach };
 }
 
-/** Стоки промпта и массивы, склеиваемые в него, — для теста и разбора находки. */
-export function promptFlowOf(src: string): { sinks: string[]; arrays: string[] } {
+/** Имена, текст которых доходит до модели, — для теста и разбора находки. */
+export function promptFlowOf(src: string): { reach: string[] } {
   const f = promptFlow(src, extractTemplateLiterals(src), fileMentionsForeignCaller(src));
-  return { sinks: [...f.sinks].sort(), arrays: [...f.arrays].sort() };
+  return { reach: [...f.reach].sort() };
 }
 
 /**
@@ -436,7 +576,7 @@ export function scanSource(file: string, src: string): PIIFinding[] {
   const flow = promptFlow(src, literals, hasForeign);
 
   for (const lit of literals) {
-    const intoPrompt = flow.sinks.has(lit.label) || (lit.receiver !== undefined && flow.arrays.has(lit.receiver));
+    const intoPrompt = (lit.label !== '' && flow.reach.has(lit.label)) || (lit.receiver !== undefined && flow.reach.has(lit.receiver));
     if (!isPromptLiteral(lit.label, hasForeign) && !intoPrompt) continue;
 
     for (const { expr, at } of interpolations(lit.body)) {
