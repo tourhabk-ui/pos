@@ -9,6 +9,7 @@
  */
 import { describe, it, expect, vi, beforeEach } from 'vitest';
 import { NextRequest } from 'next/server';
+import sharp from 'sharp';
 
 const writeFileMock = vi.fn().mockResolvedValue(undefined);
 vi.mock('fs/promises', () => {
@@ -84,11 +85,23 @@ describe('POST /api/upload', () => {
     expect(writeFileMock).not.toHaveBeenCalled();
   });
 
-  it('PNG с чужим именем и типом — расширение из байтов, а не из имени', async () => {
-    const res = await upload(uploadReq([new File([PNG], 'evil.html', { type: 'text/html' })]));
+  it('PNG с чужим именем и типом — пишется подготовленный JPEG: расширение из подготовки, а не из имени', async () => {
+    // С 07.11 снимок пишется не как прислан, а подготовленным
+    // (lib/images/upload-photo): разобранный по байтам и пересобранный в JPEG.
+    const png = await sharp({ create: { width: 8, height: 8, channels: 3, background: { r: 1, g: 2, b: 3 } } }).png().toBuffer();
+    const res = await upload(uploadReq([new File([new Uint8Array(png)], 'evil.html', { type: 'text/html' })]));
     expect(res.status).toBe(200);
     const body = await res.json() as { data: { files: string[] } };
     expect(body.data.files).toHaveLength(1);
-    expect(body.data.files[0]).toMatch(/^\/uploads\/[\w-]+\.png$/);
+    expect(body.data.files[0]).toMatch(/^\/uploads\/[\w-]+\.jpg$/);
+    const written = writeFileMock.mock.calls[0]?.[1] as Buffer;
+    expect((await sharp(written).metadata()).format).toBe('jpeg');
+  });
+
+  it('заголовок PNG без картинки — отказ «не удалось прочитать», ничего не записано', async () => {
+    const res = await upload(uploadReq([new File([PNG], 'a.png', { type: 'image/png' })]));
+    expect(res.status).toBe(400);
+    expect((await res.json() as { error: string }).error).toMatch(/a\.png.*Не удалось прочитать снимок/);
+    expect(writeFileMock).not.toHaveBeenCalled();
   });
 });

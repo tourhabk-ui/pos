@@ -17,6 +17,7 @@ import type { TourProgramStep } from '@/lib/tours/tour-write';
 import { MEDIA_CACHE_CONTROL } from '@/lib/storage/media-cache';
 import { mp4VideoCodec, codecAdvice, HOW_TO_H264 } from '@/lib/media/mp4-codec';
 import { MAX_TOUR_CLIPS } from '@/lib/tours/clip-limit';
+import { PHOTO_UPLOAD_HINT } from '@/lib/images/upload-limits';
 
 /** Сколько фото у тура — как у сервера (OWN_TOUR_PHOTOS_MAX). */
 export const PHOTOS_MAX = 20;
@@ -194,6 +195,7 @@ export function PhotosField({ idBase, photos, onChange, credits = {}, credit, on
   return (
     <fieldset className="space-y-2">
       <legend className="text-sm text-[var(--text-secondary)]">Фото — первое главное, его видят в каталоге</legend>
+      <p className="text-xs text-[var(--text-muted)]">{PHOTO_UPLOAD_HINT}</p>
       {photos.length === 0 && <p className="text-sm text-[var(--text-muted)]">Фото нет.</p>}
       {photos.length > 0 && (
         <ul className="grid grid-cols-2 gap-2 sm:grid-cols-3">
@@ -224,7 +226,7 @@ export function PhotosField({ idBase, photos, onChange, credits = {}, credit, on
         <label className="ds-btn ds-btn-secondary cursor-pointer" htmlFor={`${idBase}-photos`}>
           {busy ? <Loader2 size={14} className="animate-spin" aria-hidden /> : <ImagePlus size={14} aria-hidden />}
           {busy ? 'Загружаю…' : 'Добавить фото'}
-          <input id={`${idBase}-photos`} type="file" accept="image/jpeg,image/png,image/webp,image/heic" multiple className="sr-only"
+          <input id={`${idBase}-photos`} type="file" accept="image/jpeg,image/png,image/webp" multiple className="sr-only"
             disabled={busy} aria-label="Добавить фото" onChange={(e) => { void add(e.target.files); e.target.value = ''; }} />
         </label>
       )}

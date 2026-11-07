@@ -1,6 +1,7 @@
 'use client';
 
 import { TOUR_DESCRIPTION_MAX } from '@/lib/tours/text-limits';
+import { PHOTO_UPLOAD_HINT, UPLOAD_PHOTO_MAX_MB } from '@/lib/images/upload-limits';
 import React, { useState, useEffect, useRef } from 'react';
 import { X, AlertCircle, Upload, Loader2 } from 'lucide-react';
 import { TourFormData } from '@/types/operator';
@@ -408,7 +409,7 @@ export function TourForm({ initialData, onSubmit, onCancel, isEdit = false }: To
               <>
                 <Upload className="w-8 h-8 text-[var(--text-muted)] mb-2" />
                 <span className="text-sm text-[var(--text-primary)] font-medium">Нажми чтобы загрузить фото</span>
-                <span className="text-xs text-[var(--text-muted)] mt-1">JPEG, PNG, WebP — до 5 MB</span>
+                <span className="text-xs text-[var(--text-muted)] mt-1">JPEG, PNG, WebP — до {UPLOAD_PHOTO_MAX_MB} МБ. {PHOTO_UPLOAD_HINT}</span>
               </>
             )}
           </label>

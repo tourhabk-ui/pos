@@ -1,6 +1,7 @@
 'use client';
 
 import { useCallback, useEffect, useRef, useState } from 'react';
+import { PHOTO_UPLOAD_HINT, UPLOAD_PHOTO_MAX_MB } from '@/lib/images/upload-limits';
 import Link from 'next/link';
 import Image from 'next/image';
 import { ArrowLeft, ImagePlus, Trash2, Image as ImageIcon } from 'lucide-react';
@@ -122,7 +123,7 @@ export default function PhotosClient({ accommodationId }: { accommodationId: str
       </div>
 
       <p className="text-xs text-[var(--text-muted)]">
-        До 5 МБ на файл. Первое фото — обложка карточки на витрине.
+        До {UPLOAD_PHOTO_MAX_MB} МБ на файл. Первое фото — обложка карточки на витрине. {PHOTO_UPLOAD_HINT}
       </p>
 
       {error && <p className="text-sm text-[var(--danger)]">{error}</p>}

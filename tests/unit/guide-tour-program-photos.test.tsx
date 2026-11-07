@@ -123,6 +123,13 @@ describe('форма правки своего тура: программа, с�
     expect(OwnTourEditSchema.safeParse({ season_start: '2027-11-01', season_end: '2027-10-15' }).success).toBe(false);
   });
 
+  it('поле фото говорит, что сайт сделает со снимком, и не просит HEIC (iPhone тогда отдаёт JPEG)', () => {
+    render(<OwnTourForm tour={TOUR} onDone={vi.fn()} onCancel={vi.fn()} />);
+    expect(screen.getByText(/Сайт сам уменьшит снимок до размера сайта и уберёт из файла место съёмки/)).toBeTruthy();
+    const input = screen.getByLabelText('Добавить фото') as HTMLInputElement;
+    expect(input.accept.split(',')).toEqual(['image/jpeg', 'image/png', 'image/webp']);
+  });
+
   it('новый тур — без этих полей, с подсказкой «Править» после создания', () => {
     render(<OwnTourForm onDone={vi.fn()} onCancel={vi.fn()} />);
     expect(screen.queryByLabelText('Добавить фото')).toBeNull();
