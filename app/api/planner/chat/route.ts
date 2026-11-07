@@ -23,6 +23,8 @@ import { callAIWithModelDirect } from '@/lib/ai/providers';
 import { getModelForAgent } from '@/lib/ai/agent-models';
 import type { ChatMessage } from '@/lib/ai/prompts';
 import { parseInterestsFromText } from '@/lib/planner/interests';
+import { futureTripDates } from '@/lib/planner/future-trip-dates';
+import { kamchatkaToday } from '@/lib/seat-requests/core';
 import { parseTravelPreferences } from '@/lib/planner/travel-style-words';
 import { recordTouristDemand } from '@/lib/ai/tourist-demand-aggregator';
 import { createRateLimiter, getClientIp } from '@/lib/rate-limit';
@@ -66,7 +68,7 @@ const SYSTEM_PROMPT = `Ты -- парсер запросов для планир
 - "гейзеры" или "долина гейзеров" = places: ["geyser"], activities: ["helicopter"]
 - "рыбалка" = activities: ["fishing"]
 - "на неделю" = duration_days: 7
-- Если год не указан, используй 2026.
+- Если год не указан, ставь ближайшие даты, которые ещё не прошли. Сегодня {TODAY}.
 
 Ответь СТРОГО валидным JSON без markdown-блока и пояснений:
 {"places":[],"activities":[],"arrival":null,"departure":null,"duration_days":null}`;
@@ -161,7 +163,7 @@ export async function POST(req: NextRequest) {
   // 1. Try LLM parsing
   try {
     const messages: ChatMessage[] = [
-      { role: 'system', content: SYSTEM_PROMPT },
+      { role: 'system', content: SYSTEM_PROMPT.replace('{TODAY}', kamchatkaToday()) },
       { role: 'user', content: message },
     ];
 
@@ -204,6 +206,10 @@ export async function POST(req: NextRequest) {
     if (!arrival) arrival = fallback.arrival;
     if (!departure) departure = fallback.departure;
   }
+
+  // Даты без года — ближайшие будущие: и у модели, и у запасного разбора
+  // (lib/planner/future-trip-dates, независимая проверка 07.11, Б3).
+  ({ arrival, departure } = futureTripDates(arrival, departure, kamchatkaToday()));
 
   // 3. Build human-readable summary
   const parts: string[] = [];

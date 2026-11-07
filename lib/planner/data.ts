@@ -136,7 +136,10 @@ export async function fetchRealToursForZone(
   limit: number,
   cache: PlannerCache
 ): Promise<RealTour[] | null> {
-  return cached(cache, `tours:${zone}:${activityType}`, async () => {
+  // Лимит — в ключе (независимая проверка 07.11): без него первый вызов,
+  // оценка зоны с лимитом 3, оставлял в кэше три тура, и блок зоны видел их
+  // же, сколько бы дней в нём ни было.
+  return cached(cache, `tours:${zone}:${activityType}:${limit}`, async () => {
     try {
       const { rows } = await pool.query<{
         tour_id: string;

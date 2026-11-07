@@ -150,7 +150,9 @@ describe('цикл завершается сам', () => {
     expect(continues.length, 'continue в цикле не найдено — сломался разбор').toBeGreaterThan(0);
     for (const m of continues) {
       const before = body.slice(Math.max(0, m.index - 120), m.index);
-      expect(before, `continue без продвижения: ${before.slice(-60)}`).toMatch(/d\+\+;\s*barren\+\+;/);
+      // С 07.11 у интереса свой курсор материала (m.cursor, Б1): он двигается
+      // вместе с d везде, где материал уже взят.
+      expect(before, `continue без продвижения: ${before.slice(-60)}`).toMatch(/d\+\+;\s*(?:m\.cursor\+\+;\s*)?barren\+\+;/);
     }
   });
 

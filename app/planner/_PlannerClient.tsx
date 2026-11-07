@@ -63,6 +63,9 @@ const LeafletMap = dynamic(() => import('@/components/shared/LeafletMap'), { ssr
 // Модульная константа: инлайн-литерал center пересоздавал LeafletMap на каждом рендере
 const MAP_CENTER: [number, number] = [54.5, 158.5];
 
+/** Пока возраст ребёнка не выбран, плана нет (Б4, 07.11): от возраста зависит, какие дни плана детям можно. */
+const CHILD_AGE_MISSING = 'Укажите возраст каждого ребёнка: от него зависит, какие дни плана детям подходят.';
+
 /**
  * Плитка интереса обещает дни под этот интерес, поэтому у каждой обязано быть
  * правило подбора в движке (ACTIVITY_CONSTRAINTS). «Озёра» и «Экотуризм»
@@ -1178,7 +1181,13 @@ export function PlannerClient({ initialUserId }: { initialUserId?: string | null
 
   // Group profile
   const [adults, setAdults] = useState(2);
-  const [childAges, setChildAges] = useState<number[]>([]);
+  // Возраст ребёнка не подставляется: пока он не выбран — null, и плана нет
+  // (независимая проверка 07.11, Б4). До этого новый ребёнок молча получал
+  // 10 лет, и с четырёхлетним, не поправившим цифру, план давал треккинг,
+  // сплав и медведей. MCP и чат на неразобранный возраст тоже отказывают.
+  const [childAges, setChildAges] = useState<Array<number | null>>([]);
+  const knownChildAges = useMemo(() => childAges.filter((a): a is number => a !== null), [childAges]);
+  const childAgeMissing = knownChildAges.length < childAges.length;
   const [fitnessLevel, setFitnessLevel] = useState<FitnessLevel>('moderate');
   const [budgetTier, setBudgetTier] = useState<BudgetTier>('comfort');
   const [seasickness, setSeasickness] = useState(false);
@@ -1312,14 +1321,14 @@ export function PlannerClient({ initialUserId }: { initialUserId?: string | null
       // Состав и «откуда едут» — плана, а не формы: цена стоянки на группу
       // обязана совпасть со сметой (#2304, шаг 3).
       adults: planProfile?.adults ?? adults,
-      children: planProfile?.children ?? childAges,
+      children: planProfile?.children ?? knownChildAges,
       tripOrigin: planProfile?.tripOrigin ?? tripOrigin,
       days: days.map((d, i) => ({
         day: i + 1, type: d.type, zone: d.zone,
         lodgingIncluded: d.realTour?.lodgingIncluded ?? null,
       })),
     });
-  }, [recommendation, needsLodging, needsAirportTransfer, needsCar, arrival, departure, adults, childAges, tripOrigin, planProfile, days]);
+  }, [recommendation, needsLodging, needsAirportTransfer, needsCar, arrival, departure, adults, knownChildAges, tripOrigin, planProfile, days]);
   // Ответ привязан к телу запроса: пока ответа на ТЕКУЩЕЕ тело нет — «ищем»,
   // без синхронного setState в эффекте.
   const [extrasResult, setExtrasResult] = useState<{ key: string; load: ExtrasLoad } | null>(null);
@@ -1662,7 +1671,7 @@ export function PlannerClient({ initialUserId }: { initialUserId?: string | null
     const html = buildPlanPrintHtml({
       dateRange: arrival && departure ? `${arrival} — ${departure}` : '',
       adults,
-      childAges,
+      childAges: knownChildAges,
       days: days.map((d, i) => ({
         num: i + 1,
         confirmed: confirmedDays.has(d.day),
@@ -1754,6 +1763,7 @@ export function PlannerClient({ initialUserId }: { initialUserId?: string | null
     const restCap = span != null && span > 0 ? Math.max(0, activeBudget(span, tripOrigin) - 1) : 0;
     const rest = Math.min(over.restDays ?? (restManual ? restDays : suggestRestDays(span)), restCap);
     if (interests.length === 0) { setError('Выберите место или активность'); return; }
+    if (childAgeMissing) { setError(CHILD_AGE_MISSING); return; }
     setError('');
     setLoading(true);
     try {
@@ -1767,7 +1777,7 @@ export function PlannerClient({ initialUserId }: { initialUserId?: string | null
           flightArrivalTime: flightArrivalTime || undefined,
           flightDepartureTime: flightDepartureTime || undefined,
           adults,
-          children: childAges,
+          children: knownChildAges,
           fitnessLevel,
           budgetTier,
           seasickness,
@@ -1784,7 +1794,7 @@ export function PlannerClient({ initialUserId }: { initialUserId?: string | null
         setFormOpen(false);
         setStepError('');
         setRecommendation(data.data);
-        setPlanProfile({ adults, children: childAges, budgetTier, tripOrigin });
+        setPlanProfile({ adults, children: knownChildAges, budgetTier, tripOrigin });
         setDays(data.data.days ?? []);
         setTransportByDay({});
         setConfirmedDays(new Set());
@@ -2188,7 +2198,7 @@ export function PlannerClient({ initialUserId }: { initialUserId?: string | null
           <select value={childAges.length} onChange={e => {
             const count = Number(e.target.value);
             setChildAges(prev => {
-              if (count > prev.length) return [...prev, ...Array(count - prev.length).fill(10) as number[]];
+              if (count > prev.length) return [...prev, ...Array<number | null>(count - prev.length).fill(null)];
               return prev.slice(0, count);
             });
           }} className="ds-input w-full text-sm">
@@ -2201,14 +2211,16 @@ export function PlannerClient({ initialUserId }: { initialUserId?: string | null
           <p className="text-sm text-[var(--text-secondary)]">Возраст детей</p>
           <div className="flex flex-wrap gap-2">
             {childAges.map((age, i) => (
-              <select key={i} aria-label={`Возраст ребёнка ${i + 1}`} value={age} onChange={e => {
-                const newAge = Number(e.target.value);
+              <select key={i} aria-label={`Возраст ребёнка ${i + 1}`} value={age ?? ''} aria-invalid={age === null} onChange={e => {
+                const newAge = e.target.value === '' ? null : Number(e.target.value);
                 setChildAges(prev => prev.map((a, j) => j === i ? newAge : a));
               }} className="ds-input text-sm w-24">
+                <option value="" disabled>Возраст?</option>
                 {Array.from({ length: 18 }, (_, k) => <option key={k} value={k}>{k === 0 ? 'до года' : `${k} ${k === 1 ? 'год' : k < 5 ? 'года' : 'лет'}`}</option>)}
               </select>
             ))}
           </div>
+          {childAgeMissing && <p className="text-xs text-[var(--warning)]">{CHILD_AGE_MISSING}</p>}
         </div>
       )}
 
@@ -2644,7 +2656,7 @@ export function PlannerClient({ initialUserId }: { initialUserId?: string | null
                           arrivalDate: arrival || undefined,
                           fitnessLevel,
                           seasickness,
-                          children: childAges.length > 0 ? childAges : undefined,
+                          children: knownChildAges.length > 0 ? knownChildAges : undefined,
                         }),
                       }).then(r => r.json()).then((data: { success: boolean; valid?: boolean; message?: string; issues?: Array<{ type: string; severity: string; message: string; day?: number }> }) => {
                         if (data.success && data.message) {
@@ -2738,7 +2750,7 @@ export function PlannerClient({ initialUserId }: { initialUserId?: string | null
             <TripExtrasSection load={extras}
               selection={choiceSel}
               onToggleLodging={(key, id) => setChoiceSel((sel) => toggleLodging(sel, key, id))}
-              party={{ adults: planProfile?.adults ?? adults, children: planProfile?.children ?? childAges }} />
+              party={{ adults: planProfile?.adults ?? adults, children: planProfile?.children ?? knownChildAges }} />
           )}
 
           {/* AI itinerary */}

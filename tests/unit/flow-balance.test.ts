@@ -137,13 +137,15 @@ describe('производитель лимита — только с источ
 
 describe('потребитель — планировщик', () => {
   it('самостоятельные дни ранжируются по загрузке, упёршиеся называются', () => {
-    expect(ENGINE).toMatch(/rankByLoad\(dbRoutes, await fetchCandidateLoads\(/);
+    // С 07.11 маршруты у каждого интереса блока свои (Б1) — ранжируются по одному.
+    expect(ENGINE).toMatch(/rankByLoad\(m\.routes, await fetchCandidateLoads\(/);
     expect(ENGINE).toContain('overLimit.add(');
     expect(ENGINE).toMatch(/type: 'crowd',[\s\S]{0,80}В ваши даты заполнено по норме/);
   });
 
   it('туру по месту сверх лимита — предупреждение на его дне, тур не убирается', () => {
-    expect(ENGINE).toContain('fetchTourLoads(realTours.map(t => t.tourId)');
+    expect(ENGINE).toMatch(/const tourIds = \[\.\.\.material\.values\(\)\]\.flatMap\(\(m\) => m\.tours\.map\(\(t\) => t\.tourId\)\)/);
+    expect(ENGINE).toContain('fetchTourLoads(tourIds, windowFrom, windowTo)');
     expect(ENGINE).toContain('Природоохранный лимит в ваши даты');
   });
 
