@@ -33,6 +33,7 @@ import { reachFrom, type PartnerReachRow } from '@/lib/partners/reach';
 import { FOLLOWUP_LEADS_SQL, FOLLOWUP_LEADS_PARAMS, addressedToPartnerOnly } from '@/lib/leads/followup-scope';
 import { sqlState } from '@/lib/guides/db-failure';
 import { tripFactsOf, tripRequestLines } from '@/lib/planner/trip-request-lines';
+import { redactPII } from '@/lib/security/pii-redact';
 
 export const dynamic = 'force-dynamic';
 
@@ -210,7 +211,9 @@ export async function GET(request: NextRequest) {
           head,
           '',
           `Заявка <code>${esc(lead.id)}</code> ждёт ответа.`,
-          ...facts,
+          // Поля анкеты и плана — свободный ввод публичной формы: в Telegram
+          // только сквозь чистку, телефон и почта оттуда не уходят.
+          ...facts.map((line) => redactPII(line)),
           '',
           'Имя и телефон — в MAX и в кабинете: в Telegram они не передаются.',
         ].join('\n');
@@ -268,7 +271,7 @@ export async function GET(request: NextRequest) {
             '<b>Лид без ответа — нужна ручная обработка</b>',
             '',
             `Заявка <code>${esc(lead.id)}</code>.`,
-            ...admFacts,
+            ...admFacts.map((line) => redactPII(line)),
             '',
             'Свободных операторов не осталось. Имя и телефон — в MAX и в кабинете.',
           ].join('\n'),

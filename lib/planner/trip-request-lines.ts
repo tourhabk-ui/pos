@@ -115,6 +115,9 @@ export function tripFactsOf(sd: unknown): TripRequestFacts {
   };
 }
 
+/** Строка вместо плана, который не прочитался: план в заявке есть, но смотреть его — в карточке. */
+export const PLAN_UNREADABLE = 'План: не прочитался — смотрите заявку в кабинете';
+
 /**
  * Поездка словами: даты, группа, пожелания, план. Группа — из плана, если он
  * есть (там ещё уровень жилья), иначе отдельной строкой.
@@ -129,7 +132,18 @@ export function tripRequestLines(f: TripRequestFacts): string[] {
   if (!f.plan && f.party) lines.push(`Группа: ${tripPartyWords(f.party)}`);
   const wishes = wishesWords(f.wishes);
   if (wishes) lines.push(`Пожелания из анкеты: ${wishes}`);
-  if (f.plan) lines.push(...planLeadLines(f.plan));
+  if (f.plan) {
+    // План приходит в `source_data` публичной формы, а `asPlanForLead`
+    // проверяет только каркас. Неполный план не должен ронять тех, кто
+    // печатает строки: крон напоминаний прервался бы на этой заявке, и
+    // напоминания о прочих перестали бы уходить (ревью PR #3133).
+    try {
+      lines.push(...planLeadLines(f.plan));
+    } catch (err) {
+      console.error('[trip-request-lines] план заявки не прочитался:', err instanceof Error ? err.message : String(err));
+      lines.push(PLAN_UNREADABLE);
+    }
+  }
   return lines;
 }
 
