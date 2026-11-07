@@ -89,5 +89,7 @@ export async function handleAdminMessage(opts: {
   }
   // Кнопки действий — следом и без ПД: список с контактами уходит через
   // sendPdAlert, а его кнопки в MAX встают по одной в строку под меню.
-  if (actions.length) await opts.replyButtons(chatId, ADMIN_CHAT_TEXT.actionsAfterList, [...actions, ...menuRows(adminMenu())]);
+  if (actions.length) {
+    await opts.replyButtons(chatId, res.buttonsLabel ?? ADMIN_CHAT_TEXT.actionsAfterList, [...actions, ...menuRows(adminMenu())]);
+  }
 }
