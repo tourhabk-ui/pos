@@ -497,17 +497,26 @@ describe('D1 — где первая редакция рвала цепочку 
     expect(found(separate)).toEqual([['contact', 'ctx.push']]);
   });
 
-  it('узко по-прежнему: текст, ушедший в вызов при присваивании, в промпт не течёт', () => {
-    // SQL с телефоном уходит в базу; модели — строки ответа. Это не промпт.
-    const src = [
+  it('вызов в правой части: что он делает с текстом, страж не знает, — имена текут через него', () => {
+    // Параметризованный SQL (CLAUDE.md §4): телефон — аргумент запроса, а не текст; находки нет.
+    const param = [
       "import { callAIFast } from '@/lib/ai/providers';",
-      'const sql = `SELECT note FROM leads WHERE phone = ${lead.phone}`;',
-      'const rows = await pool.query(sql);',
+      "const rows = await pool.query('SELECT note FROM leads WHERE phone = $1', [lead.phone]);",
       "await callAIFast([{ role: 'user', content: rows.map((r) => r.note).join('\\n') }]);",
     ].join('\n');
-    expect(scanSource('h.ts', src)).toEqual([]);
-    expect(promptFlowOf(src).reach).toContain('rows');
-    expect(promptFlowOf(src).reach).not.toContain('sql');
+    expect(scanSource('h.ts', param)).toEqual([]);
+    expect(promptFlowOf(param).reach).toContain('rows');
+    // Склейка через незнакомые вызовы (`format(ctx)`, `Object.values(…)`) — массив найден.
+    const viaCall = [
+      "import { callAIFast } from '@/lib/ai/providers';",
+      'ctx.push(`Тел: ${lead.phone}`);',
+      "const block = Object.values(format(ctx)).join('\\n');",
+      "await callAIFast([{ role: 'user', content: block }]);",
+    ].join('\n');
+    expect(scanSource('h.ts', viaCall).map((x) => [x.kind, x.context])).toEqual([['contact', 'ctx.push']]);
+    // Сквозь redactPII имена дальше не текут: там ПД уже нет.
+    const cleaned = viaCall.replace("Object.values(format(ctx)).join('\\n')", "redactPII(ctx.join('\\n'))");
+    expect(scanSource('h.ts', cleaned)).toEqual([]);
   });
 
   it('объявление зарубежной функции — не вызов: её параметры промптом не становятся', () => {

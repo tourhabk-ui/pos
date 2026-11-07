@@ -800,22 +800,25 @@ interface Root { name: string; at: number }
  * - имя вызываемой функции — не корень; получатель метода — корень:
  *   `ctx.filter(Boolean).join('\n')`, `this.ctx.join('\n')` и `box.lines.join(…)`
  *   → ctx, ctx, lines;
- * - аргументы вызова — корни только при `intoCalls`. Значение стока
- *   `withContext(x)` несёт x в промпт, а `const rows = query(SQL, …)` SQL в
- *   rows не несёт: широкое «всё, что течёт» на пробе по репозиторию затянуло
- *   SQL, fetch и заголовки — шум вместо стража;
+ * - аргументы вызова — тоже корни: что вызов делает с текстом, страж не
+ *   знает (`Object.values(parts).join(…)`, `format(ctx)`). Внутри redactPII —
+ *   нет: там ПД уже нет. Прежняя узость («аргументы — только у стока») на
+ *   первой пробе берегла от SQL и fetch; с маской кода, областями видимости и
+ *   находкой только по полю ПД она ложных находок по репозиторию не даёт, а
+ *   пропускала целый класс записи (ревью PR #3104);
  * - ключ объектного литерала — не корень; `${…}` в бэктиках — выражения.
  */
-function rootsAt(code: string, from: number, to: number, intoCalls: boolean, out: Root[] = [], inArgs = false): Root[] {
-  const calls: boolean[] = [];
-  const inCallArgs = () => inArgs || calls.includes(true);
+function rootsAt(code: string, from: number, to: number, out: Root[] = [], sanitized = false): Root[] {
+  // Кадры скобок: вызов ли, и не redactPII ли он.
+  const frames: boolean[] = [];
+  const inSafe = () => sanitized || frames.includes(true);
   let i = from;
   while (i < to) {
     const c = code[i];
     if (c === '"' || c === "'") { i = skipString(code, i); continue; }
     if (c === '`') {
       const t = templateParts(code, i);
-      if (!inCallArgs() || intoCalls) for (const e of t.exprs) rootsAt(code, e.from, e.to, intoCalls, out, inCallArgs());
+      for (const e of t.exprs) rootsAt(code, e.from, e.to, out, inSafe());
       i = t.end;
       continue;
     }
@@ -833,7 +836,7 @@ function rootsAt(code: string, from: number, to: number, intoCalls: boolean, out
       const isKey = after.startsWith(':') && !after.startsWith('::') && /(?:^|[{,])$/.test(before);
       // Свойство-получатель метода — корень: `box.lines.join(…)` → lines (как у push).
       const isReceiver = isProp && /^\??\.\s*[A-Za-z_$][\w$]*\s*\(/.test(after);
-      if (!NOT_ROOT.has(name) && !isCallee && !isKey && (!isProp || viaThis || isReceiver) && (!inCallArgs() || intoCalls)) {
+      if (!NOT_ROOT.has(name) && !isCallee && !isKey && (!isProp || viaThis || isReceiver) && !inSafe()) {
         out.push({ name, at: i });
       }
       i = j;
@@ -841,12 +844,13 @@ function rootsAt(code: string, from: number, to: number, intoCalls: boolean, out
     }
     if (c === '(') {
       const before = tailBefore(code, from, i);
-      calls.push(CALL_BEFORE.test(before) && !KEYWORD_BEFORE.test(before));
+      const call = CALL_BEFORE.test(before) && !KEYWORD_BEFORE.test(before);
+      frames.push(call && SAFE_CALLEES.has(/([A-Za-z_$][\w$]*)$/.exec(before)?.[1] ?? ''));
       i++;
       continue;
     }
-    if (c === '[' || c === '{') { calls.push(false); i++; continue; }
-    if (c === ')' || c === ']' || c === '}') { calls.pop(); i++; continue; }
+    if (c === '[' || c === '{') { frames.push(false); i++; continue; }
+    if (c === ')' || c === ']' || c === '}') { frames.pop(); i++; continue; }
     i++;
   }
   return out;
@@ -889,7 +893,7 @@ const SAFE_CALLEES = new Set(['redactPII', 'redact']);
 const PUSH_CALL = /(?<![\w$])([A-Za-z_$][\w$]*)\s*\.\s*(?:push|unshift|add|concat)\s*\(/g;
 
 /** Отрезок кода, текст которого доходит до модели. */
-interface FlowSpan { from: number; to: number; intoCalls: boolean }
+interface FlowSpan { from: number; to: number }
 
 /**
  * Литералы отрезка и вызовы функций в нём.
@@ -898,9 +902,8 @@ interface FlowSpan { from: number; to: number; intoCalls: boolean }
  * аргумент любого вызова. Что вызов делает с текстом, страж не знает, и
  * перечень «несущих» вызовов (был `map`/`flatMap`) обходился следующим же
  * (`reduce`, третье ревью PR #3104) — поэтому проверяется всякий литерал, кроме
- * литерала внутри redactPII. Узость держат имена: переменная из аргументов
- * вызова в поток не идёт (`rows = query(SQL, …)`), а находка — только
- * однозначное поле ПД, имя-контакт или псевдоним.
+ * литерала внутри redactPII. Узость держит сама находка: только однозначное
+ * поле ПД, имя-контакт или псевдоним в `${…}`.
  *
  * Вызов `name(…)` или `this.name(…)` — кандидат в функцию файла: её результат
  * часть отрезка (`content: line(lead)`, то же ревью).
@@ -933,7 +936,7 @@ function literalsIn(code: string, span: FlowSpan): { literals: number[]; callees
 
 /** Что функция возвращает: выражение-тело стрелки или выражения её `return` (не вложенных функций). */
 function returnSpans(code: string, body: FnBody, all: FnBody[]): FlowSpan[] {
-  if (!body.block) return [{ from: body.from, to: body.to, intoCalls: false }];
+  if (!body.block) return [{ from: body.from, to: body.to }];
   const nested = all.filter((b) => b !== body && b.from > body.from && b.to <= body.to);
   const spans: FlowSpan[] = [];
   const re = /\breturn\b/g;
@@ -942,7 +945,7 @@ function returnSpans(code: string, body: FnBody, all: FnBody[]): FlowSpan[] {
     const at = m.index;
     if (nested.some((b) => at > b.from && at < b.to)) continue;
     const from = at + m[0].length;
-    spans.push({ from, to: stmtEnd(code, from), intoCalls: false });
+    spans.push({ from, to: stmtEnd(code, from) });
   }
   return spans;
 }
@@ -969,8 +972,8 @@ interface PromptFlow { reach: Set<string>; literalStarts: Set<number> }
  * - начало — значения `content:`/`system:` и аргументы зарубежного вызова
  *   (вместе с аргументами вложенных вызовов: `withContext(x)` несёт x),
  *   `${…}` промптов по метке и присваивания имени с prompt/instruction;
- * - переменная в потоке — её правая часть (имена из аргументов вызовов в
- *   поток не идут: `rows = query(SQL, …)` SQL в rows не несёт) и аргументы
+ * - переменная в потоке — её правая часть (с аргументами вызовов: что вызов
+ *   делает с текстом, страж не знает; кроме redactPII) и аргументы
  *   `push`/`unshift`/`add`/`concat` в неё; литералы, записанные в неё;
  * - из каждого такого отрезка — корни (`rootsAt`), литералы внутри него, где
  *   бы ни стояли (`[…]`, колбэк `map`/`reduce`, аргумент любого вызова), и
@@ -1014,16 +1017,16 @@ function promptFlow(code: string, sc: Scopes, literals: TemplateLiteral[], hasFo
     let grew = false;
     for (const { expr, at: off } of interpolations(lit.body)) {
       const from = at + 1 + off + 2;
-      if (take({ from, to: from + expr.length, intoCalls: true })) grew = true;
+      if (take({ from, to: from + expr.length })) grew = true;
     }
     return grew;
   };
   const taken = new Set<string>();
   const take = (span: FlowSpan): boolean => {
-    const id = `${span.from}:${span.to}:${span.intoCalls}`;
+    const id = `${span.from}:${span.to}`;
     if (taken.has(id)) return false;
     taken.add(id);
-    let grew = add(rootsAt(code, span.from, span.to, span.intoCalls));
+    let grew = add(rootsAt(code, span.from, span.to));
     const inner = literalsIn(code, span);
     for (const at of inner.literals) if (literalIn(at)) grew = true;
     for (const name of inner.callees) for (const r of returnsOf(name)) if (take(r)) grew = true;
@@ -1036,14 +1039,14 @@ function promptFlow(code: string, sc: Scopes, literals: TemplateLiteral[], hasFo
     SINK_KEY_HEAD.lastIndex = 0;
     for (let m = SINK_KEY_HEAD.exec(code); m; m = SINK_KEY_HEAD.exec(code)) {
       const from = m.index + m[0].length;
-      take({ from, to: from + valueAfter(code, from).length, intoCalls: true });
+      take({ from, to: from + valueAfter(code, from).length });
     }
     FOREIGN_CALL_HEAD.lastIndex = 0;
     for (let m = FOREIGN_CALL_HEAD.exec(code); m; m = FOREIGN_CALL_HEAD.exec(code)) {
       // Объявление самой функции (`async function callAIFast(prompt: string)`) — не вызов.
       if (/\bfunction\s*$/.test(code.slice(Math.max(0, m.index - 40), m.index))) continue;
       const open = m.index + m[0].length - 1;
-      take({ from: open + 1, to: open + 1 + argsAfter(code, open).length, intoCalls: true });
+      take({ from: open + 1, to: open + 1 + argsAfter(code, open).length });
     }
   }
   for (const lit of literals) {
@@ -1055,13 +1058,13 @@ function promptFlow(code: string, sc: Scopes, literals: TemplateLiteral[], hasFo
   for (let m = ASSIGN_HEAD.exec(code); m; m = ASSIGN_HEAD.exec(code)) {
     const from = m.index + m[0].length;
     const key = sc.key(m[1], m.index);
-    edges.push({ key, span: { from, to: stmtEnd(code, from), intoCalls: false } });
+    edges.push({ key, span: { from, to: stmtEnd(code, from) } });
     if (/prompt|instruction/i.test(m[1])) reach.add(key);
   }
   PUSH_CALL.lastIndex = 0;
   for (let m = PUSH_CALL.exec(code); m; m = PUSH_CALL.exec(code)) {
     const open = m.index + m[0].length - 1;
-    edges.push({ key: sc.key(m[1], m.index), span: { from: open + 1, to: open + 1 + argsAfter(code, open).length, intoCalls: true } });
+    edges.push({ key: sc.key(m[1], m.index), span: { from: open + 1, to: open + 1 + argsAfter(code, open).length } });
   }
   // Цепочки в коде короткие; предел — от патологии.
   for (let pass = 0; pass < 12; pass++) {
