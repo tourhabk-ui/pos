@@ -19,8 +19,10 @@ import { notFound } from 'next/navigation';
 import { unstable_cache } from 'next/cache';
 import { Header } from '@/components/layout/Header';
 import { JsonLd } from '@/components/seo/JsonLd';
-import { recommendTrip, ACTIVITY_CONSTRAINTS, type DayPlan } from '@/lib/planner';
-import { topToursByActivity, type TopTour } from '@/lib/tours/top-tour-by-activity';
+import { recommendTrip, type DayPlan } from '@/lib/planner';
+import { topToursByActivity, toursByIds, type TopTour } from '@/lib/tours/top-tour-by-activity';
+import { presetPlanDates, planFillNote, presetCalendarDays, presetDayTour } from '@/lib/plans/preset-plan';
+import { tripLengthWords } from '@/lib/planner/calendar-days';
 import { tourPath } from '@/lib/tours/tour-url';
 import { findPlanPreset, planLastModified } from '@/lib/plans/presets';
 import { OtherPlans } from '@/components/plans/OtherPlans';
@@ -62,38 +64,8 @@ export async function generateMetadata({ params }: PageProps): Promise<Metadata>
   };
 }
 
-/**
- * Даты плана: ближайший старт В СЕЗОНЕ обещанных интересов.
- *
- * Было «через 30 дней», и это ломало страницу тихо. Страница обещает
- * «Камчатка за 7 дней: вулканы», а пересборка ISR случается в любой месяц:
- * в октябре вулканы уже вне сезонного окна движка, и план собирался без
- * единого вулканического дня. Раньше подмену скрывали копии одного и того же
- * дня — движок так больше не делает (19.09), и читатель увидел бы обещание
- * рядом с его невыполнением.
- *
- * Сезон берётся по ПЕРВОМУ интересу пресета: он же главный в заголовке.
- * Окна нет — остаётся прежнее «через месяц».
- */
-function planDates(days: number, interests: string[]): { arrival: string; departure: string } {
-  const soon = Date.now() + 30 * 86400000;
-  const months = ACTIVITY_CONSTRAINTS[interests[0] ?? '']?.months ?? [];
-
-  let arrival = new Date(soon);
-  if (months.length > 0) {
-    const from = new Date(soon);
-    for (let i = 0; i < 24; i++) {
-      const candidate = new Date(Date.UTC(from.getUTCFullYear(), from.getUTCMonth() + i, 10));
-      if (months.includes(candidate.getUTCMonth() + 1)) { arrival = candidate; break; }
-    }
-  }
-
-  const departure = new Date(arrival.getTime() + days * 86400000);
-  return {
-    arrival: arrival.toISOString().slice(0, 10),
-    departure: departure.toISOString().slice(0, 10),
-  };
-}
+// Даты плана — ближайший старт в сезоне главного интереса, N дней — N
+// календарных дней (lib/plans/preset-plan, аудит 07.11, H16).
 
 function formatPrice(from: number, to: number): string | null {
   if (!from && !to) return null;
@@ -112,7 +84,9 @@ function formatPrice(from: number, to: number): string | null {
 const loadPresetPlan = unstable_cache(
   // `day` — день жребия правила 1в (дата Камчатки): аргумент входит в ключ
   // кэша, и после полуночи по Камчатке тур дня пересчитывается.
-  async (slug: string, arrival: string, departure: string, day: string): Promise<{ days: DayPlan[]; tours: Record<string, TopTour> }> => {
+  async (slug: string, arrival: string, departure: string, day: string): Promise<{
+    days: DayPlan[]; engineTours: Record<string, TopTour>; kindTours: Record<string, TopTour>; fillNote: string | null;
+  }> => {
     const preset = findPlanPreset(slug);
     if (!preset) throw new Error(`нет пресета ${slug}`);
     const rec = await recommendTrip({
@@ -126,13 +100,19 @@ const loadPresetPlan = unstable_cache(
       riskMode: 'safe_only',
     });
     if (rec.days.length === 0) throw new Error('движок вернул пустой план');
-    const tours = await topToursByActivity(rec.days.map((d) => d.activityType), { day });
-    return { days: rec.days, tours };
+    // Тур дня — тот, что поставил движок (H16); подбор по виду — только дням
+    // без него. Строка тура для страницы — из витрины по id.
+    const engineTours = await toursByIds(rec.days.flatMap((d) => (d.realTour?.tourId ? [String(d.realTour.tourId)] : [])));
+    const unplanned = rec.days.filter((d) => d.type === 'activity' && !(d.realTour?.tourId && engineTours[String(d.realTour.tourId)]));
+    const kindTours = unplanned.length > 0 ? await topToursByActivity(unplanned.map((d) => d.activityType), { day }) : {};
+    return { days: rec.days, engineTours, kindTours, fillNote: planFillNote(rec.warnings) };
   },
   // v2 (13.10): в строке тура плана появились slug и is_public оператора.
   // v3 (29.10): тур дня — по правилу 1в, а не по рейтингу и цене; в строке
   // появилось offers_of_kind.
-  ['plan-preset-v3'],
+  // v4 (07.11, H16): даты — N календарных дней; тур дня — движка; строка
+  // недобора.
+  ['plan-preset-v4'],
   { revalidate: 86400 },
 );
 
@@ -143,16 +123,22 @@ export default async function PlanPresetPage({ params }: PageProps) {
 
   // Движок может быть недоступен (БД, таймаут) — страница обязана открыться.
   let days: DayPlan[] = [];
-  let tours: Record<string, TopTour> = {};
-  const { arrival, departure } = planDates(preset.days, preset.interests);
+  let engineTours: Record<string, TopTour> = {};
+  let kindTours: Record<string, TopTour> = {};
+  let fillNote: string | null = null;
+  const { arrival, departure } = presetPlanDates(preset.days, preset.interests);
   try {
-    ({ days, tours } = await loadPresetPlan(slug, arrival, departure, offerOrderDay()));
+    ({ days, engineTours, kindTours, fillNote } = await loadPresetPlan(slug, arrival, departure, offerOrderDay()));
   } catch (e) {
     // План живёт на интро и CTA, но отказ движка — в лог (§4.0).
     console.error('[plans/[slug]] план не рассчитан', { slug, message: e instanceof Error ? e.message : String(e) });
   }
 
   const priceFrom = days.reduce((s, d) => s + (d.priceFrom || 0), 0);
+  // Дни страницы — подряд по календарю: пропуск — свободный день (H16).
+  const calendar = days.length > 0 ? presetCalendarDays(days, preset.days) : [];
+  const dayTours = calendar.map((d) => (d.type === 'activity' ? presetDayTour(d as DayPlan, engineTours, kindTours) : null));
+  const anyKindTour = dayTours.some((t) => t?.source === 'kind');
 
   const jsonLd = {
     '@context': 'https://schema.org',
@@ -202,7 +188,7 @@ export default async function PlanPresetPage({ params }: PageProps) {
               {preset.intro}
             </p>
             <div className="flex flex-wrap gap-3 text-sm" style={{ color: 'var(--text-secondary)' }}>
-              <span>{preset.days} {preset.days < 5 ? 'дня' : 'дней'}</span>
+              <span>{tripLengthWords(preset.days)}</span>
               {priceFrom > 0 && <span>· активности от {priceFrom.toLocaleString('ru-RU')} ₽ на человека</span>}
             </div>
             {/* Посадочный кластер называет дату ревизии и источник условий
@@ -232,12 +218,18 @@ export default async function PlanPresetPage({ params }: PageProps) {
             </section>
           )}
 
-          {days.length > 0 ? (
+          {calendar.length > 0 ? (
             <section className="space-y-3">
               <h2 className="ds-h2">План по дням</h2>
-              {Object.keys(tours).length > 0 && <PlanTourRule />}
-              {days.map((day) => {
-                const tour = tours[day.activityType];
+              {/* Недобор — словами движка, а не молчанием (H16). */}
+              {fillNote && (
+                <p className="text-sm" data-testid="plan-fill-note" style={{ color: 'var(--warning)' }}>{fillNote}</p>
+              )}
+              {/* Туры, подобранные по виду, выбраны правилом 1в — оно названо (§0). */}
+              {anyKindTour && <PlanTourRule />}
+              {calendar.map((day, i) => {
+                const picked = dayTours[i];
+                const tour = picked?.tour;
                 const price = formatPrice(day.priceFrom, day.priceTo);
                 return (
                   <article key={day.day} className="ds-card p-4 space-y-2">
@@ -259,7 +251,7 @@ export default async function PlanPresetPage({ params }: PageProps) {
                         <Link
                           // Дата дня — в форму брони (B-3): availableDate движка
                           // (реальный слот), иначе расчётная дата дня плана.
-                          href={`${tourPath(tour)}?date=${day.availableDate ?? new Date(new Date(arrival).getTime() + (day.day - 1) * 86400000).toISOString().slice(0, 10)}`}
+                          href={`${tourPath(tour)}?date=${('availableDate' in day ? day.availableDate : undefined) ?? new Date(new Date(arrival).getTime() + (day.day - 1) * 86400000).toISOString().slice(0, 10)}`}
                           className="absolute inset-0 z-[1] rounded-md"
                           aria-label={`${tour.title}: оставить заявку`} />
                         <span className="relative z-[2] pointer-events-none text-xs min-w-0 truncate" style={{ color: 'var(--text-primary)' }}>
@@ -270,7 +262,7 @@ export default async function PlanPresetPage({ params }: PageProps) {
                         </span>
                       </div>
                     )}
-                    {tour && <PlanKindOffers activityType={day.activityType} offers={tour.offers_of_kind} />}
+                    {tour && picked?.source === 'kind' && <PlanKindOffers activityType={day.activityType} offers={tour.offers_of_kind} />}
                   </article>
                 );
               })}
