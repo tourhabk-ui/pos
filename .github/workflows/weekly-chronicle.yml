@@ -268,7 +268,7 @@ jobs:
       # HAND_EXECUTION_FILE, а не этот шаг.
       - name: Счётчики расхода руки — из работы руки
         continue-on-error: true
-        uses: actions/download-artifact@v7
+        uses: actions/download-artifact@v8
         with:
           name: hand-usage
           path: ${{ runner.temp }}/hand
