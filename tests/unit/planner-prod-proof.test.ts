@@ -259,6 +259,12 @@ describe('тур — только на день, где у него есть в�
     expect(gor[0].day).toBe(6);
     expect(gor[0].availability).toBe('open');
     expect(gor[0].availableDate).toBe(`${NEXT_JULY}-07-15`);
+    // Дата, ответ наличия и время проверки — доказательство места (принцип 2,
+    // 07.11): время — этой сборки плана, а не выдуманное.
+    const checked = Date.parse(gor[0].availabilityCheckedAt ?? '');
+    expect(Math.abs(Date.now() - checked)).toBeLessThan(60_000);
+    // У дня без тура занятость не читалась — и времени проверки нет.
+    expect(rec.days.filter((d) => !d.realTour).every((d) => d.availabilityCheckedAt === undefined)).toBe(true);
     // Тур с календарём не стоит ни на одном дне без своего выезда. У
     // Авачинского календаря нет: «дату подтверждает оператор» — его исход.
     expect(rec.days.some((d) => d.realTour?.tourId === 't-gor' && d.availability !== 'open')).toBe(false);

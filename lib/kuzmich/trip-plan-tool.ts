@@ -28,6 +28,7 @@ import {
 } from '@/lib/planner/plan-edit';
 import { estimateGroup, type GroupEstimate } from '@/lib/planner/estimate';
 import { priceFromUnit } from '@/lib/tours/price-label';
+import { kamchatkaStamp } from '@/lib/safety/place-day-status';
 import { saveDraft, loadDraft, updateDraft, isDraftId, type DraftSurface } from '@/lib/planner/plan-drafts';
 import { McpUserError } from '@/lib/mcp/jsonrpc';
 import { parsePlanStart, rangeDays, planStartRefusal, type PlanStart } from '@/lib/kuzmich/plan-start';
@@ -677,32 +678,41 @@ function ddmm(iso: string): string {
  * `planDayIso` — дата этого дня плана; `keepsSchedule` — ведёт ли тур
  * календарь (нужен только для исхода `none`; null — не смогли проверить).
  * null в ответе — сказать нечего (у дня нет тура или занятость не читалась).
+ *
+ * У ответа наличия есть время проверки (совет, пересланный владельцем 07.11,
+ * принцип 2: дата, ответ наличия и время проверки — без них «не
+ * подтверждено»). Места, которых нечем подтвердить (не прочиталось,
+ * расписания нет, время проверки не записано), так и названы.
  */
 export function tourAvailabilityLine(
-  d: Pick<DayPlan, 'realTour' | 'availability' | 'availableDate' | 'slotsRemaining' | 'capacityWarning'>,
+  d: Pick<DayPlan, 'realTour' | 'availability' | 'availableDate' | 'slotsRemaining' | 'capacityWarning' | 'availabilityCheckedAt'>,
   planDayIso: string | null,
   keepsSchedule: boolean | null | undefined,
 ): string | null {
   if (!d.realTour || !d.availability) return null;
   const id = `Тур ID${d.realTour.tourId}${d.realTour.operatorName ? `, ${d.realTour.operatorName}` : ''}`;
+  const at = d.availabilityCheckedAt;
+  const stamp = at && Number.isFinite(Date.parse(at)) ? kamchatkaStamp(at) : null;
+  const checked = stamp ? ` (проверено ${stamp} по Камчатке)` : null;
   if (d.availability === 'open' && d.availableDate) {
     const seats = d.slotsRemaining != null ? `, свободно мест: ${d.slotsRemaining}` : '';
     const other = planDayIso && d.availableDate !== planDayIso
       ? ` — это не ${ddmm(planDayIso)}, день плана можно сдвинуть под тур`
       : '';
     const warn = d.capacityWarning ? `. ${d.capacityWarning}` : '';
-    return `${id}: ближайшая свободная дата в ваши даты — ${ddmm(d.availableDate)}${seats}${other}${warn}`;
+    const proof = checked ?? ' (время проверки не записано — места не подтверждены)';
+    return `${id}: ближайшая свободная дата в ваши даты — ${ddmm(d.availableDate)}${seats}${other}${proof}${warn}`;
   }
   if (d.availability === 'unread') {
-    return `${id}: занятость сейчас не прочиталась — даты не называю, проверьте get_tour_availability по ID`;
+    return `${id}: занятость сейчас не прочиталась — места не подтверждены, даты не называю, проверьте get_tour_availability по ID`;
   }
   if (keepsSchedule === false) {
-    return `${id}: расписания в системе нет — это не «мест нет», дату подтверждает оператор по заявке`;
+    return `${id}: расписания в системе нет — места не подтверждены, но это не «мест нет»: дату подтверждает оператор по заявке`;
   }
   if (keepsSchedule === true) {
-    return `${id}: в ваши даты свободных мест нет — другие даты покажет get_tour_availability по ID`;
+    return `${id}: в ваши даты свободных мест нет${checked ?? ' (время проверки не записано)'} — другие даты покажет get_tour_availability по ID`;
   }
-  return `${id}: свободных дат в ваши даты не нашли, а ведёт ли тур расписание, проверить не смогли — не утверждайте, что мест нет`;
+  return `${id}: свободных дат в ваши даты не нашли, а ведёт ли тур расписание, проверить не смогли — места не подтверждены, не утверждайте, что мест нет`;
 }
 
 const DAY_WARNINGS_SHOWN = 3;

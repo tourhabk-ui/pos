@@ -9,6 +9,8 @@
  * проверить не смогли. До пруфа с прода 06.11 страница знала только первый, а
  * остальные три молча превращались в «от … ₽ · оставить заявку».
  */
+import { kamchatkaStamp } from '@/lib/safety/place-day-status';
+
 export type TripDayAvailabilityState = 'open' | 'none' | 'on_request' | 'unread';
 
 export interface TripDayAvailability {
@@ -18,6 +20,12 @@ export interface TripDayAvailability {
   state?: TripDayAvailabilityState;
   /** Только у `none`: ближайшая свободная дата в окне поиска. */
   next?: string;
+  /**
+   * Когда share-API прочитал места (ISO). Дата, ответ наличия и время
+   * проверки — доказательство (совет, пересланный владельцем 07.11,
+   * принцип 2): страница называет время у «места есть» и «мест нет».
+   */
+  checkedAt?: string;
 }
 
 /** «12.08» из YYYY-MM-DD. */
@@ -43,16 +51,23 @@ export interface DayAvailabilityView {
   ctaDate: string | null;
 }
 
+/** « · проверено 07.11, 14:05 по Камчатке»; нет времени — пусто (старый ответ API). */
+function checkedWords(a: TripDayAvailability): string {
+  return a.checkedAt && Number.isFinite(Date.parse(a.checkedAt))
+    ? ` · проверено ${kamchatkaStamp(a.checkedAt)} по Камчатке`
+    : '';
+}
+
 /** Строка мест и подпись действия у тура дня — чистая, под тестом. */
 export function dayAvailabilityLine(a: TripDayAvailability): DayAvailabilityView {
   const state = a.state ?? 'open';
   if (state === 'open') {
-    return { tone: 'ok', text: `на ${ddmmOf(a.date)} — ${a.remaining} ${seatsWord(a.remaining)}`, cta: 'оставить заявку', ctaDate: a.date };
+    return { tone: 'ok', text: `на ${ddmmOf(a.date)} — ${a.remaining} ${seatsWord(a.remaining)}${checkedWords(a)}`, cta: 'оставить заявку', ctaDate: a.date };
   }
   if (state === 'none') {
     return {
       tone: 'warn',
-      text: `на ${ddmmOf(a.date)} свободных мест нет${a.next ? `; ближайшая свободная дата — ${ddmmOf(a.next)}` : '; в ближайшие два месяца свободных дат не нашли'}`,
+      text: `на ${ddmmOf(a.date)} свободных мест нет${a.next ? `; ближайшая свободная дата — ${ddmmOf(a.next)}` : '; в ближайшие два месяца свободных дат не нашли'}${checkedWords(a)}`,
       cta: a.next ? `заявка на ${ddmmOf(a.next)}` : 'другие даты',
       ctaDate: a.next ?? null,
     };
