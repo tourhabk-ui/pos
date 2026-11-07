@@ -241,10 +241,17 @@ export interface RentalOfferSummary {
  * Планер — экран сайта: прокатчик под паузой (lib/rental/site-pause) в нём
  * не показывается. Пустой из-за паузы список — `paused`, а не `empty`:
  * прокатчик есть, и экран говорит, когда он вернётся, а не «проката нет».
+ *
+ * `agents` — ответ агенту по MCP (make_trip_plan, lib/kuzmich/plan-offers):
+ * ему прокатчик под паузой виден, как в search_car_rental (владелец 23.10:
+ * «прячем … но оставляем его для mcp и A2A»).
  */
-export async function findCarRentalOffers(): Promise<CheckOutcome<RentalOfferSummary> | { state: 'paused'; returnsOn: string }> {
+export async function findCarRentalOffers(
+  opts: { agents?: boolean } = {},
+): Promise<CheckOutcome<RentalOfferSummary> | { state: 'paused'; returnsOn: string }> {
   try {
-    const { shown: companies, hidden } = rentalOnSite(await loadRentalCompanies());
+    const all = await loadRentalCompanies();
+    const { shown: companies, hidden } = opts.agents ? { shown: all, hidden: 0 } : rentalOnSite(all);
     if (companies.length === 0) {
       return hidden > 0 ? { state: 'paused', returnsOn: RENTAL_SITE_PAUSE.returnsOn } : { state: 'empty' };
     }
