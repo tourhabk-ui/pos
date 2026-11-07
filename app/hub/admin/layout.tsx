@@ -81,26 +81,30 @@ const SIDEBAR_ITEMS = [
   { href: '/hub/admin/operator-sites', label: 'Сайты операторов', icon: ShieldCheck, section: 'Аналитика' },
 
   // AI
+  // 07.11 (владелец: «как смотреть расходы и за что», «наведи порядок в этом
+  // разделе»): первыми — деньги. «Расходы AI» открываются на вкладке «Деньги»
+  // (сутки против лимита, за что по агентам, по моделям, остаток на счетах).
+  { href: '/hub/admin/ai-usage', label: 'Расходы AI', icon: Coins, section: 'AI' },
+  // 10.09: владелец искал «Кузьмич AI и чаты» и не нашёл — вкладка внутри
+  // «Расходов AI» по названию раздела не угадывается. Отдельный пункт ведёт
+  // на ту же страницу с открытой вкладкой: страницы две не заводим.
+  { href: '/hub/admin/ai-usage?tab=kuzmich', label: 'Кузьмич и чаты', icon: MessageCircle, section: 'AI' },
   // Кокпит ядра (P3): задачи/события kernel и «Ждут моего решения». Только
   // просмотр — решения по agent-PR принимаются в GitHub, не здесь.
   // 03.09: «AI и автоматизации» (/hub/admin/agents, живость cron-агентов)
   // стала вкладкой кокпита — обе плитки отвечали на один вопрос «жив ли
   // агент». Старый адрес — редирект в next.config.
   { href: '/hub/admin/volcano', label: 'Работа Volcano OS', icon: Gauge, section: 'AI' },
-  { href: '/hub/admin/ai-usage', label: 'Расходы AI', icon: Coins, section: 'AI' },
-  // 10.09: владелец искал «Кузьмич AI и чаты» и не нашёл — вкладка внутри
-  // «Расходов AI» по названию раздела не угадывается. Отдельный пункт ведёт
-  // на ту же страницу с открытой вкладкой: страницы две не заводим.
-  { href: '/hub/admin/ai-usage?tab=kuzmich', label: 'Кузьмич и чаты', icon: MessageCircle, section: 'AI' },
   // 03.09: «Модели эволюции» (/hub/admin/evo/models) стали вкладкой
   // Health-метрик — та же проба провайдеров, другим взглядом. Редирект в next.config.
   // 03.09: «Разведка» (/hub/admin/intelligence) стала вкладкой Brain — обе
   // страницы читали одну agent_memory. Старый адрес — редирект в next.config.
   { href: '/hub/admin/brain', label: 'Память и разведка', icon: Brain, section: 'AI' },
   { href: '/hub/admin/taaft', label: 'Сторонние сервисы', icon: Globe, section: 'AI' },
-  // Отчёт по AI-инициативам. Живёт вне /hub/admin, свою проверку роли делает
-  // сам; в меню его не было ни разу.
-  { href: '/hub/admin/ai-prompts', label: 'Оптим. промптов', icon: Sparkles, section: 'AI' },
+  // Инструкция Кузьмича: просмотр и тест со своим вариантом (тест — настоящий
+  // вызов модели). 07.11: «Оптим. промптов» обещало оптимизацию, которой на
+  // странице нет, — подпись говорит, что там.
+  { href: '/hub/admin/ai-prompts', label: 'Промпты ИИ', icon: Sparkles, section: 'AI' },
 
   // Каналы
   { href: '/hub/admin/channels', label: 'Каналы продаж', icon: Share2, section: 'Каналы' },

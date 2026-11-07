@@ -583,4 +583,43 @@ withPg('перепись пользы агентов на схеме прода'
       prompt_tokens: 1000, completion_tokens: 120, cache_read_tokens: 9000, upper_bound_calls: 1,
     });
   });
+
+  // Вкладка «Деньги» страницы «Расходы AI» (07.11): окна 1/7/30 по агенту,
+  // «дороже — выше, без цены — в конце», и сутки той же границей, что у крона
+  // тревоги о бюджете (`created_at >= DATE_TRUNC('day', NOW())`). Строки
+  // «сегодня» стоят на NOW() и на самой границе; строка за секунду до
+  // полуночи в сутки не входит. Строки соседних тестов — сутки назад и
+  // раньше, в «сегодня» не попадают никогда.
+  it('книги для вкладки «Деньги»: окна по агенту, порядок по цене и граница суток', async () => {
+    await pool.query(
+      `INSERT INTO llm_usage_log (route, prompt_tokens, completion_tokens, total_tokens, estimated_cost_usd, agent_id, created_at) VALUES
+         ('m', 10, 5, 15, 0.5,  'money-probe',    NOW()),
+         ('m', 10, 5, 15, NULL, 'money-probe',    NOW()),
+         ('m', 10, 5, 15, 1.0,  'money-probe',    NOW() - interval '3 day'),
+         ('m', 10, 5, 15, 2.0,  'money-probe',    NOW() - interval '20 day'),
+         ('m', 10, 5, 15, 9,    'money-probe',    NOW() - interval '40 day'),
+         ('m', 1, 1, 2,   0.25, 'money-edge',     DATE_TRUNC('day', NOW())),
+         ('m', 1, 1, 2,   NULL, 'money-edge',     DATE_TRUNC('day', NOW())),
+         ('m', 1, 1, 2,   0.01, 'money-edge',     DATE_TRUNC('day', NOW()) - interval '1 second'),
+         ('m', 1, 1, 2,   NULL, 'money-unpriced', NOW() - interval '2 day')`,
+    );
+    const { AGENT_SPEND_SQL, toAgentSpend, SPEND_TODAY_SQL, toSpendToday } = await import('@/lib/ai/model-spend');
+
+    const list = (await pool.query(AGENT_SPEND_SQL)).rows.map(toAgentSpend);
+    expect(list[0]).toEqual({
+      agent_id: 'money-probe', label: 'money-probe',
+      d1: { calls: 2, tokens: 30, cost_usd: 0.5, unknown_cost_calls: 1 },
+      d7: { calls: 3, tokens: 45, cost_usd: 1.5, unknown_cost_calls: 1 },
+      d30: { calls: 4, tokens: 60, cost_usd: 3.5, unknown_cost_calls: 1 },
+    });
+    // Без единой цены — в конце, и цена у них «не посчитана», а не ноль.
+    const firstUnpriced = list.findIndex((a) => a.d30.cost_usd === null);
+    expect(list[firstUnpriced]).toBeDefined();
+    expect(list.slice(firstUnpriced).every((a) => a.d30.cost_usd === null)).toBe(true);
+    expect(list.find((a) => a.agent_id === 'money-unpriced')?.d30).toEqual({ calls: 1, tokens: 2, cost_usd: null, unknown_cost_calls: 1 });
+
+    const today = toSpendToday((await pool.query(SPEND_TODAY_SQL)).rows[0]);
+    const { rows: [{ d }] } = await pool.query(`SELECT DATE_TRUNC('day', NOW()) AS d`);
+    expect(today).toEqual({ since: (d as Date).toISOString(), calls: 4, cost_usd: 0.75, unpriced_calls: 2 });
+  });
 });

@@ -1,12 +1,14 @@
 'use client';
 
 import React, { useCallback, useEffect, useState } from 'react';
-import { Coins, RefreshCw, Cpu, Sparkles, Tags } from 'lucide-react';
+import { Activity, Coins, RefreshCw, Cpu, Sparkles, Tags, Wallet } from 'lucide-react';
+import AiMoneyClient from './_AiMoneyClient';
 import KuzmichAnalyticsClient from './_KuzmichAnalyticsClient';
 import ModelCatalogClient from './_ModelCatalogClient';
 
 /**
- * Три вкладки на одном вопросе «во что нам обходится AI» (03.09, +09.09).
+ * Четыре вкладки на одном вопросе «во что нам обходится AI» (03.09, +09.09,
+ * +07.11 «Деньги» первой).
  *
  * «Расходы AI» и «AI Кузьмич» читали один и тот же журнал ai_actions_log с
  * двух страниц в разных разделах меню: первая — сколько и каким провайдером,
@@ -18,24 +20,30 @@ import ModelCatalogClient from './_ModelCatalogClient';
 // Третья вкладка (09.09) — цены моделей. Здесь же, а не отдельной страницей:
 // «сколько потратили» и «сколько стоит» — один вопрос, и разведённый по двум
 // разделам меню он читался бы как два разных инструмента (§12).
-type UsageTab = 'usage' | 'kuzmich' | 'models';
+//
+// 07.11 (владелец: «как смотреть расходы и за что», «наведи порядок в этом
+// разделе»): первой и по умолчанию — «Деньги» (книги llm_usage_log: сегодня
+// против лимита, за что по агентам, по моделям, остаток на счетах; карточка
+// переехала сюда из «Health-метрик»). Счётчик действий стал вкладкой
+// «Активность» и больше не показывает «стоимость пока не пишется» — по
+// колонке ai_actions_log.cost_usd, которую не пишет никто.
+type UsageTab = 'money' | 'activity' | 'kuzmich' | 'models';
 
 function tabFromLocation(): UsageTab {
-  if (typeof window === 'undefined') return 'usage';
+  if (typeof window === 'undefined') return 'money';
   const t = new URLSearchParams(window.location.search).get('tab');
-  return t === 'kuzmich' || t === 'models' ? t : 'usage';
+  return t === 'activity' || t === 'kuzmich' || t === 'models' ? t : 'money';
 }
 
 interface AiUsageData {
   totals: { today: number; week: number; month: number };
-  cost: { instrumented: boolean; usd_30d: number; tokens_in_30d: number; tokens_out_30d: number };
   by_action_type: Array<{ action_type: string; count: number }>;
   by_provider: Array<{ provider: string; count: number }>;
   daily: Array<{ day: string; count: number }>;
 }
 
 export default function AdminAiUsagePage() {
-  const [tab, setTab] = useState<UsageTab>('usage');
+  const [tab, setTab] = useState<UsageTab>('money');
   // Адрес читается после монтирования: на сервере window нет, а рендер с
   // разной вкладкой на сервере и клиенте дал бы расхождение разметки.
   useEffect(() => { setTab(tabFromLocation()); }, []);
@@ -43,14 +51,14 @@ export default function AdminAiUsagePage() {
     setTab(next);
     try {
       const url = new URL(window.location.href);
-      if (next === 'usage') url.searchParams.delete('tab');
+      if (next === 'money') url.searchParams.delete('tab');
       else url.searchParams.set('tab', next);
       window.history.replaceState(null, '', url.toString());
     } catch { /* адрес не обновился — переключение всё равно состоялось */ }
   };
 
   const [data, setData] = useState<AiUsageData | null>(null);
-  const [loading, setLoading] = useState(true);
+  const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
   const fetchData = useCallback(async () => {
@@ -67,7 +75,11 @@ export default function AdminAiUsagePage() {
     setLoading(false);
   }, []);
 
-  useEffect(() => { fetchData(); }, [fetchData]);
+  // Счётчик читается, когда открыта его вкладка: по умолчанию страница
+  // открывается на «Деньгах», и лишний запрос к журналу действий не нужен.
+  useEffect(() => {
+    if (tab === 'activity' && data === null && !loading && error === null) void fetchData();
+  }, [tab, data, loading, error, fetchData]);
 
   const kpis = data ? [
     { label: 'Сегодня', value: data.totals.today },
@@ -80,7 +92,8 @@ export default function AdminAiUsagePage() {
   const maxProvider = data ? Math.max(...data.by_provider.map(p => p.count), 1) : 1;
 
   const tabs: Array<{ id: UsageTab; label: string; Icon: typeof Coins }> = [
-    { id: 'usage', label: 'Расходы', Icon: Coins },
+    { id: 'money', label: 'Деньги', Icon: Wallet },
+    { id: 'activity', label: 'Активность', Icon: Activity },
     { id: 'kuzmich', label: 'Кузьмич', Icon: Sparkles },
     { id: 'models', label: 'Модели и цены', Icon: Tags },
   ];
@@ -92,7 +105,7 @@ export default function AdminAiUsagePage() {
           <Coins className="w-4 h-4 text-[var(--text-muted)]" />
           <h1 className="text-sm font-semibold text-[var(--text-primary)] tracking-tight">Расходы AI</h1>
         </div>
-        {tab === 'usage' && (
+        {tab === 'activity' && (
           <button
             onClick={fetchData}
             className="flex items-center gap-1.5 px-2.5 py-1.5 text-xs text-[var(--text-secondary)] bg-[var(--bg-card)] border border-[var(--border)] rounded-md hover:bg-[var(--bg-hover)] transition-colors"
@@ -122,15 +135,18 @@ export default function AdminAiUsagePage() {
         ))}
       </div>
 
-      {tab === 'models' ? (
+      {tab === 'money' ? (
+        <AiMoneyClient />
+      ) : tab === 'models' ? (
         <ModelCatalogClient />
       ) : tab === 'kuzmich' ? (
         <KuzmichAnalyticsClient />
       ) : (
       <>
       <p className="text-xs text-[var(--text-muted)]">
-        Активность AI-агентов из журнала ai_actions_log: сколько раз какое действие
-        отработало, каким провайдером, во времени.
+        Сколько раз агенты что-то делали — по дням, по типу действия, по провайдеру
+        (журнал ai_actions_log). Это счётчик, а не деньги: сколько это стоит — во
+        вкладке «Деньги».
       </p>
 
       {loading ? (
@@ -162,29 +178,6 @@ export default function AdminAiUsagePage() {
                 </div>
               </div>
             ))}
-          </div>
-
-          {/* Стоимость — честно про инструментацию */}
-          <div className="bg-[var(--bg-card)] border border-[var(--border)] rounded-lg p-4">
-            <p className="text-[10px] uppercase tracking-widest text-[var(--text-muted)] mb-2">Стоимость · 30 дней</p>
-            {data.cost.instrumented ? (
-              <div className="flex flex-wrap items-baseline gap-x-6 gap-y-1">
-                <div className="flex items-baseline gap-2">
-                  <span className="text-xl font-semibold font-mono text-[var(--text-primary)]">${data.cost.usd_30d.toFixed(2)}</span>
-                  <span className="text-xs text-[var(--text-secondary)]">за 30 дней</span>
-                </div>
-                <span className="text-xs font-mono text-[var(--text-secondary)]">
-                  {data.cost.tokens_in_30d.toLocaleString('ru-RU')} вход · {data.cost.tokens_out_30d.toLocaleString('ru-RU')} выход токенов
-                </span>
-              </div>
-            ) : (
-              <p className="text-xs text-[var(--text-muted)] leading-relaxed">
-                Стоимость и токены пока не пишутся: колонки в журнале есть, но waterfall
-                (callAIWaterfall/Fast/Quality) их не заполняет. Пока в стеке DeepSeek off-peak
-                и бесплатные провайдеры (Groq/Cerebras/Mistral) — расход близок к нулю. Чтобы
-                видеть точные рубли, нужна инструментация usage в точке AI-вызова — отдельный шаг.
-              </p>
-            )}
           </div>
 
           {/* По дням */}

@@ -1,13 +1,14 @@
 /**
- * GET /api/admin/analytics/ai-usage — активность и стоимость AI-агентов
- * из журнала ai_actions_log.
+ * GET /api/admin/analytics/ai-usage — активность AI-агентов из журнала
+ * ai_actions_log: сколько раз какое действие отработало, каким провайдером,
+ * по дням. Вкладка «Активность» страницы «Расходы AI».
  *
- * ЧЕСТНО О ДАННЫХ: колонки tokens_in/tokens_out/cost_usd в схеме есть
- * (миграции 059/687/691), но НИ ОДИН insert их сейчас не заполняет — все
- * пишут только action_type + metadata. Поэтому «стоимость» вернётся нулевой,
- * а признак `cost_instrumented` говорит правду: инструментации расходов в
- * waterfall пока нет. Активность (сколько раз какой агент отработал, по
- * провайдерам, во времени) — реальная. Не выдумываем рубли, которых нет.
+ * Денег здесь нет и не было: колонки tokens_in/tokens_out/cost_usd в схеме
+ * есть (миграции 059/687/691), но cost_usd не пишет ни один insert, и до 07.11
+ * этот роут отдавал по ней «стоимость», а страница — «стоимость пока не
+ * пишется», хотя расход давно пишут книги llm_usage_log. Деньги — роут
+ * /api/admin/health/ai-money и вкладка «Деньги» (владелец 07.11: «наведи
+ * порядок в этом разделе»).
  */
 import { NextRequest, NextResponse } from 'next/server';
 import { requireAdmin } from '@/lib/auth/middleware';
@@ -22,20 +23,11 @@ export async function GET(request: NextRequest) {
 
   try {
     const [totals, byType, byProvider, daily] = await Promise.all([
-      pool.query<{
-        today: string; week: string; month: string;
-        cost_rows: string; cost_sum: string | null;
-        tokens_in: string | null; tokens_out: string | null;
-      }>(`
+      pool.query<{ today: string; week: string; month: string }>(`
         SELECT
           COUNT(*) FILTER (WHERE created_at >= CURRENT_DATE)                       AS today,
           COUNT(*) FILTER (WHERE created_at >= NOW() - INTERVAL '7 days')          AS week,
-          COUNT(*) FILTER (WHERE created_at >= NOW() - INTERVAL '30 days')         AS month,
-          COUNT(*) FILTER (WHERE cost_usd IS NOT NULL
-                             AND created_at >= NOW() - INTERVAL '30 days')         AS cost_rows,
-          COALESCE(SUM(cost_usd) FILTER (WHERE created_at >= NOW() - INTERVAL '30 days'), 0)::float8   AS cost_sum,
-          COALESCE(SUM(tokens_in) FILTER (WHERE created_at >= NOW() - INTERVAL '30 days'), 0)::float8  AS tokens_in,
-          COALESCE(SUM(tokens_out) FILTER (WHERE created_at >= NOW() - INTERVAL '30 days'), 0)::float8 AS tokens_out
+          COUNT(*) FILTER (WHERE created_at >= NOW() - INTERVAL '30 days')         AS month
         FROM ai_actions_log
       `),
       pool.query<{ action_type: string; cnt: string }>(`
@@ -71,13 +63,6 @@ export async function GET(request: NextRequest) {
           today: Number(t.today),
           week:  Number(t.week),
           month: Number(t.month),
-        },
-        cost: {
-          // Инструментирована ли стоимость: есть ли хоть одна строка с cost_usd
-          instrumented: Number(t.cost_rows) > 0,
-          usd_30d:      Number(t.cost_sum ?? 0),
-          tokens_in_30d:  Number(t.tokens_in ?? 0),
-          tokens_out_30d: Number(t.tokens_out ?? 0),
         },
         by_action_type: byType.rows.map(r => ({ action_type: r.action_type, count: Number(r.cnt) })),
         by_provider: byProvider.rows.map(r => ({ provider: r.provider ?? '—', count: Number(r.cnt) })),
