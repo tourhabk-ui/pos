@@ -6,6 +6,7 @@
  */
 
 import { parseChatBookingPrefill } from '@/lib/kuzmich/booking-prefill';
+import { latestChatPlanId, planIdOfTurn, chatPlanContext } from '@/lib/kuzmich/plan-id';
 import { planChatRequest, parseChatContact, chatToolReply, chatRequestUnconfirmed, chatPastDateAsk } from '@/lib/kuzmich/chat-request';
 import { runPublicTool } from '@/app/api/mcp/route';
 import { journaledWrite, sessionRefFrom } from '@/lib/kuzmich/write-journal';
@@ -241,6 +242,10 @@ export async function POST(request: NextRequest) {
       : rawMessage;
     const userMsg: ChatMessage = { role: 'user', content: messageWithVision, timestamp: Date.now() };
     history.push(userMsg);
+    // План поездки этого разговора (аудит 07.11, K6, K7): по нему заявка из
+    // чата уходит с plan_id, а цикл правит его по ID, даже если модель этот
+    // ID в ответе не повторила.
+    const chatPlanId = latestChatPlanId(history);
 
     const basePrompt   = getSystemPrompt(safeRole);
     const memContext   = userMemory ? buildMemoryContext(userMemory, tripHistory) : '';
@@ -294,7 +299,7 @@ export async function POST(request: NextRequest) {
           const intent = detectTourIntent(rawMessage);
           const found = intent.detected ? await findRelevantTours(intent.activityType, intent.rawWords) : [];
           const pick = await pickChatBookingTour(rawMessage, found);
-          const plan = planChatRequest(rawMessage, pick.tour, pre);
+          const plan = planChatRequest(rawMessage, pick.tour, pre, { planId: chatPlanId });
           if (plan) {
             writeStarted = true;
             const out = await journaledWrite({ channel: 'web', sessionRef: sessionRefFrom(storableSessionId, ip), tool: plan.tool, args: plan.args },
@@ -415,7 +420,7 @@ export async function POST(request: NextRequest) {
     let loopAnswered = false;
     if (!answer && safeRole === 'tourist') {
       try {
-        const kuzmichSystem = [KUZMICH_SYSTEM, kamchatkaDateContext(), geoContext, ragContext, memContext, agentInsights].filter(Boolean).join('\n\n');
+        const kuzmichSystem = [KUZMICH_SYSTEM, kamchatkaDateContext(), chatPlanContext(chatPlanId), geoContext, ragContext, memContext, agentInsights].filter(Boolean).join('\n\n');
         answer = await aiChatAgentLoop(messageWithVision, kuzmichSystem, history.slice(-10), [], webToolRuns, webProvenance, webTiming);
         loopAnswered = Boolean(answer?.trim());
       } catch (err) {
@@ -490,7 +495,7 @@ export async function POST(request: NextRequest) {
     let chatRequestText: string | null = null;
     if (fastRequestText) chatRequestText = fastRequestText;
     else if (safeRole === 'tourist' && !emergencyNow && (bookingTriggered || parseChatContact(rawMessage).consent)) {
-      const plan = planChatRequest(rawMessage, bookingFormTour, bookingFormTour ? bookingPrefill : parseChatBookingPrefill(rawMessage));
+      const plan = planChatRequest(rawMessage, bookingFormTour, bookingFormTour ? bookingPrefill : parseChatBookingPrefill(rawMessage), { planId: chatPlanId });
       if (plan) {
         try {
           const out = await journaledWrite({ channel: 'web', sessionRef: sessionRefFrom(storableSessionId, ip), tool: plan.tool, args: plan.args },
@@ -565,7 +570,10 @@ export async function POST(request: NextRequest) {
     }
 
     if (!answerIsError) {
-      const assistantMsg: ChatMessage = { role: 'assistant', content: answer, timestamp: Date.now() };
+      // План, собранный или поправленный в этом ходе, — меткой ответа: со
+      // следующей реплики он «план разговора» (lib/kuzmich/plan-id).
+      const turnPlanId = loopAnswered ? planIdOfTurn(webToolRuns) : null;
+      const assistantMsg: ChatMessage = { role: 'assistant', content: answer, timestamp: Date.now(), ...(turnPlanId ? { planId: turnPlanId } : {}) };
       history.push(assistantMsg);
     }
 

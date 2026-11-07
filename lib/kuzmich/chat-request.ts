@@ -73,7 +73,8 @@ export interface ChatRequestPlan { tool: 'create_booking_request' | 'create_trip
 export function planChatRequest(
   text: string,
   tour: { id: number } | null,
-  prefill: { date?: string; guests?: number },
+  prefill: { date?: string; dateEnd?: string; guests?: number },
+  opts: { planId?: string | null } = {},
 ): ChatRequestPlan | null {
   const c = parseChatContact(text);
   if (!c.phone || !c.name || !c.consent || !prefill.date) return null;
@@ -83,29 +84,45 @@ export function planChatRequest(
   // оператор и перевозчик видели бы выдуманную цифру.
   const people = prefill.guests;
   const peopleWords = people ? `${people} чел.` : 'число людей не названо';
-  const base: Record<string, unknown> = { name: c.name, phone: c.phone, consent: true, comment: text.slice(0, 500) };
+  // Диапазон («с 5 по 12 июля», аудит 07.11, K6): заявка уходит на его начало,
+  // а весь диапазон стоит словами — день тура человек не называл, и это
+  // сказано, а не выдано за его слово.
+  const datesWords = prefill.dateEnd ? `${prefill.date} — ${prefill.dateEnd}` : prefill.date;
+  const rangeNote = prefill.dateEnd
+    ? `[Даты поездки: ${datesWords}; день тура не назван — поставлено начало поездки, уточнит оператор] `
+    : '';
+  const base: Record<string, unknown> = { name: c.name, phone: c.phone, consent: true, comment: `${rangeNote}${text}`.slice(0, 500) };
   if (people) base.participants = people;
+  // План разговора (K6): с ним заявка уходит частью этой поездки — даты и
+  // состав плана видит исполнитель, а расхождение с ним называет ответ.
+  if (opts.planId) base.plan_id = opts.planId;
   if (!tour && !stay && !transfer) {
     // Тур по реплике не определён однозначно — заявка всё равно уходит:
     // менеджеру на подбор, с датой и числом людей (ретест 01.11: чат
     // отвечал «оставлю заявку?», а заявки не было).
-    const args: Record<string, unknown> = { name: c.name, phone: c.phone, consent: true, comment: `[${prefill.date}, ${peopleWords}] ${text}`.slice(0, 1000) };
+    const args: Record<string, unknown> = { name: c.name, phone: c.phone, consent: true, comment: `[${datesWords}, ${peopleWords}] ${text}`.slice(0, 1000) };
     if (people) args.participants = people;
+    if (opts.planId) args.plan_id = opts.planId;
     return { tool: 'create_lead', args };
   }
   if (stay || transfer || !tour) {
     const args: Record<string, unknown> = { ...base };
-    if (!people) args.comment = `[${peopleWords}] ${text}`.slice(0, 500);
+    if (!people) args.comment = `[${peopleWords}] ${rangeNote}${text}`.slice(0, 500);
     if (tour) { args.tour = String(tour.id); args.tour_date = prefill.date; }
     // Жильё без названия объекта нельзя адресовать хозяину — пожелание
     // уходит в комментарий поездки (его видят все партнёры), не теряется.
     if (stay) {
       args.stay_wanted = true;
       args.check_in = prefill.date;
-      // Гость назвал одну дату (тура или запроса): заезд из неё — оценка, а не его слово.
-      args.stay_dates_assumed = true;
-      const nights = /(\d{1,2})\s*(?:ноч|сут)/i.exec(text);
-      if (nights) args.check_out = addDays(prefill.date, Math.min(30, Number(nights[1])));
+      if (prefill.dateEnd) {
+        // Диапазон назван — заезд и выезд его слова, а не оценка.
+        args.check_out = prefill.dateEnd;
+      } else {
+        // Гость назвал одну дату (тура или запроса): заезд из неё — оценка, а не его слово.
+        args.stay_dates_assumed = true;
+        const nights = /(\d{1,2})\s*(?:ноч|сут)/i.exec(text);
+        if (nights) args.check_out = addDays(prefill.date, Math.min(30, Number(nights[1])));
+      }
     }
     if (transfer) { args.transfer_destination = 'по заявке, см. комментарий'; args.transfer_date = prefill.date; }
     return { tool: 'create_trip_request', args };
