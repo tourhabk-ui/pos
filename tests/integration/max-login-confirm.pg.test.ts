@@ -632,6 +632,9 @@ withPg('вход через MAX подтверждается вопросом в
       });
       const yesButton = () => lastButtons().find((b) => b.payload.startsWith('ad:y:'));
       const lastText = () => sent[sent.length - 1]?.text ?? '';
+      // Кнопка отметки — запись: подписана ключом бота, как её выдаёт карточка.
+      const mark = async (action: 'contacted' | 'converted' | 'lost') =>
+        (await import('@/lib/max/admin-actions')).adminLeadPayload(action, leadId);
 
       beforeEach(async () => {
         await pool.query('DELETE FROM admin_chat_actions');
@@ -662,7 +665,10 @@ withPg('вход через MAX подтверждается вопросом в
         expect(lastText()).toContain('«Вулкан Горелый», 2 чел');
         expect(lastText()).not.toMatch(/Тест|70000000002/);
         const contacted = lastButtons().find((b) => b.text === 'Связался');
-        expect(contacted?.payload).toBe(`ad:k:${leadId}`);
+        // Отметка — запись: payload с хвостом срока и подписи.
+        expect(contacted?.payload.split('~')).toHaveLength(3);
+        expect(contacted?.payload.split('~')[0]).toBe(`ad:k:${leadId}`);
+        expect(yesButton()).toBeUndefined();
 
         sent.length = 0;
         await pressAs(contacted!.payload);
@@ -692,7 +698,7 @@ withPg('вход через MAX подтверждается вопросом в
       });
 
       it('просроченный вопрос ничего не делает и новым вопросом не становится', async () => {
-        await pressAs(`ad:k:${leadId}`);
+        await pressAs(await mark('contacted'));
         const yes = yesButton()!;
         await pool.query(`UPDATE admin_chat_actions SET expires_at = NOW() - INTERVAL '1 minute'`);
         sent.length = 0;
@@ -703,9 +709,9 @@ withPg('вход через MAX подтверждается вопросом в
       });
 
       it('новый вопрос снимает прежний: «Да» под старым не исполняется', async () => {
-        await pressAs(`ad:k:${leadId}`);
+        await pressAs(await mark('contacted'));
         const first = yesButton()!;
-        await pressAs(`ad:l:${leadId}`);
+        await pressAs(await mark('lost'));
         sent.length = 0;
         await pressAs(first.payload);
         expect(lastText()).toContain('заменён');
@@ -714,7 +720,7 @@ withPg('вход через MAX подтверждается вопросом в
       });
 
       it('«Не надо» — заявка без изменений, «Да» после него не исполняется', async () => {
-        await pressAs(`ad:v:${leadId}`);
+        await pressAs(await mark('converted'));
         const yes = yesButton()!;
         const no = lastButtons().find((b) => b.payload.startsWith('ad:n:'))!;
         await pressAs(no.payload);
@@ -726,7 +732,7 @@ withPg('вход через MAX подтверждается вопросом в
       });
 
       it('снятая роль администратора гасит живой вопрос', async () => {
-        await pressAs(`ad:v:${leadId}`);
+        await pressAs(await mark('converted'));
         const yes = yesButton()!;
         await setAdmin(false);
         sent.length = 0;
@@ -737,14 +743,14 @@ withPg('вход через MAX подтверждается вопросом в
       });
 
       it('чужой человек MAX и группа — отказ, ничего не записано', async () => {
-        await pressAs(`ad:k:${leadId}`);
+        await pressAs(await mark('contacted'));
         const yes = yesButton()!;
         sent.length = 0;
         await pressAs(yes.payload, OTHER_MAX);
         expect(lastText()).toContain('у администратора Ведара');
         await pressAs(yes.payload, ADMIN_MAX, 'chat');
         expect(lastText()).toContain('личном диалоге');
-        await pressAs(`ad:l:${leadId}`, OTHER_MAX);
+        await pressAs(await mark('lost'), OTHER_MAX);
         expect(await leadStatus()).toBe('new');
         expect((await actionRows()).map((r) => r.status)).toEqual(['ready']);
       });
@@ -757,7 +763,7 @@ withPg('вход через MAX подтверждается вопросом в
            RETURNING id::text AS id`,
         );
         await pool.query('INSERT INTO admin_max_bindings (user_id, max_user_id) VALUES ($1, $2)', [rows[0].id, OTHER_MAX]);
-        await pressAs(`ad:k:${leadId}`);
+        await pressAs(await mark('contacted'));
         const yes = yesButton()!;
         sent.length = 0;
         await pressAs(yes.payload, OTHER_MAX);
@@ -766,10 +772,37 @@ withPg('вход через MAX подтверждается вопросом в
         expect((await actionRows()).map((r) => r.status)).toEqual(['ready']);
       });
 
+      it('кнопка без подписи или с чужой подписью отвергается до разбора: вопроса нет, заявка не тронута', async () => {
+        vi.stubEnv('CALLBACK_LEGACY_UNTIL_MS', '1');
+        try {
+          await pressAs(await mark('contacted'));
+          const yes = yesButton()!;
+          const [bare] = yes.payload.split('~');
+          sent.length = 0;
+          // Собранное руками «Да» без хвоста.
+          await pressAs(bare);
+          expect(lastText()).toContain('Кнопка устарела');
+          // Хвост от одной кнопки на другой: «Не надо» подписью «Да».
+          await pressAs(yes.payload.replace('ad:y:', 'ad:n:'));
+          expect(lastText()).toContain('не удалось проверить');
+          // Отметка без подписи не заводит вопроса.
+          await pressAs(`ad:l:${leadId}`);
+          expect(lastText()).toContain('Кнопка устарела');
+          expect(await leadStatus()).toBe('new');
+          expect((await actionRows()).map((r) => `${r.action}:${r.status}`)).toEqual(['contacted:ready']);
+          // Настоящая кнопка по-прежнему работает.
+          await pressAs(yes.payload);
+          expect(lastText()).toContain('Заявка отмечена');
+          expect(await leadStatus()).toBe('contacted');
+        } finally {
+          vi.unstubAllEnvs();
+        }
+      });
+
       it('незаверенное нажатие не засчитано', async () => {
         await bot({
           update_type: 'message_callback', timestamp: Date.now(),
-          callback: { timestamp: Date.now(), callback_id: 'cb-unverified', payload: `ad:k:${leadId}`, user: { user_id: ADMIN_MAX, name: 'Админ' } },
+          callback: { timestamp: Date.now(), callback_id: 'cb-unverified', payload: await mark('contacted'), user: { user_id: ADMIN_MAX, name: 'Админ' } },
           message: { recipient: { chat_id: ADMIN_MAX + 5, chat_type: 'dialog' }, body: { mid: 'm-unv', seq: 1, text: null } },
         }, false);
         expect(lastText()).toContain('не засчитано');

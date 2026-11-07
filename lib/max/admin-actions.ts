@@ -31,7 +31,11 @@
  *   - личный диалог: в группе кнопку нажал бы любой участник;
  *   - нажавший — человек MAX, привязанный ссылкой из админки, и его аккаунт
  *     СЕЙЧАС владеет ролью администратора (`findMaxAdmin`, на каждом нажатии,
- *     а не однажды при вопросе): снятая роль гасит и живой вопрос.
+ *     а не однажды при вопросе): снятая роль гасит и живой вопрос;
+ *   - кнопки-записи (`ad:k|v|l`, `ad:y|n`) подписаны и живут 3 дня, как все
+ *     кнопки-записи чатов (lib/chat-cabinet/signed-payload): собранная руками
+ *     или старая кнопка отвергается до разбора. 15 минут вопроса держит база,
+ *     подпись — вторая линия. «Заявка N» (`ad:o`) — чтение и не подписана.
  *
  * ПД: ни карточка, ни вопрос, ни итог не называют имени, телефона и почты
  * туриста — только тему заявки (через `redactPII`: поле приходит из формы),
@@ -50,6 +54,7 @@ import { kamchatkaDate, ruShort } from '@/lib/analytics/kamchatka-day';
 import { escapeHtml } from '@/lib/text/escape-html';
 import { adminMenu } from '@/lib/roles/role-menu';
 import { menuRows, type MenuButton } from '@/lib/roles/chat-menu';
+import { signPayload } from '@/lib/chat-cabinet/signed-payload';
 
 /** Сколько живёт вопрос «Да / Не надо», минут. Префикс кнопок `ad:` — в реестре lib/max/verified-press. */
 export const ADMIN_ACTION_TTL_MIN = 15;
@@ -80,9 +85,13 @@ export function parseAdminPress(payload: string): AdminPress | null {
   return { kind: 'lead', action: CODE_ACTION[code], leadId: id };
 }
 
+/** «Заявка N» — чтение: карточку без ПД открывает и старая кнопка, права проверяются на нажатии. */
 export const adminOpenLeadPayload = (leadId: string): string => `ad:o:${leadId}`;
-export const adminLeadPayload = (action: AdminLeadAction, leadId: string): string => `ad:${ACTION_CODE[action]}:${leadId}`;
-export const adminAnswerPayload = (yes: boolean, actionId: string): string => `ad:${yes ? 'y' : 'n'}:${actionId}`;
+/** Отметка и ответ — записи: подпись и срок 3 дня (lib/chat-cabinet/signed-payload), 56 байт с хвостом. */
+export const adminLeadPayload = (action: AdminLeadAction, leadId: string): string =>
+  signPayload(`ad:${ACTION_CODE[action]}:${leadId}`);
+export const adminAnswerPayload = (yes: boolean, actionId: string): string =>
+  signPayload(`ad:${yes ? 'y' : 'n'}:${actionId}`);
 
 /** Кнопки «Заявка 1…N» под списком «Заявки»: открыть карточку заявки. */
 export function adminLeadOpenButtons(leadIds: readonly string[]): MenuButton[][] {
