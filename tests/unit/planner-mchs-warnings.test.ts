@@ -3,7 +3,7 @@
  * вулкана как обычный выход. Отказ чтения — отдельная строка, не «тихо».
  */
 import { beforeEach, describe, expect, it, vi } from 'vitest';
-import type { ActiveWarning } from '@/lib/safety/mchs-bulletin';
+import { DIGEST_TAIL, MCHS_UNREAD_NOTE, type ActiveWarning } from '@/lib/safety/mchs-bulletin';
 
 const state: { ok: boolean; warnings: ActiveWarning[] } = { ok: true, warnings: [] };
 
@@ -82,15 +82,17 @@ describe('планер и действующие предупреждения М
     const day = rec.days.find((d) => d.title.includes('Шивелуч'));
     expect(day, 'тур на Шивелуч не попал в план').toBeDefined();
     expect(day!.dayWarnings.join('\n')).toMatch(/Шивелуч/);
-    expect(day!.dayWarnings.join('\n')).toMatch(/нельзя называть безопасн/);
+    expect(day!.dayWarnings.join('\n')).toMatch(/к вулкану Шивелуч рекомендовано не приближаться/);
     expect(rec.warnings.some((w) => w.type === 'mchs' && /Шивелуч/.test(w.message))).toBe(true);
-    expect(rec.itinerary).toMatch(/нельзя называть безопасн/);
+    // «Безопасный и без риска» в пересказе — поправка сводкой: какие места и почему.
+    expect(rec.itinerary).toContain(DIGEST_TAIL);
+    expect(rec.itinerary).toMatch(/не приближаться к вулканам Шивелуч/);
   });
 
   it('сводка не прочиталась — план говорит об этом и не рисует спокойствие', async () => {
     state.ok = false;
     const rec = await recommendTrip(PROFILE, { itinerary: 'plain' });
-    expect(rec.warnings.some((w) => /Сводки МЧС не прочитаны/.test(w.message))).toBe(true);
+    expect(rec.warnings.some((w) => w.message.includes(MCHS_UNREAD_NOTE))).toBe(true);
     expect(rec.days.every((d) => !d.dayWarnings.some((n) => /Шивелуч/.test(n)))).toBe(true);
   });
 });

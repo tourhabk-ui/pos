@@ -96,6 +96,15 @@ export interface ActiveWarning {
    * судится как действующая.
    */
   relevantUntil?: string | null;
+  /**
+   * Период, названный сводкой, уже кончился. Строка в базе живёт дольше
+   * периода (публикация + 24–48 ч, `seismic-parser`), поэтому «строка жива»
+   * не значит «сводка действует». Случай 07.11: в 12:50 Кузьмич назвал
+   * «активными» запреты из сводки на 06:00 06.11–06:00 07.11. Истёкшая сводка
+   * не прячется — она называется прошедшей. Нет поля или период не разобран —
+   * не известно, и строка говорит без «истёк».
+   */
+  ended?: boolean;
 }
 
 export interface AlertWarningRow {
@@ -104,10 +113,33 @@ export interface AlertWarningRow {
   description?: string | null;
   source_url?: string | null;
   volcano_name?: string | null;
-  /** Срок строки (ISO, UTC) — у сводки с периодом это конец периода. */
+  /**
+   * Срок строки (ISO, UTC): публикация + 24–48 ч (`seismic-parser`), а не конец
+   * периода сводки. Конец периода читается из текста — `periodEndMs`.
+   */
   expires_iso?: string | null;
   /** Дата последней сводки (ISO, UTC). */
   published_iso?: string | null;
+}
+
+/** Камчатка — UTC+12 круглый год. */
+const KAMCHATKA_OFFSET_MS = 12 * 3_600_000;
+
+/**
+ * Конец периода сводки «06:00 06.11–06:00 07.11» — момент UTC в мс; null —
+ * период не разобран или года не из чего взять. Года в сводке нет: он берётся
+ * из даты публикации по Камчатке, а период, кончающийся в январе после
+ * декабрьской публикации, — в следующем году.
+ */
+export function periodEndMs(label: string | null, publishedIso: string | null | undefined): number | null {
+  if (!label || !publishedIso) return null;
+  const m = /–(\d{2}):(\d{2}) (\d{2})\.(\d{2})$/.exec(label);
+  const published = Date.parse(publishedIso);
+  if (!m || Number.isNaN(published)) return null;
+  const [y, pubMonth] = kamchatkaDate(new Date(published)).split('-').map(Number);
+  const month = Number(m[4]);
+  const year = month < pubMonth - 6 ? y + 1 : y;
+  return Date.UTC(year, month - 1, Number(m[3]), Number(m[1]), Number(m[2])) - KAMCHATKA_OFFSET_MS;
 }
 
 /** До какого дня Камчатки строка о чём-то говорит; null — не известно. */
@@ -171,8 +203,11 @@ function roadPlace(title: string, description: string): string | null {
   return head.length >= 4 ? head : null;
 }
 
-/** Строки external_alerts → предупреждения, которыми сверяют тур и маршрут. */
-export function warningsFromRows(rows: readonly AlertWarningRow[]): ActiveWarning[] {
+/**
+ * Строки external_alerts → предупреждения, которыми сверяют тур и маршрут.
+ * `nowMs` — «сейчас» для признака `ended` (истёк ли период сводки).
+ */
+export function warningsFromRows(rows: readonly AlertWarningRow[], nowMs: number = Date.now()): ActiveWarning[] {
   const out: ActiveWarning[] = [];
   const seen = new Set<string>();
   for (const row of rows) {
@@ -180,6 +215,8 @@ export function warningsFromRows(rows: readonly AlertWarningRow[]): ActiveWarnin
     const period = parseBulletinPeriod(row.description ?? '')?.label ?? null;
     const sourceUrl = row.source_url?.trim() || null;
     const relevantUntil = relevantUntilOf(row);
+    const end = periodEndMs(period, row.published_iso);
+    const ended = end !== null && end <= nowMs;
     if (type === 'volcanic_eruption') {
       const place = row.volcano_name?.trim() || volcanoFromTitle(row.title ?? '') || '';
       if (!place) continue;
@@ -188,7 +225,7 @@ export function warningsFromRows(rows: readonly AlertWarningRow[]): ActiveWarnin
       const stems = stemsOf(place);
       if (stems.length === 0) continue;
       seen.add(key);
-      out.push({ kind: 'volcano', place, stems, period, sourceUrl, relevantUntil });
+      out.push({ kind: 'volcano', place, stems, period, sourceUrl, relevantUntil, ended });
     } else if (type === 'road_closure') {
       const place = roadPlace(row.title ?? '', row.description ?? '');
       if (!place) continue;
@@ -197,7 +234,7 @@ export function warningsFromRows(rows: readonly AlertWarningRow[]): ActiveWarnin
       const stems = roadStems(place);
       if (stems.length === 0) continue;
       seen.add(key);
-      out.push({ kind: 'road', place, stems, period, sourceUrl, relevantUntil });
+      out.push({ kind: 'road', place, stems, period, sourceUrl, relevantUntil, ended });
     }
   }
   return out;
@@ -236,16 +273,31 @@ export function offeringMatches(text: string, warning: ActiveWarning): boolean {
   return warning.stems.some((stem) => hay.includes(stem));
 }
 
+/**
+ * Строка под ответом или днём плана — для человека, а не правило для модели.
+ * До 07.11 она кончалась фразой «Это нельзя называть безопасным или без
+ * риска», и турист читал инструкцию, написанную модели. Начало «МЧС: »
+ * постоянное — по нему строку узнаёт правка плана (`isOfferingNote`).
+ * Истёкший период — прошедшим временем: строка в базе жива, а сводка уже нет.
+ */
 export function offeringSentence(warning: ActiveWarning): string {
+  const what = warning.kind === 'volcano'
+    ? `к вулкану ${warning.place} рекомендовано не приближаться`
+    : `проезд — ${warning.place}`;
+  if (warning.ended && warning.period) {
+    const source = warning.sourceUrl ? ` (источник ${warning.sourceUrl})` : '';
+    return `МЧС: ${what} — по сводке на ${warning.period}; её срок истёк, обстановку на сегодня проверьте в свежей сводке${source}.`;
+  }
   const cite = [
-    warning.period ? `период ${warning.period}` : null,
+    warning.period ? `сводка на ${warning.period}` : null,
     warning.sourceUrl ? `источник ${warning.sourceUrl}` : null,
   ].filter((x): x is string => Boolean(x)).join(', ');
-  const tail = cite ? ` (${cite})` : '';
-  if (warning.kind === 'volcano') {
-    return `МЧС: к вулкану ${warning.place} рекомендовано не приближаться${tail}. Это нельзя называть безопасным или без риска.`;
-  }
-  return `МЧС: проезд — ${warning.place}${tail}. Это нельзя называть безопасным или без риска.`;
+  return `МЧС: ${what}${cite ? ` (${cite})` : ''}.`;
+}
+
+/** Строка сводки МЧС на дне плана или под ответом (`offeringSentence`). */
+export function isOfferingNote(text: string): boolean {
+  return /^МЧС: (?:к вулкану .+ рекомендовано не приближаться|проезд — )/.test(text);
 }
 
 export function notesForOffering(text: string, warnings: readonly ActiveWarning[]): string[] {
@@ -299,29 +351,42 @@ export function warningDigest(warnings: readonly ActiveWarning[]): string | null
   if (parts.length === 0) return null;
   const period = warnings.find((w) => w.period)?.period ?? null;
   const source = warnings.find((w) => w.sourceUrl)?.sourceUrl ?? null;
-  const cite = [period ? `период ${period}` : null, source ? `источник ${source}` : null]
+  const allEnded = warnings.every((w) => w.ended);
+  const when = period ? (allEnded ? `сводка на ${period}, её срок истёк` : `сводка на ${period}`) : null;
+  const cite = [when, source ? `источник ${source}` : null]
     .filter((x): x is string => Boolean(x)).join(', ');
-  return `МЧС: ${parts.join('. ')}${cite ? ` (${cite})` : ''}. Эти места нельзя называть безопасными или без риска.`;
+  return `МЧС: ${parts.join('. ')}${cite ? ` (${cite})` : ''}. ${DIGEST_TAIL}`;
 }
 
+/** Конец строки-сводки: по нему видно, что поправка к «безопасно» уже стоит. */
+export const DIGEST_TAIL = 'Безопасными эти места назвать нельзя.';
+
+/**
+ * Сводка не прочиталась. Строка идёт и туристу под ответом, и в промпт — как
+ * знак «сводки нет», поэтому она одна и написана для человека.
+ */
 export const MCHS_UNREAD_NOTE =
-  'Сводки МЧС не прочитаны — эти варианты нельзя называть безопасными или без риска.';
+  'Сводку МЧС сейчас прочитать не удалось — судить, безопасны ли эти места, не по чему. Перед выходом проверьте обстановку: 112.';
 
 /** Блок для промпта. Разбор обратный — warningsFromBlock. */
 export function formatWarningBlock(warnings: readonly ActiveWarning[]): string {
   if (warnings.length === 0) return '';
   const lines = warnings.map((w) => {
     const kind = w.kind === 'volcano' ? 'вулкан' : 'дорога';
-    const period = w.period ?? 'не указан в сводке';
+    const period = w.period ? `${w.period}${w.ended ? ENDED_MARK : ''}` : 'не указан в сводке';
     const source = w.sourceUrl ?? '-';
     return `${kind} | ${w.place} | период ${period} | источник ${source}`;
   });
   return [
-    'ДЕЙСТВУЮЩИЕ ПРЕДУПРЕЖДЕНИЯ МЧС:',
+    'ПРЕДУПРЕЖДЕНИЯ МЧС ИЗ ПОСЛЕДНИХ СВОДОК:',
     ...lines,
     'Туры у названных вулканов и маршруты по названным дорогам нельзя называть безопасными или без риска.',
+    `Период с пометкой «${ENDED_MARK.slice(2)}» уже кончился: говори о такой сводке в прошедшем времени («сводка на … рекомендовала»), не называй её действующей или активной.`,
   ].join('\n');
 }
+
+/** Пометка истёкшего периода в блоке промпта; `warningsFromBlock` читает её обратно. */
+const ENDED_MARK = ', срок истёк';
 
 const BLOCK_LINE = /^(вулкан|дорога) \| ([^|\n]+?) \| период ([^|\n]+?) \| источник (\S+)/gm;
 
@@ -332,23 +397,44 @@ export function warningsFromBlock(text: string): ActiveWarning[] {
     const place = m[2].trim();
     const periodRaw = m[3].trim();
     const sourceRaw = m[4].trim();
-    const period = periodRaw === 'не указан в сводке' ? null : periodRaw;
+    const ended = periodRaw.endsWith(ENDED_MARK);
+    const periodText = ended ? periodRaw.slice(0, -ENDED_MARK.length) : periodRaw;
+    const period = periodText === 'не указан в сводке' ? null : periodText;
     const sourceUrl = sourceRaw === '-' ? null : sourceRaw;
     const stems = kind === 'volcano' ? stemsOf(place) : roadStems(place);
     if (!place || stems.length === 0) continue;
-    out.push({ kind, place, stems, period, sourceUrl });
+    out.push({ kind, place, stems, period, sourceUrl, ended });
   }
   return out;
 }
 
-const ALL_CLEAR = /(?:^|[^а-яё])(безопасн|без риска|риска нет)/i;
+/**
+ * Утверждение «безопасно»: «безопасно», «безопасный маршрут», «вы в
+ * безопасности», «без риска». Тема «о безопасности», «безопасность — главное»
+ * утверждением не считается: 07.11 ответ начинался «Сначала о безопасности —
+ * это главное», и это читалось как «безопасно».
+ */
+const ALL_CLEAR = /(?:^|[^а-яё])(?:безопасн(?:о|а|ы|ый|ая|ое|ые|ым|ую|ого|ой)(?![а-яё])|в безопасности|без риска|риска нет)/i;
 
 /** Строка сводки называет все предупреждения сразу. Это не упоминание тура. */
 function withoutWarningDigest(answer: string): string {
   return answer
     .split('\n')
-    .filter((line) => !/не приближаться к вулканам |проезд ограничен: |Эти места нельзя называть безопасными/.test(line))
+    .filter((line) => !/не приближаться к вулканам |проезд ограничен: /.test(line) && !line.includes(DIGEST_TAIL))
     .join('\n');
+}
+
+/**
+ * Ответ уже сказал о запрете у этого места: в одном предложении — место и
+ * «не приближаться» (или «не подходить», «запрет»). Тогда строка-повтор не
+ * дописывается — 07.11 оба вулкана были названы в первом абзаце, а две строки
+ * МЧС ниже повторили их слово в слово. Истёкшая сводка дописывается всегда:
+ * её срок ответ мог назвать неверно.
+ */
+function alreadySaid(answer: string, warning: ActiveWarning): boolean {
+  if (warning.ended) return false;
+  const near = warning.kind === 'volcano' ? /не\s+приближ|не\s+подход|запрет/i : /закрыт|перекрыт|ограничен|запрет/i;
+  return answer.split(/[.!?\n]+/).some((s) => near.test(s) && offeringMatches(s, warning));
 }
 
 /**
@@ -358,13 +444,16 @@ function withoutWarningDigest(answer: string): string {
  */
 export function appendOfferingFlags(answer: string, warnings: readonly ActiveWarning[]): string {
   if (!answer.trim() || warnings.length === 0) return answer;
+  const text = withoutWarningDigest(answer);
   const notes: string[] = [];
-  for (const note of notesForOffering(withoutWarningDigest(answer), warnings)) {
+  for (const w of warnings) {
+    if (!offeringMatches(text, w) || alreadySaid(text, w)) continue;
+    const note = offeringSentence(w);
     if (!answer.includes(note) && !notes.includes(note)) notes.push(note);
   }
-  if (ALL_CLEAR.test(answer) && !answer.includes('нельзя называть безопасн') && !notes.some((n) => n.includes('нельзя называть безопасн'))) {
+  if (ALL_CLEAR.test(answer) && !answer.includes(DIGEST_TAIL)) {
     const digest = warningDigest(warnings);
-    if (digest && !answer.includes(digest)) notes.unshift(digest);
+    if (digest) notes.unshift(digest);
   }
   if (notes.length === 0) return answer;
   return `${answer.trim()}\n\n${notes.join('\n')}`;

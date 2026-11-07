@@ -23,7 +23,7 @@ import { applyPlanEdit, type EditablePlan, type EditDeps } from '@/lib/planner/p
 import type { TourDayInput, TourDayRead } from '@/lib/planner/tour-day-reread';
 import type { SafetyRefreshDeps } from '@/lib/planner/plan-safety-refresh';
 import type { PlanParkAlert } from '@/lib/planner/park-status';
-import { offeringSentence, type ActiveWarning } from '@/lib/safety/mchs-bulletin';
+import { MCHS_UNREAD_NOTE, offeringSentence, type ActiveWarning } from '@/lib/safety/mchs-bulletin';
 
 const day = (n: number, type: DayPlan['type'], title: string, extra: Partial<DayPlan> = {}): DayPlan => ({
   day: n, type, zone: 'avachinsky', title, description: '',
@@ -262,7 +262,7 @@ describe('сдвиг дат и строки безопасности дня', ()
     const r = await applyPlanEdit(p, { kind: 'shift_dates', days: 7 }, deps());
     if (!r.ok) throw new Error(r.reason);
     expect(r.plan.days[1].dayWarnings).toEqual([offeringSentence(ended)]);
-    expect(r.warnings).toContain('Сводки МЧС не прочитаны — эти варианты нельзя называть безопасными или без риска.');
+    expect(r.warnings).toContain(MCHS_UNREAD_NOTE);
   });
 });
 
