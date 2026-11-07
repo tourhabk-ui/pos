@@ -302,7 +302,7 @@ function aliasesIn(src: string, code: string, sc: Scopes): Map<string, 'contact'
   DECL_HEAD.lastIndex = 0;
   for (let m = DECL_HEAD.exec(code); m; m = DECL_HEAD.exec(code)) {
     const from = m.index + m[0].length;
-    decls.push({ key: sc.key(m[1], m.index), from, rhs: src.slice(from, from + rhsAfter(code, from).length) });
+    decls.push({ key: sc.key(m[1], m.index), from, rhs: src.slice(from, stmtEnd(code, from)) });
   }
 
   for (const { key, rhs } of decls) {
@@ -335,23 +335,40 @@ function aliasesIn(src: string, code: string, sc: Scopes): Map<string, 'contact'
   return out;
 }
 
-/** Правая часть объявления: от `=` до конца выражения, с учётом вложенности. */
-function rhsAfter(src: string, from: number): string {
+/**
+ * Конец выражения от `from` (правая часть присваивания, `return`): `;` или
+ * непарная скобка на нулевой вложенности. Перевод строки заканчивает
+ * выражение, только если оно уже началось, строка не кончается оператором
+ * (`+`, `=`, `(`, `,`, `?`, `:`, `&&`, `.`, `=>`) и следующая не начинается с
+ * него. Строки и бэктики пропускаются целиком.
+ *
+ * Четвёртое ревью PR #3104: прежняя граница обрывалась на первом переводе
+ * строки, и у `const prompt =` ⏎ `\`…\` +` ⏎ `\`Почта: ${user.email}\`` в поток
+ * не попадал ни один литерал после первого (так записан, например,
+ * lib/agents/platform-agent.ts).
+ */
+function stmtEnd(code: string, from: number): number {
   let depth = 0;
+  let begun = false;
   let i = from;
-  for (; i < src.length; i++) {
-    const c = src[i];
+  while (i < code.length) {
+    const c = code[i];
+    if (c === '"' || c === "'") { i = skipString(code, i); begun = true; continue; }
+    if (c === '`') { i = templateParts(code, i).end; begun = true; continue; }
     if (c === '(' || c === '[' || c === '{') depth++;
-    else if (c === ')' || c === ']' || c === '}') { if (depth === 0) break; depth--; }
-    else if (c === ';' && depth === 0) break;
-    else if (c === '\n' && depth === 0) {
-      // Перенос на нулевой вложенности заканчивает выражение, если следующая
-      // непустая строка не продолжает его точкой или оператором.
-      const rest = src.slice(i + 1, i + 200);
-      if (!/^\s*[.?:|&+]/.test(rest)) break;
+    else if (c === ')' || c === ']' || c === '}') { if (depth === 0) return i; depth--; }
+    else if (c === ';' && depth === 0) return i;
+    else if (c === '\n' && depth === 0 && begun) {
+      let j = i - 1;
+      while (j >= from && /\s/.test(code[j])) j--;
+      const lineEndsWithOperator = j >= from && /[+\-*/%&|?:=,([{.<>^]/.test(code[j]);
+      const nextStartsWithOperator = /^\s*(?:[.?:|&+\-*/%,]|=>)/.test(code.slice(i + 1, i + 200));
+      if (!lineEndsWithOperator && !nextStartsWithOperator) return i;
     }
+    if (!/\s/.test(c)) begun = true;
+    i++;
   }
-  return src.slice(from, i);
+  return i;
 }
 
 /** Переменные в `${…}` текста, начатого на `from`: позиция в коде без прозы. */
@@ -713,8 +730,13 @@ function buildScopes(code: string): Scopes {
   };
 }
 
-/** Присваивание: `const x = …`, `x = …`, `x += …` (не `==`, `=>`, `<=`, `>=`, `!=`). */
-const ASSIGN_HEAD = /(?<![\w$.])([A-Za-z_$][\w$]*)\s*(?::[^=;\n]+)?\+?=(?![=>])/g;
+/**
+ * Присваивание: `const x = …`, `x = …`, `x += …`, поле `this.x = …` и
+ * `box.lines = …` (не `==`, `=>`, `<=`, `>=`, `!=`). Поле — тот же ключ, что у
+ * корня `this.x` и получателя `box.lines.join(…)`: ребро «собрал в поле, отдал
+ * в content:» (четвёртое ревью PR #3104).
+ */
+const ASSIGN_HEAD = /(?<![\w$])([A-Za-z_$][\w$]*)\s*(?::[^=;\n]+)?\+?=(?![=>])/g;
 /** Ключ стока: `content:`/`system:` — значение уходит модели. */
 const SINK_KEY_HEAD = /\b(?:content|system)\s*:/g;
 /** Зарубежный вызов: `callAIFast(…)` и т. п. */
@@ -920,7 +942,7 @@ function returnSpans(code: string, body: FnBody, all: FnBody[]): FlowSpan[] {
     const at = m.index;
     if (nested.some((b) => at > b.from && at < b.to)) continue;
     const from = at + m[0].length;
-    spans.push({ from, to: from + rhsAfter(code, from).length, intoCalls: false });
+    spans.push({ from, to: stmtEnd(code, from), intoCalls: false });
   }
   return spans;
 }
@@ -1033,7 +1055,7 @@ function promptFlow(code: string, sc: Scopes, literals: TemplateLiteral[], hasFo
   for (let m = ASSIGN_HEAD.exec(code); m; m = ASSIGN_HEAD.exec(code)) {
     const from = m.index + m[0].length;
     const key = sc.key(m[1], m.index);
-    edges.push({ key, span: { from, to: from + rhsAfter(code, from).length, intoCalls: false } });
+    edges.push({ key, span: { from, to: stmtEnd(code, from), intoCalls: false } });
     if (/prompt|instruction/i.test(m[1])) reach.add(key);
   }
   PUSH_CALL.lastIndex = 0;

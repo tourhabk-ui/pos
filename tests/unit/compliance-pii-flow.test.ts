@@ -699,3 +699,44 @@ describe('D1 — третье ревью PR #3104: строка из функц�
     expect(found(src.replace('${path}', '${lead.telegram}'))).toEqual([['contact', 'url']]);
   });
 });
+
+describe('D1 — четвёртое ревью PR #3104: перенос строки и поле класса', () => {
+  const found = (src: string) => scanSource('n.ts', src).map((x) => [x.kind, x.context]);
+  const IMPORT = "import { callAIFast } from '@/lib/ai/providers';";
+
+  it('правая часть на следующей строке и склейка через `+` в конце строки', () => {
+    // Так записан lib/agents/platform-agent.ts: по литералу на строку.
+    const plus = [
+      IMPORT,
+      'async function ask(lead: Lead, user: User) {',
+      '  const prompt =',
+      '    `Определи намерение одним словом.\\n` +',
+      '    `Почта: ${user.email}\\n`;',
+      "  return callAIFast([{ role: 'user', content: prompt }]);",
+      '}',
+    ].join('\n');
+    expect(found(plus)).toEqual([['contact', 'выражение']]);
+    // Тот же смысл в одну строку и с переносом после `=` — один вердикт.
+    const oneLine = [IMPORT, "const text = leads.map((l) => `Тел: ${l.phone}`).join('\\n');", "await callAIFast([{ role: 'user', content: text }]);"].join('\n');
+    const wrapped = oneLine.replace('const text = ', 'const text =\n  ');
+    expect(found(oneLine)).toEqual([['contact', 'выражение']]);
+    expect(found(wrapped)).toEqual(found(oneLine));
+    // Конец выражения без точки с запятой — по-прежнему конец: следующая строка не тянется.
+    const asi = [IMPORT, "const text = 'Сводка без контактов'", 'const card = `Тел: ${lead.phone}`', 'await sendMax(card)', "await callAIFast([{ role: 'user', content: text }])"].join('\n');
+    expect(found(asi)).toEqual([]);
+  });
+
+  it('поле класса: `this.x = …` — ребро, как у переменной', () => {
+    const src = [
+      IMPORT,
+      'class Prompter {',
+      "  private systemContent = '';",
+      '  build(lead: Lead) {',
+      "    this.systemContent = [`Тел: ${lead.phone}`].join('\\n');",
+      "    return callAIFast([{ role: 'user', content: this.systemContent }]);",
+      '  }',
+      '}',
+    ].join('\n');
+    expect(found(src)).toEqual([['contact', 'выражение']]);
+  });
+});
