@@ -1,0 +1,354 @@
+name: Проба ревьюера — одни диффы, разные модели (с раннера)
+
+# ── Зачем ─────────────────────────────────────────────────────────────────
+#
+# Ревью безопасности стоит около доллара за PR: Opus через OpenRouter, разбор
+# расхода 07.11. DeepSeek принимает Claude Code своим Anthropic-совместимым
+# адресом (документация, присланная владельцем 07.11) и в разы дешевле. Совет,
+# пересланный владельцем: не переключать вслепую — нужен одинаковый набор
+# сценариев. Эта проба и есть такой набор для ревьюера: те же диффы, тот же
+# Claude Code, та же встроенная команда /security-review. Меняется только
+# модель.
+#
+# ── Что сравнивается ──────────────────────────────────────────────────────
+#
+# Случаи — наши же коммиты, итог по каждому известен заранее:
+#   gate-3087  — первая версия #3087. Две настоящие дыры, их нашёл прежний
+#                ревьюер: путь с кириллицей обходит проверку путей (git берёт
+#                его в кавычки), обработчики запросов вне app/api и данные
+#                людей вне списка не считаются чувствительными;
+#   pd-2506    — откат правки #2506: имя и телефон туриста снова уходят в
+#                подсказку зарубежных моделей;
+#   clean-3089 — волна 1 планировщика (#3089). Прежний ревьюер находок не дал:
+#                всё, что найдётся здесь, — кандидат в ложную тревогу.
+# Ноги: opus — Opus 5.5 тем же путём, что у рук (AGENTS_PROVIDER); ds-pro и
+# ds-flash — DeepSeek напрямую (deepseek-v4-pro, deepseek-flash). Подсказка,
+# подзадачи и лёгкие вызовы Claude Code идут той же моделью ноги — одна голова
+# на ногу.
+#
+# Вердикт по качеству выносит человек, читая отчёты: «нашёл обе дыры»
+# регуляркой не проверить. Workflow отвечает на другой вопрос — состоялось ли
+# ревью: нет итога или итог — ошибка API → красный (§4.0). Claude Code на отказ
+# API пишет итог `subtype: success` с `is_error: true`, судится второе.
+#
+# ── Цена и книги ──────────────────────────────────────────────────────────
+#
+# Opus — около доллара на случай, DeepSeek — центы. Расход каждой ноги уходит в
+# llm_usage_log тем же учётом, что у рук (scripts/hands-usage.mjs): DeepSeek —
+# под своим вендором (HAND_VENDOR=deepseek), цену считает прод, заявление
+# Claude Code — для сверки. Учёт — отдельной работой с CRON_SECRET, как у рук:
+# у ревьюера в работе секрета учёта нет.
+#
+# ── Безопасность ──────────────────────────────────────────────────────────
+#
+# Диффы — наши коммиты, а не чужие PR. Ключ ноги уходит только на хост своего
+# вендора; переменные с ключами других ног удаляются до запуска. У агента нет
+# токена GitHub и записи: чтение файлов и git diff/log/show/status. В PR проба
+# ничего не пишет. Файл выполнения целиком не выгружается (артефакт публичного
+# репозитория скачивает любой) — только отчёт и счётчики расхода.
+#
+# Запуск — маркер .github/triggers/reviewer-model-probe.json (поднять run).
+# Сторож: tests/unit/reviewer-model-probe.test.ts.
+
+on:
+  workflow_dispatch:
+  push:
+    branches: [main]
+    paths:
+      - '.github/triggers/reviewer-model-probe.json'
+
+permissions:
+  contents: read
+
+concurrency:
+  group: reviewer-model-probe
+  cancel-in-progress: false
+
+jobs:
+  review:
+    name: ${{ matrix.case }} · ${{ matrix.leg }}
+    runs-on: ubuntu-latest
+    timeout-minutes: 25
+    strategy:
+      fail-fast: false
+      matrix:
+        case: [gate-3087, pd-2506, clean-3089]
+        leg: [opus, ds-pro, ds-flash]
+    steps:
+      - uses: actions/checkout@v7
+        with:
+          fetch-depth: 0
+          persist-credentials: false
+
+      - uses: actions/setup-node@v7
+        with:
+          node-version: 22
+
+      # Та же версия, что ставит экшен рук на нашем пине (2.1.319): с неё
+      # принимается Opus 5.5, и сравнение идёт на одном клиенте.
+      - name: Claude Code
+        run: |
+          set -euo pipefail
+          npm install -g --no-audit --no-fund @anthropic-ai/claude-code@2.1.319 > /dev/null
+          claude --version
+
+      # /security-review сравнивает рабочую ветку с origin/HEAD — им становится
+      # база случая. Ревьюеру не достаются ни CLAUDE.md, ни настройки, навыки и
+      # агенты проекта: как у боевого ревьюера, судится дифф, а не история.
+      # skip-worktree — чтобы удалённое не попало в git status подсказки.
+      - name: Дифф случая
+        env:
+          CASE: ${{ matrix.case }}
+        run: |
+          set -euo pipefail
+          case "$CASE" in
+            gate-3087)  BASE=fbd21b9c2a351942588753c2cc5ce1717d65149f; HEAD_SHA=3fb0f6695c5ccdd1dfa794c69814232a77a87350 ;;
+            pd-2506)    BASE=e573ffd30e896dc441392a1d95669246238ace38; HEAD_SHA= ;;
+            clean-3089) BASE=b4fd65574f161c554206a4d4c06f89be35c697c3; HEAD_SHA=45ae834766f57e925a3036ead3aed9ad6ebe568e ;;
+            *) echo "::error::Случай «$CASE» не описан"; exit 1 ;;
+          esac
+          # Голова gate-3087 живёт только в refs/pull/3087: ветку PR после
+          # влития удалили, а checkout берёт ветки. Оба коммита спрашиваются у
+          # GitHub по sha; не отдал — красный, а не ревью чужого диффа.
+          git fetch --no-tags --quiet origin "$BASE" ${HEAD_SHA:+"$HEAD_SHA"}
+          if [ -n "$HEAD_SHA" ]; then
+            git -c advice.detachedHead=false checkout -q "$HEAD_SHA"
+          else
+            # Откат правки #2506 одним файлом: обработчик — как до неё.
+            git -c advice.detachedHead=false checkout -q "$BASE"
+            git checkout -q "$BASE^" -- app/api/safety/rescue-chat/route.ts
+            git -c user.name=probe -c user.email=probe@localhost commit -q -m "AI Спасатель: знает имя и телефон туриста"
+          fi
+          git update-ref refs/remotes/origin/probe-base "$BASE"
+          git symbolic-ref refs/remotes/origin/HEAD refs/remotes/origin/probe-base
+          git ls-files -z -- CLAUDE.md .claude | xargs -0 -r git update-index --skip-worktree --
+          rm -rf CLAUDE.md .claude
+          echo "Дифф случая $CASE:"
+          git diff --stat origin/HEAD...
+
+      - name: Ревью
+        id: review
+        env:
+          LEG: ${{ matrix.leg }}
+          PROVIDER: ${{ vars.AGENTS_PROVIDER }}
+          OPENROUTER_KEY: ${{ secrets.OPENROUTER_API_KEY }}
+          CONSOLE_KEY: ${{ secrets.ANTHROPIC_API_KEY }}
+          DEEPSEEK_KEY: ${{ secrets.DEEPSEEK_API_KEY }}
+          TRANSCRIPT: ${{ runner.temp }}/transcript.jsonl
+        run: |
+          # +e: отказ claude не обрывает шаг — итог судит следующий шаг.
+          set +e -uo pipefail
+          case "$LEG" in
+            opus)
+              if [ "$PROVIDER" = "anthropic" ]; then
+                URL=https://api.anthropic.com; KEY="$CONSOLE_KEY"; MODEL=claude-opus-5-5; LIGHT=claude-haiku-5-5
+              else
+                URL=https://openrouter.ai/api; KEY="$OPENROUTER_KEY"; MODEL=anthropic/claude-opus-5.5; LIGHT=anthropic/claude-haiku-5.5
+              fi
+              AUTH=api-key; VENDOR=anthropic ;;
+            ds-pro)
+              URL=https://api.deepseek.com/anthropic; KEY="$DEEPSEEK_KEY"; MODEL=deepseek-v4-pro; LIGHT=deepseek-v4-pro
+              AUTH=bearer; VENDOR=deepseek ;;
+            ds-flash)
+              URL=https://api.deepseek.com/anthropic; KEY="$DEEPSEEK_KEY"; MODEL=deepseek-flash; LIGHT=deepseek-flash
+              AUTH=bearer; VENDOR=deepseek ;;
+            *) echo "::error::Нога «$LEG» не описана"; exit 1 ;;
+          esac
+          unset OPENROUTER_KEY CONSOLE_KEY DEEPSEEK_KEY
+          echo "vendor=$VENDOR" >> "$GITHUB_OUTPUT"
+          echo "model=$MODEL" >> "$GITHUB_OUTPUT"
+          if [ -z "$KEY" ]; then
+            echo "::error::Ключа ноги $LEG в секретах нет — ревью не состоялось."
+            exit 1
+          fi
+          export ANTHROPIC_BASE_URL="$URL"
+          if [ "$AUTH" = "bearer" ]; then export ANTHROPIC_AUTH_TOKEN="$KEY"; else export ANTHROPIC_API_KEY="$KEY"; fi
+          unset KEY
+          export ANTHROPIC_DEFAULT_OPUS_MODEL="$MODEL" ANTHROPIC_DEFAULT_SONNET_MODEL="$MODEL"
+          export ANTHROPIC_DEFAULT_HAIKU_MODEL="$LIGHT" CLAUDE_CODE_SUBAGENT_MODEL="$MODEL"
+          export CLAUDE_CODE_DISABLE_NONESSENTIAL_TRAFFIC=1 CLAUDE_CODE_SUBPROCESS_ENV_SCRUB=1 API_TIMEOUT_MS=600000
+          review() {
+            claude -p "/security-review" --model "$MODEL" --max-turns 40 \
+              --allowedTools "Read,Glob,Grep,LS,Agent,Task,Bash(git diff *),Bash(git log *),Bash(git show *),Bash(git status *)" \
+              --disallowedTools "Write,Edit,NotebookEdit,WebFetch,WebSearch" \
+              --output-format stream-json --verbose < /dev/null > "$TRANSCRIPT"
+          }
+          START=$(date +%s)
+          review
+          RC=$?
+          ATTEMPT=1
+          # Claude Code шлёт любой модели адаптивное мышление (`thinking:
+          # adaptive`), а принимает ли его DeepSeek, не записано. Отверг ли API
+          # сам первый запрос (400, ни одного ответа модели — токены не
+          # потрачены) — вторая и последняя попытка без мышления. Отказ посреди
+          # работы не повторяется: расход первой попытки ушёл бы мимо книг.
+          if [ "$VENDOR" = "deepseek" ] \
+            && [ "$(jq -s '[.[] | select(.type == "assistant")] | length' "$TRANSCRIPT" 2>/dev/null)" = "0" ] \
+            && jq -e 'select(.type == "result" and .is_error == true) | .result | tostring | test("API Error: 400")' "$TRANSCRIPT" > /dev/null 2>&1; then
+            echo "::warning::$LEG: API отверг первый запрос — повтор без мышления: $(jq -r 'select(.type == "result") | .result | tostring' "$TRANSCRIPT" | tr '\r\n' '  ' | head -c 300)"
+            export CLAUDE_CODE_DISABLE_THINKING=1
+            ATTEMPT=2
+            review
+            RC=$?
+          fi
+          echo "attempt=$ATTEMPT" >> "$GITHUB_OUTPUT"
+          echo "rc=$RC" >> "$GITHUB_OUTPUT"
+          echo "seconds=$(( $(date +%s) - START ))" >> "$GITHUB_OUTPUT"
+
+      # Итог — последнее сообщение `result`. Отчёт печатается в лог и уходит
+      # артефактом; файл выполнения целиком — нет.
+      - name: Ревью состоялось
+        if: always() && steps.review.outcome != 'skipped'
+        env:
+          CASE: ${{ matrix.case }}
+          LEG: ${{ matrix.leg }}
+          MODEL: ${{ steps.review.outputs.model }}
+          SECONDS_SPENT: ${{ steps.review.outputs.seconds }}
+          ATTEMPT: ${{ steps.review.outputs.attempt }}
+          TRANSCRIPT: ${{ runner.temp }}/transcript.jsonl
+          OUT: ${{ runner.temp }}/probe-out
+        run: |
+          set -uo pipefail
+          mkdir -p "$OUT"
+          HOW=""
+          [ "${ATTEMPT:-1}" = "2" ] && HOW=" Вторая попытка — без мышления: первый запрос API отверг."
+          if [ ! -s "$TRANSCRIPT" ]; then
+            echo "::error::$CASE · $LEG: Claude Code не оставил ни строки — ревью не состоялось."
+            exit 1
+          fi
+          RESULT=$(jq -c 'select(.type == "result")' "$TRANSCRIPT" 2>/dev/null | tail -n 1)
+          if [ -z "$RESULT" ]; then
+            echo "::error::$CASE · $LEG: итога прогона нет (обрыв или таймаут) — ревью не состоялось."
+            exit 1
+          fi
+          printf '%s' "$RESULT" | jq -r '.result // ""' > "$OUT/report.md"
+          IS_ERROR=$(printf '%s' "$RESULT" | jq -r '.is_error // false')
+          TURNS=$(printf '%s' "$RESULT" | jq -r '.num_turns // "не сообщено"')
+          CLAIMED=$(printf '%s' "$RESULT" | jq -r '.total_cost_usd // "не сообщено"')
+          {
+            echo "### $CASE · $LEG ($MODEL)"
+            echo "- Время: ${SECONDS_SPENT:-?} с; ходов: $TURNS; Claude Code заявил: \$$CLAIMED (цену считают книги, работа учёта ниже).$HOW"
+            echo
+            echo '<details><summary>Отчёт</summary>'
+            echo
+            cat "$OUT/report.md"
+            echo
+            echo '</details>'
+          } >> "$GITHUB_STEP_SUMMARY"
+          echo "===== ОТЧЁТ $CASE · $LEG ($MODEL), ходов $TURNS, заявлено \$$CLAIMED.$HOW ====="
+          cat "$OUT/report.md"
+          echo "===== КОНЕЦ ОТЧЁТА ====="
+          if [ "$IS_ERROR" = "true" ]; then
+            MSG=$(tr '\r\n' '  ' < "$OUT/report.md" | head -c 300)
+            echo "::error::$CASE · $LEG: ревью не состоялось — $MSG"
+            exit 1
+          fi
+          # Пустой итог jq пишет одним переводом строки — судится содержимое,
+          # а не размер файла.
+          if [ -z "$(tr -d '[:space:]' < "$OUT/report.md")" ]; then
+            echo "::error::$CASE · $LEG: итог пуст — ревью не состоялось, это не «находок нет»."
+            exit 1
+          fi
+
+      - name: Отчёт — артефактом
+        if: always() && steps.review.outcome != 'skipped'
+        continue-on-error: true
+        uses: actions/upload-artifact@v7
+        with:
+          name: report-${{ matrix.case }}-${{ matrix.leg }}
+          path: ${{ runner.temp }}/probe-out/report.md
+          if-no-files-found: warn
+          retention-days: 14
+
+      # Выжимка расхода — тем же белым списком полей, что у рук (ci-sweeper.yml,
+      # «Выжимка расхода руки»): тип сообщения, total_cost_usd, modelUsage, у
+      # ответа модели — id, модель и четыре счётчика. Текста в ней нет.
+      - name: Выжимка расхода — одни счётчики
+        if: always() && steps.review.outcome != 'skipped'
+        continue-on-error: true
+        env:
+          TRANSCRIPT: ${{ runner.temp }}/transcript.jsonl
+        run: |
+          dst="$RUNNER_TEMP/hand-usage/hand-usage.json"
+          mkdir -p "$RUNNER_TEMP/hand-usage"
+          rm -f "$dst" "$dst.tmp"
+          if [ ! -s "$TRANSCRIPT" ]; then
+            echo "Файла выполнения нет — выжимать нечего; что это значит, скажет учёт"
+            exit 0
+          fi
+          if ! jq -s -c '
+            def n: if type == "number" then . else null end;
+            def ident: if type == "string" and test("^[A-Za-z0-9][A-Za-z0-9._:@/\\[\\]-]{0,127}$") then . else null end;
+            def model_usage: if type == "object" then {inputTokens: (.inputTokens | n), outputTokens: (.outputTokens | n), cacheCreationInputTokens: (.cacheCreationInputTokens | n), cacheReadInputTokens: (.cacheReadInputTokens | n)} else null end;
+            def msg_usage: if type == "object" then {input_tokens: (.input_tokens | n), output_tokens: (.output_tokens | n), cache_creation_input_tokens: (.cache_creation_input_tokens | n), cache_read_input_tokens: (.cache_read_input_tokens | n)} else null end;
+            [ .[] | objects |
+              if .type == "result" then
+                {type: "result", total_cost_usd: (.total_cost_usd | n),
+                 modelUsage: (if (.modelUsage | type) == "object" then (.modelUsage | with_entries({key: (.key | ident // ""), value: (.value | model_usage)})) else null end)}
+              elif .type == "assistant" and (.message | type) == "object" then
+                {type: "assistant", message: {id: (.message.id | ident), model: (.message.model | ident), usage: (.message.usage | msg_usage)}}
+              else empty end
+            ]
+          ' "$TRANSCRIPT" > "$dst.tmp"; then
+            echo "::warning::Файл выполнения не выжат: jq его не прочёл — учёт назовёт расход неразобранным"
+            echo '{"hands_usage":"unreadable"}' > "$dst.tmp"
+          fi
+          mv "$dst.tmp" "$dst"
+
+      - name: Счётчики расхода — к учёту
+        if: always() && steps.review.outcome != 'skipped'
+        continue-on-error: true
+        uses: actions/upload-artifact@v7
+        with:
+          name: hand-usage-${{ matrix.case }}-${{ matrix.leg }}
+          path: ${{ runner.temp }}/hand-usage/hand-usage.json
+          if-no-files-found: warn
+          retention-days: 1
+
+  # ── Расход пробы — в книги llm_usage_log ─────────────────────────────────
+  # Отдельной работой на чистом раннере, скрипт учёта — из main, как у рук
+  # (ci-sweeper.yml, usage-books): CRON_SECRET открывает /api/admin/* на проде
+  # и не должен жить рядом с агентом. Вендор — по ноге: ds-* считал DeepSeek.
+  usage-books:
+    needs: review
+    if: always()
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    permissions:
+      contents: read
+    steps:
+      - name: Скрипт учёта из main
+        uses: actions/checkout@v7
+        with:
+          ref: main
+          fetch-depth: 1
+          sparse-checkout: scripts/hands-usage.mjs
+          sparse-checkout-cone-mode: false
+
+      - name: Счётчики расхода — из работ ревью
+        continue-on-error: true
+        uses: actions/download-artifact@v7
+        with:
+          pattern: hand-usage-*
+          path: ${{ runner.temp }}/hand
+
+      - name: Расход пробы — в книги
+        env:
+          CRON_SECRET: ${{ secrets.CRON_SECRET }}
+          HAND_DIR: ${{ runner.temp }}/hand
+        run: |
+          set -uo pipefail
+          rc=0
+          for c in gate-3087 pd-2506 clean-3089; do
+            for leg in opus ds-pro ds-flash; do
+              case "$leg" in ds-*) vendor=deepseek ;; *) vendor=anthropic ;; esac
+              f="$HAND_DIR/hand-usage-$c-$leg/hand-usage.json"
+              if [ ! -f "$f" ]; then
+                echo "::warning::$c · $leg: счётчиков нет — расход этой ноги неизвестен (ревью не дошло до модели или выжимка не доехала)"
+                continue
+              fi
+              AGENT_ID="reviewer-model-probe" HAND_VENDOR="$vendor" EXECUTION_FILE="$f" HAND_EXECUTION_FILE="$f" \
+                node scripts/hands-usage.mjs --run || rc=1
+            done
+          done
+          exit "$rc"
