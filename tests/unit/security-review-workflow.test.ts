@@ -143,6 +143,8 @@ describe('Ревью: deepseek-flash, одна голова, /security-review', 
     const args = readFileSync(join(dir, 'claude.args'), 'utf-8').split('\n');
     expect(args.slice(0, 2)).toEqual(['-p', '/security-review']);
     expect(args[args.indexOf('--model') + 1]).toBe('deepseek-flash');
+    // 40 ходов не хватило на дифф в 3500 строк (PR #3104, 07.11): время держит срок, не предел ходов.
+    expect(args[args.indexOf('--max-turns') + 1]).toBe('80');
     for (const alias of ['ANTHROPIC_DEFAULT_OPUS_MODEL', 'ANTHROPIC_DEFAULT_SONNET_MODEL', 'ANTHROPIC_DEFAULT_HAIKU_MODEL', 'CLAUDE_CODE_SUBAGENT_MODEL']) {
       expect(env[alias], alias).toBe('deepseek-flash');
     }
@@ -389,6 +391,25 @@ describe('Ревью состоялось: «не смог» — красный 
     expect(line).toContain('Ревью безопасности не состоялось');
     expect(line).toContain('401 invalid key');
     expect(r.out.split('\n').some((l) => l.startsWith('Stdout:'))).toBe(false);
+  });
+
+  it('прогон оборвался по пределу ходов, а последним итогом стал ответ фоновой подзадаче — красный, причина названа', () => {
+    // Дословно 07.11, PR #3104: основной итог — ошибка, следом — итоги на уведомления подзадач.
+    transcript([
+      { type: 'assistant', message: { id: 'm1' } },
+      { type: 'result', subtype: 'error_max_turns', is_error: true, num_turns: 41 },
+      { type: 'result', subtype: 'success', is_error: false, num_turns: 20, result: 'Подзадача: проверено.' },
+      { type: 'result', subtype: 'success', is_error: false, num_turns: 1, result: 'Таймер остановлен; на отчёт это не влияет.' },
+    ]);
+    const r = runStep(step, verdictCtx());
+    expect(r.code).toBe(1);
+    const line = r.out.split('\n').find((l) => l.startsWith('::error::'));
+    expect(line).toContain('Ревью безопасности не состоялось');
+    expect(line).toContain('error_max_turns, ходов 41');
+    expect(readFileSync(join(dir, 'step-summary'), 'utf-8')).toMatch(/не состоялось: error_max_turns, ходов 41\. Это не «находок нет»/);
+    // Подтип не из букв и подчёркиваний в лог не попадает.
+    transcript([{ type: 'result', subtype: '::warning::x', is_error: true, num_turns: 3 }]);
+    expect(runStep(step, verdictCtx()).out).not.toContain('::warning::x');
   });
 
   it('итог пуст — красный, это не «находок нет»', () => {

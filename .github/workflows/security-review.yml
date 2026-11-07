@@ -259,7 +259,7 @@ jobs:
           review() {
             local left=$(( DEADLINE_AT - $(date +%s) ))
             [ "$left" -gt 0 ] || return 124
-            timeout --kill-after=30 "$left" claude -p "/security-review" --model "$MODEL" --max-turns 40 \
+            timeout --kill-after=30 "$left" claude -p "/security-review" --model "$MODEL" --max-turns "$MAX_TURNS" \
               ${EXTRA[@]+"${EXTRA[@]}"} \
               --allowedTools "Read,Glob,Grep,LS,Agent,Task,Bash(git diff *),Bash(git log *),Bash(git show *),Bash(git status *)" \
               --disallowedTools "Write,Edit,NotebookEdit,WebFetch,WebSearch,Bash(git *--output*),Bash(git *--no-index*),Read(//proc/**)" \
@@ -267,6 +267,10 @@ jobs:
             local rc=("${PIPESTATUS[@]}")
             return "${rc[0]}"
           }
+          # Предел ходов: 40 не хватило на дифф в 3500 строк (PR #3104, 07.11:
+          # два прогона подряд упёрлись в него за 4 и 12 минут при сроке 40).
+          # Время держит срок, деньги — книги; 80 ходов deepseek-flash — центы.
+          MAX_TURNS=80
           START=$(date +%s)
           DEADLINE_AT=$(( START + REVIEW_DEADLINE_S ))
           review
@@ -334,6 +338,13 @@ jobs:
           RESULT=""
           if [ -s "$TRANSCRIPT" ]; then
             RESULT=$(jq -R -c 'fromjson? | objects | select(.type == "result")' "$TRANSCRIPT" 2>/dev/null | tail -n 1) || RESULT=""
+            # Прогон оборвался, если хоть один его итог — ошибка (предел ходов,
+            # отказ API). Итоги после неё — ответы на уведомления фоновых
+            # подзадач, а не отчёт: 07.11 на PR #3104 ревью упёрлось в предел
+            # ходов, а последним итогом стала фраза «Таймер остановлен…» —
+            # и сошла за ревью без находок. Судится первый такой итог.
+            FAILED=$(jq -R -c 'fromjson? | objects | select(.type == "result" and .is_error == true)' "$TRANSCRIPT" 2>/dev/null | head -n 1) || FAILED=""
+            if [ -n "$FAILED" ]; then RESULT="$FAILED"; fi
           fi
           if [ -z "$RESULT" ] && [ "${TIMED_OUT:-false}" = "true" ]; then
             echo "::error::Ревью безопасности не уложилось в $(( REVIEW_DEADLINE_S / 60 )) мин: итога нет — это не «находок нет». Ход ревью — в логе шага «Ревью»."
@@ -356,7 +367,10 @@ jobs:
           TURNS=$(printf '%s' "$RESULT" | jq -r '.num_turns // "не сообщено"')
           if [ "$IS_ERROR" = "true" ]; then
             MSG=$(tr '\r\n' '  ' < "$OUT/report.md" | head -c 300)
-            echo "::error::Ревью безопасности не состоялось: $MSG"
+            # У обрыва по пределу ходов текста нет — причину называют подтип и число ходов.
+            WHY=$(printf '%s' "$RESULT" | jq -r '[(.subtype // empty | tostring | select(test("^[a-z_]{1,40}$"))), (.num_turns | numbers | "ходов \(.)")] | join(", ")')
+            echo "::error::Ревью безопасности не состоялось: ${MSG:-итог без текста}${WHY:+ ($WHY)}"
+            echo "### Ревью безопасности ($MODEL) — не состоялось${WHY:+: $WHY}. Это не «находок нет»." >> "$GITHUB_STEP_SUMMARY"
             exit 1
           fi
           # Пустой итог jq пишет одним переводом строки — судится содержимое,
