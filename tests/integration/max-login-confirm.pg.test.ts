@@ -809,6 +809,264 @@ withPg('вход через MAX подтверждается вопросом в
         expect(await actionRows()).toEqual([]);
       });
     });
+
+    // ── Фаза 2б (07.11): даты за оператора ─────────────────────────────────
+    //
+    // Слово владельца: оператор говорит «12.11 есть 6 мест», администратор
+    // открывает дату в MAX, оператору приходит сообщение, что дату открыли
+    // вы. Та же грамматика и та же запись, что у оператора; всё на схеме прода.
+    describe('даты за оператора: фраза → вопрос → «Да» (фаза 2б, 07.11)', () => {
+      const OP_A_MAX = 740_001;
+      const partner = { a: '', b: '' };
+      const tour = { gorely: '', avaA: '', avaB: '' };
+      // Дни через два месяца: всегда впереди и в пределах года, один месяц на фразу.
+      const GEN = ['января', 'февраля', 'марта', 'апреля', 'мая', 'июня', 'июля', 'августа', 'сентября', 'октября', 'ноября', 'декабря'];
+      const kam = new Date(Date.now() + 12 * 3_600_000);
+      const y0 = kam.getUTCFullYear();
+      const m0 = kam.getUTCMonth() + 2;
+      const year = y0 + Math.floor(m0 / 12);
+      const month = m0 % 12;
+      const iso = (d: number) => `${year}-${String(month + 1).padStart(2, '0')}-${String(d).padStart(2, '0')}`;
+      const words = (...days: number[]) => `${days.slice(0, -1).join(', ')}${days.length > 1 ? ' и ' : ''}${days[days.length - 1]} ${GEN[month]}`;
+
+      let seq = 0;
+      const sayFresh = (text: string) => bot({
+        update_type: 'message_created', timestamp: Date.now(),
+        message: {
+          sender: { user_id: ADMIN_MAX, name: 'Админ' },
+          recipient: { chat_id: ADMIN_MAX + 5, chat_type: 'dialog' },
+          body: { mid: `m-dates-${++seq}`, seq: 1, text },
+        },
+      });
+      const pressAs = (payload: string, userId = ADMIN_MAX) => bot({
+        update_type: 'message_callback', timestamp: Date.now(),
+        callback: { timestamp: Date.now(), callback_id: `cbd-${++seq}`, payload, user: { user_id: userId, name: 'Админ' } },
+        message: { recipient: { chat_id: userId + 5, chat_type: 'dialog' }, body: { mid: `m-press-${seq}`, seq: 1, text: null } },
+      });
+      const lastText = () => sent[sent.length - 1]?.text ?? '';
+      const yesButton = () => lastButtons().find((b) => b.payload.startsWith('ad:y:'));
+      const slots = async (tourId: string) => (await pool.query<{ date: string; slots: number; cancelled: boolean | null }>(
+        `SELECT date::text AS date, available_slots AS slots, is_cancelled AS cancelled
+           FROM tour_availability WHERE operator_tour_id = $1 AND deleted_at IS NULL ORDER BY date`,
+        [tourId],
+      )).rows;
+      const datesRows = async () => (await pool.query<{
+        status: string; subject_id: string | null; admin_user_id: string; params: { operator?: string } | null;
+        outcome: { kind?: string; written?: number; notified?: string } | null;
+      }>(
+        `SELECT status, subject_id, admin_user_id::text, params, outcome
+           FROM admin_chat_actions WHERE subject_kind = 'tour' ORDER BY created_at, id`,
+      )).rows;
+
+      async function addPartner(name: string, maxChatId: number | null): Promise<string> {
+        const { rows } = await pool.query<{ id: string }>(
+          `INSERT INTO partners (name, category, contact, max_chat_id) VALUES ($1, 'operator', '{}'::jsonb, $2) RETURNING id::text AS id`,
+          [name, maxChatId],
+        );
+        return rows[0].id;
+      }
+      async function addTour(operatorId: string, title: string): Promise<string> {
+        const { rows } = await pool.query<{ id: string }>(
+          `INSERT INTO operator_tours (operator_id, title, slug, activity_type, base_price, price_unit, min_participants,
+                                       max_participants, duration_hours, difficulty, is_active, is_published)
+           VALUES ($1, $2, $3, 'hiking', 5000, 'per_person', 1, 10, 8, 'easy', TRUE, TRUE) RETURNING id::text AS id`,
+          [operatorId, title, `adm-dates-${Math.random().toString(36).slice(2, 10)}`],
+        );
+        return rows[0].id;
+      }
+
+      beforeAll(async () => {
+        partner.a = await addPartner('Тест Оператор А', OP_A_MAX);
+        partner.b = await addPartner('Тест Оператор Б', null);
+        tour.gorely = await addTour(partner.a, 'Тестовый поход на Кракатау');
+        tour.avaA = await addTour(partner.a, 'Восхождение на Бромо');
+        tour.avaB = await addTour(partner.b, 'Бромо и Верблюд');
+      });
+
+      beforeEach(async () => {
+        await pool.query('DELETE FROM admin_chat_actions');
+        await pool.query('DELETE FROM tour_availability WHERE operator_tour_id = ANY($1::bigint[])', [Object.values(tour)]);
+        await startWith(startArg((await issueLink()).link!), ADMIN_MAX);
+        sent.length = 0;
+      });
+
+      it('фраза → превью без записи → «Да»: даты открыты тем же правилом, журнал, оператору сообщение без ПД', async () => {
+        await sayFresh(`открой ${words(10, 12)} на Кракатау, 6 мест`);
+        expect(lastText()).toContain('Оператор: «Тест Оператор А»');
+        expect(lastText()).toContain('Тур: «Тестовый поход на Кракатау»');
+        expect(lastText()).toContain('Откроются (2)');
+        expect(lastText()).toContain('Оператору придёт сообщение, что даты открыли вы');
+        // До «Да» ничего не записано.
+        expect(await slots(tour.gorely)).toEqual([]);
+        expect((await datesRows()).map((r) => r.status)).toEqual(['ready']);
+        const yes = yesButton()!;
+        expect(yes.payload.split('~')).toHaveLength(3);
+
+        sent.length = 0;
+        await pressAs(yes.payload);
+        expect(lastText()).toContain('Готово: даты открыты за оператора «Тест Оператор А»');
+        expect(lastText()).toContain('Оператору сообщил в MAX');
+        expect(await slots(tour.gorely)).toEqual([
+          { date: iso(10), slots: 6, cancelled: false },
+          { date: iso(12), slots: 6, cancelled: false },
+        ]);
+        const toOperator = sent.filter((m) => m.chatId === OP_A_MAX);
+        expect(toOperator).toHaveLength(1);
+        expect(toOperator[0].text).toContain('Администратор Ведара открыл даты на ваш тур «Тестовый поход на Кракатау»');
+        expect(toOperator[0].text).toContain('по 6 мест');
+        const [row] = await datesRows();
+        expect(row).toMatchObject({ status: 'done', subject_id: tour.gorely, admin_user_id: adminId });
+        expect(row.params?.operator).toBe(partner.a);
+        expect(row.outcome).toMatchObject({ kind: 'done', written: 2, notified: 'max' });
+
+        // Повтор «Да» — прежний итог, второй записи и второго сообщения оператору нет.
+        sent.length = 0;
+        await pressAs(yes.payload);
+        expect(lastText()).toContain('Уже нажато раньше');
+        expect(sent.filter((m) => m.chatId === OP_A_MAX)).toHaveLength(0);
+        expect((await datesRows()).map((r) => r.status)).toEqual(['done']);
+      });
+
+      it('одно название у двух операторов — выбор кнопкой; оператор без мессенджера назван', async () => {
+        await sayFresh(`открой ${words(10, 12)} на Бромо, 6 мест`);
+        expect(lastText()).toContain('Бромо и Верблюд — Тест Оператор Б');
+        expect(lastText()).toContain('Восхождение на Бромо — Тест Оператор А');
+        expect((await datesRows()).map((r) => [r.status, r.subject_id])).toEqual([['draft', null]]);
+
+        const lines = lastText().split('\n');
+        const indexB = lines.filter((l) => /^\d+\. /.test(l)).findIndex((l) => l.includes('Тест Оператор Б'));
+        const choice = lastButtons().filter((b) => b.payload.startsWith('ad:t:'))[indexB]!;
+        expect(choice.payload.split('~')).toHaveLength(3);
+
+        // Кнопка выбора без подписи — отказ до разбора, черновик не тронут.
+        vi.stubEnv('CALLBACK_LEGACY_UNTIL_MS', '1');
+        try {
+          await pressAs(choice.payload.split('~')[0]!);
+          expect(lastText()).toContain('Кнопка устарела');
+        } finally {
+          vi.unstubAllEnvs();
+        }
+        expect((await datesRows()).map((r) => r.status)).toEqual(['draft']);
+
+        await pressAs(choice.payload);
+        expect(lastText()).toContain('Оператор: «Тест Оператор Б»');
+        expect(lastText()).toContain('Тур: «Бромо и Верблюд»');
+        expect(await slots(tour.avaB)).toEqual([]);
+        const yesB = yesButton()!;
+        sent.length = 0;
+        await pressAs(yesB.payload);
+        expect(lastText()).toContain('за оператора «Тест Оператор Б»');
+        expect(lastText()).toContain('не подключён ни MAX, ни Telegram — сообщите ему сами');
+        expect((await slots(tour.avaB)).map((r) => r.date)).toEqual([iso(10), iso(12)]);
+        expect(await slots(tour.avaA)).toEqual([]);
+        expect((await datesRows())[0]).toMatchObject({ status: 'done', subject_id: tour.avaB, outcome: { notified: 'none' } });
+      });
+
+      it('выбор тура под снятым вопросом — прежний итог словами, без нового превью', async () => {
+        await sayFresh(`открой ${words(10)} на Бромо, 6 мест`);
+        const choices = lastButtons().filter((b) => b.payload.startsWith('ad:t:'));
+        const no = lastButtons().find((b) => b.payload.startsWith('ad:n:'))!;
+        await pressAs(no.payload);
+        expect(lastText()).toContain('Хорошо, даты не открываю');
+        await pool.query(
+          `INSERT INTO tour_availability (operator_tour_id, date, available_slots, is_cancelled)
+           VALUES ($1, $3, 5, FALSE), ($2, $3, 5, FALSE)`,
+          [tour.avaA, tour.avaB, iso(10)],
+        );
+        await pressAs(choices[0]!.payload);
+        expect(lastText()).toContain('отменено');
+        expect(lastText()).not.toContain('Открывать нечего');
+        expect((await datesRows()).map((r) => r.status)).toEqual(['cancelled']);
+      });
+
+      it('закрытое оператором не открывает, открытое не трогает, ниже записанного не ставит', async () => {
+        await pool.query(
+          `INSERT INTO tour_availability (operator_tour_id, date, available_slots, is_cancelled, cancellation_reason)
+           VALUES ($1, $2, 6, TRUE, 'Шторм'), ($1, $3, 4, FALSE, NULL)`,
+          [tour.gorely, iso(10), iso(12)],
+        );
+        await sayFresh(`открой ${words(10, 12, 14)} на Кракатау, 6 мест`);
+        expect(lastText()).toContain('Закрыты оператором, не открываю (1)');
+        expect(lastText()).toContain('открыть их снова может только он');
+        expect(lastText()).toContain('Уже открыты, не трогаю (1)');
+        expect(lastText()).toContain('Откроются (1)');
+        await pressAs(yesButton()!.payload);
+        expect(await slots(tour.gorely)).toEqual([
+          { date: iso(10), slots: 6, cancelled: true },
+          { date: iso(12), slots: 4, cancelled: false },
+          { date: iso(14), slots: 6, cancelled: false },
+        ]);
+      });
+
+      it('новый вопрос снимает прежний, «Не надо» и просроченный ничего не пишут', async () => {
+        await sayFresh(`открой ${words(10)} на Кракатау, 6 мест`);
+        const first = yesButton()!;
+        await sayFresh(`открой ${words(12)} на Кракатау, 8 мест`);
+        const second = yesButton()!;
+        const no = lastButtons().find((b) => b.payload.startsWith('ad:n:'))!;
+        await pressAs(first.payload);
+        expect(lastText()).toContain('заменён');
+        await pressAs(no.payload);
+        expect(lastText()).toContain('Хорошо, даты не открываю');
+        await pressAs(second.payload);
+        expect(lastText()).toContain('отменено');
+
+        await sayFresh(`открой ${words(14)} на Кракатау, 6 мест`);
+        const third = yesButton()!;
+        await pool.query(`UPDATE admin_chat_actions SET expires_at = NOW() - INTERVAL '1 minute' WHERE status = 'ready'`);
+        await pressAs(third.payload);
+        expect(lastText()).toContain('Вопрос устарел');
+        expect(await slots(tour.gorely)).toEqual([]);
+        expect((await datesRows()).map((r) => r.status)).toEqual(['superseded', 'cancelled', 'ready']);
+      });
+
+      it('снятая роль и чужой человек MAX — ничего не записано', async () => {
+        await sayFresh(`открой ${words(10)} на Кракатау, 6 мест`);
+        const yes = yesButton()!;
+        await pressAs(yes.payload, OTHER_MAX);
+        expect(lastText()).toContain('у администратора Ведара');
+        await setAdmin(false);
+        await pressAs(yes.payload);
+        expect(lastText()).toContain('у администратора Ведара');
+        expect(await slots(tour.gorely)).toEqual([]);
+        expect((await datesRows()).map((r) => r.status)).toEqual(['ready']);
+      });
+
+      it('дату открыл сам оператор между вопросом и «Да» — «ничего не открыто», оператору не пишем', async () => {
+        await sayFresh(`открой ${words(10)} на Кракатау, 6 мест`);
+        const yes = yesButton()!;
+        await pool.query(
+          `INSERT INTO tour_availability (operator_tour_id, date, available_slots, is_cancelled) VALUES ($1, $2, 3, FALSE)`,
+          [tour.gorely, iso(10)],
+        );
+        sent.length = 0;
+        await pressAs(yes.payload);
+        expect(lastText()).toContain('Ничего не открыто');
+        expect(lastText()).toContain('Уже были открыты, не менял (1)');
+        expect(sent.filter((m) => m.chatId === OP_A_MAX)).toHaveLength(0);
+        expect(await slots(tour.gorely)).toEqual([{ date: iso(10), slots: 3, cancelled: false }]);
+        expect((await datesRows())[0]).toMatchObject({ status: 'done', outcome: { written: 0 } });
+      });
+
+      it('без тура, без мест и «закрой» — отказ словами, прежний вопрос снят; команда «даты» осталась командой', async () => {
+        await sayFresh(`открой ${words(10)} на Кракатау, 6 мест`);
+        const yes = yesButton()!;
+        await sayFresh(`открой ${words(10, 12)}, 6 мест`);
+        expect(lastText()).toContain('Назовите тур словами из его названия');
+        await pressAs(yes.payload);
+        expect(lastText()).toContain('заменён');
+        await sayFresh(`открой ${words(10)} на Кракатау`);
+        expect(lastText()).toContain('Сколько мест на каждый выезд');
+        await sayFresh(`закрой ${words(10)} на Кракатау`);
+        expect(lastText()).toContain('Закрыть дату за оператора из чата нельзя');
+        expect((await datesRows()).map((r) => r.status)).toEqual(['superseded']);
+        expect(await slots(tour.gorely)).toEqual([]);
+        sent.length = 0;
+        await sayFresh('даты');
+        expect(lastText()).not.toContain('Назовите тур');
+        expect((await datesRows()).map((r) => r.status)).toEqual(['superseded']);
+      });
+    });
   });
 
   // ── Прокатчик входит на сайт через MAX (владелец 26.10, «Лагуна Прокат») ──
