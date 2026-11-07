@@ -11,6 +11,12 @@ export interface ChatMessage {
   role: 'system' | 'user' | 'assistant';
   content: string;
   timestamp?: number;
+  /**
+   * План поездки, который собрал или поправил цикл в этом ответе
+   * (lib/kuzmich/plan-id, аудит 07.11, K7). Метка истории веб-чата — в модель
+   * не уходит: туда история идёт ролью и текстом.
+   */
+  planId?: string;
 }
 
 const ANTI_HALLUCINATION_RULES = `

@@ -987,17 +987,9 @@ export function planIdLine(id: string | null, revision: number): string {
     + `Страница плана — карта, GPX для навигатора и сохранение на телефон для поля без связи: ${SITE}/trip/${id}`;
 }
 
-const PLAN_ID_RE = /ID плана: ([0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12})/i;
-
-/**
- * Id плана из ответа make_trip_plan / edit_trip_plan — для ссылки «продолжить
- * в Ведаре» у MCP (lib/mcp/handoff-targets). Разбирается собственный текст
- * инструмента, а не аргумент агента; формат держит planIdLine рядом, и тест
- * сверяет их друг с другом.
- */
-export function planIdFromAnswer(answer: string): string | null {
-  return PLAN_ID_RE.exec(answer)?.[1] ?? null;
-}
+// Разбор строки «ID плана» живёт в лёгком модуле: его зовёт и роут чата,
+// которому движок планера не нужен (аудит 07.11, K7).
+export { planIdFromAnswer } from '@/lib/kuzmich/plan-id';
 
 const EDIT_ACTIONS: Record<string, PlanEdit['kind']> = {
   add_day: 'add_day', remove_day: 'remove_day', move_day: 'move_day', set_lodging: 'set_lodging', flight_delay: 'flight_delay',
