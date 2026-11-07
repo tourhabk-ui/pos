@@ -55,6 +55,35 @@ export function nearestFreeDateSql(tourAlias: string): string {
     LIMIT 1)`;
 }
 
+/**
+ * То же условие в окне дат поездки: ближайшая дата со свободными местами не
+ * раньше начала окна (и не раньше сегодняшнего дня по Камчатке) и не позже
+ * его конца. Планировщик (аудит 07.11, E5) упорядочивает туры зоны по
+ * выезду в дни поездки, а не по ближайшему выезду вообще: иначе срез по числу
+ * дней блока отрезал туры с датами в поездке раньше, чем движок смотрел
+ * окно, — их место занимали туры с выездами в другие месяцы.
+ *
+ * `fromParam`, `toParam` — номера параметров запроса (`$3`) с датами
+ * 'YYYY-MM-DD'; значения — только параметрами, не строкой в SQL.
+ */
+export function nearestFreeDateInWindowSql(tourAlias: string, fromParam: string, toParam: string): string {
+  if (!ALIAS.test(tourAlias) || !/^\$\d+$/.test(fromParam) || !/^\$\d+$/.test(toParam)) {
+    throw new Error(`nearestFreeDateInWindowSql: недопустимый алиас или параметр (${tourAlias}, ${fromParam}, ${toParam})`);
+  }
+  const a = tourAlias;
+  return `(SELECT ta_nw.date::text
+     FROM tour_availability ta_nw
+     CROSS JOIN LATERAL (${occupiedOnDaySql({ booking: 'ob_nw', day: 'ta_nw.date', tourId: 'ta_nw.operator_tour_id' })}) occ_nw
+    WHERE ta_nw.operator_tour_id = ${a}.id
+      AND ta_nw.date >= GREATEST(${fromParam}::date, (NOW() AT TIME ZONE 'Asia/Kamchatka')::date)
+      AND ta_nw.date <= ${toParam}::date
+      AND COALESCE(ta_nw.is_cancelled, false) = false
+      AND ta_nw.deleted_at IS NULL
+      AND ${freeSlotsSql('ta_nw', a, 'occ_nw.taken')} > 0
+    ORDER BY ta_nw.date
+    LIMIT 1)`;
+}
+
 export type NearestDates =
   | {
     state: 'ok';
