@@ -83,6 +83,16 @@ export const DRIFT_WARN_SHARE = 0.25;
  */
 export const VENDOR_PREFIX = 'anthropic:';
 
+/**
+ * Вендор, у которого считал Claude Code, — переменная HAND_VENDOR (07.11).
+ * Claude Code ходит и к DeepSeek (его Anthropic-совместимый адрес), и тогда
+ * ключ журнала — `deepseek:<модель>`: под ним книги знают цену DeepSeek и его
+ * долю за чтение кэша (lib/ai/cache-pricing.ts). Под `anthropic:` та же строка
+ * легла бы с чужой ценой или без цены. Неизвестный вендор — ошибка настройки
+ * шага, а не повод угадать.
+ */
+export const VENDOR_PREFIXES = Object.freeze({ anthropic: 'anthropic:', deepseek: 'deepseek:' });
+
 /** @param {unknown} v */
 function isObj(v) {
   return v !== null && typeof v === 'object' && !Array.isArray(v);
@@ -131,9 +141,10 @@ function addMaybe(a, b) {
  * моделям.
  *
  * @param {unknown} messages — содержимое файла, уже разобранное как JSON
+ * @param {string} [vendorPrefix] — префикс ключа журнала (VENDOR_PREFIXES)
  * @returns {Parsed}
  */
-export function parseExecution(messages) {
+export function parseExecution(messages, vendorPrefix = VENDOR_PREFIX) {
   // Метка выжимки: файл выполнения был, но jq в работе руки его не прочёл.
   // Причина — постоянная строка здесь, а не текст из артефакта.
   if (isObj(messages) && messages.hands_usage === 'unreadable') {
@@ -164,7 +175,7 @@ export function parseExecution(messages) {
         return unknownForm(`modelUsage «${model}»: нет целых inputTokens/outputTokens`, reportedCostUsd);
       }
       rows.push({
-        model: `${VENDOR_PREFIX}${model}`,
+        model: `${vendorPrefix}${model}`,
         prompt_tokens: input,
         completion_tokens: output,
         cache_creation_tokens: tokenCount(u.cacheCreationInputTokens),
@@ -203,7 +214,7 @@ export function parseExecution(messages) {
     if (input === null || output === null) {
       return unknownForm(`ответ модели «${model}»: нет целых input_tokens/output_tokens`, reportedCostUsd);
     }
-    const key = `${VENDOR_PREFIX}${model}`;
+    const key = `${vendorPrefix}${model}`;
     const acc = perModel.get(key) ?? {
       model: key,
       prompt_tokens: 0,
@@ -273,6 +284,13 @@ export async function runHandsUsage({ env, fetchImpl = globalThis.fetch, timeout
     return finish(1);
   }
 
+  const vendor = env.HAND_VENDOR || 'anthropic';
+  if (!Object.prototype.hasOwnProperty.call(VENDOR_PREFIXES, vendor)) {
+    fail(`${agentId}: HAND_VENDOR «${vendor.slice(0, 40)}» не знаю (${Object.keys(VENDOR_PREFIXES).join(', ')}) — под чужим вендором расход лёг бы с чужой ценой; шаг учёта настроен неверно`);
+    return finish(1);
+  }
+  const vendorPrefix = VENDOR_PREFIXES[/** @type {keyof typeof VENDOR_PREFIXES} */ (vendor)];
+
   if (!file || !existsSync(file)) {
     if (reportedByAction) {
       fail(`${agentId}: экшен оставил файл выполнения, а до учёта он не доехал — расход прогона в книги не попал`);
@@ -289,7 +307,7 @@ export async function runHandsUsage({ env, fetchImpl = globalThis.fetch, timeout
       warn(`${agentId}: расход руки не разобран — файл выполнения ${size} байт, больше предела ${MAX_EXECUTION_BYTES}`);
       return finish(0);
     }
-    parsed = parseExecution(JSON.parse(readFileSync(file, 'utf-8')));
+    parsed = parseExecution(JSON.parse(readFileSync(file, 'utf-8')), vendorPrefix);
   } catch (e) {
     warn(`${agentId}: расход руки не разобран — файл выполнения не читается как JSON (${e instanceof Error ? e.message : String(e)})`);
     return finish(0);
