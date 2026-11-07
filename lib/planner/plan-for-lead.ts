@@ -112,7 +112,9 @@ export function planForLead(
   choices?: PlanChoices,
   needs?: PlanNeeds,
 ): PlanForLead {
-  const est: GroupEstimate = estimateGroup(days, profile, choices);
+  // Смета заявки — та же, что на экране: с машиной напрокат без трансфера
+  // аэропорта, если его не просили (аудит 07.11, E7).
+  const est: GroupEstimate = estimateGroup(days, needs ? { ...profile, needs: { car: needs.car, transfer: needs.transfer } } : profile, choices);
   return {
     v: 1,
     ...(needs ? { needs: { lodging: needs.lodging, transfer: needs.transfer, car: needs.car } } : {}),

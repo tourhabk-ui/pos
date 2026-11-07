@@ -1431,11 +1431,13 @@ export function PlannerClient({ initialUserId }: { initialUserId?: string | null
   // Смета текущего плана — из дней, какими они стали после правок (#2304).
   // До 09.10 «Оценка стоимости» приходила с сервера один раз и после
   // перестановки, удаления или добавления дней показывала цену прежнего плана.
+  // Машина напрокат (аудит 07.11, E7): за рулём трансфер аэропорта не нужен,
+  // если его не отметили отдельно, — смета и заявка считают одинаково.
   const estimate = useMemo(
     () => (planProfile && days.length > 0
-      ? estimateGroup(days, { ...planProfile, arrivalDate: arrival || null }, planChoices)
+      ? estimateGroup(days, { ...planProfile, arrivalDate: arrival || null, needs: { car: needsCar, transfer: needsAirportTransfer } }, planChoices)
       : null),
-    [days, planProfile, arrival, planChoices],
+    [days, planProfile, arrival, planChoices, needsCar, needsAirportTransfer],
   );
   const tripDays = useMemo(() => calcDays(arrival, departure), [arrival, departure]);
 

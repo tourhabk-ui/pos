@@ -175,9 +175,10 @@ describe('связка: запись и чтение поездки', () => {
   });
 
   it('страница поездки не считает смету своей формулой', () => {
+    // Что смета — формула планировщика, держит рендер выше («смета на
+    // группу — формулой планировщика»); здесь — запрет на свою константу.
     const src = read('app/hub/tourist/trips/[id]/_TripDetailClient.tsx');
     expect(src).not.toMatch(/TRANSPORT_PRICE/);
-    expect(src).toMatch(/estimateGroup\(days, \{ \.\.\.trip\.party, arrivalDate: trip\.arrival_date\?\.slice\(0, 10\) \?\? null \}, trip\.choices \?\? undefined\)/);
   });
 });
 

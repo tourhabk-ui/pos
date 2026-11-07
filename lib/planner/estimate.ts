@@ -36,10 +36,16 @@
  * ориентира по зоне, а стоянка встаёт своей строкой. Трансфер — машина
  * целиком под заказ (13.10): цены до заявки перевозчику нет, и смета держит
  * «Трансферы аэропорта» ориентиром.
+ *
+ * Аудит планировщика 07.11, волна 2.5. Машина напрокат (E7): человек за
+ * рулём, и трансфер аэропорта не считается, если его не отметили отдельно;
+ * цены проката до заявки нет — строка допущений, а не сумма. Ночь дня
+ * переезда — в зоне, куда приехали (E11, nightZoneOf). Переезд без цены в
+ * данных (вертолёт) — строка «цену называет перевозчик», в итог не входит.
  */
 // Только чистые модули: смету считает браузер, а движок тянет базу и модели
 // (сторож client-no-node-builtins идёт и по импортам типов).
-import { ZONE_SLEEPS_IN, sleepZoneOf, type ZoneId, type BudgetTier, type DayType } from '@/lib/planner/constants';
+import { ZONE_SLEEPS_IN, nightZoneOf, type ZoneId, type BudgetTier, type DayType } from '@/lib/planner/constants';
 import { asTripOrigin, nightIsAtHome, paysAirportTransfers, type TripOrigin } from '@/lib/planner/trip-origin';
 import { bookingTotal } from '@/lib/tours/booking-total';
 import { dateOfTripDay } from '@/lib/planner/flow-balance';
@@ -82,6 +88,12 @@ export interface EstimateProfile {
   tripOrigin?: TripOrigin;
   /** Дата прилёта: по ней ночи плана сличаются с выбранным жильём. */
   arrivalDate?: string | null;
+  /**
+   * Что человек отметил в «Как хотите ехать» (аудит 07.11, E7). Машина
+   * напрокат — он за рулём, и трансфер аэропорта смета не считает, если
+   * трансфер он не отметил сам. Не записано — как раньше: трансфер считается.
+   */
+  needs?: { car?: boolean; transfer?: boolean };
 }
 
 // ── Ориентиры ────────────────────────────────────────────────────────────────
@@ -135,6 +147,16 @@ const ZONE_ACCOMMODATION: Record<ZoneId, AccommodationInfo> = {
 const AIRPORT_TRANSFER: [number, number] = [2500, 5000];
 
 /**
+ * Считать ли трансфер аэропорта: только у прилетающего и не у того, кто сам
+ * за рулём (аудит 07.11, E7) — если трансфер он не отметил отдельно. До этого
+ * трансфер прибавлялся всем прилетающим, даже с машиной напрокат.
+ */
+function countsAirportTransfer(origin: TripOrigin, needs: EstimateProfile['needs']): boolean {
+  if (!paysAirportTransfers(origin)) return false;
+  return !(needs?.car === true && needs.transfer !== true);
+}
+
+/**
  * Верх вилки тура: цена оператора может вырасти (сезон, доплаты). Один
  * множитель на карточку дня и на смету: до 09.10 день показывал ×1.3, а
  * смета считала ×1.2, и сумма карточек не сходилась с итогом.
@@ -152,14 +174,18 @@ const ZONE_GENITIVE: Record<ZoneId, string> = {
   northern: 'Северной зоне',
 };
 
-/** Ночь этого дня: в какой зоне и по какой вилке на человека; null — ночи нет. */
+/**
+ * Ночь этого дня: в какой зоне и по какой вилке на человека; null — ночи нет.
+ * `next` — следующий день плана: ночь дня переезда — в зоне, куда приехали.
+ */
 function nightOf(
-  day: EstimateDay, lastDayNum: number, origin: TripOrigin, bi: 0 | 1 | 2,
+  day: EstimateDay, next: EstimateDay | undefined, lastDayNum: number, origin: TripOrigin, bi: 0 | 1 | 2,
 ): { zone: ZoneId; price: [number, number] } | null {
   if (day.type === 'departure' || day.day === lastDayNum) return null;
   if (day.realTour?.lodgingIncluded === true) return null;
-  // В зоне не ночуют — ночь считается там, где ночуют на самом деле.
-  const sleepZone = sleepZoneOf(day.zone);
+  // В зоне не ночуют — ночь считается там, где ночуют на самом деле; ночь
+  // переезда — там, куда приехали (nightZoneOf, аудит 07.11, E11).
+  const sleepZone = nightZoneOf(day, next);
   if (nightIsAtHome(origin, sleepZone)) return null;
   const acc = ZONE_ACCOMMODATION[sleepZone];
   const nightPrice = acc.pricePerNight[bi] || acc.pricePerNight[0];
@@ -243,8 +269,8 @@ export function calculatePriceBreakdown(days: EstimateDay[], profile: Pick<Estim
   const lastDayNum = days.length > 0 ? days[days.length - 1]!.day : 0;
   let accFrom = 0;
   let accTo = 0;
-  for (const day of days) {
-    const night = nightOf(day, lastDayNum, origin, bi);
+  for (const [i, day] of days.entries()) {
+    const night = nightOf(day, days[i + 1], lastDayNum, origin, bi);
     if (!night) continue;
     accFrom += night.price[0];
     accTo += night.price[1];
@@ -455,8 +481,8 @@ export function estimateGroup(days: EstimateDay[], profile: EstimateProfile, cho
   if (days.length > 1) {
     const lastDayNum = days[days.length - 1]!.day;
     const byZone = new Map<ZoneId, { nights: number; sum: [number, number] }>();
-    for (const day of days) {
-      const night = nightOf(day, lastDayNum, origin, bi);
+    for (const [i, day] of days.entries()) {
+      const night = nightOf(day, days[i + 1], lastDayNum, origin, bi);
       if (!night || chosenNight(night.zone, day.day)) continue;
       const z = byZone.get(night.zone) ?? { nights: 0, sum: [0, 0] as [number, number] };
       z.nights++;
@@ -496,15 +522,24 @@ export function estimateGroup(days: EstimateDay[], profile: EstimateProfile, cho
   // Переезды и трансферы аэропорта.
   for (const d of days) {
     if (d.type !== 'travel') continue;
-    if (d.priceFrom <= 0 && d.priceTo <= 0) continue;
+    // Цены переезда в данных нет — вертолётные рёбра зон стоят с [0, 0]
+    // (lib/planner/zone-graph). Строка есть, в итог не входит (§4.0, аудит
+    // 07.11): до этого такой день молча выпадал из сметы, как бесплатный.
+    if (d.priceFrom <= 0 && d.priceTo <= 0) {
+      lines.push({
+        kind: 'transport', label: `${d.title}, день ${d.day}`, basis: 'цену называет перевозчик',
+        total: null, source: 'estimate', note: 'Цены этого переезда в данных нет — в итог он не вошёл.',
+      });
+      continue;
+    }
     lines.push({
       kind: 'transport', label: `${d.title}, день ${d.day}`,
       basis: `${fmt(d.priceFrom)}–${fmt(d.priceTo)} ₽ × ${peopleWord(people)}`,
       total: times([d.priceFrom, d.priceTo], people), source: 'estimate',
     });
   }
-  // Ориентир — на дорогу туда и обратно.
-  if (paysAirportTransfers(origin) && days.length > 0) {
+  // Ориентир — на дорогу туда и обратно; за рулём своей машины — не нужен.
+  if (countsAirportTransfer(origin, profile.needs) && days.length > 0) {
     lines.push({
       kind: 'transport', label: 'Трансферы аэропорта',
       basis: `${fmt(AIRPORT_TRANSFER[0])}–${fmt(AIRPORT_TRANSFER[1])} ₽ × ${peopleWord(people)}`,
@@ -520,6 +555,13 @@ export function estimateGroup(days: EstimateDay[], profile: EstimateProfile, cho
   const assumptions: string[] = [];
   if (profile.children.length > 0) {
     assumptions.push('Дети посчитаны по цене взрослого: скидок платформа не знает — уточняйте у оператора.');
+  }
+  // Машина напрокат (E7): цены до заявки прокатчику нет — строкой словами,
+  // а не суммой; трансфер аэропорта при ней не считается, если его не просили.
+  if (profile.needs?.car === true) {
+    assumptions.push(paysAirportTransfers(origin) && !countsAirportTransfer(origin, profile.needs)
+      ? 'Трансфер аэропорта не посчитан: в плане машина напрокат. Прокат в смету не входит — цену подтверждает прокатчик.'
+      : 'Машина напрокат в смету не входит — цену подтверждает прокатчик.');
   }
 
   return {

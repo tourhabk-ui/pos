@@ -29,9 +29,21 @@ function sourcesLine(fromTours: [number, number], fromOffers: [number, number], 
   return `${text[0]!.toUpperCase()}${text.slice(1)}.`;
 }
 
+/**
+ * Кто назовёт цену строк без суммы — по их роду. Переезд без цены в данных
+ * (вертолёт, аудит планировщика 07.11) — дело перевозчика, а не карточки тура.
+ */
+function unpricedTail(lines: GroupEstimate['lines']): string {
+  const open = lines.filter((l) => !l.total);
+  const parts: string[] = [];
+  if (open.some((l) => l.source === 'offer')) parts.push('цену назовут оператор или хозяин жилья');
+  else if (open.some((l) => l.kind === 'tour')) parts.push('сумму смотрите в карточке тура');
+  if (open.some((l) => l.kind === 'transport')) parts.push('цену переезда назовёт перевозчик');
+  return `${parts.join(', ')}.`;
+}
+
 export function GroupEstimateBlock({ estimate }: { estimate: GroupEstimate }) {
   const { people, lines, total, perPerson, unpriced, assumptions, fromTours, fromOffers, fromEstimates } = estimate;
-  const unpricedOffers = lines.some((l) => !l.total && l.source === 'offer');
   return (
     <div className="mt-2 pt-2 border-t border-[var(--border)] space-y-1" data-testid="price-estimate">
       <p className="text-[10px] font-bold uppercase tracking-widest text-[var(--text-muted)] px-1">
@@ -43,9 +55,10 @@ export function GroupEstimateBlock({ estimate }: { estimate: GroupEstimate }) {
             <span className="min-w-0">
               <span className="block text-[10px] text-[var(--text-secondary)]">{l.label}</span>
               <span className="block text-[9px] text-[var(--text-muted)]">
-                {l.basis}{l.source === 'estimate' ? ' · ориентир' : l.source === 'offer' ? ' · выбрано' : ''}
+                {/* Строка без цены — не ориентир: суммы нет вовсе. */}
+                {l.basis}{l.total && l.source === 'estimate' ? ' · ориентир' : l.source === 'offer' ? ' · выбрано' : ''}
               </span>
-              {l.source !== 'estimate' && l.note && (
+              {(l.source !== 'estimate' || !l.total) && l.note && (
                 <span className="block text-[9px] text-[var(--warning)]">{l.note}</span>
               )}
             </span>
@@ -65,9 +78,7 @@ export function GroupEstimateBlock({ estimate }: { estimate: GroupEstimate }) {
       </div>
       {unpriced.length > 0 && (
         <p className="text-[9px] text-[var(--warning)] px-1">
-          Не вошло в итог: {unpriced.join('; ')} — {unpricedOffers
-            ? 'цену назовут оператор или хозяин жилья.'
-            : 'сумму смотрите в карточке тура.'}
+          Не вошло в итог: {unpriced.join('; ')} — {unpricedTail(lines)}
         </p>
       )}
       {assumptions.map((a) => (

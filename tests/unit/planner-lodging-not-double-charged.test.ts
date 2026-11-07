@@ -28,6 +28,16 @@ import { describe, it, expect } from 'vitest';
 import { readFileSync } from 'node:fs';
 import { join } from 'node:path';
 import { lodgingIncluded } from '@/lib/planner/lodging-included';
+import { calculatePriceBreakdown, estimateGroup, type EstimateDay } from '@/lib/planner/estimate';
+
+/** День плана для сметы: переезд несёт зону, откуда едут, — как у движка. */
+const planDay = (day: number, type: EstimateDay['type'], zone: EstimateDay['zone'], extra: Partial<EstimateDay> = {}): EstimateDay => ({
+  day, type, zone, title: `День ${day}`, priceFrom: 0, priceTo: 0, ...extra,
+});
+const lodgingSum = (days: EstimateDay[], people: number): [number, number] =>
+  estimateGroup(days, { adults: people, children: [], budgetTier: 'comfort', tripOrigin: 'visitor' }).lines
+    .filter((l) => l.kind === 'lodging' && l.total)
+    .reduce<[number, number]>((acc, l) => [acc[0] + l.total![0], acc[1] + l.total![1]], [0, 0]);
 
 const ROOT = process.cwd();
 const ENGINE = readFileSync(join(ROOT, 'lib/planner/engine.ts'), 'utf8');
@@ -116,8 +126,20 @@ describe('смета не платит за ночь дважды', () => {
     expect(block).not.toMatch(/if \(day\.realTour\?\.lodgingIncluded\) (continue|return null);/);
   });
 
-  it('правило ночи одно: его зовут и вилка на человека, и смета на группу', () => {
-    expect(ESTIMATE.match(/nightOf\(day, lastDayNum, origin, bi\)/g)?.length).toBe(2);
+  it('правило ночи одно: вилка на человека и смета на группу считают одни ночи', () => {
+    // Переезд, северный день, тур с ночлегом и тур без разбора состава — все
+    // ветки правила ночи разом. Вилка на человека × состав = ночи сметы.
+    const days = [
+      planDay(1, 'arrival', 'avachinsky'),
+      planDay(2, 'activity', 'northern'),
+      planDay(3, 'travel', 'avachinsky', { priceFrom: 5000, priceTo: 8000 }),
+      planDay(4, 'activity', 'western', { realPrice: 50000, realTour: { tourId: 't', priceUnit: 'per_person', lodgingIncluded: true } }),
+      planDay(5, 'activity', 'western', { realPrice: 9000, realTour: { tourId: 'u', priceUnit: 'per_person', lodgingIncluded: null } }),
+      planDay(6, 'departure', 'avachinsky'),
+    ];
+    const perPerson = calculatePriceBreakdown(days, { budgetTier: 'comfort', tripOrigin: 'visitor' }).accommodation;
+    expect(perPerson[0]).toBeGreaterThan(0);
+    expect(lodgingSum(days, 3)).toEqual([perPerson[0] * 3, perPerson[1] * 3]);
   });
 
   it('признак доезжает до дня плана', () => {
@@ -144,11 +166,12 @@ describe('ночь считается там, где её проводят', () 
 
   it('смета читает это поле, а не только приписку', () => {
     // Поле без потребителя — то же объявление в никуда, что и приписка
-    // (§10.09): выглядело бы починкой, не будучи ею.
-    const block = lodgingBlock();
-    expect(block).toMatch(/const sleepZone = sleepZoneOf\(day\.zone\)/);
-    expect(CONSTANTS).toMatch(/return ZONE_SLEEPS_IN\[zone\] \?\? zone/);
-    expect(block).toMatch(/const acc = ZONE_ACCOMMODATION\[sleepZone\]/);
+    // (§10.09): выглядело бы починкой, не будучи ею. Ночь северного дня —
+    // по цене Авачинской зоны, а не ноль Северной.
+    const days = [planDay(1, 'arrival', 'avachinsky'), planDay(2, 'activity', 'northern'), planDay(3, 'departure', 'avachinsky')];
+    const lines = estimateGroup(days, { adults: 1, children: [], budgetTier: 'comfort', tripOrigin: 'visitor' }).lines;
+    expect(lines.find((l) => l.label === 'Проживание в Авачинской зоне')).toMatchObject({ basis: '2 ночи × 1 чел.', total: [11200, 16800] });
+    expect(lines.some((l) => /Северной зоне/.test(l.label))).toBe(false);
   });
 
   it('зона, где ночуют, платит по своей цене', () => {

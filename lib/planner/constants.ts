@@ -55,6 +55,18 @@ export function sleepZoneOf(zone: ZoneId): ZoneId {
   return ZONE_SLEEPS_IN[zone] ?? zone;
 }
 
+/**
+ * Зона ночи дня плана (аудит планировщика 07.11, E11). День переезда несёт
+ * зону, ОТКУДА едут (движок ставит ему `zone: prevZone`), а ночует человек уже
+ * там, КУДА приехал, — в зоне следующего дня. До 07.11 ночь после переезда в
+ * Западную зону считалась по цене Авачинской, и жильё на неё искалось там же.
+ * Следующего дня нет — зона самого дня. Читают двое, как и sleepZoneOf: смета
+ * (lib/planner/estimate) и стоянки жилья (lib/planner/trip-extras).
+ */
+export function nightZoneOf(day: { type: string; zone: ZoneId }, next?: { zone: ZoneId } | null): ZoneId {
+  return sleepZoneOf(day.type === 'travel' && next ? next.zone : day.zone);
+}
+
 export interface ActivityConstraints {
   allowedTransports: TransportType[];
   requiredTransport?: TransportType;      // hard requirement

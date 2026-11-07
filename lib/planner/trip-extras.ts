@@ -16,8 +16,9 @@
  * ── Ночи ──────────────────────────────────────────────────────────────────
  *
  * Ночь дня N — дата прилёта + (N−1). Ночуют все дни, кроме дня отъезда.
- * Зона ночи — sleepZoneOf(day.zone): северная зона однодневная, ночь в
- * Авачинской (то же правило, что у оценки движка). Ночь дня, чей тур
+ * Зона ночи — nightZoneOf: северная зона однодневная, ночь в Авачинской, а
+ * ночь дня переезда — в зоне, куда приехали (то же правило, что у сметы,
+ * аудит 07.11, E11). Ночь дня, чей тур
  * ВКЛЮЧАЕТ проживание (`lodgingIncluded === true`), жилья не требует — она
  * разрывает стоянку и считается отдельно. `null` («не разобрали состав»)
  * считается как «нужно жильё»: лишний вариант дешевле ночи без крыши.
@@ -37,7 +38,7 @@
  * это решает хозяин, и экран так и говорит, а не выдумывает раскладку.
  */
 
-import { sleepZoneOf, type ZoneId } from '@/lib/planner/constants';
+import { nightZoneOf, type ZoneId } from '@/lib/planner/constants';
 import { nightIsAtHome, type TripOrigin } from '@/lib/planner/trip-origin';
 import { dateOfTripDay } from '@/lib/planner/flow-balance';
 
@@ -84,7 +85,7 @@ export function lodgingStays(
   let current: LodgingStay | null = null;
 
   const sorted = [...days].sort((a, b) => a.day - b.day);
-  for (const d of sorted) {
+  for (const [i, d] of sorted.entries()) {
     if (d.type === 'departure') { current = null; continue; }
     const night = dateOfTripDay(arrivalDate, d.day);
     if (!night) { current = null; continue; }
@@ -92,7 +93,8 @@ export function lodgingStays(
     if (departureDate && night >= departureDate) { current = null; continue; }
     if (d.lodgingIncluded === true) { nightsInTours++; current = null; continue; }
 
-    const zone = sleepZoneOf(d.zone);
+    // Ночь дня переезда — в зоне, куда приехали (nightZoneOf, E11).
+    const zone = nightZoneOf(d, sorted[i + 1]);
     if (nightIsAtHome(origin, zone)) { current = null; continue; }
     if (current && current.zone === zone && current.checkOut === night) {
       current.checkOut = addDays(night, 1);

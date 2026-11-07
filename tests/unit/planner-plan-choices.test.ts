@@ -87,9 +87,11 @@ describe('цена стоянки на группу — правилом бро�
 });
 
 describe('ночь дома у местного — жильё не подбирается (то же правило, что у сметы)', () => {
+  // День в Восточной зоне — ночь вне дома. Не день переезда: его ночь с
+  // 07.11 считается в зоне следующего дня (nightZoneOf, E11).
   const plan: ExtrasDay[] = [
     { day: 1, type: 'arrival', zone: 'avachinsky' },
-    { day: 2, type: 'travel', zone: 'eastern' },
+    { day: 2, type: 'activity', zone: 'eastern' },
     { day: 3, type: 'activity', zone: 'avachinsky' },
     { day: 4, type: 'departure', zone: 'avachinsky' },
   ];
