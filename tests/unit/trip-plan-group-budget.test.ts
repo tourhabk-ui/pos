@@ -370,6 +370,19 @@ describe('цена плана словами', () => {
     expect(text).toMatch(/Итого на одного: /);
     expect(text).toMatch(/Дети посчитаны по цене взрослого/);
   });
+
+  // Аудит планировщика 07.11, волна 2.5: переезд без цены в данных (вертолёт)
+  // — дело перевозчика, а не карточки тура. Правило одно с экраном /planner
+  // (unpricedTail, рендер — tests/unit/planner-estimate-car-travel.test.tsx).
+  it('кто назовёт цену строк без суммы — по роду строки, как на экране', () => {
+    const heli = { kind: 'transport', label: 'Переезд: Западная зона → Восточная зона, день 3', basis: 'цену называет перевозчик', total: null, source: 'estimate' } as const;
+    const tour = { kind: 'tour', label: 'Тур «Вертолёт», день 4', basis: '400 000 ₽', total: null, source: 'tour' } as const;
+    const onlyHeli = formatPlanPrice(pb(), 'comfort', true, group({ lines: [heli], unpriced: [heli.label] })).join('\n');
+    expect(onlyHeli).toContain(`Не вошло ни в одну сумму — цены нет: ${heli.label}. Цену переезда назовёт перевозчик.`);
+    expect(onlyHeli).not.toMatch(/карточке тура/);
+    const both = formatPlanPrice(pb(), 'comfort', true, group({ lines: [tour, heli], unpriced: [tour.label, heli.label] })).join('\n');
+    expect(both).toContain(`цены нет: ${tour.label}; ${heli.label}. Сумму смотрите в карточке тура, цену переезда назовёт перевозчик.`);
+  });
 });
 
 describe('схема: одна правда для MCP и Кузьмича', () => {
