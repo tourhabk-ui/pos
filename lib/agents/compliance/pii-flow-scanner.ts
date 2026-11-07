@@ -497,6 +497,8 @@ const DESTRUCT_DECL = /\b(?:const|let|var)\s*([{[])/g;
 /** `for (const l of leads)`, `for await (const [k, v] of map)`. */
 const FOR_OF = /\bfor\s*(?:await\s*)?\(\s*(?:const|let|var)\s+/g;
 /** Метод-перебор: первый параметр колбэка — элемент получателя; у reduce — второй. */
+/** Методы, чей результат — элементы получателя с теми же полями: `rows.at(0)`, `rows.find(…)`. */
+const ELEMENT_METHODS: ReadonlySet<string> = new Set(['at', 'find', 'findLast', 'filter', 'slice', 'sort', 'toSorted', 'reverse', 'toReversed']);
 const ITER_CALL = /\.\s*(map|flatMap|forEach|filter|find|findLast|findIndex|some|every|sort|reduce|reduceRight)\s*\(/g;
 /** Голова колбэка: `(a, b) =>`, `async (a) =>`, `a =>`, `function (a) {`. */
 const CALLBACK_HEAD = /^\s*(?:async\s*)?(?:function\b\s*\*?\s*[A-Za-z_$]*\s*)?(?:\(([^()]*(?:\([^()]*\)[^()]*)*)\)|([A-Za-z_$][\w$]*))\s*(?::[^=]+?)?(=>|\{)/;
@@ -539,17 +541,44 @@ function buildEdges(code: string, sc: Scopes, links: Link[] = []): Edge[] {
   const add = (name: string, at: number, span: FlowSpan, part = false) => {
     if (!NOT_ROOT.has(name)) edges.push({ key: sc.key(name, at), name, span, ...(part ? { part } : {}) });
   };
-  /** Отрезок — одно имя (`a`, `await a`, `this.x`): его ключ, иначе null. */
-  const bareKey = (span: FlowSpan): string | null => {
-    const t = code.slice(span.from, span.to);
-    const m = /^\s*(?:await\s+)?(?:this\s*\??\.\s*)?([A-Za-z_$][\w$]*)\s*$/.exec(t);
-    if (!m || NOT_ROOT.has(m[1]) || sc.functions.has(m[1])) return null;
-    return sc.key(m[1], span.from + t.trimEnd().length - m[1].length);
+  /**
+   * Отрезок — переменная, её поле или элемент: `rows`, `this.x`, `res.rows`,
+   * `rows[0]`, `rows.at(-1)`, `rows.find(…)`, `rows[0] ?? null`. Ключ, поля
+   * которого получает цель; иначе null. Элемент коллекции несёт поля её строк
+   * (двенадцатое ревью PR #3104: `const first = rows[0]` терял `first.name`).
+   */
+  const pathKey = (span: FlowSpan): string | null => {
+    let i = skipWs(code, span.from);
+    const head = /^(?:await\s+)?(?:this\s*\??\.\s*)?([A-Za-z_$][\w$]*)/.exec(code.slice(i, Math.min(span.to, i + 120)));
+    if (!head || NOT_ROOT.has(head[1]) || sc.functions.has(head[1])) return null;
+    const rootAt = i + head[0].length - head[1].length;
+    i += head[0].length;
+    const path: string[] = [];
+    for (let guard = 0; guard < 16; guard++) {
+      i = skipWs(code, i);
+      if (i >= span.to) break;
+      if (code[i] === '!' && code[i + 1] !== '=') { i++; continue; }
+      if (code[i] === '[') { i = closeOf(code, i) + 1; continue; }
+      const step = /^\??\.\s*([A-Za-z_$][\w$]*)/.exec(code.slice(i, i + 80));
+      if (!step) break;
+      const k = skipWs(code, i + step[0].length);
+      if (code[k] === '(') {
+        if (!ELEMENT_METHODS.has(step[1])) return null;
+        i = closeOf(code, k) + 1;
+        continue;
+      }
+      path.push(step[1]);
+      i += step[0].length;
+    }
+    // Запас на пустой результат: `?? null`, `|| undefined`, `?? []`.
+    if (!/^\s*(?:(?:\?\?|\|\|)\s*(?:null|undefined|\[\s*\]))?\s*;?\s*$/.test(code.slice(i, span.to))) return null;
+    const key = sc.key(head[1], rootAt);
+    return path.length ? `${key}.${path.join('.')}` : key;
   };
   /**
    * Цель получает поля значения: литерала объекта — по записям, массива
    * литералов объектов — по записям элементов (поля коллекции — поля её
-   * элементов), имени — связью полей.
+   * элементов), имени, поля или элемента — связью полей.
    */
   const fieldsInto = (target: string, span: FlowSpan) => {
     const lb = skipWs(code, span.from);
@@ -560,7 +589,7 @@ function buildEdges(code: string, sc: Scopes, links: Link[] = []): Edge[] {
       for (const at of objects) for (const entry of objectEntries(code, at)) edges.push({ key: `${target}.${entry.key}`, name: entry.key, span: entry.span });
       return;
     }
-    const from = bareKey(span);
+    const from = pathKey(span);
     if (from) links.push({ from, to: target, fields: true });
   };
   // Присваивание и объявление; поле — по корню цепочки (`this.x` — x, `box.v` — box).
@@ -607,7 +636,7 @@ function buildEdges(code: string, sc: Scopes, links: Link[] = []): Edge[] {
     if (m[1] === '{') {
       for (const name of bindingNames(pattern)) add(name, open, span, true);
       // `const { body, note: n } = o` — body получает род `o.body`, n — `o.note`.
-      const from = bareKey(span);
+      const from = pathKey(span);
       if (from) for (const [field, name] of patternFields(pattern)) links.push({ from: `${from}.${field}`, to: sc.key(name, open), fields: false });
       continue;
     }
@@ -616,6 +645,10 @@ function buildEdges(code: string, sc: Scopes, links: Link[] = []): Edge[] {
     const items = list ? argSpans(code, span.from + list[0].length - 1) : [];
     splitTop(pattern.slice(1, -1)).forEach((el, pos) => {
       for (const name of bindingNames(el)) add(name, open, items[pos] ?? span);
+      // `const [first] = rows` — элемент несёт поля строк (двенадцатое ревью PR #3104).
+      const single = /^\s*(?:\.\.\.)?([A-Za-z_$][\w$]*)\s*$/.exec(el)?.[1];
+      const from = single ? pathKey(items[pos] ?? span) : null;
+      if (single && from) links.push({ from, to: sc.key(single, open), fields: true });
     });
   }
   // `for (const x of xs)` — x получает xs.
@@ -631,7 +664,7 @@ function buildEdges(code: string, sc: Scopes, links: Link[] = []): Edge[] {
     const at = m.index + m[0].length;
     for (const name of bindingNames(pattern)) add(name, at, { from, to: close }, pattern.startsWith('{'));
     // Элемент — поля коллекции: `for (const l of list)` при `list.push({ note: … })`.
-    const src = bareKey({ from, to: close });
+    const src = pathKey({ from, to: close });
     if (src && !pattern.startsWith('{') && !pattern.startsWith('[')) links.push({ from: src, to: sc.key(pattern, at), fields: true });
   }
   // Положили в коллекцию: `X.push(…)`, `X.set(k, v)` — X (и корень `box.lines`) получает аргументы.
@@ -658,7 +691,7 @@ function buildEdges(code: string, sc: Scopes, links: Link[] = []): Edge[] {
     const pos = /^reduce/.test(m[1]) ? 1 : 0;
     // Отрезок — сам получатель до `.map`: `phones` — весь массив, `t.items` — поле.
     const recvSpan = { from: recv.at, to: m.index };
-    const recvKey = bareKey(recvSpan);
+    const recvKey = pathKey(recvSpan);
     // Функция файла по ссылке (`leads.map(line)`): элемент — её параметр (восьмое ревью PR #3104).
     const ref = /^\s*(?:this\s*\??\.\s*)?([A-Za-z_$][\w$]*)\s*$/.exec(code.slice(cb.from, cb.to))?.[1];
     if (ref && sc.functions.has(ref)) {
@@ -709,7 +742,7 @@ function buildEdges(code: string, sc: Scopes, links: Link[] = []): Edge[] {
           if (part) {
             const lb = skipWs(code, arg.from);
             const entries = code[lb] === '{' ? objectEntries(code, lb) : [];
-            const from = bareKey(arg);
+            const from = pathKey(arg);
             for (const [field, name] of patternFields(pattern)) {
               const entry = entries.find((e) => e.key === field);
               if (entry) edges.push({ key: `${b.scope}:${name}`, name, span: entry.span });
@@ -827,16 +860,42 @@ function queryParamRanges(code: string): Array<[number, number]> {
  * Роды ПД строки результата по тексту запроса (одиннадцатое ревью PR #3104):
  * `JSON.stringify(rows)` кладёт в промпт всю строку, и поля в коде не названы.
  * Род даёт список колонок: `tourist_phone` — контакт, `passport` — идентификатор,
- * `tourist_name` — имя, голое `name` — имя, если таблица — люди (лиды, брони,
- * пользователи); `*` — все роды: что в строке, не видно. Колонки без ПД
+ * `tourist_name` — имя, голое `name` — имя, если его таблица — люди (лиды,
+ * брони, пользователи); `*` — все роды: что в строке, не видно. Колонки без ПД
  * (`title`, `note`) рода не дают — сериализация названий туров чиста.
+ *
+ * Двенадцатое ревью: род колонки — по ВСЕМУ выражению, а не по выходному
+ * имени. `tourist_phone::text` выходит полем `text`, `tourist_name AS title` —
+ * полем `title`, `COALESCE(telegram_chat_id::text, telegram_id::text) AS tg` —
+ * `tg`, и по имени все три чисты. Поэтому снимаются приведения `::тип`,
+ * строки и подсчёты (`COUNT(phone)`, `phone IS NULL` — число и признак, а не
+ * контакт), и судится каждый идентификатор выражения и псевдоним. Голое
+ * `name` с владельцем судится по таблице владельца: `t.name` тура рядом с
+ * присоединёнными лидами — название тура, `l.name` — имя.
+ *
+ * Поля строки — тоже: `rows[0].name`, `first.tourist_phone` читают одно поле,
+ * и его род — род его колонки (`fields`), а не всей строки; `rows[0].title`
+ * рядом с телефоном чист.
  */
 const PERSONAL_NAME_COLUMN = new RegExp(`^${PERSONAL_NAME_FIELD.source.replace(/\\b/g, '')}$`, 'i');
+/** Слова после таблицы, которые псевдонимом не бывают. */
+const SQL_NOT_ALIAS: ReadonlySet<string> = new Set([
+  'where', 'join', 'left', 'right', 'inner', 'outer', 'full', 'cross', 'natural', 'on', 'using', 'group', 'order',
+  'limit', 'offset', 'having', 'union', 'lateral', 'window', 'for', 'returning', 'as', 'and', 'or', 'set', 'values',
+  'except', 'intersect', 'end', 'null', 'true', 'false', 'asc', 'desc',
+]);
 
-export function sqlRowKinds(sql: string): Kind[] {
+export interface SqlRowShape {
+  /** Роды строки целиком (`JSON.stringify(row)`). */
+  kinds: Kind[];
+  /** Роды полей строки по выходному имени колонки. */
+  fields: Map<string, Kind[]>;
+}
+
+export function sqlRow(sql: string): SqlRowShape {
   const text = sql.replace(/^[\s'"`]+|[\s'"`]+$/g, '');
   const head = /\bselect\b/i.exec(text);
-  if (!head) return [];
+  if (!head) return { kinds: [], fields: new Map() };
   let depth = 0;
   let end = -1;
   for (let i = head.index + head[0].length; i < text.length; i++) {
@@ -846,8 +905,22 @@ export function sqlRowKinds(sql: string): Kind[] {
     else if (depth === 0 && /\bfrom\b/i.test(text.slice(i, i + 5)) && /\W/.test(text[i - 1] ?? ' ')) { end = i; break; }
   }
   const list = text.slice(head.index + head[0].length, end < 0 ? text.length : end);
-  const tables = end < 0 ? '' : [...text.slice(end).matchAll(/\b(?:from|join)\s+([A-Za-z_][\w.]*)/gi)].map((m) => m[1]).join(' ');
-  const kinds = new Set<Kind>();
+  // Таблицы и их псевдонимы: `FROM leads l JOIN users u` — l → leads, u → users.
+  const tables = new Map<string, string>();
+  if (end >= 0) {
+    for (const m of text.slice(end).matchAll(/\b(?:from|join)\s+([A-Za-z_][\w.]*)(?:\s+(?:as\s+)?([A-Za-z_]\w*))?/gi)) {
+      const table = m[1].split('.').slice(-1)[0];
+      tables.set(table.toLowerCase(), table);
+      if (m[2] && !SQL_NOT_ALIAS.has(m[2].toLowerCase())) tables.set(m[2].toLowerCase(), table);
+    }
+  }
+  const anyPerson = [...tables.values()].some((t) => PERSON_WORD.test(t));
+  /** Владелец голого `name` — люди: таблица по псевдониму; без владельца или неизвестный — любая таблица запроса. */
+  const personOwner = (q: string | undefined): boolean => {
+    if (!q) return anyPerson;
+    const t = tables.get(q.toLowerCase());
+    return t !== undefined ? PERSON_WORD.test(t) : PERSON_WORD.test(q) || anyPerson;
+  };
   const cols: string[] = [];
   depth = 0;
   let cur = '';
@@ -857,27 +930,74 @@ export function sqlRowKinds(sql: string): Kind[] {
     if (ch === ',' && depth === 0) { cols.push(cur); cur = ''; } else cur += ch;
   }
   cols.push(cur);
+  const kinds = new Set<Kind>();
+  const fields = new Map<string, Kind[]>();
   for (const raw of cols) {
-    const col = raw.trim();
-    if (/(?:^|\.)\*$/.test(col)) return ['contact', 'ident', 'name'];
-    const name = (/\bas\s+"?([A-Za-z_]\w*)"?\s*$/i.exec(col) ?? /([A-Za-z_]\w*)"?\s*$/.exec(col))?.[1] ?? '';
-    if (!name) continue;
-    if (REDACTABLE_NAMED.test(name)) kinds.add('contact');
-    if (IDENT_NAMED.test(name)) kinds.add('ident');
-    if (PERSONAL_NAME_COLUMN.test(name) || (/^name$/i.test(name) && PERSON_WORD.test(tables))) kinds.add('name');
+    const col = raw.trim().replace(/^distinct\s+(?:on\s*\((?:[^()]|\([^()]*\))*\)\s*)?/i, '');
+    if (!col) continue;
+    const star = /^(?:([A-Za-z_]\w*)\s*\.\s*)?\*$/.exec(col);
+    if (star) {
+      for (const k of KINDS) kinds.add(k);
+      // Поля `*` не названы; `.phone`, `.address` судит шаблон поля, а `.name` — здесь.
+      if (personOwner(star[1])) fields.set('name', ['name']);
+      continue;
+    }
+    // Псевдоним: `expr AS x` или `expr x` (после имени, скобки, кавычки).
+    const asM = /\s+as\s+"?([A-Za-z_]\w*)"?\s*$/i.exec(col);
+    const implicit = asM ? null : /([\w)"'\]])\s+"?([A-Za-z_]\w*)"?\s*$/.exec(col);
+    const alias = asM?.[1] ?? (implicit && !SQL_NOT_ALIAS.has(implicit[2].toLowerCase()) ? implicit[2] : null);
+    const exprRaw = asM ? col.slice(0, asM.index) : alias && implicit ? col.slice(0, implicit.index + 1) : col;
+    const expr = exprRaw
+      .replace(/'(?:[^']|'')*'/g, "''")
+      .replace(/::\s*"?[A-Za-z_]\w*"?(?:\s*\([\d\s,]*\))?(?:\s*\[\s*\])*/g, '')
+      .replace(/\bcount\s*\((?:[^()]|\([^()]*\))*\)/gi, '0')
+      .replace(/(?:[A-Za-z_]\w*\s*\.\s*)?"?[A-Za-z_]\w*"?\s+is\s+(?:not\s+)?null\b/gi, 'true');
+    const colKinds = new Set<Kind>();
+    const judge = (id: string, owner: string | undefined, isAlias: boolean) => {
+      if (id.toLowerCase() === 'mchs_phone') return;
+      if (REDACTABLE_NAMED.test(id)) colKinds.add('contact');
+      if (IDENT_NAMED.test(id)) colKinds.add('ident');
+      if (PERSONAL_NAME_COLUMN.test(id)) colKinds.add('name');
+      if (!isAlias && /^name$/i.test(id) && personOwner(owner)) colKinds.add('name');
+    };
+    for (const m of expr.matchAll(/(?:\b([A-Za-z_]\w*)\s*\.\s*)?"?\b([A-Za-z_]\w*)\b"?(?!\s*\()/g)) judge(m[2], m[1], false);
+    // Псевдоним признака и подсчёта (`phone IS NOT NULL AS has_phone`) — не контакт.
+    if (alias && !/^\s*(?:true|0)\s*$/.test(expr)) judge(alias, undefined, true);
+    // Выходное имя: псевдоним; `t.col` и `col::text` — col; вызов — имя функции.
+    const bare = /^\s*(?:[A-Za-z_]\w*\s*\.\s*)?"?([A-Za-z_]\w*)"?\s*$/.exec(expr);
+    const call = /^\s*([A-Za-z_]\w*)\s*\(/.exec(expr);
+    const field = alias ?? bare?.[1] ?? call?.[1].toLowerCase() ?? null;
+    if (colKinds.size === 0) continue;
+    for (const k of colKinds) kinds.add(k);
+    if (field) fields.set(field, [...new Set([...(fields.get(field) ?? []), ...colKinds])]);
   }
-  return [...kinds];
+  return { kinds: [...kinds], fields };
 }
+
+export const sqlRowKinds = (sql: string): Kind[] => sqlRow(sql).kinds;
 
 /** Вызов запроса с текстом SQL первым аргументом: `pool.query(…)`, `client.query<T>(…)`, `query(…)`. */
 const QUERY_AT = /(?:^|[^\w$])(?:\.\s*)?query\s*(?:<[^()]*?>\s*)?\(/g;
-/** Объявление, которому присвоен результат: `const { rows } =`, `const res =`, `const list: T[] =`, с `await` и получателем. */
-const QUERY_TARGET = /(?:const|let|var)\s+(\{[^{}]*\}|[A-Za-z_$][\w$]*)\s*(?::[^=;]*)?=\s*(?:await\s+)?(?:[A-Za-z_$][\w$]*\s*\.\s*)*$/;
+/**
+ * Объявление, которому присвоен результат: `const { rows } =`, `const [row] =`,
+ * `const res =`, `const list: T[] =`; после `=` — `await`, открывающие скобки
+ * (`(await pool.query(…)).rows`) и получатель.
+ */
+const QUERY_DECL = /\b(?:const|let|var)\s+(\{[^{}]*\}|\[[^[\]]*\]|[A-Za-z_$][\w$]*)\s*(?::[^=;]*)?=\s*((?:\(\s*|await\s+)*)(?:[A-Za-z_$][\w$]*\s*\??\.\s*)*$/;
+
+/** После `at` выражение кончилось: дальше не поле, не элемент и не вызов. */
+const exprEnds = (code: string, at: number): boolean => {
+  const k = skipWs(code, at);
+  return !/^(?:\??\.|\[|\()/.test(code.slice(k, k + 2));
+};
 
 /**
- * Переменные с результатом запроса и роды ПД его строки: `{ rows }` — `rows`,
- * `res` — сам `res` и `res.rows`. Текст SQL — из исходника: в маске он затёрт.
- * Запрос, собранный в переменную, сюда не попадает — ограничение названо.
+ * Переменные с результатом запроса и роды ПД его строки и полей: `{ rows }`,
+ * `{ rows: [row] }`, `[row]` — строки; `res` — сам результат, его `res.rows` и
+ * поля `res.rows[0].name`; `(await pool.query(…)).rows` и `….rows[0]` —
+ * строки и строка (двенадцатое ревью PR #3104). Текст SQL — из исходника: в
+ * маске он затёрт. Запрос, собранный в переменную, сюда не попадает —
+ * ограничение названо.
  */
 function queryResults(src: string, code: string, sc: Scopes): Array<{ key: string; kinds: Kind[] }> {
   const out: Array<{ key: string; kinds: Kind[] }> = [];
@@ -888,21 +1008,59 @@ function queryResults(src: string, code: string, sc: Scopes): Array<{ key: strin
     if (!first) continue;
     const sql = src.slice(first.from, first.to).trim();
     if (!/^['"`]/.test(sql)) continue;
-    const kinds = sqlRowKinds(sql);
-    if (kinds.length === 0) continue;
-    // Начало имени `query`: перед ним — получатель (`pool.`) и `await`.
+    const row = sqlRow(sql);
+    if (row.kinds.length === 0) continue;
+    // Начало имени `query`: перед ним — получатель (`pool.`), `await` и скобки.
     const qPos = m.index + m[0].indexOf('query');
     const before = code.slice(Math.max(0, qPos - 240), qPos);
-    const t = QUERY_TARGET.exec(before);
+    const t = QUERY_DECL.exec(before);
     if (!t) continue;
-    const at = qPos - before.length + t.index + t[0].indexOf(t[1]);
-    if (t[1].startsWith('{')) {
-      for (const part of splitTop(t[1].slice(1, -1))) {
-        const d = /^\s*rows\s*(?::\s*([A-Za-z_$][\w$]*))?\s*$/.exec(part);
-        if (d) out.push({ key: sc.key(d[1] ?? 'rows', at), kinds });
+    // Скобки, открытые до вызова, закрываются после него: `(await q(…)).rows`.
+    let j = closeOf(code, open) + 1;
+    let balanced = true;
+    for (let n = (t[2].match(/\(/g) ?? []).length; n > 0; n--) {
+      j = skipWs(code, j);
+      if (code[j] !== ')') { balanced = false; break; }
+      j++;
+    }
+    if (!balanced) continue;
+    let shape: 'result' | 'rows' | null = exprEnds(code, j) ? 'result' : null;
+    const rows = shape ? null : /^\s*\??\.\s*rows\b/.exec(code.slice(j, j + 40));
+    if (rows) {
+      j += rows[0].length;
+      // Элемент строк — та же строка: `.rows[0]`, `.rows.at(-1)`, `!`.
+      for (let guard = 0; guard < 8; guard++) {
+        const k = skipWs(code, j);
+        if (code[k] === '!' && code[k + 1] !== '=') { j = k + 1; continue; }
+        if (code[k] === '[') { j = closeOf(code, k) + 1; continue; }
+        const atCall = /^\??\.\s*at\s*\(/.exec(code.slice(k, k + 12));
+        if (atCall) { j = closeOf(code, k + atCall[0].length - 1) + 1; continue; }
+        break;
       }
+      if (exprEnds(code, j)) shape = 'rows';
+    }
+    if (!shape) continue;
+    const at = qPos - before.length + t.index + t[0].indexOf(t[1]);
+    const put = (key: string) => {
+      out.push({ key, kinds: row.kinds });
+      for (const [f, k] of row.fields) out.push({ key: `${key}.${f}`, kinds: k });
+    };
+    const target = t[1];
+    if (target.startsWith('{')) {
+      if (shape !== 'result') continue;
+      for (const part of splitTop(target.slice(1, -1))) {
+        const d = /^\s*rows\s*(?::\s*([A-Za-z_$][\w$]*|\[[^\]]*\]))?\s*$/.exec(part);
+        if (!d) continue;
+        if (d[1]?.startsWith('[')) for (const name of bindingNames(d[1])) put(sc.key(name, at));
+        else put(sc.key(d[1] ?? 'rows', at));
+      }
+    } else if (target.startsWith('[')) {
+      for (const name of bindingNames(target)) put(sc.key(name, at));
     } else {
-      out.push({ key: sc.key(t[1], at), kinds }, { key: `${sc.key(t[1], at)}.rows`, kinds });
+      const key = sc.key(target, at);
+      put(key);
+      // Результат целиком: строки у него в `.rows`.
+      if (shape === 'result') put(`${key}.rows`);
     }
   }
   return out;
@@ -911,9 +1069,10 @@ function queryResults(src: string, code: string, sc: Scopes): Array<{ key: strin
 /**
  * Что несёт обращение к переменной, имя которой кончается на `end` (цепочка —
  * не дальше `limit`): весь объект (`field: null`) — сам `x`, элемент `x[0]`,
- * методы `x.join()`; одно поле (`field: 'prop'`) — `x.prop`, за которым метод,
- * индекс или конец; ничего (null) — поле поля или `x.map((a) => …)`, где
- * результат собирает колбэк и судится он сам.
+ * методы `x.join()`; поле (`field: 'prop'`) — `x.prop`, за которым метод,
+ * индекс или конец, поле поля — путь (`x.rows[0].name` — `rows.name`);
+ * ничего (null) — `x.map((a) => …)`, где результат собирает колбэк и судится
+ * он сам.
  *
  * Поле объекта не несёт рода всего объекта: строка из базы, где рядом с
  * названием тура лежит имя автора, делала бы «именем» и название
@@ -951,8 +1110,9 @@ function carrierOf(
       }
       continue;
     }
-    if (field !== null) return null;
-    field = id[1];
+    // Поле поля — путь (`res.rows[0].name` — `rows.name`): род у него только
+    // тот, что ему записали (поля строки запроса), иначе — никакой.
+    field = field === null ? id[1] : `${field}.${id[1]}`;
   }
   return { field };
 }
@@ -1193,10 +1353,13 @@ function taintsIn(code: string, sc: Scopes, edges: readonly Edge[], seeds: reado
     const set = m.get(k) ?? new Set<Kind>();
     set.add(kind);
     m.set(k, set);
-    const dot = k.indexOf('.');
-    if (m === vars && dot > 0) {
-      const base = k.slice(0, dot);
-      fieldsOf.set(base, (fieldsOf.get(base) ?? new Set()).add(k.slice(dot + 1)));
+    // Поле пути — поле каждой его основы: `S:res.rows.name` — `rows.name` у
+    // `S:res` и `name` у `S:res.rows`.
+    if (m === vars) {
+      for (let dot = k.indexOf('.'); dot > 0; dot = k.indexOf('.', dot + 1)) {
+        const base = k.slice(0, dot);
+        fieldsOf.set(base, (fieldsOf.get(base) ?? new Set()).add(k.slice(dot + 1)));
+      }
     }
   };
   const has = (m: Map<string, Set<Kind>>, k: string, kind: Kind) => m.get(k)?.has(kind) ?? false;

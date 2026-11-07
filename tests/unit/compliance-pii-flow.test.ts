@@ -1,7 +1,7 @@
 import { describe, it, expect } from 'vitest';
 import { resolve } from 'path';
 import { readFileSync, readdirSync, statSync } from 'fs';
-import { scanSource, pdAliases, promptFlowOf, maskCode, sqlRowKinds, FOREIGN_LLM_CALLERS, DOMESTIC_LLM_CALLERS, EGRESS_DOORS, CONTACT_WORD, REDACTABLE_WORD, IDENT_WORD } from '@/lib/agents/compliance/pii-flow-scanner';
+import { scanSource, pdAliases, promptFlowOf, maskCode, sqlRowKinds, sqlRow, FOREIGN_LLM_CALLERS, DOMESTIC_LLM_CALLERS, EGRESS_DOORS, CONTACT_WORD, REDACTABLE_WORD, IDENT_WORD } from '@/lib/agents/compliance/pii-flow-scanner';
 import { findViolations, ALLOWLIST } from '@/lib/agents/compliance/scan-repo';
 import {
   LLM_ENDPOINTS,
@@ -1180,5 +1180,80 @@ describe('D1 — одиннадцатое ревью PR #3104: что чисти
     expect(sqlRowKinds("`SELECT r.comment, u.name AS user_name, t.title AS tour_name FROM reviews r JOIN users u ON u.id = r.user_id`")).toEqual(['name']);
     expect(sqlRowKinds("'SELECT name FROM leads'")).toEqual(['name']);
     expect(sqlRowKinds("'SELECT id, passport_number FROM guests'")).toEqual(['ident']);
+  });
+});
+
+describe('D1 — двенадцатое ревью PR #3104: род колонки по выражению, формы результата, поля строки', () => {
+  const found = (src: string) => scanSource('r.ts', src).map((x) => [x.kind, x.context, x.expr]);
+  const ask = (...lines: string[]) => ["import { callAIFast } from '@/lib/ai/providers';", ...lines].join('\n');
+  const sink = (expr: string) => `await callAIFast([{ role: 'user', content: ${expr} }]);`;
+
+  it('находка 1: приведение и нейтральный псевдоним не прячут колонку', () => {
+    // Дословно сценарий ревьюера.
+    expect(found(ask('const { rows } = await pool.query(',
+      '  "SELECT tourist_phone::text, tourist_name::text AS title, passport_number::text AS doc FROM operator_bookings WHERE operator_tour_id = $1", [tourId]);',
+      'const prompt = `Брони тура: ${JSON.stringify(rows)}`;', "await callAIFast([{ role: 'user', content: prompt }]);")))
+      .toEqual([['contact', 'prompt', 'JSON.stringify(rows)']]);
+    expect(sqlRowKinds("'SELECT tourist_phone::text FROM operator_bookings'")).toEqual(['contact']);
+    expect(sqlRowKinds("'SELECT tourist_name::text AS title FROM operator_bookings'")).toEqual(['name']);
+    expect(sqlRowKinds("'SELECT passport_number::text AS doc FROM guests'")).toEqual(['ident']);
+    expect(sqlRowKinds("'SELECT COALESCE(telegram_chat_id::text, telegram_id::text) AS tg FROM users'")).toEqual(['ident']);
+    expect(sqlRowKinds("`SELECT tourist_name || ' ' || tourist_surname AS title FROM operator_bookings`")).toEqual(['name']);
+    expect(sqlRowKinds("'SELECT DISTINCT l.name FROM leads l'")).toEqual(['name']);
+    expect(sqlRowKinds("'SELECT DISTINCT name FROM leads'")).toEqual(['name']);
+    // Псевдоним называет контакт там, где выражение его не называет: поле JSON по ключу-строке.
+    expect(sqlRowKinds("`SELECT source_data->>'phone' AS phone FROM leads`")).toEqual(['contact']);
+    // Поле строки — по выходному имени, род — по выражению.
+    expect(sqlRow("'SELECT tourist_name::text AS title, passport_number::text AS doc, tourist_phone::text FROM operator_bookings'").fields)
+      .toEqual(new Map([['title', ['name']], ['doc', ['ident']], ['tourist_phone', ['contact']]]));
+  });
+
+  it('узость находки 1: подсчёт, признак, название тура рядом с лидами, служебный телефон МЧС', () => {
+    expect(sqlRowKinds("'SELECT COUNT(*) AS n FROM leads'")).toEqual([]);
+    expect(sqlRowKinds("'SELECT COUNT(tourist_phone) AS n, tourist_phone IS NOT NULL AS has_phone FROM operator_bookings'")).toEqual([]);
+    expect(sqlRowKinds("'SELECT t.name, t.title, l.status FROM operator_tours t JOIN leads l ON l.tour_id = t.id'")).toEqual([]);
+    expect(sqlRowKinds("'SELECT name AS label, note FROM operator_tours'")).toEqual([]);
+    expect(sqlRowKinds("'SELECT title, mchs_phone FROM kamchatka_routes'")).toEqual([]);
+    expect(sqlRowKinds("`SELECT CASE WHEN x THEN 'a' ELSE 'b' END, title FROM operator_tours`")).toEqual([]);
+    expect(sqlRowKinds("`SELECT title, 'phone' AS channel FROM operator_tours`")).toEqual([]);
+  });
+
+  it('находка 2: результат в скобках `.rows`, элемент `.rows[0]` и `const [row]`', () => {
+    // Дословно сценарий ревьюера.
+    expect(found(ask("const rows = (await pool.query('SELECT tourist_name, tourist_phone FROM operator_bookings')).rows;",
+      'const prompt = `Брони: ${JSON.stringify(rows)}`;', "await callAIFast([{ role: 'user', content: prompt }]);")))
+      .toEqual([['contact', 'prompt', 'JSON.stringify(rows)']]);
+    expect(found(ask("const [row] = await query('SELECT name FROM leads WHERE id = $1', [id]);", sink('JSON.stringify(row)'))))
+      .toEqual([['name', 'content', 'row']]);
+    expect(found(ask("const lead = (await pool.query('SELECT name FROM leads WHERE id = $1', [id])).rows[0];", sink('`Клиент: ${lead.name}`'))))
+      .toEqual([['name', 'content', 'lead.name']]);
+    expect(found(ask("const { rows: [lead] } = await pool.query('SELECT name FROM leads WHERE id = $1', [id]);", sink('`Клиент: ${lead.name}`'))))
+      .toEqual([['name', 'content', 'lead.name']]);
+    // Число строк — не строка.
+    expect(found(ask("const n = (await pool.query('SELECT tourist_phone FROM operator_bookings')).rowCount;", sink('`Броней: ${n}`')))).toEqual([]);
+    expect(found(ask("const n = (await pool.query('SELECT tourist_phone FROM operator_bookings')).rows.length;", sink('`Броней: ${n}`')))).toEqual([]);
+  });
+
+  it('находка 3: поле строки несёт род своей колонки', () => {
+    // Дословно сценарий ревьюера.
+    expect(found(ask("const { rows } = await pool.query('SELECT name FROM leads');",
+      'const prompt = `Клиент: ${rows[0].name}`;', "await callAIFast([{ role: 'user', content: prompt }]);")))
+      .toEqual([['name', 'prompt', 'rows[0].name']]);
+    expect(found(ask("const { rows } = await pool.query('SELECT name FROM leads');", 'const first = rows[0];', sink('`Клиент: ${first.name}`'))))
+      .toEqual([['name', 'content', 'first.name']]);
+    expect(found(ask("const { rows } = await pool.query('SELECT name FROM leads');", 'const [first] = rows;', sink('`Клиент: ${first.name}`'))))
+      .toEqual([['name', 'content', 'first.name']]);
+    expect(found(ask("const { rows } = await pool.query('SELECT id, name FROM leads');", 'const lead = rows.find((r) => r.id === id);', sink('`Клиент: ${lead.name}`'))))
+      .toEqual([['name', 'content', 'lead.name']]);
+    expect(found(ask("const res = await pool.query('SELECT name FROM users WHERE id = $1', [id]);", sink('`Кому: ${res.rows[0].name}`'))))
+      .toEqual([['name', 'content', 'res.rows[0].name']]);
+    expect(found(ask("const res = await pool.query('SELECT name FROM users');", 'const lines: string[] = [];',
+      'for (const u of res.rows) lines.push(u.name);', sink("lines.join(', ')"))).map((f) => f[0])).toEqual(['name']);
+    // Род строки на поле с ПД, а не на всё прочее: `title` рядом с телефоном и `name` тура — чисты.
+    expect(found(ask("const { rows } = await pool.query('SELECT title, tourist_phone FROM operator_bookings');",
+      'const first = rows[0];', sink('`Тур: ${rows[0].title}, ${first.title}`')))).toEqual([]);
+    expect(found(ask("const { rows: [tourist] } = await pool.query('SELECT title, tourist_phone FROM operator_bookings');", sink('`Тур: ${tourist.title}`'))))
+      .toEqual([]);
+    expect(found(ask("const { rows } = await pool.query('SELECT t.name, t.title FROM operator_tours t');", sink('`Тур: ${rows[0].name}`')))).toEqual([]);
   });
 });
