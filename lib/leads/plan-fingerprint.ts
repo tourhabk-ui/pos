@@ -20,10 +20,20 @@
 import { createHash } from 'node:crypto';
 import { asPlanForLead } from '@/lib/planner/plan-for-lead';
 
-/** Отпечаток плана из source_data заявки; не план — null. */
+const isObject = (x: unknown): x is Record<string, unknown> => !!x && typeof x === 'object';
+
+/**
+ * Отпечаток плана из source_data заявки; не план — null.
+ *
+ * asPlanForLead проверяет форму грубо, а заявку шлёт и чужой клиент: внутри
+ * может прийти что угодно. Неполный план (дети не списком, день не объект) —
+ * не отпечаток, а не отказ заявки: дубль тогда ищется прежним правилом,
+ * телефоном и комментарием (ревью безопасности #3106, кандидат 1).
+ */
 export function planFingerprint(plan: unknown): string | null {
   const p = asPlanForLead(plan);
-  if (!p) return null;
+  if (!p || !isObject(p.party) || !Array.isArray(p.party.children) || !p.days.every(isObject)) return null;
+  const lodging = Array.isArray(p.lodging) ? p.lodging.filter(isObject) : [];
   const canonical = [
     p.v,
     p.arrival ?? null,
@@ -33,8 +43,8 @@ export function planFingerprint(plan: unknown): string | null {
     // Возраст детей — состав, а не порядок ввода.
     [...p.party.children].sort((a, b) => a - b),
     p.days.map((d) => [d.day, d.date, d.type, d.title, d.zone, d.tour?.id ?? null]),
-    (p.lodging ?? []).map((l) => [l.accommodation_id, l.check_in, l.check_out]),
-    p.needs ? [p.needs.lodging, p.needs.transfer, p.needs.car] : null,
+    lodging.map((l) => [l.accommodation_id, l.check_in, l.check_out]),
+    isObject(p.needs) ? [p.needs.lodging, p.needs.transfer, p.needs.car] : null,
   ];
   return createHash('sha256').update(JSON.stringify(canonical)).digest('hex').slice(0, 32);
 }

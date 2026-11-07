@@ -76,6 +76,14 @@ describe('отпечаток плана', () => {
     expect(planFingerprint({ v: 2 })).toBeNull();
     expect(planFingerprint('план')).toBeNull();
   });
+
+  it('неполный план от чужого клиента — нет отпечатка, а не падение', () => {
+    const shell = { v: 1, estimate: {}, days: [] };
+    expect(planFingerprint({ ...shell, party: { adults: 2 } })).toBeNull();
+    expect(planFingerprint({ ...shell, party: 'двое' })).toBeNull();
+    expect(planFingerprint({ ...shell, party: { adults: 2, children: [] }, days: [null] })).toBeNull();
+    expect(planFingerprint({ ...shell, party: { adults: 2, children: [] }, lodging: 'да', needs: true })).toMatch(/^[0-9a-f]{32}$/);
+  });
 });
 
 describe('дубль заявки', () => {
@@ -118,6 +126,13 @@ describe('дубль заявки', () => {
     await lead(undefined);
     expect(await lead(undefined)).toEqual({ id: 'lead-1', created: false });
     expect(await lead(undefined, OTHER_PLAN)).toEqual({ id: 'lead-2', created: true });
+  });
+
+  it('неполный план — заявка создаётся, дубль по прежнему правилу', async () => {
+    const r = await createLeadDetailed({ name: 'Тест', phone: PHONE, comment: 'Хочу тур', source_data: { plan: { v: 1, party: { adults: 2 }, days: [], estimate: {} } } });
+    expect(r).toEqual({ id: 'lead-1', created: true });
+    const dup = dbCalls.find((c) => /SELECT id FROM leads/.test(c.sql))!;
+    expect(dup.sql).not.toMatch(/plan_fingerprint/);
   });
 
   it('без плана — прежнее правило: телефон и комментарий', async () => {

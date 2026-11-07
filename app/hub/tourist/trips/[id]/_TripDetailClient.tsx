@@ -96,7 +96,11 @@ function tripEstimate(trip: TripDetail) {
   if (!trip.party || trip.days.length === 0 || trip.days.some((d) => !d.type)) return null;
   const days = trip.days.map((d) => ({ ...d, type: d.type! }));
   // Выбранное жильё (#2304, шаг 3б) — той же сметой, что в планировщике.
-  return estimateGroup(days, { ...trip.party, arrivalDate: trip.arrival_date?.slice(0, 10) ?? null }, trip.choices ?? undefined);
+  // Машина напрокат (E7) — как в планировщике; не записано (до 07.11) — трансфер считается, как раньше.
+  return estimateGroup(days, {
+    ...trip.party, arrivalDate: trip.arrival_date?.slice(0, 10) ?? null,
+    needs: { car: trip.needs_car === true, transfer: trip.needs_airport_transfer === true },
+  }, trip.choices ?? undefined);
 }
 
 function tripPlanForLead(trip: TripDetail) {

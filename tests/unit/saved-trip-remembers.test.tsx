@@ -100,6 +100,17 @@ describe('номер дня — календарный', () => {
   });
 });
 
+describe('смета поездки знает про машину (E7, волна 2.5)', () => {
+  it('машина записана — трансфера аэропорта нет; до 07.11 (не записано) — есть', async () => {
+    render(<TripDetailClient tripId="trip-1" />);
+    expect((await screen.findByTestId('price-estimate')).textContent).not.toMatch(/Трансферы аэропорта/);
+    cleanup();
+    tripReply = { ...TRIP, needs_lodging: null, needs_car: null };
+    render(<TripDetailClient tripId="trip-1" />);
+    expect((await screen.findByTestId('price-estimate')).textContent).toMatch(/Трансферы аэропорта/);
+  });
+});
+
 describe('что ещё нужно — в заявке из поездки (H6)', () => {
   it('записано — в плане заявки', async () => {
     render(<TripDetailClient tripId="trip-1" />);
