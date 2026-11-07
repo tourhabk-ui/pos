@@ -21,6 +21,39 @@ export type UserLocation = {
   timestamp: number; // ms
 };
 
+/**
+ * Точка человека для текста, уходящего наружу (зарубежная модель, чужой
+ * сервис), — сотые градуса, около километра. Совету и прогнозу точнее не
+ * нужно, а точная точка говорит, где человек: геопозиция — персональные
+ * данные (152-ФЗ, docs/LEGAL.md). Точную координату получают только SOS и
+ * контроль выхода — службы, которые по ней ищут.
+ *
+ * Ревью безопасности 07.11 (PR #3104): чат-спасатель отдавал моделям точку до
+ * метра (`toFixed(5)`), контекст Кузьмича — до 11 м с точностью GPS и
+ * расстояния до мест в метрах, по которым точка восстанавливается.
+ */
+export function coarseDegrees(v: number): number {
+  return Math.round(v * 100) / 100;
+}
+
+/** Та же точка, огрублённая до километра; точность — не лучше километра. */
+export function coarseLocation(p: UserLocation): UserLocation {
+  return { ...p, lat: coarseDegrees(p.lat), lng: coarseDegrees(p.lng), accuracy: Math.max(p.accuracy || 0, 1000) };
+}
+
+/** Огрублённая точка словами: «53.12, 158.65 (около 1 км)». */
+export function coarsePointText(lat: number, lng: number): string {
+  return `${coarseDegrees(lat).toFixed(2)}, ${coarseDegrees(lng).toFixed(2)} (около 1 км)`;
+}
+
+/**
+ * Расстояние от огрублённой точки — километрами, без ложной точности: сама
+ * точка гуляет на полкилометра, и «350 м» было бы неправдой.
+ */
+export function approxDistanceText(km: number): string {
+  return km < 1.5 ? 'ближе 2 км' : `около ${Math.round(km)} км`;
+}
+
 export function isInKamchatka(lat: number, lng: number): boolean {
   return (
     lat >= KAMCHATKA_BBOX.south &&

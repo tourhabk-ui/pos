@@ -12,6 +12,7 @@ import { createRateLimiter, getClientIp } from '@/lib/rate-limit';
 import { z } from 'zod';
 import type { ChatMessage } from '@/lib/ai/prompts';
 import { openRouterAttribution } from '@/lib/ai/attribution';
+import { coarsePointText } from '@/lib/geo/kamchatka';
 
 export const dynamic = 'force-dynamic';
 export const maxDuration = 30;
@@ -31,7 +32,8 @@ const BodySchema = z.object({
   // передача данных настоящим спасателям идёт через /api/safety/sos. Свои
   // клиенты (components/safety/RescueChat, /hub/safety) их не слали никогда;
   // лишние ключи в теле zod отбрасывает. Координаты остаются — без них совет
-  // «где ближайшая помощь» невозможен.
+  // «где ближайшая помощь» невозможен; модели они уходят огрублёнными до
+  // километра (buildMessages).
   lat:           z.number().optional(),
   lng:           z.number().optional(),
   stream:        z.boolean().optional().default(false),
@@ -128,7 +130,10 @@ function buildMessages(
   const ctx: string[] = [];
   // В системный промпт из тела запроса попадают только координаты — числа,
   // которые формируются здесь, а не текст человека (issue #328, js/system-prompt-injection).
-  if (lat && lng)    ctx.push(`Координаты: ${lat.toFixed(5)}, ${lng.toFixed(5)}`);
+  // До километра (ревью 07.11): совету «где ближайшая помощь» точнее не нужно,
+  // а точная точка — ПД человека в беде у зарубежных моделей. Спасателям точку
+  // передаёт /api/safety/sos.
+  if (lat && lng)    ctx.push(`Координаты: ${coarsePointText(lat, lng)}`);
   if (ctx.length)    systemContent += `\n\nСОБЕСЕДНИК:\n${ctx.join('\n')}`;
 
   return [

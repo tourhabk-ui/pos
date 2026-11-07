@@ -21,7 +21,7 @@ import { detectEmergency } from '@/lib/safety/sos-detector';
 import { semanticSearch } from './embeddings';
 import { noteSemanticSearchOff, semanticSearchEnabled } from './semantic-search-state';
 import { logSwallowedFailure } from '@/lib/observability/swallowed';
-import { distanceKm, regionName, type UserLocation } from '@/lib/geo/kamchatka';
+import { approxDistanceText, coarseLocation, coarsePointText, distanceKm, regionName, type UserLocation } from '@/lib/geo/kamchatka';
 import { tourPath } from '@/lib/tours/tour-url';
 
 // ── In-memory TTL cache (5 min, max 200 entries) ────────────────
@@ -256,23 +256,25 @@ async function findNearbyPlaces(
 }
 
 // ── Гео-контекст для инжекта в системный промпт ────────
+// Точка человека уходит в системный промпт зарубежных моделей — только
+// огрублённой до километра, и всё, что из неё выведено (расстояния,
+// направления), считается от огрублённой: метры до трёх известных мест
+// восстановили бы точную точку (ревью 07.11, lib/geo/kamchatka coarseLocation).
 export async function buildGeoContext(
   userLocation: UserLocation,
 ): Promise<string> {
-  const { lat, lng, accuracy } = userLocation;
-  const region = regionName(lat, lng);
-  const nearby = await findNearbyPlaces(userLocation, 3);
+  const here = coarseLocation(userLocation);
+  const region = regionName(here.lat, here.lng);
+  const nearby = await findNearbyPlaces(here, 3);
+  const point = `\n\nТВОЁ МЕСТОПОЛОЖЕНИЕ:\n- Координаты: ${coarsePointText(here.lat, here.lng)}\n- Регион: ${region}`;
 
-  if (nearby.length === 0) {
-    return `\n\nТВОЁ МЕСТОПОЛОЖЕНИЕ:\n- Координаты: ${lat.toFixed(4)}, ${lng.toFixed(4)} (точность ±${Math.round(accuracy ?? 0)}м)\n- Регион: ${region}`;
-  }
+  if (nearby.length === 0) return point;
 
-  let geo = `\n\nТВОЁ МЕСТОПОЛОЖЕНИЕ:\n- Координаты: ${lat.toFixed(4)}, ${lng.toFixed(4)} (точность ±${Math.round(accuracy ?? 0)}м)\n- Регион: ${region}\n- Ближайшие ${nearby.length} мест из базы:\n`;
+  let geo = `${point}\n- Ближайшие ${nearby.length} мест из базы:\n`;
   nearby.forEach((p, i) => {
-    const distStr = p.distance < 1 ? `${Math.round(p.distance * 1000)} м` : `${p.distance.toFixed(1)} км`;
-    geo += `  ${i + 1}. ${p.title} [${p.category}] — ${distStr} ${p.direction}\n`;
+    geo += `  ${i + 1}. ${p.title} [${p.category}] — ${approxDistanceText(p.distance)} ${p.direction}\n`;
   });
-  geo += `\nУчитывай это в советах. Если спрашивает про ближайшие места — называй конкретные расстояния и направления.\nНе давай советы про места которые в 200+ км если есть ближе. Если нужно ехать далеко — упомяни сколько и как добираться.`;
+  geo += `\nУчитывай это в советах. Если спрашивает про ближайшие места — называй расстояния и направления, они примерные (до километра).\nНе давай советы про места которые в 200+ км если есть ближе. Если нужно ехать далеко — упомяни сколько и как добираться.`;
   return geo;
 }
 
@@ -298,11 +300,15 @@ export async function buildRAGContext(
   // RAG для туристов и агентов — нужны конкретные туры и маршруты
   if (role !== 'tourist' && role !== 'agent') return '';
   const withTours = opts.tours !== false;
+  // Расстояния «от тебя» уходят модели — от точки, огрублённой до километра.
+  const here = userLocation ? coarseLocation(userLocation) : undefined;
 
   // Check cache (cache key includes geo awareness and the tours switch:
-  // ответ без туров не должен достаться тому, кто их ждёт, и наоборот)
+  // ответ без туров не должен достаться тому, кто их ждёт, и наоборот).
+  // Ключ — та же огрублённая точка: при десятых градуса человек получал
+  // расстояния, посчитанные от чужой точки в 11 км от него.
   const cacheKey = getCacheKey(message)
-    + (userLocation ? `|${userLocation.lat.toFixed(1)},${userLocation.lng.toFixed(1)}` : '')
+    + (here ? `|${here.lat.toFixed(2)},${here.lng.toFixed(2)}` : '')
     + (withTours ? '' : '|no-tours');
   const cached = RAG_CACHE.get(cacheKey);
   if (cached && Date.now() - cached.ts < RAG_TTL) return cached.data;
@@ -328,7 +334,7 @@ export async function buildRAGContext(
     lng: r.lng ?? null,
   }));
 
-  const routes = reciprocalRankFusion(fulltextRoutes, semanticRoutes, 60, 5, userLocation);
+  const routes = reciprocalRankFusion(fulltextRoutes, semanticRoutes, 60, 5, here);
 
   if (routes.length === 0 && tours.length === 0) return '';
 
@@ -336,20 +342,16 @@ export async function buildRAGContext(
 
   if (routes.length > 0) {
     ctx += '\n\nМАРШРУТЫ И МЕСТА НА TOURHAB:';
-    if (userLocation) {
+    if (here) {
       ctx += ' (отсортированы по близости к тебе)';
     }
     ctx += '\n';
     ctx += routes
       .map((r) => {
         let line = `• ${r.title} [${r.category}]${r.description ? ' — ' + r.description : ''}`;
-        if (userLocation && r.lat != null && r.lng != null) {
-          const d = distanceKm(
-            { lat: userLocation.lat, lng: userLocation.lng },
-            { lat: r.lat, lng: r.lng },
-          );
-          const distStr = d < 1 ? `${Math.round(d * 1000)} м` : `${d.toFixed(1)} км`;
-          line += ` (${distStr} от тебя)`;
+        if (here && r.lat != null && r.lng != null) {
+          const d = distanceKm({ lat: here.lat, lng: here.lng }, { lat: r.lat, lng: r.lng });
+          line += ` (${approxDistanceText(d)} от тебя)`;
         }
         return line;
       })

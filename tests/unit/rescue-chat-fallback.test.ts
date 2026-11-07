@@ -99,7 +99,7 @@ describe('rescue-chat: фолбэк при отказе провайдеров',
     expect(messages.find(m => m.role === 'system')?.content).not.toContain('Координаты');
   });
 
-  it('потоковый путь (OpenRouter) тоже не несёт имя и телефон, координаты несёт', async () => {
+  it('потоковый путь (OpenRouter) тоже не несёт имя и телефон, координаты — до километра', async () => {
     openRouterKeyMock.mockReturnValue('test-key');
     const fetchMock = vi.fn(async () => new Response(null, { status: 500 }));
     vi.stubGlobal('fetch', fetchMock);
@@ -112,7 +112,9 @@ describe('rescue-chat: фолбэк при отказе провайдеров',
       const body = String(init.body);
       expect(body).not.toContain('Пупкин');
       expect(body).not.toContain('123-45-67');
-      expect(body).toContain('Координаты: 53.12346, 158.65432');
+      // Точка человека в беде — ПД; модели хватает километра (ревью 07.11).
+      expect(body).toContain('Координаты: 53.12, 158.65 (около 1 км)');
+      expect(body).not.toMatch(/53\.123|158\.654/);
     } finally {
       vi.unstubAllGlobals();
       openRouterKeyMock.mockReturnValue(null);
