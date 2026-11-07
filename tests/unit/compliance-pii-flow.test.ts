@@ -1368,3 +1368,45 @@ describe('D1 — тринадцатое ревью PR #3104: имя, а не н�
       'await callAIFast(`Память: ${JSON.stringify(rows)}`);'))).toEqual([]);
   });
 });
+
+describe('D1 — четырнадцатое ревью PR #3104: что запрос отдаёт; display_name', () => {
+  const found = (src: string) => scanSource('r.ts', src).map((x) => [x.kind, x.expr]);
+  const ask = (...lines: string[]) => ["import { callAIFast } from '@/lib/ai/providers';", ...lines].join('\n');
+  const kinds = (sql: string) => sqlRowKinds(sql).sort();
+
+  it('находка 1: внешний SELECT после WITH, ветки UNION, список RETURNING', () => {
+    // Дословно сценарий ревьюера.
+    expect(found(ask('const { rows } = await pool.query(`', "  WITH fresh AS (SELECT id FROM leads WHERE status = 'new')",
+      '  SELECT l.name, l.phone FROM leads l JOIN fresh f ON f.id = l.id', '`);',
+      'const prompt = `Новые заявки: ${JSON.stringify(rows)}`;', "await callAIFast([{ role: 'user', content: prompt }]);")))
+      .toEqual([['contact', 'JSON.stringify(rows)']]);
+    expect(kinds("'SELECT title FROM operator_tours UNION SELECT tourist_phone FROM operator_bookings'")).toEqual(['contact']);
+    expect(kinds("'(SELECT title FROM operator_tours) UNION ALL (SELECT tourist_name FROM operator_bookings)'")).toEqual(['name']);
+    expect(kinds("'DELETE FROM leads WHERE id = $1 RETURNING name, phone'")).toEqual(['contact', 'name']);
+    expect(kinds("'UPDATE leads l SET status = $2 WHERE l.id = $1 RETURNING l.email'")).toEqual(['contact']);
+    expect(kinds("'INSERT INTO leads (name, phone) VALUES ($1, $2) RETURNING id, phone;'")).toEqual(['contact']);
+    // Псевдоним CTE — не таблица: имя из тела CTE с лидами.
+    expect(kinds("'WITH f AS (SELECT * FROM leads) SELECT f.name FROM f'")).toEqual(['name']);
+  });
+
+  it('узость находки 1: тело CTE и подзапрос, которых нет в выходе', () => {
+    expect(kinds("'WITH f AS (SELECT id, phone FROM leads) SELECT id FROM f'")).toEqual([]);
+    expect(kinds("'SELECT title FROM operator_tours WHERE id IN (SELECT tour_id FROM operator_bookings WHERE tourist_phone = $1)'")).toEqual([]);
+    expect(kinds("'WITH d AS (DELETE FROM leads WHERE id = $1 RETURNING phone) SELECT COUNT(*) AS n FROM d'")).toEqual([]);
+    expect(kinds("'INSERT INTO leads (name, phone) VALUES ($1, $2) RETURNING id'")).toEqual([]);
+    expect(kinds("'SELECT EXTRACT(YEAR FROM created_at) AS y, title FROM operator_tours'")).toEqual([]);
+  });
+
+  it('находка 2: display_name контакта CRM — в SQL и у владельца c', () => {
+    // Дословно сценарий ревьюера.
+    expect(found(ask('const { rows } = await pool.query(`SELECT c.display_name FROM crm_contacts c`);',
+      'const prompt = `Клиенты: ${JSON.stringify(rows)}`;', "await callAIFast([{ role: 'user', content: prompt }]);")))
+      .toEqual([['name', 'JSON.stringify(rows)']]);
+    expect(found(ask('const { rows } = await pool.query(`SELECT c.display_name FROM crm_contacts c`);', 'await callAIFast(`Клиент: ${rows[0].display_name}`);')))
+      .toEqual([['name', 'rows[0].display_name']]);
+    expect(found(ask('await callAIFast(`Клиент: ${c.display_name}`);'))).toEqual([['name', 'c.display_name']]);
+    // Парк и модель — не люди.
+    expect(kinds("'SELECT p.display_name FROM parks p'")).toEqual([]);
+    expect(kinds("'SELECT display_name, usd_per_mtok_in FROM model_catalog'")).toEqual([]);
+  });
+});

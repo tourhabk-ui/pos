@@ -180,12 +180,13 @@ export const IDENT_WORD = 'telegram_id|telegram_username|chat_id|passport_number
 /**
  * Явные персональные имена (не «название вулкана»): по полю или по владельцу.
  * `display_name` — как голое `name`: так названы и контакты CRM, и парки
- * (`lib/parks`), и модели в каталоге; судит владелец (`contact.display_name`).
+ * (`lib/parks`), и модели в каталоге; судит владелец (`contact.display_name`,
+ * `c.display_name` — так в коде названы контакты CRM; в SQL — по таблице).
  */
 export const PERSONAL_NAME_FIELD =
   /\b(customer|client|full|first|last|user|guest|traveler|traveller|tourist|contact|passenger|buyer|payer)_name\b/i;
 export const PERSONAL_OWNER_NAME =
-  /\b(lead|leads|l|booking|bookings|b|user|users|u|member|members|m|guest|guests|g|client|clients|customer|customers|traveler|traveller|tourist|tourists|passenger|buyer|payer|contact|contacts|profile|profiles)\s*\.\s*(?:display_)?name\b/i;
+  /\b(?:(lead|leads|l|booking|bookings|b|user|users|u|member|members|m|guest|guests|g|client|clients|customer|customers|traveler|traveller|tourist|tourists|passenger|buyer|payer|contact|contacts|profile|profiles)\s*\.\s*(?:display_)?name|c\s*\.\s*display_name)\b/i;
 
 /**
  * Идентификатор в снейк-регистре (тринадцатое ревью PR #3104): страж судит не
@@ -1006,46 +1007,67 @@ function maskSql(text: string): string {
 const WHOLE_ROW = /\b(?:row_to_json|to_jsonb?|jsonb?_agg|array_agg|jsonb?_build_array|row)\s*\(\s*(?:distinct\s+)?([A-Za-z_]\w*)(\s*\.\s*\*)?\s*(?=[),]|order\b)/gi;
 
 export function sqlRow(sql: string): SqlRowShape {
-  const text = sql.replace(/^[\s'"`]+|[\s'"`]+$/g, '');
-  // Строки и комментарии затёрты: `FROM` ищется только в коде запроса.
+  const text = sql.replace(/^[\s'"`]+|[\s'"`;]+$/g, '');
+  // Строки и комментарии затёрты: ключевые слова ищутся только в коде запроса.
   const plain = maskSql(text);
-  const head = /\bselect\b/i.exec(plain);
-  if (!head) return { kinds: [], fields: new Map() };
-  let depth = 0;
-  let end = -1;
-  for (let i = head.index + head[0].length; i < plain.length; i++) {
-    const ch = plain[i];
-    if (ch === '(') depth++;
-    else if (ch === ')') depth--;
-    else if (depth === 0 && /\bfrom\b/i.test(plain.slice(i, i + 5)) && /\W/.test(plain[i - 1] ?? ' ')) { end = i; break; }
+  // Глубина скобок у каждой позиции: `(` и `)` — на глубине снаружи.
+  const depthAt: number[] = [];
+  for (let i = 0, d = 0; i < plain.length; i++) {
+    if (plain[i] === ')') d--;
+    depthAt.push(d);
+    if (plain[i] === '(') d++;
   }
-  const listFrom = head.index + head[0].length;
-  const listTo = end < 0 ? plain.length : end;
-  // Таблицы и их псевдонимы: `FROM leads l JOIN users u` — l → leads, u → users.
-  const tables = new Map<string, string>();
-  if (end >= 0) {
-    for (const m of plain.slice(end).matchAll(/\b(?:from|join)\s+([A-Za-z_][\w.]*)(?:\s+(?:as\s+)?([A-Za-z_]\w*))?/gi)) {
-      const table = m[1].split('.').slice(-1)[0];
-      tables.set(table.toLowerCase(), table);
-      if (m[2] && !SQL_NOT_ALIAS.has(m[2].toLowerCase())) tables.set(m[2].toLowerCase(), table);
+  const word = (re: RegExp) => [...plain.matchAll(re)].map((m) => m.index ?? 0);
+  // Что запрос отдаёт (четырнадцатое ревью PR #3104): список `RETURNING`
+  // внешнего `INSERT/UPDATE/DELETE`, иначе каждая внешняя ветка `SELECT` —
+  // после `WITH` и через `UNION`. Тела CTE и подзапросы в `WHERE` в выход не
+  // попадают и не судятся.
+  const projections: Array<[number, number]> = [];
+  const returning = word(/\breturning\b/gi).find((i) => depthAt[i] === 0);
+  if (returning !== undefined) projections.push([returning + 'returning'.length, plain.length]);
+  else {
+    const selects = word(/\bselect\b/gi);
+    if (selects.length === 0) return { kinds: [], fields: new Map() };
+    const top = Math.min(...selects.map((i) => depthAt[i]));
+    const STOP = /^(?:from|union|intersect|except|where|group|order|limit|into|having|window)\b/i;
+    for (const at of selects.filter((i) => depthAt[i] === top)) {
+      const from = at + 'select'.length;
+      let to = plain.length;
+      for (let i = from; i < plain.length; i++) {
+        if (depthAt[i] < top) { to = i; break; }
+        if (depthAt[i] === top && /\W/.test(plain[i - 1] ?? ' ') && STOP.test(plain.slice(i, i + 9))) { to = i; break; }
+      }
+      projections.push([from, to]);
     }
   }
+  // Таблицы и их псевдонимы: `FROM leads l JOIN users u` — l → leads, u → users;
+  // цель `INSERT INTO` / `UPDATE` — тоже таблица.
+  const tables = new Map<string, string>();
+  for (const m of plain.matchAll(/\b(?:from|join|into|update)\s+([A-Za-z_][\w.]*)(?:\s+(?:as\s+)?([A-Za-z_]\w*))?/gi)) {
+    const table = m[1].split('.').slice(-1)[0];
+    tables.set(table.toLowerCase(), table);
+    if (m[2] && !SQL_NOT_ALIAS.has(m[2].toLowerCase())) tables.set(m[2].toLowerCase(), table);
+  }
+  // Имена CTE — не таблицы: что в них за строки, судит их тело.
+  const ctes = new Set([...plain.matchAll(/(?:\bwith\s+(?:recursive\s+)?|,\s*)([A-Za-z_]\w*)\s+as\s+(?:not\s+)?(?:materialized\s+)?\(/gi)].map((m) => m[1].toLowerCase()));
   const anyPerson = [...tables.values()].some((t) => PERSON_WORD.test(t));
-  /** Владелец голого `name` — люди: таблица по псевдониму; без владельца или неизвестный — любая таблица запроса. */
+  /** Владелец голого `name` — люди: таблица по псевдониму; без владельца, CTE или неизвестный — любая таблица запроса. */
   const personOwner = (q: string | undefined): boolean => {
     if (!q) return anyPerson;
     const t = tables.get(q.toLowerCase());
-    return t !== undefined ? PERSON_WORD.test(t) : PERSON_WORD.test(q) || anyPerson;
+    return t !== undefined && !ctes.has(t.toLowerCase()) ? PERSON_WORD.test(t) : PERSON_WORD.test(q) || anyPerson;
   };
   // Колонки — по запятым верхнего уровня в коде; рядом — тот же отрезок исходника (ключи `->>'phone'`).
   const cols: Array<{ code: string; raw: string }> = [];
-  depth = 0;
-  let start = listFrom;
-  for (let i = listFrom; i <= listTo; i++) {
-    const ch = plain[i];
-    if (ch === '(') depth++;
-    if (ch === ')') depth--;
-    if (i === listTo || (ch === ',' && depth === 0)) { cols.push({ code: plain.slice(start, i), raw: text.slice(start, i) }); start = i + 1; }
+  for (const [listFrom, listTo] of projections) {
+    let depth = 0;
+    let start = listFrom;
+    for (let i = listFrom; i <= listTo; i++) {
+      const ch = plain[i];
+      if (ch === '(') depth++;
+      if (ch === ')') depth--;
+      if (i === listTo || (ch === ',' && depth === 0)) { cols.push({ code: plain.slice(start, i), raw: text.slice(start, i) }); start = i + 1; }
+    }
   }
   const kinds = new Set<Kind>();
   const fields = new Map<string, Kind[]>();
@@ -1056,7 +1078,7 @@ export function sqlRow(sql: string): SqlRowShape {
     if (star) {
       for (const k of KINDS) kinds.add(k);
       // Поля `*` не названы; `.phone`, `.address` судит шаблон поля, а `.name` — здесь.
-      if (personOwner(star[1])) fields.set('name', ['name']);
+      if (personOwner(star[1])) { fields.set('name', ['name']); fields.set('display_name', ['name']); }
       continue;
     }
     // Псевдоним: `expr AS x` или `expr x` (после имени, скобки, кавычки).
@@ -1074,7 +1096,8 @@ export function sqlRow(sql: string): SqlRowShape {
       if (isRedactableId(id)) colKinds.add('contact');
       if (isIdentId(id)) colKinds.add('ident');
       if (isPersonNameId(id)) colKinds.add('name');
-      if (!isAlias && /^name$/i.test(id) && personOwner(owner)) colKinds.add('name');
+      // Голое `name` и `display_name` — по таблице владельца: у контакта CRM имя, у парка и модели — нет.
+      if (!isAlias && /^(?:display_)?name$/i.test(id) && personOwner(owner)) colKinds.add('name');
     };
     for (const m of expr.matchAll(/(?:\b([A-Za-z_]\w*)\s*\.\s*)?"?\b([A-Za-z_]\w*)\b"?(?!\s*\()/g)) judge(m[2], m[1], false);
     // Ключ поля JSON — тоже колонка: `source_data->>'phone'`, `to_jsonb(l)->'name'`.
@@ -1296,7 +1319,7 @@ interface Taints {
  * `tool` — имя инструмента модели. Слово человека в любом из этих имён
  * (`leadFiles`) сильнее: владелец остаётся человеком.
  */
-const PERSON_WORD = /lead|booking|user|member|guest|client|customer|tourist|travel|passenger|buyer|payer|participant|person|people/i;
+const PERSON_WORD = /lead|booking|user|member|guest|client|customer|tourist|travel|passenger|buyer|payer|participant|person|people|contact/i;
 const NON_PERSON_HEAD: ReadonlySet<string> = new Set(['model', 'models', 'buffer', 'buffers', 'blob', 'blobs', 'file', 'files', 'tool', 'tools']);
 const SINGLE_OWNER_NAME = /\b([lbumg])\s*\.\s*name\b/g;
 const PERSONAL_OWNER_LONG = new RegExp(PERSONAL_OWNER_NAME.source.replace(/\|[lbumg](?=\|)/g, ''), 'i');
