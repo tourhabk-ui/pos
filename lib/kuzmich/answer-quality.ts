@@ -852,7 +852,10 @@ export function checkAnswerPrices(answer: string, runs: ReadonlyArray<PricedTool
     .join('\n');
   const checked = dropUnsourcedPrices(answer, source).text;
   const estimate = planEstimateBlock(runs ?? []);
-  if (estimate.length === 0 || !checked.trim() || /ориентир на человека/i.test(checked)) return checked;
+  // Смета уже стоит — строка «Ориентир на человека» с ценой. Та же фраза без
+  // суммы («ориентир на человека — в планировщике») сметой не считается
+  // (ревью PR #3134).
+  if (estimate.length === 0 || !checked.trim() || /ориентир на человека[^\n]*\d[^\n]*(?:₽|руб)/i.test(checked)) return checked;
   const block = estimate.join('\n');
   const noteAt = checked.lastIndexOf(PRICE_CUT_NOTE);
   if (noteAt < 0) return `${checked}\n\n${block}`;

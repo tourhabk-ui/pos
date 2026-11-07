@@ -82,6 +82,12 @@ describe('смета плана — из вывода инструмента', (
     expect(out).not.toContain(PRICE_CUT_NOTE);
   });
 
+  it('«ориентир на человека» без суммы — не смета: смета инструмента ставится (ревью PR #3134)', () => {
+    const answer = 'Собрал план на 5 дней.\nОриентир на человека смотрите на странице плана.';
+    const out = checkAnswerPrices(answer, [PLAN_RUN]);
+    expect(out.endsWith(ESTIMATE.join('\n'))).toBe(true);
+  });
+
   it('смета переписана дословно — второй раз не ставится', () => {
     const answer = `Собрал план.\n${ESTIMATE[0]}`;
     expect(checkAnswerPrices(answer, [PLAN_RUN])).toBe(answer);
