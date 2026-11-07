@@ -177,6 +177,48 @@ describe('миграция 1398 (клипы Вачкажца у тура гид�
   });
 });
 
+describe('миграция 1404 (клипы «Местечка Камчатка» — ролики со страниц его туров)', () => {
+  const sql = read('migrations/1404_mestechko_tour_clips.sql');
+  const code = sql.split('\n').filter((l) => !l.trimStart().startsWith('--')).join('\n');
+  const pairs = [...code.matchAll(/\('(mestechko-[a-z-]+)',\s*jsonb_build_object\('key', '(videos\/[^']+)'/g)].map((m) => [m[1]!, m[2]!] as const);
+
+  it('ключи — только из маркера заливки и лежат в media/s3; каждый клип — H.264 без звука, вертикаль', () => {
+    const marker = JSON.parse(read(MARKER)) as { items: Array<{ key: string; file: string }> };
+    const uploaded = new Set(marker.items.map((i) => i.key));
+    const keys = [...code.matchAll(/'(videos\/[^']+)'/g)].map((m) => m[1]!);
+    expect(keys).toHaveLength(22);
+    for (const k of keys) {
+      expect(k.startsWith('videos/mestechko/'), k).toBe(true);
+      expect(uploaded.has(k), k).toBe(true);
+      expect(existsSync(join(ROOT, 'media/s3', k)), k).toBe(true);
+    }
+    for (const k of keys.filter((x) => x.endsWith('.mp4'))) {
+      const meta = readFileSync(join(ROOT, 'media/s3', k)).toString('latin1');
+      expect(meta, k).toContain('avc1');
+      expect(meta, k).not.toMatch(/hdlr\0{8}soun/);
+    }
+  });
+
+  it('по клипу на тур, только туры «Местечка»; чужой кадр туру не ставится', () => {
+    expect(pairs).toHaveLength(11);
+    expect(new Set(pairs.map(([slug]) => slug)).size).toBe(11);
+    expect(code).toMatch(/p\.slug = 'mestechko'/);
+    // Ролик Толмачёва сайт показывает и у пляжа, и у Толбачика — у нас он только у Толмачёва.
+    const tolm = pairs.filter(([, key]) => key.includes('tolmachevo'));
+    expect(tolm).toEqual([['mestechko-ozero-tolmachevo', 'videos/mestechko/clip-ozero-tolmachevo.mp4']]);
+    const slugs = pairs.map(([slug]) => slug);
+    for (const s of ['mestechko-halaktyrskiy-plyazh', 'mestechko-tolbachik-standard', 'mestechko-avachinskiy-pereval']) {
+      expect(slugs, s).not.toContain(s);
+    }
+  });
+
+  it('клипы дописываются к своим, без повтора и не больше восьми', () => {
+    expect(code).toMatch(/SET video_clips = ot\.video_clips \|\| jsonb_build_array\(m\.c\)/);
+    expect(code).toMatch(/NOT EXISTS \([\s\S]*e->>'key' = cl\.c->>'key'/);
+    expect(code).toMatch(/jsonb_array_length\(t\.video_clips\) < 8/);
+  });
+});
+
 describe('миграция 1399 (курильские туры гида: пар вместо «Двух медведей», ещё медведь и лошади)', () => {
   const sql = read('migrations/1399_guide_kurile_lake_clips_more.sql');
   const code = sql.split('\n').filter((l) => !l.trimStart().startsWith('--')).join('\n');
