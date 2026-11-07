@@ -46,6 +46,39 @@ export function coarsePointText(lat: number, lng: number): string {
   return `${coarseDegrees(lat).toFixed(2)}, ${coarseDegrees(lng).toFixed(2)} (около 1 км)`;
 }
 
+/** Пометка, которую получает текст с огрублёнными координатами. */
+export const COARSE_COORDS_NOTE = '[координаты огрублены до ~1 км]';
+
+// Десятичный градус: 2–3 цифры, точка и от трёх знаков (запятая — от четырёх:
+// «150,000» — тысячи, а не долгота). Перед числом нет цифры и «цифры с точкой»:
+// иначе «07.2026» из даты «10.07.2026» сошло бы за градус.
+const DECIMAL_DEGREE = /(?<!\d)(?<!\d\.)(-?)(\d{2,3})([.,])(\d{3,})(?![\d])(?!\.\d)/g;
+// Градусы-минуты-секунды и градусы с дробными минутами: оставляем минуты
+// (около 1,8 км по широте), секунды и доли минуты — точнее километра.
+const DMS = /(\d{1,3})\s*°\s*(\d{1,2})\s*['′’]\s*\d{1,2}(?:[.,]\d+)?\s*(?:["″”]|'')/g;
+const DEGREE_DECIMAL_MINUTES = /(\d{1,3})\s*°\s*(\d{1,2})[.,]\d+\s*['′’]/g;
+
+/**
+ * Координаты, которые человек вписал в текст сам («я на 53.23912, 158.77123»),
+ * — до километра, как и точка из полей запроса. Ревью безопасности PR #3127:
+ * чат-спасатель огрублял `lat`/`lng`, а та же точка в тексте сообщения уходила
+ * зарубежной модели как есть. `redactPII` координаты не режет нарочно (их
+ * читает инструмент погоды Кузьмича), поэтому правило отдельное. Если что-то
+ * огрублено, к тексту дописывается пометка — модель не примет точку за точную.
+ */
+export function coarseCoordsInText(text: string): string {
+  let changed = false;
+  let out = text.replace(DECIMAL_DEGREE, (m, sign: string, int: string, sep: string, frac: string) => {
+    const deg = Number(int);
+    if (deg < 30 || deg > 180 || (sep === ',' && frac.length < 4)) return m;
+    changed = true;
+    return `${sign}${coarseDegrees(Number(`${int}.${frac}`)).toFixed(2)}`;
+  });
+  out = out.replace(DMS, (_m, d: string, min: string) => { changed = true; return `${d}°${min}′`; });
+  out = out.replace(DEGREE_DECIMAL_MINUTES, (_m, d: string, min: string) => { changed = true; return `${d}°${min}′`; });
+  return changed ? `${out} ${COARSE_COORDS_NOTE}` : out;
+}
+
 /**
  * Расстояние от огрублённой точки — километрами, без ложной точности: сама
  * точка гуляет на полкилометра, и «350 м» было бы неправдой.

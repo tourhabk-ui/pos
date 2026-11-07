@@ -57,11 +57,11 @@ const TOURS = [
 
 const prompts: string[] = [];
 
-function run(sourceData: Record<string, unknown>) {
+function run(sourceData: Record<string, unknown>, extra: Record<string, unknown> = {}) {
   const lead = {
     id: 'lead-1', operator_id: null, name: 'Анна', phone: '@anna_kamchatka', email: null,
     comment: 'Хотим на вулкан в июле', route_title: null, source_data: sourceData,
-    group_size: null, budget_rub: null, desired_dates: null, status: 'new',
+    group_size: null, budget_rub: null, desired_dates: null, status: 'new', ...extra,
   };
   queryMock.mockImplementation(async (sql: string) => {
     if (/FROM leads WHERE id = \$1/.test(sql)) return { rows: [lead] };
@@ -99,6 +99,19 @@ describe('конвейер заявки: модели не уходят иден
     const qualify = prompts.find((p) => p.includes('AI-квалификатор')) ?? '';
     expect(qualify).toContain('telegram_lead_flow');
     for (const p of prompts) expect(p).not.toMatch(/731904455|anna_kamchatka/);
+  });
+
+  // Ревью безопасности PR #3127: соседние свободные поля формы шли в тот же
+  // промпт без чистки — публичный POST /api/leads пишет их как есть.
+  it('свободные поля формы (маршрут, даты): телефон и почта до модели не доходят', async () => {
+    await run({ source: 'website' }, {
+      route_title: 'Тур на Авачинский, +7 914 123-45-67',
+      desired_dates: '10–17 июля, пишите anna.k@example.ru',
+    });
+    const qualify = prompts.find((p) => p.includes('AI-квалификатор')) ?? '';
+    expect(qualify).toContain('Тур на Авачинский');
+    expect(qualify).toContain('10–17 июля');
+    for (const p of prompts) expect(p).not.toMatch(/123-45-67|anna\.k@example\.ru/);
   });
 
   it('заявка из MAX: идентификатора чата в промптах нет', async () => {

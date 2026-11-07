@@ -18,7 +18,7 @@ vi.mock('@/lib/ai/booking-intent', async (importOriginal) => ({
 }));
 
 import { buildGeoContext, buildRAGContext } from '@/lib/ai/rag-context';
-import { approxDistanceText, coarseDegrees, coarseLocation, coarsePointText, distanceKm } from '@/lib/geo/kamchatka';
+import { approxDistanceText, coarseCoordsInText, coarseDegrees, coarseLocation, coarsePointText, distanceKm, COARSE_COORDS_NOTE } from '@/lib/geo/kamchatka';
 
 /** Человек у подножия Авачинского: точка до сантиметра, GPS ±7 м. */
 const HERE = { lat: 53.2391234, lng: 158.7712345, accuracy: 7, timestamp: 0 };
@@ -49,6 +49,31 @@ describe('правило огрубления — одно', () => {
     expect(coarseLocation(HERE)).toEqual({ lat: 53.24, lng: 158.77, accuracy: 1000, timestamp: 0 });
     expect(approxDistanceText(0.3)).toBe('ближе 2 км');
     expect(approxDistanceText(12.4)).toBe('около 12 км');
+  });
+});
+
+describe('координаты в тексте человека — до километра (ревью PR #3127)', () => {
+  const N = ` ${COARSE_COORDS_NOTE}`;
+  it('десятичные градусы через точку и запятую, со знаком и без пробела', () => {
+    expect(coarseCoordsInText('я на 53.23912, 158.77123')).toBe(`я на 53.24, 158.77${N}`);
+    expect(coarseCoordsInText('53.23912,158.77123')).toBe(`53.24,158.77${N}`);
+    expect(coarseCoordsInText('N53,239123 E158,771234')).toBe(`N53.24 E158.77${N}`);
+    expect(coarseCoordsInText('-170.12345')).toBe(`-170.12${N}`);
+    expect(coarseCoordsInText('53.239°')).toBe(`53.24°${N}`);
+  });
+
+  it('градусы-минуты-секунды и дробные минуты — до минут', () => {
+    expect(coarseCoordsInText(`53°14'20.8" с.ш. 158°46'16" в.д.`)).toBe(`53°14′ с.ш. 158°46′ в.д.${N}`);
+    expect(coarseCoordsInText('53° 14.347′, 158° 46.27′')).toBe(`53°14′, 158°46′${N}`);
+  });
+
+  it('цены, даты, расстояния и уже огрублённое не трогает', () => {
+    for (const t of ['тур 150,000 ₽', 'с 10.07.2026 по 17.07.2026', 'идти 1.5 км, высота 2741 м',
+      'бюджет 150 000 - 200 000', 'точка 53.24, 158.77', 'версия 10.123.4', 'заряд 15.000 мАч',
+      // Хвост длинного числа — не градус: «100.123» в адресе, «153.2391» в «1153.2391».
+      'сервер 192.168.100.123', 'отметка 1153.2391']) {
+      expect(coarseCoordsInText(t), t).toBe(t);
+    }
   });
 });
 
