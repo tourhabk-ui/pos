@@ -1064,8 +1064,8 @@ export function sqlRow(sql: string): SqlRowShape {
     const implicit = asM ? null : /([\w)"'\]])\s+"?([A-Za-z_]\w*)"?\s*$/.exec(col);
     const alias = asM?.[1] ?? (implicit && !SQL_NOT_ALIAS.has(implicit[2].toLowerCase()) ? implicit[2] : null);
     const exprRaw = asM ? col.slice(0, asM.index) : alias && implicit ? col.slice(0, implicit.index + 1) : col;
+    // Строки уже затёрты (`maskSql`): слово в кавычках колонкой не считается.
     const expr = exprRaw
-      .replace(/'(?:[^']|'')*'/g, "''")
       .replace(/::\s*"?[A-Za-z_]\w*"?(?:\s*\([\d\s,]*\))?(?:\s*\[\s*\])*/g, '')
       .replace(/\bcount\s*\((?:[^()]|\([^()]*\))*\)/gi, '0')
       .replace(/(?:[A-Za-z_]\w*\s*\.\s*)?"?[A-Za-z_]\w*"?\s+is\s+(?:not\s+)?null\b/gi, 'true');
@@ -1397,24 +1397,15 @@ function personNameIn(text: string, base: number, sc: Scopes, nonPerson: Readonl
 }
 
 /**
- * Аргументы ожидаемых вызовов файла: `await x.get(…)` и вызовы-элементы
- * `await Promise.all([get(…), …])` — выборки, чей результат найден по ключу.
+ * Аргументы ожидаемых вызовов файла (`await x.get(…)`) — выборки, чей результат
+ * найден по ключу. `await Promise.all([get(…), …])` накрывает свои элементы.
  */
 function awaitedArgRanges(code: string): Array<[number, number]> {
   const out: Array<[number, number]> = [];
-  const CALL = /^\s*(?:[A-Za-z_$][\w$]*\s*\??\.\s*)*[A-Za-z_$][\w$]*\s*\(/;
-  const re = /\bawait\s+((?:[A-Za-z_$][\w$]*\s*\??\.\s*)*[A-Za-z_$][\w$]*)\s*\(/g;
+  const re = /\bawait\s+(?:[A-Za-z_$][\w$]*\s*\??\.\s*)*[A-Za-z_$][\w$]*\s*\(/g;
   for (let m = re.exec(code); m; m = re.exec(code)) {
     const open = m.index + m[0].length - 1;
     out.push([open, closeOf(code, open)]);
-    if (!/^Promise\s*\.\s*all(?:Settled)?$/.test(m[1])) continue;
-    const list = argSpans(code, open)[0];
-    const lb = list ? skipWs(code, list.from) : -1;
-    if (lb < 0 || code[lb] !== '[') continue;
-    for (const el of argSpans(code, lb)) {
-      const c = CALL.exec(code.slice(el.from, el.to));
-      if (c) { const o = el.from + c[0].length - 1; out.push([o, closeOf(code, o)]); }
-    }
   }
   return out;
 }

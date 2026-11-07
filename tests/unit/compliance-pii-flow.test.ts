@@ -1289,6 +1289,7 @@ describe('D1 — тринадцатое ревью PR #3104: имя, а не н�
     const src = "x = lead['phone'] + y?.['email'];";
     expect(bracketsToDots(src)).toHaveLength(src.length);
     expect(found(ask("const keys = ['phone', 'email'];", "await callAIFast(`Поля: ${keys.join(', ')}`);"))).toEqual([]);
+    expect(found(ask("const keys = ['phone'];", "await callAIFast(`Поля: ${keys.join(', ')}`);"))).toEqual([]);
   });
 
   it('находка 3: поле вложенного литерала', () => {
@@ -1298,8 +1299,11 @@ describe('D1 — тринадцатое ревью PR #3104: имя, а не н�
     expect(found(ask('const rec = { info: { title: tour.title, tel: lead.phone } };', 'await callAIFast(`Тур: ${rec.info.title}`);'))).toEqual([]);
     expect(found(ask('const row = { name: lead.name };', 'const box = { ...row, extra: 1 };', 'await callAIFast(`Кто: ${box.name}`);')))
       .toEqual([['name', 'box.name']]);
-    // Объект, вложенный сам в себя, не растит путь без конца.
+    // Объект, вложенный сам в себя, не растит путь без конца: раздвоение
+    // (`x.a` и `x.b` получают поля `x`) удваивало бы ключи на каждом проходе.
     expect(found(ask('let state = { tel: lead.phone };', 'state = { ...state, next: state };', 'await callAIFast(`Тур: ${state.title}`);'))).toEqual([]);
+    expect(found(ask('const x = { tel: lead.phone };', 'Object.assign(x.a, x);', 'Object.assign(x.b, x);', 'await callAIFast(`Тел: ${x.a.tel}`);')))
+      .toEqual([['contact', 'x.a.tel']]);
   });
 
   it('находка 4: Object.assign', () => {
@@ -1318,6 +1322,9 @@ describe('D1 — тринадцатое ревью PR #3104: имя, а не н�
       .join('\n')).map((f) => [f.kind, f.expr])).toEqual([['contact', 'lead.phone']]);
     expect(scanSource('r.ts', ['const body = `Тел: ${lead.phone}`;', "await fetch(`${BASE}/v1/messages`, { body: JSON.stringify({ messages: [{ role: 'user', content: body }] }) });"]
       .join('\n')).length).toBe(1);
+    // Зарубежный хост в адресе без пути API — тоже дверь.
+    expect(scanSource('r.ts', ['const body = `Тел: ${lead.phone}`;', "const url = 'https://openrouter.ai/api/v1/' + endpoint;",
+      "await fetch(url, { body: JSON.stringify({ messages: [{ role: 'user', content: body }] }) });"].join('\n')).length).toBe(1);
     // Домашний YandexGPT — другой путь.
     expect(scanSource('r.ts', ['const body = `Тел: ${lead.phone}`;', "await fetch(`${YA}/foundationModels/v1/completion`, { body: JSON.stringify({ messages: [{ role: 'user', text: body }] }) });"]
       .join('\n'))).toEqual([]);
@@ -1338,6 +1345,9 @@ describe('D1 — тринадцатое ревью PR #3104: имя, а не н�
       'await callAIFast(`Лид: ${JSON.stringify(rows)}`);')).map((f) => f[0])).toEqual(['contact']);
     expect(sqlRowKinds('`SELECT json_agg(l.*) FROM leads l`').sort()).toEqual(['contact', 'ident', 'name']);
     expect(sqlRowKinds("`SELECT source_data->>'phone' AS x FROM leads`")).toEqual(['contact']);
+    // Псевдоним называет контакт, а выражение — нет; строка целиком вне функций.
+    expect(sqlRowKinds("'SELECT l.contact_info AS tel FROM leads l'")).toEqual(['contact']);
+    expect(sqlRowKinds("'SELECT (l.*)::text AS raw FROM leads l'").sort()).toEqual(['contact', 'ident', 'name']);
     expect(sqlRow('`SELECT row_to_json(l) AS j FROM leads l`').fields.get('j.name')).toEqual(['name']);
     expect(found(ask('const { rows } = await pool.query(`SELECT row_to_json(l) AS j FROM leads l`);', 'const who = rows[0];', 'await callAIFast(`Кто: ${who.j.name}`);')))
       .toEqual([['name', 'who.j.name']]);
