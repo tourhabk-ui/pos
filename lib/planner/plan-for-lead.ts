@@ -69,6 +69,12 @@ export interface PlanForLead {
     lines: Array<{ label: string; basis: string; total: [number, number] | null }>;
     unpriced: string[];
   };
+  /**
+   * Что ещё человек отметил в планировщике: жильё, трансфер аэропорта, машину
+   * напрокат (аудит 07.11, H6). Нет поля — не записано (план до 07.11 или
+   * агент без формы), а не «не нужно».
+   */
+  needs?: PlanNeeds;
   /** Выбранное жильё на стоянки (#2304, шаг 3); нет — не выбирали. */
   lodging?: Array<{
     accommodation_id: string; name: string; zone: ZoneId;
@@ -87,6 +93,13 @@ export interface PlanForLead {
   }>;
 }
 
+/** Галочки «что ещё нужно» из планировщика. */
+export interface PlanNeeds {
+  lodging: boolean;
+  transfer: boolean;
+  car: boolean;
+}
+
 function dateOf(arrival: string | null | undefined, day: number): string | null {
   if (!arrival) return null;
   const t = Date.parse(`${arrival.slice(0, 10)}T00:00:00Z`);
@@ -97,10 +110,12 @@ export function planForLead(
   days: PlanLeadInputDay[],
   profile: EstimateProfile & { arrivalDate?: string | null },
   choices?: PlanChoices,
+  needs?: PlanNeeds,
 ): PlanForLead {
   const est: GroupEstimate = estimateGroup(days, profile, choices);
   return {
     v: 1,
+    ...(needs ? { needs: { lodging: needs.lodging, transfer: needs.transfer, car: needs.car } } : {}),
     party: { adults: profile.adults, children: [...profile.children] },
     budget_tier: profile.budgetTier,
     trip_origin: asTripOrigin(profile.tripOrigin),
@@ -182,10 +197,24 @@ export function tourWords(d: PlanLeadDay): string | null {
   ].filter(Boolean).join(', ');
 }
 
+/** «ещё нужно: жильё, машина напрокат» — только отмеченное; ничего — null. */
+export function needsWords(needs: PlanForLead['needs']): string | null {
+  if (!needs) return null;
+  const asked = [
+    needs.lodging ? 'жильё' : null,
+    needs.transfer ? 'трансфер из аэропорта' : null,
+    needs.car ? 'машина напрокат' : null,
+  ].filter(Boolean);
+  return asked.length > 0 ? `ещё нужно: ${asked.join(', ')}` : null;
+}
+
 /** Строки для человека: состав, смета, туры по дням. */
 export function planLeadLines(plan: PlanForLead): string[] {
+  // Что ещё нужно — в строке группы, а не отдельной: уведомление в Телеграм
+  // берёт первые две строки как группу и смету, остальное — как дни.
+  const needs = needsWords(plan.needs);
   const lines = [
-    `Группа: ${partyWords(plan.party)} · уровень «${BUDGET_WORD[plan.budget_tier] ?? plan.budget_tier}»`,
+    `Группа: ${partyWords(plan.party)} · уровень «${BUDGET_WORD[plan.budget_tier] ?? plan.budget_tier}»${needs ? ` · ${needs}` : ''}`,
     `Смета: ${range(plan.estimate.total)} на группу (${range(plan.estimate.per_person)} на человека)`
       + (plan.estimate.unpriced.length > 0 ? ` · без цены: ${plan.estimate.unpriced.length}` : ''),
   ];

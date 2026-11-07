@@ -45,6 +45,23 @@ export const TripDayPlanSchema = z.object({
   realPrice: z.number().min(0).max(100_000_000).optional(),
   priceMissing: z.string().max(300).optional(),
   availableDate: z.string().date().optional(),
+  /**
+   * Предупреждения дня — МЧС, безопасность, здоровье, «только с гидом» (аудит
+   * 07.11, H7). До этого схема их срезала, и страница сохранённой поездки
+   * показывала день без них.
+   */
+  dayWarnings: z.array(z.string().max(2000)).max(50).optional(),
+});
+
+/**
+ * Предупреждение плана целиком — снимок на день сохранения (аудит 07.11, H7):
+ * разрешения, сезон, недобор дней, безопасность. Страница поездки подписывает
+ * их датой сохранения: обстановка после неё могла измениться.
+ */
+export const TripWarningSchema = z.object({
+  type: z.string().min(1).max(40),
+  severity: z.enum(['critical', 'important', 'info']),
+  message: z.string().min(1).max(2000),
 });
 
 /** Состав и уровень, на которые собран план. Нет — поездка сохранена до 09.10. */
@@ -85,6 +102,7 @@ export const TripChoicesSchema = z.object({
 });
 
 export type TripDayPlan = z.infer<typeof TripDayPlanSchema>;
+export type TripWarning = z.infer<typeof TripWarningSchema>;
 export type TripParty = z.infer<typeof TripPartySchema>;
 export type TripChoices = z.infer<typeof TripChoicesSchema>;
 

@@ -6,7 +6,7 @@
  * Use Number() / parseFloat() / parseInt() at the call site.
  */
 
-import type { TripDayPlan, TripParty, TripChoices } from '@/lib/trips/trip-schema';
+import type { TripDayPlan, TripParty, TripChoices, TripWarning } from '@/lib/trips/trip-schema';
 
 // ──────────────────────────────────────────────────────────
 // Generic helpers
@@ -1454,10 +1454,15 @@ export interface UserTripRow {
   flight_arrival_time: string | null;
   flight_departure_time: string | null;
   needs_airport_transfer: boolean;
+  /** Просил жильё / машину напрокат; null — не записано, поездка до 07.11 (миграция 1397). */
+  needs_lodging: boolean | null;
+  needs_car: boolean | null;
   /** Состав и уровень плана; null — поездка сохранена до 09.10 (миграция 1191). */
   party: TripParty | null;
   /** Выбранные жильё и трансфер, снимок на день сохранения; null — не выбирали (миграция 1193). */
   choices: TripChoices | null;
+  /** Предупреждения плана снимком на день сохранения; null — не записано (миграция 1397). */
+  warnings: TripWarning[] | null;
   deleted_at: Date | null;
   created_at: Date;
   updated_at: Date;

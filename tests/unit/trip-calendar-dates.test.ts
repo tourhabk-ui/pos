@@ -43,7 +43,7 @@ const TRIP_ID = '11111111-1111-4111-8111-111111111111';
 
 describe('даты сохранённой поездки — календарные дни (07.11)', () => {
   it('роут поездки отдаёт день строкой, а не UTC-момент полуночи сервера', async () => {
-    const res = await getTrip(new NextRequest('https://vedarai.ru/api/trips/trip-1'), { params: Promise.resolve({ id: 'trip-1' }) });
+    const res = await getTrip(new NextRequest(`https://vedarai.ru/api/trips/${TRIP_ID}`), { params: Promise.resolve({ id: TRIP_ID }) });
     const body = await res.json() as { data: { arrival_date: string; departure_date: string } };
     expect(body.data.arrival_date).toBe('2027-07-10');
     expect(body.data.departure_date).toBe('2027-07-14');

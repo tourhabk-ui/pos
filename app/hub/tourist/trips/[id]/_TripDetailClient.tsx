@@ -8,14 +8,16 @@ import { GroupEstimateBlock } from '@/components/planner/GroupEstimate';
 import { estimateGroup } from '@/lib/planner/estimate';
 import { planForLead } from '@/lib/planner/plan-for-lead';
 import { dayPriceLine } from '@/lib/planner/day-price';
-import type { TripChoices, TripDayPlan, TripParty } from '@/lib/trips/trip-schema';
+import type { TripChoices, TripDayPlan, TripParty, TripWarning } from '@/lib/trips/trip-schema';
+import type { PlanNeeds } from '@/lib/planner/plan-for-lead';
+import { formatKamchatkaDate } from '@/lib/admin/kamchatka-date';
 import { stayLink } from '@/lib/stay/stay-link';
 import { TripActions } from '@/components/trips/TripActions';
 import { ruCalendarDate } from '@/lib/trips/trip-dates';
 import {
   ArrowLeft, Calendar, MapPin, Loader, AlertTriangle,
   Footprints, Truck, Anchor, Plane, ChevronDown, ChevronUp,
-  Phone, Check, Pencil, PlaneLanding, PlaneTakeoff, BedDouble,
+  Phone, Check, Pencil, PlaneLanding, PlaneTakeoff, BedDouble, ShieldAlert, Info,
 } from 'lucide-react';
 
 // ─── Types ────────────────────────────────────────────────────────────────────
@@ -39,8 +41,24 @@ interface TripDetail {
   party: TripParty | null;
   /** Выбранные жильё и трансфер, снимок на день сохранения; null — не выбирали. */
   choices?: TripChoices | null;
+  /** Что ещё просил в планировщике; null — не записано (поездка до 07.11). */
+  needs_airport_transfer?: boolean;
+  needs_lodging?: boolean | null;
+  needs_car?: boolean | null;
+  /** Предупреждения плана снимком на день сохранения; null — не записано. */
+  warnings?: TripWarning[] | null;
   created_at: string;
   updated_at: string;
+}
+
+/**
+ * Что ещё нужно, как записано в поездке (аудит 07.11, H6). Жильё и машина
+ * записываются с 07.11; у поездки до того их нет — «не записано», и в заявку
+ * не идёт ничего, а не «не нужно».
+ */
+function tripNeeds(trip: TripDetail): PlanNeeds | undefined {
+  if (trip.needs_lodging == null || trip.needs_car == null) return undefined;
+  return { lodging: trip.needs_lodging, transfer: trip.needs_airport_transfer === true, car: trip.needs_car };
 }
 
 // ─── Constants ────────────────────────────────────────────────────────────────
@@ -84,7 +102,7 @@ function tripEstimate(trip: TripDetail) {
 function tripPlanForLead(trip: TripDetail) {
   if (!trip.party || trip.days.length === 0 || trip.days.some((d) => !d.type)) return null;
   const days = trip.days.map((d) => ({ ...d, type: d.type! }));
-  return planForLead(days, { ...trip.party, arrivalDate: trip.arrival_date?.slice(0, 10) ?? null }, trip.choices ?? undefined);
+  return planForLead(days, { ...trip.party, arrivalDate: trip.arrival_date?.slice(0, 10) ?? null }, trip.choices ?? undefined, tripNeeds(trip));
 }
 
 const rub = (n: number) => `${Math.round(n).toLocaleString('ru-RU')} ₽`;
@@ -128,6 +146,43 @@ function ChoicesBlock({ choices, party }: { choices: TripChoices; party: TripPar
         </div>
       ))}
     </div>
+  );
+}
+
+const SEVERITY_ORDER: Record<TripWarning['severity'], number> = { critical: 0, important: 1, info: 2 };
+const SEVERITY_STYLE: Record<TripWarning['severity'], { Icon: React.ElementType; color: string }> = {
+  critical: { Icon: ShieldAlert, color: 'var(--danger)' },
+  important: { Icon: AlertTriangle, color: 'var(--warning)' },
+  info: { Icon: Info, color: 'var(--ocean)' },
+};
+
+/**
+ * Предупреждения плана — снимок на день сохранения (аудит 07.11, H7). До
+ * 07.11 они не сохранялись вовсе, и страница поездки молчала о МЧС, сезоне и
+ * разрешениях. Обстановка после сохранения могла измениться — это сказано
+ * рядом, со ссылкой на живую.
+ */
+function PlanWarnings({ warnings, savedAt }: { warnings: TripWarning[]; savedAt: string }) {
+  const sorted = [...warnings].sort((a, b) => SEVERITY_ORDER[a.severity] - SEVERITY_ORDER[b.severity]);
+  return (
+    <section className="ds-card p-5 space-y-2" data-testid="trip-plan-warnings">
+      <h2 className="text-sm font-semibold text-[var(--text-primary)]">Важно</h2>
+      <p className="text-xs text-[var(--text-secondary)]">
+        Так план предупреждал на день сохранения, {formatKamchatkaDate(savedAt)}. Обстановка с тех пор могла
+        измениться — свежая на странице <Link href="/safety" className="text-[var(--ocean)] hover:underline">«Обстановка»</Link>.
+      </p>
+      <ul className="space-y-1.5">
+        {sorted.map((w, i) => {
+          const { Icon, color } = SEVERITY_STYLE[w.severity];
+          return (
+            <li key={i} className="flex items-start gap-2 text-xs" style={{ color }}>
+              <Icon className="w-3.5 h-3.5 shrink-0 mt-0.5" aria-hidden />
+              <span>{w.type === 'mchs' && <span className="font-bold mr-1">МЧС</span>}{w.message}</span>
+            </li>
+          );
+        })}
+      </ul>
+    </section>
   );
 }
 
@@ -298,6 +353,8 @@ export function TripDetailClient({ tripId }: { tripId: string }) {
 
         <TripActions trip={trip} />
 
+        {trip.warnings && trip.warnings.length > 0 && <PlanWarnings warnings={trip.warnings} savedAt={trip.updated_at} />}
+
         {trip.choices && <ChoicesBlock choices={trip.choices} party={trip.party} />}
 
         {/* Day plan */}
@@ -321,10 +378,12 @@ export function TripDetailClient({ tripId }: { tripId: string }) {
                     : idx === trip.days.length - 1 && trip.flight_departure ? trip.flight_departure
                     : null;
                   return (
-                    <div key={d.day} className="flex items-center gap-3 px-5 py-3">
+                    <div key={d.day} className="px-5 py-3" data-testid="trip-day">
+                    <div className="flex items-center gap-3">
+                      {/* Номер дня — календарный, как в смете, GPX и на странице по ссылке. */}
                       <div className="w-7 h-7 rounded-full flex items-center justify-center text-[11px] font-bold text-white shrink-0"
                         style={{ background: ZONE_COLORS[d.zone] ?? 'var(--accent)' }}>
-                        {idx + 1}
+                        {d.day}
                       </div>
                       <div className="flex-1 min-w-0">
                         <div className="flex items-center gap-1.5 min-w-0">
@@ -351,6 +410,18 @@ export function TripDetailClient({ tripId }: { tripId: string }) {
                           <span className="text-xs font-medium text-[var(--accent)]">{dayPriceLine(d)}</span>
                         )}
                       </div>
+                    </div>
+                    {/* Предупреждения дня — как в планировщике (аудит 07.11, H7). */}
+                    {d.dayWarnings && d.dayWarnings.length > 0 && (
+                      <ul className="mt-2 ml-10 space-y-1">
+                        {d.dayWarnings.map((w, i) => (
+                          <li key={i} className="flex items-start gap-1.5 text-[11px] text-[var(--warning)]">
+                            <AlertTriangle className="w-3 h-3 shrink-0 mt-0.5" aria-hidden />
+                            <span>{w}</span>
+                          </li>
+                        ))}
+                      </ul>
+                    )}
                     </div>
                   );
                 })}

@@ -13,6 +13,7 @@ import { notifyAdminNewLead } from '@/lib/notifications/telegram-channel';
 import type { PdConsentRecord } from '@/lib/legal/pd-consent';
 import { linkContactQuietly } from '@/lib/crm/contacts';
 import { AGENT_CONSENT_SOURCE } from '@/lib/mcp/request-status';
+import { planFingerprint } from '@/lib/leads/plan-fingerprint';
 
 export interface CreateLeadParams {
   /** Имя туриста */
@@ -65,8 +66,9 @@ export interface CreateLeadParams {
  * Для /api/leads (форма сайта) вызывается с дополнительными полями:
  *   route_id, route_title, operator_id — они заполняются из schema.
  *
- * Для дедупликации (тот же телефон + комментарий за 24ч)
- * возвращает ID существующего лида вместо вставки.
+ * Для дедупликации возвращает ID существующего лида вместо вставки: тот же
+ * телефон и комментарий за 24ч, у заявки с планом поездки — ещё и тот же
+ * план (отпечаток).
  */
 /**
  * Свежий лид по телефону и ДЕТЕРМИНИРОВАННОМУ префиксу комментария (24ч).
@@ -112,7 +114,6 @@ export async function createLeadDetailed(params: CreateLeadParams): Promise<{ id
     route_id,
     route_title,
     source_url,
-    source_data,
     operator_id,
     telegram_chat_id,
     status = 'new',
@@ -121,20 +122,42 @@ export async function createLeadDetailed(params: CreateLeadParams): Promise<{ id
     skip_ai_processing = false,
   } = params;
 
+  // Отпечаток плана поездки (аудит планировщика 07.11, H8) — пишется в
+  // source_data, чтобы следующая заявка с тем же планом его нашла.
+  const fingerprint = planFingerprint(params.source_data?.plan);
+  const source_data = fingerprint
+    ? { ...params.source_data, plan_fingerprint: fingerprint }
+    : params.source_data;
+
   // ── 1. Скоринг ──────────────────────────────────────────────────────────
   const quickScore = computeQuickScore(name, phone, comment ?? null, source_data ?? null);
   const isLowQuality = quickScore < LOW_QUALITY_SCORE;
 
-  // ── 2. Дубль: тот же телефон + тот же комментарий за 24ч ────────────────
-  if (phone && comment) {
+  // ── 2. Дубль за 24ч ─────────────────────────────────────────────────────
+  // Тот же телефон и тот же комментарий; у заявки с планом — ещё и тот же
+  // план (отпечаток, аудит 07.11, H8). У заявки со страницы поездки
+  // комментарий «Маршрут: <название> (5 дн.)» одинаков у разных планов на те
+  // же даты: без плана в ключе новая заявка молча возвращала прежнюю, и
+  // оператор видел старый план. Комментарий из ключа не убран: агент
+  // прикладывает один план (plan_id) к заявкам на разные туры, жильё и
+  // машину, и различает их только комментарий — без него заявка на второй тур
+  // вернула бы первую. Заявка из планировщика бывает без комментария: с
+  // планом она тоже ловится, без плана — как прежде, нет.
+  const dup = phone && fingerprint
+    ? { sql: `SELECT id FROM leads
+               WHERE phone = $1 AND COALESCE(comment, '') = $2
+                 AND source_data->>'plan_fingerprint' = $3
+                 AND created_at > NOW() - INTERVAL '24 hours'
+               LIMIT 1`, values: [phone, comment ?? '', fingerprint] }
+    : phone && comment
+      ? { sql: `SELECT id FROM leads
+                 WHERE phone = $1 AND comment = $2
+                   AND created_at > NOW() - INTERVAL '24 hours'
+                 LIMIT 1`, values: [phone, comment] }
+      : null;
+  if (dup) {
     try {
-      const dupCheck = await pool.query<{ id: string }>(
-        `SELECT id FROM leads
-         WHERE phone = $1 AND comment = $2
-           AND created_at > NOW() - INTERVAL '24 hours'
-         LIMIT 1`,
-        [phone, comment],
-      );
+      const dupCheck = await pool.query<{ id: string }>(dup.sql, dup.values);
       if (dupCheck.rows.length > 0) {
         return { id: dupCheck.rows[0].id, created: false };
       }
