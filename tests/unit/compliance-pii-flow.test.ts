@@ -1,7 +1,7 @@
 import { describe, it, expect } from 'vitest';
 import { resolve } from 'path';
 import { readFileSync, readdirSync, statSync } from 'fs';
-import { scanSource, pdAliases, promptFlowOf, maskCode, sqlRowKinds, sqlRow, FOREIGN_LLM_CALLERS, DOMESTIC_LLM_CALLERS, EGRESS_DOORS, CONTACT_WORD, REDACTABLE_WORD, IDENT_WORD } from '@/lib/agents/compliance/pii-flow-scanner';
+import { scanSource, pdAliases, promptFlowOf, maskCode, sqlRowKinds, sqlRow, snakeId, bracketsToDots, FOREIGN_LLM_CALLERS, DOMESTIC_LLM_CALLERS, EGRESS_DOORS, CONTACT_WORD, REDACTABLE_WORD, IDENT_WORD } from '@/lib/agents/compliance/pii-flow-scanner';
 import { findViolations, ALLOWLIST } from '@/lib/agents/compliance/scan-repo';
 import {
   LLM_ENDPOINTS,
@@ -1256,5 +1256,105 @@ describe('D1 — двенадцатое ревью PR #3104: род колонк
     expect(found(ask("const { rows: [tourist] } = await pool.query('SELECT title, tourist_phone FROM operator_bookings');", sink('`Тур: ${tourist.title}`'))))
       .toEqual([]);
     expect(found(ask("const { rows } = await pool.query('SELECT t.name, t.title FROM operator_tours t');", sink('`Тур: ${rows[0].name}`')))).toEqual([]);
+  });
+});
+
+describe('D1 — тринадцатое ревью PR #3104: имя, а не написание; вложенные поля; пути модели; SQL', () => {
+  const found = (src: string) => scanSource('r.ts', src).map((x) => [x.kind, x.expr]);
+  const ask = (...lines: string[]) => ["import { callAIFast } from '@/lib/ai/providers';", "import { redactPII } from '@/lib/security/pii-redact';", ...lines].join('\n');
+
+  it('находка 1: camelCase и иные написания полей и переменных', () => {
+    // Дословно сценарий ревьюера.
+    expect(found(ask('const text = `Турист: ${lead.fullName}, тел: ${lead.phoneNumber}, почта: ${lead.emailAddress}`;', 'await callAIFast(text);')))
+      .toEqual([['name', 'lead.fullName'], ['contact', 'lead.phoneNumber'], ['contact', 'lead.emailAddress']]);
+    expect(found(ask('await callAIFast(`tg: ${u.telegramId}, тел: ${u.telephone}, ${contact.display_name}, ${contact.name}`);')))
+      .toEqual([['contact', 'u.telegramId'], ['contact', 'u.telephone'], ['name', 'contact.display_name'], ['name', 'contact.name']]);
+    // `display_name` парка и модели — не имя человека.
+    expect(found(ask('await callAIFast(`Парк: ${park.display_name}, модель: ${model.display_name}`);'))).toEqual([]);
+    expect(found(ask('const touristPhone = await load();', 'await callAIFast(`Тел: ${touristPhone}`);'))).toEqual([['contact', 'touristPhone']]);
+    expect(snakeId('phoneNumber')).toBe('phone_number');
+    expect(snakeId('XMLFile')).toBe('xml_file');
+  });
+
+  it('узость находки 1: гостиница — не телефон, почта сквозь redactPII чиста', () => {
+    expect(found(ask('await callAIFast(`Отель: ${t.hotel}, ${t.hotelName}, ${t.motel}`);'))).toEqual([]);
+    expect(found(ask('await callAIFast(`Почта: ${redactPII(lead.emailAddress)}, ${redactPII(lead.phoneNumber)}`);'))).toEqual([]);
+  });
+
+  it('находка 2: поле скобками с ключом-строкой', () => {
+    // Дословно сценарий ревьюера.
+    expect(found(ask("const text = `Телефон: ${lead['phone']}`;", 'await callAIFast(text);'))).toEqual([['contact', 'lead.phone']]);
+    expect(found(ask('await callAIFast(`Почта: ${lead?.["email"]}`);'))).toEqual([['contact', 'lead?.email']]);
+    // Длина сохраняется — позиции находок не сдвигаются; литерал массива — не поле.
+    const src = "x = lead['phone'] + y?.['email'];";
+    expect(bracketsToDots(src)).toHaveLength(src.length);
+    expect(found(ask("const keys = ['phone', 'email'];", "await callAIFast(`Поля: ${keys.join(', ')}`);"))).toEqual([]);
+  });
+
+  it('находка 3: поле вложенного литерала', () => {
+    // Дословно сценарий ревьюера.
+    expect(found(ask('const rec = { info: { name: lead.name } };', 'await callAIFast(`Турист: ${rec.info.name}`);'))).toEqual([['name', 'rec.info.name']]);
+    // Соседнее поле без ПД чисто; поля, разложенные `...`, переходят.
+    expect(found(ask('const rec = { info: { title: tour.title, tel: lead.phone } };', 'await callAIFast(`Тур: ${rec.info.title}`);'))).toEqual([]);
+    expect(found(ask('const row = { name: lead.name };', 'const box = { ...row, extra: 1 };', 'await callAIFast(`Кто: ${box.name}`);')))
+      .toEqual([['name', 'box.name']]);
+    // Объект, вложенный сам в себя, не растит путь без конца.
+    expect(found(ask('let state = { tel: lead.phone };', 'state = { ...state, next: state };', 'await callAIFast(`Тур: ${state.title}`);'))).toEqual([]);
+  });
+
+  it('находка 4: Object.assign', () => {
+    // Дословно сценарий ревьюера.
+    expect(found(ask('const payload: Record<string, string> = {};', 'Object.assign(payload, { phone: lead.phone, email: lead.email });',
+      'await callAIFast(`Клиент: ${JSON.stringify(payload)}`);'))).toEqual([['contact', 'JSON.stringify(payload)']]);
+    expect(found(ask('const payload = {};', 'Object.assign(payload, { tel: lead.phone });', 'await callAIFast(`Клиент: ${payload.tel}`);')))
+      .toEqual([['contact', 'payload.tel']]);
+    expect(found(ask('const payload = {};', 'Object.assign(payload, { title: tour.title });', 'await callAIFast(`Тур: ${JSON.stringify(payload)}`);'))).toEqual([]);
+  });
+
+  it('находка 5: база модели из импорта — путь API включает стоки', () => {
+    // Дословно сценарий ревьюера.
+    expect(scanSource('r.ts', ["import { OR_BASE } from '@/lib/ai/providers';", 'const body = `Данные туриста: ${lead.phone}`;',
+      'await fetch(`${OR_BASE}/chat/completions`, {', "  method: 'POST',", "  body: JSON.stringify({ messages: [{ role: 'user', content: body }] }),", '});']
+      .join('\n')).map((f) => [f.kind, f.expr])).toEqual([['contact', 'lead.phone']]);
+    expect(scanSource('r.ts', ['const body = `Тел: ${lead.phone}`;', "await fetch(`${BASE}/v1/messages`, { body: JSON.stringify({ messages: [{ role: 'user', content: body }] }) });"]
+      .join('\n')).length).toBe(1);
+    // Домашний YandexGPT — другой путь.
+    expect(scanSource('r.ts', ['const body = `Тел: ${lead.phone}`;', "await fetch(`${YA}/foundationModels/v1/completion`, { body: JSON.stringify({ messages: [{ role: 'user', text: body }] }) });"]
+      .join('\n'))).toEqual([]);
+  });
+
+  it('находка 6: слово from в строке и комментарии SQL', () => {
+    // Дословно сценарий ревьюера.
+    expect(found(ask('const { rows } = await pool.query(', "  `SELECT 'from web' AS src, tourist_phone FROM operator_bookings WHERE id = $1`, [id],", ');',
+      'await callAIFast(`Бронь: ${JSON.stringify(rows)}`);'))).toEqual([['contact', 'JSON.stringify(rows)']]);
+    expect(sqlRowKinds('`SELECT /* from cache */ tourist_phone FROM operator_bookings`')).toEqual(['contact']);
+    expect(sqlRowKinds('`SELECT title -- from tours\n , tourist_phone FROM operator_bookings`')).toEqual(['contact']);
+    expect(sqlRowKinds("`SELECT 'a, b' AS label, title FROM operator_tours`")).toEqual([]);
+  });
+
+  it('находка 7: строка целиком в колонке и ключ JSON', () => {
+    // Дословно сценарий ревьюера.
+    expect(found(ask('const { rows } = await pool.query(`SELECT row_to_json(l) AS j FROM leads l WHERE l.id = $1`, [id]);',
+      'await callAIFast(`Лид: ${JSON.stringify(rows)}`);')).map((f) => f[0])).toEqual(['contact']);
+    expect(sqlRowKinds('`SELECT json_agg(l.*) FROM leads l`').sort()).toEqual(['contact', 'ident', 'name']);
+    expect(sqlRowKinds("`SELECT source_data->>'phone' AS x FROM leads`")).toEqual(['contact']);
+    expect(sqlRow('`SELECT row_to_json(l) AS j FROM leads l`').fields.get('j.name')).toEqual(['name']);
+    expect(found(ask('const { rows } = await pool.query(`SELECT row_to_json(l) AS j FROM leads l`);', 'const who = rows[0];', 'await callAIFast(`Кто: ${who.j.name}`);')))
+      .toEqual([['name', 'who.j.name']]);
+    // Узость: подсчёт строк, агрегат названий, ключ без ПД.
+    expect(sqlRowKinds('`SELECT row_number() OVER () AS n, title FROM operator_tours`')).toEqual([]);
+    expect(sqlRowKinds('`SELECT json_agg(t.title) AS titles FROM operator_tours t`')).toEqual([]);
+    expect(sqlRowKinds("`SELECT source_data->>'interests' AS i FROM leads`")).toEqual([]);
+  });
+
+  it('ключ выборки: идентификатор, отданный в ожидаемый вызов, результат не метит; сам в тексте — находка', () => {
+    expect(found(ask("const history = await getHistory(chatId, 'tg');", "await callAIFast(`История: ${history.join('\\n')}`);"))).toEqual([]);
+    expect(found(ask("const [history, ctx] = await Promise.all([getHistory(chatId, 'tg'), loadCtx()]);", 'await callAIFast(`История: ${history}`);'))).toEqual([]);
+    expect(found(ask('await callAIFast(`Чат: ${chatId}`);'))).toEqual([['contact', 'chatId']]);
+    expect(found(ask('const s = String(chatId);', 'await callAIFast(`Чат: ${s}`);'))).toEqual([['contact', 's']]);
+    // Параметр SQL — не текст и для потока: ключ памяти в запросе до модели не доходит.
+    expect(found(ask("function memKey(chatId: number) { return `mem_${chatId}`; }",
+      "const { rows } = await pool.query('SELECT value FROM settings WHERE key = $1', [memKey(chatId)]);",
+      'await callAIFast(`Память: ${JSON.stringify(rows)}`);'))).toEqual([]);
   });
 });

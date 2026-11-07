@@ -119,8 +119,18 @@ const FOREIGN_LLM_HOSTS: ReadonlySet<string> = new Set(LLM_ENDPOINTS.filter((e) 
  * `content:` — сток (седьмое ревью PR #3104).
  */
 function fileTalksAbroad(src: string): boolean {
-  return FOREIGN_DOOR_WORD.test(src) || extractLLMHosts(src).some((h) => FOREIGN_LLM_HOSTS.has(h));
+  return FOREIGN_DOOR_WORD.test(src) || extractLLMHosts(src).some((h) => FOREIGN_LLM_HOSTS.has(h)) || LLM_API_PATH.test(src);
 }
+
+/**
+ * Путь API модели в адресе запроса: `${OR_BASE}/chat/completions`,
+ * `${ANTHROPIC_BASE}/v1/messages`, `:generateContent`. База из импорта или
+ * окружения хостом в тексте не видна (тринадцатое ревью PR #3104:
+ * `lib/ai/image-tagger.ts` спасало только имя переменной `prompt`), а путь —
+ * виден. Домашний YandexGPT ходит на `/foundationModels/v1/completion`, и
+ * этот путь сюда не входит.
+ */
+const LLM_API_PATH = /\/chat\/completions\b|\/v1\/messages\b|\/v1\/responses\b|:(?:stream)?[gG]enerateContent\b/;
 
 /**
  * Однозначные ПД-поля. У места, тура и маршрута их нет — ложняков нет.
@@ -154,7 +164,7 @@ function fileTalksAbroad(src: string): boolean {
  * второй разошёлся бы с первым молча (§12).
  */
 export const CONTACT_WORD = 'telegram_id|telegram_username|chat_id|phone_number|phonenumber|passport_number'
-  + '|passport|birth_date|birthday|whatsapp|telegram|address|snils|inn|phone|email|e_mail|mobile|tel|contacts?';
+  + '|passport|birth_date|birthday|whatsapp|telegram|address|snils|inn|telephone|email_address|phone|email|e_mail|mobile|tel|contacts?';
 
 /**
  * Что `redactPII` чистит, а что нет (одиннадцатое ревью PR #3104): он режет
@@ -164,17 +174,56 @@ export const CONTACT_WORD = 'telegram_id|telegram_username|chat_id|phone_number|
  * не гасит, как и имя. Наружу оба — находка `contact`. Вместе слова — ровно
  * `CONTACT_WORD` (держит тест).
  */
-export const REDACTABLE_WORD = 'phone_number|phonenumber|phone|email|e_mail|mobile|tel';
+export const REDACTABLE_WORD = 'phone_number|phonenumber|telephone|email_address|phone|email|e_mail|mobile|tel';
 export const IDENT_WORD = 'telegram_id|telegram_username|chat_id|passport_number|passport|birth_date|birthday|whatsapp|telegram|address|snils|inn|contacts?';
-const fieldOf = (words: string) => `\\.\\s*(?:[a-z0-9$]+_)*(?:${words})s?\\b`;
-const REDACTABLE_FIELD = new RegExp(fieldOf(REDACTABLE_WORD), 'i');
-const IDENT_FIELD = new RegExp(fieldOf(IDENT_WORD), 'i');
 
-/** Явные персональные имена (не «название вулкана»): по полю или по владельцу. */
+/**
+ * Явные персональные имена (не «название вулкана»): по полю или по владельцу.
+ * `display_name` — как голое `name`: так названы и контакты CRM, и парки
+ * (`lib/parks`), и модели в каталоге; судит владелец (`contact.display_name`).
+ */
 export const PERSONAL_NAME_FIELD =
   /\b(customer|client|full|first|last|user|guest|traveler|traveller|tourist|contact|passenger|buyer|payer)_name\b/i;
 export const PERSONAL_OWNER_NAME =
-  /\b(lead|leads|l|booking|bookings|b|user|users|u|member|members|m|guest|guests|g|client|customer|traveler|traveller|tourist|passenger|buyer|payer)\s*\.\s*name\b/i;
+  /\b(lead|leads|l|booking|bookings|b|user|users|u|member|members|m|guest|guests|g|client|clients|customer|customers|traveler|traveller|tourist|tourists|passenger|buyer|payer|contact|contacts|profile|profiles)\s*\.\s*(?:display_)?name\b/i;
+
+/**
+ * Идентификатор в снейк-регистре (тринадцатое ревью PR #3104): страж судит не
+ * написание, а имя. `phoneNumber`, `touristPhone`, `fullName`, `telegramId`,
+ * `emailAddress` судятся как `phone_number`, `tourist_phone`, `full_name`,
+ * `telegram_id`, `email_address`. Граница слова — только `_` или заглавная:
+ * `hotel` остаётся гостиницей, а не `tel`.
+ */
+export function snakeId(id: string): string {
+  return id.replace(/([a-z0-9])([A-Z])/g, '$1_$2').replace(/([A-Z]+)([A-Z][a-z])/g, '$1_$2').toLowerCase();
+}
+/** Телефон или почта — их режет redactPII. Телефон МЧС у маршрута — служба, не человек. */
+const isRedactableId = (id: string): boolean => {
+  const s = snakeId(id);
+  return s !== 'mchs_phone' && REDACTABLE_NAMED.test(s);
+};
+/** Адрес, документ, мессенджер — их redactPII не режет; `email_address` — почта, а не адрес. */
+const isIdentId = (id: string): boolean => {
+  const s = snakeId(id);
+  return IDENT_NAMED.test(s) && !REDACTABLE_NAMED.test(s);
+};
+/** Имя человека: `tourist_name`, `fullName`, `display_name`. */
+const isPersonNameId = (id: string): boolean => PERSONAL_NAME_COLUMN.test(snakeId(id));
+
+/** Обращение к полю: `.phone`, `?.phoneNumber`, `. user_email` — позиция точки, текст, имя. */
+const FIELD_REF = /\.\s*([A-Za-z_$][\w$]*)/g;
+function fieldRefs(text: string, pred: (id: string) => boolean): Array<{ index: number; text: string }> {
+  const out: Array<{ index: number; text: string }> = [];
+  for (const m of text.matchAll(FIELD_REF)) if (pred(m[1])) out.push({ index: m.index ?? 0, text: m[0] });
+  return out;
+}
+/** Идентификаторы текста, подходящие под правило: `tourist_name`, `fullName` — позиция и имя. */
+const IDENT_REF = /(?<![\w$])[A-Za-z_$][\w$]*/g;
+function identRefs(text: string, pred: (id: string) => boolean): Array<{ index: number; text: string }> {
+  const out: Array<{ index: number; text: string }> = [];
+  for (const m of text.matchAll(IDENT_REF)) if (pred(m[0])) out.push({ index: m.index ?? 0, text: m[0] });
+  return out;
+}
 
 /**
  * ПД, положенные в локальную переменную, а оттуда в промпт.
@@ -200,8 +249,7 @@ export const PERSONAL_OWNER_NAME =
  */
 /** Деструктуризация: только однозначные контакты. `name` тут слишком част. */
 const DESTRUCT = /\b(?:const|let|var)\s*\{([^}]*)\}\s*=/g;
-const DESTRUCT_CONTACT = new RegExp(
-  `^\\s*((?:[a-z0-9$]+_)*(?:${CONTACT_WORD})s?)\\s*(?::\\s*([A-Za-z_$][\\w$]*))?\\s*$`, 'i');
+const DESTRUCT_CONTACT = /^\s*([A-Za-z_$][\w$]*)\s*(?::\s*([A-Za-z_$][\w$]*))?\s*$/;
 
 /**
  * Чистка контактов: `redactPII`/`redact` режут телефоны и почту — и только их
@@ -497,15 +545,19 @@ const DESTRUCT_DECL = /\b(?:const|let|var)\s*([{[])/g;
 /** `for (const l of leads)`, `for await (const [k, v] of map)`. */
 const FOR_OF = /\bfor\s*(?:await\s*)?\(\s*(?:const|let|var)\s+/g;
 /** Метод-перебор: первый параметр колбэка — элемент получателя; у reduce — второй. */
+const OBJECT_ASSIGN = /\bObject\s*\.\s*assign\s*\(/g;
 /** Методы, чей результат — элементы получателя с теми же полями: `rows.at(0)`, `rows.find(…)`. */
 const ELEMENT_METHODS: ReadonlySet<string> = new Set(['at', 'find', 'findLast', 'filter', 'slice', 'sort', 'toSorted', 'reverse', 'toReversed']);
 const ITER_CALL = /\.\s*(map|flatMap|forEach|filter|find|findLast|findIndex|some|every|sort|reduce|reduceRight)\s*\(/g;
 /** Голова колбэка: `(a, b) =>`, `async (a) =>`, `a =>`, `function (a) {`. */
 const CALLBACK_HEAD = /^\s*(?:async\s*)?(?:function\b\s*\*?\s*[A-Za-z_$]*\s*)?(?:\(([^()]*(?:\([^()]*\)[^()]*)*)\)|([A-Za-z_$][\w$]*))\s*(?::[^=]+?)?(=>|\{)/;
 
-/** Записи литерала объекта на верхнем уровне: `{ k: v, tel }` — ключ и отрезок значения (для `tel` — само имя). */
-function objectEntries(code: string, open: number): Array<{ key: string; span: FlowSpan }> {
-  const out: Array<{ key: string; span: FlowSpan }> = [];
+/**
+ * Записи литерала объекта на верхнем уровне: `{ k: v, tel }` — ключ и отрезок
+ * значения (для `tel` — само имя); `...x` — запись без ключа с `spread`.
+ */
+function objectEntries(code: string, open: number): Array<{ key: string; span: FlowSpan; spread?: true }> {
+  const out: Array<{ key: string; span: FlowSpan; spread?: true }> = [];
   const close = closeOf(code, open);
   let from = open + 1;
   let depth = 0;
@@ -515,7 +567,9 @@ function objectEntries(code: string, open: number): Array<{ key: string; span: F
     if (kv) out.push({ key: kv[1] ?? kv[2] ?? kv[3] ?? '', span: { from: from + kv[0].length, to } });
     else {
       const short = /^\s*([A-Za-z_$][\w$]*)\s*$/.exec(seg);
+      const spread = /^\s*\.\.\./.exec(seg);
       if (short) out.push({ key: short[1], span: { from: from + seg.indexOf(short[1]), to: from + seg.indexOf(short[1]) + short[1].length } });
+      else if (spread) out.push({ key: '', span: { from: from + spread[0].length, to }, spread: true });
     }
   };
   for (let i = open + 1; i < close; i++) {
@@ -527,7 +581,7 @@ function objectEntries(code: string, open: number): Array<{ key: string; span: F
     else if (c === ',' && depth === 0) { flush(i); from = i + 1; }
   }
   flush(close);
-  return out.filter((e) => e.key !== '');
+  return out.filter((e) => e.key !== '' || e.spread);
 }
 
 /**
@@ -580,13 +634,28 @@ function buildEdges(code: string, sc: Scopes, links: Link[] = []): Edge[] {
    * литералов объектов — по записям элементов (поля коллекции — поля её
    * элементов), имени, поля или элемента — связью полей.
    */
-  const fieldsInto = (target: string, span: FlowSpan) => {
+  const fieldsInto = (target: string, span: FlowSpan, depth = 0) => {
     const lb = skipWs(code, span.from);
     const objects = code[lb] === '{' && closeOf(code, lb) < span.to ? [lb]
       : code[lb] === '[' && closeOf(code, lb) < span.to ? argSpans(code, lb).map((el) => skipWs(code, el.from)).filter((at) => code[at] === '{')
       : [];
     if (objects.length) {
-      for (const at of objects) for (const entry of objectEntries(code, at)) edges.push({ key: `${target}.${entry.key}`, name: entry.key, span: entry.span });
+      for (const at of objects) {
+        for (const entry of objectEntries(code, at)) {
+          // `{ ...lead }` — поля источника; `{ info: { name: lead.name } }` — поле
+          // второго уровня `rec.info.name` (тринадцатое ревью PR #3104).
+          if (entry.spread) {
+            const from = pathKey(entry.span);
+            if (from) links.push({ from, to: target, fields: true });
+            continue;
+          }
+          edges.push({ key: `${target}.${entry.key}`, name: entry.key, span: entry.span });
+          // Глубже — только литерал: связь полей с именем (`{ next: state }`)
+          // замкнула бы путь сам на себя (`state.next.next…`).
+          const inner = skipWs(code, entry.span.from);
+          if (depth < 4 && (code[inner] === '{' || code[inner] === '[')) fieldsInto(`${target}.${entry.key}`, entry.span, depth + 1);
+        }
+      }
       return;
     }
     const from = pathKey(span);
@@ -679,6 +748,19 @@ function buildEdges(code: string, sc: Scopes, links: Link[] = []): Edge[] {
     const args = argSpans(code, open);
     const value = /\.\s*set\s*\($/.test(m[0]) ? args[1] : args[0];
     if (value && !NOT_ROOT.has(m[1])) fieldsInto(sc.key(m[1], m.index), value);
+  }
+  // `Object.assign(target, …sources)` — цель получает источники и их поля
+  // (тринадцатое ревью PR #3104: `Object.assign(payload, { phone: lead.phone })`).
+  OBJECT_ASSIGN.lastIndex = 0;
+  for (let m = OBJECT_ASSIGN.exec(code); m; m = OBJECT_ASSIGN.exec(code)) {
+    const [target, ...sources] = argSpans(code, m.index + m[0].length - 1);
+    const key = target ? pathKey(target) : null;
+    if (!target || !key) continue;
+    const name = key.slice(key.indexOf(':') + 1).split('.').slice(-1)[0];
+    for (const source of sources) {
+      edges.push({ key, name, span: source });
+      fieldsInto(key, source);
+    }
   }
   // Колбэк перебора: элемент получателя — его параметр.
   ITER_CALL.lastIndex = 0;
@@ -892,23 +974,57 @@ export interface SqlRowShape {
   fields: Map<string, Kind[]>;
 }
 
+/**
+ * Текст SQL без строк и комментариев той же длины: `'from web'` и
+ * `/* from cache *\/` не обрывают список колонок (тринадцатое ревью PR #3104).
+ */
+function maskSql(text: string): string {
+  let out = '';
+  for (let i = 0; i < text.length; i++) {
+    const c = text[i];
+    if (c === "'") {
+      let j = i + 1;
+      while (j < text.length && !(text[j] === "'" && text[j + 1] !== "'")) j += text[j] === "'" ? 2 : 1;
+      out += "'" + ' '.repeat(Math.max(0, j - i - 1)) + (j < text.length ? "'" : '');
+      i = j;
+    } else if (c === '-' && text[i + 1] === '-') {
+      const j = text.indexOf('\n', i);
+      const end = j < 0 ? text.length : j;
+      out += ' '.repeat(end - i);
+      i = end - 1;
+    } else if (c === '/' && text[i + 1] === '*') {
+      const j = text.indexOf('*/', i + 2);
+      const end = j < 0 ? text.length : j + 2;
+      out += ' '.repeat(end - i);
+      i = end - 1;
+    } else out += c;
+  }
+  return out;
+}
+
+/** Строка целиком в одной колонке: `row_to_json(l)`, `to_jsonb(l)`, `json_agg(l)`, `json_agg(l.*)`. */
+const WHOLE_ROW = /\b(?:row_to_json|to_jsonb?|jsonb?_agg|array_agg|jsonb?_build_array|row)\s*\(\s*(?:distinct\s+)?([A-Za-z_]\w*)(\s*\.\s*\*)?\s*(?=[),]|order\b)/gi;
+
 export function sqlRow(sql: string): SqlRowShape {
   const text = sql.replace(/^[\s'"`]+|[\s'"`]+$/g, '');
-  const head = /\bselect\b/i.exec(text);
+  // Строки и комментарии затёрты: `FROM` ищется только в коде запроса.
+  const plain = maskSql(text);
+  const head = /\bselect\b/i.exec(plain);
   if (!head) return { kinds: [], fields: new Map() };
   let depth = 0;
   let end = -1;
-  for (let i = head.index + head[0].length; i < text.length; i++) {
-    const ch = text[i];
+  for (let i = head.index + head[0].length; i < plain.length; i++) {
+    const ch = plain[i];
     if (ch === '(') depth++;
     else if (ch === ')') depth--;
-    else if (depth === 0 && /\bfrom\b/i.test(text.slice(i, i + 5)) && /\W/.test(text[i - 1] ?? ' ')) { end = i; break; }
+    else if (depth === 0 && /\bfrom\b/i.test(plain.slice(i, i + 5)) && /\W/.test(plain[i - 1] ?? ' ')) { end = i; break; }
   }
-  const list = text.slice(head.index + head[0].length, end < 0 ? text.length : end);
+  const listFrom = head.index + head[0].length;
+  const listTo = end < 0 ? plain.length : end;
   // Таблицы и их псевдонимы: `FROM leads l JOIN users u` — l → leads, u → users.
   const tables = new Map<string, string>();
   if (end >= 0) {
-    for (const m of text.slice(end).matchAll(/\b(?:from|join)\s+([A-Za-z_][\w.]*)(?:\s+(?:as\s+)?([A-Za-z_]\w*))?/gi)) {
+    for (const m of plain.slice(end).matchAll(/\b(?:from|join)\s+([A-Za-z_][\w.]*)(?:\s+(?:as\s+)?([A-Za-z_]\w*))?/gi)) {
       const table = m[1].split('.').slice(-1)[0];
       tables.set(table.toLowerCase(), table);
       if (m[2] && !SQL_NOT_ALIAS.has(m[2].toLowerCase())) tables.set(m[2].toLowerCase(), table);
@@ -921,19 +1037,20 @@ export function sqlRow(sql: string): SqlRowShape {
     const t = tables.get(q.toLowerCase());
     return t !== undefined ? PERSON_WORD.test(t) : PERSON_WORD.test(q) || anyPerson;
   };
-  const cols: string[] = [];
+  // Колонки — по запятым верхнего уровня в коде; рядом — тот же отрезок исходника (ключи `->>'phone'`).
+  const cols: Array<{ code: string; raw: string }> = [];
   depth = 0;
-  let cur = '';
-  for (const ch of list) {
+  let start = listFrom;
+  for (let i = listFrom; i <= listTo; i++) {
+    const ch = plain[i];
     if (ch === '(') depth++;
     if (ch === ')') depth--;
-    if (ch === ',' && depth === 0) { cols.push(cur); cur = ''; } else cur += ch;
+    if (i === listTo || (ch === ',' && depth === 0)) { cols.push({ code: plain.slice(start, i), raw: text.slice(start, i) }); start = i + 1; }
   }
-  cols.push(cur);
   const kinds = new Set<Kind>();
   const fields = new Map<string, Kind[]>();
-  for (const raw of cols) {
-    const col = raw.trim().replace(/^distinct\s+(?:on\s*\((?:[^()]|\([^()]*\))*\)\s*)?/i, '');
+  for (const { code: codeCol, raw } of cols) {
+    const col = codeCol.trim().replace(/^distinct\s+(?:on\s*\((?:[^()]|\([^()]*\))*\)\s*)?/i, '');
     if (!col) continue;
     const star = /^(?:([A-Za-z_]\w*)\s*\.\s*)?\*$/.exec(col);
     if (star) {
@@ -954,13 +1071,22 @@ export function sqlRow(sql: string): SqlRowShape {
       .replace(/(?:[A-Za-z_]\w*\s*\.\s*)?"?[A-Za-z_]\w*"?\s+is\s+(?:not\s+)?null\b/gi, 'true');
     const colKinds = new Set<Kind>();
     const judge = (id: string, owner: string | undefined, isAlias: boolean) => {
-      if (id.toLowerCase() === 'mchs_phone') return;
-      if (REDACTABLE_NAMED.test(id)) colKinds.add('contact');
-      if (IDENT_NAMED.test(id)) colKinds.add('ident');
-      if (PERSONAL_NAME_COLUMN.test(id)) colKinds.add('name');
+      if (isRedactableId(id)) colKinds.add('contact');
+      if (isIdentId(id)) colKinds.add('ident');
+      if (isPersonNameId(id)) colKinds.add('name');
       if (!isAlias && /^name$/i.test(id) && personOwner(owner)) colKinds.add('name');
     };
     for (const m of expr.matchAll(/(?:\b([A-Za-z_]\w*)\s*\.\s*)?"?\b([A-Za-z_]\w*)\b"?(?!\s*\()/g)) judge(m[2], m[1], false);
+    // Ключ поля JSON — тоже колонка: `source_data->>'phone'`, `to_jsonb(l)->'name'`.
+    for (const m of raw.matchAll(/->>?\s*'([A-Za-z_]\w*)'/g)) judge(m[1], undefined, false);
+    // Строка целиком в колонке — все роды, как `*`; имя — если строка людей.
+    let wholeOwner: string | null = null;
+    for (const m of expr.matchAll(WHOLE_ROW)) {
+      if (m[2] || tables.has(m[1].toLowerCase())) { wholeOwner = m[1]; break; }
+    }
+    const starIn = wholeOwner ? null : /\b([A-Za-z_]\w*)\s*\.\s*\*/.exec(expr);
+    if (starIn) wholeOwner = starIn[1];
+    if (wholeOwner) for (const k of KINDS) colKinds.add(k);
     // Псевдоним признака и подсчёта (`phone IS NOT NULL AS has_phone`) — не контакт.
     if (alias && !/^\s*(?:true|0)\s*$/.test(expr)) judge(alias, undefined, true);
     // Выходное имя: псевдоним; `t.col` и `col::text` — col; вызов — имя функции.
@@ -970,6 +1096,7 @@ export function sqlRow(sql: string): SqlRowShape {
     if (colKinds.size === 0) continue;
     for (const k of colKinds) kinds.add(k);
     if (field) fields.set(field, [...new Set([...(fields.get(field) ?? []), ...colKinds])]);
+    if (field && wholeOwner && personOwner(wholeOwner)) fields.set(`${field}.name`, ['name']);
   }
   return { kinds: [...kinds], fields };
 }
@@ -1264,12 +1391,37 @@ function nonPersonKeys(code: string, sc: Scopes): Set<string> {
 
 /** Имя человека в тексте с позиции `base`: поле `*_name`, `lead.name`; однобуквенный владелец — если не доказан не-человеком. */
 function personNameIn(text: string, base: number, sc: Scopes, nonPerson: ReadonlySet<string>): boolean {
-  if (PERSONAL_NAME_FIELD.test(text) || PERSONAL_OWNER_LONG.test(text)) return true;
+  if (identRefs(text, isPersonNameId).length > 0 || PERSONAL_OWNER_LONG.test(text)) return true;
   for (const m of text.matchAll(SINGLE_OWNER_NAME)) if (!nonPerson.has(sc.key(m[1], base + (m.index ?? 0)))) return true;
   return false;
 }
 
+/**
+ * Аргументы ожидаемых вызовов файла: `await x.get(…)` и вызовы-элементы
+ * `await Promise.all([get(…), …])` — выборки, чей результат найден по ключу.
+ */
+function awaitedArgRanges(code: string): Array<[number, number]> {
+  const out: Array<[number, number]> = [];
+  const CALL = /^\s*(?:[A-Za-z_$][\w$]*\s*\??\.\s*)*[A-Za-z_$][\w$]*\s*\(/;
+  const re = /\bawait\s+((?:[A-Za-z_$][\w$]*\s*\??\.\s*)*[A-Za-z_$][\w$]*)\s*\(/g;
+  for (let m = re.exec(code); m; m = re.exec(code)) {
+    const open = m.index + m[0].length - 1;
+    out.push([open, closeOf(code, open)]);
+    if (!/^Promise\s*\.\s*all(?:Settled)?$/.test(m[1])) continue;
+    const list = argSpans(code, open)[0];
+    const lb = list ? skipWs(code, list.from) : -1;
+    if (lb < 0 || code[lb] !== '[') continue;
+    for (const el of argSpans(code, lb)) {
+      const c = CALL.exec(code.slice(el.from, el.to));
+      if (c) { const o = el.from + c[0].length - 1; out.push([o, closeOf(code, o)]); }
+    }
+  }
+  return out;
+}
+
 const KINDS: readonly Kind[] = ['contact', 'name', 'ident'];
+/** Предел длины пути поля (`S:x.a.b.c.d`): глубже поля в коде не читаются. */
+const MAX_PATH = 6;
 type KindDeps = { stat: boolean; vars: string[]; fns: string[] };
 
 /**
@@ -1278,7 +1430,10 @@ type KindDeps = { stat: boolean; vars: string[]; fns: string[] };
  * функции файла сюда не входят: они идут в её параметры ребром, и род
  * результата — это род того, что она возвращает.
  */
-function depsOf(text: string, span: FlowSpan, sc: Scopes, own: ReadonlySet<string>, nonPerson: ReadonlySet<string>): Record<Kind, KindDeps> {
+function depsOf(
+  text: string, span: FlowSpan, sc: Scopes, own: ReadonlySet<string>, nonPerson: ReadonlySet<string>,
+  keysIn: ReadonlyArray<[number, number]> = [],
+): Record<Kind, KindDeps> {
   const opaque = ownCallArgRanges(text, span.from, span.to, own);
   const clean = [...sanitizedRanges(text, span.from, span.to, CONTACT_SANITIZERS), ...opaque];
   const evC = blankRanges(text.slice(span.from, span.to), span.from, clean).replace(SERVICE_CONTACT, (m) => ' '.repeat(m.length));
@@ -1286,6 +1441,7 @@ function depsOf(text: string, span: FlowSpan, sc: Scopes, own: ReadonlySet<strin
   const notParam = (r: Root) => !insideAny(r.at, sc.params);
   const rc = rootsAt(text, span.from, span.to, CONTACT_SANITIZERS, [], false, own).filter(notParam);
   const rn = rootsAt(text, span.from, span.to, NO_SANITIZERS, [], false, own).filter(notParam);
+  const ri = rn.filter((r) => !(insideAny(r.at, keysIn) && isIdentId(r.name) && wholeUse(text, r, span.to)));
   const keys = (roots: Root[]) => roots.map((r) => carrierKey(text, r, sc, span.to)).filter((k): k is string => k !== null);
   // Вызов функции файла и она же по ссылке (`leads.map(line)`) — род её возврата.
   const ownCalls = (cutters: ReadonlySet<string>, roots: Root[]) => [
@@ -1294,7 +1450,7 @@ function depsOf(text: string, span: FlowSpan, sc: Scopes, own: ReadonlySet<strin
   ];
   return {
     contact: {
-      stat: REDACTABLE_FIELD.test(evC) || rc.some((r) => r.name !== 'mchs_phone' && REDACTABLE_NAMED.test(r.name) && wholeUse(text, r, span.to)),
+      stat: fieldRefs(evC, isRedactableId).length > 0 || rc.some((r) => isRedactableId(r.name) && wholeUse(text, r, span.to)),
       vars: keys(rc),
       fns: ownCalls(CONTACT_SANITIZERS, rc),
     },
@@ -1304,10 +1460,14 @@ function depsOf(text: string, span: FlowSpan, sc: Scopes, own: ReadonlySet<strin
       fns: ownCalls(NO_SANITIZERS, rn),
     },
     // Адрес, документ, мессенджер — чистка их не гасит: судятся без неё.
+    // Переменная-идентификатор, отданная ключом в ожидаемый вызов
+    // (`await getHistory(chatId)`), результат не метит: выборка по ключу
+    // возвращает найденное, а не ключ. Сам ключ в тексте (`${chatId}`,
+    // `String(chatId)`) судится, где стоит.
     ident: {
-      stat: IDENT_FIELD.test(evN) || rn.some((r) => IDENT_NAMED.test(r.name) && wholeUse(text, r, span.to)),
-      vars: keys(rn),
-      fns: ownCalls(NO_SANITIZERS, rn),
+      stat: fieldRefs(evN, isIdentId).length > 0 || ri.some((r) => isIdentId(r.name) && wholeUse(text, r, span.to)),
+      vars: keys(ri),
+      fns: ownCalls(NO_SANITIZERS, ri),
     },
   };
 }
@@ -1368,14 +1528,16 @@ function taintsIn(code: string, sc: Scopes, edges: readonly Edge[], seeds: reado
   for (let m = DESTRUCT.exec(code); m; m = DESTRUCT.exec(code)) {
     for (const part of m[1].split(',')) {
       const d = DESTRUCT_CONTACT.exec(part);
-      if (d) mark(vars, sc.key(d[2] ?? d[1], m.index), IDENT_NAMED.test(d[1]) ? 'ident' : 'contact');
+      if (d && isRedactableId(d[1])) mark(vars, sc.key(d[2] ?? d[1], m.index), 'contact');
+      else if (d && isIdentId(d[1])) mark(vars, sc.key(d[2] ?? d[1], m.index), 'ident');
     }
   }
   // Строка из базы целиком (`JSON.stringify(rows)`) — род по колонкам запроса.
   if (src !== null) for (const q of queryResults(src, code, sc)) for (const kind of q.kinds) mark(vars, q.key, kind);
   const nonPerson = nonPersonKeys(code, sc);
-  const eDeps = edges.filter((e) => !e.part).map((e) => ({ key: e.key, d: depsOf(text, e.span, sc, own, nonPerson) }));
-  const fDeps = fnSpans.map((f) => ({ name: f.name, d: depsOf(text, f.span, sc, own, nonPerson) }));
+  const keysIn = awaitedArgRanges(text);
+  const eDeps = edges.filter((e) => !e.part).map((e) => ({ key: e.key, d: depsOf(text, e.span, sc, own, nonPerson, keysIn) }));
+  const fDeps = fnSpans.map((f) => ({ name: f.name, d: depsOf(text, f.span, sc, own, nonPerson, keysIn) }));
   const fires = (d: Record<Kind, KindDeps>, kind: Kind) =>
     d[kind].stat || d[kind].vars.some((k) => has(vars, k, kind)) || d[kind].fns.some((n) => has(fns, n, kind));
   // Цепочки в коде короткие; предел — от патологии.
@@ -1390,6 +1552,8 @@ function taintsIn(code: string, sc: Scopes, edges: readonly Edge[], seeds: reado
           continue;
         }
         for (const f of fieldsOf.get(l.from) ?? []) {
+          // Путь длиннее MAX_PATH не растёт: связь поля с предком (`a.b = a`) иначе удлиняла бы его на каждом проходе.
+          if (`${l.to}.${f}`.split('.').length > MAX_PATH) continue;
           if (has(vars, `${l.from}.${f}`, kind) && !has(vars, `${l.to}.${f}`, kind)) { mark(vars, `${l.to}.${f}`, kind); grew = true; }
         }
       }
@@ -1440,7 +1604,7 @@ function* varsAt(code: string, base: number, len: number): Generator<{ name: str
   const masked = code.slice(base, base + len);
   for (const id of masked.matchAll(/[A-Za-z_$][\w$]*/g)) {
     const pos = id.index ?? 0;
-    // Свойство — не переменная: `x.phone` судит поле ПД (REDACTABLE_FIELD/IDENT_FIELD), а `review.name` не псевдоним `name`.
+    // Свойство — не переменная: `x.phone` судит поле ПД (`fieldRefs`), а `review.name` не псевдоним `name`.
     // Поле `this.x` — переменная x, как у корня выражения (седьмое ревью PR #3104).
     const before = masked.slice(Math.max(0, pos - 12), pos);
     if (/(?<!\.)\.\s*$/.test(before) && !/(?:^|[^\w$.])this\s*\??\.\s*$/.test(before)) continue;
@@ -2142,9 +2306,12 @@ interface PromptFlow { reach: Set<string>; literalStarts: Set<number> }
  * и литерал с такой меткой: `const prompt = [\`Тел: ${lead.phone}\`].join('\n')`.
  */
 function promptFlow(
-  code: string, sc: Scopes, literals: TemplateLiteral[], hasForeign: boolean,
+  raw: string, sc: Scopes, literals: TemplateLiteral[], hasForeign: boolean,
   edges: readonly Edge[], seeds: readonly Seed[], cutters: ReadonlySet<string>,
 ): PromptFlow {
+  // Параметры SQL-запроса — не текст и для потока (как и для рода ПД): ключ
+  // `kuzmich_mem_${chatId}` в `pool.query(sql, [key])` до модели не доходит.
+  const code = blankAll(raw, queryParamRanges(raw));
   const reach = new Set<string>();
   const literalStarts = new Set<number>();
   const byStart = new Map(literals.map((l) => [l.start, l] as const));
@@ -2229,7 +2396,22 @@ interface FileView {
   taints: Taints;
 }
 
-function viewOf(src: string): FileView {
+/**
+ * Доступ к полю скобками с ключом-строкой — то же поле (тринадцатое ревью PR
+ * #3104): `lead['phone']` читается как `lead.phone`, `x?.["email"]` — как
+ * `x?.email`. Длина текста сохраняется (хвост — пробелы), и позиции находок
+ * не сдвигаются. Ключ из переменной (`lead[f]`) так не прочитать — это
+ * названное ограничение.
+ */
+export function bracketsToDots(src: string): string {
+  return src.replace(/(?<=[\w$)\]])(\?\.)?\[\s*(['"])([A-Za-z_$][\w$]*)\2\s*\]/g, (m: string, opt: string | undefined, _q: string, key: string) => {
+    const head = `${opt ?? ''}${opt ? '' : '.'}${key}`;
+    return head + ' '.repeat(m.length - head.length);
+  });
+}
+
+function viewOf(raw: string): FileView {
+  const src = bracketsToDots(raw);
   const code = maskCode(src);
   const sc = buildScopes(code);
   const hasForeign = fileTalksAbroad(src);
@@ -2298,10 +2480,10 @@ function contactIn(code: string, base: number, len: number, t: Taints, sc: Scope
   // Поле ПД — обращение в коде, а не текст строки: адрес API Telegram в
   // строке (`…//api.telegram…`) полем `.telegram` не является.
   const visible = blankRanges(code.slice(base, base + len), base, clean).replace(SERVICE_CONTACT, (m) => ' '.repeat(m.length));
-  if (REDACTABLE_FIELD.test(visible)) return true;
+  if (fieldRefs(visible, isRedactableId).length > 0) return true;
   for (const v of varsAt(code, base, len)) {
     if (insideAny(v.at, clean)) continue;
-    if (v.name !== 'mchs_phone' && REDACTABLE_NAMED.test(v.name) && wholeUse(code, v, base + len)) return true;
+    if (isRedactableId(v.name) && wholeUse(code, v, base + len)) return true;
     if (carried(code, v, t, sc, 'contact', base + len)) return true;
   }
   return false;
@@ -2309,9 +2491,9 @@ function contactIn(code: string, base: number, len: number, t: Taints, sc: Scope
 
 /** Адрес, документ, мессенджер в `${…}`: поле, имя или род — redactPII их не убирает. */
 function identIn(code: string, base: number, len: number, t: Taints, sc: Scopes): boolean {
-  if (IDENT_FIELD.test(code.slice(base, base + len))) return true;
+  if (fieldRefs(code.slice(base, base + len), isIdentId).length > 0) return true;
   for (const v of varsAt(code, base, len)) {
-    if (IDENT_NAMED.test(v.name) && wholeUse(code, v, base + len)) return true;
+    if (isIdentId(v.name) && wholeUse(code, v, base + len)) return true;
     if (carried(code, v, t, sc, 'ident', base + len)) return true;
   }
   return false;
@@ -2320,14 +2502,11 @@ function identIn(code: string, base: number, len: number, t: Taints, sc: Scopes)
 /** Имя человека в `${…}`: поле или род имени — redactPII его не убирает. */
 function nameIn(code: string, base: number, len: number, t: Taints, sc: Scopes): boolean {
   const exprCode = code.slice(base, base + len);
-  if (PERSONAL_NAME_FIELD.test(exprCode) || PERSONAL_OWNER_NAME.test(exprCode)) return true;
+  if (identRefs(exprCode, isPersonNameId).length > 0 || PERSONAL_OWNER_NAME.test(exprCode)) return true;
   for (const v of varsAt(code, base, len)) if (carried(code, v, t, sc, 'name', base + len)) return true;
   return false;
 }
 
-const REDACTABLE_FIELD_ALL = new RegExp(REDACTABLE_FIELD.source, 'gi');
-const IDENT_FIELD_ALL = new RegExp(IDENT_FIELD.source, 'gi');
-const PERSONAL_NAME_FIELD_ALL = new RegExp(PERSONAL_NAME_FIELD.source, 'gi');
 const PERSONAL_OWNER_NAME_ALL = new RegExp(PERSONAL_OWNER_NAME.source, 'gi');
 
 /**
@@ -2371,12 +2550,12 @@ function sinkFindings(file: string, v: FileView): PIIFinding[] {
 
     const clean = [...sanitizedRanges(text, from, to, CONTACT_SANITIZERS), ...opaque];
     const visible = blankRanges(text.slice(from, to), from, clean).replace(SERVICE_CONTACT, (m) => ' '.repeat(m.length));
-    for (const m of visible.matchAll(REDACTABLE_FIELD_ALL)) report(from + (m.index ?? 0), member(from + (m.index ?? 0), m[0]), 'contact', seed.context);
+    for (const m of fieldRefs(visible, isRedactableId)) report(from + m.index, member(from + m.index, m.text), 'contact', seed.context);
     /** Текст находки: имя или поле (`o.body`). */
     const shown = (r: Root) => { const f = carrierOf(text, r.at + r.name.length, to, sc.functions)?.field; return f ? `${r.name}.${f}` : r.name; };
     for (const r of rootsAt(text, from, to, CONTACT_SANITIZERS, [], false, own)) {
       if (insideAny(r.at, sc.params)) continue;
-      const named = r.name !== 'mchs_phone' && REDACTABLE_NAMED.test(r.name) && wholeUse(text, r, to);
+      const named = isRedactableId(r.name) && wholeUse(text, r, to);
       const key = carrierKey(text, r, sc, to);
       if (named || (key !== null && taints.vars.get(key)?.has('contact'))) report(r.at, shown(r), 'contact', seed.context);
     }
@@ -2386,15 +2565,14 @@ function sinkFindings(file: string, v: FileView): PIIFinding[] {
 
     const plain = blankRanges(text.slice(from, to), from, opaque);
     // Адрес, документ, мессенджер — чистка redactPII их не гасит.
-    for (const m of plain.matchAll(IDENT_FIELD_ALL)) report(from + (m.index ?? 0), member(from + (m.index ?? 0), m[0]), 'contact', seed.context);
-    for (const re of [PERSONAL_NAME_FIELD_ALL, PERSONAL_OWNER_NAME_ALL]) {
-      for (const m of plain.matchAll(re)) report(from + (m.index ?? 0), m[0].replace(/\s+/g, ''), 'name', seed.context);
-    }
+    for (const m of fieldRefs(plain, isIdentId)) report(from + m.index, member(from + m.index, m.text), 'contact', seed.context);
+    for (const m of identRefs(plain, isPersonNameId)) report(from + m.index, m.text, 'name', seed.context);
+    for (const m of plain.matchAll(PERSONAL_OWNER_NAME_ALL)) report(from + (m.index ?? 0), m[0].replace(/\s+/g, ''), 'name', seed.context);
     for (const r of rootsAt(text, from, to, NO_SANITIZERS, [], false, own)) {
       if (insideAny(r.at, sc.params)) continue;
       const key = carrierKey(text, r, sc, to);
       if (key !== null && taints.vars.get(key)?.has('name')) report(r.at, shown(r), 'name', seed.context);
-      const identNamed = IDENT_NAMED.test(r.name) && wholeUse(text, r, to);
+      const identNamed = isIdentId(r.name) && wholeUse(text, r, to);
       if (identNamed || (key !== null && taints.vars.get(key)?.has('ident'))) report(r.at, shown(r), 'contact', seed.context);
     }
     for (const c of literalsIn(text, seed.span, NO_SANITIZERS, own).callees) {
