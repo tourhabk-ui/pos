@@ -75,3 +75,12 @@ describe('поиск клиента в чате администратора и 
     expect(await adminChatYieldsToPartner('max', CHAT, 'Входящие')).toBe(false);
   });
 });
+
+describe('пост в канал в общем чате администратора и партнёра (фаза 2г)', () => {
+  it('«пост …» — консоли, хотя в тексте нет её слов; тот же текст без «пост» — кабинету партнёра', async () => {
+    const text = 'Открыли запись на зимний сезон, пишите в личку';
+    expect(await adminChatYieldsToPartner('max', CHAT, text)).toBe(true);
+    expect(await adminChatYieldsToPartner('max', CHAT, `пост\n${text}`)).toBe(false);
+    expect(await adminChatYieldsToPartner('telegram', CHAT, `Пост: ${text}`)).toBe(false);
+  });
+});

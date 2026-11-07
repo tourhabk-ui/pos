@@ -173,6 +173,19 @@ describe('меню роли', () => {
     expect(help).toContain('брони, запросы мест и заявки на туры, которые вы продаёте сами');
     expect(help).toContain('Имени и телефона туриста в этом списке нет');
   });
+
+  it('справка администратора по каналу: MAX называет действия с «Да», Telegram — только где они (фаза 2г)', () => {
+    const max = adminMenuHelp('max');
+    expect(max).toBe(adminMenuHelp());
+    expect(max).toContain('Пост в канал — «пост» и с новой строки текст');
+    expect(max).toContain('Оператор подтвердил');
+    const tg = adminMenuHelp('telegram');
+    expect(tg).toContain('только в MAX');
+    expect(tg).toContain('в MAX администратора');
+    expect(tg).not.toContain('Оператор подтвердил');
+    expect(tg).not.toContain('открой 3 и 5 декабря');
+    expect(tg).not.toContain('«пост» и с новой строки');
+  });
 });
 
 describe('экран кнопки', () => {

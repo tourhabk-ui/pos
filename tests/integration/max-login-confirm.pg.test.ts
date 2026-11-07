@@ -20,12 +20,15 @@
  *
  * Без KERNEL_PG_TEST_URL файл честно пропускается — «не прогнано», а не «прошло».
  */
-import { describe, it, expect, beforeAll, afterAll, beforeEach, vi } from 'vitest';
+import { describe, it, expect, beforeAll, afterAll, beforeEach, afterEach, vi } from 'vitest';
 import { NextRequest } from 'next/server';
 import { createTestDatabase } from '../helpers/pg-schema';
 
-const { sent } = vi.hoisted(() => ({
+const { sent, channelPosts, maxChannel } = vi.hoisted(() => ({
   sent: [] as Array<{ chatId: number; text: string; opts: unknown }>,
+  /** Посты в MAX-канал (фаза 2г): адрес и текст. */
+  channelPosts: [] as Array<{ url: string; text: string }>,
+  maxChannel: { fail: false },
 }));
 
 vi.mock('@/lib/max/max-fetch', () => ({
@@ -38,6 +41,14 @@ vi.mock('@/lib/max/max-fetch', () => ({
       answerOnCallback: async () => ({}),
     },
   }),
+  // Пост в MAX-канал (фаза 2г): что ушло и куда; отказ MAX — по флагу.
+  maxFetch: async (url: string, init?: RequestInit) => {
+    const body = JSON.parse(String(init?.body ?? '{}')) as { text?: string };
+    channelPosts.push({ url: String(url), text: body.text ?? '' });
+    return maxChannel.fail
+      ? new Response(JSON.stringify({ code: 'not.found', description: 'Chat not found' }), { status: 404 })
+      : new Response(JSON.stringify({ message: { body: { mid: 'chan' } } }), { status: 200 });
+  },
 }));
 
 vi.mock('@/lib/max/webhook-url', async (orig) => ({
@@ -1256,6 +1267,205 @@ withPg('вход через MAX подтверждается вопросом в
         expect(lastText()).toContain('у администратора Ведара');
         expect(await status()).toBe('new');
         expect((await bookingRows()).map((r) => r.status)).toEqual(['ready']);
+      });
+    });
+
+    describe('пост в канал: «пост» → превью → «Да» (фаза 2г)', () => {
+      const tgSent: Array<{ chat_id: string; text: string }> = [];
+      const tg = { fail: false };
+      let fetchSpy: { mockRestore: () => void } | null = null;
+      let seq = 0;
+      const sayPost = (text: string) => bot({
+        update_type: 'message_created', timestamp: Date.now(),
+        message: {
+          sender: { user_id: ADMIN_MAX, name: 'Админ' },
+          recipient: { chat_id: ADMIN_MAX + 5, chat_type: 'dialog' },
+          body: { mid: `m-post-${++seq}`, seq: 1, text },
+        },
+      });
+      const pressAs = (payload: string, userId = ADMIN_MAX) => bot({
+        update_type: 'message_callback', timestamp: Date.now(),
+        callback: { timestamp: Date.now(), callback_id: `cbp-${++seq}`, payload, user: { user_id: userId, name: 'Админ' } },
+        message: { recipient: { chat_id: userId + 5, chat_type: 'dialog' }, body: { mid: `m-ppress-${seq}`, seq: 1, text: null } },
+      });
+      const lastText = () => sent[sent.length - 1]?.text ?? '';
+      const yesButton = () => lastButtons().find((b) => b.payload.startsWith('ad:y:'));
+      const postRows = async () => (await pool.query<{
+        status: string; params: { text?: string }; outcome: Record<string, unknown> | null;
+      }>(`SELECT status, params, outcome FROM admin_chat_actions WHERE subject_kind = 'post' ORDER BY created_at, id`)).rows;
+
+      // «Нужен тур» — просьба туриста для классификатора, «даты» — команда
+      // консоли: пост их не теряет, решает первое слово.
+      const POST = 'Нужен тур на Горелый? Открыли даты 12 и 14 декабря: группа до 6 человек, '
+        + 'сбор в 7:00 у гостиницы & без доплат <за трансфер>.';
+      const ESCAPED = POST.replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;');
+
+      beforeEach(async () => {
+        await pool.query('DELETE FROM admin_chat_actions');
+        tgSent.length = 0;
+        channelPosts.length = 0;
+        maxChannel.fail = false;
+        tg.fail = false;
+        vi.stubEnv('TELEGRAM_BOT_TOKEN', 'test-tg-token');
+        vi.stubEnv('TELEGRAM_CHANNEL_ID', '-100777');
+        vi.stubEnv('TELEGRAM_API_BASE', 'https://tg.test');
+        vi.stubEnv('MAX_CHANNEL_ID', '-555');
+        vi.stubEnv('MAX_CHANNEL_LINK', 'https://max.ru/vedar_test');
+        vi.stubEnv('TELEGRAM_CHANNEL_LINK', 'https://t.me/vedar_test');
+        fetchSpy = vi.spyOn(globalThis, 'fetch').mockImplementation(async (input, init) => {
+          const url = input instanceof Request ? input.url : String(input);
+          if (url.startsWith('https://tg.test/')) {
+            tgSent.push(JSON.parse(String(init?.body ?? '{}')) as { chat_id: string; text: string });
+            return new Response(JSON.stringify(tg.fail
+              ? { ok: false, description: 'Bad Request: chat not found' }
+              : { ok: true, result: { message_id: tgSent.length } }));
+          }
+          // Проверка ссылок поста: «мёртвая» — 404, прочие живы.
+          return new Response('', { status: url.includes('/dead') ? 404 : 200 });
+        });
+        await startWith(startArg((await issueLink()).link!), ADMIN_MAX);
+        sent.length = 0;
+      });
+
+      afterEach(() => {
+        fetchSpy?.mockRestore();
+        vi.unstubAllEnvs();
+      });
+
+      it('«пост» → превью без публикации → «Да»: Telegram и MAX получили ровно текст, журнал, повтор не публикует', async () => {
+        await sayPost(`пост\n${POST}`);
+        // Превью — консоли: не Кузьмичу туриста и не список дат.
+        expect(lastText()).toContain('Так выйдет в канале:');
+        expect(lastText()).toContain(`${ESCAPED}\n\n<a href="https://max.ru/vedar_test">Мы в MAX</a>`);
+        expect(lastText()).toContain('Куда: канал Ведара в Telegram и в MAX.');
+        expect(lastText()).not.toContain('Внимание: в тексте телефон');
+        // До «Да» в канал ничего не ушло.
+        expect(tgSent).toHaveLength(0);
+        expect(channelPosts).toHaveLength(0);
+        const yes = yesButton()!;
+        expect(yes.text).toBe('Да, опубликовать');
+        expect(yes.payload.split('~')).toHaveLength(3);
+
+        sent.length = 0;
+        await pressAs(yes.payload);
+        expect(lastText()).toContain('Опубликовано в канале Ведара в Telegram и в MAX.');
+        expect(tgSent).toEqual([expect.objectContaining({
+          chat_id: '-100777', text: `${ESCAPED}\n\n<a href="https://max.ru/vedar_test">Мы в MAX</a>`,
+        })]);
+        expect(channelPosts).toHaveLength(1);
+        expect(channelPosts[0].url).toContain('chat_id=-555');
+        expect(channelPosts[0].text).toBe(`${ESCAPED}\n\n<a href="https://t.me/vedar_test">Мы в Telegram</a>`);
+        const [row] = await postRows();
+        expect(row.status).toBe('done');
+        expect(row.params.text).toBe(ESCAPED);
+        expect(row.outcome).toMatchObject({ kind: 'post_done', telegram: { ok: true }, max: { ok: true } });
+
+        // Повтор «Да» — прежний итог, второй публикации нет.
+        sent.length = 0;
+        await pressAs(yes.payload);
+        expect(lastText()).toContain('Уже нажато раньше. Опубликовано в канале Ведара в Telegram и в MAX.');
+        expect(tgSent).toHaveLength(1);
+        expect(channelPosts).toHaveLength(1);
+      });
+
+      it('проверка не пропустила — отказ словами до вопроса: прежний вопрос снят, в канал ничего', async () => {
+        await sayPost(`пост\n${POST}`);
+        const first = yesButton()!;
+        await sayPost('пост\nКоротко');
+        expect(lastText()).toContain('Не публикую: текст слишком короткий');
+        expect(yesButton()).toBeUndefined();
+        await sayPost(`пост: ${POST} Подробности: https://vedarai.ru/dead-page`);
+        expect(lastText()).toContain('Ссылка https://vedarai.ru/dead-page недоступна (HTTP 404)');
+        await sayPost('пост');
+        expect(lastText()).toContain('Напишите «пост» и с новой строки текст');
+        vi.stubEnv('TELEGRAM_CHANNEL_ID', '');
+        await sayPost(`пост\n${POST}`);
+        expect(lastText()).toContain('Канал Telegram не настроен на сервере');
+        await pressAs(first.payload);
+        expect(lastText()).toContain('заменён');
+        expect(tgSent).toHaveLength(0);
+        expect(channelPosts).toHaveLength(0);
+        expect((await postRows()).map((r) => r.status)).toEqual(['superseded']);
+      });
+
+      it('фото с подписью «пост …» — отказ словами, а не пост без снимка', async () => {
+        await bot({
+          update_type: 'message_created', timestamp: Date.now(),
+          message: {
+            sender: { user_id: ADMIN_MAX, name: 'Админ' },
+            recipient: { chat_id: ADMIN_MAX + 5, chat_type: 'dialog' },
+            body: {
+              mid: `m-post-${++seq}`, seq: 1, text: `пост\n${POST}`,
+              attachments: [{ type: 'image', payload: { url: 'https://max.test/photo.jpg' } }],
+            },
+          },
+        });
+        expect(lastText()).toContain('Фото, видео и файлы к посту пока не беру');
+        expect(yesButton()).toBeUndefined();
+        expect(await postRows()).toEqual([]);
+        expect(tgSent).toHaveLength(0);
+        expect(channelPosts).toHaveLength(0);
+      });
+
+      it('телефон в тексте — предупреждение до «Да»; MAX не принял — «выложите там сами»', async () => {
+        maxChannel.fail = true;
+        await sayPost(`пост\n${POST} Справки: +70000000000`);
+        expect(lastText()).toContain('Внимание: в тексте телефон или почта');
+        await pressAs(yesButton()!.payload);
+        expect(lastText()).toContain('Опубликовано в Telegram. В MAX не ушло: Chat not found — выложите там сами.');
+        expect(tgSent).toHaveLength(1);
+        const [row] = await postRows();
+        expect(row.status).toBe('done');
+        expect(row.outcome).toMatchObject({ kind: 'post_done', telegram: { ok: true }, max: { ok: false, error: 'Chat not found' } });
+      });
+
+      it('Telegram не принял — итог говорит, где вышло; не принял никто — «не опубликовано», строка refused', async () => {
+        tg.fail = true;
+        await sayPost(`пост\n${POST}`);
+        await pressAs(yesButton()!.payload);
+        expect(lastText()).toContain('Опубликовано в MAX. В Telegram не ушло: Bad Request: chat not found — выложите там сами.');
+        maxChannel.fail = true;
+        await sayPost(`пост\n${POST} Ещё раз.`);
+        await pressAs(yesButton()!.payload);
+        expect(lastText()).toContain('Не опубликовано ни в Telegram (Bad Request: chat not found), ни в MAX (Chat not found).');
+        const rows = await postRows();
+        expect(rows.map((r) => r.status)).toEqual(['done', 'refused']);
+        expect(rows[1].outcome).toMatchObject({ kind: 'post_refused', reason: 'failed' });
+      });
+
+      it('«Не надо», новый вопрос и просроченный вопрос в канал не пишут', async () => {
+        await sayPost(`пост\n${POST}`);
+        const first = yesButton()!;
+        await sayPost(`пост: ${POST} Второй вариант.`);
+        const second = yesButton()!;
+        const no = lastButtons().find((b) => b.payload.startsWith('ad:n:'))!;
+        await pressAs(first.payload);
+        expect(lastText()).toContain('заменён');
+        await pressAs(no.payload);
+        expect(lastText()).toContain('Хорошо, пост не публикую.');
+        await pressAs(second.payload);
+        expect(lastText()).toContain('отменено');
+        await sayPost(`Пост в канал: ${POST}`);
+        const third = yesButton()!;
+        await pool.query(`UPDATE admin_chat_actions SET expires_at = NOW() - INTERVAL '1 minute' WHERE status = 'ready'`);
+        await pressAs(third.payload);
+        expect(lastText()).toContain('Вопрос устарел');
+        expect(tgSent).toHaveLength(0);
+        expect(channelPosts).toHaveLength(0);
+        expect((await postRows()).map((r) => r.status)).toEqual(['superseded', 'cancelled', 'ready']);
+      });
+
+      it('снятая роль и чужой человек MAX — в канал ничего', async () => {
+        await sayPost(`пост\n${POST}`);
+        const yes = yesButton()!;
+        await pressAs(yes.payload, OTHER_MAX);
+        expect(lastText()).toContain('у администратора Ведара');
+        await setAdmin(false);
+        await pressAs(yes.payload);
+        expect(lastText()).toContain('у администратора Ведара');
+        expect(tgSent).toHaveLength(0);
+        expect(channelPosts).toHaveLength(0);
+        expect((await postRows()).map((r) => r.status)).toEqual(['ready']);
       });
     });
   });

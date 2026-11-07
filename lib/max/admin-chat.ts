@@ -17,6 +17,7 @@ import { ADMIN_HELP_TEXT, adminCommandOf, adminReplyFor } from '@/lib/max/admin-
 import { adminMenu } from '@/lib/roles/role-menu';
 import { menuRows, type MenuButton } from '@/lib/roles/chat-menu';
 import { handleAdminDatesText } from '@/lib/max/admin-dates';
+import { handleAdminPostText } from '@/lib/max/admin-post';
 
 export const ADMIN_CHAT_TEXT = {
   // Голос и фото здесь не разбираются, а в них может быть беда: строка 112 —
@@ -47,6 +48,8 @@ export async function handleAdminMessage(opts: {
   replyButtons: (chatId: number, text: string, rows: MenuButton[][]) => Promise<void>;
   /** Аккаунт администратора этого сообщения (роут проверил роль на нём): кто открывает даты. */
   adminUserId: string;
+  /** К сообщению приложены фото, видео или файл (подпись — в `text`). */
+  hasMedia?: boolean;
   nowMs?: number;
 }): Promise<void> {
   const { text, name, chatId } = opts;
@@ -55,6 +58,13 @@ export async function handleAdminMessage(opts: {
   const reply = (id: number, body: string) => opts.reply(id, withSosBlock(body, text).text);
   if (/^\/start\b/i.test(text.trim())) {
     await reply(chatId, adminGreeting(name));
+    return;
+  }
+  // Пост в канал (фаза 2г) — раньше дат и команд: текст поста может говорить
+  // о датах и бронях, а решает первое слово «пост».
+  const post = await handleAdminPostText({ adminUserId: opts.adminUserId, chatId, text, hasMedia: opts.hasMedia });
+  if (post) {
+    await opts.replyButtons(chatId, withSosBlock(post.text, text).text, post.buttons);
     return;
   }
   // Даты за оператора (фаза 2б, 07.11) — раньше команд: «открой … на Горелый,

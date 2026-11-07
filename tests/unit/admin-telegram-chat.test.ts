@@ -305,6 +305,23 @@ describe('вебхук: кабинет администратора', () => {
     expect(sentWebhook().join('\n')).toContain('Кабинет администратора');
   });
 
+  it('справка Telegram не обещает действий MAX — говорит, где они (фаза 2г)', async () => {
+    queryMode = 'admin';
+    await webhookPost('как дела у вулкана', { from: ADMIN_TG, chat: ADMIN_TG });
+    const text = sentWebhook().join('\n');
+    expect(text).toContain('в MAX администратора');
+    expect(text).not.toContain('Оператор подтвердил');
+    expect(text).not.toContain('«пост» и с новой строки');
+  });
+
+  it('«пост …» в Telegram не публикуется: ответ ведёт в MAX, ни Кузьмич, ни список дат его не берут (фаза 2г)', async () => {
+    queryMode = 'admin';
+    await webhookPost('пост\nХочу забронировать тур? Открыли даты на Горелый', { from: ADMIN_TG, chat: ADMIN_TG });
+    expect(m.aiChat).not.toHaveBeenCalled();
+    expect(m.adminReply).not.toHaveBeenCalled();
+    expect(sentWebhook().join('\n')).toContain('Пост в канал публикую из MAX администратора');
+  });
+
   it('владелец консоли TELEGRAM_CHAT_ID с привязкой adt_ — /leads отвечает консоль, а не «Не понял команду» (25.10)', async () => {
     queryMode = 'admin';
     await webhookPost('/leads', { from: LEGACY, chat: LEGACY });
