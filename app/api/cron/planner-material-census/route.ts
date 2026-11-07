@@ -93,7 +93,7 @@ export interface PlannerMaterialCensus {
 
 const DEFINITIONS: PlannerMaterialCensus['definitions'] = {
   tours:
-    'operator_tours + partners: ark.zone совпала (или зона avachinsky — там предикат движка ослаблен через OR), '
+    'operator_tours + partners: ark.zone совпала; тур без зоны — городской, считается в avachinsky (тот же предикат, что у движка, lib/planner/zone-match), '
     + 'activity_type точно равен, is_active, is_published, deleted_at IS NULL, partners.is_public',
   routes:
     'agent_route_knowledge: zone и activity_type точно равны, is_visible, lat и lng не NULL',

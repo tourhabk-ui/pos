@@ -21,6 +21,7 @@ import { pool } from '@/lib/db-pool';
 import { publicTourSql } from '@/lib/tours/public-visibility';
 import { nearestFreeDateSql } from '@/lib/tours/nearest-free-date';
 import { orderOffersBy } from '@/lib/tours/offer-order';
+import { zoneMatchSql } from '@/lib/planner/zone-match';
 
 export const dynamic = 'force-dynamic';
 
@@ -90,7 +91,8 @@ export async function GET(req: NextRequest) {
         LEFT JOIN agent_route_knowledge ark ON ark.id = ot.agent_route_id
         WHERE ot.activity_type = $1
           AND ${publicTourSql('ot')}
-          AND ark.zone = $2
+          -- Тот же предикат зоны, что у движка (E4): тур без зоны — городской.
+          AND ${zoneMatchSql('ark', '$2')}
       `, [activity_type, zone]);
 
       // If zone filter returned results, use them

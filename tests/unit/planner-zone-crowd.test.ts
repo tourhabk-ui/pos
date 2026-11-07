@@ -13,9 +13,9 @@
  *
  * ── Второй пласт: два запроса об одном отбирали разное ─────────────────────
  *
- * Отбор туров на день ослаблен для Авачинской зоны осознанно —
- * `ark.zone = $1 OR $1 = 'avachinsky'`, то есть тур без записанной зоны
- * считается городским. Запрос занятости был СТРОГИМ (`ark.zone = $1`). Выходило,
+ * Отбор туров на день ослаблен для Авачинской зоны осознанно: тур без
+ * записанной зоны считается городским (с 07.11 — `zoneMatchSql`, E4; до того
+ * ослабление брало и туры чужих зон). Запрос занятости был СТРОГИМ (`ark.zone = $1`). Выходило,
  * что дни Авачинской зоны движок берёт из таких туров, а заполненность их не
  * считает никогда: локальный замер дал `null` при живой броне на 4 места из 10.
  * После выравнивания предиката тот же прогон дал 40.
@@ -26,9 +26,15 @@
  * выполнился» — `null`, и метки тогда нет вовсе: молчание честнее «свободно»,
  * которого никто не проверял (§4.0).
  */
-import { describe, it, expect } from 'vitest';
+import { describe, it, expect, vi } from 'vitest';
 import { readFileSync } from 'node:fs';
 import { join } from 'node:path';
+
+const { poolQuery } = vi.hoisted(() => ({ poolQuery: vi.fn() }));
+vi.mock('@/lib/db-pool', () => ({ pool: { query: poolQuery } }));
+
+import { createPlannerCache, fetchRealToursForZone, fetchZoneCapacity } from '@/lib/planner/data';
+import { zoneMatchSql } from '@/lib/planner/zone-match';
 
 const read = (p: string) => readFileSync(join(process.cwd(), p), 'utf-8');
 /**
@@ -87,15 +93,25 @@ describe('ноль отличим от «не измерено»', () => {
 });
 
 describe('два запроса об одном отбирают одно', () => {
-  it('предикат зоны у занятости тот же, что у отбора туров на день', () => {
-    const relaxed = DATA_CODE.match(/ark\.zone = \$1 OR \$1 = 'avachinsky'/g) ?? [];
-    expect(relaxed.length, 'ослабление для Авачинской зоны не у обоих запросов')
-      .toBeGreaterThanOrEqual(2);
+  // Один предикат зоны — zoneMatchSql (lib/planner/zone-match): у отбора
+  // туров на день, у заполненности зоны и у списка туров дня. Что он значит —
+  // tests/unit/planner-zone-match.test.ts; здесь — что оба запроса движка
+  // шлют именно его, а не свой.
+  it('отбор туров на день и заполненность зоны шлют один и тот же предикат', async () => {
+    const sql: string[] = [];
+    poolQuery.mockImplementation(async (text: string) => { sql.push(text); return { rows: [] }; });
+    const cache = createPlannerCache();
+    await fetchRealToursForZone('avachinsky', 'volcano', 3, cache);
+    await fetchZoneCapacity('avachinsky', '2030-07-01', '2030-07-07', cache);
+    expect(sql).toHaveLength(2);
+    for (const text of sql) expect(text).toContain(zoneMatchSql('ark', '$1'));
   });
 
-  it('строгий предикат в запросе занятости не вернулся', () => {
+  it('ни строгий, ни прежний ослабленный предикат не вернулись', () => {
     expect(DATA_CODE, 'занятость снова считается строго по ark.zone')
       .not.toMatch(/WHERE ark\.zone = \$1\s/);
+    expect(DATA_CODE, 'Авачинская зона снова берёт туры любой зоны')
+      .not.toMatch(/OR \$1 = 'avachinsky'/);
   });
 });
 
