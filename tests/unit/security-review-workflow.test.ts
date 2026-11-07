@@ -143,6 +143,8 @@ describe('Ревью: deepseek-flash, одна голова, /security-review', 
     const args = readFileSync(join(dir, 'claude.args'), 'utf-8').split('\n');
     expect(args.slice(0, 2)).toEqual(['-p', '/security-review']);
     expect(args[args.indexOf('--model') + 1]).toBe('deepseek-flash');
+    // 40 ходов не хватило на дифф в 3500 строк (PR #3104, 07.11): время держит срок, не предел ходов.
+    expect(args[args.indexOf('--max-turns') + 1]).toBe('80');
     for (const alias of ['ANTHROPIC_DEFAULT_OPUS_MODEL', 'ANTHROPIC_DEFAULT_SONNET_MODEL', 'ANTHROPIC_DEFAULT_HAIKU_MODEL', 'CLAUDE_CODE_SUBAGENT_MODEL']) {
       expect(env[alias], alias).toBe('deepseek-flash');
     }
@@ -338,7 +340,7 @@ describe('База диффа и правила — из базы PR; настр
 
 describe('Ревью состоялось: «не смог» — красный (§4.0)', () => {
   const step = stepByName(job, 'Ревью состоялось');
-  const verdictCtx = (timedOut = 'false', tampered = 'false') => ({ ...ctxHere(), steps: { review: { outputs: { model: 'deepseek-flash', seconds: '42', attempt: '1', timed_out: timedOut, tampered } } } });
+  const verdictCtx = (timedOut = 'false', tampered = 'false', rc = '0') => ({ ...ctxHere(), steps: { review: { outputs: { model: 'deepseek-flash', seconds: '42', attempt: '1', timed_out: timedOut, tampered, rc } } } });
   const transcript = (lines: unknown[]) => writeFileSync(join(dir, 'transcript.jsonl'), lines.map((l) => JSON.stringify(l)).join('\n'));
 
   it('ревьюер писал в файлы команд раннера — итог не засчитан, хоть он и есть', () => {
@@ -361,16 +363,36 @@ describe('Ревью состоялось: «не смог» — красный 
     expect(runStep(step, verdictCtx('true')).out).toMatch(/::error::.*не уложилось/);
   });
 
-  it('итог записан, хотя claude остановлен по сроку, — ревью состоялось; битая строка итог не прячет', () => {
+  it('битая строка итог не прячет', () => {
     writeFileSync(join(dir, 'transcript.jsonl'), [
       JSON.stringify({ type: 'assistant', message: { id: 'm1' } }),
       'чужая строка посреди вывода',
       JSON.stringify({ type: 'result', is_error: false, num_turns: 9, result: '# Находок нет' }),
       '{"type":"assistant","message":{"id":"m2","con',
     ].join('\n'));
-    const r = runStep(step, verdictCtx('true'));
+    const r = runStep(step, verdictCtx());
     expect(r.code, r.out).toBe(0);
     expect(readFileSync(join(dir, 'review-out', 'report.md'), 'utf-8')).toContain('Находок нет');
+  });
+
+  it('срок вышел, а итог записан — всё равно красный: после обрыва итог мог быть ответом подзадачи', () => {
+    // Пятнадцатое ревью PR #3104: снятый по сроку прогон с итогом подзадачи сходил за ревью.
+    transcript([
+      { type: 'assistant', message: { id: 'm1' } },
+      { type: 'result', is_error: false, num_turns: 12, result: 'Подзадача: проверено, находок нет.' },
+    ]);
+    const r = runStep(step, verdictCtx('true', 'false', '124'));
+    expect(r.code).toBe(1);
+    expect(r.out).toMatch(/::error::Ревью безопасности не уложилось в 40 мин: прогон снят по сроку, итог не засчитан/);
+    expect(existsSync(join(dir, 'review-out', 'report.md'))).toBe(false);
+  });
+
+  it('claude завершился не сам (код не 0), итог не ошибка — красный с кодом', () => {
+    transcript([{ type: 'result', is_error: false, num_turns: 5, result: '# Находок нет' }]);
+    const r = runStep(step, verdictCtx('false', 'false', '137'));
+    expect(r.code).toBe(1);
+    expect(r.out).toMatch(/::error::Ревью безопасности не засчитано: claude завершился с кодом 137/);
+    expect(readFileSync(join(dir, 'step-summary'), 'utf-8')).toMatch(/не засчитано: claude завершился не сам/);
   });
 
   it('ревью состоялось — зелёный, отчёт — в файл и в сводку', () => {
@@ -389,6 +411,25 @@ describe('Ревью состоялось: «не смог» — красный 
     expect(line).toContain('Ревью безопасности не состоялось');
     expect(line).toContain('401 invalid key');
     expect(r.out.split('\n').some((l) => l.startsWith('Stdout:'))).toBe(false);
+  });
+
+  it('прогон оборвался по пределу ходов, а последним итогом стал ответ фоновой подзадаче — красный, причина названа', () => {
+    // Дословно 07.11, PR #3104: основной итог — ошибка, следом — итоги на уведомления подзадач.
+    transcript([
+      { type: 'assistant', message: { id: 'm1' } },
+      { type: 'result', subtype: 'error_max_turns', is_error: true, num_turns: 41 },
+      { type: 'result', subtype: 'success', is_error: false, num_turns: 20, result: 'Подзадача: проверено.' },
+      { type: 'result', subtype: 'success', is_error: false, num_turns: 1, result: 'Таймер остановлен; на отчёт это не влияет.' },
+    ]);
+    const r = runStep(step, verdictCtx());
+    expect(r.code).toBe(1);
+    const line = r.out.split('\n').find((l) => l.startsWith('::error::'));
+    expect(line).toContain('Ревью безопасности не состоялось');
+    expect(line).toContain('error_max_turns, ходов 41');
+    expect(readFileSync(join(dir, 'step-summary'), 'utf-8')).toMatch(/не состоялось: error_max_turns, ходов 41\. Это не «находок нет»/);
+    // Подтип не из букв и подчёркиваний в лог не попадает.
+    transcript([{ type: 'result', subtype: '::warning::x', is_error: true, num_turns: 3 }]);
+    expect(runStep(step, verdictCtx()).out).not.toContain('::warning::x');
   });
 
   it('итог пуст — красный, это не «находок нет»', () => {
