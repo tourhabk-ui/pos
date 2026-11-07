@@ -1,7 +1,7 @@
 import { describe, it, expect } from 'vitest';
 import { resolve } from 'path';
 import { readFileSync } from 'fs';
-import { scanSource, pdAliases, promptFlowOf, FOREIGN_LLM_CALLERS, DOMESTIC_LLM_CALLERS } from '@/lib/agents/compliance/pii-flow-scanner';
+import { scanSource, pdAliases, promptFlowOf, maskCode, FOREIGN_LLM_CALLERS, DOMESTIC_LLM_CALLERS } from '@/lib/agents/compliance/pii-flow-scanner';
 import { findViolations, ALLOWLIST } from '@/lib/agents/compliance/scan-repo';
 import {
   LLM_ENDPOINTS,
@@ -815,5 +815,64 @@ describe('D1 — пятое ревью PR #3104: реестр дверей, чи
       "await callAIFast('Сводка без контактов');",
     ].join('\n');
     expect(found(notify)).toEqual([]);
+  });
+});
+
+describe('D1 — шестое ревью PR #3104: деление или регулярное выражение', () => {
+  const found = (src: string, file = 'p.ts') => scanSource(file, src).map((x) => [x.kind, x.context]);
+  const IMPORT = "import { callAIFast } from '@/lib/ai/providers';";
+  const SEND = "  await callAIFast([{ role: 'user', content: prompt }]);";
+  const fn = (params: string, ...body: string[]) => [IMPORT, `export async function digest(${params}) {`, ...body, SEND, '}'].join('\n');
+  const PROMPT = 'const prompt = `Лид: ${lead.phone}`;';
+
+  it('сценарий ревьюера: деление после `++`/`--` не гасит ПД ни одного рода', () => {
+    expect(found(fn('lead: Lead, shown: number, total: number',
+      '  const rate = shown++ / total, prompt = `Лид: ${lead.phone} — ${shown}/${total}`;'))).toEqual([['contact', 'prompt']]);
+    expect(found(fn('lead: Lead, shown: number, total: number',
+      '  const rate = shown-- / total, prompt = `Лид: ${lead.name} — ${shown}/${total}`;'))).toEqual([['name', 'prompt']]);
+  });
+
+  // `sep = \`/.\`` — то, что проходит все проверки «выражения» (в теле один
+  // бэктик, за `/` точка): если `/` после операнда принята за начало выражения,
+  // затирается открывающий бэктик шаблона, и промпт за ним не виден.
+  it('`++`, `--`, `!` TypeScript и свойство с именем ключевого слова — деление', () => {
+    for (const division of ['shown++ / total', 'shown-- / total', 'count! / total', 'io.in / total']) {
+      expect(found(fn('lead: Lead, shown: number, total: number, count?: number, io: { in: number }',
+        `  const rate = ${division}, sep = \`/.\`; ${PROMPT}`)), division).toEqual([['contact', 'prompt']]);
+    }
+  });
+
+  it('выражение после `=>` и выражение с кавычкой не сбивают разбор шаблонов', () => {
+    // Прежний разбор литералов регулярных выражений не знал: три бэктика забора
+    // кода открывали шаблон, апостроф — строку до следующей кавычки файла.
+    expect(found(fn('lead: Lead, lines: string[]',
+      '  const fence = lines.filter((l) => /```/.test(l));', `  ${PROMPT}`))).toEqual([['contact', 'prompt']]);
+    expect(found(fn('lead: Lead, text: string', "  const clean = text.replace(/'/g, '');", `  ${PROMPT}`)))
+      .toEqual([['contact', 'prompt']]);
+    // `as` за выражением — законное продолжение: выражение с апострофом маскируется.
+    expect(found(fn('lead: Lead', `  const quote = /'/g as RegExp; ${PROMPT}`))).toEqual([['contact', 'prompt']]);
+  });
+
+  it('ошибка выбора не затирает код: `${`, имя или число за `/` и несобираемое тело — не выражение', () => {
+    // `of` здесь имя параметра, а не ключевое слово: `/` после него принимается
+    // за начало выражения. Каждая строка проходит все проверки, кроме одной.
+    const cases = [
+      `const half = of / 2; const prompt = \`Лид: \${lead.phone} — \${half}/(1)\`;`, // подстановка в «теле»
+      `const half = of / 2, s = \`a\`, t = \`b/1\`; ${PROMPT}`, // за «выражением» число
+      `const half = of / 2, s = \`(/(1)\`; ${PROMPT}`, // «тело» не собирается
+    ];
+    for (const line of cases) expect(found(fn('lead: Lead, of: number', `  ${line}`)), line).toEqual([['contact', 'prompt']]);
+  });
+
+  it('скобка в строке внутри `${…}` подстановку не закрывает', () => {
+    expect(found(fn('lead: Lead, short: boolean', "  const prompt = `Лид: ${short ? '}' : lead.phone}`;"))).toEqual([['contact', 'prompt']]);
+  });
+
+  it('апостроф в тексте JSX съедает только свою строку, длинный className — проза', () => {
+    const tsx = [IMPORT, "export function Card() { return <p>Don't</p>; }", 'export async function digest(lead: Lead) {', `  ${PROMPT}`, SEND, '}'].join('\n');
+    expect(found(tsx, 'p.tsx')).toEqual([['contact', 'prompt']]);
+    const masked = maskCode('<div className="flex\n  items-center lead.phone">x</div>');
+    expect(masked).not.toContain('items-center');
+    expect(masked).not.toContain('lead.phone');
   });
 });

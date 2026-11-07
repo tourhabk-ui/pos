@@ -201,76 +201,61 @@ function identBefore(src: string, end: number): string {
 }
 
 /**
- * Извлекает template literals с их контекст-метками. Учитывает строки, коменты
- * и вложенные `${…}` (включая вложенные бэктики). Метка — идентификатор перед
+ * Извлекает template literals с их контекст-метками. Метка — идентификатор перед
  * `= \``, `+= \``, `: \`` или `(\``; у `X.push(\`` ещё и получатель X.
+ *
+ * Границы читаются по маске (`maskCode`): в ней бэктик стоит только на
+ * настоящей границе шаблона, `${` — только в подстановке, а строки,
+ * комментарии и регулярные выражения затёрты. Тело берётся из исходника по тем
+ * же позициям. До 07.11 у литералов был свой разбор, не знавший регулярных
+ * выражений: три бэктика в `/```json/` открывали шаблон, который глотал код до
+ * следующего бэктика файла, и промпт за ним не находился вовсе.
  */
-function extractTemplateLiterals(src: string): TemplateLiteral[] {
+function extractTemplateLiterals(src: string, code: string): TemplateLiteral[] {
   const out: TemplateLiteral[] = [];
+  const push = (open: number, end: number, label: string, receiver?: string) =>
+    out.push({ label, start: open, body: src.slice(open + 1, end), ...(receiver ? { receiver } : {}) });
 
-  // Рекурсивный разбор одного бэктик-литерала, начиная с позиции открывающего `.
-  // Возвращает индекс сразу за закрывающим бэктиком.
+  // Один литерал с открывающим бэктиком на `open`; возвращает индекс за закрывающим.
   function parseTemplate(open: number, label: string, receiver?: string): number {
-    let body = '';
     let i = open + 1;
-    while (i < src.length) {
-      const ch = src[i];
-      if (ch === '\\') {
-        body += src[i] + (src[i + 1] ?? '');
-        i += 2;
-        continue;
-      }
-      if (ch === '`') {
-        out.push({ label, start: open, body, ...(receiver ? { receiver } : {}) });
-        return i + 1;
-      }
-      if (ch === '$' && src[i + 1] === '{') {
-        // Вложенная интерполяция — пройти по балансу фигурных скобок, попутно
-        // ныряя во вложенные строки/бэктики, чтобы не сбиться на `}` внутри них.
-        body += '${';
+    while (i < code.length) {
+      const ch = code[i];
+      if (ch === '`') { push(open, i, label, receiver); return i + 1; }
+      if (ch === '$' && code[i + 1] === '{') {
         i += 2;
         let depth = 1;
-        while (i < src.length && depth > 0) {
-          const c = src[i];
-          if (c === '{') { depth++; body += c; i++; }
-          else if (c === '}') { depth--; if (depth > 0) body += c; i++; }
-          else if (c === '`') { const end = parseTemplate(i, ''); body += src.slice(i, end); i = end; }
-          else if (c === '"' || c === "'") { const end = skipString(src, i); body += src.slice(i, end); i = end; }
-          else { body += c; i++; }
+        while (i < code.length && depth > 0) {
+          const c = code[i];
+          if (c === '{') { depth++; i++; }
+          else if (c === '}') { depth--; i++; }
+          else if (c === '`') i = parseTemplate(i, '');
+          else i++;
         }
-        body += '}';
         continue;
       }
-      body += ch;
       i++;
     }
-    out.push({ label, start: open, body, ...(receiver ? { receiver } : {}) });
+    push(open, i, label, receiver);
     return i;
   }
 
   let i = 0;
-  while (i < src.length) {
-    const ch = src[i];
-    // Комментарии
-    if (ch === '/' && src[i + 1] === '/') { i = src.indexOf('\n', i); if (i === -1) break; continue; }
-    if (ch === '/' && src[i + 1] === '*') { const e = src.indexOf('*/', i + 2); i = e === -1 ? src.length : e + 2; continue; }
-    // Обычные строки
-    if (ch === '"' || ch === "'") { i = skipString(src, i); continue; }
-    // Template literal (верхнего уровня)
-    if (ch === '`') {
+  while (i < code.length) {
+    if (code[i] === '`') {
       let j = i - 1;
-      while (j > 0 && /\s/.test(src[j])) j--;
-      const prev = src[j];
+      while (j > 0 && /\s/.test(code[j])) j--;
+      const prev = code[j];
       let label = '';
       let receiver: string | undefined;
       if (prev === '=' || prev === ':' || prev === '(') {
         let k = j;
         // `x += \`…\`` — дописывание к переменной: метка — сама переменная.
-        if (prev === '=' && src[k - 1] === '+') k--;
-        while (k > 0 && /\s/.test(src[k - 1])) k--;
-        label = identBefore(src, k);
+        if (prev === '=' && code[k - 1] === '+') k--;
+        while (k > 0 && /\s/.test(code[k - 1])) k--;
+        label = identBefore(code, k);
         const head = k - label.length;
-        if (prev === '(' && PUSHERS.has(label) && src[head - 1] === '.') receiver = identBefore(src, head - 1) || undefined;
+        if (prev === '(' && PUSHERS.has(label) && code[head - 1] === '.') receiver = identBefore(code, head - 1) || undefined;
       }
       i = parseTemplate(i, label, receiver);
       continue;
@@ -280,41 +265,56 @@ function extractTemplateLiterals(src: string): TemplateLiteral[] {
   return out;
 }
 
-/** Пропускает строковый литерал, начиная с кавычки на позиции `open`. */
+/**
+ * Пропускает строковый литерал, начиная с кавычки на позиции `open`. Строка в
+ * кавычках на новую строку не переходит — кроме значения атрибута JSX сразу
+ * после `=` (длинный `className="…"`): одинокая кавычка (апостроф в тексте
+ * JSX) глотает только хвост своей строки, а не код до следующей кавычки файла.
+ */
 function skipString(src: string, open: number): number {
   const quote = src[open];
+  const attribute = src[open - 1] === '=';
   let i = open + 1;
   while (i < src.length) {
     if (src[i] === '\\') { i += 2; continue; }
     if (src[i] === quote) return i + 1;
+    if (src[i] === '\n' && !attribute) return i;
     i++;
   }
   return i;
 }
 
-/** Все `${…}`-интерполяции литерала с их смещением внутри body. */
-function interpolations(body: string): Array<{ expr: string; at: number }> {
+/**
+ * Все `${…}`-подстановки текста со смещением внутри него. `masked` — тот же
+ * отрезок по маске (`maskCode`): скобки считаются по нему, поэтому `}` в строке
+ * или регулярном выражении внутри `${…}` подстановку не закрывает, а `\${` в
+ * тексте шаблона подстановкой не считается. Выражение берётся из `text`.
+ */
+function interpolations(text: string, masked: string): Array<{ expr: string; at: number }> {
   const res: Array<{ expr: string; at: number }> = [];
   let i = 0;
-  while (i < body.length) {
-    if (body[i] === '$' && body[i + 1] === '{') {
+  while (i < masked.length) {
+    if (masked[i] === '$' && masked[i + 1] === '{') {
       const at = i;
       i += 2;
+      const from = i;
       let depth = 1;
-      let expr = '';
-      while (i < body.length && depth > 0) {
-        const c = body[i];
+      while (i < masked.length) {
+        const c = masked[i];
         if (c === '{') depth++;
         else if (c === '}') { depth--; if (depth === 0) break; }
-        expr += c;
         i++;
       }
-      res.push({ expr, at });
-    } else {
-      i++;
+      res.push({ expr: text.slice(from, i), at });
     }
+    i++;
   }
   return res;
+}
+
+/** Подстановки литерала: маска того же тела — из кода файла по смещению литерала. */
+function literalInterpolations(lit: TemplateLiteral, code: string): Array<{ expr: string; at: number }> {
+  return interpolations(lit.body, code.slice(lit.start + 1, lit.start + 1 + lit.body.length));
 }
 
 /**
@@ -442,7 +442,7 @@ function* varsAt(code: string, base: number, len: number): Generator<{ name: str
 
 /** Переменные в `${…}` текста, начатого на `from`. */
 function* interpolatedVars(text: string, from: number, code: string): Generator<{ name: string; at: number }> {
-  for (const { expr, at } of interpolations(text)) yield* varsAt(code, from + at + 2, expr.length);
+  for (const { expr, at } of interpolations(text, code.slice(from, from + text.length))) yield* varsAt(code, from + at + 2, expr.length);
 }
 
 function fileMentionsForeignCaller(src: string): boolean {
@@ -462,8 +462,35 @@ function isPromptLiteral(label: string, hasForeignCaller: boolean): boolean {
   return false;
 }
 
-/** Слова, после которых `/` начинает регулярное выражение, а не деление. */
-const REGEX_AFTER_WORD = /(?:^|[^\w$])(?:return|typeof|case|do|else|in|of|new|delete|void|throw|yield|await|instanceof)$/;
+/**
+ * Слова, после которых `/` начинает регулярное выражение, а не деление. После
+ * точки это имя свойства: `io.in / io.out` — деление.
+ */
+const REGEX_AFTER_WORD = /(?:^|[^\w$.])(?:return|typeof|case|do|else|in|of|new|delete|void|throw|yield|await|instanceof)$/;
+
+/**
+ * Может ли это стоять сразу за регулярным выражением. Имя, строка, шаблон и `{`
+ * за ним не бывают (кроме `as`, `satisfies`, `instanceof`, `in`) — значит,
+ * первая `/` была делением, а «выражение» — кусок кода до следующей `/`.
+ */
+function regexFollows(src: string, at: number): boolean {
+  let k = at;
+  while (src[k] === ' ' || src[k] === '\t') k++;
+  const c = src[k];
+  if (c === undefined || c === '\n' || c === '\r') return true;
+  if (/[\p{L}\p{N}_$]/u.test(c)) return /^(?:as|satisfies|instanceof|in)(?![\p{L}\p{N}_$])/u.test(src.slice(k, k + 12));
+  return !'\'"`{'.includes(c);
+}
+
+/** Тело и флаги собираются в регулярное выражение (`/ b /total` — нет: таких флагов не бывает). */
+function compiles(body: string, flags: string): boolean {
+  try {
+    new RegExp(body, flags);
+    return true;
+  } catch {
+    return false;
+  }
+}
 
 /**
  * Код без прозы: комментарии, содержимое строк, регулярные выражения и текст
@@ -478,16 +505,31 @@ export function maskCode(src: string): string {
   const blank = (from: number, to: number) => {
     for (let k = from; k < to && k < out.length; k++) if (out[k] !== '\n') out[k] = ' ';
   };
+  const afterWord = (j: number): boolean => REGEX_AFTER_WORD.test(out.slice(Math.max(0, j - 11), j + 1).join(''));
   const regexStart = (i: number): boolean => {
     let j = i - 1;
     while (j >= 0 && /\s/.test(out[j])) j--;
     if (j < 0) return true;
     const p = out[j];
+    // `shown++ / total`, `left-- / 2` — постфикс кончает выражение: деление.
+    if ((p === '+' || p === '-') && out[j - 1] === p) return false;
+    // `count! / total` — ненулевое утверждение TypeScript, а не отрицание.
+    if (p === '!' && j > 0) {
+      const q = out[j - 1];
+      if (q === ')' || q === ']') return false;
+      if (/[\w$]/.test(q)) return afterWord(j - 1);
+    }
+    // `(line) => /```/.test(line)` — тело стрелки: выражение.
+    if (p === '>' && out[j - 1] === '=') return true;
     // `)`, `]`, `}` и `<` (JSX `</div>`) — деление или разметка, не выражение.
     if ('(,=:[!&|?{;+-*%~^'.includes(p)) return true;
-    if (/[\w$]/.test(p)) return REGEX_AFTER_WORD.test(out.slice(Math.max(0, j - 11), j + 1).join(''));
+    if (/[\w$]/.test(p)) return afterWord(j);
     return false;
   };
+  // Конец регулярного выражения с `/` на `open` или -1, если это не оно: тогда
+  // `/` — деление, и текст за ней остаётся кодом. Без этой проверки ошибка в
+  // выборе «деление или выражение» затирала код до следующей `/` строки —
+  // вместе с открывающим бэктиком промпта (ревью #3104: `shown++ / total`).
   const regexEnd = (open: number): number => {
     let i = open + 1;
     let inClass = false;
@@ -497,7 +539,14 @@ export function maskCode(src: string): string {
       if (c === '\\') { i += 2; continue; }
       if (inClass) { if (c === ']') inClass = false; }
       else if (c === '[') inClass = true;
-      else if (c === '/') { i++; while (i < src.length && /[a-z]/i.test(src[i])) i++; return i; }
+      // `${` вне класса — подстановка шаблона, а не тело выражения.
+      else if (c === '$' && src[i + 1] === '{') return -1;
+      else if (c === '/') {
+        const body = src.slice(open + 1, i);
+        const flagsFrom = ++i;
+        while (i < src.length && /[a-z]/i.test(src[i])) i++;
+        return regexFollows(src, i) && compiles(body, src.slice(flagsFrom, i)) ? i : -1;
+      }
       i++;
     }
     return -1;
@@ -510,7 +559,13 @@ export function maskCode(src: string): string {
       const c = src[i];
       if (c === '/' && src[i + 1] === '/') { const e = src.indexOf('\n', i); const end = e < 0 ? src.length : e; blank(i, end); i = end; continue; }
       if (c === '/' && src[i + 1] === '*') { const e = src.indexOf('*/', i + 2); const end = e < 0 ? src.length : e + 2; blank(i, end); i = end; continue; }
-      if (c === '"' || c === "'") { const end = skipString(src, i); blank(i + 1, end - 1); i = end; continue; }
+      if (c === '"' || c === "'") {
+        // Незакрытая до конца строки кавычка затирается вся, до переноса.
+        const end = skipString(src, i);
+        blank(i + 1, end - 1 > i && src[end - 1] === c ? end - 1 : end);
+        i = end;
+        continue;
+      }
       if (c === '`') { i = template(i); continue; }
       if (c === '/' && regexStart(i)) { const end = regexEnd(i); if (end > 0) { blank(i, end); i = end; continue; } }
       if (inTemplate) {
@@ -1085,7 +1140,7 @@ function promptFlow(code: string, sc: Scopes, literals: TemplateLiteral[], hasFo
     const lit = byStart.get(at);
     if (!lit) return false;
     let grew = false;
-    for (const { expr, at: off } of interpolations(lit.body)) {
+    for (const { expr, at: off } of literalInterpolations(lit, code)) {
       const from = at + 1 + off + 2;
       if (take({ from, to: from + expr.length })) grew = true;
     }
@@ -1172,7 +1227,7 @@ function promptFlow(code: string, sc: Scopes, literals: TemplateLiteral[], hasFo
 /** Имена переменных, текст которых доходит до модели, — для теста и разбора находки. */
 export function promptFlowOf(src: string): { reach: string[] } {
   const code = maskCode(src);
-  const f = promptFlow(code, buildScopes(code), extractTemplateLiterals(src), fileMentionsForeignCaller(src), CONTACT_SANITIZERS);
+  const f = promptFlow(code, buildScopes(code), extractTemplateLiterals(src, code), fileMentionsForeignCaller(src), CONTACT_SANITIZERS);
   return { reach: [...new Set([...f.reach].map(nameOfKey))].sort() };
 }
 
@@ -1225,10 +1280,10 @@ function nameIn(code: string, base: number, len: number, aliases: Map<string, Se
 export function scanSource(file: string, src: string): PIIFinding[] {
   const findings: PIIFinding[] = [];
   const hasForeign = fileMentionsForeignCaller(src);
-  const literals = extractTemplateLiterals(src);
   // Без зарубежного вызова, промпта по метке и переменной `*prompt*` — смотреть нечего.
   if (!hasForeign && !/prompt|instruction/i.test(src)) return findings;
   const code = maskCode(src);
+  const literals = extractTemplateLiterals(src, code);
   const sc = buildScopes(code);
   const aliases = aliasesIn(src, code, sc);
   const flowContact = promptFlow(code, sc, literals, hasForeign, CONTACT_SANITIZERS);
@@ -1243,7 +1298,7 @@ export function scanSource(file: string, src: string): PIIFinding[] {
     const forName = labeled || reached(flowName, lit);
     if (!forContact && !forName) continue;
 
-    for (const { expr, at } of interpolations(lit.body)) {
+    for (const { expr, at } of literalInterpolations(lit, code)) {
       const base = lit.start + 1 + at + 2;
       const kind: Kind | null = forContact && contactIn(code, base, expr.length, aliases, sc) ? 'contact'
         : forName && nameIn(code, base, expr.length, aliases, sc) ? 'name' : null;
