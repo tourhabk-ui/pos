@@ -330,6 +330,21 @@ export interface GroupEstimate {
   assumptions: string[];
 }
 
+/**
+ * Кто назовёт цену строк сметы без суммы — по их роду. Одно правило для
+ * экрана /planner и ответа Кузьмича (аудит планировщика 07.11, волна 2.5):
+ * выбранное жильё — оператор или хозяин жилья, тур — карточка тура, переезд
+ * без цены в данных (вертолёт) — перевозчик, а не карточка тура.
+ */
+export function unpricedTail(lines: readonly EstimateLine[]): string {
+  const open = lines.filter((l) => !l.total);
+  const parts: string[] = [];
+  if (open.some((l) => l.source === 'offer')) parts.push('цену назовут оператор или хозяин жилья');
+  else if (open.some((l) => l.kind === 'tour')) parts.push('сумму смотрите в карточке тура');
+  if (open.some((l) => l.kind === 'transport')) parts.push('цену переезда назовёт перевозчик');
+  return `${parts.join(', ')}.`;
+}
+
 const fmt = (n: number) => Math.round(n).toLocaleString('ru-RU');
 const peopleWord = (n: number) => `${n} чел.`;
 const dayWord = (n: number) => (n % 10 === 1 && n % 100 !== 11 ? 'день' : n % 10 >= 2 && n % 10 <= 4 && (n % 100 < 10 || n % 100 >= 20) ? 'дня' : 'дней');

@@ -26,7 +26,7 @@ import { tourKeepsSchedule } from '@/lib/seat-requests/service';
 import {
   applyPlanEdit, planPrice, planEstimate, type PlanEdit, type PlanParams, type RereadTour, type TouchedTour,
 } from '@/lib/planner/plan-edit';
-import { estimateGroup, type GroupEstimate } from '@/lib/planner/estimate';
+import { estimateGroup, unpricedTail, type GroupEstimate } from '@/lib/planner/estimate';
 import { priceFromUnit } from '@/lib/tours/price-label';
 import { kamchatkaStamp } from '@/lib/safety/place-day-status';
 import { saveDraft, loadDraft, updateDraft, isDraftId, type DraftSurface } from '@/lib/planner/plan-drafts';
@@ -581,7 +581,11 @@ export function formatPlanPrice(pb: PriceBreakdown, tier: BudgetTier, planned: b
     }
     lines.push(`Итого на ${group.people === 1 ? 'одного' : `группу из ${group.people} чел.`}: ${range(group.total)} — туры по своей цене (за человека — на каждого, за группу — на группу), жильё, переезды и дни без тура — ориентир на каждого.`);
     if (group.unpriced.length > 0) {
-      lines.push(`Не вошло ни в одну сумму — цены нет: ${group.unpriced.join('; ')}. Цену называет оператор, она в карточке тура.`);
+      // Кто назовёт цену — по роду строки, тем же правилом, что экран
+      // /planner: переезд без цены в данных (вертолёт) — перевозчик, а не
+      // карточка тура (аудит планировщика 07.11, волна 2.5).
+      const tail = unpricedTail(group.lines);
+      lines.push(`Не вошло ни в одну сумму — цены нет: ${group.unpriced.join('; ')}. ${tail[0]!.toUpperCase()}${tail.slice(1)}`);
     }
     lines.push(...group.assumptions);
   }

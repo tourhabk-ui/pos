@@ -9,7 +9,8 @@
  * ориентир по средним ценам, и это сказано у каждой строки и под итогом.
  * Строка без цены в итог не входит и названа.
  */
-import type { GroupEstimate } from '@/lib/planner/estimate';
+// Кто назовёт цену строк без суммы — правило сметы, общее с ответом Кузьмича.
+import { unpricedTail, type GroupEstimate } from '@/lib/planner/estimate';
 
 const fmt = (n: number) => Math.round(n).toLocaleString('ru-RU');
 const range = ([a, b]: [number, number]) => (a === b ? `${fmt(a)} ₽` : `${fmt(a)} — ${fmt(b)} ₽`);
@@ -27,19 +28,6 @@ function sourcesLine(fromTours: [number, number], fromOffers: [number, number], 
   const text = [...parts, fromEstimates[1] > 0 ? `остальное — ориентир по средним ценам (${range(fromEstimates)}), не предложения` : null]
     .filter(Boolean).join(', ');
   return `${text[0]!.toUpperCase()}${text.slice(1)}.`;
-}
-
-/**
- * Кто назовёт цену строк без суммы — по их роду. Переезд без цены в данных
- * (вертолёт, аудит планировщика 07.11) — дело перевозчика, а не карточки тура.
- */
-function unpricedTail(lines: GroupEstimate['lines']): string {
-  const open = lines.filter((l) => !l.total);
-  const parts: string[] = [];
-  if (open.some((l) => l.source === 'offer')) parts.push('цену назовут оператор или хозяин жилья');
-  else if (open.some((l) => l.kind === 'tour')) parts.push('сумму смотрите в карточке тура');
-  if (open.some((l) => l.kind === 'transport')) parts.push('цену переезда назовёт перевозчик');
-  return `${parts.join(', ')}.`;
 }
 
 export function GroupEstimateBlock({ estimate }: { estimate: GroupEstimate }) {
