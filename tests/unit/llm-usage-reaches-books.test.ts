@@ -56,6 +56,7 @@ import { basename, join, relative } from 'node:path';
 import { tmpdir } from 'node:os';
 import { spawn, spawnSync } from 'node:child_process';
 import { load } from 'js-yaml';
+import ts from 'typescript';
 import { NextRequest } from 'next/server';
 
 const queryMock = vi.fn();
@@ -193,6 +194,11 @@ describe('расход раннера доходит до книг', () => {
 // реестра D2 в их коде; каждый пишет расход сам (usage-sink, CRON_SECRET в шаге)
 // или назван ниже с причиной. Список только сокращается: скрипт начал писать
 // расход или перестал звать модель — запись убрать.
+//
+// Адрес ищется в строковых литералах РАЗБОРОМ (TypeScript), а не в тексте с
+// вырезанными регэкспом комментариями (ревью безопасности #3144): строка
+// 'text/html,*/*' открывала «комментарий» до первого */ и прятала за ним
+// настоящий fetch к api.anthropic.com в unique-routes-scraper.js.
 const DIRECT_CALLERS_OUTSIDE_BOOKS: Record<string, string> = {
   'model-catalog-runner.ts': 'читает каталог /models OpenRouter — токенов не тратит',
   'list-ai-models.js': 'читает списки /models у провайдеров — токенов не тратит; ни одним workflow не запускается',
@@ -205,10 +211,10 @@ const DIRECT_CALLERS_OUTSIDE_BOOKS: Record<string, string> = {
   'xai-x-search-probe.ts': 'проба x_search по маркеру; расход в книги не пишет',
   'route-scraper-agent.js': 'локальный скрипт из package.json, ни одним workflow не запускается — расход на ключе запускающего',
   'scrape-operator-tours.js': 'локальный скрипт, ни одним workflow не запускается — расход на ключе запускающего',
+  'unique-routes-scraper.js': 'локальный скрипт из package.json, ни одним workflow не запускается — расход на ключе запускающего',
 };
 
 const SCRIPTS_DIR = join(ROOT, 'scripts');
-const stripComments = (s: string) => s.replace(/\/\*[\s\S]*?\*\//g, '').replace(/^\s*\/\/.*$/gm, '');
 const LLM_HOSTS = LLM_ENDPOINTS.map((e) => e.host);
 
 function scriptFiles(dir = SCRIPTS_DIR, out: string[] = []): string[] {
@@ -221,25 +227,68 @@ function scriptFiles(dir = SCRIPTS_DIR, out: string[] = []): string[] {
   return out;
 }
 
+interface CodeFacts { hosts: string[]; importsUsageSink: boolean; callsSendUsage: boolean }
+
+/** Что скрипт делает В КОДЕ — по дереву разбора: комментарии туда не входят, строки входят целиком. */
+function codeFacts(src: string, fileName: string): CodeFacts {
+  const kind = /\.[cm]?js$/.test(fileName) ? ts.ScriptKind.JS : ts.ScriptKind.TS;
+  const sf = ts.createSourceFile(fileName, src, ts.ScriptTarget.Latest, true, kind);
+  const hosts = new Set<string>();
+  const facts: CodeFacts = { hosts: [], importsUsageSink: false, callsSendUsage: false };
+  const visit = (n: ts.Node): void => {
+    if (ts.isStringLiteralLike(n) || ts.isTemplateHead(n) || ts.isTemplateMiddle(n) || ts.isTemplateTail(n)) {
+      for (const h of LLM_HOSTS) if (n.text.includes(h)) hosts.add(h);
+    }
+    if (ts.isImportDeclaration(n) && ts.isStringLiteral(n.moduleSpecifier) && /(^|\/)lib\/ai\/usage-sink$/.test(n.moduleSpecifier.text)) {
+      facts.importsUsageSink = true;
+    }
+    if (ts.isCallExpression(n) && ts.isIdentifier(n.expression) && n.expression.text === 'sendUsageToProd') {
+      facts.callsSendUsage = true;
+    }
+    ts.forEachChild(n, visit);
+  };
+  visit(sf);
+  facts.hosts = [...hosts].sort();
+  return facts;
+}
+
 /** Скрипты, в чьём коде стоит адрес модели из реестра D2, — путь от scripts/. */
 function directCallers(): string[] {
   return scriptFiles()
     .filter((f) => {
-      const src = stripComments(readFileSync(f, 'utf-8'));
-      return LLM_HOSTS.some((h) => src.includes(h));
+      const src = readFileSync(f, 'utf-8');
+      // Дешёвый отбор по сырому тексту, приговор — по разбору.
+      return LLM_HOSTS.some((h) => src.includes(h)) && codeFacts(src, f).hosts.length > 0;
     })
     .map((f) => relative(SCRIPTS_DIR, f));
 }
 
 function writesUsageItself(rel: string): boolean {
-  const src = stripComments(readFileSync(join(SCRIPTS_DIR, rel), 'utf-8'));
-  return /lib\/ai\/usage-sink['"]/.test(src) && /sendUsageToProd\(/.test(src);
+  const facts = codeFacts(readFileSync(join(SCRIPTS_DIR, rel), 'utf-8'), rel);
+  return facts.importsUsageSink && facts.callsSendUsage;
 }
 
 describe('скрипт, зовущий модель своим fetch, пишет расход сам', () => {
   it('такие скрипты есть, и разбор их видит', () => {
     // Ноль найденных — сломался поиск (переименовали реестр, сменили хосты), а не «все чисты».
     expect(directCallers()).toContain('editor-runner.ts');
+    expect(directCallers()).toContain('unique-routes-scraper.js');
+  });
+
+  it('строка с «/*» не прячет вызов модели, а адрес в комментарии вызовом не считается', () => {
+    const hidden = [
+      "const headers = { Accept: 'text/html,application/xml;q=0.9,*/*;q=0.8' };",
+      "await fetch('https://api.anthropic.com/v1/messages', { method: 'POST' });",
+      'try { run(); } catch { /* ignore */ }',
+    ].join('\n');
+    expect(codeFacts(hidden, 'scraper.js').hosts).toEqual(['api.anthropic.com']);
+    const base = 'const base = `https://openrouter.ai/api/v1`;\nawait fetch(`${base}/chat/completions`);';
+    expect(codeFacts(base, 'runner.ts').hosts).toEqual(['openrouter.ai']);
+    const onlyComments = "// fetch('https://api.anthropic.com/v1/messages')\n/* openrouter.ai — по гео */\nexport {};";
+    expect(codeFacts(onlyComments, 'note.ts').hosts).toEqual([]);
+    // Слова в комментарии — не отправка расхода.
+    expect(codeFacts("// sendUsageToProd(rows)\nimport { x } from '../lib/ai/usage-sink';", 'r.ts'))
+      .toMatchObject({ importsUsageSink: true, callsSendUsage: false });
   });
 
   it('каждый пишет расход в книги или назван с причиной', () => {
