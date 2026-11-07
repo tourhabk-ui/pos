@@ -667,11 +667,14 @@ describe('на настоящем экране планировщика', () => 
     tap('r4');
     await screen.findByRole('button', { name: 'Заменить день 2' });
     // День 2 удалён в плане — правка дня закрылась, карточка точки осталась.
+    // Удалённый день становится свободным, а не сжимает поездку (волна 2
+    // аудита 07.11): в списке он остаётся днём 2, его и меняет «Заменить».
     fireEvent.click(screen.getAllByTitle('Удалить день')[1]);
     const select = await screen.findByRole('combobox', { name: 'Какой день заменить' }) as HTMLSelectElement;
-    expect(select.value).toBe('1');
+    expect(select.value).toBe('2');
+    expect(select.selectedOptions[0]?.textContent).toBe('День 2: Свободный день');
     fireEvent.click(screen.getByRole('button', { name: 'Заменить' }));
-    await waitFor(() => expect(dayTitles()).toEqual(['1. Вулкан Толбачик']));
+    await waitFor(() => expect(dayTitles()).toEqual(['1. Авачинский вулкан', '2. Вулкан Толбачик']));
   });
 
   it('замена дня без записанной зоны — точки угаданной зоны не ярче прочих, плашка говорит почему', async () => {

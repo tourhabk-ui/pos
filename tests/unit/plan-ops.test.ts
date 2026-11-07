@@ -84,7 +84,7 @@ describe('одна функция на обе двери', () => {
 
   it('кнопки планера судят теми же правилами', () => {
     const opsImport = UI.match(/import \{([^}]*)\} from '@\/lib\/planner\/plan-ops'/)?.[1] ?? '';
-    for (const name of ['frameReason', 'tourGroup', 'insertIndex', 'orderProblem', 'replaceRefusal']) {
+    for (const name of ['frameReason', 'tourGroup', 'orderProblem', 'replaceRefusal']) {
       expect(opsImport, name).toMatch(new RegExp(`\\b${name}\\b`));
     }
     const fn = (name: string) => UI.slice(UI.indexOf(`function ${name}(`), UI.indexOf('\n  }\n', UI.indexOf(`function ${name}(`)));
@@ -93,8 +93,13 @@ describe('одна функция на обе двери', () => {
     // Замена — общим правилом replaceRefusal (каркас и многодневный тур), им
     // же карта решает, предлагать ли «Заменить» (22.10).
     expect(fn('replaceDay')).toMatch(/replaceRefusal\(days, target\)/);
-    expect(fn('addRouteAsDay')).toMatch(/insertIndex\(prev\)/);
-    expect(fn('addDay')).toMatch(/insertIndex\(prev\)/);
+    // Новый день — перед отъездом: календарные дни (волна 2 аудита 07.11)
+    // ставят его правилом insertIndex из plan-ops, своего правила у кнопок нет.
+    const CAL = readFileSync(join(process.cwd(), 'lib/planner/calendar-days.ts'), 'utf-8');
+    expect(CAL).toMatch(/import \{ insertIndex \} from '\.\/plan-ops'/);
+    expect(CAL).toMatch(/const at = insertIndex\(days\)/);
+    expect(fn('addRouteAsDay')).toMatch(/extendTrip\(days,/);
+    expect(fn('addDay')).toMatch(/extendTrip\(days, freeDay\)/);
     // Маршрут больше не дописывается в конец, после дня отъезда.
     expect(fn('addRouteAsDay')).not.toMatch(/return \[\.\.\.prev, routeToDayPlan/);
     expect(UI).toMatch(/const broken = orderProblem\(newDays\);\s*if \(broken\) \{ setEditNote\(broken\); return; \}/);

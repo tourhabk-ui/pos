@@ -26,7 +26,13 @@ import {
 } from 'lucide-react';
 import { ACTIVITY_MODE_LABEL } from '@/lib/planner/day-mode';
 import { activityIcon, locationIcon } from '@/lib/tours/activity-icons';
-import { frameReason, tourGroup, insertIndex, orderProblem, replaceRefusal, replaceRefusalShort } from '@/lib/planner/plan-ops';
+import { frameReason, tourGroup, orderProblem, replaceRefusal, replaceRefusalShort } from '@/lib/planner/plan-ops';
+import {
+  fillCalendarGaps, freeDay, freeDaysInstead, renumberByPosition, extendTrip, firstFreeDay, isFreeDay,
+  inCalendarOrder, followDays, followDaySet, tripLengthWords, tripDatesProblem, kamchatkaToday,
+  type NewNumbers,
+} from '@/lib/planner/calendar-days';
+import { tripCalendarDays, dateOfTripDay } from '@/lib/planner/flow-balance';
 import { TRAVEL_STYLES, TRAVEL_STYLE_LABEL, REST_EVERY_DAYS, suggestRestDays, type TravelStyle } from '@/lib/planner/travel-style';
 import { TRIP_ORIGINS, TRIP_ORIGIN_LABEL, activeBudget, type TripOrigin } from '@/lib/planner/trip-origin';
 import { PLANNER_HEADER_OFFSET, CONTENT_BOTTOM_CLEARANCE, PAGE_ACTION_BAR_VAR } from './planner-layout';
@@ -161,14 +167,20 @@ const DEFAULT_PRICE: [number, number] = [3000, 10000];
 
 // ─── Helpers ──────────────────────────────────────────────────────────────────
 
-function today(): string { return new Date().toISOString().split('T')[0]; }
+/** Сегодня по Камчатке: утром по местному времени по UTC ещё вчера (H5). */
+function today(): string { return kamchatkaToday(); }
 function maxDate(): string {
   const d = new Date(); d.setFullYear(d.getFullYear() + 2); return d.toISOString().split('T')[0];
 }
+/**
+ * Дни поездки по календарю — тем же правилом, что у движка (tripCalendarDays):
+ * 10→14 июля — пять дней. До 07.11 здесь считались ночи, и форма говорила
+ * «4 дня» про план на пять, а в заявку уходило 4 (H3). Равные даты — один
+ * день (житель края, H4).
+ */
 function calcDays(from: string, to: string): number | null {
-  if (!from || !to) return null;
-  const diff = new Date(to).getTime() - new Date(from).getTime();
-  return diff > 0 ? Math.round(diff / 86400000) : null;
+  if (!from || !to || to < from) return null;
+  return tripCalendarDays(from, to) || null;
 }
 function fmt(n: number): string { return n.toLocaleString('ru-RU'); }
 function trunc(s: string | null | undefined, len: number): string {
@@ -176,8 +188,24 @@ function trunc(s: string | null | undefined, len: number): string {
   return s.length > len ? s.slice(0, len).trimEnd() + '...' : s;
 }
 
-/** Дата дня плана: прилёт + номер дня; прилёт не задан — пусто, турист выберет сам. */
-const dayDateFrom = planDayDate;
+/**
+ * Дата дня плана: прилёт + номер дня − 1; прилёт не задан — пусто, турист
+ * выберет сам. Номер дня — календарный (lib/planner/calendar-days), одно
+ * правило с сметой, заявкой и сохранением.
+ */
+function dayDateFrom(arrival: string, day: Pick<DayPlan, 'day'>): string {
+  return planDayDate(arrival, day.day - 1);
+}
+
+/**
+ * Ключ карточки дня на экране. Номер дня — календарный и после перестановки
+ * меняется; будь он ключом React, карточки пересоздавались бы и
+ * перепрыгивали анимацией под пальцем.
+ */
+let uiKeySeq = 0;
+function withUiKeys(list: DayPlan[]): DayPlan[] {
+  return list.map(d => (d.uiKey ? d : { ...d, uiKey: `day-${++uiKeySeq}` }));
+}
 
 function guessZone(lat: number, lng: number): DayPlan['zone'] {
   const entries = Object.entries(ZONE_COORDS) as [string, [number, number]][];
@@ -381,6 +409,12 @@ interface DayCardProps {
    * «редактирование».
    */
   editRefusal?: string | null;
+  /**
+   * Перетаскивание кончилось: номера дней встают по местам. Во время
+   * перетаскивания номер — ключ карточки и не меняется, иначе карточка
+   * пересоздалась бы под пальцем.
+   */
+  onDragDone?: () => void;
 }
 
 /**
@@ -402,8 +436,11 @@ function DayPriceTag({ day }: { day: DayPlan }) {
 function DayCard({
   day, idx, isEditing, transport, flightBadge, isLocked, isConfirmed, topTour, requestArrival, requestGuests,
   onToggleEdit, onTransportChange, onShowPartners, onDelete, onShowMap, onConfirm, onRef, onAskSeats,
-  editRefusal = null,
+  editRefusal = null, onDragDone,
 }: DayCardProps) {
+  // Свободный день (lib/planner/calendar-days): убирать нечего, операторов
+  // под «ничего» нет — только заменить маршрутом с карты.
+  const free = isFreeDay(day);
   const dragControls = useDragControls();
   const { Icon: TransIcon } = TRANSPORT_OPTIONS[transport];
   const FlightIcon = idx === 0 ? PlaneLanding : PlaneTakeoff;
@@ -434,6 +471,7 @@ function DayCard({
       value={day}
       dragControls={dragControls}
       dragListener={false}
+      onDragEnd={onDragDone}
       className={`rounded-lg select-none transition-all ${
         isConfirmed
           ? 'bg-[var(--bg-card)] border-2 border-[var(--success)]/40 ring-1 ring-[var(--success)]/10'
@@ -465,7 +503,8 @@ function DayCard({
             // Кружок дня — тем же цветом, что его пин с номером на карте.
             style={{ background: planDayHex() }}
           >
-            {idx + 1}
+            {/* Номер дня — календарный: тот же, что в смете, заявке и дате дня. */}
+            {day.day}
           </div>
           <div className="flex-1 min-w-0">
             <div className="flex items-center gap-1.5 min-w-0">
@@ -531,11 +570,13 @@ function DayCard({
               <MapIcon className="w-3.5 h-3.5" />
             </button>
           )}
-          <button type="button" title="Операторы" onClick={() => onShowPartners(day.activityType)}
-            className="w-7 h-7 flex items-center justify-center rounded-md border border-[var(--border)] text-[var(--text-muted)] hover:text-[var(--ocean)] hover:border-[var(--ocean)] transition-colors bg-[var(--bg-hover)]">
-            <Users className="w-3.5 h-3.5" />
-          </button>
-          {!isLocked && !isConfirmed && (
+          {!free && (
+            <button type="button" title="Операторы" onClick={() => onShowPartners(day.activityType)}
+              className="w-7 h-7 flex items-center justify-center rounded-md border border-[var(--border)] text-[var(--text-muted)] hover:text-[var(--ocean)] hover:border-[var(--ocean)] transition-colors bg-[var(--bg-hover)]">
+              <Users className="w-3.5 h-3.5" />
+            </button>
+          )}
+          {!isLocked && !isConfirmed && !free && (
             <button type="button" title="Удалить день" onClick={() => onDelete(day.day)}
               className="w-7 h-7 flex items-center justify-center rounded-md border border-[var(--border)] text-[var(--text-muted)] hover:text-[var(--danger)] hover:border-[var(--danger)] transition-colors bg-[var(--bg-hover)]">
               <Trash2 className="w-3.5 h-3.5" />
@@ -548,7 +589,7 @@ function DayCard({
             (разведка 08.08). Оператор виден на самой карточке. */}
         {topTour && day.type === 'activity' && (
           <a
-            href={planDayTourHref(topTour, requestArrival ?? '', idx, requestGuests ?? 0)}
+            href={planDayTourHref(topTour, requestArrival ?? '', day.day - 1, requestGuests ?? 0)}
             target="_blank"
             rel="noopener noreferrer"
             title="Открыть тур и оставить заявку"
@@ -730,7 +771,7 @@ function RouteDetailCard({ route, days, editingDayId, onReplace, onAddDay, onClo
           >
             <ArrowRight className="w-3.5 h-3.5" />
             {/* Те же слова, что в плашке карты (editActionText). */}
-            Заменить день {editingIdx + 1}
+            Заменить день {editingDayId}
           </button>
         )}
 
@@ -746,7 +787,7 @@ function RouteDetailCard({ route, days, editingDayId, onReplace, onAddDay, onClo
               className="ds-input flex-1 min-w-0 text-xs py-1.5"
             >
               {replaceable.map(d => (
-                <option key={d.day} value={d.day}>День {days.indexOf(d) + 1}: {trunc(d.title, 22)}</option>
+                <option key={d.day} value={d.day}>День {d.day}: {trunc(d.title, 22)}</option>
               ))}
             </select>
             <button
@@ -887,7 +928,7 @@ function PartnersModal({ activityType, onClose }: {
 function MobileTabBar({ active, onChange, editingDay }: {
   active: MobileTab;
   onChange: (tab: MobileTab) => void;
-  editingDay: { idx: number; title: string; refusal: string | null } | null;
+  editingDay: { number: number; title: string; refusal: string | null } | null;
 }) {
   return (
     <div className="lg:hidden border-b border-[var(--border)] bg-[var(--bg-primary)]">
@@ -895,7 +936,7 @@ function MobileTabBar({ active, onChange, editingDay }: {
         <div className="px-4 py-2 bg-[var(--accent)]/10 border-b border-[var(--accent)]/20 flex items-center gap-2">
           <Pencil className="w-3.5 h-3.5 text-[var(--accent)] shrink-0" />
           <p className="text-xs text-[var(--accent)] font-medium truncate">
-            {editingDayTitle(editingDay.idx + 1, editingDay.refusal === null)}: {editingDay.title}
+            {editingDayTitle(editingDay.number, editingDay.refusal === null)}: {editingDay.title}
           </p>
         </div>
       )}
@@ -951,8 +992,8 @@ function CompanionWidget({ days, arrival, departure }: {
     setMessages(prev => [...prev, { role: 'user', text }]);
     setLoading(true);
 
-    const daysSummary = days.map((d, i) =>
-      `День ${i + 1}: ${d.title} (${d.zone}, ${d.activityType})`
+    const daysSummary = days.map((d) =>
+      `День ${d.day}: ${d.title} (${d.zone}, ${d.activityType})`
     ).join('\n');
 
     try {
@@ -1302,6 +1343,10 @@ export function PlannerClient({ initialUserId }: { initialUserId?: string | null
   // TripBuilder v2: AI route validation after DnD
   const [validation, setValidation] = useState<ValidationResult | null>(null);
   const validationTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  // Последний порядок дней, который видел onReorder: перетаскивание кончается
+  // отпусканием, и состояние React к нему может ещё не обновиться.
+  const daysRef = useRef<DayPlan[]>(days);
+  useEffect(() => { daysRef.current = days; }, [days]);
 
   // Day confirmation
   const [confirmedDays, setConfirmedDays] = useState<Set<number>>(new Set());
@@ -1323,8 +1368,8 @@ export function PlannerClient({ initialUserId }: { initialUserId?: string | null
       adults: planProfile?.adults ?? adults,
       children: planProfile?.children ?? knownChildAges,
       tripOrigin: planProfile?.tripOrigin ?? tripOrigin,
-      days: days.map((d, i) => ({
-        day: i + 1, type: d.type, zone: d.zone,
+      days: days.map((d) => ({
+        day: d.day, type: d.type, zone: d.zone,
         lodgingIncluded: d.realTour?.lodgingIncluded ?? null,
       })),
     });
@@ -1421,7 +1466,7 @@ export function PlannerClient({ initialUserId }: { initialUserId?: string | null
     // Зона — показанная человеку (записанная у маршрута), а не угаданная для
     // логистики: по ней карта красит «ту же зону» (lib/planner/map-markers).
     return {
-      idx, title: days[idx].title, zone: shownZone(days[idx]),
+      idx, number: days[idx].day, title: days[idx].title, zone: shownZone(days[idx]),
       refusal: replaceRefusal(days, days[idx]),
       refusalShort: replaceRefusalShort(days, days[idx]),
     };
@@ -1639,19 +1684,90 @@ export function PlannerClient({ initialUserId }: { initialUserId?: string | null
 
   // Правила правки — общие с диалогом Кузьмича и MCP (lib/planner/plan-ops,
   // #2224): каркас поездки не трогается, многодневный тур убирается целиком,
-  // новый день встаёт перед отъездом. Номер дня здесь — ключ карточки, а не
-  // позиция, поэтому не пересчитывается.
+  // новый день встаёт перед отъездом. Номер дня — календарный день поездки
+  // (lib/planner/calendar-days, волна 2 аудита 07.11): удалённый день
+  // становится свободным, а не сжимает поездку; перестановка меняет
+  // содержимое дней, а не их даты.
   function deleteDay(dayNum: number) {
     const target = days.find(d => d.day === dayNum);
-    if (!target) return;
+    if (!target || isFreeDay(target)) return;
     const frame = frameReason(target);
     if (frame) { setEditNote(`Это ${frame} — без него поездка не сходится, его не убирают.`); return; }
     const gone = new Set(tourGroup(days, target).map(d => d.day));
     setEditNote(null);
-    setDays(prev => prev.filter(d => !gone.has(d.day)));
+    setDays(prev => withUiKeys(freeDaysInstead(prev, gone)));
     setTransportByDay(prev => { const n = { ...prev }; for (const g of gone) delete n[g]; return n; });
     setConfirmedDays(prev => { const n = new Set(prev); for (const g of gone) n.delete(g); return n; });
     if (editingDayId !== null && gone.has(editingDayId)) setEditingDayId(null);
+  }
+
+  /**
+   * Номера дней сменились (перестановка, день вставлен перед отъездом):
+   * транспорт дня, отметки и открытый день уходят вслед за днём.
+   */
+  function followNewNumbers(newNumbers: NewNumbers) {
+    setTransportByDay(prev => followDays(prev, newNumbers));
+    setConfirmedDays(prev => followDaySet(prev, newNumbers));
+    setEditingDayId(prev => (prev === null ? null : (newNumbers.get(prev) ?? null)));
+  }
+
+  /**
+   * Карточку отпустили: номера дней встают по местам — содержимое, сменившее
+   * место, сменило и дату (lib/planner/calendar-days). Проверка порядка
+   * получает уже календарные номера.
+   */
+  function finishReorder() {
+    const current = daysRef.current;
+    if (inCalendarOrder(current)) return;
+    const { days: next, newNumbers } = renumberByPosition(current);
+    daysRef.current = next;
+    setDays(next);
+    followNewNumbers(newNumbers);
+    scheduleValidation(next);
+  }
+
+  function scheduleValidation(list: DayPlan[]) {
+    if (validationTimerRef.current) clearTimeout(validationTimerRef.current);
+    if (list.length < 2) return;
+    validationTimerRef.current = setTimeout(() => {
+      void fetch('/api/planner/validate', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          days: list.map(d => ({
+            day: d.day,
+            zone: d.zone,
+            title: d.title,
+            activityType: d.activityType,
+            defaultTransport: d.defaultTransport,
+          })),
+          arrivalDate: arrival || undefined,
+          fitnessLevel,
+          seasickness,
+          children: knownChildAges.length > 0 ? knownChildAges : undefined,
+        }),
+      }).then(r => r.json()).then((data: { success: boolean; valid?: boolean; message?: string; issues?: Array<{ type: string; severity: string; message: string; day?: number }> }) => {
+        if (data.success && data.message) {
+          const issueText = data.issues && data.issues.length > 0
+            ? `${data.message}\n${data.issues.map(i => `- ${i.message}`).join('\n')}`
+            : data.message;
+          setValidation({ valid: data.valid ?? true, message: issueText });
+        }
+      }).catch(() => { /* silent */ });
+    }, 800);
+  }
+
+  /**
+   * Поездка стала на день длиннее: дата отъезда — на день позже, и это
+   * сказано. Без сдвига отъезда план на день длиннее дат: последний день
+   * пришёлся бы на дату после рейса.
+   */
+  function lengthenTrip(added: number) {
+    const nextDeparture = departure ? dateOfTripDay(departure, 2) : null;
+    if (nextDeparture) setDeparture(nextDeparture);
+    setEditNote(nextDeparture
+      ? `Поездка стала на день длиннее: новый день ${added}, отъезд — ${shortDate(nextDeparture)}.`
+      : `Поездка стала на день длиннее: новый день ${added}.`);
   }
 
   function confirmDay(dayNum: number) {
@@ -1672,8 +1788,8 @@ export function PlannerClient({ initialUserId }: { initialUserId?: string | null
       dateRange: arrival && departure ? `${arrival} — ${departure}` : '',
       adults,
       childAges: knownChildAges,
-      days: days.map((d, i) => ({
-        num: i + 1,
+      days: days.map((d) => ({
+        num: d.day,
         confirmed: confirmedDays.has(d.day),
         title: d.title,
         badge: d.type !== 'activity'
@@ -1697,29 +1813,25 @@ export function PlannerClient({ initialUserId }: { initialUserId?: string | null
     setTimeout(() => { win.print(); }, 400);
   }
 
+  /**
+   * «Добавить день»: свободный день уже есть — он и открывается для замены
+   * маршрутом с карты; нет — поездка становится на день длиннее (новый день
+   * перед отъездом, общим правилом plan-ops), и отъезд сдвигается.
+   */
   function addDay() {
     if (days.length === 0) return;
-    const newNum = Math.max(...days.map(d => d.day)) + 1;
-    // Insert a free/rest day before the departure day
-    const newDay: DayPlan = {
-      day: newNum,
-      type: 'activity',
-      zone: 'avachinsky',
-      title: 'Свободный день',
-      description: 'Выберите активность или замените на карте',
-      activityType: 'hot_spring',
-      priceFrom: 0, priceTo: 5000,
-      coords: [52.80, 158.80],
-      defaultTransport: 'walking',
-      allowedTransports: ['walking', 'jeep', 'helicopter'],
-      difficulty: 'easy',
-      childFriendly: true,
-      minChildAge: 0,
-      dayWarnings: [],
-    };
-    // Перед отъездом — общим правилом plan-ops.
-    setDays(prev => { const at = insertIndex(prev); return [...prev.slice(0, at), newDay, ...prev.slice(at)]; });
-    setEditingDayId(newNum);
+    const free = firstFreeDay(days);
+    if (free) {
+      setEditNote(null);
+      setEditingDayId(free.day);
+      setMobileTab('map');
+      return;
+    }
+    const { days: next, added, newNumbers } = extendTrip(days, freeDay);
+    setDays(withUiKeys(next));
+    followNewNumbers(newNumbers);
+    lengthenTrip(added);
+    setEditingDayId(added);
     setMobileTab('map');
   }
 
@@ -1728,19 +1840,30 @@ export function PlannerClient({ initialUserId }: { initialUserId?: string | null
     const refusal = target ? replaceRefusal(days, target) : null;
     if (refusal) { setEditNote(refusal); return; }
     setEditNote(null);
-    setDays(prev => prev.map(d => d.day === dayNum ? routeToDayPlan(route, dayNum) : d));
+    setDays(prev => withUiKeys(prev.map(d => d.day === dayNum ? routeToDayPlan(route, dayNum) : d)));
     setTransportByDay(prev => { const n = { ...prev }; delete n[dayNum]; return n; });
     setSelectedRoute(null);
     setEditingDayId(null);
   }
 
+  /**
+   * Маршрут с карты — в план: в свободный день той же зоны, а если такого
+   * нет — новым днём перед отъездом (поездка на день длиннее). До #2224
+   * маршрут вставал в конец — после дня отъезда.
+   */
   function addRouteAsDay(route: RoutePoint) {
-    // До #2224 маршрут вставал в конец — после дня отъезда.
-    setDays(prev => {
-      const newNum = prev.length > 0 ? Math.max(...prev.map(d => d.day)) + 1 : 1;
-      const at = insertIndex(prev);
-      return [...prev.slice(0, at), routeToDayPlan(route, newNum), ...prev.slice(at)];
-    });
+    if (days.length === 0) return;
+    const free = firstFreeDay(days, routeToDayPlan(route, 0).zone);
+    if (free) {
+      setDays(prev => withUiKeys(prev.map(d => (d.day === free.day ? routeToDayPlan(route, free.day) : d))));
+      setTransportByDay(prev => { const n = { ...prev }; delete n[free.day]; return n; });
+      setEditNote(`Маршрут встал в свободный день ${free.day}.`);
+    } else {
+      const { days: next, added, newNumbers } = extendTrip(days, (num) => routeToDayPlan(route, num));
+      setDays(withUiKeys(next));
+      followNewNumbers(newNumbers);
+      lengthenTrip(added);
+    }
     setSelectedRoute(null);
   }
 
@@ -1795,7 +1918,12 @@ export function PlannerClient({ initialUserId }: { initialUserId?: string | null
         setStepError('');
         setRecommendation(data.data);
         setPlanProfile({ adults, children: knownChildAges, budgetTier, tripOrigin });
-        setDays(data.data.days ?? []);
+        // Номер дня — календарный (lib/planner/calendar-days): недобор движка
+        // — свободными днями, а не дырой в номерах, по которой день отъезда
+        // съезжал на дату раньше рейса. Конец поездки прилетающего — день
+        // отъезда движка; у местного его нет, и незаполненный хвост — тоже
+        // свободные дни, до последнего дня по датам.
+        setDays(withUiKeys(fillCalendarGaps(data.data.days ?? [], tripOrigin === 'local' ? span : null)));
         setTransportByDay({});
         setConfirmedDays(new Set());
         setSelectedRoute(null);
@@ -1980,8 +2108,11 @@ export function PlannerClient({ initialUserId }: { initialUserId?: string | null
         setStepError('Укажите даты прилёта и отъезда: без них маршрут по дням не собрать.');
         return;
       }
-      if (departure <= arrival) {
-        setStepError('Дата отъезда должна быть позже даты прилёта.');
+      // Житель края может уложиться в один день; у прилетающего прилёт и
+      // отъезд в один день — не поездка (lib/planner/calendar-days, H4).
+      const datesProblem = tripDatesProblem(arrival, departure, isLocal);
+      if (datesProblem) {
+        setStepError(datesProblem);
         return;
       }
     }
@@ -1999,9 +2130,15 @@ export function PlannerClient({ initialUserId }: { initialUserId?: string | null
       setStepError('Выберите хотя бы одно место или занятие.');
       return;
     }
-    if (!arrival || !departure || departure <= arrival) {
+    if (!arrival || !departure) {
       setStep(1);
       setStepError('Укажите даты прилёта и отъезда: без них маршрут по дням не собрать.');
+      return;
+    }
+    const datesProblem = tripDatesProblem(arrival, departure, isLocal);
+    if (datesProblem) {
+      setStep(1);
+      setStepError(datesProblem);
       return;
     }
     void getRecommendation();
@@ -2120,7 +2257,7 @@ export function PlannerClient({ initialUserId }: { initialUserId?: string | null
         </legend>
         <div className={isLocal ? 'grid gap-2' : 'grid grid-cols-[1.4fr_1fr] gap-2'}>
           <input type="date" aria-label={isLocal ? 'Первый день поездки' : 'Дата прилёта'} value={arrival} min={today()} max={maxDate()}
-            onChange={e => { setStepError(''); setArrival(e.target.value); if (departure && departure <= e.target.value) setDeparture(''); }}
+            onChange={e => { setStepError(''); setArrival(e.target.value); if (departure && tripDatesProblem(e.target.value, departure, isLocal)) setDeparture(''); }}
             className="ds-input w-full text-sm" />
           {!isLocal && (
             <input type="time" aria-label="Время прилёта" value={flightArrivalTime}
@@ -2151,7 +2288,7 @@ export function PlannerClient({ initialUserId }: { initialUserId?: string | null
           <>
             <CalendarDays className="w-4 h-4 text-[var(--success)]" />
             <span className="text-[var(--text-primary)]">
-              {tripDays} {pluralDaysRu(tripDays)} на Камчатке
+              {tripLengthWords(tripDays)} на Камчатке
             </span>
           </>
         ) : (
@@ -2472,7 +2609,7 @@ export function PlannerClient({ initialUserId }: { initialUserId?: string | null
   /** Короткая сводка анкеты над результатом: каждая строка открывает свой шаг. */
   const summaryRows: Array<{ n: PlannerStep; label: string; value: string }> = [
     { n: 1, label: 'Когда', value: tripDays
-      ? `${TRIP_ORIGIN_LABEL[tripOrigin].label}, ${shortDate(arrival)} — ${shortDate(departure)}, ${tripDays} ${pluralDaysRu(tripDays)}`
+      ? `${TRIP_ORIGIN_LABEL[tripOrigin].label}, ${shortDate(arrival)} — ${shortDate(departure)}, ${tripLengthWords(tripDays)}`
       : 'даты не выбраны' },
     { n: 2, label: 'Кто едет', value: `${adults} взр.${childAges.length > 0 ? `, детей ${childAges.length}` : ''}` },
     { n: 3, label: 'Как', value: `${TRAVEL_STYLE_LABEL[travelStyle].label}${restDaysToSend > 0 ? `, отдых ${restDaysToSend}` : ''}` },
@@ -2620,7 +2757,7 @@ export function PlannerClient({ initialUserId }: { initialUserId?: string | null
             <div>
               <div className="flex items-center justify-between mb-2">
                 <p className="text-[10px] font-bold uppercase tracking-widest text-[var(--text-muted)]">
-                  {days.length} {days.length === 1 ? 'день' : days.length < 5 ? 'дня' : 'дней'}
+                  {days.length} {pluralDaysRu(days.length)}
                 </p>
                 <p className="text-[10px] text-[var(--text-muted)]">
                   {/* Открытый день не заменяют — так и сказано, а не «кликните карту». */}
@@ -2637,43 +2774,18 @@ export function PlannerClient({ initialUserId }: { initialUserId?: string | null
                   const broken = orderProblem(newDays);
                   if (broken) { setEditNote(broken); return; }
                   setEditNote(null);
+                  // Пока карточку держат, номер дня — её ключ: номера встанут
+                  // по местам, когда карточку отпустят (finishReorder).
+                  daysRef.current = newDays;
                   setDays(newDays);
                   setValidation(null);
                   if (validationTimerRef.current) clearTimeout(validationTimerRef.current);
-                  if (newDays.length >= 2) {
-                    validationTimerRef.current = setTimeout(() => {
-                      void fetch('/api/planner/validate', {
-                        method: 'POST',
-                        headers: { 'Content-Type': 'application/json' },
-                        body: JSON.stringify({
-                          days: newDays.map(d => ({
-                            day: d.day,
-                            zone: d.zone,
-                            title: d.title,
-                            activityType: d.activityType,
-                            defaultTransport: d.defaultTransport,
-                          })),
-                          arrivalDate: arrival || undefined,
-                          fitnessLevel,
-                          seasickness,
-                          children: knownChildAges.length > 0 ? knownChildAges : undefined,
-                        }),
-                      }).then(r => r.json()).then((data: { success: boolean; valid?: boolean; message?: string; issues?: Array<{ type: string; severity: string; message: string; day?: number }> }) => {
-                        if (data.success && data.message) {
-                          const issueText = data.issues && data.issues.length > 0
-                            ? `${data.message}\n${data.issues.map(i => `- ${i.message}`).join('\n')}`
-                            : data.message;
-                          setValidation({ valid: data.valid ?? true, message: issueText });
-                        }
-                      }).catch(() => { /* silent */ });
-                    }, 800);
-                  }
                 }}
                 className="space-y-1.5"
               >
                 {days.map((day, idx) => (
                   <DayCard
-                    key={day.day}
+                    key={day.uiKey ?? day.day}
                     day={day}
                     idx={idx}
                     isEditing={day.day === editingDayId}
@@ -2693,11 +2805,12 @@ export function PlannerClient({ initialUserId }: { initialUserId?: string | null
                     onToggleEdit={toggleEditDay}
                     onTransportChange={setTransport}
                     onShowPartners={(at) => setPartnersModal({ activityType: at })}
-                    onAskSeats={(t) => setSeatModal({ tour: t, date: dayDateFrom(arrival, idx) })}
+                    onAskSeats={(t) => setSeatModal({ tour: t, date: dayDateFrom(arrival, day) })}
                     onDelete={deleteDay}
                     onShowMap={() => setMobileTab('map')}
                     onConfirm={confirmDay}
                     editRefusal={day.day === editingDayId ? (editingDayInfo?.refusalShort ?? null) : null}
+                    onDragDone={finishReorder}
                     onRef={(el) => {
                       if (el) dayRefs.current.set(day.day, el as HTMLElement);
                       else dayRefs.current.delete(day.day);
@@ -2854,7 +2967,7 @@ export function PlannerClient({ initialUserId }: { initialUserId?: string | null
                   {shareCopied ? <Check className="w-3.5 h-3.5" style={{ color: 'var(--success)' }} /> : <Copy className="w-3.5 h-3.5" />}
                   {shareCopied ? 'Скопировано' : 'Копировать ссылку'}
                 </button>
-                <a href={`https://t.me/share/url?url=${encodeURIComponent(withReferral(shareUrl, myReferralCode))}&text=${encodeURIComponent(`${(recommendation as { title?: string } | null)?.title ?? 'Маршрут'} — ${days.length} дней по Камчатке`)}`}
+                <a href={`https://t.me/share/url?url=${encodeURIComponent(withReferral(shareUrl, myReferralCode))}&text=${encodeURIComponent(`${(recommendation as { title?: string } | null)?.title ?? 'Маршрут'} — ${days.length} ${pluralDaysRu(days.length)} по Камчатке`)}`}
                   target="_blank" rel="noopener noreferrer"
                   className="flex items-center gap-2 px-3 py-2 rounded-md text-xs font-medium"
                   style={{ background: 'color-mix(in srgb, var(--ocean) 15%, transparent)', color: 'var(--ocean)', border: '1px solid color-mix(in srgb, var(--ocean) 30%, transparent)' }}
@@ -2916,7 +3029,7 @@ export function PlannerClient({ initialUserId }: { initialUserId?: string | null
         search={mapSearch}
         cardOpen={selectedRoute !== null}
         editing={editingDayInfo ? {
-          number: editingDayInfo.idx + 1,
+          number: editingDayInfo.number,
           title: editingDayInfo.title,
           refusal: editingDayInfo.refusal,
           sameZone: sameZoneCount(bgRoutes, editingDayInfo.zone),
