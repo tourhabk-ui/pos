@@ -1,7 +1,7 @@
 import { describe, it, expect } from 'vitest';
 import { resolve } from 'path';
 import { readFileSync, readdirSync, statSync } from 'fs';
-import { scanSource, pdAliases, promptFlowOf, maskCode, FOREIGN_LLM_CALLERS, DOMESTIC_LLM_CALLERS, EGRESS_DOORS } from '@/lib/agents/compliance/pii-flow-scanner';
+import { scanSource, pdAliases, promptFlowOf, maskCode, sqlRowKinds, FOREIGN_LLM_CALLERS, DOMESTIC_LLM_CALLERS, EGRESS_DOORS, CONTACT_WORD, REDACTABLE_WORD, IDENT_WORD } from '@/lib/agents/compliance/pii-flow-scanner';
 import { findViolations, ALLOWLIST } from '@/lib/agents/compliance/scan-repo';
 import {
   LLM_ENDPOINTS,
@@ -1119,5 +1119,61 @@ describe('D1 — десятое ревью PR #3104: не-человека на�
       ['for…of по группе', ['const names: string[] = [];', 'for (const m of (data.models ?? [])) names.push(m.name);', "await callAIFast(names.join(', '));"]],
     ];
     for (const [label, lines] of cases) expect(found(ask(...lines)), label).toEqual([]);
+  });
+});
+
+describe('D1 — одиннадцатое ревью PR #3104: что чистит redactPII и строка из базы целиком', () => {
+  const found = (src: string) => scanSource('r.ts', src).map((x) => [x.kind, x.context, x.expr]);
+  const ask = (...lines: string[]) => ["import { callAIFast } from '@/lib/ai/providers';", "import { redactPII } from '@/lib/security/pii-redact';", ...lines].join('\n');
+  const sink = (expr: string) => `await callAIFast([{ role: 'user', content: ${expr} }]);`;
+
+  it('находка 1: адрес, дата рождения и ник сквозь redactPII — он чистит только телефон и почту', () => {
+    // Дословно сценарий ревьюера.
+    expect(found(ask('const prompt = `Гость: ${redactPII(order.address)}, д.р. ${redactPII(order.birth_date)}, tg: ${redactPII(order.telegram_username)}`;',
+      "await callAIFast([{ role: 'user', content: prompt }]);"))).toEqual([
+      ['contact', 'prompt', 'redactPII(order.address)'],
+      ['contact', 'prompt', 'redactPII(order.birth_date)'],
+      ['contact', 'prompt', 'redactPII(order.telegram_username)'],
+    ]);
+    // Значение стока, переменная с именем идентификатора, род через переменную.
+    expect(found(ask(sink('redactPII(order.passport)')))).toEqual([['contact', 'content', 'order.passport']]);
+    expect(found(ask('const address = await loadAddress();', sink('redactPII(address)')))).toEqual([['contact', 'content', 'address']]);
+    expect(found(ask('const where = order.address;', sink('`Куда: ${redactPII(where)}`')))).toEqual([['contact', 'content', 'redactPII(where)']]);
+    // Телефон и почта сквозь redactPII — по-прежнему чисты.
+    expect(found(ask(sink('`Тел: ${redactPII(order.phone)}, почта: ${redactPII(order.email)}`')))).toEqual([]);
+  });
+
+  it('чистка — только redactPII: своя функция `redact` ничего не гасит', () => {
+    expect(found(ask('function redact(x: string) { return x; }', sink('`Тел: ${redact(order.phone)}`')))).toEqual([['contact', 'content', 'redact(order.phone)']]);
+  });
+
+  it('слова ПД разделены без потерь: чистимые и нет — ровно CONTACT_WORD', () => {
+    const words = (s: string) => new Set(s.split('|'));
+    expect(new Set([...words(REDACTABLE_WORD), ...words(IDENT_WORD)])).toEqual(words(CONTACT_WORD));
+    expect([...words(REDACTABLE_WORD)].filter((w) => words(IDENT_WORD).has(w))).toEqual([]);
+  });
+
+  it('находка 2: строка из базы целиком — род по колонкам запроса', () => {
+    // Дословно сценарий ревьюера.
+    expect(found(ask('const { rows } = await pool.query(',
+      "  'SELECT tourist_name, tourist_phone, special_requests FROM operator_bookings WHERE operator_tour_id = $1', [tourId]);",
+      'const prompt = `Брони тура: ${JSON.stringify(rows)}`;', "await callAIFast([{ role: 'user', content: prompt }]);")))
+      .toEqual([['contact', 'prompt', 'JSON.stringify(rows)']]);
+    // `SELECT *` — все роды; результат в переменной — и он, и его rows; первая строка — тоже строка.
+    expect(found(ask("const res = await pool.query('SELECT * FROM operator_bookings WHERE id = $1', [id]);", sink('JSON.stringify(res.rows)'))).map((f) => f[0]))
+      .toEqual(['contact', 'name']);
+    expect(found(ask("const { rows } = await db.query<Row>('SELECT name FROM leads');", 'const first = rows[0];', sink('JSON.stringify(first)'))))
+      .toEqual([['name', 'content', 'first']]);
+  });
+
+  it('узость: колонки без ПД, чтение поля строки, имя места, подсчёт', () => {
+    expect(found(ask("const { rows } = await pool.query('SELECT title, base_price FROM operator_tours');", sink('JSON.stringify(rows)')))).toEqual([]);
+    expect(found(ask("const { rows } = await pool.query('SELECT title, tourist_phone FROM operator_bookings');",
+      "const t = rows.map((r) => r.title).join(', ');", sink('`Туры: ${t}`')))).toEqual([]);
+    expect(sqlRowKinds("'SELECT p.name, p.slug FROM places p'")).toEqual([]);
+    expect(sqlRowKinds("'SELECT COUNT(*) AS n FROM leads'")).toEqual([]);
+    expect(sqlRowKinds("`SELECT r.comment, u.name AS user_name, t.title AS tour_name FROM reviews r JOIN users u ON u.id = r.user_id`")).toEqual(['name']);
+    expect(sqlRowKinds("'SELECT name FROM leads'")).toEqual(['name']);
+    expect(sqlRowKinds("'SELECT id, passport_number FROM guests'")).toEqual(['ident']);
   });
 });
