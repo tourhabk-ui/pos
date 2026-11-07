@@ -51,6 +51,8 @@ import { GroupEstimateBlock } from '@/components/planner/GroupEstimate';
 import { dayPrice, dayPriceLine } from '@/lib/planner/day-price';
 import { estimateGroup, type EstimateProfile } from '@/lib/planner/estimate';
 import { planForLead } from '@/lib/planner/plan-for-lead';
+import { plannerLeadSource, tripFactsOf, tripRequestLines } from '@/lib/planner/trip-request-lines';
+import { RequestSummary } from '@/components/planner/RequestSummary';
 import { EMPTY_SELECTION, resolveChoices, toggleLodging, type ChoiceSelection } from '@/lib/planner/plan-choices';
 import { buildPlanPrintHtml } from '@/lib/planner/print-html';
 import type {
@@ -1441,6 +1443,24 @@ export function PlannerClient({ initialUserId }: { initialUserId?: string | null
   );
   const tripDays = useMemo(() => calcDays(arrival, departure), [arrival, departure]);
 
+  // Что уйдёт в заявке (проверка сценариев 07.11): тело и сводка над
+  // контактами — из одного объекта, поэтому человек видит ровно отправляемое.
+  // Состав и пожелания — всегда, не только с планом; заметки о здоровье нет.
+  const leadSource = useMemo(() => plannerLeadSource({
+    interests: [...new Set([...places, ...activities])],
+    arrival, departure, flightArrival, flightDeparture, flightArrivalTime, flightDepartureTime,
+    tripDays: tripDays ?? null,
+    transportByDay,
+    adults, childAges, seasickness, riskMode,
+    plan: planProfile && days.length > 0
+      ? planForLead(days, { ...planProfile, arrivalDate: arrival || null }, planChoices,
+        { lodging: needsLodging, transfer: needsAirportTransfer, car: needsCar })
+      : null,
+  }), [places, activities, arrival, departure, flightArrival, flightDeparture, flightArrivalTime, flightDepartureTime,
+    tripDays, transportByDay, adults, childAges, seasickness, riskMode, planProfile, days, planChoices,
+    needsLodging, needsAirportTransfer, needsCar]);
+  const requestLines = useMemo(() => tripRequestLines(tripFactsOf(leadSource)), [leadSource]);
+
   // planner_started — первое осмысленное действие в анкете, один раз за сессию
   // компонента (стратегия 14.08). Приход с плиткой намерения (?mood=...) — тоже
   // старт: плитки на главной и есть быстрый старт формы. Просто открыть пустую
@@ -1997,29 +2017,7 @@ export function PlannerClient({ initialUserId }: { initialUserId?: string | null
           name, phone,
           comment: contactComment.trim() || undefined,
           source_url: typeof window !== 'undefined' ? window.location.href : '/planner',
-          source_data: {
-            // `trip_planner` — имя, которое знают оценка лида (+15) и подписи
-            // админки и Телеграма. Здесь стояло `planner_page`: бонус за
-            // собранную поездку не срабатывал ни разу, подпись не находилась.
-            source: 'trip_planner',
-            interests: allInterests,
-            arrival: arrival || undefined,
-            departure: departure || undefined,
-            flight_arrival: flightArrival || undefined,
-            flight_departure: flightDeparture || undefined,
-            flight_arrival_time: flightArrivalTime || undefined,
-            flight_departure_time: flightDepartureTime || undefined,
-            trip_days: tripDays ?? undefined,
-            transport_choices: transportByDay,
-            // План целиком (#2304, шаг 2): состав, уровень, туры дня с датами и
-            // ценами и смета — та же, что на экране. Вместо `day_plan` и
-            // `recommendation`: их не читал никто, а оператор видел одни
-            // названия дней и переспрашивал то, что человек уже выбрал.
-            ...(planProfile && days.length > 0
-              ? { plan: planForLead(days, { ...planProfile, arrivalDate: arrival || null }, planChoices,
-                  { lodging: needsLodging, transfer: needsAirportTransfer, car: needsCar }) }
-              : {}),
-          },
+          source_data: leadSource,
           pd_consent: true,
         }),
       });
@@ -2104,6 +2102,7 @@ export function PlannerClient({ initialUserId }: { initialUserId?: string | null
       </button>
     ) : (
       <div className="space-y-3 pt-1 border-t border-[var(--border)]">
+        <RequestSummary lines={requestLines} healthNoted={healthNotes.trim().length > 0} />
         <p className="text-xs font-bold uppercase tracking-widest text-[var(--text-muted)]">Контакты</p>
         <input type="text" value={contactName} onChange={e => setContactName(e.target.value)}
           placeholder="Ваше имя" className="ds-input w-full text-sm" />

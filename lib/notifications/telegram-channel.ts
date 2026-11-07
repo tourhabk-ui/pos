@@ -26,6 +26,7 @@ import { repairTelegramHtml, TELEGRAM_CAPTION_LIMIT } from '@/lib/notifications/
 import { BEAR_PHOTOS } from '@/lib/media/wildlife-photos';
 import { fetchPhotoForUpload, isFetched } from '@/lib/notifications/telegram-upload';
 import { asPlanForLead, planLeadLines } from '@/lib/planner/plan-for-lead';
+import { tripFactsOf, tripPartyWords, wishesWords } from '@/lib/planner/trip-request-lines';
 
 // ── helpers ───────────────────────────────────────────────────────────────────
 
@@ -1679,6 +1680,13 @@ export async function notifyAdminNewLead(lead: {
   // видит, что человек выбрал.
   const planLines: string[] = [];
   const plan = asPlanForLead((lead.sourceData as { plan?: unknown } | null | undefined)?.plan);
+  // Состав без плана и пожелания из анкеты (проверка сценариев 07.11): «без
+  // катеров» в заявку не писалось вовсе, а группа уходила только с планом.
+  // Персональных данных нет — строки идут и в заглушку.
+  const facts = tripFactsOf(lead.sourceData);
+  if (!plan && facts.party) planLines.push(`<b>Группа:</b> ${esc(tripPartyWords(facts.party))}`);
+  const wishes = wishesWords(facts.wishes);
+  if (wishes) planLines.push(`<b>Пожелания из анкеты:</b> ${esc(wishes)}`);
   if (plan) {
     const [group, estimate, ...tours] = planLeadLines(plan);
     planLines.push(`<b>План:</b> ${esc(group!)}`, esc(estimate!));

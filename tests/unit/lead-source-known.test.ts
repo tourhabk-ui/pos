@@ -19,6 +19,7 @@ import { readFileSync } from 'node:fs';
 import { join } from 'node:path';
 import { execFileSync } from 'node:child_process';
 import { computeQuickScore } from '@/lib/leads/scoring';
+import { plannerLeadSource } from '@/lib/planner/trip-request-lines';
 
 const read = (f: string) => readFileSync(join(process.cwd(), f), 'utf-8');
 
@@ -61,19 +62,27 @@ describe('формы заявки шлют source_data, а не sourceData', () 
 });
 
 describe('собранная поездка узнаётся оценкой и подписями', () => {
-  const PRODUCERS = ['app/planner/_PlannerClient.tsx', 'app/hub/tourist/trips/[id]/_TripDetailClient.tsx'];
+  // Тело заявки планера собирает `plannerLeadSource` (07.11) — источник берётся
+  // вызовом; что форма шлёт именно его, держит planner-request-form.test.tsx.
+  const PRODUCERS: Array<[string, () => string]> = [
+    ['lib/planner/trip-request-lines.ts (форма /planner)', () => String(plannerLeadSource({
+      interests: [], arrival: '', departure: '', tripDays: null, transportByDay: {}, adults: 2, childAges: [],
+      seasickness: false, riskMode: 'safe_only', plan: null,
+    }).source)],
+    ['app/hub/tourist/trips/[id]/_TripDetailClient.tsx', () => leadSource('app/hub/tourist/trips/[id]/_TripDetailClient.tsx')],
+  ];
   const admin = labelKeys('app/hub/admin/leads/_LeadsClient.tsx', 'SOURCE_LABELS');
   const telegram = labelKeys('lib/notifications/telegram-channel.ts', 'LEAD_SOURCE_LABELS');
 
-  for (const file of PRODUCERS) {
+  for (const [file, sourceOf] of PRODUCERS) {
     it(`${file}: источник заявки получает бонус оценки за собранную поездку`, () => {
-      const source = leadSource(file);
+      const source = sourceOf();
       const base = computeQuickScore('Иван Петров', '+79991234567', undefined, { source: 'unknown_source' });
       expect(computeQuickScore('Иван Петров', '+79991234567', undefined, { source }) - base, source).toBe(15);
     });
 
     it(`${file}: источник заявки подписан в админке и в Телеграме`, () => {
-      const source = leadSource(file);
+      const source = sourceOf();
       expect(admin.has(source), `нет подписи ${source} в админке`).toBe(true);
       expect(telegram.has(source), `нет подписи ${source} в Телеграме`).toBe(true);
     });

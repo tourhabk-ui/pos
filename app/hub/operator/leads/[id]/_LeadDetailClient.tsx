@@ -1,6 +1,7 @@
 'use client';
 
 import { TripBlock } from '@/components/requests/TripBlock';
+import { LeadTripFacts } from '@/components/requests/LeadTripFacts';
 import { useState, useCallback } from 'react';
 import Link from 'next/link';
 import useSWR from 'swr';
@@ -394,6 +395,7 @@ export default function LeadDetailClient({ leadId }: Props) {
             </div>
           )}
           <TripBlock comment={lead.comment} />
+          <LeadTripFacts sourceData={lead.source_data} />
           {lead.comment && (
             <div className="flex items-start gap-2 text-sm text-[var(--text-secondary)]">
               <MessageSquare className="w-4 h-4 shrink-0 mt-0.5" />
