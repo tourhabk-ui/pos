@@ -9,7 +9,7 @@ import type { ZoneId } from '@/lib/planner/engine';
 import { rawTypesFor, normalizeActivity } from '@/lib/planner/constants';
 import { keepsScheduleSql } from '@/lib/tours/schedule';
 import { publicTourSql } from '@/lib/tours/public-visibility';
-import { nearestFreeDateSql } from '@/lib/tours/nearest-free-date';
+import { nearestFreeDateSql, nearestFreeDateInWindowSql } from '@/lib/tours/nearest-free-date';
 import { orderOffersBy } from '@/lib/tours/offer-order';
 import { zoneMatchSql } from '@/lib/planner/zone-match';
 import type { SelfSafetyRow } from '@/lib/planner/travel-style';
@@ -136,17 +136,24 @@ export interface ReviewSignal {
  *
  * Отказ кэшируется наравне с ответом — намеренно. Кэш живёт один вызов
  * `recommendTrip`, и долбиться в упавшую базу по разу на зону незачем.
+ *
+ * `window` — окно дат поездки (YYYY-MM-DD). Есть — «ближайший выезд» правила
+ * 1в считается в днях поездки, и срез `limit` отрезает уже после этого (аудит
+ * 07.11, E5): иначе тур с выездами в дни поездки уступал место туру с выездом
+ * завтра. Нет — ближайший выезд вообще, как у витрин.
  */
 export async function fetchRealToursForZone(
   zone: ZoneId,
   activityType: string,
   limit: number,
-  cache: PlannerCache
+  cache: PlannerCache,
+  window?: { from: string; to: string } | null,
 ): Promise<RealTour[] | null> {
   // Лимит — в ключе (независимая проверка 07.11): без него первый вызов,
   // оценка зоны с лимитом 3, оставлял в кэше три тура, и блок зоны видел их
   // же, сколько бы дней в нём ни было.
-  return cached(cache, `tours:${zone}:${activityType}:${limit}`, async () => {
+  const inWindow = window && /^\d{4}-\d{2}-\d{2}$/.test(window.from) && /^\d{4}-\d{2}-\d{2}$/.test(window.to) ? window : null;
+  return cached(cache, `tours:${zone}:${activityType}:${limit}:${inWindow ? `${inWindow.from}:${inWindow.to}` : '-'}`, async () => {
     try {
       const { rows } = await pool.query<{
         tour_id: string;
@@ -194,7 +201,7 @@ export async function fetchRealToursForZone(
           COALESCE(p.rating, 0) AS operator_rating,
           COALESCE(p.review_count, 0) AS operator_review_count,
           COALESCE(p.is_verified, false) AS operator_verified,
-          ${nearestFreeDateSql('ot')} AS nearest_free_date
+          ${inWindow ? nearestFreeDateInWindowSql('ot', '$3', '$4') : nearestFreeDateSql('ot')} AS nearest_free_date
         FROM operator_tours ot
         JOIN partners p ON p.id = ot.operator_id
         LEFT JOIN agent_route_knowledge ark ON ark.id = ot.agent_route_id
@@ -202,7 +209,7 @@ export async function fetchRealToursForZone(
           AND ot.activity_type = ANY($2)
           AND ${publicTourSql('ot')}
           AND p.is_public = TRUE`,
-        [zone, rawTypesFor(activityType)]
+        inWindow ? [zone, rawTypesFor(activityType), inWindow.from, inWindow.to] : [zone, rawTypesFor(activityType)]
       );
 
       const ordered = orderOffersBy(rows, r => ({ id: String(r.tour_id), nearestFreeDate: r.nearest_free_date ?? null }))

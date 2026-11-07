@@ -689,6 +689,14 @@ export function splitByChildAge(
   return { allowed, blocked };
 }
 
+/**
+ * Окно дат поездки для отбора туров зоны: «ближайший выезд» правила 1в — в
+ * днях поездки (аудит 07.11, E5). Дат нет — окна нет, порядок как у витрин.
+ */
+function tripWindow(profile: TripProfile): { from: string; to: string } | null {
+  return profile.arrivalDate && profile.departureDate ? { from: profile.arrivalDate, to: profile.departureDate } : null;
+}
+
 function groupSize(profile: TripProfile): number {
   return profile.adults + profile.children.length;
 }
@@ -994,7 +1002,7 @@ async function scoreZones(
   for (const zone of Object.keys(scores) as ZoneId[]) {
     if ((scores[zone] ?? 0) <= 0) continue;
     const primaryInterest = profile.interests[0] ?? 'trekking';
-    const realTours = await fetchRealToursForZone(zone, primaryInterest, 3, cache);
+    const realTours = await fetchRealToursForZone(zone, primaryInterest, 3, cache, tripWindow(profile));
     // `null` — не смогли спросить. Ни надбавки, ни штрафа: зона не становится
     // хуже оттого, что про неё не удалось узнать. Трактовать отказ как
     // «туров нет» значило бы уводить план из зоны по выдуманной причине.
@@ -1377,7 +1385,7 @@ async function generateDayPlans(
       // «Сам» туров не берёт вовсе: ни одного дня с оператором.
       const toursOrNull = style === 'self'
         ? []
-        : block.onlyTour ? [block.onlyTour] : await fetchRealToursForZone(block.zone, interest, block.activeDays + 2, cache);
+        : block.onlyTour ? [block.onlyTour] : await fetchRealToursForZone(block.zone, interest, block.activeDays + 2, cache, tripWindow(profile));
       let tours = toursOrNull ?? [];
 
       // «С оператором»: тур без свободных мест на даты поездки не ставится —

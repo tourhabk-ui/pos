@@ -63,6 +63,7 @@ vi.mock('@/lib/ai/agent-models', () => ({ getModelForAgent: () => null }));
 vi.mock('@/lib/db-pool', () => ({ pool: { query: vi.fn(async () => ({ rows: [] })) } }));
 
 import { recommendTrip, type TripProfile } from '@/lib/planner/engine';
+import { fetchRealToursForZone } from '@/lib/planner/data';
 import { tourPlanSpan } from '@/lib/planner/tour-span';
 
 const NEXT_JULY = new Date().getUTCFullYear() + 1;
@@ -140,5 +141,17 @@ describe('E3: минимум группы (волна 3.3)', () => {
     expect(day4?.dayWarnings.some((w) => w.startsWith('Нужен набор группы'))).toBe(false);
     // Минимум доезжает до дня: правка состава пересчитает строку.
     expect(day4?.realTour?.minParticipants).toBe(4);
+  });
+});
+
+describe('E5: туры зоны — в окне поездки (волна 3.5)', () => {
+  it('движок просит туры зоны с окном дат поездки — каждый раз: и оценка зоны, и блок дней', async () => {
+    TOURS['avachinsky:volcano'] = [{ tourId: 't-1', title: 'Вулкан за день', durationHours: 10, zone: 'avachinsky', activityType: 'volcano' }];
+    const p = profile(4, ['volcano']);
+    vi.mocked(fetchRealToursForZone).mockClear();
+    await recommendTrip(p);
+    const calls = vi.mocked(fetchRealToursForZone).mock.calls;
+    expect(calls.length).toBeGreaterThan(1);
+    for (const call of calls) expect(call[4], `вызов ${call[0]}:${call[1]}:${call[2]}`).toEqual({ from: p.arrivalDate, to: p.departureDate });
   });
 });
