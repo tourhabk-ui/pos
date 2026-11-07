@@ -390,7 +390,9 @@ export function pdAliases(src: string): Map<string, 'contact' | 'name'> {
   const code = maskCode(src);
   const sc = buildScopes(code);
   const out = new Map<string, 'contact' | 'name'>();
-  for (const [key, kinds] of taintsIn(code, sc, buildEdges(code, sc), []).vars) {
+  const links: Link[] = [];
+  const edges = buildEdges(code, sc, links);
+  for (const [key, kinds] of taintsIn(code, sc, edges, [], links).vars) {
     out.set(nameOfKey(key), kinds.has('contact') ? 'contact' : 'name');
   }
   return out;
@@ -408,6 +410,14 @@ interface Edge {
    */
   part?: boolean;
 }
+
+/**
+ * Связь рода между ключами, без отрезка кода. `fields` — поля цели получают
+ * поля источника на один уровень (`const b = a`, `ask(o)`, элемент перебора:
+ * `b.k` — род `a.k`); иначе цель получает род самого ключа-источника
+ * (`const { body } = o` — род `o.body`).
+ */
+interface Link { from: string; to: string; fields: boolean }
 
 /** Сток: отрезок, текст которого уходит модели, и метка находки. */
 interface Seed {
@@ -506,10 +516,34 @@ function objectEntries(code: string, open: number): Array<{ key: string; span: F
  * ходил только через `${…}` объявлений, и параметр, поле и голое
  * `const b = a` цепочку рвали, хотя поток по ним шёл.
  */
-function buildEdges(code: string, sc: Scopes): Edge[] {
+function buildEdges(code: string, sc: Scopes, links: Link[] = []): Edge[] {
   const edges: Edge[] = [];
   const add = (name: string, at: number, span: FlowSpan, part = false) => {
     if (!NOT_ROOT.has(name)) edges.push({ key: sc.key(name, at), name, span, ...(part ? { part } : {}) });
+  };
+  /** Отрезок — одно имя (`a`, `await a`, `this.x`): его ключ, иначе null. */
+  const bareKey = (span: FlowSpan): string | null => {
+    const t = code.slice(span.from, span.to);
+    const m = /^\s*(?:await\s+)?(?:this\s*\??\.\s*)?([A-Za-z_$][\w$]*)\s*$/.exec(t);
+    if (!m || NOT_ROOT.has(m[1]) || sc.functions.has(m[1])) return null;
+    return sc.key(m[1], span.from + t.trimEnd().length - m[1].length);
+  };
+  /**
+   * Цель получает поля значения: литерала объекта — по записям, массива
+   * литералов объектов — по записям элементов (поля коллекции — поля её
+   * элементов), имени — связью полей.
+   */
+  const fieldsInto = (target: string, span: FlowSpan) => {
+    const lb = skipWs(code, span.from);
+    const objects = code[lb] === '{' && closeOf(code, lb) < span.to ? [lb]
+      : code[lb] === '[' && closeOf(code, lb) < span.to ? argSpans(code, lb).map((el) => skipWs(code, el.from)).filter((at) => code[at] === '{')
+      : [];
+    if (objects.length) {
+      for (const at of objects) for (const entry of objectEntries(code, at)) edges.push({ key: `${target}.${entry.key}`, name: entry.key, span: entry.span });
+      return;
+    }
+    const from = bareKey(span);
+    if (from) links.push({ from, to: target, fields: true });
   };
   // Присваивание и объявление; поле — по корню цепочки (`this.x` — x, `box.v` — box).
   ASSIGN_HEAD.lastIndex = 0;
@@ -523,11 +557,9 @@ function buildEdges(code: string, sc: Scopes): Edge[] {
     if (rootKey && target.name !== m[1] && /^\s*\??\.\s*$/.test(code.slice(target.at + target.name.length, m.index))) {
       edges.push({ key: `${rootKey}.${m[1]}`, name: m[1], span });
     }
-    // Литерал объекта: `const ctx = { tel: lead.phone }` — род у `ctx.tel`.
-    const lb = skipWs(code, from);
-    if (rootKey && code[lb] === '{') {
-      for (const entry of objectEntries(code, lb)) edges.push({ key: `${rootKey}.${entry.key}`, name: entry.key, span: entry.span });
-    }
+    // Литерал объекта (`const ctx = { tel: lead.phone }` — род у `ctx.tel`) или
+    // имя (`const b = a` — поля b из полей a).
+    if (rootKey && target.name === m[1]) fieldsInto(rootKey, span);
   }
   INDEX_ASSIGN.lastIndex = 0;
   for (let m = INDEX_ASSIGN.exec(code); m; m = INDEX_ASSIGN.exec(code)) {
@@ -550,6 +582,9 @@ function buildEdges(code: string, sc: Scopes): Edge[] {
     const pattern = code.slice(open, close + 1);
     if (m[1] === '{') {
       for (const name of bindingNames(pattern)) add(name, open, span, true);
+      // `const { body, note: n } = o` — body получает род `o.body`, n — `o.note`.
+      const from = bareKey(span);
+      if (from) for (const [field, name] of patternFields(pattern)) links.push({ from: `${from}.${field}`, to: sc.key(name, open), fields: false });
       continue;
     }
     // `const [a, b] = await Promise.all([x, y])` — a получает x, b — y.
@@ -569,7 +604,11 @@ function buildEdges(code: string, sc: Scopes): Edge[] {
     if (!of) continue;
     const from = m.index + m[0].length + of.index + of[0].length;
     const pattern = head.slice(0, of.index).trim();
-    for (const name of bindingNames(pattern)) add(name, m.index + m[0].length, { from, to: close }, pattern.startsWith('{'));
+    const at = m.index + m[0].length;
+    for (const name of bindingNames(pattern)) add(name, at, { from, to: close }, pattern.startsWith('{'));
+    // Элемент — поля коллекции: `for (const l of list)` при `list.push({ note: … })`.
+    const src = bareKey({ from, to: close });
+    if (src && !pattern.startsWith('{') && !pattern.startsWith('[')) links.push({ from: src, to: sc.key(pattern, at), fields: true });
   }
   // Положили в коллекцию: `X.push(…)`, `X.set(k, v)` — X (и корень `box.lines`) получает аргументы.
   PUSH_CALL.lastIndex = 0;
@@ -579,6 +618,10 @@ function buildEdges(code: string, sc: Scopes): Edge[] {
     add(m[1], m.index, span);
     const root = chainRoot(code, m.index + m[1].length);
     if (root && root.name !== m[1]) add(root.name, root.at, span);
+    // Положенный объект: его поля — поля коллекции (`list.push({ note: x })`; у `set` — второй аргумент).
+    const args = argSpans(code, open);
+    const value = /\.\s*set\s*\($/.test(m[0]) ? args[1] : args[0];
+    if (value && !NOT_ROOT.has(m[1])) fieldsInto(sc.key(m[1], m.index), value);
   }
   // Колбэк перебора: элемент получателя — его параметр.
   ITER_CALL.lastIndex = 0;
@@ -588,35 +631,101 @@ function buildEdges(code: string, sc: Scopes): Edge[] {
     const open = m.index + m[0].length - 1;
     const cb = argSpans(code, open)[0];
     if (!cb) continue;
+    const pos = /^reduce/.test(m[1]) ? 1 : 0;
+    // Отрезок — сам получатель до `.map`: `phones` — весь массив, `t.items` — поле.
+    const recvSpan = { from: recv.at, to: m.index };
+    const recvKey = bareKey(recvSpan);
+    // Функция файла по ссылке (`leads.map(line)`): элемент — её параметр (восьмое ревью PR #3104).
+    const ref = /^\s*(?:this\s*\??\.\s*)?([A-Za-z_$][\w$]*)\s*$/.exec(code.slice(cb.from, cb.to))?.[1];
+    if (ref && sc.functions.has(ref)) {
+      for (const b of sc.functions.get(ref) ?? []) {
+        for (const name of b.params[pos] ?? []) {
+          edges.push({ key: `${b.scope}:${name}`, name, span: recvSpan });
+          if (recvKey) links.push({ from: recvKey, to: `${b.scope}:${name}`, fields: true });
+        }
+      }
+      continue;
+    }
     const head = CALLBACK_HEAD.exec(code.slice(cb.from, cb.to));
     if (!head) continue;
     const params = head[1] !== undefined ? splitTop(head[1]) : [head[2]];
-    const element = params[/^reduce/.test(m[1]) ? 1 : 0];
+    const element = params[pos];
     if (!element) continue;
     const body = skipWs(code, cb.from + head.index + head[0].length - (head[3] === '{' ? 1 : 0));
-    // Отрезок — сам получатель до `.map`: `phones` — весь массив, `t.items` — поле.
-    for (const name of bindingNames(element)) add(name, body, { from: recv.at, to: m.index });
+    for (const name of bindingNames(element)) add(name, body, recvSpan);
+    const single = /^\s*([A-Za-z_$][\w$]*)\s*(?::[^=]*)?$/.exec(element)?.[1];
+    if (recvKey && single) links.push({ from: recvKey, to: sc.key(single, body), fields: true });
   }
   // Аргумент вызова функции файла → её параметр (пятое ревью PR #3104: тонкая
   // обёртка `askModel(prompt)` над зарубежным вызовом прятала литерал-аргумент).
-  CALL_SITE.lastIndex = 0;
-  for (let m = CALL_SITE.exec(code); m; m = CALL_SITE.exec(code)) {
-    const fns = sc.functions.get(m[1]);
-    if (!fns || /\bfunction\s*\*?\s*$/.test(code.slice(Math.max(0, m.index - 20), m.index))) continue;
-    const open = m.index + m[0].length - 1;
-    const args = argSpans(code, open);
-    const close = args.length ? args[args.length - 1].to : open;
-    // Заголовок функции или метода (`name(…) {`, `name(…): T {`, `(…) =>`) — не вызов.
-    const k = skipWs(code, close + 1);
-    if (code[k] === '{' || code.startsWith('=>', k) || (code[k] === ':' && afterReturnType(code, k + 1))) continue;
-    for (const b of fns) {
-      b.params.forEach((names, pos) => {
-        const arg = args[pos];
-        if (arg) for (const name of names) edges.push({ key: `${b.scope}:${name}`, name, span: arg });
-      });
+  // Метод файла и через чужой объект (`svc.describe(lead)`): чей он, страж не
+  // знает, и связывает с методом файла того же имени (восьмое ревью PR #3104).
+  const patterns = paramPatterns(code, sc);
+  for (const re of [CALL_SITE, METHOD_SITE]) {
+    re.lastIndex = 0;
+    for (let m = re.exec(code); m; m = re.exec(code)) {
+      const fns = sc.functions.get(m[1]);
+      if (!fns || /\bfunction\s*\*?\s*$/.test(code.slice(Math.max(0, m.index - 20), m.index))) continue;
+      if (re === METHOD_SITE && /\bthis\s*\??$/.test(code.slice(Math.max(0, m.index - 8), m.index))) continue;
+      const open = m.index + m[0].length - 1;
+      const args = argSpans(code, open);
+      const close = args.length ? args[args.length - 1].to : open;
+      // Заголовок функции или метода (`name(…) {`, `name(…): T {`, `(…) =>`) — не вызов.
+      const k = skipWs(code, close + 1);
+      if (code[k] === '{' || code.startsWith('=>', k) || (code[k] === ':' && afterReturnType(code, k + 1))) continue;
+      for (const b of fns) {
+        b.params.forEach((names, pos) => {
+          const arg = args[pos];
+          if (!arg) return;
+          const pattern = patterns.get(b.scope)?.[pos]?.trim() ?? '';
+          // Деструктурированный параметр (`({ body }) =>`) — чтение полей: поток
+          // по ребру идёт, а род — только своего поля (`{ body: … }` или `opts.body`).
+          const part = pattern.startsWith('{');
+          for (const name of names) edges.push({ key: `${b.scope}:${name}`, name, span: arg, ...(part ? { part } : {}) });
+          if (part) {
+            const lb = skipWs(code, arg.from);
+            const entries = code[lb] === '{' ? objectEntries(code, lb) : [];
+            const from = bareKey(arg);
+            for (const [field, name] of patternFields(pattern)) {
+              const entry = entries.find((e) => e.key === field);
+              if (entry) edges.push({ key: `${b.scope}:${name}`, name, span: entry.span });
+              else if (from) links.push({ from: `${from}.${field}`, to: `${b.scope}:${name}`, fields: false });
+            }
+          } else if (names.length === 1) {
+            // `ask({ body: lead.phone })` — род у `o.body`; `ask(opts)` — поля opts.
+            fieldsInto(`${b.scope}:${names[0]}`, arg);
+          }
+        });
+      }
     }
   }
   return edges;
+}
+
+/** Вызов метода через объект: `svc.describe(` — имя метода. */
+const METHOD_SITE = /\.\s*([A-Za-z_$][\w$]*)\s*\(/g;
+
+/** Тексты параметров по позиции — для области тела каждой функции. */
+function paramPatterns(code: string, sc: Scopes): Map<number, string[]> {
+  const out = new Map<number, string[]>();
+  sc.params.forEach(([open, close], idx) => {
+    const text = code[open] === '(' ? code.slice(open + 1, close) : code.slice(open + 1, close);
+    out.set(sc.paramScopes[idx], splitTop(text));
+  });
+  return out;
+}
+
+/** Деструктуризация объекта: поле → связанное имя (`{ body, note: n }` → body→body, note→n). */
+function patternFields(pattern: string): Array<[string, string]> {
+  const out: Array<[string, string]> = [];
+  const inner = pattern.trim().replace(/^\{/, '').replace(/\}\s*(?::[\s\S]*)?$/, '');
+  for (const el of splitTop(inner)) {
+    const e = el.trim();
+    if (!e || e.startsWith('...')) continue;
+    const m = /^([A-Za-z_$][\w$]*)\s*(?::\s*([A-Za-z_$][\w$]*)\s*)?(?:=[\s\S]*)?$/.exec(e);
+    if (m) out.push([m[1], m[2] ?? m[1]]);
+  }
+  return out;
 }
 
 /** Стоки файла: значения `content:`/`system:`/…, аргументы зарубежной двери, правая часть переменной `*prompt*`. */
@@ -640,6 +749,19 @@ function seedsOf(code: string, edges: readonly Edge[], hasForeign: boolean): See
   }
   for (const e of edges) if (PROMPT_NAME.test(e.name)) seeds.push({ span: e.span, context: e.name, key: e.key });
   return seeds;
+}
+
+/** Отрезок без «дыр»: части [a, b), не покрытые ни одной дырой. */
+function withoutHoles([a, b]: readonly [number, number], holes: ReadonlyArray<readonly [number, number]>): Array<[number, number]> {
+  const out: Array<[number, number]> = [];
+  let at = a;
+  for (const [h0, h1] of [...holes].sort((x, y) => x[0] - y[0])) {
+    if (h1 <= at || h0 >= b) continue;
+    if (h0 > at) out.push([at, h0]);
+    at = Math.max(at, h1);
+  }
+  if (at < b) out.push([at, b]);
+  return out;
 }
 
 /** Текст с затёртыми отрезками (длина и переводы строк те же). */
@@ -689,7 +811,9 @@ function queryParamRanges(code: string): Array<[number, number]> {
  * (`review.tour_name`). Поле ПД (`.phone`, `.user_name`) судит шаблон поля, а
  * поле, куда ПД положили (`box.value = lead.phone`), — свой род (`box.value`).
  */
-function carrierOf(code: string, end: number, limit = code.length): { field: string | null } | null {
+function carrierOf(
+  code: string, end: number, limit = code.length, fns?: ReadonlyMap<string, unknown>,
+): { field: string | null } | null {
   let i = end;
   let field: string | null = null;
   for (let guard = 0; guard < 64; guard++) {
@@ -709,8 +833,13 @@ function carrierOf(code: string, end: number, limit = code.length): { field: str
     const k = skipWs(code, i);
     const open = code[k] === '(' ? k : code[k] === '?' && code[k + 1] === '.' && code[k + 2] === '(' ? k + 2 : -1;
     if (open >= 0) {
-      // `x.map((a) => a.title)` — результат собирает колбэк, и судится он сам.
-      if (TRANSFORMS.has(id[1]) && CALLBACK_HEAD.test(code.slice(open + 1, open + 200))) return null;
+      // `x.map((a) => a.title)`, `x.map(line)` с функцией файла — результат
+      // собирает колбэк, и судится он сам.
+      if (TRANSFORMS.has(id[1])) {
+        const arg = code.slice(open + 1, open + 200);
+        const ref = /^\s*(?:this\s*\??\.\s*)?([A-Za-z_$][\w$]*)\s*[,)]/.exec(arg)?.[1];
+        if (CALLBACK_HEAD.test(arg) || (ref && fns?.has(ref))) return null;
+      }
       continue;
     }
     if (field !== null) return null;
@@ -721,7 +850,7 @@ function carrierOf(code: string, end: number, limit = code.length): { field: str
 
 /** Ключ рода, который несёт обращение: переменная или её поле (`ключ.поле`); null — ничего. */
 function carrierKey(code: string, r: Root, sc: Scopes, limit: number): string | null {
-  const c = carrierOf(code, r.at + r.name.length, limit);
+  const c = carrierOf(code, r.at + r.name.length, limit, sc.functions);
   if (!c) return null;
   const key = sc.key(r.name, r.at);
   return c.field === null ? key : `${key}.${c.field}`;
@@ -813,17 +942,21 @@ function depsOf(text: string, span: FlowSpan, sc: Scopes, own: ReadonlySet<strin
   const rc = rootsAt(text, span.from, span.to, CONTACT_SANITIZERS, [], false, own).filter(notParam);
   const rn = rootsAt(text, span.from, span.to, NO_SANITIZERS, [], false, own).filter(notParam);
   const keys = (roots: Root[]) => roots.map((r) => carrierKey(text, r, sc, span.to)).filter((k): k is string => k !== null);
-  const ownCalls = (cutters: ReadonlySet<string>) => literalsIn(text, span, cutters, own).callees.filter((n) => own.has(n));
+  // Вызов функции файла и она же по ссылке (`leads.map(line)`) — род её возврата.
+  const ownCalls = (cutters: ReadonlySet<string>, roots: Root[]) => [
+    ...literalsIn(text, span, cutters, own).callees.filter((n) => own.has(n)),
+    ...roots.filter((r) => own.has(r.name)).map((r) => r.name),
+  ];
   return {
     contact: {
       stat: CONTACT_FIELD.test(evC) || rc.some((r) => r.name !== 'mchs_phone' && CONTACT_NAMED.test(r.name) && wholeUse(text, r, span.to)),
       vars: keys(rc),
-      fns: ownCalls(CONTACT_SANITIZERS),
+      fns: ownCalls(CONTACT_SANITIZERS, rc),
     },
     name: {
       stat: personNameIn(evN, span.from, sc, person),
       vars: keys(rn),
-      fns: ownCalls(NO_SANITIZERS),
+      fns: ownCalls(NO_SANITIZERS, rn),
     },
   };
 }
@@ -850,18 +983,31 @@ function depsOf(text: string, span: FlowSpan, sc: Scopes, own: ReadonlySet<strin
  * однобуквенный владелец `m.name` — имя, только если связан с человеком
  * (`personKeys`); пустые скобки `string[]` — тип, а не элемент.
  */
-function taintsIn(code: string, sc: Scopes, edges: readonly Edge[], seeds: readonly Seed[]): Taints {
+function taintsIn(code: string, sc: Scopes, edges: readonly Edge[], seeds: readonly Seed[], links: readonly Link[] = []): Taints {
   const qp = queryParamRanges(code);
-  const seedRanges = seeds.map((s) => [s.span.from, s.span.to] as const);
+  const own = new Set(sc.functions.keys());
+  // Сток судит себя сам, кроме аргументов функций файла: они уходят в её
+  // параметры (`content: describe(lead.phone)`), и род там нужен.
+  const seedRanges = seeds.flatMap((s) => withoutHoles([s.span.from, s.span.to], ownCallArgRanges(code, s.span.from, s.span.to, own)));
   const templates = templateRanges(code);
   // Код без шаблонов и стоков: что в них, судят они сами.
   const text = blankAll(blankAll(blankAll(code, qp), templates), seedRanges);
-  const own = new Set(sc.functions.keys());
   const fnSpans = [...sc.functions].flatMap(([name, bodies]) => bodies.flatMap((b) => returnSpans(code, b, sc.bodies)).map((span) => ({ name, span })));
 
   const vars = new Map<string, Set<Kind>>();
   const fns = new Map<string, Set<Kind>>();
-  const mark = (m: Map<string, Set<Kind>>, k: string, kind: Kind) => { const set = m.get(k) ?? new Set<Kind>(); set.add(kind); m.set(k, set); };
+  // Поля по основе: `S:o` → {body, note} — для связей «поля в поля».
+  const fieldsOf = new Map<string, Set<string>>();
+  const mark = (m: Map<string, Set<Kind>>, k: string, kind: Kind) => {
+    const set = m.get(k) ?? new Set<Kind>();
+    set.add(kind);
+    m.set(k, set);
+    const dot = k.indexOf('.');
+    if (m === vars && dot > 0) {
+      const base = k.slice(0, dot);
+      fieldsOf.set(base, (fieldsOf.get(base) ?? new Set()).add(k.slice(dot + 1)));
+    }
+  };
   const has = (m: Map<string, Set<Kind>>, k: string, kind: Kind) => m.get(k)?.has(kind) ?? false;
   // Деструктурированный контакт (`const { phone: tel } = lead`) — по имени поля.
   DESTRUCT.lastIndex = 0;
@@ -882,6 +1028,15 @@ function taintsIn(code: string, sc: Scopes, edges: readonly Edge[], seeds: reado
     for (const kind of KINDS) {
       for (const { key, d } of eDeps) if (!has(vars, key, kind) && fires(d, kind)) { mark(vars, key, kind); grew = true; }
       for (const { name, d } of fDeps) if (!has(fns, name, kind) && fires(d, kind)) { mark(fns, name, kind); grew = true; }
+      for (const l of links) {
+        if (!l.fields) {
+          if (has(vars, l.from, kind) && !has(vars, l.to, kind)) { mark(vars, l.to, kind); grew = true; }
+          continue;
+        }
+        for (const f of fieldsOf.get(l.from) ?? []) {
+          if (has(vars, `${l.from}.${f}`, kind) && !has(vars, `${l.to}.${f}`, kind)) { mark(vars, `${l.to}.${f}`, kind); grew = true; }
+        }
+      }
     }
     if (!grew) break;
   }
@@ -1556,8 +1711,8 @@ function literalsIn(
       const before = tailBefore(code, span.from, i);
       const call = c === '(' && CALL_BEFORE.test(before) && !KEYWORD_BEFORE.test(before);
       const callee = call ? (/([A-Za-z_$][\w$]*)$/.exec(before)?.[1] ?? '') : '';
-      // Своё имя или метод через this — не `obj.method(`: чужой объект файлом не описан.
-      if (callee && passes() && !cutters.has(callee) && /(?:^|[^\w$.])(?:this\s*\??\.\s*)?[A-Za-z_$][\w$]*$/.test(before)) callees.push(callee);
+      // Кандидат в функцию файла — и `svc.method(`: по имени её найдёт returnsOf.
+      if (callee && passes() && !cutters.has(callee)) callees.push(callee);
       frames.push({ call, callee });
       i++;
       continue;
@@ -1663,10 +1818,13 @@ function promptFlow(
     const id = `${span.from}:${span.to}`;
     if (taken.has(id)) return false;
     taken.add(id);
-    let grew = add(rootsAt(code, span.from, span.to, cutters));
+    const roots = rootsAt(code, span.from, span.to, cutters);
+    let grew = add(roots);
     const inner = literalsIn(code, span, cutters);
     for (const at of inner.literals) if (literalIn(at)) grew = true;
-    for (const name of inner.callees) for (const r of returnsOf(name)) if (take(r)) grew = true;
+    // Вызов функции файла и она же по ссылке (`leads.map(line)`) — её возврат в потоке.
+    const fns = new Set([...inner.callees, ...roots.filter((r) => sc.functions.has(r.name)).map((r) => r.name)]);
+    for (const name of fns) for (const r of returnsOf(name)) if (take(r)) grew = true;
     return grew;
   };
 
@@ -1709,12 +1867,13 @@ function viewOf(src: string): FileView {
   const code = maskCode(src);
   const sc = buildScopes(code);
   const hasForeign = fileTalksAbroad(src);
-  const edges = buildEdges(code, sc);
+  const links: Link[] = [];
+  const edges = buildEdges(code, sc, links);
   const seeds = seedsOf(code, edges, hasForeign);
   return {
     src, code, sc, hasForeign, edges, seeds,
     literals: extractTemplateLiterals(src, code),
-    taints: taintsIn(code, sc, edges, seeds),
+    taints: taintsIn(code, sc, edges, seeds, links),
   };
 }
 
@@ -1742,19 +1901,17 @@ const SERVICE_CONTACT = /\.\s*mchs_phone\b/gi;
 const CONTACT_NAMED = new RegExp(`^(?:[a-z0-9$]+_)*(?:${CONTACT_WORD})s?$`, 'i');
 
 /**
- * Вызов функции файла по имени: `line(…)` или `this.line(…)`, не `obj.line(…)` —
- * чужой объект файлом не описан. Его аргументы идут в параметры ребром.
+ * Отрезки аргументов вызовов функций файла внутри [from, to) — `line(…)`,
+ * `this.line(…)` и `svc.line(…)`: для рода ПД они параметры, а не текст, и
+ * идут в функцию ребром (`buildEdges`).
  */
-const OWN_CALL_BEFORE = /(?:^|[^\w$.])(?:this\s*\??\.\s*)?[A-Za-z_$][\w$]*$/;
-
-/** Отрезки аргументов вызовов функций файла внутри [from, to) — для рода ПД они параметры, а не текст. */
 function ownCallArgRanges(code: string, from: number, to: number, own: ReadonlySet<string>): Array<[number, number]> {
   const out: Array<[number, number]> = [];
   if (own.size === 0) return out;
   const re = /([A-Za-z_$][\w$]*)\s*\(/g;
   re.lastIndex = from;
   for (let m = re.exec(code); m && m.index < to; m = re.exec(code)) {
-    if (!own.has(m[1]) || !OWN_CALL_BEFORE.test(code.slice(Math.max(from, m.index - 40), m.index + m[1].length))) continue;
+    if (!own.has(m[1])) continue;
     const open = m.index + m[0].length - 1;
     out.push([open, open + 1 + argsAfter(code, open).length]);
   }
@@ -1837,11 +1994,13 @@ function sinkFindings(file: string, v: FileView): PIIFinding[] {
     const clean = [...sanitizedRanges(text, from, to, CONTACT_SANITIZERS), ...opaque];
     const visible = blankRanges(text.slice(from, to), from, clean).replace(SERVICE_CONTACT, (m) => ' '.repeat(m.length));
     for (const m of visible.matchAll(CONTACT_FIELD_ALL)) report(from + (m.index ?? 0), member(from + (m.index ?? 0), m[0]), 'contact', seed.context);
+    /** Текст находки: имя или поле (`o.body`). */
+    const shown = (r: Root) => { const f = carrierOf(text, r.at + r.name.length, to, sc.functions)?.field; return f ? `${r.name}.${f}` : r.name; };
     for (const r of rootsAt(text, from, to, CONTACT_SANITIZERS, [], false, own)) {
       if (insideAny(r.at, sc.params)) continue;
       const named = r.name !== 'mchs_phone' && CONTACT_NAMED.test(r.name) && wholeUse(text, r, to);
       const key = carrierKey(text, r, sc, to);
-      if (named || (key !== null && taints.vars.get(key)?.has('contact'))) report(r.at, r.name, 'contact', seed.context);
+      if (named || (key !== null && taints.vars.get(key)?.has('contact'))) report(r.at, shown(r), 'contact', seed.context);
     }
     for (const c of literalsIn(text, seed.span, CONTACT_SANITIZERS, own).callees) {
       if (own.has(c) && taints.fns.get(c)?.has('contact')) report(from, `${c}()`, 'contact', seed.context);
@@ -1854,7 +2013,7 @@ function sinkFindings(file: string, v: FileView): PIIFinding[] {
     for (const r of rootsAt(text, from, to, NO_SANITIZERS, [], false, own)) {
       if (insideAny(r.at, sc.params)) continue;
       const key = carrierKey(text, r, sc, to);
-      if (key !== null && taints.vars.get(key)?.has('name')) report(r.at, r.name, 'name', seed.context);
+      if (key !== null && taints.vars.get(key)?.has('name')) report(r.at, shown(r), 'name', seed.context);
     }
     for (const c of literalsIn(text, seed.span, NO_SANITIZERS, own).callees) {
       if (own.has(c) && taints.fns.get(c)?.has('name')) report(from, `${c}()`, 'name', seed.context);

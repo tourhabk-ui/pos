@@ -993,3 +993,58 @@ describe('D1 — седьмое ревью PR #3104: двери, значени�
     for (const [label, lines] of cases) expect(found(ask(...lines)), label).toEqual([]);
   });
 });
+
+describe('D1 — восьмое ревью PR #3104: объект в аргументе и функция по ссылке', () => {
+  const found = (src: string) => scanSource('r.ts', src).map((x) => [x.kind, x.context, x.expr]);
+  const ask = (...lines: string[]) => ["import { callAIFast } from '@/lib/ai/providers';", ...lines].join('\n');
+  const sink = (expr: string) => `await callAIFast([{ role: 'user', content: ${expr} }]);`;
+
+  it('находка 1: литерал объекта в аргументе функции файла — род у поля параметра', () => {
+    // Дословно сценарий ревьюера.
+    expect(found(ask('function ask(o: { body: string }) {', "  return callAIFast([{ role: 'user', content: o.body }]);", '}',
+      'export const run = (lead: Lead) => ask({ body: lead.phone });'))).toEqual([['contact', 'content', 'o.body']]);
+    // Деструктурированный параметр и объект, собранный в переменную до вызова.
+    expect(found(ask('function ask({ body }: { body: string }) {', "  return callAIFast([{ role: 'user', content: body }]);", '}',
+      'ask({ body: lead.phone });'))).toEqual([['contact', 'content', 'body']]);
+    expect(found(ask('function ask(o: { body: string }) {', "  return callAIFast([{ role: 'user', content: o.body }]);", '}',
+      'const opts = { body: lead.phone };', 'ask(opts);'))).toEqual([['contact', 'content', 'o.body']]);
+    expect(found(ask('function ask({ body }: { body: string }) {', "  return callAIFast([{ role: 'user', content: body }]);", '}',
+      'const opts = { body: lead.phone };', 'ask(opts);'))).toEqual([['contact', 'content', 'body']]);
+  });
+
+  it('находка 2: функция файла по ссылке (`leads.map(line)`) и метод через объект', () => {
+    // Дословно сценарий ревьюера: шаблон внутри функции, отданной по ссылке.
+    expect(found(ask('function line(l: Lead) { return `Тел: ${l.phone}`; }', "const text = leads.map(line).join('\\n');", sink('text'))))
+      .toEqual([['contact', 'выражение', 'l.phone']]);
+    // Строка без шаблона — род результата функции; элемент массива — её параметр.
+    expect(found(ask("function line(l: Lead) { return 'Тел: ' + l.phone; }", "const text = leads.map(line).join('\\n');", sink('text'))))
+      .toEqual([['contact', 'content', 'text']]);
+    expect(found(ask('function line(x: Item) { return `Тел: ${x.note}`; }', 'const items = [{ note: lead.phone }];', "const text = items.map(line).join('\\n');", sink('text'))))
+      .toEqual([['contact', 'выражение', 'x.note']]);
+    // Метод файла через чужой объект: и его возврат, и его параметр.
+    expect(found(ask('class S { describe(l: Lead) { return `Тел: ${l.phone}`; } }', 'const svc = new S();', sink('svc.describe(lead)'))))
+      .toEqual([['contact', 'выражение', 'l.phone']]);
+    expect(found(ask('class S { describe(v: string) { return `Тел: ${v}`; } }', 'const svc = new S();', sink('svc.describe(lead.phone)'))))
+      .toEqual([['contact', 'выражение', 'v']]);
+  });
+
+  it('род полей: деструктуризация, push объекта и for…of, массив литералов, псевдоним объекта', () => {
+    const cases: Array<[string, string[], string]> = [
+      ['деструктуризация', ['const o = { body: lead.phone };', 'const { body } = o;', sink('body')], 'body'],
+      ['push и for…of', ['const list: Item[] = [];', 'list.push({ note: lead.phone });', 'for (const it of list) {', '  ' + sink('it.note'), '}'], 'it.note'],
+      ['массив литералов', ['const list = [{ note: lead.phone }];', sink("list.map((x) => x.note).join(' ')")], 'x.note'],
+      ['псевдоним объекта', ['const o = { body: lead.phone };', 'const p = o;', sink('p.body')], 'p.body'],
+    ];
+    for (const [label, lines, expr] of cases) expect(found(ask(...lines)), label).toEqual([['contact', 'content', expr]]);
+  });
+
+  it('узость: соседнее поле не несёт рода; одноимённый метод чужого объекта со строкой не в модель', () => {
+    expect(found(ask('function ask(o: { body: string; tel: string }) {', "  return callAIFast([{ role: 'user', content: o.body }]);", '}',
+      "ask({ body: 'Сводка', tel: lead.phone });"))).toEqual([]);
+    expect(found(ask("const o = { body: 'Сводка', tel: lead.phone };", 'const { body } = o;', sink('body')))).toEqual([]);
+    expect(found(ask('function ask({ body }: { body: string; tel: string }) {', "  return callAIFast([{ role: 'user', content: body }]);", '}',
+      "ask({ body: 'Сводка', tel: lead.phone });"))).toEqual([]);
+    expect(found(ask('function send(text: string) { return callAIFast(text); }', 'await bot.api.send(chatId, `Тел: ${lead.phone}`);',
+      "await send('Сводка без контактов');"))).toEqual([]);
+  });
+});
