@@ -3,7 +3,7 @@ import { NextRequest, NextResponse } from 'next/server';
 import { query } from '@/lib/database';
 import { requireAdmin } from '@/lib/auth/middleware';
 import { uploadToS3, deleteFromS3 } from '@/lib/storage/s3';
-import { preparePhoto, prepareLogo, photoRefusal, UPLOAD_PHOTO_MAX_BYTES, UPLOAD_PHOTO_MAX_MB } from '@/lib/images/upload-photo';
+import { preparePhoto, prepareLogo, photoRefusal, uploadBodyTooLarge, UPLOAD_PHOTO_MAX_BYTES, PHOTO_TOO_LARGE } from '@/lib/images/upload-photo';
 
 export const dynamic = 'force-dynamic';
 
@@ -30,7 +30,13 @@ export async function POST(
 
     const { id } = await params;
 
-    const formData = await request.formData();
+    let formData: FormData;
+    try {
+      formData = await request.formData();
+    } catch {
+      if (uploadBodyTooLarge(request)) return NextResponse.json({ success: false, error: PHOTO_TOO_LARGE }, { status: 413 });
+      return NextResponse.json({ success: false, error: 'Неверный формат запроса' }, { status: 400 });
+    }
     const file = formData.get('file');
     const type = formData.get('type');
 
@@ -44,7 +50,7 @@ export async function POST(
       return NextResponse.json({ success: false, error: 'Формат не поддерживается. Используйте JPEG, PNG или WebP' }, { status: 400 });
     }
     if (file.size > MAX_SIZE) {
-      return NextResponse.json({ success: false, error: `Файл слишком большой (максимум ${UPLOAD_PHOTO_MAX_MB} МБ)` }, { status: 400 });
+      return NextResponse.json({ success: false, error: PHOTO_TOO_LARGE }, { status: 400 });
     }
 
     // Verify partner exists and get current image URLs for cleanup

@@ -15,7 +15,7 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { requireRole } from '@/lib/auth/middleware';
 import { isS3Configured, uploadToS3 } from '@/lib/storage/s3';
-import { preparePhoto, photoRefusal, UPLOAD_PHOTO_MAX_BYTES, UPLOAD_PHOTO_MAX_MB } from '@/lib/images/upload-photo';
+import { preparePhoto, photoRefusal, uploadBodyTooLarge, UPLOAD_PHOTO_MAX_BYTES, PHOTO_TOO_LARGE } from '@/lib/images/upload-photo';
 import path from 'path';
 import fs from 'fs/promises';
 import crypto from 'crypto';
@@ -33,6 +33,7 @@ export async function POST(request: NextRequest) {
   try {
     formData = await request.formData();
   } catch {
+    if (uploadBodyTooLarge(request)) return NextResponse.json({ error: PHOTO_TOO_LARGE }, { status: 413 });
     return NextResponse.json({ error: 'Неверный формат запроса' }, { status: 400 });
   }
 
@@ -46,7 +47,7 @@ export async function POST(request: NextRequest) {
   }
 
   if (file.size > MAX_SIZE) {
-    return NextResponse.json({ error: `Файл слишком большой (макс. ${UPLOAD_PHOTO_MAX_MB} МБ)` }, { status: 400 });
+    return NextResponse.json({ error: PHOTO_TOO_LARGE }, { status: 400 });
   }
 
   // Без S3 на проде фото легло бы в файловую систему контейнера и молча

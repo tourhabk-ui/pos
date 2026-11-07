@@ -1,7 +1,7 @@
 'use client';
 
 import { TOUR_DESCRIPTION_MAX } from '@/lib/tours/text-limits';
-import { PHOTO_UPLOAD_HINT, UPLOAD_PHOTO_MAX_MB } from '@/lib/images/upload-limits';
+import { PHOTO_UPLOAD_HINT, PHOTO_TOO_LARGE, UPLOAD_PHOTO_MAX_MB, photoTooLarge } from '@/lib/images/upload-limits';
 import React, { useState, useEffect, useRef } from 'react';
 import { X, AlertCircle, Upload, Loader2 } from 'lucide-react';
 import { TourFormData } from '@/types/operator';
@@ -118,6 +118,11 @@ export function TourForm({ initialData, onSubmit, onCancel, isEdit = false }: To
   async function handleImageUpload(e: React.ChangeEvent<HTMLInputElement>) {
     const file = e.target.files?.[0];
     if (!file) return;
+    if (photoTooLarge(file.size)) {
+      setUploadError(PHOTO_TOO_LARGE);
+      if (fileInputRef.current) fileInputRef.current.value = '';
+      return;
+    }
     setUploading(true);
     setUploadError('');
     const fd = new FormData();

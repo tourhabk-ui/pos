@@ -21,6 +21,7 @@
 
 import { useRef, useState } from 'react';
 import { PenLine, Star, Check, Camera, X, Loader2 } from 'lucide-react';
+import { PHOTO_TOO_LARGE, photoTooLarge } from '@/lib/images/upload-limits';
 
 type State = 'idle' | 'form' | 'sending' | 'sent';
 
@@ -36,6 +37,11 @@ export default function TourReviewForm({ tourId }: { tourId: string | number }) 
   const fileRef = useRef<HTMLInputElement>(null);
 
   async function uploadPhoto(file: File) {
+    if (photoTooLarge(file.size)) {
+      setError(PHOTO_TOO_LARGE);
+      if (fileRef.current) fileRef.current.value = '';
+      return;
+    }
     setUploading(true);
     setError(null);
     try {

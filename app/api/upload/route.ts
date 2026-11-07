@@ -6,7 +6,7 @@ import { ApiResponse } from '@/types';
 import { requireAuth } from '@/lib/auth/middleware';
 import { isS3Configured, uploadToS3 } from '@/lib/storage/s3';
 import { sniffImage } from '@/lib/storage/image-sniff';
-import { preparePhoto, photoRefusal, UPLOAD_PHOTO_MAX_BYTES, UPLOAD_PHOTO_MAX_MB } from '@/lib/images/upload-photo';
+import { preparePhoto, photoRefusal, uploadBodyTooLarge, UPLOAD_PHOTO_MAX_BYTES, PHOTO_TOO_LARGE } from '@/lib/images/upload-photo';
 
 export const dynamic = 'force-dynamic';
 
@@ -52,6 +52,12 @@ export async function POST(request: NextRequest) {
   try {
     formData = await request.formData();
   } catch {
+    if (uploadBodyTooLarge(request)) {
+      return NextResponse.json({
+        success: false,
+        error: PHOTO_TOO_LARGE,
+      } as ApiResponse<null>, { status: 413 });
+    }
     return NextResponse.json({ success: false, error: 'Неверный формат запроса' } as ApiResponse<null>, { status: 400 });
   }
 
@@ -70,7 +76,7 @@ export async function POST(request: NextRequest) {
     if (file.size > MAX_SIZE) {
       return NextResponse.json({
         success: false,
-        error: `Файл «${file.name}» слишком большой (максимум ${UPLOAD_PHOTO_MAX_MB} МБ)`
+        error: `«${file.name}»: ${PHOTO_TOO_LARGE}`
       } as ApiResponse<null>, { status: 400 });
     }
     const buffer = Buffer.from(await file.arrayBuffer());

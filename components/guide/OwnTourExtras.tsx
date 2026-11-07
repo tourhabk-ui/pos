@@ -17,7 +17,7 @@ import type { TourProgramStep } from '@/lib/tours/tour-write';
 import { MEDIA_CACHE_CONTROL } from '@/lib/storage/media-cache';
 import { mp4VideoCodec, codecAdvice, HOW_TO_H264 } from '@/lib/media/mp4-codec';
 import { MAX_TOUR_CLIPS } from '@/lib/tours/clip-limit';
-import { PHOTO_UPLOAD_HINT } from '@/lib/images/upload-limits';
+import { PHOTO_UPLOAD_HINT, PHOTO_TOO_LARGE, photoTooLarge } from '@/lib/images/upload-limits';
 
 /** Сколько фото у тура — как у сервера (OWN_TOUR_PHOTOS_MAX). */
 export const PHOTOS_MAX = 20;
@@ -148,6 +148,7 @@ export function ListField({ idBase, field, value, onChange }: {
 
 /** Загрузка одного снимка: адрес из ответа или слова отказа сервера. */
 async function uploadPhoto(file: File): Promise<{ url: string } | { error: string }> {
+  if (photoTooLarge(file.size)) return { error: PHOTO_TOO_LARGE };
   try {
     const form = new FormData();
     form.append('file', file);

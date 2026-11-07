@@ -37,6 +37,7 @@
  * Сторож: tests/unit/upload-photo-prepare.test.ts.
  */
 import sharp from 'sharp';
+import { UPLOAD_PHOTO_MAX_BYTES } from '@/lib/images/upload-limits';
 
 /** Длинная сторона снимка, точек. */
 export const PHOTO_MAX_SIDE = 2048;
@@ -44,7 +45,7 @@ export const PHOTO_MAX_SIDE = 2048;
 export const PHOTO_QUALITY = 85;
 /** Длинная сторона логотипа, точек: на сайте он не крупнее пары сотен. */
 export const LOGO_MAX_SIDE = 1024;
-export { UPLOAD_PHOTO_MAX_BYTES, UPLOAD_PHOTO_MAX_MB, PHOTO_UPLOAD_HINT } from '@/lib/images/upload-limits';
+export { UPLOAD_PHOTO_MAX_BYTES, UPLOAD_PHOTO_MAX_MB, PHOTO_UPLOAD_HINT, PHOTO_TOO_LARGE } from '@/lib/images/upload-limits';
 
 export type PreparedImage =
   | { ok: true; buf: Buffer; width: number; height: number; mime: 'image/jpeg' | 'image/png'; ext: 'jpg' | 'png' }
@@ -111,6 +112,19 @@ export function looksLikeHeic(type: string, name: string): boolean {
 export const HOW_TO_JPEG =
   'Сохраните фото как JPEG и загрузите снова. '
   + 'На iPhone для новых снимков: Настройки → Камера → Форматы → «Наиболее совместимый».';
+
+/**
+ * Форма не разобралась, а тело запроса больше предела снимка: значит, Next
+ * отдал роуту только начало тела (experimental.middlewareClientMaxBodySize в
+ * next.config.js), и правдивый отказ — «файл слишком большой», а не
+ * «неверный формат». Длину называет заголовок Content-Length; его нет —
+ * размер неизвестен, и вывод не делается.
+ */
+export function uploadBodyTooLarge(request: Request): boolean {
+  // Нет заголовка или он пуст — Number даёт 0, не число — NaN: вывода нет.
+  const n = Number(request.headers.get('content-length'));
+  return Number.isFinite(n) && n > UPLOAD_PHOTO_MAX_BYTES;
+}
 
 /** Отказ словами, когда файл не разобрался. */
 export function photoRefusal(type: string, name: string): string {
