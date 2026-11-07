@@ -2,6 +2,14 @@
  * lib/agents/sdk/tourist-tools.ts
  *
  * SDK-инструменты для conversational booking.
+ *
+ * НЕ ПОДКЛЮЧЕНЫ с 07.11 (аудит планировщика, K5). Единственный вызывающий —
+ * ветка агента брони вошедшего туриста в /api/ai/chat — снята: раннер ходил
+ * прямо в OpenRouter, с прода это гео-блок, и турист секунды ждал отказа.
+ * Туристу отвечает цикл Кузьмича (lib/kuzmich/core) с его инструментами.
+ * Модуль и его сторожа остались до решения: удалить их вместе (с ними —
+ * compose_trip и lib/planner/compose, у которого других вызывающих нет) или
+ * подключить к циклу Кузьмича то, чего у него нет (get_user_trips).
  * Все SQL-запросы соответствуют реальной схеме БД:
  *   operator_tours: difficulty, location_name, max_participants, min_participants, multi_day_count
  *   operator_bookings: operator_tour_id, participants, final_price, tourist_email (нет user_id)

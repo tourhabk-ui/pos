@@ -22,16 +22,19 @@ export type AnswerSurface = 'web' | 'web-stream' | 'telegram' | 'max' | 'widget'
 
 /**
  * Каким путём произведён ответ: цикл инструментов, запасной водопад после
- * него, агент брони веб-чата, одиночный вызов модели (виджет, запасной путь
- * веб-чата).
+ * него, одиночный вызов модели (виджет, запасной путь веб-чата).
+ *
+ * Пути `sdk` (агент брони веб-чата) с 07.11 нет: ветка снята (аудит
+ * планировщика, K5). Старые строки журнала с ним перепись
+ * (kuzmich-load-census) читает строкой и показывает как есть.
  */
-export type AnswerPath = 'tools' | 'waterfall' | 'sdk' | 'single';
+export type AnswerPath = 'tools' | 'waterfall' | 'single';
 
 export interface KuzmichAnswerRecord {
   surface: AnswerSurface;
   /** От входа в цикл (или в вызов модели там, где цикла нет) до готового ответа, мс. */
   elapsedMs: number;
-  /** Ходы модели. null — путь их не считает (агент брони), «не записано» ≠ 0. */
+  /** Ходы модели. null — путь их не считает, «не записано» ≠ 0. */
   turns: number | null;
   /** Раунды инструментов. null — как у `turns`. */
   toolRounds: number | null;

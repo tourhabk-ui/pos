@@ -147,19 +147,6 @@ function asksTourOffer(text: string): boolean {
   return false;
 }
 
-/**
- * «Хочу тур …» у вошедшего туриста ведёт агент брони с инструментами.
- * Список «какие / списком / с ценами» и «что посмотреть» — нет: их пишет
- * сборщик витрины, иначе карточки снова расходятся с текстом.
- */
-export function bookingAgentOwns(text: string): boolean {
-  if (isCarRentalAsk(text) || isSightseeingQuestion(text)) return false;
-  const t = norm(text);
-  if (/списком|с ценами|какие\s|подобрать/.test(t)) return false;
-  if (!/хочу|заброн|запис|брон/.test(t)) return false;
-  return /(?<![а-яе])тур(?!ист)|вулкан|экскурс|поход|рыбалк/.test(t);
-}
-
 function asksNewList(text: string): boolean {
   return /какие\s|списком|покажи|нужен|нужна|хочу|где остановиться/.test(norm(text));
 }

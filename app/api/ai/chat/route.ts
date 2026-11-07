@@ -33,17 +33,16 @@ import {
   synthesizeUserNotes,
   addViewedTour,
 } from '@/lib/ai/user-memory';
-import { detectTourIntent, findRelevantTours, isCarRentalAsk, wantsTourCards, type TourSuggestion } from '@/lib/ai/booking-intent';
+import { detectTourIntent, findRelevantTours, wantsTourCards, type TourSuggestion } from '@/lib/ai/booking-intent';
 import { recordEngagementSignal } from '@/lib/kuzmich/engagement';
 import { buildRAGContext, buildGeoContext } from '@/lib/ai/rag-context';
 import { recordTouristDemand } from '@/lib/ai/tourist-demand-aggregator';
 import { runSDKAgent } from '@/lib/agents/sdk/sdk-runner';
-import { getTouristTools } from '@/lib/agents/sdk/tourist-tools';
 import { getOperatorTools } from '@/lib/agents/sdk/operator-tools';
 import { partnerContextFor } from '@/lib/crm/partner-context';
 import { pickChatBookingTour } from '@/lib/ai/chat-booking-tour';
 import { aiChatAgentLoop, KUZMICH_SYSTEM, isAIErrorResponse } from '@/lib/kuzmich/core';
-import { bookingAgentOwns, dropUnsourcedPrices } from '@/lib/kuzmich/answer-quality';
+import { dropUnsourcedPrices } from '@/lib/kuzmich/answer-quality';
 import { resolveCommercialTurn } from '@/lib/kuzmich/commercial-turn';
 import { kamchatkaDateContext } from '@/lib/kuzmich/date-context';
 import type { CatalogTour } from '@/lib/telegram/tourist-tours';
@@ -51,7 +50,6 @@ import { detectEmergency } from '@/lib/safety/sos-detector';
 import { logSwallowedFailure } from '@/lib/observability/swallowed';
 import { gradeKuzmichResponse, fingerprintPrompt } from '@/lib/agents/managed/kuzmich-outcomes';
 import { KUZMICH_TOOLS } from '@/lib/kuzmich/tool-schemas';
-import { redactPII } from '@/lib/security/pii-redact';
 import { newLoopTiming, answerTokens } from '@/lib/kuzmich/answer-ceiling';
 import { answerStall } from '@/lib/kuzmich/loop-stall';
 import { recordKuzmichAnswer } from '@/lib/kuzmich/answer-timing';
@@ -339,7 +337,10 @@ export async function POST(request: NextRequest) {
         // проверить» записано в лог там же.
         const opCtx = await partnerContextFor(userId, 'operator');
         const partnerId = opCtx.outcome === 'ok' ? opCtx.partnerId : null;
-        if (partnerId) {
+        // Модель — из карты агентов (lib/ai/agent-models), без зашитого id в
+        // роуте (аудит 07.11, K5): запасная строка здесь подменяла бы карту молча.
+        const operatorModel = getModelForAgent('operator');
+        if (partnerId && operatorModel) {
           // Seed инвокации — из доверенного контекста запроса (сессия +
           // само сообщение): один пользовательский запрос — один эффект
           // мутации, повтор модели внутри agentic-цикла отбивается ядром.
@@ -359,7 +360,7 @@ export async function POST(request: NextRequest) {
               `Отвечай кратко, с цифрами. Не придумывай данных.`,
             userMessage: message.trim(),
             tools: opTools,
-            model: getModelForAgent('kuzmich') ?? 'openai/gpt-4o-mini',
+            model: operatorModel,
             maxIterations: 4,
           });
           if (sdkResult.response) answer = sdkResult.response;
@@ -370,10 +371,13 @@ export async function POST(request: NextRequest) {
     }
 
     // Тур, трансфер, жильё, прокат и «сколько стоит первый» — из витрины этого
-    // хода, тем же сборщиком, что Telegram и MAX. Модель эти вопросы не пишет.
+    // хода, тем же сборщиком, что Telegram, MAX и /api/ai/chat-stream. Модель
+    // эти вопросы не пишет. Вошедшему туристу — то же, что анониму (аудит
+    // 07.11, K5): до этого «хочу тур …» у вошедшего уходил агенту брони мимо
+    // витрины.
     let commercialTours: CatalogTour[] = [];
     let commercialHit = false;
-    if (!answer && safeRole === 'tourist' && !emergencyNow && !(isAuthenticated && bookingAgentOwns(message.trim()))) {
+    if (!answer && safeRole === 'tourist' && !emergencyNow) {
       const historyText = history
         .filter((message) => message.role === 'assistant')
         .map((message) => message.content)
@@ -390,41 +394,13 @@ export async function POST(request: NextRequest) {
       }
     }
 
-    // Agentic Booking: authenticated tourists with booking/tour intent → SDK tool calling
-    let touristSdkAnswered = false;
-    if (!answer && safeRole === 'tourist' && isAuthenticated && !emergencyNow && !isCarRentalAsk(message.trim())) {
-      const intentResult = detectTourIntent(message.trim());
-      if (intentResult.detected) {
-        try {
-          const tools = getTouristTools(userId);
-          const sdkResult = await runSDKAgent({
-            agentId: 'kuzmich',
-            intent: 'conversational_booking',
-            systemPrompt: systemPrompt +
-              `\n\nТы можешь использовать инструменты для поиска туров, проверки дат и мест. ` +
-              `Когда турист спрашивает о турах — ОБЯЗАТЕЛЬНО используй search_tours. ` +
-              `Когда турист говорит о поездке на несколько дней (7, 10, 14 дней), упоминает бюджет ` +
-              `и несколько активностей — используй compose_trip для составления итинерария. ` +
-              `Триггеры compose_trip: "сколько дней", "планирую поездку", "хочу объединить", ` +
-              `"маршрут на ... дней", "что посмотреть за ... дней", "составь программу". ` +
-              `После compose_trip — опиши итинерарий кратко (тур, даты, цена) и предложи забронировать. ` +
-              `Отвечай конкретно: название, цена, даты. Не придумывай данные.`,
-            // Та же граница ПД, что у цикла Кузьмича (аудит 15.10, W2-5):
-            // инструментам брони телефон туриста не нужен, модели — тем более.
-            userMessage: redactPII(message.trim()),
-            tools,
-            model: getModelForAgent('kuzmich') ?? 'openai/gpt-4o-mini',
-            maxIterations: 4,
-          });
-          if (sdkResult.response) {
-            answer = sdkResult.response;
-            touristSdkAnswered = true;
-          }
-        } catch (err) {
-          logSwallowedFailure('ai-chat', 'агент бронирования с инструментами', err);
-        }
-      }
-    }
+    // Агента брони с инструментами для вошедшего туриста здесь больше нет
+    // (аудит планировщика 07.11, K5). Он ходил прямо в OpenRouter, а с прода
+    // это гео-блок: каждый такой вопрос стоил секунд ожидания и строки в логе,
+    // и отвечал всё равно цикл ниже. Ответь он — это был бы план без занятости
+    // и дат, с бюджетом по умолчанию и без сверки цен. Вошедший турист идёт
+    // тем же путём, что аноним и /api/ai/chat-stream: витрина, затем цикл
+    // Кузьмича с его инструментами и границей ПД.
 
     // Кузьмич-мозг (lib/kuzmich/core.ts) для туристов — ВКЛЮЧАЯ анонимов.
     // Тот же agent loop, что у Telegram/MAX: обязательный safety-тул
@@ -451,7 +427,7 @@ export async function POST(request: NextRequest) {
     // Ответ модели до поправок сторожей и SOS-блока — его и оценивает грейдер,
     // как в Telegram и MAX: иначе он судил бы нашу вставку, а не модель.
     const modelAnswer = commercialHit ? '' : answer;
-    if (!commercialHit && answer && !touristSdkAnswered) {
+    if (!commercialHit && answer) {
       const priceSource = (loopAnswered ? webToolRuns : [])
         .filter((run) => run.producedData && run.output)
         .map((run) => run.output)
@@ -538,7 +514,7 @@ export async function POST(request: NextRequest) {
     // Один выход ответа (аудит 15.10, 1.14): расстояния → безопасность →
     // доставка → блок 112, как в Telegram и MAX (lib/kuzmich/answer-guards).
     // Правим ответ модели, а не собственную вставку. Ответ не из цикла
-    // инструментов (SDK, одиночный вызов) сверять не с чем — null. Блок 112
+    // инструментов (одиночный вызов) сверять не с чем — null. Блок 112
     // ставится и к фолбэк-ошибке: человеку в беде он нужнее всего, когда
     // конвейер лежит. Километраж — против данных хода: вывода инструментов и
     // контекста, положенного в промпт.
@@ -555,13 +531,12 @@ export async function POST(request: NextRequest) {
     if (chatRequestText) answer = chatRequestText;
 
     if (safeRole === 'tourist') {
-      // Агент брони ходов не считает — null («не записано»), а не ноль.
       void recordKuzmichAnswer({
         surface: 'web',
         elapsedMs: Date.now() - answerStartedAt,
-        turns: touristSdkAnswered ? null : webTiming.turns,
-        toolRounds: touristSdkAnswered ? null : webTiming.toolRounds,
-        path: loopAnswered ? 'tools' : touristSdkAnswered ? 'sdk' : 'single',
+        turns: webTiming.turns,
+        toolRounds: webTiming.toolRounds,
+        path: loopAnswered ? 'tools' : 'single',
         provider: loopAnswered ? (webProvenance.provider ?? null) : null,
         ceilingHit: webTiming.ceilingHit,
         // Расход цикла — и когда ответил запасной путь: ходы уже оплачены. Сам
@@ -577,12 +552,11 @@ export async function POST(request: NextRequest) {
     // до этого веб-ответы не оценивались вовсе, и «Кузьмич на сайте» был
     // неизмерим. Оцениваются все содержательные вопросы; потолок в сутки,
     // чистка ПД и хэш сессии — внутри грейдера. Журнал инструментов есть
-    // только у цикла Кузьмича: у одиночного вызова инструментов не было ([]),
-    // агент брони журнала не ведёт (undefined — «не проверено», не «заземлено»).
+    // только у цикла Кузьмича: у одиночного вызова инструментов не было ([]).
     if (safeRole === 'tourist' && !commercialHit) {
       void gradeKuzmichResponse(rawMessage, modelAnswer, storableSessionId, {
         surface: 'web',
-        toolRuns: loopAnswered ? webToolRuns : touristSdkAnswered ? undefined : [],
+        toolRuns: loopAnswered ? webToolRuns : [],
         promptFingerprint: loopAnswered ? fingerprintPrompt(KUZMICH_SYSTEM) : undefined,
         provider: loopAnswered ? (webProvenance.provider ?? null) : null,
         answerPath: loopAnswered ? 'tools' : null,

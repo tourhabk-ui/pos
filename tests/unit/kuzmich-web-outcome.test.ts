@@ -147,20 +147,20 @@ describe('веб-чат отдаёт исход ответа грейдеру', 
   });
 });
 
-describe('агент брони на сайте — та же граница ПД', () => {
-  it('в модель уходит вопрос без телефона; журнала у агента нет — заземление «не проверено»', async () => {
+describe('вошедший турист с намерением тура — тот же цикл Кузьмича (аудит 07.11, K5)', () => {
+  it('агента брони нет: отвечает цикл с журналом инструментов, грейдер видит заземление', async () => {
     getUserFromRequestMock.mockResolvedValue({ userId: 'u-1', role: 'tourist' });
     detectTourIntentMock.mockReturnValue({ detected: true, activityType: 'volcano', rawWords: ['тур'] });
-    runSDKAgentMock.mockResolvedValue({ response: 'Нашёл тур на Авачинский: 9000 ₽, 15 июля.' });
 
-    await POST(postReq({ message: 'Хочу тур на вулкан 15 июля, мой телефон +7 914 123-45-67' }));
+    // Намерение тура есть (детектор подменён), а витрина такой вопрос не берёт:
+    // раньше он уходил агенту брони прямо в OpenRouter (гео-блок с прода).
+    await POST(postReq({ message: 'Когда лучше идти на Авачинский вулкан? Мой телефон +7 914 123-45-67' }));
 
-    expect(runSDKAgentMock).toHaveBeenCalledTimes(1);
-    const { userMessage } = runSDKAgentMock.mock.calls[0]![0] as { userMessage: string };
-    expect(userMessage).toContain('[телефон]');
-    expect(userMessage.replace(/\D/g, '')).not.toContain('9141234567');
-
+    expect(runSDKAgentMock).not.toHaveBeenCalled();
+    // Граница ПД — у цикла (redactUserTurns в lib/kuzmich/core), как у анонима.
+    expect(aiChatAgentLoopMock).toHaveBeenCalledTimes(1);
     const opts = gradeMock.mock.calls[0]![3] as Record<string, unknown>;
-    expect(opts.toolRuns).toBeUndefined();
+    expect(opts).toMatchObject({ answerPath: 'tools' });
+    expect((opts.toolRuns as Array<{ name: string }>).map((r) => r.name)).toEqual(['get_guardian_context']);
   });
 });

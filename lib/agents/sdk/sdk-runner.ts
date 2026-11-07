@@ -42,7 +42,12 @@ export interface SDKRunnerConfig {
   systemPrompt:  string;
   userMessage:   string;
   tools:         SDKTool[];
-  model?:        string;
+  /**
+   * Модель — из карты агентов (lib/ai/agent-models) у вызывающего. Своей
+   * строки по умолчанию здесь нет (аудит 07.11, K5): зашитый id молча
+   * подменял бы карту.
+   */
+  model:         string;
   maxIterations?: number;
   experimentId?: string;
 }
@@ -87,7 +92,7 @@ interface ORResponse {
 export async function runSDKAgent(config: SDKRunnerConfig): Promise<SDKRunResult> {
   const {
     agentId, intent, systemPrompt, userMessage, tools,
-    model = 'anthropic/claude-sonnet-4-6',
+    model,
     maxIterations = 8,
     experimentId,
   } = config;

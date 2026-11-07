@@ -34,8 +34,9 @@ describe('при ЧП пути продажи закрыты', () => {
     expect(chat).toMatch(/const emergencyNow = detectEmergency\(rawMessage\)\.detected/);
   });
 
-  it('агент бронирования не запускается при ЧП', () => {
-    expect(chat).toMatch(/if \(!answer && safeRole === 'tourist' && isAuthenticated && !emergencyNow && !isCarRentalAsk\(message\.trim\(\)\)\)/);
+  it('витрина при ЧП не отвечает; агента брони в веб-чате нет вовсе (аудит 07.11, K5)', () => {
+    expect(chat).toMatch(/if \(!answer && safeRole === 'tourist' && !emergencyNow\) \{\n\s*const historyText/);
+    expect(chat).not.toMatch(/getTouristTools|conversational_booking/);
   });
 
   it('карточки туров (и форма брони из них) не показываются при ЧП', () => {

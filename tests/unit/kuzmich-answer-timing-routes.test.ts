@@ -180,13 +180,16 @@ describe('веб-чат /api/ai/chat', () => {
     expect(records()[0]!.provider).toBeNull();
   });
 
-  it('агент брони ходов не считает — turns null («не записано»), а не ноль', async () => {
+  it('вошедший турист с намерением тура — путь цикла, а не агента брони (аудит 07.11, K5)', async () => {
     m.user.mockResolvedValue({ userId: 'u-1', role: 'tourist' });
     m.intent.mockReturnValue({ detected: true, activityType: 'volcano', rawWords: ['тур'] });
-    m.sdk.mockImplementation(async () => { m.clock.now += 8_000; return { response: 'Нашёл тур.' }; });
-    await web({ message: 'Хочу тур на вулкан 15 июля' });
-    expect(m.loop).not.toHaveBeenCalled();
-    expect(records()[0]!.meta).toMatchObject({ surface: 'web', path: 'sdk', elapsed_ms: 8_000, turns: null, tool_rounds: null });
+    loopTakes(4_000, 'Ответ цикла.', { turns: 2, toolRounds: 1 });
+    // Намерение тура есть (детектор подменён), витрина вопрос не берёт.
+    await web({ message: 'Когда лучше идти на Авачинский вулкан?' });
+    expect(m.sdk).not.toHaveBeenCalled();
+    expect(m.loop).toHaveBeenCalledTimes(1);
+    // Ходы цикла записаны, а не null «агент брони их не считает».
+    expect(records()[0]!.meta).toMatchObject({ surface: 'web', path: 'tools', turns: 2, tool_rounds: 1 });
   });
 
   it('не турист (гид) — это не ответ Кузьмича туристу, замер не пишется', async () => {
