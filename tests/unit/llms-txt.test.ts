@@ -72,7 +72,11 @@ describe('/llms.txt — актуально и честно', () => {
     expect(word, `нет слова для ${WRITE_TOOL_NAMES.size}`).toBeDefined();
     expect(text).toContain(`Заявки — те же ${word}`);
     expect(text).toContain(`запись — те же ${word}`);
-    for (const other of Object.values(COUNT_WORDS).filter((w) => w !== word)) expect(text).not.toMatch(new RegExp(`те же ${other}\\b`));
+    // Граница слова — явной кириллицей: `\b` без флага `u` знает только
+    // латиницу, и «те же пять » не совпадало никогда (ревью PR #3130).
+    for (const other of Object.values(COUNT_WORDS).filter((w) => w !== word)) {
+      expect(text, other).not.toMatch(new RegExp(`те же ${other}(?![а-яё])`, 'i'));
+    }
     expect(text).toMatch(/notify_url/);
     expect(text).toMatch(/Standard Webhooks/);
     expect(text).toMatch(/requested_date/);
