@@ -21,6 +21,7 @@ import { adminMenu, adminMenuHelp } from '@/lib/roles/role-menu';
 import { roleMenuScreen } from '@/lib/roles/role-screen';
 import { menuRows, type MenuButton } from '@/lib/roles/chat-menu';
 import { adminCommandOf } from '@/lib/max/admin-read';
+import { isAdminPostText } from '@/lib/max/admin-post';
 import { partnerLinkArgFromText } from '@/lib/partners/channel-link';
 import {
   ADMIN_TG_TEXT,
@@ -41,10 +42,14 @@ const TEXT_ONLY =
 
 type Reply = (text: string, buttons?: MenuButton[][]) => Promise<void>;
 
+/** «пост …» в Telegram: публикация с «Да» живёт в MAX администратора (фаза 2г). */
+const TELEGRAM_POST_IN_MAX =
+  'Пост в канал публикую из MAX администратора: там покажу, как он выйдет, и спрошу «Да». Здесь, в Telegram, ничего не опубликовано.';
+
 export function telegramAdminHello(name: string | null): string {
   const who = `Вы подключены как администратор Ведара${name ? `, ${escapeHtml(name)}` : ''}. `
     + 'Права проверяются на каждом сообщении.';
-  return `${who}\n\n${adminMenuHelp()}`;
+  return `${who}\n\n${adminMenuHelp('telegram')}`;
 }
 
 /**
@@ -97,13 +102,18 @@ async function answerTelegramAdmin(opts: {
     await opts.reply(telegramAdminHello(opts.name), menuRows(adminMenu()));
     return;
   }
+  // Раньше команд: в тексте поста бывают «даты» и «брони», а решает первое слово.
+  if (isAdminPostText(opts.text)) {
+    await opts.reply(TELEGRAM_POST_IN_MAX, menuRows(adminMenu()));
+    return;
+  }
   const cmd = adminCommandOf(opts.text);
   const action = cmd === 'help' || cmd === 'dates' || cmd === 'bookings' || cmd === 'leads'
     || cmd === 'summary' || cmd === 'health'
     ? cmd
     : null;
   if (!action) {
-    await opts.reply(`Не понял команду.\n\n${adminMenuHelp()}`, menuRows(adminMenu()));
+    await opts.reply(`Не понял команду.\n\n${adminMenuHelp('telegram')}`, menuRows(adminMenu()));
     return;
   }
   const screen = await roleMenuScreen({
@@ -154,7 +164,9 @@ export async function handleTelegramAdminTurn(opts: {
   // Беда — Кузьмичу туриста при любых словах: у администратора нет CRM, и
   // исключение «дело CRM остаётся кабинетом» ему не нужно. Обёртка ниже —
   // страховка на случай, если беду узнает не классификатор, а блок 112.
-  if (!/^\/start\b/i.test(text.trim())
+  // «пост …» — команда консоли при любых словах текста (фаза 2г): пост может
+  // звать в тур, и это текст для канала, а не просьба туриста.
+  if (!/^\/start\b/i.test(text.trim()) && !isAdminPostText(text)
     && boundChatLaneFor('telegram', opts.fromId, text, { admin: true, nowMs: opts.nowMs }) === 'tourist') {
     return 'tourist';
   }

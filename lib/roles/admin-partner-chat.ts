@@ -24,6 +24,7 @@
 import { findPartnerByChat } from '@/lib/kuzmich/operator-chat';
 import { chatActionsEnabledFor } from '@/lib/bookings/chat-owner-press';
 import { adminCommandOf } from '@/lib/max/admin-read';
+import { isAdminPostText } from '@/lib/max/admin-post';
 import { rentalCabinetAsk } from '@/lib/rental/cabinet-bar';
 import { roleMenuAsk } from '@/lib/roles/role-menu';
 import { isNextCommand } from '@/lib/seat-requests/answer-edit';
@@ -83,5 +84,7 @@ export async function adminChatYieldsToPartner(
     if (await awaitsCabinetSearch(chatId)) return true;
   }
   if (partnerCabinetCommand(text, lookup.partner.partnerId)) return true;
-  return adminCommandOf(text) === null;
+  // «пост …» (фаза 2г) консоль понимает своей формой, хотя в тексте поста
+  // может не быть ни одного слова её команд.
+  return adminCommandOf(text) === null && !isAdminPostText(text);
 }

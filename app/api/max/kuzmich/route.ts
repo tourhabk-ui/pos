@@ -1302,7 +1302,12 @@ async function handleUpdate(update: MaxUpdate, opts?: { verifiedOrigin?: boolean
         // «даты», «сводка») классификатор оставляет кабинетом.
         // Беда — Кузьмичу туриста при любых словах: у администратора нет CRM,
         // и исключение «дело CRM остаётся кабинетом» ему не нужно.
-        if (!/^\/start\b/i.test(text.trim()) && boundChatLaneFor('max', chatId, text, { admin: true }) === 'tourist') {
+        // Команда «пост» (фаза 2г) — консоли при любых словах текста: пост
+        // может звать в тур или говорить о беде в крае, и это текст для
+        // канала, а не просьба. Блок 112 ответ консоли несёт всё равно.
+        const { isAdminPostText } = await import('@/lib/max/admin-post');
+        if (!/^\/start\b/i.test(text.trim()) && !isAdminPostText(text)
+          && boundChatLaneFor('max', chatId, text, { admin: true }) === 'tourist') {
           await deliverTouristText({
             chatId, text, userName, userId, verifiedOrigin: opts?.verifiedOrigin, reply: maxReply, replyButtons: maxReplyWithButtons,
           });
@@ -1310,6 +1315,7 @@ async function handleUpdate(update: MaxUpdate, opts?: { verifiedOrigin?: boolean
         }
         await handleAdminMessage({
           text, name: admin.name, chatId, adminUserId: admin.userId,
+          hasMedia: attachments.some((a) => ['image', 'video', 'audio', 'file', 'sticker'].includes(a.type)),
           reply: async (_id, body) => {
             await maxReplyWithButtons(chatId, body, toMaxButtons(menuRows(adminMenu())));
           },

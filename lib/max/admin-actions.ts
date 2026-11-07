@@ -10,6 +10,8 @@
  * Второе (2б, слово владельца 07.11 «да») — даты за оператора фразой, как у
  * оператора: lib/max/admin-dates. Третье (2в, 07.11 «да») — подтверждение
  * брони за оператора, сказавшего «да» по телефону: lib/max/admin-bookings.
+ * Четвёртое (2г) — пост в канал: «пост» и текст, превью и «Да»:
+ * lib/max/admin-post.
  * Вопросы всех родов живут в одной таблице, и живым в чате остаётся
  * последний, какого бы рода он ни был; «Да» и «Не надо» — одни кнопки,
  * исполняет их правило своего рода.
@@ -377,10 +379,10 @@ function storedFromLead(leadId: string, result: LeadChangeResult): StoredOutcome
   return { kind: 'lead_done', lead: leadId, status: result.lead.status, changed: result.changed };
 }
 
-/** Род вопроса этого администратора в этом чате: заявка, даты, бронь; null — такого вопроса нет. */
+/** Род вопроса этого администратора в этом чате: заявка, даты, бронь, пост; null — такого вопроса нет. */
 async function actionKind(
   adminUserId: string, chatId: number, actionId: string,
-): Promise<'lead' | 'tour' | 'booking' | null | 'unavailable'> {
+): Promise<'lead' | 'tour' | 'booking' | 'post' | null | 'unavailable'> {
   try {
     const { rows } = await pool.query<{ subject_kind: string }>(
       `SELECT subject_kind FROM admin_chat_actions
@@ -388,7 +390,7 @@ async function actionKind(
       [actionId, adminUserId, String(chatId)],
     );
     const kind = rows[0]?.subject_kind;
-    return kind === 'lead' || kind === 'tour' || kind === 'booking' ? kind : null;
+    return kind === 'lead' || kind === 'tour' || kind === 'booking' || kind === 'post' ? kind : null;
   } catch (err) {
     logFail('род вопроса', err);
     return 'unavailable';
@@ -402,6 +404,7 @@ async function answer(adminUserId: string, chatId: number, actionId: string, yes
   if (kind === null) return reply(ADMIN_ACTION_TEXT.notFoundAction);
   if (kind === 'tour') return (await import('@/lib/max/admin-dates')).answerDates(adminUserId, chatId, actionId, yes);
   if (kind === 'booking') return (await import('@/lib/max/admin-bookings')).answerBooking(adminUserId, chatId, actionId, yes);
+  if (kind === 'post') return (await import('@/lib/max/admin-post')).answerPost(adminUserId, chatId, actionId, yes);
   if (!yes) {
     try {
       const { rowCount } = await pool.query(

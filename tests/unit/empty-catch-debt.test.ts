@@ -226,7 +226,7 @@ const KNOWN_EMPTY_CATCHES: Record<string, number> = {
   'lib/notifications/manual-channel-post.ts': 6,
   'lib/notifications/operator-booking.ts': 1,
   'lib/notifications/post-validation.ts': 2,
-  'lib/notifications/telegram-channel.ts': 15,
+  'lib/notifications/telegram-channel.ts': 14,
   'lib/notifications/telegram-upload.ts': 1,
   'lib/notifications/telegram.ts': 1,
   'lib/notifications/tour-channel-post.ts': 2,

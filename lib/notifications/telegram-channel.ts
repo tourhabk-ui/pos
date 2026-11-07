@@ -382,7 +382,8 @@ export async function maxChannelPost(
  */
 /**
  * Единственный путь автоматической публикации в оба канала — и единственное
- * место, где текст проверяется целиком.
+ * место, где текст проверяется целиком. Им же идёт пост администратора из MAX
+ * (`postAdminText`, фаза 2г): текст человека проходит те же ворота.
  *
  * `postType` нужен не для красоты: без него отказ ложится в журнал безымянным,
  * и «пост не вышел» нельзя связать с публикатором.
@@ -409,6 +410,13 @@ interface ChannelPost {
    * задан, photoUrl игнорируется; в MAX уходит первый кадр альбома.
    */
   photoUrls?: string[] | null;
+  /**
+   * Ждать ответа MAX и вернуть его исход (`max`). Ставит только пост
+   * администратора из MAX (`postAdminText`, фаза 2г): нажавший «Да» должен
+   * знать, дошло ли в оба канала. Автоматические публикаторы MAX не ждут —
+   * как раньше.
+   */
+  awaitMax?: boolean;
 }
 
 /**
@@ -429,15 +437,36 @@ export interface ChannelPostResult {
   photo: PhotoOutcome;
   /** Почему снимок не ушёл — при `text_only`. */
   photoError?: string;
+  /**
+   * Проверка текста не пропустила — причина без приставки «Публикация
+   * отменена». Тогда не ушло ни в один канал: ни Telegram, ни MAX.
+   */
+  checkRefused?: string;
+  /** Исход MAX — только при `awaitMax` и только если до отправки дошло. */
+  max?: { ok: boolean; error?: string };
+}
+
+/**
+ * Текст каждого канала со ссылкой на другой: Telegram зовёт в MAX, MAX — в
+ * Telegram. Одно правило для всех постов и для превью поста администратора
+ * (lib/max/admin-post): превью показывает ровно то, что уйдёт в Telegram.
+ */
+export function crossLinkedTexts(text: string): { telegram: string; max: string } {
+  const tgLink = process.env.TELEGRAM_CHANNEL_LINK ?? '';
+  const maxLink = process.env.MAX_CHANNEL_LINK ?? '';
+  return {
+    telegram: maxLink ? text + `\n\n<a href="${maxLink}">Мы в MAX</a>` : text,
+    max: tgLink ? text + `\n\n<a href="${tgLink}">Мы в Telegram</a>` : text,
+  };
 }
 
 async function postToAllChannels(post: ChannelPost): Promise<ChannelPostResult> {
-  const { channelId: mainChannelId, postType, text, photoUrl, fallbackPhotoUrl, photoUrls } = post;
+  const { channelId: mainChannelId, postType, text, photoUrl, fallbackPhotoUrl, photoUrls, awaitMax } = post;
   const issue = blockingTextIssue(text);
   if (issue) {
     const error = `Публикация отменена: ${issue}`;
     console.error('[postToAllChannels]', error, `| текст: ${JSON.stringify(text.slice(0, 120))}`);
-    return { ok: false, error, photo: 'none' };
+    return { ok: false, error, photo: 'none', checkRefused: issue };
   }
 
   // Полная проверка текста: качество, запрещённое и ЖИВОСТЬ ВСЕХ ССЫЛОК.
@@ -451,21 +480,11 @@ async function postToAllChannels(post: ChannelPost): Promise<ChannelPostResult> 
     const error = `Публикация отменена: ${validation.errors.join('; ')}`;
     console.error('[postToAllChannels]', postType, error);
     await logValidationFailure(postType, validation);
-    return { ok: false, error, photo: 'none' };
+    return { ok: false, error, photo: 'none', checkRefused: validation.errors.join('; ') };
   }
 
-  const tgLink = process.env.TELEGRAM_CHANNEL_LINK ?? '';
-  const maxLink = process.env.MAX_CHANNEL_LINK ?? '';
-
-  // Текст для TG → добавляем ссылку на MAX
-  const tgText = maxLink
-    ? text + `\n\n<a href="${maxLink}">Мы в MAX</a>`
-    : text;
-
-  // Текст для MAX → добавляем ссылку на TG
-  const maxText = tgLink
-    ? text + `\n\n<a href="${tgLink}">Мы в Telegram</a>`
-    : text;
+  // Telegram — со ссылкой на MAX, MAX — со ссылкой на Telegram.
+  const { telegram: tgText, max: maxText } = crossLinkedTexts(text);
 
   // 1. Основной TG-канал. Альбом настоящих фото (photoUrls) — приоритетный
   // путь: sendMediaGroup со своей честной деградацией (альбом → одно фото →
@@ -476,10 +495,18 @@ async function postToAllChannels(post: ChannelPost): Promise<ChannelPostResult> 
       ? await tgPostPhoto(mainChannelId, photoUrl, tgText, undefined, fallbackPhotoUrl)
       : await tgPost(mainChannelId, tgText);
 
-  // 2. MAX канал (fire-and-forget); альбом MAX не умеет — уходит первый кадр
-  maxChannelPost(maxText, photoUrls?.[0] ?? photoUrl).then(r => {
+  // 2. MAX канал; альбом MAX не умеет — уходит первый кадр. Автоматические
+  // публикаторы ответа не ждут; пост администратора (awaitMax) ждёт, чтобы
+  // назвать исход человеку.
+  const maxSent = maxChannelPost(maxText, photoUrls?.[0] ?? photoUrl).then((r) => {
     if (!r.ok) console.error('[postToAllChannels] MAX channel error:', r.error);
-  }).catch(() => {});
+    return r;
+  }, (e: unknown) => {
+    const error = e instanceof Error ? e.message : 'MAX fetch error';
+    console.error('[postToAllChannels] MAX channel error:', error);
+    return { ok: false, error };
+  });
+  const max = awaitMax ? await maxSent : undefined;
 
   // Исход ФОТО отделён от исхода публикации: пост мог уйти, а снимок — нет,
   // и раньше эти два случая были неразличимы снаружи.
@@ -491,6 +518,44 @@ async function postToAllChannels(post: ChannelPost): Promise<ChannelPostResult> 
     ...(mainResult.error ? { error: mainResult.error } : {}),
     photo,
     ...(photo === 'text_only' && mainResult.error ? { photoError: mainResult.error } : {}),
+    ...(max ? { max } : {}),
+  };
+}
+
+/** Каналы поста администратора: настроены ли они на сервере — для превью до «Да». */
+export function adminPostChannels(): { telegram: boolean; max: boolean } {
+  return {
+    telegram: Boolean(process.env.TELEGRAM_CHANNEL_ID && process.env.TELEGRAM_BOT_TOKEN),
+    max: Boolean(process.env.MAX_BOT_TOKEN && process.env.MAX_CHANNEL_ID),
+  };
+}
+
+/** Исход канала: ушло или нет и почему. */
+export type ChannelMark = { ok: true } | { ok: false; error: string };
+
+export type AdminPostResult =
+  /** Telegram-канал не настроен на сервере: не отправлено никуда. */
+  | { kind: 'not_configured' }
+  /** Проверка текста не пропустила: не отправлено никуда. */
+  | { kind: 'refused'; reason: string }
+  /** Дошло до отправки: исход по каждому каналу. */
+  | { kind: 'sent'; telegram: ChannelMark; max: ChannelMark };
+
+/**
+ * Пост администратора из MAX (фаза 2г, lib/max/admin-post): текст человека
+ * слово в слово — без модели и без подписи «написал ИИ». Идёт тем же
+ * единственным путём, что автоматические посты: проверка текста и ссылок,
+ * Telegram, затем MAX — и ответа MAX ждёт, чтобы назвать исход человеку.
+ */
+export async function postAdminText(html: string): Promise<AdminPostResult> {
+  const channelId = process.env.TELEGRAM_CHANNEL_ID;
+  if (!channelId || !process.env.TELEGRAM_BOT_TOKEN) return { kind: 'not_configured' };
+  const r = await postToAllChannels({ channelId, postType: 'admin_max', text: html, awaitMax: true });
+  if (r.checkRefused !== undefined) return { kind: 'refused', reason: r.checkRefused };
+  return {
+    kind: 'sent',
+    telegram: r.ok ? { ok: true } : { ok: false, error: r.error ?? 'Telegram не ответил' },
+    max: r.max?.ok ? { ok: true } : { ok: false, error: r.max?.error ?? 'MAX не ответил' },
   };
 }
 
