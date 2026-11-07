@@ -53,7 +53,3 @@ CREATE TABLE IF NOT EXISTS admin_chat_actions (
 -- Живой вопрос чата снимается новым: поиск ready по чату администратора.
 CREATE INDEX IF NOT EXISTS idx_admin_chat_actions_live
   ON admin_chat_actions (admin_user_id, chat_id) WHERE status = 'ready';
-
--- Журнал решений по времени — для админки и переписи.
-CREATE INDEX IF NOT EXISTS idx_admin_chat_actions_created
-  ON admin_chat_actions (created_at DESC);
