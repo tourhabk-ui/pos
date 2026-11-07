@@ -1897,7 +1897,10 @@ async function handleUpdate(update: MaxUpdate, opts?: { verifiedOrigin?: boolean
           // Кнопки действий («Заявка N») — следом и без ПД (lib/max/admin-chat).
           if (screen.buttons?.length) {
             const { ADMIN_CHAT_TEXT } = await import('@/lib/max/admin-chat');
-            await maxReplyWithButtons(messageChatId, ADMIN_CHAT_TEXT.actionsAfterList, toMaxButtons([...screen.buttons, ...menuRows(adminMenu())]));
+            await maxReplyWithButtons(
+              messageChatId, screen.buttonsLabel ?? ADMIN_CHAT_TEXT.actionsAfterList,
+              toMaxButtons([...screen.buttons, ...menuRows(adminMenu())]),
+            );
           }
           return;
         }

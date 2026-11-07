@@ -33,6 +33,8 @@ export interface RoleScreen {
   pd: boolean;
   /** Кнопки действий над строкой меню; нет поля — кнопок нет. */
   buttons?: MenuButton[][];
+  /** Подпись сообщения с кнопками, ушедшего следом за ответом с ПД (lib/max/admin-read). */
+  buttonsLabel?: string;
 }
 
 const TELEGRAM_PD = 'Контакты туристов в этом списке есть только в MAX. Здесь их не показываю.';

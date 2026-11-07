@@ -8,9 +8,11 @@
  *
  * Первое действие — отметка заявки: «Связался», «Договорились», «Отказ».
  * Второе (2б, слово владельца 07.11 «да») — даты за оператора фразой, как у
- * оператора: lib/max/admin-dates. Вопросы обоих родов живут в одной таблице,
- * и живым в чате остаётся последний, какого бы рода он ни был; «Да» и «Не
- * надо» — одни кнопки, исполняет их правило своего рода.
+ * оператора: lib/max/admin-dates. Третье (2в, 07.11 «да») — подтверждение
+ * брони за оператора, сказавшего «да» по телефону: lib/max/admin-bookings.
+ * Вопросы всех родов живут в одной таблице, и живым в чате остаётся
+ * последний, какого бы рода он ни был; «Да» и «Не надо» — одни кнопки,
+ * исполняет их правило своего рода.
  *
  * ── Шаги ────────────────────────────────────────────────────────────────────
  *
@@ -79,12 +81,17 @@ export type AdminPress =
   | { kind: 'lead'; action: AdminLeadAction; leadId: string }
   | { kind: 'answer'; actionId: string; yes: boolean }
   /** Выбор тура под вопросом о датах (lib/max/admin-dates): индекс кандидата. */
-  | { kind: 'tour_choice'; actionId: string; index: number };
+  | { kind: 'tour_choice'; actionId: string; index: number }
+  /** «Бронь N» под списком «Брони» и «Оператор подтвердил» (lib/max/admin-bookings). */
+  | { kind: 'open_booking'; bookingId: string }
+  | { kind: 'booking_confirm'; bookingId: string };
 
 /** Разбор кнопки `ad:`. null — не наша форма: ничего не выполняется. */
 export function parseAdminPress(payload: string): AdminPress | null {
   const t = /^ad:t:(.+):([0-7])$/.exec(payload);
   if (t) return UUID.test(t[1]) ? { kind: 'tour_choice', actionId: t[1], index: Number(t[2]) } : null;
+  const b = /^ad:([bc]):([1-9][0-9]{0,18})$/.exec(payload);
+  if (b) return b[1] === 'b' ? { kind: 'open_booking', bookingId: b[2] } : { kind: 'booking_confirm', bookingId: b[2] };
   const m = /^ad:([okvlyn]):(.+)$/.exec(payload);
   if (!m || !UUID.test(m[2])) return null;
   const [, code, id] = m;
@@ -103,6 +110,16 @@ export const adminAnswerPayload = (yes: boolean, actionId: string): string =>
 /** Выбор тура кандидатом `index` (0…7) — тоже запись: вопрос становится готовым. 58 байт с хвостом. */
 export const adminTourPayload = (actionId: string, index: number): string =>
   signPayload(`ad:t:${actionId}:${index}`);
+/** «Бронь N» — чтение: карточка брони без ПД. */
+export const adminOpenBookingPayload = (bookingId: string): string => `ad:b:${bookingId}`;
+/** «Оператор подтвердил» — запись: заводит вопрос «Да / Не надо», подписана. */
+export const adminBookingConfirmPayload = (bookingId: string): string => signPayload(`ad:c:${bookingId}`);
+
+/** Кнопки «Бронь 1…N» под списком «Брони»: открыть карточку брони. */
+export function adminBookingOpenButtons(bookingIds: readonly string[]): MenuButton[][] {
+  const row = bookingIds.slice(0, ADMIN_LEAD_BUTTONS).map((id, i) => ({ text: `Бронь ${i + 1}`, payload: adminOpenBookingPayload(id) }));
+  return row.length ? [row] : [];
+}
 
 /** Кнопки «Заявка 1…N» под списком «Заявки»: открыть карточку заявки. */
 export function adminLeadOpenButtons(leadIds: readonly string[]): MenuButton[][] {
@@ -360,8 +377,10 @@ function storedFromLead(leadId: string, result: LeadChangeResult): StoredOutcome
   return { kind: 'lead_done', lead: leadId, status: result.lead.status, changed: result.changed };
 }
 
-/** Род вопроса этого администратора в этом чате: заявка, даты; null — такого вопроса нет. */
-async function actionKind(adminUserId: string, chatId: number, actionId: string): Promise<'lead' | 'tour' | null | 'unavailable'> {
+/** Род вопроса этого администратора в этом чате: заявка, даты, бронь; null — такого вопроса нет. */
+async function actionKind(
+  adminUserId: string, chatId: number, actionId: string,
+): Promise<'lead' | 'tour' | 'booking' | null | 'unavailable'> {
   try {
     const { rows } = await pool.query<{ subject_kind: string }>(
       `SELECT subject_kind FROM admin_chat_actions
@@ -369,7 +388,7 @@ async function actionKind(adminUserId: string, chatId: number, actionId: string)
       [actionId, adminUserId, String(chatId)],
     );
     const kind = rows[0]?.subject_kind;
-    return kind === 'lead' || kind === 'tour' ? kind : null;
+    return kind === 'lead' || kind === 'tour' || kind === 'booking' ? kind : null;
   } catch (err) {
     logFail('род вопроса', err);
     return 'unavailable';
@@ -382,6 +401,7 @@ async function answer(adminUserId: string, chatId: number, actionId: string, yes
   if (kind === 'unavailable') return reply(ADMIN_ACTION_TEXT.unchecked);
   if (kind === null) return reply(ADMIN_ACTION_TEXT.notFoundAction);
   if (kind === 'tour') return (await import('@/lib/max/admin-dates')).answerDates(adminUserId, chatId, actionId, yes);
+  if (kind === 'booking') return (await import('@/lib/max/admin-bookings')).answerBooking(adminUserId, chatId, actionId, yes);
   if (!yes) {
     try {
       const { rowCount } = await pool.query(
@@ -471,6 +491,10 @@ export async function handleAdminPress(input: {
   if (press.kind === 'lead') return askLead(admin.userId, input.chatId, press.action, press.leadId);
   if (press.kind === 'tour_choice') {
     return (await import('@/lib/max/admin-dates')).chooseAdminTour(admin.userId, input.chatId, press.actionId, press.index);
+  }
+  if (press.kind === 'open_booking') return (await import('@/lib/max/admin-bookings')).bookingCardReply(press.bookingId);
+  if (press.kind === 'booking_confirm') {
+    return (await import('@/lib/max/admin-bookings')).askBookingConfirm(admin.userId, input.chatId, press.bookingId);
   }
   return answer(admin.userId, input.chatId, press.actionId, press.yes);
 }
