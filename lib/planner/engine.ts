@@ -44,7 +44,7 @@ import {
 } from '@/lib/planner/intelligence';
 import { lodgingIncluded } from '@/lib/planner/lodging-included';
 import { calculatePriceBreakdown, TOUR_PRICE_HEADROOM, type PriceBreakdown } from '@/lib/planner/estimate';
-import { tourPlanSpan } from '@/lib/planner/tour-span';
+import { tourPlanSpan, tourRoom } from '@/lib/planner/tour-span';
 import { lineUpForDate, offDaysWarning, tourFitsDate, type TourDates } from '@/lib/planner/tour-day-fit';
 import { kamchatkaToday } from '@/lib/seat-requests/core';
 import { tourDurationDays } from '@/lib/bookings/duration';
@@ -1571,10 +1571,14 @@ async function generateDayPlans(
       }
       const span = declaredSpan ?? 1;
 
-      // Тур длиннее, чем дней в этой зоне. НЕ режем: «три дня из
+      // Тур длиннее, чем дней осталось. НЕ режем: «три дня из
       // пятидневного тура» — не продукт, его нельзя купить. Пропускаем и
-      // говорим об этом словами.
-      if (span > block.activeDays) {
+      // говорим об этом словами. Сравнивается с ОСТАТКОМ блока и поездки, а
+      // не с блоком целиком (аудит 07.11, E1): тур на три дня, вставший на
+      // последние два дня блока, резался — третьего дня не было, а цена в
+      // смете оставалась полной.
+      const room = tourRoom({ blockDays: block.activeDays, used, tripDays, departureDays, dayNum });
+      if (span > room) {
         if (realTour) {
           tooLong.add(`${realTour.title} (${span} дн.)`);
           m.tours.splice(m.tours.indexOf(realTour), 1);
@@ -2473,12 +2477,14 @@ export async function recommendTrip(profile: TripProfile, opts: RecommendTripOpt
   // Молчать нельзя именно потому, что ошибка идёт В СТОРОНУ ЗАВЫШЕНИЯ: смета
   // выглядит точной, а турист платит меньше. «Дороже, чем на самом деле» —
   // не безобидная осторожность, по такой смете отказываются от поездки.
-  const unknownLodging = days.filter(d => d.realTour && d.realTour.lodgingIncluded === null);
-  if (unknownLodging.length > 0) {
+  // Туры, а не дни: дни продолжения многодневного тура несут тот же тур, и
+  // двухдневный тур считался бы двумя (аудит 07.11, рядом с E1).
+  const unknownLodging = new Set(days.filter(d => d.realTour && d.realTour.lodgingIncluded === null).map(d => String(d.realTour!.tourId)));
+  if (unknownLodging.size > 0) {
     warnings.push({
       type: 'duration',
       severity: 'important',
-      message: `Состав ${unknownLodging.length === 1 ? 'одного тура' : `${unknownLodging.length} туров`} в плане не заполнен, `
+      message: `Состав ${unknownLodging.size === 1 ? 'одного тура' : `${unknownLodging.size} туров`} в плане не заполнен, `
         + 'поэтому ночёвку по ним посчитали отдельно. Если проживание уже входит в тур, '
         + 'итог в смете завышен — уточните у оператора.',
     });
