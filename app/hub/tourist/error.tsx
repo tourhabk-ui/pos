@@ -1,6 +1,8 @@
 'use client';
 
 import Link from 'next/link';
+import { useBoundaryError } from '@/hooks/use-boundary-error';
+import { ChunkLoadNotice } from '@/components/shared/ChunkLoadNotice';
 
 export default function TouristHubError({
   error,
@@ -9,6 +11,8 @@ export default function TouristHubError({
   error: Error & { digest?: string };
   reset: () => void;
 }) {
+  const { chunk, decision } = useBoundaryError(error);
+  if (chunk) return <ChunkLoadNotice decision={decision} />;
   return (
     <div
       className="min-h-[60vh] flex items-center justify-center p-6"

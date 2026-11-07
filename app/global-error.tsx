@@ -1,7 +1,7 @@
 'use client';
 
-import { useEffect } from 'react';
-import { reportClientError } from '@/lib/client-errors/report';
+import { useBoundaryError } from '@/hooks/use-boundary-error';
+import { CHUNK_TEXT, browserPage, chunkNoticeBody } from '@/lib/client-errors/chunk-load';
 
 export default function GlobalError({
   error,
@@ -10,8 +10,11 @@ export default function GlobalError({
   error: Error & { digest?: string };
   reset: () => void;
 }) {
-  // Падение корневого layout: window-перехватчик уже не живёт, докладывает граница.
-  useEffect(() => { reportClientError('boundary', error); }, [error]);
+  // Падение корневого layout: window-перехватчик уже не живёт, докладывает
+  // граница. Не догрузился кусок кода (06.11: таймаут на layout-чанке) — это
+  // связь, а не «непредвиденная ошибка»: одна автоперезагрузка, честный экран.
+  const { chunk, decision } = useBoundaryError(error);
+  const reloading = chunk && decision === 'reload';
   return (
     <html lang="ru">
       <head>
@@ -39,31 +42,34 @@ export default function GlobalError({
       >
         <div style={{ textAlign: 'center', padding: '2rem' }}>
           <h1 style={{ fontSize: '1.5rem', marginBottom: '0.5rem' }}>
-            Что-то пошло не так
+            {chunk ? CHUNK_TEXT.title : 'Что-то пошло не так'}
           </h1>
-          <p style={{ color: 'var(--text-secondary)', marginBottom: '1.5rem', maxWidth: '400px' }}>
-            Произошла непредвиденная ошибка. Попробуйте обновить страницу.
+          <p role="alert" style={{ color: 'var(--text-secondary)', marginBottom: '1.5rem', maxWidth: '400px' }}>
+            {chunk ? chunkNoticeBody(decision) : 'Произошла непредвиденная ошибка. Попробуйте обновить страницу.'}
           </p>
-          {error.digest && (
+          {!chunk && error.digest && (
             <p style={{ color: 'var(--text-muted)', fontSize: '0.75rem', marginBottom: '1rem' }}>
               Код ошибки: {error.digest}
             </p>
           )}
-          <button
-            onClick={reset}
-            style={{
-              padding: '0.75rem 2rem',
-              backgroundColor: 'var(--accent)',
-              color: '#fff',
-              border: 'none',
-              borderRadius: '0.75rem',
-              fontSize: '1rem',
-              fontWeight: 600,
-              cursor: 'pointer',
-            }}
-          >
-            Попробовать снова
-          </button>
+          {!reloading && (
+            <button
+              type="button"
+              onClick={chunk ? () => browserPage.reload() : reset}
+              style={{
+                padding: '0.75rem 2rem',
+                backgroundColor: 'var(--accent)',
+                color: '#fff',
+                border: 'none',
+                borderRadius: '0.75rem',
+                fontSize: '1rem',
+                fontWeight: 600,
+                cursor: 'pointer',
+              }}
+            >
+              {chunk ? CHUNK_TEXT.button : 'Попробовать снова'}
+            </button>
+          )}
         </div>
       </body>
     </html>
