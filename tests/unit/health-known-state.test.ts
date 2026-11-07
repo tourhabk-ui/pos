@@ -31,7 +31,7 @@
 import { describe, it, expect } from 'vitest';
 import { readFileSync } from 'node:fs';
 import { join } from 'node:path';
-import { isAcceptedOpenRouterGeoBlock, isAcceptedAnthropicFromProd } from '@/lib/ai/providers';
+import { isAcceptedOpenRouterGeoBlock, isAcceptedAnthropicFromProd, isAcceptedQwenQuota } from '@/lib/ai/providers';
 
 const HEALTH = readFileSync(join(process.cwd(), 'app/api/cron/health/route.ts'), 'utf-8');
 const PROVIDERS = readFileSync(join(process.cwd(), 'lib/ai/providers.ts'), 'utf-8');
@@ -106,6 +106,26 @@ describe('Anthropic с прода: принят отказ в доступе, о
   });
   it('health ставит known по этому предикату, а не безусловно', () => {
     expect(HEALTH).toMatch(/level: isAcceptedAnthropicFromProd\(anthropicKeyDiag\) \? 'known' : 'warn'/);
+  });
+});
+
+describe('Qwen: кончилась бесплатная квота при принятом ключе — принято (владелец 07.11)', () => {
+  // «убери этот сторож, я знаю про qwen» — на предупреждение «Qwen (текст,
+  // qwen-plus-2025-01-25) не отвечает: ключ принят на intl, но у модели нет
+  // квоты… снять «Free tier only»». Ответ DashScope того дня — дословно ниже.
+  const QUOTA = '{"error":{"message":"The free quota has been exhausted. To continue accessing the model, please disable the free-tier-only mode.","type":"AllocationQuota.FreeTierOnly","code":"AllocationQuota.FreeTierOnly"}}';
+  it('403 с отказом квоты — принято', () => {
+    expect(isAcceptedQwenQuota({ http_status: 403, detail: QUOTA })).toBe(true);
+  });
+  it('отвергнутый ключ, долг, сеть, 5xx, несобранная диагностика — новость (зрение)', () => {
+    expect(isAcceptedQwenQuota({ http_status: 401, detail: '{"code":"InvalidApiKey","message":"Invalid API-key provided."}' })).toBe(false);
+    expect(isAcceptedQwenQuota({ http_status: 403, detail: '{"code":"Arrearage","message":"Access denied, please make sure your account is in good standing."}' })).toBe(false);
+    expect(isAcceptedQwenQuota({ http_status: null, detail: 'fetch failed' })).toBe(false);
+    expect(isAcceptedQwenQuota({ http_status: 500, detail: QUOTA })).toBe(false);
+    expect(isAcceptedQwenQuota(null)).toBe(false);
+  });
+  it('health ставит known по этому предикату, а не безусловно', () => {
+    expect(HEALTH).toMatch(/level: isAcceptedQwenQuota\(qwenKeyDiag\) \? 'known' : 'warn'/);
   });
 });
 
