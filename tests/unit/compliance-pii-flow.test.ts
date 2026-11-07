@@ -1225,10 +1225,11 @@ describe('D1 — двенадцатое ревью PR #3104: род колонк
       .toEqual([['contact', 'prompt', 'JSON.stringify(rows)']]);
     expect(found(ask("const [row] = await query('SELECT name FROM leads WHERE id = $1', [id]);", sink('JSON.stringify(row)'))))
       .toEqual([['name', 'content', 'row']]);
-    expect(found(ask("const lead = (await pool.query('SELECT name FROM leads WHERE id = $1', [id])).rows[0];", sink('`Клиент: ${lead.name}`'))))
-      .toEqual([['name', 'content', 'lead.name']]);
-    expect(found(ask("const { rows: [lead] } = await pool.query('SELECT name FROM leads WHERE id = $1', [id]);", sink('`Клиент: ${lead.name}`'))))
-      .toEqual([['name', 'content', 'lead.name']]);
+    // Владелец поля — нейтральное имя: `lead.name` судится как имя и без строки запроса.
+    expect(found(ask("const who = (await pool.query('SELECT name FROM leads WHERE id = $1', [id])).rows[0];", sink('`Клиент: ${who.name}`'))))
+      .toEqual([['name', 'content', 'who.name']]);
+    expect(found(ask("const { rows: [who] } = await pool.query('SELECT name FROM leads WHERE id = $1', [id]);", sink('`Клиент: ${who.name}`'))))
+      .toEqual([['name', 'content', 'who.name']]);
     // Число строк — не строка.
     expect(found(ask("const n = (await pool.query('SELECT tourist_phone FROM operator_bookings')).rowCount;", sink('`Броней: ${n}`')))).toEqual([]);
     expect(found(ask("const n = (await pool.query('SELECT tourist_phone FROM operator_bookings')).rows.length;", sink('`Броней: ${n}`')))).toEqual([]);
@@ -1243,12 +1244,12 @@ describe('D1 — двенадцатое ревью PR #3104: род колонк
       .toEqual([['name', 'content', 'first.name']]);
     expect(found(ask("const { rows } = await pool.query('SELECT name FROM leads');", 'const [first] = rows;', sink('`Клиент: ${first.name}`'))))
       .toEqual([['name', 'content', 'first.name']]);
-    expect(found(ask("const { rows } = await pool.query('SELECT id, name FROM leads');", 'const lead = rows.find((r) => r.id === id);', sink('`Клиент: ${lead.name}`'))))
-      .toEqual([['name', 'content', 'lead.name']]);
+    expect(found(ask("const { rows } = await pool.query('SELECT id, name FROM leads');", 'const match = rows.find((r) => r.id === id);', sink('`Клиент: ${match.name}`'))))
+      .toEqual([['name', 'content', 'match.name']]);
     expect(found(ask("const res = await pool.query('SELECT name FROM users WHERE id = $1', [id]);", sink('`Кому: ${res.rows[0].name}`'))))
       .toEqual([['name', 'content', 'res.rows[0].name']]);
     expect(found(ask("const res = await pool.query('SELECT name FROM users');", 'const lines: string[] = [];',
-      'for (const u of res.rows) lines.push(u.name);', sink("lines.join(', ')"))).map((f) => f[0])).toEqual(['name']);
+      'for (const row of res.rows) lines.push(row.name);', sink("lines.join(', ')"))).map((f) => f[0])).toEqual(['name']);
     // Род строки на поле с ПД, а не на всё прочее: `title` рядом с телефоном и `name` тура — чисты.
     expect(found(ask("const { rows } = await pool.query('SELECT title, tourist_phone FROM operator_bookings');",
       'const first = rows[0];', sink('`Тур: ${rows[0].title}, ${first.title}`')))).toEqual([]);
