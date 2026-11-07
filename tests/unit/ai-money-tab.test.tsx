@@ -20,6 +20,7 @@ import { render, cleanup, screen, within, fireEvent, waitFor } from '@testing-li
 import React from 'react';
 import { readFileSync, readdirSync, statSync } from 'node:fs';
 import { join, relative } from 'node:path';
+import ts from 'typescript';
 
 vi.mock('@/lib/db-pool', () => ({ pool: { query: vi.fn() } }));
 
@@ -33,7 +34,6 @@ import { spendIdOf } from '@/lib/agents/agents-value-census';
 
 const ROOT = process.cwd();
 const read = (p: string) => readFileSync(join(ROOT, p), 'utf8');
-const code = (s: string) => s.replace(/\/\*[\s\S]*?\*\//g, '').replace(/^\s*\/\/.*$/gm, '');
 
 const w = (calls: number, tokens: number, cost: number | null, unknown = 0) =>
   ({ calls, tokens, cost_usd: cost, unknown_cost_calls: unknown });
@@ -269,10 +269,45 @@ function walk(dir: string, out: string[] = []): string[] {
   return out;
 }
 
+// Код судится ДЕРЕВОМ РАЗБОРА, а не текстом с вырезанными регэкспом
+// комментариями (ревью безопасности #3144): строка вроде 'text/html,*/*'
+// открывала «комментарий» до ближайшего */ и прятала за ним вызовы.
+function parse(file: string, src: string): ts.SourceFile {
+  const kind = file.endsWith('.tsx') ? ts.ScriptKind.TSX : /\.[cm]?js$/.test(file) ? ts.ScriptKind.JS : ts.ScriptKind.TS;
+  return ts.createSourceFile(file, src, ts.ScriptTarget.Latest, true, kind);
+}
+
+/** Все строковые литералы файла — то, что код на самом деле содержит. */
+function literalsOf(sf: ts.SourceFile): string[] {
+  const out: string[] = [];
+  const visit = (n: ts.Node): void => {
+    if (ts.isStringLiteralLike(n) || ts.isTemplateHead(n) || ts.isTemplateMiddle(n) || ts.isTemplateTail(n)) out.push(n.text);
+    ts.forEachChild(n, visit);
+  };
+  visit(sf);
+  return out;
+}
+
+/** Строковые константы верхнего уровня: `const NAME = 'value'`, с export или без. */
+function stringConsts(sf: ts.SourceFile): Map<string, { value: string; exported: boolean }> {
+  const out = new Map<string, { value: string; exported: boolean }>();
+  for (const st of sf.statements) {
+    if (!ts.isVariableStatement(st)) continue;
+    const exported = (ts.getModifiers(st) ?? []).some((m) => m.kind === ts.SyntaxKind.ExportKeyword);
+    for (const d of st.declarationList.declarations) {
+      if (ts.isIdentifier(d.name) && d.initializer && ts.isStringLiteralLike(d.initializer)) {
+        out.set(d.name.text, { value: d.initializer.text, exported });
+      }
+    }
+  }
+  return out;
+}
+
 /**
  * Кто подписывает расход в книгах llm_usage_log: «руки» — переменной AGENT_ID
  * шага учёта в workflow; код — первым аргументом runWithUsageTracking,
- * fallbackAgentId у провайдеров и полем agent_id у строк для usage-sink.
+ * fallbackAgentId у провайдеров, полем agent_id у строк для usage-sink и
+ * последним аргументом usageRowFromResponse (скрипт раннера со своим fetch).
  * logAgentRun сюда не относится: это журнал прогонов, расход он не подписывает.
  */
 function spendWriters(): Map<string, string> {
@@ -285,19 +320,31 @@ function spendWriters(): Map<string, string> {
   }
 
   const files = ['app', 'lib', 'scripts'].flatMap((d) => walk(join(ROOT, d)));
-  const src = new Map(files.map((f) => [relative(ROOT, f), code(readFileSync(f, 'utf8'))]));
-  const exported = new Map<string, Set<string>>();
-  for (const s of src.values()) {
-    for (const m of s.matchAll(/export\s+const\s+([A-Z][A-Z0-9_]*)\s*=\s*['"]([^'"]+)['"]/g)) {
-      exported.set(m[1], (exported.get(m[1]) ?? new Set()).add(m[2]));
+  const raw = new Map(files.map((f) => [relative(ROOT, f), readFileSync(f, 'utf8')]));
+  const parsed = new Map<string, ts.SourceFile>();
+  const sfOf = (file: string): ts.SourceFile => {
+    let sf = parsed.get(file);
+    if (!sf) { sf = parse(file, raw.get(file) ?? ''); parsed.set(file, sf); }
+    return sf;
+  };
+  const resolve = (file: string, name: string): string => {
+    const own = stringConsts(sfOf(file)).get(name);
+    if (own) return own.value;
+    const values = new Set<string>();
+    for (const [other, text] of raw) {
+      if (!text.includes(`export const ${name}`)) continue;
+      const c = stringConsts(sfOf(other)).get(name);
+      if (c?.exported) values.add(c.value);
     }
-  }
-  const resolve = (file: string, s: string, name: string): string => {
-    const own = s.match(new RegExp(`const\\s+${name}\\s*=\\s*['"]([^'"]+)['"]`));
-    if (own) return own[1];
-    const values = [...(exported.get(name) ?? [])];
-    if (values.length !== 1) throw new Error(`${file}: константа ${name} не разрешилась (${values.length} значений)`);
-    return values[0];
+    if (values.size !== 1) throw new Error(`${file}: константа ${name} не разрешилась (${values.size} значений)`);
+    return [...values][0];
+  };
+  /** Подпись из выражения: литерал или КОНСТАНТА; переменная — null. */
+  const idOf = (file: string, e: ts.Expression | undefined): string | null => {
+    if (!e) return null;
+    if (ts.isStringLiteralLike(e)) return e.text;
+    if (ts.isIdentifier(e) && /^[A-Z][A-Z0-9_]*$/.test(e.text)) return resolve(file, e.text);
+    return null;
   };
   // runWithUsageTracking с переменной: id выбирает сам файл. Новый такой вызов —
   // сюда, с его id; каждый id обязан стоять в файле литералом.
@@ -305,29 +352,55 @@ function spendWriters(): Map<string, string> {
     'app/api/cron/kuzmich-eval/route.ts': ['kuzmich-eval', 'kuzmich-eval-live', 'kuzmich-eval-commercial'],
   };
   const variableSeen = new Set<string>();
+  const TRIGGERS = ['runWithUsageTracking', 'fallbackAgentId', 'usageRowFromResponse', 'usage-sink'];
 
-  for (const [file, s] of src) {
-    for (const m of s.matchAll(/runWithUsageTracking\(\s*([^,)]+?)\s*,/g)) {
-      const arg = m[1];
-      const lit = arg.match(/^['"`]([^'"`]+)['"`]$/);
-      if (lit) found.set(lit[1], file);
-      else if (/^[A-Z][A-Z0-9_]*$/.test(arg)) found.set(resolve(file, s, arg), file);
-      else {
-        expect(VARIABLE_CALLERS[file], `${file}: runWithUsageTracking(${arg}) — id переменной, впишите его в VARIABLE_CALLERS`).toBeDefined();
-        variableSeen.add(file);
+  for (const [file, text] of raw) {
+    // Дешёвый отбор по сырому тексту, приговор — по разбору.
+    if (!TRIGGERS.some((t) => text.includes(t))) continue;
+    let importsSink = false;
+    const sinkRows: ts.Expression[] = [];
+    const visit = (n: ts.Node): void => {
+      if (ts.isImportDeclaration(n) && ts.isStringLiteral(n.moduleSpecifier) && /(^|\/)lib\/ai\/usage-sink$/.test(n.moduleSpecifier.text)) {
+        importsSink = true;
       }
-    }
-    for (const m of s.matchAll(/fallbackAgentId:\s*([A-Z][A-Z0-9_]*)/g)) found.set(resolve(file, s, m[1]), file);
-    if (s.includes('@/lib/ai/usage-sink')) {
-      for (const m of s.matchAll(/\bagent_id:\s*(?:['"]([a-z0-9-]+)['"]|([A-Z][A-Z0-9_]*)\b)/g)) {
-        found.set(m[1] ?? resolve(file, s, m[2]), file);
+      if (ts.isCallExpression(n) && ts.isIdentifier(n.expression)) {
+        if (n.expression.text === 'runWithUsageTracking') {
+          const id = idOf(file, n.arguments[0]);
+          if (id !== null) found.set(id, file);
+          else {
+            expect(VARIABLE_CALLERS[file], `${file}: runWithUsageTracking с переменной — впишите её id в VARIABLE_CALLERS`).toBeDefined();
+            variableSeen.add(file);
+          }
+        }
+        if (n.expression.text === 'usageRowFromResponse') {
+          const id = idOf(file, n.arguments[2]);
+          expect(id, `${file}: usageRowFromResponse — подпись переменной, сторож её не видит`).not.toBeNull();
+          if (id !== null) found.set(id, file);
+        }
+      }
+      if (ts.isPropertyAssignment(n) && ts.isIdentifier(n.name)) {
+        if (n.name.text === 'fallbackAgentId') {
+          const id = idOf(file, n.initializer);
+          if (id !== null) found.set(id, file);
+        }
+        if (n.name.text === 'agent_id') sinkRows.push(n.initializer);
+      }
+      ts.forEachChild(n, visit);
+    };
+    visit(sfOf(file));
+    // agent_id строк для usage-sink: импорт и по алиасу, и относительный ('../lib/…').
+    if (importsSink) {
+      for (const e of sinkRows) {
+        const id = idOf(file, e);
+        if (id !== null) found.set(id, file);
       }
     }
   }
   for (const [file, ids] of Object.entries(VARIABLE_CALLERS)) {
     expect(variableSeen.has(file), `${file} больше не зовёт runWithUsageTracking с переменной — уберите запись`).toBe(true);
+    const literals = literalsOf(sfOf(file));
     for (const id of ids) {
-      expect(src.get(file), `${file}: id «${id}» в файле не стоит`).toContain(`'${id}'`);
+      expect(literals, `${file}: id «${id}» в коде файла не стоит`).toContain(id);
       found.set(id, file);
     }
   }
@@ -338,11 +411,14 @@ describe('Подписи «за что»', () => {
   it('без агента, Кузьмич, реестр кронов и незнакомый id', () => {
     expect(agentSpendLabel(null)).toBe(UNOWNED_SPEND_LABEL);
     expect(agentSpendLabel('kuzmich')).toBe('Кузьмич — живые разговоры');
-    const fromRegistry = CRON_REGISTRY.find((e) => !(spendIdOf(e) in SPEND_LABELS));
+    const fromRegistry = CRON_REGISTRY.find((e) => !Object.prototype.hasOwnProperty.call(SPEND_LABELS, spendIdOf(e)));
     expect(fromRegistry).toBeDefined();
     if (fromRegistry) expect(agentSpendLabel(spendIdOf(fromRegistry))).toBe(fromRegistry.label);
     // Незнакомому имя не выдумывается: показан сам id.
     expect(agentSpendLabel('probe-no-such-agent')).toBe('probe-no-such-agent');
+    // Унаследованные ключи объекта — не подписи: строка из книг остаётся строкой.
+    expect(agentSpendLabel('constructor')).toBe('constructor');
+    expect(agentSpendLabel('toString')).toBe('toString');
   });
 
   it('у каждого, кто подписывает расход, подпись есть; у каждой подписи есть писатель', () => {
@@ -360,6 +436,8 @@ describe('Подписи «за что»', () => {
 
 describe('Деньги — в одном месте', () => {
   it('«Health-метрики» не читают деньги второй раз: две карточки одних книг разошлись бы', () => {
-    expect(code(read('app/hub/admin/health/_HealthDashboardClient.tsx'))).not.toContain('/api/admin/health/ai-money');
+    const file = 'app/hub/admin/health/_HealthDashboardClient.tsx';
+    const literals = literalsOf(parse(file, read(file)));
+    expect(literals.some((l) => l.includes('/api/admin/health/ai-money'))).toBe(false);
   });
 });

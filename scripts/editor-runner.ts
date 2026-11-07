@@ -14,10 +14,16 @@
  * (`buildDescriptionMessages`, `pickDescriptionFromAnswer`): две копии правил
  * разошлись бы, и половина описаний оказалась бы написана по другим законам.
  *
+ * Расход (07.11) — в книги `llm_usage_log` под подписью «editor-runner»: модель
+ * зовётся своим fetch, мимо `logLLMUsage`, и до этого дня ни один её ответ не
+ * попадал в книги — ни на вкладку «Деньги», ни в дневной бюджет. Строки уходят
+ * на прод через usage-sink (`CRON_SECRET` в env шага), цену считает сервер.
+ *
  * Использование: npx tsx scripts/editor-runner.ts <job.json> <result.json>
  */
 import { readFileSync, writeFileSync } from 'node:fs';
 import { openRouterAttribution } from '../lib/ai/attribution';
+import { sendUsageToProd, usageRowFromResponse, type UsageRowToReport } from '../lib/ai/usage-sink';
 import {
   EDITOR_TEMPERATURE,
   buildDescriptionMessages,
@@ -27,6 +33,8 @@ import {
 
 /** Потолок прогона: раннеру дано 15 минут, оставляем запас на публикацию. */
 const TIME_BUDGET_MS = 10 * 60 * 1000;
+/** Подпись в книгах расхода — та же, что у журнала прогонов раннера. */
+const AGENT_ID = 'editor-runner';
 const OPENROUTER = 'https://openrouter.ai/api/v1/chat/completions';
 
 interface Job { routes?: RouteRow[]; queue_total?: number }
@@ -37,7 +45,7 @@ async function askOpenRouter(
   messages: Array<{ role: string; content: string }>,
   key: string,
   model: string,
-): Promise<{ text: string | null; error: string | null }> {
+): Promise<{ text: string | null; error: string | null; usage: UsageRowToReport | null; answered: boolean }> {
   try {
     const res = await fetch(OPENROUTER, {
       method: 'POST',
@@ -52,13 +60,16 @@ async function askOpenRouter(
     });
     if (!res.ok) {
       const body = await res.text();
-      return { text: null, error: `HTTP ${res.status}: ${body.slice(0, 200)}` };
+      return { text: null, error: `HTTP ${res.status}: ${body.slice(0, 200)}`, usage: null, answered: false };
     }
     const data = await res.json() as { choices?: Array<{ message?: { content?: string } }> };
     const text = data.choices?.[0]?.message?.content ?? null;
-    return { text, error: text ? null : 'ответ без содержимого' };
+    // Ответ оплачен, даже если текст потом отвергнут разбором, — строка в книги
+    // идёт при любом тексте.
+    const usage = usageRowFromResponse(data, model, AGENT_ID);
+    return { text, error: text ? null : 'ответ без содержимого', usage, answered: true };
   } catch (err) {
-    return { text: null, error: err instanceof Error ? err.message : String(err) };
+    return { text: null, error: err instanceof Error ? err.message : String(err), usage: null, answered: false };
   }
 }
 
@@ -78,6 +89,8 @@ async function main(): Promise<void> {
   const items: ResultItem[] = [];
   let asked = 0;
   let firstError: string | null = null;
+  const usageRows: UsageRowToReport[] = [];
+  let usageMissing = 0;
 
   // Ключа нет — это НЕ «описаний не нашлось». Пишем причину и выходим с
   // отказом: тишина здесь неотличима от чистого прогона (§4.0).
@@ -97,8 +110,10 @@ async function main(): Promise<void> {
       break;
     }
     const messages = buildDescriptionMessages(route).map(({ role, content }) => ({ role, content }));
-    const { text, error } = await askOpenRouter(messages, key, model);
+    const { text, error, usage, answered } = await askOpenRouter(messages, key, model);
     asked += 1;
+    if (usage) usageRows.push(usage);
+    else if (answered) usageMissing += 1;
 
     if (error) {
       firstError ??= error;
@@ -127,8 +142,19 @@ async function main(): Promise<void> {
   // Ноль описаний, где хоть одна запись упала на провайдере или разборе, —
   // отказ (§4.0): одно «НЕТ» не прячет одиннадцать ответов 429.
   const failed = written === 0 && (declined === 0 || errored > 0);
+
+  // Расход — в книги до записи результата: публикация описаний от него не
+  // зависит, но и молча не теряет. Отказ отправки назван в логе и в итоге.
+  const usageReported = usageRows.length > 0 ? await sendUsageToProd(usageRows) : null;
+  console.log(
+    `расход в книги: строк ${usageRows.length}` +
+    (usageMissing > 0 ? `; ответов без usage ${usageMissing} — их расход неизвестен` : '') +
+    (usageReported === null ? '' : usageReported ? '; прод принял' : '; прод НЕ принял (причина выше)'),
+  );
+
   writeFileSync(outPath, JSON.stringify({
     model, asked, written, declined, errored, queue_total: job.queue_total ?? null,
+    usage: { rows: usageRows.length, missing: usageMissing, reported: usageReported },
     error: failed ? (firstError ?? 'ни одного описания не получено') : null,
     items,
   }, null, 2));
