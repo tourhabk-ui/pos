@@ -2,8 +2,12 @@
 
 import Link from 'next/link';
 import { MapPin, RefreshCw } from 'lucide-react';
+import { useBoundaryError } from '@/hooks/use-boundary-error';
+import { ChunkLoadNotice } from '@/components/shared/ChunkLoadNotice';
 
-export default function MapError({ reset }: { error: Error; reset: () => void }) {
+export default function MapError({ error, reset }: { error: Error & { digest?: string }; reset: () => void }) {
+  const { chunk, decision } = useBoundaryError(error);
+  if (chunk) return <ChunkLoadNotice decision={decision} />;
   return (
     <div className="min-h-screen flex items-center justify-center bg-[var(--bg-primary)] p-6">
       <div className="text-center max-w-sm">

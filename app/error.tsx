@@ -1,8 +1,8 @@
 'use client';
 
 import Link from 'next/link';
-import { useEffect } from 'react';
-import { reportClientError } from '@/lib/client-errors/report';
+import { useBoundaryError } from '@/hooks/use-boundary-error';
+import { ChunkLoadNotice } from '@/components/shared/ChunkLoadNotice';
 
 export default function Error({
   error,
@@ -12,8 +12,10 @@ export default function Error({
   reset: () => void;
 }) {
   // Ошибка рендера, пойманная границей, до window.onerror не доходит —
-  // докладывает сама граница (ловушка ошибок, 13.10).
-  useEffect(() => { reportClientError('boundary', error); }, [error]);
+  // докладывает сама граница (ловушка ошибок, 13.10); не догрузившийся кусок
+  // кода — свой экран и одна автоперезагрузка (06.11).
+  const { chunk, decision } = useBoundaryError(error);
+  if (chunk) return <ChunkLoadNotice decision={decision} />;
   return (
     <div
       className="min-h-screen flex items-center justify-center p-6"
