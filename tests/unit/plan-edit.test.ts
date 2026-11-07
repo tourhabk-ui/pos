@@ -23,8 +23,15 @@ vi.mock('@/lib/planner/data', () => ({
       weatherDependent: false, seasonStart: null, seasonEnd: null, included: null,
       lat: 53, lng: 158, zone: t.zone, activityType: t.activityType,
     }))),
-  fetchAvailabilityForTour: vi.fn(async (_id: string, from: string) =>
-    [{ date: from, availableSlots: 10, bookedSlots: 0, remaining: 10, priceOverride: null }]),
+  // Места — на каждую дату окна поездки: тур встаёт только на день с выездом
+  // (волна 3 аудита 07.11, 3.2), а дата `from` — день прилёта.
+  fetchAvailabilityForTour: vi.fn(async (_id: string, from: string, to: string) => {
+    const out = [];
+    for (let t = Date.parse(`${from}T00:00:00Z`); t <= Date.parse(`${to}T00:00:00Z`); t += 86_400_000) {
+      out.push({ date: new Date(t).toISOString().slice(0, 10), availableSlots: 10, bookedSlots: 0, remaining: 10, priceOverride: null });
+    }
+    return out;
+  }),
   fetchZoneCapacity: vi.fn(async () => ({ tourCount: 0, totalSlots: 0, totalBooked: 0, utilizationPercent: 0 })),
   fetchContingencyAlternatives: vi.fn(async () => []),
   fetchReviewSignals: vi.fn(async () => null),

@@ -177,7 +177,9 @@ describe('занятость тура: отказ — не «мест нет» (
   });
 
   it('движок плана читает отказ как «не знаю»: тур не выкидывается и даты не называются', () => {
-    expect(ENGINE).toMatch(/if \(slots === null\) \{ tight\.push\(t\); continue; \}/);
+    // Тур с непрочитанной занятостью остаётся в плане; его даты выезда —
+    // «не прочиталось» (волна 3 аудита 07.11), а не «выездов нет».
+    expect(ENGINE).toMatch(/if \(slots === null\) \{ tourDates\.set\(t\.tourId, \{ kind: 'unread' \}\); tight\.push\(t\); continue; \}/);
     expect(ENGINE).toMatch(/if \(daySlot\) \{/);
     // Каждый вызов в движке обязан поймать отказ сам — иначе он роняет весь план.
     const calls = ENGINE.split('fetchAvailabilityForTour(').length - 1;

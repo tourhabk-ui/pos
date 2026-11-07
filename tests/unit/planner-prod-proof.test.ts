@@ -24,11 +24,16 @@ import { describe, it, expect, vi, beforeEach } from 'vitest';
 
 interface Tour {
   tourId: string; title: string; durationHours: number | null; zone: string; activityType: string;
+  seasonStart?: string; seasonEnd?: string;
 }
 /** Туры по паре «зона:активность» — свои в каждом тесте. */
 let TOURS: Record<string, Tour[]> = {};
 /** Свободные места по туру на даты поездки. Нет ключа — мест нет. */
 let SLOTS: Record<string, number> = {};
+/** Даты выезда тура, если не все дни окна (YYYY-MM-DD). Нет ключа — все. */
+let SLOT_DATES: Record<string, string[]> = {};
+/** Ведёт ли тур календарь. Нет ключа — ведёт. */
+let KEEPS: Record<string, boolean> = {};
 
 function realTour(t: Tour) {
   return {
@@ -36,7 +41,7 @@ function realTour(t: Tour) {
     operatorName: 'Оператор', operatorSlug: 'op', operatorRating: 4.5, operatorReviewCount: 3,
     operatorVerified: true, tourRating: null, tourReviewCount: 0, basePrice: 10000, priceUnit: 'per_person',
     maxParticipants: 10, minParticipants: 1, durationHours: t.durationHours, difficulty: null,
-    weatherDependent: false, seasonStart: null, seasonEnd: null, included: null,
+    weatherDependent: false, seasonStart: t.seasonStart ?? null, seasonEnd: t.seasonEnd ?? null, included: null,
     lat: 53, lng: 158, zone: t.zone, activityType: t.activityType,
   };
 }
@@ -49,7 +54,9 @@ vi.mock('@/lib/planner/data', () => ({
     if (!SLOTS[tourId]) return [];
     const out = [];
     for (let t = Date.parse(`${from}T00:00:00Z`); t <= Date.parse(`${to}T00:00:00Z`); t += 86_400_000) {
-      out.push({ date: new Date(t).toISOString().slice(0, 10), availableSlots: 10, bookedSlots: 10 - SLOTS[tourId], remaining: SLOTS[tourId], priceOverride: null });
+      const date = new Date(t).toISOString().slice(0, 10);
+      if (SLOT_DATES[tourId] && !SLOT_DATES[tourId].includes(date)) continue;
+      out.push({ date, availableSlots: 10, bookedSlots: 10 - SLOTS[tourId], remaining: SLOTS[tourId], priceOverride: null });
     }
     return out;
   }),
@@ -60,7 +67,7 @@ vi.mock('@/lib/planner/data', () => ({
   // Туров без календаря в этих снимках нет; у тура с пустыми датами
   // расписание есть — «мест нет» (tests/unit/planner-on-request-tours).
   fetchActivitiesOnRequest: vi.fn(async () => new Set<string>()),
-  fetchTourKeepsSchedule: vi.fn(async () => true),
+  fetchTourKeepsSchedule: vi.fn(async (tourId: string) => KEEPS[tourId] ?? true),
   fetchSelfSafety: vi.fn(async (ids: string[]) => {
     if (safetyFails) return null;
     const out = new Map<string, unknown>();
@@ -181,6 +188,8 @@ const activity = (rec: Awaited<ReturnType<typeof recommendTrip>>) => rec.days.fi
 beforeEach(() => {
   TOURS = { 'avachinsky:volcano': [GORELY], 'avachinsky:fishing': [FISHING] };
   SLOTS = { 't-fish-ava': 14 };
+  SLOT_DATES = {};
+  KEEPS = {};
   PARK_ALERTS = [];
   MCHS_ROWS = [];
   safetyFails = false;
@@ -218,11 +227,78 @@ describe('тур с местами впереди тура без мест (пл
     expect(rec.days.some((d) => d.realTour?.tourId === 't-gor')).toBe(false);
   });
 
-  it('другого нет — тур без мест остаётся и день честно говорит «мест нет»', async () => {
+  it('другого нет — тур без выездов в дни поездки не ставится, а назван в «Важно» (волна 3 аудита 07.11, 3.2)', async () => {
+    // До волны 3 Горелый вставал с «мест нет» и шёл в смету: валидатор
+    // дат плана должен блокировать тур без выезда, а не подписывать его.
     const rec = await recommendTrip(PROOF);
-    const volcano = activity(rec).find((d) => d.activityType === 'volcano');
-    expect(volcano?.realTour?.tourId).toBe('t-gor');
-    expect(volcano?.availability).toBe('none');
+    expect(rec.days.some((d) => d.realTour?.tourId === 't-gor')).toBe(false);
+    const line = rec.warnings.find((w) => w.type === 'tour_dates');
+    expect(line?.message).toBe('В ваши даты у тура нет выездов — его не ставили: «Горелый и пещеры».');
+    expect(planWarningLines(rec)).toContain(line?.message);
+  });
+});
+
+describe('тур — только на день, где у него есть выезд (волна 3 аудита 07.11, 3.2; пруф с прода 07.11)', () => {
+  // Пруф: план на 7 дней с 10.07.2027, вулканы. «Восхождение на вулкан
+  // Горелый и лавовые пещеры» (выезды 15 и 16.07) стоял днём 2 (11.07) с
+  // «в ваши даты свободных мест нет», а день 6 (15.07) был свободным; тур
+  // был посчитан в смете. Авачинский без календаря — дату подтверждает оператор.
+  const SEVEN: TripProfile = { ...PROOF, interests: ['volcano'], departureDate: `${NEXT_JULY}-07-16` };
+  const prodCase = (gorDates: string[]) => {
+    TOURS = { 'avachinsky:volcano': [GORELY, AVACHA] };
+    SLOTS = { 't-gor': 4 };
+    SLOT_DATES = { 't-gor': gorDates.map((d) => `${NEXT_JULY}-${d}`) };
+    KEEPS = { 't-ava': false };
+  };
+
+  it('выезд внутри поездки — тур встаёт на свой день, а не на первый день вулканов', async () => {
+    prodCase(['07-15', '07-16']);
+    const rec = await recommendTrip(SEVEN);
+    const gor = rec.days.filter((d) => d.realTour?.tourId === 't-gor');
+    expect(gor).toHaveLength(1);
+    expect(gor[0].day).toBe(6);
+    expect(gor[0].availability).toBe('open');
+    expect(gor[0].availableDate).toBe(`${NEXT_JULY}-07-15`);
+    // Тур с календарём не стоит ни на одном дне без своего выезда. У
+    // Авачинского календаря нет: «дату подтверждает оператор» — его исход.
+    expect(rec.days.some((d) => d.realTour?.tourId === 't-gor' && d.availability !== 'open')).toBe(false);
+    expect(rec.days.find((d) => d.day === 2)?.realTour?.tourId).toBe('t-ava');
+    expect(rec.warnings.some((w) => w.type === 'tour_dates')).toBe(false);
+  });
+
+  it('выезд — в день после блока вулканов: тур встаёт в этот день, а не свободным днём в городе', async () => {
+    // Раскладка пруфа: треккинг ушёл в Восточную зону и не влез связкой —
+    // блок вулканов кончился днём 5, день 6 (15.07) оставался свободным.
+    prodCase(['07-15', '07-16']);
+    const rec = await recommendTrip({ ...SEVEN, interests: ['volcano', 'trekking'] });
+    expect(rec.warnings.some((w) => w.type === 'zone_days' && w.message.includes('Восточная'))).toBe(true);
+    const gor = rec.days.filter((d) => d.realTour?.tourId === 't-gor');
+    expect(gor.map((d) => [d.day, d.availableDate])).toEqual([[6, `${NEXT_JULY}-07-15`]]);
+    expect(rec.days.some((d) => d.title.startsWith('Свободный день'))).toBe(false);
+  });
+
+  it('выезд только в день вылета — тур не встаёт, назван с датой и в смету не идёт', async () => {
+    prodCase(['07-16']);
+    const rec = await recommendTrip(SEVEN);
+    expect(rec.days.some((d) => d.realTour?.tourId === 't-gor')).toBe(false);
+    expect(rec.warnings.find((w) => w.type === 'tour_dates')?.message).toBe(
+      'Не встали в план — в дни этих занятий у тура нет выезда: «Горелый и пещеры» (выезды 16 июля). Хотите тур — переставьте день плана на дату выезда.',
+    );
+    // В смете тур — только поставленный: по цене Авачинского, один раз.
+    expect(rec.priceBreakdown.activityPricing.tourPriced).toBe(1);
+  });
+
+  it('тур без календаря встаёт только в сезоне выездов (E6)', async () => {
+    TOURS = { 'avachinsky:volcano': [{ ...AVACHA, seasonStart: `${NEXT_JULY}-08-01`, seasonEnd: `${NEXT_JULY}-09-30` }] };
+    SLOTS = {};
+    KEEPS = { 't-ava': false };
+    const rec = await recommendTrip(SEVEN);
+    expect(rec.days.some((d) => d.realTour?.tourId === 't-ava')).toBe(false);
+    expect(rec.warnings.find((w) => w.type === 'tour_dates')?.message).toContain('«Восхождение на Авачинский»');
+    // Сезон на даты поездки — тур на месте.
+    TOURS = { 'avachinsky:volcano': [{ ...AVACHA, seasonStart: `${NEXT_JULY}-06-01`, seasonEnd: `${NEXT_JULY}-09-30` }] };
+    const inSeason = await recommendTrip(SEVEN);
+    expect(inSeason.days.some((d) => d.realTour?.tourId === 't-ava')).toBe(true);
   });
 });
 
