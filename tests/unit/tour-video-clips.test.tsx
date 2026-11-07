@@ -55,8 +55,9 @@ describe('разбор клипов тура', () => {
     expect(parseTourClips([clip('videos/a.mp4', undefined, '  ')], BASE)[0]?.label).toBe('Видео тура');
   });
 
-  it('не больше шести', () => {
-    const many = Array.from({ length: 9 }, (_, i) => clip(`videos/c${i}.mp4`));
+  it('не больше восьми (владелец 07.11: «подними до 8»)', () => {
+    expect(MAX_TOUR_CLIPS).toBe(8);
+    const many = Array.from({ length: 11 }, (_, i) => clip(`videos/c${i}.mp4`));
     expect(parseTourClips(many, BASE)).toHaveLength(MAX_TOUR_CLIPS);
   });
 });
@@ -146,6 +147,69 @@ describe('миграция 1340 (клипы Курильского у туров
   it('только два тура Курильского и только пустой список', () => {
     expect(sql).toMatch(/WHERE ot\.slug IN \('zaporozhets-kurilskoe-ozero-3-dnya', 'zaporozhets-kurilskoe-ozero-4-dnya'\)/);
     expect(sql).toMatch(/AND ot\.video_clips = '\[\]'::jsonb;/);
+  });
+});
+
+describe('миграция 1398 (клипы Вачкажца у тура гида)', () => {
+  const sql = read('migrations/1398_guide_vachkazhets_clips.sql');
+
+  it('ключи — только из маркера заливки и лежат в media/s3; каждый клип — H.264 без звука', () => {
+    const marker = JSON.parse(read(MARKER)) as { items: Array<{ key: string; file: string }> };
+    const uploaded = new Set(marker.items.map((i) => i.key));
+    const keys = [...sql.matchAll(/'(videos\/[^']+)'/g)].map((m) => m[1]!);
+    expect(keys).toHaveLength(6);
+    for (const k of keys) {
+      expect(uploaded.has(k), k).toBe(true);
+      expect(existsSync(join(ROOT, 'media/s3', k)), k).toBe(true);
+    }
+    for (const k of keys.filter((x) => x.endsWith('.mp4'))) {
+      const meta = readFileSync(join(ROOT, 'media/s3', k)).toString('latin1');
+      expect(meta, k).toContain('avc1');
+      expect(meta, k).not.toMatch(/hdlr\0{8}soun/);
+    }
+  });
+
+  it('только тур «Вачкажец + озёрки»; клипы дописываются к своим, без повтора и не больше восьми', () => {
+    expect(sql).toMatch(/WHERE t\.slug = 'zaporozhets-vachkazhets-ozerki'/);
+    expect(sql).toMatch(/SET video_clips = ot\.video_clips \|\| a\.items/);
+    expect(sql).toMatch(/NOT EXISTS \([\s\S]*e->>'key' = cl\.c->>'key'/);
+    expect(sql).toMatch(/WHERE k <= 8 - have/);
+  });
+});
+
+describe('миграция 1399 (курильские туры гида: пар вместо «Двух медведей», ещё медведь и лошади)', () => {
+  const sql = read('migrations/1399_guide_kurile_lake_clips_more.sql');
+  const code = sql.split('\n').filter((l) => !l.trimStart().startsWith('--')).join('\n');
+
+  it('ключи — только из маркера заливки и лежат в media/s3; новые клипы — H.264 без звука', () => {
+    const marker = JSON.parse(read(MARKER)) as { items: Array<{ key: string; file: string }> };
+    const uploaded = new Set(marker.items.map((i) => i.key));
+    const keys = new Set([...code.matchAll(/'(videos\/[^']+)'/g)].map((m) => m[1]!));
+    expect([...keys].filter((k) => k.includes('clip-kurile-'))).toHaveLength(6);
+    expect(keys.has('videos/zaporozhets/clip-two-bears.mp4')).toBe(true);
+    for (const k of keys) {
+      expect(uploaded.has(k), k).toBe(true);
+      expect(existsSync(join(ROOT, 'media/s3', k)), k).toBe(true);
+    }
+    for (const k of [...keys].filter((x) => x.includes('clip-kurile-') && x.endsWith('.mp4'))) {
+      const meta = readFileSync(join(ROOT, 'media/s3', k)).toString('latin1');
+      expect(meta, k).toContain('avc1');
+      expect(meta, k).not.toMatch(/hdlr\0{8}soun/);
+    }
+  });
+
+  it('оба тура Курильского; «Два медведя» → пар на том же месте, дописка без повтора, до восьми, повтор ничего не меняет', () => {
+    expect(code).toMatch(/t\.slug IN \('zaporozhets-kurilskoe-ozero-3-dnya', 'zaporozhets-kurilskoe-ozero-4-dnya'\)/);
+    // Замена: клип «Двух медведей» становится первым из новых (пар) в той же позиции.
+    expect(code).toMatch(/WHEN x\.e->>'key' = 'videos\/zaporozhets\/clip-two-bears\.mp4'\s+THEN \(SELECT f\.c FROM fresh f WHERE f\.n = 1\)/);
+    expect(code).toMatch(/'key', 'videos\/zaporozhets\/clip-kurile-steam\.mp4'[\s\S]{0,200}'label', 'Пар над склоном'\)/);
+    expect(code).toMatch(/ORDER BY x\.i/);
+    // Пар уже стоит — «Два медведя» просто убираются, второго пара нет.
+    expect(code).toMatch(/NOT \(x\.e->>'key' = 'videos\/zaporozhets\/clip-two-bears\.mp4' AND t\.has_steam\)/);
+    expect(code).toMatch(/NOT EXISTS \([\s\S]*e->>'key' = f\.c->>'key'/);
+    expect(code).toMatch(/m\.k <= 8 - m\.have/);
+    expect(code).toMatch(/ot\.video_clips IS DISTINCT FROM tg\.clips/);
+    expect(code).toMatch(/t\.deleted_at IS NULL/);
   });
 });
 

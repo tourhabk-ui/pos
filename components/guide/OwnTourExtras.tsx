@@ -15,14 +15,16 @@ import { Loader2, Plus, Trash2, ArrowUp, ImagePlus, Star, Film, FileSignature } 
 import { LIMITS } from '@/lib/guides/tour-edit/parse';
 import type { TourProgramStep } from '@/lib/tours/tour-write';
 import { MEDIA_CACHE_CONTROL } from '@/lib/storage/media-cache';
+import { mp4VideoCodec, codecAdvice, HOW_TO_H264 } from '@/lib/media/mp4-codec';
+import { MAX_TOUR_CLIPS } from '@/lib/tours/clip-limit';
 
 /** Сколько фото у тура — как у сервера (OWN_TOUR_PHOTOS_MAX). */
 export const PHOTOS_MAX = 20;
 
 export interface OwnClip { key: string; poster: string; label: string; url: string; posterUrl: string }
 
-/** Сколько видео у тура — как у карточки (MAX_TOUR_CLIPS). */
-export const CLIPS_MAX = 6;
+/** Сколько видео у тура — то же число, что у карточки и сервера (lib/tours/clip-limit). */
+export const CLIPS_MAX = MAX_TOUR_CLIPS;
 
 export interface ExtrasValues {
   program: TourProgramStep[];
@@ -302,11 +304,16 @@ export async function uploadClip(
   grab: (f: File) => Promise<Blob>,
   onProgress?: (pct: number) => void,
 ): Promise<OwnClip | { error: string }> {
+  // Кодек — из индекса файла, до попытки открыть ролик (07.11): MP4 с HEVC
+  // или VP9 внутри у гида мог открыться, а у половины туристов — нет. Во всех
+  // браузерах играет только H.264. Не разобрали индекс — решает браузер.
+  const codec = await mp4VideoCodec(file).catch(() => null);
+  if (codec && codec !== 'h264') return { error: codecAdvice(codec) };
   let poster: Blob;
   try {
     poster = await grab(file);
   } catch (e) {
-    return { error: `обложку не снять (${e instanceof Error ? e.message : 'ошибка'}) — нужен MP4, который открывается в браузере` };
+    return { error: `обложку не снять (${e instanceof Error ? e.message : 'ошибка'}). Нужен MP4 с кодеком H.264. ${HOW_TO_H264}` };
   }
   try {
     const sign = await answer(await fetch('/api/upload/tour-video', { method: 'POST', headers: JSON_HEADERS, body: JSON.stringify({ videoSize: file.size, posterSize: poster.size }) }));
@@ -349,7 +356,7 @@ export function VideosField({ idBase, clips, onChange, grabFrame = grabVideoFram
   };
   return (
     <fieldset className="space-y-2">
-      <legend className="text-sm text-[var(--text-secondary)]">Видео — MP4 до 500 МБ, обложкой станет кадр из ролика</legend>
+      <legend className="text-sm text-[var(--text-secondary)]">Видео — MP4 с кодеком H.264, до 500 МБ, обложкой станет кадр из ролика</legend>
       {clips.length === 0 && <p className="text-sm text-[var(--text-muted)]">Видео нет.</p>}
       {clips.map((c, i) => (
         <div key={c.key} className="space-y-1" data-testid={`own-tour-clip-${i}`}>

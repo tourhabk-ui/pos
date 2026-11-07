@@ -26,7 +26,9 @@ vi.mock('@/lib/storage/s3', () => ({
 }));
 vi.mock('@/lib/auth/middleware', () => ({ requireRole: vi.fn(async () => ({ userId: 'u-1', role: 'guide' })) }));
 
-import { VideosField, MaterialsConsent, extrasBody } from '@/components/guide/OwnTourExtras';
+import { VideosField, MaterialsConsent, extrasBody, CLIPS_MAX } from '@/components/guide/OwnTourExtras';
+import { MAX_TOUR_CLIPS } from '@/lib/tours/clip-limit';
+import { mp4VideoCodec, videoCodecInMoov } from '@/lib/media/mp4-codec';
 import { OwnTourEditSchema } from '@/lib/guides/own-tour-edit';
 import { POST as uploadVideo } from '@/app/api/upload/tour-video/route';
 import { POST as confirmVideo } from '@/app/api/upload/tour-video/confirm/route';
@@ -85,7 +87,24 @@ describe('схема правки: клипы и подпись', () => {
     expect(OwnTourEditSchema.safeParse({ video_clips: [{ key: 'videos/zaporozhets/kurile-1.mp4', poster: 'videos/zaporozhets/kurile-1.jpg', label: 'x' }] }).success).toBe(true);
     expect(OwnTourEditSchema.safeParse({ video_clips: [{ ...clip, key: 'images/x.mp4' }] }).success).toBe(false);
     expect(OwnTourEditSchema.safeParse({ video_clips: [{ ...clip, key: 'videos/../x.mp4' }] }).success).toBe(false);
-    expect(OwnTourEditSchema.safeParse({ video_clips: Array(7).fill(clip) }).success).toBe(false);
+    expect(OwnTourEditSchema.safeParse({ video_clips: Array(MAX_TOUR_CLIPS).fill(clip) }).success).toBe(true);
+    expect(OwnTourEditSchema.safeParse({ video_clips: Array(MAX_TOUR_CLIPS + 1).fill(clip) }).success).toBe(false);
+  });
+
+  it('видео до восьми: одно число у формы, сервера и карточки (владелец 07.11: «подними до 8»)', () => {
+    expect(MAX_TOUR_CLIPS).toBe(8);
+    expect(CLIPS_MAX).toBe(MAX_TOUR_CLIPS);
+    const own = (i: number) => ({
+      key: `videos/tours/c${i}.mp4`, poster: `videos/tours/c${i}.jpg`, label: `Клип ${i}`,
+      url: `https://x/c${i}.mp4`, posterUrl: `https://x/c${i}.jpg`,
+    });
+    const seven = Array.from({ length: 7 }, (_, i) => own(i));
+    render(<VideosField idBase="a" clips={seven} onChange={vi.fn()} grabFrame={async () => new Blob([JPEG])} />);
+    expect(screen.getByLabelText('Добавить видео')).toBeTruthy();
+    cleanup();
+    render(<VideosField idBase="b" clips={[...seven, own(7)]} onChange={vi.fn()} grabFrame={async () => new Blob([JPEG])} />);
+    expect(screen.queryByLabelText('Добавить видео')).toBeNull();
+    expect(OwnTourEditSchema.safeParse({ video_clips: [...seven, own(7)].map(({ key, poster, label }) => ({ key, poster, label })) }).success).toBe(true);
   });
 
   it('тело формы: клипы без адресов превью, подпись — только когда есть фото', () => {
@@ -163,6 +182,108 @@ describe('форма: блок видео', () => {
     fireEvent.change(screen.getByLabelText('Добавить видео'), { target: { files: [new File([new Uint8Array(8)], 'x.mov')] } });
     expect(await screen.findByText(/x\.mov: обложку не снять \(видео не открылось в браузере\)/)).toBeTruthy();
     expect(fetch).not.toHaveBeenCalled();
+  });
+});
+
+/** Коробка MP4: размер, тип, содержимое. */
+function box(type: string, ...parts: Uint8Array[]): Uint8Array {
+  const body = parts.reduce((n, p) => n + p.length, 0);
+  const out = new Uint8Array(8 + body);
+  new DataView(out.buffer).setUint32(0, 8 + body);
+  out.set([...type].map((c) => c.charCodeAt(0)), 4);
+  let at = 8;
+  for (const p of parts) { out.set(p, at); at += p.length; }
+  return out;
+}
+/** Дорожка с одной записью образца нужного типа (avc1, hvc1, vp09, mp4a…). */
+function trak(entry: string): Uint8Array {
+  const stsd = box('stsd', new Uint8Array([0, 0, 0, 0, 0, 0, 0, 1]), box(entry, new Uint8Array(78)));
+  return box('trak', box('mdia', box('minf', box('stbl', stsd))));
+}
+/** MP4: ftyp, затем moov (звук и видео) и данные; индекс в конце — как у камеры телефона. */
+function mp4(videoEntry: string | null, moovLast = false): File {
+  const ftyp = box('ftyp', new Uint8Array([0x69, 0x73, 0x6f, 0x6d, 0, 0, 2, 0]));
+  const tracks = [trak('mp4a'), ...(videoEntry ? [trak(videoEntry)] : [])];
+  const moov = box('moov', box('mvhd', new Uint8Array(100)), ...tracks);
+  const mdat = box('mdat', new Uint8Array(4096));
+  const parts = moovLast ? [ftyp, mdat, moov] : [ftyp, moov, mdat];
+  return new File(parts.map((p) => p.slice().buffer), 'ролик.mp4', { type: 'video/mp4' });
+}
+
+describe('кодек ролика — из индекса MP4, до попытки открыть (07.11)', () => {
+  it('H.264, HEVC (и Dolby Vision поверх него), VP9, AV1 различаются; звуковая дорожка не путает', async () => {
+    expect(await mp4VideoCodec(mp4('avc1'))).toBe('h264');
+    expect(await mp4VideoCodec(mp4('hvc1'))).toBe('hevc');
+    expect(await mp4VideoCodec(mp4('dvh1'))).toBe('hevc');
+    expect(await mp4VideoCodec(mp4('vp09'))).toBe('vp9');
+    expect(await mp4VideoCodec(mp4('av01'))).toBe('av1');
+    expect(await mp4VideoCodec(mp4(null))).toBeNull();
+  });
+
+  it('индекс после данных и данные с 64-битным размером — индекс всё равно находится', async () => {
+    expect(await mp4VideoCodec(mp4('vp09', true))).toBe('vp9');
+    const big = new Uint8Array(16 + 32);
+    const v = new DataView(big.buffer);
+    v.setUint32(0, 1);
+    big.set([0x6d, 0x64, 0x61, 0x74], 4);
+    v.setBigUint64(8, BigInt(big.length));
+    const ftyp = box('ftyp', new Uint8Array(8));
+    const moov = box('moov', trak('hvc1'));
+    const file = new File([ftyp, big, moov].map((p) => p.slice().buffer), 'x.mp4');
+    expect(await mp4VideoCodec(file)).toBe('hevc');
+  });
+
+  it('не MP4 или обрезанный — «не знаю», решать браузеру', async () => {
+    expect(await mp4VideoCodec(new File([new Uint8Array(64)], 'a.mp4'))).toBeNull();
+    expect(await mp4VideoCodec(new File([new Uint8Array(5)], 'a.mp4'))).toBeNull();
+    expect(videoCodecInMoov(new Uint8Array(0))).toBeNull();
+  });
+
+  describe('форма', () => {
+    beforeEach(() => {
+      FakeXhr.sent = [];
+      FakeXhr.status = 200;
+      vi.stubGlobal('XMLHttpRequest', FakeXhr);
+      vi.stubGlobal('fetch', vi.fn(async (url: string) => ({
+        ok: true, status: 200,
+        json: async () => (url === '/api/upload/tour-video'
+          ? { ok: true, key: 'videos/tours/aaa111aaa111.mp4', poster: 'videos/tours/aaa111aaa111.jpg', uploadUrl: 'https://s3/put-video', posterUploadUrl: 'https://s3/put-poster', url: 'https://s/a.mp4', posterUrl: 'https://s/a.jpg' }
+          : { ok: true }),
+      })));
+    });
+
+    it('VP9 внутри MP4 — сказано, что внутри, кому не покажется и как получить H.264; ничего не грузится', async () => {
+      const grab = vi.fn(async () => new Blob([JPEG]));
+      render(<VideosField idBase="t" clips={[]} onChange={vi.fn()} grabFrame={grab} />);
+      fireEvent.change(screen.getByLabelText('Добавить видео'), { target: { files: [mp4('vp09')] } });
+      const alert = await screen.findByRole('alert');
+      expect(alert.textContent).toContain('ролик.mp4: внутри этого MP4 — VP9. Его не показывают iPhone и Safari. Нужен MP4 с кодеком H.264.');
+      expect(alert.textContent).toContain('Наиболее совместимый');
+      expect(grab).not.toHaveBeenCalled();
+      expect(fetch).not.toHaveBeenCalled();
+    });
+
+    it('HEVC внутри MP4 — тот же отказ со своим кодеком', async () => {
+      render(<VideosField idBase="t" clips={[]} onChange={vi.fn()} grabFrame={async () => new Blob([JPEG])} />);
+      fireEvent.change(screen.getByLabelText('Добавить видео'), { target: { files: [mp4('hvc1')] } });
+      expect((await screen.findByRole('alert')).textContent).toContain('внутри этого MP4 — HEVC (H.265). Его не показывают многие браузеры на компьютерах и Android.');
+      expect(fetch).not.toHaveBeenCalled();
+    });
+
+    it('H.264 — проходит дальше: обложка, запись в хранилище, клип в списке', async () => {
+      const onChange = vi.fn();
+      const grab = vi.fn(async () => new Blob([JPEG]));
+      render(<VideosField idBase="t" clips={[]} onChange={onChange} grabFrame={grab} />);
+      fireEvent.change(screen.getByLabelText('Добавить видео'), { target: { files: [mp4('avc1')] } });
+      await waitFor(() => expect(onChange).toHaveBeenCalled());
+      expect(grab).toHaveBeenCalledTimes(1);
+      expect(onChange.mock.calls[0]![0]).toHaveLength(1);
+    });
+
+    it('подпись поля говорит о H.264 заранее', () => {
+      render(<VideosField idBase="t" clips={[]} onChange={vi.fn()} grabFrame={async () => new Blob([JPEG])} />);
+      expect(screen.getByText('Видео — MP4 с кодеком H.264, до 500 МБ, обложкой станет кадр из ролика')).toBeTruthy();
+    });
   });
 });
 

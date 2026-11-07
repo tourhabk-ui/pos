@@ -13,6 +13,9 @@
  */
 
 import { isS3Configured, s3PublicBase } from '@/lib/storage/s3';
+import { MAX_TOUR_CLIPS } from '@/lib/tours/clip-limit';
+
+export { MAX_TOUR_CLIPS };
 
 export interface TourClip {
   url: string;
@@ -22,8 +25,6 @@ export interface TourClip {
 
 const CLIP_KEY = /^videos\/[a-z0-9/._-]+\.mp4$/;
 const POSTER_KEY = /^videos\/[a-z0-9/._-]+\.jpg$/;
-/** Больше на карточке не нужно: лента клипов — настроение, а не фильм. */
-export const MAX_TOUR_CLIPS = 6;
 
 /** Разобрать `operator_tours.video_clips`. `base` — публичная база хранилища или null. */
 export function parseTourClips(raw: unknown, base: string | null): TourClip[] {

@@ -571,15 +571,18 @@ withPg('витрина /operators: факты о живых турах, кноп
       expect(operatorPagePath({ slug: card!.tour.operator_slug, is_public: card!.tour.operator_public })).toBe('/operators/andrey-zaporozhets');
     });
 
-    it('клипы Курильского (1340): шесть по порядку у обоих туров Курильского, у прочих туров гида — нет; повтор не затирает', async () => {
+    it('клипы Курильского (1340, 1399): восемь по порядку у обоих туров Курильского, у прочих туров гида — нет; повтор не затирает', async () => {
       const { parseTourClips } = await import('@/lib/tours/tour-clips');
       const BASE = 'https://s3.example/bucket';
       const clipsOf = async (slug: string) => (await pool.query<{ video_clips: unknown }>(
         `SELECT video_clips FROM operator_tours WHERE slug = $1`, [slug],
       )).rows[0]?.video_clips;
+      // 1340 поставила шесть; 1399 (владелец 07.11: «Пар вместо „Два медведя“»,
+      // «подними до 8») заменила «Двух медведей» паром и дописала два клипа.
       const LABELS = [
         'Медведь поймал рыбу', 'Кутхины Баты: пемзовые столбы', 'Медвежата возятся у коряги',
-        'Тюлени на песчаной косе', 'Красная рыба в прозрачной воде', 'Два медведя на галечном берегу',
+        'Тюлени на песчаной косе', 'Красная рыба в прозрачной воде', 'Пар над склоном',
+        'Медведь бросается в воду', 'Лошади у внедорожника',
       ];
       for (const slug of ['zaporozhets-kurilskoe-ozero-3-dnya', 'zaporozhets-kurilskoe-ozero-4-dnya']) {
         const clips = parseTourClips(await clipsOf(slug), BASE);
@@ -600,7 +603,16 @@ withPg('витрина /operators: факты о живых турах, кноп
       const { join } = await import('node:path');
       await pool.query(readFileSync(join(process.cwd(), 'migrations/1340_guide_kurile_lake_clips.sql'), 'utf8'));
       expect(await clipsOf('zaporozhets-kurilskoe-ozero-3-dnya')).toEqual(own);
-      expect(parseTourClips(await clipsOf('zaporozhets-kurilskoe-ozero-4-dnya'), BASE)).toHaveLength(6);
+      expect(parseTourClips(await clipsOf('zaporozhets-kurilskoe-ozero-4-dnya'), BASE)).toHaveLength(8);
+      // 1399 повторно: к своему клипу гида дописывает три новых, свой — первым;
+      // у тура, где всё уже стоит, ничего не меняет; третий прогон — тоже.
+      const m1399 = readFileSync(join(process.cwd(), 'migrations/1399_guide_kurile_lake_clips_more.sql'), 'utf8');
+      await pool.query(m1399);
+      expect(parseTourClips(await clipsOf('zaporozhets-kurilskoe-ozero-3-dnya'), BASE).map((c) => c.label))
+        .toEqual(['Свой клип', 'Пар над склоном', 'Медведь бросается в воду', 'Лошади у внедорожника']);
+      expect(parseTourClips(await clipsOf('zaporozhets-kurilskoe-ozero-4-dnya'), BASE).map((c) => c.label)).toEqual(LABELS);
+      const again = await pool.query(m1399);
+      expect(again.rowCount ?? 0).toBe(0);
     });
 
     it('выезды гида: Толбачик — его даты по 4 места, Курильское — те же даты по 12 (1342); Горелый — сезон без ежедневных мест; черновики не видны', async () => {
