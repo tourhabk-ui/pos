@@ -14,7 +14,7 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { requireOperator } from '@/lib/auth/middleware';
 import { uploadToS3, isS3Configured } from '@/lib/storage/s3';
-import { preparePhoto, photoRefusal, UPLOAD_PHOTO_MAX_BYTES, UPLOAD_PHOTO_MAX_MB } from '@/lib/images/upload-photo';
+import { preparePhoto, photoRefusal, uploadBodyTooLarge, UPLOAD_PHOTO_MAX_BYTES, PHOTO_TOO_LARGE } from '@/lib/images/upload-photo';
 
 export const dynamic = 'force-dynamic';
 
@@ -36,6 +36,7 @@ export async function POST(request: NextRequest) {
   try {
     formData = await request.formData();
   } catch {
+    if (uploadBodyTooLarge(request)) return NextResponse.json({ success: false, error: PHOTO_TOO_LARGE }, { status: 413 });
     return NextResponse.json({ success: false, error: 'Неверный запрос' }, { status: 400 });
   }
 
@@ -54,7 +55,7 @@ export async function POST(request: NextRequest) {
   const buffer = Buffer.from(await file.arrayBuffer());
   if (buffer.length > MAX_SIZE) {
     return NextResponse.json(
-      { success: false, error: `Файл слишком большой. Максимум ${UPLOAD_PHOTO_MAX_MB} МБ.` },
+      { success: false, error: PHOTO_TOO_LARGE },
       { status: 400 }
     );
   }

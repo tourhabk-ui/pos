@@ -1,7 +1,7 @@
 'use client';
 
 import { useCallback, useEffect, useRef, useState } from 'react';
-import { PHOTO_UPLOAD_HINT, UPLOAD_PHOTO_MAX_MB } from '@/lib/images/upload-limits';
+import { PHOTO_UPLOAD_HINT, PHOTO_TOO_LARGE, UPLOAD_PHOTO_MAX_MB, photoTooLarge } from '@/lib/images/upload-limits';
 import Link from 'next/link';
 import Image from 'next/image';
 import { ArrowLeft, ImagePlus, Trash2, Image as ImageIcon } from 'lucide-react';
@@ -42,28 +42,38 @@ export default function PhotosClient({ accommodationId }: { accommodationId: str
     if (!files || files.length === 0) return;
     setBusy(true);
     setError(null);
+    // По одному файлу на запрос: тело запроса держится в пределе одного
+    // снимка (next.config.js, middlewareClientMaxBodySize). Пачка из пяти
+    // снимков с телефона его перерастала, и сервер не получал её целиком.
+    const problems: string[] = [];
     try {
-      const formData = new FormData();
-      for (const file of Array.from(files)) formData.append('files', file);
+      for (const file of Array.from(files)) {
+        if (photoTooLarge(file.size)) {
+          problems.push(`«${file.name}»: ${PHOTO_TOO_LARGE}`);
+          continue;
+        }
+        const formData = new FormData();
+        formData.append('files', file);
+        const uploadRes = await fetch('/api/upload', { method: 'POST', body: formData });
+        const uploadData = await uploadRes.json().catch(() => ({})) as { success?: boolean; error?: string; data?: { files: string[] } };
+        if (!uploadRes.ok || !uploadData.success || !uploadData.data?.files?.length) {
+          problems.push(uploadData.error || `«${file.name}»: не загрузилось`);
+          continue;
+        }
 
-      const uploadRes = await fetch('/api/upload', { method: 'POST', body: formData });
-      const uploadData = await uploadRes.json() as { success?: boolean; error?: string; data?: { files: string[] } };
-      if (!uploadRes.ok || !uploadData.success || !uploadData.data?.files?.length) {
-        setError(uploadData.error || 'Не удалось загрузить файлы');
-        return;
-      }
-
-      for (const url of uploadData.data.files) {
-        const res = await fetch(`/api/stay/accommodations/${accommodationId}/photos`, {
-          method: 'POST',
-          headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({ url }),
-        });
-        const d = await res.json() as { success?: boolean; error?: string };
-        if (!res.ok || !d.success) {
-          setError(d.error || 'Файл загружен, но не привязался к объекту');
+        for (const url of uploadData.data.files) {
+          const res = await fetch(`/api/stay/accommodations/${accommodationId}/photos`, {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ url }),
+          });
+          const d = await res.json() as { success?: boolean; error?: string };
+          if (!res.ok || !d.success) {
+            problems.push(d.error || `«${file.name}»: загружен, но не привязался к объекту`);
+          }
         }
       }
+      if (problems.length > 0) setError(problems.join(' '));
       load();
     } catch {
       setError('Не удалось загрузить файлы');
