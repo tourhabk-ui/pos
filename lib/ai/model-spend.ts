@@ -135,8 +135,9 @@ export const UNOWNED_SPEND_LABEL = 'без подписи — вызов вне 
  * стороны: у каждого, кто подписывает расход (`AGENT_ID` рук в workflow,
  * `runWithUsageTracking`, строки для usage-sink), подпись есть здесь или в
  * реестре, а у каждой подписи здесь есть такой писатель. Журнал прогонов
- * (`logAgentRun`) расход не подписывает: «эволюция» или «разведка» там есть,
- * а в книгах их вызовы — «без подписи», пока их не обернут.
+ * (`logAgentRun`) расход не подписывает: агент из журнала попадает в книги
+ * своей строкой, только когда его вызовы модели обёрнуты (эволюция и
+ * разведка — с 07.11).
  */
 export const SPEND_LABELS: Readonly<Record<string, string>> = {
   // Живой Кузьмич: сайт, Telegram, MAX, A2A и Кузьмич партнёра (lib/ai/provider-usage).
@@ -147,8 +148,11 @@ export const SPEND_LABELS: Readonly<Record<string, string>> = {
   'kuzmich-redteam': 'Кузьмич: проверка на провокации',
   'kuzmich-grader': 'Кузьмич: оценка ответов после разговора',
   editor: 'Editor: описания маршрутов',
+  'editor-runner': 'Editor на GitHub: описания маршрутов',
   scout: 'Scout: предложения из разведки',
   'scout-digest': 'Дайджест разведки',
+  intelligence: 'Разведка: новости ИИ, туризма, конкурентов',
+  evo: 'Эволюция: ночной цикл',
   'evo-judge': 'Эволюция: судья находок (на GitHub)',
   'evo-review': 'Эволюция: ревью кода (на GitHub)',
   // «Руки» — claude-code-action на GitHub (scripts/hands-usage.mjs, AGENT_ID в workflow).
@@ -168,8 +172,8 @@ export const SPEND_LABELS: Readonly<Record<string, string>> = {
  */
 export function agentSpendLabel(agentId: string | null): string {
   if (agentId === null) return UNOWNED_SPEND_LABEL;
-  const own = SPEND_LABELS[agentId];
-  if (own) return own;
+  // Свой ключ, а не унаследованный: «constructor» из книг не станет функцией.
+  if (Object.prototype.hasOwnProperty.call(SPEND_LABELS, agentId)) return SPEND_LABELS[agentId];
   const entry = CRON_REGISTRY.find((e) => spendIdOf(e) === agentId);
   return entry ? entry.label : agentId;
 }

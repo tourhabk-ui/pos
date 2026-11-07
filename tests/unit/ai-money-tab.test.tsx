@@ -272,7 +272,8 @@ function walk(dir: string, out: string[] = []): string[] {
 /**
  * Кто подписывает расход в книгах llm_usage_log: «руки» — переменной AGENT_ID
  * шага учёта в workflow; код — первым аргументом runWithUsageTracking,
- * fallbackAgentId у провайдеров и полем agent_id у строк для usage-sink.
+ * fallbackAgentId у провайдеров, полем agent_id у строк для usage-sink и
+ * последним аргументом usageRowFromResponse (скрипт раннера со своим fetch).
  * logAgentRun сюда не относится: это журнал прогонов, расход он не подписывает.
  */
 function spendWriters(): Map<string, string> {
@@ -318,9 +319,16 @@ function spendWriters(): Map<string, string> {
       }
     }
     for (const m of s.matchAll(/fallbackAgentId:\s*([A-Z][A-Z0-9_]*)/g)) found.set(resolve(file, s, m[1]), file);
-    if (s.includes('@/lib/ai/usage-sink')) {
+    // Импорт и по алиасу, и относительный: скрипты раннера пишут '../lib/…'.
+    if (/lib\/ai\/usage-sink['"]/.test(s)) {
       for (const m of s.matchAll(/\bagent_id:\s*(?:['"]([a-z0-9-]+)['"]|([A-Z][A-Z0-9_]*)\b)/g)) {
         found.set(m[1] ?? resolve(file, s, m[2]), file);
+      }
+      for (const m of s.matchAll(/(?<!function\s)usageRowFromResponse\(\s*[^,]+,\s*[^,]+,\s*([^,)]+?)\s*\)/g)) {
+        const arg = m[1];
+        const lit = arg.match(/^['"`]([^'"`]+)['"`]$/);
+        expect(lit || /^[A-Z][A-Z0-9_]*$/.test(arg), `${file}: usageRowFromResponse(…, ${arg}) — подпись переменной, сторож её не видит`).toBeTruthy();
+        found.set(lit ? lit[1] : resolve(file, s, arg), file);
       }
     }
   }
@@ -338,11 +346,14 @@ describe('Подписи «за что»', () => {
   it('без агента, Кузьмич, реестр кронов и незнакомый id', () => {
     expect(agentSpendLabel(null)).toBe(UNOWNED_SPEND_LABEL);
     expect(agentSpendLabel('kuzmich')).toBe('Кузьмич — живые разговоры');
-    const fromRegistry = CRON_REGISTRY.find((e) => !(spendIdOf(e) in SPEND_LABELS));
+    const fromRegistry = CRON_REGISTRY.find((e) => !Object.prototype.hasOwnProperty.call(SPEND_LABELS, spendIdOf(e)));
     expect(fromRegistry).toBeDefined();
     if (fromRegistry) expect(agentSpendLabel(spendIdOf(fromRegistry))).toBe(fromRegistry.label);
     // Незнакомому имя не выдумывается: показан сам id.
     expect(agentSpendLabel('probe-no-such-agent')).toBe('probe-no-such-agent');
+    // Унаследованные ключи объекта — не подписи: строка из книг остаётся строкой.
+    expect(agentSpendLabel('constructor')).toBe('constructor');
+    expect(agentSpendLabel('toString')).toBe('toString');
   });
 
   it('у каждого, кто подписывает расход, подпись есть; у каждой подписи есть писатель', () => {

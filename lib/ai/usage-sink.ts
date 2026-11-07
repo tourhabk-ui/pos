@@ -28,6 +28,8 @@
  * не звонит сам себе.
  */
 
+import { parseProviderUsage } from './provider-usage';
+
 const PROD_BASE = 'https://vedarai.ru';
 const REPORT_PATH = '/api/admin/llm-usage/report';
 
@@ -41,6 +43,30 @@ export interface UsageRowToReport {
    * прод пишет NULL, а не ноль (миграция 1285). Роут приёма поле уже знает.
    */
   cache_read_tokens?: number | null;
+}
+
+/**
+ * Строка книг из ответа OpenAI-совместимого API, когда скрипт раннера зовёт
+ * модель своим fetch, мимо providers.ts (Editor на раннере — OpenRouter).
+ * До 07.11 такой расход не попадал в книги вовсе: обход импортов к
+ * `logLLMUsage` его не видел, дневной бюджет не складывал.
+ *
+ * Модель — та, что назвал ответ (OpenRouter отвечает настоящим id), иначе
+ * запрошенная. Вход — без прочитанного из кэша, кэш отдельно, как у
+ * `logLLMUsage`. Нет `usage` или он неполон — null: строку с нулями не пишем,
+ * вызывающий говорит в лог «расход неизвестен».
+ */
+export function usageRowFromResponse(data: unknown, requestedModel: string, agentId: string): UsageRowToReport | null {
+  const body = data !== null && typeof data === 'object' ? (data as { model?: unknown; usage?: unknown }) : {};
+  const usage = parseProviderUsage(body.usage);
+  if (!usage) return null;
+  return {
+    model: typeof body.model === 'string' && body.model.trim() ? body.model.trim() : requestedModel,
+    prompt_tokens: usage.promptTokens,
+    completion_tokens: usage.completionTokens,
+    cache_read_tokens: usage.cacheReadTokens,
+    agent_id: agentId,
+  };
 }
 
 /**

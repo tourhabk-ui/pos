@@ -86,6 +86,10 @@ jobs:
           # Ключ из секретов репозитория — он ОТДЕЛЬНЫЙ от ключа Timeweb
           # (CLAUDE.md §8: граница проходит по тому, где исполняется вызов).
           OPENROUTER_API_KEY: ${{ secrets.OPENROUTER_API_KEY }}
+          # Расход — в книги прода через usage-sink (07.11): без секрета
+          # ответы модели в llm_usage_log не попадают, и дневной бюджет их
+          # не видит.
+          CRON_SECRET: ${{ secrets.CRON_SECRET }}
         run: npx tsx scripts/editor-runner.ts /tmp/editor-job.json /tmp/editor-result.json
 
       - name: Publish (запись в БД прода)

@@ -52,9 +52,9 @@
 
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
 import { readFileSync, existsSync, readdirSync, mkdtempSync, writeFileSync, rmSync } from 'node:fs';
-import { basename, join } from 'node:path';
+import { basename, join, relative } from 'node:path';
 import { tmpdir } from 'node:os';
-import { spawnSync } from 'node:child_process';
+import { spawn, spawnSync } from 'node:child_process';
 import { load } from 'js-yaml';
 import { NextRequest } from 'next/server';
 
@@ -69,6 +69,8 @@ import {
   ANTHROPIC_CACHE_WRITE_5M_MULTIPLIER,
 } from '@/lib/ai/cache-pricing';
 import { parseExecution, runHandsUsage } from '../../scripts/hands-usage.mjs';
+import { LLM_ENDPOINTS } from '@/lib/agents/compliance/provider-registry';
+import { usageRowFromResponse } from '@/lib/ai/usage-sink';
 
 const ROOT = process.cwd();
 const WORKFLOWS = join(ROOT, '.github/workflows');
@@ -179,6 +181,196 @@ describe('расход раннера доходит до книг', () => {
       const keys = Object.keys(s.env).filter((k) => k.endsWith('_API_KEY'));
       expect(keys.length, `${s.file} → ${s.step}: ни одного ключа провайдера`).toBeGreaterThan(0);
     }
+  });
+});
+
+// ── Прямые вызовы модели из раннера (07.11) ─────────────────────────────
+//
+// Обход импортов выше видит только тех, кто идёт через providers.ts. Скрипт со
+// своим fetch к модели до logLLMUsage не доходит вовсе: так Editor на раннере
+// (OpenRouter, Opus по умолчанию, каждый день) ни разу не попал в книги, и
+// дневной бюджет его трат не видел. Такие скрипты находятся по адресу модели из
+// реестра D2 в их коде; каждый пишет расход сам (usage-sink, CRON_SECRET в шаге)
+// или назван ниже с причиной. Список только сокращается: скрипт начал писать
+// расход или перестал звать модель — запись убрать.
+const DIRECT_CALLERS_OUTSIDE_BOOKS: Record<string, string> = {
+  'model-catalog-runner.ts': 'читает каталог /models OpenRouter — токенов не тратит',
+  'list-ai-models.js': 'читает списки /models у провайдеров — токенов не тратит; ни одним workflow не запускается',
+  'os-audit-runner.ts': 'аудит по маркеру, самый дорогой разовый прогон (прогон 7 — $16.72, §5.1); расход в книги не пишет — перевести на usage-sink',
+  'route-analysis-runner.ts': 'разбор маршрутов по маркеру; расход в книги не пишет — перевести на usage-sink',
+  'source-discovery-runner.ts': 'поиск источников по маркеру; расход в книги не пишет — перевести на usage-sink',
+  'astra-probe.ts': 'очная ставка моделей по маркеру (проба); расход в книги не пишет — перевести на usage-sink',
+  'qwen-image-probe.ts': 'проба обложек Qwen-Image по маркеру; расход в книги не пишет',
+  'qwen-key-probe.ts': 'проба ключа DashScope по маркеру; расход в книги не пишет',
+  'xai-x-search-probe.ts': 'проба x_search по маркеру; расход в книги не пишет',
+  'route-scraper-agent.js': 'локальный скрипт из package.json, ни одним workflow не запускается — расход на ключе запускающего',
+  'scrape-operator-tours.js': 'локальный скрипт, ни одним workflow не запускается — расход на ключе запускающего',
+};
+
+const SCRIPTS_DIR = join(ROOT, 'scripts');
+const stripComments = (s: string) => s.replace(/\/\*[\s\S]*?\*\//g, '').replace(/^\s*\/\/.*$/gm, '');
+const LLM_HOSTS = LLM_ENDPOINTS.map((e) => e.host);
+
+function scriptFiles(dir = SCRIPTS_DIR, out: string[] = []): string[] {
+  for (const e of readdirSync(dir, { withFileTypes: true })) {
+    if (e.name === 'node_modules') continue;
+    const full = join(dir, e.name);
+    if (e.isDirectory()) scriptFiles(full, out);
+    else if (/\.(ts|mjs|js|cjs)$/.test(e.name)) out.push(full);
+  }
+  return out;
+}
+
+/** Скрипты, в чьём коде стоит адрес модели из реестра D2, — путь от scripts/. */
+function directCallers(): string[] {
+  return scriptFiles()
+    .filter((f) => {
+      const src = stripComments(readFileSync(f, 'utf-8'));
+      return LLM_HOSTS.some((h) => src.includes(h));
+    })
+    .map((f) => relative(SCRIPTS_DIR, f));
+}
+
+function writesUsageItself(rel: string): boolean {
+  const src = stripComments(readFileSync(join(SCRIPTS_DIR, rel), 'utf-8'));
+  return /lib\/ai\/usage-sink['"]/.test(src) && /sendUsageToProd\(/.test(src);
+}
+
+describe('скрипт, зовущий модель своим fetch, пишет расход сам', () => {
+  it('такие скрипты есть, и разбор их видит', () => {
+    // Ноль найденных — сломался поиск (переименовали реестр, сменили хосты), а не «все чисты».
+    expect(directCallers()).toContain('editor-runner.ts');
+  });
+
+  it('каждый пишет расход в книги или назван с причиной', () => {
+    const bad = directCallers().filter((f) => !Object.prototype.hasOwnProperty.call(DIRECT_CALLERS_OUTSIDE_BOOKS, f) && !writesUsageItself(f));
+    expect(bad, `модель зовут мимо книг: ${bad.join(', ')} — usage-sink или запись с причиной`).toEqual([]);
+  });
+
+  it('шаг, который запускает пишущего, несёт CRON_SECRET из секретов', () => {
+    const writers = directCallers().filter((f) => !Object.prototype.hasOwnProperty.call(DIRECT_CALLERS_OUTSIDE_BOOKS, f));
+    expect(writers.length).toBeGreaterThan(0);
+    for (const f of writers) {
+      const steps = stepsRunning([f]);
+      expect(steps.length, `${f} не запускается ни одним workflow`).toBeGreaterThan(0);
+      for (const st of steps) {
+        expect(String(st.env.CRON_SECRET ?? ''), `${st.file} → ${st.step}: без секрета расход в книги не попадёт`).toMatch(/secrets\.CRON_SECRET/);
+      }
+    }
+  });
+
+  it('список «мимо книг» только сокращается', () => {
+    const callers = new Set(directCallers());
+    for (const [f, why] of Object.entries(DIRECT_CALLERS_OUTSIDE_BOOKS)) {
+      expect(why.length, f).toBeGreaterThan(20);
+      expect(callers.has(f), `${f} больше не зовёт модель напрямую — уберите запись`).toBe(true);
+      expect(writesUsageItself(f), `${f} уже пишет расход сам — уберите запись`).toBe(false);
+    }
+  });
+
+  // Исполнением: настоящий скрипт под node, fetch подменён до его старта.
+  const ROUTE_ROW = {
+    id: '11111111-1111-1111-1111-111111111111', title: 'Вулкан Горелый', description: null, category: null,
+    kind: 'place', lat: 52.5, lng: 158.0, location_type: 'volcano', activity_type: null, zone: null,
+    source_name: null, altitude_m: 1829, terrain_type: null, hazard_types: null, difficulty_level: null,
+    nearest_medical_km: null, distance_km: null, elevation_gain_m: null, duration_hours: null, season: null,
+    route_type: null, hazards: null, equipment: null, park_name: null,
+  };
+  const PRELOAD = `
+import { writeFileSync } from 'node:fs';
+globalThis.fetch = async (url, init) => {
+  const u = String(url);
+  if (u.startsWith('https://openrouter.ai/')) {
+    return new Response(JSON.stringify({
+      model: 'anthropic/claude-opus-5-answered',
+      choices: [{ message: { content: 'Горелый — действующий вулкан высотой 1829 метров в южной части полуострова.' } }],
+      usage: { prompt_tokens: 1200, completion_tokens: 300, prompt_tokens_details: { cached_tokens: 200 } },
+    }), { status: 200, headers: { 'content-type': 'application/json' } });
+  }
+  if (u === 'https://vedarai.ru/api/admin/llm-usage/report') {
+    writeFileSync(process.env.USAGE_CAPTURE, JSON.stringify({ auth: init.headers.Authorization, body: JSON.parse(init.body) }));
+    const status = Number(process.env.USAGE_REPORT_STATUS);
+    return new Response(JSON.stringify(status === 200 ? { success: true, written: 1 } : { error: 'сбой' }), { status });
+  }
+  throw new Error('неожиданный адрес ' + u);
+};
+`;
+  // Асинхронно: прогон скрипта не держит поток воркера, пока node собирает TS.
+  async function runEditorRunner(reportStatus: number) {
+    const dir = mkdtempSync(join(tmpdir(), 'editor-runner-usage-'));
+    try {
+      const preload = join(dir, 'preload.mjs');
+      const job = join(dir, 'job.json');
+      const out = join(dir, 'out.json');
+      const capture = join(dir, 'capture.json');
+      writeFileSync(preload, PRELOAD);
+      writeFileSync(job, JSON.stringify({ queue_total: 1, routes: [ROUTE_ROW] }));
+      const child = spawn(process.execPath, ['--import', 'tsx', '--import', preload, 'scripts/editor-runner.ts', job, out], {
+        cwd: ROOT,
+        env: {
+          PATH: process.env.PATH ?? '', HOME: process.env.HOME ?? '',
+          OPENROUTER_API_KEY: 'test-key', CRON_SECRET: 'test-secret',
+          USAGE_CAPTURE: capture, USAGE_REPORT_STATUS: String(reportStatus),
+        },
+      });
+      let output = '';
+      child.stdout.on('data', (d) => { output += String(d); });
+      child.stderr.on('data', (d) => { output += String(d); });
+      const status = await new Promise<number | null>((resolve, reject) => {
+        child.on('error', reject);
+        child.on('close', (code) => resolve(code));
+      });
+      return {
+        status,
+        output,
+        capture: existsSync(capture) ? JSON.parse(readFileSync(capture, 'utf-8')) : null,
+        result: existsSync(out) ? JSON.parse(readFileSync(out, 'utf-8')) : null,
+      };
+    } finally {
+      rmSync(dir, { recursive: true, force: true });
+    }
+  }
+
+  it('Editor на раннере отправляет расход: модель ответа, вход без кэша, подпись editor-runner', async () => {
+    const r = await runEditorRunner(200);
+    expect(r.status, r.output).toBe(0);
+    expect(r.capture?.auth).toBe('Bearer test-secret');
+    expect(r.capture?.body.rows).toEqual([{
+      model: 'anthropic/claude-opus-5-answered', prompt_tokens: 1000, completion_tokens: 300,
+      cache_read_tokens: 200, agent_id: 'editor-runner',
+    }]);
+    expect(r.result?.usage).toEqual({ rows: 1, missing: 0, reported: true });
+    expect(r.result?.written).toBe(1);
+  }, 90_000);
+
+  it('прод не принял расход — описания всё равно уходят, а отказ назван', async () => {
+    const r = await runEditorRunner(500);
+    expect(r.status, r.output).toBe(0);
+    expect(r.result?.usage).toEqual({ rows: 1, missing: 0, reported: false });
+    expect(r.result?.written).toBe(1);
+    expect(r.output).toContain('прод НЕ принял');
+  }, 90_000);
+});
+
+describe('строка книг из ответа OpenAI-совместимого API', () => {
+  it('модель — из ответа, вход без кэша, кэш отдельно', () => {
+    const row = usageRowFromResponse(
+      { model: 'deepseek-v4-pro', usage: { prompt_tokens: 1000, completion_tokens: 200, prompt_tokens_details: { cached_tokens: 300 } } },
+      'deepseek-chat', 'editor-runner',
+    );
+    expect(row).toEqual({ model: 'deepseek-v4-pro', prompt_tokens: 700, completion_tokens: 200, cache_read_tokens: 300, agent_id: 'editor-runner' });
+  });
+
+  it('модель не названа — запрошенная; кэш не сообщён — null, а не ноль', () => {
+    expect(usageRowFromResponse({ usage: { prompt_tokens: 50, completion_tokens: 10 } }, 'z-ai/glm-5.3', 'a'))
+      .toEqual({ model: 'z-ai/glm-5.3', prompt_tokens: 50, completion_tokens: 10, cache_read_tokens: null, agent_id: 'a' });
+  });
+
+  it('нет usage или он неполон — null, а не строка с нулями', () => {
+    expect(usageRowFromResponse({ choices: [] }, 'm', 'a')).toBeNull();
+    expect(usageRowFromResponse({ usage: { prompt_tokens: 5 } }, 'm', 'a')).toBeNull();
+    expect(usageRowFromResponse(null, 'm', 'a')).toBeNull();
+    expect(usageRowFromResponse('oops', 'm', 'a')).toBeNull();
   });
 });
 

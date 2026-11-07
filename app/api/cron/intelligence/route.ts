@@ -11,6 +11,7 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { pool } from '@/lib/db-pool';
 import { runIntelligenceCycle } from '@/lib/services/intelligence-monitor.service';
+import { runWithUsageTracking } from '@/lib/ai/usage-context';
 import { timingSafeCompare } from '@/lib/security/timing-safe';
 import { logAgentRun } from '@/lib/agents/run-logger';
 import { getCronSecret } from '@/lib/auth/cron';
@@ -32,7 +33,9 @@ export async function GET(request: NextRequest) {
 
   try {
     const startedAt = new Date();
-    const report = await runIntelligenceCycle();
+    // Расход модели — под подписью «intelligence» в книгах (вкладка «Деньги»,
+    // 07.11), а не строкой «без подписи».
+    const { result: report } = await runWithUsageTracking('intelligence', () => runIntelligenceCycle());
 
     // Log to run history
     await logAgentRun({

@@ -44,6 +44,7 @@ import { EVO_SCAN_TYPES, isEvoScanType } from '@/lib/agents/evo/growth-agent';
 import { buildEvoAlert } from '@/lib/agents/evo/alert';
 import { logAgentRun } from '@/lib/agents/run-logger';
 import { getCronSecret } from '@/lib/auth/cron';
+import { runWithUsageTracking } from '@/lib/ai/usage-context';
 import { startEvoRunTask, finishEvoRunTask, failEvoRunTask } from '@/lib/agents/kernel/adapters/evo-run-task';
 
 export const dynamic = 'force-dynamic';
@@ -213,7 +214,9 @@ async function runAndRecord(
   lock: PoolClient,
 ): Promise<{ body: Record<string, unknown>; status: number }> {
   try {
-    const result = await runEvoOrchestrator(scanType);
+    // Расход модели цикла — под подписью «evo» в книгах (вкладка «Деньги»,
+    // 07.11): без обёртки его вызовы ложились строкой «без подписи».
+    const { result } = await runWithUsageTracking('evo', () => runEvoOrchestrator(scanType));
 
     if (kernelHandle) await finishEvoRunTask(kernelHandle, result);
 
