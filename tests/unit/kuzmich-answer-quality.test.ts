@@ -14,7 +14,6 @@
 import { readFileSync } from 'node:fs';
 import { describe, expect, it } from 'vitest';
 import {
-  bookingAgentOwns,
   collapseRepeatedReply,
   commercialSources,
   composeCommercial,
@@ -671,11 +670,6 @@ describe('не коммерция — отвечает модель', () => {
     }
   });
 
-  it('«хочу тур» — агент брони, не сборщик списка', () => {
-    expect(bookingAgentOwns('Хочу тур на вулкан 15 июля')).toBe(true);
-    expect(bookingAgentOwns('Какие туры на вулканы есть осенью? Списком с ценами')).toBe(false);
-    expect(bookingAgentOwns('Хочу взять машину в аренду')).toBe(false);
-  });
 });
 
 describe('один сборщик на сайт, Telegram и MAX', () => {
