@@ -34,7 +34,7 @@ import { WIDGET_CHAT_PSEUDO_LEAD_SQL } from '@/lib/leads/widget-chat-pseudo';
 import { readDaySummary } from '@/lib/analytics/day-summary';
 import type { Metric } from '@/lib/analytics/day-summary-types';
 import { escapeHtml } from '@/lib/text/escape-html';
-import { ADMIN_LEAD_BUTTONS, adminLeadOpenButtons } from '@/lib/max/admin-actions';
+import { ADMIN_LEAD_BUTTONS, adminBookingOpenButtons, adminLeadOpenButtons } from '@/lib/max/admin-actions';
 import type { MenuButton } from '@/lib/roles/chat-menu';
 
 /** Предел одного сообщения MAX — с запасом под «и ещё N». */
@@ -51,7 +51,13 @@ export type AdminCommand = 'help' | 'dates' | 'bookings' | 'leads' | 'summary' |
  * ответа с ПД они уходят следом отдельным сообщением, у ответа без ПД — под
  * текстом, над строкой меню.
  */
-export interface AdminReply { text: string; pd: boolean; buttons?: MenuButton[][] }
+export interface AdminReply {
+  text: string;
+  pd: boolean;
+  buttons?: MenuButton[][];
+  /** Подпись сообщения с кнопками, ушедшего следом за списком с ПД: «Открыть бронь из списка выше:». */
+  buttonsLabel?: string;
+}
 
 /**
  * Команда из текста администратора. null — не понял: отвечает подсказка, а
@@ -82,7 +88,9 @@ export const ADMIN_HELP_TEXT = [
   'Даты за оператора — фразой, как пишет оператор: «открой 3 и 5 декабря на Горелый, 6 мест». '
     + 'Покажу, что откроется по каждой дате, и спрошу «Да»; закрытые оператором даты не открываю, '
     + 'оператору сообщу, что даты открыли вы.',
-  'Пост в канал и статус брони — следующими шагами.',
+  'Бронь за оператора: кнопка «Бронь N» под списком «Брони», затем «Оператор подтвердил» и «Да» — '
+    + 'только если оператор сказал вам «да». Туристу уйдёт подтверждение, оператору — что подтвердили вы.',
+  'Пост в канал — следующим шагом.',
 ].join('\n');
 
 /** «2026-10-25» → «25.10». */
@@ -192,15 +200,19 @@ export async function readPendingBookings(): Promise<AdminReply> {
   }
   if (rows.length === 0) return { text: 'Броней, которые ждут подтверждения оператора, нет.', pd: false };
   const total = rows[0].total;
-  const items = rows.map((r) => {
+  // Номер строки — номер кнопки «Бронь N» под списком (первые ADMIN_LEAD_BUTTONS).
+  const items = rows.map((r, i) => {
     const age = r.age_h >= 48 ? `ждёт ${r.age_h} ч — оператор молчит больше двух суток`
       : r.age_h >= 24 ? `ждёт ${r.age_h} ч — больше суток` : `ждёт ${r.age_h} ч`;
     const who = [r.tourist_name, r.tourist_phone].filter(Boolean).map(escapeHtml).join(', ') || 'контакт не записан';
-    return `• №${r.id} · ${escapeHtml(r.title ?? 'тур удалён')} · ${escapeHtml(r.operator ?? 'оператор не указан')} · `
-      + `${dm(r.booking_date)} · ${r.participants} чел · ${who} · ${age}`;
+    return `${i < ADMIN_LEAD_BUTTONS ? `${i + 1}.` : '•'} №${r.id} · ${escapeHtml(r.title ?? 'тур удалён')} · `
+      + `${escapeHtml(r.operator ?? 'оператор не указан')} · ${dm(r.booking_date)} · ${r.participants} чел · ${who} · ${age}`;
   });
   const head = [`<b>Ждут подтверждения оператора: ${total}</b>${total > rows.length ? ` (показаны ${rows.length} старших)` : ''}`];
-  return { text: fitLines(head, items), pd: true };
+  return {
+    text: fitLines(head, items), pd: true,
+    buttons: adminBookingOpenButtons(rows.map((r) => r.id)), buttonsLabel: 'Открыть бронь из списка выше:',
+  };
 }
 
 // ── заявки ──────────────────────────────────────────────────────────────

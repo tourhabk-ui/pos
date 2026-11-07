@@ -12,6 +12,12 @@
  * лояльность при завершении. Вторая копия этого кода разошлась бы с первой
  * поведением — так уже было с кнопкой SOS (#887).
  *
+ * Третья дверь (07.11, слово владельца «да»): администратор Ведара из своего
+ * MAX подтверждает бронь за оператора, который сказал «да» по телефону
+ * (lib/max/admin-bookings). Правило то же — владение по туру оператора,
+ * переход, письмо и уведомления туристу; в ленте клиента исполнитель —
+ * `admin`, а не партнёр.
+ *
  * Повтор того же статуса (29.10) — не событие: второе нажатие «Подтвердить»
  * (двойной клик, повтор кнопки в чате) не шлёт туристу второе письмо, push и
  * Telegram, не переписывает время и причину отмены, которые турист уже
@@ -72,11 +78,14 @@ const ROW_COLUMNS = `id, booking_status, updated_at, tourist_email, tourist_name
 export async function changeOwnerBookingStatus(args: {
   ownerPartnerId: string;
   actorUserId: string;
+  /** Кто нажал: партнёр (по умолчанию) или администратор за оператора — в ленту клиента. */
+  actorKind?: 'partner_user' | 'admin';
   bookingId: string;
   input: OwnerStatusInput;
   via: OwnerStatusVia;
 }): Promise<OwnerStatusResult> {
   const { ownerPartnerId, actorUserId, input, via } = args;
+  const actorKind = args.actorKind ?? 'partner_user';
   const id = args.bookingId;
 
   const txResult = await transaction(async (client) => {
@@ -183,7 +192,7 @@ export async function changeOwnerBookingStatus(args: {
   if (input.booking_status && txResult.prevStatus) {
     await recordSourceEventQuietly({
       kind: 'status_change', sourceKind: 'operator_booking', sourceId: id,
-      actorKind: 'partner_user', actorUserId,
+      actorKind, actorUserId,
       title: statusChangeTitle('operator_booking', txResult.prevStatus, input.booking_status),
       payload: { from: txResult.prevStatus, to: input.booking_status, reason: input.cancellation_reason ?? null, via },
     });

@@ -1067,6 +1067,197 @@ withPg('вход через MAX подтверждается вопросом в
         expect((await datesRows()).map((r) => r.status)).toEqual(['superseded']);
       });
     });
+
+    // ── Фаза 2в (07.11): бронь за оператора ────────────────────────────────
+    //
+    // Слово владельца: бронь ждёт ответа оператора, администратор ему
+    // позвонил и жмёт «Оператор подтвердил». Турист получает обычное
+    // подтверждение; оператору — что подтвердил администратор. Та же дверь,
+    // что у кабинета оператора; всё на схеме прода.
+    describe('бронь за оператора: «Бронь N» → «Оператор подтвердил» → «Да» (фаза 2в, 07.11)', () => {
+      const OP_MAX = 750_001;
+      let operatorId = '';
+      let tourId = '';
+      let bookingId = '';
+
+      let seq = 0;
+      const sayFresh = (text: string) => bot({
+        update_type: 'message_created', timestamp: Date.now(),
+        message: {
+          sender: { user_id: ADMIN_MAX, name: 'Админ' },
+          recipient: { chat_id: ADMIN_MAX + 5, chat_type: 'dialog' },
+          body: { mid: `m-book-${++seq}`, seq: 1, text },
+        },
+      });
+      const pressAs = (payload: string, userId = ADMIN_MAX) => bot({
+        update_type: 'message_callback', timestamp: Date.now(),
+        callback: { timestamp: Date.now(), callback_id: `cbb-${++seq}`, payload, user: { user_id: userId, name: 'Админ' } },
+        message: { recipient: { chat_id: userId + 5, chat_type: 'dialog' }, body: { mid: `m-bpress-${seq}`, seq: 1, text: null } },
+      });
+      const lastText = () => sent[sent.length - 1]?.text ?? '';
+      const yesButton = () => lastButtons().find((b) => b.payload.startsWith('ad:y:'));
+      const status = async () => (await pool.query<{ booking_status: string }>(
+        'SELECT booking_status FROM operator_bookings WHERE id = $1::bigint', [bookingId],
+      )).rows[0]?.booking_status;
+      const bookingRows = async () => (await pool.query<{
+        status: string; subject_id: string; admin_user_id: string; outcome: { kind?: string; changed?: boolean; notified?: string } | null;
+      }>(
+        `SELECT status, subject_id, admin_user_id::text, outcome
+           FROM admin_chat_actions WHERE subject_kind = 'booking' ORDER BY created_at, id`,
+      )).rows;
+      const confirmPayload = async () => (await import('@/lib/max/admin-actions')).adminBookingConfirmPayload(bookingId);
+
+      beforeAll(async () => {
+        operatorId = (await pool.query<{ id: string }>(
+          `INSERT INTO partners (name, category, contact, max_chat_id) VALUES ('Оператор Вэ', 'operator', '{}'::jsonb, $1)
+           RETURNING id::text AS id`,
+          [OP_MAX],
+        )).rows[0].id;
+        tourId = (await pool.query<{ id: string }>(
+          `INSERT INTO operator_tours (operator_id, title, slug, activity_type, base_price, price_unit, min_participants,
+                                       max_participants, duration_hours, difficulty, is_active, is_published)
+           VALUES ($1, 'Поход на Мерапи', $2, 'hiking', 5000, 'per_person', 1, 10, 8, 'easy', TRUE, TRUE) RETURNING id::text AS id`,
+          [operatorId, `adm-book-${Math.random().toString(36).slice(2, 10)}`],
+        )).rows[0].id;
+      });
+
+      beforeEach(async () => {
+        await pool.query('DELETE FROM admin_chat_actions');
+        await pool.query('DELETE FROM operator_bookings WHERE operator_tour_id = $1::bigint', [tourId]);
+        bookingId = (await pool.query<{ id: string }>(
+          `INSERT INTO operator_bookings (operator_tour_id, booking_date, participants, booking_status, payment_status,
+                                          final_price, tourist_name, tourist_phone, created_at)
+           VALUES ($1::bigint, CURRENT_DATE + 40, 2, 'new', 'pending', 10000, 'Тест', '+70000000000', NOW() - INTERVAL '30 hours')
+           RETURNING id::text AS id`,
+          [tourId],
+        )).rows[0].id;
+        await startWith(startArg((await issueLink()).link!), ADMIN_MAX);
+        sent.length = 0;
+      });
+
+      it('«брони» → «Бронь N» → «Оператор подтвердил» → «Да»: бронь подтверждена той же дверью, журнал, лента клиента, оператору — без ПД', async () => {
+        await sayFresh('брони');
+        const list = sent.find((m) => m.text.includes(`№${bookingId}`))!;
+        expect(list.text).toContain('Тест, +70000000000');
+        const line = list.text.split('\n').find((l) => l.includes(`№${bookingId}`))!;
+        const n = Number(/^(\d+)\./.exec(line)![1]);
+        const follow = sent[sent.length - 1];
+        expect(follow.text).toBe('Открыть бронь из списка выше:');
+        expect(follow.text).not.toMatch(/Тест|70000000000/);
+        const open = lastButtons().find((b) => b.text === `Бронь ${n}`)!;
+        expect(open.payload).toBe(`ad:b:${bookingId}`);
+
+        sent.length = 0;
+        await pressAs(open.payload);
+        expect(lastText()).toContain(`Бронь №${bookingId}, «Поход на Мерапи»`);
+        expect(lastText()).toContain('оператор «Оператор Вэ»');
+        expect(lastText()).toContain('ждёт подтверждения оператора');
+        expect(lastText()).not.toMatch(/Тест|70000000000/);
+        const confirm = lastButtons().find((b) => b.text === 'Оператор подтвердил')!;
+        expect(confirm.payload.split('~')).toHaveLength(3);
+
+        await pressAs(confirm.payload);
+        expect(lastText()).toContain('Подтвердить бронь за оператора «Оператор Вэ»');
+        expect(lastText()).toContain('только если оператор сказал вам «да»');
+        expect(lastText()).toContain('оплата — напрямую оператору');
+        expect(lastText()).not.toMatch(/Тест|70000000000/);
+        // До «Да» бронь не меняется.
+        expect(await status()).toBe('new');
+        const yes = yesButton()!;
+
+        sent.length = 0;
+        await pressAs(yes.payload);
+        expect(lastText()).toContain('Бронь подтверждена за оператора «Оператор Вэ»');
+        expect(lastText()).toContain('Почты туриста в брони нет');
+        expect(lastText()).toContain('Оператору сообщил в MAX');
+        expect(await status()).toBe('confirmed');
+        const toOperator = sent.filter((m) => m.chatId === OP_MAX);
+        expect(toOperator).toHaveLength(1);
+        expect(toOperator[0].text).toContain(`Администратор Ведара подтвердил за вас бронь №${bookingId}`);
+        expect(toOperator[0].text).not.toMatch(/Тест|70000000000/);
+        const [row] = await bookingRows();
+        expect(row).toMatchObject({ status: 'done', subject_id: bookingId, admin_user_id: adminId });
+        expect(row.outcome).toMatchObject({ kind: 'booking_done', changed: true, notified: 'max' });
+        const { rows: events } = await pool.query<{ actor_kind: string; payload: { to?: string; via?: string } }>(
+          `SELECT actor_kind, payload FROM crm_events WHERE source_kind = 'operator_booking' AND source_id = $1`, [bookingId],
+        );
+        expect(events).toEqual([expect.objectContaining({ actor_kind: 'admin', payload: expect.objectContaining({ to: 'confirmed', via: 'max' }) })]);
+
+        // Повтор «Да» — прежний итог, второго подтверждения и второго сообщения оператору нет.
+        sent.length = 0;
+        await pressAs(yes.payload);
+        expect(lastText()).toContain('Уже нажато раньше');
+        expect(sent.filter((m) => m.chatId === OP_MAX)).toHaveLength(0);
+        expect((await bookingRows()).map((r) => r.status)).toEqual(['done']);
+      });
+
+      it('отменённую бронь подтвердить нельзя: ни из карточки, ни после отмены между вопросом и «Да»', async () => {
+        await pressAs(await confirmPayload());
+        const yes = yesButton()!;
+        await pool.query(`UPDATE operator_bookings SET booking_status = 'cancelled' WHERE id = $1::bigint`, [bookingId]);
+        await pressAs(yes.payload);
+        expect(lastText()).toContain('Бронь уже «отменена» — подтвердить её нельзя');
+        expect(await status()).toBe('cancelled');
+        expect((await bookingRows()).map((r) => r.status)).toEqual(['refused']);
+
+        sent.length = 0;
+        await pressAs(await confirmPayload());
+        expect(lastText()).toContain('подтверждать нечего');
+        expect(yesButton()).toBeUndefined();
+        expect(sent.filter((m) => m.chatId === OP_MAX)).toHaveLength(0);
+      });
+
+      it('оператор подтвердил сам между вопросом и «Да» — «уже подтверждена», оператору и туристу повторно ничего', async () => {
+        await pressAs(await confirmPayload());
+        const yes = yesButton()!;
+        await pool.query(`UPDATE operator_bookings SET booking_status = 'confirmed' WHERE id = $1::bigint`, [bookingId]);
+        sent.length = 0;
+        await pressAs(yes.payload);
+        expect(lastText()).toContain('уже подтверждена — ничего не изменено');
+        expect(sent.filter((m) => m.chatId === OP_MAX)).toHaveLength(0);
+        expect((await bookingRows())[0]).toMatchObject({ status: 'done', outcome: { changed: false } });
+      });
+
+      it('«Не надо», новый вопрос и просроченный вопрос бронь не трогают', async () => {
+        await pressAs(await confirmPayload());
+        const first = yesButton()!;
+        await pressAs(await confirmPayload());
+        const second = yesButton()!;
+        const no = lastButtons().find((b) => b.payload.startsWith('ad:n:'))!;
+        await pressAs(first.payload);
+        expect(lastText()).toContain('заменён');
+        await pressAs(no.payload);
+        expect(lastText()).toContain('Хорошо, бронь без изменений');
+        await pressAs(second.payload);
+        expect(lastText()).toContain('отменено');
+        await pressAs(await confirmPayload());
+        const third = yesButton()!;
+        await pool.query(`UPDATE admin_chat_actions SET expires_at = NOW() - INTERVAL '1 minute' WHERE status = 'ready'`);
+        await pressAs(third.payload);
+        expect(lastText()).toContain('Вопрос устарел');
+        expect(await status()).toBe('new');
+        expect((await bookingRows()).map((r) => r.status)).toEqual(['superseded', 'cancelled', 'ready']);
+      });
+
+      it('снятая роль, чужой человек MAX и кнопка без подписи — бронь не тронута', async () => {
+        await pressAs(await confirmPayload());
+        const yes = yesButton()!;
+        await pressAs(yes.payload, OTHER_MAX);
+        expect(lastText()).toContain('у администратора Ведара');
+        vi.stubEnv('CALLBACK_LEGACY_UNTIL_MS', '1');
+        try {
+          await pressAs(`ad:c:${bookingId}`);
+          expect(lastText()).toContain('Кнопка устарела');
+        } finally {
+          vi.unstubAllEnvs();
+        }
+        await setAdmin(false);
+        await pressAs(yes.payload);
+        expect(lastText()).toContain('у администратора Ведара');
+        expect(await status()).toBe('new');
+        expect((await bookingRows()).map((r) => r.status)).toEqual(['ready']);
+      });
+    });
   });
 
   // ── Прокатчик входит на сайт через MAX (владелец 26.10, «Лагуна Прокат») ──
