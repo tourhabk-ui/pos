@@ -319,6 +319,7 @@ jobs:
           ATTEMPT: ${{ steps.review.outputs.attempt }}
           TIMED_OUT: ${{ steps.review.outputs.timed_out }}
           TAMPERED: ${{ steps.review.outputs.tampered }}
+          RC: ${{ steps.review.outputs.rc }}
           TRANSCRIPT: ${{ runner.temp }}/transcript.jsonl
           OUT: ${{ runner.temp }}/review-out
         run: |
@@ -332,9 +333,10 @@ jobs:
             echo "### Ревью безопасности ($MODEL) — не засчитано: ревьюер писал в файлы команд раннера." >> "$GITHUB_STEP_SUMMARY"
             exit 1
           fi
-          # Итог записан — ревью состоялось, даже если claude потом не ушёл
-          # сам и был остановлен по сроку. Итога нет при вышедшем сроке —
-          # срыв срока, и он назван своими словами.
+          # Прогон снят по сроку — красный, что бы ни лежало в файле выполнения:
+          # итог после обрыва бывает ответом на уведомление фоновой подзадачи,
+          # а не отчётом (пятнадцатое ревью PR #3104). Цена ложного красного —
+          # один перезапуск, ложного зелёного — непроверенный PR.
           RESULT=""
           if [ -s "$TRANSCRIPT" ]; then
             RESULT=$(jq -R -c 'fromjson? | objects | select(.type == "result")' "$TRANSCRIPT" 2>/dev/null | tail -n 1) || RESULT=""
@@ -346,11 +348,12 @@ jobs:
             FAILED=$(jq -R -c 'fromjson? | objects | select(.type == "result" and .is_error == true)' "$TRANSCRIPT" 2>/dev/null | head -n 1) || FAILED=""
             if [ -n "$FAILED" ]; then RESULT="$FAILED"; fi
           fi
-          if [ -z "$RESULT" ] && [ "${TIMED_OUT:-false}" = "true" ]; then
-            echo "::error::Ревью безопасности не уложилось в $(( REVIEW_DEADLINE_S / 60 )) мин: итога нет — это не «находок нет». Ход ревью — в логе шага «Ревью»."
+          if [ "${TIMED_OUT:-false}" = "true" ]; then
+            if [ -z "$RESULT" ]; then WHAT="итога нет"; else WHAT="прогон снят по сроку, итог не засчитан: после обрыва он мог быть ответом подзадачи"; fi
+            echo "::error::Ревью безопасности не уложилось в $(( REVIEW_DEADLINE_S / 60 )) мин: $WHAT — это не «находок нет». Ход ревью — в логе шага «Ревью»."
             {
               echo "### Ревью безопасности ($MODEL)"
-              echo "- Не уложилось в $(( REVIEW_DEADLINE_S / 60 )) мин: итога нет. Ход ревью — в логе шага «Ревью»; расход — в книгах (работа учёта ниже)."
+              echo "- Не уложилось в $(( REVIEW_DEADLINE_S / 60 )) мин: $WHAT. Ход ревью — в логе шага «Ревью»; расход — в книгах (работа учёта ниже)."
             } >> "$GITHUB_STEP_SUMMARY"
             exit 1
           fi
@@ -373,6 +376,16 @@ jobs:
             echo "### Ревью безопасности ($MODEL) — не состоялось${WHY:+: $WHY}. Это не «находок нет»." >> "$GITHUB_STEP_SUMMARY"
             exit 1
           fi
+          # claude не завершился сам (упал, снят сигналом) — итогу верить нельзя,
+          # даже если он не ошибка: красный с кодом выхода.
+          case "${RC:-0}" in
+            0) ;;
+            *)
+              echo "::error::Ревью безопасности не засчитано: claude завершился с кодом $(printf '%s' "$RC" | tr -cd '0-9' | head -c 4) — это не «находок нет»."
+              echo "### Ревью безопасности ($MODEL) — не засчитано: claude завершился не сам. Это не «находок нет»." >> "$GITHUB_STEP_SUMMARY"
+              exit 1
+              ;;
+          esac
           # Пустой итог jq пишет одним переводом строки — судится содержимое,
           # а не размер файла.
           if [ -z "$(tr -d '[:space:]' < "$OUT/report.md")" ]; then
