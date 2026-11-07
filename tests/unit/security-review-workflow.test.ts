@@ -13,7 +13,11 @@
  *  - «ревью не состоялось» — красный, а не «находок нет» (§4.0; 16.10 прежний
  *    экшен на 401 оставался зелёным);
  *  - итог — комментарием в PR, только если ревью состоялось;
- *  - расход — в книги под вендором deepseek, скриптом из main;
+ *  - у ревью свой срок: по нему модель останавливается, срыв назван словами,
+ *    ход ревью виден в логе без текста модели (07.11: первое ревью на
+ *    настоящем диффе было снято таймаутом работы молча);
+ *  - расход — в книги под вендором deepseek, скриптом из main, и при
+ *    оборванной последней строке;
  *  - платное ревью — только на чувствительных путях или по метке.
  */
 import { describe, it, expect, beforeEach, afterEach } from 'vitest';
@@ -22,6 +26,7 @@ import { mkdtempSync, mkdirSync, writeFileSync, rmSync, existsSync, readFileSync
 import { join, dirname } from 'node:path';
 import { tmpdir } from 'node:os';
 import { loadWorkflow, stepByName, evalIf, evalTemplate, type WorkflowStep } from '../helpers/workflow-semantics';
+import { parseExecution } from '../../scripts/hands-usage.mjs';
 
 const wf = loadWorkflow('.github/workflows/security-review.yml');
 const job = wf.jobs.review as typeof wf.jobs.review & { env?: Record<string, string>; outputs?: Record<string, string> };
@@ -54,7 +59,10 @@ function stub(name: string, body: string): void {
   chmodSync(p, 0o755);
 }
 
-/** Шаг как на раннере: env работы и шага из шаблонов, bash -e, рабочий каталог — временный. */
+/**
+ * Шаг как на раннере: env работы и шага из шаблонов, bash -e, рабочий каталог —
+ * временный. extraEnv — поверх env из YAML: так тест сокращает срок ревью.
+ */
 function runStep(step: WorkflowStep, ctx: Record<string, unknown>, extraEnv: Record<string, string> = {}) {
   const env: Record<string, string> = {
     PATH: `${fake}:${process.env.PATH ?? ''}`,
@@ -64,9 +72,9 @@ function runStep(step: WorkflowStep, ctx: Record<string, unknown>, extraEnv: Rec
     GITHUB_STEP_SUMMARY: join(dir, 'step-summary'),
     GITHUB_REPOSITORY: 'tourhabk-ui/pos',
     FAKE_DIR: dir,
-    ...extraEnv,
   };
   for (const [k, v] of Object.entries({ ...(job.env ?? {}), ...(step.env ?? {}) })) env[k] = String(evalTemplate(v, ctx) ?? '');
+  Object.assign(env, extraEnv);
   const script = join(dir, 'step.sh');
   writeFileSync(script, step.run ?? '');
   const r = spawnSync('bash', ['-e', script], { cwd: join(dir, 'work'), env, encoding: 'utf-8' });
@@ -140,7 +148,75 @@ describe('Ревью: deepseek-flash, одна голова, /security-review', 
     for (const t of ['Write', 'Edit', 'NotebookEdit', 'WebFetch', 'WebSearch']) expect(denied).toContain(t);
     const bash = args[args.indexOf('--allowedTools') + 1].split(',').filter((t) => t.startsWith('Bash('));
     expect(bash.sort()).toEqual(['Bash(git diff *)', 'Bash(git log *)', 'Bash(git show *)', 'Bash(git status *)']);
-    expect(outputs()).toMatchObject({ model: 'deepseek-flash', attempt: '1', rc: '0' });
+    expect(outputs()).toMatchObject({ model: 'deepseek-flash', attempt: '1', rc: '0', timed_out: 'false' });
+    // Файл выполнения — то, что вывел claude, хотя вывод идёт и в печать хода.
+    expect(readFileSync(join(dir, 'transcript.jsonl'), 'utf-8').trim()).toBe(okResult);
+  });
+
+  it('ход ревью — в лог: инструменты и токены; ни текста модели, ни аргументов, ни команд раннеру', () => {
+    const lines = [
+      { type: 'system', subtype: 'init', model: 'deepseek-flash' },
+      {
+        type: 'assistant', parent_tool_use_id: null,
+        message: {
+          id: 'm1',
+          content: [{ type: 'thinking', thinking: 'ПЛАН-ТЕКСТ' }, { type: 'tool_use', name: 'Read', input: { file_path: 'ПУТЬ-АРГУМЕНТ' } }],
+          usage: { input_tokens: 100, cache_read_input_tokens: 900, cache_creation_input_tokens: 0, output_tokens: 20 },
+        },
+      },
+      // Подзадача, и имя инструмента от модели — попытка команды раннеру.
+      { type: 'assistant', parent_tool_use_id: 'tu1', message: { id: 'm2', content: [{ type: 'tool_use', name: '::error::взлом', input: {} }], usage: { input_tokens: 5, output_tokens: 1 } } },
+      { type: 'assistant', message: { id: 'm3', content: [{ type: 'text', text: '::warning::внедрено\n::add-mask::x' }] } },
+      'не JSON — строка, которую печать хода пропускает',
+      { type: 'result', is_error: false, num_turns: 3, result: '::error::итог-текст' },
+    ];
+    writeFileSync(join(dir, 'lines.jsonl'), lines.map((l) => (typeof l === 'string' ? l : JSON.stringify(l))).join('\n') + '\n');
+    stub('claude', 'cat "$FAKE_DIR/lines.jsonl"');
+    const r = runStep(step, ctxHere());
+    expect(r.code, r.out).toBe(0);
+    const log = r.out.split('\n');
+    expect(log.find((l) => /\] ход: thinking, Read; токенов: вход 1000, выход 20$/.test(l)), r.out).toBeDefined();
+    expect(log.find((l) => /\] ход подзадачи: \?; токенов: вход 5, выход 1$/.test(l)), r.out).toBeDefined();
+    expect(log.find((l) => /\] ход: text; токенов: вход 0, выход 0$/.test(l)), r.out).toBeDefined();
+    expect(log.find((l) => /\] итог: ходов 3, ошибка: нет$/.test(l)), r.out).toBeDefined();
+    // Ни одна строка вывода шага не начинается с «::» — раннер не получит команду.
+    expect(log.filter((l) => l.startsWith('::'))).toEqual([]);
+    for (const leak of ['ПЛАН-ТЕКСТ', 'ПУТЬ-АРГУМЕНТ', 'взлом', 'внедрено', 'итог-текст', 'не JSON']) expect(r.out, leak).not.toContain(leak);
+    // Файл выполнения — целиком, с битой строкой: учёт разберёт его сам.
+    expect(readFileSync(join(dir, 'transcript.jsonl'), 'utf-8')).toBe(readFileSync(join(dir, 'lines.jsonl'), 'utf-8'));
+  });
+
+  it('печать хода оборвалась — файл выполнения целиком, claude не остановлен', () => {
+    // jq печати хода (единственный с --unbuffered) умирает сразу; прочие — настоящие.
+    stub('jq', 'for a in "$@"; do [ "$a" = "--unbuffered" ] && exit 3; done\nexec "$(type -ap jq | sed -n 2p)" "$@"');
+    stub('claude', [
+      'sleep 0.3',
+      'for i in $(seq 1 200); do echo "{\\"type\\":\\"assistant\\",\\"message\\":{\\"id\\":\\"m$i\\"}}"; done',
+      'echo \'{"type":"result","is_error":false,"result":"ok"}\'',
+    ].join('\n'));
+    const r = runStep(step, ctxHere());
+    expect(r.code, r.out).toBe(0);
+    expect(outputs()).toMatchObject({ rc: '0', timed_out: 'false' });
+    const kept = readFileSync(join(dir, 'transcript.jsonl'), 'utf-8').trim().split('\n');
+    expect(kept).toHaveLength(201);
+    expect(kept[200]).toBe('{"type":"result","is_error":false,"result":"ok"}');
+  });
+
+  it('срок вышел — claude остановлен, и срыв срока выходит из шага', () => {
+    stub('claude', [
+      'echo \'{"type":"assistant","message":{"id":"m1","usage":{"input_tokens":7,"output_tokens":1}}}\'',
+      'sleep 20',
+      'echo \'{"type":"result","is_error":false,"result":"не должно дойти"}\'',
+    ].join('\n'));
+    const t0 = Date.now();
+    const r = runStep(step, ctxHere(), { REVIEW_DEADLINE_S: '1' });
+    expect(Date.now() - t0, 'claude не остановлен по сроку').toBeLessThan(10_000);
+    expect(r.code, r.out).toBe(0);
+    expect(outputs()).toMatchObject({ rc: '124', timed_out: 'true', attempt: '1' });
+    expect(r.out).toMatch(/::warning::Ревью не уложилось/);
+    const kept = readFileSync(join(dir, 'transcript.jsonl'), 'utf-8');
+    expect(kept).toContain('"id":"m1"');
+    expect(kept).not.toContain('не должно дойти');
   });
 
   it('правила ревьюера — дополнением системной подсказки; правил нет — флага нет', () => {
@@ -236,8 +312,31 @@ describe('База диффа и правила — из базы PR; настр
 
 describe('Ревью состоялось: «не смог» — красный (§4.0)', () => {
   const step = stepByName(job, 'Ревью состоялось');
-  const verdictCtx = () => ({ ...ctxHere(), steps: { review: { outputs: { model: 'deepseek-flash', seconds: '42', attempt: '1' } } } });
+  const verdictCtx = (timedOut = 'false') => ({ ...ctxHere(), steps: { review: { outputs: { model: 'deepseek-flash', seconds: '42', attempt: '1', timed_out: timedOut } } } });
   const transcript = (lines: unknown[]) => writeFileSync(join(dir, 'transcript.jsonl'), lines.map((l) => JSON.stringify(l)).join('\n'));
+
+  it('срок вышел, итога нет — красный «не уложилось», и это сказано в сводке', () => {
+    transcript([{ type: 'assistant', message: { id: 'm1' } }]);
+    const r = runStep(step, verdictCtx('true'));
+    expect(r.code).toBe(1);
+    expect(r.out).toMatch(/::error::Ревью безопасности не уложилось в 40 мин: итога нет — это не «находок нет»/);
+    expect(readFileSync(join(dir, 'step-summary'), 'utf-8')).toMatch(/Не уложилось в 40 мин/);
+    // И когда claude не оставил ни строки — тоже срыв срока, а не загадка.
+    rmSync(join(dir, 'transcript.jsonl'));
+    expect(runStep(step, verdictCtx('true')).out).toMatch(/::error::.*не уложилось/);
+  });
+
+  it('итог записан, хотя claude остановлен по сроку, — ревью состоялось; битая строка итог не прячет', () => {
+    writeFileSync(join(dir, 'transcript.jsonl'), [
+      JSON.stringify({ type: 'assistant', message: { id: 'm1' } }),
+      'чужая строка посреди вывода',
+      JSON.stringify({ type: 'result', is_error: false, num_turns: 9, result: '# Находок нет' }),
+      '{"type":"assistant","message":{"id":"m2","con',
+    ].join('\n'));
+    const r = runStep(step, verdictCtx('true'));
+    expect(r.code, r.out).toBe(0);
+    expect(readFileSync(join(dir, 'review-out', 'report.md'), 'utf-8')).toContain('Находок нет');
+  });
 
   it('ревью состоялось — зелёный, отчёт — в файл и в сводку', () => {
     transcript([{ type: 'assistant', message: { id: 'm1' } }, { type: 'result', is_error: false, num_turns: 4, result: '# Находок нет\nПроверено: вход, оплата.' }]);
@@ -293,6 +392,54 @@ describe('итог — комментарием в PR, только если р�
     const body = readFileSync(join(dir, 'gh.body'), 'utf-8');
     expect(body).toContain('### Ревью безопасности (deepseek-flash)');
     expect(body).toContain('Файл: app/api/x/route.ts:12');
+  });
+});
+
+describe('срок ревью — свой, и работа его переживает', () => {
+  it('срок ревью — 40 мин; работа длиннее него с запасом не меньше 5 мин на установку, итог и учёт', () => {
+    const deadline = Number(job.env?.REVIEW_DEADLINE_S);
+    expect(deadline).toBe(2400);
+    const jobMinutes = Number((job as { 'timeout-minutes'?: number })['timeout-minutes']);
+    expect(jobMinutes * 60 - deadline).toBeGreaterThanOrEqual(300);
+    // Срыв срока виден итогу: выход шага ревью доходит до «Ревью состоялось».
+    expect(stepByName(job, 'Ревью состоялось').env?.TIMED_OUT).toBe('${{ steps.review.outputs.timed_out }}');
+  });
+});
+
+describe('выжимка расхода — одни счётчики, и при оборванной строке', () => {
+  const step = stepByName(job, 'Выжимка расхода — одни счётчики');
+  const PLANTED = 'sk-PLANTED-0123456789abcdef';
+
+  it('в артефакт — id, модель и счётчики; текста, аргументов и секрета нет; оборванная строка расход не губит', () => {
+    writeFileSync(join(dir, 'transcript.jsonl'), [
+      JSON.stringify({ type: 'system', subtype: 'init', note: PLANTED }),
+      JSON.stringify({ type: 'assistant', message: { id: 'msg_1', model: 'deepseek-flash', content: [{ type: 'text', text: PLANTED }], usage: { input_tokens: 1200, output_tokens: 80, cache_read_input_tokens: 3000 } } }),
+      JSON.stringify({ type: 'user', message: { content: [{ type: 'tool_result', content: PLANTED }] } }),
+      JSON.stringify({ type: 'assistant', message: { id: 'msg_2', model: 'deepseek-flash', content: [{ type: 'tool_use', name: 'Bash', input: { command: `echo ${PLANTED}` } }], usage: { input_tokens: 1500, output_tokens: 40 } } }),
+      // claude остановлен по сроку посреди строки.
+      `{"type":"assistant","message":{"id":"msg_3","content":[{"type":"text","text":"${PLANTED}`,
+    ].join('\n'));
+    const r = runStep(step, ctxHere());
+    expect(r.code, r.out).toBe(0);
+    const file = join(dir, 'hand-usage', 'hand-usage.json');
+    expect(outputs().file).toBe(file);
+    const text = readFileSync(file, 'utf-8');
+    expect(text).not.toContain(PLANTED);
+    const reduced = JSON.parse(text) as unknown;
+    const usage = (input: number, output: number, read: number | null) => ({ input_tokens: input, output_tokens: output, cache_creation_input_tokens: null, cache_read_input_tokens: read });
+    expect(reduced).toEqual([
+      { type: 'assistant', message: { id: 'msg_1', model: 'deepseek-flash', usage: usage(1200, 80, 3000) } },
+      { type: 'assistant', message: { id: 'msg_2', model: 'deepseek-flash', usage: usage(1500, 40, null) } },
+    ]);
+    const parsed = parseExecution(reduced, 'deepseek:');
+    expect(parsed.form).toBe('assistant');
+    expect(parsed.rows.map((row) => [row.model, row.prompt_tokens, row.completion_tokens])).toEqual([['deepseek:deepseek-flash', 2700, 120]]);
+  });
+
+  it('файла нет — выжимать нечего, учёт скажет сам', () => {
+    const r = runStep(step, ctxHere());
+    expect(r.code, r.out).toBe(0);
+    expect(outputs().file).toBeUndefined();
   });
 });
 

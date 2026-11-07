@@ -31,6 +31,14 @@ name: Security Review — AI-ревью диффа (deepseek-flash)
 #   окружение подпроцессов вычищено (bubblewrap), GH-токена у шага нет.
 #   Правила репозитория (.github/security-review-rules.md) — из базы PR, а не
 #   из самого PR: PR не ослабит ревью самого себя.
+# - У ревью свой срок — REVIEW_DEADLINE_S (40 мин). Первое настоящее ревью
+#   (PR #3101, дифф ~950 строк) за 20 минут не кончилось и было снято
+#   timeout-minutes, унаследованным от прежнего экшена: на малых диффах пробы
+#   deepseek-flash шёл 2–2,7 мин, но большой дифф — другое дело. Теперь по
+#   сроку останавливается сама модель, итог называет срыв срока («не
+#   уложилось» — красный, а не серое «отменено»), а расход доезжает до книг.
+#   Ход ревью (инструменты и токены, без текста модели) печатается в лог по
+#   мере работы — чтобы долгое ревью было видно, а не угадывалось.
 
 # Триггер сужен по разбору расходов 06.09.
 #
@@ -77,13 +85,18 @@ jobs:
       github.event.action != 'labeled' ||
       github.event.label.name == 'security-review'
     runs-on: ubuntu-latest
-    timeout-minutes: 20
+    # Срок самого ревью — REVIEW_DEADLINE_S ниже; здесь — он и запас на
+    # установку, проверку итога и учёт (сторож держит запас не меньше 5 мин).
+    timeout-minutes: 50
     outputs:
       ran: ${{ steps.scope.outputs.run }}
       # Непусто — счётчики выжаты и уехали к учёту; не доехали — учёт краснеет.
       usage_file: ${{ steps.usage.outputs.file }}
     env:
       DEEPSEEK_KEY: ${{ secrets.DEEPSEEK_API_KEY }}
+      # Срок ревью, с: на нём шаг «Ревью» останавливает модель, «Ревью
+      # состоялось» называет срыв срока.
+      REVIEW_DEADLINE_S: '2400'
     steps:
       - name: Checkout (с базой для диффа)
         if: ${{ env.DEEPSEEK_KEY != '' }}
@@ -206,14 +219,41 @@ jobs:
           export CLAUDE_CODE_DISABLE_NONESSENTIAL_TRAFFIC=1 CLAUDE_CODE_SUBPROCESS_ENV_SCRUB=1 API_TIMEOUT_MS=600000
           EXTRA=()
           if [ -s "$RULES_FILE" ]; then EXTRA=(--append-system-prompt "$(cat "$RULES_FILE")"); fi
+          # Ход ревью — в лог по мере работы: на каждый ответ модели строка
+          # «[секунды] ход: инструменты; токены». Текста модели и аргументов
+          # инструментов здесь нет: имя инструмента — только из букв и цифр,
+          # иначе «?», строка начинается с «[» — ни дифф, ни модель не подадут
+          # раннеру команду «::». Чужая строка (не JSON) пропускается.
+          progress() {
+            jq -R --unbuffered -r --argjson t0 "$START" '
+              def safe: if type == "string" and test("^[A-Za-z][A-Za-z0-9_]{0,39}$") then . else "?" end;
+              def num: if type == "number" then . else 0 end;
+              def at: "[\((now - $t0) | floor) с]";
+              fromjson? | objects |
+              if .type == "assistant" and (.message | type) == "object" then
+                (if (.message.usage | type) == "object" then .message.usage else {} end) as $u
+                | ((.message.content // []) | if type == "array" then [.[] | objects | if .type == "tool_use" then (.name | safe) else (.type | safe) end] else [] end) as $parts
+                | "\(at) ход\(if .parent_tool_use_id then " подзадачи" else "" end): \(if ($parts | length) > 0 then ($parts | join(", ")) else "—" end); токенов: вход \(($u.input_tokens | num) + ($u.cache_read_input_tokens | num) + ($u.cache_creation_input_tokens | num)), выход \($u.output_tokens | num)"
+              elif .type == "result" then
+                "\(at) итог: ходов \(.num_turns | num), ошибка: \(if .is_error == true then "да" else "нет" end)"
+              else empty end'
+          }
+          # Попытки делят один срок. timeout останавливает claude вместе с его
+          # подпроцессами; не ушёл за 30 с — KILL. tee -p пишет файл выполнения
+          # и тогда, когда печать хода оборвалась.
           review() {
-            claude -p "/security-review" --model "$MODEL" --max-turns 40 \
+            local left=$(( DEADLINE_AT - $(date +%s) ))
+            [ "$left" -gt 0 ] || return 124
+            timeout --kill-after=30 "$left" claude -p "/security-review" --model "$MODEL" --max-turns 40 \
               ${EXTRA[@]+"${EXTRA[@]}"} \
               --allowedTools "Read,Glob,Grep,LS,Agent,Task,Bash(git diff *),Bash(git log *),Bash(git show *),Bash(git status *)" \
               --disallowedTools "Write,Edit,NotebookEdit,WebFetch,WebSearch" \
-              --output-format stream-json --verbose < /dev/null > "$TRANSCRIPT"
+              --output-format stream-json --verbose < /dev/null | tee -p "$TRANSCRIPT" | progress
+            local rc=("${PIPESTATUS[@]}")
+            return "${rc[0]}"
           }
           START=$(date +%s)
+          DEADLINE_AT=$(( START + REVIEW_DEADLINE_S ))
           review
           RC=$?
           ATTEMPT=1
@@ -229,8 +269,12 @@ jobs:
             review
             RC=$?
           fi
+          # 124 — срок вышел, 137 — claude не ушёл и после KILL.
+          TIMED_OUT=false
+          case "$RC" in 124|137) TIMED_OUT=true; echo "::warning::Ревью не уложилось в $(( REVIEW_DEADLINE_S / 60 )) мин — claude остановлен по сроку." ;; esac
           echo "attempt=$ATTEMPT" >> "$GITHUB_OUTPUT"
           echo "rc=$RC" >> "$GITHUB_OUTPUT"
+          echo "timed_out=$TIMED_OUT" >> "$GITHUB_OUTPUT"
           echo "seconds=$(( $(date +%s) - START ))" >> "$GITHUB_OUTPUT"
 
       - name: Ревью состоялось
@@ -240,6 +284,7 @@ jobs:
           MODEL: ${{ steps.review.outputs.model }}
           SECONDS_SPENT: ${{ steps.review.outputs.seconds }}
           ATTEMPT: ${{ steps.review.outputs.attempt }}
+          TIMED_OUT: ${{ steps.review.outputs.timed_out }}
           TRANSCRIPT: ${{ runner.temp }}/transcript.jsonl
           OUT: ${{ runner.temp }}/review-out
         run: |
@@ -247,13 +292,27 @@ jobs:
           mkdir -p "$OUT"
           HOW=""
           [ "${ATTEMPT:-1}" = "2" ] && HOW=" Вторая попытка — без мышления: первый запрос API отверг."
+          # Итог записан — ревью состоялось, даже если claude потом не ушёл
+          # сам и был остановлен по сроку. Итога нет при вышедшем сроке —
+          # срыв срока, и он назван своими словами.
+          RESULT=""
+          if [ -s "$TRANSCRIPT" ]; then
+            RESULT=$(jq -R -c 'fromjson? | objects | select(.type == "result")' "$TRANSCRIPT" 2>/dev/null | tail -n 1) || RESULT=""
+          fi
+          if [ -z "$RESULT" ] && [ "${TIMED_OUT:-false}" = "true" ]; then
+            echo "::error::Ревью безопасности не уложилось в $(( REVIEW_DEADLINE_S / 60 )) мин: итога нет — это не «находок нет». Ход ревью — в логе шага «Ревью»."
+            {
+              echo "### Ревью безопасности ($MODEL)"
+              echo "- Не уложилось в $(( REVIEW_DEADLINE_S / 60 )) мин: итога нет. Ход ревью — в логе шага «Ревью»; расход — в книгах (работа учёта ниже)."
+            } >> "$GITHUB_STEP_SUMMARY"
+            exit 1
+          fi
           if [ ! -s "$TRANSCRIPT" ]; then
             echo "::error::Ревью безопасности: Claude Code не оставил ни строки — ревью не состоялось."
             exit 1
           fi
-          RESULT=$(jq -c 'select(.type == "result")' "$TRANSCRIPT" 2>/dev/null | tail -n 1)
           if [ -z "$RESULT" ]; then
-            echo "::error::Ревью безопасности: итога прогона нет (обрыв или таймаут) — ревью не состоялось."
+            echo "::error::Ревью безопасности: итога прогона нет (обрыв) — ревью не состоялось."
             exit 1
           fi
           printf '%s' "$RESULT" | jq -r '.result // ""' > "$OUT/report.md"
@@ -313,12 +372,15 @@ jobs:
             echo "Файла выполнения нет — выжимать нечего; что это значит, скажет учёт"
             exit 0
           fi
-          if ! jq -s -c '
+          # Построчно и мимо битых строк: claude, остановленный по сроку, может
+          # оборвать последнюю строку, а расход до неё — настоящий и в книги
+          # обязан доехать.
+          if ! jq -R -s -c '
             def n: if type == "number" then . else null end;
             def ident: if type == "string" and test("^[A-Za-z0-9][A-Za-z0-9._:@/\\[\\]-]{0,127}$") then . else null end;
             def model_usage: if type == "object" then {inputTokens: (.inputTokens | n), outputTokens: (.outputTokens | n), cacheCreationInputTokens: (.cacheCreationInputTokens | n), cacheReadInputTokens: (.cacheReadInputTokens | n)} else null end;
             def msg_usage: if type == "object" then {input_tokens: (.input_tokens | n), output_tokens: (.output_tokens | n), cache_creation_input_tokens: (.cache_creation_input_tokens | n), cache_read_input_tokens: (.cache_read_input_tokens | n)} else null end;
-            [ .[] | objects |
+            [ split("\n")[] | fromjson? | objects |
               if .type == "result" then
                 {type: "result", total_cost_usd: (.total_cost_usd | n),
                  modelUsage: (if (.modelUsage | type) == "object" then (.modelUsage | with_entries({key: (.key | ident // ""), value: (.value | model_usage)})) else null end)}
