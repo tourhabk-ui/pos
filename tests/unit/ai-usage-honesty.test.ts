@@ -1,45 +1,32 @@
 /**
- * Дашборд «Расходы AI» — честность о стоимости.
- * Колонки cost_usd/tokens в ai_actions_log есть, но НИ ОДИН insert их не пишет.
- * Дашборд обязан не выдумывать рубли: признак instrumented честно отражает,
- * есть ли хоть одна строка со стоимостью, а UI при его отсутствии объясняет
- * пробел вместо показа «$0.00» как факта.
+ * «Расходы AI», вкладка «Активность» — счётчик действий, а не деньги.
+ *
+ * Колонки cost_usd/tokens в ai_actions_log есть, но cost_usd НЕ ПИШЕТ ни один
+ * insert. До 07.11 роут считал по ней «стоимость», а страница из-за этого
+ * всегда писала «стоимость пока не пишется» — при живых книгах llm_usage_log,
+ * по которым считает вкладка «Деньги» (tests/unit/ai-money-tab.test.tsx).
+ * Владелец 07.11: «наведи порядок в этом разделе». Здесь — запрет вернуть
+ * «стоимость» из колонки, которую никто не пишет.
  */
 import { describe, it, expect } from 'vitest';
 import { readFileSync } from 'node:fs';
 
-const api = readFileSync('app/api/admin/analytics/ai-usage/route.ts', 'utf8');
-const page = readFileSync('app/hub/admin/ai-usage/page.tsx', 'utf8');
+// Комментарии вырезаются: шапка роута объясняет историю словами «cost_usd».
+const strip = (src: string) => src.replace(/\/\*[\s\S]*?\*\//g, ' ').replace(/^\s*\/\/.*$/gm, ' ');
+const api = strip(readFileSync('app/api/admin/analytics/ai-usage/route.ts', 'utf8'));
 
-describe('API ai-usage', () => {
+describe('API активности ai-usage', () => {
   it('под админом (requireAdmin)', () => {
     expect(api).toMatch(/requireAdmin/);
   });
 
-  it('признак instrumented — из наличия строк с cost_usd, не выдуман', () => {
-    expect(api).toMatch(/cost_usd IS NOT NULL/);
-    expect(api).toMatch(/instrumented:\s*Number\(t\.cost_rows\)\s*>\s*0/);
-  });
-
-  it('NUMERIC/bigint приведены к float8 (ловушка pg-строк)', () => {
-    expect(api).toMatch(/SUM\(cost_usd\)/);
-    expect(api).toMatch(/\)::float8/);            // COALESCE(SUM(...), 0)::float8
-    expect(api).toMatch(/to_char\(created_at::date/); // дата строкой, не JS Date
-  });
-
-  it('агрегация из ai_actions_log', () => {
+  it('агрегация из ai_actions_log, дата строкой, не JS Date', () => {
     expect(api).toMatch(/FROM ai_actions_log/);
-  });
-});
-
-describe('страница ai-usage', () => {
-  it('при отсутствии инструментации объясняет пробел, а не показывает $0 как факт', () => {
-    expect(page).toMatch(/data\.cost\.instrumented \?/);
-    expect(page).toMatch(/не заполняет|не пишутся/);
+    expect(api).toMatch(/to_char\(created_at::date/);
   });
 
-  it('показывает активность (реальные данные)', () => {
-    expect(page).toMatch(/по типу действия|По типу действия/i);
-    expect(page).toMatch(/по провайдеру|По провайдеру/i);
+  it('денег из ai_actions_log не считает: колонку cost_usd не пишет никто', () => {
+    expect(api).not.toMatch(/cost_usd/);
+    expect(api).not.toMatch(/instrumented/);
   });
 });
