@@ -11,6 +11,7 @@
  */
 import { detectEmergency } from '@/lib/safety/sos-detector';
 import { asksTripPlan } from '@/lib/kuzmich/answer-quality';
+import { asksTourComparison } from '@/lib/kuzmich/tour-ask';
 import {
   mentionsOperator, namedTours, parseTourLines, questionNumbers, referenceTours,
   UNIT_CAVEAT_RE, type TourLine,
@@ -130,6 +131,9 @@ export function completeTourList(answer: string, question: string, calls: readon
   // нём выбраны по дням и датам. Дописка «Ещё по запросу» прицепляла к плану
   // на июль весь список вида, зимнюю рыбалку тоже (ai-debug run 22).
   if (asksTripPlan(question)) return answer;
+  // Сравнение названных туров (ai-debug run 23): ответ — эти туры рядом, а
+  // «Ещё по запросу» к нему — список, о котором не спрашивали.
+  if (asksTourComparison(question)) return answer;
   const byId = new Map<string, TourLine>();
   for (const c of calls) {
     if (!c.query.trim()) continue;

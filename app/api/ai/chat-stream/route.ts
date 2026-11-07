@@ -40,7 +40,7 @@ import {
   synthesizeUserNotes,
 } from '@/lib/ai/user-memory';
 import { aiChatAgentLoop, KUZMICH_SYSTEM } from '@/lib/kuzmich/core';
-import { dropUnsourcedPrices } from '@/lib/kuzmich/answer-quality';
+import { checkAnswerPrices } from '@/lib/kuzmich/answer-quality';
 import { resolveCommercialTurn } from '@/lib/kuzmich/commercial-turn';
 import { kamchatkaDateContext } from '@/lib/kuzmich/date-context';
 import { finishKuzmichAnswer, correctShownAnswer } from '@/lib/kuzmich/answer-guards';
@@ -331,11 +331,7 @@ export async function POST(request: NextRequest) {
             }
           }
           if (loopAnswered) {
-            const priceSource = streamToolRuns
-              .filter((run) => run.producedData && run.output)
-              .map((run) => run.output)
-              .join('\n');
-            fullAnswer = dropUnsourcedPrices(fullAnswer, priceSource).text;
+            fullAnswer = checkAnswerPrices(fullAnswer, streamToolRuns);
           }
           // Ответ модели до сторожей — его оценивает грейдер, как на сайте.
           let modelAnswer = fullAnswer;

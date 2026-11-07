@@ -18,7 +18,8 @@ import { reserveBooking, ReserveError, type ReserveErrorCode } from '@/lib/booki
 import { SAFETY_TOOLS } from '@/lib/kuzmich/safety-claim-guard';
 import { finishKuzmichAnswer } from '@/lib/kuzmich/answer-guards';
 import { appendRouteSafety, ROUTE_SAFETY_SOURCE } from '@/lib/kuzmich/route-safety';
-import { asksTripPlan, dropUnsourcedPrices } from '@/lib/kuzmich/answer-quality';
+import { asksTripPlan, checkAnswerPrices } from '@/lib/kuzmich/answer-quality';
+import { asksTourComparison } from '@/lib/kuzmich/tour-ask';
 import { resolveCommercialTurn } from '@/lib/kuzmich/commercial-turn';
 import { detectEmergency } from '@/lib/safety/sos-detector';
 import { requestWindow, windowLabel } from '@/lib/tours/request-window';
@@ -2974,8 +2975,9 @@ export async function aiChatAgentLoop(
       // Экстренный вопрос (SOS, 112) — без дописки: к ответу «звоните 112» туры
       // не приклеиваются, и лишних get_tours нет (разбор 03.11, п.6). Просьба
       // о плане — тоже: ответ и есть план (аудит планировщика 07.11, K1).
+      // Сравнение названных туров — тоже: ответ и есть они (ai-debug run 23).
       let final = result.content;
-      if (final && !detectEmergency(userText).detected && !asksTripPlan(userText)) {
+      if (final && !detectEmergency(userText).detected && !asksTripPlan(userText) && !asksTourComparison(userText)) {
         try {
           const catalog = await executeTool('get_tours', {}, toolSurface);
           const extra: ToursCall[] = [];
@@ -3243,11 +3245,7 @@ export async function aiChat(opts: {
   // Грейдер и синтез заметок получают ОРИГИНАЛЬНЫЙ ответ модели — без поправок
   // и блока 112, иначе boilerplate портит оценку и утекает в память бота.
   const claimRuns = usedAgentLoopAnswer ? toolRuns : null;
-  const priceSource = (claimRuns ?? [])
-    .filter((run) => run.producedData && run.output)
-    .map((run) => run.output)
-    .join('\n');
-  answer = dropUnsourcedPrices(answer, priceSource).text;
+  answer = checkAnswerPrices(answer, claimRuns);
   const finished = finishKuzmichAnswer({
     surface: platform === 'max' ? 'max' : 'telegram',
     answer,
