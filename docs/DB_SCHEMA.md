@@ -1,6 +1,6 @@
 # Схема базы данных Ведара
 
-> Снято 2026-11-06 с настоящего PostgreSQL 18.6 (Debian 18.6-1.pgdg13+2): baseline прода (`lib/database/baseline/schema-baseline.sql`, снимок 2026-08-15) + миграции новее него, накатанные штатным раннером. Последняя миграция в снимке: `1395_mcp_write_attempts_subject.sql`.
+> Снято 2026-11-07 с настоящего PostgreSQL 18.6 (Debian 18.6-1.pgdg13+2): baseline прода (`lib/database/baseline/schema-baseline.sql`, снимок 2026-08-15) + миграции новее него, накатанные штатным раннером. Последняя миграция в снимке: `1397_user_trips_needs_warnings_save_key.sql`.
 > Файл порождён `scripts/gen-db-schema.ts` (`npm run db:schema-doc`); править руками бессмысленно — следующий прогон перепишет.
 > Что здесь НЕ учтено: дрейф прода после baseline, не отражённый миграциями. Судья дрейфа — `GET /api/cron/schema-drift` на проде (`lib/db/schema-drift.ts`). Значений данных в файле нет — только имена и типы.
 
@@ -8,7 +8,7 @@
 |---|---:|
 | Таблиц | 319 |
 | Представлений (VIEW) | 12 |
-| Колонок | 4170 |
+| Колонок | 4174 |
 | Внешних ключей | 379 |
 | Таблиц без единого FK в обе стороны | 89 |
 
@@ -1435,9 +1435,9 @@ B2B-агенты, продающие туры за комиссию. Не пут
 
 `id uuid!=` `token uuid!=` `plan_id uuid!` `snapshot jsonb!` `scope varchar!=` `expires_at timestamptz!` `revoked_at timestamptz` `created_at timestamptz!=`
 
-**user_trips** · 21 кол. · PK id · user_id → users.id · на неё ссылаются: users · индексов 3 · триггеры: trg_user_trips_updated_at
+**user_trips** · 25 кол. · PK id · user_id → users.id · на неё ссылаются: users · индексов 4 · триггеры: trg_user_trips_updated_at
 
-`id uuid!=` `user_id uuid!` `title varchar!=` `arrival_date date` `departure_date date` `places text[]!=` `activities text[]!=` `days jsonb!=` `transport_by_day jsonb!=` `deleted_at timestamptz` `created_at timestamptz!=` `updated_at timestamptz!=` `flight_arrival varchar` `flight_departure varchar` `flight_arrival_time varchar=` `flight_departure_time varchar=` `needs_airport_transfer boolean!=` `share_token uuid=` `is_public boolean!=` `party jsonb` `choices jsonb`
+`id uuid!=` `user_id uuid!` `title varchar!=` `arrival_date date` `departure_date date` `places text[]!=` `activities text[]!=` `days jsonb!=` `transport_by_day jsonb!=` `deleted_at timestamptz` `created_at timestamptz!=` `updated_at timestamptz!=` `flight_arrival varchar` `flight_departure varchar` `flight_arrival_time varchar=` `flight_departure_time varchar=` `needs_airport_transfer boolean!=` `share_token uuid=` `is_public boolean!=` `party jsonb` `choices jsonb` `needs_lodging boolean` `needs_car boolean` `warnings jsonb` `save_key uuid`
 
 ## Служебные
 
