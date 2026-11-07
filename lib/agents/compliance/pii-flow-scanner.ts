@@ -1098,8 +1098,8 @@ export function scanSource(file: string, src: string): PIIFinding[] {
 
     for (const { expr, at } of interpolations(lit.body)) {
       if (SAFE_WRAP.test(expr)) continue;
-      // Поле ПД — обращение в коде, а не текст строки: `'https://api.telegram.org'`
-      // полем `.telegram` не является.
+      // Поле ПД — обращение в коде, а не текст строки: адрес API Telegram в
+      // строке (`…//api.telegram…`) полем `.telegram` не является.
       const base = lit.start + 1 + at + 2;
       const exprCode = code.slice(base, base + expr.length);
       let kind: 'contact' | 'name' | null = null;
