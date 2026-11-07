@@ -11,7 +11,7 @@ import { NextRequest, NextResponse } from 'next/server';
 import { resolveTelegramBotUsername, botUsernameIssue } from '@/lib/telegram/bot-username';
 import { pool } from '@/lib/db-pool';
 import { checkInvariant as checkEcoInvariant } from '@/lib/eco/ledger';
-import { callAnthropic, callOpenrouter, callDeepSeek, callFugu, callQwen, diagnosticSaysAlive, isAcceptedOpenRouterGeoBlock, probeOpenRouterKeyStatus, probeQwenKeyStatus, probeQwenRegions, qwenRefusalKind, probeDeepSeekKeyStatus, probeAnthropicKeyStatus, probeTimewebAgentStatus, explainDeepSeekFailure, explainAnthropicFailure, isAcceptedAnthropicFromProd, explainQwenFailure, explainOpenRouterFailure } from '@/lib/ai/providers';
+import { callAnthropic, callOpenrouter, callDeepSeek, callFugu, callQwen, diagnosticSaysAlive, isAcceptedOpenRouterGeoBlock, probeOpenRouterKeyStatus, probeQwenKeyStatus, probeQwenRegions, qwenRefusalKind, probeDeepSeekKeyStatus, probeAnthropicKeyStatus, probeTimewebAgentStatus, explainDeepSeekFailure, explainAnthropicFailure, isAcceptedAnthropicFromProd, isAcceptedQwenQuota, explainQwenFailure, explainOpenRouterFailure } from '@/lib/ai/providers';
 import { getTimewebAgents } from '@/lib/ai/provider-config';
 import { timingSafeCompare } from '@/lib/security/timing-safe';
 import type { ChatMessage } from '@/lib/ai/prompts';
@@ -547,7 +547,10 @@ export async function GET(request: NextRequest) {
       const kind = qwenKeyDiag ? qwenRefusalKind(qwenKeyDiag.http_status, qwenKeyDiag.detail) : null;
       const keyAlive = kind === 'quota' || kind === 'arrears';
       providerIssues.push({
-        level: 'warn',
+        // Кончилась бесплатная квота при принятом ключе — принято владельцем
+        // 07.11 («убери этот сторож, я знаю про qwen»): в Telegram не идёт,
+        // в known_states остаётся. Отвергнутый ключ и долг будят (зрение).
+        level: isAcceptedQwenQuota(qwenKeyDiag) ? 'known' : 'warn',
         text: keyAlive
           ? `Qwen (текст, ${qwenKeyDiag?.model ?? 'модель'}) не отвечает${why}. В цикле инструментов и первой фазе разведчика Qwen пропускается, отвечают следующие ступени; зрение идёт на другой модели и этой пробой не проверяется`
           : `Зрение Кузьмича не работает — ключ DashScope не принят${why}. Разбирать фото с прода больше нечем; в цикле инструментов и первой фазе разведчика Qwen пропускается, отвечают следующие ступени`,
