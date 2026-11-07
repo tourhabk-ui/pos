@@ -50,9 +50,11 @@ export function coarsePointText(lat: number, lng: number): string {
 export const COARSE_COORDS_NOTE = '[координаты огрублены до ~1 км]';
 
 // Десятичный градус: 2–3 цифры, точка и от трёх знаков (запятая — от четырёх:
-// «150,000» — тысячи, а не долгота). Перед числом нет цифры и «цифры с точкой»:
-// иначе «07.2026» из даты «10.07.2026» сошло бы за градус.
-const DECIMAL_DEGREE = /(?<!\d)(?<!\d\.)(-?)(\d{2,3})([.,])(\d{3,})(?![\d])(?!\.\d)/g;
+// «150,000» — тысячи, а не долгота). Перед числом нет цифры и «цифры с точкой»
+// («100.123» в адресе 192.168.100.123) — это проверяет замена: модуль идёт в
+// клиентский бандл (GeoContext), а lookbehind роняет его загрузку в Safari
+// < 16.4 (сторож client-regex-no-lookbehind).
+const DECIMAL_DEGREE = /(-?)(\d{2,3})([.,])(\d{3,})(?![\d])(?!\.\d)/g;
 // Градусы-минуты-секунды и градусы с дробными минутами: оставляем минуты
 // (около 1,8 км по широте), секунды и доли минуты — точнее километра.
 const DMS = /(\d{1,3})\s*°\s*(\d{1,2})\s*['′’]\s*\d{1,2}(?:[.,]\d+)?\s*(?:["″”]|'')/g;
@@ -68,7 +70,9 @@ const DEGREE_DECIMAL_MINUTES = /(\d{1,3})\s*°\s*(\d{1,2})[.,]\d+\s*['′’]/g;
  */
 export function coarseCoordsInText(text: string): string {
   let changed = false;
-  let out = text.replace(DECIMAL_DEGREE, (m, sign: string, int: string, sep: string, frac: string) => {
+  let out = text.replace(DECIMAL_DEGREE, (m, sign: string, int: string, sep: string, frac: string, at: number) => {
+    // Хвост длинного числа — не градус: перед ним цифра или «цифра с точкой».
+    if (/\d/.test(text[at - 1] ?? '') || (text[at - 1] === '.' && /\d/.test(text[at - 2] ?? ''))) return m;
     const deg = Number(int);
     if (deg < 30 || deg > 180 || (sep === ',' && frac.length < 4)) return m;
     changed = true;
