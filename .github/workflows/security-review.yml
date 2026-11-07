@@ -27,8 +27,10 @@ name: Security Review — AI-ревью диффа (deepseek-flash)
 # - Ключ есть, а ревью не состоялось (нет итога, ошибка API, пустой итог) —
 #   КРАСНЫЙ (§4.0: «не смог проверить» не равно «находок нет»).
 # - Ревью совещательное: итог — комментарием в PR, не required-чек.
-# - Ревьюер читает недоверенный дифф: только чтение и git diff/log/show/status,
-#   окружение подпроцессов вычищено (bubblewrap), GH-токена у шага нет.
+# - Ревьюер читает недоверенный дифф: только чтение и git diff/log/show/status
+#   без `--output` и `--no-index`, без чтения /proc; окружение подпроцессов
+#   вычищено (bubblewrap), GH-токена у шага нет. Запись в файлы команд раннера
+#   (GITHUB_ENV и др.) ловит растяжка после ревью: обнуляет и краснеет.
 #   Правила репозитория (.github/security-review-rules.md) — из базы PR, а не
 #   из самого PR: PR не ослабит ревью самого себя.
 # - У ревью свой срок — REVIEW_DEADLINE_S (40 мин). Первое настоящее ревью
@@ -208,7 +210,6 @@ jobs:
           # +e: отказ claude не обрывает шаг — итог судит следующий шаг.
           set +e -uo pipefail
           MODEL=deepseek-flash
-          echo "model=$MODEL" >> "$GITHUB_OUTPUT"
           # Ключ — только на хост DeepSeek; других ключей в шаге нет.
           export ANTHROPIC_BASE_URL=https://api.deepseek.com/anthropic
           export ANTHROPIC_AUTH_TOKEN="$DEEPSEEK_KEY"
@@ -220,10 +221,12 @@ jobs:
           EXTRA=()
           if [ -s "$RULES_FILE" ]; then EXTRA=(--append-system-prompt "$(cat "$RULES_FILE")"); fi
           # Ход ревью — в лог по мере работы: на каждый ответ модели строка
-          # «[секунды] ход: инструменты; токены». Текста модели и аргументов
-          # инструментов здесь нет: имя инструмента — только из букв и цифр,
-          # иначе «?», строка начинается с «[» — ни дифф, ни модель не подадут
-          # раннеру команду «::». Чужая строка (не JSON) пропускается.
+          # «[секунды] ход: инструменты; контекст: токены». Выходных токенов
+          # здесь нет: событие приходит раньше, чем их число известно, и ноль
+          # в строке был бы неправдой — их считают книги. Текста модели и
+          # аргументов инструментов здесь нет: имя инструмента — только из букв
+          # и цифр, иначе «?», строка начинается с «[» — ни дифф, ни модель не
+          # подадут раннеру команду «::». Чужая строка (не JSON) пропускается.
           progress() {
             jq -R --unbuffered -r --argjson t0 "$START" '
               def safe: if type == "string" and test("^[A-Za-z][A-Za-z0-9_]{0,39}$") then . else "?" end;
@@ -233,7 +236,7 @@ jobs:
               if .type == "assistant" and (.message | type) == "object" then
                 (if (.message.usage | type) == "object" then .message.usage else {} end) as $u
                 | ((.message.content // []) | if type == "array" then [.[] | objects | if .type == "tool_use" then (.name | safe) else (.type | safe) end] else [] end) as $parts
-                | "\(at) ход\(if .parent_tool_use_id then " подзадачи" else "" end): \(if ($parts | length) > 0 then ($parts | join(", ")) else "—" end); токенов: вход \(($u.input_tokens | num) + ($u.cache_read_input_tokens | num) + ($u.cache_creation_input_tokens | num)), выход \($u.output_tokens | num)"
+                | "\(at) ход\(if .parent_tool_use_id then " подзадачи" else "" end): \(if ($parts | length) > 0 then ($parts | join(", ")) else "—" end); контекст: \(($u.input_tokens | num) + ($u.cache_read_input_tokens | num) + ($u.cache_creation_input_tokens | num)) токенов"
               elif .type == "result" then
                 "\(at) итог: ходов \(.num_turns | num), ошибка: \(if .is_error == true then "да" else "нет" end)"
               else empty end'
@@ -241,13 +244,25 @@ jobs:
           # Попытки делят один срок. timeout останавливает claude вместе с его
           # подпроцессами; не ушёл за 30 с — KILL. tee -p пишет файл выполнения
           # и тогда, когда печать хода оборвалась.
+          #
+          # Запреты сверх Write/Edit — по находке ревью этого же PR (07.11,
+          # deepseek-flash), проверены на этом бинарнике с заглушкой API:
+          # - `--output` у git diff/log/show пишет файл в любом месте строки, а
+          #   правило `Bash(git diff *)` и команда /security-review это
+          #   пропускают; по инъекции из диффа модель записала бы, например,
+          #   BASH_ENV в GITHUB_ENV — и код в следующих шагах;
+          # - `--no-index` читает любой файл в обход запрета на /proc;
+          # - /proc: Grep по /proc/self/environ отдаёт ключ из окружения
+          #   claude (Read этот путь сам не читает, Grep — читает).
+          # Перенаправление `>`, `| tee`, `git -c`, `git -C` и VAR=… перед git
+          # Claude Code не пропускает и без этих запретов.
           review() {
             local left=$(( DEADLINE_AT - $(date +%s) ))
             [ "$left" -gt 0 ] || return 124
             timeout --kill-after=30 "$left" claude -p "/security-review" --model "$MODEL" --max-turns 40 \
               ${EXTRA[@]+"${EXTRA[@]}"} \
               --allowedTools "Read,Glob,Grep,LS,Agent,Task,Bash(git diff *),Bash(git log *),Bash(git show *),Bash(git status *)" \
-              --disallowedTools "Write,Edit,NotebookEdit,WebFetch,WebSearch" \
+              --disallowedTools "Write,Edit,NotebookEdit,WebFetch,WebSearch,Bash(git *--output*),Bash(git *--no-index*),Read(//proc/**)" \
               --output-format stream-json --verbose < /dev/null | tee -p "$TRANSCRIPT" | progress
             local rc=("${PIPESTATUS[@]}")
             return "${rc[0]}"
@@ -272,10 +287,24 @@ jobs:
           # 124 — срок вышел, 137 — claude не ушёл и после KILL.
           TIMED_OUT=false
           case "$RC" in 124|137) TIMED_OUT=true; echo "::warning::Ревью не уложилось в $(( REVIEW_DEADLINE_S / 60 )) мин — claude остановлен по сроку." ;; esac
-          echo "attempt=$ATTEMPT" >> "$GITHUB_OUTPUT"
-          echo "rc=$RC" >> "$GITHUB_OUTPUT"
-          echo "timed_out=$TIMED_OUT" >> "$GITHUB_OUTPUT"
-          echo "seconds=$(( $(date +%s) - START ))" >> "$GITHUB_OUTPUT"
+          # Растяжка. Пока claude работал, шаг в файлы команд раннера не писал
+          # ничего, так что непустой файл — запись из ревьюера (через GITHUB_ENV
+          # следующим шагам подкладывается BASH_ENV). Записанное обнуляется до
+          # конца шага — раннер его не применит, — а итог ревью краснеет, и
+          # комментария не будет. Выходы шага пишутся после обнуления.
+          TAMPERED=false
+          for f in "${GITHUB_ENV:-}" "${GITHUB_PATH:-}" "${GITHUB_OUTPUT:-}" "${GITHUB_STEP_SUMMARY:-}"; do
+            if [ -n "$f" ] && [ -s "$f" ]; then TAMPERED=true; : > "$f"; fi
+          done
+          [ "$TAMPERED" = "true" ] && echo "::error::Ревьюер записал в файлы команд раннера — записанное обнулено, ревью не засчитывается."
+          {
+            echo "model=$MODEL"
+            echo "attempt=$ATTEMPT"
+            echo "rc=$RC"
+            echo "timed_out=$TIMED_OUT"
+            echo "tampered=$TAMPERED"
+            echo "seconds=$(( $(date +%s) - START ))"
+          } >> "$GITHUB_OUTPUT"
 
       - name: Ревью состоялось
         id: verdict
@@ -285,6 +314,7 @@ jobs:
           SECONDS_SPENT: ${{ steps.review.outputs.seconds }}
           ATTEMPT: ${{ steps.review.outputs.attempt }}
           TIMED_OUT: ${{ steps.review.outputs.timed_out }}
+          TAMPERED: ${{ steps.review.outputs.tampered }}
           TRANSCRIPT: ${{ runner.temp }}/transcript.jsonl
           OUT: ${{ runner.temp }}/review-out
         run: |
@@ -292,6 +322,12 @@ jobs:
           mkdir -p "$OUT"
           HOW=""
           [ "${ATTEMPT:-1}" = "2" ] && HOW=" Вторая попытка — без мышления: первый запрос API отверг."
+          # Ревьюер писал в файлы команд раннера — его итогу верить нельзя.
+          if [ "${TAMPERED:-false}" = "true" ]; then
+            echo "::error::Ревью безопасности не засчитано: ревьюер записал в файлы команд раннера (GITHUB_ENV, GITHUB_PATH, выходы или сводку шага). Записанное обнулено; разберите лог шага «Ревью»."
+            echo "### Ревью безопасности ($MODEL) — не засчитано: ревьюер писал в файлы команд раннера." >> "$GITHUB_STEP_SUMMARY"
+            exit 1
+          fi
           # Итог записан — ревью состоялось, даже если claude потом не ушёл
           # сам и был остановлен по сроку. Итога нет при вышедшем сроке —
           # срыв срока, и он назван своими словами.

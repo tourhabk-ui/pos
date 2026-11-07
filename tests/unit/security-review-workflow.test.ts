@@ -70,6 +70,8 @@ function runStep(step: WorkflowStep, ctx: Record<string, unknown>, extraEnv: Rec
     RUNNER_TEMP: dir,
     GITHUB_OUTPUT: join(dir, 'github-output'),
     GITHUB_STEP_SUMMARY: join(dir, 'step-summary'),
+    GITHUB_ENV: join(dir, 'github-env'),
+    GITHUB_PATH: join(dir, 'github-path'),
     GITHUB_REPOSITORY: 'tourhabk-ui/pos',
     FAKE_DIR: dir,
   };
@@ -146,9 +148,14 @@ describe('Ревью: deepseek-flash, одна голова, /security-review', 
     }
     const denied = args[args.indexOf('--disallowedTools') + 1].split(',');
     for (const t of ['Write', 'Edit', 'NotebookEdit', 'WebFetch', 'WebSearch']) expect(denied).toContain(t);
+    // Ревью PR #3101 (deepseek-flash): `Bash(git diff *)` пропускает
+    // `git diff/log/show --output=<файл>` — запись в любой файл раннера;
+    // Grep по /proc/self/environ отдаёт ключ. Проверено на бинарнике 2.1.319
+    // с заглушкой API: с этими запретами — отказ, без них — файл записан.
+    for (const t of ['Bash(git *--output*)', 'Bash(git *--no-index*)', 'Read(//proc/**)']) expect(denied, t).toContain(t);
     const bash = args[args.indexOf('--allowedTools') + 1].split(',').filter((t) => t.startsWith('Bash('));
     expect(bash.sort()).toEqual(['Bash(git diff *)', 'Bash(git log *)', 'Bash(git show *)', 'Bash(git status *)']);
-    expect(outputs()).toMatchObject({ model: 'deepseek-flash', attempt: '1', rc: '0', timed_out: 'false' });
+    expect(outputs()).toMatchObject({ model: 'deepseek-flash', attempt: '1', rc: '0', timed_out: 'false', tampered: 'false' });
     // Файл выполнения — то, что вывел claude, хотя вывод идёт и в печать хода.
     expect(readFileSync(join(dir, 'transcript.jsonl'), 'utf-8').trim()).toBe(okResult);
   });
@@ -175,15 +182,34 @@ describe('Ревью: deepseek-flash, одна голова, /security-review', 
     const r = runStep(step, ctxHere());
     expect(r.code, r.out).toBe(0);
     const log = r.out.split('\n');
-    expect(log.find((l) => /\] ход: thinking, Read; токенов: вход 1000, выход 20$/.test(l)), r.out).toBeDefined();
-    expect(log.find((l) => /\] ход подзадачи: \?; токенов: вход 5, выход 1$/.test(l)), r.out).toBeDefined();
-    expect(log.find((l) => /\] ход: text; токенов: вход 0, выход 0$/.test(l)), r.out).toBeDefined();
+    expect(log.find((l) => /\] ход: thinking, Read; контекст: 1000 токенов$/.test(l)), r.out).toBeDefined();
+    expect(log.find((l) => /\] ход подзадачи: \?; контекст: 5 токенов$/.test(l)), r.out).toBeDefined();
+    expect(log.find((l) => /\] ход: text; контекст: 0 токенов$/.test(l)), r.out).toBeDefined();
+    // Выходных токенов в строке хода нет: событие приходит раньше их числа (run 42330441400 — «выход 0» у всех).
+    expect(r.out).not.toMatch(/выход \d/);
     expect(log.find((l) => /\] итог: ходов 3, ошибка: нет$/.test(l)), r.out).toBeDefined();
     // Ни одна строка вывода шага не начинается с «::» — раннер не получит команду.
     expect(log.filter((l) => l.startsWith('::'))).toEqual([]);
     for (const leak of ['ПЛАН-ТЕКСТ', 'ПУТЬ-АРГУМЕНТ', 'взлом', 'внедрено', 'итог-текст', 'не JSON']) expect(r.out, leak).not.toContain(leak);
     // Файл выполнения — целиком, с битой строкой: учёт разберёт его сам.
     expect(readFileSync(join(dir, 'transcript.jsonl'), 'utf-8')).toBe(readFileSync(join(dir, 'lines.jsonl'), 'utf-8'));
+  });
+
+  it('ревьюер записал в файлы команд раннера — записанное обнулено, подмена названа, выходы — шага', () => {
+    // Сценарий находки: BASH_ENV в GITHUB_ENV — код в следующих шагах; поддельные выходы.
+    stub('claude', [
+      'echo "BASH_ENV=/tmp/x" >> "$GITHUB_ENV"',
+      'echo "/tmp/bin" >> "$GITHUB_PATH"',
+      'echo "model=подделка" >> "$GITHUB_OUTPUT"',
+      'echo "# Находок нет" >> "$GITHUB_STEP_SUMMARY"',
+      `echo '${okResult}'`,
+    ].join('\n'));
+    const r = runStep(step, ctxHere());
+    expect(r.code, r.out).toBe(0);
+    for (const f of ['github-env', 'github-path', 'step-summary']) expect(readFileSync(join(dir, f), 'utf-8'), f).toBe('');
+    expect(outputs()).toMatchObject({ tampered: 'true', model: 'deepseek-flash' });
+    expect(readFileSync(join(dir, 'github-output'), 'utf-8')).not.toContain('подделка');
+    expect(r.out).toMatch(/::error::Ревьюер записал в файлы команд раннера/);
   });
 
   it('печать хода оборвалась — файл выполнения целиком, claude не остановлен', () => {
@@ -312,8 +338,17 @@ describe('База диффа и правила — из базы PR; настр
 
 describe('Ревью состоялось: «не смог» — красный (§4.0)', () => {
   const step = stepByName(job, 'Ревью состоялось');
-  const verdictCtx = (timedOut = 'false') => ({ ...ctxHere(), steps: { review: { outputs: { model: 'deepseek-flash', seconds: '42', attempt: '1', timed_out: timedOut } } } });
+  const verdictCtx = (timedOut = 'false', tampered = 'false') => ({ ...ctxHere(), steps: { review: { outputs: { model: 'deepseek-flash', seconds: '42', attempt: '1', timed_out: timedOut, tampered } } } });
   const transcript = (lines: unknown[]) => writeFileSync(join(dir, 'transcript.jsonl'), lines.map((l) => JSON.stringify(l)).join('\n'));
+
+  it('ревьюер писал в файлы команд раннера — итог не засчитан, хоть он и есть', () => {
+    transcript([{ type: 'result', is_error: false, num_turns: 4, result: '# Находок нет' }]);
+    const r = runStep(step, verdictCtx('false', 'true'));
+    expect(r.code).toBe(1);
+    expect(r.out).toMatch(/::error::Ревью безопасности не засчитано: ревьюер записал в файлы команд раннера/);
+    expect(existsSync(join(dir, 'review-out', 'report.md'))).toBe(false);
+    expect(readFileSync(join(dir, 'step-summary'), 'utf-8')).toMatch(/не засчитано/);
+  });
 
   it('срок вышел, итога нет — красный «не уложилось», и это сказано в сводке', () => {
     transcript([{ type: 'assistant', message: { id: 'm1' } }]);

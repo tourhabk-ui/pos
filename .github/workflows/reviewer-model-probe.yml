@@ -202,11 +202,13 @@ jobs:
           export CLAUDE_CODE_DISABLE_NONESSENTIAL_TRAFFIC=1 CLAUDE_CODE_SUBPROCESS_ENV_SCRUB=1 API_TIMEOUT_MS=600000
           EXTRA=()
           if [ -s "$RULES_FILE" ]; then EXTRA=(--append-system-prompt "$(cat "$RULES_FILE")"); fi
+          # Запреты — те же, что у боевого ревьюера (security-review.yml, там
+          # и причина каждого): связка пробы обязана совпадать с боевой.
           review() {
             claude -p "/security-review" --model "$MODEL" --max-turns 40 \
               ${EXTRA[@]+"${EXTRA[@]}"} \
               --allowedTools "Read,Glob,Grep,LS,Agent,Task,Bash(git diff *),Bash(git log *),Bash(git show *),Bash(git status *)" \
-              --disallowedTools "Write,Edit,NotebookEdit,WebFetch,WebSearch" \
+              --disallowedTools "Write,Edit,NotebookEdit,WebFetch,WebSearch,Bash(git *--output*),Bash(git *--no-index*),Read(//proc/**)" \
               --output-format stream-json --verbose < /dev/null > "$TRANSCRIPT"
           }
           START=$(date +%s)

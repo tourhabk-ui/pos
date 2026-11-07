@@ -135,6 +135,9 @@ describe('ключ ноги — только на хост своего венд
       expect(Number(args[args.indexOf('--max-turns') + 1])).toBeLessThanOrEqual(100);
       const denied = args[args.indexOf('--disallowedTools') + 1].split(',');
       for (const t of ['Write', 'Edit', 'WebFetch', 'WebSearch']) expect(denied).toContain(t);
+      // Запреты записи через git --output, чтения через --no-index и /proc —
+      // те же, что у боевого ревьюера (security-review.yml): связка пробы та же.
+      for (const t of ['Bash(git *--output*)', 'Bash(git *--no-index*)', 'Read(//proc/**)']) expect(denied, t).toContain(t);
       expect(env.CLAUDE_CODE_SUBPROCESS_ENV_SCRUB).toBe('1');
 
       const o = outputs();
