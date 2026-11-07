@@ -183,7 +183,8 @@ describe('ночь считается там, где её проводят', () 
 
 describe('завышение не остаётся молчаливым', () => {
   it('неразобранный состав даёт предупреждение', () => {
-    expect(ENGINE).toMatch(/const unknownLodging = days\.filter\(d => d\.realTour && d\.realTour\.lodgingIncluded === null\)/);
+    // Что предупреждение есть, считает туры, а не их дни, и стоит в «Важно», —
+    // сценарий на настоящем движке, tests/unit/planner-scenarios.test.ts.
     const at = ENGINE.indexOf('итог в смете завышен');
     expect(at, 'о завышении не сказано').toBeGreaterThan(0);
     const block = ENGINE.slice(at - 500, at + 200);

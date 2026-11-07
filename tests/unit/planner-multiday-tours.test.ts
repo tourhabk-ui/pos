@@ -25,7 +25,7 @@
 import { describe, it, expect } from 'vitest';
 import { readFileSync } from 'node:fs';
 import { join } from 'node:path';
-import { tourDaySpan, tourPlanSpan, MAX_TOUR_DAYS } from '@/lib/planner/tour-span';
+import { tourDaySpan, tourPlanSpan, tourRoom, MAX_TOUR_DAYS } from '@/lib/planner/tour-span';
 import { tourDurationDays } from '@/lib/bookings/duration';
 
 const ROOT = process.cwd();
@@ -108,12 +108,19 @@ describe('тур занимает свои дни, а платится один 
 });
 
 describe('тур не режется по границе поездки', () => {
-  it('не влезающий пропускается целиком', () => {
-    // «Три дня из пятидневного тура» — не продукт, его нельзя купить.
-    expect(ENGINE).toMatch(/if \(span > block\.activeDays\)/);
-    const at = ENGINE.indexOf('if (span > block.activeDays)');
-    expect(ENGINE.slice(at, at + 300)).toContain('tooLong.add');
+  it('остаток для тура — меньшее из остатка блока и остатка поездки (E1)', () => {
+    // Блок на 5 дней, занято 3: туру остаётся 2, хотя поездка длиннее.
+    expect(tourRoom({ blockDays: 5, used: 3, tripDays: 10, departureDays: 1, dayNum: 4 })).toBe(2);
+    // Блок свободен, а поездка кончается: день 8 из 9 при одном дне отъезда — 1.
+    expect(tourRoom({ blockDays: 5, used: 0, tripDays: 9, departureDays: 1, dayNum: 8 })).toBe(1);
+    // Места нет — ноль, а не отрицательное число.
+    expect(tourRoom({ blockDays: 2, used: 2, tripDays: 9, departureDays: 1, dayNum: 9 })).toBe(0);
   });
+
+  // «Три дня из пятидневного тура» — не продукт, его нельзя купить. Что не
+  // влезающий в ОСТАТОК блока и поездки тур пропускается целиком и назван,
+  // держит сценарий на настоящем движке: tests/unit/planner-scenarios.test.ts
+  // (аудит 07.11, E1 — тур сравнивался с блоком целиком и резался).
 
   it('о пропущенном говорится словами, с причиной и выходом', () => {
     const at = ENGINE.indexOf('Не поместились в срок поездки');
