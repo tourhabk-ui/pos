@@ -15,6 +15,7 @@ import { escapeHtml } from '@/lib/text/escape-html';
 import { withSosBlock } from '@/lib/safety/sos-detector';
 import { ADMIN_HELP_TEXT, adminCommandOf, adminReplyFor } from '@/lib/max/admin-read';
 import { adminMenu } from '@/lib/roles/role-menu';
+import { menuRows, type MenuButton } from '@/lib/roles/chat-menu';
 
 export const ADMIN_CHAT_TEXT = {
   // Голос и фото здесь не разбираются, а в них может быть беда: строка 112 —
@@ -22,6 +23,8 @@ export const ADMIN_CHAT_TEXT = {
   textOnly: 'Как администратор принимаю в MAX только текст: фото, голос и номера здесь не обрабатываю. В беде — звоните 112.',
   notUnderstood: `Не понял команду.\n\n${ADMIN_HELP_TEXT}`,
   pdNotDelivered: 'Ответ с контактами туристов не доставлен в MAX — откройте раздел в админке на vedarai.ru.',
+  /** Подпись кнопок действий, ушедших следом за списком с ПД. */
+  actionsAfterList: 'Открыть заявку из списка выше:',
 } as const;
 
 export function adminGreeting(name: string | null): string {
@@ -30,14 +33,17 @@ export function adminGreeting(name: string | null): string {
 }
 
 /**
- * Ответить администратору. `reply` — обычный ответ в чат (без ПД); ответ с
- * ПД уходит через sendPdAlert в тот же чат.
+ * Ответить администратору. `reply` — обычный ответ в чат (без ПД) со строкой
+ * меню; `replyButtons` — ответ без ПД со своими строками кнопок (строка меню
+ * в них уже есть). Ответ с ПД уходит через sendPdAlert в тот же чат, его
+ * кнопки действий («Заявка N») — следом отдельным сообщением без ПД.
  */
 export async function handleAdminMessage(opts: {
   text: string;
   name: string | null;
   chatId: number;
   reply: (chatId: number, text: string) => Promise<void>;
+  replyButtons: (chatId: number, text: string, rows: MenuButton[][]) => Promise<void>;
   nowMs?: number;
 }): Promise<void> {
   const { text, name, chatId } = opts;
@@ -54,8 +60,10 @@ export async function handleAdminMessage(opts: {
     return;
   }
   const res = await adminReplyFor(cmd, opts.nowMs);
+  const actions = res.buttons ?? [];
   if (!res.pd) {
-    await reply(chatId, res.text);
+    if (actions.length) await opts.replyButtons(chatId, withSosBlock(res.text, text).text, [...actions, ...menuRows(adminMenu())]);
+    else await reply(chatId, res.text);
     return;
   }
   const sent = await sendPdAlert({
@@ -67,5 +75,9 @@ export async function handleAdminMessage(opts: {
   if (!sent.delivered) {
     console.error('[max/admin] ответ с ПД не доставлен:', sent.reason);
     await reply(chatId, ADMIN_CHAT_TEXT.pdNotDelivered);
+    return;
   }
+  // Кнопки действий — следом и без ПД: список с контактами уходит через
+  // sendPdAlert, а его кнопки в MAX встают по одной в строку под меню.
+  if (actions.length) await opts.replyButtons(chatId, ADMIN_CHAT_TEXT.actionsAfterList, [...actions, ...menuRows(adminMenu())]);
 }

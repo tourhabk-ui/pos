@@ -59,7 +59,7 @@ export function maxWebhookKeyConfigured(): boolean {
 }
 
 /** Кнопка под сообщением, нажатие которой что-то меняет. */
-export type MaxPressAction = 'seat' | 'lead' | 'login' | 'dates' | 'rental' | 'owner' | 'task' | 'request_chat' | 'cabinet' | 'stay_answer';
+export type MaxPressAction = 'seat' | 'lead' | 'login' | 'dates' | 'rental' | 'owner' | 'task' | 'request_chat' | 'cabinet' | 'stay_answer' | 'admin';
 
 /**
  * Кнопки вопроса о входе на сайт (аудит 22.10): «Старт» по ссылке входа вход
@@ -144,6 +144,9 @@ export function pressActionOf(payload: string): MaxPressAction | null {
   // `sa:` — «Свободно, беру» / «Занято» / «Позвоню сам» хозяина жилья под
   // заявкой (lib/stay/owner-answer, 30.10): чат партнёра, личный диалог.
   if (payload.startsWith('sa:')) return 'stay_answer';
+  // `ad:` — действия администратора с подтверждением (lib/max/admin-actions,
+  // 07.11): карточка заявки, вопрос «Да / Не надо». Права — на каждом нажатии.
+  if (payload.startsWith('ad:')) return 'admin';
   return null;
 }
 
@@ -189,6 +192,8 @@ export const UNVERIFIED_PRESS_REPLY: Record<MaxPressAction, string> = {
     + 'Ничего не открыто и не записано — откройте кабинет на vedarai.ru.',
   stay_answer: 'Это нажатие не засчитано: бот сейчас не может проверить нажатия в MAX, и повтор не поможет. '
     + 'Ответ гостю не записан — позвоните ему по телефону из заявки.',
+  admin: 'Это нажатие не засчитано: бот сейчас не может проверить нажатия в MAX, и повтор не поможет. '
+    + 'Ничего не изменено — отметьте заявку в админке на vedarai.ru.',
 };
 
 /**
@@ -213,6 +218,8 @@ export const PRESS_WITHOUT_MESSAGE_REPLY: Record<MaxPressAction, string> = {
     + 'нажмите «Входящие» под любым сообщением бота.',
   stay_answer: 'Это нажатие не засчитано: сообщение с кнопкой не найдено. Ответ гостю не записан — '
     + 'нажмите «Заявки» под любым сообщением бота и ответьте в карточке или позвоните гостю.',
+  admin: 'Это нажатие не засчитано: сообщение с кнопкой не найдено. Ничего не изменено — '
+    + 'нажмите «Заявки» и откройте заявку ещё раз.',
 };
 
 /** Ответ на незаверенную ссылку старта (только без ключа). */

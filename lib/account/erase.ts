@@ -1284,6 +1284,8 @@ export async function eraseUser(
     // явный шаг — чтобы стирание не зависело от того, объявлен ли ключ на проде.
     ['admin_max_link_tokens', `DELETE FROM admin_max_link_tokens WHERE user_id = $1`],
     ['admin_max_bindings', `DELETE FROM admin_max_bindings WHERE user_id = $1`],
+    // Вопросы и решения администратора в MAX (1400): кто, что, когда, итог.
+    ['admin_chat_actions', `DELETE FROM admin_chat_actions WHERE admin_user_id = $1`],
     ['admin_tg_link_tokens', `DELETE FROM admin_tg_link_tokens WHERE user_id = $1`],
     ['admin_tg_bindings', `DELETE FROM admin_tg_bindings WHERE user_id = $1`],
     ['user_sessions', `DELETE FROM user_sessions WHERE user_id = $1`],

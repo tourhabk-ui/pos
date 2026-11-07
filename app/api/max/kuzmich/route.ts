@@ -786,6 +786,18 @@ async function handleActionPress(
     return;
   }
 
+  // Действия администратора с подтверждением (фаза 2, 07.11): карточка
+  // заявки, вопрос «Да / Не надо», захват строки. Личный диалог и права
+  // администратора — на каждом нажатии, в lib/max/admin-actions; нажавший —
+  // из заверенного апдейта.
+  if (action === 'admin') {
+    const { handleAdminPress } = await import('@/lib/max/admin-actions');
+    const reply = await handleAdminPress({ chatId, privateChat: chatType === 'dialog', presserId, payload });
+    if (reply.buttons.length) await maxReplyWithButtons(chatId, reply.text, toMaxButtons(reply.buttons));
+    else await maxReply(chatId, reply.text);
+    return;
+  }
+
   // Кабинет в чате (30.10): экран правит сообщение с кнопкой. Личный диалог,
   // карточку чата и владение задачей и клиентом проверяет lib/chat-cabinet.
   if (action === 'cabinet') {
@@ -1300,6 +1312,9 @@ async function handleUpdate(update: MaxUpdate, opts?: { verifiedOrigin?: boolean
           text, name: admin.name, chatId,
           reply: async (_id, body) => {
             await maxReplyWithButtons(chatId, body, toMaxButtons(menuRows(adminMenu())));
+          },
+          replyButtons: async (_id, body, rows) => {
+            await maxReplyWithButtons(chatId, body, toMaxButtons(rows));
           },
         });
         return;
@@ -1877,10 +1892,16 @@ async function handleUpdate(update: MaxUpdate, opts?: { verifiedOrigin?: boolean
           if (!sent.delivered) {
             console.error('[max/admin] ответ с ПД по кнопке не доставлен:', sent.reason);
             await maxReplyWithButtons(messageChatId, 'Ответ с контактами туристов не доставлен в MAX — откройте раздел в админке на vedarai.ru.', toMaxButtons(menuRows(adminMenu())));
+            return;
+          }
+          // Кнопки действий («Заявка N») — следом и без ПД (lib/max/admin-chat).
+          if (screen.buttons?.length) {
+            const { ADMIN_CHAT_TEXT } = await import('@/lib/max/admin-chat');
+            await maxReplyWithButtons(messageChatId, ADMIN_CHAT_TEXT.actionsAfterList, toMaxButtons([...screen.buttons, ...menuRows(adminMenu())]));
           }
           return;
         }
-        await maxReplyWithButtons(messageChatId, screen.text, toMaxButtons(menuRows(adminMenu())));
+        await maxReplyWithButtons(messageChatId, screen.text, toMaxButtons([...(screen.buttons ?? []), ...menuRows(adminMenu())]));
         return;
       }
       const roleLookup = await findPartnerByChat('max', messageChatId);
