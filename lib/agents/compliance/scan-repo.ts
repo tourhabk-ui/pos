@@ -8,7 +8,7 @@
  */
 import { readdirSync, readFileSync, statSync } from 'fs';
 import { join, relative } from 'path';
-import { scanSource, exportedDoors, defaultDoorImports, moduleKey, type PIIFinding } from './pii-flow-scanner';
+import { scanSource, exportedDoors, importedDoors, reExportedDoors, moduleKey, type DoorArgs, type ModuleDoors, type PIIFinding } from './pii-flow-scanner';
 
 /** Корни, где живёт код с промптами. */
 export const SCAN_ROOTS = ['lib', 'app'] as const;
@@ -66,35 +66,48 @@ function readSources(repoRoot: string): Array<{ rel: string; src: string }> {
 }
 
 /**
- * Двери, которые модули отдают под другим именем (семнадцатое ревью PR #3125):
- * `export { callAIFast as ask } from …` в одном файле — и `ask(…)` в другом.
- * Имена собираются по всему репозиторию до неподвижной точки (обёртка над
- * обёрткой), модули с дверью по умолчанию — отдельно: имя у потребителя своё.
+ * Двери, которые модули отдают наружу под своим именем экспорта (семнадцатое
+ * и восемнадцатое ревью): псевдоним (`export { callAIFast as ask } from …`),
+ * функция-обёртка (`export const ask = (p) => callAIFast(p)`), экспорт по
+ * умолчанию и переэкспорт из другого модуля (`export { default as ask } from
+ * './relay'`, `export * from …`). Граф импортов проходится до неподвижной
+ * точки: обёртка над обёрткой через любое число файлов. Имя доходит только до
+ * файла, который его импортирует, — общая для репозитория «дверь `ask`»
+ * сделала бы стоком любой чужой `ask(…)`.
  */
-export function repoDoorLinks(sources: ReadonlyArray<{ rel: string; src: string }>): { named: string[]; defaultModules: Set<string> } {
-  let named: string[] = [];
-  const defaultModules = new Set<string>();
-  for (let round = 0; round < 6; round++) {
-    const next = new Set(named);
-    for (const { rel, src } of sources) {
-      if (!/\bexport\b/.test(src)) continue;
-      const e = exportedDoors(src, named);
-      for (const n of e.named) next.add(n);
-      if (e.defaultDoor) defaultModules.add(moduleKey(rel));
+export function repoDoorLinks(sources: ReadonlyArray<{ rel: string; src: string }>): ModuleDoors {
+  const modules = new Map<string, Map<string, DoorArgs>>();
+  const exporting = sources.filter((s) => /\bexport\b/.test(s.src));
+  // Файл пересчитывается, только когда изменились пришедшие в него двери:
+  // разбор экспорта — самая дорогая часть, и второй круг повторял бы первый.
+  const seen = new Map<string, string>();
+  for (let round = 0; round < 12; round++) {
+    let grew = false;
+    for (const { rel, src } of exporting) {
+      const incoming = importedDoors(rel, src, modules);
+      const sig = JSON.stringify([...incoming]) + JSON.stringify([...reExportedDoors(rel, src, modules)]);
+      if (seen.get(rel) === sig) continue;
+      seen.set(rel, sig);
+      const e = exportedDoors(src, incoming);
+      const found = new Map<string, DoorArgs>([...e.named, ...reExportedDoors(rel, src, modules)]);
+      if (e.defaultDoor !== undefined) found.set('default', e.defaultDoor);
+      if (found.size === 0) continue;
+      const key = moduleKey(rel);
+      const set = modules.get(key) ?? new Map<string, DoorArgs>();
+      for (const [n, a] of found) if (!set.has(n)) { set.set(n, a); grew = true; }
+      modules.set(key, set);
     }
-    if (next.size === named.length) break;
-    named = [...next].sort();
+    if (!grew) break;
   }
-  return { named, defaultModules };
+  return modules;
 }
 
-/** Находки по набору исходников с дверями, пришедшими из других модулей. Чистая — для теста. */
+/** Находки по набору исходников с дверями, пришедшими импортом из других модулей. Чистая — для теста. */
 export function scanSources(sources: ReadonlyArray<{ rel: string; src: string }>): PIIFinding[] {
-  const { named, defaultModules } = repoDoorLinks(sources);
+  const modules = repoDoorLinks(sources);
   const findings: PIIFinding[] = [];
   for (const { rel, src } of sources) {
-    const extra = [...named, ...defaultDoorImports(rel, src, defaultModules)];
-    for (const f of scanSource(rel, src, extra)) findings.push(f);
+    for (const f of scanSource(rel, src, importedDoors(rel, src, modules))) findings.push(f);
   }
   return findings;
 }

@@ -1570,3 +1570,79 @@ describe('D1 — семнадцатое ревью PR #3125: псевдоним 
       'return NextResponse.json({ network: probes, note: `Тел: ${lead.phone}` });'].join('\n'))).toEqual([]);
   });
 });
+
+describe('D1 — восемнадцатое ревью PR #3128: экспорт по умолчанию, обёртка-функция, запрос по форме', () => {
+  const fromFiles = (files: Array<{ rel: string; src: string }>) => scanSources(files).map((x) => [x.file, x.kind, x.expr]);
+  const NOTE = 'lib/agents/lead-note.ts';
+  const consumer = (head: string, call = 'ask(`Клиент: ${lead.phone}`)') => ({ rel: NOTE, src: [head, '',
+    `export const note = (lead: { phone: string }) => ${call};`].join('\n') });
+  const LEAK = [[NOTE, 'contact', 'lead.phone']];
+  const RELAY = { rel: 'lib/ai/relay.ts', src: "import { callAIFast } from '@/lib/ai/providers';\nexport default callAIFast;" };
+
+  it('находка 1: цепочка через экспорт по умолчанию доходит до потребителя', () => {
+    // Дословно оба варианта ревьюера.
+    expect(fromFiles([RELAY, { rel: 'lib/agents/wrap.ts', src: "import d from '@/lib/ai/relay';\nexport const ask = d;" },
+      consumer("import { ask } from './wrap';")])).toEqual(LEAK);
+    expect(fromFiles([RELAY, { rel: 'lib/agents/wrap.ts', src: "export { default as ask } from '@/lib/ai/relay';" },
+      consumer("import { ask } from './wrap';")])).toEqual(LEAK);
+    // Порядок файлов не важен: граф проходится до неподвижной точки.
+    expect(fromFiles([consumer("import { ask } from './wrap';"),
+      { rel: 'lib/agents/wrap.ts', src: "import d from '@/lib/ai/relay';\nexport const ask = d;" }, RELAY])).toEqual(LEAK);
+    // `export *` и namespace-импорт обёртки.
+    expect(fromFiles([{ rel: 'lib/ai/ask.ts', src: "export { callAIFast as ask } from '@/lib/ai/providers';" },
+      { rel: 'lib/ai/index.ts', src: "export * from './ask';" },
+      consumer("import * as ai from '@/lib/ai';", 'ai.ask(`Клиент: ${lead.phone}`)')])).toEqual(LEAK);
+  });
+
+  it('находка 3: функция, передающая параметр в дверь, — дверь для другого файла', () => {
+    // Дословно сценарий ревьюера.
+    const ARROW = { rel: 'lib/ai/ask.ts', src: "import { callAIFast } from '@/lib/ai/providers';\nexport const ask = (p: string) => callAIFast(p);" };
+    expect(fromFiles([ARROW, consumer("import { ask } from '@/lib/ai/ask';")])).toEqual(LEAK);
+    // Объявление функции, тело с шаблоном, экспорт по умолчанию без имени, обёртка над обёрткой.
+    expect(fromFiles([{ rel: 'lib/ai/ask.ts', src: ["import { callAIFast } from '@/lib/ai/providers';",
+      'export async function ask(text: string) {', "  return callAIFast([{ role: 'user', content: `Вопрос: ${text}` }]);", '}'].join('\n') },
+    consumer("import { ask } from '@/lib/ai/ask';")])).toEqual(LEAK);
+    expect(fromFiles([{ rel: 'lib/ai/ask.ts', src: "import { callAIFast } from '@/lib/ai/providers';\nexport default async (p: string) => callAIFast(p);" },
+      consumer("import ask from '@/lib/ai/ask';")])).toEqual(LEAK);
+    expect(fromFiles([ARROW, { rel: 'lib/ai/ask2.ts', src: "import { ask } from './ask';\nexport function ask2(q: string) { return ask(q); }" },
+      consumer("import { ask2 } from '@/lib/ai/ask2';", 'ask2(`Клиент: ${lead.phone}`)')])).toEqual(LEAK);
+  });
+
+  it('узость находки 3: сток — только переданный параметр; без импорта и без вызова двери — не дверь', () => {
+    // Обёртка шлёт модели только второй параметр: телефон в первом — ключ, а не промпт.
+    const NOTES = { rel: 'lib/ai/notes.ts', src: ["import { callAIFast } from '@/lib/ai/providers';",
+      'export async function note(chatId: number, text: string) {', '  await save(chatId);', '  return callAIFast(text);', '}'].join('\n') };
+    expect(fromFiles([NOTES, consumer("import { note } from '@/lib/ai/notes';", 'note(lead.phone, "сводка")')])).toEqual([]);
+    expect(fromFiles([NOTES, consumer("import { note } from '@/lib/ai/notes';", 'note(1, `Тел: ${lead.phone}`)')])).toEqual(LEAK);
+    // `.call(this, …)` сдвигает аргументы на один: позиция та же.
+    expect(fromFiles([NOTES, consumer("import { note } from '@/lib/ai/notes';", 'note.call(null, lead.phone, "сводка")')])).toEqual([]);
+    expect(fromFiles([NOTES, consumer("import { note } from '@/lib/ai/notes';", 'note.call(null, 1, `Тел: ${lead.phone}`)')])).toEqual(LEAK);
+    // Метод с тем же именем — объявление, а не вызов двери.
+    expect(fromFiles([NOTES, { rel: NOTE, src: ["import { note } from '@/lib/ai/notes';",
+      'export class Card { note(chatId: number, text = `Тел: ${lead.phone}`) { return text; } }'].join('\n') }])).toEqual([]);
+    // Функция зовёт дверь без своего параметра — не дверь.
+    expect(fromFiles([{ rel: 'lib/ai/ping.ts', src: "import { callAIFast } from '@/lib/ai/providers';\nexport function ping(id: string) { log(id); return callAIFast('ping'); }" },
+      consumer("import { ping } from '@/lib/ai/ping';", 'ping(lead.phone)')])).toEqual([]);
+    // Своя `ask` в файле, который обёртку не импортирует, — не дверь.
+    expect(fromFiles([{ rel: 'lib/ai/ask.ts', src: "import { callAIFast } from '@/lib/ai/providers';\nexport const ask = (p: string) => callAIFast(p);" },
+      consumer("import { ask } from '@/lib/forms/ask';")])).toEqual([]);
+  });
+
+  it('находка 2: запрос по форме вызова — клиент без `fetch` в имени, адрес из параметра', () => {
+    const found = (src: string) => scanSource('r.ts', src).map((x) => [x.kind, x.expr]);
+    const MODEL = "const PATH = '/chat/completions';";
+    // Дословно сценарий ревьюера.
+    expect(found([MODEL, 'export async function send(deps: { post: (u: string, i: unknown) => Promise<Response> }, url: string, booking: { phone: string }) {',
+      '  return deps.post(url, { body: JSON.stringify({ data: `Тел: ${booking.phone}` }) });', '}'].join('\n'))).toEqual([['contact', 'booking.phone']]);
+    expect(found([MODEL, 'await httpJson(url, { data: `Тел: ${lead.phone}` });'].join('\n'))).toEqual([['contact', 'lead.phone']]);
+    expect(found([MODEL, 'await request(url, { data: `Тел: ${lead.phone}` });'].join('\n'))).toEqual([['contact', 'lead.phone']]);
+    // Имя ничего не говорит — решает объект настроек запроса.
+    expect(found([MODEL, "await client.go(url, { method: 'POST', body: JSON.stringify({ data: `Тел: ${lead.phone}` }) });"].join('\n'))).toEqual([['contact', 'lead.phone']]);
+  });
+
+  it('узость находки 2: путь модели в регулярке или комментарии — не выход; Map.set и отправка без настроек — не запрос', () => {
+    const found = (src: string) => scanSource('r.ts', src).map((x) => [x.kind, x.expr]);
+    expect(found(['const RE = /\\/chat\\/completions/; // путь /v1/messages', 'put(key, `Тел: ${lead.phone}`);', 'post(url, `Тел: ${lead.phone}`);'].join('\n'))).toEqual([]);
+    expect(found(["const PATH = '/chat/completions';", 'cache.set(key, `Тел: ${lead.phone}`);', 'bot.send(chatId, `Тел: ${lead.phone}`);'].join('\n'))).toEqual([]);
+  });
+});
