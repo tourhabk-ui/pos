@@ -6,6 +6,7 @@ import { cabinetPayload } from '@/lib/chat-cabinet/payload';
 import { chatAnswerButtons } from '@/lib/requests/chat-answer-buttons';
 import { answerPressPayload } from '@/lib/bookings/chat-owner-press';
 import { odOpen } from '@/lib/operators/chat-dates/flow';
+import { adminAnswerPayload, adminLeadPayload, adminOpenLeadPayload } from '@/lib/max/admin-actions';
 
 const UUID = '0f13cf25-e5a5-461f-a979-9d65e232a6d8';
 const NOW = Date.parse('2026-11-10T00:00:00Z');
@@ -51,12 +52,24 @@ describe('signed write buttons', () => {
       cabinetPayload.editTour(UUID, 9), cabinetPayload.docSaveField(UUID, 12), cabinetPayload.docTour(UUID, 9),
       cabinetPayload.inviteAccept(UUID), cabinetPayload.vehicleActive(UUID, true),
       cabinetPayload.dateClose('123456', '2026-12-31'), cabinetPayload.teamLeaveYes(),
+      adminLeadPayload('contacted', UUID), adminLeadPayload('lost', UUID),
+      adminAnswerPayload(true, UUID), adminAnswerPayload(false, UUID),
     ];
     for (const p of all) {
       expect(isWritePayload(p.split('~')[0]!)).toBe(true);
       expect(p.split('~')).toHaveLength(3);
       expect(Buffer.byteLength(p)).toBeLessThanOrEqual(CALLBACK_MAX_BYTES);
     }
+  });
+
+  it('admin in MAX: marks and answers are signed, opening a lead card is a read', () => {
+    vi.stubEnv('CALLBACK_LEGACY_UNTIL_MS', '');
+    expect(adminOpenLeadPayload(UUID)).toBe(`ad:o:${UUID}`);
+    expect(unwrapPress(`ad:o:${UUID}`, LEGACY_UNSIGNED_UNTIL_MS + 1)).toEqual({ ok: true, payload: `ad:o:${UUID}` });
+    const yes = adminAnswerPayload(true, UUID);
+    expect(unwrapPress(yes)).toEqual({ ok: true, payload: `ad:y:${UUID}` });
+    expect(unwrapPress(`ad:y:${UUID}`, LEGACY_UNSIGNED_UNTIL_MS + 1)).toEqual({ ok: false, reason: 'expired' });
+    expect(unwrapPress(yes.replace('ad:y:', 'ad:n:'))).toEqual({ ok: false, reason: 'forged' });
   });
 });
 

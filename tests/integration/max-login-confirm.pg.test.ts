@@ -363,11 +363,14 @@ withPg('вход через MAX подтверждается вопросом в
       await startWith(startArg((await issueLink()).link!), ADMIN_MAX);
       sent.length = 0;
       await say('заявки', ADMIN_MAX);
-      expect(sent).toHaveLength(1);
-      expect(sent[0].chatId).toBe(ADMIN_MAX + 5);
+      // Список с ПД, следом — кнопки «Заявка N» без ПД (фаза 2, 07.11).
+      expect(sent).toHaveLength(2);
+      expect(sent.map((m) => m.chatId)).toEqual([ADMIN_MAX + 5, ADMIN_MAX + 5]);
       expect(sent[0].text).toContain('Заявки без ответа человека: 1');
-      expect(sent[0].text).toContain('Турист Проверочный, +70000000001');
+      expect(sent[0].text).toContain('1. Турист Проверочный, +70000000001');
       expect(sent[0].text).toContain('больше двух часов');
+      expect(sent[1].text).not.toMatch(/Проверочный|70000000001/);
+      expect(lastButtons().map((b) => b.text)).toContain('Заявка 1');
       await pool.query(`DELETE FROM leads WHERE phone = '+70000000001'`);
     });
 
@@ -590,6 +593,221 @@ withPg('вход через MAX подтверждается вопросом в
 
       const again = await consumeAdminTelegramLink(token, 880_001);
       expect(again).toEqual({ ok: false, reason: 'already_yours' });
+    });
+
+    // ── Фаза 2 (07.11): действие с кнопкой подтверждения ──────────────────
+    //
+    // «Заявка N» → карточка без ПД → «Связался» → вопрос «Да / Не надо» на
+    // 15 минут → «Да» исполняет то же правило, что кабинет оператора. Всё на
+    // схеме прода: таблица вопросов 1400, захват строки, снятие прежнего
+    // вопроса, права администратора на каждом нажатии.
+    describe('действие администратора с кнопкой подтверждения (фаза 2, 07.11)', () => {
+      const LEAD_PHONE = '+70000000002';
+      let leadId = '';
+
+      const pressAs = (payload: string, userId = ADMIN_MAX, chatType = 'dialog') => bot({
+        update_type: 'message_callback', timestamp: Date.now(),
+        callback: {
+          timestamp: Date.now(), callback_id: `cb-${userId}-${payload}`, payload, user: { user_id: userId, name: 'Админ' },
+        },
+        message: { recipient: { chat_id: userId + 5, chat_type: chatType }, body: { mid: `m-${payload}`, seq: 1, text: null } },
+      });
+      const leadStatus = async () =>
+        (await pool.query<{ status: string }>('SELECT status FROM leads WHERE id = $1', [leadId])).rows[0]?.status;
+      const actionRows = async () => (await pool.query<{
+        admin_user_id: string; chat_id: string; status: string; action: string; used: boolean; outcome: unknown;
+      }>(
+        `SELECT admin_user_id::text, chat_id::text, status, action, used_at IS NOT NULL AS used, outcome
+           FROM admin_chat_actions ORDER BY created_at, id`,
+      )).rows;
+      // Свой номер сообщения: повтор того же mid бот отсекает (lib/max/update-dedup).
+      let seq = 0;
+      const sayFresh = (text: string) => bot({
+        update_type: 'message_created', timestamp: Date.now(),
+        message: {
+          sender: { user_id: ADMIN_MAX, name: 'Админ' },
+          recipient: { chat_id: ADMIN_MAX + 5, chat_type: 'dialog' },
+          body: { mid: `m-act-${++seq}`, seq: 1, text },
+        },
+      });
+      const yesButton = () => lastButtons().find((b) => b.payload.startsWith('ad:y:'));
+      const lastText = () => sent[sent.length - 1]?.text ?? '';
+      // Кнопка отметки — запись: подписана ключом бота, как её выдаёт карточка.
+      const mark = async (action: 'contacted' | 'converted' | 'lost') =>
+        (await import('@/lib/max/admin-actions')).adminLeadPayload(action, leadId);
+
+      beforeEach(async () => {
+        await pool.query('DELETE FROM admin_chat_actions');
+        await pool.query('DELETE FROM leads WHERE phone = $1', [LEAD_PHONE]);
+        const { rows } = await pool.query<{ id: string }>(
+          `INSERT INTO leads (name, phone, route_title, status, group_size, created_at)
+           VALUES ('Тест', $1, 'Вулкан Горелый', 'new', 2, NOW() - INTERVAL '3 hours')
+           RETURNING id::text AS id`,
+          [LEAD_PHONE],
+        );
+        leadId = rows[0].id;
+        await startWith(startArg((await issueLink()).link!), ADMIN_MAX);
+        sent.length = 0;
+      });
+
+      afterAll(async () => {
+        await pool.query('DELETE FROM admin_chat_actions');
+        await pool.query('DELETE FROM leads WHERE phone = $1', [LEAD_PHONE]);
+      });
+
+      it('список → «Заявка 1» → «Связался» → «Да»: заявка отмечена, решение в журнале; ПД нет в карточке и вопросе', async () => {
+        await sayFresh('заявки');
+        const open = lastButtons().find((b) => b.text === 'Заявка 1');
+        expect(open?.payload).toBe(`ad:o:${leadId}`);
+
+        sent.length = 0;
+        await pressAs(open!.payload);
+        expect(lastText()).toContain('«Вулкан Горелый», 2 чел');
+        expect(lastText()).not.toMatch(/Тест|70000000002/);
+        const contacted = lastButtons().find((b) => b.text === 'Связался');
+        // Отметка — запись: payload с хвостом срока и подписи.
+        expect(contacted?.payload.split('~')).toHaveLength(3);
+        expect(contacted?.payload.split('~')[0]).toBe(`ad:k:${leadId}`);
+        expect(yesButton()).toBeUndefined();
+
+        sent.length = 0;
+        await pressAs(contacted!.payload);
+        expect(lastText()).toContain('Отметить заявку «Вулкан Горелый», 2 чел');
+        expect(lastText()).not.toMatch(/Тест|70000000002/);
+        // До «Да» заявка не меняется.
+        expect(await leadStatus()).toBe('new');
+        const yes = yesButton();
+        expect(yes).toBeDefined();
+
+        sent.length = 0;
+        await pressAs(yes!.payload);
+        expect(lastText()).toContain('Заявка отмечена');
+        expect(await leadStatus()).toBe('contacted');
+        const rows = await actionRows();
+        expect(rows).toHaveLength(1);
+        expect(rows[0]).toMatchObject({
+          admin_user_id: adminId, chat_id: String(ADMIN_MAX + 5), status: 'done', action: 'contacted', used: true,
+        });
+        expect(rows[0].outcome).toMatchObject({ kind: 'lead_done', lead: leadId, status: 'contacted', changed: true });
+
+        // Повтор «Да» — прежний итог, второго исполнения нет.
+        sent.length = 0;
+        await pressAs(yes!.payload);
+        expect(lastText()).toContain('Уже нажато раньше');
+        expect((await actionRows()).map((r) => r.status)).toEqual(['done']);
+      });
+
+      it('просроченный вопрос ничего не делает и новым вопросом не становится', async () => {
+        await pressAs(await mark('contacted'));
+        const yes = yesButton()!;
+        await pool.query(`UPDATE admin_chat_actions SET expires_at = NOW() - INTERVAL '1 minute'`);
+        sent.length = 0;
+        await pressAs(yes.payload);
+        expect(lastText()).toContain('Вопрос устарел');
+        expect(await leadStatus()).toBe('new');
+        expect((await actionRows()).map((r) => r.status)).toEqual(['ready']);
+      });
+
+      it('новый вопрос снимает прежний: «Да» под старым не исполняется', async () => {
+        await pressAs(await mark('contacted'));
+        const first = yesButton()!;
+        await pressAs(await mark('lost'));
+        sent.length = 0;
+        await pressAs(first.payload);
+        expect(lastText()).toContain('заменён');
+        expect(await leadStatus()).toBe('new');
+        expect((await actionRows()).map((r) => r.status)).toEqual(['superseded', 'ready']);
+      });
+
+      it('«Не надо» — заявка без изменений, «Да» после него не исполняется', async () => {
+        await pressAs(await mark('converted'));
+        const yes = yesButton()!;
+        const no = lastButtons().find((b) => b.payload.startsWith('ad:n:'))!;
+        await pressAs(no.payload);
+        expect(lastText()).toContain('без изменений');
+        sent.length = 0;
+        await pressAs(yes.payload);
+        expect(lastText()).toContain('отменено');
+        expect(await leadStatus()).toBe('new');
+      });
+
+      it('снятая роль администратора гасит живой вопрос', async () => {
+        await pressAs(await mark('converted'));
+        const yes = yesButton()!;
+        await setAdmin(false);
+        sent.length = 0;
+        await pressAs(yes.payload);
+        expect(lastText()).toContain('у администратора Ведара');
+        expect(await leadStatus()).toBe('new');
+        expect((await actionRows()).map((r) => r.status)).toEqual(['ready']);
+      });
+
+      it('чужой человек MAX и группа — отказ, ничего не записано', async () => {
+        await pressAs(await mark('contacted'));
+        const yes = yesButton()!;
+        sent.length = 0;
+        await pressAs(yes.payload, OTHER_MAX);
+        expect(lastText()).toContain('у администратора Ведара');
+        await pressAs(yes.payload, ADMIN_MAX, 'chat');
+        expect(lastText()).toContain('личном диалоге');
+        await pressAs(await mark('lost'), OTHER_MAX);
+        expect(await leadStatus()).toBe('new');
+        expect((await actionRows()).map((r) => r.status)).toEqual(['ready']);
+      });
+
+      it('другой администратор чужой вопрос не исполняет', async () => {
+        await pool.query(`DELETE FROM users WHERE email = 'max-admin-2@test.invalid'`);
+        const { rows } = await pool.query<{ id: string }>(
+          `INSERT INTO users (email, name, password_hash, role, preferences)
+           VALUES ('max-admin-2@test.invalid', 'Второй Админ', 'x', 'admin', '{"roles":["tourist","admin"]}')
+           RETURNING id::text AS id`,
+        );
+        await pool.query('INSERT INTO admin_max_bindings (user_id, max_user_id) VALUES ($1, $2)', [rows[0].id, OTHER_MAX]);
+        await pressAs(await mark('contacted'));
+        const yes = yesButton()!;
+        sent.length = 0;
+        await pressAs(yes.payload, OTHER_MAX);
+        expect(lastText()).toContain('не найден');
+        expect(await leadStatus()).toBe('new');
+        expect((await actionRows()).map((r) => r.status)).toEqual(['ready']);
+      });
+
+      it('кнопка без подписи или с чужой подписью отвергается до разбора: вопроса нет, заявка не тронута', async () => {
+        vi.stubEnv('CALLBACK_LEGACY_UNTIL_MS', '1');
+        try {
+          await pressAs(await mark('contacted'));
+          const yes = yesButton()!;
+          const [bare] = yes.payload.split('~');
+          sent.length = 0;
+          // Собранное руками «Да» без хвоста.
+          await pressAs(bare);
+          expect(lastText()).toContain('Кнопка устарела');
+          // Хвост от одной кнопки на другой: «Не надо» подписью «Да».
+          await pressAs(yes.payload.replace('ad:y:', 'ad:n:'));
+          expect(lastText()).toContain('не удалось проверить');
+          // Отметка без подписи не заводит вопроса.
+          await pressAs(`ad:l:${leadId}`);
+          expect(lastText()).toContain('Кнопка устарела');
+          expect(await leadStatus()).toBe('new');
+          expect((await actionRows()).map((r) => `${r.action}:${r.status}`)).toEqual(['contacted:ready']);
+          // Настоящая кнопка по-прежнему работает.
+          await pressAs(yes.payload);
+          expect(lastText()).toContain('Заявка отмечена');
+          expect(await leadStatus()).toBe('contacted');
+        } finally {
+          vi.unstubAllEnvs();
+        }
+      });
+
+      it('незаверенное нажатие не засчитано', async () => {
+        await bot({
+          update_type: 'message_callback', timestamp: Date.now(),
+          callback: { timestamp: Date.now(), callback_id: 'cb-unverified', payload: await mark('contacted'), user: { user_id: ADMIN_MAX, name: 'Админ' } },
+          message: { recipient: { chat_id: ADMIN_MAX + 5, chat_type: 'dialog' }, body: { mid: 'm-unv', seq: 1, text: null } },
+        }, false);
+        expect(lastText()).toContain('не засчитано');
+        expect(await actionRows()).toEqual([]);
+      });
     });
   });
 

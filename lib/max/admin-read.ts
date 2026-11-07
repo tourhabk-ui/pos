@@ -34,6 +34,8 @@ import { WIDGET_CHAT_PSEUDO_LEAD_SQL } from '@/lib/leads/widget-chat-pseudo';
 import { readDaySummary } from '@/lib/analytics/day-summary';
 import type { Metric } from '@/lib/analytics/day-summary-types';
 import { escapeHtml } from '@/lib/text/escape-html';
+import { ADMIN_LEAD_BUTTONS, adminLeadOpenButtons } from '@/lib/max/admin-actions';
+import type { MenuButton } from '@/lib/roles/chat-menu';
 
 /** Предел одного сообщения MAX — с запасом под «и ещё N». */
 export const ADMIN_MAX_MESSAGE_CHARS = 3800;
@@ -43,8 +45,13 @@ const TOURS_LIMIT = 60;
 
 export type AdminCommand = 'help' | 'dates' | 'bookings' | 'leads' | 'summary' | 'health';
 
-/** Ответ администратору: текст в HTML MAX и есть ли в нём ПД туристов. */
-export interface AdminReply { text: string; pd: boolean }
+/**
+ * Ответ администратору: текст в HTML MAX и есть ли в нём ПД туристов.
+ * `buttons` — строки кнопок действий без ПД в подписях («Заявка 1…»): у
+ * ответа с ПД они уходят следом отдельным сообщением, у ответа без ПД — под
+ * текстом, над строкой меню.
+ */
+export interface AdminReply { text: string; pd: boolean; buttons?: MenuButton[][] }
 
 /**
  * Команда из текста администратора. null — не понял: отвечает подсказка, а
@@ -70,7 +77,9 @@ export const ADMIN_HELP_TEXT = [
   '• <b>здоровье</b> — последний прогон сторожа платформы: что проверено, сколько тревог.',
   '',
   'Под ответом те же кнопки: Даты, Брони, Заявки, Сводка, Здоровье, Помощь.',
-  'Действия с кнопкой подтверждения (открыть даты за оператора, пост в канал, статус заявки или брони) — следующим шагом.',
+  'Заявку можно отметить: кнопка «Заявка N» под списком, затем «Связался», «Договорились» или «Отказ» и «Да». '
+    + 'До «Да» ничего не меняется, вопрос живёт 15 минут.',
+  'Открыть даты за оператора, пост в канал и статус брони — следующими шагами.',
 ].join('\n');
 
 /** «2026-10-25» → «25.10». */
@@ -226,15 +235,16 @@ export async function readWaitingLeads(): Promise<AdminReply> {
   }
   if (rows.length === 0) return { text: 'Заявок без ответа человека нет.', pd: false };
   const total = rows[0].total;
-  const items = rows.map((r) => {
+  // Номер строки — номер кнопки «Заявка N» под списком (первые ADMIN_LEAD_BUTTONS).
+  const items = rows.map((r, i) => {
     const who = [r.name, r.phone].filter(Boolean).map(escapeHtml).join(', ') || 'контакт не записан';
     const what = r.route_title ? escapeHtml(r.route_title) : r.kind ? escapeHtml(r.kind) : 'без темы';
     const to = r.addressee ? `оператору ${escapeHtml(r.addressee)}` : 'без адресата';
     const age = r.age_h >= 2 ? `ждёт ${r.age_h} ч — больше двух часов` : 'меньше двух часов';
-    return `• ${who} · ${what} · ${to} · ${age}`;
+    return `${i < ADMIN_LEAD_BUTTONS ? `${i + 1}.` : '•'} ${who} · ${what} · ${to} · ${age}`;
   });
   const head = [`<b>Заявки без ответа человека: ${total}</b>${total > rows.length ? ` (показаны ${rows.length} старших)` : ''}`];
-  return { text: fitLines(head, items), pd: true };
+  return { text: fitLines(head, items), pd: true, buttons: adminLeadOpenButtons(rows.map((r) => r.id)) };
 }
 
 // ── сводка ──────────────────────────────────────────────────────────────
