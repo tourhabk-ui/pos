@@ -548,6 +548,12 @@ function buildEdges(code: string, sc: Scopes, links: Link[] = []): Edge[] {
   // Присваивание и объявление; поле — по корню цепочки (`this.x` — x, `box.v` — box).
   ASSIGN_HEAD.lastIndex = 0;
   for (let m = ASSIGN_HEAD.exec(code); m; m = ASSIGN_HEAD.exec(code)) {
+    // Тип не выходит из своих скобок: в `function f(lead: Lead) { const who =`
+    // «тип» `: Lead) { const who` съел бы объявление who (девятое ревью).
+    if (!balancedType(code.slice(m.index + m[1].length, m.index + m[0].length))) {
+      ASSIGN_HEAD.lastIndex = m.index + m[1].length;
+      continue;
+    }
     const from = m.index + m[0].length;
     const span = { from, to: stmtEnd(code, from) };
     const target = chainRoot(code, m.index + m[1].length) ?? { name: m[1], at: m.index };
@@ -876,23 +882,64 @@ interface Taints {
 
 /**
  * Однобуквенный владелец `.name` (`l.name`, `b.name`, `m.name`) — человек,
- * только если связан с человеком: колбэк перебора лидов или броней
- * (`m.newLeads.map((l) => …)`), параметр с типом человека (`b: Booking`),
- * `for (const l of leads)`. Иначе `m.name` в `(data.models ?? []).map((m) =>
- * m.name)` — имя модели, и род имени разносился бы от него по всему файлу.
- * Прямо в тексте промпта `${m.name}` судится по-прежнему всегда.
+ * пока не доказано обратное: одно правило и для `${l.name}` в промпте, и для
+ * имени, унесённого в переменную. Не человек — только владелец, связанный с
+ * не-человеком: колбэк перебора моделей (`(data.models ?? []).map((m) =>
+ * m.name)`), параметр с таким типом (`b: Buffer`), `for (const m of models)`.
+ *
+ * Девятое ревью PR #3104: седьмая правка требовала обратного — доказать
+ * человека (перебор лидов, тип `Booking`), и выборка под нейтральным именем
+ * (`rows.map((l) => l.name)`, `b: { name: string }`) проходила молча, хотя до
+ * PR и прямо в `${…}` это имя. Неизвестный владелец — «не знаю», а «не знаю»
+ * здесь судится как имя (§4.0): краснота с названной строкой лучше пропуска.
+ *
+ * Слова не-людей — `NON_PERSON_WORD`, у каждого причина: `model` — имена
+ * моделей в каталоге провайдера; `buffer`, `blob`, `file` — имя файла;
+ * `tool` — имя инструмента модели. Владелец, в котором есть и слово человека
+ * (`leadFiles`), остаётся человеком.
  */
 const PERSON_WORD = /lead|booking|user|member|guest|client|customer|tourist|travel|passenger|buyer|payer|participant|person|people/i;
+const NON_PERSON_WORD = /model|buffer|blob|file|tool/i;
 const SINGLE_OWNER_NAME = /\b([lbumg])\s*\.\s*name\b/g;
 const PERSONAL_OWNER_LONG = new RegExp(PERSONAL_OWNER_NAME.source.replace(/\|[lbumg](?=\|)/g, ''), 'i');
 
-function personKeys(code: string, sc: Scopes): Set<string> {
+const nonPersonWords = (text: string) => NON_PERSON_WORD.test(text) && !PERSON_WORD.test(text);
+
+/**
+ * Получатель перебора, кончающийся на `end`, целиком: `rows`, `m.newLeads`,
+ * `(data.models ?? []).filter(…)`. Скобочная группа в начале цепочки входит в
+ * текст: по ней видно, что перебираются модели.
+ */
+function receiverText(code: string, end: number): string {
+  const ws = (k: number) => { while (k > 0 && /\s/.test(code[k - 1])) k--; return k; };
+  let i = end;
+  for (;;) {
+    const j = ws(i);
+    if (code[j - 1] === ')' || code[j - 1] === ']') {
+      const o = openOf(code, j - 1);
+      if (o < 0) break;
+      i = o;
+      // Скобки вызова или индекса — цепочка идёт дальше; группа `(a ?? b)` — её начало.
+      if (!/[\w$)\]]/.test(code[ws(o) - 1] ?? '')) break;
+      continue;
+    }
+    const id = identBefore(code, j);
+    if (!id) { i = j; break; }
+    i = j - id.length;
+    const k = ws(i);
+    if (code[k - 1] !== '.' || code[k - 2] === '.') break;
+    i = code[k - 2] === '?' ? k - 2 : k - 1;
+  }
+  return code.slice(i, end);
+}
+
+/** Ключи однобуквенных владельцев, доказуемо связанных с не-человеком. */
+function nonPersonKeys(code: string, sc: Scopes): Set<string> {
   const out = new Set<string>();
   const mark = (names: string[], key: (n: string) => string) => { for (const n of names) if (/^[lbumg]$/.test(n)) out.add(key(n)); };
   ITER_CALL.lastIndex = 0;
   for (let m = ITER_CALL.exec(code); m; m = ITER_CALL.exec(code)) {
-    const last = /([A-Za-z_$][\w$]*)\s*$/.exec(code.slice(Math.max(0, m.index - 80), m.index))?.[1] ?? '';
-    if (!PERSON_WORD.test(last)) continue;
+    if (!nonPersonWords(receiverText(code, m.index))) continue;
     const open = m.index + m[0].length - 1;
     const cb = argSpans(code, open)[0];
     const head = cb && CALLBACK_HEAD.exec(code.slice(cb.from, cb.to));
@@ -904,7 +951,7 @@ function personKeys(code: string, sc: Scopes): Set<string> {
   sc.params.forEach(([open, close], idx) => {
     for (const part of splitTop(code.slice(open + 1, close))) {
       const typed = /^\s*([lbumg])\s*\??\s*:\s*([^=]+)/.exec(part);
-      if (typed && PERSON_WORD.test(typed[2])) out.add(`${sc.paramScopes[idx]}:${typed[1]}`);
+      if (typed && nonPersonWords(typed[2])) out.add(`${sc.paramScopes[idx]}:${typed[1]}`);
     }
   });
   FOR_OF.lastIndex = 0;
@@ -912,15 +959,15 @@ function personKeys(code: string, sc: Scopes): Set<string> {
     const paren = code.lastIndexOf('(', m.index + m[0].length);
     const head = code.slice(m.index + m[0].length, closeOf(code, paren));
     const of = /\s+of\s+/.exec(head);
-    if (of && PERSON_WORD.test(head.slice(of.index + of[0].length))) mark(bindingNames(head.slice(0, of.index)), (n) => sc.key(n, m.index + m[0].length));
+    if (of && nonPersonWords(head.slice(of.index + of[0].length))) mark(bindingNames(head.slice(0, of.index)), (n) => sc.key(n, m.index + m[0].length));
   }
   return out;
 }
 
-/** Имя человека в тексте с позиции `base`: поле `*_name`, `lead.name`; однобуквенный владелец — если связан с человеком. */
-function personNameIn(text: string, base: number, sc: Scopes, person: ReadonlySet<string>): boolean {
+/** Имя человека в тексте с позиции `base`: поле `*_name`, `lead.name`; однобуквенный владелец — если не доказан не-человеком. */
+function personNameIn(text: string, base: number, sc: Scopes, nonPerson: ReadonlySet<string>): boolean {
   if (PERSONAL_NAME_FIELD.test(text) || PERSONAL_OWNER_LONG.test(text)) return true;
-  for (const m of text.matchAll(SINGLE_OWNER_NAME)) if (person.has(sc.key(m[1], base + (m.index ?? 0)))) return true;
+  for (const m of text.matchAll(SINGLE_OWNER_NAME)) if (!nonPerson.has(sc.key(m[1], base + (m.index ?? 0)))) return true;
   return false;
 }
 
@@ -933,7 +980,7 @@ type KindDeps = { stat: boolean; vars: string[]; fns: string[] };
  * функции файла сюда не входят: они идут в её параметры ребром, и род
  * результата — это род того, что она возвращает.
  */
-function depsOf(text: string, span: FlowSpan, sc: Scopes, own: ReadonlySet<string>, person: ReadonlySet<string>): Record<Kind, KindDeps> {
+function depsOf(text: string, span: FlowSpan, sc: Scopes, own: ReadonlySet<string>, nonPerson: ReadonlySet<string>): Record<Kind, KindDeps> {
   const opaque = ownCallArgRanges(text, span.from, span.to, own);
   const clean = [...sanitizedRanges(text, span.from, span.to, CONTACT_SANITIZERS), ...opaque];
   const evC = blankRanges(text.slice(span.from, span.to), span.from, clean).replace(SERVICE_CONTACT, (m) => ' '.repeat(m.length));
@@ -954,7 +1001,7 @@ function depsOf(text: string, span: FlowSpan, sc: Scopes, own: ReadonlySet<strin
       fns: ownCalls(CONTACT_SANITIZERS, rc),
     },
     name: {
-      stat: personNameIn(evN, span.from, sc, person),
+      stat: personNameIn(evN, span.from, sc, nonPerson),
       vars: keys(rn),
       fns: ownCalls(NO_SANITIZERS, rn),
     },
@@ -1017,9 +1064,9 @@ function taintsIn(code: string, sc: Scopes, edges: readonly Edge[], seeds: reado
       if (d) mark(vars, sc.key(d[2] ?? d[1], m.index), 'contact');
     }
   }
-  const person = personKeys(code, sc);
-  const eDeps = edges.filter((e) => !e.part).map((e) => ({ key: e.key, d: depsOf(text, e.span, sc, own, person) }));
-  const fDeps = fnSpans.map((f) => ({ name: f.name, d: depsOf(text, f.span, sc, own, person) }));
+  const nonPerson = nonPersonKeys(code, sc);
+  const eDeps = edges.filter((e) => !e.part).map((e) => ({ key: e.key, d: depsOf(text, e.span, sc, own, nonPerson) }));
+  const fDeps = fnSpans.map((f) => ({ name: f.name, d: depsOf(text, f.span, sc, own, nonPerson) }));
   const fires = (d: Record<Kind, KindDeps>, kind: Kind) =>
     d[kind].stat || d[kind].vars.some((k) => has(vars, k, kind)) || d[kind].fns.some((n) => has(fns, n, kind));
   // Цепочки в коде короткие; предел — от патологии.
@@ -1497,6 +1544,16 @@ function buildScopes(code: string): Scopes {
  * в content:» (четвёртое ревью PR #3104).
  */
 const ASSIGN_HEAD = /(?<![\w$])([A-Za-z_$][\w$]*)\s*(?::[^=;\n]+)?\+?=(?![=>])/g;
+
+/** Аннотация типа не закрывает чужих скобок и закрывает свои: `: { a: string }`, но не `: Lead) {`. */
+function balancedType(text: string): boolean {
+  let depth = 0;
+  for (const ch of text) {
+    if (ch === '(' || ch === '[' || ch === '{') depth++;
+    else if ((ch === ')' || ch === ']' || ch === '}') && --depth < 0) return false;
+  }
+  return depth === 0;
+}
 /** Ключ стока: `content:`/`system:`, у агента SDK — `systemPrompt:`/`userMessage:`; значение уходит модели. */
 const SINK_KEY_HEAD = /\b(content|system|systemPrompt|userMessage)\s*:/g;
 /** Зарубежный вызов: `callAIFast(…)`, `runSDKAgent(…)` и т. п. */

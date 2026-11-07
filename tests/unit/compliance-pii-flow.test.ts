@@ -960,7 +960,7 @@ describe('D1 — седьмое ревью PR #3104: двери, значени�
     expect(scanSource('q.ts', all).map((f) => [f.line, f.kind])).toEqual([[4, 'contact']]);
   });
 
-  it('однобуквенный владелец имени — человек, если связан с человеком: тип параметра, for…of по лидам', () => {
+  it('однобуквенный владелец имени: тип человека и for…of по лидам — имя, тип файла — нет', () => {
     const sink = "  return callAIFast([{ role: 'user', content: `Кому: ${who}` }]);";
     expect(found(ask('function f(b: Booking) {', '  const who = b.name;', sink, '}'))).toEqual([['name', 'content']]);
     expect(found(ask('function f(b: Buffer) {', '  const who = b.name;', sink, '}'))).toEqual([]);
@@ -1046,5 +1046,46 @@ describe('D1 — восьмое ревью PR #3104: объект в аргум�
       "ask({ body: 'Сводка', tel: lead.phone });"))).toEqual([]);
     expect(found(ask('function send(text: string) { return callAIFast(text); }', 'await bot.api.send(chatId, `Тел: ${lead.phone}`);',
       "await send('Сводка без контактов');"))).toEqual([]);
+  });
+});
+
+describe('D1 — девятое ревью PR #3104: однобуквенный владелец имени и тип в одну строку', () => {
+  const found = (src: string) => scanSource('r.ts', src).map((x) => [x.kind, x.context, x.expr]);
+  const ask = (...lines: string[]) => ["import { callAIFast } from '@/lib/ai/providers';", ...lines].join('\n');
+  const sink = (expr: string) => `return callAIFast([{ role: 'user', content: ${expr} }]);`;
+
+  it('находка: имя из выборки под нейтральным именем — имя, пока не доказано обратное', () => {
+    // Дословно сценарий ревьюера.
+    expect(found(ask('export async function digest(rows: { name: string }[]) {', "  const who = rows.map((l) => l.name).join(', ');",
+      '  const prompt = `Клиенты: ${who}`;', "  return callAIFast([{ role: 'user', content: prompt }]);", '}')))
+      .toEqual([['name', 'prompt', 'who']]);
+    // Параметр с типом без слова человека и параметр без типа.
+    expect(found(ask('function f(b: { name: string; phone: string }) {', '  const who = b.name;', '  ' + sink('`Кто: ${who}`'), '}')))
+      .toEqual([['name', 'content', 'who']]);
+    expect(found(ask('function f(l) {', '  const who = l.name;', '  ' + sink('`Кто: ${who}`'), '}')))
+      .toEqual([['name', 'content', 'who']]);
+    // Слово человека в получателе сильнее слова не-человека.
+    expect(found(ask("const who = leadFiles.map((l) => l.name).join(', ');", sink('`Кто: ${who}`'))))
+      .toEqual([['name', 'content', 'who']]);
+  });
+
+  it('узость: владелец, доказуемо связанный с не-человеком — модели, файл, инструмент', () => {
+    const cases: Array<[string, string[]]> = [
+      // Так записан список моделей Gemini в providers.ts: группа в начале цепочки, filter перед map.
+      ['цепочка от группы', ['const ids = (data.models ?? [])', "  .filter((m) => Array.isArray(m.methods))", "  .map((m) => m.name.replace(/^models\\//, ''));",
+        'const model = ids[0];', sink('`Модель: ${model}`')]],
+      ['for…of', ['const names: string[] = [];', 'for (const m of models) names.push(m.name);', sink("names.join(', ')")]],
+      ['тип параметра', ['function f(b: Blob) {', '  const who = b.name;', '  ' + sink('`Файл: ${who}`'), '}']],
+      ['инструмент', ["const toolNames = toolCalls.map((u) => u.name).join(', ');", sink('`Инструменты: ${toolNames}`')]],
+    ];
+    for (const [label, lines] of cases) expect(found(ask(...lines)), label).toEqual([]);
+  });
+
+  it('находка: тело функции в одной строке с заголовком — тип параметра не съедает объявление', () => {
+    const one = '`Кто: ${who}`';
+    expect(found(ask(`function f(lead: Lead) { const who = lead.phone; ${sink(one)} }`))).toEqual([['contact', 'content', 'who']]);
+    expect(found(ask(`function f(b: { name: string; phone: string }) { const who = b.name; ${sink(one)} }`))).toEqual([['name', 'content', 'who']]);
+    // Тип в фигурных скобках у самой переменной — по-прежнему тип.
+    expect(found(ask('const who: { tel: string } = { tel: lead.phone };', sink('`Тел: ${who.tel}`')))).toEqual([['contact', 'content', 'who.tel']]);
   });
 });
