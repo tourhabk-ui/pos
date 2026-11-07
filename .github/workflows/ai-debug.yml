@@ -113,6 +113,38 @@ jobs:
               print("VERDICT: EMPTY —", json.dumps(d, ensure_ascii=False)[:400])
           '
 
+      # Сравнение двух туров (проверка 07.11): на экранах каталога и чата блока
+      # «тур против тура» нет, сравнение живёт инструментом compare_tours и
+      # отвечает текстом. Шаг спрашивает живой чат: дошёл ли ответ до обоих
+      # туров. COMPARE — оба тура названы; ONE_SIDED — назван один;
+      # FALLBACK и EMPTY — как у шагов выше.
+      - name: E2E compare question
+        env:
+          BASE: https://vedarai.ru
+        run: |
+          RESP=$(curl -s --max-time 180 -X POST "$BASE/api/ai/chat" \
+            -H 'Content-Type: application/json' \
+            -d '{"message":"Сравни туры «Трекинг к подножию вулкана Ключевская Сопка» и «К Домашним вулканам на вездеходе Sever Truck»: чем отличаются?","role":"tourist"}') || true
+          echo "$RESP" | python3 -c '
+          import json, re, sys
+          try:
+              d = json.load(sys.stdin)
+          except Exception:
+              print("RAW (not JSON)"); raise SystemExit(0)
+          answer = (d.get("data") or {}).get("answer") or ""
+          print("answer:", answer[:2500])
+          a = bool(re.search(r"Ключевск", answer))
+          b = bool(re.search(r"Sever Truck|Домашн", answer))
+          if answer.startswith("Извините, сервис временно недоступен"):
+              print("VERDICT: FALLBACK — весь waterfall упал на живом запросе")
+          elif not answer:
+              print("VERDICT: EMPTY —", json.dumps(d, ensure_ascii=False)[:400])
+          elif a and b:
+              print("VERDICT: COMPARE — оба тура в ответе")
+          else:
+              print("VERDICT: ONE_SIDED — назван один тур или ни одного")
+          '
+
       # Просьба собрать план (аудит планировщика 07.11, K1 и K2). До волны 1 её
       # отвечала витрина — списком жилья, а строку сметы «Ориентир на человека»
       # сверка цен вырезала с припиской «не называю». Теперь отвечает модель с
