@@ -1,22 +1,28 @@
 /**
  * POST /api/upload/tour-photo
- * Upload a photo file for a tour. Accessible by operator and admin roles.
+ * Upload a photo file for a tour. Accessible by operator, admin and guide roles.
  * Returns the saved path that can be used as a tour photo URL.
  *
  * FormData fields:
  *   file — image file (jpg/png/webp)
+ *
+ * Снимок пишется не как прислан (владелец 07.11: «Да, делай»): разворот по
+ * EXIF, длинная сторона до 2048 точек, JPEG без метаданных — места съёмки в
+ * файле нет (lib/images/upload-photo.ts). Не разобрался — отказ с причиной, а
+ * не исходник с геометкой в хранилище.
  */
 
 import { NextRequest, NextResponse } from 'next/server';
 import { requireRole } from '@/lib/auth/middleware';
 import { isS3Configured, uploadToS3 } from '@/lib/storage/s3';
+import { preparePhoto, photoRefusal, UPLOAD_PHOTO_MAX_BYTES, UPLOAD_PHOTO_MAX_MB } from '@/lib/images/upload-photo';
 import path from 'path';
 import fs from 'fs/promises';
 import crypto from 'crypto';
 
 export const dynamic = 'force-dynamic';
 
-const MAX_SIZE = 20 * 1024 * 1024; // 20 MB
+const MAX_SIZE = UPLOAD_PHOTO_MAX_BYTES;
 const ALLOWED_TYPES = ['image/jpeg', 'image/png', 'image/webp', 'image/heic'];
 
 export async function POST(request: NextRequest) {
@@ -40,7 +46,7 @@ export async function POST(request: NextRequest) {
   }
 
   if (file.size > MAX_SIZE) {
-    return NextResponse.json({ error: 'Файл слишком большой (макс. 20 МБ)' }, { status: 400 });
+    return NextResponse.json({ error: `Файл слишком большой (макс. ${UPLOAD_PHOTO_MAX_MB} МБ)` }, { status: 400 });
   }
 
   // Без S3 на проде фото легло бы в файловую систему контейнера и молча
@@ -60,13 +66,19 @@ export async function POST(request: NextRequest) {
     );
   }
 
-  try {
-    const buffer = Buffer.from(await file.arrayBuffer());
+  const prepared = await preparePhoto(Buffer.from(await file.arrayBuffer()));
+  if (!prepared.ok) {
+    console.error('[upload/tour-photo] снимок не разобрался:', file.type || 'тип не указан', prepared.reason);
+    return NextResponse.json({ error: photoRefusal(file.type, file.name) }, { status: 400 });
+  }
 
-    // Safe filename: hash-based to avoid collisions
+  try {
+    const buffer = prepared.buf;
+
+    // Safe filename: hash-based to avoid collisions. Всегда .jpg: после
+    // подготовки это JPEG, какой бы файл ни прислали.
     const hash = crypto.createHash('sha256').update(buffer).digest('hex').slice(0, 12);
-    const ext = path.extname(file.name).toLowerCase().replace('.jpeg', '.jpg') || '.jpg';
-    const safeName = `tour_${hash}${ext}`;
+    const safeName = `tour_${hash}.jpg`;
     const s3Key = `images/tours/${safeName}`;
 
     let servePath: string;

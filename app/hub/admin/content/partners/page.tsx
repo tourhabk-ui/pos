@@ -1,6 +1,7 @@
 'use client';
 
 import React, { useState, useEffect, useCallback, useRef } from 'react';
+import { UPLOAD_PHOTO_MAX_MB } from '@/lib/images/upload-limits';
 import Image from 'next/image';
 import { Partner } from '@/types';
 import {
@@ -607,7 +608,7 @@ export default function PartnersManagement() {
                           Удалить
                         </button>
                       )}
-                      <p className="text-[10px] text-[var(--text-muted)]">PNG, JPG или WebP, до 5 МБ</p>
+                      <p className="text-[10px] text-[var(--text-muted)]">PNG, JPG или WebP, до {UPLOAD_PHOTO_MAX_MB} МБ</p>
                     </div>
                   </div>
                 </div>
@@ -663,7 +664,7 @@ export default function PartnersManagement() {
                       ) : (
                         <>
                           <Upload className="w-5 h-5" />
-                          <span className="text-xs">Загрузить фото (до 5 МБ)</span>
+                          <span className="text-xs">Загрузить фото (до {UPLOAD_PHOTO_MAX_MB} МБ)</span>
                         </>
                       )}
                     </button>

@@ -3,16 +3,22 @@ import { NextRequest, NextResponse } from 'next/server';
 import { query } from '@/lib/database';
 import { requireAdmin } from '@/lib/auth/middleware';
 import { uploadToS3, deleteFromS3 } from '@/lib/storage/s3';
+import { preparePhoto, prepareLogo, photoRefusal, UPLOAD_PHOTO_MAX_BYTES, UPLOAD_PHOTO_MAX_MB } from '@/lib/images/upload-photo';
 
 export const dynamic = 'force-dynamic';
 
-const MAX_SIZE = 5 * 1024 * 1024; // 5 MB
+const MAX_SIZE = UPLOAD_PHOTO_MAX_BYTES;
 const ALLOWED_TYPES = new Set(['image/jpeg', 'image/png', 'image/webp', 'image/gif']);
 
 /**
  * POST /api/admin/content/partners/[id]/upload
  * Загрузка hero или logo изображения партнёра в S3.
  * Body: multipart/form-data — поля: file (File), type ('hero' | 'logo')
+ *
+ * Файл пишется не как прислан (владелец 07.11: «адаптируй загрузку фото»):
+ * обложка — снимок до 2048 точек, JPEG; логотип — PNG до 1024 с
+ * прозрачностью. В обоих метаданных нет — ни места съёмки, ни устройства
+ * (lib/images/upload-photo.ts).
  */
 export async function POST(
   request: NextRequest,
@@ -38,7 +44,7 @@ export async function POST(
       return NextResponse.json({ success: false, error: 'Формат не поддерживается. Используйте JPEG, PNG или WebP' }, { status: 400 });
     }
     if (file.size > MAX_SIZE) {
-      return NextResponse.json({ success: false, error: 'Файл слишком большой (максимум 5 МБ)' }, { status: 400 });
+      return NextResponse.json({ success: false, error: `Файл слишком большой (максимум ${UPLOAD_PHOTO_MAX_MB} МБ)` }, { status: 400 });
     }
 
     // Verify partner exists and get current image URLs for cleanup
@@ -51,12 +57,17 @@ export async function POST(
     }
     const row = existing.rows[0];
 
-    // Build S3 key
-    const ext = file.name.split('.').pop()?.toLowerCase() ?? 'jpg';
-    const s3Key = `partners/${id}/${type}-${Date.now()}.${ext}`;
+    const input = Buffer.from(await file.arrayBuffer());
+    const prepared = type === 'logo' ? await prepareLogo(input) : await preparePhoto(input);
+    if (!prepared.ok) {
+      console.error('[admin/partners/upload] файл не разобрался:', type, file.type, prepared.reason);
+      return NextResponse.json({ success: false, error: photoRefusal(file.type, file.name) }, { status: 400 });
+    }
 
-    const buffer = Buffer.from(await file.arrayBuffer());
-    const { url } = await uploadToS3(s3Key, buffer, file.type);
+    // Build S3 key
+    const s3Key = `partners/${id}/${type}-${Date.now()}.${prepared.ext}`;
+
+    const { url } = await uploadToS3(s3Key, prepared.buf, prepared.mime);
 
     // Update DB column
     const column = type === 'hero' ? 'hero_image' : 'logo_image';

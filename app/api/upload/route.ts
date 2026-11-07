@@ -6,10 +6,11 @@ import { ApiResponse } from '@/types';
 import { requireAuth } from '@/lib/auth/middleware';
 import { isS3Configured, uploadToS3 } from '@/lib/storage/s3';
 import { sniffImage } from '@/lib/storage/image-sniff';
+import { preparePhoto, photoRefusal, UPLOAD_PHOTO_MAX_BYTES, UPLOAD_PHOTO_MAX_MB } from '@/lib/images/upload-photo';
 
 export const dynamic = 'force-dynamic';
 
-const MAX_SIZE = 5 * 1024 * 1024;
+const MAX_SIZE = UPLOAD_PHOTO_MAX_BYTES;
 
 /**
  * POST /api/upload - Загрузка изображений (фото объектов жилья).
@@ -27,6 +28,12 @@ const MAX_SIZE = 5 * 1024 * 1024;
  * Единственный вызывающий на 26.09 — фото объекта жилья
  * (app/hub/stay/accommodations/[id]/photos). Фото туров идут своим
  * /api/upload/tour-photo.
+ *
+ * Распознанный снимок пишется не как прислан (владелец 07.11: «адаптируй
+ * загрузку фото»): разворот по EXIF, длинная сторона до 2048 точек, JPEG без
+ * метаданных — места съёмки и устройства в файле нет
+ * (lib/images/upload-photo.ts). Предел файла поднят с 5 до 20 МБ: обычный
+ * снимок с телефона тяжелее 5 МБ, а хранится уже подготовленный.
  */
 export async function POST(request: NextRequest) {
   const userOrResponse = await requireAuth(request);
@@ -63,7 +70,7 @@ export async function POST(request: NextRequest) {
     if (file.size > MAX_SIZE) {
       return NextResponse.json({
         success: false,
-        error: `Файл «${file.name}» слишком большой (максимум 5 МБ)`
+        error: `Файл «${file.name}» слишком большой (максимум ${UPLOAD_PHOTO_MAX_MB} МБ)`
       } as ApiResponse<null>, { status: 400 });
     }
     const buffer = Buffer.from(await file.arrayBuffer());
@@ -74,7 +81,15 @@ export async function POST(request: NextRequest) {
         error: `Файл «${file.name}» — не JPEG, PNG или WebP. Загрузите фотографию в одном из этих форматов.`
       } as ApiResponse<null>, { status: 400 });
     }
-    prepared.push({ buffer, mime: sniffed.mime, ext: sniffed.ext });
+    const photo = await preparePhoto(buffer);
+    if (!photo.ok) {
+      console.error('[upload] снимок не разобрался:', sniffed.mime, photo.reason);
+      return NextResponse.json({
+        success: false,
+        error: `Файл «${file.name}»: ${photoRefusal(sniffed.mime, file.name)}`
+      } as ApiResponse<null>, { status: 400 });
+    }
+    prepared.push({ buffer: photo.buf, mime: photo.mime, ext: photo.ext });
   }
 
   try {

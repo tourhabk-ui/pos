@@ -6,6 +6,12 @@
  * Гейт тот же, что у самого отзыва: загрузить фото может только человек с
  * ЗАВЕРШЁННОЙ бронью этого тура — чужие люди не заливают в наше хранилище.
  * Без S3 на проде — честный отказ (файл в контейнере умер бы при деплое).
+ *
+ * Снимок пишется не как прислан (владелец 07.11: «адаптируй загрузку
+ * фото»): фото отзыва публичное, а EXIF с телефона несёт место съёмки —
+ * где был человек. Разворот по EXIF, длинная сторона до 2048 точек, JPEG без
+ * метаданных (lib/images/upload-photo.ts). Не разобрался — отказ, а не
+ * исходник с геометкой в хранилище.
  */
 
 import { NextRequest, NextResponse } from 'next/server';
@@ -13,12 +19,12 @@ import { requireAuth } from '@/lib/auth/middleware';
 import { query } from '@/lib/database';
 import { isS3Configured, uploadToS3 } from '@/lib/storage/s3';
 import { redactPII } from '@/lib/security/pii-redact';
+import { preparePhoto, photoRefusal, UPLOAD_PHOTO_MAX_BYTES, UPLOAD_PHOTO_MAX_MB } from '@/lib/images/upload-photo';
 import crypto from 'crypto';
-import path from 'path';
 
 export const dynamic = 'force-dynamic';
 
-const MAX_SIZE = 10 * 1024 * 1024; // 10 МБ
+const MAX_SIZE = UPLOAD_PHOTO_MAX_BYTES;
 const ALLOWED_TYPES = ['image/jpeg', 'image/png', 'image/webp', 'image/heic'];
 
 export async function POST(request: NextRequest) {
@@ -52,7 +58,7 @@ export async function POST(request: NextRequest) {
     return NextResponse.json({ error: 'Допустимые форматы: JPG, PNG, WebP' }, { status: 400 });
   }
   if (file.size > MAX_SIZE) {
-    return NextResponse.json({ error: 'Файл слишком большой (макс. 10 МБ)' }, { status: 400 });
+    return NextResponse.json({ error: `Файл слишком большой (макс. ${UPLOAD_PHOTO_MAX_MB} МБ)` }, { status: 400 });
   }
 
   // Тот же гейт, что у отзыва: фото — только у реально съездившего.
@@ -72,14 +78,19 @@ export async function POST(request: NextRequest) {
     );
   }
 
+  const prepared = await preparePhoto(Buffer.from(await file.arrayBuffer()));
+  if (!prepared.ok) {
+    console.error('[reviews/photo] снимок не разобрался:', file.type || 'тип не указан', prepared.reason);
+    return NextResponse.json({ error: photoRefusal(file.type, file.name) }, { status: 400 });
+  }
+
   try {
-    const buffer = Buffer.from(await file.arrayBuffer());
+    const buffer = prepared.buf;
     const hash = crypto.createHash('sha256').update(buffer).digest('hex').slice(0, 16);
-    const ext = path.extname(file.name).toLowerCase().replace('.jpeg', '.jpg') || '.jpg';
-    const key = `reviews/${hash}${ext}`;
+    const key = `reviews/${hash}.${prepared.ext}`;
 
     if (isS3Configured) {
-      const { url } = await uploadToS3(key, buffer, file.type || 'image/jpeg');
+      const { url } = await uploadToS3(key, buffer, prepared.mime);
       return NextResponse.json({ ok: true, url });
     }
 
