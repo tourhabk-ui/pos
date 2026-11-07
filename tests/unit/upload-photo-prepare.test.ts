@@ -24,7 +24,7 @@ vi.mock('@/lib/auth/middleware', () => {
   return { requireRole: who, requireOperator: who, requireAuth: who, requireAdmin: who };
 });
 
-import { preparePhoto, prepareLogo, PHOTO_MAX_SIDE, LOGO_MAX_SIDE } from '@/lib/images/upload-photo';
+import { preparePhoto, prepareLogo, rasterKind, PHOTO_MAX_SIDE, LOGO_MAX_SIDE } from '@/lib/images/upload-photo';
 import { POST as tourPhoto } from '@/app/api/upload/tour-photo/route';
 import { POST as operatorUpload } from '@/app/api/hub/operator/upload/route';
 import { POST as reviewPhoto } from '@/app/api/reviews/photo/route';
@@ -119,6 +119,40 @@ describe('preparePhoto', () => {
     expect(r.ok).toBe(false);
     if (r.ok) return;
     expect(r.reason.length).toBeGreaterThan(0);
+  });
+});
+
+describe('до разбора доходят только растровые снимки', () => {
+  const SVG = Buffer.from('<svg xmlns="http://www.w3.org/2000/svg" width="64" height="64"><rect width="64" height="64" fill="red"/></svg>');
+
+  it('JPEG, PNG, WebP, GIF, HEIF узнаются по байтам; SVG, TIFF и текст — нет', async () => {
+    const gen = (fmt: 'jpeg' | 'png' | 'webp' | 'gif' | 'tiff') =>
+      sharp({ create: { width: 8, height: 8, channels: 3, background: { r: 1, g: 2, b: 3 } } }).toFormat(fmt).toBuffer();
+    expect(rasterKind(await gen('jpeg'))).toBe('jpeg');
+    expect(rasterKind(await gen('png'))).toBe('png');
+    expect(rasterKind(await gen('webp'))).toBe('webp');
+    expect(rasterKind(await gen('gif'))).toBe('gif');
+    expect(rasterKind(Buffer.from([0, 0, 0, 24, 0x66, 0x74, 0x79, 0x70, 0x68, 0x65, 0x69, 0x63]))).toBe('heif');
+    expect(rasterKind(await gen('tiff'))).toBeNull();
+    expect(rasterKind(SVG)).toBeNull();
+    expect(rasterKind(Buffer.from('hello'))).toBeNull();
+  });
+
+  it('SVG и TIFF не разбираются ни как снимок, ни как логотип', async () => {
+    const tiff = await sharp({ create: { width: 8, height: 8, channels: 3, background: { r: 1, g: 2, b: 3 } } }).tiff().toBuffer();
+    for (const input of [SVG, tiff]) {
+      for (const r of [await preparePhoto(input), await prepareLogo(input)]) {
+        expect(r.ok).toBe(false);
+        if (!r.ok) expect(r.reason).toMatch(/не растровый снимок/);
+      }
+    }
+  });
+
+  it('SVG под именем .jpg и типом image/jpeg — отказ на роуте, в хранилище ничего', async () => {
+    const res = await tourPhoto(formReq({ file: fileOf(SVG, 'photo.jpg', 'image/jpeg') }));
+    expect(res.status).toBe(400);
+    expect((await res.json() as { error: string }).error).toMatch(/Не удалось прочитать снимок/);
+    expect(s3.upload).not.toHaveBeenCalled();
   });
 });
 

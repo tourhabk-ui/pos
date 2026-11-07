@@ -28,6 +28,12 @@
  * без кодека) — в хранилище не пишется ничего, а не исходник с местом
  * съёмки.
  *
+ * До разбора доходят только растровые снимки — JPEG, PNG, WebP, GIF, HEIF,
+ * по байтам, а не по имени и заявленному типу. sharp умеет и SVG (через
+ * librsvg), и TIFF, и другое; роуты загрузки до 07.11 файлы не разбирали
+ * вовсе, и открывать им лишние разборщики незачем: SVG под именем «.jpg»
+ * прошёл бы проверку типа у четырёх роутов из пяти.
+ *
  * Сторож: tests/unit/upload-photo-prepare.test.ts.
  */
 import sharp from 'sharp';
@@ -48,8 +54,25 @@ function failed(e: unknown): PreparedImage {
   return { ok: false, reason: (e instanceof Error ? e.message : String(e)).slice(0, 200) };
 }
 
+const PNG_MAGIC = Buffer.from([0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a]);
+/** Бренды ftyp у HEIF-семейства: снимки iPhone (heic) и родственные. */
+const HEIF_BRANDS = /^(heic|heix|hevc|hevx|mif1|msf1|avif|avis)$/;
+
+/** Растровый снимок по байтам: JPEG, PNG, WebP, GIF, HEIF. Остальное — null. */
+export function rasterKind(b: Buffer): 'jpeg' | 'png' | 'webp' | 'gif' | 'heif' | null {
+  if (b.length >= 3 && b[0] === 0xff && b[1] === 0xd8 && b[2] === 0xff) return 'jpeg';
+  if (b.length >= 8 && b.subarray(0, 8).equals(PNG_MAGIC)) return 'png';
+  if (b.length >= 12 && b.toString('latin1', 0, 4) === 'RIFF' && b.toString('latin1', 8, 12) === 'WEBP') return 'webp';
+  if (b.length >= 6 && /^GIF8[79]a$/.test(b.toString('latin1', 0, 6))) return 'gif';
+  if (b.length >= 12 && b.toString('latin1', 4, 8) === 'ftyp' && HEIF_BRANDS.test(b.toString('latin1', 8, 12))) return 'heif';
+  return null;
+}
+
+const NOT_RASTER: PreparedImage = { ok: false, reason: 'не растровый снимок: ждём JPEG, PNG, WebP, GIF или HEIF' };
+
 /** Снимок: разворот по EXIF, длинная сторона до `maxSide`, JPEG без метаданных. */
 export async function preparePhoto(input: Buffer, maxSide: number = PHOTO_MAX_SIDE): Promise<PreparedImage> {
+  if (!rasterKind(input)) return NOT_RASTER;
   try {
     const { data, info } = await sharp(input, { failOn: 'truncated' })
       // Поворот по EXIF — до уменьшения: иначе портрет ужался бы как лежащий.
@@ -66,6 +89,7 @@ export async function preparePhoto(input: Buffer, maxSide: number = PHOTO_MAX_SI
 
 /** Логотип: разворот по EXIF, длинная сторона до 1024, PNG с прозрачностью, без метаданных. */
 export async function prepareLogo(input: Buffer): Promise<PreparedImage> {
+  if (!rasterKind(input)) return NOT_RASTER;
   try {
     const { data, info } = await sharp(input, { failOn: 'truncated' })
       .rotate()
