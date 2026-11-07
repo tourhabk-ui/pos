@@ -1,7 +1,7 @@
 import { describe, it, expect } from 'vitest';
 import { resolve } from 'path';
 import { readFileSync } from 'fs';
-import { scanSource, pdAliases, promptFlowOf } from '@/lib/agents/compliance/pii-flow-scanner';
+import { scanSource, pdAliases, promptFlowOf, FOREIGN_LLM_CALLERS, DOMESTIC_LLM_CALLERS } from '@/lib/agents/compliance/pii-flow-scanner';
 import { findViolations, ALLOWLIST } from '@/lib/agents/compliance/scan-repo';
 import {
   LLM_ENDPOINTS,
@@ -99,7 +99,7 @@ describe('scanSource — ловит сырые ПД в тексте промпт
 });
 
 describe('D1 — CI-гард: ни один промпт в репо не шлёт сырые ПД в зарубежный LLM', () => {
-  it('findViolations пуст (иначе — новая утечка ПД, добавь redactPII или запись в ALLOWLIST)', () => {
+  it('findViolations пуст (иначе — новая утечка ПД: телефон и почту — redactPII, имя — убрать; или запись в ALLOWLIST)', () => {
     const violations = findViolations(REPO_ROOT);
     if (violations.length) {
       const msg = violations
@@ -107,7 +107,7 @@ describe('D1 — CI-гард: ни один промпт в репо не шлё
         .join('\n');
       throw new Error(
         `Обнаружена передача сырых ПД (телефон/почта/имя) в текст промпта зарубежного LLM (152-ФЗ):\n${msg}\n` +
-          `Почини: оберни в redactPII() / убери поле / используй плейсхолдер {name}. ` +
+          `Почини: телефон и почту — redactPII(); имя — убери поле или плейсхолдер {name} (redactPII имён не чистит). ` +
           `Осознанное исключение — запись в ALLOWLIST (lib/agents/compliance/scan-repo.ts).`,
       );
     }
@@ -747,5 +747,73 @@ describe('D1 — четвёртое ревью PR #3104: перенос стро
       '}',
     ].join('\n');
     expect(found(src)).toEqual([['contact', 'выражение']]);
+  });
+});
+
+describe('D1 — пятое ревью PR #3104: реестр дверей, чистка по роду ПД, обёртка', () => {
+  const found = (src: string) => scanSource('p.ts', src).map((x) => [x.kind, x.context]);
+
+  it('реестр зарубежных дверей полон: каждый экспорт call* провайдеров решён', () => {
+    const providers = readFileSync(resolve(REPO_ROOT, 'lib/ai/providers.ts'), 'utf8');
+    const exported = [...providers.matchAll(/^export (?:async )?function (call[A-Z]\w*)/gm)].map((m) => m[1]);
+    expect(exported.length).toBeGreaterThan(30);
+    const decided = new Set<string>([...FOREIGN_LLM_CALLERS, ...DOMESTIC_LLM_CALLERS]);
+    const undecided = exported.filter((f) => !decided.has(f));
+    expect(undecided, `новая дверь к модели без решения «зарубежная/домашняя»: ${undecided.join(', ')}`).toEqual([]);
+    // Запись без функции — устаревшая: страж сторожил бы не ту дверь.
+    const stale = [...decided].filter((f) => !exported.includes(f));
+    expect(stale).toEqual([]);
+    const both = FOREIGN_LLM_CALLERS.filter((f) => (DOMESTIC_LLM_CALLERS as readonly string[]).includes(f));
+    expect(both).toEqual([]);
+  });
+
+  it('двери, которых не было в реестре, — стоки', () => {
+    const quality = [
+      "import { callAIQuality } from '@/lib/ai/providers';",
+      'const parts: string[] = [];',
+      'parts.push(`Клиент ${lead.name}, тел. ${lead.phone}`);',
+      "await callAIQuality([{ role: 'user', content: parts.join('\\n') }]);",
+    ].join('\n');
+    expect(found(quality)).toEqual([['name', 'parts.push'], ['contact', 'parts.push']]);
+    const orNull = [
+      "import { callAIFastOrNull } from '@/lib/ai/providers';",
+      'const ctx: string[] = [];',
+      'ctx.push(`Тел: ${lead.phone}`);',
+      "await callAIFastOrNull(ctx.join('\\n'));",
+    ].join('\n');
+    expect(found(orNull)).toEqual([['contact', 'ctx.push']]);
+  });
+
+  it('redactPII режет телефон и почту, но не имя', () => {
+    const IMPORT = "import { callAIFast } from '@/lib/ai/providers';";
+    expect(found([IMPORT, 'const prompt = `Клиент ${redactPII(lead.name)} хочет тур`;'].join('\n'))).toEqual([['name', 'prompt']]);
+    expect(found([IMPORT, "await callAIFast([{ role: 'user', content: redactPII(`Клиент ${lead.name}`) }]);"].join('\n')))
+      .toEqual([['name', 'redactPII']]);
+    // Телефон сквозь redactPII — по-прежнему не находка.
+    expect(found([IMPORT, "await callAIFast([{ role: 'user', content: redactPII(`Тел: ${lead.phone}`) }]);"].join('\n'))).toEqual([]);
+    expect(found([IMPORT, 'const prompt = `Тел: ${redactPII(lead.phone)}`;'].join('\n'))).toEqual([]);
+    // Чистка по месту: телефон рядом с очищенным полем — находка (регрессия stmtEnd).
+    const near = [IMPORT, 'const line = lead.phone +', '  redactPII(lead.comment);', 'const prompt = `Заявка: ${line}`;', "await callAIFast([{ role: 'user', content: prompt }]);"].join('\n');
+    expect(found(near)).toEqual([['contact', 'prompt']]);
+    expect(found(near.replace('lead.phone +\n  redactPII(lead.comment)', 'redactPII(lead.phone + lead.comment)'))).toEqual([]);
+  });
+
+  it('аргумент вызова функции файла — её параметр: тонкая обёртка над дверью', () => {
+    const wrapper = [
+      "import { callAIFast } from '@/lib/ai/providers';",
+      'async function askModel(prompt: string) {',
+      "  return callAIFast([{ role: 'user', content: prompt }]);",
+      '}',
+      'export const run = (lead: Lead) => askModel(`Клиент ${lead.phone} оставил заявку`);',
+    ].join('\n');
+    expect(found(wrapper)).toEqual([['contact', 'askModel']]);
+    // Обёртка, которая шлёт в MAX, а не модели, — не находка.
+    const notify = [
+      "import { callAIFast } from '@/lib/ai/providers';",
+      'function notify(text: string) { return sendMax(text); }',
+      'notify(`Тел: ${lead.phone}`);',
+      "await callAIFast('Сводка без контактов');",
+    ].join('\n');
+    expect(found(notify)).toEqual([]);
   });
 });
