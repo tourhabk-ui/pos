@@ -47,6 +47,17 @@ name: Проба ревьюера — одни диффы, разные моде
 # ничего не пишет. Файл выполнения целиком не выгружается (артефакт публичного
 # репозитория скачивает любой) — только отчёт и счётчики расхода.
 #
+# ── Итог run 2 и что дальше (07.11) ───────────────────────────────────────
+#
+# Run 2 (Actions 42325775154): deepseek-flash нашёл утечку ПД (Medium 9/10) и
+# увидел обе дыры gate-3087, на чистом диффе — без ложных находок, $0.18 за три
+# ревью против $1.57 у Opus. Слово владельца «да» — ревьюер безопасности
+# переведён на deepseek-flash (security-review.yml). С run 3 проба гоняет ту
+# же связку, что в бою: ногу ds-flash и правила ревьюера
+# (.github/security-review-rules.md — из коммита самой пробы, до перехода на
+# коммит случая). Сравнить модели заново — вернуть ноги в matrix.leg и в цикл
+# учёта: их описания в шаге «Ревью» остались.
+#
 # Запуск — маркер .github/triggers/reviewer-model-probe.json (поднять run).
 # Сторож: tests/unit/reviewer-model-probe.test.ts.
 
@@ -73,7 +84,7 @@ jobs:
       fail-fast: false
       matrix:
         case: [gate-3087, pd-2506, clean-3089]
-        leg: [opus, ds-pro, ds-flash]
+        leg: [ds-flash]
     steps:
       - uses: actions/checkout@v7
         with:
@@ -111,8 +122,17 @@ jobs:
       - name: Дифф случая
         env:
           CASE: ${{ matrix.case }}
+          RULES_OUT: ${{ runner.temp }}/review-rules.md
         run: |
           set -euo pipefail
+          # Правила ревьюера — из коммита пробы, как в бою из базы PR: у
+          # коммитов случаев их ещё нет.
+          if [ -s .github/security-review-rules.md ]; then
+            cp .github/security-review-rules.md "$RULES_OUT"
+          else
+            : > "$RULES_OUT"
+            echo "::notice::.github/security-review-rules.md нет — ревью без правил репозитория."
+          fi
           case "$CASE" in
             gate-3087)  BASE=fbd21b9c2a351942588753c2cc5ce1717d65149f; HEAD_SHA=3fb0f6695c5ccdd1dfa794c69814232a77a87350 ;;
             pd-2506)    BASE=e573ffd30e896dc441392a1d95669246238ace38; HEAD_SHA= ;;
@@ -146,6 +166,7 @@ jobs:
           OPENROUTER_KEY: ${{ secrets.OPENROUTER_API_KEY }}
           CONSOLE_KEY: ${{ secrets.ANTHROPIC_API_KEY }}
           DEEPSEEK_KEY: ${{ secrets.DEEPSEEK_API_KEY }}
+          RULES_FILE: ${{ runner.temp }}/review-rules.md
           TRANSCRIPT: ${{ runner.temp }}/transcript.jsonl
         run: |
           # +e: отказ claude не обрывает шаг — итог судит следующий шаг.
@@ -179,8 +200,11 @@ jobs:
           export ANTHROPIC_DEFAULT_OPUS_MODEL="$MODEL" ANTHROPIC_DEFAULT_SONNET_MODEL="$MODEL"
           export ANTHROPIC_DEFAULT_HAIKU_MODEL="$LIGHT" CLAUDE_CODE_SUBAGENT_MODEL="$MODEL"
           export CLAUDE_CODE_DISABLE_NONESSENTIAL_TRAFFIC=1 CLAUDE_CODE_SUBPROCESS_ENV_SCRUB=1 API_TIMEOUT_MS=600000
+          EXTRA=()
+          if [ -s "$RULES_FILE" ]; then EXTRA=(--append-system-prompt "$(cat "$RULES_FILE")"); fi
           review() {
             claude -p "/security-review" --model "$MODEL" --max-turns 40 \
+              ${EXTRA[@]+"${EXTRA[@]}"} \
               --allowedTools "Read,Glob,Grep,LS,Agent,Task,Bash(git diff *),Bash(git log *),Bash(git show *),Bash(git status *)" \
               --disallowedTools "Write,Edit,NotebookEdit,WebFetch,WebSearch" \
               --output-format stream-json --verbose < /dev/null > "$TRANSCRIPT"
@@ -352,7 +376,7 @@ jobs:
           set -uo pipefail
           rc=0
           for c in gate-3087 pd-2506 clean-3089; do
-            for leg in opus ds-pro ds-flash; do
+            for leg in ds-flash; do
               case "$leg" in ds-*) vendor=deepseek ;; *) vendor=anthropic ;; esac
               f="$HAND_DIR/hand-usage-$c-$leg/hand-usage.json"
               if [ ! -f "$f" ]; then

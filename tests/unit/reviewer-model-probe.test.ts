@@ -83,9 +83,9 @@ function outputs(): Record<string, string> {
 }
 
 describe('матрица пробы', () => {
-  it('три случая и три ноги — сравнение имеет смысл', () => {
+  it('три случая; с run 3 нога — боевая связка ревьюера (ds-flash), описания других ног в шаге остались', () => {
     expect(MATRIX.case).toEqual(['gate-3087', 'pd-2506', 'clean-3089']);
-    expect(MATRIX.leg).toEqual(['opus', 'ds-pro', 'ds-flash']);
+    expect(MATRIX.leg).toEqual(['ds-flash']);
   });
 
   it('расписания нет: проба — по маркеру и вручную', () => {
@@ -255,7 +255,7 @@ describe('каждый случай описан полными sha', () => {
   for (const c of MATRIX.case) {
     it(`${c}: база и голова — полные sha, origin/HEAD — база`, () => {
       stub('git', 'printf "%s\\n" "$*" >> "$FAKE_DIR/git.log"');
-      const r = runStep(step, { matrix: { case: c, leg: 'opus' } });
+      const r = runStep(step, { matrix: { case: c, leg: 'opus' }, runner: { temp: dir } });
       expect(r.code, r.out).toBe(0);
       const log = readFileSync(join(dir, 'git.log'), 'utf-8');
       const base = /update-ref refs\/remotes\/origin\/probe-base (\S+)/.exec(log)?.[1] ?? '';
@@ -275,9 +275,45 @@ describe('каждый случай описан полными sha', () => {
 
   it('неописанный случай — красный', () => {
     stub('git', 'true');
-    const r = runStep(step, { matrix: { case: 'nope', leg: 'opus' } });
+    const r = runStep(step, { matrix: { case: 'nope', leg: 'opus' }, runner: { temp: dir } });
     expect(r.code).toBe(1);
     expect(r.out).toMatch(/::error::Случай «nope» не описан/);
+  });
+});
+
+describe('правила ревьюера — те же, что в бою (.github/security-review-rules.md)', () => {
+  const diff = stepByName(wf.jobs.review, 'Дифф случая');
+  const review = stepByName(wf.jobs.review, 'Ревью');
+  const ctx = () => ({ matrix: { case: 'gate-3087', leg: 'ds-flash' }, secrets: SECRETS, runner: { temp: dir } });
+
+  it('правила берутся из коммита пробы до перехода на коммит случая', () => {
+    mkdirSync(join(dir, 'work', '.github'), { recursive: true });
+    writeFileSync(join(dir, 'work', '.github', 'security-review-rules.md'), 'Правило: дыра в проверке путей — находка.');
+    // git «переходит» на коммит случая — файл правил из рабочей копии пропадает.
+    stub('git', 'case "$1 $2" in "-c advice.detachedHead=false") rm -rf "$PWD/.github" ;; esac; true');
+    const r = runStep(diff, ctx());
+    expect(r.code, r.out).toBe(0);
+    expect(readFileSync(join(dir, 'review-rules.md'), 'utf-8')).toBe('Правило: дыра в проверке путей — находка.');
+  });
+
+  it('правил нет — ревью без них, и это сказано', () => {
+    stub('git', 'true');
+    const r = runStep(diff, ctx());
+    expect(r.code, r.out).toBe(0);
+    expect(readFileSync(join(dir, 'review-rules.md'), 'utf-8')).toBe('');
+    expect(r.out).toMatch(/::notice::.*без правил репозитория/);
+  });
+
+  it('ревьюер получает правила дополнением системной подсказки; нет правил — флага нет', () => {
+    stub('claude', 'printf "%s\\n" "$@" > "$FAKE_DIR/claude.args"; echo \'{"type":"result","is_error":false,"result":"ok"}\'');
+    writeFileSync(join(dir, 'review-rules.md'), 'ПРАВИЛО-1\nПРАВИЛО-2');
+    expect(runStep(review, ctx()).code).toBe(0);
+    const args = readFileSync(join(dir, 'claude.args'), 'utf-8').split('\n');
+    expect(args[args.indexOf('--append-system-prompt') + 1]).toBe('ПРАВИЛО-1');
+    expect(args[args.indexOf('--append-system-prompt') + 2]).toBe('ПРАВИЛО-2');
+    writeFileSync(join(dir, 'review-rules.md'), '');
+    expect(runStep(review, ctx()).code).toBe(0);
+    expect(readFileSync(join(dir, 'claude.args'), 'utf-8')).not.toContain('--append-system-prompt');
   });
 });
 
@@ -317,11 +353,11 @@ describe('расход пробы — в книги, DeepSeek под своим 
 
   it('счётчиков ноги нет — предупреждение «расход неизвестен», остальные учтены', () => {
     stub('node', 'printf \'{"file":"%s"}\\n\' "$EXECUTION_FILE" >> "$FAKE_DIR/node.log"');
-    artifacts([['gate-3087', 'opus']]);
+    artifacts([['gate-3087', 'ds-flash']]);
     const r = run();
     expect(r.code, r.out).toBe(0);
     expect(calls()).toHaveLength(1);
-    expect(r.out).toMatch(/::warning::pd-2506 · ds-pro: счётчиков нет — расход этой ноги неизвестен/);
+    expect(r.out).toMatch(/::warning::pd-2506 · ds-flash: счётчиков нет — расход этой ноги неизвестен/);
   });
 
   it('учёт одной ноги не прошёл — шаг красный', () => {
@@ -368,6 +404,17 @@ describe('scripts/hands-usage.mjs: вендор считавшего — HAND_VE
   it('вендор не задан — anthropic, руки считаются как прежде', async () => {
     const { sent } = await report(undefined);
     expect((JSON.parse(sent[0]) as { rows: Array<{ model: string }> }).rows[0].model).toBe('anthropic:deepseek-v4-pro');
+  });
+
+  it('DeepSeek: «заявлено» Claude Code — не цена, книги с ним не сверяются (run 2: $0.04 при $1.25 заявленных)', async () => {
+    // Книги $0.004 при заявленных $0.03 — расхождение 87%.
+    const ds = (await report('deepseek')).res.out.join('\n');
+    expect(ds).not.toMatch(/расходятся/);
+    expect(ds).toMatch(/::notice::.*цена по книгам \$0\.0040, Claude Code заявил \$0\.0300 — для deepseek это не цена/);
+    // У Anthropic заявленное — цена, и сверка прежняя.
+    const an = (await report('anthropic')).res.out.join('\n');
+    expect(an).toMatch(/::warning::.*расходятся на 87%/);
+    expect(an).toMatch(/экшен заявил \$0\.0300/);
   });
 
   it('неизвестный вендор — ошибка настройки, на прод ничего не уходит', async () => {

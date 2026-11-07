@@ -372,13 +372,20 @@ export async function runHandsUsage({ env, fetchImpl = globalThis.fetch, timeout
   const unknownCost = typeof body.unknown_cost === 'number' ? body.unknown_cost : null;
   const booksUsd = typeof body.cost_usd_known === 'number' ? body.cost_usd_known : null;
 
-  out.push(`::notice::${escapeAnnotation(`${agentId}: в книги записано строк: ${written ?? 'не названо'}, цена по книгам ${fmtUsd(booksUsd)}, экшен заявил ${fmtUsd(parsed.reportedCostUsd)}`)}`);
+  // Цену Claude Code знает только у моделей Anthropic: у DeepSeek его «заявлено»
+  // — догадка по чужому прайсу (проба ревьюера 07.11: $0.04 по книгам при
+  // $1.25 заявленных). Сверять с ней книги — ложная тревога на каждом прогоне.
+  const claimedIsPrice = vendor === 'anthropic';
+  const claimedWords = claimedIsPrice
+    ? `экшен заявил ${fmtUsd(parsed.reportedCostUsd)}`
+    : `Claude Code заявил ${fmtUsd(parsed.reportedCostUsd)} — для ${vendor} это не цена: его прайса он не знает`;
+  out.push(`::notice::${escapeAnnotation(`${agentId}: в книги записано строк: ${written ?? 'не названо'}, цена по книгам ${fmtUsd(booksUsd)}, ${claimedWords}`)}`);
   summary.push(`- Записано строк: ${written ?? 'не названо'}; цена по книгам: ${fmtUsd(booksUsd)}.`);
 
   if (unknownCost !== null && unknownCost > 0) {
     warn(`${agentId}: цену ${unknownCost} строк книги не знают (модели нет ни в каталоге, ни в запасной таблице) — дневной бюджет их не сложит`);
   }
-  if (booksUsd !== null && parsed.reportedCostUsd !== null && parsed.reportedCostUsd > 0 && (unknownCost ?? 0) === 0) {
+  if (claimedIsPrice && booksUsd !== null && parsed.reportedCostUsd !== null && parsed.reportedCostUsd > 0 && (unknownCost ?? 0) === 0) {
     const drift = Math.abs(booksUsd - parsed.reportedCostUsd) / parsed.reportedCostUsd;
     if (drift > DRIFT_WARN_SHARE) {
       warn(`${agentId}: книги (${fmtUsd(booksUsd)}) и экшен (${fmtUsd(parsed.reportedCostUsd)}) расходятся на ${Math.round(drift * 100)}% — проверить цены каталога и множители кэша (lib/ai/cache-pricing.ts)`);
