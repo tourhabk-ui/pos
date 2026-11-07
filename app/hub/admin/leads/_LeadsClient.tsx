@@ -8,6 +8,7 @@ import { Sensitive } from '@/components/admin/shared/Sensitive';
 import { LeadsKanban } from './_LeadsKanban';
 import { LeadConversation } from './_LeadConversation';
 import { asPlanForLead, planLeadLines } from '@/lib/planner/plan-for-lead';
+import { tripFactsOf, tripPartyWords, wishesWords } from '@/lib/planner/trip-request-lines';
 
 type View = 'list' | 'kanban';
 const VIEW_STORAGE_KEY = 'leads-view';
@@ -178,6 +179,9 @@ function SourceDataBlock({ sd }: { sd: LeadSourceData }) {
   const dateTo    = sd.date_to   ?? sd.departure;
   const hasUtm    = sd.utm_source || sd.utm_medium || sd.utm_campaign;
   const plan      = asPlanForLead(sd.plan);
+  // Состав без плана и пожелания из анкеты (07.11) — теми же словами, что в уведомлении.
+  const facts     = tripFactsOf(sd);
+  const wishes    = wishesWords(facts.wishes);
 
   return (
     <div className="space-y-2 text-sm">
@@ -220,6 +224,13 @@ function SourceDataBlock({ sd }: { sd: LeadSourceData }) {
           {' — '}
           {dateTo ? formatShortDate(dateTo) : '?'}
           {sd.trip_days ? ` (${sd.trip_days} дн.)` : ''}
+        </div>
+      )}
+
+      {(wishes || (!plan && facts.party)) && (
+        <div className="space-y-0.5" data-testid="lead-wishes">
+          {!plan && facts.party && <p className="text-xs text-[var(--text-secondary)]">Группа: {tripPartyWords(facts.party)}</p>}
+          {wishes && <p className="text-xs text-[var(--text-secondary)]">Пожелания из анкеты: {wishes}</p>}
         </div>
       )}
 

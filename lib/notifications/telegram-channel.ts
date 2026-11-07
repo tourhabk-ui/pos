@@ -26,6 +26,8 @@ import { repairTelegramHtml, TELEGRAM_CAPTION_LIMIT } from '@/lib/notifications/
 import { BEAR_PHOTOS } from '@/lib/media/wildlife-photos';
 import { fetchPhotoForUpload, isFetched } from '@/lib/notifications/telegram-upload';
 import { asPlanForLead, planLeadLines } from '@/lib/planner/plan-for-lead';
+import { tripFactsOf, tripPartyWords, wishesWords, PLAN_UNREADABLE } from '@/lib/planner/trip-request-lines';
+import { redactPII } from '@/lib/security/pii-redact';
 
 // ── helpers ───────────────────────────────────────────────────────────────────
 
@@ -1671,7 +1673,8 @@ export async function notifyAdminNewLead(lead: {
   if (dateFrom) {
     lines.push(`<b>Даты:</b> ${esc(dateFrom)} — ${dateTo ? esc(dateTo) : '?'}`);
   }
-  if (sd?.trip_days) lines.push(`<b>Длина:</b> ${sd.trip_days} дн.`);
+  // Число дней — только числом: `source_data` публичной формы — свободный ввод.
+  if (typeof sd?.trip_days === 'number' && Number.isFinite(sd.trip_days)) lines.push(`<b>Длина:</b> ${sd.trip_days} дн.`);
   // План целиком (#2304, шаг 2): состав, смета, туры по дням — те же строки,
   // что в карточке лида в админке. Названия туров — из базы, но экранируются
   // всё равно: строка уходит в HTML-разметку. Персональных данных в плане нет,
@@ -1679,11 +1682,30 @@ export async function notifyAdminNewLead(lead: {
   // видит, что человек выбрал.
   const planLines: string[] = [];
   const plan = asPlanForLead((lead.sourceData as { plan?: unknown } | null | undefined)?.plan);
+  // Состав без плана и пожелания из анкеты (проверка сценариев 07.11): «без
+  // катеров» в заявку не писалось вовсе, а группа уходила только с планом.
+  // Имени и телефона в этих строках нет; поля плана — свободный ввод публичной
+  // формы, поэтому в заглушку они идут сквозь чистку (ниже).
+  const facts = tripFactsOf(lead.sourceData);
+  if (!plan && facts.party) planLines.push(`<b>Группа:</b> ${esc(tripPartyWords(facts.party))}`);
+  const wishes = wishesWords(facts.wishes);
+  if (wishes) planLines.push(`<b>Пожелания из анкеты:</b> ${esc(wishes)}`);
   if (plan) {
-    const [group, estimate, ...tours] = planLeadLines(plan);
-    planLines.push(`<b>План:</b> ${esc(group!)}`, esc(estimate!));
-    for (const t of tours.slice(0, 8)) planLines.push(esc(t));
-    if (tours.length > 8) planLines.push(`…и ещё ${tours.length - 8} дн. с турами — в карточке лида`);
+    // Каркас плана проверен, содержимое — нет: неполный план из публичной
+    // формы не должен ронять уведомление о заявке (ревью PR #3133).
+    let planText: string[] | null = null;
+    try {
+      planText = planLeadLines(plan);
+    } catch (err) {
+      console.error('[notifyAdminNewLead] план заявки не прочитался:', err instanceof Error ? err.message : String(err));
+      planLines.push(esc(PLAN_UNREADABLE));
+    }
+    if (planText) {
+      const [group, estimate, ...tours] = planText;
+      planLines.push(`<b>План:</b> ${esc(group!)}`, esc(estimate!));
+      for (const t of tours.slice(0, 8)) planLines.push(esc(t));
+      if (tours.length > 8) planLines.push(`…и ещё ${tours.length - 8} дн. с турами — в карточке лида`);
+    }
   }
   lines.push(...planLines);
   if (lead.comment) {
@@ -1701,8 +1723,10 @@ export async function notifyAdminNewLead(lead: {
     '',
     `Заявка <code>${esc(lead.id)}</code>${source ? ` — ${esc(source)}` : ''}.`,
     agentLine ?? '',
-    lead.routeTitle ? `Маршрут: ${esc(lead.routeTitle)}` : '',
-    ...planLines,
+    // Маршрут и план — свободный ввод публичной формы: в Telegram только
+    // сквозь чистку, телефон и почта туда не уходят.
+    lead.routeTitle ? `Маршрут: ${esc(redactPII(lead.routeTitle))}` : '',
+    ...planLines.map((line) => redactPII(line)),
     'Имя и телефон — в кабинете: MAX недоступен, в Telegram они не передаются.',
   ].filter(Boolean).join('\n');
 

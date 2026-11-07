@@ -32,6 +32,8 @@ import { recordSourceEventQuietly, statusChangeTitle } from '@/lib/crm/events';
 import { reachFrom, type PartnerReachRow } from '@/lib/partners/reach';
 import { FOLLOWUP_LEADS_SQL, FOLLOWUP_LEADS_PARAMS, addressedToPartnerOnly } from '@/lib/leads/followup-scope';
 import { sqlState } from '@/lib/guides/db-failure';
+import { tripFactsOf, tripRequestLines } from '@/lib/planner/trip-request-lines';
+import { redactPII } from '@/lib/security/pii-redact';
 
 export const dynamic = 'force-dynamic';
 
@@ -186,9 +188,13 @@ export async function GET(request: NextRequest) {
         const head = attempt === 1
           ? '<b>Напоминание: горячий лид</b>'
           : `<b>Повторное уведомление (попытка ${attempt})</b>`;
+        // Даты, состав, пожелания из анкеты и план — те же строки, что видел
+        // турист в сводке формы (проверка сценариев 07.11): прежде оператор
+        // получал имя, телефон, интересы и даты — без группы, плана и «без
+        // катеров». Персональных данных в строках нет: они идут и в заглушку.
         const facts = [
-          interests.length > 0 ? `<b>Интересы:</b> ${interests.join(', ')}` : '',
-          (sd.date_from ?? sd.arrival) ? `<b>Даты:</b> ${sd.date_from ?? sd.arrival} — ${sd.date_to ?? sd.departure}` : '',
+          interests.length > 0 ? `<b>Интересы:</b> ${esc(interests.join(', '))}` : '',
+          ...tripRequestLines(tripFactsOf(sd)).slice(0, 12).map((line) => esc(line)),
         ].filter(Boolean);
 
         const msgLines = [
@@ -205,7 +211,9 @@ export async function GET(request: NextRequest) {
           head,
           '',
           `Заявка <code>${esc(lead.id)}</code> ждёт ответа.`,
-          ...facts,
+          // Поля анкеты и плана — свободный ввод публичной формы: в Telegram
+          // только сквозь чистку, телефон и почта оттуда не уходят.
+          ...facts.map((line) => redactPII(line)),
           '',
           'Имя и телефон — в MAX и в кабинете: в Telegram они не передаются.',
         ].join('\n');
@@ -243,8 +251,8 @@ export async function GET(request: NextRequest) {
         noOperators++;
         escalated++;
         const admFacts = [
-          interests.length > 0 ? `<b>Интересы:</b> ${interests.join(', ')}` : '',
-          (sd.date_from ?? sd.arrival) ? `<b>Даты:</b> ${sd.date_from ?? sd.arrival} — ${sd.date_to ?? sd.departure}` : '',
+          interests.length > 0 ? `<b>Интересы:</b> ${esc(interests.join(', '))}` : '',
+          ...tripRequestLines(tripFactsOf(sd)).slice(0, 12).map((line) => esc(line)),
           `<b>Уведомлений отправлено:</b> ${followupCount}`,
         ].filter(Boolean);
 
@@ -263,7 +271,7 @@ export async function GET(request: NextRequest) {
             '<b>Лид без ответа — нужна ручная обработка</b>',
             '',
             `Заявка <code>${esc(lead.id)}</code>.`,
-            ...admFacts,
+            ...admFacts.map((line) => redactPII(line)),
             '',
             'Свободных операторов не осталось. Имя и телефон — в MAX и в кабинете.',
           ].join('\n'),
