@@ -177,16 +177,17 @@ describe('миграция 1398 (клипы Вачкажца у тура гид�
   });
 });
 
-describe('миграция 1404 (клипы «Местечка Камчатка» — ролики со страниц его туров)', () => {
+describe('миграция 1404 (клипы «Местечка Камчатка» — с его сайта и из его канала)', () => {
   const sql = read('migrations/1404_mestechko_tour_clips.sql');
   const code = sql.split('\n').filter((l) => !l.trimStart().startsWith('--')).join('\n');
-  const pairs = [...code.matchAll(/\('(mestechko-[a-z-]+)',\s*jsonb_build_object\('key', '(videos\/[^']+)'/g)].map((m) => [m[1]!, m[2]!] as const);
+  const pairs = [...code.matchAll(/\('(mestechko-[a-z-]+)', (\d+),\s*jsonb_build_object\('key', '(videos\/[^']+)'/g)]
+    .map((m) => ({ slug: m[1]!, n: Number(m[2]), key: m[3]! }));
 
-  it('ключи — только из маркера заливки и лежат в media/s3; каждый клип — H.264 без звука, вертикаль', () => {
+  it('ключи — только из маркера заливки и лежат в media/s3; каждый клип — H.264 без звука', () => {
     const marker = JSON.parse(read(MARKER)) as { items: Array<{ key: string; file: string }> };
     const uploaded = new Set(marker.items.map((i) => i.key));
     const keys = [...code.matchAll(/'(videos\/[^']+)'/g)].map((m) => m[1]!);
-    expect(keys).toHaveLength(22);
+    expect(keys).toHaveLength(32);
     for (const k of keys) {
       expect(k.startsWith('videos/mestechko/'), k).toBe(true);
       expect(uploaded.has(k), k).toBe(true);
@@ -199,23 +200,27 @@ describe('миграция 1404 (клипы «Местечка Камчатка�
     }
   });
 
-  it('по клипу на тур, только туры «Местечка»; чужой кадр туру не ставится', () => {
-    expect(pairs).toHaveLength(11);
-    expect(new Set(pairs.map(([slug]) => slug)).size).toBe(11);
+  it('только туры «Местечка»; у тура свой порядок; чужой кадр туру не ставится', () => {
+    expect(pairs).toHaveLength(16);
+    expect(new Set(pairs.map((p) => p.key)).size).toBe(16);
     expect(code).toMatch(/p\.slug = 'mestechko'/);
+    // Порядок внутри тура — 1, 2, 3…: клип сайта первым, клипы канала за ним.
+    const bySlug = new Map<string, number[]>();
+    for (const p of pairs) bySlug.set(p.slug, [...(bySlug.get(p.slug) ?? []), p.n]);
+    for (const [slug, ns] of bySlug) expect(ns, slug).toEqual(ns.map((_, i) => i + 1));
+    expect(bySlug.get('mestechko-kurilskoe-ozero')).toHaveLength(4);
     // Ролик Толмачёва сайт показывает и у пляжа, и у Толбачика — у нас он только у Толмачёва.
-    const tolm = pairs.filter(([, key]) => key.includes('tolmachevo'));
-    expect(tolm).toEqual([['mestechko-ozero-tolmachevo', 'videos/mestechko/clip-ozero-tolmachevo.mp4']]);
-    const slugs = pairs.map(([slug]) => slug);
+    expect(pairs.filter((p) => p.key.includes('tolmachevo')).map((p) => p.slug)).toEqual(['mestechko-ozero-tolmachevo']);
     for (const s of ['mestechko-halaktyrskiy-plyazh', 'mestechko-tolbachik-standard', 'mestechko-avachinskiy-pereval']) {
-      expect(slugs, s).not.toContain(s);
+      expect(bySlug.has(s), s).toBe(false);
     }
   });
 
-  it('клипы дописываются к своим, без повтора и не больше восьми', () => {
-    expect(code).toMatch(/SET video_clips = ot\.video_clips \|\| jsonb_build_array\(m\.c\)/);
+  it('клипы дописываются к своим по порядку, без повтора и не больше восьми', () => {
+    expect(code).toMatch(/SET video_clips = ot\.video_clips \|\| a\.items/);
+    expect(code).toMatch(/jsonb_agg\(c ORDER BY n\)/);
     expect(code).toMatch(/NOT EXISTS \([\s\S]*e->>'key' = cl\.c->>'key'/);
-    expect(code).toMatch(/jsonb_array_length\(t\.video_clips\) < 8/);
+    expect(code).toMatch(/WHERE k <= 8 - have/);
   });
 });
 
