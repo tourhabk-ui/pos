@@ -67,7 +67,6 @@ const MUTATING_EXPORT = /export\s+async\s+function\s+(POST|PUT|PATCH|DELETE)\s*\
  * Список ручной и узкий: вебхуки с подписью, публичные формы, платёжные колбэки.
  */
 const PUBLIC_MUTATING_ROUTES = [
-  'app/api/webhook/',
   'app/api/payments/',
   'app/api/auth/',
   'app/api/kuzmich/',

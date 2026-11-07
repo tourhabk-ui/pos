@@ -100,7 +100,7 @@ describe('static-checks: факт по синтаксису вместо дог�
   it('публичный по замыслу роут (вебхук/платежи) — не находка', () => {
     const naked = `export async function POST() { return Response.json({}); }`;
     expect(checkRouteAuthGate('app/api/payments/callback/route.ts', naked)).toEqual([]);
-    expect(checkRouteAuthGate('app/api/webhook/route.ts', naked)).toEqual([]);
+    expect(checkRouteAuthGate('app/api/telegram/webhook/route.ts', naked)).toEqual([]);
   });
 
   it('устаревшие таблицы и дефолтный импорт pool — находки', () => {

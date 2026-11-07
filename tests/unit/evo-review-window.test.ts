@@ -22,10 +22,9 @@ describe('isReviewableSourcePath', () => {
     expect(isReviewableSourcePath('scripts/foo.ts')).toBe(false);
     expect(isReviewableSourcePath('app/routes/[id]/page.tsx')).toBe(false);
   });
-  it('исключённые файлы и принятые риски — нет', () => {
+  it('исключённые файлы — нет', () => {
     expect(isReviewableSourcePath('lib/payments/tochka.ts')).toBe(false);
     expect(isReviewableSourcePath('lib/bookings/booking.service.ts')).toBe(false);
-    expect(isReviewableSourcePath('app/api/webhook/route.ts')).toBe(false);
   });
 });
 

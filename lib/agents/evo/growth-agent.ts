@@ -160,10 +160,13 @@ const AI_EXCLUDED_FILES = new Set([
 /**
  * Security issues которые приняты осознанно — не баг, а архитектурное решение.
  * Evo не должен их репортить каждый скан.
+ *
+ * Пусто с 07.11: единственная запись — `app/api/webhook/route.ts` (выкат по
+ * вебхуку GitHub через exec) — удалена вместе с роутом. Выкат давно идёт
+ * через deploy.yml, а роут, которого нет в реестре публичных API, Edge
+ * закрывал на входе (аудит 15.10, P1-26).
  */
-const ACCEPTED_RISKS = new Set([
-  'app/api/webhook/route.ts',         // exec() защищён HMAC-SHA256, команда захардкожена
-]);
+const ACCEPTED_RISKS = new Set<string>([]);
 
 /**
  * Подтверждённые мёртвые модули (0 импортов). Список — ручной, поэтому
@@ -520,8 +523,7 @@ severity: critical = утечка данных/обход auth/инъекция/
 
 Исключённые файлы (проверены вручную, НЕ репорти):
 - lib/payments/tochka.ts — все секреты через process.env
-- lib/bookings/booking.service.ts — все SQL параметризованы ($1, $2)
-- app/api/webhook/route.ts — exec() защищён HMAC, команда захардкожена`;
+- lib/bookings/booking.service.ts — все SQL параметризованы ($1, $2)`;
 
 /** Пользовательское сообщение ревью — та же функция для прод-фоллбэка и раннера. */
 export function buildReviewUserMessage(fileBlocks: string[], learnedBlock: string): string {
