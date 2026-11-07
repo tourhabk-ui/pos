@@ -18,7 +18,7 @@ import { reserveBooking, ReserveError, type ReserveErrorCode } from '@/lib/booki
 import { SAFETY_TOOLS } from '@/lib/kuzmich/safety-claim-guard';
 import { finishKuzmichAnswer } from '@/lib/kuzmich/answer-guards';
 import { appendRouteSafety, ROUTE_SAFETY_SOURCE } from '@/lib/kuzmich/route-safety';
-import { dropUnsourcedPrices } from '@/lib/kuzmich/answer-quality';
+import { asksTripPlan, dropUnsourcedPrices } from '@/lib/kuzmich/answer-quality';
 import { resolveCommercialTurn } from '@/lib/kuzmich/commercial-turn';
 import { detectEmergency } from '@/lib/safety/sos-detector';
 import { requestWindow, windowLabel } from '@/lib/tours/request-window';
@@ -2961,9 +2961,10 @@ export async function aiChatAgentLoop(
       // Дозапросы — по словам вопроса (опечатки — к словам каталога), компания —
       // по всему каталогу: модель брала туры из get_tour_details (эвал 02.11).
       // Экстренный вопрос (SOS, 112) — без дописки: к ответу «звоните 112» туры
-      // не приклеиваются, и лишних get_tours нет (разбор 03.11, п.6).
+      // не приклеиваются, и лишних get_tours нет (разбор 03.11, п.6). Просьба
+      // о плане — тоже: ответ и есть план (аудит планировщика 07.11, K1).
       let final = result.content;
-      if (final && !detectEmergency(userText).detected) {
+      if (final && !detectEmergency(userText).detected && !asksTripPlan(userText)) {
         try {
           const catalog = await executeTool('get_tours', {}, toolSurface);
           const extra: ToursCall[] = [];
