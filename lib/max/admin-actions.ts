@@ -7,6 +7,10 @@
  * журнале.
  *
  * Первое действие — отметка заявки: «Связался», «Договорились», «Отказ».
+ * Второе (2б, слово владельца 07.11 «да») — даты за оператора фразой, как у
+ * оператора: lib/max/admin-dates. Вопросы обоих родов живут в одной таблице,
+ * и живым в чате остаётся последний, какого бы рода он ни был; «Да» и «Не
+ * надо» — одни кнопки, исполняет их правило своего рода.
  *
  * ── Шаги ────────────────────────────────────────────────────────────────────
  *
@@ -73,10 +77,14 @@ const UUID = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/;
 export type AdminPress =
   | { kind: 'open_lead'; leadId: string }
   | { kind: 'lead'; action: AdminLeadAction; leadId: string }
-  | { kind: 'answer'; actionId: string; yes: boolean };
+  | { kind: 'answer'; actionId: string; yes: boolean }
+  /** Выбор тура под вопросом о датах (lib/max/admin-dates): индекс кандидата. */
+  | { kind: 'tour_choice'; actionId: string; index: number };
 
 /** Разбор кнопки `ad:`. null — не наша форма: ничего не выполняется. */
 export function parseAdminPress(payload: string): AdminPress | null {
+  const t = /^ad:t:(.+):([0-7])$/.exec(payload);
+  if (t) return UUID.test(t[1]) ? { kind: 'tour_choice', actionId: t[1], index: Number(t[2]) } : null;
   const m = /^ad:([okvlyn]):(.+)$/.exec(payload);
   if (!m || !UUID.test(m[2])) return null;
   const [, code, id] = m;
@@ -92,6 +100,9 @@ export const adminLeadPayload = (action: AdminLeadAction, leadId: string): strin
   signPayload(`ad:${ACTION_CODE[action]}:${leadId}`);
 export const adminAnswerPayload = (yes: boolean, actionId: string): string =>
   signPayload(`ad:${yes ? 'y' : 'n'}:${actionId}`);
+/** Выбор тура кандидатом `index` (0…7) — тоже запись: вопрос становится готовым. 58 байт с хвостом. */
+export const adminTourPayload = (actionId: string, index: number): string =>
+  signPayload(`ad:t:${actionId}:${index}`);
 
 /** Кнопки «Заявка 1…N» под списком «Заявки»: открыть карточку заявки. */
 export function adminLeadOpenButtons(leadIds: readonly string[]): MenuButton[][] {
@@ -108,6 +119,8 @@ export interface AdminActionReply {
 function reply(text: string, rows: MenuButton[][] = []): AdminActionReply {
   return { text, buttons: [...rows, ...menuRows(adminMenu())] };
 }
+/** Тот же ответ для вопросов о датах (lib/max/admin-dates): строка меню — последней. */
+export const adminActionReply = reply;
 
 function sqlstate(err: unknown): string {
   return (err as { code?: string } | null)?.code ?? 'нет SQLSTATE';
@@ -126,7 +139,7 @@ export const ADMIN_ACTION_TEXT = {
   leadUnread: 'Заявка не прочиталась: база не ответила. Ничего не изменено — попробуйте ещё раз.',
   leadNotFound: 'Заявки больше нет — ничего не изменено.',
   notSaved: 'Вопрос не записался — ничего не изменено. Попробуйте ещё раз.',
-  notFoundAction: 'Этот вопрос не найден — ничего не изменено. Откройте заявку из списка «Заявки» ещё раз.',
+  notFoundAction: 'Этот вопрос не найден — ничего не изменено.',
 } as const;
 
 // ── Заявка ───────────────────────────────────────────────────────────────────
@@ -204,7 +217,7 @@ async function openAction(args: {
     // Живым остаётся последний вопрос этого чата: «Да» под старым не исполнится.
     await client.query(
       `UPDATE admin_chat_actions SET status = 'superseded'
-        WHERE admin_user_id = $1::uuid AND chat_id = $2::bigint AND status = 'ready'`,
+        WHERE admin_user_id = $1::uuid AND chat_id = $2::bigint AND status IN ('draft', 'ready')`,
       [args.adminUserId, String(args.chatId)],
     );
     const { rows } = await client.query<{ id: string }>(
@@ -268,31 +281,52 @@ export function adminOutcomeText(o: StoredOutcome): string {
   return 'Не удалось записать отметку: не знаю, изменилась ли заявка. Проверьте её в админке, раздел «Заявки».';
 }
 
-interface StateRow {
+export interface StateRow {
   status: string;
   outcome: unknown;
   expired: boolean;
   stale: boolean;
 }
 
+/** Чем вопрос своего рода отличается в отказе: что сделать заново и как сказать прежний итог. */
+export interface BlockedWords {
+  /** «откройте заявку из списка «Заявки» ещё раз» / «напишите фразу ещё раз». */
+  again: string;
+  /** Итог исполненного вопроса словами; null — итог не прочитался. */
+  outcome: (stored: unknown) => string | null;
+  /** Где проверить, если итог не прочитался. */
+  checkWhere: string;
+}
+
+const LEAD_BLOCKED: BlockedWords = {
+  again: 'откройте заявку из списка «Заявки» ещё раз',
+  outcome: (v) => {
+    const stored = readStored(v);
+    return stored ? adminOutcomeText(stored) : null;
+  },
+  checkWhere: 'в админке, раздел «Заявки»',
+};
+
 /** Строку не захватить: почему — словами (повтор, отмена, замена, срок, чужая). */
-function blockedText(r: StateRow | undefined): string {
+export function blockedText(r: StateRow | undefined, words: BlockedWords = LEAD_BLOCKED): string {
   if (!r) return ADMIN_ACTION_TEXT.notFoundAction;
   if (r.status === 'done' || r.status === 'refused') {
-    const stored = readStored(r.outcome);
-    return stored ? `Уже нажато раньше. ${adminOutcomeText(stored)}` : 'Уже нажато раньше — итог в админке, раздел «Заявки».';
+    const told = words.outcome(r.outcome);
+    return told ? `Уже нажато раньше. ${told}` : `Уже нажато раньше — итог ${words.checkWhere}.`;
   }
   if (r.status === 'running') {
     return r.stale
-      ? 'Нажатие принято, но итог не записан — проверьте заявку в админке, раздел «Заявки».'
+      ? `Нажатие принято, но итог не записан — проверьте ${words.checkWhere}.`
       : 'Уже выполняю это действие — ответ придёт следом.';
   }
-  if (r.status === 'cancelled') return 'Это действие отменено — заявка без изменений.';
+  if (r.status === 'cancelled') return 'Это действие отменено — ничего не изменено.';
   if (r.status === 'superseded') return 'Этот вопрос заменён следующим — ничего не изменено.';
-  return `Вопрос устарел (${ADMIN_ACTION_TTL_MIN} минут) — откройте заявку из списка «Заявки» ещё раз. Ничего не изменено.`;
+  if (r.status === 'draft' && !r.expired) return 'Сначала выберите тур кнопкой под вопросом — ничего не изменено.';
+  if (r.status === 'ready' && !r.expired) return 'Уже ждёт ответа: нажмите «Да» или «Не надо» под вопросом.';
+  return `Вопрос устарел (${ADMIN_ACTION_TTL_MIN} минут) — ${words.again}. Ничего не изменено.`;
 }
 
-async function readState(adminUserId: string, chatId: number, actionId: string): Promise<StateRow | undefined | 'unavailable'> {
+export async function readState(adminUserId: string, chatId: number, actionId: string): Promise<StateRow | undefined | 'unavailable'> {
   try {
     const { rows } = await pool.query<StateRow>(
       `SELECT status, outcome, expires_at <= NOW() AS expired,
@@ -326,12 +360,34 @@ function storedFromLead(leadId: string, result: LeadChangeResult): StoredOutcome
   return { kind: 'lead_done', lead: leadId, status: result.lead.status, changed: result.changed };
 }
 
+/** Род вопроса этого администратора в этом чате: заявка, даты; null — такого вопроса нет. */
+async function actionKind(adminUserId: string, chatId: number, actionId: string): Promise<'lead' | 'tour' | null | 'unavailable'> {
+  try {
+    const { rows } = await pool.query<{ subject_kind: string }>(
+      `SELECT subject_kind FROM admin_chat_actions
+        WHERE id = $1::uuid AND admin_user_id = $2::uuid AND chat_id = $3::bigint`,
+      [actionId, adminUserId, String(chatId)],
+    );
+    const kind = rows[0]?.subject_kind;
+    return kind === 'lead' || kind === 'tour' ? kind : null;
+  } catch (err) {
+    logFail('род вопроса', err);
+    return 'unavailable';
+  }
+}
+
 async function answer(adminUserId: string, chatId: number, actionId: string, yes: boolean): Promise<AdminActionReply> {
+  // «Да» и «Не надо» — одни кнопки на оба рода; исполняет правило своего рода.
+  const kind = await actionKind(adminUserId, chatId, actionId);
+  if (kind === 'unavailable') return reply(ADMIN_ACTION_TEXT.unchecked);
+  if (kind === null) return reply(ADMIN_ACTION_TEXT.notFoundAction);
+  if (kind === 'tour') return (await import('@/lib/max/admin-dates')).answerDates(adminUserId, chatId, actionId, yes);
   if (!yes) {
     try {
       const { rowCount } = await pool.query(
         `UPDATE admin_chat_actions SET status = 'cancelled'
-          WHERE id = $1::uuid AND admin_user_id = $2::uuid AND chat_id = $3::bigint AND status = 'ready'`,
+          WHERE id = $1::uuid AND admin_user_id = $2::uuid AND chat_id = $3::bigint
+            AND subject_kind = 'lead' AND status = 'ready'`,
         [actionId, adminUserId, String(chatId)],
       );
       if (rowCount === 1) return reply('Хорошо, заявка без изменений.');
@@ -349,7 +405,7 @@ async function answer(adminUserId: string, chatId: number, actionId: string, yes
     const { rows } = await pool.query<{ subject_id: string; action: string }>(
       `UPDATE admin_chat_actions SET status = 'running', used_at = NOW()
         WHERE id = $1::uuid AND admin_user_id = $2::uuid AND chat_id = $3::bigint
-          AND status = 'ready' AND expires_at > NOW()
+          AND subject_kind = 'lead' AND status = 'ready' AND expires_at > NOW()
         RETURNING subject_id, action`,
       [actionId, adminUserId, String(chatId)],
     );
@@ -413,5 +469,8 @@ export async function handleAdminPress(input: {
     return leadCard(l);
   }
   if (press.kind === 'lead') return askLead(admin.userId, input.chatId, press.action, press.leadId);
+  if (press.kind === 'tour_choice') {
+    return (await import('@/lib/max/admin-dates')).chooseAdminTour(admin.userId, input.chatId, press.actionId, press.index);
+  }
   return answer(admin.userId, input.chatId, press.actionId, press.yes);
 }

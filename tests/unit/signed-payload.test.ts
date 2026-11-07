@@ -6,7 +6,7 @@ import { cabinetPayload } from '@/lib/chat-cabinet/payload';
 import { chatAnswerButtons } from '@/lib/requests/chat-answer-buttons';
 import { answerPressPayload } from '@/lib/bookings/chat-owner-press';
 import { odOpen } from '@/lib/operators/chat-dates/flow';
-import { adminAnswerPayload, adminLeadPayload, adminOpenLeadPayload } from '@/lib/max/admin-actions';
+import { adminAnswerPayload, adminLeadPayload, adminOpenLeadPayload, adminTourPayload } from '@/lib/max/admin-actions';
 
 const UUID = '0f13cf25-e5a5-461f-a979-9d65e232a6d8';
 const NOW = Date.parse('2026-11-10T00:00:00Z');
@@ -53,7 +53,7 @@ describe('signed write buttons', () => {
       cabinetPayload.inviteAccept(UUID), cabinetPayload.vehicleActive(UUID, true),
       cabinetPayload.dateClose('123456', '2026-12-31'), cabinetPayload.teamLeaveYes(),
       adminLeadPayload('contacted', UUID), adminLeadPayload('lost', UUID),
-      adminAnswerPayload(true, UUID), adminAnswerPayload(false, UUID),
+      adminAnswerPayload(true, UUID), adminAnswerPayload(false, UUID), adminTourPayload(UUID, 7),
     ];
     for (const p of all) {
       expect(isWritePayload(p.split('~')[0]!)).toBe(true);
