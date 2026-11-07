@@ -45,6 +45,8 @@ import {
 import { lodgingIncluded } from '@/lib/planner/lodging-included';
 import { calculatePriceBreakdown, TOUR_PRICE_HEADROOM, type PriceBreakdown } from '@/lib/planner/estimate';
 import { tourPlanSpan } from '@/lib/planner/tour-span';
+import { lineUpForDate, offDaysWarning, tourFitsDate, type TourDates } from '@/lib/planner/tour-day-fit';
+import { kamchatkaToday } from '@/lib/seat-requests/core';
 import { tourDurationDays } from '@/lib/bookings/duration';
 import { planTourPrice, PRICE_UNREAD_TEXT } from '@/lib/planner/tour-price';
 import { priceFromUnit } from '@/lib/tours/price-label';
@@ -221,8 +223,12 @@ export interface TripWarning {
    * не посчитаны, потому что план считает их ночами у себя дома. Адреса
    * платформа не знает, поэтому допущение говорится вслух, а не прячется в
    * цифре (§4.0).
+   *
+   * `tour_dates` — тур с выездами не в дни своего занятия: в план не встал и
+   * в смету не вошёл, а назван с датами выезда (волна 3 аудита 07.11, 3.2).
+   * Заведён вместе с производителем (`offDaysWarning`).
    */
-  type: 'permit' | 'season' | 'safety' | 'children' | 'fitness' | 'duration' | 'weather' | 'license' | 'seasickness' | 'crowd' | 'mchs' | 'zone_days' | 'home_nights';
+  type: 'permit' | 'season' | 'safety' | 'children' | 'fitness' | 'duration' | 'weather' | 'license' | 'seasickness' | 'crowd' | 'mchs' | 'zone_days' | 'home_nights' | 'tour_dates';
   severity: 'critical' | 'important' | 'info';
   message: string;
 }
@@ -1059,6 +1065,12 @@ interface DayPlanResult {
    * это самопроверка, а не штатный исход: молчание здесь и было дефектом.
    */
   returnLegMissing: ZoneId | null;
+  /**
+   * Туры, которым не нашлось дня поездки с выездом (волна 3 аудита 07.11,
+   * 3.2): даты выезда в окне поездки или пусто — выездов в окне нет. Такой
+   * тур в план не встаёт и в смету не идёт, но называется.
+   */
+  offDays: Array<{ title: string; dates: string[] }>;
 }
 
 /** День отдыха по просьбе человека (не автоматический после тяжёлого дня). */
@@ -1106,7 +1118,7 @@ async function generateDayPlans(
   mchsWarnings: readonly ActiveWarning[] = [],
 ): Promise<DayPlanResult> {
   const unchecked = new Set<string>();
-  if (tripDays <= 0 || zones.length === 0) return { days: [], unchecked: [], spanUnknown: [], tooLong: [], extendedForTour: [], overLimit: [], preferenceNotes: [], selfSkipped: [], selfSafetyUnchecked: false, skippedLegs: [], returnLegMissing: null };
+  if (tripDays <= 0 || zones.length === 0) return { days: [], unchecked: [], spanUnknown: [], tooLong: [], extendedForTour: [], overLimit: [], preferenceNotes: [], selfSkipped: [], selfSafetyUnchecked: false, skippedLegs: [], returnLegMissing: null, offDays: [] };
   const youngest = youngestChild(profile);
   const month = getMonth(profile);
 
@@ -1133,7 +1145,7 @@ async function generateDayPlans(
     });
   }
 
-  if (dayNum > tripDays) return { days, unchecked: [...unchecked], spanUnknown: [], tooLong: [], extendedForTour: [], overLimit: [], preferenceNotes: [], selfSkipped: [], selfSafetyUnchecked: false, skippedLegs: [], returnLegMissing: null };
+  if (dayNum > tripDays) return { days, unchecked: [...unchecked], spanUnknown: [], tooLong: [], extendedForTour: [], overLimit: [], preferenceNotes: [], selfSkipped: [], selfSafetyUnchecked: false, skippedLegs: [], returnLegMissing: null, offDays: [] };
 
   // ── Active days budget ──
   const departureDays = framing.departure;
@@ -1168,7 +1180,7 @@ async function generateDayPlans(
 
   // Determine zone allocation
   /** `tail` — блок просьбы, которой не досталось дня (см. перед циклом блоков). */
-  const zoneBlocks: Array<{ zone: ZoneId; interests: string[]; activeDays: number; tail?: boolean }> = [];
+  const zoneBlocks: Array<{ zone: ZoneId; interests: string[]; activeDays: number; tail?: boolean; onlyTour?: RealTour }> = [];
   const totalScore = zones.reduce((s, z) => s + z.score, 0) || 1;
 
   for (const z of zones) {
@@ -1208,6 +1220,20 @@ async function generateDayPlans(
   const extendedForTour: DayPlanResult['extendedForTour'] = [];
   /** Места сверх природоохранного лимита на даты поездки — не предложены. */
   const overLimit = new Set<string>();
+  /**
+   * Даты выезда туров (волна 3 аудита 07.11, 3.2; lib/planner/tour-day-fit).
+   * Тур встаёт только на день, где у него есть выезд: календарь — дата с
+   * местами в окне поездки, без календаря — день в сезоне выездов. Пусто —
+   * план без дат или «Сам»: проверять нечем, раскладка прежняя.
+   */
+  const tourDates = new Map<string, TourDates>();
+  /** Туры, уже стоящие в плане: тот же тур второй раз не ставится. */
+  const placedTours = new Set<string>();
+  /** Туры, которым в днях своего блока не нашлось выезда. */
+  const waitingTours: Array<{ tour: RealTour; interest: string; zone: ZoneId }> = [];
+  const today = kamchatkaToday();
+  const planDateOf = (n: number): string | null => (profile.arrivalDate ? dateOfTripDay(profile.arrivalDate, n) : null);
+  const fitsOn = (t: RealTour, date: string | null): boolean => date === null || tourFitsDate(tourDates.get(t.tourId), date, today);
 
   // Insert travel days between different zones
   let prevZone: ZoneId = 'avachinsky';
@@ -1237,6 +1263,22 @@ async function generateDayPlans(
       out.push({ zone: prevZone, interests: [i], activeDays: 1, tail: true });
       room--;
     }
+    // Тур, которому в днях своего блока не нашлось выезда, получает день,
+    // если его выезд — в следующий свободный день поездки в той же зоне
+    // (волна 3 аудита 07.11, 3.2). Пруф с прода: Горелый с выездами 15–16.07
+    // стоял днём 2 (11.07) с «мест нет», а день 6 (15.07) оставался свободным.
+    let at = dayNum + out.length;
+    const lined = new Set<string>();
+    for (const w of waitingTours) {
+      if (room <= 0) break;
+      if (placedTours.has(w.tour.tourId) || lined.has(w.tour.tourId) || w.zone !== prevZone) continue;
+      const need = tourPlanSpan(w.tour.durationHours, w.tour.multiDayCount) ?? 1;
+      if (need > room || !fitsOn(w.tour, planDateOf(at))) continue;
+      out.push({ zone: prevZone, interests: [w.interest], activeDays: need, tail: true, onlyTour: w.tour });
+      lined.add(w.tour.tourId);
+      room -= need;
+      at += need;
+    }
     return out;
   };
   let tailTried = false;
@@ -1249,6 +1291,9 @@ async function generateDayPlans(
       if (bi >= zoneBlocks.length) break;
     }
     const block = zoneBlocks[bi];
+    // Блок ждавшего тура: его выезд должен прийтись ровно на этот день
+    // (дни хвоста могли сдвинуться), и тур ещё не стоит в плане.
+    if (block.onlyTour && (placedTours.has(block.onlyTour.tourId) || !fitsOn(block.onlyTour, planDateOf(dayNum)))) continue;
 
     // «Сам»: активности, куда без гида нельзя по нашим же данным, из блока
     // убираются — с причиной, которую увидит человек. Блок, где не осталось
@@ -1314,12 +1359,12 @@ async function generateDayPlans(
     // «Восхождение на Горелый», тур рыбалки — вид и предупреждения вулкана.
     // Теперь у каждого интереса свой список и свой курсор; блок с одним
     // интересом собирается как раньше.
-    const material = new Map<string, { tours: RealTour[]; routes: RouteFromDB[]; cursor: number; toursUnread: boolean }>();
+    const material = new Map<string, { tours: RealTour[]; routes: RouteFromDB[]; routeCursor: number; toursUnread: boolean; deferred: RealTour[] }>();
     for (const interest of new Set(block.interests)) {
       // «Сам» туров не берёт вовсе: ни одного дня с оператором.
       const toursOrNull = style === 'self'
         ? []
-        : await fetchRealToursForZone(block.zone, interest, block.activeDays + 2, cache);
+        : block.onlyTour ? [block.onlyTour] : await fetchRealToursForZone(block.zone, interest, block.activeDays + 2, cache);
       let tours = toursOrNull ?? [];
 
       // «С оператором»: тур без свободных мест на даты поездки не ставится —
@@ -1341,7 +1386,7 @@ async function generateDayPlans(
           // в плане, но не впереди тех, где места проверены.
           const slots = await fetchAvailabilityForTour(t.tourId, profile.arrivalDate, profile.departureDate, cache)
             .catch(() => null);
-          if (slots === null) { tight.push(t); continue; }
+          if (slots === null) { tourDates.set(t.tourId, { kind: 'unread' }); tight.push(t); continue; }
           if (slots.length === 0) {
             // Свободных дат нет и у тура без календаря — всегда. «Мест нет» —
             // только у тура с расписанием; без календаря все даты свободны для
@@ -1349,17 +1394,23 @@ async function generateDayPlans(
             // До 08.10 он снимался с плана всегда: одиннадцать туров «Края
             // Вулканов» не попадали ни в один план «с оператором».
             const keeps = await fetchTourKeepsSchedule(t.tourId, cache);
+            // Даты выезда (волна 3 аудита 07.11, 3.2): без календаря — сезон
+            // выездов тура, с календарём и без мест в окне — ни одной даты.
+            tourDates.set(t.tourId, keeps === false
+              ? { kind: 'request', seasonStart: t.seasonStart, seasonEnd: t.seasonEnd, days: tourPlanSpan(t.durationHours, t.multiDayCount) ?? 1 }
+              : keeps === null ? { kind: 'unread' } : { kind: 'dated', dates: new Set() });
             if (keeps === false) onRequest.push(t);
             else if (keeps === null) tight.push(t);
             else if (style === 'operator') noSlotTours.add(t.title);
             else noSeats.push(t);
             continue;
           }
+          tourDates.set(t.tourId, { kind: 'dated', dates: new Set(slots.map((sl) => sl.date)) });
           (slots.some((sl) => sl.remaining >= groupSize(profile)) ? fits : tight).push(t);
         }
         tours = [...fits, ...tight, ...onRequest, ...noSeats];
       }
-      material.set(interest, { tours, routes: [], cursor: 0, toursUnread: toursOrNull === null });
+      material.set(interest, { tours, routes: [], routeCursor: 0, toursUnread: toursOrNull === null, deferred: [] });
     }
 
     // Тур длиннее блока своей зоны (08.10). Блоки делятся между зонами
@@ -1478,9 +1529,16 @@ async function generateDayPlans(
       if (!c) { d++; barren++; continue; }
 
       // Reality layer: try real tour first, then DB route — этого интереса.
-      const m = material.get(interest) ?? { tours: [], routes: [], cursor: 0, toursUnread: false };
-      const realTour: RealTour | null = m.cursor < m.tours.length ? m.tours[m.cursor] : null;
-      const route = realTour ? null : m.routes[m.cursor - m.tours.length] ?? null;
+      const m = material.get(interest) ?? { tours: [], routes: [], routeCursor: 0, toursUnread: false, deferred: [] };
+      // Тур — только на день, где у него есть выезд (волна 3 аудита 07.11,
+      // 3.2): без выезда в этот день он ждёт своего дня, а не встаёт с «мест
+      // нет». Дат у плана нет — раскладка прежняя. Голова очереди —
+      // следующий тур; у маршрутов свой счёт: курсор на двоих сбивался,
+      // когда тур возвращался в очередь после общего дня.
+      const planDate = planDateOf(dayNum);
+      lineUpForDate(m, (t) => fitsOn(t, planDate), placedTours);
+      const realTour: RealTour | null = m.tours[0] ?? null;
+      const route = realTour ? null : m.routes[m.routeCursor] ?? null;
 
       // Ни тура, ни маршрута — день собирается из одного сезонного окна, и
       // второй такой день был бы КОПИЕЙ первого. Замер с прода 19.09: десять
@@ -1492,7 +1550,7 @@ async function generateDayPlans(
       // в предупреждении.
       if (!realTour && !route) {
         const genericKey = `${block.zone}:${interest}`;
-        if (genericDays.has(genericKey)) { d++; m.cursor++; barren++; continue; }
+        if (genericDays.has(genericKey)) { d++; barren++; continue; }
         genericDays.add(genericKey);
       }
 
@@ -1509,8 +1567,11 @@ async function generateDayPlans(
       // пятидневного тура» — не продукт, его нельзя купить. Пропускаем и
       // говорим об этом словами.
       if (span > block.activeDays) {
-        if (realTour) tooLong.add(`${realTour.title} (${span} дн.)`);
-        d++; m.cursor++; barren++;
+        if (realTour) {
+          tooLong.add(`${realTour.title} (${span} дн.)`);
+          m.tours.splice(m.tours.indexOf(realTour), 1);
+        } else if (route) m.routeCursor++;
+        d++; barren++;
         continue;
       }
 
@@ -1732,7 +1793,11 @@ async function generateDayPlans(
 
       used += span;
       d++;
-      m.cursor++;
+      // Взятый тур уходит из очереди и больше не встаёт; маршрут — свой счёт.
+      if (realTour) {
+        m.tours.splice(m.tours.indexOf(realTour), 1);
+        placedTours.add(realTour.tourId);
+      } else if (route) m.routeCursor++;
       activeSinceRest += span;
 
       // Insert rest day after hard activities (if budget allows)
@@ -1759,6 +1824,12 @@ async function generateDayPlans(
         restLeft--;
         activeSinceRest = 0;
       }
+    }
+
+    // Туры, не дождавшиеся выезда в днях блока, — в хвост (вдруг их дата —
+    // свободный день поездки) и в «Важно», если дня так и не нашлось.
+    for (const [interest, m] of material) {
+      for (const t of m.deferred) waitingTours.push({ tour: t, interest, zone: block.zone });
     }
 
     prevZone = block.zone;
@@ -1874,9 +1945,20 @@ async function generateDayPlans(
     selfBlockedActivities, selfSkipped, selfSafetyUnchecked, noSlotTours,
   });
 
+  // Туры, которым так и не нашлось дня с выездом: в плане их нет, в смете
+  // тоже, а в «Важно» они названы с датами выезда (волна 3 аудита 07.11, 3.2).
+  const offDays: DayPlanResult['offDays'] = [];
+  const named = new Set<string>();
+  for (const w of waitingTours) {
+    if (placedTours.has(w.tour.tourId) || named.has(w.tour.tourId)) continue;
+    named.add(w.tour.tourId);
+    const info = tourDates.get(w.tour.tourId);
+    offDays.push({ title: w.tour.title, dates: info?.kind === 'dated' ? [...info.dates] : [] });
+  }
+
   return {
     days, unchecked: [...unchecked], spanUnknown: [...spanUnknown], tooLong: [...tooLong], extendedForTour, overLimit: [...overLimit], preferenceNotes,
-    selfSkipped: [...selfSkipped], selfSafetyUnchecked, skippedLegs, returnLegMissing,
+    selfSkipped: [...selfSkipped], selfSafetyUnchecked, skippedLegs, returnLegMissing, offDays,
   };
 }
 
@@ -2122,7 +2204,7 @@ export async function recommendTrip(profile: TripProfile, opts: RecommendTripOpt
   const mchsTrip = mchs.ok
     ? splitWarningsForTrip(mchs.warnings, profile.arrivalDate ?? null)
     : { forTrip: [] as ActiveWarning[], endedBefore: [] as ActiveWarning[] };
-  const { days, unchecked, spanUnknown, tooLong, extendedForTour, overLimit, preferenceNotes, selfSkipped, selfSafetyUnchecked, skippedLegs, returnLegMissing } = await generateDayPlans(planProfile, zones, tripDays, cache, catalogueOpen, onRequestOnly, mchsTrip.forTrip);
+  const { days, unchecked, spanUnknown, tooLong, extendedForTour, overLimit, preferenceNotes, selfSkipped, selfSafetyUnchecked, skippedLegs, returnLegMissing, offDays } = await generateDayPlans(planProfile, zones, tripDays, cache, catalogueOpen, onRequestOnly, mchsTrip.forTrip);
   const plannedZones = new Set<ZoneId>(days.map((d) => d.zone));
   const warnings = collectWarnings(profile, zones, tripDays, 0, alerts, catalogueOpen, plannedZones, days.some((d) => d.type === 'buffer'));
   if (alertsRead === null) {
@@ -2328,6 +2410,11 @@ export async function recommendTrip(profile: TripProfile, opts: RecommendTripOpt
   // Тур не поместился в срок — и НЕ урезан. «Три дня из пятидневного тура»
   // не продукт, его нельзя купить; поставить его усечённым значило бы
   // показать расписание, которое не состоится.
+  // Тур без выезда в дни своего занятия в план не встал (волна 3 аудита
+  // 07.11, 3.2) — называется с датами выезда, чтобы человек мог передвинуть день.
+  const offDaysLine = offDaysWarning(offDays);
+  if (offDaysLine) warnings.push({ type: 'tour_dates', severity: 'important', message: offDaysLine });
+
   if (tooLong.length > 0) {
     warnings.push({
       type: 'duration',
