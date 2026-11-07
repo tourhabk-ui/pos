@@ -27,7 +27,7 @@ import { questionWindow, catalogFacts } from '@/lib/telegram/tourist-tours';
 import { OFFER_ORDER_NOTE_SHORT_RU } from '@/lib/tours/offer-order';
 import { calendarDay, overlapsWindow, seasonAccusative, windowForMonths } from '@/lib/kuzmich/season-window';
 import { pickToursForAnswer, type CatalogTour } from '@/lib/telegram/tourist-tours';
-import { namedTourInQuestion, tourAskQuestion } from '@/lib/kuzmich/tour-ask';
+import { asksTourComparison, namedTourInQuestion, tourAskQuestion } from '@/lib/kuzmich/tour-ask';
 
 const NOW = new Date('2026-10-24T00:00:00Z');
 const BASE = 'https://vedarai.ru';
@@ -641,6 +641,56 @@ describe('не коммерция — отвечает модель', () => {
     // Список по-прежнему пишет витрина, и «туры, кроме «…»» — тоже список.
     expect(namedTourInQuestion('Какие туры есть, кроме «Восхождение на Авачинский»?')).toBeNull();
     expect(composeCommercial(input('Какие туры на вулканы есть осенью?', ''))?.visible).toContain('Восхождение на Авачинский');
+  });
+
+  // ai-debug run 23 (07.11): «Сравни туры «…» и «…»» ответила витрина —
+  // «На сегодня в каталоге нет тура, который идёт. Цену не называю».
+  it('просьбу сравнить туры отвечает модель с compare_tours, а не витрина (ai-debug run 23)', () => {
+    const KLYUCH: CatalogTour = {
+      id: 201,
+      slug: 'klyuchevskaya-trek',
+      title: 'Трекинг к подножию вулкана Ключевская Сопка',
+      base_price: 95000,
+      price_unit: 'per_person',
+      multi_day_count: 5,
+      activity_type: 'trekking',
+      season_start: '2027-06-15',
+      season_end: '2027-09-15',
+    };
+    const WINTER: CatalogTour = {
+      id: 115,
+      slug: 'sever-truck',
+      title: 'К Домашним вулканам на вездеходе Sever Truck',
+      base_price: 22000,
+      price_unit: 'per_person',
+      multi_day_count: 1,
+      activity_type: 'jeep',
+      season_start: '2026-12-01',
+      season_end: '2027-04-30',
+    };
+    const COMPARE = [
+      `Сравни туры «${KLYUCH.title}» и «${WINTER.title}»: чем отличаются?`,
+      `Сравните «${KLYUCH.title}» и «${WINTER.title}»`,
+      `Чем отличаются туры «${KLYUCH.title}» и «${WINTER.title}»?`,
+      `Какой тур выбрать: «${KLYUCH.title}» или «${WINTER.title}»?`,
+      'Сравни туры на Авачинский по цене',
+    ];
+    for (const question of COMPARE) {
+      expect(asksTourComparison(question), question).toBe(true);
+      expect(commercialSources(question).tours, question).toBe(false);
+      expect(composeCommercial({ ...input(question, ''), tours: { ok: true, tours: [KLYUCH, WINTER, AVA] } }), question).toBeNull();
+    }
+    // Не сравнение: «сравнительно» — не глагол, отели — не туры, один тур — не пара.
+    for (const question of [
+      'Какие туры сравнительно недорогие?',
+      'Какие туры на вулканы есть осенью?',
+      'Сравни отели для туристов в Паратунке',
+      tourAskQuestion(WINTER.title),
+      'Что лучше взять в поход на Горелый?',
+    ]) {
+      expect(asksTourComparison(question), question).toBe(false);
+    }
+    expect(composeCommercial(input('Какие туры сравнительно недорогие?', ''))).not.toBeNull();
   });
 
   it('джип, внедорожник, 4x4 — та же пауза проката, что «аренда авто» (находка 24.10)', () => {

@@ -12,7 +12,7 @@
 import { isCarRentalAsk, isSightseeingQuestion, wantsTourCards } from '@/lib/ai/booking-intent';
 import { detectEmergency } from '@/lib/safety/sos-detector';
 import { calendarDay, ruDate, seasonAccusative } from '@/lib/kuzmich/season-window';
-import { namedTourInQuestion } from '@/lib/kuzmich/tour-ask';
+import { asksTourComparison, namedTourInQuestion } from '@/lib/kuzmich/tour-ask';
 import { rentalPauseForTourist } from '@/lib/rental/site-pause';
 import { touristRentalText } from '@/lib/telegram/tourist-keyboard';
 import { pickToursForAnswer, type CatalogTour } from '@/lib/telegram/tourist-tours';
@@ -646,7 +646,8 @@ export function commercialSources(question: string): {
   }
   const follow = isPriceFollowUp(question) && !asksNewList(question);
   // Просьба о плане поездки — модели с make_trip_plan, витрину не читаем (K1).
-  if (follow || isCarRentalAsk(question) || asksTripPlan(question)) {
+  // Просьба сравнить туры — модели с compare_tours (ai-debug run 23).
+  if (follow || isCarRentalAsk(question) || asksTripPlan(question) || asksTourComparison(question)) {
     return { tours: false, transfers: false, stays: false, stayZones: [] };
   }
   const stays = isLodgingAsk(question);
@@ -664,6 +665,9 @@ export function composeCommercial(input: ComposeInput): CommercialAnswer | null 
   // «Составь план… жильё и машина», «что посмотреть за 5 дней», «поправь
   // план» — план поездки по дням, его собирает модель (аудит 07.11, K1).
   if (asksTripPlan(input.question)) return null;
+  // «Сравни туры «…» и «…»» — сравнение, а не список: его собирает модель
+  // инструментом compare_tours (lib/kuzmich/tour-ask.ts, ai-debug run 23).
+  if (asksTourComparison(input.question)) return null;
   const follow = isPriceFollowUp(input.question) && !asksNewList(input.question);
   if (isCarRentalAsk(input.question) && !follow) return composeRental(input);
   if (isTransferAsk(input.question) && !follow) return composeTransfers(input);
@@ -790,8 +794,72 @@ export function dropUnsourcedPrices(answer: string, source: string): { text: str
     return [line];
   });
   let text = kept.join('\n').replace(/\n{3,}/g, '\n\n').trim();
-  if (dropped) text = `${text}\n\nЦену, которой нет в данных этого ответа, не называю.`.trim();
+  if (dropped) text = `${text}\n\n${PRICE_CUT_NOTE}`.trim();
   return { text, dropped };
+}
+
+/** Приписка сверки цен: что-то из ответа вырезано. */
+export const PRICE_CUT_NOTE = 'Цену, которой нет в данных этого ответа, не называю.';
+
+/** Инструменты, которые пишут план поездки со сметой. */
+const PLAN_TOOL_NAMES: ReadonlySet<string> = new Set(['make_trip_plan', 'edit_trip_plan']);
+/** Первая строка сметы плана (formatPlanPrice, lib/kuzmich/trip-plan-tool). */
+const PLAN_ESTIMATE_HEAD = /^Ориентир на человека:/;
+
+export interface PricedToolRun {
+  name: string;
+  producedData: boolean;
+  output?: string;
+}
+
+/**
+ * Смета последнего плана хода — строки инструмента от «Ориентир на человека»
+ * до пустой строки, как их написал formatPlanPrice. У последнего плана сметы
+ * нет — пусто: смету прежнего плана к новому не приставляем.
+ */
+export function planEstimateBlock(runs: ReadonlyArray<PricedToolRun>): string[] {
+  for (let i = runs.length - 1; i >= 0; i--) {
+    const run = runs[i]!;
+    if (!PLAN_TOOL_NAMES.has(run.name) || !run.producedData || !run.output) continue;
+    const lines = run.output.split('\n');
+    const at = lines.findIndex((line) => PLAN_ESTIMATE_HEAD.test(line.trim()));
+    if (at < 0) return [];
+    const end = lines.findIndex((line, j) => j > at && !line.trim());
+    return lines.slice(at, end < 0 ? undefined : end).map((line) => line.trimEnd());
+  }
+  return [];
+}
+
+/**
+ * Цены ответа сверены с выводом инструментов хода, смета плана — на месте.
+ *
+ * ai-debug run 23 (07.11): на «Составь план на 5 дней в июле 2027 для двоих»
+ * Кузьмич ответил планом по дням без сметы и с припиской «Цену, которой нет в
+ * данных этого ответа, не называю». Смету пишет сам инструмент, а модель её
+ * пересказывает. Пересказ не той подписью или с округлёнными числами сверка
+ * вырезает (#3126), и человек остаётся с планом без цены. Теперь, если строки
+ * «Ориентир на человека» в ответе нет, сервер ставит смету последнего плана
+ * хода дословно — цены в ней из источника по построению. Ставит перед
+ * припиской сверки, если она есть, иначе в конец.
+ *
+ * runs — журнал хода цикла инструментов; null — ответил не цикл (сверять не с
+ * чем, все цены вырезаются, как прежде).
+ */
+export function checkAnswerPrices(answer: string, runs: ReadonlyArray<PricedToolRun> | null): string {
+  const source = (runs ?? [])
+    .filter((run) => run.producedData && run.output)
+    .map((run) => run.output)
+    .join('\n');
+  const checked = dropUnsourcedPrices(answer, source).text;
+  const estimate = planEstimateBlock(runs ?? []);
+  // Смета уже стоит — строка «Ориентир на человека» с ценой. Та же фраза без
+  // суммы («ориентир на человека — в планировщике») сметой не считается
+  // (ревью PR #3134).
+  if (estimate.length === 0 || !checked.trim() || /ориентир на человека[^\n]*\d[^\n]*(?:₽|руб)/i.test(checked)) return checked;
+  const block = estimate.join('\n');
+  const noteAt = checked.lastIndexOf(PRICE_CUT_NOTE);
+  if (noteAt < 0) return `${checked}\n\n${block}`;
+  return `${checked.slice(0, noteAt).trimEnd()}\n\n${block}\n\n${checked.slice(noteAt)}`;
 }
 
 /** Числа рублей в тексте — для проверки, что лишних нет. */

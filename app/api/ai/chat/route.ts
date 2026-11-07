@@ -43,7 +43,7 @@ import { getOperatorTools } from '@/lib/agents/sdk/operator-tools';
 import { partnerContextFor } from '@/lib/crm/partner-context';
 import { pickChatBookingTour } from '@/lib/ai/chat-booking-tour';
 import { aiChatAgentLoop, KUZMICH_SYSTEM, isAIErrorResponse } from '@/lib/kuzmich/core';
-import { dropUnsourcedPrices } from '@/lib/kuzmich/answer-quality';
+import { checkAnswerPrices } from '@/lib/kuzmich/answer-quality';
 import { resolveCommercialTurn } from '@/lib/kuzmich/commercial-turn';
 import { kamchatkaDateContext } from '@/lib/kuzmich/date-context';
 import type { CatalogTour } from '@/lib/telegram/tourist-tours';
@@ -433,11 +433,7 @@ export async function POST(request: NextRequest) {
     // как в Telegram и MAX: иначе он судил бы нашу вставку, а не модель.
     const modelAnswer = commercialHit ? '' : answer;
     if (!commercialHit && answer) {
-      const priceSource = (loopAnswered ? webToolRuns : [])
-        .filter((run) => run.producedData && run.output)
-        .map((run) => run.output)
-        .join('\n');
-      answer = dropUnsourcedPrices(answer, priceSource).text;
+      answer = checkAnswerPrices(answer, loopAnswered ? webToolRuns : null);
     }
 
     // Tour suggestions — only for tourist role, и никогда при признаках ЧП.

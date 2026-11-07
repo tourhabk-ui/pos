@@ -98,6 +98,12 @@ describe('просьба о плане — без дописки (аудит п�
     expect(completeTourList(PLAN, 'Нас теперь трое, пересобери план', [{ query: 'fishing', output: FISH }])).toBe(PLAN);
   });
 
+  it('к сравнению названных туров не приклеивается список (ai-debug run 23)', () => {
+    const compare = '«Летняя рыбалка на чавычу и нерку» — от 28 000 ₽/чел. в день, «Осенняя рыбалка (октябрь-ноябрь)» — от 25 000 ₽/чел. в день.';
+    const q = 'Сравни туры «Летняя рыбалка на чавычу и нерку» и «Осенняя рыбалка (октябрь-ноябрь)»: чем отличаются?';
+    expect(completeTourList(compare, q, [{ query: 'fishing', output: FISH }])).toBe(compare);
+  });
+
   it('вопрос о турах вида — дописка прежняя', () => {
     const r = completeTourList(PLAN, 'Какая рыбалка есть?', [{ query: 'fishing', output: FISH }]);
     expect(r).toContain('Ещё по запросу на платформе');

@@ -170,8 +170,8 @@ jobs:
               print("VERDICT: EMPTY —", json.dumps(d, ensure_ascii=False)[:400])
           elif not re.search(r"День\s*[1-5]", answer):
               print("VERDICT: SHOWCASE — плана по дням в ответе нет")
-          elif "не называю" in answer:
-              print("VERDICT: PRICE_CUT — план есть, но сверка цен вырезала цену; смотреть ответ")
+          elif "Ориентир на человека" not in answer:
+              print("VERDICT: PRICE_CUT — план есть, сметы нет" + ("; сверка цен вырезала цену" if "не называю" in answer else ""))
           else:
-              print("VERDICT: OK — план по дням" + (", смета на месте" if "Ориентир" in answer else ", сметы в ответе нет"))
+              print("VERDICT: OK — план по дням, смета на месте" + ("; сверка вырезала пересказ модели" if "не называю" in answer else ""))
           '
