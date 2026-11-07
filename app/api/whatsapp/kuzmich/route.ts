@@ -3,15 +3,22 @@
  *
  * Настройка:
  *   1. Meta for Developers → WhatsApp → Webhooks → URL: vedarai.ru/api/whatsapp/kuzmich
- *   2. Env: WHATSAPP_ACCESS_TOKEN, WHATSAPP_PHONE_NUMBER_ID, WHATSAPP_VERIFY_TOKEN
+ *   2. Env: WHATSAPP_ACCESS_TOKEN, WHATSAPP_PHONE_NUMBER_ID, WHATSAPP_VERIFY_TOKEN,
+ *      META_APP_SECRET (секрет приложения Meta — им подписан каждый вебхук)
  *
  * GET  — webhook verification (hub.challenge handshake)
- * POST — входящие сообщения (text + image)
+ * POST — входящие сообщения (text + image); подпись Meta (X-Hub-Signature-256)
+ *        сверяется до разбора тела — lib/meta/webhook-signature.ts. Адрес на
+ *        проде закрыт Edge: его нет в реестре публичных API.
  */
 
 import { NextRequest, NextResponse } from 'next/server';
 import { processMessage, type PendingBooking } from '@/lib/kuzmich/core';
 import { describeKuzmichPhoto } from '@/lib/kuzmich/photo-vision';
+import {
+  META_APP_SECRET_ENV, META_SIGNATURE_HEADER, metaHandshakeOk, verifyMetaSignature,
+} from '@/lib/meta/webhook-signature';
+import { refuseUnconfiguredWebhook } from '@/lib/telegram/webhook-secret';
 
 export const dynamic = 'force-dynamic';
 
@@ -82,8 +89,7 @@ export async function GET(req: NextRequest) {
   const token     = searchParams.get('hub.verify_token');
   const challenge = searchParams.get('hub.challenge');
 
-  const verifyToken = process.env.WHATSAPP_VERIFY_TOKEN;
-  if (mode === 'subscribe' && token === verifyToken && challenge) {
+  if (metaHandshakeOk(mode, token, challenge, process.env.WHATSAPP_VERIFY_TOKEN)) {
     return new Response(challenge, { status: 200 });
   }
   return NextResponse.json({ error: 'Forbidden' }, { status: 403 });
@@ -114,9 +120,23 @@ interface WAUpdate {
 }
 
 export async function POST(req: NextRequest) {
-  // Verify X-Hub-Signature-256 in production (optional but recommended)
+  // Подпись — до разбора тела: подделке тело не разбирается и Кузьмич не зовётся.
+  let raw: Buffer;
   try {
-    const body = await req.json() as WAUpdate;
+    raw = Buffer.from(await req.arrayBuffer());
+  } catch (err) {
+    console.error('[whatsapp/kuzmich] тело не прочиталось:', err instanceof Error ? err.message : String(err));
+    return NextResponse.json({ ok: false }, { status: 400 });
+  }
+  const verdict = verifyMetaSignature(raw, req.headers.get(META_SIGNATURE_HEADER), process.env[META_APP_SECRET_ENV]);
+  if (verdict === 'not_configured') return refuseUnconfiguredWebhook('whatsapp/kuzmich', META_APP_SECRET_ENV);
+  if (verdict === 'forbidden') {
+    console.error('[whatsapp/kuzmich] подпись X-Hub-Signature-256 не сошлась — запрос не обработан');
+    return NextResponse.json({ ok: false }, { status: 403 });
+  }
+
+  try {
+    const body = JSON.parse(raw.toString('utf8')) as WAUpdate;
 
     if (body.object !== 'whatsapp_business_account') {
       return NextResponse.json({ ok: true });
@@ -179,7 +199,10 @@ export async function POST(req: NextRequest) {
     }
 
     return NextResponse.json({ ok: true });
-  } catch {
-    return NextResponse.json({ ok: true }); // всегда 200 для Meta
+  } catch (err) {
+    // Подписанному запросу — 200 и при сбое: на череду ошибок Meta отключает
+    // вебхук. Сбой не глушится — он в логе (§4.0).
+    console.error('[whatsapp/kuzmich] сбой обработки:', err instanceof Error ? err.message : String(err));
+    return NextResponse.json({ ok: true });
   }
 }
