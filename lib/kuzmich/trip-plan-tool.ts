@@ -23,7 +23,9 @@ import { INTEREST_WORDS, parseInterestWords } from '@/lib/planner/interest-words
 import { parseTravelPreferences } from '@/lib/planner/travel-style-words';
 import { MAX_REST_DAYS, type TravelStyle } from '@/lib/planner/travel-style';
 import { tourKeepsSchedule } from '@/lib/seat-requests/service';
-import { applyPlanEdit, planPrice, planEstimate, type PlanEdit, type PlanParams } from '@/lib/planner/plan-edit';
+import {
+  applyPlanEdit, planPrice, planEstimate, type PlanEdit, type PlanParams, type RereadTour, type TouchedTour,
+} from '@/lib/planner/plan-edit';
 import { estimateGroup, type GroupEstimate } from '@/lib/planner/estimate';
 import { priceFromUnit } from '@/lib/tours/price-label';
 import { saveDraft, loadDraft, updateDraft, isDraftId, type DraftSurface } from '@/lib/planner/plan-drafts';
@@ -983,7 +985,7 @@ export function planIdLine(id: string | null, revision: number): string {
   if (!id) {
     return 'Черновик плана не сохранился — править этот план через edit_trip_plan нельзя; чтобы изменить, собери план заново.';
   }
-  return `ID плана: ${id}${revision > 1 ? ` (правка ${revision - 1})` : ''}. Изменить — edit_trip_plan с этим ID: добавить день (интерес), убрать или переставить день, сменить уровень жилья, учесть задержку рейса (flight_delay). План хранится 7 дней.\n`
+  return `ID плана: ${id}${revision > 1 ? ` (правка ${revision - 1})` : ''}. Изменить — edit_trip_plan с этим ID: добавить, убрать, переставить или заменить день, сменить уровень жилья или состав группы, сдвинуть поездку на другие даты, учесть задержку рейса (flight_delay). План хранится 7 дней.\n`
     + `Страница плана — карта, GPX для навигатора и сохранение на телефон для поля без связи: ${SITE}/trip/${id}`;
 }
 
@@ -992,10 +994,15 @@ export function planIdLine(id: string | null, revision: number): string {
 export { planIdFromAnswer } from '@/lib/kuzmich/plan-id';
 
 const EDIT_ACTIONS: Record<string, PlanEdit['kind']> = {
-  add_day: 'add_day', remove_day: 'remove_day', move_day: 'move_day', set_lodging: 'set_lodging', flight_delay: 'flight_delay',
-  добавить: 'add_day', убрать: 'remove_day', удалить: 'remove_day', переставить: 'move_day', жильё: 'set_lodging', жилье: 'set_lodging',
+  add_day: 'add_day', remove_day: 'remove_day', move_day: 'move_day', replace_day: 'replace_day',
+  set_lodging: 'set_lodging', set_party: 'set_party', shift_dates: 'shift_dates', flight_delay: 'flight_delay',
+  добавить: 'add_day', убрать: 'remove_day', удалить: 'remove_day', переставить: 'move_day',
+  заменить: 'replace_day', замена: 'replace_day', жильё: 'set_lodging', жилье: 'set_lodging',
+  состав: 'set_party', группа: 'set_party', сдвинуть: 'shift_dates', сдвиг: 'shift_dates', перенести: 'shift_dates',
   рейс: 'flight_delay', задержка: 'flight_delay',
 };
+
+const EDIT_ACTION_LIST = 'add_day, remove_day, move_day, replace_day, set_lodging, set_party, shift_dates, flight_delay';
 
 /** «да» / «нет» для keep_return; не сказано — обратный билет прежний. */
 function readKeepReturn(raw: string | undefined): boolean | null {
@@ -1013,17 +1020,59 @@ function readDayNum(raw: string | undefined): number | null {
   return Number.isInteger(n) && n >= 1 ? n : null;
 }
 
+/** Сдвиг в днях со знаком: «7», «+7», «-3», «−3». Ноль и не число — null. */
+function readShiftDays(raw: string | undefined): number | null {
+  const m = /^\s*([+\-−]?)\s*(\d{1,3})\s*$/.exec(raw ?? '');
+  if (!m) return null;
+  const n = Number(m[2]);
+  if (!Number.isInteger(n) || n === 0) return null;
+  return m[1] === '-' || m[1] === '−' ? -n : n;
+}
+
+/** Занятие из слов: ключ движка или ошибка словами. */
+function readInterest(raw: string | undefined, action: string): { ok: true; interest: string } | { ok: false; error: string } {
+  const keys = parseInterestWords((raw ?? '').toLowerCase());
+  if (keys.length > 0) return { ok: true, interest: keys[0] };
+  return {
+    ok: false,
+    error: raw?.trim()
+      ? `Интерес «${raw.trim()}» не разобрал — назови занятие: рыбалка, вулканы, медведи, сплав, море, термальные.`
+      : `Для ${action} нужен интерес (interest): «рыбалка», «вулканы»…`,
+  };
+}
+
+/**
+ * Новая дата начала для shift_dates — тем же разбором, что `when` у
+ * make_trip_plan (lib/kuzmich/plan-start): «20 июля», 20.07.2027,
+ * 2027-07-20, «в августе», диапазон «20–27 июля»; «сегодня» — по Камчатке.
+ */
+function readShiftStart(raw: string, now: number): { ok: true; startDate: string; length?: number } | { ok: false; error: string } {
+  const start = parsePlanStart(raw, now);
+  if (start.kind === 'invalid') {
+    if (start.reason === 'bad_range') return { ok: false, error: `В «${start.raw}» конец раньше начала — назови даты по порядку, например «20–27 июля».` };
+    if (start.reason === 'no_such_date') return { ok: false, error: `Даты «${start.raw}» нет в календаре — назови настоящую дату: «20 июля», 20.07.2027 или 2027-07-20.` };
+    return { ok: false, error: `«${start.raw}» не разобрал как дату — назови новый первый день поездки: «20 июля», 20.07.2027, 2027-07-20 или месяц («в августе»).` };
+  }
+  if (start.kind === 'past') return { ok: false, error: `«${start.raw}» по Камчатке уже прошло — назови дату не раньше сегодняшней.` };
+  if (start.kind === 'default') return { ok: false, error: 'Для shift_dates нужен новый первый день поездки (start_date) или сдвиг в днях (shift_days).' };
+  const length = rangeDays(start);
+  return { ok: true, startDate: start.date.toISOString().slice(0, 10), ...(length ? { length } : {}) };
+}
+
 /**
  * Разбор правки из аргументов инструмента. Правка — структура, не свободный
- * текст (#2224): действие, день, место, интерес, уровень жилья. Чего не
- * хватает — ошибка словами, без догадки.
+ * текст (#2224): действие, день, место, интерес, уровень жилья, состав, даты.
+ * Чего не хватает — ошибка словами, без догадки. Состав и даты читаются теми
+ * же правилами, что у make_trip_plan: взрослые 1–30, возраст каждого ребёнка,
+ * даты по Камчатке.
  */
 export function readPlanEdit(args: {
   action?: string; day?: string; to_day?: string; interest?: string; lodging?: string;
   delay_days?: string; keep_return?: string;
-}): { ok: true; edit: PlanEdit } | { ok: false; error: string } {
+  adults?: string; children?: string; start_date?: string; shift_days?: string;
+}, opts: { surface?: DraftSurface; now?: number } = {}): { ok: true; edit: PlanEdit } | { ok: false; error: string } {
   const kind = EDIT_ACTIONS[(args.action ?? '').trim().toLowerCase()];
-  if (!kind) return { ok: false, error: 'Не понял действие. Можно: add_day, remove_day, move_day, set_lodging, flight_delay.' };
+  if (!kind) return { ok: false, error: `Не понял действие. Можно: ${EDIT_ACTION_LIST}.` };
   if (kind === 'flight_delay') {
     const days = readDayNum(args.delay_days);
     if (!days) return { ok: false, error: 'Для flight_delay нужно, на сколько дней задержан рейс (delay_days, 1–7).' };
@@ -1041,11 +1090,48 @@ export function readPlanEdit(args: {
     return day && to ? { ok: true, edit: { kind, day, to } } : { ok: false, error: 'Для move_day нужны номер дня (day) и новое место (to_day).' };
   }
   if (kind === 'add_day') {
-    const keys = parseInterestWords((args.interest ?? '').toLowerCase());
-    if (keys.length === 0) {
-      return { ok: false, error: args.interest?.trim() ? `Интерес «${args.interest.trim()}» не разобрал — назови занятие: рыбалка, вулканы, медведи, сплав, море, термальные.` : 'Для add_day нужен интерес (interest): «рыбалка», «вулканы»…' };
+    const interest = readInterest(args.interest, 'add_day');
+    return interest.ok ? { ok: true, edit: { kind, interest: interest.interest } } : interest;
+  }
+  if (kind === 'replace_day') {
+    const day = readDayNum(args.day);
+    if (!day) return { ok: false, error: 'Для replace_day нужны номер дня (day) и новое занятие (interest).' };
+    const interest = readInterest(args.interest, 'replace_day');
+    return interest.ok ? { ok: true, edit: { kind, day, interest: interest.interest } } : interest;
+  }
+  if (kind === 'set_party') {
+    const adultsRaw = (args.adults ?? '').trim();
+    const childrenGiven = (args.children ?? '').trim() !== '';
+    if (!adultsRaw && !childrenGiven) {
+      return { ok: false, error: 'Для set_party нужен состав: сколько взрослых (adults) и/или возраст каждого ребёнка (children; детей больше нет — «нет»).' };
     }
-    return { ok: true, edit: { kind, interest: keys[0] } };
+    const edit: Extract<PlanEdit, { kind: 'set_party' }> = { kind };
+    if (adultsRaw) {
+      const a = readAdults(adultsRaw);
+      if (!a.given) return { ok: false, error: `Число взрослых «${adultsRaw}» не разобрал — нужно от 1 до ${MAX_GROUP}.` };
+      edit.adults = a.adults;
+    }
+    if (childrenGiven) {
+      const c = readChildren(args.children, opts.surface ?? 'chat');
+      if (c.kind === 'unknown') return { ok: false, error: c.refusal.replace(/^План не собран: /, '') };
+      edit.children = c.children;
+    }
+    return { ok: true, edit };
+  }
+  if (kind === 'shift_dates') {
+    const rawStart = (args.start_date ?? '').trim();
+    if (rawStart) {
+      const start = readShiftStart(rawStart, opts.now ?? Date.now());
+      return start.ok ? { ok: true, edit: { kind, startDate: start.startDate, ...(start.length ? { length: start.length } : {}) } } : start;
+    }
+    const rawShift = (args.shift_days ?? '').trim();
+    if (rawShift) {
+      const days = readShiftDays(rawShift);
+      return days !== null
+        ? { ok: true, edit: { kind, days } }
+        : { ok: false, error: `shift_days «${rawShift}» не разобрал — нужно целое число дней: 7 — на неделю позже, -3 — на три дня раньше.` };
+    }
+    return { ok: false, error: 'Для shift_dates нужен новый первый день поездки (start_date: «20 июля», 20.07.2027 или 2027-07-20) или сдвиг в днях (shift_days: 7 — позже, -3 — раньше).' };
   }
   const tier = readBudgetTier(args.lodging);
   return tier.given ? { ok: true, edit: { kind: 'set_lodging', tier: tier.tier } } : { ok: false, error: tier.note ?? 'Для set_lodging нужен уровень жилья (lodging): эконом, комфорт или премиум.' };
@@ -1055,12 +1141,13 @@ export function readPlanEdit(args: {
 export async function editTripPlanForKuzmich(args: {
   plan_id?: string; action?: string; day?: string; to_day?: string; interest?: string; lodging?: string;
   delay_days?: string; keep_return?: string;
-}): Promise<string> {
+  adults?: string; children?: string; start_date?: string; shift_days?: string;
+}, opts: { surface?: DraftSurface; now?: number } = {}): Promise<string> {
   const id = (args.plan_id ?? '').trim();
   if (!isDraftId(id)) {
     return 'Нужен ID плана из ответа make_trip_plan (вида 1b9d6bcd-…). Плана нет — собери его через make_trip_plan.';
   }
-  const parsed = readPlanEdit(args);
+  const parsed = readPlanEdit(args, opts);
   if (!parsed.ok) return `${parsed.error} План не менялся.`;
 
   const read = await loadDraft(id);
@@ -1091,21 +1178,42 @@ export async function editTripPlanForKuzmich(args: {
       priceLines: formatPlanPrice(planPrice(plan), plan.params.budgetTier, plan.days.length > 0, planEstimate(plan)),
     },
   );
-  return [result.note, toursTouchedLines(result.toursTouched ?? []), text, planIdLine(draft.id, saved.revision)]
+  return [result.note, rereadLine(result.reread ?? []), toursTouchedLines(result.toursTouched ?? []), text, planIdLine(draft.id, saved.revision)]
     .filter(Boolean).join('\n\n');
 }
+
+/**
+ * Места и цена туров, которые правка перечитала на новую дату или группу
+ * (аудит 07.11, M3). Сами места — в строках дней плана; здесь — что они
+ * перечитаны и у каких туров прочитать не удалось.
+ */
+export function rereadLine(reread: ReadonlyArray<RereadTour>): string {
+  if (reread.length === 0) return '';
+  const head = 'Места и цену туров, которых коснулась правка, я перечитал на их новые даты и состав группы — они в строках дней ниже.';
+  const unread = reread.filter((r) => r.availability === 'unread');
+  if (unread.length === 0) return head;
+  return `${head} Места не прочитались: ${unread.map((r) => `«${r.title}» (ID${r.tourId})`).join(', ')} — проверь через get_tour_availability по ID, прежде чем обещать.`;
+}
+
+const TOUCHED_HOW: Record<TouchedTour['how'], string> = {
+  dropped: 'выпал из плана',
+  shifted: 'попал на другие даты',
+  party: 'идёт другим составом группы',
+};
 
 /**
  * Туры, которых коснулась правка (#2231). План брони не меняет и оператору
  * сам не пишет: брони туриста по плану не видно — тот анонимен. Поэтому ответ
  * прямо говорит, кому и что сказать.
  */
-export function toursTouchedLines(tours: ReadonlyArray<{ tourId: string; title: string; how: 'dropped' | 'shifted' }>): string {
+export function toursTouchedLines(tours: ReadonlyArray<TouchedTour>): string {
   if (tours.length === 0) return '';
+  const after: string[] = [];
+  if (tours.some((t) => t.how === 'dropped')) after.push('Не обещай, что оператор вернёт деньги: это решают его условия отмены.');
+  if (tours.some((t) => t.how !== 'dropped')) after.push('Места в строках дней ниже — то, что видно в системе сейчас; подтверждает их оператор.');
   return [
     'Туры операторов, которых это касается:',
-    ...tours.map((t) => `- «${t.title}» (ID${t.tourId}) — ${t.how === 'dropped' ? 'выпал из плана' : 'попал на другие даты'}`),
-    'Если тур уже забронирован, бронь сама не меняется: сообщи оператору о задержке — по контактам на странице брони или кнопкой «Написать оператору» на карточке тура (контакты — в get_tour_details). '
-      + (tours.some((t) => t.how === 'shifted') ? 'Места на новые даты проверь через get_tour_availability, прежде чем обещать.' : 'Не обещай, что оператор вернёт деньги: это решают его условия отмены.'),
+    ...tours.map((t) => `- «${t.title}» (ID${t.tourId}) — ${TOUCHED_HOW[t.how]}`),
+    `Если тур уже забронирован, бронь сама не меняется: сообщи оператору об изменении — по контактам на странице брони или кнопкой «Написать оператору» на карточке тура (контакты — в get_tour_details). ${after.join(' ')}`,
   ].join('\n');
 }

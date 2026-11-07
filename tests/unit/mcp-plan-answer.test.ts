@@ -362,3 +362,22 @@ describe('make_trip_plan: дата, которой нет, — отказ без
     expect(r.content[0].text).toContain('Даты 10 июля — 17 июля: это 8 дней, а длительность — 7');
   });
 });
+
+describe('edit_trip_plan: состав и сдвиг доходят до правки через MCP (аудит 07.11, M4)', () => {
+  it('shift_dates с датой словами — поездка сдвинута на новые даты', async () => {
+    const r = await callTool('edit_trip_plan', { plan_id: PLAN_ID, action: 'shift_dates', start_date: '17 июля 2027' });
+    expect(r.isError).toBeFalsy();
+    expect(r.content[0].text).toMatch(/^Поездка сдвинута на 7 дней позже: 17 июля — 23 июля\./);
+  });
+
+  it('set_party с возрастами массивом — поля дошли: отказ называет дни не по возрасту', async () => {
+    const r = await callTool('edit_trip_plan', { plan_id: PLAN_ID, action: 'set_party', adults: '3', children: [6] });
+    expect(r.content[0].text).toMatch(/^Правку не сделал: Младшему 6 — в плане есть занятия не по возрасту: [^.]*\(дни 3, 4\) — с 12 лет/);
+  });
+
+  it('set_party только со взрослыми — смета на новый состав, дети прежние', async () => {
+    const r = await callTool('edit_trip_plan', { plan_id: PLAN_ID, action: 'set_party', adults: '4' });
+    expect(r.content[0].text).toMatch(/^Состав группы: 4 взрослых, без детей \(было: 2 взрослых, без детей\)/);
+    expect(r.content[0].text).toMatch(/Итого на группу из 4 чел\./);
+  });
+});
