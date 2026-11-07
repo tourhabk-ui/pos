@@ -41,7 +41,11 @@ export interface VolcanoLine {
   /** Пепел по KVERT словом («оранжевый»), null — кода нет. */
   ash: string | null;
   ashKm: number | null;
-  /** Сейсмичность по КФ ЕГС словом, null — вулкан не в сводке или сводка не свежая. */
+  /**
+   * Цвет КФ ЕГС словом — общая шкала сводки (сейсмичность, газ, термоаномалии,
+   * пепел), а не одна сейсмичность (#3138); null — вулкан не в сводке или
+   * сводка не свежая.
+   */
   tremor: string | null;
   /** Цвет строки: самый тревожный из двух. */
   level: 'red' | 'orange' | 'yellow';
@@ -168,7 +172,8 @@ export function weatherPhrase(d: ForecastDay): string {
 
 export function volcanoPhrase(v: VolcanoLine): string {
   const ash = v.ash ? `пепел ${v.ash}${v.ashKm ? `, до ${v.ashKm} км` : ''}` : 'пепел: кода нет';
-  const tremor = v.tremor ? `сейсмичность ${v.tremor}` : 'сейсмичность: нет в сводке';
+  // Цвет КФ ЕГС — общая шкала сводки, не «сейсмичность» (#3138).
+  const tremor = v.tremor ? `КФ ЕГС ${v.tremor}` : 'КФ ЕГС: нет в сводке';
   return `${v.name}: ${ash}; ${tremor}`;
 }
 

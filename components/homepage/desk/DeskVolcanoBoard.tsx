@@ -63,7 +63,9 @@ export function DeskVolcanoBoard({ volcanoes }: { volcanoes: Svodka['volcanoes']
           <div role="row" className={`${ROW} fx-dark-muted border-b pb-2 text-xs uppercase tracking-[0.1em]`} style={{ borderColor: 'rgba(255,255,255,0.1)' }}>
             <span role="columnheader">Вулкан</span>
             <span role="columnheader">Пепел</span>
-            <span role="columnheader">Сейсмика</span>
+            {/* Цвет КФ ЕГС — общая шкала сводки (сейсмичность, газ, термоаномалии,
+                пепел), а не одна сейсмика (#3138). */}
+            <span role="columnheader">КФ ЕГС</span>
           </div>
           {volcanoes.items.slice(0, 5).map((v, i, arr) => (
             <div role="row" key={v.name} className={`${ROW} py-3 ${i < arr.length - 1 ? 'border-b' : ''}`} style={LINE}>
