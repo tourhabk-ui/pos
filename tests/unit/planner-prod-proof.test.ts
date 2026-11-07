@@ -208,6 +208,18 @@ describe('просьба получает день: рыбалка не тоне
     expect(western?.severity).toBe('info');
   });
 
+  it('подготовка в плане — «в расчёте плана», а не «у вас указана» (ai-debug run 24)', async () => {
+    // В чате подготовку никто не называет: движок считает на среднюю, и
+    // «у вас указана средняя» Кузьмич пересказывал как слова человека.
+    const rec = await recommendTrip(PROOF);
+    const fitness = rec.warnings.filter((w) => w.type === 'fitness').map((w) => w.message);
+    expect(fitness.length).toBeGreaterThan(0);
+    for (const line of fitness) {
+      expect(line).toMatch(/нужна хорошая подготовка, в расчёте плана — средняя/);
+      expect(line).not.toMatch(/у вас/);
+    }
+  });
+
   it('дня не хватило — агент видит это в «Важно», а строки о путёвке нет', async () => {
     const rec = await recommendTrip({ ...PROOF, departureDate: `${NEXT_JULY}-07-12` });
     expect(activity(rec).some((d) => d.activityType === 'fishing')).toBe(false);

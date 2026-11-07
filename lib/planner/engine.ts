@@ -844,7 +844,11 @@ function collectWarnings(
     if (levels.indexOf(c.fitnessRequired) > levels.indexOf(profile.fitnessLevel)) {
       warnings.push({
         type: 'fitness', severity: 'important',
-        message: `${activityLabel(interest)}: нужна ${FITNESS_WORDS[c.fitnessRequired]} подготовка, у вас указана ${FITNESS_WORDS[profile.fitnessLevel]}. ${c.safetyNotes?.[0] ?? ''}`.trim(),
+        // «В расчёте плана», а не «у вас указана»: в чате, MCP и на готовых
+        // страницах подготовку никто не называл — движок берёт среднюю, и
+        // «у вас указана средняя» модель пересказывала как слова человека
+        // (ai-debug run 24, 07.11).
+        message: `${activityLabel(interest)}: нужна ${FITNESS_WORDS[c.fitnessRequired]} подготовка, в расчёте плана — ${FITNESS_WORDS[profile.fitnessLevel]}. ${c.safetyNotes?.[0] ?? ''}`.trim(),
       });
     }
   }
