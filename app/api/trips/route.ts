@@ -4,34 +4,24 @@
  */
 
 import { NextRequest, NextResponse } from 'next/server';
-import { z } from 'zod';
 import { pool } from '@/lib/db-pool';
 import { requireAuth } from '@/lib/auth/middleware';
 import { attachMcpAttribution, MCP_ATTRIBUTION } from '@/lib/mcp/handoff';
 import type { UserTripListRow, UserTripRow } from '@/lib/types/db-rows';
-import { TripChoicesSchema, TripDayPlanSchema, TripPartySchema } from '@/lib/trips/trip-schema';
+import { CreateTripSchema, buildTripInsert } from '@/lib/trips/trip-write';
 import { withCalendarDates } from '@/lib/trips/trip-dates';
 
 export const dynamic = 'force-dynamic';
 
-const CreateTripSchema = z.object({
-  title: z.string().min(1).max(255).default('Мой маршрут'),
-  arrivalDate: z.string().date().nullable().optional(),
-  departureDate: z.string().date().nullable().optional(),
-  places: z.array(z.string()).max(20).default([]),
-  activities: z.array(z.string()).max(20).default([]),
-  days: z.array(TripDayPlanSchema).max(30).default([]),
-  transportByDay: z.record(z.string(), z.enum(['walking', 'jeep', 'helicopter', 'boat'])).default({}),
-  flightArrival: z.string().max(20).nullable().optional(),
-  flightDeparture: z.string().max(20).nullable().optional(),
-  flightArrivalTime: z.string().max(5).nullable().optional(),
-  flightDepartureTime: z.string().max(5).nullable().optional(),
-  needsAirportTransfer: z.boolean().default(false).optional(),
-  /** Состав и уровень плана — для сметы и заявки (#2304, шаг 2). */
-  party: TripPartySchema.nullable().optional(),
-  /** Выбранные жильё и трансфер — снимок на день сохранения (#2304, шаг 3б). */
-  choices: TripChoicesSchema.nullable().optional(),
-});
+/**
+ * Отказ базы — в лог с SQLSTATE, человеку — общие слова (аудит 07.11, H11):
+ * до этого текст ошибки драйвера уходил наружу, а в лог не попадало ничего.
+ */
+function failed(what: string, err: unknown, message: string): NextResponse {
+  const e = err as { code?: unknown; message?: unknown };
+  console.error(`[trips] ${what}:`, typeof e?.code === 'string' ? e.code : 'нет SQLSTATE', typeof e?.message === 'string' ? e.message.slice(0, 300) : '');
+  return NextResponse.json({ success: false, error: message }, { status: 500 });
+}
 
 // ─── GET — list ───────────────────────────────────────────────────────────────
 
@@ -58,8 +48,7 @@ export async function GET(request: NextRequest) {
 
     return NextResponse.json({ success: true, data: rows.map(withCalendarDates) });
   } catch (err) {
-    const msg = err instanceof Error ? err.message : 'Ошибка при загрузке маршрутов';
-    return NextResponse.json({ success: false, error: msg }, { status: 500 });
+    return failed('список поездок не прочитан', err, 'Маршруты сейчас не загрузились — попробуйте чуть позже');
   }
 }
 
@@ -71,59 +60,40 @@ export async function POST(request: NextRequest) {
 
   const userId = authOrResponse.userId;
 
+  let body: unknown;
   try {
-    const body = await request.json();
-    const parsed = CreateTripSchema.safeParse(body);
-    if (!parsed.success) {
-      return NextResponse.json(
-        { success: false, error: 'Некорректные данные', details: parsed.error.issues },
-        { status: 400 }
-      );
-    }
+    body = await request.json();
+  } catch {
+    return NextResponse.json({ success: false, error: 'Неверный формат запроса' }, { status: 400 });
+  }
+  const parsed = CreateTripSchema.safeParse(body);
+  if (!parsed.success) {
+    return NextResponse.json(
+      { success: false, error: 'Некорректные данные', details: parsed.error.issues },
+      { status: 400 }
+    );
+  }
 
-    const { title, arrivalDate, departureDate, places, activities, days, transportByDay, flightArrival, flightDeparture, flightArrivalTime, flightDepartureTime, needsAirportTransfer, party, choices } = parsed.data;
-
-    const { rows } = await pool.query<UserTripRow>(`
-      INSERT INTO user_trips
-        (user_id, title, arrival_date, departure_date, places, activities, days, transport_by_day,
-         flight_arrival, flight_departure, flight_arrival_time, flight_departure_time, needs_airport_transfer, party, choices)
-      VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15)
-      RETURNING *
-    `, [
-      userId,
-      title,
-      arrivalDate ?? null,
-      departureDate ?? null,
-      places,
-      activities,
-      JSON.stringify(days),
-      JSON.stringify(transportByDay),
-      flightArrival ?? null,
-      flightDeparture ?? null,
-      flightArrivalTime ?? null,
-      flightDepartureTime ?? null,
-      needsAirportTransfer ?? false,
-      party ? JSON.stringify(party) : null,
-      choices ? JSON.stringify(choices) : null,
-    ]);
+  try {
+    // С ключом повтора (H12) тот же POST обновляет ту же поездку: ответ на
+    // первое нажатие мог потеряться в сети, а второй поездки человек не просил.
+    const { sql, values } = buildTripInsert(userId, parsed.data);
+    const { rows } = await pool.query<UserTripRow & { inserted: boolean }>(sql, values);
+    const { inserted, ...trip } = rows[0]!;
 
     // Атрибуция MCP-handoff (v2, #60): человек пришёл по ссылке агента и
     // сохранил план. В событие идёт только UUID handoff-а из проверенной
-    // cookie — содержимого плана там нет.
-    await attachMcpAttribution(
-      request.cookies.get(MCP_ATTRIBUTION.cookieName)?.value,
-      'plan_saved',
-    );
-
-    return NextResponse.json({ success: true, data: withCalendarDates(rows[0]) }, { status: 201 });
-  } catch (err) {
-    if (err instanceof z.ZodError) {
-      return NextResponse.json(
-        { success: false, error: 'Некорректные данные', details: err.issues },
-        { status: 400 }
+    // cookie — содержимого плана там нет. Повтор того же сохранения — не
+    // второе событие.
+    if (inserted) {
+      await attachMcpAttribution(
+        request.cookies.get(MCP_ATTRIBUTION.cookieName)?.value,
+        'plan_saved',
       );
     }
-    const msg = err instanceof Error ? err.message : 'Ошибка при сохранении маршрута';
-    return NextResponse.json({ success: false, error: msg }, { status: 500 });
+
+    return NextResponse.json({ success: true, data: withCalendarDates(trip) }, { status: inserted ? 201 : 200 });
+  } catch (err) {
+    return failed('поездка не сохранена', err, 'Маршрут не сохранился — попробуйте ещё раз');
   }
 }

@@ -176,9 +176,10 @@ describe('уведомление в Телеграм несёт план', () =>
 
 describe('связка: производители и потребители сводки', () => {
   it('/planner шлёт план целиком вместо названий дней', () => {
+    // Что план уходит целиком, с выбранным и с тем, что ещё нужно, — рендером:
+    // tests/unit/planner-save-share.test.tsx (дни, просьбы) и
+    // tests/unit/planner-plan-choices-ui.test.tsx (жильё). Здесь — запрет.
     const c = read('app/planner/_PlannerClient.tsx');
-    // С выбранными жильём и трансфером (#2304, шаг 3) — та же смета, что на экране.
-    expect(c).toMatch(/plan: planForLead\(days, \{ \.\.\.planProfile, arrivalDate: arrival \|\| null \}, planChoices\)/);
     expect(c).not.toMatch(/day_plan:/);
   });
 

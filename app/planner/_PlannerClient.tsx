@@ -207,6 +207,24 @@ function withUiKeys(list: DayPlan[]): DayPlan[] {
   return list.map(d => (d.uiKey ? d : { ...d, uiKey: `day-${++uiKeySeq}` }));
 }
 
+/**
+ * Ключ повтора сохранения (аудит 07.11, H12): один на сессию плана. Ответ на
+ * «Сохранить» потерялся в сети, человек нажал ещё раз — тот же ключ, та же
+ * поездка, а не вторая (/api/trips, lib/trips/trip-write). Браузеру без
+ * криптографии ключ не выдумывается: null — сохранение без ключа, как до 07.11.
+ */
+function newSaveKey(): string | null {
+  const c = typeof globalThis.crypto === 'object' ? globalThis.crypto : undefined;
+  if (c && typeof c.randomUUID === 'function') return c.randomUUID();
+  if (!c || typeof c.getRandomValues !== 'function') return null;
+  const b = new Uint8Array(16);
+  c.getRandomValues(b);
+  b[6] = (b[6]! & 0x0f) | 0x40;
+  b[8] = (b[8]! & 0x3f) | 0x80;
+  const h = [...b].map(x => x.toString(16).padStart(2, '0')).join('');
+  return `${h.slice(0, 8)}-${h.slice(8, 12)}-${h.slice(12, 16)}-${h.slice(16, 20)}-${h.slice(20)}`;
+}
+
 function guessZone(lat: number, lng: number): DayPlan['zone'] {
   const entries = Object.entries(ZONE_COORDS) as [string, [number, number]][];
   let best = 'avachinsky';
@@ -1507,13 +1525,17 @@ export function PlannerClient({ initialUserId }: { initialUserId?: string | null
     setSelectedRoute(null);
   }, []);
 
-  // Save / update trip in DB (requires auth)
-  const saveTrip = useCallback(async () => {
+  // Ключ повтора сохранения — один на сессию плана (newSaveKey, H12).
+  const saveKeyRef = useRef<string | null>(null);
+
+  // Save / update trip in DB (requires auth). Возвращает id поездки — его
+  // ждёт «Поделиться»: ссылка — на то, что сейчас на экране (H10).
+  const saveTrip = useCallback(async (): Promise<string | null> => {
     if (!initialUserId) {
       router.push(`/auth/login?from=/planner`);
-      return;
+      return null;
     }
-    if (days.length === 0) return;
+    if (days.length === 0) return null;
 
     setSaveStatus('saving');
     try {
@@ -1530,6 +1552,12 @@ export function PlannerClient({ initialUserId }: { initialUserId?: string | null
         flightArrivalTime: flightArrivalTime || null,
         flightDepartureTime: flightDepartureTime || null,
         needsAirportTransfer,
+        // Что ещё человек отметил и о чём план предупреждал (аудит 07.11,
+        // H6, H7): до этого в поездку уходил только трансфер, а предупреждения
+        // и предупреждения дней срезались.
+        needsLodging,
+        needsCar,
+        warnings: recommendation?.warnings ?? null,
         // Состав и уровень, на которые собран план (#2304, шаг 2): без них
         // страница поездки не посчитает смету, а заявка уйдёт без состава.
         ...(planProfile ? {
@@ -1551,33 +1579,45 @@ export function PlannerClient({ initialUserId }: { initialUserId?: string | null
           body: JSON.stringify(payload),
         });
       } else {
+        saveKeyRef.current ??= newSaveKey();
         res = await fetch('/api/trips', {
           method: 'POST',
           headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify(payload),
+          body: JSON.stringify(saveKeyRef.current ? { ...payload, saveKey: saveKeyRef.current } : payload),
         });
       }
 
       const data: { success: boolean; data?: { id: string } } = await res.json();
       if (!data.success) throw new Error('save failed');
 
+      const savedId = data.data?.id ?? tripId;
       if (!tripId && data.data?.id) setTripId(data.data.id);
       setSaveStatus('saved');
       // Сохранённый план — первое действие исполнения «активированной поездки».
-      funnelBeacon('plan_saved', data.data?.id ?? tripId ?? undefined);
+      funnelBeacon('plan_saved', savedId ?? undefined);
       setTimeout(() => setSaveStatus('idle'), 3000);
+      return savedId ?? null;
     } catch {
       setSaveStatus('error');
       setTimeout(() => setSaveStatus('idle'), 3000);
+      return null;
     }
-  }, [router, initialUserId, days, arrival, departure, places, activities, transportByDay, flightArrival, flightDeparture, flightArrivalTime, flightDepartureTime, needsAirportTransfer, recommendation, tripId, planProfile, planChoices]);
+  }, [router, initialUserId, days, arrival, departure, places, activities, transportByDay, flightArrival, flightDeparture, flightArrivalTime, flightDepartureTime, needsAirportTransfer, needsLodging, needsCar, recommendation, tripId, planProfile, planChoices]);
 
+  // «Поделиться» сначала сохраняет (аудит 07.11, H10): ссылка — на план,
+  // который сейчас на экране, а не на последнюю сохранённую версию. До этого
+  // без сохранённой поездки первое нажатие только сохраняло, и ссылки не было.
   const shareTrip = useCallback(async () => {
     if (!initialUserId) { router.push(`/auth/login?from=/planner`); return; }
-    if (!tripId) { await saveTrip(); return; }
     setShareStatus('loading');
+    const savedId = await saveTrip();
+    if (!savedId) {
+      setShareStatus('error');
+      setTimeout(() => setShareStatus('idle'), 3000);
+      return;
+    }
     try {
-      const res = await fetch(`/api/trips/${tripId}/share`, { method: 'POST' });
+      const res = await fetch(`/api/trips/${savedId}/share`, { method: 'POST' });
       const data: { success: boolean; shareUrl?: string } = await res.json();
       if (!data.success || !data.shareUrl) throw new Error('share failed');
       setShareUrl(data.shareUrl);
@@ -1586,7 +1626,7 @@ export function PlannerClient({ initialUserId }: { initialUserId?: string | null
       setShareStatus('error');
       setTimeout(() => setShareStatus('idle'), 3000);
     }
-  }, [router, initialUserId, tripId, saveTrip]);
+  }, [router, initialUserId, saveTrip]);
 
   const handleShareCopy = useCallback(async () => {
     if (!shareUrl) return;
@@ -1967,7 +2007,6 @@ export function PlannerClient({ initialUserId }: { initialUserId?: string | null
             flight_departure: flightDeparture || undefined,
             flight_arrival_time: flightArrivalTime || undefined,
             flight_departure_time: flightDepartureTime || undefined,
-            needs_airport_transfer: needsAirportTransfer || undefined,
             trip_days: tripDays ?? undefined,
             transport_choices: transportByDay,
             // План целиком (#2304, шаг 2): состав, уровень, туры дня с датами и
@@ -1975,7 +2014,8 @@ export function PlannerClient({ initialUserId }: { initialUserId?: string | null
             // `recommendation`: их не читал никто, а оператор видел одни
             // названия дней и переспрашивал то, что человек уже выбрал.
             ...(planProfile && days.length > 0
-              ? { plan: planForLead(days, { ...planProfile, arrivalDate: arrival || null }, planChoices) }
+              ? { plan: planForLead(days, { ...planProfile, arrivalDate: arrival || null }, planChoices,
+                  { lodging: needsLodging, transfer: needsAirportTransfer, car: needsCar }) }
               : {}),
           },
           pd_consent: true,

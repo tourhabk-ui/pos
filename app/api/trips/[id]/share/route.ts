@@ -40,7 +40,10 @@ export async function POST(
       shareToken,
       shareUrl: `${baseUrl}/trip/${shareToken}`,
     });
-  } catch {
-    return NextResponse.json({ success: false, error: 'Ошибка сервера' }, { status: 500 });
+  } catch (err) {
+    // Отказ не глушится (§4.0, аудит 07.11 H11): причина — в лог.
+    const e = err as { code?: unknown; message?: unknown };
+    console.error('[trips/share] публикация не записана:', typeof e?.code === 'string' ? e.code : 'нет SQLSTATE', typeof e?.message === 'string' ? e.message.slice(0, 300) : '');
+    return NextResponse.json({ success: false, error: 'Ссылка сейчас не создалась — попробуйте ещё раз' }, { status: 500 });
   }
 }

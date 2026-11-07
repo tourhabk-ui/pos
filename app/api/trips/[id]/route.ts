@@ -5,45 +5,32 @@
  */
 
 import { NextRequest, NextResponse } from 'next/server';
-import { z } from 'zod';
 import { pool } from '@/lib/db-pool';
 import { requireAuth } from '@/lib/auth/middleware';
 import type { UserTripRow } from '@/lib/types/db-rows';
-import { TripChoicesSchema, TripDayPlanSchema, TripPartySchema } from '@/lib/trips/trip-schema';
+import { TRIP_SELECT, UpdateTripSchema, buildTripUpdate } from '@/lib/trips/trip-write';
 import { withCalendarDates } from '@/lib/trips/trip-dates';
 
 export const dynamic = 'force-dynamic';
 
-const UpdateTripSchema = z.object({
-  title: z.string().min(1).max(255).optional(),
-  arrivalDate: z.string().date().nullable().optional(),
-  departureDate: z.string().date().nullable().optional(),
-  places: z.array(z.string()).max(20).optional(),
-  activities: z.array(z.string()).max(20).optional(),
-  days: z.array(TripDayPlanSchema).max(30).optional(),
-  transportByDay: z.record(z.string(), z.enum(['walking', 'jeep', 'helicopter', 'boat'])).optional(),
-  flightArrival: z.string().max(20).nullable().optional(),
-  flightDeparture: z.string().max(20).nullable().optional(),
-  flightArrivalTime: z.string().max(5).nullable().optional(),
-  flightDepartureTime: z.string().max(5).nullable().optional(),
-  needsAirportTransfer: z.boolean().optional(),
-  /** Состав и уровень плана — для сметы и заявки (#2304, шаг 2). */
-  party: TripPartySchema.optional(),
-  /** Выбранные жильё и трансфер; пустые списки — выбор снят (#2304, шаг 3б). */
-  choices: TripChoicesSchema.optional(),
-});
-
 type RouteContext = { params: Promise<{ id: string }> };
+
+const UUID_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
 
 async function getTripOwned(tripId: string, userId: string): Promise<UserTripRow | null> {
   const { rows } = await pool.query<UserTripRow>(
-    `SELECT id, user_id, title, arrival_date, departure_date, places, activities, days,
-            transport_by_day, flight_arrival, flight_departure, flight_arrival_time,
-            flight_departure_time, needs_airport_transfer, party, choices, created_at, updated_at, deleted_at
+    `SELECT ${TRIP_SELECT}
      FROM user_trips WHERE id = $1 AND user_id = $2 AND deleted_at IS NULL`,
     [tripId, userId]
   );
   return rows[0] ?? null;
+}
+
+/** Отказ базы — в лог с SQLSTATE, человеку — общие слова (аудит 07.11, H11). */
+function failed(what: string, err: unknown, message: string): NextResponse {
+  const e = err as { code?: unknown; message?: unknown };
+  console.error(`[trips/id] ${what}:`, typeof e?.code === 'string' ? e.code : 'нет SQLSTATE', typeof e?.message === 'string' ? e.message.slice(0, 300) : '');
+  return NextResponse.json({ success: false, error: message }, { status: 500 });
 }
 
 // ─── GET ──────────────────────────────────────────────────────────────────────
@@ -53,7 +40,15 @@ export async function GET(request: NextRequest, ctx: RouteContext) {
   if (authOrResponse instanceof NextResponse) return authOrResponse;
 
   const { id } = await ctx.params;
-  const trip = await getTripOwned(id, authOrResponse.userId);
+  if (!UUID_RE.test(id)) {
+    return NextResponse.json({ success: false, error: 'Маршрут не найден' }, { status: 404 });
+  }
+  let trip: UserTripRow | null;
+  try {
+    trip = await getTripOwned(id, authOrResponse.userId);
+  } catch (err) {
+    return failed('поездка не прочитана', err, 'Маршрут сейчас не загрузился — попробуйте чуть позже');
+  }
 
   if (!trip) {
     return NextResponse.json({ success: false, error: 'Маршрут не найден' }, { status: 404 });
@@ -69,64 +64,45 @@ export async function PATCH(request: NextRequest, ctx: RouteContext) {
   if (authOrResponse instanceof NextResponse) return authOrResponse;
 
   const { id } = await ctx.params;
-  const existing = await getTripOwned(id, authOrResponse.userId);
-
-  if (!existing) {
+  if (!UUID_RE.test(id)) {
     return NextResponse.json({ success: false, error: 'Маршрут не найден' }, { status: 404 });
   }
 
+  let body: unknown;
   try {
-    const body = await request.json();
-    const parsed = UpdateTripSchema.safeParse(body);
-    if (!parsed.success) {
-      return NextResponse.json(
-        { success: false, error: 'Некорректные данные', details: parsed.error.issues },
-        { status: 400 }
-      );
+    body = await request.json();
+  } catch {
+    return NextResponse.json({ success: false, error: 'Неверный формат запроса' }, { status: 400 });
+  }
+  const parsed = UpdateTripSchema.safeParse(body);
+  if (!parsed.success) {
+    return NextResponse.json(
+      { success: false, error: 'Некорректные данные', details: parsed.error.issues },
+      { status: 400 }
+    );
+  }
+
+  try {
+    // Только присланные поля; null — стереть (аудит 07.11, H9). До этого
+    // каждое поле шло через COALESCE, и убранный рейс оставался в поездке.
+    const { sets, values } = buildTripUpdate(parsed.data, 3);
+    if (sets.length === 0) {
+      const trip = await getTripOwned(id, authOrResponse.userId);
+      if (!trip) return NextResponse.json({ success: false, error: 'Маршрут не найден' }, { status: 404 });
+      return NextResponse.json({ success: true, data: withCalendarDates(trip) });
     }
-
-    const d = parsed.data;
-
-    const { rows } = await pool.query<UserTripRow>(`
-      UPDATE user_trips SET
-        title                 = COALESCE($2, title),
-        arrival_date          = CASE WHEN $3::TEXT IS NOT NULL THEN $3::DATE ELSE arrival_date END,
-        departure_date        = CASE WHEN $4::TEXT IS NOT NULL THEN $4::DATE ELSE departure_date END,
-        places                = COALESCE($5, places),
-        activities            = COALESCE($6, activities),
-        days                  = COALESCE($7, days),
-        transport_by_day      = COALESCE($8, transport_by_day),
-        flight_arrival        = COALESCE($9, flight_arrival),
-        flight_departure      = COALESCE($10, flight_departure),
-        flight_arrival_time   = COALESCE($11, flight_arrival_time),
-        flight_departure_time = COALESCE($12, flight_departure_time),
-        needs_airport_transfer = COALESCE($13, needs_airport_transfer),
-        party                 = COALESCE($14::jsonb, party),
-        choices               = COALESCE($15::jsonb, choices)
-      WHERE id = $1
-      RETURNING *
-    `, [
-      id,
-      d.title ?? null,
-      d.arrivalDate ?? null,
-      d.departureDate ?? null,
-      d.places ?? null,
-      d.activities ?? null,
-      d.days !== undefined ? JSON.stringify(d.days) : null,
-      d.transportByDay !== undefined ? JSON.stringify(d.transportByDay) : null,
-      d.flightArrival !== undefined ? d.flightArrival : null,
-      d.flightDeparture !== undefined ? d.flightDeparture : null,
-      d.flightArrivalTime !== undefined ? d.flightArrivalTime : null,
-      d.flightDepartureTime !== undefined ? d.flightDepartureTime : null,
-      d.needsAirportTransfer !== undefined ? d.needsAirportTransfer : null,
-      d.party !== undefined ? JSON.stringify(d.party) : null,
-      d.choices !== undefined ? JSON.stringify(d.choices) : null,
-    ]);
-
+    const { rows } = await pool.query<UserTripRow>(
+      `UPDATE user_trips SET ${sets.join(', ')}
+        WHERE id = $1 AND user_id = $2 AND deleted_at IS NULL
+        RETURNING ${TRIP_SELECT}`,
+      [id, authOrResponse.userId, ...values],
+    );
+    if (rows.length === 0) {
+      return NextResponse.json({ success: false, error: 'Маршрут не найден' }, { status: 404 });
+    }
     return NextResponse.json({ success: true, data: withCalendarDates(rows[0]) });
   } catch (err) {
-    const msg = err instanceof Error ? err.message : 'Ошибка при обновлении маршрута';
-    return NextResponse.json({ success: false, error: msg }, { status: 500 });
+    return failed('поездка не обновлена', err, 'Маршрут не сохранился — попробуйте ещё раз');
   }
 }
 
@@ -137,6 +113,9 @@ export async function DELETE(request: NextRequest, ctx: RouteContext) {
   if (authOrResponse instanceof NextResponse) return authOrResponse;
 
   const { id } = await ctx.params;
+  if (!UUID_RE.test(id)) {
+    return NextResponse.json({ success: false, error: 'Маршрут не найден' }, { status: 404 });
+  }
   const existing = await getTripOwned(id, authOrResponse.userId);
 
   if (!existing) {
