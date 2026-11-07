@@ -421,9 +421,12 @@ describe('getGuardianContext — вторая шкала вулкана, КФ Е
     mockPlace(row);
     const ctx = await getGuardianContext('Мутновский вулкан');
     expect(ctx).toContain('KVERT: ЗЕЛЁНЫЙ');
-    expect(ctx).toContain('КФ ЕГС (сейсмичность, за 22.09): жёлтый');
+    expect(ctx).toContain('КФ ЕГС (за 22.09): жёлтый (шкала сводки: сейсмичность, газ, термоаномалии, пепел); сейсмичность — ');
     expect(ctx).toContain('255');
     expect(ctx).toContain('не авиационный код');
+    // Повышено хотя бы одно из четырёх, а не обязательно сейсмичность (#3138).
+    expect(ctx).toContain('повышено хотя бы одно из четырёх (сейсмичность, газ, термоаномалии или пепел)');
+    expect(ctx).not.toContain('повышенная сейсмичность и эмиссия газов');
     // Прод 24.09: «событий 255.. Это» — точка источника плюс своя.
     expect(ctx).not.toMatch(/\.\./);
   });
@@ -447,8 +450,8 @@ describe('getGuardianContext — вторая шкала вулкана, КФ Е
     vi.setSystemTime(new Date('2026-09-24T03:00:00Z'));
     mockPlace({ ...row, kfegs_color: 'green', kfegs_raw: 'Зеленый', kfegs_seismicity: null });
     const ctx = await getGuardianContext('Мутновский вулкан');
-    expect(ctx).toContain('КФ ЕГС (сейсмичность, за 22.09): зелёный');
-    expect(ctx).not.toContain('повышенная сейсмичность');
+    expect(ctx).toContain('КФ ЕГС (за 22.09): зелёный (шкала сводки');
+    expect(ctx).not.toContain('повышено хотя бы одно');
   });
 
   it('оранжевый КФ ЕГС не теряется при слабом совпадении имени', async () => {

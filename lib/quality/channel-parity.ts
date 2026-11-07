@@ -284,9 +284,13 @@ export function eventsFromGist(s: string | null | undefined): number | null {
   return m ? Number(m[1]) : null;
 }
 
-/** Часть строки вулкана про КФ ЕГС: `КФ ЕГС (сейсмичность, за 24.09): жёлтый — … событий 255`. */
+/**
+ * Часть строки вулкана про КФ ЕГС: `КФ ЕГС (за 24.09): жёлтый (шкала сводки: …);
+ * сейсмичность — … событий 255` (прежний вид — `КФ ЕГС (сейсмичность, за 24.09):
+ * жёлтый — …`). Число событий ищется во всём хвосте после цвета.
+ */
 export function parseEgsPhrase(s: string): { color: string | null; events: number | null; present: boolean } {
-  const m = /КФ ЕГС\s*\([^)]*за\s+\d{2}\.\d{2}\):\s*(зел[её]ный|ж[её]лтый|оранжевый|красный)(?:\s*—\s*(.*))?/i.exec(s);
+  const m = /КФ ЕГС\s*\([^)]*за\s+\d{2}\.\d{2}\):\s*(зел[её]ный|ж[её]лтый|оранжевый|красный)(.*)/i.exec(s);
   if (!m) return { color: null, events: null, present: /КФ ЕГС/.test(s) };
   return { color: colorFromWord(m[1]), events: eventsFromGist(m[2]), present: true };
 }

@@ -19,8 +19,10 @@ import {
   volcanoMarks,
   levelForColor,
   kfegsIsFresh,
+  kfegsPhrase,
   type KfegsReading,
 } from '@/lib/services/safety/volcano-scales';
+import { parseEgsPhrase } from '@/lib/quality/channel-parity';
 
 const PLACES = new Map([
   ['mut', { name: 'Мутновский', lat: 52.45, lng: 158.2 }],
@@ -69,7 +71,7 @@ describe('в подписи — обе шкалы, каждая названа',
   );
 
   it('КФ ЕГС — со своим смыслом, датой сводки и причиной цвета', () => {
-    expect(m.note).toContain('КФ ЕГС (сейсмичность, за 22.09): жёлтый');
+    expect(m.note).toContain('КФ ЕГС (за 22.09): жёлтый (шкала сводки: сейсмичность, газ, термоаномалии, пепел); сейсмичность — ');
     expect(m.note).toContain('255');
     // Служебное «R=…; Ks пред.=…» туристу ни о чём не говорит.
     expect(m.note).not.toMatch(/Ks пред/);
@@ -84,6 +86,29 @@ describe('в подписи — обе шкалы, каждая названа',
   it('нет сводки КФ ЕГС — так и сказано, а не пропущено', () => {
     const [x] = volcanoMarks(new Map([['she', 'orange']]), new Map(), PLACES);
     expect(x.note).toContain('КФ ЕГС: свежей сводки нет');
+  });
+});
+
+describe('цвет КФ ЕГС — общая шкала сводки, сейсмичность — отдельно (#3138)', () => {
+  // Дайджест 07.11: «Шивелуч: КФ ЕГС (сейсмичность, за 06.11): жёлтый — Фоновая».
+  // Жёлтый у Шивелуча идёт не от сейсмичности, а она фоновая: цвет со словом
+  // читались как противоречие, а «(сейсмичность…)» приписывало цвет ей.
+  const phrase = kfegsPhrase(reading('yellow', 'Желтый', 'Фоновая'));
+
+  it('цвет не подписан «сейсмичностью», из чего он складывается — сказано', () => {
+    expect(phrase).not.toMatch(/\(сейсмичность, за/);
+    expect(phrase).toContain('жёлтый (шкала сводки: сейсмичность, газ, термоаномалии, пепел)');
+  });
+
+  it('графа сейсмичности названа своим именем, не продолжением цвета', () => {
+    expect(phrase).toContain('; сейсмичность — Фоновая');
+    expect(phrase).not.toMatch(/жёлтый — Фоновая/);
+  });
+
+  it('сверка каналов читает цвет и число событий и в новом виде', () => {
+    const full = kfegsPhrase(reading('yellow', 'Желтый', 'Выше фона. Количество событий в районе вулкана 255.'));
+    expect(parseEgsPhrase(full)).toEqual({ color: 'yellow', events: 255, present: true });
+    expect(parseEgsPhrase(phrase)).toEqual({ color: 'yellow', events: null, present: true });
   });
 });
 
