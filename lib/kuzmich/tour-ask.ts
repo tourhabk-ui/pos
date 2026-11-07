@@ -32,3 +32,32 @@ export function namedTourInQuestion(text: string): string | null {
   const m = /(?:^|[^а-яёa-z0-9])тур(?:а|е|у|ом)?\s*[«"„“]([^»"”“]{3,160})[»"”“]/iu.exec(text);
   return m ? m[1].trim() : null;
 }
+
+/** Человек спрашивает, как подать заявку или записаться. */
+const ASKS_HOW_TO_APPLY = /как\s+(?:мне\s+)?(?:оставить|подать|отправить|оформить)\s+заявк|как\s+(?:мне\s+)?(?:записаться|забронировать|заказать)/i;
+
+/** Адрес карточки тура в выводе инструмента (`get_tour_details`, `get_tour_availability`). */
+const TOUR_CARD_URL = /https?:\/\/[^\s"'<>)]+\/catalog\/tours\/[A-Za-z0-9_-]+/g;
+
+/**
+ * Ссылка на заявку под ответом о названном туре (07.11, чат гостя о туре
+ * «Трекинг к подножию вулкана Ключевская Сопка»): человек спросил «как
+ * оставить заявку», модель ответила про безопасность, снаряжение и опыт, а на
+ * третий вопрос — ни слова. Сторож дописывает адрес, только если:
+ * - вопрос о ОДНОМ названном туре и о заявке;
+ * - ответ адреса карточки не назвал;
+ * - адрес ровно один в выводе инструментов хода — своего сервер не сочиняет.
+ */
+export function appendTourApplyLink(
+  answer: string,
+  question: string,
+  toolRuns: ReadonlyArray<{ output?: string }> | null,
+): string {
+  if (!answer.trim() || namedTourInQuestion(question) === null || !ASKS_HOW_TO_APPLY.test(question)) return answer;
+  if (/\/catalog\/tours\//.test(answer)) return answer;
+  const urls = new Set<string>();
+  for (const run of toolRuns ?? []) for (const m of (run.output ?? '').matchAll(TOUR_CARD_URL)) urls.add(m[0]);
+  if (urls.size !== 1) return answer;
+  const [url] = [...urls];
+  return `${answer.trim()}\n\nЗаявка — на странице тура: ${url}#booking. Это заявка, не бронь: даты и места подтверждает оператор.`;
+}

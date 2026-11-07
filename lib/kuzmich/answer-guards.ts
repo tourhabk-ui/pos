@@ -33,6 +33,7 @@ import { stripBannedAdvice, BANNED_ADVICE_NOTE } from '@/lib/kuzmich/banned-advi
 import { guardDeliveryClaims, DELIVERY_HONEST_LINE, type DeliveryGuardResult } from '@/lib/kuzmich/delivery-claim-guard';
 import { guardOutageClaims } from '@/lib/kuzmich/outage-claim-guard';
 import { appendRouteSafety } from '@/lib/kuzmich/route-safety';
+import { appendTourApplyLink } from '@/lib/kuzmich/tour-ask';
 import { recordSafetyReview } from '@/lib/kuzmich/safety-review-log';
 import { withSosBlock, type SosLang } from '@/lib/safety/sos-detector';
 import type { ToolRun } from '@/lib/agents/eval/grounding';
@@ -120,9 +121,11 @@ export function finishKuzmichAnswer(input: FinishInput): FinishedAnswer {
     input.context.includes(MCHS_UNREAD_NOTE),
   );
   // Строка безопасности под ответом о маршруте (lib/kuzmich/route-safety) — по-русски.
-  const flagged = (input.lang ?? 'ru') === 'ru'
+  const routed = (input.lang ?? 'ru') === 'ru'
     ? appendRouteSafety(offered, input.question, input.context)
     : offered;
+  // Вопрос «как оставить заявку» про названный тур — адрес карточки из вывода инструмента.
+  const flagged = (input.lang ?? 'ru') === 'ru' ? appendTourApplyLink(routed, input.question, input.toolRuns) : routed;
 
   if (input.sos === false) {
     return { text: flagged, emergency: false, distanceRemoved: distance.removed, safety, delivery };
@@ -176,6 +179,8 @@ export function correctShownAnswer(input: Omit<FinishInput, 'sos' | 'lang'>): Sh
   if (flagged !== input.answer) notes.push(flagged.slice(input.answer.length).trim());
   const routed = appendRouteSafety(flagged, input.question, input.context);
   if (routed !== flagged) notes.push(routed.slice(flagged.trim().length).trim());
+  const linked = appendTourApplyLink(routed, input.question, input.toolRuns);
+  if (linked !== routed) notes.push(linked.slice(routed.trim().length).trim());
   return {
     tail: notes.length > 0 ? `\n\n${notes.join('\n\n')}` : '',
     distanceRemoved: distance.removed,

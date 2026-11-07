@@ -1647,6 +1647,7 @@ export async function getTourDetails(query: string): Promise<string> {
 
     const { rows } = await pool.query<{
       id: number;
+      slug: string | null;
       title: string;
       base_price: number | null;
       price_unit: string | null;
@@ -1675,7 +1676,7 @@ export async function getTourDetails(query: string): Promise<string> {
       // без алиаса, и JOIN с partners сделал бы их неоднозначными.
       `SELECT id, title, base_price, price_unit, short_description, description, meeting_point,
               included, not_included, what_to_bring, cancellation_policy, location_name, activity_type,
-              program, safety_notes, pickup_type, pickup_details, max_participants, min_participants, group_size_unlimited,
+              program, safety_notes, pickup_type, pickup_details, max_participants, min_participants, group_size_unlimited, slug,
               (SELECT p.name FROM partners p WHERE p.id = operator_tours.operator_id) AS operator_name,
               (SELECT NULLIF(btrim(p.legal_info->>'companyName'), '') FROM partners p WHERE p.id = operator_tours.operator_id) AS operator_legal_name,
               (SELECT NULLIF(btrim(p.legal_info->>'inn'), '') FROM partners p WHERE p.id = operator_tours.operator_id) AS operator_inn,
@@ -1691,6 +1692,13 @@ export async function getTourDetails(query: string): Promise<string> {
       ...(choice.kind === 'ambiguous' ? [ambiguityNote(q, choice.candidates)] : []),
       `ТУР: "${t.title}" (ID${t.id})`,
     ];
+    // Где оставить заявку (07.11, чат гостя о туре «Трекинг к подножию вулкана
+    // Ключевская Сопка»): на вопрос «как оставить заявку» модель отвечала без
+    // адреса — в выводе инструмента его не было. Строка — вторая: журнал хода
+    // хранит вывод обрезанным, и сторож ответа (appendTourApplyLink) берёт адрес
+    // оттуда. Адрес — тем же правилом, что у карточки (lib/tours/tour-url).
+    parts.push(`Страница тура и заявка оператору: ${getPublicBaseUrl()}${tourPath({ id: t.id, slug: t.slug })}#booking — `
+      + 'это заявка, не бронь: даты и места подтверждает оператор.');
     if (t.location_name) parts.push(`Локация: ${t.location_name}`);
     // Здесь проверка на null уже была, но формат теперь общий с каталогом:
     // два написания одной цены разъезжаются так же, как два предиката.

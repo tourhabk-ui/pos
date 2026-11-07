@@ -29,7 +29,7 @@ import { pool } from '@/lib/db-pool';
 import { applyPlanParkStatus, type PlanParkQuery } from './park-status';
 import { loadActiveWarnings, type ActiveWarningLoad } from '@/lib/safety/active-warnings';
 import {
-  MCHS_UNREAD_NOTE, notesForPlanDay, offeringSentence, splitWarningsForTrip, warningDigest,
+  isOfferingNote, MCHS_UNREAD_NOTE, notesForPlanDay, offeringSentence, splitWarningsForTrip, warningDigest,
 } from '@/lib/safety/mchs-bulletin';
 import { ZONE_NAMES, type ZoneId } from './constants';
 import { dateOfTripDay } from './flow-balance';
@@ -47,10 +47,8 @@ export const DEFAULT_SAFETY_DEPS: SafetyRefreshDeps = {
   parkQuery: async <T,>(sql: string, params: unknown[]) => (await pool.query(sql, params)) as unknown as { rows: T[] },
 };
 
-/** Строка сводки МЧС на дне плана (offeringSentence). */
-function isMchsNote(text: string): boolean {
-  return text.startsWith('МЧС: ') && text.endsWith('Это нельзя называть безопасным или без риска.');
-}
+/** Строка сводки МЧС на дне плана (offeringSentence) — одно правило с её автором. */
+const isMchsNote = isOfferingNote;
 
 /** Строка парка на дне плана (parkNoteForDay). */
 function isParkNote(text: string): boolean {

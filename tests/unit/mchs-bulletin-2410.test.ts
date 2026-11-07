@@ -11,7 +11,7 @@ import { describe, expect, it } from 'vitest';
 import { zoneBanner } from '@/app/safety/_SafetyClient';
 import { finishKuzmichAnswer } from '@/lib/kuzmich/answer-guards';
 import {
-  appendOfferingFlags, citeBulletin, notesForOffering, notesForPlanDay,
+  appendOfferingFlags, citeBulletin, DIGEST_TAIL, MCHS_UNREAD_NOTE, notesForOffering, notesForPlanDay,
   parseBulletinPeriod, warningDigest, warningsFromRows,
 } from '@/lib/safety/mchs-bulletin';
 import { classifyMchsItems } from '@/lib/services/safety/seismic-parser';
@@ -191,16 +191,18 @@ describe('тур и маршрут не называются свободным�
       toolRuns: [],
       context: block,
     });
-    expect(safe.text).toMatch(/нельзя называть безопасн/);
+    expect(safe.text).toContain(DIGEST_TAIL);
+    // Строка для человека, а не правило для модели (07.11).
+    expect(safe.text).not.toMatch(/нельзя называть безопасн/);
     expect(safe.text).toContain(SOURCE);
     const unread = finishKuzmichAnswer({
       surface: 'telegram',
       answer: 'Маршрут безопасный.',
       question: 'Как там?',
       toolRuns: [],
-      context: 'Сводки МЧС не прочитаны — эти варианты нельзя называть безопасными или без риска.',
+      context: MCHS_UNREAD_NOTE,
     });
-    expect(unread.text).toContain('Сводки МЧС не прочитаны');
+    expect(unread.text).toContain(MCHS_UNREAD_NOTE);
     const quiet = finishKuzmichAnswer({
       surface: 'web',
       answer: 'В каталоге есть три тура.',
@@ -208,7 +210,7 @@ describe('тур и маршрут не называются свободным�
       toolRuns: [],
       context: block,
     });
-    expect(quiet.text).not.toMatch(/нельзя называть безопасн/);
+    expect(quiet.text).not.toContain(DIGEST_TAIL);
   });
 
   it('именительный округ получает запрет, голое «октябрьский» — нет', () => {
