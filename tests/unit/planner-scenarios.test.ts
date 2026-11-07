@@ -65,6 +65,7 @@ vi.mock('@/lib/db-pool', () => ({ pool: { query: vi.fn(async () => ({ rows: [] }
 import { recommendTrip, type TripProfile } from '@/lib/planner/engine';
 import { fetchRealToursForZone } from '@/lib/planner/data';
 import { tourPlanSpan } from '@/lib/planner/tour-span';
+import { ACTIVITY_CONSTRAINTS, ACTIVITY_NAMES } from '@/lib/planner/constants';
 
 const NEXT_JULY = new Date().getUTCFullYear() + 1;
 const profile = (days: number, interests: string[]): TripProfile => ({
@@ -153,5 +154,33 @@ describe('E5: туры зоны — в окне поездки (волна 3.5)'
     const calls = vi.mocked(fetchRealToursForZone).mock.calls;
     expect(calls.length).toBeGreaterThan(1);
     for (const call of calls) expect(call[4], `вызов ${call[0]}:${call[1]}:${call[2]}`).toEqual({ from: p.arrivalDate, to: p.departureDate });
+  });
+});
+
+describe('E8: зима и пустой план (волна 3.6)', () => {
+  // Проба 6.4 E аудита: январь, вулканы, рыбалка, треккинг — дней нет, а
+  // смета показывала трансфер аэропорта и не говорила, что доступно.
+  const winter = (): TripProfile => ({
+    ...profile(7, ['volcano', 'fishing', 'trekking']),
+    arrivalDate: `${NEXT_JULY}-01-15`, departureDate: `${NEXT_JULY}-01-21`,
+  });
+
+  it('дней нет — смета пустая, а «Важно» называет, что доступно в этом месяце', async () => {
+    const rec = await recommendTrip(winter());
+    expect(rec.days).toHaveLength(0);
+    expect(rec.priceBreakdown.perPersonTotal).toEqual([0, 0]);
+    expect(rec.priceBreakdown.transport).toEqual([0, 0]);
+    const line = rec.warnings.find((w) => w.message.startsWith('В эти даты план не собрался'));
+    expect(line?.severity).toBe('important');
+    const listed = line!.message.split('доступны: ')[1]!.split(' — ')[0]!.split(', ').sort();
+    const january = Object.entries(ACTIVITY_CONSTRAINTS).filter(([, c]) => c.months.includes(1)).map(([a]) => ACTIVITY_NAMES[a] ?? a).sort();
+    expect(listed).toEqual(january);
+    for (const asked of ['volcano', 'fishing', 'trekking']) expect(listed).not.toContain(ACTIVITY_NAMES[asked]);
+  });
+
+  it('даты наоборот — строки «все просьбы вне сезона» нет: причина другая', async () => {
+    const rec = await recommendTrip({ ...winter(), departureDate: `${NEXT_JULY}-01-10` });
+    expect(rec.days).toHaveLength(0);
+    expect(rec.warnings.some((w) => w.message.startsWith('В эти даты план не собрался'))).toBe(false);
   });
 });

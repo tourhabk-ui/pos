@@ -216,6 +216,15 @@ export interface PriceBreakdown {
 }
 
 export function calculatePriceBreakdown(days: EstimateDay[], profile: Pick<EstimateProfile, 'budgetTier' | 'tripOrigin'>): PriceBreakdown {
+  // Плана нет — сметы нет (аудит 07.11, E8): до 07.11 пустой зимний план
+  // показывал «на человека 2 500–5 000 ₽» — трансфер аэропорта к поездке, в
+  // которой нет ни одного дня.
+  if (days.length === 0) {
+    return {
+      activities: [0, 0], accommodation: [0, 0], transport: [0, 0], perPersonTotal: [0, 0],
+      activityPricing: { tourPriced: 0, estimated: 0, excluded: 0, unpriced: 0 },
+    };
+  }
   const bi = budgetIndex(profile.budgetTier);
   const nightCount = Math.max(0, days.length - 1);
 
