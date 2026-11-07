@@ -149,6 +149,33 @@ describe('миграция 1340 (клипы Курильского у туров
   });
 });
 
+describe('миграция 1398 (клипы Вачкажца у тура гида)', () => {
+  const sql = read('migrations/1398_guide_vachkazhets_clips.sql');
+
+  it('ключи — только из маркера заливки и лежат в media/s3; каждый клип — H.264 без звука', () => {
+    const marker = JSON.parse(read(MARKER)) as { items: Array<{ key: string; file: string }> };
+    const uploaded = new Set(marker.items.map((i) => i.key));
+    const keys = [...sql.matchAll(/'(videos\/[^']+)'/g)].map((m) => m[1]!);
+    expect(keys).toHaveLength(6);
+    for (const k of keys) {
+      expect(uploaded.has(k), k).toBe(true);
+      expect(existsSync(join(ROOT, 'media/s3', k)), k).toBe(true);
+    }
+    for (const k of keys.filter((x) => x.endsWith('.mp4'))) {
+      const meta = readFileSync(join(ROOT, 'media/s3', k)).toString('latin1');
+      expect(meta, k).toContain('avc1');
+      expect(meta, k).not.toMatch(/hdlr\0{8}soun/);
+    }
+  });
+
+  it('только тур «Вачкажец + озёрки»; клипы дописываются к своим, без повтора и не больше шести', () => {
+    expect(sql).toMatch(/WHERE t\.slug = 'zaporozhets-vachkazhets-ozerki'/);
+    expect(sql).toMatch(/SET video_clips = ot\.video_clips \|\| a\.items/);
+    expect(sql).toMatch(/NOT EXISTS \([\s\S]*e->>'key' = cl\.c->>'key'/);
+    expect(sql).toMatch(/WHERE k <= 6 - have/);
+  });
+});
+
 describe('карточка тура и CSP', () => {
   it('сервер собирает адреса, ключи до клиента не доходят', () => {
     const q = read('lib/tours/tour-detail-query.ts');
