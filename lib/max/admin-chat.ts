@@ -16,6 +16,7 @@ import { withSosBlock } from '@/lib/safety/sos-detector';
 import { ADMIN_HELP_TEXT, adminCommandOf, adminReplyFor } from '@/lib/max/admin-read';
 import { adminMenu } from '@/lib/roles/role-menu';
 import { menuRows, type MenuButton } from '@/lib/roles/chat-menu';
+import { handleAdminDatesText } from '@/lib/max/admin-dates';
 
 export const ADMIN_CHAT_TEXT = {
   // Голос и фото здесь не разбираются, а в них может быть беда: строка 112 —
@@ -44,6 +45,8 @@ export async function handleAdminMessage(opts: {
   chatId: number;
   reply: (chatId: number, text: string) => Promise<void>;
   replyButtons: (chatId: number, text: string, rows: MenuButton[][]) => Promise<void>;
+  /** Аккаунт администратора этого сообщения (роут проверил роль на нём): кто открывает даты. */
+  adminUserId: string;
   nowMs?: number;
 }): Promise<void> {
   const { text, name, chatId } = opts;
@@ -52,6 +55,13 @@ export async function handleAdminMessage(opts: {
   const reply = (id: number, body: string) => opts.reply(id, withSosBlock(body, text).text);
   if (/^\/start\b/i.test(text.trim())) {
     await reply(chatId, adminGreeting(name));
+    return;
+  }
+  // Даты за оператора (фаза 2б, 07.11) — раньше команд: «открой … на Горелый,
+  // 6 мест» — фраза, а не команда «даты». Не фраза про даты — дальше команды.
+  const dates = await handleAdminDatesText({ adminUserId: opts.adminUserId, chatId, text, nowMs: opts.nowMs });
+  if (dates) {
+    await opts.replyButtons(chatId, withSosBlock(dates.text, text).text, dates.buttons);
     return;
   }
   const cmd = adminCommandOf(text);

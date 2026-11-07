@@ -1309,7 +1309,7 @@ async function handleUpdate(update: MaxUpdate, opts?: { verifiedOrigin?: boolean
           return;
         }
         await handleAdminMessage({
-          text, name: admin.name, chatId,
+          text, name: admin.name, chatId, adminUserId: admin.userId,
           reply: async (_id, body) => {
             await maxReplyWithButtons(chatId, body, toMaxButtons(menuRows(adminMenu())));
           },
