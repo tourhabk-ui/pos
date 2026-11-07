@@ -2730,10 +2730,12 @@ async function executeTool(name: string, args: Record<string, string>, opts: Too
       return await searchGearForKuzmich({ query: args.query, category: args.category, price_max: args.price_max });
     }
     if (name === 'search_taaft') {
-      const { searchExternalTools, trackToolUsage, formatToolsForKuzmich } = await import('@/lib/agents/tools/taaft-search');
-      const tools = await searchExternalTools(args.task ?? args.query ?? '');
-      void Promise.all(tools.slice(0, 2).map((t) => trackToolUsage(t.slug)));
-      return formatToolsForKuzmich(tools);
+      // Сторонние приложения (миграция 1396): подошедшее под задачу или весь
+      // короткий список. Счётчик «использований» не пишется: попадание в ответ
+      // не было ни советом, ни использованием, а страница выдавала его за то и другое.
+      const { listTravelApps, matchApps, formatAppsForKuzmich } = await import('@/lib/agents/tools/taaft-search');
+      const all = await listTravelApps();
+      return formatAppsForKuzmich(matchApps(args.task ?? args.query ?? '', all), all);
     }
     if (name === 'make_trip_plan') {
       const { makeTripPlanForKuzmich } = await import('@/lib/kuzmich/trip-plan-tool');

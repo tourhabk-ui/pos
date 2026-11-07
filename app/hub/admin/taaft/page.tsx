@@ -2,8 +2,8 @@ import type { Metadata } from 'next';
 import TaaftClient from './_TaaftClient';
 
 export const metadata: Metadata = {
-  title: 'AI-инструменты — Volcano OS',
-  description: 'Каталог внешних AI-инструментов для Kuzmich и агентов',
+  title: 'Сторонние сервисы — Volcano OS',
+  description: 'Чужие приложения, которые советует Кузьмич и показывает страница «Приложения в дорогу»',
 };
 
 export default function TaaftPage() {
