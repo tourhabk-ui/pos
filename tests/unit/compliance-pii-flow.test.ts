@@ -1,7 +1,7 @@
 import { describe, it, expect } from 'vitest';
 import { resolve } from 'path';
-import { readFileSync } from 'fs';
-import { scanSource, pdAliases, promptFlowOf, maskCode, FOREIGN_LLM_CALLERS, DOMESTIC_LLM_CALLERS } from '@/lib/agents/compliance/pii-flow-scanner';
+import { readFileSync, readdirSync, statSync } from 'fs';
+import { scanSource, pdAliases, promptFlowOf, maskCode, FOREIGN_LLM_CALLERS, DOMESTIC_LLM_CALLERS, EGRESS_DOORS } from '@/lib/agents/compliance/pii-flow-scanner';
 import { findViolations, ALLOWLIST } from '@/lib/agents/compliance/scan-repo';
 import {
   LLM_ENDPOINTS,
@@ -874,5 +874,122 @@ describe('D1 — шестое ревью PR #3104: деление или рег�
     const masked = maskCode('<div className="flex\n  items-center lead.phone">x</div>');
     expect(masked).not.toContain('items-center');
     expect(masked).not.toContain('lead.phone');
+  });
+});
+
+describe('D1 — седьмое ревью PR #3104: двери, значение стока, род ПД по рёбрам', () => {
+  const found = (src: string) => scanSource('q.ts', src).map((x) => [x.kind, x.context]);
+  const FAST = "import { callAIFast } from '@/lib/ai/providers';";
+  const SDK = "import { runSDKAgent } from '@/lib/agents/sdk/sdk-runner';";
+  const ask = (...lines: string[]) => [FAST, ...lines].join('\n');
+
+  it('реестр дверей вне провайдеров сверен с файлами: хост модели в коде — запись, экспорт — решение', () => {
+    const foreign = new Set(LLM_ENDPOINTS.filter((e) => !e.domestic).map((e) => e.host));
+    const files: string[] = [];
+    const walk = (dir: string) => {
+      for (const name of readdirSync(resolve(REPO_ROOT, dir))) {
+        const rel = `${dir}/${name}`;
+        if (statSync(resolve(REPO_ROOT, rel)).isDirectory()) walk(rel);
+        else if (/\.tsx?$/.test(name) && !/\.(test|d)\.tsx?$/.test(name)) files.push(rel);
+      }
+    };
+    walk('lib');
+    const egress = files.filter((f) => f !== 'lib/ai/providers.ts' && f !== 'lib/agents/compliance/provider-registry.ts'
+      && extractLLMHosts(readFileSync(resolve(REPO_ROOT, f), 'utf8')).some((h) => foreign.has(h)));
+    expect(egress.length).toBeGreaterThan(5);
+    expect(Object.keys(EGRESS_DOORS).sort(), 'файл с зарубежным хостом модели без решения по дверям').toEqual(egress.sort());
+    for (const f of egress) {
+      const src = readFileSync(resolve(REPO_ROOT, f), 'utf8');
+      const exported = [
+        ...[...src.matchAll(/^export (?:async )?function\s*\*?\s*([A-Za-z_$][\w$]*)/gm)].map((m) => m[1]),
+        ...[...src.matchAll(/^export const\s+([A-Za-z_$][\w$]*)\s*(?::[^=]+)?=\s*(?:async\s*)?(?:\([^)]*\)|[A-Za-z_$][\w$]*)\s*(?::[^=]+)?=>/gm)].map((m) => m[1]),
+      ].sort();
+      const entry = EGRESS_DOORS[f];
+      expect([...entry.doors, ...entry.others].sort(), `${f}: экспорт без решения «дверь или нет»`).toEqual(exported);
+      expect(entry.why.length, f).toBeGreaterThan(20);
+    }
+  });
+
+  it('находка 1: дверь вне провайдеров, прямой fetch к зарубежному хосту и ключ userMessage — стоки', () => {
+    // Дословно сценарий ревьюера.
+    expect(found([SDK, "await runSDKAgent({ agentId: 'operator', intent: 'operator_management',", '  systemPrompt: base, userMessage: `Клиент: ${lead.phone}`, tools, model });'].join('\n')))
+      .toEqual([['contact', 'userMessage']]);
+    const fetchRoute = ["const res = await fetch('https://openrouter.ai/api/v1/chat/completions', {", "  method: 'POST', body: JSON.stringify({ model, messages: [{ role: 'user', content: `Тел: ${lead.phone}` }] }),", '});'].join('\n');
+    expect(found(fetchRoute)).toEqual([['contact', 'content']]);
+    // Адрес в комментарии — не выход: стоков нет, как и раньше.
+    expect(found(fetchRoute.replace("fetch('https://openrouter.ai/api/v1/chat/completions'", "fetch(LOCAL /* https://openrouter.ai */"))).toEqual([]);
+    expect(found([SDK, "const opts = { agentId: 'a', userMessage: 'Клиент: ' + lead.phone };", 'await runSDKAgent(opts);'].join('\n')))
+      .toEqual([['contact', 'userMessage']]);
+  });
+
+  it('находка 2: ПД в самом значении стока, без шаблона, — находки', () => {
+    expect(found(ask("await callAIFast([{ role: 'user', content: lead.email }]);"))).toEqual([['contact', 'content']]);
+    expect(found(ask("await callAIFast([{ role: 'user', content: 'Клиент: ' + lead.phone }]);"))).toEqual([['contact', 'content']]);
+    expect(found(ask("await callAIFast([{ role: 'user', content: [lead.name, lead.phone].join(', ') }]);")))
+      .toEqual([['contact', 'content'], ['name', 'content']]);
+    // Одна утечка — одна находка: значение переменной-промпта судится в нём самом, не в двери.
+    expect(found(ask("const prompt = 'Клиент: ' + lead.phone;", 'await callAIFast(prompt);'))).toEqual([['contact', 'prompt']]);
+    expect(found(ask("const text = 'Клиент: ' + lead.phone;", 'await callAIFast(text);'))).toEqual([['contact', 'callAIFast']]);
+  });
+
+  it('находка 3: род ПД идёт через параметр, поле и голое присваивание', () => {
+    // Дословно три сценария ревьюера.
+    expect(found(ask("function ask(v: string) { return callAIFast([{ role: 'user', content: `Заявка: ${v}` }]); }", 'ask(lead.phone);')))
+      .toEqual([['contact', 'content']]);
+    expect(found(ask('class A { async run(lead: Lead) {', '  this.ctx = lead.phone;', "  await callAIFast([{ role: 'user', content: `Почта: ${this.ctx}` }]);", '} }')))
+      .toEqual([['contact', 'content']]);
+    expect(found(ask('const a = lead.phone;', 'const b = a;', "await callAIFast([{ role: 'user', content: `Клиент: ${b}` }]);")))
+      .toEqual([['contact', 'content']]);
+  });
+
+  it('род ПД: поле объекта, литерал объекта, элемент перебора, индекс, Map.set, функция файла, Promise.all', () => {
+    const sink = (expr: string) => `await callAIFast([{ role: 'user', content: ${expr} }]);`;
+    const cases: Array<[string, string[]]> = [
+      ['box.value', ['box.value = lead.phone;', sink('`Клиент: ${box.value}`')]],
+      ['весь объект', ['box.value = lead.phone;', sink('JSON.stringify(box)')]],
+      ['литерал объекта', ["const ctx = { note: 'Тел: ' + lead.phone };", sink('`Данные: ${ctx.note}`')]],
+      // Имя массива нейтральное: род у элемента — от `l.phone` внутри колбэка, а не от имени `phones`.
+      ['перебор', ['const nums = leads.map((l) => l.phone);', "const text = nums.map((p) => `Тел: ${p}`).join('\\n');", sink('text')]],
+      ['индекс', ['const parts: string[] = [];', 'parts[0] = lead.phone;', sink("parts.join(' ')")]],
+      ['Map.set', ['const m = new Map<string, string>();', "m.set('tel', lead.phone);", sink("[...m.values()].join(' ')")]],
+      ['функция файла', ["function line(l: Lead) { return 'Тел: ' + l.phone; }", sink('line(lead)')]],
+    ];
+    for (const [label, lines] of cases) expect(found(ask(...lines)).map((f) => f[0]), label).toEqual(['contact']);
+    // Promise.all — по позициям: телефон у первого, название у второго.
+    const all = ask('const [tel, title] = await Promise.all([loadPhone(lead.phone), loadTitle()]);', sink('`${title}`'), sink('`${tel}`'));
+    expect(scanSource('q.ts', all).map((f) => [f.line, f.kind])).toEqual([[4, 'contact']]);
+  });
+
+  it('однобуквенный владелец имени — человек, если связан с человеком: тип параметра, for…of по лидам', () => {
+    const sink = "  return callAIFast([{ role: 'user', content: `Кому: ${who}` }]);";
+    expect(found(ask('function f(b: Booking) {', '  const who = b.name;', sink, '}'))).toEqual([['name', 'content']]);
+    expect(found(ask('function f(b: Buffer) {', '  const who = b.name;', sink, '}'))).toEqual([]);
+    expect(found(ask('const lines: string[] = [];', 'for (const l of leads) { const who = l.name; lines.push(who); }', "await callAIFast(lines.join('\\n'));")))
+      .toEqual([['name', 'callAIFast']]);
+  });
+
+  it('узость: поле строки из базы, поле объекта-параметра, имя модели, адрес гостиницы, параметры SQL, длина', () => {
+    const sink = (expr: string) => `await callAIFast([{ role: 'user', content: ${expr} }]);`;
+    const cases: Array<[string, string[]]> = [
+      // Имя автора в строке есть, в промпт идут название тура и очищенный текст (analyze/route.ts).
+      ['поле строки', ['const result = await query(`SELECT r.comment, u.name as user_name, t.title as tour_name FROM reviews r`, [id]);',
+        'const review = result.rows[0];', sink('`Тур ${review.tour_name}: ${redactPII(review.comment)}`')]],
+      // Деструктуризация объекта — чтение полей: text не получает рода fromName.
+      ['поле параметра', ['async function f(opts: { fromName: string; text: string }) {', '  const { fromName, text } = opts;', '  ' + sink('text'), '}',
+        'f({ fromName: msg.from.first_name, text: msg.text });']],
+      // `m.name` модели — не имя человека.
+      ['имя модели', ["const ids = (data.models ?? []).map((m) => m.name.replace(/^models\\//, ''));", 'const model = ids[0];', sink('`Модель: ${model}`')]],
+      // Адрес гостиницы лежит в объекте, в промпт идут id и название.
+      ['гостиница', ['function pick() { return rows.map((row) => ({ id: row.id, name: row.name, address: row.address })); }', 'const acc = pick();',
+        sink('acc.map((a) => `${a.id}:${a.name}`).join(\', \')')]],
+      // Параметры запроса, и с обобщённым типом, — не текст результата.
+      ['параметры SQL', ["const rows = await pool.query<Row>('SELECT note FROM leads WHERE phone = $1', [lead.phone]);", sink('JSON.stringify(rows)')]],
+      // Ключ литерала типа — не переменная.
+      ['литерал типа', ["const r = await pool.query<{ id: number; tourist_phone: string }>('SELECT id FROM t');", sink('JSON.stringify(r)')]],
+      // Тип массива `Row[]` — не элемент: тип не становится переменной с родом.
+      ['тип массива', ['const tel: Row[] = [lead.phone];', 'void tel;', "const r = await pool.query<Row>('SELECT title FROM tours');", sink('JSON.stringify(r)')]],
+      ['длина', ['const n = phones.length;', sink('`Лидов: ${n}`')]],
+    ];
+    for (const [label, lines] of cases) expect(found(ask(...lines)), label).toEqual([]);
   });
 });
