@@ -403,6 +403,30 @@ describe('Ревью состоялось: «не смог» — красный 
     expect(readFileSync(join(dir, 'step-summary'), 'utf-8')).toMatch(/Ревью безопасности \(deepseek-flash\)[\s\S]*Находок нет/);
   });
 
+  it('итогов несколько — публикуется отчёт, а не ответ на уведомление подзадачи', () => {
+    // Дословно 07.11, PR #3130: отчёт с находкой, следом — итог «таймеры остановлены».
+    const REPORT = '# Vuln 1: мёртвая отрицательная проверка — tests/unit/llms-txt.test.ts:75\n* Severity: Medium\n\\b после кириллицы не совпадает никогда.';
+    const TAIL = 'Остановил оставшиеся фоновые таймеры. Отчёт по ревью остаётся прежним.';
+    for (const order of [[REPORT, TAIL], [TAIL, REPORT]]) {
+      writeFileSync(join(dir, 'step-summary'), '');
+      transcript([
+        { type: 'assistant', message: { id: 'm1' } },
+        ...order.map((result, k) => ({ type: 'result', subtype: 'success', is_error: false, num_turns: 10 + k, result })),
+      ]);
+      const r = runStep(step, verdictCtx());
+      expect(r.code, r.out).toBe(0);
+      const report = readFileSync(join(dir, 'review-out', 'report.md'), 'utf-8');
+      expect(report).toContain('мёртвая отрицательная проверка');
+      expect(report).not.toContain('Остановил');
+      expect(readFileSync(join(dir, 'step-summary'), 'utf-8')).toMatch(/Итогов в прогоне 2 \(ответы на уведомления подзадач\) — опубликован самый полный/);
+    }
+    // Один итог — без приписки.
+    writeFileSync(join(dir, 'step-summary'), '');
+    transcript([{ type: 'result', is_error: false, num_turns: 4, result: REPORT }]);
+    expect(runStep(step, verdictCtx()).code).toBe(0);
+    expect(readFileSync(join(dir, 'step-summary'), 'utf-8')).not.toMatch(/Итогов в прогоне/);
+  });
+
   it('ошибка API — красный, причина одной строкой', () => {
     transcript([{ type: 'result', is_error: true, result: 'API Error: 401 invalid key\nStdout: подробности' }]);
     const r = runStep(step, verdictCtx());
