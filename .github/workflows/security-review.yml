@@ -338,8 +338,17 @@ jobs:
           # а не отчётом (пятнадцатое ревью PR #3104). Цена ложного красного —
           # один перезапуск, ложного зелёного — непроверенный PR.
           RESULT=""
+          RESULTS=0
           if [ -s "$TRANSCRIPT" ]; then
-            RESULT=$(jq -R -c 'fromjson? | objects | select(.type == "result")' "$TRANSCRIPT" 2>/dev/null | tail -n 1) || RESULT=""
+            # Итогов бывает несколько: после отчёта ревьюер отвечает на
+            # уведомления своих фоновых подзадач, и каждый ответ — ещё один
+            # итог. 07.11 на PR #3130 последним стала фраза «Остановил
+            # оставшиеся фоновые таймеры… отчёт остаётся прежним» — и в PR
+            # ушла она, а не отчёт. Публикуется самый полный итог; сколько их
+            # было — в сводке.
+            RESULTS=$(jq -R -c 'fromjson? | objects | select(.type == "result")' "$TRANSCRIPT" 2>/dev/null | wc -l | tr -d ' ') || RESULTS=0
+            RESULT=$(jq -R -c 'fromjson? | objects | select(.type == "result")' "$TRANSCRIPT" 2>/dev/null \
+              | jq -s -c 'if length == 0 then empty else max_by(.result // "" | tostring | length) end') || RESULT=""
             # Прогон оборвался, если хоть один его итог — ошибка (предел ходов,
             # отказ API). Итоги после неё — ответы на уведомления фоновых
             # подзадач, а не отчёт: 07.11 на PR #3104 ревью упёрлось в предел
@@ -366,6 +375,10 @@ jobs:
             exit 1
           fi
           printf '%s' "$RESULT" | jq -r '.result // ""' > "$OUT/report.md"
+          case "$RESULTS" in
+            ''|*[!0-9]*|0|1) ;;
+            *) HOW="$HOW Итогов в прогоне $RESULTS (ответы на уведомления подзадач) — опубликован самый полный." ;;
+          esac
           IS_ERROR=$(printf '%s' "$RESULT" | jq -r '.is_error // false')
           TURNS=$(printf '%s' "$RESULT" | jq -r '.num_turns // "не сообщено"')
           if [ "$IS_ERROR" = "true" ]; then
