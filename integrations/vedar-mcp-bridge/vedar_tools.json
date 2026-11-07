@@ -302,7 +302,7 @@
     "type": "function",
     "function": {
       "name": "make_trip_plan",
-      "description": "Day-by-day Kamchatka trip plan with weather and live availability; returns a plan ID for edit_trip_plan. Собрать план поездки по Камчатке по дням: зоны, активности, честные цены, предупреждения сезона, ориентир цены на человека с разбивкой. Используй, когда туриста интересует «что посмотреть за N дней», «составь маршрут/план поездки», «как спланировать неделю на Камчатке». Ответ содержит ссылку на страницу готового плана с турами и заявкой оператору. Ответ несёт ID плана: добавить день, убрать или переставить день, сменить уровень жилья, учесть задержку рейса — через edit_trip_plan с этим ID, остальные дни не меняются. Другие даты, длительность или состав группы — вызови make_trip_plan снова с прежними аргументами плюс изменение.",
+      "description": "Day-by-day Kamchatka trip plan with weather and live availability; returns a plan ID for edit_trip_plan. Собрать план поездки по Камчатке по дням: зоны, активности, честные цены, предупреждения сезона, ориентир цены на человека с разбивкой. Используй, когда туриста интересует «что посмотреть за N дней», «составь маршрут/план поездки», «как спланировать неделю на Камчатке». Ответ содержит ссылку на страницу готового плана с турами и заявкой оператору. Ответ несёт ID плана: добавить, убрать, переставить или заменить день, сменить уровень жилья или состав группы, сдвинуть поездку на другие даты, учесть задержку рейса — через edit_trip_plan с этим ID, остальные дни не меняются. Другие интересы или стиль поездки — вызови make_trip_plan снова с прежними аргументами плюс изменение.",
       "parameters": {
         "type": "object",
         "properties": {
@@ -371,7 +371,7 @@
     "type": "function",
     "function": {
       "name": "edit_trip_plan",
-      "description": "Edit a Kamchatka trip plan from make_trip_plan by its ID: add, remove or move a day, change lodging level, or apply a flight delay the traveller reports; untouched days stay as they were. Изменить план поездки, собранный make_trip_plan, по его ID: добавить день с занятием («добавь день рыбалки»), убрать день, переставить день, сменить уровень жилья («замени жильё на базу», «подешевле»), учесть задержку рейса («рейс задержали на два дня» — flight_delay). Дни, которых правка не касается, не меняются. Невозможная правка (день прилёта, занятие не по возрасту детей, движок не нашёл выхода) — отказ с причиной, план остаётся прежним. План хранится 7 дней; нет плана — сначала make_trip_plan.",
+      "description": "Edit a Kamchatka trip plan from make_trip_plan by its ID: add, remove, move or replace a day, change lodging or group, shift the whole trip, apply a flight delay; untouched days stay. Изменить план поездки, собранный make_trip_plan, по его ID: добавить день с занятием («добавь день рыбалки»), убрать, переставить или заменить день («вместо вулкана — рыбалка», replace_day), сменить уровень жилья («замени жильё на базу», «подешевле»), сменить состав группы («нас трое», «с нами ребёнок 6 лет», set_party), сдвинуть всю поездку («на неделю позже», «с 20 июля», shift_dates), учесть задержку рейса («рейс задержали на два дня» — flight_delay). Дни, которых правка не касается, не меняются; у туров, чьи дни сменили дату или группу, места и цена перечитываются, при сдвиге дат — и закрытия парков, и сводки МЧС. Невозможная правка (день прилёта, занятие не по возрасту детей, не сезон в новые даты, движок не нашёл выхода) — отказ с причиной, план остаётся прежним. План хранится 7 дней; нет плана — сначала make_trip_plan.",
       "parameters": {
         "type": "object",
         "properties": {
@@ -381,14 +381,14 @@
           },
           "action": {
             "type": "string",
-            "description": "add_day, remove_day, move_day, set_lodging or flight_delay. Что сделать: add_day (добавить день с занятием), remove_day (убрать день), move_day (переставить день), set_lodging (уровень жилья), flight_delay (рейс задержан — турист сказал сам).",
+            "description": "add_day, remove_day, move_day, replace_day, set_lodging, set_party, shift_dates or flight_delay. Что сделать: add_day (добавить день с занятием), remove_day (убрать день), move_day (переставить день), replace_day (заменить занятие дня), set_lodging (уровень жилья), set_party (состав группы), shift_dates (сдвинуть всю поездку), flight_delay (рейс задержан — турист сказал сам).",
             "examples": [
               "add_day"
             ]
           },
           "day": {
             "type": "string",
-            "description": "Day number in the plan, for remove_day and move_day. Номер дня в плане — для remove_day и move_day.",
+            "description": "Day number in the plan, for remove_day, move_day and replace_day. Номер дня в плане — для remove_day, move_day и replace_day.",
             "examples": [
               "3"
             ]
@@ -402,7 +402,7 @@
           },
           "interest": {
             "type": "string",
-            "description": "Activity for add_day, free text (Russian works best). Занятие для add_day своими словами: «рыбалка», «вулканы», «сплав».",
+            "description": "Activity for add_day and replace_day, free text (Russian works best). Занятие для add_day и replace_day своими словами: «рыбалка», «вулканы», «сплав».",
             "examples": [
               "рыбалка"
             ]
@@ -426,6 +426,34 @@
             "description": "For flight_delay: yes keeps the return date and shortens the trip (default); no shifts the whole trip. Для flight_delay: «да» — обратный билет прежний, поездка короче (по умолчанию); «нет» — обратный билет переносится, вся поездка сдвигается.",
             "examples": [
               "yes"
+            ]
+          },
+          "adults": {
+            "type": "string",
+            "description": "For set_party: number of adults, 1–30; omitted keeps the current number. Для set_party: сколько взрослых (1–30). Не сказано — прежнее число.",
+            "examples": [
+              "3"
+            ]
+          },
+          "children": {
+            "type": "string",
+            "description": "For set_party: age of each child in years — NOT a count (\"6, 10\" or [6, 10]; a baby under one — \"0 years\" or [0]); \"no\" removes the children; omitted keeps the current children. An activity too young for the youngest child is a refusal naming the days. Для set_party: возраст каждого ребёнка в годах — не число детей: «6, 10» или «6 лет, 10 лет»; ребёнок до года — «до года»; детей больше нет — «нет». Не сказано — прежние дети. Занятие не по возрасту младшего — отказ с днями: сначала замени или убери их.",
+            "examples": [
+              "6, 10"
+            ]
+          },
+          "start_date": {
+            "type": "string",
+            "description": "For shift_dates: the new first day of the trip, by the Kamchatka calendar — YYYY-MM-DD, DD.MM.YYYY, or a day or month in Russian words; the trip keeps its length. Для shift_dates: новый первый день поездки — «20 июля», 20.07.2027, 2027-07-20 или месяц («в августе»); даты по Камчатке. Длина поездки та же.",
+            "examples": [
+              "2027-07-20"
+            ]
+          },
+          "shift_days": {
+            "type": "string",
+            "description": "For shift_dates without start_date: how many days to move the trip, signed — 7 is a week later, -3 is three days earlier. Для shift_dates без start_date: на сколько дней сдвинуть поездку — 7 (на неделю позже), -3 (на три дня раньше).",
+            "examples": [
+              "7"
             ]
           }
         },

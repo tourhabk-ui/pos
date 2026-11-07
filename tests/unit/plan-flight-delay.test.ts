@@ -134,9 +134,12 @@ describe('обратный билет переносится — поездка 
     if (!r.ok) throw new Error(r.reason);
     expect(r.plan.params.arrivalDate).toBe('2027-07-13');
     expect(r.plan.params.departureDate).toBe('2027-07-20');
-    expect(r.plan.days).toEqual(before.days);
+    expect(r.plan.days.map((d) => `${d.day}:${d.type}:${d.title}`)).toEqual(before.days.map((d) => `${d.day}:${d.type}:${d.title}`));
     expect(r.toursTouched?.every((t) => t.how === 'shifted')).toBe(true);
-    expect(r.note).toContain('свободные места надо проверить');
+    expect(r.note).toContain('туры операторов попали на другие даты');
+    // Аудит 07.11, M3: места и цена туров перечитаны на новые даты — по
+    // одному разу на тур, с его первого дня (сплав — дни 3–4, читается 3-й).
+    expect(r.reread?.map((t) => `${t.tourId}:${t.day}:${t.date}`)).toEqual(['t-sea:2:2027-07-14', 't-raft:3:2027-07-15']);
   });
 });
 

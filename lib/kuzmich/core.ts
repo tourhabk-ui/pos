@@ -2749,7 +2749,8 @@ async function executeTool(name: string, args: Record<string, string>, opts: Too
         plan_id: args.plan_id, action: args.action, day: args.day, to_day: args.to_day,
         interest: args.interest, lodging: args.lodging,
         delay_days: args.delay_days, keep_return: args.keep_return,
-      });
+        adults: args.adults, children: args.children, start_date: args.start_date, shift_days: args.shift_days,
+      }, { surface: opts.surface ?? 'chat' });
     }
     if (name === 'get_tour_availability') {
       const { getTourAvailabilityForKuzmich } = await import('@/lib/kuzmich/tour-availability-tool');
