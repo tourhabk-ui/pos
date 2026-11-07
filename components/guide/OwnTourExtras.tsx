@@ -16,14 +16,15 @@ import { LIMITS } from '@/lib/guides/tour-edit/parse';
 import type { TourProgramStep } from '@/lib/tours/tour-write';
 import { MEDIA_CACHE_CONTROL } from '@/lib/storage/media-cache';
 import { mp4VideoCodec, codecAdvice, HOW_TO_H264 } from '@/lib/media/mp4-codec';
+import { MAX_TOUR_CLIPS } from '@/lib/tours/clip-limit';
 
 /** Сколько фото у тура — как у сервера (OWN_TOUR_PHOTOS_MAX). */
 export const PHOTOS_MAX = 20;
 
 export interface OwnClip { key: string; poster: string; label: string; url: string; posterUrl: string }
 
-/** Сколько видео у тура — как у карточки (MAX_TOUR_CLIPS). */
-export const CLIPS_MAX = 6;
+/** Сколько видео у тура — то же число, что у карточки и сервера (lib/tours/clip-limit). */
+export const CLIPS_MAX = MAX_TOUR_CLIPS;
 
 export interface ExtrasValues {
   program: TourProgramStep[];

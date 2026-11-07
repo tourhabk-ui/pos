@@ -26,7 +26,8 @@ vi.mock('@/lib/storage/s3', () => ({
 }));
 vi.mock('@/lib/auth/middleware', () => ({ requireRole: vi.fn(async () => ({ userId: 'u-1', role: 'guide' })) }));
 
-import { VideosField, MaterialsConsent, extrasBody } from '@/components/guide/OwnTourExtras';
+import { VideosField, MaterialsConsent, extrasBody, CLIPS_MAX } from '@/components/guide/OwnTourExtras';
+import { MAX_TOUR_CLIPS } from '@/lib/tours/clip-limit';
 import { mp4VideoCodec, videoCodecInMoov } from '@/lib/media/mp4-codec';
 import { OwnTourEditSchema } from '@/lib/guides/own-tour-edit';
 import { POST as uploadVideo } from '@/app/api/upload/tour-video/route';
@@ -86,7 +87,24 @@ describe('схема правки: клипы и подпись', () => {
     expect(OwnTourEditSchema.safeParse({ video_clips: [{ key: 'videos/zaporozhets/kurile-1.mp4', poster: 'videos/zaporozhets/kurile-1.jpg', label: 'x' }] }).success).toBe(true);
     expect(OwnTourEditSchema.safeParse({ video_clips: [{ ...clip, key: 'images/x.mp4' }] }).success).toBe(false);
     expect(OwnTourEditSchema.safeParse({ video_clips: [{ ...clip, key: 'videos/../x.mp4' }] }).success).toBe(false);
-    expect(OwnTourEditSchema.safeParse({ video_clips: Array(7).fill(clip) }).success).toBe(false);
+    expect(OwnTourEditSchema.safeParse({ video_clips: Array(MAX_TOUR_CLIPS).fill(clip) }).success).toBe(true);
+    expect(OwnTourEditSchema.safeParse({ video_clips: Array(MAX_TOUR_CLIPS + 1).fill(clip) }).success).toBe(false);
+  });
+
+  it('видео до восьми: одно число у формы, сервера и карточки (владелец 07.11: «подними до 8»)', () => {
+    expect(MAX_TOUR_CLIPS).toBe(8);
+    expect(CLIPS_MAX).toBe(MAX_TOUR_CLIPS);
+    const own = (i: number) => ({
+      key: `videos/tours/c${i}.mp4`, poster: `videos/tours/c${i}.jpg`, label: `Клип ${i}`,
+      url: `https://x/c${i}.mp4`, posterUrl: `https://x/c${i}.jpg`,
+    });
+    const seven = Array.from({ length: 7 }, (_, i) => own(i));
+    render(<VideosField idBase="a" clips={seven} onChange={vi.fn()} grabFrame={async () => new Blob([JPEG])} />);
+    expect(screen.getByLabelText('Добавить видео')).toBeTruthy();
+    cleanup();
+    render(<VideosField idBase="b" clips={[...seven, own(7)]} onChange={vi.fn()} grabFrame={async () => new Blob([JPEG])} />);
+    expect(screen.queryByLabelText('Добавить видео')).toBeNull();
+    expect(OwnTourEditSchema.safeParse({ video_clips: [...seven, own(7)].map(({ key, poster, label }) => ({ key, poster, label })) }).success).toBe(true);
   });
 
   it('тело формы: клипы без адресов превью, подпись — только когда есть фото', () => {
