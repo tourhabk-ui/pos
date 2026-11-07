@@ -7,11 +7,14 @@
  * Значит телефон/почта/имя туриста НЕ должны попадать в текст промпта без
  * псевдонимизации (`redactPII` или плейсхолдер `{name}`).
  *
- * Это НЕ ИИ-«юрист» и НЕ дата-флоу-анализатор. Это узкий детерминированный
- * страж: он читает исходники, находит ТЕКСТ ПРОМПТА (template literal у
- * переменной `*prompt*`, значение `content:`, либо прямой аргумент вызова
- * зарубежной модели) и ловит внутри него интерполяцию однозначных ПД-полей
- * (`.phone`, `.email`, персональные `*_name`/`lead.name`) без чистки.
+ * Это НЕ ИИ-«юрист». Это узкий детерминированный страж в пределах одного
+ * файла: он читает исходник, находит ТЕКСТ ПРОМПТА (template literal у
+ * переменной `*prompt*`, значение `content:`, аргумент вызова зарубежной
+ * модели — и то, что течёт в них через переменные, массивы и склейки внутри
+ * файла, `promptFlow`) и ловит в нём интерполяцию однозначных ПД-полей
+ * (`.phone`, `.email`, персональные `*_name`/`lead.name`), переменных с именем
+ * контакта и их псевдонимов без чистки. Поток между файлами (сборщик в одном,
+ * вызов в другом) он не видит — это добивает ревью.
  *
  * Философия репо (CLAUDE.md §8): лучше узкий детерминированный guard с
  * allowlist, чем абзацы в промпте агента. Ложные срабатывания дороги (блокируют
@@ -108,8 +111,6 @@ const DESTRUCT = /\b(?:const|let|var)\s*\{([^}]*)\}\s*=/g;
 const DESTRUCT_CONTACT = new RegExp(
   `^\\s*((?:[a-z0-9$]+_)*(?:${CONTACT_WORD})s?)\\s*(?::\\s*([A-Za-z_$][\\w$]*))?\\s*$`, 'i');
 
-const IDENT_G = /[A-Za-z_$][\w$]*/g;
-
 /** Санкционированная чистка/псевдонимизация — интерполяция сквозь неё безопасна. */
 /**
  * Плейсхолдер `{name}` — безопасен, но ТОЛЬКО когда он именно плейсхолдер.
@@ -142,6 +143,9 @@ interface TemplateLiteral {
 }
 
 const IDENT_CHAR = /[A-Za-z0-9_$]/;
+
+/** Методы, кладущие значение в коллекцию: `X.push(…)` — X получает текст. */
+const PUSHERS = new Set(['push', 'unshift', 'add', 'concat']);
 
 /** Читает идентификатор, заканчивающийся на позиции `end` (эксклюзивно), справа налево. */
 function identBefore(src: string, end: number): string {
@@ -220,7 +224,7 @@ function extractTemplateLiterals(src: string): TemplateLiteral[] {
         while (k > 0 && /\s/.test(src[k - 1])) k--;
         label = identBefore(src, k);
         const head = k - label.length;
-        if (prev === '(' && label === 'push' && src[head - 1] === '.') receiver = identBefore(src, head - 1) || undefined;
+        if (prev === '(' && PUSHERS.has(label) && src[head - 1] === '.') receiver = identBefore(src, head - 1) || undefined;
       }
       i = parseTemplate(i, label, receiver);
       continue;
@@ -270,28 +274,48 @@ function interpolations(body: string): Array<{ expr: string; at: number }> {
 /**
  * Псевдонимы ПД в файле: имя локальной переменной → род ПД.
  * Псевдоним, присвоенный СКВОЗЬ redactPII, псевдонимом ПД не является.
+ * Ключ здесь — голое имя (для теста и разбора находки); сканер сверяет
+ * псевдонимы по областям видимости (`aliasesIn`).
  */
 export function pdAliases(src: string): Map<string, 'contact' | 'name'> {
+  const code = maskCode(src);
+  const out = new Map<string, 'contact' | 'name'>();
+  for (const [key, kind] of aliasesIn(src, code, buildScopes(code))) out.set(nameOfKey(key), kind);
+  return out;
+}
+
+/**
+ * Псевдонимы по областям видимости: ключ — область объявления и имя.
+ *
+ * До 07.11 псевдоним был общим на файл, и одноимённая переменная другой
+ * функции становилась «телефоном»: в `lib/kuzmich/core.ts` текст
+ * уведомления оператору (`const text = [… b.phone].join(…)`) делал
+ * псевдонимом ПД вопрос туриста `text` в соседней функции. Объявления ищутся
+ * в коде без прозы, правая часть читается из исходника — SQL в ней (`u.name
+ * as user_name`) остаётся уликой, как и раньше.
+ */
+function aliasesIn(src: string, code: string, sc: Scopes): Map<string, 'contact' | 'name'> {
   const out = new Map<string, 'contact' | 'name'>();
 
   // Объявления с правой частью до конца выражения (может быть многострочной).
-  const decls: Array<{ alias: string; rhs: string }> = [];
+  const decls: Array<{ key: string; from: number; rhs: string }> = [];
   DECL_HEAD.lastIndex = 0;
-  for (let m = DECL_HEAD.exec(src); m; m = DECL_HEAD.exec(src)) {
-    decls.push({ alias: m[1], rhs: rhsAfter(src, m.index + m[0].length) });
+  for (let m = DECL_HEAD.exec(code); m; m = DECL_HEAD.exec(code)) {
+    const from = m.index + m[0].length;
+    decls.push({ key: sc.key(m[1], m.index), from, rhs: src.slice(from, from + rhsAfter(code, from).length) });
   }
 
-  for (const { alias, rhs } of decls) {
+  for (const { key, rhs } of decls) {
     if (SAFE_WRAP.test(rhs)) continue;
-    if (CONTACT_FIELD.test(rhs)) out.set(alias, 'contact');
-    else if (PERSONAL_NAME_FIELD.test(rhs) || PERSONAL_OWNER_NAME.test(rhs)) out.set(alias, 'name');
+    if (CONTACT_FIELD.test(rhs)) out.set(key, 'contact');
+    else if (PERSONAL_NAME_FIELD.test(rhs) || PERSONAL_OWNER_NAME.test(rhs)) out.set(key, 'name');
   }
 
   DESTRUCT.lastIndex = 0;
-  for (let m = DESTRUCT.exec(src); m; m = DESTRUCT.exec(src)) {
+  for (let m = DESTRUCT.exec(code); m; m = DESTRUCT.exec(code)) {
     for (const part of m[1].split(',')) {
       const d = DESTRUCT_CONTACT.exec(part);
-      if (d) out.set(d[2] ?? d[1], 'contact');
+      if (d) out.set(sc.key(d[2] ?? d[1], m.index), 'contact');
     }
   }
 
@@ -300,10 +324,10 @@ export function pdAliases(src: string): Map<string, 'contact' | 'name'> {
   // короткие, а предел защищает от патологии.
   for (let pass = 0; pass < 5; pass++) {
     let grew = false;
-    for (const { alias, rhs } of decls) {
-      if (out.has(alias) || SAFE_WRAP.test(rhs)) continue;
-      const kind = kindByAlias(rhs, out);
-      if (kind) { out.set(alias, kind); grew = true; }
+    for (const { key, from, rhs } of decls) {
+      if (out.has(key) || SAFE_WRAP.test(rhs)) continue;
+      const kind = aliasInInterpolations(rhs, from, code, sc, out);
+      if (kind) { out.set(key, kind); grew = true; }
     }
     if (!grew) break;
   }
@@ -330,14 +354,28 @@ function rhsAfter(src: string, from: number): string {
   return src.slice(from, i);
 }
 
-/** Есть ли в тексте интерполяция известного псевдонима ПД. */
-function kindByAlias(text: string, aliases: Map<string, 'contact' | 'name'>): 'contact' | 'name' | null {
-  for (const { expr } of interpolations(text)) {
-    IDENT_G.lastIndex = 0;
-    for (let id = IDENT_G.exec(expr); id; id = IDENT_G.exec(expr)) {
-      const k = aliases.get(id[0]);
-      if (k) return k;
+/** Переменные в `${…}` текста, начатого на `from`: позиция в коде без прозы. */
+function* interpolatedVars(text: string, from: number, code: string): Generator<{ name: string; at: number }> {
+  for (const { expr, at } of interpolations(text)) {
+    const base = from + at + 2;
+    const masked = code.slice(base, base + expr.length);
+    for (const id of masked.matchAll(/[A-Za-z_$][\w$]*/g)) {
+      const pos = id.index ?? 0;
+      // Свойство — не переменная: `x.phone` судит CONTACT_FIELD, а `review.name` не псевдоним `name`.
+      if (/(?<!\.)\.\s*$/.test(masked.slice(Math.max(0, pos - 8), pos))) continue;
+      if (pos > 0 && /[\w$]/.test(masked[pos - 1])) continue;
+      yield { name: id[0], at: base + pos };
     }
+  }
+}
+
+/** Псевдоним ПД среди переменных в `${…}` текста. */
+function aliasInInterpolations(
+  text: string, from: number, code: string, sc: Scopes, aliases: Map<string, 'contact' | 'name'>,
+): 'contact' | 'name' | null {
+  for (const v of interpolatedVars(text, from, code)) {
+    const k = aliases.get(sc.key(v.name, v.at));
+    if (k) return k;
   }
   return null;
 }
@@ -359,6 +397,286 @@ function isPromptLiteral(label: string, hasForeignCaller: boolean): boolean {
   return false;
 }
 
+/** Слова, после которых `/` начинает регулярное выражение, а не деление. */
+const REGEX_AFTER_WORD = /(?:^|[^\w$])(?:return|typeof|case|do|else|in|of|new|delete|void|throw|yield|await|instanceof)$/;
+
+/**
+ * Код без прозы: комментарии, содержимое строк, регулярные выражения и текст
+ * бэктиков — пробелы; длина и переводы строк те же, `${…}` остаются кодом.
+ *
+ * Поток в промпт разбирается только по такому коду. Без маски `content:` в
+ * комментарии или в тексте подсказки начинал отрезок, и разбор шёл по прозе:
+ * первая проба на репозитории нашла «утечки» в комментариях самого стража.
+ */
+export function maskCode(src: string): string {
+  const out = src.split('');
+  const blank = (from: number, to: number) => {
+    for (let k = from; k < to && k < out.length; k++) if (out[k] !== '\n') out[k] = ' ';
+  };
+  const regexStart = (i: number): boolean => {
+    let j = i - 1;
+    while (j >= 0 && /\s/.test(out[j])) j--;
+    if (j < 0) return true;
+    const p = out[j];
+    // `)`, `]`, `}` и `<` (JSX `</div>`) — деление или разметка, не выражение.
+    if ('(,=:[!&|?{;+-*%~^'.includes(p)) return true;
+    if (/[\w$]/.test(p)) return REGEX_AFTER_WORD.test(out.slice(Math.max(0, j - 11), j + 1).join(''));
+    return false;
+  };
+  const regexEnd = (open: number): number => {
+    let i = open + 1;
+    let inClass = false;
+    while (i < src.length) {
+      const c = src[i];
+      if (c === '\n') return -1;
+      if (c === '\\') { i += 2; continue; }
+      if (inClass) { if (c === ']') inClass = false; }
+      else if (c === '[') inClass = true;
+      else if (c === '/') { i++; while (i < src.length && /[a-z]/i.test(src[i])) i++; return i; }
+      i++;
+    }
+    return -1;
+  };
+  // Код до конца файла или (внутри `${…}`) до парной `}`; возвращает её позицию.
+  const code = (from: number, inTemplate: boolean): number => {
+    let depth = 0;
+    let i = from;
+    while (i < src.length) {
+      const c = src[i];
+      if (c === '/' && src[i + 1] === '/') { const e = src.indexOf('\n', i); const end = e < 0 ? src.length : e; blank(i, end); i = end; continue; }
+      if (c === '/' && src[i + 1] === '*') { const e = src.indexOf('*/', i + 2); const end = e < 0 ? src.length : e + 2; blank(i, end); i = end; continue; }
+      if (c === '"' || c === "'") { const end = skipString(src, i); blank(i + 1, end - 1); i = end; continue; }
+      if (c === '`') { i = template(i); continue; }
+      if (c === '/' && regexStart(i)) { const end = regexEnd(i); if (end > 0) { blank(i, end); i = end; continue; } }
+      if (inTemplate) {
+        if (c === '{') depth++;
+        else if (c === '}') { if (depth === 0) return i; depth--; }
+      }
+      i++;
+    }
+    return i;
+  };
+  const template = (open: number): number => {
+    let i = open + 1;
+    while (i < src.length) {
+      const c = src[i];
+      if (c === '\\') { blank(i, i + 2); i += 2; continue; }
+      if (c === '`') return i + 1;
+      if (c === '$' && src[i + 1] === '{') { i = code(i + 2, true) + 1; continue; }
+      if (c !== '\n') out[i] = ' ';
+      i++;
+    }
+    return i;
+  };
+  code(0, false);
+  return out.join('');
+}
+
+/** Области видимости файла: имя в позиции → ключ «область:имя». */
+interface Scopes { key(name: string, at: number): string }
+interface Scope { from: number; to: number; parent: number; names: Set<string> }
+
+const nameOfKey = (key: string): string => key.slice(key.indexOf(':') + 1);
+
+/** Перед `(…) {` — заголовок цикла или условия, а не функции. */
+const CONTROL_WORDS = new Set(['if', 'for', 'while', 'switch', 'with']);
+/** `x => …` — стрелка с одним параметром без скобок. */
+const ARROW_ONE = /(?<![\w$.])([A-Za-z_$][\w$]*)\s*=>/g;
+const DECL_KEYWORD = /\b(?:const|let|var)\s+/g;
+
+function skipWs(code: string, i: number): number {
+  while (i < code.length && /\s/.test(code[i])) i++;
+  return i;
+}
+
+/** Части через запятую на нулевой вложенности (`=>` в типах не закрывает скобку). */
+function splitTop(text: string): string[] {
+  const parts: string[] = [];
+  let depth = 0;
+  let from = 0;
+  for (let i = 0; i < text.length; i++) {
+    const c = text[i];
+    if (c === '=' && text[i + 1] === '>') { i++; continue; }
+    if ('([{<'.includes(c)) depth++;
+    else if (')]}>'.includes(c)) depth--;
+    else if (c === ',' && depth === 0) { parts.push(text.slice(from, i)); from = i + 1; }
+  }
+  parts.push(text.slice(from));
+  return parts;
+}
+
+/** Позиция скобки, парной открывающей на `open`. */
+function closeOf(text: string, open: number): number {
+  let depth = 0;
+  for (let i = open; i < text.length; i++) {
+    if ('([{'.includes(text[i])) depth++;
+    else if (')]}'.includes(text[i]) && --depth === 0) return i;
+  }
+  return text.length;
+}
+
+/** Имена, которые связывает параметр или цель объявления (с деструктуризацией). */
+function bindingNames(part: string, out: string[] = []): string[] {
+  const p = part.trim().replace(/^\.\.\./, '').replace(/^(?:(?:public|private|protected|readonly|override)\s+)+/, '');
+  if (p.startsWith('{')) {
+    for (const el of splitTop(p.slice(1, closeOf(p, 0)))) {
+      const e = el.trim();
+      if (!e) continue;
+      if (e.startsWith('...')) { bindingNames(e, out); continue; }
+      const colon = e.search(/:(?!:)/);
+      const head = colon >= 0 ? e.slice(0, colon) : e;
+      if (colon >= 0 && !/[=({[]/.test(head)) bindingNames(e.slice(colon + 1), out);
+      else { const m = /^[A-Za-z_$][\w$]*/.exec(e); if (m) out.push(m[0]); }
+    }
+  } else if (p.startsWith('[')) {
+    for (const el of splitTop(p.slice(1, closeOf(p, 0)))) if (el.trim()) bindingNames(el, out);
+  } else {
+    const m = /^[A-Za-z_$][\w$]*/.exec(p);
+    if (m && m[0] !== 'this') out.push(m[0]);
+  }
+  return out;
+}
+
+/** Конец выражения-тела стрелки: `,`/`;`/непарная скобка на нулевой вложенности. */
+function exprEnd(code: string, from: number): number {
+  let depth = 0;
+  let i = from;
+  while (i < code.length) {
+    const c = code[i];
+    if (c === '"' || c === "'") { i = skipString(code, i); continue; }
+    if (c === '`') { i = templateParts(code, i).end; continue; }
+    if (c === '(' || c === '[' || c === '{') depth++;
+    else if (c === ')' || c === ']' || c === '}') { if (depth === 0) return i; depth--; }
+    else if ((c === ',' || c === ';') && depth === 0) return i;
+    i++;
+  }
+  return i;
+}
+
+/**
+ * После `(…):` — тип результата: где за ним `=>` (стрелка) или `{` тела
+ * функции; null — это не функция (тернарный `? (x) : y`, `case (x):`).
+ * Скобка `{` сразу после `:`, `|`, `&` — литерал типа, а не тело.
+ */
+function afterReturnType(code: string, from: number): { at: number; arrow: boolean } | null {
+  let depth = 0;
+  const end = Math.min(code.length, from + 400);
+  for (let i = from; i < end; i++) {
+    const c = code[i];
+    if (c === '=' && code[i + 1] === '>') { if (depth === 0) return { at: i + 2, arrow: true }; i++; continue; }
+    if (c === '(' || c === '[' || c === '<') depth++;
+    else if (c === ')' || c === ']' || c === '>') { if (depth === 0) return null; depth--; }
+    else if (c === '{') {
+      if (depth === 0) {
+        let j = i - 1;
+        while (j >= from && /\s/.test(code[j])) j--;
+        if (j >= from && /[\w$>\])}'"]/.test(code[j])) return { at: i, arrow: false };
+      }
+      depth++;
+    } else if (c === '}') { if (depth === 0) return null; depth--; }
+    else if ((c === ';' || c === ',' || c === '=') && depth === 0) return null;
+  }
+  return null;
+}
+
+/** `(` открывает параметры функции или метода (`name(…)`, `function (…)`, `catch (e)`), а не условие. */
+function isFunctionHead(code: string, open: number): boolean {
+  let j = open - 1;
+  while (j >= 0 && /\s/.test(code[j])) j--;
+  if (code[j] === '>') {
+    // Обобщённый метод: `name<T>(…)`.
+    let d = 0;
+    for (; j >= 0; j--) {
+      if (code[j] === '>') d++;
+      else if (code[j] === '<' && --d === 0) { j--; break; }
+    }
+    while (j >= 0 && /\s/.test(code[j])) j--;
+  }
+  const word = identBefore(code, j + 1);
+  return word !== '' && !CONTROL_WORDS.has(word);
+}
+
+/**
+ * Области видимости: каждый блок `{…}` и выражение-тело стрелки. Объявления
+ * (`const`/`let`/`var`, с деструктуризацией) — в самую внутреннюю область,
+ * параметры функций и стрелок — в их тело. Имя в позиции принадлежит
+ * ближайшей объемлющей области, где оно объявлено; не объявленное в файле
+ * (импорт, `this.x`) — общее на файл.
+ */
+function buildScopes(code: string): Scopes {
+  const len = code.length;
+  const scopes: Scope[] = [{ from: 0, to: len + 1, parent: -1, names: new Set() }];
+  const blockAt = new Map<number, number>();
+  const parens: Array<[number, number]> = [];
+  const stack: Array<{ ch: string; at: number }> = [];
+  for (let i = 0; i < len; i++) {
+    const c = code[i];
+    if (c === '(' || c === '{' || c === '[') { stack.push({ ch: c, at: i }); continue; }
+    if (c !== ')' && c !== '}' && c !== ']') continue;
+    const want = c === ')' ? '(' : c === '}' ? '{' : '[';
+    let k = stack.length - 1;
+    while (k >= 0 && stack[k].ch !== want) k--;
+    if (k < 0) continue;
+    const open = stack[k].at;
+    stack.length = k;
+    if (c === ')') parens.push([open, i]);
+    else if (c === '}') { blockAt.set(open, scopes.length); scopes.push({ from: open, to: i + 1, parent: -1, names: new Set() }); }
+  }
+
+  const bodyAt = (pos: number): number => {
+    const p = skipWs(code, pos);
+    const block = blockAt.get(p);
+    if (block !== undefined) return block;
+    scopes.push({ from: p, to: exprEnd(code, p), parent: -1, names: new Set() });
+    return scopes.length - 1;
+  };
+  const bind = (scope: number, names: string[]) => { for (const n of names) scopes[scope].names.add(n); };
+
+  for (const [open, close] of parens) {
+    const k = skipWs(code, close + 1);
+    let body = -1;
+    if (code.startsWith('=>', k)) body = bodyAt(k + 2);
+    else if (code[k] === ':') {
+      const t = afterReturnType(code, k + 1);
+      if (t?.arrow) body = bodyAt(t.at);
+      else if (t) body = blockAt.get(t.at) ?? -1;
+    } else if (code[k] === '{' && isFunctionHead(code, open)) body = blockAt.get(k) ?? -1;
+    if (body >= 0) for (const part of splitTop(code.slice(open + 1, close))) bind(body, bindingNames(part));
+  }
+  ARROW_ONE.lastIndex = 0;
+  for (let m = ARROW_ONE.exec(code); m; m = ARROW_ONE.exec(code)) {
+    if (!NOT_ROOT.has(m[1])) bind(bodyAt(m.index + m[0].length), [m[1]]);
+  }
+
+  // Вложенность: снаружи внутрь, внутренняя область перекрашивает внешнюю.
+  const order = scopes.map((_, id) => id).sort((a, b) => scopes[a].from - scopes[b].from || scopes[b].to - scopes[a].to);
+  const inner = new Int32Array(len + 1);
+  const open: number[] = [];
+  for (const id of order) {
+    const s = scopes[id];
+    while (open.length && scopes[open[open.length - 1]].to <= s.from) open.pop();
+    s.parent = open.length ? open[open.length - 1] : -1;
+    open.push(id);
+    inner.fill(id, s.from, Math.min(len + 1, s.to));
+  }
+
+  DECL_KEYWORD.lastIndex = 0;
+  for (let m = DECL_KEYWORD.exec(code); m; m = DECL_KEYWORD.exec(code)) {
+    const at = m.index + m[0].length;
+    const target = code[at] === '{' || code[at] === '[' ? code.slice(at, closeOf(code, at) + 1) : code.slice(at, at + 80);
+    bind(inner[m.index], bindingNames(target));
+  }
+
+  return {
+    key(name: string, at: number): string {
+      for (let s = inner[Math.max(0, Math.min(len, at))]; s >= 0; s = scopes[s].parent) {
+        if (scopes[s].names.has(name)) return `${s}:${name}`;
+      }
+      return `-1:${name}`;
+    },
+  };
+}
+
 /** Присваивание: `const x = …`, `x = …`, `x += …` (не `==`, `=>`, `<=`, `>=`, `!=`). */
 const ASSIGN_HEAD = /(?<![\w$.])([A-Za-z_$][\w$]*)\s*(?::[^=;\n]+)?\+?=(?![=>])/g;
 /** Ключ стока: `content:`/`system:` — значение уходит модели. */
@@ -374,9 +692,9 @@ const NOT_ROOT = new Set([
 const CALL_BEFORE = /[\w$)\]]$/;
 const KEYWORD_BEFORE = /(?:^|[^\w$])(?:if|for|while|switch|catch|return|typeof|await|new|in|of|yield|void|delete)$/;
 
-/** Конец бэктик-литерала, начатого на `open`, и выражения его `${…}`. */
-function templateSpan(text: string, open: number): { end: number; exprs: string[] } {
-  const exprs: string[] = [];
+/** Конец бэктик-литерала, начатого на `open`, и его `${…}` — отрезками исходника. */
+function templateParts(text: string, open: number): { end: number; exprs: Array<{ from: number; to: number }> } {
+  const exprs: Array<{ from: number; to: number }> = [];
   let i = open + 1;
   while (i < text.length) {
     const ch = text[i];
@@ -390,11 +708,11 @@ function templateSpan(text: string, open: number): { end: number; exprs: string[
         const c = text[i];
         if (c === '{') { depth++; i++; }
         else if (c === '}') { depth--; i++; }
-        else if (c === '`') i = templateSpan(text, i).end;
+        else if (c === '`') i = templateParts(text, i).end;
         else if (c === '"' || c === "'") i = skipString(text, i);
         else i++;
       }
-      exprs.push(text.slice(from, Math.max(from, i - 1)));
+      exprs.push({ from, to: Math.max(from, i - 1) });
       continue;
     }
     i++;
@@ -402,50 +720,69 @@ function templateSpan(text: string, open: number): { end: number; exprs: string[
   return { end: i, exprs };
 }
 
+/** Последние значимые символы перед `end` (не дальше `from`). */
+function tailBefore(code: string, from: number, end: number): string {
+  let b = end;
+  while (b > from && /\s/.test(code[b - 1])) b--;
+  return code.slice(Math.max(from, b - 80), b);
+}
+
+/** Первые значимые символы после `from` (не дальше `to`). */
+function headAfter(code: string, from: number, to: number): string {
+  const a = Math.min(skipWs(code, from), to);
+  return code.slice(a, Math.min(to, a + 80));
+}
+
+interface Root { name: string; at: number }
+
 /**
- * Корни выражения — имена переменных, из которых собран его текст.
+ * Корни выражения на отрезке кода — имена переменных, из которых собран его
+ * текст, с позициями (по ним — область видимости).
  * - имя свойства после точки — не корень, кроме `this.x` (это x);
  * - имя вызываемой функции — не корень; получатель метода — корень:
- *   `ctx.filter(Boolean).join('\n')` и `this.ctx.join('\n')` → ctx;
+ *   `ctx.filter(Boolean).join('\n')`, `this.ctx.join('\n')` и `box.lines.join(…)`
+ *   → ctx, ctx, lines;
  * - аргументы вызова — корни только при `intoCalls`. Значение стока
  *   `withContext(x)` несёт x в промпт, а `const rows = query(SQL, …)` SQL в
  *   rows не несёт: широкое «всё, что течёт» на пробе по репозиторию затянуло
  *   SQL, fetch и заголовки — шум вместо стража;
- * - ключ объектного литерала — не корень; строки пропускаются, `${…}` в
- *   бэктиках разбираются как выражения.
+ * - ключ объектного литерала — не корень; `${…}` в бэктиках — выражения.
  */
-function rootsOf(expr: string, intoCalls: boolean, out: Set<string> = new Set(), inArgs = false): Set<string> {
+function rootsAt(code: string, from: number, to: number, intoCalls: boolean, out: Root[] = [], inArgs = false): Root[] {
   const calls: boolean[] = [];
   const inCallArgs = () => inArgs || calls.includes(true);
-  let i = 0;
-  while (i < expr.length) {
-    const c = expr[i];
-    if (c === '/' && expr[i + 1] === '/') { const e = expr.indexOf('\n', i); i = e === -1 ? expr.length : e; continue; }
-    if (c === '/' && expr[i + 1] === '*') { const e = expr.indexOf('*/', i + 2); i = e === -1 ? expr.length : e + 2; continue; }
-    if (c === '"' || c === "'") { i = skipString(expr, i); continue; }
+  let i = from;
+  while (i < to) {
+    const c = code[i];
+    if (c === '"' || c === "'") { i = skipString(code, i); continue; }
     if (c === '`') {
-      const span = templateSpan(expr, i);
-      if (!inCallArgs() || intoCalls) for (const e of span.exprs) rootsOf(e, intoCalls, out, inCallArgs());
-      i = span.end;
+      const t = templateParts(code, i);
+      if (!inCallArgs() || intoCalls) for (const e of t.exprs) rootsAt(code, e.from, e.to, intoCalls, out, inCallArgs());
+      i = t.end;
       continue;
     }
+    if (/[0-9]/.test(c)) { while (i < to && /[\w$.]/.test(code[i])) i++; continue; }
     if (/[A-Za-z_$]/.test(c)) {
       let j = i;
-      while (j < expr.length && /[\w$]/.test(expr[j])) j++;
-      const name = expr.slice(i, j);
-      const before = expr.slice(0, i).replace(/\s+$/, '');
-      const after = expr.slice(j).replace(/^\s+/, '');
+      while (j < to && /[\w$]/.test(code[j])) j++;
+      const name = code.slice(i, j);
+      const before = tailBefore(code, from, i);
+      const after = headAfter(code, j, to);
       // Одна точка (не `...x`) — свойство; `this.x` — само имя x.
       const isProp = /(?<!\.)\.$/.test(before);
       const viaThis = isProp && /(?:^|[^\w$.])this\s*\??\.$/.test(before);
       const isCallee = after.startsWith('(') || after.startsWith('?.(');
       const isKey = after.startsWith(':') && !after.startsWith('::') && /(?:^|[{,])$/.test(before);
-      if (!NOT_ROOT.has(name) && !isCallee && !isKey && (!isProp || viaThis) && (!inCallArgs() || intoCalls)) out.add(name);
+      // Свойство-получатель метода — корень: `box.lines.join(…)` → lines (как у push).
+      const isReceiver = isProp && /^\??\.\s*[A-Za-z_$][\w$]*\s*\(/.test(after);
+      if (!NOT_ROOT.has(name) && !isCallee && !isKey && (!isProp || viaThis || isReceiver) && (!inCallArgs() || intoCalls)) {
+        out.push({ name, at: i });
+      }
       i = j;
       continue;
     }
     if (c === '(') {
-      const before = expr.slice(0, i).replace(/\s+$/, '');
+      const before = tailBefore(code, from, i);
       calls.push(CALL_BEFORE.test(before) && !KEYWORD_BEFORE.test(before));
       i++;
       continue;
@@ -464,7 +801,7 @@ function valueAfter(src: string, from: number): string {
   while (i < src.length) {
     const c = src[i];
     if (c === '"' || c === "'") { i = skipString(src, i); continue; }
-    if (c === '`') { i = templateSpan(src, i).end; continue; }
+    if (c === '`') { i = templateParts(src, i).end; continue; }
     if (c === '(' || c === '[' || c === '{') depth++;
     else if (c === ')' || c === ']' || c === '}') { if (depth === 0) break; depth--; }
     else if ((c === ',' || c === ';') && depth === 0) break;
@@ -480,7 +817,7 @@ function argsAfter(src: string, open: number): string {
   while (i < src.length && depth > 0) {
     const c = src[i];
     if (c === '"' || c === "'") { i = skipString(src, i); continue; }
-    if (c === '`') { i = templateSpan(src, i).end; continue; }
+    if (c === '`') { i = templateParts(src, i).end; continue; }
     if (c === '(' || c === '[' || c === '{') depth++;
     else if (c === ')' || c === ']' || c === '}') depth--;
     i++;
@@ -488,8 +825,49 @@ function argsAfter(src: string, open: number): string {
   return src.slice(open + 1, Math.max(open + 1, i - 1));
 }
 
+/** Вызовы, чей результат несёт текст колбэка: литерал в `.map((l) => \`…\`)` — часть результата. */
+const PASS_THROUGH = new Set(['map', 'flatMap']);
+/** Обёртки, после которых ПД в тексте уже нет. */
+const SAFE_CALLEES = new Set(['redactPII', 'redact']);
+/** `X.push(…)`, `X.unshift(…)`, `X.add(…)`, `X.concat(…)` — X получает текст аргументов. */
+const PUSH_CALL = /(?<![\w$])([A-Za-z_$][\w$]*)\s*\.\s*(?:push|unshift|add|concat)\s*\(/g;
+
+/** Отрезок кода, текст которого доходит до модели. */
+interface FlowSpan { from: number; to: number; intoCalls: boolean }
+
 /**
- * Имена, текст которых доходит до зарубежной модели: неподвижная точка.
+ * Начала бэктиков, чей текст становится значением отрезка: где бы ни стояли
+ * (`[…]`, колбэк map). Правило вызовов — как у rootsAt: литерал в аргументах
+ * вызова — только при intoCalls; колбэк map/flatMap — часть результата;
+ * внутри redactPII ПД уже нет.
+ */
+function literalsIn(code: string, span: FlowSpan): number[] {
+  const frames: Array<{ call: boolean; callee: string }> = [];
+  const starts: number[] = [];
+  const passes = () => frames.every((f) => !f.call || (!SAFE_CALLEES.has(f.callee) && (span.intoCalls || PASS_THROUGH.has(f.callee))));
+  let i = span.from;
+  while (i < span.to) {
+    const c = code[i];
+    if (c === '"' || c === "'") { i = skipString(code, i); continue; }
+    if (c === '`') { if (passes()) starts.push(i); i = templateParts(code, i).end; continue; }
+    if (c === '(' || c === '[' || c === '{') {
+      const before = tailBefore(code, span.from, i);
+      const call = c === '(' && CALL_BEFORE.test(before) && !KEYWORD_BEFORE.test(before);
+      frames.push({ call, callee: call ? (/([A-Za-z_$][\w$]*)$/.exec(before)?.[1] ?? '') : '' });
+      i++;
+      continue;
+    }
+    if (c === ')' || c === ']' || c === '}') { frames.pop(); i++; continue; }
+    i++;
+  }
+  return starts;
+}
+
+/** Поток в промпт: переменные (ключи областей) и литералы (по началу), доходящие до модели. */
+interface PromptFlow { reach: Set<string>; literalStarts: Set<number> }
+
+/**
+ * Что в файле доходит до зарубежной модели: неподвижная точка.
  *
  * Дыра, найденная ревьюером deepseek-flash в пробе 07.11 (run 2, откат #2506):
  *
@@ -498,66 +876,114 @@ function argsAfter(src: string, open: number): string {
  *     return [{ role: 'system', content: systemContent }, …];
  *
  * Ни один литерал не был «промптом» по метке (`push`, `+=` без имени), и страж
- * молчал. Ревью PR #3104 (тот же ревьюер) нашло, где первая редакция рвала
- * цепочку: склейка через цепочку методов (`ctx.filter(Boolean).join`) и
- * `this.ctx`, промежуточная переменная (`const joined = ctx.join(…)`), значение
- * стока не голым именем (`content: x.trim()`, `withContext(x)`, `BASE + x`).
- *
- * Поэтому — не узоры, а корни выражений (`rootsOf`) и неподвижная точка:
- * - начало — корни значений `content:`/`system:`, аргументов зарубежного
- *   вызова и `${…}` в промпт-литералах по метке (вместе с аргументами
- *   вызовов: `withContext(x)` несёт x);
- * - имя в множестве — корни правой части его присваивания (без аргументов
- *   вызовов) и `${…}` литералов, записанных в него или положенных в него `push`.
- * Только в файле с зарубежным вызовом — то же условие, что у метки `content`.
+ * молчал. Два ревью PR #3104 (тот же ревьюер) нашли, где следующие редакции
+ * рвали цепочку: цепочка методов и `this.ctx`, промежуточная переменная,
+ * значение стока не голым именем; `lines.push(line)`, литерал в колбэке
+ * `map`, элемент литерала массива, `unshift`/`add`, получатель-свойство
+ * `box.lines`. Это один класс, и закрыт он не узорами, а отрезками кода:
+ * - начало — значения `content:`/`system:` и аргументы зарубежного вызова
+ *   (вместе с аргументами вложенных вызовов: `withContext(x)` несёт x),
+ *   `${…}` промптов по метке и присваивания имени с prompt/instruction;
+ * - переменная в потоке — её правая часть (без аргументов вызовов, кроме
+ *   колбэка map/flatMap: `rows = query(SQL, …)` SQL в rows не несёт) и
+ *   аргументы `push`/`unshift`/`add`/`concat` в неё; литералы, записанные в неё;
+ * - из каждого такого отрезка — корни (`rootsAt`) и литералы внутри него, где
+ *   бы ни стояли (`[…]`, колбэк map). `redactPII(…)` — конец ПД.
+ * Отрезки берутся из кода без прозы (`maskCode`), переменные — по областям
+ * видимости (`buildScopes`): `text` из вопроса туриста и `text` уведомления
+ * оператору в соседней функции — разные переменные.
+ * Сток `content:`/`system:` и вызов — только в файле с зарубежным вызовом (то
+ * же условие, что у метки `content`); переменная `*prompt*` — промпт везде, как
+ * и литерал с такой меткой: `const prompt = [\`Тел: ${lead.phone}\`].join('\n')`.
  */
-function promptFlow(src: string, literals: TemplateLiteral[], hasForeign: boolean): { reach: Set<string> } {
+function promptFlow(code: string, sc: Scopes, literals: TemplateLiteral[], hasForeign: boolean): PromptFlow {
   const reach = new Set<string>();
-  if (!hasForeign) return { reach };
-  const add = (names: Iterable<string>): boolean => {
+  const literalStarts = new Set<number>();
+  const byStart = new Map(literals.map((l) => [l.start, l] as const));
+  const add = (roots: Root[]): boolean => {
     let grew = false;
-    for (const n of names) if (!reach.has(n)) { reach.add(n); grew = true; }
+    for (const r of roots) {
+      const k = sc.key(r.name, r.at);
+      if (!reach.has(k)) { reach.add(k); grew = true; }
+    }
+    return grew;
+  };
+  const interpolationRoots = (lit: TemplateLiteral): Root[] => {
+    const roots: Root[] = [];
+    for (const { expr, at } of interpolations(lit.body)) {
+      const from = lit.start + 1 + at + 2;
+      rootsAt(code, from, from + expr.length, true, roots);
+    }
+    return roots;
+  };
+  const literalIn = (at: number): boolean => {
+    if (literalStarts.has(at)) return false;
+    literalStarts.add(at);
+    const lit = byStart.get(at);
+    return lit ? add(interpolationRoots(lit)) : false;
+  };
+  const taken = new Set<string>();
+  const take = (span: FlowSpan): boolean => {
+    const id = `${span.from}:${span.to}:${span.intoCalls}`;
+    if (taken.has(id)) return false;
+    taken.add(id);
+    let grew = add(rootsAt(code, span.from, span.to, span.intoCalls));
+    for (const at of literalsIn(code, span)) if (literalIn(at)) grew = true;
     return grew;
   };
 
-  SINK_KEY_HEAD.lastIndex = 0;
-  for (let m = SINK_KEY_HEAD.exec(src); m; m = SINK_KEY_HEAD.exec(src)) {
-    add(rootsOf(valueAfter(src, m.index + m[0].length), true));
-  }
-  FOREIGN_CALL_HEAD.lastIndex = 0;
-  for (let m = FOREIGN_CALL_HEAD.exec(src); m; m = FOREIGN_CALL_HEAD.exec(src)) {
-    // Объявление самой функции (`async function callAIFast(prompt: string)`) — не вызов.
-    if (/\bfunction\s*$/.test(src.slice(Math.max(0, m.index - 40), m.index))) continue;
-    add(rootsOf(argsAfter(src, m.index + m[0].length - 1), true));
+  // Сток `content:` и вызов — только в файле с зарубежным вызовом (то же
+  // условие, что у метки `content`); переменная `*prompt*` — промпт везде.
+  if (hasForeign) {
+    SINK_KEY_HEAD.lastIndex = 0;
+    for (let m = SINK_KEY_HEAD.exec(code); m; m = SINK_KEY_HEAD.exec(code)) {
+      const from = m.index + m[0].length;
+      take({ from, to: from + valueAfter(code, from).length, intoCalls: true });
+    }
+    FOREIGN_CALL_HEAD.lastIndex = 0;
+    for (let m = FOREIGN_CALL_HEAD.exec(code); m; m = FOREIGN_CALL_HEAD.exec(code)) {
+      // Объявление самой функции (`async function callAIFast(prompt: string)`) — не вызов.
+      if (/\bfunction\s*$/.test(code.slice(Math.max(0, m.index - 40), m.index))) continue;
+      const open = m.index + m[0].length - 1;
+      take({ from: open + 1, to: open + 1 + argsAfter(code, open).length, intoCalls: true });
+    }
   }
   for (const lit of literals) {
-    if (!isPromptLiteral(lit.label, hasForeign)) continue;
-    for (const { expr } of interpolations(lit.body)) add(rootsOf(expr, true));
+    if (isPromptLiteral(lit.label, hasForeign)) add(interpolationRoots(lit));
   }
 
-  const assigns: Array<{ name: string; rhs: string }> = [];
+  const edges: Array<{ key: string; span: FlowSpan }> = [];
   ASSIGN_HEAD.lastIndex = 0;
-  for (let m = ASSIGN_HEAD.exec(src); m; m = ASSIGN_HEAD.exec(src)) {
-    assigns.push({ name: m[1], rhs: rhsAfter(src, m.index + m[0].length) });
+  for (let m = ASSIGN_HEAD.exec(code); m; m = ASSIGN_HEAD.exec(code)) {
+    const from = m.index + m[0].length;
+    const key = sc.key(m[1], m.index);
+    edges.push({ key, span: { from, to: from + rhsAfter(code, from).length, intoCalls: false } });
+    if (/prompt|instruction/i.test(m[1])) reach.add(key);
+  }
+  PUSH_CALL.lastIndex = 0;
+  for (let m = PUSH_CALL.exec(code); m; m = PUSH_CALL.exec(code)) {
+    const open = m.index + m[0].length - 1;
+    edges.push({ key: sc.key(m[1], m.index), span: { from: open + 1, to: open + 1 + argsAfter(code, open).length, intoCalls: true } });
   }
   // Цепочки в коде короткие; предел — от патологии.
   for (let pass = 0; pass < 12; pass++) {
     let grew = false;
-    for (const a of assigns) if (reach.has(a.name) && add(rootsOf(a.rhs, false))) grew = true;
+    for (const e of edges) if (reach.has(e.key) && take(e.span)) grew = true;
     for (const lit of literals) {
-      const into = (lit.label !== '' && reach.has(lit.label)) || (lit.receiver !== undefined && reach.has(lit.receiver));
-      if (!into) continue;
-      for (const { expr } of interpolations(lit.body)) if (add(rootsOf(expr, true))) grew = true;
+      const into = (lit.label !== '' && reach.has(sc.key(lit.label, lit.start)))
+        || (lit.receiver !== undefined && reach.has(sc.key(lit.receiver, lit.start)));
+      if (into && literalIn(lit.start)) grew = true;
     }
     if (!grew) break;
   }
-  return { reach };
+  return { reach, literalStarts };
 }
 
-/** Имена, текст которых доходит до модели, — для теста и разбора находки. */
+/** Имена переменных, текст которых доходит до модели, — для теста и разбора находки. */
 export function promptFlowOf(src: string): { reach: string[] } {
-  const f = promptFlow(src, extractTemplateLiterals(src), fileMentionsForeignCaller(src));
-  return { reach: [...f.reach].sort() };
+  const code = maskCode(src);
+  const f = promptFlow(code, buildScopes(code), extractTemplateLiterals(src), fileMentionsForeignCaller(src));
+  return { reach: [...new Set([...f.reach].map(nameOfKey))].sort() };
 }
 
 /**
@@ -567,16 +993,31 @@ export function promptFlowOf(src: string): { reach: string[] } {
  */
 const SERVICE_CONTACT = /\.\s*mchs_phone\b/gi;
 
+/**
+ * Переменная, названная контактом (`tourist_phone`, `email`, `contacts`), —
+ * контакт, как и поле с тем же именем. Нужна, когда переменная пришла
+ * параметром: псевдоним по объявлению видит `const { tourist_phone } =
+ * parsed.data` в обработчике, но не параметр `tourist_phone` сборщика
+ * подсказки, куда его передали (форма отката #2506).
+ */
+const CONTACT_NAMED = new RegExp(`^(?:[a-z0-9$]+_)*(?:${CONTACT_WORD})s?$`, 'i');
+
 /** Сканирует ОДИН исходник. Чистая функция — принимает путь и содержимое. */
 export function scanSource(file: string, src: string): PIIFinding[] {
   const findings: PIIFinding[] = [];
   const hasForeign = fileMentionsForeignCaller(src);
   const literals = extractTemplateLiterals(src);
-  const aliases = pdAliases(src);
-  const flow = promptFlow(src, literals, hasForeign);
+  // Без зарубежного вызова, промпта по метке и переменной `*prompt*` — смотреть нечего.
+  if (!hasForeign && !/prompt|instruction/i.test(src)) return findings;
+  const code = maskCode(src);
+  const sc = buildScopes(code);
+  const aliases = aliasesIn(src, code, sc);
+  const flow = promptFlow(code, sc, literals, hasForeign);
 
   for (const lit of literals) {
-    const intoPrompt = (lit.label !== '' && flow.reach.has(lit.label)) || (lit.receiver !== undefined && flow.reach.has(lit.receiver));
+    const intoPrompt = flow.literalStarts.has(lit.start)
+      || (lit.label !== '' && flow.reach.has(sc.key(lit.label, lit.start)))
+      || (lit.receiver !== undefined && flow.reach.has(sc.key(lit.receiver, lit.start)));
     if (!isPromptLiteral(lit.label, hasForeign) && !intoPrompt) continue;
 
     for (const { expr, at } of interpolations(lit.body)) {
@@ -585,10 +1026,10 @@ export function scanSource(file: string, src: string): PIIFinding[] {
       if (CONTACT_FIELD.test(expr.replace(SERVICE_CONTACT, ''))) kind = 'contact';
       else if (PERSONAL_NAME_FIELD.test(expr) || PERSONAL_OWNER_NAME.test(expr)) kind = 'name';
       if (!kind) {
-        // Псевдоним: `${name}`, где выше `const name = l.name`.
-        IDENT_G.lastIndex = 0;
-        for (let id = IDENT_G.exec(expr); id; id = IDENT_G.exec(expr)) {
-          const viaAlias = aliases.get(id[0]);
+        // Переменная с именем контакта или псевдоним: `${name}`, где выше `const name = l.name`.
+        for (const v of interpolatedVars(`\${${expr}}`, lit.start + 1 + at, code)) {
+          if (v.name !== 'mchs_phone' && CONTACT_NAMED.test(v.name)) { kind = 'contact'; break; }
+          const viaAlias = aliases.get(sc.key(v.name, v.at));
           if (viaAlias) { kind = viaAlias; break; }
         }
       }
@@ -597,7 +1038,8 @@ export function scanSource(file: string, src: string): PIIFinding[] {
       // Номер строки: смещение открытия литерала + смещение интерполяции в теле.
       const absOffset = lit.start + 1 + at;
       const line = src.slice(0, absOffset).split('\n').length;
-      findings.push({ file, line, expr: expr.trim(), kind, context: lit.receiver ? `${lit.receiver}.push` : lit.label });
+      const context = lit.receiver ? `${lit.receiver}.${lit.label}` : lit.label || 'выражение';
+      findings.push({ file, line, expr: expr.trim(), kind, context });
     }
   }
   return findings;

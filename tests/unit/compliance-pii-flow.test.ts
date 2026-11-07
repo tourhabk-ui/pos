@@ -210,7 +210,10 @@ describe('ПД через локальную переменную (дыра, н�
   it('двухзвенная цепочка до промпта видна', () => {
     const found = scanSource('digest.ts', DIGEST);
     expect(found.length, 'ПД через две локальные переменные снова не видны').toBeGreaterThan(0);
-    expect(found[0].context).toBe('prompt');
+    // Видна и сама строка с ПД (литерал в колбэке map течёт в prompt), и промпт.
+    expect(found.map((f) => [f.line, f.kind, f.context])).toEqual([
+      [6, 'name', 'выражение'], [6, 'contact', 'выражение'], [8, 'contact', 'prompt'],
+    ]);
   });
 
   it('псевдонимы собираются до неподвижной точки', () => {
@@ -514,6 +517,128 @@ describe('D1 — где первая редакция рвала цепочку 
       '  return fetch(URL, { body: prompt });',
       '}',
     ].join('\n');
+    expect(promptFlowOf(src).reach).toEqual([]);
+  });
+});
+
+describe('D1 — второе ревью PR #3104: формы находки 3 и области видимости', () => {
+  const found = (src: string) => scanSource('k.ts', src).map((x) => [x.kind, x.context]);
+
+  it('переменная, положенная в массив промпта (`lines.push(line)`), — находка', () => {
+    const src = [
+      "import { callAIFast } from '@/lib/ai/providers';",
+      'const lines: string[] = [];',
+      'for (const l of leads) {',
+      '  const line = `Тел: ${l.phone}`;',
+      '  lines.push(line);',
+      '}',
+      "await callAIFast([{ role: 'user', content: lines.join('\\n') }]);",
+    ].join('\n');
+    expect(found(src)).toEqual([['contact', 'line']]);
+  });
+
+  it('литерал в колбэке map и элемент литерала массива — находки', () => {
+    const viaMap = [
+      "import { callAIFast } from '@/lib/ai/providers';",
+      "const text = leads.map((l) => `Тел: ${l.phone}`).join('\\n');",
+      'await callAIFast(text);',
+    ].join('\n');
+    expect(found(viaMap)).toEqual([['contact', 'выражение']]);
+    // Переменная `*prompt*` — промпт и без зарубежного вызова в файле, как литерал с такой меткой.
+    const viaArray = "const prompt = [`Тел: ${lead.phone}`, 'Ответь кратко'].join('\\n');";
+    expect(found(viaArray)).toEqual([['contact', 'выражение']]);
+    // map в аргументах обычного вызова при присваивании — не промпт (узко, как у SQL).
+    const intoCall = [
+      "import { callAIFast } from '@/lib/ai/providers';",
+      "const sent = await sendMax(leads.map((l) => `Тел: ${l.phone}`).join('\\n'));",
+      "await callAIFast([{ role: 'user', content: sent.status }]);",
+    ].join('\n');
+    expect(found(intoCall)).toEqual([]);
+  });
+
+  it('unshift, add и получатель-свойство `box.lines` — находки', () => {
+    const sink = "await callAIFast([{ role: 'user', content: [...seen].join('\\n') + ctx.join('\\n') + box.lines.join('\\n') }]);";
+    const src = [
+      "import { callAIFast } from '@/lib/ai/providers';",
+      'ctx.unshift(`Почта: ${lead.email}`);',
+      'seen.add(`Тел: ${lead.phone}`);',
+      'box.lines.push(`Имя: ${lead.name}`);',
+      sink,
+    ].join('\n');
+    expect(found(src)).toEqual([['contact', 'ctx.unshift'], ['contact', 'seen.add'], ['name', 'lines.push']]);
+    // Переменная, положенная через unshift, — тоже.
+    const viaVar = [
+      "import { callAIFast } from '@/lib/ai/providers';",
+      'const first = `Почта: ${lead.email}`;',
+      'ctx.unshift(first);',
+      "await callAIFast([{ role: 'user', content: ctx.join('\\n') }]);",
+    ].join('\n');
+    expect(found(viaVar)).toEqual([['contact', 'first']]);
+  });
+
+  it('параметр с именем контакта, переданный в сборщик подсказки, — находка', () => {
+    const src = [
+      "import { callAIWaterfall } from '@/lib/ai/providers';",
+      'function build(question: string, tourist_phone?: string) {',
+      "  return [{ role: 'user', content: `${question}\\nТел: ${tourist_phone ?? 'нет'}` }];",
+      '}',
+      'export const answer = (q: string, p?: string) => callAIWaterfall(build(q, p));',
+    ].join('\n');
+    expect(found(src)).toEqual([['contact', 'content']]);
+    // Телефон МЧС у маршрута — служба: и полем, и переменной.
+    expect(found(src.replace(/tourist_phone/g, 'mchs_phone'))).toEqual([]);
+  });
+
+  it('одноимённые переменные разных функций — разные переменные (lib/kuzmich/core.ts)', () => {
+    // Вопрос туриста `text` уходит модели; `text` уведомления оператору — в MAX.
+    const flow = [
+      "import { callAIFast } from '@/lib/ai/providers';",
+      'function notify(b: Booking) {',
+      "  const text = [`Турист: ${b.name}`, `Телефон: ${b.phone}`].join('\\n');",
+      '  return sendMax(text);',
+      '}',
+      'export async function answer(opts: { text: string }) {',
+      '  const { text } = opts;',
+      "  return callAIFast([{ role: 'user', content: text }]);",
+      '}',
+    ].join('\n');
+    expect(found(flow)).toEqual([]);
+    expect(found(flow.replace('return sendMax(text);', "return callAIFast([{ role: 'user', content: text }]);")))
+      .toEqual([['name', 'выражение'], ['contact', 'выражение']]);
+    // Псевдоним ПД соседней функции не делает «телефоном» одноимённую переменную.
+    const alias = [
+      "import { callAIFast } from '@/lib/ai/providers';",
+      'function card(b: Booking) {',
+      '  const text = `Телефон: ${b.phone}`;',
+      '  return sendMax(text);',
+      '}',
+      'export async function reply(question: string) {',
+      '  const text = question.trim();',
+      "  return callAIFast([{ role: 'user', content: `Вопрос: ${text}` }]);",
+      '}',
+    ].join('\n');
+    expect(found(alias)).toEqual([]);
+    // Параметр стрелки закрывает внешнюю переменную с тем же именем.
+    const shadow = [
+      "import { callAIFast } from '@/lib/ai/providers';",
+      'const who = lead.name;',
+      'const lines = models.map((who) => `Модель: ${who}`);',
+      "await callAIFast([{ role: 'user', content: lines.join('\\n') }]);",
+    ].join('\n');
+    expect(found(shadow)).toEqual([]);
+    expect(found(shadow.replace('models.map((who) =>', 'models.map(who =>'))).toEqual([]);
+    expect(found(shadow.replace('models.map((who) =>', 'models.map((m) =>'))).toEqual([['name', 'выражение']]);
+  });
+
+  it('проза не код: `content:` в комментарии поток не начинает', () => {
+    const src = [
+      "import { callAIFast } from '@/lib/ai/providers';",
+      '// Форма: { role: "user", content: notes } — так делать нельзя.',
+      'const notes = `Тел: ${lead.phone}`;',
+      'await sendMax(notes);',
+      "await callAIFast('Сводка без контактов');",
+    ].join('\n');
+    expect(found(src)).toEqual([]);
     expect(promptFlowOf(src).reach).toEqual([]);
   });
 });
