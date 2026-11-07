@@ -702,17 +702,58 @@ function sourceHasRange(source: string, left: string, right: string): boolean {
 }
 
 /**
- * Строка-ориентир взята из источника слово в слово: все её числа стоят в
- * выводе инструмента этого хода, а диапазон — тем же диапазоном.
+ * Подпись строки: текст до первой цифры, без разметки и знаков, — «ориентир
+ * на человека», «итого на группу из». По ней строка ответа ищет свою строку
+ * в источнике.
+ */
+function priceLabel(line: string): string {
+  const firstDigit = line.search(/\d/);
+  const head = firstDigit < 0 ? line : line.slice(0, firstDigit);
+  return head.toLowerCase().replace(/[*_`#>•·:;,.!?()«»"'–—-]/g, ' ').replace(/\s+/g, ' ').trim();
+}
+
+/**
+ * Цены строки по порядку: числа от трёх цифр, сгруппированные до очередного
+ * «₽»/«руб». «45 000 – 60 000 ₽» — одна группа из двух чисел; второй диапазон
+ * в той же строке — вторая группа.
+ */
+function priceGroups(line: string): string[][] {
+  const groups: string[][] = [];
+  let current: string[] = [];
+  for (const m of line.matchAll(/(\d[\d\s  ]*\d|\d)|(₽|руб)/gi)) {
+    if (m[1] !== undefined) {
+      const d = digitsOf(m[1]);
+      if (d.length >= 3) current.push(d);
+    } else if (current.length > 0) {
+      groups.push(current);
+      current = [];
+    }
+  }
+  if (current.length > 0) groups.push(current);
+  return groups;
+}
+
+/**
+ * Строка сметы взята из источника: в выводе инструмента этого хода есть
+ * строка с ТОЙ ЖЕ подписью и ТЕМ ЖЕ списком цен.
+ *
+ * Первая редакция (#3089, K2) сверяла только числа — каждое по отдельности,
+ * где угодно в источнике. Ревьюер deepseek-flash (проба run 3, 07.11) показал,
+ * что так проходят «Ориентир на человека: 90 000 – 120 000 ₽», когда это
+ * «Итого на группу» (цена на человека вдвое выше правды), одиночное число и
+ * второй диапазон, которого в источнике нет. Подпись — часть правды о цене.
  */
 function orientationFromSource(line: string, source: string): boolean {
-  const numbers = [...line.matchAll(/\d[\d\s\u00a0\u202f]*\d|\d/g)]
-    .map((m) => digitsOf(m[0]))
-    .filter((n) => n.length >= 3);
-  if (numbers.length === 0) return false;
-  if (!numbers.every((n) => sourceHasAmount(source, n))) return false;
-  const range = /(\d[\d\s\u00a0\u202f]{0,14})\s*[–—-]\s*(\d[\d\s\u00a0\u202f]{0,14})/.exec(line);
-  return !range || sourceHasRange(source, digitsOf(range[1]), digitsOf(range[2]));
+  const want = priceGroups(line);
+  if (want.length === 0) return false;
+  const label = priceLabel(line);
+  if (!/[a-zа-яё]/i.test(label)) return false;
+  return source.split('\n').some((s) => {
+    if (priceLabel(s) !== label) return false;
+    const have = priceGroups(s);
+    return have.length === want.length
+      && have.every((g, i) => g.length === want[i].length && g.every((n, j) => n === want[i][j]));
+  });
 }
 
 /**
@@ -723,11 +764,14 @@ function orientationFromSource(line: string, source: string): boolean {
  * Ориентир из источника остаётся (аудит планировщика 07.11, K2). Смету плана
  * пишет сам инструмент («Ориентир на человека: …», make_trip_plan), и вырезать
  * её с припиской «цены нет в данных» было неправдой: цена в данных была.
+ * Строка сметы («ориентир», «вилка», «итого») остаётся, только если в
+ * источнике та же подпись с теми же ценами: «итого на группу» под подписью
+ * «на человека» — уже не та цена.
  */
 export function dropUnsourcedPrices(answer: string, source: string): { text: string; dropped: boolean } {
   let dropped = false;
   const kept = answer.split('\n').flatMap((line) => {
-    if (/ориентир|вилк/i.test(line) && /\d{3,}|₽|руб/i.test(line)) {
+    if (/ориентир|вилк|итого/i.test(line) && /\d{3,}|₽|руб/i.test(line)) {
       if (orientationFromSource(line, source)) return [line];
       dropped = true;
       return [];
