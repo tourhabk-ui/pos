@@ -46,8 +46,14 @@ export interface RealTour {
   tourReviewCount: number;
   basePrice: number;
   priceUnit: string;
-  maxParticipants: number;
-  minParticipants: number;
+  /**
+   * Потолок группы тура; `null` — группа без ограничения
+   * (`group_size_unlimited`, аудит 07.11, E3). Своего потолка план не
+   * выдумывает: до 07.11 пустое поле становилось 20.
+   */
+  maxParticipants: number | null;
+  /** Нижняя граница группы; `null` — не записана. */
+  minParticipants: number | null;
   durationHours: number | null;
   /**
    * Дни тура словами оператора (`multi_day_count`). Бронь считает длительность
@@ -149,8 +155,9 @@ export async function fetchRealToursForZone(
         nearest_free_date: string | null;
         base_price: string;
         price_unit: string;
-        max_participants: number;
-        min_participants: number;
+        max_participants: number | null;
+        min_participants: number | null;
+        group_size_unlimited: boolean;
         duration_hours: number | null;
         multi_day_count: number | null;
         difficulty: string | null;
@@ -174,6 +181,7 @@ export async function fetchRealToursForZone(
           ot.id AS tour_id, ot.title, ot.short_description,
           ot.base_price, ot.price_unit,
           ot.max_participants, ot.min_participants, ot.duration_hours, ot.multi_day_count,
+          COALESCE(ot.group_size_unlimited, FALSE) AS group_size_unlimited,
           ot.difficulty, ot.weather_dependent,
           ot.season_start::text, ot.season_end::text,
           ot.latitude AS lat, ot.longitude AS lng,
@@ -213,8 +221,8 @@ export async function fetchRealToursForZone(
         tourReviewCount: parseInt(String(r.tour_review_count), 10) || 0,
         basePrice: parseFloat(String(r.base_price)) || 0,
         priceUnit: r.price_unit ?? 'per_person',
-        maxParticipants: r.max_participants ?? 20,
-        minParticipants: r.min_participants ?? 1,
+        maxParticipants: r.group_size_unlimited ? null : (r.max_participants ?? null),
+        minParticipants: r.min_participants ?? null,
         durationHours: r.duration_hours,
         multiDayCount: r.multi_day_count ?? null,
         difficulty: r.difficulty,

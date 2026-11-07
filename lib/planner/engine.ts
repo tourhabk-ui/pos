@@ -45,6 +45,8 @@ import {
 import { lodgingIncluded } from '@/lib/planner/lodging-included';
 import { calculatePriceBreakdown, TOUR_PRICE_HEADROOM, type PriceBreakdown } from '@/lib/planner/estimate';
 import { tourPlanSpan, tourRoom } from '@/lib/planner/tour-span';
+import { capacityWarningFor } from '@/lib/planner/tour-day-reread';
+import { withGroupMinimum } from '@/lib/planner/group-minimum';
 import { lineUpForDate, offDaysWarning, tourFitsDate, type TourDates } from '@/lib/planner/tour-day-fit';
 import { kamchatkaToday } from '@/lib/seat-requests/core';
 import { tourDurationDays } from '@/lib/bookings/duration';
@@ -147,7 +149,10 @@ export interface DayPlan {
     tourRating: number | null;
     reviewCount: number;
     verified: boolean;
-    maxParticipants: number;
+    /** Потолок группы; нет — группа без ограничения (E3). */
+    maxParticipants?: number;
+    /** Нижняя граница группы; нет — не записана (E3). */
+    minParticipants?: number;
     weatherDependent: boolean;
     durationHours: number | null;
     /**
@@ -1674,7 +1679,8 @@ async function generateDayPlans(
           tourRating: realTour.tourRating,
           reviewCount: realTour.tourReviewCount,
           verified: realTour.operatorVerified,
-          maxParticipants: realTour.maxParticipants,
+          ...(realTour.maxParticipants !== null ? { maxParticipants: realTour.maxParticipants } : {}),
+          ...(realTour.minParticipants !== null ? { minParticipants: realTour.minParticipants } : {}),
           weatherDependent: realTour.weatherDependent,
           durationHours: realTour.durationHours,
           priceUnit: realTour.priceUnit,
@@ -1699,12 +1705,8 @@ async function generateDayPlans(
           if (daySlot) {
             availableDate = daySlot.date;
             slotsRemaining = daySlot.remaining;
-            const gs = groupSize(profile);
-            if (daySlot.remaining < gs) {
-              capacityWarning = `Свободно ${daySlot.remaining} из ${realTour.maxParticipants} мест, вас ${gs}. Возможно, придётся выбрать другую дату.`;
-            } else if (daySlot.remaining <= 3) {
-              capacityWarning = `Осталось ${daySlot.remaining} мест — высокий спрос`;
-            }
+            // Строка о местах — одним правилом с правкой плана (tour-day-reread).
+            capacityWarning = capacityWarningFor(daySlot.remaining, realTour.maxParticipants, groupSize(profile));
           }
         }
 
@@ -1765,7 +1767,8 @@ async function generateDayPlans(
         difficulty: (realTour?.difficulty as DayPlan['difficulty']) ?? c.difficulty,
         childFriendly: childOk,
         minChildAge: c.minChildAge,
-        dayWarnings,
+        // Минимум группы тура (E3): группа меньше — «нужен набор группы».
+        dayWarnings: withGroupMinimum(dayWarnings, realTour?.minParticipants, groupSize(profile)),
         activityMode: activityMode({ realTour, route }),
         ...(route ? { routeId: route.id } : {}),
         realTour: realTourData,
