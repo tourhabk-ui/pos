@@ -1142,6 +1142,7 @@ describe('D1 — одиннадцатое ревью PR #3104: что чисти
     // Значение стока, переменная с именем идентификатора, род через переменную.
     expect(found(ask(sink('redactPII(order.passport)')))).toEqual([['contact', 'content', 'order.passport']]);
     expect(found(ask('const address = await loadAddress();', sink('redactPII(address)')))).toEqual([['contact', 'content', 'address']]);
+    expect(found(ask('const address = await loadAddress();', sink('`Куда: ${redactPII(address)}`')))).toEqual([['contact', 'content', 'redactPII(address)']]);
     expect(found(ask('const where = order.address;', sink('`Куда: ${redactPII(where)}`')))).toEqual([['contact', 'content', 'redactPII(where)']]);
     // Телефон и почта сквозь redactPII — по-прежнему чисты.
     expect(found(ask(sink('`Тел: ${redactPII(order.phone)}, почта: ${redactPII(order.email)}`')))).toEqual([]);
