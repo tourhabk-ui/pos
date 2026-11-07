@@ -39,11 +39,20 @@ export interface SharedPlan {
   /** Только у черновика: до какого момента живёт ссылка (ISO). */
   expires_at?: string;
   /**
-   * Только у черновика: тур, который поставил в день сам план (номер дня →
-   * id тура). Страница показывает его, а не «лучший тур по типу занятия»:
-   * иначе в чате был бы один тур, а на странице того же плана — другой.
+   * Тур, который поставил в день сам план (номер дня → id тура). Страница
+   * показывает его, а не «лучший тур по типу занятия»: иначе в чате или в
+   * сохранённой поездке был бы один тур, а на странице того же плана — другой.
+   * До 07.11 так было только у черновика (аудит планировщика, H13): у
+   * опубликованной поездки тур дня подбирался заново, хотя выбранный
+   * `realTour` в днях сохранён с 09.10.
    */
   day_tour_ids?: Record<string, string>;
+  /**
+   * Сколько человек в группе плана; null — не записано. Только для сверки
+   * мест на дату с группой (H14): наружу share-API его НЕ отдаёт — состав
+   * группы по ссылке не виден (обещание у кнопки «Поделиться»).
+   */
+  people?: number | null;
 }
 
 export type SharedPlanRead =
@@ -66,21 +75,43 @@ export function draftTitle(dayCount: number): string {
   return `План поездки по Камчатке на ${dayCount} ${daysWord(dayCount)}`;
 }
 
+/** Тур, который план поставил в день: номер дня → id тура. */
+function dayTourIdsOf(days: unknown[]): Record<string, string> {
+  const out: Record<string, string> = {};
+  for (const d of days as Array<{ day?: unknown; realTour?: { tourId?: unknown } } | null>) {
+    const id = d?.realTour?.tourId;
+    if (typeof d?.day === 'number' && (typeof id === 'string' || typeof id === 'number') && String(id) !== '') {
+      out[String(d.day)] = String(id);
+    }
+  }
+  return out;
+}
+
+/** Сколько человек в группе; состава нет или он негоден — null («не записано»). */
+function peopleOf(party: unknown): number | null {
+  if (!party || typeof party !== 'object') return null;
+  const p = party as { adults?: unknown; children?: unknown };
+  if (typeof p.adults !== 'number' || !Number.isInteger(p.adults) || p.adults < 1) return null;
+  return p.adults + (Array.isArray(p.children) ? p.children.length : 0);
+}
+
 export async function readSharedPlan(token: string): Promise<SharedPlanRead> {
   if (!TOKEN_RE.test(token)) return { kind: 'missing' };
 
   try {
     const { rows } = await pool.query<{
       id: string; title: string; arrival_date: unknown; departure_date: unknown;
-      places: string[]; activities: string[]; days: unknown; transport_by_day: unknown;
+      places: string[]; activities: string[]; days: unknown; transport_by_day: unknown; party: unknown;
     }>(
-      `SELECT id, title, arrival_date, departure_date, places, activities, days, transport_by_day
+      `SELECT id, title, arrival_date, departure_date, places, activities, days, transport_by_day, party
        FROM user_trips
        WHERE share_token = $1 AND is_public = TRUE AND deleted_at IS NULL`,
       [token],
     );
     const r = rows[0];
     if (r) {
+      const { party, ...row } = r;
+      const days = Array.isArray(r.days) ? r.days : [];
       return {
         kind: 'found',
         plan: {
@@ -88,10 +119,12 @@ export async function readSharedPlan(token: string): Promise<SharedPlanRead> {
           // node-pg отдаёт DATE как Date, и страница по ссылке печатала его
           // UTC-моментом «2027-07-10T00:00:00.000Z», а предзаполнение МЧС
           // такую дату не узнавало и шло без дат.
-          ...withCalendarDates(r),
+          ...withCalendarDates(row),
           source: 'trip',
-          days: Array.isArray(r.days) ? r.days : [],
+          days,
           transport_by_day: (r.transport_by_day && typeof r.transport_by_day === 'object' ? r.transport_by_day : {}) as Record<string, string>,
+          day_tour_ids: dayTourIdsOf(days),
+          people: peopleOf(party),
         },
       };
     }
@@ -104,11 +137,7 @@ export async function readSharedPlan(token: string): Promise<SharedPlanRead> {
   const read = await loadDraft(token);
   if (read.kind !== 'found') return read;
   const { draft } = read;
-  const days = Array.isArray(draft.days) ? draft.days : [];
-  const dayTourIds: Record<string, string> = {};
-  for (const d of days as DayPlan[]) {
-    if (d.realTour?.tourId && typeof d.day === 'number') dayTourIds[String(d.day)] = String(d.realTour.tourId);
-  }
+  const days: DayPlan[] = Array.isArray(draft.days) ? draft.days : [];
   return {
     kind: 'found',
     plan: {
@@ -122,7 +151,8 @@ export async function readSharedPlan(token: string): Promise<SharedPlanRead> {
       days,
       transport_by_day: {},
       ...(draft.expiresAt ? { expires_at: draft.expiresAt } : {}),
-      day_tour_ids: dayTourIds,
+      day_tour_ids: dayTourIdsOf(days),
+      people: peopleOf({ adults: draft.params.adults, children: draft.params.children }),
     },
   };
 }

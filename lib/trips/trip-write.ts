@@ -141,7 +141,7 @@ export function buildTripUpdate(input: UpdateTripInput, firstParam: number): { s
 export const TRIP_SELECT = `id, user_id, title, arrival_date, departure_date, places, activities, days,
   transport_by_day, flight_arrival, flight_departure, flight_arrival_time,
   flight_departure_time, needs_airport_transfer, needs_lodging, needs_car, party, choices, warnings,
-  created_at, updated_at, deleted_at`;
+  is_public, created_at, updated_at, deleted_at`;
 
 /**
  * Создание: INSERT, а с ключом повтора — upsert по уникальному индексу живых

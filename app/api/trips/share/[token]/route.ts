@@ -33,34 +33,40 @@ export async function GET(
     if (read.kind === 'missing') {
       return NextResponse.json({ success: false, error: 'Маршрут не найден или не опубликован' }, { status: 404 });
     }
-    const { day_tour_ids: dayTourIds, ...plan } = read.plan;
+    // Сколько человек в группе — только для сверки мест ниже: наружу не
+    // уходит, состав группы по ссылке не виден (H14).
+    const { day_tour_ids: dayTourIds, people, ...plan } = read.plan;
 
-    // Туры к дням плана: по activityType (+зона дня), тот же подбор, что у
-    // /api/planner/tours-for-day. Сохранённые дни туров не несут (схема
-    // сохранения режет realTour), поэтому резолвим на чтении — публичная
-    // страница плана должна вести к брони, а не быть витриной цен «от-до»:
-    // «план, который бронирует» — наше отличие от планировщиков TAAFT
-    // (разведка 08.08, карт-бланш владельца). Сбой подбора не роняет план.
+    // Тур дня — тот, что поставил план: у черновика его назвал чат (#2225), у
+    // опубликованной поездки — выбрал человек в планировщике (аудит 07.11,
+    // H13). До 07.11 поездке тур подбирался заново «лучший по типу», и места
+    // на дату считались для подменённого тура. Публичная страница плана
+    // ведёт к брони, а не витрина цен «от-до» (разведка 08.08). Сбой подбора
+    // не роняет план.
     const days = plan.days as Array<{ day?: number; activityType?: string; type?: string; coords?: [number, number] }>;
     const activityDays = days.filter((d) => d.activityType && (d.type === undefined || d.type === 'activity'));
-    // У черновика тур дня уже выбран планом — показываем его; подбор «лучшего
-    // по типу» там подменил бы тур, названный в чате, другим (#2225).
     const isDraft = plan.source === 'draft';
-    const topTours = isDraft ? {} : await topToursByActivity(activityDays.map((d) => d.activityType as string));
-    const planTours = isDraft ? await toursByIds(Object.values(dayTourIds ?? {})) : {};
+    const planTours = await toursByIds(Object.values(dayTourIds ?? {}));
     const dayTours: Record<string, TopTour> = {};
     for (const [day, tourId] of Object.entries(dayTourIds ?? {})) {
       if (planTours[tourId]) dayTours[day] = planTours[tourId];
     }
-    const tourFor = (d: { day?: number; activityType?: string }): TopTour | undefined => (isDraft
-      ? (typeof d.day === 'number' ? dayTours[String(d.day)] : undefined)
-      : (d.activityType ? topTours[d.activityType] : undefined));
+    // Подбор по виду занятия (правило 1в, названо на странице) — только дням
+    // поездки, где тура плана нет: поездка до 09.10 или тур снят с витрины.
+    // У черновика подбора нет вовсе: он подменил бы тур, названный в чате.
+    const unplanned = activityDays.filter((d) => typeof d.day !== 'number' || !dayTours[String(d.day)]);
+    const topTours = isDraft || unplanned.length === 0 ? {} : await topToursByActivity(unplanned.map((d) => d.activityType as string));
+    const tourFor = (d: { day?: number; activityType?: string }): TopTour | undefined =>
+      (typeof d.day === 'number' ? dayTours[String(d.day)] : undefined)
+      ?? (!isDraft && d.activityType ? topTours[d.activityType] : undefined);
+    // Мест на дату должно хватить на всю группу; группа не записана — на одного.
+    const need = typeof people === 'number' && people > 1 ? people : 1;
 
     // Честная доступность на дату каждого дня («Мой план 2.0», B-4):
     // «на 12.08 — 4 места» из реальной занятости (fetchAvailabilityForTour —
     // тот же расчёт, что у гейта брони). Только будущие даты.
     //
-    // Четыре исхода, а не «места есть» и тишина (пруф с прода 06.11: план
+    // Пять исходов, а не «места есть» и тишина (пруф с прода 06.11: план
     // агента на 10–14.07.2027, Горелый на 11.07 без мест — ответ агенту это
     // говорил, а страница плана показывала цену и «оставить заявку» без слова):
     //  - open — на дату есть места;
@@ -68,7 +74,10 @@ export async function GET(
     //    свободная дата в 60 сутках, если есть;
     //  - on_request — расписания в системе нет: дату подтверждает оператор
     //    по заявке, и это не «мест нет»;
-    //  - unread — проверить не смогли; сбой называется, а не глушится (§4.0).
+    //  - unread — проверить не смогли; сбой называется, а не глушится (§4.0);
+    //  - short — места есть, но меньше, чем людей в группе (H14): до 07.11
+    //    одно место на двоих было «места есть». `next` — ближайшая дата,
+    //    где хватит на всех.
     const availability: Record<string, TripDayAvailability> = {};
     const arrivalRaw = plan.arrival_date;
     const arrivalMs = arrivalRaw ? new Date(arrivalRaw).getTime() : NaN;
@@ -86,8 +95,15 @@ export async function GET(
           // Время чтения — страница называет его у ответа (принцип 2, 07.11).
           const checkedAt = new Date().toISOString();
           const remaining = slots[0]?.remaining ?? 0;
-          if (remaining > 0) {
+          if (remaining >= need) {
             availability[String(d.day)] = { date, remaining, state: 'open', checkedAt };
+            return;
+          }
+          const nextForGroup = async () => (await fetchAvailabilityForTour(tour.id, addDaysIso(date, 1), addDaysIso(date, NEXT_FREE_WINDOW_DAYS), cache))
+            .find((s) => s.remaining >= need)?.date;
+          if (remaining > 0) {
+            const next = await nextForGroup();
+            availability[String(d.day)] = { date, remaining, state: 'short', ...(next ? { next } : {}), checkedAt };
             return;
           }
           const keeps = await tourKeepsSchedule(Number(tour.id));
@@ -99,8 +115,7 @@ export async function GET(
             availability[String(d.day)] = { date, remaining: 0, state: 'unread' };
             return;
           }
-          const ahead = await fetchAvailabilityForTour(tour.id, addDaysIso(date, 1), addDaysIso(date, NEXT_FREE_WINDOW_DAYS), cache);
-          const next = ahead.find((s) => s.remaining > 0)?.date;
+          const next = await nextForGroup();
           availability[String(d.day)] = { date, remaining: 0, state: 'none', ...(next ? { next } : {}), checkedAt };
         } catch (err) {
           const code = (err as { code?: string } | null)?.code ?? 'нет SQLSTATE';
@@ -158,7 +173,7 @@ export async function GET(
 
     return NextResponse.json({
       success: true,
-      data: { ...plan, top_tours: topTours, ...(isDraft ? { day_tours: dayTours } : {}), availability, weather, plan_b: planB },
+      data: { ...plan, top_tours: topTours, day_tours: dayTours, availability, weather, plan_b: planB },
     });
   } catch (err) {
     // Отказ не глушится (§4.0): причина — в лог, без данных плана.

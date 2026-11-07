@@ -6,12 +6,14 @@
  *
  * Ссылка для близких — существующая /trip/[token]: там только название, даты,
  * дни и туры плана, без состава группы, рейсов и контактов. Поездка
- * публикуется только по нажатию «Поделиться».
+ * публикуется только по нажатию «Поделиться» и закрывается кнопкой «Закрыть
+ * ссылку» (аудит 07.11, H15): старая ссылка перестаёт открывать план, новое
+ * «Поделиться» даёт новую.
  */
 
 import Link from 'next/link';
 import { useEffect, useState } from 'react';
-import { ShieldCheck, Share2, Copy, Check, Backpack, Download, ChevronRight, Loader, Send, MessageCircle, ExternalLink } from 'lucide-react';
+import { ShieldCheck, Share2, Copy, Check, Backpack, Download, ChevronRight, Loader, Send, MessageCircle, ExternalLink, Link2Off } from 'lucide-react';
 import { MCHS_DEADLINE_SHORT, MCHS_ONLINE_FORM_URL } from '@/lib/safety/mchs-registration';
 import { planGpxPoints } from '@/lib/trips/plan-gpx';
 import { shareLink } from '@/lib/share';
@@ -29,6 +31,8 @@ export interface TripActionsTrip {
   arrival_date: string | null;
   departure_date: string | null;
   days: TripActionsDay[];
+  /** Открыта ли ссылка для близких; нет поля — не знаем, кнопки «Закрыть» до «Поделиться» нет. */
+  is_public?: boolean;
 }
 
 const isoDay = (d: string | null) => (d ? d.slice(0, 10) : null);
@@ -82,6 +86,8 @@ export function TripActions({ trip }: { trip: TripActionsTrip }) {
   const [shareUrl, setShareUrl] = useState<string | null>(null);
   const [sharing, setSharing] = useState(false);
   const [shareError, setShareError] = useState('');
+  const [published, setPublished] = useState(trip.is_public === true);
+  const [closed, setClosed] = useState(false);
   const [copied, setCopied] = useState(false);
   const [gear, setGear] = useState<GearLink[]>([]);
 
@@ -119,10 +125,29 @@ export function TripActions({ trip }: { trip: TripActionsTrip }) {
       const j = await res.json();
       if (!j.success) { setShareError(j.error ?? 'Не получилось сделать ссылку'); return null; }
       setShareUrl(j.shareUrl);
+      setPublished(true);
+      setClosed(false);
       return j.shareUrl as string;
     } catch {
       setShareError('Нет соединения');
       return null;
+    } finally {
+      setSharing(false);
+    }
+  }
+
+  async function onClose() {
+    setSharing(true);
+    setShareError('');
+    try {
+      const res = await fetch(`/api/trips/${trip.id}/share`, { method: 'DELETE' });
+      const j = await res.json();
+      if (!j.success) { setShareError(j.error ?? 'Не получилось закрыть ссылку'); return; }
+      setShareUrl(null);
+      setPublished(false);
+      setClosed(true);
+    } catch {
+      setShareError('Нет соединения — ссылка пока открыта');
     } finally {
       setSharing(false);
     }
@@ -190,8 +215,19 @@ export function TripActions({ trip }: { trip: TripActionsTrip }) {
           <button type="button" onClick={() => openIn('max')} disabled={sharing} className={chip}>
             <MessageCircle className="w-3.5 h-3.5" />MAX
           </button>
+          {published && (
+            <button type="button" onClick={onClose} disabled={sharing} className={chip}>
+              <Link2Off className="w-3.5 h-3.5" />Закрыть ссылку
+            </button>
+          )}
           {shareError && <p className="w-full text-xs text-[var(--danger)]">{shareError}</p>}
           {shareUrl && <p className="w-full text-xs text-[var(--text-muted)] break-all">{shareUrl}</p>}
+          {published && !shareUrl && (
+            <p className="w-full text-xs text-[var(--text-muted)]">Ссылка на план открыта — по ней видны даты и дни маршрута.</p>
+          )}
+          {closed && (
+            <p className="w-full text-xs text-[var(--text-muted)]">Ссылка закрыта: по ней план больше не открыть. «Поделиться» сделает новую.</p>
+          )}
         </Row>
 
         {gear.length > 0 && (

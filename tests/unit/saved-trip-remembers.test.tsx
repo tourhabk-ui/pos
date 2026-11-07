@@ -111,6 +111,19 @@ describe('смета поездки знает про машину (E7, волн
   });
 });
 
+describe('ссылка для близких открыта — её можно закрыть (H15, волна 2.6)', () => {
+  it('открыта — «Закрыть ссылку» в «Перед поездкой»; не открыта — кнопки нет', async () => {
+    tripReply = { ...TRIP, is_public: true };
+    render(<TripDetailClient tripId="trip-1" />);
+    expect(await screen.findByRole('button', { name: /Закрыть ссылку/ })).toBeTruthy();
+    cleanup();
+    tripReply = { ...TRIP, is_public: false };
+    render(<TripDetailClient tripId="trip-1" />);
+    await screen.findAllByTestId('trip-day');
+    expect(screen.queryByRole('button', { name: /Закрыть ссылку/ })).toBeNull();
+  });
+});
+
 describe('что ещё нужно — в заявке из поездки (H6)', () => {
   it('записано — в плане заявки', async () => {
     render(<TripDetailClient tripId="trip-1" />);
