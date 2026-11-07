@@ -1,6 +1,6 @@
 # Схема базы данных Ведара
 
-> Снято 2026-11-07 с настоящего PostgreSQL 18.6 (Debian 18.6-1.pgdg13+2): baseline прода (`lib/database/baseline/schema-baseline.sql`, снимок 2026-08-15) + миграции новее него, накатанные штатным раннером. Последняя миграция в снимке: `1400_admin_chat_actions.sql`.
+> Снято 2026-11-07 с настоящего PostgreSQL 18.6 (Debian 18.6-1.pgdg13+2): baseline прода (`lib/database/baseline/schema-baseline.sql`, снимок 2026-08-15) + миграции новее него, накатанные штатным раннером. Последняя миграция в снимке: `1401_admin_chat_actions_dates.sql`.
 > Файл порождён `scripts/gen-db-schema.ts` (`npm run db:schema-doc`); править руками бессмысленно — следующий прогон перепишет.
 > Что здесь НЕ учтено: дрейф прода после baseline, не отражённый миграциями. Судья дрейфа — `GET /api/cron/schema-drift` на проде (`lib/db/schema-drift.ts`). Значений данных в файле нет — только имена и типы.
 
@@ -8,7 +8,7 @@
 |---|---:|
 | Таблиц | 320 |
 | Представлений (VIEW) | 12 |
-| Колонок | 4186 |
+| Колонок | 4187 |
 | Внешних ключей | 380 |
 | Таблиц без единого FK в обе стороны | 89 |
 
@@ -1469,9 +1469,9 @@ B2B-агенты, продающие туры за комиссию. Не пут
 
 `task_id varchar!` `record jsonb!` `created_at timestamptz!=` `expires_at timestamptz!`
 
-**admin_chat_actions** · 12 кол. · PK id · admin_user_id → users.id · индексов 2
+**admin_chat_actions** · 13 кол. · PK id · admin_user_id → users.id · индексов 2
 
-`id uuid!=` `admin_user_id uuid!` `channel varchar!=` `chat_id bigint!` `subject_kind varchar!` `subject_id text!` `action varchar!` `status varchar!` `outcome jsonb` `created_at timestamptz!=` `expires_at timestamptz!` `used_at timestamptz`
+`id uuid!=` `admin_user_id uuid!` `channel varchar!=` `chat_id bigint!` `subject_kind varchar!` `subject_id text` `action varchar!` `status varchar!` `outcome jsonb` `created_at timestamptz!=` `expires_at timestamptz!` `used_at timestamptz` `params jsonb`
 
 **admin_max_bindings** · 3 кол. · PK user_id · user_id → users.id · индексов 2
 
