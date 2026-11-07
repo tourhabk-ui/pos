@@ -20,6 +20,9 @@ vi.mock('@/lib/db-pool', () => ({
 }));
 
 import { GET } from '@/app/llms.txt/route';
+import { WRITE_TOOL_NAMES } from '@/lib/mcp/public-tools';
+
+const COUNT_WORDS: Record<number, string> = { 4: 'четыре', 5: 'пять', 6: 'шесть', 7: 'семь', 8: 'восемь' };
 import { NOTIFY_RESPONSE_RULES } from '@/lib/mcp/request-notify-schema';
 
 async function body(): Promise<string> {
@@ -62,9 +65,18 @@ describe('/llms.txt — актуально и честно', () => {
     expect(text).toContain('2+ объектах');
   });
 
-  it('заявок пять, и об изменении заявки сказано: notify_url, подпись, без жилья (29.10)', () => {
-    expect(text).not.toMatch(/те же четыре/);
-    expect(text).toMatch(/Заявки — те же пять/);
+  it('заявок столько, сколько пишущих инструментов; об изменении заявки сказано: notify_url, подпись, без жилья', () => {
+    // Число — из реестра, а не из памяти: «пять» стояло здесь после шестой
+    // заявки (create_trip_request) и сторож держал устаревшую цифру (07.11).
+    const word = COUNT_WORDS[WRITE_TOOL_NAMES.size];
+    expect(word, `нет слова для ${WRITE_TOOL_NAMES.size}`).toBeDefined();
+    expect(text).toContain(`Заявки — те же ${word}`);
+    expect(text).toContain(`запись — те же ${word}`);
+    // Граница слова — явной кириллицей: `\b` без флага `u` знает только
+    // латиницу, и «те же пять » не совпадало никогда (ревью PR #3130).
+    for (const other of Object.values(COUNT_WORDS).filter((w) => w !== word)) {
+      expect(text, other).not.toMatch(new RegExp(`те же ${other}(?![а-яё])`, 'i'));
+    }
     expect(text).toMatch(/notify_url/);
     expect(text).toMatch(/Standard Webhooks/);
     expect(text).toMatch(/requested_date/);

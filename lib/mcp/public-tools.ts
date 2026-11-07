@@ -588,7 +588,7 @@ export const PUBLIC_MCP_TOOL_NAMES = new Set(PUBLIC_MCP_TOOLS.map((t) => t.name)
  * this set from readOnlyHint would put plan editing under the strict
  * 5-per-hour request limit and label it as sending data to a human.
  */
-// Human-work writes: the five request tools. They send a traveller's
+// Human-work writes: the six request tools. They send a traveller's
 // name/phone to the platform/operator and therefore need explicit consent
 // and the strict write rate limit. edit_trip_plan is a write by annotation
 // (it persists an anonymous draft) but is deliberately not in this set:
@@ -615,7 +615,7 @@ export const MCP_SERVER_INFO = {
   // коннектор числится в каталогах.
   title: 'Ведар — Камчатка',
   version: '2.10.1',
-  description: 'Ведар — данные Камчатки: обстановка в крае и безопасность мест, туры и их реальная занятость, жильё, снаряжение, трансферы, прокат машин без водителя, погода, план поездки. Записей шесть: поездка целиком (create_trip_request), подбор (create_lead), тур на дату (create_booking_request), машина целиком (request_charter), жильё на даты (create_stay_request), прокат без водителя (create_car_rental_request) — все подтверждает человек.',
+  description: 'Ведар — данные Камчатки: обстановка в крае и безопасность мест, туры и их реальная занятость, жильё, снаряжение, трансферы, прокат машин без водителя, погода, план поездки. Заявок шесть: поездка целиком (create_trip_request), подбор (create_lead), тур на дату (create_booking_request), машина целиком (request_charter), жильё на даты (create_stay_request), прокат без водителя (create_car_rental_request) — все подтверждает человек.',
   // Ревизия 2025-11-25: ссылка на страницу подключения (та же, что
   // websiteUrl в server.json) и значок — тот же файл, что apple-touch-icon
   // сайта, на постоянном адресе домена.
