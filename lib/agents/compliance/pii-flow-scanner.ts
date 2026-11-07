@@ -869,7 +869,48 @@ function patternFields(pattern: string): Array<[string, string]> {
 }
 
 /** Стоки файла: значения `content:`/`system:`/…, аргументы зарубежной двери, правая часть переменной `*prompt*`. */
-function seedsOf(code: string, edges: readonly Edge[], hasForeign: boolean): Seed[] {
+/**
+ * Дверь под другим именем (шестнадцатое ревью PR #3104): `import { callAIFast
+ * as ask }`, `const ask = callAIFast`, `const { callAIFast: ask } = await
+ * import(…)`. Вызов такого имени — тот же сток, что вызов самой двери.
+ */
+function doorAliases(code: string): string[] {
+  const doors = new Set(FOREIGN_DOORS);
+  const out = new Set<string>();
+  const pair = (part: string, sep: RegExp) => {
+    const m = new RegExp(`^\\s*(?:type\\s+)?([A-Za-z_$][\\w$]*)${sep.source}([A-Za-z_$][\\w$]*)\\s*$`).exec(part);
+    if (m && doors.has(m[1]) && m[2] !== m[1]) out.add(m[2]);
+  };
+  for (const m of code.matchAll(/\bimport\s*(?:type\s+)?\{([^{}]*)\}/g)) for (const part of m[1].split(',')) pair(part, /\s+as\s+/);
+  for (const m of code.matchAll(/\b(?:const|let|var)\s*\{([^{}]*)\}\s*=/g)) for (const part of m[1].split(',')) pair(part, /\s*:\s*/);
+  for (const m of code.matchAll(/\b(?:const|let|var)\s+([A-Za-z_$][\w$]*)\s*(?::[^=;]*)?=\s*(?:await\s+)?([A-Za-z_$][\w$]*)\s*(?:\.\s*bind\b|[;,)\n])/g)) {
+    if (doors.has(m[2]) && m[1] !== m[2]) out.add(m[1]);
+  }
+  return [...out];
+}
+
+/**
+ * Запрос к модели напрямую: `fetch` на адрес с путём API модели
+ * (`/chat/completions`, `:generateContent`) — все его аргументы сток, а не
+ * только `content:` (шестнадцатое ревью PR #3104: тело Gemini —
+ * `contents: [{ parts: [{ text }] }]`). Адрес из переменной файла
+ * (`const url = \`${BASE}/chat/completions\``) тоже читается.
+ */
+function modelFetchArgs(src: string, code: string): FlowSpan[] {
+  const out: FlowSpan[] = [];
+  for (const m of code.matchAll(/(?<![\w$.])fetch(?:WithRetry)?\s*\(/g)) {
+    const open = (m.index ?? 0) + m[0].length - 1;
+    const args = argSpans(code, open);
+    if (args.length === 0) continue;
+    let url = src.slice(args[0].from, args[0].to);
+    const name = /^\s*([A-Za-z_$][\w$]*)\s*$/.exec(url)?.[1];
+    if (name) url = new RegExp(`\\b(?:const|let|var)\\s+${name}\\s*(?::[^=;]*)?=([^;]*)`).exec(src)?.[1] ?? url;
+    if (LLM_API_PATH.test(url)) out.push({ from: args[0].from, to: args[args.length - 1].to });
+  }
+  return out;
+}
+
+function seedsOf(code: string, edges: readonly Edge[], hasForeign: boolean, src = code): Seed[] {
   const seeds: Seed[] = [];
   // Сток `content:` и дверь — только в файле, говорящем с зарубежной моделью
   // (то же условие, что у метки `content`); переменная `*prompt*` — промпт везде.
@@ -879,13 +920,16 @@ function seedsOf(code: string, edges: readonly Edge[], hasForeign: boolean): See
       const from = m.index + m[0].length;
       seeds.push({ span: { from, to: from + valueAfter(code, from).length }, context: m[1] });
     }
-    FOREIGN_CALL_HEAD.lastIndex = 0;
-    for (let m = FOREIGN_CALL_HEAD.exec(code); m; m = FOREIGN_CALL_HEAD.exec(code)) {
+    const aliases = doorAliases(code);
+    const callHead = aliases.length ? new RegExp(`\\b(${[...FOREIGN_DOORS, ...aliases].join('|')})\\s*\\(`, 'g') : FOREIGN_CALL_HEAD;
+    callHead.lastIndex = 0;
+    for (let m = callHead.exec(code); m; m = callHead.exec(code)) {
       // Объявление самой функции (`async function callAIFast(prompt: string)`) — не вызов.
       if (/\bfunction\s*$/.test(code.slice(Math.max(0, m.index - 40), m.index))) continue;
       const open = m.index + m[0].length - 1;
       seeds.push({ span: { from: open + 1, to: open + 1 + argsAfter(code, open).length }, context: m[1] });
     }
+    for (const span of modelFetchArgs(src, code)) seeds.push({ span, context: 'fetch' });
   }
   for (const e of edges) if (PROMPT_NAME.test(e.name)) seeds.push({ span: e.span, context: e.name, key: e.key });
   return seeds;
@@ -2052,7 +2096,7 @@ function balancedType(text: string): boolean {
   return depth === 0;
 }
 /** Ключ стока: `content:`/`system:`, у агента SDK — `systemPrompt:`/`userMessage:`; значение уходит модели. */
-const SINK_KEY_HEAD = /\b(content|system|systemPrompt|userMessage)\s*:/g;
+const SINK_KEY_HEAD = /\b(content|contents|system|systemPrompt|systemInstruction|userMessage)\s*:/g;
 /** Зарубежный вызов: `callAIFast(…)`, `runSDKAgent(…)` и т. п. */
 const FOREIGN_CALL_HEAD = new RegExp(`\\b(${FOREIGN_DOORS.join('|')})\\s*\\(`, 'g');
 /** Слова языка — не имена переменных. */
@@ -2441,7 +2485,7 @@ function viewOf(raw: string): FileView {
   const hasForeign = fileTalksAbroad(src);
   const links: Link[] = [];
   const edges = buildEdges(code, sc, links);
-  const seeds = seedsOf(code, edges, hasForeign);
+  const seeds = seedsOf(code, edges, hasForeign, src);
   return {
     src, code, sc, hasForeign, edges, seeds,
     literals: extractTemplateLiterals(src, code),

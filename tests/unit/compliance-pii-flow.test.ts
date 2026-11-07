@@ -1416,3 +1416,42 @@ describe('D1 — четырнадцатое ревью PR #3104: что запр
     expect(kinds("'SELECT display_name, usd_per_mtok_in FROM model_catalog'")).toEqual([]);
   });
 });
+
+describe('D1 — шестнадцатое ревью PR #3104: дверь под другим именем; тело запроса к модели', () => {
+  const found = (src: string) => scanSource('r.ts', src).map((x) => [x.kind, x.expr]);
+
+  it('находка 1: импорт двери с переименованием, присваивание и деструктуризация', () => {
+    // Дословно сценарий ревьюера.
+    expect(found(["import { callAIFast as ask } from '@/lib/ai/providers';", '',
+      'export const note = (lead: { phone: string; full_name: string }) =>',
+      '  ask(`Клиент: ${lead.full_name}, телефон ${lead.phone}`);'].join('\n')))
+      .toEqual(expect.arrayContaining([['contact', 'lead.phone'], ['name', 'lead.full_name']]));
+    expect(found(["import { callAIFast } from '@/lib/ai/providers';", 'const ask = callAIFast;', 'await ask(`Тел: ${lead.phone}`);'].join('\n')))
+      .toEqual([['contact', 'lead.phone']]);
+    expect(found(["const { callAIFast: ask } = await import('@/lib/ai/providers');", 'await ask(`Тел: ${lead.phone}`);'].join('\n')))
+      .toEqual([['contact', 'lead.phone']]);
+  });
+
+  it('узость находки 1: переименованный импорт не-двери и своя функция ask не стоки', () => {
+    expect(found(["import { callAIFast } from '@/lib/ai/providers';", "import { sendMessage as ask } from '@/lib/telegram';",
+      'await ask(chatId, `Тел: ${lead.phone}`);'].join('\n'))).toEqual([]);
+  });
+
+  it('находка 2: тело нативного запроса Gemini — сток, как бы ни звалась переменная', () => {
+    // Дословно сценарий ревьюера.
+    expect(found(['const res = await fetch(`${GEMINI_BASE}/models/${model}:generateContent?key=${key}`, {', "  method: 'POST',",
+      '  body: JSON.stringify({', '    contents: [{ parts: [{ text: `Гость: ${booking.full_name}, тел. ${booking.phone}` }] }],', '  }),', '});'].join('\n')))
+      .toEqual(expect.arrayContaining([['contact', 'booking.phone'], ['name', 'booking.full_name']]));
+    // Адрес из переменной файла; ключ systemInstruction.
+    expect(found(['const url = `${BASE}/v1/chat/completions`;', "await fetch(url, { method: 'POST', body: JSON.stringify({ messages: [{ role: 'user', text: `Тел: ${lead.phone}` }] }) });"].join('\n')))
+      .toEqual([['contact', 'lead.phone']]);
+    // Ключ systemInstruction прямо в аргументе вызова SDK — без переменной, чьё имя подсказало бы промпт.
+    expect(found(["import { callAIFast } from '@/lib/ai/providers';", 'await gemini.generateContent({ systemInstruction: { parts: [{ text: `Тел: ${lead.phone}` }] } });'].join('\n')))
+      .toEqual([['contact', 'lead.phone']]);
+  });
+
+  it('узость находки 2: fetch не к модели и YandexGPT не стоки', () => {
+    expect(found(["import { callAIFast } from '@/lib/ai/providers';", "await fetch('https://api.telegram.org/bot/sendMessage', { body: JSON.stringify({ text: `Тел: ${lead.phone}` }) });"].join('\n'))).toEqual([]);
+    expect(found(["await fetch(`${YA}/foundationModels/v1/completion`, { body: JSON.stringify({ messages: [{ text: `Тел: ${lead.phone}` }] }) });"].join('\n'))).toEqual([]);
+  });
+});
