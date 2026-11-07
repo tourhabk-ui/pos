@@ -67,6 +67,7 @@ describe('чистка окружения подпроцессов — с bubble
       'weekly-chronicle.yml/chronicle',
       'ci-sweeper.yml/sweep',
       'reviewer-model-probe.yml/review',
+      'security-review.yml/review',
     ]));
   });
 

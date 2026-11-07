@@ -1,54 +1,64 @@
-name: Security Review — AI-ревью диффа (Claude)
+name: Security Review — AI-ревью диффа (deepseek-flash)
 
-# Дополняет CodeQL (статические квери) семантическим ревью: официальный экшен
-# Anthropic claude-code-security-review читает дифф PR и ищет логические/
-# контекстные уязвимости, которые статика не ловит (утечки авторизации, SSRF,
-# небезопасные потоки данных, инъекции в system-промпт AI-стека). Находка evo
-# #795.
+# Дополняет CodeQL (статические квери) семантическим ревью: модель читает дифф
+# PR и ищет логические и контекстные уязвимости, которые статика не ловит
+# (утечки авторизации, SSRF, небезопасные потоки данных, ПД в промпте
+# зарубежной модели). Находка evo #795.
+#
+# С 07.11 ревьюер — deepseek-flash через Claude Code (слово владельца «да» по
+# пробе reviewer-model-probe run 2, Actions 42325775154). Три наших диффа с
+# известным итогом, одна и та же связка (Claude Code 2.1.319, встроенная
+# команда /security-review):
+# - утечку имени и телефона туриста (откат #2506) deepseek-flash назвал
+#   находкой Medium 9/10, Opus 5.5 — отбросил («152-ФЗ, не безопасность»);
+# - обе дыры первой версии #3087 deepseek-flash увидел, Opus — нет;
+# - на чистом диффе (#3089) ложных находок не было ни у кого;
+# - цена за три ревью — $0.18 против $1.57 у Opus (по книгам).
+# Прежний экшен anthropics/claude-code-security-review ставил Claude Code из
+# npm без версии (2.1.197) и задать её было нечем; здесь версия та же, что у
+# пробы, — сравнение по ней и сделано.
 #
 # ВАЖНО:
 # - Триггер обычного pull_request (без -target варианта): форки не получают
-#   секрет — на недоверенных PR ревью просто не запускается (экшен не защищён
-#   от prompt-injection, гонять только на доверенных диффах — реком. Anthropic).
-# - Ключ — секрет ANTHROPIC_API_KEY, тот же, что у рук Claude (claude.yml,
-#   ci-sweeper, issue-triage, weekly-chronicle). Решение владельца 16.10
-#   «перевести ревью на основной ключ»: прежний отдельный CLAUDE_API_KEY
-#   отвечал 401 «Invalid API key» (PR #2537, run 38855757474), а проверка
-#   оставалась зелёной. Цена решения названа владельцу: каждое ревью тратит
-#   купленный баланс API (промокредиты запрос Claude Code не берёт, #2396).
-#   Нет ключа — шаг мягко пропускается, workflow НЕ краснеет.
-# - Ключ есть, а ревью не состоялось (отказ API, пустой итог) — КРАСНЫЙ
-#   (§4.0: «не смог проверить» не равно «находок нет»). Экшен сам на отказ
-#   API отвечает зелёным и пишет {"error": …} в claudecode-results.json.
-# - Ревью совещательное: постит комментарии на PR, не является required-чеком.
+#   секрет — на недоверенных PR ревью просто не запускается.
+# - Ключ — секрет DEEPSEEK_API_KEY, уходит только на api.deepseek.com
+#   (Anthropic-совместимый адрес DeepSeek). Нет ключа — шаг мягко
+#   пропускается, workflow НЕ краснеет.
+# - Ключ есть, а ревью не состоялось (нет итога, ошибка API, пустой итог) —
+#   КРАСНЫЙ (§4.0: «не смог проверить» не равно «находок нет»).
+# - Ревью совещательное: итог — комментарием в PR, не required-чек.
+# - Ревьюер читает недоверенный дифф: только чтение и git diff/log/show/status
+#   без `--output` и `--no-index`, без чтения /proc; окружение подпроцессов
+#   вычищено (bubblewrap), GH-токена у шага нет. Запись в файлы команд раннера
+#   (GITHUB_ENV и др.) ловит растяжка после ревью: обнуляет и краснеет.
+#   Правила репозитория (.github/security-review-rules.md) — из базы PR, а не
+#   из самого PR: PR не ослабит ревью самого себя.
+# - У ревью свой срок — REVIEW_DEADLINE_S (40 мин). Первое настоящее ревью
+#   (PR #3101, дифф ~950 строк) за 20 минут не кончилось и было снято
+#   timeout-minutes, унаследованным от прежнего экшена: на малых диффах пробы
+#   deepseek-flash шёл 2–2,7 мин, но большой дифф — другое дело. Теперь по
+#   сроку останавливается сама модель, итог называет срыв срока («не
+#   уложилось» — красный, а не серое «отменено»), а расход доезжает до книг.
+#   Ход ревью (инструменты и токены, без текста модели) печатается в лог по
+#   мере работы — чтобы долгое ревью было видно, а не угадывалось.
 
 # Триггер сужен по разбору расходов 06.09.
 #
 # Замер за сутки: 37 прогонов ревью, из них 22 — на ОДНОЙ ветке. Действие
-# `synchronize` срабатывает на каждый push в PR, а экшен читает дифф PR
-# ЦЕЛИКОМ — то есть один и тот же дифф оплачивался по двадцать с лишним раз,
-# и каждый следующий прогон отличался от предыдущего на один коммит.
-# `cancel-in-progress` тут не спасает: он снимает только перекрытые прогоны,
-# а это были последовательные пуши.
+# `synchronize` срабатывает на каждый push в PR, а ревью читает дифф PR
+# ЦЕЛИКОМ — то есть один и тот же дифф оплачивался по двадцать с лишним раз.
 #
 # Теперь ревью идёт там, где его читают: при открытии PR и по метке
 # `security-review` — её можно повесить перед мержем, когда дифф дособран, и
-# получить свежее ревью одним кликом.
-#
-# Вывода из черновика (`ready_for_review`) в списке нет с 07.11, а
-# `run-every-commit` включён. До этого экшен сам запрещал второе ревью того же
-# PR (метка в кэше, `run-every-commit: false`): прогон при выводе из
-# черновика и по метке видел «уже ревьюили», модель не звал, а шаг «Ревью
-# состоялось» краснел на пустом итоге — у каждого PR второй красный крестик и
-# ни одного обещанного свежего ревью. Теперь одно ревью при открытии и
-# настоящее свежее — по метке. Цена та же: одно ревью на PR, второе — только
+# получить свежее ревью одним кликом. Вывода из черновика
+# (`ready_for_review`) в списке нет с 07.11: одно ревью при открытии, второе —
 # по метке, то есть по решению человека.
 #
 # ЧЕСТНО О ЦЕНЕ РЕШЕНИЯ: PR, открытый пустым и дополненный коммитами, будет
 # отревьюен по первому состоянию, если не повесить метку. Статику на каждый
 # push по-прежнему гоняет CodeQL (security-extended) — она бесплатна и от
-# этой правки не зависит; выпадает семантическая половина. Вернуть прежнее
-# поведение — добавить `synchronize` в types обратно, одна строка.
+# этой правки не зависит. Вернуть прежнее поведение — добавить `synchronize`
+# в types обратно, одна строка.
 on:
   pull_request:
     types: [opened, reopened, labeled]
@@ -67,18 +77,6 @@ concurrency:
   group: security-review-${{ github.ref }}
   cancel-in-progress: true
 
-# Провайдер рук (решение владельца 03.11 «агентов переключи пока на
-# оупенррут»): Anthropic отвечает 403 verification_required (проверка
-# организации). По умолчанию руки идут через OpenRouter (его
-# Anthropic-совместимый /api/v1/messages, ключ OPENROUTER_API_KEY, модель
-# anthropic/claude-opus-5). Вернуть Anthropic без правки кода:
-# переменная репозитория AGENTS_PROVIDER=anthropic.
-# Ревьюер остаётся на Opus 5, хотя руки с 07.11 на Opus 5.5. Экшен ставит
-# Claude Code из npm без версии (`npm install -g @anthropic-ai/claude-code`),
-# npm отдаёт 2.1.197, а Opus 5.5 принимается от 2.1.280: прогон на PR #3083
-# 07.11 ответил «API Error: 400 Claude Code 2.1.197 does not support this
-# model». Задать экшену версию нечем. Руки этим не задеты: claude-code-action
-# ставит Claude Code 2.1.319 сам.
 # Сторож: tests/unit/security-review-workflow.test.ts.
 jobs:
   review:
@@ -89,28 +87,37 @@ jobs:
       github.event.action != 'labeled' ||
       github.event.label.name == 'security-review'
     runs-on: ubuntu-latest
-    timeout-minutes: 20
+    # Срок самого ревью — REVIEW_DEADLINE_S ниже; здесь — он и запас на
+    # установку, проверку итога и учёт (сторож держит запас не меньше 5 мин).
+    timeout-minutes: 50
+    outputs:
+      ran: ${{ steps.scope.outputs.run }}
+      # Непусто — счётчики выжаты и уехали к учёту; не доехали — учёт краснеет.
+      usage_file: ${{ steps.usage.outputs.file }}
     env:
-      ANTHROPIC_API_KEY: ${{ vars.AGENTS_PROVIDER == 'anthropic' && secrets.ANTHROPIC_API_KEY || secrets.OPENROUTER_API_KEY }}
-      ANTHROPIC_BASE_URL: ${{ vars.AGENTS_PROVIDER == 'anthropic' && 'https://api.anthropic.com' || 'https://openrouter.ai/api' }}
+      DEEPSEEK_KEY: ${{ secrets.DEEPSEEK_API_KEY }}
+      # Срок ревью, с: на нём шаг «Ревью» останавливает модель, «Ревью
+      # состоялось» называет срыв срока.
+      REVIEW_DEADLINE_S: '2400'
     steps:
       - name: Checkout (с базой для диффа)
-        if: ${{ env.ANTHROPIC_API_KEY != '' }}
+        if: ${{ env.DEEPSEEK_KEY != '' }}
         uses: actions/checkout@v7
         with:
           fetch-depth: 2
+          persist-credentials: false
 
       # Платное ревью — только там, где ошибка стоит денег, входа или
-      # персональных данных (владелец 07.11: «быстро» — баланс OpenRouter таял
-      # на ревью каждого PR, около доллара за прогон). PR, где меняются только
-      # интерфейс, тесты, документы или прочий код, модель не зовут; нужно —
-      # метка `security-review`. Бесплатный CodeQL (security-extended) смотрит
-      # каждый PR, как и прежде. Фильтр `paths` вверху так не умеет: он
-      # отсекает и запуск по метке. Список файлов не прочитан — ревью идёт:
-      # «не смог проверить» не равно «можно не проверять» (§4.0).
+      # персональных данных (владелец 07.11: «быстро» — баланс таял на ревью
+      # каждого PR). PR, где меняются только интерфейс, тесты, документы или
+      # прочий код, модель не зовут; нужно — метка `security-review`.
+      # Бесплатный CodeQL (security-extended) смотрит каждый PR, как и прежде.
+      # Фильтр `paths` вверху так не умеет: он отсекает и запуск по метке.
+      # Список файлов не прочитан — ревью идёт: «не смог проверить» не равно
+      # «можно не проверять» (§4.0).
       - name: Нужно ли ревью
         id: scope
-        if: ${{ env.ANTHROPIC_API_KEY != '' }}
+        if: ${{ env.DEEPSEEK_KEY != '' }}
         env:
           LABELED: ${{ github.event.action == 'labeled' }}
           # Обработчики запросов где угодно под app/ (не только app/api:
@@ -140,60 +147,337 @@ jobs:
             echo "::notice::Ревью безопасности не запускалось: PR не трогает обработчики запросов, вход, оплату, MCP, данные людей и workflow. Нужно — повесьте метку security-review."
           fi
 
-      # Ревьюер не получает настроек Claude Code из репозитория. В
-      # .claude/settings.json разрешены curl, npm и git для разработчика, а
-      # ревьюер читает дифф PR — недоверенный текст — с ключом API в окружении:
-      # разрешения проекта дали бы инъекции в диффе руки вне песочницы экшена.
-      # И с 03.11 (новый Claude Code на раннере) непринятые настройки проекта
-      # роняли запуск: «Ignoring 25 permissions.allow entries … workspace has
-      # not been trusted», код возврата 1 — ревью не состоялось ни на одном PR.
-      # CLAUDE.md (220 КБ, ~60 тыс. токенов) Claude Code кладёт в контекст сам
-      # и перечитывает на каждом ходу. Ревьюеру история проекта не нужна — у
-      # экшена свой промпт безопасности, — а платили за неё на каждом ревью
-      # (разбор расхода 07.11). Правила ПД держат детерминированные сторожа CI.
-      # Удаляется только из рабочей копии раннера, репозиторий не меняется.
-      - name: Настройки Claude Code репозитория — не ревьюеру
-        if: ${{ env.ANTHROPIC_API_KEY != '' && steps.scope.outputs.run == 'true' }}
-        run: rm -f .claude/settings.json .claude/settings.local.json CLAUDE.md
-
-      - name: Claude security review
-        if: ${{ env.ANTHROPIC_API_KEY != '' && steps.scope.outputs.run == 'true' }}
-        uses: anthropics/claude-code-security-review@0c6a49f1fa56a1d472575da86a94dbc1edb78eda # ветка main на 23.08.2026
+      - uses: actions/setup-node@v7
+        if: ${{ env.DEEPSEEK_KEY != '' && steps.scope.outputs.run == 'true' }}
         with:
-          claude-api-key: ${{ env.ANTHROPIC_API_KEY }}
-          claude-model: ${{ vars.AGENTS_PROVIDER == 'anthropic' && 'claude-opus-5' || 'anthropic/claude-opus-5' }}
-          comment-pr: true
-          # Свежее ревью по метке `security-review` — по-настоящему: без этого
-          # экшен видит метку прошлого ревью в кэше и модель не зовёт (07.11).
-          run-every-commit: true
-          claudecode-timeout: '15'
-          # Шум вне нашего кода — не гоняем ревью по зависимостям и билд-артефактам.
-          exclude-directories: 'node_modules,.next,public,migrations'
+          node-version: 22
 
-      # Экшен на отказ API завершается зелёным, оставляя в рабочем каталоге
-      # claudecode-results.json вида {"error": "…"} — так 16.10 ревью PR #2537
-      # «прошло» с ответом 401. Здесь «не смог» становится красным, а не
-      # «находок нет». Текст ошибки — одной строкой: перевод строки в нём
-      # начал бы новую команду workflow.
-      - name: Ревью состоялось
-        if: ${{ env.ANTHROPIC_API_KEY != '' && steps.scope.outputs.run == 'true' }}
+      # Та же версия, что у пробы ревьюера и у рук (2.1.319): сравнение
+      # моделей сделано на ней.
+      - name: Claude Code
+        if: ${{ env.DEEPSEEK_KEY != '' && steps.scope.outputs.run == 'true' }}
         run: |
-          F=claudecode-results.json
-          if [ ! -s "$F" ]; then
-            echo "::error::Ревью безопасности не оставило итога ($F пуст или его нет) — проверка не состоялась, это не «находок нет»."
+          set -euo pipefail
+          npm install -g --no-audit --no-fund @anthropic-ai/claude-code@2.1.319 > /dev/null
+          claude --version
+
+      # Claude Code с CLAUDE_CODE_SUBPROCESS_ENV_SCRUB=1 (шаг «Ревью») без
+      # bubblewrap не стартует вовсе (проба 07.11, run 1). Шаг тот же, что у рук.
+      - name: bubblewrap для изоляции подпроцессов
+        if: ${{ env.DEEPSEEK_KEY != '' && steps.scope.outputs.run == 'true' }}
+        run: |
+          # Вне раннера GitHub (симуляция шагов в tests/unit) — не ставим ничего.
+          [ "${GITHUB_ACTIONS:-}" = "true" ] || exit 0
+          command -v bwrap >/dev/null || { sudo apt-get update -qq && sudo apt-get install -y --no-install-recommends bubblewrap socat; }
+          if [ -f /proc/sys/kernel/apparmor_restrict_unprivileged_userns ]; then
+            sudo sysctl -w kernel.apparmor_restrict_unprivileged_userns=0
+          fi
+
+      # /security-review сравнивает рабочую ветку с origin/HEAD — им становится
+      # база PR (первый родитель merge-коммита). Правила ревьюера — из базы:
+      # правка правил в PR действует со следующего PR. Ревьюеру не достаются
+      # ни CLAUDE.md (220 КБ истории, которые Claude Code перечитывает на каждом
+      # ходу), ни настройки, навыки и агенты проекта: в .claude/settings.json
+      # разрешены curl, npm и git для разработчика, а ревьюер читает
+      # недоверенный дифф. skip-worktree — чтобы удалённое не попало в
+      # git status подсказки. Удаляется только из рабочей копии раннера.
+      - name: База диффа и правила — ревьюеру, настройки проекта — нет
+        if: ${{ env.DEEPSEEK_KEY != '' && steps.scope.outputs.run == 'true' }}
+        env:
+          RULES_OUT: ${{ runner.temp }}/review-rules.md
+        run: |
+          set -euo pipefail
+          git update-ref refs/remotes/origin/review-base HEAD^1
+          git symbolic-ref refs/remotes/origin/HEAD refs/remotes/origin/review-base
+          if git show HEAD^1:.github/security-review-rules.md > "$RULES_OUT" 2>/dev/null && [ -s "$RULES_OUT" ]; then
+            echo "Правила ревьюера — из базы PR."
+          else
+            : > "$RULES_OUT"
+            echo "::notice::В базе PR нет .github/security-review-rules.md — ревью идёт без правил репозитория."
+          fi
+          git ls-files -z -- CLAUDE.md .claude | xargs -0 -r git update-index --skip-worktree --
+          rm -rf CLAUDE.md .claude
+          echo "Дифф ревью:"
+          git diff --stat origin/HEAD...
+
+      - name: Ревью
+        id: review
+        if: ${{ env.DEEPSEEK_KEY != '' && steps.scope.outputs.run == 'true' }}
+        env:
+          RULES_FILE: ${{ runner.temp }}/review-rules.md
+          TRANSCRIPT: ${{ runner.temp }}/transcript.jsonl
+        run: |
+          # +e: отказ claude не обрывает шаг — итог судит следующий шаг.
+          set +e -uo pipefail
+          MODEL=deepseek-flash
+          # Ключ — только на хост DeepSeek; других ключей в шаге нет.
+          export ANTHROPIC_BASE_URL=https://api.deepseek.com/anthropic
+          export ANTHROPIC_AUTH_TOKEN="$DEEPSEEK_KEY"
+          unset DEEPSEEK_KEY
+          # Подсказка, подзадачи и лёгкие вызовы — одна модель.
+          export ANTHROPIC_DEFAULT_OPUS_MODEL="$MODEL" ANTHROPIC_DEFAULT_SONNET_MODEL="$MODEL"
+          export ANTHROPIC_DEFAULT_HAIKU_MODEL="$MODEL" CLAUDE_CODE_SUBAGENT_MODEL="$MODEL"
+          export CLAUDE_CODE_DISABLE_NONESSENTIAL_TRAFFIC=1 CLAUDE_CODE_SUBPROCESS_ENV_SCRUB=1 API_TIMEOUT_MS=600000
+          EXTRA=()
+          if [ -s "$RULES_FILE" ]; then EXTRA=(--append-system-prompt "$(cat "$RULES_FILE")"); fi
+          # Ход ревью — в лог по мере работы: на каждый ответ модели строка
+          # «[секунды] ход: инструменты; контекст: токены». Выходных токенов
+          # здесь нет: событие приходит раньше, чем их число известно, и ноль
+          # в строке был бы неправдой — их считают книги. Текста модели и
+          # аргументов инструментов здесь нет: имя инструмента — только из букв
+          # и цифр, иначе «?», строка начинается с «[» — ни дифф, ни модель не
+          # подадут раннеру команду «::». Чужая строка (не JSON) пропускается.
+          progress() {
+            jq -R --unbuffered -r --argjson t0 "$START" '
+              def safe: if type == "string" and test("^[A-Za-z][A-Za-z0-9_]{0,39}$") then . else "?" end;
+              def num: if type == "number" then . else 0 end;
+              def at: "[\((now - $t0) | floor) с]";
+              fromjson? | objects |
+              if .type == "assistant" and (.message | type) == "object" then
+                (if (.message.usage | type) == "object" then .message.usage else {} end) as $u
+                | ((.message.content // []) | if type == "array" then [.[] | objects | if .type == "tool_use" then (.name | safe) else (.type | safe) end] else [] end) as $parts
+                | "\(at) ход\(if .parent_tool_use_id then " подзадачи" else "" end): \(if ($parts | length) > 0 then ($parts | join(", ")) else "—" end); контекст: \(($u.input_tokens | num) + ($u.cache_read_input_tokens | num) + ($u.cache_creation_input_tokens | num)) токенов"
+              elif .type == "result" then
+                "\(at) итог: ходов \(.num_turns | num), ошибка: \(if .is_error == true then "да" else "нет" end)"
+              else empty end'
+          }
+          # Попытки делят один срок. timeout останавливает claude вместе с его
+          # подпроцессами; не ушёл за 30 с — KILL. tee -p пишет файл выполнения
+          # и тогда, когда печать хода оборвалась.
+          #
+          # Запреты сверх Write/Edit — по находке ревью этого же PR (07.11,
+          # deepseek-flash), проверены на этом бинарнике с заглушкой API:
+          # - `--output` у git diff/log/show пишет файл в любом месте строки, а
+          #   правило `Bash(git diff *)` и команда /security-review это
+          #   пропускают; по инъекции из диффа модель записала бы, например,
+          #   BASH_ENV в GITHUB_ENV — и код в следующих шагах;
+          # - `--no-index` читает любой файл в обход запрета на /proc;
+          # - /proc: Grep по /proc/self/environ отдаёт ключ из окружения
+          #   claude (Read этот путь сам не читает, Grep — читает).
+          # Перенаправление `>`, `| tee`, `git -c`, `git -C` и VAR=… перед git
+          # Claude Code не пропускает и без этих запретов.
+          review() {
+            local left=$(( DEADLINE_AT - $(date +%s) ))
+            [ "$left" -gt 0 ] || return 124
+            timeout --kill-after=30 "$left" claude -p "/security-review" --model "$MODEL" --max-turns 40 \
+              ${EXTRA[@]+"${EXTRA[@]}"} \
+              --allowedTools "Read,Glob,Grep,LS,Agent,Task,Bash(git diff *),Bash(git log *),Bash(git show *),Bash(git status *)" \
+              --disallowedTools "Write,Edit,NotebookEdit,WebFetch,WebSearch,Bash(git *--output*),Bash(git *--no-index*),Read(//proc/**)" \
+              --output-format stream-json --verbose < /dev/null | tee -p "$TRANSCRIPT" | progress
+            local rc=("${PIPESTATUS[@]}")
+            return "${rc[0]}"
+          }
+          START=$(date +%s)
+          DEADLINE_AT=$(( START + REVIEW_DEADLINE_S ))
+          review
+          RC=$?
+          ATTEMPT=1
+          # Claude Code шлёт любой модели адаптивное мышление. Отверг ли API сам
+          # первый запрос (400, ни одного ответа модели — токены не потрачены),
+          # вторая и последняя попытка — без мышления. Отказ посреди работы не
+          # повторяется: расход первой попытки ушёл бы мимо книг.
+          if [ "$(jq -s '[.[] | select(.type == "assistant")] | length' "$TRANSCRIPT" 2>/dev/null)" = "0" ] \
+            && jq -e 'select(.type == "result" and .is_error == true) | .result | tostring | test("API Error: 400")' "$TRANSCRIPT" > /dev/null 2>&1; then
+            echo "::warning::API отверг первый запрос — повтор без мышления: $(jq -r 'select(.type == "result") | .result | tostring' "$TRANSCRIPT" | tr '\r\n' '  ' | head -c 300)"
+            export CLAUDE_CODE_DISABLE_THINKING=1
+            ATTEMPT=2
+            review
+            RC=$?
+          fi
+          # 124 — срок вышел, 137 — claude не ушёл и после KILL.
+          TIMED_OUT=false
+          case "$RC" in 124|137) TIMED_OUT=true; echo "::warning::Ревью не уложилось в $(( REVIEW_DEADLINE_S / 60 )) мин — claude остановлен по сроку." ;; esac
+          # Растяжка. Пока claude работал, шаг в файлы команд раннера не писал
+          # ничего, так что непустой файл — запись из ревьюера (через GITHUB_ENV
+          # следующим шагам подкладывается BASH_ENV). Записанное обнуляется до
+          # конца шага — раннер его не применит, — а итог ревью краснеет, и
+          # комментария не будет. Выходы шага пишутся после обнуления.
+          TAMPERED=false
+          for f in "${GITHUB_ENV:-}" "${GITHUB_PATH:-}" "${GITHUB_OUTPUT:-}" "${GITHUB_STEP_SUMMARY:-}"; do
+            if [ -n "$f" ] && [ -s "$f" ]; then TAMPERED=true; : > "$f"; fi
+          done
+          [ "$TAMPERED" = "true" ] && echo "::error::Ревьюер записал в файлы команд раннера — записанное обнулено, ревью не засчитывается."
+          {
+            echo "model=$MODEL"
+            echo "attempt=$ATTEMPT"
+            echo "rc=$RC"
+            echo "timed_out=$TIMED_OUT"
+            echo "tampered=$TAMPERED"
+            echo "seconds=$(( $(date +%s) - START ))"
+          } >> "$GITHUB_OUTPUT"
+
+      - name: Ревью состоялось
+        id: verdict
+        if: ${{ env.DEEPSEEK_KEY != '' && steps.scope.outputs.run == 'true' }}
+        env:
+          MODEL: ${{ steps.review.outputs.model }}
+          SECONDS_SPENT: ${{ steps.review.outputs.seconds }}
+          ATTEMPT: ${{ steps.review.outputs.attempt }}
+          TIMED_OUT: ${{ steps.review.outputs.timed_out }}
+          TAMPERED: ${{ steps.review.outputs.tampered }}
+          TRANSCRIPT: ${{ runner.temp }}/transcript.jsonl
+          OUT: ${{ runner.temp }}/review-out
+        run: |
+          set -uo pipefail
+          mkdir -p "$OUT"
+          HOW=""
+          [ "${ATTEMPT:-1}" = "2" ] && HOW=" Вторая попытка — без мышления: первый запрос API отверг."
+          # Ревьюер писал в файлы команд раннера — его итогу верить нельзя.
+          if [ "${TAMPERED:-false}" = "true" ]; then
+            echo "::error::Ревью безопасности не засчитано: ревьюер записал в файлы команд раннера (GITHUB_ENV, GITHUB_PATH, выходы или сводку шага). Записанное обнулено; разберите лог шага «Ревью»."
+            echo "### Ревью безопасности ($MODEL) — не засчитано: ревьюер писал в файлы команд раннера." >> "$GITHUB_STEP_SUMMARY"
             exit 1
           fi
-          if jq -e 'type == "object" and has("error")' "$F" >/dev/null 2>&1; then
-            MSG=$(jq -r '.error | tostring' "$F" | tr '\r\n' '  ' | head -c 400)
+          # Итог записан — ревью состоялось, даже если claude потом не ушёл
+          # сам и был остановлен по сроку. Итога нет при вышедшем сроке —
+          # срыв срока, и он назван своими словами.
+          RESULT=""
+          if [ -s "$TRANSCRIPT" ]; then
+            RESULT=$(jq -R -c 'fromjson? | objects | select(.type == "result")' "$TRANSCRIPT" 2>/dev/null | tail -n 1) || RESULT=""
+          fi
+          if [ -z "$RESULT" ] && [ "${TIMED_OUT:-false}" = "true" ]; then
+            echo "::error::Ревью безопасности не уложилось в $(( REVIEW_DEADLINE_S / 60 )) мин: итога нет — это не «находок нет». Ход ревью — в логе шага «Ревью»."
+            {
+              echo "### Ревью безопасности ($MODEL)"
+              echo "- Не уложилось в $(( REVIEW_DEADLINE_S / 60 )) мин: итога нет. Ход ревью — в логе шага «Ревью»; расход — в книгах (работа учёта ниже)."
+            } >> "$GITHUB_STEP_SUMMARY"
+            exit 1
+          fi
+          if [ ! -s "$TRANSCRIPT" ]; then
+            echo "::error::Ревью безопасности: Claude Code не оставил ни строки — ревью не состоялось."
+            exit 1
+          fi
+          if [ -z "$RESULT" ]; then
+            echo "::error::Ревью безопасности: итога прогона нет (обрыв) — ревью не состоялось."
+            exit 1
+          fi
+          printf '%s' "$RESULT" | jq -r '.result // ""' > "$OUT/report.md"
+          IS_ERROR=$(printf '%s' "$RESULT" | jq -r '.is_error // false')
+          TURNS=$(printf '%s' "$RESULT" | jq -r '.num_turns // "не сообщено"')
+          if [ "$IS_ERROR" = "true" ]; then
+            MSG=$(tr '\r\n' '  ' < "$OUT/report.md" | head -c 300)
             echo "::error::Ревью безопасности не состоялось: $MSG"
             exit 1
           fi
-          if ! jq -e 'type == "object"' "$F" >/dev/null 2>&1; then
-            echo "::error::Итог ревью ($F) не разобран как JSON-объект — проверка не состоялась."
+          # Пустой итог jq пишет одним переводом строки — судится содержимое,
+          # а не размер файла.
+          if [ -z "$(tr -d '[:space:]' < "$OUT/report.md")" ]; then
+            echo "::error::Ревью безопасности: итог пуст — ревью не состоялось, это не «находок нет»."
             exit 1
           fi
-          echo "Ревью состоялось, находок: $(jq '.findings // [] | length' "$F")"
+          {
+            echo "### Ревью безопасности ($MODEL)"
+            echo "- Время: ${SECONDS_SPENT:-?} с; ходов: $TURNS. Цену считают книги (работа учёта ниже).$HOW"
+            echo
+            cat "$OUT/report.md"
+          } >> "$GITHUB_STEP_SUMMARY"
+          echo "Ревью состоялось: ходов $TURNS.$HOW"
+
+      # Итог — одним комментарием в PR. Токен GitHub есть только у этого шага:
+      # у ревьюера, читавшего недоверенный дифф, его не было.
+      - name: Итог ревью — комментарием в PR
+        if: ${{ env.DEEPSEEK_KEY != '' && steps.scope.outputs.run == 'true' && steps.verdict.outcome == 'success' }}
+        env:
+          GH_TOKEN: ${{ github.token }}
+          PR: ${{ github.event.pull_request.number }}
+          MODEL: ${{ steps.review.outputs.model }}
+          OUT: ${{ runner.temp }}/review-out
+        run: |
+          set -euo pipefail
+          {
+            echo "### Ревью безопасности ($MODEL)"
+            echo
+            cat "$OUT/report.md"
+            echo
+            echo "---"
+            echo "_Совещательное ревью диффа: CodeQL идёт на каждом PR; правила ревьюера — \`.github/security-review-rules.md\` из базы PR._"
+          } > "$OUT/comment.md"
+          gh pr comment "$PR" --repo "$GITHUB_REPOSITORY" --body-file "$OUT/comment.md"
+
+      - name: Выжимка расхода — одни счётчики
+        id: usage
+        if: ${{ always() && env.DEEPSEEK_KEY != '' && steps.scope.outputs.run == 'true' }}
+        continue-on-error: true
+        env:
+          TRANSCRIPT: ${{ runner.temp }}/transcript.jsonl
+        run: |
+          dst="$RUNNER_TEMP/hand-usage/hand-usage.json"
+          mkdir -p "$RUNNER_TEMP/hand-usage"
+          rm -f "$dst" "$dst.tmp"
+          if [ ! -s "$TRANSCRIPT" ]; then
+            echo "Файла выполнения нет — выжимать нечего; что это значит, скажет учёт"
+            exit 0
+          fi
+          # Построчно и мимо битых строк: claude, остановленный по сроку, может
+          # оборвать последнюю строку, а расход до неё — настоящий и в книги
+          # обязан доехать.
+          if ! jq -R -s -c '
+            def n: if type == "number" then . else null end;
+            def ident: if type == "string" and test("^[A-Za-z0-9][A-Za-z0-9._:@/\\[\\]-]{0,127}$") then . else null end;
+            def model_usage: if type == "object" then {inputTokens: (.inputTokens | n), outputTokens: (.outputTokens | n), cacheCreationInputTokens: (.cacheCreationInputTokens | n), cacheReadInputTokens: (.cacheReadInputTokens | n)} else null end;
+            def msg_usage: if type == "object" then {input_tokens: (.input_tokens | n), output_tokens: (.output_tokens | n), cache_creation_input_tokens: (.cache_creation_input_tokens | n), cache_read_input_tokens: (.cache_read_input_tokens | n)} else null end;
+            [ split("\n")[] | fromjson? | objects |
+              if .type == "result" then
+                {type: "result", total_cost_usd: (.total_cost_usd | n),
+                 modelUsage: (if (.modelUsage | type) == "object" then (.modelUsage | with_entries({key: (.key | ident // ""), value: (.value | model_usage)})) else null end)}
+              elif .type == "assistant" and (.message | type) == "object" then
+                {type: "assistant", message: {id: (.message.id | ident), model: (.message.model | ident), usage: (.message.usage | msg_usage)}}
+              else empty end
+            ]
+          ' "$TRANSCRIPT" > "$dst.tmp"; then
+            echo "::warning::Файл выполнения не выжат: jq его не прочёл — учёт назовёт расход неразобранным"
+            echo '{"hands_usage":"unreadable"}' > "$dst.tmp"
+          fi
+          mv "$dst.tmp" "$dst"
+          echo "file=$dst" >> "$GITHUB_OUTPUT"
+
+      - name: Счётчики расхода — к учёту
+        if: ${{ always() && env.DEEPSEEK_KEY != '' && steps.scope.outputs.run == 'true' }}
+        continue-on-error: true
+        uses: actions/upload-artifact@v7
+        with:
+          name: hand-usage-security-review
+          path: ${{ runner.temp }}/hand-usage/hand-usage.json
+          if-no-files-found: warn
+          retention-days: 1
 
       - name: Ключ не задан — пропуск
-        if: ${{ env.ANTHROPIC_API_KEY == '' }}
-        run: echo "ANTHROPIC_API_KEY не задан в секретах — AI-ревью безопасности пропущено (не ошибка). Добавьте секрет, чтобы включить."
+        if: ${{ env.DEEPSEEK_KEY == '' }}
+        run: echo "DEEPSEEK_API_KEY не задан в секретах — AI-ревью безопасности пропущено (не ошибка). Добавьте секрет, чтобы включить."
+
+  # ── Расход ревью — в книги llm_usage_log ────────────────────────────────
+  # Отдельной работой на чистом раннере, скрипт учёта — из main, как у рук и
+  # пробы: CRON_SECRET открывает /api/admin/* на проде и не должен жить рядом
+  # с ревьюером и кодом PR. Ревью не шло (PR без чувствительных путей, нет
+  # ключа) — и учёта нет.
+  usage-books:
+    needs: review
+    if: ${{ always() && needs.review.outputs.ran == 'true' }}
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    permissions:
+      contents: read
+    steps:
+      - name: Скрипт учёта из main
+        uses: actions/checkout@v7
+        with:
+          ref: main
+          fetch-depth: 1
+          sparse-checkout: scripts/hands-usage.mjs
+          sparse-checkout-cone-mode: false
+
+      - name: Счётчики расхода — из работы ревью
+        continue-on-error: true
+        uses: actions/download-artifact@v7
+        with:
+          name: hand-usage-security-review
+          path: ${{ runner.temp }}/hand
+
+      - name: Расход ревью — в книги
+        env:
+          CRON_SECRET: ${{ secrets.CRON_SECRET }}
+          AGENT_ID: security-review
+          HAND_VENDOR: deepseek
+          EXECUTION_FILE: ${{ runner.temp }}/hand/hand-usage.json
+          HAND_EXECUTION_FILE: ${{ needs.review.outputs.usage_file }}
+        run: node scripts/hands-usage.mjs --run
