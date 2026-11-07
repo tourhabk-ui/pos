@@ -37,6 +37,7 @@ import type { TravelStyle } from './travel-style';
 import { MOVABLE_TYPES as MOVABLE, FRAME_WORD, tourGroup, insertIndex } from './plan-ops';
 import { dateOfTripDay } from './flow-balance';
 import { rereadTourDay, type TourDayInput, type TourDayRead } from './tour-day-reread';
+import { withGroupMinimum } from './group-minimum';
 import { refreshDatedSafety, DEFAULT_SAFETY_DEPS, type SafetyRefreshDeps } from './plan-safety-refresh';
 import { kamchatkaDate } from '@/lib/analytics/kamchatka-day';
 
@@ -783,7 +784,10 @@ async function rereadTours(
   return Promise.all(ordered.map(async (d) => {
     const tour = d.realTour as NonNullable<DayPlan['realTour']>;
     const date = dateOfTripDay(plan.params.arrivalDate, d.day) as string;
-    const r = await read({ tourId: tour.tourId, maxParticipants: tour.maxParticipants, date, participants: people });
+    const r = await read({ tourId: tour.tourId, maxParticipants: tour.maxParticipants ?? null, date, participants: people });
+    // Минимум группы — заново под нынешний состав (E3): «нас трое» снимает
+    // прежнюю строку и ставит новую, если группа всё ещё меньше.
+    d.dayWarnings = withGroupMinimum(d.dayWarnings, tour.minParticipants, people);
     d.availability = r.availability;
     d.priceFrom = r.priceFrom;
     d.priceTo = r.priceTo;

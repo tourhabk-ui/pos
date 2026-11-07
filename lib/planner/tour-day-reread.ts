@@ -30,8 +30,8 @@ import { publicTourSql } from '@/lib/tours/public-visibility';
 
 export interface TourDayInput {
   tourId: string;
-  /** Потолок группы тура — для строки «свободно N из M мест». */
-  maxParticipants: number;
+  /** Потолок группы тура — для строки «свободно N из M мест»; нет — без ограничения. */
+  maxParticipants: number | null;
   /** Дата дня плана, YYYY-MM-DD. */
   date: string;
   /** Сколько человек: взрослые и дети. */
@@ -94,9 +94,11 @@ async function loadPriceInputs(tourId: string): Promise<PriceInputs> {
  * Строка о местах — тем же правилом, что у движка: мест меньше, чем людей, —
  * «возможно, придётся выбрать другую дату»; три и меньше — «высокий спрос».
  */
-export function capacityWarningFor(remaining: number, maxParticipants: number, participants: number): string | undefined {
+export function capacityWarningFor(remaining: number, maxParticipants: number | null, participants: number): string | undefined {
   if (remaining < participants) {
-    return `Свободно ${remaining} из ${maxParticipants} мест, вас ${participants}. Возможно, придётся выбрать другую дату.`;
+    // Потолок не записан (группа без ограничения) — «из N» не выдумывается (E3).
+    const of = maxParticipants !== null ? ` из ${maxParticipants}` : '';
+    return `Свободно ${remaining}${of} мест, вас ${participants}. Возможно, придётся выбрать другую дату.`;
   }
   if (remaining <= 3) return `Осталось ${remaining} мест — высокий спрос`;
   return undefined;

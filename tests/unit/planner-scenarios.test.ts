@@ -12,7 +12,7 @@ import { describe, it, expect, vi, beforeEach } from 'vitest';
 
 interface Tour {
   tourId: string; title: string; durationHours: number | null; zone: string; activityType: string;
-  basePrice?: number;
+  basePrice?: number; minParticipants?: number | null; maxParticipants?: number | null;
 }
 /** Туры по паре «зона:активность» — свои в каждом сценарии. */
 let TOURS: Record<string, Tour[]> = {};
@@ -22,7 +22,9 @@ function realTour(t: Tour) {
     tourId: t.tourId, title: t.title, shortDescription: null,
     operatorName: 'Оператор', operatorSlug: 'op', operatorRating: 0, operatorReviewCount: 0,
     operatorVerified: true, tourRating: null, tourReviewCount: 0, basePrice: t.basePrice ?? 10000, priceUnit: 'per_person',
-    maxParticipants: 10, minParticipants: 1, durationHours: t.durationHours, multiDayCount: null, difficulty: null,
+    maxParticipants: t.maxParticipants === undefined ? 10 : t.maxParticipants,
+    minParticipants: t.minParticipants === undefined ? 1 : t.minParticipants,
+    durationHours: t.durationHours, multiDayCount: null, difficulty: null,
     weatherDependent: false, seasonStart: null, seasonEnd: null, included: null,
     lat: 53, lng: 158, zone: t.zone, activityType: t.activityType,
   };
@@ -122,5 +124,21 @@ describe('E1: многодневный тур не режется на краю 
     const placedTours = daysByTour(rec).size;
     // У каждого тура цена 10 000 ₽ за человека; верх вилки — с запасом движка.
     expect(rec.priceBreakdown.activities[0]).toBe(placedTours * 10000);
+  });
+});
+
+describe('E3: минимум группы (волна 3.3)', () => {
+  // Проба C аудита: один человек на туре с минимумом 4 — без единого слова.
+  it('группа меньше минимума тура — день говорит «нужен набор группы»; дотягивает — молчит', async () => {
+    TOURS['avachinsky:volcano'] = [{ tourId: 't-min', title: 'Вулкан с набором', durationHours: 10, zone: 'avachinsky', activityType: 'volcano', minParticipants: 4 }];
+    const solo = await recommendTrip({ ...profile(4, ['volcano']), adults: 1 });
+    const day = solo.days.find((d) => d.realTour?.tourId === 't-min');
+    expect(day?.dayWarnings[0]).toBe('Нужен набор группы от 4 чел.: вас 1. Выезд подтверждает оператор.');
+
+    const four = await recommendTrip({ ...profile(4, ['volcano']), adults: 4 });
+    const day4 = four.days.find((d) => d.realTour?.tourId === 't-min');
+    expect(day4?.dayWarnings.some((w) => w.startsWith('Нужен набор группы'))).toBe(false);
+    // Минимум доезжает до дня: правка состава пересчитает строку.
+    expect(day4?.realTour?.minParticipants).toBe(4);
   });
 });
