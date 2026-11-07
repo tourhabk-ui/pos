@@ -159,7 +159,7 @@ vi.mock('@/lib/db-pool', () => ({
   },
 }));
 
-import { recommendTrip, type TripProfile } from '@/lib/planner/engine';
+import { recommendTrip, type DayPlan, type TripProfile } from '@/lib/planner/engine';
 import {
   activitySelfBlocker, routeSelfBlocker, fitRestDays, SELF_SAFETY_UNKNOWN,
 } from '@/lib/planner/travel-style';
@@ -282,14 +282,17 @@ describe('«Вперемешку» — туры как прежде, «сам» 
 
 describe('«Вперемешку» равно отсутствию стиля', () => {
   it('план, предупреждения и смета совпадают целиком', async () => {
+    // Время проверки мест у двух сборок разное по построению (принцип 2,
+    // 07.11): сравнивается, у каких дней оно есть, а не его значение.
+    const sansTime = (days: DayPlan[]) => days.map((d) => ({ ...d, availabilityCheckedAt: d.availabilityCheckedAt === undefined ? undefined : 'есть' }));
     for (const profile of [BASE, TREK]) {
       const none = await recommendTrip(profile);
       const mixed = await recommendTrip({ ...profile, travelStyle: 'mixed' });
       const zeroRest = await recommendTrip({ ...profile, travelStyle: 'mixed', restDays: 0 });
-      expect(mixed.days).toEqual(none.days);
+      expect(sansTime(mixed.days)).toEqual(sansTime(none.days));
       expect(mixed.warnings).toEqual(none.warnings);
       expect(mixed.priceBreakdown).toEqual(none.priceBreakdown);
-      expect(zeroRest.days).toEqual(none.days);
+      expect(sansTime(zeroRest.days)).toEqual(sansTime(none.days));
       // Без просьбы нового поля нет вовсе; с просьбой «вперемешку» — есть и пусто.
       expect(none.preferences).toBeUndefined();
       expect(mixed.preferences?.notes).toEqual([]);

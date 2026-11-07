@@ -88,13 +88,18 @@ describe('share-API: четыре исхода мест на дату дня', (
     const err = vi.spyOn(console, 'error').mockImplementation(() => undefined);
     const res = await GET(new NextRequest(`http://x/api/trips/share/${TOKEN}`), { params: Promise.resolve({ token: TOKEN }) });
     const body = await res.json() as { data: { availability: Record<string, unknown> } };
+    // Время чтения мест — у «есть» и «нет» (совет 07.11, принцип 2).
+    const checkedAt = expect.stringMatching(/^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}\.\d{3}Z$/);
     expect(body.data.availability).toEqual({
-      2: { date: dayDate(2), remaining: 0, state: 'none', next: dayDate(6) },
-      3: { date: dayDate(3), remaining: 14, state: 'open' },
+      2: { date: dayDate(2), remaining: 0, state: 'none', next: dayDate(6), checkedAt },
+      3: { date: dayDate(3), remaining: 14, state: 'open', checkedAt },
       4: { date: dayDate(4), remaining: 0, state: 'on_request' },
       5: { date: dayDate(5), remaining: 0, state: 'unread' },
       6: { date: dayDate(6), remaining: 0, state: 'unread' },
     });
+    // Время — этого чтения, а не выдуманное.
+    const at = Date.parse((body.data.availability[3] as { checkedAt: string }).checkedAt);
+    expect(Math.abs(Date.now() - at)).toBeLessThan(60_000);
     // Отказ базы — в лог с SQLSTATE, а не пустой catch.
     expect(err.mock.calls.some((c) => c.join(' ').includes('57014'))).toBe(true);
   });
@@ -112,6 +117,16 @@ describe('строка мест и действие у тура дня', () => {
     expect(dayAvailabilityLine({ date: '2027-07-12', remaining: 11, state: 'open' }).text).toBe('на 12.07 — 11 мест');
     expect(dayAvailabilityLine({ date: '2027-07-13', remaining: 0, state: 'on_request' }).text).toMatch(/^расписания в системе нет/);
     expect(dayAvailabilityLine({ date: '2027-07-14', remaining: 0, state: 'unread' })).toMatchObject({ text: 'места на 14.07 проверить не удалось — уточните на странице тура', ctaDate: null });
+  });
+
+  it('у «есть» и «нет» названо время проверки по Камчатке (совет 07.11, принцип 2)', () => {
+    const checkedAt = '2026-11-07T02:05:00.000Z';
+    expect(dayAvailabilityLine({ date: '2027-07-12', remaining: 3, state: 'open', checkedAt }).text)
+      .toBe('на 12.07 — 3 места · проверено 07.11, 14:05 по Камчатке');
+    expect(dayAvailabilityLine({ date: '2027-07-11', remaining: 0, state: 'none', next: '2027-07-15', checkedAt }).text)
+      .toBe('на 11.07 свободных мест нет; ближайшая свободная дата — 15.07 · проверено 07.11, 14:05 по Камчатке');
+    // Негодное время не печатается.
+    expect(dayAvailabilityLine({ date: '2027-07-12', remaining: 3, state: 'open', checkedAt: 'вчера' }).text).toBe('на 12.07 — 3 места');
   });
 });
 

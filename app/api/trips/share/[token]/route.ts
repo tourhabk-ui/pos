@@ -83,9 +83,11 @@ export async function GET(
         if (date < today) return;
         try {
           const slots = await fetchAvailabilityForTour(tour.id, date, date, cache);
+          // Время чтения — страница называет его у ответа (принцип 2, 07.11).
+          const checkedAt = new Date().toISOString();
           const remaining = slots[0]?.remaining ?? 0;
           if (remaining > 0) {
-            availability[String(d.day)] = { date, remaining, state: 'open' };
+            availability[String(d.day)] = { date, remaining, state: 'open', checkedAt };
             return;
           }
           const keeps = await tourKeepsSchedule(Number(tour.id));
@@ -99,7 +101,7 @@ export async function GET(
           }
           const ahead = await fetchAvailabilityForTour(tour.id, addDaysIso(date, 1), addDaysIso(date, NEXT_FREE_WINDOW_DAYS), cache);
           const next = ahead.find((s) => s.remaining > 0)?.date;
-          availability[String(d.day)] = { date, remaining: 0, state: 'none', ...(next ? { next } : {}) };
+          availability[String(d.day)] = { date, remaining: 0, state: 'none', ...(next ? { next } : {}), checkedAt };
         } catch (err) {
           const code = (err as { code?: string } | null)?.code ?? 'нет SQLSTATE';
           console.error('[trips/share] занятость тура на дату дня не прочиталась, SQLSTATE', code);

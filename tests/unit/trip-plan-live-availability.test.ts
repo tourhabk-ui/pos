@@ -26,6 +26,9 @@ const realTour: NonNullable<DayPlan['realTour']> = {
   weatherDependent: true, durationHours: 10, priceUnit: 'per_person', lodgingIncluded: false,
 };
 
+/** 14:05 по Камчатке 07.11 — время проверки мест в фикстурах. */
+const CHECKED = '2026-11-07T02:05:00.000Z';
+
 const day = (over: Partial<DayPlan>): DayPlan => ({
   day: 2, type: 'activity' as DayPlan['type'], zone: 'avachinsky', title: 'Летняя рыбалка',
   description: '', activityType: 'fishing', priceFrom: 28000, priceTo: 36000,
@@ -36,9 +39,27 @@ const day = (over: Partial<DayPlan>): DayPlan => ({
 });
 
 describe('tourAvailabilityLine: четыре исхода', () => {
-  it('дата есть — называется с местами и номером тура', () => {
+  it('дата есть — называется с местами, номером тура и временем проверки', () => {
+    const line = tourAvailabilityLine(day({ availability: 'open', availableDate: '2026-10-13', slotsRemaining: 6, availabilityCheckedAt: CHECKED }), '2026-10-13', undefined);
+    expect(line).toBe('Тур ID27, Камчатская рыбалка: ближайшая свободная дата в ваши даты — 13.10, свободно мест: 6 (проверено 07.11, 14:05 по Камчатке)');
+  });
+
+  it('времени проверки нет — места не подтверждены (совет 07.11, принцип 2)', () => {
     const line = tourAvailabilityLine(day({ availability: 'open', availableDate: '2026-10-13', slotsRemaining: 6 }), '2026-10-13', undefined);
-    expect(line).toBe('Тур ID27, Камчатская рыбалка: ближайшая свободная дата в ваши даты — 13.10, свободно мест: 6');
+    expect(line).toBe('Тур ID27, Камчатская рыбалка: ближайшая свободная дата в ваши даты — 13.10, свободно мест: 6 (время проверки не записано — места не подтверждены)');
+    // Негодное время — то же, что нет времени: не «проверено Invalid Date».
+    const bad = tourAvailabilityLine(day({ availability: 'open', availableDate: '2026-10-13', availabilityCheckedAt: 'вчера' }), '2026-10-13', undefined) ?? '';
+    expect(bad).toContain('места не подтверждены');
+    expect(bad).not.toContain('Invalid');
+    // «Мест нет» тоже со временем: места могли освободиться после проверки.
+    const none = tourAvailabilityLine(day({ availability: 'none', availabilityCheckedAt: CHECKED }), '2026-10-13', true) ?? '';
+    expect(none).toContain('свободных мест нет (проверено 07.11, 14:05 по Камчатке)');
+  });
+
+  it('нечем подтвердить места — так и сказано: не прочиталось, расписания нет, календарь не проверился', () => {
+    expect(tourAvailabilityLine(day({ availability: 'unread', availabilityCheckedAt: CHECKED }), '2026-10-13', undefined)).toContain('места не подтверждены');
+    expect(tourAvailabilityLine(day({ availability: 'none', availabilityCheckedAt: CHECKED }), '2026-10-13', false)).toContain('места не подтверждены');
+    expect(tourAvailabilityLine(day({ availability: 'none', availabilityCheckedAt: CHECKED }), '2026-10-13', null)).toContain('места не подтверждены');
   });
 
   it('дата не совпала с днём плана — сказано вслух, а не выдано за день плана', () => {
@@ -85,13 +106,13 @@ describe('tourAvailabilityLine: четыре исхода', () => {
 describe('formatTripPlanForChat: живая дата под днём тура', () => {
   it('дата дня плана считается от первого дня, строка стоит под днём', () => {
     const text = formatTripPlanForChat(
-      [day({ day: 2, availability: 'open', availableDate: '2026-10-13', slotsRemaining: 6 })],
+      [day({ day: 2, availability: 'open', availableDate: '2026-10-13', slotsRemaining: 6, availabilityCheckedAt: CHECKED })],
       [], null,
       { refusal: '', plannedFor: '12 октября', arrivalIso: '2026-10-12' },
     );
     const lines = text.split('\n');
     const at = lines.findIndex((l) => l.startsWith('День 2.'));
-    expect(lines[at + 1]).toBe('   Тур ID27, Камчатская рыбалка: ближайшая свободная дата в ваши даты — 13.10, свободно мест: 6');
+    expect(lines[at + 1]).toBe('   Тур ID27, Камчатская рыбалка: ближайшая свободная дата в ваши даты — 13.10, свободно мест: 6 (проверено 07.11, 14:05 по Камчатке)');
   });
 
   it('расписание тура берётся из переданной карты по ID', () => {

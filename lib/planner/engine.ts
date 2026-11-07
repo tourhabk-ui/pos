@@ -193,6 +193,14 @@ export interface DayPlan {
    * Без него «дат нет» и «не смогли проверить» снаружи неотличимы (§4.0, #2241).
    */
   availability?: 'open' | 'none' | 'unread';
+  /**
+   * Когда прочитана занятость этого дня (ISO, UTC) — есть у всякого дня с
+   * `availability`, и у `unread` тоже: время попытки. Дата, ответ наличия и
+   * время проверки — доказательство места в плане (совет, пересланный
+   * владельцем 07.11, принцип 2). Нет времени — места «не подтверждены»:
+   * у черновика, собранного до поля, ответ мог устареть как угодно.
+   */
+  availabilityCheckedAt?: string;
   capacityWarning?: string;
   weatherForecast?: {
     tempMax: number;
@@ -1648,6 +1656,7 @@ async function generateDayPlans(
       let availableDate: string | undefined;
       let slotsRemaining: number | undefined;
       let availability: DayPlan['availability'];
+      let availabilityCheckedAt: string | undefined;
       let capacityWarning: string | undefined;
       let alternatives: DayPlan['alternatives'];
       let qualityScore: number | undefined;
@@ -1682,6 +1691,7 @@ async function generateDayPlans(
           ).catch(availabilityUnread(realTour.tourId));
           const daySlot = slots === null ? null : slotOnTripDay(slots, profile.arrivalDate, dayNum);
           availability = slots === null ? 'unread' : daySlot ? 'open' : 'none';
+          availabilityCheckedAt = new Date().toISOString();
           if (daySlot) {
             availableDate = daySlot.date;
             slotsRemaining = daySlot.remaining;
@@ -1760,6 +1770,7 @@ async function generateDayPlans(
         availableDate,
         slotsRemaining,
         availability,
+        availabilityCheckedAt,
         capacityWarning,
         alternatives,
         qualityScore,
