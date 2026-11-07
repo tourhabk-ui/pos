@@ -29,6 +29,7 @@ import { priceFromUnit } from '@/lib/tours/price-label';
 import { saveDraft, loadDraft, updateDraft, isDraftId, type DraftSurface } from '@/lib/planner/plan-drafts';
 import { McpUserError } from '@/lib/mcp/jsonrpc';
 import { parsePlanStart, rangeDays, planStartRefusal, type PlanStart } from '@/lib/kuzmich/plan-start';
+import { planOfferLines } from '@/lib/kuzmich/plan-offers';
 
 /**
  * Как ехать — из слова модели. Принимаются и коды (self/operator/mixed), и
@@ -893,6 +894,18 @@ export async function makeTripPlanForKuzmich(
     restDays: readRestDays(args.rest_days),
   }, { itinerary: 'plain' });
 
+  // Жильё и машина к плану — настоящие варианты тем же подбором, что экран
+  // планера (аудит 07.11, 4.3; lib/kuzmich/plan-offers). Параллельно с
+  // занятостью туров: запросы независимы.
+  const offersP = rec.days.length > 0
+    ? planOfferLines({
+      days: rec.days.map((d) => ({ day: d.day, type: d.type, zone: d.zone, lodgingIncluded: d.realTour?.lodgingIncluded ?? null })),
+      arrivalIso: arrival.toISOString().slice(0, 10),
+      departureIso: departure.toISOString().slice(0, 10),
+      adults: group.adults, children: kids.children, surface: opts.surface ?? 'chat',
+    }, SITE)
+    : Promise.resolve([]);
+
   const keepsSchedule = await scheduleMap(rec.days);
 
   const month = arrival.getUTCMonth() + 1;
@@ -938,7 +951,8 @@ export async function makeTripPlanForKuzmich(
     };
     idLine = planIdLine(await saveDraft({ params, days: rec.days }, opts.surface ?? 'chat', args.interests), 1);
   }
-  return `${notes.join('\n')}\n\n${text}${idLine ? `\n\n${idLine}` : ''}`;
+  const offers = await offersP;
+  return `${notes.join('\n')}\n\n${text}${offers.length > 0 ? `\n\n${offers.join('\n')}` : ''}${idLine ? `\n\n${idLine}` : ''}`;
 }
 
 /**

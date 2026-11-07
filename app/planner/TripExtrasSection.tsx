@@ -26,9 +26,15 @@ import { stayLink } from '@/lib/stay/stay-link';
 import { carrierPagePath } from '@/lib/transfers/charter-format';
 import { rentalPagePath } from '@/lib/rental/rental-format';
 import { stayKey, type ChoiceSelection } from '@/lib/planner/plan-choices';
+import {
+  fmtRub, nightsRu, stayRoomsLine, charterOfferPrice, rentalOfferLine,
+} from '@/lib/planner/trip-extras-words';
 import type {
   TripExtrasData, LodgingStayView, LodgingOptionView, CharterOfferView, RentalOfferSummaryView,
 } from './planner-types';
+
+// Слова цены — общие с ответом make_trip_plan (lib/planner/trip-extras-words).
+export { charterOfferPrice, rentalOfferLine };
 
 /** Состав плана: для ссылок на жильё с гостями. */
 export interface ExtrasParty {
@@ -50,31 +56,11 @@ export type ExtrasLoad =
 
 const TYPE_LABELS: Record<string, string> = ACCOMMODATION_TYPE_LABELS;
 
-function fmtRub(n: number): string {
-  return `${new Intl.NumberFormat('ru-RU').format(n)} ₽`;
-}
-
 function fmtDay(iso: string): string {
   const d = new Date(`${iso}T00:00:00Z`);
   return Number.isNaN(d.getTime())
     ? iso
     : d.toLocaleDateString('ru-RU', { day: 'numeric', month: 'short', timeZone: 'UTC' });
-}
-
-function nightsRu(n: number): string {
-  const m10 = n % 10;
-  const m100 = n % 100;
-  if (m10 === 1 && m100 !== 11) return `${n} ночь`;
-  if (m10 >= 2 && m10 <= 4 && (m100 < 12 || m100 > 14)) return `${n} ночи`;
-  return `${n} ночей`;
-}
-
-function roomsRu(n: number): string {
-  const m10 = n % 10;
-  const m100 = n % 100;
-  if (m10 === 1 && m100 !== 11) return `${n} номер`;
-  if (m10 >= 2 && m10 <= 4 && (m100 < 12 || m100 > 14)) return `${n} номера`;
-  return `${n} номеров`;
 }
 
 /** Кнопка «взять в план»: нажата — пункт плана, повторное нажатие — снять. */
@@ -149,11 +135,7 @@ function LodgingItem({ o, stay, chosen, onToggle, party }: {
       </div>
       <div className="mt-1.5 flex items-center justify-between gap-2">
         <span className="text-xs text-[var(--text-secondary)]">
-          {o.stay?.kind === 'priced'
-            ? `${roomsRu(o.stay.rooms)} «${o.stay.roomName}», до ${o.stay.maxGuests} гостей в номере`
-            : o.stay?.kind === 'no_fit'
-              ? 'Группа целиком в один тип номеров не помещается — номера подберёт хозяин'
-              : 'Цену на группу посчитаем в карточке объекта'}
+          {stayRoomsLine(o.stay)}
         </span>
         {onToggle && <PlanToggle chosen={chosen} onClick={onToggle} label={o.name} />}
       </div>
@@ -192,31 +174,6 @@ function StayBlock({ stay, choice }: { stay: LodgingStayView; choice: ExtrasChoi
   );
 }
 
-function directionsRu(n: number): string {
-  const m10 = n % 10;
-  const m100 = n % 100;
-  if (m10 === 1 && m100 !== 11) return `${n} направление`;
-  if (m10 >= 2 && m10 <= 4 && (m100 < 12 || m100 > 14)) return `${n} направления`;
-  return `${n} направлений`;
-}
-
-/**
- * Цена перевозчика одной строкой: «от N за машину · M направлений в прайсе»,
- * у цены за время работы (1292) — «N в час · M за день за машину»; цены нет —
- * «назовёт перевозчик».
- */
-export function charterOfferPrice(o: Pick<CharterOfferView, 'priceFromRub' | 'destinations' | 'hourRub' | 'dayRub' | 'ratesFrom'>): string {
-  if (o.priceFromRub !== null) return `от ${fmtRub(o.priceFromRub)} за машину · ${directionsRu(o.destinations)} в прайсе`;
-  // Тарифы на разные виды машин (1318) — названа самая низкая, и это «от».
-  const from = o.ratesFrom === true ? 'от ' : '';
-  const byTime = [
-    typeof o.hourRub === 'number' ? `${from}${fmtRub(o.hourRub)} в час` : null,
-    typeof o.dayRub === 'number' ? `${from}${fmtRub(o.dayRub)} за день` : null,
-  ].filter(Boolean);
-  if (byTime.length > 0) return `${byTime.join(' · ')} за машину · направление — ваше`;
-  return 'Цену машины назовёт перевозчик';
-}
-
 /** Перевозчик «под заказ»: машина целиком, цена за машину; строка ведёт на его прайс и заявку. */
 function CharterOfferRow({ o }: { o: CharterOfferView }) {
   return (
@@ -228,21 +185,6 @@ function CharterOfferRow({ o }: { o: CharterOfferView }) {
       <p className="text-xs text-[var(--text-secondary)] mt-0.5">{charterOfferPrice(o)}</p>
     </li>
   );
-}
-
-function carsRu(n: number): string {
-  const m10 = n % 10;
-  const m100 = n % 100;
-  if (m10 === 1 && m100 !== 11) return `${n} машина`;
-  if (m10 >= 2 && m10 <= 4 && (m100 < 12 || m100 > 14)) return `${n} машины`;
-  return `${n} машин`;
-}
-
-/** Строка прокатчика: цена «от» за сутки без водителя; нет цены — не выдумывается. */
-export function rentalOfferLine(o: Pick<RentalOfferSummaryView, 'priceFromRub' | 'offers' | 'driverOptional'>): string {
-  const price = o.priceFromRub !== null ? `от ${fmtRub(o.priceFromRub)} за сутки без водителя` : 'Цену назовёт прокатчик';
-  const driver = o.driverOptional ? ' · водитель по желанию, цена отдельно' : '';
-  return `${price} · ${carsRu(o.offers)} в прайсе${driver}`;
 }
 
 /** Прокатчик (23.10): машина без водителя за сутки; строка ведёт на его прайс и заявку. В план не берётся — цена зависит от дней и машины. */
