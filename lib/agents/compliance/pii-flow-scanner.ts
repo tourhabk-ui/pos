@@ -893,25 +893,55 @@ interface Taints {
  * PR и прямо в `${…}` это имя. Неизвестный владелец — «не знаю», а «не знаю»
  * здесь судится как имя (§4.0): краснота с названной строкой лучше пропуска.
  *
- * Слова не-людей — `NON_PERSON_WORD`, у каждого причина: `model` — имена
- * моделей в каталоге провайдера; `buffer`, `blob`, `file` — имя файла;
- * `tool` — имя инструмента модели. Владелец, в котором есть и слово человека
- * (`leadFiles`), остаётся человеком.
+ * Не-человека называет главное слово идентификатора — последнее после
+ * разбиения по `_` и camelCase: `models`, `geminiModels`, `Blob`. Подстрока
+ * не годится (десятое ревью): `file` сидит внутри `profiles`, `tool` — внутри
+ * `toolkit`, и выборка профилей сходила бы за файлы. Слова берутся только из
+ * имён самой цепочки-получателя, типа и коллекции `for…of`: аргументы и
+ * колбэки вызовов (`filter((p) => p.avatarFile)`) и поля объектного типа
+ * (`{ file: string }`) говорят не о том, что перебирается.
+ *
+ * Главные слова не-людей — `NON_PERSON_HEAD`, у каждого причина: `model` —
+ * имена моделей в каталоге провайдера; `buffer`, `blob`, `file` — имя файла;
+ * `tool` — имя инструмента модели. Слово человека в любом из этих имён
+ * (`leadFiles`) сильнее: владелец остаётся человеком.
  */
 const PERSON_WORD = /lead|booking|user|member|guest|client|customer|tourist|travel|passenger|buyer|payer|participant|person|people/i;
-const NON_PERSON_WORD = /model|buffer|blob|file|tool/i;
+const NON_PERSON_HEAD: ReadonlySet<string> = new Set(['model', 'models', 'buffer', 'buffers', 'blob', 'blobs', 'file', 'files', 'tool', 'tools']);
 const SINGLE_OWNER_NAME = /\b([lbumg])\s*\.\s*name\b/g;
 const PERSONAL_OWNER_LONG = new RegExp(PERSONAL_OWNER_NAME.source.replace(/\|[lbumg](?=\|)/g, ''), 'i');
 
-const nonPersonWords = (text: string) => NON_PERSON_WORD.test(text) && !PERSON_WORD.test(text);
+/** Слова идентификатора: `geminiModels` → gemini, models; `XMLFile` → xml, file; `tool_calls` → tool, calls. */
+function identWords(id: string): string[] {
+  return (id.match(/[A-Z]+(?![a-z])|[A-Z]?[a-z]+|\d+/g) ?? []).map((w) => w.toLowerCase());
+}
+
+/** Имена говорят о не-человеке: главное слово одного из них — из `NON_PERSON_HEAD`, слова человека нет ни в одном. */
+function nonPersonIdents(ids: readonly string[]): boolean {
+  if (ids.some((id) => PERSON_WORD.test(id))) return false;
+  return ids.some((id) => NON_PERSON_HEAD.has(identWords(id).slice(-1)[0] ?? ''));
+}
+
+/** Имена верхнего уровня: содержимое скобок `()`, `[]`, `{}` — аргументы, индексы, поля типа — не берётся. */
+function topIdents(text: string): string[] {
+  let depth = 0;
+  let out = '';
+  for (const ch of text) {
+    if (ch === '(' || ch === '[' || ch === '{') depth++;
+    out += depth === 0 ? ch : ' ';
+    if ((ch === ')' || ch === ']' || ch === '}') && depth > 0) depth--;
+  }
+  return out.match(/[A-Za-z_$][\w$]*/g) ?? [];
+}
 
 /**
- * Получатель перебора, кончающийся на `end`, целиком: `rows`, `m.newLeads`,
- * `(data.models ?? []).filter(…)`. Скобочная группа в начале цепочки входит в
- * текст: по ней видно, что перебираются модели.
+ * Имена цепочки-получателя, кончающейся на `end`: `rows`; `m`, `newLeads`;
+ * у `(data.models ?? []).filter(…)` — `filter` и имена группы `data`, `models`.
+ * Аргументы вызовов и индексы — не имена получателя.
  */
-function receiverText(code: string, end: number): string {
+function receiverIdents(code: string, end: number): string[] {
   const ws = (k: number) => { while (k > 0 && /\s/.test(code[k - 1])) k--; return k; };
+  const ids: string[] = [];
   let i = end;
   for (;;) {
     const j = ws(i);
@@ -920,17 +950,21 @@ function receiverText(code: string, end: number): string {
       if (o < 0) break;
       i = o;
       // Скобки вызова или индекса — цепочка идёт дальше; группа `(a ?? b)` — её начало.
-      if (!/[\w$)\]]/.test(code[ws(o) - 1] ?? '')) break;
+      if (!/[\w$)\]]/.test(code[ws(o) - 1] ?? '')) {
+        ids.push(...topIdents(code.slice(o + 1, j - 1)));
+        break;
+      }
       continue;
     }
     const id = identBefore(code, j);
-    if (!id) { i = j; break; }
+    if (!id) break;
+    ids.push(id);
     i = j - id.length;
     const k = ws(i);
     if (code[k - 1] !== '.' || code[k - 2] === '.') break;
     i = code[k - 2] === '?' ? k - 2 : k - 1;
   }
-  return code.slice(i, end);
+  return ids;
 }
 
 /** Ключи однобуквенных владельцев, доказуемо связанных с не-человеком. */
@@ -939,7 +973,7 @@ function nonPersonKeys(code: string, sc: Scopes): Set<string> {
   const mark = (names: string[], key: (n: string) => string) => { for (const n of names) if (/^[lbumg]$/.test(n)) out.add(key(n)); };
   ITER_CALL.lastIndex = 0;
   for (let m = ITER_CALL.exec(code); m; m = ITER_CALL.exec(code)) {
-    if (!nonPersonWords(receiverText(code, m.index))) continue;
+    if (!nonPersonIdents(receiverIdents(code, m.index))) continue;
     const open = m.index + m[0].length - 1;
     const cb = argSpans(code, open)[0];
     const head = cb && CALLBACK_HEAD.exec(code.slice(cb.from, cb.to));
@@ -951,7 +985,7 @@ function nonPersonKeys(code: string, sc: Scopes): Set<string> {
   sc.params.forEach(([open, close], idx) => {
     for (const part of splitTop(code.slice(open + 1, close))) {
       const typed = /^\s*([lbumg])\s*\??\s*:\s*([^=]+)/.exec(part);
-      if (typed && nonPersonWords(typed[2])) out.add(`${sc.paramScopes[idx]}:${typed[1]}`);
+      if (typed && nonPersonIdents(topIdents(typed[2]))) out.add(`${sc.paramScopes[idx]}:${typed[1]}`);
     }
   });
   FOR_OF.lastIndex = 0;
@@ -959,7 +993,8 @@ function nonPersonKeys(code: string, sc: Scopes): Set<string> {
     const paren = code.lastIndexOf('(', m.index + m[0].length);
     const head = code.slice(m.index + m[0].length, closeOf(code, paren));
     const of = /\s+of\s+/.exec(head);
-    if (of && nonPersonWords(head.slice(of.index + of[0].length))) mark(bindingNames(head.slice(0, of.index)), (n) => sc.key(n, m.index + m[0].length));
+    const coll = of ? head.slice(of.index + of[0].length).trim().replace(/^\(([\s\S]*)\)$/, '$1') : '';
+    if (of && nonPersonIdents(topIdents(coll))) mark(bindingNames(head.slice(0, of.index)), (n) => sc.key(n, m.index + m[0].length));
   }
   return out;
 }

@@ -1076,7 +1076,7 @@ describe('D1 — девятое ревью PR #3104: однобуквенный 
         'const model = ids[0];', sink('`Модель: ${model}`')]],
       ['for…of', ['const names: string[] = [];', 'for (const m of models) names.push(m.name);', sink("names.join(', ')")]],
       ['тип параметра', ['function f(b: Blob) {', '  const who = b.name;', '  ' + sink('`Файл: ${who}`'), '}']],
-      ['инструмент', ["const toolNames = toolCalls.map((u) => u.name).join(', ');", sink('`Инструменты: ${toolNames}`')]],
+      ['инструмент', ["const toolNames = tools.map((u) => u.name).join(', ');", sink('`Инструменты: ${toolNames}`')]],
     ];
     for (const [label, lines] of cases) expect(found(ask(...lines)), label).toEqual([]);
   });
@@ -1087,5 +1087,37 @@ describe('D1 — девятое ревью PR #3104: однобуквенный 
     expect(found(ask(`function f(b: { name: string; phone: string }) { const who = b.name; ${sink(one)} }`))).toEqual([['name', 'content', 'who']]);
     // Тип в фигурных скобках у самой переменной — по-прежнему тип.
     expect(found(ask('const who: { tel: string } = { tel: lead.phone };', sink('`Тел: ${who.tel}`')))).toEqual([['contact', 'content', 'who.tel']]);
+  });
+});
+
+describe('D1 — десятое ревью PR #3104: не-человека называет главное слово имени, а не подстрока', () => {
+  const found = (src: string) => scanSource('r.ts', src).map((x) => [x.kind, x.context, x.expr]);
+  const ask = (...lines: string[]) => ["import { callAIFast } from '@/lib/ai/providers';", ...lines].join('\n');
+  const sink = (expr: string) => `return callAIFast([{ role: 'user', content: ${expr} }]);`;
+
+  it('находка: `file` внутри `profiles`, слово в колбэке filter, `toolkit`, `modelUrls`, поле объектного типа', () => {
+    // Дословно сценарий ревьюера.
+    expect(found(ask('export async function digest(profiles: { name: string }[]) {', "  const who = profiles.map((l) => l.name).join(', ');",
+      '  const prompt = `Клиенты: ${who}`;', "  return callAIFast([{ role: 'user', content: prompt }]);", '}')))
+      .toEqual([['name', 'prompt', 'who']]);
+    expect(found(ask('const who = list', '  .filter((p) => p.avatarFile)', '  .map((l) => l.name)', "  .join(', ');", sink('`Кто: ${who}`'))))
+      .toEqual([['name', 'content', 'who']]);
+    for (const coll of ['toolkit', 'modelUrls', 'profileFilesOwners']) {
+      expect(found(ask(`const who = ${coll}.map((m) => m.name).join(', ');`, sink('`Кто: ${who}`'))), coll).toEqual([['name', 'content', 'who']]);
+    }
+    expect(found(ask('function f(b: { name: string; file: string }) {', '  const who = b.name;', '  ' + sink('`Кто: ${who}`'), '}')))
+      .toEqual([['name', 'content', 'who']]);
+    expect(found(ask('const names: string[] = [];', 'for (const m of profiles) names.push(m.name);', "await callAIFast(names.join(', '));")))
+      .toEqual([['name', 'callAIFast', 'names']]);
+  });
+
+  it('узость: главное слово модели, файла, инструмента — в имени, в типе и его обобщении, в группе for…of', () => {
+    const cases: Array<[string, string[]]> = [
+      ['geminiModels', ["const who = geminiModels.map((m) => m.name).join(', ');", sink('`Модели: ${who}`')]],
+      ['XMLFile', ['function f(b: XMLFile) {', '  const who = b.name;', '  ' + sink('`Файл: ${who}`'), '}']],
+      ['тип-обобщение', ['function f(b: Readonly<GeminiModel>) {', '  const who = b.name;', '  ' + sink('`Модель: ${who}`'), '}']],
+      ['for…of по группе', ['const names: string[] = [];', 'for (const m of (data.models ?? [])) names.push(m.name);', "await callAIFast(names.join(', '));"]],
+    ];
+    for (const [label, lines] of cases) expect(found(ask(...lines)), label).toEqual([]);
   });
 });
