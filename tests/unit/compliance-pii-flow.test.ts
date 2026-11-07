@@ -1,7 +1,7 @@
 import { describe, it, expect } from 'vitest';
 import { resolve } from 'path';
 import { readFileSync } from 'fs';
-import { scanSource, pdAliases } from '@/lib/agents/compliance/pii-flow-scanner';
+import { scanSource, pdAliases, promptFlowOf } from '@/lib/agents/compliance/pii-flow-scanner';
 import { findViolations, ALLOWLIST } from '@/lib/agents/compliance/scan-repo';
 import {
   LLM_ENDPOINTS,
@@ -357,5 +357,94 @@ describe('контакты друга не уходят модели', () => {
       const out = withFriendContacts('Текст без метки.', { contact: '+7 914 998-19-80' });
       expect(out.trimEnd().endsWith('+7 914 998-19-80')).toBe(true);
     });
+  });
+});
+
+describe('D1 — ПД через массив строк и дописывание к промпту (проба ревьюера 07.11, откат #2506)', () => {
+  // Форма отката #2506 (app/api/safety/rescue-chat/route.ts до e573ffd30):
+  // ни один литерал не промпт по метке — push и `+=` без имени. Нашёл её
+  // ревьюер deepseek-flash в пробе reviewer-model-probe run 2.
+  const RESCUE = [
+    "import { callAIWaterfall } from '@/lib/ai/providers';",
+    'function buildMessages(message: string, tourist_name?: string, tourist_phone?: string) {',
+    '  let systemContent = SYSTEM_PROMPT;',
+    '  const ctx: string[] = [];',
+    '  if (tourist_name)  ctx.push(`Имя: ${sanitizePromptInput(tourist_name).text}`);',
+    '  if (tourist_phone) ctx.push(`Тел: ${sanitizePromptInput(tourist_phone).text}`);',
+    '  if (ctx.length)    systemContent += `\\n\\nСОБЕСЕДНИК:\\n${ctx.join(\'\\n\')}`;',
+    "  return [{ role: 'system', content: systemContent }, { role: 'user', content: message }];",
+    '}',
+    'export async function POST(req: Request) {',
+    '  const { message, tourist_name, tourist_phone } = parsed.data;',
+    '  return callAIWaterfall(buildMessages(message, tourist_name, tourist_phone));',
+    '}',
+  ].join('\n');
+
+  it('имя и телефон туриста в массиве, склеенном в системную подсказку, — находки', () => {
+    const f = scanSource('app/api/safety/rescue-chat/route.ts', RESCUE);
+    expect(f.map((x) => [x.kind, x.context, x.line])).toEqual([['name', 'ctx.push', 5], ['contact', 'ctx.push', 6]]);
+    expect(promptFlowOf(RESCUE)).toMatchObject({ arrays: ['ctx'] });
+    expect(promptFlowOf(RESCUE).sinks).toContain('systemContent');
+  });
+
+  it('сквозь redactPII — не находка', () => {
+    const clean = RESCUE.replace('`Тел: ${sanitizePromptInput(tourist_phone).text}`', '`Тел: ${redactPII(tourist_phone)}`')
+      .replace('`Имя: ${sanitizePromptInput(tourist_name).text}`', '`Имя: {name}`');
+    expect(scanSource('x.ts', clean)).toEqual([]);
+  });
+
+  it('склейка в переменную-аргумент зарубежного вызова и прямо в content: — находки', () => {
+    const viaVar = [
+      "import { callAIFast } from '@/lib/ai/providers';",
+      'const lines: string[] = [];',
+      'for (const lead of leads) lines.push(`${lead.contact_phone} — ${lead.interest}`);',
+      "const text = lines.join('\\n');",
+      'await callAIFast(text);',
+    ].join('\n');
+    expect(scanSource('a.ts', viaVar).map((x) => x.context)).toEqual(['lines.push']);
+    const viaKey = [
+      "import { callAIFast } from '@/lib/ai/providers';",
+      'const parts: string[] = [];',
+      'parts.push(`Почта: ${booking.customer_email}`);',
+      "await callAIFast([{ role: 'user', content: parts.join('\\n') }]);",
+    ].join('\n');
+    expect(scanSource('b.ts', viaKey).map((x) => x.context)).toEqual(['parts.push']);
+  });
+
+  it('дописывание литерала к стоку (`systemContent += …`) — промпт', () => {
+    const src = [
+      "import { callAIWaterfall } from '@/lib/ai/providers';",
+      'let systemContent = BASE;',
+      'systemContent += `\\nТел: ${lead.phone}`;',
+      "await callAIWaterfall([{ role: 'system', content: systemContent }]);",
+    ].join('\n');
+    expect(scanSource('c.ts', src).map((x) => [x.kind, x.context])).toEqual([['contact', 'systemContent']]);
+  });
+
+  it('массив с телефоном, ушедший в Telegram, а не в модель, — не находка', () => {
+    const src = [
+      "import { callAIFast } from '@/lib/ai/providers';",
+      'const msg: string[] = [];',
+      'msg.push(`Новый лид: ${lead.phone}`);',
+      "await sendTelegram(chatId, msg.join('\\n'));",
+      "const summary = await callAIFast('Сводка дня без контактов');",
+    ].join('\n');
+    expect(scanSource('d.ts', src)).toEqual([]);
+  });
+
+  it('телефон МЧС у маршрута — служба, а не человек; телефон контакта рядом — находка', () => {
+    const src = (field: string) => [
+      "import { callAIFast } from '@/lib/ai/providers';",
+      'const contextParts: string[] = [];',
+      `if (r.${field}) contextParts.push(\`Телефон: \${r.${field}}\`);`,
+      "await callAIFast([{ role: 'user', content: contextParts.join('\\n') }]);",
+    ].join('\n');
+    expect(scanSource('e.ts', src('mchs_phone'))).toEqual([]);
+    expect(scanSource('e.ts', src('contact_phone')).map((x) => x.kind)).toEqual(['contact']);
+  });
+
+  it('без зарубежного вызова в файле массив промптом не считается (то же условие, что у content:)', () => {
+    const src = RESCUE.replace("import { callAIWaterfall } from '@/lib/ai/providers';", '').replace('callAIWaterfall(', 'localModel(');
+    expect(scanSource('f.ts', src)).toEqual([]);
   });
 });

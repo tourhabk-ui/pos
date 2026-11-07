@@ -133,6 +133,8 @@ export interface PIIFinding {
 interface TemplateLiteral {
   /** Метка-контекст перед открывающим бэктиком: имя переменной / ключ / функция. */
   label: string;
+  /** У `X.push(\`…\`)` — X: литерал кладётся в массив X. */
+  receiver?: string;
   /** Смещение открывающего бэктика в исходнике. */
   start: number;
   /** Тело литерала (между бэктиками, с `${…}`). */
@@ -151,14 +153,14 @@ function identBefore(src: string, end: number): string {
 /**
  * Извлекает template literals с их контекст-метками. Учитывает строки, коменты
  * и вложенные `${…}` (включая вложенные бэктики). Метка — идентификатор перед
- * `= \``, `: \`` или `(\``.
+ * `= \``, `+= \``, `: \`` или `(\``; у `X.push(\`` ещё и получатель X.
  */
 function extractTemplateLiterals(src: string): TemplateLiteral[] {
   const out: TemplateLiteral[] = [];
 
   // Рекурсивный разбор одного бэктик-литерала, начиная с позиции открывающего `.
   // Возвращает индекс сразу за закрывающим бэктиком.
-  function parseTemplate(open: number, label: string): number {
+  function parseTemplate(open: number, label: string, receiver?: string): number {
     let body = '';
     let i = open + 1;
     while (i < src.length) {
@@ -169,7 +171,7 @@ function extractTemplateLiterals(src: string): TemplateLiteral[] {
         continue;
       }
       if (ch === '`') {
-        out.push({ label, start: open, body });
+        out.push({ label, start: open, body, ...(receiver ? { receiver } : {}) });
         return i + 1;
       }
       if (ch === '$' && src[i + 1] === '{') {
@@ -192,7 +194,7 @@ function extractTemplateLiterals(src: string): TemplateLiteral[] {
       body += ch;
       i++;
     }
-    out.push({ label, start: open, body });
+    out.push({ label, start: open, body, ...(receiver ? { receiver } : {}) });
     return i;
   }
 
@@ -210,12 +212,17 @@ function extractTemplateLiterals(src: string): TemplateLiteral[] {
       while (j > 0 && /\s/.test(src[j])) j--;
       const prev = src[j];
       let label = '';
+      let receiver: string | undefined;
       if (prev === '=' || prev === ':' || prev === '(') {
         let k = j;
+        // `x += \`…\`` — дописывание к переменной: метка — сама переменная.
+        if (prev === '=' && src[k - 1] === '+') k--;
         while (k > 0 && /\s/.test(src[k - 1])) k--;
         label = identBefore(src, k);
+        const head = k - label.length;
+        if (prev === '(' && label === 'push' && src[head - 1] === '.') receiver = identBefore(src, head - 1) || undefined;
       }
-      i = parseTemplate(i, label);
+      i = parseTemplate(i, label, receiver);
       continue;
     }
     i++;
@@ -352,20 +359,90 @@ function isPromptLiteral(label: string, hasForeignCaller: boolean): boolean {
   return false;
 }
 
+/** Присваивание: `const x = …`, `x = …`, `x += …` (не `==`, `=>`, `<=`, `>=`, `!=`). */
+const ASSIGN_HEAD = /(?<![\w$.])([A-Za-z_$][\w$]*)\s*(?::[^=;\n]+)?\+?=(?![=>])/g;
+/** `A.join(` — массив строк, склеиваемый в текст; A — корень, не свойство. */
+const JOIN_ROOT = /(?<![\w$.])([A-Za-z_$][\w$]*)\s*\.\s*join\s*\(/g;
+/** Значение ключа `content:`/`system:` — имя переменной или склейка массива. */
+const SINK_KEY = /\b(?:content|system)\s*:\s*([A-Za-z_$][\w$]*)\s*(?:(?=[,}\n])|\.\s*join\s*\()/g;
+const SINK_CALL = new RegExp(`\\b(?:${FOREIGN_LLM_CALLERS.join('|')})\\s*\\(\\s*([A-Za-z_$][\\w$]*)\\s*(?:[,)]|\\.\\s*join\\s*\\()`, 'g');
+
+/**
+ * Куда в файле уходит промпт и какие массивы строк в него склеиваются.
+ *
+ * Дыра, найденная ревьюером deepseek-flash в пробе 07.11 (run 2, откат #2506):
+ *
+ *     if (tourist_phone) ctx.push(`Тел: ${sanitizePromptInput(tourist_phone).text}`);
+ *     if (ctx.length) systemContent += `\n\nСОБЕСЕДНИК:\n${ctx.join('\n')}`;
+ *     return [{ role: 'system', content: systemContent }, …];
+ *
+ * Ни один литерал не был «промптом» по метке (`push`, `+=` без имени), и страж
+ * молчал — утечку ловил только отдельный тест этого файла.
+ *
+ * Правило узкое намеренно: широкое «всё, что течёт в промпт» затягивает в
+ * промпт почти каждое имя файла (проба по репозиторию: SQL, fetch, заголовки)
+ * и превращается в шум. Поэтому:
+ * - сток — значение `content:`/`system:` и аргумент зарубежного вызова (только
+ *   в файле с таким вызовом, как у метки `content`);
+ * - промпт — и литерал, записанный в сток (`systemContent += \`…\``);
+ * - массив строк — промпт, если его `.join(` стоит в промпте, в значении стока
+ *   или в правой части присваивания стоку; литерал, положенный в такой массив
+ *   `push`, — промпт.
+ */
+function promptFlow(src: string, literals: TemplateLiteral[], hasForeign: boolean): { sinks: Set<string>; arrays: Set<string> } {
+  const sinks = new Set<string>();
+  const arrays = new Set<string>();
+  if (!hasForeign) return { sinks, arrays };
+  for (const re of [SINK_KEY, SINK_CALL]) {
+    re.lastIndex = 0;
+    for (let m = re.exec(src); m; m = re.exec(src)) {
+      if (/\.\s*join\s*\($/.test(m[0])) arrays.add(m[1]);
+      else sinks.add(m[1]);
+    }
+  }
+  const joins = (text: string) => {
+    JOIN_ROOT.lastIndex = 0;
+    for (let m = JOIN_ROOT.exec(text); m; m = JOIN_ROOT.exec(text)) arrays.add(m[1]);
+  };
+  for (const lit of literals) {
+    if (isPromptLiteral(lit.label, hasForeign) || sinks.has(lit.label)) joins(lit.body);
+  }
+  ASSIGN_HEAD.lastIndex = 0;
+  for (let m = ASSIGN_HEAD.exec(src); m; m = ASSIGN_HEAD.exec(src)) {
+    if (sinks.has(m[1]) || /prompt|instruction/i.test(m[1])) joins(rhsAfter(src, m.index + m[0].length));
+  }
+  return { sinks, arrays };
+}
+
+/** Стоки промпта и массивы, склеиваемые в него, — для теста и разбора находки. */
+export function promptFlowOf(src: string): { sinks: string[]; arrays: string[] } {
+  const f = promptFlow(src, extractTemplateLiterals(src), fileMentionsForeignCaller(src));
+  return { sinks: [...f.sinks].sort(), arrays: [...f.arrays].sort() };
+}
+
+/**
+ * Телефон службы, а не человека: МЧС у маршрута (kamchatka_routes.mchs_phone,
+ * CLAUDE.md §10) — публичный номер для консультации. Персональными данными не
+ * является, и находкой его интерполяция не будет.
+ */
+const SERVICE_CONTACT = /\.\s*mchs_phone\b/gi;
+
 /** Сканирует ОДИН исходник. Чистая функция — принимает путь и содержимое. */
 export function scanSource(file: string, src: string): PIIFinding[] {
   const findings: PIIFinding[] = [];
   const hasForeign = fileMentionsForeignCaller(src);
   const literals = extractTemplateLiterals(src);
   const aliases = pdAliases(src);
+  const flow = promptFlow(src, literals, hasForeign);
 
   for (const lit of literals) {
-    if (!isPromptLiteral(lit.label, hasForeign)) continue;
+    const intoPrompt = flow.sinks.has(lit.label) || (lit.receiver !== undefined && flow.arrays.has(lit.receiver));
+    if (!isPromptLiteral(lit.label, hasForeign) && !intoPrompt) continue;
 
     for (const { expr, at } of interpolations(lit.body)) {
       if (SAFE_WRAP.test(expr)) continue;
       let kind: 'contact' | 'name' | null = null;
-      if (CONTACT_FIELD.test(expr)) kind = 'contact';
+      if (CONTACT_FIELD.test(expr.replace(SERVICE_CONTACT, ''))) kind = 'contact';
       else if (PERSONAL_NAME_FIELD.test(expr) || PERSONAL_OWNER_NAME.test(expr)) kind = 'name';
       if (!kind) {
         // Псевдоним: `${name}`, где выше `const name = l.name`.
@@ -380,7 +457,7 @@ export function scanSource(file: string, src: string): PIIFinding[] {
       // Номер строки: смещение открытия литерала + смещение интерполяции в теле.
       const absOffset = lit.start + 1 + at;
       const line = src.slice(0, absOffset).split('\n').length;
-      findings.push({ file, line, expr: expr.trim(), kind, context: lit.label });
+      findings.push({ file, line, expr: expr.trim(), kind, context: lit.receiver ? `${lit.receiver}.push` : lit.label });
     }
   }
   return findings;
