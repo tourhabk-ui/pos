@@ -16,6 +16,8 @@ interface Tour {
 }
 /** Туры по паре «зона:активность» — свои в каждом сценарии. */
 let TOURS: Record<string, Tour[]> = {};
+/** Строки тревог платформы — то, что читает `FROM safety_alerts`. */
+let ALERT_ROWS: Array<{ id: string; zone: string; severity: string; title: string; message: string; source: string }> = [];
 
 function realTour(t: Tour) {
   return {
@@ -60,7 +62,7 @@ vi.mock('@/lib/planner/intelligence', async (importOriginal) => {
 });
 vi.mock('@/lib/ai/providers', () => ({ callAIWithModelDirect: vi.fn(async () => '') }));
 vi.mock('@/lib/ai/agent-models', () => ({ getModelForAgent: () => null }));
-vi.mock('@/lib/db-pool', () => ({ pool: { query: vi.fn(async () => ({ rows: [] })) } }));
+vi.mock('@/lib/db-pool', () => ({ pool: { query: vi.fn(async (sql: string) => ({ rows: String(sql).includes('FROM safety_alerts') ? ALERT_ROWS : [] })) } }));
 
 import { recommendTrip, type TripProfile } from '@/lib/planner/engine';
 import { fetchRealToursForZone } from '@/lib/planner/data';
@@ -88,7 +90,7 @@ function daysByTour(rec: Awaited<ReturnType<typeof recommendTrip>>): Map<string,
   return out;
 }
 
-beforeEach(() => { TOURS = {}; });
+beforeEach(() => { TOURS = {}; ALERT_ROWS = []; });
 
 describe('E1: многодневный тур не режется на краю блока (волна 3.1)', () => {
   // Проба 6.4 C аудита: 7 дней, вулканы, туры на 1, 2 и 3 дня. До 3.1 тур
@@ -182,5 +184,51 @@ describe('E8: зима и пустой план (волна 3.6)', () => {
     const rec = await recommendTrip({ ...winter(), departureDate: `${NEXT_JULY}-01-10` });
     expect(rec.days).toHaveLength(0);
     expect(rec.warnings.some((w) => w.message.startsWith('В эти даты план не собрался'))).toBe(false);
+  });
+});
+
+describe('E9: вертолётный выезд в Северную зону — из города (волна 3.7)', () => {
+  // Проба 6.4 D аудита: 7 дней, гейзеры — дни в Северной зоне, резерв, вылет
+  // и критическое «дня на возвращение в Петропавловск нет». Ребро графа
+  // Северная → Авачинская дня не требует: вертолёт возвращается в тот же день.
+  it('ни пустого «дня возвращения», ни ложной тревоги; ночи — в городе', async () => {
+    TOURS['northern:geyser'] = [{ tourId: 't-geo', title: 'Долина гейзеров на вертолёте', durationHours: 9, zone: 'northern', activityType: 'geyser' }];
+    const rec = await recommendTrip(profile(7, ['geyser']));
+    expect(rec.days.some((d) => d.zone === 'northern')).toBe(true);
+    expect(rec.days.some((d) => d.title.startsWith('Возвращение: Северная зона'))).toBe(false);
+    expect(rec.warnings.some((w) => w.message.includes('дня на возвращение в Петропавловск в нём нет'))).toBe(false);
+  });
+});
+
+describe('S4: тревоги — только по зонам, куда план пошёл (волна 3.7)', () => {
+  it('тревога о Западной зоне в плане по Авачинской не выводится; своя зона и «весь край» — выводятся', async () => {
+    TOURS['avachinsky:volcano'] = [{ tourId: 't-1', title: 'Вулкан за день', durationHours: 10, zone: 'avachinsky', activityType: 'volcano' }];
+    ALERT_ROWS = [
+      { id: 'a-w', zone: 'western', severity: 'important', title: 'Паводок на Опале', message: 'Броды закрыты', source: 'МЧС' },
+      { id: 'a-a', zone: 'avachinsky', severity: 'important', title: 'Пепел над Авачей', message: 'Выход ограничен', source: 'KVERT' },
+      { id: 'a-all', zone: 'all', severity: 'info', title: 'Штормовое', message: 'Ветер по краю', source: 'МЧС' },
+    ];
+    const rec = await recommendTrip(profile(4, ['volcano']));
+    expect(new Set(rec.days.map((d) => d.zone))).toEqual(new Set(['avachinsky']));
+    const text = rec.warnings.filter((w) => w.type === 'mchs').map((w) => w.message).join('\n');
+    expect(text).not.toContain('Паводок на Опале');
+    expect(text).toContain('Пепел над Авачей');
+    expect(text).toContain('Штормовое');
+  });
+
+  it('зона-кандидат, не вошедшая в план, тревоги не даёт', async () => {
+    // Три дня, вулкан и рыбалка: Западная — кандидат по рыбалке, но связка
+    // «туда, день там, обратно» в два свободных дня не влезает. До 07.11
+    // тревога шла по кандидатам и называла паводок в зоне, куда план не едет.
+    TOURS['avachinsky:volcano'] = [{ tourId: 't-1', title: 'Вулкан за день', durationHours: 10, zone: 'avachinsky', activityType: 'volcano' }];
+    TOURS['western:fishing'] = [{ tourId: 't-f', title: 'Рыбалка на Опале', durationHours: 10, zone: 'western', activityType: 'fishing' }];
+    ALERT_ROWS = [
+      { id: 'a-w', zone: 'western', severity: 'important', title: 'Паводок на Опале', message: 'Броды закрыты', source: 'МЧС' },
+    ];
+    const rec = await recommendTrip(profile(3, ['volcano', 'fishing']));
+    expect(rec.zones.some((z) => z.zone === 'western')).toBe(true);
+    expect(rec.days.some((d) => d.zone === 'western')).toBe(false);
+    const text = rec.warnings.filter((w) => w.type === 'mchs').map((w) => w.message).join('\n');
+    expect(text).not.toContain('Паводок на Опале');
   });
 });

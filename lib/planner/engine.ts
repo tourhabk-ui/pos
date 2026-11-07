@@ -735,7 +735,9 @@ function collectWarnings(
 
   // ── МЧС / safety alerts ───────────────────────────────────────────────────
   for (const alert of alerts) {
-    const zoneMatch = alert.zone === 'all' || zones.some(z => z.zone === alert.zone);
+    // Тревога — про зоны, куда план пошёл, а не про зоны-кандидаты (аудит
+    // 07.11, S4): тревога о зоне, которой в плане нет, — шум в «Важно».
+    const zoneMatch = alert.zone === 'all' || plannedZones.has(alert.zone as ZoneId);
     if (zoneMatch) {
       warnings.push({
         type: 'mchs',
@@ -1884,8 +1886,15 @@ async function generateDayPlans(
   // этом — до 27.09 он именно умалчивал, и человек улетал из Петропавловска,
   // ночуя в Западной зоне.
   let returnLegMissing: ZoneId | null = null;
-  if (prevZone !== 'avachinsky' && dayNum <= tripDays - departureDays) {
-    const backEdge = ZONE_GRAPH[prevZone]?.['avachinsky'];
+  const backEdge = prevZone !== 'avachinsky' ? ZONE_GRAPH[prevZone]?.['avachinsky'] : undefined;
+  if (backEdge && !backEdge.needsTravelDay) {
+    // Ребро возвращения дня не требует (аудит 07.11, E9): вертолётный выезд в
+    // Северную зону — из города и обратно в тот же день, ночь в городе
+    // (ZONE_SLEEPS_IN). Ни пустого «дня возвращения», ни тревоги «дня на
+    // возвращение нет»: до 07.11 проба «7 дней, гейзеры» кончалась ложной
+    // критической тревогой. Тем же ребром мерит и вход в зону (needsTravelDay).
+    prevZone = 'avachinsky';
+  } else if (prevZone !== 'avachinsky' && dayNum <= tripDays - departureDays) {
     if (backEdge) {
       days.push({
         day: dayNum++, type: 'travel', zone: 'avachinsky',
