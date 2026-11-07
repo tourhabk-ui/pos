@@ -11,6 +11,7 @@ import { keepsScheduleSql } from '@/lib/tours/schedule';
 import { publicTourSql } from '@/lib/tours/public-visibility';
 import { nearestFreeDateSql } from '@/lib/tours/nearest-free-date';
 import { orderOffersBy } from '@/lib/tours/offer-order';
+import { zoneMatchSql } from '@/lib/planner/zone-match';
 import type { SelfSafetyRow } from '@/lib/planner/travel-style';
 
 // ── Cache ────────────────────────────────────────────────────────────────────
@@ -189,7 +190,7 @@ export async function fetchRealToursForZone(
         FROM operator_tours ot
         JOIN partners p ON p.id = ot.operator_id
         LEFT JOIN agent_route_knowledge ark ON ark.id = ot.agent_route_id
-        WHERE (ark.zone = $1 OR $1 = 'avachinsky')
+        WHERE ${zoneMatchSql('ark', '$1')}
           AND ot.activity_type = ANY($2)
           AND ${publicTourSql('ot')}
           AND p.is_public = TRUE`,
@@ -331,15 +332,12 @@ export async function fetchZoneCapacity(
         LEFT JOIN v_tour_daily_occupancy occ
           ON occ.operator_tour_id = ta.operator_tour_id
           AND occ.date = ta.date
-        -- Предикат зоны — ТОТ ЖЕ, что у отбора туров на день (выше, строка с
-        -- ark.zone = $1 OR $1 = 'avachinsky'). Ослабление для Авачинской
-        -- зоны там записано осознанно: тур без зоны считается городским. Здесь
-        -- предикат был СТРОГИМ, и получалось, что дни Авачинской зоны движок
-        -- берёт из таких туров, а их заполненность не считает никогда — на
-        -- экране метка загрузки зоны не могла зажечься ни при какой
-        -- занятости. Два запроса об одном и том же обязаны отбирать одно и то
-        -- же (CLAUDE.md §12).
-        WHERE (ark.zone = $1 OR $1 = 'avachinsky')
+        -- Предикат зоны — ТОТ ЖЕ, что у отбора туров на день: одна функция
+        -- zoneMatchSql (lib/planner/zone-match). Тур без зоны — городской.
+        -- До 27.09 здесь был строгий предикат, и заполненность туров, которые
+        -- движок ставит в Авачинскую зону, не считалась никогда; до 07.11
+        -- (E4) оба запроса брали в Авачинскую зону туры любой зоны.
+        WHERE ${zoneMatchSql('ark', '$1')}
           AND ${publicTourSql('ot')}`,
         [zone, dateFrom, dateTo]
       );
