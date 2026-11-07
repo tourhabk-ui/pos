@@ -1,37 +1,44 @@
+/**
+ * Сторонние приложения в дорогу — таблица external_tools.
+ *
+ * Это НЕ инструменты Ведара. Их делают другие компании; Кузьмич советует их
+ * для узких задач (инструмент search_taaft), страница /ai-tools показывает
+ * списком. Владелец 07.11 считал этот каталог нашими инструментами — и
+ * «карт-бланш» на чистку: из 48 посеянных 666 записей остались пять
+ * (миграция 1396), без безопасности и без того, что Ведар делает сам.
+ *
+ * Правила:
+ *   - безопасность (SOS, обстановка, вулканы, погода) сторонним приложением
+ *     не закрывается — ответ называет инструменты Ведара и 112;
+ *   - определитель по фото подсказывает вид, а не съедобность — это сказано
+ *     рядом с каждым таким приложением;
+ *   - подбор под задачу не придумывает: ничего не подошло — так и сказано,
+ *     и дан весь список (он короткий), а не «похожее» наугад.
+ *
+ * Имя файла и инструмента осталось от каталога TAAFT (theresanaiforthat.com),
+ * из которого в таблицу не пришло ни одной записи. Правила списка без базы —
+ * lib/travel-apps/catalog.ts.
+ */
 import { pool } from '@/lib/db-pool';
+import { matchApps, type ExternalTool } from '@/lib/travel-apps/catalog';
 
-export interface ExternalTool {
-  id: string;
-  slug: string;
-  name: string;
-  description: string;
-  url: string;
-  category: string;
-  tags: string[];
-  is_free: boolean;
-  api_available: boolean;
-  rating: number | null;
-  use_count: number;
-}
+export { APP_CATEGORIES, NATURE_CAUTION, SAFETY_POINTER, formatAppsForKuzmich, matchApps, queryRoots, type ExternalTool } from '@/lib/travel-apps/catalog';
 
-export async function searchExternalTools(task: string, limit = 5): Promise<ExternalTool[]> {
-  if (!task.trim()) return [];
-
+/** Все показываемые приложения, по разделу и имени. Отказ базы — исключение: «не загрузилось» решает вызывающий. */
+export async function listTravelApps(): Promise<ExternalTool[]> {
   const { rows } = await pool.query<ExternalTool>(
-    `SELECT id, slug, name, description, url, category, tags,
-            is_free, api_available, rating, use_count
-     FROM external_tools
-     WHERE verified = TRUE
-       AND (search_vector @@ plainto_tsquery('simple', $1)
-        OR name ILIKE $2
-        OR description ILIKE $2)
-     ORDER BY
-       CASE WHEN name ILIKE $2 THEN 1 ELSE 2 END,
-       use_count DESC
-     LIMIT $3`,
-    [task.toLowerCase(), `%${task}%`, limit],
+    `SELECT id::text AS id, slug, name, description, url, category, tags, is_free
+       FROM external_tools
+      WHERE verified = TRUE
+      ORDER BY category, name`,
   );
   return rows;
+}
+
+/** Для Evo: только подошедшие под задачу, без «всего списка». */
+export async function searchExternalTools(task: string, limit = 5): Promise<ExternalTool[]> {
+  if (!task.trim()) return [];
+  return matchApps(task, await listTravelApps()).slice(0, limit);
 }
 
 export async function trackToolUsage(slug: string): Promise<void> {
@@ -43,15 +50,3 @@ export async function trackToolUsage(slug: string): Promise<void> {
   );
 }
 
-export function formatToolsForKuzmich(tools: ExternalTool[]): string {
-  if (tools.length === 0) {
-    return 'Специализированных AI-инструментов для этой задачи в каталоге нет. Попробуй сформулировать иначе.';
-  }
-  const lines = tools.map((t) => {
-    const meta = [t.category, t.is_free ? 'бесплатный' : 'платный', t.api_available ? 'есть API' : null]
-      .filter(Boolean)
-      .join(', ');
-    return `• ${t.name} (${meta})\n  ${t.description}\n  ${t.url}`;
-  });
-  return `Нашёл ${tools.length} подходящих инструментов:\n\n${lines.join('\n\n')}`;
-}

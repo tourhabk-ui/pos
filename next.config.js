@@ -269,6 +269,9 @@ const nextConfig = {
       { source: '/tours',              destination: '/catalog',                        permanent: true },
       // ЧПУ туров (30.09): /tours/{адрес или число} — короткая форма карточки.
       { source: '/tours/:slug',        destination: '/catalog/tours/:slug',            permanent: true },
+      // Страниц отдельных сторонних приложений больше нет (07.11, миграция 1396):
+      // пять коротких записей живут одним списком «Приложения в дорогу».
+      { source: '/ai-tools/:slug',     destination: '/ai-tools',                       permanent: true },
       { source: '/terms',              destination: '/legal/terms',                    permanent: true },
       { source: '/auth/register',      destination: '/operators/join',                 permanent: false },
       // Перепись страниц 01.10: девять папок в app/ держали по одной строке

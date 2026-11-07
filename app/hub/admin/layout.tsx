@@ -97,7 +97,7 @@ const SIDEBAR_ITEMS = [
   // 03.09: «Разведка» (/hub/admin/intelligence) стала вкладкой Brain — обе
   // страницы читали одну agent_memory. Старый адрес — редирект в next.config.
   { href: '/hub/admin/brain', label: 'Память и разведка', icon: Brain, section: 'AI' },
-  { href: '/hub/admin/taaft', label: 'AI-инструменты', icon: Globe, section: 'AI' },
+  { href: '/hub/admin/taaft', label: 'Сторонние сервисы', icon: Globe, section: 'AI' },
   // Отчёт по AI-инициативам. Живёт вне /hub/admin, свою проверку роли делает
   // сам; в меню его не было ни разу.
   { href: '/hub/admin/ai-prompts', label: 'Оптим. промптов', icon: Sparkles, section: 'AI' },
