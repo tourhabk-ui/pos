@@ -917,9 +917,11 @@ withPg('витрина /operators: факты о живых турах, кноп
       const { rows: all } = await pool.query<{ u: string }>(
         `SELECT DISTINCT x.u FROM operator_tours t JOIN partners p ON p.id::text = t.operator_id::text,
                 unnest(t.photos) AS x(u)
-          WHERE p.slug = 'laguna-expedition' AND x.u LIKE '${PREFIX}%' ORDER BY 1`,
+          WHERE p.slug = 'laguna-expedition' AND x.u LIKE '${PREFIX}%'`,
       );
-      expect(credited).toEqual(all.map((r) => r.u));
+      // Порядок — сортировкой JS, как у credited: ORDER BY зависит от правила сравнения базы
+      // (в CI en_US пропускает дефис, и «k-domashnim» встаёт после «kamchatka»).
+      expect(credited).toEqual(all.map((r) => r.u).sort());
       for (const u of used) expect(credited, u).toContain(u);
       for (const u of used) expect(p.gallery_credits![u], u).toBe('Лагуна Экспедиция');
 
