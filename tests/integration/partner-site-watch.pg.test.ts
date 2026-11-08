@@ -11,7 +11,10 @@
  *    туров и без проверки — мимо;
  *  - три прогона подряд: точка отсчёта со списком владельцу, затем смена цены
  *    («было/стало»), 404 «пропала», отказ сети дважды — «не открывается»;
- *    robots.txt соблюдается; одинаковый текст не копится.
+ *    robots.txt соблюдается; одинаковый текст не копится;
+ *  - отчёт 08.11: выезд сегодняшнего дня по Камчатке и счётчик мест — не
+ *    изменение, снятая будущая дата — изменение; что не влезло в одно
+ *    сообщение, приходит следующими.
  *
  * Сеть подменена (safeFetchText): чужие сайты из теста не читаются.
  * Своя база `partner_site_watch_test`. Запуск ТРЕБУЕТ базы:
@@ -256,6 +259,65 @@ withPg('сайты партнёров: изменения против прош�
     });
     expect(net.sent.join('\n')).toContain('стало: Цена: 25 000 ₽');
     expect(net.sent.join('\n')).not.toContain('Защита от роботов');
+  });
+
+  // Отчёт 08.11 о «Лагуне»: у каждого тура «изменением» звались выезд, день
+  // которого наступил, и счётчик мест, а 14 изменений не влезли в сообщение и
+  // были отосланы в таблицу базы. Дата «сегодня» здесь настоящая, по Камчатке:
+  // судится и то, что прогон передаёт её в сравнение.
+  it('прогон 6 — много изменений приходят несколькими сообщениями; выезд сегодняшнего дня и счётчик мест — тишина; снятая будущая дата — изменение', async () => {
+    const { kamchatkaToday } = await import('@/lib/planner/calendar-days');
+    const MONTHS_GEN = ['января', 'февраля', 'марта', 'апреля', 'мая', 'июня', 'июля', 'августа', 'сентября', 'октября', 'ноября', 'декабря'];
+    const [y, m, d] = kamchatkaToday().split('-').map(Number);
+    const ru = (offset: number) => {
+      const t = new Date(Date.UTC(y, m - 1, d + offset));
+      return `${String(t.getUTCDate()).padStart(2, '0')} ${MONTHS_GEN[t.getUTCMonth()]} ${t.getUTCFullYear()}`;
+    };
+    const dep = (offset: number, seats: number) =>
+      `<div>Начало тура</div><div>${ru(offset)},</div><div>в 09:00</div><div>Окончание тура</div>`
+      + `<div>${ru(offset)}</div><div>от 9 000 руб.</div><div>Осталось ${seats} мест</div>`;
+    const calendar = (...deps: string[]) => `<html><body><h1>Восхождение</h1><p>Программа на 5 дней</p>${deps.join('')}</body></html>`;
+    const long = (tag: string) =>
+      `<html><body>${Array.from({ length: 8 }, (_, i) => `<p>${tag} ${i} ${'текст '.repeat(40)}</p>`).join('')}</body></html>`;
+    const { runSiteWatch } = await import('@/lib/partners/site-watch-run');
+
+    // 6а: пять страниц сменились разом — в одно сообщение не влезают.
+    net.sent.length = 0;
+    net.pages.set('https://krai-test.ru/tours/a/', { status: 200, body: calendar(dep(0, 8), dep(2, 8), dep(3, 8)) });
+    net.pages.set('https://www.krai-test.ru', { status: 200, body: long('Край') });
+    net.pages.set('https://fish-test.ru', { status: 200, body: long('Рыбалка') });
+    net.pages.set('https://managed-test.ru', { status: 200, body: long('Наш сайт') });
+    net.pages.set('https://onepage-test.ru', { status: 200, body: long('Одностраничный') });
+    const a = await runSiteWatch({ sleep: noSleep });
+    expect(a.events).toMatchObject({ changed: 5 });
+    expect(a.notified).toEqual({ ok: true });
+    expect(net.sent.length).toBeGreaterThan(1);
+    expect(net.sent[0]).toMatch(/^<b>Сайты партнёров: изменений — 5<\/b>/);
+    for (const msg of net.sent.slice(1)) expect(msg).toMatch(/^<b>Сайты партнёров — продолжение<\/b>/);
+    const all = net.sent.join('\n');
+    for (const name of ['Край Тест</b> — тур «Восхождение на Ключевскую»', 'Край Тест</b> — главная', 'Рыбалка Тест', 'Наш сайт Тест', 'Одностраничный Тест']) {
+      expect(all).toContain(name);
+    }
+    expect(all).not.toContain('partner_page_snapshots');
+    expect(all.split('Наши карточки этих туров могли устареть')).toHaveLength(2);
+
+    // 6б: выезд сегодняшнего дня ушёл с календаря, на другом сменился счётчик мест — молчим.
+    net.sent.length = 0;
+    net.pages.set('https://krai-test.ru/tours/a/', { status: 200, body: calendar(dep(2, 5), dep(3, 8)) });
+    const b = await runSiteWatch({ sleep: noSleep });
+    expect(b.notified).toBeNull();
+    expect(net.sent).toEqual([]);
+    const quiet = (await snapshots('https://krai-test.ru/tours/a/')).at(-1);
+    expect(quiet).toMatchObject({ outcome: 'ok', event: 'same', diff: null });
+    expect(quiet?.text).not.toContain(`${ru(0)},`);
+
+    // 6в: снят выезд послезавтрашнего дня — это изменение.
+    net.pages.set('https://krai-test.ru/tours/a/', { status: 200, body: calendar(dep(2, 5)) });
+    await runSiteWatch({ sleep: noSleep });
+    expect((await snapshots('https://krai-test.ru/tours/a/')).at(-1)).toMatchObject({
+      event: 'changed', diff: { removed: [`${ru(3)},`, ru(3)], added: [] },
+    });
+    expect(net.sent.join('\n')).toContain(`было: ${ru(3)},`);
   });
 
   it('крон-роут: без секрета — 401; с секретом — ответ с исходами', async () => {

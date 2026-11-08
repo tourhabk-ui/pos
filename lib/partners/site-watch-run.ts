@@ -23,9 +23,10 @@ import { pool } from '@/lib/db-pool';
 import { safeFetchText } from '@/lib/agents/scout-fetch';
 import { publicTourSql } from '@/lib/tours/public-visibility';
 import { notifyOwnerPartnerSites } from '@/lib/telegram/admin-notify';
+import { kamchatkaToday } from '@/lib/planner/calendar-days';
 import type { TgSendOutcome } from '@/lib/notifications/tg-send';
 import {
-  WATCH_USER_AGENT, baselineMessage, meaningfulDiff, ownerMessage, pageText, robotsDisallows, textHash, watchEvent,
+  WATCH_USER_AGENT, baselineMessage, meaningfulDiff, ownerMessages, pageText, robotsDisallows, textHash, watchEvent,
   type PageOutcome, type PageReport, type Snapshot, type TextDiff, type WatchedPage,
 } from '@/lib/partners/site-watch';
 
@@ -143,7 +144,7 @@ export interface WatchRunResult {
   pages: number;
   events: Record<string, number>;
   reports: Array<{ url: string; partner: string; outcome: PageOutcome; event: string; status: number | null }>;
-  /** Исход сообщения владельцу; null — сообщать было нечего. */
+  /** Исход сообщений владельцу: первый отказ, если был; null — сообщать было нечего. */
   notified: TgSendOutcome | null;
 }
 
@@ -156,6 +157,8 @@ export async function runSiteWatch(opts: { sleep?: (ms: number) => Promise<void>
   const pages = await watchedPages();
   const firstEver = (await pool.query<{ n: string }>(`SELECT COUNT(*)::text AS n FROM partner_page_snapshots`)).rows[0].n === '0';
   const robotsCache = new Map<string, string | null>();
+  // Сегодня по Камчатке: выезд этого дня и раньше сайт снимает сам, это не правка партнёра.
+  const today = kamchatkaToday();
   const reports: PageReport[] = [];
   const out: WatchRunResult['reports'] = [];
   let lastOrigin = '';
@@ -174,7 +177,7 @@ export async function runSiteWatch(opts: { sleep?: (ms: number) => Promise<void>
       // Хэш другой, а строки те же (капча, перестановка, повтор) — «без
       // перемен». Новый текст всё равно сохраняется ниже: он становится
       // точкой сравнения, и завтра тот же шум не всплывёт снова.
-      const d = meaningfulDiff(h.okText ?? '', read.text);
+      const d = meaningfulDiff(h.okText ?? '', read.text, today);
       if (d) diff = d; else event = { kind: 'same' };
     }
     // Текст — при первом чтении и при смене; одинаковый не копится.
@@ -197,7 +200,12 @@ export async function runSiteWatch(opts: { sleep?: (ms: number) => Promise<void>
   // Первый прогон — список, кого взяли под наблюдение: владелец сверяет его
   // со своими партнёрами. Дальше — только изменения (и в первом прогоне
   // тоже: страница тура, которой уже нет, ждать второго дня не должна).
-  const text = [firstEver ? baselineMessage(pages) : null, ownerMessage(reports)].filter(Boolean).join('\n\n') || null;
-  const notified = text ? await notifyOwnerPartnerSites(text) : null;
+  const messages = [firstEver ? baselineMessage(pages) : null, ...ownerMessages(reports)]
+    .filter((m): m is string => m !== null);
+  let notified: TgSendOutcome | null = null;
+  for (const m of messages) {
+    const sent = await notifyOwnerPartnerSites(m);
+    if (notified === null || notified.ok) notified = sent;
+  }
   return { pages: pages.length, events, reports: out, notified };
 }

@@ -5,7 +5,7 @@
  */
 import { describe, it, expect } from 'vitest';
 import {
-  baselineMessage, diffLines, meaningfulDiff, ownerMessage, pageText, robotsDisallows, textHash, watchEvent, WATCH_USER_AGENT,
+  baselineMessage, diffLines, meaningfulDiff, ownerMessages, pageText, robotsDisallows, textHash, watchEvent, WATCH_USER_AGENT,
   type PageReport,
 } from '@/lib/partners/site-watch';
 
@@ -117,7 +117,9 @@ describe('сообщение владельцу', () => {
   const page = { url: 'https://volcanoesland.ru/tours/kl/', partnerName: 'Край <Вулканов>', tours: ['Восхождение на Ключевскую'] };
   it('изменение: чей, какой наш тур, было и стало; чужой текст экранирован', () => {
     const r: PageReport = { page, event: 'changed', diff: { removed: ['Цена: 320 000 ₽'], added: ['Цена: <b>340 000</b> ₽'] } };
-    const text = ownerMessage([r])!;
+    const messages = ownerMessages([r]);
+    expect(messages).toHaveLength(1);
+    const text = messages[0]!;
     expect(text).toContain('Край &lt;Вулканов&gt;');
     expect(text).toContain('тур «Восхождение на Ключевскую»');
     expect(text).toContain('volcanoesland.ru/tours/kl');
@@ -127,38 +129,58 @@ describe('сообщение владельцу', () => {
   });
   it('пропала, вернулась, не открывается — словами; главная сайта — главной', () => {
     const home = { url: 'https://mestechkokam.ru', partnerName: 'Местечко Камчатка', tours: [] };
-    const text = ownerMessage([
+    const [text] = ownerMessages([
       { page, event: 'gone', httpStatus: 404 },
       { page: home, event: 'failing', httpStatus: 503 },
       { page, event: 'back' },
-    ])!;
+    ]);
     expect(text).toContain('страница пропала с сайта партнёра (404)');
     expect(text).toContain('Местечко Камчатка</b> — главная страница сайта');
     expect(text).toContain('не открывается второй день (HTTP 503)');
     expect(text).toContain('страница снова открывается');
   });
   it('без перемен, точка отсчёта и молчание — сообщения нет', () => {
-    expect(ownerMessage([{ page, event: 'same' }, { page, event: 'baseline' }, { page, event: 'quiet' }])).toBeNull();
+    expect(ownerMessages([{ page, event: 'same' }, { page, event: 'baseline' }, { page, event: 'quiet' }])).toEqual([]);
   });
-  it('длинный список не выходит за предел Telegram — остаток назван числом', () => {
-    const many: PageReport[] = Array.from({ length: 80 }, (_, i) => ({
-      page: { ...page, url: `https://volcanoesland.ru/tours/${i}/` },
-      event: 'changed', diff: { removed: ['x'.repeat(200)], added: ['y'.repeat(200)] },
-    }));
-    const text = ownerMessage(many)!;
-    expect(text.length).toBeLessThan(4096);
-    expect(text).toMatch(/ещё изменений: \d+/);
+  // Отчёт 08.11 кончался «ещё изменений: 14 — полностью в partner_page_snapshots»:
+  // таблицу базы владелец не читает, и эти 14 он не увидел вовсе.
+  const changedPages = (n: number): PageReport[] => Array.from({ length: n }, (_, i) => ({
+    page: { ...page, url: `https://volcanoesland.ru/tours/${i}/` },
+    event: 'changed', diff: { removed: ['x'.repeat(200)], added: ['y'.repeat(200)] },
+  }));
+  it('не влезло в одно сообщение — остаток приходит следующими, каждое в пределе Telegram, ничего не потеряно', () => {
+    const messages = ownerMessages(changedPages(12));
+    expect(messages.length).toBeGreaterThan(1);
+    for (const m of messages) expect(m.length).toBeLessThan(4096);
+    expect(messages[0]).toMatch(/^<b>Сайты партнёров: изменений — 12<\/b>/);
+    for (const m of messages.slice(1)) expect(m).toMatch(/^<b>Сайты партнёров — продолжение<\/b>/);
+    const all = messages.join('\n');
+    for (let i = 0; i < 12; i++) expect(all.split(`volcanoesland.ru/tours/${i}\n`)).toHaveLength(2);
+    // Что делать — в конце, один раз; таблицы базы в тексте нет.
+    expect(messages.at(-1)).toContain('Наши карточки этих туров могли устареть');
+    expect(all.split('Наши карточки этих туров могли устареть')).toHaveLength(2);
+    expect(all).not.toContain('partner_page_snapshots');
+    expect(all).not.toMatch(/ещё изменений/);
+  });
+  it('очень длинный список — не больше пяти сообщений, остаток назван числом', () => {
+    const messages = ownerMessages(changedPages(80));
+    expect(messages).toHaveLength(5);
+    for (const m of messages) expect(m.length).toBeLessThan(4096);
+    const shown = messages.join('\n').split('volcanoesland.ru/tours/').length - 1;
+    expect(messages.at(-1)).toContain(`ещё изменений: ${80 - shown} — не вошли в 5 сообщений`);
+    expect(messages.at(-1)).toContain('Наши карточки этих туров могли устареть');
+    expect(messages.join('\n')).not.toContain('partner_page_snapshots');
   });
   it('сайт, который ведём мы: пометка у имени, сверка в обратную сторону', () => {
     const ours = { url: 'https://fishingkam.ru', partnerName: 'Камчатская рыбалка', tours: [], managedByUs: true };
-    const only = ownerMessage([{ page: ours, event: 'changed', diff: { removed: ['Цена 20 000'], added: ['Цена 22 000'] } }])!;
+    const [only] = ownerMessages([{ page: ours, event: 'changed', diff: { removed: ['Цена 20 000'], added: ['Цена 22 000'] } }]);
     expect(only).toContain('Камчатская рыбалка</b> (сайт ведём мы) — главная страница сайта');
     expect(only).toContain('если правка не наша — проверьте, у кого есть доступ');
     expect(only).not.toContain('Наши карточки этих туров могли устареть');
-    const mixed = ownerMessage([
+    const [mixed] = ownerMessages([
       { page: ours, event: 'changed', diff: { removed: ['a'], added: ['b'] } },
       { page, event: 'gone', httpStatus: 404 },
-    ])!;
+    ]);
     expect(mixed).toContain('Наши карточки этих туров могли устареть');
     expect(mixed).toContain('правим мы сами');
     expect(mixed).not.toContain('Край &lt;Вулканов&gt;</b> (сайт ведём мы)');
@@ -191,5 +213,88 @@ describe('скользящие даты (03.11, laguna-expedition.ru)', () => {
   it('настоящая смена рядом со сдвигом остаётся в разнице', () => {
     const d = meaningfulDiff('Ближайший 4 ноября\nЦена 5 000 ₽', 'Ближайший 5 ноября\nЦена 6 000 ₽');
     expect(d).toEqual({ removed: ['Цена 5 000 ₽'], added: ['Цена 6 000 ₽'] });
+  });
+});
+
+// Отчёт 08.11 о «Лагуне»: 29 «изменений», почти все — выезд, день которого
+// наступил («было: 08 ноября 2026,» и «было: 08 ноября 2026»), и счётчик мест.
+// Текст — как pageText страницы тура laguna-expedition.ru: начало и конец
+// выезда отдельными строками.
+describe('прошедший выезд и счётчик мест — не изменение (08.11, laguna-expedition.ru)', () => {
+  const TODAY = '2026-11-08';
+  const departure = (weekday: string, date: string, time: string, seats: string) => [
+    'Начало тура', `${weekday},`, `${date},`, time, 'Окончание тура', `${weekday},`, date, 'от 9 000 руб.', 'Забронировать', seats,
+  ];
+  const tourPage = (...deps: string[][]) => ['Конная прогулка', 'Ноябрь 2026', ...deps.flat(), 'Смотреть другие туры'].join('\n');
+  const d07 = departure('Суббота', '07 ноября 2026', 'в 09:00', 'Осталось 8 мест');
+  const d08 = departure('Воскресенье', '08 ноября 2026', 'в 10:00', 'Осталось 4 места');
+  const d09 = departure('Понедельник', '09 ноября 2026', 'в 09:00', 'Осталось 8 мест');
+  const d10 = departure('Вторник', '10 ноября 2026', 'в 09:00', 'Осталось 8 мест');
+
+  it('выезд сегодняшнего дня ушёл с календаря вместе со своим временем и днём недели — тишина', () => {
+    expect(meaningfulDiff(tourPage(d08, d09, d10), tourPage(d09, d10), TODAY)).toBeNull();
+  });
+
+  it('вчерашний выезд — тоже; без сегодняшней даты правило не применяется', () => {
+    expect(meaningfulDiff(tourPage(d07, d09), tourPage(d09), TODAY)).toBeNull();
+    expect(meaningfulDiff(tourPage(d07, d09), tourPage(d09))).toEqual({
+      removed: ['07 ноября 2026,', '07 ноября 2026', 'Суббота,'], added: [],
+    });
+  });
+
+  it('счётчик мест сменился, появился или пропал — тишина; цена сменилась — изменение', () => {
+    const booked = departure('Понедельник', '09 ноября 2026', 'в 09:00', 'Осталось 3 места');
+    expect(meaningfulDiff(tourPage(d09, d10), tourPage(booked, d10), TODAY)).toBeNull();
+    expect(meaningfulDiff(tourPage(d09), tourPage(d09.slice(0, -1)), TODAY)).toBeNull();
+    const pricier = d09.map((l) => (l === 'от 9 000 руб.' ? 'от 9 500 руб.' : l));
+    expect(meaningfulDiff(tourPage(d09), tourPage(pricier), TODAY)).toEqual({ removed: ['от 9 000 руб.'], added: ['от 9 500 руб.'] });
+  });
+
+  it('снятый БУДУЩИЙ выезд — изменение: это отменённая дата', () => {
+    expect(meaningfulDiff(tourPage(d09, d10), tourPage(d09), TODAY)).toEqual({
+      removed: ['10 ноября 2026,', '10 ноября 2026', 'Вторник,'], added: [],
+    });
+  });
+
+  it('рядом с прошедшим выездом: снятая будущая дата и смена времени видны', () => {
+    // 08-е ушло само, 10-е снято партнёром.
+    expect(meaningfulDiff(tourPage(d08, d09, d10), tourPage(d09), TODAY)).toEqual({
+      removed: ['10 ноября 2026,', '10 ноября 2026'], added: [],
+    });
+    // 08-е ушло, а 09-е перенесли с 09:00 на 11:00: новое время появилось — и
+    // ушедшие времена показаны все, включая 10:00 прошедшего выезда: какое из
+    // них ушло с ним, правило не угадывает.
+    const d09late = departure('Понедельник', '09 ноября 2026', 'в 11:00', 'Осталось 8 мест');
+    expect(meaningfulDiff(tourPage(d08, d09), tourPage(d09late), TODAY)).toEqual({ removed: ['в 10:00', 'в 09:00'], added: ['в 11:00'] });
+  });
+
+  it('заголовок месяца ушёл с последним выездом месяца — тишина; будущий месяц пропал — изменение', () => {
+    const d30 = departure('Понедельник', '30 ноября 2026', 'в 09:00', 'Осталось 8 мест');
+    const dec01 = departure('Вторник', '01 декабря 2026', 'в 09:00', 'Осталось 8 мест');
+    const twoMonths = ['Тур', 'Ноябрь 2026', ...d30, 'Декабрь 2026', ...dec01].join('\n');
+    const decOnly = ['Тур', 'Декабрь 2026', ...dec01].join('\n');
+    expect(meaningfulDiff(twoMonths, decOnly, '2026-11-30')).toBeNull();
+    expect(meaningfulDiff(twoMonths, ['Тур', 'Ноябрь 2026', ...d30].join('\n'), '2026-11-08')).toEqual({
+      removed: ['Декабрь 2026', '01 декабря 2026,', '01 декабря 2026', 'Вторник,'], added: [],
+    });
+  });
+
+  it('в один день ушёл последний выезд месяца и снят выезд следующего: следующий месяц и снятая дата видны', () => {
+    const d30 = departure('Понедельник', '30 ноября 2026', 'в 09:00', 'Осталось 8 мест');
+    const dec01 = departure('Вторник', '01 декабря 2026', 'в 09:00', 'Осталось 8 мест');
+    const dec02 = departure('Среда', '02 декабря 2026', 'в 09:00', 'Осталось 8 мест');
+    const before = ['Тур', 'Ноябрь 2026', ...d30, 'Декабрь 2026', ...dec01, ...dec02].join('\n');
+    const after = ['Тур', ...dec02].join('\n');
+    expect(meaningfulDiff(before, after, '2026-11-30')).toEqual({
+      removed: ['Декабрь 2026', '01 декабря 2026,', '01 декабря 2026'], added: [],
+    });
+  });
+
+  it('дата без года прошедшей не считается; дата с текстом вокруг — тоже', () => {
+    expect(meaningfulDiff('Выезды\n4 ноября\nЦена 5 000 ₽', 'Выезды\nЦена 5 000 ₽', TODAY)).toEqual({ removed: ['4 ноября'], added: [] });
+    expect(meaningfulDiff('Тур\nВыезд 07 ноября 2026, сбор у отеля', 'Тур', TODAY)).toEqual({
+      removed: ['Выезд 07 ноября 2026, сбор у отеля'], added: [],
+    });
+    expect(meaningfulDiff('Тур\n07.11.2026', 'Тур', TODAY)).toBeNull();
   });
 });
