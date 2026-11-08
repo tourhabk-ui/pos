@@ -109,18 +109,11 @@ describe('страницы туров отдаются network-first, а не и
   // (/_next/static/<hash>), Next их удалял после деплоя -> 404 -> белый экран,
   // «иконки пропали, нужен хард-рефреш». У карточек мест этой болезни нет —
   // они уже network-first; тур обязан вести себя так же.
-  const code = SW.split('\n').filter((l) => !/^\s*(\/\/|\*|\/\*)/.test(l)).join('\n');
-
-  it('ветка isTourPage начинается с fetch, а не с caches.match', () => {
-    const branchAt = code.indexOf('if (isTourPage(request.url))');
-    expect(branchAt, 'ветки страниц туров нет вовсе').toBeGreaterThan(-1);
-    const branch = code.slice(branchAt, branchAt + 400);
-    const fetchAt = branch.indexOf('fetch(request)');
-    const cacheAt = branch.indexOf('caches.match');
-    expect(fetchAt, 'в ветке тура нет живого fetch').toBeGreaterThan(-1);
-    expect(fetchAt, 'страница тура снова cache-first: caches.match идёт раньше fetch — вернётся протухший HTML')
-      .toBeLessThan(cacheAt === -1 ? Infinity : cacheAt);
-  });
+  // Сам порядок «сеть первой, копия — при отказе или по таймауту» судится
+  // вызовом в tests/unit/sw-field-pages.test.ts («связь есть — отдаётся свежая
+  // карточка, а не старая копия»). Прежний сторож искал здесь строку
+  // `fetch(request)` в ветке тура и краснел, когда ветка ушла в общую функцию
+  // с таймаутом (08.11), хотя поведение осталось тем же.
 
   it('LRU-лимит туров задан числом, а не сравнивается с undefined', () => {
     // evictOldTourPages сравнивал length > MAX_TOUR_PAGES; без объявления
