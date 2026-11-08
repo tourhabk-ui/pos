@@ -115,6 +115,18 @@ describe('заявка на группу больше мест — запрос�
     expect(new Ajv({ strict: false }).validate(WRITE_OUTPUT_SCHEMA, r.structuredContent)).toBe(true);
   });
 
+  it('группа в потолок заявки (10 из 12), а на дату 4: у тура без потолка группы — запрос, у обычного — отказ', async () => {
+    facts = { max_participants: 12, group_size_unlimited: true, activity_type: 'trekking' };
+    const unlimited = await call({ ...BASE, participants: 10 });
+    expect(createLeadMock).toHaveBeenCalledTimes(1);
+    expect(unlimited.structuredContent?.group).toEqual({ code: 'group_over_seats', tour_id: 70, seats_on_date: 4, tour_max: null, participants: 10 });
+    createLeadMock.mockClear();
+    facts = { max_participants: 12, group_size_unlimited: false, activity_type: 'trekking' };
+    const capped = await call({ ...BASE, participants: 10 });
+    expect(createLeadMock).not.toHaveBeenCalled();
+    expect(capped.content[0]!.text).toMatch(/только 4 мест, а нужно 10 — заявка не создана/);
+  });
+
   it('группа больше потолка тура (до 4) — тоже запрос, с потолком в словах', async () => {
     facts = { max_participants: 4, group_size_unlimited: false, activity_type: 'volcano' };
     const r = await call({ ...BASE, participants: 24 });
