@@ -12,11 +12,13 @@ import { NextRequest, NextResponse } from 'next/server';
 import { runContradictionScan } from '@/lib/agents/memory-contradiction';
 import { timingSafeCompare } from '@/lib/security/timing-safe';
 import { getCronSecret } from '@/lib/auth/cron';
+import { withSpendAgent } from '@/lib/ai/usage-context';
 
 export const dynamic = 'force-dynamic';
 export const maxDuration = 300;
 
 export async function GET(request: NextRequest) {
+  return withSpendAgent('memory-contradiction', async () => {
   const cronSecret = process.env.CRON_SECRET;
   if (!cronSecret) {
     return NextResponse.json({ error: 'CRON_SECRET not configured' }, { status: 500 });
@@ -34,4 +36,5 @@ export async function GET(request: NextRequest) {
       { status: 500 },
     );
   }
+  });
 }

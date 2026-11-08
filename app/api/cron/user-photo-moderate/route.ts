@@ -29,6 +29,7 @@ import { decideUserPhoto, parseUserPhotoVerdict, userPhotoPrompt } from '@/lib/i
 import { escapeHtml } from '@/lib/text/escape-html';
 import { logAgentRun } from '@/lib/agents/run-logger';
 import { tgSend } from '@/lib/notifications/tg-send';
+import { withSpendAgent } from '@/lib/ai/usage-context';
 
 export const dynamic = 'force-dynamic';
 export const maxDuration = 300;
@@ -89,6 +90,7 @@ async function notifyAdmin(lines: string[]): Promise<boolean | null> {
 }
 
 export async function GET(req: NextRequest) {
+  return withSpendAgent('user-photo-moderate', async () => {
   if (!authorized(req)) return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
   try {
     const { rows: cnt } = await pool.query<{ pending: string; unseen: string }>(
@@ -116,9 +118,11 @@ export async function GET(req: NextRequest) {
     console.error('[user-photo-moderate] перепись не прочиталась:', `sqlstate=${e?.code ?? 'нет'}`, e?.message ?? String(err));
     return NextResponse.json({ ok: false, error: 'Перепись не прочиталась', sqlstate: e?.code ?? null }, { status: 500 });
   }
+  });
 }
 
 export async function POST(req: NextRequest) {
+  return withSpendAgent('user-photo-moderate', async () => {
   if (!authorized(req)) return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
   const parsed = BodySchema.safeParse(await req.json().catch(() => ({})));
   if (!parsed.success) {
@@ -202,4 +206,5 @@ export async function POST(req: NextRequest) {
     console.error('[user-photo-moderate] партия не выполнилась:', `sqlstate=${e?.code ?? 'нет'}`, e?.message ?? String(err));
     return NextResponse.json({ ok: false, error: 'Партия не выполнилась', sqlstate: e?.code ?? null }, { status: 500 });
   }
+  });
 }

@@ -34,6 +34,7 @@ import {
 import { resolvePostType } from '@/lib/notifications/kuzmich-post-slot';
 import { timingSafeCompare } from '@/lib/security/timing-safe';
 import { getCronSecret } from '@/lib/auth/cron';
+import { withSpendAgent } from '@/lib/ai/usage-context';
 
 export const dynamic = 'force-dynamic';
 
@@ -59,6 +60,8 @@ export async function GET(request: NextRequest) {
 
   const resolved = resolvePostType(searchParams.get('type'));
   const postType = resolved.type;
+  // Расход модели — под подписью вида поста: в реестре это три записи
+  // (kuzmich-route, kuzmich-tip, kuzmich-tour), и книги сводятся с ними.
 
   // `photo` отдельно от `ok`: пост мог уйти, а снимок — нет. До 07.09 эти два
   // случая были неразличимы снаружи, и «ни одной фотографии» жило незамеченным
@@ -73,13 +76,13 @@ export async function GET(request: NextRequest) {
   if (postType === 'friend') {
     const slug = searchParams.get('slug') ?? '';
     if (!slug) return NextResponse.json({ success: false, error: 'slug обязателен для type=friend' }, { status: 400 });
-    result = await postFriendToChannel(slug);
+    result = await withSpendAgent('kuzmich-friend', () => postFriendToChannel(slug));
   } else if (postType === 'route') {
-    result = await postKuzmichRoute();
+    result = await withSpendAgent('kuzmich-route', () => postKuzmichRoute());
   } else if (postType === 'tip') {
-    result = await postKuzmichTip();
+    result = await withSpendAgent('kuzmich-tip', () => postKuzmichTip());
   } else {
-    result = await postKuzmichTour();
+    result = await withSpendAgent('kuzmich-tour', () => postKuzmichTour());
   }
 
   if (!result.ok) {

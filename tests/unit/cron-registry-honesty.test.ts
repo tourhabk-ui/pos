@@ -104,7 +104,9 @@ function agentIdLiteralReachable(endpoints: string[], agentId: string): boolean 
   for (const ep of endpoints) {
     const routeFile = join(process.cwd(), 'app', 'api', 'cron', ep, 'route.ts');
     if (!existsSync(routeFile)) continue;
-    const src = readFileSync(routeFile, 'utf8');
+    // Подпись расхода (withSpendAgent, 08.11) — не телеметрия прогона: тот же
+    // id стоит литералом и у роута, который в журнал прогонов не пишет ничего.
+    const src = spendSignaturesStripped(readFileSync(routeFile, 'utf8'));
     if (lit.test(src)) return true;
     for (const m of src.matchAll(/from '@\/(lib\/[^']+)'/g)) {
       for (const cand of [`${m[1]}.ts`, `${m[1]}/index.ts`]) {
@@ -116,7 +118,18 @@ function agentIdLiteralReachable(endpoints: string[], agentId: string): boolean 
   return false;
 }
 
+/** Код роута без первых аргументов withSpendAgent — подписи расхода, а не журнала прогонов. */
+function spendSignaturesStripped(src: string): string {
+  return src.replace(/withSpendAgent\(\s*(['"`])[^'"`]*\1/g, 'withSpendAgent(');
+}
+
 describe('cron-registry: agentId соответствует телеметрии своей джобы', () => {
+  it('подпись расхода не засчитывается за телеметрию прогона', () => {
+    const route = "return withSpendAgent('leads', async () => {\n  return ok();\n  });";
+    expect(spendSignaturesStripped(route)).not.toMatch(/'leads'/);
+    expect(spendSignaturesStripped("logAgentRun({ agent_id: 'leads' })")).toMatch(/'leads'/);
+  });
+
   it('agentId записи реально пишется эндпоинтом её же workflow', () => {
     const problems: string[] = [];
 

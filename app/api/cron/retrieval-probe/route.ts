@@ -43,6 +43,7 @@ import { searchPlaceKnowledge } from '@/lib/kuzmich/core';
 import { searchRoutes } from '@/lib/ai/route-knowledge';
 import { searchLegislation } from '@/lib/services/ingest/legislation-importer';
 import questionsFixture from '@/lib/agents/eval/kuzmich-eval-questions.json';
+import { withSpendAgent } from '@/lib/ai/usage-context';
 
 export const dynamic = 'force-dynamic';
 export const maxDuration = 120;
@@ -89,6 +90,7 @@ async function orSearch(question: string): Promise<{ query: string | null; hits:
 }
 
 export async function GET(request: NextRequest) {
+  return withSpendAgent('retrieval-probe', async () => {
   const secret = getCronSecret(request);
   if (!timingSafeCompare(secret, process.env.CRON_SECRET ?? '')) {
     return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
@@ -151,4 +153,5 @@ export async function GET(request: NextRequest) {
       { status: 500 },
     );
   }
+  });
 }

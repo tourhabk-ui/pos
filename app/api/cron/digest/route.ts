@@ -14,6 +14,7 @@ import { getLatestIntelligence } from '@/lib/services/intelligence-monitor.servi
 import type { ChatMessage } from '@/lib/ai/prompts';
 import { getCronSecret } from '@/lib/auth/cron';
 import { WIDGET_CHAT_PSEUDO_LEAD_SQL } from '@/lib/leads/widget-chat-pseudo';
+import { withSpendAgent } from '@/lib/ai/usage-context';
 
 export const dynamic = 'force-dynamic';
 export const maxDuration = 60;
@@ -292,6 +293,7 @@ function buildPrompt(m: PlatformMetrics, date: string): ChatMessage[] {
 // ── Main handler ──────────────────────────────────────────────────────────────
 
 export async function GET(request: NextRequest) {
+  return withSpendAgent('digest', async () => {
   const secret = getCronSecret(request);
 
   const cronSecret = process.env.CRON_SECRET;
@@ -391,4 +393,5 @@ export async function GET(request: NextRequest) {
   } catch { /* не критично */ }
 
   return NextResponse.json({ ok: true, date, leadsNew: metrics.leadsNew, toursNoSlots: metrics.toursNoSlots.length });
+  });
 }

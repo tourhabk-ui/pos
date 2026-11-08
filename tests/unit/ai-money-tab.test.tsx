@@ -305,7 +305,8 @@ function stringConsts(sf: ts.SourceFile): Map<string, { value: string; exported:
 
 /**
  * Кто подписывает расход в книгах llm_usage_log: «руки» — переменной AGENT_ID
- * шага учёта в workflow; код — первым аргументом runWithUsageTracking,
+ * шага учёта в workflow; код — первым аргументом runWithUsageTracking и
+ * withSpendAgent (кроны),
  * fallbackAgentId у провайдеров, полем agent_id у строк для usage-sink и
  * последним аргументом usageRowFromResponse и usageRowFromAnthropic (скрипт
  * раннера со своим fetch или SDK).
@@ -353,9 +354,12 @@ function spendWriters(): Map<string, string> {
     'app/api/cron/kuzmich-eval/route.ts': ['kuzmich-eval', 'kuzmich-eval-live', 'kuzmich-eval-commercial'],
   };
   const variableSeen = new Set<string>();
-  const TRIGGERS = ['runWithUsageTracking', 'fallbackAgentId', 'usageRowFromResponse', 'usageRowFromAnthropic', 'usage-sink'];
+  const TRIGGERS = ['runWithUsageTracking', 'withSpendAgent', 'fallbackAgentId', 'usageRowFromResponse', 'usageRowFromAnthropic', 'usage-sink'];
 
   for (const [file, text] of raw) {
+    // Модуль, где подпись определена: withSpendAgent передаёт свой аргумент
+    // в runWithUsageTracking и сам ничего не подписывает.
+    if (file === 'lib/ai/usage-context.ts') continue;
     // Дешёвый отбор по сырому тексту, приговор — по разбору.
     if (!TRIGGERS.some((t) => text.includes(t))) continue;
     let importsSink = false;
@@ -365,11 +369,11 @@ function spendWriters(): Map<string, string> {
         importsSink = true;
       }
       if (ts.isCallExpression(n) && ts.isIdentifier(n.expression)) {
-        if (n.expression.text === 'runWithUsageTracking') {
+        if (n.expression.text === 'runWithUsageTracking' || n.expression.text === 'withSpendAgent') {
           const id = idOf(file, n.arguments[0]);
           if (id !== null) found.set(id, file);
           else {
-            expect(VARIABLE_CALLERS[file], `${file}: runWithUsageTracking с переменной — впишите её id в VARIABLE_CALLERS`).toBeDefined();
+            expect(VARIABLE_CALLERS[file], `${file}: ${n.expression.text} с переменной — впишите её id в VARIABLE_CALLERS`).toBeDefined();
             variableSeen.add(file);
           }
         }

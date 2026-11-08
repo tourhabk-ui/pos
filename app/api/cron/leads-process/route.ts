@@ -16,11 +16,13 @@ import { getCronSecret, diagnoseCronAuth } from '@/lib/auth/cron';
 import { claimCronWindow, shouldRun, leaseSkipBody } from '@/lib/agents/cron-lease';
 import { recordCronRun } from '@/lib/agents/cron-heartbeat';
 import { WIDGET_CHAT_PSEUDO_LEAD_SQL } from '@/lib/leads/widget-chat-pseudo';
+import { withSpendAgent } from '@/lib/ai/usage-context';
 
 export const dynamic = 'force-dynamic';
 export const maxDuration = 60;
 
 export async function GET(request: NextRequest) {
+  return withSpendAgent('leads', async () => {
   const secret = getCronSecret(request);
 
   const cronSecret = process.env.CRON_SECRET;
@@ -94,4 +96,5 @@ export async function GET(request: NextRequest) {
   });
 
   return NextResponse.json({ ok: true, processed, failed, results });
+  });
 }

@@ -28,6 +28,7 @@ import { logSwallowedFailure } from '@/lib/observability/swallowed';
 import { parseStartupMigrationsState, startupMigrationsIssue } from '@/lib/agents/migration-startup-state';
 import { processMemoryMb } from '@/lib/observability/process-memory';
 import { embeddingModelStatus } from '@/lib/ai/semantic-search-state';
+import { withSpendAgent } from '@/lib/ai/usage-context';
 
 /** Окно, в котором дословно тот же WARN не повторяется (как у Watchdog). */
 const HEALTH_WARN_DEBOUNCE_HOURS = 12;
@@ -425,6 +426,7 @@ async function checkSafetyIngest(): Promise<{ ageMin: number | null; issue: Heal
 // ── Main handler ──────────────────────────────────────────────────────────────
 
 export async function GET(request: NextRequest) {
+  return withSpendAgent('health', async () => {
   // SECURITY: CRON_SECRET must be configured - unauthenticated access is critical risk
   const cronSecret = process.env.CRON_SECRET;
   if (!cronSecret) {
@@ -805,4 +807,5 @@ export async function GET(request: NextRequest) {
     recordCronRun('health', started, 'failed', { error: msg });
     return NextResponse.json({ ok: false, error: msg }, { status: 500 });
   }
+  });
 }

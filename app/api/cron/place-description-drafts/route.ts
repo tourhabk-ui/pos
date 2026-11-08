@@ -23,6 +23,7 @@ import { getCronSecret } from '@/lib/auth/cron';
 import { timingSafeCompare } from '@/lib/security/timing-safe';
 import { runGvpRemarksDrafts } from '@/lib/geo/gvp-remarks-runner';
 import { pool } from '@/lib/db-pool';
+import { withSpendAgent } from '@/lib/ai/usage-context';
 
 export const dynamic = 'force-dynamic';
 export const maxDuration = 120;
@@ -41,6 +42,7 @@ export const maxDuration = 120;
  * `PATCH /api/admin/places/[id]/description-draft`. Тоже только SELECT.
  */
 export async function GET(request: NextRequest) {
+  return withSpendAgent('place-description-drafts', async () => {
   const secret = getCronSecret(request);
   if (!timingSafeCompare(secret, process.env.CRON_SECRET ?? '')) {
     return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
@@ -91,9 +93,11 @@ export async function GET(request: NextRequest) {
     const message = err instanceof Error ? err.message : 'Ошибка чтения черновиков описаний';
     return NextResponse.json({ success: false, error: message }, { status: 502 });
   }
+  });
 }
 
 export async function POST(request: NextRequest) {
+  return withSpendAgent('place-description-drafts', async () => {
   const secret = getCronSecret(request);
   if (!timingSafeCompare(secret, process.env.CRON_SECRET ?? '')) {
     return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
@@ -129,4 +133,5 @@ export async function POST(request: NextRequest) {
     const message = err instanceof Error ? err.message : 'Ошибка получения/перевода Remarks';
     return NextResponse.json({ success: false, error: message }, { status: 502 });
   }
+  });
 }

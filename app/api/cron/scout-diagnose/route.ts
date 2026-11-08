@@ -22,6 +22,7 @@ import { getCronSecret } from '@/lib/auth/cron';
 import { timingSafeCompare } from '@/lib/security/timing-safe';
 import { pool } from '@/lib/db-pool';
 import { SKIP_REASON_LABELS } from '@/lib/agents/scout-digest';
+import { withSpendAgent } from '@/lib/ai/usage-context';
 
 export const dynamic = 'force-dynamic';
 export const maxDuration = 30;
@@ -35,6 +36,7 @@ interface RunRow {
 }
 
 export async function GET(request: NextRequest) {
+  return withSpendAgent('scout-diagnose', async () => {
   const cronSecret = process.env.CRON_SECRET;
   if (!cronSecret) {
     return NextResponse.json({ success: false, error: 'CRON_SECRET не задан' }, { status: 500 });
@@ -179,4 +181,5 @@ export async function GET(request: NextRequest) {
     const message = err instanceof Error ? err.message : 'Ошибка чтения журнала';
     return NextResponse.json({ success: false, error: message }, { status: 502 });
   }
+  });
 }

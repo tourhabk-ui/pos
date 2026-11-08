@@ -28,6 +28,7 @@ import { pool } from '@/lib/db-pool';
 import { timingSafeCompare } from '@/lib/security/timing-safe';
 import { getCronSecret } from '@/lib/auth/cron';
 import { fetchFeed, fetchPage } from '@/lib/services/intelligence-monitor.service';
+import { withSpendAgent } from '@/lib/ai/usage-context';
 
 export const dynamic = 'force-dynamic';
 export const maxDuration = 60;
@@ -103,6 +104,7 @@ function acceptCandidate(raw: string): { url: string; prefix?: string } | { erro
 const MAX_CANDIDATES = 15;
 
 export async function GET(req: NextRequest) {
+  return withSpendAgent('intel-feeds-census', async () => {
   if (!timingSafeCompare(getCronSecret(req), process.env.CRON_SECRET ?? '')) {
     return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
   }
@@ -261,5 +263,6 @@ export async function GET(req: NextRequest) {
     by_verdict: byVerdict,
     domains,
     feeds,
+  });
   });
 }

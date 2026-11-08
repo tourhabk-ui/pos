@@ -29,6 +29,7 @@ import {
 } from '@/lib/agents/kernel/adapters/initiative-tasks';
 import { reapExpiredLeases } from '@/lib/agents/kernel/kernel';
 import { claimCronWindow, shouldRun, leaseSkipBody } from '@/lib/agents/cron-lease';
+import { withSpendAgent } from '@/lib/ai/usage-context';
 
 export const dynamic = 'force-dynamic';
 export const maxDuration = 120;
@@ -36,6 +37,7 @@ export const maxDuration = 120;
 const BATCH_LIMIT = 10;
 
 export async function GET(request: NextRequest) {
+  return withSpendAgent('kernel_worker', async () => {
   const secret = getCronSecret(request);
 
   const cronSecret = process.env.CRON_SECRET;
@@ -109,4 +111,5 @@ export async function GET(request: NextRequest) {
       { status: 500 },
     );
   }
+  });
 }

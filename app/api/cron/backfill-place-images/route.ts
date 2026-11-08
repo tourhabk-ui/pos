@@ -14,6 +14,7 @@ import {
   getRoutesWithoutImages,
 } from '@/lib/services/ingest/ai-image-generator';
 import { z } from 'zod';
+import { withSpendAgent } from '@/lib/ai/usage-context';
 
 export const dynamic = 'force-dynamic';
 export const maxDuration = 300;
@@ -25,6 +26,7 @@ const MAX_BATCH = 10;
 const Schema = z.object({ batch: z.number().int().positive().max(MAX_BATCH).optional() });
 
 export async function POST(request: NextRequest): Promise<NextResponse> {
+  return withSpendAgent('backfill-place-images', async () => {
   const secret = getCronSecret(request);
   if (!timingSafeCompare(secret, process.env.CRON_SECRET ?? '')) {
     return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
@@ -69,5 +71,6 @@ export async function POST(request: NextRequest): Promise<NextResponse> {
     failed,
     processed: todo.length,
     remaining: Math.max(0, missing.length - generated),
+  });
   });
 }

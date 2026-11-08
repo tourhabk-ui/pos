@@ -38,6 +38,7 @@ import { getCronSecret, diagnoseCronAuth } from '@/lib/auth/cron';
 import { timingSafeCompare } from '@/lib/security/timing-safe';
 import { callVisionDetailed, type VisionLeg } from '@/lib/ai/providers';
 import { runPlace } from '@/lib/ai/key-identity';
+import { withSpendAgent } from '@/lib/ai/usage-context';
 
 export const dynamic = 'force-dynamic';
 export const maxDuration = 120;
@@ -70,6 +71,7 @@ function verdictOf(text: string | null, legs: VisionLeg[]): Verdict {
 }
 
 export async function GET(req: NextRequest) {
+  return withSpendAgent('vision-probe', async () => {
   const secret = getCronSecret(req);
   if (!timingSafeCompare(secret, process.env.CRON_SECRET ?? '')) {
     return NextResponse.json({ error: 'Не авторизовано', ...diagnoseCronAuth(req) }, { status: 401 });
@@ -103,5 +105,6 @@ export async function GET(req: NextRequest) {
     run_place: runPlace(),
     ms: Date.now() - started,
     checked_at: new Date().toISOString(),
+  });
   });
 }

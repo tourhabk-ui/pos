@@ -4,6 +4,7 @@ import { timingSafeCompare } from '@/lib/security/timing-safe';
 import { pool } from '@/lib/db-pool';
 import { callGeminiPDF } from '@/lib/ai/providers';
 import { fetchViaBrightData } from '@/lib/scraping/brightdata';
+import { withSpendAgent } from '@/lib/ai/usage-context';
 
 export const dynamic = 'force-dynamic';
 
@@ -76,6 +77,7 @@ function parseExtracted(raw: string): ExtractedData | null {
 }
 
 export async function GET(request: NextRequest) {
+  return withSpendAgent('import-route-passports', async () => {
   const secret = getCronSecret(request);
   if (!timingSafeCompare(secret, process.env.CRON_SECRET ?? '')) {
     return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
@@ -175,5 +177,6 @@ export async function GET(request: NextRequest) {
     remaining: remaining - enriched,
     next_offset: offset + batch,
     results,
+  });
   });
 }

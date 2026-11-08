@@ -27,6 +27,7 @@ import { TOURIST_TG_CHAT_SQL } from '@/lib/notifications/tourist-telegram';
 import { recordCronRun } from '@/lib/agents/cron-heartbeat';
 import { fetchWeatherForReminder } from '@/lib/weather/tour-reminder-weather';
 import { readStoredSituations } from '@/lib/trips/situation-read';
+import { withSpendAgent } from '@/lib/ai/usage-context';
 
 export const dynamic = 'force-dynamic';
 
@@ -82,6 +83,7 @@ async function sendMaxMessage(chatId: number, text: string): Promise<void> {
 }
 
 export async function GET(request: NextRequest) {
+  return withSpendAgent('tour-reminder', async () => {
   const secret = getCronSecret(request);
   if (!timingSafeCompare(secret, process.env.CRON_SECRET ?? '')) {
     return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
@@ -207,5 +209,6 @@ ${mchs ? `- Предупреждение МЧС: ${mchs}` : ''}
     failed: failed.length,
     booking_ids_sent: sent,
     timestamp: new Date().toISOString(),
+  });
   });
 }

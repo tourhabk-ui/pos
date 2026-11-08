@@ -29,11 +29,13 @@ import { MarketplaceToursQuerySchema, queryMarketplaceTours } from '@/lib/search
 import { getSafetyLiveData } from '@/app/_home/data';
 import { GET as slotsRoute } from '@/app/api/tours/[id]/slots/route';
 import { collectChannelParity, type UiSlot } from '@/lib/quality/channel-parity-collect';
+import { withSpendAgent } from '@/lib/ai/usage-context';
 
 export const dynamic = 'force-dynamic';
 export const maxDuration = 60;
 
 export async function GET(request: NextRequest) {
+  return withSpendAgent('channel-parity', async () => {
   const secret = getCronSecret(request);
   if (!timingSafeCompare(secret, process.env.CRON_SECRET ?? '')) {
     return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
@@ -66,4 +68,5 @@ export async function GET(request: NextRequest) {
     console.error('[channel-parity] снимок не собрался:', e instanceof Error ? e.message : e);
     return NextResponse.json({ ok: false, error: 'Снимок не собрался — см. лог' }, { status: 500 });
   }
+  });
 }

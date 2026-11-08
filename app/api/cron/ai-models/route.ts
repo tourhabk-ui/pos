@@ -32,6 +32,7 @@ import {
   qwenVisionModel,
 } from '@/lib/ai/providers';
 import { pickBestModel } from '@/lib/ai/model-resolver';
+import { withSpendAgent } from '@/lib/ai/usage-context';
 
 export const dynamic = 'force-dynamic';
 export const maxDuration = 60;
@@ -128,6 +129,7 @@ async function pingQwen(models: string[]) {
 }
 
 export async function GET(request: NextRequest) {
+  return withSpendAgent('ai-models', async () => {
   const secret = getCronSecret(request);
   if (!timingSafeCompare(secret, process.env.CRON_SECRET ?? '')) {
     return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
@@ -152,4 +154,5 @@ export async function GET(request: NextRequest) {
     const message = err instanceof Error ? err.message : 'Ошибка перечня моделей';
     return NextResponse.json({ success: false, error: message }, { status: 502 });
   }
+  });
 }

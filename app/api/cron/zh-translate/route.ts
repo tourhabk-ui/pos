@@ -53,6 +53,7 @@ import { translateFieldValue } from '@/lib/zh/translate';
 import {
   loadTranslations, loadZhPlaceSources, loadZhTourSources, logZhFailure,
 } from '@/lib/zh/content';
+import { withSpendAgent } from '@/lib/ai/usage-context';
 
 export const dynamic = 'force-dynamic';
 export const maxDuration = 600;
@@ -126,6 +127,7 @@ const UPSERT_SQL = `
          reviewed_at = NULL`;
 
 export async function GET(request: NextRequest) {
+  return withSpendAgent('zh-translate', async () => {
   const cronSecret = process.env.CRON_SECRET;
   if (!cronSecret) {
     return NextResponse.json({ error: 'CRON_SECRET not configured' }, { status: 500 });
@@ -239,4 +241,5 @@ export async function GET(request: NextRequest) {
     not_translated: notTranslated,
     pending_left: census.work.length - translated.length,
   }, { status: failed ? 502 : 200 });
+  });
 }

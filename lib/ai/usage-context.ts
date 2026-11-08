@@ -70,3 +70,18 @@ export async function runWithUsageTracking<T>(
     },
   };
 }
+
+/**
+ * То же, что runWithUsageTracking, когда нужен только результат: подпись
+ * расхода для крона (08.11). Всё, что внутри зовёт модель, — и вложенный
+ * вызов, и фон после ответа — ложится в книги llm_usage_log под agentId.
+ * Ближний контекст главнее: явный runWithUsageTracking внутри (эвал с тремя
+ * id) подписывает своим id.
+ *
+ * До 08.11 из 49 кронов, умеющих звать модель, подписывали расход 6; за 30
+ * дней 16,6 тыс. вызовов легли в книги строкой «без подписи» (перепись
+ * нагрузки Кузьмича, prod-check 166).
+ */
+export async function withSpendAgent<T>(agentId: string, fn: () => Promise<T>): Promise<T> {
+  return (await runWithUsageTracking(agentId, fn)).result;
+}

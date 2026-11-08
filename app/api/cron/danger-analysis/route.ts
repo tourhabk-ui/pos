@@ -3,6 +3,7 @@ import { timingSafeCompare } from '@/lib/security/timing-safe';
 import { getCronSecret, diagnoseCronAuth } from '@/lib/auth/cron';
 import { claimCronWindow, shouldRun, leaseSkipBody } from '@/lib/agents/cron-lease';
 import { recordCronRun } from '@/lib/agents/cron-heartbeat';
+import { withSpendAgent } from '@/lib/ai/usage-context';
 
 /**
  * GET /api/cron/danger-analysis
@@ -11,6 +12,7 @@ import { recordCronRun } from '@/lib/agents/cron-heartbeat';
  * Запускать каждые 30 минут (после safety-ingest)
  */
 export async function GET(req: Request) {
+  return withSpendAgent('danger-analysis', async () => {
   const url = new URL(req.url);
   const secret = getCronSecret(req);
 
@@ -54,4 +56,5 @@ export async function GET(req: Request) {
       { status: 500 }
     );
   }
+  });
 }

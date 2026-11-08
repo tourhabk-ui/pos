@@ -16,6 +16,7 @@ import { NextRequest, NextResponse } from 'next/server';
 import { getCronSecret } from '@/lib/auth/cron';
 import { timingSafeCompare } from '@/lib/security/timing-safe';
 import { runPassportEnrich } from '@/lib/import/passport-enrich-runner';
+import { withSpendAgent } from '@/lib/ai/usage-context';
 
 export const dynamic = 'force-dynamic';
 export const maxDuration = 120;
@@ -27,6 +28,7 @@ function intParam(raw: string | null, fallback: number, min: number, max: number
 }
 
 export async function GET(request: NextRequest) {
+  return withSpendAgent('enrich-passports', async () => {
   const secret = getCronSecret(request);
   if (!timingSafeCompare(secret, process.env.CRON_SECRET ?? '')) {
     return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
@@ -53,4 +55,5 @@ export async function GET(request: NextRequest) {
     const message = err instanceof Error ? err.message : 'Ошибка обогащения паспортов';
     return NextResponse.json({ success: false, error: message }, { status: 502 });
   }
+  });
 }
