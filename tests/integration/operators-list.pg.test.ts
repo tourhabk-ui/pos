@@ -884,10 +884,14 @@ withPg('витрина /operators: факты о живых турах, кноп
     const PREFIX = '/api/images/s3/photos/laguna-expedition/';
     const LOGO = '/images/laguna-expedition/laguna-expedition-logo.png';
     type TourRow = { slug: string; photos: string[] | null; tour_image: string | null; updated_at: string };
+    // Только 34 тура 1339: шесть туров 1413 (новые с сайта, 08.11) снимки
+    // получают своей миграцией снимков, не 1343.
     const tours = async () => (await pool.query<TourRow>(
       `SELECT t.slug, t.photos, t.tour_image, t.updated_at::text
          FROM operator_tours t JOIN partners p ON p.id::text = t.operator_id::text
-        WHERE p.slug = 'laguna-expedition' AND t.slug LIKE 'lagexp-%' ORDER BY t.slug`,
+        WHERE p.slug = 'laguna-expedition' AND t.slug LIKE 'lagexp-%'
+          AND t.source_url !~ '/tours/(36212|36214|37577|37584|41610|51446)-'
+        ORDER BY t.slug`,
     )).rows;
     const partner = async () => (await pool.query<{ logo_image: string | null; gallery_credits: Record<string, string> | null; updated_at: string }>(
       `SELECT logo_image, gallery_credits, updated_at::text FROM partners WHERE slug = 'laguna-expedition'`,
