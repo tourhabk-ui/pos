@@ -16,8 +16,16 @@ describe('#2888 — Чикурачки и ранжирование вулкан�
     expect(sql).toContain('ON CONFLICT (id) DO NOTHING');
   });
 
-  it.each(['lib/kuzmich/guardian-context.ts', 'lib/kuzmich/place-info-tool.ts'])(
-    '%s: вулкан сортируется раньше парка с тем же именем', (f) => {
-      expect(read(f)).toContain("ORDER BY (p.location_type = 'volcano') DESC, char_length(p.name) ASC");
-    });
+  it('lib/kuzmich/place-info-tool.ts: вулкан сортируется раньше парка с тем же именем', () => {
+    expect(read('lib/kuzmich/place-info-tool.ts')).toContain("ORDER BY (p.location_type = 'volcano') DESC, char_length(p.name) ASC");
+  });
+
+  // Страж с 08.11 ставит видимые записи первыми: скрытая запись («путь на
+  // вершину» — название тура) не занимает место видимой в тройке. Среди
+  // видимых вулкан по-прежнему раньше парка с тем же именем.
+  it('lib/kuzmich/guardian-context.ts: видимые первыми, среди них вулкан раньше парка с тем же именем', () => {
+    expect(read('lib/kuzmich/guardian-context.ts')).toContain(
+      "ORDER BY (p.is_visible IS NOT FALSE) DESC, (p.location_type = 'volcano') DESC, char_length(p.name) ASC",
+    );
+  });
 });

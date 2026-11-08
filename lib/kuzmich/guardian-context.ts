@@ -431,6 +431,50 @@ export function unrecordedSafetyLine(
     'скажи, что у Ведара этих цифр нет (число из данных ниже назвать можно).';
 }
 
+/**
+ * Скрытая запись рядом с видимым местом (разбор 08.11, внешний агент Qwen):
+ * «Авачинский вулкан: путь на вершину» — название тура, а не место (миграция
+ * 851, скрыта с карты), — шло в ответ ЗЕЛЁНЫМ сразу под красным «Вулканом
+ * Авачинским» при закрытом парке. Цвет такой записи посчитан для точки,
+ * которой платформа не доверяет, а читался как «на вершину можно».
+ *
+ * Есть видимое место с сильным совпадением — скрытые записи в ответ не идут:
+ * рядом с ним они дубль или название тура. Нет такого места — скрытая
+ * остаётся (страж может знать скрытое место), но без цвета: HIDDEN_RECORD_NOTE.
+ */
+export function placesForAnswer<T extends { name: string; is_visible?: boolean | null; aliases?: string[] | null }>(
+  rows: readonly T[],
+  query: string,
+): T[] {
+  const strongVisible = rows.some((r) => r.is_visible !== false && gradePlaceMatch(query, r.name, r.aliases) === 'high');
+  return strongVisible ? rows.filter((r) => r.is_visible !== false) : [...rows];
+}
+
+/** Строка вместо цвета у скрытой записи. */
+export const HIDDEN_RECORD_NOTE =
+  'Запись скрыта с карты Ведара — так прячут, например, названия туров и событий и места, чья координата под сомнением. ' +
+  'Цвет для выхода по ней не показываю: он посчитан для точки, которой нельзя верить.';
+
+/**
+ * Строка о повторных алертах места (дедуп между записями, проба 113).
+ * «Те же, что у места выше» — только когда это правда целиком: повторы этого
+ * места совпадают с алертами места выше. Иначе повторы названы поимённо: 08.11
+ * у записи под «Вулканом Авачинским» был один ветер из двух его алертов, и
+ * «те же, что у места выше (1)» читалось как «и закрытие парка тоже».
+ */
+export function repeatedAlertsLine(repeated: readonly string[], hasFresh: boolean, above: readonly string[] | null): string {
+  const n = repeated.length;
+  const mine = new Set(repeated);
+  const theirs = new Set(above ?? []);
+  const same = above !== null && mine.size === theirs.size && [...mine].every((a) => theirs.has(a));
+  if (same) {
+    return hasFresh ? `И ещё ${n} — те же, что у места выше.` : `Активные алерты: те же, что у места выше (${n}).`;
+  }
+  return hasFresh
+    ? `И ещё ${n}, уже названные выше: ${repeated.join(', ')}.`
+    : `Активные алерты (уже названы выше): ${repeated.join(', ')}.`;
+}
+
 export interface GuardianContextOptions {
   /**
    * Дописать ссылку на карточку места на сайте (чат Кузьмича). На MCP её не
@@ -496,9 +540,11 @@ export async function getGuardianContext(placeNameRaw: string, opts: GuardianCon
           LIMIT 1
        ) kb ON TRUE
        WHERE p.merged_into_id IS NULL AND (${placeMatch.clause})
-       -- Вулкан — первым (issue #2888): «Ключевской» — и парк, и вулкан
-       -- (алиас «Ключевской вулкан»); стражу нужен статус вулкана.
-       ORDER BY (p.location_type = 'volcano') DESC, char_length(p.name) ASC
+       -- Видимые — первыми: скрытая запись не занимает место видимой в трёх
+       -- (08.11, placesForAnswer). Вулкан — первым среди них (issue #2888):
+       -- «Ключевской» — и парк, и вулкан (алиас «Ключевской вулкан»); стражу
+       -- нужен статус вулкана.
+       ORDER BY (p.is_visible IS NOT FALSE) DESC, (p.location_type = 'volcano') DESC, char_length(p.name) ASC
        LIMIT 3`,
       placeMatch.params,
     ),
@@ -531,13 +577,15 @@ export async function getGuardianContext(placeNameRaw: string, opts: GuardianCon
     // Маршруты по названию — факты маршрута (14.10, см. routeFactsLines).
     routesByName(placeName),
   ]);
+  // Скрытая запись рядом с видимым местом в ответ не идёт (08.11).
+  const placeRows = placesForAnswer(placesRes.rows, placeName);
 
   // Места нет — спросить сводки вулканов (#2134): вулкан без записи в
   // справочнике (Чикурачки на Парамушире) есть в KVERT, и ответ «ничего нет»
   // при оранжевом коде читался как «там спокойно». Отказ чтения сводок — в
   // лог и дальше без них: «не смогли спросить» не равно «вулкана нет».
   let volcanoLines: string[] | null = null;
-  if (placesRes.rows.length === 0) {
+  if (placeRows.length === 0) {
     try {
       volcanoLines = volcanoLinesForName(await loadVolcanoInput(), placeName);
     } catch (err) {
@@ -545,7 +593,7 @@ export async function getGuardianContext(placeNameRaw: string, opts: GuardianCon
     }
   }
 
-  if (placesRes.rows.length === 0 && alertsRes.rows.length === 0 && knowledgeRes.rows.length === 0 && !volcanoLines
+  if (placeRows.length === 0 && alertsRes.rows.length === 0 && knowledgeRes.rows.length === 0 && !volcanoLines
       && !namedRoutes?.length) {
     return '';
   }
@@ -556,14 +604,14 @@ export async function getGuardianContext(placeNameRaw: string, opts: GuardianCon
   // #2063): без этой строки ответ из одной этнографии читался как полный —
   // турист не видел, что статуса, KVERT и опасностей в нём нет вовсе. «Не
   // знаю» говорится словами (§4.0), а не подменяется тем, что нашлось.
-  if (placesRes.rows.length === 0 && volcanoLines) {
+  if (placeRows.length === 0 && volcanoLines) {
     parts.push(
       `Места «${placeName}» в справочнике Ведара нет, поэтому статус безопасности места не рассчитан — ` +
       `это НЕ значит, что там безопасно. Вулкан есть в сводках вулканов:`,
       ...volcanoLines,
       `Экстренный вызов на Камчатке — ${EMERGENCY_PRIMARY.phone}.`,
     );
-  } else if (placesRes.rows.length === 0) {
+  } else if (placeRows.length === 0) {
     parts.push(
       `Места «${placeName}» в справочнике не нашлось — статуса, кодов KVERT и КФ ЕГС ` +
       `и опасностей по этому названию нет. Ниже только то, где название упомянуто; ` +
@@ -587,8 +635,11 @@ export async function getGuardianContext(placeNameRaw: string, opts: GuardianCon
   // совпадением): их факты идут в блок маршрутов ниже. undefined — не
   // читали; null — база отказала.
   let throughRoutes: PlaceRouteRow[] | null | undefined;
+  // Алерты места, напечатанного выше строкой «Активные алерты»: по ним
+  // судится, правда ли «те же, что у места выше» (repeatedAlertsLine).
+  let alertsAbove: readonly string[] | null = null;
 
-  for (const p of placesRes.rows) {
+  for (const p of placeRows) {
     const rawStatus = p.recommender_status ? STATUS_LABEL[p.recommender_status] ?? p.recommender_status : null;
     // Цвет без времени пересчёта — обязательное поле, заполненное враньём
     // (§4.0): зелёный печатался одинаково при живом пересчёте и при
@@ -598,7 +649,10 @@ export async function getGuardianContext(placeNameRaw: string, opts: GuardianCon
     // Северные Курилы: зелёный значит «камчатских сводок нет», а не
     // «предупреждений нет» — цвет не печатаем, как и у карточки (16.10).
     const outsideGreen = p.recommender_status === 'green' && isOutsideKraiSources(p.zone);
-    const status = statusStale || outsideGreen ? null : rawStatus;
+    // Скрытая запись (не место или координата под сомнением) — без цвета
+    // (08.11, placesForAnswer): он посчитан для точки, которой нельзя верить.
+    const hiddenRecord = p.is_visible === false;
+    const status = statusStale || outsideGreen || hiddenRecord ? null : rawStatus;
     // Раздел каталога — в заголовке, рядом с именем. До 17.09 location_type
     // выбирался этим же запросом и не печатался: тип был виден только на
     // бейдже карточки и маркере карты, а в MCP — единственном канале, которым
@@ -612,7 +666,9 @@ export async function getGuardianContext(placeNameRaw: string, opts: GuardianCon
       ? `${nameWithKind} [${status}${p.is_open === false ? ' — ЗАКРЫТО' : ''}]`
       : nameWithKind;
     parts.push(header);
-    if (statusStale) {
+    if (hiddenRecord) {
+      parts.push(HIDDEN_RECORD_NOTE);
+    } else if (statusStale) {
       parts.push(`Статус места не пересчитывался с ${kamchatkaStamp(p.status_updated_at!)} (по Камчатке) — цвет не показываю: он может быть уже не про сегодня.`);
     } else if (outsideGreen) {
       parts.push(KURIL_NORTH_NOTE);
@@ -677,25 +733,27 @@ export async function getGuardianContext(placeNameRaw: string, opts: GuardianCon
       if (levelForColor(p.kfegs_color) === 'critical' && kfegsIsFresh(p.kfegs_date)) {
         parts.push(`Но по похожему названию у вулкана уровень КФ ЕГС ${p.kfegs_color === 'red' ? 'красный' : 'оранжевый'} — уточни, тот ли это вулкан.`);
       }
+      alertsAbove = null;
       continue;
     }
 
     // Алерты первыми — безопасность важнее описания
     if (p.alert_message) {
       parts.push(`Алерт: ${p.alert_message}`);
+      alertsAbove = null;
     } else if (p.active_alerts?.length) {
       const fresh = freshAlerts(p.active_alerts);
-      const repeated = p.active_alerts.length - fresh.length;
+      const repeated = p.active_alerts.filter((a) => !fresh.includes(a));
       if (fresh.length) parts.push(`Активные алерты: ${fresh.join(', ')}.`);
       // Повторы убраны ради объёма, но причина цвета обязана остаться видна:
       // 03.10 «Скала Черный замок [КРАСНЫЙ]» шла без единого алерта — те же
       // алерты уже были напечатаны у Горы Замок выше, и красный читался как
-      // необъяснённый (владелец: «статус опасности не снят»).
-      if (repeated > 0) {
-        parts.push(fresh.length
-          ? `И ещё ${repeated} — те же, что у места выше.`
-          : `Активные алерты: те же, что у места выше (${repeated}).`);
-      }
+      // необъяснённый (владелец: «статус опасности не снят»). «Те же» — только
+      // когда это правда целиком, иначе повторы названы (08.11).
+      if (repeated.length > 0) parts.push(repeatedAlertsLine(repeated, fresh.length > 0, alertsAbove));
+      alertsAbove = p.active_alerts;
+    } else {
+      alertsAbove = null;
     }
 
     // Авиационный цветовой код вулкана (KVERT, migration 728) — сразу после
