@@ -54,6 +54,10 @@ interface LeadSourceData {
   followup_count?: number;
   last_followup?: string;
   escalated_to_admin?: boolean;
+  /** Заявка на группу сверх мест (lib/mcp/booking-capacity, 08.11). */
+  group_over_seats?: boolean;
+  participants?: number;
+  date?: string;
 }
 
 interface FollowupLead {
@@ -62,6 +66,8 @@ interface FollowupLead {
   phone: string;
   source_data: LeadSourceData;
   pd_consent_version: string | null;
+  /** Адресат заявки на большую группу, отказавшийся от неё (followup-scope). */
+  addressee_slug?: string | null;
 }
 
 /**
@@ -136,7 +142,21 @@ export async function GET(request: NextRequest) {
       // здесь — на случай, если выборку поправят.
       if (addressedToPartnerOnly(sd, lead.pd_consent_version)) continue;
       const interests = sd.interests ?? [];
-      const alreadyNotified = sd.notified_operators ?? [];
+      // Адресат, отказавшийся от заявки на большую группу, её второй раз не получает.
+      const alreadyNotified = [...(sd.notified_operators ?? []), ...(lead.addressee_slug ? [lead.addressee_slug] : [])];
+      if (lead.addressee_slug) {
+        // Заявка становится ничейной (слово владельца 08.11): кабинет оператора
+        // видит свои и ничейные лиды (lib/leads/ownership), и следующий оператор
+        // по кнопке «Открыть в CRM» иначе получил бы «не найден». Первое действие
+        // над ничейной делает её своей. Отказавшийся адресат — в notified_operators.
+        await pool.query(
+          `UPDATE leads SET operator_id = NULL, status = 'new',
+                  source_data = source_data || jsonb_build_object('declined_by', $2::text, 'notified_operators', $3::jsonb),
+                  updated_at = NOW()
+            WHERE id = $1`,
+          [lead.id, lead.addressee_slug, JSON.stringify(alreadyNotified)],
+        );
+      }
       const followupCount = sd.followup_count ?? 0;
 
       // ── Ищем следующего операторa с подходящими активностями ──────────────
@@ -194,6 +214,11 @@ export async function GET(request: NextRequest) {
         // катеров». Персональных данных в строках нет: они идут и в заглушку.
         const facts = [
           interests.length > 0 ? `<b>Интересы:</b> ${esc(interests.join(', '))}` : '',
+          // Заявка на большую группу после отказа исполнителя тура (08.11):
+          // чей тур и чей отказ — не называется, только группа и дата.
+          sd.group_over_seats === true
+            ? `<b>Группа:</b> ${esc(String(sd.participants ?? '?'))} чел.${typeof sd.date === 'string' ? `, ${esc(sd.date)}` : ''} — исполнитель выбранного тура не смог взять всю группу`
+            : '',
           ...tripRequestLines(tripFactsOf(sd)).slice(0, 12).map((line) => esc(line)),
         ].filter(Boolean);
 

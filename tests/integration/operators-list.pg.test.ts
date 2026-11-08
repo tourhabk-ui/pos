@@ -518,12 +518,12 @@ withPg('витрина /operators: факты о живых турах, кноп
       expect(await guideTours(rows[0].id)).toEqual(ALL_SLUGS);
     });
 
-    it('туры на витрине: цена за человека; группа до 4, у Курильского — до 12, у бухты Русской — до 10 в лодке (1342); забор с адреса, у бухты — морвокзал; подпись снимков на карточке', async () => {
+    it('туры на витрине: цена за человека; группа не ограничена у всех, заявка до 12 (1410), у бухты Русской — до 10 в лодке (1342); забор с адреса, у бухты — морвокзал; подпись снимков на карточке', async () => {
       // Общий beforeAll файла закрыл все карточки; гиду её возвращаем, как на проде после 1338.
       await pool.query(`UPDATE partners SET is_public = TRUE WHERE slug = $1`, [SLUG]);
       const { publicTourSql } = await import('@/lib/tours/public-visibility');
-      const live = await pool.query<{ slug: string; base_price: string; price_unit: string; max_participants: number; pickup_type: string; pickup_details: string }>(
-        `SELECT ot.slug, ot.base_price, ot.price_unit, ot.max_participants, ot.pickup_type, ot.pickup_details
+      const live = await pool.query<{ slug: string; base_price: string; price_unit: string; max_participants: number; group_size_unlimited: boolean; pickup_type: string; pickup_details: string }>(
+        `SELECT ot.slug, ot.base_price, ot.price_unit, ot.max_participants, ot.group_size_unlimited, ot.pickup_type, ot.pickup_details
            FROM operator_tours ot JOIN partners p ON p.id = ot.operator_id
           WHERE p.slug = $1 AND ${publicTourSql('ot')} ORDER BY ot.base_price, ot.slug`, [SLUG],
       );
@@ -534,11 +534,11 @@ withPg('витрина /operators: факты о живых турах, кноп
         ['zaporozhets-tolbachik-4-dnya', 85000], ['zaporozhets-kurilskoe-ozero-3-dnya', 95000],
         ['zaporozhets-kurilskoe-ozero-4-dnya', 125000],
       ]);
-      const GROUP: Record<string, number> = {
-        'zaporozhets-kurilskoe-ozero-3-dnya': 12, 'zaporozhets-kurilskoe-ozero-4-dnya': 12, 'zaporozhets-bukhta-russkaya': 10,
-      };
+      // 1410 (слово владельца 08.11 «Да, на все его туры»): число машин гид не ограничивает,
+      // потолок одной заявки — 12; у бухты Русской своё число — лодка на 10 (1342).
+      const GROUP: Record<string, number> = { 'zaporozhets-bukhta-russkaya': 10 };
       for (const r of live.rows) {
-        expect(r, r.slug).toMatchObject({ price_unit: 'per_person', max_participants: GROUP[r.slug] ?? 4 });
+        expect(r, r.slug).toMatchObject({ price_unit: 'per_person', max_participants: GROUP[r.slug] ?? 12, group_size_unlimited: true });
         if (r.slug === 'zaporozhets-bukhta-russkaya') {
           // Адрес встречи — в pickup_details: его читают гейт готовности, пересказ тура и форма кабинета.
           expect(r.pickup_type).toBe('meeting_point');
@@ -618,7 +618,7 @@ withPg('витрина /operators: факты о живых турах, кноп
       expect(again.rowCount ?? 0).toBe(0);
     });
 
-    it('выезды гида: Толбачик — его даты по 4 места, Курильское — те же даты по 12 (1342); Горелый — сезон без ежедневных мест; черновики не видны', async () => {
+    it('выезды гида: Толбачик — его даты, Курильское — те же даты (1342), все по 12 мест (1410); Горелый — сезон без ежедневных мест; черновики не видны', async () => {
       const { GET } = await import('@/app/api/tours/[id]/slots/route');
       const { NextRequest } = await import('next/server');
       const id = async (slug: string) => (await pool.query<{ id: string }>(`SELECT id::text FROM operator_tours WHERE slug = $1`, [slug])).rows[0].id;
@@ -639,7 +639,7 @@ withPg('витрина /operators: факты о живых турах, кноп
       const TOLB = ['2027-07-26', '2027-08-09', '2027-08-23', '2027-09-06', '2027-09-20'];
       expect(await slots('zaporozhets-kurilskoe-ozero-4-dnya')).toEqual(inWindow(KURIL).map((d) => [d, 12]));
       expect(await slots('zaporozhets-kurilskoe-ozero-3-dnya')).toEqual(inWindow(KURIL).map((d) => [d, 12]));
-      expect((await slots('zaporozhets-tolbachik-4-dnya')).map(([d]) => d)).toEqual(inWindow(TOLB));
+      expect(await slots('zaporozhets-tolbachik-4-dnya')).toEqual(inWindow(TOLB).map((d) => [d, 12]));
       // Сами выезды записаны все, независимо от сегодняшней даты.
       const rec = await pool.query<{ slug: string; d: string; n: number }>(
         `SELECT t.slug, a.date::text AS d, a.available_slots AS n FROM tour_availability a
@@ -647,7 +647,8 @@ withPg('витрина /operators: факты о живых турах, кноп
       );
       expect(rec.rows.filter((r) => r.slug === 'zaporozhets-tolbachik-4-dnya').map((r) => r.d)).toEqual(TOLB);
       expect(rec.rows).toHaveLength(17);
-      expect(rec.rows.every((r) => r.n === (r.slug.startsWith('zaporozhets-kurilskoe') ? 12 : 4))).toBe(true);
+      // Броней на этих датах нет — 1410 подняла их с 4 до 12, как потолок заявки.
+      expect(rec.rows.filter((r) => r.n !== 12)).toEqual([]);
       // «Не каждый день будут группы набраны» — ежедневных мест нет, только окно сезона.
       expect(await slots('zaporozhets-vulkan-gorelyy')).toEqual([]);
       const season = await pool.query(`SELECT season_start::text AS s, season_end::text AS e FROM operator_tours WHERE slug = 'zaporozhets-vulkan-gorelyy'`);

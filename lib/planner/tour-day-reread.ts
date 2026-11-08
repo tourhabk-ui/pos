@@ -117,7 +117,7 @@ function ofSeats(n: number): string {
 export function capacityWarningFor(remaining: number, maxParticipants: number | null, participants: number): string | undefined {
   if (maxParticipants !== null && participants > maxParticipants) {
     return `На выезд тур берёт до ${maxParticipants} чел. (так записано у тура), вас ${participants}: на одну дату вся группа не войдёт. `
-      + 'Несколько выездов или своя группа — по договорённости с оператором.';
+      + 'Заявка на всю группу уйдёт оператору запросом: несколько выездов или своя группа — по договорённости с ним.';
   }
   if (remaining < participants) {
     // Потолок не записан (группа без ограничения) — «из N» не выдумывается (E3).

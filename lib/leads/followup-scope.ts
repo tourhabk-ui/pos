@@ -62,15 +62,38 @@ export const TRIP_MANAGER_LEAD_KIND = 'trip_manager';
 export const NOT_FOR_OTHER_PARTNERS_KINDS: readonly string[] = [...PARTNER_ONLY_LEAD_KINDS, TRIP_MANAGER_LEAD_KIND];
 
 /**
+ * Исключение из «только без адресата» — одно (слово владельца 08.11): заявка
+ * на группу больше, чем тур берёт на выезд (`source_data.group_over_seats`,
+ * lib/mcp/booking-capacity), от которой адресат отказался — кнопкой «Нет мест»
+ * или отказом с причиной (`partner_incoming_answers`, 1334). Владелец на
+ * вопрос «отдавать ли её другим операторам»: «Да, после „Не могу“». Без ответа
+ * адресата она остаётся у него, как любая адресованная. Согласие человека —
+ * «передачу туроператору для связи по заявке» (PD_CONSENT_TEXT): получатель
+ * не назван поимённо, и добивка заявок без адресата стоит на том же тексте.
+ */
+export const GROUP_DECLINED_LEAD_SQL = `(
+       COALESCE((source_data->>'group_over_seats')::boolean, false)
+       AND operator_id IS NOT NULL
+       AND EXISTS (
+         SELECT 1 FROM partner_incoming_answers a
+          WHERE a.subject_kind = 'lead' AND a.subject_id = leads.id::text
+            AND a.partner_id = leads.operator_id AND a.answer IN ('no_seats', 'decline')
+       )
+     )`;
+
+/**
  * Лиды для добивки: `new` старше 2 часов, без адресата, без свежей добивки, не
  * отданные админу — и не заявки на машину или прокат, и не псевдолиды чата
- * виджета. $1 — версия согласия «перевозчику», $2 — «прокату автомобилей».
+ * виджета. Плюс заявка на большую группу после отказа адресата (выше).
+ * $1 — версия согласия «перевозчику», $2 — «прокату автомобилей».
+ * `addressee_slug` — адресат такой заявки: ему её второй раз не отдают.
  */
 export const FOLLOWUP_LEADS_SQL = `
-  SELECT id::text, name, phone, source_data, pd_consent_version
+  SELECT id::text, name, phone, source_data, pd_consent_version,
+         (SELECT p.slug FROM partners p WHERE p.id = leads.operator_id) AS addressee_slug
     FROM leads
-   WHERE status = 'new'
-     AND operator_id IS NULL
+   WHERE ((status = 'new' AND operator_id IS NULL)
+          OR (status IN ('new', 'lost') AND ${GROUP_DECLINED_LEAD_SQL}))
      AND created_at < NOW() - INTERVAL '2 hours'
      AND (
        source_data->>'last_followup' IS NULL
