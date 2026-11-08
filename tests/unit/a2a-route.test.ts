@@ -60,7 +60,8 @@ describe('JSON-RPC биндинг', () => {
     const body = await res.json();
     expect(body.result.task.status.state).toBe('TASK_STATE_COMPLETED');
     expect(body.result.task.artifacts[0].parts[1]).toEqual({ data: { tool: 'get_tours', continue_url: 'https://vedarai.ru/mcp/h/x' } });
-    expect(runPublicTool).toHaveBeenCalledWith(expect.objectContaining({ toolName: 'get_tours', rawArguments: { activity_type: 'вулканы' }, self: false }));
+    // `via: 'a2a'` — заявка, созданная этим путём, запишет вход A2A, а не MCP (08.11).
+    expect(runPublicTool).toHaveBeenCalledWith(expect.objectContaining({ toolName: 'get_tours', rawArguments: { activity_type: 'вулканы' }, self: false, via: 'a2a' }));
     expect(typeof runPublicTool.mock.calls[0][0].ip).toBe('string');
   });
 

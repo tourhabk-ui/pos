@@ -75,6 +75,8 @@ import { SEAT_REQUEST_FAILURE, kamchatkaToday, isRealDate, seatRequestPaymentNot
 import { createSeatRequest, statusUrl, tourKeepsSchedule } from '@/lib/seat-requests/service';
 import { requestWindow, dateInWindow, outOfSeasonText } from '@/lib/tours/request-window';
 import { bookingParkNote } from '@/lib/mcp/booking-park-note';
+import { currentLeadEntry, leadEntryOf, withLeadEntry } from '@/lib/leads/entry-context';
+import { leadOrigin } from '@/lib/leads/origin';
 import { checkStayDates, submitStayRequest, resolveStayForRequest } from '@/lib/stay/stay-request-service';
 import { busyWithin, guestBusyText } from '@/lib/stay/busy-dates';
 import { loadCharterCarriers } from '@/lib/transfers/charter';
@@ -435,10 +437,15 @@ function notifyPartnerPersonallyAboutMcpLead(params: {
         predraft = await operatorPredraft(draft.tourId, draft.date, draft.participants);
       } catch (e) { console.error('[mcp] черновик оператору не собран', e instanceof Error ? e.message : e); }
     }
+    // Откуда заявка — по входу вызова (08.11): до этого заявка из чата
+    // Кузьмича тоже уходила партнёру как «через ИИ-ассистента (MCP)».
+    const entry = currentLeadEntry();
     const outcome = await notifyPartnerNewLeadPersonally({
       ...rest,
       predraft,
-      origin: 'заявка через ИИ-ассистента (MCP)',
+      origin: entry
+        ? leadOrigin({ source_data: { source: 'mcp', entry: entry.entry, tool: entry.tool } }).label
+        : 'заявка через инструменты Ведара (вход не записан)',
     });
     await recordPartnerDelivery(params.leadId, params.operatorId, outcome);
   })().catch((e: unknown) => {
@@ -1364,9 +1371,21 @@ export interface PublicToolCall {
   self: boolean;
   /** Чат Кузьмича: согласие дал человек в чате (lib/legal/pd-consent, ChatConsentFrom). */
   consentFrom?: ChatConsentFrom;
+  /** Вызов пришёл по A2A (/api/a2a): заявка запишет вход 'a2a', а не 'mcp' (08.11). */
+  via?: 'a2a';
 }
 
+/**
+ * Вызов инструмента со входом заявки (08.11, владелец: «откуда лиды — человек
+ * или ИИ и через какой инструмент»): MCP, A2A или чат Кузьмича. Вход и
+ * инструмент доходят до записи заявки (lib/leads/entry-context), исполнители
+ * о нём не знают.
+ */
 export async function runPublicTool(call: PublicToolCall): Promise<PublicToolOutcome> {
+  return withLeadEntry({ entry: leadEntryOf(call), tool: call.toolName }, () => runPublicToolCore(call));
+}
+
+async function runPublicToolCore(call: PublicToolCall): Promise<PublicToolOutcome> {
   const { toolName, ip, userAgent, self, consentFrom } = call;
   // Строка с JSON-объектом читается как объект; прочее не-объектное — как
   // пустота, но с запомненной формой для отказа и журнала (tool-arguments).

@@ -24,7 +24,8 @@ import { notifyLeadHumanConfirmedQuietly, leadHumanConfirmedText } from '@/lib/n
 const LEAD = '05502cc4-b983-4230-89a5-41209c10bae1';
 const base = {
   id: LEAD, name: 'Иван Петров', phone: '+79990001122', comment: 'Хотим на вулкан, 4 человека, бюджет 200000 руб',
-  sourceData: { source: 'mcp' }, score: 75, labelRu: 'Горячий',
+  // Как пишет заявку MCP с 08.11: вход и инструмент записаны (lib/leads/entry-context).
+  sourceData: { source: 'mcp', entry: 'mcp', tool: 'create_lead' }, score: 75, labelRu: 'Горячий',
 };
 
 beforeEach(() => {
@@ -38,7 +39,7 @@ describe('уведомление о лиде: агент или человек',
     await notifyAdminNewLead({ ...base, byAgent: true });
     const p = send.mock.calls[0][0];
     for (const t of [p.text, p.stub]) {
-      expect(t).toContain('Лид — Агент через MCP · человек не подтвердил');
+      expect(t).toContain('Лид — ИИ-агент · MCP · подбор тура · человек не подтвердил');
       expect(t).not.toMatch(/Горячий|75\/100/);
       expect(t).toMatch(/Заявку оставил ИИ-агент от имени человека/);
     }
@@ -50,6 +51,22 @@ describe('уведомление о лиде: агент или человек',
     const p = send.mock.calls[0][0];
     expect(p.text).toContain('(Горячий) · 75/100');
     expect(p.text).not.toMatch(/ИИ-агент/);
+  });
+
+  it('откуда заявка — в заголовке той же подписью, что на экране (08.11)', async () => {
+    await notifyAdminNewLead({ ...base, sourceData: { source: 'mcp', entry: 'kuzmich-max', tool: 'create_booking_request' } });
+    expect(send.mock.calls[0][0].text).toContain('Лид — Человек · Кузьмич в MAX · заявка на тур (Горячий)');
+    send.mockClear();
+    await notifyAdminNewLead({ ...base, sourceData: null });
+    expect(send.mock.calls[0][0].text).toContain('Новый лид (Горячий) · 75/100');
+  });
+
+  it('путь страницы в подписи: в MAX как есть, в заглушку Telegram — сквозь чистку', async () => {
+    await notifyAdminNewLead({ ...base, sourceData: null, sourceUrl: 'https://vedarai.ru/p/+79990001122' });
+    const p = send.mock.calls[0][0];
+    expect(p.text).toContain('Лид — Человек · сайт, /p/+79990001122');
+    expect(p.stub).toContain('Лид — Человек · сайт, /p/');
+    expect(p.stub).not.toContain('79990001122');
   });
 
   it('человек подтвердил: отдельное сообщение без ПД, с номером заявки и ссылкой в CRM', async () => {

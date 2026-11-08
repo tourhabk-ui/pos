@@ -28,6 +28,7 @@ import { fetchPhotoForUpload, isFetched } from '@/lib/notifications/telegram-upl
 import { asPlanForLead, planLeadLines } from '@/lib/planner/plan-for-lead';
 import { tripFactsOf, tripPartyWords, wishesWords, PLAN_UNREADABLE } from '@/lib/planner/trip-request-lines';
 import { redactPII } from '@/lib/security/pii-redact';
+import { leadOrigin, ORIGIN_NOT_RECORDED } from '@/lib/leads/origin';
 
 // ── helpers ───────────────────────────────────────────────────────────────────
 
@@ -1658,23 +1659,6 @@ interface LeadSourceData {
   referrer?: string;
 }
 
-const LEAD_SOURCE_LABELS: Record<string, string> = {
-  telegram_bot:        'Телеграм-бот',
-  telegram_lead_flow:  'ТГ-бот (форма)',
-  trip_planner:        'TripPlanner',
-  saved_trip:          'Сохранённая поездка',
-  website:             'Сайт',
-  homepage_cta:        'Главная (CTA)',
-  route_page:          'Страница маршрута',
-  max_bot:             'MAX-бот',
-  widget:              'Виджет партнёра',
-  booking_intake_bot:  'AI-бронирование',
-  // Заявки на машину и прокат (13.10, 23.10): форма на странице партнёра или агент через MCP.
-  transfer_page:       'Страница перевозчика',
-  car_rental_page:     'Страница прокатчика',
-  mcp:                 'Агент через MCP',
-};
-
 const LEAD_INTEREST_LABELS: Record<string, string> = {
   volcano: 'Вулкан', trekking: 'Треккинг', fishing: 'Рыбалка',
   thermal: 'Термальный', helicopter: 'Вертолёт', boat_trip: 'Море',
@@ -1699,12 +1683,16 @@ export async function notifyAdminNewLead(lead: {
    * только он (`pd_consent_source = 'mcp'`), не человек (05.11).
    */
   byAgent?: boolean;
+  /** Канал согласия: след входа у заявок через инструменты без записанного входа (lib/leads/origin). */
+  pdConsentSource?: string | null;
 }): Promise<void> {
   const sd = lead.sourceData as LeadSourceData | null | undefined;
   const interests = sd?.interests ?? [];
   const dateFrom  = sd?.date_from ?? sd?.arrival;
   const dateTo    = sd?.date_to   ?? sd?.departure;
-  const source    = sd?.source ? (LEAD_SOURCE_LABELS[sd.source] ?? sd.source) : null;
+  // Откуда заявка — та же подпись, что на экранах лидов (слово владельца 08.11):
+  // кто отправил (человек или ИИ-агент) и каким путём.
+  const from = leadOrigin({ source_url: lead.sourceUrl, source_data: lead.sourceData, pd_consent_source: lead.pdConsentSource });
 
   // Заявка ИИ-агента (05.11, владелец: «мы пока не различаем лиды людей от
   // mcp»): балл считает заполненность формы — имя с фамилией, телефон,
@@ -1717,9 +1705,13 @@ export async function notifyAdminNewLead(lead: {
     ? 'Заявку оставил ИИ-агент от имени человека; согласие на данные пока подтвердил только агент. Когда человек подтвердит заявку на её странице, придёт отдельное сообщение.'
     : null;
   const selfMark = lead.isSelf ? 'Свой тест · ' : '';
-  const title = source
-    ? `<b>${selfMark}Лид — ${esc(source)}${label}${scoreText}</b>`
+  // Подпись — в заголовке: её видно в превью сообщения. В заглушке Telegram
+  // она идёт сквозь чистку: в ней бывает путь страницы, а адрес присылает форма.
+  const fromWords = from.label === ORIGIN_NOT_RECORDED ? null : from.label;
+  const titleWith = (words: string | null) => words
+    ? `<b>${selfMark}Лид — ${esc(words)}${label}${scoreText}</b>`
     : `<b>${selfMark}Новый лид${label}${scoreText}</b>`;
+  const title = titleWith(fromWords);
 
   const baseUrl = getPublicBaseUrl();
 
@@ -1784,9 +1776,9 @@ export async function notifyAdminNewLead(lead: {
   // Заглушка без ПД — на случай, когда MAX недоступен: о лиде узнают, но имя
   // и телефон остаются за логином, в Telegram они не уходят.
   const stub = [
-    title,
+    titleWith(fromWords ? redactPII(fromWords) : null),
     '',
-    `Заявка <code>${esc(lead.id)}</code>${source ? ` — ${esc(source)}` : ''}.`,
+    `Заявка <code>${esc(lead.id)}</code>.`,
     agentLine ?? '',
     // Маршрут и план — свободный ввод публичной формы: в Telegram только
     // сквозь чистку, телефон и почта туда не уходят.
@@ -1819,7 +1811,8 @@ export async function notifyAdminNewLead(lead: {
         delivered: res.delivered,
         reason: res.reason.slice(0, 200),
         score: lead.score ?? null,
-        source: source ?? 'unknown',
+        source: sd?.source ?? 'unknown',
+        actor: from.actor ?? 'unknown',
       }),
     ],
   ).catch(() => {});

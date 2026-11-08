@@ -35,7 +35,9 @@ export function buildExecutors(request: NextRequest): A2AExecutors {
   // Свой клиент (метка владельца в адресе) — вне счёта спроса, как у MCP.
   const self = isSelfMcpCaller(request.nextUrl);
   return {
-    runTool: (toolName, rawArguments) => runPublicTool({ toolName, rawArguments, ip, userAgent, self }),
+    // `via: 'a2a'` — заявка запишет вход A2A, а не MCP (08.11): тот же
+    // исполнитель, другой путь, и владелец различает их в списке заявок.
+    runTool: (toolName, rawArguments) => runPublicTool({ toolName, rawArguments, ip, userAgent, self, via: 'a2a' }),
     chat: async (text, history, contextId) => {
       // Отказ по лимиту — без записи в журнал общения: он виден в журнале
       // запросов, а его текст дал бы спамеру писать в базу без предела.

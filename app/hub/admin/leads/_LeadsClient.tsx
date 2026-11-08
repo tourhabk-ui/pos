@@ -9,6 +9,7 @@ import { LeadsKanban } from './_LeadsKanban';
 import { LeadConversation } from './_LeadConversation';
 import { asPlanForLead, planLeadLines } from '@/lib/planner/plan-for-lead';
 import { tripFactsOf, tripPartyWords, wishesWords } from '@/lib/planner/trip-request-lines';
+import { LeadOriginLine, type LeadOriginView } from '@/components/leads/LeadOriginLine';
 
 type View = 'list' | 'kanban';
 const VIEW_STORAGE_KEY = 'leads-view';
@@ -40,6 +41,8 @@ export interface Lead {
   route_title: string | null;
   source_url: string | null;
   source_data: LeadSourceData | null;
+  /** Откуда заявка — подпись сервера (lib/leads/origin); нет поля — строки нет. */
+  origin?: LeadOriginView | null;
   /** Адресат заявки (партнёр); null — заявку ведёт менеджер Ведара. */
   operator_id?: string | null;
   status: LeadStatus;
@@ -87,13 +90,6 @@ export const STATUS_META: Record<LeadStatus, { label: string; color: string }> =
 const STATUS_FALLBACK = { label: 'Без статуса', color: 'bg-[var(--bg-hover)] text-[var(--text-muted)]' };
 
 
-
-const SOURCE_LABELS: Record<string, string> = {
-  telegram_bot:  'Телеграм-бот',
-  trip_planner:  'TripPlanner',
-  saved_trip:    'Сохранённая поездка',
-  website:       'Сайт',
-};
 
 const INTEREST_LABELS: Record<string, string> = {
   volcano:      'Вулкан',
@@ -185,13 +181,8 @@ function SourceDataBlock({ sd }: { sd: LeadSourceData }) {
 
   return (
     <div className="space-y-2 text-sm">
-      {/* Badges: source / followup / escalation */}
+      {/* Badges: followup / escalation. Откуда заявка — строкой в шапке карточки (LeadOriginLine). */}
       <div className="flex flex-wrap gap-1.5">
-        {sd.source && (
-          <span className="text-xs px-2 py-0.5 rounded-full bg-[var(--bg-hover)] text-[var(--text-secondary)]">
-            {SOURCE_LABELS[sd.source] ?? sd.source}
-          </span>
-        )}
         {(sd.followup_count ?? 0) > 0 && (
           <span className="text-xs px-2 py-0.5 rounded-full bg-[var(--warning)]/10 text-[var(--warning)]">
             {sd.followup_count} уведомл.
@@ -305,9 +296,6 @@ function LeadCard({ lead, onUpdate, onDelete }: { lead: Lead; onUpdate: (id: str
 
   const sm        = STATUS_META[localStatus] ?? STATUS_FALLBACK;
   const interests = lead.source_data?.interests ?? [];
-  const sourceLabel = lead.source_data?.source
-    ? (SOURCE_LABELS[lead.source_data.source] ?? lead.source_data.source)
-    : null;
 
   return (
     <div className="ds-card rounded-lg overflow-hidden">
@@ -318,9 +306,7 @@ function LeadCard({ lead, onUpdate, onDelete }: { lead: Lead; onUpdate: (id: str
             <Sensitive as="span" className="font-semibold text-[var(--text-primary)]">{lead.name}</Sensitive>
             <span className={`text-xs px-2 py-0.5 rounded-full font-medium ${sm.color}`}>{sm.label}</span>
             <ScoreBadge score={lead.ai_score} />
-            {sourceLabel && (
-              <span className="text-xs text-[var(--text-muted)]">{sourceLabel}</span>
-            )}
+            <LeadOriginLine origin={lead.origin} className="text-xs text-[var(--text-muted)]" />
           </div>
 
           <div className="flex items-center gap-1 mt-1 text-sm text-[var(--text-secondary)]">

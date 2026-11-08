@@ -12,6 +12,7 @@ import { MANUAL_LEAD_STATUSES, type LeadStatus } from '@/lib/types/statuses';
 import { LEADS_PAGE_MAX, leadsPageUrl } from '@/lib/leads/list-page';
 import { Sensitive } from '@/components/admin/shared/Sensitive';
 import { STATUS_META, ScoreBadge, formatDate, type Lead } from './_LeadsClient';
+import { LeadOriginLine } from '@/components/leads/LeadOriginLine';
 
 /**
  * Канбан — только для 5 ручных статусов (те же, что на кнопках карточки и
@@ -134,6 +135,7 @@ function KanbanCard({ lead, columnKey, href }: { lead: Lead; columnKey: LeadStat
         <Phone size={11} />
         <Sensitive>{lead.phone}</Sensitive>
       </div>
+      <LeadOriginLine origin={lead.origin} className="mt-1 text-[11px] text-[var(--text-muted)]" />
       {interests.length > 0 && (
         <div className="flex flex-wrap gap-1 mt-2">
           {interests.slice(0, 3).map(i => (

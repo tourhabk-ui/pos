@@ -6,6 +6,7 @@ import type { JWTPayload } from '@/lib/auth/jwt';
 import { leadOwnershipCond, operatorLeadScope } from '@/lib/leads/ownership';
 import { changeLeadStatus, LEAD_STATUSES } from '@/lib/leads/owner-lead-status';
 import { bookingsForLead, type LeadBookings } from '@/lib/leads/lead-bookings';
+import { withLeadOrigin, type LeadOriginInput } from '@/lib/leads/origin';
 
 const PatchSchema = z.object({
   status: z.enum(LEAD_STATUSES).optional(),
@@ -74,6 +75,8 @@ export async function GET(
     `SELECT id, name, phone, email, comment, route_id, route_title, source_url, source_data,
             status, notes, proposal_id, ai_score, ai_summary, group_size, budget_rub, desired_dates,
             created_at, updated_at,
+            -- Только ради подписи «откуда» (lib/leads/origin), наружу не уходит.
+            pd_consent_source,
             -- Есть ли куда отправлять предложение. Экран выключает кнопку
             -- заранее, а не узнаёт об этом из отказа сервера (#1804).
             (telegram_chat_id IS NOT NULL OR email IS NOT NULL) AS has_recipient
@@ -93,7 +96,8 @@ export async function GET(
     : await bookingsForLead(id, operatorId ?? null);
 
   return NextResponse.json({
-    lead: res.rows[0],
+    // Откуда заявка — одной подписью (слово владельца 08.11).
+    lead: withLeadOrigin(res.rows[0] as LeadOriginInput & Record<string, unknown>),
     bookings: bookings.kind === 'ok' ? bookings.rows : null,
   });
 }
