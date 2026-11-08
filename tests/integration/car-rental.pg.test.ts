@@ -159,14 +159,15 @@ withPg('прокат автомобилей на настоящем PostgreSQL',
     // Посев 1318 + 1319: у «Лагуны Прокат» обложка, галерея и снимок у каждой машины — с подписью.
     const seeded = companies.find((c) => c.slug === 'laguna-prokat')!;
     // Логотип — из 1320; у фикстур теста логотипа нет, и это честный null.
-    expect(seeded.logo).toBe('/images/laguna-prokat/laguna-logo.png');
+    // Адреса снимков — после 1406: из папки сайта в хранилище.
+    expect(seeded.logo).toBe('/api/images/s3/photos/laguna-prokat/laguna-logo.png');
     expect(laguna.logo).toBeNull();
     expect(seeded.photos).toHaveLength(9);
-    expect(seeded.photos[0]).toEqual({ url: '/images/laguna-prokat/laguna-fleet-tank300.jpg', credit: 'Лагуна Прокат' });
+    expect(seeded.photos[0]).toEqual({ url: '/api/images/s3/photos/laguna-prokat/laguna-fleet-tank300.jpg', credit: 'Лагуна Прокат' });
     expect(seeded.offers.map((o) => o.photo)).toEqual([
-      { url: '/images/laguna-prokat/laguna-suzuki-jimny.jpg', credit: 'Лагуна Прокат' },
-      { url: '/images/laguna-prokat/laguna-tank300-row.jpg', credit: 'Лагуна Прокат' },
-      { url: '/images/laguna-prokat/laguna-sever-truck.jpg', credit: 'Лагуна Прокат' },
+      { url: '/api/images/s3/photos/laguna-prokat/laguna-suzuki-jimny.jpg', credit: 'Лагуна Прокат' },
+      { url: '/api/images/s3/photos/laguna-prokat/laguna-tank300-row.jpg', credit: 'Лагуна Прокат' },
+      { url: '/api/images/s3/photos/laguna-prokat/laguna-sever-truck.jpg', credit: 'Лагуна Прокат' },
     ]);
     // Строка без снимка — null, не пустая строка и не выдуманный путь.
     expect(laguna.offers.map((o) => o.photo)).toEqual([null, null]);
@@ -234,8 +235,8 @@ withPg('прокат автомобилей на настоящем PostgreSQL',
     expect(carrier).toMatchObject({ legal: null, license: null, verified: true, phone: '+79060835070' });
     // 1319: обложка и галерея партнёра общие для перевозчика и прокатчика — девять кадров с подписью.
     expect(carrier.photos).toHaveLength(9);
-    expect(carrier.logo).toBe('/images/laguna-prokat/laguna-logo.png');
-    expect(carrier.photos[0]).toEqual({ url: '/images/laguna-prokat/laguna-fleet-tank300.jpg', credit: 'Лагуна Прокат' });
+    expect(carrier.logo).toBe('/api/images/s3/photos/laguna-prokat/laguna-logo.png');
+    expect(carrier.photos[0]).toEqual({ url: '/api/images/s3/photos/laguna-prokat/laguna-fleet-tank300.jpg', credit: 'Лагуна Прокат' });
     expect(carrier.photos.map((ph) => ph.credit)).toEqual(Array(9).fill('Лагуна Прокат'));
 
     const rental = await loadRentalCompanyBySlug('laguna-prokat');

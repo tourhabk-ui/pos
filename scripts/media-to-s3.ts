@@ -24,7 +24,8 @@
  *     ничего не залито;
  *   - после заливки объект читается обратно по публичному адресу и сверяется
  *     размер и тип: «отправил» не значит «лежит» (тот же порядок, что у
- *     переезда снимков в хранилище, §4.1);
+ *     переезда снимков в хранилище, §4.1); сетевой обрыв или 5xx — вторая
+ *     попытка, несовпадение — сразу отказ;
  *   - сухой прогон по умолчанию: заливка — только при `"upload": true`.
  *
  *   S3_ACCESS_KEY=… S3_SECRET_KEY=… S3_BUCKET=… \
@@ -87,6 +88,59 @@ function readHead(path: string): Buffer {
   } finally {
     closeSync(fd);
   }
+}
+
+/** Чем заливать и чем читать обратно: настоящие по умолчанию, подменяемые в тесте. */
+export interface UploadIo {
+  upload: (key: string, body: Buffer, contentType: string) => Promise<unknown>;
+  fetch: (url: string) => Promise<Response>;
+  sleep: (ms: number) => Promise<void>;
+  base: () => string;
+}
+
+const REAL_IO: UploadIo = {
+  upload: uploadToS3,
+  fetch: (url) => fetch(url),
+  sleep: (ms) => new Promise((r) => setTimeout(r, ms)),
+  base: s3PublicBase,
+};
+
+/** Сколько раз пробовать объект, если сеть оборвалась или хранилище ответило 5xx. */
+export const ATTEMPTS = 2;
+
+/**
+ * Залить объект и прочитать обратно по публичному адресу: так его увидит
+ * браузер. Сетевой обрыв или ответ 5xx — ещё одна попытка (прогон 22, 08.11:
+ * из 1790 объектов один упал на «fetch failed» при чтении обратно, и весь
+ * прогон покраснел). Несовпадение размера или типа при ответе 200 — не обрыв,
+ * а настоящая беда: повтора нет, строка «НЕ СОШЛОСЬ».
+ */
+export async function uploadAndVerify(
+  it: CheckedItem,
+  root: string,
+  io: UploadIo = REAL_IO,
+): Promise<{ ok: boolean; line: string }> {
+  let last = '';
+  for (let attempt = 1; attempt <= ATTEMPTS; attempt++) {
+    try {
+      await io.upload(it.key, readFileSync(join(root, it.file)), it.contentType);
+      const res = await io.fetch(`${io.base()}/${it.key}`);
+      const got = Buffer.from(await res.arrayBuffer()).length;
+      const type = res.headers.get('content-type') ?? '';
+      if (res.status >= 500) {
+        last = `НЕ СОШЛОСЬ: ${it.key}: HTTP ${res.status}`;
+      } else if (res.status !== 200 || got !== it.size || !type.startsWith(it.contentType)) {
+        return { ok: false, line: `НЕ СОШЛОСЬ: ${it.key}: HTTP ${res.status}, ${got} из ${it.size} байт, тип «${type}»` };
+      } else {
+        const again = attempt > 1 ? ` с попытки ${attempt}` : '';
+        return { ok: true, line: `залит и прочитан обратно${again} (${got} байт, ${type})` };
+      }
+    } catch (err) {
+      last = `НЕ ЗАЛИТО: ${it.key}: ${err instanceof Error ? err.message : String(err)}`;
+    }
+    if (attempt < ATTEMPTS) await io.sleep(2000 * attempt);
+  }
+  return { ok: false, line: last };
 }
 
 /** Проверить строку маркера. Возвращает причину отказа или проверенную строку. */
@@ -162,20 +216,10 @@ async function main(): Promise<number> {
   const worker = async (): Promise<void> => {
     while (next < items.length) {
       const it = items[next++];
-      try {
-        await uploadToS3(it.key, readFileSync(join(root, it.file)), it.contentType);
-        // Прочитать обратно по публичному адресу: так его увидит браузер.
-        const res = await fetch(`${s3PublicBase()}/${it.key}`);
-        const got = Buffer.from(await res.arrayBuffer()).length;
-        const type = res.headers.get('content-type') ?? '';
-        if (res.status !== 200 || got !== it.size || !type.startsWith(it.contentType)) {
-          console.error(`НЕ СОШЛОСЬ: ${it.key}: HTTP ${res.status}, ${got} из ${it.size} байт, тип «${type}»`);
-          failed += 1;
-        } else {
-          console.log(`  ${it.key}: залит и прочитан обратно (${got} байт, ${type})`);
-        }
-      } catch (err) {
-        console.error(`НЕ ЗАЛИТО: ${it.key}: ${err instanceof Error ? err.message : String(err)}`);
+      const r = await uploadAndVerify(it, root);
+      if (r.ok) console.log(`  ${it.key}: ${r.line}`);
+      else {
+        console.error(`${r.line}`);
         failed += 1;
       }
     }
