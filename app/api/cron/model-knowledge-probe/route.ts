@@ -89,6 +89,7 @@ import type { ChatMessage } from '@/lib/ai/prompts';
 import { tgSend } from '@/lib/notifications/tg-send';
 import { escapeHtml } from '@/lib/text/escape-html';
 import { recordCronRun } from '@/lib/agents/cron-heartbeat';
+import { withSpendAgent } from '@/lib/ai/usage-context';
 
 export const dynamic = 'force-dynamic';
 export const maxDuration = 120;
@@ -565,6 +566,7 @@ export function digestText(legs: readonly LegResult[], summary: Summary): string
 }
 
 export async function GET(request: NextRequest) {
+  return withSpendAgent('model-knowledge-probe', async () => {
   const cronSecret = process.env.CRON_SECRET;
   if (!cronSecret) {
     return NextResponse.json({ error: 'CRON_SECRET not configured' }, { status: 500 });
@@ -610,5 +612,6 @@ export async function GET(request: NextRequest) {
       + (summary.did_not_search.length ? `не искали или выдачи нет: ${summary.did_not_search.join(', ')}; ` : '')
       + `спросить не удалось: ${summary.could_not_ask.join(', ') || '—'}`
       + (summary.old_brand.length ? `; под прежним именем платформы: ${summary.old_brand.join(', ')}` : ''),
+  });
   });
 }

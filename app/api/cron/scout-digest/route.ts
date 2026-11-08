@@ -4,6 +4,7 @@ import { getCronSecret } from '@/lib/auth/cron';
 import { pool } from '@/lib/db-pool';
 import { countLeadingSkips, silenceIsCritical, MAX_SILENT_RUNS } from '@/lib/agents/scout-silence';
 import { xSearchResultFromRunner, type XSearchResult } from '@/lib/ai/xai-x-search';
+import { withSpendAgent } from '@/lib/ai/usage-context';
 
 /**
  * GET /api/cron/scout-digest
@@ -11,7 +12,9 @@ import { xSearchResultFromRunner, type XSearchResult } from '@/lib/ai/xai-x-sear
  * Запускать раз в сутки (утром, ~07:00 UTC).
  */
 export async function GET(req: Request) {
+  return withSpendAgent('scout-digest', async () => {
   return runDigestRequest(req, null);
+  });
 }
 
 /**
@@ -25,6 +28,7 @@ export async function GET(req: Request) {
  * выпуск по двадцати пяти остальным источникам.
  */
 export async function POST(req: Request) {
+  return withSpendAgent('scout-digest', async () => {
   let xFromRunner: XSearchResult | null = null;
   try {
     const body = (await req.json()) as { x_source?: unknown } | null;
@@ -33,6 +37,7 @@ export async function POST(req: Request) {
     xFromRunner = null;
   }
   return runDigestRequest(req, xFromRunner);
+  });
 }
 
 async function runDigestRequest(req: Request, xFromRunner: XSearchResult | null) {

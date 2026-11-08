@@ -33,6 +33,7 @@ import {
 } from '@/lib/agents/editor';
 import { logAgentRun } from '@/lib/agents/run-logger';
 import { judgeGeneratedDescription } from '@/lib/agents/editor-truth-gate';
+import { withSpendAgent } from '@/lib/ai/usage-context';
 
 export const dynamic = 'force-dynamic';
 export const maxDuration = 60;
@@ -62,6 +63,7 @@ const BodySchema = z.object({
 });
 
 export async function POST(req: NextRequest) {
+  return withSpendAgent('editor-runner', async () => {
   if (!timingSafeCompare(getCronSecret(req), process.env.CRON_SECRET ?? '')) {
     return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
   }
@@ -204,5 +206,6 @@ export async function POST(req: NextRequest) {
     rejected,
     declined: declinedIds.length,
     declined_noted: declinedNoted,
+  });
   });
 }

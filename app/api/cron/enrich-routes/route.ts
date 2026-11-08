@@ -15,11 +15,13 @@ import { NextRequest, NextResponse } from 'next/server';
 import { getCronSecret } from '@/lib/auth/cron';
 import { timingSafeCompare } from '@/lib/security/timing-safe';
 import { enrichDescriptions } from '@/app/api/admin/enrich-routes/route';
+import { withSpendAgent } from '@/lib/ai/usage-context';
 
 export const dynamic = 'force-dynamic';
 export const maxDuration = 300;
 
 export async function GET(request: NextRequest) {
+  return withSpendAgent('enrich-routes', async () => {
   const secret = getCronSecret(request);
   const cronSecret = process.env.CRON_SECRET;
 
@@ -40,4 +42,5 @@ export async function GET(request: NextRequest) {
       { status: 500 }
     );
   }
+  });
 }

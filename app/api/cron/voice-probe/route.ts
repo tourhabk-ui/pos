@@ -45,6 +45,7 @@ import { timingSafeCompare } from '@/lib/security/timing-safe';
 import { getQwenConfig } from '@/lib/ai/providers';
 import { runPlace } from '@/lib/ai/key-identity';
 import { nativeBase } from '@/lib/ai/tts';
+import { withSpendAgent } from '@/lib/ai/usage-context';
 
 // Правило адреса одно на синтез и пробу — живёт в lib/ai/tts.
 export { nativeBase };
@@ -180,6 +181,7 @@ export function verdictOf(catalogOk: boolean, ttsCount: number, attempts: Attemp
 }
 
 export async function GET(req: NextRequest) {
+  return withSpendAgent('voice-probe', async () => {
   const cronSecret = process.env.CRON_SECRET;
   if (!cronSecret) {
     return NextResponse.json({ error: 'CRON_SECRET not configured' }, { status: 500 });
@@ -240,5 +242,6 @@ export async function GET(req: NextRequest) {
     run_place: runPlace(),
     ms: Date.now() - started,
     checked_at: new Date().toISOString(),
+  });
   });
 }

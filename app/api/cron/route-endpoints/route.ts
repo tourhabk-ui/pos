@@ -18,6 +18,7 @@ import { timingSafeCompare } from '@/lib/security/timing-safe';
 import { getCronSecret } from '@/lib/auth/cron';
 import { runRouteEndpoints } from '@/lib/import/route-endpoints-runner';
 import { computeRouteEndpointsCensus, CENSUS_BATCH } from '@/lib/import/route-endpoints-census';
+import { withSpendAgent } from '@/lib/ai/usage-context';
 
 export const dynamic = 'force-dynamic';
 export const maxDuration = 120;
@@ -29,6 +30,7 @@ export const maxDuration = 120;
  * материал для POST ниже. Логика — lib/import/route-endpoints-census.ts.
  */
 export async function GET(req: NextRequest) {
+  return withSpendAgent('route-endpoints', async () => {
   const secret = getCronSecret(req);
   if (!timingSafeCompare(secret, process.env.CRON_SECRET ?? '')) {
     return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
@@ -41,6 +43,7 @@ export async function GET(req: NextRequest) {
     census_batch: CENSUS_BATCH,
     ...census,
   }, { status: census.rows === null ? 500 : 200 });
+  });
 }
 
 export const LIVE_BATCH_MAX = 10;
@@ -63,6 +66,7 @@ const BodySchema = z.object({
 });
 
 export async function POST(req: NextRequest) {
+  return withSpendAgent('route-endpoints', async () => {
   const secret = getCronSecret(req);
   if (!timingSafeCompare(secret, process.env.CRON_SECRET ?? '')) {
     return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
@@ -90,4 +94,5 @@ export async function POST(req: NextRequest) {
       { status: 500 },
     );
   }
+  });
 }

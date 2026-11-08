@@ -10,8 +10,10 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { verifyCronSecret, diagnoseCronAuth } from '@/lib/auth/cron';
 import { runKuzmichPlaceEnricher } from '@/lib/agents/kuzmich-place-enricher';
+import { withSpendAgent } from '@/lib/ai/usage-context';
 
 export async function GET(request: NextRequest) {
+  return withSpendAgent('kuzmich-places', async () => {
   if (!process.env.CRON_SECRET) {
     return NextResponse.json({ error: 'CRON_SECRET not configured' }, { status: 500 });
   }
@@ -30,4 +32,5 @@ export async function GET(request: NextRequest) {
       { status: 500 },
     );
   }
+  });
 }

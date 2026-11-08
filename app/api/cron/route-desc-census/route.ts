@@ -28,11 +28,13 @@ import {
 } from '@/lib/routes/desc-facts';
 import { advisesLeavingTrail } from '@/lib/notifications/post-validation';
 import { descriptionClaims } from '@/lib/routes/description-claims';
+import { withSpendAgent } from '@/lib/ai/usage-context';
 
 export const dynamic = 'force-dynamic';
 export const maxDuration = 60;
 
 export async function GET(request: NextRequest) {
+  return withSpendAgent('route-desc-census', async () => {
   const secret = getCronSecret(request);
   if (!timingSafeCompare(secret, process.env.CRON_SECRET ?? '')) {
     return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
@@ -197,4 +199,5 @@ export async function GET(request: NextRequest) {
     const message = err instanceof Error ? err.message : 'Ошибка переписи описаний';
     return NextResponse.json({ success: false, error: message }, { status: 502 });
   }
+  });
 }

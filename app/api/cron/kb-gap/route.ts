@@ -20,6 +20,7 @@ import { callAIFast } from '@/lib/ai/providers';
 import { timingSafeCompare } from '@/lib/security/timing-safe';
 import { getCronSecret } from '@/lib/auth/cron';
 import { redactPII } from '@/lib/security/pii-redact';
+import { withSpendAgent } from '@/lib/ai/usage-context';
 
 export const dynamic = 'force-dynamic';
 
@@ -72,6 +73,7 @@ async function searchWebForKB(query: string): Promise<string> {
 }
 
 export async function GET(request: NextRequest) {
+  return withSpendAgent('kb-gap', async () => {
   const { searchParams } = new URL(request.url);
   const secret = getCronSecret(request);
   if (!timingSafeCompare(secret, process.env.CRON_SECRET ?? '')) {
@@ -181,5 +183,6 @@ ${unknownQuestions.slice(0, 50).map((q, i) => `${i + 1}. ${q}`).join('\n')}`;
     // (cron-kb-gap.yml, cat /tmp/out.json) — за пределы платформы (152-ФЗ,
     // проверка MCP 29.09). Темы видны в agent_knowledge.
     timestamp: new Date().toISOString(),
+  });
   });
 }

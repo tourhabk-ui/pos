@@ -20,6 +20,7 @@ import { getCronSecret } from '@/lib/auth/cron';
 import { readBasisFromImage } from '@/lib/safety/road-basis';
 import { applyBasisReading, pendingBasisChecks } from '@/lib/safety/road-basis-queue';
 import { TELEGRAM_PHOTO_RE } from '@/lib/services/safety/road-channel';
+import { withSpendAgent } from '@/lib/ai/usage-context';
 
 export const dynamic = 'force-dynamic';
 
@@ -41,6 +42,7 @@ function authorized(req: NextRequest): boolean {
 }
 
 export async function POST(req: NextRequest) {
+  return withSpendAgent('road-basis', async () => {
   if (!process.env.CRON_SECRET) return NextResponse.json({ error: 'CRON_SECRET not configured' }, { status: 500 });
   if (!authorized(req)) return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
 
@@ -83,4 +85,5 @@ export async function POST(req: NextRequest) {
     }
   }
   return NextResponse.json({ success: true, results });
+  });
 }

@@ -13,11 +13,13 @@ import { runRescueScan } from '@/lib/agents/evo/rescue-agent';
 import { logAgentRun } from '@/lib/agents/run-logger';
 import { getCronSecret, diagnoseCronAuth } from '@/lib/auth/cron';
 import { claimCronWindow, shouldRun, leaseSkipBody } from '@/lib/agents/cron-lease';
+import { withSpendAgent } from '@/lib/ai/usage-context';
 
 export const dynamic = 'force-dynamic';
 export const maxDuration = 60;
 
 export async function GET(request: NextRequest) {
+  return withSpendAgent('rescue', async () => {
   const secret = getCronSecret(request);
 
   const cronSecret = process.env.CRON_SECRET;
@@ -77,4 +79,5 @@ export async function GET(request: NextRequest) {
       { status: 500 },
     );
   }
+  });
 }

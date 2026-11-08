@@ -10,8 +10,10 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { refreshRoutesWithoutCache } from '@/lib/services/routes/route-description-cache';
 import { verifyCronSecret, diagnoseCronAuth } from '@/lib/auth/cron';
+import { withSpendAgent } from '@/lib/ai/usage-context';
 
 export async function POST(req: NextRequest) {
+  return withSpendAgent('routes-cache', async () => {
   if (!process.env.CRON_SECRET) {
     return NextResponse.json({ error: 'CRON_SECRET not configured' }, { status: 500 });
   }
@@ -46,6 +48,7 @@ export async function POST(req: NextRequest) {
       { status: 500 }
     );
   }
+  });
 }
 
 export const dynamic = 'force-dynamic';

@@ -48,6 +48,7 @@ import { timingSafeCompare } from '@/lib/security/timing-safe';
 import { getCronSecret } from '@/lib/auth/cron';
 import { probeProviderModels } from '@/lib/ai/providers';
 import { runPlace } from '@/lib/ai/key-identity';
+import { withSpendAgent } from '@/lib/ai/usage-context';
 
 export const dynamic = 'force-dynamic';
 export const maxDuration = 120;
@@ -206,6 +207,7 @@ export function bestOf(runs: ModelMeasurement[]): ModelMeasurement | null {
 }
 
 export async function GET(request: NextRequest) {
+  return withSpendAgent('deepseek-model-probe', async () => {
   const cronSecret = process.env.CRON_SECRET;
   if (!cronSecret) {
     return NextResponse.json({ error: 'CRON_SECRET not configured' }, { status: 500 });
@@ -279,5 +281,6 @@ export async function GET(request: NextRequest) {
     measurements,
     best: { candidate: candidateBest, baseline: baselineBest },
     verdict: compareVerdict(candidateBest, baselineBest),
+  });
   });
 }

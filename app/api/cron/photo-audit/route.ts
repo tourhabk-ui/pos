@@ -25,6 +25,7 @@ import {
   dHash, duplicatePairs, visionCopy, visionAuditPrompt, parseVisionVerdict, needsHumanEye,
   DUPLICATE_MAX_DISTANCE, type VisionVerdict,
 } from '@/lib/images/photo-audit';
+import { withSpendAgent } from '@/lib/ai/usage-context';
 
 export const dynamic = 'force-dynamic';
 export const maxDuration = 300;
@@ -70,6 +71,7 @@ async function loadBytes(r: CandidateRow): Promise<{ buf: Buffer | null; reason:
 }
 
 export async function GET(req: NextRequest) {
+  return withSpendAgent('photo-audit', async () => {
   if (!authorized(req)) return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
   try {
     const { rows: fp } = await pool.query<{ ark_id: string; place: string; phash: string }>(
@@ -119,9 +121,11 @@ export async function GET(req: NextRequest) {
     console.error('[photo-audit] отчёт не собрался:', `sqlstate=${e?.code ?? 'нет'}`, e?.message ?? String(err));
     return NextResponse.json({ ok: false, error: 'Отчёт не собрался', sqlstate: e?.code ?? null }, { status: 500 });
   }
+  });
 }
 
 export async function POST(req: NextRequest) {
+  return withSpendAgent('photo-audit', async () => {
   if (!authorized(req)) return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
   const parsed = BodySchema.safeParse(await req.json().catch(() => ({})));
   if (!parsed.success) {
@@ -193,4 +197,5 @@ export async function POST(req: NextRequest) {
     console.error('[photo-audit] партия не выполнилась:', task, `sqlstate=${e?.code ?? 'нет'}`, e?.message ?? String(err));
     return NextResponse.json({ ok: false, error: 'Партия не выполнилась', sqlstate: e?.code ?? null }, { status: 500 });
   }
+  });
 }

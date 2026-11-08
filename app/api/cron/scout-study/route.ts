@@ -38,6 +38,7 @@ import { safeFetchText } from '@/lib/agents/scout-fetch';
 import {
   buildStudyMessages, parseStudyVerdict, describeOutcome, sourceHtmlToText,
 } from '@/lib/agents/scout-study';
+import { withSpendAgent } from '@/lib/ai/usage-context';
 
 export const dynamic = 'force-dynamic';
 export const maxDuration = 60;
@@ -51,6 +52,7 @@ const QuerySchema = z.object({
 });
 
 export async function GET(request: NextRequest) {
+  return withSpendAgent('scout-study', async () => {
   const cronSecret = process.env.CRON_SECRET;
   if (!cronSecret) {
     return NextResponse.json({ success: false, error: 'CRON_SECRET не задан' }, { status: 500 });
@@ -160,5 +162,6 @@ export async function GET(request: NextRequest) {
     ...(outcome.kind === 'not_in_source' ? { missing: outcome.note } : {}),
     ...(outcome.kind === 'failed' ? { reason: outcome.reason } : {}),
     saved_slug: savedSlug,
+  });
   });
 }

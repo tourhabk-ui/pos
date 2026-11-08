@@ -48,6 +48,7 @@ import { callYandexAgentWithMcp, type YandexMcpAgentResult } from '@/lib/ai/prov
 import { runPlace } from '@/lib/ai/key-identity';
 import { clientRegion } from '@/lib/mcp/china-clients';
 import { isProbeClient } from '@/lib/mcp/probe-clients';
+import { withSpendAgent } from '@/lib/ai/usage-context';
 
 export const dynamic = 'force-dynamic';
 export const maxDuration = 120;
@@ -139,6 +140,7 @@ export function verdictFor(outcome: YandexProbeOutcome, reason: string | null, r
 }
 
 export async function GET(request: NextRequest) {
+  return withSpendAgent('yandex-mcp-probe', async () => {
   const cronSecret = process.env.CRON_SECRET;
   if (!cronSecret) {
     return NextResponse.json({ error: 'CRON_SECRET not configured' }, { status: 500 });
@@ -174,5 +176,6 @@ export async function GET(request: NextRequest) {
     answer_excerpt: r.answer ? r.answer.slice(0, ANSWER_EXCERPT) : null,
     journal_during_probe: journal,
     verdict: verdictFor(outcome, reason, r, journal),
+  });
   });
 }

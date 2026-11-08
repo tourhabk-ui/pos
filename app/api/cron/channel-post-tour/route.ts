@@ -16,6 +16,7 @@ import { getCronSecret } from '@/lib/auth/cron';
 import { timingSafeCompare } from '@/lib/security/timing-safe';
 import { postTourToChannel } from '@/lib/notifications/tour-channel-post';
 import { z } from 'zod';
+import { withSpendAgent } from '@/lib/ai/usage-context';
 
 export const dynamic = 'force-dynamic';
 export const maxDuration = 60;
@@ -25,6 +26,7 @@ const BodySchema = z.object({
 });
 
 export async function POST(request: NextRequest) {
+  return withSpendAgent('channel-post-tour', async () => {
   const secret = getCronSecret(request);
   if (!timingSafeCompare(secret, process.env.CRON_SECRET ?? '')) {
     return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
@@ -54,4 +56,5 @@ export async function POST(request: NextRequest) {
       { status: 500 },
     );
   }
+  });
 }

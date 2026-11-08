@@ -34,6 +34,7 @@ import { parseTelegramPreview } from '@/lib/agents/scout-telegram';
 import {
   relayBase, relayBaseProblem, relayFetchUrl, relayHeaders, relayStatus, type RelayStatus,
 } from '@/lib/agents/scout-relay';
+import { withSpendAgent } from '@/lib/ai/usage-context';
 
 export const dynamic = 'force-dynamic';
 export const maxDuration = 60;
@@ -144,6 +145,7 @@ async function probeSource(s: ScoutSource): Promise<SourceProbe> {
 }
 
 export async function GET(request: NextRequest) {
+  return withSpendAgent('scout-relay-check', async () => {
   const cronSecret = process.env.CRON_SECRET;
   if (!cronSecret) {
     return NextResponse.json({ error: 'CRON_SECRET not configured' }, { status: 500 });
@@ -174,5 +176,6 @@ export async function GET(request: NextRequest) {
     verdict: verdict(relay, probes),
     sources_probed: probes.length,
     probes,
+  });
   });
 }

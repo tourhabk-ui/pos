@@ -15,6 +15,7 @@ import { NextRequest, NextResponse } from 'next/server';
 import { importLegislation } from '@/lib/services/ingest/legislation-importer';
 import { timingSafeCompare } from '@/lib/security/timing-safe';
 import { getCronSecret } from '@/lib/auth/cron';
+import { withSpendAgent } from '@/lib/ai/usage-context';
 
 export const dynamic = 'force-dynamic';
 export const maxDuration = 300;
@@ -31,6 +32,7 @@ function authorize(secret: string | null): NextResponse | null {
 }
 
 export async function GET(request: NextRequest) {
+  return withSpendAgent('legislation-sync', async () => {
   const authErr = authorize(getCronSecret(request));
   if (authErr) return authErr;
 
@@ -43,9 +45,11 @@ export async function GET(request: NextRequest) {
       { status: 500 },
     );
   }
+  });
 }
 
 export async function POST(request: NextRequest) {
+  return withSpendAgent('legislation-sync', async () => {
   let body: { secret?: string; urls?: string[] } = {};
   try {
     body = (await request.json()) as { secret?: string; urls?: string[] };
@@ -68,4 +72,5 @@ export async function POST(request: NextRequest) {
       { status: 500 },
     );
   }
+  });
 }
