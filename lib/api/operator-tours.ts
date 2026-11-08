@@ -10,6 +10,9 @@ import { assertLiveMainPlace } from '@/lib/tours/main-place';
 import { getColumnTypes, valueForColumn } from '@/lib/db/column-types';
 import { publicTourSql } from '@/lib/tours/public-visibility';
 import { openTourDates, type OpenDatesResult } from '@/lib/tours/availability-open';
+import {
+  TourProgramEditSchema, TourSafetyNotesEditSchema, TourClipsEditSchema, PhotoCreditEditSchema,
+} from '@/lib/guides/own-tour-edit';
 
 // ============================================================================
 // SCHEMAS
@@ -134,6 +137,18 @@ export const UpdateTourSchema = TourFieldsSchema.partial().extend({
    * что это живое место, проверяет роут запросом к places.
    */
   main_place_id:       z.string().trim().min(1).max(100).nullable().optional(),
+  /**
+   * Программа дня, правила безопасности, клипы и подпись снимков (08.11) —
+   * те же поля и пределы, что у формы гида (lib/guides/own-tour-edit). До
+   * этого дня оператор правил их только миграцией или чатом: Zod молча
+   * выбрасывал поля, и карточка тура (§11, блоки 6 и 9) у оператора без
+   * программы оставалась без неё. null — снять.
+   */
+  program:             TourProgramEditSchema.optional(),
+  safety_notes:        TourSafetyNotesEditSchema.optional(),
+  video_clips:         TourClipsEditSchema.optional(),
+  /** Не колонка тура: роут пишет её в карту авторов партнёра (gallery_credits). */
+  photo_credit:        PhotoCreditEditSchema.optional(),
 });
 
 /**
@@ -244,13 +259,18 @@ export async function getToursByOperator(
 export async function getTourById(tourId: bigint) {
   // Имя главного места (1286) — чтобы форма правки показала выбранное
   // словами, а не голым id; NULL — связи нет или место удалено.
+  // Видит ли тур турист — ответ шлюза каталога, а не копия условия: по нему
+  // форма решает, вести ли «Как видит турист» на карточку (08.11). Подписи
+  // снимков — карта партнёра-владельца, как у формы гида.
   const result = await query(
     `SELECT t.*,
       COALESCE(
         (SELECT json_agg(tag ORDER BY tag) FROM operator_tour_tags WHERE tour_id = t.id),
         '[]'::json
       ) as tags,
-      (SELECT pl.name FROM places pl WHERE pl.id = t.main_place_id) AS main_place_name
+      (SELECT pl.name FROM places pl WHERE pl.id = t.main_place_id) AS main_place_name,
+      ${publicTourSql('t')} AS on_storefront,
+      (SELECT p.gallery_credits FROM partners p WHERE p.id = t.operator_id) AS photo_credits
     FROM operator_tours t
     WHERE t.id = $1 AND t.deleted_at IS NULL LIMIT 1`,
     [tourId]
