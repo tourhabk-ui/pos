@@ -16,6 +16,7 @@ import { SEARCH_TOOL, FETCH_TOOL } from '@/lib/mcp/connector-schemas';
 import { GET_REQUEST_STATUS_TOOL } from '@/lib/mcp/request-status-schema';
 import { NOTIFY_URL_PROPERTY, NOTIFY_TOOL_PHRASE } from '@/lib/mcp/request-notify-schema';
 import { WRITE_OUTPUT_SCHEMA } from '@/lib/mcp/test-run';
+import { GUARDIAN_OUTPUT_SCHEMA } from '@/lib/mcp/place-status-schema';
 
 /**
  * Не для анонимного публичного входа: жгут внешние квоты и пишут учёт
@@ -592,6 +593,15 @@ function withAnnotations(tool: { name: string; description: string; inputSchema:
   return hints && en ? { ...described, annotations: { title: en.title, ...hints } } : described;
 }
 
+/**
+ * Схемы результата у инструментов из реестра Кузьмича: только у тех, чей
+ * исполнитель отдаёт structuredContent (onStructured в lib/kuzmich/core).
+ * Статус места полями — ревью MCP 08.11.
+ */
+const REGISTRY_OUTPUT_SCHEMAS: Readonly<Record<string, unknown>> = {
+  get_guardian_context: GUARDIAN_OUTPUT_SCHEMA,
+};
+
 export const PUBLIC_MCP_TOOLS: PublicMcpTool[] = [
   ...Object.values(TOOL_REGISTRY)
     .filter((t) => !EXCLUDED_TOOLS.has(t.definition.function.name))
@@ -600,6 +610,9 @@ export const PUBLIC_MCP_TOOLS: PublicMcpTool[] = [
       description: t.definition.function.description,
       // OpenAI-style parameters — это та же JSON-схема, что MCP inputSchema
       inputSchema: t.definition.function.parameters,
+      ...(REGISTRY_OUTPUT_SCHEMAS[t.definition.function.name]
+        ? { outputSchema: REGISTRY_OUTPUT_SCHEMAS[t.definition.function.name] }
+        : {}),
     })),
   // Пара коннекторов ChatGPT (lib/mcp/connector-tools): не из реестра
   // Кузьмича — у чата свой поиск по словам ему не нужен, а ChatGPT без этих

@@ -87,6 +87,45 @@ export function placeDayStatus(rt: PlaceDayInput, now: number = Date.now()): Pla
   return { level: 'unknown', stale: false };
 }
 
+/** Слово цвета — одно у чата, MCP и строки места в ответе о туре. */
+export const PLACE_COLOR_WORD: Record<'red' | 'yellow' | 'green', string> = {
+  green: 'ЗЕЛЁНЫЙ',
+  yellow: 'ЖЁЛТЫЙ',
+  red: 'КРАСНЫЙ',
+};
+
+/**
+ * Статус места полями — для машиночитаемого ответа MCP и A2A (ревью MCP 08.11:
+ * «ЗЕЛЁНЫЙ» в скобках приходилось вынимать из текста, а «закрыто» у места с
+ * устаревшим цветом не печаталось вовсе).
+ *
+ * `level` — то же правило, что у карточки; `color` — цвет пересчёта, даже
+ * когда место закрыто (закрытие и цвет — разные вопросы: закрыл человек,
+ * цвет посчитан по сводкам). Цвета нет — null, а не зелёный.
+ */
+export interface PlaceStatusFields {
+  level: PlaceDayLevel;
+  color: 'red' | 'yellow' | 'green' | null;
+  closed: boolean;
+  stale: boolean;
+  outside_sources: boolean;
+  status_updated_at: string | null;
+}
+
+export function placeStatusFields(rt: PlaceDayInput, now: number = Date.now()): PlaceStatusFields {
+  const day = placeDayStatus(rt, now);
+  const colour = rt.isOpen === false ? placeDayStatus({ ...rt, isOpen: null }, now) : day;
+  const color = colour.level === 'red' || colour.level === 'yellow' || colour.level === 'green' ? colour.level : null;
+  return {
+    level: day.level,
+    color,
+    closed: rt.isOpen === false,
+    stale: colour.stale,
+    outside_sources: colour.outsideSources === true,
+    status_updated_at: rt.updatedAt,
+  };
+}
+
 /** Пересчёт был, и он старше порога свежести: цвет уже может быть не про сегодня. */
 export function recomputeIsStale(iso: string | null, now: number = Date.now()): boolean {
   const at = iso ? Date.parse(iso) : NaN;
