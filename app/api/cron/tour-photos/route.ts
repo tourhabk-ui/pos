@@ -8,8 +8,8 @@
  * приём чужого файла и приписывание уже лежащего — разные права и разные
  * последствия.
  *
- * ПОЧЕМУ ТОЛЬКО ЛОКАЛЬНЫЕ ПУТИ. `path` обязан начинаться с `/images/` и не
- * содержать `..`: иначе ручка превращается в способ повесить туру любую
+ * ПОЧЕМУ ТОЛЬКО ЛОКАЛЬНЫЕ ПУТИ. `path` обязан начинаться с `/images/` или
+ * быть адресом снимка в хранилище `/api/images/s3/photos/…` и не содержать `..`: иначе ручка превращается в способ повесить туру любую
  * картинку из интернета — вплоть до чужого водяного знака на карточке нашего
  * проверенного оператора.
  *
@@ -27,15 +27,26 @@ import { z } from 'zod';
 import { pool } from '@/lib/db-pool';
 import { timingSafeCompare } from '@/lib/security/timing-safe';
 import { getCronSecret } from '@/lib/auth/cron';
+import { photoKeyOf } from '@/lib/images/photo-key';
 
 export const dynamic     = 'force-dynamic';
 export const maxDuration = 30;
 
 export const MAX_PHOTOS_PER_CALL = 12;
 
-/** Только то, что лежит у нас. Чужой хост фотографией тура быть не может. */
+const S3_PHOTO_PREFIX = '/api/images/s3/';
+
+/**
+ * Только то, что лежит у нас. Чужой хост фотографией тура быть не может.
+ * С 08.11 — и снимок в хранилище по адресу раздачи /api/images/s3/photos/…
+ * (photoKeyOf): снимки партнёров лежат там, а не в папке сайта. Пока ручка
+ * знала один /images/, приписать туру снимок из хранилища было нельзя, и его
+ * клали в public/images.
+ */
 export function isLocalImagePath(p: string): boolean {
-  return p.startsWith('/images/') && !p.includes('..') && !p.includes('//');
+  if (p.includes('..') || p.includes('//')) return false;
+  if (p.startsWith(S3_PHOTO_PREFIX)) return photoKeyOf(p.slice(S3_PHOTO_PREFIX.length).split('/')) !== null;
+  return p.startsWith('/images/');
 }
 
 const BodySchema = z.object({
@@ -46,7 +57,7 @@ const BodySchema = z.object({
   add: z.array(z.string().trim().min(8).max(300))
     .min(1).max(MAX_PHOTOS_PER_CALL)
     .refine((arr) => arr.every(isLocalImagePath),
-      'Путь фото обязан начинаться с /images/ и не выходить вверх'),
+      'Путь фото обязан начинаться с /images/ или /api/images/s3/photos/ и не выходить вверх'),
 });
 
 export async function POST(req: NextRequest) {

@@ -13,6 +13,7 @@
 import { describe, it, expect } from 'vitest';
 import { existsSync, readFileSync } from 'node:fs';
 import { join } from 'node:path';
+import { photoFile } from '../helpers/partner-photo-path';
 
 const ROOT = process.cwd();
 const src = readFileSync(join(ROOT, 'migrations/813_bystraya_gallery_restore.sql'), 'utf-8');
@@ -36,7 +37,7 @@ describe('миграция 813 — галерея тура сплава', () => 
   it('все файлы галереи реально лежат в репозитории', () => {
     // Битый путь дал бы пустые плитки вместо фото — это хуже одного кадра.
     for (const p of new Set(photos)) {
-      expect(existsSync(join(ROOT, 'public', p)), `нет файла: ${p}`).toBe(true);
+      expect(existsSync(photoFile(p)), `нет файла: ${p}`).toBe(true);
     }
   });
 

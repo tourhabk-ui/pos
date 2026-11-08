@@ -111,7 +111,7 @@ describe('миграция 1209', () => {
   });
 
   it('снимок доски: файл, sha256 и размер от него, без EXIF', () => {
-    const path = join(process.cwd(), 'public/images/kutha/kutha-22.jpg');
+    const path = join(process.cwd(), 'media/s3/photos/kutha/kutha-22.jpg');
     expect(existsSync(path)).toBe(true);
     const buf = readFileSync(path);
     expect(sql).toContain(createHash('sha256').update(buf).digest('hex'));

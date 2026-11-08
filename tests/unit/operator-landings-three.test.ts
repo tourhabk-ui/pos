@@ -26,6 +26,7 @@ import { readFileSync, existsSync, statSync } from 'node:fs';
 import { join } from 'node:path';
 import manifest from '@/lib/images/photo-variants.json';
 import { extractGallery, extractServices, extractFeatures, extractFaq } from '@/lib/operators/profile-parse';
+import { inStorage, photoFile } from '../helpers/partner-photo-path';
 
 const ROOT = process.cwd();
 const read = (p: string) => readFileSync(join(ROOT, p), 'utf-8');
@@ -91,9 +92,9 @@ describe('миграция 1222: три оператора, четыре бло�
       expect(gallery.length, slug).toBeGreaterThanOrEqual(10);
       expect(new Set(gallery).size, `${slug}: дубли`).toBe(gallery.length);
       for (const src of gallery) {
-        const file = join(ROOT, 'public', src);
+        const file = photoFile(src);
         expect(existsSync(file), src).toBe(true);
-        if (statSync(file).size >= MIN_BYTES) expect(IN_MANIFEST.has(src), `${src} не в манифесте`).toBe(true);
+        if (statSync(file).size >= MIN_BYTES) expect(IN_MANIFEST.has(inStorage(src)), `${src} не в манифесте`).toBe(true);
       }
     }
   });
@@ -101,7 +102,7 @@ describe('миграция 1222: три оператора, четыре бло�
   it('главное фото существует и открывает галерею', () => {
     for (const slug of SLUGS) {
       const hero = heroOf(slug);
-      expect(existsSync(join(ROOT, 'public', hero)), hero).toBe(true);
+      expect(existsSync(photoFile(hero)), hero).toBe(true);
       expect(extractGallery(by(slug, 'gallery')!.json)[0], slug).toBe(hero);
     }
   });

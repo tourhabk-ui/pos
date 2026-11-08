@@ -118,7 +118,7 @@ describe('миграция 1185: прайс дословно по слову в�
 });
 
 describe('23 снимка перевозчика', () => {
-  const dir = join(ROOT, 'public/images/shatun');
+  const dir = join(ROOT, 'media/s3/photos/shatun');
   const jpgs = readdirSync(dir).filter((f) => /^shatun-\d{2}\.jpg$/.test(f)).sort();
 
   it('ровно 23, все лежат в репозитории и сжаты, оригиналов (raw) нет', () => {

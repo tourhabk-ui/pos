@@ -83,6 +83,27 @@ function partnerSiteRedirects() {
   ]);
 }
 
+/**
+ * Снимки партнёров переехали из папки сайта в хранилище (08.11, владелец:
+ * «да и разберись почему грузяться не сразу в s3»; миграция 1406 переписала
+ * адреса в базе). Старый адрес /images/<папка>/… переадресуется на
+ * хранилище: строка, которую миграция не знала, ссылка в старом посте,
+ * фиде или кэше поисковика не останется без снимка. Список — те же папки,
+ * что в 1406 и в tests/unit/partner-photos-in-s3.test.ts.
+ */
+const PARTNER_PHOTO_DIRS = [
+  'fishingkam', 'kutha', 'laguna-prokat', 'mestechko', 'partners', 'shatun',
+  'tours/bystraya-rafting', 'volcanoesland', 'zaporozhets', 'zheltukhin',
+];
+
+function partnerPhotoRedirects() {
+  return PARTNER_PHOTO_DIRS.map((dir) => ({
+    source: `/images/${dir}/:path*`,
+    destination: `/api/images/s3/photos/${dir}/:path*`,
+    permanent: true,
+  }));
+}
+
 const nextConfig = {
   output: 'standalone',
   reactStrictMode: true,
@@ -189,6 +210,7 @@ const nextConfig = {
     return [
       // Домен партнёра — первым: его адреса не должны дойти до общих правил.
       ...partnerSiteRedirects(),
+      ...partnerPhotoRedirects(),
       // vedarai.ru/?ask=вопрос → чат Кузьмича с этим вопросом (query
       // переносится сам). Короткая ссылка для постов и ИИ-ответов: турист
       // ничего не подключает (путь без MCP, 31.10). Не постоянный — 307.

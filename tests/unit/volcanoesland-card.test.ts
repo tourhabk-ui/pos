@@ -10,6 +10,7 @@ import { describe, it, expect } from 'vitest';
 import { readFileSync, existsSync, statSync } from 'node:fs';
 import { join } from 'node:path';
 import { extractContacts, extractLegalInfo } from '@/lib/operators/profile-parse';
+import { photoFile } from '../helpers/partner-photo-path';
 
 const ROOT = process.cwd();
 const MIG = readFileSync(join(ROOT, 'migrations/1174_volcanoesland_operator_card.sql'), 'utf-8');
@@ -82,13 +83,13 @@ describe('логотип', () => {
 
   it('файл, названный в миграции, лежит в public/ и не пуст', () => {
     expect(path).toBeTruthy();
-    const file = join(ROOT, 'public', path as string);
+    const file = photoFile(path as string);
     expect(existsSync(file)).toBe(true);
     expect(statSync(file).size).toBeGreaterThan(1000);
   });
 
   it('это PNG', () => {
-    const head = readFileSync(join(ROOT, 'public', path as string)).subarray(0, 8);
+    const head = readFileSync(photoFile(path as string)).subarray(0, 8);
     expect([...head]).toEqual([0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a]);
   });
 });

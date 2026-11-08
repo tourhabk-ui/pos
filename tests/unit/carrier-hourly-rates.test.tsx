@@ -52,6 +52,7 @@ import {
 } from '@/lib/transfers/charter-request';
 import { CARRIERS_ORDER_NOTE } from '@/lib/operators/order-note';
 import type { CarrierPageData } from '@/lib/transfers/carrier-page';
+import { inStorage, photoFile } from '../helpers/partner-photo-path';
 
 const ROOT = process.cwd();
 /** Деньги на экране пишутся с неразрывными пробелами (formatRub) — сравнение по смыслу, не по байту пробела. */
@@ -427,8 +428,8 @@ describe('миграция 1292: только факты', () => {
     for (const n of ['01', '02', '03', '04']) {
       const url = `/images/zheltukhin/zheltukhin-${n}.jpg`;
       expect(SQL).toContain(url);
-      expect(existsSync(join(ROOT, 'public', url))).toBe(true);
-      expect(variants.find((v) => v.src === url)?.widths, url).toEqual(expect.arrayContaining([320, 640]));
+      expect(existsSync(photoFile(url))).toBe(true);
+      expect(variants.find((v) => v.src === inStorage(url))?.widths, url).toEqual(expect.arrayContaining([320, 640]));
     }
   });
 });

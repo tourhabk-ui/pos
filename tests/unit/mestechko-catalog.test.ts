@@ -22,6 +22,7 @@ import { readFileSync, existsSync, statSync, readdirSync } from 'node:fs';
 import { join } from 'node:path';
 import { extractContacts, extractLegalInfo } from '@/lib/operators/profile-parse';
 import { missingFields, type ReadinessRow } from '@/lib/tours/readiness';
+import { photoFile } from '../helpers/partner-photo-path';
 
 const ROOT = process.cwd();
 const CARD = readFileSync(join(ROOT, 'migrations/1216_mestechko_operator_card.sql'), 'utf-8');
@@ -174,7 +175,7 @@ describe('миграция 1216: исполнитель с реквизитам�
 
   it('логотип ставится только туда, где его нет, и файл лежит в public', () => {
     expect(CARD_SQL).toMatch(/logo_image IS NULL OR logo_image = ''/);
-    const file = join(ROOT, 'public/images/mestechko/logo.png');
+    const file = join(ROOT, 'media/s3/photos/mestechko/logo.png');
     expect(existsSync(file)).toBe(true);
     expect(statSync(file).size).toBeGreaterThan(1000);
     const head = readFileSync(file).subarray(0, 8);
@@ -320,7 +321,7 @@ describe('фото туров «Местечка Камчатка»', () => {
       expect(r.photos.length, r.slug).toBeGreaterThanOrEqual(2);
       r.photos.forEach((p, i) => {
         expect(p).toBe(`/images/mestechko/${r.slug.replace(/^mestechko-/, '')}-0${i + 1}.jpg`);
-        const file = join(ROOT, 'public', p);
+        const file = photoFile(p);
         if (REMOVED.includes(p)) {
           expect(existsSync(file), `${p} снят миграцией 1221 — файла быть не должно`).toBe(false);
           return;
@@ -332,7 +333,7 @@ describe('фото туров «Местечка Камчатка»', () => {
   });
 
   it('оригиналы с сайта в репозитории не лежат, файлов ровно столько, сколько названо минус снятые, плюс логотип', () => {
-    const dir = join(ROOT, 'public/images/mestechko');
+    const dir = join(ROOT, 'media/s3/photos/mestechko');
     expect(existsSync(join(dir, 'raw'))).toBe(false);
     expect(REMOVED.length, 'снятый автобус (1221) должен числиться снятым').toBeGreaterThan(0);
     const jpgs = readdirSync(dir).filter((f) => /^[a-z0-9-]+-0\d\.jpg$/.test(f));

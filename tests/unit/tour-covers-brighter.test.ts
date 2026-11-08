@@ -22,6 +22,7 @@ import { readFileSync, existsSync, statSync } from 'node:fs';
 import { join } from 'node:path';
 import { measurePhoto, coverScore } from '../../scripts/photo-vividness.mjs';
 import manifest from '@/lib/images/photo-variants.json';
+import { inStorage, photoFile } from '../helpers/partner-photo-path';
 
 const ROOT = process.cwd();
 const read = (p: string) => readFileSync(join(ROOT, p), 'utf-8');
@@ -82,11 +83,11 @@ describe('миграция 1221: форма и файлы', () => {
   it('каждая новая обложка лежит на диске и нарезана', () => {
     const covers = [...MOVES.map((m) => m.cover), FISH_COVER!];
     for (const c of covers) {
-      const file = join(ROOT, 'public', c);
+      const file = photoFile(c);
       expect(existsSync(file), c).toBe(true);
       // Нарезка — только тяжёлым (порог scripts/optimize-images.mjs); лёгкий снимок едет оригиналом.
       if (statSync(file).size >= MIN_BYTES) {
-        expect(IN_MANIFEST.has(c), `${c} не в манифесте нарезки — npm run images`).toBe(true);
+        expect(IN_MANIFEST.has(inStorage(c)), `${c} не в манифесте нарезки — npm run images`).toBe(true);
       }
     }
   });
@@ -95,9 +96,9 @@ describe('миграция 1221: форма и файлы', () => {
     expect(REMOVED).toEqual(['/images/mestechko/vertolet-tolbachik-01.jpg']);
     expect(SQL).toMatch(/slug = 'mestechko-vertolet-tolbachik'[\s\S]*?= ANY\(photos\)/);
     for (const r of REMOVED) {
-      expect(existsSync(join(ROOT, 'public', r)), r).toBe(false);
-      for (const w of [320, 640, 1280]) expect(existsSync(join(ROOT, 'public', r.replace(/\.jpg$/, `.${w}.webp`)))).toBe(false);
-      expect(IN_MANIFEST.has(r)).toBe(false);
+      expect(existsSync(photoFile(r)), r).toBe(false);
+      for (const w of [320, 640, 1280]) expect(existsSync(photoFile(r.replace(/\.jpg$/, `.${w}.webp`)))).toBe(false);
+      expect(IN_MANIFEST.has(inStorage(r))).toBe(false);
     }
     // Новая обложка того же тура — не снятый снимок.
     const heli = MOVES.find((m) => m.key === 'mestechko-vertolet-tolbachik');
@@ -114,8 +115,8 @@ describe('миграция 1221: новая обложка ярче прежне
       expect(prior, `прежняя обложка ${key} не найдена в миграции-источнике`).toBeDefined();
       expect(prior).not.toBe(cover);
       const [was, now] = await Promise.all([
-        measurePhoto(join(ROOT, 'public', prior!)),
-        measurePhoto(join(ROOT, 'public', cover)),
+        measurePhoto(photoFile(prior!)),
+        measurePhoto(photoFile(cover)),
       ]);
       expect(coverScore(now), `${cover} ${JSON.stringify(now)} не ярче ${prior} ${JSON.stringify(was)}`).toBeGreaterThan(coverScore(was));
     });

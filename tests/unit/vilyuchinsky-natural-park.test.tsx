@@ -41,6 +41,7 @@ import { descriptionVoice } from '@/lib/places/description-voice';
 import { parkKindLabel } from '@/lib/parks/park-kind';
 import { slugify } from '@/lib/text/slugify';
 import { migrationBody, migrationStatements, insertValues, setValues, splitTop, valueOf } from '../helpers/migration-sql';
+import { photoFile } from '../helpers/partner-photo-path';
 
 afterEach(cleanup);
 
@@ -459,13 +460,13 @@ describe('снимки 1254 — партнёра и владельца', () => {
     for (const k of partner) {
       const file = uploaded.get(k);
       expect(file, k).toBeTruthy();
-      expect(readFileSync(join(ROOT, file!)).equals(readFileSync(join(ROOT, 'public/images', ORIGIN[k]))), k).toBe(true);
+      expect(readFileSync(join(ROOT, file!)).equals(readFileSync(photoFile('/images/' + ORIGIN[k]))), k).toBe(true);
       expect(tours, ORIGIN[k]).toContain(ORIGIN[k].split('/')[1]);
     }
   });
 
   it('кадры Мутновского и Горелого с того же облёта не взяты', () => {
-    const notHere = ['01', '03', '04'].map((n) => readFileSync(join(ROOT, `public/images/mestechko/oblet-vilyuchinskiy-mutnovskiy-gorelyy-${n}.jpg`)));
+    const notHere = ['01', '03', '04'].map((n) => readFileSync(join(ROOT, `media/s3/photos/mestechko/oblet-vilyuchinskiy-mutnovskiy-gorelyy-${n}.jpg`)));
     for (const k of Object.keys(ORIGIN)) {
       const copy = readFileSync(join(ROOT, marker.items.find((i) => i.key === k)!.file));
       for (const m of notHere) expect(copy.equals(m), k).toBe(false);

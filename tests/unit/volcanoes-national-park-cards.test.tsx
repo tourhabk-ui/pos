@@ -45,6 +45,7 @@ import { parkKindLabel } from '@/lib/parks/park-kind';
 import { federalizedPark } from '@/lib/safety/park-permit';
 import { slugify } from '@/lib/text/slugify';
 import { insertValues, setValues } from '../helpers/migration-sql';
+import { photoFile } from '../helpers/partner-photo-path';
 
 afterEach(cleanup);
 
@@ -302,14 +303,14 @@ describe('снимки 1250 — партнёров и владельца', () =>
       const file = uploaded.get(k);
       expect(file, k).toBeTruthy();
       const copy = readFileSync(join(ROOT, file!));
-      const original = readFileSync(join(ROOT, 'public/images', ORIGIN[k]));
+      const original = readFileSync(photoFile('/images/' + ORIGIN[k]));
       expect(copy.equals(original), k).toBe(true);
       expect(tours, ORIGIN[k]).toContain(ORIGIN[k].split('/')[1]);
     }
   });
 
   it('кадры с чужим водяным знаком (© Holger Liebermann на «подножии» 03 и 04) не взяты', () => {
-    const marked = ['03', '04'].map((n) => readFileSync(join(ROOT, `public/images/volcanoesland/treking-podnozhie-klyuchevskoy-${n}.jpg`)));
+    const marked = ['03', '04'].map((n) => readFileSync(join(ROOT, `media/s3/photos/volcanoesland/treking-podnozhie-klyuchevskoy-${n}.jpg`)));
     for (const k of Object.keys(ORIGIN)) {
       const copy = readFileSync(join(ROOT, marker.items.find((i) => i.key === k)!.file));
       for (const m of marked) expect(copy.equals(m), k).toBe(false);

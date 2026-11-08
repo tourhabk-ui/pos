@@ -12,6 +12,7 @@ import { describe, it, expect } from 'vitest';
 import { existsSync, readFileSync } from 'node:fs';
 import { join } from 'node:path';
 import { BEAR_FALLBACK, BEAR_PHOTOS, WILDLIFE_AUTHOR, shortCredit } from '@/lib/media/wildlife-photos';
+import { photoFile } from '../helpers/partner-photo-path';
 
 const ROOT = process.cwd();
 const read = (f: string) => readFileSync(join(ROOT, f), 'utf-8');
@@ -22,7 +23,7 @@ describe('реестр кадров', () => {
   it('шесть кадров, все файлы лежат в репозитории, у каждого автор, описание и alt', () => {
     expect(all).toHaveLength(6);
     for (const p of all) {
-      expect(existsSync(join(ROOT, 'public', p.src)), p.src).toBe(true);
+      expect(existsSync(photoFile(p.src)), p.src).toBe(true);
       expect(p.credit).toBe(WILDLIFE_AUTHOR);
       expect(p.alt.length).toBeGreaterThan(10);
       expect(p.shows.length).toBeGreaterThan(20);
@@ -32,7 +33,9 @@ describe('реестр кадров', () => {
   it('подпись в реестре совпадает с картой подписей миграции 1186: у кадра один автор', () => {
     const sql = read('migrations/1186_partner_gallery_credits_and_clips.sql').replace(/--[^\n]*/g, '');
     for (const p of all) {
-      expect(sql, p.src).toContain(`'${p.src}', '${p.credit}'`);
+      // 1186 писала адрес папки сайта; 1406 перевела его на хранилище.
+      const written = p.src.replace(/^\/api\/images\/s3\/photos\//, '/images/');
+      expect(sql, p.src).toContain(`'${written}', '${p.credit}'`);
     }
   });
 

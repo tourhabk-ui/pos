@@ -15,7 +15,7 @@ import { describe, it, expect, beforeAll, afterAll } from 'vitest';
 import { mkdtempSync, mkdirSync, readFileSync, readdirSync, rmSync, statSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join, relative } from 'node:path';
-import { checkItem, sniffType, MARKER } from '@/scripts/media-to-s3';
+import { checkItem, sniffType, uploadAndVerify, MARKER, type UploadIo, type CheckedItem } from '@/scripts/media-to-s3';
 import { photoKeyOf } from '@/lib/images/photo-key';
 
 const JPEG = Buffer.from([0xff, 0xd8, 0xff, 0xe0, 0, 0x10, 0x4a, 0x46, 0x49, 0x46, 0, 1, 0xff, 0xd9]);
@@ -109,6 +109,50 @@ describe('под videos/ — клипы и обложки, и только он�
   it('JPEG под именем .mp4 и копии WebP — отказ', () => {
     expect(check('videos/p/jpeg-inside.mp4')).toMatch(/внутри image\/jpeg, а ключ \.mp4/);
     expect(check('videos/p/a.640.webp')).toMatch(/расширение \.webp не принимается/);
+  });
+});
+
+describe('заливка с чтением обратно: обрыв сети — вторая попытка, несовпадение — отказ', () => {
+  const item = (): CheckedItem => ({ file: 'media/s3/photos/p/a.jpg', key: 'photos/p/a.jpg', contentType: 'image/jpeg', size: JPEG.length });
+  function io(replies: Array<'throw' | Response>): UploadIo & { uploads: number; reads: number } {
+    const state = { uploads: 0, reads: 0 };
+    return Object.assign(state, {
+      upload: async () => { state.uploads += 1; },
+      fetch: async () => {
+        const r = replies[state.reads++];
+        if (r === 'throw' || r === undefined) throw new TypeError('fetch failed');
+        return r;
+      },
+      sleep: async () => {},
+      base: () => 'https://s3.example.test/bucket',
+    });
+  }
+  const ok = () => new Response(JPEG, { status: 200, headers: { 'content-type': 'image/jpeg' } });
+
+  it('один обрыв при чтении обратно (прогон 22) — повтор, объект засчитан', async () => {
+    const t = io(['throw', ok()]);
+    const r = await uploadAndVerify(item(), root, t);
+    expect(r).toEqual({ ok: true, line: `залит и прочитан обратно с попытки 2 (${JPEG.length} байт, image/jpeg)` });
+    expect([t.uploads, t.reads]).toEqual([2, 2]);
+  });
+
+  it('хранилище ответило 5xx — тоже повтор', async () => {
+    const t = io([new Response('oops', { status: 503 }), ok()]);
+    expect((await uploadAndVerify(item(), root, t)).ok).toBe(true);
+  });
+
+  it('два обрыва подряд — отказ с причиной, попыток не больше двух', async () => {
+    const t = io(['throw', 'throw', ok()]);
+    expect(await uploadAndVerify(item(), root, t)).toEqual({ ok: false, line: 'НЕ ЗАЛИТО: photos/p/a.jpg: fetch failed' });
+    expect(t.reads).toBe(2);
+  });
+
+  it('ответ 200 с чужим размером или типом — отказ сразу, без повтора: это не обрыв', async () => {
+    const short = io([new Response(JPEG.subarray(0, 3), { status: 200, headers: { 'content-type': 'image/jpeg' } }), ok()]);
+    expect((await uploadAndVerify(item(), root, short)).line).toMatch(/^НЕ СОШЛОСЬ: photos\/p\/a\.jpg: HTTP 200, 3 из/);
+    expect(short.reads).toBe(1);
+    const html = io([new Response(JPEG, { status: 200, headers: { 'content-type': 'text/html' } })]);
+    expect((await uploadAndVerify(item(), root, html)).ok).toBe(false);
   });
 });
 
