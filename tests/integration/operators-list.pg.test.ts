@@ -913,7 +913,16 @@ withPg('витрина /operators: факты о живых турах, кноп
       expect(p.logo_image).toBe(LOGO);
       const used = [...new Set(rows.flatMap((r) => r.photos!))].sort();
       const credited = Object.keys(p.gallery_credits ?? {}).filter((u) => u.startsWith(PREFIX)).sort();
-      expect(credited).toEqual(used);
+      // Подписи покрывают снимки всех туров партнёра — и шести туров 1413 (их ставит 1414).
+      const { rows: all } = await pool.query<{ u: string }>(
+        `SELECT DISTINCT x.u FROM operator_tours t JOIN partners p ON p.id::text = t.operator_id::text,
+                unnest(t.photos) AS x(u)
+          WHERE p.slug = 'laguna-expedition' AND x.u LIKE '${PREFIX}%'`,
+      );
+      // Порядок — сортировкой JS, как у credited: ORDER BY зависит от правила сравнения базы
+      // (в CI en_US пропускает дефис, и «k-domashnim» встаёт после «kamchatka»).
+      expect(credited).toEqual(all.map((r) => r.u).sort());
+      for (const u of used) expect(credited, u).toContain(u);
       for (const u of used) expect(p.gallery_credits![u], u).toBe('Лагуна Экспедиция');
 
       // Карточка тура подписывает снимки этой картой (lib/tours/photo-credits).
@@ -1036,6 +1045,53 @@ withPg('витрина /operators: факты о живых турах, кноп
       expect(fresh).toBeLessThan(plates.length);
     });
   });
+  describe('«Лагуна Экспедиция»: снимки шести туров 1413 (1414)', () => {
+    const MIG_1414 = readFileSync(join(process.cwd(), 'migrations/1414_laguna_expedition_new_tours_photos.sql'), 'utf-8');
+    const PREFIX = '/api/images/s3/photos/laguna-expedition/';
+    const NEW = /\/tours\/(36212|36214|37577|37584|41610|51446)-/;
+    type Row = { slug: string; photos: string[] | null; tour_image: string | null };
+    const tours = async () => (await pool.query<Row>(
+      `SELECT t.slug, t.photos, t.tour_image
+         FROM operator_tours t JOIN partners p ON p.id::text = t.operator_id::text
+        WHERE p.slug = 'laguna-expedition' AND t.source_url ~ $1 ORDER BY t.slug`, [NEW.source],
+    )).rows;
+    const credits = async () => (await pool.query<{ c: Record<string, string> | null }>(
+      `SELECT gallery_credits AS c FROM partners WHERE slug = 'laguna-expedition'`,
+    )).rows[0].c ?? {};
+
+    it('после цепочки у каждого из шести туров обложка и галерея из хранилища, каждый снимок подписан', async () => {
+      const rows = await tours();
+      expect(rows).toHaveLength(6);
+      const c = await credits();
+      for (const r of rows) {
+        expect(r.photos?.length ?? 0, r.slug).toBeGreaterThanOrEqual(1);
+        expect(r.photos!.length, r.slug).toBeLessThanOrEqual(6);
+        expect(r.tour_image, r.slug).toBe(r.photos![0]);
+        for (const u of r.photos!) {
+          expect(u.startsWith(PREFIX), `${r.slug}: ${u}`).toBe(true);
+          expect(c[u], u).toBe('Лагуна Экспедиция');
+        }
+      }
+    });
+
+    it('повтор ничего не меняет; снимки, поставленные человеком, не перетирает; пустое — ставит', async () => {
+      const before = JSON.stringify([await tours(), await credits()]);
+      await pool.query(MIG_1414);
+      expect(JSON.stringify([await tours(), await credits()])).toBe(before);
+
+      const [a, b] = (await tours()).map((r) => r.slug);
+      await pool.query(`UPDATE operator_tours SET photos = ARRAY['/images/own/x.jpg'], tour_image = '/images/own/x.jpg' WHERE slug = $1`, [a]);
+      await pool.query(`UPDATE operator_tours SET photos = '{}', tour_image = NULL WHERE slug = $1`, [b]);
+      await pool.query(MIG_1414);
+      const after = new Map((await tours()).map((r) => [r.slug, r]));
+      expect(after.get(a)!.photos).toEqual(['/images/own/x.jpg']);
+      expect(after.get(b)!.tour_image?.startsWith(PREFIX)).toBe(true);
+      // Вернуть сцену: снимки тура a — из миграции, как после цепочки.
+      await pool.query(`UPDATE operator_tours SET photos = '{}', tour_image = NULL WHERE slug = $1`, [a]);
+      await pool.query(MIG_1414);
+    });
+  });
+
   describe('«Лагуна Экспедиция»: обложка компании — её собственный кадр (1347)', () => {
     const MIG_1347 = readFileSync(join(process.cwd(), 'migrations/1347_laguna_expedition_hero.sql'), 'utf-8');
     const HERO = '/api/images/s3/photos/laguna-expedition/k-gamulam-na-vilyuchinskij-pereval-cover.jpg';

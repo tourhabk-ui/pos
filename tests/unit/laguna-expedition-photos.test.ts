@@ -1,5 +1,6 @@
 /**
- * Снимки 34 туров «Лагуны Экспедиции» и её логотип (миграция 1343, слово
+ * Снимки туров «Лагуны Экспедиции» и её логотип: 34 тура 1339 (миграция 1343) и
+ * шесть новых туров 1413 (миграция 1414, слово владельца 08.11 «да»). 1343 — слово
  * владельца 29.10: «они дали добро на использоваеие», «и логотип»; хранение —
  * правило §4.1, на вопрос владельца «фото в s3?» ответ — да, в хранилище).
  *
@@ -21,6 +22,8 @@ import { checkItem, MARKER } from '@/scripts/media-to-s3';
 const ROOT = process.cwd();
 const MIG = readFileSync(join(ROOT, 'migrations/1343_laguna_expedition_photos.sql'), 'utf-8');
 const MIG_1339 = readFileSync(join(ROOT, 'migrations/1339_laguna_expedition_tours.sql'), 'utf-8');
+const MIG_1413 = readFileSync(join(ROOT, 'migrations/1413_laguna_expedition_new_tours.sql'), 'utf-8');
+const MIG_1414 = readFileSync(join(ROOT, 'migrations/1414_laguna_expedition_new_tours_photos.sql'), 'utf-8');
 const DIR = 'media/s3/photos/laguna-expedition';
 const LOGO = '/images/laguna-expedition/laguna-expedition-logo.png';
 
@@ -33,7 +36,9 @@ function toursOfMigration(sql: string): Map<string, string[]> {
   return out;
 }
 const TOURS = toursOfMigration(MIG);
-const URLS = [...new Set([...TOURS.values()].flat())];
+const TOURS_1414 = toursOfMigration(MIG_1414);
+/** Все адреса снимков «Лагуны Экспедиции» в хранилище: 1343 и 1414. */
+const URLS = [...new Set([...TOURS.values(), ...TOURS_1414.values()].flat())];
 const marker = JSON.parse(readFileSync(join(ROOT, MARKER), 'utf-8')) as {
   upload: boolean; items: Array<{ file: string; key: string }>;
 };
@@ -63,6 +68,22 @@ describe('1343: снимки туров «Лагуны Экспедиции» �
       // Обложка и не больше пяти в галерею.
       expect(photos.length, slug).toBeLessThanOrEqual(6);
       expect(new Set(photos).size, `${slug}: снимок дважды`).toBe(photos.length);
+    }
+  });
+
+  it('1414: снимки получает каждый из шести туров 1413, и только они; обложка и до пяти в галерею', () => {
+    const slugs1413 = [...new Set([...MIG_1413.matchAll(/'(lagexp-[a-z0-9-]+)'::text,/g)].map((m) => m[1]))].sort();
+    expect(slugs1413).toHaveLength(6);
+    expect([...TOURS_1414.keys()].sort()).toEqual(slugs1413);
+    for (const [slug, photos] of TOURS_1414) {
+      expect(photos.length, slug).toBeGreaterThanOrEqual(1);
+      expect(photos.length, slug).toBeLessThanOrEqual(6);
+      expect(new Set(photos).size, `${slug}: снимок дважды`).toBe(photos.length);
+    }
+    // Новые туры не берут чужих снимков 1343: их кадры — со своих страниц.
+    const of1343 = new Set([...TOURS.values()].flat());
+    for (const [slug, photos] of TOURS_1414) {
+      for (const u of photos) expect(of1343.has(u), `${slug}: ${u} из набора 1343`).toBe(false);
     }
   });
 
