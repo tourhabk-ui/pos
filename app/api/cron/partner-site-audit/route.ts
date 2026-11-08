@@ -70,7 +70,13 @@ const VARIANTS: ReadonlyArray<string> = [
   `${BASE}/net-takoy-stranicy-vedar-check/`,
 ];
 
-const TOUR_LIMIT = 4;
+/**
+ * Карточек туров за прогон. Было 4 (SEO-перепись 30.09 — образцов хватало);
+ * 08.11 перепись ищет ролики и Telegram оператора для клипов его туров
+ * (владелец: «… так же с видео и у них тоже есть тг»), а туров у него 11.
+ * Срок прогона DEADLINE_MS держит своё: не успели — `skipped_deadline`.
+ */
+const TOUR_LIMIT = 12;
 const TOUR_PATH = /^\/tours\/[a-z0-9-]+\/$/i;
 const TIMEOUT_MS = 8_000;
 const MAX_HOPS = 5;

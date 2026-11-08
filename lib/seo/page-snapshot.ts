@@ -36,9 +36,68 @@ export interface PageSnapshot {
   emails: string[];
   counters: string[];
   words: number;
+  /**
+   * Полные адреса ссылок на страницы партнёра в соцсетях и видеохостингах
+   * (t.me, vk, YouTube, Rutube, Дзен, ОК) — путь нужен, а не хост: по одному
+   * «t.me» не найти канал. Хост сверяется точно, по разобранному URL.
+   */
+  social_links: string[];
+  /**
+   * Откуда страница берёт ролики: `<video src>`, `<source src>`, атрибуты
+   * `data-*` с адресом ролика, ссылки на файлы .mp4/.webm/.mov/.m3u8 и
+   * встроенные плееры видеохостингов (`<iframe src>`). Полные адреса.
+   */
+  video_sources: string[];
 }
 
 const MAX_HEADINGS = 40;
+const MAX_MEDIA_LINKS = 40;
+
+/** Соцсети и видеохостинги: хост ссылки сравнивается с этим списком точно. */
+const SOCIAL_HOSTS: ReadonlySet<string> = new Set([
+  't.me', 'telegram.me', 'vk.com', 'vk.ru', 'm.vk.com', 'vkvideo.ru', 'ok.ru', 'dzen.ru',
+  'youtube.com', 'm.youtube.com', 'youtu.be', 'rutube.ru', 'instagram.com',
+]);
+
+/** Встроенный плеер — iframe с хоста видеохостинга. */
+const VIDEO_EMBED_HOSTS: ReadonlySet<string> = new Set([
+  'youtube.com', 'youtube-nocookie.com', 'player.vimeo.com', 'rutube.ru', 'vk.com', 'vk.ru',
+  'vkvideo.ru', 'ok.ru', 'dzen.ru', 'kinescope.io',
+]);
+
+const VIDEO_FILE = /\.(mp4|webm|mov|m3u8)$/i;
+
+function bareHost(u: URL): string {
+  return u.hostname.toLowerCase().replace(/^www\./, '');
+}
+
+/** Ролики страницы: видео-теги, data-атрибуты, ссылки на файлы, встроенные плееры. */
+function videoSources(html: string, origin: URL): string[] {
+  const out = new Set<string>();
+  const add = (raw: string | null, embedOnly = false): void => {
+    // Битый адрес — не ролик: проверка разбора без try/catch.
+    if (!raw || out.size >= MAX_MEDIA_LINKS || !URL.canParse(raw, origin)) return;
+    const u = new URL(raw, origin);
+    if (!/^https?:$/.test(u.protocol)) return;
+    const isFile = VIDEO_FILE.test(u.pathname);
+    const isEmbed = VIDEO_EMBED_HOSTS.has(bareHost(u));
+    if (embedOnly ? isEmbed : (isFile || isEmbed)) out.add(u.toString());
+  };
+  for (const tag of html.match(/<(video|source)\b[^>]*>/gi) ?? []) add(attr(tag, 'src'));
+  for (const tag of html.match(/<iframe\b[^>]*>/gi) ?? []) add(attr(tag, 'src') ?? attr(tag, 'data-src'), true);
+  for (const tag of html.match(/<[a-z][a-z0-9]*\b[^>]*>/gi) ?? []) {
+    if (!tag.includes('data-')) continue;
+    for (const m of tag.matchAll(/\sdata-[a-z0-9-]+\s*=\s*("([^"]*)"|'([^']*)')/gi)) {
+      const v = decodeHtmlEntities(m[2] ?? m[3] ?? '').trim();
+      if (VIDEO_FILE.test(v.split(/[?#]/)[0])) add(v);
+    }
+  }
+  for (const tag of html.match(/<a\b[^>]*>/gi) ?? []) {
+    const href = attr(tag, 'href');
+    if (href && VIDEO_FILE.test(href.split(/[?#]/)[0])) add(href);
+  }
+  return [...out].sort();
+}
 
 function text(html: string): string {
   return decodeHtmlEntities(stripTags(html, ' ')).replace(/\s+/g, ' ').trim();
@@ -124,6 +183,7 @@ export function snapshotPage(html: string, pageUrl: string): PageSnapshot {
 
   let internal = 0;
   const external = new Set<string>();
+  const social = new Set<string>();
   const phones = new Set<string>();
   const emails = new Set<string>();
   for (const tag of html.match(/<a\b[^>]*>/gi) ?? []) {
@@ -135,7 +195,10 @@ export function snapshotPage(html: string, pageUrl: string): PageSnapshot {
     try {
       const u = new URL(href, origin);
       if (u.hostname.replace(/^www\./, '') === ownHost) internal += 1;
-      else if (/^https?:$/.test(u.protocol)) external.add(u.hostname);
+      else if (/^https?:$/.test(u.protocol)) {
+        external.add(u.hostname);
+        if (SOCIAL_HOSTS.has(bareHost(u)) && social.size < MAX_MEDIA_LINKS) social.add(u.toString());
+      }
     } catch { /* битая ссылка — не наша забота здесь */ }
   }
 
@@ -177,6 +240,8 @@ export function snapshotPage(html: string, pageUrl: string): PageSnapshot {
     emails: [...emails].sort(),
     counters: COUNTER_MARKERS.filter(([, marks]) => marks.some((m) => lower.includes(m))).map(([k]) => k),
     words: visible ? visible.split(' ').length : 0,
+    social_links: [...social].sort(),
+    video_sources: videoSources(html, origin),
   };
 }
 

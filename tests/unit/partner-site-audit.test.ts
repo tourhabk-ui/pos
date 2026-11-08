@@ -80,6 +80,40 @@ describe('snapshotPage', () => {
     expect(e.description).toBeNull();
     expect(e.h1).toEqual([]);
     expect(e.words).toBe(0);
+    expect(e.social_links).toEqual([]);
+    expect(e.video_sources).toEqual([]);
+  });
+
+  // 08.11: клипы туров «Края Вулканов» — нужен адрес канала и роликов, а не хост.
+  it('соцсети — полным адресом и по точному хосту; похожий хост не берётся', () => {
+    expect(s.social_links).toEqual(['https://vk.com/x']);
+    const p = snapshotPage(`<html><body>
+      <a href="https://t.me/kraivulkanov_channel">Телеграм</a>
+      <a href="https://www.youtube.com/@krai">YouTube</a>
+      <a href="https://t.me.evil.example/x">не он</a>
+      <a href="https://evil-t.me/x">и не он</a>
+      <a href="/tours/a/">свой</a>
+    </body></html>`, 'https://volcanoesland.ru/');
+    expect(p.social_links).toEqual(['https://t.me/kraivulkanov_channel', 'https://www.youtube.com/@krai']);
+  });
+
+  it('ролики: video/source, data-атрибут, ссылка на файл, встроенный плеер; картинка и чужой iframe — нет', () => {
+    const p = snapshotPage(`<html><body>
+      <video src="/upload/hero.mp4" muted></video>
+      <video><source src="https://cdn.volcanoesland.ru/v/tolbachik.webm" type="video/webm"></video>
+      <div class="slide" data-mp4="/upload/kurile.mp4?v=2" data-src="/upload/kurile.jpg"></div>
+      <a href="/files/promo.mov">скачать</a>
+      <iframe src="https://www.youtube.com/embed/abc123"></iframe>
+      <iframe src="https://maps.example/embed?x=1"></iframe>
+      <img data-src="/upload/photo.jpg">
+    </body></html>`, 'https://volcanoesland.ru/tours/a/');
+    expect(p.video_sources).toEqual([
+      'https://cdn.volcanoesland.ru/v/tolbachik.webm',
+      'https://volcanoesland.ru/files/promo.mov',
+      'https://volcanoesland.ru/upload/hero.mp4',
+      'https://volcanoesland.ru/upload/kurile.mp4?v=2',
+      'https://www.youtube.com/embed/abc123',
+    ]);
   });
 });
 
