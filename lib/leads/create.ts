@@ -16,6 +16,14 @@ import { AGENT_CONSENT_SOURCE } from '@/lib/mcp/request-status';
 import { planFingerprint } from '@/lib/leads/plan-fingerprint';
 import { currentLeadEntry } from '@/lib/leads/entry-context';
 
+/** Копия source_data без служебных ключей; без них — тот же объект, пустота — пустота. */
+function withoutKeys(data: Record<string, unknown> | undefined, keys: string[]): Record<string, unknown> | undefined {
+  if (!data || !keys.some((k) => k in data)) return data;
+  const copy = { ...data };
+  for (const k of keys) delete copy[k];
+  return copy;
+}
+
 export interface CreateLeadParams {
   /** Имя туриста */
   name: string;
@@ -126,12 +134,15 @@ export async function createLeadDetailed(params: CreateLeadParams): Promise<{ id
   // Вход и инструмент заявки через инструменты Ведара (08.11, владелец:
   // «откуда лиды — человек или ИИ и через какой инструмент»): их знает граница
   // вызова (runPublicTool → lib/leads/entry-context), а не исполнитель, и до
-  // этого чат Кузьмича и A2A записывались как MCP. Записанное исполнителем не
-  // перетирается.
+  // этого чат Кузьмича и A2A записывались как MCP. Вход пишет только граница:
+  // присланный в source_data (анонимная форма POST /api/leads принимает его
+  // целиком) не принимается — иначе форма сайта подписалась бы «ИИ-агент · MCP»
+  // (ревью безопасности #3157). Инструмент вне вызова инструмента — тоже;
+  // внутри него записанный исполнителем не перетирается.
   const entryCtx = currentLeadEntry();
-  const entered = entryCtx && params.source_data?.entry === undefined
-    ? { ...params.source_data, entry: entryCtx.entry, ...(params.source_data?.tool === undefined ? { tool: entryCtx.tool } : {}) }
-    : params.source_data;
+  const entered = entryCtx
+    ? { ...withoutKeys(params.source_data, ['entry']), entry: entryCtx.entry, tool: params.source_data?.tool ?? entryCtx.tool }
+    : withoutKeys(params.source_data, ['entry', 'tool']);
 
   // Отпечаток плана поездки (аудит планировщика 07.11, H8) — пишется в
   // source_data, чтобы следующая заявка с тем же планом его нашла.

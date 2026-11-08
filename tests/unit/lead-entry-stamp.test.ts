@@ -11,6 +11,7 @@
  * A2A и чата — lead-entry-boundary.test.ts.
  */
 import { describe, it, expect, vi, beforeEach } from 'vitest';
+import { NextRequest } from 'next/server';
 
 const { poolQuery, notifyAdmin } = vi.hoisted(() => ({
   poolQuery: vi.fn(),
@@ -19,6 +20,18 @@ const { poolQuery, notifyAdmin } = vi.hoisted(() => ({
 vi.mock('@/lib/db-pool', () => ({ pool: { query: poolQuery } }));
 vi.mock('@/lib/notifications/telegram-channel', () => ({ notifyAdminNewLead: (a: Record<string, unknown>) => notifyAdmin(a) }));
 vi.mock('@/lib/crm/contacts', () => ({ linkContactQuietly: vi.fn(async () => undefined) }));
+// Для пути анонимной формы POST /api/leads — подмена отправок, как в widget-lead-channel.
+vi.mock('@/lib/notifications/telegram', () => ({ telegramService: { sendMessage: vi.fn(async () => null) } }));
+vi.mock('@/lib/notifications/lead-notify', () => ({
+  notifyOperatorNewLead: vi.fn(async () => ({ ok: true })),
+  notifyPartnerNewLeadPersonally: vi.fn(async () => ({ state: 'no_channel' })),
+}));
+vi.mock('@/lib/leads/delivery-outcome', () => ({ recordPartnerDelivery: vi.fn(async () => undefined) }));
+vi.mock('@/lib/notifications/pd-alert', () => ({ sendPdAlert: vi.fn(async () => ({ ok: true })) }));
+vi.mock('@/lib/services/operators/lead-processor.service', () => ({
+  leadProcessor: { process: vi.fn(async () => { throw new Error('не нужен в этом тесте'); }) },
+}));
+vi.mock('@/lib/mcp/handoff', () => ({ attachMcpAttribution: vi.fn(async () => null), MCP_ATTRIBUTION: { cookieName: 'mcp_h' } }));
 
 import { createLeadDetailed, type CreateLeadParams } from '@/lib/leads/create';
 import { currentLeadEntry, withLeadEntry } from '@/lib/leads/entry-context';
@@ -94,6 +107,37 @@ describe('внутри вызова инструмента', () => {
     const arg = notifyAdmin.mock.calls[0]![0];
     expect(arg.pdConsentSource).toBe('mcp');
     expect((arg.sourceData as Record<string, unknown>).entry).toBe('mcp');
+  });
+});
+
+describe('вход пишет только граница вызова', () => {
+  it('анонимная форма прислала entry и tool — они не приняты: заявка с сайта не подписана «ИИ-агент»', async () => {
+    const { POST } = await import('@/app/api/leads/route');
+    const res = await POST(new NextRequest('https://vedarai.ru/api/leads', {
+      method: 'POST',
+      headers: { 'content-type': 'application/json', 'x-forwarded-for': '10.2.0.1' },
+      body: JSON.stringify({
+        name: 'Тест Тестов', phone: '+70000000000', comment: 'Хотим на вулкан в августе, 4 человека',
+        source_url: 'https://vedarai.ru/contact',
+        source_data: { source: 'website', entry: 'mcp', tool: 'create_booking_request' },
+        pd_consent: true,
+      }),
+    }));
+    expect(res.status).toBe(201);
+    const data = insertedSourceData();
+    expect(data).not.toHaveProperty('entry');
+    expect(data).not.toHaveProperty('tool');
+    expect(inserted('source_channel')).not.toBe('mcp');
+    expect(leadOrigin({ source_url: 'https://vedarai.ru/contact', source_data: data, pd_consent_source: 'web-form' }).label)
+      .toBe('Человек · сайт, страница контактов');
+  });
+
+  it('внутри вызова присланный вход не сильнее границы: A2A остаётся A2A', async () => {
+    await withLeadEntry({ entry: 'a2a', tool: 'create_lead' }, () => createLeadDetailed(lead({
+      source_data: { source: 'mcp', entry: 'kuzmich-tg' },
+    })));
+    expect(insertedSourceData()).toMatchObject({ entry: 'a2a', tool: 'create_lead' });
+    expect(inserted('source_channel')).toBe('a2a');
   });
 });
 
