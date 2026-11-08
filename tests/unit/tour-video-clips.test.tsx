@@ -224,6 +224,68 @@ describe('миграция 1404 (клипы «Местечка Камчатка�
   });
 });
 
+describe('миграция 1405 (клипы «Лагуны Экспедиции» — из роликов её сайта и её канала)', () => {
+  const sql = read('migrations/1405_laguna_expedition_tour_clips.sql');
+  const code = sql.split('\n').filter((l) => !l.trimStart().startsWith('--')).join('\n');
+  const pairs = [...code.matchAll(/\('(lagexp-[a-z0-9-]+)', (\d+),\s*jsonb_build_object\('key', '(videos\/[^']+)'/g)]
+    .map((m) => ({ slug: m[1]!, n: Number(m[2]), key: m[3]! }));
+  const tourSlugs = new Set(
+    [...read('migrations/1339_laguna_expedition_tours.sql').matchAll(/'(lagexp-[a-z0-9-]+)'::text/g)].map((m) => m[1]!),
+  );
+
+  it('ключи — только из маркера заливки и лежат в media/s3; каждый клип — H.264 без звука, вертикаль', () => {
+    const marker = JSON.parse(read(MARKER)) as { items: Array<{ key: string; file: string }> };
+    const uploaded = new Set(marker.items.map((i) => i.key));
+    const keys = new Set([...code.matchAll(/'(videos\/[^']+)'/g)].map((m) => m[1]!));
+    expect(keys.size).toBe(26);
+    for (const k of keys) {
+      expect(k.startsWith('videos/lagexp/'), k).toBe(true);
+      expect(uploaded.has(k), k).toBe(true);
+      expect(existsSync(join(ROOT, 'media/s3', k)), k).toBe(true);
+    }
+    for (const k of [...keys].filter((x) => x.endsWith('.mp4'))) {
+      const meta = readFileSync(join(ROOT, 'media/s3', k)).toString('latin1');
+      expect(meta, k).toContain('avc1');
+      expect(meta, k).not.toMatch(/hdlr\0{8}soun/);
+    }
+  });
+
+  it('только туры «Лагуны Экспедиции» из 1339; у тура свой порядок; чужое место туру не ставится', () => {
+    expect(pairs).toHaveLength(28);
+    expect(code).toMatch(/p\.slug = 'laguna-expedition'/);
+    for (const p of pairs) expect(tourSlugs.has(p.slug), p.slug).toBe(true);
+    const bySlug = new Map<string, number[]>();
+    for (const p of pairs) bySlug.set(p.slug, [...(bySlug.get(p.slug) ?? []), p.n]);
+    for (const [slug, ns] of bySlug) expect(ns, slug).toEqual(ns.map((_, i) => i + 1));
+    const toursOf = (clip: string) => pairs.filter((p) => p.key === `videos/lagexp/${clip}.mp4`).map((p) => p.slug).sort();
+    // Осенний мыс Маячный — не зимнему снегоходному туру туда же.
+    expect(toursOf('clip-mayak')).toEqual(['lagexp-mys-mayachnyj-khalaktyrskij-plyazh', 'lagexp-na-kraj-sveta-mys-mayachnyj']);
+    expect(bySlug.has('lagexp-mys-mayachnyj')).toBe(false);
+    // Зимний Халактыр — туда, где он днём программы, а не заменой по погоде.
+    expect(toursOf('clip-khalaktyr-zima')).toEqual([
+      'lagexp-novogodnie-vulkany-kamchatki-laguna-4',
+      'lagexp-novogodnie-vulkany-kamchatki-sanatorij-zhemchuzhina-kamchatki',
+      'lagexp-siti-tur-tuda-gde-vstaet-solntse',
+    ]);
+    expect(bySlug.has('lagexp-novyj-god-na-kamchatke')).toBe(false);
+    // Озеро — только туру с днём на Толмачёва; снегоход с нартой — только туру в нарте.
+    expect(toursOf('clip-ozero-tolmacheva')).toEqual(['lagexp-kamchatka-na-maksimum-osennij-marshrut']);
+    expect(toursOf('clip-dva-vulkana')).toEqual(['lagexp-dva-vulkana-avachinskij-pereval']);
+    // Чьё стойбище и какой источник в «Днях 1 и 3» — неизвестно: этих туров клипы не касаются.
+    for (const s of ['lagexp-pogruzhenie-v-kulturu-severa', 'lagexp-pitomnik-ezdovykh-sobak-snezhnye-psy', 'lagexp-karymshinskie-termalnye-istochniki', 'lagexp-malkinskie-dikie-goryachie-mineralnye-istochniki']) {
+      expect(bySlug.has(s), s).toBe(false);
+    }
+  });
+
+  it('клипы дописываются к своим по порядку, без повтора и не больше восьми', () => {
+    expect(code).toMatch(/SET video_clips = ot\.video_clips \|\| a\.items/);
+    expect(code).toMatch(/jsonb_agg\(c ORDER BY n\)/);
+    expect(code).toMatch(/NOT EXISTS \([\s\S]*e->>'key' = cl\.c->>'key'/);
+    expect(code).toMatch(/WHERE k <= 8 - have/);
+    expect(code).toMatch(/t\.deleted_at IS NULL/);
+  });
+});
+
 describe('миграция 1399 (курильские туры гида: пар вместо «Двух медведей», ещё медведь и лошади)', () => {
   const sql = read('migrations/1399_guide_kurile_lake_clips_more.sql');
   const code = sql.split('\n').filter((l) => !l.trimStart().startsWith('--')).join('\n');
