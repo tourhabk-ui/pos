@@ -31,6 +31,9 @@
  *     ничего не меняет, цену, сменённую самим оператором, миграция не трогает;
  *   - «Дачные горячие источники на вездеходе» без дат и с «от Бесплатно» на
  *     сайте снят с витрины по ответу владельца 08.11 «снять» (1412);
+ *   - шесть новых туров с её сайта по слову владельца 08.11 «да» (1413): на
+ *     витрине, многодневные, цена за человека, программа по дням без строк
+ *     «Экипировка» и реквизитов гостиниц; повтор ничего не плодит;
  *   - Telegram для вопросов из описания её канала (1409): на карточке кнопка
  *     «Написать в Telegram» ведёт на ник фирмы, телефон прежний; свой контакт
  *     оператора повтор не перетирает.
@@ -63,6 +66,17 @@ const EXPEDITION_TELEGRAM = join(process.cwd(), 'migrations', '1409_laguna_exped
 const EXPEDITION_DACHNYE = join(process.cwd(), 'migrations', '1412_laguna_expedition_dachnye_unpublished.sql');
 /** Тур 40399 без дат и цены на сайте — снят по слову владельца 08.11 «снять» (1412). */
 const DACHNYE_VEZDEKHOD = 'lagexp-dachnye-goryachie-istochniki-na-vezdekhode-sever-truck';
+const EXPEDITION_NEW = join(process.cwd(), 'migrations', '1413_laguna_expedition_new_tours.sql');
+/** Новые туры с сайта, заведённые по слову владельца 08.11 «да» (1413): адрес, дней, цена, «страховка» в «не входит». */
+const NEW_1413: Array<{ slug: string; days: number; price: number; insuranceLine: boolean }> = [
+  { slug: 'lagexp-vulkany-kamchatki-4-dnya', days: 4, price: 45000, insuranceLine: true },
+  { slug: 'lagexp-vulkany-kamchatki-5-dnej', days: 5, price: 60000, insuranceLine: true },
+  { slug: 'lagexp-kamchatka-na-maksimum-letnij-marshrut', days: 8, price: 169000, insuranceLine: false },
+  { slug: 'lagexp-kamchatka-letnij-ekspress', days: 6, price: 160000, insuranceLine: false },
+  { slug: 'lagexp-kamchatka-na-maksimum-zimnij-marshrut', days: 7, price: 90000, insuranceLine: false },
+  { slug: 'lagexp-vulkany-kamchatki-4-dnya-novogodnie-prazdniki', days: 4, price: 85000, insuranceLine: false },
+];
+const NEW_1413_SLUGS = NEW_1413.map((t) => t.slug);
 
 /** Туры, которые оператор перенёс в архив на своём сайте (сверка 08.11, 1408). */
 const ARCHIVED_08_11 = [
@@ -398,7 +412,7 @@ withPg('прокат автомобилей на настоящем PostgreSQL',
       expect(r!.short_description).toBe('Правка администратора');
     });
 
-    it('туры с сайта (1339, 1408, 1412): 24 на витрине по цене за человека, «Халактырский пляж», 8 архивных у оператора и «Дачные на вездеходе» — черновики; у каждого адрес страницы', async () => {
+    it('туры с сайта (1339, 1408, 1412, 1413): 30 на витрине по цене за человека, «Халактырский пляж», 8 архивных у оператора и «Дачные на вездеходе» — черновики; у каждого адрес страницы', async () => {
       const { publicTourSql } = await import('@/lib/tours/public-visibility');
       const all = await pool.query<{ slug: string; pub: boolean; unit: string; src: string | null; photos: number }>(
         `SELECT t.slug, (${publicTourSql('t')}) AS pub, t.price_unit AS unit, t.source_url AS src,
@@ -406,7 +420,7 @@ withPg('прокат автомобилей на настоящем PostgreSQL',
            FROM operator_tours t JOIN partners p ON p.id = t.operator_id
           WHERE p.slug = 'laguna-expedition' AND t.slug LIKE 'lagexp-%'`,
       );
-      expect(all.rows).toHaveLength(34);
+      expect(all.rows).toHaveLength(40);
       const drafts = all.rows.filter((r) => !r.pub).map((r) => r.slug).sort();
       expect(drafts).toEqual(['lagexp-khalaktyrskij-plyazh', ...ARCHIVED_08_11, DACHNYE_VEZDEKHOD].sort());
       expect(all.rows.filter((r) => r.pub).every((r) => r.unit === 'per_person')).toBe(true);
@@ -415,7 +429,8 @@ withPg('прокат автомобилей на настоящем PostgreSQL',
       // владельца 29.10 «они дали добро на использоваеие»): у каждого тура
       // галерея есть. Цепочку 1339 → 1343 по одному снимку судит
       // operators-list.pg.test.ts.
-      expect(all.rows.every((r) => r.photos > 0)).toBe(true);
+      // У шести туров 1413 снимков пока нет — их кладёт своя миграция снимков.
+      expect(all.rows.filter((r) => !NEW_1413_SLUGS.includes(r.slug)).every((r) => r.photos > 0)).toBe(true);
       // Трансферы и индивидуальный тур без цены не переносятся.
       expect(all.rows.map((r) => r.src).filter((u) => /\/(41878|42011|41424)-/.test(u ?? ''))).toEqual([]);
     });
@@ -425,11 +440,11 @@ withPg('прокат автомобилей на настоящем PostgreSQL',
       const res = await queryOperators(OperatorsQuerySchema.parse({ search: 'Лагуна', limit: 50 }));
       const item = res.items.find((i) => i.name === 'Лагуна Экспедиция');
       // 34 тура 1339: «Халактырский пляж» — черновик, 8 сняты 1408 (архив у оператора),
-      // «Дачные на вездеходе» — 1412.
-      expect(item?.tourFacts?.total).toBe(24);
+      // «Дачные на вездеходе» — 1412; и 6 новых 1413.
+      expect(item?.tourFacts?.total).toBe(30);
       await pool.query(readFileSync(EXPEDITION_TOURS, 'utf8'));
       const { rows: [n] } = await pool.query<{ n: number }>(`SELECT count(*)::int AS n FROM operator_tours WHERE slug LIKE 'lagexp-%'`);
-      expect(n!.n).toBe(34);
+      expect(n!.n).toBe(40);
     });
 
     it('1408: архивные туры не на витрине, но целы; цена «оленей» 9 000 с датой сверки; повтор и правка оператора', async () => {
@@ -495,7 +510,59 @@ withPg('прокат автомобилей на настоящем PostgreSQL',
       const { rows: [kept] } = await pool.query<{ n: number }>(
         `SELECT count(*)::int AS n FROM operator_tours t WHERE t.slug LIKE 'lagexp-%' AND (${publicTourSql('t')})`,
       );
-      expect(kept!.n).toBe(24);
+      expect(kept!.n).toBe(30);
+    });
+
+    it('1413: шесть новых туров на витрине — многодневные, цена за человека, программа по дням без «Экипировки» и реквизитов; повтор ничего не плодит', async () => {
+      const { publicTourSql } = await import('@/lib/tours/public-visibility');
+      type Row = {
+        slug: string; pub: boolean; price: string; unit: string; dur: string; dtype: string; days: number;
+        program: Array<{ title: string; text: string }>; not_incl: string[]; bring: string[]; src: string; note: string;
+      };
+      const rows = async () => (await pool.query<Row>(
+        `SELECT t.slug, (${publicTourSql('t')}) AS pub, t.base_price::text AS price, t.price_unit AS unit,
+                t.duration_hours::text AS dur, t.duration_type AS dtype, t.multi_day_count AS days,
+                t.program, t.not_included AS not_incl, t.what_to_bring AS bring, t.source_url AS src, t.price_note AS note
+           FROM operator_tours t JOIN partners p ON p.id::text = t.operator_id::text
+          WHERE p.slug = 'laguna-expedition' AND t.slug = ANY($1::text[]) ORDER BY t.slug`, [NEW_1413_SLUGS],
+      )).rows;
+      const got = await rows();
+      expect(got.map((r) => r.slug)).toEqual([...NEW_1413_SLUGS].sort());
+      for (const want of NEW_1413) {
+        const r = got.find((x) => x.slug === want.slug)!;
+        expect(r, want.slug).toMatchObject({ pub: true, unit: 'per_person', dtype: 'multi_day', days: want.days });
+        expect(Number(r.price), want.slug).toBe(want.price);
+        expect(Number(r.dur), want.slug).toBe(want.days * 24);
+        // Программа по дням, по одному на день, подписанная «День N. …».
+        expect(r.program.map((d) => d.title.replace(/\..*/, '')), want.slug)
+          .toEqual(Array.from({ length: want.days }, (_, i) => `День ${i + 1}`));
+        for (const d of r.program) {
+          expect(d.text.length, `${want.slug} ${d.title}`).toBeGreaterThan(0);
+          expect(d.text, `${want.slug} ${d.title}`).not.toMatch(/Экипировка:|Номер реестровой записи|ИНН|ОГРН|https?:\/\//);
+        }
+        expect(r.bring.length, want.slug).toBeGreaterThan(0);
+        expect(r.not_incl.includes('страховка'), want.slug).toBe(want.insuranceLine);
+        expect(r.note.startsWith(`Цена от ${want.price.toLocaleString('ru-RU').replace(/\s/g, ' ')} ₽ за человека по сайту оператора на 08.11.2026.`), want.slug).toBe(true);
+        expect(r.src, want.slug).toMatch(/^https:\/\/laguna-expedition\.ru\/tours\/(36212|36214|37577|37584|41610|51446)-/);
+      }
+      // Индивидуальный тур без цены (41467) не переносится.
+      const { rows: [ind] } = await pool.query<{ n: number }>(
+        `SELECT count(*)::int AS n FROM operator_tours WHERE source_url ~ '/tours/41467-'`,
+      );
+      expect(ind!.n).toBe(0);
+
+      // Повтор ничего не плодит и молчит.
+      const before = JSON.stringify(got);
+      const notices: string[] = [];
+      const client = await pool.connect();
+      try {
+        client.on('notice', (n) => notices.push(String(n.message)));
+        await client.query(readFileSync(EXPEDITION_NEW, 'utf8'));
+      } finally {
+        client.release();
+      }
+      expect(JSON.stringify(await rows())).toBe(before);
+      expect(notices.filter((m) => m.startsWith('[1413]'))).toEqual([]);
     });
 
     // Последним: портит телефон «Лагуны Прокат» в базе этого файла.
