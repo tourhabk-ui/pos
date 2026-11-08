@@ -102,6 +102,14 @@ describe('ответ сервера: байты с нашего домена, н
     expect((await get(['photos', 'partners', 'logo.png'])).headers.get('content-type')).toBe('image/png');
   });
 
+  it('svg и прочие типы хранилища на нашем домене не отдаются — только по расширению ключа', async () => {
+    stubStorage(() => new Response(JPEG, { status: 200, headers: { 'content-type': 'image/svg+xml' } }));
+    expect((await get(KEY)).headers.get('content-type')).toBe('image/jpeg');
+    vi.unstubAllGlobals();
+    stubStorage(() => new Response(JPEG, { status: 200, headers: { 'content-type': 'image/gif' } }));
+    expect((await get(['photos', 'partners', 'logo.png'])).headers.get('content-type')).toBe('image/png');
+  });
+
   it('тип, названный хранилищем, сильнее расширения: JPEG под именем .png отдаётся JPEG', async () => {
     stubStorage(() => new Response(JPEG, { status: 200, headers: { 'content-type': 'image/jpeg' } }));
     expect((await get(['photos', 'fishingkam', '2025-01-09_113932-mi.png'])).headers.get('content-type')).toBe('image/jpeg');

@@ -111,7 +111,10 @@ describe('1343: снимки туров «Лагуны Экспедиции» �
       const checked = checkItem({ file, key }, ROOT);
       expect(typeof checked === 'string' ? checked : 'ok', key).toBe('ok');
     }
-    const onDisk = readdirSync(join(ROOT, DIR)).map((f) => `/api/images/s3/photos/laguna-expedition/${f}`).sort();
+    // Уменьшенные копии .320/.640/.1280.webp (08.11) — не снимки, у них своя проверка в media-to-s3.test.ts.
+    const onDisk = readdirSync(join(ROOT, DIR))
+      .filter((f) => !/\.(320|640|1280)\.webp$/.test(f))
+      .map((f) => `/api/images/s3/photos/laguna-expedition/${f}`).sort();
     expect(onDisk, 'файл в media/s3 без тура или тур без файла').toEqual([...URLS].sort());
   });
 
