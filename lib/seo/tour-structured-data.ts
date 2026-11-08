@@ -9,6 +9,8 @@
 
 import { stripHtmlTags } from '@/lib/text/strip-html';
 import type { OfferAvailability } from '@/lib/tours/open-dates';
+import { seasonAhead, seasonDates } from '@/lib/tours/season';
+import { kamchatkaToday } from '@/lib/planner/calendar-days';
 
 export interface TourSeoInput {
   id: string | number;
@@ -28,9 +30,9 @@ export interface TourSeoInput {
   longitude?: string | number | null;
   /**
    * Сезон для Offer.availabilityStarts/Ends. В БД `operator_tours.season_start`
-   * — ДАТА (`2026-06-01`), а не номер месяца, поэтому принимаем оба вида и
-   * нормализуем в `seasonMonth()`. Раньше тип обещал число, строка приезжала
-   * молча, и в разметку уходило `2026-2026-06-01-01` — мусор для поисковиков.
+   * — ДАТА (`2027-07-19`); node-postgres отдаёт её объектом `Date`. Разбор —
+   * `seasonDates()` (lib/tours/season): даты идут в разметку как есть, номер
+   * месяца без года и битое значение сезона не дают, страница не падает.
    */
   season_start?: string | number | Date | null;
   season_end?: string | number | Date | null;
@@ -73,6 +75,8 @@ export interface TourSeoOpts {
    * стояло `InStock` всегда — и у тура, все даты которого разобраны.
    */
   availability: OfferAvailability | null;
+  /** Сегодня по Камчатке (YYYY-MM-DD) — для сезона; по умолчанию текущий день. */
+  today?: string;
 }
 
 /** @id организации оператора — один для карточки тура и страницы оператора. */
@@ -103,31 +107,6 @@ export function operatorOrganization(
 function isoDate(d: string | Date): string {
   if (typeof d === 'string') return d.slice(0, 10);
   return d.toISOString().slice(0, 10);
-}
-
-/**
- * Месяц сезона (1–12) из значения БД.
- *
- * Принимает ЧТО УГОДНО и не бросает. Причина конкретная: колонка
- * `operator_tours.season_start` имеет тип DATE, а node-postgres отдаёт DATE
- * объектом `Date`, а не строкой. Прежняя версия звала `.trim()` и падала на
- * этом — карточка тура отдавала «Ошибка загрузки тура» вместо страницы.
- * Разбор значения из БД не имеет права ронять страницу.
- */
-function seasonMonth(v: unknown): number | null {
-  if (v == null) return null;
-  if (v instanceof Date) {
-    return Number.isNaN(v.getTime()) ? null : v.getUTCMonth() + 1;
-  }
-  if (typeof v === 'number') {
-    return Number.isInteger(v) && v >= 1 && v <= 12 ? v : null;
-  }
-  const s = String(v).trim();
-  if (!s) return null;
-  const asNum = Number(s);
-  if (Number.isInteger(asNum) && asNum >= 1 && asNum <= 12) return asNum;
-  const d = new Date(s);
-  return Number.isNaN(d.getTime()) ? null : d.getUTCMonth() + 1;
 }
 
 /**
@@ -254,7 +233,13 @@ export function buildTourStructuredData(
     : undefined;
 
   const operator = operatorOrganization(siteUrl, tour);
-  const year = new Date().getFullYear();
+  // Сезон — настоящими датами из базы (lib/tours/season, 08.11). Прежде здесь
+  // стояли текущий год и дни 1 и 28: сезон 19.07–29.09.2027 уходил в разметку
+  // как 01.07–28.09.2026 — для поисковика предложение уже кончилось. Сезон
+  // прошёл — дат в разметке нет: прошедшие объявлять незачем, будущих мы не
+  // знаем.
+  const season = seasonDates(tour.season_start, tour.season_end);
+  const today = opts.today ?? kamchatkaToday();
   const offer = {
     '@type': 'Offer',
     price,
@@ -262,11 +247,8 @@ export function buildTourStructuredData(
     ...(availability ? { availability } : {}),
     url: canonicalUrl,
     seller: operator,
-    ...(seasonMonth(tour.season_start) && seasonMonth(tour.season_end)
-      ? {
-          availabilityStarts: `${year}-${String(seasonMonth(tour.season_start)).padStart(2, '0')}-01`,
-          availabilityEnds: `${year}-${String(seasonMonth(tour.season_end)).padStart(2, '0')}-28`,
-        }
+    ...(season && seasonAhead(season, today)
+      ? { availabilityStarts: season.start, availabilityEnds: season.end }
       : {}),
   };
 

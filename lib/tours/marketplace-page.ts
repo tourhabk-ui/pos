@@ -10,6 +10,9 @@ import type { MarketplaceToursFilters, MarketplaceTourRow } from '@/lib/search';
 import { tourPath } from '@/lib/tours/tour-url';
 import { absolutePhotoUrls } from '@/lib/notifications/photo-urls';
 
+/** Сколько туров каталог отдаёт в первом HTML — потолок `limit` роута туров. */
+export const CATALOG_FIRST_PAGE = 100;
+
 const SORT_VALUES = ['recommended', 'price_asc', 'price_desc', 'recent'] as const;
 const DIFFICULTY_VALUES = ['easy', 'medium', 'hard'] as const;
 const DURATION_VALUES = ['day', 'half_day', 'multi_day'] as const;
@@ -53,7 +56,11 @@ export function parseMarketplaceSearchParams(
       ...(durationType ? { duration_type: durationType } : {}),
       ...(priceRange?.min != null ? { price_min: priceRange.min } : {}),
       ...(priceRange?.max != null ? { price_max: priceRange.max } : {}),
-      limit: 50,
+      // Сервер отдаёт в HTML весь каталог до потолка роута (100), а не первые
+      // 50 (08.11): остальные подгружались кнопкой «Показать ещё», которую
+      // робот поисковика не нажимает, — 25 туров из 75 не имели ни одной
+      // ссылки из каталога. Кнопка остаётся для каталога больше потолка.
+      limit: CATALOG_FIRST_PAGE,
       offset: 0,
     },
     initialKey: JSON.stringify({

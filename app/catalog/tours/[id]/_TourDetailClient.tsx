@@ -4,6 +4,7 @@ import { kuzmichAskHref } from '@/lib/kuzmich/ask-link';
 import { tourAskQuestion } from '@/lib/kuzmich/tour-ask';
 import AskYourAi from '@/components/kuzmich/AskYourAi';
 import { sellerRequisitesLine } from '@/lib/tours/seller-requisites';
+import { seasonLabel as formatSeasonLabel } from '@/lib/tours/season';
 import { wishlistFailureText } from '@/lib/wishlist/contract';
 import { useState, useCallback, useEffect, useMemo, useRef } from 'react';
 import { useRouter } from 'next/navigation';
@@ -311,14 +312,6 @@ function formatDuration(tour: TourFull): string | null {
 }
 
 /** Принимает и строку, и `Date` из БД; на мусоре молча возвращает null. */
-function formatSeason(start: string | Date | null, end: string | Date | null): string | null {
-  if (!start || !end) return null;
-  const months = ['Янв','Фев','Мар','Апр','Май','Июн','Июл','Авг','Сен','Окт','Ноя','Дек'];
-  const s = new Date(start), e = new Date(end);
-  if (Number.isNaN(s.getTime()) || Number.isNaN(e.getTime())) return null;
-  return `${months[s.getMonth()]} — ${months[e.getMonth()]}`;
-}
-
 function formatPrice(p: number): string {
   return new Intl.NumberFormat('ru-RU').format(p) + ' ₽';
 }
@@ -543,7 +536,9 @@ export default function TourDetailClient({ tour, reviews = [], askSeatsFirst = f
   const durationLabel = formatDuration(tour);
   const diffBadge = tour.difficulty ? DIFFICULTY_MAP[tour.difficulty] : null;
   const priceLabel = priceUnitLabel(tour.price_unit);
-  const seasonLabel = formatSeason(tour.season_start, tour.season_end);
+  // Сезон с днями и годом (lib/tours/season, 08.11): «Июл — Сен» без года
+  // делал прошедший сезон 2026 неотличимым от будущего.
+  const seasonLabel = formatSeasonLabel(tour.season_start, tour.season_end);
   const rating = tour.rating ? Number(tour.rating) : 0;
 
   const allPhotos = tour.photos?.length ? tour.photos : (tour.tour_image ? [tour.tour_image] : []);
