@@ -11,6 +11,10 @@ import {
 import { readApiResponse } from '@/lib/http/api-response';
 import MainPlacePicker, { asMainPlaceSource, type MainPlaceValue } from '@/components/operator/Tours/MainPlacePicker';
 import TourDateAdd from '@/components/operator/Tours/TourDateAdd';
+import {
+  TourProgramSection, TourSafetySection, TourVideosSection, PhotoCreditField, TouristViewLink,
+  operatorExtrasOf, operatorExtrasBody, operatorExtrasGaps, photoCaption, type OperatorTourExtras,
+} from '@/components/operator/Tours/TourExtras';
 
 // ─── Типы ───────────────────────────────────────────────────────────────────
 
@@ -53,7 +57,17 @@ interface TourData {
   main_place_id?: string | null;
   main_place_name?: string | null;
   main_place_source?: string | null;
+  /** Программа дня, правила, клипы (с адресами превью) — как у формы гида (08.11). */
+  program?: unknown;
+  safety_notes?: unknown;
+  video_clips?: unknown;
+  /** Подписи снимков из карты партнёра (адрес → автор). */
+  photo_credits?: { [url: string]: string };
+  /** Видит ли тур турист — ответ шлюза каталога. */
+  on_storefront?: boolean | null;
 }
+
+const NO_EXTRAS: OperatorTourExtras = { program: [], safety_notes: '', video_clips: [], photo_credit: '' };
 
 // ─── Константы ──────────────────────────────────────────────────────────────
 
@@ -121,6 +135,10 @@ export default function EditTourClient() {
   // Главное место тура — выбор из справочника (аудит 15.10, TOUR-PLACE).
   const [mainPlace, setMainPlace] = useState<MainPlaceValue | null>(null);
   const [photos, setPhotos] = useState<string[]>([]);
+  // Программа, правила, видео, подпись снимков: что загружено и что сейчас.
+  // В правку уходит только изменённое (components/operator/Tours/TourExtras).
+  const [extras, setExtras] = useState<OperatorTourExtras>(NO_EXTRAS);
+  const [extrasLoaded, setExtrasLoaded] = useState<OperatorTourExtras>(NO_EXTRAS);
   const [newPhotoUrl, setNewPhotoUrl] = useState('');
   const [uploading, setUploading] = useState(false);
   const fileInputRef = useRef<HTMLInputElement>(null);
@@ -175,6 +193,9 @@ export default function EditTourClient() {
         const t: TourData = json.data;
         setTour(t);
         setPhotos(t.photos || []);
+        const x = operatorExtrasOf(t);
+        setExtras(x);
+        setExtrasLoaded(x);
         setMainPlace(t.main_place_id ? { id: t.main_place_id, name: t.main_place_name ?? t.main_place_id } : null);
         setForm({
           title: t.title,
@@ -237,6 +258,12 @@ export default function EditTourClient() {
   }
 
   async function handleSave() {
+    // Чего не хватает программе, правилам и видео — словами, до отправки.
+    const gaps = operatorExtrasGaps(extras, photos);
+    if (gaps.length > 0) {
+      setError(`Чтобы сохранить, не хватает: ${gaps.join(', ')}.`);
+      return;
+    }
     setSaving(true);
     setError(null);
     setSuccess(false);
@@ -276,6 +303,9 @@ export default function EditTourClient() {
         photos,
         // Роут пишет только перемену и проверяет, что место живое.
         main_place_id: mainPlace?.id ?? null,
+        // Программа, правила, видео — только изменённое; подпись снимков —
+        // когда автор назван.
+        ...operatorExtrasBody(extrasLoaded, extras, photos),
       };
 
       // Незаполненный тип не отправляется вовсе: PATCH частичный, и «поле не
@@ -304,8 +334,20 @@ export default function EditTourClient() {
           ? (mainPlace.id === prev.main_place_id ? prev.main_place_source : 'operator')
           : null,
       }));
+      setExtrasLoaded(extras);
       setSuccess(true);
       setTimeout(() => setSuccess(false), 3000);
+      // Подписи снимков и «видит ли турист» после записи — с сервера: их
+      // решает не форма (карта партнёра, шлюз каталога).
+      try {
+        const fresh = await fetch(`/api/hub/operator/tours/${tourId}`);
+        const fj = await fresh.json() as { success?: boolean; data?: TourData };
+        if (!fresh.ok || !fj.success || !fj.data) throw new Error(`HTTP ${fresh.status}`);
+        const d = fj.data;
+        setTour(prev => prev && ({ ...prev, photo_credits: d.photo_credits, on_storefront: d.on_storefront }));
+      } catch {
+        setError('Сохранено, но подписи фото и видимость для туристов не обновились — обновите страницу');
+      }
     } catch (e) {
       setError(e instanceof Error ? e.message : 'Ошибка');
     } finally {
@@ -351,6 +393,7 @@ export default function EditTourClient() {
           </button>
           <h1 className="text-lg font-semibold text-[var(--text-primary)]">Редактирование тура</h1>
           <p className="text-xs text-[var(--text-muted)] mt-0.5">#{tour.id} · {tour.title}</p>
+          <div className="mt-1"><TouristViewLink tourId={tour.id} onStorefront={tour.on_storefront} /></div>
         </div>
         <div className="flex gap-2 shrink-0">
           <button onClick={() => router.push('/hub/operator/tours')}
@@ -425,34 +468,37 @@ export default function EditTourClient() {
         {photos.length > 0 ? (
           <div className="grid grid-cols-3 sm:grid-cols-4 gap-2 mb-3">
             {photos.map((photo, idx) => (
-              <div key={idx} className="relative group">
-                {/* eslint-disable-next-line @next/next/no-img-element */}
-                <img
-                  src={photo}
-                  alt={`Фото ${idx + 1}`}
-                  className="w-full h-24 object-cover rounded-lg border border-[var(--border)]"
-                  onError={e => { (e.target as HTMLImageElement).style.opacity = '0.3'; }}
-                />
-                <div className="absolute inset-0 bg-black/50 opacity-100 md:opacity-0 md:group-hover:opacity-100 transition-opacity rounded-lg flex items-center justify-center gap-1.5">
-                  <button type="button"
-                    onClick={() => setPhotos(p => p.filter((_, i) => i !== idx))}
-                    className="p-1.5 bg-[var(--danger)] rounded-lg text-white hover:bg-[var(--danger)]/80">
-                    <X className="w-3.5 h-3.5" />
-                  </button>
-                  {idx > 0 && (
+              <div key={idx}>
+                <div className="relative group">
+                  {/* eslint-disable-next-line @next/next/no-img-element */}
+                  <img
+                    src={photo}
+                    alt={`Фото ${idx + 1}`}
+                    className="w-full h-24 object-cover rounded-lg border border-[var(--border)]"
+                    onError={e => { (e.target as HTMLImageElement).style.opacity = '0.3'; }}
+                  />
+                  <div className="absolute inset-0 bg-black/50 opacity-100 md:opacity-0 md:group-hover:opacity-100 transition-opacity rounded-lg flex items-center justify-center gap-1.5">
                     <button type="button"
-                      onClick={() => setPhotos(p => { const a=[...p]; [a[idx-1],a[idx]]=[a[idx],a[idx-1]]; return a; })}
-                      className="p-1.5 bg-[var(--bg-card)] rounded-lg text-[var(--text-primary)] text-xs font-bold hover:bg-[var(--bg-hover)]">←</button>
-                  )}
-                  {idx < photos.length - 1 && (
-                    <button type="button"
-                      onClick={() => setPhotos(p => { const a=[...p]; [a[idx],a[idx+1]]=[a[idx+1],a[idx]]; return a; })}
-                      className="p-1.5 bg-[var(--bg-card)] rounded-lg text-[var(--text-primary)] text-xs font-bold hover:bg-[var(--bg-hover)]">→</button>
+                      onClick={() => setPhotos(p => p.filter((_, i) => i !== idx))}
+                      className="p-1.5 bg-[var(--danger)] rounded-lg text-white hover:bg-[var(--danger)]/80">
+                      <X className="w-3.5 h-3.5" />
+                    </button>
+                    {idx > 0 && (
+                      <button type="button"
+                        onClick={() => setPhotos(p => { const a=[...p]; [a[idx-1],a[idx]]=[a[idx],a[idx-1]]; return a; })}
+                        className="p-1.5 bg-[var(--bg-card)] rounded-lg text-[var(--text-primary)] text-xs font-bold hover:bg-[var(--bg-hover)]">←</button>
+                    )}
+                    {idx < photos.length - 1 && (
+                      <button type="button"
+                        onClick={() => setPhotos(p => { const a=[...p]; [a[idx],a[idx+1]]=[a[idx+1],a[idx]]; return a; })}
+                        className="p-1.5 bg-[var(--bg-card)] rounded-lg text-[var(--text-primary)] text-xs font-bold hover:bg-[var(--bg-hover)]">→</button>
+                    )}
+                  </div>
+                  {idx === 0 && (
+                    <span className="absolute top-1 left-1 text-[9px] bg-[var(--accent)] text-white px-1.5 py-0.5 rounded font-medium">Главное</span>
                   )}
                 </div>
-                {idx === 0 && (
-                  <span className="absolute top-1 left-1 text-[9px] bg-[var(--accent)] text-white px-1.5 py-0.5 rounded font-medium">Главное</span>
-                )}
+                <p className="text-[10px] text-[var(--text-muted)] mt-1 truncate">{photoCaption(photo, tour.photo_credits ?? {})}</p>
               </div>
             ))}
           </div>
@@ -508,7 +554,10 @@ export default function EditTourClient() {
           </button>
         </div>
         <p className="text-[10px] text-[var(--text-muted)]">Первое фото — главное на карточке. Hover → удалить или поменять порядок.</p>
+        <PhotoCreditField photos={photos} credits={tour.photo_credits ?? {}} value={extras} onChange={setExtras} />
       </section>
+
+      <TourVideosSection value={extras} onChange={setExtras} />
 
       {/* Категории */}
       <section id="location" className="scroll-mt-20 bg-[var(--bg-card)] border border-[var(--border)] rounded-xl p-5 space-y-4">
@@ -648,6 +697,8 @@ export default function EditTourClient() {
         </div>
       </section>
 
+      <TourProgramSection value={extras} onChange={setExtras} />
+
       {/* Состав тура */}
       <section className="bg-[var(--bg-card)] border border-[var(--border)] rounded-xl p-5 space-y-4">
         <p className={heading}>Состав тура</p>
@@ -698,6 +749,8 @@ export default function EditTourClient() {
           </p>
         </div>
       </section>
+
+      <TourSafetySection value={extras} onChange={setExtras} />
 
       {/* Расписание / доступность */}
       <section id="schedule" className="scroll-mt-20 bg-[var(--bg-card)] border border-[var(--border)] rounded-xl p-5 space-y-4">

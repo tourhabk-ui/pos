@@ -2,6 +2,12 @@
  * GET   /api/hub/operator/tours/[id] — Get single tour
  * PATCH /api/hub/operator/tours/[id] — Update tour
  * DELETE /api/hub/operator/tours/[id] — Soft-delete tour
+ *
+ * С 08.11 правка несёт и программу дня, правила безопасности, клипы и
+ * подпись снимков — те же поля и пределы, что у формы гида
+ * (lib/guides/own-tour-edit); подпись уходит в карту авторов владельца тура
+ * (lib/tours/editor-media). GET отдаёт форме клипы с адресами превью,
+ * подписи снимков и «видит ли тур турист» (шлюз каталога).
  */
 
 import { NextRequest, NextResponse } from 'next/server';
@@ -15,6 +21,7 @@ import {
 } from '@/lib/api/operator-tours';
 import { MainPlaceRejected } from '@/lib/tours/main-place';
 import { writeTourPatch } from '@/lib/tours/tour-write';
+import { editorClips, photoCreditsOf, writePhotoCredits } from '@/lib/tours/editor-media';
 import { transaction } from '@/lib/database';
 import { pingTourChanged } from '@/lib/seo/indexnow';
 import { getOperatorPartnerId } from '@/lib/auth/operator-helpers';
@@ -63,7 +70,12 @@ export async function GET(
       return NextResponse.json({ error: 'Tour not found' }, { status: 404 });
     }
 
-    return NextResponse.json({ success: true, data: tour });
+    // Клипы — с адресами для превью в форме, подписи — только строки (08.11,
+    // те же правила, что у формы гида: lib/tours/editor-media).
+    return NextResponse.json({
+      success: true,
+      data: { ...tour, video_clips: editorClips(tour.video_clips), photo_credits: photoCreditsOf(tour.photo_credits) },
+    });
   } catch (error) {
     const e = error as { code?: string; message?: string };
     console.error('[hub/operator/tours/[id]] GET отказ:', `sqlstate=${e?.code ?? 'нет'}`, e?.message ?? String(error));
@@ -98,7 +110,9 @@ export async function PATCH(
     }
 
     const body = await request.json();
-    const input = UpdateTourSchema.parse(body);
+    // Подпись снимков — не колонка тура: она уходит в карту авторов
+    // владельца тура (partners.gallery_credits), как у формы гида.
+    const { photo_credit: photoCredit, ...input } = UpdateTourSchema.parse(body);
 
     // Вид места и активности: сохранённое у тура проходит как было (туры из
     // миграций несут jeep_safari, snowmobile, sightseeing…), новое — только из
@@ -119,12 +133,20 @@ export async function PATCH(
     // Запись — общая функция (lib/tours/tour-write): тем же путём тур гида
     // правится из чата кабинета. Владение уже проверено выше; функция
     // проверяет его ещё раз в самом UPDATE. Теги — в той же транзакции.
-    const written = await transaction((client) => writeTourPatch(client, {
-      tourId,
-      ownerId: isAdmin ? null : operator_id,
-      input,
-      current: tour as Record<string, unknown>,
-    }));
+    const written = await transaction(async (client) => {
+      const w = await writeTourPatch(client, {
+        tourId,
+        ownerId: isAdmin ? null : operator_id,
+        input,
+        current: tour as Record<string, unknown>,
+      });
+      // «Фото: <автор>» снимкам тура без подписи — в карту владельца тура
+      // (у администратора тоже: снимки принадлежат партнёру, не правящему).
+      if (w.outcome === 'written' && photoCredit && input.photos?.length && typeof tour.operator_id === 'string') {
+        await writePhotoCredits(client, tour.operator_id, photoCredit, input.photos);
+      }
+      return w;
+    });
     if (written.outcome === 'empty') {
       return NextResponse.json({ error: 'No fields to update' }, { status: 400 });
     }

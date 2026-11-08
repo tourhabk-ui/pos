@@ -40,27 +40,37 @@ export function isOwnTourPhotoUrl(url: string): boolean {
 
 const draft = OwnTourDraftSchema.shape;
 
+/**
+ * Программа, правила безопасности, клипы и подпись снимков — одни пределы у
+ * гида и у оператора (08.11: форма оператора взяла эти блоки из кабинета
+ * гида, и правила записи не должны разойтись вместе с формами).
+ */
+export const TourProgramEditSchema = draft.program.unwrap().nullable();
+export const TourSafetyNotesEditSchema = draft.safety_notes.unwrap().nullable();
+export const TourClipsEditSchema = z.array(z.object({
+  key: z.string().regex(OWN_CLIP_KEY, 'Видео — только загруженное здесь же').refine((k) => !k.includes('..'), 'Видео — только загруженное здесь же'),
+  poster: z.string().regex(OWN_POSTER_KEY, 'Обложка видео — только загруженная здесь же').refine((k) => !k.includes('..'), 'Обложка видео — только загруженная здесь же'),
+  label: z.string().trim().min(1).max(120),
+}).strict()).max(MAX_TOUR_CLIPS, `Не больше ${MAX_TOUR_CLIPS} видео`);
+/** Чьи снимки — подпись «Фото: …» к новым фото тура (partners.gallery_credits). */
+export const PhotoCreditEditSchema = z.string().trim().min(2, 'Автор снимков — хотя бы 2 знака').max(120);
+
 export const OwnTourEditSchema = OwnTourDraftSchema.pick({
   title: true, base_price: true, max_participants: true, description: true,
 }).extend({
   price_unit: z.enum(['per_person', 'per_tour']),
   short_description: z.string().trim().max(500).nullable(),
-  program: draft.program.unwrap().nullable(),
+  program: TourProgramEditSchema,
   included: draft.included.unwrap().nullable(),
   not_included: draft.not_included.unwrap().nullable(),
   what_to_bring: draft.what_to_bring.unwrap().nullable(),
-  safety_notes: draft.safety_notes.unwrap().nullable(),
+  safety_notes: TourSafetyNotesEditSchema,
   photos: z.array(z.string().trim().max(500).refine(isOwnTourPhotoUrl, 'Фото — только загруженное здесь же'))
     .max(OWN_TOUR_PHOTOS_MAX, `Не больше ${OWN_TOUR_PHOTOS_MAX} фото`),
   // Сезон (05.11): даты вне сезона открытие отклоняет, а поменять сезон гиду
   // было негде — Андрей открыл Горелый 15.07–15.10 и не смог добавить 1–14.07.
-  video_clips: z.array(z.object({
-    key: z.string().regex(OWN_CLIP_KEY, 'Видео — только загруженное здесь же').refine((k) => !k.includes('..'), 'Видео — только загруженное здесь же'),
-    poster: z.string().regex(OWN_POSTER_KEY, 'Обложка видео — только загруженная здесь же').refine((k) => !k.includes('..'), 'Обложка видео — только загруженная здесь же'),
-    label: z.string().trim().min(1).max(120),
-  }).strict()).max(MAX_TOUR_CLIPS, `Не больше ${MAX_TOUR_CLIPS} видео`),
-  /** Чьи снимки — подпись «Фото: …» к новым фото тура (partners.gallery_credits). */
-  photo_credit: z.string().trim().min(2, 'Автор снимков — хотя бы 2 знака').max(120),
+  video_clips: TourClipsEditSchema,
+  photo_credit: PhotoCreditEditSchema,
   season_start: z.string().date('Начало сезона — дата').nullable(),
   season_end: z.string().date('Конец сезона — дата').nullable(),
 }).partial().strict().refine(

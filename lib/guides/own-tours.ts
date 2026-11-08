@@ -20,7 +20,7 @@ import { LEAD_WAITING_STATUSES } from '@/lib/leads/owner-lead-words';
 import { publicTourSql } from '@/lib/tours/public-visibility';
 import { publishBlockersSql } from '@/lib/guides/own-tour-publish';
 import { normalizeField } from '@/lib/guides/tour-edit/store';
-import { s3PublicUrl } from '@/lib/storage/s3';
+import { editorClips, photoCreditsOf, type EditorClip } from '@/lib/tours/editor-media';
 import type { TourProgramStep } from '@/lib/tours/tour-write';
 
 export interface OwnTour {
@@ -44,7 +44,7 @@ export interface OwnTour {
   safety_notes: string[] | null;
   photos: string[];
   /** Клипы тура (1194) — ключи хранилища и адреса для превью. */
-  video_clips: Array<{ key: string; poster: string; label: string; url: string; posterUrl: string }>;
+  video_clips: EditorClip[];
   /** Имя карточки гида — подпись «Фото: …» по умолчанию. */
   partner_name: string;
   /** Подписи снимков тура из карты партнёра (адрес → автор). */
@@ -120,29 +120,9 @@ export async function loadOwnTours(partnerId: string): Promise<OwnTour[]> {
     what_to_bring: normalizeField('what_to_bring', r.what_to_bring) as string[] | null,
     safety_notes: normalizeField('safety_notes', r.safety_notes) as string[] | null,
     photos: Array.isArray(r.photos) ? r.photos.filter((p): p is string => typeof p === 'string' && p.trim().length > 0) : [],
-    video_clips: ownClips(r.video_clips),
-    photo_credits: credits(r.photo_credits),
+    video_clips: editorClips(r.video_clips),
+    photo_credits: photoCreditsOf(r.photo_credits),
   }));
-}
-
-/** Клипы своего тура: только ключи формы загрузки, с адресами для превью. */
-function ownClips(raw: unknown): OwnTour['video_clips'] {
-  if (!Array.isArray(raw)) return [];
-  const out: OwnTour['video_clips'] = [];
-  for (const c of raw) {
-    const o = (c && typeof c === 'object' ? c : {}) as Record<string, unknown>;
-    if (typeof o.key !== 'string' || typeof o.poster !== 'string') continue;
-    const url = s3PublicUrl(o.key);
-    const posterUrl = s3PublicUrl(o.poster);
-    if (!url || !posterUrl) continue;
-    out.push({ key: o.key, poster: o.poster, label: typeof o.label === 'string' && o.label.trim() ? o.label : 'Видео тура', url, posterUrl });
-  }
-  return out;
-}
-
-function credits(raw: unknown): Record<string, string> {
-  if (!raw || typeof raw !== 'object' || Array.isArray(raw)) return {};
-  return Object.fromEntries(Object.entries(raw as Record<string, unknown>).filter((e): e is [string, string] => typeof e[1] === 'string'));
 }
 
 /**

@@ -30,16 +30,11 @@ export interface TourProgramStep {
 }
 
 /**
- * Правка тура: поля формы кабинета плюс программа и правила безопасности
- * тура. Последних в форме сайта нет (UpdateTourSchema их не пропускает),
- * их пишет чат гида — той же функцией.
+ * Правка тура: поля формы кабинета оператора (с 08.11 — и программа,
+ * правила безопасности и клипы, как у формы гида). Подпись снимков —
+ * не колонка тура: её роут пишет в карту партнёра (lib/tours/editor-media).
  */
-export type TourPatchInput = z.infer<typeof UpdateTourSchema> & {
-  program?: TourProgramStep[] | null;
-  safety_notes?: string[] | null;
-  /** Клипы тура (1194): ключи хранилища; правит гид формой на сайте (05.11). */
-  video_clips?: Array<{ key: string; poster: string; label: string }>;
-};
+export type TourPatchInput = Omit<z.infer<typeof UpdateTourSchema>, 'photo_credit'>;
 
 /** Белый список колонок, которые правка тура вправе писать. */
 export const TOUR_PATCH_COLUMNS = [

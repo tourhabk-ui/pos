@@ -19,6 +19,7 @@ import { requireRole } from '@/lib/auth/middleware';
 import { getGuidePartnerId } from '@/lib/auth/guide-helpers';
 import { transaction } from '@/lib/database';
 import { writeTourPatch } from '@/lib/tours/tour-write';
+import { writePhotoCredits } from '@/lib/tours/editor-media';
 import { pingTourChanged } from '@/lib/seo/indexnow';
 import { OwnTourEditSchema as BodySchema } from '@/lib/guides/own-tour-edit';
 import { zodErrorMessage } from '@/lib/api/zod-errors';
@@ -63,15 +64,7 @@ export async function PATCH(request: NextRequest, { params }: { params: Promise<
       // автор из формы, в карту партнёра (partners.gallery_credits, её читает
       // карточка тура). Уже подписанное не переписывается.
       if (w.outcome === 'written' && photoCredit && fields.photos?.length) {
-        await c.query(
-          `UPDATE partners
-              SET gallery_credits = COALESCE(gallery_credits, '{}'::jsonb)
-                  || (SELECT COALESCE(jsonb_object_agg(u, $2::text), '{}'::jsonb)
-                        FROM unnest($3::text[]) AS u
-                       WHERE NOT (COALESCE(gallery_credits, '{}'::jsonb) ? u))
-            WHERE id = $1::uuid`,
-          [partnerId, photoCredit, fields.photos],
-        );
+        await writePhotoCredits(c, partnerId, photoCredit, fields.photos);
       }
       return w;
     });
