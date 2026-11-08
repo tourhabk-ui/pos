@@ -406,6 +406,7 @@ export const CRON_CAPABILITIES: Record<string, readonly Capability[]> = {
   'voice-probe': ['net_out', 'ai', 'db_read', 'db_write'],
   'weathernext-probe': ['net_out', 'db_read', 'db_write'], // db: запас прогноза Open-Meteo (weather_forecast_last_good, 21.10)
   'web-routes-census': ['db_read'],
+  'webmaster-census': ['net_out'], // только чтение API Яндекс Вебмастера для vedarai.ru (08.11, пункт 1 плана SEO)
   // Перепись виджетов партнёров (аудит 15.10, WID-measure): чтение базы и,
   // только с ?probe_sites=1, запрос главной каждого домена партнёра — есть ли
   // там наш скрипт. Записи нет.
