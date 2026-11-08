@@ -90,17 +90,41 @@ async function loadPriceInputs(tourId: string): Promise<PriceInputs> {
   }
 }
 
+/** «1 место / 2 места / 5 мест». */
+function seatsWord(n: number): string {
+  const m100 = n % 100;
+  if (m100 >= 11 && m100 <= 14) return 'мест';
+  const m10 = n % 10;
+  if (m10 === 1) return 'место';
+  if (m10 >= 2 && m10 <= 4) return 'места';
+  return 'мест';
+}
+
+/** «из 1 места / из 4 мест»: после «из» — родительный падеж. */
+function ofSeats(n: number): string {
+  return `из ${n} ${n % 10 === 1 && n % 100 !== 11 ? 'места' : 'мест'}`;
+}
+
 /**
  * Строка о местах — тем же правилом, что у движка: мест меньше, чем людей, —
  * «возможно, придётся выбрать другую дату»; три и меньше — «высокий спрос».
+ *
+ * Группа больше потолка тура — другой разговор (разбор 08.11: 24 человека на
+ * тур, который берёт четверых, получали «возможно, придётся выбрать другую
+ * дату», хотя другая дата не поможет). Потолок называется как записанный у
+ * тура: он бывает и заглушкой автора миграции, подтверждает оператор.
  */
 export function capacityWarningFor(remaining: number, maxParticipants: number | null, participants: number): string | undefined {
+  if (maxParticipants !== null && participants > maxParticipants) {
+    return `На выезд тур берёт до ${maxParticipants} чел. (так записано у тура), вас ${participants}: на одну дату вся группа не войдёт. `
+      + 'Несколько выездов или своя группа — по договорённости с оператором.';
+  }
   if (remaining < participants) {
     // Потолок не записан (группа без ограничения) — «из N» не выдумывается (E3).
-    const of = maxParticipants !== null ? ` из ${maxParticipants}` : '';
-    return `Свободно ${remaining}${of} мест, вас ${participants}. Возможно, придётся выбрать другую дату.`;
+    const seats = maxParticipants !== null ? `${remaining} ${ofSeats(maxParticipants)}` : `${remaining} ${seatsWord(remaining)}`;
+    return `Свободно ${seats}, вас ${participants}. Возможно, придётся выбрать другую дату.`;
   }
-  if (remaining <= 3) return `Осталось ${remaining} мест — высокий спрос`;
+  if (remaining <= 3) return `Осталось ${remaining} ${seatsWord(remaining)} — высокий спрос`;
   return undefined;
 }
 

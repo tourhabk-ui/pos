@@ -34,8 +34,8 @@ import {
   type ExtrasDay, type LodgingStay,
 } from '@/lib/planner/trip-extras';
 import {
-  findLodgingForStay, findCharterOffers, findCarRentalOffers,
-  type CheckOutcome, type LodgingOption, type CharterOffer, type RentalOfferSummary,
+  findLodgingForStay, findRequestLodgingForStay, countUnzonedPublicLodging, findCharterOffers, findCarRentalOffers,
+  type CheckOutcome, type LodgingOption, type RequestLodgingOption, type CharterOffer, type RentalOfferSummary,
 } from '@/lib/planner/trip-extras-data';
 import {
   fmtRub, nightsRu, stayRoomsLine, charterOfferPrice, rentalOfferLine,
@@ -55,7 +55,14 @@ export const PLAN_OFFER_PARTNERS_SHOWN = 3;
 export type RentalOutcome = CheckOutcome<RentalOfferSummary> | { state: 'paused'; returnsOn: string };
 
 export interface PlanOffers {
-  stays: Array<{ stay: LodgingStay; result: CheckOutcome<LodgingOption> }>;
+  /**
+   * `result` — объекты с номерами на платформе; `byRequest` — по заявке
+   * хозяину (дом целиком, «Кутха»; 08.11). Нет поля — не искали (старые
+   * вызовы и тесты), а не «нет».
+   */
+  stays: Array<{ stay: LodgingStay; result: CheckOutcome<LodgingOption>; byRequest?: CheckOutcome<RequestLodgingOption> }>;
+  /** Объектов витрины без разметки зоны: планер их не предлагает. null — не посчитали. */
+  unzonedCount?: number | null;
   /** Стоянок сверх показанных. */
   moreStays: number;
   /** Ночи в турах с проживанием — на них жильё не ищется. */
@@ -93,13 +100,20 @@ export async function loadPlanOffers(input: PlanOffersInput): Promise<PlanOffers
   const { stays, nightsInTours } = lodgingStays(input.days, input.arrivalIso, input.departureIso);
   const shown = stays.slice(0, PLAN_OFFER_STAYS_SHOWN);
   const people = groupSeats(input.adults, input.children);
-  const [results, charter, rental] = await Promise.all([
+  const [results, byRequest, unzonedCount, charter, rental] = await Promise.all([
     Promise.all(shown.map((s) => findLodgingForStay(s, people))),
+    Promise.all(shown.map((s) => findRequestLodgingForStay(s))),
+    stays.length > 0 ? countUnzonedPublicLodging() : Promise.resolve(null),
     findCharterOffers(),
     findCarRentalOffers({ agents: input.surface === 'mcp' }),
   ]);
   return {
-    stays: shown.map((stay, i) => ({ stay, result: results[i] ?? { state: 'unavailable' } })),
+    stays: shown.map((stay, i) => ({
+      stay,
+      result: results[i] ?? { state: 'unavailable' },
+      byRequest: byRequest[i] ?? { state: 'unavailable' },
+    })),
+    unzonedCount,
     moreStays: stays.length - shown.length,
     nightsInTours,
     gapNights: gapNightsOf(input.days, input.arrivalIso, input.departureIso),
@@ -126,6 +140,15 @@ function staysRu(n: number): string {
 }
 
 const NOT_CHECKED = 'не смогли проверить — сбой на нашей стороне; это не значит, что вариантов нет';
+
+/** Строка объекта по заявке хозяину: цены стоянки нет, вместимость числом не записана. */
+function requestLodgingLine(o: RequestLodgingOption, stay: LodgingStay, party: { adults: number; children: readonly number[]; surface: DraftSurface }, site: string): string {
+  const type = ACCOMMODATION_TYPE_LABELS[o.type as keyof typeof ACCOMMODATION_TYPE_LABELS];
+  const name = `«${o.name}»${party.surface === 'mcp' ? ` (accommodation: ${o.id})` : ''}${type ? `, ${type.toLocaleLowerCase('ru-RU')}` : ''}${o.isVerified ? ', проверено платформой' : ''}`;
+  const price = o.priceFrom === null ? 'цена не указана' : `от ${fmtRub(o.priceFrom)} за ночь`;
+  const href = stayLink(o.id, { checkIn: stay.checkIn, checkOut: stay.checkOut, adults: party.adults, children: party.children.length });
+  return `- ${name} — по заявке хозяину, ${price}; свободно ли на эти ночи и сколько человек примет, подтверждает хозяин. ${site}${href}`;
+}
 
 function lodgingLine(o: LodgingOption, stay: LodgingStay, party: { adults: number; children: readonly number[] }, site: string): string {
   const type = ACCOMMODATION_TYPE_LABELS[o.type as keyof typeof ACCOMMODATION_TYPE_LABELS];
@@ -160,15 +183,29 @@ export function formatPlanOffers(
       ? 'Жильё: все ночи плана — в турах с проживанием, отдельное жильё не нужно.'
       : 'Жильё: ночей в плане нет — жильё не нужно.');
   }
-  for (const { stay, result } of o.stays) {
+  for (const { stay, result, byRequest } of o.stays) {
     const head = `Жильё — ${ZONE_NAMES[stay.zone]}, ${ddmm(stay.checkIn)} — ${ddmm(stay.checkOut)} (${nightsRu(stay.nights)})`;
-    if (result.state === 'ok') {
-      lines.push(`${head}:`, ...result.items.map((x) => lodgingLine(x, stay, ctx, site)));
-    } else if (result.state === 'empty') {
-      lines.push(`${head}: номеров, свободных на все эти ночи, на платформе не нашли. Каталог жилья: ${site}/accommodations`);
-    } else {
+    const req = byRequest ?? { state: 'empty' as const };
+    const items = [
+      ...(result.state === 'ok' ? result.items.map((x) => lodgingLine(x, stay, ctx, site)) : []),
+      ...(req.state === 'ok' ? req.items.map((x) => requestLodgingLine(x, stay, ctx, site)) : []),
+    ];
+    const failed = result.state === 'unavailable' || req.state === 'unavailable';
+    if (items.length > 0) {
+      lines.push(`${head}:`, ...items);
+      // Половина подбора не прочиталась — так и сказано: показанное не всё.
+      if (failed) lines.push(`- остальное ${NOT_CHECKED}.`);
+    } else if (failed) {
       lines.push(`${head}: ${NOT_CHECKED}.`);
+    } else {
+      // Прежде здесь стояло «номеров, свободных на все эти ночи, не нашли» —
+      // читалось как «всё занято», хотя жилья в зоне на платформе нет вовсе
+      // или есть только неразмеченное (08.11).
+      lines.push(`${head}: в этой зоне жилья, свободного на все эти ночи, на платформе нет. Каталог жилья: ${site}/accommodations`);
     }
+  }
+  if (o.unzonedCount && o.unzonedCount > 0) {
+    lines.push(`Ещё объектов жилья без разметки зоны: ${o.unzonedCount} — планер их не предлагает, они есть в каталоге: ${site}/accommodations`);
   }
   if (o.moreStays > 0) {
     lines.push(`Ещё ${staysRu(o.moreStays)} — жильё на них подберёт планировщик: ${site}/planner`);
@@ -179,6 +216,9 @@ export function formatPlanOffers(
   }
   if (o.gapNights > 0) {
     lines.push(`${o.stays.length > 0 || o.nightsInTours > 0 ? 'Ещё' : lead} ${nightsRu(o.gapNights)} — у незаполненных дней плана: зоны ночёвки у них нет, жильё не искали.`);
+  }
+  if (agent && o.stays.some((s) => s.byRequest?.state === 'ok')) {
+    lines.push('Заявка хозяину — create_stay_request (accommodation, даты стоянки, гости) с согласия человека или форма на карточке; даты и цену подтверждает хозяин.');
   }
   if (o.stays.some((s) => s.result.state === 'ok')) {
     lines.push(`Бронь номера — на карточке по ссылке: даты стоянки, гости и номер уже подставлены. ${STAY_PAY_ON_SITE}.`

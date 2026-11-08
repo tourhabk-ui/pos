@@ -30,6 +30,7 @@
 import { pool } from '@/lib/db-pool';
 import { publicAccommodationSql } from '@/lib/stay/moderation';
 import { roomNightsSql } from '@/lib/stay/availability';
+import { hasActiveRoomsSql, objectBusyNightsSql } from '@/lib/stay/busy-flow';
 import { loadCharterCarriers, describeFleet } from '@/lib/transfers/charter';
 import { loadRentalCompanies, minRentalPrice } from '@/lib/rental/rental';
 import { RENTAL_SITE_PAUSE, rentalOnSite } from '@/lib/rental/site-pause';
@@ -129,6 +130,61 @@ export const LODGING_FOR_STAY_SQL = `
      AND jsonb_array_length(fit.rooms) > 0
    ORDER BY a.is_verified DESC, a.rating DESC NULLS LAST, a.price_per_night_from ASC NULLS LAST, a.name
    LIMIT $4`;
+
+/**
+ * Жильё по заявке хозяину на одну стоянку (вопрос владельца 08.11: «тур
+ * многодневный — мы не предложили проживание»). Подбор выше берёт только
+ * объекты с номерами на платформе; гостевой дом, который сдаётся целиком по
+ * заявке («Кутха»), в план не попадал никогда, даже для двоих.
+ *
+ * Объект годится, если он на витрине, в зоне ночёвки, без живых номеров
+ * (тогда занятость считают номера, и он — в подборе выше) и хозяин не
+ * закрыл ни одной ночи стоянки (busy-flow, 721). Свободным это его не
+ * делает: даты и цену подтверждает хозяин, и строка так и говорит.
+ * $1 — зона, $2 — заезд, $3 — выезд, $4 — сколько вариантов.
+ */
+export const REQUEST_LODGING_FOR_STAY_SQL = `
+  SELECT a.id, a.name, a.type,
+         a.price_per_night_from::text AS price_from,
+         COALESCE(a.is_verified, false) AS is_verified
+    FROM accommodations a
+   WHERE ${publicAccommodationSql('a')}
+     AND a.planner_zone = $1::varchar
+     AND NOT ${hasActiveRoomsSql('a.id')}
+     AND NOT EXISTS (${objectBusyNightsSql('a.id', '$2::date', '$3::date')})
+   ORDER BY COALESCE(a.is_verified, false) DESC, a.price_per_night_from ASC NULLS LAST, a.name
+   LIMIT $4`;
+
+/** Объект по заявке хозяину: цены стоянки на группу нет — её называет хозяин. */
+export interface RequestLodgingOption {
+  id: string;
+  name: string;
+  type: string;
+  /** Цена за ночь «от», как записана у объекта; null — не названа. */
+  priceFrom: number | null;
+  isVerified: boolean;
+}
+
+export async function findRequestLodgingForStay(stay: LodgingStay): Promise<CheckOutcome<RequestLodgingOption>> {
+  try {
+    const { rows } = await pool.query<{ id: string; name: string; type: string; price_from: string | null; is_verified: boolean }>(
+      REQUEST_LODGING_FOR_STAY_SQL,
+      [stay.zone satisfies ZoneId, stay.checkIn, stay.checkOut, LODGING_OPTIONS_PER_STAY],
+    );
+    if (rows.length === 0) return { state: 'empty' };
+    return {
+      state: 'ok',
+      items: rows.map((r) => ({
+        id: r.id, name: r.name, type: r.type,
+        priceFrom: r.price_from === null ? null : Number(r.price_from),
+        isVerified: r.is_verified,
+      })),
+    };
+  } catch (err) {
+    logExtrasFailure('подбор жилья по заявке хозяину', err);
+    return { state: 'unavailable' };
+  }
+}
 
 /** Объекты витрины без разметки зоны — их планер не предлагает. */
 export const UNZONED_PUBLIC_COUNT_SQL = `

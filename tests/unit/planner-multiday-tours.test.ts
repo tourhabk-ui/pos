@@ -158,8 +158,11 @@ describe('цикл завершается сам', () => {
     for (const m of continues) {
       const before = body.slice(Math.max(0, m.index - 120), m.index);
       // С 07.11 у интереса свой курсор материала (m.cursor, Б1): он двигается
-      // вместе с d везде, где материал уже взят.
-      expect(before, `continue без продвижения: ${before.slice(-60)}`).toMatch(/d\+\+;\s*(?:m\.cursor\+\+;\s*)?barren\+\+;/);
+      // вместе с d везде, где материал уже взят. С 08.11 продвижение — и
+      // снятый из очереди тур: очередь конечна, а считать такой оборот
+      // бесплодным значило закрывать блок раньше подходящего тура.
+      expect(before, `continue без продвижения: ${before.slice(-60)}`)
+        .toMatch(/(?:d\+\+;\s*(?:m\.cursor\+\+;\s*)?barren\+\+;|m\.tours\.splice\(m\.tours\.indexOf\(realTour\), 1\);)\s*$/);
     }
   });
 

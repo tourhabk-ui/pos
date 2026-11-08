@@ -65,10 +65,12 @@ vi.mock('@/lib/planner', async (orig) => {
   return { ...real, recommendTrip: (...a: unknown[]) => recommendMock(...a) };
 });
 
-const x = vi.hoisted(() => ({ lodging: vi.fn(), charter: vi.fn(), rental: vi.fn() }));
+const x = vi.hoisted(() => ({ lodging: vi.fn(), byRequest: vi.fn(), unzoned: vi.fn(), charter: vi.fn(), rental: vi.fn() }));
 vi.mock('@/lib/planner/trip-extras-data', async (orig) => ({
   ...(await orig<Record<string, unknown>>()),
   findLodgingForStay: (...a: unknown[]) => x.lodging(...a),
+  findRequestLodgingForStay: (...a: unknown[]) => x.byRequest(...a),
+  countUnzonedPublicLodging: (...a: unknown[]) => x.unzoned(...a),
   findCharterOffers: (...a: unknown[]) => x.charter(...a),
   findCarRentalOffers: (...a: unknown[]) => x.rental(...a),
 }));
@@ -141,6 +143,8 @@ beforeEach(() => {
       ],
     }
     : { state: 'empty' });
+  x.byRequest.mockReset().mockResolvedValue({ state: 'empty' });
+  x.unzoned.mockReset().mockResolvedValue(0);
   x.charter.mockReset().mockResolvedValue({
     state: 'ok',
     items: [{ slug: 'shatun', name: 'Шатун', fleet: 'вахтовка, 26 мест', priceFromRub: 75000, destinations: 3, hourRub: null, dayRub: null, ratesFrom: false }],
@@ -169,10 +173,35 @@ describe('make_trip_plan по MCP: жильё и машина к плану', ()
     expect(block).toContain(`/accommodations/${STAY_A}?check_in=2027-07-10&check_out=2027-07-12&adults=4&children=1&room=${ROOM}&rooms=2`);
     // Группа в один тип номеров не помещается — цена на группу не выдумывается.
     expect(block).toContain('«Вилюй», отель — цена не указана: группа целиком в один тип номеров не помещается — номера подберёт хозяин.');
-    expect(block).toContain('Жильё — Восточная зона, 12.07 — 13.07 (1 ночь): номеров, свободных на все эти ночи, на платформе не нашли.');
+    // «Номеров не нашли» читалось как «всё занято», хотя в зоне жилья нет (08.11).
+    expect(block).toContain('Жильё — Восточная зона, 12.07 — 13.07 (1 ночь): в этой зоне жилья, свободного на все эти ночи, на платформе нет.');
+    expect(block).not.toMatch(/без разметки зоны/);
     expect(block).toContain('Ещё 1 ночь — в турах с проживанием, на них жильё не искали.');
     expect(block).toContain('Бронь номера — на карточке по ссылке: даты стоянки, гости и номер уже подставлены. Оплата — владельцу при заселении, после подтверждения брони.');
     expect(block).toContain('create_stay_request такие объекты не принимает');
+  });
+
+  it('жильё по заявке хозяину (дом целиком, 08.11): строка с датами, путь заявки агенту; объекты без зоны — числом', async () => {
+    x.byRequest.mockImplementation(async (stay: { zone: string }) => stay.zone === 'eastern'
+      ? { state: 'ok', items: [{ id: STAY_B, name: 'Дом у озера', type: 'guesthouse', priceFrom: 24000, isVerified: false }] }
+      : { state: 'empty' });
+    x.unzoned.mockResolvedValue(2);
+    const block = plain(offersBlock(await mcpPlan(PLAN_ARGS)));
+    expect(block).toContain(`«Дом у озера» (accommodation: ${STAY_B}), гостевой дом — по заявке хозяину, от 24 000 ₽ за ночь; `
+      + 'свободно ли на эти ночи и сколько человек примет, подтверждает хозяин.');
+    expect(block).toContain(`/accommodations/${STAY_B}?check_in=2027-07-12&check_out=2027-07-13&adults=4&children=1`);
+    expect(block).not.toMatch(/Восточная зона[^\n]*на платформе нет/);
+    expect(block).toMatch(/create_stay_request \(accommodation, даты стоянки, гости\)/);
+    expect(block).toContain('Ещё объектов жилья без разметки зоны: 2 — планер их не предлагает, они есть в каталоге');
+    // Поиск по заявке — те же стоянки, что у номеров.
+    expect(x.byRequest.mock.calls.map((c) => c[0])).toEqual(x.lodging.mock.calls.map((c) => c[0]));
+  });
+
+  it('подбор по заявке не прочитался — «не смогли проверить», а не «нет»', async () => {
+    x.byRequest.mockResolvedValue({ state: 'unavailable' });
+    const block = plain(offersBlock(await mcpPlan(PLAN_ARGS)));
+    expect(block).toMatch(/Восточная зона, 12\.07 — 13\.07 \(1 ночь\): не смогли проверить/);
+    expect(block).toMatch(/Авачинская зона[\s\S]*- остальное не смогли проверить/);
   });
 
   it('машина и прокат: агенту — инструмент заявки с plan_id и адрес партнёра; прокатчик виден без паузы сайта', async () => {

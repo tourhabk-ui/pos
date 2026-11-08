@@ -179,11 +179,23 @@ export function parseChatInterests(raw: string): string[] {
 export function parseChatInterestsDetailed(raw: string): { interests: string[]; defaulted: boolean } {
   const text = (raw || '').toLowerCase();
   const found = new Set<string>(parseInterestWords(text));
-  // parseInterestsFromText движка ловит то, что словарь не покрыл
+  // parseInterestsFromText движка ловит то, что словарь не покрыл, — и только
+  // это: слова, уже разобранные словарём, из текста убираются. До 08.11 второй
+  // словарь читал тот же текст целиком, и «вулканы» давали ещё и «треккинг»
+  // ('вулкан' → trekking в lib/planner/interests): план «вулканы, 6 дней» вёз
+  // группу на треккинг в Восточную зону, а экран планера (только первый
+  // словарь) тех же слов так не понимал.
+  let rest = text;
+  for (const word of Object.keys(INTEREST_WORDS)) {
+    if (rest.includes(word)) rest = rest.split(word).join(' ');
+  }
   try {
-    const parsed = parseInterestsFromText(text);
+    const parsed = parseInterestsFromText(rest);
     for (const k of parsed.interests ?? []) found.add(k);
-  } catch { /* словаря достаточно */ }
+  } catch (err) {
+    // Словаря достаточно, но отказ второго разбора называется (§4.0).
+    console.error('[trip-plan] второй словарь интересов не разобрал текст:', err instanceof Error ? err.message : String(err));
+  }
   if (found.size === 0) return { interests: [...DEFAULT_PLAN_INTERESTS], defaulted: true };
   return { interests: [...found], defaulted: false };
 }

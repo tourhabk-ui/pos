@@ -482,6 +482,32 @@ withPg('переписка по заявке на настоящем PostgreSQL'
       expect((await submitStayRequest({ ...base, checkIn: '2099-07-12', checkOut: '2099-07-15', nights: 3 })).ok).toBe(true);
     });
 
+    it('подбор планера по заявке хозяину (08.11): объект без номеров в зоне ночёвки — вариант; без зоны, в закрытую ночь, с номером — нет', async () => {
+      const { findRequestLodgingForStay, findLodgingForStay } = await import('@/lib/planner/trip-extras-data');
+      const accId = (await pool.query<{ id: string }>(`SELECT accommodation_id::text AS id FROM stay_requests WHERE id = $1`, [requestId])).rows[0].id;
+      const at = (checkIn: string, checkOut: string, zone: 'avachinsky' | 'eastern' = 'avachinsky') => ({ zone, checkIn, checkOut, nights: 2 });
+      // Зоны нет — не предлагается: зону не угадывают (1031).
+      await pool.query(`UPDATE accommodations SET planner_zone = NULL WHERE id = $1`, [accId]);
+      expect(await findRequestLodgingForStay(at('2099-08-01', '2099-08-03'))).toEqual({ state: 'empty' });
+      await pool.query(`UPDATE accommodations SET planner_zone = 'avachinsky' WHERE id = $1`, [accId]);
+      expect(await findRequestLodgingForStay(at('2099-08-01', '2099-08-03'))).toEqual({
+        state: 'ok', items: [expect.objectContaining({ id: accId, name: 'Кутха', type: 'guesthouse' })],
+      });
+      // Подбор по номерам этот объект не видит — номеров на платформе нет.
+      expect(await findLodgingForStay(at('2099-08-01', '2099-08-03'), 2)).toEqual({ state: 'empty' });
+      // Ночь 10.07, закрытая хозяином выше, — объекта в подборе нет; другая зона — тоже.
+      expect(await findRequestLodgingForStay(at('2099-07-09', '2099-07-11'))).toEqual({ state: 'empty' });
+      expect(await findRequestLodgingForStay(at('2099-08-01', '2099-08-03', 'eastern'))).toEqual({ state: 'empty' });
+      // Живой номер — занятость считают номера, и объект уходит из подбора по заявке.
+      const room = await pool.query<{ id: string }>(
+        `INSERT INTO accommodation_rooms (accommodation_id, name, room_type, max_guests, available_rooms, price_per_night, is_active)
+         VALUES ($1, 'Дом целиком', 'family', 10, 1, 28000, TRUE) RETURNING id`, [accId],
+      );
+      expect(await findRequestLodgingForStay(at('2099-08-01', '2099-08-03'))).toEqual({ state: 'empty' });
+      await pool.query(`DELETE FROM accommodation_rooms WHERE id = $1`, [room.rows[0].id]);
+      await pool.query(`UPDATE accommodations SET planner_zone = NULL WHERE id = $1`, [accId]);
+    });
+
     it('удалили заявку — переписка и ожидания ушли с ней', async () => {
       await pool.query(`DELETE FROM stay_requests WHERE id = $1`, [requestId]);
       const m = await pool.query(`SELECT count(*)::int AS n FROM request_messages WHERE stay_request_id = $1`, [requestId]);

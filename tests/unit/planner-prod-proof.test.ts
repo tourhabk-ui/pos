@@ -224,7 +224,8 @@ describe('просьба получает день: рыбалка не тоне
     const rec = await recommendTrip({ ...PROOF, departureDate: `${NEXT_JULY}-07-12` });
     expect(activity(rec).some((d) => d.activityType === 'fishing')).toBe(false);
     const lines = planWarningLines(rec);
-    expect(lines.some((l) => /рыбалка/i.test(l) && /не вошла/.test(l))).toBe(true);
+    // «Интерес … не вошёл» (08.11) или «зона … не вошла» — с причиной.
+    expect(lines.some((l) => /рыбалка/i.test(l) && /не вош(?:ла|ёл)/.test(l))).toBe(true);
     expect(rec.warnings.some((w) => w.type === 'license')).toBe(false);
   });
 });
