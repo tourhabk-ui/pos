@@ -387,7 +387,8 @@ async function requestSeatsFromOperator(a: {
   const trial = stopForTest(a.ctx, BOOKING_REQUEST_TOOL.name, 'seat_request', 'operator', a.consent,
     `запрос мест оператору в мессенджер: тур "${a.tourTitle}", ${a.date}, ${a.participants} чел. (расписания у тура в системе нет — места уточняет оператор).`,
     'оператору тура');
-  if (trial) return trial;
+  // Проба говорит о парке и месте тура то же, что настоящий запрос.
+  if (trial) return trial + a.parkNote;
   const admitted = await admitWrite(a.ctx, BOOKING_REQUEST_TOOL.name, a.phone, a.consent, 'operator', bookingSubject(a.tourId, a.date));
   const pd_consent = admitted.consent;
   if (!pd_consent) throw new McpUserError('Согласие на обработку персональных данных не получено — запрос не отправлен.', 'no_consent');
