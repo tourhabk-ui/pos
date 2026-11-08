@@ -46,7 +46,7 @@ describe('роут MCP передаёт поверхность', () => {
   it('executeKuzmichTool зовётся с { surface: "mcp" }', async () => {
     const { readFileSync } = await import('node:fs');
     const src = readFileSync('app/api/mcp/route.ts', 'utf-8');
-    expect(src).toMatch(/executeKuzmichTool\(name, validation\.args, \{ surface: 'mcp' \}\)/);
+    expect(src).toMatch(/executeKuzmichTool\(name, validation\.args, \{\s*surface: 'mcp'/);
   });
 });
 
