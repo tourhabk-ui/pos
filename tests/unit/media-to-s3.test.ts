@@ -7,12 +7,14 @@
  * партнёров из public/images): под photos/ — снимки, логотипы и уменьшенные
  * копии, и ровно те ключи, которые открывает раздача /api/images/s3/; тип —
  * по байтам файла, а не по имени. Проверяется вызовом на настоящих файлах во
- * временной папке.
+ * временной папке. И по самому репозиторию: файл media/s3 без строки маркера
+ * в хранилище не попадёт, а тяжёлый снимок без копий 320/640 поедет на телефон
+ * оригиналом.
  */
 import { describe, it, expect, beforeAll, afterAll } from 'vitest';
-import { mkdtempSync, mkdirSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
+import { mkdtempSync, mkdirSync, readFileSync, readdirSync, rmSync, statSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
-import { join } from 'node:path';
+import { join, relative } from 'node:path';
 import { checkItem, sniffType, MARKER } from '@/scripts/media-to-s3';
 import { photoKeyOf } from '@/lib/images/photo-key';
 
@@ -47,6 +49,16 @@ beforeAll(() => {
 afterAll(() => rmSync(root, { recursive: true, force: true }));
 
 const check = (file: string) => checkItem({ file: `media/s3/${file}`, key: file }, root);
+
+function filesUnder(dir: string): string[] {
+  const out: string[] = [];
+  for (const e of readdirSync(dir, { withFileTypes: true })) {
+    const p = join(dir, e.name);
+    if (e.isDirectory()) out.push(...filesUnder(p));
+    else out.push(p);
+  }
+  return out;
+}
 
 describe('тип — по байтам', () => {
   it('узнаёт JPEG, PNG, WebP и MP4; остальное — null', () => {
@@ -112,6 +124,28 @@ describe('маркер заливки', () => {
       .map(({ it, c }) => `${it.key}: ${String(c)}`);
     expect(bad).toEqual([]);
     expect(new Set(marker.items.map((i) => i.key)).size).toBe(marker.items.length);
+  });
+
+  it('каждый файл media/s3 стоит в маркере: иначе он лежит в репозитории, а в хранилище его нет', () => {
+    const keys = new Set(marker.items.map((i) => i.key));
+    const lost = filesUnder(join(process.cwd(), 'media/s3'))
+      .map((f) => relative(join(process.cwd(), 'media/s3'), f).split('\\').join('/'))
+      .filter((k) => !keys.has(k));
+    expect(lost).toEqual([]);
+  });
+
+  it('у каждого тяжёлого снимка в media/s3/photos есть копии 320 и 640 (порог и ширины — scripts/optimize-images.mjs)', () => {
+    const keys = new Set(marker.items.map((i) => i.key));
+    const without: string[] = [];
+    for (const abs of filesUnder(join(process.cwd(), 'media/s3/photos'))) {
+      if (!/\.(jpe?g|png)$/i.test(abs) || statSync(abs).size < 50 * 1024) continue;
+      const key = relative(join(process.cwd(), 'media/s3'), abs).split('\\').join('/');
+      for (const w of [320, 640]) {
+        const v = key.replace(/\.(jpe?g|png)$/i, `.${w}.webp`);
+        if (!keys.has(v)) without.push(v);
+      }
+    }
+    expect(without).toEqual([]);
   });
 
   it('каждый снимок маркера открывается раздачей /api/images/s3/', () => {

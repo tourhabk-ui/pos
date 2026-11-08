@@ -8,6 +8,8 @@ interface Props { params: Promise<{ key: string[] }> }
 
 /** Сколько ждать хранилище: дольше — туристу проще увидеть пустую рамку, чем висящую страницу. */
 const UPSTREAM_TIMEOUT_MS = 15_000;
+/** Типы, которые раздача берёт у хранилища как есть; иначе — по расширению ключа. */
+const SERVED_TYPES: ReadonlySet<string> = new Set(['image/jpeg', 'image/png', 'image/webp']);
 /** Сутки в браузере, неделя «устаревшим, пока освежается»: снимок по ключу меняется редко. */
 const CACHE = 'public, max-age=86400, stale-while-revalidate=604800';
 
@@ -86,8 +88,10 @@ export async function GET(request: Request, { params }: Props): Promise<Response
     status: 200,
     headers: {
       ...passthrough,
-      // Чужой тип хранилища не пробрасываем: не картинка — тип по расширению ключа.
-      'Content-Type': type && type.startsWith('image/') ? type : photoTypeOf(key),
+      // Пробрасываются только три типа снимков: `image/svg+xml` или иной тип
+      // хранилища на нашем домене не отдаётся (ревью безопасности #3150), прочее —
+      // тип по расширению ключа.
+      'Content-Type': type && SERVED_TYPES.has(type.split(';')[0].trim().toLowerCase()) ? type : photoTypeOf(key),
       ...(length ? { 'Content-Length': length } : {}),
     },
   });
