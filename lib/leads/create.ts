@@ -14,6 +14,7 @@ import type { PdConsentRecord } from '@/lib/legal/pd-consent';
 import { linkContactQuietly } from '@/lib/crm/contacts';
 import { AGENT_CONSENT_SOURCE } from '@/lib/mcp/request-status';
 import { planFingerprint } from '@/lib/leads/plan-fingerprint';
+import { currentLeadEntry } from '@/lib/leads/entry-context';
 
 export interface CreateLeadParams {
   /** Имя туриста */
@@ -122,12 +123,22 @@ export async function createLeadDetailed(params: CreateLeadParams): Promise<{ id
     skip_ai_processing = false,
   } = params;
 
+  // Вход и инструмент заявки через инструменты Ведара (08.11, владелец:
+  // «откуда лиды — человек или ИИ и через какой инструмент»): их знает граница
+  // вызова (runPublicTool → lib/leads/entry-context), а не исполнитель, и до
+  // этого чат Кузьмича и A2A записывались как MCP. Записанное исполнителем не
+  // перетирается.
+  const entryCtx = currentLeadEntry();
+  const entered = entryCtx && params.source_data?.entry === undefined
+    ? { ...params.source_data, entry: entryCtx.entry, ...(params.source_data?.tool === undefined ? { tool: entryCtx.tool } : {}) }
+    : params.source_data;
+
   // Отпечаток плана поездки (аудит планировщика 07.11, H8) — пишется в
   // source_data, чтобы следующая заявка с тем же планом его нашла.
-  const fingerprint = planFingerprint(params.source_data?.plan);
+  const fingerprint = planFingerprint(entered?.plan);
   const source_data = fingerprint
-    ? { ...params.source_data, plan_fingerprint: fingerprint }
-    : params.source_data;
+    ? { ...entered, plan_fingerprint: fingerprint }
+    : entered;
 
   // ── 1. Скоринг ──────────────────────────────────────────────────────────
   const quickScore = computeQuickScore(name, phone, comment ?? null, source_data ?? null);
@@ -253,6 +264,7 @@ export async function createLeadDetailed(params: CreateLeadParams): Promise<{ id
       labelRu: quality.labelRu,
       isSelf: is_self === true,
       byAgent: pd_consent?.source === AGENT_CONSENT_SOURCE,
+      pdConsentSource: pd_consent?.source ?? null,
     }).catch((e) => console.error('[createLead] notifyAdminNewLead failed:', e));
   }
 

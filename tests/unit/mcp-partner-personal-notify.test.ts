@@ -22,7 +22,10 @@ describe('MCP create_booking_request — личная доставка опер�
   it('переиспользует механику веб-формы, а не свою отправку', () => {
     expect(ROUTE).toMatch(/import \{ notifyPartnerNewLeadPersonally \} from '@\/lib\/notifications\/lead-notify'/);
     expect(ROUTE).toMatch(/import \{ recordPartnerDelivery \} from '@\/lib\/leads\/delivery-outcome'/);
-    expect(ROUTE).toMatch(/notifyPartnerNewLeadPersonally\(\{\s*\.\.\.rest,\s*predraft,\s*origin: 'заявка через ИИ-ассистента \(MCP\)'/);
+    // Откуда заявка — по входу вызова (08.11): прежняя строка «через
+    // ИИ-ассистента (MCP)» уходила и на заявку из чата Кузьмича. Что получает
+    // оператор на деле — вызовом, tests/unit/lead-entry-boundary.test.ts.
+    expect(ROUTE).toMatch(/notifyPartnerNewLeadPersonally\(\{\s*\.\.\.rest,\s*predraft,\s*origin: entry\s*\?\s*leadOrigin\(/);
     expect(ROUTE).toMatch(/recordPartnerDelivery\(params\.leadId, params\.operatorId, outcome\)/);
   });
 

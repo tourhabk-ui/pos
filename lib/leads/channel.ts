@@ -11,13 +11,21 @@
  * Правила детерминированные, по фактическим сигнатурам вызывающих
  * (mcp/route.ts, telegram/webhook, max/kuzmich, widget/chat,
  * ai/booking-intake, leads POST). Непознанное — 'other', не догадка.
+ *
+ * Заявки через инструменты Ведара (MCP, A2A, чат Кузьмича) с 08.11 несут
+ * записанный вход — `source_data.entry` (lib/leads/entry-values), и канал
+ * считается по нему первым: до этого чат Кузьмича в Telegram и A2A уходили
+ * в 'mcp', потому что их заявки создают те же функции.
  */
+
+import { asLeadEntry, type LeadEntry } from '@/lib/leads/entry-values';
 
 export const LEAD_CHANNELS = [
   'telegram',        // Кузьмич в Telegram (t.me / telegram_chat_id)
   'max',             // Кузьмич в MAX
   'widget',          // партнёрский виджет на чужом сайте
   'mcp',             // AI-агенты через vedar-mcp
+  'a2a',             // AI-агенты через A2A (/api/a2a), с 08.11
   'site_chat',       // чат-приёмник на сайте (booking-intake)
   'site_route',      // форма заявки со страницы маршрута /routes/[id]
   'site_tour',       // форма со страницы тура
@@ -34,12 +42,23 @@ export interface ChannelSignals {
   telegram_chat_id?: string | null;
 }
 
+/** Канал записанного входа: чат Кузьмича — канал мессенджера или сайта, агент — свой протокол. */
+const ENTRY_CHANNEL: Record<LeadEntry, LeadChannel> = {
+  mcp: 'mcp',
+  a2a: 'a2a',
+  'kuzmich-tg': 'telegram',
+  'kuzmich-max': 'max',
+  'kuzmich-web': 'site_chat',
+};
+
 /** Детерминированный канал лида по сигналам точки входа. */
 export function normalizeLeadChannel(s: ChannelSignals): LeadChannel {
   const url = s.source_url ?? '';
   const data = s.source_data ?? {};
   const src = typeof data.source === 'string' ? data.source : '';
 
+  const entry = asLeadEntry(data.entry);
+  if (entry) return ENTRY_CHANNEL[entry];
   if (src === 'mcp' || url.startsWith('mcp://')) return 'mcp';
   if (src === 'max_bot' || url.includes('max.ru')) return 'max';
   if (s.telegram_chat_id || url.includes('t.me/')) return 'telegram';

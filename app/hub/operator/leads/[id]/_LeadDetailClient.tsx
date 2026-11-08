@@ -11,6 +11,8 @@ import {
   TrendingUp, TrendingDown, Target, RefreshCw, Send,
   MapPin, Calendar, Users, Wallet, ExternalLink, Ticket,
 } from 'lucide-react';
+import { LeadOriginLine, type LeadOriginView } from '@/components/leads/LeadOriginLine';
+import { leadPageUrl } from '@/lib/leads/origin';
 
 // ── Типы ──────────────────────────────────────────────────────────────────────
 
@@ -38,6 +40,8 @@ interface Lead {
   route_title: string | null;
   source_url: string | null;
   source_data: Record<string, unknown> | null;
+  /** Откуда заявка — подпись сервера (lib/leads/origin); нет поля — строки нет. */
+  origin?: LeadOriginView | null;
   status: string;
   notes: string | null;
   created_at: string;
@@ -402,10 +406,12 @@ export default function LeadDetailClient({ leadId }: Props) {
               <p className="leading-relaxed">{lead.comment}</p>
             </div>
           )}
-          {lead.source_url && (
+          {/* Откуда заявка — словами сервера, а не сырым адресом вроде mcp://vedar/booking (08.11). */}
+          <LeadOriginLine origin={lead.origin} className="text-xs text-[var(--text-muted)]" />
+          {leadPageUrl(lead.source_url) && (
             <div className="flex items-center gap-2 text-xs text-[var(--text-muted)]">
               <ExternalLink className="w-3 h-3" />
-              <span>Источник: {lead.source_url}</span>
+              <span>Страница: {leadPageUrl(lead.source_url)}</span>
             </div>
           )}
         </div>

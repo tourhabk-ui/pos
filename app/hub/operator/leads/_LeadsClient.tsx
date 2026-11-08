@@ -9,6 +9,7 @@ import {
   ChevronRight, BarChart2, Filter, RefreshCw, List, Columns3,
 } from 'lucide-react';
 import { LeadsKanban, OPERATOR_COLUMNS } from '@/app/hub/admin/leads/_LeadsKanban';
+import { LeadOriginLine, type LeadOriginView } from '@/components/leads/LeadOriginLine';
 
 type View = 'list' | 'board';
 const VIEW_STORAGE_KEY = 'operator-leads-view';
@@ -29,6 +30,8 @@ interface Lead {
   budget_rub: number | null;
   desired_dates: string | null;
   proposal_id: string | null;
+  /** Откуда заявка — подпись сервера (lib/leads/origin); нет поля — строки нет. */
+  origin?: LeadOriginView | null;
   created_at: string;
   updated_at: string;
 }
@@ -140,6 +143,7 @@ function LeadRow({ lead, onProcess, processing }: LeadRowProps) {
             <Clock className="w-3 h-3" />
             {date}
           </span>
+          <LeadOriginLine origin={lead.origin} />
         </div>
 
         {lead.ai_summary && (

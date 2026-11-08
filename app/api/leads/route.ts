@@ -20,6 +20,10 @@ import { LEADS_PAGE_MAX } from '@/lib/leads/list-page';
 import { logSwallowedFailure } from '@/lib/observability/swallowed';
 import { LeadIsVehicleOrderError } from '@/lib/leads/vehicle-order';
 import { widgetOrigin } from '@/lib/embed/widget-origin';
+import { withLeadOrigin, type LeadOriginInput } from '@/lib/leads/origin';
+
+/** Строка списка: поля для подписи «откуда» и всё прочее как есть. */
+type LeadOriginRow = LeadOriginInput & Record<string, unknown>;
 
 const leadLimiter = createRateLimiter({ windowMs: 60_000, max: 5 }); // 5 заявок/мин с одного IP
 
@@ -84,12 +88,14 @@ export async function GET(req: NextRequest) {
   vals.push(limit, offset);
 
   const [rows, cnt] = await Promise.all([
+    // pd_consent_source — только ради подписи «откуда» (lib/leads/origin):
+    // у старых заявок через инструменты Ведара это единственный след входа.
     pool.query(
       `SELECT id, name, phone, email, comment, route_id, route_title, source_url, source_data,
               group_size, budget_rub, desired_dates,
               status, notes,
               ai_score, ai_summary, ai_intent, matched_tour_ids, proposal_id, processed_at,
-              operator_id, created_at, updated_at
+              operator_id, created_at, updated_at, pd_consent_source
        FROM leads ${where} ORDER BY created_at DESC LIMIT $${lIdx} OFFSET $${oIdx}`,
       vals
     ),
@@ -99,7 +105,8 @@ export async function GET(req: NextRequest) {
     ),
   ]);
 
-  return NextResponse.json({ leads: rows.rows, total: cnt.rows[0].total });
+  // Откуда заявка — одной подписью (слово владельца 08.11: человек или ИИ и каким путём).
+  return NextResponse.json({ leads: (rows.rows as LeadOriginRow[]).map(withLeadOrigin), total: cnt.rows[0].total });
 }
 
 export async function POST(req: NextRequest) {
