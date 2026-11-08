@@ -496,6 +496,87 @@ withPg('крон добивки лидов на настоящем PostgreSQL', 
       for (const c of pseudoComments) expect(prompt).not.toContain(c);
     });
   });
+  it('заявка на большую группу после отказа адресата — другим операторам того же вида, не ему (слово владельца 08.11)', async () => {
+    // Свои операторы и свой вид туров: крон берёт первого подходящего, и чужие
+    // фикстуры файла не должны решать, кому уйдёт заявка.
+    const partnerOf = async (name: string, slug: string, maxChat: string | null) => (await pool.query<{ id: string }>(
+      `INSERT INTO partners (name, category, contact, is_verified, is_public, slug, max_chat_id)
+       VALUES ($1, 'operator', '{"phone":"+79001112233"}', TRUE, TRUE, $2, $3::bigint) RETURNING id`, [name, slug, maxChat],
+    )).rows[0]!.id;
+    const opA = await partnerOf('Группы А', 'group-op-a', '7000077');
+    const opB = await partnerOf('Группы Б', 'group-op-b', '7000078');
+    for (const op of [opA, opB]) {
+      await pool.query(
+        `INSERT INTO operator_tours (operator_id, title, base_price, max_participants, is_active, is_published, activity_type, difficulty, duration_hours)
+         VALUES ($1, 'Тур для группы', 15000, 4, TRUE, TRUE, 'big_group_probe', 'easy', 8)`, [op],
+      );
+    }
+    const ins = async (name: string, status: string, sd: object) => (await pool.query<{ id: string }>(
+      `INSERT INTO leads (name, phone, comment, status, operator_id, source_data, created_at)
+       VALUES ($1, '+79990003344', 'тест', $2, $3, $4::jsonb, NOW() - INTERVAL '3 hours') RETURNING id::text AS id`,
+      [name, status, opB, JSON.stringify(sd)],
+    )).rows[0].id;
+    const group = { source: 'mcp', tool: 'create_booking_request', group_over_seats: true, interests: ['big_group_probe'], participants: 24, date: '2099-07-15' };
+    const declined = await ins('Группа 24 отказ', 'lost', group);
+    const silent = await ins('Группа 24 тишина', 'new', group);
+    const plainDeclined = await ins('Обычная с отказом', 'lost', { source: 'mcp', interests: ['big_group_probe'] });
+    const otherAnswered = await ins('Группа 24 ответил не адресат', 'lost', group);
+    const answer = (partner: string, leadId: string, ans: string) => pool.query(
+      `INSERT INTO partner_incoming_answers (partner_id, subject_kind, subject_id, answer, decline_reason)
+       VALUES ($1, 'lead', $2, $3, $4)`, [partner, leadId, ans, ans === 'decline' ? 'group' : null],
+    );
+    await answer(opB, declined, 'decline');
+    await answer(opB, plainDeclined, 'no_seats');
+    await answer(opA, otherAnswered, 'no_seats');
+
+    const mine = [declined, silent, plainDeclined, otherAnswered];
+    const { FOLLOWUP_LEADS_SQL, FOLLOWUP_LEADS_PARAMS } = await import('@/lib/leads/followup-scope');
+    const { rows } = await pool.query<{ id: string; addressee_slug: string | null }>(FOLLOWUP_LEADS_SQL, [...FOLLOWUP_LEADS_PARAMS]);
+    const picked = rows.filter((r) => mine.includes(r.id));
+    expect(picked.map((r) => r.id)).toEqual([declined]);
+    expect(picked[0]!.addressee_slug).toBe('group-op-b');
+
+    // Крон отдаёт её оператору A — не отказавшемуся B; чей тур и чей отказ — не называет.
+    const { sendPdAlert } = await import('@/lib/notifications/pd-alert');
+    const send = vi.mocked(sendPdAlert);
+    send.mockClear();
+    const { NextRequest } = await import('next/server');
+    const { GET } = await import('@/app/api/cron/leads-followup/route');
+    const res = await GET(new NextRequest('http://localhost/api/cron/leads-followup', { headers: { authorization: `Bearer ${CRON_SECRET}` } }));
+    expect(res.status).toBe(200);
+    const sentGroup = send.mock.calls.map((c) => c[0]).filter((p) => p.text.includes('Группа 24 отказ'));
+    expect(sentGroup).toHaveLength(1);
+    expect(sentGroup[0]!.to?.maxChatId).toBe('7000077');
+    expect(sentGroup[0]!.text).toContain('24 чел., 2099-07-15 — исполнитель выбранного тура не смог взять всю группу');
+    expect(send.mock.calls.some((c) => c[0].text.includes('Группа 24 тишина') || c[0].text.includes('Обычная с отказом'))).toBe(false);
+    // Заявка стала ничейной: кабинет оператора A её откроет, отказавшийся B — в списке уведомлённых.
+    const st = await pool.query<{ status: string; operator_id: string | null; notified: string[]; declined_by: string | null }>(
+      `SELECT status, operator_id::text AS operator_id, source_data->'notified_operators' AS notified,
+              source_data->>'declined_by' AS declined_by FROM leads WHERE id = $1`, [declined],
+    );
+    expect(st.rows[0]).toEqual({ status: 'new', operator_id: null, notified: ['group-op-b', 'group-op-a'], declined_by: 'group-op-b' });
+    // Молчащий адресат заявку держит: она по-прежнему его.
+    const kept = await pool.query<{ operator_id: string | null }>(`SELECT operator_id::text AS operator_id FROM leads WHERE id = $1`, [silent]);
+    expect(kept.rows[0]!.operator_id).toBe(opB);
+
+    await pool.query(`DELETE FROM partner_incoming_answers WHERE subject_id = ANY($1)`, [mine]);
+    await pool.query(`DELETE FROM leads WHERE id = ANY($1::uuid[])`, [mine]);
+  });
+
+  it('миграция 1408: у туров гида Запорожца группа не ограничена, слова «не больше четырёх» сняты, бухта Русская — своим числом', async () => {
+    const { rows } = await pool.query<{ slug: string; unlimited: boolean; max: number; old_words: boolean }>(
+      `SELECT t.slug, t.group_size_unlimited AS unlimited, t.max_participants AS max,
+              (position('не больше четыр' IN coalesce(t.description, '') || coalesce(t.price_note, '')) > 0
+               OR position('до 4 человек' IN coalesce(t.short_description, '') || coalesce(t.price_note, '')) > 0) AS old_words
+         FROM operator_tours t JOIN partners p ON p.id = t.operator_id
+        WHERE p.slug = 'andrey-zaporozhets' AND t.deleted_at IS NULL`,
+    );
+    if (rows.length === 0) return; // база без туров гида (1338) — проверять нечего, и это не «зелёный»
+    expect(rows.every((r) => r.unlimited), JSON.stringify(rows.filter((r) => !r.unlimited))).toBe(true);
+    expect(rows.filter((r) => r.old_words)).toEqual([]);
+    expect(rows.find((r) => r.slug === 'zaporozhets-bukhta-russkaya')?.max).toBe(10);
+    expect(rows.filter((r) => r.slug !== 'zaporozhets-bukhta-russkaya').every((r) => r.max === 12)).toBe(true);
+  });
 });
 
 // ── Перепись пользы агентов (05.11): журнал прогонов кронов на схеме прода ──

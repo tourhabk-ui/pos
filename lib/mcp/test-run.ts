@@ -23,6 +23,7 @@ import { randomBytes } from 'node:crypto';
 import { getPublicBaseUrl } from '@/lib/config';
 import type { RequestKind, ConsentPurpose } from '@/lib/mcp/request-status-schema';
 import { TOUR_PLACE_ENTRY_SCHEMA, type TourPlaceEntry } from '@/lib/mcp/place-status-schema';
+import type { GroupOverSeats } from '@/lib/mcp/booking-capacity';
 
 const TEST_KIND_TAG: Readonly<Record<RequestKind, string>> = { lead: 'lead', seat_request: 'seat', stay_request: 'stay' };
 const TEST_PURPOSE_TAG: Readonly<Record<ConsentPurpose, string>> = { operator: 'op', stay: 'st', carrier: 'ca', rental: 're' };
@@ -97,14 +98,22 @@ export interface WriteStructured {
   requests: IssuedWrite[];
   /** Главное место тура и его статус — у заявок на тур (lib/safety/tour-place-status). */
   place_status?: TourPlaceEntry[];
+  /** Заявка на группу сверх мест — запросом оператору (lib/mcp/booking-capacity). */
+  group?: GroupOverSeats;
 }
 
-export function writeStructured(test: boolean, issued: readonly IssuedWrite[], places: readonly TourPlaceEntry[] = []): WriteStructured {
+export function writeStructured(
+  test: boolean,
+  issued: readonly IssuedWrite[],
+  extra: { places?: readonly TourPlaceEntry[]; group?: GroupOverSeats } = {},
+): WriteStructured {
+  const places = extra.places ?? [];
   return {
     test,
     accepted: issued.filter((r) => r.outcome === 'accepted').length,
     requests: [...issued],
     ...(places.length ? { place_status: [...places] } : {}),
+    ...(extra.group ? { group: extra.group } : {}),
   };
 }
 
@@ -142,6 +151,18 @@ export const WRITE_OUTPUT_SCHEMA = {
       },
     },
     place_status: TOUR_PLACE_ENTRY_SCHEMA,
+    group: {
+      type: 'object',
+      description: 'Заявка на группу больше, чем тур берёт на выезд: ушла оператору запросом на всю группу, места не закреплены; откажет — заявку увидят другие операторы того же вида туров',
+      properties: {
+        code: { type: 'string', enum: ['group_over_seats'] },
+        tour_id: { type: 'integer' },
+        seats_on_date: { type: ['integer', 'null'], description: 'Свободно на дату; null — расписания у тура нет' },
+        tour_max: { type: ['integer', 'null'], description: 'Потолок тура, как записан; null — не записан или группа тура не ограничена' },
+        participants: { type: 'integer' },
+      },
+      required: ['code', 'tour_id', 'seats_on_date', 'tour_max', 'participants'],
+    },
   },
   required: ['test', 'accepted', 'requests'],
 } as const;

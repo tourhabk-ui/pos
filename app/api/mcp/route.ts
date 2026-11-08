@@ -63,6 +63,7 @@ import { unknownToolResponse } from '@/lib/mcp/unknown-tool';
 import { normalizePhone, implausiblePhone } from '@/lib/mcp/normalize-phone';
 import { issueTestKey, testRunText, writeStructured, type IssuedWrite } from '@/lib/mcp/test-run';
 import type { TourPlaceEntry } from '@/lib/mcp/place-status-schema';
+import { loadTourGroupFacts, groupOverSeats, groupOverSeatsLine, type GroupOverSeats } from '@/lib/mcp/booking-capacity';
 import { loadTourPlaceStatus, tourPlaceRequestNote, TOUR_PLACE_NOT_READ_NOTE } from '@/lib/safety/tour-place-status';
 import type { RequestKind, ConsentPurpose } from '@/lib/mcp/request-status-schema';
 import { logMcpToolCall, logMcpClient } from '@/lib/mcp/call-log';
@@ -149,6 +150,8 @@ interface McpCallContext {
   places?: TourPlaceEntry[];
   /** structuredContent читающего инструмента (статус мест у get_guardian_context, 08.11). */
   structured?: Record<string, unknown>;
+  /** Заявка на группу сверх мест — запросом оператору (lib/mcp/booking-capacity, 08.11). */
+  group?: GroupOverSeats;
 }
 
 /**
@@ -546,6 +549,11 @@ async function executeCreateBookingRequest(rawArgs: Record<string, unknown>, ctx
   const cache = createPlannerCache();
   const slots = await fetchAvailabilityForTour(String(tour.id), date, date, cache);
   const remaining = slots[0]?.remaining ?? 0;
+  // Группа больше, чем тур берёт на выезд (слово владельца 08.11), — заявка
+  // уходит оператору запросом на всю группу, а не отказом (lib/mcp/booking-capacity).
+  let group: GroupOverSeats | null = null;
+  /** Вид тура — по нему добивка ищет других операторов после отказа адресата. */
+  let groupActivity: string | null = null;
   if (remaining < participants) {
     // Расписание есть, а мест на дату нет — честный отказ ниже. Расписания
     // нет вовсе (оператор берёт туристов без календаря) — «нет мест» было бы
@@ -565,29 +573,44 @@ async function executeCreateBookingRequest(rawArgs: Record<string, unknown>, ctx
       if (window.kind === 'season' && !dateInWindow(window, date)) {
         return `${outOfSeasonText(window, date)} Заявка не создана — предложите дату внутри сезона.`;
       }
+    }
+    const facts = await loadTourGroupFacts(Number(tour.id));
+    group = groupOverSeats(facts, { tourId: Number(tour.id), participants, remaining, hasSchedule: keepsSchedule });
+    if (group) {
+      ctx.group = group;
+      groupActivity = facts?.activityType ?? null;
+    } else if (!keepsSchedule) {
       // Строки о парке (#3156) и о главном месте тура (08.11) — до ссылки статуса.
       return requestSeatsFromOperator({ ctx, tourId: Number(tour.id), tourTitle: tour.title, date, participants, name, phone, hasComment: Boolean(comment), consent: parsed.data.consent, notifyUrl: parsed.data.notify_url, parkNote: parkNote + placeNote });
+    } else {
+      // Честный отказ с альтернативами вместо фантомной заявки на несуществующие места.
+      const horizon = new Date(Date.parse(date) + 30 * 86400000).toISOString().slice(0, 10);
+      const nearest = (await fetchAvailabilityForTour(String(tour.id), today, horizon, cache))
+        .filter((s) => s.remaining >= participants)
+        .slice(0, 5)
+        .map((s) => `${s.date} (${s.remaining} мест)`);
+      return `На ${date} у тура "${tour.title}" ${remaining === 0 ? 'нет свободных мест' : `только ${remaining} мест, а нужно ${participants}`} — заявка не создана. ` +
+        (nearest.length > 0 ? `Ближайшие даты с местами: ${nearest.join(', ')}.` : 'В ближайшие 30 дней подходящих дат нет — предложите другой тур.');
     }
-    // Честный отказ с альтернативами вместо фантомной заявки на несуществующие места.
-    const horizon = new Date(Date.parse(date) + 30 * 86400000).toISOString().slice(0, 10);
-    const nearest = (await fetchAvailabilityForTour(String(tour.id), today, horizon, cache))
-      .filter((s) => s.remaining >= participants)
-      .slice(0, 5)
-      .map((s) => `${s.date} (${s.remaining} мест)`);
-    return `На ${date} у тура "${tour.title}" ${remaining === 0 ? 'нет свободных мест' : `только ${remaining} мест, а нужно ${participants}`} — заявка не создана. ` +
-      (nearest.length > 0 ? `Ближайшие даты с местами: ${nearest.join(', ')}.` : 'В ближайшие 30 дней подходящих дат нет — предложите другой тур.');
   }
 
   const leadComment = `[Заявка на бронь] Тур "${tour.title}" (ID${tour.id}), дата ${date}, участников ${participants}.`
+    + (group ? ` Группа больше мест: ${groupOverSeatsLine(group)} Возьмёте ли всю группу (ещё машины, несколько выездов)?` : '')
     + (comment ? ` ${comment}` : '');
   // План, частью которого стоит тур (#2304, шаг 2): оператор видит поездку
   // целиком. Не приложился — заявка всё равно идёт, и агент это слышит.
   const planAttach = await planFromDraft(parsed.data.plan_id);
-  const leadSource = { source: 'mcp', tool: 'create_booking_request', tour_id: tour.id, date, participants, ...planSourceFields(planAttach) };
+  const leadSource = {
+    source: 'mcp', tool: 'create_booking_request', tour_id: tour.id, date, participants, ...planSourceFields(planAttach),
+    // Отказ адресата — и заявку видят другие операторы того же вида (followup-scope).
+    ...(group ? { group_over_seats: true, seats_on_date: group.seats_on_date, interests: groupActivity ? [groupActivity] : [] } : {}),
+  };
   refuseSilentLead(name, phone, leadComment, leadSource);
 
   const trial = stopForTest(ctx, BOOKING_REQUEST_TOOL.name, 'lead', 'operator', parsed.data.consent,
-    `заявка оператору на тур "${tour.title}" (ID${tour.id}), ${date}, участников ${participants}; сейчас на эту дату свободно ${remaining} мест.`,
+    group
+      ? `запрос оператору на всю группу: тур "${tour.title}" (ID${tour.id}), ${date}, участников ${participants} — ${groupOverSeatsLine(group)}`
+      : `заявка оператору на тур "${tour.title}" (ID${tour.id}), ${date}, участников ${participants}; сейчас на эту дату свободно ${remaining} мест.`,
     'оператору тура');
   // Проба говорит о парке и месте тура то же, что настоящая заявка.
   if (trial) return trial + parkNote + placeNote + planAttachNote(planAttach);
@@ -611,9 +634,14 @@ async function executeCreateBookingRequest(rawArgs: Record<string, unknown>, ctx
   // оператор позвонит. Номер заявки человеку ни для чего не нужен — звонят ему.
   // Состав группы в ответе не повторяется: на дубле он взят бы из НОВОГО
   // вызова, а в заявке остался прежний (скептик проверки 29.09).
-  const accepted = `Заявка оператору принята: "${tour.title}", ${date}. Сейчас на эту дату свободно ${remaining} мест. `
-    + `Оператор перезвонит по телефону ${phone}, подтвердит заявку и состав группы — если число людей или пожелания изменились, `
-    + 'человеку стоит сказать об этом при звонке. Это заявка, не оплата.'
+  const accepted = (group
+    ? `Заявка оператору отправлена запросом на всю группу: "${tour.title}", ${date} — ${groupOverSeatsLine(group)} `
+      + 'Места не закреплены: оператор скажет, возьмёт ли всю группу (ещё машины, несколько выездов). '
+      + `Он перезвонит по телефону ${phone}. Если он откажет, заявку на группу увидят другие операторы того же вида туров. `
+      + 'Это заявка, не оплата.'
+    : `Заявка оператору принята: "${tour.title}", ${date}. Сейчас на эту дату свободно ${remaining} мест. `
+      + `Оператор перезвонит по телефону ${phone}, подтвердит заявку и состав группы — если число людей или пожелания изменились, `
+      + 'человеку стоит сказать об этом при звонке. Это заявка, не оплата.')
     + parkNote
     + placeNote
     + planAttachNote(planAttach)
@@ -1514,7 +1542,7 @@ async function runPublicToolCore(call: PublicToolCall): Promise<PublicToolOutcom
     // Читающие инструменты со статусом места (get_guardian_context, 08.11)
     // кладут поля в ctx.structured — текст ответа от этого не меняется.
     const structured = isWrite
-      ? { ...writeStructured(testRun, ctx.issued ?? [], ctx.places ?? []) }
+      ? { ...writeStructured(testRun, ctx.issued ?? [], { places: ctx.places ?? [], group: ctx.group }) }
       : ctx.structured
         ?? (CONNECTOR_TOOL_NAMES.has(toolName) || toolName === REQUEST_STATUS_TOOL_NAME ? parseStructured(text) : undefined);
     return { kind: 'ok', text, handoffUrl: handoff ? handoff.url : null, ...(structured ? { structured } : {}) };
