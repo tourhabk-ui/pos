@@ -1,4 +1,4 @@
--- 1408: группа не ограничена у всех туров гида andrey-zaporozhets — слово владельца 08.11.
+-- 1410: группа не ограничена у всех туров гида andrey-zaporozhets — слово владельца 08.11.
 --
 -- ── Основание ─────────────────────────────────────────────────────────────
 --
@@ -51,7 +51,7 @@ DECLARE
 BEGIN
   SELECT count(*) INTO v_n FROM partners WHERE slug = 'andrey-zaporozhets' AND category = 'guide';
   IF v_n <> 1 THEN
-    RAISE WARNING '[1408] карточка гида andrey-zaporozhets не найдена (или не одна: %) — группа не тронута', v_n;
+    RAISE WARNING '[1410] карточка гида andrey-zaporozhets не найдена (или не одна: %) — группа не тронута', v_n;
     RETURN;
   END IF;
   SELECT id INTO v_gid FROM partners WHERE slug = 'andrey-zaporozhets' AND category = 'guide';
@@ -91,7 +91,7 @@ BEGIN
    WHERE t.operator_id = v_gid AND t.deleted_at IS NULL
      AND ta.deleted_at IS NULL AND ta.available_slots = 4;
   IF v_cnt > 0 THEN
-    RAISE WARNING '[1408] у туров гида % дат(ы) остались на 4 местах (на дату есть бронь или её правил человек) — проверьте вручную', v_cnt;
+    RAISE WARNING '[1410] у туров гида % дат(ы) остались на 4 местах (на дату есть бронь или её правил человек) — проверьте вручную', v_cnt;
   END IF;
 
   -- ── 4. Карточка гида ───────────────────────────────────────────────────

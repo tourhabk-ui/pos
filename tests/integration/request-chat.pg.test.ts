@@ -486,7 +486,7 @@ withPg('переписка по заявке на настоящем PostgreSQL'
       const { findRequestLodgingForStay, findLodgingForStay } = await import('@/lib/planner/trip-extras-data');
       const accId = (await pool.query<{ id: string }>(`SELECT accommodation_id::text AS id FROM stay_requests WHERE id = $1`, [requestId])).rows[0].id;
       const at = (checkIn: string, checkOut: string, zone: 'avachinsky' | 'eastern' = 'avachinsky') => ({ zone, checkIn, checkOut, nights: 2 });
-      // В базе рядом и «Кутха» витрины (1179, зона с 1409) — судим только свой объект.
+      // В базе рядом и «Кутха» витрины (1179, зона с 1411) — судим только свой объект.
       type Found = Awaited<ReturnType<typeof findRequestLodgingForStay>>;
       const ours = (r: Found) => (r.state === 'ok' ? r.items.filter((i) => i.id === accId) : []);
       // Зоны нет — не предлагается: зону не угадывают (1031).
@@ -496,7 +496,7 @@ withPg('переписка по заявке на настоящем PostgreSQL'
       const found = await findRequestLodgingForStay(at('2099-08-01', '2099-08-03'));
       expect(found.state).toBe('ok');
       expect(ours(found)).toEqual([expect.objectContaining({ id: accId, name: 'Кутха', type: 'guesthouse' })]);
-      // «Кутха» витрины (1179) после 1409 — тоже в подборе Авачинской зоны: ради этого миграция.
+      // «Кутха» витрины (1179) после 1411 — тоже в подборе Авачинской зоны: ради этого миграция.
       expect(found.state === 'ok' && found.items.some((i) => i.id !== accId && i.name === 'Кутха')).toBe(true);
       // Подбор по номерам этот объект не видит — номеров на платформе нет.
       const byRooms = await findLodgingForStay(at('2099-08-01', '2099-08-03'), 2);

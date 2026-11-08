@@ -563,7 +563,7 @@ withPg('крон добивки лидов на настоящем PostgreSQL', 
     await pool.query(`DELETE FROM leads WHERE id = ANY($1::uuid[])`, [mine]);
   });
 
-  it('миграция 1409: «Кутха» в Авачинской зоне планера — объект встаёт в подбор ночёвок', async () => {
+  it('миграция 1411: «Кутха» в Авачинской зоне планера — объект встаёт в подбор ночёвок', async () => {
     const { rows } = await pool.query<{ planner_zone: string | null }>(
       `SELECT planner_zone FROM accommodations WHERE LOWER(name) = 'кутха'`,
     );
@@ -571,7 +571,7 @@ withPg('крон добивки лидов на настоящем PostgreSQL', 
     expect(rows.map((r) => r.planner_zone)).toEqual(['avachinsky']);
   });
 
-  it('миграция 1408: у туров гида andrey-zaporozhets группа не ограничена, слова «не больше четырёх» сняты, бухта Русская — своим числом', async () => {
+  it('миграция 1410: у туров гида andrey-zaporozhets группа не ограничена, слова «не больше четырёх» сняты, бухта Русская — своим числом', async () => {
     const { rows } = await pool.query<{ slug: string; unlimited: boolean; max: number; old_words: boolean }>(
       `SELECT t.slug, t.group_size_unlimited AS unlimited, t.max_participants AS max,
               (position('не больше четыр' IN coalesce(t.description, '') || coalesce(t.price_note, '')) > 0
