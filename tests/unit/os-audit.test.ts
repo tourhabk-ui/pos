@@ -18,8 +18,11 @@
  * что отличает замер от красивого текста.
  */
 import { describe, it, expect } from 'vitest';
-import { readFileSync } from 'fs';
+import { readFileSync, mkdtempSync, writeFileSync, chmodSync, existsSync, rmSync } from 'fs';
 import { join } from 'path';
+import { tmpdir } from 'os';
+import { spawnSync } from 'child_process';
+import { load } from 'js-yaml';
 import { evidenceIsQuoted, evidenceFragments, namedFiles, safeRepoPath, journalOverlap } from '../../scripts/os-audit-runner';
 
 const SRC = readFileSync(join(process.cwd(), 'scripts/os-audit-runner.ts'), 'utf8');
@@ -321,7 +324,72 @@ describe('оплаченный проход переживает прогон', 
   it('workflow умеет проверять находки прошлого прогона', () => {
     expect(WF).toContain('verify_findings_run');
     expect(WF).toContain('download-artifact');
-    expect(WF).toContain('AUDIT_FINDINGS_IN: audit-findings.json');
+    expect(WF).toContain('AUDIT_FINDINGS_IN: ${{ runner.temp }}/audit-findings/audit-findings.json');
+  });
+
+  // Ревью безопасности #3149: артефакт с именем audit-findings может выложить
+  // любой прогон репозитория, в том числе workflow из PR с форка. Шаг проверки
+  // исполняется настоящим bash с подложенным gh.
+  describe('находки берутся только у прогона самого аудита', () => {
+    type WfStep = { name?: string; run?: string; uses?: string; with?: Record<string, unknown> };
+    const doc = load(WF) as { jobs: Record<string, { steps: WfStep[] }> };
+    const steps = Object.values(doc.jobs).flatMap((j) => j.steps);
+    const guard = steps.find((st) => st.name === 'Прогон с находками — свой');
+    const REPO = 'tourhabk-ui/pos';
+
+    function runGuard(runId: string, run: Record<string, unknown> | null) {
+      const dir = mkdtempSync(join(tmpdir(), 'os-audit-run-guard-'));
+      try {
+        const called = join(dir, 'gh-called');
+        writeFileSync(join(dir, 'gh'), `#!/bin/sh\ntouch "${called}"\nprintf '%s' "$FAKE_RUN_JSON"\n`);
+        chmodSync(join(dir, 'gh'), 0o755);
+        const r = spawnSync('bash', ['-c', guard?.run ?? 'exit 99'], {
+          env: {
+            PATH: `${dir}:${process.env.PATH ?? ''}`, REPO, RUN_ID: runId, GH_TOKEN: 'test',
+            FAKE_RUN_JSON: JSON.stringify(run ?? {}),
+          },
+          encoding: 'utf8',
+        });
+        return { status: r.status, out: `${r.stdout}${r.stderr}`, ghCalled: existsSync(called) };
+      } finally {
+        rmSync(dir, { recursive: true, force: true });
+      }
+    }
+    const own = (event: string) => ({ path: '.github/workflows/os-audit.yml', event, head_repository: { full_name: REPO } });
+
+    it('шаг стоит до скачивания, и скачивание идёт вне рабочей копии', () => {
+      const at = steps.findIndex((st) => st.name === 'Прогон с находками — свой');
+      const dl = steps.findIndex((st) => String(st.uses ?? '').startsWith('actions/download-artifact'));
+      expect(at).toBeGreaterThanOrEqual(0);
+      expect(at).toBeLessThan(dl);
+      expect(String(steps[dl]?.with?.path)).toBe('${{ runner.temp }}/audit-findings');
+    });
+
+    it('свой прогон — пуш в main или ручной запуск — проходит', () => {
+      expect(runGuard('42430846244', own('push')).status).toBe(0);
+      expect(runGuard('42430846244', own('workflow_dispatch')).status).toBe(0);
+    });
+
+    it('PR с форка с тем же файлом workflow — отказ', () => {
+      const r = runGuard('1', { path: '.github/workflows/os-audit.yml', event: 'pull_request', head_repository: { full_name: 'someone/pos' } });
+      expect(r.status).toBe(1);
+      expect(r.out).toContain('чужие находки не берём');
+    });
+
+    it('PR из этого репозитория и другой workflow — отказ', () => {
+      expect(runGuard('2', own('pull_request')).status).toBe(1);
+      expect(runGuard('3', { path: '.github/workflows/claude.yml', event: 'push', head_repository: { full_name: REPO } }).status).toBe(1);
+      expect(runGuard('4', null).status).toBe(1);
+      // Тот же файл и ручной запуск, но репозиторий головы чужой.
+      expect(runGuard('5', { path: '.github/workflows/os-audit.yml', event: 'workflow_dispatch', head_repository: { full_name: 'someone/pos' } }).status).toBe(1);
+    });
+
+    it('не номер прогона — отказ до запроса к API', () => {
+      const r = runGuard('123; echo pwned', own('push'));
+      expect(r.status).toBe(1);
+      expect(r.ghCalled).toBe(false);
+      expect(r.out).toContain('не номер прогона');
+    });
   });
 
   it('проход и проверка взаимоисключающи — иначе снова заплатим за оба', () => {

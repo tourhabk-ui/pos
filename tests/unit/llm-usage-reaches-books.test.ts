@@ -308,6 +308,28 @@ describe('скрипт, зовущий модель своим fetch, пишет
     }
   });
 
+  it('артефакт ложится вне рабочей копии: шаг с секретом исполняет код из checkout, а не из артефакта', () => {
+    // Ревью безопасности #3149: os-audit распаковывал артефакт произвольного
+    // прогона поверх checkout, а следующий шаг запускал scripts/ с секретами.
+    type DlStep = { name?: string; uses?: string; with?: Record<string, unknown> };
+    const downloads: Array<{ file: string; step: string; path: unknown }> = [];
+    for (const file of readdirSync(WORKFLOWS).filter((f) => /\.ya?ml$/.test(f))) {
+      const doc = load(readFileSync(join(WORKFLOWS, file), 'utf-8')) as { jobs?: Record<string, { steps?: DlStep[] }> } | null;
+      for (const job of Object.values(doc?.jobs ?? {})) {
+        for (const st of job.steps ?? []) {
+          if (!String(st.uses ?? '').startsWith('actions/download-artifact')) continue;
+          downloads.push({ file, step: st.name ?? '(без имени)', path: st.with?.path });
+        }
+      }
+    }
+    // Ноль найденных — сломался разбор, а не «скачиваний нет».
+    expect(downloads.length).toBeGreaterThan(0);
+    for (const d of downloads) {
+      expect(String(d.path ?? ''), `${d.file} → ${d.step}: артефакт распаковывается в рабочую копию`)
+        .toMatch(/^\$\{\{\s*runner\.temp\s*\}\}\//);
+    }
+  });
+
   it('список «мимо книг» только сокращается', () => {
     const callers = new Set(directCallers());
     for (const [f, why] of Object.entries(DIRECT_CALLERS_OUTSIDE_BOOKS)) {
