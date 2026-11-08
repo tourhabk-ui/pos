@@ -216,7 +216,6 @@ const KNOWN_EMPTY_CATCHES: Record<string, number> = {
   'lib/kuzmich/core.ts': 4,
   'lib/kuzmich/engagement.ts': 2,
   'lib/kuzmich/tool-loop.ts': 1,
-  'lib/kuzmich/trip-plan-tool.ts': 1,
   'lib/mcp/dev-tools/server.ts': 1,
   'lib/mcp/read-body.ts': 1,
   'lib/mcp/write-guard.ts': 1,

@@ -64,7 +64,7 @@ vi.mock('@/lib/ai/providers', () => ({ callAIWithModelDirect: vi.fn(async () => 
 vi.mock('@/lib/ai/agent-models', () => ({ getModelForAgent: () => null }));
 vi.mock('@/lib/db-pool', () => ({ pool: { query: vi.fn(async (sql: string) => ({ rows: String(sql).includes('FROM safety_alerts') ? ALERT_ROWS : [] })) } }));
 
-import { recommendTrip, type TripProfile } from '@/lib/planner/engine';
+import { recommendTrip, unservedInterestMessage, type TripProfile } from '@/lib/planner/engine';
 import { fetchRealToursForZone } from '@/lib/planner/data';
 import { tourPlanSpan } from '@/lib/planner/tour-span';
 import { ACTIVITY_CONSTRAINTS, ACTIVITY_NAMES } from '@/lib/planner/constants';
@@ -126,8 +126,13 @@ describe('E1: многодневный тур не режется на краю 
     TOURS['avachinsky:volcano'] = [ONE, TWO, THREE];
     const rec = await recommendTrip(profile(7, ['volcano']));
     const placedTours = daysByTour(rec).size;
-    // У каждого тура цена 10 000 ₽ за человека; верх вилки — с запасом движка.
-    expect(rec.priceBreakdown.activities[0]).toBe(placedTours * 10000);
+    // День без тура (с 08.11 блок не закрывается на туре длиннее остатка и
+    // ставит общий день интереса) — по справочной вилке и помечен оценкой.
+    const notTour = rec.days.filter((d) => d.type === 'activity' && ![ONE, TWO, THREE].some((t) => d.title.startsWith(t.title)));
+    const estimated = notTour.reduce((sum, d) => sum + (d.priceFrom ?? 0), 0);
+    expect(rec.priceBreakdown.activityPricing.estimated).toBe(notTour.filter((d) => (d.priceFrom ?? 0) > 0).length);
+    // У каждого тура цена 10 000 ₽ за человека; не поставленный тур в вилку не входит.
+    expect(rec.priceBreakdown.activities[0]).toBe(placedTours * 10000 + estimated);
   });
 });
 
@@ -230,5 +235,57 @@ describe('S4: тревоги — только по зонам, куда план
     expect(rec.days.some((d) => d.zone === 'western')).toBe(false);
     const text = rec.warnings.filter((w) => w.type === 'mchs').map((w) => w.message).join('\n');
     expect(text).not.toContain('Паводок на Опале');
+  });
+});
+
+describe('разбор 08.11: «вулканы», 6 дней, группа, «с оператором»', () => {
+  // Живой ответ прода: два длинных тура первыми в очереди закрывали блок
+  // вулканов, и «Восхождение на Авачинский», проходившее в этот день, в план
+  // не вставало; второй словарь добавлял «треккинг», и группу везли в
+  // Восточную зону на день без тура; причина в «Важно» — «дня не нашлось»
+  // при свободном дне.
+  const LONG: Tour = { tourId: 'long', title: 'Ключевская на 12 дней', durationHours: 288, zone: 'avachinsky', activityType: 'volcano' };
+  const AVACHA: Tour = { tourId: 'avacha', title: 'Восхождение на Авачинский', durationHours: 12, zone: 'avachinsky', activityType: 'volcano' };
+  const operator = (days: number, interests: string[]): TripProfile => ({ ...profile(days, interests), travelStyle: 'operator', adults: 24 });
+
+  it('тур длиннее поездки не закрывает блок: следующий подходящий тур встаёт', async () => {
+    TOURS['avachinsky:volcano'] = [LONG, AVACHA];
+    const rec = await recommendTrip(operator(6, ['volcano']));
+    expect(daysByTour(rec).has('avacha')).toBe(true);
+    expect(rec.warnings.map((w) => w.message).join('\n')).not.toMatch(/«вулканы» в этот план не вош/);
+  });
+
+  it('«с оператором» в зону без единого тура не едут — и это названо', async () => {
+    // Туров треккинга нет нигде, дней на заход в Восточную зону хватает.
+    const rec = await recommendTrip(operator(9, ['trekking']));
+    expect(rec.days.filter((d) => d.type === 'travel')).toEqual([]);
+    expect(rec.days.some((d) => d.zone === 'eastern')).toBe(false);
+    const text = rec.warnings.map((w) => w.message).join('\n');
+    expect(text).toMatch(/Восточная зона в план не вошла: туров операторов там под [^\n]*треккинг[^\n]* в ваши даты нет/);
+  });
+
+  it('интерес без дня — с настоящей причиной; «дня не нашлось» — только когда дня правда нет', () => {
+    const why = unservedInterestMessage('вулканы', ['«Ключевская на 12 дней» — 12 дн., длиннее оставшихся дней поездки'], true);
+    expect(why).toBe('Интерес «вулканы» в этот план не вошёл: «Ключевская на 12 дней» — 12 дн., длиннее оставшихся дней поездки. '
+      + 'Сдвиньте даты или добавьте дни — тогда соберём заново.');
+    expect(unservedInterestMessage('вулканы', [], true)).toMatch(/подходящего тура или маршрута в ваши даты не нашли — свободный день в плане есть/);
+    expect(unservedInterestMessage('вулканы', [], true)).not.toMatch(/дня для него не нашлось/);
+    expect(unservedInterestMessage('вулканы', [], false)).toMatch(/дня для него не нашлось/);
+  });
+
+  it('тур длиннее поездки назван у интереса, которому он принадлежал', async () => {
+    TOURS['avachinsky:volcano'] = [LONG];
+    const rec = await recommendTrip(operator(6, ['volcano']));
+    // День интереса встал общим днём, тур длиннее поездки — назван словами.
+    expect(rec.days.some((d) => d.type === 'activity' && d.activityType === 'volcano')).toBe(true);
+    expect(rec.warnings.map((w) => w.message).join('\n')).toContain('Ключевская на 12 дней (12 дн.)');
+  });
+
+  it('короткая поездка приезжего: «5 дней», а не «5 дня»', async () => {
+    TOURS['avachinsky:volcano'] = [AVACHA];
+    const rec = await recommendTrip(profile(5, ['volcano']));
+    const text = rec.warnings.map((w) => w.message).join('\n');
+    expect(text).toContain('5 дней — очень мало для Камчатки');
+    expect(text).not.toMatch(/\b5 дня\b/);
   });
 });

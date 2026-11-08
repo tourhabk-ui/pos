@@ -805,7 +805,7 @@ function collectWarnings(
       type: 'duration', severity: 'important',
       message: asTripOrigin(profile.tripOrigin) === 'local'
         ? `${tripDays} ${pluralDays(tripDays)} — короткая поездка: погода на Камчатке переносит выходы, и запасного дня в плане нет. Если выход сорвётся, заменить его будет нечем.`
-        : `${tripDays} дня — очень мало для Камчатки. Перелёт 8-9 часов из Москвы + джетлаг (UTC+12). Рекомендуем минимум 7 дней.`,
+        : `${tripDays} ${pluralDays(tripDays)} — очень мало для Камчатки. Перелёт 8-9 часов из Москвы + джетлаг (UTC+12). Рекомендуем минимум 7 дней.`,
     });
   }
 
@@ -1098,6 +1098,34 @@ interface DayPlanResult {
    * тур в план не встаёт и в смету не идёт, но называется.
    */
   offDays: Array<{ title: string; dates: string[] }>;
+  /**
+   * Почему интерес остался без дня — по интересу (разбор 08.11). До этого
+   * причина была одна на все случаи, «дня для неё не нашлось», и печаталась
+   * при свободном дне в плане: туры длиннее поездки, без мест и без выезда в
+   * эти дни назывались только по названию тура, а к интересу не привязывались.
+   */
+  missReasons: Record<string, string[]>;
+  /**
+   * Зоны, куда «с оператором» ехать не за чем: ни у одного интереса блока
+   * нет тура этой зоны (разбор 08.11: два дня дороги ради дня без тура).
+   */
+  skippedNoTour: Array<{ zone: ZoneId; interests: string[] }>;
+}
+
+/**
+ * Почему интерес остался без дня — словами (разбор 08.11). Причины по
+ * интересу — первыми; нет их, а свободный день в плане есть, — «дня не
+ * нашлось» было бы неправдой, и сказано, что не нашлось тура или маршрута.
+ */
+export function unservedInterestMessage(name: string, reasons: readonly string[], hasFreeDay: boolean): string {
+  if (reasons.length > 0) {
+    return `Интерес «${name}» в этот план не вошёл: ${listShort([...reasons])}. Сдвиньте даты или добавьте дни — тогда соберём заново.`;
+  }
+  if (hasFreeDay) {
+    return `Интерес «${name}» в этот план не вошёл: подходящего тура или маршрута в ваши даты не нашли — свободный день в плане есть. `
+      + 'Сдвиньте даты или добавьте другой интерес — тогда соберём заново.';
+  }
+  return `Интерес «${name}» в этот план не вошёл: дня для него не нашлось. Добавьте день к поездке или уберите другой интерес — тогда соберём заново.`;
 }
 
 /** День отдыха по просьбе человека (не автоматический после тяжёлого дня). */
@@ -1145,7 +1173,7 @@ async function generateDayPlans(
   mchsWarnings: readonly ActiveWarning[] = [],
 ): Promise<DayPlanResult> {
   const unchecked = new Set<string>();
-  if (tripDays <= 0 || zones.length === 0) return { days: [], unchecked: [], spanUnknown: [], tooLong: [], extendedForTour: [], overLimit: [], preferenceNotes: [], selfSkipped: [], selfSafetyUnchecked: false, skippedLegs: [], returnLegMissing: null, offDays: [] };
+  if (tripDays <= 0 || zones.length === 0) return { days: [], unchecked: [], spanUnknown: [], tooLong: [], extendedForTour: [], overLimit: [], preferenceNotes: [], selfSkipped: [], selfSafetyUnchecked: false, skippedLegs: [], returnLegMissing: null, offDays: [], missReasons: {}, skippedNoTour: [] };
   const youngest = youngestChild(profile);
   const month = getMonth(profile);
 
@@ -1172,7 +1200,7 @@ async function generateDayPlans(
     });
   }
 
-  if (dayNum > tripDays) return { days, unchecked: [...unchecked], spanUnknown: [], tooLong: [], extendedForTour: [], overLimit: [], preferenceNotes: [], selfSkipped: [], selfSafetyUnchecked: false, skippedLegs: [], returnLegMissing: null, offDays: [] };
+  if (dayNum > tripDays) return { days, unchecked: [...unchecked], spanUnknown: [], tooLong: [], extendedForTour: [], overLimit: [], preferenceNotes: [], selfSkipped: [], selfSafetyUnchecked: false, skippedLegs: [], returnLegMissing: null, offDays: [], missReasons: {}, skippedNoTour: [] };
 
   // ── Active days budget ──
   const departureDays = framing.departure;
@@ -1204,6 +1232,17 @@ async function generateDayPlans(
    * человека исчезает из плана молча (§4.0, решение владельца 27.09).
    */
   const skippedLegs: Array<{ zone: ZoneId; cost: ZoneLegCost; daysLeft: number; interests: string[] }> = [];
+  /** Причины пропуска по интересу (08.11) — см. DayPlanResult.missReasons. */
+  const missReasons = new Map<string, Set<string>>();
+  const missFor = (interest: string | undefined, why: string): void => {
+    if (!interest) return;
+    const set = missReasons.get(interest) ?? new Set<string>();
+    set.add(why);
+    missReasons.set(interest, set);
+  };
+  /** Интерес, по которому тур взят в материал: причину пропуска тура — к нему. */
+  const interestOfTour = new Map<string, string>();
+  const skippedNoTour: Array<{ zone: ZoneId; interests: string[] }> = [];
 
   // Determine zone allocation
   /** `tail` — блок просьбы, которой не досталось дня (см. перед циклом блоков). */
@@ -1335,51 +1374,9 @@ async function generateDayPlans(
       block.interests = allowed;
     }
 
-    // ── Заход в чужую зону: решается СВЯЗКОЙ, а не одним днём (27.09) ──
-    //
-    // Раньше проверка «хватает ли дней» стояла ПОСЛЕ того, как день переезда
-    // уже добавлен, и отката не было. Отсюда два невыполнимых плана, снятых с
-    // живого движка: поездка 5-6 дней получала день переезда в зону, где нет
-    // ни одного дня; поездка 7 дней уезжала в Западную зону и вылетала из
-    // Петропавловска, не возвращаясь. Правило и причина отказа —
-    // lib/planner/zone-leg.ts.
-    if (block.zone !== prevZone) {
-      const daysLeft = tripDays - departureDays - (dayNum - 1);
-      const cost = zoneLegCost(prevZone, block.zone);
-      if (!legFits(cost, daysLeft)) {
-        // Зона не берётся ВОВСЕ — ни дня переезда, ни дня в ней. Молчать
-        // нельзя: интерес человека иначе исчезает из плана без объяснения
-        // (§4.0). Причину собираем и отдаём предупреждением ниже.
-        skippedLegs.push({
-          zone: block.zone,
-          cost,
-          daysLeft,
-          interests: block.interests.slice(),
-        });
-        continue;
-      }
-      const edge = ZONE_GRAPH[prevZone]?.[block.zone];
-      if (edge?.needsTravelDay) {
-        const transportLabel = edge.transports.includes('jeep')
-          ? `Переезд на внедорожнике (~${edge.travelHours ?? '?'}ч, ${edge.distanceKm} км)`
-          : `Перелёт на вертолёте (${edge.distanceKm} км)`;
-        days.push({
-          day: dayNum++, type: 'travel', zone: prevZone,
-          title: `Переезд: ${ZONE_NAMES[prevZone]} → ${ZONE_NAMES[block.zone]}`,
-          description: transportLabel,
-          activityType: 'travel', priceFrom: edge.costPerPerson[0], priceTo: edge.costPerPerson[1],
-          coords: ZONE_COORDS[block.zone], defaultTransport: edge.transports[0],
-          allowedTransports: edge.transports, difficulty: 'easy',
-          childFriendly: true, minChildAge: 0,
-          dayWarnings: notesForPlanDay(
-            `${ZONE_NAMES[prevZone]} ${ZONE_NAMES[block.zone]} ${transportLabel}`,
-            [prevZone, block.zone],
-            mchsWarnings,
-          ),
-        });
-      }
-    }
-
+    // Материал собирается ДО решения о заходе в зону (08.11): «с оператором»
+    // в зону, где ни у одного интереса нет тура, не едут — а узнать это
+    // можно только по материалу.
     // Материал блока — СВОЙ у каждого интереса (независимая проверка 07.11,
     // Б1). До этого туры и маршруты брались только по первому интересу блока,
     // а цикл дней раздавал их по кругу всем интересам: день рыбалки получал
@@ -1428,7 +1425,7 @@ async function generateDayPlans(
               : keeps === null ? { kind: 'unread' } : { kind: 'dated', dates: new Set() });
             if (keeps === false) onRequest.push(t);
             else if (keeps === null) tight.push(t);
-            else if (style === 'operator') noSlotTours.add(t.title);
+            else if (style === 'operator') { noSlotTours.add(t.title); missFor(interest, `у «${t.title}» нет свободных мест в ваши даты`); }
             else noSeats.push(t);
             continue;
           }
@@ -1437,8 +1434,63 @@ async function generateDayPlans(
         }
         tours = [...fits, ...tight, ...onRequest, ...noSeats];
       }
+      for (const t of tours) if (!interestOfTour.has(t.tourId)) interestOfTour.set(t.tourId, interest);
       material.set(interest, { tours, routes: [], routeCursor: 0, toursUnread: toursOrNull === null, deferred: [] });
     }
+
+    // ── Заход в чужую зону: решается СВЯЗКОЙ, а не одним днём (27.09) ──
+    //
+    // Раньше проверка «хватает ли дней» стояла ПОСЛЕ того, как день переезда
+    // уже добавлен, и отката не было. Отсюда два невыполнимых плана, снятых с
+    // живого движка: поездка 5-6 дней получала день переезда в зону, где нет
+    // ни одного дня; поездка 7 дней уезжала в Западную зону и вылетала из
+    // Петропавловска, не возвращаясь. Правило и причина отказа —
+    // lib/planner/zone-leg.ts.
+    if (block.zone !== prevZone) {
+      const daysLeft = tripDays - departureDays - (dayNum - 1);
+      const cost = zoneLegCost(prevZone, block.zone);
+      if (!legFits(cost, daysLeft)) {
+        // Зона не берётся ВОВСЕ — ни дня переезда, ни дня в ней. Молчать
+        // нельзя: интерес человека иначе исчезает из плана без объяснения
+        // (§4.0). Причину собираем и отдаём предупреждением ниже.
+        skippedLegs.push({
+          zone: block.zone,
+          cost,
+          daysLeft,
+          interests: block.interests.slice(),
+        });
+        continue;
+      }
+      // «С оператором» (разбор 08.11): ни у одного интереса блока нет тура
+      // этой зоны — ехать туда не за чем. День без тура дома — свободный день
+      // рядом с жильём; в чужой зоне — день дороги туда и день обратно ради
+      // него (пруф: «Переезд → Треккинг без тура → Возвращение»).
+      if (style === 'operator' && !block.onlyTour && [...material.values()].every((mt) => mt.tours.length === 0)) {
+        skippedNoTour.push({ zone: block.zone, interests: block.interests.slice() });
+        continue;
+      }
+      const edge = ZONE_GRAPH[prevZone]?.[block.zone];
+      if (edge?.needsTravelDay) {
+        const transportLabel = edge.transports.includes('jeep')
+          ? `Переезд на внедорожнике (~${edge.travelHours ?? '?'}ч, ${edge.distanceKm} км)`
+          : `Перелёт на вертолёте (${edge.distanceKm} км)`;
+        days.push({
+          day: dayNum++, type: 'travel', zone: prevZone,
+          title: `Переезд: ${ZONE_NAMES[prevZone]} → ${ZONE_NAMES[block.zone]}`,
+          description: transportLabel,
+          activityType: 'travel', priceFrom: edge.costPerPerson[0], priceTo: edge.costPerPerson[1],
+          coords: ZONE_COORDS[block.zone], defaultTransport: edge.transports[0],
+          allowedTransports: edge.transports, difficulty: 'easy',
+          childFriendly: true, minChildAge: 0,
+          dayWarnings: notesForPlanDay(
+            `${ZONE_NAMES[prevZone]} ${ZONE_NAMES[block.zone]} ${transportLabel}`,
+            [prevZone, block.zone],
+            mchsWarnings,
+          ),
+        });
+      }
+    }
+
 
     // Тур длиннее блока своей зоны (08.10). Блоки делятся между зонами
     // заранее, по весу зоны, и многодневный тур оператора (у «Края Вулканов»
@@ -1600,8 +1652,15 @@ async function generateDayPlans(
       if (span > room) {
         if (realTour) {
           tooLong.add(`${realTour.title} (${span} дн.)`);
+          missFor(interest, `«${realTour.title}» — ${span} дн., длиннее оставшихся дней поездки`);
+          // Тур снят из очереди — материал продвинулся, и оборот не бесплодный
+          // (разбор 08.11): два длинных тура подряд закрывали блок, не дойдя
+          // до «Восхождения на Авачинский», который в этот день проходил.
+          // Очередь конечна, поэтому цикл кончится сам.
           m.tours.splice(m.tours.indexOf(realTour), 1);
-        } else if (route) m.routeCursor++;
+          continue;
+        }
+        if (route) m.routeCursor++;
         d++; barren++;
         continue;
       }
@@ -1993,11 +2052,14 @@ async function generateDayPlans(
     named.add(w.tour.tourId);
     const info = tourDates.get(w.tour.tourId);
     offDays.push({ title: w.tour.title, dates: info?.kind === 'dated' ? [...info.dates] : [] });
+    missFor(interestOfTour.get(w.tour.tourId), `у «${w.tour.title}» нет выезда в дни поездки`);
   }
 
   return {
     days, unchecked: [...unchecked], spanUnknown: [...spanUnknown], tooLong: [...tooLong], extendedForTour, overLimit: [...overLimit], preferenceNotes,
     selfSkipped: [...selfSkipped], selfSafetyUnchecked, skippedLegs, returnLegMissing, offDays,
+    missReasons: Object.fromEntries([...missReasons].map(([k, v]) => [k, [...v]])),
+    skippedNoTour,
   };
 }
 
@@ -2243,7 +2305,7 @@ export async function recommendTrip(profile: TripProfile, opts: RecommendTripOpt
   const mchsTrip = mchs.ok
     ? splitWarningsForTrip(mchs.warnings, profile.arrivalDate ?? null)
     : { forTrip: [] as ActiveWarning[], endedBefore: [] as ActiveWarning[] };
-  const { days, unchecked, spanUnknown, tooLong, extendedForTour, overLimit, preferenceNotes, selfSkipped, selfSafetyUnchecked, skippedLegs, returnLegMissing, offDays } = await generateDayPlans(planProfile, zones, tripDays, cache, catalogueOpen, onRequestOnly, mchsTrip.forTrip);
+  const { days, unchecked, spanUnknown, tooLong, extendedForTour, overLimit, preferenceNotes, selfSkipped, selfSafetyUnchecked, skippedLegs, returnLegMissing, offDays, missReasons, skippedNoTour } = await generateDayPlans(planProfile, zones, tripDays, cache, catalogueOpen, onRequestOnly, mchsTrip.forTrip);
   const plannedZones = new Set<ZoneId>(days.map((d) => d.zone));
   const warnings = collectWarnings(profile, zones, tripDays, 0, alerts, catalogueOpen, plannedZones, days.some((d) => d.type === 'buffer'));
   if (alertsRead === null) {
@@ -2363,12 +2425,28 @@ export async function recommendTrip(profile: TripProfile, opts: RecommendTripOpt
       ),
     });
   }
+  // Зона без единого тура «с оператором» (08.11): туда не едут — и это
+  // называется, а не выдаётся за нехватку дней.
+  for (const z of skippedNoTour) {
+    const dropsRequest = z.interests.some((i) => unservedInterests.includes(i));
+    for (const i of z.interests) explainedByLeg.add(i);
+    warnings.push({
+      type: 'zone_days',
+      severity: dropsRequest ? 'important' : 'info',
+      message: `${ZONE_NAMES[z.zone]} в план не вошла: туров операторов там под ${listShort(z.interests.map((i) => ACTIVITY_NAMES[i] ?? i))} в ваши даты нет, `
+        + 'а ехать туда ради дня без тура план не ставит (стиль «с оператором»).',
+    });
+  }
+  // Причина — настоящая (разбор 08.11): «дня не нашлось» печаталось при
+  // свободном дне в плане, а интерес на деле выпадал из-за туров длиннее
+  // поездки, без мест или без выезда в эти дни.
+  const hasFreeDay = days.some((d) => d.title.startsWith('Свободный день'));
   for (const i of unservedInterests) {
     if (explainedByLeg.has(i)) continue;
     warnings.push({
       type: 'zone_days',
       severity: 'important',
-      message: `«${ACTIVITY_NAMES[i] ?? i}» в этот план не вошла: дня для неё не нашлось. Добавьте день к поездке или уберите другой интерес — тогда соберём заново.`,
+      message: unservedInterestMessage(ACTIVITY_NAMES[i] ?? i, missReasons[i] ?? [], hasFreeDay),
     });
   }
   // Путёвка нужна рыбалке, а не плану без неё: строка о путёвке при плане
