@@ -52,7 +52,7 @@ UPDATE operator_tours t
    SET is_published = FALSE,
        updated_at = NOW()
   FROM partners p
- WHERE p.id = t.operator_id
+ WHERE p.id::text = t.operator_id::text
    AND p.slug = 'laguna-expedition'
    AND t.is_published IS TRUE
    AND t.source_url = ANY (ARRAY[
@@ -75,7 +75,7 @@ UPDATE operator_tours t
        ),
        updated_at = NOW()
   FROM partners p
- WHERE p.id = t.operator_id
+ WHERE p.id::text = t.operator_id::text
    AND p.slug = 'laguna-expedition'
    AND t.source_url = 'https://laguna-expedition.ru/tours/40935-pitomnik-ezdovykh-sobak-snezhnye-psy'
    AND t.base_price = 8500;
@@ -94,11 +94,11 @@ BEGIN
   SELECT count(*) FILTER (WHERE t.is_published IS NOT TRUE),
          count(*) FILTER (WHERE t.is_published IS TRUE)
     INTO v_hidden, v_published
-    FROM operator_tours t JOIN partners p ON p.id = t.operator_id
+    FROM operator_tours t JOIN partners p ON p.id::text = t.operator_id::text
    WHERE p.slug = 'laguna-expedition'
      AND t.source_url ~ '/tours/(40400|40401|40431|41599|41915|41918|43580|45166)-';
   SELECT t.base_price INTO v_price
-    FROM operator_tours t JOIN partners p ON p.id = t.operator_id
+    FROM operator_tours t JOIN partners p ON p.id::text = t.operator_id::text
    WHERE p.slug = 'laguna-expedition'
      AND t.source_url = 'https://laguna-expedition.ru/tours/40935-pitomnik-ezdovykh-sobak-snezhnye-psy';
   IF v_partner = 0 THEN
