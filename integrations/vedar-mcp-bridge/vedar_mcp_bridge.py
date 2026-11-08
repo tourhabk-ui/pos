@@ -105,7 +105,9 @@ WRITE_TOOLS = {
 # notify_url — адрес приёмника уведомлений об изменении заявки: своего
 # приёмника у моста нет, а модель могла бы выдумать адрес — и снимки чужих
 # заявок ушли бы третьей стороне. Состояние мост узнаёт get_request_status.
-BRIDGE_HIDDEN_ARGS = {"notify_url"}
+# test — пробный прогон заявки для проверки интеграции (08.11): мост говорит
+# с живым человеком, и заявка «принята, но никуда не ушла» ему не нужна.
+BRIDGE_HIDDEN_ARGS = {"notify_url", "test"}
 
 
 def bridge_args(args):
@@ -122,7 +124,8 @@ def bridge_description(text):
     """
     text = (text or "").strip()
     sentences = re.split(r"(?<=[.!?])\s+", text)
-    kept = [s for s in sentences if not any(h in s for h in BRIDGE_HIDDEN_ARGS)]
+    # Целым словом: «test» не должен вырезать предложение с «latest».
+    kept = [s for s in sentences if not any(re.search(r"\b" + re.escape(h) + r"\b", s) for h in BRIDGE_HIDDEN_ARGS)]
     if len(kept) != len(sentences):
         text = " ".join(kept)
     return text[:1024]

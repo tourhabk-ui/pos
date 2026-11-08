@@ -75,7 +75,7 @@ function call(args: Record<string, unknown>) {
     body: JSON.stringify({ jsonrpc: '2.0', id: 1, method: 'tools/call', params: { name: 'create_booking_request', arguments: args } }),
   }) as unknown as Parameters<typeof POST>[0];
 }
-const args = { tour: 'Тур в Налычево', date: DATE, participants: 2, name: 'Тест', phone: '+70000000000', consent: true };
+const args = { tour: 'Тур в Налычево', date: DATE, participants: 2, name: 'Тест', phone: '+79001234567', consent: true };
 const text = async (r: Response) => {
   const j = await r.json();
   return { isError: Boolean(j.result?.isError), text: String(j.result?.content?.[0]?.text ?? j.error?.message ?? '') };

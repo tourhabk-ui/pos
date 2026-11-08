@@ -918,13 +918,6 @@
             "type": "string",
             "description": "Wishes: child seat, drop-off elsewhere, etc. Пожелания: детское кресло, возврат в другом месте и т.п."
           },
-          "test": {
-            "type": "boolean",
-            "description": "true for a trial or demo request: marked as test and not sent to the rental company. true — пробная заявка (проверка, демонстрация): помечается, прокатчику не уходит",
-            "examples": [
-              false
-            ]
-          },
           "confirmation": {
             "type": "string",
             "description": "Code from the step 1 reply; send it only after the person explicitly agreed. Without it a draft is returned and nothing is created. Код из ответа шага 1. Передавай только после явного согласия человека; без кода заявка не создаётся, а возвращается черновик"

@@ -37,7 +37,10 @@ describe('normalizePhone: мягкая E.164, не строго-РФ', () => {
 
 describe('все пишущие инструменты нормализуют телефон до создания лида', () => {
   it('create_lead, create_booking_request, request_charter, create_stay_request и create_car_rental_request зовут normalizePhone', () => {
-    expect(ROUTE.match(/normalizePhone\(parsed\.data\.phone\)/g)?.length).toBe(5);
+    // С 08.11 — через phoneOrRefuse: формат (normalizePhone) и правдоподобие
+    // (implausiblePhone) одной функцией; поведение — mcp-write-contract.
+    expect(ROUTE.match(/phoneOrRefuse\(parsed\.data\.phone\)/g)?.length).toBe(5);
+    expect(ROUTE).toMatch(/const phone = normalizePhone\(raw\);/);
     expect(ROUTE).toMatch(/Телефон не похож на номер/);
   });
 });
@@ -79,7 +82,7 @@ describe('идемпотентность заявки на бронь: (теле
     expect((fn.match(/return accepted/g) ?? []).length).toBe(1);
     // С 29.10 ключ и подписка на уведомления (notify_url) — одной функцией;
     // её хвост от повтора тоже не зависит.
-    expect(fn.trimEnd()).toMatch(/return accepted \+ await issueKeyWithNotify\(\{ leadId \}, BOOKING_REQUEST_TOOL\.name, parsed\.data\.notify_url, 'request', \{ opensChat: saved\.created && offersChat, offersChat \}\);\s*\}$/);
+    expect(fn.trimEnd()).toMatch(/return accepted \+ await issueKeyWithNotify\(\{ leadId \}, BOOKING_REQUEST_TOOL\.name, parsed\.data\.notify_url, 'request', \{ opensChat: saved\.created && offersChat, offersChat, onIssued: collectIssued\(ctx, BOOKING_REQUEST_TOOL\.name\) \}\);\s*\}$/);
     // Хвост о переписке (1350) зависит от адресата заявки, а не от того, новая
     // ли она: иначе текст выдал бы повтор. Новизна решает лишь, откроет ли
     // переписку сам ключ.

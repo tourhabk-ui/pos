@@ -72,6 +72,10 @@ import { CLIENT_WINDOW_MINUTES, CLIENT_MAX_PER_WINDOW, CLIENT_MAX_PER_DAY } from
  * источник порога остался один.
  */
 export { CLIENT_WINDOW_MINUTES, CLIENT_MAX_PER_WINDOW, CLIENT_MAX_PER_DAY };
+
+/** Отказ без согласия — один текст у заявки и у её пробы (`test: true`, lib/mcp/test-run). */
+export const NO_CONSENT_MESSAGE = 'Заявка не создана: нет согласия на обработку персональных данных. '
+  + 'Спросите человека прямо и передайте consent: true — без этого имя и телефон принимать нельзя.';
 /**
  * Дедуп по телефону: одна ПРИНЯТАЯ заявка на номер за сутки — в пределах
  * одного инструмента. Подбор (create_lead), а потом бронь конкретной даты
@@ -194,9 +198,7 @@ export async function checkMcpWrite(input: WriteGuardInput): Promise<WriteDecisi
     return {
       decision: 'deny',
       outcome: 'no_consent',
-      message:
-        'Заявка не создана: нет согласия на обработку персональных данных. '
-        + 'Спросите человека прямо и передайте consent: true — без этого имя и телефон принимать нельзя.',
+      message: NO_CONSENT_MESSAGE,
     };
   }
 

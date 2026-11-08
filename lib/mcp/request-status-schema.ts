@@ -23,10 +23,13 @@ export const REQUEST_KEY_MAX_CHARS = 120;
  * устроена заявка на жильё (#2371, 14.10): своего жизненного цикла у неё
  * нет, владелец отвечает гостю звонком. «Ждёт ответа» здесь было бы
  * обещанием, которое не сбудется: страница переспрашивала бы вечно.
+ *
+ * `test` — пробная заявка (`test: true`, 08.11, lib/mcp/test-run): проверки
+ * пройдены, но заявки нет — она не записана и никому не передана.
  */
 export const REQUEST_STATES = [
   'awaiting_operator', 'delivered', 'operator_contacted', 'in_progress', 'confirmed',
-  'declined', 'other_date', 'no_answer', 'cancelled', 'failed', 'unknown',
+  'declined', 'other_date', 'no_answer', 'cancelled', 'failed', 'unknown', 'test',
 ] as const;
 export type RequestState = (typeof REQUEST_STATES)[number];
 

@@ -74,9 +74,10 @@ describe('мост обещает о платформе только то, чт�
     const snapshot = JSON.parse(read(`${DIR}/vedar_tools.json`)) as Array<{ function: { name: string; description: string; parameters: unknown } }>;
     const byName = new Map(snapshot.map((t) => [t.function.name, t.function]));
     // Поля, которые мост модели не показывает (BRIDGE_HIDDEN_ARGS, 29.10:
-    // notify_url — своего приёмника у моста нет), убираются тем же правилом.
+    // notify_url — своего приёмника у моста нет; 08.11: test — пробный прогон,
+    // мост говорит с живым человеком), убираются тем же правилом.
     const hidden = new Set(pythonSet(src, 'BRIDGE_HIDDEN_ARGS'));
-    expect([...hidden]).toEqual(['notify_url']);
+    expect([...hidden].sort()).toEqual(['notify_url', 'test']);
     const withoutHidden = (schema: unknown) => {
       const copy = JSON.parse(JSON.stringify(schema)) as { properties?: Record<string, unknown>; required?: string[] };
       for (const h of hidden) delete copy.properties?.[h];
@@ -87,13 +88,14 @@ describe('мост обещает о платформе только то, чт�
     // модели не показано поле — не нужна и фраза о нём.
     const withoutHiddenSentences = (text: string) => {
       const sentences = text.trim().split(/(?<=[.!?])\s+/);
-      const kept = sentences.filter((s) => ![...hidden].some((h) => s.includes(h)));
+      // Целым словом, как у моста: «test» не вырезает предложение с «latest».
+      const kept = sentences.filter((s) => ![...hidden].some((h) => new RegExp(`\\b${h}\\b`).test(s)));
       return (kept.length === sentences.length ? text.trim() : kept.join(' ')).slice(0, 1024);
     };
     for (const live of PUBLIC_MCP_TOOLS) {
       const snap = byName.get(live.name);
       expect(snap?.description, `${live.name}: описание в снимке устарело`).toBe(withoutHiddenSentences(live.description));
-      expect(snap?.description, `${live.name}: фраза о скрытом поле осталась в снимке`).not.toMatch(/notify_url/);
+      expect(snap?.description, `${live.name}: фраза о скрытом поле осталась в снимке`).not.toMatch(/notify_url|\btest: true\b/);
       expect(snap?.parameters, `${live.name}: параметры в снимке устарели`).toEqual(withoutHidden(live.inputSchema));
     }
   });
