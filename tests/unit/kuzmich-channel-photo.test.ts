@@ -22,22 +22,23 @@ import { familiarVoiceIssue } from '@/lib/notifications/post-validation';
 import { readFileSync } from 'fs';
 import { existsSync } from 'fs';
 import { join } from 'path';
+import { photoFile } from '../helpers/partner-photo-path';
 
 describe('советы Кузьмича идут с настоящим фото', () => {
   it('темы вообще есть', () => {
     expect(KUZMICH_TIP_TOPIC_LIST.length).toBeGreaterThan(0);
   });
 
-  it('у каждой темы задана картинка из public/images', () => {
+  it('у каждой темы задана своя картинка: из папки сайта или из хранилища (снимки партнёров, с 08.11)', () => {
     for (const t of KUZMICH_TIP_TOPIC_LIST) {
       expect(t.photo, `тема «${t.topic}» без фото`).toBeTruthy();
-      expect(t.photo.startsWith('/images/'), `тема «${t.topic}»: фото не из public/images`).toBe(true);
+      expect(/^\/(images|api\/images\/s3\/photos)\//.test(t.photo), `тема «${t.topic}»: фото не наше`).toBe(true);
     }
   });
 
   it('каждый файл существует в репозитории', () => {
     for (const t of KUZMICH_TIP_TOPIC_LIST) {
-      const path = join(process.cwd(), 'public', t.photo);
+      const path = photoFile(t.photo);
       expect(existsSync(path), `нет файла ${t.photo} (тема «${t.topic}»)`).toBe(true);
     }
   });

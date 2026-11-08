@@ -40,6 +40,7 @@ import { rentalJsonLd } from '@/lib/rental/rental-view';
 import { carrierJsonLd } from '@/lib/transfers/carrier-view';
 import { loadRentalCompanyBySlug } from '@/lib/rental/rental';
 import { loadCarrierBySlug } from '@/lib/transfers/charter';
+import { photoFile } from '../helpers/partner-photo-path';
 
 vi.stubGlobal('fetch', vi.fn());
 
@@ -218,7 +219,7 @@ describe('миграция 1320: логотип «Лагуны Прокат»', 
   });
 
   it('файл, который она называет, лежит в public/: PNG не крупнее 512 px и легче 100 КБ', () => {
-    const path = join(process.cwd(), 'public', LOGO);
+    const path = photoFile(LOGO);
     const size = statSync(path).size;
     expect(size).toBeLessThan(100 * 1024);
     const buf = readFileSync(path);

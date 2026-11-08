@@ -34,16 +34,27 @@ function walk(dir: string, acc: string[] = []): string[] {
   return acc;
 }
 
+/** Снимки в хранилище (08.11): исходник и копии лежат в media/s3/, в манифесте — адрес раздачи. */
+const S3 = join(ROOT, 'media', 's3');
+const S3_WEB = '/api/images/s3/';
+
+/** Где на диске лежит файл манифеста: папка сайта или media/s3. */
+function onDisk(web: string): string {
+  return web.startsWith(S3_WEB) ? join(S3, web.slice(S3_WEB.length)) : join(ROOT, 'public', web);
+}
+
 const entries = manifest as Array<{ src: string; widths: number[] }>;
 const inManifest = new Set(entries.map((e) => e.src));
 
 describe('нарезка покрывает все тяжёлые фото', () => {
   it('каждый jpg/png тяжелее порога есть в манифесте', () => {
     const missing: string[] = [];
-    for (const file of walk(IMAGES)) {
+    for (const file of [...walk(IMAGES), ...walk(join(S3, 'photos'))]) {
       if (!/\.(jpe?g|png)$/i.test(file) || /\.(640|1280)\.webp$/.test(file)) continue;
       if (statSync(file).size < MIN_BYTES) continue;
-      const web = '/' + file.slice(join(ROOT, 'public').length + 1).split('\\').join('/');
+      const web = file.startsWith(S3)
+        ? S3_WEB + file.slice(S3.length + 1).split('\\').join('/')
+        : '/' + file.slice(join(ROOT, 'public').length + 1).split('\\').join('/');
       if (!inManifest.has(web)) missing.push(web);
     }
     expect(
@@ -57,7 +68,7 @@ describe('нарезка покрывает все тяжёлые фото', () 
     for (const e of entries) {
       for (const w of e.widths) {
         const variant = e.src.replace(/\.(jpe?g|png)$/i, `.${w}.webp`);
-        if (!existsSync(join(ROOT, 'public', variant))) broken.push(variant);
+        if (!existsSync(onDisk(variant))) broken.push(variant);
       }
     }
     expect(broken, broken.join('\n')).toEqual([]);
@@ -68,11 +79,11 @@ describe('нарезка покрывает все тяжёлые фото', () 
     // «оптимизация» превратится в замедление — молча.
     let orig = 0, cut = 0;
     for (const e of entries) {
-      const src = join(ROOT, 'public', e.src);
+      const src = onDisk(e.src);
       if (!existsSync(src)) continue;
       orig += statSync(src).size;
       const w = Math.min(...e.widths);
-      cut += statSync(join(ROOT, 'public', e.src.replace(/\.(jpe?g|png)$/i, `.${w}.webp`))).size;
+      cut += statSync(onDisk(e.src.replace(/\.(jpe?g|png)$/i, `.${w}.webp`))).size;
     }
     expect(cut).toBeLessThan(orig * 0.6);
   });

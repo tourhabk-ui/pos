@@ -323,7 +323,7 @@ describe('снимок: только партнёрский, подписан, �
     expect(item).toBeTruthy();
     expect(existsSync(join(ROOT, item.file))).toBe(true);
     const sha = (p: string) => createHash('sha256').update(readFileSync(join(ROOT, p))).digest('hex');
-    expect(sha(item.file)).toBe(sha('public/images/mestechko/ostrov-starichkov-02.jpg'));
+    expect(sha(item.file)).toBe(sha('media/s3/photos/mestechko/ostrov-starichkov-02.jpg'));
   });
 
   it('чужих снимков нет: ни Викисклада, ни галерей без автора', () => {

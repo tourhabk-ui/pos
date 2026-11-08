@@ -350,7 +350,7 @@ describe('снимки 1248 — свои и партнёрские', () => {
       const src = origin[k];
       expect(tourPhotos, src).toContain(`/images/mestechko/${src}`);
       const a = readFileSync(join(ROOT, uploaded.get(k)!));
-      const b = readFileSync(join(ROOT, 'public/images/mestechko', src));
+      const b = readFileSync(join(ROOT, 'media/s3/photos/mestechko', src));
       expect(a.equals(b), k).toBe(true);
     }
   });

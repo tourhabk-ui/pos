@@ -14,17 +14,19 @@
  * Здесь:
  *   - папки public/images делятся на оформление сайта и папки партнёров;
  *     новая папка — красная, пока ей не назван род;
- *   - в папках партнёров число файлов заморожено и может только убывать
+ *   - в папках партнёров, ещё оставшихся в папке сайта (три логотипа и
+ *     эскизы без ссылок), число файлов заморожено и может только убывать
  *     (запись самоустаревает: уменьшилось — поправь число);
- *   - у каждого снимка партнёра в папке сайта есть та же копия байт в байт в
- *     media/s3/photos/<папка>/ и строка маркера заливки — следующий PR может
- *     переключить пути в базе, не потеряв ни одного снимка;
+ *   - переехавшие папки (08.11, #3150, #3151, миграция 1406) в папку сайта не
+ *     возвращаются, их снимки лежат в media/s3/photos и стоят в маркере, а
+ *     старый адрес переадресуется на хранилище;
  *   - закачка с сайтов операторов кладёт оригиналы не в папку сайта.
  */
 import { describe, it, expect } from 'vitest';
-import { readdirSync, readFileSync, statSync } from 'node:fs';
+import { existsSync, readdirSync, readFileSync } from 'node:fs';
 import { join, relative } from 'node:path';
 import { MARKER } from '@/scripts/media-to-s3';
+import { MOVED_PHOTO_DIRS } from '../helpers/partner-photo-path';
 
 const ROOT = process.cwd();
 const PUB = join(ROOT, 'public/images');
@@ -53,28 +55,19 @@ const SITE: Readonly<Record<string, string>> = {
  * базе, удаление отсюда.
  */
 const PARTNER_FROZEN: Readonly<Record<string, number>> = {
-  fishingkam: 111,
-  kutha: 66,
-  'laguna-prokat': 32,
-  mestechko: 253,
-  partners: 63,
-  shatun: 86,
-  tours: 74,
-  volcanoesland: 136,
-  zaporozhets: 96,
-  zheltukhin: 14,
-  // Ещё не скопированы в хранилище: эскизы без ссылок и три логотипа.
+  // Ещё не в хранилище: эскизы без ссылок и три логотипа.
   operators: 12,
   'laguna-expedition': 1,
   'river-tours-kamchatka': 1,
   virtustur: 1,
 };
 
-/** Скопированы в media/s3/photos/<та же папка>/ (маркер, прогон 21). */
-const COPIED = [
-  'fishingkam', 'kutha', 'laguna-prokat', 'mestechko', 'partners',
-  'shatun', 'tours', 'volcanoesland', 'zaporozhets', 'zheltukhin',
-];
+/**
+ * Переехали в хранилище целиком (08.11): копия в media/s3/photos/<папка>/
+ * (прогон 21), адреса в базе — миграция 1406, старый адрес переадресуется
+ * (next.config.js). В папке сайта их больше нет.
+ */
+const MOVED = MOVED_PHOTO_DIRS;
 
 function filesUnder(dir: string): string[] {
   const out: string[] = [];
@@ -106,32 +99,36 @@ describe('public/images: оформление сайта отдельно, сн�
     expect(gone, 'папки нет, а запись осталась').toEqual([]);
   });
 
-  it('у каждого снимка скопированной папки — та же копия в media/s3/photos и строка маркера', () => {
+  it('переехавшие папки: в папке сайта их нет, в media/s3/photos они есть и стоят в маркере', () => {
     const marker = JSON.parse(readFileSync(join(ROOT, MARKER), 'utf-8')) as {
       upload: boolean; items: Array<{ file: string; key: string }>;
     };
-    const items = new Map(marker.items.map((i) => [i.key, i.file]));
+    const keys = new Set(marker.items.map((i) => i.key));
     expect(marker.upload).toBe(true);
-    const problems: string[] = [];
-    for (const d of COPIED) {
-      for (const abs of filesUnder(join(PUB, d))) {
-        const rel = relative(PUB, abs).split('\\').join('/');
-        const key = `photos/${rel}`;
-        const copy = join(ROOT, 'media/s3', key);
-        let same = false;
-        try {
-          same = statSync(copy).size === statSync(abs).size && readFileSync(copy).equals(readFileSync(abs));
-        } catch {
-          problems.push(`${rel}: копии в media/s3 нет`);
-          continue;
-        }
-        if (!same) problems.push(`${rel}: копия отличается`);
-        if (items.get(key) !== `media/s3/${key}`) problems.push(`${rel}: нет строки маркера`);
-      }
+    for (const d of MOVED) {
+      expect(existsSync(join(PUB, d)), `public/images/${d} снова есть`).toBe(false);
+      const files = filesUnder(join(ROOT, 'media/s3/photos', d));
+      expect(files.length, d).toBeGreaterThan(0);
+      const lost = files.map((f) => relative(join(ROOT, 'media/s3'), f).split('\\').join('/')).filter((k) => !keys.has(k));
+      expect(lost, d).toEqual([]);
     }
-    expect(problems).toEqual([]);
-    // Читает обе копии ~930 снимков (около 170 МБ): на занятом раннере дольше пяти секунд.
-  }, 60_000);
+  });
+
+  it('старый адрес переехавшей папки переадресуется на хранилище: ссылка вне базы не теряет снимок', async () => {
+    const config = require(join(ROOT, 'next.config.js')) as {
+      redirects: () => Promise<Array<{ source: string; destination: string; permanent: boolean }>>;
+    };
+    const rules = await config.redirects();
+    for (const d of MOVED) {
+      expect(rules.find((r) => r.source === `/images/${d}/:path*`), d).toEqual({
+        source: `/images/${d}/:path*`,
+        destination: `/api/images/s3/photos/${d}/:path*`,
+        permanent: true,
+      });
+    }
+    // Оформление сайта не переадресуется.
+    expect(rules.some((r) => r.source.startsWith('/images/hero'))).toBe(false);
+  });
 
   it('закачка с сайтов операторов кладёт оригиналы не в папку сайта', () => {
     const wf = readFileSync(join(ROOT, '.github/workflows/operator-photos.yml'), 'utf-8');

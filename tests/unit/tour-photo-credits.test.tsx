@@ -13,6 +13,7 @@ import React from 'react';
 import { readFileSync, existsSync } from 'node:fs';
 import { join } from 'node:path';
 import { tourPhotoCaptions, tourPhotoCreditLine } from '@/lib/tours/photo-credits';
+import { inStorage, photoFile } from '../helpers/partner-photo-path';
 
 vi.mock('next/navigation', () => ({
   useRouter: () => ({ push: vi.fn(), replace: vi.fn(), refresh: vi.fn(), back: vi.fn(), prefetch: vi.fn() }),
@@ -116,8 +117,8 @@ describe('снимки гида — его кадры с подписью (1338,
   it('каждый адрес карты подписей — файл, нарезка и снимок тура; снимков тура без подписи нет', () => {
     expect(credited).toHaveLength(24);
     for (const src of credited) {
-      expect(existsSync(join(ROOT, 'public', src)), src).toBe(true);
-      expect(manifest.has(src), src).toBe(true);
+      expect(existsSync(photoFile(src)), src).toBe(true);
+      expect(manifest.has(inStorage(src)), src).toBe(true);
       expect(inTours.has(src), src).toBe(true);
     }
     for (const src of inTours) expect(credited, src).toContain(src);

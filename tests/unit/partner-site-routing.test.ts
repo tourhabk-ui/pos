@@ -83,7 +83,13 @@ describe('fishingkam.ru отдаёт сайт партнёра', () => {
     expect(await route('/api/leads', FK)).toBe('app');
     expect(await route('/api/leads', { host: 'www.fishingkam.ru' })).toBe('app');
     expect(await route('/_next/static/chunks/main.js', FK)).toBe('app');
-    expect(await route('/images/fishingkam/2025-01-27_142814.jpg', FK)).toBe('app');
+    expect(await route('/images/hero/hero-light.jpeg', FK)).toBe('app');
+  });
+
+  it('снимок партнёра по старому адресу папки сайта уходит в хранилище, и раздача хранилища — приложению (08.11, 1406)', async () => {
+    expect(await route('/images/fishingkam/2025-01-27_142814.jpg', FK))
+      .toBe('redirect /api/images/s3/photos/fishingkam/:path*');
+    expect(await route('/api/images/s3/photos/fishingkam/2025-01-27_142814.jpg', FK)).toBe('app');
   });
 });
 

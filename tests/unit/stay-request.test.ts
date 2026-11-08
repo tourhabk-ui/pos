@@ -233,7 +233,7 @@ describe('миграция 1207: снимок владельца платфор�
   const sql = read('migrations/1207_kutha_owner_photo.sql');
 
   it('файл в репозитории, sha256 и размер от него, без EXIF, подпись автора', () => {
-    const path = join(ROOT, 'public/images/kutha/kutha-21.jpg');
+    const path = join(ROOT, 'media/s3/photos/kutha/kutha-21.jpg');
     expect(existsSync(path)).toBe(true);
     const buf = readFileSync(path);
     expect(sql).toContain(createHash('sha256').update(buf).digest('hex'));

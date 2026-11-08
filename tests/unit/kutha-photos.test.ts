@@ -18,6 +18,7 @@ import { readFileSync, existsSync, statSync } from 'node:fs';
 import { createHash } from 'node:crypto';
 import { join } from 'node:path';
 import { STAY_PHOTO_ORDER_SQL } from '@/lib/stay/photo-order';
+import { photoFile } from '../helpers/partner-photo-path';
 
 const ROOT = process.cwd();
 const read = (p: string) => readFileSync(join(ROOT, p), 'utf8');
@@ -36,7 +37,7 @@ describe('миграция 1204: снимки «Кутхи»', () => {
 
   it('файл лежит в репозитории, сжат, без EXIF; sha256 и размер в базе — от него', () => {
     for (const r of rows) {
-      const path = join(ROOT, 'public', r.url);
+      const path = photoFile(r.url);
       expect(existsSync(path), r.url).toBe(true);
       const buf = readFileSync(path);
       expect(statSync(path).size, r.url).toBeLessThan(200 * 1024);

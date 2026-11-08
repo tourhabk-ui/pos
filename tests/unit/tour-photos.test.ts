@@ -11,7 +11,19 @@ import { isLocalImagePath, MAX_PHOTOS_PER_CALL } from '@/app/api/cron/tour-photo
 
 describe('чужой картинке на карточке не место', () => {
   it('наши пути принимаются', () => {
-    expect(isLocalImagePath('/images/fishingkam/2026-08-23_autumn-1.jpg')).toBe(true);
+    expect(isLocalImagePath('/images/hero/hero-light.jpeg')).toBe(true);
+  });
+
+  it('снимок в хранилище по адресу раздачи — да (08.11: снимки партнёров переехали туда)', () => {
+    expect(isLocalImagePath('/api/images/s3/photos/fishingkam/2026-08-23_autumn-1.jpg')).toBe(true);
+    expect(isLocalImagePath('/api/images/s3/photos/mestechko/tolbachik-01.jpg')).toBe(true);
+  });
+
+  it('адрес раздачи, который она не откроет, — нет', () => {
+    expect(isLocalImagePath('/api/images/s3/places/7190e0a4/a.jpg')).toBe(false);
+    expect(isLocalImagePath('/api/images/s3/videos/fishingkam/clip.mp4')).toBe(false);
+    expect(isLocalImagePath('/api/images/s3/photos/a.svg')).toBe(false);
+    expect(isLocalImagePath('/api/images/s3/photos/../maps/a.jpg')).toBe(false);
   });
 
   it('чужой хост — нет', () => {

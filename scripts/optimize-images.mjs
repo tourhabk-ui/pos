@@ -23,6 +23,11 @@
  * фото, загруженное оператором в рантайме (S3 или /tmp), в манифест не попадёт
  * и поедет оригиналом.
  *
+ * Два входа: public/images (оформление сайта) и media/s3/photos (снимки в
+ * хранилище, с 08.11 — и снимки партнёров). Копии второго входа заливаются
+ * маркером media-to-s3 вместе с исходником; сторож
+ * tests/unit/media-to-s3.test.ts не пропустит копию без строки маркера.
+ *
  * sharp — devDependency: скрипт гоняется на машине разработчика и в CI-тесте
  * покрытия, в прод-бандл sharp не попадает (standalone трассирует только
  * прод-импорты).
@@ -37,6 +42,15 @@ import sharp from 'sharp';
 
 const ROOT = process.cwd();
 const IMAGES_DIR = path.join(ROOT, 'public', 'images');
+/**
+ * Снимки, лежащие в хранилище (08.11, переезд снимков партнёров из папки
+ * сайта): копии нарезаются рядом с исходником в media/s3/photos и уходят в
+ * бакет тем же маркером media-to-s3, а в манифест попадают адресом раздачи
+ * /api/images/s3/photos/… Пока станок знал одну папку сайта, у снимка в
+ * хранилище копий не было, и снимки партнёров клали в public/images.
+ */
+const S3_DIR = path.join(ROOT, 'media', 's3');
+const S3_PHOTOS_DIR = path.join(S3_DIR, 'photos');
 const MANIFEST = path.join(ROOT, 'lib', 'images', 'photo-variants.json');
 
 /** Легче этого — не трогаем: иконки и плейсхолдеры и так быстрые. */
@@ -69,13 +83,21 @@ async function* walk(dir) {
 }
 
 function webPath(abs) {
+  if (abs.startsWith(S3_DIR + path.sep)) {
+    return '/api/images/s3/' + path.relative(S3_DIR, abs).split(path.sep).join('/');
+  }
   return '/' + path.relative(path.join(ROOT, 'public'), abs).split(path.sep).join('/');
+}
+
+async function* sources() {
+  yield* walk(IMAGES_DIR);
+  if (existsSync(S3_PHOTOS_DIR)) yield* walk(S3_PHOTOS_DIR);
 }
 
 const manifest = [];
 let made = 0, kept = 0, skipped = 0;
 
-for await (const file of walk(IMAGES_DIR)) {
+for await (const file of sources()) {
   if (VARIANT_RE.test(file) || !SOURCE_RE.test(file)) continue;
   const st = await stat(file);
   if (st.size < MIN_BYTES) { skipped++; continue; }

@@ -10,6 +10,7 @@
 import { describe, it, expect } from 'vitest';
 import { readFileSync, existsSync, statSync, readdirSync } from 'node:fs';
 import { join } from 'node:path';
+import { photoFile } from '../helpers/partner-photo-path';
 
 const ROOT = process.cwd();
 const SQL = readFileSync(join(ROOT, 'migrations/1177_volcanoesland_photos_and_card_public.sql'), 'utf-8');
@@ -25,8 +26,8 @@ describe('миграция 1177: фото туров «Края Вулканов
       expect(r.photos, r.slug).toHaveLength(5);
       for (const p of r.photos) {
         expect(p).toMatch(/^\/images\/volcanoesland\/[a-z0-9-]+-0[1-5]\.jpg$/);
-        expect(existsSync(join(ROOT, 'public', p)), p).toBe(true);
-        expect(statSync(join(ROOT, 'public', p)).size, p).toBeLessThan(200 * 1024);
+        expect(existsSync(photoFile(p)), p).toBe(true);
+        expect(statSync(photoFile(p)).size, p).toBeLessThan(200 * 1024);
       }
     }
   });
@@ -44,7 +45,7 @@ describe('миграция 1177: фото туров «Края Вулканов
   });
 
   it('оригиналы с раннера в репозитории не лежат, снимков ровно 55 плюс логотип', () => {
-    const dir = join(ROOT, 'public/images/volcanoesland');
+    const dir = join(ROOT, 'media/s3/photos/volcanoesland');
     expect(existsSync(join(dir, 'raw'))).toBe(false);
     const jpgs = readdirSync(dir).filter((f) => /^[a-z0-9-]+-0[1-5]\.jpg$/.test(f));
     expect(jpgs).toHaveLength(55);

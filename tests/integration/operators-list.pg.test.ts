@@ -37,7 +37,8 @@ import { join } from 'node:path';
 import React from 'react';
 import { renderToStaticMarkup } from 'react-dom/server';
 import { NextRequest, NextResponse } from 'next/server';
-import { createTestDatabase } from '../helpers/pg-schema';
+import { Pool as PgPool } from 'pg';
+import { createTestDatabase, dropTestDatabase } from '../helpers/pg-schema';
 
 vi.mock('next/image', () => ({
   default: (p: { src: string; alt: string }) => React.createElement('img', { src: p.src, alt: p.alt }),
@@ -257,9 +258,11 @@ withPg('витрина /operators: факты о живых турах, кноп
     const hero = async (slug: string) =>
       (await pool.query<{ hero_image: string | null }>(`SELECT hero_image FROM partners WHERE slug = $1`, [slug])).rows[0]?.hero_image;
 
-    // Цепочка миграций уже прошла: 1222 поставила старую обложку, 1270 сменила.
-    expect(await hero('mestechko')).toBe(NEW_HERO);
-    expect(await hero('volcanoesland')).toBe(VOLCANOESLAND_HERO);
+    // Цепочка миграций уже прошла: 1222 поставила старую обложку, 1270 сменила,
+    // 1406 перевела адрес на хранилище.
+    const inStorage = (path: string) => path.replace(/^\/images\//, '/api/images/s3/photos/');
+    expect(await hero('mestechko')).toBe(inStorage(NEW_HERO));
+    expect(await hero('volcanoesland')).toBe(inStorage(VOLCANOESLAND_HERO));
 
     // Повторный прогон ничего не меняет.
     expect((await pool.query(MIG_1270)).rowCount).toBe(0);
@@ -273,11 +276,11 @@ withPg('витрина /operators: факты о живых турах, кноп
     await pool.query(`UPDATE partners SET hero_image = $1 WHERE slug = 'mestechko'`, [OLD_HERO]);
     expect((await pool.query(MIG_1270)).rowCount).toBe(1);
     expect(await hero('mestechko')).toBe(NEW_HERO);
-    expect(await hero('volcanoesland')).toBe(VOLCANOESLAND_HERO);
+    expect(await hero('volcanoesland')).toBe(inStorage(VOLCANOESLAND_HERO));
 
-    // Кадр лежит на диске вместе с нарезкой, которую раздаёт карточка.
+    // Кадр лежит в хранилище (с 08.11, 1406) вместе с нарезкой, которую раздаёт карточка.
     for (const f of ['kurilskoe-ozero-01.jpg', 'kurilskoe-ozero-01.640.webp']) {
-      expect(existsSync(join(process.cwd(), 'public/images/mestechko', f)), f).toBe(true);
+      expect(existsSync(join(process.cwd(), 'media/s3/photos/mestechko', f)), f).toBe(true);
     }
   });
   /**
@@ -1097,5 +1100,101 @@ withPg('витрина /operators: факты о живых турах, кноп
       await pool.query(MIG_1347);
       expect((await hero()).hero_image).toBe(HERO);
     });
+  });
+});
+
+/**
+ * 1406: адреса снимков партнёров переезжают из папки сайта в хранилище
+ * (владелец 08.11: «да и разберись почему грузяться не сразу в s3»).
+ *
+ * Миграция перебирает колонки по типу и переписывает регулярным выражением —
+ * моком это не проверить. Засеянные строки несут старые адреса во всех трёх
+ * формах, в которых они лежат на проде: строка (логотип, обложка тура), массив
+ * (галерея тура), JSON (галерея партнёра и подписи авторов с адресом-ключом).
+ * Переписано всё, что начинается с /images/<папка партнёра>/; не тронуты
+ * полный адрес хранилища с /images/tours/ внутри (загрузка из кабинета),
+ * оформление сайта, другая папка под tours/ и уже переписанный адрес; порядок
+ * галереи сохранён; повтор ничего не меняет. Своя база — отдельно от
+ * сцены выше.
+ */
+withPg('1406: адреса снимков партнёров — на хранилище', () => {
+  const TEST_DB_1406 = 'partner_photos_paths_test';
+  const MIG_1406 = readFileSync(join(process.cwd(), 'migrations/1406_partner_photos_paths_to_storage.sql'), 'utf-8');
+  const PARTNER_1406 = 'd1406000-0000-4000-8000-000000000001';
+  // Полный адрес хранилища с именем переехавшей папки внутри: шаблон без якоря его бы испортил.
+  const S3_UPLOAD = 'https://s3.example.test/bucket/images/partners/upload.jpg';
+  let pool: PgPool;
+
+  beforeAll(async () => {
+    pool = new PgPool({ connectionString: await createTestDatabase(PG_URL, TEST_DB_1406) });
+    await pool.query(
+      `INSERT INTO partners (id, name, category, contact, logo_image, hero_image, gallery, gallery_credits)
+       VALUES ($1, 'Проверка 1406', 'operator', '{}'::jsonb,
+               '/images/mestechko/mestechko-logo.png', '/images/hero/hero-light.jpeg',
+               $2::jsonb, $3::jsonb)`,
+      [
+        PARTNER_1406,
+        JSON.stringify(['/images/mestechko/a.jpg', '/images/partners/topkam/b.jpg', '/images/tours/other/c.jpg']),
+        JSON.stringify({ '/images/shatun/d.jpg': 'Автор Д.', note: 'путь /images/shatun/ в тексте' }),
+      ],
+    );
+    await pool.query(
+      `INSERT INTO operator_tours (operator_id, title, tour_image, photos)
+       VALUES ($1, 'Тур 1406', '/images/tours/bystraya-rafting/cover.jpg', $2::text[])`,
+      [PARTNER_1406, [
+        '/images/fishingkam/2025-01-09_113932-mi.png',
+        S3_UPLOAD,
+        '/api/images/s3/photos/laguna-expedition/x.jpg',
+        '/images/zaporozhets/y.jpg',
+      ]],
+    );
+    await pool.query(MIG_1406);
+  }, 120_000);
+
+  afterAll(async () => {
+    await pool?.end();
+    if (PG_URL) await dropTestDatabase(PG_URL, TEST_DB_1406);
+  });
+
+  it('строка: логотип партнёра и обложка тура — на хранилище; оформление сайта на месте', async () => {
+    const { rows: [p] } = await pool.query(`SELECT logo_image, hero_image FROM partners WHERE id = $1`, [PARTNER_1406]);
+    expect(p.logo_image).toBe('/api/images/s3/photos/mestechko/mestechko-logo.png');
+    expect(p.hero_image).toBe('/images/hero/hero-light.jpeg');
+    const { rows: [t] } = await pool.query(`SELECT tour_image FROM operator_tours WHERE operator_id = $1`, [PARTNER_1406]);
+    expect(t.tour_image).toBe('/api/images/s3/photos/tours/bystraya-rafting/cover.jpg');
+  });
+
+  it('массив: порядок сохранён, загрузка из кабинета и уже переписанный адрес не тронуты', async () => {
+    const { rows: [t] } = await pool.query(`SELECT photos FROM operator_tours WHERE operator_id = $1`, [PARTNER_1406]);
+    expect(t.photos).toEqual([
+      '/api/images/s3/photos/fishingkam/2025-01-09_113932-mi.png',
+      S3_UPLOAD,
+      '/api/images/s3/photos/laguna-expedition/x.jpg',
+      '/api/images/s3/photos/zaporozhets/y.jpg',
+    ]);
+  });
+
+  it('JSON: значения и ключи с адресом — на хранилище, чужая папка tours/ и текст без адреса в начале — как были', async () => {
+    const { rows: [p] } = await pool.query(`SELECT gallery, gallery_credits FROM partners WHERE id = $1`, [PARTNER_1406]);
+    expect(p.gallery).toEqual([
+      '/api/images/s3/photos/mestechko/a.jpg',
+      '/api/images/s3/photos/partners/topkam/b.jpg',
+      '/images/tours/other/c.jpg',
+    ]);
+    expect(p.gallery_credits).toEqual({
+      '/api/images/s3/photos/shatun/d.jpg': 'Автор Д.',
+      note: 'путь /images/shatun/ в тексте',
+    });
+  });
+
+  it('повтор ничего не меняет', async () => {
+    const before = await pool.query(
+      `SELECT p.logo_image, p.gallery, p.gallery_credits, t.tour_image, t.photos
+         FROM partners p JOIN operator_tours t ON t.operator_id = p.id WHERE p.id = $1`, [PARTNER_1406]);
+    await pool.query(MIG_1406);
+    const after = await pool.query(
+      `SELECT p.logo_image, p.gallery, p.gallery_credits, t.tour_image, t.photos
+         FROM partners p JOIN operator_tours t ON t.operator_id = p.id WHERE p.id = $1`, [PARTNER_1406]);
+    expect(after.rows).toEqual(before.rows);
   });
 });

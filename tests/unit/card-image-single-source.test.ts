@@ -77,7 +77,7 @@ describe('род картинки называется честно', () => {
     // не подменяет собой объект.
     const r = cardImage({ hasShownPhoto: false, id: 'abc', category: 'termalnye_istochniki', kind: 'tour' });
     expect(r.kind).toBe('category_fallback');
-    expect(r.url).toContain('/images/partners/kamchatintour/');
+    expect(r.url).toContain('/api/images/s3/photos/partners/kamchatintour/');
   });
 
   it('у МАРШРУТА без своего снимка — снимок главной точки пути, не кадр категории (26.09)', () => {

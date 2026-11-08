@@ -19,7 +19,7 @@
  * Ошибка переписи записана дословно, потому что она поучительна: место без
  * показываемого снимка она объясняла словами «карточка покажет градиент, и
  * это правда». Градиента там нет. Есть подстановка по категории — кадр с
- * сайта действующего камчатского оператора (`/images/partners/kamchatintour/`),
+ * сайта действующего камчатского оператора (`/api/images/s3/photos/partners/kamchatintour/`),
  * разложенный по родам мест. То есть перепись, заведённая ОТВЕЧАТЬ на вопрос
  * «где фото», сама давала неверный ответ — и давала его уверенно.
  *
@@ -51,21 +51,21 @@
 
 /** Красивые фото-плейсхолдеры по категориям. Кадры оператора, не наши. */
 export const CATEGORY_FALLBACK_IMAGES: Record<string, string> = {
-  vulkani:              '/images/partners/kamchatintour/volcanoes.webp',
-  termalnye_istochniki: '/images/partners/kamchatintour/thermal.jpg',
-  geyzery:              '/images/partners/kamchatintour/seo2.jpg',
-  morskie_progulki:     '/images/partners/kamchatintour/sea-russkaya.jpg',
-  rybalka:              '/images/partners/kamchatintour/rafting.jpg',
-  snegohod:             '/images/partners/kamchatintour/snowmobile.jpg',
-  vertoletnye_tury:     '/images/partners/kamchatintour/helicopter.jpg',
-  dzhip:                '/images/partners/kamchatintour/intro.jpg',
-  medvedi:              '/images/partners/kamchatintour/cape.jpg',
-  splav:                '/images/partners/kamchatintour/rafting.jpg',
-  eco:                  '/images/partners/kamchatintour/seo1.jpg',
-  trekking:             '/images/partners/kamchatintour/gorely.jpg',
-  lakes:                '/images/partners/kamchatintour/seo4.jpg',
-  rivers:               '/images/partners/kamchatintour/rafting.jpg',
-  mountains:            '/images/partners/kamchatintour/volcanoes.webp',
+  vulkani:              '/api/images/s3/photos/partners/kamchatintour/volcanoes.webp',
+  termalnye_istochniki: '/api/images/s3/photos/partners/kamchatintour/thermal.jpg',
+  geyzery:              '/api/images/s3/photos/partners/kamchatintour/seo2.jpg',
+  morskie_progulki:     '/api/images/s3/photos/partners/kamchatintour/sea-russkaya.jpg',
+  rybalka:              '/api/images/s3/photos/partners/kamchatintour/rafting.jpg',
+  snegohod:             '/api/images/s3/photos/partners/kamchatintour/snowmobile.jpg',
+  vertoletnye_tury:     '/api/images/s3/photos/partners/kamchatintour/helicopter.jpg',
+  dzhip:                '/api/images/s3/photos/partners/kamchatintour/intro.jpg',
+  medvedi:              '/api/images/s3/photos/partners/kamchatintour/cape.jpg',
+  splav:                '/api/images/s3/photos/partners/kamchatintour/rafting.jpg',
+  eco:                  '/api/images/s3/photos/partners/kamchatintour/seo1.jpg',
+  trekking:             '/api/images/s3/photos/partners/kamchatintour/gorely.jpg',
+  lakes:                '/api/images/s3/photos/partners/kamchatintour/seo4.jpg',
+  rivers:               '/api/images/s3/photos/partners/kamchatintour/rafting.jpg',
+  mountains:            '/api/images/s3/photos/partners/kamchatintour/volcanoes.webp',
 };
 
 export function isImageUrl(value: unknown): value is string {

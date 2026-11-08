@@ -93,7 +93,7 @@ function cardShows(category: string | null): string {
   // неверной. Ровно так она уже ошибалась 20.09.
   const kind = cardImage({ hasShownPhoto: false, id: 'x', category, kind: 'place' }).kind;
   if (kind === 'category_fallback') {
-    return 'карточка подставит кадр оператора по категории (/images/partners/kamchatintour), а не снимок этого места';
+    return 'карточка подставит кадр оператора по категории (/api/images/s3/photos/partners/kamchatintour), а не снимок этого места';
   }
   if (kind === 'payload_link') {
     return 'карточка подставит адрес из payload — чужой сервер';
