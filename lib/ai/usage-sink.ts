@@ -43,6 +43,8 @@ export interface UsageRowToReport {
    * прод пишет NULL, а не ноль (миграция 1285). Роут приёма поле уже знает.
    */
   cache_read_tokens?: number | null;
+  /** Записано в кэш (Anthropic). Нет поля или null — источник не сообщил, в книгах NULL. */
+  cache_creation_tokens?: number | null;
 }
 
 /**
@@ -65,6 +67,34 @@ export function usageRowFromResponse(data: unknown, requestedModel: string, agen
     prompt_tokens: usage.promptTokens,
     completion_tokens: usage.completionTokens,
     cache_read_tokens: usage.cacheReadTokens,
+    agent_id: agentId,
+  };
+}
+
+/**
+ * Строка книг из `usage` Messages API Anthropic (SDK или fetch) — аудит по
+ * маркеру ходит туда напрямую. У Anthropic `input_tokens` уже без кэша: запись
+ * и чтение лежат своими полями, и в книгах — своими колонками. Ключ модели —
+ * `anthropic:<модель>`, как у прямого пути решателя (providers.ts): цена
+ * находится тем же правилом (`priceLookupIds`).
+ *
+ * Нет входа или выхода — null: строку с нулями не пишем, вызывающий говорит в
+ * лог «расход неизвестен». Нет полей кэша — null, а не ноль.
+ */
+export function usageRowFromAnthropic(usage: unknown, model: string, agentId: string): UsageRowToReport | null {
+  if (usage === null || typeof usage !== 'object') return null;
+  const u = usage as Record<string, unknown>;
+  const count = (v: unknown): number | null =>
+    typeof v === 'number' && Number.isInteger(v) && v >= 0 ? v : null;
+  const input = count(u.input_tokens);
+  const output = count(u.output_tokens);
+  if (input === null || output === null) return null;
+  return {
+    model: `anthropic:${model}`,
+    prompt_tokens: input,
+    completion_tokens: output,
+    cache_read_tokens: count(u.cache_read_input_tokens),
+    cache_creation_tokens: count(u.cache_creation_input_tokens),
     agent_id: agentId,
   };
 }
@@ -126,4 +156,21 @@ export async function sendUsageToProd(rows: UsageRowToReport[]): Promise<boolean
   } finally {
     clearTimeout(timer);
   }
+}
+
+/**
+ * Строка одного ответа — на прод СРАЗУ, а не в конце прогона.
+ *
+ * Для раннеров, которые после траты выходят через `process.exit` на любом шаге
+ * (аудит по маркеру: пустой ответ, неразобранные находки, «ни одной
+ * подтверждённой»). Строки, отложенные до конца, терялись бы ровно у
+ * провальных прогонов — а они стоят тех же денег. Ответ без usage — «расход
+ * неизвестен» вслух, а не тишина (§4.0). Не бросает, как и `sendUsageToProd`.
+ */
+export async function reportUsageNow(row: UsageRowToReport | null, what: string): Promise<boolean> {
+  if (!row) {
+    console.error(`[llm-usage-sink] ${what}: в ответе нет usage — расход неизвестен, в книги не записан`);
+    return false;
+  }
+  return sendUsageToProd([row]);
 }

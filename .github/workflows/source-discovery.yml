@@ -60,6 +60,9 @@ jobs:
         env:
           DEEPSEEK_API_KEY: ${{ secrets.DEEPSEEK_API_KEY }}
           OPENROUTER_API_KEY: ${{ secrets.OPENROUTER_API_KEY }}
+          # Расход модели — в книги llm_usage_log через прод (usage-sink): без
+          # секрета он идёт мимо книг и мимо дневного бюджета.
+          CRON_SECRET: ${{ secrets.CRON_SECRET }}
         run: |
           set -uo pipefail
           MODEL=$(python3 -c "

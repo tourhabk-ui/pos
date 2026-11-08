@@ -30,10 +30,13 @@
 import { readFileSync } from 'node:fs';
 import { salvageTruncatedArray } from '../lib/ai/json-salvage';
 import { openRouterAttribution } from '../lib/ai/attribution';
+import { reportUsageNow, usageRowFromResponse } from '../lib/ai/usage-sink';
 
 const OPENROUTER = 'https://openrouter.ai/api/v1/chat/completions';
 const DEFAULT_MODEL = 'openai/gpt-6-astra';
 const RUB_PER_USD = 135; // §8
+/** Подпись расхода в книгах llm_usage_log (до 08.11 разбор в книги не писал). */
+const AGENT_ID = 'route-analysis';
 
 interface Route {
   id: string; title: string;
@@ -179,6 +182,9 @@ async function main(): Promise<void> {
     choices?: Array<{ message?: { content?: string } }>;
     usage?: { prompt_tokens?: number; completion_tokens?: number };
   };
+  // В книги — сразу после ответа: дальше раннер может выйти на любом шаге.
+  const booked = await reportUsageNow(usageRowFromResponse(data, model, AGENT_ID), 'разбор');
+  console.log(`расход в книги: ${booked ? 'прод принял' : 'прод НЕ принял (причина выше)'}`);
   const text = data.choices?.[0]?.message?.content ?? null;
   const inTok = data.usage?.prompt_tokens ?? null;
   const outTok = data.usage?.completion_tokens ?? null;

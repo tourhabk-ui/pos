@@ -56,6 +56,32 @@ jobs:
       #
       # Проверка находок, за которые уже заплачено проходом. Стоит копейки:
       # короткие заходы по одному файлу дешёвой моделью, без набора в 1,7 МБ.
+      # Вход — свободный текст, а артефакт с именем audit-findings может
+      # выложить любой прогон этого репозитория, в том числе workflow из PR с
+      # форка. Находки берём только у прогона самого аудита (ревью
+      # безопасности #3149): пуш в main или ручной запуск, этот файл workflow,
+      # этот репозиторий. Иначе — отказ до скачивания и до трат.
+      - name: Прогон с находками — свой
+        if: inputs.verify_findings_run != ''
+        env:
+          GH_TOKEN: ${{ github.token }}
+          REPO: ${{ github.repository }}
+          RUN_ID: ${{ inputs.verify_findings_run }}
+        run: |
+          set -euo pipefail
+          case "$RUN_ID" in
+            ''|*[!0-9]*) echo "::error::verify_findings_run — не номер прогона: '$RUN_ID'"; exit 1 ;;
+          esac
+          RUN_JSON=$(gh api "repos/$REPO/actions/runs/$RUN_ID")
+          FACTS=$(printf '%s' "$RUN_JSON" | python3 -c 'import json,sys; r=json.load(sys.stdin); print(r.get("path") or "-", r.get("event") or "-", (r.get("head_repository") or {}).get("full_name") or "-")')
+          read -r WF_PATH EVENT HEAD_REPO <<<"$FACTS"
+          if [ "$WF_PATH" != ".github/workflows/os-audit.yml" ] || [ "$HEAD_REPO" != "$REPO" ] \
+             || { [ "$EVENT" != "push" ] && [ "$EVENT" != "workflow_dispatch" ]; }; then
+            echo "::error::прогон $RUN_ID — не аудит этого репозитория ($WF_PATH, $EVENT, $HEAD_REPO): чужие находки не берём"
+            exit 1
+          fi
+          echo "прогон $RUN_ID — аудит ($EVENT), находки берём"
+
       - name: Взять находки прошлого прогона
         if: inputs.verify_findings_run != ''
         uses: actions/download-artifact@v8
@@ -63,12 +89,19 @@ jobs:
           name: audit-findings
           run-id: ${{ inputs.verify_findings_run }}
           github-token: ${{ secrets.GITHUB_TOKEN }}
+          # Вне рабочей копии: распакованный поверх checkout артефакт мог бы
+          # подменить исполняемый код (scripts/, node_modules/.bin), а
+          # следующий шаг запускает его с секретами.
+          path: ${{ runner.temp }}/audit-findings
 
       - name: Проверить сохранённые находки
         if: inputs.verify_findings_run != ''
         env:
           OPENROUTER_API_KEY: ${{ secrets.OPENROUTER_API_KEY }}
-          AUDIT_FINDINGS_IN: audit-findings.json
+          AUDIT_FINDINGS_IN: ${{ runner.temp }}/audit-findings/audit-findings.json
+          # Расход модели — в книги llm_usage_log через прод (usage-sink): без
+          # секрета он идёт мимо книг и мимо дневного бюджета.
+          CRON_SECRET: ${{ secrets.CRON_SECRET }}
         run: |
           set -uo pipefail
           AUDIT_VERIFY_MODEL=$(python3 -c "
@@ -93,6 +126,9 @@ jobs:
           # не влезли — отказ без траты. Прогон 5 сгорел на 1324 ₽ именно
           # потому, что такой границы не было.
           AUDIT_BUDGET_USD: ${{ vars.AUDIT_BUDGET_USD || '15' }}
+          # Расход модели — в книги llm_usage_log через прод (usage-sink): без
+          # секрета он идёт мимо книг и мимо дневного бюджета.
+          CRON_SECRET: ${{ secrets.CRON_SECRET }}
         run: |
           set -uo pipefail
           # Модель круга проверки — своя. Задача там узкая (найти дословную

@@ -163,6 +163,10 @@ export const SPEND_LABELS: Readonly<Record<string, string>> = {
   'weekly-chronicle': 'Руки на GitHub: хроника недели',
   'ai-visibility-panel': 'Замер: видят ли нас ИИ-поиски',
   'west-knowledge-probe': 'Проба: знают ли западные модели о нас',
+  // Разовые прогоны по маркеру на GitHub (scripts/*-runner.ts, usage-sink с 08.11).
+  'os-audit': 'Аудит ОС и эволюции по маркеру (на GitHub)',
+  'route-analysis': 'Разбор справочника маршрутов по маркеру (на GitHub)',
+  'source-discovery': 'Подбор источников разведки по маркеру (на GitHub)',
 };
 
 /**

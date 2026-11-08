@@ -307,7 +307,8 @@ function stringConsts(sf: ts.SourceFile): Map<string, { value: string; exported:
  * Кто подписывает расход в книгах llm_usage_log: «руки» — переменной AGENT_ID
  * шага учёта в workflow; код — первым аргументом runWithUsageTracking,
  * fallbackAgentId у провайдеров, полем agent_id у строк для usage-sink и
- * последним аргументом usageRowFromResponse (скрипт раннера со своим fetch).
+ * последним аргументом usageRowFromResponse и usageRowFromAnthropic (скрипт
+ * раннера со своим fetch или SDK).
  * logAgentRun сюда не относится: это журнал прогонов, расход он не подписывает.
  */
 function spendWriters(): Map<string, string> {
@@ -352,7 +353,7 @@ function spendWriters(): Map<string, string> {
     'app/api/cron/kuzmich-eval/route.ts': ['kuzmich-eval', 'kuzmich-eval-live', 'kuzmich-eval-commercial'],
   };
   const variableSeen = new Set<string>();
-  const TRIGGERS = ['runWithUsageTracking', 'fallbackAgentId', 'usageRowFromResponse', 'usage-sink'];
+  const TRIGGERS = ['runWithUsageTracking', 'fallbackAgentId', 'usageRowFromResponse', 'usageRowFromAnthropic', 'usage-sink'];
 
   for (const [file, text] of raw) {
     // Дешёвый отбор по сырому тексту, приговор — по разбору.
@@ -372,9 +373,9 @@ function spendWriters(): Map<string, string> {
             variableSeen.add(file);
           }
         }
-        if (n.expression.text === 'usageRowFromResponse') {
+        if (n.expression.text === 'usageRowFromResponse' || n.expression.text === 'usageRowFromAnthropic') {
           const id = idOf(file, n.arguments[2]);
-          expect(id, `${file}: usageRowFromResponse — подпись переменной, сторож её не видит`).not.toBeNull();
+          expect(id, `${file}: ${n.expression.text} — подпись переменной, сторож её не видит`).not.toBeNull();
           if (id !== null) found.set(id, file);
         }
       }

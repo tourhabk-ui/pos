@@ -38,9 +38,17 @@ import { readFileSync, writeFileSync, existsSync, statSync, readdirSync } from '
 import { join, relative, resolve, sep } from 'node:path';
 import { salvageTruncatedArray } from '../lib/ai/json-salvage';
 import { openRouterAttribution } from '../lib/ai/attribution';
+import { reportUsageNow, usageRowFromAnthropic, usageRowFromResponse } from '../lib/ai/usage-sink';
 
 const OPENROUTER = 'https://openrouter.ai/api/v1/chat/completions';
 const RUB_PER_USD = 135; // §8
+/**
+ * Подпись расхода в книгах llm_usage_log. До 08.11 аудит в книги не писал
+ * вовсе: прогон 7 стоил $16.72 мимо дневного бюджета (§5.1). Строка каждого
+ * ответа уходит на прод сразу (`reportUsageNow`): раннер выходит через
+ * process.exit на любом шаге после траты, и отложенные строки терялись бы.
+ */
+const AGENT_ID = 'os-audit';
 /** Потолок набора: миллионный контекст велик, но платим за каждый токен. */
 const BUNDLE_LIMIT_BYTES = 1_800_000;
 
@@ -329,6 +337,7 @@ async function verifyFinding(
       };
     }
     const data = await res.json() as { choices?: Array<{ message?: { content?: string } }> };
+    await reportUsageNow(usageRowFromResponse(data, model, AGENT_ID), 'проверка находки');
     const text = data.choices?.[0]?.message?.content ?? '';
     const at = text.indexOf('{');
     const to = text.lastIndexOf('}');
@@ -706,6 +715,7 @@ async function runAnthropicPass(model: string, payload: string): Promise<PassRes
       output_config: { effort: 'low' },
       messages: [{ role: 'user', content: 'Ответь одним словом: готов' }],
     });
+    await reportUsageNow(usageRowFromAnthropic(probe.usage, model, AGENT_ID), 'проба формы');
     const probeText = probe.content.find((b) => b.type === 'text');
     if (!probeText) {
       console.error(
@@ -731,6 +741,8 @@ async function runAnthropicPass(model: string, payload: string): Promise<PassRes
     messages,
   });
   const msg = await stream.finalMessage();
+  const booked = await reportUsageNow(usageRowFromAnthropic(msg.usage, model, AGENT_ID), 'проход');
+  console.log(`расход прохода в книги: ${booked ? 'прод принял' : 'прод НЕ принял (причина выше)'}`);
 
   const inTok = msg.usage.input_tokens;
   const outTok = msg.usage.output_tokens;
@@ -828,6 +840,8 @@ async function main(): Promise<void> {
     choices?: Array<{ message?: { content?: string } }>;
     usage?: { prompt_tokens?: number; completion_tokens?: number };
   };
+  const booked = await reportUsageNow(usageRowFromResponse(data, model, AGENT_ID), 'проход');
+  console.log(`расход прохода в книги: ${booked ? 'прод принял' : 'прод НЕ принял (причина выше)'}`);
   const text = data.choices?.[0]?.message?.content ?? null;
   const inTok = data.usage?.prompt_tokens ?? null;
   const outTok = data.usage?.completion_tokens ?? null;
