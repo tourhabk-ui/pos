@@ -144,7 +144,8 @@ describe('свои заявки отделены (1145)', () => {
     expect(charterRoute).toMatch(/saveCharterLeadDetailed\(\{[\s\S]*?isSelf,/);
     // Второй аргумент — разобранные аргументы с формой (lib/mcp/tool-arguments, 08.10); флаг self — в контексте, как был.
     // С 08.11 контекст несёт и пробу (test: true, lib/mcp/test-run) — флаг self тот же.
-    expect(mcp).toContain('const ctx: McpCallContext = { ip, userAgent, self, consentFrom, test: testRun, issued: [] };');
+    // С 08.11 он же собирает место тура у заявок (place_status, lib/safety/tour-place-status).
+    expect(mcp).toContain('const ctx: McpCallContext = { ip, userAgent, self, consentFrom, test: testRun, issued: [], places: [] };');
     expect(mcp).toContain('executeTool(toolName, execRead, ctx)');
   });
 

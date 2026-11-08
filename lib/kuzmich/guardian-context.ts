@@ -19,7 +19,8 @@ import { getPublicBaseUrl } from '@/lib/config';
 import { placeRoutesFor, placeRoutesLines, type PlaceRouteRow } from '@/lib/places/place-routes';
 import { routeFacts } from '@/lib/ai/route-knowledge';
 import { garbageSignature } from '@/lib/agents/evo/content-sanitizer';
-import { PLACE_STATUS_FRESH_MS, kamchatkaStamp } from '@/lib/safety/place-day-status';
+import { PLACE_COLOR_WORD, kamchatkaStamp, placeStatusFields } from '@/lib/safety/place-day-status';
+import type { GuardianPlaceStatus, GuardianStructured } from '@/lib/mcp/place-status-schema';
 import { KURIL_NORTH_NOTE, isOutsideKraiSources } from '@/lib/safety/kuril-north';
 
 interface GuardianPlaceRow {
@@ -133,18 +134,6 @@ interface KnowledgeRow {
   type: string;
 }
 
-/**
- * Свежесть пересчёта статуса места и время по Камчатке — одно правило с
- * карточкой места (lib/safety/place-day-status.ts, 15.10): карточка и чат
- * отвечают на один вопрос, и порог у них один.
- */
-const STATUS_FRESH_MS = PLACE_STATUS_FRESH_MS;
-
-const STATUS_LABEL: Record<string, string> = {
-  green: 'ЗЕЛЁНЫЙ',
-  yellow: 'ЖЁЛТЫЙ',
-  red: 'КРАСНЫЙ',
-};
 
 
 function normalizeForMatch(s: string): string {
@@ -484,12 +473,26 @@ export interface GuardianContextOptions {
 }
 
 export async function getGuardianContext(placeNameRaw: string, opts: GuardianContextOptions = {}): Promise<string> {
+  return (await getGuardianContextDetailed(placeNameRaw, opts)).text;
+}
+
+/**
+ * Текст и статус мест полями (ревью MCP 08.11): тот же ответ, что видит
+ * модель, и то же правило статуса, что у карточки места (placeStatusFields).
+ * Поля уходят в structuredContent MCP и DataPart A2A.
+ */
+export interface GuardianContextDetailed extends GuardianStructured {
+  text: string;
+}
+
+export async function getGuardianContextDetailed(placeNameRaw: string, opts: GuardianContextOptions = {}): Promise<GuardianContextDetailed> {
+  const statuses: GuardianPlaceStatus[] = [];
   // Обезвреживаем ввод до подстановки в промпт (issue #328). Название места
   // и так уходит эхом в hedge-строки контекста для callAIFast/callAIWaterfall.
   // Флаг injectionSuspected доступен через sanitizePromptInput для логирования
   // на уровне вызывающего кода; здесь просто не пропускаем маркеры в промпт.
   const { text: placeName } = sanitizePromptInput(placeNameRaw);
-  if (!placeName.trim()) return '';
+  if (!placeName.trim()) return { text: '', found: false, places: [] };
 
   // Слова, не буквальная фраза (issue #1986/#1987): ILIKE '%Мутновский
   // вулкан%' не находит «Вулкан Мутновский» (обратный порядок) и вместо
@@ -595,7 +598,7 @@ export async function getGuardianContext(placeNameRaw: string, opts: GuardianCon
 
   if (placeRows.length === 0 && alertsRes.rows.length === 0 && knowledgeRes.rows.length === 0 && !volcanoLines
       && !namedRoutes?.length) {
-    return '';
+    return { text: '', found: false, places: [] };
   }
 
   const parts: string[] = [];
@@ -640,19 +643,38 @@ export async function getGuardianContext(placeNameRaw: string, opts: GuardianCon
   let alertsAbove: readonly string[] | null = null;
 
   for (const p of placeRows) {
-    const rawStatus = p.recommender_status ? STATUS_LABEL[p.recommender_status] ?? p.recommender_status : null;
-    // Цвет без времени пересчёта — обязательное поле, заполненное враньём
-    // (§4.0): зелёный печатался одинаково при живом пересчёте и при
-    // вставшем. Устарел — цвет не показываем и говорим почему.
-    const updatedMs = p.status_updated_at ? Date.parse(p.status_updated_at) : NaN;
-    const statusStale = rawStatus !== null && Number.isFinite(updatedMs) && Date.now() - updatedMs > STATUS_FRESH_MS;
-    // Северные Курилы: зелёный значит «камчатских сводок нет», а не
-    // «предупреждений нет» — цвет не печатаем, как и у карточки (16.10).
-    const outsideGreen = p.recommender_status === 'green' && isOutsideKraiSources(p.zone);
+    // Правило статуса — одно с карточкой места (placeStatusFields, 15.10):
+    // закрыто — человеком, и оно не протухает вместе с пересчётом; цвет без
+    // свежего пересчёта — обязательное поле, заполненное враньём (§4.0), и не
+    // печатается; Северные Курилы: зелёный значит «камчатских сводок нет», а
+    // не «предупреждений нет» (16.10). До 08.11 правило жило здесь отдельной
+    // копией, и у закрытого места с устаревшим цветом «ЗАКРЫТО» не печаталось.
     // Скрытая запись (не место или координата под сомнением) — без цвета
-    // (08.11, placesForAnswer): он посчитан для точки, которой нельзя верить.
+    // (08.11, placesForAnswer): он посчитан для точки, которой нельзя верить;
+    // и в тексте, и в полях.
     const hiddenRecord = p.is_visible === false;
-    const status = statusStale || outsideGreen || hiddenRecord ? null : rawStatus;
+    const computed = placeStatusFields({
+      isOpen: p.is_open,
+      status: p.recommender_status,
+      updatedAt: p.status_updated_at ?? null,
+      outsideKraiSources: isOutsideKraiSources(p.zone),
+    });
+    const fields = hiddenRecord && computed.color
+      ? { ...computed, color: null, level: computed.closed ? 'closed' as const : 'unknown' as const }
+      : computed;
+    const updatedMs = p.status_updated_at ? Date.parse(p.status_updated_at) : NaN;
+    const statusStale = fields.stale && p.recommender_status !== null;
+    const outsideGreen = fields.outside_sources;
+    const status = fields.color ? PLACE_COLOR_WORD[fields.color] : null;
+    const grade = gradePlaceMatch(placeName, p.name, p.aliases);
+    statuses.push({
+      id: p.id ?? null,
+      name: p.name,
+      location_type: p.location_type,
+      match: grade,
+      ...fields,
+      alerts: p.alert_message ? [p.alert_message] : [...(p.active_alerts ?? [])],
+    });
     // Раздел каталога — в заголовке, рядом с именем. До 17.09 location_type
     // выбирался этим же запросом и не печатался: тип был виден только на
     // бейдже карточки и маркере карты, а в MCP — единственном канале, которым
@@ -662,9 +684,8 @@ export async function getGuardianContext(placeNameRaw: string, opts: GuardianCon
     // «известно, что это место» (§4.0).
     const kind = placeTypeLabel(p.location_type);
     const nameWithKind = kind ? `${p.name} (${kind.toLowerCase()})` : p.name;
-    const header = status
-      ? `${nameWithKind} [${status}${p.is_open === false ? ' — ЗАКРЫТО' : ''}]`
-      : nameWithKind;
+    const marks = [status, fields.closed ? 'ЗАКРЫТО' : null].filter(Boolean);
+    const header = marks.length ? `${nameWithKind} [${marks.join(' — ')}]` : nameWithKind;
     parts.push(header);
     if (hiddenRecord) {
       parts.push(HIDDEN_RECORD_NOTE);
@@ -698,11 +719,11 @@ export async function getGuardianContext(placeNameRaw: string, opts: GuardianCon
     // из постановления, а не из головы модели (lib/safety/marine-mammals).
     // Только по названию места, и только когда совпадение с запросом сильное:
     // при слабом совпадении это может быть чужое место.
-    if (gradePlaceMatch(placeName, p.name, p.aliases) === 'high' && isMarineMammalPlace(p.name)) {
+    if (grade === 'high' && isMarineMammalPlace(p.name)) {
       parts.push(marineMammalNote());
     }
 
-    if (gradePlaceMatch(placeName, p.name, p.aliases) === 'low') {
+    if (grade === 'low') {
       // Слабое совпадение по названию (в т.ч. из-за русской морфологии —
       // "Авачинский" vs "Авачинская сопка" рвёт префиксное сравнение) — не
       // факт что это то же место, которое спросил пользователь. Высоту,
@@ -885,5 +906,5 @@ export async function getGuardianContext(placeNameRaw: string, opts: GuardianCon
     }
   }
 
-  return parts.join('\n');
+  return { text: parts.join('\n'), found: placeRows.length > 0, places: statuses };
 }

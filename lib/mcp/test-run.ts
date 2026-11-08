@@ -22,6 +22,7 @@
 import { randomBytes } from 'node:crypto';
 import { getPublicBaseUrl } from '@/lib/config';
 import type { RequestKind, ConsentPurpose } from '@/lib/mcp/request-status-schema';
+import { TOUR_PLACE_ENTRY_SCHEMA, type TourPlaceEntry } from '@/lib/mcp/place-status-schema';
 
 const TEST_KIND_TAG: Readonly<Record<RequestKind, string>> = { lead: 'lead', seat_request: 'seat', stay_request: 'stay' };
 const TEST_PURPOSE_TAG: Readonly<Record<ConsentPurpose, string>> = { operator: 'op', stay: 'st', carrier: 'ca', rental: 're' };
@@ -94,10 +95,17 @@ export interface WriteStructured {
   /** Сколько заявок принято этим вызовом (у поездки целиком — по частям); 0 — ни одной. */
   accepted: number;
   requests: IssuedWrite[];
+  /** Главное место тура и его статус — у заявок на тур (lib/safety/tour-place-status). */
+  place_status?: TourPlaceEntry[];
 }
 
-export function writeStructured(test: boolean, issued: readonly IssuedWrite[]): WriteStructured {
-  return { test, accepted: issued.filter((r) => r.outcome === 'accepted').length, requests: [...issued] };
+export function writeStructured(test: boolean, issued: readonly IssuedWrite[], places: readonly TourPlaceEntry[] = []): WriteStructured {
+  return {
+    test,
+    accepted: issued.filter((r) => r.outcome === 'accepted').length,
+    requests: [...issued],
+    ...(places.length ? { place_status: [...places] } : {}),
+  };
 }
 
 const NOTIFY_SCHEMA = {
@@ -133,6 +141,7 @@ export const WRITE_OUTPUT_SCHEMA = {
         required: ['tool', 'outcome', 'status_key', 'status_page', 'notify'],
       },
     },
+    place_status: TOUR_PLACE_ENTRY_SCHEMA,
   },
   required: ['test', 'accepted', 'requests'],
 } as const;

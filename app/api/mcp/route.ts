@@ -62,6 +62,8 @@ import { readToolArguments, argsRefusal, type ReadArguments } from '@/lib/mcp/to
 import { unknownToolResponse } from '@/lib/mcp/unknown-tool';
 import { normalizePhone, implausiblePhone } from '@/lib/mcp/normalize-phone';
 import { issueTestKey, testRunText, writeStructured, type IssuedWrite } from '@/lib/mcp/test-run';
+import type { TourPlaceEntry } from '@/lib/mcp/place-status-schema';
+import { loadTourPlaceStatus, tourPlaceRequestNote, TOUR_PLACE_NOT_READ_NOTE } from '@/lib/safety/tour-place-status';
 import type { RequestKind, ConsentPurpose } from '@/lib/mcp/request-status-schema';
 import { logMcpToolCall, logMcpClient } from '@/lib/mcp/call-log';
 import type { PublicToolOutcome } from '@/lib/mcp/tool-outcome';
@@ -143,6 +145,29 @@ interface McpCallContext {
   test?: boolean;
   /** Заявки, выданные вызовом, — structuredContent пишущего инструмента (lib/mcp/test-run). */
   issued?: IssuedWrite[];
+  /** Главное место тура и его статус у заявок на тур — поле place_status итога (08.11). */
+  places?: TourPlaceEntry[];
+  /** structuredContent читающего инструмента (статус мест у get_guardian_context, 08.11). */
+  structured?: Record<string, unknown>;
+}
+
+/**
+ * Статус главного места тура для заявки (ревью MCP 08.11): закрытое, красное
+ * или жёлтое место называется строкой ответа, а полем place_status — любое.
+ * Заявку статус не останавливает: он на сегодня, а тур — на свою дату.
+ * Отказ чтения — словами, не молчанием (§4.0).
+ */
+async function tourPlaceForRequest(ctx: McpCallContext, tool: string, tourId: number): Promise<string> {
+  try {
+    const place = await loadTourPlaceStatus(tourId);
+    ctx.places?.push({ tool, tour_id: tourId, read: place ? 'ok' : 'no_place', place });
+    return tourPlaceRequestNote(place);
+  } catch (err) {
+    const code = (err as { code?: unknown })?.code;
+    console.error('[mcp] статус места тура не прочитан:', typeof code === 'string' ? code : '', logText(err instanceof Error ? err.message : err, 200));
+    ctx.places?.push({ tool, tour_id: tourId, read: 'failed', place: null });
+    return TOUR_PLACE_NOT_READ_NOTE;
+  }
 }
 
 /** Телефон заявки: формат и правдоподобие (ревью MCP 08.11: +70000000000 ушёл менеджеру). */
@@ -362,7 +387,8 @@ async function requestSeatsFromOperator(a: {
   const trial = stopForTest(a.ctx, BOOKING_REQUEST_TOOL.name, 'seat_request', 'operator', a.consent,
     `запрос мест оператору в мессенджер: тур "${a.tourTitle}", ${a.date}, ${a.participants} чел. (расписания у тура в системе нет — места уточняет оператор).`,
     'оператору тура');
-  if (trial) return trial;
+  // Проба говорит о парке и месте тура то же, что настоящий запрос.
+  if (trial) return trial + a.parkNote;
   const admitted = await admitWrite(a.ctx, BOOKING_REQUEST_TOOL.name, a.phone, a.consent, 'operator', bookingSubject(a.tourId, a.date));
   const pd_consent = admitted.consent;
   if (!pd_consent) throw new McpUserError('Согласие на обработку персональных данных не получено — запрос не отправлен.', 'no_consent');
@@ -514,6 +540,8 @@ async function executeCreateBookingRequest(rawArgs: Record<string, unknown>, ctx
   // Тем же правилом, что день плана; строка не зависит от телефона.
   const parkNote = await bookingParkNote(tour.id, date, today);
 
+  const placeNote = await tourPlaceForRequest(ctx, BOOKING_REQUEST_TOOL.name, Number(tour.id));
+
   const { createPlannerCache, fetchAvailabilityForTour } = await import('@/lib/planner');
   const cache = createPlannerCache();
   const slots = await fetchAvailabilityForTour(String(tour.id), date, date, cache);
@@ -537,7 +565,8 @@ async function executeCreateBookingRequest(rawArgs: Record<string, unknown>, ctx
       if (window.kind === 'season' && !dateInWindow(window, date)) {
         return `${outOfSeasonText(window, date)} Заявка не создана — предложите дату внутри сезона.`;
       }
-      return requestSeatsFromOperator({ ctx, tourId: Number(tour.id), tourTitle: tour.title, date, participants, name, phone, hasComment: Boolean(comment), consent: parsed.data.consent, notifyUrl: parsed.data.notify_url, parkNote });
+      // Строки о парке (#3156) и о главном месте тура (08.11) — до ссылки статуса.
+      return requestSeatsFromOperator({ ctx, tourId: Number(tour.id), tourTitle: tour.title, date, participants, name, phone, hasComment: Boolean(comment), consent: parsed.data.consent, notifyUrl: parsed.data.notify_url, parkNote: parkNote + placeNote });
     }
     // Честный отказ с альтернативами вместо фантомной заявки на несуществующие места.
     const horizon = new Date(Date.parse(date) + 30 * 86400000).toISOString().slice(0, 10);
@@ -560,7 +589,8 @@ async function executeCreateBookingRequest(rawArgs: Record<string, unknown>, ctx
   const trial = stopForTest(ctx, BOOKING_REQUEST_TOOL.name, 'lead', 'operator', parsed.data.consent,
     `заявка оператору на тур "${tour.title}" (ID${tour.id}), ${date}, участников ${participants}; сейчас на эту дату свободно ${remaining} мест.`,
     'оператору тура');
-  if (trial) return trial + planAttachNote(planAttach);
+  // Проба говорит о парке и месте тура то же, что настоящая заявка.
+  if (trial) return trial + parkNote + placeNote + planAttachNote(planAttach);
 
   const admitted = await admitWrite(ctx, BOOKING_REQUEST_TOOL.name, phone, parsed.data.consent, 'operator', bookingSubject(tour.id, date));
   const pd_consent = admitted.consent;
@@ -585,6 +615,7 @@ async function executeCreateBookingRequest(rawArgs: Record<string, unknown>, ctx
     + `Оператор перезвонит по телефону ${phone}, подтвердит заявку и состав группы — если число людей или пожелания изменились, `
     + 'человеку стоит сказать об этом при звонке. Это заявка, не оплата.'
     + parkNote
+    + placeNote
     + planAttachNote(planAttach)
     + requestConfirmNote();
   const bookingPrefix = `[Заявка на бронь] Тур "${tour.title}" (ID${tour.id}), дата ${date},`;
@@ -1181,7 +1212,10 @@ async function executeTool(
     const refusal = argsRefusal(read, validation.error);
     throw new McpUserError(refusal.message, refusal.code);
   }
-  const text = await executeKuzmichTool(name, validation.args, { surface: 'mcp' });
+  const text = await executeKuzmichTool(name, validation.args, {
+    surface: 'mcp',
+    onStructured: (data) => { ctx.structured = data; },
+  });
   // Сбой исполнителя сличается с текстом как есть — пометка к нему не цепляется.
   if (text === TOOL_EXECUTION_FAILED) return text;
   return text + toolLangNote(name, localized);
@@ -1447,7 +1481,7 @@ async function runPublicToolCore(call: PublicToolCall): Promise<PublicToolOutcom
   const execRead: ReadArguments = isWrite && 'test' in toolArgs
     ? { ...read, args: Object.fromEntries(Object.entries(toolArgs).filter(([k]) => k !== 'test')) }
     : read;
-  const ctx: McpCallContext = { ip, userAgent, self, consentFrom, test: testRun, issued: [] };
+  const ctx: McpCallContext = { ip, userAgent, self, consentFrom, test: testRun, issued: [], places: [] };
   try {
     const text = await executeTool(toolName, execRead, ctx);
 
@@ -1477,9 +1511,12 @@ async function runPublicToolCore(call: PublicToolCall): Promise<PublicToolOutcom
     // JSON-строку, остальные клиенты — как обычный ответ.
     // Пишущие инструменты (08.11, ревью MCP): ключ, страница и подписка —
     // структурно, а не регуляркой из текста (WRITE_OUTPUT_SCHEMA).
+    // Читающие инструменты со статусом места (get_guardian_context, 08.11)
+    // кладут поля в ctx.structured — текст ответа от этого не меняется.
     const structured = isWrite
-      ? { ...writeStructured(testRun, ctx.issued ?? []) }
-      : CONNECTOR_TOOL_NAMES.has(toolName) || toolName === REQUEST_STATUS_TOOL_NAME ? parseStructured(text) : undefined;
+      ? { ...writeStructured(testRun, ctx.issued ?? [], ctx.places ?? []) }
+      : ctx.structured
+        ?? (CONNECTOR_TOOL_NAMES.has(toolName) || toolName === REQUEST_STATUS_TOOL_NAME ? parseStructured(text) : undefined);
     return { kind: 'ok', text, handoffUrl: handoff ? handoff.url : null, ...(structured ? { structured } : {}) };
   } catch (toolErr) {
     // Наружу — только текст, написанный для агента. Отказ пула или чужое

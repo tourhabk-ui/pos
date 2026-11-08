@@ -98,7 +98,8 @@ describe('провод: чат просит ссылку, MCP — нет', () =>
   it('оба инструмента в executeTool получают pageLinks по поверхности', () => {
     const core = read('lib/kuzmich/core.ts');
     expect(core).toContain("placeInfoForKuzmich(placeName, { pageLinks: opts.surface !== 'mcp' })");
-    expect(core).toContain("getGuardianContext(args.place ?? args.name ?? '', { pageLinks: opts.surface !== 'mcp' })");
+    // С 08.11 — подробный вариант того же ответа (статус места полями для MCP).
+    expect(core).toContain("getGuardianContextDetailed(args.place ?? args.name ?? '', { pageLinks: opts.surface !== 'mcp' })");
   });
 
   it('адрес карточки строится от публичного домена', () => {

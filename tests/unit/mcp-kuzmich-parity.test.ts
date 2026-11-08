@@ -89,14 +89,15 @@ describe('/api/mcp — паритет с реестром Кузьмича', () 
     const json = await res.json();
     expect(json.result.isError).toBeUndefined();
     expect(json.result.content[0].text).toBe('executed:get_weather');
-    expect(executeKuzmichTool).toHaveBeenCalledWith('get_weather', {}, { surface: 'mcp' });
+    // Поверхность — mcp; приёмник структурного ответа (onStructured, 08.11) рядом.
+    expect(executeKuzmichTool).toHaveBeenCalledWith('get_weather', {}, expect.objectContaining({ surface: 'mcp' }));
   });
 
   it('аргументы проходят Zod-коэрсию Кузьмича (число → строка, trim)', async () => {
     const res = await rpc('tools/call', { name: 'get_place_info', arguments: { name: 42 } });
     const json = await res.json();
     expect(json.result.isError).toBeUndefined();
-    expect(executeKuzmichTool).toHaveBeenCalledWith('get_place_info', { name: '42' }, { surface: 'mcp' });
+    expect(executeKuzmichTool).toHaveBeenCalledWith('get_place_info', { name: '42' }, expect.objectContaining({ surface: 'mcp' }));
   });
 
   it('невалидные аргументы — isError, исполнитель не зовётся', async () => {

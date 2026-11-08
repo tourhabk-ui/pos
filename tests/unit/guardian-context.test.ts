@@ -348,6 +348,9 @@ describe('getGuardianContext — раздел каталога в заголов
     capacity_per_day: null, open_from_date: null, open_to_date: null, is_open: true,
     current_crowds: null, active_alerts: null, recommender_status: 'red',
     alert_message: null, alert_severity: null, tourists_today: null,
+    // Свежий пересчёт: цвет без времени пересчёта не печатается (правило
+    // карточки места, placeStatusFields — общее с 08.11).
+    status_updated_at: new Date().toISOString(),
   };
 
   function mockDbFor(placeRow: Record<string, unknown>) {

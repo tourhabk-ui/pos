@@ -229,6 +229,14 @@ function sourcesLine(input: VolcanoInput, nowMs: number): { text: string; comple
 
 const FOOTER = 'Цветовые коды — об активности вулкана, а не разрешение на выход: закрытые зоны и регистрация в МЧС — отдельно.';
 
+/**
+ * Указатель на статус МЕСТА у названного вулкана (ревью MCP 08.11): ответ о
+ * шкалах вулкана читался как ответ «можно ли туда идти», а статус места для
+ * выхода (закрыто, цвет с предупреждениями сводок) считает другой инструмент.
+ */
+export const VOLCANO_PLACE_STATUS_POINTER = 'Статус места для выхода (закрыто; зелёный, жёлтый или красный с предупреждениями сводок) — '
+  + 'другая шкала: её даёт get_guardian_context с названием места.';
+
 /** Повышенные хотя бы по одной шкале, опаснейшие первыми — один порядок для Кузьмича и сводки. */
 function sortElevated(all: MergedVolcano[]): MergedVolcano[] {
   return all.filter(isElevated).sort((a, b) => rank(b) - rank(a) || a.name.localeCompare(b.name, 'ru'));
@@ -294,7 +302,7 @@ export function composeVolcanoReport(input: VolcanoInput, query: string | undefi
           + 'Для безопасности конкретного места есть get_guardian_context.',
       ].join('\n');
     }
-    return [src.text, ...found.slice(0, 5).map((m) => volcanoLine(m, nowMs, fresh)), FOOTER].join('\n');
+    return [src.text, ...found.slice(0, 5).map((m) => volcanoLine(m, nowMs, fresh)), FOOTER, VOLCANO_PLACE_STATUS_POINTER].join('\n');
   }
 
   const elevated = sortElevated(all);

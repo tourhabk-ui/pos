@@ -71,6 +71,7 @@ import { sendPdAlert } from '@/lib/notifications/pd-alert';
 import { containsPattern } from '@/lib/db/like';
 import { KUZMICH_KNOWLEDGE_SCOPE_SQL } from '@/lib/kuzmich/knowledge-scope';
 import { publicTourSql } from '@/lib/tours/public-visibility';
+import { tourPlaceStatus, tourPlaceStatusJoinSql, tourPlaceStatusLine, type TourPlaceRow } from '@/lib/safety/tour-place-status';
 import { alertContextLine } from '@/lib/kuzmich/alert-lines';
 import { mchsPromptBlock } from '@/lib/safety/active-warnings';
 import { keepsScheduleSql } from '@/lib/tours/schedule';
@@ -1672,17 +1673,20 @@ export async function getTourDetails(query: string): Promise<string> {
       operator_legal_name: string | null;
       operator_inn: string | null;
       operator_ogrn: string | null;
-    }>(
+    } & TourPlaceRow>(
       // Продавец — подзапросами, а не JOIN: publicTourSql('') пишет колонки
-      // без алиаса, и JOIN с partners сделал бы их неоднозначными.
+      // без алиаса, и JOIN с partners сделал бы их неоднозначными. Главное
+      // место и его статус — LATERAL с колонками tp_*: их имён у тура нет.
       `SELECT id, title, base_price, price_unit, short_description, description, meeting_point,
               included, not_included, what_to_bring, cancellation_policy, location_name, activity_type,
               program, safety_notes, pickup_type, pickup_details, max_participants, min_participants, group_size_unlimited, slug,
               (SELECT p.name FROM partners p WHERE p.id = operator_tours.operator_id) AS operator_name,
               (SELECT NULLIF(btrim(p.legal_info->>'companyName'), '') FROM partners p WHERE p.id = operator_tours.operator_id) AS operator_legal_name,
               (SELECT NULLIF(btrim(p.legal_info->>'inn'), '') FROM partners p WHERE p.id = operator_tours.operator_id) AS operator_inn,
-              (SELECT NULLIF(btrim(p.legal_info->>'ogrn'), '') FROM partners p WHERE p.id = operator_tours.operator_id) AS operator_ogrn
+              (SELECT NULLIF(btrim(p.legal_info->>'ogrn'), '') FROM partners p WHERE p.id = operator_tours.operator_id) AS operator_ogrn,
+              tp.tp_place_id, tp.tp_place_name, tp.tp_place_zone, tp.tp_is_open, tp.tp_status, tp.tp_status_at
          FROM operator_tours
+         ${tourPlaceStatusJoinSql('operator_tours')}
         WHERE id = $1 AND ${publicTourSql('')}`,
       [resolved.id],
     );
@@ -1701,6 +1705,10 @@ export async function getTourDetails(query: string): Promise<string> {
     parts.push(`Страница тура и заявка оператору: ${getPublicBaseUrl()}${tourPath({ id: t.id, slug: t.slug })}#booking — `
       + 'это заявка, не бронь: даты и места подтверждает оператор.');
     if (t.location_name) parts.push(`Локация: ${t.location_name}`);
+    // Статус главного места на сегодня (ревью MCP 08.11): прежде о туре к
+    // закрытому или красному месту агент узнавал, только если сам спросил
+    // get_guardian_context. Правило — то же, что у карточки места.
+    parts.push(tourPlaceStatusLine(tourPlaceStatus(t)));
     // Здесь проверка на null уже была, но формат теперь общий с каталогом:
     // два написания одной цены разъезжаются так же, как два предиката.
     const priceLine = priceFromUnit(t.base_price, t.price_unit);
@@ -2610,6 +2618,12 @@ export interface ToolSurface {
    * lib/rental/site-pause), агенту отдаётся, как MCP.
    */
   agent?: boolean;
+  /**
+   * Приёмник структурного ответа инструмента — MCP и A2A (ревью MCP 08.11):
+   * статус места полями, а не регуляркой из текста. Текст от этого не
+   * меняется; чат приёмника не передаёт.
+   */
+  onStructured?: (data: Record<string, unknown>) => void;
 }
 
 async function executeTool(name: string, args: Record<string, string>, opts: ToolSurface = {}): Promise<string> {
@@ -2668,8 +2682,10 @@ async function executeTool(name: string, args: Record<string, string>, opts: Too
       return web ? `${WEB_NOT_BASE}\n${web}` : noPlaceInBase(placeName);
     }
     if (name === 'get_guardian_context') {
-      const { getGuardianContext } = await import('@/lib/kuzmich/guardian-context');
-      const ctx = await getGuardianContext(args.place ?? args.name ?? '', { pageLinks: opts.surface !== 'mcp' });
+      const { getGuardianContextDetailed } = await import('@/lib/kuzmich/guardian-context');
+      const detail = await getGuardianContextDetailed(args.place ?? args.name ?? '', { pageLinks: opts.surface !== 'mcp' });
+      opts.onStructured?.({ found: detail.found, places: detail.places });
+      const ctx = detail.text;
       // «Попробую поискать через другие источники» — подсказка модели чата,
       // у которой есть веб-поиск. На MCP никакого поиска нет, и обещание
       // действия, которого сервер не совершит, было бы ложью (проверка 29.09).

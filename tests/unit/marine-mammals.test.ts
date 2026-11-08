@@ -60,8 +60,10 @@ describe('правила о морских млекопитающих', () => {
   it('ответ get_guardian_context добавляет справку только при сильном совпадении и морском имени', () => {
     const src = read('lib/kuzmich/guardian-context.ts');
     expect(src).toMatch(
-      /gradePlaceMatch\(placeName, p\.name, p\.aliases\) === 'high' && isMarineMammalPlace\(p\.name\)[\s\S]{0,80}marineMammalNote\(\)/,
+      /grade === 'high' && isMarineMammalPlace\(p\.name\)[\s\S]{0,80}marineMammalNote\(\)/,
     );
+    // Точность совпадения считается один раз на место (08.11) — та же мера.
+    expect(src).toContain('const grade = gradePlaceMatch(placeName, p.name, p.aliases);');
   });
 
   it('страница безопасности берёт числа из модуля, а не пишет свои', () => {
