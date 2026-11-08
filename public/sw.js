@@ -1,5 +1,6 @@
 // Kamchatour Hub Service Worker -- cache-first для офлайн-доступа
-// Кэш: статика + карточки мест /places/[id] + туры + API /api/places/[id]
+// Кэш: статика + карточки мест /places/[id], туров /catalog/tours/[id] и
+// маршрутов /routes/[id] + API /api/places/[id]
 // + тайлы OpenStreetMap — ТОЛЬКО те, что реально просмотрены онлайн
 // (массовая предзакачка региона/зумов отключена 28.08 — политика OSM
 // запрещает bulk download, см. комментарий у TILE_HOST ниже).
@@ -14,6 +15,7 @@ const CACHE_NAME = 'kamchatour-v33';
 const MAX_PLACE_PAGES = 30; // последние 30 карточек мест — туристы просматривают маршрут заранее
 const MAX_TOUR_PAGES = 30;  // столько же карточек туров — иначе evictOldTourPages сравнивал с undefined и не чистил ничего
 const MAX_TRIP_PAGES = 10;  // планы поездок /trip/[token] — свой план + пара чужих по ссылкам
+const MAX_ROUTE_PAGES = 30; // карточки маршрутов — их смотрят дома и открывают на тропе
 const API_CACHE_NAME = 'kh-api-v1'; // отдельный кэш для API-ответов
 
 // ─── Tile cache constants ──────────────────────────────────────────────────
@@ -190,17 +192,41 @@ self.addEventListener('activate', (event) => {
   );
 });
 
-// Проверка: URL страницы тура (/tours/[uuid])
+// ─── Какие страницы сохраняются для поля ─────────────────────────────────────
+//
+// Жалоба владельца 08.11: «PWA не работает при плохой связи». Причина была не в
+// таймаутах, а в адресах. Шаблоны ниже писались, когда карточки жили по uuid
+// (`/places/<hex>`, `/tours/<hex>`), а сайт с тех пор перешёл на слаги:
+// `/places/kurilskoe-ozero`, `/catalog/tours/lagexp-…`. Перепись sitemap
+// 08.11: из 385 карточек мест шаблон узнавал 3, из 75 карточек туров — ни
+// одной, карточки маршрутов (373) своей ветки не имели вовсе. Неузнанная
+// страница уходила в общую ветку, а та сохраняет только главную. Итог:
+// открытая дома карточка в память телефона не попадала, и на слабой связи
+// показать было нечего — ждали сеть, которой нет.
+//
+// Поэтому шаблон — ФОРМА адреса (один сегмент после раздела), а не алфавит
+// идентификатора: слаг, номер и uuid узнаются одинаково. Вложенные адреса
+// (`/places/<id>/review`, `/catalog/tours/<id>/request`) — формы и
+// служебные экраны, их не сохраняем.
+
+/** Карточка тура: /catalog/tours/<id|слаг>; короткая /tours/<слаг> — редирект туда же. */
 function isTourPage(url) {
-  return /^\/tours\/[a-f0-9-]+$/i.test(new URL(url).pathname);
+  return /^\/(catalog\/)?tours\/[^/]+$/.test(new URL(url).pathname);
 }
 
+/** Карточка места: /places/<слаг|id>. */
 function isPlacePage(url) {
-  return /^\/places\/[a-f0-9-]+$/i.test(new URL(url).pathname);
+  return /^\/places\/[^/]+$/.test(new URL(url).pathname);
 }
 
+/** Карточка маршрута: /routes/<слаг|id> и её зона /routes/<слаг>/<зона>. */
+function isRoutePage(url) {
+  return /^\/routes\/[^/]+(\/[^/]+)?$/.test(new URL(url).pathname);
+}
+
+/** Данные карточки места, которые клиент дозапрашивает: /api/places/<слаг|id>. */
 function isPlaceApiRequest(url) {
-  return /^\/api\/places\/[a-f0-9-]+$/i.test(new URL(url).pathname);
+  return /^\/api\/places\/[^/]+$/.test(new URL(url).pathname);
 }
 
 // План поездки /trip/[token] и его данные (C-6): план смотрят дома по Wi-Fi,
@@ -279,6 +305,16 @@ async function evictOldTourPages(cache) {
   const tourKeys = keys.filter((req) => isTourPage(req.url));
   if (tourKeys.length > MAX_TOUR_PAGES) {
     const toDelete = tourKeys.slice(0, tourKeys.length - MAX_TOUR_PAGES);
+    await Promise.all(toDelete.map((key) => cache.delete(key)));
+  }
+}
+
+// LRU-эвикция: старые карточки маршрутов, оставляем MAX_ROUTE_PAGES
+async function evictOldRoutePages(cache) {
+  const keys = await cache.keys();
+  const routeKeys = keys.filter((req) => isRoutePage(req.url));
+  if (routeKeys.length > MAX_ROUTE_PAGES) {
+    const toDelete = routeKeys.slice(0, routeKeys.length - MAX_ROUTE_PAGES);
     await Promise.all(toDelete.map((key) => cache.delete(key)));
   }
 }
@@ -509,10 +545,35 @@ function cacheIfOk(request, response, afterCache) {
  * правила: whitelist кэширует всё, общая ветка — только главную и /tours).
  * Отказ без копии страницы отдаёт cachedOrOffline — всегда Response.
  */
+/**
+ * Адреса, чей RSC-переход только что сдался по таймауту, а копия документа
+ * есть (08.11). Роутер Next следом просит тот же адрес документом — и ждать
+ * сеть второй раз незачем: она висела секунду назад. Такой документ отдаётся
+ * из копии сразу, сеть идёт следом и обновляет копию. Память живёт, пока жив
+ * воркер; забыл — переход просто подождёт NAV_TIMEOUT_MS, как обычно.
+ */
+const STALLED_TTL_MS = 20000;
+const stalledPaths = new Map();
+
+function markStalled(pathname) {
+  stalledPaths.set(pathname, Date.now());
+}
+
+function recentlyStalled(pathname) {
+  const at = stalledPaths.get(pathname);
+  if (at === undefined) return false;
+  stalledPaths.delete(pathname);
+  return Date.now() - at < STALLED_TTL_MS;
+}
+
 function navigateWithTimeout(request, shouldCache, afterCache) {
   return new Promise((resolve) => {
     let settled = false;
     const done = (value) => { if (!settled) { settled = true; resolve(value); } };
+
+    if (recentlyStalled(new URL(request.url).pathname)) {
+      caches.match(request).then((cached) => { if (cached) done(cached); }).catch(() => {});
+    }
 
     fetch(request).then((response) => {
       if (shouldCache) cacheIfOk(request, response, afterCache);
@@ -524,6 +585,39 @@ function navigateWithTimeout(request, shouldCache, afterCache) {
     setTimeout(() => {
       if (settled) return;
       caches.match(request).then((cached) => { if (cached) done(cached); }).catch(() => {});
+    }, NAV_TIMEOUT_MS);
+  });
+}
+
+/**
+ * Данные карточки (API) — тот же контракт, что у документа: сеть первой,
+ * копия — при отказе сети и по таймауту, без копии сеть ждут дальше. До 08.11
+ * здесь был голый fetch: при висящей сети копия, ради которой ветка и
+ * заведена, не отдавалась никогда. Копия ищется во всех кэшах — GPX плана,
+ * сохранённого для поля, лежит в SAVED_TRIPS_CACHE_NAME (#2225).
+ */
+function apiWithTimeout(request, offlineError) {
+  return new Promise((resolve) => {
+    let settled = false;
+    const done = (value) => { if (!settled) { settled = true; resolve(value); } };
+    const copy = () => caches.match(request).catch(() => undefined);
+
+    fetch(request).then((response) => {
+      if (response && response.ok) {
+        const clone = response.clone();
+        caches.open(API_CACHE_NAME).then((cache) => cache.put(request, clone)).catch(() => {});
+      }
+      done(response);
+    }).catch(() => {
+      copy().then((cached) => done(cached || new Response(
+        JSON.stringify({ success: false, error: offlineError }),
+        { status: 503, headers: { 'Content-Type': 'application/json' } },
+      )));
+    });
+
+    setTimeout(() => {
+      if (settled) return;
+      copy().then((cached) => { if (cached) done(cached); });
     }, NAV_TIMEOUT_MS);
   });
 }
@@ -573,6 +667,12 @@ self.addEventListener('fetch', (event) => {
   // роутер ждёт ответ молча, старый экран остаётся на месте. Отдав 503, мы
   // заставляем роутер деградировать в обычный переход документом, а документ
   // ниже уже умеет отдаться из кэша.
+  //
+  // Срок отказа зависит от того, есть ли у страницы копия документа (08.11).
+  // Есть — сдаёмся за NAV_TIMEOUT_MS: переход документом тут же отдаст копию,
+  // и турист на слабой связи видит сохранённую карточку через секунды, а не
+  // после восьми секунд немого экрана. Копии нет — ждём сеть дольше: переход
+  // документом всё равно упрётся в ту же сеть.
   if (url.searchParams.has('_rsc') || request.headers.get('RSC') === '1') {
     event.respondWith(
       new Promise((resolve) => {
@@ -580,7 +680,15 @@ self.addEventListener('fetch', (event) => {
         const offline = () => new Response('', { status: 503, statusText: 'Offline' });
         const done = (value) => { if (!settled) { settled = true; resolve(value); } };
         fetch(request).then(done).catch(() => done(offline()));
-        setTimeout(() => done(offline()), RSC_TIMEOUT_MS);
+        const doc = new URL(url.href);
+        doc.searchParams.delete('_rsc');
+        caches.match(doc.href).then((copy) => Boolean(copy), () => false).then((hasCopy) => {
+          setTimeout(() => {
+            if (settled) return;
+            if (hasCopy) markStalled(url.pathname);
+            done(offline());
+          }, hasCopy ? NAV_TIMEOUT_MS : RSC_TIMEOUT_MS);
+        });
       })
     );
     return;
@@ -588,51 +696,14 @@ self.addEventListener('fetch', (event) => {
 
   // /api/places/[id] — кэшируем отдельно: это критичные данные для офлайна
   if (isPlaceApiRequest(url.href)) {
-    event.respondWith(
-      caches.open(API_CACHE_NAME).then(async (cache) => {
-        const cached = await cache.match(request);
-        try {
-          const response = await fetch(request);
-          if (response.ok) {
-            cache.put(request, response.clone());
-          }
-          return response;
-        } catch {
-          // Нет сети — отдаём кэш: турист уже открывал эту карточку
-          if (cached) return cached;
-          return new Response(JSON.stringify({ success: false, error: 'Нет подключения. Откройте карточку онлайн заранее.' }), {
-            status: 503,
-            headers: { 'Content-Type': 'application/json' },
-          });
-        }
-      })
-    );
+    event.respondWith(apiWithTimeout(request, 'Нет подключения. Откройте карточку онлайн заранее.'));
     return;
   }
 
   // /api/trips/share/[token] (+ /gpx) — данные и GPX плана поездки (C-6):
   // network-first, офлайн — из кэша. Тот же контракт, что у /api/places.
   if (isTripApiRequest(url.href)) {
-    event.respondWith(
-      caches.open(API_CACHE_NAME).then(async (cache) => {
-        // Глобальный match: GPX плана, сохранённого для поля, лежит в своём
-        // кэше (SAVED_TRIPS_CACHE_NAME), а не в API-кэше (#2225).
-        const cached = await caches.match(request);
-        try {
-          const response = await fetch(request);
-          if (response.ok) {
-            cache.put(request, response.clone());
-          }
-          return response;
-        } catch {
-          if (cached) return cached;
-          return new Response(JSON.stringify({ success: false, error: 'Нет подключения. Откройте план онлайн заранее.' }), {
-            status: 503,
-            headers: { 'Content-Type': 'application/json' },
-          });
-        }
-      })
-    );
+    event.respondWith(apiWithTimeout(request, 'Нет подключения. Откройте план онлайн заранее.'));
     return;
   }
 
@@ -665,23 +736,12 @@ self.addEventListener('fetch', (event) => {
     return;
   }
 
-  // Карточки мест /places/[id]: network-first + кэш офлайн + LRU 30 страниц
-  // Критично для Камчатки: турист смотрит карточки дома, идёт без связи
+  // Карточки мест /places/[id]: network-first + кэш офлайн + LRU 30 страниц.
+  // Критично для Камчатки: турист смотрит карточки дома, идёт без связи. С
+  // таймаутом (08.11): на слабой связи копия отдаётся через NAV_TIMEOUT_MS,
+  // а не после того, как сеть сдастся сама — она не сдаётся, она висит.
   if (isPlacePage(request.url)) {
-    event.respondWith(
-      fetch(request)
-        .then((response) => {
-          if (response.ok) {
-            const clone = response.clone();
-            caches.open(CACHE_NAME).then(async (cache) => {
-              await cache.put(request, clone);
-              await evictOldPlacePages(cache);
-            });
-          }
-          return response;
-        })
-        .catch(() => cachedOrOffline(request))
-    );
+    event.respondWith(navigateWithTimeout(request, true, evictOldPlacePages));
     return;
   }
 
@@ -693,22 +753,17 @@ self.addEventListener('fetch', (event) => {
   // Next их удалял → 404 → белый экран и павшая гидратация. Именно это читалось
   // как «PWA плохо работает» и «иконки пропали, нужен хард-рефреш» (07.08).
   // Network-first отдаёт свежее сразу, а офлайн по-прежнему берётся из кэша —
-  // тот же контракт, что у карточек мест.
+  // тот же контракт, что у карточек мест, и тот же таймаут (08.11).
   if (isTourPage(request.url)) {
-    event.respondWith(
-      fetch(request)
-        .then((response) => {
-          if (response.ok) {
-            const clone = response.clone();
-            caches.open(CACHE_NAME).then(async (cache) => {
-              await cache.put(request, clone);
-              await evictOldTourPages(cache);
-            });
-          }
-          return response;
-        })
-        .catch(() => cachedOrOffline(request))
-    );
+    event.respondWith(navigateWithTimeout(request, true, evictOldTourPages));
+    return;
+  }
+
+  // Карточки маршрутов /routes/[id] (08.11): своей ветки не было, и они шли в
+  // общую, которая сохраняет только главную. Маршрут — то, по чему идут без
+  // связи (§ offline-first: карта, SOS, маршруты), — в память не попадал.
+  if (isRoutePage(request.url)) {
+    event.respondWith(navigateWithTimeout(request, true, evictOldRoutePages));
     return;
   }
 
