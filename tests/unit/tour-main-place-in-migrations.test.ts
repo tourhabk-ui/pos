@@ -36,7 +36,11 @@ const BASELINE = join(ROOT, 'lib', 'database', 'baseline', 'schema-baseline.sql'
 const FROM_NUMBER = 1344;
 
 /** Файл → причина, почему туры в нём не называют главное место. Только сокращается. */
-const KNOWN_UNLINKED: Record<string, string> = {};
+const KNOWN_UNLINKED: Record<string, string> = {
+  '1413_laguna_expedition_new_tours.sql':
+    'шесть многодневных туров «Лагуны Экспедиции» (4–8 дней: город, Халактырский пляж, перевалы, источники) — '
+    + 'одного главного места нет; так же 1344 оставила без связи их осенний и новогодние маршруты',
+};
 
 /** SQL без строчных комментариев: слово в шапке не INSERT. */
 function code(sql: string): string {
