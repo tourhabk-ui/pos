@@ -42,9 +42,20 @@ export function isVolatileLine(line: string): boolean {
   return VOLATILE_LINE.test(line);
 }
 
-/** Текст без строк-капч — для сравнения со снимком, записанным до 23.10. */
-export function withoutVolatileLines(text: string): string {
-  return text.split('\n').filter((l) => !isVolatileLine(l)).join('\n');
+/**
+ * Счётчик мест у выезда: «Осталось 8 мест». Меняется с каждой бронью у
+ * партнёра, а на наших карточках его нет — сверять не с чем. Отчёт 08.11
+ * звал изменением «Осталось 4 места» → «Осталось 3 места». В снимке строка
+ * остаётся, из сравнения выбрасывается.
+ */
+const SEAT_COUNTER_LINE = /^осталось\s+\d+\s+мест[ао]?\.?$/i;
+
+/**
+ * Текст для сравнения: без строк-капч (снимок до 23.10 мог быть записан с
+ * ними) и без счётчиков мест.
+ */
+function comparable(text: string): string {
+  return text.split('\n').filter((l) => !isVolatileLine(l) && !SEAT_COUNTER_LINE.test(l)).join('\n');
 }
 
 /**
@@ -101,14 +112,17 @@ export function diffLines(prev: string, next: string): TextDiff {
 }
 
 /**
- * Разница, которую стоит показать человеку: строки-капчи выброшены из обоих
- * текстов (прошлый снимок мог быть записан с ними), и если после этого не
- * пропало и не появилось ни одной строки — изменения нет, null. Так молчат и
- * смена одной капчи, и перестановка или повтор тех же строк: хэш у таких
- * текстов разный, а сказано на странице то же.
+ * Разница, которую стоит показать человеку. Капчи и счётчики мест выброшены
+ * из обоих текстов; сдвиг скользящей даты и прошедший выезд (если передан
+ * `today` — сегодня по Камчатке, YYYY-MM-DD) изменением не считаются. Если
+ * после этого не пропало и не появилось ни одной строки — изменения нет,
+ * null. Так молчат смена капчи, перестановка или повтор тех же строк и
+ * просто наступивший день: хэш у таких текстов разный, а партнёр ничего не
+ * менял.
  */
-export function meaningfulDiff(prevText: string, nextText: string): TextDiff | null {
-  const d = withoutRollingShifts(diffLines(withoutVolatileLines(prevText), withoutVolatileLines(nextText)));
+export function meaningfulDiff(prevText: string, nextText: string, today?: string): TextDiff | null {
+  let d = withoutRollingShifts(diffLines(comparable(prevText), comparable(nextText)));
+  if (today) d = withoutPassedDepartures(d, today);
   return d.removed.length === 0 && d.added.length === 0 ? null : d;
 }
 
@@ -174,6 +188,87 @@ export function withoutRollingShifts(d: TextDiff): TextDiff {
     if (i >= 0) added.splice(i, 1); else removed.push(r);
   }
   return { removed, added };
+}
+
+/*
+ * Прошедший выезд. Отчёт 08.11 о «Лагуне» почти целиком состоял из строк
+ * «было: 08 ноября 2026,» и «было: 08 ноября 2026» — начало и конец
+ * однодневного выезда в день самого выезда. Партнёр ничего не снимал: день
+ * наступил, и сайт убрал выезд из календаря сам.
+ *
+ * Пропавшая строка гасится, только если в ней нет ничего, кроме дат С ГОДОМ
+ * (и дня недели, знаков препинания), и все эти даты не позже сегодняшней по
+ * Камчатке. Дата без года прошедшей не считается: «4 ноября» может значить и
+ * следующий год. Пропавшая БУДУЩАЯ дата — по-прежнему изменение: это снятый
+ * выезд.
+ *
+ * Вместе с выездом с календаря уходят строки его дня недели, времени
+ * («в 10:00») и месяца («Ноябрь 2026»), если другой такой на странице не
+ * осталось. Они гасятся только рядом с погашенной датой и только когда строк
+ * того же рода не появилось: «в 09:00» → «в 10:00» — смена времени, её видно.
+ * Заголовок месяца позже текущего не гасится: будущий месяц сам не уходит.
+ */
+const WEEKDAY_RE = /(?<![а-яё])(?:понедельник|вторник|среда|четверг|пятница|суббота|воскресенье|пн|вт|ср|чт|пт|сб|вс)(?![а-яё])/gi;
+const PUNCT_ONLY = /^[\s,.;:!?()«»"'—–-]*$/;
+const TIME_ONLY = /^(?:в\s+)?\d{1,2}:\d{2}(?:\s*[—–-]\s*\d{1,2}:\d{2})?$/i;
+const MONTH_HEADER = /^(январь|февраль|март|апрель|май|июнь|июль|август|сентябрь|октябрь|ноябрь|декабрь)\s+(20\d\d)$/i;
+const MONTH_NAMES = ['январь', 'февраль', 'март', 'апрель', 'май', 'июнь', 'июль', 'август', 'сентябрь', 'октябрь', 'ноябрь', 'декабрь'];
+
+function isoDay(year: number, month: number, day: number): string | null {
+  if (month < 1 || month > 12 || day < 1 || day > 31) return null;
+  return `${year}-${String(month).padStart(2, '0')}-${String(day).padStart(2, '0')}`;
+}
+
+/** Даты строки (YYYY-MM-DD у даты с годом, null — без года) и что осталось вокруг них. */
+function datesOf(line: string): { days: (string | null)[]; rest: string } {
+  const days: (string | null)[] = [];
+  const rest = line.replace(DATE_RE, (_m, d1, m1, y1, d2, mon, y2) => {
+    if (d1) {
+      days.push(y1 ? isoDay(Number(y1.length === 2 ? `20${y1}` : y1), Number(m1), Number(d1)) : null);
+    } else {
+      const lower = String(mon).toLowerCase();
+      days.push(y2 ? isoDay(Number(y2), MONTHS.findIndex((m) => lower.startsWith(m)) + 1, Number(d2)) : null);
+    }
+    return ' ';
+  });
+  return { days, rest };
+}
+
+function isPassedDateLine(line: string, today: string): boolean {
+  const { days, rest } = datesOf(line);
+  if (days.length === 0 || !PUNCT_ONLY.test(rest.replace(WEEKDAY_RE, ''))) return false;
+  return days.every((day) => day !== null && day <= today);
+}
+
+type CalendarCompanion = 'weekday' | 'time' | 'month';
+
+function companionKind(line: string): CalendarCompanion | null {
+  if (TIME_ONLY.test(line)) return 'time';
+  if (MONTH_HEADER.test(line)) return 'month';
+  const bare = line.replace(WEEKDAY_RE, '');
+  return bare !== line && PUNCT_ONLY.test(bare) ? 'weekday' : null;
+}
+
+function monthNotAfter(line: string, today: string): boolean {
+  const m = MONTH_HEADER.exec(line);
+  if (!m) return false;
+  const month = MONTH_NAMES.indexOf(m[1].toLowerCase()) + 1;
+  return `${m[2]}-${String(month).padStart(2, '0')}` <= today.slice(0, 7);
+}
+
+/** Убирает из разницы прошедшие выезды и строки, ушедшие вместе с ними. */
+export function withoutPassedDepartures(d: TextDiff, today: string): TextDiff {
+  const removed = d.removed.filter((l) => !isPassedDateLine(l, today));
+  if (removed.length === d.removed.length) return d;
+  const addedKinds = new Set(d.added.map(companionKind).filter((k): k is CalendarCompanion => k !== null));
+  return {
+    removed: removed.filter((l) => {
+      const kind = companionKind(l);
+      if (kind === null || addedKinds.has(kind)) return true;
+      return kind === 'month' && !monthNotAfter(l, today);
+    }),
+    added: d.added,
+  };
 }
 
 /**
@@ -295,14 +390,21 @@ function what(page: WatchedPage): string {
   return `туры ${page.tours.map((t) => `«${t}»`).join(', ')}`;
 }
 
+/** Больше сообщений за прогон не шлём: остаток назван числом. */
+const MAX_MESSAGES = 5;
+
 /**
- * Сообщение владельцу. null — сообщать нечего: точки отсчёта, «без перемен»
+ * Сообщения владельцу. Пусто — сообщать нечего: точки отсчёта, «без перемен»
  * и молчащие исходы в Telegram не идут. Текст — HTML для parse_mode, всё
  * чужое экранировано: строки с сайта партнёра — не наша разметка.
+ *
+ * Не влезло в одно сообщение — идёт следующим, до MAX_MESSAGES. Отчёт 08.11
+ * кончался строкой «ещё изменений: 14 — полностью в partner_page_snapshots»:
+ * таблицу базы владелец не читает, и 14 изменений он не увидел вовсе.
  */
-export function ownerMessage(reports: PageReport[]): string | null {
+export function ownerMessages(reports: PageReport[]): string[] {
   const loud = reports.filter((r) => r.event === 'changed' || r.event === 'gone' || r.event === 'back' || r.event === 'failing');
-  if (loud.length === 0) return null;
+  if (loud.length === 0) return [];
   const blocks: string[] = [];
   for (const r of loud) {
     const head = `<b>${escapeHtml(r.page.partnerName)}</b>${r.page.managedByUs ? ' (сайт ведём мы)' : ''} — ${escapeHtml(what(r.page))}`;
@@ -333,15 +435,26 @@ export function ownerMessage(reports: PageReport[]): string | null {
       ? 'Сайт с пометкой «ведём мы» правим мы сами: если правка не наша — проверьте, у кого есть доступ. Правда там — наши карточки, сайт сверяется с ними.'
       : null,
   ].filter(Boolean).join('\n');
+  const messages: string[] = [];
   let body = title;
+  let inBody = 0;
   let shown = 0;
   for (const b of blocks) {
-    if (body.length + b.length + tail.length + 80 > MESSAGE_CAP) break;
+    if (inBody > 0 && body.length + b.length + tail.length + 160 > MESSAGE_CAP) {
+      if (messages.length + 1 >= MAX_MESSAGES) break;
+      messages.push(body);
+      body = '<b>Сайты партнёров — продолжение</b>';
+      inBody = 0;
+    }
     body += `\n\n${b}`;
+    inBody++;
     shown++;
   }
-  if (shown < blocks.length) body += `\n\nещё изменений: ${blocks.length - shown} — полностью в partner_page_snapshots`;
-  return `${body}\n\n${tail}`;
+  if (shown < blocks.length) {
+    body += `\n\nещё изменений: ${blocks.length - shown} — не вошли в ${MAX_MESSAGES} сообщений; они записаны в журнале наблюдения на сервере`;
+  }
+  messages.push(`${body}\n\n${tail}`);
+  return messages;
 }
 
 function cut(line: string): string {
