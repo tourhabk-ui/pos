@@ -25,6 +25,15 @@
  * владелец сайта должен узнать нас в логах. Запросов за прогон — около
  * двадцати, по одному за раз.
  *
+ * ── Ролики (`?part=media`, 08.11) ───────────────────────────────────────────
+ *
+ * Клипы к турам «Края Вулканов», как у «Местечка» (1404) и «Лагуны» (1405):
+ * где на страницах туров лежат ролики — файлы, встроенные плееры, ссылки на
+ * видеоплощадки и Telegram. С раннера GitHub сайт не отвечает (проба 1020,
+ * 08.11: «000» на всех 11 страницах), с прода — да. Параметр выбирает только
+ * набор страниц того же хоста: главная, листинг и карточки туров из него
+ * (не больше MEDIA_TOUR_LIMIT); адреса по-прежнему не из запроса.
+ *
  * ── Своя сторона ───────────────────────────────────────────────────────────
  *
  * Отдельным блоком `used_by_vedar` — сколько наших мест, маршрутов и снимков
@@ -37,7 +46,7 @@ import { getCronSecret } from '@/lib/auth/cron';
 import { timingSafeCompare } from '@/lib/security/timing-safe';
 import { pool } from '@/lib/db-pool';
 import { USER_AGENT } from '@/lib/security/site-audit';
-import { snapshotPage, tourLinks, type PageSnapshot } from '@/lib/seo/page-snapshot';
+import { snapshotPage, tourLinks, mediaRefs, type PageSnapshot, type MediaRefs } from '@/lib/seo/page-snapshot';
 
 export const dynamic = 'force-dynamic';
 export const maxDuration = 120;
@@ -71,6 +80,8 @@ const VARIANTS: ReadonlyArray<string> = [
 ];
 
 const TOUR_LIMIT = 4;
+/** Карточек туров в режиме роликов: у компании 11 туров на сайте (1176), запас на новые. */
+const MEDIA_TOUR_LIMIT = 16;
 const TOUR_PATH = /^\/tours\/[a-z0-9-]+\/$/i;
 const TIMEOUT_MS = 8_000;
 const MAX_HOPS = 5;
@@ -152,12 +163,47 @@ async function get(url: string, deadlineAt: number): Promise<Fetched> {
 
 interface PageReport extends Omit<Fetched, 'body'> {
   snapshot: PageSnapshot | null;
+  /** Ролики страницы; null — страница не снята или не HTML (не «роликов нет»). */
+  media: MediaRefs | null;
 }
 
 function report(f: Fetched): PageReport {
   const { body, ...rest } = f;
   const isHtml = (f.content_type ?? '').includes('html');
-  return { ...rest, snapshot: body && isHtml && f.final_url ? snapshotPage(body, f.final_url) : null };
+  const html = body && isHtml && f.final_url ? body : null;
+  return { ...rest, snapshot: html ? snapshotPage(html, f.final_url!) : null, media: html ? mediaRefs(html, f.final_url!) : null };
+}
+
+/** Режим роликов: главная, листинг и все карточки туров из листинга — только адреса роликов. */
+async function mediaSurvey(deadlineAt: number) {
+  const pages: Array<{ url: string; status: number | null; error: string | null; title: string | null; media: MediaRefs | null }> = [];
+  let listingHtml: string | null = null;
+  for (const path of ['/', '/tours/']) {
+    const f = await get(`${BASE}${path}`, deadlineAt);
+    if (path === '/tours/' && f.body) listingHtml = f.body;
+    const r = report(f);
+    pages.push({ url: r.url, status: r.status, error: r.error, title: r.snapshot?.title ?? null, media: r.media });
+  }
+  const tours = listingHtml ? tourLinks(listingHtml, `${BASE}/tours/`, TOUR_PATH, MEDIA_TOUR_LIMIT) : [];
+  for (const url of tours) {
+    const r = report(await get(url, deadlineAt));
+    pages.push({ url: r.url, status: r.status, error: r.error, title: r.snapshot?.title ?? null, media: r.media });
+  }
+  const reached = pages.filter((p) => p.status !== null).length;
+  const withMedia = pages.filter((p) => p.media && (p.media.files.length + p.media.iframes.length + p.media.platforms.length) > 0).length;
+  return NextResponse.json({
+    ok: reached > 0,
+    probe: 'partner_site_media_v1',
+    measured_at: new Date().toISOString(),
+    vantage: 'prod',
+    host: HOST,
+    // Ноль снятых страниц — отказ, а не «роликов нет» (§4.0).
+    reached_pages: reached,
+    asked_pages: pages.length,
+    tour_pages_found: tours.length,
+    pages_with_media: withMedia,
+    pages,
+  }, { status: reached > 0 ? 200 : 502 });
 }
 
 interface UsageRow { what: string; total: number; visible: number }
@@ -170,6 +216,7 @@ export async function GET(request: NextRequest) {
   }
 
   const deadlineAt = Date.now() + DEADLINE_MS;
+  if (request.nextUrl.searchParams.get('part') === 'media') return mediaSurvey(deadlineAt);
 
   // Страницы по одной: сайт чужой, нагружать его параллельными запросами незачем.
   const pages: PageReport[] = [];
