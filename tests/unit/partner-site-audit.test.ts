@@ -2,10 +2,13 @@
  * SEO-перепись сайта партнёра: разбор страницы честный, роут не превращается в
  * открытый прокси и ничего не пишет. Шапка — app/api/cron/partner-site-audit/route.ts.
  */
-import { describe, it, expect } from 'vitest';
+import { describe, it, expect, vi, afterEach } from 'vitest';
 import { readFileSync } from 'node:fs';
 import { join } from 'node:path';
-import { snapshotPage, tourLinks } from '@/lib/seo/page-snapshot';
+import { NextRequest } from 'next/server';
+import { snapshotPage, tourLinks, mediaRefs } from '@/lib/seo/page-snapshot';
+
+vi.mock('@/lib/db-pool', () => ({ pool: { query: vi.fn(async () => ({ rows: [] })) } }));
 import { MANUAL_ENDPOINTS } from '@/lib/agents/cron-schedulers';
 
 const SRC = readFileSync(join(process.cwd(), 'app/api/cron/partner-site-audit/route.ts'), 'utf-8');
@@ -94,8 +97,10 @@ describe('tourLinks', () => {
 });
 
 describe('роут partner-site-audit', () => {
-  it('без параметров: адрес из запроса не читается (иначе SSRF)', () => {
-    expect(SRC).not.toMatch(/searchParams|nextUrl|request\.url/);
+  it('из запроса читается только режим part, адреса — никогда (иначе SSRF)', () => {
+    expect(SRC).not.toMatch(/request\.url/);
+    const reads = [...SRC.matchAll(/searchParams\.get\(([^)]*)\)/g)].map((m) => m[1]);
+    expect(reads).toEqual(["'part'"]);
   });
 
   it('чужой хост в редиректе не проходится', () => {
@@ -119,5 +124,85 @@ describe('роут partner-site-audit', () => {
 
   it('объявлен ручным и ничего не пишущим', () => {
     expect(MANUAL_ENDPOINTS['partner-site-audit']).toMatchObject({ kind: 'manual', writes: false });
+  });
+});
+
+describe('mediaRefs — ролики на странице (08.11, клипы «Края Вулканов»)', () => {
+  const URL0 = 'https://volcanoesland.ru/tours/gorelyy/';
+
+  it('файлы из <video>/<source> и ссылок, плееры из <iframe>, площадки и Telegram — по отдельности', () => {
+    const m = mediaRefs(`
+      <video src="/upload/v/gorelyy.mp4" poster="/p.jpg"></video>
+      <video><source src="https://cdn.volcanoesland.ru/v/a.webm?x=1" type="video/webm"></video>
+      <a href="/files/tour.mov">ролик</a>
+      <iframe src="https://rutube.ru/play/embed/abc123"></iframe>
+      <a href="https://www.youtube.com/watch?v=xyz">YouTube</a>
+      <a href="https://t.me/volcanoesland_chan/15">пост</a>
+      <img src="/a.jpg"><a href="/tours/b/">тур</a>
+      <script>var g={"src":"https:\\/\\/volcanoesland.ru\\/upload\\/clip.mp4"};</script>`, URL0);
+    expect(m.files).toEqual([
+      'https://volcanoesland.ru/upload/v/gorelyy.mp4',
+      'https://cdn.volcanoesland.ru/v/a.webm?x=1',
+      'https://volcanoesland.ru/files/tour.mov',
+      // Ролик из JSON галереи в скрипте (экранированные слэши) — тоже найден.
+      'https://volcanoesland.ru/upload/clip.mp4',
+    ]);
+    expect(m.iframes).toEqual(['https://rutube.ru/play/embed/abc123']);
+    expect(m.platforms).toEqual(expect.arrayContaining(['https://rutube.ru/play/embed/abc123', 'https://www.youtube.com/watch?v=xyz', 'https://t.me/volcanoesland_chan/15']));
+    expect([...m.files, ...m.platforms].some((u) => /\.jpg|\/tours\/b\//.test(u))).toBe(false);
+  });
+
+  it('страница без роликов — пустые списки, а не выдумка', () => {
+    expect(mediaRefs('<html><body><img src="/a.jpg"><a href="/tours/b/">x</a></body></html>', URL0))
+      .toEqual({ files: [], iframes: [], platforms: [] });
+  });
+});
+
+describe('роут partner-site-audit, режим part=media — вызовом', () => {
+  const realFetch = globalThis.fetch;
+  afterEach(() => { globalThis.fetch = realFetch; delete process.env.CRON_SECRET; });
+
+  it('главная, листинг и карточки туров того же хоста; чужой адрес из запроса не трогается', async () => {
+    process.env.CRON_SECRET = 'cron-secret-for-test-0001';
+    const asked: string[] = [];
+    const pagesByPath: Record<string, string> = {
+      '/': '<html><title>Край Вулканов</title><video src="/upload/main.mp4"></video></html>',
+      '/tours/': '<html><a href="/tours/gorelyy/">1</a><a href="/tours/tolbachik/">2</a><a href="https://evil.example/tours/x/">3</a></html>',
+      '/tours/gorelyy/': '<html><title>Горелый</title><iframe src="https://rutube.ru/play/embed/g1"></iframe></html>',
+      '/tours/tolbachik/': '<html><title>Толбачик</title><p>без роликов</p></html>',
+    };
+    globalThis.fetch = vi.fn(async (input: string | URL | Request) => {
+      const u = new URL(String(input));
+      asked.push(u.toString());
+      const body = pagesByPath[u.pathname];
+      return new Response(body ?? 'нет', { status: body ? 200 : 404, headers: { 'content-type': 'text/html; charset=utf-8' } });
+    }) as unknown as typeof fetch;
+    const { GET } = await import('@/app/api/cron/partner-site-audit/route');
+    const res = await GET(new NextRequest('https://vedarai.ru/api/cron/partner-site-audit?part=media&url=https://evil.example/', {
+      headers: { authorization: 'Bearer cron-secret-for-test-0001' },
+    }));
+    expect(res.status).toBe(200);
+    const j = await res.json() as { probe: string; tour_pages_found: number; pages_with_media: number; pages: Array<{ url: string; title: string | null; media: { files: string[]; iframes: string[] } | null }> };
+    expect(j.probe).toBe('partner_site_media_v1');
+    expect(j.tour_pages_found).toBe(2);
+    expect(j.pages.map((p) => p.url)).toEqual([
+      'https://volcanoesland.ru/', 'https://volcanoesland.ru/tours/',
+      'https://volcanoesland.ru/tours/gorelyy/', 'https://volcanoesland.ru/tours/tolbachik/',
+    ]);
+    expect(j.pages[0]!.media?.files).toEqual(['https://volcanoesland.ru/upload/main.mp4']);
+    expect(j.pages[2]!.media?.iframes).toEqual(['https://rutube.ru/play/embed/g1']);
+    expect(j.pages_with_media).toBe(2);
+    expect(asked.every((u) => new URL(u).hostname === 'volcanoesland.ru')).toBe(true);
+  });
+
+  it('сайт не ответил ни одной страницей — 502 и ok: false, а не «роликов нет»', async () => {
+    process.env.CRON_SECRET = 'cron-secret-for-test-0001';
+    globalThis.fetch = vi.fn(async () => { throw new TypeError('fetch failed'); }) as unknown as typeof fetch;
+    const { GET } = await import('@/app/api/cron/partner-site-audit/route');
+    const res = await GET(new NextRequest('https://vedarai.ru/api/cron/partner-site-audit?part=media', {
+      headers: { authorization: 'Bearer cron-secret-for-test-0001' },
+    }));
+    expect(res.status).toBe(502);
+    expect(await res.json()).toMatchObject({ ok: false, reached_pages: 0 });
   });
 });

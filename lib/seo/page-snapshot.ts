@@ -198,3 +198,55 @@ export function tourLinks(html: string, listingUrl: string, pattern: RegExp, lim
   }
   return [...out];
 }
+
+/**
+ * Ролики на странице (08.11, клипы к турам «Края Вулканов», как у «Местечка»
+ * и «Лагуны»): прямые файлы (`<video>`, `<source>`, ссылки на .mp4/.webm/
+ * .m3u8/.mov), встроенные плееры (`<iframe>`) и ссылки на видеоплощадки и
+ * Telegram. Только адреса — что из них ролик тура, решает человек глазами.
+ */
+export interface MediaRefs {
+  files: string[];
+  iframes: string[];
+  platforms: string[];
+}
+
+const MEDIA_FILE = /\.(mp4|webm|m3u8|mov)(\?[^"'\s<>]*)?$/i;
+const MEDIA_PLATFORM = /(youtube\.com|youtu\.be|rutube\.ru|vk\.com\/(video|clip)|vkvideo\.ru|kinescope\.io|vimeo\.com|t\.me\/)/i;
+const MEDIA_MAX = 40;
+
+export function mediaRefs(html: string, pageUrl: string): MediaRefs {
+  const base = new URL(pageUrl);
+  const files = new Set<string>();
+  const iframes = new Set<string>();
+  const platforms = new Set<string>();
+  const abs = (raw: string): string | null => {
+    try {
+      const u = new URL(raw.trim(), base);
+      return u.protocol === 'http:' || u.protocol === 'https:' ? u.toString().slice(0, 300) : null;
+    } catch {
+      return null;
+    }
+  };
+  for (const tag of html.match(/<(video|source)\b[^>]*>/gi) ?? []) {
+    for (const name of ['src', 'data-src']) {
+      const v = attr(tag, name);
+      const u = v ? abs(v) : null;
+      if (u) files.add(u);
+    }
+  }
+  for (const tag of html.match(/<iframe\b[^>]*>/gi) ?? []) {
+    const v = attr(tag, 'src') ?? attr(tag, 'data-src');
+    const u = v ? abs(v) : null;
+    if (u) iframes.add(u);
+  }
+  // Адреса в атрибутах и в тексте скриптов: галереи кладут ролик в data-* или JSON.
+  for (const m of html.matchAll(/(?:https?:)?\/\/[^"'\s<>()]+|\/[^"'\s<>()]+\.(?:mp4|webm|m3u8|mov)\b[^"'\s<>()]*/gi)) {
+    const u = abs(m[0].replace(/\\\//g, '/'));
+    if (!u) continue;
+    if (MEDIA_FILE.test(new URL(u).pathname + new URL(u).search)) files.add(u);
+    else if (MEDIA_PLATFORM.test(u)) platforms.add(u);
+  }
+  const cap = (set: Set<string>) => [...set].slice(0, MEDIA_MAX);
+  return { files: cap(files), iframes: cap(iframes), platforms: cap(platforms) };
+}
