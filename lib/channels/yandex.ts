@@ -123,7 +123,9 @@ function buildDescription(tour: ChannelTour): string {
   // Группа — общим правилом с карточкой (lib/tours/group-size, 1342).
   const group = groupSentence(tour);
   if (group) parts.push(group);
-  if (tour.season_start || tour.season_end) {
+  // Обе границы, а не одна (08.11): при одной formatSeason писала
+  // «круглый год» — то, чего в данных нет.
+  if (tour.season_start && tour.season_end) {
     parts.push(`Сезон: ${formatSeason(tour.season_start, tour.season_end)}.`);
   }
   if (Array.isArray(tour.included) && tour.included.length > 0) {
@@ -172,7 +174,7 @@ export function generateYandexYmlFeed(tours: ChannelTour[]): string {
     if (tour.difficulty) {
       params.push(`      <param name="Сложность">${escapeXml(DIFFICULTY_LABELS[tour.difficulty] ?? tour.difficulty)}</param>`);
     }
-    if (tour.season_start || tour.season_end) {
+    if (tour.season_start && tour.season_end) {
       params.push(`      <param name="Сезон">${escapeXml(formatSeason(tour.season_start, tour.season_end))}</param>`);
     }
     if (tour.location_name) {

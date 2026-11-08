@@ -71,12 +71,14 @@ describe('buildTourStructuredData', () => {
     expect(String(product.description)).not.toMatch(/<[^>]+>/);
   });
 
-  it('сезон → availabilityStarts/Ends в offer', () => {
-    const g = buildTourStructuredData({ ...base, season_start: 6, season_end: 9 }, [], opts);
+  it('сезон → availabilityStarts/Ends в offer — датами из базы (08.11)', () => {
+    const g = buildTourStructuredData(
+      { ...base, season_start: '2027-06-01', season_end: '2027-09-15' }, [], { ...opts, today: '2026-11-08' },
+    );
     const product = nodes(g).find(n => n['@type'] === 'Product')!;
     const offer = product.offers as Record<string, string>;
-    expect(offer.availabilityStarts).toMatch(/-06-01$/);
-    expect(offer.availabilityEnds).toMatch(/-09-28$/);
+    expect(offer.availabilityStarts).toBe('2027-06-01');
+    expect(offer.availabilityEnds).toBe('2027-09-15');
   });
 });
 
@@ -95,22 +97,22 @@ describe('сезон из базы не роняет страницу', () => {
     const g = buildTourStructuredData(
       { ...base, season_start: start as never, season_end: end as never },
       [],
-      opts,
+      { ...opts, today: '2026-11-08' },
     );
     const product = nodes(g).find(n => n['@type'] === 'Product')!;
     return product.offers as Record<string, string>;
   };
 
-  it('Date из pg разбирается, а не бросает исключение', () => {
-    const offer = seasonOffer(new Date('2026-06-01T00:00:00Z'), new Date('2026-09-30T00:00:00Z'));
-    expect(offer.availabilityStarts).toMatch(/-06-01$/);
-    expect(offer.availabilityEnds).toMatch(/-09-28$/);
+  it('Date из pg (локальная полночь) разбирается, а не бросает исключение', () => {
+    const offer = seasonOffer(new Date(2027, 5, 1), new Date(2027, 8, 30));
+    expect(offer.availabilityStarts).toBe('2027-06-01');
+    expect(offer.availabilityEnds).toBe('2027-09-30');
   });
 
-  it('строка-дата даёт месяц, а не мусор вида 2026-2026-06-01-01', () => {
-    const offer = seasonOffer('2026-06-01', '2026-09-30');
-    expect(offer.availabilityStarts).toMatch(/^\d{4}-06-01$/);
-    expect(offer.availabilityEnds).toMatch(/^\d{4}-09-28$/);
+  it('строка-дата уходит датой, а не мусором вида 2026-2026-06-01-01 и не днями 1 и 28', () => {
+    const offer = seasonOffer('2027-06-01', '2027-09-30');
+    expect(offer.availabilityStarts).toBe('2027-06-01');
+    expect(offer.availabilityEnds).toBe('2027-09-30');
   });
 
   it('мусор и битая дата просто убирают блок сезона, не роняя разметку', () => {
