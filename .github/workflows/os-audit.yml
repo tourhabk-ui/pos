@@ -69,6 +69,9 @@ jobs:
         env:
           OPENROUTER_API_KEY: ${{ secrets.OPENROUTER_API_KEY }}
           AUDIT_FINDINGS_IN: audit-findings.json
+          # Расход модели — в книги llm_usage_log через прод (usage-sink): без
+          # секрета он идёт мимо книг и мимо дневного бюджета.
+          CRON_SECRET: ${{ secrets.CRON_SECRET }}
         run: |
           set -uo pipefail
           AUDIT_VERIFY_MODEL=$(python3 -c "
@@ -93,6 +96,9 @@ jobs:
           # не влезли — отказ без траты. Прогон 5 сгорел на 1324 ₽ именно
           # потому, что такой границы не было.
           AUDIT_BUDGET_USD: ${{ vars.AUDIT_BUDGET_USD || '15' }}
+          # Расход модели — в книги llm_usage_log через прод (usage-sink): без
+          # секрета он идёт мимо книг и мимо дневного бюджета.
+          CRON_SECRET: ${{ secrets.CRON_SECRET }}
         run: |
           set -uo pipefail
           # Модель круга проверки — своя. Задача там узкая (найти дословную

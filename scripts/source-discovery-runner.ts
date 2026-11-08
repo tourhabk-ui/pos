@@ -53,6 +53,7 @@
  *   npx tsx scripts/source-discovery-runner.ts <модель-OR> — прежний путь через OpenRouter
  */
 import { openRouterAttribution } from '../lib/ai/attribution';
+import { reportUsageNow, usageRowFromResponse } from '../lib/ai/usage-sink';
 // Правило возраста — из общего чистого модуля: второй реализации быть не
 // должно (§12). Модуль отселён от scout-digest именно затем, чтобы его мог
 // импортировать раннер, у которого базы нет.
@@ -64,6 +65,12 @@ import { pickBestModel } from '../lib/ai/model-resolver';
 import { htmlToText } from '../lib/partners/prospect-parse';
 
 const OPENROUTER = 'https://openrouter.ai/api/v1/chat/completions';
+/**
+ * Подпись расхода в книгах llm_usage_log (до 08.11 подбор в книги не писал).
+ * Строка уходит сразу после ответа — и до разбора пустого ответа: пустой
+ * ответ тоже оплачен.
+ */
+const AGENT_ID = 'source-discovery';
 const DEEPSEEK = 'https://api.deepseek.com/v1/chat/completions';
 const DEEPSEEK_MODELS = 'https://api.deepseek.com/models';
 const RUB_PER_USD = 135; // §8
@@ -502,6 +509,7 @@ async function proposeWithDeepSeek(system: string, user: string): Promise<{ answ
   });
   if (!res.ok) throw new Error(`DeepSeek ответил HTTP ${res.status}: ${(await res.text()).slice(0, 400)}`);
   const json = await res.json() as { choices?: Array<{ message?: { content?: string } }>; usage?: DeepSeekUsage };
+  await reportUsageNow(usageRowFromResponse(json, model, AGENT_ID), 'подбор (DeepSeek)');
   const answer = json.choices?.[0]?.message?.content ?? '';
   // Пустой ответ разбирается ЗДЕСЬ, где ещё видны счётчики. Дальше по потоку
   // он неотличим от «модель ответила прозой», и разбираться пошли бы в промпт.
@@ -565,6 +573,7 @@ async function main(): Promise<void> {
       });
       if (!res.ok) throw new Error(`OpenRouter ответил HTTP ${res.status}: ${(await res.text()).slice(0, 400)}`);
       const json = await res.json() as { choices?: Array<{ message?: { content?: string } }>; usage?: unknown };
+      await reportUsageNow(usageRowFromResponse(json, model, AGENT_ID), 'подбор (OpenRouter)');
       answer = json.choices?.[0]?.message?.content ?? '';
       usage = json.usage;
     }

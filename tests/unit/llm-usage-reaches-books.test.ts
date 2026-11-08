@@ -71,7 +71,8 @@ import {
 } from '@/lib/ai/cache-pricing';
 import { parseExecution, runHandsUsage } from '../../scripts/hands-usage.mjs';
 import { LLM_ENDPOINTS } from '@/lib/agents/compliance/provider-registry';
-import { usageRowFromResponse } from '@/lib/ai/usage-sink';
+import { reportUsageNow, usageRowFromAnthropic, usageRowFromResponse } from '@/lib/ai/usage-sink';
+import { priceLookupIds } from '@/lib/ai/providers';
 
 const ROOT = process.cwd();
 const WORKFLOWS = join(ROOT, '.github/workflows');
@@ -202,9 +203,6 @@ describe('расход раннера доходит до книг', () => {
 const DIRECT_CALLERS_OUTSIDE_BOOKS: Record<string, string> = {
   'model-catalog-runner.ts': 'читает каталог /models OpenRouter — токенов не тратит',
   'list-ai-models.js': 'читает списки /models у провайдеров — токенов не тратит; ни одним workflow не запускается',
-  'os-audit-runner.ts': 'аудит по маркеру, самый дорогой разовый прогон (прогон 7 — $16.72, §5.1); расход в книги не пишет — перевести на usage-sink',
-  'route-analysis-runner.ts': 'разбор маршрутов по маркеру; расход в книги не пишет — перевести на usage-sink',
-  'source-discovery-runner.ts': 'поиск источников по маркеру; расход в книги не пишет — перевести на usage-sink',
   'astra-probe.ts': 'очная ставка моделей по маркеру (проба); расход в книги не пишет — перевести на usage-sink',
   'qwen-image-probe.ts': 'проба обложек Qwen-Image по маркеру; расход в книги не пишет',
   'qwen-key-probe.ts': 'проба ключа DashScope по маркеру; расход в книги не пишет',
@@ -242,7 +240,9 @@ function codeFacts(src: string, fileName: string): CodeFacts {
     if (ts.isImportDeclaration(n) && ts.isStringLiteral(n.moduleSpecifier) && /(^|\/)lib\/ai\/usage-sink$/.test(n.moduleSpecifier.text)) {
       facts.importsUsageSink = true;
     }
-    if (ts.isCallExpression(n) && ts.isIdentifier(n.expression) && n.expression.text === 'sendUsageToProd') {
+    // Отправка — sendUsageToProd или reportUsageNow (строка одного ответа сразу).
+    if (ts.isCallExpression(n) && ts.isIdentifier(n.expression)
+      && (n.expression.text === 'sendUsageToProd' || n.expression.text === 'reportUsageNow')) {
       facts.callsSendUsage = true;
     }
     ts.forEachChild(n, visit);
@@ -421,6 +421,195 @@ describe('строка книг из ответа OpenAI-совместимог�
     expect(usageRowFromResponse(null, 'm', 'a')).toBeNull();
     expect(usageRowFromResponse('oops', 'm', 'a')).toBeNull();
   });
+});
+
+describe('строка книг из usage Anthropic', () => {
+  it('ключ anthropic:<модель>, вход без кэша, запись и чтение кэша своими полями', () => {
+    expect(usageRowFromAnthropic(
+      { input_tokens: 820_000, output_tokens: 41_000, cache_read_input_tokens: 30_000, cache_creation_input_tokens: 5_000 },
+      'claude-fable-5-1', 'os-audit',
+    )).toEqual({
+      model: 'anthropic:claude-fable-5-1', prompt_tokens: 820_000, completion_tokens: 41_000,
+      cache_read_tokens: 30_000, cache_creation_tokens: 5_000, agent_id: 'os-audit',
+    });
+    // Ноль кэша — сообщённый ноль, а не «не сообщено».
+    expect(usageRowFromAnthropic({ input_tokens: 1, output_tokens: 1, cache_read_input_tokens: 0 }, 'm', 'a'))
+      .toMatchObject({ cache_read_tokens: 0 });
+  });
+
+  it('кэш не сообщён — null, а не ноль; нет входа или выхода — строки нет', () => {
+    expect(usageRowFromAnthropic({ input_tokens: 12, output_tokens: 3, cache_read_input_tokens: null }, 'claude-opus-5-5', 'a'))
+      .toMatchObject({ cache_read_tokens: null, cache_creation_tokens: null });
+    expect(usageRowFromAnthropic({ output_tokens: 3 }, 'm', 'a')).toBeNull();
+    expect(usageRowFromAnthropic({ input_tokens: -1, output_tokens: 3 }, 'm', 'a')).toBeNull();
+    expect(usageRowFromAnthropic(null, 'm', 'a')).toBeNull();
+  });
+
+  it('цена ищется тем же правилом, что у прямого пути решателя', () => {
+    expect(priceLookupIds('anthropic:claude-fable-5-1')).toContain('anthropic/claude-fable-5.1');
+  });
+});
+
+describe('строка одного ответа уходит сразу', () => {
+  const realFetch = globalThis.fetch;
+  const realSecret = process.env.CRON_SECRET;
+  afterEach(() => {
+    globalThis.fetch = realFetch;
+    if (realSecret === undefined) delete process.env.CRON_SECRET; else process.env.CRON_SECRET = realSecret;
+    vi.restoreAllMocks();
+  });
+
+  it('ответ без usage — «расход неизвестен» вслух, на прод ничего не уходит', async () => {
+    const fetchMock = vi.fn();
+    globalThis.fetch = fetchMock as unknown as typeof fetch;
+    const err = vi.spyOn(console, 'error').mockImplementation(() => {});
+    expect(await reportUsageNow(null, 'проход')).toBe(false);
+    expect(fetchMock).not.toHaveBeenCalled();
+    expect(String(err.mock.calls[0]?.[0])).toContain('расход неизвестен');
+  });
+
+  it('строка есть — одна строка на прод с секретом', async () => {
+    process.env.CRON_SECRET = 'test-secret';
+    const fetchMock = vi.fn(async () => new Response('{}', { status: 200 }));
+    globalThis.fetch = fetchMock as unknown as typeof fetch;
+    const row = { model: 'm', prompt_tokens: 5, completion_tokens: 1, agent_id: 'os-audit' };
+    expect(await reportUsageNow(row, 'проход')).toBe(true);
+    const [url, init] = fetchMock.mock.calls[0] as unknown as [string, RequestInit];
+    expect(url).toBe('https://vedarai.ru/api/admin/llm-usage/report');
+    expect(JSON.parse(String(init.body))).toEqual({ rows: [row] });
+  });
+});
+
+// Исполнением: разовые прогоны по маркеру пишут расход сразу после ответа —
+// и тогда, когда дальше прогон падает (пустой ответ, ничего не подтвердилось).
+// Провальный прогон стоит тех же денег, а process.exit отложенную строку теряет.
+const MARKER_PRELOAD = `
+import { readFileSync, writeFileSync, existsSync } from 'node:fs';
+const ROUTES = JSON.parse(process.env.FAKE_ROUTES);
+globalThis.fetch = async (url, init) => {
+  const u = String(url);
+  if (u === 'https://vedarai.ru/api/admin/llm-usage/report') {
+    const cap = process.env.USAGE_CAPTURE;
+    const prev = existsSync(cap) ? JSON.parse(readFileSync(cap, 'utf-8')) : [];
+    prev.push({ auth: init.headers.Authorization, body: JSON.parse(init.body) });
+    writeFileSync(cap, JSON.stringify(prev));
+    return new Response(JSON.stringify({ ok: true, written: 1 }), { status: 200 });
+  }
+  for (const [prefix, body] of ROUTES) {
+    if (u.startsWith(prefix)) {
+      return new Response(JSON.stringify(body), { status: 200, headers: { 'content-type': 'application/json' } });
+    }
+  }
+  throw new Error('неожиданный адрес ' + u);
+};
+`;
+
+async function runMarkerScript(
+  script: string, args: (dir: string) => string[], routes: Array<[string, unknown]>,
+  env: (dir: string) => Record<string, string>,
+) {
+  const dir = mkdtempSync(join(tmpdir(), 'marker-usage-'));
+  try {
+    const preload = join(dir, 'preload.mjs');
+    const capture = join(dir, 'capture.json');
+    writeFileSync(preload, MARKER_PRELOAD);
+    const child = spawn(process.execPath, ['--import', 'tsx', '--import', preload, script, ...args(dir)], {
+      cwd: ROOT,
+      env: {
+        PATH: process.env.PATH ?? '', HOME: process.env.HOME ?? '',
+        CRON_SECRET: 'test-secret', USAGE_CAPTURE: capture, FAKE_ROUTES: JSON.stringify(routes),
+        ...env(dir),
+      },
+    });
+    let output = '';
+    child.stdout.on('data', (d) => { output += String(d); });
+    child.stderr.on('data', (d) => { output += String(d); });
+    const status = await new Promise<number | null>((resolve, reject) => {
+      child.on('error', reject);
+      child.on('close', (code) => resolve(code));
+    });
+    const reports = existsSync(capture)
+      ? (JSON.parse(readFileSync(capture, 'utf-8')) as Array<{ auth: string; body: { rows: unknown[] } }>)
+      : [];
+    return { status, output, reports };
+  } finally {
+    rmSync(dir, { recursive: true, force: true });
+  }
+}
+
+describe('разовые прогоны по маркеру пишут расход сразу после ответа', () => {
+  it('разбор маршрутов: пустой ответ — прогон красный, расход в книгах', async () => {
+    const r = await runMarkerScript(
+      'scripts/route-analysis-runner.ts',
+      (dir) => {
+        const corpus = join(dir, 'corpus.json');
+        writeFileSync(corpus, JSON.stringify({ routes: [{ id: 'r1', title: 'Тест', description_head: null, description_len: 0 }] }));
+        return [corpus, 'openai/gpt-test'];
+      },
+      [['https://openrouter.ai/', {
+        model: 'openai/gpt-test-answered', choices: [{ message: { content: '' } }],
+        usage: { prompt_tokens: 90_000, completion_tokens: 0 },
+      }]],
+      () => ({ OPENROUTER_API_KEY: 'test-key' }),
+    );
+    expect(r.status, r.output).toBe(1);
+    expect(r.output).toContain('Ответ без содержимого');
+    expect(r.reports).toHaveLength(1);
+    expect(r.reports[0].auth).toBe('Bearer test-secret');
+    expect(r.reports[0].body.rows).toEqual([{
+      model: 'openai/gpt-test-answered', prompt_tokens: 90_000, completion_tokens: 0,
+      cache_read_tokens: null, agent_id: 'route-analysis',
+    }]);
+  }, 90_000);
+
+  it('аудит, проверка сохранённых находок: опровергнуто — прогон красный, расход проверки в книгах', async () => {
+    const r = await runMarkerScript(
+      'scripts/os-audit-runner.ts',
+      () => ['openai/gpt-test'],
+      [['https://openrouter.ai/', {
+        model: 'openai/gpt-test', choices: [{ message: { content: '{"verdict":"refuted","why":"примета не найдена"}' } }],
+        usage: { prompt_tokens: 30_000, completion_tokens: 50, prompt_tokens_details: { cached_tokens: 10_000 } },
+      }]],
+      (dir) => {
+        const findings = join(dir, 'findings.json');
+        writeFileSync(findings, JSON.stringify({
+          commit: null, invented: 0, unquoted: 0,
+          good: [{ kind: 'defect', severity: 'low', files: ['CLAUDE.md'], what: 'Тест', evidence: '«Тест»', proposal: '' }],
+        }));
+        return { OPENROUTER_API_KEY: 'test-key', AUDIT_FINDINGS_IN: findings };
+      },
+    );
+    expect(r.status, r.output).toBe(1);
+    expect(r.output).toContain('Ни одной ПОДТВЕРЖДЁННОЙ');
+    expect(r.reports.map((x) => x.body.rows)).toEqual([[{
+      model: 'openai/gpt-test', prompt_tokens: 20_000, completion_tokens: 50,
+      cache_read_tokens: 10_000, agent_id: 'os-audit',
+    }]]);
+  }, 90_000);
+
+  it('подбор источников через DeepSeek: пустой ответ — отказ назван, оплаченный расход в книгах', async () => {
+    const r = await runMarkerScript(
+      'scripts/source-discovery-runner.ts',
+      () => ['deepseek'],
+      [
+        ['https://api.deepseek.com/models', { data: [{ id: 'deepseek-v4-pro' }] }],
+        ['https://api.deepseek.com/v1/chat/completions', {
+          model: 'deepseek-v4-pro', choices: [{ message: { content: '' } }],
+          usage: {
+            prompt_tokens: 3_000, completion_tokens: 8_000, prompt_cache_hit_tokens: 1_000, prompt_cache_miss_tokens: 2_000,
+            completion_tokens_details: { reasoning_tokens: 8_000 },
+          },
+        }],
+      ],
+      () => ({ DEEPSEEK_API_KEY: 'test-key' }),
+    );
+    expect(r.status, r.output).toBe(1);
+    expect(r.output).toContain('пустой ответ');
+    expect(r.reports.map((x) => x.body.rows)).toEqual([[{
+      model: 'deepseek-v4-pro', prompt_tokens: 2_000, completion_tokens: 8_000,
+      cache_read_tokens: 1_000, agent_id: 'source-discovery',
+    }]]);
+  }, 90_000);
 });
 
 describe('сток расхода включается фактами, а не настройкой', () => {
