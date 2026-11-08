@@ -70,6 +70,7 @@ import { issueMcpHandoff } from '@/lib/mcp/handoff';
 import { SEAT_REQUEST_FAILURE, kamchatkaToday, isRealDate, seatRequestPaymentNote } from '@/lib/seat-requests/core';
 import { createSeatRequest, statusUrl, tourKeepsSchedule } from '@/lib/seat-requests/service';
 import { requestWindow, dateInWindow, outOfSeasonText } from '@/lib/tours/request-window';
+import { bookingParkNote } from '@/lib/mcp/booking-park-note';
 import { checkStayDates, submitStayRequest, resolveStayForRequest } from '@/lib/stay/stay-request-service';
 import { busyWithin, guestBusyText } from '@/lib/stay/busy-dates';
 import { loadCharterCarriers } from '@/lib/transfers/charter';
@@ -291,6 +292,8 @@ const bookingRequestArgsSchema = z.object({
 async function requestSeatsFromOperator(a: {
   ctx: McpCallContext; tourId: number; tourTitle: string; date: string; participants: number;
   name: string; phone: string; hasComment: boolean; consent: boolean | undefined; notifyUrl: string | undefined;
+  /** Закрытие парка тура на эту дату — строкой (lib/mcp/booking-park-note), пусто — тревог нет. */
+  parkNote: string;
 }): Promise<string> {
   const admitted = await admitWrite(a.ctx, BOOKING_REQUEST_TOOL.name, a.phone, a.consent, 'operator', bookingSubject(a.tourId, a.date));
   const pd_consent = admitted.consent;
@@ -330,6 +333,7 @@ async function requestSeatsFromOperator(a: {
     + `Передайте человеку эту ссылку (в ней ключ доступа, храните её только у него): ${statusUrl(result.statusToken)} `
     + (a.hasComment ? 'Комментарий оператору не передан — в запросе мест только тур, дата и число человек. ' : '')
     + 'Если оператор не ответит за 2 часа, это не значит, что мест нет — можно оставить заявку через create_lead.'
+    + a.parkNote
     + keyTail;
 }
 
@@ -435,6 +439,10 @@ async function executeCreateBookingRequest(rawArgs: Record<string, unknown>, ctx
   if (date < today) {
     return `Дата ${date} уже прошла — заявка не создана. Свободные даты: get_tour_availability.`;
   }
+  // Закрыт ли парк тура на эту дату (08.11): заявку закрытие не отменяет —
+  // её подтверждает оператор, — но агент и человек узнают о нём до звонка.
+  // Тем же правилом, что день плана; строка не зависит от телефона.
+  const parkNote = await bookingParkNote(tour.id, date, today);
 
   const { createPlannerCache, fetchAvailabilityForTour } = await import('@/lib/planner');
   const cache = createPlannerCache();
@@ -459,7 +467,7 @@ async function executeCreateBookingRequest(rawArgs: Record<string, unknown>, ctx
       if (window.kind === 'season' && !dateInWindow(window, date)) {
         return `${outOfSeasonText(window, date)} Заявка не создана — предложите дату внутри сезона.`;
       }
-      return requestSeatsFromOperator({ ctx, tourId: Number(tour.id), tourTitle: tour.title, date, participants, name, phone, hasComment: Boolean(comment), consent: parsed.data.consent, notifyUrl: parsed.data.notify_url });
+      return requestSeatsFromOperator({ ctx, tourId: Number(tour.id), tourTitle: tour.title, date, participants, name, phone, hasComment: Boolean(comment), consent: parsed.data.consent, notifyUrl: parsed.data.notify_url, parkNote });
     }
     // Честный отказ с альтернативами вместо фантомной заявки на несуществующие места.
     const horizon = new Date(Date.parse(date) + 30 * 86400000).toISOString().slice(0, 10);
@@ -501,6 +509,7 @@ async function executeCreateBookingRequest(rawArgs: Record<string, unknown>, ctx
   const accepted = `Заявка оператору принята: "${tour.title}", ${date}. Сейчас на эту дату свободно ${remaining} мест. `
     + `Оператор перезвонит по телефону ${phone}, подтвердит заявку и состав группы — если число людей или пожелания изменились, `
     + 'человеку стоит сказать об этом при звонке. Это заявка, не оплата.'
+    + parkNote
     + planAttachNote(planAttach)
     + requestConfirmNote();
   const bookingPrefix = `[Заявка на бронь] Тур "${tour.title}" (ID${tour.id}), дата ${date},`;

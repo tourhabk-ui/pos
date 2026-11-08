@@ -611,3 +611,95 @@ describe('getGuardianContext — Северные Курилы вне сводо
     expect(ctx).not.toContain('Сахалинская область');
   });
 });
+
+/**
+ * 08.11, внешний агент Qwen: «Вулкан Авачинский [КРАСНЫЙ]» с закрытием парка, а
+ * сразу под ним — «Авачинский вулкан: путь на вершину (место) [ЗЕЛЁНЫЙ]» и
+ * «Активные алерты: те же, что у места выше (1)». Запись скрыта с карты
+ * (миграция 851: название тура, не место), её цвет посчитан для точки, которой
+ * не доверяют, а «те же» читалось как «и закрытие парка тоже».
+ */
+describe('getGuardianContext — скрытая запись и честная подпись повторов (08.11)', () => {
+  beforeEach(() => vi.clearAllMocks());
+
+  const CLOSURE = 'Закрытие маршрутов «Вулканы Камчатки» сообщают о закрытии туристических маршрутов на всех территориях природных парков на период межсезонья';
+  const WIND = 'Росгидромет: ветер — жёлтый уровень (юг края)';
+  const row = {
+    description: null, location_type: 'volcano', lat: 53.255, lng: 158.836,
+    hazard_types: null, difficulty_level: null, altitude_m: null, nearest_medical_km: null,
+    sat_communicator_required: null, capacity_per_day: null, open_from_date: null, open_to_date: null,
+    is_open: true, current_crowds: null, alert_message: null, alert_severity: null, tourists_today: null,
+    volcano_acc: null, volcano_ash_height_m: null, volcano_observed_at: null,
+    status_updated_at: new Date(Date.now() - 600_000).toISOString(),
+  };
+  const volcano = { ...row, id: 'v1', name: 'Вулкан Авачинский', is_visible: true, recommender_status: 'red', active_alerts: [CLOSURE, WIND] };
+  const hiddenTrail = { ...row, id: 'h1', name: 'Авачинский вулкан: путь на вершину', location_type: 'other', is_visible: false, recommender_status: 'green', active_alerts: [WIND] };
+
+  function mockPlaces(places: Record<string, unknown>[]) {
+    mockQuery.mockImplementation((sql: string) =>
+      Promise.resolve({ rows: sql.includes('FROM places') ? places : [] }));
+  }
+
+  it('рядом с видимым вулканом скрытая запись в ответ не идёт', async () => {
+    mockPlaces([volcano, hiddenTrail]);
+    const ctx = await getGuardianContext('Авачинский вулкан');
+    expect(ctx).toMatch(/Вулкан Авачинский \(вулкан\) \[КРАСНЫЙ\]/);
+    expect(ctx).toContain(CLOSURE);
+    expect(ctx).not.toContain('путь на вершину');
+    expect(ctx).not.toContain('ЗЕЛЁНЫЙ');
+  });
+
+  it('видимые — первыми в запросе: скрытая не занимает место видимой в тройке', async () => {
+    mockPlaces([volcano]);
+    await getGuardianContext('Авачинский вулкан');
+    const sql = String(mockQuery.mock.calls.find((c) => String(c[0]).includes('FROM places p'))?.[0] ?? '');
+    expect(sql).toMatch(/ORDER BY \(p\.is_visible IS NOT FALSE\) DESC/);
+  });
+
+  it('скрытая запись без видимого тёзки остаётся, но без цвета и с причиной', async () => {
+    mockPlaces([hiddenTrail]);
+    const ctx = await getGuardianContext('Авачинский вулкан: путь на вершину');
+    expect(ctx).toContain('Авачинский вулкан: путь на вершину');
+    expect(ctx).toContain('Запись скрыта с карты Ведара');
+    expect(ctx).not.toMatch(/\[ЗЕЛЁНЫЙ/);
+    expect(ctx).not.toContain('ЗЕЛЁНЫЙ значит');
+    // Тревоги записи не теряются.
+    expect(ctx).toContain(WIND);
+  });
+
+  it('слабое совпадение видимого места скрытую запись не вытесняет', async () => {
+    const weakVisible = { ...row, id: 'w1', name: 'Авачинская бухта', location_type: 'bay', is_visible: true, recommender_status: 'green', active_alerts: null };
+    mockPlaces([weakVisible, hiddenTrail]);
+    const ctx = await getGuardianContext('Авачинский вулкан: путь на вершину');
+    expect(ctx).toContain('Авачинский вулкан: путь на вершину');
+    expect(ctx).toContain('Запись скрыта с карты Ведара');
+  });
+
+  it('повторы не совпадают с алертами места выше — названы поимённо, без «те же»', async () => {
+    const pass = { ...row, id: 'p1', name: 'Авачинский перевал', location_type: 'pass', is_visible: true, recommender_status: 'yellow', active_alerts: [WIND] };
+    mockPlaces([volcano, pass]);
+    const ctx = await getGuardianContext('Авачинский');
+    const second = ctx.slice(ctx.indexOf('Авачинский перевал'));
+    expect(second).not.toContain('те же, что у места выше');
+    expect(second).toContain(`Активные алерты (уже названы выше): ${WIND}.`);
+    expect(second).not.toContain(CLOSURE);
+  });
+
+  it('повторы совпадают целиком — короткая подпись, как раньше', async () => {
+    const pass = { ...row, id: 'p1', name: 'Авачинский перевал', location_type: 'pass', is_visible: true, recommender_status: 'red', active_alerts: [CLOSURE, WIND] };
+    mockPlaces([volcano, pass]);
+    const ctx = await getGuardianContext('Авачинский');
+    const second = ctx.slice(ctx.indexOf('Авачинский перевал'));
+    expect(second).toContain('Активные алерты: те же, что у места выше (2).');
+    expect(ctx.split(CLOSURE).length - 1).toBe(1);
+  });
+
+  it('свежие и неполные повторы — свежие отдельно, повторы поимённо', async () => {
+    const pass = { ...row, id: 'p1', name: 'Авачинский перевал', location_type: 'pass', is_visible: true, recommender_status: 'yellow', active_alerts: [WIND, 'Камнепад на подходе'] };
+    mockPlaces([volcano, pass]);
+    const ctx = await getGuardianContext('Авачинский');
+    const second = ctx.slice(ctx.indexOf('Авачинский перевал'));
+    expect(second).toContain('Активные алерты: Камнепад на подходе.');
+    expect(second).toContain(`И ещё 1, уже названные выше: ${WIND}.`);
+  });
+});

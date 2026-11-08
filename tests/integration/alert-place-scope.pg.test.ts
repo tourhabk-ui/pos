@@ -812,6 +812,80 @@ withPg('кого накрывает предупреждение', () => {
     expect(await coveredBy(other)).not.toContain(CAVES.id);
   });
 
+  it('закрытие Налычево доходит до места внутри контура и до маршрута через него — по связи 1407, не по имени (08.11)', async () => {
+    // Корякская сопка 08.11: внутри контура парка (1248), маршруты к ней без
+    // записанного парка, имя парка не называет — пять прежних путей молчат.
+    const KORYAK = { id: 'Корякская сопка (тест 1407)', ark: 'c0000000-0000-4000-8000-000000000051' };
+    const OUTSIDE = { id: 'Сопка вне контура (тест 1407)', ark: 'c0000000-0000-4000-8000-000000000052' };
+    const THROUGH = 'd0000000-0000-4000-8000-000000000051';
+    const NEARBY = 'd0000000-0000-4000-8000-000000000052';
+    const q: QueryFn = (sql, params) => pool.query(sql, params) as never;
+    const routeAlerts = async (routeId: string) => {
+      const s = await collectRouteSignals(routeId, { query: q, month: 11 });
+      expect(s.alerts, 'запрос предупреждений маршрута не выполнился').not.toBeNull();
+      return s.alerts!.map((a) => a.title);
+    };
+    for (const p of [KORYAK, OUTSIDE]) {
+      await pool.query(
+        `INSERT INTO places (id, name, lat, lng, ark_id, location_type, zone, is_visible)
+         VALUES ($1, $1, 53.32, 158.71, $2, 'volcano', 'avachinsky', TRUE)`,
+        [p.id, p.ark],
+      );
+      await pool.query(`INSERT INTO location_real_time_status (agent_route_id) VALUES ($1)`, [p.ark]);
+    }
+    await pool.query(
+      `INSERT INTO kamchatka_routes (id, category, title, park_name, zone, is_visible) VALUES
+         ($1, 'trekking', 'Восхождение на сопку (тест 1407)', NULL, 'avachinsky', TRUE),
+         ($2, 'trekking', 'Тропа мимо сопки (тест 1407)', NULL, 'avachinsky', TRUE)`,
+      [THROUGH, NEARBY],
+    );
+    await pool.query(
+      `INSERT INTO route_waypoints (route_id, place_id, position, link_kind) VALUES
+         ($1, $3, 0, 'waypoint'),
+         ($2, $3, 0, 'nearby')`,
+      [THROUGH, NEARBY, KORYAK.id],
+    );
+    const TITLE = 'Закрыты туристические маршруты природного парка «Налычево» (тест 1407)';
+    const id = await insertAlert({ type: 'park_closure', title: TITLE, zones: [], parks: ['nalychevo'] });
+    try {
+      // Без связи сопку не находит ни один путь — ровно состояние прода 08.11.
+      expect(await coveredBy(id)).not.toContain(KORYAK.id);
+      expect(await routeAlerts(THROUGH)).not.toContain(TITLE);
+
+      await pool.query(
+        `INSERT INTO place_park_links (place_id, park_slug, reason)
+         VALUES ($1, 'nalychevo', 'тест: точка в контуре парка')`,
+        [KORYAK.id],
+      );
+      const covered = await coveredBy(id);
+      expect(covered).toContain(KORYAK.id);
+      expect(covered).not.toContain(OUTSIDE.id);
+      expect(covered).not.toContain(CITY.id);
+      // Маршрут, который через сопку идёт, закрыт; «рядом, загляните» — нет (§4.1).
+      expect(await routeAlerts(THROUGH)).toContain(TITLE);
+      expect(await routeAlerts(NEARBY)).not.toContain(TITLE);
+      // Связь — с Налычево: закрытие другого парка сопку не трогает.
+      const other = await insertAlert({ type: 'park_closure', title: 'Южно-Камчатский закрыт (тест 1407)', zones: [], parks: ['yuzhno-kamchatsky'] });
+      expect(await coveredBy(other)).not.toContain(KORYAK.id);
+      await pool.query(`DELETE FROM external_alerts WHERE id::text = $1`, [other]);
+
+      // Таблица 1407 держит связку сама: парк — из справочника, причина — словами.
+      await expect(pool.query(
+        `INSERT INTO place_park_links (place_id, park_slug, reason) VALUES ($1, 'no-such-park', 'тест')`, [OUTSIDE.id],
+      )).rejects.toMatchObject({ code: '23503' });
+      await expect(pool.query(
+        `INSERT INTO place_park_links (place_id, park_slug, reason) VALUES ($1, 'nalychevo', '  ')`, [OUTSIDE.id],
+      )).rejects.toMatchObject({ code: '23514' });
+    } finally {
+      await pool.query(`DELETE FROM external_alerts WHERE id::text = $1`, [id]);
+      await pool.query(`DELETE FROM place_park_links WHERE place_id = ANY($1::text[])`, [[KORYAK.id, OUTSIDE.id]]);
+      await pool.query(`DELETE FROM route_waypoints WHERE route_id = ANY($1::uuid[])`, [[THROUGH, NEARBY]]);
+      await pool.query(`DELETE FROM kamchatka_routes WHERE id = ANY($1::uuid[])`, [[THROUGH, NEARBY]]);
+      await pool.query(`DELETE FROM location_real_time_status WHERE agent_route_id = ANY($1::uuid[])`, [[KORYAK.ark, OUTSIDE.ark]]);
+      await pool.query(`DELETE FROM places WHERE id = ANY($1::text[])`, [[KORYAK.id, OUTSIDE.id]]);
+    }
+  });
+
   it('1393: записанная тревога 02.11 «на всех территориях природных парков» получает парки и красит Налычево (#2980)', async () => {
     const TITLE = 'Закрытие маршрутов «Вулканы Камчатки» сообщают о закрытии туристических маршрутов на всех территориях природных парков на период межсезонья';
     // Как её записал прежний классификатор: без парков и без зон.

@@ -185,6 +185,12 @@ export const VOLCANO_SCOPED_SQL = `
  *   2. это место, через которое ИДЁТ такой маршрут (связь рода не `nearby`:
  *      «рядом, загляните» в парке не лежит, §4.1);
  *   3. имя места называет парк («Природный парк Налычево»).
+ * Пути 4 и 5 ниже — имя места в названии маршрута парка и наоборот. Путь 6 —
+ * связь «место — парк» (`place_park_links`, миграция 1407): точка места
+ * внутри контура парка, проверенная миграцией парка; путь 7 — маршрут через
+ * такое место. Без них Корякская сопка стояла зелёной при закрытом Налычево
+ * (08.11): маршрутов с записанным парком к ней нет, а внутри контура она по
+ * 1248.
  *
  * Зона здесь не участвует: «avachinsky» — это и Налычево, и город. Парк
  * тревогой не назван — она не красит никого (род в PLACE_SCOPED_TYPES).
@@ -285,6 +291,27 @@ export const PARK_SCOPED_SQL = `
                  WHERE length(w) >= 5 AND w NOT IN (${PLACE_GENERIC_WORDS_SQL})
                    AND lower(pl.name) NOT LIKE '%' || left(w, GREATEST(5, length(w) - 2)) || '%'
               )
+         )
+         -- 6. Точка места внутри контура парка (миграция 1407): связь пишет
+         --    миграция парка по проверке «точка в контуре», а не по имени.
+         OR EXISTS (
+           SELECT 1
+             FROM places pl
+             JOIN place_park_links ppl ON ppl.place_id = pl.id::text AND ppl.park_slug = pk.slug
+            WHERE pl.ark_id = ark.id
+         )
+         -- 7. Маршрут идёт через такое место (связь не «рядом»): закрытый
+         --    парк закрывает и путь, который в него заходит. У маршрутов на
+         --    Корякскую сопку парк не записан — без этого пути карточка
+         --    маршрута и день плана молчали бы при красной сопке.
+         OR EXISTS (
+           SELECT 1
+             FROM kamchatka_routes kr
+             JOIN route_waypoints rw ON rw.route_id = kr.id
+             JOIN places pl ON pl.id = rw.place_id
+             JOIN place_park_links ppl ON ppl.place_id = pl.id::text AND ppl.park_slug = pk.slug
+            WHERE COALESCE(kr.ark_id, kr.id) = ark.id
+              AND COALESCE(to_jsonb(rw)->>'link_kind', 'unknown') <> 'nearby'
          )
        )
   )
