@@ -6,9 +6,15 @@ name: Фото оператора — скачать с раннера в вет
 # photos/<slug>; сжатие (sharp, как у снимков мест) и миграция делаются в
 # сессии, где видно результат. Workflow ничего не пишет ни в main, ни в БД.
 #
+# Куда (08.11): оригиналы — в media/raw/<slug>/, а не в public/images. Папка
+# сайта едет в образ, и сжатые снимки клались рядом с оригиналами — так
+# 83 МБ снимков партнёров оказались в образе, а не в хранилище. Путь
+# пережатого снимка — media/s3/photos/<slug>/ и маркер media-to-s3; в
+# public/images новых снимков партнёров нет (tests/unit/partner-photos-in-s3.test.ts).
+#
 # Запуск: push в main, меняющий .github/triggers/operator-photos.json:
 #   { "slug": "volcanoesland", "note": "...", "items": [ { "file": "01-...jpg", "url": "https://..." } ] }
-# Файлы ложатся в public/images/<slug>/raw/<file>. Отсутствующие (не 200)
+# Файлы ложатся в media/raw/<slug>/<file>. Отсутствующие (не 200)
 # перечисляются в логе, job краснеет, если не скачалось НИ ОДНОГО (§4.0:
 # ноль результатов при ненулевом входе — отказ).
 
@@ -35,7 +41,7 @@ jobs:
           set -u
           SLUG=$(python3 -c "import json; print(json.load(open('.github/triggers/operator-photos.json'))['slug'])")
           N=$(python3 -c "import json; print(len(json.load(open('.github/triggers/operator-photos.json'))['items']))")
-          DIR="public/images/$SLUG/raw"
+          DIR="media/raw/$SLUG"
           mkdir -p "$DIR"
           ok=0; bad=0
           for i in $(seq 0 $((N-1))); do
@@ -64,7 +70,7 @@ jobs:
           git config user.name  'github-actions[bot]'
           git config user.email 'github-actions[bot]@users.noreply.github.com'
           git checkout -b "$BR"
-          git add "public/images/$SLUG/raw"
+          git add "media/raw/$SLUG"
           git commit -m "Фото оператора $SLUG: оригиналы с раннера (${{ steps.dl.outputs.ok }} файлов), без сжатия"
           git push origin "$BR"
           echo "ветка: $BR"

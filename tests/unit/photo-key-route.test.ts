@@ -3,7 +3,8 @@
  *
  * Статья летописи собирается при сборке образа, а адрес объекта зависит от
  * S3_BUCKET — поэтому страница ставит этот адрес. Открыто ровно то, что
- * публикуется: `photos/…jpg`.
+ * публикуется: `photos/…` — `.jpg`, `.jpeg`, `.png`, `.webp` (с 08.11
+ * снимки партнёров с уменьшенными копиями и логотипами).
  *
  * С 29.10 сервер отдаёт байты сам, а не редиректом на s3.twcstorage.ru:
  * владелец с телефона не увидел снимков «Лагуны Экспедиции», хотя сайт
@@ -28,10 +29,18 @@ describe('какой ключ открывается', () => {
     expect(photoPath('photos/kronotsky/a.jpg')).toBe('/api/images/s3/photos/kronotsky/a.jpg');
   });
 
-  it('чужие префиксы, не JPEG и выход наверх — нет', () => {
+  it('с 08.11 — и уменьшенные копии WebP, и логотипы PNG, и .jpeg (снимки партнёров)', () => {
+    expect(photoKeyOf(['photos', 'mestechko', 'tolbachik-01.640.webp'])).toBe('photos/mestechko/tolbachik-01.640.webp');
+    expect(photoKeyOf(['photos', 'partners', 'topkam', 'logo.png'])).toBe('photos/partners/topkam/logo.png');
+    expect(photoKeyOf(['photos', 'fishingkam', '_.jpeg'])).toBe('photos/fishingkam/_.jpeg');
+  });
+
+  it('чужие префиксы, не снимок и выход наверх — нет', () => {
     expect(photoKeyOf(['places', '7190e0a4-0000-4000-8000-000000000000', 'a.jpg'])).toBeNull();
     expect(photoKeyOf(['videos', 'fishingkam', 'clip-fish-catch.mp4'])).toBeNull();
-    expect(photoKeyOf(['photos', 'kronotsky', 'a.png'])).toBeNull();
+    expect(photoKeyOf(['photos', 'kronotsky', 'a.gif'])).toBeNull();
+    expect(photoKeyOf(['photos', 'kronotsky', 'a.mp4'])).toBeNull();
+    expect(photoKeyOf(['photos', 'kronotsky', 'a.svg'])).toBeNull();
     expect(photoKeyOf(['photos', '..', 'maps', 'a.jpg'])).toBeNull();
     expect(photoKeyOf(['photos', 'Kronotsky', 'A.jpg'])).toBeNull();
   });
@@ -81,10 +90,21 @@ describe('ответ сервера: байты с нашего домена, н
     expect(new Headers(calls[0].init?.headers).get('if-none-match')).toBe('"abc"');
   });
 
-  it('хранилище ответило не картинкой — тип не пробрасывается, остаётся image/jpeg', async () => {
+  it('хранилище ответило не картинкой — тип не пробрасывается, берётся по расширению ключа', async () => {
     stubStorage(() => new Response(JPEG, { status: 200, headers: { 'content-type': 'text/html' } }));
     const res = await get(KEY);
     expect(res.headers.get('content-type')).toBe('image/jpeg');
+    vi.unstubAllGlobals();
+    stubStorage(() => new Response(JPEG, { status: 200, headers: { 'content-type': 'application/octet-stream' } }));
+    expect((await get(['photos', 'mestechko', 'a.640.webp'])).headers.get('content-type')).toBe('image/webp');
+    vi.unstubAllGlobals();
+    stubStorage(() => new Response(JPEG, { status: 200 }));
+    expect((await get(['photos', 'partners', 'logo.png'])).headers.get('content-type')).toBe('image/png');
+  });
+
+  it('тип, названный хранилищем, сильнее расширения: JPEG под именем .png отдаётся JPEG', async () => {
+    stubStorage(() => new Response(JPEG, { status: 200, headers: { 'content-type': 'image/jpeg' } }));
+    expect((await get(['photos', 'fishingkam', '2025-01-09_113932-mi.png'])).headers.get('content-type')).toBe('image/jpeg');
   });
 
   it('объекта нет (403/404 публичного бакета) — 404 «не найден»', async () => {

@@ -1,6 +1,6 @@
 import { NextResponse } from 'next/server';
 import { s3PublicUrl } from '@/lib/storage/s3';
-import { photoKeyOf } from '@/lib/images/photo-key';
+import { photoKeyOf, photoTypeOf } from '@/lib/images/photo-key';
 
 export const dynamic = 'force-dynamic';
 
@@ -29,8 +29,8 @@ const CACHE = 'public, max-age=86400, stale-while-revalidate=604800';
  * его телом ответа; браузер видит один домен.
  *
  * Только ключи под `photos/` — снимки, залитые media-to-s3 (scripts/
- * media-to-s3.ts) вместе с автором и лицензией в миграции; только `.jpg`,
- * строчная латиница, без `..`. Чужой префикс (`places/<uuid>/` уборки сирот,
+ * media-to-s3.ts); `.jpg`, `.jpeg`, `.png`, `.webp` (с 08.11: уменьшенные
+ * копии и логотипы партнёров), строчная латиница, без `..`. Чужой префикс (`places/<uuid>/` уборки сирот,
  * пакеты карты) этим путём не открывается: адресуемо ровно то, что
  * публикуется. Бакета нет — 404. Хранилище ответило «нет объекта» — 404;
  * не ответило или ответило ошибкой — 502 и строка в лог (§4.0: «не смог» не
@@ -86,8 +86,8 @@ export async function GET(request: Request, { params }: Props): Promise<Response
     status: 200,
     headers: {
       ...passthrough,
-      // Ключ — только .jpg (photoKeyOf); чужой тип хранилища не пробрасываем.
-      'Content-Type': type && type.startsWith('image/') ? type : 'image/jpeg',
+      // Чужой тип хранилища не пробрасываем: не картинка — тип по расширению ключа.
+      'Content-Type': type && type.startsWith('image/') ? type : photoTypeOf(key),
       ...(length ? { 'Content-Length': length } : {}),
     },
   });

@@ -1,7 +1,7 @@
 {
   "upload": true,
-  "run": 20,
-  "note": "09.10. По слову владельца «нарежь короткие видео для туров камчатской рыбалки но без звука и сохрани их в s3»: четыре клипа из двух роликов владельца, звуковая дорожка вырезана, метаданные сняты. Прогон 2: два зимних клипа (подлёдная рыбалка) из третьего ролика владельца — «зима для клипа». Прогон 3 (14.10): восемь снимков Кроноцкого заповедника с Wikimedia Commons под свободной лицензией (CC BY-SA 3.0/4.0, авторы Malupasic, Rost.galis, Ushakovm83, Игорь Шпиленок) — для карточки места и статьи летописи (владелец: «сделать страницу описания», «в летописи сделай красивую страницу»). Ключи под photos/kronotsky/; авторство и лицензия пишутся миграцией рядом с ключом. Прогон 4 (14.10): снимки национального парка «Командорские острова» и Корякского заповедника с Wikimedia Commons (владелец: «перенеси в Заповедники и сделай также как с Кроноцким все заповедники») — CC BY-SA 2.0/3.0/4.0 и общественное достояние, авторы Женя Витюгова, SuricataJ, Sergey41, Martin Ehrensvärd, Игорь Шпиленок, NASA. Ключи под photos/komandorskie-ostrova/ и photos/koryaksky/. Прогон 5 (14.10): четыре снимка горного массива Вачкажец с Wikimedia Commons (CC BY-SA 4.0, авторы Michael Haing, NadezhdaKhaustova, Natalia Senatorova) — главный кадр статьи летописи и галерея карточки места (владелец: «Памятник природы „Вачкажец“ тоже делаем по примерам»). Ключи под photos/vachkazhets/. Прогон 6 (14.10): восемь снимков природного парка «Быстринский» с Wikimedia Commons (CC BY-SA 4.0 NadezhdaKhaustova, CC BY-SA 3.0 Johannes Rohr) — главный кадр и галерея карточки, главный кадр статьи летописи (владелец: «Природный парк «Быстринский» так же»). Ключи под photos/bystrinsky/. Прогон 7 (14.10): тринадцать снимков природного парка «Налычево» с Wikimedia Commons (CC BY-SA 4.0 — Alphatetia, Кирилл Уютнов, Jeskela, Rost.galis; CC BY 2.0 — Елена Ветрова; общественное достояние — Gistereziz) — главный кадр и галерея карточек парка, Налычевской долины, Налычевских источников и Грифона Иванова, главный кадр статьи летописи (владелец: «Природный парк «Налычево» го»). Ключи под photos/nalychevo/. Прогон 8 (14.10): владелец того же дня: «Только используй наши фотографии или фото партнеров по возможности» — четыре снимка партнёра «Местечко Камчатка» с его туров (облёт Корякского и Авачинского с Налычевскими источниками, Авачинский перевал; права у оператора, размещение по его «ДА», миграция 1217): купальня «Третья лужа» на кордоне «Центральный», кратер Авачинского и два вулкана с воздуха, евражка на перевале. Ключи под photos/nalychevo/mestechko-*. Снимки Commons прогона 7 на карточки не ставятся. Прогон 9 (14.10): национальный парк «Вулканы Камчатки» (постановление Правительства от 9 октября 2026 года, на базе природных парков «Ключевской» и «Южно-Камчатский») — по тому же слову владельца «только наши фотографии или фото партнеров»: пять снимков партнёра «Край Вулканов» с его туров к подножию Ключевской группы, облёта и Плоского Толбачика (права у оператора, перенос по слову владельца 08.10, миграция 1177) и четыре снимка партнёра «Местечко Камчатка» (Толбачик, Горелый, Мутновский; права у оператора, размещение по его «ДА», 1217). Байты — те же, что в public/images/<партнёр>/, без пережатия. Ключи под photos/vulkany-kamchatki/. Прогон 10 (14.10): Южно-Камчатский федеральный заказник имени Т. И. Шпиленка (Курильское озеро) — по тому же слову владельца «только наши фотографии или фото партнеров»: четыре снимка партнёра «Край Вулканов» с его автомобильного тура на Курильское озеро (табличка «Курильское озеро» на берегу, стоянка группы у озера, Кутхины Баты издали и вблизи; права у оператора, перенос по слову владельца 08.10, миграция 1177) и снимок партнёра «Местечко Камчатка» с вертолётной экскурсии на Курильское озеро (медведица с медвежонком у воды; права у оператора, размещение по его «ДА», 1217). Кадры той же экскурсии с кальдерой Ксудач и вертолётом на поляне не берутся: Ксудач — не заказник, а где сел вертолёт, по кадру не сказать. Байты — те же, что в public/images/<партнёр>/, без пережатия. Ключи под photos/yuzhno-kamchatskij-zakaznik/. Прогон 11 (14.10): природный парк «Вилючинский» (постановление Правительства Камчатского края № 743-П от 28.12.2022) — по тому же слову владельца «только наши фотографии или фото партнеров»: два снимка партнёра «Местечко Камчатка» с его вертолётного облёта Вилючинского, Мутновского и Горелого — Вилючинский вулкан осенью и в снегу (права у оператора, размещение по его «ДА», 1217). Остальные кадры той же экскурсии — Мутновский и Горелый (01 и 03 стоят у национального парка, прогон 9). Байты — те же, что в public/images/mestechko/, без пережатия. Ключи под photos/vilyuchinsky/. Прогон 12 (14.10): памятники природы у Петропавловска — по тому же слову владельца «только наши фотографии или фото партнеров»: снимок партнёра «Местечко Камчатка» с его морской прогулки к острову Старичков — птичий базар на скалах (права у оператора, размещение по его «ДА», 1217). Остальные кадры той прогулки — катера и рулевой, острова на них не видно, они не берутся. Байты — те же, что в public/images/mestechko/ostrov-starichkov-02.jpg, без пережатия, метаданных в файле нет. Ключ под photos/starichkov/. Прогон 13 (15.10): два снимка владельца — для главных кадров статей летописи «Налычево» и «Вилючинский» вместо кадров партнёра «Местечко Камчатка»: согласия партнёра на показ вне его туров пока нет (владелец 15.10: «пока нет получим согласе востановим», миграция 1263; выкачена под номером 1260 и перенумерована из-за тёзки). Корякская сопка вечером (985, байты те же, что migrations/photos/804cf57c….jpg) и Вилючинский вулкан с облачным поясом (979, байты те же, что migrations/photos/853153….jpg) — без пережатия, метаданных в файлах нет. Копии нужны потому, что раздача статей (/api/images/s3/) отдаёт только ключи под photos/. Ключи под photos/nalychevo/vladelec-* и photos/vilyuchinsky/vladelec-*. Прогон 14 (15.10): снимок владельца для главного кадра статьи летописи «Южно-Камчатский заказник» вместо кадра партнёра «Край Вулканов»: слово владельца «публикуй фото и туры» (1177) — о турах партнёра, а не о карточках мест и летописи; его снимки с карточек мест спрятаны до согласия тем же порядком, что «Местечко» (миграция 1265). Бурый медведь с медвежонком на берегу Курильского озера (958, байты те же, что migrations/photos/84b7294d….jpg) — без пережатия, метаданных в файле нет. Ключ под photos/yuzhno-kamchatskij-zakaznik/vladelec-*. Прогон 15 (15.10): шесть снимков Wikimedia Commons двум карточкам, оставшимся без единого снимка после 1263 и 1265 (кадры партнёров спрятаны до их согласия, своих снимков этих мест у платформы нет): остров Старичков — Кулик Мария Владимировна, Aysa t, DoctisDM (CC BY-SA 4.0); парк «Ключевской» — Tamten (общественное достояние), Giorgio Galeotti (CC BY-SA 4.0), Zhuravell (CC BY-SA 3.0). Авторы и лицензии — extmetadata Commons (проба 941), оригиналы — закачка operator-photos, прогон 8. Пережаты до 1600 px по длинной стороне, метаданные сняты; авторство и лицензию пишет миграция 1271 рядом с ключом. Ключи под photos/starichkov/ и photos/vulkany-kamchatki/klyuchevskaya-*. Прогон 16 (29.10): шесть клипов Курильского озера из альбома видео гида-партнёра для его туров «Курильское озеро на внедорожнике» 3 и 4 дня (владелец: «красиво нужно делать и видео круто»). Вертикаль 540×960, 8 с, без звука, метаданные сняты (в роликах телефона бывает место съёмки); лиц туристов в отрезках нет. Ключи под videos/zaporozhets/. Прогон 17 (29.10): снимки туроператора «Лагуна Экспедиция» для его 34 туров (миграция 1343) — по слову владельца «они дали добро на использоваеие»: 133 кадра со страниц туров laguna-expedition.ru/tours/<id>-<адрес>, отобраны глазами (без людей главными в кадре — узнаваемых лиц крупным планом и групп, позирующих в камеру, — без баннеров, рекламы с адресом сайта, коллажей и кадров, обещающих то, чего в программе нет), пережаты до 1600 px по длинной стороне, JPEG 82, метаданные сняты (в части снимков были координаты места съёмки). Одинаковые файлы разных туров залиты один раз. Ключи под photos/laguna-expedition/. Прогон 18 (07.11): три клипа тура гида «Вачкажец + озёрки» из его папки «Видео вачкажец» — водопад и две евражки. Вертикаль 540×960, H.264, без звука, метаданные и место съёмки сняты (миграция 1398). Там же три клипа курильских туров гида из папки «Видео курильское» — пар над склоном, медведь бросается в воду, лошади у внедорожника; номер машины размыт во всех кадрах (миграция 1399). Прогон 19 (07.11): одиннадцать клипов туров «Местечка Камчатка» — ролики слайдеров со страниц их туров на mestechkokam.ru (владелец: «у Андрея Запорожца есть видео, а у Местечко нет, хотя на сайте у них должно быть»). Вертикаль 400×710 как в источнике, H.264, без звука, метаданные сняты; каждый кадр сверен с туром глазами (миграция 1404). Там же пять клипов из их Telegram-канала (владелец: «у них тг канал еще»): медведи Курильского, косатки Бухты Русской, вулкан над облаками — отрезки без людей и надписей, 540×960. Прогон 20 (07.11, владелец: «лагуна экспедиция … так же с видео и у них тоже есть тг»): 13 клипов «Лагуны Экспедиции» — 11 вырезаны вертикалью из роликов главной laguna-expedition.ru, 2 из их канала t.me/laguna_expedition; без людей, без звука, метаданные сняты (миграция 1405).",
+  "run": 21,
+  "note": "09.10. По слову владельца «нарежь короткие видео для туров камчатской рыбалки но без звука и сохрани их в s3»: четыре клипа из двух роликов владельца, звуковая дорожка вырезана, метаданные сняты. Прогон 2: два зимних клипа (подлёдная рыбалка) из третьего ролика владельца — «зима для клипа». Прогон 3 (14.10): восемь снимков Кроноцкого заповедника с Wikimedia Commons под свободной лицензией (CC BY-SA 3.0/4.0, авторы Malupasic, Rost.galis, Ushakovm83, Игорь Шпиленок) — для карточки места и статьи летописи (владелец: «сделать страницу описания», «в летописи сделай красивую страницу»). Ключи под photos/kronotsky/; авторство и лицензия пишутся миграцией рядом с ключом. Прогон 4 (14.10): снимки национального парка «Командорские острова» и Корякского заповедника с Wikimedia Commons (владелец: «перенеси в Заповедники и сделай также как с Кроноцким все заповедники») — CC BY-SA 2.0/3.0/4.0 и общественное достояние, авторы Женя Витюгова, SuricataJ, Sergey41, Martin Ehrensvärd, Игорь Шпиленок, NASA. Ключи под photos/komandorskie-ostrova/ и photos/koryaksky/. Прогон 5 (14.10): четыре снимка горного массива Вачкажец с Wikimedia Commons (CC BY-SA 4.0, авторы Michael Haing, NadezhdaKhaustova, Natalia Senatorova) — главный кадр статьи летописи и галерея карточки места (владелец: «Памятник природы „Вачкажец“ тоже делаем по примерам»). Ключи под photos/vachkazhets/. Прогон 6 (14.10): восемь снимков природного парка «Быстринский» с Wikimedia Commons (CC BY-SA 4.0 NadezhdaKhaustova, CC BY-SA 3.0 Johannes Rohr) — главный кадр и галерея карточки, главный кадр статьи летописи (владелец: «Природный парк «Быстринский» так же»). Ключи под photos/bystrinsky/. Прогон 7 (14.10): тринадцать снимков природного парка «Налычево» с Wikimedia Commons (CC BY-SA 4.0 — Alphatetia, Кирилл Уютнов, Jeskela, Rost.galis; CC BY 2.0 — Елена Ветрова; общественное достояние — Gistereziz) — главный кадр и галерея карточек парка, Налычевской долины, Налычевских источников и Грифона Иванова, главный кадр статьи летописи (владелец: «Природный парк «Налычево» го»). Ключи под photos/nalychevo/. Прогон 8 (14.10): владелец того же дня: «Только используй наши фотографии или фото партнеров по возможности» — четыре снимка партнёра «Местечко Камчатка» с его туров (облёт Корякского и Авачинского с Налычевскими источниками, Авачинский перевал; права у оператора, размещение по его «ДА», миграция 1217): купальня «Третья лужа» на кордоне «Центральный», кратер Авачинского и два вулкана с воздуха, евражка на перевале. Ключи под photos/nalychevo/mestechko-*. Снимки Commons прогона 7 на карточки не ставятся. Прогон 9 (14.10): национальный парк «Вулканы Камчатки» (постановление Правительства от 9 октября 2026 года, на базе природных парков «Ключевской» и «Южно-Камчатский») — по тому же слову владельца «только наши фотографии или фото партнеров»: пять снимков партнёра «Край Вулканов» с его туров к подножию Ключевской группы, облёта и Плоского Толбачика (права у оператора, перенос по слову владельца 08.10, миграция 1177) и четыре снимка партнёра «Местечко Камчатка» (Толбачик, Горелый, Мутновский; права у оператора, размещение по его «ДА», 1217). Байты — те же, что в public/images/<партнёр>/, без пережатия. Ключи под photos/vulkany-kamchatki/. Прогон 10 (14.10): Южно-Камчатский федеральный заказник имени Т. И. Шпиленка (Курильское озеро) — по тому же слову владельца «только наши фотографии или фото партнеров»: четыре снимка партнёра «Край Вулканов» с его автомобильного тура на Курильское озеро (табличка «Курильское озеро» на берегу, стоянка группы у озера, Кутхины Баты издали и вблизи; права у оператора, перенос по слову владельца 08.10, миграция 1177) и снимок партнёра «Местечко Камчатка» с вертолётной экскурсии на Курильское озеро (медведица с медвежонком у воды; права у оператора, размещение по его «ДА», 1217). Кадры той же экскурсии с кальдерой Ксудач и вертолётом на поляне не берутся: Ксудач — не заказник, а где сел вертолёт, по кадру не сказать. Байты — те же, что в public/images/<партнёр>/, без пережатия. Ключи под photos/yuzhno-kamchatskij-zakaznik/. Прогон 11 (14.10): природный парк «Вилючинский» (постановление Правительства Камчатского края № 743-П от 28.12.2022) — по тому же слову владельца «только наши фотографии или фото партнеров»: два снимка партнёра «Местечко Камчатка» с его вертолётного облёта Вилючинского, Мутновского и Горелого — Вилючинский вулкан осенью и в снегу (права у оператора, размещение по его «ДА», 1217). Остальные кадры той же экскурсии — Мутновский и Горелый (01 и 03 стоят у национального парка, прогон 9). Байты — те же, что в public/images/mestechko/, без пережатия. Ключи под photos/vilyuchinsky/. Прогон 12 (14.10): памятники природы у Петропавловска — по тому же слову владельца «только наши фотографии или фото партнеров»: снимок партнёра «Местечко Камчатка» с его морской прогулки к острову Старичков — птичий базар на скалах (права у оператора, размещение по его «ДА», 1217). Остальные кадры той прогулки — катера и рулевой, острова на них не видно, они не берутся. Байты — те же, что в public/images/mestechko/ostrov-starichkov-02.jpg, без пережатия, метаданных в файле нет. Ключ под photos/starichkov/. Прогон 13 (15.10): два снимка владельца — для главных кадров статей летописи «Налычево» и «Вилючинский» вместо кадров партнёра «Местечко Камчатка»: согласия партнёра на показ вне его туров пока нет (владелец 15.10: «пока нет получим согласе востановим», миграция 1263; выкачена под номером 1260 и перенумерована из-за тёзки). Корякская сопка вечером (985, байты те же, что migrations/photos/804cf57c….jpg) и Вилючинский вулкан с облачным поясом (979, байты те же, что migrations/photos/853153….jpg) — без пережатия, метаданных в файлах нет. Копии нужны потому, что раздача статей (/api/images/s3/) отдаёт только ключи под photos/. Ключи под photos/nalychevo/vladelec-* и photos/vilyuchinsky/vladelec-*. Прогон 14 (15.10): снимок владельца для главного кадра статьи летописи «Южно-Камчатский заказник» вместо кадра партнёра «Край Вулканов»: слово владельца «публикуй фото и туры» (1177) — о турах партнёра, а не о карточках мест и летописи; его снимки с карточек мест спрятаны до согласия тем же порядком, что «Местечко» (миграция 1265). Бурый медведь с медвежонком на берегу Курильского озера (958, байты те же, что migrations/photos/84b7294d….jpg) — без пережатия, метаданных в файле нет. Ключ под photos/yuzhno-kamchatskij-zakaznik/vladelec-*. Прогон 15 (15.10): шесть снимков Wikimedia Commons двум карточкам, оставшимся без единого снимка после 1263 и 1265 (кадры партнёров спрятаны до их согласия, своих снимков этих мест у платформы нет): остров Старичков — Кулик Мария Владимировна, Aysa t, DoctisDM (CC BY-SA 4.0); парк «Ключевской» — Tamten (общественное достояние), Giorgio Galeotti (CC BY-SA 4.0), Zhuravell (CC BY-SA 3.0). Авторы и лицензии — extmetadata Commons (проба 941), оригиналы — закачка operator-photos, прогон 8. Пережаты до 1600 px по длинной стороне, метаданные сняты; авторство и лицензию пишет миграция 1271 рядом с ключом. Ключи под photos/starichkov/ и photos/vulkany-kamchatki/klyuchevskaya-*. Прогон 16 (29.10): шесть клипов Курильского озера из альбома видео гида-партнёра для его туров «Курильское озеро на внедорожнике» 3 и 4 дня (владелец: «красиво нужно делать и видео круто»). Вертикаль 540×960, 8 с, без звука, метаданные сняты (в роликах телефона бывает место съёмки); лиц туристов в отрезках нет. Ключи под videos/zaporozhets/. Прогон 17 (29.10): снимки туроператора «Лагуна Экспедиция» для его 34 туров (миграция 1343) — по слову владельца «они дали добро на использоваеие»: 133 кадра со страниц туров laguna-expedition.ru/tours/<id>-<адрес>, отобраны глазами (без людей главными в кадре — узнаваемых лиц крупным планом и групп, позирующих в камеру, — без баннеров, рекламы с адресом сайта, коллажей и кадров, обещающих то, чего в программе нет), пережаты до 1600 px по длинной стороне, JPEG 82, метаданные сняты (в части снимков были координаты места съёмки). Одинаковые файлы разных туров залиты один раз. Ключи под photos/laguna-expedition/. Прогон 18 (07.11): три клипа тура гида «Вачкажец + озёрки» из его папки «Видео вачкажец» — водопад и две евражки. Вертикаль 540×960, H.264, без звука, метаданные и место съёмки сняты (миграция 1398). Там же три клипа курильских туров гида из папки «Видео курильское» — пар над склоном, медведь бросается в воду, лошади у внедорожника; номер машины размыт во всех кадрах (миграция 1399). Прогон 19 (07.11): одиннадцать клипов туров «Местечка Камчатка» — ролики слайдеров со страниц их туров на mestechkokam.ru (владелец: «у Андрея Запорожца есть видео, а у Местечко нет, хотя на сайте у них должно быть»). Вертикаль 400×710 как в источнике, H.264, без звука, метаданные сняты; каждый кадр сверен с туром глазами (миграция 1404). Там же пять клипов из их Telegram-канала (владелец: «у них тг канал еще»): медведи Курильского, косатки Бухты Русской, вулкан над облаками — отрезки без людей и надписей, 540×960. Прогон 20 (07.11, владелец: «лагуна экспедиция … так же с видео и у них тоже есть тг»): 13 клипов «Лагуны Экспедиции» — 11 вырезаны вертикалью из роликов главной laguna-expedition.ru, 2 из их канала t.me/laguna_expedition; без людей, без звука, метаданные сняты (миграция 1405). Прогон 21 (08.11, владелец: «да и разберись почему грузяться не сразу в s3»): снимки партнёров, лежавшие в папке сайта public/images, — «Рыбалка на Камчатке», «Кутха», «Лагуна Прокат», «Местечко Камчатка», партнёры сайта (partners/), «Шатун», сплав по Быстрой (tours/), Volcanoesland, гид-партнёр, перевозчик — с их уменьшенными копиями .320/.640/.1280.webp и логотипами. Байты те же, что в public/images/<папка>/, ключи под photos/<та же папка>/. В этом прогоне на сайте ничего не переключается: пути в базе и манифест копий меняет следующий PR, когда заливка прочитана обратно. Не залит partners/topkam/portal.jpg — внутри страница «404» nginx, а не снимок; ссылок на него нет, он удалён.",
   "items": [
     {
       "file": "media/s3/videos/fishingkam/clip-fish-strike.mp4",
@@ -1210,6 +1210,3730 @@
     {
       "file": "media/s3/videos/lagexp/clip-dva-vulkana.poster.jpg",
       "key": "videos/lagexp/clip-dva-vulkana.poster.jpg"
+    },
+    {
+      "file": "media/s3/photos/fishingkam/2025-01-09_113928_1_.320.webp",
+      "key": "photos/fishingkam/2025-01-09_113928_1_.320.webp"
+    },
+    {
+      "file": "media/s3/photos/fishingkam/2025-01-09_113928_1_.640.webp",
+      "key": "photos/fishingkam/2025-01-09_113928_1_.640.webp"
+    },
+    {
+      "file": "media/s3/photos/fishingkam/2025-01-09_113928_1_.jpg",
+      "key": "photos/fishingkam/2025-01-09_113928_1_.jpg"
+    },
+    {
+      "file": "media/s3/photos/fishingkam/2025-01-09_113932-mi.320.webp",
+      "key": "photos/fishingkam/2025-01-09_113932-mi.320.webp"
+    },
+    {
+      "file": "media/s3/photos/fishingkam/2025-01-09_113932-mi.640.webp",
+      "key": "photos/fishingkam/2025-01-09_113932-mi.640.webp"
+    },
+    {
+      "file": "media/s3/photos/fishingkam/2025-01-09_113932-mi.png",
+      "key": "photos/fishingkam/2025-01-09_113932-mi.png"
+    },
+    {
+      "file": "media/s3/photos/fishingkam/2025-01-09_114326-mi.320.webp",
+      "key": "photos/fishingkam/2025-01-09_114326-mi.320.webp"
+    },
+    {
+      "file": "media/s3/photos/fishingkam/2025-01-09_114326-mi.640.webp",
+      "key": "photos/fishingkam/2025-01-09_114326-mi.640.webp"
+    },
+    {
+      "file": "media/s3/photos/fishingkam/2025-01-09_114326-mi.png",
+      "key": "photos/fishingkam/2025-01-09_114326-mi.png"
+    },
+    {
+      "file": "media/s3/photos/fishingkam/2025-01-09_114531_1.320.webp",
+      "key": "photos/fishingkam/2025-01-09_114531_1.320.webp"
+    },
+    {
+      "file": "media/s3/photos/fishingkam/2025-01-09_114531_1.640.webp",
+      "key": "photos/fishingkam/2025-01-09_114531_1.640.webp"
+    },
+    {
+      "file": "media/s3/photos/fishingkam/2025-01-09_114531_1.jpg",
+      "key": "photos/fishingkam/2025-01-09_114531_1.jpg"
+    },
+    {
+      "file": "media/s3/photos/fishingkam/2025-01-09_114821_1.320.webp",
+      "key": "photos/fishingkam/2025-01-09_114821_1.320.webp"
+    },
+    {
+      "file": "media/s3/photos/fishingkam/2025-01-09_114821_1.640.webp",
+      "key": "photos/fishingkam/2025-01-09_114821_1.640.webp"
+    },
+    {
+      "file": "media/s3/photos/fishingkam/2025-01-09_114821_1.jpg",
+      "key": "photos/fishingkam/2025-01-09_114821_1.jpg"
+    },
+    {
+      "file": "media/s3/photos/fishingkam/2025-01-27_142444.1280.webp",
+      "key": "photos/fishingkam/2025-01-27_142444.1280.webp"
+    },
+    {
+      "file": "media/s3/photos/fishingkam/2025-01-27_142444.320.webp",
+      "key": "photos/fishingkam/2025-01-27_142444.320.webp"
+    },
+    {
+      "file": "media/s3/photos/fishingkam/2025-01-27_142444.640.webp",
+      "key": "photos/fishingkam/2025-01-27_142444.640.webp"
+    },
+    {
+      "file": "media/s3/photos/fishingkam/2025-01-27_142444.jpg",
+      "key": "photos/fishingkam/2025-01-27_142444.jpg"
+    },
+    {
+      "file": "media/s3/photos/fishingkam/2025-01-27_142510_1.320.webp",
+      "key": "photos/fishingkam/2025-01-27_142510_1.320.webp"
+    },
+    {
+      "file": "media/s3/photos/fishingkam/2025-01-27_142510_1.640.webp",
+      "key": "photos/fishingkam/2025-01-27_142510_1.640.webp"
+    },
+    {
+      "file": "media/s3/photos/fishingkam/2025-01-27_142510_1.jpg",
+      "key": "photos/fishingkam/2025-01-27_142510_1.jpg"
+    },
+    {
+      "file": "media/s3/photos/fishingkam/2025-01-27_142551.320.webp",
+      "key": "photos/fishingkam/2025-01-27_142551.320.webp"
+    },
+    {
+      "file": "media/s3/photos/fishingkam/2025-01-27_142551.640.webp",
+      "key": "photos/fishingkam/2025-01-27_142551.640.webp"
+    },
+    {
+      "file": "media/s3/photos/fishingkam/2025-01-27_142551.jpg",
+      "key": "photos/fishingkam/2025-01-27_142551.jpg"
+    },
+    {
+      "file": "media/s3/photos/fishingkam/2025-01-27_142551_1.320.webp",
+      "key": "photos/fishingkam/2025-01-27_142551_1.320.webp"
+    },
+    {
+      "file": "media/s3/photos/fishingkam/2025-01-27_142551_1.640.webp",
+      "key": "photos/fishingkam/2025-01-27_142551_1.640.webp"
+    },
+    {
+      "file": "media/s3/photos/fishingkam/2025-01-27_142551_1.jpg",
+      "key": "photos/fishingkam/2025-01-27_142551_1.jpg"
+    },
+    {
+      "file": "media/s3/photos/fishingkam/2025-01-27_142653.1280.webp",
+      "key": "photos/fishingkam/2025-01-27_142653.1280.webp"
+    },
+    {
+      "file": "media/s3/photos/fishingkam/2025-01-27_142653.320.webp",
+      "key": "photos/fishingkam/2025-01-27_142653.320.webp"
+    },
+    {
+      "file": "media/s3/photos/fishingkam/2025-01-27_142653.640.webp",
+      "key": "photos/fishingkam/2025-01-27_142653.640.webp"
+    },
+    {
+      "file": "media/s3/photos/fishingkam/2025-01-27_142653.jpg",
+      "key": "photos/fishingkam/2025-01-27_142653.jpg"
+    },
+    {
+      "file": "media/s3/photos/fishingkam/2025-01-27_142814.320.webp",
+      "key": "photos/fishingkam/2025-01-27_142814.320.webp"
+    },
+    {
+      "file": "media/s3/photos/fishingkam/2025-01-27_142814.640.webp",
+      "key": "photos/fishingkam/2025-01-27_142814.640.webp"
+    },
+    {
+      "file": "media/s3/photos/fishingkam/2025-01-27_142814.jpg",
+      "key": "photos/fishingkam/2025-01-27_142814.jpg"
+    },
+    {
+      "file": "media/s3/photos/fishingkam/2025-01-27_142818_1.320.webp",
+      "key": "photos/fishingkam/2025-01-27_142818_1.320.webp"
+    },
+    {
+      "file": "media/s3/photos/fishingkam/2025-01-27_142818_1.640.webp",
+      "key": "photos/fishingkam/2025-01-27_142818_1.640.webp"
+    },
+    {
+      "file": "media/s3/photos/fishingkam/2025-01-27_142818_1.jpg",
+      "key": "photos/fishingkam/2025-01-27_142818_1.jpg"
+    },
+    {
+      "file": "media/s3/photos/fishingkam/2025-02-10_151416.1280.webp",
+      "key": "photos/fishingkam/2025-02-10_151416.1280.webp"
+    },
+    {
+      "file": "media/s3/photos/fishingkam/2025-02-10_151416.320.webp",
+      "key": "photos/fishingkam/2025-02-10_151416.320.webp"
+    },
+    {
+      "file": "media/s3/photos/fishingkam/2025-02-10_151416.640.webp",
+      "key": "photos/fishingkam/2025-02-10_151416.640.webp"
+    },
+    {
+      "file": "media/s3/photos/fishingkam/2025-02-10_151416.jpg",
+      "key": "photos/fishingkam/2025-02-10_151416.jpg"
+    },
+    {
+      "file": "media/s3/photos/fishingkam/2025-02-10_151421.1280.webp",
+      "key": "photos/fishingkam/2025-02-10_151421.1280.webp"
+    },
+    {
+      "file": "media/s3/photos/fishingkam/2025-02-10_151421.320.webp",
+      "key": "photos/fishingkam/2025-02-10_151421.320.webp"
+    },
+    {
+      "file": "media/s3/photos/fishingkam/2025-02-10_151421.640.webp",
+      "key": "photos/fishingkam/2025-02-10_151421.640.webp"
+    },
+    {
+      "file": "media/s3/photos/fishingkam/2025-02-10_151421.jpg",
+      "key": "photos/fishingkam/2025-02-10_151421.jpg"
+    },
+    {
+      "file": "media/s3/photos/fishingkam/2025-02-10_151433.320.webp",
+      "key": "photos/fishingkam/2025-02-10_151433.320.webp"
+    },
+    {
+      "file": "media/s3/photos/fishingkam/2025-02-10_151433.640.webp",
+      "key": "photos/fishingkam/2025-02-10_151433.640.webp"
+    },
+    {
+      "file": "media/s3/photos/fishingkam/2025-02-10_151433.jpg",
+      "key": "photos/fishingkam/2025-02-10_151433.jpg"
+    },
+    {
+      "file": "media/s3/photos/fishingkam/2025-02-10_151441.1280.webp",
+      "key": "photos/fishingkam/2025-02-10_151441.1280.webp"
+    },
+    {
+      "file": "media/s3/photos/fishingkam/2025-02-10_151441.320.webp",
+      "key": "photos/fishingkam/2025-02-10_151441.320.webp"
+    },
+    {
+      "file": "media/s3/photos/fishingkam/2025-02-10_151441.640.webp",
+      "key": "photos/fishingkam/2025-02-10_151441.640.webp"
+    },
+    {
+      "file": "media/s3/photos/fishingkam/2025-02-10_151441.jpg",
+      "key": "photos/fishingkam/2025-02-10_151441.jpg"
+    },
+    {
+      "file": "media/s3/photos/fishingkam/2025-02-10_151450.1280.webp",
+      "key": "photos/fishingkam/2025-02-10_151450.1280.webp"
+    },
+    {
+      "file": "media/s3/photos/fishingkam/2025-02-10_151450.320.webp",
+      "key": "photos/fishingkam/2025-02-10_151450.320.webp"
+    },
+    {
+      "file": "media/s3/photos/fishingkam/2025-02-10_151450.640.webp",
+      "key": "photos/fishingkam/2025-02-10_151450.640.webp"
+    },
+    {
+      "file": "media/s3/photos/fishingkam/2025-02-10_151450.jpg",
+      "key": "photos/fishingkam/2025-02-10_151450.jpg"
+    },
+    {
+      "file": "media/s3/photos/fishingkam/2026-08-23_autumn-1.320.webp",
+      "key": "photos/fishingkam/2026-08-23_autumn-1.320.webp"
+    },
+    {
+      "file": "media/s3/photos/fishingkam/2026-08-23_autumn-1.640.webp",
+      "key": "photos/fishingkam/2026-08-23_autumn-1.640.webp"
+    },
+    {
+      "file": "media/s3/photos/fishingkam/2026-08-23_autumn-1.jpg",
+      "key": "photos/fishingkam/2026-08-23_autumn-1.jpg"
+    },
+    {
+      "file": "media/s3/photos/fishingkam/2026-08-23_autumn-2.320.webp",
+      "key": "photos/fishingkam/2026-08-23_autumn-2.320.webp"
+    },
+    {
+      "file": "media/s3/photos/fishingkam/2026-08-23_autumn-2.640.webp",
+      "key": "photos/fishingkam/2026-08-23_autumn-2.640.webp"
+    },
+    {
+      "file": "media/s3/photos/fishingkam/2026-08-23_autumn-2.jpg",
+      "key": "photos/fishingkam/2026-08-23_autumn-2.jpg"
+    },
+    {
+      "file": "media/s3/photos/fishingkam/2026-08-23_autumn-3.320.webp",
+      "key": "photos/fishingkam/2026-08-23_autumn-3.320.webp"
+    },
+    {
+      "file": "media/s3/photos/fishingkam/2026-08-23_autumn-3.640.webp",
+      "key": "photos/fishingkam/2026-08-23_autumn-3.640.webp"
+    },
+    {
+      "file": "media/s3/photos/fishingkam/2026-08-23_autumn-3.jpg",
+      "key": "photos/fishingkam/2026-08-23_autumn-3.jpg"
+    },
+    {
+      "file": "media/s3/photos/fishingkam/2026-08-23_autumn-4.320.webp",
+      "key": "photos/fishingkam/2026-08-23_autumn-4.320.webp"
+    },
+    {
+      "file": "media/s3/photos/fishingkam/2026-08-23_autumn-4.640.webp",
+      "key": "photos/fishingkam/2026-08-23_autumn-4.640.webp"
+    },
+    {
+      "file": "media/s3/photos/fishingkam/2026-08-23_autumn-4.jpg",
+      "key": "photos/fishingkam/2026-08-23_autumn-4.jpg"
+    },
+    {
+      "file": "media/s3/photos/fishingkam/_-min.1280.webp",
+      "key": "photos/fishingkam/_-min.1280.webp"
+    },
+    {
+      "file": "media/s3/photos/fishingkam/_-min.320.webp",
+      "key": "photos/fishingkam/_-min.320.webp"
+    },
+    {
+      "file": "media/s3/photos/fishingkam/_-min.640.webp",
+      "key": "photos/fishingkam/_-min.640.webp"
+    },
+    {
+      "file": "media/s3/photos/fishingkam/_-min.jpg",
+      "key": "photos/fishingkam/_-min.jpg"
+    },
+    {
+      "file": "media/s3/photos/fishingkam/_.1280.webp",
+      "key": "photos/fishingkam/_.1280.webp"
+    },
+    {
+      "file": "media/s3/photos/fishingkam/_.320.webp",
+      "key": "photos/fishingkam/_.320.webp"
+    },
+    {
+      "file": "media/s3/photos/fishingkam/_.640.webp",
+      "key": "photos/fishingkam/_.640.webp"
+    },
+    {
+      "file": "media/s3/photos/fishingkam/_.jpeg",
+      "key": "photos/fishingkam/_.jpeg"
+    },
+    {
+      "file": "media/s3/photos/fishingkam/__.320.webp",
+      "key": "photos/fishingkam/__.320.webp"
+    },
+    {
+      "file": "media/s3/photos/fishingkam/__.640.webp",
+      "key": "photos/fishingkam/__.640.webp"
+    },
+    {
+      "file": "media/s3/photos/fishingkam/__.jpeg",
+      "key": "photos/fishingkam/__.jpeg"
+    },
+    {
+      "file": "media/s3/photos/fishingkam/catch-01.320.webp",
+      "key": "photos/fishingkam/catch-01.320.webp"
+    },
+    {
+      "file": "media/s3/photos/fishingkam/catch-01.640.webp",
+      "key": "photos/fishingkam/catch-01.640.webp"
+    },
+    {
+      "file": "media/s3/photos/fishingkam/catch-01.jpg",
+      "key": "photos/fishingkam/catch-01.jpg"
+    },
+    {
+      "file": "media/s3/photos/fishingkam/catch-02.320.webp",
+      "key": "photos/fishingkam/catch-02.320.webp"
+    },
+    {
+      "file": "media/s3/photos/fishingkam/catch-02.640.webp",
+      "key": "photos/fishingkam/catch-02.640.webp"
+    },
+    {
+      "file": "media/s3/photos/fishingkam/catch-02.jpg",
+      "key": "photos/fishingkam/catch-02.jpg"
+    },
+    {
+      "file": "media/s3/photos/fishingkam/catch-03.320.webp",
+      "key": "photos/fishingkam/catch-03.320.webp"
+    },
+    {
+      "file": "media/s3/photos/fishingkam/catch-03.640.webp",
+      "key": "photos/fishingkam/catch-03.640.webp"
+    },
+    {
+      "file": "media/s3/photos/fishingkam/catch-03.jpg",
+      "key": "photos/fishingkam/catch-03.jpg"
+    },
+    {
+      "file": "media/s3/photos/fishingkam/catch-04.320.webp",
+      "key": "photos/fishingkam/catch-04.320.webp"
+    },
+    {
+      "file": "media/s3/photos/fishingkam/catch-04.640.webp",
+      "key": "photos/fishingkam/catch-04.640.webp"
+    },
+    {
+      "file": "media/s3/photos/fishingkam/catch-04.jpg",
+      "key": "photos/fishingkam/catch-04.jpg"
+    },
+    {
+      "file": "media/s3/photos/fishingkam/catch-05.320.webp",
+      "key": "photos/fishingkam/catch-05.320.webp"
+    },
+    {
+      "file": "media/s3/photos/fishingkam/catch-05.640.webp",
+      "key": "photos/fishingkam/catch-05.640.webp"
+    },
+    {
+      "file": "media/s3/photos/fishingkam/catch-05.jpg",
+      "key": "photos/fishingkam/catch-05.jpg"
+    },
+    {
+      "file": "media/s3/photos/fishingkam/catch-06.320.webp",
+      "key": "photos/fishingkam/catch-06.320.webp"
+    },
+    {
+      "file": "media/s3/photos/fishingkam/catch-06.640.webp",
+      "key": "photos/fishingkam/catch-06.640.webp"
+    },
+    {
+      "file": "media/s3/photos/fishingkam/catch-06.jpg",
+      "key": "photos/fishingkam/catch-06.jpg"
+    },
+    {
+      "file": "media/s3/photos/fishingkam/image_6-min_1.320.webp",
+      "key": "photos/fishingkam/image_6-min_1.320.webp"
+    },
+    {
+      "file": "media/s3/photos/fishingkam/image_6-min_1.640.webp",
+      "key": "photos/fishingkam/image_6-min_1.640.webp"
+    },
+    {
+      "file": "media/s3/photos/fishingkam/image_6-min_1.png",
+      "key": "photos/fishingkam/image_6-min_1.png"
+    },
+    {
+      "file": "media/s3/photos/fishingkam/image_8-min_1.320.webp",
+      "key": "photos/fishingkam/image_8-min_1.320.webp"
+    },
+    {
+      "file": "media/s3/photos/fishingkam/image_8-min_1.640.webp",
+      "key": "photos/fishingkam/image_8-min_1.640.webp"
+    },
+    {
+      "file": "media/s3/photos/fishingkam/image_8-min_1.png",
+      "key": "photos/fishingkam/image_8-min_1.png"
+    },
+    {
+      "file": "media/s3/photos/fishingkam/image_8.1280.webp",
+      "key": "photos/fishingkam/image_8.1280.webp"
+    },
+    {
+      "file": "media/s3/photos/fishingkam/image_8.320.webp",
+      "key": "photos/fishingkam/image_8.320.webp"
+    },
+    {
+      "file": "media/s3/photos/fishingkam/image_8.640.webp",
+      "key": "photos/fishingkam/image_8.640.webp"
+    },
+    {
+      "file": "media/s3/photos/fishingkam/image_8.png",
+      "key": "photos/fishingkam/image_8.png"
+    },
+    {
+      "file": "media/s3/photos/fishingkam/logo.320.webp",
+      "key": "photos/fishingkam/logo.320.webp"
+    },
+    {
+      "file": "media/s3/photos/fishingkam/logo.640.webp",
+      "key": "photos/fishingkam/logo.640.webp"
+    },
+    {
+      "file": "media/s3/photos/fishingkam/logo.png",
+      "key": "photos/fishingkam/logo.png"
+    },
+    {
+      "file": "media/s3/photos/kutha/kutha-01.320.webp",
+      "key": "photos/kutha/kutha-01.320.webp"
+    },
+    {
+      "file": "media/s3/photos/kutha/kutha-01.640.webp",
+      "key": "photos/kutha/kutha-01.640.webp"
+    },
+    {
+      "file": "media/s3/photos/kutha/kutha-01.jpg",
+      "key": "photos/kutha/kutha-01.jpg"
+    },
+    {
+      "file": "media/s3/photos/kutha/kutha-02.320.webp",
+      "key": "photos/kutha/kutha-02.320.webp"
+    },
+    {
+      "file": "media/s3/photos/kutha/kutha-02.640.webp",
+      "key": "photos/kutha/kutha-02.640.webp"
+    },
+    {
+      "file": "media/s3/photos/kutha/kutha-02.jpg",
+      "key": "photos/kutha/kutha-02.jpg"
+    },
+    {
+      "file": "media/s3/photos/kutha/kutha-03.320.webp",
+      "key": "photos/kutha/kutha-03.320.webp"
+    },
+    {
+      "file": "media/s3/photos/kutha/kutha-03.640.webp",
+      "key": "photos/kutha/kutha-03.640.webp"
+    },
+    {
+      "file": "media/s3/photos/kutha/kutha-03.jpg",
+      "key": "photos/kutha/kutha-03.jpg"
+    },
+    {
+      "file": "media/s3/photos/kutha/kutha-04.320.webp",
+      "key": "photos/kutha/kutha-04.320.webp"
+    },
+    {
+      "file": "media/s3/photos/kutha/kutha-04.640.webp",
+      "key": "photos/kutha/kutha-04.640.webp"
+    },
+    {
+      "file": "media/s3/photos/kutha/kutha-04.jpg",
+      "key": "photos/kutha/kutha-04.jpg"
+    },
+    {
+      "file": "media/s3/photos/kutha/kutha-05.320.webp",
+      "key": "photos/kutha/kutha-05.320.webp"
+    },
+    {
+      "file": "media/s3/photos/kutha/kutha-05.640.webp",
+      "key": "photos/kutha/kutha-05.640.webp"
+    },
+    {
+      "file": "media/s3/photos/kutha/kutha-05.jpg",
+      "key": "photos/kutha/kutha-05.jpg"
+    },
+    {
+      "file": "media/s3/photos/kutha/kutha-06.320.webp",
+      "key": "photos/kutha/kutha-06.320.webp"
+    },
+    {
+      "file": "media/s3/photos/kutha/kutha-06.640.webp",
+      "key": "photos/kutha/kutha-06.640.webp"
+    },
+    {
+      "file": "media/s3/photos/kutha/kutha-06.jpg",
+      "key": "photos/kutha/kutha-06.jpg"
+    },
+    {
+      "file": "media/s3/photos/kutha/kutha-07.320.webp",
+      "key": "photos/kutha/kutha-07.320.webp"
+    },
+    {
+      "file": "media/s3/photos/kutha/kutha-07.640.webp",
+      "key": "photos/kutha/kutha-07.640.webp"
+    },
+    {
+      "file": "media/s3/photos/kutha/kutha-07.jpg",
+      "key": "photos/kutha/kutha-07.jpg"
+    },
+    {
+      "file": "media/s3/photos/kutha/kutha-08.320.webp",
+      "key": "photos/kutha/kutha-08.320.webp"
+    },
+    {
+      "file": "media/s3/photos/kutha/kutha-08.640.webp",
+      "key": "photos/kutha/kutha-08.640.webp"
+    },
+    {
+      "file": "media/s3/photos/kutha/kutha-08.jpg",
+      "key": "photos/kutha/kutha-08.jpg"
+    },
+    {
+      "file": "media/s3/photos/kutha/kutha-09.320.webp",
+      "key": "photos/kutha/kutha-09.320.webp"
+    },
+    {
+      "file": "media/s3/photos/kutha/kutha-09.640.webp",
+      "key": "photos/kutha/kutha-09.640.webp"
+    },
+    {
+      "file": "media/s3/photos/kutha/kutha-09.jpg",
+      "key": "photos/kutha/kutha-09.jpg"
+    },
+    {
+      "file": "media/s3/photos/kutha/kutha-10.320.webp",
+      "key": "photos/kutha/kutha-10.320.webp"
+    },
+    {
+      "file": "media/s3/photos/kutha/kutha-10.640.webp",
+      "key": "photos/kutha/kutha-10.640.webp"
+    },
+    {
+      "file": "media/s3/photos/kutha/kutha-10.jpg",
+      "key": "photos/kutha/kutha-10.jpg"
+    },
+    {
+      "file": "media/s3/photos/kutha/kutha-11.320.webp",
+      "key": "photos/kutha/kutha-11.320.webp"
+    },
+    {
+      "file": "media/s3/photos/kutha/kutha-11.640.webp",
+      "key": "photos/kutha/kutha-11.640.webp"
+    },
+    {
+      "file": "media/s3/photos/kutha/kutha-11.jpg",
+      "key": "photos/kutha/kutha-11.jpg"
+    },
+    {
+      "file": "media/s3/photos/kutha/kutha-12.320.webp",
+      "key": "photos/kutha/kutha-12.320.webp"
+    },
+    {
+      "file": "media/s3/photos/kutha/kutha-12.640.webp",
+      "key": "photos/kutha/kutha-12.640.webp"
+    },
+    {
+      "file": "media/s3/photos/kutha/kutha-12.jpg",
+      "key": "photos/kutha/kutha-12.jpg"
+    },
+    {
+      "file": "media/s3/photos/kutha/kutha-13.320.webp",
+      "key": "photos/kutha/kutha-13.320.webp"
+    },
+    {
+      "file": "media/s3/photos/kutha/kutha-13.640.webp",
+      "key": "photos/kutha/kutha-13.640.webp"
+    },
+    {
+      "file": "media/s3/photos/kutha/kutha-13.jpg",
+      "key": "photos/kutha/kutha-13.jpg"
+    },
+    {
+      "file": "media/s3/photos/kutha/kutha-14.320.webp",
+      "key": "photos/kutha/kutha-14.320.webp"
+    },
+    {
+      "file": "media/s3/photos/kutha/kutha-14.640.webp",
+      "key": "photos/kutha/kutha-14.640.webp"
+    },
+    {
+      "file": "media/s3/photos/kutha/kutha-14.jpg",
+      "key": "photos/kutha/kutha-14.jpg"
+    },
+    {
+      "file": "media/s3/photos/kutha/kutha-15.320.webp",
+      "key": "photos/kutha/kutha-15.320.webp"
+    },
+    {
+      "file": "media/s3/photos/kutha/kutha-15.640.webp",
+      "key": "photos/kutha/kutha-15.640.webp"
+    },
+    {
+      "file": "media/s3/photos/kutha/kutha-15.jpg",
+      "key": "photos/kutha/kutha-15.jpg"
+    },
+    {
+      "file": "media/s3/photos/kutha/kutha-16.320.webp",
+      "key": "photos/kutha/kutha-16.320.webp"
+    },
+    {
+      "file": "media/s3/photos/kutha/kutha-16.640.webp",
+      "key": "photos/kutha/kutha-16.640.webp"
+    },
+    {
+      "file": "media/s3/photos/kutha/kutha-16.jpg",
+      "key": "photos/kutha/kutha-16.jpg"
+    },
+    {
+      "file": "media/s3/photos/kutha/kutha-17.320.webp",
+      "key": "photos/kutha/kutha-17.320.webp"
+    },
+    {
+      "file": "media/s3/photos/kutha/kutha-17.640.webp",
+      "key": "photos/kutha/kutha-17.640.webp"
+    },
+    {
+      "file": "media/s3/photos/kutha/kutha-17.jpg",
+      "key": "photos/kutha/kutha-17.jpg"
+    },
+    {
+      "file": "media/s3/photos/kutha/kutha-18.320.webp",
+      "key": "photos/kutha/kutha-18.320.webp"
+    },
+    {
+      "file": "media/s3/photos/kutha/kutha-18.640.webp",
+      "key": "photos/kutha/kutha-18.640.webp"
+    },
+    {
+      "file": "media/s3/photos/kutha/kutha-18.jpg",
+      "key": "photos/kutha/kutha-18.jpg"
+    },
+    {
+      "file": "media/s3/photos/kutha/kutha-19.320.webp",
+      "key": "photos/kutha/kutha-19.320.webp"
+    },
+    {
+      "file": "media/s3/photos/kutha/kutha-19.640.webp",
+      "key": "photos/kutha/kutha-19.640.webp"
+    },
+    {
+      "file": "media/s3/photos/kutha/kutha-19.jpg",
+      "key": "photos/kutha/kutha-19.jpg"
+    },
+    {
+      "file": "media/s3/photos/kutha/kutha-20.320.webp",
+      "key": "photos/kutha/kutha-20.320.webp"
+    },
+    {
+      "file": "media/s3/photos/kutha/kutha-20.640.webp",
+      "key": "photos/kutha/kutha-20.640.webp"
+    },
+    {
+      "file": "media/s3/photos/kutha/kutha-20.jpg",
+      "key": "photos/kutha/kutha-20.jpg"
+    },
+    {
+      "file": "media/s3/photos/kutha/kutha-21.320.webp",
+      "key": "photos/kutha/kutha-21.320.webp"
+    },
+    {
+      "file": "media/s3/photos/kutha/kutha-21.640.webp",
+      "key": "photos/kutha/kutha-21.640.webp"
+    },
+    {
+      "file": "media/s3/photos/kutha/kutha-21.jpg",
+      "key": "photos/kutha/kutha-21.jpg"
+    },
+    {
+      "file": "media/s3/photos/kutha/kutha-22.320.webp",
+      "key": "photos/kutha/kutha-22.320.webp"
+    },
+    {
+      "file": "media/s3/photos/kutha/kutha-22.640.webp",
+      "key": "photos/kutha/kutha-22.640.webp"
+    },
+    {
+      "file": "media/s3/photos/kutha/kutha-22.jpg",
+      "key": "photos/kutha/kutha-22.jpg"
+    },
+    {
+      "file": "media/s3/photos/laguna-prokat/laguna-fleet-tank300.1280.webp",
+      "key": "photos/laguna-prokat/laguna-fleet-tank300.1280.webp"
+    },
+    {
+      "file": "media/s3/photos/laguna-prokat/laguna-fleet-tank300.320.webp",
+      "key": "photos/laguna-prokat/laguna-fleet-tank300.320.webp"
+    },
+    {
+      "file": "media/s3/photos/laguna-prokat/laguna-fleet-tank300.640.webp",
+      "key": "photos/laguna-prokat/laguna-fleet-tank300.640.webp"
+    },
+    {
+      "file": "media/s3/photos/laguna-prokat/laguna-fleet-tank300.jpg",
+      "key": "photos/laguna-prokat/laguna-fleet-tank300.jpg"
+    },
+    {
+      "file": "media/s3/photos/laguna-prokat/laguna-ford-transit.1280.webp",
+      "key": "photos/laguna-prokat/laguna-ford-transit.1280.webp"
+    },
+    {
+      "file": "media/s3/photos/laguna-prokat/laguna-ford-transit.320.webp",
+      "key": "photos/laguna-prokat/laguna-ford-transit.320.webp"
+    },
+    {
+      "file": "media/s3/photos/laguna-prokat/laguna-ford-transit.640.webp",
+      "key": "photos/laguna-prokat/laguna-ford-transit.640.webp"
+    },
+    {
+      "file": "media/s3/photos/laguna-prokat/laguna-ford-transit.jpg",
+      "key": "photos/laguna-prokat/laguna-ford-transit.jpg"
+    },
+    {
+      "file": "media/s3/photos/laguna-prokat/laguna-logo.png",
+      "key": "photos/laguna-prokat/laguna-logo.png"
+    },
+    {
+      "file": "media/s3/photos/laguna-prokat/laguna-sever-truck.320.webp",
+      "key": "photos/laguna-prokat/laguna-sever-truck.320.webp"
+    },
+    {
+      "file": "media/s3/photos/laguna-prokat/laguna-sever-truck.640.webp",
+      "key": "photos/laguna-prokat/laguna-sever-truck.640.webp"
+    },
+    {
+      "file": "media/s3/photos/laguna-prokat/laguna-sever-truck.jpg",
+      "key": "photos/laguna-prokat/laguna-sever-truck.jpg"
+    },
+    {
+      "file": "media/s3/photos/laguna-prokat/laguna-sever-trucks-row.1280.webp",
+      "key": "photos/laguna-prokat/laguna-sever-trucks-row.1280.webp"
+    },
+    {
+      "file": "media/s3/photos/laguna-prokat/laguna-sever-trucks-row.320.webp",
+      "key": "photos/laguna-prokat/laguna-sever-trucks-row.320.webp"
+    },
+    {
+      "file": "media/s3/photos/laguna-prokat/laguna-sever-trucks-row.640.webp",
+      "key": "photos/laguna-prokat/laguna-sever-trucks-row.640.webp"
+    },
+    {
+      "file": "media/s3/photos/laguna-prokat/laguna-sever-trucks-row.jpg",
+      "key": "photos/laguna-prokat/laguna-sever-trucks-row.jpg"
+    },
+    {
+      "file": "media/s3/photos/laguna-prokat/laguna-suzuki-jimny.320.webp",
+      "key": "photos/laguna-prokat/laguna-suzuki-jimny.320.webp"
+    },
+    {
+      "file": "media/s3/photos/laguna-prokat/laguna-suzuki-jimny.640.webp",
+      "key": "photos/laguna-prokat/laguna-suzuki-jimny.640.webp"
+    },
+    {
+      "file": "media/s3/photos/laguna-prokat/laguna-suzuki-jimny.jpg",
+      "key": "photos/laguna-prokat/laguna-suzuki-jimny.jpg"
+    },
+    {
+      "file": "media/s3/photos/laguna-prokat/laguna-tank300-beach.320.webp",
+      "key": "photos/laguna-prokat/laguna-tank300-beach.320.webp"
+    },
+    {
+      "file": "media/s3/photos/laguna-prokat/laguna-tank300-beach.640.webp",
+      "key": "photos/laguna-prokat/laguna-tank300-beach.640.webp"
+    },
+    {
+      "file": "media/s3/photos/laguna-prokat/laguna-tank300-beach.jpg",
+      "key": "photos/laguna-prokat/laguna-tank300-beach.jpg"
+    },
+    {
+      "file": "media/s3/photos/laguna-prokat/laguna-tank300-lava.320.webp",
+      "key": "photos/laguna-prokat/laguna-tank300-lava.320.webp"
+    },
+    {
+      "file": "media/s3/photos/laguna-prokat/laguna-tank300-lava.640.webp",
+      "key": "photos/laguna-prokat/laguna-tank300-lava.640.webp"
+    },
+    {
+      "file": "media/s3/photos/laguna-prokat/laguna-tank300-lava.jpg",
+      "key": "photos/laguna-prokat/laguna-tank300-lava.jpg"
+    },
+    {
+      "file": "media/s3/photos/laguna-prokat/laguna-tank300-row.1280.webp",
+      "key": "photos/laguna-prokat/laguna-tank300-row.1280.webp"
+    },
+    {
+      "file": "media/s3/photos/laguna-prokat/laguna-tank300-row.320.webp",
+      "key": "photos/laguna-prokat/laguna-tank300-row.320.webp"
+    },
+    {
+      "file": "media/s3/photos/laguna-prokat/laguna-tank300-row.640.webp",
+      "key": "photos/laguna-prokat/laguna-tank300-row.640.webp"
+    },
+    {
+      "file": "media/s3/photos/laguna-prokat/laguna-tank300-row.jpg",
+      "key": "photos/laguna-prokat/laguna-tank300-row.jpg"
+    },
+    {
+      "file": "media/s3/photos/laguna-prokat/laguna-ural-vahtovka.320.webp",
+      "key": "photos/laguna-prokat/laguna-ural-vahtovka.320.webp"
+    },
+    {
+      "file": "media/s3/photos/laguna-prokat/laguna-ural-vahtovka.640.webp",
+      "key": "photos/laguna-prokat/laguna-ural-vahtovka.640.webp"
+    },
+    {
+      "file": "media/s3/photos/laguna-prokat/laguna-ural-vahtovka.jpg",
+      "key": "photos/laguna-prokat/laguna-ural-vahtovka.jpg"
+    },
+    {
+      "file": "media/s3/photos/mestechko/avachinskiy-pereval-01.1280.webp",
+      "key": "photos/mestechko/avachinskiy-pereval-01.1280.webp"
+    },
+    {
+      "file": "media/s3/photos/mestechko/avachinskiy-pereval-01.320.webp",
+      "key": "photos/mestechko/avachinskiy-pereval-01.320.webp"
+    },
+    {
+      "file": "media/s3/photos/mestechko/avachinskiy-pereval-01.640.webp",
+      "key": "photos/mestechko/avachinskiy-pereval-01.640.webp"
+    },
+    {
+      "file": "media/s3/photos/mestechko/avachinskiy-pereval-01.jpg",
+      "key": "photos/mestechko/avachinskiy-pereval-01.jpg"
+    },
+    {
+      "file": "media/s3/photos/mestechko/avachinskiy-pereval-02.1280.webp",
+      "key": "photos/mestechko/avachinskiy-pereval-02.1280.webp"
+    },
+    {
+      "file": "media/s3/photos/mestechko/avachinskiy-pereval-02.320.webp",
+      "key": "photos/mestechko/avachinskiy-pereval-02.320.webp"
+    },
+    {
+      "file": "media/s3/photos/mestechko/avachinskiy-pereval-02.640.webp",
+      "key": "photos/mestechko/avachinskiy-pereval-02.640.webp"
+    },
+    {
+      "file": "media/s3/photos/mestechko/avachinskiy-pereval-02.jpg",
+      "key": "photos/mestechko/avachinskiy-pereval-02.jpg"
+    },
+    {
+      "file": "media/s3/photos/mestechko/avachinskiy-pereval-03.320.webp",
+      "key": "photos/mestechko/avachinskiy-pereval-03.320.webp"
+    },
+    {
+      "file": "media/s3/photos/mestechko/avachinskiy-pereval-03.640.webp",
+      "key": "photos/mestechko/avachinskiy-pereval-03.640.webp"
+    },
+    {
+      "file": "media/s3/photos/mestechko/avachinskiy-pereval-03.jpg",
+      "key": "photos/mestechko/avachinskiy-pereval-03.jpg"
+    },
+    {
+      "file": "media/s3/photos/mestechko/avachinskiy-pereval-04.320.webp",
+      "key": "photos/mestechko/avachinskiy-pereval-04.320.webp"
+    },
+    {
+      "file": "media/s3/photos/mestechko/avachinskiy-pereval-04.640.webp",
+      "key": "photos/mestechko/avachinskiy-pereval-04.640.webp"
+    },
+    {
+      "file": "media/s3/photos/mestechko/avachinskiy-pereval-04.jpg",
+      "key": "photos/mestechko/avachinskiy-pereval-04.jpg"
+    },
+    {
+      "file": "media/s3/photos/mestechko/avachinskiy-pereval-05.320.webp",
+      "key": "photos/mestechko/avachinskiy-pereval-05.320.webp"
+    },
+    {
+      "file": "media/s3/photos/mestechko/avachinskiy-pereval-05.640.webp",
+      "key": "photos/mestechko/avachinskiy-pereval-05.640.webp"
+    },
+    {
+      "file": "media/s3/photos/mestechko/avachinskiy-pereval-05.jpg",
+      "key": "photos/mestechko/avachinskiy-pereval-05.jpg"
+    },
+    {
+      "file": "media/s3/photos/mestechko/buhta-russkaya-01.1280.webp",
+      "key": "photos/mestechko/buhta-russkaya-01.1280.webp"
+    },
+    {
+      "file": "media/s3/photos/mestechko/buhta-russkaya-01.320.webp",
+      "key": "photos/mestechko/buhta-russkaya-01.320.webp"
+    },
+    {
+      "file": "media/s3/photos/mestechko/buhta-russkaya-01.640.webp",
+      "key": "photos/mestechko/buhta-russkaya-01.640.webp"
+    },
+    {
+      "file": "media/s3/photos/mestechko/buhta-russkaya-01.jpg",
+      "key": "photos/mestechko/buhta-russkaya-01.jpg"
+    },
+    {
+      "file": "media/s3/photos/mestechko/buhta-russkaya-02.320.webp",
+      "key": "photos/mestechko/buhta-russkaya-02.320.webp"
+    },
+    {
+      "file": "media/s3/photos/mestechko/buhta-russkaya-02.640.webp",
+      "key": "photos/mestechko/buhta-russkaya-02.640.webp"
+    },
+    {
+      "file": "media/s3/photos/mestechko/buhta-russkaya-02.jpg",
+      "key": "photos/mestechko/buhta-russkaya-02.jpg"
+    },
+    {
+      "file": "media/s3/photos/mestechko/buhta-russkaya-03.320.webp",
+      "key": "photos/mestechko/buhta-russkaya-03.320.webp"
+    },
+    {
+      "file": "media/s3/photos/mestechko/buhta-russkaya-03.640.webp",
+      "key": "photos/mestechko/buhta-russkaya-03.640.webp"
+    },
+    {
+      "file": "media/s3/photos/mestechko/buhta-russkaya-03.jpg",
+      "key": "photos/mestechko/buhta-russkaya-03.jpg"
+    },
+    {
+      "file": "media/s3/photos/mestechko/buhta-russkaya-04.320.webp",
+      "key": "photos/mestechko/buhta-russkaya-04.320.webp"
+    },
+    {
+      "file": "media/s3/photos/mestechko/buhta-russkaya-04.640.webp",
+      "key": "photos/mestechko/buhta-russkaya-04.640.webp"
+    },
+    {
+      "file": "media/s3/photos/mestechko/buhta-russkaya-04.jpg",
+      "key": "photos/mestechko/buhta-russkaya-04.jpg"
+    },
+    {
+      "file": "media/s3/photos/mestechko/buhta-russkaya-05.320.webp",
+      "key": "photos/mestechko/buhta-russkaya-05.320.webp"
+    },
+    {
+      "file": "media/s3/photos/mestechko/buhta-russkaya-05.640.webp",
+      "key": "photos/mestechko/buhta-russkaya-05.640.webp"
+    },
+    {
+      "file": "media/s3/photos/mestechko/buhta-russkaya-05.jpg",
+      "key": "photos/mestechko/buhta-russkaya-05.jpg"
+    },
+    {
+      "file": "media/s3/photos/mestechko/dachnye-istochniki-01.320.webp",
+      "key": "photos/mestechko/dachnye-istochniki-01.320.webp"
+    },
+    {
+      "file": "media/s3/photos/mestechko/dachnye-istochniki-01.640.webp",
+      "key": "photos/mestechko/dachnye-istochniki-01.640.webp"
+    },
+    {
+      "file": "media/s3/photos/mestechko/dachnye-istochniki-01.jpg",
+      "key": "photos/mestechko/dachnye-istochniki-01.jpg"
+    },
+    {
+      "file": "media/s3/photos/mestechko/dachnye-istochniki-02.320.webp",
+      "key": "photos/mestechko/dachnye-istochniki-02.320.webp"
+    },
+    {
+      "file": "media/s3/photos/mestechko/dachnye-istochniki-02.640.webp",
+      "key": "photos/mestechko/dachnye-istochniki-02.640.webp"
+    },
+    {
+      "file": "media/s3/photos/mestechko/dachnye-istochniki-02.jpg",
+      "key": "photos/mestechko/dachnye-istochniki-02.jpg"
+    },
+    {
+      "file": "media/s3/photos/mestechko/dachnye-istochniki-03.320.webp",
+      "key": "photos/mestechko/dachnye-istochniki-03.320.webp"
+    },
+    {
+      "file": "media/s3/photos/mestechko/dachnye-istochniki-03.640.webp",
+      "key": "photos/mestechko/dachnye-istochniki-03.640.webp"
+    },
+    {
+      "file": "media/s3/photos/mestechko/dachnye-istochniki-03.jpg",
+      "key": "photos/mestechko/dachnye-istochniki-03.jpg"
+    },
+    {
+      "file": "media/s3/photos/mestechko/dachnye-istochniki-04.320.webp",
+      "key": "photos/mestechko/dachnye-istochniki-04.320.webp"
+    },
+    {
+      "file": "media/s3/photos/mestechko/dachnye-istochniki-04.640.webp",
+      "key": "photos/mestechko/dachnye-istochniki-04.640.webp"
+    },
+    {
+      "file": "media/s3/photos/mestechko/dachnye-istochniki-04.jpg",
+      "key": "photos/mestechko/dachnye-istochniki-04.jpg"
+    },
+    {
+      "file": "media/s3/photos/mestechko/dachnye-istochniki-05.320.webp",
+      "key": "photos/mestechko/dachnye-istochniki-05.320.webp"
+    },
+    {
+      "file": "media/s3/photos/mestechko/dachnye-istochniki-05.640.webp",
+      "key": "photos/mestechko/dachnye-istochniki-05.640.webp"
+    },
+    {
+      "file": "media/s3/photos/mestechko/dachnye-istochniki-05.jpg",
+      "key": "photos/mestechko/dachnye-istochniki-05.jpg"
+    },
+    {
+      "file": "media/s3/photos/mestechko/dolina-geyzerov-01.320.webp",
+      "key": "photos/mestechko/dolina-geyzerov-01.320.webp"
+    },
+    {
+      "file": "media/s3/photos/mestechko/dolina-geyzerov-01.640.webp",
+      "key": "photos/mestechko/dolina-geyzerov-01.640.webp"
+    },
+    {
+      "file": "media/s3/photos/mestechko/dolina-geyzerov-01.jpg",
+      "key": "photos/mestechko/dolina-geyzerov-01.jpg"
+    },
+    {
+      "file": "media/s3/photos/mestechko/dolina-geyzerov-02.320.webp",
+      "key": "photos/mestechko/dolina-geyzerov-02.320.webp"
+    },
+    {
+      "file": "media/s3/photos/mestechko/dolina-geyzerov-02.640.webp",
+      "key": "photos/mestechko/dolina-geyzerov-02.640.webp"
+    },
+    {
+      "file": "media/s3/photos/mestechko/dolina-geyzerov-02.jpg",
+      "key": "photos/mestechko/dolina-geyzerov-02.jpg"
+    },
+    {
+      "file": "media/s3/photos/mestechko/dolina-geyzerov-03.1280.webp",
+      "key": "photos/mestechko/dolina-geyzerov-03.1280.webp"
+    },
+    {
+      "file": "media/s3/photos/mestechko/dolina-geyzerov-03.320.webp",
+      "key": "photos/mestechko/dolina-geyzerov-03.320.webp"
+    },
+    {
+      "file": "media/s3/photos/mestechko/dolina-geyzerov-03.640.webp",
+      "key": "photos/mestechko/dolina-geyzerov-03.640.webp"
+    },
+    {
+      "file": "media/s3/photos/mestechko/dolina-geyzerov-03.jpg",
+      "key": "photos/mestechko/dolina-geyzerov-03.jpg"
+    },
+    {
+      "file": "media/s3/photos/mestechko/dolina-geyzerov-04.320.webp",
+      "key": "photos/mestechko/dolina-geyzerov-04.320.webp"
+    },
+    {
+      "file": "media/s3/photos/mestechko/dolina-geyzerov-04.640.webp",
+      "key": "photos/mestechko/dolina-geyzerov-04.640.webp"
+    },
+    {
+      "file": "media/s3/photos/mestechko/dolina-geyzerov-04.jpg",
+      "key": "photos/mestechko/dolina-geyzerov-04.jpg"
+    },
+    {
+      "file": "media/s3/photos/mestechko/dolina-geyzerov-05.1280.webp",
+      "key": "photos/mestechko/dolina-geyzerov-05.1280.webp"
+    },
+    {
+      "file": "media/s3/photos/mestechko/dolina-geyzerov-05.320.webp",
+      "key": "photos/mestechko/dolina-geyzerov-05.320.webp"
+    },
+    {
+      "file": "media/s3/photos/mestechko/dolina-geyzerov-05.640.webp",
+      "key": "photos/mestechko/dolina-geyzerov-05.640.webp"
+    },
+    {
+      "file": "media/s3/photos/mestechko/dolina-geyzerov-05.jpg",
+      "key": "photos/mestechko/dolina-geyzerov-05.jpg"
+    },
+    {
+      "file": "media/s3/photos/mestechko/dolina-geyzerov-tolbachik-01.1280.webp",
+      "key": "photos/mestechko/dolina-geyzerov-tolbachik-01.1280.webp"
+    },
+    {
+      "file": "media/s3/photos/mestechko/dolina-geyzerov-tolbachik-01.320.webp",
+      "key": "photos/mestechko/dolina-geyzerov-tolbachik-01.320.webp"
+    },
+    {
+      "file": "media/s3/photos/mestechko/dolina-geyzerov-tolbachik-01.640.webp",
+      "key": "photos/mestechko/dolina-geyzerov-tolbachik-01.640.webp"
+    },
+    {
+      "file": "media/s3/photos/mestechko/dolina-geyzerov-tolbachik-01.jpg",
+      "key": "photos/mestechko/dolina-geyzerov-tolbachik-01.jpg"
+    },
+    {
+      "file": "media/s3/photos/mestechko/dolina-geyzerov-tolbachik-02.1280.webp",
+      "key": "photos/mestechko/dolina-geyzerov-tolbachik-02.1280.webp"
+    },
+    {
+      "file": "media/s3/photos/mestechko/dolina-geyzerov-tolbachik-02.320.webp",
+      "key": "photos/mestechko/dolina-geyzerov-tolbachik-02.320.webp"
+    },
+    {
+      "file": "media/s3/photos/mestechko/dolina-geyzerov-tolbachik-02.640.webp",
+      "key": "photos/mestechko/dolina-geyzerov-tolbachik-02.640.webp"
+    },
+    {
+      "file": "media/s3/photos/mestechko/dolina-geyzerov-tolbachik-02.jpg",
+      "key": "photos/mestechko/dolina-geyzerov-tolbachik-02.jpg"
+    },
+    {
+      "file": "media/s3/photos/mestechko/dolina-geyzerov-tolbachik-03.1280.webp",
+      "key": "photos/mestechko/dolina-geyzerov-tolbachik-03.1280.webp"
+    },
+    {
+      "file": "media/s3/photos/mestechko/dolina-geyzerov-tolbachik-03.320.webp",
+      "key": "photos/mestechko/dolina-geyzerov-tolbachik-03.320.webp"
+    },
+    {
+      "file": "media/s3/photos/mestechko/dolina-geyzerov-tolbachik-03.640.webp",
+      "key": "photos/mestechko/dolina-geyzerov-tolbachik-03.640.webp"
+    },
+    {
+      "file": "media/s3/photos/mestechko/dolina-geyzerov-tolbachik-03.jpg",
+      "key": "photos/mestechko/dolina-geyzerov-tolbachik-03.jpg"
+    },
+    {
+      "file": "media/s3/photos/mestechko/dolina-geyzerov-tolbachik-04.1280.webp",
+      "key": "photos/mestechko/dolina-geyzerov-tolbachik-04.1280.webp"
+    },
+    {
+      "file": "media/s3/photos/mestechko/dolina-geyzerov-tolbachik-04.320.webp",
+      "key": "photos/mestechko/dolina-geyzerov-tolbachik-04.320.webp"
+    },
+    {
+      "file": "media/s3/photos/mestechko/dolina-geyzerov-tolbachik-04.640.webp",
+      "key": "photos/mestechko/dolina-geyzerov-tolbachik-04.640.webp"
+    },
+    {
+      "file": "media/s3/photos/mestechko/dolina-geyzerov-tolbachik-04.jpg",
+      "key": "photos/mestechko/dolina-geyzerov-tolbachik-04.jpg"
+    },
+    {
+      "file": "media/s3/photos/mestechko/dolina-geyzerov-tolbachik-05.1280.webp",
+      "key": "photos/mestechko/dolina-geyzerov-tolbachik-05.1280.webp"
+    },
+    {
+      "file": "media/s3/photos/mestechko/dolina-geyzerov-tolbachik-05.320.webp",
+      "key": "photos/mestechko/dolina-geyzerov-tolbachik-05.320.webp"
+    },
+    {
+      "file": "media/s3/photos/mestechko/dolina-geyzerov-tolbachik-05.640.webp",
+      "key": "photos/mestechko/dolina-geyzerov-tolbachik-05.640.webp"
+    },
+    {
+      "file": "media/s3/photos/mestechko/dolina-geyzerov-tolbachik-05.jpg",
+      "key": "photos/mestechko/dolina-geyzerov-tolbachik-05.jpg"
+    },
+    {
+      "file": "media/s3/photos/mestechko/halaktyrskiy-plyazh-01.jpg",
+      "key": "photos/mestechko/halaktyrskiy-plyazh-01.jpg"
+    },
+    {
+      "file": "media/s3/photos/mestechko/halaktyrskiy-plyazh-02.jpg",
+      "key": "photos/mestechko/halaktyrskiy-plyazh-02.jpg"
+    },
+    {
+      "file": "media/s3/photos/mestechko/halaktyrskiy-plyazh-03.jpg",
+      "key": "photos/mestechko/halaktyrskiy-plyazh-03.jpg"
+    },
+    {
+      "file": "media/s3/photos/mestechko/halaktyrskiy-plyazh-04.320.webp",
+      "key": "photos/mestechko/halaktyrskiy-plyazh-04.320.webp"
+    },
+    {
+      "file": "media/s3/photos/mestechko/halaktyrskiy-plyazh-04.640.webp",
+      "key": "photos/mestechko/halaktyrskiy-plyazh-04.640.webp"
+    },
+    {
+      "file": "media/s3/photos/mestechko/halaktyrskiy-plyazh-04.jpg",
+      "key": "photos/mestechko/halaktyrskiy-plyazh-04.jpg"
+    },
+    {
+      "file": "media/s3/photos/mestechko/halaktyrskiy-plyazh-05.jpg",
+      "key": "photos/mestechko/halaktyrskiy-plyazh-05.jpg"
+    },
+    {
+      "file": "media/s3/photos/mestechko/kurilskoe-ozero-01.1280.webp",
+      "key": "photos/mestechko/kurilskoe-ozero-01.1280.webp"
+    },
+    {
+      "file": "media/s3/photos/mestechko/kurilskoe-ozero-01.320.webp",
+      "key": "photos/mestechko/kurilskoe-ozero-01.320.webp"
+    },
+    {
+      "file": "media/s3/photos/mestechko/kurilskoe-ozero-01.640.webp",
+      "key": "photos/mestechko/kurilskoe-ozero-01.640.webp"
+    },
+    {
+      "file": "media/s3/photos/mestechko/kurilskoe-ozero-01.jpg",
+      "key": "photos/mestechko/kurilskoe-ozero-01.jpg"
+    },
+    {
+      "file": "media/s3/photos/mestechko/kurilskoe-ozero-02.1280.webp",
+      "key": "photos/mestechko/kurilskoe-ozero-02.1280.webp"
+    },
+    {
+      "file": "media/s3/photos/mestechko/kurilskoe-ozero-02.320.webp",
+      "key": "photos/mestechko/kurilskoe-ozero-02.320.webp"
+    },
+    {
+      "file": "media/s3/photos/mestechko/kurilskoe-ozero-02.640.webp",
+      "key": "photos/mestechko/kurilskoe-ozero-02.640.webp"
+    },
+    {
+      "file": "media/s3/photos/mestechko/kurilskoe-ozero-02.jpg",
+      "key": "photos/mestechko/kurilskoe-ozero-02.jpg"
+    },
+    {
+      "file": "media/s3/photos/mestechko/kurilskoe-ozero-03.1280.webp",
+      "key": "photos/mestechko/kurilskoe-ozero-03.1280.webp"
+    },
+    {
+      "file": "media/s3/photos/mestechko/kurilskoe-ozero-03.320.webp",
+      "key": "photos/mestechko/kurilskoe-ozero-03.320.webp"
+    },
+    {
+      "file": "media/s3/photos/mestechko/kurilskoe-ozero-03.640.webp",
+      "key": "photos/mestechko/kurilskoe-ozero-03.640.webp"
+    },
+    {
+      "file": "media/s3/photos/mestechko/kurilskoe-ozero-03.jpg",
+      "key": "photos/mestechko/kurilskoe-ozero-03.jpg"
+    },
+    {
+      "file": "media/s3/photos/mestechko/kurilskoe-ozero-04.1280.webp",
+      "key": "photos/mestechko/kurilskoe-ozero-04.1280.webp"
+    },
+    {
+      "file": "media/s3/photos/mestechko/kurilskoe-ozero-04.320.webp",
+      "key": "photos/mestechko/kurilskoe-ozero-04.320.webp"
+    },
+    {
+      "file": "media/s3/photos/mestechko/kurilskoe-ozero-04.640.webp",
+      "key": "photos/mestechko/kurilskoe-ozero-04.640.webp"
+    },
+    {
+      "file": "media/s3/photos/mestechko/kurilskoe-ozero-04.jpg",
+      "key": "photos/mestechko/kurilskoe-ozero-04.jpg"
+    },
+    {
+      "file": "media/s3/photos/mestechko/kurilskoe-ozero-05.1280.webp",
+      "key": "photos/mestechko/kurilskoe-ozero-05.1280.webp"
+    },
+    {
+      "file": "media/s3/photos/mestechko/kurilskoe-ozero-05.320.webp",
+      "key": "photos/mestechko/kurilskoe-ozero-05.320.webp"
+    },
+    {
+      "file": "media/s3/photos/mestechko/kurilskoe-ozero-05.640.webp",
+      "key": "photos/mestechko/kurilskoe-ozero-05.640.webp"
+    },
+    {
+      "file": "media/s3/photos/mestechko/kurilskoe-ozero-05.jpg",
+      "key": "photos/mestechko/kurilskoe-ozero-05.jpg"
+    },
+    {
+      "file": "media/s3/photos/mestechko/logo.png",
+      "key": "photos/mestechko/logo.png"
+    },
+    {
+      "file": "media/s3/photos/mestechko/mys-mayachnyy-01.320.webp",
+      "key": "photos/mestechko/mys-mayachnyy-01.320.webp"
+    },
+    {
+      "file": "media/s3/photos/mestechko/mys-mayachnyy-01.640.webp",
+      "key": "photos/mestechko/mys-mayachnyy-01.640.webp"
+    },
+    {
+      "file": "media/s3/photos/mestechko/mys-mayachnyy-01.jpg",
+      "key": "photos/mestechko/mys-mayachnyy-01.jpg"
+    },
+    {
+      "file": "media/s3/photos/mestechko/mys-mayachnyy-02.320.webp",
+      "key": "photos/mestechko/mys-mayachnyy-02.320.webp"
+    },
+    {
+      "file": "media/s3/photos/mestechko/mys-mayachnyy-02.640.webp",
+      "key": "photos/mestechko/mys-mayachnyy-02.640.webp"
+    },
+    {
+      "file": "media/s3/photos/mestechko/mys-mayachnyy-02.jpg",
+      "key": "photos/mestechko/mys-mayachnyy-02.jpg"
+    },
+    {
+      "file": "media/s3/photos/mestechko/mys-mayachnyy-03.320.webp",
+      "key": "photos/mestechko/mys-mayachnyy-03.320.webp"
+    },
+    {
+      "file": "media/s3/photos/mestechko/mys-mayachnyy-03.640.webp",
+      "key": "photos/mestechko/mys-mayachnyy-03.640.webp"
+    },
+    {
+      "file": "media/s3/photos/mestechko/mys-mayachnyy-03.jpg",
+      "key": "photos/mestechko/mys-mayachnyy-03.jpg"
+    },
+    {
+      "file": "media/s3/photos/mestechko/mys-mayachnyy-04.320.webp",
+      "key": "photos/mestechko/mys-mayachnyy-04.320.webp"
+    },
+    {
+      "file": "media/s3/photos/mestechko/mys-mayachnyy-04.640.webp",
+      "key": "photos/mestechko/mys-mayachnyy-04.640.webp"
+    },
+    {
+      "file": "media/s3/photos/mestechko/mys-mayachnyy-04.jpg",
+      "key": "photos/mestechko/mys-mayachnyy-04.jpg"
+    },
+    {
+      "file": "media/s3/photos/mestechko/mys-mayachnyy-05.320.webp",
+      "key": "photos/mestechko/mys-mayachnyy-05.320.webp"
+    },
+    {
+      "file": "media/s3/photos/mestechko/mys-mayachnyy-05.640.webp",
+      "key": "photos/mestechko/mys-mayachnyy-05.640.webp"
+    },
+    {
+      "file": "media/s3/photos/mestechko/mys-mayachnyy-05.jpg",
+      "key": "photos/mestechko/mys-mayachnyy-05.jpg"
+    },
+    {
+      "file": "media/s3/photos/mestechko/oblet-koryakskiy-avachinskiy-01.1280.webp",
+      "key": "photos/mestechko/oblet-koryakskiy-avachinskiy-01.1280.webp"
+    },
+    {
+      "file": "media/s3/photos/mestechko/oblet-koryakskiy-avachinskiy-01.320.webp",
+      "key": "photos/mestechko/oblet-koryakskiy-avachinskiy-01.320.webp"
+    },
+    {
+      "file": "media/s3/photos/mestechko/oblet-koryakskiy-avachinskiy-01.640.webp",
+      "key": "photos/mestechko/oblet-koryakskiy-avachinskiy-01.640.webp"
+    },
+    {
+      "file": "media/s3/photos/mestechko/oblet-koryakskiy-avachinskiy-01.jpg",
+      "key": "photos/mestechko/oblet-koryakskiy-avachinskiy-01.jpg"
+    },
+    {
+      "file": "media/s3/photos/mestechko/oblet-koryakskiy-avachinskiy-02.320.webp",
+      "key": "photos/mestechko/oblet-koryakskiy-avachinskiy-02.320.webp"
+    },
+    {
+      "file": "media/s3/photos/mestechko/oblet-koryakskiy-avachinskiy-02.640.webp",
+      "key": "photos/mestechko/oblet-koryakskiy-avachinskiy-02.640.webp"
+    },
+    {
+      "file": "media/s3/photos/mestechko/oblet-koryakskiy-avachinskiy-02.jpg",
+      "key": "photos/mestechko/oblet-koryakskiy-avachinskiy-02.jpg"
+    },
+    {
+      "file": "media/s3/photos/mestechko/oblet-koryakskiy-avachinskiy-03.320.webp",
+      "key": "photos/mestechko/oblet-koryakskiy-avachinskiy-03.320.webp"
+    },
+    {
+      "file": "media/s3/photos/mestechko/oblet-koryakskiy-avachinskiy-03.640.webp",
+      "key": "photos/mestechko/oblet-koryakskiy-avachinskiy-03.640.webp"
+    },
+    {
+      "file": "media/s3/photos/mestechko/oblet-koryakskiy-avachinskiy-03.jpg",
+      "key": "photos/mestechko/oblet-koryakskiy-avachinskiy-03.jpg"
+    },
+    {
+      "file": "media/s3/photos/mestechko/oblet-koryakskiy-avachinskiy-04.1280.webp",
+      "key": "photos/mestechko/oblet-koryakskiy-avachinskiy-04.1280.webp"
+    },
+    {
+      "file": "media/s3/photos/mestechko/oblet-koryakskiy-avachinskiy-04.320.webp",
+      "key": "photos/mestechko/oblet-koryakskiy-avachinskiy-04.320.webp"
+    },
+    {
+      "file": "media/s3/photos/mestechko/oblet-koryakskiy-avachinskiy-04.640.webp",
+      "key": "photos/mestechko/oblet-koryakskiy-avachinskiy-04.640.webp"
+    },
+    {
+      "file": "media/s3/photos/mestechko/oblet-koryakskiy-avachinskiy-04.jpg",
+      "key": "photos/mestechko/oblet-koryakskiy-avachinskiy-04.jpg"
+    },
+    {
+      "file": "media/s3/photos/mestechko/oblet-koryakskiy-avachinskiy-05.1280.webp",
+      "key": "photos/mestechko/oblet-koryakskiy-avachinskiy-05.1280.webp"
+    },
+    {
+      "file": "media/s3/photos/mestechko/oblet-koryakskiy-avachinskiy-05.320.webp",
+      "key": "photos/mestechko/oblet-koryakskiy-avachinskiy-05.320.webp"
+    },
+    {
+      "file": "media/s3/photos/mestechko/oblet-koryakskiy-avachinskiy-05.640.webp",
+      "key": "photos/mestechko/oblet-koryakskiy-avachinskiy-05.640.webp"
+    },
+    {
+      "file": "media/s3/photos/mestechko/oblet-koryakskiy-avachinskiy-05.jpg",
+      "key": "photos/mestechko/oblet-koryakskiy-avachinskiy-05.jpg"
+    },
+    {
+      "file": "media/s3/photos/mestechko/oblet-vilyuchinskiy-mutnovskiy-gorelyy-01.1280.webp",
+      "key": "photos/mestechko/oblet-vilyuchinskiy-mutnovskiy-gorelyy-01.1280.webp"
+    },
+    {
+      "file": "media/s3/photos/mestechko/oblet-vilyuchinskiy-mutnovskiy-gorelyy-01.320.webp",
+      "key": "photos/mestechko/oblet-vilyuchinskiy-mutnovskiy-gorelyy-01.320.webp"
+    },
+    {
+      "file": "media/s3/photos/mestechko/oblet-vilyuchinskiy-mutnovskiy-gorelyy-01.640.webp",
+      "key": "photos/mestechko/oblet-vilyuchinskiy-mutnovskiy-gorelyy-01.640.webp"
+    },
+    {
+      "file": "media/s3/photos/mestechko/oblet-vilyuchinskiy-mutnovskiy-gorelyy-01.jpg",
+      "key": "photos/mestechko/oblet-vilyuchinskiy-mutnovskiy-gorelyy-01.jpg"
+    },
+    {
+      "file": "media/s3/photos/mestechko/oblet-vilyuchinskiy-mutnovskiy-gorelyy-02.1280.webp",
+      "key": "photos/mestechko/oblet-vilyuchinskiy-mutnovskiy-gorelyy-02.1280.webp"
+    },
+    {
+      "file": "media/s3/photos/mestechko/oblet-vilyuchinskiy-mutnovskiy-gorelyy-02.320.webp",
+      "key": "photos/mestechko/oblet-vilyuchinskiy-mutnovskiy-gorelyy-02.320.webp"
+    },
+    {
+      "file": "media/s3/photos/mestechko/oblet-vilyuchinskiy-mutnovskiy-gorelyy-02.640.webp",
+      "key": "photos/mestechko/oblet-vilyuchinskiy-mutnovskiy-gorelyy-02.640.webp"
+    },
+    {
+      "file": "media/s3/photos/mestechko/oblet-vilyuchinskiy-mutnovskiy-gorelyy-02.jpg",
+      "key": "photos/mestechko/oblet-vilyuchinskiy-mutnovskiy-gorelyy-02.jpg"
+    },
+    {
+      "file": "media/s3/photos/mestechko/oblet-vilyuchinskiy-mutnovskiy-gorelyy-03.1280.webp",
+      "key": "photos/mestechko/oblet-vilyuchinskiy-mutnovskiy-gorelyy-03.1280.webp"
+    },
+    {
+      "file": "media/s3/photos/mestechko/oblet-vilyuchinskiy-mutnovskiy-gorelyy-03.320.webp",
+      "key": "photos/mestechko/oblet-vilyuchinskiy-mutnovskiy-gorelyy-03.320.webp"
+    },
+    {
+      "file": "media/s3/photos/mestechko/oblet-vilyuchinskiy-mutnovskiy-gorelyy-03.640.webp",
+      "key": "photos/mestechko/oblet-vilyuchinskiy-mutnovskiy-gorelyy-03.640.webp"
+    },
+    {
+      "file": "media/s3/photos/mestechko/oblet-vilyuchinskiy-mutnovskiy-gorelyy-03.jpg",
+      "key": "photos/mestechko/oblet-vilyuchinskiy-mutnovskiy-gorelyy-03.jpg"
+    },
+    {
+      "file": "media/s3/photos/mestechko/oblet-vilyuchinskiy-mutnovskiy-gorelyy-04.1280.webp",
+      "key": "photos/mestechko/oblet-vilyuchinskiy-mutnovskiy-gorelyy-04.1280.webp"
+    },
+    {
+      "file": "media/s3/photos/mestechko/oblet-vilyuchinskiy-mutnovskiy-gorelyy-04.320.webp",
+      "key": "photos/mestechko/oblet-vilyuchinskiy-mutnovskiy-gorelyy-04.320.webp"
+    },
+    {
+      "file": "media/s3/photos/mestechko/oblet-vilyuchinskiy-mutnovskiy-gorelyy-04.640.webp",
+      "key": "photos/mestechko/oblet-vilyuchinskiy-mutnovskiy-gorelyy-04.640.webp"
+    },
+    {
+      "file": "media/s3/photos/mestechko/oblet-vilyuchinskiy-mutnovskiy-gorelyy-04.jpg",
+      "key": "photos/mestechko/oblet-vilyuchinskiy-mutnovskiy-gorelyy-04.jpg"
+    },
+    {
+      "file": "media/s3/photos/mestechko/oblet-vilyuchinskiy-mutnovskiy-gorelyy-05.320.webp",
+      "key": "photos/mestechko/oblet-vilyuchinskiy-mutnovskiy-gorelyy-05.320.webp"
+    },
+    {
+      "file": "media/s3/photos/mestechko/oblet-vilyuchinskiy-mutnovskiy-gorelyy-05.640.webp",
+      "key": "photos/mestechko/oblet-vilyuchinskiy-mutnovskiy-gorelyy-05.640.webp"
+    },
+    {
+      "file": "media/s3/photos/mestechko/oblet-vilyuchinskiy-mutnovskiy-gorelyy-05.jpg",
+      "key": "photos/mestechko/oblet-vilyuchinskiy-mutnovskiy-gorelyy-05.jpg"
+    },
+    {
+      "file": "media/s3/photos/mestechko/ostrov-starichkov-01.1280.webp",
+      "key": "photos/mestechko/ostrov-starichkov-01.1280.webp"
+    },
+    {
+      "file": "media/s3/photos/mestechko/ostrov-starichkov-01.320.webp",
+      "key": "photos/mestechko/ostrov-starichkov-01.320.webp"
+    },
+    {
+      "file": "media/s3/photos/mestechko/ostrov-starichkov-01.640.webp",
+      "key": "photos/mestechko/ostrov-starichkov-01.640.webp"
+    },
+    {
+      "file": "media/s3/photos/mestechko/ostrov-starichkov-01.jpg",
+      "key": "photos/mestechko/ostrov-starichkov-01.jpg"
+    },
+    {
+      "file": "media/s3/photos/mestechko/ostrov-starichkov-02.320.webp",
+      "key": "photos/mestechko/ostrov-starichkov-02.320.webp"
+    },
+    {
+      "file": "media/s3/photos/mestechko/ostrov-starichkov-02.640.webp",
+      "key": "photos/mestechko/ostrov-starichkov-02.640.webp"
+    },
+    {
+      "file": "media/s3/photos/mestechko/ostrov-starichkov-02.jpg",
+      "key": "photos/mestechko/ostrov-starichkov-02.jpg"
+    },
+    {
+      "file": "media/s3/photos/mestechko/ostrov-starichkov-03.320.webp",
+      "key": "photos/mestechko/ostrov-starichkov-03.320.webp"
+    },
+    {
+      "file": "media/s3/photos/mestechko/ostrov-starichkov-03.640.webp",
+      "key": "photos/mestechko/ostrov-starichkov-03.640.webp"
+    },
+    {
+      "file": "media/s3/photos/mestechko/ostrov-starichkov-03.jpg",
+      "key": "photos/mestechko/ostrov-starichkov-03.jpg"
+    },
+    {
+      "file": "media/s3/photos/mestechko/ostrov-starichkov-04.1280.webp",
+      "key": "photos/mestechko/ostrov-starichkov-04.1280.webp"
+    },
+    {
+      "file": "media/s3/photos/mestechko/ostrov-starichkov-04.320.webp",
+      "key": "photos/mestechko/ostrov-starichkov-04.320.webp"
+    },
+    {
+      "file": "media/s3/photos/mestechko/ostrov-starichkov-04.640.webp",
+      "key": "photos/mestechko/ostrov-starichkov-04.640.webp"
+    },
+    {
+      "file": "media/s3/photos/mestechko/ostrov-starichkov-04.jpg",
+      "key": "photos/mestechko/ostrov-starichkov-04.jpg"
+    },
+    {
+      "file": "media/s3/photos/mestechko/ostrov-starichkov-05.320.webp",
+      "key": "photos/mestechko/ostrov-starichkov-05.320.webp"
+    },
+    {
+      "file": "media/s3/photos/mestechko/ostrov-starichkov-05.640.webp",
+      "key": "photos/mestechko/ostrov-starichkov-05.640.webp"
+    },
+    {
+      "file": "media/s3/photos/mestechko/ostrov-starichkov-05.jpg",
+      "key": "photos/mestechko/ostrov-starichkov-05.jpg"
+    },
+    {
+      "file": "media/s3/photos/mestechko/ozero-tolmachevo-01.1280.webp",
+      "key": "photos/mestechko/ozero-tolmachevo-01.1280.webp"
+    },
+    {
+      "file": "media/s3/photos/mestechko/ozero-tolmachevo-01.320.webp",
+      "key": "photos/mestechko/ozero-tolmachevo-01.320.webp"
+    },
+    {
+      "file": "media/s3/photos/mestechko/ozero-tolmachevo-01.640.webp",
+      "key": "photos/mestechko/ozero-tolmachevo-01.640.webp"
+    },
+    {
+      "file": "media/s3/photos/mestechko/ozero-tolmachevo-01.jpg",
+      "key": "photos/mestechko/ozero-tolmachevo-01.jpg"
+    },
+    {
+      "file": "media/s3/photos/mestechko/ozero-tolmachevo-02.320.webp",
+      "key": "photos/mestechko/ozero-tolmachevo-02.320.webp"
+    },
+    {
+      "file": "media/s3/photos/mestechko/ozero-tolmachevo-02.640.webp",
+      "key": "photos/mestechko/ozero-tolmachevo-02.640.webp"
+    },
+    {
+      "file": "media/s3/photos/mestechko/ozero-tolmachevo-02.jpg",
+      "key": "photos/mestechko/ozero-tolmachevo-02.jpg"
+    },
+    {
+      "file": "media/s3/photos/mestechko/snegohod-avachinskiy-pereval-01.320.webp",
+      "key": "photos/mestechko/snegohod-avachinskiy-pereval-01.320.webp"
+    },
+    {
+      "file": "media/s3/photos/mestechko/snegohod-avachinskiy-pereval-01.640.webp",
+      "key": "photos/mestechko/snegohod-avachinskiy-pereval-01.640.webp"
+    },
+    {
+      "file": "media/s3/photos/mestechko/snegohod-avachinskiy-pereval-01.jpg",
+      "key": "photos/mestechko/snegohod-avachinskiy-pereval-01.jpg"
+    },
+    {
+      "file": "media/s3/photos/mestechko/snegohod-avachinskiy-pereval-02.320.webp",
+      "key": "photos/mestechko/snegohod-avachinskiy-pereval-02.320.webp"
+    },
+    {
+      "file": "media/s3/photos/mestechko/snegohod-avachinskiy-pereval-02.640.webp",
+      "key": "photos/mestechko/snegohod-avachinskiy-pereval-02.640.webp"
+    },
+    {
+      "file": "media/s3/photos/mestechko/snegohod-avachinskiy-pereval-02.jpg",
+      "key": "photos/mestechko/snegohod-avachinskiy-pereval-02.jpg"
+    },
+    {
+      "file": "media/s3/photos/mestechko/snegohod-mys-mayachnyy-01.320.webp",
+      "key": "photos/mestechko/snegohod-mys-mayachnyy-01.320.webp"
+    },
+    {
+      "file": "media/s3/photos/mestechko/snegohod-mys-mayachnyy-01.640.webp",
+      "key": "photos/mestechko/snegohod-mys-mayachnyy-01.640.webp"
+    },
+    {
+      "file": "media/s3/photos/mestechko/snegohod-mys-mayachnyy-01.jpg",
+      "key": "photos/mestechko/snegohod-mys-mayachnyy-01.jpg"
+    },
+    {
+      "file": "media/s3/photos/mestechko/snegohod-mys-mayachnyy-02.jpg",
+      "key": "photos/mestechko/snegohod-mys-mayachnyy-02.jpg"
+    },
+    {
+      "file": "media/s3/photos/mestechko/snegohod-mys-mayachnyy-03.jpg",
+      "key": "photos/mestechko/snegohod-mys-mayachnyy-03.jpg"
+    },
+    {
+      "file": "media/s3/photos/mestechko/tolbachik-standard-01.320.webp",
+      "key": "photos/mestechko/tolbachik-standard-01.320.webp"
+    },
+    {
+      "file": "media/s3/photos/mestechko/tolbachik-standard-01.640.webp",
+      "key": "photos/mestechko/tolbachik-standard-01.640.webp"
+    },
+    {
+      "file": "media/s3/photos/mestechko/tolbachik-standard-01.jpg",
+      "key": "photos/mestechko/tolbachik-standard-01.jpg"
+    },
+    {
+      "file": "media/s3/photos/mestechko/tolbachik-standard-02.jpg",
+      "key": "photos/mestechko/tolbachik-standard-02.jpg"
+    },
+    {
+      "file": "media/s3/photos/mestechko/tolbachik-standard-03.320.webp",
+      "key": "photos/mestechko/tolbachik-standard-03.320.webp"
+    },
+    {
+      "file": "media/s3/photos/mestechko/tolbachik-standard-03.640.webp",
+      "key": "photos/mestechko/tolbachik-standard-03.640.webp"
+    },
+    {
+      "file": "media/s3/photos/mestechko/tolbachik-standard-03.jpg",
+      "key": "photos/mestechko/tolbachik-standard-03.jpg"
+    },
+    {
+      "file": "media/s3/photos/mestechko/tolbachik-standard-04.jpg",
+      "key": "photos/mestechko/tolbachik-standard-04.jpg"
+    },
+    {
+      "file": "media/s3/photos/mestechko/tolbachik-standard-05.1280.webp",
+      "key": "photos/mestechko/tolbachik-standard-05.1280.webp"
+    },
+    {
+      "file": "media/s3/photos/mestechko/tolbachik-standard-05.320.webp",
+      "key": "photos/mestechko/tolbachik-standard-05.320.webp"
+    },
+    {
+      "file": "media/s3/photos/mestechko/tolbachik-standard-05.640.webp",
+      "key": "photos/mestechko/tolbachik-standard-05.640.webp"
+    },
+    {
+      "file": "media/s3/photos/mestechko/tolbachik-standard-05.jpg",
+      "key": "photos/mestechko/tolbachik-standard-05.jpg"
+    },
+    {
+      "file": "media/s3/photos/mestechko/vachkazhets-01.320.webp",
+      "key": "photos/mestechko/vachkazhets-01.320.webp"
+    },
+    {
+      "file": "media/s3/photos/mestechko/vachkazhets-01.640.webp",
+      "key": "photos/mestechko/vachkazhets-01.640.webp"
+    },
+    {
+      "file": "media/s3/photos/mestechko/vachkazhets-01.jpg",
+      "key": "photos/mestechko/vachkazhets-01.jpg"
+    },
+    {
+      "file": "media/s3/photos/mestechko/vachkazhets-02.320.webp",
+      "key": "photos/mestechko/vachkazhets-02.320.webp"
+    },
+    {
+      "file": "media/s3/photos/mestechko/vachkazhets-02.640.webp",
+      "key": "photos/mestechko/vachkazhets-02.640.webp"
+    },
+    {
+      "file": "media/s3/photos/mestechko/vachkazhets-02.jpg",
+      "key": "photos/mestechko/vachkazhets-02.jpg"
+    },
+    {
+      "file": "media/s3/photos/mestechko/vachkazhets-03.320.webp",
+      "key": "photos/mestechko/vachkazhets-03.320.webp"
+    },
+    {
+      "file": "media/s3/photos/mestechko/vachkazhets-03.640.webp",
+      "key": "photos/mestechko/vachkazhets-03.640.webp"
+    },
+    {
+      "file": "media/s3/photos/mestechko/vachkazhets-03.jpg",
+      "key": "photos/mestechko/vachkazhets-03.jpg"
+    },
+    {
+      "file": "media/s3/photos/mestechko/vachkazhets-04.320.webp",
+      "key": "photos/mestechko/vachkazhets-04.320.webp"
+    },
+    {
+      "file": "media/s3/photos/mestechko/vachkazhets-04.640.webp",
+      "key": "photos/mestechko/vachkazhets-04.640.webp"
+    },
+    {
+      "file": "media/s3/photos/mestechko/vachkazhets-04.jpg",
+      "key": "photos/mestechko/vachkazhets-04.jpg"
+    },
+    {
+      "file": "media/s3/photos/mestechko/vachkazhets-05.320.webp",
+      "key": "photos/mestechko/vachkazhets-05.320.webp"
+    },
+    {
+      "file": "media/s3/photos/mestechko/vachkazhets-05.640.webp",
+      "key": "photos/mestechko/vachkazhets-05.640.webp"
+    },
+    {
+      "file": "media/s3/photos/mestechko/vachkazhets-05.jpg",
+      "key": "photos/mestechko/vachkazhets-05.jpg"
+    },
+    {
+      "file": "media/s3/photos/mestechko/vertolet-tolbachik-02.320.webp",
+      "key": "photos/mestechko/vertolet-tolbachik-02.320.webp"
+    },
+    {
+      "file": "media/s3/photos/mestechko/vertolet-tolbachik-02.640.webp",
+      "key": "photos/mestechko/vertolet-tolbachik-02.640.webp"
+    },
+    {
+      "file": "media/s3/photos/mestechko/vertolet-tolbachik-02.jpg",
+      "key": "photos/mestechko/vertolet-tolbachik-02.jpg"
+    },
+    {
+      "file": "media/s3/photos/mestechko/vertolet-tolbachik-03.1280.webp",
+      "key": "photos/mestechko/vertolet-tolbachik-03.1280.webp"
+    },
+    {
+      "file": "media/s3/photos/mestechko/vertolet-tolbachik-03.320.webp",
+      "key": "photos/mestechko/vertolet-tolbachik-03.320.webp"
+    },
+    {
+      "file": "media/s3/photos/mestechko/vertolet-tolbachik-03.640.webp",
+      "key": "photos/mestechko/vertolet-tolbachik-03.640.webp"
+    },
+    {
+      "file": "media/s3/photos/mestechko/vertolet-tolbachik-03.jpg",
+      "key": "photos/mestechko/vertolet-tolbachik-03.jpg"
+    },
+    {
+      "file": "media/s3/photos/mestechko/vertolet-tolbachik-04.1280.webp",
+      "key": "photos/mestechko/vertolet-tolbachik-04.1280.webp"
+    },
+    {
+      "file": "media/s3/photos/mestechko/vertolet-tolbachik-04.320.webp",
+      "key": "photos/mestechko/vertolet-tolbachik-04.320.webp"
+    },
+    {
+      "file": "media/s3/photos/mestechko/vertolet-tolbachik-04.640.webp",
+      "key": "photos/mestechko/vertolet-tolbachik-04.640.webp"
+    },
+    {
+      "file": "media/s3/photos/mestechko/vertolet-tolbachik-04.jpg",
+      "key": "photos/mestechko/vertolet-tolbachik-04.jpg"
+    },
+    {
+      "file": "media/s3/photos/mestechko/vulkan-gorelyy-01.320.webp",
+      "key": "photos/mestechko/vulkan-gorelyy-01.320.webp"
+    },
+    {
+      "file": "media/s3/photos/mestechko/vulkan-gorelyy-01.640.webp",
+      "key": "photos/mestechko/vulkan-gorelyy-01.640.webp"
+    },
+    {
+      "file": "media/s3/photos/mestechko/vulkan-gorelyy-01.jpg",
+      "key": "photos/mestechko/vulkan-gorelyy-01.jpg"
+    },
+    {
+      "file": "media/s3/photos/mestechko/vulkan-gorelyy-02.320.webp",
+      "key": "photos/mestechko/vulkan-gorelyy-02.320.webp"
+    },
+    {
+      "file": "media/s3/photos/mestechko/vulkan-gorelyy-02.640.webp",
+      "key": "photos/mestechko/vulkan-gorelyy-02.640.webp"
+    },
+    {
+      "file": "media/s3/photos/mestechko/vulkan-gorelyy-02.jpg",
+      "key": "photos/mestechko/vulkan-gorelyy-02.jpg"
+    },
+    {
+      "file": "media/s3/photos/mestechko/vulkan-gorelyy-03.320.webp",
+      "key": "photos/mestechko/vulkan-gorelyy-03.320.webp"
+    },
+    {
+      "file": "media/s3/photos/mestechko/vulkan-gorelyy-03.640.webp",
+      "key": "photos/mestechko/vulkan-gorelyy-03.640.webp"
+    },
+    {
+      "file": "media/s3/photos/mestechko/vulkan-gorelyy-03.jpg",
+      "key": "photos/mestechko/vulkan-gorelyy-03.jpg"
+    },
+    {
+      "file": "media/s3/photos/mestechko/vulkan-gorelyy-04.320.webp",
+      "key": "photos/mestechko/vulkan-gorelyy-04.320.webp"
+    },
+    {
+      "file": "media/s3/photos/mestechko/vulkan-gorelyy-04.640.webp",
+      "key": "photos/mestechko/vulkan-gorelyy-04.640.webp"
+    },
+    {
+      "file": "media/s3/photos/mestechko/vulkan-gorelyy-04.jpg",
+      "key": "photos/mestechko/vulkan-gorelyy-04.jpg"
+    },
+    {
+      "file": "media/s3/photos/mestechko/vulkan-gorelyy-05.320.webp",
+      "key": "photos/mestechko/vulkan-gorelyy-05.320.webp"
+    },
+    {
+      "file": "media/s3/photos/mestechko/vulkan-gorelyy-05.640.webp",
+      "key": "photos/mestechko/vulkan-gorelyy-05.640.webp"
+    },
+    {
+      "file": "media/s3/photos/mestechko/vulkan-gorelyy-05.jpg",
+      "key": "photos/mestechko/vulkan-gorelyy-05.jpg"
+    },
+    {
+      "file": "media/s3/photos/partners/kamchatintour/about1.jpg",
+      "key": "photos/partners/kamchatintour/about1.jpg"
+    },
+    {
+      "file": "media/s3/photos/partners/kamchatintour/about2.jpg",
+      "key": "photos/partners/kamchatintour/about2.jpg"
+    },
+    {
+      "file": "media/s3/photos/partners/kamchatintour/avacha-winter.320.webp",
+      "key": "photos/partners/kamchatintour/avacha-winter.320.webp"
+    },
+    {
+      "file": "media/s3/photos/partners/kamchatintour/avacha-winter.640.webp",
+      "key": "photos/partners/kamchatintour/avacha-winter.640.webp"
+    },
+    {
+      "file": "media/s3/photos/partners/kamchatintour/avacha-winter.jpg",
+      "key": "photos/partners/kamchatintour/avacha-winter.jpg"
+    },
+    {
+      "file": "media/s3/photos/partners/kamchatintour/cape.320.webp",
+      "key": "photos/partners/kamchatintour/cape.320.webp"
+    },
+    {
+      "file": "media/s3/photos/partners/kamchatintour/cape.640.webp",
+      "key": "photos/partners/kamchatintour/cape.640.webp"
+    },
+    {
+      "file": "media/s3/photos/partners/kamchatintour/cape.jpg",
+      "key": "photos/partners/kamchatintour/cape.jpg"
+    },
+    {
+      "file": "media/s3/photos/partners/kamchatintour/dog-sled.320.webp",
+      "key": "photos/partners/kamchatintour/dog-sled.320.webp"
+    },
+    {
+      "file": "media/s3/photos/partners/kamchatintour/dog-sled.640.webp",
+      "key": "photos/partners/kamchatintour/dog-sled.640.webp"
+    },
+    {
+      "file": "media/s3/photos/partners/kamchatintour/dog-sled.jpg",
+      "key": "photos/partners/kamchatintour/dog-sled.jpg"
+    },
+    {
+      "file": "media/s3/photos/partners/kamchatintour/gorely.320.webp",
+      "key": "photos/partners/kamchatintour/gorely.320.webp"
+    },
+    {
+      "file": "media/s3/photos/partners/kamchatintour/gorely.640.webp",
+      "key": "photos/partners/kamchatintour/gorely.640.webp"
+    },
+    {
+      "file": "media/s3/photos/partners/kamchatintour/gorely.jpg",
+      "key": "photos/partners/kamchatintour/gorely.jpg"
+    },
+    {
+      "file": "media/s3/photos/partners/kamchatintour/helicopter.320.webp",
+      "key": "photos/partners/kamchatintour/helicopter.320.webp"
+    },
+    {
+      "file": "media/s3/photos/partners/kamchatintour/helicopter.640.webp",
+      "key": "photos/partners/kamchatintour/helicopter.640.webp"
+    },
+    {
+      "file": "media/s3/photos/partners/kamchatintour/helicopter.jpg",
+      "key": "photos/partners/kamchatintour/helicopter.jpg"
+    },
+    {
+      "file": "media/s3/photos/partners/kamchatintour/intro.1280.webp",
+      "key": "photos/partners/kamchatintour/intro.1280.webp"
+    },
+    {
+      "file": "media/s3/photos/partners/kamchatintour/intro.320.webp",
+      "key": "photos/partners/kamchatintour/intro.320.webp"
+    },
+    {
+      "file": "media/s3/photos/partners/kamchatintour/intro.640.webp",
+      "key": "photos/partners/kamchatintour/intro.640.webp"
+    },
+    {
+      "file": "media/s3/photos/partners/kamchatintour/intro.jpg",
+      "key": "photos/partners/kamchatintour/intro.jpg"
+    },
+    {
+      "file": "media/s3/photos/partners/kamchatintour/laguna-winter.320.webp",
+      "key": "photos/partners/kamchatintour/laguna-winter.320.webp"
+    },
+    {
+      "file": "media/s3/photos/partners/kamchatintour/laguna-winter.640.webp",
+      "key": "photos/partners/kamchatintour/laguna-winter.640.webp"
+    },
+    {
+      "file": "media/s3/photos/partners/kamchatintour/laguna-winter.jpg",
+      "key": "photos/partners/kamchatintour/laguna-winter.jpg"
+    },
+    {
+      "file": "media/s3/photos/partners/kamchatintour/rafting.320.webp",
+      "key": "photos/partners/kamchatintour/rafting.320.webp"
+    },
+    {
+      "file": "media/s3/photos/partners/kamchatintour/rafting.640.webp",
+      "key": "photos/partners/kamchatintour/rafting.640.webp"
+    },
+    {
+      "file": "media/s3/photos/partners/kamchatintour/rafting.jpg",
+      "key": "photos/partners/kamchatintour/rafting.jpg"
+    },
+    {
+      "file": "media/s3/photos/partners/kamchatintour/sea-russkaya.jpg",
+      "key": "photos/partners/kamchatintour/sea-russkaya.jpg"
+    },
+    {
+      "file": "media/s3/photos/partners/kamchatintour/seo1.jpg",
+      "key": "photos/partners/kamchatintour/seo1.jpg"
+    },
+    {
+      "file": "media/s3/photos/partners/kamchatintour/seo2.320.webp",
+      "key": "photos/partners/kamchatintour/seo2.320.webp"
+    },
+    {
+      "file": "media/s3/photos/partners/kamchatintour/seo2.640.webp",
+      "key": "photos/partners/kamchatintour/seo2.640.webp"
+    },
+    {
+      "file": "media/s3/photos/partners/kamchatintour/seo2.jpg",
+      "key": "photos/partners/kamchatintour/seo2.jpg"
+    },
+    {
+      "file": "media/s3/photos/partners/kamchatintour/seo3.320.webp",
+      "key": "photos/partners/kamchatintour/seo3.320.webp"
+    },
+    {
+      "file": "media/s3/photos/partners/kamchatintour/seo3.640.webp",
+      "key": "photos/partners/kamchatintour/seo3.640.webp"
+    },
+    {
+      "file": "media/s3/photos/partners/kamchatintour/seo3.jpg",
+      "key": "photos/partners/kamchatintour/seo3.jpg"
+    },
+    {
+      "file": "media/s3/photos/partners/kamchatintour/seo4.320.webp",
+      "key": "photos/partners/kamchatintour/seo4.320.webp"
+    },
+    {
+      "file": "media/s3/photos/partners/kamchatintour/seo4.640.webp",
+      "key": "photos/partners/kamchatintour/seo4.640.webp"
+    },
+    {
+      "file": "media/s3/photos/partners/kamchatintour/seo4.jpg",
+      "key": "photos/partners/kamchatintour/seo4.jpg"
+    },
+    {
+      "file": "media/s3/photos/partners/kamchatintour/seo5.jpg",
+      "key": "photos/partners/kamchatintour/seo5.jpg"
+    },
+    {
+      "file": "media/s3/photos/partners/kamchatintour/snowmobile.320.webp",
+      "key": "photos/partners/kamchatintour/snowmobile.320.webp"
+    },
+    {
+      "file": "media/s3/photos/partners/kamchatintour/snowmobile.640.webp",
+      "key": "photos/partners/kamchatintour/snowmobile.640.webp"
+    },
+    {
+      "file": "media/s3/photos/partners/kamchatintour/snowmobile.jpg",
+      "key": "photos/partners/kamchatintour/snowmobile.jpg"
+    },
+    {
+      "file": "media/s3/photos/partners/kamchatintour/spa-summer.320.webp",
+      "key": "photos/partners/kamchatintour/spa-summer.320.webp"
+    },
+    {
+      "file": "media/s3/photos/partners/kamchatintour/spa-summer.640.webp",
+      "key": "photos/partners/kamchatintour/spa-summer.640.webp"
+    },
+    {
+      "file": "media/s3/photos/partners/kamchatintour/spa-summer.jpg",
+      "key": "photos/partners/kamchatintour/spa-summer.jpg"
+    },
+    {
+      "file": "media/s3/photos/partners/kamchatintour/thermal.1280.webp",
+      "key": "photos/partners/kamchatintour/thermal.1280.webp"
+    },
+    {
+      "file": "media/s3/photos/partners/kamchatintour/thermal.320.webp",
+      "key": "photos/partners/kamchatintour/thermal.320.webp"
+    },
+    {
+      "file": "media/s3/photos/partners/kamchatintour/thermal.640.webp",
+      "key": "photos/partners/kamchatintour/thermal.640.webp"
+    },
+    {
+      "file": "media/s3/photos/partners/kamchatintour/thermal.jpg",
+      "key": "photos/partners/kamchatintour/thermal.jpg"
+    },
+    {
+      "file": "media/s3/photos/partners/kamchatintour/volcanoes.webp",
+      "key": "photos/partners/kamchatintour/volcanoes.webp"
+    },
+    {
+      "file": "media/s3/photos/partners/kamchatintour/winter-adventures.320.webp",
+      "key": "photos/partners/kamchatintour/winter-adventures.320.webp"
+    },
+    {
+      "file": "media/s3/photos/partners/kamchatintour/winter-adventures.640.webp",
+      "key": "photos/partners/kamchatintour/winter-adventures.640.webp"
+    },
+    {
+      "file": "media/s3/photos/partners/kamchatintour/winter-adventures.jpg",
+      "key": "photos/partners/kamchatintour/winter-adventures.jpg"
+    },
+    {
+      "file": "media/s3/photos/partners/kamchatka-fishing/chavycha.320.webp",
+      "key": "photos/partners/kamchatka-fishing/chavycha.320.webp"
+    },
+    {
+      "file": "media/s3/photos/partners/kamchatka-fishing/chavycha.640.webp",
+      "key": "photos/partners/kamchatka-fishing/chavycha.640.webp"
+    },
+    {
+      "file": "media/s3/photos/partners/kamchatka-fishing/chavycha.jpg",
+      "key": "photos/partners/kamchatka-fishing/chavycha.jpg"
+    },
+    {
+      "file": "media/s3/photos/partners/topkam/news-502.jpg",
+      "key": "photos/partners/topkam/news-502.jpg"
+    },
+    {
+      "file": "media/s3/photos/partners/topkam/news-506.jpg",
+      "key": "photos/partners/topkam/news-506.jpg"
+    },
+    {
+      "file": "media/s3/photos/partners/topkam/news-507.jpg",
+      "key": "photos/partners/topkam/news-507.jpg"
+    },
+    {
+      "file": "media/s3/photos/partners/topkam/news-508.jpg",
+      "key": "photos/partners/topkam/news-508.jpg"
+    },
+    {
+      "file": "media/s3/photos/partners/topkam/news-509.jpg",
+      "key": "photos/partners/topkam/news-509.jpg"
+    },
+    {
+      "file": "media/s3/photos/partners/topkam/news-510.jpg",
+      "key": "photos/partners/topkam/news-510.jpg"
+    },
+    {
+      "file": "media/s3/photos/partners/topkam/news-511.jpg",
+      "key": "photos/partners/topkam/news-511.jpg"
+    },
+    {
+      "file": "media/s3/photos/shatun/shatun-01.1280.webp",
+      "key": "photos/shatun/shatun-01.1280.webp"
+    },
+    {
+      "file": "media/s3/photos/shatun/shatun-01.320.webp",
+      "key": "photos/shatun/shatun-01.320.webp"
+    },
+    {
+      "file": "media/s3/photos/shatun/shatun-01.640.webp",
+      "key": "photos/shatun/shatun-01.640.webp"
+    },
+    {
+      "file": "media/s3/photos/shatun/shatun-01.jpg",
+      "key": "photos/shatun/shatun-01.jpg"
+    },
+    {
+      "file": "media/s3/photos/shatun/shatun-02.1280.webp",
+      "key": "photos/shatun/shatun-02.1280.webp"
+    },
+    {
+      "file": "media/s3/photos/shatun/shatun-02.320.webp",
+      "key": "photos/shatun/shatun-02.320.webp"
+    },
+    {
+      "file": "media/s3/photos/shatun/shatun-02.640.webp",
+      "key": "photos/shatun/shatun-02.640.webp"
+    },
+    {
+      "file": "media/s3/photos/shatun/shatun-02.jpg",
+      "key": "photos/shatun/shatun-02.jpg"
+    },
+    {
+      "file": "media/s3/photos/shatun/shatun-03.1280.webp",
+      "key": "photos/shatun/shatun-03.1280.webp"
+    },
+    {
+      "file": "media/s3/photos/shatun/shatun-03.320.webp",
+      "key": "photos/shatun/shatun-03.320.webp"
+    },
+    {
+      "file": "media/s3/photos/shatun/shatun-03.640.webp",
+      "key": "photos/shatun/shatun-03.640.webp"
+    },
+    {
+      "file": "media/s3/photos/shatun/shatun-03.jpg",
+      "key": "photos/shatun/shatun-03.jpg"
+    },
+    {
+      "file": "media/s3/photos/shatun/shatun-04.1280.webp",
+      "key": "photos/shatun/shatun-04.1280.webp"
+    },
+    {
+      "file": "media/s3/photos/shatun/shatun-04.320.webp",
+      "key": "photos/shatun/shatun-04.320.webp"
+    },
+    {
+      "file": "media/s3/photos/shatun/shatun-04.640.webp",
+      "key": "photos/shatun/shatun-04.640.webp"
+    },
+    {
+      "file": "media/s3/photos/shatun/shatun-04.jpg",
+      "key": "photos/shatun/shatun-04.jpg"
+    },
+    {
+      "file": "media/s3/photos/shatun/shatun-05.1280.webp",
+      "key": "photos/shatun/shatun-05.1280.webp"
+    },
+    {
+      "file": "media/s3/photos/shatun/shatun-05.320.webp",
+      "key": "photos/shatun/shatun-05.320.webp"
+    },
+    {
+      "file": "media/s3/photos/shatun/shatun-05.640.webp",
+      "key": "photos/shatun/shatun-05.640.webp"
+    },
+    {
+      "file": "media/s3/photos/shatun/shatun-05.jpg",
+      "key": "photos/shatun/shatun-05.jpg"
+    },
+    {
+      "file": "media/s3/photos/shatun/shatun-06.1280.webp",
+      "key": "photos/shatun/shatun-06.1280.webp"
+    },
+    {
+      "file": "media/s3/photos/shatun/shatun-06.320.webp",
+      "key": "photos/shatun/shatun-06.320.webp"
+    },
+    {
+      "file": "media/s3/photos/shatun/shatun-06.640.webp",
+      "key": "photos/shatun/shatun-06.640.webp"
+    },
+    {
+      "file": "media/s3/photos/shatun/shatun-06.jpg",
+      "key": "photos/shatun/shatun-06.jpg"
+    },
+    {
+      "file": "media/s3/photos/shatun/shatun-07.1280.webp",
+      "key": "photos/shatun/shatun-07.1280.webp"
+    },
+    {
+      "file": "media/s3/photos/shatun/shatun-07.320.webp",
+      "key": "photos/shatun/shatun-07.320.webp"
+    },
+    {
+      "file": "media/s3/photos/shatun/shatun-07.640.webp",
+      "key": "photos/shatun/shatun-07.640.webp"
+    },
+    {
+      "file": "media/s3/photos/shatun/shatun-07.jpg",
+      "key": "photos/shatun/shatun-07.jpg"
+    },
+    {
+      "file": "media/s3/photos/shatun/shatun-08.320.webp",
+      "key": "photos/shatun/shatun-08.320.webp"
+    },
+    {
+      "file": "media/s3/photos/shatun/shatun-08.640.webp",
+      "key": "photos/shatun/shatun-08.640.webp"
+    },
+    {
+      "file": "media/s3/photos/shatun/shatun-08.jpg",
+      "key": "photos/shatun/shatun-08.jpg"
+    },
+    {
+      "file": "media/s3/photos/shatun/shatun-09.1280.webp",
+      "key": "photos/shatun/shatun-09.1280.webp"
+    },
+    {
+      "file": "media/s3/photos/shatun/shatun-09.320.webp",
+      "key": "photos/shatun/shatun-09.320.webp"
+    },
+    {
+      "file": "media/s3/photos/shatun/shatun-09.640.webp",
+      "key": "photos/shatun/shatun-09.640.webp"
+    },
+    {
+      "file": "media/s3/photos/shatun/shatun-09.jpg",
+      "key": "photos/shatun/shatun-09.jpg"
+    },
+    {
+      "file": "media/s3/photos/shatun/shatun-10.1280.webp",
+      "key": "photos/shatun/shatun-10.1280.webp"
+    },
+    {
+      "file": "media/s3/photos/shatun/shatun-10.320.webp",
+      "key": "photos/shatun/shatun-10.320.webp"
+    },
+    {
+      "file": "media/s3/photos/shatun/shatun-10.640.webp",
+      "key": "photos/shatun/shatun-10.640.webp"
+    },
+    {
+      "file": "media/s3/photos/shatun/shatun-10.jpg",
+      "key": "photos/shatun/shatun-10.jpg"
+    },
+    {
+      "file": "media/s3/photos/shatun/shatun-11.320.webp",
+      "key": "photos/shatun/shatun-11.320.webp"
+    },
+    {
+      "file": "media/s3/photos/shatun/shatun-11.640.webp",
+      "key": "photos/shatun/shatun-11.640.webp"
+    },
+    {
+      "file": "media/s3/photos/shatun/shatun-11.jpg",
+      "key": "photos/shatun/shatun-11.jpg"
+    },
+    {
+      "file": "media/s3/photos/shatun/shatun-12.320.webp",
+      "key": "photos/shatun/shatun-12.320.webp"
+    },
+    {
+      "file": "media/s3/photos/shatun/shatun-12.640.webp",
+      "key": "photos/shatun/shatun-12.640.webp"
+    },
+    {
+      "file": "media/s3/photos/shatun/shatun-12.jpg",
+      "key": "photos/shatun/shatun-12.jpg"
+    },
+    {
+      "file": "media/s3/photos/shatun/shatun-13.320.webp",
+      "key": "photos/shatun/shatun-13.320.webp"
+    },
+    {
+      "file": "media/s3/photos/shatun/shatun-13.640.webp",
+      "key": "photos/shatun/shatun-13.640.webp"
+    },
+    {
+      "file": "media/s3/photos/shatun/shatun-13.jpg",
+      "key": "photos/shatun/shatun-13.jpg"
+    },
+    {
+      "file": "media/s3/photos/shatun/shatun-14.320.webp",
+      "key": "photos/shatun/shatun-14.320.webp"
+    },
+    {
+      "file": "media/s3/photos/shatun/shatun-14.640.webp",
+      "key": "photos/shatun/shatun-14.640.webp"
+    },
+    {
+      "file": "media/s3/photos/shatun/shatun-14.jpg",
+      "key": "photos/shatun/shatun-14.jpg"
+    },
+    {
+      "file": "media/s3/photos/shatun/shatun-15.320.webp",
+      "key": "photos/shatun/shatun-15.320.webp"
+    },
+    {
+      "file": "media/s3/photos/shatun/shatun-15.640.webp",
+      "key": "photos/shatun/shatun-15.640.webp"
+    },
+    {
+      "file": "media/s3/photos/shatun/shatun-15.jpg",
+      "key": "photos/shatun/shatun-15.jpg"
+    },
+    {
+      "file": "media/s3/photos/shatun/shatun-16.1280.webp",
+      "key": "photos/shatun/shatun-16.1280.webp"
+    },
+    {
+      "file": "media/s3/photos/shatun/shatun-16.320.webp",
+      "key": "photos/shatun/shatun-16.320.webp"
+    },
+    {
+      "file": "media/s3/photos/shatun/shatun-16.640.webp",
+      "key": "photos/shatun/shatun-16.640.webp"
+    },
+    {
+      "file": "media/s3/photos/shatun/shatun-16.jpg",
+      "key": "photos/shatun/shatun-16.jpg"
+    },
+    {
+      "file": "media/s3/photos/shatun/shatun-17.1280.webp",
+      "key": "photos/shatun/shatun-17.1280.webp"
+    },
+    {
+      "file": "media/s3/photos/shatun/shatun-17.320.webp",
+      "key": "photos/shatun/shatun-17.320.webp"
+    },
+    {
+      "file": "media/s3/photos/shatun/shatun-17.640.webp",
+      "key": "photos/shatun/shatun-17.640.webp"
+    },
+    {
+      "file": "media/s3/photos/shatun/shatun-17.jpg",
+      "key": "photos/shatun/shatun-17.jpg"
+    },
+    {
+      "file": "media/s3/photos/shatun/shatun-18.1280.webp",
+      "key": "photos/shatun/shatun-18.1280.webp"
+    },
+    {
+      "file": "media/s3/photos/shatun/shatun-18.320.webp",
+      "key": "photos/shatun/shatun-18.320.webp"
+    },
+    {
+      "file": "media/s3/photos/shatun/shatun-18.640.webp",
+      "key": "photos/shatun/shatun-18.640.webp"
+    },
+    {
+      "file": "media/s3/photos/shatun/shatun-18.jpg",
+      "key": "photos/shatun/shatun-18.jpg"
+    },
+    {
+      "file": "media/s3/photos/shatun/shatun-19.1280.webp",
+      "key": "photos/shatun/shatun-19.1280.webp"
+    },
+    {
+      "file": "media/s3/photos/shatun/shatun-19.320.webp",
+      "key": "photos/shatun/shatun-19.320.webp"
+    },
+    {
+      "file": "media/s3/photos/shatun/shatun-19.640.webp",
+      "key": "photos/shatun/shatun-19.640.webp"
+    },
+    {
+      "file": "media/s3/photos/shatun/shatun-19.jpg",
+      "key": "photos/shatun/shatun-19.jpg"
+    },
+    {
+      "file": "media/s3/photos/shatun/shatun-20.1280.webp",
+      "key": "photos/shatun/shatun-20.1280.webp"
+    },
+    {
+      "file": "media/s3/photos/shatun/shatun-20.320.webp",
+      "key": "photos/shatun/shatun-20.320.webp"
+    },
+    {
+      "file": "media/s3/photos/shatun/shatun-20.640.webp",
+      "key": "photos/shatun/shatun-20.640.webp"
+    },
+    {
+      "file": "media/s3/photos/shatun/shatun-20.jpg",
+      "key": "photos/shatun/shatun-20.jpg"
+    },
+    {
+      "file": "media/s3/photos/shatun/shatun-21.1280.webp",
+      "key": "photos/shatun/shatun-21.1280.webp"
+    },
+    {
+      "file": "media/s3/photos/shatun/shatun-21.320.webp",
+      "key": "photos/shatun/shatun-21.320.webp"
+    },
+    {
+      "file": "media/s3/photos/shatun/shatun-21.640.webp",
+      "key": "photos/shatun/shatun-21.640.webp"
+    },
+    {
+      "file": "media/s3/photos/shatun/shatun-21.jpg",
+      "key": "photos/shatun/shatun-21.jpg"
+    },
+    {
+      "file": "media/s3/photos/shatun/shatun-22.1280.webp",
+      "key": "photos/shatun/shatun-22.1280.webp"
+    },
+    {
+      "file": "media/s3/photos/shatun/shatun-22.320.webp",
+      "key": "photos/shatun/shatun-22.320.webp"
+    },
+    {
+      "file": "media/s3/photos/shatun/shatun-22.640.webp",
+      "key": "photos/shatun/shatun-22.640.webp"
+    },
+    {
+      "file": "media/s3/photos/shatun/shatun-22.jpg",
+      "key": "photos/shatun/shatun-22.jpg"
+    },
+    {
+      "file": "media/s3/photos/shatun/shatun-23.1280.webp",
+      "key": "photos/shatun/shatun-23.1280.webp"
+    },
+    {
+      "file": "media/s3/photos/shatun/shatun-23.320.webp",
+      "key": "photos/shatun/shatun-23.320.webp"
+    },
+    {
+      "file": "media/s3/photos/shatun/shatun-23.640.webp",
+      "key": "photos/shatun/shatun-23.640.webp"
+    },
+    {
+      "file": "media/s3/photos/shatun/shatun-23.jpg",
+      "key": "photos/shatun/shatun-23.jpg"
+    },
+    {
+      "file": "media/s3/photos/tours/bystraya-rafting/01-river-volcanoes.1280.webp",
+      "key": "photos/tours/bystraya-rafting/01-river-volcanoes.1280.webp"
+    },
+    {
+      "file": "media/s3/photos/tours/bystraya-rafting/01-river-volcanoes.320.webp",
+      "key": "photos/tours/bystraya-rafting/01-river-volcanoes.320.webp"
+    },
+    {
+      "file": "media/s3/photos/tours/bystraya-rafting/01-river-volcanoes.640.webp",
+      "key": "photos/tours/bystraya-rafting/01-river-volcanoes.640.webp"
+    },
+    {
+      "file": "media/s3/photos/tours/bystraya-rafting/01-river-volcanoes.jpg",
+      "key": "photos/tours/bystraya-rafting/01-river-volcanoes.jpg"
+    },
+    {
+      "file": "media/s3/photos/tours/bystraya-rafting/02-rafting.1280.webp",
+      "key": "photos/tours/bystraya-rafting/02-rafting.1280.webp"
+    },
+    {
+      "file": "media/s3/photos/tours/bystraya-rafting/02-rafting.320.webp",
+      "key": "photos/tours/bystraya-rafting/02-rafting.320.webp"
+    },
+    {
+      "file": "media/s3/photos/tours/bystraya-rafting/02-rafting.640.webp",
+      "key": "photos/tours/bystraya-rafting/02-rafting.640.webp"
+    },
+    {
+      "file": "media/s3/photos/tours/bystraya-rafting/02-rafting.jpg",
+      "key": "photos/tours/bystraya-rafting/02-rafting.jpg"
+    },
+    {
+      "file": "media/s3/photos/tours/bystraya-rafting/03-salmon-catch.320.webp",
+      "key": "photos/tours/bystraya-rafting/03-salmon-catch.320.webp"
+    },
+    {
+      "file": "media/s3/photos/tours/bystraya-rafting/03-salmon-catch.640.webp",
+      "key": "photos/tours/bystraya-rafting/03-salmon-catch.640.webp"
+    },
+    {
+      "file": "media/s3/photos/tours/bystraya-rafting/03-salmon-catch.jpg",
+      "key": "photos/tours/bystraya-rafting/03-salmon-catch.jpg"
+    },
+    {
+      "file": "media/s3/photos/tours/bystraya-rafting/04-shore-lunch.320.webp",
+      "key": "photos/tours/bystraya-rafting/04-shore-lunch.320.webp"
+    },
+    {
+      "file": "media/s3/photos/tours/bystraya-rafting/04-shore-lunch.640.webp",
+      "key": "photos/tours/bystraya-rafting/04-shore-lunch.640.webp"
+    },
+    {
+      "file": "media/s3/photos/tours/bystraya-rafting/04-shore-lunch.jpg",
+      "key": "photos/tours/bystraya-rafting/04-shore-lunch.jpg"
+    },
+    {
+      "file": "media/s3/photos/tours/bystraya-rafting/05-char-catch.1280.webp",
+      "key": "photos/tours/bystraya-rafting/05-char-catch.1280.webp"
+    },
+    {
+      "file": "media/s3/photos/tours/bystraya-rafting/05-char-catch.320.webp",
+      "key": "photos/tours/bystraya-rafting/05-char-catch.320.webp"
+    },
+    {
+      "file": "media/s3/photos/tours/bystraya-rafting/05-char-catch.640.webp",
+      "key": "photos/tours/bystraya-rafting/05-char-catch.640.webp"
+    },
+    {
+      "file": "media/s3/photos/tours/bystraya-rafting/05-char-catch.jpg",
+      "key": "photos/tours/bystraya-rafting/05-char-catch.jpg"
+    },
+    {
+      "file": "media/s3/photos/tours/bystraya-rafting/06-fishing-group.320.webp",
+      "key": "photos/tours/bystraya-rafting/06-fishing-group.320.webp"
+    },
+    {
+      "file": "media/s3/photos/tours/bystraya-rafting/06-fishing-group.640.webp",
+      "key": "photos/tours/bystraya-rafting/06-fishing-group.640.webp"
+    },
+    {
+      "file": "media/s3/photos/tours/bystraya-rafting/06-fishing-group.jpg",
+      "key": "photos/tours/bystraya-rafting/06-fishing-group.jpg"
+    },
+    {
+      "file": "media/s3/photos/tours/bystraya-rafting/07-bear-river.320.webp",
+      "key": "photos/tours/bystraya-rafting/07-bear-river.320.webp"
+    },
+    {
+      "file": "media/s3/photos/tours/bystraya-rafting/07-bear-river.640.webp",
+      "key": "photos/tours/bystraya-rafting/07-bear-river.640.webp"
+    },
+    {
+      "file": "media/s3/photos/tours/bystraya-rafting/07-bear-river.jpg",
+      "key": "photos/tours/bystraya-rafting/07-bear-river.jpg"
+    },
+    {
+      "file": "media/s3/photos/tours/bystraya-rafting/08-bear-fish.320.webp",
+      "key": "photos/tours/bystraya-rafting/08-bear-fish.320.webp"
+    },
+    {
+      "file": "media/s3/photos/tours/bystraya-rafting/08-bear-fish.640.webp",
+      "key": "photos/tours/bystraya-rafting/08-bear-fish.640.webp"
+    },
+    {
+      "file": "media/s3/photos/tours/bystraya-rafting/08-bear-fish.jpg",
+      "key": "photos/tours/bystraya-rafting/08-bear-fish.jpg"
+    },
+    {
+      "file": "media/s3/photos/tours/bystraya-rafting/09-caviar.320.webp",
+      "key": "photos/tours/bystraya-rafting/09-caviar.320.webp"
+    },
+    {
+      "file": "media/s3/photos/tours/bystraya-rafting/09-caviar.640.webp",
+      "key": "photos/tours/bystraya-rafting/09-caviar.640.webp"
+    },
+    {
+      "file": "media/s3/photos/tours/bystraya-rafting/09-caviar.jpg",
+      "key": "photos/tours/bystraya-rafting/09-caviar.jpg"
+    },
+    {
+      "file": "media/s3/photos/tours/bystraya-rafting/10-camp-lunch-1.1280.webp",
+      "key": "photos/tours/bystraya-rafting/10-camp-lunch-1.1280.webp"
+    },
+    {
+      "file": "media/s3/photos/tours/bystraya-rafting/10-camp-lunch-1.320.webp",
+      "key": "photos/tours/bystraya-rafting/10-camp-lunch-1.320.webp"
+    },
+    {
+      "file": "media/s3/photos/tours/bystraya-rafting/10-camp-lunch-1.640.webp",
+      "key": "photos/tours/bystraya-rafting/10-camp-lunch-1.640.webp"
+    },
+    {
+      "file": "media/s3/photos/tours/bystraya-rafting/10-camp-lunch-1.jpg",
+      "key": "photos/tours/bystraya-rafting/10-camp-lunch-1.jpg"
+    },
+    {
+      "file": "media/s3/photos/tours/bystraya-rafting/11-camp-lunch-2.1280.webp",
+      "key": "photos/tours/bystraya-rafting/11-camp-lunch-2.1280.webp"
+    },
+    {
+      "file": "media/s3/photos/tours/bystraya-rafting/11-camp-lunch-2.320.webp",
+      "key": "photos/tours/bystraya-rafting/11-camp-lunch-2.320.webp"
+    },
+    {
+      "file": "media/s3/photos/tours/bystraya-rafting/11-camp-lunch-2.640.webp",
+      "key": "photos/tours/bystraya-rafting/11-camp-lunch-2.640.webp"
+    },
+    {
+      "file": "media/s3/photos/tours/bystraya-rafting/11-camp-lunch-2.jpg",
+      "key": "photos/tours/bystraya-rafting/11-camp-lunch-2.jpg"
+    },
+    {
+      "file": "media/s3/photos/tours/bystraya-rafting/12-rafting-crew-1.1280.webp",
+      "key": "photos/tours/bystraya-rafting/12-rafting-crew-1.1280.webp"
+    },
+    {
+      "file": "media/s3/photos/tours/bystraya-rafting/12-rafting-crew-1.320.webp",
+      "key": "photos/tours/bystraya-rafting/12-rafting-crew-1.320.webp"
+    },
+    {
+      "file": "media/s3/photos/tours/bystraya-rafting/12-rafting-crew-1.640.webp",
+      "key": "photos/tours/bystraya-rafting/12-rafting-crew-1.640.webp"
+    },
+    {
+      "file": "media/s3/photos/tours/bystraya-rafting/12-rafting-crew-1.jpg",
+      "key": "photos/tours/bystraya-rafting/12-rafting-crew-1.jpg"
+    },
+    {
+      "file": "media/s3/photos/tours/bystraya-rafting/13-rafting-crew-2.1280.webp",
+      "key": "photos/tours/bystraya-rafting/13-rafting-crew-2.1280.webp"
+    },
+    {
+      "file": "media/s3/photos/tours/bystraya-rafting/13-rafting-crew-2.320.webp",
+      "key": "photos/tours/bystraya-rafting/13-rafting-crew-2.320.webp"
+    },
+    {
+      "file": "media/s3/photos/tours/bystraya-rafting/13-rafting-crew-2.640.webp",
+      "key": "photos/tours/bystraya-rafting/13-rafting-crew-2.640.webp"
+    },
+    {
+      "file": "media/s3/photos/tours/bystraya-rafting/13-rafting-crew-2.jpg",
+      "key": "photos/tours/bystraya-rafting/13-rafting-crew-2.jpg"
+    },
+    {
+      "file": "media/s3/photos/tours/bystraya-rafting/14-rafting-crew-3.1280.webp",
+      "key": "photos/tours/bystraya-rafting/14-rafting-crew-3.1280.webp"
+    },
+    {
+      "file": "media/s3/photos/tours/bystraya-rafting/14-rafting-crew-3.320.webp",
+      "key": "photos/tours/bystraya-rafting/14-rafting-crew-3.320.webp"
+    },
+    {
+      "file": "media/s3/photos/tours/bystraya-rafting/14-rafting-crew-3.640.webp",
+      "key": "photos/tours/bystraya-rafting/14-rafting-crew-3.640.webp"
+    },
+    {
+      "file": "media/s3/photos/tours/bystraya-rafting/14-rafting-crew-3.jpg",
+      "key": "photos/tours/bystraya-rafting/14-rafting-crew-3.jpg"
+    },
+    {
+      "file": "media/s3/photos/tours/bystraya-rafting/15-camp-lunch-3.1280.webp",
+      "key": "photos/tours/bystraya-rafting/15-camp-lunch-3.1280.webp"
+    },
+    {
+      "file": "media/s3/photos/tours/bystraya-rafting/15-camp-lunch-3.320.webp",
+      "key": "photos/tours/bystraya-rafting/15-camp-lunch-3.320.webp"
+    },
+    {
+      "file": "media/s3/photos/tours/bystraya-rafting/15-camp-lunch-3.640.webp",
+      "key": "photos/tours/bystraya-rafting/15-camp-lunch-3.640.webp"
+    },
+    {
+      "file": "media/s3/photos/tours/bystraya-rafting/15-camp-lunch-3.jpg",
+      "key": "photos/tours/bystraya-rafting/15-camp-lunch-3.jpg"
+    },
+    {
+      "file": "media/s3/photos/tours/bystraya-rafting/16-yurt-camp-wide.1280.webp",
+      "key": "photos/tours/bystraya-rafting/16-yurt-camp-wide.1280.webp"
+    },
+    {
+      "file": "media/s3/photos/tours/bystraya-rafting/16-yurt-camp-wide.320.webp",
+      "key": "photos/tours/bystraya-rafting/16-yurt-camp-wide.320.webp"
+    },
+    {
+      "file": "media/s3/photos/tours/bystraya-rafting/16-yurt-camp-wide.640.webp",
+      "key": "photos/tours/bystraya-rafting/16-yurt-camp-wide.640.webp"
+    },
+    {
+      "file": "media/s3/photos/tours/bystraya-rafting/16-yurt-camp-wide.jpg",
+      "key": "photos/tours/bystraya-rafting/16-yurt-camp-wide.jpg"
+    },
+    {
+      "file": "media/s3/photos/tours/bystraya-rafting/17-shore-landing.1280.webp",
+      "key": "photos/tours/bystraya-rafting/17-shore-landing.1280.webp"
+    },
+    {
+      "file": "media/s3/photos/tours/bystraya-rafting/17-shore-landing.320.webp",
+      "key": "photos/tours/bystraya-rafting/17-shore-landing.320.webp"
+    },
+    {
+      "file": "media/s3/photos/tours/bystraya-rafting/17-shore-landing.640.webp",
+      "key": "photos/tours/bystraya-rafting/17-shore-landing.640.webp"
+    },
+    {
+      "file": "media/s3/photos/tours/bystraya-rafting/17-shore-landing.jpg",
+      "key": "photos/tours/bystraya-rafting/17-shore-landing.jpg"
+    },
+    {
+      "file": "media/s3/photos/tours/bystraya-rafting/18-group-finish-1.1280.webp",
+      "key": "photos/tours/bystraya-rafting/18-group-finish-1.1280.webp"
+    },
+    {
+      "file": "media/s3/photos/tours/bystraya-rafting/18-group-finish-1.320.webp",
+      "key": "photos/tours/bystraya-rafting/18-group-finish-1.320.webp"
+    },
+    {
+      "file": "media/s3/photos/tours/bystraya-rafting/18-group-finish-1.640.webp",
+      "key": "photos/tours/bystraya-rafting/18-group-finish-1.640.webp"
+    },
+    {
+      "file": "media/s3/photos/tours/bystraya-rafting/18-group-finish-1.jpg",
+      "key": "photos/tours/bystraya-rafting/18-group-finish-1.jpg"
+    },
+    {
+      "file": "media/s3/photos/tours/bystraya-rafting/19-group-finish-2.1280.webp",
+      "key": "photos/tours/bystraya-rafting/19-group-finish-2.1280.webp"
+    },
+    {
+      "file": "media/s3/photos/tours/bystraya-rafting/19-group-finish-2.320.webp",
+      "key": "photos/tours/bystraya-rafting/19-group-finish-2.320.webp"
+    },
+    {
+      "file": "media/s3/photos/tours/bystraya-rafting/19-group-finish-2.640.webp",
+      "key": "photos/tours/bystraya-rafting/19-group-finish-2.640.webp"
+    },
+    {
+      "file": "media/s3/photos/tours/bystraya-rafting/19-group-finish-2.jpg",
+      "key": "photos/tours/bystraya-rafting/19-group-finish-2.jpg"
+    },
+    {
+      "file": "media/s3/photos/tours/bystraya-rafting/20-group-finish-3.1280.webp",
+      "key": "photos/tours/bystraya-rafting/20-group-finish-3.1280.webp"
+    },
+    {
+      "file": "media/s3/photos/tours/bystraya-rafting/20-group-finish-3.320.webp",
+      "key": "photos/tours/bystraya-rafting/20-group-finish-3.320.webp"
+    },
+    {
+      "file": "media/s3/photos/tours/bystraya-rafting/20-group-finish-3.640.webp",
+      "key": "photos/tours/bystraya-rafting/20-group-finish-3.640.webp"
+    },
+    {
+      "file": "media/s3/photos/tours/bystraya-rafting/20-group-finish-3.jpg",
+      "key": "photos/tours/bystraya-rafting/20-group-finish-3.jpg"
+    },
+    {
+      "file": "media/s3/photos/volcanoesland/avtotur-kurilskoe-ozero-01.320.webp",
+      "key": "photos/volcanoesland/avtotur-kurilskoe-ozero-01.320.webp"
+    },
+    {
+      "file": "media/s3/photos/volcanoesland/avtotur-kurilskoe-ozero-01.640.webp",
+      "key": "photos/volcanoesland/avtotur-kurilskoe-ozero-01.640.webp"
+    },
+    {
+      "file": "media/s3/photos/volcanoesland/avtotur-kurilskoe-ozero-01.jpg",
+      "key": "photos/volcanoesland/avtotur-kurilskoe-ozero-01.jpg"
+    },
+    {
+      "file": "media/s3/photos/volcanoesland/avtotur-kurilskoe-ozero-02.320.webp",
+      "key": "photos/volcanoesland/avtotur-kurilskoe-ozero-02.320.webp"
+    },
+    {
+      "file": "media/s3/photos/volcanoesland/avtotur-kurilskoe-ozero-02.640.webp",
+      "key": "photos/volcanoesland/avtotur-kurilskoe-ozero-02.640.webp"
+    },
+    {
+      "file": "media/s3/photos/volcanoesland/avtotur-kurilskoe-ozero-02.jpg",
+      "key": "photos/volcanoesland/avtotur-kurilskoe-ozero-02.jpg"
+    },
+    {
+      "file": "media/s3/photos/volcanoesland/avtotur-kurilskoe-ozero-03.320.webp",
+      "key": "photos/volcanoesland/avtotur-kurilskoe-ozero-03.320.webp"
+    },
+    {
+      "file": "media/s3/photos/volcanoesland/avtotur-kurilskoe-ozero-03.640.webp",
+      "key": "photos/volcanoesland/avtotur-kurilskoe-ozero-03.640.webp"
+    },
+    {
+      "file": "media/s3/photos/volcanoesland/avtotur-kurilskoe-ozero-03.jpg",
+      "key": "photos/volcanoesland/avtotur-kurilskoe-ozero-03.jpg"
+    },
+    {
+      "file": "media/s3/photos/volcanoesland/avtotur-kurilskoe-ozero-04.320.webp",
+      "key": "photos/volcanoesland/avtotur-kurilskoe-ozero-04.320.webp"
+    },
+    {
+      "file": "media/s3/photos/volcanoesland/avtotur-kurilskoe-ozero-04.640.webp",
+      "key": "photos/volcanoesland/avtotur-kurilskoe-ozero-04.640.webp"
+    },
+    {
+      "file": "media/s3/photos/volcanoesland/avtotur-kurilskoe-ozero-04.jpg",
+      "key": "photos/volcanoesland/avtotur-kurilskoe-ozero-04.jpg"
+    },
+    {
+      "file": "media/s3/photos/volcanoesland/avtotur-kurilskoe-ozero-05.320.webp",
+      "key": "photos/volcanoesland/avtotur-kurilskoe-ozero-05.320.webp"
+    },
+    {
+      "file": "media/s3/photos/volcanoesland/avtotur-kurilskoe-ozero-05.640.webp",
+      "key": "photos/volcanoesland/avtotur-kurilskoe-ozero-05.640.webp"
+    },
+    {
+      "file": "media/s3/photos/volcanoesland/avtotur-kurilskoe-ozero-05.jpg",
+      "key": "photos/volcanoesland/avtotur-kurilskoe-ozero-05.jpg"
+    },
+    {
+      "file": "media/s3/photos/volcanoesland/dolina-geyzerov-kaldera-uzon-01.320.webp",
+      "key": "photos/volcanoesland/dolina-geyzerov-kaldera-uzon-01.320.webp"
+    },
+    {
+      "file": "media/s3/photos/volcanoesland/dolina-geyzerov-kaldera-uzon-01.640.webp",
+      "key": "photos/volcanoesland/dolina-geyzerov-kaldera-uzon-01.640.webp"
+    },
+    {
+      "file": "media/s3/photos/volcanoesland/dolina-geyzerov-kaldera-uzon-01.jpg",
+      "key": "photos/volcanoesland/dolina-geyzerov-kaldera-uzon-01.jpg"
+    },
+    {
+      "file": "media/s3/photos/volcanoesland/dolina-geyzerov-kaldera-uzon-02.320.webp",
+      "key": "photos/volcanoesland/dolina-geyzerov-kaldera-uzon-02.320.webp"
+    },
+    {
+      "file": "media/s3/photos/volcanoesland/dolina-geyzerov-kaldera-uzon-02.640.webp",
+      "key": "photos/volcanoesland/dolina-geyzerov-kaldera-uzon-02.640.webp"
+    },
+    {
+      "file": "media/s3/photos/volcanoesland/dolina-geyzerov-kaldera-uzon-02.jpg",
+      "key": "photos/volcanoesland/dolina-geyzerov-kaldera-uzon-02.jpg"
+    },
+    {
+      "file": "media/s3/photos/volcanoesland/dolina-geyzerov-kaldera-uzon-03.320.webp",
+      "key": "photos/volcanoesland/dolina-geyzerov-kaldera-uzon-03.320.webp"
+    },
+    {
+      "file": "media/s3/photos/volcanoesland/dolina-geyzerov-kaldera-uzon-03.640.webp",
+      "key": "photos/volcanoesland/dolina-geyzerov-kaldera-uzon-03.640.webp"
+    },
+    {
+      "file": "media/s3/photos/volcanoesland/dolina-geyzerov-kaldera-uzon-03.jpg",
+      "key": "photos/volcanoesland/dolina-geyzerov-kaldera-uzon-03.jpg"
+    },
+    {
+      "file": "media/s3/photos/volcanoesland/dolina-geyzerov-kaldera-uzon-04.320.webp",
+      "key": "photos/volcanoesland/dolina-geyzerov-kaldera-uzon-04.320.webp"
+    },
+    {
+      "file": "media/s3/photos/volcanoesland/dolina-geyzerov-kaldera-uzon-04.640.webp",
+      "key": "photos/volcanoesland/dolina-geyzerov-kaldera-uzon-04.640.webp"
+    },
+    {
+      "file": "media/s3/photos/volcanoesland/dolina-geyzerov-kaldera-uzon-04.jpg",
+      "key": "photos/volcanoesland/dolina-geyzerov-kaldera-uzon-04.jpg"
+    },
+    {
+      "file": "media/s3/photos/volcanoesland/dolina-geyzerov-kaldera-uzon-05.320.webp",
+      "key": "photos/volcanoesland/dolina-geyzerov-kaldera-uzon-05.320.webp"
+    },
+    {
+      "file": "media/s3/photos/volcanoesland/dolina-geyzerov-kaldera-uzon-05.640.webp",
+      "key": "photos/volcanoesland/dolina-geyzerov-kaldera-uzon-05.640.webp"
+    },
+    {
+      "file": "media/s3/photos/volcanoesland/dolina-geyzerov-kaldera-uzon-05.jpg",
+      "key": "photos/volcanoesland/dolina-geyzerov-kaldera-uzon-05.jpg"
+    },
+    {
+      "file": "media/s3/photos/volcanoesland/kruiz-komandorskie-ostrova-01.320.webp",
+      "key": "photos/volcanoesland/kruiz-komandorskie-ostrova-01.320.webp"
+    },
+    {
+      "file": "media/s3/photos/volcanoesland/kruiz-komandorskie-ostrova-01.640.webp",
+      "key": "photos/volcanoesland/kruiz-komandorskie-ostrova-01.640.webp"
+    },
+    {
+      "file": "media/s3/photos/volcanoesland/kruiz-komandorskie-ostrova-01.jpg",
+      "key": "photos/volcanoesland/kruiz-komandorskie-ostrova-01.jpg"
+    },
+    {
+      "file": "media/s3/photos/volcanoesland/kruiz-komandorskie-ostrova-02.320.webp",
+      "key": "photos/volcanoesland/kruiz-komandorskie-ostrova-02.320.webp"
+    },
+    {
+      "file": "media/s3/photos/volcanoesland/kruiz-komandorskie-ostrova-02.640.webp",
+      "key": "photos/volcanoesland/kruiz-komandorskie-ostrova-02.640.webp"
+    },
+    {
+      "file": "media/s3/photos/volcanoesland/kruiz-komandorskie-ostrova-02.jpg",
+      "key": "photos/volcanoesland/kruiz-komandorskie-ostrova-02.jpg"
+    },
+    {
+      "file": "media/s3/photos/volcanoesland/kruiz-komandorskie-ostrova-03.jpg",
+      "key": "photos/volcanoesland/kruiz-komandorskie-ostrova-03.jpg"
+    },
+    {
+      "file": "media/s3/photos/volcanoesland/kruiz-komandorskie-ostrova-04.jpg",
+      "key": "photos/volcanoesland/kruiz-komandorskie-ostrova-04.jpg"
+    },
+    {
+      "file": "media/s3/photos/volcanoesland/kruiz-komandorskie-ostrova-05.320.webp",
+      "key": "photos/volcanoesland/kruiz-komandorskie-ostrova-05.320.webp"
+    },
+    {
+      "file": "media/s3/photos/volcanoesland/kruiz-komandorskie-ostrova-05.640.webp",
+      "key": "photos/volcanoesland/kruiz-komandorskie-ostrova-05.640.webp"
+    },
+    {
+      "file": "media/s3/photos/volcanoesland/kruiz-komandorskie-ostrova-05.jpg",
+      "key": "photos/volcanoesland/kruiz-komandorskie-ostrova-05.jpg"
+    },
+    {
+      "file": "media/s3/photos/volcanoesland/kurilskoe-ozero-dolina-geyzerov-gorelyy-avacha-01.jpg",
+      "key": "photos/volcanoesland/kurilskoe-ozero-dolina-geyzerov-gorelyy-avacha-01.jpg"
+    },
+    {
+      "file": "media/s3/photos/volcanoesland/kurilskoe-ozero-dolina-geyzerov-gorelyy-avacha-02.jpg",
+      "key": "photos/volcanoesland/kurilskoe-ozero-dolina-geyzerov-gorelyy-avacha-02.jpg"
+    },
+    {
+      "file": "media/s3/photos/volcanoesland/kurilskoe-ozero-dolina-geyzerov-gorelyy-avacha-03.320.webp",
+      "key": "photos/volcanoesland/kurilskoe-ozero-dolina-geyzerov-gorelyy-avacha-03.320.webp"
+    },
+    {
+      "file": "media/s3/photos/volcanoesland/kurilskoe-ozero-dolina-geyzerov-gorelyy-avacha-03.640.webp",
+      "key": "photos/volcanoesland/kurilskoe-ozero-dolina-geyzerov-gorelyy-avacha-03.640.webp"
+    },
+    {
+      "file": "media/s3/photos/volcanoesland/kurilskoe-ozero-dolina-geyzerov-gorelyy-avacha-03.jpg",
+      "key": "photos/volcanoesland/kurilskoe-ozero-dolina-geyzerov-gorelyy-avacha-03.jpg"
+    },
+    {
+      "file": "media/s3/photos/volcanoesland/kurilskoe-ozero-dolina-geyzerov-gorelyy-avacha-04.320.webp",
+      "key": "photos/volcanoesland/kurilskoe-ozero-dolina-geyzerov-gorelyy-avacha-04.320.webp"
+    },
+    {
+      "file": "media/s3/photos/volcanoesland/kurilskoe-ozero-dolina-geyzerov-gorelyy-avacha-04.640.webp",
+      "key": "photos/volcanoesland/kurilskoe-ozero-dolina-geyzerov-gorelyy-avacha-04.640.webp"
+    },
+    {
+      "file": "media/s3/photos/volcanoesland/kurilskoe-ozero-dolina-geyzerov-gorelyy-avacha-04.jpg",
+      "key": "photos/volcanoesland/kurilskoe-ozero-dolina-geyzerov-gorelyy-avacha-04.jpg"
+    },
+    {
+      "file": "media/s3/photos/volcanoesland/kurilskoe-ozero-dolina-geyzerov-gorelyy-avacha-05.320.webp",
+      "key": "photos/volcanoesland/kurilskoe-ozero-dolina-geyzerov-gorelyy-avacha-05.320.webp"
+    },
+    {
+      "file": "media/s3/photos/volcanoesland/kurilskoe-ozero-dolina-geyzerov-gorelyy-avacha-05.640.webp",
+      "key": "photos/volcanoesland/kurilskoe-ozero-dolina-geyzerov-gorelyy-avacha-05.640.webp"
+    },
+    {
+      "file": "media/s3/photos/volcanoesland/kurilskoe-ozero-dolina-geyzerov-gorelyy-avacha-05.jpg",
+      "key": "photos/volcanoesland/kurilskoe-ozero-dolina-geyzerov-gorelyy-avacha-05.jpg"
+    },
+    {
+      "file": "media/s3/photos/volcanoesland/logo.png",
+      "key": "photos/volcanoesland/logo.png"
+    },
+    {
+      "file": "media/s3/photos/volcanoesland/oblet-klyuchevskoy-gruppy-dolina-geyzerov-01.jpg",
+      "key": "photos/volcanoesland/oblet-klyuchevskoy-gruppy-dolina-geyzerov-01.jpg"
+    },
+    {
+      "file": "media/s3/photos/volcanoesland/oblet-klyuchevskoy-gruppy-dolina-geyzerov-02.jpg",
+      "key": "photos/volcanoesland/oblet-klyuchevskoy-gruppy-dolina-geyzerov-02.jpg"
+    },
+    {
+      "file": "media/s3/photos/volcanoesland/oblet-klyuchevskoy-gruppy-dolina-geyzerov-03.jpg",
+      "key": "photos/volcanoesland/oblet-klyuchevskoy-gruppy-dolina-geyzerov-03.jpg"
+    },
+    {
+      "file": "media/s3/photos/volcanoesland/oblet-klyuchevskoy-gruppy-dolina-geyzerov-04.jpg",
+      "key": "photos/volcanoesland/oblet-klyuchevskoy-gruppy-dolina-geyzerov-04.jpg"
+    },
+    {
+      "file": "media/s3/photos/volcanoesland/oblet-klyuchevskoy-gruppy-dolina-geyzerov-05.320.webp",
+      "key": "photos/volcanoesland/oblet-klyuchevskoy-gruppy-dolina-geyzerov-05.320.webp"
+    },
+    {
+      "file": "media/s3/photos/volcanoesland/oblet-klyuchevskoy-gruppy-dolina-geyzerov-05.640.webp",
+      "key": "photos/volcanoesland/oblet-klyuchevskoy-gruppy-dolina-geyzerov-05.640.webp"
+    },
+    {
+      "file": "media/s3/photos/volcanoesland/oblet-klyuchevskoy-gruppy-dolina-geyzerov-05.jpg",
+      "key": "photos/volcanoesland/oblet-klyuchevskoy-gruppy-dolina-geyzerov-05.jpg"
+    },
+    {
+      "file": "media/s3/photos/volcanoesland/ploskiy-tolbachik-01.jpg",
+      "key": "photos/volcanoesland/ploskiy-tolbachik-01.jpg"
+    },
+    {
+      "file": "media/s3/photos/volcanoesland/ploskiy-tolbachik-02.jpg",
+      "key": "photos/volcanoesland/ploskiy-tolbachik-02.jpg"
+    },
+    {
+      "file": "media/s3/photos/volcanoesland/ploskiy-tolbachik-03.jpg",
+      "key": "photos/volcanoesland/ploskiy-tolbachik-03.jpg"
+    },
+    {
+      "file": "media/s3/photos/volcanoesland/ploskiy-tolbachik-04.320.webp",
+      "key": "photos/volcanoesland/ploskiy-tolbachik-04.320.webp"
+    },
+    {
+      "file": "media/s3/photos/volcanoesland/ploskiy-tolbachik-04.640.webp",
+      "key": "photos/volcanoesland/ploskiy-tolbachik-04.640.webp"
+    },
+    {
+      "file": "media/s3/photos/volcanoesland/ploskiy-tolbachik-04.jpg",
+      "key": "photos/volcanoesland/ploskiy-tolbachik-04.jpg"
+    },
+    {
+      "file": "media/s3/photos/volcanoesland/ploskiy-tolbachik-05.320.webp",
+      "key": "photos/volcanoesland/ploskiy-tolbachik-05.320.webp"
+    },
+    {
+      "file": "media/s3/photos/volcanoesland/ploskiy-tolbachik-05.640.webp",
+      "key": "photos/volcanoesland/ploskiy-tolbachik-05.640.webp"
+    },
+    {
+      "file": "media/s3/photos/volcanoesland/ploskiy-tolbachik-05.jpg",
+      "key": "photos/volcanoesland/ploskiy-tolbachik-05.jpg"
+    },
+    {
+      "file": "media/s3/photos/volcanoesland/splav-bystraya-gorelyy-avachinskiy-01.320.webp",
+      "key": "photos/volcanoesland/splav-bystraya-gorelyy-avachinskiy-01.320.webp"
+    },
+    {
+      "file": "media/s3/photos/volcanoesland/splav-bystraya-gorelyy-avachinskiy-01.640.webp",
+      "key": "photos/volcanoesland/splav-bystraya-gorelyy-avachinskiy-01.640.webp"
+    },
+    {
+      "file": "media/s3/photos/volcanoesland/splav-bystraya-gorelyy-avachinskiy-01.jpg",
+      "key": "photos/volcanoesland/splav-bystraya-gorelyy-avachinskiy-01.jpg"
+    },
+    {
+      "file": "media/s3/photos/volcanoesland/splav-bystraya-gorelyy-avachinskiy-02.320.webp",
+      "key": "photos/volcanoesland/splav-bystraya-gorelyy-avachinskiy-02.320.webp"
+    },
+    {
+      "file": "media/s3/photos/volcanoesland/splav-bystraya-gorelyy-avachinskiy-02.640.webp",
+      "key": "photos/volcanoesland/splav-bystraya-gorelyy-avachinskiy-02.640.webp"
+    },
+    {
+      "file": "media/s3/photos/volcanoesland/splav-bystraya-gorelyy-avachinskiy-02.jpg",
+      "key": "photos/volcanoesland/splav-bystraya-gorelyy-avachinskiy-02.jpg"
+    },
+    {
+      "file": "media/s3/photos/volcanoesland/splav-bystraya-gorelyy-avachinskiy-03.320.webp",
+      "key": "photos/volcanoesland/splav-bystraya-gorelyy-avachinskiy-03.320.webp"
+    },
+    {
+      "file": "media/s3/photos/volcanoesland/splav-bystraya-gorelyy-avachinskiy-03.640.webp",
+      "key": "photos/volcanoesland/splav-bystraya-gorelyy-avachinskiy-03.640.webp"
+    },
+    {
+      "file": "media/s3/photos/volcanoesland/splav-bystraya-gorelyy-avachinskiy-03.jpg",
+      "key": "photos/volcanoesland/splav-bystraya-gorelyy-avachinskiy-03.jpg"
+    },
+    {
+      "file": "media/s3/photos/volcanoesland/splav-bystraya-gorelyy-avachinskiy-04.320.webp",
+      "key": "photos/volcanoesland/splav-bystraya-gorelyy-avachinskiy-04.320.webp"
+    },
+    {
+      "file": "media/s3/photos/volcanoesland/splav-bystraya-gorelyy-avachinskiy-04.640.webp",
+      "key": "photos/volcanoesland/splav-bystraya-gorelyy-avachinskiy-04.640.webp"
+    },
+    {
+      "file": "media/s3/photos/volcanoesland/splav-bystraya-gorelyy-avachinskiy-04.jpg",
+      "key": "photos/volcanoesland/splav-bystraya-gorelyy-avachinskiy-04.jpg"
+    },
+    {
+      "file": "media/s3/photos/volcanoesland/splav-bystraya-gorelyy-avachinskiy-05.320.webp",
+      "key": "photos/volcanoesland/splav-bystraya-gorelyy-avachinskiy-05.320.webp"
+    },
+    {
+      "file": "media/s3/photos/volcanoesland/splav-bystraya-gorelyy-avachinskiy-05.640.webp",
+      "key": "photos/volcanoesland/splav-bystraya-gorelyy-avachinskiy-05.640.webp"
+    },
+    {
+      "file": "media/s3/photos/volcanoesland/splav-bystraya-gorelyy-avachinskiy-05.jpg",
+      "key": "photos/volcanoesland/splav-bystraya-gorelyy-avachinskiy-05.jpg"
+    },
+    {
+      "file": "media/s3/photos/volcanoesland/treking-karymskiy-malyy-semyachik-nalychevo-01.320.webp",
+      "key": "photos/volcanoesland/treking-karymskiy-malyy-semyachik-nalychevo-01.320.webp"
+    },
+    {
+      "file": "media/s3/photos/volcanoesland/treking-karymskiy-malyy-semyachik-nalychevo-01.640.webp",
+      "key": "photos/volcanoesland/treking-karymskiy-malyy-semyachik-nalychevo-01.640.webp"
+    },
+    {
+      "file": "media/s3/photos/volcanoesland/treking-karymskiy-malyy-semyachik-nalychevo-01.jpg",
+      "key": "photos/volcanoesland/treking-karymskiy-malyy-semyachik-nalychevo-01.jpg"
+    },
+    {
+      "file": "media/s3/photos/volcanoesland/treking-karymskiy-malyy-semyachik-nalychevo-02.jpg",
+      "key": "photos/volcanoesland/treking-karymskiy-malyy-semyachik-nalychevo-02.jpg"
+    },
+    {
+      "file": "media/s3/photos/volcanoesland/treking-karymskiy-malyy-semyachik-nalychevo-03.jpg",
+      "key": "photos/volcanoesland/treking-karymskiy-malyy-semyachik-nalychevo-03.jpg"
+    },
+    {
+      "file": "media/s3/photos/volcanoesland/treking-karymskiy-malyy-semyachik-nalychevo-04.320.webp",
+      "key": "photos/volcanoesland/treking-karymskiy-malyy-semyachik-nalychevo-04.320.webp"
+    },
+    {
+      "file": "media/s3/photos/volcanoesland/treking-karymskiy-malyy-semyachik-nalychevo-04.640.webp",
+      "key": "photos/volcanoesland/treking-karymskiy-malyy-semyachik-nalychevo-04.640.webp"
+    },
+    {
+      "file": "media/s3/photos/volcanoesland/treking-karymskiy-malyy-semyachik-nalychevo-04.jpg",
+      "key": "photos/volcanoesland/treking-karymskiy-malyy-semyachik-nalychevo-04.jpg"
+    },
+    {
+      "file": "media/s3/photos/volcanoesland/treking-karymskiy-malyy-semyachik-nalychevo-05.320.webp",
+      "key": "photos/volcanoesland/treking-karymskiy-malyy-semyachik-nalychevo-05.320.webp"
+    },
+    {
+      "file": "media/s3/photos/volcanoesland/treking-karymskiy-malyy-semyachik-nalychevo-05.640.webp",
+      "key": "photos/volcanoesland/treking-karymskiy-malyy-semyachik-nalychevo-05.640.webp"
+    },
+    {
+      "file": "media/s3/photos/volcanoesland/treking-karymskiy-malyy-semyachik-nalychevo-05.jpg",
+      "key": "photos/volcanoesland/treking-karymskiy-malyy-semyachik-nalychevo-05.jpg"
+    },
+    {
+      "file": "media/s3/photos/volcanoesland/treking-podnozhie-klyuchevskoy-01.320.webp",
+      "key": "photos/volcanoesland/treking-podnozhie-klyuchevskoy-01.320.webp"
+    },
+    {
+      "file": "media/s3/photos/volcanoesland/treking-podnozhie-klyuchevskoy-01.640.webp",
+      "key": "photos/volcanoesland/treking-podnozhie-klyuchevskoy-01.640.webp"
+    },
+    {
+      "file": "media/s3/photos/volcanoesland/treking-podnozhie-klyuchevskoy-01.jpg",
+      "key": "photos/volcanoesland/treking-podnozhie-klyuchevskoy-01.jpg"
+    },
+    {
+      "file": "media/s3/photos/volcanoesland/treking-podnozhie-klyuchevskoy-02.320.webp",
+      "key": "photos/volcanoesland/treking-podnozhie-klyuchevskoy-02.320.webp"
+    },
+    {
+      "file": "media/s3/photos/volcanoesland/treking-podnozhie-klyuchevskoy-02.640.webp",
+      "key": "photos/volcanoesland/treking-podnozhie-klyuchevskoy-02.640.webp"
+    },
+    {
+      "file": "media/s3/photos/volcanoesland/treking-podnozhie-klyuchevskoy-02.jpg",
+      "key": "photos/volcanoesland/treking-podnozhie-klyuchevskoy-02.jpg"
+    },
+    {
+      "file": "media/s3/photos/volcanoesland/treking-podnozhie-klyuchevskoy-03.320.webp",
+      "key": "photos/volcanoesland/treking-podnozhie-klyuchevskoy-03.320.webp"
+    },
+    {
+      "file": "media/s3/photos/volcanoesland/treking-podnozhie-klyuchevskoy-03.640.webp",
+      "key": "photos/volcanoesland/treking-podnozhie-klyuchevskoy-03.640.webp"
+    },
+    {
+      "file": "media/s3/photos/volcanoesland/treking-podnozhie-klyuchevskoy-03.jpg",
+      "key": "photos/volcanoesland/treking-podnozhie-klyuchevskoy-03.jpg"
+    },
+    {
+      "file": "media/s3/photos/volcanoesland/treking-podnozhie-klyuchevskoy-04.320.webp",
+      "key": "photos/volcanoesland/treking-podnozhie-klyuchevskoy-04.320.webp"
+    },
+    {
+      "file": "media/s3/photos/volcanoesland/treking-podnozhie-klyuchevskoy-04.640.webp",
+      "key": "photos/volcanoesland/treking-podnozhie-klyuchevskoy-04.640.webp"
+    },
+    {
+      "file": "media/s3/photos/volcanoesland/treking-podnozhie-klyuchevskoy-04.jpg",
+      "key": "photos/volcanoesland/treking-podnozhie-klyuchevskoy-04.jpg"
+    },
+    {
+      "file": "media/s3/photos/volcanoesland/treking-podnozhie-klyuchevskoy-05.320.webp",
+      "key": "photos/volcanoesland/treking-podnozhie-klyuchevskoy-05.320.webp"
+    },
+    {
+      "file": "media/s3/photos/volcanoesland/treking-podnozhie-klyuchevskoy-05.640.webp",
+      "key": "photos/volcanoesland/treking-podnozhie-klyuchevskoy-05.640.webp"
+    },
+    {
+      "file": "media/s3/photos/volcanoesland/treking-podnozhie-klyuchevskoy-05.jpg",
+      "key": "photos/volcanoesland/treking-podnozhie-klyuchevskoy-05.jpg"
+    },
+    {
+      "file": "media/s3/photos/volcanoesland/treking-vokrug-ploskogo-tolbachika-01.320.webp",
+      "key": "photos/volcanoesland/treking-vokrug-ploskogo-tolbachika-01.320.webp"
+    },
+    {
+      "file": "media/s3/photos/volcanoesland/treking-vokrug-ploskogo-tolbachika-01.640.webp",
+      "key": "photos/volcanoesland/treking-vokrug-ploskogo-tolbachika-01.640.webp"
+    },
+    {
+      "file": "media/s3/photos/volcanoesland/treking-vokrug-ploskogo-tolbachika-01.jpg",
+      "key": "photos/volcanoesland/treking-vokrug-ploskogo-tolbachika-01.jpg"
+    },
+    {
+      "file": "media/s3/photos/volcanoesland/treking-vokrug-ploskogo-tolbachika-02.320.webp",
+      "key": "photos/volcanoesland/treking-vokrug-ploskogo-tolbachika-02.320.webp"
+    },
+    {
+      "file": "media/s3/photos/volcanoesland/treking-vokrug-ploskogo-tolbachika-02.640.webp",
+      "key": "photos/volcanoesland/treking-vokrug-ploskogo-tolbachika-02.640.webp"
+    },
+    {
+      "file": "media/s3/photos/volcanoesland/treking-vokrug-ploskogo-tolbachika-02.jpg",
+      "key": "photos/volcanoesland/treking-vokrug-ploskogo-tolbachika-02.jpg"
+    },
+    {
+      "file": "media/s3/photos/volcanoesland/treking-vokrug-ploskogo-tolbachika-03.jpg",
+      "key": "photos/volcanoesland/treking-vokrug-ploskogo-tolbachika-03.jpg"
+    },
+    {
+      "file": "media/s3/photos/volcanoesland/treking-vokrug-ploskogo-tolbachika-04.320.webp",
+      "key": "photos/volcanoesland/treking-vokrug-ploskogo-tolbachika-04.320.webp"
+    },
+    {
+      "file": "media/s3/photos/volcanoesland/treking-vokrug-ploskogo-tolbachika-04.640.webp",
+      "key": "photos/volcanoesland/treking-vokrug-ploskogo-tolbachika-04.640.webp"
+    },
+    {
+      "file": "media/s3/photos/volcanoesland/treking-vokrug-ploskogo-tolbachika-04.jpg",
+      "key": "photos/volcanoesland/treking-vokrug-ploskogo-tolbachika-04.jpg"
+    },
+    {
+      "file": "media/s3/photos/volcanoesland/treking-vokrug-ploskogo-tolbachika-05.320.webp",
+      "key": "photos/volcanoesland/treking-vokrug-ploskogo-tolbachika-05.320.webp"
+    },
+    {
+      "file": "media/s3/photos/volcanoesland/treking-vokrug-ploskogo-tolbachika-05.640.webp",
+      "key": "photos/volcanoesland/treking-vokrug-ploskogo-tolbachika-05.640.webp"
+    },
+    {
+      "file": "media/s3/photos/volcanoesland/treking-vokrug-ploskogo-tolbachika-05.jpg",
+      "key": "photos/volcanoesland/treking-vokrug-ploskogo-tolbachika-05.jpg"
+    },
+    {
+      "file": "media/s3/photos/volcanoesland/voskhozhdenie-klyuchevskaya-sopka-01.jpg",
+      "key": "photos/volcanoesland/voskhozhdenie-klyuchevskaya-sopka-01.jpg"
+    },
+    {
+      "file": "media/s3/photos/volcanoesland/voskhozhdenie-klyuchevskaya-sopka-02.320.webp",
+      "key": "photos/volcanoesland/voskhozhdenie-klyuchevskaya-sopka-02.320.webp"
+    },
+    {
+      "file": "media/s3/photos/volcanoesland/voskhozhdenie-klyuchevskaya-sopka-02.640.webp",
+      "key": "photos/volcanoesland/voskhozhdenie-klyuchevskaya-sopka-02.640.webp"
+    },
+    {
+      "file": "media/s3/photos/volcanoesland/voskhozhdenie-klyuchevskaya-sopka-02.jpg",
+      "key": "photos/volcanoesland/voskhozhdenie-klyuchevskaya-sopka-02.jpg"
+    },
+    {
+      "file": "media/s3/photos/volcanoesland/voskhozhdenie-klyuchevskaya-sopka-03.320.webp",
+      "key": "photos/volcanoesland/voskhozhdenie-klyuchevskaya-sopka-03.320.webp"
+    },
+    {
+      "file": "media/s3/photos/volcanoesland/voskhozhdenie-klyuchevskaya-sopka-03.640.webp",
+      "key": "photos/volcanoesland/voskhozhdenie-klyuchevskaya-sopka-03.640.webp"
+    },
+    {
+      "file": "media/s3/photos/volcanoesland/voskhozhdenie-klyuchevskaya-sopka-03.jpg",
+      "key": "photos/volcanoesland/voskhozhdenie-klyuchevskaya-sopka-03.jpg"
+    },
+    {
+      "file": "media/s3/photos/volcanoesland/voskhozhdenie-klyuchevskaya-sopka-04.320.webp",
+      "key": "photos/volcanoesland/voskhozhdenie-klyuchevskaya-sopka-04.320.webp"
+    },
+    {
+      "file": "media/s3/photos/volcanoesland/voskhozhdenie-klyuchevskaya-sopka-04.640.webp",
+      "key": "photos/volcanoesland/voskhozhdenie-klyuchevskaya-sopka-04.640.webp"
+    },
+    {
+      "file": "media/s3/photos/volcanoesland/voskhozhdenie-klyuchevskaya-sopka-04.jpg",
+      "key": "photos/volcanoesland/voskhozhdenie-klyuchevskaya-sopka-04.jpg"
+    },
+    {
+      "file": "media/s3/photos/volcanoesland/voskhozhdenie-klyuchevskaya-sopka-05.320.webp",
+      "key": "photos/volcanoesland/voskhozhdenie-klyuchevskaya-sopka-05.320.webp"
+    },
+    {
+      "file": "media/s3/photos/volcanoesland/voskhozhdenie-klyuchevskaya-sopka-05.640.webp",
+      "key": "photos/volcanoesland/voskhozhdenie-klyuchevskaya-sopka-05.640.webp"
+    },
+    {
+      "file": "media/s3/photos/volcanoesland/voskhozhdenie-klyuchevskaya-sopka-05.jpg",
+      "key": "photos/volcanoesland/voskhozhdenie-klyuchevskaya-sopka-05.jpg"
+    },
+    {
+      "file": "media/s3/photos/zaporozhets/dachnye-red-cliffs.1280.webp",
+      "key": "photos/zaporozhets/dachnye-red-cliffs.1280.webp"
+    },
+    {
+      "file": "media/s3/photos/zaporozhets/dachnye-red-cliffs.320.webp",
+      "key": "photos/zaporozhets/dachnye-red-cliffs.320.webp"
+    },
+    {
+      "file": "media/s3/photos/zaporozhets/dachnye-red-cliffs.640.webp",
+      "key": "photos/zaporozhets/dachnye-red-cliffs.640.webp"
+    },
+    {
+      "file": "media/s3/photos/zaporozhets/dachnye-red-cliffs.jpg",
+      "key": "photos/zaporozhets/dachnye-red-cliffs.jpg"
+    },
+    {
+      "file": "media/s3/photos/zaporozhets/gorely-blue-lake-snow.1280.webp",
+      "key": "photos/zaporozhets/gorely-blue-lake-snow.1280.webp"
+    },
+    {
+      "file": "media/s3/photos/zaporozhets/gorely-blue-lake-snow.320.webp",
+      "key": "photos/zaporozhets/gorely-blue-lake-snow.320.webp"
+    },
+    {
+      "file": "media/s3/photos/zaporozhets/gorely-blue-lake-snow.640.webp",
+      "key": "photos/zaporozhets/gorely-blue-lake-snow.640.webp"
+    },
+    {
+      "file": "media/s3/photos/zaporozhets/gorely-blue-lake-snow.jpg",
+      "key": "photos/zaporozhets/gorely-blue-lake-snow.jpg"
+    },
+    {
+      "file": "media/s3/photos/zaporozhets/gorely-caldera.1280.webp",
+      "key": "photos/zaporozhets/gorely-caldera.1280.webp"
+    },
+    {
+      "file": "media/s3/photos/zaporozhets/gorely-caldera.320.webp",
+      "key": "photos/zaporozhets/gorely-caldera.320.webp"
+    },
+    {
+      "file": "media/s3/photos/zaporozhets/gorely-caldera.640.webp",
+      "key": "photos/zaporozhets/gorely-caldera.640.webp"
+    },
+    {
+      "file": "media/s3/photos/zaporozhets/gorely-caldera.jpg",
+      "key": "photos/zaporozhets/gorely-caldera.jpg"
+    },
+    {
+      "file": "media/s3/photos/zaporozhets/gorely-crater-lake.1280.webp",
+      "key": "photos/zaporozhets/gorely-crater-lake.1280.webp"
+    },
+    {
+      "file": "media/s3/photos/zaporozhets/gorely-crater-lake.320.webp",
+      "key": "photos/zaporozhets/gorely-crater-lake.320.webp"
+    },
+    {
+      "file": "media/s3/photos/zaporozhets/gorely-crater-lake.640.webp",
+      "key": "photos/zaporozhets/gorely-crater-lake.640.webp"
+    },
+    {
+      "file": "media/s3/photos/zaporozhets/gorely-crater-lake.jpg",
+      "key": "photos/zaporozhets/gorely-crater-lake.jpg"
+    },
+    {
+      "file": "media/s3/photos/zaporozhets/gorely-crater-summer.1280.webp",
+      "key": "photos/zaporozhets/gorely-crater-summer.1280.webp"
+    },
+    {
+      "file": "media/s3/photos/zaporozhets/gorely-crater-summer.320.webp",
+      "key": "photos/zaporozhets/gorely-crater-summer.320.webp"
+    },
+    {
+      "file": "media/s3/photos/zaporozhets/gorely-crater-summer.640.webp",
+      "key": "photos/zaporozhets/gorely-crater-summer.640.webp"
+    },
+    {
+      "file": "media/s3/photos/zaporozhets/gorely-crater-summer.jpg",
+      "key": "photos/zaporozhets/gorely-crater-summer.jpg"
+    },
+    {
+      "file": "media/s3/photos/zaporozhets/gorely-crater-walls.1280.webp",
+      "key": "photos/zaporozhets/gorely-crater-walls.1280.webp"
+    },
+    {
+      "file": "media/s3/photos/zaporozhets/gorely-crater-walls.320.webp",
+      "key": "photos/zaporozhets/gorely-crater-walls.320.webp"
+    },
+    {
+      "file": "media/s3/photos/zaporozhets/gorely-crater-walls.640.webp",
+      "key": "photos/zaporozhets/gorely-crater-walls.640.webp"
+    },
+    {
+      "file": "media/s3/photos/zaporozhets/gorely-crater-walls.jpg",
+      "key": "photos/zaporozhets/gorely-crater-walls.jpg"
+    },
+    {
+      "file": "media/s3/photos/zaporozhets/kurilskoe-bear-shore.1280.webp",
+      "key": "photos/zaporozhets/kurilskoe-bear-shore.1280.webp"
+    },
+    {
+      "file": "media/s3/photos/zaporozhets/kurilskoe-bear-shore.320.webp",
+      "key": "photos/zaporozhets/kurilskoe-bear-shore.320.webp"
+    },
+    {
+      "file": "media/s3/photos/zaporozhets/kurilskoe-bear-shore.640.webp",
+      "key": "photos/zaporozhets/kurilskoe-bear-shore.640.webp"
+    },
+    {
+      "file": "media/s3/photos/zaporozhets/kurilskoe-bear-shore.jpg",
+      "key": "photos/zaporozhets/kurilskoe-bear-shore.jpg"
+    },
+    {
+      "file": "media/s3/photos/zaporozhets/kurilskoe-bear-stones.1280.webp",
+      "key": "photos/zaporozhets/kurilskoe-bear-stones.1280.webp"
+    },
+    {
+      "file": "media/s3/photos/zaporozhets/kurilskoe-bear-stones.320.webp",
+      "key": "photos/zaporozhets/kurilskoe-bear-stones.320.webp"
+    },
+    {
+      "file": "media/s3/photos/zaporozhets/kurilskoe-bear-stones.640.webp",
+      "key": "photos/zaporozhets/kurilskoe-bear-stones.640.webp"
+    },
+    {
+      "file": "media/s3/photos/zaporozhets/kurilskoe-bear-stones.jpg",
+      "key": "photos/zaporozhets/kurilskoe-bear-stones.jpg"
+    },
+    {
+      "file": "media/s3/photos/zaporozhets/kurilskoe-bears-river.1280.webp",
+      "key": "photos/zaporozhets/kurilskoe-bears-river.1280.webp"
+    },
+    {
+      "file": "media/s3/photos/zaporozhets/kurilskoe-bears-river.320.webp",
+      "key": "photos/zaporozhets/kurilskoe-bears-river.320.webp"
+    },
+    {
+      "file": "media/s3/photos/zaporozhets/kurilskoe-bears-river.640.webp",
+      "key": "photos/zaporozhets/kurilskoe-bears-river.640.webp"
+    },
+    {
+      "file": "media/s3/photos/zaporozhets/kurilskoe-bears-river.jpg",
+      "key": "photos/zaporozhets/kurilskoe-bears-river.jpg"
+    },
+    {
+      "file": "media/s3/photos/zaporozhets/kutkhiny-baty-cliffs.1280.webp",
+      "key": "photos/zaporozhets/kutkhiny-baty-cliffs.1280.webp"
+    },
+    {
+      "file": "media/s3/photos/zaporozhets/kutkhiny-baty-cliffs.320.webp",
+      "key": "photos/zaporozhets/kutkhiny-baty-cliffs.320.webp"
+    },
+    {
+      "file": "media/s3/photos/zaporozhets/kutkhiny-baty-cliffs.640.webp",
+      "key": "photos/zaporozhets/kutkhiny-baty-cliffs.640.webp"
+    },
+    {
+      "file": "media/s3/photos/zaporozhets/kutkhiny-baty-cliffs.jpg",
+      "key": "photos/zaporozhets/kutkhiny-baty-cliffs.jpg"
+    },
+    {
+      "file": "media/s3/photos/zaporozhets/kutkhiny-baty.1280.webp",
+      "key": "photos/zaporozhets/kutkhiny-baty.1280.webp"
+    },
+    {
+      "file": "media/s3/photos/zaporozhets/kutkhiny-baty.320.webp",
+      "key": "photos/zaporozhets/kutkhiny-baty.320.webp"
+    },
+    {
+      "file": "media/s3/photos/zaporozhets/kutkhiny-baty.640.webp",
+      "key": "photos/zaporozhets/kutkhiny-baty.640.webp"
+    },
+    {
+      "file": "media/s3/photos/zaporozhets/kutkhiny-baty.jpg",
+      "key": "photos/zaporozhets/kutkhiny-baty.jpg"
+    },
+    {
+      "file": "media/s3/photos/zaporozhets/mutnovsky-tundra.1280.webp",
+      "key": "photos/zaporozhets/mutnovsky-tundra.1280.webp"
+    },
+    {
+      "file": "media/s3/photos/zaporozhets/mutnovsky-tundra.320.webp",
+      "key": "photos/zaporozhets/mutnovsky-tundra.320.webp"
+    },
+    {
+      "file": "media/s3/photos/zaporozhets/mutnovsky-tundra.640.webp",
+      "key": "photos/zaporozhets/mutnovsky-tundra.640.webp"
+    },
+    {
+      "file": "media/s3/photos/zaporozhets/mutnovsky-tundra.jpg",
+      "key": "photos/zaporozhets/mutnovsky-tundra.jpg"
+    },
+    {
+      "file": "media/s3/photos/zaporozhets/okhotsk-coast-jeep.1280.webp",
+      "key": "photos/zaporozhets/okhotsk-coast-jeep.1280.webp"
+    },
+    {
+      "file": "media/s3/photos/zaporozhets/okhotsk-coast-jeep.320.webp",
+      "key": "photos/zaporozhets/okhotsk-coast-jeep.320.webp"
+    },
+    {
+      "file": "media/s3/photos/zaporozhets/okhotsk-coast-jeep.640.webp",
+      "key": "photos/zaporozhets/okhotsk-coast-jeep.640.webp"
+    },
+    {
+      "file": "media/s3/photos/zaporozhets/okhotsk-coast-jeep.jpg",
+      "key": "photos/zaporozhets/okhotsk-coast-jeep.jpg"
+    },
+    {
+      "file": "media/s3/photos/zaporozhets/opasny-canyon-waterfall.1280.webp",
+      "key": "photos/zaporozhets/opasny-canyon-waterfall.1280.webp"
+    },
+    {
+      "file": "media/s3/photos/zaporozhets/opasny-canyon-waterfall.320.webp",
+      "key": "photos/zaporozhets/opasny-canyon-waterfall.320.webp"
+    },
+    {
+      "file": "media/s3/photos/zaporozhets/opasny-canyon-waterfall.640.webp",
+      "key": "photos/zaporozhets/opasny-canyon-waterfall.640.webp"
+    },
+    {
+      "file": "media/s3/photos/zaporozhets/opasny-canyon-waterfall.jpg",
+      "key": "photos/zaporozhets/opasny-canyon-waterfall.jpg"
+    },
+    {
+      "file": "media/s3/photos/zaporozhets/opasny-canyon.1280.webp",
+      "key": "photos/zaporozhets/opasny-canyon.1280.webp"
+    },
+    {
+      "file": "media/s3/photos/zaporozhets/opasny-canyon.320.webp",
+      "key": "photos/zaporozhets/opasny-canyon.320.webp"
+    },
+    {
+      "file": "media/s3/photos/zaporozhets/opasny-canyon.640.webp",
+      "key": "photos/zaporozhets/opasny-canyon.640.webp"
+    },
+    {
+      "file": "media/s3/photos/zaporozhets/opasny-canyon.jpg",
+      "key": "photos/zaporozhets/opasny-canyon.jpg"
+    },
+    {
+      "file": "media/s3/photos/zaporozhets/tolbachik-autumn-klyuchevskaya.1280.webp",
+      "key": "photos/zaporozhets/tolbachik-autumn-klyuchevskaya.1280.webp"
+    },
+    {
+      "file": "media/s3/photos/zaporozhets/tolbachik-autumn-klyuchevskaya.320.webp",
+      "key": "photos/zaporozhets/tolbachik-autumn-klyuchevskaya.320.webp"
+    },
+    {
+      "file": "media/s3/photos/zaporozhets/tolbachik-autumn-klyuchevskaya.640.webp",
+      "key": "photos/zaporozhets/tolbachik-autumn-klyuchevskaya.640.webp"
+    },
+    {
+      "file": "media/s3/photos/zaporozhets/tolbachik-autumn-klyuchevskaya.jpg",
+      "key": "photos/zaporozhets/tolbachik-autumn-klyuchevskaya.jpg"
+    },
+    {
+      "file": "media/s3/photos/zaporozhets/tolbachik-dead-forest.1280.webp",
+      "key": "photos/zaporozhets/tolbachik-dead-forest.1280.webp"
+    },
+    {
+      "file": "media/s3/photos/zaporozhets/tolbachik-dead-forest.320.webp",
+      "key": "photos/zaporozhets/tolbachik-dead-forest.320.webp"
+    },
+    {
+      "file": "media/s3/photos/zaporozhets/tolbachik-dead-forest.640.webp",
+      "key": "photos/zaporozhets/tolbachik-dead-forest.640.webp"
+    },
+    {
+      "file": "media/s3/photos/zaporozhets/tolbachik-dead-forest.jpg",
+      "key": "photos/zaporozhets/tolbachik-dead-forest.jpg"
+    },
+    {
+      "file": "media/s3/photos/zaporozhets/tolbachik-lava-field.1280.webp",
+      "key": "photos/zaporozhets/tolbachik-lava-field.1280.webp"
+    },
+    {
+      "file": "media/s3/photos/zaporozhets/tolbachik-lava-field.320.webp",
+      "key": "photos/zaporozhets/tolbachik-lava-field.320.webp"
+    },
+    {
+      "file": "media/s3/photos/zaporozhets/tolbachik-lava-field.640.webp",
+      "key": "photos/zaporozhets/tolbachik-lava-field.640.webp"
+    },
+    {
+      "file": "media/s3/photos/zaporozhets/tolbachik-lava-field.jpg",
+      "key": "photos/zaporozhets/tolbachik-lava-field.jpg"
+    },
+    {
+      "file": "media/s3/photos/zaporozhets/tolbachik-lava-jeep.1280.webp",
+      "key": "photos/zaporozhets/tolbachik-lava-jeep.1280.webp"
+    },
+    {
+      "file": "media/s3/photos/zaporozhets/tolbachik-lava-jeep.320.webp",
+      "key": "photos/zaporozhets/tolbachik-lava-jeep.320.webp"
+    },
+    {
+      "file": "media/s3/photos/zaporozhets/tolbachik-lava-jeep.640.webp",
+      "key": "photos/zaporozhets/tolbachik-lava-jeep.640.webp"
+    },
+    {
+      "file": "media/s3/photos/zaporozhets/tolbachik-lava-jeep.jpg",
+      "key": "photos/zaporozhets/tolbachik-lava-jeep.jpg"
+    },
+    {
+      "file": "media/s3/photos/zaporozhets/tolbachik-plosky-view.1280.webp",
+      "key": "photos/zaporozhets/tolbachik-plosky-view.1280.webp"
+    },
+    {
+      "file": "media/s3/photos/zaporozhets/tolbachik-plosky-view.320.webp",
+      "key": "photos/zaporozhets/tolbachik-plosky-view.320.webp"
+    },
+    {
+      "file": "media/s3/photos/zaporozhets/tolbachik-plosky-view.640.webp",
+      "key": "photos/zaporozhets/tolbachik-plosky-view.640.webp"
+    },
+    {
+      "file": "media/s3/photos/zaporozhets/tolbachik-plosky-view.jpg",
+      "key": "photos/zaporozhets/tolbachik-plosky-view.jpg"
+    },
+    {
+      "file": "media/s3/photos/zaporozhets/tolbachik-river-crossing.1280.webp",
+      "key": "photos/zaporozhets/tolbachik-river-crossing.1280.webp"
+    },
+    {
+      "file": "media/s3/photos/zaporozhets/tolbachik-river-crossing.320.webp",
+      "key": "photos/zaporozhets/tolbachik-river-crossing.320.webp"
+    },
+    {
+      "file": "media/s3/photos/zaporozhets/tolbachik-river-crossing.640.webp",
+      "key": "photos/zaporozhets/tolbachik-river-crossing.640.webp"
+    },
+    {
+      "file": "media/s3/photos/zaporozhets/tolbachik-river-crossing.jpg",
+      "key": "photos/zaporozhets/tolbachik-river-crossing.jpg"
+    },
+    {
+      "file": "media/s3/photos/zaporozhets/tolbachik-road-cones.1280.webp",
+      "key": "photos/zaporozhets/tolbachik-road-cones.1280.webp"
+    },
+    {
+      "file": "media/s3/photos/zaporozhets/tolbachik-road-cones.320.webp",
+      "key": "photos/zaporozhets/tolbachik-road-cones.320.webp"
+    },
+    {
+      "file": "media/s3/photos/zaporozhets/tolbachik-road-cones.640.webp",
+      "key": "photos/zaporozhets/tolbachik-road-cones.640.webp"
+    },
+    {
+      "file": "media/s3/photos/zaporozhets/tolbachik-road-cones.jpg",
+      "key": "photos/zaporozhets/tolbachik-road-cones.jpg"
+    },
+    {
+      "file": "media/s3/photos/zaporozhets/tolbachik-sunset.1280.webp",
+      "key": "photos/zaporozhets/tolbachik-sunset.1280.webp"
+    },
+    {
+      "file": "media/s3/photos/zaporozhets/tolbachik-sunset.320.webp",
+      "key": "photos/zaporozhets/tolbachik-sunset.320.webp"
+    },
+    {
+      "file": "media/s3/photos/zaporozhets/tolbachik-sunset.640.webp",
+      "key": "photos/zaporozhets/tolbachik-sunset.640.webp"
+    },
+    {
+      "file": "media/s3/photos/zaporozhets/tolbachik-sunset.jpg",
+      "key": "photos/zaporozhets/tolbachik-sunset.jpg"
+    },
+    {
+      "file": "media/s3/photos/zaporozhets/vilyuchinsky-rhododendron.1280.webp",
+      "key": "photos/zaporozhets/vilyuchinsky-rhododendron.1280.webp"
+    },
+    {
+      "file": "media/s3/photos/zaporozhets/vilyuchinsky-rhododendron.320.webp",
+      "key": "photos/zaporozhets/vilyuchinsky-rhododendron.320.webp"
+    },
+    {
+      "file": "media/s3/photos/zaporozhets/vilyuchinsky-rhododendron.640.webp",
+      "key": "photos/zaporozhets/vilyuchinsky-rhododendron.640.webp"
+    },
+    {
+      "file": "media/s3/photos/zaporozhets/vilyuchinsky-rhododendron.jpg",
+      "key": "photos/zaporozhets/vilyuchinsky-rhododendron.jpg"
+    },
+    {
+      "file": "media/s3/photos/zheltukhin/zheltukhin-01.320.webp",
+      "key": "photos/zheltukhin/zheltukhin-01.320.webp"
+    },
+    {
+      "file": "media/s3/photos/zheltukhin/zheltukhin-01.640.webp",
+      "key": "photos/zheltukhin/zheltukhin-01.640.webp"
+    },
+    {
+      "file": "media/s3/photos/zheltukhin/zheltukhin-01.jpg",
+      "key": "photos/zheltukhin/zheltukhin-01.jpg"
+    },
+    {
+      "file": "media/s3/photos/zheltukhin/zheltukhin-02.320.webp",
+      "key": "photos/zheltukhin/zheltukhin-02.320.webp"
+    },
+    {
+      "file": "media/s3/photos/zheltukhin/zheltukhin-02.640.webp",
+      "key": "photos/zheltukhin/zheltukhin-02.640.webp"
+    },
+    {
+      "file": "media/s3/photos/zheltukhin/zheltukhin-02.jpg",
+      "key": "photos/zheltukhin/zheltukhin-02.jpg"
+    },
+    {
+      "file": "media/s3/photos/zheltukhin/zheltukhin-03.1280.webp",
+      "key": "photos/zheltukhin/zheltukhin-03.1280.webp"
+    },
+    {
+      "file": "media/s3/photos/zheltukhin/zheltukhin-03.320.webp",
+      "key": "photos/zheltukhin/zheltukhin-03.320.webp"
+    },
+    {
+      "file": "media/s3/photos/zheltukhin/zheltukhin-03.640.webp",
+      "key": "photos/zheltukhin/zheltukhin-03.640.webp"
+    },
+    {
+      "file": "media/s3/photos/zheltukhin/zheltukhin-03.jpg",
+      "key": "photos/zheltukhin/zheltukhin-03.jpg"
+    },
+    {
+      "file": "media/s3/photos/zheltukhin/zheltukhin-04.1280.webp",
+      "key": "photos/zheltukhin/zheltukhin-04.1280.webp"
+    },
+    {
+      "file": "media/s3/photos/zheltukhin/zheltukhin-04.320.webp",
+      "key": "photos/zheltukhin/zheltukhin-04.320.webp"
+    },
+    {
+      "file": "media/s3/photos/zheltukhin/zheltukhin-04.640.webp",
+      "key": "photos/zheltukhin/zheltukhin-04.640.webp"
+    },
+    {
+      "file": "media/s3/photos/zheltukhin/zheltukhin-04.jpg",
+      "key": "photos/zheltukhin/zheltukhin-04.jpg"
     }
   ]
 }
