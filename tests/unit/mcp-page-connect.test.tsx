@@ -20,7 +20,7 @@ vi.mock('@/components/layout/Header', () => ({ Header: () => null }));
 
 import McpLandingPage from '@/app/mcp/page';
 import { MCP_CONNECT_OPTIONS, MCP_TRANSPORT_SPELLINGS, MCP_ENDPOINT } from '@/lib/mcp/connect';
-import { MCP_READ_PER_MINUTE } from '@/lib/mcp/public-tools';
+import { MCP_READ_PER_MINUTE, WRITE_TOOL_NAMES } from '@/lib/mcp/public-tools';
 import { CLIENT_MAX_PER_WINDOW, CLIENT_MAX_PER_DAY, CLIENT_WINDOW_MINUTES } from '@/lib/mcp/write-limits';
 import { NOTIFY_TOOL_NAMES, NOTIFY_HOW_TO_VERIFY, NOTIFY_RESPONSE_RULES } from '@/lib/mcp/request-notify-schema';
 import { SERVER_INSTRUCTIONS } from '@/lib/mcp/server-instructions';
@@ -81,10 +81,17 @@ describe('/mcp: таблица написаний транспорта', () => {
 });
 
 describe('/mcp: правда о записях и лимитах', () => {
-  it('записей пять, подтверждает человек; лимиты — числа сервера; мост mcp-remote назван', () => {
+  it('заявок столько, сколько пишущих инструментов; подтверждает человек; проба названа; лимиты — числа сервера; мост mcp-remote назван', () => {
     const { container } = page();
     const text = container.textContent ?? '';
-    expect(text).toContain('Записей пять');
+    // Число — из реестра, не из памяти: до 08.11 здесь держалось «Записей пять»
+    // при шести заявках (create_trip_request) — та же болезнь, что у llms.txt.
+    // Абзац «Как подключить вручную», а не вся страница: «Заявок шесть» есть и
+    // в инструкции сервера на той же странице — она не судит этот абзац.
+    const manual = [...container.querySelectorAll('p')].find((p) => /Чтение анонимно/.test(p.textContent ?? ''))?.textContent ?? '';
+    const COUNT_RU: Record<number, string> = { 5: 'пять', 6: 'шесть', 7: 'семь', 8: 'восемь' };
+    expect(manual).toContain(`Заявок ${COUNT_RU[WRITE_TOOL_NAMES.size]}`);
+    expect(manual).toMatch(/test: true: те же\s+проверки, но ничего не записывается и никому не уходит/);
     expect(text).not.toMatch(/записи две/);
     expect(text).toContain('подтверждает её человек');
     expect(text).toContain(`чтение — ${MCP_READ_PER_MINUTE} вызовов в минуту`);
