@@ -15,6 +15,7 @@ import { TOOL_REGISTRY } from '@/lib/kuzmich/tool-schemas';
 import { SEARCH_TOOL, FETCH_TOOL } from '@/lib/mcp/connector-schemas';
 import { GET_REQUEST_STATUS_TOOL } from '@/lib/mcp/request-status-schema';
 import { NOTIFY_URL_PROPERTY, NOTIFY_TOOL_PHRASE } from '@/lib/mcp/request-notify-schema';
+import { WRITE_OUTPUT_SCHEMA } from '@/lib/mcp/test-run';
 
 /**
  * Не для анонимного публичного входа: жгут внешние квоты и пишут учёт
@@ -27,13 +28,33 @@ import { NOTIFY_URL_PROPERTY, NOTIFY_TOOL_PHRASE } from '@/lib/mcp/request-notif
 export const EXCLUDED_TOOLS = new Set(['search_kamchatka', 'search_taaft', 'get_flight_board']);
 
 /**
+ * Общий договор шести заявок (ревью MCP 08.11): поле `test` — пробный прогон
+ * (lib/mcp/test-run) и `outputSchema` — ключ, страница и подписка структурно.
+ * Куски общие, а стоят в каждой из шести схем: до 08.11 проба была только у
+ * проката, и поле разошлось между инструментами. Что все шесть их несут,
+ * держит сторож mcp-write-contract.
+ */
+const WRITE_TEST_PROPERTY = {
+  type: 'boolean',
+  description: 'true — пробный прогон: все проверки как у настоящей заявки (тур, даты, места, телефон, согласие), '
+    + 'но заявка не записывается и никому не уходит — ни партнёру, ни менеджеру. В ответе пробный ключ test_…; '
+    + 'get_request_status ответит состоянием test.',
+} as const;
+
+const WRITE_CONTRACT_PHRASE = ' Проверить интеграцию или показать заявку, не отправляя её, — test: true: те же проверки, ничего не записывается и никому не уходит;'
+  + ' ключ статуса, страница заявки и подписка приходят и в structuredContent (поле requests).';
+
+/** Английская фраза поля `test` — одна у шести заявок (PARAM_ENGLISH). */
+const WRITE_TEST_ENGLISH = { lead: 'true for a dry run: the same checks as a real request, but nothing is stored or sent to anyone.', example: false } as const;
+
+/**
  * create_lead — единственный ПИШУЩИЙ инструмент наружу. Бронь и оплату
  * анонимному агенту не отдаём сознательно: чужие деньги и спам. Заявка
  * безопасна — идёт в общий createLead() со скорингом и дедупом.
  */
 export const CREATE_LEAD_TOOL = {
   name: 'create_lead',
-  description: 'Оставить заявку на подбор тура по Камчатке: менеджер платформы свяжется по телефону. Обязательны имя, телефон и описание запроса (даты, состав группы, интересы). Заказ машины целиком (вахтовка, микроавтобус) — не сюда, а request_charter. Это только заявка: оплаты через платформу нет. Имя и телефон — персональные данные: спроси у человека согласие на их обработку и передай consent: true, иначе заявка не создаётся.' + NOTIFY_TOOL_PHRASE,
+  description: 'Оставить заявку на подбор тура по Камчатке: менеджер платформы свяжется по телефону. Обязательны имя, телефон и описание запроса (даты, состав группы, интересы). Заказ машины целиком (вахтовка, микроавтобус) — не сюда, а request_charter. Это только заявка: оплаты через платформу нет. Имя и телефон — персональные данные: спроси у человека согласие на их обработку и передай consent: true, иначе заявка не создаётся.' + NOTIFY_TOOL_PHRASE + WRITE_CONTRACT_PHRASE,
   inputSchema: {
     type: 'object',
     properties: {
@@ -43,10 +64,12 @@ export const CREATE_LEAD_TOOL = {
       interest: { type: 'string', description: 'Название тура/маршрута, если уже выбран' },
       plan_id: { type: 'string', description: 'Номер плана из make_trip_plan, если заявка — на этот план: менеджер получит план целиком (состав, туры по дням, смету) и не будет переспрашивать.' },
       notify_url: NOTIFY_URL_PROPERTY,
+      test: WRITE_TEST_PROPERTY,
       consent: { type: 'boolean', description: 'Человек согласен на обработку своих персональных данных (имя, телефон) для связи по этой заявке. Спроси прямо и передай true. Без согласия заявка не создаётся.' },
     },
     required: ['name', 'phone', 'comment', 'consent'],
   },
+  outputSchema: WRITE_OUTPUT_SCHEMA,
 } as const;
 
 /**
@@ -61,7 +84,7 @@ export const CREATE_LEAD_TOOL = {
  */
 export const BOOKING_REQUEST_TOOL = {
   name: 'create_booking_request',
-  description: 'Заявка оператору на конкретный тур и дату. Перед вызовом проверь свободные даты через get_tour_availability. Заявку подтверждает оператор по телефону — мгновенного подтверждения нет, оплаты через платформу нет. Если по названию подходят туры разных компаний, в tour имя компании или гида либо совпала лишь часть слов — заявки нет: в ответе туры с номерами и компаниями; спроси человека и повтори вызов с номером выбранного тура. Если на дату нет мест, заявка не создаётся и в ответе будут ближайшие свободные даты. Если у тура вообще нет расписания в системе (оператор берёт туристов без календаря), вместо отказа оператору уходит запрос мест: в ответе будет ссылка на страницу статуса — передай её человеку; места этим не закрепляются. Имя и телефон — персональные данные: спроси согласие на их обработку и передай consent: true.' + NOTIFY_TOOL_PHRASE,
+  description: 'Заявка оператору на конкретный тур и дату. Перед вызовом проверь свободные даты через get_tour_availability. Заявку подтверждает оператор по телефону — мгновенного подтверждения нет, оплаты через платформу нет. Если по названию подходят туры разных компаний, в tour имя компании или гида либо совпала лишь часть слов — заявки нет: в ответе туры с номерами и компаниями; спроси человека и повтори вызов с номером выбранного тура. Если на дату нет мест, заявка не создаётся и в ответе будут ближайшие свободные даты. Если у тура вообще нет расписания в системе (оператор берёт туристов без календаря), вместо отказа оператору уходит запрос мест: в ответе будет ссылка на страницу статуса — передай её человеку; места этим не закрепляются. Имя и телефон — персональные данные: спроси согласие на их обработку и передай consent: true.' + NOTIFY_TOOL_PHRASE + WRITE_CONTRACT_PHRASE,
   inputSchema: {
     type: 'object',
     properties: {
@@ -73,10 +96,12 @@ export const BOOKING_REQUEST_TOOL = {
       comment: { type: 'string', description: 'Пожелания, вопросы, состав группы' },
       plan_id: { type: 'string', description: 'Номер плана из make_trip_plan, если тур — из этого плана: оператор увидит, частью какой поездки он стоит.' },
       notify_url: NOTIFY_URL_PROPERTY,
+      test: WRITE_TEST_PROPERTY,
       consent: { type: 'boolean', description: 'Человек согласен на обработку своих персональных данных (имя, телефон) для связи по этой заявке. Спроси прямо и передай true. Без согласия заявка не создаётся.' },
     },
     required: ['tour', 'date', 'name', 'phone', 'consent'],
   },
+  outputSchema: WRITE_OUTPUT_SCHEMA,
 } as const;
 
 /**
@@ -92,7 +117,7 @@ export const BOOKING_REQUEST_TOOL = {
  */
 export const STAY_REQUEST_TOOL = {
   name: 'create_stay_request',
-  description: 'Заявка владельцу жилья на даты: заезд, выезд, сколько гостей, имя и телефон. Объект — из search_accommodations (название или ID из ссылки на карточку). Заявка уходит владельцу в мессенджер, он перезванивает сам и подтверждает даты и цену; это не бронь и не оплата, через платформу жильё не оплачивается. Принимают её только объекты без своих номеров на платформе и без сайта брони — для остальных ответ скажет, где бронировать. Имя и телефон — персональные данные, они передаются владельцу жилья: спроси согласие на это и передай consent: true.',
+  description: 'Заявка владельцу жилья на даты: заезд, выезд, сколько гостей, имя и телефон. Объект — из search_accommodations (название или ID из ссылки на карточку). Заявка уходит владельцу в мессенджер, он перезванивает сам и подтверждает даты и цену; это не бронь и не оплата, через платформу жильё не оплачивается. Принимают её только объекты без своих номеров на платформе и без сайта брони — для остальных ответ скажет, где бронировать. Имя и телефон — персональные данные, они передаются владельцу жилья: спроси согласие на это и передай consent: true.' + WRITE_CONTRACT_PHRASE,
   inputSchema: {
     type: 'object',
     properties: {
@@ -104,10 +129,12 @@ export const STAY_REQUEST_TOOL = {
       phone: { type: 'string', description: 'Телефон гостя — по нему перезвонит владелец (обязателен)' },
       comment: { type: 'string', description: 'Пожелания владельцу: баня, время заезда, дети' },
       plan_id: { type: 'string', description: 'Номер плана из make_trip_plan, если заявка — по этому плану: владелец увидит, частью какой поездки она стоит; даты и гости, если не названы, берутся из плана, а расхождение с планом ответ назовёт.' },
+      test: WRITE_TEST_PROPERTY,
       consent: { type: 'boolean', description: 'Человек согласен на обработку своих персональных данных (имя, телефон) и их передачу владельцу жилья для связи по заявке. Спроси прямо и передай true. Без согласия заявка не создаётся.' },
     },
     required: ['accommodation', 'name', 'phone', 'consent'],
   },
+  outputSchema: WRITE_OUTPUT_SCHEMA,
 } as const;
 
 /**
@@ -116,12 +143,12 @@ export const STAY_REQUEST_TOOL = {
  * тем же путём, что форма на странице прокатчика (lib/rental/
  * rental-request-service): лид менеджеру Ведара и прокатчику, повтор за
  * сутки — прежняя заявка. Это не бронь: занятость машин платформа не ведёт,
- * оплаты нет. test: true — пробная заявка: помечена, вне счёта спроса,
- * прокатчику не уходит.
+ * оплаты нет. test: true — пробный прогон, общий у шести заявок
+ * (withWriteContract ниже, lib/mcp/test-run).
  */
 export const CAR_RENTAL_REQUEST_TOOL = {
   name: 'create_car_rental_request',
-  description: 'Заявка прокатчику на машину без водителя на даты: какая машина, с какого по какое число, где забрать. Машины и прокатчиков смотри через search_car_rental — машина называется так, как в прайсе. Это заявка, не бронь: менеджер Ведара свяжется по телефону и подтвердит с прокатчиком; занятость машин платформа не ведёт, оплаты через платформу нет — расчёт напрямую с прокатчиком. Два шага. Сначала спроси у человека имя и телефон — не придумывай и не подставляй их. Шаг 1: вызов без confirmation (consent: false) — заявка проверяется, но НЕ создаётся; в ответе черновик и код confirmation. Покажи черновик человеку и прямо спроси, согласен ли он на обработку имени и телефона и их передачу прокатчику и на отправку заявки. Шаг 2 — только после явного «да» самого человека: тот же вызов с теми же полями, confirmation из ответа и consent: true. Никогда не ставь consent: true сам, без ответа человека. Пробная или демонстрационная заявка — test: true: она помечается и прокатчику не уходит, шаги те же.' + NOTIFY_TOOL_PHRASE,
+  description: 'Заявка прокатчику на машину без водителя на даты: какая машина, с какого по какое число, где забрать. Машины и прокатчиков смотри через search_car_rental — машина называется так, как в прайсе. Это заявка, не бронь: менеджер Ведара свяжется по телефону и подтвердит с прокатчиком; занятость машин платформа не ведёт, оплаты через платформу нет — расчёт напрямую с прокатчиком. Два шага. Сначала спроси у человека имя и телефон — не придумывай и не подставляй их. Шаг 1: вызов без confirmation (consent: false) — заявка проверяется, но НЕ создаётся; в ответе черновик и код confirmation. Покажи черновик человеку и прямо спроси, согласен ли он на обработку имени и телефона и их передачу прокатчику и на отправку заявки. Шаг 2 — только после явного «да» самого человека: тот же вызов с теми же полями, confirmation из ответа и consent: true. Никогда не ставь consent: true сам, без ответа человека. Проба (test: true) проходит те же два шага.' + NOTIFY_TOOL_PHRASE + WRITE_CONTRACT_PHRASE,
   inputSchema: {
     type: 'object',
     properties: {
@@ -133,14 +160,15 @@ export const CAR_RENTAL_REQUEST_TOOL = {
       name: { type: 'string', description: 'Имя арендатора' },
       phone: { type: 'string', description: 'Телефон для связи (обязателен)' },
       comment: { type: 'string', description: 'Пожелания: детское кресло, возврат в другом месте и т.п.' },
-      test: { type: 'boolean', description: 'true — пробная заявка (проверка, демонстрация): помечается, прокатчику не уходит' },
       confirmation: { type: 'string', description: 'Код из ответа шага 1. Передавай только после явного согласия человека; без кода заявка не создаётся, а возвращается черновик' },
       plan_id: { type: 'string', description: 'Номер плана из make_trip_plan, если заявка — по этому плану: менеджер и прокатчик увидит, частью какой поездки она стоит; даты, если не названы, берутся из плана, а расхождение с планом ответ назовёт.' },
       notify_url: NOTIFY_URL_PROPERTY,
+      test: WRITE_TEST_PROPERTY,
       consent: { type: 'boolean', description: 'Человек согласен на обработку своих персональных данных (имя, телефон) и их передачу прокатчику для связи по заявке. На шаге 1 — false. true — только когда человек сам ответил «да» на вопрос о согласии; агент не ставит true за человека.' },
     },
     required: ['car', 'name', 'phone', 'consent'],
   },
+  outputSchema: WRITE_OUTPUT_SCHEMA,
 } as const;
 
 /**
@@ -156,7 +184,7 @@ export const CAR_RENTAL_REQUEST_TOOL = {
  */
 export const REQUEST_CHARTER_TOOL = {
   name: 'request_charter',
-  description: 'Заявка на машину целиком (вахтовка, микроавтобус) у перевозчика «под заказ»: куда, на какие даты, сколько человек. Прайс и перевозчиков смотри через search_transfers (раздел «под заказ»). Календаря у таких перевозчиков нет, поэтому заявка не проверяет занятость машин: менеджер Ведара свяжется по телефону, согласует поездку с перевозчиком и подтвердит. Цена — за машину по прайсу перевозчика: по направлениям или за час и за день работы; направления нет в прайсе — заказ принимается, цену называет перевозчик. Оплаты через платформу нет, расчёт напрямую. Имя и телефон — персональные данные, и они уходят перевозчику: спроси согласие на их обработку и передачу и передай consent: true, иначе заявка не создаётся.' + NOTIFY_TOOL_PHRASE,
+  description: 'Заявка на машину целиком (вахтовка, микроавтобус) у перевозчика «под заказ»: куда, на какие даты, сколько человек. Прайс и перевозчиков смотри через search_transfers (раздел «под заказ»). Календаря у таких перевозчиков нет, поэтому заявка не проверяет занятость машин: менеджер Ведара свяжется по телефону, согласует поездку с перевозчиком и подтвердит. Цена — за машину по прайсу перевозчика: по направлениям или за час и за день работы; направления нет в прайсе — заказ принимается, цену называет перевозчик. Оплаты через платформу нет, расчёт напрямую. Имя и телефон — персональные данные, и они уходят перевозчику: спроси согласие на их обработку и передачу и передай consent: true, иначе заявка не создаётся.' + NOTIFY_TOOL_PHRASE + WRITE_CONTRACT_PHRASE,
   inputSchema: {
     type: 'object',
     properties: {
@@ -170,10 +198,12 @@ export const REQUEST_CHARTER_TOOL = {
       comment: { type: 'string', description: 'Пожелания: сколько дней нужна машина, что везти, откуда забирать' },
       plan_id: { type: 'string', description: 'Номер плана из make_trip_plan, если заявка — по этому плану: менеджер и перевозчик увидит, частью какой поездки она стоит; число людей, если не названо, берутся из плана, а расхождение с планом ответ назовёт.' },
       notify_url: NOTIFY_URL_PROPERTY,
+      test: WRITE_TEST_PROPERTY,
       consent: { type: 'boolean', description: 'Человек согласен на обработку своих персональных данных (имя, телефон) и их передачу перевозчику для связи по заявке. Спроси прямо и передай true. Без согласия заявка не создаётся.' },
     },
     required: ['destination', 'date_from', 'name', 'phone', 'consent'],
   },
+  outputSchema: WRITE_OUTPUT_SCHEMA,
 } as const;
 
 /**
@@ -187,7 +217,7 @@ export const REQUEST_CHARTER_TOOL = {
  */
 export const TRIP_REQUEST_TOOL = {
   name: 'create_trip_request',
-  description: 'Одна заявка на поездку целиком: тур на дату и/или жильё на даты и/или машина под заказ (трансфер) — одним вызовом, под общим номером поездки. Передай хотя бы одну часть: tour+tour_date, stay+check_in+check_out, transfer_destination+transfer_date. Каждая часть уходит своему партнёру (оператор тура, владелец жилья, менеджер с перевозчиком), и каждый видит, что ещё заказано в поездке. Перевозчик не назван — машину подберёт менеджер Ведара. Это заявка, не бронь: даты, места и цену подтверждает человек, оплаты через платформу нет. Имя и телефон — персональные данные: спроси согласие и передай consent: true, иначе заявка не создаётся.' + NOTIFY_TOOL_PHRASE,
+  description: 'Одна заявка на поездку целиком: тур на дату и/или жильё на даты и/или машина под заказ (трансфер) — одним вызовом, под общим номером поездки. Передай хотя бы одну часть: tour+tour_date, stay+check_in+check_out, transfer_destination+transfer_date. Каждая часть уходит своему партнёру (оператор тура, владелец жилья, менеджер с перевозчиком), и каждый видит, что ещё заказано в поездке. Перевозчик не назван — машину подберёт менеджер Ведара. Это заявка, не бронь: даты, места и цену подтверждает человек, оплаты через платформу нет. Имя и телефон — персональные данные: спроси согласие и передай consent: true, иначе заявка не создаётся.' + NOTIFY_TOOL_PHRASE + WRITE_CONTRACT_PHRASE,
   inputSchema: {
     type: 'object',
     properties: {
@@ -206,10 +236,12 @@ export const TRIP_REQUEST_TOOL = {
       comment: { type: 'string', description: 'Пожелания ко всей поездке' },
       plan_id: { type: 'string', description: 'Номер плана из make_trip_plan, если поездка — по этому плану: каждая часть уходит с планом; не названы — число людей, дата тура (по номеру тура из плана) и даты жилья берутся из плана, и ответ это скажет.' },
       notify_url: NOTIFY_URL_PROPERTY,
+      test: WRITE_TEST_PROPERTY,
       consent: { type: 'boolean', description: 'Человек согласен на обработку имени и телефона и их передачу партнёрам поездки (оператор, владелец жилья, перевозчик). Спроси прямо и передай true.' },
     },
     required: ['name', 'phone', 'consent'],
   },
+  outputSchema: WRITE_OUTPUT_SCHEMA,
 } as const;
 
 /**
@@ -441,6 +473,7 @@ export const PARAM_ENGLISH: Record<string, Record<string, { lead: string; exampl
     interest: { lead: 'Tour or route name, if already chosen.' },
     plan_id: { lead: 'Plan ID from make_trip_plan when the request is for that plan: the manager gets the whole plan (group, tours by day, estimate).', example: '1b9d6bcd-bbfd-4b2d-9b5d-ab8dfbbd4bed' },
     notify_url: { lead: NOTIFY_URL_ENGLISH },
+    test: WRITE_TEST_ENGLISH,
     consent: { lead: 'Explicit consent to process name and phone for this request; ask the person and pass true, otherwise the request is not created.', example: true },
   },
   create_booking_request: {
@@ -452,6 +485,7 @@ export const PARAM_ENGLISH: Record<string, Record<string, { lead: string; exampl
     comment: { lead: 'Wishes, questions, group composition.' },
     plan_id: { lead: 'Plan ID from make_trip_plan when this tour is part of that plan: the operator sees the whole trip.', example: '1b9d6bcd-bbfd-4b2d-9b5d-ab8dfbbd4bed' },
     notify_url: { lead: NOTIFY_URL_ENGLISH },
+    test: WRITE_TEST_ENGLISH,
     consent: { lead: 'Explicit consent to process name and phone for this request; ask the person and pass true, otherwise the request is not created.', example: true },
   },
   create_trip_request: {
@@ -470,6 +504,7 @@ export const PARAM_ENGLISH: Record<string, Record<string, { lead: string; exampl
     comment: { lead: 'Wishes for all partners of the trip.' },
     plan_id: { lead: 'Plan ID from make_trip_plan when the trip follows that plan: every part carries the plan; omitted people, tour date (for a tour ID from the plan) and stay dates are taken from the plan.', example: '1b9d6bcd-bbfd-4b2d-9b5d-ab8dfbbd4bed' },
     notify_url: { lead: NOTIFY_URL_ENGLISH },
+    test: WRITE_TEST_ENGLISH,
     consent: { lead: 'Explicit consent to process name and phone and pass them to every partner of the trip; pass true, otherwise refused.', example: true },
   },
   create_stay_request: {
@@ -481,6 +516,7 @@ export const PARAM_ENGLISH: Record<string, Record<string, { lead: string; exampl
     phone: { lead: 'Phone the owner will call back, required.' },
     comment: { lead: 'Wishes for the owner.' },
     plan_id: { lead: 'Plan ID from make_trip_plan when the request belongs to that plan: the owner sees the whole trip; omitted dates and guests are taken from the plan, and a mismatch with the plan is named in the reply.', example: '1b9d6bcd-bbfd-4b2d-9b5d-ab8dfbbd4bed' },
+    test: WRITE_TEST_ENGLISH,
     consent: { lead: "Explicit consent to process name and phone and pass them to the stay's owner; ask the person and pass true, otherwise the request is not created.", example: true },
   },
   create_car_rental_request: {
@@ -492,10 +528,10 @@ export const PARAM_ENGLISH: Record<string, Record<string, { lead: string; exampl
     name: { lead: "Renter's name." },
     phone: { lead: 'Contact phone, required.' },
     comment: { lead: 'Wishes: child seat, drop-off elsewhere, etc.' },
-    test: { lead: 'true for a trial or demo request: marked as test and not sent to the rental company.', example: false },
     confirmation: { lead: 'Code from the step 1 reply; send it only after the person explicitly agreed. Without it a draft is returned and nothing is created.' },
     plan_id: { lead: 'Plan ID from make_trip_plan when the request belongs to that plan: the manager and the rental company see the whole trip; omitted dates are taken from the plan, and a mismatch with the plan is named in the reply.', example: '1b9d6bcd-bbfd-4b2d-9b5d-ab8dfbbd4bed' },
     notify_url: { lead: NOTIFY_URL_ENGLISH },
+    test: WRITE_TEST_ENGLISH,
     consent: { lead: 'false on step 1. true only after the person themselves said yes to passing name and phone to the rental company; never set it on their behalf.', example: false },
   },
   request_charter: {
@@ -509,6 +545,7 @@ export const PARAM_ENGLISH: Record<string, Record<string, { lead: string; exampl
     comment: { lead: 'Wishes: how many days the vehicle is needed, what to carry, pickup place.' },
     plan_id: { lead: 'Plan ID from make_trip_plan when the request belongs to that plan: the manager and the carrier see the whole trip; an omitted number of people is taken from the plan, and a mismatch with the plan is named in the reply.', example: '1b9d6bcd-bbfd-4b2d-9b5d-ab8dfbbd4bed' },
     notify_url: { lead: NOTIFY_URL_ENGLISH },
+    test: WRITE_TEST_ENGLISH,
     consent: { lead: 'Explicit consent to process name and phone for this request; ask the person and pass true, otherwise the request is not created.', example: true },
   },
 };

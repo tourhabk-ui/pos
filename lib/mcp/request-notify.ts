@@ -273,6 +273,11 @@ export interface KeyChat {
   opensChat?: boolean;
   /** Хвост обещает переписку — и у повтора: ответ на повтор тот же (анти-оракул 29.09). */
   offersChat?: boolean;
+  /**
+   * Выданный ключ и исход подписки — структурным итогом вызова (08.11, ревью
+   * MCP): агенту не нужно вынимать ключ регуляркой из текста.
+   */
+  onIssued?: (r: { key: string | null; notify: SubscribeOutcome | null }) => void;
 }
 
 /**
@@ -285,10 +290,19 @@ export async function issueKeyWithNotify(
 ): Promise<string> {
   const opts = { opensChat: chat.opensChat === true };
   const offers = chat.offersChat === true;
-  if (!notifyUrl) return keyLine(await issueRequestKey(target, toolName, opts), kind, offers);
+  if (!notifyUrl) {
+    const key = await issueRequestKey(target, toolName, opts);
+    chat.onIssued?.({ key, notify: null });
+    return keyLine(key, kind, offers);
+  }
   const issued = await issueRequestKeyRecord(target, toolName, opts);
-  if (!issued) return `${keyLine(null, kind, offers)} Уведомления не заведены: без ключа статуса подписки нет.`;
-  return keyLine(issued.key, kind, offers) + notifyLine(await subscribeNotify(issued, notifyUrl));
+  if (!issued) {
+    chat.onIssued?.({ key: null, notify: { ok: false, reason: 'no_key' } });
+    return `${keyLine(null, kind, offers)} Уведомления не заведены: без ключа статуса подписки нет.`;
+  }
+  const sub = await subscribeNotify(issued, notifyUrl);
+  chat.onIssued?.({ key: issued.key, notify: sub });
+  return keyLine(issued.key, kind, offers) + notifyLine(sub);
 }
 
 /** Агент передал notify_url заявке на жильё: подписки нет, и это сказано словами. */

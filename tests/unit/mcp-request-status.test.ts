@@ -418,14 +418,15 @@ describe('роут MCP', () => {
     // notify_url — вызовом роута: tests/unit/mcp-write-path-truth.test.ts.
     const issued = ROUTE.match(/await issueKeyWithNotify\(/g) ?? [];
     expect(issued.length).toBe(5);
-    expect(ROUTE).toContain('issueKeyWithNotify({ seatRequestId: result.requestId }, BOOKING_REQUEST_TOOL.name, a.notifyUrl)');
-    expect(ROUTE).toContain('issueKeyWithNotify({ leadId }, CREATE_LEAD_TOOL.name, parsed.data.notify_url)');
+    expect(ROUTE).toContain("issueKeyWithNotify({ seatRequestId: result.requestId }, BOOKING_REQUEST_TOOL.name, a.notifyUrl, 'request', { onIssued: collectIssued(a.ctx, BOOKING_REQUEST_TOOL.name) })");
+    expect(ROUTE).toContain("issueKeyWithNotify({ leadId }, CREATE_LEAD_TOOL.name, parsed.data.notify_url, 'request', { onIssued: collectIssued(ctx, CREATE_LEAD_TOOL.name) })");
     // Переписку (1350) открывает только ключ новой заявки, адресованной
     // партнёру: бронь, вахтовка, прокат; жильё — всегда (склейки нет).
-    expect(ROUTE).toContain("issueKeyWithNotify({ leadId }, BOOKING_REQUEST_TOOL.name, parsed.data.notify_url, 'request', { opensChat: saved.created && offersChat, offersChat })");
-    expect(ROUTE).toContain("issueKeyWithNotify({ leadId: saved.id }, REQUEST_CHARTER_TOOL.name, parsed.data.notify_url, 'request', { opensChat: saved.created && offersChat, offersChat })");
-    expect(ROUTE).toContain("issueKeyWithNotify({ leadId }, CAR_RENTAL_REQUEST_TOOL.name, parsed.data.notify_url, 'request', { opensChat: saved.created && offersChat, offersChat })");
-    expect(ROUTE).toContain("keyLine(await issueRequestKey({ stayRequestId: r.requestId }, STAY_REQUEST_TOOL.name, { opensChat: true }), 'stay')");
+    expect(ROUTE).toContain("issueKeyWithNotify({ leadId }, BOOKING_REQUEST_TOOL.name, parsed.data.notify_url, 'request', { opensChat: saved.created && offersChat, offersChat, onIssued: collectIssued(ctx, BOOKING_REQUEST_TOOL.name) })");
+    expect(ROUTE).toContain("issueKeyWithNotify({ leadId: saved.id }, REQUEST_CHARTER_TOOL.name, parsed.data.notify_url, 'request', { opensChat: saved.created && offersChat, offersChat, onIssued: collectIssued(ctx, REQUEST_CHARTER_TOOL.name) })");
+    expect(ROUTE).toContain("issueKeyWithNotify({ leadId }, CAR_RENTAL_REQUEST_TOOL.name, parsed.data.notify_url, 'request', { opensChat: saved.created && offersChat, offersChat, onIssued: collectIssued(ctx, CAR_RENTAL_REQUEST_TOOL.name) })");
+    expect(ROUTE).toContain("keyLine(await issueStayKey(ctx, r.requestId), 'stay')");
+    expect(ROUTE).toContain("issueRequestKey({ stayRequestId }, STAY_REQUEST_TOOL.name, { opensChat: true })");
     expect((ROUTE.match(/const saved = existing \? \{ id: existing, created: false \} : await createLeadDetailed\(/g) ?? []).length).toBe(1);
     // Вахтовка: повтор и новая — одним путём saveCharterLeadDetailed (общим с
     // формой на странице перевозчика, 13.10), он отдаёт прежний лид или новый;

@@ -41,6 +41,8 @@ export interface TripDeps {
   createLead(args: Record<string, unknown>, tripPart?: TripManagerPart): Promise<string>;
   /** Штатная фраза RU/EN/ZH (requestConfirmNote) — вырезается из частей и ставится один раз. */
   confirmNote: string;
+  /** Пробный прогон (`test: true`, lib/mcp/test-run): части проверяются, ничего не записано — сводка так и говорит. */
+  test?: boolean;
   newTripId?: () => string;
   /**
    * План по plan_id (аудит планировщика 07.11, M7). Читается один раз на
@@ -213,14 +215,17 @@ export async function runTripRequest(raw: Record<string, unknown>, deps: TripDep
   const LABEL: Record<LegKind, string> = { tour: 'Тур', stay: 'Жильё', transfer: 'Машина' };
   const strip = (t: string) => (deps.confirmNote ? t.split(deps.confirmNote).join('') : t).trim();
   const okCount = legs.filter((l) => l.ok).length;
-  const head = (okCount === 0
-    ? `Поездка ${tripId}: ни одна часть не создана.`
-    : `Поездка ${tripId}: создано частей ${okCount} из ${legs.length}. Каждый партнёр видит в заявке всю поездку (номер ${tripId}).`)
+  const head = (deps.test
+    ? `Поездка ${tripId} (проба, test: true): проверки прошли у частей ${okCount} из ${legs.length}; ничего не записано и никому не передано.`
+    : okCount === 0
+      ? `Поездка ${tripId}: ни одна часть не создана.`
+      : `Поездка ${tripId}: создано частей ${okCount} из ${legs.length}. Каждый партнёр видит в заявке всю поездку (номер ${tripId}).`)
     + (fromPlan.length ? ` Из плана взято: ${fromPlan.join('; ')}.` : '')
     + planAttachNote(plan);
   const keys = [...new Set(legs.flatMap((l) => [...l.text.matchAll(/Ключ статуса заявки: ([\w-]{16,64})/g)].map((m) => m[1])))];
   const tripUrl = okCount > 0 && keys.length ? tripPageUrl(tripId, keys) : null;
   const tripNote = tripUrl ? `\nВся поездка одной ссылкой для человека: ${tripUrl} (части, статус каждой, согласие). Ссылку не публикуйте.` : '';
-  const body = legs.map((l) => `— ${LABEL[l.kind]}: ${l.ok ? 'создано' : 'НЕ создано'}. ${strip(l.text)}`).join('\n');
-  return { tripId, legs, tripUrl, text: `${head}\n${body}${tripNote}${okCount > 0 ? deps.confirmNote : ''}` };
+  const done = deps.test ? 'проверено' : 'создано';
+  const body = legs.map((l) => `— ${LABEL[l.kind]}: ${l.ok ? done : 'НЕ создано'}. ${strip(l.text)}`).join('\n');
+  return { tripId, legs, tripUrl, text: `${head}\n${body}${tripNote}${okCount > 0 && !deps.test ? deps.confirmNote : ''}` };
 }

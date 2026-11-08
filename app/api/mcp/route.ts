@@ -48,7 +48,7 @@ import { recordPartnerDelivery } from '@/lib/leads/delivery-outcome';
 import { isVehicleOrder } from '@/lib/leads/vehicle-order';
 import { planFromDraft, planSourceFields, planAttachNote, planPeople, planWindowNote, type PlanAttach } from '@/lib/leads/plan-from-draft';
 import { computeQuickScore, LOW_QUALITY_SCORE } from '@/lib/leads/scoring';
-import { checkMcpWrite, releaseWriteSlot, CLIENT_WINDOW_MINUTES, CLIENT_MAX_PER_WINDOW } from '@/lib/mcp/write-guard';
+import { checkMcpWrite, releaseWriteSlot, CLIENT_WINDOW_MINUTES, CLIENT_MAX_PER_WINDOW, NO_CONSENT_MESSAGE } from '@/lib/mcp/write-guard';
 import { buildConsentRecord, type ChatConsentFrom, type PdConsentPurpose } from '@/lib/legal/pd-consent';
 import { createRateLimiter, getTrustedClientIp } from '@/lib/rate-limit';
 import { isSelfMcpCaller } from '@/lib/analytics/self-visit';
@@ -58,12 +58,14 @@ import { runTripRequest, type TripManagerPart } from '@/lib/agent/trip-request';
 import { TRIP_MANAGER_LEAD_KIND } from '@/lib/leads/followup-scope';
 import { readToolArguments, argsRefusal, type ReadArguments } from '@/lib/mcp/tool-arguments';
 import { unknownToolResponse } from '@/lib/mcp/unknown-tool';
-import { normalizePhone } from '@/lib/mcp/normalize-phone';
+import { normalizePhone, implausiblePhone } from '@/lib/mcp/normalize-phone';
+import { issueTestKey, testRunText, writeStructured, type IssuedWrite } from '@/lib/mcp/test-run';
+import type { RequestKind, ConsentPurpose } from '@/lib/mcp/request-status-schema';
 import { logMcpToolCall, logMcpClient } from '@/lib/mcp/call-log';
 import type { PublicToolOutcome } from '@/lib/mcp/tool-outcome';
 import { CONNECTOR_TOOL_NAMES, runConnectorTool } from '@/lib/mcp/connector-tools';
-import { REQUEST_STATUS_TOOL_NAME, runRequestStatusTool, issueRequestKey, keyLine } from '@/lib/mcp/request-status';
-import { issueKeyWithNotify, STAY_NOTIFY_REFUSAL } from '@/lib/mcp/request-notify';
+import { REQUEST_STATUS_TOOL_NAME, runRequestStatusTool, issueRequestKey, keyLine, requestStatusPageUrl } from '@/lib/mcp/request-status';
+import { issueKeyWithNotify, STAY_NOTIFY_REFUSAL, type SubscribeOutcome } from '@/lib/mcp/request-notify';
 import { notifyUrlField } from '@/lib/mcp/request-notify-schema';
 import { randomUUID } from 'node:crypto';
 import { issueMcpHandoff } from '@/lib/mcp/handoff';
@@ -77,7 +79,7 @@ import { charterAcceptedText, pickCarrier, planCharterRequest } from '@/lib/tran
 import { buildCharterLead, checkCharterDates, saveCharterLeadDetailed } from '@/lib/transfers/charter-request-service';
 import { loadRentalCompanies } from '@/lib/rental/rental';
 import { rentalPagePath, type RentalCompany, type RentalOffer } from '@/lib/rental/rental-format';
-import { rentalDays, rentalDedupPrefix } from '@/lib/rental/rental-request';
+import { rentalDays } from '@/lib/rental/rental-request';
 import { issueRentalConfirmation, checkRentalConfirmation, RENTAL_CONFIRM_TTL_MIN, type RentalConfirmFields } from '@/lib/mcp/rental-confirmation';
 import { buildRentalLead, checkRentalDates, saveRentalLeadDetailed } from '@/lib/rental/rental-request-service';
 import { matchOffers } from '@/lib/kuzmich/car-rental-search';
@@ -132,6 +134,64 @@ interface McpCallContext {
    * канал и адрес для записи согласия. `ip` выше остаётся ключом лимита.
    */
   consentFrom?: ChatConsentFrom;
+  /** Пробный прогон (`test: true`, 08.11): проверки — как у заявки, запись и доставка не вызываются (lib/mcp/test-run). */
+  test?: boolean;
+  /** Заявки, выданные вызовом, — structuredContent пишущего инструмента (lib/mcp/test-run). */
+  issued?: IssuedWrite[];
+}
+
+/** Телефон заявки: формат и правдоподобие (ревью MCP 08.11: +70000000000 ушёл менеджеру). */
+function phoneOrRefuse(raw: string): string {
+  const phone = normalizePhone(raw);
+  if (!phone) {
+    throw new McpUserError('Телефон не похож на номер (нужно 10–15 цифр, например +79001234567) — заявка не создана.', 'bad_phone');
+  }
+  if (implausiblePhone(phone)) {
+    throw new McpUserError(
+      'Такого номера не бывает (в зоне +7 нет кодов на 0, 1 и 2, а номер из одних одинаковых цифр не набрать) — заявка не создана. '
+      + 'Спросите у человека его номер. Чтобы проверить интеграцию, не отправляя заявку, передайте test: true.',
+      'implausible_phone',
+    );
+  }
+  return phone;
+}
+
+/** Ключ, выданный заявке, — в структурный итог вызова. */
+function collectIssued(ctx: McpCallContext, tool: string): (r: { key: string | null; notify: SubscribeOutcome | null }) => void {
+  return ({ key, notify }) => {
+    ctx.issued?.push({
+      tool,
+      outcome: 'accepted',
+      status_key: key,
+      status_page: key ? requestStatusPageUrl(key) : null,
+      notify: notify === null ? null
+        : notify.ok ? { active: true, ref: notify.ref, signing_secret: notify.signingKey }
+          : { active: false, reason: notify.reason },
+    });
+  };
+}
+
+/** Ключ заявки на жильё — подписки у неё нет (STAY_NOTIFY_REFUSAL); ключ — в структурный итог. */
+async function issueStayKey(ctx: McpCallContext, stayRequestId: string): Promise<string | null> {
+  const key = await issueRequestKey({ stayRequestId }, STAY_REQUEST_TOOL.name, { opensChat: true });
+  collectIssued(ctx, STAY_REQUEST_TOOL.name)({ key, notify: null });
+  return key;
+}
+
+/**
+ * Проба останавливается здесь — перед допуском к записи, в каждом из
+ * исполнителей (lib/mcp/test-run). Согласие требуется так же, как у
+ * настоящей заявки; `would` — что ушло бы, без имени и телефона.
+ */
+function stopForTest(
+  ctx: McpCallContext, tool: string, kind: RequestKind, purpose: ConsentPurpose,
+  consent: boolean | undefined, would: string, recipient: string | null,
+): string | null {
+  if (!ctx.test) return null;
+  if (consent !== true) throw new McpUserError(NO_CONSENT_MESSAGE, 'write_guard');
+  const key = issueTestKey(kind, purpose);
+  ctx.issued?.push({ tool, outcome: 'test', status_key: key, status_page: null, notify: null });
+  return testRunText(would, recipient, key);
 }
 
 /**
@@ -292,6 +352,10 @@ async function requestSeatsFromOperator(a: {
   ctx: McpCallContext; tourId: number; tourTitle: string; date: string; participants: number;
   name: string; phone: string; hasComment: boolean; consent: boolean | undefined; notifyUrl: string | undefined;
 }): Promise<string> {
+  const trial = stopForTest(a.ctx, BOOKING_REQUEST_TOOL.name, 'seat_request', 'operator', a.consent,
+    `запрос мест оператору в мессенджер: тур "${a.tourTitle}", ${a.date}, ${a.participants} чел. (расписания у тура в системе нет — места уточняет оператор).`,
+    'оператору тура');
+  if (trial) return trial;
   const admitted = await admitWrite(a.ctx, BOOKING_REQUEST_TOOL.name, a.phone, a.consent, 'operator', bookingSubject(a.tourId, a.date));
   const pd_consent = admitted.consent;
   if (!pd_consent) throw new McpUserError('Согласие на обработку персональных данных не получено — запрос не отправлен.', 'no_consent');
@@ -324,7 +388,7 @@ async function requestSeatsFromOperator(a: {
     return `${failure.error} Запрос мест по туру "${a.tourTitle}" на ${a.date} не отправлен. Можно оставить заявку через create_lead — менеджер свяжется с оператором сам.`;
   }
   const deadline = result.deadlineAt.toLocaleTimeString('ru-RU', { hour: '2-digit', minute: '2-digit', timeZone: 'Asia/Kamchatka' });
-  const keyTail = await issueKeyWithNotify({ seatRequestId: result.requestId }, BOOKING_REQUEST_TOOL.name, a.notifyUrl);
+  const keyTail = await issueKeyWithNotify({ seatRequestId: result.requestId }, BOOKING_REQUEST_TOOL.name, a.notifyUrl, 'request', { onIssued: collectIssued(a.ctx, BOOKING_REQUEST_TOOL.name) });
   return `У тура "${a.tourTitle}" нет расписания в системе, поэтому места на ${a.date} (${a.participants} чел.) уточняются у оператора: запрос отправлен ему в мессенджер, ответ будет до ${deadline} по Камчатке. `
     + `Места этим запросом НЕ закреплены, и это не оплата: если оператор ответит «Есть места», заявка подтвердится, ${seatRequestPaymentNote()}. `
     + `Передайте человеку эту ссылку (в ней ключ доступа, храните её только у него): ${statusUrl(result.statusToken)} `
@@ -385,10 +449,7 @@ async function executeCreateBookingRequest(rawArgs: Record<string, unknown>, ctx
 
   // Аудит 08.08, замечание 2: телефон нормализуется, мусор не проходит —
   // заявка без дозвонного номера бесполезна менеджеру.
-  const phone = normalizePhone(parsed.data.phone);
-  if (!phone) {
-    throw new McpUserError('Телефон не похож на номер (нужно 10–15 цифр, например +79001234567) — заявка не создана.', 'bad_phone');
-  }
+  const phone = phoneOrRefuse(parsed.data.phone);
 
   const { resolveTourChoice, candidateLines, choiceListLines, choiceListReason } = await import('@/lib/kuzmich/tour-availability-tool');
   // Отказ базы — не «тур не найден»: заявка не создаётся, агент знает, что
@@ -479,6 +540,11 @@ async function executeCreateBookingRequest(rawArgs: Record<string, unknown>, ctx
   const leadSource = { source: 'mcp', tool: 'create_booking_request', tour_id: tour.id, date, participants, ...planSourceFields(planAttach) };
   refuseSilentLead(name, phone, leadComment, leadSource);
 
+  const trial = stopForTest(ctx, BOOKING_REQUEST_TOOL.name, 'lead', 'operator', parsed.data.consent,
+    `заявка оператору на тур "${tour.title}" (ID${tour.id}), ${date}, участников ${participants}; сейчас на эту дату свободно ${remaining} мест.`,
+    'оператору тура');
+  if (trial) return trial + planAttachNote(planAttach);
+
   const admitted = await admitWrite(ctx, BOOKING_REQUEST_TOOL.name, phone, parsed.data.consent, 'operator', bookingSubject(tour.id, date));
   const pd_consent = admitted.consent;
 
@@ -546,7 +612,7 @@ async function executeCreateBookingRequest(rawArgs: Record<string, unknown>, ctx
   // ответа у повтора тот же (анти-оракул 29.09): что ключ только статусный,
   // видно лишь по самой ссылке.
   const offersChat = !ctx.self && Boolean(tour.operator_id);
-  return accepted + await issueKeyWithNotify({ leadId }, BOOKING_REQUEST_TOOL.name, parsed.data.notify_url, 'request', { opensChat: saved.created && offersChat, offersChat });
+  return accepted + await issueKeyWithNotify({ leadId }, BOOKING_REQUEST_TOOL.name, parsed.data.notify_url, 'request', { opensChat: saved.created && offersChat, offersChat, onIssued: collectIssued(ctx, BOOKING_REQUEST_TOOL.name) });
 }
 
 // ── request_charter (решение владельца 10.10) ─────────────────
@@ -590,10 +656,7 @@ async function executeRequestCharter(rawArgs: Record<string, unknown>, ctx: McpC
   }
   const comment = parsed.data.comment || null;
 
-  const phone = normalizePhone(parsed.data.phone);
-  if (!phone) {
-    throw new McpUserError('Телефон не похож на номер (нужно 10–15 цифр, например +79001234567) — заявка не создана.', 'bad_phone');
-  }
+  const phone = phoneOrRefuse(parsed.data.phone);
 
   // Даты — по Камчатке, как у заявки на бронь: по UTC с 12:00 до 24:00 прошедший
   // там день принимался бы как сегодняшний. Правило — общее с формой на
@@ -646,6 +709,11 @@ async function executeRequestCharter(rawArgs: Record<string, unknown>, ctx: McpC
   // Телефон уходит перевозчику — согласие записывается текстом, который его и
   // называет (purpose 'carrier', 13.10; до этого — версия «туроператору»).
   // Предмет — перевозчик и дата выезда: по ним сохранение узнаёт повтор (charterDedupPrefix).
+  const trial = stopForTest(ctx, REQUEST_CHARTER_TOOL.name, 'lead', 'carrier', parsed.data.consent,
+    `заявка на машину целиком перевозчику «${carrier.name}»: ${destination}, выезд ${dateFrom}${dateTo ? `, возвращение ${dateTo}` : ''}, ${passengers} чел.`,
+    'перевозчику');
+  if (trial) return trial + planNotes(planAttach, people.note, dateFrom, dateTo);
+
   const admitted = await admitWrite(ctx, REQUEST_CHARTER_TOOL.name, phone, parsed.data.consent, 'carrier', `${carrier.partnerId}|${dateFrom}`);
   const pd_consent = admitted.consent;
 
@@ -664,7 +732,7 @@ async function executeRequestCharter(rawArgs: Record<string, unknown>, ctx: McpC
   // ответа у повтора тот же (анти-оракул), как у заявки на бронь.
   const offersChat = !ctx.self;
   return accepted + planNotes(planAttach, people.note, dateFrom, dateTo)
-    + await issueKeyWithNotify({ leadId: saved.id }, REQUEST_CHARTER_TOOL.name, parsed.data.notify_url, 'request', { opensChat: saved.created && offersChat, offersChat })
+    + await issueKeyWithNotify({ leadId: saved.id }, REQUEST_CHARTER_TOOL.name, parsed.data.notify_url, 'request', { opensChat: saved.created && offersChat, offersChat, onIssued: collectIssued(ctx, REQUEST_CHARTER_TOOL.name) })
     + requestConfirmNote();
 }
 
@@ -673,7 +741,9 @@ async function executeRequestCharter(rawArgs: Record<string, unknown>, ctx: McpC
 // странице прокатчика (lib/rental/rental-request-service): даты, лид, повтор,
 // личная доставка прокатчику (в Telegram — без ПД, заглушкой). Машина — строка
 // прайса этого прокатчика: чужой текст машиной не становится. test: true —
-// пробная заявка: помечена, вне счёта спроса, прокатчику не уходит.
+// пробный прогон, как у остальных пяти заявок (lib/mcp/test-run, 08.11): оба
+// шага проходят, но заявка не записывается и никому не уходит. До 08.11 проба
+// проката записывала лид «своей пробой», и менеджер его видел.
 const carRentalRequestArgsSchema = z.object({
   company: z.string().trim().max(100, 'Название прокатчика длиннее 100 символов').optional(),
   car: z.string().trim().min(1, 'Укажите машину из прайса search_car_rental').max(120, 'Название машины длиннее 120 символов'),
@@ -684,7 +754,6 @@ const carRentalRequestArgsSchema = z.object({
   name: personName,
   phone: z.string().trim().min(5, 'Телефон обязателен — заявку подтверждают по нему').max(50, 'Телефон длиннее 50 символов'),
   comment: z.string().trim().max(1000, 'Комментарий длиннее 1000 символов').optional(),
-  test: z.boolean().optional(),
   confirmation: z.string().trim().max(64, 'Код подтверждения длиннее 64 символов').optional(),
   plan_id: planIdField,
   // Проверяется уже на шаге 1 (черновик): ошибка видна сразу. Подписка — только
@@ -731,11 +800,9 @@ async function executeCarRentalRequest(rawArgs: Record<string, unknown>, ctx: Mc
   if (!dateFrom) throw new McpUserError('Дата начала аренды в формате YYYY-MM-DD (или plan_id плана, из которого её взять) — заявка не создана.', 'invalid_args:date_from');
   if (!dateTo) throw new McpUserError('Дата возврата в формате YYYY-MM-DD (или plan_id плана, из которого её взять) — заявка не создана.', 'invalid_args:date_to');
   const datesFromPlan = !parsed.data.date_from || !parsed.data.date_to;
-  const isTest = parsed.data.test === true;
-  const phone = normalizePhone(parsed.data.phone);
-  if (!phone) {
-    throw new McpUserError('Телефон не похож на номер (нужно 10–15 цифр, например +79001234567) — заявка не создана.', 'bad_phone');
-  }
+  // Проба — флаг вызова (ctx.test), а не поле схемы: так он один у шести заявок.
+  const isTest = ctx.test === true;
+  const phone = phoneOrRefuse(parsed.data.phone);
 
   const dates = checkRentalDates(dateFrom, dateTo, kamchatkaToday());
   if (!dates.ok) {
@@ -768,7 +835,6 @@ async function executeCarRentalRequest(rawArgs: Record<string, unknown>, ctx: Mc
   }
 
   const notes = [
-    isTest ? 'ТЕСТ — пробная заявка, прокатчику не передаётся' : '',
     parsed.data.pickup ? `где забрать: ${parsed.data.pickup}` : '',
     parsed.data.comment ?? '',
   ].filter(Boolean).join('; ');
@@ -776,10 +842,6 @@ async function executeCarRentalRequest(rawArgs: Record<string, unknown>, ctx: Mc
   const lead = buildRentalLead(facts, 'mcp');
   if (parsed.data.pickup) lead.sourceData.pickup = parsed.data.pickup;
   Object.assign(lead.sourceData, planSourceFields(planAttach));
-  // Пробная живёт под своим ключом повтора: настоящая заявка с тем же
-  // телефоном и датой не должна склеиться с ней и остаться недоставленной.
-  const TEST_MARK = 'ТЕСТ. ';
-  if (isTest) { lead.sourceData.test = true; lead.comment = TEST_MARK + lead.comment; }
   refuseSilentLead(name, phone, lead.comment, lead.sourceData);
 
   // Два шага: без кода — черновик человеку, заявка не создаётся. Согласие
@@ -788,7 +850,7 @@ async function executeCarRentalRequest(rawArgs: Record<string, unknown>, ctx: Mc
     company: company.slug, car: offer.title, dateFrom, dateTo, name, phone,
     pickup: parsed.data.pickup ?? '', comment: parsed.data.comment ?? '', test: isTest,
   };
-  const draft = `${isTest ? 'Пробная заявка (тест, прокатчику не передаётся)' : 'Заявка'}: ${offer.title} у «${company.name}», с ${dateFrom} по ${dateTo} (${facts.days} сут.${datesFromPlan ? ', даты — из плана' : ''})`
+  const draft = `${isTest ? 'Пробная заявка (test: true — не будет записана и никому не уйдёт)' : 'Заявка'}: ${offer.title} у «${company.name}», с ${dateFrom} по ${dateTo} (${facts.days} сут.${datesFromPlan ? ', даты — из плана' : ''})`
     + `${parsed.data.pickup ? `, где забрать: ${parsed.data.pickup}` : ''}; имя: ${name}, телефон: ${phone}.`;
   const askHuman = 'Покажи это человеку и прямо спроси: «Согласны ли вы на обработку имени и телефона и их передачу прокатчику и отправить заявку?» '
     + 'Только после явного «да» самого человека повтори вызов с теми же полями, consent: true и confirmation';
@@ -807,16 +869,20 @@ async function executeCarRentalRequest(rawArgs: Record<string, unknown>, ctx: Mc
     return `Без согласия человека заявка не создаётся. ${draft} ${askHuman}: "${parsed.data.confirmation}".`;
   }
 
+  const price = `${offer.priceIsFrom ? 'от ' : ''}${offer.priceRubPerDay} руб за сутки`;
+  const trial = stopForTest(ctx, CAR_RENTAL_REQUEST_TOOL.name, 'lead', 'rental', parsed.data.consent,
+    `заявка прокатчику «${company.name}»: ${offer.title}, с ${dateFrom} по ${dateTo} (${facts.days} сут.), по прайсу ${price}.`,
+    'прокатчику');
+  if (trial) return trial;
+
   // Телефон уходит прокатчику — согласие текстом, который его и называет.
-  // Предмет — прокатчик и дата начала (пробная — отдельно): по ним сохранение узнаёт повтор (rentalDedupPrefix).
-  const admitted = await admitWrite(ctx, CAR_RENTAL_REQUEST_TOOL.name, phone, parsed.data.consent, 'rental', `${isTest ? 'test|' : ''}${company.slug}|${dateFrom}`);
+  // Предмет — прокатчик и дата начала: по ним сохранение узнаёт повтор (rentalDedupPrefix).
+  const admitted = await admitWrite(ctx, CAR_RENTAL_REQUEST_TOOL.name, phone, parsed.data.consent, 'rental', `${company.slug}|${dateFrom}`);
   const pd_consent = admitted.consent;
   const saved = await saveRentalLeadDetailed({
     facts, lead, name, phone, consent: pd_consent,
-    // Пробная заявка — как свой визит владельца: с пометкой, вне счёта спроса, прокатчика не будит.
-    isSelf: ctx.self || isTest,
+    isSelf: ctx.self,
     sourceUrl: 'mcp://vedar/car-rental',
-    ...(isTest ? { dedupPrefix: TEST_MARK + rentalDedupPrefix(company.name, dateFrom) } : {}),
   });
   if (!saved) {
     await releaseWriteSlot(admitted.slot);
@@ -827,19 +893,18 @@ async function executeCarRentalRequest(rawArgs: Record<string, unknown>, ctx: Mc
   // Журнал CRM прокатчика: без имени и телефона.
   await recordSourceEventQuietly({
     kind: 'change', sourceKind: 'lead', sourceId: leadId, actorKind: 'mcp',
-    title: `${isTest ? 'Пробная заявка' : 'Заявка'} на прокат из MCP: ${offer.title}, ${dateFrom} — ${dateTo}`,
-    payload: { tool: CAR_RENTAL_REQUEST_TOOL.name, car: offer.title, date_from: dateFrom, date_to: dateTo, days: facts.days, test: isTest },
+    title: `Заявка на прокат из MCP: ${offer.title}, ${dateFrom} — ${dateTo}`,
+    payload: { tool: CAR_RENTAL_REQUEST_TOOL.name, car: offer.title, date_from: dateFrom, date_to: dateTo, days: facts.days },
   });
 
-  const price = `${offer.priceIsFrom ? 'от ' : ''}${offer.priceRubPerDay} руб за сутки`;
-  const accepted = `${isTest ? 'Пробная заявка принята (помечена как тест, прокатчику не передаётся)' : 'Заявка принята'}: ${offer.title} у «${company.name}», с ${dateFrom} по ${dateTo} (${facts.days} сут.), по прайсу ${price}`
+  const accepted = `Заявка принята: ${offer.title} у «${company.name}», с ${dateFrom} по ${dateTo} (${facts.days} сут.), по прайсу ${price}`
     + `${offer.depositRub !== null ? `, залог ${offer.depositRub} руб` : ''}. Это заявка, не бронь: менеджер Ведара свяжется по телефону ${phone} и подтвердит с прокатчиком; оплаты через платформу нет, расчёт напрямую с прокатчиком. Страница прокатчика: ${getPublicBaseUrl()}${rentalPagePath(company.slug)}`;
   // Переписку с прокатом (1350) открывает только ключ новой заявки (текст
-  // ответа у повтора тот же); пробная — без переписки.
-  const offersChat = !ctx.self && !isTest;
+  // ответа у повтора тот же).
+  const offersChat = !ctx.self;
   return accepted + planNotes(planAttach, '', parsed.data.date_from ? dateFrom : null, parsed.data.date_to ? dateTo : null)
-    + await issueKeyWithNotify({ leadId }, CAR_RENTAL_REQUEST_TOOL.name, parsed.data.notify_url, 'request', { opensChat: saved.created && offersChat, offersChat })
-    + (isTest ? '' : requestConfirmNote());
+    + await issueKeyWithNotify({ leadId }, CAR_RENTAL_REQUEST_TOOL.name, parsed.data.notify_url, 'request', { opensChat: saved.created && offersChat, offersChat, onIssued: collectIssued(ctx, CAR_RENTAL_REQUEST_TOOL.name) })
+    + requestConfirmNote();
 }
 
 async function executeCreateLead(rawArgs: Record<string, unknown>, ctx: McpCallContext, tripPart?: TripManagerPart): Promise<string> {
@@ -848,10 +913,7 @@ async function executeCreateLead(rawArgs: Record<string, unknown>, ctx: McpCallC
     throw new McpUserError(parsed.error.issues[0]?.message ?? 'Некорректные данные заявки', `invalid_args:${String(parsed.error.issues[0]?.path?.[0] ?? '').slice(0, 20)}`);
   }
   const { name, comment, interest } = parsed.data;
-  const phone = normalizePhone(parsed.data.phone);
-  if (!phone) {
-    throw new McpUserError('Телефон не похож на номер (нужно 10–15 цифр, например +79001234567) — заявка не создана.', 'bad_phone');
-  }
+  const phone = phoneOrRefuse(parsed.data.phone);
   const leadComment = interest ? `[Интерес: ${interest}] ${comment}` : comment;
   // План по plan_id (#2304, шаг 2): менеджер получает поездку целиком.
   const planAttach = await planFromDraft(parsed.data.plan_id);
@@ -867,6 +929,10 @@ async function executeCreateLead(rawArgs: Record<string, unknown>, ctx: McpCallC
     ...(tripPart ? { kind: TRIP_MANAGER_LEAD_KIND, trip_id: tripPart.tripId, trip_parts: tripPart.parts } : {}),
   };
   refuseSilentLead(name, phone, leadComment, leadSource);
+  const trial = stopForTest(ctx, CREATE_LEAD_TOOL.name, 'lead', 'operator', parsed.data.consent,
+    tripPart ? 'часть поездки менеджеру Ведара (её ведёт менеджер).' : `заявка менеджеру Ведара на подбор${interest ? ` (интерес: ${interest})` : ''}.`,
+    null);
+  if (trial) return trial + planAttachNote(planAttach);
   const admitted = await admitWrite(ctx, CREATE_LEAD_TOOL.name, phone, parsed.data.consent);
   const pd_consent = admitted.consent;
   const leadId = await createLead({
@@ -889,7 +955,7 @@ async function executeCreateLead(rawArgs: Record<string, unknown>, ctx: McpCallC
   // возвращает номер ПРЕЖНЕЙ заявки, и совпавший номер подтверждал бы, что
   // такой телефон с таким текстом уже писал (проверка MCP 29.09).
   return 'Заявка принята. Менеджер Ведара свяжется по указанному телефону.' + planAttachNote(planAttach)
-    + await issueKeyWithNotify({ leadId }, CREATE_LEAD_TOOL.name, parsed.data.notify_url)
+    + await issueKeyWithNotify({ leadId }, CREATE_LEAD_TOOL.name, parsed.data.notify_url, 'request', { onIssued: collectIssued(ctx, CREATE_LEAD_TOOL.name) })
     + requestConfirmNote();
 }
 
@@ -942,10 +1008,7 @@ async function executeCreateStayRequest(rawArgs: Record<string, unknown>, ctx: M
     throw new McpUserError(parsed.error.issues[0]?.message ?? 'Некорректные данные заявки', `invalid_args:${String(parsed.error.issues[0]?.path?.[0] ?? '').slice(0, 20)}`);
   }
   const { accommodation, name, comment } = parsed.data;
-  const phone = normalizePhone(parsed.data.phone);
-  if (!phone) {
-    throw new McpUserError('Телефон не похож на номер (нужно 10–15 цифр, например +79001234567) — заявка не создана.', 'bad_phone');
-  }
+  const phone = phoneOrRefuse(parsed.data.phone);
   const planAttach = await planFromDraft(parsed.data.plan_id);
   const planFacts = planAttach.kind === 'attached' ? planAttach.facts : null;
   const check_in = parsed.data.check_in ?? planFacts?.arrivalDate;
@@ -981,6 +1044,15 @@ async function executeCreateStayRequest(rawArgs: Record<string, unknown>, ctx: M
       : 'телефона владельца на платформе нет';
     return `"${found.name}" заявку владельцу через Ведар не принимает: ${where}. Карточка: ${base}/accommodations/${found.id}. Заявка не создана.`;
   }
+
+  // Проба — до согласия и квоты, как у остальных заявок. Занятость дат
+  // хозяином читается только при отправке (submitStayRequest), и проба это
+  // называет, а не обещает свободные ночи.
+  const trial = stopForTest(ctx, STAY_REQUEST_TOOL.name, 'stay_request', 'stay', parsed.data.consent,
+    `заявка владельцу жилья "${found.name}": заезд ${check_in}, выезд ${check_out} (ночей: ${dates.nights}), гостей ${guests}. `
+      + 'Занятые хозяином даты проверяются только при настоящей отправке.',
+    'владельцу жилья');
+  if (trial) return trial + planNotes(planAttach, people.note, parsed.data.check_in ? check_in : null, parsed.data.check_out ? check_out : null);
 
   // Согласие и квота записи — после всех проверок без ПД, как у заявки на тур.
   const admitted = await admitWrite(ctx, STAY_REQUEST_TOOL.name, phone, parsed.data.consent, 'stay');
@@ -1029,7 +1101,7 @@ async function executeCreateStayRequest(rawArgs: Record<string, unknown>, ctx: M
     + `Карточка объекта: ${base}/accommodations/${found.id}.`
     + planNotes(planAttach, people.note, parsed.data.check_in ? check_in : null, parsed.data.check_out ? check_out : null)
     // Заявка на жильё всегда новая строка (склейки нет) — ключ открывает переписку с владельцем (1349).
-    + keyLine(await issueRequestKey({ stayRequestId: r.requestId }, STAY_REQUEST_TOOL.name, { opensChat: true }), 'stay')
+    + keyLine(await issueStayKey(ctx, r.requestId), 'stay')
     // Подписки у заявки на жильё нет (её состояние после передачи не
     // меняется); агент, передавший адрес, слышит это, а не тишину.
     + (typeof rawArgs.notify_url === 'string' && rawArgs.notify_url.trim() !== '' ? STAY_NOTIFY_REFUSAL : '')
@@ -1067,6 +1139,7 @@ async function executeTool(
       requestCharter: (a) => executeRequestCharter(a, ctx),
       createLead: (a, tripPart) => executeCreateLead(a, ctx, tripPart),
       confirmNote: requestConfirmNote(),
+      test: ctx.test === true,
       readPlan: planFromDraft,
     });
     return r.text;
@@ -1336,8 +1409,17 @@ export async function runPublicTool(call: PublicToolCall): Promise<PublicToolOut
 
   const startedAt = Date.now();
   const invocationId = randomUUID();
+  // Проба (`test: true`, 08.11) — флаг вызова, один у шести заявок: исполнитель
+  // останавливается перед записью (lib/mcp/test-run). Строку "true" модели
+  // шлют не реже булева — читается так же. Из аргументов флаг убирается:
+  // схемы заявок его не знают и знать не должны.
+  const testRun = isWrite && (toolArgs.test === true || toolArgs.test === 'true');
+  const execRead: ReadArguments = isWrite && 'test' in toolArgs
+    ? { ...read, args: Object.fromEntries(Object.entries(toolArgs).filter(([k]) => k !== 'test')) }
+    : read;
+  const ctx: McpCallContext = { ip, userAgent, self, consentFrom, test: testRun, issued: [] };
   try {
-    const text = await executeTool(toolName, read, { ip, userAgent, self, consentFrom });
+    const text = await executeTool(toolName, execRead, ctx);
 
     // Исполнитель Кузьмича ловит своё падение и возвращает этот текст — для
     // модели в чате. Здесь это отказ: isError, ok=false в журнале (его читают
@@ -1352,7 +1434,8 @@ export async function runPublicTool(call: PublicToolCall): Promise<PublicToolOut
     // Мост «ответ агента → действие человека»: отдельная проверяемая
     // ссылка с непрозрачным токеном. Сбой выпуска не ломает ответ, но
     // называется в логе (§4.0).
-    const target = await handoffTargetForTool(toolName, toolArgs, text).catch((err: unknown) => {
+    // У пробы заявки нет — продолжать в Ведаре нечего.
+    const target = testRun ? null : await handoffTargetForTool(toolName, toolArgs, text).catch((err: unknown) => {
       console.error('[mcp] цель ссылки не определена:', logText(toolName), logText(err instanceof Error ? err.message : err, 300));
       return null;
     });
@@ -1362,7 +1445,11 @@ export async function runPublicTool(call: PublicToolCall): Promise<PublicToolOut
     // search/fetch отдают JSON: тот же объект уходит structuredContent (MCP)
     // и DataPart (A2A). Текст от этого не меняется — ChatGPT читает его как
     // JSON-строку, остальные клиенты — как обычный ответ.
-    const structured = CONNECTOR_TOOL_NAMES.has(toolName) || toolName === REQUEST_STATUS_TOOL_NAME ? parseStructured(text) : undefined;
+    // Пишущие инструменты (08.11, ревью MCP): ключ, страница и подписка —
+    // структурно, а не регуляркой из текста (WRITE_OUTPUT_SCHEMA).
+    const structured = isWrite
+      ? { ...writeStructured(testRun, ctx.issued ?? []) }
+      : CONNECTOR_TOOL_NAMES.has(toolName) || toolName === REQUEST_STATUS_TOOL_NAME ? parseStructured(text) : undefined;
     return { kind: 'ok', text, handoffUrl: handoff ? handoff.url : null, ...(structured ? { structured } : {}) };
   } catch (toolErr) {
     // Наружу — только текст, написанный для агента. Отказ пула или чужое

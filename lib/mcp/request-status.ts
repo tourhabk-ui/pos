@@ -61,6 +61,7 @@ import { maxBot } from '@/lib/partners/channel-link';
 import { notifyLeadHumanConfirmedQuietly } from '@/lib/notifications/lead-human-confirmed';
 import { guestBotLink } from '@/lib/requests/request-chat';
 import { logText } from '@/lib/log/log-text';
+import { isTestKey, testKeyStatus } from '@/lib/mcp/test-run';
 import { effectiveStatus, type SeatRequestStatus, type FailureKind } from '@/lib/seat-requests/core';
 import {
   REQUEST_KEY_MIN_CHARS, REQUEST_KEY_MAX_CHARS, publicDisabledReason,
@@ -449,6 +450,7 @@ const HUMAN: Record<RequestState, string> = {
   cancelled: 'Бронь по заявке отменена.',
   failed: 'Ответ оператора не записался — исход выясняется у оператора напрямую.',
   unknown: 'Состояние заявки не распознано.',
+  test: 'Пробная заявка: проверки пройдены, но она не записана и никому не передана.',
 };
 
 const NEXT: Record<RequestState, string> = {
@@ -463,6 +465,7 @@ const NEXT: Record<RequestState, string> = {
   cancelled: 'Можно оставить новую заявку: create_booking_request или create_lead.',
   failed: 'Человеку стоит связаться с оператором напрямую; можно оставить заявку через create_lead.',
   unknown: 'Человеку стоит связаться с оператором напрямую; можно оставить заявку через create_lead.',
+  test: 'Ничего делать не нужно. Чтобы заявка ушла адресату, повторите вызов без test: true.',
 };
 
 function iso(v: Date | string | null): string | null {
@@ -755,6 +758,8 @@ export function catalogTourOf(row: StatusRow): string | null {
 
 export async function readRequestStatus(rawKey: unknown): Promise<RequestStatusView> {
   const key = readKey(rawKey);
+  // Пробный ключ не хранится — заявки нет (lib/mcp/test-run, 08.11).
+  if (isTestKey(key)) return testKeyStatus(key);
   let row: StatusRow | undefined;
   try {
     ({ rows: [row] } = await pool.query<StatusRow>(REQUEST_STATUS_SQL, [sha256(key)]));
