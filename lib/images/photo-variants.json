@@ -813,6 +813,90 @@
     ]
   },
   {
+    "src": "/api/images/s3/photos/laguna-expedition/kamchatka-letnij-ekspress-1.jpg",
+    "widths": [
+      320,
+      640,
+      1280
+    ]
+  },
+  {
+    "src": "/api/images/s3/photos/laguna-expedition/kamchatka-letnij-ekspress-3.jpg",
+    "widths": [
+      320,
+      640,
+      1280
+    ]
+  },
+  {
+    "src": "/api/images/s3/photos/laguna-expedition/kamchatka-letnij-ekspress-4.jpg",
+    "widths": [
+      320,
+      640,
+      1280
+    ]
+  },
+  {
+    "src": "/api/images/s3/photos/laguna-expedition/kamchatka-letnij-ekspress-5.jpg",
+    "widths": [
+      320,
+      640,
+      1280
+    ]
+  },
+  {
+    "src": "/api/images/s3/photos/laguna-expedition/kamchatka-letnij-ekspress-cover.jpg",
+    "widths": [
+      320,
+      640,
+      1280
+    ]
+  },
+  {
+    "src": "/api/images/s3/photos/laguna-expedition/kamchatka-na-maksimum-letnij-marshrut-1.jpg",
+    "widths": [
+      320,
+      640
+    ]
+  },
+  {
+    "src": "/api/images/s3/photos/laguna-expedition/kamchatka-na-maksimum-letnij-marshrut-2.jpg",
+    "widths": [
+      320,
+      640
+    ]
+  },
+  {
+    "src": "/api/images/s3/photos/laguna-expedition/kamchatka-na-maksimum-letnij-marshrut-3.jpg",
+    "widths": [
+      320,
+      640
+    ]
+  },
+  {
+    "src": "/api/images/s3/photos/laguna-expedition/kamchatka-na-maksimum-letnij-marshrut-4.jpg",
+    "widths": [
+      320,
+      640,
+      1280
+    ]
+  },
+  {
+    "src": "/api/images/s3/photos/laguna-expedition/kamchatka-na-maksimum-letnij-marshrut-5.jpg",
+    "widths": [
+      320,
+      640
+    ]
+  },
+  {
+    "src": "/api/images/s3/photos/laguna-expedition/kamchatka-na-maksimum-letnij-marshrut-cover.jpg",
+    "widths": [
+      320,
+      640,
+      1280
+    ]
+  },
+  {
     "src": "/api/images/s3/photos/laguna-expedition/kamchatka-na-maksimum-osennij-marshrut-1.jpg",
     "widths": [
       320,
@@ -854,6 +938,45 @@
   },
   {
     "src": "/api/images/s3/photos/laguna-expedition/kamchatka-na-maksimum-osennij-marshrut-cover.jpg",
+    "widths": [
+      320,
+      640,
+      1280
+    ]
+  },
+  {
+    "src": "/api/images/s3/photos/laguna-expedition/kamchatka-na-maksimum-zimnij-marshrut-1.jpg",
+    "widths": [
+      320,
+      640,
+      1280
+    ]
+  },
+  {
+    "src": "/api/images/s3/photos/laguna-expedition/kamchatka-na-maksimum-zimnij-marshrut-2.jpg",
+    "widths": [
+      320,
+      640,
+      1280
+    ]
+  },
+  {
+    "src": "/api/images/s3/photos/laguna-expedition/kamchatka-na-maksimum-zimnij-marshrut-3.jpg",
+    "widths": [
+      320,
+      640
+    ]
+  },
+  {
+    "src": "/api/images/s3/photos/laguna-expedition/kamchatka-na-maksimum-zimnij-marshrut-4.jpg",
+    "widths": [
+      320,
+      640,
+      1280
+    ]
+  },
+  {
+    "src": "/api/images/s3/photos/laguna-expedition/kamchatka-na-maksimum-zimnij-marshrut-cover.jpg",
     "widths": [
       320,
       640,
@@ -1628,6 +1751,91 @@
     "widths": [
       320,
       640
+    ]
+  },
+  {
+    "src": "/api/images/s3/photos/laguna-expedition/vulkany-kamchatki-4-dnya-1.jpg",
+    "widths": [
+      320,
+      640,
+      1280
+    ]
+  },
+  {
+    "src": "/api/images/s3/photos/laguna-expedition/vulkany-kamchatki-4-dnya-2.jpg",
+    "widths": [
+      320,
+      640
+    ]
+  },
+  {
+    "src": "/api/images/s3/photos/laguna-expedition/vulkany-kamchatki-4-dnya-cover.jpg",
+    "widths": [
+      320,
+      640,
+      1280
+    ]
+  },
+  {
+    "src": "/api/images/s3/photos/laguna-expedition/vulkany-kamchatki-4-dnya-novogodnie-prazdniki-1.jpg",
+    "widths": [
+      320,
+      640,
+      1280
+    ]
+  },
+  {
+    "src": "/api/images/s3/photos/laguna-expedition/vulkany-kamchatki-4-dnya-novogodnie-prazdniki-2.jpg",
+    "widths": [
+      320,
+      640
+    ]
+  },
+  {
+    "src": "/api/images/s3/photos/laguna-expedition/vulkany-kamchatki-4-dnya-novogodnie-prazdniki-3.jpg",
+    "widths": [
+      320,
+      640
+    ]
+  },
+  {
+    "src": "/api/images/s3/photos/laguna-expedition/vulkany-kamchatki-4-dnya-novogodnie-prazdniki-4.jpg",
+    "widths": [
+      320,
+      640,
+      1280
+    ]
+  },
+  {
+    "src": "/api/images/s3/photos/laguna-expedition/vulkany-kamchatki-4-dnya-novogodnie-prazdniki-cover.jpg",
+    "widths": [
+      320,
+      640,
+      1280
+    ]
+  },
+  {
+    "src": "/api/images/s3/photos/laguna-expedition/vulkany-kamchatki-5-dnej-1.jpg",
+    "widths": [
+      320,
+      640,
+      1280
+    ]
+  },
+  {
+    "src": "/api/images/s3/photos/laguna-expedition/vulkany-kamchatki-5-dnej-2.jpg",
+    "widths": [
+      320,
+      640,
+      1280
+    ]
+  },
+  {
+    "src": "/api/images/s3/photos/laguna-expedition/vulkany-kamchatki-5-dnej-cover.jpg",
+    "widths": [
+      320,
+      640,
+      1280
     ]
   },
   {
