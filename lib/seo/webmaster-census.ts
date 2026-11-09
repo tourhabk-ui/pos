@@ -28,9 +28,23 @@ const WEBMASTER_NAME = /WEBMASTER|WEB_MASTER|YA_?WM/i;
  * не попадают: их в API Вебмастера не посылаем.
  */
 const YANDEX_TOKEN_NAME = /YANDEX.*TOKEN|TOKEN.*YANDEX|YANDEX.*OAUTH/i;
-const NOT_A_TOKEN = /SECRET|PASSWORD|CLIENT_ID|API_KEY|FOLDER/i;
+/** Секрет приложения и пароль не посылаются никуда, даже с именем Вебмастера. */
+const NEVER_SENT = /SECRET|PASSWORD|CLIENT_ID/i;
+/**
+ * У прочих имён Яндекса ещё и ключи Облака (`YANDEX_API_KEY` — ключ YandexGPT,
+ * `YANDEX_FOLDER_ID`): это не OAuth. А `…WEBMASTER…_API_KEY` — про Вебмастер
+ * по самому имени, и его пробуем.
+ */
+const NOT_A_TOKEN = /API_KEY|FOLDER/i;
 /** Имена, которые показываются для подсказки: всё про Яндекс (только имена). */
 const YANDEX_NAME = /YANDEX|WEBMASTER|^YA_/i;
+
+/**
+ * Имя без источника: на раннере окружение собрано из `secrets.<ИМЯ>` и
+ * `vars.<ИМЯ>` (lib/seo/webmaster-census-report), и правила судят само имя —
+ * иначе приставка `secrets.` сама попала бы под запрет «SECRET».
+ */
+const bare = (name: string) => name.replace(/^(secrets|vars)\./, '');
 
 export interface TokenCandidates {
   /** Имена с непустым значением, похожие на токен Вебмастера, — в порядке проверки. */
@@ -44,10 +58,10 @@ export function tokenCandidates(env: Record<string, string | undefined>): TokenC
   const names = Object.keys(env).sort();
   return {
     candidates: [
-      ...names.filter((n) => WEBMASTER_NAME.test(n)),
-      ...names.filter((n) => !WEBMASTER_NAME.test(n) && YANDEX_TOKEN_NAME.test(n)),
-    ].filter((n) => !NOT_A_TOKEN.test(n) && (env[n] ?? '').trim().length > 0),
-    yandex_names: names.filter((n) => YANDEX_NAME.test(n)),
+      ...names.filter((n) => WEBMASTER_NAME.test(bare(n))),
+      ...names.filter((n) => !WEBMASTER_NAME.test(bare(n)) && YANDEX_TOKEN_NAME.test(bare(n)) && !NOT_A_TOKEN.test(bare(n))),
+    ].filter((n) => !NEVER_SENT.test(bare(n)) && (env[n] ?? '').trim().length > 0),
+    yandex_names: names.filter((n) => YANDEX_NAME.test(bare(n))),
   };
 }
 
@@ -114,7 +128,11 @@ export function queryRows(queries: ApiQuery[], limit: number) {
 
 export interface CensusResult {
   token: { found_as: string | null; tried: Array<{ name: string; result: string }>; yandex_names: string[] };
-  hosts?: Section<Array<{ url: string; verified: boolean | null }>>;
+  /**
+   * Сколько сайтов в аккаунте и наш ли среди них. Чужие сайты аккаунта не
+   * называются: ответ попадает в журнал прогона, а журнал публичный.
+   */
+  hosts?: Section<{ total: number; site: { url: string; verified: boolean | null } | null }>;
   host_id?: string | null;
   summary?: Section<unknown>;
   queries?: Section<{ date_from: unknown; date_to: unknown; total: unknown; top: ReturnType<typeof queryRows> }>;
@@ -165,7 +183,10 @@ export async function webmasterCensus(opts: {
     const hosts = body.hosts ?? [];
     const site = hosts.find((h) => new RegExp(`(^|//|:)(www\\.)?${SITE_HOST.replace('.', '\\.')}(:|/|$)`).test(h.ascii_host_url));
     hostId = site?.host_id ?? null;
-    return hosts.map((h) => ({ url: h.ascii_host_url, verified: typeof h.verified === 'boolean' ? h.verified : null }));
+    return {
+      total: hosts.length,
+      site: site ? { url: site.ascii_host_url, verified: typeof site.verified === 'boolean' ? site.verified : null } : null,
+    };
   });
   result.host_id = hostId;
   if (!hostId) return result;

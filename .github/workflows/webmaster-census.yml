@@ -1,0 +1,73 @@
+name: Перепись Яндекс Вебмастера — с раннера
+
+# ── Зачем ─────────────────────────────────────────────────────────────────
+#
+# Пункт 1 плана SEO владельца (08.11): что проиндексировано, что исключено и
+# почему, по каким запросам уже есть показы. Перепись написана в #3171 и на
+# проде токена не нашла (prod-check 169: среди переменных про Яндекс только
+# YANDEX_API_KEY и YANDEX_FOLDER_ID). Владелец: «в githab» — токен в секретах
+# репозитория. Ни один workflow его не читал, имени не знает никто.
+#
+# Перечислить секреты workflow не может: toJSON(secrets) отдал бы шагу ВСЕ
+# секреты репозитория. Поэтому секреты кладутся по списку правдоподобных имён
+# (приставка WM_SECRET__ — по ней скрипт их узнаёт), а переменные репозитория
+# (vars — не секреты) — целиком строкой JSON. Скрипт пробует кандидатов на
+# GET /user API Вебмастера и печатает только ИМЯ принятого. Нет нужного
+# имени в списке — прогон красный и называет, какие имена про Яндекс есть;
+# тогда имя добавляется сюда строкой.
+#
+# Только чтение: API Вебмастера здесь не зовётся ни одним пишущим методом.
+# Прод не нужен — ходим в api.webmaster.yandex.net напрямую, ожидания
+# своей сборки нет. Журнал публичный: в него идёт сводка без значений токена
+# и без чужих сайтов аккаунта (lib/seo/webmaster-census-report).
+
+on:
+  workflow_dispatch:
+  push:
+    branches: [main]
+    paths:
+      - '.github/triggers/webmaster-census.json'
+
+permissions:
+  contents: read
+
+jobs:
+  census:
+    runs-on: ubuntu-latest
+    # Пять запросов к API по 20 с на каждого кандидата плюс npm ci.
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@v7
+
+      - uses: actions/setup-node@v7
+        with:
+          node-version: 22
+          cache: npm
+
+      - name: Install dependencies
+        run: npm ci --prefer-offline --no-audit
+
+      - name: Перепись
+        env:
+          WM_VARS_JSON: ${{ toJSON(vars) }}
+          WM_SECRET__YANDEX_WEBMASTER_TOKEN: ${{ secrets.YANDEX_WEBMASTER_TOKEN }}
+          WM_SECRET__YANDEX_WEBMASTER_OAUTH_TOKEN: ${{ secrets.YANDEX_WEBMASTER_OAUTH_TOKEN }}
+          WM_SECRET__YANDEX_WEBMASTER_OAUTH: ${{ secrets.YANDEX_WEBMASTER_OAUTH }}
+          WM_SECRET__YANDEX_WEBMASTER_API_KEY: ${{ secrets.YANDEX_WEBMASTER_API_KEY }}
+          WM_SECRET__YANDEX_WEBMASTER_KEY: ${{ secrets.YANDEX_WEBMASTER_KEY }}
+          WM_SECRET__YANDEX_WEBMASTER: ${{ secrets.YANDEX_WEBMASTER }}
+          WM_SECRET__WEBMASTER_TOKEN: ${{ secrets.WEBMASTER_TOKEN }}
+          WM_SECRET__WEBMASTER_OAUTH_TOKEN: ${{ secrets.WEBMASTER_OAUTH_TOKEN }}
+          WM_SECRET__WEBMASTER_API_KEY: ${{ secrets.WEBMASTER_API_KEY }}
+          WM_SECRET__WEBMASTER_KEY: ${{ secrets.WEBMASTER_KEY }}
+          WM_SECRET__WEBMASTER: ${{ secrets.WEBMASTER }}
+          WM_SECRET__WEBMASTER_YANDEX_TOKEN: ${{ secrets.WEBMASTER_YANDEX_TOKEN }}
+          WM_SECRET__YA_WEBMASTER_TOKEN: ${{ secrets.YA_WEBMASTER_TOKEN }}
+          WM_SECRET__YA_WM_TOKEN: ${{ secrets.YA_WM_TOKEN }}
+          WM_SECRET__YANDEX_WM_TOKEN: ${{ secrets.YANDEX_WM_TOKEN }}
+          WM_SECRET__YANDEX_OAUTH_TOKEN: ${{ secrets.YANDEX_OAUTH_TOKEN }}
+          WM_SECRET__YANDEX_OAUTH: ${{ secrets.YANDEX_OAUTH }}
+          WM_SECRET__YANDEX_TOKEN: ${{ secrets.YANDEX_TOKEN }}
+          WM_SECRET__YANDEX_METRIKA_TOKEN: ${{ secrets.YANDEX_METRIKA_TOKEN }}
+          WM_SECRET__YANDEX_METRICA_TOKEN: ${{ secrets.YANDEX_METRICA_TOKEN }}
+        run: npx tsx scripts/webmaster-census.ts .github/triggers/webmaster-census.json
