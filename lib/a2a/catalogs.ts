@@ -2,40 +2,44 @@
  * Где визитка A2A числится — чтобы «нет в каталоге» проверялось, а не
  * гадалось (тот же приём, что MCP_CATALOGS в lib/mcp/catalogs.ts).
  *
- * Регистрация 12.10 по слову владельца «сделай нас видимыми для всех агентов
- * и A2A»: `POST https://a2aregistry.org/api/agents/register` с адресом визитки
- * 1.0 (/.well-known/agent-card.json). Реестр сам читает карточку, раз в
- * 30 минут проверяет доступность и схему, раз в сутки шлёт настоящий
- * message/send (User-Agent `A2A-Registry-TaskProbe/1.0`; при регистрации —
- * `A2A-Registry-Smoke/1.0`) — то есть в журнале A2A будут его вопросы, и это
- * не турист. Ответ реестра: HTTP 202, статус `under_review` — запись
- * появляется в списке после проверки человеком; дата и статус ниже — на
- * момент регистрации, а не сегодняшние.
+ * a2a-registry.org (www): карточка заявлена, claimed организацией Vedar,
+ * домен vedarai.ru подтверждён DNS 09.11.2026. Публичная страница:
+ * https://www.a2a-registry.org/agent/ru.vedarai.___vedar_kamchatka
  *
- * Обновление записи (`PUT /api/agents/{id}`) требует ключ администратора
- * реестра; удаление — проверку владения. Ничего из этого в коде нет.
+ * a2aregistry.org (другой сайт): регистрация 12.10 по слову владельца
+ * (`POST https://a2aregistry.org/api/agents/register`, id ниже) — заявка
+ * удержана автомодерацией, публичной страницы нет (404). В A2A_CATALOGS
+ * её нет: не числим как листинг. Id оставлен константой для журнала и docs.
+ *
+ * Обновление записи a2aregistry (`PUT /api/agents/{id}`) требует ключ
+ * администратора реестра; удаления в коде нет.
  */
 
 export interface A2aCatalogEntry {
   /** Название каталога для человека. */
   catalog: string;
-  /** Идентификатор записи — то, чем нас ищут. */
+  /** Идентификатор записи — то, чем нас ищут (package name / uuid). */
   id: string;
-  /** Страница записи. */
+  /** Страница записи (живая, не 404). */
   url: string;
-  /** Дата регистрации и статус на тот момент. */
+  /** Дата появления записи в каталоге (или claim / DNS-verify). */
   registered_at: string;
+  /** Статус на момент фиксации в коде — не «сегодня». */
   status_at_registration: string;
 }
 
+/** Заявка 12.10 на a2aregistry.org — удержана модерацией, страницы нет. */
 export const A2A_REGISTRY_AGENT_ID = '538d68a1-16a1-4e55-af5a-8d672b6f1ac7';
+
+/** Package name карточки на a2a-registry.org. */
+export const A2A_REGISTRY_ORG_PACKAGE = 'ru.vedarai.___vedar_kamchatka';
 
 export const A2A_CATALOGS: readonly A2aCatalogEntry[] = [
   {
-    catalog: 'A2A Registry (a2aregistry.org)',
-    id: A2A_REGISTRY_AGENT_ID,
-    url: `https://a2aregistry.org/agents/${A2A_REGISTRY_AGENT_ID}`,
-    registered_at: '2026-10-12',
-    status_at_registration: 'under_review',
+    catalog: 'A2A Registry (a2a-registry.org)',
+    id: A2A_REGISTRY_ORG_PACKAGE,
+    url: `https://www.a2a-registry.org/agent/${A2A_REGISTRY_ORG_PACKAGE}`,
+    registered_at: '2026-11-09',
+    status_at_registration: 'claimed_dns_verified',
   },
 ] as const;

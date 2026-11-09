@@ -69,8 +69,9 @@ export async function GET(request?: Request) {
         jsonrpc: `${base}${A2A_JSONRPC_PATH}`,
         rest: `${base}${A2A_REST_PATH}`,
         // Где визитка числится — проверяется, а не гадается.
-        // Запись a2aregistry ещё на проверке (страница 404) — ссылку не отдаём.
-        catalogs: A2A_CATALOGS.map(({ url: _url, ...c }) => ({ ...c, listing: 'pending_review' })),
+        // В A2A_CATALOGS только живые листинги (сейчас a2a-registry.org, claimed + DNS).
+        // a2aregistry.org (другой сайт) удержан модерацией — сюда не кладём.
+        catalogs: A2A_CATALOGS.map((c) => ({ ...c, listing: 'listed' })),
       },
       // Человекочитаемый первоисточник — для людей и поисковых AI-ответов.
       homepage: `${base}/mcp`,

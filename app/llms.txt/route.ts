@@ -409,8 +409,8 @@ ${parks.length ? parks.map((p) => `- [${p.displayName}](${BASE}/park/${p.slug})`
   ключ подписи — в ответе один раз; состояние без уведомлений — get_request_status
 - English: A2A agent card ${BASE}/.well-known/agent-card.json; JSON-RPC
   ${BASE}/api/a2a, REST ${BASE}/api/a2a/v1; free text or DataPart tool calls; no auth.
-- Реестр A2A: ${A2A_CATALOGS.map((c) => `${c.catalog} — заявка подана ${c.registered_at.split('-').reverse().join('.')}, id ${c.id}`).join('; ')};
-  запись на проверке реестром, публичной страницы пока нет
+- Реестр A2A: ${A2A_CATALOGS.map((c) => `${c.catalog} — ${c.url} (${c.status_at_registration}, с ${c.registered_at.split('-').reverse().join('.')})`).join('; ')};
+  a2aregistry.org (другой сайт): заявка 12.10 удержана модерацией, публичной страницы нет
 
 ## Для AI-агентов: REST и OpenAPI (без MCP и A2A)
 

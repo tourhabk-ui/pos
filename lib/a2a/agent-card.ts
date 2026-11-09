@@ -39,6 +39,19 @@ export const A2A_LEGACY_REST_BASE = '/api/a2a';
 
 export const A2A_AGENT_NAME = 'Vedar Kamchatka';
 
+/**
+ * Категория и аудитория для a2a-registry.org (не поля канонической схемы A2A 1.0).
+ * Источник: гайд реестра «Search & Discovery Optimization» кладёт в визитку
+ * корневые `category` и `target`
+ * (https://www.a2a-registry.org/resources/guide/search). Enum официальный —
+ * GET https://api.a2a-registry.org/public/settings/agent: среди восьми значений
+ * нет Travel; ближайшее к туризму — Lifestyle. UI реестра показывает
+ * «{target} / {category}» (сейчас у нас «General / Utilities», потому что
+ * без полей scan ставит category_source/target_audience_source = «ai»).
+ */
+export const A2A_REGISTRY_CATEGORY = 'Lifestyle';
+export const A2A_REGISTRY_TARGET = 'Personal';
+
 export const A2A_INPUT_MODES = ['text/plain', 'application/json'] as const;
 export const A2A_OUTPUT_MODES = ['text/plain', 'application/json'] as const;
 
@@ -170,7 +183,7 @@ export function buildSkills(): AgentSkill[] {
       + 'данными из инструментов платформы: туры и занятость, безопасность и обстановка, места, погода, жильё, '
       + 'трансферы, прокат машин без водителя, план поездки. Заявки в этом режиме не оформляются: для них — навыки create_* с DataPart. '
       + 'Free-text question in Russian or English, answered with platform data; requests only via create_* skills.',
-    tags: ['kamchatka', 'assistant', 'free-text', 'travel', 'safety'],
+    tags: ['kamchatka', 'assistant', 'free-text', 'travel', 'tourism', 'safety'],
     examples: TEXT_EXAMPLES[CHAT_SKILL_ID] ?? [],
     inputModes: ['text/plain'],
     outputModes: ['text/plain'],
@@ -211,6 +224,9 @@ export function buildAgentCard(base: string): Record<string, unknown> {
     version: MCP_SERVER_INFO.version,
     provider: provider(base),
     documentationUrl: `${base}/mcp`,
+    // Registry SEO fields (a2a-registry.org); ignored by strict A2A clients that skip unknowns.
+    category: A2A_REGISTRY_CATEGORY,
+    target: A2A_REGISTRY_TARGET,
     capabilities: { streaming: false, pushNotifications: false, extendedAgentCard: false },
     defaultInputModes: [...A2A_INPUT_MODES],
     defaultOutputModes: [...A2A_OUTPUT_MODES],
@@ -241,6 +257,8 @@ export function buildLegacyAgentCard(base: string): Record<string, unknown> {
     version: MCP_SERVER_INFO.version,
     protocolVersion: A2A_LEGACY_PROTOCOL_VERSION,
     documentationUrl: `${base}/mcp`,
+    category: A2A_REGISTRY_CATEGORY,
+    target: A2A_REGISTRY_TARGET,
     capabilities: { streaming: false, pushNotifications: false, stateTransitionHistory: false },
     defaultInputModes: [...A2A_INPUT_MODES],
     defaultOutputModes: [...A2A_OUTPUT_MODES],
