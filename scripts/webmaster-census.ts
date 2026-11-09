@@ -3,7 +3,7 @@
  *
  * Зовётся из .github/workflows/webmaster-census.yml. Окружение для поиска
  * токена собирает `runnerEnv` (lib/seo/webmaster-census-report): секреты по
- * списку имён и переменные репозитория. В журнал и в сводку прогона идёт
+ * списку имён. В журнал и в сводку прогона идёт
  * `censusDigest` — без значений токенов и без чужих сайтов аккаунта.
  *
  *   npx tsx scripts/webmaster-census.ts <маркер.json>
@@ -30,8 +30,7 @@ async function main(): Promise<number> {
   const days = intField(marker, 'days', 90, 7, 365);
   const top = intField(marker, 'top', 100, 10, 500);
 
-  const { env, vars_error } = runnerEnv(process.env, process.env.WM_VARS_JSON);
-  if (vars_error) console.log(`::warning::${vars_error} — искали только среди секретов`);
+  const env = runnerEnv(process.env);
 
   const fetcher: Fetcher = (url, init) => fetch(url, { ...init, signal: AbortSignal.timeout(20_000) });
   const census = await webmasterCensus({ env, fetcher, today: kamchatkaToday(), days, topQueries: top });

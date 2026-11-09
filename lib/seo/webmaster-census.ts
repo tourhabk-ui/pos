@@ -40,11 +40,11 @@ const NOT_A_TOKEN = /API_KEY|FOLDER/i;
 const YANDEX_NAME = /YANDEX|WEBMASTER|^YA_/i;
 
 /**
- * Имя без источника: на раннере окружение собрано из `secrets.<ИМЯ>` и
- * `vars.<ИМЯ>` (lib/seo/webmaster-census-report), и правила судят само имя —
- * иначе приставка `secrets.` сама попала бы под запрет «SECRET».
+ * Имя без источника: на раннере окружение собрано из `secrets.<ИМЯ>`
+ * (lib/seo/webmaster-census-report), и правила судят само имя — иначе
+ * приставка `secrets.` сама попала бы под запрет «SECRET».
  */
-const bare = (name: string) => name.replace(/^(secrets|vars)\./, '');
+const bare = (name: string) => name.replace(/^secrets\./, '');
 
 export interface TokenCandidates {
   /** Имена с непустым значением, похожие на токен Вебмастера, — в порядке проверки. */

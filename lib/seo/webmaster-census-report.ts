@@ -7,9 +7,12 @@
  * секретах репозитория. Ни один workflow его не читает, имени не знает никто,
  * а перечислить секреты workflow не может: `toJSON(secrets)` отдал бы шагу ВСЕ
  * секреты репозитория. Поэтому workflow кладёт в окружение секреты по списку
- * правдоподобных имён с приставкой `WM_SECRET__`, а переменные репозитория
- * (`vars` — не секреты, их можно перечислить) — одной строкой JSON. Отсюда
- * собирается окружение для `webmasterCensus`: имя называет, откуда оно.
+ * правдоподобных имён с приставкой `WM_SECRET__`; отсюда собирается окружение
+ * для `webmasterCensus` с именами `secrets.<ИМЯ>`.
+ *
+ * Переменные репозитория (`vars`) не читаются: прогон 1 клал их строкой JSON,
+ * и раннер напечатал её в публичный журнал целиком — vars не маскируются, и
+ * токен, положенный туда по ошибке, ушёл бы в журнал открытым текстом.
  *
  * Журнал прогона в публичном репозитории читает кто угодно, поэтому в него
  * идёт сводка, а не всё: ни значения токена, ни чужих сайтов аккаунта.
@@ -20,37 +23,18 @@ import type { CensusResult } from './webmaster-census';
 export const SECRET_PREFIX = 'WM_SECRET__';
 
 /**
- * Окружение для поиска токена: `secrets.<ИМЯ>` из непустых `WM_SECRET__<ИМЯ>`
- * и `vars.<ИМЯ>` из JSON переменных. Пустые секреты не попадают вовсе: GitHub
- * отдаёт отсутствующий секрет пустой строкой, и список «есть такие имена»
- * иначе состоял бы из всего, что мы угадывали.
+ * Окружение для поиска токена: `secrets.<ИМЯ>` из непустых `WM_SECRET__<ИМЯ>`.
+ * Пустые не попадают: GitHub отдаёт отсутствующий секрет пустой строкой, и
+ * список «есть такие имена» иначе состоял бы из всего, что мы угадывали.
  */
-export function runnerEnv(env: Record<string, string | undefined>, varsJson: string | undefined): {
-  env: Record<string, string>;
-  vars_error: string | null;
-} {
+export function runnerEnv(env: Record<string, string | undefined>): Record<string, string> {
   const out: Record<string, string> = {};
   for (const [name, value] of Object.entries(env)) {
     if (!name.startsWith(SECRET_PREFIX)) continue;
     if ((value ?? '').trim().length === 0) continue;
     out[`secrets.${name.slice(SECRET_PREFIX.length)}`] = value as string;
   }
-  let varsError: string | null = null;
-  if (varsJson !== undefined && varsJson.trim() !== '') {
-    try {
-      const parsed: unknown = JSON.parse(varsJson);
-      if (parsed && typeof parsed === 'object' && !Array.isArray(parsed)) {
-        for (const [name, value] of Object.entries(parsed as Record<string, unknown>)) {
-          if (typeof value === 'string' && value.trim().length > 0) out[`vars.${name}`] = value;
-        }
-      } else {
-        varsError = 'переменные репозитория пришли не объектом';
-      }
-    } catch {
-      varsError = 'переменные репозитория не разобрались как JSON';
-    }
-  }
-  return { env: out, vars_error: varsError };
+  return out;
 }
 
 const fmt = (v: number | null) => (v === null ? '—' : Number.isInteger(v) ? String(v) : v.toFixed(1));
@@ -74,7 +58,7 @@ export function censusDigest(r: CensusResult, opts: { topQueries: number; exampl
   if (!r.token.found_as) {
     out.push(r.token.yandex_names.length
       ? `- имена про Яндекс и Вебмастер, что есть: ${r.token.yandex_names.map((n) => `\`${n}\``).join(', ')}`
-      : '- ни одного имени про Яндекс или Вебмастер среди проверенных секретов и переменных');
+      : '- ни один из проверенных секретов не задан — у токена другое имя');
     return out;
   }
 
