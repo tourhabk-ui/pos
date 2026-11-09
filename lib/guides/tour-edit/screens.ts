@@ -250,12 +250,18 @@ export function chooseTourScreen(draftId: string, field: EditField, tours: reado
   ]);
 }
 
-export function savedScreen(args: { field: EditField; title: string; tourId: string; slug: string | null; siteBase: string; published: boolean }): CabinetScreen {
+export function savedScreen(args: {
+  field: EditField; title: string; tourId: string; slug: string | null; siteBase: string; published: boolean;
+  /** Туроператору — «‹ Календарь» вместо кнопок «Моих туров» гида (09.11). */
+  back?: DatesBack;
+}): CabinetScreen {
   const url = `${base(args.siteBase)}${tourPath({ id: args.tourId, slug: args.slug })}`;
   return screen([
     `Сохранено: ${FIELD_LABEL[args.field].toLowerCase()} тура «${escapeHtml(args.title)}».`,
     args.published ? `На сайте — сразу: ${url}` : 'Тур не на витрине: туристы увидят правку, когда он будет опубликован.',
-  ], [[{ text: 'К туру', payload: cabinetPayload.tour(args.tourId) }, { text: '‹ Мои туры', payload: cabinetPayload.myTours() }]]);
+  ], [args.back === 'calendar'
+    ? backRow('calendar', null)
+    : [{ text: 'К туру', payload: cabinetPayload.tour(args.tourId) }, { text: '‹ Мои туры', payload: cabinetPayload.myTours() }]]);
 }
 
 export const EDIT_TEXT = {
@@ -274,6 +280,8 @@ export const EDIT_TEXT = {
   staleButton: 'Кнопка устарела — пришлите правку ещё раз.',
   sameValue: 'Это ровно то, что уже записано в туре, — сохранять нечего.',
   notGuide: 'Туры в чате правит гид со своими турами. Ничего не записал.',
+  operatorOwnerOnly: 'Цену и тексты тура из чата меняет только владелец карточки. Ничего не записал.',
+  operatorNotHere: 'Эта кнопка — для гида, туроператору она не открыта. Ничего не записал. У туроператора в чате — «Календарь» и правка тура одной фразой, например «Название: цена 18 000».',
   tourNotFound: 'Тур не найден среди ваших.',
 } as const;
 
@@ -292,17 +300,29 @@ export function rejectText(field: EditField, r: EditReject): string {
 }
 
 /** Текст тура из базы (05.11): поля в форме фразы правки. */
-export function tourTextScreen(t: ChatTour, siteOwnUrl: string): CabinetScreen {
-  return screen(tourTextLines(t, shortTourName(t.title), siteOwnUrl), [[{ text: '‹ Тур', payload: cabinetPayload.tour(t.id) }]]);
+/**
+ * Кнопка «назад» экранов правки: гиду — его тур или «Мои туры», туроператору
+ * — «Календарь» (09.11): «Мои туры» с кнопками тура у него нет, а чужая
+ * кнопка ответила бы отказом.
+ */
+function backRow(back: DatesBack, tourId: string | null): CabinetButton[] {
+  if (back === 'calendar') return [{ text: '‹ Календарь', payload: cabinetPayload.calendar() }];
+  return tourId
+    ? [{ text: '‹ Тур', payload: cabinetPayload.tour(tourId) }]
+    : [{ text: 'Мои туры', payload: cabinetPayload.myTours() }];
 }
 
-export function noticeWithTours(text: string, tours: readonly ChatTour[] | null): CabinetScreen {
+export function tourTextScreen(t: ChatTour, siteOwnUrl: string, back: DatesBack = 'tour'): CabinetScreen {
+  return screen(tourTextLines(t, shortTourName(t.title), siteOwnUrl), [backRow(back, t.id)]);
+}
+
+export function noticeWithTours(text: string, tours: readonly ChatTour[] | null, back: DatesBack = 'tour'): CabinetScreen {
   const lines = [text];
   if (tours && tours.length) {
     lines.push('Ваши туры:', ...tours.slice(0, 30).map((t) => `• ${escapeHtml(t.title)}`));
     lines.push(...FORMAT_LINES(shortTourName(tours[0]!.title)));
   }
-  return screen(lines, [[{ text: 'Мои туры', payload: cabinetPayload.myTours() }]]);
+  return screen(lines, [backRow(back, null)]);
 }
 
 // ── Даты ────────────────────────────────────────────────────────────────────

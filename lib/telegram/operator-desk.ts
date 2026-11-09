@@ -130,6 +130,8 @@ export function operatorToursText(tours: ReadonlyArray<{ title: string; price: s
     lines.push(`• ${escapeHtml(tour.title)} — ${tour.price ? escapeHtml(tour.price) : 'цена не указана'}`);
     lines.push(escapeHtml(tour.url));
   }
+  // Правка цены фразой (09.11, lib/guides/tour-edit): «было → станет», пишет только кнопка.
+  lines.push('', 'Поменять цену — одним сообщением: «Название: цена 18 000». Покажу, что было и что станет; запишется только после кнопки «Сохранить».');
   return lines.join('\n');
 }
 

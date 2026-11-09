@@ -53,7 +53,8 @@ vi.mock('@/lib/api/operator-tours', async (orig) => {
 
 const { parseTourEdit, pickTour } = await import('@/lib/guides/tour-edit/parse');
 const screens = await import('@/lib/guides/tour-edit/screens');
-const { captureGuideTourEdit } = await import('@/lib/guides/tour-edit/flow');
+const { captureGuideTourEdit, guideTourPress, editsOwnTours, phraseEditsOwnTours } = await import('@/lib/guides/tour-edit/flow');
+const { operatorToursText } = await import('@/lib/telegram/operator-desk');
 const { saveDraft } = await import('@/lib/guides/tour-edit/store');
 const { PATCH } = await import('@/app/api/hub/operator/tours/[id]/route');
 const { partnerSystemPrompt } = await import('@/lib/kuzmich/operator-chat');
@@ -259,9 +260,9 @@ describe('без кнопки — в тур не пишется ничего', (
     expect(h.query.mock.calls.map(([sql]) => String(sql)).filter((q) => /UPDATE operator_tours/.test(q))).toEqual([]);
   });
 
-  it('гид без своих туров и туроператор — фраза не перехватывается (идёт своим путём)', async () => {
+  it('гид без своих туров и перевозчик — фраза не перехватывается (идёт своим путём)', async () => {
     expect(await captureGuideTourEdit({ channel: 'max', chatId: 1, partner: { ...GUIDE, sellsTours: false }, text: 'Горелый: цена 16000' })).toBeNull();
-    expect(await captureGuideTourEdit({ channel: 'max', chatId: 1, partner: { ...GUIDE, category: 'operator', crmCategory: 'operator' }, text: 'Горелый: цена 16000' })).toBeNull();
+    expect(await captureGuideTourEdit({ channel: 'max', chatId: 1, partner: { ...GUIDE, category: 'transfer', crmCategory: 'transfer' }, text: 'Горелый: цена 16000' })).toBeNull();
     expect(h.query).not.toHaveBeenCalled();
   });
 });
@@ -315,5 +316,118 @@ describe('помощник-модель тур не правит', () => {
     const p = partnerSystemPrompt({ ...GUIDE, partnerName: 'Гид' }, Date.UTC(2026, 9, 30), true);
     expect(p).toMatch(/Тексты и цену своих туров ты сам не меняешь и не говоришь, что изменил или сохранил их/);
     expect(p).toMatch(/записывается только она/);
+  });
+});
+
+/**
+ * Туроператор правит тур фразой (слово владельца 09.11 «делай 1»: помощник
+ * оператора, как Klook K.ai — цену поменять одной фразой). Тот же черновик,
+ * та же кнопка, та же `writeTourPatch`; сохраняет только владелец карточки.
+ */
+describe('туроператор правит тур фразой (09.11)', () => {
+  const OPERATOR = {
+    ...GUIDE,
+    partnerId: '56565656-5656-4565-8565-565656565656',
+    partnerName: 'Компания',
+    category: 'operator',
+    crmCategory: 'operator' as const,
+    sellsTours: undefined,
+  };
+  const pressWho = (owner: boolean) => ({ partner: OPERATOR, owner, channel: 'max' as const, chatId: 1, nowMs: Date.UTC(2026, 10, 9) });
+  /** Кнопки «Моих туров» гида: туроператору они ответили бы отказом. */
+  const guideOnlyButtons = (rows: ReadonlyArray<ReadonlyArray<{ payload: string }>>) =>
+    rows.flat().map((b) => b.payload).filter((p) => p === cabinetPayload.myTours() || p === cabinetPayload.tour('77'));
+  const writes = () => h.query.mock.calls.map(([sql]) => String(sql)).filter((q) => /UPDATE operator_tours|INSERT INTO operator_tours/.test(q));
+
+  function draftRow() {
+    return { id: DRAFT, tour_id: '77', candidate_ids: [], field: 'base_price', new_value: 18000, live_value: 15000, status: 'pending', expired: false };
+  }
+
+  it('право: фразой правит и туроператор, документ .docx и новый тур — по-прежнему только гид', () => {
+    expect(phraseEditsOwnTours(OPERATOR)).toBe(true);
+    expect(editsOwnTours(OPERATOR)).toBe(false);
+    expect(phraseEditsOwnTours({ ...GUIDE, category: 'transfer' })).toBe(false);
+  });
+
+  it('«Вачкажец: цена 18 000» — черновик своего тура и «было → станет»; в тур ничего не пишется', async () => {
+    h.query.mockImplementation(async (sql: string) => {
+      if (/FROM operator_tours t\s+WHERE t\.operator_id/.test(sql)) return { rows: [tourRow({ title: 'Горный массив Вачкажец' })] };
+      if (/INSERT INTO tour_chat_edits/.test(sql)) return { rows: [{ id: DRAFT }] };
+      return { rows: [], rowCount: 0 };
+    });
+    const s = await captureGuideTourEdit({ channel: 'max', chatId: 1, partner: OPERATOR, text: 'Вачкажец: цена 18 000' });
+    expect(flat(s?.text ?? '')).toContain('Было: 15 000 ₽ за человека');
+    expect(flat(s?.text ?? '')).toContain('Станет: <b>18 000 ₽ за человека</b>');
+    expect(s?.rows[0]?.map((b) => b.text)).toEqual(['Сохранить', 'Отмена']);
+    // Туры читаются и черновик пишется по карточке ЭТОГО оператора.
+    const reads = h.query.mock.calls.filter(([sql]) => /FROM operator_tours t\s+WHERE t\.operator_id/.test(String(sql)));
+    expect(reads[0]![1][0]).toBe(OPERATOR.partnerId);
+    const insert = h.query.mock.calls.find(([sql]) => /INSERT INTO tour_chat_edits/.test(String(sql)));
+    expect(insert![1]).toContain(OPERATOR.partnerId);
+    expect(h.write).not.toHaveBeenCalled();
+    expect(writes()).toEqual([]);
+  });
+
+  it('тура с такими словами нет — «не нашёл», ничего не записано, «назад» ведёт в календарь, а не в «Мои туры» гида', async () => {
+    h.query.mockImplementation(async (sql: string) => {
+      if (/FROM operator_tours t\s+WHERE t\.operator_id/.test(sql)) return { rows: [tourRow({ title: 'Горный массив Вачкажец' })] };
+      return { rows: [], rowCount: 0 };
+    });
+    const s = await captureGuideTourEdit({ channel: 'max', chatId: 1, partner: OPERATOR, text: 'Толбачик: цена 18 000' });
+    expect(s?.text).toContain('Тур «Толбачик» не нашёл среди ваших. Ничего не записал.');
+    expect(s?.rows[0]).toEqual([{ text: '‹ Календарь', payload: cabinetPayload.calendar() }]);
+    expect(guideOnlyButtons(s!.rows)).toEqual([]);
+    expect(h.query.mock.calls.some(([sql]) => /INSERT INTO tour_chat_edits/.test(String(sql)))).toBe(false);
+  });
+
+  it('«Сохранить» владельца — та же writeTourPatch с владельцем-оператором, только цена; после — «‹ Календарь»', async () => {
+    h.query.mockImplementation(async (sql: string) => {
+      if (/FROM tour_chat_edits\s+WHERE id = \$1::uuid/.test(sql)) return { rows: [draftRow()] };
+      if (/FOR UPDATE/.test(sql) && /FROM operator_tours t/.test(sql)) return { rows: [tourRow()] };
+      return { rows: [], rowCount: 1 };
+    });
+    h.write.mockResolvedValue({ outcome: 'written', row: { id: '77', title: 'Восхождение на Горелый', updated_at: 'now' } });
+    const s = await guideTourPress({ kind: 'edit_save', draftId: DRAFT }, pressWho(true));
+    expect(h.write).toHaveBeenCalledTimes(1);
+    expect(h.write.mock.calls[0]![1]).toMatchObject({ tourId: '77', ownerId: OPERATOR.partnerId, input: { base_price: 18000 } });
+    expect(Object.keys(h.write.mock.calls[0]![1].input)).toEqual(['base_price']);
+    expect(s.text).toContain('Сохранено: цена тура «Восхождение на Горелый».');
+    expect(s.rows[0]).toEqual([{ text: '‹ Календарь', payload: cabinetPayload.calendar() }]);
+    expect(guideOnlyButtons(s.rows)).toEqual([]);
+    // Журнал: черновик помечен сохранённым в той же транзакции.
+    expect(h.query.mock.calls.some(([sql]) => /UPDATE tour_chat_edits SET status = 'saved'/.test(String(sql)))).toBe(true);
+  });
+
+  it('менеджер команды «Сохранить» не может: отказ словами, база не тронута', async () => {
+    const s = await guideTourPress({ kind: 'edit_save', draftId: DRAFT }, pressWho(false));
+    expect(s.text).toBe('Цену и тексты тура из чата меняет только владелец карточки. Ничего не записал.');
+    expect(h.query).not.toHaveBeenCalled();
+    expect(h.write).not.toHaveBeenCalled();
+  });
+
+  it('публикация, новый тур и «Мои туры» гида туроператору не открываются; календарь — как раньше, только владельцу', async () => {
+    for (const press of [
+      { kind: 'tour_publish' as const, tourId: '77' },
+      { kind: 'tour_new' as const },
+      { kind: 'my_tours' as const },
+    ]) {
+      const s = await guideTourPress(press, pressWho(true));
+      expect(s.text, press.kind).toContain('Эта кнопка — для гида, туроператору она не открыта. Ничего не записал.');
+    }
+    expect(h.query).not.toHaveBeenCalled();
+    const cal = await guideTourPress({ kind: 'calendar' }, pressWho(false));
+    expect(cal.text).toBe('Календарь открывает и закрывает даты — это может только владелец карточки.');
+  });
+
+  it('помощник-модель туроператора знает, что цену не меняет, а сохраняет кнопка', () => {
+    const p = partnerSystemPrompt(OPERATOR, Date.UTC(2026, 10, 9), true);
+    expect(p).toMatch(/Тексты и цену туров ты сам не меняешь и не говоришь, что изменил или сохранил их/);
+    expect(p).toMatch(/«Вачкажец: цена 18000»/);
+  });
+
+  it('«Мои туры и цены» подсказывают, как поменять цену фразой', () => {
+    const text = operatorToursText([{ title: 'Вачкажец', price: 'от 15 000 ₽', url: 'https://vedarai.ru/catalog/tours/77' }]);
+    expect(text).toContain('Поменять цену — одним сообщением: «Название: цена 18 000».');
+    expect(text).toContain('запишется только после кнопки «Сохранить»');
   });
 });
