@@ -71,6 +71,9 @@ describe('tokenCandidates: по именам, без значений', () => {
     expect(candidates).toEqual(['YANDEX_WEBMASTER_TOKEN', 'YANDEX_OAUTH_TOKEN']);
     expect(tokenCandidates({ YANDEX_OAUTH_CLIENT_SECRET: 's', YANDEX_TOKEN_PASSWORD: 'p', YANDEX_METRIKA_TOKEN: 't' }).candidates)
       .toEqual(['YANDEX_METRIKA_TOKEN']);
+    // Ключ с именем Вебмастера пробуется, ключ Облака (YandexGPT) — нет; секрет приложения — никогда.
+    expect(tokenCandidates({ YANDEX_WEBMASTER_API_KEY: 'k', YANDEX_API_KEY: 'gpt', WEBMASTER_CLIENT_SECRET: 's' }).candidates)
+      .toEqual(['YANDEX_WEBMASTER_API_KEY']);
     expect(yandex_names).toEqual(['WEBMASTER_EMPTY', 'YANDEX_GPT_API_KEY', 'YANDEX_OAUTH_TOKEN', 'YANDEX_WEBMASTER_TOKEN']);
   });
 });
@@ -90,6 +93,9 @@ describe('webmasterCensus: перепись целиком', () => {
     const { fetcher, calls } = fakeApi();
     const r = await webmasterCensus({ env: ENV, fetcher, today: '2026-11-08', days: 90, topQueries: 200 });
     expect(r.host_id).toBe(HOST_ID);
+    // Чужой сайт аккаунта не назван — только сколько их и наш.
+    expect(r.hosts).toEqual({ ok: true, data: { total: 2, site: { url: 'https://vedarai.ru/', verified: true } } });
+    expect(JSON.stringify(r)).not.toContain('other.ru');
     expect(r.summary).toEqual({ ok: true, data: { sqi: 10, searchable_pages_count: 120, excluded_pages_count: 300, site_problems: {} } });
     expect(r.in_search).toEqual({ ok: true, data: { total: 120, urls: ['https://vedarai.ru/catalog'] } });
     const q = r.queries!;
