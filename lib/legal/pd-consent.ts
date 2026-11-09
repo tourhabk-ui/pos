@@ -82,11 +82,19 @@ export const PD_CONSENT_PARTNER_SIGNER_TEXT =
 export const PD_CONSENT_PARTNER_SIGNER_VERSION = '2026-10-23-partner-signer';
 
 /**
+ * Заявка на подключение со страницы /partner (23.10): контактное лицо и
+ * телефон будущего партнёра нужны только нам, чтобы связаться по заявке.
+ */
+export const PD_CONSENT_PARTNER_APPLY_TEXT =
+  'Согласен на обработку персональных данных для связи по заявке на подключение';
+export const PD_CONSENT_PARTNER_APPLY_VERSION = '2026-10-23-partner-apply';
+
+/**
  * Для чего согласие: передача по заявке туроператору (по умолчанию), владельцу
  * жилья, перевозчику, прокату снаряжения или прокату автомобилей — либо учёт
  * подписанта согласия партнёра на материалы.
  */
-export type PdConsentPurpose = 'operator' | 'stay' | 'carrier' | 'gear' | 'rental' | 'partner-signer';
+export type PdConsentPurpose = 'operator' | 'stay' | 'carrier' | 'gear' | 'rental' | 'partner-signer' | 'partner-apply';
 
 /** Текст и версия согласия для цели заявки — единственный выбор между ними. */
 export function consentWording(purpose: PdConsentPurpose = 'operator'): { text: string; version: string } {
@@ -99,6 +107,7 @@ export function consentWording(purpose: PdConsentPurpose = 'operator'): { text: 
     case 'gear': return { text: PD_CONSENT_GEAR_TEXT, version: PD_CONSENT_GEAR_VERSION };
     case 'rental': return { text: PD_CONSENT_RENTAL_TEXT, version: PD_CONSENT_RENTAL_VERSION };
     case 'partner-signer': return { text: PD_CONSENT_PARTNER_SIGNER_TEXT, version: PD_CONSENT_PARTNER_SIGNER_VERSION };
+    case 'partner-apply': return { text: PD_CONSENT_PARTNER_APPLY_TEXT, version: PD_CONSENT_PARTNER_APPLY_VERSION };
     default: {
       const never: never = purpose;
       return never;

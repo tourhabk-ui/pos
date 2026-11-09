@@ -67,9 +67,21 @@ describe('заметка не видна туристу', () => {
   it('таблицу читает только админский маршрут', () => {
     const readers = walk('app').filter((f) => /partner_prospects/.test(read(f)));
     expect(readers.length, 'таблицу вообще никто не читает — эндпоинт потерялся').toBeGreaterThan(0);
+    // Публичная форма /partner (23.10) только дописывает заявку и отдаёт id —
+    // чтения заметок наружу в ней нет.
+    const WRITER = 'app/api/partner-applications/route.ts';
     for (const f of readers) {
+      if (f === WRITER) continue;
       expect(f.startsWith('app/api/admin/'), `${f}: читает заметки вне админки`).toBe(true);
     }
+  });
+
+  it('публичная форма только пишет заявку и не заводит партнёра', () => {
+    const W = read('app/api/partner-applications/route.ts');
+    expect(W).not.toMatch(/SELECT[\s\S]*FROM partner_prospects/i);
+    expect(W).toMatch(/RETURNING id::text/);
+    expect(W).not.toMatch(/INSERT INTO partners/i);
+    expect(W).toMatch(/pd_consent: z\.literal\(true/);
   });
 
   it('маршрут закрыт правами администратора', () => {
