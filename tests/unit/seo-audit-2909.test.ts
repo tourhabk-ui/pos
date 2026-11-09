@@ -56,8 +56,12 @@ describe('Н3/Н10: нет захардкоженных ссылок /routes/{uu
 
 describe('Н9: sitemap не предлагает адресов с 404 и 308', () => {
   const src = code('lib/seo/sitemap-entries.ts');
-  it('операторы — только публичные (страница без is_public отвечает 404)', () => {
-    expect(src).toMatch(/category = 'operator'[\s\S]{0,200}is_public = TRUE/);
+  it('операторы и гиды — только публичные (страница без is_public отвечает 404)', () => {
+    // С 09.11 правило — lib/seo/partner-sitemap (туроператоры и гиды с турами
+    // на витрине, без тестового стенда); на настоящей базе его судит
+    // tests/integration/operators-list.pg.test.ts.
+    expect(src).toMatch(/partnerSitemapRows\(/);
+    expect(code('lib/seo/partner-sitemap.ts')).toMatch(/p\.is_public = TRUE/);
   });
   it('слитые места не попадают (они отвечают 308)', () => {
     expect(src).toMatch(/FROM places[\s\S]{0,200}NOT_MERGED\('places'\)/);
