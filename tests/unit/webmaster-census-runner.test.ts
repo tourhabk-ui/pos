@@ -12,6 +12,29 @@ import { load } from 'js-yaml';
 import { webmasterCensus, tokenCandidates, type Fetcher, type CensusResult } from '@/lib/seo/webmaster-census';
 import { runnerEnv, censusDigest, censusOutcome, SECRET_PREFIX } from '@/lib/seo/webmaster-census-report';
 
+/**
+ * Выражения `\${{ … }}` во всём workflow, где читаются переменные репозитория
+ * в любой форме или секреты не по одному имени. Разрешён ровно один вид —
+ * `secrets.<ИМЯ>`: всё прочее (`toJson(secrets)`, `secrets['X']`, `vars.X`)
+ * отдаёт шагу то, что может уйти в публичный журнал.
+ */
+function expressionViolations(node: unknown, path = ''): string[] {
+  if (typeof node === 'string') {
+    const out: string[] = [];
+    for (const m of node.matchAll(/\$\{\{([\s\S]*?)\}\}/g)) {
+      const expr = m[1];
+      if (/\bvars\b/i.test(expr)) out.push(`${path}: ${expr.trim()}`);
+      else if (/\bsecrets\b/i.test(expr) && !/^\s*secrets\.[A-Za-z0-9_]+\s*$/.test(expr)) out.push(`${path}: ${expr.trim()}`);
+    }
+    return out;
+  }
+  if (Array.isArray(node)) return node.flatMap((v, i) => expressionViolations(v, `${path}[${i}]`));
+  if (node && typeof node === 'object') {
+    return Object.entries(node as Record<string, unknown>).flatMap(([k, v]) => expressionViolations(v, path ? `${path}.${k}` : k));
+  }
+  return [];
+}
+
 const GOOD = 'y0_runner_good_token_000';
 const HOST_ID = 'https:vedarai.ru:443';
 
@@ -168,14 +191,24 @@ describe('workflow переписи', () => {
     }
   });
 
-  it('все секреты шагу не отдаются, переменные в окружение не кладутся; права — только чтение кода', () => {
-    // Комментарий workflow объясняет, почему так нельзя, — судится код, не он.
-    const code = src.replace(/^[ \t]*#.*$/gm, '');
-    expect(code).not.toMatch(/toJSON\(\s*secrets\s*\)/);
-    // Окружение шага печатается в публичный журнал, а vars не маскируются.
-    expect(code).not.toMatch(/\bvars\./);
-    expect(code).not.toMatch(/toJSON\(\s*vars\s*\)/);
+  it('все секреты шагу не отдаются, переменные не читаются ни в какой форме; права — только чтение кода', () => {
+    // Судится разобранный YAML, а не текст: имена функций и контекстов в
+    // выражениях GitHub регистронезависимы (`toJson(vars)` = `toJSON(vars)`),
+    // и у контекста есть индексная запись (`vars['X']`). Окружение шага
+    // печатается в публичный журнал, а vars не маскируются.
+    const bad = expressionViolations(wf);
+    expect(bad).toEqual([]);
     expect(wf.permissions).toEqual({ contents: 'read' });
+  });
+
+  it('проверка выражений ловит обходы, которые регулярка по тексту пропускала', () => {
+    const probe = (expr: string) => expressionViolations({ jobs: { j: { steps: [{ env: { X: `\${{ ${expr} }}` } }] } } });
+    for (const expr of ['toJson(vars)', 'toJSON(vars)', "vars['YANDEX_WEBMASTER_TOKEN']", 'VARS.X', 'fromJson(toJson(vars)).X',
+      'toJson(secrets)', 'SECRETS.X', "secrets['X']", 'secrets.X || vars.Y']) {
+      expect(probe(expr), expr).toHaveLength(1);
+    }
+    expect(probe('secrets.YANDEX_WEBMASTER_TOKEN')).toEqual([]);
+    expect(probe('github.token')).toEqual([]);
   });
 
   it('маркер существует и запускает workflow; скрипт читает его', () => {
