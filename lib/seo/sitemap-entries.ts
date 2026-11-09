@@ -9,6 +9,7 @@
  */
 import { tourPath } from '@/lib/tours/tour-url';
 import { publicTourSql } from '@/lib/tours/public-visibility';
+import { partnerSitemapRows } from '@/lib/seo/partner-sitemap';
 import { MetadataRoute } from 'next';
 import { pool } from '@/lib/db-pool';
 import { carrierPagePath } from '@/lib/transfers/charter-format';
@@ -349,17 +350,13 @@ export async function collectSitemapEntriesWithStatus(): Promise<{ entries: Meta
     fail('подборки', e);
   }
 
-  // Профили операторов /operators/[slug]
+  // Профили операторов и гидов с турами /operators/[slug]. Правило — в
+  // lib/seo/partner-sitemap (09.11): страница открывается только при
+  // is_public (без него sitemap раздавал 404, Н9); гид — с туром на витрине;
+  // тестовый стенд — никогда.
   let operatorPages: MetadataRoute.Sitemap = [];
   try {
-    const { rows } = await pool.query<{ slug: string; updated_at: Date }>(
-      `SELECT slug, updated_at FROM partners
-       WHERE category = 'operator' AND slug IS NOT NULL
-         -- Страница оператора открывается только при is_public; без этого
-         -- условия sitemap раздавал адреса, отвечающие 404 (Н9).
-         AND is_public = TRUE
-       ORDER BY updated_at DESC LIMIT 200`
-    );
+    const rows = await partnerSitemapRows(pool);
     operatorPages = rows.map(row => ({
       url: `${BASE}/operators/${row.slug}`,
       lastModified: row.updated_at,
