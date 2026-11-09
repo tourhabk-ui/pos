@@ -527,10 +527,12 @@ const nextConfig = {
         ],
       },
       // Публичный MCP (/api/mcp и его server-card) — витрина для ИИ-каталогов
-      // и поисковиков, noindex с него снят. Остальное /api, включая
+      // и поисковиков, noindex с него снят. Фото (/api/images/…, /api/photos/…) — без
+      // noindex (аудит 09.11): это og:image и снимки страниц, а noindex на
+      // картинке убирает её из поиска по картинкам. Остальное /api, включая
       // /api/mcp/partner, по-прежнему закрыто.
       {
-        source: '/api/:path((?!mcp(?:/server-card)?$).*)',
+        source: '/api/:path((?!mcp(?:/server-card)?$|images/|photos/).*)',
         headers: [
           { key: 'X-Robots-Tag', value: 'noindex, nofollow' },
         ],
