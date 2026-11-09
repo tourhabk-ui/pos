@@ -1,6 +1,7 @@
 import { MetadataRoute } from 'next';
 import { headers } from 'next/headers';
 import { recordAgentEntryHit } from '@/lib/analytics/agent-entry-hits';
+import { publicApiAllow } from '@/lib/seo/robots-allow';
 
 // Публичные хабы — открыты обходу, несмотря на закрытый /hub/*. Индексируется
 // из них только /hub/fishing (посадочная «Рыбалка» из шапки сайта);
@@ -15,6 +16,11 @@ const AGENT_ENTRYPOINTS = [
   // A2A (12.10): визитки обеих версий и оба биндинга.
   '/api/a2a', '/.well-known/agent-card.json', '/.well-known/agent.json',
 ];
+
+// Фото страниц и читающие эндпоинты из openapi.json (аудит 09.11): общий
+// Disallow /api/ закрывал og:image 160 страниц и всё, что llms.txt предлагает
+// агентам. Список — lib/seo/robots-allow, эндпоинты выводятся из спецификации.
+const PUBLIC_API = publicApiAllow();
 
 // Закрыто для ВСЕХ групп одним списком. До 29.09 `/auth/` стоял только в
 // группе `*`, а именованные боты (Googlebot, Yandex и ещё 24) читают СВОЮ
@@ -34,7 +40,7 @@ export default async function robots(): Promise<MetadataRoute.Robots> {
       // Общие правила: всё открыто кроме внутренних хабов и API
       {
         userAgent: '*',
-        allow: ['/', ...PUBLIC_HUBS, ...AGENT_ENTRYPOINTS],
+        allow: ['/', ...PUBLIC_HUBS, ...AGENT_ENTRYPOINTS, ...PUBLIC_API],
         disallow: DISALLOW,
         crawlDelay: 1,
       },
@@ -42,165 +48,165 @@ export default async function robots(): Promise<MetadataRoute.Robots> {
       // Поисковые системы — без ограничений
       {
         userAgent: 'Googlebot',
-        allow: ['/', ...PUBLIC_HUBS, ...AGENT_ENTRYPOINTS],
+        allow: ['/', ...PUBLIC_HUBS, ...AGENT_ENTRYPOINTS, ...PUBLIC_API],
         disallow: DISALLOW,
       },
       // Яндекс — основной бот + все AI-боты (Alice, YandexGPT) содержат подстроку "Yandex"
       {
         userAgent: 'Yandex',
-        allow: ['/', ...PUBLIC_HUBS, ...AGENT_ENTRYPOINTS],
+        allow: ['/', ...PUBLIC_HUBS, ...AGENT_ENTRYPOINTS, ...PUBLIC_API],
         disallow: DISALLOW,
       },
       {
         userAgent: 'YandexBot',
-        allow: ['/', ...PUBLIC_HUBS, ...AGENT_ENTRYPOINTS],
+        allow: ['/', ...PUBLIC_HUBS, ...AGENT_ENTRYPOINTS, ...PUBLIC_API],
         disallow: DISALLOW,
       },
       {
         userAgent: 'YandexImages',
-        allow: ['/', ...PUBLIC_HUBS, ...AGENT_ENTRYPOINTS],
+        allow: ['/', ...PUBLIC_HUBS, ...AGENT_ENTRYPOINTS, ...PUBLIC_API],
         disallow: DISALLOW,
       },
 
       // OpenAI (ChatGPT, GPT-4o browsing, SearchGPT)
       {
         userAgent: 'GPTBot',
-        allow: ['/', ...PUBLIC_HUBS, ...AGENT_ENTRYPOINTS],
+        allow: ['/', ...PUBLIC_HUBS, ...AGENT_ENTRYPOINTS, ...PUBLIC_API],
         disallow: DISALLOW,
       },
       {
         userAgent: 'ChatGPT-User',
-        allow: ['/', ...PUBLIC_HUBS, ...AGENT_ENTRYPOINTS],
+        allow: ['/', ...PUBLIC_HUBS, ...AGENT_ENTRYPOINTS, ...PUBLIC_API],
         disallow: DISALLOW,
       },
       {
         userAgent: 'OAI-SearchBot',
-        allow: ['/', ...PUBLIC_HUBS, ...AGENT_ENTRYPOINTS],
+        allow: ['/', ...PUBLIC_HUBS, ...AGENT_ENTRYPOINTS, ...PUBLIC_API],
         disallow: DISALLOW,
       },
 
       // Anthropic Claude
       {
         userAgent: 'ClaudeBot',
-        allow: ['/', ...PUBLIC_HUBS, ...AGENT_ENTRYPOINTS],
+        allow: ['/', ...PUBLIC_HUBS, ...AGENT_ENTRYPOINTS, ...PUBLIC_API],
         disallow: DISALLOW,
       },
       {
         userAgent: 'Claude-Web',
-        allow: ['/', ...PUBLIC_HUBS, ...AGENT_ENTRYPOINTS],
+        allow: ['/', ...PUBLIC_HUBS, ...AGENT_ENTRYPOINTS, ...PUBLIC_API],
         disallow: DISALLOW,
       },
       {
         userAgent: 'anthropic-ai',
-        allow: ['/', ...PUBLIC_HUBS, ...AGENT_ENTRYPOINTS],
+        allow: ['/', ...PUBLIC_HUBS, ...AGENT_ENTRYPOINTS, ...PUBLIC_API],
         disallow: DISALLOW,
       },
 
       // Perplexity AI
       {
         userAgent: 'PerplexityBot',
-        allow: ['/', ...PUBLIC_HUBS, ...AGENT_ENTRYPOINTS],
+        allow: ['/', ...PUBLIC_HUBS, ...AGENT_ENTRYPOINTS, ...PUBLIC_API],
         disallow: DISALLOW,
       },
 
       // Microsoft Copilot / Bing
       {
         userAgent: 'Bingbot',
-        allow: ['/', ...PUBLIC_HUBS, ...AGENT_ENTRYPOINTS],
+        allow: ['/', ...PUBLIC_HUBS, ...AGENT_ENTRYPOINTS, ...PUBLIC_API],
         disallow: DISALLOW,
       },
 
       // Google Gemini
       {
         userAgent: 'Google-Extended',
-        allow: ['/', ...PUBLIC_HUBS, ...AGENT_ENTRYPOINTS],
+        allow: ['/', ...PUBLIC_HUBS, ...AGENT_ENTRYPOINTS, ...PUBLIC_API],
         disallow: DISALLOW,
       },
       {
         userAgent: 'Googlebot-News',
-        allow: ['/', ...PUBLIC_HUBS, ...AGENT_ENTRYPOINTS],
+        allow: ['/', ...PUBLIC_HUBS, ...AGENT_ENTRYPOINTS, ...PUBLIC_API],
         disallow: DISALLOW,
       },
 
       // Apple Siri / Apple Intelligence
       {
         userAgent: 'Applebot',
-        allow: ['/', ...PUBLIC_HUBS, ...AGENT_ENTRYPOINTS],
+        allow: ['/', ...PUBLIC_HUBS, ...AGENT_ENTRYPOINTS, ...PUBLIC_API],
         disallow: DISALLOW,
       },
       {
         userAgent: 'Applebot-Extended',
-        allow: ['/', ...PUBLIC_HUBS, ...AGENT_ENTRYPOINTS],
+        allow: ['/', ...PUBLIC_HUBS, ...AGENT_ENTRYPOINTS, ...PUBLIC_API],
         disallow: DISALLOW,
       },
 
       // Meta AI
       {
         userAgent: 'meta-externalagent',
-        allow: ['/', ...PUBLIC_HUBS, ...AGENT_ENTRYPOINTS],
+        allow: ['/', ...PUBLIC_HUBS, ...AGENT_ENTRYPOINTS, ...PUBLIC_API],
         disallow: DISALLOW,
       },
 
       // You.com
       {
         userAgent: 'YouBot',
-        allow: ['/', ...PUBLIC_HUBS, ...AGENT_ENTRYPOINTS],
+        allow: ['/', ...PUBLIC_HUBS, ...AGENT_ENTRYPOINTS, ...PUBLIC_API],
         disallow: DISALLOW,
       },
 
       // Cohere
       {
         userAgent: 'cohere-ai',
-        allow: ['/', ...PUBLIC_HUBS, ...AGENT_ENTRYPOINTS],
+        allow: ['/', ...PUBLIC_HUBS, ...AGENT_ENTRYPOINTS, ...PUBLIC_API],
         disallow: DISALLOW,
       },
 
       // DeepSeek AI
       {
         userAgent: 'DeepSeekBot',
-        allow: ['/', ...PUBLIC_HUBS, ...AGENT_ENTRYPOINTS],
+        allow: ['/', ...PUBLIC_HUBS, ...AGENT_ENTRYPOINTS, ...PUBLIC_API],
         disallow: DISALLOW,
       },
 
       // ByteDance / TikTok AI
       {
         userAgent: 'Bytespider',
-        allow: ['/', ...PUBLIC_HUBS, ...AGENT_ENTRYPOINTS],
+        allow: ['/', ...PUBLIC_HUBS, ...AGENT_ENTRYPOINTS, ...PUBLIC_API],
         disallow: DISALLOW,
       },
 
       // Baidu — главный поисковик КНР; на его индексе стоят и ответы их ИИ
       {
         userAgent: 'Baiduspider',
-        allow: ['/', ...PUBLIC_HUBS, ...AGENT_ENTRYPOINTS],
+        allow: ['/', ...PUBLIC_HUBS, ...AGENT_ENTRYPOINTS, ...PUBLIC_API],
         disallow: DISALLOW,
       },
 
       // Huawei — Petal Search (телефоны Huawei без сервисов Google)
       {
         userAgent: 'PetalBot',
-        allow: ['/', ...PUBLIC_HUBS, ...AGENT_ENTRYPOINTS],
+        allow: ['/', ...PUBLIC_HUBS, ...AGENT_ENTRYPOINTS, ...PUBLIC_API],
         disallow: DISALLOW,
       },
 
       // Alibaba — Shenma / Quark (поиск в браузерах UC и Quark; та же группа, что Qwen)
       {
         userAgent: 'YisouSpider',
-        allow: ['/', ...PUBLIC_HUBS, ...AGENT_ENTRYPOINTS],
+        allow: ['/', ...PUBLIC_HUBS, ...AGENT_ENTRYPOINTS, ...PUBLIC_API],
         disallow: DISALLOW,
       },
 
       // Tencent — Sogou (поиск внутри WeChat)
       {
         userAgent: 'Sogou web spider',
-        allow: ['/', ...PUBLIC_HUBS, ...AGENT_ENTRYPOINTS],
+        allow: ['/', ...PUBLIC_HUBS, ...AGENT_ENTRYPOINTS, ...PUBLIC_API],
         disallow: DISALLOW,
       },
 
       // 360 Search (so.com)
       {
         userAgent: '360Spider',
-        allow: ['/', ...PUBLIC_HUBS, ...AGENT_ENTRYPOINTS],
+        allow: ['/', ...PUBLIC_HUBS, ...AGENT_ENTRYPOINTS, ...PUBLIC_API],
         disallow: DISALLOW,
       },
       // Пауки картинок и видео 360 — отдельные токены по справке so.com
@@ -209,47 +215,47 @@ export default async function robots(): Promise<MetadataRoute.Robots> {
       // группы снимают вопрос. Правила те же, что у основного паука.
       {
         userAgent: '360Spider-Image',
-        allow: ['/', ...PUBLIC_HUBS, ...AGENT_ENTRYPOINTS],
+        allow: ['/', ...PUBLIC_HUBS, ...AGENT_ENTRYPOINTS, ...PUBLIC_API],
         disallow: DISALLOW,
       },
       {
         userAgent: '360Spider-Video',
-        allow: ['/', ...PUBLIC_HUBS, ...AGENT_ENTRYPOINTS],
+        allow: ['/', ...PUBLIC_HUBS, ...AGENT_ENTRYPOINTS, ...PUBLIC_API],
         disallow: DISALLOW,
       },
 
       // Amazon Alexa / Amazonbot
       {
         userAgent: 'Amazonbot',
-        allow: ['/', ...PUBLIC_HUBS, ...AGENT_ENTRYPOINTS],
+        allow: ['/', ...PUBLIC_HUBS, ...AGENT_ENTRYPOINTS, ...PUBLIC_API],
         disallow: DISALLOW,
       },
 
       // DuckDuckGo AI (DuckAssist)
       {
         userAgent: 'DuckAssistBot',
-        allow: ['/', ...PUBLIC_HUBS, ...AGENT_ENTRYPOINTS],
+        allow: ['/', ...PUBLIC_HUBS, ...AGENT_ENTRYPOINTS, ...PUBLIC_API],
         disallow: DISALLOW,
       },
 
       // AI2 (Allen Institute / OLMo)
       {
         userAgent: 'AI2Bot',
-        allow: ['/', ...PUBLIC_HUBS, ...AGENT_ENTRYPOINTS],
+        allow: ['/', ...PUBLIC_HUBS, ...AGENT_ENTRYPOINTS, ...PUBLIC_API],
         disallow: DISALLOW,
       },
 
       // Mistral AI
       {
         userAgent: 'MistralAI-User',
-        allow: ['/', ...PUBLIC_HUBS, ...AGENT_ENTRYPOINTS],
+        allow: ['/', ...PUBLIC_HUBS, ...AGENT_ENTRYPOINTS, ...PUBLIC_API],
         disallow: DISALLOW,
       },
 
       // xAI Grok
       {
         userAgent: 'Grok',
-        allow: ['/', ...PUBLIC_HUBS, ...AGENT_ENTRYPOINTS],
+        allow: ['/', ...PUBLIC_HUBS, ...AGENT_ENTRYPOINTS, ...PUBLIC_API],
         disallow: DISALLOW,
       },
     ],

@@ -106,3 +106,42 @@ export function placeNameOrAliasSearchSql(
     params: name.params,
   };
 }
+
+/**
+ * Ключ точного совпадения имени (09.11): без регистра, «ё» как «е», пробелы
+ * схлопнуты. В SQL с ним сравнивается то же преобразование имени
+ * (`placeRankOrderSql`).
+ */
+export function exactNameKey(raw: string): string {
+  return raw.trim().toLowerCase().replace(/ё/g, 'е').replace(/\s+/g, ' ');
+}
+
+/** То же преобразование, что `exactNameKey`, — над колонкой в SQL. */
+function exactKeySql(column: string): string {
+  return `regexp_replace(replace(lower(btrim(${column})), 'ё', 'е'), '\\s+', ' ', 'g')`;
+}
+
+/**
+ * Порядок мест по запросу — один для стража и `get_place_info` (09.11):
+ *
+ *  1. точное имя места;
+ *  2. точный псевдоним места;
+ *  3. вулкан (#2888: «Ключевской» — и парк, и вулкан; стражу нужен вулкан);
+ *  4. кратчайшее имя.
+ *
+ * Аудит 09.11: `get_place_info("Курильское озеро")` отдавал «Кальдеру
+ * Курильское озеро» — вулкан, к которому туров нет, — вместо самого озера с
+ * четырьмя предложениями трёх компаний: «вулкан первым» стоял раньше
+ * точного имени. Ровно этот вызов советуют подсказки `get_tour_details` и
+ * `get_tour_availability`, и агент шёл в тупик.
+ *
+ * `exactParam` — номер параметра со значением `exactNameKey(запрос)`.
+ */
+export function placeRankOrderSql(p: string, exactParam: number): string {
+  return [
+    `(${exactKeySql(`${p}.name`)} = $${exactParam}) DESC`,
+    `EXISTS (SELECT 1 FROM place_aliases pa_x WHERE pa_x.place_id = ${p}.id::text AND ${exactKeySql('pa_x.alias')} = $${exactParam}) DESC`,
+    `(${p}.location_type = 'volcano') DESC`,
+    `char_length(${p}.name) ASC`,
+  ].join(', ');
+}

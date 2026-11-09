@@ -26,7 +26,7 @@
  * (то же решение, что у lib/kuzmich/place-advisory).
  */
 import { pool } from '@/lib/db-pool';
-import { placeNameOrAliasSearchSql } from '@/lib/places/name-match';
+import { exactNameKey, placeNameOrAliasSearchSql, placeRankOrderSql } from '@/lib/places/name-match';
 import { gradeNameMatch, placePageUrl, routesLinesForKuzmich } from '@/lib/kuzmich/guardian-context';
 import { placeTypeLabel } from '@/lib/places/type-label';
 import { HAZARDS } from '@/lib/safety/hazard-labels';
@@ -169,6 +169,7 @@ export async function placeInfoForKuzmich(placeName: string, opts: PlaceInfoOpti
   // И псевдонимы (issue #2063): «Ключевской вулкан» — записанное имя
   // «Вулкан Ключевская сопка», а не подстрока его названия.
   const placeMatch = placeNameOrAliasSearchSql('p', placeName, 1);
+  const exactParam = placeMatch.params.length + 1;
   const [pr, kr] = await Promise.all([
     pool.query<PlaceRow>(
       // Слитые дубли отсекаются — то же правило, что у getGuardianContext и
@@ -182,11 +183,12 @@ export async function placeInfoForKuzmich(placeName: string, opts: PlaceInfoOpti
          FROM places p
          LEFT JOIN location_safety_profile lsp ON lsp.agent_route_id = p.ark_id
         WHERE p.merged_into_id IS NULL AND (${placeMatch.clause})
-        -- Вулкан — первым (issue #2888): «Ключевской» — и парк, и вулкан
-        -- (алиас «Ключевской вулкан»); стражу нужен статус вулкана.
-        ORDER BY (p.location_type = 'volcano') DESC, char_length(p.name) ASC
+        -- Точное имя или псевдоним — первым (аудит 09.11: «Курильское озеро»
+        -- отдавало кальдеру), потом вулкан (#2888: «Ключевской» — и парк, и
+        -- вулкан), потом кратчайшее имя — lib/places/name-match.
+        ORDER BY ${placeRankOrderSql('p', exactParam)}
         LIMIT 3`,
-      placeMatch.params,
+      [...placeMatch.params, exactNameKey(placeName)],
     ),
     pool.query<NoteRow>(
       // Только по заголовку: упоминание места в чужой заметке — не заметка о

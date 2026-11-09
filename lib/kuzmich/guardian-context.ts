@@ -6,7 +6,9 @@ import { placeTypeLabel } from '@/lib/places/type-label';
 import { hazardLabelLower } from '@/lib/safety/hazard-labels';
 import { isMarineMammalPlace, marineMammalNote } from '@/lib/safety/marine-mammals';
 import { asProfileSource, honestSafetyFields } from '@/lib/safety/profile-source';
-import { placeNameOrAliasSearchSql, significantWords, nameContainsAllWordsSql } from '@/lib/places/name-match';
+import {
+  exactNameKey, placeNameOrAliasSearchSql, placeRankOrderSql, significantWords, nameContainsAllWordsSql,
+} from '@/lib/places/name-match';
 import { describeForAgent } from '@/lib/places/description-voice';
 import { containsPattern } from '@/lib/db/like';
 import { KUZMICH_KNOWLEDGE_SCOPE_SQL } from '@/lib/kuzmich/knowledge-scope';
@@ -501,6 +503,7 @@ export async function getGuardianContextDetailed(placeNameRaw: string, opts: Gua
   // Сверх слов — псевдонимы места (issue #2063): «Ключевской вулкан» не
   // содержится в «Вулкан Ключевская сопка» ни в каком порядке слов.
   const placeMatch = placeNameOrAliasSearchSql('p', placeName, 1);
+  const exactParam = placeMatch.params.length + 1;
 
   const [placesRes, alertsRes, knowledgeRes, namedRoutes] = await Promise.all([
     pool.query<GuardianPlaceRow>(
@@ -544,12 +547,13 @@ export async function getGuardianContextDetailed(placeNameRaw: string, opts: Gua
        ) kb ON TRUE
        WHERE p.merged_into_id IS NULL AND (${placeMatch.clause})
        -- Видимые — первыми: скрытая запись не занимает место видимой в трёх
-       -- (08.11, placesForAnswer). Вулкан — первым среди них (issue #2888):
-       -- «Ключевской» — и парк, и вулкан (алиас «Ключевской вулкан»); стражу
-       -- нужен статус вулкана.
-       ORDER BY (p.is_visible IS NOT FALSE) DESC, (p.location_type = 'volcano') DESC, char_length(p.name) ASC
+       -- (08.11, placesForAnswer). Среди них — точное имя или псевдоним
+       -- (аудит 09.11: «Курильское озеро» отдавало кальдеру), потом вулкан
+       -- (issue #2888: «Ключевской» — и парк, и вулкан; стражу нужен статус
+       -- вулкана), потом кратчайшее имя — lib/places/name-match.
+       ORDER BY (p.is_visible IS NOT FALSE) DESC, ${placeRankOrderSql('p', exactParam)}
        LIMIT 3`,
-      placeMatch.params,
+      [...placeMatch.params, exactNameKey(placeName)],
     ),
     pool.query<AlertRow>(
       `SELECT title, severity, description, source_url, external_id

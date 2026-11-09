@@ -145,7 +145,7 @@ describe('китайские краулеры: robots и метаданные в
 
   it('пять явных групп с общим DISALLOW; Bytespider был раньше', () => {
     for (const ua of ['Baiduspider', 'PetalBot', 'YisouSpider', 'Sogou web spider', '360Spider', 'Bytespider']) {
-      expect(robots, ua).toMatch(new RegExp(`userAgent: '${ua}',\\n\\s+allow: \\['/', \\.\\.\\.PUBLIC_HUBS, \\.\\.\\.AGENT_ENTRYPOINTS\\],\\n\\s+disallow: DISALLOW,`));
+      expect(robots, ua).toMatch(new RegExp(`userAgent: '${ua}',\\n\\s+allow: \\['/', \\.\\.\\.PUBLIC_HUBS, \\.\\.\\.AGENT_ENTRYPOINTS, \\.\\.\\.PUBLIC_API\\],\\n\\s+disallow: DISALLOW,`));
     }
     // Один список запретов на все группы: новая группа «забыть» его не может.
     const groups = robots.match(/userAgent:/g)?.length ?? 0;
