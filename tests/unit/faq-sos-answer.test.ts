@@ -15,7 +15,9 @@ import { join } from 'node:path';
 import { EMERGENCY_NUMBERS, VERIFIED_REGIONAL } from '@/lib/safety/emergency-numbers';
 
 const ROOT = process.cwd();
-const MIGRATION = readFileSync(join(ROOT, 'migrations/1113_faq_sos_answer_verified_numbers.sql'), 'utf-8');
+const MIGRATION_1113 = readFileSync(join(ROOT, 'migrations/1113_faq_sos_answer_verified_numbers.sql'), 'utf-8');
+// Действующая редакция ответа — 1307 (роли по 41.mchs.gov.ru, 22.10.2026).
+const MIGRATION = readFileSync(join(ROOT, 'migrations/1307_mchs_numbers_official_roles.sql'), 'utf-8');
 const ANSWER = MIGRATION.match(/SET answer = '([\s\S]*?)',\s*updated_at/)?.[1] ?? '';
 
 const digits = (s: string) => s.replace(/\D/g, '');
@@ -58,7 +60,7 @@ describe('FAQ «Что такое SOS-система на Камчатке?»', 
   });
 
   it('правится только строка с неверным номером — ручная правка не затирается', () => {
-    expect(MIGRATION).toMatch(/WHERE question = 'Что такое SOS-система на Камчатке\?'\s+AND answer LIKE '%782-22-22%';/);
+    expect(MIGRATION_1113).toMatch(/WHERE question = 'Что такое SOS-система на Камчатке\?'\s+AND answer LIKE '%782-22-22%';/);
   });
 
   it('последующие миграции не возвращают номер рыбалки в FAQ', () => {
