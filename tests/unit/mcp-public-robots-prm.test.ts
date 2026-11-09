@@ -38,6 +38,22 @@ describe('X-Robots-Tag на /api', () => {
   });
 });
 
+describe('X-Robots-Tag: фото без noindex (аудит 09.11)', () => {
+  // og:image у 160 страниц, снимки на страницах и картинки JSON-LD отдаются с
+  // /api/images/ и /api/photos/. noindex на картинке убирает её из поиска по
+  // картинкам, даже когда robots.txt путь открывает.
+  it('фото индексируются', async () => {
+    for (const p of ['/api/images/route/1', '/api/images/s3/photos/tours/a.jpg', '/api/images/place-gallery/a/1', '/api/photos/images/tours/a.jpg']) {
+      expect(await robots(p), p).toBeNull();
+    }
+  });
+  it('похожие имена и остальное /api — по-прежнему noindex', async () => {
+    for (const p of ['/api/imagesx', '/api/photosx', '/api/images', '/api/admin/images/1', '/api/tours', '/api/leads']) {
+      expect(await robots(p), p).toMatch(/noindex/);
+    }
+  });
+});
+
 describe('корневой oauth-protected-resource', () => {
   it('200 JSON, resource = хост, без authorization_servers', async () => {
     const res = rootPrm();
