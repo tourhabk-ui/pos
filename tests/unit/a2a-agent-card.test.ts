@@ -16,6 +16,7 @@ import { describe, it, expect } from 'vitest';
 import {
   buildAgentCard, buildLegacyAgentCard, buildSkills, skillToolNames, SKILL_TAGS, CHAT_SKILL_ID, A2A_DESCRIPTION,
   AGENT_CARD_PATH, LEGACY_AGENT_CARD_PATH, A2A_JSONRPC_PATH, A2A_REST_PATH, A2A_PROTOCOL_VERSION, A2A_LEGACY_PROTOCOL_VERSION,
+  A2A_REGISTRY_CATEGORY, A2A_REGISTRY_TARGET,
 } from '@/lib/a2a/agent-card';
 import { PUBLIC_MCP_TOOL_NAMES, PUBLIC_MCP_TOOLS, WRITE_TOOL_NAMES, MCP_SERVER_INFO } from '@/lib/mcp/public-tools';
 import { validateToolArgs } from '@/lib/kuzmich/tool-schemas';
@@ -37,6 +38,11 @@ describe('карточка 1.0', () => {
     expect(card.provider).toEqual({ organization: 'Ведар Камчатка (vedarai.ru)', url: BASE });
     expect(card.name).toBe('Vedar Kamchatka');
     expect(card.documentationUrl).toBe(`${BASE}/mcp`);
+    // a2a-registry.org читает category/target из визитки (гайд Search); enum — Lifestyle, не Travel.
+    expect(card.category).toBe(A2A_REGISTRY_CATEGORY);
+    expect(card.category).toBe('Lifestyle');
+    expect(card.target).toBe(A2A_REGISTRY_TARGET);
+    expect(card.target).toBe('Personal');
   });
 
   it('интерфейсы: JSON-RPC первым (предпочтительный), затем HTTP+JSON, у каждого protocolBinding и protocolVersion', () => {
@@ -130,6 +136,7 @@ describe('навыки — из реестра инструментов', () => 
   it('разговорный навык честно говорит, что заявок не оформляет', () => {
     expect(skills[0].description).toMatch(/Заявки в этом режиме не оформляются/);
     expect(skills[0].inputModes).toEqual(['text/plain']);
+    expect(skills[0].tags).toEqual(expect.arrayContaining(['travel', 'tourism', 'kamchatka']));
   });
 });
 
@@ -177,6 +184,8 @@ describe('карточка 0.3 (старый путь)', () => {
       { url: `${BASE}/api/a2a`, transport: 'HTTP+JSON' },
     ]);
     expect(legacy.capabilities).toEqual({ streaming: false, pushNotifications: false, stateTransitionHistory: false });
+    expect(legacy.category).toBe('Lifestyle');
+    expect(legacy.target).toBe('Personal');
     expect(legacy).not.toHaveProperty('supportedInterfaces');
     expect(legacy.security).toEqual([]);
     expect((legacy.skills as unknown[]).length).toBe((card.skills as unknown[]).length);

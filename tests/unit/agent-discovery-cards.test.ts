@@ -13,8 +13,8 @@
  * 2. AI Catalog на /.well-known/ai-catalog.json: specVersion 1.0, записи на
  *    карточку MCP и визитки A2A обеих версий, URN-идентификаторы, пара
  *    identifier+version уникальна, артефакты по ссылке, не inline.
- * 3. Реестр A2A: запись с id, адресом страницы, датой и статусом НА МОМЕНТ
- *    регистрации — не «сегодня», чтобы не врать после проверки реестром.
+ * 3. Реестр A2A: живой листинг a2a-registry.org (claimed + DNS) с id, URL,
+ *    датой и статусом НА МОМЕНТ фиксации — не «сегодня».
  * 4. Манифест MCP и llms.txt называют все три; оба новых входа считаются
  *    переписью краулеров.
  */
@@ -143,17 +143,20 @@ describe('AI Catalog домена', () => {
 
 describe('реестр A2A', () => {
   it('запись с id, адресом страницы, датой и статусом на момент регистрации', () => {
+    // Старый uuid a2aregistry.org — только константа истории; в листинге его нет.
     expect(A2A_REGISTRY_AGENT_ID).toMatch(/^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/);
     expect(A2A_CATALOGS).toHaveLength(1);
     expect(A2A_CATALOGS[0]).toMatchObject({
-      catalog: expect.stringContaining('a2aregistry.org'),
-      id: A2A_REGISTRY_AGENT_ID,
-      url: `https://a2aregistry.org/agents/${A2A_REGISTRY_AGENT_ID}`,
-      registered_at: '2026-10-12',
-      status_at_registration: 'under_review',
+      catalog: expect.stringContaining('a2a-registry.org'),
+      id: 'ru.vedarai.___vedar_kamchatka',
+      url: 'https://www.a2a-registry.org/agent/ru.vedarai.___vedar_kamchatka',
+      registered_at: '2026-11-09',
+      status_at_registration: 'claimed_dns_verified',
     });
     // Статус — поле «на момент регистрации», не «сейчас»: сегодняшний знает только реестр.
     expect(Object.keys(A2A_CATALOGS[0])).not.toContain('status');
+    // 404-страницу a2aregistry.org в листинг не кладём.
+    expect(A2A_CATALOGS[0].url).not.toMatch(/a2aregistry\.org/);
   });
 });
 
@@ -164,9 +167,10 @@ describe('поверхности называют карточку, катало
     expect(json.serverCard).toMatch(/\/api\/mcp\/server-card$/);
     expect(json.aiCatalog).toMatch(/\/\.well-known\/ai-catalog\.json$/);
     expect(json.a2a.catalogs).toEqual(
-      A2A_CATALOGS.map(({ url: _url, ...c }) => ({ ...c, listing: 'pending_review' })),
+      A2A_CATALOGS.map((c) => ({ ...c, listing: 'listed' })),
     );
-    expect(JSON.stringify(json)).not.toContain(A2A_CATALOGS[0].url);
+    expect(JSON.stringify(json)).toContain(A2A_CATALOGS[0].url);
+    expect(JSON.stringify(json)).not.toMatch(/a2aregistry\.org\/agents/);
   });
 
   it('llms.txt: карточка, каталог и реестр', async () => {
@@ -175,8 +179,9 @@ describe('поверхности называют карточку, катало
     expect(text).toContain(`${BASE}/api/mcp/server-card`);
     expect(text).toContain(`${BASE}/.well-known/ai-catalog.json`);
     expect(text).toContain(A2A_CATALOGS[0].id);
-    // Пока запись на проверке, страницы реестра нет (404) — ссылку не публикуем.
-    expect(text).not.toContain(A2A_CATALOGS[0].url);
+    expect(text).toContain(A2A_CATALOGS[0].url);
+    // a2aregistry.org (другой сайт) — не листинг; uuid истории можно упомянуть, URL 404 — нет.
+    expect(text).not.toMatch(/a2aregistry\.org\/agents/);
     expect(text).toMatch(/MCP Server Card/);
   });
 
