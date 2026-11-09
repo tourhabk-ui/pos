@@ -259,6 +259,31 @@ export async function GET(request: NextRequest) {
     if (addresses.errorCode) {
       console.error('[analytics/traffic] топ адресов не сосчитан:', addresses.errorCode);
     }
+    // Сырые User-Agent краулеров за 7 суток. null — не прочитано, не «никого не было».
+    let aiUserAgents: Array<{ user_agent: string; family: string; hits: number }> | null = null;
+    try {
+      const ua = await pool.query<{ user_agent: string; family: string; hits: string }>(
+        `SELECT user_agent, family, SUM(hits)::text AS hits
+           FROM ai_crawler_ua
+          WHERE day >= CURRENT_DATE - 6
+          GROUP BY user_agent, family
+          ORDER BY SUM(hits) DESC, user_agent
+          LIMIT 30`,
+      );
+      aiUserAgents = ua.rows.map((r) => ({
+        user_agent: r.user_agent,
+        family: r.family,
+        hits: Number(r.hits),
+      }));
+    } catch (err) {
+      const code = (err as { code?: unknown })?.code;
+      console.error(
+        '[analytics/traffic] сырые UA краулеров не прочитаны:',
+        typeof code === 'string' ? `SQLSTATE=${code}` : '',
+        err instanceof Error ? err.message : err,
+      );
+      aiUserAgents = null;
+    }
     return NextResponse.json({
       success: true,
       data: {
@@ -275,6 +300,7 @@ export async function GET(request: NextRequest) {
           week: Number(t.week_ai_hits),
           month: Number(t.month_ai_hits),
         },
+        ai_user_agents: aiUserAgents,
         // Свои заходы за 30 дней и с какого дня метка вообще ставилась: до
         // этого дня свои и чужие в цифрах выше неразличимы.
         self: { month_hits: Number(t.month_self_hits), since: t.self_since },

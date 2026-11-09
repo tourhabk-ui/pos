@@ -7,9 +7,13 @@
  * туры — ждать планового переобхода значит терять недели видимости.
  *
  * Ключ — НЕ секрет по замыслу протокола: он публикуется на самом сайте
- * (/indexnow.txt), и его единственная роль — подтвердить владение хостом.
- * Поэтому он в коде, а не в env: ноль трения при деплое, сторож проверяет
- * согласованность ключа и роута.
+ * (`/<ключ>.txt`, и по-прежнему `/indexnow.txt`), и его единственная роль —
+ * подтвердить владение хостом. Поэтому он в коде, а не в env: ноль трения
+ * при деплое, сторож проверяет согласованность ключа и роута.
+ *
+ * Приёмники два: `api.indexnow.org` (его забирает Bing) и `yandex.com/indexnow`.
+ * Пачка — до 10 000 адресов, как в протоколе; длинный список режется, а не
+ * обрезается.
  *
  * Отказы не роняют вызывающего (пинг — попутный эффект сохранения), но и не
  * молчат: ложатся в ai_actions_log — урок MAX-зеркала, чей fire-and-forget
@@ -22,10 +26,25 @@ import { tourPath } from '@/lib/tours/tour-url';
 export const INDEXNOW_KEY = 'ed64b13e2286450aa82e6dfef6659834';
 
 const SITE_URL = process.env.NEXT_PUBLIC_SITE_URL || 'https://vedarai.ru';
-const ENDPOINT = 'https://yandex.com/indexnow';
 
-/** До 10 000 адресов за один POST по спецификации; режем с запасом. */
-const MAX_URLS_PER_PING = 5000;
+/** До 10 000 адресов за один POST — предел протокола, не запас меньше него. */
+export const INDEXNOW_BATCH = 10_000;
+
+export const INDEXNOW_ENDPOINTS = [
+  { name: 'indexnow' as const, url: 'https://api.indexnow.org/indexnow' },
+  { name: 'yandex' as const, url: 'https://yandex.com/indexnow' },
+];
+
+/** Файл ключа по спецификации: https://<host>/<key>.txt */
+export function indexNowKeyLocation(site = SITE_URL): string {
+  return `${site.replace(/\/$/, '')}/${INDEXNOW_KEY}.txt`;
+}
+
+export function indexNowBatches(urls: string[], size = INDEXNOW_BATCH): string[][] {
+  const out: string[][] = [];
+  for (let i = 0; i < urls.length; i += size) out.push(urls.slice(i, i + size));
+  return out;
+}
 
 /**
  * Сколько адресов пинга ложится в журнал поимённо (аудит 15.10, CN-quick).
@@ -40,60 +59,107 @@ export interface IndexNowOptions {
   source?: string;
 }
 
+export interface IndexNowEndpointResult {
+  name: 'indexnow' | 'yandex';
+  ok: boolean;
+  /** null — сеть не ответила. */
+  status: number | null;
+  error?: string;
+}
+
 export interface IndexNowResult {
   ok: boolean;
   submitted: number;
+  /** Статус Яндекса, если он ответил: старые читатели журнала смотрят сюда. */
   status?: number;
   error?: string;
+  endpoints?: IndexNowEndpointResult[];
 }
 
 /**
  * Пингует IndexNow списком изменённых страниц. Принимает абсолютные URL или
  * пути от корня. Пустой список — не ошибка, просто нечего сообщать.
  */
+async function postBatch(
+  endpoint: (typeof INDEXNOW_ENDPOINTS)[number],
+  body: string,
+): Promise<IndexNowEndpointResult> {
+  try {
+    const res = await fetch(endpoint.url, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json; charset=utf-8' },
+      body,
+    });
+    if (res.status === 200 || res.status === 202) {
+      return { name: endpoint.name, ok: true, status: res.status };
+    }
+    const raw = (await res.text().catch(() => '')).replace(/\s+/g, ' ').slice(0, 200);
+    return {
+      name: endpoint.name,
+      ok: false,
+      status: res.status,
+      error: `HTTP ${res.status}: ${raw || 'пустой ответ'}`,
+    };
+  } catch (e) {
+    return {
+      name: endpoint.name,
+      ok: false,
+      status: null,
+      error: e instanceof Error ? e.message : 'сетевой сбой',
+    };
+  }
+}
+
 export async function pingIndexNow(urls: string[], opts: IndexNowOptions = {}): Promise<IndexNowResult> {
   const list = urls
     .filter(Boolean)
-    .map((u) => (u.startsWith('http') ? u : `${SITE_URL}${u.startsWith('/') ? u : `/${u}`}`))
-    .slice(0, MAX_URLS_PER_PING);
+    .map((u) => (u.startsWith('http') ? u : `${SITE_URL}${u.startsWith('/') ? u : `/${u}`}`));
 
   if (list.length === 0) return { ok: true, submitted: 0 };
 
   const host = new URL(SITE_URL).host;
-  // Что именно пинговали — в журнал рядом с исходом (см. LOGGED_URLS_MAX).
+  const keyLocation = indexNowKeyLocation();
+  const batches = indexNowBatches(list);
+  const byName = new Map<IndexNowEndpointResult['name'], IndexNowEndpointResult>();
+
+  for (const batch of batches) {
+    const body = JSON.stringify({ host, key: INDEXNOW_KEY, keyLocation, urlList: batch });
+    for (const endpoint of INDEXNOW_ENDPOINTS) {
+      const one = await postBatch(endpoint, body);
+      const prev = byName.get(endpoint.name);
+      if (!prev) {
+        byName.set(endpoint.name, one);
+        continue;
+      }
+      // Пачка принята, только если приняты все. Статус отказа важнее успеха.
+      byName.set(endpoint.name, {
+        name: endpoint.name,
+        ok: prev.ok && one.ok,
+        status: one.ok ? (prev.status ?? one.status) : (one.status ?? prev.status),
+        error: [prev.error, one.error].filter(Boolean).join('; ') || undefined,
+      });
+    }
+  }
+
+  const endpoints = INDEXNOW_ENDPOINTS.map((e) => byName.get(e.name)!);
+  const yandex = endpoints.find((e) => e.name === 'yandex');
+  const ok = endpoints.every((e) => e.ok);
+  const error = endpoints.map((e) => e.error).filter(Boolean).join('; ') || undefined;
   const trail = {
     ...(opts.source ? { source: opts.source } : {}),
     urls: list.slice(0, LOGGED_URLS_MAX),
     ...(list.length > LOGGED_URLS_MAX ? { urls_more: list.length - LOGGED_URLS_MAX } : {}),
+    keyLocation,
+    endpoints,
   };
-
-  try {
-    const res = await fetch(ENDPOINT, {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json; charset=utf-8' },
-      body: JSON.stringify({
-        host,
-        key: INDEXNOW_KEY,
-        keyLocation: `${SITE_URL}/indexnow.txt`,
-        urlList: list,
-      }),
-    });
-
-    // 200 и 202 — принято; остальное — отказ с телом, которое стоит сохранить.
-    if (res.status === 200 || res.status === 202) {
-      await log('indexnow_ping', { submitted: list.length, status: res.status, ...trail });
-      return { ok: true, submitted: list.length, status: res.status };
-    }
-
-    const raw = (await res.text().catch(() => '')).replace(/\s+/g, ' ').slice(0, 200);
-    const error = `HTTP ${res.status}: ${raw || 'пустой ответ'}`;
-    await log('indexnow_failed', { submitted: list.length, error, ...trail });
-    return { ok: false, submitted: list.length, status: res.status, error };
-  } catch (e) {
-    const error = e instanceof Error ? e.message : 'сетевой сбой';
-    await log('indexnow_failed', { submitted: list.length, error, ...trail });
-    return { ok: false, submitted: list.length, error };
-  }
+  await log(ok ? 'indexnow_ping' : 'indexnow_failed', { submitted: list.length, ...trail });
+  return {
+    ok,
+    submitted: list.length,
+    status: yandex?.status ?? undefined,
+    error,
+    endpoints,
+  };
 }
 
 async function log(action: string, metadata: Record<string, unknown>): Promise<void> {
