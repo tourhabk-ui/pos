@@ -508,7 +508,7 @@ jobs:
 
       - name: Счётчики расхода — из работы ревью
         continue-on-error: true
-        uses: actions/download-artifact@v7
+        uses: actions/download-artifact@v8
         with:
           name: hand-usage-security-review
           path: ${{ runner.temp }}/hand
