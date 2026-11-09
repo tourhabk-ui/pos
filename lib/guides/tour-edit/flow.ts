@@ -19,8 +19,11 @@
  *
  * Кто вправе: гид со своими турами (`sellsOwnTours`), карточка этого чата,
  * с кабинетом (`partners.user_id`), личный диалог (кнопку в группе нажал бы
- * любой). Права чата проверяет вызывающий (вебхук — заверенность апдейта,
- * сервис кабинета — чат и карточку); здесь — роль и владение туром.
+ * любой). С 09.11 фразой правит и туроператор (`phraseEditsOwnTours`, слово
+ * владельца «делай 1»: помощник оператора, как Klook K.ai) — сохраняет
+ * только владелец карточки; документ .docx, новый тур и публикация — у гида.
+ * Права чата проверяет вызывающий (вебхук — заверенность апдейта, сервис
+ * кабинета — чат и карточку); здесь — роль и владение туром.
  * Персональных данных в этих экранах нет — поэтому и Telegram.
  */
 
@@ -37,7 +40,7 @@ import { tourPath } from '@/lib/tours/tour-url';
 import { readPublishGate, setOwnTourOnSite } from '@/lib/guides/own-tour-publish';
 import { parseTourEdit, pickTour } from './parse';
 import { parseTourTextAsk, type TextAsk } from './text-ask';
-import { GUIDE_OWN_PATH } from '@/lib/partners/cabinet-links';
+import { GUIDE_OWN_PATH, ownerToursUrl } from '@/lib/partners/cabinet-links';
 import { parseTourCreate, type CreateParse } from './create-parse';
 import {
   cancelTourCreateDraft, createTourCreateDraft, saveTourCreateDraft, type CancelCreate, type SaveCreate,
@@ -90,8 +93,32 @@ async function captureCreate(input: {
 }
 
 /**
- * Сообщение гида в личном диалоге. Не правка тура (другая форма фразы) или
- * не гид со своими турами — `null`: сообщение идёт дальше своим путём.
+ * Правит ли эта карточка свои туры ФРАЗОЙ в чате: гид со своими турами и,
+ * с 09.11, туроператор (слово владельца «делай 1» — помощник оператора, как
+ * Klook K.ai: цену поменять одной фразой). Поля и пределы — те же, что у
+ * формы кабинета оператора на сайте, запись — той же `writeTourPatch`, тем же
+ * черновиком (`tour_chat_edits` — журнал: было, станет, кто, когда) и только
+ * кнопкой «Сохранить». Сохраняет у туроператора только владелец карточки —
+ * как календарь; на сайте цену менеджеру даёт отдельное право «деньги», в чате
+ * его нет. Документ .docx, новый тур и публикация — по-прежнему только у гида.
+ */
+export function phraseEditsOwnTours(p: Pick<PartnerChatContext, 'partnerId' | 'category' | 'sellsTours'>): boolean {
+  return editsOwnTours(p) || p.category === 'operator';
+}
+
+/** Куда ведут «назад» экраны правки: гиду — его туры, туроператору — календарь (своего «Мои туры» с кнопками у него нет). */
+function backOf(p: Pick<PartnerChatContext, 'category'>): DatesBack {
+  return p.category === 'operator' ? 'calendar' : 'tour';
+}
+
+/** Где тексты туров на сайте: у гида — «Свои туры», у туроператора — туры кабинета. */
+function ownToursSite(p: Pick<PartnerChatContext, 'category'>): string {
+  return p.category === 'operator' ? ownerToursUrl('operator') : `${getPublicBaseUrl()}${GUIDE_OWN_PATH}`;
+}
+
+/**
+ * Сообщение гида или туроператора в личном диалоге. Не правка тура (другая
+ * форма фразы) или карточка без права — `null`: сообщение идёт дальше своим путём.
  */
 export async function captureGuideTourEdit(input: {
   channel: EditChannel;
@@ -103,14 +130,15 @@ export async function captureGuideTourEdit(input: {
   // Новый тур (31.10) — раньше правки: «новый тур: …» не правка поля.
   const create = createsOwnTours(partner) ? parseTourCreate(input.text) : null;
   if (create) return captureCreate({ channel: input.channel, chatId: input.chatId, partner, parsed: create });
-  if (!editsOwnTours(partner)) return null;
+  if (!phraseEditsOwnTours(partner)) return null;
+  const back = backOf(partner);
   // «Дай текст тура» (05.11) — до правки: поля из базы, без модели.
   const ask = parseTourTextAsk(input.text);
   if (ask) return tourTextAnswer(partner, ask);
   const parsed = parseTourEdit(input.text);
   if (parsed === null) return null;
   if (!partner.userId) return noticeScreen(EDIT_TEXT.noAccount);
-  if (!parsed.ok) return noticeWithTours(rejectText(parsed.field, parsed), null);
+  if (!parsed.ok) return noticeWithTours(rejectText(parsed.field, parsed), null, back);
 
   const own = await readEditTours(partner.partnerId);
   if (own.outcome === 'db_error') return failedScreen(EDIT_TEXT.toursFailed);
@@ -119,7 +147,7 @@ export async function captureGuideTourEdit(input: {
   const pick = pickTour(edit.tourWords, own.tours);
   if (pick.kind === 'missing') {
     const head = edit.tourWords ? `Тур «${edit.tourWords}» не нашёл среди ваших. Ничего не записал.` : EDIT_TEXT.tourNotFound;
-    return noticeWithTours(escapeHtml(head), own.tours);
+    return noticeWithTours(escapeHtml(head), own.tours, back);
   }
   if (pick.kind === 'choose') {
     const candidates = pick.tours.slice(0, CHOOSE_MAX) as ChatTour[];
@@ -144,22 +172,23 @@ export async function captureGuideTourEdit(input: {
 async function tourTextAnswer(partner: PartnerChatContext, ask: TextAsk): Promise<CabinetScreen> {
   const own = await readEditTours(partner.partnerId);
   if (own.outcome === 'db_error') return failedScreen(EDIT_TEXT.toursFailed);
-  const site = `${getPublicBaseUrl()}${GUIDE_OWN_PATH}`;
+  const site = ownToursSite(partner);
+  const back = backOf(partner);
   if (ask.tourId !== null) {
     const t = own.tours.find((x) => x.id === ask.tourId);
     return t
-      ? tourTextScreen(t, site)
-      : noticeWithTours(`Тура №${escapeHtml(ask.tourId)} среди ваших нет.`, own.tours);
+      ? tourTextScreen(t, site, back)
+      : noticeWithTours(`Тура №${escapeHtml(ask.tourId)} среди ваших нет.`, own.tours, back);
   }
   const pick = pickTour(ask.tourWords, own.tours);
-  if (pick.kind === 'one') return tourTextScreen(pick.tour as ChatTour, site);
+  if (pick.kind === 'one') return tourTextScreen(pick.tour as ChatTour, site, back);
   const named = pick.kind === 'choose' ? (pick.tours as ChatTour[]) : own.tours;
   const head = ask.tourWords === null
     ? 'Какой тур? Напишите «текст тура» и название, например «текст тура Горелый».'
     : pick.kind === 'missing'
       ? `Тур «${escapeHtml(ask.tourWords)}» не нашёл среди ваших. Напишите «текст тура» и название из списка.`
       : `Под «${escapeHtml(ask.tourWords)}» подходит несколько туров — уточните название.`;
-  return noticeWithTours(head, named);
+  return noticeWithTours(head, named, back);
 }
 
 function blockedText(b: DraftBlocked): string {
@@ -183,8 +212,10 @@ export const GUIDE_TOUR_PRESS_KINDS: ReadonlySet<CabinetPress['kind']> = new Set
   'tour_new', 'create_save', 'create_cancel', 'tour_publish', 'tour_unpublish',
 ]);
 
-/** Кнопки календаря оператора: туры и их даты, больше ничего. */
-const OPERATOR_PRESS_KINDS: ReadonlySet<CabinetPress['kind']> = new Set(['calendar', 'tour_dates', 'date_open', 'date_close']);
+/** Кнопки календаря оператора: туры и их даты. */
+const OPERATOR_CALENDAR_KINDS: ReadonlySet<CabinetPress['kind']> = new Set(['calendar', 'tour_dates', 'date_open', 'date_close']);
+/** Кнопки правки фразой (09.11): выбор тура, «Сохранить», «Отмена» — больше ничего. */
+const OPERATOR_EDIT_KINDS: ReadonlySet<CabinetPress['kind']> = new Set(['edit_tour', 'edit_save', 'edit_cancel']);
 
 export const CALENDAR_TEXT = {
   ownerOnly: 'Календарь открывает и закрывает даты — это может только владелец карточки.',
@@ -211,12 +242,14 @@ export async function guideTourPress(press: TourPress, who: {
   nowMs: number;
 }): Promise<CabinetScreen> {
   const { partner } = who;
-  // Оператор (14-дневный календарь, 02.11): только список туров и даты —
-  // открыть и закрыть дату своего тура. Правка, публикация и новый тур — у гида.
+  // Оператор: календарь на 14 дней (02.11) — открыть и закрыть дату своего
+  // тура; с 09.11 — и кнопки правки фразой (выбор тура, «Сохранить»,
+  // «Отмена»). Публикация, новый тур и «Мои туры» гида — не его.
   const operator = partner.category === 'operator';
   if (operator) {
-    if (!who.owner) return noticeScreen(CALENDAR_TEXT.ownerOnly);
-    if (!OPERATOR_PRESS_KINDS.has(press.kind)) return noticeScreen(EDIT_TEXT.notGuide);
+    const edit = OPERATOR_EDIT_KINDS.has(press.kind);
+    if (!edit && !OPERATOR_CALENDAR_KINDS.has(press.kind)) return noticeScreen(EDIT_TEXT.operatorNotHere);
+    if (!who.owner) return noticeScreen(edit ? EDIT_TEXT.operatorOwnerOnly : CALENDAR_TEXT.ownerOnly);
   } else {
     const allowed = CREATE_PRESS_KINDS.has(press.kind) ? createsOwnTours(partner) : editsOwnTours(partner);
     if (!who.owner || !allowed || press.kind === 'calendar') return noticeScreen(EDIT_TEXT.notGuide);
@@ -294,7 +327,7 @@ export async function guideTourPress(press: TourPress, who: {
         case 'saved': {
           const t = await readEditTour(partner.partnerId, r.draft.tourId ?? '');
           const published = t.outcome === 'ok' ? t.tour.isActive && t.tour.isPublished : true;
-          return savedScreen({ field: r.draft.field, title: r.title, tourId: r.draft.tourId ?? '', slug: r.slug, siteBase: site, published });
+          return savedScreen({ field: r.draft.field, title: r.title, tourId: r.draft.tourId ?? '', slug: r.slug, siteBase: site, published, back });
         }
         case 'changed':
           return previewScreen({
