@@ -310,7 +310,8 @@ describe('getGuardianContext — запрос «имя тип» находит �
     await getGuardianContext('Мутновский вулкан');
     const placesCall = mockQuery.mock.calls.find(([sql]) => (sql as string).includes('FROM places'));
     expect(placesCall![0]).toContain('p.name ILIKE $1 AND p.name ILIKE $2');
-    expect(placesCall![1]).toEqual(['%мутновский%', '%вулкан%']);
+    // Последний параметр — ключ точного имени для порядка (аудит 09.11).
+    expect(placesCall![1]).toEqual(['%мутновский%', '%вулкан%', 'мутновский вулкан']);
   });
 
   it('среди нескольких совпадений короткое каноническое имя побеждает и несёт KVERT-строку', async () => {

@@ -116,9 +116,13 @@ const nextConfig = {
   // около 790 из 880 адресов были для него без действующего canonical.
   // Строка ниже — список Next по умолчанию (next/dist/shared/lib/router/utils/
   // html-bots.js) плюс Googlebot, плюс китайские обходчики Bytespider, PetalBot,
-  // YisouSpider и 360Spider (12.10; baiduspider и sogou в списке Next уже были).
+  // YisouSpider и 360Spider (12.10; baiduspider и sogou в списке Next уже были),
+  // плюс ИИ-боты, которых robots.txt приглашает поимённо (аудит 09.11: GPTBot,
+  // ClaudeBot, PerplexityBot и ещё 12 получали title и canonical в <body> на
+  // 40 страницах из 94). Каждый поимённый бот robots.txt обязан быть в этом
+  // списке — сторож tests/unit/robots-public-api.test.ts.
   // Цена — блокирующий рендер для этих ботов.
-  htmlLimitedBots: /Googlebot|[\w-]+-Google|Google-[\w-]+|Chrome-Lighthouse|Slurp|DuckDuckBot|baiduspider|yandex|sogou|Bytespider|PetalBot|YisouSpider|360Spider|bitlybot|tumblr|vkShare|quora link preview|redditbot|ia_archiver|Bingbot|BingPreview|applebot|facebookexternalhit|facebookcatalog|Twitterbot|LinkedInBot|Slackbot|Discordbot|WhatsApp|SkypeUriPreview|Yeti|googleweblight/i,
+  htmlLimitedBots: /Googlebot|[\w-]+-Google|Google-[\w-]+|Chrome-Lighthouse|Slurp|DuckDuckBot|baiduspider|yandex|sogou|Bytespider|PetalBot|YisouSpider|360Spider|GPTBot|ChatGPT-User|OAI-SearchBot|ClaudeBot|Claude-Web|Claude-User|Claude-SearchBot|anthropic-ai|PerplexityBot|Perplexity-User|meta-externalagent|YouBot|cohere-ai|DeepSeekBot|Amazonbot|DuckAssistBot|AI2Bot|MistralAI-User|Grok|bitlybot|tumblr|vkShare|quora link preview|redditbot|ia_archiver|Bingbot|BingPreview|applebot|facebookexternalhit|facebookcatalog|Twitterbot|LinkedInBot|Slackbot|Discordbot|WhatsApp|SkypeUriPreview|Yeti|googleweblight/i,
   compress: true,
 
   // Здесь стоял experimental.serverActions.bodySizeLimit = '60mb'. Убрано

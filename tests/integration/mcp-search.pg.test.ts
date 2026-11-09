@@ -15,6 +15,7 @@
 import { describe, it, expect, beforeAll, afterAll } from 'vitest';
 import { searchSql, searchParams } from '@/lib/mcp/connector-tools';
 import { placesSearchQuery, routesSearchQuery, parksSearchQuery } from '@/lib/search/geo-query';
+import { exactNameKey, placeNameOrAliasSearchSql, placeRankOrderSql } from '@/lib/places/name-match';
 import { createTestDatabase } from '../helpers/pg-schema';
 
 const PG_URL = process.env.KERNEL_PG_TEST_URL ?? '';
@@ -175,5 +176,68 @@ withPg('поиск в шапке сайта по словам (lib/search/geo-qu
     const built = placesSearchQuery('%', 50);
     const { rows } = await pool.query(built.sql, built.params);
     expect(rows).toHaveLength(0);
+  });
+});
+
+// Аудит 09.11: get_place_info("Курильское озеро") отвечал «Кальдерой
+// Курильское озеро» — вулкан стоял раньше точного имени. Порядок один у
+// стража и get_place_info (placeRankOrderSql); здесь он ИСПОЛНЯЕТСЯ.
+withPg('порядок мест у стража и get_place_info (placeRankOrderSql, 09.11)', () => {
+  let pool: import('pg').Pool;
+  const WATER = 'Пробная Заводь';
+  const CALDERA = 'Кальдера Пробная Заводь';
+  const SPRING = 'Ключ Пробный Нижний';
+  const SPRING_VOLCANO = 'Вулкан Пробная Падь Нижняя';
+
+  const rank = async (q: string): Promise<string[]> => {
+    const match = placeNameOrAliasSearchSql('p', q, 1);
+    const exact = match.params.length + 1;
+    const { rows } = await pool.query<{ name: string }>(
+      `SELECT p.name FROM places p
+        WHERE p.merged_into_id IS NULL AND (${match.clause})
+        ORDER BY ${placeRankOrderSql('p', exact)}
+        LIMIT 3`,
+      [...match.params, exactNameKey(q)],
+    );
+    return rows.map((r) => r.name);
+  };
+
+  beforeAll(async () => {
+    const { Pool } = await import('pg');
+    const dbUrl = await createTestDatabase(PG_URL, 'place_rank_test');
+    pool = new Pool({ connectionString: dbUrl, max: 2 });
+    await pool.query(
+      `INSERT INTO places (id, name, lat, lng, location_type, is_visible) VALUES
+         ('rank-water', $1, 51.45, 157.1, 'lake', TRUE),
+         ('rank-caldera', $2, 51.47, 157.2, 'volcano', TRUE),
+         ('rank-spring', $3, 52.1, 158.1, 'hot_spring', TRUE),
+         ('rank-spring-volcano', $4, 52.2, 158.2, 'volcano', TRUE)
+       ON CONFLICT (id) DO NOTHING`,
+      [WATER, CALDERA, SPRING, SPRING_VOLCANO],
+    );
+    await pool.query(
+      `INSERT INTO place_aliases (place_id, alias) VALUES ('rank-spring', 'Пробная Падь Нижняя')`,
+    );
+  }, 300_000);
+
+  afterAll(async () => {
+    await pool?.end().catch(() => undefined);
+  });
+
+  it('точное имя первым, хотя вулкан с тем же именем внутри тоже совпал', async () => {
+    expect(await rank('Пробная Заводь')).toEqual([WATER, CALDERA]);
+  });
+
+  it('точность без регистра, «ё» и лишних пробелов', async () => {
+    expect((await rank('  пробная   заводь '))[0]).toBe(WATER);
+  });
+
+  it('неточное совпадение — вулкан по-прежнему первым (#2888)', async () => {
+    expect((await rank('Заводь'))[0]).toBe(CALDERA);
+  });
+
+  it('точный псевдоним — раньше вулкана, в чьём имени он стоит', async () => {
+    expect((await rank('Пробная Падь Нижняя'))[0]).toBe(SPRING);
+    expect((await rank('Падь Нижняя'))[0]).toBe(SPRING_VOLCANO);
   });
 });
