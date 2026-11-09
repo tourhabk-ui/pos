@@ -1162,6 +1162,67 @@ withPg('витрина /operators: факты о живых турах, кноп
       expect((await hero()).hero_image).toBe(HERO);
     });
   });
+
+  /**
+   * Страницы партнёров в sitemap (09.11, инвентаризация: страницы гида Андрея
+   * Запорожца — 9 туров на витрине — в sitemap не было, а тестовый стенд в нём
+   * был и отвечал 404). Правило — lib/seo/partner-sitemap; здесь судится на
+   * настоящей базе: какая карточка попадает в выдачу и какая нет.
+   */
+  describe('sitemap: страницы туроператоров и гидов с турами, без тестового стенда (09.11)', () => {
+    const G = {
+      withTour: { id: 'a1270000-0000-4000-8000-000000000101', slug: 'test-guide-tours', category: 'guide' },
+      noLive:   { id: 'a1270000-0000-4000-8000-000000000102', slug: 'test-guide-draft', category: 'guide' },
+      noTours:  { id: 'a1270000-0000-4000-8000-000000000103', slug: 'test-guide-empty', category: 'guide' },
+    } as const;
+    const STAND = { id: '0c595568-163b-4870-ab03-edf60d1d939e', slug: 'test-stand-operator' };
+
+    beforeAll(async () => {
+      for (const g of Object.values(G)) {
+        await pool.query(
+          `INSERT INTO partners (id, name, category, contact, slug, is_public, is_verified, status)
+           VALUES ($1, $2, $3, '{}'::jsonb, $4, TRUE, TRUE, 'active')`,
+          [g.id, `Гид ${g.slug}`, g.category, g.slug],
+        );
+      }
+      await pool.query(
+        `INSERT INTO partners (id, name, category, contact, slug, is_public, is_verified, status)
+         VALUES ($1, 'Тестовый стенд', 'operator', '{}'::jsonb, $2, TRUE, FALSE, 'active')
+         ON CONFLICT (id) DO UPDATE SET slug = EXCLUDED.slug, is_public = TRUE, category = 'operator'`,
+        [STAND.id, STAND.slug],
+      );
+      // Живой тур у первого гида; у второго — только черновик и удалённый.
+      const tour = (pid: string, slug: string, published: boolean, deleted: boolean) => pool.query(
+        `INSERT INTO operator_tours (operator_id, title, slug, base_price, max_participants, is_active, is_published, deleted_at)
+         VALUES ($1, $2, $2, 1000, 10, TRUE, $3, CASE WHEN $4 THEN NOW() ELSE NULL END)`,
+        [pid, slug, published, deleted],
+      );
+      await tour(G.withTour.id, 'test-guide-tour-live', true, false);
+      await tour(G.noLive.id, 'test-guide-tour-draft', false, false);
+      await tour(G.noLive.id, 'test-guide-tour-deleted', true, true);
+    });
+
+    afterAll(async () => {
+      await pool.query(`DELETE FROM operator_tours WHERE slug LIKE 'test-guide-tour-%'`);
+      await pool.query(`DELETE FROM partners WHERE id = ANY($1::uuid[])`, [[...Object.values(G).map((g) => g.id), STAND.id]]);
+    });
+
+    it('туроператор — да (и без живых туров); гид — только с туром на витрине; перевозчик, скрытая и стенд — нет', async () => {
+      const { partnerSitemapRows } = await import('@/lib/seo/partner-sitemap');
+      const slugs = new Set((await partnerSitemapRows(pool)).map((r) => r.slug));
+      for (const yes of ['test-heli', 'test-nolive', 'test-fish', 'test-guide-tours']) expect(slugs.has(yes), yes).toBe(true);
+      for (const no of ['test-carrier', 'test-hidden', 'test-guide-draft', 'test-guide-empty', STAND.slug]) {
+        expect(slugs.has(no), no).toBe(false);
+      }
+    });
+
+    it('в sitemap адрес гида — его страница /operators/<slug>, та же, что открывает карточка тура', async () => {
+      const { collectSitemapEntries } = await import('@/lib/seo/sitemap-entries');
+      const urls = (await collectSitemapEntries()).map((e) => e.url);
+      expect(urls.some((u) => u.endsWith('/operators/test-guide-tours'))).toBe(true);
+      expect(urls.some((u) => u.endsWith(`/operators/${STAND.slug}`))).toBe(false);
+    });
+  });
 });
 
 /**
