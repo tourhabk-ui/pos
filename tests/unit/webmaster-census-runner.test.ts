@@ -12,6 +12,29 @@ import { load } from 'js-yaml';
 import { webmasterCensus, tokenCandidates, type Fetcher, type CensusResult } from '@/lib/seo/webmaster-census';
 import { runnerEnv, censusDigest, censusOutcome, SECRET_PREFIX } from '@/lib/seo/webmaster-census-report';
 
+/**
+ * Выражения `\${{ … }}` во всём workflow, где читаются переменные репозитория
+ * в любой форме или секреты не по одному имени. Разрешён ровно один вид —
+ * `secrets.<ИМЯ>`: всё прочее (`toJson(secrets)`, `secrets['X']`, `vars.X`)
+ * отдаёт шагу то, что может уйти в публичный журнал.
+ */
+function expressionViolations(node: unknown, path = ''): string[] {
+  if (typeof node === 'string') {
+    const out: string[] = [];
+    for (const m of node.matchAll(/\$\{\{([\s\S]*?)\}\}/g)) {
+      const expr = m[1];
+      if (/\bvars\b/i.test(expr)) out.push(`${path}: ${expr.trim()}`);
+      else if (/\bsecrets\b/i.test(expr) && !/^\s*secrets\.[A-Za-z0-9_]+\s*$/.test(expr)) out.push(`${path}: ${expr.trim()}`);
+    }
+    return out;
+  }
+  if (Array.isArray(node)) return node.flatMap((v, i) => expressionViolations(v, `${path}[${i}]`));
+  if (node && typeof node === 'object') {
+    return Object.entries(node as Record<string, unknown>).flatMap(([k, v]) => expressionViolations(v, path ? `${path}.${k}` : k));
+  }
+  return [];
+}
+
 const GOOD = 'y0_runner_good_token_000';
 const HOST_ID = 'https:vedarai.ru:443';
 
@@ -49,56 +72,39 @@ function fakeApi(opts: { withSite?: boolean } = {}): Fetcher {
 const run = (env: Record<string, string>, fetcher = fakeApi()) =>
   webmasterCensus({ env, fetcher, today: '2026-11-09', days: 90, topQueries: 100 });
 
-describe('runnerEnv: секреты по приставке и переменные репозитория', () => {
+describe('runnerEnv: секреты по приставке', () => {
   it('берёт непустые секреты под своими именами, пустые и чужое окружение — нет', () => {
-    const { env, vars_error } = runnerEnv({
+    expect(runnerEnv({
       [`${SECRET_PREFIX}YANDEX_WEBMASTER_TOKEN`]: GOOD,
       [`${SECRET_PREFIX}WEBMASTER_TOKEN`]: '',
       [`${SECRET_PREFIX}YANDEX_TOKEN`]: '  ',
       GITHUB_TOKEN: 'ghs_x',
       PATH: '/usr/bin',
-    }, '{"YANDEX_METRIKA_TOKEN":"m","EMPTY":"","NUM":3}');
-    expect(env).toEqual({ 'secrets.YANDEX_WEBMASTER_TOKEN': GOOD, 'vars.YANDEX_METRIKA_TOKEN': 'm' });
-    expect(vars_error).toBeNull();
+    })).toEqual({ 'secrets.YANDEX_WEBMASTER_TOKEN': GOOD });
   });
 
-  it('приставка источника не судится как имя: secrets.X пробуется, секрет приложения — нет', () => {
+  it('приставка источника не судится как имя: secrets.X пробуется, секрет приложения и ключ Облака — нет', () => {
     expect(tokenCandidates({
       'secrets.YANDEX_WEBMASTER_TOKEN': 'a',
       'secrets.YANDEX_CLIENT_SECRET': 'b',
-      'vars.YANDEX_API_KEY': 'c',
-      'vars.YA_WM_TOKEN': 'd',
+      'secrets.YANDEX_API_KEY': 'c',
+      'secrets.YA_WM_TOKEN': 'd',
     })).toEqual({
-      candidates: ['secrets.YANDEX_WEBMASTER_TOKEN', 'vars.YA_WM_TOKEN'],
-      yandex_names: ['secrets.YANDEX_CLIENT_SECRET', 'secrets.YANDEX_WEBMASTER_TOKEN', 'vars.YANDEX_API_KEY', 'vars.YA_WM_TOKEN'],
+      candidates: ['secrets.YANDEX_WEBMASTER_TOKEN', 'secrets.YA_WM_TOKEN'],
+      yandex_names: ['secrets.YANDEX_API_KEY', 'secrets.YANDEX_CLIENT_SECRET', 'secrets.YANDEX_WEBMASTER_TOKEN', 'secrets.YA_WM_TOKEN'],
     });
   });
 
-  it('битые переменные — отказ словами, секреты всё равно взяты', () => {
-    const r = runnerEnv({ [`${SECRET_PREFIX}WEBMASTER`]: GOOD }, 'не json');
-    expect(r.env).toEqual({ 'secrets.WEBMASTER': GOOD });
-    expect(r.vars_error).toBe('переменные репозитория не разобрались как JSON');
-    expect(runnerEnv({}, '[1]').vars_error).toBe('переменные репозитория пришли не объектом');
-    expect(runnerEnv({}, undefined).vars_error).toBeNull();
-  });
-
   it('перепись находит токен в секрете и называет его с источником', async () => {
-    const { env } = runnerEnv({ [`${SECRET_PREFIX}YANDEX_WEBMASTER_TOKEN`]: GOOD }, '{"YA_OTHER":"z"}');
-    const r = await run(env);
+    const r = await run(runnerEnv({ [`${SECRET_PREFIX}YANDEX_WEBMASTER_TOKEN`]: GOOD }));
     expect(r.token.found_as).toBe('secrets.YANDEX_WEBMASTER_TOKEN');
     expect(censusOutcome(r)).toEqual({ level: 'ok', message: 'все разделы прочитаны' });
-  });
-
-  it('токен в переменной репозитория тоже находится', async () => {
-    const { env } = runnerEnv({}, JSON.stringify({ WEBMASTER_TOKEN: GOOD }));
-    expect((await run(env)).token.found_as).toBe('vars.WEBMASTER_TOKEN');
   });
 });
 
 describe('censusDigest: сводка для публичного журнала', () => {
   it('полная перепись: числа, причины, запросы по убыванию показов; ни токена, ни чужого сайта', async () => {
-    const { env } = runnerEnv({ [`${SECRET_PREFIX}YANDEX_OAUTH_TOKEN`]: GOOD }, undefined);
-    const r = await run(env);
+    const r = await run(runnerEnv({ [`${SECRET_PREFIX}YANDEX_OAUTH_TOKEN`]: GOOD }));
     const text = censusDigest(r, { topQueries: 100, examples: 5 }).join('\n');
     expect(text).toContain('Токен: принят — `secrets.YANDEX_OAUTH_TOKEN`.');
     expect(text).toContain('Сайт: https://vedarai.ru/ (права подтверждены); всего сайтов в аккаунте 2.');
@@ -113,24 +119,36 @@ describe('censusDigest: сводка для публичного журнала'
     expect(JSON.stringify(r)).not.toContain('secret-side-project');
   });
 
-  it('токена нет — имена про Яндекс названы, исход красный', async () => {
-    const r = await run(runnerEnv({}, '{"YANDEX_API_KEY":"gpt"}').env);
+  it('токена нет — сказано, что ни один секрет не задан, исход красный', async () => {
+    const r = await run(runnerEnv({ [`${SECRET_PREFIX}WEBMASTER_TOKEN`]: '' }));
     const text = censusDigest(r, { topQueries: 10, examples: 3 }).join('\n');
     expect(text).toContain('Токен: **не найден или не принят**.');
-    expect(text).toContain('`vars.YANDEX_API_KEY`');
-    expect(text).not.toContain('gpt');
+    expect(text).toContain('- ни один из проверенных секретов не задан — у токена другое имя');
     expect(censusOutcome(r).level).toBe('error');
   });
 
+  it('есть только ключ Облака — он назван именем, значение нет, к API не посылается', async () => {
+    const calls: string[] = [];
+    const api = fakeApi();
+    const r = await run(runnerEnv({ [`${SECRET_PREFIX}YANDEX_API_KEY`]: 'gpt-secret' }), async (url, init) => {
+      calls.push(url);
+      return api(url, init);
+    });
+    const text = censusDigest(r, { topQueries: 10, examples: 3 }).join('\n');
+    expect(text).toContain('`secrets.YANDEX_API_KEY`');
+    expect(text).not.toContain('gpt-secret');
+    expect(calls).toEqual([]);
+  });
+
   it('токен не принят — причина названа кодом Яндекса, значение — нет', async () => {
-    const r = await run(runnerEnv({ [`${SECRET_PREFIX}YANDEX_WEBMASTER_TOKEN`]: 'y0_wrong' }, undefined).env);
+    const r = await run(runnerEnv({ [`${SECRET_PREFIX}YANDEX_WEBMASTER_TOKEN`]: 'y0_wrong' }));
     const text = censusDigest(r, { topQueries: 10, examples: 3 }).join('\n');
     expect(text).toContain('- проверен `secrets.YANDEX_WEBMASTER_TOKEN`: HTTP 401 (INVALID_OAUTH_TOKEN) на /user');
     expect(text).not.toContain('y0_wrong');
   });
 
   it('нашего сайта нет в аккаунте — сказано словами и красный', async () => {
-    const r = await run(runnerEnv({ [`${SECRET_PREFIX}WEBMASTER`]: GOOD }, undefined).env, fakeApi({ withSite: false }));
+    const r = await run(runnerEnv({ [`${SECRET_PREFIX}WEBMASTER`]: GOOD }), fakeApi({ withSite: false }));
     const text = censusDigest(r, { topQueries: 10, examples: 3 }).join('\n');
     expect(text).toContain('Сайты аккаунта: 1, **нашего среди них нет**');
     expect(censusOutcome(r)).toEqual({ level: 'error', message: 'нашего сайта нет в аккаунте Вебмастера этого токена' });
@@ -173,11 +191,24 @@ describe('workflow переписи', () => {
     }
   });
 
-  it('все секреты репозитория шагу не отдаются; права — только чтение кода', () => {
-    // Комментарий workflow объясняет, почему так нельзя, — судится код, не он.
-    const code = src.replace(/^[ \t]*#.*$/gm, '');
-    expect(code).not.toMatch(/toJSON\(\s*secrets\s*\)/);
+  it('все секреты шагу не отдаются, переменные не читаются ни в какой форме; права — только чтение кода', () => {
+    // Судится разобранный YAML, а не текст: имена функций и контекстов в
+    // выражениях GitHub регистронезависимы (`toJson(vars)` = `toJSON(vars)`),
+    // и у контекста есть индексная запись (`vars['X']`). Окружение шага
+    // печатается в публичный журнал, а vars не маскируются.
+    const bad = expressionViolations(wf);
+    expect(bad).toEqual([]);
     expect(wf.permissions).toEqual({ contents: 'read' });
+  });
+
+  it('проверка выражений ловит обходы, которые регулярка по тексту пропускала', () => {
+    const probe = (expr: string) => expressionViolations({ jobs: { j: { steps: [{ env: { X: `\${{ ${expr} }}` } }] } } });
+    for (const expr of ['toJson(vars)', 'toJSON(vars)', "vars['YANDEX_WEBMASTER_TOKEN']", 'VARS.X', 'fromJson(toJson(vars)).X',
+      'toJson(secrets)', 'SECRETS.X', "secrets['X']", 'secrets.X || vars.Y']) {
+      expect(probe(expr), expr).toHaveLength(1);
+    }
+    expect(probe('secrets.YANDEX_WEBMASTER_TOKEN')).toEqual([]);
+    expect(probe('github.token')).toEqual([]);
   });
 
   it('маркер существует и запускает workflow; скрипт читает его', () => {
