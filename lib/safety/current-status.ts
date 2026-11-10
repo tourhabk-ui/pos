@@ -68,6 +68,13 @@ export interface CurrentSafetyStatus {
    */
   feedWhen?: (FeedWhen | null)[] | null;
   /**
+   * Районы пункта ленты так, как их назвала сводка (`affected_zones`), — тем
+   * же порядком, что feedTitles (#2930, панель «Угрозы по районам» на карте).
+   * У повторов одной темы районы объединены. Пустой массив — район в сводке
+   * не указан; это не «весь край». Optional: старые места его не знают.
+   */
+  feedZones?: string[][] | null;
+  /**
    * Что входит в общее число, но не в ленту туриста (#2495): типы вне ленты
    * со счётом и повторы одной темы (лента — одна строка на заголовок).
    * Ответ называл «7 активных, меняют решение 5» и пять строк — две записи
@@ -161,14 +168,27 @@ export async function getCurrentSafetyStatus(): Promise<CurrentSafetyStatus | nu
     let feedTitles: string[] | null = null;
     let feedBasis: (AlertBasis | null)[] | null = null;
     let feedWhen: (FeedWhen | null)[] | null = null;
+    let feedZones: string[][] | null = null;
     try {
       const feed = await query<{
         title: string; basis_title: string | null; basis_url: string | null; basis_origin: string | null;
         created_iso: string | null; expires_iso: string | null;
         external_id: string | null; source_url: string | null;
+        zones: string[] | null;
       }>(`
         SELECT title, basis_title, basis_url, basis_origin, external_id, source_url,
-               ${utcWallIsoSql('COALESCE(last_published_at, created_at)')} AS created_iso, ${utcWallIsoSql('expires_at')} AS expires_iso FROM (
+               ${utcWallIsoSql('COALESCE(last_published_at, created_at)')} AS created_iso, ${utcWallIsoSql('expires_at')} AS expires_iso,
+               -- Районы темы — у всех её действующих записей: лента держит
+               -- одну строку на заголовок, а «юг края» и «север края» одного
+               -- штормового могут прийти двумя записями.
+               ARRAY(
+                 SELECT DISTINCT z
+                   FROM external_alerts e2, unnest(COALESCE(e2.affected_zones, ARRAY[]::text[])) z
+                  WHERE lower(e2.title) = lower(t.title)
+                    AND e2.expires_at > ${UTC_WALL_NOW_SQL}
+                    AND e2.alert_type = ANY($1::text[])
+                  ORDER BY z
+               ) AS zones FROM (
           SELECT DISTINCT ON (lower(title)) title, severity::int AS severity, created_at, last_published_at, expires_at,
                  external_id, source_url,
                  basis_title, basis_url, basis_origin
@@ -194,6 +214,7 @@ export async function getCurrentSafetyStatus(): Promise<CurrentSafetyStatus | nu
           ...(origin === 'park_unknown' ? { derived: true } : {}),
         };
       });
+      feedZones = feed.rows.slice(0, AGENT_FEED_TITLES_LIMIT).map((r) => (Array.isArray(r.zones) ? r.zones : []));
     } catch (err) {
       console.error('[current-status] лента предупреждений не прочитана:', err instanceof Error ? err.message : err);
     }
@@ -240,6 +261,7 @@ export async function getCurrentSafetyStatus(): Promise<CurrentSafetyStatus | nu
       feedTitles,
       feedBasis,
       feedWhen,
+      feedZones,
       outsideFeed,
     };
   } catch (err) {

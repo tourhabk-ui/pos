@@ -83,18 +83,20 @@ const utcWall = (d: Date) => d.toISOString().slice(0, 23).replace('T', ' ');
 interface Row {
   alert_type: string; severity: number; title: string; external_id: string; source_url: string | null;
   created: Date; expires: Date;
+  /** Районы сводки (#2930); нет — NULL, как у записей до приёма зон. */
+  zones?: string[];
 }
 
 // Сценарий #2495: пять тем в ленте, одна тема дважды, одно землетрясение,
 // истёкшая строка. Ручные записи (manual-…) лежат «как до миграции»:
 // created_at — стенное время пояса сессии, как его писал NOW().
 const ROWS: Row[] = [
-  { alert_type: 'weather', severity: 2, title: 'Штормовое предупреждение: ветер до 25 м/с', external_id: 'mchs/pg-2495-1', source_url: null, created: at(-6 * HOUR), expires: at(18 * HOUR) },
+  { alert_type: 'weather', severity: 2, title: 'Штормовое предупреждение: ветер до 25 м/с', external_id: 'mchs/pg-2495-1', source_url: null, created: at(-6 * HOUR), expires: at(18 * HOUR), zones: ['eastern', 'avachinsky'] },
   { alert_type: 'road_closure', severity: 1, title: 'Вилючинский перевал: проезд по пропускам с 15 июля', external_id: 'manual-vilyuchinsky-pass-pg', source_url: 'https://www.ustoym.ru', created: at(-104 * DAY), expires: at(78 * DAY) },
-  { alert_type: 'road_closure', severity: 1, title: 'Халактырский пляж: дорога со стороны Дальнего перекрыта', external_id: 'manual-khalaktyrsky-road-pg', source_url: null, created: at(-98 * DAY), expires: at(259 * DAY) },
+  { alert_type: 'road_closure', severity: 1, title: 'Халактырский пляж: дорога со стороны Дальнего перекрыта', external_id: 'manual-khalaktyrsky-road-pg', source_url: null, created: at(-98 * DAY), expires: at(259 * DAY), zones: ['avachinsky'] },
   // Та же тема из другой ленты, старше ручной записи: лента берёт одну строку
   // на заголовок, эта уходит в «повторы».
-  { alert_type: 'road_closure', severity: 1, title: 'Халактырский пляж: дорога со стороны Дальнего перекрыта', external_id: 't.me/pravonarul/pg-2495', source_url: null, created: at(-120 * DAY), expires: at(5 * DAY) },
+  { alert_type: 'road_closure', severity: 1, title: 'Халактырский пляж: дорога со стороны Дальнего перекрыта', external_id: 't.me/pravonarul/pg-2495', source_url: null, created: at(-120 * DAY), expires: at(5 * DAY), zones: ['eastern'] },
   { alert_type: 'bear', severity: 1, title: 'Медведи у посёлка Термальный', external_id: 'mchs/pg-2495-2', source_url: null, created: at(-30 * HOUR), expires: at(42 * HOUR) },
   { alert_type: 'volcanic_eruption', severity: 1, title: 'Шивелуч: выброс пепла', external_id: 'kbgs/pg-2495-1', source_url: null, created: at(-20 * HOUR), expires: at(6 * DAY) },
   { alert_type: 'earthquake', severity: 1, title: 'Землетрясение M4.1 в 80 км от Петропавловска', external_id: 'kbgs/pg-2495-2', source_url: null, created: at(-3 * HOUR), expires: at(21 * HOUR) },
@@ -143,10 +145,10 @@ withPg('safety_status на настоящем PostgreSQL: даты, остато
       // Ингест: стенное время UTC. Срок у обоих — стенное время UTC.
       const manual = r.external_id.startsWith('manual-');
       await pool.query(
-        `INSERT INTO external_alerts (alert_type, severity, title, external_id, source_url, created_at, expires_at)
-         VALUES ($1, $2, $3, $4, $5, ${manual ? `($6::timestamptz AT TIME ZONE current_setting('TimeZone'))` : '$6::timestamp'}, $7::timestamp)`,
+        `INSERT INTO external_alerts (alert_type, severity, title, external_id, source_url, created_at, expires_at, affected_zones)
+         VALUES ($1, $2, $3, $4, $5, ${manual ? `($6::timestamptz AT TIME ZONE current_setting('TimeZone'))` : '$6::timestamp'}, $7::timestamp, $8::text[])`,
         [r.alert_type, r.severity, r.title, r.external_id, r.source_url,
-          manual ? r.created.toISOString() : utcWall(r.created), utcWall(r.expires)],
+          manual ? r.created.toISOString() : utcWall(r.created), utcWall(r.expires), r.zones ?? null],
       );
     }
     // Основание продлило срок: GREATEST(expires_at, $4::timestamptz) в колонку
@@ -209,6 +211,16 @@ withPg('safety_status на настоящем PostgreSQL: даты, остато
     expect(when(ROWS[0].title)).toEqual({ createdAt: iso(ROWS[0].created), expiresAt: iso(ROWS[0].expires), manual: false });
     // Срок по основанию — момент действия приказа, а не на три часа позже.
     expect(when(BASIS.title)?.expiresAt).toBe(iso(BASIS.validUntil));
+  });
+
+  it('районы пункта (#2930): как в сводке, у повторов темы — объединены, без района — пусто', () => {
+    const zones = (title: string) => status!.feedZones![status!.feedTitles!.indexOf(title)];
+    expect(status!.feedZones).toHaveLength(status!.feedTitles!.length);
+    expect(zones(ROWS[0].title)).toEqual(['avachinsky', 'eastern']);
+    // Лента держит одну строку Халактырского, а районы — обеих записей темы.
+    expect(zones(ROWS[2].title)).toEqual(['avachinsky', 'eastern']);
+    // affected_zones NULL — «район не указан», а не «весь край».
+    expect(zones(ROWS[4].title)).toEqual([]);
   });
 
   it('миграция однократна: повтор ничего не сдвигает', async () => {
