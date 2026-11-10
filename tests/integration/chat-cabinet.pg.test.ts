@@ -1099,4 +1099,98 @@ withPg('кабинет в чате на настоящем PostgreSQL', () => {
       expect(certReminderLines(await listGuideCertifications(gid), '2026-10-31')).toEqual([]);
     });
   });
+
+  describe('«Регистрация в МЧС»: выезды и выезд на схеме прода (10.11)', () => {
+    const ROUTE = '7b1c0a52-0000-4000-8000-00000000c0de';
+    /** 20.11.2026 — через 21 день после NOW (30.10). */
+    const DAY = '2026-11-20';
+    let store: typeof import('@/lib/chat-cabinet/mchs-store');
+    let routed = '';
+    let bare = '';
+    let foreign = '';
+    let teamGuide = '';
+    let looseGuide = '';
+
+    const tourOf = async (operatorId: string, title: string, routeId: string | null) => (await pool.query<{ id: string }>(
+      `INSERT INTO operator_tours (operator_id, title, slug, activity_type, base_price, price_unit, min_participants, max_participants,
+                                   duration_hours, difficulty, is_active, is_published, route_id)
+       VALUES ($1, $2, $3, 'hiking', 15000, 'per_person', 1, 8, 12, 'medium', TRUE, TRUE, $4) RETURNING id::text`,
+      [operatorId, title, `mc-${Math.random().toString(36).slice(2, 10)}`, routeId],
+    )).rows[0]!.id;
+    const book = (tourId: string, status: string, people: number, name: string, extra: { guide?: string; end?: string } = {}) => pool.query(
+      `INSERT INTO operator_bookings (operator_tour_id, booking_date, end_date, participants, booking_status, payment_status,
+                                      tourist_name, tourist_phone, guide_partner_id)
+       VALUES ($1::bigint, $2::date, $3::date, $4, $5, 'pending', $6, '+70000000000', $7)`,
+      [tourId, DAY, extra.end ?? null, people, status, name, extra.guide ?? null],
+    );
+
+    beforeAll(async () => {
+      store = await import('@/lib/chat-cabinet/mchs-store');
+      await pool.query(
+        `INSERT INTO kamchatka_routes (id, category, title, is_visible, mchs_registration_required, mchs_phone)
+         VALUES ($1, 'trekking', 'Пробный маршрут к вулкану', TRUE, TRUE, '8 (4152) 00-00-00')`, [ROUTE],
+      );
+      routed = await tourOf(partnerId, 'Пробное восхождение', ROUTE);
+      bare = await tourOf(partnerId, 'Пробный тур без маршрута', null);
+      foreign = await tourOf(otherId, 'Чужой пробный тур', ROUTE);
+      teamGuide = (await pool.query<{ id: string }>(
+        `INSERT INTO partners (name, category, contact, guide_operator_id) VALUES ('Гид команды', 'guide', '{}', $1) RETURNING id`, [partnerId],
+      )).rows[0]!.id;
+      looseGuide = (await pool.query<{ id: string }>(
+        `INSERT INTO partners (name, category, contact) VALUES ('Гид вне команды', 'guide', '{}') RETURNING id`,
+      )).rows[0]!.id;
+      await book(routed, 'confirmed', 2, 'Тест', { guide: teamGuide, end: '2026-11-22' });
+      await book(routed, 'pending_payment', 3, 'Тест второй', { guide: looseGuide });
+      await book(routed, 'new', 4, 'Неподтверждённый');
+      await book(routed, 'cancelled', 5, 'Отменивший');
+      await book(bare, 'confirmed', 1, 'Тест третий');
+      await book(foreign, 'confirmed', 7, 'Чужой турист');
+    });
+
+    it('оператор: выезды своих туров по подтверждённым броням, с фактами маршрута и без имён', async () => {
+      const list = await store.loadMchsDepartures(partnerId, '2026-10-30', '2026-12-29');
+      expect(list).toEqual([
+        { date: DAY, endDate: '2026-11-22', tourId: routed, title: 'Пробное восхождение', people: 5, bookings: 2,
+          routeTitle: 'Пробный маршрут к вулкану', required: true, mchsPhone: '8 (4152) 00-00-00' },
+        { date: DAY, endDate: DAY, tourId: bare, title: 'Пробный тур без маршрута', people: 1, bookings: 1,
+          routeTitle: null, required: null, mchsPhone: null },
+      ]);
+      // Окно дат режет: выезд 20.11 вне окна не виден.
+      expect(await store.loadMchsDepartures(partnerId, '2026-10-30', '2026-11-19')).toEqual([]);
+    });
+
+    it('кнопка «Регистрация в МЧС» и выезд — от нажатия до экрана: срок, требование, контактные лица в MAX', async () => {
+      const list = await press(pay.mchs());
+      expect(list.pd).toBe(false);
+      expect(list.text).toContain('<b>20.11</b> · Пробное восхождение — 5 чел.');
+      expect(list.text).toContain('Маршрут требует регистрации в МЧС.');
+      expect(list.text).toContain('Маршрут к туру не привязан');
+      expect(list.text).toContain('выдерживается');
+      expect(JSON.stringify(list)).not.toContain('Тест');
+      const one = await press(pay.mchsGroup(routed, DAY));
+      expect(one.pd).toBe(true);
+      expect(one.text).toContain('Даты: 20.11.2026 — 22.11.2026');
+      expect(one.text).toContain('Группа: 5 чел., броней — 2');
+      expect(one.text).toContain('Тест, тел. +70000000000, 2 чел.');
+      expect(one.text).toContain('Телефон МЧС из записи маршрута: 8 (4152) 00-00-00.');
+      expect(one.text).not.toMatch(/Неподтверждённый|Отменивший|Чужой/);
+    });
+
+    it('без контактов запрос исполняется и не несёт имён; чужой тур и чужая карточка — выезда нет', async () => {
+      const plain = await store.loadMchsGroup(partnerId, routed, DAY, false);
+      expect(plain).toMatchObject({ people: 5, bookings: 2, contacts: null });
+      expect(JSON.stringify(plain)).not.toContain('Тест');
+      expect(await store.loadMchsGroup(partnerId, foreign, DAY, true)).toBeNull();
+      expect(await store.loadMchsGroup(otherId, routed, DAY, true)).toBeNull();
+      expect((await press(pay.mchsGroup(foreign, DAY))).text).toContain('Выезда с подтверждёнными бронями на эту дату нет');
+    });
+
+    it('гид команды видит только назначенную ему бронь; гид вне команды — ничего', async () => {
+      const mine = await store.loadMchsGroup(teamGuide, routed, DAY, true);
+      expect(mine).toMatchObject({ people: 2, bookings: 1, contacts: [{ name: 'Тест', phone: '+70000000000', participants: 2 }] });
+      expect((await store.loadMchsDepartures(teamGuide, '2026-10-30', '2026-12-29'))).toMatchObject([{ tourId: routed, people: 2, bookings: 1 }]);
+      expect(await store.loadMchsDepartures(looseGuide, '2026-10-30', '2026-12-29')).toEqual([]);
+      expect(await store.loadMchsGroup(looseGuide, routed, DAY, true)).toBeNull();
+    });
+  });
 });

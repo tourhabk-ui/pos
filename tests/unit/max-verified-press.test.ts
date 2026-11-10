@@ -533,6 +533,16 @@ describe('ключа нет: вопросы Кузьмичу и кнопки т�
     expect(m.processMessage).toHaveBeenCalledWith(expect.objectContaining({ chatId: 77, text: 'Вулканы Камчатки', verifiedOrigin: false }));
   });
 
+  it('«Регистрация в МЧС» (10.11) — готовый текст со сроком и ссылками, модель не зовётся', async () => {
+    await post(UNVERIFIED[0]!, press('mchs_info', 77, 77));
+    expect(m.processMessage).not.toHaveBeenCalled();
+    const call = m.maxSend.mock.calls.find((c) => c[0] === 77)!;
+    expect(String(call[1])).toContain('Заявка подаётся за 10 рабочих дней до начала маршрута');
+    expect(String(call[1])).toContain('Ведар заявку в МЧС сам не подаёт');
+    expect(JSON.stringify(call[2])).toContain('https://forms.mchs.gov.ru/registration_tourist_groups/form');
+    expect(JSON.stringify(call[2])).toContain('/register');
+  });
+
   it('кнопка темы без сообщения — адресат только чат сообщения, user_id вторым полем не служит', async () => {
     // Не защита: чат сообщения подделывается так же. Это отказ добавлять
     // ещё одно поле тела, которым выбирается адресат ответа.

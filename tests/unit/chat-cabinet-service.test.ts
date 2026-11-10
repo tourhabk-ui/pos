@@ -575,3 +575,63 @@ describe('счёт пользования (1354)', () => {
     expect(m.count).toHaveBeenCalledWith(expect.objectContaining({ action: 'search_query', channel: 'max', seat: 'owner' }), NOW);
   });
 });
+
+describe('«Регистрация в МЧС» (10.11)', () => {
+  const isBookings = (sql: unknown) => String(sql).includes('FROM operator_bookings');
+  const bookingsSql = () => m.query.mock.calls.map((c) => String(c[0])).find(isBookings) ?? '';
+  const GROUP_ROW = {
+    tourist_name: 'Тест', tourist_phone: '+70000000000', participants: 2, end_d: '2026-11-22',
+    title: 'Курильское озеро', route_title: 'Курильское озеро', required: true, mchs_phone: null,
+  };
+  const withRows = (rows: unknown[]) => m.query.mockImplementation(async (sql: unknown) => (isBookings(sql) ? { rows, rowCount: rows.length } : { rows: [], rowCount: 0 }));
+
+  it('список: выезды карточки ЭТОГО чата на 60 дней по Камчатке, без имён', async () => {
+    withRows([{ d: '2026-11-20', end_d: '2026-11-22', tour_id: '81', title: 'Курильское озеро', people: 6, n: 3, route_title: null, required: null, mchs_phone: null }]);
+    const s = await press(cabinetPayload.mchs());
+    const call = m.query.mock.calls.find((c) => isBookings(c[0]))!;
+    expect(call[1]).toEqual([PID, '2026-10-30', '2026-12-29']);
+    expect(String(call[0])).not.toMatch(/tourist_name|tourist_phone/);
+    expect(s.pd).toBe(false);
+    expect(s.text).toContain('<b>20.11</b> · Курильское озеро — 6 чел.');
+    expect(s.rows.flat().some((b) => 'payload' in b && b.payload === 'cb:mc:81:20261120')).toBe(true);
+    expect(m.count).toHaveBeenCalledWith(expect.objectContaining({ action: 'mchs' }), NOW);
+  });
+
+  it('выезд в MAX — с контактным лицом брони; в Telegram запрос контактов не выбирает и имени на экране нет', async () => {
+    withRows([GROUP_ROW]);
+    const max = await press(cabinetPayload.mchsGroup('81', '2026-11-20'));
+    expect(bookingsSql()).toMatch(/tourist_name/);
+    expect(max.pd).toBe(true);
+    expect(max.text).toContain('1. Тест, тел. +70000000000, 2 чел.');
+
+    m.query.mockClear();
+    withRows([GROUP_ROW]);
+    const tg = await press(cabinetPayload.mchsGroup('81', '2026-11-20'), { channel: 'telegram' });
+    expect(bookingsSql()).not.toMatch(/tourist_name|tourist_phone/);
+    expect(tg.pd).toBe(false);
+    expect(tg.text).not.toContain('+7');
+    expect(tg.text).not.toContain('Тест');
+    expect(tg.text).toContain('в Telegram не показываются');
+  });
+
+  it('отказ базы — отказ, а не «выездов нет»; брони нет — «выезда нет»', async () => {
+    m.query.mockImplementation(async (sql: unknown) => {
+      if (isBookings(sql)) throw Object.assign(new Error('x'), { code: '57P01' });
+      return { rows: [], rowCount: 0 };
+    });
+    const list = await press(cabinetPayload.mchs());
+    expect(list.failed).toBe(true);
+    expect(list.text).toContain('Выезды не прочитались');
+    expect(list.text).not.toContain('нет.');
+    expect((await press(cabinetPayload.mchsGroup('81', '2026-11-20'))).failed).toBe(true);
+    withRows([]);
+    expect((await press(cabinetPayload.mchsGroup('81', '2026-11-20'))).text).toContain('Выезда с подтверждёнными бронями на эту дату нет');
+  });
+
+  it('перевозчик: кнопки нет, присланный payload ничего не читает', async () => {
+    m.find.mockResolvedValue({ outcome: 'found', partner: { ...OPERATOR, category: 'transfer', crmCategory: 'transfer', sellsTours: false } });
+    const s = await press(cabinetPayload.mchsGroup('81', '2026-11-20'));
+    expect(s.text).toContain('у туроператора и гида');
+    expect(m.query.mock.calls.some((c) => isBookings(c[0]))).toBe(false);
+  });
+});

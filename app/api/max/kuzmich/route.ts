@@ -90,6 +90,8 @@ import { deliverCabinetMax, type MaxCabinetApi } from '@/lib/chat-cabinet/max-de
 import { forgetMenuMessage, isMenuPayload, noteMenuMessage, sentMid, type TailApi } from '@/lib/max/menu-tail';
 import type { CabinetScreen } from '@/lib/chat-cabinet/screens';
 import { isCabinetSection } from '@/lib/roles/role-screen';
+import { MCHS_CHAT_BUTTON, MCHS_TOURIST_PAYLOAD, mchsTouristLinks, mchsTouristText } from '@/lib/safety/mchs-chat';
+import { getPublicBaseUrl } from '@/lib/config';
 
 type ButtonIntent = 'default' | 'positive' | 'negative';
 
@@ -502,6 +504,9 @@ const START_MENU: MaxButton[][] = [
     { type: 'callback', text: 'Подобрать тур', payload: 'topic_tour', intent: 'positive' },
     { type: 'callback', text: 'Цены', payload: 'topic_prices' },
   ],
+  // «Регистрация в МЧС» (10.11): правило, срок и ссылки готовым текстом —
+  // не тема для модели (lib/safety/mchs-chat). Ничего не спрашивает.
+  [{ type: 'callback', text: MCHS_CHAT_BUTTON, payload: MCHS_TOURIST_PAYLOAD }],
 ];
 
 const TOPIC_TEXTS: Record<string, string> = {
@@ -1969,6 +1974,15 @@ async function handleUpdate(update: MaxUpdate, opts?: { verifiedOrigin?: boolean
 
     const userName = update.callback.user.name;
     const userId = update.callback.user.user_id;
+
+    // «Регистрация в МЧС»: ответ кодом, без модели и без вопросов человеку.
+    if (payload === MCHS_TOURIST_PAYLOAD) {
+      await maxReplyWithButtons(
+        resolvedChatId, mchsTouristText(),
+        [mchsTouristLinks(getPublicBaseUrl()).map((l) => ({ type: 'link' as const, text: l.text, url: l.url }))],
+      );
+      return;
+    }
 
     // Топик-кнопки → шлём как обычный запрос
     if (payload in TOPIC_TEXTS) {

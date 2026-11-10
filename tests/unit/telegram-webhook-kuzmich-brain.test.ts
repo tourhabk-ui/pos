@@ -454,9 +454,24 @@ describe('турист: клавиатура, порядок ответов, д�
     expect(body.text).toContain('Ведар');
     expect(body.text).not.toMatch(/TourHab|подключён к оператору|MAX/);
     expect(body.replyMarkup?.keyboard?.flat().map((b) => b.text)).toEqual([
-      'Подобрать тур', 'Погода', 'Аренда авто', 'Операторы', 'Задать вопрос',
+      'Подобрать тур', 'Погода', 'Аренда авто', 'Операторы', 'Регистрация в МЧС', 'Задать вопрос',
     ]);
     expect(m.tools).not.toHaveBeenCalled();
+  });
+
+  it('«Регистрация в МЧС» (10.11) — готовый текст со сроком и две ссылки, без модели и без заявки', async () => {
+    await post('Регистрация в МЧС');
+    expect(m.tgSend).toHaveBeenCalledTimes(1);
+    const body = m.tgSend.mock.calls[0]?.[0] as { text?: string; replyMarkup?: { inline_keyboard?: Array<Array<{ text: string; url: string }>> } };
+    expect(body.text).toContain('Заявка подаётся за 10 рабочих дней до начала маршрута');
+    expect(body.text).toContain('Ведар заявку в МЧС сам не подаёт');
+    expect(body.text).toContain('112');
+    expect(body.replyMarkup?.inline_keyboard?.[0]?.map((b) => b.url)).toEqual([
+      'https://forms.mchs.gov.ru/registration_tourist_groups/form',
+      expect.stringMatching(/\/register$/),
+    ]);
+    expect(m.tools).not.toHaveBeenCalled();
+    expect(m.createLead).not.toHaveBeenCalled();
   });
 
   it('три вопроса одного чата отвечают по порядку, и следующий видит прошлый ответ', async () => {
@@ -835,7 +850,7 @@ describe('кабинет проката на живом вебхуке', () => {
     expect(body.text).not.toMatch(/Лагуна|Кабинет проката/);
     expect(body.replyMarkup?.inline_keyboard).toBeUndefined();
     expect(body.replyMarkup?.keyboard?.flat().map((b) => b.text)).toEqual([
-      'Подобрать тур', 'Погода', 'Аренда авто', 'Операторы', 'Задать вопрос',
+      'Подобрать тур', 'Погода', 'Аренда авто', 'Операторы', 'Регистрация в МЧС', 'Задать вопрос',
     ]);
   });
 });

@@ -64,6 +64,9 @@ import {
   type TodayDeparture,
 } from '@/lib/chat-cabinet/screens';
 import { readStoredSituations } from '@/lib/trips/situation-read';
+import { MCHS_CHAT_TEXT, MCHS_WINDOW_DAYS } from '@/lib/safety/mchs-chat';
+import { loadMchsDepartures, loadMchsGroup } from '@/lib/chat-cabinet/mchs-store';
+import { mchsGroupScreen, mchsListScreen } from '@/lib/chat-cabinet/mchs-screens';
 import { listVehicles, updateVehicle } from '@/lib/transfers/service';
 import { loadOwnDrafts, loadOwnPriceRows } from '@/lib/transfers/price-edit-store';
 import { loadCarrierSummary } from '@/lib/transfers/carrier-summary-store';
@@ -192,6 +195,31 @@ async function todayView(c: Ctx, nowMs: number): Promise<CabinetScreen> {
     tasks = null;
   }
   return todayScreen({ inbox, departures, today, tomorrow, nowMs, tasks, situationsFailed });
+}
+
+/** У кого в кабинете чата есть «Регистрация в МЧС»: у тех, кто водит группы. */
+function mchsRole(c: Ctx): boolean {
+  return c.partner.role === 'operator' || c.partner.role === 'guide';
+}
+
+/** «Регистрация в МЧС» (10.11): выезды с бронями на 60 дней и срок подачи по каждому. Без имён. */
+async function mchsView(c: Ctx, nowMs: number): Promise<CabinetScreen> {
+  if (!mchsRole(c)) return noticeScreen(MCHS_CHAT_TEXT.notForRole);
+  const today = kamchatkaDate(new Date(nowMs));
+  const loaded = await loadMchsDepartures(c.ctx.partnerId, today, shiftDate(today, MCHS_WINDOW_DAYS));
+  return mchsListScreen({ departures: loaded === 'failed' ? null : loaded, nowMs });
+}
+
+/**
+ * Выезд: данные для формы МЧС. Контакты туристов запрашиваются только для
+ * MAX — в Telegram их нет уже в запросе, а не только на экране.
+ */
+async function mchsGroupView(c: Ctx, channel: CabinetChannel, tourId: string, date: string, nowMs: number): Promise<CabinetScreen> {
+  if (!mchsRole(c)) return noticeScreen(MCHS_CHAT_TEXT.notForRole);
+  const group = await loadMchsGroup(c.ctx.partnerId, tourId, date, channel === 'max');
+  if (group === 'failed') return failedScreen(MCHS_CHAT_TEXT.groupFailed);
+  if (group === null) return noticeScreen(MCHS_CHAT_TEXT.groupGone);
+  return mchsGroupScreen({ group, role: c.partner.role, base: base(), nowMs });
 }
 
 async function inboxView(c: Ctx, page: number, nowMs: number, notice?: string): Promise<CabinetScreen> {
@@ -842,6 +870,9 @@ export async function handleCabinetPress(input: {
     case 'more': out = await moreView(g); break;
     case 'today': out = await todayView(g, nowMs); break;
     case 'report': out = await reportView(g, press.period, nowMs); break;
+    // «Регистрация в МЧС» (10.11): выезды и срок; выезд — текст для формы МЧС.
+    case 'mchs': out = await mchsView(g, nowMs); break;
+    case 'mchs_group': out = await mchsGroupView(g, ch, press.tourId, press.date, nowMs); break;
     case 'digest': out = await digestView(g); break;
     case 'digest_set': out = await setDigest(g, press.mode, nowMs); break;
     case 'inbox': out = await inboxView(g, press.page, nowMs); break;
