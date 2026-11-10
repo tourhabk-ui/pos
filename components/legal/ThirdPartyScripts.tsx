@@ -103,46 +103,38 @@ export default function ThirdPartyScripts() {
            * Сторож: tests/unit/legal-disclosure.test.ts.
            */
         >
-          <div className="pointer-events-auto mx-auto max-w-3xl rounded-lg border border-[var(--border)] bg-[var(--bg-card)] p-4 shadow-lg sm:p-5">
-            <div className="flex items-start gap-3">
-              <ShieldCheck className="mt-0.5 h-5 w-5 shrink-0 text-[var(--ocean)]" aria-hidden />
-              <div className="min-w-0">
-                <p id="consent-title" className="font-semibold text-[var(--text-primary)]">
-                  Аналитика и партнёрские сервисы
-                </p>
-                <p className="mt-1 text-sm text-[var(--text-secondary)]">
-                  Мы хотим подключить сервисы, которые записывают, как вы пользуетесь сайтом,
-                  и показывают предложения партнёров. Часть из них передаёт данные за пределы
-                  России. Без вашего согласия они не загружаются — сайт работает и так.
-                </p>
-                <p className="mt-2 text-sm text-[var(--text-muted)]">
-                  Кто именно и зачем —{' '}
-                  <Link href="/legal/privacy" className="text-[var(--ocean)] underline">
-                    в политике конфиденциальности
-                  </Link>
-                  . Решение можно изменить там же.
-                </p>
-
-                {/* Кнопки в строку и на телефоне: столбиком карточка была на
-                    две строки выше, а места на телефоне и так нет. Обе — одного
-                    размера, чтобы отказ не выглядел второстепенным. */}
-                <div className="mt-4 flex flex-row flex-wrap gap-2">
-                  <button
-                    type="button"
-                    onClick={() => decide({ analytics: true, advertising: true })}
-                    className="ds-btn ds-btn-primary min-h-[44px] px-4"
-                  >
-                    Разрешить
-                  </button>
-                  <button
-                    type="button"
-                    onClick={() => decide(ALL_DENIED)}
-                    className="ds-btn ds-btn-secondary min-h-[44px] px-4"
-                  >
-                    Только необходимое
-                  </button>
-                </div>
-              </div>
+          {/*
+            Полоса, а не карточка (аудит 10.11). Прежняя карточка — заголовок,
+            два абзаца, кнопки — на 390×844 занимала около 47% первого экрана и
+            лежала на кнопках главной. Теперь одна строка смысла и кнопки
+            рядом: потолок — 15% высоты экрана (max-h-[15vh]), подробности —
+            по ссылке. Что обязано остаться и остаётся: трансграничная
+            передача названа, отказ — кнопка того же размера, что согласие.
+          */}
+          <div className="pointer-events-auto mx-auto flex max-h-[15vh] max-w-3xl flex-col gap-1.5 overflow-y-auto sm:flex-row sm:items-center rounded-lg border border-[var(--border)] bg-[var(--bg-card)] px-3 py-2 shadow-lg sm:gap-3 sm:px-4">
+            <ShieldCheck className="hidden h-5 w-5 shrink-0 text-[var(--ocean)] sm:block" aria-hidden />
+            <p id="consent-title" className="min-w-0 flex-1 text-xs leading-snug text-[var(--text-secondary)] sm:text-sm">
+              Аналитика и сервисы партнёров, часть передаёт данные за пределы России.
+              Без согласия не грузятся.{' '}
+              <Link href="/legal/privacy" className="text-[var(--ocean)] underline">
+                Подробнее
+              </Link>
+            </p>
+            <div className="flex shrink-0 gap-2">
+              <button
+                type="button"
+                onClick={() => decide({ analytics: true, advertising: true })}
+                className="ds-btn ds-btn-primary min-h-[44px] flex-1 px-3 text-sm sm:flex-none"
+              >
+                Разрешить
+              </button>
+              <button
+                type="button"
+                onClick={() => decide(ALL_DENIED)}
+                className="ds-btn ds-btn-secondary min-h-[44px] flex-1 px-3 text-sm sm:flex-none"
+              >
+                Только необходимое
+              </button>
             </div>
           </div>
         </div>

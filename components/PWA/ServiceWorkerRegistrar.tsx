@@ -5,6 +5,7 @@ import { installSOSFlush } from '@/lib/offline/pending-queue';
 import { installFieldQueuesFlush } from '@/lib/offline/field-queues';
 import { reportSwRegistration } from '@/lib/offline/sw-status';
 import { isForeignSurface } from '@/lib/embed/widget-frame';
+import { askShellRefresh } from '@/lib/offline/shell-refresh';
 
 export function ServiceWorkerRegistrar() {
   useEffect(() => {
@@ -20,7 +21,16 @@ export function ServiceWorkerRegistrar() {
       reportSwRegistration('registering');
       navigator.serviceWorker
         .register('/sw.js', { scope: '/' })
-        .then(() => reportSwRegistration('ready'))
+        .then(() => {
+          reportSwRegistration('ready');
+          // Прекэш под текущую сборку (10.11): без этого в памяти телефона
+          // лежал HTML старой сборки без своих файлов, и без сети SOS и
+          // «Связи нет» ломались. Через пару секунд после загрузки — чтобы не
+          // спорить за сеть с первым экраном. Воркер, ещё не управляющий
+          // страницей (первый заход), просьбу не получит: он только что
+          // положил прекэш при установке.
+          window.setTimeout(() => { askShellRefresh(); }, 4000);
+        })
         .catch((err: unknown) => {
           const detail = err instanceof Error ? err.message : String(err);
           reportSwRegistration('failed', detail);

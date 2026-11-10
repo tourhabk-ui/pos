@@ -89,6 +89,7 @@ export default function RequestClient() {
     }
   };
 
+  const lbl = 'block mb-1 text-sm font-medium text-[var(--text-primary)]';
   const inp = 'w-full px-4 py-3 rounded-lg text-sm border outline-none transition-all focus:ring-1 focus:ring-[var(--accent)] bg-[var(--bg-primary)] border-[var(--border)] text-[var(--text-primary)] placeholder:text-[var(--text-muted)]';
 
   return (
@@ -97,21 +98,108 @@ export default function RequestClient() {
 
         {/* Back */}
         <Link href="/"
-          className="inline-flex items-center gap-1.5 text-sm text-[var(--text-muted)] hover:text-[var(--text-primary)] transition-colors mb-10">
+          className="inline-flex items-center gap-1.5 text-sm text-[var(--text-muted)] hover:text-[var(--text-primary)] transition-colors mb-4 md:mb-10">
           <ArrowLeft className="w-4 h-4" /> Главная
         </Link>
 
-        <div className="grid md:grid-cols-2 gap-10 lg:gap-16 items-start">
+        {/*
+          На телефоне порядок другой: заголовок, СРАЗУ форма, потом шаги и
+          чат. Аудит 10.11: на 500×900 первое поле начиналось на 868 px — под
+          тремя шагами и карточкой чата, то есть за первым экраном. С md
+          раскладка прежняя: слева описание и шаги, справа форма.
+        */}
+        <div className="grid md:grid-cols-2 gap-6 md:gap-x-10 md:gap-y-0 lg:gap-x-16 items-start">
 
-          {/* Left — описание и шаги */}
-          <div>
-            <p className="text-xs font-semibold tracking-widest uppercase text-[var(--accent)] mb-4">
+          {/* Заголовок */}
+          <div className="md:col-start-1 md:row-start-1">
+            <p className="text-xs font-semibold tracking-widest uppercase text-[var(--accent)] mb-3 md:mb-4">
               Персональный подбор
             </p>
-            <h1 className="font-playfair text-4xl md:text-5xl font-bold text-[var(--text-primary)] leading-tight mb-5">
+            <h1 className="font-playfair text-3xl md:text-5xl font-bold text-[var(--text-primary)] leading-tight md:mb-5">
               Опишите мечту —<br />
               <span className="text-[var(--accent)]">AI подберёт тур</span>
             </h1>
+          </div>
+
+          {/* Форма: на телефоне — вторым блоком, с md — справа на обе строки */}
+          <div className="md:col-start-2 md:row-start-1 md:row-span-2 bg-[var(--bg-card)] border border-[var(--border)] rounded-lg p-5 md:p-8">
+
+            {/* Telegram — primary CTA */}
+            <a href={BOT_URL} target="_blank" rel="noopener noreferrer"
+              className="flex items-center justify-center gap-2.5 w-full py-3.5 rounded-xl font-semibold text-sm text-white transition-opacity hover:opacity-90 mb-5"
+              style={{ background: 'var(--ocean)' }}>
+              <MessageCircle className="w-5 h-5" />
+              Написать Кузьмичу в Telegram
+            </a>
+
+            <div className="flex items-center gap-3 mb-5">
+              <div className="flex-1 h-px bg-[var(--border)]" />
+              <span className="text-xs text-[var(--text-muted)]">или оставьте телефон</span>
+              <div className="flex-1 h-px bg-[var(--border)]" />
+            </div>
+
+            {state === 'done' ? (
+              <div className="text-center py-6">
+                <div className="w-16 h-16 rounded-lg bg-[var(--success)]/10 flex items-center justify-center mx-auto mb-4">
+                  <CheckCircle className="w-8 h-8 text-[var(--success)]" />
+                </div>
+                <p className="font-semibold text-[var(--text-primary)] mb-1">Заявка принята!</p>
+                <p className="text-sm text-[var(--text-muted)]">Менеджер свяжется с вами скоро.</p>
+                <Link href="/" className="inline-block mt-5 text-sm text-[var(--ocean)] hover:underline">
+                  Вернуться на главную
+                </Link>
+              </div>
+            ) : (
+              <form onSubmit={submit} className="space-y-3">
+                {/* Подпись над каждым полем: подсказка внутри пропадала с
+                    первой буквой, и человек не видел, что заполняет (аудит 10.11).
+                    Подсказка осталась только примером. */}
+                <div>
+                  <label htmlFor="request-name" className={lbl}>Имя</label>
+                  <div className="relative">
+                    <User className="absolute left-3.5 top-1/2 -translate-y-1/2 w-4 h-4 text-[var(--text-muted)]" aria-hidden />
+                    <input id="request-name" type="text" value={name} onChange={e => setName(e.target.value)}
+                      placeholder="Например, Анна" required autoComplete="given-name"
+                      className={inp + ' pl-10'} />
+                  </div>
+                </div>
+                <div>
+                  <label htmlFor="request-phone" className={lbl}>Телефон</label>
+                  <div className="relative">
+                    <Phone className="absolute left-3.5 top-1/2 -translate-y-1/2 w-4 h-4 text-[var(--text-muted)]" aria-hidden />
+                    <input id="request-phone" type="tel" value={phone} onChange={e => setPhone(e.target.value)}
+                      placeholder="+7 900 000 00 00" required autoComplete="tel"
+                      className={inp + ' pl-10'} />
+                  </div>
+                </div>
+                <div>
+                  <label htmlFor="request-comment" className={lbl}>
+                    О поездке <span className="font-normal text-[var(--text-muted)]">(необязательно)</span>
+                  </label>
+                  <textarea id="request-comment" value={comment} onChange={e => setComment(e.target.value)}
+                    placeholder="Например: рыбалка и вулканы, июль, двое, бюджет до 150 000 ₽"
+                    rows={3}
+                    className={inp + ' resize-none'} />
+                </div>
+                {state === 'error' && (
+                  <p className="text-xs text-[var(--danger)]">Не удалось отправить. Попробуйте ещё раз.</p>
+                )}
+                <PdConsentCheckbox checked={pdConsent} onChange={setPdConsent} id="pd-consent-request" />
+                {recontactEligible && (
+                  <RecontactConsentCheckbox checked={recontact} onChange={setRecontact} id="recontact-consent-request" />
+                )}
+                <button type="submit" disabled={state === 'sending' || !name.trim() || !phone.trim() || !pdConsent}
+                  className="w-full flex items-center justify-center gap-2 py-3.5 rounded-xl font-semibold text-sm text-white transition-opacity hover:opacity-90 disabled:opacity-50"
+                  style={{ background: 'var(--accent)' }}>
+                  <Send className="w-4 h-4" />
+                  {state === 'sending' ? 'Отправляю...' : 'Получить предложение'}
+                </button>
+              </form>
+            )}
+          </div>
+
+          {/* Описание и шаги */}
+          <div className="md:col-start-1 md:row-start-2">
             <p className="text-[var(--text-secondary)] text-base leading-relaxed mb-8 max-w-sm">
               Кузьмич квалифицирует заявку за 15 секунд
               и пришлёт персональное предложение с 3 лучшими турами.
@@ -144,68 +232,6 @@ export default function RequestClient() {
             </div>
           </div>
 
-          {/* Right — форма */}
-          <div className="bg-[var(--bg-card)] border border-[var(--border)] rounded-lg p-8">
-
-            {/* Telegram — primary CTA */}
-            <a href={BOT_URL} target="_blank" rel="noopener noreferrer"
-              className="flex items-center justify-center gap-2.5 w-full py-3.5 rounded-xl font-semibold text-sm text-white transition-opacity hover:opacity-90 mb-5"
-              style={{ background: 'var(--ocean)' }}>
-              <MessageCircle className="w-5 h-5" />
-              Написать Кузьмичу в Telegram
-            </a>
-
-            <div className="flex items-center gap-3 mb-5">
-              <div className="flex-1 h-px bg-[var(--border)]" />
-              <span className="text-xs text-[var(--text-muted)]">или оставьте телефон</span>
-              <div className="flex-1 h-px bg-[var(--border)]" />
-            </div>
-
-            {state === 'done' ? (
-              <div className="text-center py-6">
-                <div className="w-16 h-16 rounded-lg bg-[var(--success)]/10 flex items-center justify-center mx-auto mb-4">
-                  <CheckCircle className="w-8 h-8 text-[var(--success)]" />
-                </div>
-                <p className="font-semibold text-[var(--text-primary)] mb-1">Заявка принята!</p>
-                <p className="text-sm text-[var(--text-muted)]">Менеджер свяжется с вами скоро.</p>
-                <Link href="/" className="inline-block mt-5 text-sm text-[var(--ocean)] hover:underline">
-                  Вернуться на главную
-                </Link>
-              </div>
-            ) : (
-              <form onSubmit={submit} className="space-y-3">
-                <div className="relative">
-                  <User className="absolute left-3.5 top-1/2 -translate-y-1/2 w-4 h-4 text-[var(--text-muted)]" />
-                  <input type="text" value={name} onChange={e => setName(e.target.value)}
-                    placeholder="Ваше имя" required
-                    className={inp + ' pl-10'} />
-                </div>
-                <div className="relative">
-                  <Phone className="absolute left-3.5 top-1/2 -translate-y-1/2 w-4 h-4 text-[var(--text-muted)]" />
-                  <input type="tel" value={phone} onChange={e => setPhone(e.target.value)}
-                    placeholder="+7 900 000 00 00" required
-                    className={inp + ' pl-10'} />
-                </div>
-                <textarea value={comment} onChange={e => setComment(e.target.value)}
-                  placeholder="Кратко о мечте: рыбалка, вулканы, бюджет, даты... (необязательно)"
-                  rows={3}
-                  className={inp + ' resize-none'} />
-                {state === 'error' && (
-                  <p className="text-xs text-[var(--danger)]">Не удалось отправить. Попробуйте ещё раз.</p>
-                )}
-                <PdConsentCheckbox checked={pdConsent} onChange={setPdConsent} id="pd-consent-request" />
-                {recontactEligible && (
-                  <RecontactConsentCheckbox checked={recontact} onChange={setRecontact} id="recontact-consent-request" />
-                )}
-                <button type="submit" disabled={state === 'sending' || !name.trim() || !phone.trim() || !pdConsent}
-                  className="w-full flex items-center justify-center gap-2 py-3.5 rounded-xl font-semibold text-sm text-white transition-opacity hover:opacity-90 disabled:opacity-50"
-                  style={{ background: 'var(--accent)' }}>
-                  <Send className="w-4 h-4" />
-                  {state === 'sending' ? 'Отправляю...' : 'Получить предложение'}
-                </button>
-              </form>
-            )}
-          </div>
         </div>
       </div>
     </main>

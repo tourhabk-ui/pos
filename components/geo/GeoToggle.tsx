@@ -26,9 +26,11 @@ const iconBtnStyle: React.CSSProperties = {
   flexShrink: 0,
 };
 
+// 44 px — норма касания, как у соседних кнопок шапки; значок прежний, 18 px.
+// До 10.11 кнопка была 32×32, единственная в шапке меньше нормы.
 const btnStyle: React.CSSProperties = {
-  width: '32px',
-  height: '32px',
+  width: '44px',
+  height: '44px',
   borderRadius: '50%',
   border: 'none',
   background: 'transparent',
@@ -60,7 +62,9 @@ export function GeoToggle() {
       style={{
         ...btnStyle,
         color: isActive ? 'var(--badge)' : undefined,
-        background: isActive ? 'var(--accent)/10' : undefined,
+        // `var(--accent)/10` — запись Tailwind, во встроенном стиле браузер её
+        // отбрасывал, и включённый режим подложки не имел.
+        background: isActive ? 'color-mix(in srgb, var(--accent) 10%, transparent)' : undefined,
       }}
       className="hover:bg-white/10"
       title={isActive ? 'Режим: На Камчатке (нажмите для выхода)' : 'Я на Камчатке'}
