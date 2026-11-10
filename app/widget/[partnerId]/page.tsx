@@ -363,13 +363,13 @@ export default function WidgetPage() {
               aria-label={t.inputLabel}
               maxLength={2000}
               disabled={sending}
+              className="text-[14px]"
               style={{
                 flex: 1,
                 padding: '10px 14px',
                 border: '1px solid var(--border)',
                 borderRadius: 20,
                 outline: 'none',
-                fontSize: 14,
                 fontFamily: 'inherit',
                 background: 'var(--bg-primary)',
               }}

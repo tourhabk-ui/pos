@@ -169,8 +169,8 @@ export default function RescueChat({ className, style, surface = 'card' }: { cla
           </div>
           <div style={{ borderTop: k.line, display: 'flex', gap: 8, padding: '10px 12px' }}>
             <input
-              className="ds-input"
-              style={{ flex: 1, fontSize: 13, ...k.input }}
+              className="ds-input text-[13px]"
+              style={{ flex: 1, ...k.input }}
               placeholder="Что происходит?"
               aria-label="Опишите ситуацию"
               value={input}

@@ -509,6 +509,7 @@ export default function SosPage() {
                 onChange={e => setName(e.target.value)}
                 placeholder="Имя"
                 disabled={sendStatus === 'sending' || sendStatus === 'sent'}
+                className="text-[14px]"
                 style={{
                   width: '100%',
                   padding: '8px 12px',
@@ -516,7 +517,6 @@ export default function SosPage() {
                   border: '1px solid rgba(255,255,255,0.1)',
                   background: 'rgba(255,255,255,0.05)',
                   color: 'white',
-                  fontSize: '14px',
                   outline: 'none',
                 }}
               />
@@ -531,6 +531,7 @@ export default function SosPage() {
                 onChange={e => setPhone(e.target.value)}
                 placeholder="+7..."
                 disabled={sendStatus === 'sending' || sendStatus === 'sent'}
+                className="text-[14px]"
                 style={{
                   width: '100%',
                   padding: '8px 12px',
@@ -538,7 +539,6 @@ export default function SosPage() {
                   border: '1px solid rgba(255,255,255,0.1)',
                   background: 'rgba(255,255,255,0.05)',
                   color: 'white',
-                  fontSize: '14px',
                   outline: 'none',
                 }}
               />

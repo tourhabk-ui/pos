@@ -970,3 +970,27 @@ body {
   border: 1px solid var(--border);
 }
 @media (prefers-reduced-motion: reduce) { .admin-glass--press { transition: none; } .admin-glass--press:active { transform: none; } }
+
+/* Поле ввода на телефоне — не мельче 16 px (разбор meta/astryx 10.11, контракт
+   mobile-typography, DR1: размер поля на телефоне = max(основной, 16), MIT).
+   iOS Safari увеличивает страницу, когда фокус встаёт в поле со шрифтом меньше
+   16 px: человек ставит курсор — экран прыгает, форма уезжает вбок, вернуть
+   масштаб можно только щипком. На 10.11 так было у 151 поля (text-xs и text-sm),
+   среди них форма SOS и спутниковая диктовка.
+   Правило вне @layer и стоит последним: первое перебивает font-size: 100% из
+   preflight (поле наследует шрифт родителя, а он бывает мельче), второе —
+   мелкий класс на самом поле. Крупнее 16 поле остаётся крупнее. Мышь не задета:
+   на компьютере поля как свёрстаны. Шрифт поля в style={{}} отсюда не перебить —
+   такие запрещены сторожем tests/unit/mobile-input-font.test.ts. */
+@media (pointer: coarse) {
+  input:where(:not([type="checkbox"], [type="radio"], [type="range"], [type="file"], [type="color"], [type="hidden"], [type="button"], [type="submit"], [type="reset"], [type="image"])),
+  textarea,
+  select {
+    font-size: max(16px, 100%);
+  }
+  input:where(:not([type="checkbox"], [type="radio"], [type="range"], [type="file"], [type="color"], [type="hidden"], [type="button"], [type="submit"], [type="reset"], [type="image"])):is([class*="text-xs"], [class*="text-sm"], [class*="text-[9px]"], [class*="text-[10px]"], [class*="text-[11px]"], [class*="text-[12px]"], [class*="text-[13px]"], [class*="text-[14px]"], [class*="text-[15px]"]),
+  textarea:is([class*="text-xs"], [class*="text-sm"], [class*="text-[9px]"], [class*="text-[10px]"], [class*="text-[11px]"], [class*="text-[12px]"], [class*="text-[13px]"], [class*="text-[14px]"], [class*="text-[15px]"]),
+  select:is([class*="text-xs"], [class*="text-sm"], [class*="text-[9px]"], [class*="text-[10px]"], [class*="text-[11px]"], [class*="text-[12px]"], [class*="text-[13px]"], [class*="text-[14px]"], [class*="text-[15px]"]) {
+    font-size: 16px;
+  }
+}

@@ -267,6 +267,7 @@ export default function LeadFormPage() {
           required
           minLength={2}
           maxLength={120}
+          className="text-[14px]"
           style={inputStyle}
         />
 
@@ -281,6 +282,7 @@ export default function LeadFormPage() {
           required
           minLength={7}
           maxLength={30}
+          className="text-[14px]"
           style={inputStyle}
         />
 
@@ -293,6 +295,7 @@ export default function LeadFormPage() {
           placeholder={t.commentPlaceholder}
           maxLength={500}
           rows={3}
+          className="text-[14px]"
           style={{ ...inputStyle, resize: 'none' }}
         />
 
@@ -349,7 +352,6 @@ const inputStyle: React.CSSProperties = {
   padding: '10px 14px',
   border: '1px solid var(--border)',
   borderRadius: 8,
-  fontSize: 14,
   fontFamily: "'Outfit', system-ui, sans-serif",
   color: 'var(--text-primary)',
   background: 'var(--bg-card)',
