@@ -19,7 +19,7 @@ import {
 import { PLAN_PRESETS, type PlanPreset } from '@/lib/plans/presets';
 // Словарь переехал в чистый модуль без зависимостей: те же слова читает
 // клиент планировщика, а сюда тянется `pool` (см. шапку interest-words).
-import { INTEREST_WORDS, parseInterestWords } from '@/lib/planner/interest-words';
+import { INTEREST_WORDS, parseInterestWords, withoutInterestWords } from '@/lib/planner/interest-words';
 import { parseTravelPreferences } from '@/lib/planner/travel-style-words';
 import { MAX_REST_DAYS, type TravelStyle } from '@/lib/planner/travel-style';
 import { tourKeepsSchedule } from '@/lib/seat-requests/service';
@@ -186,10 +186,7 @@ export function parseChatInterestsDetailed(raw: string): { interests: string[]; 
   // ('вулкан' → trekking в lib/planner/interests): план «вулканы, 6 дней» вёз
   // группу на треккинг в Восточную зону, а экран планера (только первый
   // словарь) тех же слов так не понимал.
-  let rest = text;
-  for (const word of Object.keys(INTEREST_WORDS)) {
-    if (rest.includes(word)) rest = rest.split(word).join(' ');
-  }
+  const rest = withoutInterestWords(text);
   try {
     const parsed = parseInterestsFromText(rest);
     for (const k of parsed.interests ?? []) found.add(k);
