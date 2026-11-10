@@ -95,7 +95,8 @@ describe('форма заявки планера: сводка = отправл�
     fireEvent.click(document.getElementById('pd-consent-planner')!);
     fireEvent.click(screen.getByRole('button', { name: 'Отправить заявку' }));
     const sd = posted('/api/leads').source_data as Record<string, unknown>;
-    expect(sd).toMatchObject({ source: 'trip_planner', party: { adults: 2, children: [] }, wishes: { seasickness: true, risk_mode: 'safe_only' } });
+    expect(sd).toMatchObject({ source: 'trip_planner', party: { adults: 2, children: [] }, wishes: { seasickness: true } });
+    expect(sd.wishes).toEqual({ seasickness: true });
     expect(tripRequestLines(tripFactsOf(sd))).toEqual(shownLines);
   });
 });

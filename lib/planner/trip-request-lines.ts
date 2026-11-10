@@ -24,13 +24,21 @@
  */
 import { asPlanForLead, partyWords, planLeadLines, type PlanForLead } from '@/lib/planner/plan-for-lead';
 
-export type RiskMode = 'safe_only' | 'adventure' | 'available';
+/**
+ * Режим из прежней анкеты. Блок «Режим маршрутов» убран из планировщика 10.11
+ * (карт-бланш владельца по Б12): на подбор он не влиял никогда, а подкрепить
+ * слово «Безопасный» отбором нечем — данные о сложности неполны, и «не
+ * записано» не значит «безопасно». Новые заявки режима не несут; значение
+ * читается у заявок 08–11.11, где человек его выбрал.
+ */
+export type LegacyRiskMode = 'adventure' | 'available';
 
 /** Пожелания из анкеты планировщика. Нет поля — не записано (заявка до 07.11). */
 export interface TripWishes {
   /** «Укачивает на воде — обойтись без катеров, где можно». */
   seasickness: boolean;
-  risk_mode: RiskMode;
+  /** Только у заявок 08–11.11: тогдашний выбор «Приключение» или «Свободные». */
+  risk_mode?: LegacyRiskMode;
 }
 
 /** Состав группы: взрослые и известные возраста детей; детей без возраста — числом. */
@@ -50,40 +58,18 @@ export interface TripRequestFacts {
   plan?: PlanForLead | null;
 }
 
-const RISK_WORDS: Record<RiskMode, string> = {
-  // В заявке обычный режим не называется (wishesWords) — это слово никуда не выводится.
-  safe_only: 'обычный режим',
+/** Слова прежнего режима в заявке — как их тогда видел менеджер. */
+const LEGACY_RISK_WORDS: Record<LegacyRiskMode, string> = {
   adventure: 'все маршруты, включая опасные',
   available: 'всё, где есть места',
 };
-
-/**
- * Что режим делает на деле — подпись под кнопками «Режим маршрутов» в /planner
- * (аудит планировщика, находка Б12, 10.11).
- *
- * Экран обещал «Безопасный — только проверенные, без alerts», а движок читает
- * режим в одном месте: «Приключение» добавляет в план одно напоминание. Дни и
- * зоны от режима не зависят; отбора «только проверенные» и «без тревог» нет ни
- * в одном режиме. В заявку режим уходит пожеланием — словами RISK_WORDS.
- * Появится отбор по режиму — меняются эти слова и сторож «режим маршрутов плана
- * не меняет» (tests/unit/planner-travel-style.test.ts), в одном PR.
- */
-export function riskModeEffect(mode: RiskMode): string {
-  const same = 'На подбор режим не влияет: дни плана одинаковы во всех трёх.';
-  if (mode === 'adventure') {
-    return `${same} В план добавится напоминание о снаряжении и гиде, в заявку — пожелание «${RISK_WORDS.adventure}».`;
-  }
-  if (mode === 'available') return `${same} В заявку уйдёт пожелание «${RISK_WORDS.available}».`;
-  return `${same} Операторов с отметкой проверки и места без предупреждений он отдельно не отбирает. Предупреждения МЧС и закрытия парков показаны в самом плане.`;
-}
 
 /** Пожелания словами; ничего не отмечено сверх обычного — null. */
 export function wishesWords(w: TripWishes | null | undefined): string | null {
   if (!w) return null;
   const parts = [
     w.seasickness ? 'укачивает на воде — без катеров, где можно' : null,
-    // Обычный режим не называется: сверх обычного он ничего не просит.
-    w.risk_mode && w.risk_mode !== 'safe_only' ? `режим: ${RISK_WORDS[w.risk_mode]}` : null,
+    w.risk_mode ? `режим: ${LEGACY_RISK_WORDS[w.risk_mode]}` : null,
   ].filter(Boolean);
   return parts.length > 0 ? parts.join('; ') : null;
 }
@@ -103,8 +89,8 @@ export function asTripWishes(v: unknown): TripWishes | null {
   if (!v || typeof v !== 'object') return null;
   const w = v as Partial<TripWishes>;
   if (typeof w.seasickness !== 'boolean') return null;
-  const risk = w.risk_mode === 'adventure' || w.risk_mode === 'available' ? w.risk_mode : 'safe_only';
-  return { seasickness: w.seasickness, risk_mode: risk };
+  const legacy = w.risk_mode === 'adventure' || w.risk_mode === 'available' ? w.risk_mode : null;
+  return { seasickness: w.seasickness, ...(legacy ? { risk_mode: legacy } : {}) };
 }
 
 /** Узнать состав группы в `source_data`. */
@@ -182,7 +168,6 @@ export interface PlannerLeadInput {
   /** Возраст каждого ребёнка; null — не указан. */
   childAges: Array<number | null>;
   seasickness: boolean;
-  riskMode: RiskMode;
   plan: PlanForLead | null;
 }
 
@@ -207,7 +192,7 @@ export function plannerLeadSource(i: PlannerLeadInput): Record<string, unknown> 
     trip_days: i.tripDays ?? undefined,
     transport_choices: i.transportByDay,
     party: { adults: i.adults, children: known, ...(unknown > 0 ? { children_age_unknown: unknown } : {}) } satisfies TripParty,
-    wishes: { seasickness: i.seasickness, risk_mode: i.riskMode } satisfies TripWishes,
+    wishes: { seasickness: i.seasickness } satisfies TripWishes,
     ...(i.plan ? { plan: i.plan } : {}),
   };
 }

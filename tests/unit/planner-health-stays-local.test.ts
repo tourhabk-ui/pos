@@ -54,6 +54,17 @@ describe('/api/planner/recommend принимает новые поля', () => 
     expect(profile.restDays).toBe(2);
   });
 
+  it('прежнее поле riskMode от страницы из кэша принимается и до движка не доходит (Б12)', async () => {
+    // Блок «Режим маршрутов» убран 10.11. PWA ещё может отдать старую страницу,
+    // и она шлёт режим: отказ «Некорректные параметры» оставил бы человека без плана.
+    for (const riskMode of ['safe_only', 'adventure', 'available', 'иное']) {
+      recommendTrip.mockClear();
+      const res = await post({ ...VALID, riskMode });
+      expect(res.status, riskMode).toBe(200);
+      expect(recommendTrip.mock.calls[0][0], riskMode).not.toHaveProperty('riskMode');
+    }
+  });
+
   it('проверка длины и значений', async () => {
     for (const bad of [
       { healthNotes: 'а'.repeat(301) },

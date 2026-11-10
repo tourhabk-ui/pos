@@ -36,7 +36,6 @@ const RecommendSchema = z.object({
   fitnessLevel: z.enum(['beginner', 'moderate', 'active']).default('moderate'),
   budgetTier: z.enum(['economy', 'comfort', 'premium']).default('comfort'),
   seasickness: z.boolean().default(false),
-  riskMode: z.enum(['safe_only', 'adventure', 'available']).default('safe_only'),
   // Здоровье — особая категория ПД. Приходит ТОЛЬКО сюда, в наш движок: в
   // модель (зарубежную, §8) не уходит, в память предпочтений не пишется, в
   // лог не попадает. Сторож: tests/unit/planner-health-stays-local.test.ts.

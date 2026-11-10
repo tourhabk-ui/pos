@@ -81,7 +81,6 @@ export interface TripProfile {
   fitnessLevel: FitnessLevel;
   budgetTier: BudgetTier;
   seasickness?: boolean;        // motion sickness — avoid boat activities
-  riskMode?: 'safe_only' | 'adventure' | 'available'; // default: safe_only
   healthNotes?: string;         // free text: injuries, allergies, conditions
   mobilityLevel?: 'full' | 'limited' | 'wheelchair';
   /**
@@ -2394,15 +2393,6 @@ export async function recommendTrip(profile: TripProfile, opts: RecommendTripOpt
       severity: 'important',
       message: 'Не удалось свериться с записью операторов на этот месяц — сезон определён по нашему ориентиру. '
         + 'Что-то из закрытого им могло быть в продаже; уточните у оператора.',
-    });
-  }
-
-  // Adventure mode warning
-  if (profile.riskMode === 'adventure') {
-    warnings.unshift({
-      type: 'safety',
-      severity: 'important',
-      message: 'Вы выбрали режим «Приключение». Состав плана он не меняет: в любом режиме маршрут может идти через места с действующими предупреждениями МЧС, лавинной или вулканической опасностью. Убедитесь, что есть нужное снаряжение и гид.',
     });
   }
 
