@@ -56,6 +56,7 @@ jobs:
               print(f"| {c['label']} | {c['count']} | {surf} | {ex} |")
           for key, title in (('by_provider','Провайдер'),('by_path','Путь'),('by_score','Балл')):
               print(f"\n**{title}:** " + ', '.join(f"{k} {v}" for k, v in sorted(d.get(key, {}).items(), key=lambda x: -x[1])))
+          print("\nСами случаи (вопрос, ответ, слова судьи) — только в админке: https://vedarai.ru/hub/admin/kuzmich-outcomes")
           print("\n_Промпт сам не правится. Повторяющийся тип — в задачу на починку._")
           for c in d.get('caveats', []): print(f"\n- {c}")
           PY
