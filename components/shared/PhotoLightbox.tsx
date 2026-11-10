@@ -16,6 +16,8 @@
 import Image from 'next/image';
 import { useEffect, useRef, useState } from 'react';
 import { ChevronRight, X } from 'lucide-react';
+import { useModalDialog } from '@/hooks/use-modal-dialog';
+import { isImeKeyEvent } from '@/lib/ui/ime';
 
 /** Сдвиг пальца, после которого свайп листает, а не случайно дрогнул. */
 const SWIPE_PX = 50;
@@ -34,27 +36,27 @@ export function PhotoLightbox({ images, alt, startIdx, onClose, captions }: {
   const prev = () => setIdx((i) => (i - 1 + images.length) % images.length);
   const next = () => setIdx((i) => (i + 1) % images.length);
 
+  // Escape, фокус внутри и обратно на снимок, прокрутка под просмотрщиком
+  // стоит (на телефоне свайп иначе листал бы и фото, и страницу) — общим
+  // правилом слоёв (hooks/use-modal-dialog): поверх окна заявки Escape
+  // закрывает только просмотрщик.
+  const rootRef = useRef<HTMLDivElement>(null);
+  useModalDialog(rootRef, onClose);
   useEffect(() => {
     const onKey = (e: KeyboardEvent) => {
-      if (e.key === 'Escape') onClose();
-      else if (many && e.key === 'ArrowLeft') setIdx((i) => (i - 1 + images.length) % images.length);
+      if (isImeKeyEvent(e)) return;
+      if (many && e.key === 'ArrowLeft') setIdx((i) => (i - 1 + images.length) % images.length);
       else if (many && e.key === 'ArrowRight') setIdx((i) => (i + 1) % images.length);
     };
     window.addEventListener('keydown', onKey);
-    // Под открытым снимком страница не прокручивается — на телефоне свайп
-    // иначе листал бы и фото, и страницу под ним.
-    const overflow = document.body.style.overflow;
-    document.body.style.overflow = 'hidden';
-    return () => {
-      window.removeEventListener('keydown', onKey);
-      document.body.style.overflow = overflow;
-    };
-  }, [images.length, many, onClose]);
+    return () => window.removeEventListener('keydown', onKey);
+  }, [images.length, many]);
 
   const caption = captions?.[idx] ?? null;
 
   return (
     <div
+      ref={rootRef}
       className="fixed inset-0 z-50 bg-black/95 flex items-center justify-center"
       role="dialog"
       aria-modal="true"

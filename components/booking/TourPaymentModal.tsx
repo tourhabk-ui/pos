@@ -20,11 +20,12 @@
  * «Payment» в нём теперь историческое.
  */
 
-import { useEffect } from 'react';
+import { useRef } from 'react';
 import Link from 'next/link';
 import { X, AlertTriangle } from 'lucide-react';
 import BookingFormClient from '@/components/marketplace/BookingFormClient';
 import { platformAcceptsPayments } from '@/lib/payments/accepting';
+import { useModalDialog } from '@/hooks/use-modal-dialog';
 
 interface TourPaymentModalProps {
   open: boolean;
@@ -60,12 +61,9 @@ export default function TourPaymentModal({
   groupSizeUnlimited = false,
   nextDeparture,
 }: TourPaymentModalProps) {
-  useEffect(() => {
-    if (!open) return;
-    const h = (e: KeyboardEvent) => { if (e.key === 'Escape') onClose(); };
-    window.addEventListener('keydown', h);
-    return () => window.removeEventListener('keydown', h);
-  }, [open, onClose]);
+  // Escape, ловушка фокуса, возврат фокуса — общим правилом слоёв.
+  const dialogRef = useRef<HTMLDivElement>(null);
+  useModalDialog(dialogRef, onClose, () => true, open);
 
   if (!open) return null;
 
@@ -76,6 +74,7 @@ export default function TourPaymentModal({
       onClick={e => { if (e.target === e.currentTarget) onClose(); }}
     >
       <div
+        ref={dialogRef}
         className="relative w-full max-w-md bg-[var(--bg-card)] border border-[var(--border)] rounded-lg shadow-xl max-h-[90vh] overflow-y-auto"
         role="dialog"
         aria-modal="true"

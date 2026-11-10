@@ -16,6 +16,7 @@
  *    а не крутим бесполезное окно (§4.0: «не смог» ≠ «нет сигнала»).
  */
 
+import { useModalDialog } from '@/hooks/use-modal-dialog';
 import { useEffect, useRef, useState } from 'react';
 import { useRouter } from 'next/navigation';
 import { Camera, X, MapPin, AlertTriangle } from 'lucide-react';
@@ -184,6 +185,11 @@ export function SosQrScanner() {
   };
 
   const active = state.phase !== 'idle';
+  // Сканер на весь экран — модальный: фокус внутрь, Escape закрывает и
+  // гасит камеру (как крестик), фокус возвращается на кнопку сканирования
+  // (hooks/use-modal-dialog).
+  const scannerRef = useRef<HTMLDivElement>(null);
+  useModalDialog(scannerRef, close, () => true, active);
 
   return (
     <>
@@ -203,7 +209,9 @@ export function SosQrScanner() {
 
       {active && (
         <div
+          ref={scannerRef}
           role="dialog"
+          aria-modal="true"
           aria-label="Сканирование QR-кода SOS"
           style={{
             position: 'fixed', inset: 0, zIndex: 9999,

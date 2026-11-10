@@ -3,6 +3,7 @@
 import { useState, useEffect, useRef } from 'react';
 import { X, Phone, User, MessageSquare, CheckCircle, Loader2 } from 'lucide-react';
 import { getSourceData } from '@/hooks/useSourceTracker';
+import { useModalDialog } from '@/hooks/use-modal-dialog';
 import { PdConsentCheckbox } from '@/components/legal/PdConsentCheckbox';
 
 interface LeadModalProps {
@@ -33,13 +34,10 @@ export default function LeadModal({ open, onClose, routeId, routeTitle, sourceUr
     }
   }, [open]);
 
-  // Закрытие по Escape
-  useEffect(() => {
-    if (!open) return;
-    const handler = (e: KeyboardEvent) => { if (e.key === 'Escape') onClose(); };
-    window.addEventListener('keydown', handler);
-    return () => window.removeEventListener('keydown', handler);
-  }, [open, onClose]);
+  // Escape, ловушка фокуса, возврат фокуса на кнопку — общим правилом слоёв
+  // (hooks/use-modal-dialog).
+  const dialogRef = useRef<HTMLDivElement>(null);
+  useModalDialog(dialogRef, onClose, () => true, open);
 
   if (!open) return null;
 
@@ -87,6 +85,7 @@ export default function LeadModal({ open, onClose, routeId, routeTitle, sourceUr
       onClick={(e) => { if (e.target === e.currentTarget) onClose(); }}
     >
       <div
+        ref={dialogRef}
         className="relative w-full max-w-md bg-[var(--bg-card)] border border-[var(--border)] rounded-lg shadow-xl"
         role="dialog"
         aria-modal="true"

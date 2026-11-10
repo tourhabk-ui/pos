@@ -1,5 +1,6 @@
 'use client';
 
+import { useOverlayEscape } from '@/hooks/use-modal-dialog';
 import React, { useState, useEffect, useRef, useCallback } from 'react';
 import { createPortal } from 'react-dom';
 import { Sparkles, X, Send, Loader2 } from 'lucide-react';
@@ -32,13 +33,14 @@ export function AiAssistant() {
         if (open) handleClose();
         else handleOpen();
       }
-      if (e.key === 'Escape' && open) {
-        handleClose();
-      }
     };
     window.addEventListener('keydown', handler);
     return () => window.removeEventListener('keydown', handler);
   }, [open, handleOpen, handleClose]);
+
+  // Escape — общим правилом слоёв: закрывает только верхний слой и не
+  // во время набора иероглифа (hooks/use-modal-dialog).
+  useOverlayEscape(open, handleClose);
 
   // Focus input on open
   useEffect(() => {

@@ -13,6 +13,7 @@
  * Данные приходят из серверного data-слоя (app/_home/data.ts).
  */
 
+import { useModalDialog } from '@/hooks/use-modal-dialog';
 import { useEffect, useRef, useState, type MouseEvent } from 'react';
 import Link from 'next/link';
 import Image from 'next/image';
@@ -961,6 +962,12 @@ function EmergencyPanel({ open, onClose }: { open: boolean; onClose: () => void 
     );
   }, [open]);
 
+  // Панель на весь экран — модальная: фокус внутрь (экранный диктор сразу
+  // читает «Экстренная помощь»), Tab не уходит на главную под ней, Escape
+  // закрывает, фокус возвращается на кнопку SOS (hooks/use-modal-dialog).
+  const panelRef = useRef<HTMLDivElement>(null);
+  useModalDialog(panelRef, onClose, () => true, open);
+
   if (!open) return null;
 
   const coordText = coords ? `${coords.lat.toFixed(5)}, ${coords.lng.toFixed(5)}` : '';
@@ -973,7 +980,7 @@ function EmergencyPanel({ open, onClose }: { open: boolean; onClose: () => void 
   const smsBody = coords ? `SOS. Нужна помощь. Мои координаты: ${coordText}` : 'SOS. Нужна помощь.';
 
   return (
-    <div className="emg" role="dialog" aria-label="Экстренная помощь">
+    <div ref={panelRef} className="emg" role="dialog" aria-modal="true" aria-label="Экстренная помощь">
       <div className="emg-top">
         <b>Экстренная помощь</b>
         <button className="emg-x" onClick={onClose} aria-label="Закрыть"><X size={20} strokeWidth={2.2} /></button>

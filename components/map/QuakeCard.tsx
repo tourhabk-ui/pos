@@ -4,7 +4,9 @@
  * часов назад: «04:34» без пояса читается как время телефона, а на
  * Камчатке часы человека и UTC расходятся на 12 часов.
  */
+import { useRef } from 'react';
 import { Activity, X } from 'lucide-react';
+import { useOverlayEscape } from '@/hooks/use-modal-dialog';
 import type { VedarMapQuake } from '@/components/shared/VedarMap';
 
 function kamchatkaTime(ms: number): string {
@@ -21,8 +23,13 @@ function ago(ms: number): string {
 }
 
 export function QuakeCard({ quake, onClose }: { quake: VedarMapQuake; onClose: () => void }) {
+  // Немодальная карточка поверх карты: Escape закрывает её, если она верхний
+  // слой, фокус возвращается (hooks/use-modal-dialog).
+  const cardRef = useRef<HTMLDivElement>(null);
+  useOverlayEscape(true, onClose, cardRef);
   return (
     <div
+      ref={cardRef}
       data-theme="dark"
       className="fx-glass-dense absolute left-3 right-3 bottom-14 z-[600] flex items-start gap-3 px-4 py-3 rounded-2xl border transition-all duration-200"
       style={{ borderColor: 'var(--danger)', color: 'var(--glass-fg)' }}

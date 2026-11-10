@@ -718,20 +718,20 @@ describe('провода', () => {
     expect(f).toMatch(/fetch\('\/api\/seat-requests'/);
     expect(f).toMatch(/referral_code: agentReferralForBooking/);
     expect(f).toMatch(/pd_consent: consent/);
-    // Escape закрывает окно, фокус уходит внутрь.
-    expect(f).toMatch(/e\.key === 'Escape'/);
+    // Escape закрывает окно, фокус уходит внутрь — общим правилом слоёв
+    // (hooks/use-modal-dialog); поведение правила — рендером в overlay-stack.test.tsx.
+    expect(f).toMatch(/useModalDialog\(dialogRef, onClose,/);
   });
 
   it('окно запроса: пока идёт отправка, закрыть нельзя; поверх нижней навигации; прокрутка страницы под ним заперта', () => {
     const f = read('components/planner/SeatRequestForm.tsx');
     // Закрытие во время отправки отвязало бы страницу от запроса, который уже
     // ушёл оператору, — ключа статуса турист бы не увидел.
-    expect(f).toMatch(/e\.key === 'Escape' && !sendingRef\.current/);
+    expect(f).toMatch(/useModalDialog\(dialogRef, onClose, \(\) => !sendingRef\.current\)/);
     expect(f).toMatch(/onClick=\{onClose\} disabled=\{sending\}/);
     expect(f).toMatch(/z-\[1100\]/);
     expect(f).toMatch(/max-h-\[92dvh\]/);
-    expect(f).toMatch(/document\.body\.style\.overflow = 'hidden'/);
-    expect(f).toMatch(/document\.body\.style\.overflow = prevOverflow/);
+    // Прокрутка под окном заперта — правилом слоёв, рендером в overlay-stack.test.tsx.
     // Ссылка на запрос переживает закрытие окна и перезагрузку — но только в браузере зрителя.
     expect(f).toMatch(/localStorage\.setItem\(STORE_KEY/);
   });

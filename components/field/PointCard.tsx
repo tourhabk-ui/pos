@@ -22,7 +22,8 @@
  * Форматы координат — lib/geo/format-coords, одни на экран и на буфер.
  */
 
-import { useCallback, useEffect, useState } from 'react';
+import { useOverlayEscape } from '@/hooks/use-modal-dialog';
+import { useCallback, useEffect, useRef, useState } from 'react';
 import { Copy, Check, Footprints, Car, X } from 'lucide-react';
 import { distanceM, formatCoords, type CoordFormat, type LatLng } from '@/lib/geo/format-coords';
 
@@ -92,12 +93,16 @@ export function PointCard({ kind, point, name, me, route, onRoute, onClose }: Po
     try { await navigator.clipboard?.writeText(text); setCopied(true); } catch { setCopied(false); }
   }, [text]);
 
+  // Карточка поверх карты немодальная: карта под ней живая. Escape её
+  // закрывает (если она верхний слой), фокус возвращается (hooks/use-modal-dialog).
+  const cardRef = useRef<HTMLDivElement>(null);
+  useOverlayEscape(true, onClose, cardRef);
   const dist = kind === 'pin' && me ? distanceM(me, point) : null;
   const bearing = kind === 'pin' && me ? Math.round(bearingDeg(me, point)) : null;
   const title = kind === 'me' ? 'Я' : (name ?? 'Точка на карте');
 
   return (
-    <div className="fx-glass-dense rounded-2xl px-4 pt-3 pb-3 text-white" role="dialog" aria-label={title}>
+    <div ref={cardRef} className="fx-glass-dense rounded-2xl px-4 pt-3 pb-3 text-white" role="dialog" aria-label={title}>
       <div className="flex items-start gap-3">
         <div className="flex-1 min-w-0">
           <p className="text-[11px] uppercase tracking-wider text-white/70">{title}</p>

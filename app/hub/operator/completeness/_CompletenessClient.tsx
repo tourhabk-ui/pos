@@ -27,7 +27,8 @@
  * Три исхода запроса: список, пустой список, «не смог проверить» (§4.0).
  */
 
-import React, { useState, useEffect } from 'react';
+import { useModalDialog } from '@/hooks/use-modal-dialog';
+import React, { useState, useEffect, useRef } from 'react';
 import {
   CheckCircle2, AlertCircle, RefreshCw, Zap, AlertTriangle, ChevronDown, X, Pencil, ArrowRight,
 } from 'lucide-react';
@@ -270,6 +271,11 @@ export default function CompletenessClient() {
   const [error, setError] = useState<string | null>(null);
   const [expandedTour, setExpandedTour] = useState<string | null>(null);
   const [quickFill, setQuickFill] = useState<QuickFillModal>({ open: false, value: '' });
+  // Окно подтверждения — общим правилом слоёв (hooks/use-modal-dialog):
+  // фокус внутрь, Escape закрывает, Tab не уходит под затемнение, фокус
+  // возвращается на кнопку; пока идёт запрос, окно не закрывается.
+  const quickFillRef = useRef<HTMLDivElement>(null);
+  useModalDialog(quickFillRef, () => setQuickFill({ open: false, value: '' }), () => !quickFill.saving, quickFill.open);
 
   const fetchData = async () => {
     try {
@@ -498,7 +504,7 @@ export default function CompletenessClient() {
 
       {/* Быстрое поле — непрозрачный диалог (подтверждение, §2). */}
       {quickFill.open && (
-        <div className="fixed inset-0 bg-black/40 flex items-center justify-center z-50 p-4" role="dialog" aria-modal="true" aria-label="Заполнить поле">
+        <div className="fixed inset-0 bg-black/40 flex items-center justify-center z-50 p-4" ref={quickFillRef} role="dialog" aria-modal="true" aria-label="Заполнить поле">
           <div className="ds-card max-w-md w-full p-5 space-y-4">
             <div className="flex items-start justify-between gap-3">
               <div className="min-w-0">

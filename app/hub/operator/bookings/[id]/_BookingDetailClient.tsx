@@ -1,6 +1,7 @@
 'use client';
 
-import { useState } from 'react';
+import { useModalDialog } from '@/hooks/use-modal-dialog';
+import { useState, useRef } from 'react';
 import useSWR from 'swr';
 import { formatDateOnly } from '@/lib/dates/date-only';
 import {
@@ -82,6 +83,11 @@ export default function BookingDetailClient({ bookingId }: Props) {
    * 11.09 (#1802), а здесь кнопка срабатывала с первого касания.
    */
   const [confirmNoShow, setConfirmNoShow] = useState(false);
+  // Окно подтверждения — общим правилом слоёв (hooks/use-modal-dialog):
+  // фокус внутрь, Escape закрывает, Tab не уходит под затемнение, фокус
+  // возвращается на кнопку; пока идёт запрос, окно не закрывается.
+  const noShowRef = useRef<HTMLDivElement>(null);
+  useModalDialog(noShowRef, () => setConfirmNoShow(false), () => !updating, confirmNoShow);
   const [notification, setNotification] = useState<{ type: 'success' | 'error'; text: string } | null>(null);
   // Менеджер команды (CRM 2г): деньги ему закрыты, отмена — по праву от
   // владельца. Блоки прячутся здесь, а закрывает их сервер.
@@ -292,7 +298,7 @@ export default function BookingDetailClient({ bookingId }: Props) {
       {/* Непрозрачный по DS: отметка — действие, стекла здесь нет. */}
       {confirmNoShow && (
         <div className="fixed inset-0 z-50 flex items-end sm:items-center justify-center bg-black/50 p-4"
-          role="dialog" aria-modal="true" aria-labelledby="no-show-title">
+          ref={noShowRef} role="dialog" aria-modal="true" aria-labelledby="no-show-title">
           <div className="w-full max-w-md rounded-2xl border border-[var(--border)] bg-[var(--bg-card)] p-5 space-y-4">
             <div className="flex items-start gap-3">
               <UserX className="w-5 h-5 mt-0.5 shrink-0 text-[var(--warning)]" />
