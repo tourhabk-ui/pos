@@ -257,6 +257,30 @@ describe('личка: свободный текст идёт в мозг Куз�
     expect(logged.some((l) => l.includes('цикл инструментов не выполнен'))).toBe(false);
   });
 
+  it('длинный ответ — частями, каждая в пределе 4096; хвост с 112 дошёл; клавиатура под последней (#3199, K8)', async () => {
+    const { telegramHtmlIssue } = await import('@/lib/notifications/telegram-html');
+    const para = 'Абзац плана по дням с ценами и предупреждениями. '.repeat(20);
+    const long = `${Array.from({ length: 8 }, (_, i) => `<b>День ${i + 1}</b>\n${para}`).join('\n\n')}\n\nКОНЕЦ-ОТВЕТА: в беде — 112.`;
+    expect(long.length).toBeGreaterThan(6000);
+    m.tools.mockResolvedValue({ content: long, provider: 'deepseek' });
+    await post('Составь план на неделю');
+    const calls = m.tgSend.mock.calls.map((c) => c[0] as { text: string; replyMarkup?: unknown });
+    expect(calls.length).toBeGreaterThanOrEqual(2);
+    for (const c of calls) {
+      expect(c.text.length).toBeLessThanOrEqual(4096);
+      expect(telegramHtmlIssue(c.text)).toBeNull();
+    }
+    const joined = calls.map((c) => c.text).join('\n');
+    expect(joined).toContain('КОНЕЦ-ОТВЕТА');
+    expect(joined).not.toMatch(/…$/m);
+    expect(calls.slice(0, -1).every((c) => c.replyMarkup === undefined)).toBe(true);
+  });
+
+  it('короткий ответ — одно сообщение, как прежде', async () => {
+    await post('Когда лучше идти на Авачинский вулкан?');
+    expect(m.tgSend).toHaveBeenCalledTimes(1);
+  });
+
   it('повтор того же апдейта (Bot API не дождался ответа) — второго ответа и второй записи нет', async () => {
     await post('Когда лучше идти на Авачинский вулкан?', { updateId: 555001 });
     await post('Когда лучше идти на Авачинский вулкан?', { updateId: 555001 });
