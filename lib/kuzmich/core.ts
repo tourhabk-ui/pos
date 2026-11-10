@@ -3240,7 +3240,10 @@ export async function aiChat(opts: {
   const loopTiming = newLoopTiming();
   let answer = await aiChatAgentLoop(userContent, systemContent, history, extraUserMsg, toolRuns, provenance, loopTiming)
     .then(r => (r?.trim() ? cleanAIResponse(r.trim()) : ''))
-    .catch(() => '');
+    // Отказ цикла инструментов называется в логе, как на сайте, в стриме и в
+    // A2A (#3199, K9): молча он неотличим от «все ноги вернули пусто», а
+    // турист получает запасной ответ без данных.
+    .catch((err: unknown) => { logSwallowedFailure('kuzmich', 'цикл инструментов', err); return ''; });
 
   // Ответ ли это агентного цикла — от этого зависит, заземляют ли его вызовы
   // инструментов. Запасной путь идёт БЕЗ них, и приписывать ему чужие вызовы

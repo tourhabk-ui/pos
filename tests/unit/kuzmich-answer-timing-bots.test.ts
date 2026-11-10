@@ -160,3 +160,23 @@ describe('MAX, вебхук /api/max/kuzmich → цикл инструменто
     });
   });
 });
+
+describe('MAX: длинный ответ — частями в пределе 4000 (#3199, K8)', () => {
+  it('ответ длиннее 4000 знаков уходит несколькими сообщениями, хвост дошёл; короткий — одним', async () => {
+    const para = 'Абзац плана по дням с ценами и предупреждениями. '.repeat(20);
+    const long = `${Array.from({ length: 8 }, (_, i) => `День ${i + 1}\n${para}`).join('\n\n')}\n\nКОНЕЦ-ОТВЕТА: в беде — 112.`;
+    m.tools.mockResolvedValue({ content: long, provider: 'deepseek' });
+    const send = () => max.POST(new NextRequest('http://localhost/api/max/kuzmich', {
+      method: 'POST',
+      body: JSON.stringify({
+        update_type: 'message_created',
+        message: { recipient: { chat_id: 78 }, sender: { user_id: 78, name: 'Анна' }, body: { text: ASK } },
+      }),
+    }));
+    await send();
+    const texts = m.maxSend.mock.calls.filter((c) => c[0] === 78).map((c) => String(c[1]));
+    expect(texts.length).toBeGreaterThanOrEqual(2);
+    for (const t of texts) expect(t.length).toBeLessThanOrEqual(4000);
+    expect(texts.join('\n')).toContain('КОНЕЦ-ОТВЕТА');
+  });
+});

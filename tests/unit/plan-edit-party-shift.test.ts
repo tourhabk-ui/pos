@@ -358,3 +358,14 @@ describe('прежние правки: тур, сменивший дату, пе
     expect(fakeRead).not.toHaveBeenCalled();
   });
 });
+
+describe('add_day — записка называет новую дату отъезда (#3199, Б21)', () => {
+  it('день вставлен в середину: дни после него сдвинулись, отъезд — новой датой', async () => {
+    miniDay = day(2, 'activity', 'Рыбалка на Авче', { activityType: 'fishing' });
+    const r = await applyPlanEdit(plan(), { kind: 'add_day', interest: 'fishing' }, deps());
+    if (!r.ok) throw new Error(r.reason);
+    expect(r.plan.params.departureDate).toBe('2027-07-17');
+    expect(r.note).toContain('Дни после него сдвинулись на день позже, отъезд теперь 17 июля');
+    expect(r.note).not.toContain('остальные дни не менялись');
+  });
+});

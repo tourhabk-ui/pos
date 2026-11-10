@@ -175,6 +175,26 @@ describe('fetch', () => {
     expect(doc.text).not.toMatch(/\+7|@/);
   });
 
+  it('тур: единица цены названа всегда — за группу, за день, не записана (#3199)', async () => {
+    const row = (price_unit: string | null) => ({
+      id: '13', title: 'Вертолёт', slug: 'heli', short_description: null, description: null,
+      base_price: '196000.00', currency: 'RUB', price_unit, duration_hours: '6.00', duration_type: 'day', multi_day_count: null,
+      difficulty: null, season_start: null, season_end: null, location_name: null,
+      included: null, not_included: null, what_to_bring: null, safety_notes: null,
+      program: null, price_note: null, cancellation_policy: null, operator_name: 'Оператор',
+    });
+    query.mockResolvedValueOnce({ rows: [row('per_tour')] });
+    const group = await fetchDocument('tour:13', BASE);
+    expect(group.text).toContain('Цена: 196000 RUB за группу');
+    expect(group.metadata).toMatchObject({ price: 196000, price_unit: 'per_tour' });
+    query.mockResolvedValueOnce({ rows: [row('per_day_per_person')] });
+    expect((await fetchDocument('tour:13', BASE)).text).toContain('Цена: 196000 RUB за чел./день');
+    query.mockResolvedValueOnce({ rows: [row(null)] });
+    const unknown = await fetchDocument('tour:13', BASE);
+    expect(unknown.text).toContain('Цена: 196000 RUB — за что назначена цена, не записано');
+    expect(unknown.text).not.toContain('за человека');
+  });
+
   it('место: видимое и не слитое, с профилем безопасности и 112', async () => {
     query.mockResolvedValueOnce({ rows: [{
       key: 'kurilskoe-ozero', name: 'Курильское озеро', description: 'Нерест нерки', essence: null, location_type: 'lake', category: null,

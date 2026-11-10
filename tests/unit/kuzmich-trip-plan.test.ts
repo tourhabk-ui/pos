@@ -608,8 +608,38 @@ describe('план говорит то, что знает движок', () => {
     // (planAssumptions) и стоит последней — после поправок к словам туриста.
     // Поправки к возрасту детей нет с 29.10: неразобранный возраст — отказ
     // без плана (readChildren, tests/unit/mcp-plan-answer), а не заметка.
-    expect(src).toMatch(/startNote\(start, plannedFor\), daysNote, interestsNote,\s*group\.note, budget\.note, assumptions,/);
+    expect(src).toMatch(/startNote\(start, plannedFor\), daysNote, interestsNote,\s*group\.note, styleNote, restNote, budget\.note, assumptions,/);
     expect(parseChatInterestsDetailed('что-нибудь интересное')).toEqual({ interests: ['volcano', 'bears', 'thermal'], defaulted: true });
     expect(parseChatInterestsDetailed('рыбалка').defaulted).toBe(false);
+  });
+});
+
+describe('обещано наружу ⇔ отдано в плане: погода (#3199, M9)', () => {
+  // Описание make_trip_plan обещало «trip plan with weather» — MCP, OpenAPI,
+  // A2A и мост это цитировали, — а текст плана прогноза не несёт: движок
+  // кладёт его только в подсказку «Подробной программы». Сторож держит связку:
+  // начнёт план отдавать прогноз — тест потребует вернуть слово.
+  it('в тексте плана прогноза нет — и ни описание инструмента, ни навык A2A его не обещают', async () => {
+    const { PUBLIC_MCP_TOOLS } = await import('@/lib/mcp/public-tools');
+    const { buildSkills } = await import('@/lib/a2a/agent-card');
+    const withForecast = { ...day({}), weatherForecast: { description: 'Пасмурно', tempMin: 3, tempMax: 9 } } as unknown as DayPlan;
+    const delivers = formatTripPlanForChat([withForecast], [], null).includes('Пасмурно');
+    const tool = PUBLIC_MCP_TOOLS.find((t) => t.name === 'make_trip_plan');
+    const skill = buildSkills().find((s) => s.id === 'make_trip_plan');
+    const promises = /with weather|weather forecast|с погодой|с прогнозом/i.test(tool?.description ?? '')
+      || (skill?.tags ?? []).includes('weather');
+    expect(tool).toBeDefined();
+    expect(skill).toBeDefined();
+    expect(promises).toBe(delivers);
+  });
+});
+
+describe('ссылка на образец — не «страница этого плана» (#3199, M8)', () => {
+  it('строка называет образец, его название и что он не ваш план', () => {
+    const text = formatTripPlanForChat([day({})], [], { slug: 'volcanoes-7', title: 'Вулканы за неделю' });
+    expect(text).toContain('Похожий готовый план-образец «Вулканы за неделю»');
+    expect(text).toContain('это не ваш план');
+    expect(text).toMatch(/\/plans\/volcanoes-7/);
+    expect(text).not.toContain('Готовая страница этого формата');
   });
 });

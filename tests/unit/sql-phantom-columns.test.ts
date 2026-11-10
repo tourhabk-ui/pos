@@ -75,8 +75,6 @@ const BASELINE = new Set<string>([
   "app/api/reviews/my/route.ts → reviews.images",
   "app/api/tours/[id]/availability/route.ts → operator_bookings.start_date",
   "app/api/tours/[id]/availability/route.ts → operator_tours.min_group_size",
-  "app/api/trip/plan/route.ts → operator_tours.coordinates",
-  "app/api/trip/plan/route.ts → operator_tours.season",
   "app/api/webhooks/cloudpayments/route.ts → transfer_bookings.amount",
   "app/api/webhooks/cloudpayments/route.ts → transfer_bookings.currency",
   "app/api/webhooks/cloudpayments/route.ts → transfer_payments.error_message",

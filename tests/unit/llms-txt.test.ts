@@ -39,6 +39,14 @@ describe('/llms.txt — актуально и честно', () => {
     expect(text).toContain('vedarai.ru');
   });
 
+  it('планировщик и готовые планы не обещают погоду (#3199, M9)', () => {
+    // Готовые планы считаются минимум на 30 дней вперёд — прогноза у них не
+    // бывает по построению; текст плана прогноза не несёт вовсе.
+    const lines = text.split('\n').filter((l) => /\/planner\)|\/plans\)|^## Готовые планы поездок/.test(l));
+    expect(lines.length).toBeGreaterThanOrEqual(3);
+    for (const l of lines) expect(l, l).not.toMatch(/погод/i);
+  });
+
   it('НЕ содержит старый домен tourhab.ru', () => {
     expect(text).not.toMatch(/tourhab\.ru/);
   });

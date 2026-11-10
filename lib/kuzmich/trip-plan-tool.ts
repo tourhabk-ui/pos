@@ -265,7 +265,9 @@ const MAX_GROUP = 30;
 export function readAdults(raw: string | undefined): { adults: number; given: boolean; note: string | null } {
   const t = (raw ?? '').trim();
   if (!t) return { adults: 2, given: false, note: null };
-  const m = /^\d{1,2}/.exec(t);
+  // Число целиком (#3199, M11а): `\d{1,2}` читало «100» как 10 и «250
+  // человек» как 25 — молча и с given: true.
+  const m = /^\d+/.exec(t);
   const n = m ? Number(m[0]) : NaN;
   if (!Number.isInteger(n) || n < 1 || n > MAX_GROUP) {
     return { adults: 2, given: false, note: `Число взрослых «${t}» не разобрал (нужно 1–${MAX_GROUP}) — считаю двоих.` };
@@ -869,7 +871,10 @@ export function formatTripPlanForChat(
   }
   lines.push('');
   if (preset) {
-    lines.push(`Готовая страница этого формата с турами и заявкой оператору: ${SITE}/plans/${preset.slug}`);
+    // Не «страница этого плана»: образец считает свой план — на двоих
+    // взрослых и на свои ближайшие даты (#3199, M8). Страница этого плана —
+    // строка /trip/<id> ниже.
+    lines.push(`Похожий готовый план-образец «${preset.title}» — собран на двоих взрослых и на свои даты, это не ваш план: ${SITE}/plans/${preset.slug}`);
   }
   lines.push(`Пересобрать под свои даты и состав: ${SITE}/planner`);
   return lines.join('\n');
@@ -899,11 +904,29 @@ export async function makeTripPlanForKuzmich(
     : null;
 
   const group = readAdults(args.adults);
+  // Число взрослых названо, но не годится (0, 50, «много») — плана нет и
+  // черновика нет, как у детей и у даты (#3199, M11а). «Считаю двоих» было бы
+  // ответом на другой вопрос: группе из 50 места и смета на двоих.
+  if ((args.adults ?? '').trim() && !group.given) {
+    return `План не собран: число взрослых «${(args.adults ?? '').trim()}» не разобрал — нужно от 1 до ${MAX_GROUP}. Группу больше ${MAX_GROUP} человек собирает оператор по заявке.`;
+  }
   const kids = readChildren(args.children, opts.surface ?? 'chat');
   // Возраст детей не разобран — плана нет и черновика нет: собрать план
   // «как для взрослых» значило бы снять возрастные допуски (ловушка 29.10).
   if (kids.kind === 'unknown') return kids.refusal;
   const budget = readBudgetTier(args.budget_tier);
+  // Как ехать и дни отдыха: названо и не разобрано — план собирается без них,
+  // и это говорится вслух, как у длительности и интересов (#3199, M11б).
+  const travelStyle = readTravelStyle(args.travel_style);
+  const restDays = readRestDays(args.rest_days);
+  const styleRaw = (args.travel_style ?? '').trim();
+  const restRaw = (args.rest_days ?? '').trim();
+  const styleNote = styleRaw && travelStyle === undefined
+    ? `Как ехать «${styleRaw}» не разобрал — собрал вперемешку. Можно: сам, с оператором, вперемешку.`
+    : null;
+  const restNote = restRaw && restDays === undefined
+    ? `Дни отдыха «${restRaw}» не разобрал (нужно число от 0 до ${MAX_REST_DAYS}) — дней отдыха в план не ставил.`
+    : null;
 
   const arrival = start.date;
   // `daysNum` — КАЛЕНДАРНЫЕ дни, считая первый и последний, поэтому шагов
@@ -919,8 +942,8 @@ export async function makeTripPlanForKuzmich(
     children: kids.children,
     fitnessLevel: 'moderate',
     budgetTier: budget.tier,
-    travelStyle: readTravelStyle(args.travel_style),
-    restDays: readRestDays(args.rest_days),
+    travelStyle,
+    restDays,
   }, { itinerary: 'plain' });
 
   // Жильё и машина к плану — настоящие варианты тем же подбором, что экран
@@ -943,7 +966,9 @@ export async function makeTripPlanForKuzmich(
   const text = formatTripPlanForChat(
     rec.days,
     planWarningLines(rec),
-    matchPreset(daysNum, interests, PLAN_PRESETS, month),
+    // Образец собран на двоих взрослых — семье с детьми он показал бы занятия
+    // не по возрасту (#3199, M8).
+    kids.children.length > 0 ? null : matchPreset(daysNum, interests, PLAN_PRESETS, month),
     {
       refusal: buildRefusal(month, interests, SITE, rec.catalogueOpen, rec.childBlocked ?? []), plannedFor,
       arrivalIso: arrival.toISOString().slice(0, 10), keepsSchedule,
@@ -961,7 +986,7 @@ export async function makeTripPlanForKuzmich(
   }, opts.surface ?? 'chat');
   const notes = [
     startNote(start, plannedFor), daysNote, interestsNote,
-    group.note, budget.note, assumptions,
+    group.note, styleNote, restNote, budget.note, assumptions,
   ].filter(Boolean);
 
   // План сохраняется черновиком — правка идёт по его id (#2224). Отказа

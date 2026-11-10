@@ -88,6 +88,7 @@ import { memberCabinetText } from '@/lib/chat-cabinet/member-entry';
 import { cabinetPressEdits } from '@/lib/chat-cabinet/payload';
 import { deliverCabinetMax, type MaxCabinetApi } from '@/lib/chat-cabinet/max-deliver';
 import { forgetMenuMessage, isMenuPayload, noteMenuMessage, sentMid, type TailApi } from '@/lib/max/menu-tail';
+import { splitMaxText } from '@/lib/max/split-text';
 import type { CabinetScreen } from '@/lib/chat-cabinet/screens';
 import { isCabinetSection } from '@/lib/roles/role-screen';
 import { MCHS_CHAT_BUTTON, MCHS_TOURIST_PAYLOAD, mchsTouristLinks, mchsTouristText } from '@/lib/safety/mchs-chat';
@@ -205,11 +206,18 @@ async function maxReply(chatId: number, text: string, quick?: string[][]): Promi
   }
   const api = getApi();
   if (!api) return;
-  try {
-    await api.sendMessageToChat(chatId, text, { format: 'html' });
-  } catch (err) {
-    // Ответ не блокирует обработку, но отказ доставки виден в логе.
-    logFailure('ответ в чат MAX', err);
+  // Длиннее предела MAX — частями (#3199, K8): одно сообщение сверх 4000
+  // знаков API может не принять, и человек не получил бы ничего.
+  const { parts, droppedChars } = splitMaxText(text);
+  if (droppedChars > 0) logFailure('ответ в чат MAX: хвост длиннее пяти сообщений не отправлен', new Error(`droppedChars=${droppedChars}`));
+  for (let i = 0; i < parts.length; i++) {
+    try {
+      await api.sendMessageToChat(chatId, parts[i]!, { format: 'html' });
+    } catch (err) {
+      // Ответ не блокирует обработку, но отказ доставки виден в логе.
+      logFailure(parts.length > 1 ? `ответ в чат MAX, часть ${i + 1} из ${parts.length}` : 'ответ в чат MAX', err);
+      return;
+    }
   }
 }
 
@@ -227,9 +235,21 @@ async function maxReplyToUser(userId: number, text: string): Promise<void> {
 async function maxReplyWithButtons(chatId: number, text: string, buttons: MaxButton[][]): Promise<void> {
   const api = getApi();
   if (!api) return;
+  // Длиннее предела MAX — частями (#3199, K8); кнопки — под последней.
+  const { parts, droppedChars } = splitMaxText(text);
+  if (droppedChars > 0) logFailure('ответ с кнопками в чат MAX: хвост длиннее пяти сообщений не отправлен', new Error(`droppedChars=${droppedChars}`));
+  for (let i = 0; i < parts.length - 1; i++) {
+    try {
+      await api.sendMessageToChat(chatId, parts[i]!, { format: 'html' });
+    } catch (err) {
+      logFailure(`ответ с кнопками в чат MAX, часть ${i + 1} из ${parts.length}`, err);
+      return;
+    }
+  }
+  const lastText = parts[parts.length - 1]!;
   let res: unknown;
   try {
-    res = await (api.sendMessageToChat as (chatId: number, text: string, opts: unknown) => Promise<unknown>)(chatId, text, {
+    res = await (api.sendMessageToChat as (chatId: number, text: string, opts: unknown) => Promise<unknown>)(chatId, lastText, {
       format: 'html',
       attachments: [{ type: 'inline_keyboard', payload: { buttons } }],
     });
@@ -238,7 +258,7 @@ async function maxReplyWithButtons(chatId: number, text: string, buttons: MaxBut
     return;
   }
   // Строка меню — только под последним сообщением (31.10): у прежнего снимаем.
-  await noteMenuMessage(api as unknown as TailApi, chatId, sentMid(res), text, buttons);
+  await noteMenuMessage(api as unknown as TailApi, chatId, sentMid(res), lastText, buttons);
 }
 
 /** Правка сообщения с кнопками принята: если на нём строка меню — оно теперь последнее. */

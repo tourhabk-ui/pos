@@ -96,3 +96,39 @@ describe('поля объявлены везде, где их читают', () 
     expect(core).toMatch(/travel_style: args\.travel_style, rest_days: args\.rest_days/);
   });
 });
+
+describe('названное и не разобранное — вслух или отказ (#3199, M11)', () => {
+  it('стиль и дни отдыха не разобраны — план без них, и это сказано', async () => {
+    const text = await makeTripPlanForKuzmich({ days: '7', interests: 'треккинг', when: '2027-07-10', travel_style: 'как получится', rest_days: '2 дня' });
+    const profile = recommendMock.mock.calls[0][0] as Record<string, unknown>;
+    expect(profile.travelStyle).toBeUndefined();
+    expect(profile.restDays).toBeUndefined();
+    expect(text).toContain('Как ехать «как получится» не разобрал — собрал вперемешку.');
+    expect(text).toContain('Дни отдыха «2 дня» не разобрал (нужно число от 0 до 14)');
+  });
+
+  it('разобрано или не названо — заметок нет', async () => {
+    const a = await makeTripPlanForKuzmich({ days: '7', interests: 'треккинг', when: '2027-07-10', travel_style: 'сам', rest_days: '2' });
+    const b = await makeTripPlanForKuzmich({ days: '7', interests: 'треккинг', when: '2027-07-10' });
+    for (const t of [a, b]) expect(t).not.toMatch(/не разобрал — собрал вперемешку|Дни отдыха «/);
+  });
+
+  it('число взрослых названо и не годится — плана нет, движок не зван', async () => {
+    for (const adults of ['50', '0', '100', 'много']) {
+      recommendMock.mockClear();
+      const text = await makeTripPlanForKuzmich({ days: '7', interests: 'треккинг', when: '2027-07-10', adults });
+      expect(text, adults).toMatch(/^План не собран: число взрослых «/);
+      expect(recommendMock, adults).not.toHaveBeenCalled();
+    }
+  });
+
+  it('число взрослых не названо — план на двоих, как прежде', async () => {
+    await makeTripPlanForKuzmich({ days: '7', interests: 'треккинг', when: '2027-07-10' });
+    expect(recommendMock).toHaveBeenCalledWith(expect.objectContaining({ adults: 2 }), { itinerary: 'plain' });
+  });
+
+  it('семье с детьми образец на двоих взрослых не предлагается (M8)', async () => {
+    const kids = await makeTripPlanForKuzmich({ days: '7', interests: 'вулканы и медведи', when: '2027-07-10', children: '8, 12' });
+    expect(kids).not.toContain('/plans/');
+  });
+});

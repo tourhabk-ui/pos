@@ -32,7 +32,7 @@
 
 import { NextRequest, NextResponse } from 'next/server';
 import { adminChatYieldsToPartner } from '@/lib/roles/admin-partner-chat';
-import { repairTelegramHtml, TELEGRAM_CAPTION_LIMIT } from '@/lib/notifications/telegram-html';
+import { repairTelegramHtml, splitTelegramHtmlReport, TELEGRAM_CAPTION_LIMIT } from '@/lib/notifications/telegram-html';
 import { z } from 'zod';
 import { pool } from '@/lib/db-pool';
 import { telegramService } from '@/lib/notifications/telegram';
@@ -429,15 +429,27 @@ async function sendKuzmichReply(
   replyMarkup?: { inline_keyboard: Array<Array<{ text: string; url: string }>> } | ReturnType<typeof touristReplyMarkup>,
 ): Promise<void> {
   const clean = emphasizeTripDays(sanitizeForTelegram(text.replace(/TourHab/g, 'Ведар')));
-  const html = await telegramService.sendMessage({
-    chatId: String(chatId), text: repairTelegramHtml(clean), parseMode: 'HTML', replyMarkup,
-  });
-  if (html.success) return;
-  const plain = await telegramService.sendMessage({
-    chatId: String(chatId), text: repairTelegramHtml(esc(stripTags(clean))), parseMode: 'HTML', replyMarkup,
-  });
-  if (!plain.success) {
-    console.error('[telegram/webhook] ответ Кузьмича не доставлен', { html: html.error, plain: plain.error });
+  // Длинный ответ — частями (#3199, K8). Прежде он резался до 4096 знаков с
+  // «…», и пропадал именно хвост: поправка к «всё спокойно», предупреждения
+  // МЧС, строка про регистрацию и 112, смета и ID плана.
+  const { parts, droppedChars } = splitTelegramHtmlReport(clean);
+  if (droppedChars > 0) {
+    console.error('[telegram/webhook] ответ Кузьмича длиннее пяти сообщений — хвост не отправлен', { droppedChars });
+  }
+  for (let i = 0; i < parts.length; i++) {
+    // Клавиатура — под последней частью: кнопки остаются под концом ответа.
+    const markup = i === parts.length - 1 ? replyMarkup : undefined;
+    const part = parts[i]!;
+    const html = await telegramService.sendMessage({ chatId: String(chatId), text: part, parseMode: 'HTML', replyMarkup: markup });
+    if (html.success) continue;
+    // Теги не приняты — та же часть без тегов; сущности (&lt;, &amp;) остаются верными.
+    const plain = await telegramService.sendMessage({
+      chatId: String(chatId), text: repairTelegramHtml(stripTags(part)), parseMode: 'HTML', replyMarkup: markup,
+    });
+    if (!plain.success) {
+      console.error('[telegram/webhook] ответ Кузьмича не доставлен', { part: i + 1, of: parts.length, html: html.error, plain: plain.error });
+      return;
+    }
   }
 }
 
