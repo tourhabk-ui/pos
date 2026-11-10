@@ -267,11 +267,15 @@ export type ClosedReason = 'returned' | 'cancelled';
  * повторное «вернулся» не должно читаться как новое закрытие. Всех, кого уже
  * встревожили, извещает (правило 10) — и называет причину: «отменил» — не
  * «вернулся, искать не нужно».
+ *
+ * Хэш ключа повтора с закрытой записи снимается: он нужен только открытой
+ * (по нему форма узнаёт свою запись), а на закрытой остался бы меткой
+ * устройства, связывающей выходы одного человека между собой.
  */
 export async function closeTripWatch(id: string, by: 'link' | 'chat', reason: ClosedReason): Promise<boolean> {
   const { rowCount } = await pool.query(
     `UPDATE route_registrations
-        SET completed_at = now(), closed_by = $2, closed_reason = $3, updated_at = now()
+        SET completed_at = now(), closed_by = $2, closed_reason = $3, submit_key_hash = NULL, updated_at = now()
       WHERE id = $1 AND completed_at IS NULL`,
     [id, by, reason],
   );

@@ -2869,7 +2869,8 @@ withPg('кабинет туриста на настоящем PostgreSQL', () =>
     )).rows[0];
     expect(await phones(overdue)).toEqual({ leader_phone: '+79990004444', emergency_contact_phone: '+79990005555', lat: 53.25 });
 
-    await pool.query(`UPDATE route_registrations SET completed_at = NOW(), closed_reason = 'returned' WHERE id = $1`, [overdue]);
+    // Закрыт мимо closeTripWatch — хэш ключа повтора формы (1417) на записи остался.
+    await pool.query(`UPDATE route_registrations SET completed_at = NOW(), closed_reason = 'returned', submit_key_hash = $2 WHERE id = $1`, [overdue, 'd'.repeat(64)]);
     const alive = await reg(`VALUES ($1, 'Мутновский', CURRENT_DATE, CURRENT_DATE + 2, 2, 'Иван', '+79990004444',
          'Мама', '+79990005555', NOW() + interval '2 days', NOW(), 52.45, 158.19)`);
     const r2 = await callDelete(uid, { confirm: true, phrase: 'УДАЛИТЬ' });
@@ -2896,6 +2897,10 @@ withPg('кабинет туриста на настоящем PostgreSQL', () =>
     for (const id of [overdue, alive]) {
       expect(await phones(id)).toEqual({ leader_phone: '', emergency_contact_phone: '', lat: null });
     }
+    // Хэш ключа устройства стёрт тоже: по нему стёртый выход связывался бы с
+    // записью того же человека, сделанной без аккаунта.
+    const key = await pool.query<{ submit_key_hash: string | null }>(`SELECT submit_key_hash FROM route_registrations WHERE id = $1`, [overdue]);
+    expect(key.rows[0]?.submit_key_hash).toBeNull();
   });
 
   it('удаление: закрытый недавно контроль, по которому писали контакту, держит, пока не дойдёт отбой; потом журнал доставки теряет телефон и почту контакта — роли, ступени и отказ без адреса остаются (#2327, ревью круга 10)', async () => {
@@ -3864,11 +3869,43 @@ withPg('кабинет туриста на настоящем PostgreSQL', () =>
     }
     authAs.userId = userId;
 
+    // Тот же вошедший с другого устройства и из кэша старой формы (ключа нет
+    // вовсе) — запись его: узнаётся по аккаунту, а не по ключу. Без этой ноги
+    // вошедший турист получал бы вторую открытую запись — тот самый С1.
+    const send = async (body: Record<string, unknown>, ip: string) => {
+      const res = await POST(new NextRequest('https://vedarai.ru/api/safety/register', {
+        method: 'POST', headers: { 'content-type': 'application/json', 'x-forwarded-for': ip }, body: JSON.stringify(body),
+      }));
+      return await res.json() as { success: boolean; registration_id: string };
+    };
+    const { submit_key: _ownKey, ...noKey } = payload;
+    expect((await send({ ...payload, submit_key: 'another-device-of-same-user-01' }, '203.0.113.220')).registration_id).toBe(savedJson.registration_id);
+    expect((await send(noKey, '203.0.113.221')).registration_id).toBe(savedJson.registration_id);
+    const owner = await pool.query<{ user_id: string | null }>(`SELECT user_id FROM route_registrations WHERE id = $1`, [savedJson.registration_id]);
+    expect(owner.rows[0]?.user_id).toBe(userId);
+    // Другой аккаунт с теми же данными — без ключа и с чужим ключом — чужого номера не получает.
+    authAs.userId = otherUserId;
+    for (const [i, body] of [noKey, { ...payload, submit_key: 'device-of-another-account-0001' }].entries()) {
+      const theirs = await send(body, `203.0.113.${230 + i}`);
+      expect(theirs.success).toBe(true);
+      expect(theirs.registration_id).not.toBe(savedJson.registration_id);
+      await pool.query(`UPDATE route_registrations SET completed_at = now(), closed_by = 'link', closed_reason = 'cancelled' WHERE id = $1`, [theirs.registration_id]);
+    }
+    authAs.userId = userId;
+
+    // Пока контроль открыт, на записи лежит хэш ключа, а не сам ключ.
+    const hashOf = async () => (await pool.query<{ submit_key_hash: string | null }>(
+      `SELECT submit_key_hash FROM route_registrations WHERE id = $1`, [savedJson.registration_id])).rows[0]?.submit_key_hash;
+    expect(await hashOf()).toMatch(/^[0-9a-f]{64}$/);
+    expect(await hashOf()).not.toContain(String(payload.submit_key));
+
     // «Я вернулся» по единственной ссылке закрывает всё, что было открыто.
     const { closeTripWatch } = await import('@/lib/safety/trip-watch');
     expect(await closeTripWatch(savedJson.registration_id, 'link', 'returned')).toBe(true);
     rows = await rowsOf(phone);
     expect(rows.filter((r) => r.completed_at === null)).toHaveLength(0);
+    // Закрытой записи ключ не нужен: метка устройства с неё снята.
+    expect(await hashOf()).toBeNull();
   });
 
   it('перепись двойников: считает пары в окне, открытых при закрытой первой и тех, по кому уже будили', async () => {

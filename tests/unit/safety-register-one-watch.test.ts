@@ -15,6 +15,7 @@
  */
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
 import { createHash } from 'node:crypto';
+import { inspect } from 'node:util';
 import { readFileSync, readdirSync, statSync } from 'node:fs';
 import { join } from 'node:path';
 import { NextRequest } from 'next/server';
@@ -74,6 +75,19 @@ function post(url: string, payload: unknown, headers: Record<string, string> = {
     headers: { 'content-type': 'application/json', 'x-forwarded-for': `203.0.113.${ipSeq}`, ...headers },
     body: JSON.stringify(payload),
   });
+}
+
+/**
+ * Всё, что код написал в консоль любым способом, — как это ляжет в журнал:
+ * объекты развёрнуты целиком (String(объект) дал бы «[object Object]» и
+ * спрятал бы утечку).
+ */
+function captureConsole() {
+  const spies = (['error', 'warn', 'info', 'log', 'debug'] as const).map((k) => vi.spyOn(console, k).mockImplementation(() => {}));
+  return {
+    text: () => spies.flatMap((sp) => sp.mock.calls).map((c) => c.map((a) => (typeof a === 'string' ? a : inspect(a, { depth: 8 }))).join(' ')).join('\n'),
+    restore: () => spies.forEach((sp) => sp.mockRestore()),
+  };
 }
 
 /** Шрифты настоящего PDF: тот же приём, что в pdf-cyrillic-fonts. */
@@ -208,15 +222,54 @@ describe('POST /api/safety/register — одна запись на выход', 
   it('ключ повтора: в запись уходит его SHA-256, а не сам ключ; в ответе и в логе ключа нет', async () => {
     const { POST } = await import('@/app/api/safety/register/route');
     const key = '0b7c4f0e-6a55-4f0a-9d53-2a1f6f0f7c11';
-    const logs = vi.spyOn(console, 'error').mockImplementation(() => {});
+    const logs = captureConsole();
     const res = await POST(post('/api/safety/register', body({ submit_key: key })));
     expect(res.status).toBe(200);
     const input = m.once.mock.calls[0][0] as Record<string, unknown>;
     expect(input.submitKeyHash).toBe(createHash('sha256').update(key).digest('hex'));
     expect(JSON.stringify(input)).not.toContain(key);
     expect(JSON.stringify(await res.json())).not.toContain(key);
-    expect(logs.mock.calls.flat().map(String).join(' ')).not.toContain(key);
-    logs.mockRestore();
+    expect(logs.text()).not.toContain(key);
+    logs.restore();
+  });
+
+  it('база отказала на запросе с ключом — ни ключа, ни полей заявки в журнале нет', async () => {
+    // Журнал читают не только свои: ключ с полями заявки в нём — готовый путь
+    // к номеру чужой записи.
+    const { POST } = await import('@/app/api/safety/register/route');
+    const key = 'device-key-on-failing-database-01';
+    for (const failure of [
+      Object.assign(new Error(`boom ${key} +70000000000`), { code: '57P01' }),
+      new Error('timeout exceeded when trying to connect'),
+      Object.assign(new Error('invalid input'), { code: '22P02' }),
+    ]) {
+      m.once.mockRejectedValueOnce(failure);
+      const logs = captureConsole();
+      const res = await POST(post('/api/safety/register', body({ submit_key: key })));
+      expect([400, 503]).toContain(res.status);
+      expect(JSON.stringify(await res.json())).not.toContain(key);
+      const logged = logs.text();
+      logs.restore();
+      expect(logged).toMatch(/контроль не записан/);
+      expect(logged).not.toContain(key);
+      expect(logged).not.toMatch(/\+7000|Тест|Контакт|Авачинский/);
+    }
+  });
+
+  it('границы ключа: 16 и 64 знака принимаются, 15, 65 и пустая строка — нет', async () => {
+    const { POST } = await import('@/app/api/safety/register/route');
+    for (const good of ['k'.repeat(16), 'K'.repeat(64), 'a-b_C-0123456789']) {
+      m.once.mockClear();
+      const res = await POST(post('/api/safety/register', body({ submit_key: good })));
+      expect(res.status, good).toBe(200);
+      expect((m.once.mock.calls[0][0] as Record<string, unknown>).submitKeyHash).toBe(createHash('sha256').update(good).digest('hex'));
+    }
+    m.once.mockClear();
+    for (const bad of ['k'.repeat(15), 'k'.repeat(65), '']) {
+      const res = await POST(post('/api/safety/register', body({ submit_key: bad })));
+      expect(res.status, JSON.stringify(bad)).toBe(400);
+    }
+    expect(m.once).not.toHaveBeenCalled();
   });
 
   it('ключа нет (старая форма) — запись без него: повтор узнает только вход в аккаунт', async () => {
@@ -290,12 +343,29 @@ describe('отправка формы: контроль и лист — два �
     const { submitTripWatchForm, REGISTER_SUBMIT_TEXT } = await import('@/lib/safety/register-submit');
     const spy = silence();
     let n = 0;
-    const res = await submitTripWatchForm({}, async () => { n += 1; throw new TypeError('Failed to fetch'); });
+    const res = await submitTripWatchForm({}, async () => { n += 1; throw new TypeError('Failed to fetch'); }, 'device-key-0000000001');
     expect(res).toEqual({ ok: false, error: REGISTER_SUBMIT_TEXT.noAnswer });
     expect(REGISTER_SUBMIT_TEXT.noAnswer).toMatch(/неизвестно/);
     expect(REGISTER_SUBMIT_TEXT.noAnswer).toMatch(/не меняя данных/);
+    // Обещание — про это устройство и эту страницу: повтор из другого браузера
+    // сервер за свой не признает.
+    expect(REGISTER_SUBMIT_TEXT.noAnswer).toMatch(/с этого устройства второй записи не появится/);
+    expect(REGISTER_SUBMIT_TEXT.noAnswer).toMatch(/Не закрывайте страницу/);
     // За листом без записи не ходим.
     expect(n).toBe(1);
+    spy.mockRestore();
+  });
+
+  it('ответа нет, а ключа повтора у формы нет — «второй записи не появится» не обещаем', async () => {
+    const { submitTripWatchForm, REGISTER_SUBMIT_TEXT } = await import('@/lib/safety/register-submit');
+    const spy = silence();
+    const res = await submitTripWatchForm({}, async () => { throw new TypeError('Failed to fetch'); }, null);
+    expect(res).toEqual({ ok: false, error: REGISTER_SUBMIT_TEXT.noAnswerNoKey });
+    expect(REGISTER_SUBMIT_TEXT.noAnswerNoKey).toMatch(/неизвестно/);
+    expect(REGISTER_SUBMIT_TEXT.noAnswerNoKey).not.toMatch(/второй записи не появится/);
+    // Сказано, чем это кончится и что сделать: по первой записи тревога уйдёт контакту.
+    expect(REGISTER_SUBMIT_TEXT.noAnswerNoKey).toMatch(/записей станет две/);
+    expect(REGISTER_SUBMIT_TEXT.noAnswerNoKey).toMatch(/предупредите его/);
     spy.mockRestore();
   });
 
@@ -395,6 +465,67 @@ describe('отправка формы: контроль и лист — два �
       await mod.submitTripWatchForm({}, fetchImpl);
       expect(String(sent[0].body.submit_key)).toMatch(KEY_RULE);
       expect(sent[0].body.submit_key).not.toBe('<script>');
+    });
+
+    it('ключ берётся из криптографического источника; два устройства получают разные ключи', async () => {
+      const uuid = vi.fn(() => '11111111-2222-4333-8444-555555555555');
+      vi.stubGlobal('localStorage', storage());
+      vi.stubGlobal('crypto', { randomUUID: uuid, getRandomValues: () => { throw new Error('не должен понадобиться'); } });
+      vi.resetModules();
+      const first = await import('@/lib/safety/register-submit');
+      expect(first.tripWatchSubmitKey()).toBe('11111111-2222-4333-8444-555555555555');
+      expect(uuid).toHaveBeenCalledTimes(1);
+
+      // Настоящий источник, два свежих хранилища — два разных ключа.
+      vi.unstubAllGlobals();
+      const keys: string[] = [];
+      for (let i = 0; i < 2; i += 1) {
+        vi.stubGlobal('localStorage', storage());
+        vi.resetModules();
+        keys.push((await import('@/lib/safety/register-submit')).tripWatchSubmitKey() ?? '');
+        vi.unstubAllGlobals();
+      }
+      expect(keys[0]).toMatch(KEY_RULE);
+      expect(keys[1]).toMatch(KEY_RULE);
+      expect(keys[0]).not.toBe(keys[1]);
+    });
+
+    it('браузер без randomUUID: ключ из getRandomValues — 32 знака, и сервер его принимает', async () => {
+      const bytes = vi.fn((arr: Uint8Array) => { arr.forEach((_, i) => { arr[i] = (i * 37 + 11) % 256; }); return arr; });
+      vi.stubGlobal('localStorage', storage());
+      vi.stubGlobal('crypto', { getRandomValues: bytes });
+      vi.resetModules();
+      const mod = await import('@/lib/safety/register-submit');
+      const key = mod.tripWatchSubmitKey() ?? '';
+      expect(bytes).toHaveBeenCalledTimes(1);
+      expect(key).toMatch(/^[0-9a-f]{32}$/);
+      expect(mod.SUBMIT_KEY.test(key)).toBe(true);
+      vi.unstubAllGlobals();
+      const { POST } = await import('@/app/api/safety/register/route');
+      m.once.mockResolvedValueOnce({ id: '11111111-1111-4111-8111-111111111111', repeated: false });
+      expect((await POST(post('/api/safety/register', body({ submit_key: key })))).status).toBe(200);
+    });
+
+    it('само обращение к хранилищу запрещено (так отвечают браузеры с закрытыми данными сайта) — ключ в памяти, форма уходит', async () => {
+      const silent = silence();
+      Object.defineProperty(globalThis, 'localStorage', {
+        configurable: true,
+        get() { throw new DOMException('denied', 'SecurityError'); },
+      });
+      try {
+        vi.resetModules();
+        const mod = await import('@/lib/safety/register-submit');
+        const { sent, fetchImpl } = bodies();
+        const res = await mod.submitTripWatchForm({ n: 1 }, fetchImpl);
+        await mod.submitTripWatchForm({ n: 1 }, fetchImpl);
+        expect(res.ok).toBe(true);
+        expect(String(sent[0].body.submit_key)).toMatch(KEY_RULE);
+        expect(sent[2].body.submit_key).toBe(sent[0].body.submit_key);
+        expect(silent.mock.calls.map((c) => c.map(String).join(' ')).join('\n')).toMatch(/ключ повтора не прочитан с устройства/);
+      } finally {
+        Reflect.deleteProperty(globalThis, 'localStorage');
+        silent.mockRestore();
+      }
     });
 
     it('случайного источника нет — ключа нет: предсказуемый ключ хуже никакого, форма уходит без него', async () => {

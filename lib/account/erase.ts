@@ -1063,10 +1063,12 @@ export async function eraseUser(
     // держит тоже (CLOSED_WATCH_MAY_ALERT) — пока не дошёл отбой. group_members — спутники (имя, телефон, год рождения), route_description
     // — его слова о маршруте, last_position_* — где он был: точка с телефона
     // или трекера и её источник. Все NULL-допустимы (baseline, 680, 995).
+    // submit_key_hash (1417) — хэш ключа повтора формы: метка устройства, по
+    // которой стёртый выход связывался бы с его же записью без аккаунта.
     ['route_registrations', `UPDATE route_registrations SET leader_name = '${N}', leader_phone = '', leader_email = NULL,
         emergency_contact_name = '', emergency_contact_phone = '', emergency_contact_email = NULL,
         emergency_contact_relation = NULL, emergency_contact_telegram_chat_id = NULL, tourist_chat_channel = NULL, tourist_chat_id = NULL,
-        group_members = NULL, route_description = NULL,
+        group_members = NULL, route_description = NULL, submit_key_hash = NULL,
         last_position_lat = NULL, last_position_lng = NULL, last_position_at = NULL, last_position_source = NULL
       WHERE user_id = $1`],
     // Лента его карточек у партнёров (HIS_CRM_CONTACTS — до шага
