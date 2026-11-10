@@ -12,10 +12,16 @@
  * Первая редакция сторожа проверяла только этот роут — то есть зеленела бы,
  * появись отправка в соседнем файле. Теперь держит три вещи:
  *
- *  1. удалённые файлы и переменные не вернулись;
- *  2. запрет: серверный код слоя МЧС не ходит в сеть сам;
+ *  1. удалённые файлы и переменные `MCHS_API_*` не вернулись;
+ *  2. запрет: файлы, которые держат в руках состав группы для МЧС (перечень
+ *     `FILES` ниже — поимённо, а не «всё с mchs в имени»), сами в сеть не ходят;
  *  3. вызовом: живой роут кабинета оператора при заданном адресе сети не
  *     трогает и говорит подать заявку самому.
+ *
+ * Чего сторож НЕ видит: сетевой вызов в помощнике из другого каталога, который
+ * такой файл позовёт. Этот путь закрыт вызовом там, где группа читается с
+ * телефонами: tests/unit/chat-cabinet-service.test.ts жмёт кнопки выезда и
+ * письма с подменённым `fetch` и требует, чтобы его не звали.
  *
  * Единственный разрешённый выход — письмо на ящик Ведара
  * (lib/safety/mchs-letter); его получателя держит tests/unit/mchs-letter.test.ts.
@@ -58,43 +64,57 @@ describe('удалённый путь наружу не вернулся', () =>
     expect(existsSync(join(ROOT, f)), `${f} вернулся: он принимал состав группы и умел слать его наружу`).toBe(false);
   });
 
-  it('MCHS_API_URL и MCHS_API_TOKEN не читает ни код, ни примеры окружения', () => {
+  it('переменных MCHS_API_* не читает ни код, ни примеры окружения', () => {
+    const envFiles = ['.env.example', '.env.local.example', '.env.production.example', 'start.js', 'Dockerfile', 'docker-compose.yml'];
+    // Примеры окружения — на месте: исчезни они, проверка молча перестала бы их читать.
+    expect(envFiles.filter((f) => existsSync(join(ROOT, f)))).toEqual(expect.arrayContaining(['.env.example', '.env.local.example']));
     const files = [
       ...['app', 'lib', 'components', 'hooks', 'scripts'].flatMap((d) => walk(d, isCode)),
-      ...['.env.example', '.env.local.example', 'start.js', 'Dockerfile'].filter((f) => existsSync(join(ROOT, f))),
+      ...envFiles.filter((f) => existsSync(join(ROOT, f))),
       ...walk('.github/workflows', (f) => /\.ya?ml$/.test(f)),
     ];
     expect(files.length).toBeGreaterThan(500);
-    const hits = files.filter((f) => /MCHS_API_(URL|TOKEN)/.test(read(f)));
+    // Любое имя с этим началом: до 10.11 в примерах стояли и URL, и TOKEN, и KEY.
+    const hits = files.filter((f) => /MCHS_API_/.test(read(f)));
     expect(hits, `адрес приёма заявок МЧС снова упомянут:\n${hits.join('\n')}`).toEqual([]);
   });
 });
 
-describe('серверный код слоя МЧС не ходит в сеть сам', () => {
-  /** Всё, что читает или собирает данные группы для МЧС на сервере. */
-  const files = [
+describe('серверный код, который держит состав группы для МЧС, не ходит в сеть сам', () => {
+  /**
+   * Не к группам: разбор суточной сводки ГУ МЧС (погода, дороги, вулканы).
+   * Появится там сетевой вызов — это не утечка состава группы.
+   */
+  const NOT_ABOUT_GROUPS = new Set(['lib/safety/mchs-bulletin.ts']);
+
+  const FILES = [
     ...walk('lib/safety', (f) => /^mchs-.*\.ts$/.test(f)),
     ...walk('lib/chat-cabinet', (f) => /^mchs-.*\.ts$/.test(f)),
+    // Сервис кабинета читает выезд с именами и телефонами (loadMchsGroup с контактами).
+    'lib/chat-cabinet/service.ts',
     ...walk('app/api/operator/mchs', isCode),
-  ];
+    // Форма туриста: состав группы и лист «для МЧС».
+    ...walk('app/api/safety/register', isCode),
+  ].filter((f) => !NOT_ABOUT_GROUPS.has(f));
 
-  it('перечень не пуст и несёт живые файлы', () => {
-    expect(files).toEqual(expect.arrayContaining([
+  it('перечень несёт живые файлы, а исключения существуют', () => {
+    expect(FILES).toEqual(expect.arrayContaining([
       'lib/safety/mchs-letter.ts', 'lib/safety/mchs-chat.ts', 'lib/chat-cabinet/mchs-store.ts',
-      'app/api/operator/mchs/register/route.ts',
+      'lib/chat-cabinet/service.ts', 'app/api/operator/mchs/register/route.ts', 'app/api/safety/register/route.ts',
     ]));
+    for (const f of NOT_ABOUT_GROUPS) expect(existsSync(join(ROOT, f)), `${f} — исключение про несуществующий файл`).toBe(true);
   });
 
   // Запрет, а не сравнение текста: этих вызовов в слое быть не должно.
   const OUTBOUND = /\bfetch\s*\(|\baxios\b|\bundici\b|\bXMLHttpRequest\b|\bhttps?\.(request|get)\s*\(|from\s+['"](node:)?https?['"]|\bnet\.connect\b|\bWebSocket\b/;
 
-  it.each(files)('%s — без сетевых вызовов', (f) => {
+  it.each(FILES)('%s — без сетевых вызовов', (f) => {
     const code = read(f).replace(/\/\*[\s\S]*?\*\/|\/\/.*$/gm, '');
     expect(code).not.toMatch(OUTBOUND);
   });
 
-  it('почту в слое зовёт только письмо на ящик Ведара', () => {
-    const mailers = files.filter((f) => /email-service|nodemailer|sendEmail/.test(read(f)));
+  it('почту зовёт только письмо на ящик Ведара', () => {
+    const mailers = FILES.filter((f) => /email-service|nodemailer|sendEmail/.test(read(f)));
     expect(mailers).toEqual(['lib/safety/mchs-letter.ts']);
   });
 });

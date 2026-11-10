@@ -673,13 +673,32 @@ describe('письмо с данными выезда для МЧС — тест
   });
   const inserted = () => m.query.mock.calls.find((c) => isInsert(c[0]))?.[1] as unknown[] | undefined;
 
+  /** Сеть подменена: пока у сервиса в руках выезд с телефонами, наружу он не ходит (mchs-no-outbound). */
+  const net = vi.fn(async () => new Response('{}', { status: 200 }));
+
   beforeEach(() => {
     vi.stubEnv('SMTP_USER', 'robot');
     vi.stubEnv('SMTP_PASS', 'x');
     m.mail.mockResolvedValue({ success: true, messageId: 'id' });
     m.viaLock.length = 0;
+    net.mockClear();
+    vi.stubGlobal('fetch', net);
   });
-  afterEach(() => { vi.unstubAllEnvs(); });
+  afterEach(() => { vi.unstubAllEnvs(); vi.unstubAllGlobals(); });
+
+  it('выезд с контактами и письмо — без единого сетевого вызова: состав группы уходит только письмом на ящик Ведара', async () => {
+    db();
+    vi.stubEnv('MCHS_API_URL', 'https://example.invalid/register');
+    const view = await press(cabinetPayload.mchsGroup('81', '2026-11-20'));
+    expect(view.pd).toBe(true);
+    expect(view.text).toContain('Тест, тел. +70000000000');
+    await press(ASK);
+    const sent = await press(SEND);
+    expect(sent.text).toContain('ушло на тестовый ящик Ведара');
+    expect(m.mail).toHaveBeenCalledTimes(1);
+    expect((m.mail.mock.calls[0]![0] as { to: string }).to).toBe('flo@vedarai.ru');
+    expect(net).not.toHaveBeenCalled();
+  });
 
   it('вопрос: куда уйдёт письмо, без имён; под выездом у владельца — кнопка письма', async () => {
     db();

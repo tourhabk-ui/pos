@@ -43,7 +43,8 @@ const REMOVED = [
   'app/api/operator/messages/route.ts',
   // 10.11 (ревью PR 3188): потребителя не было ни одного — панель МЧС ходит в
   // /api/operator/mchs. При этом роут принимал и хранил состав группы с
-  // телефонами, а до 10.11 ещё и слал его на адрес из env MCHS_API_URL.
+  // телефонами, а до 10.11 ещё и слал бы его на адрес из env MCHS_API_URL,
+  // будь переменная задана.
   // Сторож пути наружу — tests/unit/mchs-no-outbound.test.ts.
   'app/api/operator/mchs-registrations/route.ts',
 ];

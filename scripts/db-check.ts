@@ -56,7 +56,8 @@ async function run() {
     ['operator_bookings', 'Бронирования'],
     ['ai_route_images', 'AI-фото маршрутов'],
     ['leads', 'Лиды'],
-    ['mchs_group_registrations', 'МЧС-регистрации'],
+    ['mchs_registrations', 'Записи о группах для МЧС'],
+    ['mchs_group_registrations', 'То же, старая таблица'],
     ['tour_payments', 'Платежи'],
   ];
   for (const [table, label] of tables) {
