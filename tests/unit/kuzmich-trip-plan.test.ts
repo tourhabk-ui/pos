@@ -608,7 +608,7 @@ describe('план говорит то, что знает движок', () => {
     // (planAssumptions) и стоит последней — после поправок к словам туриста.
     // Поправки к возрасту детей нет с 29.10: неразобранный возраст — отказ
     // без плана (readChildren, tests/unit/mcp-plan-answer), а не заметка.
-    expect(src).toMatch(/startNote\(start, plannedFor\), daysNote, interestsNote,\s*group\.note, budget\.note, assumptions,/);
+    expect(src).toMatch(/startNote\(start, plannedFor\), daysNote, interestsNote,\s*group\.note, styleNote, restNote, budget\.note, assumptions,/);
     expect(parseChatInterestsDetailed('что-нибудь интересное')).toEqual({ interests: ['volcano', 'bears', 'thermal'], defaulted: true });
     expect(parseChatInterestsDetailed('рыбалка').defaulted).toBe(false);
   });
@@ -631,5 +631,15 @@ describe('обещано наружу ⇔ отдано в плане: погод
     expect(tool).toBeDefined();
     expect(skill).toBeDefined();
     expect(promises).toBe(delivers);
+  });
+});
+
+describe('ссылка на образец — не «страница этого плана» (#3199, M8)', () => {
+  it('строка называет образец, его название и что он не ваш план', () => {
+    const text = formatTripPlanForChat([day({})], [], { slug: 'volcanoes-7', title: 'Вулканы за неделю' });
+    expect(text).toContain('Похожий готовый план-образец «Вулканы за неделю»');
+    expect(text).toContain('это не ваш план');
+    expect(text).toMatch(/\/plans\/volcanoes-7/);
+    expect(text).not.toContain('Готовая страница этого формата');
   });
 });

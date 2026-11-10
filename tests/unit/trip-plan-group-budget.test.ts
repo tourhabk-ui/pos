@@ -143,6 +143,10 @@ describe('разбор слов: состав и бюджет', () => {
     expect(readAdults('3 человека').adults).toBe(3);
     expect(readAdults('много').note).toMatch(/не разобрал.*считаю двоих/);
     expect(readAdults('50').adults).toBe(2);
+    // Число целиком (#3199, M11а): «100» не становится 10, «250 человек» — 25.
+    expect(readAdults('100').given).toBe(false);
+    expect(readAdults('250 человек').given).toBe(false);
+    expect(readAdults('3 человека')).toEqual({ adults: 3, given: true, note: null });
   });
 
   // Ловушка MCP 29.10: голое «12» (агент имел в виду «12 детей») читалось как

@@ -99,6 +99,8 @@ describe('страница /plans/[slug]', () => {
     // Движок спрошен на пять дней, а не на шесть.
     const asked = m.recommendTrip.mock.calls[0]![0] as { arrivalDate: string; departureDate: string };
     expect((Date.parse(asked.departureDate) - Date.parse(asked.arrivalDate)) / 86_400_000).toBe(4);
+    // Программа модели странице не нужна — движок без неё (#3199, (в)-5).
+    expect(m.recommendTrip.mock.calls[0]![1]).toEqual({ itinerary: 'plain' });
     expect(screen.getByText('5 дней (4 ночи)')).toBeTruthy();
     expect(screen.getByTestId('plan-fill-note').textContent).toMatch(/^Наполнили 4 дня из 5/);
     const headings = screen.getAllByRole('heading', { level: 3 }).map((h) => h.textContent);
