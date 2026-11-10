@@ -11,9 +11,22 @@ import { recommendTrip } from '@/lib/planner/engine';
 import { verifyAuth } from '@/lib/auth';
 import { agentMemory } from '@/lib/agents/memory/agent-memory';
 import { MAX_REST_DAYS } from '@/lib/planner/travel-style';
+import { createRateLimiter, getTrustedClientIp } from '@/lib/rate-limit';
+import { logSwallowedFailure } from '@/lib/observability/swallowed';
 
 /** Потолок заметки о здоровье: коротко, «колено, астма», а не история болезни. */
 const HEALTH_NOTES_MAX = 300;
+
+/**
+ * Предел частоты (#3199, (а)-1). Роут публичный, а сборка плана может звать
+ * флагманскую модель — без предела любой цикл со стороны платил бы ею без
+ * счёта. Общий лимит Edge есть только при Upstash, которого нет. Потолок
+ * строже чата планера (20/мин): здесь каждый запрос — целый план; и с запасом
+ * для людей за одним адресом. Ключ — доверенный адрес (x-real-ip первым):
+ * подмена X-Forwarded-For лимит не обходит.
+ */
+export const RECOMMEND_LIMIT_PER_MIN = 10;
+const recommendLimiter = createRateLimiter({ windowMs: 60_000, max: RECOMMEND_LIMIT_PER_MIN });
 
 
 interface SavedPrefs {
@@ -50,13 +63,21 @@ const RecommendSchema = z.object({
 });
 
 export async function POST(req: NextRequest) {
-  // Optional auth — recommendation works without login
+  if (!recommendLimiter.check(getTrustedClientIp(req.headers))) {
+    return NextResponse.json(
+      { success: false, error: 'Слишком много запросов. Попробуйте через минуту.' },
+      { status: 429 },
+    );
+  }
+
+  // Вход необязателен: план собирается и без него. Аноним verifyAuth не
+  // бросает — бросок значит сбой проверки сессии, он называется в логе.
   let userId: string | null = null;
   try {
     const auth = await verifyAuth(req);
     userId = auth.userId ?? null;
-  } catch {
-    // Non-blocking — continue without auth
+  } catch (err) {
+    logSwallowedFailure('planner-recommend', 'проверка входа', err);
   }
 
   try {
@@ -78,8 +99,9 @@ export async function POST(req: NextRequest) {
             ...bodyObj,
           };
         }
-      } catch {
-        // Non-critical — proceed with original body
+      } catch (err) {
+        // Без сохранённых предпочтений план собирается по телу запроса.
+        logSwallowedFailure('planner-recommend', 'чтение предпочтений', err);
       }
     }
 
@@ -114,7 +136,7 @@ export async function POST(req: NextRequest) {
         },
         confidence: 1.0,
         source:     'recommend_request',
-      }).catch(() => {});
+      }).catch((err) => logSwallowedFailure('planner-recommend', 'запись предпочтений', err));
     }
 
     return NextResponse.json({ success: true, data: recommendation });
@@ -125,7 +147,12 @@ export async function POST(req: NextRequest) {
         { status: 400 },
       );
     }
-    const msg = err instanceof Error ? err.message : 'Ошибка при генерации рекомендации';
-    return NextResponse.json({ success: false, error: msg }, { status: 500 });
+    // Текст исключения наружу не уходит: у PostgreSQL и провайдеров модели он
+    // называет таблицы, колонки и адреса. Планер показывает поле человеку.
+    logSwallowedFailure('planner-recommend', 'сборка плана', err);
+    return NextResponse.json(
+      { success: false, error: 'План не собрался — попробуйте ещё раз через минуту' },
+      { status: 500 },
+    );
   }
 }
