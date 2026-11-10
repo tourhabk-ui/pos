@@ -1,0 +1,70 @@
+name: Удаление логов прогонов Actions (вручную, по маркеру)
+
+# Репозиторий публичный, лог прогона Actions открыт любому. Если в лог попало
+# то, чему там не место, его надо стереть, а не только перестать печатать.
+#
+# Повод (10.11, разбор #3110): шаг «живые вопросы» в cron-kuzmich-eval.yml до
+# #3203 печатал ответ роута целиком — сообщения туристов. Слово владельца
+# 10.11: «удаляй».
+#
+# Почему workflow, а не рука агента: у интеграции нет права `actions: write`
+# (DELETE …/logs отвечает 403). У токена задания оно есть — но только здесь и
+# только на это задание.
+#
+# Что можно чистить и до какого времени, записано в списке PURGEABLE в
+# scripts/actions-logs-purge.mjs. Маркер выбирает workflow из списка и режим:
+# dry — план (у каких прогонов лог ещё лежит), apply — удаление с проверкой
+# чтением. Без mode — dry. Новый workflow под чистку — правка списка, видимым
+# коммитом.
+#
+# Прогон красный, если хоть один лог не удалён или это не удалось проверить.
+# Сторож: tests/unit/actions-logs-purge.test.ts.
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - '.github/triggers/actions-logs-purge.json'
+
+permissions: {}
+
+concurrency:
+  group: actions-logs-purge
+  cancel-in-progress: false
+
+jobs:
+  purge:
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    permissions:
+      contents: read
+      actions: write
+    steps:
+      - uses: actions/checkout@v7
+
+      - name: Удалить логи и проверить чтением, что их больше нет
+        env:
+          GH_TOKEN: ${{ github.token }}
+          MARKER: .github/triggers/actions-logs-purge.json
+        run: |
+          set -uo pipefail
+          OUT="${RUNNER_TEMP:-/tmp}/actions-logs-purge.txt"
+          # Шаг идёт под bash -e: без set +e красный исход скрипта оборвал бы
+          # шаг на конвейере, и сводка осталась бы пустой именно тогда, когда
+          # она нужна.
+          set +e
+          node scripts/actions-logs-purge.mjs | tee "$OUT"
+          CODE=${PIPESTATUS[0]}
+          set -e
+          {
+            echo '## Удаление логов прогонов'
+            echo '```'
+            cat "$OUT"
+            echo '```'
+          } >> "$GITHUB_STEP_SUMMARY"
+          # Код 0 без строки итога — скрипт не работал: зелёным это не бывает.
+          if [ "$CODE" = "0" ] && ! grep -Eq '^(Итог|План): ' "$OUT"; then
+            echo '::error::скрипт вышел с кодом 0, не напечатав итога — чистка не выполнялась'
+            exit 1
+          fi
+          exit "$CODE"
