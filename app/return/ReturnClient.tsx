@@ -4,6 +4,7 @@ import { useState, useEffect } from 'react';
 import { useRouter, useSearchParams } from 'next/navigation';
 import { CheckCircle, XCircle, Loader2, ArrowLeft, PhoneCall } from 'lucide-react';
 import LeaderPhoneField from '@/components/safety/LeaderPhoneField';
+import { MCHS_AFTER_RETURN, MCHS_RETURN_NOT_VIA_VEDAR } from '@/lib/safety/mchs-registration';
 
 interface RouteInfo {
   id: string;
@@ -127,7 +128,12 @@ export default function ReturnClient() {
         <div className="max-w-md w-full text-center">
           <CheckCircle className="w-16 h-16 text-[var(--success)] mx-auto mb-4" />
           <h1 className="text-2xl font-bold mb-2">С возвращением!</h1>
-          <p className="text-[var(--text-secondary)] mb-6">{resultMessage}</p>
+          <p className="text-[var(--text-secondary)] mb-3">{resultMessage}</p>
+          {/* Закрыт контроль Ведара, а не контроль группы в МЧС: туда человек
+              сообщает сам, и экран обязан сказать это в ту минуту, когда он
+              считает дело сделанным. */}
+          <p className="text-sm font-medium text-[var(--text-primary)] mb-2">{MCHS_RETURN_NOT_VIA_VEDAR}</p>
+          <p className="text-xs text-[var(--text-muted)] mb-6">{MCHS_AFTER_RETURN}</p>
           <button
             onClick={() => router.push('/map')}
             className="w-full py-3 rounded-lg bg-[var(--accent)] text-white font-semibold text-sm hover:opacity-90"
@@ -148,18 +154,19 @@ export default function ReturnClient() {
           <CheckCircle className="w-16 h-16 text-[var(--ocean)] mx-auto mb-4" />
           <h1 className="font-playfair text-2xl font-bold mb-2">Отметка о возвращении</h1>
           <p className="text-[var(--text-secondary)] mb-3">
-            Этот экран закрывает зарегистрированный маршрут: вы вернулись, спасателей искать не нужно.
+            Этот экран закрывает контроль возвращения Ведара: тревога вашему контакту и дежурному не уйдёт.
+            {' '}{MCHS_RETURN_NOT_VIA_VEDAR}
           </p>
           <p className="text-sm text-[var(--text-muted)] mb-6">
-            Откройте его по ссылке из подтверждения регистрации маршрута — в ней есть номер заявки.
-            Если маршрут ещё не зарегистрирован, начните с регистрации.
+            Откройте его по ссылке, которую вы получили, когда включали контроль, — в ней есть номер записи.
+            Если контроль ещё не включён, начните с него.
           </p>
           <div className="flex flex-col gap-2">
             <button
               onClick={() => router.push('/register')}
               className="w-full py-3 rounded-lg bg-[var(--accent)] text-white font-semibold text-sm hover:opacity-90"
             >
-              Зарегистрировать маршрут
+              Включить контроль возвращения
             </button>
             <button
               onClick={() => router.push('/map')}
@@ -199,9 +206,10 @@ export default function ReturnClient() {
         <div className="max-w-md w-full text-center">
           <CheckCircle className="w-16 h-16 text-[var(--success)] mx-auto mb-4" />
           <h1 className="text-2xl font-bold mb-2">Возврат уже отмечен</h1>
-          <p className="text-[var(--text-secondary)] mb-6">
-            Маршрут «{route.name}» уже закрыт.
+          <p className="text-[var(--text-secondary)] mb-3">
+            Контроль возвращения Ведара по маршруту «{route.name}» уже закрыт.
           </p>
+          <p className="text-sm text-[var(--text-muted)] mb-6">{MCHS_RETURN_NOT_VIA_VEDAR}</p>
           <button
             onClick={() => router.push('/map')}
             className="w-full py-3 rounded-lg bg-[var(--accent)] text-white font-semibold text-sm hover:opacity-90"
@@ -274,7 +282,7 @@ export default function ReturnClient() {
 
           {mchsInformedAt ? (
             <p className="text-sm text-[var(--success)] flex items-center gap-2">
-              <CheckCircle className="w-4 h-4" /> Отмечено: в МЧС сообщили
+              <CheckCircle className="w-4 h-4" /> Отмечено: в 112 уже позвонили
             </p>
           ) : (
             <button
@@ -285,7 +293,11 @@ export default function ReturnClient() {
                 hover:bg-[var(--bg-hover)] transition-colors flex items-center justify-center gap-2"
             >
               {mchsSubmitting ? <Loader2 className="w-4 h-4 animate-spin" /> : <PhoneCall className="w-4 h-4" />}
-              Я сообщил в МЧС
+              {/* Не «Я сообщил в МЧС»: теми же словами платформа зовёт сообщить в
+                  МЧС о ВОЗВРАЩЕНИИ. Вернувшийся нажимал эту кнопку вместо «Я
+                  вернулся» — контроль оставался открытым, и после срока уходила
+                  ложная тревога. Отметка — о звонке в 112, как и сказано выше. */}
+              Мы в беде, я уже позвонил в 112
             </button>
           )}
 

@@ -3,6 +3,7 @@
 import { useCallback, useEffect, useState } from 'react';
 import Link from 'next/link';
 import { TrackerLinkPanel } from '@/components/hub/TrackerLinkPanel';
+import { MCHS_RETURN_NOT_VIA_VEDAR } from '@/lib/safety/mchs-registration';
 import {
   ShieldCheck, ShieldAlert, Clock, MapPin, Phone, Plus, CheckCircle2, RefreshCw,
 } from 'lucide-react';
@@ -90,8 +91,9 @@ export default function SafetyClient() {
         <div>
           <h1 className="font-playfair text-2xl sm:text-3xl font-bold text-[var(--text-primary)]">Контрольный срок</h1>
           <p className="text-sm text-[var(--text-secondary)] mt-1 max-w-xl">
-            Зарегистрируйте маршрут и укажите время возврата. Если вы не отметите возвращение
-            вовремя, платформа поднимет тревогу по вашему экстренному контакту и МЧС Камчатки.
+            Включите контроль возвращения и укажите время возврата. Если вы не отметите возвращение
+            вовремя, тревога уйдёт вашему экстренному контакту, затем дежурному Ведара. В МЧС Ведар
+            сам не сообщает: это решает дежурный.
           </p>
         </div>
         <button onClick={load} className="ds-btn flex items-center gap-1.5 px-3 py-2 text-sm shrink-0" aria-label="Обновить">
@@ -103,7 +105,7 @@ export default function SafetyClient() {
         href="/register"
         className="flex items-center justify-center gap-2 w-full px-4 py-3 rounded-lg bg-[var(--accent)] text-white font-medium hover:opacity-90 transition-opacity"
       >
-        <Plus className="w-4 h-4" /> Зарегистрировать маршрут
+        <Plus className="w-4 h-4" /> Включить контроль возвращения
       </Link>
 
       {loading ? (
@@ -118,7 +120,7 @@ export default function SafetyClient() {
             {loadError && active.length === 0 ? (
               <div className="bg-[var(--bg-card)] border border-[var(--danger)]/40 rounded-lg px-5 py-8 text-center">
                 <ShieldAlert className="w-8 h-8 text-[var(--danger)] mx-auto mb-3" />
-                <p className="text-sm text-[var(--text-primary)]">Не удалось загрузить регистрации — мы не знаем, есть ли у вас открытый срок.</p>
+                <p className="text-sm text-[var(--text-primary)]">Не удалось загрузить контроли возвращения — мы не знаем, есть ли у вас открытый срок.</p>
                 <button type="button" onClick={() => void load()}
                   className="mt-4 inline-flex items-center gap-2 px-4 py-2 rounded-lg border border-[var(--border)] text-sm text-[var(--text-primary)]">
                   <RefreshCw className="w-4 h-4" /> Повторить
@@ -127,7 +129,7 @@ export default function SafetyClient() {
             ) : active.length === 0 ? (
               <div className="bg-[var(--bg-card)] border border-[var(--border)] rounded-lg px-5 py-10 text-center">
                 <ShieldCheck className="w-8 h-8 text-[var(--text-muted)] mx-auto mb-3" />
-                <p className="text-sm text-[var(--text-muted)]">Нет активных регистраций. Перед выходом на маршрут — зарегистрируйтесь выше.</p>
+                <p className="text-sm text-[var(--text-muted)]">Открытых контролей нет. Перед выходом включите контроль возвращения — кнопка выше.</p>
               </div>
             ) : (
               active.map((r) => {
@@ -175,6 +177,11 @@ export default function SafetyClient() {
                     >
                       <CheckCircle2 className="w-4 h-4" /> {busyId === r.id ? '…' : 'Я вернулся'}
                     </button>
+                    {/* Кнопка закрывает контроль Ведара, а не заявку в МЧС: подавший
+                        заявку нажимал её и считал, что сообщил всем. */}
+                    <p className="text-xs text-[var(--text-muted)] mt-2">
+                      Кнопка закрывает только контроль Ведара. {MCHS_RETURN_NOT_VIA_VEDAR}
+                    </p>
 
                     {/* Трекер — отдельной секцией ВНУТРИ карточки, а не своей
                         карточкой: карточка в карточке дробит экран и делает

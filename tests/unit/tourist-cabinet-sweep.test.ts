@@ -54,7 +54,7 @@ describe('контрольный срок: экран показывает вр�
     const C = read('app/hub/tourist/safety/_SafetyClient.tsx');
     expect(C).not.toMatch(/T23:59:00/);
     expect(C).toMatch(/Срок не известен/);
-    expect(C).toMatch(/Не удалось загрузить регистрации/);
+    expect(C).toMatch(/Не удалось загрузить контроли возвращения/);
     expect(C).toMatch(/window\.confirm\(/);
   });
 });

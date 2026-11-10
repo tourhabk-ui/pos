@@ -230,6 +230,15 @@ describe('памятка — по бланку ГУ', () => {
  * (ревью PR 3188). Сравнение — с реестром, а не со списком в тесте: новый
  * номер появится здесь, когда появится там.
  */
+/** Экраны и тексты слоя МЧС: где человеку показывают, как подать заявку и куда звонить. */
+const MCHS_SCREENS = [
+  'lib/safety/mchs-registration.ts', 'lib/safety/mchs-chat.ts', 'lib/safety/mchs-form-text.ts',
+  'lib/safety/mchs-letter-text.ts', 'lib/pdf/mchs-statement.ts',
+  'components/safety/MchsRegistrationBlock.tsx', 'components/safety/MchsConsultPhones.tsx',
+  'components/safety/TripWatchReturnBox.tsx',
+  'app/prepare/page.tsx', 'app/register/page.tsx', 'app/return/ReturnClient.tsx',
+];
+
 describe('телефоны МЧС — только из реестра проверенных', () => {
   const digits = (p: string) => p.replace(/\D/g, '').replace(/^[78](?=\d{10}$)/, '');
   const verified = [...VERIFIED_REFERENCE, ...VERIFIED_REGIONAL];
@@ -245,10 +254,18 @@ describe('телефоны МЧС — только из реестра пров�
 
   it('несверенного 30-10-82 нет ни в памятке, ни в текстах слоя МЧС', () => {
     expect(MCHS_PHONES.map((p) => digits(p.phone))).not.toContain('4152301082');
-    for (const f of ['lib/safety/mchs-registration.ts', 'lib/safety/mchs-chat.ts', 'lib/safety/mchs-form-text.ts',
-      'lib/safety/mchs-letter-text.ts', 'components/safety/MchsRegistrationBlock.tsx', 'app/prepare/page.tsx']) {
+    for (const f of MCHS_SCREENS) {
       const code = readFileSync(join(process.cwd(), f), 'utf-8').replace(/\/\*[\s\S]*?\*\/|\/\/.*$/gm, '');
       expect(code, f).not.toMatch(/30[-\s]?10[-\s]?82/);
+    }
+  });
+
+  it('на экранах слоя МЧС нет телефона края литералом: номер приходит только из реестра', () => {
+    // Запрет: «(4152) NN-NN-NN» и «tel:+74152…», вписанные рукой, реестр обходят.
+    // Так на экране формы до 10.11 жил 41-03-95, которого в реестре нет.
+    for (const f of MCHS_SCREENS) {
+      const code = readFileSync(join(process.cwd(), f), 'utf-8').replace(/\/\*[\s\S]*?\*\/|\/\/.*$/gm, '');
+      expect(code, f).not.toMatch(/\(4152\)\s*\d|\+?7\s?4152\d|tel:\+?[78]4152/);
     }
   });
 
