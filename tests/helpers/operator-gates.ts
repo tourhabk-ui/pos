@@ -74,7 +74,6 @@ export const GATES: Record<string, Gate> = {
   'app/api/operator/bookings/[id]/route.ts': { seat: 'team', perms: ['can_cancel_bookings'], ownerOnly: 'статус оплаты брони' },
   'app/api/operator/completeness/route.ts': { seat: 'team' },
   'app/api/operator/guides/route.ts': { seat: 'team', ownerOnly: 'исключить гида из команды' },
-  'app/api/operator/mchs-registrations/route.ts': { seat: 'team' },
   'app/api/operator/mchs/[id]/route.ts': { seat: 'team' },
   'app/api/operator/mchs/register/route.ts': { seat: 'team' },
   'app/api/operator/reviews/route.ts': { seat: 'team' },

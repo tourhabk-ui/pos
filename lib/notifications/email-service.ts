@@ -47,6 +47,9 @@ export interface BookingConfirmationData {
   specialRequests?: string | null;
 }
 
+/** Сроки разговора с почтовым сервером, мс: соединение, приветствие, молчание сокета. */
+export const SMTP_TIMEOUTS = { connectionTimeout: 15_000, greetingTimeout: 15_000, socketTimeout: 30_000 } as const;
+
 class EmailService {
   private transporter: Transporter | null = null;
 
@@ -63,11 +66,16 @@ class EmailService {
       return null;
     }
 
+    // Сроки ожидания заданы явно: у nodemailer по умолчанию две минуты на
+    // соединение и десять на молчащий сокет, а вызывающий может держать на
+    // время письма соединение базы (замок письма МЧС, lib/safety/mchs-letter).
+    // Зависший почтовый сервер не должен занимать его дольше минуты.
     this.transporter = nodemailer.createTransport({
       host: smtpHost,
       port: smtpPort,
       secure: smtpSecure,
       auth: { user: smtpUser, pass: smtpPass },
+      ...SMTP_TIMEOUTS,
     });
 
     return this.transporter;

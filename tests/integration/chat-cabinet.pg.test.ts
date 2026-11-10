@@ -1342,6 +1342,60 @@ withPg('кабинет в чате на настоящем PostgreSQL', () => {
         const n = await pool.query(`SELECT 1 FROM mchs_letters WHERE operator_tour_id = $1::bigint`, [foreign]);
         expect(n.rowCount).toBe(0);
       });
+
+      it('письмо гида о его бронях владельцу тура не мешает; письмо владельца покрывает гида (ревью PR 3188)', async () => {
+        // Журнал — по выезду, а состав письма — по карточке: гид команды видит
+        // только назначенную ему бронь (2 чел.), владелец тура — весь выезд (5 чел.).
+        // Раньше письмо гида выдавалось владельцу за «уже отправлено» о пяти.
+        const GUIDE_CHAT = 8_501;
+        await pool.query(`UPDATE partners SET max_chat_id = $2 WHERE id = $1`, [teamGuide, GUIDE_CHAT]);
+        const guidePress = (payload: string) =>
+          svc.handleCabinetPress({ channel: 'max', chatId: GUIDE_CHAT, privateChat: true, payload, nowMs: NOW });
+        await pool.query(`UPDATE mchs_letters SET created_at = NOW() - INTERVAL '11 minutes' WHERE operator_tour_id = $1::bigint`, [routed]);
+
+        mail.send.mockClear();
+        const g = await guidePress(pay.mchsLetterSend(routed, DAY));
+        expect(g.text).toContain('ушло на тестовый ящик Ведара. В МЧС оно не отправлено');
+        expect(mail.send).toHaveBeenCalledTimes(1);
+        expect(mail.send.mock.calls[0]![0].html).toContain('Группа: 2 чел., броней — 1');
+
+        // Владелец тура открывает тот же выезд: чужое письмо названо со счётом.
+        const view = await press(pay.mchsGroup(routed, DAY));
+        expect(view.text).toContain('Группа: 5 чел., броней — 2');
+        expect(view.text).toMatch(/уже уходило на ящик Ведара \d\d\.\d\d \d\d:\d\d по Камчатке: в нём 2 чел\., броней — 1, отправлено с другой карточки этого выезда\. В МЧС — нет\./);
+        // И отправляет своё — обо всех пяти, не дожидаясь десяти минут.
+        const o = await press(pay.mchsLetterSend(routed, DAY));
+        expect(mail.send).toHaveBeenCalledTimes(2);
+        expect(mail.send.mock.calls[1]![0].html).toContain('Группа: 5 чел., броней — 2');
+        expect(o.text).toContain('ушло на тестовый ящик Ведара. В МЧС оно не отправлено');
+
+        // Журнал глазами каждой карточки — на настоящей базе: чьё письмо и весь ли в нём выезд.
+        const { sentMchsLetters } = await import('@/lib/safety/mchs-letter');
+        const forOwner = await sentMchsLetters(routed, DAY, partnerId);
+        if (forOwner === 'failed') throw new Error('журнал не прочитался');
+        expect(forOwner.senderWhole).toBe(true);
+        expect(forOwner.letters.slice(0, 2).map(({ at: _at, ...l }) => l)).toEqual([
+          { recent: true, mine: true, whole: true, people: 5, bookings: 2 },
+          { recent: true, mine: false, whole: false, people: 2, bookings: 1 },
+        ]);
+        const forGuide = await sentMchsLetters(`000${routed}`, DAY, teamGuide);
+        if (forGuide === 'failed') throw new Error('журнал не прочитался');
+        expect(forGuide.senderWhole).toBe(false);
+        expect(forGuide.letters.slice(0, 2).map(({ at: _at, ...l }) => l)).toEqual([
+          { recent: true, mine: false, whole: true, people: 5, bookings: 2 },
+          { recent: true, mine: true, whole: false, people: 2, bookings: 1 },
+        ]);
+
+        // Наоборот: свежее письмо владельца тура несёт все брони — повтор гида не уходит,
+        // и экран называет именно то письмо, которое его покрыло.
+        const g2 = await guidePress(pay.mchsLetterSend(routed, DAY));
+        expect(mail.send).toHaveBeenCalledTimes(2);
+        expect(g2.text).toMatch(/уже ушло на тестовый ящик Ведара \d\d\.\d\d \d\d:\d\d по Камчатке: в нём 5 чел\., броней — 2, отправлено с другой карточки этого выезда/);
+        // Владелец сразу повторить своё тоже не может — своё письмо свежее.
+        const o2 = await press(pay.mchsLetterSend(routed, DAY));
+        expect(mail.send).toHaveBeenCalledTimes(2);
+        expect(o2.text).toMatch(/уже ушло на тестовый ящик Ведара \d\d\.\d\d \d\d:\d\d по Камчатке: в нём 5 чел\., броней — 2\. Повторно/);
+      });
     });
   });
 });

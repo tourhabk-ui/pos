@@ -65,7 +65,9 @@ export function mchsGroupScreen(args: {
   letterLine?: string | null;
 }): CabinetScreen {
   const withContacts = args.group.contacts !== null;
-  const lines = [MCHS_CHAT_TEXT.groupHead, MCHS_CHAT_TEXT.afterReturn, '', mchsGroupText(args.group, args.nowMs)];
+  // Строка о возвращении — ПОСЛЕ текста: первая строка велит скопировать
+  // сообщение в заявку, и совет Ведара не должен стоять внутри скопированного.
+  const lines = [MCHS_CHAT_TEXT.groupHead, '', mchsGroupText(args.group, args.nowMs), '', MCHS_CHAT_TEXT.afterReturn];
   const rows: CabinetButton[][] = [[FORM_BUTTON]];
   if (!withContacts) {
     lines.push(MCHS_CHAT_TEXT.groupNoContactsTelegram);

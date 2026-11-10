@@ -118,7 +118,9 @@ describe('текст выезда для формы МЧС', () => {
     expect(text).toContain('1. Тест &lt;b&gt;, тел. +70000000000, 2 чел.');
     expect(text).toContain('2. имя не записано, 4 чел.');
     expect(text).toContain('Имён остальных участников в записи Ведара нет.');
-    expect(text).toContain('заполните в форме МЧС');
+    // Не «форма МЧС спрашивает»: онлайн-форму отсюда не проверить, перечень — из памятки ГУ.
+    expect(text).toContain('ГУ МЧС по краю просит указать в маршрутном листе');
+    expect(text).not.toContain('заполните в форме МЧС');
     expect(text).toContain(MCHS_WHO_SUBMITS);
   });
 
@@ -242,11 +244,25 @@ describe('чтение из базы', () => {
 });
 
 describe('кабинет: снятие с контроля после возвращения (памятка ГУ, 10.11)', () => {
-  it('список выездов и экран выезда начинаются со звонка в ЦУКС после возвращения', () => {
+  it('список выездов начинается со строки о возвращении; на экране выезда она стоит ПОСЛЕ текста для заявки', () => {
     const list = mchsListScreen({ departures: [departure()], nowMs: NOW });
-    expect(list.text).toContain(MCHS_AFTER_RETURN);
+    expect(list.text.indexOf(MCHS_AFTER_RETURN)).toBeGreaterThan(-1);
+    expect(list.text.indexOf(MCHS_AFTER_RETURN)).toBeLessThan(list.text.indexOf('19.07'));
+    // Экран выезда велит скопировать сообщение в заявку: совет Ведара не должен
+    // оказаться внутри скопированного — он идёт следом за текстом (ревью PR 3188).
     const one = mchsGroupScreen({ group: group(), role: 'operator', base: BASE, nowMs: NOW });
-    expect(one.text.indexOf(MCHS_AFTER_RETURN)).toBeLessThan(one.text.indexOf('Курильское озеро'));
+    const copied = mchsGroupText(group(), NOW);
+    const at = one.text.indexOf(copied);
+    expect(at).toBeGreaterThan(-1);
+    expect(one.text.indexOf(MCHS_AFTER_RETURN)).toBeGreaterThanOrEqual(at + copied.length);
+  });
+
+  it('туристу в чате: строка о возвращении и телефоны только из реестра проверенных', () => {
+    const text = mchsTouristText();
+    expect(text).toContain(MCHS_AFTER_RETURN);
+    expect(text).toContain('Телефоны МЧС края:');
+    for (const p of MCHS_PHONES) expect(text).toContain(`— ${p.phone} — ${p.purpose}`);
+    expect(text).not.toMatch(/30-10-82/);
   });
 
   it('в текст для формы МЧС эта строка не попадает: его переносят в бланк', () => {

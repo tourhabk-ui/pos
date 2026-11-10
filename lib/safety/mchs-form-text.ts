@@ -39,7 +39,10 @@ function ruDate(value: string): string {
 
 const clean = (s: string | undefined) => (s ?? '').trim();
 
-/** Чего в записи кабинета нет, но форма МЧС спрашивает. */
+/**
+ * Чего в записи кабинета нет, а памятка ГУ МЧС по краю просит указать в
+ * маршрутном листе. Не «форма спрашивает»: онлайн-форму отсюда не проверить.
+ */
 export const MCHS_NOT_IN_RECORD: readonly string[] = [
   'страна проживания и адреса участников',
   'координаты контрольных точек маршрута',
@@ -84,11 +87,11 @@ export function mchsFormText(r: MchsFormInput): string {
     out.push(`— ${clean(c.name)}${rel}, тел. ${clean(c.phone)}`);
   }
   if (r.emergencyContacts.length < MCHS_CONTACTS_NEEDED) {
-    out.push(`— МЧС просит ${MCHS_CONTACTS_NEEDED} контактных лица, которые не идут в поход: допишите в форме`);
+    out.push(`— ГУ МЧС по краю просит ${MCHS_CONTACTS_NEEDED} контактных лица, которые не идут в поход: допишите в заявке`);
   }
   out.push('');
 
-  out.push(`В записи Ведара этого нет — заполните в форме МЧС: ${MCHS_NOT_IN_RECORD.join('; ')}.`);
+  out.push(`В записи Ведара этого нет, а ГУ МЧС по краю просит указать в маршрутном листе: ${MCHS_NOT_IN_RECORD.join('; ')}.`);
   out.push(`Подать заявку нужно не позднее чем за ${MCHS_LEAD_WORKING_DAYS} рабочих дней до начала маршрута.`);
   return out.join('\n');
 }

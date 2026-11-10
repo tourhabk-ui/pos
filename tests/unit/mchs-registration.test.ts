@@ -24,6 +24,7 @@ import {
   workingDaysBetween,
   registrationVerdict,
 } from '@/lib/safety/mchs-registration';
+import { VERIFIED_REFERENCE, VERIFIED_REGIONAL } from '@/lib/safety/emergency-numbers';
 
 const d = (iso: string) => new Date(`${iso}T00:00:00Z`);
 
@@ -116,6 +117,21 @@ describe('вердикт по сроку', () => {
     expect(r.verdict).toBe('in_time');
   });
 
+  it('граница запаса: двенадцать рабочих дней — ещё «впритык», тринадцать — «в срок»', () => {
+    // Запас в три дня покрывает переносы выходных. Сдвинь его кто-нибудь —
+    // «успеваете» прозвучит там, где дней может не хватить (ревью PR 3188).
+    const twelve = registrationVerdict(d('2026-08-27'), d('2026-08-10'));
+    expect(twelve.workingDays).toBe(MCHS_LEAD_WORKING_DAYS + 2);
+    expect(twelve.verdict).toBe('tight');
+    const thirteen = registrationVerdict(d('2026-08-28'), d('2026-08-10'));
+    expect(thirteen.workingDays).toBe(MCHS_LEAD_WORKING_DAYS + 3);
+    expect(thirteen.verdict).toBe('in_time');
+    // Нижняя граница: девять — уже «не выдержать».
+    const nine = registrationVerdict(d('2026-08-24'), d('2026-08-10'));
+    expect(nine.workingDays).toBe(MCHS_LEAD_WORKING_DAYS - 1);
+    expect(nine.verdict).toBe('too_late');
+  });
+
   it('счёт никогда не завышает: праздники могут только убавить', () => {
     // Инвариант, а не пример: наша оценка — верхняя граница. Значит «не
     // успеваете» верно всегда, а «успеваете» — с оговоркой. Обратная ошибка
@@ -184,10 +200,55 @@ describe('памятка — по бланку ГУ', () => {
     }
   });
 
-  it('снятие с контроля после возвращения названо, телефоны — с назначением', () => {
-    expect(MCHS_AFTER_RETURN).toMatch(/После возвращения позвоните в ЦУКС/);
+  it('состав сведений называет протяжённость маршрута (пункт бланка, ревью PR 3188)', () => {
+    expect(MCHS_REQUIRED_DATA.find((d) => d.startsWith('Маршрут'))).toContain('протяжённость');
+  });
+
+  it('снятие с контроля после возвращения названо — со ссылкой на памятку, а не командой от Ведара', () => {
+    expect(MCHS_AFTER_RETURN).toMatch(/сообщите в МЧС, что маршрут завершён/);
+    expect(MCHS_AFTER_RETURN).toContain('памятка ГУ МЧС по краю просит позвонить в ЦУКС');
     expect(MCHS_AFTER_RETURN).toContain('могут начать искать');
-    expect(MCHS_PHONES.map((p) => p.phone)).toEqual(['8 (4152) 30-10-81', '8 (4152) 200-112', '8 (4152) 30-10-82']);
-    for (const p of MCHS_PHONES) expect(p.purpose.length).toBeGreaterThan(10);
+    // Номера во фразе нет: какой телефон принимает сообщение о возвращении, не сверено.
+    expect(MCHS_AFTER_RETURN).not.toMatch(/\d{2}-\d{2}-\d{2}/);
+  });
+
+  it('дата сведений — дата памятки, а не дня, когда её читали', () => {
+    expect(MCHS_SOURCE.asOf).toContain('13.06.2024');
+    expect(MCHS_SOURCE.asOf).not.toMatch(/2026/);
+  });
+});
+
+/**
+ * Региональный номер попадает на экран только из реестра проверенных
+ * (lib/safety/emergency-numbers): его сверяет владелец, а не документ. Первая
+ * редакция памятки принесла литералом «30-10-82 — происшествие на маршруте»,
+ * которого в реестре нет и который отличается от проверенного одной цифрой
+ * (ревью PR 3188). Сравнение — с реестром, а не со списком в тесте: новый
+ * номер появится здесь, когда появится там.
+ */
+describe('телефоны МЧС — только из реестра проверенных', () => {
+  const digits = (p: string) => p.replace(/\D/g, '').replace(/^[78](?=\d{10}$)/, '');
+  const verified = [...VERIFIED_REFERENCE, ...VERIFIED_REGIONAL];
+
+  it('каждый номер памятки есть в реестре, и назначение — слово в слово оттуда', () => {
+    expect(MCHS_PHONES.length).toBeGreaterThan(0);
+    for (const p of MCHS_PHONES) {
+      const known = verified.find((v) => digits(v.phone) === digits(p.phone));
+      expect(known, `${p.phone} нет в реестре проверенных номеров`).toBeDefined();
+      expect(p.purpose).toBe(known?.name);
+    }
+  });
+
+  it('несверенного 30-10-82 нет ни в памятке, ни в текстах слоя МЧС', () => {
+    expect(MCHS_PHONES.map((p) => digits(p.phone))).not.toContain('4152301082');
+    for (const f of ['lib/safety/mchs-registration.ts', 'lib/safety/mchs-chat.ts', 'lib/safety/mchs-form-text.ts',
+      'lib/safety/mchs-letter-text.ts', 'components/safety/MchsRegistrationBlock.tsx', 'app/prepare/page.tsx']) {
+      const code = readFileSync(join(process.cwd(), f), 'utf-8').replace(/\/\*[\s\S]*?\*\/|\/\/.*$/gm, '');
+      expect(code, f).not.toMatch(/30[-\s]?10[-\s]?82/);
+    }
+  });
+
+  it('консультации по маршрутному листу — справочная линия ЦУКС, она в списке первой', () => {
+    expect(MCHS_PHONES[0]).toEqual({ phone: VERIFIED_REFERENCE[0]!.phone, purpose: VERIFIED_REFERENCE[0]!.name });
   });
 });

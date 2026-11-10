@@ -7,9 +7,11 @@
  * создавалась никогда. mchs_registrations.booking_id при этом ссылался на
  * старую bookings (uuid); миграция 1016 завела operator_booking_id.
  *
- * Отдельно: экран mchs-registrations писал «Группа автоматически
- * зарегистрирована в МЧС» при статусе submitted — то есть когда заявка лишь
- * ушла на адрес MCHS_API_URL без подтверждения.
+ * Второй роут, mchs-registrations, писал «Группа автоматически
+ * зарегистрирована в МЧС», когда заявка лишь ушла на адрес из env без
+ * подтверждения. Он удалён 10.11 вместе с отправкой
+ * (tests/unit/mchs-no-outbound.test.ts); здесь — что живой роут говорит
+ * оператору по факту.
  */
 import { describe, it, expect, vi, beforeEach } from 'vitest';
 import { readFileSync } from 'node:fs';
@@ -26,7 +28,6 @@ vi.mock('@/lib/auth/operator-helpers', () => ({
 }));
 
 import { POST } from '@/app/api/operator/mchs/register/route';
-import { mchsOutcomeMessage } from '@/lib/safety/mchs-client';
 
 const ROOT = process.cwd();
 const read = (p: string) => readFileSync(join(ROOT, p), 'utf8');
@@ -119,6 +120,12 @@ describe('форма МЧС в кабинете', () => {
     expect(panel).toContain('Номер брони');
     expect(panel).not.toMatch(/UUID бронирования/);
   });
+  it('кнопка не обещает отправку в МЧС: отсюда в ведомство не уходит ничего (аудит 10.11)', () => {
+    // Запрет, а не сравнение разметки: этих слов на кнопке быть не должно.
+    const code = panel.replace(/\/\*[\s\S]*?\*\/|\/\/.*$/gm, '');
+    expect(code).not.toMatch(/Отправить в МЧС/);
+    expect(code).not.toMatch(/Подать в МЧС|Зарегистрировать в МЧС/);
+  });
   it('ошибка сервера показывается текстом, запасной текст называет HTTP-код', () => {
     expect(panel).toMatch(/Сервер не принял регистрацию \(HTTP \$\{response\.status\}\)/);
     expect(panel).not.toMatch(/'Не удалось создать регистрацию'/);
@@ -133,21 +140,18 @@ describe('миграция 1016', () => {
   });
 });
 
-describe('исход отправки в МЧС называется по факту', () => {
-  it('submitted — НЕ «зарегистрирована», а «подтверждения нет»', () => {
-    const m = mchsOutcomeMessage('submitted', null, null);
-    expect(m).not.toMatch(/зарегистрирована/i);
-    expect(m).toMatch(/подтверждения регистрации в МЧС нет/);
-    expect(m.includes('forms.mchs.gov.ru')).toBe(true);
-  });
-  it('failed — сохранено, но не отправлено, с причиной', () => {
-    const m = mchsOutcomeMessage('failed', null, 'MCHS_API_URL не настроен');
-    expect(m).toMatch(/не отправлена/);
-    expect(m).toContain('MCHS_API_URL не настроен');
-  });
-  it('экран больше не обещает автоматическую регистрацию', () => {
-    const route = read('app/api/operator/mchs-registrations/route.ts');
-    expect(route).not.toMatch(/автоматически зарегистрирована/);
-    expect(route).toContain('mchsOutcomeMessage(');
+describe('ответ живого роута называет исход по факту', () => {
+  it('запись сохранена в кабинете, в МЧС не отправлена — и это сказано словами', async () => {
+    queryMock
+      .mockResolvedValueOnce({ rows: [{ id: '5' }] })
+      .mockResolvedValueOnce({ rows: [{ id: 'r1', status: 'pending', created_at: '2026-09-25' }] });
+    const res = await POST(req(body(5)));
+    expect(res.status).toBe(201);
+    const json = (await res.json()) as { message: string; data: { status: string } };
+    expect(json.data.status).toBe('pending');
+    expect(json.message).toMatch(/Запись сохранена в кабинете/);
+    expect(json.message).toMatch(/Автоматической отправки в МЧС пока нет/);
+    expect(json.message).toContain('forms.mchs.gov.ru');
+    expect(json.message).not.toMatch(/зарегистрирована/i);
   });
 });

@@ -10,8 +10,10 @@
  *    отказа без адресов и телефонов;
  *  - журнал не несёт имён и телефонов туристов;
  *  - «Да, отправить» — кнопка-запись (подпись и срок), вопрос — чтение;
- *  - повтор судится по выезду, а не по карточке, и под замком выезда (аудит
- *    10.11): два нажатия подряд — одно письмо.
+ *  - повтор судится по выезду и под замком выезда (аудит 10.11): два нажатия
+ *    подряд — одно письмо; но запрещает повтор только письмо, которое несёт ту
+ *    же группу, — письмо гида о его бронях не выдаётся владельцу тура за письмо
+ *    обо всём выезде (ревью PR 3188).
  */
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
 
@@ -26,8 +28,10 @@ vi.mock('@/lib/db-pool', () => ({
 
 const {
   MCHS_LETTER, MCHS_LETTER_REPEAT_MS, MCHS_LETTER_TEST_BANNER, MCHS_LETTER_TEXT, mchsLetterHtml, mchsLetterSubject,
+  blockingMchsLetter, mchsLetterCovers,
 } = await import('@/lib/safety/mchs-letter-text');
-const { lastMchsLetter, recordMchsLetter, sendMchsLetter, withMchsLetterLock, MCHS_LETTER_LAST_SQL } = await import('@/lib/safety/mchs-letter');
+const { sentMchsLetters, recordMchsLetter, sendMchsLetter, withMchsLetterLock } = await import('@/lib/safety/mchs-letter');
+type MchsSentLetter = import('@/lib/safety/mchs-letter-text').MchsSentLetter;
 const { cabinetPayload, parseCabinetPress } = await import('@/lib/chat-cabinet/payload');
 const { isWritePayload } = await import('@/lib/chat-cabinet/signed-payload');
 const { mchsGroupScreen, mchsLetterAskScreen, mchsLetterResultScreen } = await import('@/lib/chat-cabinet/mchs-screens');
@@ -136,20 +140,75 @@ describe('журнал без персональных данных', () => {
     expect(JSON.stringify(params)).not.toMatch(/Тест|\+7000/);
   });
 
-  it('последнее письмо: было недавно / было давно / не было / журнал не прочитался', async () => {
-    m.query.mockResolvedValueOnce({ rows: [{ at: '2026-11-10 02:05:00+00', recent: true }] });
-    expect(await lastMchsLetter('81', '2027-07-19')).toEqual({ at: '2026-11-10 02:05:00+00', recent: true });
-    // По выезду, кто бы ни отправил: карточки в запросе нет.
-    expect(m.query.mock.calls[0]![1]).toEqual(['81', '2027-07-19', MCHS_LETTER_REPEAT_MS / 1000]);
-    expect(MCHS_LETTER_LAST_SQL).not.toMatch(/partner_id/);
-    m.query.mockResolvedValueOnce({ rows: [{ at: '2026-11-09 02:05:00+00', recent: false }] });
-    expect(await lastMchsLetter('81', '2027-07-19')).toMatchObject({ recent: false });
+  it('письма по выезду: чьё, сколько в нём людей, свежее ли; не было; журнал не прочитался', async () => {
+    const row = { at: '2026-11-10 02:05:00+00', recent: true, mine: false, whole: true, sender_whole: false, people: '5', bookings: 2 };
+    m.query.mockResolvedValueOnce({ rows: [row, { ...row, at: '2026-11-09 02:05:00+00', recent: false, mine: true, whole: false, people: 2, bookings: 1 }] });
+    expect(await sentMchsLetters('81', '2027-07-19', PID)).toEqual({
+      senderWhole: false,
+      letters: [
+        { at: '2026-11-10 02:05:00+00', recent: true, mine: false, whole: true, people: 5, bookings: 2 },
+        { at: '2026-11-09 02:05:00+00', recent: false, mine: true, whole: false, people: 2, bookings: 1 },
+      ],
+    });
+    // По выезду, кто бы ни отправил; карточка в запросе — только чтобы узнать своё письмо.
+    expect(m.query.mock.calls[0]![1]).toEqual(['81', '2027-07-19', MCHS_LETTER_REPEAT_MS / 1000, PID]);
     m.query.mockResolvedValueOnce({ rows: [] });
-    expect(await lastMchsLetter('81', '2027-07-19')).toBeNull();
+    expect(await sentMchsLetters('81', '2027-07-19', PID)).toEqual({ letters: [], senderWhole: false });
     m.query.mockRejectedValueOnce(Object.assign(new Error('x'), { code: '42P01' }));
-    expect(await lastMchsLetter('81', '2027-07-19')).toBe('failed');
+    expect(await sentMchsLetters('81', '2027-07-19', PID)).toBe('failed');
     m.query.mockRejectedValueOnce(Object.assign(new Error('x'), { code: '57P01' }));
     expect(await recordMchsLetter({ sender, group: group(), outcome: 'sent', error: null })).toBe(false);
+  });
+
+  it('журнал идёт на переданном соединении, а не на пуле', async () => {
+    const conn = { query: vi.fn(async () => ({ rows: [], rowCount: 1 })) };
+    await sentMchsLetters('81', '2027-07-19', PID, conn as never);
+    await recordMchsLetter({ sender, group: group(), outcome: 'sent', error: null }, conn as never);
+    expect(conn.query).toHaveBeenCalledTimes(2);
+    expect(m.query).not.toHaveBeenCalled();
+  });
+});
+
+describe('какое письмо запрещает повтор', () => {
+  const sent = (over: Partial<MchsSentLetter> = {}): MchsSentLetter => ({
+    at: '2026-11-10 02:05:00+00', recent: true, mine: false, whole: false, people: 2, bookings: 1, ...over,
+  });
+  const owner = { senderWhole: true, people: 5, bookings: 2 };
+  const guide = { senderWhole: false, people: 2, bookings: 1 };
+
+  it('своё письмо и письмо владельца тура покрывают любого', () => {
+    expect(mchsLetterCovers(sent({ mine: true }), owner)).toBe(true);
+    expect(mchsLetterCovers(sent({ mine: true, people: 1 }), guide)).toBe(true);
+    expect(mchsLetterCovers(sent({ whole: true, people: 5, bookings: 2 }), guide)).toBe(true);
+  });
+
+  it('письмо гида о части выезда владельца тура не покрывает; о той же группе — покрывает', () => {
+    expect(mchsLetterCovers(sent({ people: 2, bookings: 1 }), owner)).toBe(false);
+    expect(mchsLetterCovers(sent({ people: 5, bookings: 2 }), owner)).toBe(true);
+    // Совпали только люди или только брони — это не та же группа.
+    expect(mchsLetterCovers(sent({ people: 5, bookings: 1 }), owner)).toBe(false);
+    expect(mchsLetterCovers(sent({ people: 4, bookings: 2 }), owner)).toBe(false);
+  });
+
+  it('письмо одного гида другого гида не покрывает даже при равном счёте: брони у них разные', () => {
+    expect(mchsLetterCovers(sent({ people: 2, bookings: 1 }), guide)).toBe(false);
+  });
+
+  it('повтор запрещает только свежее покрывающее письмо — и оно же названо человеку', () => {
+    const partial = sent({ at: 'часть' });
+    const old = sent({ at: 'давно', recent: false, mine: true });
+    const whole = sent({ at: 'всё', whole: true, people: 5, bookings: 2 });
+    expect(blockingMchsLetter([partial, old], owner)).toBeNull();
+    expect(blockingMchsLetter([partial, whole, old], owner)?.at).toBe('всё');
+    expect(blockingMchsLetter([], owner)).toBeNull();
+  });
+
+  it('слова о прошлом письме называют счёт и чьё оно; имён в них нет', () => {
+    const mine = MCHS_LETTER_TEXT.last(sent({ mine: true, people: 6, bookings: 2 }), '10.11 14:05');
+    expect(mine).toBe('Письмо (тест) по этому выезду уже уходило на ящик Ведара 10.11 14:05 по Камчатке: в нём 6 чел., броней — 2. В МЧС — нет.');
+    const other = MCHS_LETTER_TEXT.recent(sent({ people: 2, bookings: 1 }), null);
+    expect(other).toContain('уже ушло на тестовый ящик Ведара: в нём 2 чел., броней — 1, отправлено с другой карточки этого выезда.');
+    expect(other).toContain('В МЧС оно не отправлено');
   });
 });
 
@@ -172,10 +231,11 @@ describe('кнопки и экраны', () => {
     const off = mchsGroupScreen({ group: group(), role: 'operator', base: 'https://vedarai.ru', nowMs: NOW });
     expect(payloads(off.rows)).not.toContain('cb:mc:q:81:20270719');
     const on = mchsGroupScreen({
-      group: group(), role: 'operator', base: 'https://vedarai.ru', nowMs: NOW, canSend: true, letterLine: MCHS_LETTER_TEXT.last('10.11 14:05'),
+      group: group(), role: 'operator', base: 'https://vedarai.ru', nowMs: NOW, canSend: true,
+      letterLine: MCHS_LETTER_TEXT.last({ at: '', recent: false, mine: true, whole: true, people: 6, bookings: 2 }, '10.11 14:05'),
     });
     expect(payloads(on.rows)).toContain('cb:mc:q:81:20270719');
-    expect(on.text).toContain('Письмо (тест) по этому выезду уже уходило на ящик Ведара 10.11 14:05 по Камчатке. В МЧС — нет.');
+    expect(on.text).toContain('Письмо (тест) по этому выезду уже уходило на ящик Ведара 10.11 14:05 по Камчатке: в нём 6 чел., броней — 2. В МЧС — нет.');
   });
 
   it('вопрос и итог — без имён и телефонов, с формой МЧС в итоге', () => {
@@ -208,6 +268,21 @@ describe('замок выезда: одно письмо на два нажат�
     expect(fn).toHaveBeenCalledTimes(1);
     expect(m.client.mock.calls.map((c) => c[1])).toEqual([['81', '2027-07-19'], ['81', '2027-07-19']]);
     expect(m.release).toHaveBeenCalledWith(false);
+  });
+
+  it('работа получает соединение замка: журнал на нём, второго соединения пула нет', async () => {
+    lockAnswer(true);
+    await withMchsLetterLock('81', '2027-07-19', async (db) => {
+      await sentMchsLetters('81', '2027-07-19', PID, db);
+      await recordMchsLetter({ sender, group: group(), outcome: 'sent', error: null }, db);
+    });
+    const sqls = m.client.mock.calls.map((c) => String(c[0]));
+    expect(sqls.filter((q) => q.includes('mchs_letters'))).toHaveLength(2);
+    // Порядок на одном соединении: замок, чтение журнала, запись, снятие замка.
+    expect(sqls.map((q) => (q.includes('pg_try_advisory_lock') ? 'lock' : q.includes('pg_advisory_unlock') ? 'unlock' : q.includes('INSERT') ? 'insert' : 'select')))
+      .toEqual(['lock', 'select', 'insert', 'unlock']);
+    expect(m.connect).toHaveBeenCalledTimes(1);
+    expect(m.query).not.toHaveBeenCalled();
   });
 
   it('замок занят — «busy», работа не вызывается', async () => {

@@ -34,15 +34,19 @@ const m = vi.hoisted(() => ({
   tx: [] as string[],
   /** Ответ advisory-замка письма МЧС: true — взят, false — занят. */
   lockGot: true as boolean,
+  /** Запросы к журналу писем, прошедшие по соединению замка, а не по пулу. */
+  viaLock: [] as string[],
 }));
 
 vi.mock('@/lib/db-pool', () => ({
   pool: {
     query: (...a: unknown[]) => m.query(...a),
     connect: async () => ({
-      query: async (sql: string) => {
+      query: async (sql: string, params?: unknown[]) => {
         if (sql.includes('pg_try_advisory_lock')) return { rows: [{ got: m.lockGot }], rowCount: 1 };
         if (sql.includes('pg_advisory_unlock')) return { rows: [{ released: true }], rowCount: 1 };
+        // Журнал писем под замком идёт на соединении замка: ответы — те же, что у пула.
+        if (sql.includes('mchs_letters')) { m.viaLock.push(sql.includes('INSERT') ? 'insert' : 'select'); return m.query(sql, params); }
         m.tx.push(sql.replace(/\s+/g, ' ').trim());
         return { rows: [], rowCount: 1 };
       },
@@ -656,10 +660,15 @@ describe('письмо с данными выезда для МЧС — тест
   const isBookings = (sql: unknown) => String(sql).includes('FROM operator_bookings');
   const isLast = (sql: unknown) => String(sql).includes('FROM mchs_letters');
   const isInsert = (sql: unknown) => String(sql).includes('INSERT INTO mchs_letters');
-  /** Ответы базы: брони выезда, журнал писем (последнее), запись в журнал. */
-  const db = (last: unknown[] | Error = []) => m.query.mockImplementation(async (sql: unknown) => {
+  /** Строка журнала глазами спрашивающего: чьё письмо и сколько в нём людей. */
+  const letter = (over: Record<string, unknown> = {}) => ({
+    at: '2026-10-29 23:55:00+00', recent: true, mine: true, whole: true, sender_whole: true, people: 2, bookings: 1, ...over,
+  });
+  /** Ответы базы: брони выезда, журнал писем по выезду, запись в журнал. */
+  const db = (sent: unknown[] | Error = []) => m.query.mockImplementation(async (sql: unknown) => {
     if (isBookings(sql)) return { rows: [ROW], rowCount: 1 };
-    if (isLast(sql)) { if (last instanceof Error) throw last; return { rows: last, rowCount: last.length }; }
+    if (isInsert(sql)) return { rows: [], rowCount: 1 };
+    if (isLast(sql)) { if (sent instanceof Error) throw sent; return { rows: sent, rowCount: sent.length }; }
     return { rows: [], rowCount: 1 };
   });
   const inserted = () => m.query.mock.calls.find((c) => isInsert(c[0]))?.[1] as unknown[] | undefined;
@@ -668,6 +677,7 @@ describe('письмо с данными выезда для МЧС — тест
     vi.stubEnv('SMTP_USER', 'robot');
     vi.stubEnv('SMTP_PASS', 'x');
     m.mail.mockResolvedValue({ success: true, messageId: 'id' });
+    m.viaLock.length = 0;
   });
   afterEach(() => { vi.unstubAllEnvs(); });
 
@@ -698,13 +708,17 @@ describe('письмо с данными выезда для МЧС — тест
     expect(s.text).toContain('ушло на тестовый ящик Ведара. В МЧС оно не отправлено');
     expect(inserted()).toEqual([PID, '81', '2026-11-20', 'telegram', 'flo@vedarai.ru', true, 'sent', null, 2, 1]);
     expect(m.count).toHaveBeenCalledWith(expect.objectContaining({ action: 'mchs_letter_send' }), NOW);
+    // Журнал под замком читается и пишется на соединении замка: второе
+    // соединение пула на время письма не занимается (ревью PR 3188).
+    expect(m.viaLock).toEqual(['select', 'insert']);
   });
 
   it('повтор за десять минут — второго письма нет; журнал не прочитался — не отправляет', async () => {
-    db([{ at: '2026-10-29 23:55:00+00', recent: true }]);
+    db([letter()]);
     const again = await press(SEND);
     expect(m.mail).not.toHaveBeenCalled();
-    expect(again.text).toContain('уже ушло на тестовый ящик Ведара 30.10 11:55 по Камчатке');
+    expect(again.text).toContain('уже ушло на тестовый ящик Ведара 30.10 11:55 по Камчатке: в нём 2 чел., броней — 1.');
+    expect(again.text).not.toContain('с другой карточки');
     expect(inserted()).toBeUndefined();
 
     db(Object.assign(new Error('x'), { code: '57P01' }));
@@ -712,6 +726,36 @@ describe('письмо с данными выезда для МЧС — тест
     expect(m.mail).not.toHaveBeenCalled();
     expect(blind.failed).toBe(true);
     expect(blind.text).toContain('не отправляю, чтобы не задвоить');
+  });
+
+  it('свежее письмо гида о части выезда владельцу тура не мешает: своё письмо уходит, экран называет счёт чужого', async () => {
+    // Гид команды отправил свои брони: 1 человек, 1 бронь. У владельца тура в выезде 2 человека.
+    const partial = letter({ mine: false, whole: false, people: 1, bookings: 1 });
+    db([partial]);
+    const view = await press(cabinetPayload.mchsGroup('81', '2026-11-20'));
+    expect(view.text).toContain('уже уходило на ящик Ведара 30.10 11:55 по Камчатке: в нём 1 чел., броней — 1, отправлено с другой карточки этого выезда. В МЧС — нет.');
+    const s = await press(SEND);
+    expect(m.mail).toHaveBeenCalledTimes(1);
+    expect(inserted()?.slice(6)).toEqual(['sent', null, 2, 1]);
+    expect(s.text).toContain('ушло на тестовый ящик Ведара');
+  });
+
+  it('чужое письмо о той же группе (счёт совпал) и письмо владельца тура повтор запрещают; экран говорит, чьё оно', async () => {
+    db([letter({ mine: false, whole: false, people: 2, bookings: 1 })]);
+    const same = await press(SEND);
+    expect(m.mail).not.toHaveBeenCalled();
+    expect(same.text).toContain('в нём 2 чел., броней — 1, отправлено с другой карточки этого выезда');
+
+    // Спрашивает гид (sender_whole: false), а свежее письмо — владельца тура: в нём все брони.
+    db([letter({ mine: false, whole: true, sender_whole: false, people: 5, bookings: 2 })]);
+    const covered = await press(SEND);
+    expect(m.mail).not.toHaveBeenCalled();
+    expect(covered.text).toContain('в нём 5 чел., броней — 2, отправлено с другой карточки этого выезда');
+
+    // Два гида одного выезда: брони у них разные, письмо одного второму не мешает.
+    db([letter({ mine: false, whole: false, sender_whole: false, people: 2, bookings: 1 })]);
+    await press(SEND);
+    expect(m.mail).toHaveBeenCalledTimes(1);
   });
 
   it('выезд уже отправляется (замок занят) — второго письма нет, слова «как раз отправляется»', async () => {

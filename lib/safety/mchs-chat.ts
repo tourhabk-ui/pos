@@ -75,7 +75,7 @@ export function mchsTouristText(): string {
     'Как подать:',
     ...MCHS_CHANNELS.map((c) => `— ${c.title}. ${c.detail}${c.key === 'online' ? ' — кнопка ниже' : ''}.`),
     '',
-    'Телефоны ГУ МЧС по краю:',
+    'Телефоны МЧС края:',
     ...MCHS_PHONES.map((p) => `— ${p.phone} — ${p.purpose}`),
     '',
     `${MCHS_WHO_SUBMITS} На сайте Ведара можно собрать данные группы одним текстом для формы — кнопка «Собрать данные».`,
@@ -161,7 +161,10 @@ export function mchsDepartureLines(d: MchsDeparture, nowMs: number): string[] {
   ];
 }
 
-/** Чего в записи брони нет, а форма МЧС спрашивает. */
+/**
+ * Чего в записи брони нет, а памятка ГУ МЧС по краю просит указать в маршрутном
+ * листе. Не «форма спрашивает»: онлайн-форму отсюда не проверить.
+ */
 export const MCHS_GROUP_NOT_IN_RECORD: readonly string[] = [
   'ФИО, год рождения, страна проживания, адрес и телефон каждого участника',
   'руководитель группы и его телефон',
@@ -204,7 +207,7 @@ export function mchsGroupText(g: MchsGroup, nowMs: number, opts: { allContacts?:
     lines.push('Имён остальных участников в записи Ведара нет.');
   }
   lines.push('');
-  lines.push(`В записи Ведара этого нет — заполните в форме МЧС: ${MCHS_GROUP_NOT_IN_RECORD.join('; ')}.`);
+  lines.push(`В записи Ведара этого нет, а ГУ МЧС по краю просит указать в маршрутном листе: ${MCHS_GROUP_NOT_IN_RECORD.join('; ')}.`);
   lines.push(`${MCHS_REQUIREMENT_TEXT[req]} ${mchsDeadlineOf(g.date, nowMs).text}`);
   if ((g.mchsPhone ?? '').trim()) lines.push(`Телефон МЧС из записи маршрута: ${escapeHtml((g.mchsPhone ?? '').trim())}.`);
   lines.push(`${MCHS_DEADLINE_SHORT}. ${MCHS_WHO_SUBMITS}`);
