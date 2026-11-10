@@ -46,6 +46,33 @@ describe('QueryLandingView', () => {
     expect(ru).toContain('Место в списке не продаётся.');
     expect(ru).not.toContain('по названию компании');
   });
+  it('трансфер: перевозчики с прайсом за машину и заявкой; отказ базы — «не загрузился», без туров', () => {
+    const l = landingByKey('ru-transfer');
+    const carrier = {
+      partnerId: 'p1', slug: 'shatun', name: 'Шатун', shortDescription: null, logo: null, vehicles: [], seatClasses: [],
+      destinations: [{ from: 'Петропавловск-Камчатский', to: 'Аэропорт Елизово', priceRub: 5000, note: null, conditions: null, validYear: null, place: null }],
+      extraDay: null, rates: [], photos: [], clips: [], legal: null, video: null, phone: null, telegramHref: null, whatsappHref: null,
+    };
+    const html = renderToStaticMarkup(<QueryLandingView landing={l} tours={[]} charter={{ state: 'ok', carriers: [carrier] }} />);
+    expect(html).toContain('href="/transfers/shatun"');
+    expect(html).toContain('Аэропорт Елизово');
+    expect(html).toContain('Заявка на машину');
+    expect(html).toContain('"@type":"Organization"');
+    expect(html).toContain('за машину целиком');
+    expect(html).not.toMatch(/₽[^<]{0,10}за место/);
+    expect(html).not.toContain('Туры (');
+    expect(html).not.toContain('href="/request"');
+    const failed = renderToStaticMarkup(<QueryLandingView landing={l} tours={[]} charter={{ state: 'failed' }} />);
+    expect(failed).toContain('Список не загрузился');
+    expect(failed).not.toContain('ни один перевозчик');
+    expect(renderToStaticMarkup(<QueryLandingView landing={l} tours={[]} charter={{ state: 'ok', carriers: [] }} />)).toContain('ни один перевозчик');
+  });
+  it('ссылки «по теме» видны: карточка Авачинского и страница обстановки', () => {
+    const html = renderToStaticMarkup(<QueryLandingView landing={landingByKey('ru-avacha')} tours={[row]} />);
+    expect(html).toContain('href="/places/vulkan-avachinskij"');
+    expect(html).toContain('href="/safety"');
+    expect(html).toContain('href="/catalog/tours/vulkan-gorelyy"');
+  });
   it('en: без перевода — русское имя с lang="ru"', () => {
     const html = renderToStaticMarkup(<QueryLandingView landing={landingByKey('en-booking')} tours={[{ ...row, title_zh: undefined }]} />);
     expect(html).toContain('lang="ru"');
