@@ -381,11 +381,16 @@ withPg('кабинет туриста на настоящем PostgreSQL', () =>
 
   // ── Удаление аккаунта и отзыв согласия (152-ФЗ, аудит кабинета 20.10) ──
   // Своя пара туристов: стирание необратимо, общий посев не трогаем.
+  // telegram_id уникален в users: 46 случайных из 99 999 совпадали примерно
+  // в одном прогоне из сотни (CI PR 3188, 23505 на 987078). Счётчик от
+  // случайного начала даёт разные номера внутри прогона, диапазон прежний.
+  const TG_BASE = 900000 + Math.floor(Math.random() * 90000);
+  let tgSeq = 0;
   async function freshTourist(tag: string): Promise<string> {
     const r = await pool.query<{ id: string }>(
       `INSERT INTO users (email, name, password_hash, role, phone, telegram_id)
        VALUES ($1, 'Стираемый ' || $2, 'x', 'tourist', '+79990000000', $3) RETURNING id`,
-      [`erase-${tag}@example.com`, tag, 900000 + Math.floor(Math.random() * 99999)],
+      [`erase-${tag}@example.com`, tag, TG_BASE + ++tgSeq],
     );
     return r.rows[0].id;
   }
