@@ -125,11 +125,16 @@ describe('/map: плашка обстановки читается над све
     })));
     render(<MapThreatChip />);
     await act(async () => { await new Promise((r) => setTimeout(r, 0)); });
-    const link = screen.getByRole('link');
-    expect(link.getAttribute('href')).toBe('/safety#radar');
-    const classes = link.className.split(/\s+/);
+    // С 10.11 плашка раскрывает панель «Угрозы по районам» (#2930); на радар
+    // ведёт ссылка внутри панели — тоже на плотном стекле.
+    const chip = screen.getByRole('button');
+    const classes = chip.className.split(/\s+/);
     expect(classes).toContain('fx-glass-dense');
     expect(classes).not.toContain('fx-glass');
+    await act(async () => { chip.click(); await new Promise((r) => setTimeout(r, 0)); });
+    const panel = screen.getByRole('region', { name: 'Угрозы по районам' });
+    expect(panel.className.split(/\s+/)).toContain('fx-glass-dense');
+    expect(screen.getByRole('link').getAttribute('href')).toBe('/safety#radar');
   });
 });
 

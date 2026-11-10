@@ -344,6 +344,8 @@ export function buildOpenApiDocument(base: string): Json {
                 feedCount: nullable('integer'),
                 feedTitles: nullable('array', { items: { type: 'string' } }),
                 feedBasis: nullable('array', { items: nullable('object', { properties: { title: { type: 'string' }, url: nullable('string'), recognized: { type: 'boolean' } } }) }),
+                // Районы пунктов ленты, как их назвала сводка; пустой массив — район не указан (#2930).
+                feedZones: nullable('array', { items: { type: 'array', items: { type: 'string' } } }),
               },
             },
             {

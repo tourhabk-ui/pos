@@ -21,6 +21,10 @@ export interface SafetyStatusPayload {
   maxSeverity?: number;
   activeCount?: number;
   topTitle?: string | null;
+  /** Лента сайта и районы её пунктов — для панели «Угрозы по районам» (#2930). */
+  feedCount?: number | null;
+  feedTitles?: string[] | null;
+  feedZones?: string[][] | null;
 }
 
 export type MapThreatState = 'alert' | 'calm' | 'unknown';
