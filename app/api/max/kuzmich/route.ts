@@ -91,6 +91,8 @@ import { forgetMenuMessage, isMenuPayload, noteMenuMessage, sentMid, type TailAp
 import type { CabinetScreen } from '@/lib/chat-cabinet/screens';
 import { isCabinetSection } from '@/lib/roles/role-screen';
 import { MCHS_CHAT_BUTTON, MCHS_TOURIST_PAYLOAD, mchsTouristLinks, mchsTouristText } from '@/lib/safety/mchs-chat';
+import { chatHasRequests } from '@/lib/requests/chat-links';
+import { MY_TRIP_BUTTON, myTripReply } from '@/lib/requests/my-trip';
 import { getPublicBaseUrl } from '@/lib/config';
 
 type ButtonIntent = 'default' | 'positive' | 'negative';
@@ -508,6 +510,22 @@ const START_MENU: MaxButton[][] = [
   // не тема для модели (lib/safety/mchs-chat). Ничего не спрашивает.
   [{ type: 'callback', text: MCHS_CHAT_BUTTON, payload: MCHS_TOURIST_PAYLOAD }],
 ];
+
+/** «Моя поездка» (#2970): заявки этого чата, статус и обстановка — lib/requests/my-trip. */
+const MY_TRIP_PAYLOAD = 'my_trip';
+
+/**
+ * Стартовое меню туриста. «Моя поездка» — после первой заявки (слово
+ * владельца 10.11) и только по заверенному апдейту: незаверенный апдейт не
+ * читает заявки чата. Отказ чтения — меню без кнопки, не ошибка человеку.
+ */
+async function touristStartMenu(chatId: number, verified: boolean): Promise<MaxButton[][]> {
+  if (!verified) return START_MENU;
+  const has = await chatHasRequests('max', chatId);
+  return has === true
+    ? [[{ type: 'callback', text: MY_TRIP_BUTTON, payload: MY_TRIP_PAYLOAD, intent: 'positive' }], ...START_MENU]
+    : START_MENU;
+}
 
 const TOPIC_TEXTS: Record<string, string> = {
   topic_fishing: 'Рыбалка на Камчатке',
@@ -1179,7 +1197,7 @@ async function handleUpdate(update: MaxUpdate, opts?: { verifiedOrigin?: boolean
       verifiedOrigin: opts?.verifiedOrigin === true,
     });
     if (capturedStart) {
-      await maxReplyWithButtons(update.chat_id, 'Выберите тему или задайте вопрос:', START_MENU);
+      await maxReplyWithButtons(update.chat_id, 'Выберите тему или задайте вопрос:', await touristStartMenu(update.chat_id, opts?.verifiedOrigin === true));
     }
     return;
   }
@@ -1984,6 +2002,14 @@ async function handleUpdate(update: MaxUpdate, opts?: { verifiedOrigin?: boolean
       return;
     }
 
+    // «Моя поездка» (#2970): заявки ЭТОГО чата — только по заверенному апдейту.
+    if (payload === MY_TRIP_PAYLOAD) {
+      await maxReply(resolvedChatId, opts?.verifiedOrigin === true
+        ? escapeHtml(await myTripReply('max', resolvedChatId))
+        : UNVERIFIED_CHAT_REPLY.myTrip);
+      return;
+    }
+
     // Топик-кнопки → шлём как обычный запрос
     if (payload in TOPIC_TEXTS) {
       const topicText = TOPIC_TEXTS[payload];
@@ -2041,7 +2067,7 @@ async function handleUpdate(update: MaxUpdate, opts?: { verifiedOrigin?: boolean
 
     // Кнопка "Другой вариант"
     if (payload === 'other_tour') {
-      await maxReplyWithButtons(resolvedChatId, 'Хорошо! Выберите тему, и я подберу что-то ещё:', START_MENU);
+      await maxReplyWithButtons(resolvedChatId, 'Хорошо! Выберите тему, и я подберу что-то ещё:', await touristStartMenu(resolvedChatId, opts?.verifiedOrigin === true));
       return;
     }
   }

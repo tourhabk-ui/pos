@@ -3625,6 +3625,12 @@ export async function processMessage(opts: {
       await replyFn(chatId, escapeHtml(await handoffReply(cf.code, platform === 'max' ? 'max' : 'telegram', String(chatId))));
       return;
     }
+    if (cf.kind === 'my_trip') {
+      // Заявки ЭТОГО чата по связи 1416 — без поиска по телефону и имени (#2970).
+      const { myTripReply } = await import('@/lib/requests/my-trip');
+      await replyFn(chatId, escapeHtml(await myTripReply(platform === 'max' ? 'max' : 'telegram', String(chatId))));
+      return;
+    }
     if (cf.kind === 'cancel_idle') { await replyFn(chatId, CANCEL_IDLE_REPLY); return; }
     if (cf.kind === 'stale_confirm') { await replyFn(chatId, STALE_CONFIRM_REPLY); return; }
     if (cf.kind === 'none' && !openFlow && !isBookingTrigger(text)) tourId = await exactTourTitleId(text);
