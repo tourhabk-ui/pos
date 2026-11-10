@@ -58,6 +58,7 @@ import { fetchCandidateLoads, fetchTourLoads } from '@/lib/planner/place-load';
 import { UNDATED_ALERT_HORIZON_DAYS } from '@/lib/safety/alert-horizon';
 import { loadActiveWarnings } from '@/lib/safety/active-warnings';
 import { applyPlanParkStatus } from '@/lib/planner/park-status';
+import { applyPlanOfficialAlerts, officialAlertsPlanWarning, OFFICIAL_ALERTS_UNREAD_NOTE } from '@/lib/planner/official-alerts';
 import {
   appendOfferingFlags, appendUnreadSafety, MCHS_UNREAD_NOTE, mchsBeforeTripNote, notesForPlanDay,
   splitWarningsForTrip, warningDigest, type ActiveWarning,
@@ -2320,6 +2321,20 @@ export async function recommendTrip(profile: TripProfile, opts: RecommendTripOpt
     async <T,>(sql: string, params: unknown[]) => (await pool.query(sql, params)) as unknown as { rows: T[] },
   );
   warnings.unshift(...parkStatus.warnings.map((w) => ({ type: 'safety' as const, severity: w.severity, message: w.message })));
+  // Штормовые, паводок, лавины, оползни, цунами (#2930): тем же правилом
+  // охвата, что «перед выездом» (matchOfficialAlerts), на даты дней. До этой
+  // правки план их не получал вовсе, хотя лента их держит.
+  const official = await applyPlanOfficialAlerts(
+    days,
+    (dayNum) => (profile.arrivalDate ? dateOfTripDay(profile.arrivalDate, dayNum) : null),
+    async <T,>(sql: string, params: unknown[]) => (await pool.query(sql, params)) as unknown as { rows: T[] },
+  );
+  if (official.unread) {
+    warnings.push({ type: 'safety', severity: 'important', message: OFFICIAL_ALERTS_UNREAD_NOTE });
+  } else {
+    const touched = officialAlertsPlanWarning(official.days);
+    if (touched) warnings.unshift({ type: 'safety', severity: 'important', message: touched });
+  }
   if (!mchs.ok) {
     warnings.push({ type: 'mchs', severity: 'important', message: MCHS_UNREAD_NOTE });
   } else {
