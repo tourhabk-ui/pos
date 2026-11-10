@@ -236,8 +236,14 @@ describe('Ревью: deepseek-flash, одна голова, /security-review', 
       'sleep 20',
       'echo \'{"type":"result","is_error":false,"result":"не должно дойти"}\'',
     ].join('\n'));
+    // Шаг считает срок целыми секундами (date +%s). При сроке 1 с смена
+    // секунды между START и проверкой остатка давала остаток 0: claude не
+    // запускался вовсе, файла выполнения не было (main 6a88b6e, 10.11, тест
+    // за 24 мс). Здесь секунда меняется всегда — худший случай, — а срок 2 с
+    // оставляет claude хотя бы секунду.
+    stub('date', 'if [ "$1" = "+%s" ]; then c=$(cat "$FAKE_DIR/date-calls" 2>/dev/null || echo 0); echo $((c + 1)) > "$FAKE_DIR/date-calls"; if [ "$c" = 0 ]; then echo 1000; else echo 1001; fi; else exec /bin/date "$@"; fi');
     const t0 = Date.now();
-    const r = runStep(step, ctxHere(), { REVIEW_DEADLINE_S: '1' });
+    const r = runStep(step, ctxHere(), { REVIEW_DEADLINE_S: '2' });
     expect(Date.now() - t0, 'claude не остановлен по сроку').toBeLessThan(10_000);
     expect(r.code, r.out).toBe(0);
     expect(outputs()).toMatchObject({ rc: '124', timed_out: 'true', attempt: '1' });
