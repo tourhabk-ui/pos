@@ -3613,16 +3613,32 @@ export async function processMessage(opts: {
     const openFlow = liveBooking && (await loadBookingFlow(chatId, mode, pendingMap)) !== null;
     const cf = classifyCodeFirst(text, openFlow);
     let tourId: number | null = cf.kind === 'tour' ? cf.tourId : null;
+    // Канал связи «чат ↔ заявка» (1416) — только MAX и Telegram, названные
+    // вызовом. WhatsApp и Meta зовут processMessage без platform, и их chatId —
+    // хвост номера телефона или свёрнутый PSID, а не id чата Telegram: правило
+    // «всё, что не MAX, — Telegram» писало бы их связи в пространство Telegram
+    // и читало бы чужие заявки (ревью безопасности #3198). Нет канала — нет ни
+    // связи, ни списка.
+    const { linkChannelOf } = await import('@/lib/requests/chat-links');
+    const linkCh = linkChannelOf(platform ?? '');
     if (cf.kind === 'status') {
       // Ключ статуса предъявлен в этом чате — заявка в его «Моей поездке» (#2970, 1416).
-      const { linkChatToKeys } = await import('@/lib/requests/chat-links');
-      await linkChatToKeys(platform === 'max' ? 'max' : 'telegram', String(chatId), [cf.key], 'status_link');
+      if (linkCh) {
+        const { linkChatToKeys } = await import('@/lib/requests/chat-links');
+        await linkChatToKeys(linkCh, String(chatId), [cf.key], 'status_link');
+      }
       await replyFn(chatId, escapeHtml(await requestStatusReply(cf.key)));
       return;
     }
     if (cf.kind === 'handoff') {
       const { handoffReply } = await import('@/lib/requests/handoff');
-      await replyFn(chatId, escapeHtml(await handoffReply(cf.code, platform === 'max' ? 'max' : 'telegram', String(chatId))));
+      await replyFn(chatId, escapeHtml(await handoffReply(cf.code, platform === 'max' ? 'max' : 'telegram', String(chatId), { link: linkCh !== null })));
+      return;
+    }
+    if (cf.kind === 'my_trip') {
+      // Заявки ЭТОГО чата по связи 1416 — без поиска по телефону и имени (#2970).
+      const { myTripReply, MY_TRIP_NO_CHANNEL_TEXT } = await import('@/lib/requests/my-trip');
+      await replyFn(chatId, linkCh ? escapeHtml(await myTripReply(linkCh, String(chatId))) : MY_TRIP_NO_CHANNEL_TEXT);
       return;
     }
     if (cf.kind === 'cancel_idle') { await replyFn(chatId, CANCEL_IDLE_REPLY); return; }

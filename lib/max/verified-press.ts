@@ -104,7 +104,7 @@ export function typedLoginAnswer(text: string): 'confirm' | 'reject' | null {
 export type MaxStartAction = 'login' | 'link' | 'admin' | 'code';
 
 /** Действие текстом или вложением в чате. */
-export type MaxChatAction = 'contact' | 'partner' | 'booking' | 'reset';
+export type MaxChatAction = 'contact' | 'partner' | 'booking' | 'reset' | 'myTrip';
 
 /**
  * Вид кнопки-действия по payload. `sr:` — ответ оператора на запрос мест
@@ -242,4 +242,6 @@ export const UNVERIFIED_CHAT_REPLY: Record<MaxChatAction, string> = {
     + 'Откройте кабинет на vedarai.ru.',
   booking: 'Заявку в чате MAX сейчас не оформляю: бот не может проверить сообщения. Оформить её можно на сайте vedarai.ru.',
   reset: 'Очистить историю через MAX сейчас нельзя: бот не может проверить команду, и эта команда не выполнена.',
+  // «Моя поездка» (#2970) читает заявки чата — только по заверенному апдейту.
+  myTrip: 'Список заявок через MAX сейчас не показываю: бот не может проверить сообщение. Статус заявки — по ссылке из сообщения о ней.',
 };

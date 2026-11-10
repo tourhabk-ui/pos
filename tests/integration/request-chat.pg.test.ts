@@ -1014,6 +1014,53 @@ withPg('переписка по заявке на настоящем PostgreSQL'
       expect(r.rows[0].lead).toBe(own.rows[0].lead);
     });
 
+    it('«Моя поездка»: заявки чата со статусом и обстановкой на ближайшую дату; одна заявка — одна строка', async () => {
+      const myTrip = await import('@/lib/requests/my-trip');
+      const { kamchatkaToday } = await import('@/lib/seat-requests/core');
+      const opId = (await pool.query<{ id: string }>(
+        `INSERT INTO partners (name, category, contact) VALUES ('Оператор поездки', 'operator', '{}') RETURNING id`,
+      )).rows[0].id;
+      const tourId = (await pool.query<{ id: number }>(
+        `INSERT INTO operator_tours (title, base_price, operator_id, latitude, longitude)
+         VALUES ('Сплав по Быстрой', 15000, $1, 53.1, 158.6) RETURNING id`, [opId],
+      )).rows[0].id;
+      const d = new Date(`${kamchatkaToday()}T00:00:00Z`);
+      d.setUTCDate(d.getUTCDate() + 2);
+      const soon = d.toISOString().slice(0, 10);
+      const lead = await leads.createLeadDetailed({
+        name: 'Пётр Сплав', phone: '+79995550202', comment: 'Сплав, двое', route_title: 'Сплав по Быстрой',
+        source_url: 'https://vedarai.ru/kuzmich', pd_consent: consentOf('operator'),
+        source_data: { source: 'mcp', tour_id: tourId, date: soon }, skip_ai_processing: true,
+      });
+      const TRIP_CHAT = 9_300_010;
+      const k1 = await status.issueRequestKeyRecord({ leadId: lead!.id }, 'create_booking_request', { opensChat: false });
+      const k2 = await status.issueRequestKeyRecord({ leadId: lead!.id }, 'handoff:max', { opensChat: false });
+      expect(await links.linkChatToKeys('max', TRIP_CHAT, [k1!.key], 'created')).toBe(1);
+      expect(await links.linkChatToKeys('max', TRIP_CHAT, [k2!.key], 'handoff')).toBe(1);
+
+      // Источники обстановки без сети: прогноз не загрузился, лента пуста, оценки зоны нет.
+      const sources = async () => ({
+        forecast: async () => { throw new Error('прогноз недоступен в тесте'); },
+        officials: async () => [],
+        zone: async () => null,
+      });
+      const trip = await myTrip.loadMyTrip('max', TRIP_CHAT, { sources: sources as never });
+      expect(trip.outcome).toBe('ok');
+      if (trip.outcome !== 'ok') return;
+      expect(trip.items).toHaveLength(1);
+      expect(trip.items[0]).toMatchObject({ what: 'Сплав по Быстрой', date: soon });
+      expect(trip.items[0].human.length).toBeGreaterThan(0);
+      expect(trip.items[0].situation).toMatchObject({ kind: 'line', date: soon });
+      // Прогноз не загрузился — «не смог проверить», не «спокойно».
+      expect((trip.items[0].situation as { text: string }).text).toMatch(/не смог проверить/);
+      const text = myTrip.myTripText(trip);
+      expect(text).not.toContain('+7999');
+      expect(text).not.toContain('Пётр');
+
+      expect(await myTrip.loadMyTrip('max', TRIP_CHAT + 1)).toEqual({ outcome: 'none' });
+      expect(await myTrip.loadMyTrip('telegram', TRIP_CHAT)).toEqual({ outcome: 'none' });
+    });
+
     it('удалили заявку — связи ушли вместе с её ключами', async () => {
       const own = await pool.query(`SELECT lead_id::text AS lead FROM agent_request_keys WHERE id = $1`, [keyId]);
       await pool.query(`DELETE FROM agent_request_keys WHERE lead_id = $1::uuid`, [own.rows[0].lead]);

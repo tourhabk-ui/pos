@@ -41,6 +41,8 @@ import { isRepeatedTelegramUpdate } from '@/lib/telegram/update-dedup';
 import { enqueueTelegramChat, telegramChatKey, webhookAwaitsHandler } from '@/lib/telegram/update-lane';
 import { emphasizeTripDays, sanitizeForTelegram } from '@/lib/telegram/kuzmich-format';
 import { matchTouristButton, touristReplyMarkup, touristRentalText, TOURIST_ASK_TEXT, type TouristButton } from '@/lib/telegram/tourist-keyboard';
+import { chatHasRequests } from '@/lib/requests/chat-links';
+import { isMyTripAsk, myTripReply } from '@/lib/requests/my-trip';
 import { MCHS_CHAT_BUTTON, mchsTouristLinks, mchsTouristText } from '@/lib/safety/mchs-chat';
 import { catalogFacts, loadShowcaseTours } from '@/lib/telegram/tourist-tours';
 import { touristOperatorsList } from '@/lib/telegram/operators-list';
@@ -207,13 +209,21 @@ async function sendHTML(chatId: string, text: string): Promise<void> {
   await telegramService.sendMessage({ chatId, text, parseMode: 'HTML' });
 }
 
+/**
+ * Клавиатура туриста этого чата: «Моя поездка» — после первой заявки
+ * (#2970, слово владельца 10.11). Отказ чтения — клавиатура без кнопки.
+ */
+async function touristMarkupFor(chatId: string | number): Promise<ReturnType<typeof touristReplyMarkup>> {
+  return touristReplyMarkup((await chatHasRequests('telegram', chatId)) === true);
+}
+
 /** Личка туриста: та же HTML-отправка и постоянная клавиатура. Кабинету её не ставим. */
 async function sendTourist(chatId: string, text: string): Promise<void> {
   await telegramService.sendMessage({
     chatId,
     text: repairTelegramHtml(text),
     parseMode: 'HTML',
-    replyMarkup: touristReplyMarkup(),
+    replyMarkup: await touristMarkupFor(chatId),
   });
 }
 
@@ -451,6 +461,7 @@ async function answerByKuzmich(opts: {
   /** Личка туриста: клавиатура. Кабинет и группа — без неё. */
   tourist?: boolean;
 }): Promise<void> {
+  const touristMarkup = opts.tourist ? await touristMarkupFor(opts.chatId) : undefined;
   // Один ответ на сообщение. Список туров, пауза проката и цена прошлого
   // варианта собираются в aiChat (resolveCommercialTurn) и сюда не дописываются
   // второй раз: раньше пауза ставилась и текстом, и просьбой модели сказать то же.
@@ -464,7 +475,7 @@ async function answerByKuzmich(opts: {
     // на этом сообщении не заменяем второй ссылкой: пауза проката кнопки не получает.
     const markup = offer
       ? { inline_keyboard: [[{ text: offer.text, url: offer.url }]] }
-      : (opts.tourist ? touristReplyMarkup() : undefined);
+      : touristMarkup;
     return sendKuzmichReply(id, body, markup);
   };
   try {
@@ -1645,6 +1656,12 @@ async function deliverTelegramUpdate(update: TelegramUpdate): Promise<void> {
       // Кнопка клавиатуры — не текст заявки. Клавиатура остаётся на экране
       // после /start lead (ссылка сайта ?start=lead), и «Подобрать тур»
       // иначе записывался описанием поездки.
+      // «Моя поездка» (#2970): заявки ЭТОГО чата по связи 1416, без поиска
+      // по телефону и имени. Беда в тексте сюда не доходит: фраза — целиком.
+      if (!admin && isMyTripAsk(text)) {
+        await sendTourist(chatId, esc(await myTripReply('telegram', chatId)));
+        return;
+      }
       const button = !admin ? matchTouristButton(text) : null;
       if (button) {
         await answerTouristButton(chatId, button);

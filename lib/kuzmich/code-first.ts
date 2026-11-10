@@ -13,11 +13,14 @@ import { pool } from '@/lib/db-pool';
 import { publicTourSql } from '@/lib/tours/public-visibility';
 import { REQUEST_KEY_MAX_CHARS, REQUEST_KEY_MIN_CHARS } from '@/lib/mcp/request-status-schema';
 import { extractHandoffCode } from '@/lib/requests/handoff';
+import { isMyTripAsk } from '@/lib/requests/my-trip-ask';
 import { parseTourPick, CONFIRM_YES, isCorrection } from '@/lib/kuzmich/quick-replies';
 
 export type CodeFirst =
   | { kind: 'status'; key: string }
   | { kind: 'handoff'; code: string }
+  /** «Моя поездка» (#2970): заявки этого чата, статус и обстановка — lib/requests/my-trip. */
+  | { kind: 'my_trip' }
   | { kind: 'cancel_idle' }
   | { kind: 'stale_confirm' }
   | { kind: 'tour'; tourId: number }
@@ -48,6 +51,8 @@ export function classifyCodeFirst(text: string, hasOpenFlow: boolean): CodeFirst
   if (key) return { kind: 'status', key };
   const code = extractHandoffCode(t);
   if (code) return { kind: 'handoff', code };
+  // «Моя поездка» — и посреди черновика заявки: список не трогает её шагов.
+  if (isMyTripAsk(t)) return { kind: 'my_trip' };
   if (hasOpenFlow) return { kind: 'none' }; // кнопки и «отмену» внутри заявки ведут её шаги
   if (CANCEL_ONLY.test(t)) return { kind: 'cancel_idle' };
   if (t === CONFIRM_YES || isCorrection(t) && t.length <= 12) return { kind: 'stale_confirm' };

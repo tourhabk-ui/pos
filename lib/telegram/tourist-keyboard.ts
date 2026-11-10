@@ -7,6 +7,7 @@
 
 import { rentalPauseForTourist, rentalSitePauseActive } from '@/lib/rental/site-pause';
 import { MCHS_CHAT_BUTTON } from '@/lib/safety/mchs-chat';
+import { MY_TRIP_BUTTON } from '@/lib/requests/my-trip-ask';
 
 export const TOURIST_BUTTONS = [
   'Подобрать тур',
@@ -20,13 +21,18 @@ export const TOURIST_BUTTONS = [
 
 export type TouristButton = (typeof TOURIST_BUTTONS)[number];
 
-export function touristReplyMarkup(): {
+/**
+ * Постоянная клавиатура туриста. `myTrip` — у чата есть заявка: сверху
+ * «Моя поездка» (#2970, владелец 10.11: кнопка после первой заявки).
+ */
+export function touristReplyMarkup(myTrip = false): {
   keyboard: Array<Array<{ text: string }>>;
   resize_keyboard: boolean;
   is_persistent: boolean;
 } {
   return {
     keyboard: [
+      ...(myTrip ? [[{ text: MY_TRIP_BUTTON }]] : []),
       [{ text: 'Подобрать тур' }, { text: 'Погода' }],
       [{ text: 'Аренда авто' }, { text: 'Операторы' }],
       [{ text: MCHS_CHAT_BUTTON }, { text: 'Задать вопрос' }],
