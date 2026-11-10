@@ -46,14 +46,38 @@
  *     записи): остаётся как есть, как и раньше, и в цепочку не входит.
  * Номер через косую черту («8/914/1234567») не распознаётся, как и через точки:
  * так пишут даты.
+ *
+ * 10.11, вторая правка (задача «утечка телефонов из планировщика»): проба на
+ * main нашла две дыры и одну потерю.
+ *  - Номер с дефисами через пробел («8 914 123 - 45 - 67») уходил модели
+ *    дословно: правило 2 резало его на части короче десяти цифр.
+ *  - Номер с длинным тире («123–45–67» — так его вставляют из заметок и с
+ *    сайтов) не попадал в кандидаты вовсе: тире не было в списке знаков.
+ *  - Правило 5 уносило с номером даты и бюджет рядом («+7 914 123-45-67 10-14
+ *    августа» → «[телефон] августа»), и планировщик терял даты поездки.
+ * Отсюда:
+ *  7. Тире всех видов (‐ ‑ ‒ – — −) — то же, что дефис.
+ *  8. Внутри цепочки номер вырезается по ФОРМЕ, а не по счёту: 11 цифр с
+ *     7 или 8 впереди и кодом на 3, 4, 8, 9; 10 цифр с 3, 4, 8, 9 впереди; с
+ *     «+» и другим кодом страны — 11–15 цифр. Сначала ищутся номера, начатые
+ *     как номер («+7», «8», «(914)», «914»), потом остальные. Остаток цепочки
+ *     судится правилом 5: от десяти цифр вырезается целиком — то, что на номер
+ *     не похоже по форме, но цифр в нём на номер хватает, модель не увидит.
+ *  9. Дефис с пробелом внутри номера допускается, если после него идут
+ *     группы по две цифры («123 - 45 - 67»): так пишут номер и не пишут
+ *     диапазон («30 000 - 50 000» остаётся диапазоном).
  */
+/** Тире всех видов — как дефис (правило 7). */
+const DASHES = '\\-\\u2010\\u2011\\u2012\\u2013\\u2014\\u2212';
 const DOTTED_NUMBER = /(\d+(?:\.\d+)+)/;
-const PHONE_CANDIDATE = /\+?\d[\d\s()\-]{8,}\d/g;
-const RANGE_DASH = /(\s+-\s*|\s*-\s+)/;
+const PHONE_CANDIDATE = new RegExp(`\\+?\\d[\\d\\s()${DASHES}]{8,}\\d`, 'g');
+const RANGE_DASH = new RegExp(`(\\s+[${DASHES}]\\s*|\\s*[${DASHES}]\\s+)`);
+const BARE_PAIR = new RegExp(`^(\\d{4,})[${DASHES}](\\d{4,})$`);
+/** Слово, с которого номер начинают: «+7», «(914)», «8», «8(914)», «8-914», «914». */
+const PHONE_START = new RegExp(`^(?:[+(]|[78](?:$|[(${DASHES}]))`);
 
-const BARE_PAIR = /^(\d{4,})-(\d{4,})$/;
-
-const digitCount = (s: string): number => s.replace(/\D/g, '').length;
+const digitsOf = (s: string): string => s.replace(/\D/g, '');
+const digitCount = (s: string): number => digitsOf(s).length;
 
 /** «150000-200000»: два числа одной длины по возрастанию — диапазон, а не номер. */
 function isBareRange(part: string): boolean {
@@ -68,44 +92,144 @@ function isPhoneWord(word: string): boolean {
 }
 
 /**
- * Одна сторона диапазона, слово за словом. Пробелы между словами остаются.
- *
- * Слово от десяти цифр судится само: 10–15 цифр — номер; длиннее или диапазон
- * («150000-200000») — не номер, остаётся как есть. Короткие слова подряд
- * складываются в цепочку: это номер, записанный с пробелами, возможно с
- * числами рядом, — от десяти цифр цепочка вырезается целиком.
+ * Цифры D, набранные словами подряд, — номер по форме (правило 8)?
+ * `plus` — первое слово начато с «+».
  */
-function redactPart(part: string, label: (phone: string) => string): string {
-  const judgeRun = (run: string): string => (digitCount(run) >= 10 ? label(run) : run);
-  // Слова — чётные куски, пробелы между ними — нечётные.
-  const pieces = part.split(/(\s+)/);
-  let out = '';
-  let run = '';
-  for (let i = 0; i < pieces.length; i += 2) {
-    const word = pieces[i];
-    const gap = i > 0 ? pieces[i - 1] : '';
-    if (digitCount(word) >= 10) {
-      out += judgeRun(run) + gap + (isPhoneWord(word) ? label(word) : word);
-      run = '';
-    } else if (run === '') {
-      out += gap;
-      run = word;
-    } else {
-      run += gap + word;
+function isPhoneShape(d: string, plus: boolean): boolean {
+  if (/^[78][3489]/.test(d)) return d.length === 11;
+  if (plus) return d.length >= 11 && d.length <= 15;
+  return d.length === 10 && /^[3489]/.test(d);
+}
+
+interface Token {
+  text: string;
+  digits: string;
+  word: boolean;
+  /** Разделитель — дефис или тире с пробелом (правило 2). */
+  range: boolean;
+}
+
+function tokenize(candidate: string): Token[] {
+  const tokens: Token[] = [];
+  candidate.split(RANGE_DASH).forEach((part, i) => {
+    if (i % 2 !== 0) {
+      tokens.push({ text: part, digits: '', word: false, range: true });
+      return;
     }
+    part.split(/(\s+)/).forEach((piece, j) => {
+      if (piece === '') return;
+      const word = j % 2 === 0;
+      tokens.push({ text: piece, digits: word ? digitsOf(piece) : '', word, range: false });
+    });
+  });
+  return tokens;
+}
+
+/**
+ * Номер с пробелами внутри цепочки коротких слов (`run` — индексы слов в
+ * `tokens`). Возвращает пары [первое, последнее] слово каждого вырезаемого
+ * куска: сперва номера по форме (правило 8), потом остаток от десяти цифр
+ * (правило 5). Дефис с пробелом разрывает остаток (правило 2), а номер по
+ * форме переходит его только группами по две цифры (правило 9).
+ */
+function carveRun(tokens: Token[], run: number[]): Array<[number, number]> {
+  const n = run.length;
+  const carved = new Array<boolean>(n).fill(false);
+  const spans: Array<[number, number]> = [];
+  const rangeBefore = (k: number): boolean => {
+    for (let t = run[k - 1] + 1; t < run[k]; t++) if (tokens[t].range) return true;
+    return false;
+  };
+
+  const matchAt = (i: number): number => {
+    const plus = tokens[run[i]].text.startsWith('+');
+    let d = '';
+    let crossed = false;
+    for (let k = i; k < n; k++) {
+      if (carved[k]) return -1;
+      if (k > i && rangeBefore(k)) crossed = true;
+      if (crossed && tokens[run[k]].digits.length !== 2) return -1;
+      d += tokens[run[k]].digits;
+      if (d.length > 15) return -1;
+      if (isPhoneShape(d, plus)) return k;
+    }
+    return -1;
+  };
+
+  const pass = (startedOnly: boolean): void => {
+    for (let i = 0; i < n; i++) {
+      if (carved[i]) continue;
+      const tok = tokens[run[i]];
+      if (startedOnly && !PHONE_START.test(tok.text) && !/^9\d\d$/.test(tok.digits)) continue;
+      const j = matchAt(i);
+      if (j < 0) continue;
+      for (let k = i; k <= j; k++) carved[k] = true;
+      spans.push([run[i], run[j]]);
+      i = j;
+    }
+  };
+  pass(true);
+  pass(false);
+
+  // Остаток: куски подряд, не вырезанные по форме, разорванные дефисом с пробелом.
+  let from = -1;
+  let count = 0;
+  const flush = (to: number): void => {
+    if (from >= 0 && count >= 10) spans.push([run[from], run[to]]);
+    from = -1;
+    count = 0;
+  };
+  for (let k = 0; k < n; k++) {
+    if (carved[k]) {
+      flush(k - 1);
+      continue;
+    }
+    if (from >= 0 && rangeBefore(k)) flush(k - 1);
+    if (from < 0) from = k;
+    count += tokens[run[k]].digits.length;
   }
-  return out + judgeRun(run);
+  flush(n - 1);
+  return spans;
+}
+
+function redactCandidate(candidate: string, label: (phone: string) => string): string {
+  const tokens = tokenize(candidate);
+  const spans: Array<[number, number]> = [];
+  let run: number[] = [];
+  const closeRun = (): void => {
+    if (run.length > 0) spans.push(...carveRun(tokens, run));
+    run = [];
+  };
+  tokens.forEach((tok, t) => {
+    if (!tok.word) return;
+    if (tok.digits.length >= 10) {
+      // Слово от десяти цифр судится само (правила 4 и 6) и рвёт цепочку.
+      closeRun();
+      if (isPhoneWord(tok.text)) spans.push([t, t]);
+    } else {
+      run.push(t);
+    }
+  });
+  closeRun();
+
+  const startAt = new Map<number, number>(spans.map(([a, b]) => [a, b]));
+  let out = '';
+  for (let t = 0; t < tokens.length; t++) {
+    const end = startAt.get(t);
+    if (end === undefined) {
+      out += tokens[t].text;
+      continue;
+    }
+    out += label(tokens.slice(t, end + 1).map((x) => x.text).join(''));
+    t = end;
+  }
+  return out;
 }
 
 function redactPhones(segment: string, keepTail: boolean): string {
   const label = (phone: string): string =>
-    keepTail ? `[телефон …${phone.replace(/\D/g, '').slice(-4)}]` : '[телефон]';
-  return segment.replace(PHONE_CANDIDATE, (m) =>
-    m
-      .split(RANGE_DASH)
-      .map((part, i) => (i % 2 !== 0 ? part : redactPart(part, label)))
-      .join(''),
-  );
+    keepTail ? `[телефон …${digitsOf(phone).slice(-4)}]` : '[телефон]';
+  return segment.replace(PHONE_CANDIDATE, (m) => redactCandidate(m, label));
 }
 
 export interface RedactOptions {
