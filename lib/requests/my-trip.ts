@@ -230,6 +230,14 @@ export const MY_TRIP_NONE_TEXT =
 export const MY_TRIP_FAILED_TEXT =
   'Список заявок сейчас не прочитался — это сбой на нашей стороне, а не «заявок нет». Повторите через минуту.';
 
+/**
+ * Канал без связи «чат ↔ заявка» (WhatsApp, Meta): списка здесь нет вовсе.
+ * Его id чата — не id чата MAX или Telegram, и читать по нему нечего.
+ */
+export const MY_TRIP_NO_CHANNEL_TEXT =
+  'В этом канале список заявок не показываю. Статус заявки — по ссылке из сообщения о ней; '
+  + 'список «Моя поездка» есть в чате Кузьмича в MAX и Telegram.';
+
 /** Ответ человеку. Без ПД: название, дата, статус словами, обстановка. */
 export function myTripText(trip: MyTrip): string {
   if (trip.outcome === 'none') return MY_TRIP_NONE_TEXT;

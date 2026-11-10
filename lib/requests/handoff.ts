@@ -114,11 +114,15 @@ export const HANDOFF_LIMIT_REPLY = 'Слишком много попыток в�
 export const HANDOFF_ERROR_REPLY = 'Код сейчас не проверился. Повторите через минуту или откройте ссылку заявки.';
 
 /** Ответ на код: сводка заявки без ПД (тот же текст, что статус по ссылке). */
-export async function handoffReply(code: string, channel: HandoffChannel, who: string): Promise<string> {
+export async function handoffReply(
+  code: string, channel: HandoffChannel, who: string,
+  /** `link: false` — чат не MAX и не Telegram (WhatsApp, Meta): связи 1416 нет. */
+  opts: { link?: boolean } = {},
+): Promise<string> {
   const res = await redeemHandoffCode(code, channel, who);
   if (!res.ok) return res.reason === 'rate_limited' ? HANDOFF_LIMIT_REPLY : res.reason === 'invalid' ? HANDOFF_INVALID_REPLY : HANDOFF_ERROR_REPLY;
   // Код предъявлен в этом чате — заявка в его «Моей поездке» (#2970, 1416).
-  if (channel !== 'web') {
+  if (channel !== 'web' && opts.link !== false) {
     const { linkChatToKeys } = await import('@/lib/requests/chat-links');
     await linkChatToKeys(channel, who, [res.key], 'handoff');
   }
