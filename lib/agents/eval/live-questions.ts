@@ -14,7 +14,7 @@
  */
 
 import { query } from '@/lib/database';
-import type { EvalQuestion } from '@/lib/agents/eval/kuzmich-faithfulness';
+import type { EvalCase, EvalQuestion } from '@/lib/agents/eval/kuzmich-faithfulness';
 
 // ── Чистые функции (юнит-тестируемые, без БД) ────────────────────────────────
 
@@ -58,6 +58,30 @@ export function toEvalQuestions(rawContents: string[], limit: number): EvalQuest
     out.push({ id: `live-${out.length + 1}`, category: 'live', question: masked });
   }
   return out;
+}
+
+/** Проверка живого вопроса, как она уходит в ответ роута: числа без текстов. */
+export interface LiveCaseOutward {
+  id: string;
+  category: string;
+  score: number | null;
+  context_len: number;
+  /** Ответил ли Кузьмич вовсе: «нет ответа» и «судья не оценил» — разные исходы. */
+  answered: boolean;
+}
+
+/**
+ * Живой вопрос — сообщение туриста. Маска закрывает телефон, почту и ник, а
+ * имя, место ночёвки и всё остальное, что человек написал о себе, оставляет.
+ * Ответ роута читает workflow, а лог прогона GitHub Actions у публичного
+ * репозитория открыт любому: до 10.11 живой шаг печатал ответ целиком — с
+ * вопросами, ответами Кузьмича и разбором судьи, который их пересказывает.
+ *
+ * Наружу уходят только числа. Что именно упало, лежит в журнале прогона
+ * (`failed_cases` в agent_runs) — под админ-доступом, а не в открытом логе.
+ */
+export function liveCaseForResponse(c: EvalCase): LiveCaseOutward {
+  return { id: c.id, category: c.category, score: c.score, context_len: c.context_len, answered: c.answer !== null };
 }
 
 // ── Выборка из БД ─────────────────────────────────────────────────────────────
