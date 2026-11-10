@@ -1,6 +1,6 @@
 # Схема базы данных Ведара
 
-> Снято 2026-11-10 с настоящего PostgreSQL 18.6 (Debian 18.6-1.pgdg13+2): baseline прода (`lib/database/baseline/schema-baseline.sql`, снимок 2026-08-15) + миграции новее него, накатанные штатным раннером. Последняя миграция в снимке: `1417_route_registrations_submit_key.sql`.
+> Снято 2026-11-10 с настоящего PostgreSQL 18.6 (Debian 18.6-1.pgdg13+2): baseline прода (`lib/database/baseline/schema-baseline.sql`, снимок 2026-08-15) + миграции новее него, накатанные штатным раннером. Последняя миграция в снимке: `1418_partner_page_snapshots_body_chars.sql`.
 > Файл порождён `scripts/gen-db-schema.ts` (`npm run db:schema-doc`); править руками бессмысленно — следующий прогон перепишет.
 > Что здесь НЕ учтено: дрейф прода после baseline, не отражённый миграциями. Судья дрейфа — `GET /api/cron/schema-drift` на проде (`lib/db/schema-drift.ts`). Значений данных в файле нет — только имена и типы.
 
@@ -8,7 +8,7 @@
 |---|---:|
 | Таблиц | 323 |
 | Представлений (VIEW) | 12 |
-| Колонок | 4210 |
+| Колонок | 4211 |
 | Внешних ключей | 383 |
 | Таблиц без единого FK в обе стороны | 88 |
 
@@ -809,9 +809,9 @@ JWT в httpOnly-куке `auth_token`; роли — `users.role`, партнёр
 
 `code_hash character!` `partner_id uuid!` `user_id uuid` `client_id text!` `redirect_uri text!` `code_challenge text!` `can_write boolean!=` `expires_at timestamptz!` `created_at timestamptz!=`
 
-**partner_page_snapshots** · 11 кол. · PK id · partner_id → partners.id · индексов 2
+**partner_page_snapshots** · 12 кол. · PK id · partner_id → partners.id · индексов 2
 
-`id bigint!=` `partner_id uuid!` `url text!` `checked_at timestamptz!=` `outcome text!` `http_status integer` `text_hash text` `text text` `diff jsonb` `event text!` `failure text`
+`id bigint!=` `partner_id uuid!` `url text!` `checked_at timestamptz!=` `outcome text!` `http_status integer` `text_hash text` `text text` `diff jsonb` `event text!` `failure text` `body_chars integer`
 
 **partner_prospects** · 9 кол. · PK id · индексов 3
 
