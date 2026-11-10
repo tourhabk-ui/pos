@@ -97,13 +97,14 @@ const HEAVY = [
   '/api/places/kurilskoe-ozero/safety-report',
   '/api/routes/build',
   '/api/routes/analysis',
-  '/api/routes/search?q=1',
   '/api/routes/7412e1c7-7b5c-4ee0-b0e9-4552bb6ff3ff/offline-bundle',
   '/api/routes/7412e1c7-7b5c-4ee0-b0e9-4552bb6ff3ff/export',
   '/api/tours-feed',
-  '/api/tours/81/price',
   '/api/tours/81/slots/extra',
-  '/api/weather/zones',
+  '/api/tours/81/price/extra',
+  '/api/places/kurilskoe-ozero/reviews/extra',
+  '/api/routes/nearby?lat=53&lng=158',
+  '/api/routes/7412e1c7-7b5c-4ee0-b0e9-4552bb6ff3ff',
   '/api/mcp/partner/oauth/authorize',
 ];
 const LIGHT = [
@@ -117,6 +118,11 @@ const LIGHT = [
   '/api/routes',
   '/api/routes?zone=south',
   '/api/weather?lat=53&lng=158',
+  // 10.11, вторым шагом: лёгкие чтения, нужные агентам, внесены в спецификацию.
+  '/api/routes/search?q=%D0%B2%D1%83%D0%BB%D0%BA%D0%B0%D0%BD',
+  '/api/tours/81/price?date=2027-07-01&guests=2',
+  '/api/places/kurilskoe-ozero/reviews',
+  '/api/weather/zones',
   '/api/public/safety-status',
   '/api/mcp',
   '/api/mcp/server-card',
@@ -158,5 +164,90 @@ describe('robots.txt: под открытыми путями — только т
         expect(allowed(r, sample), `${String(r.userAgent)} ${sample}`).toBe(false);
       }
     }
+  });
+});
+
+// 10.11, второй шаг: всё, что агентам называют поверхности для агентов, robots
+// не закрывает. Поверхности рендерятся, как их видит агент, а адреса
+// выбираются из ответа, а не из исходника. POST-адреса (заявка на тур) robots
+// не касаются: он говорит обходчикам о GET-страницах.
+describe('robots.txt: адреса, которые называют агентам, открыты', () => {
+  // Партнёрский MCP — вход по ключу партнёра; обходчику там нечего читать.
+  const INTENDED_CLOSED = new Set(['/api/mcp/partner']);
+
+  async function agentTexts(): Promise<Array<[string, string]>> {
+    const req = () => new Request('https://vedarai.ru/x');
+    const out: Array<[string, string]> = [];
+    const routes: Array<[string, () => Promise<{ GET: (r?: Request) => Promise<Response> | Response }>]> = [
+      ['/llms.txt', () => import('@/app/llms.txt/route')],
+      ['/llms-en.txt', () => import('@/app/llms-en.txt/route')],
+      ['/llms-zh.txt', () => import('@/app/llms-zh.txt/route')],
+      ['/.well-known/mcp.json', () => import('@/app/.well-known/mcp.json/route')],
+      ['/.well-known/mcp', () => import('@/app/.well-known/mcp/route')],
+      ['/.well-known/agent-card.json', () => import('@/app/.well-known/agent-card.json/route')],
+      ['/.well-known/ai-catalog.json', () => import('@/app/.well-known/ai-catalog.json/route')],
+      ['/.well-known/api-catalog', () => import('@/app/.well-known/api-catalog/route')],
+      ['/openapi.json', () => import('@/app/openapi.json/route')],
+      ['/api/mcp/server-card', () => import('@/app/api/mcp/server-card/route')],
+    ];
+    for (const [name, load] of routes) {
+      const res = await (await load()).GET(req());
+      expect(res.status, name).toBe(200);
+      out.push([name, await res.text()]);
+    }
+    const { SERVER_INSTRUCTIONS } = await import('@/lib/mcp/server-instructions');
+    const { PUBLIC_MCP_TOOLS } = await import('@/lib/mcp/public-tools');
+    out.push(['MCP instructions', SERVER_INSTRUCTIONS]);
+    out.push(['MCP tools/list', JSON.stringify(PUBLIC_MCP_TOOLS)]);
+    return out;
+  }
+
+  /** Роут найден и GET не экспортирует. Не найден — false: такой адрес судится как GET. */
+  async function routeHasNoGet(path: string): Promise<boolean> {
+    const { existsSync, readdirSync, readFileSync } = await import('node:fs');
+    let dir = 'app';
+    for (const seg of path.split('/').filter(Boolean)) {
+      const exact = join(dir, seg);
+      if (existsSync(exact)) { dir = exact; continue; }
+      const dyn = existsSync(dir) ? readdirSync(dir).find((n) => /^\[[^\]]+\]$/.test(n)) : undefined;
+      if (!dyn) return false;
+      dir = join(dir, dyn);
+    }
+    const file = join(dir, 'route.ts');
+    if (!existsSync(file)) return false;
+    const mod = (await import(/* @vite-ignore */ join(process.cwd(), file))) as Record<string, unknown>;
+    return typeof mod.GET !== 'function';
+  }
+
+  /** GET-адреса под /api/ из текста: путь до пробела, кавычки или скобки; перед POST — пропуск. */
+  function apiGetPaths(text: string): string[] {
+    const found = new Set<string>();
+    const re = /(POST\s+)?(?:https?:\/\/vedarai\.ru)?(\/api\/[A-Za-z0-9_\-./{}:%?=&]+)/g;
+    for (const m of text.matchAll(re)) {
+      if (m[1]) continue;
+      const path = m[2].replace(/[.,:;]+$/, '').replace(/\{[^}]+\}/g, 'x');
+      if (path.split('?')[0].endsWith('/route.ts')) continue;
+      found.add(path);
+    }
+    return [...found];
+  }
+
+  it('в каждой поверхности для агентов все GET-адреса под /api/ открыты у каждой группы', async () => {
+    const texts = await agentTexts();
+    const all = new Map<string, string>();
+    for (const [name, text] of texts) for (const p of apiGetPaths(text)) if (!all.has(p)) all.set(p, name);
+    // Поверхности действительно называют адреса: пустой список — отказ, а не успех.
+    expect(all.size).toBeGreaterThan(5);
+    const groups = await rules();
+    for (const [p, source] of all) {
+      if (INTENDED_CLOSED.has(p.split('?')[0])) continue;
+      // Адрес без GET (заявка на тур — только POST) обходчик не читает.
+      if (await routeHasNoGet(p.split('?')[0])) continue;
+      for (const r of groups) expect(allowed(r, p), `${source}: ${String(r.userAgent)} ${p}`).toBe(true);
+    }
+  });
+
+  it('намеренно закрытое действительно закрыто', async () => {
+    for (const r of await rules()) for (const p of INTENDED_CLOSED) expect(allowed(r, p)).toBe(false);
   });
 });
