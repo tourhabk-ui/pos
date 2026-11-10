@@ -1305,6 +1305,35 @@ withPg('кабинет в чате на настоящем PostgreSQL', () => {
         }
       });
 
+      it('два нажатия разом, одно с нулями впереди номера тура, — письмо одно (ревью PR 3188)', async () => {
+        // Проверка выше берёт замок своим же нормализованным запросом и жмёт
+        // кнопку с обычным номером — у него сырой и нормализованный ключ
+        // совпадают, и на прежнем ключе из текста она тоже зелёная. Здесь оба
+        // ключа считает сервис: разойдись они — уйдут два письма.
+        const padded = `000${routed}`;
+        // Кнопку с таким номером сервер выписывает сам: чтение выезда не подписано.
+        const ask = await press(pay.mchsLetterAsk(padded, DAY));
+        expect(JSON.stringify(ask.rows)).toContain(`cb:mc:s:${padded}:${DAY.replace(/-/g, '')}`);
+
+        for (let round = 0; round < 3; round += 1) {
+          await pool.query(`UPDATE mchs_letters SET created_at = NOW() - INTERVAL '11 minutes' WHERE operator_tour_id = $1::bigint`, [routed]);
+          // Соединения — заранее: иначе первое нажатие успевает закончиться,
+          // пока второе подключается, и проверка зеленеет и без замка.
+          const { pool: appPool } = await import('@/lib/db-pool');
+          const warm = await Promise.all(Array.from({ length: 6 }, () => appPool.connect()));
+          warm.forEach((c) => c.release());
+          const before = (await letters()).length;
+          mail.send.mockClear();
+          const [a, b] = await Promise.all([
+            press(pay.mchsLetterSend(routed, DAY)),
+            press(pay.mchsLetterSend(padded, DAY)),
+          ]);
+          expect(mail.send, `круг ${round}`).toHaveBeenCalledTimes(1);
+          expect(await letters(), `круг ${round}`).toHaveLength(before + 1);
+          expect([a.text, b.text].some((t) => /как раз отправляется|уже ушло/.test(t)), `круг ${round}`).toBe(true);
+        }
+      });
+
       it('чужой тур — письма нет и строки нет', async () => {
         mail.send.mockClear();
         const s = await press(pay.mchsLetterSend(foreign, DAY));
