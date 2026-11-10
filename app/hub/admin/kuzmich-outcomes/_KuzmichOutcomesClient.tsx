@@ -3,7 +3,7 @@
 import { useCallback, useEffect, useMemo, useState } from 'react';
 import { Protected } from '@/components/auth/Protected';
 import { ClipboardCopy, Loader2, MessageSquareWarning } from 'lucide-react';
-import { casesForReview, type OutcomeCase } from '@/lib/kuzmich/bad-outcome-cases';
+import { casesForReview, type OutcomeCase } from '@/lib/agents/managed/kuzmich-outcome-cases';
 
 interface Data { days: number; outcomes_total: number; cases: OutcomeCase[]; truncated: boolean }
 

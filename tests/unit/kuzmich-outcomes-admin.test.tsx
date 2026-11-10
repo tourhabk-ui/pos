@@ -32,7 +32,7 @@ import { GET } from '@/app/api/admin/kuzmich-outcomes/route';
 import KuzmichOutcomesClient from '@/app/hub/admin/kuzmich-outcomes/_KuzmichOutcomesClient';
 import {
   CASES_LIMIT, caseClusters, casesForReview, parseDays, parseOutcomeCase, type OutcomeCase, type OutcomeCaseRow,
-} from '@/lib/kuzmich/bad-outcome-cases';
+} from '@/lib/agents/managed/kuzmich-outcome-cases';
 
 const ROOT = process.cwd();
 

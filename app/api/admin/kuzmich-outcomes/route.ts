@@ -11,7 +11,7 @@ import { requireAdmin } from '@/lib/auth/middleware';
 import { pool } from '@/lib/db-pool';
 import {
   BAD_OUTCOME_CASES_SQL, CASES_LIMIT, parseDays, parseOutcomeCase, type OutcomeCaseRow,
-} from '@/lib/kuzmich/bad-outcome-cases';
+} from '@/lib/agents/managed/kuzmich-outcome-cases';
 
 export const dynamic = 'force-dynamic';
 
