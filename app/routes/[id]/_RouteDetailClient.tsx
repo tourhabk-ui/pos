@@ -27,6 +27,7 @@ import { sortRouteOffers, type RouteOfferSort } from '@/lib/routes/route-offer-s
 import ParkPermitAction from '@/components/safety/ParkPermitAction';
 import ReliefChart from '@/components/routes/ReliefChart';
 import MchsRegistrationBlock from '@/components/safety/MchsRegistrationBlock';
+import { registerFormHref } from '@/lib/safety/register-submit';
 import { type RouteItem } from '@/components/routes/RouteCard';
 import { RelatedRoutes } from '@/components/routes/RelatedRoutes';
 import { useSourceTracker } from '@/hooks/useSourceTracker';
@@ -52,7 +53,6 @@ import SafetyWarnings from '@/components/safety/SafetyWarnings';
 import RouteVerdict, { useRouteVerdict } from '@/components/routes/RouteVerdict';
 import RouteDescriptionNotice from '@/components/routes/RouteDescriptionNotice';
 import { verdictInlineNote, verdictLook } from '@/lib/routes/verdict-presentation';
-import { MchsRegistrationModal } from '@/components/safety/MchsRegistrationModal';
 import { RouteGradientPlaceholder } from '@/components/routes/RouteGradientPlaceholder';
 import { MCHS_DEADLINE_SHORT, MCHS_CHANNELS, MCHS_REQUIRED_DATA, MCHS_SOURCE } from '@/lib/safety/mchs-registration';
 // Типы мест — один список на платформу (lib/places/location-types).
@@ -530,7 +530,6 @@ export default function RouteDetailClient({ id, mapPackBaseUrl, summary = null, 
   const [filterDifficulty, setFilterDifficulty] = useState<string | null>(null);
   const [filterDurationType, setFilterDurationType] = useState<string | null>(null);
   const [fromCache, setFromCache] = useState(false);
-  const [showMchsModal, setShowMchsModal] = useState(false);
   const [dlState, setDlState] = useState<'idle'|'loading'|'downloading'|'done'|'error'>('idle');
   const [dlProgress, setDlProgress] = useState<RouteMapProgress>({ done: 0, total: 0, unit: 'МБ' });
   /** Итог закачки словами: причина отказа, недокачанное или вес сохранённого. */
@@ -1809,7 +1808,7 @@ export default function RouteDetailClient({ id, mapPackBaseUrl, summary = null, 
               mchsPhone={route.mchsPhone}
               parkName={route.parkName}
               parkSlug={route.parkSlug}
-              onOpenForm={() => setShowMchsModal(true)}
+              formHref={registerFormHref(route.title)}
             />
           </div>
         )}
@@ -1962,12 +1961,6 @@ export default function RouteDetailClient({ id, mapPackBaseUrl, summary = null, 
         />
       )}
       <AssistantButton pageContext={{ type: 'route', title: route.title, category: locLabel }} />
-      {showMchsModal && (
-        <MchsRegistrationModal
-          route={{ routeName: route.title, mchsPhone: route.mchsPhone ?? null }}
-          onClose={() => setShowMchsModal(false)}
-        />
-      )}
     </>
   );
 }

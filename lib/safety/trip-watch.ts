@@ -63,8 +63,40 @@ interface Queryable {
   query: (text: string, params?: unknown[]) => Promise<{ rows: Record<string, unknown>[] }>;
 }
 
-export async function createTripWatch(input: TripWatchInput, db: Queryable = pool): Promise<string> {
+/**
+ * Значения записи контроля в порядке колонок INSERT. Один список на запись и
+ * на поиск «такой же открытый контроль»: разойдись они — повтор формы перестал
+ * бы узнавать собственную запись.
+ */
+function watchParams(input: TripWatchInput): unknown[] {
   const tripKind = input.tripKind ?? (input.startDate === input.endDate ? 'day' : 'multi');
+  return [
+    input.userId,
+    input.routeName,
+    input.routeDescription,
+    input.startDate,
+    input.endDate,
+    input.region,
+    input.groupSize,
+    input.groupMembers ? JSON.stringify(input.groupMembers) : null,
+    input.leaderName,
+    input.leaderPhone,
+    input.leaderEmail,
+    input.contactName,
+    input.contactPhone,
+    input.contactRelation,
+    input.contactTelegramChatId,
+    input.contactEmail,
+    input.contactConsent,
+    input.expectedReturnAt,
+    tripKind,
+    input.source,
+    input.touristChat?.channel ?? null,
+    input.touristChat?.chatId ?? null,
+  ];
+}
+
+export async function createTripWatch(input: TripWatchInput, db: Queryable = pool): Promise<string> {
   const { rows } = await db.query(
     `INSERT INTO route_registrations
        (user_id, route_name, route_description, start_date, end_date, region,
@@ -75,34 +107,103 @@ export async function createTripWatch(input: TripWatchInput, db: Queryable = poo
         source, tourist_chat_channel, tourist_chat_id)
      VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15,$16,$17,$18,$19,$20,$21,$22)
      RETURNING id`,
-    [
-      input.userId,
-      input.routeName,
-      input.routeDescription,
-      input.startDate,
-      input.endDate,
-      input.region,
-      input.groupSize,
-      input.groupMembers ? JSON.stringify(input.groupMembers) : null,
-      input.leaderName,
-      input.leaderPhone,
-      input.leaderEmail,
-      input.contactName,
-      input.contactPhone,
-      input.contactRelation,
-      input.contactTelegramChatId,
-      input.contactEmail,
-      input.contactConsent,
-      input.expectedReturnAt,
-      tripKind,
-      input.source,
-      input.touristChat?.channel ?? null,
-      input.touristChat?.chatId ?? null,
-    ],
+    watchParams(input),
   );
   const id = rows[0]?.id;
   if (typeof id !== 'string') throw new Error('route_registrations: INSERT не вернул id');
   return id;
+}
+
+/** Сколько повтор формы ждёт замка той же формы. */
+export const WATCH_LOCK_WAIT_MS = 5000;
+
+/** Ключ замка формы: один руководитель, одни даты — одна очередь. */
+export function tripWatchLockKey(leaderPhone: string, startDate: string, endDate: string): string {
+  return `trip-watch:${leaderPhone}:${startDate}:${endDate}`;
+}
+
+/**
+ * Открытый контроль, совпадающий с новым слово в слово, — тот же выход, а не
+ * второй. Сверяется КАЖДОЕ записываемое поле: поправил человек хоть телефон
+ * контакта — это уже другая запись, и молча вернуть ему прежнюю значило бы
+ * потерять правку. Закрытая запись не в счёт: вернулся и идёт снова — новый
+ * контроль. Параметры — те же $1…$22, что у INSERT.
+ *
+ * Владелец записи сверяется мягче остальных полей: вошедший и аноним с теми
+ * же данными — один человек (сессия истекла или её не удалось проверить
+ * между двумя нажатиями). Разными записи делают только два РАЗНЫХ аккаунта.
+ */
+export const SAME_OPEN_WATCH_SQL = `
+  SELECT r.id
+    FROM route_registrations r
+   WHERE r.completed_at IS NULL
+     AND (r.user_id IS NOT DISTINCT FROM $1::uuid OR r.user_id IS NULL OR $1::uuid IS NULL)
+     AND r.route_name = $2::text
+     AND r.route_description IS NOT DISTINCT FROM $3::text
+     AND r.start_date = $4::date
+     AND r.end_date = $5::date
+     AND r.region = $6::text
+     AND r.group_size = $7::int
+     AND r.group_members IS NOT DISTINCT FROM $8::jsonb
+     AND r.leader_name = $9::text
+     AND r.leader_phone = $10::text
+     AND r.leader_email IS NOT DISTINCT FROM $11::text
+     AND r.emergency_contact_name = $12::text
+     AND r.emergency_contact_phone = $13::text
+     AND r.emergency_contact_relation IS NOT DISTINCT FROM $14::text
+     AND r.emergency_contact_telegram_chat_id IS NOT DISTINCT FROM $15::bigint
+     AND r.emergency_contact_email IS NOT DISTINCT FROM $16::text
+     AND r.emergency_contact_consent IS NOT DISTINCT FROM $17::boolean
+     AND r.expected_return_at IS NOT DISTINCT FROM $18::timestamptz
+     AND r.trip_kind IS NOT DISTINCT FROM $19::text
+     AND r.source = $20::text
+     AND r.tourist_chat_channel IS NOT DISTINCT FROM $21::text
+     AND r.tourist_chat_id IS NOT DISTINCT FROM $22::bigint
+   ORDER BY r.created_at ASC
+   LIMIT 1`;
+
+/**
+ * Поставить контроль с формы один раз (манифест: «одна запись на выход»).
+ *
+ * До 10.11 форма `/register` слала два запроса — сохранить и «теперь PDF», — и
+ * каждый писал свою запись. «Я вернулся» закрывал одну, по второй сторож
+ * поднимал тревогу контакту и дежурному (docs/safety/MCHS_PLAN.md, С1). То же
+ * давал любой повтор: двойное нажатие, ответ, потерянный на плохой связи.
+ *
+ * Поиск и запись идут под одним замком транзакции: два одинаковых запроса,
+ * пришедших разом, не разминутся. Отказ базы — исключение наружу: «не смог
+ * проверить» не превращается ни в «контроль включён», ни во второй контроль.
+ */
+export async function createTripWatchOnce(input: TripWatchInput): Promise<{ id: string; repeated: boolean }> {
+  const params = watchParams(input);
+  const client = await pool.connect();
+  try {
+    await client.query('BEGIN');
+    // Ждать замка вечно нельзя: зависший держатель занял бы соединения общего
+    // пула повторами той же формы. Не дождались — отказ наружу (55P03).
+    await client.query(`SELECT set_config('lock_timeout', $1, true)`, [`${WATCH_LOCK_WAIT_MS}ms`]);
+    await client.query('SELECT pg_advisory_xact_lock(hashtext($1::text))', [
+      tripWatchLockKey(input.leaderPhone, input.startDate, input.endDate),
+    ]);
+    const same = await client.query(SAME_OPEN_WATCH_SQL, params);
+    const found: unknown = same.rows[0]?.id;
+    if (typeof found === 'string') {
+      await client.query('COMMIT');
+      return { id: found, repeated: true };
+    }
+    const id = await createTripWatch(input, client);
+    await client.query('COMMIT');
+    return { id, repeated: false };
+  } catch (err) {
+    try {
+      await client.query('ROLLBACK');
+    } catch (rollbackErr) {
+      console.error('[trip-watch] ROLLBACK не выполнен:', (rollbackErr as { code?: string }).code ?? 'нет SQLSTATE');
+    }
+    throw err;
+  } finally {
+    client.release();
+  }
 }
 
 export interface OpenWatch {

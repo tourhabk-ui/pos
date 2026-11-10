@@ -42,14 +42,20 @@ import {
   MCHS_REQUIRED_DATA,
   MCHS_SOURCE,
 } from '@/lib/safety/mchs-registration';
+import { MCHS_WHO_SUBMITS } from '@/lib/safety/mchs-chat';
 
 interface Props {
   /** Телефон МЧС для консультации — только если он задан для маршрута в БД. */
   mchsPhone?: string | null;
   parkName?: string | null;
   parkSlug?: string | null;
-  /** Открыть форму заявки (модалка живёт в карточке маршрута). */
-  onOpenForm: () => void;
+  /**
+   * Адрес формы `/register` с подставленным маршрутом. Дверь в контроль
+   * возвращения одна: до 10.11 здесь открывалось своё окно, которое включало
+   * сторожа молча, с возвращением «через три дня» по умолчанию и без ссылки
+   * «Я вернулся» (docs/safety/MCHS_PLAN.md, С2).
+   */
+  formHref: string;
 }
 
 /** Та же геометрия, что у блока разрешения парка: 44px — палец в перчатке. */
@@ -61,7 +67,7 @@ export default function MchsRegistrationBlock({
   mchsPhone,
   parkName,
   parkSlug,
-  onOpenForm,
+  formHref,
 }: Props) {
   return (
     <div className="overflow-hidden rounded-lg border border-[var(--border)] bg-[var(--bg-card)]">
@@ -83,15 +89,14 @@ export default function MchsRegistrationBlock({
 
       <div className="space-y-4 px-5 py-4">
         <div className="flex flex-col gap-3 sm:flex-row">
-          <button
-            type="button"
-            onClick={onOpenForm}
-            className={`${BTN} cursor-pointer border border-[var(--warning)] text-[var(--warning)]`}
+          <Link
+            href={formHref}
+            className={`${BTN} border border-[var(--warning)] text-[var(--warning)]`}
             style={{ background: 'color-mix(in srgb, var(--warning) 12%, transparent)' }}
           >
             <FileText className="h-4 w-4" aria-hidden />
-            Заполнить заявку
-          </button>
+            Собрать данные для заявки
+          </Link>
 
           {mchsPhone && (
             <a
@@ -104,7 +109,12 @@ export default function MchsRegistrationBlock({
           )}
         </div>
 
-        {/* Снятие с контроля — не под раскрытием: о звонке после возвращения
+        {/* Кто подаёт — словами у самой кнопки: форма Ведара заявку не отправляет. */}
+        <p className="text-xs leading-relaxed text-[var(--text-secondary)]">
+          {MCHS_WHO_SUBMITS} На форме Ведара — данные группы одним листом и контроль возвращения.
+        </p>
+
+        {/* Снятие с контроля — не под раскрытием: о сообщении после возвращения
             забывают чаще всего, и цена забывчивости — поиск (памятка ГУ, 10.11). */}
         <p className="text-xs font-medium leading-relaxed text-[var(--text-primary)]">
           {MCHS_AFTER_RETURN}

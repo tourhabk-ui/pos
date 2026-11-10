@@ -8,6 +8,9 @@ import { useRouter } from 'next/navigation';
 import { MapPin, Calendar, Users, Phone, Mail, Shield, AlertTriangle, Download, ArrowLeft, Plus, Trash2, CheckCircle, Loader2, Search, ChevronDown } from 'lucide-react';
 import { MCHS_ONLINE_FORM_URL, MCHS_DEADLINE_SHORT } from '@/lib/safety/mchs-registration';
 import { mchsFormText } from '@/lib/safety/mchs-form-text';
+import { submitTripWatchForm, TELEGRAM_CHAT_ID } from '@/lib/safety/register-submit';
+import TripWatchReturnBox from '@/components/safety/TripWatchReturnBox';
+import MchsConsultPhones from '@/components/safety/MchsConsultPhones';
 import ParkPermitAction from '@/components/safety/ParkPermitAction';
 
 interface RouteOption {
@@ -32,8 +35,10 @@ export default function RegisterRoutePage() {
   const [step, setStep] = useState<Step>(1);
   const [submitting, setSubmitting] = useState(false);
   const [submitted, setSubmitted] = useState(false);
+  // Лист с данными группы скачался? null — ещё не пробовали. Экран не говорит
+  // «скачан», если сервер листа не отдал.
+  const [pdfSaved, setPdfSaved] = useState<boolean | null>(null);
   const [registrationId, setRegistrationId] = useState<string | null>(null);
-  const [returnLinkCopied, setReturnLinkCopied] = useState(false);
   const [watchLinkCopied, setWatchLinkCopied] = useState(false);
   const [mchsTextCopied, setMchsTextCopied] = useState<'yes' | 'failed' | null>(null);
   const [error, setError] = useState<string | null>(null);
@@ -164,7 +169,10 @@ export default function RegisterRoutePage() {
     new Date(endDate) >= new Date(startDate) &&
     (!isDay || expectedReturnTime.length > 0);
   const canNext2 = groupSize >= 1 && groupSize <= 30;
-  const canNext3 = leaderName.trim() && leaderPhone.trim() && emergencyName.trim() && emergencyPhone.trim();
+  // chat_id Telegram — число. Имя с «@» сервер не примет, и узнать об этом надо
+  // здесь, а не по отказу после кнопки.
+  const telegramOk = TELEGRAM_CHAT_ID.test(emergencyTelegram.trim());
+  const canNext3 = leaderName.trim() && leaderPhone.trim() && emergencyName.trim() && emergencyPhone.trim() && telegramOk;
   const canSubmit = canNext1 && canNext2 && canNext3 && accepted && contactConsent;
 
   const addMember = () => {
@@ -214,42 +222,28 @@ export default function RegisterRoutePage() {
         accepted_disclaimer: true as const,
       };
 
-      // Сначала сохраняем
-      const res = await fetch('/api/safety/register', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify(payload),
-      });
-
-      const json = await res.json();
-      if (!res.ok || !json.success) {
-        setError(json.error || 'Ошибка сохранения');
-        setSubmitting(false);
+      // Контроль включает первый запрос; лист — второй, и он ничего не
+      // записывает. Отказ листа уже включённый контроль не отменяет: экран
+      // успеха со ссылкой «Я вернулся» показывается всегда, когда запись есть
+      // (lib/safety/register-submit; docs/safety/MCHS_PLAN.md, С1).
+      const result = await submitTripWatchForm(payload);
+      if (!result.ok) {
+        setError(result.error);
         return;
       }
-
-      setRegistrationId(json.registration_id);
-
-      // Теперь скачиваем PDF
-      const pdfRes = await fetch('/api/safety/register?pdf=1', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify(payload),
-      });
-
-      if (pdfRes.ok) {
-        const blob = await pdfRes.blob();
-        const url = URL.createObjectURL(blob);
+      setRegistrationId(result.registrationId);
+      if (result.sheet) {
+        const url = URL.createObjectURL(result.sheet);
         const a = document.createElement('a');
         a.href = url;
-        a.download = `tourhab-registration-${json.registration_id.slice(0, 8)}.pdf`;
+        a.download = `vedar-mchs-dannye-${result.registrationId.slice(0, 8)}.pdf`;
         a.click();
         URL.revokeObjectURL(url);
+        setPdfSaved(true);
+      } else {
+        setPdfSaved(false);
       }
-
       setSubmitted(true);
-    } catch {
-      setError('Ошибка сети. Проверьте подключение.');
     } finally {
       setSubmitting(false);
     }
@@ -260,41 +254,17 @@ export default function RegisterRoutePage() {
       <div className="min-h-[100dvh] bg-[var(--bg-primary)] text-[var(--text-primary)] flex items-center justify-center p-6">
         <div className="max-w-md w-full text-center">
           <CheckCircle className="w-16 h-16 text-[var(--success)] mx-auto mb-4" />
-          <h1 className="text-2xl font-bold mb-2">Маршрут зарегистрирован</h1>
+          <h1 className="text-2xl font-bold mb-2">Контроль возвращения включён</h1>
           <p className="text-[var(--text-secondary)] mb-6 text-sm">
-            PDF-заявка скачана. Подайте её в МЧС одним из способов:
+            Это не регистрация в МЧС: заявку подаёте вы, Ведар её не отправляет и ответа МЧС не видит.{' '}
+            {pdfSaved === false
+              ? 'Лист с данными группы не скачался — те же данные можно скопировать ниже.'
+              : 'Лист с данными группы отдан на скачивание — это не бланк МЧС, а ваши данные для заявки. Не нашли файл — те же данные можно скопировать ниже.'}{' '}
+            Способы подачи — ниже.
           </p>
 
           {registrationId && (
-            <div className="p-4 rounded-lg bg-[var(--bg-card)] border border-[var(--success)] mb-6 text-left">
-              <p className="font-semibold text-sm mb-1">Сообщите о возвращении</p>
-              <p className="text-xs text-[var(--text-muted)] mb-3">
-                {expectedReturnTime
-                  ? `Контрольное время: ${endDate} в ${expectedReturnTime}.`
-                  : `Контрольное время: ${endDate} до 20:00.`}{' '}
-                Если к нему не отметиться, мы напомним и предупредим ваш экстренный
-                контакт. Сохраните ссылку — по возвращении нажмите «Я вернулся».
-              </p>
-              <div className="flex gap-2">
-                <a
-                  href={`/return?id=${registrationId}`}
-                  className="flex-1 py-2.5 rounded-lg bg-[var(--success)] text-white text-center font-semibold text-sm hover:opacity-90"
-                >
-                  Страница «Я вернулся»
-                </a>
-                <button
-                  type="button"
-                  onClick={() => {
-                    navigator.clipboard?.writeText(`${window.location.origin}/return?id=${registrationId}`)
-                      .then(() => setReturnLinkCopied(true))
-                      .catch(() => {});
-                  }}
-                  className="px-4 py-2.5 rounded-lg border border-[var(--border)] text-sm font-medium hover:bg-[var(--bg-hover)]"
-                >
-                  {returnLinkCopied ? 'Скопировано' : 'Копировать'}
-                </button>
-              </div>
-            </div>
+            <TripWatchReturnBox registrationId={registrationId} endDate={endDate} expectedReturnTime={expectedReturnTime} />
           )}
 
           {/* Страница для экстренного контакта (/watch) — до выхода, а не в
@@ -365,7 +335,9 @@ export default function RegisterRoutePage() {
               </button>
               {mchsTextCopied === 'failed' && (
                 <p className="text-xs text-[var(--warning)] mt-1">
-                  Браузер не дал скопировать — данные есть в скачанной PDF-заявке.
+                  {pdfSaved === false
+                    ? 'Браузер не дал скопировать, и лист не скачался — перепишите данные вручную.'
+                    : 'Браузер не дал скопировать — данные есть в скачанном листе.'}
                 </p>
               )}
             </div>
@@ -377,15 +349,7 @@ export default function RegisterRoutePage() {
               <p className="font-semibold text-sm mb-1">Лично — ЦУКС ГУ МЧС по Камчатскому краю</p>
               <p className="text-xs text-[var(--text-muted)]">г. Петропавловск-Камчатский, ул. Тундровая, д. 6</p>
             </div>
-            <div className="p-4 rounded-lg bg-[var(--bg-hover)] border border-[var(--border)]">
-              <p className="font-semibold text-sm mb-1">Консультация по телефону</p>
-              <p className="text-xs text-[var(--text-muted)]">
-                <a href="tel:+74152301081" className="text-[var(--accent)] hover:underline">+7 (4152) 30-10-81</a> — маршрутный лист, погода, действующие предупреждения
-              </p>
-              <p className="text-xs text-[var(--text-muted)] mt-1.5">
-                <a href="tel:+74152410395" className="text-[var(--accent)] hover:underline">+7 (4152) 41-03-95</a> — ПСО КГКУ «ЦОД»: состояние и сложность маршрута, снаряжение
-              </p>
-            </div>
+            <MchsConsultPhones />
           </div>
 
           {/* Разрешение парка — вторая, ОТДЕЛЬНАЯ обязанность (lib/safety/park-permit).
@@ -416,7 +380,7 @@ export default function RegisterRoutePage() {
             <ArrowLeft className="w-5 h-5" />
           </button>
           <div className="flex-1">
-            <h1 className="font-bold text-sm">Регистрация маршрута</h1>
+            <h1 className="font-bold text-sm">Контроль возвращения и данные для МЧС</h1>
             <p className="text-[10px] text-[var(--text-muted)]">Шаг {step} из 4</p>
           </div>
           {/* Прогресс */}
@@ -436,8 +400,9 @@ export default function RegisterRoutePage() {
             Говорим прямо и даём дорогу к аккаунту одним касанием. */}
         {step === 1 && (
           <p className="mb-5 text-xs text-[var(--text-secondary)] leading-relaxed">
-            Здесь регистрируют <span className="font-semibold text-[var(--text-primary)]">маршрут в МЧС</span> перед
-            выходом в поле. Нужен аккаунт на платформе?{' '}
+            Здесь включают контроль возвращения и собирают данные, чтобы заявить{' '}
+            <span className="font-semibold text-[var(--text-primary)]">маршрут в МЧС</span>. Заявку в МЧС
+            подаёте вы сами. Нужен аккаунт на платформе?{' '}
             <a href="/auth/login?mode=register" className="text-[var(--ocean)] underline underline-offset-2">
               Регистрация аккаунта — на странице входа
             </a>.
@@ -763,13 +728,19 @@ export default function RegisterRoutePage() {
               </div>
               <input
                 type="text"
+                inputMode="numeric"
                 value={emergencyTelegram}
                 onChange={e => setEmergencyTelegram(e.target.value)}
                 placeholder="Telegram chat_id (необязательно)"
+                aria-invalid={!telegramOk}
                 className="w-full px-4 py-3 rounded-lg bg-[var(--bg-hover)] border border-[var(--border)] text-[var(--text-primary)] text-sm
                   focus:border-[var(--accent)] focus:outline-none"
               />
-              <p className="text-[10px] text-[var(--text-muted)]">Для Telegram-уведомлений. Можно узнать через @userinfobot</p>
+              <p className={`text-[10px] ${telegramOk ? 'text-[var(--text-muted)]' : 'text-[var(--danger)]'}`}>
+                {telegramOk
+                  ? 'Для Telegram-уведомлений. Это число, не имя: узнать можно через @userinfobot'
+                  : 'Только цифры: это число, а не имя с «@». Не знаете его — оставьте поле пустым.'}
+              </p>
               <input
                 type="email"
                 value={emergencyEmail}
@@ -836,10 +807,10 @@ export default function RegisterRoutePage() {
                 <div>
                   <p className="text-sm font-semibold text-yellow-400 mb-1">Важно</p>
                   <p className="text-xs text-[var(--text-secondary)] leading-relaxed">
-                    Ведар помогает <strong>подготовить заявку</strong> по форме МЧС.
-                    Данная заявка <strong>не является подтверждением</strong> регистрации в МЧС.
-                    Для официальной регистрации подайте заявление через портал Госуслуг
-                    или лично в Главное управление МЧС России по Камчатскому краю.
+                    Ведар включает <strong>контроль возвращения</strong> и собирает данные группы
+                    для заявки. Это <strong>не регистрация в МЧС</strong>: заявку подаёте вы —
+                    на сайте МЧС России, заказным письмом или лично в ЦУКС ГУ МЧС России
+                    по Камчатскому краю. Адреса покажем после сохранения.
                   </p>
                   <p className="text-xs text-[var(--text-muted)] mt-2">
                     Ведар не гарантирует получение уведомления экстренным контактом
@@ -890,7 +861,7 @@ export default function RegisterRoutePage() {
                 ) : (
                   <>
                     <Download className="w-4 h-4" />
-                    Создать и скачать PDF
+                    Включить контроль и скачать лист
                   </>
                 )}
               </button>

@@ -142,7 +142,7 @@ describe('карточка маршрута: за разрешением не з
   });
 
   it('блок МЧС не называет памятник «природным парком»', () => {
-    render(<MchsRegistrationBlock parkName="Вачкажец" parkSlug="vachkazhets" onOpenForm={() => {}} />);
+    render(<MchsRegistrationBlock parkName="Вачкажец" parkSlug="vachkazhets" formHref="/register?name=%D0%92%D0%B0%D1%87%D0%BA%D0%B0%D0%B6%D0%B5%D1%86" />);
     expect(document.body.textContent).toMatch(/Охраняемая территория:\s*Вачкажец/);
     expect(document.body.textContent).not.toMatch(/Природный парк:/);
   });

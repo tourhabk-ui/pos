@@ -714,7 +714,9 @@ describe('сторож: лестница, очередь, отбой вдого�
     expect(reg).toMatch(/export async function POST\(request: NextRequest\) \{\s*if \(!limiter\.check\(getClientIp\(request\.headers\)\)\) \{\s*return NextResponse\.json\([^;]*\{ status: 429 \}\);/);
     expect(reg).toMatch(/data\.end_date < today \|\| data\.start_date > data\.end_date/);
     // Проверка стоит ДО записи контроля.
-    expect(reg.indexOf('data.end_date < today')).toBeLessThan(reg.indexOf('createTripWatch({'));
+    const write = reg.indexOf('createTripWatchOnce({');
+    expect(write).toBeGreaterThan(-1);
+    expect(reg.indexOf('data.end_date < today')).toBeLessThan(write);
   });
 
   it('позиция — с источником и временем точки', () => {

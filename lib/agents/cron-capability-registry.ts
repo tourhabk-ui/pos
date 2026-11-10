@@ -388,6 +388,8 @@ export const CRON_CAPABILITIES: Record<string, readonly Capability[]> = {
   'track-attachment-audit': ['db_read', 'db_write'],
   'track-import-queue': ['db_read', 'db_write', 'net_out'],
   'trip-reminders': ['db_read', 'db_write', 'net_out', 'telegram'],
+  // Двойники контроля выхода с формы /register — только счёт (docs/safety/MCHS_PLAN.md, волна 0).
+  'trip-watch-twins-census': ['db_read'],
   'verdict-census': ['db_read'],
   'volcano-merge-gate': ['db_read', 'db_write', 'net_out', 'telegram'],
   'watchdog': ['db_read', 'db_write', 'net_out', 'telegram', 'money'],

@@ -95,13 +95,17 @@ describe('серверный код, который держит состав г
     ...walk('app/api/operator/mchs', isCode),
     // Форма туриста: состав группы и лист «для МЧС».
     ...walk('app/api/safety/register', isCode),
+    // Сам лист: ФИО, телефоны, годы рождения и экстренный контакт собирает генератор, а не роут.
+    'lib/pdf/mchs-statement.ts',
   ].filter((f) => !NOT_ABOUT_GROUPS.has(f));
 
   it('перечень несёт живые файлы, а исключения существуют', () => {
     expect(FILES).toEqual(expect.arrayContaining([
       'lib/safety/mchs-letter.ts', 'lib/safety/mchs-chat.ts', 'lib/chat-cabinet/mchs-store.ts',
       'lib/chat-cabinet/service.ts', 'app/api/operator/mchs/register/route.ts', 'app/api/safety/register/route.ts',
+      'lib/pdf/mchs-statement.ts',
     ]));
+    for (const f of FILES) expect(existsSync(join(ROOT, f)), `${f} — в перечне, а файла нет`).toBe(true);
     for (const f of NOT_ABOUT_GROUPS) expect(existsSync(join(ROOT, f)), `${f} — исключение про несуществующий файл`).toBe(true);
   });
 

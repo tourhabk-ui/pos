@@ -3,17 +3,25 @@ import { kamchatkaWallTime } from '@/lib/safety/checkin-escalation';
 import { kamchatkaDate } from '@/lib/analytics/kamchatka-day';
 import { createRateLimiter, getClientIp } from '@/lib/rate-limit';
 import { z } from 'zod';
-import { createTripWatch } from '@/lib/safety/trip-watch';
+import { createTripWatchOnce } from '@/lib/safety/trip-watch';
 import { verifyAuth } from '@/lib/auth';
-import PDFDocument from 'pdfkit';
+import { generateMchsStatementPDF } from '@/lib/pdf/mchs-statement';
+import { TELEGRAM_CHAT_ID } from '@/lib/safety/register-submit';
 
 export const dynamic = 'force-dynamic';
+
+/** День существует в календаре: «2031-02-30» по виду дата, а базе не годится. */
+function isRealDay(ymd: string): boolean {
+  const d = new Date(`${ymd}T00:00:00Z`);
+  return !Number.isNaN(d.getTime()) && d.toISOString().slice(0, 10) === ymd;
+}
+const Day = z.string().regex(/^\d{4}-\d{2}-\d{2}$/).refine(isRealDay, 'Такой даты нет в календаре');
 
 const RegistrationSchema = z.object({
   route_name: z.string().min(1).max(200),
   route_description: z.string().max(2000).optional(),
-  start_date: z.string().regex(/^\d{4}-\d{2}-\d{2}$/),
-  end_date: z.string().regex(/^\d{4}-\d{2}-\d{2}$/),
+  start_date: Day,
+  end_date: Day,
   expected_return_time: z.string().regex(/^\d{2}:\d{2}$/).optional(),
   region: z.string().max(200).default('Камчатский край'),
   group_size: z.number().int().min(1).max(30),
@@ -21,14 +29,18 @@ const RegistrationSchema = z.object({
     name: z.string().max(120),
     phone: z.string().max(30).optional(),
     birth_year: z.number().int().optional(),
-  })).optional(),
+  })).max(30, 'В составе группы не больше 30 человек').optional(),
   leader_name: z.string().min(1).max(120),
   leader_phone: z.string().min(5).max(30),
   leader_email: z.string().email().optional().or(z.literal('')),
   emergency_contact_name: z.string().min(1).max(120),
   emergency_contact_phone: z.string().min(5).max(30),
   emergency_contact_relation: z.string().max(60).optional(),
-  emergency_contact_telegram_chat_id: z.string().optional().or(z.literal('')),
+  // Колонка — bigint. Имя с «@» раньше доходило до базы и возвращалось пустой
+  // ошибкой; повтор не помогал никогда, а поле не называлось.
+  emergency_contact_telegram_chat_id: z.string()
+    .regex(TELEGRAM_CHAT_ID, 'Telegram chat_id — только цифры. Не знаете его — оставьте поле пустым.')
+    .optional(),
   emergency_contact_email: z.string().email().optional().or(z.literal('')),
   emergency_contact_consent: z.boolean().default(false),
   accepted_disclaimer: z.literal(true, {
@@ -36,98 +48,17 @@ const RegistrationSchema = z.object({
   }),
 });
 
-function generateRegistrationPDF(data: z.infer<typeof RegistrationSchema>): Promise<Buffer> {
-  return new Promise((resolve) => {
-    const doc = new PDFDocument({
-      size: 'A4',
-      margin: 60,
-      font: 'Helvetica',
-    });
-
-    const chunks: Buffer[] = [];
-    doc.on('data', (chunk: Buffer) => chunks.push(chunk));
-    doc.on('end', () => resolve(Buffer.concat(chunks)));
-
-    // Заголовок
-    doc.fontSize(16).font('Helvetica-Bold').text('ЗАЯВЛЕНИЕ', { align: 'center' });
-    doc.fontSize(12).text('о регистрации туристической группы', { align: 'center' });
-    doc.moveDown(0.5);
-    doc.fontSize(10).text('в Главное управление МЧС России по Камчатскому краю', { align: 'center' });
-    doc.moveDown(1);
-
-    // Разделитель
-    doc.moveTo(60, doc.y).lineTo(535, doc.y).stroke();
-    doc.moveDown(0.5);
-
-    const field = (label: string, value: string) => {
-      doc.fontSize(10).font('Helvetica-Bold').text(label, { continued: true });
-      doc.font('Helvetica').text(`  ${value || '—'}`);
-    };
-
-    field('Маршрут:', data.route_name);
-    if (data.route_description) {
-      doc.fontSize(10).font('Helvetica-Bold').text('Описание:', { continued: true });
-      doc.font('Helvetica').text(`  ${data.route_description}`);
-    }
-    field('Регион:', data.region);
-    field('Дата начала:', new Date(data.start_date).toLocaleDateString('ru-RU'));
-    field('Дата окончания:', new Date(data.end_date).toLocaleDateString('ru-RU'));
-
-    doc.moveDown(0.3);
-    doc.moveTo(60, doc.y).lineTo(535, doc.y).stroke();
-    doc.moveDown(0.5);
-
-    field('Руководитель:', data.leader_name);
-    field('Телефон руководителя:', data.leader_phone);
-    if (data.leader_email) field('Email:', data.leader_email);
-    field('Количество участников:', String(data.group_size));
-
-    if (data.group_members && data.group_members.length > 0) {
-      doc.moveDown(0.3);
-      doc.moveTo(60, doc.y).lineTo(535, doc.y).stroke();
-      doc.moveDown(0.3);
-      doc.fontSize(10).font('Helvetica-Bold').text('Состав группы:');
-      data.group_members.forEach((m, i) => {
-        const birthInfo = m.birth_year ? ` (${m.birth_year} г.р.)` : '';
-        const phoneInfo = m.phone ? `, ${m.phone}` : '';
-        doc.fontSize(10).text(`  ${i + 1}. ${m.name}${birthInfo}${phoneInfo}`);
-      });
-    }
-
-    doc.moveDown(0.3);
-    doc.moveTo(60, doc.y).lineTo(535, doc.y).stroke();
-    doc.moveDown(0.5);
-
-    field('Экстренный контакт:', data.emergency_contact_name);
-    field('Телефон:', data.emergency_contact_phone);
-    if (data.emergency_contact_relation) {
-      field('Кем приходится:', data.emergency_contact_relation);
-    }
-
-    // Подвал
-    doc.moveDown(1.5);
-    doc.moveTo(60, doc.y).lineTo(535, doc.y).stroke();
-    doc.moveDown(0.5);
-    doc.fontSize(8).text(
-      'Заявление сформировано автоматически через Ведар (vedarai.ru). ' +
-      'Данная заявка не является подтверждением регистрации в МЧС. ' +
-      'Для официальной регистрации подайте заявление через портал Госуслуг ' +
-      'или лично в Главное управление МЧС России по Камчатскому краю.',
-      { align: 'center' }
-    );
-
-    doc.fontSize(8).text(
-      `Сформировано: ${new Date().toLocaleString('ru-RU')}`,
-      { align: 'center' }
-    );
-
-    doc.end();
-  });
-}
-
 /**
  * POST /api/safety/register
- * Создаёт регистрацию маршрута + возвращает PDF
+ *
+ * Без `?pdf` — включает контроль возвращения и отвечает номером записи.
+ * С `?pdf` (или `Accept: application/pdf`) — только собирает лист с данными
+ * группы из тела запроса и НИЧЕГО не записывает.
+ *
+ * До 10.11 запись создавалась на любой запрос, а форма слала их два — на один
+ * выход выходило два контроля, и второй никто не закрывал
+ * (docs/safety/MCHS_PLAN.md, С1). Повтор той же формы теперь узнаёт свою
+ * запись: `createTripWatchOnce`.
  */
 // Регистрация открыта без входа — предел на адрес, иначе поток выдуманных
 // контролей завалил бы дежурного тревогами.
@@ -171,6 +102,37 @@ export async function POST(request: NextRequest) {
     );
   }
 
+  // Лист с данными — без записи. Проверки выше общие: лист на прошедшие даты
+  // так же не нужен, как контроль на них.
+  const acceptHeader = request.headers.get('accept') || '';
+  const wantPdf = acceptHeader.includes('application/pdf') ||
+    request.nextUrl.searchParams.has('pdf');
+
+  if (wantPdf) {
+    const pdfBuffer = await generateMchsStatementPDF({
+      routeName: data.route_name,
+      routeDescription: data.route_description ?? null,
+      region: data.region,
+      startDate: data.start_date,
+      endDate: data.end_date,
+      leaderName: data.leader_name,
+      leaderPhone: data.leader_phone,
+      leaderEmail: data.leader_email || null,
+      groupSize: data.group_size,
+      members: (data.group_members ?? []).filter((m) => m.name.trim()),
+      contactName: data.emergency_contact_name,
+      contactPhone: data.emergency_contact_phone,
+      contactRelation: data.emergency_contact_relation ?? null,
+    });
+    // Uint8Array: с TS 5.9 Buffer не проходит в BodyInit без каста.
+    return new NextResponse(new Uint8Array(pdfBuffer), {
+      headers: {
+        'Content-Type': 'application/pdf',
+        'Content-Disposition': 'attachment; filename="vedar-mchs-dannye-gruppy.pdf"',
+      },
+    });
+  }
+
   // Сохраняем в БД
   // Строим expected_return_at из end_date + expected_return_time (если задано)
   // Время на стене — камчатское: без явного пояса `new Date('…T19:00:00')`
@@ -180,48 +142,58 @@ export async function POST(request: NextRequest) {
     : null;
 
   // Одна запись на все пути создания — lib/safety/trip-watch.ts (манифест, правило 1).
-  const registrationId = await createTripWatch({
-    source: 'form',
-    userId,
-    routeName: data.route_name,
-    routeDescription: data.route_description ?? null,
-    startDate: data.start_date,
-    endDate: data.end_date,
-    expectedReturnAt,
-    region: data.region,
-    groupSize: data.group_size,
-    groupMembers: data.group_members ?? null,
-    leaderName: data.leader_name,
-    leaderPhone: data.leader_phone,
-    leaderEmail: data.leader_email || null,
-    contactName: data.emergency_contact_name,
-    contactPhone: data.emergency_contact_phone,
-    contactRelation: data.emergency_contact_relation ?? null,
-    contactTelegramChatId: data.emergency_contact_telegram_chat_id || null,
-    contactEmail: data.emergency_contact_email || null,
-    contactConsent: data.emergency_contact_consent,
-    touristChat: null,
-  });
-
-  // Проверяем: клиент хочет PDF или просто сохранение
-  const acceptHeader = request.headers.get('accept') || '';
-  const wantPdf = acceptHeader.includes('application/pdf') ||
-    request.nextUrl.searchParams.has('pdf');
-
-  if (wantPdf) {
-    const pdfBuffer = await generateRegistrationPDF(data);
-    // Uint8Array: с TS 5.9 Buffer не проходит в BodyInit без каста.
-    return new NextResponse(new Uint8Array(pdfBuffer), {
-      headers: {
-        'Content-Type': 'application/pdf',
-        'Content-Disposition': `attachment; filename="tourhab-registration-${registrationId.slice(0, 8)}.pdf"`,
-      },
+  // И одна запись на выход: повтор той же формы возвращает прежний номер.
+  let registrationId: string;
+  try {
+    const watch = await createTripWatchOnce({
+      source: 'form',
+      userId,
+      routeName: data.route_name,
+      routeDescription: data.route_description ?? null,
+      startDate: data.start_date,
+      endDate: data.end_date,
+      expectedReturnAt,
+      region: data.region,
+      groupSize: data.group_size,
+      groupMembers: data.group_members ?? null,
+      leaderName: data.leader_name,
+      leaderPhone: data.leader_phone,
+      leaderEmail: data.leader_email || null,
+      contactName: data.emergency_contact_name,
+      contactPhone: data.emergency_contact_phone,
+      contactRelation: data.emergency_contact_relation ?? null,
+      contactTelegramChatId: data.emergency_contact_telegram_chat_id || null,
+      contactEmail: data.emergency_contact_email || null,
+      contactConsent: data.emergency_contact_consent,
+      touristChat: null,
     });
+    registrationId = watch.id;
+  } catch (err) {
+    // Контроль НЕ включён — и человек обязан это услышать словами, а не
+    // пустым 500, который форма читала как «ошибка сети».
+    const e = err as { code?: string; message?: string };
+    const code = typeof e.code === 'string' ? e.code : '';
+    // В лог — код базы; без него — род отказа, а не текст: в тексте ошибки
+    // базы бывает введённое человеком значение.
+    const kind = code || (/timeout exceeded when trying to connect/i.test(e.message ?? '') ? 'нет свободного соединения' : 'нет SQLSTATE');
+    console.error('[safety/register] контроль не записан:', kind);
+    // Класс 22 — база не приняла значение поля. Это не наш сбой, и повтор его
+    // не вылечит: сказать «повторите через минуту» значило бы соврать о лекарстве.
+    if (code.startsWith('22')) {
+      return NextResponse.json(
+        { success: false, error: 'Контроль возвращения не включён: одно из полей записано в непригодном виде. Проверьте даты и числа и отправьте снова.' },
+        { status: 400 },
+      );
+    }
+    return NextResponse.json(
+      { success: false, error: 'Контроль возвращения не включён: сбой на нашей стороне. Повторите через минуту.' },
+      { status: 503 },
+    );
   }
 
   return NextResponse.json({
     success: true,
     registration_id: registrationId,
-    message: 'Маршрут зарегистрирован. Скачайте PDF-заявку и подайте в МЧС.',
+    message: 'Контроль возвращения включён. Заявку в МЧС подаёте вы — Ведар её не отправляет.',
   });
 }

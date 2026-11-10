@@ -1,6 +1,6 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { query } from '@/lib/database';
-import PDFDocument from 'pdfkit';
+import { generateMchsStatementPDF, statementMembers } from '@/lib/pdf/mchs-statement';
 import { requireAuth } from '@/lib/auth/middleware';
 import { canReadRegistration } from '@/lib/safety/registration-read';
 
@@ -8,83 +8,26 @@ export const dynamic = 'force-dynamic';
 
 type Params = { params: Promise<{ id: string }> };
 
-function generatePDF(reg: Record<string, unknown>): Promise<Buffer> {
-  return new Promise((resolve) => {
-    const doc = new PDFDocument({ size: 'A4', margin: 60, font: 'Helvetica' });
-    const chunks: Buffer[] = [];
-    doc.on('data', (c: Buffer) => chunks.push(c));
-    doc.on('end', () => resolve(Buffer.concat(chunks)));
-
-    const field = (label: string, value: string) => {
-      doc.fontSize(10).font('Helvetica-Bold').text(label, { continued: true });
-      doc.font('Helvetica').text(`  ${value || '—'}`);
-    };
-
-    doc.fontSize(16).font('Helvetica-Bold').text('ЗАЯВЛЕНИЕ', { align: 'center' });
-    doc.fontSize(12).text('о регистрации туристической группы', { align: 'center' });
-    doc.moveDown(0.5);
-    doc.fontSize(10).text('в Главное управление МЧС России по Камчатскому краю', { align: 'center' });
-    doc.moveDown(1);
-    doc.moveTo(60, doc.y).lineTo(535, doc.y).stroke();
-    doc.moveDown(0.5);
-
-    field('Маршрут:', String(reg.route_name ?? ''));
-    if (reg.route_description) {
-      doc.fontSize(10).font('Helvetica-Bold').text('Описание:', { continued: true });
-      doc.font('Helvetica').text(`  ${reg.route_description}`);
-    }
-    field('Регион:', String(reg.region ?? 'Камчатский край'));
-    field('Дата начала:', new Date(String(reg.start_date)).toLocaleDateString('ru-RU'));
-    field('Дата окончания:', new Date(String(reg.end_date)).toLocaleDateString('ru-RU'));
-
-    doc.moveDown(0.3);
-    doc.moveTo(60, doc.y).lineTo(535, doc.y).stroke();
-    doc.moveDown(0.5);
-
-    field('Руководитель:', String(reg.leader_name ?? ''));
-    field('Телефон руководителя:', String(reg.leader_phone ?? ''));
-    if (reg.leader_email) field('Email:', String(reg.leader_email));
-    field('Количество участников:', String(reg.group_size ?? ''));
-
-    if (reg.group_members) {
-      const members = typeof reg.group_members === 'string'
-        ? JSON.parse(reg.group_members)
-        : reg.group_members;
-      if (Array.isArray(members) && members.length > 0) {
-        doc.moveDown(0.3);
-        doc.moveTo(60, doc.y).lineTo(535, doc.y).stroke();
-        doc.moveDown(0.3);
-        doc.fontSize(10).font('Helvetica-Bold').text('Состав группы:');
-        members.forEach((m: { name: string; birth_year?: number; phone?: string }, i: number) => {
-          const info = [m.birth_year ? `${m.birth_year} г.р.` : '', m.phone ?? ''].filter(Boolean).join(', ');
-          doc.fontSize(10).text(`  ${i + 1}. ${m.name}${info ? ` (${info})` : ''}`);
-        });
-      }
-    }
-
-    doc.moveDown(0.3);
-    doc.moveTo(60, doc.y).lineTo(535, doc.y).stroke();
-    doc.moveDown(0.5);
-
-    field('Экстренный контакт:', String(reg.emergency_contact_name ?? ''));
-    field('Телефон:', String(reg.emergency_contact_phone ?? ''));
-    if (reg.emergency_contact_relation) field('Кем приходится:', String(reg.emergency_contact_relation));
-
-    doc.moveDown(0.3);
-    doc.fontSize(10).text(`ID регистрации: ${reg.id}`, { align: 'right' });
-
-    doc.moveDown(1.5);
-    doc.moveTo(60, doc.y).lineTo(535, doc.y).stroke();
-    doc.moveDown(0.5);
-    doc.fontSize(8).text(
-      'Заявление сформировано автоматически через Ведар (vedarai.ru). ' +
-      'Данная заявка не является подтверждением регистрации в МЧС. ' +
-      'Для официальной регистрации подайте заявление через портал Госуслуг или лично в ГУ МЧС по Камчатскому краю.',
-      { align: 'center' }
-    );
-    doc.fontSize(8).text(`Сформировано: ${new Date().toLocaleString('ru-RU')}`, { align: 'center' });
-    doc.end();
-  });
+/** Строка базы → данные листа. Лист один на форму и на выдачу по номеру (lib/pdf/mchs-statement). */
+function statementFromRow(reg: Record<string, unknown>) {
+  const text = (v: unknown): string => (typeof v === 'string' ? v : v == null ? '' : String(v));
+  const day = (v: unknown): string | Date => (v instanceof Date ? v : text(v));
+  return {
+    id: text(reg.id),
+    routeName: text(reg.route_name),
+    routeDescription: text(reg.route_description) || null,
+    region: text(reg.region) || 'Камчатский край',
+    startDate: day(reg.start_date),
+    endDate: day(reg.end_date),
+    leaderName: text(reg.leader_name),
+    leaderPhone: text(reg.leader_phone),
+    leaderEmail: text(reg.leader_email) || null,
+    groupSize: text(reg.group_size),
+    members: statementMembers(reg.group_members),
+    contactName: text(reg.emergency_contact_name),
+    contactPhone: text(reg.emergency_contact_phone),
+    contactRelation: text(reg.emergency_contact_relation) || null,
+  };
 }
 
 export async function GET(request: NextRequest, { params }: Params) {
@@ -121,12 +64,12 @@ export async function GET(request: NextRequest, { params }: Params) {
   const wantPdf = request.nextUrl.searchParams.has('pdf');
 
   if (wantPdf) {
-    const pdfBuffer = await generatePDF(reg);
+    const pdfBuffer = await generateMchsStatementPDF(statementFromRow(reg));
     // Uint8Array: с TS 5.9 Buffer не проходит в BodyInit без каста.
     return new NextResponse(new Uint8Array(pdfBuffer), {
       headers: {
         'Content-Type': 'application/pdf',
-        'Content-Disposition': `attachment; filename="mchs-registration-${String(reg.id).slice(0, 8)}.pdf"`,
+        'Content-Disposition': `attachment; filename="vedar-mchs-dannye-${String(reg.id).slice(0, 8)}.pdf"`,
       },
     });
   }

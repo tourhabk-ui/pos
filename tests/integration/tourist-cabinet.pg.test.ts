@@ -3659,6 +3659,222 @@ withPg('кабинет туриста на настоящем PostgreSQL', () =>
     expect(files).toEqual(live);
   });
 
+  // ── Волна 0 плана МЧС (docs/safety/MCHS_PLAN.md, С1): одна запись на выход ──
+  // До 10.11 форма /register слала два запроса, и каждый писал свою запись
+  // контроля: «Я вернулся» закрывал одну, по второй сторож поднимал тревогу.
+  const watchInput = (phone: string, over: Record<string, unknown> = {}) => ({
+    source: 'form' as const,
+    userId: null,
+    routeName: 'Авачинский перевал',
+    routeDescription: null,
+    startDate: '2031-07-10',
+    endDate: '2031-07-11',
+    expectedReturnAt: new Date('2031-07-11T07:00:00Z'),
+    region: 'Камчатский край',
+    groupSize: 2,
+    groupMembers: [{ name: 'Тест Второй', birth_year: 1990 }] as unknown[],
+    leaderName: 'Тест',
+    leaderPhone: phone,
+    leaderEmail: null,
+    contactName: 'Контакт',
+    contactPhone: '+70000000002',
+    contactRelation: null,
+    contactTelegramChatId: null,
+    contactEmail: null,
+    contactConsent: true,
+    touristChat: null,
+    ...over,
+  });
+  const rowsOf = async (phone: string) => (await pool.query<{ id: string; completed_at: Date | null }>(
+    `SELECT id, completed_at FROM route_registrations WHERE leader_phone = $1 ORDER BY created_at`, [phone],
+  )).rows;
+
+  it('контроль с формы: повтор той же формы возвращает ту же запись, правка — новую, закрытая не в счёт', async () => {
+    const { createTripWatchOnce } = await import('@/lib/safety/trip-watch');
+    const phone = '+70000001001';
+    const first = await createTripWatchOnce(watchInput(phone));
+    expect(first.repeated).toBe(false);
+    const again = await createTripWatchOnce(watchInput(phone));
+    expect(again).toEqual({ id: first.id, repeated: true });
+    expect(await rowsOf(phone)).toHaveLength(1);
+
+    // Пустые поля сверяются как пустые: повтор формы без времени возврата, без
+    // состава и с почтой узнаёт себя так же.
+    const sparse = { expectedReturnAt: null, groupMembers: null, leaderEmail: 'test@example.com', routeDescription: 'по тропе' };
+    const s1 = await createTripWatchOnce(watchInput(phone, sparse));
+    const s2 = await createTripWatchOnce(watchInput(phone, sparse));
+    expect(s1.repeated).toBe(false);
+    expect(s2).toEqual({ id: s1.id, repeated: true });
+    expect(await rowsOf(phone)).toHaveLength(2);
+
+    // Поправил телефон контакта — это другая запись: прежнюю молча не возвращаем,
+    // иначе правка потерялась бы.
+    const fixed = await createTripWatchOnce(watchInput(phone, { contactPhone: '+70000000003' }));
+    expect(fixed.repeated).toBe(false);
+    expect(fixed.id).not.toBe(first.id);
+    // Состав группы — тоже часть записи.
+    const crew = await createTripWatchOnce(watchInput(phone, { groupMembers: [{ name: 'Тест Третий' }] }));
+    expect(crew.repeated).toBe(false);
+    expect(await rowsOf(phone)).toHaveLength(4);
+
+    // Вернулся и идёт снова теми же датами — новый контроль, а не закрытый старый.
+    await pool.query(`UPDATE route_registrations SET completed_at = now(), closed_by = 'link', closed_reason = 'returned' WHERE id = $1`, [first.id]);
+    const anew = await createTripWatchOnce(watchInput(phone));
+    expect(anew.repeated).toBe(false);
+    expect(anew.id).not.toBe(first.id);
+  });
+
+  it('контроль с формы: вошедший и аноним с теми же данными — одна запись, два разных аккаунта — две', async () => {
+    const { createTripWatchOnce } = await import('@/lib/safety/trip-watch');
+    const phone = '+70000001011';
+    // Сессия истекла между двумя нажатиями: второй запрос пришёл анонимным.
+    const mine = await createTripWatchOnce(watchInput(phone, { userId }));
+    expect(await createTripWatchOnce(watchInput(phone, { userId: null }))).toEqual({ id: mine.id, repeated: true });
+    expect(await createTripWatchOnce(watchInput(phone, { userId }))).toEqual({ id: mine.id, repeated: true });
+    // Другой аккаунт — другой владелец записи, даже при тех же данных.
+    const theirs = await createTripWatchOnce(watchInput(phone, { userId: otherUserId }));
+    expect(theirs.repeated).toBe(false);
+    expect(theirs.id).not.toBe(mine.id);
+  });
+
+  it('контроль с формы: замок занят дольше срока — отказ 55P03, а не вечное ожидание и не вторая запись', async () => {
+    const { createTripWatchOnce, tripWatchLockKey, WATCH_LOCK_WAIT_MS } = await import('@/lib/safety/trip-watch');
+    const phone = '+70000001012';
+    const input = watchInput(phone);
+    const holder = await pool.connect();
+    try {
+      await holder.query('BEGIN');
+      await holder.query('SELECT pg_advisory_xact_lock(hashtext($1::text))', [tripWatchLockKey(phone, input.startDate, input.endDate)]);
+      const started = Date.now();
+      await expect(createTripWatchOnce(input)).rejects.toMatchObject({ code: '55P03' });
+      expect(Date.now() - started).toBeGreaterThanOrEqual(WATCH_LOCK_WAIT_MS - 500);
+      expect(await rowsOf(phone)).toHaveLength(0);
+    } finally {
+      await holder.query('ROLLBACK');
+      holder.release();
+    }
+    // Замок освободился — та же форма проходит.
+    expect((await createTripWatchOnce(input)).repeated).toBe(false);
+  }, 20_000);
+
+  it('контроль с формы: пять одинаковых запросов разом — запись одна', async () => {
+    const { createTripWatchOnce } = await import('@/lib/safety/trip-watch');
+    const phone = '+70000001002';
+    // Соединения — заранее: иначе первый запрос успевает закончиться, пока
+    // остальные только подключаются, и проверка зеленеет и без замка.
+    const { pool: appPool } = await import('@/lib/db-pool');
+    const warm = await Promise.all(Array.from({ length: 6 }, () => appPool.connect()));
+    warm.forEach((c) => c.release());
+    const all = await Promise.all(Array.from({ length: 5 }, () => createTripWatchOnce(watchInput(phone))));
+    expect(new Set(all.map((r) => r.id)).size).toBe(1);
+    expect(all.filter((r) => !r.repeated)).toHaveLength(1);
+    expect(await rowsOf(phone)).toHaveLength(1);
+  });
+
+  it('форма /register: сохранить и скачать лист — одна запись, и «Я вернулся» не оставляет открытого двойника', async () => {
+    const { NextRequest } = await import('next/server');
+    const { POST } = await import('@/app/api/safety/register/route');
+    const phone = '+70000001003';
+    authAs.userId = userId;
+    const kam = (days: number) => new Date(Date.now() + 12 * 3600_000 + days * 86_400_000).toISOString().slice(0, 10);
+    const payload = {
+      route_name: 'Вулкан Горелый', start_date: kam(2), end_date: kam(3), expected_return_time: '19:00',
+      group_size: 2, group_members: [{ name: 'Тест Второй' }],
+      leader_name: 'Тест', leader_phone: phone,
+      emergency_contact_name: 'Контакт', emergency_contact_phone: '+70000000002',
+      emergency_contact_consent: true, accepted_disclaimer: true,
+    };
+    const post = (url: string, ip: string) => POST(new NextRequest(`https://vedarai.ru${url}`, {
+      method: 'POST',
+      headers: { 'content-type': 'application/json', 'x-forwarded-for': ip },
+      body: JSON.stringify(payload),
+    }));
+    // Ровно то, что делает страница: сначала запись, потом лист.
+    const saved = await post('/api/safety/register', '203.0.113.201');
+    const savedJson = await saved.json() as { success: boolean; registration_id: string };
+    expect(saved.status).toBe(200);
+    const sheet = await post('/api/safety/register?pdf=1', '203.0.113.201');
+    expect(sheet.status).toBe(200);
+    expect(sheet.headers.get('content-type')).toBe('application/pdf');
+    let rows = await rowsOf(phone);
+    expect(rows).toHaveLength(1);
+    expect(rows[0].id).toBe(savedJson.registration_id);
+
+    // Ответ потерялся на плохой связи, человек нажал ещё раз — та же запись.
+    const retry = await (await post('/api/safety/register', '203.0.113.202')).json() as { registration_id: string };
+    expect(retry.registration_id).toBe(savedJson.registration_id);
+
+    // «Я вернулся» по единственной ссылке закрывает всё, что было открыто.
+    const { closeTripWatch } = await import('@/lib/safety/trip-watch');
+    expect(await closeTripWatch(savedJson.registration_id, 'link', 'returned')).toBe(true);
+    rows = await rowsOf(phone);
+    expect(rows.filter((r) => r.completed_at === null)).toHaveLength(0);
+  });
+
+  it('перепись двойников: считает пары в окне, открытых при закрытой первой и тех, по кому уже будили', async () => {
+    const { TRIP_WATCH_TWINS_SQL, twinsReportFromRow } = await import('@/lib/safety/trip-watch-twins');
+    const census = async (windowSeconds: number) => {
+      const { rows } = await pool.query(TRIP_WATCH_TWINS_SQL, [windowSeconds, new Date()]);
+      const report = twinsReportFromRow(rows[0] as Record<string, unknown>);
+      if (!report) throw new Error('перепись не разобрана');
+      return report;
+    };
+    const before = await census(120);
+    const before600 = await census(900);
+
+    const twin = async (
+      phone: string, gapSeconds: number,
+      sql: { first: string; second: string; secondEmail?: string },
+    ) => {
+      const ins = async (extraCols: string, extraVals: string, ago: number, email: string | null) => (await pool.query<{ id: string }>(
+        `INSERT INTO route_registrations (route_name, start_date, end_date, group_size, leader_name, leader_phone,
+           emergency_contact_name, emergency_contact_phone, source, created_at, leader_email${extraCols})
+         VALUES ('Двойник', CURRENT_DATE - 3, CURRENT_DATE - 2, 1, 'Тест', $1, 'Контакт', '+70000000002', 'form',
+           now() - make_interval(secs => $2::int), $3${extraVals}) RETURNING id`, [phone, ago, email],
+      )).rows[0].id;
+      const a = await ins(sql.first ? ', completed_at, closed_by, closed_reason' : '', sql.first, 3600 + gapSeconds, null);
+      const b = await ins(sql.second ? ', completed_at, closed_by, closed_reason' : '', sql.second, 3600, sql.secondEmail ?? null);
+      return { a, b };
+    };
+    // Пара формы: первая закрыта «вернулся», двойник открыт, срок прошёл, тревога по нему уже уходила.
+    const hot = await twin('+70000001004', 2, { first: `, now(), 'link', 'returned'`, second: '' });
+    await pool.query(
+      `INSERT INTO route_registration_notifications (registration_id, step, channel, recipient, status, sent_at)
+       VALUES ($1, 2, 'telegram', 'contact', 'sent', now())`, [hot.b],
+    );
+    // Пара в окне, обе закрыты — двойник есть, но тревоги по нему не будет.
+    await twin('+70000001005', 3, { first: `, now(), 'link', 'returned'`, second: `, now(), 'link', 'returned'` });
+    // Те же данные, но через десять минут — в окно 120 с не попадает.
+    await twin('+70000001006', 600, { first: '', second: '' });
+    // Обе открыты: человек ещё на маршруте, первую он закроет, двойник останется.
+    await twin('+70000001007', 4, { first: '', second: '' });
+    // Первая снята «отменил», двойник открыт: закрыта — но не словом «вернулся».
+    await twin('+70000001008', 5, { first: `, now(), 'link', 'cancelled'`, second: '' });
+    // Исправленная повторная отправка: те же руководитель, контакт и даты, но
+    // добавлена почта. Двойник по ключу — и НЕ двойник слово в слово.
+    await twin('+70000001009', 6, { first: '', second: '', secondEmail: 'test@example.com' });
+    // Человек отметился по второй ссылке, первая запись осталась открытой.
+    await twin('+70000001010', 7, { first: '', second: `, now(), 'link', 'returned'` });
+
+    const after = await census(120);
+    expect(after.form_total - before.form_total).toBe(14);
+    expect(after.twin_rows - before.twin_rows).toBe(6);
+    expect(after.twin_identical - before.twin_identical).toBe(5);
+    expect(after.twin_identical_open - before.twin_identical_open).toBe(3);
+    expect(after.first_open_twin_closed - before.first_open_twin_closed).toBe(1);
+    expect(after.twin_open - before.twin_open).toBe(4);
+    expect(after.twin_open_first_closed - before.twin_open_first_closed).toBe(2);
+    expect(after.twin_open_first_returned - before.twin_open_first_returned).toBe(1);
+    expect(after.twin_open_overdue - before.twin_open_overdue).toBe(4);
+    expect(after.twin_alerted - before.twin_alerted).toBe(1);
+    expect(after.last_twin_day).toMatch(/^\d{4}-\d{2}-\d{2}$/);
+
+    // Шире окно — пара «через десять минут» тоже двойник, и она открыта.
+    const after600 = await census(900);
+    expect(after600.twin_rows - before600.twin_rows).toBe(7);
+    expect(after600.twin_open - before600.twin_open).toBe(5);
+  });
+
   it('экстренный контакт из tourist_profiles читается профилем (его подставляет «Контрольный срок»)', async () => {
     const uid = await freshTourist('emergency');
     await pool.query(

@@ -12,7 +12,7 @@ import { MCHS_AFTER_RETURN, MCHS_DEADLINE_SHORT, MCHS_SOURCE } from '@/lib/safet
 
 describe('блок регистрации МЧС на карточке маршрута', () => {
   it('строка о возвращении видна сразу — вне раскрытия', () => {
-    render(<MchsRegistrationBlock onOpenForm={() => undefined} />);
+    render(<MchsRegistrationBlock formHref="/register" />);
     const line = screen.getByText(MCHS_AFTER_RETURN);
     expect(line.closest('details')).toBeNull();
     // Срок — тоже на виду, а каналы и состав данных остаются под раскрытием.
@@ -21,13 +21,13 @@ describe('блок регистрации МЧС на карточке марш�
   });
 
   it('источник назван датой памятки, а не месяцем чтения', () => {
-    const { container } = render(<MchsRegistrationBlock onOpenForm={() => undefined} />);
+    const { container } = render(<MchsRegistrationBlock formHref="/register" />);
     expect(container.textContent).toContain(`Источник: ${MCHS_SOURCE.authority}, ${MCHS_SOURCE.asOf}`);
     expect(container.textContent).toContain('памятка от 13.06.2024');
   });
 
   it('несверенных телефонов в блоке нет: звонок — только по номеру из записи маршрута', () => {
-    const { container } = render(<MchsRegistrationBlock onOpenForm={() => undefined} />);
+    const { container } = render(<MchsRegistrationBlock formHref="/register" />);
     expect(container.querySelectorAll('a[href^="tel:"]')).toHaveLength(0);
     expect(container.textContent).not.toMatch(/30-10-82/);
   });
