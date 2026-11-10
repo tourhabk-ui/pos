@@ -64,6 +64,7 @@ vi.mock('@/lib/ai/providers', () => ({ callAIWithModelDirect: vi.fn(async () => 
 vi.mock('@/lib/ai/agent-models', () => ({ getModelForAgent: () => null }));
 vi.mock('@/lib/db-pool', () => ({ pool: { query: vi.fn(async (sql: string) => ({ rows: String(sql).includes('FROM safety_alerts') ? ALERT_ROWS : [] })) } }));
 
+import { callAIWithModelDirect } from '@/lib/ai/providers';
 import { recommendTrip, unservedInterestMessage, type TripProfile } from '@/lib/planner/engine';
 import { fetchRealToursForZone } from '@/lib/planner/data';
 import { tourPlanSpan } from '@/lib/planner/tour-span';
@@ -287,5 +288,21 @@ describe('разбор 08.11: «вулканы», 6 дней, группа, «с
     const text = rec.warnings.map((w) => w.message).join('\n');
     expect(text).toContain('5 дней — очень мало для Камчатки');
     expect(text).not.toMatch(/\b5 дня\b/);
+  });
+});
+
+describe('Б30: подсказка модели не просит рейтинг оператора (#3199)', () => {
+  // Рейтинг неоценённого оператора — 0: модель называла туристу «0.0» или
+  // сочиняла оценку в «Подробной программе». Имя оператора — да, оценки — нет.
+  it('имя оператора в подсказке есть; «(0.0)» и просьбы назвать рейтинг — нет', async () => {
+    TOURS['avachinsky:volcano'] = [{ tourId: 't-r', title: 'Вулкан за день', durationHours: 10, zone: 'avachinsky', activityType: 'volcano' }];
+    const call = vi.mocked(callAIWithModelDirect);
+    call.mockClear();
+    await recommendTrip(profile(4, ['volcano']));
+    const prompt = call.mock.calls.map((c) => (c[0] as Array<{ content: string }>).map((m) => m.content).join('\n')).join('\n');
+    expect(prompt).toContain('оператор: Оператор');
+    expect(prompt).not.toMatch(/\(\d\.\d\)/);
+    expect(prompt).not.toMatch(/упомяни[^\n]*рейтинг/);
+    expect(prompt).toMatch(/оценок и рейтингов не называй/);
   });
 });

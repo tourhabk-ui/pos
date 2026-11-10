@@ -88,7 +88,7 @@ export const SKILL_TAGS: Record<string, string[]> = {
   search_transfers:       ['kamchatka', 'transfers', 'charter', 'vakhtovka'],
   search_car_rental:      ['kamchatka', 'car-rental', 'self-drive', 'suv', 'price-per-day'],
   search_gear:            ['kamchatka', 'gear', 'rental'],
-  make_trip_plan:         ['kamchatka', 'trip-plan', 'itinerary', 'weather'],
+  make_trip_plan:         ['kamchatka', 'trip-plan', 'itinerary'],
   edit_trip_plan:         ['kamchatka', 'trip-plan', 'itinerary', 'edit'],
   search:                 ['kamchatka', 'search', 'catalogue', 'places', 'stays', 'routes'],
   fetch:                  ['kamchatka', 'document', 'details', 'citation'],

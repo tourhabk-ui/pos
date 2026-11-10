@@ -279,7 +279,7 @@ export default async function PlanPresetPage({ params }: PageProps) {
               Этот план — отправная точка
             </h2>
             <p className="text-sm" style={{ color: 'var(--text-secondary)' }}>
-              Планировщик пересоберёт его под ваши даты, детей, бюджет и погоду — и покажет живые места в турах.
+              Планировщик пересоберёт его под ваши даты, детей и бюджет — и покажет живые места в турах.
             </p>
             <Link href="/planner" className="ds-btn ds-btn-primary inline-flex px-6 py-3">
               Собрать свой план

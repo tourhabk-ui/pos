@@ -613,3 +613,23 @@ describe('план говорит то, что знает движок', () => {
     expect(parseChatInterestsDetailed('рыбалка').defaulted).toBe(false);
   });
 });
+
+describe('обещано наружу ⇔ отдано в плане: погода (#3199, M9)', () => {
+  // Описание make_trip_plan обещало «trip plan with weather» — MCP, OpenAPI,
+  // A2A и мост это цитировали, — а текст плана прогноза не несёт: движок
+  // кладёт его только в подсказку «Подробной программы». Сторож держит связку:
+  // начнёт план отдавать прогноз — тест потребует вернуть слово.
+  it('в тексте плана прогноза нет — и ни описание инструмента, ни навык A2A его не обещают', async () => {
+    const { PUBLIC_MCP_TOOLS } = await import('@/lib/mcp/public-tools');
+    const { buildSkills } = await import('@/lib/a2a/agent-card');
+    const withForecast = { ...day({}), weatherForecast: { description: 'Пасмурно', tempMin: 3, tempMax: 9 } } as unknown as DayPlan;
+    const delivers = formatTripPlanForChat([withForecast], [], null).includes('Пасмурно');
+    const tool = PUBLIC_MCP_TOOLS.find((t) => t.name === 'make_trip_plan');
+    const skill = buildSkills().find((s) => s.id === 'make_trip_plan');
+    const promises = /with weather|weather forecast|с погодой|с прогнозом/i.test(tool?.description ?? '')
+      || (skill?.tags ?? []).includes('weather');
+    expect(tool).toBeDefined();
+    expect(skill).toBeDefined();
+    expect(promises).toBe(delivers);
+  });
+});

@@ -55,6 +55,7 @@ import { NOT_MERGED } from '@/lib/places/aliases';
 import { tourPath } from '@/lib/tours/tour-url';
 import { getPublicBaseUrl } from '@/lib/config';
 import { containsPattern } from '@/lib/db/like';
+import { PRICE_UNIT_LABELS } from '@/lib/tours/labels';
 import { searchTerms } from '@/lib/mcp/search-terms';
 import { logText } from '@/lib/log/log-text';
 import { McpUserError } from '@/lib/mcp/jsonrpc';
@@ -336,7 +337,12 @@ async function fetchTour(key: string, base: string): Promise<FetchResult> {
   const program = Array.isArray(t.program)
     ? t.program.map((s, i) => `${i + 1}. ${[s.title, s.text].filter(Boolean).join(' — ')}`).join('\n')
     : null;
-  const price = t.base_price ? `${Math.round(Number(t.base_price))} ${t.currency ?? 'RUB'}${t.price_unit === 'per_person' ? ' за человека' : ''}` : null;
+  // Единица цены словами — всегда (#3199): прежде её называли только у «за
+  // человека», и цену за группу агент читал как цену с человека, а цену «в
+  // день» — как цену всего тура. Незаписанная единица так и названа.
+  const price = t.base_price
+    ? `${Math.round(Number(t.base_price))} ${t.currency ?? 'RUB'} ${(t.price_unit && PRICE_UNIT_LABELS[t.price_unit]) || '— за что назначена цена, не записано'}`
+    : null;
   const duration = t.duration_type === 'multi_day' && t.multi_day_count ? `${t.multi_day_count} дн.` : (t.duration_hours ? `${Number(t.duration_hours)} ч` : null);
   const text = joinLines([
     `Тур «${t.title}»${t.operator_name ? ` — оператор ${t.operator_name}` : ''}.`,
@@ -364,7 +370,7 @@ async function fetchTour(key: string, base: string): Promise<FetchResult> {
     title: t.title,
     text,
     url: `${base.replace(/\/$/, '')}${tourPath({ id: t.id, slug: t.slug })}`,
-    metadata: { kind: 'tour', price: t.base_price ? Number(t.base_price) : null, currency: t.currency, duration, season_start: t.season_start, season_end: t.season_end, operator: t.operator_name },
+    metadata: { kind: 'tour', price: t.base_price ? Number(t.base_price) : null, currency: t.currency, price_unit: t.price_unit, duration, season_start: t.season_start, season_end: t.season_end, operator: t.operator_name },
   };
 }
 

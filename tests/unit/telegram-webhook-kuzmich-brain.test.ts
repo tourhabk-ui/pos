@@ -241,6 +241,22 @@ describe('личка: свободный текст идёт в мозг Куз�
     expect(JSON.parse(String((timing[0]![1] as unknown[])[2]))).toMatchObject({ surface: 'telegram', path: 'tools' });
   });
 
+  it('цикл инструментов упал исключением — отказ назван в логе, человек получает запасной ответ (#3199, K9)', async () => {
+    m.tools.mockRejectedValue(new Error('boom-tools'));
+    await post('Когда лучше идти на Авачинский вулкан?');
+    expect(sent()[0]).toContain('ЗАПАСНОЙ ОТВЕТ');
+    const logged = vi.mocked(console.error).mock.calls.map((c) => c.map(String).join(' '));
+    expect(logged.some((l) => l.includes('[kuzmich] цикл инструментов не выполнен'))).toBe(true);
+  });
+
+  it('цикл инструментов вернул пусто — это не исключение: строки об отказе цикла нет', async () => {
+    m.tools.mockResolvedValue(null);
+    await post('Когда лучше идти на Авачинский вулкан?');
+    expect(sent()[0]).toContain('ЗАПАСНОЙ ОТВЕТ');
+    const logged = vi.mocked(console.error).mock.calls.map((c) => c.map(String).join(' '));
+    expect(logged.some((l) => l.includes('цикл инструментов не выполнен'))).toBe(false);
+  });
+
   it('повтор того же апдейта (Bot API не дождался ответа) — второго ответа и второй записи нет', async () => {
     await post('Когда лучше идти на Авачинский вулкан?', { updateId: 555001 });
     await post('Когда лучше идти на Авачинский вулкан?', { updateId: 555001 });

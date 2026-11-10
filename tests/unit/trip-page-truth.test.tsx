@@ -42,6 +42,8 @@ vi.mock('@/app/trip/[token]/_OfflineSave', () => ({ OfflineSave: () => null }));
 import { GET } from '@/app/api/trips/share/[token]/route';
 import { TripShareClient, type Trip } from '@/app/trip/[token]/_TripShareClient';
 import { dayAvailabilityLine } from '@/lib/trips/day-availability';
+import { ZONE_IDS, ZONE_NAMES } from '@/lib/planner/constants';
+import { ZONE_OUTSIDE } from '@/lib/planner/zone-style';
 
 const TOKEN = '00000000-0000-4000-8000-000000000611';
 /** Даты — от сегодняшнего дня: тест с зашитой датой — бомба с часовым механизмом. */
@@ -166,5 +168,32 @@ describe('страница плана: предупреждения дня и ч
     const fishing = screen.getByRole('link', { name: 'Летняя рыбалка: оставить заявку' });
     expect(fishing.getAttribute('href')).toMatch(new RegExp(`\\?date=${dayDate(3)}$`));
     expect(screen.getByText(new RegExp(`на ${ddmm(dayDate(3))} — 14 мест`))).toBeTruthy();
+  });
+});
+
+describe('страница плана по ссылке: подписи зон — общим словарём (#3199)', () => {
+  // Свой словарь страницы называл западную зону «Мильковская», восточную —
+  // «Карагинская», северную — «Тигильская»: округа, которые база относит к
+  // другим зонам (1294, 1296). Страницу открывают близкие туриста.
+  beforeEach(() => {
+    Element.prototype.scrollIntoView = vi.fn();
+    vi.stubGlobal('fetch', vi.fn(async () => ({ ok: false, json: async () => null } as Response)));
+  });
+  afterEach(() => { cleanup(); vi.unstubAllGlobals(); });
+
+  it('под днём каждой зоны — её общее имя; округов вместо зон нет; зона вне четырёх — названа', () => {
+    const trip: Trip = {
+      source: 'draft', id: TOKEN, title: 'План', arrival_date: ARRIVAL, departure_date: isoIn(206),
+      places: [], activities: [], transport_by_day: {},
+      days: [
+        ...ZONE_IDS.map((zone, i) => day(i + 2, { zone, title: `День в зоне ${zone}` }) as Trip['days'][number]),
+        day(6, { zone: 'krai_koryak', title: 'День на севере края' }) as Trip['days'][number],
+      ],
+      day_tours: {}, availability: {},
+    };
+    render(<TripShareClient trip={trip} token={TOKEN} />);
+    for (const zone of ZONE_IDS) expect(screen.getAllByText(ZONE_NAMES[zone]).length).toBeGreaterThan(0);
+    expect(screen.getAllByText(ZONE_OUTSIDE).length).toBeGreaterThan(0);
+    expect(document.body.textContent).not.toMatch(/Мильковская|Карагинская|Тигильская|krai_koryak/);
   });
 });

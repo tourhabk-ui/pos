@@ -408,58 +408,6 @@ async function fetchRoutesForZone(zone: ZoneId, activityType: string, limit: num
   }
 }
 
-// ─── Crowd load ───────────────────────────────────────────────────────────────
-
-interface CrowdRow {
-  total_departures: string;
-  booked_ratio: string;
-}
-
-/**
- * Returns a crowd score 0-100 for a date range.
- * Считает по живому календарю tour_availability + реальным броням
- * (v_tour_daily_occupancy). Раньше считал по tour_departures — там счётчик
- * booked_slots никогда не заполнялся, и ratio всегда был 0 (эвристика
- * вырождалась в сезонный fallback).
- * Higher score = more crowded. Affects zone scoring.
- */
-async function fetchCrowdLoad(arrivalDate?: string, departureDate?: string): Promise<number> {
-  if (!arrivalDate || !departureDate) {
-    // No dates: estimate from season (July-August = peak)
-    const month = new Date().getMonth() + 1;
-    if ([7, 8].includes(month)) return 75;
-    if ([6, 9].includes(month)) return 50;
-    return 20;
-  }
-  try {
-    const { rows } = await pool.query<CrowdRow>(
-      `SELECT
-         COUNT(*)::text                                                          AS total_departures,
-         ROUND(
-           COALESCE(
-             SUM(COALESCE(occ.occupied, 0))::numeric / NULLIF(SUM(ta.available_slots), 0) * 100,
-             0
-           )
-         )::text                                                                AS booked_ratio
-       FROM tour_availability ta
-       LEFT JOIN v_tour_daily_occupancy occ
-         ON occ.operator_tour_id = ta.operator_tour_id AND occ.date = ta.date
-       WHERE ta.is_cancelled = FALSE
-         AND ta.deleted_at IS NULL
-         AND ta.date BETWEEN $1::date AND $2::date`,
-      [arrivalDate, departureDate]
-    );
-    const row = rows[0];
-    if (!row) return 20;
-    const ratio = parseFloat(row.booked_ratio) || 0;
-    const count = parseInt(row.total_departures, 10) || 0;
-    // Weighted: bookings ratio + volume bonus
-    return Math.min(100, Math.round(ratio * 0.7 + Math.min(count * 2, 30)));
-  } catch {
-    return 20;
-  }
-}
-
 // ─── Safety alerts ────────────────────────────────────────────────────────────
 
 export interface SafetyAlert {
@@ -716,7 +664,6 @@ function collectWarnings(
   profile: TripProfile,
   zones: ZoneRecommendation[],
   tripDays: number,
-  crowdLoad: number = 0,
   alerts: SafetyAlert[] = [],
   /** Открытое каталогом на этот месяц; `null` — каталог спросить не вышло. */
   catalogueOpen: Set<string> | null,
@@ -774,19 +721,6 @@ function collectWarnings(
         message: 'Авачинская бухта и побережье доступны без морских выходов: пешие маршруты, смотровые площадки, маяки.',
       });
     }
-  }
-
-  // ── Crowd load ────────────────────────────────────────────────────────────
-  if (crowdLoad > 70) {
-    warnings.push({
-      type: 'crowd', severity: 'important',
-      message: `Высокий сезон: популярные локации загружены на ~${crowdLoad}%. Рекомендуем бронировать гидов и трансфер за 2-3 недели. Некоторые дни скорректированы на менее популярные маршруты.`,
-    });
-  } else if (crowdLoad > 50) {
-    warnings.push({
-      type: 'crowd', severity: 'info',
-      message: `Умеренная загрузка (~${crowdLoad}%). Брони лучше подтвердить за 1 неделю до выезда.`,
-    });
   }
 
   // Min trip duration
@@ -2188,7 +2122,9 @@ function buildAIPrompt(profile: TripProfile, zones: ZoneRecommendation[], days: 
   const daysSummary = days.map(d => {
     let line = `День ${d.day} (${d.type}): ${d.title} [${d.zone}]`;
     if (d.realTour) {
-      line += ` — оператор: ${d.realTour.operatorName} (${d.realTour.operatorRating.toFixed(1)})`;
+      // Только имя (#3199, Б30): рейтинг неоценённого оператора — 0, и модель
+      // называла туристу «0.0» или сочиняла оценку. Оценок модель не называет.
+      line += ` — оператор: ${d.realTour.operatorName}`;
     }
     // Цена — с единицей тура: «за группу» без подписи модель пересказала бы
     // как цену с человека (#2304).
@@ -2227,7 +2163,7 @@ ${warningsSummary ? `Предупреждения:\n${warningsSummary}` : ''}
 - Дни переезда и отдыха — это норма, не извиняйся за них
 - Если есть дети — упомяни что программа адаптирована
 - Упомяни ключевые впечатления: что увидят, что почувствуют
-- Если есть реальные операторы — упомяни их и рейтинг
+- Если есть реальные операторы — называй их по имени; оценок и рейтингов не называй
 - Если есть прогноз погоды — кратко упомяни что ожидать
 - Если среди предупреждений есть МЧС, не называй эти места безопасными или без риска
 - Не нумеруй дни, пиши связным текстом`;
@@ -2307,7 +2243,7 @@ export async function recommendTrip(profile: TripProfile, opts: RecommendTripOpt
     : { forTrip: [] as ActiveWarning[], endedBefore: [] as ActiveWarning[] };
   const { days, unchecked, spanUnknown, tooLong, extendedForTour, overLimit, preferenceNotes, selfSkipped, selfSafetyUnchecked, skippedLegs, returnLegMissing, offDays, missReasons, skippedNoTour } = await generateDayPlans(planProfile, zones, tripDays, cache, catalogueOpen, onRequestOnly, mchsTrip.forTrip);
   const plannedZones = new Set<ZoneId>(days.map((d) => d.zone));
-  const warnings = collectWarnings(profile, zones, tripDays, 0, alerts, catalogueOpen, plannedZones, days.some((d) => d.type === 'buffer'));
+  const warnings = collectWarnings(profile, zones, tripDays, alerts, catalogueOpen, plannedZones, days.some((d) => d.type === 'buffer'));
   if (alertsRead === null) {
     warnings.push({ type: 'safety', severity: 'important', message: SAFETY_ALERTS_UNREAD_NOTE });
   }
