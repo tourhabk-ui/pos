@@ -273,6 +273,12 @@ withPg('переписка по заявке на настоящем PostgreSQL'
       expect(again[0].text).toMatch(/уже подключён другой чат/);
       const row = await pool.query(`SELECT guest_max_chat_id::text AS c FROM stay_requests WHERE id = $1`, [requestId]);
       expect(row.rows[0].c).toBe(String(GUEST_CHAT));
+      // «Моя поездка» (#2970, 1416): заявка — в чате гостя, не в чужом.
+      const links = await import('@/lib/requests/chat-links');
+      expect(await links.chatHasRequests('max', GUEST_CHAT)).toBe(true);
+      expect(await links.chatHasRequests('max', STRANGER_CHAT)).toBe(false);
+      const origin = await pool.query(`SELECT origin FROM chat_request_links WHERE channel = 'max' AND chat_id = $1`, [String(GUEST_CHAT)]);
+      expect(origin.rows.map((r) => r.origin)).toEqual(['sq']);
     });
 
     it('после подключения MAX статус ссылку подключения не даёт', async () => {
@@ -948,5 +954,71 @@ withPg('переписка по заявке на настоящем PostgreSQL'
     expect(checks.rows.map((r) => r.conname)).toEqual(['request_chat_waits_one_target', 'request_messages_one_target']);
     const k = await pool.query(`SELECT count(*)::int AS n FROM agent_request_keys WHERE stay_request_id IS NOT NULL AND NOT opens_chat`);
     expect(k.rows[0].n).toBe(0);
+  });
+
+  // ── «Моя поездка»: связь «чат ↔ заявка» (#2970, миграция 1416) ─────────────
+
+  describe('связь «чат ↔ заявка» (1416)', () => {
+    const CHAT = 9_300_001;
+    const OTHER = 9_300_002;
+    let links: typeof import('@/lib/requests/chat-links');
+    let key = '';
+    let keyId = '';
+
+    beforeAll(async () => {
+      links = await import('@/lib/requests/chat-links');
+      const lead = await leads.createLeadDetailed({
+        name: 'Анна Туристка', phone: '+79995550101', comment: 'Тур на вулкан, двое',
+        route_title: 'Авачинский', source_url: 'https://vedarai.ru/kuzmich',
+        pd_consent: consentOf('operator'), source_data: { source: 'kuzmich_max' }, skip_ai_processing: true,
+      });
+      const issued = await status.issueRequestKeyRecord({ leadId: lead!.id }, 'create_lead', { opensChat: false });
+      key = issued!.key;
+      keyId = issued!.keyId!;
+    });
+
+    it('ключ, полученный в чате, связывается один раз; чужой чат и другой канал заявки не видят', async () => {
+      expect(await links.linkChatToKeys('max', CHAT, [key], 'created')).toBe(1);
+      expect(await links.linkChatToKeys('max', CHAT, [key], 'status_link')).toBe(0);
+      expect(await links.chatLinkedKeyIds('max', CHAT)).toEqual([keyId]);
+      expect(await links.chatLinkedKeyIds('max', OTHER)).toEqual([]);
+      expect(await links.chatLinkedKeyIds('telegram', CHAT)).toEqual([]);
+      expect(await links.chatHasRequests('max', CHAT)).toBe(true);
+    });
+
+    it('неизвестный ключ связи не даёт, пустой список — ничего не пишет', async () => {
+      expect(await links.linkChatToKeys('telegram', OTHER, ['A'.repeat(32)], 'created')).toBe(0);
+      expect(await links.linkChatToKeys('telegram', OTHER, [], 'created')).toBe(0);
+      expect(await links.chatHasRequests('telegram', OTHER)).toBe(false);
+    });
+
+    it('истёкший ключ уводит заявку из списка и новой связи не даёт', async () => {
+      await pool.query(`UPDATE agent_request_keys SET expires_at = NOW() - INTERVAL '1 minute' WHERE id = $1`, [keyId]);
+      expect(await links.chatLinkedKeyIds('max', CHAT)).toEqual([]);
+      expect(await links.linkChatToKeys('telegram', CHAT, [key], 'handoff')).toBe(0);
+      await pool.query(`UPDATE agent_request_keys SET expires_at = NOW() + INTERVAL '90 days' WHERE id = $1`, [keyId]);
+    });
+
+    it('погашенный код между каналами связывает выданный ключ с этим чатом Telegram', async () => {
+      const handoff = await import('@/lib/requests/handoff');
+      const code = await handoff.issueHandoffCode(key);
+      expect(code).toMatch(/^[A-Z0-9]{4}-[A-Z0-9]{4}$/);
+      const reply = await handoff.handoffReply(code!, 'telegram', String(OTHER));
+      expect(reply).toMatch(/Заявка найдена в этом канале/);
+      const r = await pool.query(
+        `SELECT l.origin, k.lead_id::text AS lead FROM chat_request_links l JOIN agent_request_keys k ON k.id = l.key_id
+          WHERE l.channel = 'telegram' AND l.chat_id = $1`, [String(OTHER)]);
+      expect(r.rows).toHaveLength(1);
+      expect(r.rows[0].origin).toBe('handoff');
+      const own = await pool.query(`SELECT lead_id::text AS lead FROM agent_request_keys WHERE id = $1`, [keyId]);
+      expect(r.rows[0].lead).toBe(own.rows[0].lead);
+    });
+
+    it('удалили заявку — связи ушли вместе с её ключами', async () => {
+      const own = await pool.query(`SELECT lead_id::text AS lead FROM agent_request_keys WHERE id = $1`, [keyId]);
+      await pool.query(`DELETE FROM agent_request_keys WHERE lead_id = $1::uuid`, [own.rows[0].lead]);
+      const left = await pool.query(`SELECT count(*)::int AS n FROM chat_request_links WHERE chat_id IN ($1, $2)`, [String(CHAT), String(OTHER)]);
+      expect(left.rows[0].n).toBe(0);
+    });
   });
 });
