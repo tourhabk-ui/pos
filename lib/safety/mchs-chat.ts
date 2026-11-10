@@ -23,8 +23,8 @@
 import { escapeHtml } from '@/lib/text/escape-html';
 import { kamchatkaDate } from '@/lib/analytics/kamchatka-day';
 import {
-  MCHS_CHANNELS, MCHS_DEADLINE_SHORT, MCHS_ONLINE_FORM_URL, MCHS_REQUIRED_DATA,
-  MCHS_SOURCE, registrationVerdict, type MchsVerdict,
+  MCHS_AFTER_RETURN, MCHS_CHANNELS, MCHS_DEADLINE_SHORT, MCHS_ONLINE_FORM_URL, MCHS_PHONES,
+  MCHS_REQUIRED_DATA, MCHS_SOURCE, registrationVerdict, type MchsVerdict,
 } from '@/lib/safety/mchs-registration';
 
 /** Подпись кнопки — одна на три роли и два мессенджера. */
@@ -64,6 +64,8 @@ function ruDayMonth(ymd: string): string {
 export function mchsTouristText(): string {
   const lines = [
     `<b>${MCHS_CHAT_BUTTON}</b>`,
+    `<b>${MCHS_AFTER_RETURN}</b>`,
+    '',
     `Идёте сами, без оператора — заявку в МЧС подаёт руководитель вашей группы. ${MCHS_DEADLINE_SHORT}.`,
     'Идёте с оператором или гидом — группу регистрирует он. Спросите у него, подана ли заявка.',
     '',
@@ -72,6 +74,9 @@ export function mchsTouristText(): string {
     '',
     'Как подать:',
     ...MCHS_CHANNELS.map((c) => `— ${c.title}. ${c.detail}${c.key === 'online' ? ' — кнопка ниже' : ''}.`),
+    '',
+    'Телефоны ГУ МЧС по краю:',
+    ...MCHS_PHONES.map((p) => `— ${p.phone} — ${p.purpose}`),
     '',
     `${MCHS_WHO_SUBMITS} На сайте Ведара можно собрать данные группы одним текстом для формы — кнопка «Собрать данные».`,
     SOURCE_LINE,
@@ -158,11 +163,15 @@ export function mchsDepartureLines(d: MchsDeparture, nowMs: number): string[] {
 
 /** Чего в записи брони нет, а форма МЧС спрашивает. */
 export const MCHS_GROUP_NOT_IN_RECORD: readonly string[] = [
-  'ФИО, адреса и телефоны всех участников',
+  'ФИО, год рождения, страна проживания, адрес и телефон каждого участника',
   'руководитель группы и его телефон',
-  'время и способ сеансов связи (спутниковый телефон, рация, график)',
+  'телефоны двух контактных лиц, которые не идут в поход',
+  'координаты контрольных точек маршрута',
+  'средства связи, время и способ сеансов связи',
+  'средства первой помощи и страховочное снаряжение',
   'средства передвижения',
   'места ночлега по дням',
+  'согласия всех участников на обработку персональных данных',
 ];
 
 /**
@@ -204,6 +213,8 @@ export function mchsGroupText(g: MchsGroup, nowMs: number, opts: { allContacts?:
 
 export const MCHS_CHAT_TEXT = {
   listHead: `<b>${MCHS_CHAT_BUTTON}</b>`,
+  /** Первая строка списка и выезда: о снятии с контроля забывают чаще всего. */
+  afterReturn: `<b>${MCHS_AFTER_RETURN}</b>`,
   listRule: `${MCHS_DEADLINE_SHORT}. ${MCHS_WHO_SUBMITS} Нажмите выезд — соберу его данные одним текстом для формы МЧС.`,
   listEmpty: `Выездов с подтверждёнными бронями на ближайшие ${MCHS_WINDOW_DAYS} дней нет. Форма МЧС — кнопкой ниже.`,
   listFailed: `Выезды не прочитались — сбой на нашей стороне. ${MCHS_DEADLINE_SHORT}; форма МЧС — кнопкой ниже.`,

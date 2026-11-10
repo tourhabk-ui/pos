@@ -4,7 +4,7 @@ import { query } from '@/lib/database';
 import { ApiResponse } from '@/types';
 import { requireOperator } from '@/lib/auth/middleware';
 import { getOperatorPartnerId } from '@/lib/auth/operator-helpers';
-import { registerGroupWithMchs, mchsOutcomeMessage } from '@/lib/safety/mchs-client';
+import { MCHS_NOT_SENT, mchsOutcomeMessage } from '@/lib/safety/mchs-client';
 
 export const dynamic = 'force-dynamic';
 
@@ -211,17 +211,12 @@ export async function POST(request: NextRequest) {
       );
     }
 
-    const mchsResult = await registerGroupWithMchs({
-      groupName: validated.groupName,
-      groupMembers: validated.groupMembers,
-      routeDescription: validated.routeDescription,
-      routeRegion: validated.routeRegion,
-      startDate: validated.startDate,
-      endDate: validated.endDate,
-      guideContact: validated.guideContact,
-      emergencyContacts: validated.emergencyContacts,
-      participantCount: validated.participantCount,
-    });
+    // Ведар данные группы наружу не передаёт (аудит 10.11): прежний вызов
+    // registerGroupWithMchs POST-ил состав группы с телефонами на адрес из env
+    // MCHS_API_URL. Настоящей программной регистрации у МЧС нет, а задай кто-то
+    // эту переменную — ПД туристов ушли бы на чужой адрес. Запись сохраняется
+    // в кабинете, заявку оператор подаёт сам.
+    const mchsResult = MCHS_NOT_SENT;
 
     const insertResult = await query<{
       id: string;
@@ -282,8 +277,7 @@ export async function POST(request: NextRequest) {
           createdAt: insertResult.rows[0].created_at,
           mchsError: mchsResult.errorMessage,
         },
-        // Формулировка по факту исхода: `submitted` — заявка ушла на адрес
-        // MCHS_API_URL без подтверждения, а не «группа зарегистрирована».
+        // Формулировка по факту исхода: запись сохранена, в МЧС не отправлена.
         message: mchsOutcomeMessage(mchsResult.status, mchsResult.requestId, mchsResult.errorMessage),
       } as ApiResponse<unknown>,
       { status: 201 }

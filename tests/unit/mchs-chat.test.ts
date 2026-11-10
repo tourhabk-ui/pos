@@ -18,7 +18,7 @@ import {
   type MchsDeparture, type MchsGroup,
 } from '@/lib/safety/mchs-chat';
 import {
-  MCHS_CHANNELS, MCHS_DEADLINE_SHORT, MCHS_ONLINE_FORM_URL, MCHS_REQUIRED_DATA,
+  MCHS_AFTER_RETURN, MCHS_CHANNELS, MCHS_DEADLINE_SHORT, MCHS_ONLINE_FORM_URL, MCHS_PHONES, MCHS_REQUIRED_DATA,
 } from '@/lib/safety/mchs-registration';
 import { CABINET_PAYLOAD_MAX_BYTES, cabinetPayload, parseCabinetPress } from '@/lib/chat-cabinet/payload';
 import { mchsGroupScreen, mchsListScreen } from '@/lib/chat-cabinet/mchs-screens';
@@ -50,6 +50,13 @@ describe('турист: правило, срок и ссылки', () => {
     for (const d of MCHS_REQUIRED_DATA) expect(text).toContain(d);
     for (const c of MCHS_CHANNELS) expect(text).toContain(c.detail);
     expect(text).toContain('В беде — 112.');
+  });
+
+  it('звонок после возвращения — первым после заголовка; телефоны ГУ с назначением (памятка ГУ, 10.11)', () => {
+    const text = mchsTouristText();
+    const lines = text.split('\n').filter((l) => l.trim() !== '');
+    expect(lines[1]).toBe(`<b>${MCHS_AFTER_RETURN}</b>`);
+    for (const p of MCHS_PHONES) expect(text).toContain(`${p.phone} — ${p.purpose}`);
   });
 
   it('говорит, кто подаёт заявку, и не обещает регистрацию от имени Ведара', () => {
@@ -231,5 +238,18 @@ describe('чтение из базы', () => {
     const list = await loadMchsDepartures(PID, '2026-11-10', '2027-01-09', { query } as never);
     expect(list).toEqual([departure({ title: 'Тур', routeTitle: 'Маршрут', required: false })]);
     expect(String(query.mock.calls[0]?.[0])).not.toMatch(/tourist_name|tourist_phone/);
+  });
+});
+
+describe('кабинет: снятие с контроля после возвращения (памятка ГУ, 10.11)', () => {
+  it('список выездов и экран выезда начинаются со звонка в ЦУКС после возвращения', () => {
+    const list = mchsListScreen({ departures: [departure()], nowMs: NOW });
+    expect(list.text).toContain(MCHS_AFTER_RETURN);
+    const one = mchsGroupScreen({ group: group(), role: 'operator', base: BASE, nowMs: NOW });
+    expect(one.text.indexOf(MCHS_AFTER_RETURN)).toBeLessThan(one.text.indexOf('Курильское озеро'));
+  });
+
+  it('в текст для формы МЧС эта строка не попадает: его переносят в бланк', () => {
+    expect(mchsGroupText(group(), NOW)).not.toContain(MCHS_AFTER_RETURN);
   });
 });

@@ -3,6 +3,7 @@
  * Что письмо есть и чем не является, получатель и слова — lib/safety/mchs-letter-text.
  */
 
+import type { PoolClient } from 'pg';
 import { pool } from '@/lib/db-pool';
 import { emailService } from '@/lib/notifications/email-service';
 import { redactPII } from '@/lib/security/pii-redact';
@@ -45,11 +46,16 @@ function logFail(what: string, err: unknown): void {
   console.error(`[mchs-letter] ${what} — отказ, SQLSTATE ${(err as { code?: string } | null)?.code ?? 'нет SQLSTATE'}`);
 }
 
+/**
+ * Последнее письмо по ВЫЕЗДУ, а не по карточке (10.11). Выезд один на тур и
+ * дату, а нажать могут и туроператор, и гид этого выезда: при отборе по
+ * partner_id каждый слал своё, и в ящик приходило два письма об одной группе.
+ */
 export const MCHS_LETTER_LAST_SQL = `
   SELECT created_at::text AS at,
-         (created_at > NOW() - make_interval(secs => $4::int)) AS recent
+         (created_at > NOW() - make_interval(secs => $3::int)) AS recent
     FROM mchs_letters
-   WHERE partner_id = $1::uuid AND operator_tour_id = $2::bigint AND departure_date = $3::date
+   WHERE operator_tour_id = $1::bigint AND departure_date = $2::date
      AND outcome = 'sent'
    ORDER BY created_at DESC
    LIMIT 1`;
@@ -65,13 +71,16 @@ export interface MchsLastLetter {
   recent: boolean;
 }
 
-/** Последнее принятое почтой письмо по выезду. null — не было; 'failed' — журнал не прочитался. */
+/**
+ * Последнее принятое почтой письмо по выезду, кто бы его ни отправил.
+ * null — не было; 'failed' — журнал не прочитался.
+ */
 export async function lastMchsLetter(
-  partnerId: string, tourId: string, date: string, db: Queryable = pool,
+  tourId: string, date: string, db: Queryable = pool,
 ): Promise<MchsLastLetter | null | 'failed'> {
   try {
     const { rows } = await db.query<{ at: string; recent: boolean }>(
-      MCHS_LETTER_LAST_SQL, [partnerId, tourId, date, Math.round(MCHS_LETTER_REPEAT_MS / 1000)],
+      MCHS_LETTER_LAST_SQL, [tourId, date, Math.round(MCHS_LETTER_REPEAT_MS / 1000)],
     );
     return rows[0] ? { at: rows[0].at, recent: rows[0].recent === true } : null;
   } catch (err) {
@@ -94,5 +103,65 @@ export async function recordMchsLetter(
   } catch (err) {
     logFail('запись в журнал писем', err);
     return false;
+  }
+}
+
+// ── Замок выезда ────────────────────────────────────────────────────────────
+
+/**
+ * Проверка «письма за десять минут не было» и запись исхода — два запроса, а
+ * между ними уходит письмо. Два нажатия подряд (двойной тап, повтор вебхука,
+ * оператор и гид одновременно) оба проходили проверку до первой записи и слали
+ * по письму (аудит 10.11). Замок сериализует их по выезду: второй ждёт не
+ * письма, а честного ответа «уже отправляется».
+ *
+ * Сессионный advisory-замок держится на одном соединении от проверки до
+ * записи. Не снялся — соединение уничтожается, а не возвращается в пул: иначе
+ * замок прожил бы на нём до перезапуска и запер выезд навсегда.
+ */
+export const MCHS_LETTER_LOCK_SQL =
+  `SELECT pg_try_advisory_lock(hashtext('mchs_letter'), hashtext($1::text || ':' || $2::text)) AS got`;
+export const MCHS_LETTER_UNLOCK_SQL =
+  `SELECT pg_advisory_unlock(hashtext('mchs_letter'), hashtext($1::text || ':' || $2::text)) AS released`;
+
+/**
+ * Выполнить `fn` под замком выезда. 'busy' — по этому выезду письмо уже
+ * отправляется; 'failed' — замок не удалось взять или проверить (база), и
+ * `fn` не вызывалась.
+ */
+export async function withMchsLetterLock<T>(
+  tourId: string, date: string, fn: () => Promise<T>,
+): Promise<T | 'busy' | 'failed'> {
+  let client: PoolClient;
+  try {
+    client = await pool.connect();
+  } catch (err) {
+    logFail('замок выезда: соединение', err);
+    return 'failed';
+  }
+  let got: boolean;
+  try {
+    const { rows } = await client.query<{ got: boolean }>(MCHS_LETTER_LOCK_SQL, [tourId, date]);
+    got = rows[0]?.got === true;
+  } catch (err) {
+    logFail('замок выезда', err);
+    client.release();
+    return 'failed';
+  }
+  if (!got) {
+    client.release();
+    return 'busy';
+  }
+  let broken = false;
+  try {
+    return await fn();
+  } finally {
+    try {
+      await client.query(MCHS_LETTER_UNLOCK_SQL, [tourId, date]);
+    } catch (err) {
+      broken = true;
+      logFail('снятие замка выезда', err);
+    }
+    client.release(broken);
   }
 }

@@ -41,11 +41,17 @@ const clean = (s: string | undefined) => (s ?? '').trim();
 
 /** Чего в записи кабинета нет, но форма МЧС спрашивает. */
 export const MCHS_NOT_IN_RECORD: readonly string[] = [
-  'адреса участников',
+  'страна проживания и адреса участников',
+  'координаты контрольных точек маршрута',
   'время и способ сеансов связи (спутниковый телефон, рация, график)',
+  'средства первой помощи и страховочное снаряжение',
   'средства передвижения',
   'места ночлега по дням',
+  'согласия всех участников на обработку персональных данных',
 ];
+
+/** Сколько контактных лиц вне похода просит памятка ГУ МЧС по краю. */
+export const MCHS_CONTACTS_NEEDED = 2;
 
 export function mchsFormText(r: MchsFormInput): string {
   const out: string[] = ['Регистрация туристской группы — Камчатский край', ''];
@@ -76,6 +82,9 @@ export function mchsFormText(r: MchsFormInput): string {
   for (const c of r.emergencyContacts) {
     const rel = clean(c.relation) ? ` (${clean(c.relation)})` : '';
     out.push(`— ${clean(c.name)}${rel}, тел. ${clean(c.phone)}`);
+  }
+  if (r.emergencyContacts.length < MCHS_CONTACTS_NEEDED) {
+    out.push(`— МЧС просит ${MCHS_CONTACTS_NEEDED} контактных лица, которые не идут в поход: допишите в форме`);
   }
   out.push('');
 

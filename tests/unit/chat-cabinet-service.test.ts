@@ -32,13 +32,20 @@ const m = vi.hoisted(() => ({
   count: vi.fn(),
   mail: vi.fn(),
   tx: [] as string[],
+  /** Ответ advisory-замка письма МЧС: true — взят, false — занят. */
+  lockGot: true as boolean,
 }));
 
 vi.mock('@/lib/db-pool', () => ({
   pool: {
     query: (...a: unknown[]) => m.query(...a),
     connect: async () => ({
-      query: async (sql: string) => { m.tx.push(sql.replace(/\s+/g, ' ').trim()); return { rows: [], rowCount: 1 }; },
+      query: async (sql: string) => {
+        if (sql.includes('pg_try_advisory_lock')) return { rows: [{ got: m.lockGot }], rowCount: 1 };
+        if (sql.includes('pg_advisory_unlock')) return { rows: [{ released: true }], rowCount: 1 };
+        m.tx.push(sql.replace(/\s+/g, ' ').trim());
+        return { rows: [], rowCount: 1 };
+      },
       release: () => undefined,
     }),
   },
@@ -705,6 +712,19 @@ describe('письмо с данными выезда для МЧС — тест
     expect(m.mail).not.toHaveBeenCalled();
     expect(blind.failed).toBe(true);
     expect(blind.text).toContain('не отправляю, чтобы не задвоить');
+  });
+
+  it('выезд уже отправляется (замок занят) — второго письма нет, слова «как раз отправляется»', async () => {
+    db();
+    m.lockGot = false;
+    try {
+      const busy = await press(SEND);
+      expect(m.mail).not.toHaveBeenCalled();
+      expect(busy.text).toContain('как раз отправляется');
+      expect(inserted()).toBeUndefined();
+    } finally {
+      m.lockGot = true;
+    }
   });
 
   it('почта не настроена и почта отказала — разные слова, оба исхода в журнале', async () => {

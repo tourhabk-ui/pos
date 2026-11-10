@@ -1264,6 +1264,28 @@ withPg('кабинет в чате на настоящем PostgreSQL', () => {
         expect((await letters()).map((l) => l.outcome)).toEqual(['sent', 'failed', 'sent']);
       });
 
+      it('два нажатия одновременно — одно письмо и одна строка: замок выезда (аудит 10.11)', async () => {
+        await pool.query(`UPDATE mchs_letters SET created_at = NOW() - INTERVAL '11 minutes' WHERE operator_tour_id = $1::bigint`, [routed]);
+        const before = (await letters()).length;
+        mail.send.mockClear();
+        const [a, b] = await Promise.all([press(pay.mchsLetterSend(routed, DAY)), press(pay.mchsLetterSend(routed, DAY))]);
+        expect(mail.send).toHaveBeenCalledTimes(1);
+        expect(await letters()).toHaveLength(before + 1);
+        expect([a.text, b.text].filter((t) => t.includes('ушло на тестовый ящик Ведара. В МЧС оно не отправлено'))).toHaveLength(1);
+        expect([a.text, b.text].some((t) => /как раз отправляется|уже ушло/.test(t))).toBe(true);
+        // Замок снят: выезд не заперт до перезапуска.
+        const c = await pool.connect();
+        try {
+          const free = await c.query<{ got: boolean }>(
+            `SELECT pg_try_advisory_lock(hashtext('mchs_letter'), hashtext($1::text || ':' || $2::text)) AS got`, [routed, DAY],
+          );
+          expect(free.rows[0]!.got).toBe(true);
+          await c.query(`SELECT pg_advisory_unlock(hashtext('mchs_letter'), hashtext($1::text || ':' || $2::text))`, [routed, DAY]);
+        } finally {
+          c.release();
+        }
+      });
+
       it('чужой тур — письма нет и строки нет', async () => {
         mail.send.mockClear();
         const s = await press(pay.mchsLetterSend(foreign, DAY));

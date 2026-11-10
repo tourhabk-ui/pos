@@ -9,18 +9,25 @@
  *  - три исхода отправки: ушло / не ушло / почта не настроена — и причина
  *    отказа без адресов и телефонов;
  *  - журнал не несёт имён и телефонов туристов;
- *  - «Да, отправить» — кнопка-запись (подпись и срок), вопрос — чтение.
+ *  - «Да, отправить» — кнопка-запись (подпись и срок), вопрос — чтение;
+ *  - повтор судится по выезду, а не по карточке, и под замком выезда (аудит
+ *    10.11): два нажатия подряд — одно письмо.
  */
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
 
-const m = vi.hoisted(() => ({ mail: vi.fn(), query: vi.fn() }));
+const m = vi.hoisted(() => ({ mail: vi.fn(), query: vi.fn(), client: vi.fn(), release: vi.fn(), connect: vi.fn() }));
 vi.mock('@/lib/notifications/email-service', () => ({ emailService: { sendEmail: (...a: unknown[]) => m.mail(...a) } }));
-vi.mock('@/lib/db-pool', () => ({ pool: { query: (...a: unknown[]) => m.query(...a) } }));
+vi.mock('@/lib/db-pool', () => ({
+  pool: {
+    query: (...a: unknown[]) => m.query(...a),
+    connect: async () => { m.connect(); return { query: (...a: unknown[]) => m.client(...a), release: (...a: unknown[]) => m.release(...a) }; },
+  },
+}));
 
 const {
   MCHS_LETTER, MCHS_LETTER_REPEAT_MS, MCHS_LETTER_TEST_BANNER, MCHS_LETTER_TEXT, mchsLetterHtml, mchsLetterSubject,
 } = await import('@/lib/safety/mchs-letter-text');
-const { lastMchsLetter, recordMchsLetter, sendMchsLetter } = await import('@/lib/safety/mchs-letter');
+const { lastMchsLetter, recordMchsLetter, sendMchsLetter, withMchsLetterLock, MCHS_LETTER_LAST_SQL } = await import('@/lib/safety/mchs-letter');
 const { cabinetPayload, parseCabinetPress } = await import('@/lib/chat-cabinet/payload');
 const { isWritePayload } = await import('@/lib/chat-cabinet/signed-payload');
 const { mchsGroupScreen, mchsLetterAskScreen, mchsLetterResultScreen } = await import('@/lib/chat-cabinet/mchs-screens');
@@ -131,14 +138,16 @@ describe('журнал без персональных данных', () => {
 
   it('последнее письмо: было недавно / было давно / не было / журнал не прочитался', async () => {
     m.query.mockResolvedValueOnce({ rows: [{ at: '2026-11-10 02:05:00+00', recent: true }] });
-    expect(await lastMchsLetter(PID, '81', '2027-07-19')).toEqual({ at: '2026-11-10 02:05:00+00', recent: true });
-    expect(m.query.mock.calls[0]![1]).toEqual([PID, '81', '2027-07-19', MCHS_LETTER_REPEAT_MS / 1000]);
+    expect(await lastMchsLetter('81', '2027-07-19')).toEqual({ at: '2026-11-10 02:05:00+00', recent: true });
+    // По выезду, кто бы ни отправил: карточки в запросе нет.
+    expect(m.query.mock.calls[0]![1]).toEqual(['81', '2027-07-19', MCHS_LETTER_REPEAT_MS / 1000]);
+    expect(MCHS_LETTER_LAST_SQL).not.toMatch(/partner_id/);
     m.query.mockResolvedValueOnce({ rows: [{ at: '2026-11-09 02:05:00+00', recent: false }] });
-    expect(await lastMchsLetter(PID, '81', '2027-07-19')).toMatchObject({ recent: false });
+    expect(await lastMchsLetter('81', '2027-07-19')).toMatchObject({ recent: false });
     m.query.mockResolvedValueOnce({ rows: [] });
-    expect(await lastMchsLetter(PID, '81', '2027-07-19')).toBeNull();
+    expect(await lastMchsLetter('81', '2027-07-19')).toBeNull();
     m.query.mockRejectedValueOnce(Object.assign(new Error('x'), { code: '42P01' }));
-    expect(await lastMchsLetter(PID, '81', '2027-07-19')).toBe('failed');
+    expect(await lastMchsLetter('81', '2027-07-19')).toBe('failed');
     m.query.mockRejectedValueOnce(Object.assign(new Error('x'), { code: '57P01' }));
     expect(await recordMchsLetter({ sender, group: group(), outcome: 'sent', error: null })).toBe(false);
   });
@@ -180,5 +189,49 @@ describe('кнопки и экраны', () => {
     expect(done.failed).toBeUndefined();
     expect(done.rows.flat().some((b) => 'url' in b && b.url === MCHS_ONLINE_FORM_URL)).toBe(true);
     expect(mchsLetterResultScreen({ text: MCHS_LETTER_TEXT.unchecked, tourId: '81', date: '2027-07-19', failed: true }).failed).toBe(true);
+  });
+});
+
+describe('замок выезда: одно письмо на два нажатия (аудит 10.11)', () => {
+  beforeEach(() => { m.client.mockReset(); m.release.mockReset(); m.connect.mockReset(); });
+  const lockAnswer = (got: boolean | Error, unlock: 'ok' | Error = 'ok') =>
+    m.client.mockImplementation(async (sql: string) => {
+      if (sql.includes('pg_try_advisory_lock')) { if (got instanceof Error) throw got; return { rows: [{ got }] }; }
+      if (sql.includes('pg_advisory_unlock')) { if (unlock instanceof Error) throw unlock; return { rows: [{ released: true }] }; }
+      return { rows: [] };
+    });
+
+  it('взял замок — работа выполнена, замок снят, соединение вернулось в пул', async () => {
+    lockAnswer(true);
+    const fn = vi.fn(async () => 'готово');
+    expect(await withMchsLetterLock('81', '2027-07-19', fn)).toBe('готово');
+    expect(fn).toHaveBeenCalledTimes(1);
+    expect(m.client.mock.calls.map((c) => c[1])).toEqual([['81', '2027-07-19'], ['81', '2027-07-19']]);
+    expect(m.release).toHaveBeenCalledWith(false);
+  });
+
+  it('замок занят — «busy», работа не вызывается', async () => {
+    lockAnswer(false);
+    const fn = vi.fn(async () => 'готово');
+    expect(await withMchsLetterLock('81', '2027-07-19', fn)).toBe('busy');
+    expect(fn).not.toHaveBeenCalled();
+    expect(m.release).toHaveBeenCalledTimes(1);
+  });
+
+  it('база не дала замок — «failed», а не «можно слать»', async () => {
+    lockAnswer(Object.assign(new Error('x'), { code: '57P01' }));
+    const fn = vi.fn(async () => 'готово');
+    expect(await withMchsLetterLock('81', '2027-07-19', fn)).toBe('failed');
+    expect(fn).not.toHaveBeenCalled();
+  });
+
+  it('замок не снялся — соединение уничтожается, а не уходит в пул с замком', async () => {
+    lockAnswer(true, Object.assign(new Error('x'), { code: '57P01' }));
+    expect(await withMchsLetterLock('81', '2027-07-19', async () => 'готово')).toBe('готово');
+    expect(m.release).toHaveBeenCalledWith(true);
+  });
+
+  it('у слов «уже отправляется» есть экран: второе письмо не обещано', () => {
+    expect(MCHS_LETTER_TEXT.busy).toContain('второе не отправляю');
   });
 });

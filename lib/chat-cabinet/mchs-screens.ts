@@ -37,12 +37,13 @@ function build(lines: string[], rows: CabinetButton[][], pd = false, failed = fa
 
 /** Список выездов: срок по каждому и кнопка «собрать данные». `null` — база не ответила. */
 export function mchsListScreen(args: { departures: MchsDeparture[] | null; nowMs: number }): CabinetScreen {
-  if (args.departures === null) return build([MCHS_CHAT_TEXT.listHead, MCHS_CHAT_TEXT.listFailed], [[FORM_BUTTON]], false, true);
+  const head = [MCHS_CHAT_TEXT.listHead, MCHS_CHAT_TEXT.afterReturn];
+  if (args.departures === null) return build([...head, MCHS_CHAT_TEXT.listFailed], [[FORM_BUTTON]], false, true);
   if (args.departures.length === 0) {
-    return build([MCHS_CHAT_TEXT.listHead, MCHS_CHAT_TEXT.listRule, '', MCHS_CHAT_TEXT.listEmpty], [[FORM_BUTTON]]);
+    return build([...head, MCHS_CHAT_TEXT.listRule, '', MCHS_CHAT_TEXT.listEmpty], [[FORM_BUTTON]]);
   }
   const shown = args.departures.slice(0, MCHS_LIST_MAX);
-  const lines = [MCHS_CHAT_TEXT.listHead, MCHS_CHAT_TEXT.listRule, ''];
+  const lines = [...head, MCHS_CHAT_TEXT.listRule, ''];
   for (const d of shown) lines.push(...mchsDepartureLines(d, args.nowMs), '');
   if (args.departures.length > shown.length) {
     lines.push(`Показаны ближайшие ${shown.length} из ${args.departures.length} — остальные в кабинете на сайте.`);
@@ -64,7 +65,7 @@ export function mchsGroupScreen(args: {
   letterLine?: string | null;
 }): CabinetScreen {
   const withContacts = args.group.contacts !== null;
-  const lines = [MCHS_CHAT_TEXT.groupHead, '', mchsGroupText(args.group, args.nowMs)];
+  const lines = [MCHS_CHAT_TEXT.groupHead, MCHS_CHAT_TEXT.afterReturn, '', mchsGroupText(args.group, args.nowMs)];
   const rows: CabinetButton[][] = [[FORM_BUTTON]];
   if (!withContacts) {
     lines.push(MCHS_CHAT_TEXT.groupNoContactsTelegram);

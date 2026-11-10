@@ -48,6 +48,12 @@ describe('текст для формы МЧС', () => {
     expect(t).toContain(`за ${MCHS_LEAD_WORKING_DAYS} рабочих дней`);
   });
 
+  it('одно контактное лицо — названо, что МЧС просит два вне похода (памятка ГУ, 10.11)', () => {
+    expect(t).toContain('МЧС просит 2 контактных лица, которые не идут в поход: допишите в форме');
+    const two = mchsFormText({ ...rec, emergencyContacts: [...rec.emergencyContacts, { name: 'Петров Олег', phone: '+7 900 000-00-03' }] });
+    expect(two).not.toContain('МЧС просит 2 контактных лица');
+  });
+
   it('нет руководителя и контактов — так и сказано', () => {
     const t2 = mchsFormText({ ...rec, guideContacts: null, emergencyContacts: [] });
     expect(t2).toContain('Руководитель группы: не указан');
