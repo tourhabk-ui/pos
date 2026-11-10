@@ -83,7 +83,11 @@ import { TOOL_EXECUTION_FAILED } from '@/lib/kuzmich/tool-failure';
 import { McpUserError } from '@/lib/mcp/jsonrpc';
 import { logText } from '@/lib/log/log-text';
 import { redactPII, redactUserTurns } from '@/lib/security/pii-redact';
-import { wrapUntrusted } from '@/lib/ai/untrusted';
+import { wrapUntrusted, untrustedField } from '@/lib/ai/untrusted';
+
+/** Потолки чужих полей в строке каталога: колонка short_description — VARCHAR(500). */
+const SHORT_DESCRIPTION_MAX = 500;
+const TITLE_MAX = 200;
 import { handleWatchMessage, deleteWatchDraft, telegramWatchRedirect } from '@/lib/kuzmich/watch-flow';
 import { UNVERIFIED_CHAT_REPLY } from '@/lib/max/verified-press';
 import { platformAcceptsPayments } from '@/lib/payments/accepting';
@@ -659,8 +663,12 @@ export async function loadTourCatalogEntries(): Promise<TourCatalog | null> {
         ?? groupSizeNote(r.price_unit, r.max_participants, r.group_size_unlimited, r.min_participants);
       const price = priceFromUnitOrSay(r.base_price, r.price_unit) + (groupNote ? ` (${groupNote})` : '');
       const cat   = r.activity_type ? ` тип:${r.activity_type}` : '';
-      const loc   = r.location_name ? ` — ${r.location_name}` : '';
-      const op    = r.operator_name ? ` | Оп: ${r.operator_name}` : '';
+      // Название, место, имя компании и краткое описание пишет оператор сам,
+      // а строка идёт в system-промпт Кузьмича и в ответ get_tours агентам
+      // (#3143, шаг 2). Перевод строки, разметка ролей и наши делимитеры в
+      // них — признаки отдельной реплики: untrustedField их снимает.
+      const loc   = r.location_name ? ` — ${untrustedField(r.location_name)}` : '';
+      const op    = r.operator_name ? ` | Оп: ${untrustedField(r.operator_name)}` : '';
       // Только по сезону (#2244, #2245): у тура без календаря с записанным
       // сезоном «все даты свободны» было бы неправдой — свободны даты сезона.
       const window = r.has_schedule === false
@@ -680,9 +688,9 @@ export async function loadTourCatalogEntries(): Promise<TourCatalog | null> {
       const nextDate = r.next_available_date
         ? ` | Ближайшая дата: ${new Date(r.next_available_date).toLocaleDateString('ru-RU', { day: 'numeric', month: 'long' })}`
         : '';
-      const brief = r.short_description ? ` — ${r.short_description}` : '';
+      const brief = r.short_description ? ` — ${untrustedField(r.short_description, SHORT_DESCRIPTION_MAX)}` : '';
       const details = r.has_details ? ' [есть детали: вызови get_tour_details]' : '';
-      const line = `ID${r.id}: "${r.title}"${loc} ${cat} ${dur} ${price}${op}${slots}${nextDate}${brief}${details}`;
+      const line = `ID${r.id}: "${untrustedField(r.title, TITLE_MAX)}"${loc} ${cat} ${dur} ${price}${op}${slots}${nextDate}${brief}${details}`;
       // Указатель — из полей той же строки базы, не из напечатанной строки:
       // в ней имя компании и служебный текст (lib/search/tour-match).
       entries.set(String(r.id), { line, ...tourMatchEntry(r) });
