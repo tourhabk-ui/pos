@@ -29,7 +29,7 @@ import Script from 'next/script';
 import { ShieldCheck } from 'lucide-react';
 import Link from 'next/link';
 import { THIRD_PARTIES, loadDecision } from '@/lib/legal/third-party-registry';
-import { readConsent, writeConsent, type ConsentChoice } from '@/lib/legal/consent';
+import { CONSENT_BUTTONS, readConsent, writeConsent, type ConsentChoice } from '@/lib/legal/consent';
 import { isForeignSurface } from '@/lib/embed/widget-frame';
 import { metrikaHit, metrikaInitScript, muteWebvisorFields, shouldTrackPath } from '@/lib/analytics/metrika';
 
@@ -126,14 +126,14 @@ export default function ThirdPartyScripts() {
                 onClick={() => decide({ analytics: true, advertising: true })}
                 className="ds-btn ds-btn-primary min-h-[44px] flex-1 px-3 text-sm sm:flex-none"
               >
-                Разрешить
+                {CONSENT_BUTTONS.accept}
               </button>
               <button
                 type="button"
                 onClick={() => decide(ALL_DENIED)}
                 className="ds-btn ds-btn-secondary min-h-[44px] flex-1 px-3 text-sm sm:flex-none"
               >
-                Только необходимое
+                {CONSENT_BUTTONS.decline}
               </button>
             </div>
           </div>

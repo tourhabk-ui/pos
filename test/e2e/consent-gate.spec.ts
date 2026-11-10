@@ -38,9 +38,9 @@
  * «нарушений нет». Сообщение о падении называет, что именно не удалось.
  */
 import { test, expect } from '@playwright/test';
-import type { BrowserContext } from '@playwright/test';
+import type { BrowserContext, Page } from '@playwright/test';
 import { THIRD_PARTIES } from '../../lib/legal/third-party-registry';
-import { CONSENT_STORAGE_KEY, CONSENT_VERSION } from '../../lib/legal/consent';
+import { CONSENT_BUTTONS, CONSENT_STORAGE_KEY, CONSENT_VERSION } from '../../lib/legal/consent';
 
 /**
  * Хосты берутся ИЗ РЕЕСТРА, а не переписываются сюда: свой список разошёлся
@@ -90,6 +90,18 @@ async function openHome(ctx: BrowserContext, what: string) {
   return page;
 }
 
+/**
+ * Баннер согласия — диалог с кнопкой отказа. Ищется по тому, что в нём обязано
+ * быть (выбор, и отказ в том числе), а не по словам пояснения: подписи кнопок
+ * берутся из того же модуля, что рисует баннер. 09.11 карточку сменила полоса
+ * с другим текстом, и поиск по «Аналитика и партнёрские сервисы» перестал
+ * находить баннер: первый тест покраснел (#3205), а второй проходил бы и при
+ * показанном баннере. Один локатор на оба теста — положительная проверка
+ * первого не даёт отрицательной проверке второго опустеть незаметно.
+ */
+const consentBanner = (page: Page) =>
+  page.getByRole('dialog').filter({ has: page.getByRole('button', { name: CONSENT_BUTTONS.decline, exact: true }) });
+
 test.describe('Согласие на трекеры: гейт на живом проде', () => {
   test('анонимный гость: ни один трекер не грузится до согласия', async ({ browser }) => {
     const ctx = await browser.newContext();
@@ -98,10 +110,12 @@ test.describe('Согласие на трекеры: гейт на живом п
 
     // Баннер обязан быть виден: без него человеку нечем ответить, и «не
     // грузится» вышло бы не из решения, а из того, что спросить забыли.
-    await expect(
-      page.getByRole('dialog').filter({ hasText: 'Аналитика и партнёрские сервисы' }),
-      'баннер согласия не показан — спросить человека нечем',
-    ).toBeVisible();
+    const banner = consentBanner(page);
+    await expect(banner, 'баннер согласия не показан — спросить человека нечем').toBeVisible();
+    // Согласие, которое нельзя так же просто НЕ дать, согласием не является:
+    // обе кнопки на месте и видны.
+    await expect(banner.getByRole('button', { name: CONSENT_BUTTONS.accept, exact: true })).toBeVisible();
+    await expect(banner.getByRole('button', { name: CONSENT_BUTTONS.decline, exact: true })).toBeVisible();
 
     expect(
       [...seen].sort(),
@@ -138,10 +152,7 @@ test.describe('Согласие на трекеры: гейт на живом п
     const seen = watchTrackers(ctx);
     const page = await openHome(ctx, 'ветка с согласием');
 
-    await expect(
-      page.getByRole('dialog').filter({ hasText: 'Аналитика и партнёрские сервисы' }),
-      'баннер показан снова, хотя выбор уже сделан',
-    ).toHaveCount(0);
+    await expect(consentBanner(page), 'баннер показан снова, хотя выбор уже сделан').toHaveCount(0);
 
     // ПОЛОЖИТЕЛЬНЫЙ КОНТРОЛЬ. Метрика обязана появиться: её id задан в коде
     // запасным значением и от переменных прода не зависит. Если её нет —
