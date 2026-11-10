@@ -158,6 +158,25 @@ describe('данные', () => {
     expect(matchesTopic(t('Рыбалка на реке Опала', 'rafting'), 'fishing')).toBe(true);
     expect(matchesTopic(t('Сплав по реке Быстрая', 'rafting'), 'fishing')).toBe(false);
   });
+  it('Курильское озеро: название или место; кальдера и медведи без озера — нет (туры 79, 81, 47, 67, 40)', () => {
+    expect(matchesTopic(t('Курильское озеро на внедорожнике, 3 дня'), 'kurile')).toBe(true);
+    expect(matchesTopic(t('Курильское озеро (вертолёт)', 'helicopter'), 'kurile')).toBe(true);
+    expect(matchesTopic(t('Автомобильный тур на Курильское озеро'), 'kurile')).toBe(true);
+    expect(matchesTopic(t('Курильское озеро, Долина гейзеров, вулканы Горелый и Авача', 'helicopter'), 'kurile')).toBe(true);
+    expect(matchesTopic(t('Медведи Камчатки', 'bears'), 'kurile')).toBe(false);
+  });
+  it('Мутновский: имя вулкана в названии или месте; Дачные без имени и Горелый — нет (57, 50, 98 да; 77 нет)', () => {
+    expect(matchesTopic(t('Дачные источники (Малая Долина гейзеров)', 'jeep_safari', 'Дачные горячие источники, вулкан Мутновский'), 'mutnovsky')).toBe(true);
+    expect(matchesTopic(t('Облёт вулканов Вилючинский, Мутновский и Горелый', 'helicopter'), 'mutnovsky')).toBe(true);
+    expect(matchesTopic(t('Каньон Опасный и Дачные горячие источники', 'thermal', 'Дачные горячие источники'), 'mutnovsky')).toBe(false);
+    expect(matchesTopic(t('Вулкан Горелый'), 'mutnovsky')).toBe(false);
+  });
+  it('Халактырский пляж: в названии или месте; Халактырское озеро — нет (53, 84, 86, 89)', () => {
+    expect(matchesTopic(t('Халактырский пляж'), 'khalaktyr')).toBe(true);
+    expect(matchesTopic(t('Первый рассвет', 'sightseeing', 'Халактырский пляж'), 'khalaktyr')).toBe(true);
+    expect(matchesTopic(t('Сити «Туда, где встает солнце»', 'sightseeing', 'Петропавловск-Камчатский и Халактырский пляж'), 'khalaktyr')).toBe(true);
+    expect(matchesTopic(t('Прогулка', 'trekking', 'Халактырское озеро'), 'khalaktyr')).toBe(false);
+  });
   it('трансфер: туров нет по построению, база не спрашивается', async () => {
     expect(matchesTopic(t('Трансфер из аэропорта', 'transfer'), 'transfer')).toBe(false);
     vi.mocked(pool.query).mockClear();
@@ -168,6 +187,9 @@ describe('данные', () => {
     for (const l of QUERY_LANDINGS) for (const r of l.related ?? []) expect(r.href, l.key).toMatch(/^\/[a-z]/);
     expect(landingByKey('ru-avacha').related?.map((r) => r.href)).toContain('/places/vulkan-avachinskij');
     expect(landingByKey('ru-geysers').related?.map((r) => r.href)).toContain('/places/dolina-gejzerov');
+    expect(landingByKey('ru-kurile').related?.map((r) => r.href)).toContain('/places/kurilskoe-ozero');
+    expect(landingByKey('ru-mutnovsky').related?.map((r) => r.href)).toContain('/places/vulkan-mutnovskij');
+    expect(landingByKey('ru-khalaktyr').related?.map((r) => r.href)).toContain('/places/halaktyrskij-plyazh');
   });
   it('цены из базы; нет цены — null, а не 0', () => {
     expect(landingPrice(row(), 'ru')).toMatch(/^от 45\s000 ₽\/чел\.$/);

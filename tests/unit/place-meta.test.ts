@@ -45,6 +45,27 @@ describe('заголовок места — из ответов карточки
     expect(placeTitleTopics({ bestSeason: null, hazardsRecorded: false, registrationRequired: true })).toContain('опасности');
   });
 
+  it('к месту есть туры — «туры» первым словом хвоста (план продвижения 10.11)', () => {
+    const withTours = { ...geysers, toursCount: 3 };
+    expect(placeTitleTopics(withTours)).toEqual(['туры', 'как добраться', 'сезон', 'опасности']);
+    expect(placeTitle(withTours)).toBe('Долина гейзеров: туры, как добраться, сезон, опасности');
+    expect(placeTitle({ ...withTours, bestSeason: null, hazardsRecorded: false, registrationRequired: false }))
+      .toBe('Долина гейзеров: туры, как добраться');
+  });
+
+  it('туров нет или не прочитаны — слова «туры» нет', () => {
+    expect(placeTitle({ ...geysers, toursCount: 0 })).not.toContain('туры');
+    expect(placeTitle({ ...geysers, toursCount: null })).not.toContain('туры');
+    expect(placeTitle(geysers)).not.toContain('туры');
+  });
+
+  it('с турами и длинным именем — «туры» сохраняется, пока помещается', () => {
+    const name = 'Кальдера Узон и Долина гейзеров Кроноцкий';
+    const t = placeTitle({ ...geysers, name, toursCount: 2 });
+    expect(t.startsWith(`${name}: туры`)).toBe(true);
+    expect(t.length + BRAND_SUFFIX.length).toBeLessThanOrEqual(TITLE_LIMIT);
+  });
+
   it('длинное имя — хвост короче, в предел выдачи укладывается', () => {
     const long = { ...geysers, name: 'Тимоновские термальные источники на реке Средняя Авача' };
     const t = placeTitle(long);
