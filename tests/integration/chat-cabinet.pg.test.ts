@@ -33,6 +33,10 @@ import { readFileSync } from 'node:fs';
 import { join } from 'node:path';
 import { createTestDatabase } from '../helpers/pg-schema';
 
+// Письмо с данными выезда для МЧС (1415): почта подменена, судятся журнал и экраны.
+const mail = vi.hoisted(() => ({ send: vi.fn(async (_m: { to: string; subject: string; html: string }) => ({ success: true, messageId: 'pg' })) }));
+vi.mock('@/lib/notifications/email-service', () => ({ emailService: { sendEmail: mail.send } }));
+
 vi.mock('@/lib/notifications/pd-alert', () => ({
   sendPdAlert: vi.fn(async () => ({ channel: 'max', delivered: true, reason: 'доставлено в MAX' })),
 }));
@@ -1191,6 +1195,83 @@ withPg('кабинет в чате на настоящем PostgreSQL', () => {
       expect((await store.loadMchsDepartures(teamGuide, '2026-10-30', '2026-12-29'))).toMatchObject([{ tourId: routed, people: 2, bookings: 1 }]);
       expect(await store.loadMchsDepartures(looseGuide, '2026-10-30', '2026-12-29')).toEqual([]);
       expect(await store.loadMchsGroup(looseGuide, routed, DAY, true)).toBeNull();
+    });
+
+    describe('письмо с данными выезда — тест на ящик Ведара (1415)', () => {
+      const letters = async () => (await pool.query<{
+        channel: string; sent_to: string; is_test: boolean; outcome: string; error: string | null; people: number; bookings: number;
+      }>(
+        `SELECT channel, sent_to, is_test, outcome, error, people, bookings FROM mchs_letters
+          WHERE partner_id = $1 AND operator_tour_id = $2::bigint ORDER BY created_at`, [partnerId, routed],
+      )).rows;
+
+      beforeAll(() => {
+        vi.stubEnv('SMTP_USER', 'robot');
+        vi.stubEnv('SMTP_PASS', 'x');
+      });
+      afterAll(() => { vi.unstubAllEnvs(); });
+
+      it('миграция 1415 повторяется без вреда; чужой исход, канал и ноль броней база не примет', async () => {
+        await pool.query(readFileSync(join(process.cwd(), 'migrations', '1415_mchs_letters.sql'), 'utf8'));
+        const bad = (channel: string, outcome: string, bookings: number) => pool.query(
+          `INSERT INTO mchs_letters (partner_id, operator_tour_id, departure_date, channel, sent_to, is_test, outcome, people, bookings)
+           VALUES ($1, $2::bigint, $3::date, $4, 'x@vedarai.ru', TRUE, $5, 1, $6)`, [partnerId, routed, DAY, channel, outcome, bookings],
+        );
+        await expect(bad('max', 'registered', 1)).rejects.toMatchObject({ code: '23514' });
+        await expect(bad('sms', 'sent', 1)).rejects.toMatchObject({ code: '23514' });
+        await expect(bad('max', 'sent', 0)).rejects.toMatchObject({ code: '23514' });
+        expect(await letters()).toEqual([]);
+      });
+
+      it('«Да, отправить»: письмо с контактами уходит на ящик Ведара, строка журнала — без имён, экран — без ПД', async () => {
+        mail.send.mockClear();
+        const s = await press(pay.mchsLetterSend(routed, DAY));
+        expect(mail.send).toHaveBeenCalledTimes(1);
+        const sent = mail.send.mock.calls[0]![0];
+        expect(sent.to).toBe('flo@vedarai.ru');
+        expect(sent.subject).toContain('[ТЕСТ] Регистрация туристской группы: Пробное восхождение, 20.11.2026 — 22.11.2026');
+        expect(sent.html).toContain('Тест, тел. +70000000000, 2 чел.');
+        expect(sent.html).toContain('В МЧС не отправлялось');
+        expect(s.pd).toBe(false);
+        expect(s.text).toContain('ушло на тестовый ящик Ведара. В МЧС оно не отправлено');
+        expect(s.text).not.toMatch(/Тест|\+7/);
+        expect(await letters()).toEqual([
+          { channel: 'max', sent_to: 'flo@vedarai.ru', is_test: true, outcome: 'sent', error: null, people: 5, bookings: 2 },
+        ]);
+      });
+
+      it('повтор сразу — второго письма и второй строки нет; под выездом видно, что письмо уже уходило', async () => {
+        mail.send.mockClear();
+        const again = await press(pay.mchsLetterSend(routed, DAY));
+        expect(mail.send).not.toHaveBeenCalled();
+        expect(again.text).toContain('уже ушло на тестовый ящик Ведара');
+        expect(await letters()).toHaveLength(1);
+        const group = await press(pay.mchsGroup(routed, DAY));
+        expect(group.text).toContain('Письмо (тест) по этому выезду уже уходило на ящик Ведара');
+        expect(group.rows.flat().some((b) => 'payload' in b && b.payload === pay.mchsLetterAsk(routed, DAY))).toBe(true);
+      });
+
+      it('через десять минут письмо можно отправить снова; отказ почты пишется в журнал своим исходом', async () => {
+        await pool.query(`UPDATE mchs_letters SET created_at = NOW() - INTERVAL '11 minutes' WHERE partner_id = $1`, [partnerId]);
+        mail.send.mockClear();
+        mail.send.mockResolvedValueOnce({ success: false, error: '554 rejected' } as never);
+        const bad = await press(pay.mchsLetterSend(routed, DAY));
+        expect(bad.failed).toBe(true);
+        expect(bad.text).toContain('Письмо не ушло: 554 rejected');
+        // Отказ не считается отправкой: следующее нажатие шлёт сразу.
+        const ok = await press(pay.mchsLetterSend(routed, DAY));
+        expect(ok.text).toContain('ушло на тестовый ящик Ведара');
+        expect((await letters()).map((l) => l.outcome)).toEqual(['sent', 'failed', 'sent']);
+      });
+
+      it('чужой тур — письма нет и строки нет', async () => {
+        mail.send.mockClear();
+        const s = await press(pay.mchsLetterSend(foreign, DAY));
+        expect(s.text).toContain('Выезда с подтверждёнными бронями на эту дату нет');
+        expect(mail.send).not.toHaveBeenCalled();
+        const n = await pool.query(`SELECT 1 FROM mchs_letters WHERE operator_tour_id = $1::bigint`, [foreign]);
+        expect(n.rowCount).toBe(0);
+      });
     });
   });
 });
