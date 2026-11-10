@@ -1248,6 +1248,10 @@ withPg('кабинет в чате на настоящем PostgreSQL', () => {
         expect(await letters()).toHaveLength(1);
         const group = await press(pay.mchsGroup(routed, DAY));
         expect(group.text).toContain('Письмо (тест) по этому выезду уже уходило на ящик Ведара');
+        // Своё письмо обо всём выезде: счёт назван, приписки о чужой карточке нет.
+        expect(group.text).toContain('в нём 5 чел., броней — 2. В МЧС — нет.');
+        expect(group.text).not.toContain('с другой карточки');
+        expect(again.text).not.toContain('с другой карточки');
         expect(group.rows.flat().some((b) => 'payload' in b && b.payload === pay.mchsLetterAsk(routed, DAY))).toBe(true);
       });
 
