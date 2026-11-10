@@ -842,6 +842,51 @@ export function buildOpenApiDocument(base: string): Json {
       },
     },
 
+    '/api/routes/search': {
+      get: {
+        tags: ['catalog'],
+        operationId: 'searchRoutes',
+        summary: 'Поиск маршрутов по названию маршрута или места на пути',
+        description: 'Подстрока q сравнивается с названием маршрута и названиями его путевых точек; до 15 маршрутов. Пустой или слишком длинный q — пустой список, не ошибка. При сбое базы — тоже пустой список.',
+        parameters: [query('q', { type: 'string', minLength: 1, maxLength: 100 }, 'Слова запроса', true)],
+        responses: {
+          '200': jsonResponse('Маршруты', {
+            type: 'object',
+            required: ['routes', 'semantic'],
+            properties: {
+              routes: {
+                type: 'array',
+                items: {
+                  type: 'object',
+                  required: ['id', 'title'],
+                  properties: {
+                    id: { type: 'string' },
+                    title: { type: 'string' },
+                    distance_km: nullable('number'),
+                    difficulty_level: nullable('string'),
+                    elevation_gain_m: nullable('number'),
+                    zone: nullable('string'),
+                    waypoint_names: { type: ['array', 'null'], items: { type: 'string' } },
+                    waypoint_ids: { type: ['array', 'null'], items: { type: 'string' } },
+                    waypoint_lats: { type: ['array', 'null'], items: { type: 'number' } },
+                    waypoint_lngs: { type: ['array', 'null'], items: { type: 'number' } },
+                    has_line: { type: 'boolean', description: 'Есть ли у маршрута линия на карте' },
+                    geometry_source: nullable('string', { description: 'Откуда линия (стандарт карты, CLAUDE.md §12)' }),
+                    line_grade: nullable('string', { description: 'Род линии: снятый трек, набросок или импорт' }),
+                    similarity: { type: 'number' },
+                  },
+                  additionalProperties: true,
+                },
+              },
+              semantic: { type: 'boolean', description: 'Работал ли смысловой поиск' },
+              semantic_search: { type: 'string', enum: ['disabled'] },
+              cache_hit: { type: 'boolean' },
+            },
+          }),
+        },
+      },
+    },
+
     '/api/tours': {
       get: {
         tags: ['tours'],
@@ -885,6 +930,46 @@ export function buildOpenApiDocument(base: string): Json {
       },
     },
 
+    '/api/tours/{id}/price': {
+      get: {
+        tags: ['tours'],
+        operationId: 'getTourPrice',
+        summary: 'Цена тура на дату для числа гостей: цена единицы и итог брони',
+        description: 'Итог — ровно та сумма, что запишет заявка на тур. Если размер группы вне ступеней цены оператора, суммы нет: 422 с code price_unknown, а не базовая цена. Оплату Ведар сейчас не принимает.',
+        parameters: [
+          { name: 'id', in: 'path', required: true, description: 'Числовой id тура (operator_tours.id)', schema: { type: 'string', pattern: '^\\d+$' } },
+          query('date', { type: 'string', pattern: '^\\d{4}-\\d{2}-\\d{2}$' }, 'Дата тура, YYYY-MM-DD', true),
+          query('guests', { type: 'integer', minimum: 1, maximum: 50, default: 1 }, 'Число гостей'),
+        ],
+        responses: {
+          '200': jsonResponse('Цена', {
+            type: 'object',
+            required: ['success', 'tourId', 'date', 'guests', 'total'],
+            properties: {
+              success: { const: true },
+              tourId: { type: 'string' },
+              tourTitle: { type: 'string' },
+              date: { type: 'string' },
+              guests: { type: 'integer' },
+              basePrice: { type: 'number', description: 'Цена единицы без правил' },
+              finalPrice: { type: 'number', description: 'Цена единицы на эту дату' },
+              discount: { type: 'number' },
+              multiplier: { type: 'number' },
+              appliedRules: { type: 'array', items: {} },
+              baseTotal: { type: 'number', description: 'Итог брони без правил' },
+              total: { type: 'number', description: 'Итог брони на эту дату' },
+              changePercent: nullable('number'),
+              label: nullable('string', { description: 'Подпись для человека' }),
+            },
+            additionalProperties: true,
+          }),
+          '400': jsonResponse('Неверная дата или число гостей', ERROR_ENVELOPE),
+          '404': jsonResponse('Тура нет или он не на витрине', ERROR_ENVELOPE),
+          '422': jsonResponse('Размер группы вне ступеней цены: суммы нет', { type: 'object', required: ['success', 'code', 'error'], properties: { success: { const: false }, code: { const: 'price_unknown' }, error: { type: 'string' } } }),
+        },
+      },
+    },
+
     '/api/places/{id}': {
       get: {
         tags: ['places'],
@@ -893,6 +978,42 @@ export function buildOpenApiDocument(base: string): Json {
         parameters: [{ name: 'id', in: 'path', required: true, description: 'places.ark_id (UUID) — он же id у kind=place в каталоге', schema: { type: 'string', minLength: 10 } }],
         responses: {
           '200': jsonResponse('Место', ref('PlaceDetailResponse')),
+          '400': jsonResponse('Некорректный id', ERROR_ENVELOPE),
+          '404': jsonResponse('Места нет', ERROR_ENVELOPE),
+          '500': jsonResponse('Сбой', ERROR_ENVELOPE),
+        },
+      },
+    },
+
+    '/api/places/{id}/reviews': {
+      get: {
+        tags: ['places'],
+        operationId: 'getPlaceReviews',
+        summary: 'Отзывы туристов о месте (до 50 последних)',
+        description: 'Нет отзывов — пустой список; рейтинга без отзывов нет.',
+        parameters: [{ name: 'id', in: 'path', required: true, description: 'places.ark_id (UUID) или id места', schema: { type: 'string', minLength: 10 } }],
+        responses: {
+          '200': jsonResponse('Отзывы', {
+            type: 'object',
+            required: ['success', 'data'],
+            properties: {
+              success: { const: true },
+              data: {
+                type: 'array',
+                items: {
+                  type: 'object',
+                  required: ['id', 'rating'],
+                  properties: {
+                    id: { type: ['string', 'number'] },
+                    rating: { type: 'number', minimum: 1, maximum: 5 },
+                    comment: nullable('string'),
+                    authorName: nullable('string', { description: 'Подпись автора, как он её оставил' }),
+                    createdAt: { type: 'string' },
+                  },
+                },
+              },
+            },
+          }),
           '400': jsonResponse('Некорректный id', ERROR_ENVELOPE),
           '404': jsonResponse('Места нет', ERROR_ENVELOPE),
           '500': jsonResponse('Сбой', ERROR_ENVELOPE),
@@ -956,6 +1077,41 @@ export function buildOpenApiDocument(base: string): Json {
           '400': jsonResponse('Нет координат или они не числа', ERROR_ENVELOPE),
           '503': jsonResponse('Ни один провайдер не ответил', { type: 'object', required: ['success', 'unavailable', 'error'], properties: { success: { const: false }, unavailable: { const: true }, error: { type: 'string' } } }),
           '500': jsonResponse('Сбой', { type: 'object', required: ['success', 'error'], properties: { success: { const: false }, error: { type: 'string' }, message: { type: 'string' } } }),
+        },
+      },
+    },
+
+    '/api/weather/zones': {
+      get: {
+        tags: ['weather'],
+        operationId: 'weatherZones',
+        summary: 'Погода шести погодных зон Камчатки одним запросом',
+        description: 'Источник — Open-Meteo, кэш 30 минут. Зона без ответа источника в списке отсутствует, а не заполняется.',
+        responses: {
+          '200': jsonResponse('Зоны', {
+            type: 'object',
+            required: ['success', 'zones'],
+            properties: {
+              success: { const: true },
+              zones: {
+                type: 'array',
+                items: {
+                  type: 'object',
+                  required: ['key', 'lat', 'lon'],
+                  properties: {
+                    key: { type: 'string' },
+                    lat: { type: 'number' },
+                    lon: { type: 'number' },
+                    tempC: nullable('number'),
+                    windKmh: nullable('number'),
+                    gustKmh: nullable('number'),
+                    elevationM: nullable('number'),
+                    descRu: nullable('string'),
+                  },
+                },
+              },
+            },
+          }),
         },
       },
     },
