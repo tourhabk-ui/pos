@@ -31,14 +31,16 @@ import { loadActiveWarnings, type ActiveWarningLoad } from '@/lib/safety/active-
 import {
   isOfferingNote, MCHS_UNREAD_NOTE, notesForPlanDay, offeringSentence, splitWarningsForTrip, warningDigest,
 } from '@/lib/safety/mchs-bulletin';
-import { ZONE_NAMES, type ZoneId } from './constants';
 import { dateOfTripDay } from './flow-balance';
+import {
+  applyPlanOfficialAlerts, dayZones, isOfficialAlertNote, officialAlertsPlanWarning, OFFICIAL_ALERTS_UNREAD_NOTE,
+} from './official-alerts';
 import type { DayPlan } from './engine';
 
 export interface SafetyRefreshDeps {
   /** Действующие сводки МЧС — loadActiveWarnings. */
   loadWarnings: () => Promise<ActiveWarningLoad>;
-  /** Запрос тревог парков — к базе. */
+  /** Запрос к базе: тревоги парков и штормовые/паводковые предупреждения (official-alerts). */
   parkQuery: PlanParkQuery;
 }
 
@@ -57,17 +59,8 @@ function isParkNote(text: string): boolean {
     || text.endsWith('. Уточните у дирекции парка, открыты ли маршруты, до выхода.');
 }
 
-/** Зоны дня для сводок МЧС: у переезда — обе, их названия стоят в заголовке. */
-function dayZones(d: DayPlan): ZoneId[] {
-  const zones = new Set<ZoneId>([d.zone]);
-  if (d.type === 'travel') {
-    for (const [id, name] of Object.entries(ZONE_NAMES) as Array<[ZoneId, string]>) {
-      if (d.title.includes(name)) zones.add(id);
-    }
-    if (d.title.includes('Петропавловск')) zones.add('avachinsky');
-  }
-  return [...zones];
-}
+// Зоны дня (у переезда — обе) — dayZones из official-alerts: одно правило на
+// сводки МЧС и штормовые предупреждения.
 
 /** Дни, на которые сводки МЧС ставятся (как у движка): занятие и переезд. */
 const MCHS_DAY_TYPES: ReadonlySet<string> = new Set(['activity', 'travel']);
@@ -112,6 +105,22 @@ export async function refreshDatedSafety(
       }
     }
     warnings.push(...park.warnings.map((w) => w.message));
+
+    // Штормовые, паводок, лавины (#2930): строки старой даты снимаются,
+    // новые ставятся. Не смогли прочитать — прежние строки остаются, план
+    // говорит «не прочитаны».
+    const officialTrial = movedPlan.map((d) => ({ ...d, dayWarnings: notesOf(d).filter((t) => !isOfficialAlertNote(t)) }));
+    const official = await applyPlanOfficialAlerts(officialTrial, (n) => dateOfTripDay(arrivalIso, n), deps.parkQuery);
+    if (official.unread) {
+      warnings.push(OFFICIAL_ALERTS_UNREAD_NOTE);
+    } else {
+      for (const t of officialTrial) {
+        const target = movedPlan.find((d) => d.day === t.day);
+        if (target) target.dayWarnings = t.dayWarnings;
+      }
+      const touched = officialAlertsPlanWarning(official.days);
+      if (touched) warnings.push(touched);
+    }
   }
 
   if (startChanged) {

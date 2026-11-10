@@ -223,6 +223,21 @@ withPg('safety_status на настоящем PostgreSQL: даты, остато
     expect(zones(ROWS[4].title)).toEqual([]);
   });
 
+  it('планер (#2930): штормовые и паводок — только сильные и живые, срок — момент события, id и тяжесть — числа', async () => {
+    const { PLAN_OFFICIAL_ALERTS_SQL, PLAN_OFFICIAL_TYPES, officialNotesByDay } = await import('@/lib/planner/official-alerts');
+    const { rows } = await pool.query(PLAN_OFFICIAL_ALERTS_SQL, [[...PLAN_OFFICIAL_TYPES]]);
+    // Живые weather: ROWS[0] (severity 2) и LATE (severity 1 — не берётся); отозванное — нет.
+    expect(rows.map((r) => r.title)).toEqual([ROWS[0].title]);
+    expect(typeof rows[0].id).toBe('number');
+    expect(rows[0].severity).toBe(2);
+    expect(rows[0].expires_at).toBe(ROWS[0].expires.toISOString());
+    expect(rows[0].affected_zones).toEqual(['eastern', 'avachinsky']);
+    // Сегодня по Камчатке шторм действует: день в Авачинской зоне получает строку.
+    const today = new Date(Date.now() + 12 * HOUR).toISOString().slice(0, 10);
+    const byDay = officialNotesByDay([{ day: 1, type: 'activity', zone: 'avachinsky', title: 'День 1' }], () => today, rows);
+    expect(byDay.get(1)?.[0]).toMatch(/^Официальное предупреждение \(МЧС/);
+  });
+
   it('миграция однократна: повтор ничего не сдвигает', async () => {
     const before = await rawCreated(ROWS[1].external_id);
     await pool.query(migration(UTC_WALL));
