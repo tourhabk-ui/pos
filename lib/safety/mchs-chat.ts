@@ -24,7 +24,7 @@ import { escapeHtml } from '@/lib/text/escape-html';
 import { kamchatkaDate } from '@/lib/analytics/kamchatka-day';
 import {
   MCHS_AFTER_RETURN, MCHS_CHANNELS, MCHS_DEADLINE_SHORT, MCHS_ONLINE_FORM_URL, MCHS_PHONES,
-  MCHS_REQUIRED_DATA, MCHS_SOURCE, registrationVerdict, type MchsVerdict,
+  MCHS_REQUIRED_DATA, MCHS_RETURN_PHONE_UNKNOWN, MCHS_SOURCE, registrationVerdict, type MchsVerdict,
 } from '@/lib/safety/mchs-registration';
 
 /** Подпись кнопки — одна на три роли и два мессенджера. */
@@ -46,7 +46,9 @@ export const MCHS_CONTACTS_MAX = 25;
 export const MCHS_WHO_SUBMITS =
   'Ведар заявку в МЧС сам не подаёт и ответа МЧС не видит: её подаёт руководитель группы.';
 
-const SOURCE_LINE = `Сведения: ${MCHS_SOURCE.authority}, ${MCHS_SOURCE.asOf}.`;
+/** Источник порядка регистрации. К телефонам не относится: у них свой источник — реестр. */
+const SOURCE_LINE = `Сведения о порядке: ${MCHS_SOURCE.authority}, ${MCHS_SOURCE.asOf}.`;
+const PHONES_SOURCE_LINE = 'Телефоны сверены Ведаром отдельно.';
 
 function ruDate(ymd: string): string {
   const m = /^(\d{4})-(\d{2})-(\d{2})/.exec(ymd);
@@ -59,6 +61,10 @@ function ruDayMonth(ymd: string): string {
 }
 
 // ── Турист ──────────────────────────────────────────────────────────────────
+
+function phoneLines(kind: 'reference' | 'duty'): string[] {
+  return MCHS_PHONES.filter((p) => p.kind === kind).map((p) => `— ${p.phone} — ${p.purpose}`);
+}
 
 /** Ответ туристу на кнопку (HTML). Ничего не спрашивает и не записывает. */
 export function mchsTouristText(): string {
@@ -74,12 +80,18 @@ export function mchsTouristText(): string {
     '',
     'Как подать:',
     ...MCHS_CHANNELS.map((c) => `— ${c.title}. ${c.detail}${c.key === 'online' ? ' — кнопка ниже' : ''}.`),
+    SOURCE_LINE,
     '',
-    'Телефоны МЧС края:',
-    ...MCHS_PHONES.map((p) => `— ${p.phone} — ${p.purpose}`),
+    // Два рода номеров — двумя группами: справочная линия не экстренная.
+    'Вопросы по заявке и маршрутному листу:',
+    ...phoneLines('reference'),
+    '',
+    'Беда на маршруте — звоните 112. Дежурные МЧС края:',
+    ...phoneLines('duty'),
+    MCHS_RETURN_PHONE_UNKNOWN,
+    PHONES_SOURCE_LINE,
     '',
     `${MCHS_WHO_SUBMITS} На сайте Ведара можно собрать данные группы одним текстом для формы — кнопка «Собрать данные».`,
-    SOURCE_LINE,
     'В беде — 112.',
   ];
   return lines.join('\n');
@@ -216,12 +228,14 @@ export function mchsGroupText(g: MchsGroup, nowMs: number, opts: { allContacts?:
 
 export const MCHS_CHAT_TEXT = {
   listHead: `<b>${MCHS_CHAT_BUTTON}</b>`,
-  /** Первая строка списка и выезда: о снятии с контроля забывают чаще всего. */
+  /** О снятии с контроля забывают чаще всего: в списке строка первая, на выезде — под чертой, после текста для заявки. */
   afterReturn: `<b>${MCHS_AFTER_RETURN}</b>`,
   listRule: `${MCHS_DEADLINE_SHORT}. ${MCHS_WHO_SUBMITS} Нажмите выезд — соберу его данные одним текстом для формы МЧС.`,
   listEmpty: `Выездов с подтверждёнными бронями на ближайшие ${MCHS_WINDOW_DAYS} дней нет. Форма МЧС — кнопкой ниже.`,
   listFailed: `Выезды не прочитались — сбой на нашей стороне. ${MCHS_DEADLINE_SHORT}; форма МЧС — кнопкой ниже.`,
-  groupHead: '<b>Данные для формы МЧС</b> — скопируйте сообщение и перенесите в форму.',
+  groupHead: '<b>Данные для формы МЧС</b> — скопируйте текст до черты и перенесите в форму.',
+  /** Черта под текстом для заявки: ниже — слова Ведара, в заявку они не идут. */
+  groupRule: '———',
   groupGone: 'Выезда с подтверждёнными бронями на эту дату нет — возможно, бронь отменена.',
   groupFailed: 'Выезд не прочитался — сбой на нашей стороне. Ничего не изменено.',
   groupNoContactsTelegram: 'Имена и телефоны туристов в Telegram не показываются — состав группы в MAX или в кабинете на сайте.',

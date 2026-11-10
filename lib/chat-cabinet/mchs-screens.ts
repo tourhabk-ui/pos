@@ -65,14 +65,16 @@ export function mchsGroupScreen(args: {
   letterLine?: string | null;
 }): CabinetScreen {
   const withContacts = args.group.contacts !== null;
-  // Строка о возвращении — ПОСЛЕ текста: первая строка велит скопировать
-  // сообщение в заявку, и совет Ведара не должен стоять внутри скопированного.
-  const lines = [MCHS_CHAT_TEXT.groupHead, '', mchsGroupText(args.group, args.nowMs), '', MCHS_CHAT_TEXT.afterReturn];
+  // Шапка велит скопировать текст до черты. Всё, что ниже черты, — слова
+  // Ведара, и в заявку они попасть не должны: пояснение об именах (оно стоит
+  // сразу под текстом, который объясняет), строка о возвращении, строка о письме.
+  const lines = [MCHS_CHAT_TEXT.groupHead, '', mchsGroupText(args.group, args.nowMs), MCHS_CHAT_TEXT.groupRule];
   const rows: CabinetButton[][] = [[FORM_BUTTON]];
   if (!withContacts) {
-    lines.push(MCHS_CHAT_TEXT.groupNoContactsTelegram);
+    lines.push(MCHS_CHAT_TEXT.groupNoContactsTelegram, '');
     rows.push([{ text: 'Кабинет на сайте', url: siteUrl(args.base, args.role) }]);
   }
+  lines.push(MCHS_CHAT_TEXT.afterReturn);
   if (args.letterLine) lines.push('', args.letterLine);
   if (args.canSend) {
     rows.push([{ text: MCHS_LETTER_TEXT.button, payload: cabinetPayload.mchsLetterAsk(args.group.tourId, args.group.date) }]);

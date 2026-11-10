@@ -19,6 +19,7 @@ import {
   MCHS_REQUIRED_DATA,
   MCHS_AFTER_RETURN,
   MCHS_PHONES,
+  MCHS_RETURN_PHONE_UNKNOWN,
   MCHS_SOURCE,
   RU_FIXED_HOLIDAYS,
   workingDaysBetween,
@@ -207,6 +208,9 @@ describe('памятка — по бланку ГУ', () => {
   it('снятие с контроля после возвращения названо — со ссылкой на памятку, а не командой от Ведара', () => {
     expect(MCHS_AFTER_RETURN).toMatch(/сообщите в МЧС, что маршрут завершён/);
     expect(MCHS_AFTER_RETURN).toContain('памятка ГУ МЧС по краю просит позвонить в ЦУКС');
+    // Правило приказа № 270 в текст для туриста не вписано: до сверки юриста его там нет.
+    expect(MCHS_AFTER_RETURN).not.toMatch(/способом из вашей заявки|приказ/i);
+    expect(MCHS_RETURN_PHONE_UNKNOWN).toContain('Ведар не сверял');
     expect(MCHS_AFTER_RETURN).toContain('могут начать искать');
     // Номера во фразе нет: какой телефон принимает сообщение о возвращении, не сверено.
     expect(MCHS_AFTER_RETURN).not.toMatch(/\d{2}-\d{2}-\d{2}/);
@@ -249,6 +253,9 @@ describe('телефоны МЧС — только из реестра пров�
   });
 
   it('консультации по маршрутному листу — справочная линия ЦУКС, она в списке первой', () => {
-    expect(MCHS_PHONES[0]).toEqual({ phone: VERIFIED_REFERENCE[0]!.phone, purpose: VERIFIED_REFERENCE[0]!.name });
+    expect(MCHS_PHONES[0]).toEqual({ phone: VERIFIED_REFERENCE[0]!.phone, purpose: VERIFIED_REFERENCE[0]!.name, kind: 'reference' });
+    // Род номера — из реестра: справочные и дежурные не склеиваются в один список.
+    expect(MCHS_PHONES.filter((p) => p.kind === 'reference').map((p) => p.phone)).toEqual(VERIFIED_REFERENCE.map((n) => n.phone));
+    expect(MCHS_PHONES.filter((p) => p.kind === 'duty').map((p) => p.phone)).toEqual(VERIFIED_REGIONAL.map((n) => n.phone));
   });
 });

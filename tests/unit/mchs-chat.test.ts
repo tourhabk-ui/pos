@@ -19,6 +19,7 @@ import {
 } from '@/lib/safety/mchs-chat';
 import {
   MCHS_AFTER_RETURN, MCHS_CHANNELS, MCHS_DEADLINE_SHORT, MCHS_ONLINE_FORM_URL, MCHS_PHONES, MCHS_REQUIRED_DATA,
+  MCHS_RETURN_PHONE_UNKNOWN,
 } from '@/lib/safety/mchs-registration';
 import { CABINET_PAYLOAD_MAX_BYTES, cabinetPayload, parseCabinetPress } from '@/lib/chat-cabinet/payload';
 import { mchsGroupScreen, mchsListScreen } from '@/lib/chat-cabinet/mchs-screens';
@@ -52,11 +53,29 @@ describe('турист: правило, срок и ссылки', () => {
     expect(text).toContain('В беде — 112.');
   });
 
-  it('звонок после возвращения — первым после заголовка; телефоны ГУ с назначением (памятка ГУ, 10.11)', () => {
+  it('строка о возвращении — первой после заголовка; телефоны — из реестра и двумя группами', () => {
     const text = mchsTouristText();
     const lines = text.split('\n').filter((l) => l.trim() !== '');
     expect(lines[1]).toBe(`<b>${MCHS_AFTER_RETURN}</b>`);
     for (const p of MCHS_PHONES) expect(text).toContain(`${p.phone} — ${p.purpose}`);
+
+    // Справочная линия — не экстренная: она под своим заголовком, дежурные — под «бедой» и 112.
+    const at = (needle: string) => { const i = text.indexOf(needle); expect(i, needle).toBeGreaterThan(-1); return i; };
+    const questions = at('Вопросы по заявке и маршрутному листу:');
+    const trouble = at('Беда на маршруте — звоните 112. Дежурные МЧС края:');
+    expect(questions).toBeLessThan(trouble);
+    for (const p of MCHS_PHONES) {
+      const where = at(`— ${p.phone} — `);
+      if (p.kind === 'reference') { expect(where).toBeGreaterThan(questions); expect(where).toBeLessThan(trouble); }
+      else expect(where).toBeGreaterThan(trouble);
+    }
+    expect(MCHS_PHONES.some((p) => p.kind === 'reference')).toBe(true);
+    expect(MCHS_PHONES.some((p) => p.kind === 'duty')).toBe(true);
+    // Чего Ведар не знает — сказано: номер для сообщения о возвращении не сверен.
+    expect(text).toContain(MCHS_RETURN_PHONE_UNKNOWN);
+    // Источник порядка (памятка) стоит до телефонов и к ним не относится.
+    expect(at('Сведения о порядке: ')).toBeLessThan(questions);
+    expect(text.slice(questions)).not.toContain('памятка от');
   });
 
   it('говорит, кто подаёт заявку, и не обещает регистрацию от имени Ведара', () => {
@@ -248,20 +267,34 @@ describe('кабинет: снятие с контроля после возвр
     const list = mchsListScreen({ departures: [departure()], nowMs: NOW });
     expect(list.text.indexOf(MCHS_AFTER_RETURN)).toBeGreaterThan(-1);
     expect(list.text.indexOf(MCHS_AFTER_RETURN)).toBeLessThan(list.text.indexOf('19.07'));
-    // Экран выезда велит скопировать сообщение в заявку: совет Ведара не должен
-    // оказаться внутри скопированного — он идёт следом за текстом (ревью PR 3188).
-    const one = mchsGroupScreen({ group: group(), role: 'operator', base: BASE, nowMs: NOW });
+    // Экран выезда велит скопировать текст ДО ЧЕРТЫ: всё, что говорит Ведар от
+    // себя, стоит под ней и в заявку не попадает (ревью PR 3188).
+    const one = mchsGroupScreen({
+      group: group(), role: 'operator', base: BASE, nowMs: NOW, canSend: true, letterLine: 'Строка о письме.',
+    });
     const copied = mchsGroupText(group(), NOW);
-    const at = one.text.indexOf(copied);
-    expect(at).toBeGreaterThan(-1);
-    expect(one.text.indexOf(MCHS_AFTER_RETURN)).toBeGreaterThanOrEqual(at + copied.length);
+    const [above, below] = one.text.split('\n———\n');
+    expect(above).toBe(`${MCHS_CHAT_TEXT.groupHead}\n\n${copied}`);
+    expect(MCHS_CHAT_TEXT.groupHead).toContain('до черты');
+    expect(below).toContain(MCHS_AFTER_RETURN);
+    expect(below).toContain('Строка о письме.');
+    expect(above).not.toContain(MCHS_AFTER_RETURN);
+  });
+
+  it('Telegram: пояснение об именах — сразу под текстом выезда, строка о возвращении — отдельно ниже', () => {
+    const one = mchsGroupScreen({ group: group({ contacts: null }), role: 'guide', base: BASE, nowMs: NOW });
+    const below = one.text.split('\n———\n')[1]!.split('\n');
+    expect(below[0]).toBe(MCHS_CHAT_TEXT.groupNoContactsTelegram);
+    expect(below[1]).toBe('');
+    expect(below[2]).toBe(`<b>${MCHS_AFTER_RETURN}</b>`);
   });
 
   it('туристу в чате: строка о возвращении и телефоны только из реестра проверенных', () => {
     const text = mchsTouristText();
     expect(text).toContain(MCHS_AFTER_RETURN);
-    expect(text).toContain('Телефоны МЧС края:');
-    for (const p of MCHS_PHONES) expect(text).toContain(`— ${p.phone} — ${p.purpose}`);
+    // Каждая строка с телефоном в ответе — номер из реестра; посторонних номеров нет.
+    const phoneLines = text.split('\n').filter((l) => /^— \+7 \(4152\)/.test(l));
+    expect(phoneLines).toEqual(MCHS_PHONES.map((p) => `— ${p.phone} — ${p.purpose}`));
     expect(text).not.toMatch(/30-10-82/);
   });
 
