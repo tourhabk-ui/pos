@@ -14,6 +14,8 @@ vi.mock('@/components/auth/Protected', () => ({
 }));
 
 import { TripDetailClient } from '@/app/hub/tourist/trips/[id]/_TripDetailClient';
+import { ZONE_IDS, ZONE_NAMES } from '@/lib/planner/constants';
+import { ZONE_OUTSIDE } from '@/lib/planner/zone-style';
 
 const base = { zone: 'avachinsky', activityType: 'volcano', coords: [53, 158], defaultTransport: 'walking', priceFrom: 0, priceTo: 0 };
 const DAY1 = { ...base, day: 1, type: 'arrival', title: 'Прилёт днём' };
@@ -137,5 +139,32 @@ describe('что ещё нужно — в заявке из поездки (H6)'
     const sd = await sendLead();
     expect(sd.plan).toBeDefined();
     expect(sd.plan).not.toHaveProperty('needs');
+  });
+});
+
+describe('зона дня — именем планировщика (H18)', () => {
+  it('у каждой из четырёх зон под днём — имя из общего словаря, своих подписей нет', async () => {
+    // Без состава смета не считается: сторож судит только подпись зоны.
+    tripReply = {
+      ...TRIP, party: null,
+      days: ZONE_IDS.map((zone, i) => ({ ...base, zone, day: i + 1, type: 'activity', title: `День плана ${i + 1}` })),
+    };
+    render(<TripDetailClient tripId="trip-1" />);
+    const days = await screen.findAllByTestId('trip-day');
+    expect(days).toHaveLength(ZONE_IDS.length);
+    ZONE_IDS.forEach((zone, i) => {
+      expect(within(days[i]!).getByText(ZONE_NAMES[zone])).toBeTruthy();
+    });
+    // До 10.11 страница держала свой словарь, и он спорил и с планировщиком, и с
+    // базой: «Карагинская — остров» у восточной зоны, «Мильковская — рыбалка» у западной.
+    expect(days.map(text).join(' ')).not.toMatch(/Карагинская|Тигильская|Мильковская|— вулканы/);
+  });
+
+  it('зона вне четырёх — словами, а не ключом движка', async () => {
+    tripReply = { ...TRIP, party: null, days: [{ ...base, zone: 'krai_koryak', day: 1, type: 'activity', title: 'День плана 1' }] };
+    render(<TripDetailClient tripId="trip-1" />);
+    const [day] = await screen.findAllByTestId('trip-day');
+    expect(within(day!).getByText(ZONE_OUTSIDE)).toBeTruthy();
+    expect(text(day!)).not.toContain('krai_koryak');
   });
 });

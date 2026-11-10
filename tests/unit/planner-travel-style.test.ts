@@ -160,6 +160,7 @@ vi.mock('@/lib/db-pool', () => ({
 }));
 
 import { recommendTrip, type DayPlan, type TripProfile } from '@/lib/planner/engine';
+import { riskModeEffect, wishesWords } from '@/lib/planner/trip-request-lines';
 import {
   activitySelfBlocker, routeSelfBlocker, fitRestDays, SELF_SAFETY_UNKNOWN,
 } from '@/lib/planner/travel-style';
@@ -512,3 +513,56 @@ describe('закрытие парка доходит до дня плана и �
   });
 });
 
+
+/**
+ * «Режим маршрутов» (аудит планировщика, находка Б12, 10.11). Экран обещал
+ * «Безопасный — только проверенные, без alerts», а отбора по режиму в движке
+ * нет. Сторож держит связку: пока три режима дают один план, подпись обязана
+ * говорить именно это. Появится отбор — проверка покраснеет намеренно: слова и
+ * сторож меняются вместе с ним.
+ */
+describe('режим маршрутов плана не меняет — и подпись говорит только это (Б12)', () => {
+  const MODES = ['safe_only', 'adventure', 'available'] as const;
+  const picks = (days: DayPlan[]) => days.map((d) => d.realTour?.tourId ?? d.routeId ?? null);
+
+  it('три режима и «без режима» дают один и тот же план', async () => {
+    const none = await recommendTrip(BASE);
+    for (const riskMode of MODES) {
+      const rec = await recommendTrip({ ...BASE, riskMode });
+      expect(shape(rec.days), riskMode).toEqual(GOLDEN_MIXED);
+      expect(picks(rec.days), riskMode).toEqual(picks(none.days));
+      expect(rec.zones.map((z) => z.zone), riskMode).toEqual(none.zones.map((z) => z.zone));
+    }
+  });
+
+  it('предупреждения те же; «Приключение» добавляет одно — и оно не говорит, что режим что-то открыл', async () => {
+    const none = (await recommendTrip(BASE)).warnings.map((w) => w.message);
+    for (const riskMode of ['safe_only', 'available'] as const) {
+      expect((await recommendTrip({ ...BASE, riskMode })).warnings.map((w) => w.message), riskMode).toEqual(none);
+    }
+    const adv = (await recommendTrip({ ...BASE, riskMode: 'adventure' })).warnings;
+    expect(adv.slice(1).map((w) => w.message)).toEqual(none);
+    expect(adv[0]).toMatchObject({ type: 'safety', severity: 'important' });
+    expect(adv[0]!.message).toContain('«Приключение»');
+    expect(adv[0]!.message).toContain('Состав плана он не меняет');
+    expect(adv[0]!.message).not.toMatch(/Маршруты могут содержать/);
+    // Только кириллица в словах: в прежней строке «гидa» кончалось латинской «a».
+    expect(adv[0]!.message).not.toMatch(/[а-яё][a-z]|[a-z][а-яё]/i);
+  });
+
+  it('подпись режима сверена с этим поведением и с тем, что уходит в заявку', () => {
+    for (const mode of MODES) {
+      const said = riskModeEffect(mode);
+      expect(said, mode).toContain('На подбор режим не влияет');
+      expect(said, mode).not.toMatch(/только проверенные|без alerts|без тревог|включены маршруты/i);
+    }
+    // Слова пожелания — те же, что получит оператор в заявке.
+    for (const mode of ['adventure', 'available'] as const) {
+      const wish = wishesWords({ seasickness: false, risk_mode: mode })!.replace(/^режим: /, '');
+      expect(riskModeEffect(mode)).toContain(`«${wish}»`);
+    }
+    // Обычный режим в заявке не называется вовсе — и подпись пожелания не обещает.
+    expect(wishesWords({ seasickness: false, risk_mode: 'safe_only' })).toBeNull();
+    expect(riskModeEffect('safe_only')).not.toContain('пожелание');
+  });
+});

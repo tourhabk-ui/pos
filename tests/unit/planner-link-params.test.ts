@@ -22,6 +22,7 @@ import { readFileSync } from 'node:fs';
 import { join } from 'node:path';
 import { execFileSync } from 'node:child_process';
 import { parseInterestWords, INTEREST_WORDS } from '@/lib/planner/interest-words';
+import { plannerRebuildHref } from '@/lib/trips/rebuild-link';
 
 const ROOT = process.cwd();
 const CLIENT = readFileSync(join(ROOT, 'app/planner/_PlannerClient.tsx'), 'utf-8');
@@ -64,6 +65,18 @@ describe('параметры ссылки доходят до формы', () =>
     for (const m of HANDOFF.matchAll(/query\.set\('([a-z_]+)'/g)) produced.add(m[1]);
 
     const orphans = [...produced].filter((p) => !consumedParams().has(p));
+    expect(orphans, `кладут, но не читают: ${orphans.join(', ')}`).toEqual([]);
+  });
+
+  it('«Собрать заново» со страницы поездки кладёт только то, что клиент читает (H17)', () => {
+    // Адрес строит функция, а не литерал — git grep выше его не видит.
+    const href = plannerRebuildHref({
+      arrival_date: '2030-08-01', departure_date: '2030-08-05',
+      places: ['volcano'], activities: ['trekking'], party: { adults: 3, children: [4, 9] },
+    });
+    const keys = [...new URL(href, 'https://vedarai.ru').searchParams.keys()];
+    expect(keys.sort()).toEqual(['adults', 'children', 'days', 'from', 'hint']);
+    const orphans = keys.filter((k) => !consumedParams().has(k));
     expect(orphans, `кладут, но не читают: ${orphans.join(', ')}`).toEqual([]);
   });
 
