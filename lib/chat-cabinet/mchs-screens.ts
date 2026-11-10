@@ -14,6 +14,7 @@ import {
   type MchsDeparture, type MchsGroup,
 } from '@/lib/safety/mchs-chat';
 import { MCHS_ONLINE_FORM_URL } from '@/lib/safety/mchs-registration';
+import { MCHS_LETTER_TEXT } from '@/lib/safety/mchs-letter-text';
 
 const BUTTON_TEXT_MAX = 40;
 
@@ -57,6 +58,10 @@ export function mchsListScreen(args: { departures: MchsDeparture[] | null; nowMs
 /** Выезд: данные одним текстом для формы МЧС. */
 export function mchsGroupScreen(args: {
   group: MchsGroup; role: CabinetRole; base: string; nowMs: number;
+  /** Показать «Отправить письмом»: только владельцу кабинета. */
+  canSend?: boolean;
+  /** Строка о прошлом письме по этому выезду (или о том, что журнал не прочитался). */
+  letterLine?: string | null;
 }): CabinetScreen {
   const withContacts = args.group.contacts !== null;
   const lines = [MCHS_CHAT_TEXT.groupHead, '', mchsGroupText(args.group, args.nowMs)];
@@ -65,6 +70,34 @@ export function mchsGroupScreen(args: {
     lines.push(MCHS_CHAT_TEXT.groupNoContactsTelegram);
     rows.push([{ text: 'Кабинет на сайте', url: siteUrl(args.base, args.role) }]);
   }
+  if (args.letterLine) lines.push('', args.letterLine);
+  if (args.canSend) {
+    rows.push([{ text: MCHS_LETTER_TEXT.button, payload: cabinetPayload.mchsLetterAsk(args.group.tourId, args.group.date) }]);
+  }
   rows.push([{ text: `‹ ${MCHS_CHAT_BUTTON}`, payload: cabinetPayload.mchs() }]);
   return build(lines, rows, withContacts);
+}
+
+/** «Отправить письмом?» — куда уйдёт и что в нём. Имён на экране нет. */
+export function mchsLetterAskScreen(args: { group: MchsGroup; nowMs: number }): CabinetScreen {
+  const g = args.group;
+  return build([
+    MCHS_LETTER_TEXT.askHead,
+    mchsDepartureLines(g, args.nowMs)[0]!,
+    '',
+    MCHS_LETTER_TEXT.askWhere,
+    MCHS_LETTER_TEXT.askWhat,
+  ], [
+    [{ text: MCHS_LETTER_TEXT.yes, payload: cabinetPayload.mchsLetterSend(g.tourId, g.date), intent: 'positive' }],
+    [{ text: '‹ Назад', payload: cabinetPayload.mchsGroup(g.tourId, g.date) }],
+  ]);
+}
+
+/** Итог отправки (или отказ): текст, форма МЧС и возврат к выезду. Без ПД. */
+export function mchsLetterResultScreen(args: { text: string; tourId: string; date: string; failed?: boolean }): CabinetScreen {
+  return build(
+    [`<b>${MCHS_CHAT_BUTTON}</b>`, args.text],
+    [[FORM_BUTTON], [{ text: '‹ К выезду', payload: cabinetPayload.mchsGroup(args.tourId, args.date) }]],
+    false, args.failed === true,
+  );
 }

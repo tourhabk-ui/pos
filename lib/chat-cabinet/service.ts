@@ -49,7 +49,7 @@ import { bookingChatActionsEnabledFor, leadChatActionsEnabledFor } from '@/lib/b
 import { detectEmergency } from '@/lib/safety/sos-detector';
 import { isWatchTrigger } from '@/lib/kuzmich/watch-flow';
 import { escapeHtml } from '@/lib/text/escape-html';
-import { kamchatkaDate, shiftDate } from '@/lib/analytics/kamchatka-day';
+import { fmtKamchatka, kamchatkaDate, shiftDate } from '@/lib/analytics/kamchatka-day';
 import { liveSeatsForItem, loadDepartures } from '@/lib/operators/live-seats';
 import { parseCabinetPress, type CabinetPress, type DigestMode, type RemindWhen, type TouchOutcome } from '@/lib/chat-cabinet/payload';
 import { countCabinetUse, type CabinetUsageAction } from '@/lib/chat-cabinet/usage';
@@ -66,7 +66,9 @@ import {
 import { readStoredSituations } from '@/lib/trips/situation-read';
 import { MCHS_CHAT_TEXT, MCHS_WINDOW_DAYS } from '@/lib/safety/mchs-chat';
 import { loadMchsDepartures, loadMchsGroup } from '@/lib/chat-cabinet/mchs-store';
-import { mchsGroupScreen, mchsListScreen } from '@/lib/chat-cabinet/mchs-screens';
+import { mchsGroupScreen, mchsLetterAskScreen, mchsLetterResultScreen, mchsListScreen } from '@/lib/chat-cabinet/mchs-screens';
+import { MCHS_LETTER_TEXT } from '@/lib/safety/mchs-letter-text';
+import { lastMchsLetter, recordMchsLetter, sendMchsLetter } from '@/lib/safety/mchs-letter';
 import { listVehicles, updateVehicle } from '@/lib/transfers/service';
 import { loadOwnDrafts, loadOwnPriceRows } from '@/lib/transfers/price-edit-store';
 import { loadCarrierSummary } from '@/lib/transfers/carrier-summary-store';
@@ -219,7 +221,51 @@ async function mchsGroupView(c: Ctx, channel: CabinetChannel, tourId: string, da
   const group = await loadMchsGroup(c.ctx.partnerId, tourId, date, channel === 'max');
   if (group === 'failed') return failedScreen(MCHS_CHAT_TEXT.groupFailed);
   if (group === null) return noticeScreen(MCHS_CHAT_TEXT.groupGone);
-  return mchsGroupScreen({ group, role: c.partner.role, base: base(), nowMs });
+  const canSend = c.partner.seat === 'owner';
+  let letterLine: string | null = null;
+  if (canSend) {
+    const last = await lastMchsLetter(c.ctx.partnerId, tourId, date);
+    if (last === 'failed') letterLine = MCHS_LETTER_TEXT.lastUnchecked;
+    else if (last) letterLine = MCHS_LETTER_TEXT.last(fmtKamchatka(last.at));
+  }
+  return mchsGroupScreen({ group, role: c.partner.role, base: base(), nowMs, canSend, letterLine });
+}
+
+/** «Отправить письмом?»: вопрос владельцу кабинета. Контакты не читаются — на экране их нет. */
+async function mchsLetterAsk(c: Ctx, tourId: string, date: string, nowMs: number): Promise<CabinetScreen> {
+  if (!mchsRole(c)) return noticeScreen(MCHS_CHAT_TEXT.notForRole);
+  if (c.partner.seat !== 'owner') return noticeScreen(MCHS_LETTER_TEXT.ownerOnly);
+  const group = await loadMchsGroup(c.ctx.partnerId, tourId, date, false);
+  if (group === 'failed') return failedScreen(MCHS_CHAT_TEXT.groupFailed);
+  if (group === null) return noticeScreen(MCHS_CHAT_TEXT.groupGone);
+  return mchsLetterAskScreen({ group, nowMs });
+}
+
+/**
+ * «Да, отправить»: письмо с данными выезда на ящик из MCHS_LETTER (пока тест,
+ * не МЧС). Контакты читаются для письма в любом канале; в чат они отсюда не
+ * возвращаются. Не смог проверить журнал — не отправляет: задвоить письмо
+ * хуже, чем попросить нажать позже (§4.0).
+ */
+async function mchsLetterSend(c: Ctx, channel: CabinetChannel, tourId: string, date: string, nowMs: number): Promise<CabinetScreen> {
+  if (!mchsRole(c)) return noticeScreen(MCHS_CHAT_TEXT.notForRole);
+  if (c.partner.seat !== 'owner') return noticeScreen(MCHS_LETTER_TEXT.ownerOnly);
+  const result = (text: string, failed = false) => mchsLetterResultScreen({ text, tourId, date, failed });
+  const last = await lastMchsLetter(c.ctx.partnerId, tourId, date);
+  if (last === 'failed') return result(MCHS_LETTER_TEXT.unchecked, true);
+  if (last?.recent) return result(MCHS_LETTER_TEXT.recent(fmtKamchatka(last.at)));
+  const group = await loadMchsGroup(c.ctx.partnerId, tourId, date, true);
+  if (group === 'failed') return failedScreen(MCHS_CHAT_TEXT.groupFailed);
+  if (group === null) return noticeScreen(MCHS_CHAT_TEXT.groupGone);
+  const sender = {
+    partnerId: c.ctx.partnerId, partnerName: c.ctx.partnerName, channel,
+    role: c.partner.role === 'guide' ? 'guide' as const : 'operator' as const,
+  };
+  const sent = await sendMchsLetter(group, sender, nowMs);
+  const logged = await recordMchsLetter({ sender, group, outcome: sent.outcome, error: sent.error });
+  if (sent.outcome === 'not_configured') return result(MCHS_LETTER_TEXT.notConfigured, true);
+  if (sent.outcome === 'failed') return result(MCHS_LETTER_TEXT.failed(sent.error ?? 'почтовый сервер не принял письмо'), true);
+  return result(logged ? MCHS_LETTER_TEXT.sent : `${MCHS_LETTER_TEXT.sent}\n${MCHS_LETTER_TEXT.sentNotLogged}`);
 }
 
 async function inboxView(c: Ctx, page: number, nowMs: number, notice?: string): Promise<CabinetScreen> {
@@ -873,6 +919,8 @@ export async function handleCabinetPress(input: {
     // «Регистрация в МЧС» (10.11): выезды и срок; выезд — текст для формы МЧС.
     case 'mchs': out = await mchsView(g, nowMs); break;
     case 'mchs_group': out = await mchsGroupView(g, ch, press.tourId, press.date, nowMs); break;
+    case 'mchs_letter_ask': out = await mchsLetterAsk(g, press.tourId, press.date, nowMs); break;
+    case 'mchs_letter_send': out = await mchsLetterSend(g, ch, press.tourId, press.date, nowMs); break;
     case 'digest': out = await digestView(g); break;
     case 'digest_set': out = await setDigest(g, press.mode, nowMs); break;
     case 'inbox': out = await inboxView(g, press.page, nowMs); break;

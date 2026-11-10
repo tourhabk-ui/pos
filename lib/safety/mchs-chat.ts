@@ -169,7 +169,9 @@ export const MCHS_GROUP_NOT_IN_RECORD: readonly string[] = [
  * Данные выезда одним текстом для формы МЧС (HTML: всё введённое людьми
  * экранировано). `contacts === null` — без имён и телефонов.
  */
-export function mchsGroupText(g: MchsGroup, nowMs: number): string {
+export function mchsGroupText(g: MchsGroup, nowMs: number, opts: { allContacts?: boolean } = {}): string {
+  // Сообщение чата не резиновое — там предел; письмо несёт всех (lib/safety/mchs-letter-text).
+  const contactsMax = opts.allContacts ? Number.POSITIVE_INFINITY : MCHS_CONTACTS_MAX;
   const req = mchsRequirementOf(g.routeTitle !== null, g.required);
   const lines: string[] = [
     'Регистрация туристской группы — Камчатский край',
@@ -181,14 +183,14 @@ export function mchsGroupText(g: MchsGroup, nowMs: number): string {
   ];
   if (g.contacts !== null) {
     lines.push('Контактные лица по броням:');
-    g.contacts.slice(0, MCHS_CONTACTS_MAX).forEach((c, i) => {
+    g.contacts.slice(0, contactsMax).forEach((c, i) => {
       const bits = [escapeHtml((c.name ?? '').trim() || 'имя не записано')];
       if ((c.phone ?? '').trim()) bits.push(`тел. ${escapeHtml((c.phone ?? '').trim())}`);
       bits.push(peopleWord(c.participants));
       lines.push(`${i + 1}. ${bits.join(', ')}`);
     });
-    if (g.contacts.length > MCHS_CONTACTS_MAX) {
-      lines.push(`…и ещё ${g.contacts.length - MCHS_CONTACTS_MAX} — в кабинете на сайте.`);
+    if (g.contacts.length > contactsMax) {
+      lines.push(`…и ещё ${g.contacts.length - contactsMax} — в кабинете на сайте.`);
     }
     lines.push('Имён остальных участников в записи Ведара нет.');
   }

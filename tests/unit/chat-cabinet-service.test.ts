@@ -15,7 +15,7 @@
  *    отказа и сообщения по заявке), поиск уступает кнопке, нажатой позже,
  *    беде и контролю выхода; текст поиска уходит только в listContacts.
  */
-import { describe, it, expect, vi, beforeEach } from 'vitest';
+import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
 
 const m = vi.hoisted(() => ({
   find: vi.fn(),
@@ -30,6 +30,7 @@ const m = vi.hoisted(() => ({
   query: vi.fn(),
   member: vi.fn(),
   count: vi.fn(),
+  mail: vi.fn(),
   tx: [] as string[],
 }));
 
@@ -58,6 +59,8 @@ vi.mock('@/lib/crm/events', () => ({ addContactTouch: (...a: unknown[]) => m.tou
 vi.mock('@/lib/operators/member-chat', () => ({ findMemberByChat: (...a: unknown[]) => m.member(...a) }));
 // Счёт пользования судится здесь вызовом (что и с каким исходом), запрос — в pg-тесте.
 vi.mock('@/lib/chat-cabinet/usage', () => ({ countCabinetUse: (...a: unknown[]) => m.count(...a) }));
+// Письмо с данными выезда для МЧС (10.11): почта подменена, судится что и куда ушло.
+vi.mock('@/lib/notifications/email-service', () => ({ emailService: { sendEmail: (...a: unknown[]) => m.mail(...a) } }));
 
 const svc = await import('@/lib/chat-cabinet/service');
 const { CABINET_TEXT, CLIENT_NOT_FOUND, SEARCH_TELEGRAM, TELEGRAM_NO_NAMES, ITEM_GONE, DIGEST_MEMBER } = await import('@/lib/chat-cabinet/screens');
@@ -633,5 +636,112 @@ describe('«Регистрация в МЧС» (10.11)', () => {
     const s = await press(cabinetPayload.mchsGroup('81', '2026-11-20'));
     expect(s.text).toContain('у туроператора и гида');
     expect(m.query.mock.calls.some((c) => isBookings(c[0]))).toBe(false);
+  });
+});
+
+describe('письмо с данными выезда для МЧС — тест на ящик Ведара (10.11)', () => {
+  const ASK = 'cb:mc:q:81:20261120';
+  const SEND = 'cb:mc:s:81:20261120';
+  const ROW = {
+    tourist_name: 'Тест', tourist_phone: '+70000000000', participants: 2, end_d: '2026-11-22',
+    title: 'Курильское озеро', route_title: 'Курильское озеро', required: true, mchs_phone: null,
+  };
+  const isBookings = (sql: unknown) => String(sql).includes('FROM operator_bookings');
+  const isLast = (sql: unknown) => String(sql).includes('FROM mchs_letters');
+  const isInsert = (sql: unknown) => String(sql).includes('INSERT INTO mchs_letters');
+  /** Ответы базы: брони выезда, журнал писем (последнее), запись в журнал. */
+  const db = (last: unknown[] | Error = []) => m.query.mockImplementation(async (sql: unknown) => {
+    if (isBookings(sql)) return { rows: [ROW], rowCount: 1 };
+    if (isLast(sql)) { if (last instanceof Error) throw last; return { rows: last, rowCount: last.length }; }
+    return { rows: [], rowCount: 1 };
+  });
+  const inserted = () => m.query.mock.calls.find((c) => isInsert(c[0]))?.[1] as unknown[] | undefined;
+
+  beforeEach(() => {
+    vi.stubEnv('SMTP_USER', 'robot');
+    vi.stubEnv('SMTP_PASS', 'x');
+    m.mail.mockResolvedValue({ success: true, messageId: 'id' });
+  });
+  afterEach(() => { vi.unstubAllEnvs(); });
+
+  it('вопрос: куда уйдёт письмо, без имён; под выездом у владельца — кнопка письма', async () => {
+    db();
+    const group = await press(cabinetPayload.mchsGroup('81', '2026-11-20'));
+    expect(group.rows.flat().some((b) => 'payload' in b && b.payload === ASK)).toBe(true);
+    const ask = await press(ASK);
+    expect(ask.pd).toBe(false);
+    expect(ask.text).toContain('письмо уйдёт на тестовый ящик Ведара, не в МЧС');
+    expect(ask.text).not.toMatch(/Тест|\+7/);
+    expect(ask.rows.flat().some((b) => 'payload' in b && b.payload === SEND)).toBe(true);
+    expect(m.mail).not.toHaveBeenCalled();
+  });
+
+  it('«Да, отправить» из Telegram: письмо с контактами уходит на ящик Ведара, в чат ПД не возвращается, журнал — без имён', async () => {
+    db();
+    const s = await press(SEND, { channel: 'telegram' });
+    expect(m.mail).toHaveBeenCalledTimes(1);
+    const mail = m.mail.mock.calls[0]![0] as { to: string; subject: string; html: string };
+    expect(mail.to).toBe('flo@vedarai.ru');
+    expect(mail.subject).toContain('[ТЕСТ]');
+    expect(mail.html).toContain('ТЕСТОВОЕ ПИСЬМО Ведара. В МЧС не отправлялось');
+    expect(mail.html).toContain('1. Тест, тел. +70000000000, 2 чел.');
+    expect(mail.html).toContain('Отправил: Местечко (туроператор)');
+    expect(s.pd).toBe(false);
+    expect(s.text).not.toMatch(/Тест|\+7/);
+    expect(s.text).toContain('ушло на тестовый ящик Ведара. В МЧС оно не отправлено');
+    expect(inserted()).toEqual([PID, '81', '2026-11-20', 'telegram', 'flo@vedarai.ru', true, 'sent', null, 2, 1]);
+    expect(m.count).toHaveBeenCalledWith(expect.objectContaining({ action: 'mchs_letter_send' }), NOW);
+  });
+
+  it('повтор за десять минут — второго письма нет; журнал не прочитался — не отправляет', async () => {
+    db([{ at: '2026-10-29 23:55:00+00', recent: true }]);
+    const again = await press(SEND);
+    expect(m.mail).not.toHaveBeenCalled();
+    expect(again.text).toContain('уже ушло на тестовый ящик Ведара 30.10 11:55 по Камчатке');
+    expect(inserted()).toBeUndefined();
+
+    db(Object.assign(new Error('x'), { code: '57P01' }));
+    const blind = await press(SEND);
+    expect(m.mail).not.toHaveBeenCalled();
+    expect(blind.failed).toBe(true);
+    expect(blind.text).toContain('не отправляю, чтобы не задвоить');
+  });
+
+  it('почта не настроена и почта отказала — разные слова, оба исхода в журнале', async () => {
+    db();
+    vi.stubEnv('SMTP_PASS', '');
+    const off = await press(SEND);
+    expect(m.mail).not.toHaveBeenCalled();
+    expect(off.failed).toBe(true);
+    expect(off.text).toContain('Почта на сервере не настроена — письмо не ушло');
+    expect(inserted()?.[6]).toBe('not_configured');
+
+    m.query.mockClear();
+    db();
+    vi.stubEnv('SMTP_PASS', 'x');
+    m.mail.mockResolvedValue({ success: false, error: '554 rejected <ivan@example.com>' });
+    const bad = await press(SEND);
+    expect(bad.failed).toBe(true);
+    expect(bad.text).toContain('Письмо не ушло: 554 rejected');
+    expect(bad.text).not.toContain('ivan@example.com');
+    expect(inserted()?.[6]).toBe('failed');
+  });
+
+  it('менеджер команды и перевозчик письмо не отправляют; выезда нет — письма нет', async () => {
+    db();
+    m.find.mockResolvedValue({ outcome: 'none' });
+    m.member.mockResolvedValue({ outcome: 'found', member: { memberId: 'm1', label: null, partner: OPERATOR } });
+    expect((await press(SEND)).text).toContain('отправляет владелец кабинета');
+    expect((await press(ASK)).text).toContain('отправляет владелец кабинета');
+    const group = await press(cabinetPayload.mchsGroup('81', '2026-11-20'));
+    expect(group.rows.flat().some((b) => 'payload' in b && b.payload === ASK)).toBe(false);
+
+    m.find.mockResolvedValue({ outcome: 'found', partner: { ...OPERATOR, category: 'transfer', crmCategory: 'transfer', sellsTours: false } });
+    expect((await press(SEND)).text).toContain('у туроператора и гида');
+
+    m.find.mockResolvedValue({ outcome: 'found', partner: OPERATOR });
+    m.query.mockImplementation(async () => ({ rows: [], rowCount: 0 }));
+    expect((await press(SEND)).text).toContain('Выезда с подтверждёнными бронями на эту дату нет');
+    expect(m.mail).not.toHaveBeenCalled();
   });
 });

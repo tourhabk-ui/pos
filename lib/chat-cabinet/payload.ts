@@ -57,6 +57,8 @@
  *   cb:q:x:<uuid>       — документ гида: отмена
  *   cb:mc               — «Регистрация в МЧС» оператора и гида (10.11): выезды с бронями и срок подачи
  *   cb:mc:<тур>:<ггггммдд> — выезд: данные одним текстом для формы МЧС (состав — только MAX)
+ *   cb:mc:q:<тур>:<ггггммдд> — «Отправить письмом»: вопрос, куда уйдёт письмо (lib/safety/mchs-letter)
+ *   cb:mc:s:<тур>:<ггггммдд> — «Да, отправить»: письмо с данными выезда на тестовый ящик Ведара
  *
  * Кнопки экрана кабинета правят то сообщение, под которым стоят (кабинет
  * листается); `cb:n:` — нет (`cabinetPressEdits`).
@@ -160,7 +162,9 @@ export type CabinetPress =
   | { kind: 'doc_tour'; draftId: string; index: number }
   /** «Регистрация в МЧС» (10.11): список выездов и выезд тура на дату (YYYY-MM-DD). Только чтение. */
   | { kind: 'mchs' }
-  | { kind: 'mchs_group'; tourId: string; date: string };
+  | { kind: 'mchs_group'; tourId: string; date: string }
+  /** Письмо с данными выезда (10.11): вопрос и отправка. Пока тест — получатель ящик Ведара. */
+  | { kind: 'mchs_letter_ask' | 'mchs_letter_send'; tourId: string; date: string };
 
 const UUID = '[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}';
 /** Номер предмета «Входящих»: bigint брони строкой или uuid заявки. */
@@ -192,6 +196,10 @@ const FORMS: ReadonlyArray<[RegExp, (m: RegExpExecArray) => CabinetPress | null]
   [new RegExp(`^cb:mc:(${TOUR}):(\\d{8})$`), (m) => {
     const date = ymdOf(m[2]!);
     return date ? { kind: 'mchs_group', tourId: m[1]!, date } : null;
+  }],
+  [new RegExp(`^cb:mc:([qs]):(${TOUR}):(\\d{8})$`), (m) => {
+    const date = ymdOf(m[3]!);
+    return date ? { kind: m[1] === 'q' ? 'mchs_letter_ask' : 'mchs_letter_send', tourId: m[2]!, date } : null;
   }],
   [/^cb:rp:(w|lw|m|lm)$/, (m) => { const period = periodFromCode(m[1] ?? ''); return period ? { kind: 'report', period } : null; }],
   [/^cb:n:i$/, () => ({ kind: 'inbox', page: 0 })],
@@ -375,6 +383,9 @@ export const cabinetPayload = {
   /** «Регистрация в МЧС»: список выездов и выезд тура на дату. Чтение — без подписи. */
   mchs: (): string => 'cb:mc',
   mchsGroup: (tourId: string, date: string): string => `cb:mc:${tourId}:${date.replace(/-/g, '')}`,
+  /** Письмо с данными выезда: вопрос (чтение) и отправка (запись — с подписью). */
+  mchsLetterAsk: (tourId: string, date: string): string => `cb:mc:q:${tourId}:${date.replace(/-/g, '')}`,
+  mchsLetterSend: (tourId: string, date: string): string => signPayload(`cb:mc:s:${tourId}:${date.replace(/-/g, '')}`),
 } as const;
 
 /** Самый длинный payload кабинета — в лимите callback_data Telegram (64 байта). */
