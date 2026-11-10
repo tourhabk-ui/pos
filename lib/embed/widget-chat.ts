@@ -28,6 +28,7 @@ import { activityLabel, priceUnitLabel } from '@/lib/tours/labels';
 import type { WidgetTurn } from '@/lib/embed/widget-chat-limits';
 import { widgetTexts, type WidgetLang } from '@/lib/embed/widget-i18n';
 import { redactPII } from '@/lib/security/pii-redact';
+import { untrustedField } from '@/lib/ai/untrusted';
 
 /** Сколько туров партнёра идёт в контекст: у самых больших сейчас ~15. */
 export const PARTNER_TOURS_LIMIT = 20;
@@ -95,29 +96,33 @@ export function partnerToursBlock(
   baseUrl: string,
   emergency: boolean,
 ): string {
+  // Имя, названия, места и краткие описания пишет партнёр сам, и всё это
+  // идёт в system-промпт окна (#3143, шаг 2): перевод строки, разметка ролей
+  // и делимитеры в них снимает untrustedField.
+  const name = untrustedField(partnerName);
   if (emergency) {
     return '\n\nТУРЫ: у посетителя признаки чрезвычайной ситуации — туров не предлагай вовсе. '
       + 'Сначала — 112 и что делать сейчас.';
   }
   if (tours === null) {
-    return `\n\nТУРЫ ПАРТНЁРА «${partnerName}»: список сейчас не загрузился (сбой на стороне Ведара). `
+    return `\n\nТУРЫ ПАРТНЁРА «${name}»: список сейчас не загрузился (сбой на стороне Ведара). `
       + 'Туров, цен и дат не называй; скажи, что список не загрузился, и предложи оставить заявку кнопкой «Оставить заявку».';
   }
   if (tours.length === 0) {
-    return `\n\nТУРЫ ПАРТНЁРА «${partnerName}»: на витрине Ведара у партнёра сейчас нет туров. `
+    return `\n\nТУРЫ ПАРТНЁРА «${name}»: на витрине Ведара у партнёра сейчас нет туров. `
       + 'Туров не называй; на вопрос о турах так и скажи и предложи оставить заявку кнопкой «Оставить заявку» — партнёр ответит сам.';
   }
   const lines = tours.map((t) => {
-    const parts = [`«${t.title}»`];
+    const parts = [`«${untrustedField(t.title, 200)}»`];
     const kind = activityLabel(t.activity_type);
     if (kind) parts.push(kind);
-    if (t.location_name) parts.push(t.location_name);
+    if (t.location_name) parts.push(untrustedField(t.location_name));
     parts.push(priceText(t));
     parts.push(`${baseUrl}${tourPath(t)}`);
     const head = `• ${parts.join(' | ')}`;
-    return t.short_description ? `${head}\n  ${t.short_description}` : head;
+    return t.short_description ? `${head}\n  ${untrustedField(t.short_description, 160)}` : head;
   });
-  return `\n\nТУРЫ ПАРТНЁРА «${partnerName}» НА ВЕДАРЕ (другие туры в этом окне не предлагай):\n${lines.join('\n')}`
+  return `\n\nТУРЫ ПАРТНЁРА «${name}» НА ВЕДАРЕ (другие туры в этом окне не предлагай):\n${lines.join('\n')}`
     + '\nНет подходящего тура в этом списке — так и скажи и предложи оставить заявку кнопкой «Оставить заявку».';
 }
 
@@ -133,12 +138,14 @@ export function safetyBlock(safetyText: string): string {
  * видит её на экране. Для русского окна промпт прежний, слово в слово.
  */
 export function buildWidgetSystemPrompt(partner: WidgetPartner, lang: WidgetLang = 'ru'): string {
-  const about = partner.description ? ` ${partner.description.slice(0, 600)}` : '';
+  // Слова партнёра о себе — чужой текст в первом же абзаце промпта (#3143).
+  const about = partner.description ? ` ${untrustedField(partner.description, 600)}` : '';
+  const name = untrustedField(partner.name);
   const ui = widgetTexts(lang);
   const langLine = lang === 'ru'
     ? ''
     : `\n- Интерфейс окна у посетителя — ${ui.promptLangName} язык: кнопка «Оставить заявку» у него на экране называется «${ui.leadButton}» — так её и называй.`;
-  return `Ты — помощник туристической платформы Ведар (Камчатка) в окне чата на сайте партнёра «${partner.name}».${about}
+  return `Ты — помощник туристической платформы Ведар (Камчатка) в окне чата на сайте партнёра «${name}».${about}
 Помогай посетителю сайта партнёра: туры партнёра, Камчатка, сезоны, подготовка — и как оставить заявку.
 
 Правила:

@@ -49,8 +49,11 @@ const TAGS = /<\/?[a-z_][\w-]*[^>]*>/gi;
  *
  * Пустое значение возвращается как `—`: пустота на месте названия ломает
  * строку сильнее, чем прочерк, и читается моделью как отсутствие поля.
+ *
+ * `maxLen` — для полей длиннее названия (краткое описание тура до 500 знаков,
+ * слова партнёра о себе): потолок по умолчанию срезал бы их смысл.
  */
-export function untrustedField(value: unknown): string {
+export function untrustedField(value: unknown, maxLen: number = MAX_FIELD_LEN): string {
   const raw = value == null ? '' : String(value);
   const flat = raw
     // Переводы строки и возвраты каретки — главный способ выдать значение за
@@ -65,7 +68,7 @@ export function untrustedField(value: unknown): string {
     .replace(/\s+/g, ' ')
     .trim();
   if (flat === '') return '—';
-  return flat.length > MAX_FIELD_LEN ? `${flat.slice(0, MAX_FIELD_LEN - 1)}…` : flat;
+  return flat.length > maxLen ? `${flat.slice(0, maxLen - 1)}…` : flat;
 }
 
 /** Теги, которыми мы сами обрамляем чужой текст (здесь и `wrapToolOutput`). */
