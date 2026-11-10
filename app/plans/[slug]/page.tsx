@@ -97,7 +97,6 @@ const loadPresetPlan = unstable_cache(
       children: [],
       fitnessLevel: 'moderate',
       budgetTier: 'comfort',
-      riskMode: 'safe_only',
     });
     if (rec.days.length === 0) throw new Error('движок вернул пустой план');
     // Тур дня — тот, что поставил движок (H16); подбор по виду — только дням

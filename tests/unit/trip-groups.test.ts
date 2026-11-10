@@ -111,8 +111,9 @@ describe('план группы', () => {
     const profile = recommend.mock.calls[0][0];
     expect(profile).toMatchObject({
       interests: ['bears'], fitnessLevel: 'beginner', budgetTier: 'economy', adults: 2, children: [7],
-      seasickness: true, mobilityLevel: 'limited', riskMode: 'safe_only',
+      seasickness: true, mobilityLevel: 'limited',
     });
+    expect(profile).not.toHaveProperty('riskMode');
     const [plan, surface] = save.mock.calls[0];
     expect(surface).toBe('group');
     expect(plan.params).toMatchObject({ fitnessLevel: 'beginner', seasickness: true, mobilityLevel: 'limited' });

@@ -200,7 +200,6 @@ export function planProfile(params: PlanParams): TripProfile {
     children: params.children,
     fitnessLevel: params.fitnessLevel ?? 'moderate',
     budgetTier: params.budgetTier,
-    riskMode: 'safe_only',
     ...(params.seasickness ? { seasickness: true } : {}),
     ...(params.mobilityLevel ? { mobilityLevel: params.mobilityLevel } : {}),
     ...(params.travelStyle ? { travelStyle: params.travelStyle } : {}),

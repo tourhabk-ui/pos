@@ -15,7 +15,7 @@ const FIELD_LABEL: Record<string, string> = {
   flightArrivalTime: 'Время прилёта', flightDepartureTime: 'Время вылета',
   adults: 'Взрослых', children: 'Дети', fitnessLevel: 'Подготовка', budgetTier: 'Бюджет',
   healthNotes: 'Ограничения по здоровью', mobilityLevel: 'Подвижность',
-  travelStyle: 'Как ехать', restDays: 'Дни отдыха', riskMode: 'Режим маршрутов',
+  travelStyle: 'Как ехать', restDays: 'Дни отдыха',
 };
 
 /**

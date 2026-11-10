@@ -30,7 +30,6 @@ vi.mock('@/hooks/useMyReferralCode', () => ({ useMyReferralCode: () => null }));
 vi.mock('@/lib/funnel/beacon', () => ({ funnelBeacon: vi.fn() }));
 
 import { PlannerClient } from '@/app/planner/_PlannerClient';
-import { riskModeEffect } from '@/lib/planner/trip-request-lines';
 
 import { PLANNER_HEADER_OFFSET, PAGE_ACTION_BAR_VAR } from '@/app/planner/planner-layout';
 
@@ -131,48 +130,63 @@ describe('четыре шага по порядку', () => {
     // По умолчанию — «Вперемешку»: прежнее поведение движка.
     expect(within(style).getByRole('radio', { checked: true }).textContent).toMatch(/^Вперемешку/);
     expect(screen.getByLabelText('Больше дней отдыха')).toBeTruthy();
-    // Режим маршрутов — как был.
-    expect(screen.getByText('Режим маршрутов')).toBeTruthy();
     next();
     expect(screen.getByText('Места')).toBeTruthy();
     expect(screen.getByText('Активности')).toBeTruthy();
   });
 });
 
-describe('«Режим маршрутов» говорит, что делает на деле (Б12)', () => {
-  const openStep = () => {
+/**
+ * Блок «Режим маршрутов» убран 10.11 (карт-бланш владельца по Б12, #3199).
+ * На подбор он не влиял никогда, а подкрепить слово «Безопасный» отбором
+ * нечем: сложность записана не у всех туров, профиль места — шаблон по типу,
+ * и «не записано» не значит «безопасно». Переключатель, который ничего не
+ * выбирает, — обещание без исполнения; вернуться он может только вместе с
+ * отбором и его сторожем.
+ */
+describe('«Режима маршрутов» в анкете нет (Б12)', () => {
+  it('ни блока, ни его кнопок ни на одном шаге', () => {
+    render(<PlannerClient />);
+    fillDates();
+    for (let step = 0; step < 4; step++) {
+      expect(screen.queryByText('Режим маршрутов'), `шаг ${step + 1}`).toBeNull();
+      for (const name of ['Безопасный', 'Приключение', 'Свободные']) {
+        expect(screen.queryByRole('button', { name }), `шаг ${step + 1}: ${name}`).toBeNull();
+      }
+      if (step < 3) next();
+    }
+    // Проверка дошла до последнего шага анкеты, а не топталась на первом.
+    expect(screen.getByText('Активности')).toBeTruthy();
+  });
+
+  it('запрос плана режима не несёт', async () => {
     render(<PlannerClient />);
     fillDates();
     next();
     next();
-    return screen.getByText('Режим маршрутов').parentElement as HTMLElement;
-  };
-  /** Всё, что человек может прочитать в блоке: текст и всплывающие подсказки. */
-  const readable = (block: HTMLElement) =>
-    `${block.textContent ?? ''} ${[...block.querySelectorAll('[title]')].map((el) => el.getAttribute('title')).join(' ')}`;
-
-  it('кнопки прежние, под ними — подпись выбранного режима; обещаний отбора нет', () => {
-    const block = openStep();
-    expect(within(block).getAllByRole('button').map((b) => b.textContent)).toEqual(['Безопасный', 'Приключение', 'Свободные']);
-    // По умолчанию — «Безопасный», и подпись не обещает ни проверенных, ни «без тревог».
-    expect(within(block).getByTestId('risk-mode-effect').textContent).toBe(riskModeEffect('safe_only'));
-    for (const [label, mode] of [['Приключение', 'adventure'], ['Свободные', 'available'], ['Безопасный', 'safe_only']] as const) {
-      fireEvent.click(within(block).getByRole('button', { name: label }));
-      const said = within(block).getByTestId('risk-mode-effect').textContent ?? '';
-      expect(said, label).toBe(riskModeEffect(mode));
-      expect(said, label).toContain('На подбор режим не влияет');
-      expect(readable(block), label).not.toMatch(/только проверенные|без alerts|включены маршруты|все что есть по наличию/i);
-    }
-  });
-
-  it('выбор режима доходит до запроса плана', async () => {
-    const block = openStep();
-    fireEvent.click(within(block).getByRole('button', { name: 'Приключение' }));
     next();
     fireEvent.click(screen.getByRole('button', { name: /Вулканы/ }));
     fireEvent.click(screen.getByRole('button', { name: /Собрать маршрут/ }));
     await waitFor(() => expect(calls.some((c) => c.url === '/api/planner/recommend')).toBe(true));
-    expect(calls.find((c) => c.url === '/api/planner/recommend')?.body?.riskMode).toBe('adventure');
+    const body = calls.find((c) => c.url === '/api/planner/recommend')?.body;
+    expect(body).toMatchObject({ interests: expect.any(Array), adults: expect.any(Number) });
+    expect(body).not.toHaveProperty('riskMode');
+    // И на экране результата блока нет.
+    await waitFor(() => expect(screen.getByText('Ваши пожелания')).toBeTruthy());
+    expect(screen.queryByText('Режим маршрутов')).toBeNull();
+    for (const name of ['Безопасный', 'Приключение', 'Свободные']) {
+      expect(screen.queryByRole('button', { name }), name).toBeNull();
+    }
+  });
+
+  it('подсказки «Как ехать» не называют самостоятельный день безопасным', () => {
+    render(<PlannerClient />);
+    fillDates();
+    next();
+    next();
+    const style = screen.getByRole('radiogroup', { name: 'Как ехать' });
+    expect(style.textContent).toContain('Идёте без гида там, где по нашим данным это не запрещено');
+    expect(style.textContent).not.toMatch(/безопасн/i);
   });
 });
 

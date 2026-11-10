@@ -302,11 +302,25 @@ describe('разбор слов: состав и бюджет', () => {
     expect(silent).toMatch(/«комфорт» \(не назван — допущение\)/);
     const family = planAssumptions({ adults: 2, adultsGiven: true, children: [6, 10], tier: 'economy', tierGiven: true });
     expect(family).toMatch(/^Группа: 2 взр\., дети 6, 10 лет/);
-    expect(family).toMatch(/«эконом»,/);
+    expect(family).toMatch(/«эконом» — если у вас иначе/);
     expect(family).not.toMatch(/допущение/);
     // Дети названы, взрослые — нет: двое взрослых — допущение, и оно сказано.
     const kidsOnly = planAssumptions({ adults: 2, adultsGiven: false, children: [2], tier: 'comfort', tierGiven: true });
     expect(kidsOnly).toMatch(/^Группа: 2 взр\. \(число взрослых не названо — допущение\), ребёнок 2 лет/);
+  });
+
+  it('допущения не обещают «только безопасные варианты»: такого отбора в движке нет (Б12)', () => {
+    for (const surface of ['chat', 'mcp'] as const) {
+      for (const children of [[], [6, 10]]) {
+        const said = planAssumptions({ adults: 2, adultsGiven: false, children, tier: 'comfort', tierGiven: false }, surface);
+        expect(said, `${surface} ${children.length}`).not.toMatch(/безопасн/i);
+        expect(said, `${surface} ${children.length}`).toMatch(/если у вас иначе, пересоберите в планировщике\.$/);
+      }
+    }
+    // Описание поля для модели и внешних агентов — тоже без этого слова.
+    const travelStyle = TOOL_REGISTRY.make_trip_plan.definition.function.parameters.properties.travel_style as { description: string };
+    expect(travelStyle.description).toContain('«сам»');
+    expect(travelStyle.description).not.toMatch(/безопасн/i);
   });
 });
 

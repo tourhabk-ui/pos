@@ -329,7 +329,7 @@
           },
           "travel_style": {
             "type": "string",
-            "description": "How the traveller wants to go: self (no guide, only where our safety data allows), operator (operator tours) or mixed; default mixed. Как турист хочет ехать: «сам» (без гида — только там, где это безопасно), «с оператором» (туры операторов) или «вперемешку». Не сказано — вперемешку.",
+            "description": "How the traveller wants to go: self (no guide, only where our safety data allows), operator (operator tours) or mixed; default mixed. Как турист хочет ехать: «сам» (без гида — только там, где по нашим данным это не запрещено), «с оператором» (туры операторов) или «вперемешку». Не сказано — вперемешку.",
             "examples": [
               "self"
             ]

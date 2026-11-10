@@ -64,7 +64,7 @@ describe('собранная поездка узнаётся оценкой и �
   const PRODUCERS: Array<[string, () => string]> = [
     ['lib/planner/trip-request-lines.ts (форма /planner)', () => String(plannerLeadSource({
       interests: [], arrival: '', departure: '', tripDays: null, transportByDay: {}, adults: 2, childAges: [],
-      seasickness: false, riskMode: 'safe_only', plan: null,
+      seasickness: false, plan: null,
     }).source)],
     ['app/hub/tourist/trips/[id]/_TripDetailClient.tsx', () => leadSource('app/hub/tourist/trips/[id]/_TripDetailClient.tsx')],
   ];

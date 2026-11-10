@@ -25,7 +25,7 @@ vi.mock('@/lib/config', () => ({ getPublicBaseUrl: () => 'https://vedarai.ru' })
 const dbQuery = vi.fn();
 vi.mock('@/lib/database', () => ({ query: (...a: unknown[]) => dbQuery(...a) }));
 
-import { plannerLeadSource, tripFactsOf, tripRequestLines, wishesWords, type PlannerLeadInput } from '@/lib/planner/trip-request-lines';
+import { asTripWishes, plannerLeadSource, tripFactsOf, tripRequestLines, wishesWords, type PlannerLeadInput } from '@/lib/planner/trip-request-lines';
 import { RequestSummary } from '@/components/planner/RequestSummary';
 import { LeadTripFacts } from '@/components/requests/LeadTripFacts';
 import LeadDetailClient from '@/app/hub/operator/leads/[id]/_LeadDetailClient';
@@ -36,7 +36,7 @@ import { notifyAdminNewLead } from '@/lib/notifications/telegram-channel';
 /** Сценарий проверки 07.11: 10–17 июля 2027, двое взрослых, без катеров, плана ещё нет. */
 const INPUT: PlannerLeadInput = {
   interests: ['volcano'], arrival: '2027-07-10', departure: '2027-07-17', tripDays: 8,
-  transportByDay: {}, adults: 2, childAges: [], seasickness: true, riskMode: 'safe_only', plan: null,
+  transportByDay: {}, adults: 2, childAges: [], seasickness: true, plan: null,
 };
 
 describe('что форма отправляет', () => {
@@ -45,8 +45,10 @@ describe('что форма отправляет', () => {
     expect(sd).toMatchObject({
       source: 'trip_planner', arrival: '2027-07-10', departure: '2027-07-17', trip_days: 8,
       party: { adults: 2, children: [] },
-      wishes: { seasickness: true, risk_mode: 'safe_only' },
+      wishes: { seasickness: true },
     });
+    // Режима в заявке нет: блок «Режим маршрутов» убран 10.11 (Б12).
+    expect(sd.wishes).toEqual({ seasickness: true });
     expect(sd).not.toHaveProperty('plan');
     expect(JSON.stringify(sd)).not.toMatch(/health|здоров/i);
   });
@@ -74,9 +76,15 @@ describe('строки заявки', () => {
     ]);
   });
 
-  it('обычный режим не называется, иной — называется; ничего не отмечено — строки нет', () => {
-    expect(wishesWords({ seasickness: false, risk_mode: 'safe_only' })).toBeNull();
-    expect(wishesWords({ seasickness: false, risk_mode: 'adventure' })).toBe('режим: все маршруты, включая опасные');
+  it('ничего не отмечено — строки нет; режим прежней анкеты у заявок 08–11.11 читается, как тогда', () => {
+    expect(wishesWords({ seasickness: false })).toBeNull();
+    // Заявка, записанная до снятия блока: что человек выбрал, менеджер видит по-прежнему.
+    expect(wishesWords(asTripWishes({ seasickness: false, risk_mode: 'adventure' }))).toBe('режим: все маршруты, включая опасные');
+    expect(wishesWords(asTripWishes({ seasickness: true, risk_mode: 'available' })))
+      .toBe('укачивает на воде — без катеров, где можно; режим: всё, где есть места');
+    // «Обычный» режим не назывался и не называется; чужое значение — не режим.
+    expect(asTripWishes({ seasickness: false, risk_mode: 'safe_only' })).toEqual({ seasickness: false });
+    expect(asTripWishes({ seasickness: false, risk_mode: 'что угодно' })).toEqual({ seasickness: false });
     expect(tripRequestLines(tripFactsOf(plannerLeadSource({ ...INPUT, seasickness: false })))).not.toContainEqual(expect.stringMatching(/Пожелания/));
   });
 

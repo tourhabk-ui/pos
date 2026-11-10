@@ -51,7 +51,7 @@ import { GroupEstimateBlock } from '@/components/planner/GroupEstimate';
 import { dayPrice, dayPriceLine } from '@/lib/planner/day-price';
 import { estimateGroup, type EstimateProfile } from '@/lib/planner/estimate';
 import { planForLead } from '@/lib/planner/plan-for-lead';
-import { plannerLeadSource, riskModeEffect, tripFactsOf, tripRequestLines } from '@/lib/planner/trip-request-lines';
+import { plannerLeadSource, tripFactsOf, tripRequestLines } from '@/lib/planner/trip-request-lines';
 import { RequestSummary } from '@/components/planner/RequestSummary';
 import { EMPTY_SELECTION, resolveChoices, toggleLodging, type ChoiceSelection } from '@/lib/planner/plan-choices';
 import { buildPlanPrintHtml } from '@/lib/planner/print-html';
@@ -1271,7 +1271,6 @@ export function PlannerClient({ initialUserId }: { initialUserId?: string | null
   const [fitnessLevel, setFitnessLevel] = useState<FitnessLevel>('moderate');
   const [budgetTier, setBudgetTier] = useState<BudgetTier>('comfort');
   const [seasickness, setSeasickness] = useState(false);
-  const [riskMode, setRiskMode] = useState<'safe_only' | 'adventure' | 'available'>('safe_only');
   // Здоровье — только в /api/planner/recommend (наш движок). Не в чат, не в
   // заявку, не в сохранённый маршрут, не в модель — сторож planner-health-stays-local.
   const [healthNotes, setHealthNotes] = useState('');
@@ -1470,13 +1469,13 @@ export function PlannerClient({ initialUserId }: { initialUserId?: string | null
     arrival, departure, flightArrival, flightDeparture, flightArrivalTime, flightDepartureTime,
     tripDays: tripDays ?? null,
     transportByDay,
-    adults, childAges, seasickness, riskMode,
+    adults, childAges, seasickness,
     plan: planProfile && days.length > 0
       ? planForLead(days, { ...planProfile, arrivalDate: arrival || null }, planChoices,
         { lodging: needsLodging, transfer: needsAirportTransfer, car: needsCar })
       : null,
   }), [places, activities, arrival, departure, flightArrival, flightDeparture, flightArrivalTime, flightDepartureTime,
-    tripDays, transportByDay, adults, childAges, seasickness, riskMode, planProfile, days, planChoices,
+    tripDays, transportByDay, adults, childAges, seasickness, planProfile, days, planChoices,
     needsLodging, needsAirportTransfer, needsCar]);
   const requestLines = useMemo(() => tripRequestLines(tripFactsOf(leadSource)), [leadSource]);
 
@@ -1985,7 +1984,6 @@ export function PlannerClient({ initialUserId }: { initialUserId?: string | null
           fitnessLevel,
           budgetTier,
           seasickness,
-          riskMode,
           healthNotes: healthNotes.trim() || undefined,
           mobilityLevel,
           travelStyle: over.travelStyle ?? travelStyle,
@@ -2564,41 +2562,6 @@ export function PlannerClient({ initialUserId }: { initialUserId?: string | null
             { value: 'premium', label: 'Премиум' },
           ]}
         />
-      </div>
-
-      {/* Risk Mode — блок и кнопки как были (решение владельца 26.09: блок не
-          переименовывать). Подпись — то, что режим делает на деле (Б12, 10.11):
-          отбора по режиму в движке нет, и экран его не обещает. */}
-      <div className="space-y-2">
-        <p className="text-[10px] font-bold uppercase tracking-widest text-[var(--text-muted)] flex items-center gap-1">
-          <ShieldAlert className="w-3 h-3" />Режим маршрутов
-        </p>
-        <div className="grid grid-cols-3 gap-1">
-          {([
-            { value: 'safe_only', label: 'Безопасный' },
-            { value: 'adventure', label: 'Приключение' },
-            { value: 'available', label: 'Свободные' },
-          ] as const).map(m => (
-            <button
-              key={m.value}
-              type="button"
-              onClick={() => setRiskMode(m.value)}
-              title={riskModeEffect(m.value)}
-              className={`px-2 py-2 min-h-[44px] rounded text-xs font-medium transition-all border ${
-                riskMode === m.value
-                  ? m.value === 'adventure'
-                    ? 'bg-[color-mix(in_srgb,var(--warning)_16%,var(--bg-card))] border-[var(--warning)] text-[var(--warning)]'
-                    : 'bg-[color-mix(in_srgb,var(--accent)_16%,var(--bg-card))] border-[var(--accent)] text-[var(--accent)]'
-                  : 'border-[var(--border)] text-[var(--text-secondary)] hover:border-[var(--accent)]'
-              }`}
-            >
-              {m.label}
-            </button>
-          ))}
-        </div>
-        <p className="text-xs text-[var(--text-secondary)]" data-testid="risk-mode-effect">
-          {riskModeEffect(riskMode)}
-        </p>
       </div>
 
       {/* Что ещё нужно (решение владельца 26.09): в результате — настоящие

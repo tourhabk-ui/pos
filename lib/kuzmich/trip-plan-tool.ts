@@ -539,7 +539,9 @@ export function planAssumptions(p: {
   const level = p.tierGiven
     ? `уровень размещения «${BUDGET_LABEL[p.tier]}»`
     : `уровень размещения «${BUDGET_LABEL[p.tier]}» (не назван — допущение)`;
-  return `${group}, средняя подготовка, ${level}, только безопасные варианты — если у вас иначе, пересоберите в планировщике.`;
+  // «Только безопасные варианты» здесь стояло до 10.11 — отбора такого в движке
+  // нет и не было (аудит планировщика, Б12); обещать его нельзя.
+  return `${group}, средняя подготовка, ${level} — если у вас иначе, пересоберите в планировщике.`;
 }
 
 const rub = (n: number) => `${Math.round(n).toLocaleString('ru-RU')} ₽`;
@@ -917,7 +919,6 @@ export async function makeTripPlanForKuzmich(
     children: kids.children,
     fitnessLevel: 'moderate',
     budgetTier: budget.tier,
-    riskMode: 'safe_only',
     travelStyle: readTravelStyle(args.travel_style),
     restDays: readRestDays(args.rest_days),
   }, { itinerary: 'plain' });

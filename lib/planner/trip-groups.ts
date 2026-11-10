@@ -195,7 +195,7 @@ export async function buildGroupPlan(id: string): Promise<GroupPlanResult> {
     const rec = await recommendTrip({
       interests: params.interests, arrivalDate: params.arrivalDate, departureDate: params.departureDate,
       adults: params.adults, children: params.children, fitnessLevel: profile.fitness,
-      budgetTier: params.budgetTier, riskMode: 'safe_only',
+      budgetTier: params.budgetTier,
       ...(params.seasickness ? { seasickness: true } : {}),
       ...(params.mobilityLevel ? { mobilityLevel: params.mobilityLevel } : {}),
     }, { itinerary: 'plain' });
