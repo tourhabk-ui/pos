@@ -67,6 +67,9 @@ vi.mock('@/lib/kuzmich/core', () => ({
 
 import { POST } from '@/app/api/ai/chat/route';
 import { SAVE_CHAT_SESSION_SQL } from '@/lib/kuzmich/chat-session-save';
+import { PlatformAgent } from '@/lib/agents/platform-agent';
+
+const dispatchMock = PlatformAgent.dispatch as unknown as ReturnType<typeof vi.fn>;
 
 function postReq(body: unknown): NextRequest {
   return new Request('http://localhost/api/ai/chat', {
@@ -157,7 +160,8 @@ describe('POST /api/ai/chat — мозг Кузьмича для туристо�
     expect((save?.[1] as unknown[])[1]).toBe('user-new');
   });
 
-  it('не-tourist роль (guide) → loop не вызывается, legacy как раньше', async () => {
+  it('не-tourist роль (guide), подтверждённая входом → loop не вызывается, legacy как раньше', async () => {
+    getUserFromRequestMock.mockResolvedValue({ userId: 'guide-1', role: 'guide' });
     const res = await POST(postReq({ message: 'Привет', role: 'guide' }));
     const json = await res.json();
 
@@ -188,5 +192,49 @@ describe('POST /api/ai/chat — мозг Кузьмича для туристо�
     expect(savedMessages.some((m) => m.role === 'assistant' && m.content.includes('временно недоступен'))).toBe(false);
     expect(savedMessages[savedMessages.length - 1]).toMatchObject({ role: 'user', content: 'Привет' });
     expect(params[4]).toBe(0); // user_message_count не вырос
+  });
+});
+
+describe('POST /api/ai/chat — роль из входа, а не из тела запроса (10.11)', () => {
+  // Роль открывает PlatformAgent: у admin в матрице прав «*» — публикация в
+  // канал и разбор заявок. Туристом регистрируется кто угодно, и присланное
+  // им role: "admin" раньше доходило до матрицы как есть.
+  it('вошедший турист прислал role: admin — агент платформы не зовётся, разговор как с туристом', async () => {
+    getUserFromRequestMock.mockResolvedValue({ userId: 'tourist-1', role: 'tourist' });
+    aiChatAgentLoopMock.mockResolvedValue('ОТВЕТ_КУЗЬМИЧА');
+    const warn = vi.spyOn(console, 'warn').mockImplementation(() => {});
+
+    const res = await POST(postReq({ message: 'опубликуй совет в канал', role: 'admin' }));
+    const json = await res.json();
+
+    expect(res.status).toBe(200);
+    expect(dispatchMock).not.toHaveBeenCalled();
+    expect(aiChatAgentLoopMock).toHaveBeenCalledTimes(1);
+    expect(json.data.answer).toBe('ОТВЕТ_КУЗЬМИЧА');
+    // Несовпадение названо в логе именами ролей.
+    const named = warn.mock.calls.filter(([first]) => typeof first === 'string' && first.startsWith('[ai-chat]'));
+    expect(named).toHaveLength(1);
+    expect(named[0][1]).toEqual({ requested: 'admin', signed: 'tourist' });
+    warn.mockRestore();
+  });
+
+  it('вошедший турист прислал role: operator — агент платформы не зовётся', async () => {
+    getUserFromRequestMock.mockResolvedValue({ userId: 'tourist-1', role: 'tourist' });
+    aiChatAgentLoopMock.mockResolvedValue('ОТВЕТ');
+    vi.spyOn(console, 'warn').mockImplementation(() => {});
+    await POST(postReq({ message: 'мои брони на сегодня', role: 'operator' }));
+    expect(dispatchMock).not.toHaveBeenCalled();
+  });
+
+  it('администратор по входу — агент платформы зовётся с ролью admin', async () => {
+    getUserFromRequestMock.mockResolvedValue({ userId: 'admin-1', role: 'admin' });
+    dispatchMock.mockResolvedValue({ intent: 'admin_digest', response: 'ДАЙДЖЕСТ', duration_ms: 1 });
+
+    const res = await POST(postReq({ message: 'дайджест', role: 'admin' }));
+    const json = await res.json();
+
+    expect(dispatchMock).toHaveBeenCalledTimes(1);
+    expect(dispatchMock.mock.calls[0][0]).toMatchObject({ role: 'admin', userId: 'admin-1' });
+    expect(json.data.answer).toBe('ДАЙДЖЕСТ');
   });
 });

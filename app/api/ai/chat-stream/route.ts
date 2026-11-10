@@ -23,6 +23,7 @@ import { z } from 'zod';
 import { safeMsg } from '@/lib/errors/sanitize';
 import { query } from '@/lib/database';
 import { getSystemPrompt, buildMessageHistory, type ChatMessage, type ChatRole } from '@/lib/ai/prompts';
+import { effectiveChatRole, logRoleDowngrade } from '@/lib/ai/chat-role';
 import { buildRAGContext, buildGeoContext } from '@/lib/ai/rag-context';
 import { getOpenRouterKey } from '@/lib/ai/provider-config';
 import { createRateLimiter, getClientIp } from '@/lib/rate-limit';
@@ -175,10 +176,12 @@ export async function POST(request: NextRequest) {
     }
 
     const { message, sessionId, role = 'tourist', history: clientHistory, userLocation } = parsed.data;
-    const validRoles: ChatRole[] = ['tourist', 'operator', 'guide', 'admin', 'agent', 'transfer'];
-    const safeRole: ChatRole = validRoles.includes(role as ChatRole) ? (role as ChatRole) : 'tourist';
     const user = await getUserFromRequest(request);
     const isAuthenticated = !!user;
+    // Роль — из входа, не из тела (lib/ai/chat-role), как в /api/ai/chat.
+    const roleDecision = effectiveChatRole(role, user?.role ?? null);
+    if (roleDecision.downgraded) logRoleDowngrade('ai-chat-stream', role, user?.role ?? null);
+    const safeRole: ChatRole = roleDecision.role;
 
     const loaded = sessionId ? await loadSession(sessionId) : null;
     // Чужую сессию не читаем и не перезаписываем (см. isForeignSession).

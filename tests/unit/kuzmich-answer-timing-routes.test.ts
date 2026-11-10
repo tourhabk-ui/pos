@@ -192,7 +192,8 @@ describe('веб-чат /api/ai/chat', () => {
     expect(records()[0]!.meta).toMatchObject({ surface: 'web', path: 'tools', turns: 2, tool_rounds: 1 });
   });
 
-  it('не турист (гид) — это не ответ Кузьмича туристу, замер не пишется', async () => {
+  it('не турист (гид по входу) — это не ответ Кузьмича туристу, замер не пишется', async () => {
+    m.user.mockResolvedValue({ userId: 'guide-1', role: 'guide' });
     await web({ message: 'Где маршрут на вулкан?', role: 'guide' });
     expect(records()).toHaveLength(0);
   });

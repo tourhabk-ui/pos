@@ -17,6 +17,7 @@ import { safeMsg } from '@/lib/errors/sanitize';
 import { NextRequest, NextResponse } from 'next/server';
 import { z } from 'zod';
 import { getSystemPrompt, buildMessageHistory, ChatRole, ChatMessage } from '@/lib/ai/prompts';
+import { effectiveChatRole, logRoleDowngrade } from '@/lib/ai/chat-role';
 import { query } from '@/lib/database';
 import { createRateLimiter, getClientIp } from '@/lib/rate-limit';
 import { callAIWithModelDirect } from '@/lib/ai/providers';
@@ -177,8 +178,11 @@ export async function POST(request: NextRequest) {
     const user = await getUserFromRequest(request);
     const isAuthenticated = !!user;
 
-    const validRoles: ChatRole[] = ['tourist', 'operator', 'guide', 'admin', 'agent', 'transfer'];
-    const safeRole: ChatRole = validRoles.includes(role as ChatRole) ? (role as ChatRole) : 'tourist';
+    // Роль — из входа, не из тела (lib/ai/chat-role): по ней открываются
+    // PlatformAgent и инструменты оператора ниже.
+    const roleDecision = effectiveChatRole(role, user?.role ?? null);
+    if (roleDecision.downgraded) logRoleDowngrade('ai-chat', role, user?.role ?? null);
+    const safeRole: ChatRole = roleDecision.role;
 
     // Load session from DB; fall back to client-provided history if DB has nothing
     const loaded = sessionId ? await loadSession(sessionId) : null;
