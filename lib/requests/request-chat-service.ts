@@ -764,6 +764,10 @@ export async function bindGuestChat(rawKey: string, chatId: number): Promise<Cha
       k.target.kind === 'stay' ? CHAT_BIND_STAY_SQL : CHAT_BIND_LEAD_SQL, [hash, String(chatId)],
     );
     if (!rows[0]) return [{ text: CHAT_TEXT.bindAlreadyBound, buttons: [] }];
+    // Чат подключён к заявке — она и в его «Моей поездке» (#2970, 1416).
+    // Отказ связи не отменяет подключения: он в логе, человек — в переписке.
+    const { linkChatToKeys } = await import('@/lib/requests/chat-links');
+    await linkChatToKeys('max', chatId, [rawKey], 'sq');
   } catch (err) {
     logFail('чат клиента не подключён', err);
     return [{ text: CHAT_TEXT.bindDbError, buttons: [] }];
