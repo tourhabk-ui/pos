@@ -35,7 +35,6 @@ const SURFACES = [
   'lib/planner/estimate.ts',
   'lib/trips/trip-schema.ts',
   'app/hub/tourist/trips/[id]/_TripDetailClient.tsx',
-  'app/api/trip/plan/route.ts',
 ] as const;
 
 const SEAT_SALE: Array<[RegExp, string]> = [
