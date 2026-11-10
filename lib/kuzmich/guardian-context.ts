@@ -431,7 +431,10 @@ export function unrecordedSafetyLine(
  *
  * Есть видимое место с сильным совпадением — скрытые записи в ответ не идут:
  * рядом с ним они дубль или название тура. Нет такого места — скрытая
- * остаётся (страж может знать скрытое место), но без цвета: HIDDEN_RECORD_NOTE.
+ * остаётся (страж может знать скрытое место), но без зелёного:
+ * HIDDEN_RECORD_NOTE. Красный и жёлтый у скрытой записи печатаются
+ * (HIDDEN_RECORD_WARN_NOTE): «можно идти» по точке без доверия сказать
+ * нельзя, а спрятать предупреждение — хуже, чем показать (#3168).
  */
 export function placesForAnswer<T extends { name: string; is_visible?: boolean | null; aliases?: string[] | null }>(
   rows: readonly T[],
@@ -445,6 +448,17 @@ export function placesForAnswer<T extends { name: string; is_visible?: boolean |
 export const HIDDEN_RECORD_NOTE =
   'Запись скрыта с карты Ведара — так прячут, например, названия туров и событий и места, чья координата под сомнением. ' +
   'Цвет для выхода по ней не показываю: он посчитан для точки, которой нельзя верить.';
+
+/**
+ * Скрытая запись, которую предупреждения подняли до красного или жёлтого:
+ * цвет печатается. У «Скитура на Мутновский вулкан» (851 скрыла его как
+ * название тура, а не место) красный поднят поимённой связью с вулканом
+ * (1029) и тревогой «не приближаться», а не координатой — и до #3168 ответ
+ * прятал его вместе с зелёным: у скитура при красном вулкане не было цвета.
+ */
+export const HIDDEN_RECORD_WARN_NOTE =
+  'Запись скрыта с карты Ведара — так прячут, например, названия туров и событий и места, чья координата под сомнением. ' +
+  'Зелёный по такой записи я бы не показал, а предупреждение показываю: его подняли тревоги ниже.';
 
 /**
  * Строка о повторных алертах места (дедуп между записями, проба 113).
@@ -653,9 +667,10 @@ export async function getGuardianContextDetailed(placeNameRaw: string, opts: Gua
     // печатается; Северные Курилы: зелёный значит «камчатских сводок нет», а
     // не «предупреждений нет» (16.10). До 08.11 правило жило здесь отдельной
     // копией, и у закрытого места с устаревшим цветом «ЗАКРЫТО» не печаталось.
-    // Скрытая запись (не место или координата под сомнением) — без цвета
-    // (08.11, placesForAnswer): он посчитан для точки, которой нельзя верить;
-    // и в тексте, и в полях.
+    // Скрытая запись (не место или координата под сомнением) — без зелёного
+    // (08.11, placesForAnswer): «можно идти» посчитано для точки, которой
+    // нельзя верить; и в тексте, и в полях. Красный и жёлтый остаются:
+    // спрятать предупреждение хуже, чем показать (#3168, скитур на Мутновский).
     const hiddenRecord = p.is_visible === false;
     const computed = placeStatusFields({
       isOpen: p.is_open,
@@ -663,7 +678,7 @@ export async function getGuardianContextDetailed(placeNameRaw: string, opts: Gua
       updatedAt: p.status_updated_at ?? null,
       outsideKraiSources: isOutsideKraiSources(p.zone),
     });
-    const fields = hiddenRecord && computed.color
+    const fields = hiddenRecord && computed.color === 'green'
       ? { ...computed, color: null, level: computed.closed ? 'closed' as const : 'unknown' as const }
       : computed;
     const updatedMs = p.status_updated_at ? Date.parse(p.status_updated_at) : NaN;
@@ -692,7 +707,7 @@ export async function getGuardianContextDetailed(placeNameRaw: string, opts: Gua
     const header = marks.length ? `${nameWithKind} [${marks.join(' — ')}]` : nameWithKind;
     parts.push(header);
     if (hiddenRecord) {
-      parts.push(HIDDEN_RECORD_NOTE);
+      parts.push(fields.color ? HIDDEN_RECORD_WARN_NOTE : HIDDEN_RECORD_NOTE);
     } else if (statusStale) {
       parts.push(`Статус места не пересчитывался с ${kamchatkaStamp(p.status_updated_at!)} (по Камчатке) — цвет не показываю: он может быть уже не про сегодня.`);
     } else if (outsideGreen) {
