@@ -50,6 +50,15 @@ interface StoredConsent {
 /** Версия формулировки. Меняется вместе с составом получателей данных. */
 export const CONSENT_VERSION = 1;
 
+/**
+ * Подписи двух кнопок баннера. Экспортированы по той же причине, что ключ:
+ * браузерная проба на проде находит баннер по кнопке отказа и берёт подпись
+ * отсюда. 09.11 карточку сменила полоса с другим текстом пояснения, а проба
+ * искала баннер по прежнему тексту: первый её тест покраснел (#3205), второй —
+ * «баннер не показан снова» — молча перестал что-либо проверять.
+ */
+export const CONSENT_BUTTONS = { accept: 'Разрешить', decline: 'Только необходимое' } as const;
+
 export function readConsent(): { state: ConsentState; choice: ConsentChoice } {
   const denied: ConsentChoice = { analytics: false, advertising: false };
   try {
