@@ -1,7 +1,7 @@
 import { MetadataRoute } from 'next';
 import { headers } from 'next/headers';
 import { recordAgentEntryHit } from '@/lib/analytics/agent-entry-hits';
-import { publicApiAllow } from '@/lib/seo/robots-allow';
+import { publicApiAllow, publicApiDisallow } from '@/lib/seo/robots-allow';
 
 // Публичные хабы — открыты обходу, несмотря на закрытый /hub/*. Индексируется
 // из них только /hub/fishing (посадочная «Рыбалка» из шапки сайта);
@@ -27,7 +27,13 @@ const PUBLIC_API = publicApiAllow();
 // группу и `*` игнорируют: `/auth/login` отвечал им 200 «index, follow».
 // `/booking-success/` и `/widget/` не были закрыты нигде (аудит SEO 29.09, Н5).
 // Список один — новая группа не может его «забыть».
-const DISALLOW = ['/hub/', '/api/', '/.next/', '/auth/', '/booking-success/', '/widget/'];
+// Под открытыми путями закрыто то, чего нет в спецификации (10.11): всё глубже
+// параметра (`/api/places/<id>/pdf`, `/api/routes/<id>/offline-bundle`) и вход
+// партнёров по OAuth под открытым `/api/mcp`.
+const DISALLOW = [
+  '/hub/', '/api/', '/.next/', '/auth/', '/booking-success/', '/widget/',
+  '/api/mcp/partner', ...publicApiDisallow(),
+];
 
 export default async function robots(): Promise<MetadataRoute.Robots> {
   // Перепись краулеров по семействам (12.10): robots.txt — первое, что берёт
