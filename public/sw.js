@@ -336,6 +336,88 @@ function refreshShell(mark) {
 }
 
 // Активация: удаляем старые кэши кроме тайлового и API кэшей
+// ─── Снимки открытых карточек ────────────────────────────────────────────────
+//
+// Аудит 10.11: карточка места офлайн открывалась без единого снимка. Ветка
+// «остальные API — не кэшируем» отпускала /api/images/* в сеть, а снимки
+// приходят ровно оттуда (байтами или переадресацией на хранилище). Теперь
+// снимок, который браузер уже показал онлайн, кладётся в отдельный кэш.
+//
+// Лимиты — числом и сроком: телефону не нужна вся галерея края, нужны снимки
+// того, что человек смотрел перед выходом. Переадресация на хранилище даёт
+// непрозрачный ответ (type 'opaque'): его тело не читается, но картинкой
+// показывается, поэтому он тоже кладётся. Chrome считает такой ответ в квоте
+// с запасом, отсюда и потолок числом, а не только сроком.
+const PHOTO_CACHE_NAME = 'kh-photos-v1';
+const MAX_PHOTOS = 80;
+const MAX_PHOTO_AGE_MS = 30 * 24 * 60 * 60 * 1000;
+const PHOTO_META_KEY = '/__kh-photo-meta';
+
+function isPhotoRequest(request, url) {
+  if (url.origin !== self.location.origin || !url.pathname.startsWith('/api/images/')) return false;
+  return request.destination === 'image' || /\.(?:jpe?g|png|webp)$/i.test(url.pathname);
+}
+
+let photoMeta = null;
+let photoMetaWrite = Promise.resolve();
+
+async function readPhotoMeta(cache) {
+  if (photoMeta) return photoMeta;
+  try {
+    const res = await cache.match(PHOTO_META_KEY);
+    const parsed = res ? await res.json() : {};
+    photoMeta = parsed && typeof parsed === 'object' ? parsed : {};
+  } catch (err) {
+    console.error('[SW] список снимков не прочитан, начинаю заново', err);
+    photoMeta = {};
+  }
+  return photoMeta;
+}
+
+/** Убирает просроченные и лишние снимки (старейшие первыми) и пишет список. */
+function prunePhotos(cache) {
+  photoMetaWrite = photoMetaWrite.then(async () => {
+    const meta = await readPhotoMeta(cache);
+    const now = Date.now();
+    const order = Object.entries(meta).sort((a, b) => a[1] - b[1]);
+    const drop = order.filter(([, t]) => now - t > MAX_PHOTO_AGE_MS).map(([u]) => u);
+    const alive = order.filter(([u]) => !drop.includes(u));
+    if (alive.length > MAX_PHOTOS) drop.push(...alive.slice(0, alive.length - MAX_PHOTOS).map(([u]) => u));
+    for (const u of drop) { delete meta[u]; await cache.delete(u); }
+    await cache.put(PHOTO_META_KEY, new Response(JSON.stringify(meta), {
+      headers: { 'Content-Type': 'application/json' },
+    }));
+  }).catch((err) => console.error('[SW] уборка снимков не удалась', err));
+  return photoMetaWrite;
+}
+
+/**
+ * Свежая копия (моложе срока) — сразу из кэша; иначе сеть, а при отказе —
+ * последняя копия, какой бы старой она ни была: без сети старый снимок лучше
+ * пустой рамки.
+ */
+async function handlePhoto(request, event) {
+  const cache = await caches.open(PHOTO_CACHE_NAME);
+  const meta = await readPhotoMeta(cache);
+  const cached = await cache.match(request);
+  const savedAt = meta[request.url];
+  if (cached && typeof savedAt === 'number' && Date.now() - savedAt < MAX_PHOTO_AGE_MS) return cached;
+  try {
+    const response = await fetch(request);
+    if (response.ok || response.type === 'opaque') {
+      const store = cache.put(request, response.clone()).then(() => {
+        meta[request.url] = Date.now();
+        return prunePhotos(cache);
+      }).catch((err) => console.error('[SW] снимок не сохранён', err));
+      if (event && typeof event.waitUntil === 'function') event.waitUntil(store);
+    }
+    return response;
+  } catch (err) {
+    if (cached) return cached;
+    throw err;
+  }
+}
+
 self.addEventListener('activate', (event) => {
   event.waitUntil(
     caches.keys().then((keys) => {
@@ -350,7 +432,9 @@ self.addEventListener('activate', (event) => {
             // То же для планов, сохранённых человеком для поля (#2225).
             && key !== SAVED_TRIPS_CACHE_NAME
             // Файлы прекэша: SOS и «Связи нет» без них не поднимаются.
-            && key !== SHELL_CACHE_NAME)
+            && key !== SHELL_CACHE_NAME
+            // Снимки открытых карточек: у них свой лимит, выкатка их не стирает.
+            && key !== PHOTO_CACHE_NAME)
           .map((key) => caches.delete(key))
       );
     }).then(() => self.clients.claim())
@@ -892,6 +976,12 @@ self.addEventListener('fetch', (event) => {
   // network-first, офлайн — из кэша. Тот же контракт, что у /api/places.
   if (isTripApiRequest(url.href)) {
     event.respondWith(apiWithTimeout(request, 'Нет подключения. Откройте план онлайн заранее.'));
+    return;
+  }
+
+  // Снимки (/api/images/*) — в свой кэш с лимитом, см. handlePhoto.
+  if (isPhotoRequest(request, url)) {
+    event.respondWith(handlePhoto(request, event));
     return;
   }
 

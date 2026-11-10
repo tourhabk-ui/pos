@@ -41,6 +41,10 @@ interface World {
   /** Адреса, которые сеть отвергает 404 при живой связи. */
   broken: Set<string>;
   fetched: string[];
+  /** Часы воркера; без них — настоящие. */
+  now?: number;
+  /** Снимки: отвечать непрозрачно, как переадресация на хранилище. */
+  opaquePhotos?: boolean;
 }
 
 function net(world: World) {
@@ -50,6 +54,17 @@ function net(world: World) {
     if (!world.online) throw new TypeError('Failed to fetch');
     const path = new URL(url).pathname;
     if (world.broken.has(path)) return new Response('nope', { status: 404 });
+    if (path.startsWith('/api/images/')) {
+      if (world.opaquePhotos) {
+        // Непрозрачный ответ: статус 0, тело не читается.
+        const r = new Response(null, { status: 200 });
+        Object.defineProperty(r, 'type', { value: 'opaque' });
+        Object.defineProperty(r, 'ok', { value: false });
+        Object.defineProperty(r, 'status', { value: 0 });
+        return r;
+      }
+      return new Response(`jpeg ${path} ${world.build}`, { status: 200, headers: { 'Content-Type': 'image/jpeg' } });
+    }
     if (path.startsWith('/_next/static/')) {
       return new Response(`/* ${path} */`, { status: 200, headers: { 'Content-Type': 'application/javascript' } });
     }
@@ -101,6 +116,7 @@ function loadWorker(world: World) {
     setTimeout: (fn: () => void) => { queueMicrotask(fn); return 0; },
     clearTimeout: () => undefined,
     Response, Headers, URL, atob, Uint8Array, Promise, console, Set, Map,
+    Date: { now: () => world.now ?? Date.now() },
   });
   vm.runInContext(SW, context, { filename: 'public/sw.js' });
 
@@ -126,14 +142,22 @@ function loadWorker(world: World) {
     /** Запрос страницы; ответ — то, что воркер отдал в respondWith. */
     async request(path: string, init: { mode?: string; destination?: string } = {}): Promise<Response | undefined> {
       let answer: Promise<Response> | undefined;
+      const waits: Promise<unknown>[] = [];
       const request = {
         method: 'GET', url: abs(path), mode: init.mode ?? 'no-cors', destination: init.destination ?? 'script',
         cache: 'default', headers: new Headers(),
       };
       for (const fn of listeners.get('fetch') ?? []) {
-        fn({ request, respondWith: (v: Promise<Response>) => { answer = Promise.resolve(v); } });
+        fn({
+          request,
+          respondWith: (v: Promise<Response>) => { answer = Promise.resolve(v); },
+          waitUntil: (p: Promise<unknown>) => { waits.push(p); },
+        });
       }
-      return answer ? answer.catch(() => undefined) : undefined;
+      const res = answer ? await answer.catch(() => undefined) : undefined;
+      // Запись в кэш идёт после ответа (waitUntil) — дождаться её, как браузер.
+      while (waits.length) await waits.shift();
+      return res;
     },
   };
 }
@@ -300,5 +324,81 @@ describe('метка сборки страницы', () => {
     expect(shouldAskShellRefresh({ onLine: true })).toBe(true);
     expect(shouldAskShellRefresh({ onLine: false })).toBe(false);
     expect(shouldAskShellRefresh({ onLine: true, connection: { saveData: true } })).toBe(false);
+  });
+});
+
+describe('снимки открытых карточек лежат офлайн', () => {
+  const photo = (n: number) => `/api/images/route/place-${n}?card=1`;
+  const img = { destination: 'image' };
+
+  it('снимок, показанный онлайн, отдаётся без сети', async () => {
+    const world: World = { online: true, build: 'b1', broken: new Set(), fetched: [] };
+    const sw = loadWorker(world);
+    expect((await sw.request(photo(1), img))?.status).toBe(200);
+    world.online = false;
+    const res = await sw.request(photo(1), img);
+    expect(res?.status, 'снимок без сети').toBe(200);
+    expect(await res!.text()).toContain('place-1');
+  });
+
+  it('переадресация на хранилище (непрозрачный ответ) тоже кладётся', async () => {
+    const world: World = { online: true, build: 'b1', broken: new Set(), fetched: [], opaquePhotos: true };
+    const sw = loadWorker(world);
+    await sw.request(photo(2), img);
+    world.online = false;
+    const res = await sw.request(photo(2), img);
+    expect(sw.stores.get('kh-photos-v1')?.has(abs(photo(2))), 'непрозрачный снимок в кэше').toBe(true);
+    expect(res, 'непрозрачный снимок без сети').toBeDefined();
+  });
+
+  it('ошибка сервера не кладётся', async () => {
+    const world: World = { online: true, build: 'b1', broken: new Set(['/api/images/route/place-3']), fetched: [] };
+    const sw = loadWorker(world);
+    await sw.request(photo(3), img);
+    expect(sw.stores.get('kh-photos-v1')?.has(abs(photo(3))) ?? false).toBe(false);
+  });
+
+  it('лимит числом: сверх 80 уходят старейшие', async () => {
+    const world: World = { online: true, build: 'b1', broken: new Set(), fetched: [], now: 1_000 };
+    const sw = loadWorker(world);
+    for (let i = 0; i < 85; i++) { world.now = 1_000 + i; await sw.request(photo(100 + i), img); }
+    const kept = [...(sw.stores.get('kh-photos-v1')?.keys() ?? [])].filter((u) => u.includes('/api/images/'));
+    expect(kept.length).toBe(80);
+    expect(kept.some((u) => u.includes('place-100?'))).toBe(false);
+    expect(kept.some((u) => u.includes('place-184?'))).toBe(true);
+  });
+
+  it('лимит сроком: копия старше 30 дней убирается при следующей записи', async () => {
+    const day = 24 * 60 * 60 * 1000;
+    const world: World = { online: true, build: 'b1', broken: new Set(), fetched: [], now: 0 };
+    const sw = loadWorker(world);
+    await sw.request(photo(5), img);
+    world.now = 31 * day;
+    await sw.request(photo(6), img);
+    const store = sw.stores.get('kh-photos-v1')!;
+    expect(store.has(abs(photo(5))), 'просроченный снимок').toBe(false);
+    expect(store.has(abs(photo(6)))).toBe(true);
+  });
+
+  it('свежая копия не ходит в сеть; без сети старая копия лучше пустой рамки', async () => {
+    const day = 24 * 60 * 60 * 1000;
+    const world: World = { online: true, build: 'b1', broken: new Set(), fetched: [], now: 0 };
+    const sw = loadWorker(world);
+    await sw.request(photo(7), img);
+    world.fetched.length = 0;
+    world.now = day;
+    await sw.request(photo(7), img);
+    expect(world.fetched, 'свежая копия').toEqual([]);
+    world.now = 40 * day;
+    world.online = false;
+    expect((await sw.request(photo(7), img))?.status, 'старая копия без сети').toBe(200);
+  });
+
+  it('снимки переживают активацию нового воркера', async () => {
+    const world: World = { online: true, build: 'b1', broken: new Set(), fetched: [] };
+    const sw = loadWorker(world);
+    await sw.request(photo(8), img);
+    await sw.activate();
+    expect(sw.stores.get('kh-photos-v1')?.has(abs(photo(8)))).toBe(true);
   });
 });
