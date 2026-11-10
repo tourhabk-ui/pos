@@ -17,7 +17,7 @@ import { NextRequest, NextResponse } from 'next/server';
 import { runKuzmichFaithfulnessEval, failedCases } from '@/lib/agents/eval/kuzmich-faithfulness';
 import { fixtureQuestions, commercialFailures } from '@/lib/agents/eval/kuzmich-faithfulness';
 import { commercialRunStatus } from '@/lib/agents/eval/commercial-checks';
-import { sampleLiveQuestions } from '@/lib/agents/eval/live-questions';
+import { liveCaseForResponse, sampleLiveQuestions } from '@/lib/agents/eval/live-questions';
 import { timingSafeCompare } from '@/lib/security/timing-safe';
 import { getCronSecret } from '@/lib/auth/cron';
 import { logAgentRun } from '@/lib/agents/run-logger';
@@ -167,7 +167,10 @@ export async function GET(request: NextRequest) {
       },
     });
 
-    return NextResponse.json({ ok: true, timestamp: new Date().toISOString(), source, set: commercialSet ? 'commercial' : 'base', ...report });
+    // Живые вопросы — сообщения туристов: в ответ идут числа без текстов
+    // (liveCaseForResponse). Вопросы фикстуры написаны нами — они уходят как были.
+    const outward = source === 'live' ? { ...report, cases: report.cases.map(liveCaseForResponse) } : report;
+    return NextResponse.json({ ok: true, timestamp: new Date().toISOString(), source, set: commercialSet ? 'commercial' : 'base', ...outward });
   } catch (err) {
     const errMsg = err instanceof Error ? err.message : String(err);
     void logAgentRun({

@@ -20,7 +20,10 @@ const h = vi.hoisted(() => ({
 
 vi.mock('@/lib/db-pool', () => ({ pool: { query: (...a: unknown[]) => h.query(...a) } }));
 vi.mock('@/lib/agents/run-logger', () => ({ logAgentRun: h.logAgentRun }));
-vi.mock('@/lib/agents/eval/live-questions', () => ({
+// Подменяется только выборка вопросов: остальное модуля (сужение случаев для
+// ответа роута) настоящее — иначе роут упал бы на отсутствующей функции.
+vi.mock('@/lib/agents/eval/live-questions', async (importOriginal) => ({
+  ...(await importOriginal<typeof import('@/lib/agents/eval/live-questions')>()),
   sampleLiveQuestions: async () => [{ id: 'live-1', category: 'live', question: 'Как добраться до Мутновского?' }],
 }));
 
