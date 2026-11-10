@@ -1,5 +1,6 @@
 'use client';
 
+import { isImeKeyEvent } from '@/lib/ui/ime';
 import ChatText from '@/components/kuzmich/ChatText';
 import React, { useState, useRef, useEffect, useCallback, useId } from 'react';
 import { usePathname } from 'next/navigation';
@@ -551,7 +552,7 @@ export default function KuzmichWidget() {
               type="text"
               value={input}
               onChange={e => setInput(e.target.value)}
-              onKeyDown={e => e.key === 'Enter' && !e.shiftKey && send(input)}
+              onKeyDown={e => !isImeKeyEvent(e.nativeEvent) && e.key === 'Enter' && !e.shiftKey && send(input)}
               placeholder="Спросите про туры..."
               className="flex-1 bg-transparent text-xs text-[var(--text-primary)] placeholder:text-[var(--text-muted)] outline-none"
             />

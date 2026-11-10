@@ -1,5 +1,6 @@
 'use client';
 
+import { isImeKeyEvent } from '@/lib/ui/ime';
 import React, { useState, useEffect } from 'react';
 import { X } from 'lucide-react';
 import { AgentClient, ClientFormData } from '@/types';
@@ -235,7 +236,7 @@ export function ClientFormModal({ client, onClose, onSave }: ClientFormModalProp
                 onChange={(e) => setNewTag(e.target.value)}
                 placeholder="Добавить тег..."
                 className="flex-1 px-3 py-2 bg-[var(--bg-card)] border border-[var(--border)] rounded-lg text-[var(--text-primary)] focus:outline-none focus:ring-2 focus:ring-[var(--accent)]"
-                onKeyPress={(e) => e.key === 'Enter' && (e.preventDefault(), addTag())}
+                onKeyDown={(e) => !isImeKeyEvent(e.nativeEvent) && e.key === 'Enter' && (e.preventDefault(), addTag())}
               />
               <button
                 type="button"

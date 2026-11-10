@@ -8,6 +8,7 @@
  * и добавляет его в системный промпт при первом вызове.
  */
 
+import { isImeKeyEvent } from '@/lib/ui/ime';
 import React, { useState, useRef, useEffect, useCallback } from 'react';
 import { Sparkles, X, Send, Loader2 } from 'lucide-react';
 import { getInterestContext } from '@/hooks/useInterestTracker';
@@ -214,7 +215,7 @@ export function AssistantButton({ pageContext }: { pageContext?: PageContext }) 
   }, [input, sendText]);
 
   const onKeyDown = (e: React.KeyboardEvent<HTMLTextAreaElement>) => {
-    if (e.key === 'Enter' && !e.shiftKey) {
+    if (!isImeKeyEvent(e.nativeEvent) && e.key === 'Enter' && !e.shiftKey) {
       e.preventDefault();
       send();
     }

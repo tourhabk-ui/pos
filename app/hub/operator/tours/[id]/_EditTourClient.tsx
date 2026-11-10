@@ -1,5 +1,6 @@
 'use client';
 
+import { isImeKeyEvent } from '@/lib/ui/ime';
 import React, { useState, useEffect, useRef, useCallback } from 'react';
 import { useRouter, useParams } from 'next/navigation';
 import { formatDateOnly } from '@/lib/dates/date-only';
@@ -535,7 +536,7 @@ export default function EditTourClient() {
             onChange={e => setNewPhotoUrl(e.target.value)}
             placeholder="https://... или /images/tours/photo.jpg"
             onKeyDown={e => {
-              if (e.key === 'Enter' && newPhotoUrl.trim()) {
+              if (!isImeKeyEvent(e.nativeEvent) && e.key === 'Enter' && newPhotoUrl.trim()) {
                 e.preventDefault();
                 setPhotos(p => [...p, newPhotoUrl.trim()]);
                 setNewPhotoUrl('');

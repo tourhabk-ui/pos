@@ -1,5 +1,6 @@
 'use client';
 
+import { isImeKeyEvent } from '@/lib/ui/ime';
 import { useState, useEffect, useCallback } from 'react';
 import {
   Plus, Link2, Copy, Check, Eye, MousePointerClick,
@@ -217,7 +218,7 @@ function TourPickerItem({ tour, selected, note, onToggle, onNote }: {
                 placeholder="Заметка для клиента (необязательно)"
                 autoFocus
                 onBlur={() => setEditNote(false)}
-                onKeyDown={(e) => e.key === 'Enter' && setEditNote(false)}
+                onKeyDown={(e) => !isImeKeyEvent(e.nativeEvent) && e.key === 'Enter' && setEditNote(false)}
               />
             </div>
           ) : (

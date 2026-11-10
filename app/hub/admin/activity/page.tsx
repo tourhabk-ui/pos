@@ -1,5 +1,6 @@
 'use client';
 
+import { isImeKeyEvent } from '@/lib/ui/ime';
 import React, { useState, useEffect, useCallback } from 'react';
 import {
   Activity, RefreshCw, AlertCircle, CheckCircle, User, FileText,
@@ -117,7 +118,7 @@ export default function AdminActivity() {
               type="text"
               value={searchInput}
               onChange={e => setSearchInput(e.target.value)}
-              onKeyDown={e => e.key === 'Enter' && handleSearch()}
+              onKeyDown={e => !isImeKeyEvent(e.nativeEvent) && e.key === 'Enter' && handleSearch()}
               placeholder="Поиск по действию, email..."
               className="pl-7 pr-3 py-1.5 text-xs bg-[var(--bg-card)] border border-[var(--border)] rounded-md text-[var(--text-primary)] placeholder:text-[var(--text-muted)] w-48 focus:outline-none focus:border-[var(--accent)]"
             />

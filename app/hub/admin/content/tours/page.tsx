@@ -1,5 +1,6 @@
 'use client';
 
+import { isImeKeyEvent } from '@/lib/ui/ime';
 import React, { useState, useEffect, useCallback, useRef } from 'react';
 import {
   Search, Filter, Edit2, Trash2, Eye, EyeOff, CheckCircle, XCircle,
@@ -510,7 +511,7 @@ function EditModal({ tour, onClose, onSave }: {
                 onChange={e => setNewPhotoUrl(e.target.value)}
                 placeholder="https://... или /images/tours/photo.jpg"
                 onKeyDown={e => {
-                  if (e.key === 'Enter' && newPhotoUrl.trim()) {
+                  if (!isImeKeyEvent(e.nativeEvent) && e.key === 'Enter' && newPhotoUrl.trim()) {
                     e.preventDefault();
                     setPhotos(p => [...p, newPhotoUrl.trim()]);
                     setNewPhotoUrl('');

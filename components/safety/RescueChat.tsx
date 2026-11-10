@@ -12,6 +12,7 @@
  * Без сети отвечает офлайн-протокол (lib/safety/rescue-protocols): совпало
  * слово — ответ сразу; не совпало — «Позвоните 112», без выдумки.
  */
+import { isImeKeyEvent } from '@/lib/ui/ime';
 import { useCallback, useEffect, useRef, useState } from 'react';
 import { Bot, Send, ChevronDown, ChevronUp } from 'lucide-react';
 import { getLocalProtocol, OFFLINE_NO_PROTOCOL } from '@/lib/safety/rescue-protocols';
@@ -174,7 +175,7 @@ export default function RescueChat({ className, style, surface = 'card' }: { cla
               aria-label="Опишите ситуацию"
               value={input}
               onChange={e => setInput(e.target.value)}
-              onKeyDown={e => { if (e.key === 'Enter' && !e.shiftKey) { e.preventDefault(); void send(); } }}
+              onKeyDown={e => { if (!isImeKeyEvent(e.nativeEvent) && e.key === 'Enter' && !e.shiftKey) { e.preventDefault(); void send(); } }}
               disabled={loading}
             />
             <button

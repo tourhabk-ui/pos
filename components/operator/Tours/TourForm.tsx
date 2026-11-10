@@ -1,5 +1,6 @@
 'use client';
 
+import { isImeKeyEvent } from '@/lib/ui/ime';
 import { TOUR_DESCRIPTION_MAX } from '@/lib/tours/text-limits';
 import { PHOTO_UPLOAD_HINT, PHOTO_TOO_LARGE, UPLOAD_PHOTO_MAX_MB, photoTooLarge } from '@/lib/images/upload-limits';
 import React, { useState, useEffect, useRef } from 'react';
@@ -435,7 +436,7 @@ export function TourForm({ initialData, onSubmit, onCancel, isEdit = false }: To
             type="text"
             value={newInclude}
             onChange={e => setNewInclude(e.target.value)}
-            onKeyDown={e => e.key === 'Enter' && (e.preventDefault(), addInclude())}
+            onKeyDown={e => !isImeKeyEvent(e.nativeEvent) && e.key === 'Enter' && (e.preventDefault(), addInclude())}
             placeholder="Транспорт от места сбора, снаряжение..."
             className="ds-input w-full min-w-0 flex-1 text-sm"
           />
@@ -465,7 +466,7 @@ export function TourForm({ initialData, onSubmit, onCancel, isEdit = false }: To
             type="text"
             value={newExclude}
             onChange={e => setNewExclude(e.target.value)}
-            onKeyDown={e => e.key === 'Enter' && (e.preventDefault(), addExclude())}
+            onKeyDown={e => !isImeKeyEvent(e.nativeEvent) && e.key === 'Enter' && (e.preventDefault(), addExclude())}
             placeholder="Личное снаряжение, питание в пути..."
             className="ds-input w-full min-w-0 flex-1 text-sm"
           />

@@ -13,6 +13,7 @@
  * работы — оценка из потолков в коде, не замер.
  */
 
+import { isImeKeyEvent } from '@/lib/ui/ime';
 import React, { useCallback, useEffect, useMemo, useState } from 'react';
 import { RefreshCw, Search, AlertTriangle, Clock, Info } from 'lucide-react';
 
@@ -137,7 +138,7 @@ export default function ModelCatalogClient() {
           <input
             value={q}
             onChange={(e) => setQ(e.target.value)}
-            onKeyDown={(e) => { if (e.key === 'Enter') load(q); }}
+            onKeyDown={(e) => { if (!isImeKeyEvent(e.nativeEvent) && e.key === 'Enter') load(q); }}
             placeholder="glm, opus, deepseek..."
             className="ds-input flex-1 text-xs py-1.5"
           />

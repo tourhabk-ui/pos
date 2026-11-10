@@ -1,5 +1,6 @@
 'use client';
 
+import { isImeKeyEvent } from '@/lib/ui/ime';
 import { useRef, useState } from 'react';
 import { Sparkles, Loader, Send, CheckCircle, AlertCircle, ChevronDown, ChevronUp } from 'lucide-react';
 import { OPERATOR_COMMAND_EXAMPLES } from '@/lib/agents/operator-commands';
@@ -136,7 +137,7 @@ export function AIAssistClient() {
               value={message}
               onChange={(e) => setMessage(e.target.value)}
               onKeyDown={(e) => {
-                if (e.key === 'Enter' && !e.shiftKey) {
+                if (!isImeKeyEvent(e.nativeEvent) && e.key === 'Enter' && !e.shiftKey) {
                   e.preventDefault();
                   sendMessage();
                 }

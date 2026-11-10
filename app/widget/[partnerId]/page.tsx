@@ -30,6 +30,7 @@
  * (рендер).
  */
 
+import { isImeKeyEvent } from '@/lib/ui/ime';
 import { useEffect, useRef, useState, type ReactNode } from 'react';
 import { useParams } from 'next/navigation';
 import { ArrowLeft, Send } from 'lucide-react';
@@ -357,7 +358,7 @@ export default function WidgetPage() {
               type="text"
               value={input}
               onChange={e => setInput(e.target.value)}
-              onKeyDown={e => e.key === 'Enter' && !e.shiftKey && sendMessage()}
+              onKeyDown={e => !isImeKeyEvent(e.nativeEvent) && e.key === 'Enter' && !e.shiftKey && sendMessage()}
               placeholder={t.inputPlaceholder}
               aria-label={t.inputLabel}
               maxLength={2000}
