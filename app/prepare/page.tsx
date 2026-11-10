@@ -6,7 +6,7 @@ import {
 import { Header } from '@/components/layout/Header';
 import { FAQJsonLd } from '@/components/seo/JsonLd';
 import {
-  MCHS_SOURCE, MCHS_CHANNELS, MCHS_REQUIRED_DATA, MCHS_DEADLINE_SHORT, MCHS_LEAD_WORKING_DAYS,
+  MCHS_SOURCE, MCHS_CHANNELS, MCHS_REQUIRED_DATA, MCHS_DEADLINE_SHORT, MCHS_LEAD_WORKING_DAYS, MCHS_AFTER_RETURN,
 } from '@/lib/safety/mchs-registration';
 import { PARK_PERMIT_SOURCE, PARK_PERMIT_CHANNELS, FREE_VISIT_AREAS } from '@/lib/safety/park-permit';
 import { DIFFICULTY_SCALE } from '@/lib/routes/difficulty-scale';
@@ -133,6 +133,7 @@ export default function PreparePage() {
         <div className="max-w-3xl mx-auto px-4 space-y-4">
           <Card icon={<ClipboardCheck className="w-5 h-5" />} title="Зарегистрируйте группу в МЧС">
             <p className="font-semibold text-[var(--text-primary)]">{MCHS_DEADLINE_SHORT}.</p>
+            <p className="font-semibold text-[var(--text-primary)]">{MCHS_AFTER_RETURN}</p>
             <p>Способы подачи:</p>
             <ul className="space-y-1.5">
               {MCHS_CHANNELS.map((c) => (

@@ -82,7 +82,7 @@ document.getElementById('sms-btn').style.display = '';
 
 | Компонент | Статус | Где |
 |-----------|--------|-----|
-| МЧС-регистрация | ✅ работает | `app/api/operator/mchs/register`, `mchs/[id]`, `mchs-registrations` + UI-визард `/register` |
+| МЧС-регистрация | ✅ работает | `app/api/operator/mchs/register`, `mchs/[id]` + UI-визард `/register` (`mchs-registrations` удалён 10.11 — экрана не было) |
 | Offline PDF паспорта | ✅ работает | `app/api/places/[id]/pdf` |
 | Last known signal (cell coverage) | ✅ сделан сегодня | `components/tracking/LastPositionTracker.tsx` → `localStorage['vedar_last_online_pos']`; читается в `public/emergency.html` |
 | Офлайн-бандл маршрута («Взять с собой») | ❌ не начат | Нужен `GET /api/routes/[id]/offline-bundle` + кнопка на `/routes/[id]` |

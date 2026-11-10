@@ -41,6 +41,12 @@ const REMOVED = [
   // Потребителя не было; получатель уведомления брался из тела запроса
   // без связи с бронью. Переписка с туристом — чат платформы (/api/chat).
   'app/api/operator/messages/route.ts',
+  // 10.11 (ревью PR 3188): потребителя не было ни одного — панель МЧС ходит в
+  // /api/operator/mchs. При этом роут принимал и хранил состав группы с
+  // телефонами, а до 10.11 ещё и слал бы его на адрес из env MCHS_API_URL,
+  // будь переменная задана.
+  // Сторож пути наружу — tests/unit/mchs-no-outbound.test.ts.
+  'app/api/operator/mchs-registrations/route.ts',
 ];
 
 /**
@@ -69,8 +75,6 @@ const KNOWN_UNCONSUMED: Record<string, string> = {
     'работает, парный к списку выше — долг переписи 11.09',
   'app/api/operator/calendar/block/route.ts':
     'POST-only блокировка даты (405 на GET), экрана нет — долг переписи 11.09',
-  'app/api/operator/mchs-registrations/route.ts':
-    'работает (200), панель МЧС на дашборде ходит в /api/operator/mchs — долг переписи 11.09',
   'app/api/operator/stats/route.ts':
     'работает (200), дашборд считает своим /api/operator/dashboard — долг переписи 11.09',
   'app/api/operator/templates/route.ts':

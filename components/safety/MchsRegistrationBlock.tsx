@@ -36,6 +36,7 @@
 import Link from 'next/link';
 import { ShieldAlert, Phone, FileText } from 'lucide-react';
 import {
+  MCHS_AFTER_RETURN,
   MCHS_DEADLINE_SHORT,
   MCHS_CHANNELS,
   MCHS_REQUIRED_DATA,
@@ -102,6 +103,12 @@ export default function MchsRegistrationBlock({
             </a>
           )}
         </div>
+
+        {/* Снятие с контроля — не под раскрытием: о звонке после возвращения
+            забывают чаще всего, и цена забывчивости — поиск (памятка ГУ, 10.11). */}
+        <p className="text-xs font-medium leading-relaxed text-[var(--text-primary)]">
+          {MCHS_AFTER_RETURN}
+        </p>
 
         {parkName && (
           <p className="text-xs text-[var(--text-secondary)]">

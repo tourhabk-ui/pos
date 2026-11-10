@@ -1248,6 +1248,10 @@ withPg('кабинет в чате на настоящем PostgreSQL', () => {
         expect(await letters()).toHaveLength(1);
         const group = await press(pay.mchsGroup(routed, DAY));
         expect(group.text).toContain('Письмо (тест) по этому выезду уже уходило на ящик Ведара');
+        // Своё письмо обо всём выезде: счёт назван, приписки о чужой карточке нет.
+        expect(group.text).toContain('в нём 5 чел., броней — 2. В МЧС — нет.');
+        expect(group.text).not.toContain('с другой карточки');
+        expect(again.text).not.toContain('с другой карточки');
         expect(group.rows.flat().some((b) => 'payload' in b && b.payload === pay.mchsLetterAsk(routed, DAY))).toBe(true);
       });
 
@@ -1264,6 +1268,76 @@ withPg('кабинет в чате на настоящем PostgreSQL', () => {
         expect((await letters()).map((l) => l.outcome)).toEqual(['sent', 'failed', 'sent']);
       });
 
+      it('два нажатия одновременно — одно письмо и одна строка: замок выезда (аудит 10.11)', async () => {
+        await pool.query(`UPDATE mchs_letters SET created_at = NOW() - INTERVAL '11 minutes' WHERE operator_tour_id = $1::bigint`, [routed]);
+        const before = (await letters()).length;
+        mail.send.mockClear();
+        const [a, b] = await Promise.all([press(pay.mchsLetterSend(routed, DAY)), press(pay.mchsLetterSend(routed, DAY))]);
+        expect(mail.send).toHaveBeenCalledTimes(1);
+        expect(await letters()).toHaveLength(before + 1);
+        expect([a.text, b.text].filter((t) => t.includes('ушло на тестовый ящик Ведара. В МЧС оно не отправлено'))).toHaveLength(1);
+        expect([a.text, b.text].some((t) => /как раз отправляется|уже ушло/.test(t))).toBe(true);
+        // Замок снят: выезд не заперт до перезапуска.
+        const c = await pool.connect();
+        try {
+          const free = await c.query<{ got: boolean }>(
+            `SELECT pg_try_advisory_lock(hashtext('mchs_letter'), hashtext($1::bigint::text || ':' || $2::date::text)) AS got`, [routed, DAY],
+          );
+          expect(free.rows[0]!.got).toBe(true);
+          await c.query(`SELECT pg_advisory_unlock(hashtext('mchs_letter'), hashtext($1::bigint::text || ':' || $2::date::text))`, [routed, DAY]);
+        } finally {
+          c.release();
+        }
+      });
+
+      it('другое написание номера тура держит тот же замок (ревью PR 3188)', async () => {
+        await pool.query(`UPDATE mchs_letters SET created_at = NOW() - INTERVAL '11 minutes' WHERE operator_tour_id = $1::bigint`, [routed]);
+        const c = await pool.connect();
+        try {
+          const held = await c.query<{ got: boolean }>(
+            `SELECT pg_try_advisory_lock(hashtext('mchs_letter'), hashtext($1::bigint::text || ':' || $2::date::text)) AS got`,
+            [`000${routed}`, DAY],
+          );
+          expect(held.rows[0]!.got).toBe(true);
+          mail.send.mockClear();
+          const s = await press(pay.mchsLetterSend(routed, DAY));
+          expect(s.text).toContain('как раз отправляется');
+          expect(mail.send).not.toHaveBeenCalled();
+        } finally {
+          await c.query(`SELECT pg_advisory_unlock(hashtext('mchs_letter'), hashtext($1::bigint::text || ':' || $2::date::text))`, [`000${routed}`, DAY]);
+          c.release();
+        }
+      });
+
+      it('два нажатия разом, одно с нулями впереди номера тура, — письмо одно (ревью PR 3188)', async () => {
+        // Проверка выше берёт замок своим же нормализованным запросом и жмёт
+        // кнопку с обычным номером — у него сырой и нормализованный ключ
+        // совпадают, и на прежнем ключе из текста она тоже зелёная. Здесь оба
+        // ключа считает сервис: разойдись они — уйдут два письма.
+        const padded = `000${routed}`;
+        // Кнопку с таким номером сервер выписывает сам: чтение выезда не подписано.
+        const ask = await press(pay.mchsLetterAsk(padded, DAY));
+        expect(JSON.stringify(ask.rows)).toContain(`cb:mc:s:${padded}:${DAY.replace(/-/g, '')}`);
+
+        for (let round = 0; round < 3; round += 1) {
+          await pool.query(`UPDATE mchs_letters SET created_at = NOW() - INTERVAL '11 minutes' WHERE operator_tour_id = $1::bigint`, [routed]);
+          // Соединения — заранее: иначе первое нажатие успевает закончиться,
+          // пока второе подключается, и проверка зеленеет и без замка.
+          const { pool: appPool } = await import('@/lib/db-pool');
+          const warm = await Promise.all(Array.from({ length: 6 }, () => appPool.connect()));
+          warm.forEach((c) => c.release());
+          const before = (await letters()).length;
+          mail.send.mockClear();
+          const [a, b] = await Promise.all([
+            press(pay.mchsLetterSend(routed, DAY)),
+            press(pay.mchsLetterSend(padded, DAY)),
+          ]);
+          expect(mail.send, `круг ${round}`).toHaveBeenCalledTimes(1);
+          expect(await letters(), `круг ${round}`).toHaveLength(before + 1);
+          expect([a.text, b.text].some((t) => /как раз отправляется|уже ушло/.test(t)), `круг ${round}`).toBe(true);
+        }
+      });
+
       it('чужой тур — письма нет и строки нет', async () => {
         mail.send.mockClear();
         const s = await press(pay.mchsLetterSend(foreign, DAY));
@@ -1271,6 +1345,67 @@ withPg('кабинет в чате на настоящем PostgreSQL', () => {
         expect(mail.send).not.toHaveBeenCalled();
         const n = await pool.query(`SELECT 1 FROM mchs_letters WHERE operator_tour_id = $1::bigint`, [foreign]);
         expect(n.rowCount).toBe(0);
+      });
+
+      it('письмо гида о его бронях владельцу тура не мешает; письмо владельца покрывает гида (ревью PR 3188)', async () => {
+        // Журнал — по выезду, а состав письма — по карточке: гид команды видит
+        // только назначенную ему бронь (2 чел.), владелец тура — весь выезд (5 чел.).
+        // Раньше письмо гида выдавалось владельцу за «уже отправлено» о пяти.
+        const GUIDE_CHAT = 8_501;
+        await pool.query(`UPDATE partners SET max_chat_id = $2 WHERE id = $1`, [teamGuide, GUIDE_CHAT]);
+        const guidePress = (payload: string) =>
+          svc.handleCabinetPress({ channel: 'max', chatId: GUIDE_CHAT, privateChat: true, payload, nowMs: NOW });
+        // Чистый журнал: прежние письма владельца покрывали бы его группу, и строка под выездом показала бы их.
+        await pool.query(`DELETE FROM mchs_letters WHERE operator_tour_id = $1::bigint`, [routed]);
+
+        mail.send.mockClear();
+        const g = await guidePress(pay.mchsLetterSend(routed, DAY));
+        expect(g.text).toContain('ушло на тестовый ящик Ведара. В МЧС оно не отправлено');
+        expect(mail.send).toHaveBeenCalledTimes(1);
+        expect(mail.send.mock.calls[0]![0].html).toContain('Группа: 2 чел., броней — 1');
+
+        // Владелец тура открывает тот же выезд: чужое письмо названо со счётом.
+        const view = await press(pay.mchsGroup(routed, DAY));
+        expect(view.text).toContain('Группа: 5 чел., броней — 2');
+        expect(view.text).toMatch(/уже уходило на ящик Ведара \d\d\.\d\d \d\d:\d\d по Камчатке: в нём 2 чел\., броней — 1, отправлено с другой карточки этого выезда\. Это письмо о части выезда — остальных броней в нём нет\. В МЧС — нет\./);
+        // И отправляет своё — обо всех пяти, не дожидаясь десяти минут.
+        const o = await press(pay.mchsLetterSend(routed, DAY));
+        expect(mail.send).toHaveBeenCalledTimes(2);
+        expect(mail.send.mock.calls[1]![0].html).toContain('Группа: 5 чел., броней — 2');
+        expect(o.text).toContain('ушло на тестовый ящик Ведара. В МЧС оно не отправлено');
+
+        // Журнал глазами каждой карточки — на настоящей базе: чьё письмо и весь ли в нём выезд.
+        const { sentMchsLetters } = await import('@/lib/safety/mchs-letter');
+        const forOwner = await sentMchsLetters(routed, DAY, partnerId);
+        if (forOwner === 'failed') throw new Error('журнал не прочитался');
+        expect(forOwner.senderWhole).toBe(true);
+        expect(forOwner.letters.slice(0, 2).map(({ at: _at, ...l }) => l)).toEqual([
+          { recent: true, mine: true, whole: true, people: 5, bookings: 2 },
+          { recent: true, mine: false, whole: false, people: 2, bookings: 1 },
+        ]);
+        const forGuide = await sentMchsLetters(`000${routed}`, DAY, teamGuide);
+        if (forGuide === 'failed') throw new Error('журнал не прочитался');
+        expect(forGuide.senderWhole).toBe(false);
+        expect(forGuide.letters.slice(0, 2).map(({ at: _at, ...l }) => l)).toEqual([
+          { recent: true, mine: false, whole: true, people: 5, bookings: 2 },
+          { recent: true, mine: true, whole: false, people: 2, bookings: 1 },
+        ]);
+
+        // Наоборот: свежее письмо владельца тура несёт все брони — повтор гида не уходит,
+        // и экран называет именно то письмо, которое его покрыло.
+        const g2 = await guidePress(pay.mchsLetterSend(routed, DAY));
+        expect(mail.send).toHaveBeenCalledTimes(2);
+        expect(g2.text).toMatch(/уже ушло на тестовый ящик Ведара \d\d\.\d\d \d\d:\d\d по Камчатке: в нём 5 чел\., броней — 2, отправлено с другой карточки этого выезда/);
+        // Под выездом каждый видит письмо, которое несёт его группу: и владелец, и гид — письмо обо всём выезде.
+        const ownerView = await press(pay.mchsGroup(routed, DAY));
+        expect(ownerView.text).toMatch(/уже уходило на ящик Ведара \d\d\.\d\d \d\d:\d\d по Камчатке: в нём 5 чел\., броней — 2\. В МЧС — нет\./);
+        const guideView = await guidePress(pay.mchsGroup(routed, DAY));
+        expect(guideView.text).toContain('Группа: 2 чел., броней — 1');
+        expect(guideView.text).toMatch(/уже уходило на ящик Ведара \d\d\.\d\d \d\d:\d\d по Камчатке: в нём 5 чел\., броней — 2, отправлено с другой карточки этого выезда\. В МЧС — нет\./);
+        // Владелец сразу повторить своё тоже не может — своё письмо свежее.
+        const o2 = await press(pay.mchsLetterSend(routed, DAY));
+        expect(mail.send).toHaveBeenCalledTimes(2);
+        expect(o2.text).toMatch(/уже ушло на тестовый ящик Ведара \d\d\.\d\d \d\d:\d\d по Камчатке: в нём 5 чел\., броней — 2\. Повторно/);
       });
     });
   });

@@ -10,7 +10,6 @@ import {
   Loader2,
   Plus,
   Search,
-  Send,
   Trash2,
   X,
 } from 'lucide-react';
@@ -681,8 +680,11 @@ export function MchsRegistrationPanel() {
                 disabled={submitting}
                 className="min-h-[44px] min-w-[44px] px-4 py-2 rounded-xl bg-[var(--accent)] text-[var(--text-primary)] font-medium inline-flex items-center gap-2 disabled:opacity-60 hover:bg-[var(--accent)]/80 transition-colors"
               >
-                {submitting ? <Loader2 className="w-4 h-4 animate-spin" /> : <Send className="w-4 h-4" />}
-                Отправить в МЧС
+                {/* Не «Отправить в МЧС» (аудит 10.11): кнопка только сохраняет
+                    запись в кабинете, в МЧС отсюда не уходит ничего — заявку
+                    оператор подаёт сам, текстом «Скопировать для формы МЧС». */}
+                {submitting ? <Loader2 className="w-4 h-4 animate-spin" /> : <ClipboardList className="w-4 h-4" />}
+                Сохранить и подготовить текст для МЧС
               </button>
             </form>
           )}
