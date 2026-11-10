@@ -59,13 +59,14 @@
  *  7. Тире всех видов (‐ ‑ ‒ – — −) — то же, что дефис.
  *  8. Внутри цепочки номер вырезается по ФОРМЕ, а не по счёту: 11 цифр с
  *     7 или 8 впереди и кодом на 3, 4, 8, 9; 10 цифр с 3, 4, 8, 9 впереди; с
- *     «+» и другим кодом страны — 11–15 цифр. Сначала ищутся номера, начатые
- *     как номер («+7», «8», «(914)», «914»), потом остальные. Остаток цепочки
- *     судится правилом 5: от десяти цифр вырезается целиком — то, что на номер
- *     не похоже по форме, но цифр в нём на номер хватает, модель не увидит.
- *  9. Дефис с пробелом внутри номера допускается, если после него идут
- *     группы по две цифры («123 - 45 - 67»): так пишут номер и не пишут
- *     диапазон («30 000 - 50 000» остаётся диапазоном).
+ *     «+» и другим кодом страны — самый длинный кусок в 11–15 цифр. Сначала
+ *     номера, начатые как номер («+7», «8», «(914)», «914»); прочие — только
+ *     если в куске цепочки такой номер один (иначе где он — не узнать).
+ *     Остаток цепочки судится правилом 5: от десяти цифр вырезается целиком.
+ *  9. Дефис с пробелом внутри номера: номер, начатый как номер, переходит его
+ *     любыми группами («8 900 - 123 - 45 - 67»), прочий — только группами по
+ *     две цифры («4152 - 41 - 23 - 18»). Так «30 000 - 50 000» остаётся
+ *     диапазоном.
  */
 /** Тире всех видов — как дефис (правило 7). */
 const DASHES = '\\-\\u2010\\u2011\\u2012\\u2013\\u2014\\u2212';
@@ -73,8 +74,12 @@ const DOTTED_NUMBER = /(\d+(?:\.\d+)+)/;
 const PHONE_CANDIDATE = new RegExp(`\\+?\\d[\\d\\s()${DASHES}]{8,}\\d`, 'g');
 const RANGE_DASH = new RegExp(`(\\s+[${DASHES}]\\s*|\\s*[${DASHES}]\\s+)`);
 const BARE_PAIR = new RegExp(`^(\\d{4,})[${DASHES}](\\d{4,})$`);
-/** Слово, с которого номер начинают: «+7», «(914)», «8», «8(914)», «8-914», «914». */
-const PHONE_START = new RegExp(`^(?:[+(]|[78](?:$|[(${DASHES}]))`);
+/**
+ * Слово, с которого номер начинают: «+7», «+86», «(914)», «(4152)», «8»,
+ * «8(914)», «8-914», «914», «914-123». Открытая скобка без закрытой («(30 000 - 50 000)»)
+ * — не начало номера.
+ */
+const PHONE_START = new RegExp(`^(?:\\+|\\(\\d{3,5}\\)|[78](?:$|\\(|[${DASHES}]\\d)|\\(?9\\d\\d(?:\\)|$|[${DASHES}]))`);
 
 const digitsOf = (s: string): string => s.replace(/\D/g, '');
 const digitCount = (s: string): number => digitsOf(s).length;
@@ -93,12 +98,14 @@ function isPhoneWord(word: string): boolean {
 
 /**
  * Цифры D, набранные словами подряд, — номер по форме (правило 8)?
- * `plus` — первое слово начато с «+».
+ * `exact` — номер ровно здесь кончается; `open` — номер с «+» и кодом не 7:
+ * длина его 11–15 цифр, и берётся самый длинный такой кусок, чтобы хвост
+ * номера не остался открытым; `no` — не номер.
  */
-function isPhoneShape(d: string, plus: boolean): boolean {
-  if (/^[78][3489]/.test(d)) return d.length === 11;
-  if (plus) return d.length >= 11 && d.length <= 15;
-  return d.length === 10 && /^[3489]/.test(d);
+function phoneShape(d: string, plus: boolean): 'exact' | 'open' | 'no' {
+  if (plus && !d.startsWith('7')) return d.length >= 11 && d.length <= 15 ? 'open' : 'no';
+  if (/^[78][3489]/.test(d)) return d.length === 11 ? 'exact' : 'no';
+  return d.length === 10 && /^[3489]/.test(d) ? 'exact' : 'no';
 }
 
 interface Token {
@@ -140,38 +147,62 @@ function carveRun(tokens: Token[], run: number[]): Array<[number, number]> {
     for (let t = run[k - 1] + 1; t < run[k]; t++) if (tokens[t].range) return true;
     return false;
   };
+  const started = (k: number): boolean => PHONE_START.test(tokens[run[k]].text);
 
+  /** Последнее слово номера, начатого словом i, или -1. */
   const matchAt = (i: number): number => {
+    const anchored = started(i);
     const plus = tokens[run[i]].text.startsWith('+');
     let d = '';
     let crossed = false;
+    let open = -1;
     for (let k = i; k < n; k++) {
-      if (carved[k]) return -1;
+      if (carved[k]) break;
       if (k > i && rangeBefore(k)) crossed = true;
-      if (crossed && tokens[run[k]].digits.length !== 2) return -1;
+      // Через дефис с пробелом: начатый как номер — любыми группами; прочий —
+      // только группами по две цифры (правило 9).
+      if (crossed && !anchored && tokens[run[k]].digits.length !== 2) break;
       d += tokens[run[k]].digits;
-      if (d.length > 15) return -1;
-      if (isPhoneShape(d, plus)) return k;
+      if (d.length > 15) break;
+      const shape = phoneShape(d, plus);
+      if (shape === 'exact') return k;
+      if (shape === 'open') open = k;
     }
-    return -1;
+    return open;
+  };
+  const carve = (i: number, j: number): void => {
+    for (let k = i; k <= j; k++) carved[k] = true;
+    spans.push([run[i], run[j]]);
   };
 
-  const pass = (startedOnly: boolean): void => {
-    for (let i = 0; i < n; i++) {
-      if (carved[i]) continue;
-      const tok = tokens[run[i]];
-      if (startedOnly && !PHONE_START.test(tok.text) && !/^9\d\d$/.test(tok.digits)) continue;
-      const j = matchAt(i);
-      if (j < 0) continue;
-      for (let k = i; k <= j; k++) carved[k] = true;
-      spans.push([run[i], run[j]]);
+  // Сперва номера, начатые как номер, слева направо.
+  for (let i = 0; i < n; i++) {
+    if (carved[i] || !started(i)) continue;
+    const j = matchAt(i);
+    if (j >= 0) {
+      carve(i, j);
       i = j;
     }
-  };
-  pass(true);
-  pass(false);
+  }
+  // Потом прочие — только если в куске между вырезанными номер по форме ОДИН.
+  // Два кандидата («300 000 4152 41 23 18»: и «300 000 4152», и «4152 41 23
+  // 18») значат, что где номер — не узнать, и вырезать префикс значило бы
+  // оставить хвост номера открытым (ревью безопасности #3226).
+  for (let a = 0; a < n; a++) {
+    if (carved[a]) continue;
+    let b = a;
+    while (b + 1 < n && !carved[b + 1]) b++;
+    const found: Array<[number, number]> = [];
+    for (let i = a; i <= b; i++) {
+      const j = matchAt(i);
+      if (j >= 0) found.push([i, j]);
+    }
+    if (found.length === 1) carve(found[0][0], found[0][1]);
+    a = b;
+  }
 
-  // Остаток: куски подряд, не вырезанные по форме, разорванные дефисом с пробелом.
+  // Остаток: куски подряд, не вырезанные по форме, разорванные дефисом с
+  // пробелом; от десяти цифр — вырезается целиком (правило 5).
   let from = -1;
   let count = 0;
   const flush = (to: number): void => {
@@ -204,8 +235,14 @@ function redactCandidate(candidate: string, label: (phone: string) => string): s
     if (!tok.word) return;
     if (tok.digits.length >= 10) {
       // Слово от десяти цифр судится само (правила 4 и 6) и рвёт цепочку.
+      // Код страны или «8» отдельным словом перед номером из десяти цифр —
+      // часть номера: «+7 9141234567», «8 914-123-45-67».
+      const last = run.length > 0 ? run[run.length - 1] : -1;
+      const prefix = last >= 0 && tok.digits.length === 10 && isPhoneWord(tok.text)
+        && /^(?:\+\d{1,3}|[78])$/.test(tokens[last].text) && !tokens.slice(last + 1, t).some((x) => x.range);
+      if (prefix) run.pop();
       closeRun();
-      if (isPhoneWord(tok.text)) spans.push([t, t]);
+      if (isPhoneWord(tok.text)) spans.push([prefix ? last : t, t]);
     } else {
       run.push(t);
     }
