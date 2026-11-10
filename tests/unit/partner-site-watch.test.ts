@@ -5,9 +5,9 @@
  */
 import { describe, it, expect } from 'vitest';
 import {
-  baselineMessage, cutSnapshotDiff, diffLines, fullPageText, legacyReadWasCut, meaningfulDiff, ownerMessages,
-  robotsDisallows, textHash, watchEvent, LEGACY_BODY_LIMIT, LEGACY_TEXT_CAP, SITE_WIDE_MIN_PAGES, TEXT_CAP, WATCH_BODY_LIMIT,
-  WATCH_USER_AGENT,
+  baselineMessage, cutSnapshotDiff, diffLines, fullPageText, isVolatileLine, legacyReadWasCut, meaningfulDiff, ownerMessages,
+  robotsDisallows, textHash, watchEvent, withoutRollingShifts, LEGACY_BODY_LIMIT, LEGACY_TEXT_CAP, ROLLING_MAX_DAYS,
+  SITE_WIDE_MIN_PAGES, TEXT_CAP, WATCH_BODY_LIMIT, WATCH_USER_AGENT,
   type PageReport,
 } from '@/lib/partners/site-watch';
 
@@ -657,4 +657,76 @@ describe('прошедший выезд и счётчик мест — не из
     });
     expect(meaningfulDiff('Тур\n07.11.2026', 'Тур', TODAY)).toBeNull();
   });
+});
+
+// Проверка 10.11: страницу отдаёт чужой сервер, а сравнение идёт в процессе
+// прода. Три места читали строку или список заново с каждой позиции: признак
+// капчи на серии цифр (200 тыс. цифр — 52 с), признак «строка про срок» на
+// артикуле (100 тыс. цифр — 12 с) и поиск скользящей даты каждой строки среди
+// всех (8 000 сменившихся строк — 17 с). Правило у всех трёх прежнее.
+describe('чужая страница не держит сравнение', () => {
+  const ms = (run: () => unknown): number => {
+    const started = performance.now();
+    run();
+    return performance.now() - started;
+  };
+
+  it('капча узнаётся как раньше; строка из одних цифр — не капча', () => {
+    // Эталон — признак до 10.11: первое число целиком, а не одной цифрой.
+    const before = /\d+\s*[+\-−×*xх]\s*\d+\s*=\s*\?/i;
+    const lines = [
+      'Защита от роботов: 14+4=?', '123 × 5 = ?', '7x3=?', '9 − 2 =?', '5х5=?', '2+2 = ?', '2 + 2 2 = ?', '100 * 3=?',
+      'Скидка 10+2=12%', '4+4', '=?', '12 + =?', 'x=?', '+4=?', '1'.repeat(500), `${'1'.repeat(500)}+`, 'Тур 5 дн + 2 ночи = ? руб',
+    ];
+    for (const line of lines) expect(isVolatileLine(line), line).toBe(before.test(line));
+    expect(isVolatileLine('Защита от роботов: 14+4=?')).toBe(true);
+    expect(isVolatileLine('1'.repeat(500))).toBe(false);
+  });
+
+  it('строка про срок — «9 часов», «12 ночей», «5 дн» — по-прежнему впереди', () => {
+    const d = diffLines('', 'Обычная строка\nВ пути 9 часов\nПроживание 12 ночей\nТур на 5 дн\nЕщё строка');
+    expect(d.added).toEqual(['В пути 9 часов', 'Проживание 12 ночей', 'Тур на 5 дн', 'Обычная строка', 'Ещё строка']);
+    expect(diffLines('', 'Дни недели\nЧасть вторая').added).toEqual(['Дни недели', 'Часть вторая']);
+  });
+
+  it('пропавшей строке достаётся первая подходящая появившаяся, и каждая появившаяся занята один раз', () => {
+    // Назад — не сдвиг; из двух подходящих берётся та, что стоит раньше.
+    expect(withoutRollingShifts({ removed: ['Выезд 10 ноября'], added: ['Выезд 9 ноября', 'Выезд 12 ноября', 'Выезд 13 ноября'] }))
+      .toEqual({ removed: [], added: ['Выезд 9 ноября', 'Выезд 13 ноября'] });
+    expect(withoutRollingShifts({ removed: ['Выезд 10 ноября'], added: ['Выезд 20 ноября', 'Выезд 11 ноября'] }))
+      .toEqual({ removed: [], added: ['Выезд 11 ноября'] });
+    // Две пропавшие на одну появившуюся: вторая остаётся.
+    expect(withoutRollingShifts({ removed: ['Выезд 10 ноября', 'Выезд 11 ноября'], added: ['Выезд 12 ноября'] }))
+      .toEqual({ removed: ['Выезд 11 ноября'], added: [] });
+    // Другие слова вокруг даты — не пара.
+    expect(withoutRollingShifts({ removed: ['Выезд 10 ноября'], added: ['Заезд 11 ноября'] }))
+      .toEqual({ removed: ['Выезд 10 ноября'], added: ['Заезд 11 ноября'] });
+  });
+
+  it('граница сдвига, Новый год, две даты в строке, невозможный день', () => {
+    expect(withoutRollingShifts({ removed: ['Старт 1 ноября'], added: [`Старт ${1 + ROLLING_MAX_DAYS} ноября`] }).removed).toEqual([]);
+    expect(withoutRollingShifts({ removed: ['Старт 1 ноября'], added: [`Старт ${2 + ROLLING_MAX_DAYS} ноября`] }).removed).toEqual(['Старт 1 ноября']);
+    expect(withoutRollingShifts({ removed: ['Старт 25 декабря'], added: ['Старт 3 января'] })).toEqual({ removed: [], added: [] });
+    expect(withoutRollingShifts({ removed: ['Старт 3 января'], added: ['Старт 25 декабря'] }).removed).toEqual(['Старт 3 января']);
+    // Обе даты строки обязаны уйти вперёд.
+    expect(withoutRollingShifts({ removed: ['с 10 ноября по 14 ноября'], added: ['с 11 ноября по 15 ноября'] })).toEqual({ removed: [], added: [] });
+    expect(withoutRollingShifts({ removed: ['с 10 ноября по 14 ноября'], added: ['с 11 ноября по 13 ноября'] }).removed).toEqual(['с 10 ноября по 14 ноября']);
+    expect(withoutRollingShifts({ removed: ['с 10 ноября по 14 ноября', 'с 10 ноября по 14 ноября'], added: ['с 12 ноября по 16 ноября'] }).removed)
+      .toEqual(['с 10 ноября по 14 ноября']);
+    // Та же дата — не сдвиг: ни у строки с одной датой, ни у строки с двумя.
+    expect(withoutRollingShifts({ removed: ['Выезд 10 ноября'], added: ['Выезд 10 ноября'] }).removed).toEqual(['Выезд 10 ноября']);
+    expect(withoutRollingShifts({ removed: ['с 10 ноября по 14 ноября'], added: ['с 10 ноября по 15 ноября'] }).removed).toEqual(['с 10 ноября по 14 ноября']);
+    // Невозможный день и строка без дат парой не становятся.
+    expect(withoutRollingShifts({ removed: ['Выезд 32 ноября', 'Тур'], added: ['Выезд 33 ноября', 'Тур'] }).removed).toEqual(['Выезд 32 ноября', 'Тур']);
+  });
+
+  it('серия цифр, артикул, тысячи сменившихся строк и календарь — доли секунды', () => {
+    expect(ms(() => fullPageText('1'.repeat(100_000)))).toBeLessThan(1_000);
+    expect(ms(() => fullPageText(`<p>${'7'.repeat(100_000)}</p>`))).toBeLessThan(1_000);
+    expect(ms(() => diffLines(`Артикул ${'1'.repeat(50_000)}`, `Артикул ${'2'.repeat(50_000)}`))).toBeLessThan(1_000);
+    const lines = (word: string) => Array.from({ length: 4_000 }, (_, i) => `${word} №${i}`).join('\n');
+    expect(ms(() => meaningfulDiff(lines('Тур'), lines('Поход'), '2026-11-10'))).toBeLessThan(1_500);
+    const calendar = (month: string) => Array.from({ length: 4_000 }, (_, i) => `Выезд ${1 + (i % 20)} ${month}`);
+    expect(ms(() => withoutRollingShifts({ removed: calendar('ноября'), added: calendar('декабря') }))).toBeLessThan(1_000);
+  }, 120_000);
 });
