@@ -115,7 +115,8 @@ describe('POST /api/ai/chat-stream — мозг Кузьмича', () => {
     expect(callAIWithModelDirectMock).toHaveBeenCalledTimes(1);
   });
 
-  it('не-tourist роль (operator) → loop не вызывается, legacy как раньше', async () => {
+  it('не-tourist роль (operator), подтверждённая входом → loop не вызывается, legacy как раньше', async () => {
+    getUserMock.mockResolvedValue({ userId: 'op-1', role: 'operator' });
     const res = await POST(postReq({ message: 'Привет', role: 'operator' }));
     const events = await readSSE(res);
 

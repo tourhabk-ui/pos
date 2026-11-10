@@ -141,7 +141,8 @@ describe('веб-чат отдаёт исход ответа грейдеру', 
     expect(opts).toMatchObject({ surface: 'web', answerPath: null, provider: null, toolRuns: [] });
   });
 
-  it('не турист (гид) — грейдер не зовётся: рубрика про ответы туристу', async () => {
+  it('не турист (гид по входу) — грейдер не зовётся: рубрика про ответы туристу', async () => {
+    getUserFromRequestMock.mockResolvedValue({ userId: 'guide-1', role: 'guide' });
     await POST(postReq({ message: 'Где маршрут на вулкан?', role: 'guide' }));
     expect(gradeMock).not.toHaveBeenCalled();
   });
