@@ -1,5 +1,6 @@
 'use client';
 
+import { isImeKeyEvent } from '@/lib/ui/ime';
 import { useState, useCallback, useEffect, useMemo, useRef } from 'react';
 import Link from 'next/link';
 import { catalogHref } from '@/lib/routes/url-slug';
@@ -276,7 +277,7 @@ export default function PlaceCard({ route }: { route: RouteItem }) {
             role="button"
             tabIndex={0}
             aria-label="Уточнить пеленг и дистанцию от вашей позиции"
-            onKeyDown={(e) => { if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); requestGeo(); } }}
+            onKeyDown={(e) => { if (!isImeKeyEvent(e.nativeEvent) && (e.key === 'Enter' || e.key === ' ')) { e.preventDefault(); requestGeo(); } }}
             title="Уточнить от вашей позиции"
           >
             <svg width="24" height="24" viewBox="0 0 24 24" aria-hidden="true" style={{ flexShrink: 0 }}>

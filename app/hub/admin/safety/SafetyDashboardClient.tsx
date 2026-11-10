@@ -1,5 +1,6 @@
 'use client';
 
+import { isImeKeyEvent } from '@/lib/ui/ime';
 import { useEffect, useState, useCallback, useRef } from 'react';
 import {
   AlertCircle, AlertTriangle, CheckCircle, Clock, Users,
@@ -84,7 +85,7 @@ function MchsConsultChat() {
   }
 
   function handleKey(e: React.KeyboardEvent) {
-    if (e.key === 'Enter' && !e.shiftKey) { e.preventDefault(); sendMessage(); }
+    if (!isImeKeyEvent(e.nativeEvent) && e.key === 'Enter' && !e.shiftKey) { e.preventDefault(); sendMessage(); }
   }
 
   return (
@@ -424,7 +425,7 @@ function ArtemWishesChat() {
           <input
             value={input}
             onChange={e => setInput(e.target.value)}
-            onKeyDown={e => e.key === 'Enter' && !e.shiftKey && handleSend()}
+            onKeyDown={e => !isImeKeyEvent(e.nativeEvent) && e.key === 'Enter' && !e.shiftKey && handleSend()}
             placeholder="Пожелание от Артёма..."
             className="ds-input flex-1 text-sm"
           />

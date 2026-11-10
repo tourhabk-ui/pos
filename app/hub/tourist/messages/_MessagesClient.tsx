@@ -1,5 +1,6 @@
 'use client';
 
+import { isImeKeyEvent } from '@/lib/ui/ime';
 import { useState, useEffect, useCallback } from 'react';
 import { Protected } from '@/components/auth/Protected';
 import { useAuth } from '@/contexts/AuthContext';
@@ -184,7 +185,7 @@ export default function MessagesClient() {
   };
 
   const handleKeyDown = (e: React.KeyboardEvent) => {
-    if (e.key === 'Enter' && !e.shiftKey) {
+    if (!isImeKeyEvent(e.nativeEvent) && e.key === 'Enter' && !e.shiftKey) {
       e.preventDefault();
       void handleSend();
     }

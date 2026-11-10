@@ -1,5 +1,6 @@
 'use client';
 
+import { isImeKeyEvent } from '@/lib/ui/ime';
 import { useState, useMemo, useCallback, useEffect, useRef } from 'react';
 import { useRouter, useSearchParams } from 'next/navigation';
 import { PdConsentCheckbox } from '@/components/legal/PdConsentCheckbox';
@@ -1097,7 +1098,7 @@ function CompanionWidget({ days, arrival, departure }: {
           type="text"
           value={message}
           onChange={e => setMessage(e.target.value)}
-          onKeyDown={e => { if (e.key === 'Enter') sendMessage(); }}
+          onKeyDown={e => { if (!isImeKeyEvent(e.nativeEvent) && e.key === 'Enter') sendMessage(); }}
           placeholder="Ваш вопрос..."
           className="flex-1 ds-input text-xs py-2"
         />
@@ -2235,7 +2236,7 @@ export function PlannerClient({ initialUserId }: { initialUserId?: string | null
             type="text"
             value={chatInput}
             onChange={e => setChatInput(e.target.value)}
-            onKeyDown={e => { if (e.key === 'Enter' && !chatLoading) void handleChatFill(); }}
+            onKeyDown={e => { if (!isImeKeyEvent(e.nativeEvent) && e.key === 'Enter' && !chatLoading) void handleChatFill(); }}
             placeholder="вулканы и рыбалка, 7 дней в июле, сами"
             maxLength={500}
             className="ds-input flex-1 text-sm"

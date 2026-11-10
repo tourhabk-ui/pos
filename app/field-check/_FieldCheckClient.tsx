@@ -19,6 +19,7 @@
  * владелец. Очередь и снимки живут в IndexedDB и переживают перезагрузку.
  */
 
+import { isImeKeyEvent } from '@/lib/ui/ime';
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import {
   MapPin, Check, AlertTriangle, WifiOff, Loader2, Crosshair,
@@ -924,7 +925,7 @@ export function FieldCheckClient() {
             <div className="flex gap-2">
               <input value={routeQuery}
                 onChange={e => setRouteQuery(e.target.value.slice(0, 80))}
-                onKeyDown={e => { if (e.key === 'Enter') void searchRoutes(); }}
+                onKeyDown={e => { if (!isImeKeyEvent(e.nativeEvent) && e.key === 'Enter') void searchRoutes(); }}
                 placeholder="Вилючинский" className="ds-input flex-1" />
               <button onClick={() => void searchRoutes()} disabled={routeBusy}
                 className="px-5 rounded-lg font-semibold"

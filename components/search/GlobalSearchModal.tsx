@@ -1,5 +1,6 @@
 'use client';
 
+import { isImeKeyEvent } from '@/lib/ui/ime';
 import React, { useState, useEffect, useRef, useCallback } from 'react';
 import { useRouter } from 'next/navigation';
 import Link from 'next/link';
@@ -143,6 +144,8 @@ export function GlobalSearchModal() {
   const allItems = query.trim() ? results : QUICK_LINKS.map((q, i) => ({ ...q, id: String(i), subtitle: undefined }));
 
   const handleKeyDown = (e: React.KeyboardEvent) => {
+    // Набор иероглифа: Enter и стрелки выбирают подсказку IME, а не результат.
+    if (isImeKeyEvent(e.nativeEvent)) return;
     if (e.key === 'ArrowDown') {
       e.preventDefault();
       setActiveIndex(i => Math.min(i + 1, allItems.length - 1));

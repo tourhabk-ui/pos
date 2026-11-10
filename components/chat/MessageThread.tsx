@@ -1,5 +1,6 @@
 'use client';
 
+import { isImeKeyEvent } from '@/lib/ui/ime';
 import React, { useState, useRef, useEffect } from 'react';
 import { Send, Loader2, ArrowLeft } from 'lucide-react';
 
@@ -186,7 +187,7 @@ export function MessageThread({
   };
 
   const handleKeyDown = (e: React.KeyboardEvent) => {
-    if (e.key === 'Enter' && !e.shiftKey) {
+    if (!isImeKeyEvent(e.nativeEvent) && e.key === 'Enter' && !e.shiftKey) {
       e.preventDefault();
       handleSend();
     }

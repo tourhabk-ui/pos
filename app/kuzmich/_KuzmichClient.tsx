@@ -1,5 +1,6 @@
 'use client';
 
+import { isImeKeyEvent } from '@/lib/ui/ime';
 import { PdConsentCheckbox } from '@/components/legal/PdConsentCheckbox';
 import ChatText from '@/components/kuzmich/ChatText';
 import { useState, useRef, useEffect, useCallback, useId } from 'react';
@@ -717,7 +718,7 @@ export default function KuzmichClient() {
             type="text"
             value={input}
             onChange={e => setInput(e.target.value)}
-            onKeyDown={e => e.key === 'Enter' && !e.shiftKey && send(input)}
+            onKeyDown={e => !isImeKeyEvent(e.nativeEvent) && e.key === 'Enter' && !e.shiftKey && send(input)}
             placeholder={imagePreview ? 'Добавьте вопрос или просто отправьте фото...' : 'Опишите мечту о путешествии...'}
             className="flex-1 bg-transparent text-[var(--text-primary)] placeholder:text-[var(--text-muted)] text-sm outline-none"
           />

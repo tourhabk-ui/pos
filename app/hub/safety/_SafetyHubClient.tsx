@@ -1,5 +1,6 @@
 'use client';
 
+import { isImeKeyEvent } from '@/lib/ui/ime';
 import React, { useState, useEffect, useCallback, useRef, useMemo } from 'react';
 import Link from 'next/link';
 import { Truck, AlertTriangle, Thermometer, Wind, Activity, Phone, RefreshCw, MountainSnow, TriangleAlert, Send, Bot, Flame } from 'lucide-react';
@@ -544,7 +545,7 @@ export default function SafetyHubClient() {
                   type="text"
                   value={rescueInput}
                   onChange={e => setRescueInput(e.target.value)}
-                  onKeyDown={e => { if (e.key === 'Enter' && !e.shiftKey) { e.preventDefault(); void handleRescueSend(); } }}
+                  onKeyDown={e => { if (!isImeKeyEvent(e.nativeEvent) && e.key === 'Enter' && !e.shiftKey) { e.preventDefault(); void handleRescueSend(); } }}
                   placeholder="Опишите ситуацию..."
                   className="ds-input flex-1 text-sm"
                   disabled={rescueLoading}

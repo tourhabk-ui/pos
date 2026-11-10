@@ -8,6 +8,7 @@
  * его единственное действие — стереть карточку по обращению человека
  * (152-ФЗ, EraseOnRequest).
  */
+import { isImeKeyEvent } from '@/lib/ui/ime';
 import { useEffect, useRef, useState } from 'react';
 import {
   X, Phone, Mail, UserCheck, ShieldCheck, ShieldQuestion, Plus, Briefcase,
@@ -345,7 +346,7 @@ export function ContactPanel({ contactId, mode = 'partner', onClose, onChanged }
                       <input
                         value={tagInput}
                         onChange={(e) => setTagInput(e.target.value)}
-                        onKeyDown={(e) => { if (e.key === 'Enter') { e.preventDefault(); addTag(); } }}
+                        onKeyDown={(e) => { if (!isImeKeyEvent(e.nativeEvent) && e.key === 'Enter') { e.preventDefault(); addTag(); } }}
                         maxLength={40}
                         placeholder="Новая метка: постоянный, рыбалка, семья…"
                         aria-label="Новая метка"

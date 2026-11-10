@@ -1,5 +1,6 @@
 'use client';
 
+import { isImeKeyEvent } from '@/lib/ui/ime';
 import { useState, useEffect, useCallback, useRef } from 'react';
 import {
   HardHat, Send, CheckCircle2, Clock, AlertCircle, XCircle,
@@ -420,7 +421,7 @@ export function ArtemWorkspaceClient() {
             <textarea
               value={message}
               onChange={e => setMessage(e.target.value)}
-              onKeyDown={e => { if (e.key === 'Enter' && e.metaKey) handleSend(); }}
+              onKeyDown={e => { if (!isImeKeyEvent(e.nativeEvent) && e.key === 'Enter' && e.metaKey) handleSend(); }}
               className="ds-input w-full resize-none"
               rows={5}
               placeholder={
