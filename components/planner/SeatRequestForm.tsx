@@ -16,6 +16,7 @@
  * ответу, поэтому она копируется кнопкой и подписана как единственная.
  */
 
+import { useModalDialog } from '@/hooks/use-modal-dialog';
 import { useEffect, useRef, useState } from 'react';
 import { Loader2, X, Send, MessageCircle, Phone, ExternalLink, Copy, Check } from 'lucide-react';
 import { PdConsentCheckbox } from '@/components/legal/PdConsentCheckbox';
@@ -104,45 +105,13 @@ export function SeatRequestForm({
   // Сегодня по Камчатке (UTC+12) — нижняя граница выбора даты.
   const [today] = useState(() => new Date(Date.now() + 12 * 3600 * 1000).toISOString().slice(0, 10));
 
-  // Диалог: фокус внутрь при открытии и Escape для закрытия. Фокус
-  // возвращается на кнопку, которая окно открыла. onClose приходит новой
-  // функцией на каждом рендере родителя, поэтому лежит в ref: в зависимостях
-  // эффекта он возвращал бы фокус в диалог при каждом нажатии клавиши.
-  const onCloseRef = useRef(onClose);
-  useEffect(() => { onCloseRef.current = onClose; });
+  // Диалог — общим правилом слоёв (hooks/use-modal-dialog): фокус внутрь,
+  // Escape закрывает (только верхнее окно, и не во время набора иероглифа),
+  // Tab не уходит под затемнение, фокус возвращается на кнопку. Во время
+  // отправки окно не закрывается: запрос уже уходит, а ссылка на ответ
+  // появится только после — закрыв окно раньше, её не увидеть.
   useEffect(() => { sendingRef.current = sending; });
-  useEffect(() => {
-    const opener = document.activeElement instanceof HTMLElement ? document.activeElement : null;
-    dialogRef.current?.focus();
-    const prevOverflow = document.body.style.overflow;
-    document.body.style.overflow = 'hidden';
-    const onKey = (e: KeyboardEvent) => {
-      // Во время отправки окно не закрывается: запрос уже уходит, а ссылка на
-      // ответ появится только после — закрыв окно раньше, её не увидеть.
-      if (e.key === 'Escape' && !sendingRef.current) { onCloseRef.current(); return; }
-      if (e.key !== 'Tab') return;
-      // aria-modal без ловушки фокуса — обещание без исполнителя: Tab уходил
-      // бы на страницу под затемнением.
-      const root = dialogRef.current;
-      if (!root) return;
-      const items = Array.from(root.querySelectorAll<HTMLElement>(
-        'a[href], button:not([disabled]), input:not([disabled]), textarea, select, [tabindex]:not([tabindex="-1"])',
-      ));
-      if (items.length === 0) { e.preventDefault(); root.focus(); return; }
-      const first = items[0]!;
-      const last = items[items.length - 1]!;
-      const active = document.activeElement;
-      if (!root.contains(active)) { e.preventDefault(); first.focus(); }
-      else if (e.shiftKey && (active === first || active === root)) { e.preventDefault(); last.focus(); }
-      else if (!e.shiftKey && active === last) { e.preventDefault(); first.focus(); }
-    };
-    document.addEventListener('keydown', onKey);
-    return () => {
-      document.removeEventListener('keydown', onKey);
-      document.body.style.overflow = prevOverflow;
-      opener?.focus();
-    };
-  }, []);
+  useModalDialog(dialogRef, onClose, () => !sendingRef.current);
 
   // После отправки фокус остаётся на исчезнувшей кнопке: переводим его на окно,
   // чтобы скринридер прочёл заголовок и новое содержимое.

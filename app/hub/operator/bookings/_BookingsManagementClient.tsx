@@ -1,6 +1,7 @@
 'use client';
 
-import { useState, useEffect, useCallback } from 'react';
+import { useModalDialog } from '@/hooks/use-modal-dialog';
+import { useState, useEffect, useCallback, useRef } from 'react';
 import Link from 'next/link';
 import { useRouter } from 'next/navigation';
 import { AutoConfirmToggle } from '@/components/operator/AutoConfirmToggle';
@@ -136,6 +137,11 @@ export default function BookingsManagementClient() {
   const [busyId, setBusyId]           = useState<string | null>(null);
   const [actionError, setActionError] = useState('');
   const [confirmAction, setConfirmAction] = useState<{ booking: Booking; status: 'cancelled' | 'no_show' } | null>(null);
+  // Окно подтверждения — общим правилом слоёв (hooks/use-modal-dialog):
+  // фокус внутрь, Escape закрывает, Tab не уходит под затемнение, фокус
+  // возвращается на кнопку; пока идёт запрос, окно не закрывается.
+  const confirmRef = useRef<HTMLDivElement>(null);
+  useModalDialog(confirmRef, () => setConfirmAction(null), () => busyId === null, confirmAction !== null);
 
   // ── Fetch bookings ──────────────────────────────────────────────────────────
   const load = useCallback(async () => {
@@ -285,7 +291,7 @@ export default function BookingsManagementClient() {
       */}
       {confirmAction && (
         <div className="fixed inset-0 z-50 flex items-end sm:items-center justify-center bg-black/50 p-4"
-          role="dialog" aria-modal="true" aria-labelledby="booking-confirm-title">
+          ref={confirmRef} role="dialog" aria-modal="true" aria-labelledby="booking-confirm-title">
           <div className="w-full max-w-md rounded-2xl border border-[var(--border)] bg-[var(--bg-card)] p-5 space-y-4">
             <div className="flex items-start gap-3">
               <AlertTriangle className="w-5 h-5 mt-0.5 shrink-0 text-[var(--danger)]" />

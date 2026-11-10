@@ -1,6 +1,7 @@
 'use client';
 
-import { useCallback, useEffect, useState } from 'react';
+import { useModalDialog } from '@/hooks/use-modal-dialog';
+import { useCallback, useEffect, useState, useRef } from 'react';
 import { Users, Star, Loader2, Search, UserCheck, UserX, AlertTriangle, RefreshCw, BadgeCheck, UserMinus } from 'lucide-react';
 import { plural } from '@/lib/home/data-freshness';
 import GuideInvites from './_GuideInvites';
@@ -36,6 +37,11 @@ export default function GuidesClient() {
   const [search, setSearch] = useState('');
   const [busyId, setBusyId] = useState<string | null>(null);
   const [confirmRemove, setConfirmRemove] = useState<Guide | null>(null);
+  // Окно подтверждения — общим правилом слоёв (hooks/use-modal-dialog):
+  // фокус внутрь, Escape закрывает, Tab не уходит под затемнение, фокус
+  // возвращается на кнопку; пока идёт запрос, окно не закрывается.
+  const removeRef = useRef<HTMLDivElement>(null);
+  useModalDialog(removeRef, () => setConfirmRemove(null), () => busyId === null, confirmRemove !== null);
   // Состав команды гидов — настройка кабинета: приглашать и исключать гидов
   // может только владелец (CRM 2г). Менеджеру кнопок не показываем — сервер
   // ему всё равно откажет.
@@ -134,7 +140,7 @@ export default function GuidesClient() {
 
         {confirmRemove && (
           <div className="fixed inset-0 z-50 flex items-end sm:items-center justify-center bg-black/50 p-4"
-            role="dialog" aria-modal="true" aria-labelledby="remove-guide-title">
+            ref={removeRef} role="dialog" aria-modal="true" aria-labelledby="remove-guide-title">
             <div className="w-full max-w-md rounded-lg border border-[var(--border)] bg-[var(--bg-card)] p-5 space-y-4">
               <h2 id="remove-guide-title" className="text-base font-semibold text-[var(--text-primary)]">
                 Исключить {confirmRemove.name} из команды?

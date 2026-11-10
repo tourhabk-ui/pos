@@ -1,6 +1,7 @@
 'use client';
 
 import { isImeKeyEvent } from '@/lib/ui/ime';
+import { useModalDialog } from '@/hooks/use-modal-dialog';
 import React, { useState, useEffect, useRef, useCallback } from 'react';
 import { useRouter } from 'next/navigation';
 import Link from 'next/link';
@@ -99,11 +100,15 @@ export function GlobalSearchModal() {
         e.preventDefault();
         setOpen(prev => { if (!prev) { setTimeout(() => inputRef.current?.focus(), 50); } return !prev; });
       }
-      if (e.key === 'Escape') closeModal();
     };
     window.addEventListener('keydown', handler);
     return () => window.removeEventListener('keydown', handler);
   }, [closeModal]);
+
+  // Escape, ловушка фокуса, возврат фокуса на кнопку поиска в шапке —
+  // общим правилом слоёв (hooks/use-modal-dialog).
+  const dialogRef = useRef<HTMLDivElement>(null);
+  useModalDialog(dialogRef, closeModal, () => true, open);
 
   // Custom event from Header button
   useEffect(() => {
@@ -205,6 +210,7 @@ export function GlobalSearchModal() {
         ничего. Тест был прав, разметка — нет (DS §10).
       */}
       <div
+        ref={dialogRef}
         role="dialog"
         aria-modal="true"
         aria-label="Поиск по платформе"

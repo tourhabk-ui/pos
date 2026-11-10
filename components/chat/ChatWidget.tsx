@@ -1,5 +1,6 @@
 'use client';
 
+import { useOverlayEscape } from '@/hooks/use-modal-dialog';
 import React, { useState, useEffect, useCallback } from 'react';
 import { X } from 'lucide-react';
 import { useAuth } from '@/contexts/AuthContext';
@@ -116,16 +117,9 @@ export function ChatWidget() {
 
   const activeConversation = conversations.find(c => c.id === activeConversationId);
 
-  // Escape key to close
-  useEffect(() => {
-    const handleKey = (e: KeyboardEvent) => {
-      if (e.key === 'Escape' && isOpen) {
-        handleClose();
-      }
-    };
-    document.addEventListener('keydown', handleKey);
-    return () => document.removeEventListener('keydown', handleKey);
-  }, [isOpen]);
+  // Escape — общим правилом слоёв: закрывает только верхний слой и не во
+  // время набора иероглифа (hooks/use-modal-dialog).
+  useOverlayEscape(isOpen, handleClose);
 
   // Don't render if not authenticated
   if (!userId) return null;

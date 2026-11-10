@@ -26,6 +26,7 @@
  * «Отправить», без сети — «Сохранить — отправится, когда появится сеть».
  */
 
+import { useModalDialog } from '@/hooks/use-modal-dialog';
 import { useCallback, useEffect, useRef, useState } from 'react';
 import { PawPrint, Rabbit, Leaf, AlertTriangle, Footprints, MoreHorizontal, Camera, ImagePlus, MapPin, X, CheckCircle2 } from 'lucide-react';
 import { shrinkPhoto } from '@/lib/images/shrink-photo';
@@ -122,6 +123,12 @@ export function ObservationSheet({ open, onClose, lat, lng }: ObservationSheetPr
     setReplacingId(null);
     setPhotoNote(null);
   }, []);
+
+  // Шторка с затемнением — модальная: фокус внутрь, Escape закрывает (не во
+  // время сохранения), фокус возвращается на кнопку «Наблюдение»
+  // (hooks/use-modal-dialog).
+  const sheetRef = useRef<HTMLDivElement>(null);
+  useModalDialog(sheetRef, onClose, () => state !== 'saving', open);
 
   const loadRefusals = useCallback(() => {
     void listTrailObservations()
@@ -251,7 +258,7 @@ export function ObservationSheet({ open, onClose, lat, lng }: ObservationSheetPr
   }));
 
   return (
-    <div className="fixed inset-0 z-[1100] flex items-end" role="dialog" aria-label="Новое наблюдение">
+    <div ref={sheetRef} className="fixed inset-0 z-[1100] flex items-end" role="dialog" aria-modal="true" aria-label="Новое наблюдение">
       <button className="absolute inset-0 bg-black/50" onClick={onClose} aria-label="Закрыть" />
       <div
         className="relative w-full max-h-[85vh] overflow-y-auto rounded-t-2xl border-t p-5"
