@@ -55,6 +55,8 @@
  *   cb:q:f:<uuid>:<i>   — документ гида: сохранить одно поле (номер в DOC_FIELDS)
  *   cb:q:t:<uuid>:<i>   — документ гида: выбрать тур из кандидатов
  *   cb:q:x:<uuid>       — документ гида: отмена
+ *   cb:mc               — «Регистрация в МЧС» оператора и гида (10.11): выезды с бронями и срок подачи
+ *   cb:mc:<тур>:<ггггммдд> — выезд: данные одним текстом для формы МЧС (состав — только MAX)
  *
  * Кнопки экрана кабинета правят то сообщение, под которым стоят (кабинет
  * листается); `cb:n:` — нет (`cabinetPressEdits`).
@@ -155,7 +157,10 @@ export type CabinetPress =
   /** `field` — номер поля в DOC_FIELDS (lib/guides/tour-edit/doc-sections); null — все. */
   | { kind: 'doc_save'; draftId: string; field: number | null }
   | { kind: 'doc_cancel'; draftId: string }
-  | { kind: 'doc_tour'; draftId: string; index: number };
+  | { kind: 'doc_tour'; draftId: string; index: number }
+  /** «Регистрация в МЧС» (10.11): список выездов и выезд тура на дату (YYYY-MM-DD). Только чтение. */
+  | { kind: 'mchs' }
+  | { kind: 'mchs_group'; tourId: string; date: string };
 
 const UUID = '[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}';
 /** Номер предмета «Входящих»: bigint брони строкой или uuid заявки. */
@@ -183,6 +188,11 @@ function ymdOf(d: string): string | null {
 const FORMS: ReadonlyArray<[RegExp, (m: RegExpExecArray) => CabinetPress | null]> = [
   [/^cb:m$/, () => ({ kind: 'more' })],
   [/^cb:td$/, () => ({ kind: 'today' })],
+  [/^cb:mc$/, () => ({ kind: 'mchs' })],
+  [new RegExp(`^cb:mc:(${TOUR}):(\\d{8})$`), (m) => {
+    const date = ymdOf(m[2]!);
+    return date ? { kind: 'mchs_group', tourId: m[1]!, date } : null;
+  }],
   [/^cb:rp:(w|lw|m|lm)$/, (m) => { const period = periodFromCode(m[1] ?? ''); return period ? { kind: 'report', period } : null; }],
   [/^cb:n:i$/, () => ({ kind: 'inbox', page: 0 })],
   [/^cb:n:t$/, () => ({ kind: 'tasks', page: 0 })],
@@ -362,6 +372,9 @@ export const cabinetPayload = {
   docSaveField: (draftId: string, field: number): string => signPayload(`cb:q:f:${draftId.toLowerCase()}:${field}`),
   docCancel: (draftId: string): string => `cb:q:x:${draftId.toLowerCase()}`,
   docTour: (draftId: string, index: number): string => signPayload(`cb:q:t:${draftId.toLowerCase()}:${index}`),
+  /** «Регистрация в МЧС»: список выездов и выезд тура на дату. Чтение — без подписи. */
+  mchs: (): string => 'cb:mc',
+  mchsGroup: (tourId: string, date: string): string => `cb:mc:${tourId}:${date.replace(/-/g, '')}`,
 } as const;
 
 /** Самый длинный payload кабинета — в лимите callback_data Telegram (64 байта). */

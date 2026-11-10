@@ -41,6 +41,7 @@ import { isRepeatedTelegramUpdate } from '@/lib/telegram/update-dedup';
 import { enqueueTelegramChat, telegramChatKey, webhookAwaitsHandler } from '@/lib/telegram/update-lane';
 import { emphasizeTripDays, sanitizeForTelegram } from '@/lib/telegram/kuzmich-format';
 import { matchTouristButton, touristReplyMarkup, touristRentalText, TOURIST_ASK_TEXT, type TouristButton } from '@/lib/telegram/tourist-keyboard';
+import { MCHS_CHAT_BUTTON, mchsTouristLinks, mchsTouristText } from '@/lib/safety/mchs-chat';
 import { catalogFacts, loadShowcaseTours } from '@/lib/telegram/tourist-tours';
 import { touristOperatorsList } from '@/lib/telegram/operators-list';
 import { telegramWatchRedirect } from '@/lib/kuzmich/watch-flow';
@@ -96,7 +97,7 @@ import { categorizeSupport, CATEGORY_LABELS, RESIDENT_INTRO } from '@/lib/suppor
 import { leadProcessor } from '@/lib/services/operators/lead-processor.service';
 import { groupMonitor } from '@/lib/telegram/group-monitor';
 import { createLead } from '@/lib/leads/create';
-import { isTechnicalHost } from '@/lib/config';
+import { getPublicBaseUrl, isTechnicalHost } from '@/lib/config';
 import { sendPdAlert } from '@/lib/notifications/pd-alert';
 import { applyLeadStatus, LEAD_STATUS_ACTIONS } from '@/lib/leads/status-action';
 import {
@@ -494,6 +495,19 @@ async function answerTouristButton(chatId: string, button: TouristButton): Promi
   }
   if (button === 'Задать вопрос') {
     await sendTourist(chatId, TOURIST_ASK_TEXT);
+    return;
+  }
+  if (button === MCHS_CHAT_BUTTON) {
+    // Правило, срок и ссылки — готовым текстом, без модели и без вопросов
+    // человеку (lib/safety/mchs-chat). Клавиатура туриста стоит постоянно и
+    // от ссылок под сообщением не пропадает.
+    const sent = await telegramService.sendMessage({
+      chatId,
+      text: repairTelegramHtml(mchsTouristText()),
+      parseMode: 'HTML',
+      replyMarkup: { inline_keyboard: [mchsTouristLinks(getPublicBaseUrl())] },
+    });
+    if (!sent.success) console.error('[telegram/webhook] ответ «Регистрация в МЧС» не доставлен:', sent.error);
     return;
   }
   const facts = catalogFacts('подобрать тур', await loadShowcaseTours('подобрать тур'));

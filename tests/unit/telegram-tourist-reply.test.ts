@@ -300,9 +300,10 @@ describe('аренда машины — один словарь вида маш�
 });
 
 describe('клавиатура туриста', () => {
-  it('пять кнопок и аренда без кабинета', () => {
+  it('шесть кнопок, среди них «Регистрация в МЧС» (10.11), и аренда без кабинета', () => {
     const labels = touristReplyMarkup().keyboard.flat().map((b) => b.text);
-    expect(labels).toEqual(['Подобрать тур', 'Погода', 'Аренда авто', 'Операторы', 'Задать вопрос']);
+    expect(labels).toEqual(['Подобрать тур', 'Погода', 'Аренда авто', 'Операторы', 'Регистрация в МЧС', 'Задать вопрос']);
+    expect(matchTouristButton('регистрация в мчс')).toBe('Регистрация в МЧС');
     expect(matchTouristButton('  погода ')).toBe('Погода');
     expect(matchTouristButton('покажи туры')).toBeNull();
     const rental = touristRentalText(new Date('2026-10-24T12:00:00Z'));

@@ -118,6 +118,10 @@ describe('кнопка MAX на сайте ведёт на старт бота',
     const texts = replies();
     expect(texts[0]).toContain('Я Кузьмич');
     expect(texts[1]).toBe('Выберите тему или задайте вопрос:');
+    // В меню тем — «Регистрация в МЧС» (10.11): отвечает кодом, не моделью.
+    const menu = m.maxSend.mock.calls.filter((c) => c[0] === 77)[1]?.[2];
+    expect(JSON.stringify(menu)).toContain('"payload":"mchs_info"');
+    expect(JSON.stringify(menu)).toContain('Регистрация в МЧС');
     expect(m.tools).not.toHaveBeenCalled();
   });
 });

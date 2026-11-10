@@ -6,12 +6,15 @@
  */
 
 import { rentalPauseForTourist, rentalSitePauseActive } from '@/lib/rental/site-pause';
+import { MCHS_CHAT_BUTTON } from '@/lib/safety/mchs-chat';
 
 export const TOURIST_BUTTONS = [
   'Подобрать тур',
   'Погода',
   'Аренда авто',
   'Операторы',
+  // «Регистрация в МЧС» (10.11): правило, срок и ссылки — lib/safety/mchs-chat. Ничего не спрашивает.
+  MCHS_CHAT_BUTTON,
   'Задать вопрос',
 ] as const;
 
@@ -26,7 +29,7 @@ export function touristReplyMarkup(): {
     keyboard: [
       [{ text: 'Подобрать тур' }, { text: 'Погода' }],
       [{ text: 'Аренда авто' }, { text: 'Операторы' }],
-      [{ text: 'Задать вопрос' }],
+      [{ text: MCHS_CHAT_BUTTON }, { text: 'Задать вопрос' }],
     ],
     resize_keyboard: true,
     is_persistent: true,

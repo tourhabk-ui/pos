@@ -46,6 +46,7 @@ import { isChatTargetId, ownerReplyButton } from '@/lib/requests/request-chat';
 import { kamchatkaDate, ruShort, shiftDate } from '@/lib/analytics/kamchatka-day';
 import { cabinetPayload, type DigestMode, type RemindWhen, type TouchOutcome } from '@/lib/chat-cabinet/payload';
 import { menuRows } from '@/lib/roles/chat-menu';
+import { MCHS_CHAT_BUTTON } from '@/lib/safety/mchs-chat';
 
 export type CabinetChannel = 'max' | 'telegram';
 
@@ -662,6 +663,9 @@ export function contactResultScreen(args: {
 
 const ROLE_CODE: Readonly<Record<CabinetRole, string>> = { operator: 'op', transfer: 'tf', stay: 'st', guide: 'gd' };
 
+/** Строка «Ещё» о кнопке МЧС — оператору и гиду (10.11, lib/safety/mchs-chat). */
+const MCHS_MORE_LINE = `${MCHS_CHAT_BUTTON} — выезды с бронями и срок подачи заявки; данные выезда одним текстом для формы МЧС. Заявку подаёте вы, Ведар её не отправляет.`;
+
 export function moreScreen(partner: CabinetPartner, base: string, digest: DigestMode | null = null): CabinetScreen {
   if (partner.seat === 'member') return memberMoreScreen(partner, base);
   const code = ROLE_CODE[partner.role];
@@ -677,6 +681,8 @@ export function moreScreen(partner: CabinetPartner, base: string, digest: Digest
     lines.push('Календарь — даты своих туров на 14 дней: открыть или закрыть кнопкой.');
     lines.push('Отчёт — брони за неделю или месяц: по дате оформления и по дате поездки, оплаченное. Спросить можно и словами: «как мои брони за прошлую неделю?»');
     lines.push('Стоп-продажи — закрыть тур на неделю, 2 недели или месяц одной кнопкой (после «Да»); даты с бронями остаются.');
+    rows.push([{ text: MCHS_CHAT_BUTTON, payload: cabinetPayload.mchs() }]);
+    lines.push(MCHS_MORE_LINE);
   } else if (partner.role === 'guide' && partner.sellsTours) {
     // «Мои туры» — список; под ним кнопка каждого тура (`cb:u:`, 30.10): даты кнопками, правка текста и цены.
     rows.push([{ text: 'Брони', payload: `rm:${code}:bk` }, { text: 'Мои туры', payload: `rm:${code}:tr` }]);
@@ -694,6 +700,8 @@ export function moreScreen(partner: CabinetPartner, base: string, digest: Digest
     rows.push([{ text: 'Профиль', payload: cabinetPayload.profile() }, { text: 'Отзывы', payload: cabinetPayload.reviews() }]);
     lines.push('Расписание — записи календаря и группы на 14 дней. Заработок — начисления за 30 дней.');
     lines.push('Профиль — «о себе», опыт, языки и команда оператора: приглашения кнопками. Отзывы — ответить, изменить или удалить свой ответ.');
+    rows.push([{ text: MCHS_CHAT_BUTTON, payload: cabinetPayload.mchs() }]);
+    lines.push(MCHS_MORE_LINE);
   }
   if (partner.role === 'transfer') {
     // Парк и прайс перевозчика (#2862 этап C): кнопка снять машину с линии,

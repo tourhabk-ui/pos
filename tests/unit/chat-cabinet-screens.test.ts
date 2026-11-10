@@ -360,10 +360,11 @@ describe('«Клиенты» и карточка клиента', () => {
 
 describe('«Ещё»', () => {
   it('туроператор — его кабинет; гид со своими турами — «Брони» и «Мои туры»; у всех — сводка, «Помощь» и сайт', () => {
-    expect(payloads(moreScreen(partner(), BASE))).toEqual(['opd:tours', 'opd:seats', 'cb:wc', 'ss:l', 'cb:rp:lw', 'cb:g', 'rm:op:hp', 'sup:new', ...NAV]);
+    // «Регистрация в МЧС» (10.11, `cb:mc`) — у оператора и у любого гида; у перевозчика и жилья её нет.
+    expect(payloads(moreScreen(partner(), BASE))).toEqual(['opd:tours', 'opd:seats', 'cb:wc', 'ss:l', 'cb:rp:lw', 'cb:mc', 'cb:g', 'rm:op:hp', 'sup:new', ...NAV]);
     expect(payloads(moreScreen(partner({ summary: true }), BASE))).toContain('rm:op:sm');
     // У любого гида — расписание, заработок, профиль и отзывы (роль гида, этап 2, 30.10).
-    const guideRole = ['cb:s', 'cb:j', 'cb:p', 'cb:a'];
+    const guideRole = ['cb:s', 'cb:j', 'cb:p', 'cb:a', 'cb:mc'];
     expect(payloads(moreScreen(partner({ role: 'guide' }), BASE))).toEqual(['rm:gd:bk', 'rm:gd:tr', ...guideRole, 'cb:g', 'rm:gd:hp', ...NAV]);
     // Гид без своих туров (31.10) — «Мои туры» кабинета: там «Новый тур».
     expect(payloads(moreScreen(partner({ role: 'guide', sellsTours: false }), BASE))).toEqual(['cb:u', ...guideRole, 'cb:g', 'rm:gd:hp', ...NAV]);
