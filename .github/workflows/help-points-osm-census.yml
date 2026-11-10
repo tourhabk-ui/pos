@@ -1,0 +1,103 @@
+name: Перепись точек помощи по OpenStreetMap (вручную, по маркеру)
+
+# Только чтение. Скачивает выгрузку OpenStreetMap, считает объекты помощи в
+# крае и печатает числа. В базу, в хранилище и в репозиторий ничего не пишет,
+# секретов не берёт, прод не трогает.
+#
+# Повод (10.11, #2930): слово владельца «2930 да» — делать ближайшие точки в
+# SOS. Своего списка приютов, кордонов и медпунктов с координатами у платформы
+# нет; прежде чем что-то показывать человеку в беде, надо знать, сколько таких
+# объектов знает открытая карта и где они. Источник выбирается по этим числам.
+#
+# Почему раннер и выгрузка Geofabrik, а не Overpass: публичный Overpass край не
+# отдаёт (places-osm-crosscheck, прогоны 5–10), а из песочницы агента он
+# недоступен вовсе. Выгрузка — файл, а не чужая очередь.
+#
+# Край вырезается по его границе из той же выгрузки: ОДИН контур отношения
+# ISO3166-2=RU-KAM. Файл со всеми контурами разом (край, районы, поселения)
+# давать вырезке нельзя — вложенные она считает по чёт-нечет, и первая редакция
+# так молча потеряла Петропавловск и полсотни сёл. Не вышло с границей —
+# берётся рамка края, и отчёт говорит это первой строкой: в рамку попадают
+# Северные Курилы, часть Магаданской области и Чукотки.
+#
+# Прогон красный, если выгрузка пуста, строки не читаются, точек ноль или нет
+# хотя бы одного контрольного населённого пункта: «ноль на весь край» и
+# «вырезка без Петропавловска» — поломка, а не ответ (CLAUDE.md §4.0).
+# Сторож: tests/unit/help-points-osm-census.test.ts.
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - '.github/triggers/help-points-osm-census.json'
+
+permissions: {}
+
+concurrency:
+  group: help-points-osm-census
+  cancel-in-progress: false
+
+jobs:
+  census:
+    runs-on: ubuntu-latest
+    timeout-minutes: 40
+    permissions:
+      contents: read
+    steps:
+      - uses: actions/checkout@v7
+
+      - name: Выгрузка Geofabrik — край по границе, объекты помощи
+        run: |
+          set -euo pipefail
+          T="${RUNNER_TEMP:-/tmp}"
+          sudo apt-get update -qq && sudo apt-get install -y -qq osmium-tool
+          curl -fsSL --retry 3 -o "$T/fe.osm.pbf" \
+            https://download.geofabrik.de/russia/far-eastern-fed-district-latest.osm.pbf
+          ls -lh "$T/fe.osm.pbf"
+          AREA='граница Камчатского края (контур отношения ISO3166-2=RU-KAM из той же выгрузки)'
+          osmium tags-filter "$T/fe.osm.pbf" r/ISO3166-2=RU-KAM -o "$T/krai.osm.pbf" --overwrite
+          osmium export "$T/krai.osm.pbf" -f geojsonseq --geometry-types=polygon -o "$T/krai.geojsonseq" --overwrite
+          # Один контур края, а не все контуры файла: вложенные вырезка считает по чёт-нечет.
+          if node scripts/help-points-osm-census.mjs --boundary "$T/krai.geojsonseq" "$T/krai.geojson" \
+            && osmium extract -p "$T/krai.geojson" "$T/fe.osm.pbf" -o "$T/kam.osm.pbf" --overwrite; then
+            echo "Край вырезан по границе."
+          else
+            AREA='рамка 155–174,5° в. д., 50–65,5° с. ш. — граница края не применена; в рамку входят Северные Курилы, часть Магаданской области и Чукотки'
+            echo "::warning::Граница края не применена — считаю по рамке."
+            osmium extract -b 155,50,174.5,65.5 "$T/fe.osm.pbf" -o "$T/kam.osm.pbf" --overwrite
+          fi
+          # Те же теги, что читает scripts/help-points-osm-census.mjs (classify).
+          # Населённые пункты — только точками: контур того же села вошёл бы дважды.
+          osmium tags-filter "$T/kam.osm.pbf" \
+            nwr/emergency nwr/healthcare \
+            nwr/amenity=shelter,ranger_station,hospital,clinic,doctors,fire_station,police \
+            nwr/tourism=alpine_hut,wilderness_hut,camp_site \
+            n/place=city,town,village,hamlet \
+            -o "$T/kam-f.osm.pbf" --overwrite
+          osmium export "$T/kam-f.osm.pbf" -f geojsonseq -u type_id -o "$T/kam.geojsonseq" --overwrite
+          wc -l "$T/kam.geojsonseq"
+          echo "AREA=$AREA" >> "$GITHUB_ENV"
+
+      - name: Перепись — числа по родам и удалённости
+        run: |
+          set -uo pipefail
+          T="${RUNNER_TEMP:-/tmp}"
+          OUT="$T/help-points-osm-census.txt"
+          # Шаг идёт под bash -e: без set +e красный исход скрипта оборвал бы
+          # шаг на конвейере, и сводка осталась бы пустой.
+          set +e
+          node scripts/help-points-osm-census.mjs "$T/kam.geojsonseq" "${AREA:-не названа}" | tee "$OUT"
+          CODE=${PIPESTATUS[0]}
+          set -e
+          {
+            echo '## Точки помощи по OpenStreetMap'
+            echo '```'
+            cat "$OUT"
+            echo '```'
+          } >> "$GITHUB_STEP_SUMMARY"
+          # Код 0 без строки итога — скрипт не работал: зелёным это не бывает.
+          if [ "$CODE" = "0" ] && ! grep -q '^Итог: ' "$OUT"; then
+            echo '::error::скрипт вышел с кодом 0, не напечатав итога — перепись не выполнялась'
+            exit 1
+          fi
+          exit "$CODE"
