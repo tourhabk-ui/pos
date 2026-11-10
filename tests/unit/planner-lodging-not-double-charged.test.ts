@@ -27,7 +27,7 @@
 import { describe, it, expect } from 'vitest';
 import { readFileSync } from 'node:fs';
 import { join } from 'node:path';
-import { lodgingIncluded } from '@/lib/planner/lodging-included';
+import { lodgingIncluded, nightLodgingIncluded } from '@/lib/planner/lodging-included';
 import { calculatePriceBreakdown, estimateGroup, type EstimateDay } from '@/lib/planner/estimate';
 
 /** День плана для сметы: переезд несёт зону, откуда едут, — как у движка. */
@@ -114,8 +114,29 @@ describe('смета не платит за ночь дважды', () => {
     expect(DATA).toMatch(/included: Array\.isArray\(r\.included\) \? r\.included : null/);
   });
 
-  it('день с включённым проживанием ночь не оплачивает', () => {
-    expect(lodgingBlock()).toMatch(/if \(day\.realTour\?\.lodgingIncluded === true\) return null;/);
+  it('ночь внутри тура с проживанием не оплачивается, ночь после его последнего дня — оплачивается (Б32)', () => {
+    // Тур на 3 дня (дни 2–4) с проживанием: покрывает 2 ночи — после дней 2 и 3.
+    // Ночь после дня 4 (последний день тура) — уже не его, она оплачивается.
+    const t = { tourId: 't', priceUnit: 'per_person', lodgingIncluded: true as const };
+    const days = [
+      planDay(1, 'arrival', 'western'),
+      planDay(2, 'activity', 'western', { realPrice: 50000, realTour: t }),
+      planDay(3, 'activity', 'western', { realTour: t }),
+      planDay(4, 'activity', 'western', { realTour: t }),
+      planDay(5, 'rest', 'western'),
+      planDay(6, 'departure', 'western'),
+    ];
+    // Ночи после дней 1, 4, 5 — три; после 2 и 3 — тур.
+    expect(lodgingSum(days, 1)[0]).toBe(lodgingSum([
+      planDay(1, 'arrival', 'western'), planDay(2, 'rest', 'western'), planDay(3, 'rest', 'western'),
+      planDay(4, 'departure', 'western'),
+    ], 1)[0]);
+    // Флаг ночи: внутри тура — true, последний день тура — false, без тура — как есть.
+    expect(nightLodgingIncluded(days[1]!, days[2])).toBe(true);
+    expect(nightLodgingIncluded(days[3]!, days[4])).toBe(false);
+    expect(nightLodgingIncluded({ realTour: { tourId: 'u', lodgingIncluded: null } }, undefined)).toBeNull();
+    // Тот же тур вторым бронированием подряд (у первого дня новой брони есть цена) — ночь между ними не покрыта.
+    expect(nightLodgingIncluded(days[3]!, { realTour: t, realPrice: 50000 })).toBe(false);
   });
 
   it('только true пропускает ночь: «не знаем» платит', () => {

@@ -33,6 +33,7 @@ import { saveDraft, loadDraft, updateDraft, isDraftId, type DraftSurface } from 
 import { McpUserError } from '@/lib/mcp/jsonrpc';
 import { parsePlanStart, rangeDays, planStartRefusal, type PlanStart } from '@/lib/kuzmich/plan-start';
 import { planOfferLines } from '@/lib/kuzmich/plan-offers';
+import { nightLodgingIncluded } from '@/lib/planner/lodging-included';
 
 /**
  * Как ехать — из слова модели. Принимаются и коды (self/operator/mixed), и
@@ -951,7 +952,8 @@ export async function makeTripPlanForKuzmich(
   // занятостью туров: запросы независимы.
   const offersP = rec.days.length > 0
     ? planOfferLines({
-      days: rec.days.map((d) => ({ day: d.day, type: d.type, zone: d.zone, lodgingIncluded: d.realTour?.lodgingIncluded ?? null })),
+      // Ночь после последнего дня тура тур не покрывает (Б32).
+      days: rec.days.map((d, i) => ({ day: d.day, type: d.type, zone: d.zone, lodgingIncluded: nightLodgingIncluded(d, rec.days[i + 1]) })),
       arrivalIso: arrival.toISOString().slice(0, 10),
       departureIso: departure.toISOString().slice(0, 10),
       adults: group.adults, children: kids.children, surface: opts.surface ?? 'chat',

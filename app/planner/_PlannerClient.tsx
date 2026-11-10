@@ -64,6 +64,7 @@ import type {
 import { SeatRequestForm } from '@/components/planner/SeatRequestForm';
 import { planDayDate, planDayTourHref } from '@/lib/planner/day-tour-link';
 import { KUZMICH_MAX_URL } from '@/components/shared/KuzmichActions';
+import { nightLodgingIncluded } from '@/lib/planner/lodging-included';
 
 const LeafletMap = dynamic(() => import('@/components/shared/LeafletMap'), { ssr: false });
 
@@ -1407,9 +1408,10 @@ export function PlannerClient({ initialUserId }: { initialUserId?: string | null
       adults: planProfile?.adults ?? adults,
       children: planProfile?.children ?? knownChildAges,
       tripOrigin: planProfile?.tripOrigin ?? tripOrigin,
-      days: days.map((d) => ({
+      // Флаг — про ночь ПОСЛЕ дня: последний день тура её не покрывает (Б32).
+      days: days.map((d, i) => ({
         day: d.day, type: d.type, zone: d.zone,
-        lodgingIncluded: d.realTour?.lodgingIncluded ?? null,
+        lodgingIncluded: nightLodgingIncluded(d, days[i + 1]),
       })),
     });
   }, [recommendation, needsLodging, needsAirportTransfer, needsCar, arrival, departure, adults, knownChildAges, tripOrigin, planProfile, days]);

@@ -50,6 +50,7 @@ import { asTripOrigin, nightIsAtHome, paysAirportTransfers, type TripOrigin } fr
 import { bookingTotal } from '@/lib/tours/booking-total';
 import { dateOfTripDay } from '@/lib/planner/flow-balance';
 import type { PlanChoices } from '@/lib/planner/plan-choices';
+import { nightLodgingIncluded } from '@/lib/planner/lodging-included';
 
 // ── Входные данные ───────────────────────────────────────────────────────────
 
@@ -182,7 +183,8 @@ function nightOf(
   day: EstimateDay, next: EstimateDay | undefined, lastDayNum: number, origin: TripOrigin, bi: 0 | 1 | 2,
 ): { zone: ZoneId; price: [number, number] } | null {
   if (day.type === 'departure' || day.day === lastDayNum) return null;
-  if (day.realTour?.lodgingIncluded === true) return null;
+  // Ночь после последнего дня тура тур не покрывает (Б32).
+  if (nightLodgingIncluded(day, next) === true) return null;
   // В зоне не ночуют — ночь считается там, где ночуют на самом деле; ночь
   // переезда — там, куда приехали (nightZoneOf, аудит 07.11, E11).
   const sleepZone = nightZoneOf(day, next);

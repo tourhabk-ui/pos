@@ -46,3 +46,32 @@ export function lodgingIncluded(included: readonly string[] | null | undefined):
 
   return meaningful.some((line) => LODGING_STEMS.some((stem) => line.includes(stem)));
 }
+
+/** Минимум дня плана, чтобы судить о ночи после него. */
+export interface NightDay {
+  realTour?: { tourId: string; lodgingIncluded: boolean | null } | null;
+  /** Цена тура — только у первого дня тура: по ней узнаётся начало новой брони. */
+  realPrice?: number;
+  priceMissing?: string;
+}
+
+/**
+ * Покрывает ли тур ночь ПОСЛЕ этого дня (#3199, Б32). `true` — ночь входит
+ * в тур, жильё на неё не нужно; `false` — не входит; `null` — не знаем.
+ *
+ * Тур в N дней даёт N−1 ночей: последний день тура — возвращение, и ночь
+ * после него тур уже не покрывает. Прежде смета и подбор жилья пропускали
+ * ночь у КАЖДОГО дня тура с проживанием, включая последний, — и ночь после
+ * тура выпадала из счёта и из подбора жилья. Ночь покрыта, только если
+ * завтра идёт тот же тур, а не новая его бронь (у первого дня брони есть
+ * цена или причина её отсутствия).
+ */
+export function nightLodgingIncluded(day: NightDay, next: NightDay | undefined): boolean | null {
+  const flag = day.realTour?.lodgingIncluded ?? null;
+  if (flag !== true) return flag;
+  const continues = !!next?.realTour
+    && next.realTour.tourId === day.realTour!.tourId
+    && next.realPrice === undefined
+    && next.priceMissing === undefined;
+  return continues ? true : false;
+}

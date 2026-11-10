@@ -187,13 +187,15 @@ describe('ночи — по зоне, где ночуют', () => {
     expect(plain(lodging(e)[0]!.basis)).toBe('1 ночь × 2 чел.');
   });
 
-  it('ночь, включённая в тур, не считается отдельно', () => {
+  it('ночь, включённая в тур, не считается отдельно; ночь после последнего дня тура — считается (Б32)', () => {
+    // Двухдневный тур покрывает одну ночь — между днями 1 и 2. Ночь после
+    // дня 2 (последний день тура) уже не его: до #3199 она выпадала из сметы.
     const e = estimateGroup([
       day(1, 'activity', { zone: 'western', realPrice: 140000, realTour: tour('base', 'per_person', 8, true) }),
       day(2, 'activity', { zone: 'western', realTour: tour('base', 'per_person', 8, true) }),
       day(3, 'activity', { zone: 'western' }),
     ], profile({ tripOrigin: 'visitor' }));
-    expect(lodging(e)).toEqual([]);
+    expect(lodging(e).map((l) => l.basis)).toEqual(['1 ночь × 2 чел.']);
   });
 
   it('в Северной зоне не ночуют — ночь считается в Авачинской', () => {
