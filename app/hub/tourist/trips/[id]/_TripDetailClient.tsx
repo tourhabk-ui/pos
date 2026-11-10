@@ -8,12 +8,14 @@ import { GroupEstimateBlock } from '@/components/planner/GroupEstimate';
 import { estimateGroup } from '@/lib/planner/estimate';
 import { planForLead } from '@/lib/planner/plan-for-lead';
 import { dayPriceLine } from '@/lib/planner/day-price';
+import { zoneName } from '@/lib/planner/zone-style';
 import type { TripChoices, TripDayPlan, TripParty, TripWarning } from '@/lib/trips/trip-schema';
 import type { PlanNeeds } from '@/lib/planner/plan-for-lead';
 import { formatKamchatkaDate } from '@/lib/admin/kamchatka-date';
 import { stayLink } from '@/lib/stay/stay-link';
 import { TripActions } from '@/components/trips/TripActions';
 import { ruCalendarDate } from '@/lib/trips/trip-dates';
+import { plannerRebuildHref } from '@/lib/trips/rebuild-link';
 import {
   ArrowLeft, Calendar, MapPin, Loader, AlertTriangle,
   Footprints, Truck, Anchor, Plane, ChevronDown, ChevronUp,
@@ -72,12 +74,6 @@ const ZONE_COLORS: Record<string, string> = {
   western:    'var(--purple)',
 };
 
-const ZONE_LABELS: Record<string, string> = {
-  avachinsky: 'Авачинская — вулканы',
-  eastern:    'Карагинская — остров',
-  northern:   'Тигильская — гейзеры',
-  western:    'Мильковская — рыбалка',
-};
 
 const TRANSPORT_ICONS: Record<string, React.ElementType> = {
   walking: Footprints, jeep: Truck, boat: Anchor, helicopter: Plane,
@@ -310,11 +306,12 @@ export function TripDetailClient({ tripId }: { tripId: string }) {
             <h1 className="font-playfair text-2xl font-bold text-[var(--text-primary)] leading-tight">
               {trip.title}
             </h1>
-            <Link href="/planner"
+            <Link href={plannerRebuildHref(trip)}
               className="ds-btn ds-btn-secondary flex items-center gap-2 px-3 py-2 text-xs font-medium shrink-0">
               <Pencil className="w-3.5 h-3.5" />
               {/* Планер не открывает сохранённый маршрут по id — «Изменить»
-                  обещало правку, а давало пустой планер и новую копию. */}
+                  обещало правку, а давало новую копию. План собирается новый,
+                  но с датами, составом и интересами этой поездки (H17). */}
               Собрать заново
             </Link>
           </div>
@@ -402,7 +399,7 @@ export function TripDetailClient({ tripId }: { tripId: string }) {
                           )}
                         </div>
                         <p className="text-[11px] text-[var(--text-muted)]">
-                          {ZONE_LABELS[d.zone] ?? d.zone}
+                          {zoneName(d.zone)}
                         </p>
                       </div>
                       <div className="flex items-center gap-2 shrink-0">

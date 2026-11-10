@@ -51,7 +51,7 @@ import { GroupEstimateBlock } from '@/components/planner/GroupEstimate';
 import { dayPrice, dayPriceLine } from '@/lib/planner/day-price';
 import { estimateGroup, type EstimateProfile } from '@/lib/planner/estimate';
 import { planForLead } from '@/lib/planner/plan-for-lead';
-import { plannerLeadSource, tripFactsOf, tripRequestLines } from '@/lib/planner/trip-request-lines';
+import { plannerLeadSource, riskModeEffect, tripFactsOf, tripRequestLines } from '@/lib/planner/trip-request-lines';
 import { RequestSummary } from '@/components/planner/RequestSummary';
 import { EMPTY_SELECTION, resolveChoices, toggleLodging, type ChoiceSelection } from '@/lib/planner/plan-choices';
 import { buildPlanPrintHtml } from '@/lib/planner/print-html';
@@ -1157,8 +1157,14 @@ function tilesFromLink(interestsText: string | null, hint: string | null): {
 } {
   const keys = new Set<string>();
   if (interestsText) for (const k of parseInterestWords(interestsText)) keys.add(k);
-  // `hint` — уже ключ активности (activity_type тура), а не свободный текст.
-  if (hint) keys.add(hint.trim().toLowerCase());
+  // `hint` — уже ключи, а не свободный текст: activity_type тура или id плиток
+  // сохранённой поездки через запятую («Собрать заново», H17).
+  if (hint) {
+    for (const part of hint.split(',')) {
+      const key = part.trim().toLowerCase();
+      if (key) keys.add(key);
+    }
+  }
 
   const places: string[] = [];
   const activities: string[] = [];
@@ -1241,12 +1247,25 @@ export function PlannerClient({ initialUserId }: { initialUserId?: string | null
   const [needsCar, setNeedsCar] = useState(false);
 
   // Group profile
-  const [adults, setAdults] = useState(2);
+  // Состав из ссылки «Собрать заново» (H17): взрослых 1–8, как в списке шага
+  // «Кто едет»; битое значение не принимается — остаётся обычное «двое».
+  const [adults, setAdults] = useState(() => {
+    const raw = searchParams.get('adults');
+    return raw && /^[1-8]$/.test(raw) ? Number(raw) : 2;
+  });
   // Возраст ребёнка не подставляется: пока он не выбран — null, и плана нет
   // (независимая проверка 07.11, Б4). До этого новый ребёнок молча получал
   // 10 лет, и с четырёхлетним, не поправившим цифру, план давал треккинг,
   // сплав и медведей. MCP и чат на неразобранный возраст тоже отказывают.
-  const [childAges, setChildAges] = useState<Array<number | null>>([]);
+  // Из ссылки «Собрать заново» (H17) возрасты приходят через запятую: 0–17,
+  // не больше четырёх — как в списке шага. Иное отбрасывается целиком, и детей
+  // в форме нет, как без ссылки: частично принятый состав хуже пустого.
+  const [childAges, setChildAges] = useState<Array<number | null>>(() => {
+    const raw = searchParams.get('children') ?? '';
+    if (!/^\d{1,2}(,\d{1,2}){0,3}$/.test(raw)) return [];
+    const ages = raw.split(',').map(Number);
+    return ages.every((a) => a <= 17) ? ages : [];
+  });
   const knownChildAges = useMemo(() => childAges.filter((a): a is number => a !== null), [childAges]);
   const childAgeMissing = knownChildAges.length < childAges.length;
   const [fitnessLevel, setFitnessLevel] = useState<FitnessLevel>('moderate');
@@ -2547,22 +2566,24 @@ export function PlannerClient({ initialUserId }: { initialUserId?: string | null
         />
       </div>
 
-      {/* Risk Mode — как было (решение владельца 26.09: блок не переименовывать) */}
+      {/* Risk Mode — блок и кнопки как были (решение владельца 26.09: блок не
+          переименовывать). Подпись — то, что режим делает на деле (Б12, 10.11):
+          отбора по режиму в движке нет, и экран его не обещает. */}
       <div className="space-y-2">
         <p className="text-[10px] font-bold uppercase tracking-widest text-[var(--text-muted)] flex items-center gap-1">
           <ShieldAlert className="w-3 h-3" />Режим маршрутов
         </p>
         <div className="grid grid-cols-3 gap-1">
           {([
-            { value: 'safe_only', label: 'Безопасный', desc: 'Только проверенные, без alerts' },
-            { value: 'adventure', label: 'Приключение', desc: 'Все маршруты включая опасные' },
-            { value: 'available', label: 'Свободные', desc: 'Все что есть по наличию мест' },
+            { value: 'safe_only', label: 'Безопасный' },
+            { value: 'adventure', label: 'Приключение' },
+            { value: 'available', label: 'Свободные' },
           ] as const).map(m => (
             <button
               key={m.value}
               type="button"
               onClick={() => setRiskMode(m.value)}
-              title={m.desc}
+              title={riskModeEffect(m.value)}
               className={`px-2 py-2 min-h-[44px] rounded text-xs font-medium transition-all border ${
                 riskMode === m.value
                   ? m.value === 'adventure'
@@ -2575,12 +2596,9 @@ export function PlannerClient({ initialUserId }: { initialUserId?: string | null
             </button>
           ))}
         </div>
-        {riskMode === 'adventure' && (
-          <p className="text-[10px] text-[var(--warning)] flex items-start gap-1">
-            <AlertTriangle className="w-3 h-3 mt-0.5 flex-shrink-0" />
-            Включены маршруты с предупреждениями МЧС. Требуется опыт и снаряжение.
-          </p>
-        )}
+        <p className="text-xs text-[var(--text-secondary)]" data-testid="risk-mode-effect">
+          {riskModeEffect(riskMode)}
+        </p>
       </div>
 
       {/* Что ещё нужно (решение владельца 26.09): в результате — настоящие
