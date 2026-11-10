@@ -3662,6 +3662,8 @@ withPg('кабинет туриста на настоящем PostgreSQL', () =>
   // ── Волна 0 плана МЧС (docs/safety/MCHS_PLAN.md, С1): одна запись на выход ──
   // До 10.11 форма /register слала два запроса, и каждый писал свою запись
   // контроля: «Я вернулся» закрывал одну, по второй сторож поднимал тревогу.
+  const DEVICE_A = 'a'.repeat(64);
+  const DEVICE_B = 'b'.repeat(64);
   const watchInput = (phone: string, over: Record<string, unknown> = {}) => ({
     source: 'form' as const,
     userId: null,
@@ -3683,6 +3685,8 @@ withPg('кабинет туриста на настоящем PostgreSQL', () =>
     contactEmail: null,
     contactConsent: true,
     touristChat: null,
+    // Форма шлёт ключ повтора своего устройства; в базе — его SHA-256.
+    submitKeyHash: DEVICE_A,
     ...over,
   });
   const rowsOf = async (phone: string) => (await pool.query<{ id: string; completed_at: Date | null }>(
@@ -3724,17 +3728,52 @@ withPg('кабинет туриста на настоящем PostgreSQL', () =>
     expect(anew.id).not.toBe(first.id);
   });
 
-  it('контроль с формы: вошедший и аноним с теми же данными — одна запись, два разных аккаунта — две', async () => {
+  it('контроль с формы: свою запись узнаёт то же устройство или тот же аккаунт; чужой с теми же данными номера не получает', async () => {
     const { createTripWatchOnce } = await import('@/lib/safety/trip-watch');
     const phone = '+70000001011';
-    // Сессия истекла между двумя нажатиями: второй запрос пришёл анонимным.
-    const mine = await createTripWatchOnce(watchInput(phone, { userId }));
-    expect(await createTripWatchOnce(watchInput(phone, { userId: null }))).toEqual({ id: mine.id, repeated: true });
-    expect(await createTripWatchOnce(watchInput(phone, { userId }))).toEqual({ id: mine.id, repeated: true });
-    // Другой аккаунт — другой владелец записи, даже при тех же данных.
-    const theirs = await createTripWatchOnce(watchInput(phone, { userId: otherUserId }));
-    expect(theirs.repeated).toBe(false);
-    expect(theirs.id).not.toBe(mine.id);
+    const mine = await createTripWatchOnce(watchInput(phone, { userId, submitKeyHash: DEVICE_A }));
+    expect(mine.repeated).toBe(false);
+    // Сессия истекла между двумя нажатиями: второй запрос пришёл анонимным,
+    // но с того же устройства — ключ тот же.
+    expect(await createTripWatchOnce(watchInput(phone, { userId: null, submitKeyHash: DEVICE_A }))).toEqual({ id: mine.id, repeated: true });
+    // Тот же аккаунт с другого устройства и вовсе без ключа (старая форма) — запись его.
+    expect(await createTripWatchOnce(watchInput(phone, { userId, submitKeyHash: DEVICE_B }))).toEqual({ id: mine.id, repeated: true });
+    expect(await createTripWatchOnce(watchInput(phone, { userId, submitKeyHash: null }))).toEqual({ id: mine.id, repeated: true });
+    expect(await rowsOf(phone)).toHaveLength(1);
+
+    // Посторонний знает заявку слово в слово (лист с данными группы у него в
+    // руках). Номер чужой записи он получить не должен: номер с телефоном
+    // руководителя закрывает контроль. Ему пишется своя запись — как до 10.11.
+    const strangers = [
+      { userId: null, submitKeyHash: null },          // аноним без ключа
+      { userId: null, submitKeyHash: DEVICE_B },      // аноним с другого устройства
+      { userId: otherUserId, submitKeyHash: null },   // другой аккаунт
+    ];
+    const seen = new Set([mine.id]);
+    let lastStranger = '';
+    for (const who of strangers) {
+      const theirs = await createTripWatchOnce(watchInput(phone, who));
+      expect(theirs.repeated, JSON.stringify(who)).toBe(false);
+      expect(seen.has(theirs.id), JSON.stringify(who)).toBe(false);
+      seen.add(theirs.id);
+      lastStranger = theirs.id;
+    }
+    // Тем же правилом посторонний узнаёт СВОЮ запись: другой аккаунт с третьего
+    // устройства получает свою прежнюю, а не запись первого человека.
+    expect(await createTripWatchOnce(watchInput(phone, { userId: otherUserId, submitKeyHash: 'c'.repeat(64) })))
+      .toEqual({ id: lastStranger, repeated: true });
+    // И запись без владельца и без ключа не достаётся никому: ни анониму, ни вошедшему.
+    const orphanPhone = '+70000001013';
+    const orphan = await createTripWatchOnce(watchInput(orphanPhone, { userId: null, submitKeyHash: null }));
+    for (const who of [{ userId: null, submitKeyHash: null }, { userId, submitKeyHash: DEVICE_A }]) {
+      const next = await createTripWatchOnce(watchInput(orphanPhone, who));
+      expect(next.repeated, JSON.stringify(who)).toBe(false);
+      expect(next.id).not.toBe(orphan.id);
+    }
+    // В базе — то, что прислали: по ключу устройства запись находится.
+    const stored = await pool.query<{ submit_key_hash: string | null }>(
+      `SELECT submit_key_hash FROM route_registrations WHERE id = $1`, [mine.id]);
+    expect(stored.rows[0]?.submit_key_hash).toBe(DEVICE_A);
   });
 
   it('контроль с формы: замок занят дольше срока — отказ 55P03, а не вечное ожидание и не вторая запись', async () => {
@@ -3777,12 +3816,14 @@ withPg('кабинет туриста на настоящем PostgreSQL', () =>
     const phone = '+70000001003';
     authAs.userId = userId;
     const kam = (days: number) => new Date(Date.now() + 12 * 3600_000 + days * 86_400_000).toISOString().slice(0, 10);
-    const payload = {
+    const payload: Record<string, unknown> = {
       route_name: 'Вулкан Горелый', start_date: kam(2), end_date: kam(3), expected_return_time: '19:00',
       group_size: 2, group_members: [{ name: 'Тест Второй' }],
       leader_name: 'Тест', leader_phone: phone,
       emergency_contact_name: 'Контакт', emergency_contact_phone: '+70000000002',
       emergency_contact_consent: true, accepted_disclaimer: true,
+      // Ключ повтора этого устройства — его шлёт форма с запросом на запись.
+      submit_key: 'device-key-of-this-form-0001',
     };
     const post = (url: string, ip: string) => POST(new NextRequest(`https://vedarai.ru${url}`, {
       method: 'POST',
@@ -3803,6 +3844,25 @@ withPg('кабинет туриста на настоящем PostgreSQL', () =>
     // Ответ потерялся на плохой связи, человек нажал ещё раз — та же запись.
     const retry = await (await post('/api/safety/register', '203.0.113.202')).json() as { registration_id: string };
     expect(retry.registration_id).toBe(savedJson.registration_id);
+
+    // Вышел из аккаунта и нажал ещё раз с того же устройства — ключ тот же, запись та же.
+    // verifyAuth в этом файле отдаёт authAs.userId как есть: null — запрос без аккаунта.
+    (authAs as { userId: string | null }).userId = null;
+    const sameDevice = await (await post('/api/safety/register', '203.0.113.203')).json() as { registration_id: string };
+    expect(sameDevice.registration_id).toBe(savedJson.registration_id);
+    // Посторонний шлёт те же данные без ключа и со своим — чужого номера в ответе нет.
+    for (const [i, key] of [undefined, 'stranger-device-key-0001'].entries()) {
+      const res = await POST(new NextRequest('https://vedarai.ru/api/safety/register', {
+        method: 'POST',
+        headers: { 'content-type': 'application/json', 'x-forwarded-for': `203.0.113.${210 + i}` },
+        body: JSON.stringify({ ...payload, submit_key: key }),
+      }));
+      const json = await res.json() as { success: boolean; registration_id: string };
+      expect(json.success).toBe(true);
+      expect(json.registration_id).not.toBe(savedJson.registration_id);
+      await pool.query(`UPDATE route_registrations SET completed_at = now(), closed_by = 'link', closed_reason = 'cancelled' WHERE id = $1`, [json.registration_id]);
+    }
+    authAs.userId = userId;
 
     // «Я вернулся» по единственной ссылке закрывает всё, что было открыто.
     const { closeTripWatch } = await import('@/lib/safety/trip-watch');

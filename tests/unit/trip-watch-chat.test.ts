@@ -405,7 +405,8 @@ describe('handleWatchMessage', () => {
     expect(p[6]).toBe(2);                                                  // группа — названная, не выдуманная
     expect((p[17] as Date).toISOString()).toBe('2026-09-30T07:00:00.000Z'); // 19:00 по Камчатке
     expect(p[18]).toBe('day');
-    expect(p.slice(19)).toEqual(['max', 'max', 5]);
+    // Последним — ключ повтора формы: у контроля из чата его нет.
+    expect(p.slice(19)).toEqual(['max', 'max', 5, null]);
     expect(replies.at(-1)).toContain('Контроль включён. Жду вас к 19:00 (камчатское время).');
     expect(replies.at(-1)).toContain('Если до 30.09 22:00 я не напишу тебе');
   });

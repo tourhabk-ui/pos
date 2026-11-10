@@ -3,10 +3,10 @@ import { kamchatkaWallTime } from '@/lib/safety/checkin-escalation';
 import { kamchatkaDate } from '@/lib/analytics/kamchatka-day';
 import { createRateLimiter, getClientIp } from '@/lib/rate-limit';
 import { z } from 'zod';
-import { createTripWatchOnce } from '@/lib/safety/trip-watch';
+import { createTripWatchOnce, submitKeyHash } from '@/lib/safety/trip-watch';
 import { verifyAuth } from '@/lib/auth';
 import { generateMchsStatementPDF } from '@/lib/pdf/mchs-statement';
-import { TELEGRAM_CHAT_ID } from '@/lib/safety/register-submit';
+import { SUBMIT_KEY, TELEGRAM_CHAT_ID } from '@/lib/safety/register-submit';
 
 export const dynamic = 'force-dynamic';
 
@@ -46,6 +46,9 @@ const RegistrationSchema = z.object({
   accepted_disclaimer: z.literal(true, {
     message: 'Необходимо принять условия',
   }),
+  // Ключ повтора: по нему, а не по одним данным, форма узнаёт свою запись
+  // (lib/safety/trip-watch, SAME_OPEN_WATCH_SQL). Старая форма его не шлёт.
+  submit_key: z.string().regex(SUBMIT_KEY, 'Ключ формы записан не по форме — обновите страницу и отправьте снова.').optional(),
 });
 
 /**
@@ -58,7 +61,9 @@ const RegistrationSchema = z.object({
  * До 10.11 запись создавалась на любой запрос, а форма слала их два — на один
  * выход выходило два контроля, и второй никто не закрывал
  * (docs/safety/MCHS_PLAN.md, С1). Повтор той же формы теперь узнаёт свою
- * запись: `createTripWatchOnce`.
+ * запись: `createTripWatchOnce`. Своя — по входу в аккаунт или по ключу
+ * повтора `submit_key`; одних совпавших данных мало, иначе номер чужой записи
+ * получил бы всякий, кто знает её поля.
  */
 // Регистрация открыта без входа — предел на адрес, иначе поток выдуманных
 // контролей завалил бы дежурного тревогами.
@@ -166,6 +171,7 @@ export async function POST(request: NextRequest) {
       contactEmail: data.emergency_contact_email || null,
       contactConsent: data.emergency_contact_consent,
       touristChat: null,
+      submitKeyHash: data.submit_key ? submitKeyHash(data.submit_key) : null,
     });
     registrationId = watch.id;
   } catch (err) {

@@ -13,7 +13,8 @@
  * рендером в mchs-block-one-door.test.tsx (PDF в среде браузера не собирается).
  * Регулярка по исходнику — только запреты.
  */
-import { describe, it, expect, vi, beforeEach } from 'vitest';
+import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
+import { createHash } from 'node:crypto';
 import { readFileSync, readdirSync, statSync } from 'node:fs';
 import { join } from 'node:path';
 import { NextRequest } from 'next/server';
@@ -26,7 +27,9 @@ const m = vi.hoisted(() => ({
 
 vi.mock('@/lib/db-pool', () => ({ pool: { query: (...a: unknown[]) => m.poolQuery(...a) } }));
 
-vi.mock('@/lib/safety/trip-watch', () => ({
+vi.mock('@/lib/safety/trip-watch', async (importOriginal) => ({
+  // Настоящий модуль — ради submitKeyHash: что уходит в базу вместо ключа, судится им.
+  ...(await importOriginal<typeof import('@/lib/safety/trip-watch')>()),
   createTripWatchOnce: (...a: unknown[]) => m.once(...a),
   createTripWatch: (...a: unknown[]) => m.plain(...a),
 }));
@@ -202,6 +205,39 @@ describe('POST /api/safety/register — одна запись на выход', 
     errors.mockRestore();
   });
 
+  it('ключ повтора: в запись уходит его SHA-256, а не сам ключ; в ответе и в логе ключа нет', async () => {
+    const { POST } = await import('@/app/api/safety/register/route');
+    const key = '0b7c4f0e-6a55-4f0a-9d53-2a1f6f0f7c11';
+    const logs = vi.spyOn(console, 'error').mockImplementation(() => {});
+    const res = await POST(post('/api/safety/register', body({ submit_key: key })));
+    expect(res.status).toBe(200);
+    const input = m.once.mock.calls[0][0] as Record<string, unknown>;
+    expect(input.submitKeyHash).toBe(createHash('sha256').update(key).digest('hex'));
+    expect(JSON.stringify(input)).not.toContain(key);
+    expect(JSON.stringify(await res.json())).not.toContain(key);
+    expect(logs.mock.calls.flat().map(String).join(' ')).not.toContain(key);
+    logs.mockRestore();
+  });
+
+  it('ключа нет (старая форма) — запись без него: повтор узнает только вход в аккаунт', async () => {
+    const { POST } = await import('@/app/api/safety/register/route');
+    expect((await POST(post('/api/safety/register', body()))).status).toBe(200);
+    expect((m.once.mock.calls[0][0] as Record<string, unknown>).submitKeyHash).toBeNull();
+  });
+
+  it('ключ не по форме — 400 со словами, записи нет; лист ключа не требует', async () => {
+    const { POST } = await import('@/app/api/safety/register/route');
+    for (const bad of ['короткий', 'x'.repeat(65), 'с пробелом внутри ключа', "a'; DROP TABLE route_registrations; --"]) {
+      const res = await POST(post('/api/safety/register', body({ submit_key: bad })));
+      expect(res.status, bad).toBe(400);
+      expect(String((await res.json()).error)).toMatch(/Ключ формы/);
+    }
+    expect(m.once).not.toHaveBeenCalled();
+    const sheet = await POST(post('/api/safety/register?pdf=1', body()));
+    expect(sheet.status).toBe(200);
+    expect(m.once).not.toHaveBeenCalled();
+  });
+
   it('срок в прошлом — 400 и ни записи, ни листа', async () => {
     const { POST } = await import('@/app/api/safety/register/route');
     const past = body({ start_date: '2026-01-01', end_date: '2026-01-02' });
@@ -274,6 +310,104 @@ describe('отправка формы: контроль и лист — два �
     const html = await submitTripWatchForm({}, async () => new Response('<html>502</html>', { status: 502 }));
     expect(html).toEqual({ ok: false, error: REGISTER_SUBMIT_TEXT.badAnswer });
     spy.mockRestore();
+  });
+
+  describe('ключ повтора формы', () => {
+    const KEY_RULE = /^[A-Za-z0-9_-]{16,64}$/;
+    const bodies = () => {
+      const sent: Array<{ url: string; body: Record<string, unknown> }> = [];
+      const fetchImpl = async (url: string, init?: RequestInit) => {
+        sent.push({ url, body: JSON.parse(String(init?.body)) as Record<string, unknown> });
+        return sent.length % 2 === 1 ? okJson() : pdf();
+      };
+      return { sent, fetchImpl };
+    };
+    /** Хранилище устройства: то же, что localStorage, но в памяти теста. */
+    const storage = (initial: Record<string, string> = {}) => {
+      const data = new Map(Object.entries(initial));
+      return {
+        data,
+        getItem: (k: string) => data.get(k) ?? null,
+        setItem: (k: string, v: string) => { data.set(k, v); },
+      };
+    };
+    afterEach(() => { vi.unstubAllGlobals(); vi.resetModules(); });
+
+    it('ключ едет с запросом, который пишет, и не едет с запросом за листом', async () => {
+      const { submitTripWatchForm } = await import('@/lib/safety/register-submit');
+      const { sent, fetchImpl } = bodies();
+      await submitTripWatchForm({ route_name: 'Авачинский перевал' }, fetchImpl, 'device-key-0000000001');
+      expect(sent.map((x) => x.url)).toEqual(['/api/safety/register', '/api/safety/register?pdf=1']);
+      expect(sent[0].body).toEqual({ route_name: 'Авачинский перевал', submit_key: 'device-key-0000000001' });
+      expect(sent[1].body).toEqual({ route_name: 'Авачинский перевал' });
+    });
+
+    it('ключ один на устройство: повтор и новое открытие страницы шлют тот же', async () => {
+      const disk = storage();
+      vi.stubGlobal('localStorage', disk);
+      vi.resetModules();
+      const first = await import('@/lib/safety/register-submit');
+      const a = bodies();
+      await first.submitTripWatchForm({ n: 1 }, a.fetchImpl);
+      await first.submitTripWatchForm({ n: 1 }, a.fetchImpl);
+      const key = String(a.sent[0].body.submit_key);
+      expect(key).toMatch(KEY_RULE);
+      expect(first.SUBMIT_KEY.test(key)).toBe(true);
+      expect(a.sent[2].body.submit_key).toBe(key);
+      expect([...disk.data.values()]).toEqual([key]);
+
+      // Страницу открыли заново: модуль загружен с нуля, ключ читается с устройства.
+      vi.resetModules();
+      const reopened = await import('@/lib/safety/register-submit');
+      const b = bodies();
+      await reopened.submitTripWatchForm({ n: 1 }, b.fetchImpl);
+      expect(b.sent[0].body.submit_key).toBe(key);
+    });
+
+    it('хранилище закрыто — ключ живёт в памяти страницы: повтор без перезагрузки узнаётся', async () => {
+      const silent = silence();
+      vi.stubGlobal('localStorage', {
+        getItem: () => { throw new DOMException('denied', 'SecurityError'); },
+        setItem: () => { throw new DOMException('denied', 'SecurityError'); },
+      });
+      vi.resetModules();
+      const mod = await import('@/lib/safety/register-submit');
+      const { sent, fetchImpl } = bodies();
+      await mod.submitTripWatchForm({}, fetchImpl);
+      await mod.submitTripWatchForm({}, fetchImpl);
+      expect(String(sent[0].body.submit_key)).toMatch(KEY_RULE);
+      expect(sent[2].body.submit_key).toBe(sent[0].body.submit_key);
+      // Отказ хранилища не проглочен молча — ни при чтении, ни при записи.
+      const said = silent.mock.calls.map((c) => c.map(String).join(' ')).join('\n');
+      expect(said).toMatch(/ключ повтора не прочитан с устройства/);
+      expect(said).toMatch(/ключ повтора не сохранён на устройстве/);
+      // В лог идёт род отказа, не сам ключ.
+      expect(said).not.toContain(String(sent[0].body.submit_key));
+      silent.mockRestore();
+    });
+
+    it('на устройстве лежит мусор вместо ключа — он не шлётся, создаётся новый', async () => {
+      const disk = storage({ 'vedar:trip-watch-submit-key': '<script>' });
+      vi.stubGlobal('localStorage', disk);
+      vi.resetModules();
+      const mod = await import('@/lib/safety/register-submit');
+      const { sent, fetchImpl } = bodies();
+      await mod.submitTripWatchForm({}, fetchImpl);
+      expect(String(sent[0].body.submit_key)).toMatch(KEY_RULE);
+      expect(sent[0].body.submit_key).not.toBe('<script>');
+    });
+
+    it('случайного источника нет — ключа нет: предсказуемый ключ хуже никакого, форма уходит без него', async () => {
+      vi.stubGlobal('localStorage', storage());
+      vi.stubGlobal('crypto', undefined);
+      vi.resetModules();
+      const mod = await import('@/lib/safety/register-submit');
+      expect(mod.tripWatchSubmitKey()).toBeNull();
+      const { sent, fetchImpl } = bodies();
+      const res = await mod.submitTripWatchForm({ n: 1 }, fetchImpl);
+      expect(res.ok).toBe(true);
+      expect(sent[0].body).toEqual({ n: 1 });
+    });
   });
 
   it('адрес формы с карточки маршрута читается формой: параметр name, не длиннее 200', async () => {

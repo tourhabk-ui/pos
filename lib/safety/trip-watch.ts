@@ -14,6 +14,7 @@
  * Telegram — заглушка без них. Так обещает политика конфиденциальности
  * (разд. 5) и так решил владелец 23.08 (lib/notifications/pd-alert.ts).
  */
+import { createHash } from 'node:crypto';
 import { pool } from '@/lib/db-pool';
 import { sendEmail } from '@/lib/email';
 import { sendPdAlert } from '@/lib/notifications/pd-alert';
@@ -57,6 +58,19 @@ export interface TripWatchInput {
   contactConsent: boolean;
   /** Канал к самому туристу — только у контроля из чата. */
   touristChat: { channel: TouristChannel; chatId: number } | null;
+  /**
+   * SHA-256 ключа повтора формы (`submitKeyHash`). Только у формы `/register`;
+   * у чата и у формы без ключа — нет.
+   */
+  submitKeyHash?: string | null;
+}
+
+/**
+ * Ключ повтора формы (lib/safety/register-submit, `tripWatchSubmitKey`) в базе
+ * лежит не сам, а SHA-256 от него: по строке таблицы ключ не восстановить.
+ */
+export function submitKeyHash(key: string): string {
+  return createHash('sha256').update(key, 'utf8').digest('hex');
 }
 
 interface Queryable {
@@ -93,6 +107,7 @@ function watchParams(input: TripWatchInput): unknown[] {
     input.source,
     input.touristChat?.channel ?? null,
     input.touristChat?.chatId ?? null,
+    input.submitKeyHash ?? null,
   ];
 }
 
@@ -104,8 +119,8 @@ export async function createTripWatch(input: TripWatchInput, db: Queryable = poo
         emergency_contact_name, emergency_contact_phone, emergency_contact_relation,
         emergency_contact_telegram_chat_id, emergency_contact_email,
         emergency_contact_consent, expected_return_at, trip_kind,
-        source, tourist_chat_channel, tourist_chat_id)
-     VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15,$16,$17,$18,$19,$20,$21,$22)
+        source, tourist_chat_channel, tourist_chat_id, submit_key_hash)
+     VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15,$16,$17,$18,$19,$20,$21,$22,$23)
      RETURNING id`,
     watchParams(input),
   );
@@ -127,17 +142,23 @@ export function tripWatchLockKey(leaderPhone: string, startDate: string, endDate
  * второй. Сверяется КАЖДОЕ записываемое поле: поправил человек хоть телефон
  * контакта — это уже другая запись, и молча вернуть ему прежнюю значило бы
  * потерять правку. Закрытая запись не в счёт: вернулся и идёт снова — новый
- * контроль. Параметры — те же $1…$22, что у INSERT.
+ * контроль. Параметры — те же $1…$23, что у INSERT.
  *
- * Владелец записи сверяется мягче остальных полей: вошедший и аноним с теми
- * же данными — один человек (сессия истекла или её не удалось проверить
- * между двумя нажатиями). Разными записи делают только два РАЗНЫХ аккаунта.
+ * Совпадения данных мало: номер записи вместе с телефоном руководителя
+ * закрывает контроль и открывает страницу контакта, а телефон стоит среди
+ * совпавших полей. Отдай мы номер любому, кто прислал те же данные, — тот, кто
+ * знает чужую заявку (лист с данными группы у него в руках), снял бы чужой
+ * контроль, и по невернувшейся группе тревога не ушла бы (ревью безопасности
+ * PR 3197). Поэтому запись своя, только если отправитель доказал это тем, чего
+ * посторонний не знает: тот же вошедший аккаунт либо тот же ключ повтора с
+ * устройства ($23). Нет ни того, ни другого — совпадения нет, пишется новая
+ * запись, как было до 10.11.
  */
 export const SAME_OPEN_WATCH_SQL = `
   SELECT r.id
     FROM route_registrations r
    WHERE r.completed_at IS NULL
-     AND (r.user_id IS NOT DISTINCT FROM $1::uuid OR r.user_id IS NULL OR $1::uuid IS NULL)
+     AND (r.user_id = $1::uuid OR r.submit_key_hash = $23::text)
      AND r.route_name = $2::text
      AND r.route_description IS NOT DISTINCT FROM $3::text
      AND r.start_date = $4::date
