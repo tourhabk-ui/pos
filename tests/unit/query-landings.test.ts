@@ -91,6 +91,7 @@ describe('sitemap и хабы', () => {
     expect(nav).toContain('/bronirovanie-turov-kamchatka');
     expect(nav).toContain('/tury-medvedi-kamchatka');
     expect(nav).toContain('/en/kamchatka-tours');
+    for (const l of QUERY_LANDINGS.filter((x) => x.lang === 'ru')) expect(nav, l.path).toContain(l.path);
   });
 });
 
@@ -138,6 +139,35 @@ describe('данные', () => {
     expect(matchesTopic(t('Авачинский перевал (снегоход)', 'snowmobile', 'Авачинский перевал'), 'volcano')).toBe(true);
     expect(matchesTopic(t('Дачные источники (Малая Долина гейзеров)', 'jeep_safari', 'Дачные горячие источники, вулкан Мутновский'), 'volcano')).toBe(true); // ID57
     expect(matchesTopic(t('Долина гейзеров', 'helicopter'), 'all')).toBe(true);
+  });
+  it('Авачинский: вулкан и перевал — да, Авачинская бухта и губа — нет', () => {
+    expect(matchesTopic(t('Восхождение на Авачинский вулкан', 'trekking'), 'avacha')).toBe(true);
+    expect(matchesTopic(t('Авачинский перевал (снегоход)', 'snowmobile', 'Авачинский перевал'), 'avacha')).toBe(true);
+    expect(matchesTopic(t('Морская прогулка', 'boat_trip', 'Авачинская бухта'), 'avacha')).toBe(false);
+    expect(matchesTopic(t('Выход в Авачинскую губу', 'boat_trip'), 'avacha')).toBe(false);
+    expect(matchesTopic(t('Вулкан Горелый'), 'avacha')).toBe(false);
+  });
+  it('Долина гейзеров: Кроноцкая — да, «Малая Долина гейзеров» у Мутновского — нет', () => {
+    expect(matchesTopic(t('Долина гейзеров (вертолёт)', 'helicopter'), 'geysers')).toBe(true);
+    expect(matchesTopic(t('Экскурсия в Долину гейзеров и кальдеру вулкана Узон', 'helicopter'), 'geysers')).toBe(true);
+    expect(matchesTopic(t('Дачные источники (Малая Долина гейзеров)', 'jeep_safari', 'Дачные горячие источники'), 'geysers')).toBe(false);
+    expect(matchesTopic(t('Гейзер у дороги'), 'geysers')).toBe(false);
+  });
+  it('рыбалка: тип или слово целиком; «рыбалов» и чужие слова — нет', () => {
+    expect(matchesTopic(t('Сплав с ночёвкой', 'fishing'), 'fishing')).toBe(true);
+    expect(matchesTopic(t('Рыбалка на реке Опала', 'rafting'), 'fishing')).toBe(true);
+    expect(matchesTopic(t('Сплав по реке Быстрая', 'rafting'), 'fishing')).toBe(false);
+  });
+  it('трансфер: туров нет по построению, база не спрашивается', async () => {
+    expect(matchesTopic(t('Трансфер из аэропорта', 'transfer'), 'transfer')).toBe(false);
+    vi.mocked(pool.query).mockClear();
+    expect(await loadLandingTours('transfer', false)).toEqual([]);
+    expect(pool.query).not.toHaveBeenCalled();
+  });
+  it('ссылки «по теме» — на страницы Ведара, не наружу', () => {
+    for (const l of QUERY_LANDINGS) for (const r of l.related ?? []) expect(r.href, l.key).toMatch(/^\/[a-z]/);
+    expect(landingByKey('ru-avacha').related?.map((r) => r.href)).toContain('/places/vulkan-avachinskij');
+    expect(landingByKey('ru-geysers').related?.map((r) => r.href)).toContain('/places/dolina-gejzerov');
   });
   it('цены из базы; нет цены — null, а не 0', () => {
     expect(landingPrice(row(), 'ru')).toMatch(/^от 45\s000 ₽\/чел\.$/);

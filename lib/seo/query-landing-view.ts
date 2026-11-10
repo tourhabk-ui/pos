@@ -7,6 +7,7 @@ import { priceZh, durationZh, seasonZh } from '@/lib/zh/entry';
 import { tourPath } from '@/lib/tours/tour-url';
 import type { LandingTourRow } from '@/lib/seo/query-landings-data';
 import type { LandingLang, QueryLanding } from '@/lib/seo/query-landings';
+import { carrierPagePath, type CharterCarrier } from '@/lib/transfers/charter-format';
 
 const EN_UNIT: Record<string, string> = { per_person: 'per person', per_tour: 'per group', per_day_per_person: 'per person per day' };
 const RU_MONTHS = ['янв', 'фев', 'мар', 'апр', 'май', 'июн', 'июл', 'авг', 'сен', 'окт', 'ноя', 'дек'];
@@ -51,8 +52,15 @@ export function landingDates(t: LandingTourRow, lang: LandingLang): string {
   return d ? `next open date: ${d}` : 'dates on request';
 }
 
-/** ItemList из TouristTrip + FAQPage; без туров (null/пусто) — только FAQ. */
-export function landingJsonLd(l: QueryLanding, tours: LandingTourRow[] | null, site: string): Record<string, unknown> {
+/**
+ * ItemList из TouristTrip + FAQPage; без туров (null/пусто) — только FAQ.
+ * Посадочная о трансфере вместо туров перечисляет перевозчиков (Organization
+ * со ссылкой на их страницу); цен в разметке нет — прайс у каждого свой и за
+ * машину, а не «от» за место.
+ */
+export function landingJsonLd(
+  l: QueryLanding, tours: LandingTourRow[] | null, site: string, carriers: Pick<CharterCarrier, 'slug' | 'name'>[] | null = null,
+): Record<string, unknown> {
   const graph: Record<string, unknown>[] = [{
     '@type': 'FAQPage',
     inLanguage: l.lang,
@@ -79,6 +87,18 @@ export function landingJsonLd(l: QueryLanding, tours: LandingTourRow[] | null, s
           },
         };
       }),
+    });
+  }
+  if (carriers && carriers.length > 0) {
+    graph.push({
+      '@type': 'ItemList',
+      name: l.h1,
+      numberOfItems: carriers.length,
+      itemListElement: carriers.map((c, i) => ({
+        '@type': 'ListItem',
+        position: i + 1,
+        item: { '@type': 'Organization', name: c.name, url: `${site}${carrierPagePath(c.slug)}` },
+      })),
     });
   }
   return { '@context': 'https://schema.org', '@graph': graph };

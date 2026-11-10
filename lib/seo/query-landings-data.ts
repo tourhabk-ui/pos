@@ -38,6 +38,14 @@ const VOLCANO_WORD = /(^|[^а-яё])вулкан(а|у|ом|е|ы|ов|ам|ам
 // Главная цель — именованный вулкан (ID61 Горелый, ID62 Авачинский перевал).
 const VOLCANO_NAME = /(^|[^а-яё])(авачинск|корякск|горел|мутновск|толбачик|ключевск|ксудач|вилючинск|карымск|шивелуч|безымянн)[а-яё]*/i;
 
+// Авачинский вулкан и перевал — но не Авачинская бухта и губа (там морские прогулки).
+const AVACHA_WORD = /(^|[^а-яё])авачинск[а-яё]*(?![а-яё])(?!\s+(бух|губ))/i;
+// Долина гейзеров Кроноцкого заповедника; «Малая Долина гейзеров» (Дачные
+// источники, ID57) — другое место у Мутновского, тур туда сюда не попадает.
+const GEYSERS_WORD = /(^|[^а-яё])долин[а-яё]*\s+гейзер/i;
+const GEYSERS_SMALL = /(^|[^а-яё])мал(ая|ой|ую|ою)\s+долин[а-яё]*\s+гейзер/i;
+const FISHING_WORD = /(^|[^а-яё])рыбал(ка|ки|ке|ку|кой|ок|ках)(?![а-яё])/i;
+
 export interface TopicInput { activity_type: string | null; title: string; location_name: string | null }
 
 /**
@@ -46,7 +54,16 @@ export interface TopicInput { activity_type: string | null; title: string; locat
  * «вулканический песок» встречаются у чего угодно).
  */
 export function matchesTopicText(text: string, topic: Exclude<LandingTopic, 'all'>): boolean {
-  return topic === 'bears' ? BEAR_WORD.test(text) || BEAR_PLACE.test(text) : VOLCANO_WORD.test(text) || VOLCANO_NAME.test(text);
+  switch (topic) {
+    case 'bears': return BEAR_WORD.test(text) || BEAR_PLACE.test(text);
+    case 'volcano': return VOLCANO_WORD.test(text) || VOLCANO_NAME.test(text);
+    case 'avacha': return AVACHA_WORD.test(text);
+    case 'geysers': return GEYSERS_WORD.test(text) && !GEYSERS_SMALL.test(text);
+    case 'fishing': return FISHING_WORD.test(text);
+    // Трансфер — машина под заказ, а не тур: туров и статей у этой темы нет.
+    case 'transfer': return false;
+    default: throw new Error(`matchesTopicText: неизвестная тема ${String(topic)}`);
+  }
 }
 
 export function matchesTopic(t: TopicInput, topic: LandingTopic): boolean {
@@ -55,6 +72,10 @@ export function matchesTopic(t: TopicInput, topic: LandingTopic): boolean {
     case 'all': return true;
     case 'bears': return BEAR_TYPES.has(t.activity_type ?? '') || matchesTopicText(text, 'bears');
     case 'volcano': return t.activity_type === 'volcano' || matchesTopicText(text, 'volcano');
+    case 'avacha': return matchesTopicText(text, 'avacha');
+    case 'geysers': return matchesTopicText(text, 'geysers');
+    case 'fishing': return t.activity_type === 'fishing' || matchesTopicText(text, 'fishing');
+    case 'transfer': return false;
     default: throw new Error(`matchesTopic: неизвестная тема ${String(topic)}`);
   }
 }
@@ -71,6 +92,7 @@ export function landingToursSql(): string {
 }
 
 export async function loadLandingTours(topic: LandingTopic, withZh: boolean): Promise<LandingTourRow[] | null> {
+  if (topic === 'transfer') return [];
   try {
     const { rows } = await pool.query<LandingTourRow>(landingToursSql());
     const picked = rows.filter((r) => matchesTopic({ activity_type: r.activity_type ?? null, title: r.title, location_name: r.location_name ?? null }, topic));

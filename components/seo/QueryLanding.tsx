@@ -15,6 +15,8 @@ import { CHRONICLE_ARTICLES } from '@/lib/chronicle/articles';
 import type { ParkListItem } from '@/lib/parks/list';
 import { OFFER_ORDER_NOTE } from '@/lib/tours/offer-order';
 import { landingDates, landingDuration, landingJsonLd, landingPrice, landingSeason } from '@/lib/seo/query-landing-view';
+import { CharterPriceList } from '@/components/transfers/CharterPriceList';
+import { carrierPagePath, charterOrderPath, type CharterState } from '@/lib/transfers/charter-format';
 
 const SITE = process.env.NEXT_PUBLIC_SITE_URL ?? 'https://vedarai.ru';
 
@@ -45,19 +47,64 @@ const UI: Record<LandingLang, {
   },
 };
 
-export function QueryLandingView({ landing, tours, parks = [] }: { landing: QueryLanding; tours: LandingTourRow[] | null; parks?: ParkListItem[] | null }) {
+/**
+ * Перевозчики под заказ — для посадочной о трансфере: машина целиком, цена за
+ * машину (CLAUDE.md §14). Прайс — та же вёрстка, что на /transfers и странице
+ * перевозчика (CharterPriceList); отказ базы — «не загрузился», не «пусто».
+ */
+function CarriersSection({ charter }: { charter: CharterState | null }) {
+  const carriers = charter && charter.state === 'ok' ? charter.carriers : null;
+  return (
+    <section className="space-y-3" aria-labelledby="landing-carriers" data-landing-carriers>
+      <h2 id="landing-carriers" className="ds-h2">Перевозчики под заказ{carriers ? ` (${carriers.length})` : ''}</h2>
+      {carriers === null ? (
+        <p className="ds-card p-4 text-sm" style={{ color: 'var(--warning)' }}>Список не загрузился: база не ответила. Попробуйте позже или откройте <Link className="underline" href="/transfers">/transfers</Link>.</p>
+      ) : carriers.length === 0 ? (
+        <p className="ds-card p-4 text-sm" style={{ color: 'var(--text-secondary)' }}>Сейчас ни один перевозчик не публикует прайс на Ведаре.</p>
+      ) : (
+        <ul className="space-y-3">
+          {carriers.map((c) => (
+            <li key={c.slug} className="ds-card p-4 text-sm space-y-2" data-landing-carrier={c.slug}>
+              <Link className="underline font-semibold" style={{ color: 'var(--ocean)' }} href={carrierPagePath(c.slug)}>{c.name}</Link>
+              {c.shortDescription && <p style={{ color: 'var(--text-secondary)' }}>{c.shortDescription}</p>}
+              <CharterPriceList carrier={c} orderSlug={c.slug} />
+              <Link className="ds-btn ds-btn-primary" href={charterOrderPath(c.slug)} prefetch={false}>Заявка на машину</Link>
+            </li>
+          ))}
+        </ul>
+      )}
+    </section>
+  );
+}
+
+export function QueryLandingView({ landing, tours, parks = [], charter = null }: {
+  landing: QueryLanding; tours: LandingTourRow[] | null; parks?: ParkListItem[] | null; charter?: CharterState | null;
+}) {
   const ui = UI[landing.lang];
   const zh = landing.lang === 'zh-CN';
+  const transfer = landing.topic === 'transfer';
   const chronicle = chronicleForTopic(landing.topic);
+  const carriers = charter && charter.state === 'ok' ? charter.carriers : null;
   return (
     <main className="ds-page" lang={landing.lang} data-landing={landing.key}>
-      <JsonLd data={landingJsonLd(landing, tours, SITE)} />
+      <JsonLd data={landingJsonLd(landing, transfer ? null : tours, SITE, carriers)} />
       <div className="max-w-3xl mx-auto px-4 py-8 space-y-8">
         <header className="space-y-3">
           <h1 className="font-playfair text-3xl sm:text-4xl font-bold" style={{ color: 'var(--text-primary)' }}>{landing.h1}</h1>
           <p className="text-sm" style={{ color: 'var(--text-secondary)' }}>{landing.intro}</p>
         </header>
 
+        {landing.related && landing.related.length > 0 && (
+          <nav className="ds-card p-4 text-sm" aria-label="По теме" data-landing-related>
+            <ul className="space-y-1">
+              {landing.related.map((r) => (
+                <li key={r.href}><Link className="underline" style={{ color: 'var(--ocean)' }} href={r.href}>{r.label}</Link></li>
+              ))}
+            </ul>
+          </nav>
+        )}
+
+        {transfer ? <CarriersSection charter={charter} /> : (
         <section className="space-y-3" aria-labelledby="landing-tours">
           <h2 id="landing-tours" className="ds-h2">{ui.tours}{tours ? ` (${tours.length})` : ''}</h2>
           {tours === null ? (
@@ -91,7 +138,9 @@ export function QueryLandingView({ landing, tours, parks = [] }: { landing: Quer
             </>
           )}
         </section>
+        )}
 
+        {!transfer && (
         <section className="space-y-3">
           <h2 className="ds-h2">{ui.how}</h2>
           <div className="ds-card p-4 text-sm space-y-3" style={{ color: 'var(--text-primary)' }}>
@@ -99,11 +148,12 @@ export function QueryLandingView({ landing, tours, parks = [] }: { landing: Quer
             <Link className="ds-btn ds-btn-primary" href="/request" data-landing-cta>{ui.cta}</Link>
           </div>
         </section>
+        )}
 
         <section className="space-y-3">
           <h2 className="ds-h2">{ui.ai}</h2>
           <p className="ds-card p-4 text-sm" style={{ color: 'var(--text-primary)' }}>
-            {ui.aiText} <code>{SITE}/api/mcp</code>{' · '}
+            {transfer ? 'Тот же прайс перевозчиков доступен ИИ-ассистентам через открытый MCP-сервер:' : ui.aiText} <code>{SITE}/api/mcp</code>{' · '}
             <Link className="underline" style={{ color: 'var(--ocean)' }} href={zh ? '/zh#connect' : '/mcp'}>{zh ? '接入说明' : landing.lang === 'ru' ? 'как подключить' : 'how to connect'}</Link>
           </p>
         </section>
@@ -119,6 +169,7 @@ export function QueryLandingView({ landing, tours, parks = [] }: { landing: Quer
           </section>
         )}
 
+        {!transfer && (
         <section className="space-y-3" data-landing-chronicle>
           <h2 className="ds-h2">{ui.chronicle}</h2>
           <div className="ds-card p-4 text-sm space-y-2" style={{ color: 'var(--text-primary)' }}>
@@ -133,6 +184,7 @@ export function QueryLandingView({ landing, tours, parks = [] }: { landing: Quer
             <Link className="underline" style={{ color: 'var(--ocean)' }} href="/letopis">{ui.chronicleAll} ({CHRONICLE_ARTICLES.length})</Link>
           </div>
         </section>
+        )}
 
         <section className="space-y-3">
           <h2 className="ds-h2">{ui.faq}</h2>
