@@ -100,7 +100,8 @@ const CRITICAL_URLS = [
 const OPTIONAL_URLS = [
   // `/` переехал в FIELD_URLS (01.10): он снова стартовый экран.
   '/map',
-  '/offline',
+  // `/offline` переехал в FIELD_URLS (10.11): это запасной экран для ЛЮБОЙ
+  // страницы без копии, его промах — пустой ответ вместо 112 и номеров МЧС.
   '/offline/manage',
   // `/planning` переехал в FIELD_URLS выше (13.09): он стал стартовым экраном
   // приложения, а здесь лежал без повторов — сеть моргнула при установке, и
@@ -136,6 +137,10 @@ const FIELD_URLS = [
   // здесь стоит всего входа офлайн. Полевые адреса выше остаются — у кого
   // приложение стоит с прежним start_url, иконка просит их.
   '/',
+  // Запасной экран «Связи нет» (10.11): его отдают офлайн вместо любой
+  // страницы без копии. Без повторов он однажды не лёг — и вместо 112 и
+  // номеров МЧС человек получал пустой ответ браузера.
+  '/offline',
 ];
 
 // Кэширует один URL, не бросая наверх. Для критичных — с повторами.
@@ -162,15 +167,173 @@ async function cacheOne(cache, url, retries) {
 // тайлы (фоном). Установка НЕ падает целиком из-за одного ресурса.
 self.addEventListener('install', (event) => {
   event.waitUntil((async () => {
-    const cache = await caches.open(CACHE_NAME);
-    // Критичные — 2 повтора каждый, независимо друг от друга
-    await Promise.allSettled(CRITICAL_URLS.map((u) => cacheOne(cache, u, 2)));
-    // Опциональные — без повторов, тихо
-    await Promise.allSettled(FIELD_URLS.map((u) => cacheOne(cache, u, 2)));
-    await Promise.allSettled(OPTIONAL_URLS.map((u) => cacheOne(cache, u, 0)));
+    // Страницы — вместе с их файлами (10.11, «ломается без сети»): см.
+    // cacheShellPage ниже. Прежде здесь клался один HTML.
+    await precacheShell();
     await self.skipWaiting();
   })());
 });
+
+// ─── Страница офлайн — это HTML И его файлы ─────────────────────────────────
+//
+// Жалоба владельца 10.11: «PWA ломается без сети». Прекэш клал в память только
+// HTML страниц (`/`, `/sos`, `/offline`, `/safety/offline`…), а их стили и
+// скрипты (`/_next/static/css|chunks/<хеш>`) — нет. Файлы попадали в кэш лишь
+// тогда, когда человек сам открывал страницу онлайн, и только той сборки,
+// которая была в тот момент. Сборка меняется на каждом пуше в main, а прекэш
+// обновлялся только при смене sw.js. Итог без сети: HTML есть, его файлов нет —
+// страница без стилей, кнопки не работают, роутер Next падает на ChunkLoadError
+// в «Application error» на белом фоне. Ровно на SOS и на экране «Связи нет».
+//
+// Поэтому:
+//   1. документ кладётся вместе с файлами, на которые он ссылается
+//      (pageAssetUrls) — в отдельный кэш SHELL_CACHE_NAME, который не трогает
+//      LRU статики: без него SOS зависел бы от того, сколько чанков человек
+//      успел пролистать;
+//   2. страница, открытая онлайн, дотягивает свои ленивые файлы (карта,
+//      просмотр фото), которые браузер ещё не просил (cacheIfOk);
+//   3. после выкатки новой сборки открытая страница просит воркер обновить
+//      прекэш (сообщение REFRESH_SHELL, components/PWA/ServiceWorkerRegistrar):
+//      свежий HTML и его файлы, старые файлы прекэша убираются.
+const SHELL_CACHE_NAME = 'kh-shell-v1';
+
+/** Документы прекэша: всё из трёх списков, что не файл с расширением. */
+function shellPagePaths() {
+  return [...CRITICAL_URLS, ...FIELD_URLS, ...OPTIONAL_URLS]
+    .filter((u) => !/\.[a-z0-9]+$/i.test(new URL(u, self.location.origin).pathname));
+}
+
+function isShellPage(url) {
+  const u = new URL(url);
+  const pathAndQuery = u.pathname + u.search;
+  return shellPagePaths().includes(pathAndQuery);
+}
+
+/**
+ * Файлы сборки, на которые ссылается HTML страницы: теги <script>/<link> и
+ * пути чанков в данных RSC (`static/chunks/...js` без префикса — их грузит
+ * роутер при гидратации клиентских компонентов). Потолок — страховка от
+ * мусорной разметки, а не норма: страница Next ссылается на 20–50 файлов.
+ */
+const PAGE_ASSET_RE = /(?:\/_next\/)?static\/(?:chunks|css|media)\/[A-Za-z0-9_\-.~%\[\]@/]+?\.(?:js|css|woff2?)(?![A-Za-z0-9])/g;
+const MAX_PAGE_ASSETS = 120;
+
+function pageAssetUrls(html) {
+  const found = new Set();
+  for (const m of String(html).matchAll(PAGE_ASSET_RE)) {
+    const path = m[0].startsWith('/_next/') ? m[0] : `/_next/${m[0]}`;
+    found.add(path);
+    if (found.size >= MAX_PAGE_ASSETS) break;
+  }
+  return [...found];
+}
+
+function isHtml(response) {
+  return (response.headers.get('Content-Type') || '').includes('text/html');
+}
+
+/**
+ * Кладёт файлы страницы в `cache`. Уже лежащие где угодно не качаются заново.
+ * Возвращает число файлов, которые не легли: страница без них офлайн не
+ * поднимется, и вызывающий решает, считать ли это провалом.
+ */
+async function cachePageAssets(cache, html, retries) {
+  const urls = pageAssetUrls(html);
+  const results = await Promise.allSettled(urls.map(async (u) => {
+    if (await cache.match(u)) return true;
+    const elsewhere = await caches.match(u);
+    if (elsewhere) { await cache.put(u, elsewhere); return true; }
+    return cacheOne(cache, u, retries);
+  }));
+  return results.filter((r) => r.status !== 'fulfilled' || r.value !== true).length;
+}
+
+/**
+ * Документ прекэша вместе с файлами. HTML ложится в CACHE_NAME (там его ищут
+ * ветки навигации), файлы — в SHELL_CACHE_NAME. Документ кладётся ПОСЛЕ
+ * файлов: иначе обрыв посередине оставил бы новый HTML со старыми файлами —
+ * ту самую поломку, которую мы чиним. true — легло всё.
+ */
+async function cacheShellPage(url, retries) {
+  for (let attempt = 0; attempt <= retries; attempt++) {
+    try {
+      const res = await fetch(url, { cache: 'reload' });
+      if (res && res.ok) {
+        const [main, shell] = await Promise.all([caches.open(CACHE_NAME), caches.open(SHELL_CACHE_NAME)]);
+        if (!isHtml(res)) {
+          await main.put(url, res.clone());
+          return true;
+        }
+        const html = await res.clone().text();
+        const missed = await cachePageAssets(shell, html, retries);
+        if (missed > 0) {
+          // Есть прежняя копия — оставляем её: она хотя бы целая.
+          if (await main.match(url)) return false;
+        }
+        await main.put(url, res.clone());
+        return missed === 0;
+      }
+    } catch { /* сеть моргнула — повторим */ }
+    if (attempt < retries) await new Promise((r) => setTimeout(r, 400 * (attempt + 1)));
+  }
+  return false;
+}
+
+/**
+ * Весь прекэш: критичные и полевые — с повторами, опциональные — одной
+ * попыткой. Возвращает, сколько адресов не легло целиком.
+ */
+async function precacheShell() {
+  const results = await Promise.all([
+    ...CRITICAL_URLS.map((u) => cacheShellPage(u, 2)),
+    ...FIELD_URLS.map((u) => cacheShellPage(u, 2)),
+    ...OPTIONAL_URLS.map((u) => cacheShellPage(u, 0)),
+  ]);
+  return results.filter((ok) => !ok).length;
+}
+
+/**
+ * Убирает из SHELL_CACHE_NAME файлы прошлых сборок: держим только то, на что
+ * ссылаются документы прекэша, лежащие сейчас в CACHE_NAME.
+ */
+async function pruneShellAssets() {
+  const [main, shell] = await Promise.all([caches.open(CACHE_NAME), caches.open(SHELL_CACHE_NAME)]);
+  const keep = new Set();
+  for (const path of shellPagePaths()) {
+    const doc = await main.match(path);
+    if (!doc || !isHtml(doc)) continue;
+    for (const u of pageAssetUrls(await doc.text())) keep.add(new URL(u, self.location.origin).href);
+  }
+  const keys = await shell.keys();
+  await Promise.all(keys
+    .filter((req) => !keep.has(new URL(req.url, self.location.origin).href))
+    .map((req) => shell.delete(req)));
+}
+
+/**
+ * Обновление прекэша после выкатки. Метка сборки приходит от страницы (адрес
+ * её webpack-рантайма: хеш меняется с каждой сборкой). Та же метка —
+ * ничего не делаем; новая — перекладываем прекэш и запоминаем метку только
+ * если легло всё, иначе следующий заход попробует снова.
+ */
+const SHELL_MARK_KEY = '/__kh-shell-build';
+let shellRefresh = null;
+
+function refreshShell(mark) {
+  if (!mark || typeof mark !== 'string') return Promise.resolve('no-mark');
+  if (shellRefresh) return shellRefresh;
+  shellRefresh = (async () => {
+    const shell = await caches.open(SHELL_CACHE_NAME);
+    const prev = await shell.match(SHELL_MARK_KEY);
+    if (prev && (await prev.text()) === mark) return 'same';
+    const missed = await precacheShell();
+    if (missed > 0) return 'partial';
+    await pruneShellAssets();
+    await shell.put(SHELL_MARK_KEY, new Response(mark, { headers: { 'Content-Type': 'text/plain' } }));
+    return 'refreshed';
+  })().finally(() => { shellRefresh = null; });
+  return shellRefresh;
+}
 
 // Активация: удаляем старые кэши кроме тайлового и API кэшей
 self.addEventListener('activate', (event) => {
@@ -185,7 +348,9 @@ self.addEventListener('activate', (event) => {
             // без этой строки первая же выкатка стирала бы её молча.
             && key !== PACK_CACHE_NAME
             // То же для планов, сохранённых человеком для поля (#2225).
-            && key !== SAVED_TRIPS_CACHE_NAME)
+            && key !== SAVED_TRIPS_CACHE_NAME
+            // Файлы прекэша: SOS и «Связи нет» без них не поднимаются.
+            && key !== SHELL_CACHE_NAME)
           .map((key) => caches.delete(key))
       );
     }).then(() => self.clients.claim())
@@ -448,6 +613,19 @@ self.addEventListener('message', (event) => {
   // детерминированы. Считает их клиент (lib/offline/tile-ownership.ts) —
   // он же знает, какие адреса держит кто-то ещё, — а сюда приходит готовый
   // список к удалению.
+  // Обновить прекэш под новую сборку (10.11): страница шлёт адрес своего
+  // webpack-рантайма как метку сборки. Ответ — чтобы страница могла сказать
+  // словами, готов ли офлайн.
+  if (event.data.type === 'REFRESH_SHELL') {
+    const work = refreshShell(event.data.build).then((status) => {
+      if (event.source) event.source.postMessage({ type: 'SHELL_REFRESHED', status });
+    }, (err) => {
+      if (event.source) event.source.postMessage({ type: 'SHELL_REFRESHED', status: 'failed', error: String(err) });
+    });
+    if (typeof event.waitUntil === 'function') event.waitUntil(work);
+    return;
+  }
+
   if (event.data.type === 'CLEAR_TILES') {
     const urls = Array.isArray(event.data.urls) ? event.data.urls : [];
     deleteTiles(urls, event.data.reason, event.source);
@@ -533,7 +711,17 @@ const RSC_TIMEOUT_MS = 8000;
 function cacheIfOk(request, response, afterCache) {
   if (!response || !response.ok) return;
   const clone = response.clone();
+  const forAssets = isHtml(response) ? response.clone() : null;
   caches.open(CACHE_NAME).then(async (cache) => {
+    // Сначала файлы, потом документ (10.11): сохранённая страница должна
+    // подниматься офлайн целиком. Браузер уже тянет большую часть файлов сам,
+    // здесь дотягиваются ленивые — карта, просмотр фото, — которые он
+    // попросит только по нажатию, когда сети уже не будет.
+    if (forAssets) {
+      const target = isShellPage(request.url) ? await caches.open(SHELL_CACHE_NAME) : cache;
+      await cachePageAssets(target, await forAssets.text(), 0);
+      if (target === cache) await evictOldStaticAssets(cache);
+    }
     await cache.put(request, clone);
     if (afterCache) await afterCache(cache);
   }).catch(() => {});

@@ -30,7 +30,8 @@ function listOf(name: string): string[] {
 describe('офлайн-оболочка полевой формы', () => {
   it('адрес формы кладётся в кэш С ПОВТОРАМИ, а не одной попыткой', () => {
     expect(listOf('FIELD_URLS')).toContain('/field-check');
-    expect(sw).toMatch(/FIELD_URLS\.map\(\(u\) => cacheOne\(cache, u, [1-9]\)\)/);
+    // С 10.11 прекэш кладёт страницу вместе с её CSS и JS (cacheShellPage).
+    expect(sw).toMatch(/FIELD_URLS\.map\(\(u\) => cacheShellPage\(u, [1-9]\)\)/);
   });
 
   it('форма не осталась среди best-effort адресов', () => {

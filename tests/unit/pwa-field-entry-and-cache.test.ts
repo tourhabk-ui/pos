@@ -86,7 +86,8 @@ describe('вход в приложение — главная со сводко�
     // FIELD_URLS кладутся с двумя повторами (как критичные), OPTIONAL_URLS —
     // без единого. Стартовому экрану одной попытки мало: сеть моргнула при
     // установке — и входа в приложение офлайн нет вовсе.
-    expect(SW).toMatch(/FIELD_URLS\.map\(\(u\) => cacheOne\(cache, u, 2\)\)/);
+    // С 10.11 прекэш кладёт страницу вместе с её CSS и JS (cacheShellPage).
+    expect(SW).toMatch(/FIELD_URLS\.map\(\(u\) => cacheShellPage\(u, 2\)\)/);
     expect(arrayBody('OPTIONAL_URLS')).not.toMatch(/'\/planning'/);
   });
 

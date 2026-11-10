@@ -60,7 +60,9 @@ export function GeoToggle() {
       style={{
         ...btnStyle,
         color: isActive ? 'var(--badge)' : undefined,
-        background: isActive ? 'var(--accent)/10' : undefined,
+        // `var(--accent)/10` — запись Tailwind, во встроенном стиле браузер её
+        // отбрасывал, и включённый режим подложки не имел.
+        background: isActive ? 'color-mix(in srgb, var(--accent) 10%, transparent)' : undefined,
       }}
       className="hover:bg-white/10"
       title={isActive ? 'Режим: На Камчатке (нажмите для выхода)' : 'Я на Камчатке'}

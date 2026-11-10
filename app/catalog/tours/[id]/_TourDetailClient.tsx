@@ -714,7 +714,10 @@ export default function TourDetailClient({ tour, reviews = [], askSeatsFirst = f
                 {instrument.map((c, i) => (
                   <div key={c.k} className="min-w-0 px-2.5 sm:px-4 py-2.5" style={i > 0 ? { boxShadow: 'inset 1px 0 0 rgba(255,255,255,.12)' } : undefined}>
                     <div className="text-xs uppercase tracking-[0.06em] sm:tracking-[0.14em] truncate" style={{ fontFamily: FM, color: 'rgba(255,255,255,.7)' }}>{c.k}</div>
-                    <div className="text-sm font-semibold text-white mt-1 whitespace-nowrap" style={{ fontFamily: FD, ...NUMS }}>{c.v}</div>
+                    {/* На телефоне значение переносится (10.11): в колонке ~110 px
+                        «30 окт — 15 ноя 2026» в одну строку залезало на «1 день»
+                        соседней ячейки. С sm полоса — пилюля по содержимому. */}
+                    <div className="text-sm font-semibold text-white mt-1 leading-snug break-words sm:whitespace-nowrap" style={{ fontFamily: FD, ...NUMS }}>{c.v}</div>
                   </div>
                 ))}
               </div>
