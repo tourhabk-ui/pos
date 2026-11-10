@@ -15,7 +15,7 @@
  * запись снимков — в `site-watch-run.ts`.
  */
 import { createHash } from 'node:crypto';
-import { htmlToTextLinear } from '@/lib/html/linear';
+import { htmlToText } from '@/lib/html/text';
 import { decodeHtmlEntities } from '@/lib/html/entities';
 import { escapeHtml } from '@/lib/text/escape-html';
 
@@ -60,8 +60,13 @@ export type PageOutcome = 'ok' | 'gone' | 'failed' | 'robots';
  * «Местечка Камчатка», и во всех показанных строках менялись только цифры
  * капчи — по две формы на странице, свои цифры у каждой. Признак узкий:
  * пример со знаком «=?», цена или дата так не пишутся.
+ *
+ * Первое число — одной цифрой, а не `\d+`: регулярка без якоря, и «есть ли
+ * пример в строке» от этого не меняется, а строка из одних цифр не читается
+ * заново с каждой позиции. С `\d+` страница из 200 тыс. цифр держала процесс
+ * 52 секунды (проверка 10.11).
  */
-const VOLATILE_LINE = /\d+\s*[+\-−×*xх]\s*\d+\s*=\s*\?/i;
+const VOLATILE_LINE = /\d\s*[+\-−×*xх]\s*\d+\s*=\s*\?/i;
 
 export function isVolatileLine(line: string): boolean {
   return VOLATILE_LINE.test(line);
@@ -138,11 +143,11 @@ function comparable(text: string, banner = false): string {
  *
  * Потолка здесь нет: уместилась ли страница (`TEXT_CAP`), решает прогон, и не
  * уместившаяся не сохраняется и не сравнивается. Разметка снимается за время,
- * линейное по размеру (lib/html/linear.ts): страница — чужой ввод, и на
- * повреждённой обычный разбор держал бы процесс прода минутами.
+ * линейное по размеру (lib/html/text.js): страница — чужой ввод, и разбор за
+ * квадрат на повреждённой держал бы процесс прода минутами.
  */
 export function fullPageText(html: string): string {
-  const text = decodeHtmlEntities(htmlToTextLinear(html))
+  const text = decodeHtmlEntities(htmlToText(html))
     .replace(/&#x([0-9a-f]{1,6});/gi, (_, h: string) => safeChar(parseInt(h, 16)))
     .replace(/&#(\d{1,7});/g, (_, d: string) => safeChar(Number(d)));
   return text.split('\n')
@@ -163,7 +168,9 @@ export function textHash(text: string): string {
 /** Строка про деньги или сроки — её владелец должен увидеть первой. */
 // `\b` в JS видит границу только у латиницы — у кириллицы граница задана
 // просмотром назад: «марта» в «Камартане» месяцем не считается.
-const MATTERS = /₽|руб|\d{1,3}[  ]\d{3}|\b\d{1,2}[./]\d{1,2}\b|(?<![а-яё])(январ|феврал|март|апрел|мая|июн|июл|август|сентябр|октябр|ноябр|декабр)|\b20\d\d\b|\d+\s*(дн|ноч|час)/i;
+// Число перед «дн/ноч/час» — одной цифрой: ответ test() тот же, а длинная
+// серия цифр не читается заново с каждой позиции (100 тыс. цифр — 12 с).
+const MATTERS = /₽|руб|\d{1,3}[  ]\d{3}|\b\d{1,2}[./]\d{1,2}\b|(?<![а-яё])(январ|феврал|март|апрел|мая|июн|июл|август|сентябр|октябр|ноябр|декабр)|\b20\d\d\b|\d\s*(дн|ноч|час)/i;
 
 export interface TextDiff {
   /** Были и пропали. */
@@ -279,11 +286,11 @@ function rollingKey(line: string): { mask: string; days: (number | null)[] } {
   return { mask, days };
 }
 
-function isRollingShift(prev: string, next: string): boolean {
-  if (isDateOnlyLine(prev)) return false;
-  const a = rollingKey(prev);
-  const b = rollingKey(next);
-  if (a.days.length === 0 || a.mask !== b.mask || a.days.length !== b.days.length) return false;
+type RollingKey = ReturnType<typeof rollingKey>;
+
+/** Те же слова вокруг дат, и каждая дата ушла вперёд не дальше `ROLLING_MAX_DAYS`. */
+function shiftedForward(a: RollingKey, b: RollingKey): boolean {
+  if (a.mask !== b.mask || a.days.length !== b.days.length) return false;
   return a.days.every((x, i) => {
     const y = b.days[i];
     if (x === null || y === null) return false;
@@ -293,15 +300,69 @@ function isRollingShift(prev: string, next: string): boolean {
   });
 }
 
-/** Убирает из разницы пары строк, где сдвинулась только скользящая дата. */
+/** Появившиеся строки с одними словами вокруг дат: с одной датой — по дню, с несколькими — списком. */
+interface RollingBucket {
+  single: Map<number, { rows: number[]; head: number }>;
+  multi: number[];
+}
+
+/**
+ * Первая ещё не занятая появившаяся строка, которая отличается от пропавшей
+ * только датой, ушедшей вперёд. Строка с одной датой ищется по дню — по одному
+ * взгляду на каждый допустимый сдвиг, а не перебором всех строк с теми же
+ * словами: календарь на тысячи строк иначе сравнивался бы каждая с каждой.
+ */
+function firstShifted(key: RollingKey, bucket: RollingBucket, addedKeys: RollingKey[], paired: Set<number>): number {
+  if (key.days.length > 1) {
+    return bucket.multi.find((i) => !paired.has(i) && shiftedForward(key, addedKeys[i])) ?? -1;
+  }
+  const day = key.days[0];
+  if (day === null) return -1;
+  let best = -1;
+  for (let k = 1; k <= ROLLING_MAX_DAYS; k++) {
+    // Сдвиг на k дней; второй вариант — декабрь → январь без года в строке.
+    for (const target of [day + k, day + k - 365]) {
+      const list = bucket.single.get(target);
+      if (!list) continue;
+      while (list.head < list.rows.length && paired.has(list.rows[list.head])) list.head += 1;
+      const row = list.rows[list.head];
+      if (row !== undefined && (best < 0 || row < best)) best = row;
+    }
+  }
+  return best;
+}
+
+/**
+ * Убирает из разницы пары строк, где сдвинулась только скользящая дата.
+ *
+ * Пропавшей строке ищется первая появившаяся с теми же словами вокруг дат.
+ * Ключ строки (слова без дат и сами даты) считается один раз, а появившиеся
+ * разложены по словам и дням: сравнение каждой с каждой, с разбором дат на
+ * каждую пару, на странице в 8 000 сменившихся строк держало процесс 17 секунд
+ * (проверка 10.11).
+ */
 export function withoutRollingShifts(d: TextDiff): TextDiff {
-  const added = [...d.added];
+  const addedKeys = d.added.map(rollingKey);
+  const buckets = new Map<string, RollingBucket>();
+  addedKeys.forEach((key, i) => {
+    if (key.days.length === 0) return;
+    let bucket = buckets.get(key.mask);
+    if (!bucket) buckets.set(key.mask, (bucket = { single: new Map(), multi: [] }));
+    if (key.days.length > 1) { bucket.multi.push(i); return; }
+    const day = key.days[0];
+    if (day === null) return;
+    const list = bucket.single.get(day);
+    if (list) list.rows.push(i); else bucket.single.set(day, { rows: [i], head: 0 });
+  });
+  const paired = new Set<number>();
   const removed: string[] = [];
   for (const r of d.removed) {
-    const i = added.findIndex((a) => isRollingShift(r, a));
-    if (i >= 0) added.splice(i, 1); else removed.push(r);
+    const key = isDateOnlyLine(r) ? null : rollingKey(r);
+    const bucket = key && key.days.length > 0 ? buckets.get(key.mask) : undefined;
+    const at = key && bucket ? firstShifted(key, bucket, addedKeys, paired) : -1;
+    if (at >= 0) paired.add(at); else removed.push(r);
   }
-  return { removed, added };
+  return { removed, added: d.added.filter((_, i) => !paired.has(i)) };
 }
 
 /*
