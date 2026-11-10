@@ -112,6 +112,7 @@ export function SatelliteDictationCard({ coords, touristName, touristPhone }: Pr
             <select
               value={situation}
               onChange={e => setSituation(e.target.value)}
+              className="text-[13px]"
               style={{
                 width: '100%',
                 padding: '7px 10px',
@@ -119,7 +120,6 @@ export function SatelliteDictationCard({ coords, touristName, touristPhone }: Pr
                 border: '1px solid rgba(255,255,255,0.12)',
                 background: 'rgba(255,255,255,0.06)',
                 color: '#fff',
-                fontSize: '13px',
                 outline: 'none',
               }}
             >
@@ -141,6 +141,7 @@ export function SatelliteDictationCard({ coords, touristName, touristPhone }: Pr
               value={count}
               onChange={e => setCount(e.target.value)}
               placeholder="4"
+              className="text-[13px]"
               style={{
                 width: '100%',
                 padding: '7px 10px',
@@ -148,7 +149,6 @@ export function SatelliteDictationCard({ coords, touristName, touristPhone }: Pr
                 border: '1px solid rgba(255,255,255,0.12)',
                 background: 'rgba(255,255,255,0.06)',
                 color: '#fff',
-                fontSize: '13px',
                 outline: 'none',
               }}
             />
@@ -165,6 +165,7 @@ export function SatelliteDictationCard({ coords, touristName, touristPhone }: Pr
             value={condition}
             onChange={e => setCondition(e.target.value)}
             placeholder="Переломаны лыжи, спуститься не можем"
+            className="text-[13px]"
             style={{
               width: '100%',
               padding: '7px 10px',
@@ -172,7 +173,6 @@ export function SatelliteDictationCard({ coords, touristName, touristPhone }: Pr
               border: '1px solid rgba(255,255,255,0.12)',
               background: 'rgba(255,255,255,0.06)',
               color: '#fff',
-              fontSize: '13px',
               outline: 'none',
             }}
           />
@@ -188,6 +188,7 @@ export function SatelliteDictationCard({ coords, touristName, touristPhone }: Pr
             value={phone}
             onChange={e => setPhone(e.target.value)}
             placeholder="+7..."
+            className="text-[13px]"
             style={{
               width: '100%',
               padding: '7px 10px',
@@ -195,7 +196,6 @@ export function SatelliteDictationCard({ coords, touristName, touristPhone }: Pr
               border: '1px solid rgba(255,255,255,0.12)',
               background: 'rgba(255,255,255,0.06)',
               color: '#fff',
-              fontSize: '13px',
               outline: 'none',
             }}
           />

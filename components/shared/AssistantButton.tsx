@@ -448,6 +448,7 @@ export function AssistantButton({ pageContext }: { pageContext?: PageContext }) 
               onKeyDown={onKeyDown}
               placeholder="Спроси что угодно..."
               rows={1}
+              className="text-[13px]"
               style={{
                 flex: 1,
                 resize: 'none',
@@ -455,7 +456,6 @@ export function AssistantButton({ pageContext }: { pageContext?: PageContext }) 
                 border: '1px solid var(--border)',
                 borderRadius: '8px',
                 padding: '8px 10px',
-                fontSize: '13px',
                 color: 'var(--text-primary)',
                 outline: 'none',
                 fontFamily: 'inherit',
