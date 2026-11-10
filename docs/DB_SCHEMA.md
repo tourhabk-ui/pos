@@ -1,6 +1,6 @@
 # Схема базы данных Ведара
 
-> Снято 2026-11-10 с настоящего PostgreSQL 18.6 (Debian 18.6-1.pgdg13+2): baseline прода (`lib/database/baseline/schema-baseline.sql`, снимок 2026-08-15) + миграции новее него, накатанные штатным раннером. Последняя миграция в снимке: `1416_chat_request_links.sql`.
+> Снято 2026-11-10 с настоящего PostgreSQL 18.6 (Debian 18.6-1.pgdg13+2): baseline прода (`lib/database/baseline/schema-baseline.sql`, снимок 2026-08-15) + миграции новее него, накатанные штатным раннером. Последняя миграция в снимке: `1417_route_registrations_submit_key.sql`.
 > Файл порождён `scripts/gen-db-schema.ts` (`npm run db:schema-doc`); править руками бессмысленно — следующий прогон перепишет.
 > Что здесь НЕ учтено: дрейф прода после baseline, не отражённый миграциями. Судья дрейфа — `GET /api/cron/schema-drift` на проде (`lib/db/schema-drift.ts`). Значений данных в файле нет — только имена и типы.
 
@@ -8,7 +8,7 @@
 |---|---:|
 | Таблиц | 323 |
 | Представлений (VIEW) | 12 |
-| Колонок | 4209 |
+| Колонок | 4210 |
 | Внешних ключей | 383 |
 | Таблиц без единого FK в обе стороны | 88 |
 
@@ -365,9 +365,9 @@ SOS пишет `sos_events` (`app/api/safety/sos`, §7). Внешние сигн
 
 `id uuid!=` `registration_id uuid` `step integer!` `channel varchar!` `recipient text!` `status varchar=` `error_message text` `sent_at timestamptz` `created_at timestamptz=`
 
-**route_registrations** · 40 кол. · PK id · user_id → users.id · на неё ссылаются: route_registration_notifications, tracker_links · индексов 8
+**route_registrations** · 41 кол. · PK id · user_id → users.id · на неё ссылаются: route_registration_notifications, tracker_links · индексов 9
 
-`id uuid!=` `user_id uuid` `route_name text!` `route_description text` `start_date date!` `end_date date!` `region text!=` `group_size integer!` `group_members jsonb` `leader_name text!` `leader_phone text!` `leader_email text` `emergency_contact_name text!` `emergency_contact_phone text!` `emergency_contact_relation text` `emergency_contact_telegram_chat_id bigint` `emergency_contact_email text` `emergency_contact_consent boolean=` `emergency_contact_consent_at timestamptz` `mchs_status varchar=` `mchs_reference text` `submitted_at timestamptz` `completed_at timestamptz` `created_at timestamptz=` `updated_at timestamptz=` `expected_return_at timestamptz` `trip_kind varchar=` `last_position_lat numeric` `last_position_lng numeric` `last_position_at timestamptz` `checkin_confirmed_at timestamptz` `reminder_sent boolean!=` `mchs_informed_at timestamptz` `last_position_source text` `source text!=` `tourist_chat_channel text` `tourist_chat_id bigint` `closed_by text` `closed_reason text` `ladder_reset_at timestamptz`
+`id uuid!=` `user_id uuid` `route_name text!` `route_description text` `start_date date!` `end_date date!` `region text!=` `group_size integer!` `group_members jsonb` `leader_name text!` `leader_phone text!` `leader_email text` `emergency_contact_name text!` `emergency_contact_phone text!` `emergency_contact_relation text` `emergency_contact_telegram_chat_id bigint` `emergency_contact_email text` `emergency_contact_consent boolean=` `emergency_contact_consent_at timestamptz` `mchs_status varchar=` `mchs_reference text` `submitted_at timestamptz` `completed_at timestamptz` `created_at timestamptz=` `updated_at timestamptz=` `expected_return_at timestamptz` `trip_kind varchar=` `last_position_lat numeric` `last_position_lng numeric` `last_position_at timestamptz` `checkin_confirmed_at timestamptz` `reminder_sent boolean!=` `mchs_informed_at timestamptz` `last_position_source text` `source text!=` `tourist_chat_channel text` `tourist_chat_id bigint` `closed_by text` `closed_reason text` `ladder_reset_at timestamptz` `submit_key_hash text`
 
 **safety_alerts** · 12 кол. · PK id · created_by → users.id · индексов 3 · триггеры: trg_safety_alerts_updated_at
 
