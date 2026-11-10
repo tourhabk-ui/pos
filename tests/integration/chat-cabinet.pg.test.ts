@@ -1355,7 +1355,8 @@ withPg('кабинет в чате на настоящем PostgreSQL', () => {
         await pool.query(`UPDATE partners SET max_chat_id = $2 WHERE id = $1`, [teamGuide, GUIDE_CHAT]);
         const guidePress = (payload: string) =>
           svc.handleCabinetPress({ channel: 'max', chatId: GUIDE_CHAT, privateChat: true, payload, nowMs: NOW });
-        await pool.query(`UPDATE mchs_letters SET created_at = NOW() - INTERVAL '11 minutes' WHERE operator_tour_id = $1::bigint`, [routed]);
+        // Чистый журнал: прежние письма владельца покрывали бы его группу, и строка под выездом показала бы их.
+        await pool.query(`DELETE FROM mchs_letters WHERE operator_tour_id = $1::bigint`, [routed]);
 
         mail.send.mockClear();
         const g = await guidePress(pay.mchsLetterSend(routed, DAY));
@@ -1366,7 +1367,7 @@ withPg('кабинет в чате на настоящем PostgreSQL', () => {
         // Владелец тура открывает тот же выезд: чужое письмо названо со счётом.
         const view = await press(pay.mchsGroup(routed, DAY));
         expect(view.text).toContain('Группа: 5 чел., броней — 2');
-        expect(view.text).toMatch(/уже уходило на ящик Ведара \d\d\.\d\d \d\d:\d\d по Камчатке: в нём 2 чел\., броней — 1, отправлено с другой карточки этого выезда\. В МЧС — нет\./);
+        expect(view.text).toMatch(/уже уходило на ящик Ведара \d\d\.\d\d \d\d:\d\d по Камчатке: в нём 2 чел\., броней — 1, отправлено с другой карточки этого выезда\. Это письмо о части выезда — остальных броней в нём нет\. В МЧС — нет\./);
         // И отправляет своё — обо всех пяти, не дожидаясь десяти минут.
         const o = await press(pay.mchsLetterSend(routed, DAY));
         expect(mail.send).toHaveBeenCalledTimes(2);
@@ -1395,6 +1396,12 @@ withPg('кабинет в чате на настоящем PostgreSQL', () => {
         const g2 = await guidePress(pay.mchsLetterSend(routed, DAY));
         expect(mail.send).toHaveBeenCalledTimes(2);
         expect(g2.text).toMatch(/уже ушло на тестовый ящик Ведара \d\d\.\d\d \d\d:\d\d по Камчатке: в нём 5 чел\., броней — 2, отправлено с другой карточки этого выезда/);
+        // Под выездом каждый видит письмо, которое несёт его группу: и владелец, и гид — письмо обо всём выезде.
+        const ownerView = await press(pay.mchsGroup(routed, DAY));
+        expect(ownerView.text).toMatch(/уже уходило на ящик Ведара \d\d\.\d\d \d\d:\d\d по Камчатке: в нём 5 чел\., броней — 2\. В МЧС — нет\./);
+        const guideView = await guidePress(pay.mchsGroup(routed, DAY));
+        expect(guideView.text).toContain('Группа: 2 чел., броней — 1');
+        expect(guideView.text).toMatch(/уже уходило на ящик Ведара \d\d\.\d\d \d\d:\d\d по Камчатке: в нём 5 чел\., броней — 2, отправлено с другой карточки этого выезда\. В МЧС — нет\./);
         // Владелец сразу повторить своё тоже не может — своё письмо свежее.
         const o2 = await press(pay.mchsLetterSend(routed, DAY));
         expect(mail.send).toHaveBeenCalledTimes(2);

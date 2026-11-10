@@ -19,20 +19,38 @@ function cleanError(raw: string | undefined): string {
 }
 
 /**
+ * Отказ, после которого неизвестно, ушло ли письмо: сервер замолчал или связь
+ * оборвалась, а на каком шаге — до тела письма или после — отсюда не видно.
+ * Отказ с ответом сервера (5xx, отказ входа, негодный адрес) — письмо точно не
+ * принято. Третий исход нельзя выдавать за второй (§4.0): «ничего не
+ * отправлено» при письме, которое лежит в ящике, — неправда на экране.
+ */
+const UNSURE_CODES: ReadonlySet<string> = new Set(['ETIMEDOUT', 'ESOCKET', 'ECONNECTION']);
+
+export function mailFailureUnsure(code: string | undefined, message: string | undefined): boolean {
+  if (code) return UNSURE_CODES.has(code);
+  return /timeout|timed out|socket|ECONNRESET|closed unexpectedly/i.test(message ?? '');
+}
+
+/**
  * Отправить письмо. Не бросает: исход — значением. «Не настроено» отделено от
  * «не ушло»: первое чинится в панели приложения, второе — у почтового сервера.
+ * `unsure` — «не ушло» под вопросом: связь оборвалась, письмо могло быть принято.
  */
 export async function sendMchsLetter(
   g: MchsGroup, sender: MchsLetterSender, nowMs: number,
-): Promise<{ outcome: MchsLetterOutcome; error: string | null }> {
+): Promise<{ outcome: MchsLetterOutcome; error: string | null; unsure?: true }> {
   if (!process.env.SMTP_USER || !process.env.SMTP_PASS) return { outcome: 'not_configured', error: null };
+  const failed = (code: string | undefined, raw: string | undefined) => ({
+    outcome: 'failed' as const, error: cleanError(raw), ...(mailFailureUnsure(code, raw) ? { unsure: true as const } : {}),
+  });
   try {
     const r = await emailService.sendEmail({
       to: MCHS_LETTER.to, subject: mchsLetterSubject(g), html: mchsLetterHtml(g, sender, nowMs),
     });
-    return r.success ? { outcome: 'sent', error: null } : { outcome: 'failed', error: cleanError(r.error) };
+    return r.success ? { outcome: 'sent', error: null } : failed(r.code, r.error);
   } catch (err) {
-    return { outcome: 'failed', error: cleanError(err instanceof Error ? err.message : String(err)) };
+    return failed((err as { code?: string } | null)?.code, err instanceof Error ? err.message : String(err));
   }
 }
 
@@ -146,9 +164,10 @@ export async function recordMchsLetter(
  * строке журнала, и замок обходился бы другим написанием номера (ревью PR 3188).
  *
  * Сессионный advisory-замок держится на одном соединении от проверки до
- * записи. Это же соединение получает `fn` — журнал читается и пишется на нём:
- * первая редакция брала для журнала второе соединение пула, и каждое нажатие
- * занимало два на всё время разговора с почтовым сервером (ревью PR 3188).
+ * записи. Это же соединение получает `fn` — журнал читается и пишется на нём.
+ * Первая редакция вела журнал через пул: держателю замка требовалось второе
+ * соединение на каждый запрос журнала, и при исчерпанном пуле проверка или
+ * запись отказывали уже после взятого замка (ревью PR 3188).
  * Не снялся замок — соединение уничтожается, а не возвращается в пул: иначе
  * замок прожил бы на нём до перезапуска и запер выезд навсегда.
  */

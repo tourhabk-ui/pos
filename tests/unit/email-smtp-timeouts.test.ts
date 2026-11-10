@@ -4,8 +4,11 @@
  * У nodemailer по умолчанию две минуты на соединение и десять на молчащий
  * сокет. Письмо с данными выезда для МЧС уходит под замком выезда, то есть с
  * занятым соединением базы (lib/safety/mchs-letter): зависший почтовый сервер
- * держал бы его всё это время. Сроки задаются транспорту явно, и сумма их —
- * не дольше минуты с небольшим.
+ * держал бы его всё это время. Сроки задаются транспорту явно. Это сроки ШАГА,
+ * а не всего письма: общего потолка на разговор они не дают.
+ *
+ * И отказ несёт код: по нему вызывающий отличает «сервер отказал» от «связь
+ * оборвалась — ушло ли письмо, неизвестно».
  */
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
 
@@ -31,12 +34,25 @@ describe('сроки почтового транспорта', () => {
     expect(r.success).toBe(true);
     expect(m.create).toHaveBeenCalledTimes(1);
     const opts = m.create.mock.calls[0]![0] as Record<string, unknown>;
-    for (const key of ['connectionTimeout', 'greetingTimeout', 'socketTimeout'] as const) {
+    for (const key of ['dnsTimeout', 'connectionTimeout', 'greetingTimeout', 'socketTimeout'] as const) {
       expect(opts[key], key).toBe(SMTP_TIMEOUTS[key]);
       expect(Number(opts[key]), key).toBeGreaterThan(0);
+      // Ни один шаг не ждёт дольше минуты: зависший сервер отпускает соединение базы вызывающего.
+      expect(Number(opts[key]), key).toBeLessThanOrEqual(60_000);
     }
-    // Зависший сервер не держит вызывающего (и его соединение базы) дольше минуты с небольшим.
-    expect(SMTP_TIMEOUTS.connectionTimeout + SMTP_TIMEOUTS.greetingTimeout + SMTP_TIMEOUTS.socketTimeout).toBeLessThanOrEqual(75_000);
+    // Молчание сокета — не короче полуминуты: сервер, принявший тело письма, думает
+    // над ответом, и ранний обрыв дал бы «не ушло» при письме, которое ушло.
+    expect(SMTP_TIMEOUTS.socketTimeout).toBeGreaterThanOrEqual(30_000);
+  });
+
+  it('отказ несёт код nodemailer — обрыв связи отличим от отказа сервера', async () => {
+    const { emailService } = await import('@/lib/notifications/email-service');
+    m.send.mockRejectedValueOnce(Object.assign(new Error('Timeout'), { code: 'ETIMEDOUT' }));
+    expect(await emailService.sendEmail({ to: 'x@vedarai.ru', subject: 'Проба', html: '<p>Проба</p>' }))
+      .toEqual({ success: false, error: 'Timeout', code: 'ETIMEDOUT' });
+    m.send.mockRejectedValueOnce(new Error('554 rejected'));
+    expect(await emailService.sendEmail({ to: 'x@vedarai.ru', subject: 'Проба', html: '<p>Проба</p>' }))
+      .toEqual({ success: false, error: '554 rejected' });
   });
 
   it('почта не настроена — транспорт не создаётся вовсе, исход назван', async () => {

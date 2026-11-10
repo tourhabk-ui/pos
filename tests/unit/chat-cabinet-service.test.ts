@@ -708,8 +708,8 @@ describe('письмо с данными выезда для МЧС — тест
     expect(s.text).toContain('ушло на тестовый ящик Ведара. В МЧС оно не отправлено');
     expect(inserted()).toEqual([PID, '81', '2026-11-20', 'telegram', 'flo@vedarai.ru', true, 'sent', null, 2, 1]);
     expect(m.count).toHaveBeenCalledWith(expect.objectContaining({ action: 'mchs_letter_send' }), NOW);
-    // Журнал под замком читается и пишется на соединении замка: второе
-    // соединение пула на время письма не занимается (ревью PR 3188).
+    // Журнал под замком читается и пишется на соединении замка: держателю
+    // замка не нужно второе соединение пула (ревью PR 3188).
     expect(m.viaLock).toEqual(['select', 'insert']);
   });
 
@@ -733,7 +733,7 @@ describe('письмо с данными выезда для МЧС — тест
     const partial = letter({ mine: false, whole: false, people: 1, bookings: 1 });
     db([partial]);
     const view = await press(cabinetPayload.mchsGroup('81', '2026-11-20'));
-    expect(view.text).toContain('уже уходило на ящик Ведара 30.10 11:55 по Камчатке: в нём 1 чел., броней — 1, отправлено с другой карточки этого выезда. В МЧС — нет.');
+    expect(view.text).toContain('уже уходило на ящик Ведара 30.10 11:55 по Камчатке: в нём 1 чел., броней — 1, отправлено с другой карточки этого выезда. Это письмо о части выезда — остальных броней в нём нет. В МЧС — нет.');
     const s = await press(SEND);
     expect(m.mail).toHaveBeenCalledTimes(1);
     expect(inserted()?.slice(6)).toEqual(['sent', null, 2, 1]);
@@ -756,6 +756,33 @@ describe('письмо с данными выезда для МЧС — тест
     db([letter({ mine: false, whole: false, sender_whole: false, people: 2, bookings: 1 })]);
     await press(SEND);
     expect(m.mail).toHaveBeenCalledTimes(1);
+  });
+
+  it('строка под выездом не выдаёт чужое письмо за письмо о группе смотрящего', async () => {
+    // Смотрит гид (sender_whole: false), письмо — другого гида с тем же числом людей: его броней там нет.
+    db([letter({ mine: false, whole: false, sender_whole: false, people: 2, bookings: 1 })]);
+    const other = await press(cabinetPayload.mchsGroup('81', '2026-11-20'));
+    expect(other.text).toContain('в нём 2 чел., броней — 1, отправлено с другой карточки этого выезда. Ваших броней в нём нет. В МЧС — нет.');
+
+    // Владелец отправил весь выезд раньше, гид своё — позже: владелец видит своё письмо, а не письмо гида.
+    db([
+      letter({ at: '2026-10-29 23:58:00+00', mine: false, whole: false, people: 1, bookings: 1 }),
+      letter({ at: '2026-10-29 23:40:00+00', recent: false, mine: true, whole: true, people: 2, bookings: 1 }),
+    ]);
+    const mine = await press(cabinetPayload.mchsGroup('81', '2026-11-20'));
+    expect(mine.text).toContain('уже уходило на ящик Ведара 30.10 11:40 по Камчатке: в нём 2 чел., броней — 1. В МЧС — нет.');
+    expect(mine.text).not.toContain('с другой карточки');
+  });
+
+  it('связь с почтой оборвалась — «ушло ли письмо, неизвестно», а не «ничего не отправлено»', async () => {
+    db();
+    m.mail.mockResolvedValue({ success: false, error: 'Timeout', code: 'ETIMEDOUT' });
+    const s = await press(SEND);
+    expect(s.failed).toBe(true);
+    expect(s.text).toContain('ушло ли письмо, неизвестно');
+    expect(s.text).not.toContain('Ничего не отправлено');
+    // В журнале — отказ с причиной: повтор он не запрещает, и экран об этом сказал.
+    expect(inserted()?.slice(6, 8)).toEqual(['failed', 'Timeout']);
   });
 
   it('выезд уже отправляется (замок занят) — второго письма нет, слова «как раз отправляется»', async () => {

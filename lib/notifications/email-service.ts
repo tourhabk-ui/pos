@@ -22,6 +22,8 @@ export interface EmailResult {
   success: boolean;
   messageId?: string;
   error?: string;
+  /** Код отказа nodemailer (ETIMEDOUT, ESOCKET, EAUTH, EENVELOPE…), если он был. */
+  code?: string;
 }
 
 export interface OperatorNewBookingData {
@@ -47,8 +49,17 @@ export interface BookingConfirmationData {
   specialRequests?: string | null;
 }
 
-/** Сроки разговора с почтовым сервером, мс: соединение, приветствие, молчание сокета. */
-export const SMTP_TIMEOUTS = { connectionTimeout: 15_000, greetingTimeout: 15_000, socketTimeout: 30_000 } as const;
+/**
+ * Сроки шагов разговора с почтовым сервером, мс: разрешение имени, соединение
+ * (на каждый адрес сервера), приветствие, молчание сокета. Это сроки ШАГА, а
+ * не всего письма: сервер, отвечающий на каждую команду с задержкой, держит
+ * отправку дольше суммы. Молчание — минута, а не десять по умолчанию: сервер,
+ * который принял тело письма и думает, обрывать рано нельзя — письмо уйдёт, а
+ * отправителю скажут «не ушло».
+ */
+export const SMTP_TIMEOUTS = {
+  dnsTimeout: 10_000, connectionTimeout: 15_000, greetingTimeout: 15_000, socketTimeout: 60_000,
+} as const;
 
 class EmailService {
   private transporter: Transporter | null = null;
@@ -69,7 +80,7 @@ class EmailService {
     // Сроки ожидания заданы явно: у nodemailer по умолчанию две минуты на
     // соединение и десять на молчащий сокет, а вызывающий может держать на
     // время письма соединение базы (замок письма МЧС, lib/safety/mchs-letter).
-    // Зависший почтовый сервер не должен занимать его дольше минуты.
+    // Сервер, зависший на одном шаге, отпускает его за минуту с небольшим.
     this.transporter = nodemailer.createTransport({
       host: smtpHost,
       port: smtpPort,
@@ -100,9 +111,11 @@ class EmailService {
 
       return { success: true, messageId: info.messageId };
     } catch (error) {
+      const code = (error as { code?: unknown } | null)?.code;
       return {
         success: false,
         error: error instanceof Error ? error.message : 'Unknown error',
+        ...(typeof code === 'string' ? { code } : {}),
       };
     }
   }

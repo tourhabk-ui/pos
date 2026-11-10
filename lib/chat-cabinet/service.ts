@@ -67,7 +67,7 @@ import { readStoredSituations } from '@/lib/trips/situation-read';
 import { MCHS_CHAT_TEXT, MCHS_WINDOW_DAYS } from '@/lib/safety/mchs-chat';
 import { loadMchsDepartures, loadMchsGroup } from '@/lib/chat-cabinet/mchs-store';
 import { mchsGroupScreen, mchsLetterAskScreen, mchsLetterResultScreen, mchsListScreen } from '@/lib/chat-cabinet/mchs-screens';
-import { MCHS_LETTER_TEXT, blockingMchsLetter } from '@/lib/safety/mchs-letter-text';
+import { MCHS_LETTER_TEXT, blockingMchsLetter, shownMchsLetter } from '@/lib/safety/mchs-letter-text';
 import { recordMchsLetter, sendMchsLetter, sentMchsLetters, withMchsLetterLock } from '@/lib/safety/mchs-letter';
 import { listVehicles, updateVehicle } from '@/lib/transfers/service';
 import { loadOwnDrafts, loadOwnPriceRows } from '@/lib/transfers/price-edit-store';
@@ -225,9 +225,12 @@ async function mchsGroupView(c: Ctx, channel: CabinetChannel, tourId: string, da
   let letterLine: string | null = null;
   if (canSend) {
     const sent = await sentMchsLetters(tourId, date, c.ctx.partnerId);
-    const last = sent === 'failed' ? null : sent.letters[0];
-    if (sent === 'failed') letterLine = MCHS_LETTER_TEXT.lastUnchecked;
-    else if (last) letterLine = MCHS_LETTER_TEXT.last(last, fmtKamchatka(last.at));
+    if (sent === 'failed') {
+      letterLine = MCHS_LETTER_TEXT.lastUnchecked;
+    } else {
+      const shown = shownMchsLetter(sent.letters, { senderWhole: sent.senderWhole, people: group.people, bookings: group.bookings });
+      if (shown) letterLine = MCHS_LETTER_TEXT.last(shown.letter, fmtKamchatka(shown.letter.at), shown.gap);
+    }
   }
   return mchsGroupScreen({ group, role: c.partner.role, base: base(), nowMs, canSend, letterLine });
 }
@@ -276,7 +279,9 @@ async function mchsLetterSend(c: Ctx, channel: CabinetChannel, tourId: string, d
     const sent = await sendMchsLetter(group, sender, nowMs);
     const logged = await recordMchsLetter({ sender, group, outcome: sent.outcome, error: sent.error }, db);
     if (sent.outcome === 'not_configured') return result(MCHS_LETTER_TEXT.notConfigured, true);
-    if (sent.outcome === 'failed') return result(MCHS_LETTER_TEXT.failed(sent.error ?? 'почтовый сервер не принял письмо'), true);
+    if (sent.outcome === 'failed') {
+      return result(sent.unsure ? MCHS_LETTER_TEXT.failedUnsure : MCHS_LETTER_TEXT.failed(sent.error ?? 'почтовый сервер не принял письмо'), true);
+    }
     return result(logged ? MCHS_LETTER_TEXT.sent : `${MCHS_LETTER_TEXT.sent}\n${MCHS_LETTER_TEXT.sentNotLogged}`);
   });
   if (locked === 'busy') return result(MCHS_LETTER_TEXT.busy);

@@ -121,6 +121,40 @@ export function blockingMchsLetter(letters: readonly MchsSentLetter[], now: Mchs
   return letters.find((l) => l.recent && mchsLetterCovers(l, now)) ?? null;
 }
 
+/** Чего в прошлом письме нет для того, кто смотрит выезд. */
+export type MchsLetterGap = 'none' | 'part' | 'other';
+
+/**
+ * `part` — смотрит владелец тура, а письмо чужое и о части броней;
+ * `other` — смотрит гид, а письмо другого гида: его броней в нём нет вовсе.
+ */
+export function mchsLetterGap(l: MchsSentLetter, now: MchsLetterNow): MchsLetterGap {
+  if (mchsLetterCovers(l, now)) return 'none';
+  return now.senderWhole ? 'part' : 'other';
+}
+
+/**
+ * Письмо для строки под выездом — тем же правилом покрытия, что и запрет
+ * повтора: сперва самое свежее из тех, что несут группу смотрящего, иначе
+ * просто самое свежее, и тогда строка говорит, чего в нём нет. Первая редакция
+ * показывала последнее письмо как есть: второй гид с тем же числом людей читал
+ * «в нём 2 чел., с другой карточки» как «мою группу уже отправили», а владелец
+ * тура терял из виду собственное письмо обо всём выезде, стоило гиду отправить
+ * своё позже (ревью PR 3188).
+ */
+export function shownMchsLetter(
+  letters: readonly MchsSentLetter[], now: MchsLetterNow,
+): { letter: MchsSentLetter; gap: MchsLetterGap } | null {
+  const letter = letters.find((l) => mchsLetterCovers(l, now)) ?? letters[0];
+  return letter ? { letter, gap: mchsLetterGap(letter, now) } : null;
+}
+
+const GAP_WORDS: Readonly<Record<MchsLetterGap, string>> = {
+  none: '',
+  part: ' Это письмо о части выезда — остальных броней в нём нет.',
+  other: ' Ваших броней в нём нет.',
+};
+
 /** Что было в письме: счёт и чьё оно. Имён в журнале нет — только счёт. */
 function letterContent(l: Pick<MchsSentLetter, 'people' | 'bookings' | 'mine'>): string {
   return `в нём ${l.people} чел., броней — ${l.bookings}${l.mine ? '' : ', отправлено с другой карточки этого выезда'}`;
@@ -137,12 +171,14 @@ export const MCHS_LETTER_TEXT = {
   sentNotLogged: 'Отметка об отправке в журнал не записалась — повторное нажатие может отправить письмо ещё раз.',
   notConfigured: 'Почта на сервере не настроена — письмо не ушло. Данные выезда можно перенести в форму МЧС самим.',
   failed: (reason: string): string => `Письмо не ушло: ${escapeHtml(reason)}. Ничего не отправлено — данные выезда можно перенести в форму МЧС самим.`,
+  /** Связь оборвалась или сервер замолчал: на каком шаге — неизвестно, и «ничего не отправлено» было бы догадкой. */
+  failedUnsure: 'Почтовый сервер замолчал или оборвал связь: ушло ли письмо, неизвестно. Повторное нажатие может отправить его ещё раз. В МЧС письмо не уходит в любом случае — данные выезда можно перенести в форму МЧС самим.',
   recent: (l: MchsSentLetter, at: string | null): string =>
     `Письмо по этому выезду уже ушло на тестовый ящик Ведара${at ? ` ${at} по Камчатке` : ''}: ${letterContent(l)}. Повторно — не раньше чем через ${Math.round(MCHS_LETTER_REPEAT_MS / 60_000)} минут. В МЧС оно не отправлено.`,
   busy: 'Письмо по этому выезду как раз отправляется — второе не отправляю. Откройте выезд через минуту: там будет видно, ушло ли оно.',
   unchecked: 'Не удалось проверить, отправлялось ли уже письмо по этому выезду, — не отправляю, чтобы не задвоить. Попробуйте позже.',
   ownerOnly: 'Письмо с данными выезда отправляет владелец кабинета — в своём чате. Ничего не отправил.',
-  last: (l: MchsSentLetter, at: string | null): string =>
-    `Письмо (тест) по этому выезду уже уходило на ящик Ведара${at ? ` ${at} по Камчатке` : ''}: ${letterContent(l)}. В МЧС — нет.`,
+  last: (l: MchsSentLetter, at: string | null, gap: MchsLetterGap = 'none'): string =>
+    `Письмо (тест) по этому выезду уже уходило на ящик Ведара${at ? ` ${at} по Камчатке` : ''}: ${letterContent(l)}.${GAP_WORDS[gap]} В МЧС — нет.`,
   lastUnchecked: 'Отправлялось ли письмо по этому выезду, сейчас не прочиталось.',
 } as const;

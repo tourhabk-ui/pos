@@ -28,9 +28,9 @@ vi.mock('@/lib/db-pool', () => ({
 
 const {
   MCHS_LETTER, MCHS_LETTER_REPEAT_MS, MCHS_LETTER_TEST_BANNER, MCHS_LETTER_TEXT, mchsLetterHtml, mchsLetterSubject,
-  blockingMchsLetter, mchsLetterCovers,
+  blockingMchsLetter, mchsLetterCovers, mchsLetterGap, shownMchsLetter,
 } = await import('@/lib/safety/mchs-letter-text');
-const { sentMchsLetters, recordMchsLetter, sendMchsLetter, withMchsLetterLock } = await import('@/lib/safety/mchs-letter');
+const { sentMchsLetters, recordMchsLetter, sendMchsLetter, withMchsLetterLock, mailFailureUnsure } = await import('@/lib/safety/mchs-letter');
 type MchsSentLetter = import('@/lib/safety/mchs-letter-text').MchsSentLetter;
 const { cabinetPayload, parseCabinetPress } = await import('@/lib/chat-cabinet/payload');
 const { isWritePayload } = await import('@/lib/chat-cabinet/signed-payload');
@@ -126,7 +126,29 @@ describe('отправка: три исхода', () => {
     expect(r.error).not.toContain('ivan@example.com');
     expect(r.error).not.toContain('+79140001122');
     m.mail.mockRejectedValue(new Error('ETIMEDOUT'));
-    expect(await sendMchsLetter(group(), sender, NOW)).toEqual({ outcome: 'failed', error: 'ETIMEDOUT' });
+    expect(await sendMchsLetter(group(), sender, NOW)).toMatchObject({ outcome: 'failed', error: 'ETIMEDOUT' });
+  });
+
+  it('отказ сервера — «не ушло»; обрыв связи или молчание — «неизвестно, ушло ли» (§4.0)', async () => {
+    // Сервер ответил отказом: письмо точно не принято.
+    m.mail.mockResolvedValue({ success: false, error: '554 rejected', code: 'EENVELOPE' });
+    expect(await sendMchsLetter(group(), sender, NOW)).toEqual({ outcome: 'failed', error: '554 rejected' });
+    m.mail.mockResolvedValue({ success: false, error: 'Invalid login', code: 'EAUTH' });
+    expect((await sendMchsLetter(group(), sender, NOW)).unsure).toBeUndefined();
+    // Сервер замолчал после тела письма: оно могло быть принято.
+    m.mail.mockResolvedValue({ success: false, error: 'Timeout', code: 'ETIMEDOUT' });
+    expect(await sendMchsLetter(group(), sender, NOW)).toEqual({ outcome: 'failed', error: 'Timeout', unsure: true });
+    m.mail.mockResolvedValue({ success: false, error: 'Connection closed unexpectedly', code: 'ECONNECTION' });
+    expect((await sendMchsLetter(group(), sender, NOW)).unsure).toBe(true);
+    // Кода нет — судим по словам отказа; незнакомый отказ без кода остаётся «не ушло».
+    expect(mailFailureUnsure(undefined, 'read ECONNRESET')).toBe(true);
+    expect(mailFailureUnsure(undefined, 'Greeting never received: timed out')).toBe(true);
+    expect(mailFailureUnsure(undefined, '550 mailbox unavailable')).toBe(false);
+    expect(mailFailureUnsure(undefined, undefined)).toBe(false);
+    // Слова экрана для третьего исхода не говорят «ничего не отправлено».
+    expect(MCHS_LETTER_TEXT.failedUnsure).toContain('ушло ли письмо, неизвестно');
+    expect(MCHS_LETTER_TEXT.failedUnsure).not.toMatch(/Ничего не отправлено|Письмо не ушло/);
+    expect(MCHS_LETTER_TEXT.failedUnsure).toContain('может отправить его ещё раз');
   });
 });
 
@@ -201,6 +223,24 @@ describe('какое письмо запрещает повтор', () => {
     expect(blockingMchsLetter([partial, old], owner)).toBeNull();
     expect(blockingMchsLetter([partial, whole, old], owner)?.at).toBe('всё');
     expect(blockingMchsLetter([], owner)).toBeNull();
+  });
+
+  it('строка под выездом берёт письмо тем же правилом и говорит, чего в нём нет', () => {
+    // Гид Б смотрит выезд, а письмо отправил гид А с тем же числом людей: броней Б в нём нет.
+    const fromOtherGuide = sent({ people: 2, bookings: 1 });
+    expect(shownMchsLetter([fromOtherGuide], guide)).toEqual({ letter: fromOtherGuide, gap: 'other' });
+    // Владелец тура смотрит письмо гида о части броней.
+    expect(mchsLetterGap(fromOtherGuide, owner)).toBe('part');
+    // Владелец отправил весь выезд, позже гид — своё: владелец и второй гид видят письмо о всём выезде.
+    const whole = sent({ at: 'всё', recent: false, whole: true, people: 5, bookings: 2 });
+    const later = sent({ at: 'часть', people: 2, bookings: 1 });
+    expect(shownMchsLetter([later, whole], guide)).toEqual({ letter: whole, gap: 'none' });
+    expect(shownMchsLetter([later, { ...whole, mine: true }], owner)?.letter.at).toBe('всё');
+    expect(shownMchsLetter([], owner)).toBeNull();
+
+    const other = MCHS_LETTER_TEXT.last(fromOtherGuide, '10.11 14:05', 'other');
+    expect(other).toBe('Письмо (тест) по этому выезду уже уходило на ящик Ведара 10.11 14:05 по Камчатке: в нём 2 чел., броней — 1, отправлено с другой карточки этого выезда. Ваших броней в нём нет. В МЧС — нет.');
+    expect(MCHS_LETTER_TEXT.last(fromOtherGuide, null, 'part')).toContain('Это письмо о части выезда — остальных броней в нём нет.');
   });
 
   it('слова о прошлом письме называют счёт и чьё оно; имён в них нет', () => {
