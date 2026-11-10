@@ -168,7 +168,9 @@ describe('результат: настоящее, пустое, непровер
     expect(body.adults).toBe(2);
     expect(body.days).toEqual([
       { day: 1, type: 'arrival', zone: 'avachinsky', lodgingIncluded: null },
-      { day: 2, type: 'activity', zone: 'western', lodgingIncluded: true },
+      // Однодневный тур с проживанием: ночь после его единственного (и
+      // последнего) дня тур не покрывает — жильё на неё подбирается (Б32).
+      { day: 2, type: 'activity', zone: 'western', lodgingIncluded: false },
       { day: 3, type: 'departure', zone: 'avachinsky', lodgingIncluded: null },
     ]);
     expect(JSON.stringify(body)).not.toContain('астма');
@@ -206,14 +208,15 @@ describe('результат: настоящее, пустое, непровер
     expect(car.textContent).not.toMatch(/за место|за человека|пока нет/);
 
     // Смета на группу (#2304): ориентир подписан ориентиром у каждой строки и
-    // под итогом. Ночь прилёта в Авачинской зоне считается, ночь тура с
-    // включённым проживанием — нет; трансферы аэропорта — у прилетающего.
+    // под итогом. Ночь прилёта в Авачинской зоне считается; ночь после
+    // однодневного тура с проживанием — тоже (тур её не покрывает, Б32);
+    // трансферы аэропорта — у прилетающего.
     const estimate = screen.getByTestId('price-estimate');
     expect(within(estimate).getByText(/Смета на группу · 2 чел\./)).toBeTruthy();
     expect(within(estimate).getByText('Проживание в Авачинской зоне')).toBeTruthy();
-    expect(within(estimate).getByText(/1 ночь × 2 чел\. · ориентир/)).toBeTruthy();
+    expect(within(estimate).getByText('Проживание в Западной зоне')).toBeTruthy();
+    expect(within(estimate).getAllByText(/1 ночь × 2 чел\. · ориентир/)).toHaveLength(2);
     expect(within(estimate).getByText('Трансферы аэропорта')).toBeTruthy();
-    expect(within(estimate).queryByText(/Западной зоне/)).toBeNull();
     expect(estimate.textContent).toMatch(/ориентир по средним ценам/);
   });
 

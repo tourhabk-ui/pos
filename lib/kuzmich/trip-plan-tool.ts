@@ -19,7 +19,7 @@ import {
 import { PLAN_PRESETS, type PlanPreset } from '@/lib/plans/presets';
 // Словарь переехал в чистый модуль без зависимостей: те же слова читает
 // клиент планировщика, а сюда тянется `pool` (см. шапку interest-words).
-import { INTEREST_WORDS, parseInterestWords } from '@/lib/planner/interest-words';
+import { INTEREST_WORDS, parseInterestWords, withoutInterestWords } from '@/lib/planner/interest-words';
 import { parseTravelPreferences } from '@/lib/planner/travel-style-words';
 import { MAX_REST_DAYS, type TravelStyle } from '@/lib/planner/travel-style';
 import { tourKeepsSchedule } from '@/lib/seat-requests/service';
@@ -33,6 +33,7 @@ import { saveDraft, loadDraft, updateDraft, isDraftId, type DraftSurface } from 
 import { McpUserError } from '@/lib/mcp/jsonrpc';
 import { parsePlanStart, rangeDays, planStartRefusal, type PlanStart } from '@/lib/kuzmich/plan-start';
 import { planOfferLines } from '@/lib/kuzmich/plan-offers';
+import { nightLodgingIncluded } from '@/lib/planner/lodging-included';
 
 /**
  * Как ехать — из слова модели. Принимаются и коды (self/operator/mixed), и
@@ -185,10 +186,7 @@ export function parseChatInterestsDetailed(raw: string): { interests: string[]; 
   // ('вулкан' → trekking в lib/planner/interests): план «вулканы, 6 дней» вёз
   // группу на треккинг в Восточную зону, а экран планера (только первый
   // словарь) тех же слов так не понимал.
-  let rest = text;
-  for (const word of Object.keys(INTEREST_WORDS)) {
-    if (rest.includes(word)) rest = rest.split(word).join(' ');
-  }
+  const rest = withoutInterestWords(text);
   try {
     const parsed = parseInterestsFromText(rest);
     for (const k of parsed.interests ?? []) found.add(k);
@@ -951,7 +949,8 @@ export async function makeTripPlanForKuzmich(
   // занятостью туров: запросы независимы.
   const offersP = rec.days.length > 0
     ? planOfferLines({
-      days: rec.days.map((d) => ({ day: d.day, type: d.type, zone: d.zone, lodgingIncluded: d.realTour?.lodgingIncluded ?? null })),
+      // Ночь после последнего дня тура тур не покрывает (Б32).
+      days: rec.days.map((d, i) => ({ day: d.day, type: d.type, zone: d.zone, lodgingIncluded: nightLodgingIncluded(d, rec.days[i + 1]) })),
       arrivalIso: arrival.toISOString().slice(0, 10),
       departureIso: departure.toISOString().slice(0, 10),
       adults: group.adults, children: kids.children, surface: opts.surface ?? 'chat',
