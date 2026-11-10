@@ -17,7 +17,9 @@
  * /api/planner/recommend — сторож planner-health-stays-local.
  *
  * Телефон и почта, вписанные человеком в свободный текст, перед моделью
- * вырезаются (redactPII) — сторож planner-chat-pii.
+ * вырезаются (redactPII) — сторож planner-chat-pii. Узнаётся номер в обычной
+ * записи: слитно, с пробелами, скобками и дефисами; через точки или косую
+ * черту — нет (границы названы в lib/security/pii-redact.ts).
  */
 
 import { NextRequest, NextResponse } from 'next/server';
@@ -170,7 +172,7 @@ export async function POST(req: NextRequest) {
     // же, что у Кузьмича: телефон и почта, вписанные человеком в «опиши
     // поездку», до модели не доходят. Запасной разбор по словам и
     // parseTravelPreferences ниже читают сырой `message`: они в сеть не ходят,
-    // а чистка рядом с датой может съесть и её цифры.
+    // а номер, записанный с пробелами, чистка вырезает вместе с числами рядом.
     const messages: ChatMessage[] = [
       { role: 'system', content: SYSTEM_PROMPT.replace('{TODAY}', kamchatkaToday()) },
       { role: 'user', content: redactPII(message) },

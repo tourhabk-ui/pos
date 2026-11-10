@@ -30,6 +30,22 @@
  *     («8914-1234567», «4152-412318»), и такой номер вырезается, как раньше.
  *     Цена — диапазон с частями разной длины («50000-150000») уйдёт модели
  *     как [телефон]: для чистки ПД лишнее вырезанное лучше пропущенного.
+ *
+ * 10.11 (ревью безопасности #3204): верхней границы «не больше 15 цифр» у
+ * цепочки больше нет. Она судила всю цепочку цифр разом, и номер рядом с датой
+ * или бюджетом — «+7… 10-14 2 дня», «8914… 10000 рублей» — давал 16 цифр и
+ * уходил модели дословно. Теперь:
+ *  4. Номер одним словом (10–15 цифр без пробелов внутри) вырезается сам, а
+ *     соседние числа судятся отдельно: даты и бюджет рядом с ним остаются.
+ *  5. Слова короче десяти цифр, стоящие подряд, — цепочка: номер, записанный
+ *     с пробелами. От десяти цифр она вырезается целиком, сколько бы цифр в
+ *     ней ни было. Цена: такой номер уносит с собой соседние числа («8 914
+ *     123 45 67 10000»), и длинный ряд чисел без номера («150 000 200 000
+ *     250 000») модель не увидит.
+ *  6. Слово длиннее 15 цифр — не номер, а идентификатор (хвост UUID, номер
+ *     записи): остаётся как есть, как и раньше, и в цепочку не входит.
+ * Номер через косую черту («8/914/1234567») не распознаётся, как и через точки:
+ * так пишут даты.
  */
 const DOTTED_NUMBER = /(\d+(?:\.\d+)+)/;
 const PHONE_CANDIDATE = /\+?\d[\d\s()\-]{8,}\d/g;
@@ -37,22 +53,57 @@ const RANGE_DASH = /(\s+-\s*|\s*-\s+)/;
 
 const BARE_PAIR = /^(\d{4,})-(\d{4,})$/;
 
-function looksLikePhone(part: string): boolean {
-  const digits = part.replace(/\D/g, '');
-  if (digits.length < 10 || digits.length > 15) return false;
+const digitCount = (s: string): number => s.replace(/\D/g, '').length;
+
+/** «150000-200000»: два числа одной длины по возрастанию — диапазон, а не номер. */
+function isBareRange(part: string): boolean {
   const pair = BARE_PAIR.exec(part);
-  if (pair && pair[1].length === pair[2].length && Number(pair[1]) < Number(pair[2])) return false;
-  return true;
+  return pair !== null && pair[1].length === pair[2].length && Number(pair[1]) < Number(pair[2]);
+}
+
+/** Номер одним словом: «+79001234567», «8(900)123-45-67». */
+function isPhoneWord(word: string): boolean {
+  const digits = digitCount(word);
+  return digits >= 10 && digits <= 15 && !isBareRange(word);
+}
+
+/**
+ * Одна сторона диапазона, слово за словом. Пробелы между словами остаются.
+ *
+ * Слово от десяти цифр судится само: 10–15 цифр — номер; длиннее или диапазон
+ * («150000-200000») — не номер, остаётся как есть. Короткие слова подряд
+ * складываются в цепочку: это номер, записанный с пробелами, возможно с
+ * числами рядом, — от десяти цифр цепочка вырезается целиком.
+ */
+function redactPart(part: string, label: (phone: string) => string): string {
+  const judgeRun = (run: string): string => (digitCount(run) >= 10 ? label(run) : run);
+  // Слова — чётные куски, пробелы между ними — нечётные.
+  const pieces = part.split(/(\s+)/);
+  let out = '';
+  let run = '';
+  for (let i = 0; i < pieces.length; i += 2) {
+    const word = pieces[i];
+    const gap = i > 0 ? pieces[i - 1] : '';
+    if (digitCount(word) >= 10) {
+      out += judgeRun(run) + gap + (isPhoneWord(word) ? label(word) : word);
+      run = '';
+    } else if (run === '') {
+      out += gap;
+      run = word;
+    } else {
+      run += gap + word;
+    }
+  }
+  return out + judgeRun(run);
 }
 
 function redactPhones(segment: string, keepTail: boolean): string {
+  const label = (phone: string): string =>
+    keepTail ? `[телефон …${phone.replace(/\D/g, '').slice(-4)}]` : '[телефон]';
   return segment.replace(PHONE_CANDIDATE, (m) =>
     m
       .split(RANGE_DASH)
-      .map((part, i) => {
-        if (i % 2 !== 0 || !looksLikePhone(part)) return part;
-        return keepTail ? `[телефон …${part.replace(/\D/g, '').slice(-4)}]` : '[телефон]';
-      })
+      .map((part, i) => (i % 2 !== 0 ? part : redactPart(part, label)))
       .join(''),
   );
 }
@@ -75,7 +126,7 @@ export function redactPII(text: string | null | undefined, opts: RedactOptions =
   // Email
   out = out.replace(/[A-Za-z0-9._%+-]+@[A-Za-z0-9.-]+\.[A-Za-z]{2,}/g, '[email]');
 
-  // Телефоны: 10–15 цифр (опц. + в начале) с пробелами, скобками, дефисами.
+  // Телефоны: от 10 цифр (опц. + в начале) с пробелами, скобками, дефисами.
   // Числа с точкой внутри — нечётные куски split — остаются как есть.
   out = out
     .split(DOTTED_NUMBER)
