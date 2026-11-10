@@ -1542,7 +1542,7 @@ export function titleFromText(text: string): string {
   const raw = cleanPostText(text);
   const noGreeting = stripGreeting(raw).trim();
   const clean = noGreeting.length >= 10 ? noGreeting : raw;
-  const first = (/^[^.!?]{10,}/.exec(clean)?.[0] ?? clean).trim();
+  const first = headingLine(text) ?? (/^[^.!?]{10,}/.exec(clean)?.[0] ?? clean).trim();
   if (first.length <= ALERT_TITLE_MAX) return first;
   // Место под многоточие; последнее слово, не влезшее целиком, и висящая
   // пунктуация перед ним уходят.
@@ -1550,6 +1550,30 @@ export function titleFromText(text: string): string {
   const space = room.lastIndexOf(' ');
   const head = (space > ALERT_TITLE_MAX / 2 ? room.slice(0, space) : room).replace(/[\s,;:—–-]+$/u, '');
   return `${head}…`;
+}
+
+/**
+ * Первая строка поста, если она сама заголовок (#3216).
+ *
+ * cleanPostText схлопывает переносы строк, и первая фраза бралась до первой
+ * точки. У поста, который открывается строкой-заголовком без точки, в
+ * заголовок уезжало и следующее предложение: 10.11 пост ГИМС про осенний лёд
+ * лёг в ленту строкой «…об опасности осеннего льда То и дело можно заметить
+ * жителей…», и на карточке каждого места стоял рядом с собой короче.
+ *
+ * Строка считается заголовком, только когда это видно по самому тексту: в ней
+ * нет конца фразы (. ! ?), она не вводит список двоеточием и следующая
+ * непустая строка начинается с заглавной буквы или цифры — то есть это не
+ * перенос посреди фразы. Иначе — null, и работает прежнее правило.
+ */
+function headingLine(text: string): string | null {
+  const body = stripGreeting(text.replace(/^[^\p{L}\p{N}]+/u, ''));
+  const lines = body.split(/\r?\n/).map((l) => cleanPostText(l)).filter((l) => l !== '');
+  if (lines.length < 2) return null;
+  const [head, next] = lines;
+  if (head.length < 10 || /[.!?…:]/.test(head)) return null;
+  if (!/^[\p{Lu}\p{N}]/u.test(next)) return null;
+  return head;
 }
 
 /**
