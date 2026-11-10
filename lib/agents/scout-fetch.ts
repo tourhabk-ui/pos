@@ -21,7 +21,11 @@ import { isAuditableUrl, isPrivateAddress } from '@/lib/security/site-audit';
 
 const TIMEOUT_MS = 15_000;
 const MAX_HOPS = 5;
-/** Потолок вычитываемого: страница-гигант не должна съесть память процесса. */
+/**
+ * Потолок отдаваемого тела, знаков. Тело длиннее отдаётся обрезанным и с
+ * `truncated: true` — читающий обязан это учесть: обрезанная страница не равна
+ * прочитанной (§4.0). Свой потолок читающий задаёт через `opts.bodyLimit`.
+ */
 const BODY_LIMIT = 600_000;
 
 const USER_AGENT = 'VedarScout/1.0 (+https://vedarai.ru)';
@@ -47,10 +51,12 @@ async function resolvesPublic(hostname: string): Promise<boolean> {
  * причина уходит человеку в ответ, поэтому она на русском и по делу.
  *
  * `opts.userAgent` — имя читающего: наблюдение за сайтами партнёров
- * представляется своим именем, а не разведчиком.
+ * представляется своим именем, а не разведчиком. `opts.bodyLimit` — свой
+ * потолок тела: страница тура с календарём выездов на год длиннее общего.
  */
-export async function safeFetchText(rawUrl: string, opts?: { userAgent?: string }): Promise<FetchResult> {
+export async function safeFetchText(rawUrl: string, opts?: { userAgent?: string; bodyLimit?: number }): Promise<FetchResult> {
   let current = rawUrl;
+  const limit = opts?.bodyLimit ?? BODY_LIMIT;
 
   for (let hop = 0; hop <= MAX_HOPS; hop++) {
     if (!isAuditableUrl(current)) {
@@ -105,10 +111,10 @@ export async function safeFetchText(rawUrl: string, opts?: { userAgent?: string 
       return { ok: false, reason: `тело не прочиталось: ${message}` };
     }
 
-    const truncated = body.length > BODY_LIMIT;
+    const truncated = body.length > limit;
     return {
       ok: true,
-      body: truncated ? body.slice(0, BODY_LIMIT) : body,
+      body: truncated ? body.slice(0, limit) : body,
       finalUrl: current,
       truncated,
     };

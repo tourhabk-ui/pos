@@ -22,6 +22,7 @@ beforeEach(() => {
     seen.push({ url, ua: new Headers(init?.headers).get('user-agent') });
     if (url === 'https://partner.example.ru/tour/') return new Response('<p>Тур</p>', { status: 200 });
     if (url === 'https://partner.example.ru/gone/') return new Response('нет', { status: 404 });
+    if (url === 'https://partner.example.ru/calendar/') return new Response(`<p>${'д'.repeat(700_000)}</p><p>Конец страницы</p>`, { status: 200 });
     if (url === 'https://partner.example.ru/jump/') {
       return new Response(null, { status: 302, headers: { location: 'http://internal.example.ru/meta' } });
     }
@@ -42,6 +43,23 @@ describe('safeFetchText', () => {
   it('отказ сервера несёт код: 404 отличим от 500', async () => {
     expect(await safeFetchText('https://partner.example.ru/gone/')).toMatchObject({ ok: false, status: 404 });
     expect(await safeFetchText('https://partner.example.ru/other/')).toMatchObject({ ok: false, status: 500 });
+  });
+
+  // Отчёт наблюдения 10.11: страница тура выросла до 741 тыс. знаков, тело
+  // обрезалось на 600 тыс., а признак обрезки никто не читал.
+  it('тело длиннее потолка отдаётся обрезанным и с признаком; свой потолок читающего вмещает страницу целиком', async () => {
+    const cut = await safeFetchText('https://partner.example.ru/calendar/');
+    expect(cut).toMatchObject({ ok: true, truncated: true });
+    if (cut.ok) {
+      expect(cut.body).toHaveLength(600_000);
+      expect(cut.body).not.toContain('Конец страницы');
+    }
+    const whole = await safeFetchText('https://partner.example.ru/calendar/', { bodyLimit: 3_000_000 });
+    expect(whole).toMatchObject({ ok: true, truncated: false });
+    if (whole.ok) expect(whole.body.endsWith('<p>Конец страницы</p>')).toBe(true);
+    const tight = await safeFetchText('https://partner.example.ru/tour/', { bodyLimit: 5 });
+    expect(tight).toMatchObject({ ok: true, truncated: true, body: '<p>Ту' });
+    expect(await safeFetchText('https://partner.example.ru/tour/', { bodyLimit: 10 })).toMatchObject({ ok: true, truncated: false, body: '<p>Тур</p>' });
   });
 
   it('перенаправление на внутренний адрес не читается', async () => {

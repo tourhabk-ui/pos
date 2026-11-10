@@ -15,15 +15,40 @@
  * запись снимков — в `site-watch-run.ts`.
  */
 import { createHash } from 'node:crypto';
-import { htmlToText } from '@/lib/html/text';
+import { htmlToTextLinear } from '@/lib/html/linear';
 import { decodeHtmlEntities } from '@/lib/html/entities';
 import { escapeHtml } from '@/lib/text/escape-html';
 
 /** Имя, под которым мы читаем чужой сайт. Своё, а не браузер и не поисковик. */
 export const WATCH_USER_AGENT = 'VedarSiteWatch/1.0 (+https://vedarai.ru)';
 
-/** Потолок сохраняемого текста страницы, знаков. */
-export const TEXT_CAP = 60_000;
+/**
+ * Потолки чтения. Страница, не уместившаяся в них, НЕ сравнивается: обрезанное
+ * чтение теряет хвост, и хвост этот выглядел бы «пропавшими» строками. Отчёт
+ * 10.11: страницы туров laguna-expedition.ru выросли с календарём выездов до
+ * 741 тыс. знаков при потолке тела 600 тыс. — и владельцу ушло «было:
+ * Проживание в спа-отеле…», «было: Номер реестровой записи…» о строках,
+ * которые никуда не девались. Признак обрезки (`truncated`) тогда не читался.
+ * Теперь страница больше потолка — исход «не смог прочитать», а не «прочитал».
+ */
+/** Потолок тела страницы, знаков HTML. */
+export const WATCH_BODY_LIMIT = 3_000_000;
+/** Потолок видимого текста страницы, знаков. */
+export const TEXT_CAP = 200_000;
+
+/** Потолки до миграции 1418: ими сняты снимки, у которых `body_chars` не записан. */
+export const LEGACY_BODY_LIMIT = 600_000;
+export const LEGACY_TEXT_CAP = 60_000;
+
+/**
+ * Обрезало бы старое чтение страницу такого размера. Снимок, снятый до 1418
+ * со страницы больше старых потолков, — не вся страница: первое полное чтение
+ * сравнивается с ним только в той части, которую старое чтение видело
+ * (`cutSnapshotDiff`).
+ */
+export function legacyReadWasCut(bodyChars: number, textChars: number): boolean {
+  return bodyChars > LEGACY_BODY_LIMIT || textChars > LEGACY_TEXT_CAP;
+}
 
 /** Исход чтения страницы. */
 export type PageOutcome = 'ok' | 'gone' | 'failed' | 'robots';
@@ -45,17 +70,64 @@ export function isVolatileLine(line: string): boolean {
 /**
  * Счётчик мест у выезда: «Осталось 8 мест». Меняется с каждой бронью у
  * партнёра, а на наших карточках его нет — сверять не с чем. Отчёт 08.11
- * звал изменением «Осталось 4 места» → «Осталось 3 места». В снимке строка
- * остаётся, из сравнения выбрасывается.
+ * звал изменением «Осталось 4 места» → «Осталось 3 места». «Мест нет» — тот
+ * же счётчик на нуле. В снимке строка остаётся, из сравнения выбрасывается.
  */
-const SEAT_COUNTER_LINE = /^осталось\s+\d+\s+мест[ао]?\.?$/i;
+const SEAT_COUNTER_LINE = /^(?:осталось\s+\d+\s+мест[ао]?|мест\s+нет)\.?$/i;
+
+/**
+ * Баннер согласия на cookie. Отчёт 10.11 назвал изменением четыре страницы
+ * «Местечка Камчатка», где появились только строки «Используя этот сайт, вы
+ * соглашаетесь с тем, что мы используем файлы cookie…» и «Принимаю». О туре
+ * баннер не говорит ничего: строка со словом cookie («куки») в сравнении не
+ * участвует. Строка-кнопка («Принимаю», «Отклонить всё») — тоже, но только
+ * когда в одном из двух текстов есть сам баннер: без него «Принять» может
+ * быть кнопкой формы на странице тура.
+ *
+ * Строка, где рядом со словом cookie стоят деньги или дата, сравнивается:
+ * вёрстка без переводов строк склеивает баннер с ценой в одну строку, и
+ * вместе с баннером пропала бы смена цены. Строки, зажатые между строками
+ * баннера (не дальше BANNER_GAP), — его же: у «Лагуны» это «Прочтите нашу
+ * Политику конфиденциальности», «Обязательные».
+ */
+const COOKIE_WORD = /cookie|(?<![а-яё])кук(?:и|ов|ам|ами|ах)(?![а-яё])/i;
+const CONSENT_BUTTON = /^(?:принимаю|принять(?:\s+вс[её])?|согласен|согласна|я\s+согласе?на?|соглашаюсь|согласиться|разрешить(?:\s+вс[её])?|отклонить(?:\s+вс[её])?|отказаться|только\s+необходимые|настроить|настройки|сохранить(?:\s+(?:настройки|выбор))?|подробнее|закрыть|хорошо|понятно|ок|ok|accept(?:\s+all)?|reject(?:\s+all)?|decline|got\s+it)[.!]?$/i;
+const BANNER_GAP = 3;
+
+function isCookieLine(line: string): boolean {
+  return COOKIE_WORD.test(line) && !MATTERS.test(line);
+}
+
+function hasCookieBanner(text: string): boolean {
+  return text.split('\n').some(isCookieLine);
+}
+
+/** Номера строк баннера: сами строки cookie и зажатое между ними, кроме строк с деньгами и датами. */
+function bannerLineNumbers(lines: string[]): Set<number> {
+  const out = new Set<number>();
+  let last = -1;
+  lines.forEach((line, i) => {
+    if (!isCookieLine(line)) return;
+    if (last >= 0 && i - last - 1 <= BANNER_GAP) {
+      for (let k = last + 1; k < i; k++) if (!MATTERS.test(lines[k])) out.add(k);
+    }
+    out.add(i);
+    last = i;
+  });
+  return out;
+}
 
 /**
  * Текст для сравнения: без строк-капч (снимок до 23.10 мог быть записан с
- * ними) и без счётчиков мест.
+ * ними), счётчиков мест и строк баннера cookie; `banner` — баннер есть в
+ * одном из двух сравниваемых текстов, и кнопки согласия тоже не судятся.
  */
-function comparable(text: string): string {
-  return text.split('\n').filter((l) => !isVolatileLine(l) && !SEAT_COUNTER_LINE.test(l)).join('\n');
+function comparable(text: string, banner = false): string {
+  const lines = text.split('\n');
+  const inBanner = bannerLineNumbers(lines);
+  return lines.filter((l, i) =>
+    !isVolatileLine(l) && !SEAT_COUNTER_LINE.test(l) && !inBanner.has(i) && !(banner && CONSENT_BUTTON.test(l)),
+  ).join('\n');
 }
 
 /**
@@ -63,15 +135,20 @@ function comparable(text: string): string {
  * развёрнуты, пробелы схлопнуты, пустые строки и строки-капчи выброшены.
  * Сравнивается именно он — смена вёрстки, счётчиков в скриптах, CDN-адресов и
  * цифр капчи изменением не считается, смена цены или даты в тексте — считается.
+ *
+ * Потолка здесь нет: уместилась ли страница (`TEXT_CAP`), решает прогон, и не
+ * уместившаяся не сохраняется и не сравнивается. Разметка снимается за время,
+ * линейное по размеру (lib/html/linear.ts): страница — чужой ввод, и на
+ * повреждённой обычный разбор держал бы процесс прода минутами.
  */
-export function pageText(html: string): string {
-  const text = decodeHtmlEntities(htmlToText(html))
+export function fullPageText(html: string): string {
+  const text = decodeHtmlEntities(htmlToTextLinear(html))
     .replace(/&#x([0-9a-f]{1,6});/gi, (_, h: string) => safeChar(parseInt(h, 16)))
     .replace(/&#(\d{1,7});/g, (_, d: string) => safeChar(Number(d)));
-  const lines = text.split('\n')
+  return text.split('\n')
     .map((l) => l.replace(/[\s ]+/g, ' ').trim())
-    .filter((l) => l.length > 0 && !isVolatileLine(l));
-  return lines.join('\n').slice(0, TEXT_CAP);
+    .filter((l) => l.length > 0 && !isVolatileLine(l))
+    .join('\n');
 }
 
 function safeChar(code: number): string {
@@ -112,8 +189,8 @@ export function diffLines(prev: string, next: string): TextDiff {
 }
 
 /**
- * Разница, которую стоит показать человеку. Капчи и счётчики мест выброшены
- * из обоих текстов; сдвиг скользящей даты и прошедший выезд (если передан
+ * Разница, которую стоит показать человеку. Капчи, счётчики мест и баннер
+ * cookie выброшены из обоих текстов; сдвиг скользящей даты и прошедший выезд (если передан
  * `today` — сегодня по Камчатке, YYYY-MM-DD) изменением не считаются. Если
  * после этого не пропало и не появилось ни одной строки — изменения нет,
  * null. Так молчат смена капчи, перестановка или повтор тех же строк и
@@ -121,9 +198,40 @@ export function diffLines(prev: string, next: string): TextDiff {
  * менял.
  */
 export function meaningfulDiff(prevText: string, nextText: string, today?: string): TextDiff | null {
-  let d = withoutRollingShifts(diffLines(comparable(prevText), comparable(nextText)));
-  if (today) d = withoutPassedDepartures(d, today);
+  const banner = hasCookieBanner(prevText) || hasCookieBanner(nextText);
+  const prev = comparable(prevText, banner);
+  let d = withoutRollingShifts(diffLines(prev, comparable(nextText, banner)));
+  if (today) d = withoutPassedDepartures(d, today, prev);
   return d.removed.length === 0 && d.added.length === 0 ? null : d;
+}
+
+/**
+ * Разница для снимка старого чтения, которое страницу обрезало. В снимке —
+ * начало страницы: строка, которая в нём была и пропала, пропала на деле.
+ * Появившиеся строки судятся только там, куда старое чтение доставало: до
+ * последней строки снимка, которая в новом тексте стоит ровно один раз. Ниже
+ * неё — хвост, которого в снимке не было; он не новость. Последняя строка
+ * снимка не судится: обрезка могла оставить от неё обрывок.
+ *
+ * null — в видимой части ничего не изменилось: первое полное чтение просто
+ * становится точкой отсчёта.
+ */
+export function cutSnapshotDiff(prevCutText: string, nextText: string, today?: string): TextDiff | null {
+  const d = meaningfulDiff(prevCutText, nextText, today);
+  if (!d) return null;
+  const prevLines = prevCutText.split('\n');
+  const nextLines = nextText.split('\n');
+  const times = new Map<string, number>();
+  for (const l of nextLines) times.set(l, (times.get(l) ?? 0) + 1);
+  let edge = -1;
+  for (let i = prevLines.length - 2; i >= 0 && edge < 0; i--) {
+    if (times.get(prevLines[i]) === 1) edge = nextLines.indexOf(prevLines[i]);
+  }
+  const seen = new Set(nextLines.slice(0, edge + 1));
+  const lastOfSnapshot = prevLines[prevLines.length - 1];
+  const removed = d.removed.filter((l) => l !== lastOfSnapshot);
+  const added = d.added.filter((l) => seen.has(l));
+  return removed.length === 0 && added.length === 0 ? null : { removed, added };
 }
 
 /**
@@ -134,6 +242,11 @@ export function meaningfulDiff(prevText: string, nextText: string, today?: strin
  * кроме дат, и каждая дата сдвинулась ВПЕРЁД не больше чем на
  * ROLLING_MAX_DAYS. Сдвиг назад, дальний перенос, новая цена или другой
  * текст рядом с датой — по-прежнему изменение.
+ *
+ * Строка из одной даты с годом («14 ноября 2026») — дата выезда в календаре,
+ * а не подпись «ближайший»: пара таких строк скользящей не считается. Иначе
+ * перенос выезда на неделю молчал, а новый выезд рядом с ушедшим гасился
+ * вместе с ним (находка проверки 10.11).
  */
 export const ROLLING_MAX_DAYS = 14;
 
@@ -167,6 +280,7 @@ function rollingKey(line: string): { mask: string; days: (number | null)[] } {
 }
 
 function isRollingShift(prev: string, next: string): boolean {
+  if (isDateOnlyLine(prev)) return false;
   const a = rollingKey(prev);
   const b = rollingKey(next);
   if (a.days.length === 0 || a.mask !== b.mask || a.days.length !== b.days.length) return false;
@@ -207,6 +321,16 @@ export function withoutRollingShifts(d: TextDiff): TextDiff {
  * осталось. Они гасятся только рядом с погашенной датой и только когда строк
  * того же рода не появилось: «в 09:00» → «в 10:00» — смена времени, её видно.
  * Заголовок месяца позже текущего не гасится: будущий месяц сам не уходит.
+ *
+ * Конец начавшегося выезда. Отчёт 10.11: «было: 13 ноября 2026» у двух туров
+ * «Лагуны» — дата ОКОНЧАНИЯ выезда 10–13 ноября, ушедшего с календаря в день
+ * начала. Дата в будущем, и прежнее правило звало её снятым выездом. Пропавшая
+ * дата гасится, если в прошлом тексте она везде стоит концом выезда: перед ней
+ * (не дальше END_LOOKBACK строк) подпись об окончании, а ближайшая дата выше —
+ * начало, которое прошло и пропало вместе с ней. Между началом и концом
+ * допускаются только подпись, день недели и время: цена, кнопка или строка
+ * «Сбор в 09:00, возвращение к 19:00» значат, что это список однодневных
+ * выездов, и пропавшая будущая дата там — снятый выезд.
  */
 const WEEKDAY_RE = /(?<![а-яё])(?:понедельник|вторник|среда|четверг|пятница|суббота|воскресенье|пн|вт|ср|чт|пт|сб|вс)(?![а-яё])/gi;
 const PUNCT_ONLY = /^[\s,.;:!?()«»"'—–-]*$/;
@@ -234,10 +358,45 @@ function datesOf(line: string): { days: (string | null)[]; rest: string } {
   return { days, rest };
 }
 
-function isPassedDateLine(line: string, today: string): boolean {
+/** Строка, в которой нет ничего, кроме дат с годом (и дня недели, знаков). */
+function isDateOnlyLine(line: string): boolean {
   const { days, rest } = datesOf(line);
-  if (days.length === 0 || !PUNCT_ONLY.test(rest.replace(WEEKDAY_RE, ''))) return false;
-  return days.every((day) => day !== null && day <= today);
+  return days.length > 0 && days.every((day) => day !== null) && PUNCT_ONLY.test(rest.replace(WEEKDAY_RE, ''));
+}
+
+function isPassedDateLine(line: string, today: string): boolean {
+  return isDateOnlyLine(line) && datesOf(line).days.every((day) => day !== null && day <= today);
+}
+
+const END_MARK = /(?<![а-яё])(?:оконч|заверш|возвращ|финиш)/i;
+const END_LOOKBACK = 8;
+
+/** Подпись «Окончание тура»: слово об окончании и ни одной цифры. */
+function isEndLabel(line: string): boolean {
+  return END_MARK.test(line) && !/\d/.test(line);
+}
+
+/**
+ * Даты, которые в прошлом тексте ВЕЗДЕ стоят концом выезда с прошедшим и
+ * пропавшим началом (`passed`). Одно вхождение вне такого выезда — дата не
+ * гасится: там она значит что-то ещё.
+ */
+function endsOfStartedDepartures(prevLines: string[], passed: Set<string>): Set<string> {
+  const verdict = new Map<string, boolean>();
+  for (let i = 0; i < prevLines.length; i++) {
+    const line = prevLines[i];
+    if (!isDateOnlyLine(line)) continue;
+    let isEnd = false;
+    let endSaid = false;
+    for (let j = i - 1; j >= 0 && j >= i - END_LOOKBACK; j--) {
+      const above = prevLines[j];
+      if (isDateOnlyLine(above)) { isEnd = endSaid && passed.has(above); break; }
+      if (isEndLabel(above)) { endSaid = true; continue; }
+      if (companionKind(above) === null) break;
+    }
+    verdict.set(line, (verdict.get(line) ?? true) && isEnd);
+  }
+  return new Set([...verdict].filter(([, ok]) => ok).map(([line]) => line));
 }
 
 type CalendarCompanion = 'weekday' | 'time' | 'month';
@@ -256,10 +415,16 @@ function monthNotAfter(line: string, today: string): boolean {
   return `${m[2]}-${String(month).padStart(2, '0')}` <= today.slice(0, 7);
 }
 
-/** Убирает из разницы прошедшие выезды и строки, ушедшие вместе с ними. */
-export function withoutPassedDepartures(d: TextDiff, today: string): TextDiff {
-  const removed = d.removed.filter((l) => !isPassedDateLine(l, today));
-  if (removed.length === d.removed.length) return d;
+/**
+ * Убирает из разницы прошедшие выезды и строки, ушедшие вместе с ними.
+ * `prevText` — прошлый текст (тот, что сравнивался): по нему узнаётся дата
+ * окончания выезда, который уже начался.
+ */
+export function withoutPassedDepartures(d: TextDiff, today: string, prevText?: string): TextDiff {
+  const passed = new Set(d.removed.filter((l) => isPassedDateLine(l, today)));
+  if (passed.size === 0) return d;
+  const ends = prevText === undefined ? new Set<string>() : endsOfStartedDepartures(prevText.split('\n'), passed);
+  const removed = d.removed.filter((l) => !passed.has(l) && !ends.has(l));
   const addedKinds = new Set(d.added.map(companionKind).filter((k): k is CalendarCompanion => k !== null));
   return {
     removed: removed.filter((l) => {
@@ -375,6 +540,8 @@ export interface PageReport {
   event: WatchEvent['kind'];
   diff?: TextDiff;
   httpStatus?: number | null;
+  /** Страница открылась, но больше потолка чтения: прочитана не целиком и не сравнивалась. */
+  tooBig?: boolean;
 }
 
 const SHOW_LINES = 4;
@@ -394,6 +561,78 @@ function what(page: WatchedPage): string {
 const MAX_MESSAGES = 5;
 
 /**
+ * Одна и та же строка на стольких страницах партнёра — правка сайта, а не
+ * одной карточки. Баннер акции или пункт меню стоит на каждой странице:
+ * партнёр поменял его — и владельцу пришло бы по блоку с одной и той же
+ * строкой на каждую страницу под наблюдением (у «Лагуны» их больше тридцати).
+ * Такие строки сводятся в один блок на набор страниц; у страницы остаётся
+ * только её собственное.
+ */
+export const SITE_WIDE_MIN_PAGES = 3;
+/** Сколько страниц назвать в сводном блоке; остальные — числом. */
+const SHOW_PAGES = 12;
+
+interface SiteWideBlock {
+  first: WatchedPage;
+  pages: WatchedPage[];
+  /** Сколько страниц этого партнёра прочитано в прогоне. */
+  watched: number;
+  removed: string[];
+  added: string[];
+}
+
+/**
+ * Делит изменения на общие для нескольких страниц партнёра и собственные.
+ * Строки, пропавшие (или появившиеся) на одном и том же наборе страниц,
+ * идут одним блоком: цена, сменившаяся у трёх туров, не смешивается с
+ * баннером, сменившимся у тридцати, — и страницы названы у каждой свои.
+ */
+function splitSiteWide(reports: PageReport[]): { site: SiteWideBlock[]; own: Map<PageReport, TextDiff> } {
+  const own = new Map<PageReport, TextDiff>();
+  const site: SiteWideBlock[] = [];
+  const byPartner = new Map<string, PageReport[]>();
+  for (const r of reports) {
+    if (r.event !== 'changed') continue;
+    own.set(r, { removed: [...(r.diff?.removed ?? [])], added: [...(r.diff?.added ?? [])] });
+    byPartner.set(r.page.partnerName, [...(byPartner.get(r.page.partnerName) ?? []), r]);
+  }
+  for (const [partner, group] of byPartner) {
+    if (group.length < SITE_WIDE_MIN_PAGES) continue;
+    // «сторона + строка» → на каких страницах группы она есть.
+    const where = new Map<string, number[]>();
+    group.forEach((r, n) => {
+      for (const side of ['removed', 'added'] as const) {
+        for (const line of new Set(r.diff?.[side] ?? [])) {
+          const key = `${side}\u0000${line}`;
+          where.set(key, [...(where.get(key) ?? []), n]);
+        }
+      }
+    });
+    const blocks = new Map<string, SiteWideBlock>();
+    for (const [key, at] of where) {
+      if (at.length < SITE_WIDE_MIN_PAGES) continue;
+      const [side, line] = key.split('\u0000') as ['removed' | 'added', string];
+      const pagesKey = at.join(',');
+      let block = blocks.get(pagesKey);
+      if (!block) {
+        block = {
+          first: group[at[0]].page, pages: at.map((n) => group[n].page),
+          watched: reports.filter((r) => r.page.partnerName === partner).length, removed: [], added: [],
+        };
+        blocks.set(pagesKey, block);
+        site.push(block);
+      }
+      block[side].push(line);
+      for (const n of at) {
+        const mine = own.get(group[n])!;
+        mine[side] = mine[side].filter((l) => l !== line);
+      }
+    }
+  }
+  return { site, own };
+}
+
+/**
  * Сообщения владельцу. Пусто — сообщать нечего: точки отсчёта, «без перемен»
  * и молчащие исходы в Telegram не идут. Текст — HTML для parse_mode, всё
  * чужое экранировано: строки с сайта партнёра — не наша разметка.
@@ -405,7 +644,26 @@ const MAX_MESSAGES = 5;
 export function ownerMessages(reports: PageReport[]): string[] {
   const loud = reports.filter((r) => r.event === 'changed' || r.event === 'gone' || r.event === 'back' || r.event === 'failing');
   if (loud.length === 0) return [];
+  const { site, own } = splitSiteWide(reports);
+  const diffLinesOf = (d: TextDiff): string[] => {
+    const lines = [
+      ...d.removed.slice(0, SHOW_LINES).map((l) => `было: ${escapeHtml(cut(l))}`),
+      ...d.added.slice(0, SHOW_LINES).map((l) => `стало: ${escapeHtml(cut(l))}`),
+    ];
+    const rest = Math.max(0, d.removed.length - SHOW_LINES) + Math.max(0, d.added.length - SHOW_LINES);
+    if (rest > 0) lines.push(`и ещё строк: ${rest}`);
+    return lines;
+  };
   const blocks: string[] = [];
+  for (const b of site) {
+    const named = b.pages.slice(0, SHOW_PAGES).map((p) => escapeHtml(what(p))).join(', ');
+    const more = b.pages.length > SHOW_PAGES ? ` и ещё ${b.pages.length - SHOW_PAGES}` : '';
+    blocks.push([
+      `<b>${escapeHtml(b.first.partnerName)}</b>${b.first.managedByUs ? ' (сайт ведём мы)' : ''} — одна и та же правка на ${b.pages.length} страницах из ${b.watched} под наблюдением`,
+      ...diffLinesOf(b),
+      `страницы: ${named}${more}`,
+    ].join('\n'));
+  }
   for (const r of loud) {
     const head = `<b>${escapeHtml(r.page.partnerName)}</b>${r.page.managedByUs ? ' (сайт ведём мы)' : ''} — ${escapeHtml(what(r.page))}`;
     const url = escapeHtml(shortUrl(r.page.url));
@@ -413,27 +671,31 @@ export function ownerMessages(reports: PageReport[]): string[] {
       blocks.push(`${head}\nстраница пропала с сайта партнёра (${r.httpStatus ?? 404})\n${url}`);
     } else if (r.event === 'back') {
       blocks.push(`${head}\nстраница снова открывается\n${url}`);
+    } else if (r.event === 'failing' && r.tooBig) {
+      // Вчерашний отказ мог быть другим (сеть): «второй день» — про то, что страница не прочитана, причина — сегодняшняя.
+      blocks.push(`${head}\nстраница второй день не прочитана; сегодня она больше потолка чтения: читается не целиком, изменения на ней не видны\n${url}`);
     } else if (r.event === 'failing') {
       blocks.push(`${head}\nстраница не открывается второй день${r.httpStatus ? ` (HTTP ${r.httpStatus})` : ''}\n${url}`);
     } else {
-      const d = r.diff ?? { removed: [], added: [] };
-      const lines = [
-        ...d.removed.slice(0, SHOW_LINES).map((l) => `было: ${escapeHtml(cut(l))}`),
-        ...d.added.slice(0, SHOW_LINES).map((l) => `стало: ${escapeHtml(cut(l))}`),
-      ];
-      const rest = Math.max(0, d.removed.length - SHOW_LINES) + Math.max(0, d.added.length - SHOW_LINES);
-      if (rest > 0) lines.push(`и ещё строк: ${rest}`);
-      blocks.push(`${head}\n${url}\n${lines.join('\n')}`);
+      // Собственное страницы; всё её изменение ушло в сводный блок — отдельного блока нет.
+      const d = own.get(r) ?? { removed: [], added: [] };
+      const whole = r.diff ?? { removed: [], added: [] };
+      if (d.removed.length === 0 && d.added.length === 0 && whole.removed.length + whole.added.length > 0) continue;
+      blocks.push(`${head}\n${url}\n${diffLinesOf(d).join('\n')}`);
     }
   }
-  const title = `<b>Сайты партнёров: ${loud.length === 1 ? 'изменилась 1 страница' : `изменений — ${loud.length}`}</b>`;
+  const title = `<b>Сайты партнёров: ${blocks.length === 1 && site.length === 0 ? 'изменилась 1 страница' : `изменений — ${blocks.length}`}</b>`;
   // Направление сверки зависит от того, чей сайт: чужой поменялся — устарели
   // наши карточки; наш поменялся — сайт сверяется с карточками.
+  // Страница больше потолка названа владельцу один раз, на второй день; дальше
+  // она молчит и не сравнивается. Пока так — о ней напоминает каждое сообщение.
+  const blind = reports.filter((r) => r.tooBig && r.event !== 'failing').map((r) => escapeHtml(shortUrl(r.page.url)));
   const tail = [
     loud.some((r) => !r.page.managedByUs) ? 'Наши карточки этих туров могли устареть — сверьте и поправьте.' : null,
     loud.some((r) => r.page.managedByUs)
       ? 'Сайт с пометкой «ведём мы» правим мы сами: если правка не наша — проверьте, у кого есть доступ. Правда там — наши карточки, сайт сверяется с ними.'
       : null,
+    blind.length > 0 ? `Не читаются целиком и не сравниваются (больше потолка чтения): ${blind.slice(0, 5).join(', ')}${blind.length > 5 ? ` и ещё ${blind.length - 5}` : ''}` : null,
   ].filter(Boolean).join('\n');
   const messages: string[] = [];
   let body = title;
