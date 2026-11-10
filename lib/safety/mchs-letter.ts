@@ -115,14 +115,18 @@ export async function recordMchsLetter(
  * по письму (аудит 10.11). Замок сериализует их по выезду: второй ждёт не
  * письма, а честного ответа «уже отправляется».
  *
+ * Ключ — номер тура и дата в том виде, в каком их сравнивает журнал
+ * (bigint и date): иначе «81» и «000000081» дали бы разные замки при одной
+ * строке журнала, и замок обходился бы другим написанием номера (ревью PR 3188).
+ *
  * Сессионный advisory-замок держится на одном соединении от проверки до
  * записи. Не снялся — соединение уничтожается, а не возвращается в пул: иначе
  * замок прожил бы на нём до перезапуска и запер выезд навсегда.
  */
 export const MCHS_LETTER_LOCK_SQL =
-  `SELECT pg_try_advisory_lock(hashtext('mchs_letter'), hashtext($1::text || ':' || $2::text)) AS got`;
+  `SELECT pg_try_advisory_lock(hashtext('mchs_letter'), hashtext($1::bigint::text || ':' || $2::date::text)) AS got`;
 export const MCHS_LETTER_UNLOCK_SQL =
-  `SELECT pg_advisory_unlock(hashtext('mchs_letter'), hashtext($1::text || ':' || $2::text)) AS released`;
+  `SELECT pg_advisory_unlock(hashtext('mchs_letter'), hashtext($1::bigint::text || ':' || $2::date::text)) AS released`;
 
 /**
  * Выполнить `fn` под замком выезда. 'busy' — по этому выезду письмо уже

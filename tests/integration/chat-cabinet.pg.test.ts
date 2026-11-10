@@ -1277,11 +1277,30 @@ withPg('кабинет в чате на настоящем PostgreSQL', () => {
         const c = await pool.connect();
         try {
           const free = await c.query<{ got: boolean }>(
-            `SELECT pg_try_advisory_lock(hashtext('mchs_letter'), hashtext($1::text || ':' || $2::text)) AS got`, [routed, DAY],
+            `SELECT pg_try_advisory_lock(hashtext('mchs_letter'), hashtext($1::bigint::text || ':' || $2::date::text)) AS got`, [routed, DAY],
           );
           expect(free.rows[0]!.got).toBe(true);
-          await c.query(`SELECT pg_advisory_unlock(hashtext('mchs_letter'), hashtext($1::text || ':' || $2::text))`, [routed, DAY]);
+          await c.query(`SELECT pg_advisory_unlock(hashtext('mchs_letter'), hashtext($1::bigint::text || ':' || $2::date::text))`, [routed, DAY]);
         } finally {
+          c.release();
+        }
+      });
+
+      it('другое написание номера тура держит тот же замок (ревью PR 3188)', async () => {
+        await pool.query(`UPDATE mchs_letters SET created_at = NOW() - INTERVAL '11 minutes' WHERE operator_tour_id = $1::bigint`, [routed]);
+        const c = await pool.connect();
+        try {
+          const held = await c.query<{ got: boolean }>(
+            `SELECT pg_try_advisory_lock(hashtext('mchs_letter'), hashtext($1::bigint::text || ':' || $2::date::text)) AS got`,
+            [`000${routed}`, DAY],
+          );
+          expect(held.rows[0]!.got).toBe(true);
+          mail.send.mockClear();
+          const s = await press(pay.mchsLetterSend(routed, DAY));
+          expect(s.text).toContain('как раз отправляется');
+          expect(mail.send).not.toHaveBeenCalled();
+        } finally {
+          await c.query(`SELECT pg_advisory_unlock(hashtext('mchs_letter'), hashtext($1::bigint::text || ':' || $2::date::text))`, [`000${routed}`, DAY]);
           c.release();
         }
       });
