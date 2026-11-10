@@ -1,5 +1,5 @@
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
-import { gradeNameMatch, getGuardianContext } from '@/lib/kuzmich/guardian-context';
+import { gradeNameMatch, getGuardianContext, getGuardianContextDetailed, HIDDEN_RECORD_NOTE, HIDDEN_RECORD_WARN_NOTE } from '@/lib/kuzmich/guardian-context';
 
 const mockQuery = vi.fn();
 vi.mock('@/lib/db-pool', () => ({
@@ -669,6 +669,33 @@ describe('getGuardianContext — скрытая запись и честная �
     expect(ctx).not.toContain('ЗЕЛЁНЫЙ значит');
     // Тревоги записи не теряются.
     expect(ctx).toContain(WIND);
+  });
+
+  it('скрытая запись с красным — цвет печатается и в полях (#3168: скитур на Мутновский при красном вулкане)', async () => {
+    const NEAR = 'Вулкан Мутновский: не приближаться';
+    const hiddenSkitour = {
+      ...row, id: 's1', name: 'Скитур на Мутновский вулкан', location_type: 'other', is_visible: false,
+      recommender_status: 'red', active_alerts: [NEAR, WIND],
+    };
+    mockPlaces([hiddenSkitour]);
+    const { text, places } = await getGuardianContextDetailed('Скитур на Мутновский вулкан');
+    expect(text).toMatch(/Скитур на Мутновский вулкан(?: \([^)]+\))? \[КРАСНЫЙ\]/);
+    expect(text).toContain(HIDDEN_RECORD_WARN_NOTE);
+    expect(text).not.toContain(HIDDEN_RECORD_NOTE);
+    expect(text).toContain(NEAR);
+    expect(places[0]).toMatchObject({ name: 'Скитур на Мутновский вулкан', color: 'red', level: 'red' });
+  });
+
+  it('скрытая запись с жёлтым — жёлтый остаётся; с зелёным — в полях цвета нет', async () => {
+    mockPlaces([{ ...hiddenTrail, recommender_status: 'yellow' }]);
+    const yellow = await getGuardianContextDetailed('Авачинский вулкан: путь на вершину');
+    expect(yellow.text).toMatch(/путь на вершину(?: \([^)]+\))? \[ЖЁЛТЫЙ\]/);
+    expect(yellow.places[0]).toMatchObject({ color: 'yellow', level: 'yellow' });
+
+    mockPlaces([hiddenTrail]);
+    const green = await getGuardianContextDetailed('Авачинский вулкан: путь на вершину');
+    expect(green.places[0]).toMatchObject({ color: null, level: 'unknown' });
+    expect(green.text).toContain(HIDDEN_RECORD_NOTE);
   });
 
   it('слабое совпадение видимого места скрытую запись не вытесняет', async () => {
