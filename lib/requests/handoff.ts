@@ -117,6 +117,11 @@ export const HANDOFF_ERROR_REPLY = 'Код сейчас не проверилс�
 export async function handoffReply(code: string, channel: HandoffChannel, who: string): Promise<string> {
   const res = await redeemHandoffCode(code, channel, who);
   if (!res.ok) return res.reason === 'rate_limited' ? HANDOFF_LIMIT_REPLY : res.reason === 'invalid' ? HANDOFF_INVALID_REPLY : HANDOFF_ERROR_REPLY;
+  // Код предъявлен в этом чате — заявка в его «Моей поездке» (#2970, 1416).
+  if (channel !== 'web') {
+    const { linkChatToKeys } = await import('@/lib/requests/chat-links');
+    await linkChatToKeys(channel, who, [res.key], 'handoff');
+  }
   const { requestStatusReply } = await import('@/lib/kuzmich/code-first');
   return `Заявка найдена в этом канале.\n${await requestStatusReply(res.key, { withHandoff: false })}`;
 }

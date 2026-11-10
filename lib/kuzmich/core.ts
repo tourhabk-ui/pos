@@ -3613,7 +3613,13 @@ export async function processMessage(opts: {
     const openFlow = liveBooking && (await loadBookingFlow(chatId, mode, pendingMap)) !== null;
     const cf = classifyCodeFirst(text, openFlow);
     let tourId: number | null = cf.kind === 'tour' ? cf.tourId : null;
-    if (cf.kind === 'status') { await replyFn(chatId, escapeHtml(await requestStatusReply(cf.key))); return; }
+    if (cf.kind === 'status') {
+      // Ключ статуса предъявлен в этом чате — заявка в его «Моей поездке» (#2970, 1416).
+      const { linkChatToKeys } = await import('@/lib/requests/chat-links');
+      await linkChatToKeys(platform === 'max' ? 'max' : 'telegram', String(chatId), [cf.key], 'status_link');
+      await replyFn(chatId, escapeHtml(await requestStatusReply(cf.key)));
+      return;
+    }
     if (cf.kind === 'handoff') {
       const { handoffReply } = await import('@/lib/requests/handoff');
       await replyFn(chatId, escapeHtml(await handoffReply(cf.code, platform === 'max' ? 'max' : 'telegram', String(chatId))));
