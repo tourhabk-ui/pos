@@ -792,29 +792,30 @@ export const LIVE_STATUS_CSS = `
 @keyframes radarPulse{0%{opacity:.5;transform:scale(.6)}70%{opacity:0;transform:scale(1.8)}100%{opacity:0}}
 /* Пустое состояние стояло ровно в центре — поверх колец, точки «вы здесь» и
    развёртки. Опускаем вниз: это подпись, а не заслонка. */
-.kh-live .radar .clean{position:absolute;left:50%;bottom:2%;transform:translateX(-50%);font:600 11px/1 var(--font-outfit),system-ui,sans-serif;letter-spacing:.06em;color:var(--text-secondary);background:var(--bg-primary);padding:6px 10px;border-radius:999px;border:1px solid var(--border)}
+.kh-live .radar .clean{position:absolute;left:50%;bottom:2%;transform:translateX(-50%);font:600 12px/1 var(--font-outfit),system-ui,sans-serif;letter-spacing:.06em;color:var(--text-secondary);background:var(--bg-primary);padding:6px 10px;border-radius:999px;border:1px solid var(--border)}
 .kh-live .radar .rmeta{margin-top:14px}
 .kh-live .radar .rrow{display:flex;align-items:center;justify-content:space-between;gap:10px}
-.kh-live .radar .rc{font:400 10.5px/1.4 var(--font-outfit),system-ui,sans-serif;color:var(--text-secondary)}
+.kh-live .radar .rc{font:400 12px/1.4 var(--font-outfit),system-ui,sans-serif;color:var(--text-secondary)}
 .kh-live .radar .rc b{color:var(--text-primary);font-weight:600}
-.kh-live .radar .rgeo{font:600 9px/1 var(--font-outfit),system-ui,sans-serif;letter-spacing:.1em;text-transform:uppercase;color:var(--ocean);background:none;border:1px solid color-mix(in srgb,var(--ocean) 35%,transparent);border-radius:999px;padding:7px 11px;cursor:pointer;white-space:nowrap}
+.kh-live .radar .rgeo{font:600 12px/1 var(--font-outfit),system-ui,sans-serif;letter-spacing:.06em;text-transform:uppercase;color:var(--ocean);background:none;border:1px solid color-mix(in srgb,var(--ocean) 35%,transparent);border-radius:999px;padding:7px 11px;cursor:pointer;white-space:nowrap}
 /* Пока ищем спутники, кнопка должна выглядеть занятой, а не сломанной. */
 .kh-live .radar .rgeo:disabled{opacity:.6;cursor:progress}
-.kh-live .radar .rhint{margin-top:6px;font:400 9px/1.4 var(--fm);color:var(--text-muted)}
+/* Подписи радара — от 12 px: на телефоне 9-9,5 px не читались, а среди них совет про медведей (аудит 10.11). */
+.kh-live .radar .rhint{margin-top:6px;font:400 12px/1.4 var(--fm);color:var(--text-muted)}
 .kh-live .radar .rhint a{color:var(--ocean);text-decoration:none}
-.kh-live .radar .rcoord{margin-top:6px;display:inline-flex;align-items:center;gap:8px;font:500 11px/1 var(--fm);color:var(--text-primary);background:none;border:none;padding:0;cursor:pointer;font-variant-numeric:tabular-nums;letter-spacing:.02em}
-.kh-live .radar .rcoord span{font:600 8px/1 var(--font-outfit),system-ui,sans-serif;letter-spacing:.12em;text-transform:uppercase;color:var(--ocean)}
+.kh-live .radar .rcoord{margin-top:6px;display:inline-flex;align-items:center;gap:8px;font:500 12px/1 var(--fm);color:var(--text-primary);background:none;border:none;padding:0;cursor:pointer;font-variant-numeric:tabular-nums;letter-spacing:.02em}
+.kh-live .radar .rcoord span{font:600 12px/1 var(--font-outfit),system-ui,sans-serif;letter-spacing:.12em;text-transform:uppercase;color:var(--ocean)}
 .kh-live .radar .rleg{margin-top:12px;display:flex;align-items:center;gap:14px;flex-wrap:wrap}
-.kh-live .radar .rleg span{display:inline-flex;align-items:center;gap:5px;font:400 9.5px/1 var(--font-outfit),system-ui,sans-serif;color:var(--text-secondary)}
+.kh-live .radar .rleg span{display:inline-flex;align-items:center;gap:5px;font:400 12px/1 var(--font-outfit),system-ui,sans-serif;color:var(--text-secondary)}
 .kh-live .radar .rleg i{width:7px;height:7px;border-radius:50%}
-.kh-live .radar .rleg .rcount{margin-left:auto;font:400 9px/1 var(--fm);color:var(--text-muted)}
+.kh-live .radar .rleg .rcount{margin-left:auto;font:400 12px/1 var(--fm);color:var(--text-muted)}
 .kh-live .radar .rshapes{margin-top:6px;display:flex;align-items:center;gap:14px;flex-wrap:wrap}
-.kh-live .radar .rshapes span{display:inline-flex;align-items:center;gap:5px;font:400 9.5px/1 var(--font-outfit),system-ui,sans-serif;color:var(--text-muted)}
+.kh-live .radar .rshapes span{display:inline-flex;align-items:center;gap:5px;font:400 12px/1 var(--font-outfit),system-ui,sans-serif;color:var(--text-muted)}
 .kh-live .radar .rsel{margin-top:12px;width:100%;display:flex;align-items:center;gap:11px;text-align:left;background:var(--bg-hover,color-mix(in srgb,var(--text-primary) 5%,transparent));border:1px solid var(--border);border-radius:12px;padding:11px 12px;cursor:pointer;font-family:var(--font-outfit),system-ui,sans-serif}
 .kh-live .radar .rsel .rdot{width:9px;height:9px;border-radius:50%;flex:none}
 .kh-live .radar .rsel .rtx{display:flex;flex-direction:column;gap:3px}
 .kh-live .radar .rsel .rtx b{font:600 12.5px/1.2 var(--font-playfair),Georgia,serif;color:var(--text-primary)}
-.kh-live .radar .rsel .rtx span{font:400 10px/1.4 var(--font-outfit),system-ui,sans-serif;color:var(--text-secondary)}
+.kh-live .radar .rsel .rtx span{font:400 12px/1.4 var(--font-outfit),system-ui,sans-serif;color:var(--text-secondary)}
 .kh-live .safety{border:1px solid var(--border);padding:16px;margin-top:14px}
 .kh-live .safety.calm{display:flex;flex-direction:column;gap:6px}
 .kh-live .safety.calm b{font:600 15px/1.3 var(--font-playfair),Georgia,serif;color:var(--success)}

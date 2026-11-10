@@ -26,9 +26,11 @@ const iconBtnStyle: React.CSSProperties = {
   flexShrink: 0,
 };
 
+// 44 px — норма касания, как у соседних кнопок шапки; значок прежний, 18 px.
+// До 10.11 кнопка была 32×32, единственная в шапке меньше нормы.
 const btnStyle: React.CSSProperties = {
-  width: '32px',
-  height: '32px',
+  width: '44px',
+  height: '44px',
   borderRadius: '50%',
   border: 'none',
   background: 'transparent',

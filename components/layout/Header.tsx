@@ -178,10 +178,14 @@ export function Header({ overPhoto = false }: HeaderProps = {}) {
       >
         <Logo size={28} mono className="shrink-0" />
         {/* Два слова столбиком на узкой шапке: второе мельче, строка не
-            выталкивает SOS. С md — в одну строку. Ниже 360px скрыто, чтобы
-            не теснить SOS (решение владельца 30.09). */}
+            выталкивает SOS. С md — в одну строку. На узком экране слова
+            скрыты, чтобы не теснить SOS (решение владельца 30.09, порог был
+            360px). Порог поднят до 440px 10.11: ряд кнопок справа — шесть
+            кнопок по 44px и SOS, около 300px, и при 360-430px на слова
+            оставалось 0-40px — «Ведар» обрезался до «В…». Теперь на узком
+            экране знак целиком, слова — там, где помещаются. */}
         <span
-          className="hidden min-[360px]:flex min-w-0 flex-col overflow-hidden leading-none md:flex-row md:items-baseline md:gap-1"
+          className="hidden min-[440px]:flex min-w-0 flex-col overflow-hidden leading-none md:flex-row md:items-baseline md:gap-1"
           style={{ marginLeft: 8, fontFamily: 'var(--font-playfair)', fontWeight: 600 }}
         >
           <span className="truncate" style={{ fontSize: 16 }}>{brand.first}</span>
