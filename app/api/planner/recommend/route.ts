@@ -23,7 +23,10 @@ const HEALTH_NOTES_MAX = 300;
  * счёта. Общий лимит Edge есть только при Upstash, которого нет. Потолок
  * строже чата планера (20/мин): здесь каждый запрос — целый план; и с запасом
  * для людей за одним адресом. Ключ — доверенный адрес (x-real-ip первым):
- * подмена X-Forwarded-For лимит не обходит.
+ * подмена X-Forwarded-For лимит не обходит, ЕСЛИ x-real-ip ставит прокси.
+ * Ставит ли его прокси Timeweb, пока не подтверждено (проба
+ * client-ip-headers-probe, lib/security/client-ip-headers.ts); если нет —
+ * предел обходится сменой заголовка, и это общий долг 58 роутов, а не этого.
  */
 export const RECOMMEND_LIMIT_PER_MIN = 10;
 const recommendLimiter = createRateLimiter({ windowMs: 60_000, max: RECOMMEND_LIMIT_PER_MIN });
