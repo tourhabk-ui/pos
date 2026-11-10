@@ -83,6 +83,7 @@ import { TOOL_EXECUTION_FAILED } from '@/lib/kuzmich/tool-failure';
 import { McpUserError } from '@/lib/mcp/jsonrpc';
 import { logText } from '@/lib/log/log-text';
 import { redactPII, redactUserTurns } from '@/lib/security/pii-redact';
+import { wrapUntrusted } from '@/lib/ai/untrusted';
 import { handleWatchMessage, deleteWatchDraft, telegramWatchRedirect } from '@/lib/kuzmich/watch-flow';
 import { UNVERIFIED_CHAT_REPLY } from '@/lib/max/verified-press';
 import { platformAcceptsPayments } from '@/lib/payments/accepting';
@@ -1150,10 +1151,32 @@ async function loadLiveContext(): Promise<string> {
     loadExternalAlerts(),
   ]);
 
+  return assembleLiveContext({ weather, news, mchs, dbIntel, groupIntel, extAlerts });
+}
+
+/**
+ * Живой контекст промпта из уже загруженных частей (#3143, 10.11).
+ *
+ * Всё, кроме погоды, — чужой текст: ленты МЧС и новостей (RSS), внешние
+ * тревоги, выжимка модели из сообщений Telegram-групп, сводки разведки. Он
+ * идёт в system-промпт КАЖДОГО разговора, и одна строка «system: …» в чужом
+ * посте до этого дня читалась моделью как наша. Теперь каждый такой блок —
+ * в обёртке `wrapUntrusted` (данные, не инструкции); заголовок блока — наш
+ * текст и стоит снаружи. Погода — числа нашего же форматирования.
+ */
+export function assembleLiveContext(parts: {
+  weather: string;
+  news: FeedOutcome;
+  mchs: FeedOutcome;
+  dbIntel: string;
+  groupIntel: string;
+  extAlerts: string;
+}): string {
+  const { weather, news, mchs, dbIntel, groupIntel, extAlerts } = parts;
   const blocks: string[] = [];
 
   if (extAlerts) {
-    blocks.push(`АКТИВНЫЕ ПРЕДУПРЕЖДЕНИЯ КБГС/МЧС (база платформы):\n${extAlerts}`);
+    blocks.push(`АКТИВНЫЕ ПРЕДУПРЕЖДЕНИЯ КБГС/МЧС (база платформы):\n${wrapUntrusted('external_alerts', extAlerts)}`);
   }
 
   if (weather) {
@@ -1164,7 +1187,7 @@ async function loadLiveContext(): Promise<string> {
   // Поэтому недостижимость лент говорится вслух: пустое место здесь — это
   // обещание безопасности, которого мы не давали (issue #1722).
   if (mchs.state === 'ok') {
-    blocks.push(`МЧС КАМЧАТКА (последние сообщения):\n${mchs.text}`);
+    blocks.push(`МЧС КАМЧАТКА (последние сообщения):\n${wrapUntrusted('mchs-rss', mchs.text)}`);
   } else if (mchs.state === 'no_feeds') {
     blocks.push(
       'МЧС КАМЧАТКА: СВОДКА НЕДОСТУПНА — ни одна лента не ответила. ' +
@@ -1174,15 +1197,15 @@ async function loadLiveContext(): Promise<string> {
   }
 
   if (news.state === 'ok') {
-    blocks.push(`НОВОСТИ КАМЧАТКИ (свежие заголовки):\n${news.text}`);
+    blocks.push(`НОВОСТИ КАМЧАТКИ (свежие заголовки):\n${wrapUntrusted('news-rss', news.text)}`);
   }
 
   if (groupIntel) {
-    blocks.push(`РАЗВЕДКА ИЗ TG-ГРУПП (мониторинг каналов):\n${groupIntel}`);
+    blocks.push(`РАЗВЕДКА ИЗ TG-ГРУПП (мониторинг каналов):\n${wrapUntrusted('telegram-groups', groupIntel)}`);
   }
 
   if (dbIntel) {
-    blocks.push(`АНАЛИТИКА (из мониторинга):\n${dbIntel}`);
+    blocks.push(`АНАЛИТИКА (из мониторинга):\n${wrapUntrusted('agent-memory-intel', dbIntel)}`);
   }
 
   if (!blocks.length) return '';
@@ -2438,6 +2461,15 @@ function looksUnknowing(text: string): boolean {
   return UNKNOWING_PHRASES.some(p => t.includes(p));
 }
 
+/**
+ * Сниппеты веб-поиска в system-промпт запасного пути — в обёртке (#3143).
+ * Через инструмент они и так идут обёрнутыми (wrapToolOutput); здесь, без
+ * инструментов, чужой текст с любого сайта вставлялся в system как есть.
+ */
+export function webSearchBlock(header: string, results: string): string {
+  return `\n\n${header}:\n${wrapUntrusted('web-search', results)}`;
+}
+
 async function searchWeb(query: string): Promise<string> {
   // Запрос сюда — часто сообщение туриста как есть (userContent в обоих
   // запасных путях ниже), а Tavily и Brave — внешние получатели в США
@@ -3214,7 +3246,7 @@ export async function aiChat(opts: {
     let enrichedSystem = systemContent;
     if (needsPreemptiveSearch(userContent)) {
       const preSearch = await searchWeb(userContent);
-      if (preSearch) enrichedSystem += `\n\nАКТУАЛЬНЫЕ ДАННЫЕ ИЗ ПОИСКА:\n${preSearch}`;
+      if (preSearch) enrichedSystem += webSearchBlock('АКТУАЛЬНЫЕ ДАННЫЕ ИЗ ПОИСКА', preSearch);
     }
 
     // Запасной путь идёт в те же зарубежные модели — та же граница ПД, что у
@@ -3239,7 +3271,7 @@ export async function aiChat(opts: {
       if (searchResults) {
         void saveSearchResultToKB(userContent, searchResults);
         const retryMessages: ChatMessage[] = redactUserTurns([
-          { role: 'system', content: systemContent + `\n\nРЕЗУЛЬТАТЫ ПОИСКА:\n${searchResults}\n\nОтветь на основе этих данных кратко и точно.` },
+          { role: 'system', content: systemContent + webSearchBlock('РЕЗУЛЬТАТЫ ПОИСКА', searchResults) + '\n\nОтветь на основе этих данных кратко и точно.' },
           ...history,
           ...extraUserMsg,
         ]);
