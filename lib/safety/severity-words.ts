@@ -9,6 +9,18 @@
  */
 export const ALERT_SEVERITY_WORDS: readonly string[] = ['справочное', 'предупреждение', 'опасно', 'чрезвычайная ситуация'];
 
+/**
+ * Расчётная оценка зоны (`danger_assessments.risk_level`, CHECK миграции 069)
+ * словами. Одна на /safety и на панель районов карты (#2930): вторая копия
+ * разошлась бы молча.
+ */
+export const ZONE_RISK_LABELS: Readonly<Record<string, string>> = {
+  low: 'Норма',
+  moderate: 'Повышенная',
+  high: 'Высокая',
+  critical: 'Критическая',
+};
+
 export function alertSeverityWord(severity: number): string {
   const i = Math.max(0, Math.min(ALERT_SEVERITY_WORDS.length - 1, Math.round(severity)));
   return ALERT_SEVERITY_WORDS[i]!;

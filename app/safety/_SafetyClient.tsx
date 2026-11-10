@@ -9,6 +9,7 @@ import BottomNav from '@/components/shared/BottomNav';
 import { Header } from '@/components/layout/Header';
 import { SectionSwipeBar, SAFETY_SECTION_ITEMS } from '@/components/layout/SectionSwipeBar';
 import { zoneName } from '@/lib/safety/zone-names';
+import { ZONE_RISK_LABELS } from '@/lib/safety/severity-words';
 import { actionLabel } from '@/lib/safety/action-label';
 import { plural } from '@/lib/home/data-freshness';
 import {
@@ -96,12 +97,8 @@ const RISK_COLORS: Record<string, string> = {
   critical: 'var(--danger)',
 };
 
-const RISK_LABELS: Record<string, string> = {
-  low:      'Норма',
-  moderate: 'Повышенная',
-  high:     'Высокая',
-  critical: 'Критическая',
-};
+/** Слова оценки — одни с панелью районов на карте (lib/safety/severity-words). */
+const RISK_LABELS = ZONE_RISK_LABELS;
 
 /**
  * Что сказать в баннере обстановки.
