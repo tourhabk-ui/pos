@@ -18,6 +18,11 @@
  * судятся заново (SSRF: адрес сайта оператор вписывает в кабинете сам),
  * представляемся своим именем, robots.txt сайта соблюдаем, страницы одного
  * сайта читаем подряд с паузой. Не чаще раза в сутки на страницу.
+ *
+ * Страница больше потолка чтения (`WATCH_BODY_LIMIT`, `TEXT_CAP`) — «не смог
+ * прочитать», а не «прочитал»: обрезанный текст не сохраняется и не
+ * сравнивается (отчёт 10.11 — хвост обрезанной страницы ушёл владельцу
+ * «пропавшими» строками). Сколько знаков прочитано, пишется в `body_chars`.
  */
 import { pool } from '@/lib/db-pool';
 import { safeFetchText } from '@/lib/agents/scout-fetch';
@@ -26,7 +31,8 @@ import { notifyOwnerPartnerSites } from '@/lib/telegram/admin-notify';
 import { kamchatkaToday } from '@/lib/planner/calendar-days';
 import type { TgSendOutcome } from '@/lib/notifications/tg-send';
 import {
-  WATCH_USER_AGENT, baselineMessage, meaningfulDiff, ownerMessages, pageText, robotsDisallows, textHash, watchEvent,
+  TEXT_CAP, WATCH_BODY_LIMIT, WATCH_USER_AGENT, baselineMessage, cutSnapshotDiff, fullPageText, legacyReadWasCut, meaningfulDiff,
+  ownerMessages, robotsDisallows, textHash, watchEvent,
   type PageOutcome, type PageReport, type Snapshot, type TextDiff, type WatchedPage,
 } from '@/lib/partners/site-watch';
 
@@ -87,15 +93,19 @@ export async function watchedPages(limit = PAGES_PER_RUN): Promise<WatchedRow[]>
     .slice(0, limit);
 }
 
-interface History { prev: Snapshot | null; prev2: Snapshot | null; okHash: string | null; okText: string | null }
+interface History {
+  prev: Snapshot | null; prev2: Snapshot | null; okHash: string | null; okText: string | null;
+  /** Последний удачный снимок снят до 1418: размер прочитанного не записан, чтение могло быть обрезано. */
+  okLegacy: boolean;
+}
 
 async function history(url: string): Promise<History> {
   const recent = await pool.query<{ outcome: PageOutcome; text_hash: string | null }>(
     `SELECT outcome, text_hash FROM partner_page_snapshots WHERE url = $1 ORDER BY checked_at DESC, id DESC LIMIT 2`,
     [url],
   );
-  const ok = await pool.query<{ text_hash: string; text: string | null }>(
-    `SELECT text_hash, text FROM partner_page_snapshots
+  const ok = await pool.query<{ text_hash: string; text: string | null; body_chars: number | null }>(
+    `SELECT text_hash, text, body_chars FROM partner_page_snapshots
       WHERE url = $1 AND outcome = 'ok' ORDER BY checked_at DESC, id DESC LIMIT 1`,
     [url],
   );
@@ -111,13 +121,26 @@ async function history(url: string): Promise<History> {
     : null;
   const snap = (r?: { outcome: PageOutcome; text_hash: string | null }): Snapshot | null =>
     r ? { outcome: r.outcome, hash: r.text_hash } : null;
-  return { prev: snap(recent.rows[0]), prev2: snap(recent.rows[1]), okHash: ok.rows[0]?.text_hash ?? null, okText };
+  return {
+    prev: snap(recent.rows[0]), prev2: snap(recent.rows[1]), okHash: ok.rows[0]?.text_hash ?? null, okText,
+    okLegacy: ok.rows[0] !== undefined && ok.rows[0].body_chars === null,
+  };
+}
+
+/** Почему страница не сравнивалась, хотя открылась. Пишется в снимок. */
+export const TOO_BIG_FAILURE = 'страница больше потолка чтения — прочитана не целиком и не сравнивалась';
+
+interface PageRead {
+  outcome: PageOutcome; status: number | null; text: string | null; failure: string | null;
+  /** Сколько знаков HTML прочитано; null — до тела не дошло. */
+  bodyChars: number | null;
+  /** Открылась, но больше потолка чтения. */
+  tooBig: boolean;
 }
 
 /** Одно чтение: исход, код и текст. Robots — по своему ответу на сайт за прогон. */
-async function readPage(url: string, robotsCache: Map<string, string | null>): Promise<{
-  outcome: PageOutcome; status: number | null; text: string | null; failure: string | null;
-}> {
+async function readPage(url: string, robotsCache: Map<string, string | null>): Promise<PageRead> {
+  const none = { bodyChars: null, tooBig: false };
   let origin: string;
   let path: string;
   try {
@@ -125,25 +148,34 @@ async function readPage(url: string, robotsCache: Map<string, string | null>): P
     origin = u.origin;
     path = `${u.pathname}${u.search}`;
   } catch {
-    return { outcome: 'failed', status: null, text: null, failure: 'адрес не разбирается' };
+    return { outcome: 'failed', status: null, text: null, failure: 'адрес не разбирается', ...none };
   }
   if (!robotsCache.has(origin)) {
     const r = await safeFetchText(`${origin}/robots.txt`, { userAgent: WATCH_USER_AGENT });
     robotsCache.set(origin, r.ok ? r.body : null);
   }
   if (robotsDisallows(robotsCache.get(origin) ?? null, path)) {
-    return { outcome: 'robots', status: null, text: null, failure: 'robots.txt сайта запрещает чтение' };
+    return { outcome: 'robots', status: null, text: null, failure: 'robots.txt сайта запрещает чтение', ...none };
   }
-  const res = await safeFetchText(url, { userAgent: WATCH_USER_AGENT });
-  if (res.ok) return { outcome: 'ok', status: 200, text: pageText(res.body), failure: null };
-  if (res.status === 404 || res.status === 410) return { outcome: 'gone', status: res.status, text: null, failure: res.reason };
-  return { outcome: 'failed', status: res.status ?? null, text: null, failure: res.reason };
+  const res = await safeFetchText(url, { userAgent: WATCH_USER_AGENT, bodyLimit: WATCH_BODY_LIMIT });
+  if (res.ok) {
+    // Обрезанное тело не разбирается вовсе; текст длиннее своего потолка — тоже «не смог».
+    const text = res.truncated ? null : fullPageText(res.body);
+    if (text === null || text.length > TEXT_CAP) {
+      // Обрезанное не сохраняем и не сравниваем: его хвост завтра выглядел бы «пропавшим».
+      console.error(`[partner-site-watch] страница больше потолка чтения, не сравнивалась: ${url}`);
+      return { outcome: 'failed', status: 200, text: null, failure: TOO_BIG_FAILURE, bodyChars: res.body.length, tooBig: true };
+    }
+    return { outcome: 'ok', status: 200, text, failure: null, bodyChars: res.body.length, tooBig: false };
+  }
+  if (res.status === 404 || res.status === 410) return { outcome: 'gone', status: res.status, text: null, failure: res.reason, ...none };
+  return { outcome: 'failed', status: res.status ?? null, text: null, failure: res.reason, ...none };
 }
 
 export interface WatchRunResult {
   pages: number;
   events: Record<string, number>;
-  reports: Array<{ url: string; partner: string; outcome: PageOutcome; event: string; status: number | null }>;
+  reports: Array<{ url: string; partner: string; outcome: PageOutcome; event: string; status: number | null; tooBig?: true }>;
   /** Исход сообщений владельцу: первый отказ, если был; null — сообщать было нечего. */
   notified: TgSendOutcome | null;
 }
@@ -174,24 +206,36 @@ export async function runSiteWatch(opts: { sleep?: (ms: number) => Promise<void>
     let event = watchEvent({ outcome: read.outcome, hash }, h.prev, h.prev2, h.okHash);
     let diff: TextDiff | undefined;
     if (event.kind === 'changed' && read.text !== null) {
-      // Хэш другой, а строки те же (капча, перестановка, повтор) — «без
-      // перемен». Новый текст всё равно сохраняется ниже: он становится
-      // точкой сравнения, и завтра тот же шум не всплывёт снова.
-      const d = meaningfulDiff(h.okText ?? '', read.text, today);
-      if (d) diff = d; else event = { kind: 'same' };
+      if (h.okLegacy && legacyReadWasCut(read.bodyChars ?? 0, read.text.length)) {
+        // Прошлый снимок снят старым чтением, а оно такую страницу обрезало:
+        // в нём не вся страница, и её хвост сейчас выглядел бы «появившимся».
+        // Сравнивается только то, что старое чтение видело; там перемен нет —
+        // первое полное чтение становится новой точкой отсчёта.
+        const d = cutSnapshotDiff(h.okText ?? '', read.text, today);
+        if (d) diff = d; else event = { kind: 'baseline' };
+      } else {
+        // Хэш другой, а строки те же (капча, перестановка, повтор) — «без
+        // перемен». Новый текст всё равно сохраняется ниже: он становится
+        // точкой сравнения, и завтра тот же шум не всплывёт снова.
+        const d = meaningfulDiff(h.okText ?? '', read.text, today);
+        if (d) diff = d; else event = { kind: 'same' };
+      }
     }
     // Текст — при первом чтении и при смене; одинаковый не копится.
     const keepText = read.outcome === 'ok' && (h.okHash === null || hash !== h.okHash);
     await pool.query(
       `INSERT INTO partner_page_snapshots
-         (partner_id, url, outcome, http_status, text_hash, text, diff, event, failure)
-       VALUES ($1::uuid, $2, $3, $4, $5, $6, $7::jsonb, $8, $9)`,
+         (partner_id, url, outcome, http_status, text_hash, text, diff, event, failure, body_chars)
+       VALUES ($1::uuid, $2, $3, $4, $5, $6, $7::jsonb, $8, $9, $10)`,
       [page.partnerId, page.url, read.outcome, read.status, hash, keepText ? read.text : null,
         diff ? JSON.stringify({ removed: diff.removed.slice(0, 200), added: diff.added.slice(0, 200) }) : null,
-        event.kind, read.failure],
+        event.kind, read.failure, read.bodyChars],
     );
-    reports.push({ page, event: event.kind, diff, httpStatus: read.status });
-    out.push({ url: page.url, partner: page.partnerName, outcome: read.outcome, event: event.kind, status: read.status });
+    reports.push({ page, event: event.kind, diff, httpStatus: read.status, tooBig: read.tooBig });
+    out.push({
+      url: page.url, partner: page.partnerName, outcome: read.outcome, event: event.kind, status: read.status,
+      ...(read.tooBig ? { tooBig: true as const } : {}),
+    });
   }
 
   const events: Record<string, number> = {};

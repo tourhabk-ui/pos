@@ -14,7 +14,10 @@
  *    robots.txt соблюдается; одинаковый текст не копится;
  *  - отчёт 08.11: выезд сегодняшнего дня по Камчатке и счётчик мест — не
  *    изменение, снятая будущая дата — изменение; что не влезло в одно
- *    сообщение, приходит следующими.
+ *    сообщение, приходит следующими;
+ *  - отчёт 10.11: страница больше потолка чтения — «не смог прочитать», её
+ *    обрезок не сохраняется и не сравнивается; снимок, снятый старым чтением
+ *    с обрезкой, с первым полным чтением не сравнивается.
  *
  * Сеть подменена (safeFetchText): чужие сайты из теста не читаются.
  * Своя база `partner_site_watch_test`. Запуск ТРЕБУЕТ базы:
@@ -27,18 +30,21 @@ import { createTestDatabase, dropTestDatabase } from '../helpers/pg-schema';
 
 const net = vi.hoisted(() => ({
   pages: new Map<string, { status: number; body?: string }>(),
-  calls: [] as Array<{ url: string; ua: string | undefined }>,
+  calls: [] as Array<{ url: string; ua: string | undefined; limit: number | undefined }>,
   sent: [] as string[],
 }));
 
 vi.mock('@/lib/agents/scout-fetch', () => ({
-  safeFetchText: async (url: string, opts?: { userAgent?: string }) => {
-    net.calls.push({ url, ua: opts?.userAgent });
+  safeFetchText: async (url: string, opts?: { userAgent?: string; bodyLimit?: number }) => {
+    net.calls.push({ url, ua: opts?.userAgent, limit: opts?.bodyLimit });
     const p = net.pages.get(url);
     if (!p) return { ok: false, reason: 'источник ответил 404', status: 404 };
     if (p.status === 0) return { ok: false, reason: 'запрос не прошёл: ECONNRESET' };
     if (p.status !== 200) return { ok: false, reason: `источник ответил ${p.status}`, status: p.status };
-    return { ok: true, body: p.body ?? '', finalUrl: url, truncated: false };
+    // Как настоящий safeFetchText: тело длиннее потолка отдаётся обрезанным и с признаком.
+    const body = p.body ?? '';
+    const limit = opts?.bodyLimit ?? 600_000;
+    return { ok: true, body: body.slice(0, limit), finalUrl: url, truncated: body.length > limit };
   },
 }));
 
@@ -125,7 +131,8 @@ withPg('сайты партнёров: изменения против прош�
     const { pool: appPool } = await import('@/lib/db-pool');
     await appPool.end();
     if (PG_URL) await dropTestDatabase(PG_URL, TEST_DB);
-  });
+  // Запас как у beforeAll: в полном прогоне под нагрузкой снятие базы не укладывалось в 10 с по умолчанию.
+  }, 60_000);
 
   it('под наблюдением — главные и страницы туров на витрине на своём домене, и только они', async () => {
     const { watchedPages } = await import('@/lib/partners/site-watch-run');
@@ -318,6 +325,189 @@ withPg('сайты партнёров: изменения против прош�
       event: 'changed', diff: { removed: [`${ru(3)},`, ru(3)], added: [] },
     });
     expect(net.sent.join('\n')).toContain(`было: ${ru(3)},`);
+  });
+
+  // Отчёт 10.11: страницы туров laguna-expedition.ru выросли до 741 тыс.
+  // знаков, чтение обрезало тело на 600 тыс., и хвост страницы ушёл владельцу
+  // строками «было: Проживание в спа-отеле…». Признак обрезки не читался.
+  it('прогон 7 — страница больше потолка чтения: не сохраняется и не сравнивается; второй день — владельцу «читается не целиком»', async () => {
+    const { WATCH_BODY_LIMIT, TEXT_CAP } = await import('@/lib/partners/site-watch');
+    const { runSiteWatch, TOO_BIG_FAILURE } = await import('@/lib/partners/site-watch-run');
+    const url = 'https://fish-test.ru';
+    const rows = async () => (await pool.query<{ outcome: string; event: string; text: string | null; text_hash: string | null; failure: string | null; body_chars: number | null; http_status: number | null }>(
+      `SELECT outcome, event, text, text_hash, failure, body_chars, http_status FROM partner_page_snapshots WHERE url = $1 ORDER BY id`, [url],
+    )).rows;
+    const before = (await rows()).at(-1);
+    expect(before).toMatchObject({ outcome: 'ok' });
+    const tour = (extra = '') => `<html><body>${Array.from({ length: 8 }, (_, i) => `<p>Рыбалка ${i} ${'текст '.repeat(40)}</p>`).join('')}${extra}</body></html>`;
+
+    // 7а: тело на один знак длиннее потолка — в конце страницы, как у «Лагуны», важные строки.
+    const pad = WATCH_BODY_LIMIT + 1 - tour('<script></script><p>Проживание в отеле (3 ночи)</p>').length;
+    const giant = tour(`<script>${'x'.repeat(pad)}</script><p>Проживание в отеле (3 ночи)</p>`);
+    expect(giant).toHaveLength(WATCH_BODY_LIMIT + 1);
+    net.sent.length = 0;
+    net.calls.length = 0;
+    net.pages.set(url, { status: 200, body: giant });
+    const first = await runSiteWatch({ sleep: noSleep });
+    // Свой потолок доходит до чтения страниц; robots.txt читается общим.
+    expect(net.calls.filter((c) => !c.url.endsWith('/robots.txt')).every((c) => c.limit === WATCH_BODY_LIMIT)).toBe(true);
+    expect((await rows()).at(-1)).toEqual({
+      outcome: 'failed', event: 'quiet', text: null, text_hash: null, failure: TOO_BIG_FAILURE, body_chars: WATCH_BODY_LIMIT, http_status: 200,
+    });
+    expect(first.reports.find((r) => r.url === url)).toMatchObject({ outcome: 'failed', event: 'quiet', tooBig: true });
+    expect(net.sent.join('\n')).not.toContain('Рыбалка Тест');
+
+    // Второй день: владельцу — словами, что страница не читается целиком.
+    net.sent.length = 0;
+    const second = await runSiteWatch({ sleep: noSleep });
+    expect(second.reports.find((r) => r.url === url)).toMatchObject({ event: 'failing', tooBig: true });
+    const told = net.sent.join('\n');
+    expect(told).toContain('Рыбалка Тест</b> — главная страница сайта\nстраница второй день не прочитана; сегодня она больше потолка чтения');
+    expect(told).not.toContain('не открывается');
+    expect(told).not.toContain('было:');
+
+    // Ровно в потолок — читается; текст длиннее своего потолка — тоже «не смог».
+    const wordy = `<html><body>${Array.from({ length: 12_000 }, (_, i) => `<p>Пункт программы ${i}</p>`).join('')}</body></html>`;
+    expect(wordy.length).toBeLessThan(WATCH_BODY_LIMIT);
+    net.pages.set(url, { status: 200, body: wordy });
+    await runSiteWatch({ sleep: noSleep });
+    const capped = (await rows()).at(-1);
+    expect(capped).toMatchObject({ outcome: 'failed', text: null, failure: TOO_BIG_FAILURE, body_chars: wordy.length });
+    const { fullPageText } = await import('@/lib/partners/site-watch');
+    expect(fullPageText(wordy).length).toBeGreaterThan(TEXT_CAP);
+
+    // 7б: страница снова обычная. Сравнивается с последним ПОЛНЫМ снимком —
+    // обрезок точкой сравнения не стал, и «пропавшего» хвоста в разнице нет.
+    net.sent.length = 0;
+    const normal = tour('<p>Цена: 9 000 ₽</p>');
+    net.pages.set(url, { status: 200, body: normal });
+    await runSiteWatch({ sleep: noSleep });
+    const back = (await rows()).at(-1);
+    expect(back).toMatchObject({ outcome: 'ok', event: 'changed', failure: null, body_chars: normal.length });
+    expect(back?.text).toContain('Цена: 9 000 ₽');
+    expect(net.sent.join('\n')).toContain('стало: Цена: 9 000 ₽');
+    expect(net.sent.join('\n')).not.toContain('было:');
+
+    // Ровно в потолок тела — читается целиком.
+    const exact = tour(`<script>${'x'.repeat(pad - 1)}</script><p>Проживание в отеле (3 ночи)</p>`).replace('<p>Проживание', '<p>Цена: 9 000 ₽</p><p>Проживание');
+    const fit = `${exact.slice(0, -'</body></html>'.length - (exact.length - WATCH_BODY_LIMIT))}</body></html>`;
+    expect(fit).toHaveLength(WATCH_BODY_LIMIT);
+    net.sent.length = 0;
+    net.pages.set(url, { status: 200, body: fit });
+    await runSiteWatch({ sleep: noSleep });
+    expect((await rows()).at(-1)).toMatchObject({ outcome: 'ok', body_chars: WATCH_BODY_LIMIT });
+    net.pages.set(url, { status: 200, body: normal });
+    await runSiteWatch({ sleep: noSleep });
+  });
+
+  it('прогон 8 — снимок старого чтения с обрезанной страницы: хвост не новость, смена цены в видимой части видна; дальше — обычное сравнение', async () => {
+    const { textHash, LEGACY_BODY_LIMIT } = await import('@/lib/partners/site-watch');
+    const { runSiteWatch } = await import('@/lib/partners/site-watch-run');
+    const url = 'https://verified-test.ru';
+    const last = async () => (await pool.query<{ outcome: string; event: string; text: string | null; diff: unknown; body_chars: number | null }>(
+      `SELECT outcome, event, text, diff, body_chars FROM partner_page_snapshots WHERE url = $1 ORDER BY id DESC LIMIT 1`, [url],
+    )).rows[0];
+    // Как 10.11 у «Лагуны»: в снимке — страница без хвоста, размер чтения не записан.
+    const cutText = 'Проверенный\nЦена: 45 000 ₽\nПрограмма на 4 дня';
+    await pool.query(
+      `INSERT INTO partner_page_snapshots (partner_id, url, outcome, http_status, text_hash, text, event)
+       VALUES ($1::uuid, $2, 'ok', 200, $3, $4, 'changed')`,
+      [VERIFIED, url, textHash(cutText), cutText],
+    );
+    const calendarPage = (price: string) =>
+      `<html><body><h1>Проверенный</h1><p>Цена: ${price} ₽</p><p>Программа на 4 дня</p><script>${'x'.repeat(LEGACY_BODY_LIMIT)}</script>`
+      + '<p>Проживание в спа-отеле (3 ночи)</p><p>Номер реестровой записи: 000</p></body></html>';
+    net.sent.length = 0;
+    net.pages.set(url, { status: 200, body: calendarPage('45 000') });
+    await runSiteWatch({ sleep: noSleep });
+    const base = await last();
+    expect(base).toMatchObject({ outcome: 'ok', event: 'baseline', diff: null, body_chars: calendarPage('45 000').length });
+    expect(base.text).toContain('Номер реестровой записи: 000');
+    expect(net.sent.join('\n')).not.toContain('Проверенный Тест');
+
+    // Размер чтения теперь записан: следующая правка партнёра видна как обычно —
+    // и в самом конце страницы тоже: снимок уже полный, хвост у него не «невидимый».
+    net.sent.length = 0;
+    net.pages.set(url, { status: 200, body: calendarPage('47 000').replace('</body>', '<p>Новое условие отмены</p></body>') });
+    await runSiteWatch({ sleep: noSleep });
+    expect(await last()).toMatchObject({
+      event: 'changed', diff: { removed: ['Цена: 45 000 ₽'], added: ['Цена: 47 000 ₽', 'Новое условие отмены'] },
+    });
+    expect(net.sent.join('\n')).toContain('Проверенный Тест</b> — главная страница сайта');
+    expect(net.sent.join('\n')).toContain('стало: Цена: 47 000 ₽');
+    expect(net.sent.join('\n')).toContain('стало: Новое условие отмены');
+
+    // Находка проверки 10.11: первое полное чтение пришлось бы на день акции.
+    // Цена сменилась там, куда старое чтение доставало, — владелец это видит,
+    // а хвост страницы «появившимся» не называется.
+    const promoUrl = 'https://managed-test.ru';
+    const promoCut = 'Наш сайт\nЦена: 60 000 ₽\nПрограмма на 4 дня\nПрожи';
+    await pool.query(
+      `INSERT INTO partner_page_snapshots (partner_id, url, outcome, http_status, text_hash, text, event)
+       VALUES ($1::uuid, $2, 'ok', 200, $3, $4, 'changed')`,
+      [MANAGED, promoUrl, textHash(promoCut), promoCut],
+    );
+    net.sent.length = 0;
+    net.pages.set(promoUrl, {
+      status: 200,
+      body: `<html><body><h1>Наш сайт</h1><p>Цена: 54 000 ₽</p><p>Программа на 4 дня</p><script>${'x'.repeat(LEGACY_BODY_LIMIT)}</script>`
+        + '<p>Проживание в спа-отеле (3 ночи)</p><p>Номер реестровой записи: 000</p></body></html>',
+    });
+    await runSiteWatch({ sleep: noSleep });
+    const promo = (await pool.query<{ event: string; diff: unknown; body_chars: number | null }>(
+      `SELECT event, diff, body_chars FROM partner_page_snapshots WHERE url = $1 ORDER BY id DESC LIMIT 1`, [promoUrl],
+    )).rows[0];
+    expect(promo).toMatchObject({ event: 'changed', diff: { removed: ['Цена: 60 000 ₽'], added: ['Цена: 54 000 ₽'] } });
+    expect(promo.body_chars).toBeGreaterThan(LEGACY_BODY_LIMIT);
+    const told = net.sent.join('\n');
+    expect(told).toContain('было: Цена: 60 000 ₽');
+    expect(told).toContain('стало: Цена: 54 000 ₽');
+    expect(told).not.toContain('Проживание');
+    expect(told).not.toContain('Номер реестровой записи');
+  });
+
+  // Находка проверки 10.11: место вызова legacyReadWasCut не держал ни один
+  // прогон — перестановка аргументов и потеря длины текста выживали.
+  it('прогон 9 — старый снимок: страница меньше старых потолков сравнивается целиком; текст длиннее старого потолка — по видимой части', async () => {
+    const { textHash, LEGACY_TEXT_CAP } = await import('@/lib/partners/site-watch');
+    const { runSiteWatch } = await import('@/lib/partners/site-watch-run');
+    const legacy = async (partner: string, url: string, text: string) => pool.query(
+      `INSERT INTO partner_page_snapshots (partner_id, url, outcome, http_status, text_hash, text, event)
+       VALUES ($1::uuid, $2, 'ok', 200, $3, $4, 'changed')`,
+      [partner, url, textHash(text), text],
+    );
+    const last = async (url: string) => (await pool.query<{ event: string; diff: { removed: string[]; added: string[] } | null }>(
+      `SELECT event, diff FROM partner_page_snapshots WHERE url = $1 ORDER BY id DESC LIMIT 1`, [url],
+    )).rows[0];
+
+    // (1) Тело 100 тыс. знаков — старое чтение его не резало: новая строка в конце страницы — новость.
+    const small = 'https://fish-test.ru';
+    await legacy(FISH, small, 'Рыбалка\nЦена: 1 000 ₽\nПрограмма');
+    net.sent.length = 0;
+    net.pages.set(small, {
+      status: 200,
+      body: `<html><body><h1>Рыбалка</h1><p>Цена: 2 000 ₽</p><p>Программа</p><script>${'x'.repeat(100_000)}</script><p>Новая строка в конце</p></body></html>`,
+    });
+    await runSiteWatch({ sleep: noSleep });
+    expect(await last(small)).toMatchObject({
+      event: 'changed', diff: { removed: ['Цена: 1 000 ₽'], added: ['Цена: 2 000 ₽', 'Новая строка в конце'] },
+    });
+    expect(net.sent.join('\n')).toContain('стало: Новая строка в конце');
+
+    // (2) Тело малое, а текст длиннее старого потолка текста: снимок — его начало,
+    // хвост текста — не новость.
+    const wordy = 'https://onepage-test.ru';
+    const lines = Array.from({ length: 4_000 }, (_, i) => `Пункт программы ${i}`);
+    const cut = lines.join('\n').slice(0, LEGACY_TEXT_CAP);
+    await legacy(ONE_PAGE, wordy, cut);
+    net.sent.length = 0;
+    const body = `<html><body>${lines.map((l) => `<p>${l}</p>`).join('')}</body></html>`;
+    expect(body.length).toBeLessThan(600_000);
+    expect(lines.join('\n').length).toBeGreaterThan(LEGACY_TEXT_CAP);
+    net.pages.set(wordy, { status: 200, body });
+    await runSiteWatch({ sleep: noSleep });
+    expect(await last(wordy)).toMatchObject({ event: 'baseline', diff: null });
+    expect(net.sent.join('\n')).not.toContain('Одностраничный Тест');
   });
 
   it('крон-роут: без секрета — 401; с секретом — ответ с исходами', async () => {
