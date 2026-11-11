@@ -52,3 +52,54 @@ describe('поиск MCP: план по дням — не его работа, �
     expect(SEARCH_TOOL.description).toContain('vedarai.ru/planner');
   });
 });
+
+/**
+ * Находка Bugbot к #3235 (11.11): цифра в ответе проверялась раньше слов
+ * уровня, и «премиум до 200 тысяч» молча становилось «комфортом»; правка
+ * готового плана set_lodging с цифрой отказывала, а заметка при этом
+ * говорила «считаю комфорт».
+ */
+describe('readBudgetTier: уровень рядом с суммой', () => {
+  it('прямое слово уровня рядом с суммой сохраняется, сумма названа неучтённой', () => {
+    const cases: Array<[string, 'economy' | 'comfort' | 'premium']> = [
+      ['премиум до 200 тысяч', 'premium'],
+      ['эконом, 50 000 на двоих', 'economy'],
+      ['комфорт до 150к', 'comfort'],
+      ['люкс 300000', 'premium'],
+    ];
+    for (const [raw, tier] of cases) {
+      const r = readBudgetTier(raw);
+      expect(r.tier, raw).toBe(tier);
+      expect(r.given, raw).toBe(true);
+      expect(r.note, raw).toMatch(/не учитываю: план собирается без потолка цены/);
+      expect(r.note, raw).not.toMatch(/считаю на уровне «комфорт»/);
+    }
+  });
+
+  it('«бюджет» и «дорого» рядом с суммой уровнем не становятся; два уровня — не выбираем', () => {
+    for (const raw of ['бюджет 500 тысяч', 'недорого, до 100 000', 'эконом или премиум, до 200 тысяч']) {
+      const r = readBudgetTier(raw);
+      expect(r.given, raw).toBe(false);
+      expect(r.tier, raw).toBe('comfort');
+    }
+  });
+});
+
+describe('правка готового плана: уровень жилья', () => {
+  it('set_lodging с суммой и уровнем — правка проходит', async () => {
+    const { readPlanEdit } = await import('@/lib/kuzmich/trip-plan-tool');
+    const r = readPlanEdit({ action: 'set_lodging', lodging: 'премиум до 200 тысяч' });
+    expect(r).toEqual({ ok: true, edit: { kind: 'set_lodging', tier: 'premium' } });
+  });
+
+  it('set_lodging без уровня — отказ без слов «считаю комфорт»', async () => {
+    const { readPlanEdit } = await import('@/lib/kuzmich/trip-plan-tool');
+    for (const lodging of ['до 200 тысяч', 'как получится']) {
+      const r = readPlanEdit({ action: 'set_lodging', lodging });
+      expect(r.ok, lodging).toBe(false);
+      const err = r.ok ? '' : r.error;
+      expect(err, lodging).toMatch(/не разобрал — нужно: эконом, комфорт или премиум/);
+      expect(err, lodging).not.toMatch(/комфорт»/);
+    }
+  });
+});

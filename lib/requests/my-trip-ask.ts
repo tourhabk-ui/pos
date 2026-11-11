@@ -62,6 +62,7 @@ export function myTripWriteText(target: MyTripWriteTarget, n: number | null): st
 
 /** `md:<32 hex>` — показать свободные даты (только чтение). */
 const DATE_MENU_RE = /^md:([0-9a-f]{32})$/;
+
 /** `mp:<32 hex><ГГММДД>` — выбрать дату (запись, подписывается). */
 const DATE_PICK_RE = /^mp:([0-9a-f]{32})(\d{6})$/;
 
@@ -100,3 +101,10 @@ export function parseMyTripDate(payload: string): MyTripDatePress | null {
 export function myTripDateText(n: number | null): string {
   return n === null ? 'Изменить дату' : `Изменить дату · ${n}`;
 }
+
+/**
+ * Бронь закрыта — дату больше не меняют ни так, ни просьбой. Одно множество на
+ * кнопку под списком и на нажатие: иначе кнопка видна там, где нажатие
+ * ответит «заявка закрыта» (Bugbot к #3234 — состоявшаяся бронь).
+ */
+export const MY_TRIP_CLOSED_BOOKING: ReadonlySet<string> = new Set(['cancelled', 'no_show', 'completed']);
