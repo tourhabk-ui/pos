@@ -64,7 +64,7 @@ BEGIN
   -- Дата с бронью — открытой: счёт занятости тот же, что у стоп-продажи.
   SELECT COUNT(*) INTO v_kept_booked
     FROM tour_availability ta
-    JOIN operator_tours t ON t.id = ta.operator_tour_id AND t.deleted_at IS NULL
+    JOIN operator_tours t ON t.id::text = ta.operator_tour_id::text AND t.deleted_at IS NULL
     JOIN partners p ON p.id::text = t.operator_id::text AND p.slug = 'laguna-expedition'
     JOIN _lagw_tours l ON l.slug = t.slug
    WHERE ta.date BETWEEN DATE '2026-12-01' AND DATE '2027-04-30'
@@ -87,7 +87,7 @@ BEGIN
       FROM operator_tours t
       JOIN partners p ON p.id::text = t.operator_id::text AND p.slug = 'laguna-expedition'
       JOIN _lagw_tours l ON l.slug = t.slug
-     WHERE t.id = ta.operator_tour_id AND t.deleted_at IS NULL
+     WHERE t.id::text = ta.operator_tour_id::text AND t.deleted_at IS NULL
        AND ta.date BETWEEN DATE '2026-12-01' AND DATE '2027-04-30'
        AND ta.deleted_at IS NULL AND NOT COALESCE(ta.is_cancelled, FALSE)
        -- Оператор не правил дату: правка сдвигает updated_at триггером.
