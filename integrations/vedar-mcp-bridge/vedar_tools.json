@@ -544,7 +544,7 @@
     "type": "function",
     "function": {
       "name": "search",
-      "description": "Keyword search across Vedar Kamchatka: operator tours, places, stays, routes; returns up to 10 results with id for fetch, title and canonical url. For live seats use get_tour_availability. Поиск по витрине Ведара для коннекторов ChatGPT: туры операторов Камчатки, места, жильё и маршруты по словам запроса (русский или английский). Отдаёт до 10 результатов с id для fetch, названием и адресом страницы. Для живой занятости тура и обстановки есть get_tour_availability и safety_status.",
+      "description": "Keyword search across Vedar Kamchatka: operator tours, places, stays, routes; returns up to 10 results with id for fetch, title and canonical url. For live seats use get_tour_availability. Поиск по витрине Ведара для коннекторов ChatGPT: туры операторов Камчатки, места, жильё и маршруты по словам запроса (русский или английский). Отдаёт до 10 результатов с id для fetch, названием и адресом страницы. Для живой занятости тура и обстановки есть get_tour_availability и safety_status. План поездки по дням search не строит — его собирает make_trip_plan или страница планировщика vedarai.ru/planner.",
       "parameters": {
         "type": "object",
         "properties": {

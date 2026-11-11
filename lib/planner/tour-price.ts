@@ -31,6 +31,17 @@ export type PlanTourPrice =
 /** Текст, когда цену не удалось проверить: базовую подставлять нельзя. */
 export const PRICE_UNREAD_TEXT = 'Цену тура для вашей группы проверить не удалось — она в карточке тура.';
 
+/**
+ * Цена посчитана, и она ноль: оператор её не указал (#3199, сценарий 5 аудита,
+ * E13). Это не отказ проверки — «проверить не удалось» здесь было бы неправдой.
+ */
+export const PRICE_NOT_SET_TEXT = 'Цену тура оператор не указал — её назовёт оператор.';
+
+/** Текст дня без цены: не указана, не прочитана или вне ступеней группы. */
+export function missingPriceText(priced: PlanTourPrice): string {
+  return priced.kind === 'missing' ? priced.text : PRICE_NOT_SET_TEXT;
+}
+
 export async function planTourPrice(input: {
   tourId: string;
   basePrice: number;

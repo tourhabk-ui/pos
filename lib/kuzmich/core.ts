@@ -458,7 +458,7 @@ async function loadUserSituation(chatId: number): Promise<string> {
   return `=== СИТУАЦИЯ ТУРИСТА (учитывай в ответе, не выдумывай сверх этого) ===\n${parts.join('\n')}`;
 }
 
-function extractBotMemoryPatch(text: string): Partial<BotMemory> {
+export function extractBotMemoryPatch(text: string): Partial<BotMemory> {
   const lower = text.toLowerCase();
   const ACTIVITY_KW: Record<string, string> = {
     рыбал: 'fishing', рыб: 'fishing', fishing: 'fishing', лосось: 'fishing', нерка: 'fishing',
@@ -488,8 +488,11 @@ function extractBotMemoryPatch(text: string): Partial<BotMemory> {
   else if (/экстрим|adventure/.test(lower))         travel_style = 'adventure';
   else if (/комфорт|люкс|luxury/.test(lower))       travel_style = 'comfort';
   let budget_level: string | null = null;
-  if (/бюджет|дёшево|эконом/.test(lower))           budget_level = 'budget';
-  else if (/премиум|vip|дорог/.test(lower))         budget_level = 'premium';
+  // Уровень — по словам об уровне, а не по «бюджету» и «дороге» (#3199,
+  // раздел 4): «бюджет 500 тысяч» становился «эконом», «дорога на Мутновский»
+  // — «премиум», и это уходило в промпт как пожелание туриста.
+  if (/дёшево|дешево|недорог|эконом|бюджетн/.test(lower)) budget_level = 'budget';
+  else if (/премиум|\bvip\b|люкс|подороже/.test(lower))   budget_level = 'premium';
   return {
     ...(activities.size ? { activities: [...activities] } : {}),
     ...(locations.size  ? { locations:  [...locations]  } : {}),

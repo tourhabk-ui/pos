@@ -473,6 +473,15 @@ export const BUDGET_LABEL: Record<BudgetTier, string> = { economy: 'эконом
 export function readBudgetTier(raw: string | undefined): { tier: BudgetTier; given: boolean; note: string | null } {
   const t = (raw ?? '').trim();
   if (!t) return { tier: 'comfort', given: false, note: null };
+  // Названа сумма («до 100 000 ₽», «бюджет 500 тысяч»): потолка цены у плана
+  // нет, и это говорится, а не прячется (#3199, раздел 4). Прежде «бюджет
+  // 500 тысяч» читалось по первому слову как «эконом» — молча.
+  if (/\d/.test(t)) {
+    return {
+      tier: 'comfort', given: false,
+      note: `Сумму «${t}» не учитываю: план собирается без потолка цены, итог — в смете ниже. Жильё считаю на уровне «комфорт»; можно: эконом, комфорт, премиум.`,
+    };
+  }
   const word = t.replace(/^(на|в)\s+/i, '');
   for (const [re, tier] of BUDGET_WORDS) if (re.test(word)) return { tier, given: true, note: null };
   return { tier: 'comfort', given: false, note: `Уровень бюджета «${t}» не разобрал — считаю «комфорт». Можно: эконом, комфорт, премиум.` };

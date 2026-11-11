@@ -116,6 +116,13 @@ function build() {
 const need = (key: string) => document.querySelector(`[data-need="${key}"]`) as HTMLButtonElement;
 
 describe('шаг 3: «Что ещё нужно»', () => {
+  it('уровень — подписан как жильё, не как бюджет: туры от него не зависят (#3199, раздел 4)', () => {
+    toStep3();
+    expect(screen.getByRole('radiogroup', { name: 'Уровень жилья' })).toBeTruthy();
+    expect(screen.queryByRole('radiogroup', { name: 'Бюджет' })).toBeNull();
+    expect(screen.queryByText('Бюджет')).toBeNull();
+  });
+
   it('три переключателя, трансфер — один на всю анкету', () => {
     render(<PlannerClient />);
     // На первом шаге галочки трансфера больше нет — она переехала на шаг 3.
