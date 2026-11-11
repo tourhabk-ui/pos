@@ -29,6 +29,9 @@
  * и на каждом туре он равен наличию тура в выдаче каталога; «готов к Авито и
  * Яндексу» равен наличию тура в ленте — черновик со всеми полями не готов.
  *
+ * Последняя — годы свободных дат для заголовков витрин (`loadOpenDateYears`,
+ * 11.11): тот же отбор, что у ближайшей свободной даты.
+ *
  * Своя база `public_tour_gate_test`. Запуск ТРЕБУЕТ базы:
  * KERNEL_PG_TEST_URL=postgresql://user:pass@host/db. Без неё файл честно
  * пропускается — «не прогнано», а не «прошло».
@@ -1802,5 +1805,110 @@ withPg('витрина туров: снятый тур не в плане и н�
       }
     });
   });
-});
 
+  /**
+   * Сцена годов свободных дат для заголовков витрин
+   * (`loadOpenDateYears`, владелец 11.11: «туры на Камчатку 2026? там же есть
+   * и 2027»). Тот же отбор, что у ближайшей свободной даты: решает сам SQL —
+   * какой год даёт дата на границе окна, учитывается ли отменённая,
+   * удалённая, занятая дата, дата снятого с витрины тура, дата за горизонтом
+   * в год. В базе есть туры миграций со своими календарями, поэтому каждая
+   * проверка спрашивает свой вид активности, а оператор у сцены свой.
+   */
+  describe('годы свободных дат: тот же отбор, что у ближайшей свободной даты', () => {
+    const OY_OPERATOR = 'c3100000-0000-4000-8000-000000000001';
+    /** Сегодня по Камчатке — как его считает сам запрос. */
+    let today = '';
+
+    async function tour(kind: string, opts: { live?: boolean; maxParticipants?: number } = {}): Promise<string> {
+      const { rows } = await pool.query<{ id: string }>(
+        `INSERT INTO operator_tours (operator_id, title, slug, activity_type, base_price, price_unit,
+                                     min_participants, max_participants, duration_hours, difficulty,
+                                     is_active, is_published)
+         VALUES ($1, $2, $3, $4, 1000, 'per_person', 1, $5, 8, 'easy', TRUE, $6)
+         RETURNING id::text`,
+        [OY_OPERATOR, `Годы ${kind}`, `test-oy-${kind}-${opts.live === false ? 'hidden' : 'live'}`, kind, opts.maxParticipants ?? 10, opts.live ?? true],
+      );
+      return rows[0].id;
+    }
+
+    /** Дата через `days` дней от сегодняшнего по Камчатке. */
+    async function slot(tourId: string, days: number, opts: { cancelled?: boolean; deleted?: boolean } = {}): Promise<string> {
+      const { rows } = await pool.query<{ d: string }>(
+        `INSERT INTO tour_availability (operator_tour_id, date, available_slots, is_cancelled, deleted_at)
+         VALUES ($1, $2::date + $3::int, 2, $4, CASE WHEN $5 THEN NOW() ELSE NULL END)
+         RETURNING date::text AS d`,
+        [tourId, today, days, opts.cancelled ?? false, opts.deleted ?? false],
+      );
+      return rows[0].d;
+    }
+
+    const yearOf = (d: string) => Number(d.slice(0, 4));
+
+    beforeAll(async () => {
+      await pool.query(
+        `INSERT INTO partners (id, name, category, contact, slug, is_public, is_verified, status)
+         VALUES ($1, 'Тест Годы', 'operator', '{}'::jsonb, 'test-open-years', TRUE, TRUE, 'active')`,
+        [OY_OPERATOR],
+      );
+      today = (await pool.query<{ d: string }>(`SELECT ((NOW() AT TIME ZONE 'Asia/Kamchatka')::date)::text AS d`)).rows[0].d;
+    });
+
+    it('свободные даты в двух годах — оба года, по порядку', async () => {
+      const { loadOpenDateYears } = await import('@/lib/tours/nearest-free-date');
+      const t = await tour('oy_two');
+      const near = await slot(t, 3);
+      const far = await slot(t, 300);
+      const expected = [...new Set([yearOf(near), yearOf(far)])].sort((a, b) => a - b);
+      expect(await loadOpenDateYears({ activityType: 'oy_two' })).toEqual(expected);
+    });
+
+    it('прошедшая, отменённая, удалённая дата и дата за горизонтом в год — года не дают', async () => {
+      const { loadOpenDateYears } = await import('@/lib/tours/nearest-free-date');
+      const t = await tour('oy_none');
+      await slot(t, -3);
+      await slot(t, 10, { cancelled: true });
+      await slot(t, 20, { deleted: true });
+      await slot(t, 400);
+      expect(await loadOpenDateYears({ activityType: 'oy_none' })).toEqual([]);
+    });
+
+    it('дата снятого с витрины тура года не даёт; живого — даёт', async () => {
+      const { loadOpenDateYears } = await import('@/lib/tours/nearest-free-date');
+      await slot(await tour('oy_hidden', { live: false }), 5);
+      expect(await loadOpenDateYears({ activityType: 'oy_hidden' })).toEqual([]);
+      const d = await slot(await tour('oy_hidden'), 5);
+      expect(await loadOpenDateYears({ activityType: 'oy_hidden' })).toEqual([yearOf(d)]);
+    });
+
+    it('места на дату заняты оператором — год не даётся (общее правило занятости)', async () => {
+      const { loadOpenDateYears } = await import('@/lib/tours/nearest-free-date');
+      const t = await tour('oy_full', { maxParticipants: 2 });
+      const d = await slot(t, 12);
+      await pool.query(
+        `INSERT INTO tour_seat_holds (operator_id, tour_id, hold_date, seats, subject_kind, subject_id, via)
+         VALUES ($1, $2, $3::date, 2, 'test', 'oy-full', 'site')`,
+        [OY_OPERATOR, t, d],
+      );
+      expect(await loadOpenDateYears({ activityType: 'oy_full' })).toEqual([]);
+    });
+
+    it('на границе окна: дата ровно через год считается своим годом', async () => {
+      const { loadOpenDateYears } = await import('@/lib/tours/nearest-free-date');
+      const { rows } = await pool.query<{ days: number; y: number }>(
+        `SELECT ((($1::date + INTERVAL '1 year')::date) - $1::date)::int AS days,
+                EXTRACT(YEAR FROM ($1::date + INTERVAL '1 year'))::int AS y`,
+        [today],
+      );
+      await slot(await tour('oy_edge'), rows[0].days);
+      expect(await loadOpenDateYears({ activityType: 'oy_edge' })).toEqual([rows[0].y]);
+    });
+
+    it('без вида — весь каталог: наши годы среди прочих, запрос не падает', async () => {
+      const { loadOpenDateYears } = await import('@/lib/tours/nearest-free-date');
+      expect(await loadOpenDateYears()).not.toBeNull();
+      const d = await slot(await tour('oy_all'), 7);
+      expect(await loadOpenDateYears()).toEqual(expect.arrayContaining([yearOf(d)]));
+    });
+  });
+});
