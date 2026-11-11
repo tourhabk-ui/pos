@@ -71,7 +71,7 @@ describe('одна формула с вилкой на человека', () => 
   it('итог — это сумма цен туров и ориентиров, без остатка', () => {
     const e = estimateGroup(VISITOR_PLAN, profile({ tripOrigin: 'visitor' }));
     expect([e.fromTours[0] + e.fromEstimates[0], e.fromTours[1] + e.fromEstimates[1]]).toEqual(e.total);
-    expect(e.fromTours).toEqual([(10000 + 20000) * 2, Math.round((10000 + 20000) * 1.2) * 2]);
+    expect(e.fromTours).toEqual([(10000 + 20000) * 2, (10000 + 20000) * 2]);
   });
 
   it('удалили день — итог уменьшился ровно на строку этого дня', () => {
@@ -92,7 +92,7 @@ describe('тур — по своей единице цены', () => {
     const e = estimateGroup([day(1, 'activity', { title: 'Вулкан', realPrice: 12000, realTour: tour('t', 'per_person', 10) })], profile({ adults: 3 }));
     const [l] = tourLines(e);
     expect(plain(l!.basis)).toBe('12 000 ₽ × 3 чел.');
-    expect(l!.total).toEqual([36000, 43200]);
+    expect(l!.total).toEqual([36000, 36000]);
     expect(l!.source).toBe('tour');
   });
 
@@ -100,7 +100,7 @@ describe('тур — по своей единице цены', () => {
     const e = estimateGroup([day(1, 'activity', { realPrice: 30000, realTour: tour('t', 'per_tour', 10) })], profile({ adults: 2 }));
     const [l] = tourLines(e);
     expect(plain(l!.basis)).toBe('30 000 ₽ за группу');
-    expect(l!.total).toEqual([30000, 36000]);
+    expect(l!.total).toEqual([30000, 30000]);
     expect(l!.note).toBeUndefined();
   });
 
@@ -108,13 +108,13 @@ describe('тур — по своей единице цены', () => {
     const e = estimateGroup([day(1, 'activity', { realPrice: 30000, realTour: tour('t', 'per_tour', 4) })], profile({ adults: 6 }));
     const [l] = tourLines(e);
     expect(plain(l!.basis)).toBe('30 000 ₽ за группу × 2 (до 4 чел. в группе)');
-    expect(l!.total).toEqual([60000, 72000]);
+    expect(l!.total).toEqual([60000, 60000]);
   });
 
   it('за группу без вместимости — одна группа, и это сказано', () => {
     const e = estimateGroup([day(1, 'activity', { realPrice: 30000, realTour: tour('t', 'per_tour') })], profile({ adults: 12 }));
     const [l] = tourLines(e);
-    expect(l!.total).toEqual([30000, 36000]);
+    expect(l!.total).toEqual([30000, 30000]);
     expect(l!.note).toMatch(/Вместимость группы у тура не указана/);
   });
 
@@ -128,7 +128,7 @@ describe('тур — по своей единице цены', () => {
     expect(tourLines(e)).toHaveLength(1);
     expect(e.lines.filter((l) => l.kind === 'activity')).toEqual([]);
     expect(plain(tourLines(e)[0]!.basis)).toBe('5 000 ₽ × 3 дня × 2 чел.');
-    expect(tourLines(e)[0]!.total).toEqual([30000, 36000]);
+    expect(tourLines(e)[0]!.total).toEqual([30000, 30000]);
   });
 
   it('многодневный тур за человека считается один раз, а не за каждый день', () => {
@@ -137,7 +137,7 @@ describe('тур — по своей единице цены', () => {
       day(1, 'activity', { realPrice: 90000, realTour: t }),
       day(2, 'activity', { realTour: t }),
     ], profile({ adults: 2 }));
-    expect(e.fromTours).toEqual([180000, 216000]);
+    expect(e.fromTours).toEqual([180000, 180000]);
   });
 
   it('незнакомая единица цены — «цена не указана»: строка есть, в итог не входит', () => {
@@ -149,7 +149,7 @@ describe('тур — по своей единице цены', () => {
     expect(heli.total).toBeNull();
     expect(heli.note).toMatch(/«per_vehicle» не распознана/);
     expect(e.unpriced).toEqual([heli.label]);
-    expect(e.total).toEqual([20000, 24000]);
+    expect(e.total).toEqual([20000, 20000]);
   });
 
   it('единица цены не записана — тоже не ноль, а «не указано»', () => {
@@ -162,7 +162,7 @@ describe('тур — по своей единице цены', () => {
   it('цена без данных о туре — за человека, как в вилке на человека', () => {
     const days = [day(1, 'activity', { realPrice: 8000 })];
     const e = estimateGroup(days, profile({ adults: 3 }));
-    expect(e.total).toEqual([24000, Math.round(8000 * 1.2) * 3]);
+    expect(e.total).toEqual([8000 * 3, 8000 * 3]);
     expect(e.perPerson).toEqual(calculatePriceBreakdown(days, profile()).perPersonTotal);
   });
 });
@@ -173,8 +173,8 @@ describe('ночи — по зоне, где ночуют', () => {
     const [l] = lodging(e);
     expect(l!.label).toBe('Проживание в Авачинской зоне');
     expect(plain(l!.basis)).toBe('2 ночи × 2 чел.');
-    // комфорт, Авачинская: 7 000 ±20% за ночь на человека.
-    expect(l!.total).toEqual([2 * 5600 * 2, 2 * 8400 * 2]);
+    // комфорт, Авачинская: 7 000 за ночь на человека, без множителей (решение владельца 11.11, #3199 E12).
+    expect(l!.total).toEqual([2 * 7000 * 2, 2 * 7000 * 2]);
   });
 
   it('у местного ночи дома не считаются, ночи на выезде — считаются', () => {
@@ -294,7 +294,7 @@ describe('тур — по правилу брони (#2304, шаг 1б)', () => 
     expect(missing.note).toBe(why);
     expect(tourLines(e)).toHaveLength(2);
     expect(e.unpriced).toEqual([missing.label]);
-    expect(e.total).toEqual([20000, 24000]);
+    expect(e.total).toEqual([20000, 20000]);
   });
 
   it('вилка на человека: тур без цены для группы — не ориентир и не цена, а «без цены»', () => {
@@ -303,6 +303,6 @@ describe('тур — по правилу брони (#2304, шаг 1б)', () => 
       day(2, 'activity', { realPrice: 10000, realTour: tour('v', 'per_person', 10) }),
     ], profile());
     expect(pb.activityPricing).toEqual({ tourPriced: 1, estimated: 0, excluded: 0, unpriced: 1 });
-    expect(pb.activities).toEqual([10000, 12000]);
+    expect(pb.activities).toEqual([10000, 10000]);
   });
 });
