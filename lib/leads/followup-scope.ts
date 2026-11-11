@@ -47,6 +47,7 @@
  * пропускает заявку на машину и на прокат, даже если отбор её отдал).
  */
 import { PD_CONSENT_CARRIER_VERSION, PD_CONSENT_RENTAL_VERSION } from '@/lib/legal/pd-consent';
+import { LEAD_ANSWER_DATE_SQL } from '@/lib/requests/answer-date';
 import { WIDGET_CHAT_PSEUDO_LEAD_SQL } from '@/lib/leads/widget-chat-pseudo';
 
 /**
@@ -70,6 +71,13 @@ export const NOT_FOR_OTHER_PARTNERS_KINDS: readonly string[] = [...PARTNER_ONLY_
  * адресата она остаётся у него, как любая адресованная. Согласие человека —
  * «передачу туроператору для связи по заявке» (PD_CONSENT_TEXT): получатель
  * не назван поимённо, и добивка заявок без адресата стоит на том же тексте.
+ *
+ * Ответ — на ТЕКУЩУЮ дату заявки (1422): «Нет мест» на прежнюю дату, после
+ * которой человек сам выбрал другую, о новой ничего не говорит, и заявка на
+ * новую дату ждёт ответа адресата. Отказ по погоде или безопасности группу
+ * дальше не передаёт (слово владельца 11.11, план, вопрос 3): на ту же дату
+ * другой оператор того же вида туров поехал бы в ту же погоду — человеку
+ * предлагаются только проверенно безопасные варианты, а не передача.
  */
 export const GROUP_DECLINED_LEAD_SQL = `(
        COALESCE((source_data->>'group_over_seats')::boolean, false)
@@ -78,6 +86,8 @@ export const GROUP_DECLINED_LEAD_SQL = `(
          SELECT 1 FROM partner_incoming_answers a
           WHERE a.subject_kind = 'lead' AND a.subject_id = leads.id::text
             AND a.partner_id = leads.operator_id AND a.answer IN ('no_seats', 'decline')
+            AND a.decline_reason IS DISTINCT FROM 'weather'
+            AND a.subject_date IS NOT DISTINCT FROM ${LEAD_ANSWER_DATE_SQL('leads')}
        )
      )`;
 

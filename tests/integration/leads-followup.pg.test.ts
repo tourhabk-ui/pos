@@ -521,20 +521,30 @@ withPg('крон добивки лидов на настоящем PostgreSQL', 
     const silent = await ins('Группа 24 тишина', 'new', group);
     const plainDeclined = await ins('Обычная с отказом', 'lost', { source: 'mcp', interests: ['big_group_probe'] });
     const otherAnswered = await ins('Группа 24 ответил не адресат', 'lost', group);
-    const answer = (partner: string, leadId: string, ans: string) => pool.query(
-      `INSERT INTO partner_incoming_answers (partner_id, subject_kind, subject_id, answer, decline_reason)
-       VALUES ($1, 'lead', $2, $3, $4)`, [partner, leadId, ans, ans === 'decline' ? 'group' : null],
+    // 1422: «Нет мест» на прежнюю дату — человек сам выбрал другую, о новой
+    // адресат ещё не ответил; отказ по погоде — группу не передают.
+    // «Нет мест» на текущую дату (decline_reason NULL) — передаётся, как и отказ.
+    const noSeats = await ins('Группа 24 нет мест', 'new', group);
+    const movedOn = await ins('Группа 24 перенесла дату', 'new', { ...group, date: '2099-07-20' });
+    const weather = await ins('Группа 24 погода', 'lost', group);
+    // Дата ответа — та, что в заявке на момент ответа (как пишет recordChatAnswer).
+    const answer = (partner: string, leadId: string, ans: string, reason: string | null = ans === 'decline' ? 'group' : null, date: string | null = '2099-07-15') => pool.query(
+      `INSERT INTO partner_incoming_answers (partner_id, subject_kind, subject_id, answer, decline_reason, subject_date)
+       VALUES ($1, 'lead', $2, $3, $4, $5)`, [partner, leadId, ans, reason, date],
     );
     await answer(opB, declined, 'decline');
-    await answer(opB, plainDeclined, 'no_seats');
+    await answer(opB, plainDeclined, 'no_seats', null, null);
     await answer(opA, otherAnswered, 'no_seats');
+    await answer(opB, noSeats, 'no_seats');
+    await answer(opB, movedOn, 'no_seats');
+    await answer(opB, weather, 'decline', 'weather');
 
-    const mine = [declined, silent, plainDeclined, otherAnswered];
+    const mine = [declined, silent, plainDeclined, otherAnswered, noSeats, movedOn, weather];
     const { FOLLOWUP_LEADS_SQL, FOLLOWUP_LEADS_PARAMS } = await import('@/lib/leads/followup-scope');
     const { rows } = await pool.query<{ id: string; addressee_slug: string | null }>(FOLLOWUP_LEADS_SQL, [...FOLLOWUP_LEADS_PARAMS]);
     const picked = rows.filter((r) => mine.includes(r.id));
-    expect(picked.map((r) => r.id)).toEqual([declined]);
-    expect(picked[0]!.addressee_slug).toBe('group-op-b');
+    expect(picked.map((r) => r.id).sort()).toEqual([declined, noSeats].sort());
+    expect(picked.every((r) => r.addressee_slug === 'group-op-b')).toBe(true);
 
     // Крон отдаёт её оператору A — не отказавшемуся B; чей тур и чей отказ — не называет.
     const { sendPdAlert } = await import('@/lib/notifications/pd-alert');
@@ -547,8 +557,11 @@ withPg('крон добивки лидов на настоящем PostgreSQL', 
     const sentGroup = send.mock.calls.map((c) => c[0]).filter((p) => p.text.includes('Группа 24 отказ'));
     expect(sentGroup).toHaveLength(1);
     expect(sentGroup[0]!.to?.maxChatId).toBe('7000077');
+    const sentNoSeats = send.mock.calls.map((c) => c[0]).filter((p) => p.text.includes('Группа 24 нет мест'));
+    expect(sentNoSeats.map((p) => p.to?.maxChatId)).toEqual(['7000077']);
     expect(sentGroup[0]!.text).toContain('24 чел., 2099-07-15 — исполнитель выбранного тура не смог взять всю группу');
-    expect(send.mock.calls.some((c) => c[0].text.includes('Группа 24 тишина') || c[0].text.includes('Обычная с отказом'))).toBe(false);
+    expect(send.mock.calls.some((c) => ['Группа 24 тишина', 'Обычная с отказом', 'Группа 24 перенесла дату', 'Группа 24 погода']
+      .some((name) => c[0].text.includes(name)))).toBe(false);
     // Заявка стала ничейной: кабинет оператора A её откроет, отказавшийся B — в списке уведомлённых.
     const st = await pool.query<{ status: string; operator_id: string | null; notified: string[]; declined_by: string | null }>(
       `SELECT status, operator_id::text AS operator_id, source_data->'notified_operators' AS notified,

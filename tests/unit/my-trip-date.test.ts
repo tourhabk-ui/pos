@@ -37,6 +37,7 @@ import { FREE_DATES_SQL, TOUR_HAS_CALENDAR_SQL } from '@/lib/tours/nearest-free-
 import { myTripButtons, type MyTrip } from '@/lib/requests/my-trip';
 import { CALLBACK_MAX_BYTES, isWritePayload, signPayload, unwrapPress } from '@/lib/chat-cabinet/signed-payload';
 import { pressActionOf } from '@/lib/max/verified-press';
+import { parseChatAnswer } from '@/lib/requests/chat-answer-buttons';
 
 const LEAD = '0f1e2d3c-4b5a-4968-8776-655443322110';
 const OPERATOR = '11111111-2222-4333-8444-555555555555';
@@ -45,6 +46,8 @@ const CHAT = 9_400_002;
 interface Lead {
   status: string; date: string | null; tour_id: number | null; participants: number | null; tour_title: string | null;
   booking_status: string | null; booking_date: string | null; answered: boolean; date_actions: number;
+  /** Даты, на которые адресат ответил «Нет мест» (1422). */
+  refused_dates?: string[] | null;
 }
 const baseLead = (over: Partial<Lead> = {}): Lead => ({
   status: 'new', date: '2027-07-15', tour_id: 42, participants: 3, tour_title: 'Горелый & кратер <малый>',
@@ -443,5 +446,93 @@ describe('прошедшая поездка и состоявшаяся брон
     expect(items[0]!.dateChange).toBe(LEAD);
     expect(items[1]!.dateChange).toBe(L2);
     expect(items[2]!.dateChange).toBeNull();
+  });
+});
+
+describe('после «Нет мест» дата меняется сразу (план «после отказа», этап 2а, 1422)', () => {
+  // Оператор ответил «Нет мест» на 15.07 (дата заявки), а раньше — на 18.07.
+  const afterNoSeats = () => baseLead({ refused_dates: ['2027-07-15', '2027-07-18'] });
+
+  it('меню: отказанные даты не предлагаются, правило — «сразу встанет в заявку, оператор получит с кнопками»', async () => {
+    world.lead = afterNoSeats();
+    world.free = [{ date: '2027-07-15', free: 8 }, { date: '2027-07-18', free: 5 }, { date: '2027-07-21', free: 3 }];
+    const r = await menu();
+    expect(r.buttons.map((b) => b.text)).toEqual(['21.07 · мест 3']);
+    expect(r.text).toContain('Оператор ответил «Нет мест» на 15.07.2027 — выбранная дата сразу встанет в заявку, и оператор получит её с кнопками ответа.');
+    expect(r.text).not.toMatch(/просьба/);
+    // Запас под отказанные даты: шесть кнопок не съедаются ими.
+    expect(Number(callsOf(FREE_DATES_SQL)[0]![2])).toBe(9);
+  });
+
+  it('выбор отказанной даты — не ставится и не уходит оператору, кнопка «Изменить дату»', async () => {
+    world.lead = afterNoSeats();
+    world.free = [{ date: '2027-07-18', free: 5 }];
+    const r = await pick('2027-07-18');
+    expect(r.text).toBe('На 18.07.2027 оператор уже ответил «Нет мест» — выберите другую дату.');
+    expect(r.buttons.map((b) => ('payload' in b ? b.payload : null))).toEqual([myTripDateMenuPayload(LEAD)]);
+    expect(callsOf(MY_TRIP_DATE_CHANGE_SQL)).toHaveLength(0);
+    expect(h.alert).not.toHaveBeenCalled();
+  });
+
+  it('туроператору: «перенёс после вашего «Нет мест»» и кнопки ответа по новой дате — в MAX и в Telegram', async () => {
+    world.lead = afterNoSeats();
+    world.free = [{ date: '2027-07-21', free: 3 }];
+    h.reach.mockResolvedValue({ maxChatId: '777', telegramChatId: '555', telegramSource: 'partner', reachable: true, category: 'operator' });
+    const r = await pick('2027-07-21');
+    expect(callsOf(MY_TRIP_DATE_CHANGE_SQL)).toEqual([[LEAD, '2027-07-21', '2027-07-15', 'max']]);
+    expect(r.text).toMatch(/^Дата в заявке изменена/);
+    const sent = h.alert.mock.calls[0]![0] as {
+      text: string; stub: string; buttons: Array<{ text: string; url?: string; payload?: string }>; stubActions: Array<{ payload: string }>;
+    };
+    expect(sent.text).toBe(sent.stub);
+    expect(sent.text).toContain('Турист перенёс заявку после вашего «Нет мест»');
+    expect(sent.text).toContain('на 15.07.2027 вы ответили «Нет мест», турист выбрал 21.07.2027 из свободных по календарю');
+    const answers = sent.buttons.filter((b) => b.payload).map((b) => parseChatAnswer(unwrapPress(b.payload!).ok ? (unwrapPress(b.payload!) as { payload: string }).payload : ''));
+    expect(answers.map((a) => a?.answer)).toEqual(['accept', 'other_date', 'no_seats', 'clarify', 'self']);
+    expect(answers.every((a) => a?.subjectId === LEAD && a.kind === 'lead')).toBe(true);
+    expect(sent.stubActions.map((b) => b.payload)).toEqual(sent.buttons.filter((b) => b.payload).map((b) => b.payload));
+    expect(sent.buttons.at(-1)!.url).toMatch(new RegExp(`/hub/operator/leads/${LEAD}$`));
+  });
+
+  it('Telegram-адрес из входа на сайт (не привязка карточки) — кнопок в заглушке нет, и текст к ним не зовёт', async () => {
+    world.lead = afterNoSeats();
+    world.free = [{ date: '2027-07-21', free: 3 }];
+    h.reach.mockResolvedValue({ maxChatId: '777', telegramChatId: '555', telegramSource: 'user', reachable: true, category: 'operator' });
+    await pick('2027-07-21');
+    const sent = h.alert.mock.calls[0]![0] as { text: string; stub: string; buttons: Array<{ payload?: string }>; stubActions: unknown[] };
+    expect(sent.stubActions).toEqual([]);
+    expect(sent.stub).toContain('Ответьте по новой дате в кабинете.');
+    expect(sent.stub).not.toMatch(/кнопками/);
+    // В MAX кнопки есть — и текст о них.
+    expect(sent.buttons.some((b) => b.payload)).toBe(true);
+    expect(sent.text).toContain('Ответьте по новой дате кнопками ниже или в кабинете.');
+  });
+
+  it('гиду со своими турами — его кнопки ответа только в MAX; просьбе после ответа кнопок нет', async () => {
+    world.lead = afterNoSeats();
+    world.free = [{ date: '2027-07-21', free: 3 }];
+    h.reach.mockResolvedValue({ maxChatId: '777', telegramChatId: '555', telegramSource: 'partner', reachable: true, category: 'guide', sellsTours: true });
+    await pick('2027-07-21');
+    const sent = h.alert.mock.calls[0]![0] as { buttons: Array<{ payload?: string }>; stubActions: unknown[] };
+    expect(sent.buttons.some((b) => b.payload)).toBe(true);
+    expect(sent.stubActions).toEqual([]);
+
+    h.alert.mockClear();
+    world.lead = baseLead({ answered: true, status: 'contacted' });
+    h.reach.mockResolvedValue({ maxChatId: '777', telegramChatId: '555', telegramSource: 'partner', reachable: true, category: 'operator' });
+    await pick('2027-07-21');
+    const req = h.alert.mock.calls[0]![0] as { text: string; buttons: Array<{ payload?: string }>; stubActions: unknown[] };
+    expect(req.text).toContain('Турист просит перенести заявку');
+    expect(req.buttons.some((b) => b.payload)).toBe(false);
+    expect(req.stubActions).toEqual([]);
+  });
+
+  it('«Нет мест» только на прежнюю дату — о текущей оператор не отвечал: обычное «перенёс на другую дату»', async () => {
+    world.lead = baseLead({ refused_dates: ['2027-07-10'] });
+    world.free = [{ date: '2027-07-21', free: 3 }];
+    await pick('2027-07-21');
+    const sent = h.alert.mock.calls[0]![0] as { text: string };
+    expect(sent.text).toContain('Турист перенёс заявку на другую дату');
+    expect(sent.text).not.toContain('после вашего');
   });
 });

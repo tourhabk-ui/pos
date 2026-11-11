@@ -53,13 +53,32 @@ export const MY_TRIP_DATE_DAILY_LIMIT = 3;
 
 const WAITING_SQL = `(${LEAD_WAITING_STATUSES.map((s) => `'${s}'`).join(', ')})`;
 
-/** Ответил ли оператор — одно выражение на чтение и на условие записи. */
-const ANSWERED_SQL = `(
+/**
+ * Ответил ли оператор — одно выражение на чтение и на условие записи.
+ *
+ * «Нет мест» дату за оператором не закрепляет (план «после отказа», этап 2а,
+ * 1422): он сказал, что на ЭТУ дату мест нет, — и человек вправе сам выбрать
+ * свободную. До 1422 любой ответ кнопкой запирал смену даты, и после «Нет
+ * мест» оставалась только просьба тому, кто уже отказал. Ответ кнопкой
+ * считается только того, кто сейчас адресат: после передачи большой группы
+ * ответ прежнего о заявке ничего не говорит.
+ */
+export const ANSWERED_SQL = `(
   l.status NOT IN ${WAITING_SQL}
   OR EXISTS (SELECT 1 FROM operator_bookings ob_a WHERE ob_a.lead_id = l.id AND ob_a.deleted_at IS NULL)
-  OR EXISTS (SELECT 1 FROM partner_incoming_answers pa_a WHERE pa_a.subject_kind = 'lead' AND pa_a.subject_id = l.id::text)
+  OR EXISTS (SELECT 1 FROM partner_incoming_answers pa_a
+              WHERE pa_a.subject_kind = 'lead' AND pa_a.subject_id = l.id::text
+                AND pa_a.partner_id = l.operator_id AND pa_a.answer <> 'no_seats')
   OR EXISTS (SELECT 1 FROM request_messages rm_a WHERE rm_a.lead_id = l.id AND rm_a.author = 'owner')
 )`;
+
+/** Даты, на которые адресат ответил «Нет мест» (1422): их не предлагаем и не ставим. */
+const REFUSED_DATES_SQL = `ARRAY(
+  SELECT pa_r.subject_date FROM partner_incoming_answers pa_r
+   WHERE pa_r.subject_kind = 'lead' AND pa_r.subject_id = l.id::text
+     AND pa_r.partner_id = l.operator_id AND pa_r.answer = 'no_seats'
+     AND pa_r.subject_date IS NOT NULL
+   ORDER BY pa_r.subject_date)`;
 
 /**
  * Заявка на тур, привязанная к этому чату ключом новой заявки. `$1` — канал,
@@ -74,6 +93,7 @@ export const MY_TRIP_DATE_LEAD_SQL = `
          ot.title AS tour_title,
          bk.booking_status, bk.booking_date::text AS booking_date,
          ${ANSWERED_SQL} AS answered,
+         ${REFUSED_DATES_SQL} AS refused_dates,
          (SELECT count(*)::int FROM lead_activity_log g
            WHERE g.lead_id = l.id AND g.action IN ('date_changed', 'date_change_requested')
              AND g.created_at > NOW() - INTERVAL '24 hours') AS date_actions
@@ -141,6 +161,8 @@ interface LeadDateRow {
   /** Дата брони по заявке: оператор мог завести бронь на другой день, чем просили. */
   booking_date: string | null;
   answered: boolean;
+  /** Даты, на которые адресат ответил «Нет мест» (1422). */
+  refused_dates: string[] | null;
   date_actions: number;
 }
 
@@ -221,10 +243,13 @@ function usable(lead: LeadDateRow | null | 'failed', today: string): Usable | Ch
 
 const isReply = (x: Usable | ChatReply): x is ChatReply => 'text' in x;
 
+const refusedOf = (lead: LeadDateRow): string[] => (lead.refused_dates ?? []).filter((d) => ISO_DAY.test(d));
+
 /** Что будет по нажатию — одной строкой над датами. */
-function ruleLine(answered: boolean): string {
-  return answered
-    ? 'Оператор уже ответил по заявке, поэтому дату меняет он: выберите дату — ему уйдёт ваша просьба перенести.'
+function ruleLine(answered: boolean, refusedOn: string | null): string {
+  if (answered) return 'Оператор уже ответил по заявке, поэтому дату меняет он: выберите дату — ему уйдёт ваша просьба перенести.';
+  return refusedOn
+    ? `Оператор ответил «Нет мест» на ${ruDate(refusedOn)} — выбранная дата сразу встанет в заявку, и оператор получит её с кнопками ответа.`
     : 'Оператор ещё не ответил — выбранная дата сразу встанет в заявку, а оператору уйдёт сообщение о переносе.';
 }
 
@@ -234,25 +259,45 @@ async function menu(channel: LinkChannel, chatId: string | number, leadId: strin
   if (isReply(u)) return u;
   if (u.lead.date_actions >= MY_TRIP_DATE_DAILY_LIMIT) return reply(TEXT.limit);
   const head = `Тур «${escapeHtml(u.title)}», в заявке ${ruDate(u.date)}, участников ${u.people}.`;
-  const free = await loadFreeDates(u.tourId, u.people, MY_TRIP_DATE_CHOICES + 1);
+  // Даты, на которые оператор уже ответил «Нет мест», не предлагаются: по
+  // календарю они могут быть свободны, но ответ оператора — правда о них.
+  const refused = refusedOf(u.lead);
+  const free = await loadFreeDates(u.tourId, u.people, MY_TRIP_DATE_CHOICES + 1 + refused.length);
   if (free.state === 'failed') return reply(TEXT.datesFailed);
   if (!free.hasCalendar) {
     return reply(`${head}\nРасписания у тура в системе нет — свободных дат показать не могу. Новую дату согласуйте с оператором: он подтверждает её сам.`);
   }
-  const dates = free.dates.filter((d) => d.date !== u.date).slice(0, MY_TRIP_DATE_CHOICES);
+  const dates = free.dates.filter((d) => d.date !== u.date && !refused.includes(d.date)).slice(0, MY_TRIP_DATE_CHOICES);
   if (dates.length === 0) {
     return reply(`${head}\nДругих свободных дат на ${u.people} чел. в календаре тура на год вперёд нет. Можно спросить оператора — он видит заявку.`);
   }
   return reply(
-    [head, `Свободные даты на ${u.people} чел.:`, ruleLine(u.lead.answered)].join('\n'),
+    [head, `Свободные даты на ${u.people} чел.:`, ruleLine(u.lead.answered, refused.includes(u.date) ? u.date : null)].join('\n'),
     dates.map((d) => ({ text: `${shortDate(d.date)} · мест ${d.free}`, payload: signPayload(myTripDatePickPayload(leadId, d.date)) })),
   );
 }
 
-/** Сообщение оператору без ПД: тур, даты, люди, места на новую дату. */
-export function operatorDateText(kind: 'changed' | 'request', u: { title: string; from: string; to: string; people: number; free: number }): string {
+/**
+ * Сообщение оператору без ПД: тур, даты, люди, места на новую дату.
+ * `refusedOn` — перенос после его «Нет мест» на прежнюю дату (1422): тогда
+ * так и сказано, и ответить по новой дате он может кнопками под сообщением.
+ */
+export function operatorDateText(
+  kind: 'changed' | 'request',
+  u: { title: string; from: string; to: string; people: number; free: number; refusedOn?: string | null },
+  /** Под сообщением есть кнопки ответа — только тогда текст зовёт к ним. */
+  withButtons = true,
+): string {
   const tour = `Тур «${escapeHtml(u.title)}», участников ${u.people}`;
   const seats = `По календарю на ${ruDate(u.to)} свободно мест: ${u.free}.`;
+  if (kind === 'changed' && u.refusedOn) {
+    return [
+      '<b>Турист перенёс заявку после вашего «Нет мест»</b>',
+      `${tour}: на ${ruDate(u.refusedOn)} вы ответили «Нет мест», турист выбрал ${ruDate(u.to)} из свободных по календарю.`,
+      seats,
+      withButtons ? 'Ответьте по новой дате кнопками ниже или в кабинете.' : 'Ответьте по новой дате в кабинете.',
+    ].join('\n');
+  }
   return kind === 'changed'
     ? [
       '<b>Турист перенёс заявку на другую дату</b>',
@@ -268,8 +313,19 @@ export function operatorDateText(kind: 'changed' | 'request', u: { title: string
     ].join('\n');
 }
 
-/** Оператору — лично, в его MAX или Telegram (без ПД — одна строка на оба). */
-async function notifyOperator(operatorId: string, leadId: string, text: string): Promise<OperatorNotice> {
+/**
+ * Оператору — лично, в его MAX или Telegram (без ПД — один текст на оба).
+ * `answer` — под сообщением кнопки ответа по заявке (перенос даты: ответ нужен
+ * по новой дате). Текст без ПД, поэтому кнопки туроператора уходят и в
+ * Telegram (`stubActions`) — но только в чат, привязанный к карточке: кабинет
+ * в Telegram узнаёт оператора по `partners.telegram_chat_id`, а в личный
+ * Telegram из `users.telegram_id` кнопка ответила бы «не выполняю». У гида
+ * кнопки «Связался / …» — только в MAX. Текст зовёт к кнопкам, только когда
+ * они под ним есть (`text(withButtons)`).
+ */
+async function notifyOperator(
+  operatorId: string, leadId: string, text: (withButtons: boolean) => string, answer = false,
+): Promise<OperatorNotice> {
   const { reachForPartner } = await import('@/lib/partners/reach');
   const reach = await reachForPartner(operatorId);
   if (reach === null) {
@@ -281,10 +337,13 @@ async function notifyOperator(operatorId: string, leadId: string, text: string):
     return 'none';
   }
   const { sendPdAlert } = await import('@/lib/notifications/pd-alert');
+  const answers = answer ? (await import('@/lib/notifications/lead-notify')).ownerLeadAnswerButtons(reach, leadId) : [];
+  const stubActions = reach.category === 'operator' && reach.telegramSource === 'partner' ? answers : [];
   const res = await sendPdAlert({
-    text,
-    stub: text,
-    buttons: [{ text: 'Открыть в кабинете', url: `${getPublicBaseUrl()}/hub/operator/leads/${leadId}` }],
+    text: text(answers.length > 0),
+    stub: text(stubActions.length > 0),
+    buttons: [...answers, { text: 'Открыть в кабинете', url: `${getPublicBaseUrl()}/hub/operator/leads/${leadId}` }],
+    stubActions,
     to: { maxChatId: reach.maxChatId, telegramChatId: reach.telegramChatId },
   });
   if (res.channel === 'max' && res.delivered) return 'max';
@@ -300,6 +359,12 @@ async function pick(channel: LinkChannel, chatId: string | number, leadId: strin
   let u = usable(await readLead(channel, chatId, leadId), today);
   if (isReply(u)) return u;
   if (date === u.date) return reply(`${ruDate(date)} уже стоит в заявке — ничего не изменено.`);
+  if (refusedOf(u.lead).includes(date)) {
+    return reply(
+      `На ${ruDate(date)} оператор уже ответил «Нет мест» — выберите другую дату.`,
+      [{ text: 'Изменить дату', payload: myTripDateMenuPayload(leadId) }],
+    );
+  }
   if (u.lead.date_actions >= MY_TRIP_DATE_DAILY_LIMIT) return reply(TEXT.limit);
   // Дата свободна СЕЙЧАС: между списком и нажатием места могли разобрать.
   const free = await loadFreeDates(u.tourId, u.people, 1, date);
@@ -311,7 +376,10 @@ async function pick(channel: LinkChannel, chatId: string | number, leadId: strin
       [{ text: 'Изменить дату', payload: myTripDateMenuPayload(leadId) }],
     );
   }
-  const factsOf = (cur: Usable) => ({ title: cur.title, from: cur.date, to: date, people: cur.people, free: slot.free });
+  const factsOf = (cur: Usable) => ({
+    title: cur.title, from: cur.date, to: date, people: cur.people, free: slot.free,
+    refusedOn: refusedOf(cur.lead).includes(cur.date) ? cur.date : null,
+  });
 
   if (!u.lead.answered) {
     let logId: string | null = null;
@@ -323,7 +391,8 @@ async function pick(channel: LinkChannel, chatId: string | number, leadId: strin
       return reply(TEXT.unchecked);
     }
     if (logId !== null) {
-      const notice = await notifyOperator(u.lead.operator_id, leadId, operatorDateText('changed', factsOf(u)));
+      const changedFacts = factsOf(u);
+      const notice = await notifyOperator(u.lead.operator_id, leadId, (b) => operatorDateText('changed', changedFacts, b), true);
       try {
         await pool.query(MY_TRIP_DATE_DELIVERY_SQL, [logId, notice]);
       } catch (err) {
@@ -347,7 +416,8 @@ async function pick(channel: LinkChannel, chatId: string | number, leadId: strin
     u = again;
   }
 
-  const notice = await notifyOperator(u.lead.operator_id, leadId, operatorDateText('request', factsOf(u)));
+  const requested = operatorDateText('request', factsOf(u));
+  const notice = await notifyOperator(u.lead.operator_id, leadId, () => requested);
   try {
     await pool.query(MY_TRIP_DATE_REQUEST_LOG_SQL, [leadId, u.date, date, channel, notice]);
   } catch (err) {

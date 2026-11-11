@@ -82,6 +82,7 @@ import {
   type RequestState, type RequestKind, type ConsentPurpose, type RequestNotifyStatus,
 } from '@/lib/mcp/request-status-schema';
 import { DECLINE_REASON_LABEL, DECLINE_REASONS, type DeclineReason } from '@/lib/requests/chat-answer-buttons';
+import { LEAD_ANSWER_DATE_SQL, ruAnswerDate } from '@/lib/requests/answer-date';
 import { BOOKING_STATUSES, LEAD_STATUSES, UNATTENDED_LEAD_STATUSES, type BookingStatus, type LeadStatus } from '@/lib/types/statuses';
 
 export { REQUEST_STATUS_TOOL_NAME, GET_REQUEST_STATUS_TOOL } from '@/lib/mcp/request-status-schema';
@@ -611,7 +612,7 @@ const GROUP_PASSED_ON = {
  * заявку, дату и цену он согласует сам.
  */
 function tourAnswerView(answer: string, reason: string | null, status: string | null, requested: string | null): AnswerView | null {
-  const on = requested ? ` на ${requested}` : ' на запрошенную дату';
+  const on = requested ? ` на ${ruAnswerDate(requested)}` : ' на запрошенную дату';
   switch (answer) {
     case 'accept':
       if (!answerHolds(status, 'contacted')) return null;
@@ -703,8 +704,11 @@ function leadAnswerView(row: StatusRow, purpose: ConsentPurpose, requested: stri
   const group = purpose === 'operator' && row.lead_group_over === true;
   if (purpose === 'operator' && row.lead_answer) {
     // Большая группа после отказа адресата уходит другим операторам — это
-    // не конец заявки, а передача.
-    if (group && (row.lead_answer === 'no_seats' || row.lead_answer === 'decline') && answerHolds(status, row.lead_answer === 'decline' ? 'lost' : null)) {
+    // не конец заявки, а передача. Кроме отказа по погоде или безопасности:
+    // его крон не передаёт (lib/leads/followup-scope, GROUP_DECLINED_LEAD_SQL).
+    const passedOn = row.lead_answer === 'no_seats'
+      || (row.lead_answer === 'decline' && row.lead_decline_reason !== 'weather');
+    if (group && passedOn && answerHolds(status, row.lead_answer === 'decline' ? 'lost' : null)) {
       return { ...GROUP_PASSED_ON, human: 'Оператор тура не может взять всю группу. Заявку на группу увидят другие операторы того же вида туров.' };
     }
     view = tourAnswerView(row.lead_answer, row.lead_decline_reason ?? null, status, requested);
@@ -811,6 +815,10 @@ const REQUEST_STATUS_SELECT = `
     LEFT JOIN partner_incoming_answers pa
            ON pa.subject_kind = 'lead' AND pa.subject_id = k.lead_id::text
           AND pa.partner_id::text = l.operator_id::text
+          -- …и на ту дату, что сейчас в заявке (1422): после «Нет мест» человек
+          -- мог сам выбрать другую, и ответ о прежней дате о новой не говорит.
+          -- Уникальность (предмет, партнёр, дата) — не больше строки на ключ.
+          AND pa.subject_date IS NOT DISTINCT FROM ${LEAD_ANSWER_DATE_SQL('l')}
     LEFT JOIN LATERAL (
       SELECT pal.details->>'answer' AS answer
         FROM lead_activity_log pal

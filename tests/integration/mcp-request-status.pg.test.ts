@@ -712,6 +712,43 @@ withPg('get_request_status на настоящем PostgreSQL', () => {
     }
   });
 
+  // 1422: ответ, записанный до миграции, получает дату заявки тем же правилом,
+  // что LEAD_ANSWER_DATE_SQL; повтор миграции ничего не ломает.
+  it('миграция 1422: дата старым ответам — по заявке, строгий ISO; повтор безопасен', async () => {
+    const { readFileSync } = await import('node:fs');
+    const { LEAD_ANSWER_DATE_SQL } = await import('@/lib/requests/answer-date');
+    const op = (await pool.query<{ id: string }>(
+      `INSERT INTO partners (name, category, contact) VALUES ('Оператор 1422', 'operator', '{}') RETURNING id`,
+    )).rows[0].id;
+    const lead = async (sd: object) => (await pool.query<{ id: string }>(
+      `INSERT INTO leads (name, phone, comment, status, operator_id, source_data)
+       VALUES ('Тест', '+79990001422', 'тест', 'new', $1, $2::jsonb) RETURNING id::text AS id`, [op, JSON.stringify(sd)],
+    )).rows[0].id;
+    const dated = await lead({ date: '2027-03-05' });
+    const loose = await lead({ date: 'начало марта' });
+    const none = await lead({});
+    // Как писал код до 1422: без даты.
+    for (const id of [dated, loose, none]) {
+      await pool.query(`INSERT INTO partner_incoming_answers (partner_id, subject_kind, subject_id, answer) VALUES ($1, 'lead', $2, 'no_seats')`, [op, id]);
+    }
+    await pool.query(readFileSync('migrations/1422_incoming_answer_subject_date.sql', 'utf8'));
+    const got = await pool.query<{ subject_id: string; subject_date: string | null; want: string | null }>(
+      `SELECT pa.subject_id, pa.subject_date, ${LEAD_ANSWER_DATE_SQL('l')} AS want
+         FROM partner_incoming_answers pa JOIN leads l ON l.id::text = pa.subject_id
+        WHERE pa.subject_id = ANY($1)`, [[dated, loose, none]],
+    );
+    expect(new Map(got.rows.map((r) => [r.subject_id, r.subject_date]))).toEqual(new Map([[dated, '2027-03-05'], [loose, null], [none, null]]));
+    for (const r of got.rows) expect(r.subject_date).toBe(r.want);
+    // Кривая дата в колонку не ляжет; у не-заявки даты нет.
+    await expect(pool.query(
+      `INSERT INTO partner_incoming_answers (partner_id, subject_kind, subject_id, answer, subject_date) VALUES ($1, 'lead', $2, 'accept', '05.03.2027')`, [op, none],
+    )).rejects.toMatchObject({ code: '23514' });
+    await expect(pool.query(
+      `INSERT INTO partner_incoming_answers (partner_id, subject_kind, subject_id, answer, subject_date) VALUES ($1, 'booking', '77', 'accept', '2027-03-05')`, [op],
+    )).rejects.toMatchObject({ code: '23514' });
+    await pool.query(`DELETE FROM partner_incoming_answers WHERE partner_id = $1`, [op]);
+  });
+
   // План «после отказа», этап 1 (11.11): статус читает ответ адресата кнопкой.
   // До этого дня после «Нет мест» SQL не видел ответа, и агент слышал «ждём».
   it('ответ адресата кнопкой: тур — текущего адресата; машина — журнал; жильё — owner_answer; ПД нет', async () => {
@@ -730,23 +767,28 @@ withPg('get_request_status на настоящем PostgreSQL', () => {
 
     // «Нет мест» текущего адресата — отказ с датой.
     const l1 = await lead('new', opA, '2027-01-15');
-    await pool.query(`INSERT INTO partner_incoming_answers (partner_id, subject_kind, subject_id, answer) VALUES ($1, 'lead', $2, 'no_seats')`, [opA, l1]);
+    // Ответ — на дату заявки (1422): так его пишет recordChatAnswer.
+    await pool.query(`INSERT INTO partner_incoming_answers (partner_id, subject_kind, subject_id, answer, subject_date) VALUES ($1, 'lead', $2, 'no_seats', '2027-01-15')`, [opA, l1]);
     const k1 = (await issueRequestKey({ leadId: l1 }, 'create_booking_request')) ?? '';
     const v1 = await readRequestStatus(k1);
-    expect(v1).toMatchObject({ state: 'declined', human: 'Оператор ответил: на 2027-01-15 мест нет.' });
+    expect(v1).toMatchObject({ state: 'declined', human: 'Оператор ответил: на 15.01.2027 мест нет.' });
     expect(await runRequestStatusTool({ key: k1 })).not.toMatch(/Анна|7999000|для ответа/);
+
+    // Ответ на прежнюю дату заявки (1422) о текущей не говорит: человек сам выбрал другую.
+    await pool.query(`UPDATE leads SET source_data = source_data || '{"date":"2027-01-25"}'::jsonb WHERE id = $1`, [l1]);
+    expect((await readRequestStatus(k1)).state).toBe('awaiting_operator');
 
     // Ответ прежнего адресата после передачи заявки другому — не в счёт.
     const l2 = await lead('new', opA, '2027-01-16');
-    await pool.query(`INSERT INTO partner_incoming_answers (partner_id, subject_kind, subject_id, answer) VALUES ($1, 'lead', $2, 'no_seats')`, [opB, l2]);
+    await pool.query(`INSERT INTO partner_incoming_answers (partner_id, subject_kind, subject_id, answer, subject_date) VALUES ($1, 'lead', $2, 'no_seats', '2027-01-16')`, [opB, l2]);
     const k2 = (await issueRequestKey({ leadId: l2 }, 'create_booking_request')) ?? '';
     expect((await readRequestStatus(k2)).state).toBe('awaiting_operator');
 
     // «Отказать» с причиной — причина словами, свободного текста нет.
     const l3 = await lead('lost', opA, '2027-01-17');
     await pool.query(
-      `INSERT INTO partner_incoming_answers (partner_id, subject_kind, subject_id, answer, decline_reason, decline_note)
-       VALUES ($1, 'lead', $2, 'decline', 'weather', 'Записка оператора')`, [opA, l3],
+      `INSERT INTO partner_incoming_answers (partner_id, subject_kind, subject_id, answer, decline_reason, decline_note, subject_date)
+       VALUES ($1, 'lead', $2, 'decline', 'weather', 'Записка оператора', '2027-01-17')`, [opA, l3],
     );
     const k3 = (await issueRequestKey({ leadId: l3 }, 'create_booking_request')) ?? '';
     const v3 = await readRequestStatus(k3);
@@ -783,7 +825,7 @@ withPg('get_request_status на настоящем PostgreSQL', () => {
        VALUES ('Анна Ответова', '+79990005511', 'Группа', 'new', $1, $2::jsonb) RETURNING id`,
       [opA, JSON.stringify({ date: '2027-01-20', tour_id: String(tourId), group_over_seats: true })],
     )).rows[0].id;
-    await pool.query(`INSERT INTO partner_incoming_answers (partner_id, subject_kind, subject_id, answer) VALUES ($1, 'lead', $2, 'no_seats')`, [opA, lg]);
+    await pool.query(`INSERT INTO partner_incoming_answers (partner_id, subject_kind, subject_id, answer, subject_date) VALUES ($1, 'lead', $2, 'no_seats', '2027-01-20')`, [opA, lg]);
     const kg = (await issueRequestKey({ leadId: lg }, 'create_booking_request')) ?? '';
     expect(await readRequestStatus(kg)).toMatchObject({ state: 'awaiting_operator' });
     expect((await readRequestStatus(kg)).human).toMatch(/увидят другие операторы/);
