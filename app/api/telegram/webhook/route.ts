@@ -42,7 +42,8 @@ import { enqueueTelegramChat, telegramChatKey, webhookAwaitsHandler } from '@/li
 import { emphasizeTripDays, sanitizeForTelegram } from '@/lib/telegram/kuzmich-format';
 import { matchTouristButton, touristReplyMarkup, touristRentalText, TOURIST_ASK_TEXT, type TouristButton } from '@/lib/telegram/tourist-keyboard';
 import { chatHasRequests } from '@/lib/requests/chat-links';
-import { isMyTripAsk, myTripReply } from '@/lib/requests/my-trip';
+import { isMyTripAsk, myTripMessage } from '@/lib/requests/my-trip';
+import { isMyTripDatePayload } from '@/lib/requests/my-trip-ask';
 import { MCHS_CHAT_BUTTON, mchsTouristLinks, mchsTouristText } from '@/lib/safety/mchs-chat';
 import { catalogFacts, loadShowcaseTours } from '@/lib/telegram/tourist-tours';
 import { touristOperatorsList } from '@/lib/telegram/operators-list';
@@ -1670,8 +1671,12 @@ async function deliverTelegramUpdate(update: TelegramUpdate): Promise<void> {
       // иначе записывался описанием поездки.
       // «Моя поездка» (#2970): заявки ЭТОГО чата по связи 1416, без поиска
       // по телефону и имени. Беда в тексте сюда не доходит: фраза — целиком.
+      // Под списком — «Изменить дату» у заявок на тур (шаг 3): инлайн-кнопки
+      // встают под этим сообщением, постоянная клавиатура туриста остаётся.
       if (!admin && isMyTripAsk(text)) {
-        await sendTourist(chatId, esc(await myTripReply('telegram', chatId)));
+        const trip = await myTripMessage('telegram', chatId);
+        if (trip.buttons.length) await sendRoleRows(String(chatId), esc(trip.text), trip.buttons.map((b) => [b]));
+        else await sendTourist(chatId, esc(trip.text));
         return;
       }
       const button = !admin ? matchTouristButton(text) : null;
@@ -1845,6 +1850,21 @@ async function deliverTelegramUpdate(update: TelegramUpdate): Promise<void> {
           return armChatWait('owner', p.target, pressChat.id, 'telegram');
         })();
       await sendChatReplyTg(String(pressChat.id), reply);
+      return;
+    }
+
+    // «Изменить дату» под «Моей поездкой» (#2970, шаг 3): свободные даты тура
+    // кнопками и выбор даты. Только личный чат; право — связь этого чата с
+    // заявкой ключом новой заявки (lib/requests/my-trip-date).
+    if (isMyTripDatePayload(data)) {
+      await telegramService.answerCallback(cq.id);
+      const pressChat = cq.message?.chat;
+      if (!pressChat || pressChat.type !== 'private') {
+        await sendHTML(callbackChatId, 'Дату заявки меняют в личном диалоге с ботом. Здесь ничего не изменено.');
+        return;
+      }
+      const { pressMyTripDate } = await import('@/lib/requests/my-trip-date');
+      await sendChatReplyTg(String(pressChat.id), await pressMyTripDate(data, 'telegram', pressChat.id));
       return;
     }
 

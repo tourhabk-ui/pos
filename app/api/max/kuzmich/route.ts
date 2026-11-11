@@ -95,6 +95,7 @@ import { MCHS_CHAT_BUTTON, MCHS_TOURIST_PAYLOAD, mchsTouristLinks, mchsTouristTe
 import { chatHasRequests } from '@/lib/requests/chat-links';
 import { MY_TRIP_BUTTON, isMyTripAsk, myTripMessage } from '@/lib/requests/my-trip';
 import { isMyTripWritePayload, pressMyTripWrite } from '@/lib/requests/my-trip-write';
+import { isMyTripDatePayload } from '@/lib/requests/my-trip-ask';
 import { getPublicBaseUrl } from '@/lib/config';
 
 type ButtonIntent = 'default' | 'positive' | 'negative';
@@ -995,6 +996,12 @@ async function handleActionPress(
     // «Написать оператору» под «Моей поездкой» (#2970): право — связь чата с заявкой.
     if (isMyTripWritePayload(payload)) {
       await sendChatReplies(chatId, [await pressMyTripWrite(payload, chatId)]);
+      return;
+    }
+    // «Изменить дату» под «Моей поездкой» (#2970, шаг 3): та же связь чата с заявкой.
+    if (isMyTripDatePayload(payload)) {
+      const { pressMyTripDate } = await import('@/lib/requests/my-trip-date');
+      await sendChatReplies(chatId, [await pressMyTripDate(payload, 'max', chatId)]);
       return;
     }
     const press = parseChatPress(payload);

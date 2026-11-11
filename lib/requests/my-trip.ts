@@ -29,10 +29,13 @@ import type { DepartingTour, SituationSources } from '@/lib/trips/situation-stor
 import { logText } from '@/lib/log/log-text';
 import type { ChatTarget } from '@/lib/requests/request-chat';
 import { signPayload } from '@/lib/chat-cabinet/signed-payload';
-import { myTripWritePayload, myTripWriteText } from '@/lib/requests/my-trip-ask';
+import { myTripDateMenuPayload, myTripDateText, myTripWritePayload, myTripWriteText } from '@/lib/requests/my-trip-ask';
 
 /** Сколько дней вперёд показывается обстановка: столько дней даёт прогноз (liveSources). */
 export const MY_TRIP_SITUATION_DAYS = 5;
+/** Ключ заявки на тур на дату — только у неё дату меняют кнопкой. */
+const BOOKING_REQUEST_TOOL = 'create_booking_request';
+
 /** Сколько заявок показываем: свежие первыми. */
 export const MY_TRIP_MAX_ITEMS = 5;
 
@@ -58,6 +61,12 @@ export interface MyTripItem {
    * Кнопка «Написать оператору» (#2970, шаг 3) — по ней; null — писать некому.
    */
   write: ChatTarget | null;
+  /**
+   * Номер лида, у которого можно сменить дату свободной датой тура (#2970,
+   * шаг 3): заявка на тур на дату, адресованная оператору, ключом новой
+   * заявки, не закрыта и поездка ещё впереди. null — кнопки нет.
+   */
+  dateChange: string | null;
 }
 
 export type MyTrip =
@@ -97,6 +106,9 @@ function addDays(iso: string, n: number): string {
   d.setUTCDate(d.getUTCDate() + n);
   return d.toISOString().slice(0, 10);
 }
+
+/** Состояния, при которых дату ещё меняют: сразу или просьбой оператору. */
+const DATE_CHANGE_STATES = new Set(['awaiting_operator', 'operator_contacted', 'in_progress', 'confirmed']);
 
 const isHandoffKey = (r: StatusRow): boolean => typeof r.tool_name === 'string' && r.tool_name.startsWith('handoff:');
 
@@ -217,7 +229,11 @@ export async function loadMyTrip(
       : row.lead_id && row.opens_chat === true && row.lead_addressed === true
         ? { kind: 'lead', id: row.lead_id }
         : null;
-    return { what: view.tour ?? view.accommodation, date, human: view.human, situation, write };
+    const dateChange = row.lead_id && row.tool_name === BOOKING_REQUEST_TOOL && row.opens_chat === true
+      && row.lead_addressed === true && DATE_CHANGE_STATES.has(view.state) && date !== null && date >= today
+      ? row.lead_id
+      : null;
+    return { what: view.tour ?? view.accommodation, date, human: view.human, situation, write, dateChange };
   });
   return { outcome: 'ok', items };
 }
@@ -281,28 +297,33 @@ export function myTripText(trip: MyTrip, opts: { channel?: LinkChannel } = {}): 
   ].join('\n\n');
 }
 
-/** Кнопка-запись под «Моей поездкой» в MAX: подпись и назначение. */
+/** Кнопка под «Моей поездкой»: подпись и назначение. */
 export interface MyTripButton {
   text: string;
   payload: string;
 }
 
 /**
- * Кнопки «Написать оператору» под списком — по одной на заявку с перепиской;
- * номер — номер заявки в списке, если их больше одной. Только MAX.
+ * Кнопки под списком, по заявкам: «Написать оператору» (только MAX —
+ * переписка клиента живёт там) и «Изменить дату» (MAX и Telegram); номер —
+ * номер заявки в списке, если их больше одной.
  */
-export function myTripButtons(trip: MyTrip): MyTripButton[] {
+export function myTripButtons(trip: MyTrip, channel: LinkChannel = 'max'): MyTripButton[] {
   if (trip.outcome !== 'ok') return [];
   const many = trip.items.length > 1;
-  return trip.items.flatMap((it, i) => (it.write
-    ? [{ text: myTripWriteText(it.write, many ? i + 1 : null), payload: signPayload(myTripWritePayload(it.write)) }]
-    : []));
+  return trip.items.flatMap((it, i) => {
+    const n = many ? i + 1 : null;
+    const out: MyTripButton[] = [];
+    if (it.write && channel === 'max') out.push({ text: myTripWriteText(it.write, n), payload: signPayload(myTripWritePayload(it.write)) });
+    if (it.dateChange) out.push({ text: myTripDateText(n), payload: myTripDateMenuPayload(it.dateChange) });
+    return out;
+  });
 }
 
-/** Ответ с кнопками: текст и кнопки (кнопки — только MAX). */
+/** Ответ с кнопками: текст и кнопки канала. */
 export async function myTripMessage(channel: LinkChannel, chatId: string | number): Promise<{ text: string; buttons: MyTripButton[] }> {
   const trip = await loadMyTrip(channel, chatId);
-  return { text: myTripText(trip, { channel }), buttons: channel === 'max' ? myTripButtons(trip) : [] };
+  return { text: myTripText(trip, { channel }), buttons: myTripButtons(trip, channel) };
 }
 
 /** Всё вместе: прочитать и сказать. */

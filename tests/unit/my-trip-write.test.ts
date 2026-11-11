@@ -64,7 +64,7 @@ describe('кнопка «Написать оператору»', () => {
 describe('кнопки под «Моей поездкой»', () => {
   const trip = (writes: ({ kind: 'lead' | 'stay'; id: string } | null)[]): MyTrip => ({
     outcome: 'ok',
-    items: writes.map((w, i) => ({ what: `Тур ${i + 1}`, date: '2027-07-15', human: 'Ждёт ответа оператора', situation: { kind: 'later' as const }, write: w })),
+    items: writes.map((w, i) => ({ what: `Тур ${i + 1}`, date: '2027-07-15', human: 'Ждёт ответа оператора', situation: { kind: 'later' as const }, write: w, dateChange: null })),
   });
 
   it('только у заявок с перепиской; номер — когда заявок больше одной', () => {

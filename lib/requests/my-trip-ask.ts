@@ -52,3 +52,51 @@ export function myTripWriteText(target: MyTripWriteTarget, n: number | null): st
   const who = target.kind === 'stay' ? 'Написать хозяину' : 'Написать оператору';
   return n === null ? who : `${who} · ${n}`;
 }
+
+// ── «Изменить дату» под «Моей поездкой» (#2970, шаг 3) ──────────────────────
+// Слово владельца 11.11: свободной датой тура прямо в чате, без страницы
+// тура; пока оператор не ответил — дата меняется сразу, после ответа —
+// просьба оператору. Только заявка на тур на дату (лид create_booking_request):
+// у запроса мест (тур без расписания) свободных дат нет по построению.
+// Само нажатие — lib/requests/my-trip-date.
+
+/** `md:<32 hex>` — показать свободные даты (только чтение). */
+const DATE_MENU_RE = /^md:([0-9a-f]{32})$/;
+/** `mp:<32 hex><ГГММДД>` — выбрать дату (запись, подписывается). */
+const DATE_PICK_RE = /^mp:([0-9a-f]{32})(\d{6})$/;
+
+export function myTripDateMenuPayload(leadId: string): string {
+  return `md:${compact(leadId)}`;
+}
+
+/** Дата ГГГГ-ММ-ДД кнопкой: ГГММДД (кнопка с подписью ≤ 64 байт). */
+export function myTripDatePickPayload(leadId: string, isoDate: string): string {
+  const [y, m, d] = isoDate.slice(0, 10).split('-');
+  return `mp:${compact(leadId)}${y!.slice(2)}${m}${d}`;
+}
+
+export function isMyTripDatePayload(payload: string): boolean {
+  return payload.startsWith('md:') || payload.startsWith('mp:');
+}
+
+export type MyTripDatePress =
+  | { kind: 'menu'; leadId: string }
+  | { kind: 'pick'; leadId: string; date: string };
+
+export function parseMyTripDate(payload: string): MyTripDatePress | null {
+  const menu = DATE_MENU_RE.exec(payload);
+  if (menu) return { kind: 'menu', leadId: uuidOf(menu[1]!) };
+  const pick = DATE_PICK_RE.exec(payload);
+  if (!pick) return null;
+  const v = pick[2]!;
+  const date = `20${v.slice(0, 2)}-${v.slice(2, 4)}-${v.slice(4, 6)}`;
+  // Битая дата (31.02) — не дата: Date нормализовал бы её в март.
+  const probe = new Date(`${date}T00:00:00Z`);
+  if (Number.isNaN(probe.getTime()) || probe.toISOString().slice(0, 10) !== date) return null;
+  return { kind: 'pick', leadId: uuidOf(pick[1]!), date };
+}
+
+/** Надпись кнопки под списком; номер — номер заявки, если их больше одной. */
+export function myTripDateText(n: number | null): string {
+  return n === null ? 'Изменить дату' : `Изменить дату · ${n}`;
+}

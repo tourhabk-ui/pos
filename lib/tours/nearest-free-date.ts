@@ -201,3 +201,56 @@ export function openYearsLabel(years: readonly number[] | null): string {
   const last = sorted[sorted.length - 1]!;
   return first === last ? String(first) : `${first}–${last}`;
 }
+
+/**
+ * Свободные даты тура для выбора кнопками (#2970, «Изменить дату»): то же
+ * условие, что у ближайшей свободной даты, плюс мест хватает на `people`.
+ * `$1` — тур, `$2` — люди, `$3` — сколько дат, `$4` — одна дата или NULL
+ * (проверка выбранной перед записью).
+ */
+export const FREE_DATES_SQL = `
+  SELECT ta_fd.date::text AS date, ${freeSlotsSql('ta_fd', 'ot_fd', 'occ_fd.taken')}::int AS free
+    FROM tour_availability ta_fd
+    JOIN operator_tours ot_fd ON ot_fd.id = ta_fd.operator_tour_id
+    CROSS JOIN LATERAL (${occupiedOnDaySql({ booking: 'ob_fd', day: 'ta_fd.date', tourId: 'ta_fd.operator_tour_id' })}) occ_fd
+   WHERE ta_fd.operator_tour_id = $1::bigint
+     AND ta_fd.date >= (NOW() AT TIME ZONE 'Asia/Kamchatka')::date
+     AND ta_fd.date <= (NOW() AT TIME ZONE 'Asia/Kamchatka')::date + INTERVAL '1 year'
+     AND COALESCE(ta_fd.is_cancelled, false) = false
+     AND ta_fd.deleted_at IS NULL
+     AND ($4::date IS NULL OR ta_fd.date = $4::date)
+     AND ${freeSlotsSql('ta_fd', 'ot_fd', 'occ_fd.taken')} >= GREATEST($2::int, 1)
+   ORDER BY ta_fd.date
+   LIMIT $3::int`;
+
+/** Есть ли у тура хоть одна будущая строка календаря: нет — «даты по заявке», а не «мест нет». */
+export const TOUR_HAS_CALENDAR_SQL = `
+  SELECT EXISTS (
+    SELECT 1 FROM tour_availability ta_hc
+     WHERE ta_hc.operator_tour_id = $1::bigint
+       AND ta_hc.date >= (NOW() AT TIME ZONE 'Asia/Kamchatka')::date
+       AND ta_hc.deleted_at IS NULL
+  ) AS has`;
+
+export type FreeDates =
+  | { state: 'ok'; dates: { date: string; free: number }[]; hasCalendar: boolean }
+  | { state: 'failed' };
+
+/** Свободные даты тура на `people` человек, по возрастанию; отказ базы — `failed` и SQLSTATE в лог. */
+export async function loadFreeDates(tourId: number, people: number, limit: number, onlyDate: string | null = null): Promise<FreeDates> {
+  try {
+    const [free, cal] = await Promise.all([
+      pool.query<{ date: string; free: number }>(FREE_DATES_SQL, [tourId, people, limit, onlyDate]),
+      pool.query<{ has: boolean }>(TOUR_HAS_CALENDAR_SQL, [tourId]),
+    ]);
+    return { state: 'ok', dates: free.rows.map((r) => ({ date: r.date, free: Number(r.free) })), hasCalendar: cal.rows[0]?.has === true };
+  } catch (err) {
+    const code = (err as { code?: unknown })?.code;
+    console.error(
+      '[nearest-free-date] свободные даты тура не прочитаны:',
+      typeof code === 'string' ? `SQLSTATE=${logText(code, 10)}` : 'SQLSTATE=нет',
+      logText(err instanceof Error ? err.message : err, 200),
+    );
+    return { state: 'failed' };
+  }
+}
