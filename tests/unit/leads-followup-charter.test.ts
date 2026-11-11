@@ -37,7 +37,7 @@ const RENTAL = { id: 'l-rental', name: 'Олег Арендов', phone: '+79990
 const RENTAL_CONSENT_ONLY = { id: 'l-rental-consent', name: 'Зоя Прокатова', phone: '+79990000005', source_data: {}, pd_consent_version: PD_CONSENT_RENTAL_VERSION };
 const TRIP_PART = { id: 'l-trip', name: 'Вера Поездкина', phone: '+79990000006', source_data: { source: 'mcp', kind: 'trip_manager', trip_id: 'TRIP-abc123', trip_parts: ['transfer'] }, pd_consent_version: '2026-10-08' };
 const PLAIN = { id: 'l-plain', name: 'Анна Обычная', phone: '+79990000003', source_data: { interests: ['volcano'] }, pd_consent_version: '2026-09-01' };
-const OPERATOR = { name: 'Туроператор', slug: 'tour-op', telegram_chat_id: null, user_telegram_id: null, max_chat_id: '555' };
+const OPERATOR = { id: '7f3b2c1a-0000-4000-8000-000000000001', name: 'Туроператор', slug: 'tour-op', telegram_chat_id: null, user_telegram_id: null, max_chat_id: '555' };
 
 let leadsParams: unknown[] | undefined;
 const savedSecret = process.env.CRON_SECRET;
