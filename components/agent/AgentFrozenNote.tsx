@@ -1,11 +1,20 @@
+'use client';
+
 /**
- * Строка сверху кабинета агента, пока роль заморожена (#3212): вознаграждение
- * не начисляется, пока Ведар не принимает оплату. Роль открыта — строки нет.
- * Правило одно — `agentRoleOpen()` (lib/auth/agent-role).
+ * Заморозка роли агента на экране (#3212): вознаграждение не начисляется,
+ * пока Ведар не принимает оплату. Правило одно — `agentRoleOpen()`
+ * (lib/auth/agent-role).
+ *
+ * Клиентский модуль намеренно: серверные страницы хаба, импортирующие
+ * серверный код, обязаны сверять роль до чтения данных
+ * (hub-server-pages-role-gate). Заслонка данных не читает, и страница
+ * «Комиссий» и «Рефералов» остаётся клиентской обёрткой.
  */
+import type { ReactNode } from 'react';
 import { Snowflake } from 'lucide-react';
 import { agentRoleOpen, AGENT_ROLE_FROZEN_NOTE, AGENT_MONEY_CLOSED } from '@/lib/auth/agent-role';
 
+/** Строка сверху кабинета, пока роль заморожена. Роль открыта — строки нет. */
 export function AgentFrozenNote() {
   if (agentRoleOpen()) return null;
   return (
@@ -20,8 +29,13 @@ export function AgentFrozenNote() {
   );
 }
 
-/** Раздел о деньгах агента по прямому адресу, пока роль заморожена. */
-export function AgentMoneyClosed({ title }: { title: string }) {
+/**
+ * Раздел о деньгах агента («Комиссии», «Рефералы»): при замороженной роли —
+ * «раздел закрыт», и сам раздел не монтируется, значит и свои данные не
+ * запрашивает. Роль открыта — раздел как был.
+ */
+export function AgentMoneyGate({ title, children }: { title: string; children: ReactNode }) {
+  if (agentRoleOpen()) return <>{children}</>;
   return (
     <section className="ds-card space-y-2" data-testid="agent-money-closed">
       <h1 className="ds-h2">{title}</h1>

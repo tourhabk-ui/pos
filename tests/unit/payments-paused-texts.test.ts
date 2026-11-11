@@ -42,8 +42,6 @@ const GATED = [
   'components/agent/Dashboard/UpcomingBookingsTable.tsx',
   'app/hub/agent/find/_FindToursClient.tsx',
   'app/hub/agent/stats/_StatsClient.tsx',
-  'app/hub/agent/commissions/page.tsx',
-  'app/hub/agent/referral/page.tsx',
   'app/auth/login/_AuthPageClient.tsx',
   'app/api/auth/register/route.ts',
 ];
