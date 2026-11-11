@@ -1439,7 +1439,8 @@ withPg('переписка по заявке на настоящем PostgreSQL'
       sent.dm.length = 0;
       sent.pd.length = 0;
       const o2 = await notices.deliverAnswerNotice(s2.ok && s2.notice ? s2.notice.id : '0');
-      expect(o2).toEqual({ state: 'undelivered', manager: 'max', hadChat: false });
+      // Подписки агента у заявки с формы нет — и в исходе об агенте ни слова неправды (ревью 2б).
+      expect(o2).toEqual({ state: 'undelivered', manager: 'max', why: { broken: false, chat: 'none', agent: 'none' } });
       expect(sent.dm).toHaveLength(0);
       expect(sent.pd).toHaveLength(1);
       expect(sent.pd[0]!.to).toBeUndefined();
@@ -1472,9 +1473,65 @@ withPg('переписка по заявке на настоящем PostgreSQL'
       await status.readRequestStatus(k6!.key, { reader: 'page', seen: true });
       expect(await noticeOf(L6)).toEqual([expect.objectContaining({ state: 'delivered', delivered_via: 'page_seen' })]);
 
-      // Застрявшее для сторожа — запрос выполняется; ждущее с истёкшим захватом добивка берёт.
-      await pool.query(`UPDATE answer_notices SET claimed_until = NOW() - INTERVAL '1 hour' WHERE lead_id = $1::uuid`, [L6]);
-      expect((await pool.query(notices.NOTICE_STUCK_SQL)).rows[0]).toHaveProperty('count');
+      // 4. Сторож застрявшего (ревью 2б: прежняя проверка была пустой) — окно сутки, два рода.
+      const L7 = await mkLead('Жанна Обрыв', '+79995550807'); // «ждёт», захват истёк час назад
+      const L8 = await mkLead('Захар Безписьма', '+79995550808'); // «не доставлено», менеджеру не ушло
+      const L9 = await mkLead('Ия Заглушка', '+79995550809'); // «не доставлено», заглушка менеджеру ушла
+      const L10 = await mkLead('Кира Свежая', '+79995550810'); // «ждёт», захват свежий
+      const L11 = await mkLead('Лев Позже', '+79995550811'); // дошло после письма, «звонить не нужно» не ушло
+      const L12 = await mkLead('Мила Старая', '+79995550812'); // «ждёт», но строке двое суток
+      const L13 = await mkLead('Нина Сбой', '+79995550813'); // «ждёт» после двух обрывов — третий разбор уходит менеджеру
+      for (const L of [L7, L8, L9, L10, L11, L12, L13]) expect(await answer(L, 'no_seats')).toMatchObject({ notice: { state: 'pending' } });
+      const setNotice = (L: string, set: string) => pool.query(`UPDATE answer_notices SET ${set} WHERE lead_id = $1::uuid`, [L]);
+      await setNotice(L7, `claimed_until = NOW() - INTERVAL '1 hour'`);
+      await setNotice(L8, `state = 'undelivered', tried = 'max:bad_id', manager_channel = 'none', decided_at = NOW() - INTERVAL '1 hour', claimed_until = NULL`);
+      await setNotice(L9, `state = 'undelivered', tried = 'max:bad_id', manager_channel = 'telegram-stub',
+                           manager_alerted_at = NOW() - INTERVAL '1 hour', decided_at = NOW() - INTERVAL '1 hour', claimed_until = NULL`);
+      await setNotice(L11, `state = 'delivered', delivered_via = 'agent_read', delivered_at = NOW() - INTERVAL '1 hour', manager_channel = 'max',
+                            manager_alerted_at = NOW() - INTERVAL '2 hours', decided_at = NOW() - INTERVAL '2 hours', claimed_until = NULL`);
+      await setNotice(L12, `created_at = NOW() - INTERVAL '2 days', claimed_until = NOW() - INTERVAL '1 hour'`);
+      await setNotice(L13, `attempts = 2, claimed_until = NOW() - INTERVAL '1 hour'`);
+      // «Дошло» без времени доставки — нарушение CHECK: сторож «звонить не нужно» опирается на delivered_at.
+      await expect(setNotice(L10, `state = 'delivered', delivered_via = 'page_seen'`)).rejects.toMatchObject({ code: '23514' });
+      const short = (L: string) => L.slice(0, 8);
+      const stuckNow = async () => {
+        const s = (await pool.query(notices.NOTICE_STUCK_SQL)).rows[0] as { count: string; ids: string | null; uncleared: string; uncleared_ids: string | null };
+        return { s, ids: (s.ids ?? '').split(','), unc: (s.uncleared_ids ?? '').split(',') };
+      };
+      const before = await stuckNow();
+      expect(before.ids).toEqual(expect.arrayContaining([short(L7), short(L8)]));
+      for (const L of [L9, L10, L11, L12]) expect(before.ids).not.toContain(short(L));
+      expect(before.unc).toContain(short(L11));
+      for (const L of [L7, L8, L9, L10, L12]) expect(before.unc).not.toContain(short(L));
+      expect(Number(before.s.count)).toBeGreaterThanOrEqual(2);
+
+      // Добивка. L8 переросла ответ, пока письмо ждало повтора (заявка стала сделкой) — письма с прежним отказом нет.
+      await pool.query(`UPDATE leads SET status = 'converted' WHERE id = $1`, [L8]);
+      sent.pd.length = 0;
+      const run2 = await notices.runAnswerNotices();
+      expect(run2.status).toBe('ok');
+      // L7: ждущее с истёкшим захватом взято; попытка записана при разборе; чатов и агента нет — менеджеру с телефоном.
+      expect(await noticeOf(L7)).toEqual([expect.objectContaining({ state: 'undelivered', manager_channel: 'max', alerted: true })]);
+      expect((await pool.query(`SELECT attempts FROM answer_notices WHERE lead_id = $1::uuid`, [L7])).rows[0].attempts).toBe(1);
+      expect(sent.pd.some((p) => p.text.includes('79995550807'))).toBe(true);
+      expect(await noticeOf(L8)).toEqual([expect.objectContaining({ state: 'undelivered', manager_channel: 'not_needed', alerted: false })]);
+      expect(sent.pd.some((p) => p.text.includes('79995550808'))).toBe(false);
+      // L9 (заглушка ушла) добивка не трогает; L11 — «звонить не нужно» один раз.
+      expect(sent.pd.some((p) => p.text.includes('79995550809'))).toBe(false);
+      expect(await noticeOf(L11)).toEqual([expect.objectContaining({ cleared: true })]);
+      // L13: третий разбор — человеку больше не шлём; код в «куда пробовали» проходит CHECK, менеджеру — «неизвестно».
+      expect(await noticeOf(L13)).toEqual([expect.objectContaining({ state: 'undelivered', tried: 'retry_exhausted', manager_channel: 'max' })]);
+      const l13 = sent.pd.find((p) => p.text.includes('79995550813'));
+      expect(l13?.text).toContain('отправка несколько раз обрывалась сбоем — дошло ли что-то до человека, неизвестно');
+      expect(sent.dm.some((m) => String(m.text).includes('Нина'))).toBe(false);
+      const after = await stuckNow();
+      for (const L of [L7, L8, L11, L13]) expect([...after.ids, ...after.unc]).not.toContain(short(L));
+
+      // Отложенное по сроку прогона — назад в очередь без потраченной попытки.
+      const n10 = (await pool.query<{ id: string }>(`SELECT id::text AS id FROM answer_notices WHERE lead_id = $1::uuid`, [L10])).rows[0]!.id;
+      await pool.query(notices.NOTICE_RELEASE_SQL, [[n10]]);
+      expect((await pool.query(`SELECT claimed_until, attempts FROM answer_notices WHERE id = $1::bigint`, [n10])).rows[0])
+        .toEqual({ claimed_until: null, attempts: 0 });
 
       await pool.query(`DELETE FROM tour_availability WHERE operator_tour_id = $1::bigint`, [tourId]);
     });

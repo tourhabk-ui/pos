@@ -17,6 +17,12 @@
 -- Переходы — условными UPDATE по `state`; доставка «хотя бы раз», не «ровно
 -- один»: если процесс упадёт между отправкой и записью исхода, добивка
 -- (/api/cron/answer-notices) после захвата в 5 минут отправит ещё раз.
+--
+-- `attempts` — сколько раз добивка строку РАЗОБРАЛА, а не захватила: строка,
+-- отложенная по сроку прогона, попытку не тратит (ревью 2б). `delivered_at` —
+-- когда дошло: по нему сторож видит «звонить не нужно», которое менеджеру не
+-- ушло. `manager_channel = 'not_needed'` — письмо менеджеру ждало повтора, а
+-- заявка переросла ответ (бронь, новая дата): звонить с устаревшим отказом нельзя.
 
 BEGIN;
 
@@ -38,6 +44,7 @@ CREATE TABLE IF NOT EXISTS answer_notices (
   manager_cleared_at TIMESTAMPTZ NULL,
   created_at         TIMESTAMPTZ NOT NULL DEFAULT NOW(),
   decided_at         TIMESTAMPTZ NULL,
+  delivered_at       TIMESTAMPTZ NULL,
   CONSTRAINT answer_notices_answer_uidx UNIQUE (answer_id),
   CONSTRAINT answer_notices_answer_check CHECK (answer IN ('no_seats', 'decline', 'other_date')),
   CONSTRAINT answer_notices_reason_check
@@ -48,10 +55,14 @@ CREATE TABLE IF NOT EXISTS answer_notices (
            AND (skipped_reason IS NULL OR skipped_reason IN ('lead_closed', 'not_addressee', 'self', 'outgrown'))),
   CONSTRAINT answer_notices_via_check
     CHECK ((state = 'delivered') = (delivered_via IS NOT NULL)
+           AND (state = 'delivered') = (delivered_at IS NOT NULL)
            AND (delivered_via IS NULL OR delivered_via IN ('max', 'telegram', 'agent_webhook', 'agent_read', 'page_seen'))),
   -- Куда пробовали — только имена каналов и коды, по форме 1348: без id чатов и текста ошибок.
-  CONSTRAINT answer_notices_tried_check CHECK (tried IS NULL OR tried ~ '^[a-z0-9_:,]{1,400}$'),
-  CONSTRAINT answer_notices_manager_check CHECK (manager_channel IS NULL OR manager_channel IN ('max', 'telegram-stub', 'none'))
+  -- Длина — отдельным условием: повтор в регулярке PostgreSQL больше 255 не принимает
+  -- («invalid repetition count»), и `{1,400}` ронял бы КАЖДУЮ запись с непустым полем.
+  CONSTRAINT answer_notices_tried_check CHECK (tried IS NULL OR (tried ~ '^[a-z0-9_:,]+$' AND length(tried) <= 400)),
+  CONSTRAINT answer_notices_manager_check
+    CHECK (manager_channel IS NULL OR manager_channel IN ('max', 'telegram-stub', 'none', 'not_needed'))
 );
 
 CREATE INDEX IF NOT EXISTS answer_notices_lead_idx ON answer_notices (lead_id);

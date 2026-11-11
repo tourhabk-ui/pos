@@ -527,6 +527,11 @@ withPg('крон добивки лидов на настоящем PostgreSQL', 
     const noSeats = await ins('Группа 24 нет мест', 'new', group);
     const movedOn = await ins('Группа 24 перенесла дату', 'new', { ...group, date: '2099-07-20' });
     const weather = await ins('Группа 24 погода', 'lost', group);
+    // Ревью 2б: конвейер разбора за полчаса переводит заявку в ai_qualified, а
+    // человеку после «Нет мест» обещано «увидят другие операторы» — добивка её
+    // берёт. Посреди разбора (ai_processing) — нет: конвейер затёр бы сброс адресата.
+    const qualified = await ins('Группа 24 разобрана ИИ', 'ai_qualified', group);
+    const processing = await ins('Группа 24 разбор идёт', 'ai_processing', group);
     // Дата ответа — та, что в заявке на момент ответа (как пишет recordChatAnswer).
     const answer = (partner: string, leadId: string, ans: string, reason: string | null = ans === 'decline' ? 'group' : null, date: string | null = '2099-07-15') => pool.query(
       `INSERT INTO partner_incoming_answers (partner_id, subject_kind, subject_id, answer, decline_reason, subject_date)
@@ -538,12 +543,14 @@ withPg('крон добивки лидов на настоящем PostgreSQL', 
     await answer(opB, noSeats, 'no_seats');
     await answer(opB, movedOn, 'no_seats');
     await answer(opB, weather, 'decline', 'weather');
+    await answer(opB, qualified, 'no_seats');
+    await answer(opB, processing, 'no_seats');
 
-    const mine = [declined, silent, plainDeclined, otherAnswered, noSeats, movedOn, weather];
+    const mine = [declined, silent, plainDeclined, otherAnswered, noSeats, movedOn, weather, qualified, processing];
     const { FOLLOWUP_LEADS_SQL, FOLLOWUP_LEADS_PARAMS } = await import('@/lib/leads/followup-scope');
     const { rows } = await pool.query<{ id: string; addressee_slug: string | null }>(FOLLOWUP_LEADS_SQL, [...FOLLOWUP_LEADS_PARAMS]);
     const picked = rows.filter((r) => mine.includes(r.id));
-    expect(picked.map((r) => r.id).sort()).toEqual([declined, noSeats].sort());
+    expect(picked.map((r) => r.id).sort()).toEqual([declined, noSeats, qualified].sort());
     expect(picked.every((r) => r.addressee_slug === 'group-op-b')).toBe(true);
 
     // Крон отдаёт её оператору A — не отказавшемуся B; чей тур и чей отказ — не называет.
@@ -559,6 +566,9 @@ withPg('крон добивки лидов на настоящем PostgreSQL', 
     expect(sentGroup[0]!.to?.maxChatId).toBe('7000077');
     const sentNoSeats = send.mock.calls.map((c) => c[0]).filter((p) => p.text.includes('Группа 24 нет мест'));
     expect(sentNoSeats.map((p) => p.to?.maxChatId)).toEqual(['7000077']);
+    const sentQualified = send.mock.calls.map((c) => c[0]).filter((p) => p.text.includes('Группа 24 разобрана ИИ'));
+    expect(sentQualified.map((p) => p.to?.maxChatId)).toEqual(['7000077']);
+    expect(send.mock.calls.some((c) => c[0].text.includes('Группа 24 разбор идёт'))).toBe(false);
     expect(sentGroup[0]!.text).toContain('24 чел., 2099-07-15 — исполнитель выбранного тура не смог взять всю группу');
     expect(send.mock.calls.some((c) => ['Группа 24 тишина', 'Обычная с отказом', 'Группа 24 перенесла дату', 'Группа 24 погода']
       .some((name) => c[0].text.includes(name)))).toBe(false);

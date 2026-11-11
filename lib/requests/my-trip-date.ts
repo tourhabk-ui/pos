@@ -81,6 +81,16 @@ const REFUSED_DATES_SQL = `ARRAY(
    ORDER BY pa_r.subject_date)`;
 
 /**
+ * Смен даты и просьб о переносе по заявке `l` за сутки — счёт для лимита.
+ * Одно выражение на меню, выбор и кнопки дат в сообщении после ответа
+ * оператора (answer-notice): иначе сообщение обещало бы «сразу встанет», а
+ * нажатие отвечало «уже меняли».
+ */
+export const MY_TRIP_DATE_ACTIONS_SQL = `(SELECT count(*)::int FROM lead_activity_log g
+           WHERE g.lead_id = l.id AND g.action IN ('date_changed', 'date_change_requested')
+             AND g.created_at > NOW() - INTERVAL '24 hours')`;
+
+/**
  * Заявка на тур, привязанная к этому чату ключом новой заявки. `$1` — канал,
  * `$2` — чат, `$3` — лид. Нет строки — заявка не этого чата (или ключ истёк,
  * или это не заявка на тур на дату).
@@ -94,9 +104,7 @@ export const MY_TRIP_DATE_LEAD_SQL = `
          bk.booking_status, bk.booking_date::text AS booking_date,
          ${ANSWERED_SQL} AS answered,
          ${REFUSED_DATES_SQL} AS refused_dates,
-         (SELECT count(*)::int FROM lead_activity_log g
-           WHERE g.lead_id = l.id AND g.action IN ('date_changed', 'date_change_requested')
-             AND g.created_at > NOW() - INTERVAL '24 hours') AS date_actions
+         ${MY_TRIP_DATE_ACTIONS_SQL} AS date_actions
     FROM leads l
     LEFT JOIN operator_tours ot
            ON ot.id = CASE WHEN l.source_data->>'tour_id' ~ '^[0-9]{1,18}$' THEN (l.source_data->>'tour_id')::bigint END
@@ -216,6 +224,30 @@ async function readLead(channel: LinkChannel, chatId: string | number, leadId: s
 /** `date` — действующая дата поездки; смена без оператора возможна только без брони, и тогда это дата заявки. */
 type Usable = { lead: LeadDateRow; tourId: number; date: string; people: number; title: string };
 
+/** Поля заявки, по которым решается, можно ли сменить дату нажатием. */
+export type DateGate = Pick<LeadDateRow, 'status' | 'booking_status' | 'booking_date' | 'date' | 'tour_id' | 'date_actions'>;
+
+/** Почему нажатие даты не пройдёт — или null. Одно правило на меню, выбор и кнопки в сообщении. */
+function dateBlock(lead: DateGate, today: string): 'closed' | 'noData' | 'past' | null {
+  if (lead.status === 'lost' || (lead.booking_status !== null && MY_TRIP_CLOSED_BOOKING.has(lead.booking_status))) return 'closed';
+  const tourId = lead.tour_id === null ? NaN : Number(lead.tour_id);
+  // Действующая дата: у брони — её день, без брони — та, что в заявке.
+  const date = lead.booking_date ?? lead.date;
+  if (!Number.isFinite(tourId) || !date || !ISO_DAY.test(date)) return 'noData';
+  if (date < today) return 'past';
+  return null;
+}
+
+/**
+ * Пройдёт ли нажатие даты по этой заявке: не закрыта, поездка впереди, лимит
+ * смен за сутки не исчерпан. Сообщение после ответа оператора (answer-notice)
+ * даёт кнопки дат только при true — иначе обещание «сразу встанет в заявку»
+ * нажатие не сдержало бы (ревью 2б: «Поездка по заявке уже прошла»).
+ */
+export function myTripDatePressable(lead: DateGate, today: string): boolean {
+  return dateBlock(lead, today) === null && Number(lead.date_actions) < MY_TRIP_DATE_DAILY_LIMIT;
+}
+
 /**
  * Отказ словами или заявка, у которой можно сменить дату. Прошедшая поездка
  * (день по Камчатке раньше сегодняшнего) — отказ: кнопка меню не подписана и
@@ -226,15 +258,12 @@ type Usable = { lead: LeadDateRow; tourId: number; date: string; people: number;
 function usable(lead: LeadDateRow | null | 'failed', today: string): Usable | ChatReply {
   if (lead === 'failed') return reply(TEXT.unchecked);
   if (lead === null) return reply(TEXT.notYours);
-  if (lead.status === 'lost' || (lead.booking_status !== null && MY_TRIP_CLOSED_BOOKING.has(lead.booking_status))) return reply(TEXT.closed);
-  const tourId = lead.tour_id === null ? NaN : Number(lead.tour_id);
-  // Действующая дата: у брони — её день, без брони — та, что в заявке.
-  const date = lead.booking_date ?? lead.date;
-  if (!Number.isFinite(tourId) || !date || !ISO_DAY.test(date)) return reply(TEXT.noData);
-  if (date < today) return reply(TEXT.past);
+  const block = dateBlock(lead, today);
+  if (block) return reply(TEXT[block]);
+  const date = (lead.booking_date ?? lead.date)!;
   return {
     lead,
-    tourId,
+    tourId: Number(lead.tour_id),
     date,
     people: lead.participants && lead.participants > 0 ? lead.participants : 1,
     title: lead.tour_title ?? 'тур заявки',

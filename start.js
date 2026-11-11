@@ -466,7 +466,7 @@ const SAFETY_JOBS = [
   // обрыв отправки и письмо менеджеру о недоставленном. Шаг GitHub ходит 3–4
   // раза в сутки — без второй ноги «менеджер узнаёт сразу» после сбоя MAX
   // стало бы «через шесть часов». Аренда окна 30 мин — в роуте.
-  { path: '/api/cron/answer-notices',            everyMin: 30,  timeoutMs: 60000, startAfterMs: 570000 },
+  { path: '/api/cron/answer-notices',            everyMin: 30,  timeoutMs: 180000, startAfterMs: 570000 },
 ];
 
 function triggerCron(job) {

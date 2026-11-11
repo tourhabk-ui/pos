@@ -17,7 +17,8 @@ export type ShownVia = 'agent_read' | 'page_seen' | 'agent_webhook';
 /** Ждущее или недоставленное — доставлено; уже доставленное и пропущенное не трогается. */
 export const NOTICE_SHOWN_SQL = `
   UPDATE answer_notices
-     SET state = 'delivered', delivered_via = $2::text, decided_at = COALESCE(decided_at, NOW()), claimed_until = NULL
+     SET state = 'delivered', delivered_via = $2::text, delivered_at = NOW(),
+         decided_at = COALESCE(decided_at, NOW()), claimed_until = NULL
    WHERE answer_id = $1::bigint AND state IN ('pending', 'undelivered')`;
 
 /** Никогда не бросает: отказ отметки — в лог, чтение статуса он не роняет. */

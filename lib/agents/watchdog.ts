@@ -1832,20 +1832,27 @@ async function checkFailedLeadDeliveries(): Promise<CheckResult> {
 
 /**
  * Сообщение человеку после ответа оператора застряло (план «после отказа», 2б,
- * answer_notices 1424) — выборка NOTICE_STUCK_SQL в lib/requests/answer-notice.
- * Без ПД: число и короткие номера заявок.
+ * answer_notices 1424) — выборка NOTICE_STUCK_SQL в lib/requests/answer-notice,
+ * окно — сутки. Две разные беды, и слова у них разные: до туриста не дошло и
+ * менеджер не знает — звонить; дошло, а «звонить не нужно» менеджеру не ушло —
+ * НЕ звонить. Без ПД: число и короткие номера заявок.
  */
 async function checkStuckAnswerNotices(): Promise<CheckResult> {
   try {
     const { NOTICE_STUCK_SQL } = await import('@/lib/requests/answer-notice');
-    const { rows } = await pool.query<{ count: string; ids: string | null }>(NOTICE_STUCK_SQL);
-    const count = parseInt(rows[0]?.count ?? '0', 10);
-    if (count === 0) return null;
+    const { rows } = await pool.query<{ count: string; ids: string | null; uncleared: string; uncleared_ids: string | null }>(NOTICE_STUCK_SQL);
+    const stuck = parseInt(rows[0]?.count ?? '0', 10);
+    const uncleared = parseInt(rows[0]?.uncleared ?? '0', 10);
+    if (stuck + uncleared === 0) return null;
+    const parts = [
+      stuck > 0 ? `${stuck} ответов оператора не дошли до туриста, и менеджеру письмо не ушло (заявки: ${rows[0]?.ids ?? '?'}) — позвонить по ним из админки.` : null,
+      uncleared > 0 ? `${uncleared} ответов дошли до туриста уже после письма менеджеру, а «звонить не нужно» ему не ушло (заявки: ${rows[0]?.uncleared_ids ?? '?'}) — по ним звонить не нужно.` : null,
+    ].filter(Boolean);
     return {
       type: 'answer_notice_stuck',
-      count,
-      details: `${count} ответов оператора не дошли до туриста и не переданы менеджеру (заявки: ${rows[0]?.ids ?? '?'}). Позвонить по заявкам из админки.`,
-      debounceOn: `answer_notice_stuck:${rows[0]?.ids ?? ''}`,
+      count: stuck + uncleared,
+      details: parts.join(' '),
+      debounceOn: `answer_notice_stuck:${rows[0]?.ids ?? ''}|${rows[0]?.uncleared_ids ?? ''}`,
     };
   } catch (err) {
     console.error('[watchdog] checkStuckAnswerNotices:', err instanceof Error ? err.message : err);

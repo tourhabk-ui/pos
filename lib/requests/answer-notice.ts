@@ -13,7 +13,9 @@
  *     потоков бота; первое принятое сообщение — доставка, больше одного
  *     сообщения на ответ не уходит;
  *  3. никто из чатов не принял, а у ключа новой заявки живая подписка ИИ-агента
- *     — внеочередная сверка этой подписки тем же захватом, что у крона;
+ *     — внеочередная сверка этой подписки тем же захватом, что у крона; что с
+ *     ней вышло, говорит итог сверки, а не догадка: «не принял» — только когда
+ *     его приёмник ответил отказом;
  *  4. иначе — «не доставлено», и менеджеру Ведара сразу, без таймеров: имя и
  *     телефон только в MAX (sendPdAlert), заглушка без ПД.
  * Прочтение статуса агентом или страницей на виду — тоже доставка
@@ -21,8 +23,15 @@
  * пишет ему «звонить не нужно».
  *
  * Доставка «хотя бы раз», не «ровно один»: захват на 5 минут ставится при
- * вставке, на каждую отправку — не дольше 20 с; упади процесс между отправкой
- * и записью исхода — добивка отправит ещё раз.
+ * вставке, у каждой ноги свой срок (чат 20 с, агент 25 с, письмо менеджеру
+ * 30 с); упади процесс между отправкой и записью исхода — добивка отправит ещё
+ * раз.
+ *
+ * Добивка тратит попытку строки, только когда её РАЗОБРАЛА: отложенная по
+ * сроку прогона строка отпускается без потери попытки (ревью 2б), а новая
+ * строка не начинается, если не успеет до конца шага (NOTICE_ROW_WORST_MS).
+ * Письмо менеджеру из добивки уходит, только пока вид заявки — из этого
+ * ответа: бронь или новая дата делают звонок с прежним отказом неправдой.
  *
  * Логи — номер заявки, канал и код. Ни id чатов, ни текста ошибок MAX (там
  * может быть id), ни имени и телефона.
@@ -34,24 +43,40 @@ import { publicTourSql } from '@/lib/tours/public-visibility';
 import { loadFreeDatesNear, type FreeDates } from '@/lib/tours/nearest-free-date';
 import { LEAD_ANSWER_DATE_SQL } from '@/lib/requests/answer-date';
 import { DECLINE_REASONS, type DeclineReason } from '@/lib/requests/chat-answer-buttons';
+import { MY_TRIP_DATE_ACTIONS_SQL, myTripDatePressable } from '@/lib/requests/my-trip-date';
+import { kamchatkaToday } from '@/lib/seat-requests/core';
 import { REQUEST_STATUS_BY_LEAD_SQL, groupPassedOnAnswer, shownTourAnswerId, type StatusRow } from '@/lib/mcp/request-status';
+import type { NotifyRunResult } from '@/lib/mcp/request-notify';
 import {
-  answerWantsDates, managerClearedText, managerUndeliveredText, touristAnswerText,
-  type DatesBlock, type NoticeAnswer, type NoticeFacts, type NoticeOutcome,
+  answerWantsDates, managerClearedText, managerUndeliveredText, touristAnswerText, undeliveredWhy,
+  type DatesBlock, type ManagerChannel, type NoticeAnswer, type NoticeFacts, type NoticeOutcome,
 } from '@/lib/requests/answer-notice-text';
 import type { PdAlertParams, PdAlertResult } from '@/lib/notifications/pd-alert';
 
 const LOG = '[answer-notice]';
-/** Больше 20 с на одну отправку нажатие оператора не ждёт; захват — 5 минут. */
+/** Срок одной отправки в чат: больше сокетного срока MAX (15 с), чтобы дошедшее не записать «не дошло». */
 export const NOTICE_SEND_TIMEOUT_MS = 20_000;
+/** Больше стольких чатов у заявки на деле не бывает (созданный, гостевой MAX, Telegram); граница держит срок строки. */
+export const NOTICE_CHAT_TARGETS_MAX = 3;
+/** Внеочередная сверка подписки агента: её бюджет 12 с плюс попытка до 10 с. */
+export const NOTICE_AGENT_TIMEOUT_MS = 25_000;
+/** Письмо менеджеру: MAX до 15 с, затем заглушка в Telegram — у неё своего срока нет. */
+export const NOTICE_MANAGER_TIMEOUT_MS = 30_000;
+/** Худший срок одной строки — все ноги по своему сроку плюс запросы к базе. */
+export const NOTICE_ROW_WORST_MS = NOTICE_CHAT_TARGETS_MAX * NOTICE_SEND_TIMEOUT_MS + NOTICE_AGENT_TIMEOUT_MS + NOTICE_MANAGER_TIMEOUT_MS + 10_000;
+/**
+ * После стольких мс от начала прогона новая строка не начинается: она должна
+ * кончиться до срока шага (`--max-time` в cron-safety-heartbeat.yml и
+ * `timeoutMs` в start.js) — сторож: tests/unit/answer-notice.test.ts.
+ */
+export const NOTICE_RUN_START_BUDGET_MS = 40_000;
 /** Сколько дат рядом показать. */
 export const NOTICE_DATES = 4;
-/** После стольких захватов «ждёт» добивка не шлёт человеку ещё раз — менеджеру. */
+/** Сколько раз добивка шлёт человеку после обрыва (с нажатием — три попытки); дальше — менеджеру. */
 export const NOTICE_MAX_TRIES = 3;
-/** Больше стольких попыток добивка строку не берёт — её называет сторож. */
+/** Больше стольких разборов добивка строку не берёт — её называет сторож (окно — сутки). */
 export const NOTICE_MAX_ATTEMPTS = 12;
 export const NOTICE_RUN_LIMIT = 20;
-export const NOTICE_RUN_TIME_BUDGET_MS = 45_000;
 
 type Query = (sql: string, params?: unknown[]) => Promise<{ rows: unknown[]; rowCount?: number | null }>;
 type Button = { text: string; payload: string };
@@ -63,7 +88,7 @@ export interface NoticeDeps {
   sendTelegram?: (chatId: string, text: string, buttons: Button[]) => Promise<SendResult>;
   pdAlert?: (p: PdAlertParams) => Promise<PdAlertResult>;
   /** Внеочередная сверка подписок этих ключей (request-notify, onlyKeyIds). */
-  notifyRun?: (keyIds: string[]) => Promise<unknown>;
+  notifyRun?: (keyIds: string[]) => Promise<NotifyRunResult>;
   freeDates?: typeof loadFreeDatesNear;
   now?: () => number;
 }
@@ -77,6 +102,7 @@ export const NOTICE_FACTS_SQL = `
   SELECT n.id::text AS id, n.lead_id::text AS lead_id, n.answer_id::text AS answer_id, n.answer, n.decline_reason,
          n.state, n.skipped_reason, n.delivered_via, n.tried, n.attempts, n.manager_channel,
          (n.manager_alerted_at IS NOT NULL) AS manager_alerted, (n.manager_cleared_at IS NOT NULL) AS manager_cleared,
+         l.status AS lead_status,
          ${LEAD_ANSWER_DATE_SQL('l')} AS lead_date,
          CASE WHEN l.source_data->>'participants' ~ '^[0-9]{1,3}$' THEN (l.source_data->>'participants')::int END AS people,
          ${TOUR_ID_SQL} AS tour_id,
@@ -86,7 +112,8 @@ export const NOTICE_FACTS_SQL = `
          ARRAY(SELECT pa_r.subject_date FROM partner_incoming_answers pa_r
                 WHERE pa_r.subject_kind = 'lead' AND pa_r.subject_id = l.id::text
                   AND pa_r.partner_id = l.operator_id AND pa_r.answer = 'no_seats'
-                  AND pa_r.subject_date IS NOT NULL) AS refused_dates
+                  AND pa_r.subject_date IS NOT NULL) AS refused_dates,
+         ${MY_TRIP_DATE_ACTIONS_SQL} AS date_actions
     FROM answer_notices n
     JOIN leads l ON l.id = n.lead_id
     JOIN partner_incoming_answers pa ON pa.id = n.answer_id
@@ -99,7 +126,7 @@ export const NOTICE_FACTS_SQL = `
  * ключ повтора получает любой, кто знает чужой телефон, тур и дату. Плюс
  * `guest_max_chat_id` (туда уже уходят слова адресата) и Telegram старых
  * потоков бота. Пара (канал, чат) — один раз. `can_pick` — тот же признак,
- * что у «Изменить дату» (MY_TRIP_DATE_LEAD_SQL): нажатие даты там пройдёт.
+ * что у «Изменить дату» (MY_TRIP_DATE_LEAD_SQL): чат вправе менять дату.
  */
 export const NOTICE_TARGETS_SQL = `
   WITH k AS (
@@ -119,11 +146,12 @@ export const NOTICE_TARGETS_SQL = `
   SELECT channel, chat_id, bool_or(pick) AS can_pick
     FROM t
    GROUP BY channel, chat_id
-   ORDER BY min(rank), max(created_at) DESC NULLS LAST`;
+   ORDER BY min(rank), max(created_at) DESC NULLS LAST
+   LIMIT ${NOTICE_CHAT_TARGETS_MAX}`;
 
 /** Ключи новой заявки с живой подпиской ИИ-агента. */
 export const NOTICE_AGENT_KEYS_SQL = `
-  SELECT k.id::text AS key_id, n.last_error
+  SELECT k.id::text AS key_id
     FROM agent_request_keys k
     JOIN agent_request_notify n ON n.key_id = k.id
    WHERE k.lead_id = $1::uuid AND k.expires_at > NOW() AND k.opens_chat AND n.disabled_at IS NULL`;
@@ -133,7 +161,7 @@ export const NOTICE_CONTACT_SQL = `SELECT name, phone FROM leads WHERE id = $1::
 
 export const NOTICE_DELIVERED_SQL = `
   UPDATE answer_notices
-     SET state = 'delivered', delivered_via = $2::text, tried = $3::text,
+     SET state = 'delivered', delivered_via = $2::text, tried = $3::text, delivered_at = NOW(),
          decided_at = COALESCE(decided_at, NOW()), claimed_until = NULL
    WHERE id = $1::bigint AND state IN ('pending', 'undelivered')
   RETURNING id`;
@@ -150,11 +178,15 @@ export const NOTICE_SKIPPED_SQL = `
      SET state = 'skipped', skipped_reason = $2::text, decided_at = NOW(), claimed_until = NULL
    WHERE id = $1::bigint AND state = 'pending'`;
 
-/** «Дошло» ставится только при канале, куда письмо ушло. */
+/**
+ * Канал письма менеджеру. «Дошло» (`manager_alerted_at`) — только при канале,
+ * куда письмо ушло: `none` повторит добивка, `not_needed` — письма не было и
+ * не будет (заявка переросла ответ).
+ */
 export const NOTICE_MANAGER_SQL = `
   UPDATE answer_notices
      SET manager_channel = $2::text,
-         manager_alerted_at = CASE WHEN $2::text <> 'none' THEN NOW() ELSE manager_alerted_at END,
+         manager_alerted_at = CASE WHEN $2::text IN ('max', 'telegram-stub') THEN NOW() ELSE manager_alerted_at END,
          claimed_until = NULL
    WHERE id = $1::bigint`;
 
@@ -165,10 +197,11 @@ export const NOTICE_CLEARED_SQL = `
 /**
  * Добивка: обрыв посреди отправки (`pending` после захвата), недоставленное,
  * о котором менеджеру ничего не дошло, и дошедшее после письма менеджеру —
- * «звонить не нужно». Захват — тем же UPDATE, параллельный прогон строку не возьмёт.
+ * «звонить не нужно». Захват — тем же UPDATE, параллельный прогон строку не
+ * возьмёт. Попытку захват не тратит: её считает NOTICE_ATTEMPT_SQL при разборе.
  */
 export const NOTICE_CLAIM_DUE_SQL = `
-  UPDATE answer_notices n SET claimed_until = NOW() + INTERVAL '5 minutes', attempts = n.attempts + 1
+  UPDATE answer_notices n SET claimed_until = NOW() + INTERVAL '5 minutes'
    WHERE n.id IN (
      SELECT id FROM answer_notices
       WHERE attempts < ${NOTICE_MAX_ATTEMPTS}
@@ -179,20 +212,42 @@ export const NOTICE_CLAIM_DUE_SQL = `
       ORDER BY created_at
       LIMIT ${NOTICE_RUN_LIMIT}
       FOR UPDATE SKIP LOCKED)
-  RETURNING n.id::text AS id, n.state, n.attempts`;
+  RETURNING n.id::text AS id, n.state`;
 
 /**
- * Застрявшее (сторож Watchdog): «ждёт» дольше цикла добивки с захватом — ни
- * нажатие, ни добивка не довели; «не доставлено», а менеджеру не дошло ничего.
+ * Попытка — когда строку начали разбирать, до отправки: строка, на которой
+ * процесс падает, всё равно доберёт предел и уйдёт менеджеру.
+ */
+export const NOTICE_ATTEMPT_SQL = `
+  UPDATE answer_notices SET attempts = attempts + 1 WHERE id = $1::bigint RETURNING attempts`;
+
+/** Отложенное по сроку прогона — назад в очередь, без потраченной попытки. */
+export const NOTICE_RELEASE_SQL = `UPDATE answer_notices SET claimed_until = NULL WHERE id = ANY($1::bigint[])`;
+
+/**
+ * Застрявшее (сторож Watchdog), за последние сутки — стоячая тревога хуже
+ * отсутствующей (так же окно у checkFailedSeatRequests):
+ *  - `count` — до человека не дошло, и менеджер не знает: «ждёт» дольше цикла
+ *    добивки (захват истёк или снят), «не доставлено» без письма менеджеру;
+ *  - `uncleared` — дошло после письма менеджеру, а «звонить не нужно» ему не ушло.
  * 35 минут — 30 минут цикла добивки плюс 5 минут захвата, а не срок для
  * человека: о недоставке менеджер узнаёт сразу в нажатии.
  */
 export const NOTICE_STUCK_SQL = `
-  SELECT COUNT(*)::text AS count, string_agg(left(lead_id::text, 8), ',' ORDER BY created_at) AS ids
-    FROM answer_notices
-   WHERE (state = 'pending' AND claimed_until < NOW() - INTERVAL '35 minutes')
-      OR (state = 'undelivered' AND (manager_channel IS NULL OR manager_channel = 'none')
-          AND decided_at < NOW() - INTERVAL '35 minutes')`;
+  SELECT COUNT(*) FILTER (WHERE s.kind = 'undelivered')::text AS count,
+         string_agg(left(s.lead_id::text, 8), ',' ORDER BY s.created_at) FILTER (WHERE s.kind = 'undelivered') AS ids,
+         COUNT(*) FILTER (WHERE s.kind = 'uncleared')::text AS uncleared,
+         string_agg(left(s.lead_id::text, 8), ',' ORDER BY s.created_at) FILTER (WHERE s.kind = 'uncleared') AS uncleared_ids
+    FROM (
+      SELECT lead_id, created_at, CASE WHEN state = 'delivered' THEN 'uncleared' ELSE 'undelivered' END AS kind
+        FROM answer_notices
+       WHERE created_at > NOW() - INTERVAL '24 hours'
+         AND ((state = 'pending' AND COALESCE(claimed_until, created_at) < NOW() - INTERVAL '35 minutes')
+           OR (state = 'undelivered' AND (manager_channel IS NULL OR manager_channel = 'none')
+               AND decided_at < NOW() - INTERVAL '35 minutes')
+           OR (state = 'delivered' AND manager_alerted_at IS NOT NULL AND manager_cleared_at IS NULL
+               AND delivered_at < NOW() - INTERVAL '35 minutes'))
+    ) s`;
 
 // ── Строка и исход ───────────────────────────────────────────────────────────
 
@@ -207,9 +262,10 @@ interface NoticeRow {
   delivered_via: 'max' | 'telegram' | 'agent_webhook' | 'agent_read' | 'page_seen' | null;
   tried: string | null;
   attempts: number;
-  manager_channel: 'max' | 'telegram-stub' | 'none' | null;
+  manager_channel: ManagerChannel | null;
   manager_alerted: boolean;
   manager_cleared: boolean;
+  lead_status: string | null;
   lead_date: string | null;
   people: number | null;
   tour_id: string | number | null;
@@ -219,6 +275,7 @@ interface NoticeRow {
   operator_name: string | null;
   trip_part: boolean;
   refused_dates: string[] | null;
+  date_actions: number | null;
 }
 
 function codeOf(err: unknown): string {
@@ -235,9 +292,33 @@ function chatCode(v: string): string {
   return CHAT_CODES.has(v) ? v : 'api_error';
 }
 
-/** Код отказа приёмника агента — форма 1348 (`http_503`, `timeout`, `dns_failed`…), без длинных чисел. */
-function agentCode(v: string | null | undefined): string {
-  return typeof v === 'string' && /^(http_\d{3}|[a-z_]{1,40})$/.test(v) ? v : 'not_accepted';
+/** Код приёмника агента — форма notify-send (`http_503`, `redirect_301`, `dns_failed`…), без свободного текста. */
+function agentCode(v: string): string {
+  return /^[a-z][a-z0-9_]{0,39}$/.test(v) ? v : 'not_accepted';
+}
+
+/**
+ * Что вышло у ноги ИИ-агента — по итогу внеочередной сверки, а не по
+ * догадке. «Не принял» (код его приёмника) — только когда запрос до него
+ * дошёл; остальное — уведомление не уходило, и это названо своим кодом
+ * (AGENT_NOT_SENT_CODES): вид заявки для агента не изменился (большая группа
+ * после «Нет мест» — «ждёт оператора» и до, и после), нет ключа шифрования,
+ * строку держит плановая сверка, лимиты, повтор по графику (ревью 2б).
+ */
+export function agentLegCode(r: NotifyRunResult | null | undefined): string {
+  if (!r || typeof r !== 'object') return 'exception';
+  if (r.status === 'no_encryption') return 'no_encryption';
+  const refused = Object.keys(r.receiver_failed ?? {}).find((c) => (r.receiver_failed[c] ?? 0) > 0);
+  if (refused) return agentCode(refused);
+  // Ушло, а отметка доставки не записалась (или не прочиталась сверка) — сбой нашей базы.
+  if (r.status === 'db_error' || r.delivered > 0) return 'db_error';
+  if (r.checked === 0 && r.missing_view > 0) return 'no_view';
+  if (r.checked > 0 && r.changed === 0) return 'no_change';
+  const d = r.deferred;
+  if (d.claimed_elsewhere > 0) return 'claimed_elsewhere';
+  if (d.run_budget + d.host_run_budget + d.host_day_budget + d.time_budget + d.host_failed > 0) return 'deferred';
+  if (r.changed > 0 && r.due === 0) return 'retry_later';
+  return 'exception';
 }
 
 /** Исход по записанной строке — для повторного нажатия и после чужой записи. */
@@ -249,7 +330,7 @@ export function outcomeOfRow(r: Pick<NoticeRow, 'state' | 'skipped_reason' | 'de
       return {
         state: 'undelivered',
         manager: r.manager_channel ?? 'none',
-        hadChat: (r.tried ?? '').split(',').some((t) => t.startsWith('max:') || t.startsWith('telegram:')),
+        why: undeliveredWhy((r.tried ?? '').split(',').filter(Boolean)),
       };
     case 'skipped':
       return { state: 'skipped', reason: r.skipped_reason ?? 'outgrown' };
@@ -297,10 +378,24 @@ async function datesOf(r: NoticeRow, f: NoticeFacts, load: typeof loadFreeDatesN
 
 // ── Отправка ─────────────────────────────────────────────────────────────────
 
-function withTimeout(p: Promise<SendResult>, ms: number): Promise<SendResult> {
+/** Срок на ногу. Срок не отменяет начатое — оно доработает само, исход назовётся по записи. */
+async function inTime<T>(p: Promise<T>, ms: number): Promise<{ ok: true; value: T } | { ok: false; why: 'timeout' | 'exception' }> {
   let timer: ReturnType<typeof setTimeout> | undefined;
-  const late = new Promise<SendResult>((resolve) => { timer = setTimeout(() => resolve({ ok: false, code: 'timeout' }), ms); });
-  return Promise.race([p.catch((): SendResult => ({ ok: false, code: 'exception' })), late]).finally(() => clearTimeout(timer));
+  const late = new Promise<{ ok: false; why: 'timeout' }>((resolve) => { timer = setTimeout(() => resolve({ ok: false, why: 'timeout' }), ms); });
+  const done = p.then(
+    (value) => ({ ok: true as const, value }),
+    () => ({ ok: false as const, why: 'exception' as const }),
+  );
+  try {
+    return await Promise.race([done, late]);
+  } finally {
+    clearTimeout(timer);
+  }
+}
+
+async function sendInTime(p: Promise<SendResult>): Promise<SendResult> {
+  const r = await inTime(p, NOTICE_SEND_TIMEOUT_MS);
+  return r.ok ? r.value : { ok: false, code: r.why };
 }
 
 async function defaultSendMax(chatId: string, text: string, buttons: Button[]): Promise<SendResult> {
@@ -326,25 +421,37 @@ async function defaultPdAlert(p: PdAlertParams): Promise<PdAlertResult> {
   return sendPdAlert(p);
 }
 
-async function defaultNotifyRun(keyIds: string[]): Promise<unknown> {
+async function defaultNotifyRun(keyIds: string[]): Promise<NotifyRunResult> {
   const { runRequestNotify } = await import('@/lib/mcp/request-notify');
   return runRequestNotify({ onlyKeyIds: keyIds, timeBudgetMs: 12_000 });
 }
 
+/** Письмо менеджеру в срок: не уложилось — `none`, и добивка повторит (дубль лучше молчания). */
+async function pdAlertInTime(p: PdAlertParams, deps: NoticeDeps): Promise<PdAlertResult | 'timeout' | 'exception'> {
+  const r = await inTime((deps.pdAlert ?? defaultPdAlert)(p), NOTICE_MANAGER_TIMEOUT_MS);
+  return r.ok ? r.value : r.why;
+}
+
 /** Менеджеру: до человека не дошло. Канал письма — в строку; «дошло» — только при канале. */
-async function alertManager(q: Query, r: NoticeRow, f: NoticeFacts, tried: string[], dates: string[], deps: NoticeDeps): Promise<'max' | 'telegram-stub' | 'none'> {
+async function alertManager(
+  q: Query, r: NoticeRow, f: NoticeFacts, tried: string[], dates: string[], deps: NoticeDeps,
+): Promise<'max' | 'telegram-stub' | 'none'> {
   let channel: 'max' | 'telegram-stub' | 'none' = 'none';
   try {
     const { rows: [c] } = await q(NOTICE_CONTACT_SQL, [r.lead_id]);
     const contact = (c ?? {}) as { name?: string | null; phone?: string | null };
     const msg = managerUndeliveredText(f, { name: contact.name ?? null, phone: contact.phone ?? null }, tried, dates);
-    const res = await (deps.pdAlert ?? defaultPdAlert)({
+    const res = await pdAlertInTime({
       text: msg.text,
       stub: msg.stub,
       buttons: [{ text: 'Заявки в админке', url: `${getPublicBaseUrl()}/hub/admin/leads` }],
-    });
-    channel = res.channel === 'max' && res.delivered ? 'max' : res.channel === 'telegram-stub' ? 'telegram-stub' : 'none';
-    if (channel === 'none') console.error(`${LOG} заявка ${r.lead_id}: менеджеру не дошло (${res.channel}) — повторит добивка`);
+    }, deps);
+    if (typeof res === 'string') {
+      console.error(`${LOG} заявка ${r.lead_id}: письмо менеджеру — ${res}, повторит добивка`);
+    } else {
+      channel = res.channel === 'max' && res.delivered ? 'max' : res.channel === 'telegram-stub' ? 'telegram-stub' : 'none';
+      if (channel === 'none') console.error(`${LOG} заявка ${r.lead_id}: менеджеру не дошло (${res.channel}) — повторит добивка`);
+    }
   } catch (err) {
     console.error(`${LOG} заявка ${r.lead_id}: письмо менеджеру не собрано, SQLSTATE`, codeOf(err));
   }
@@ -375,14 +482,21 @@ export async function deliverAnswerNotice(noticeId: string, deps: NoticeDeps = {
     const f = factsOf(r, status);
     const dates = await datesOf(r, f, deps.freeDates ?? loadFreeDatesNear);
     const shownDates = dates.kind === 'dates' ? dates.dates : [];
+    // Кнопки дат — только если нажатие пройдёт: поездка впереди, лимит смен не
+    // исчерпан (то же правило, что у «Изменить дату»). Брони нет: иначе вид
+    // заявки был бы не из этого ответа (шаг 1).
+    const pressable = myTripDatePressable({
+      status: r.lead_status, booking_status: null, booking_date: null,
+      date: r.lead_date, tour_id: r.tour_id, date_actions: Number(r.date_actions ?? 0),
+    }, kamchatkaToday((deps.now ?? Date.now)()));
 
     // 2. Чаты человека — первое принятое сообщение и есть доставка.
     const tried: string[] = [];
     const targets = (await q(NOTICE_TARGETS_SQL, [r.lead_id])).rows as Array<{ channel: 'max' | 'telegram'; chat_id: string; can_pick: boolean }>;
     for (const t of targets) {
-      const msg = touristAnswerText(f, dates, t.can_pick === true && !r.trip_part);
+      const msg = touristAnswerText(f, dates, t.can_pick === true && !r.trip_part && pressable);
       const send = t.channel === 'max' ? (deps.sendMax ?? defaultSendMax) : (deps.sendTelegram ?? defaultSendTelegram);
-      const res = await withTimeout(send(String(t.chat_id), msg.text, msg.buttons), NOTICE_SEND_TIMEOUT_MS);
+      const res = await sendInTime(send(String(t.chat_id), msg.text, msg.buttons));
       if (res.ok) {
         await q(NOTICE_DELIVERED_SQL, [r.id, t.channel, tried.join(',') || null]);
         console.info(`${LOG} заявка ${r.lead_id}: доставлено (${t.channel})`);
@@ -394,13 +508,14 @@ export async function deliverAnswerNotice(noticeId: string, deps: NoticeDeps = {
     }
 
     // 3. ИИ-агент с живой подпиской — внеочередная сверка тем же захватом, что у крона.
-    const agents = (await q(NOTICE_AGENT_KEYS_SQL, [r.lead_id])).rows as Array<{ key_id: string; last_error: string | null }>;
+    const agents = (await q(NOTICE_AGENT_KEYS_SQL, [r.lead_id])).rows as Array<{ key_id: string }>;
     if (agents.length > 0) {
-      await (deps.notifyRun ?? defaultNotifyRun)(agents.map((a) => a.key_id));
+      const run = await inTime((deps.notifyRun ?? defaultNotifyRun)(agents.map((a) => a.key_id)), NOTICE_AGENT_TIMEOUT_MS);
       const after = await readRow(q, noticeId);
       if (after && after.state !== 'pending') return outcomeOfRow(after);
-      const errs = (await q(NOTICE_AGENT_KEYS_SQL, [r.lead_id])).rows as Array<{ last_error: string | null }>;
-      tried.push(`agent:${agentCode(errs.find((e) => e.last_error)?.last_error)}`);
+      const code = run.ok ? agentLegCode(run.value) : run.why === 'timeout' ? 'slow' : 'exception';
+      tried.push(`agent:${code}`);
+      console.warn(`${LOG} заявка ${r.lead_id}: ИИ-агенту не доставлено (${code})`);
     }
 
     // 4. Не дошло — менеджеру сразу. Если за это время статус прочитали — строки нет, и письма тоже.
@@ -410,7 +525,7 @@ export async function deliverAnswerNotice(noticeId: string, deps: NoticeDeps = {
       return now ? outcomeOfRow(now) : { state: 'pending' };
     }
     const manager = await alertManager(q, r, f, tried, shownDates, deps);
-    return { state: 'undelivered', manager, hadChat: targets.length > 0 };
+    return { state: 'undelivered', manager, why: undeliveredWhy(tried) };
   } catch (err) {
     console.error(`${LOG} заявка ${leadId}: сообщение не отправлено — повторит добивка, SQLSTATE`, codeOf(err));
     return { state: 'pending' };
@@ -447,6 +562,9 @@ export interface NoticeRunResult {
   skipped: number;
   manager_retried: number;
   manager_cleared: number;
+  /** Письмо менеджеру ждало повтора, а заявка переросла ответ — не послано. */
+  manager_not_needed: number;
+  /** Отложено по сроку прогона и отпущено без потраченной попытки. */
   time_budget: number;
 }
 
@@ -455,8 +573,11 @@ export async function runAnswerNotices(deps: NoticeDeps = {}): Promise<NoticeRun
   const q: Query = deps.query ?? ((sql, params) => pool.query(sql, params));
   const now = deps.now ?? Date.now;
   const started = now();
-  const res: NoticeRunResult = { status: 'ok', picked: 0, delivered: 0, undelivered: 0, skipped: 0, manager_retried: 0, manager_cleared: 0, time_budget: 0 };
-  let due: Array<{ id: string; state: NoticeRow['state']; attempts: number }>;
+  const res: NoticeRunResult = {
+    status: 'ok', picked: 0, delivered: 0, undelivered: 0, skipped: 0,
+    manager_retried: 0, manager_cleared: 0, manager_not_needed: 0, time_budget: 0,
+  };
+  let due: Array<{ id: string; state: NoticeRow['state'] }>;
   try {
     due = (await q(NOTICE_CLAIM_DUE_SQL)).rows as typeof due;
   } catch (err) {
@@ -464,10 +585,15 @@ export async function runAnswerNotices(deps: NoticeDeps = {}): Promise<NoticeRun
     return { ...res, status: 'db_error' };
   }
   res.picked = due.length;
+  const release: string[] = [];
   for (const d of due) {
-    if (now() - started >= NOTICE_RUN_TIME_BUDGET_MS) { res.time_budget++; continue; }
+    // Новую строку — только если она успеет до срока шага: худший срок строки известен.
+    if (now() - started >= NOTICE_RUN_START_BUDGET_MS) { res.time_budget++; release.push(d.id); continue; }
     try {
-      if (d.state === 'pending' && Number(d.attempts) < NOTICE_MAX_TRIES) {
+      const { rows: [a] } = await q(NOTICE_ATTEMPT_SQL, [d.id]);
+      if (!a) continue;
+      const attempts = Number((a as { attempts: number }).attempts);
+      if (d.state === 'pending' && attempts < NOTICE_MAX_TRIES) {
         const o = await deliverAnswerNotice(d.id, deps);
         if (o.state === 'delivered') res.delivered++;
         else if (o.state === 'undelivered') res.undelivered++;
@@ -476,10 +602,29 @@ export async function runAnswerNotices(deps: NoticeDeps = {}): Promise<NoticeRun
       }
       const r = await readRow(q, d.id);
       if (!r) continue;
+      if (r.state === 'delivered') {
+        if (!r.manager_alerted || r.manager_cleared) continue;
+        const text = managerClearedText(r.lead_id, outcomeOfRow(r) as NoticeOutcome & { state: 'delivered' });
+        const sent = await pdAlertInTime({ text, stub: text }, deps);
+        if (typeof sent !== 'string' && sent.channel !== 'none') {
+          await q(NOTICE_CLEARED_SQL, [r.id]);
+          res.manager_cleared++;
+        }
+        continue;
+      }
+      // Письмо менеджеру — только пока вид заявки из этого ответа: после брони
+      // или новой даты звонок с прежним отказом был бы неправдой.
       const { rows: [st] } = await q(REQUEST_STATUS_BY_LEAD_SQL, [r.lead_id]);
-      const f = factsOf(r, st as StatusRow | undefined);
+      const status = st as StatusRow | undefined;
+      const holds = status !== undefined && shownTourAnswerId(status) === r.answer_id;
+      const f = factsOf(r, status);
       if (r.state === 'pending') {
-        // Падала уже не раз — человеку больше не шлём, менеджеру сразу.
+        if (!holds) {
+          await q(NOTICE_SKIPPED_SQL, [r.id, 'outgrown']);
+          res.skipped++;
+          continue;
+        }
+        // Обрывалась не раз — человеку больше не шлём, менеджеру сразу.
         const tried = [...(r.tried ? r.tried.split(',') : []), 'retry_exhausted'];
         const und = await q(NOTICE_UNDELIVERED_SQL, [r.id, tried.join(',')]);
         if ((und.rowCount ?? 0) > 0) {
@@ -487,19 +632,26 @@ export async function runAnswerNotices(deps: NoticeDeps = {}): Promise<NoticeRun
           await alertManager(q, r, f, tried, [], deps);
         }
       } else if (r.state === 'undelivered') {
+        if (!holds) {
+          await q(NOTICE_MANAGER_SQL, [r.id, 'not_needed']);
+          res.manager_not_needed++;
+          continue;
+        }
         res.manager_retried++;
         await alertManager(q, r, f, r.tried ? r.tried.split(',') : [], [], deps);
-      } else if (r.state === 'delivered' && r.manager_alerted && !r.manager_cleared) {
-        const text = managerClearedText(r.lead_id, outcomeOfRow(r) as NoticeOutcome & { state: 'delivered' });
-        const sent = await (deps.pdAlert ?? defaultPdAlert)({ text, stub: text });
-        if (sent.channel !== 'none') {
-          await q(NOTICE_CLEARED_SQL, [r.id]);
-          res.manager_cleared++;
-        }
       }
     } catch (err) {
       res.status = 'db_error';
       console.error(`${LOG} добивка: строка ${d.id} не обработана, SQLSTATE`, codeOf(err));
+    }
+  }
+  if (release.length > 0) {
+    try {
+      await q(NOTICE_RELEASE_SQL, [release]);
+    } catch (err) {
+      // Не отпустили — захват истечёт сам через 5 минут; попытка всё равно не потрачена.
+      res.status = 'db_error';
+      console.error(`${LOG} добивка: отложенные не отпущены, SQLSTATE`, codeOf(err));
     }
   }
   return res;
