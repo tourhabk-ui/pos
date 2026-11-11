@@ -2,6 +2,7 @@ import { NextRequest, NextResponse } from 'next/server';
 import { pool } from '@/lib/db-pool';
 import { shownPhotoSql, PARTNER_NO_CONSENT } from '@/lib/images/origin';
 import { s3PublicUrl } from '@/lib/storage/s3';
+import { imageTypeByPath, ourStoredUrl, serveStoredObject } from '@/lib/images/serve-stored';
 
 export const dynamic = 'force-dynamic';
 
@@ -20,8 +21,9 @@ interface Props { params: Promise<{ routeId: string }> }
  * половины всей базы. Пока переезд идёт, у строки может быть либо ссылка,
  * либо байты, и порядок такой:
  *
- *   s3_url есть   → редирект на объект: байты не идут через Node вовсе;
- *   s3_key есть   → тот же редирект, адрес собирается из S3_BUCKET (13.10:
+ *   s3_url есть   → объект хранилища: байты с нашего домена (11.11, ниже),
+ *                   чужой адрес источника — редиректом;
+ *   s3_key есть   → то же, адрес собирается из S3_BUCKET (13.10:
  *                   снимки из миграций пишут ключ, не адрес — имени бакета в
  *                   репозитории нет, как у клипов туров, 1194);
  *   иначе         → отдаём image_data, как отдавали всегда;
@@ -39,6 +41,22 @@ interface Props { params: Promise<{ routeId: string }> }
  */
 const CACHE_LONG = 'public, max-age=31536000, immutable';
 const CACHE_UNTIL_THUMB = 'public, max-age=3600';
+
+/**
+ * Снимок места — с нашего домена (11.11). До этого дня раздача отвечала 302
+ * на s3.twcstorage.ru, и на телефоне владельца снимки со второго домена не
+ * грузились; после #2841 снимки «Лагуны» тем же путём у него видны — значит,
+ * причина в втором домене, и места переходят туда же (lib/images/serve-stored).
+ * Адрес не нашего бакета (у части снимков `s3_url` — адрес источника) сервер
+ * не скачивает: такой — редиректом, как раньше.
+ */
+async function sendStored(req: Request, url: string, cache: string, source: string): Promise<Response> {
+  const ours = ourStoredUrl(url);
+  if (ours) {
+    return serveStoredObject(ours, req, { cache, fallbackType: imageTypeByPath(url), logScope: 'images/route', source });
+  }
+  return NextResponse.redirect(url, { status: 302, headers: { 'Cache-Control': cache, 'X-Source': source } });
+}
 
 export async function GET(req: NextRequest, { params }: Props) {
   const { routeId } = await params;
@@ -66,35 +84,20 @@ export async function GET(req: NextRequest, { params }: Props) {
     const row = rows[0];
 
     if (forCard && row?.thumb_url) {
-      return NextResponse.redirect(row.thumb_url as string, {
-        status: 302,
-        headers: { 'Cache-Control': CACHE_LONG, 'X-Source': 's3-thumb' },
-      });
+      return await sendStored(req, row.thumb_url as string, CACHE_LONG, 's3-thumb');
     }
 
     if (row?.s3_url) {
-      // Снимок уже в объектном хранилище. Отдаём ссылкой, а не телом: тот же
-      // адрес, тот же кеш, но база и Node из пути исчезают.
-      return NextResponse.redirect(row.s3_url as string, {
-        status: 302,
-        headers: {
-          'Cache-Control': forCard ? CACHE_UNTIL_THUMB : CACHE_LONG,
-          'X-Source': 's3',
-        },
-      });
+      // Снимок уже в объектном хранилище: база из пути уходит, байты идут
+      // с нашего домена (11.11), чужой адрес источника — редиректом.
+      return await sendStored(req, row.s3_url as string, forCard ? CACHE_UNTIL_THUMB : CACHE_LONG, 's3');
     }
 
     // Ключ без адреса — снимок из миграций (13.10); без S3_BUCKET адреса нет,
     // и тогда остаются байты или 404, а не редирект в корень хранилища.
     const keyUrl = typeof row?.s3_key === 'string' && row.s3_key ? s3PublicUrl(row.s3_key) : null;
     if (keyUrl) {
-      return NextResponse.redirect(keyUrl, {
-        status: 302,
-        headers: {
-          'Cache-Control': forCard ? CACHE_UNTIL_THUMB : CACHE_LONG,
-          'X-Source': 's3-key',
-        },
-      });
+      return await sendStored(req, keyUrl, forCard ? CACHE_UNTIL_THUMB : CACHE_LONG, 's3-key');
     }
 
     if (row?.image_data) {

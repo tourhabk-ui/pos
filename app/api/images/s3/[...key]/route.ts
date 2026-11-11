@@ -1,15 +1,12 @@
 import { NextResponse } from 'next/server';
 import { s3PublicUrl } from '@/lib/storage/s3';
 import { photoKeyOf, photoTypeOf } from '@/lib/images/photo-key';
+import { serveStoredObject } from '@/lib/images/serve-stored';
 
 export const dynamic = 'force-dynamic';
 
 interface Props { params: Promise<{ key: string[] }> }
 
-/** Сколько ждать хранилище: дольше — туристу проще увидеть пустую рамку, чем висящую страницу. */
-const UPSTREAM_TIMEOUT_MS = 15_000;
-/** Типы, которые раздача берёт у хранилища как есть; иначе — по расширению ключа. */
-const SERVED_TYPES: ReadonlySet<string> = new Set(['image/jpeg', 'image/png', 'image/webp']);
 /** Сутки в браузере, неделя «устаревшим, пока освежается»: снимок по ключу меняется редко. */
 const CACHE = 'public, max-age=86400, stale-while-revalidate=604800';
 
@@ -45,54 +42,5 @@ export async function GET(request: Request, { params }: Props): Promise<Response
   const url = s3PublicUrl(key);
   if (!url) return NextResponse.json({ error: 'Хранилище не настроено' }, { status: 404 });
 
-  // Условный запрос браузера доходит до хранилища: повторный показ — 304 без тела.
-  const conditional: Record<string, string> = {};
-  const inm = request.headers.get('if-none-match');
-  const ims = request.headers.get('if-modified-since');
-  if (inm) conditional['If-None-Match'] = inm;
-  if (ims) conditional['If-Modified-Since'] = ims;
-
-  let upstream: Response;
-  try {
-    upstream = await fetch(url, {
-      headers: conditional,
-      cache: 'no-store',
-      signal: AbortSignal.timeout(UPSTREAM_TIMEOUT_MS),
-    });
-  } catch (err) {
-    console.error('[images/s3] хранилище не ответило', { key, message: err instanceof Error ? err.message : String(err) });
-    return NextResponse.json({ error: 'Снимок временно недоступен' }, { status: 502 });
-  }
-
-  const passthrough: Record<string, string> = { 'Cache-Control': CACHE, 'X-Content-Type-Options': 'nosniff' };
-  const etag = upstream.headers.get('etag');
-  const lastModified = upstream.headers.get('last-modified');
-  if (etag) passthrough.ETag = etag;
-  if (lastModified) passthrough['Last-Modified'] = lastModified;
-
-  if (upstream.status === 304) return new Response(null, { status: 304, headers: passthrough });
-
-  if (upstream.status === 404 || upstream.status === 403) {
-    // Публичный бакет на отсутствующий ключ отвечает 403 или 404 — для туриста это одно: снимка нет.
-    console.error('[images/s3] объекта нет в хранилище', { key, status: upstream.status });
-    return NextResponse.json({ error: 'Снимок не найден' }, { status: 404 });
-  }
-  if (!upstream.ok || !upstream.body) {
-    console.error('[images/s3] хранилище ответило ошибкой', { key, status: upstream.status });
-    return NextResponse.json({ error: 'Снимок временно недоступен' }, { status: 502 });
-  }
-
-  const type = upstream.headers.get('content-type');
-  const length = upstream.headers.get('content-length');
-  return new Response(upstream.body, {
-    status: 200,
-    headers: {
-      ...passthrough,
-      // Пробрасываются только три типа снимков: `image/svg+xml` или иной тип
-      // хранилища на нашем домене не отдаётся (ревью безопасности #3150), прочее —
-      // тип по расширению ключа.
-      'Content-Type': type && SERVED_TYPES.has(type.split(';')[0].trim().toLowerCase()) ? type : photoTypeOf(key),
-      ...(length ? { 'Content-Length': length } : {}),
-    },
-  });
+  return serveStoredObject(url, request, { cache: CACHE, fallbackType: photoTypeOf(key), logScope: 'images/s3' });
 }

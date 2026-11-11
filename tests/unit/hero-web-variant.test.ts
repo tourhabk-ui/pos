@@ -72,7 +72,6 @@ describe('копия по канону, без обрезки', () => {
  */
 describe('копия для карточки (scope thumb)', () => {
   const ROUTE = code('app/api/cron/hero-web-variant/route.ts');
-  const SERVE = code('app/api/images/route/[routeId]/route.ts');
 
   it('480x360, ключ рядом с объектом снимка', async () => {
     const { THUMB_VARIANT } = await import('@/lib/images/web-variant');
@@ -92,10 +91,43 @@ describe('копия для карточки (scope thumb)', () => {
     expect(ROUTE).toMatch(/i\.thumb_url IS NULL/);
   });
 
-  it('раздача: ?size=card — копия; без копии оригинал с коротким кэшем', () => {
-    expect(SERVE).toMatch(/searchParams\.get\('size'\) === 'card'/);
-    expect(SERVE).toMatch(/if \(forCard && row\?\.thumb_url\)/);
-    expect(SERVE).toMatch(/'Cache-Control': forCard \? CACHE_UNTIL_THUMB : CACHE_LONG/);
+  // Раздача судится вызовом (11.11): снимок теперь идёт телом с нашего домена,
+  // и прежняя сверка текста исходника краснела бы на верной правке.
+  it('раздача: ?size=card — копия; без копии оригинал с коротким кэшем', async () => {
+    const ark = '7190e0a4-52f1-47fb-ba17-0fcb493d99df';
+    const base = 'https://s3.twcstorage.ru/vedar-test';
+    let rows: Array<Record<string, unknown>> = [];
+    const fetched: string[] = [];
+    vi.resetModules();
+    vi.stubEnv('S3_BUCKET', 'vedar-test');
+    vi.stubEnv('S3_ENDPOINT', 'https://s3.twcstorage.ru');
+    vi.doMock('@/lib/db-pool', () => ({ pool: { query: vi.fn(async () => ({ rows })) } }));
+    vi.stubGlobal('fetch', vi.fn(async (u: string) => {
+      fetched.push(String(u));
+      return new Response('jpeg', { status: 200, headers: { 'content-type': 'image/jpeg' } });
+    }));
+    try {
+      const { GET } = await import('@/app/api/images/route/[routeId]/route');
+      const { NextRequest } = await import('next/server');
+      const call = (q: string) => GET(new NextRequest(`http://x/api/images/route/${ark}${q}`), { params: Promise.resolve({ routeId: ark }) });
+
+      rows = [{ image_data: null, mime_type: 'image/jpeg', s3_url: `${base}/places/a.jpg`, s3_key: null, thumb_url: `${base}/places/a.card.jpg` }];
+      const card = await call('?size=card');
+      expect(fetched.at(-1)).toBe(`${base}/places/a.card.jpg`);
+      expect(card.headers.get('cache-control')).toMatch(/max-age=31536000/);
+
+      rows = [{ image_data: null, mime_type: 'image/jpeg', s3_url: `${base}/places/a.jpg`, s3_key: null, thumb_url: null }];
+      const noThumb = await call('?size=card');
+      expect(fetched.at(-1)).toBe(`${base}/places/a.jpg`);
+      expect(noThumb.headers.get('cache-control')).toBe('public, max-age=3600');
+
+      const full = await call('');
+      expect(full.headers.get('cache-control')).toMatch(/max-age=31536000/);
+    } finally {
+      vi.unstubAllGlobals();
+      vi.unstubAllEnvs();
+      vi.doUnmock('@/lib/db-pool');
+    }
   });
 
   it('карточки просят копию', () => {
