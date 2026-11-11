@@ -1061,6 +1061,68 @@ withPg('переписка по заявке на настоящем PostgreSQL'
       expect(await myTrip.loadMyTrip('telegram', TRIP_CHAT)).toEqual({ outcome: 'none' });
     });
 
+    it('«Написать оператору» (#2970, шаг 3): кнопка под списком; право — связь чата; чужой чат и чужая переписка — нет', async () => {
+      // Кнопка-запись подписывается; без ключа подписи в окружении теста она ушла бы голой.
+      process.env.CALLBACK_SIGNING_SECRET ??= 'pg-test-signing';
+      const myTrip = await import('@/lib/requests/my-trip');
+      const write = await import('@/lib/requests/my-trip-write');
+      const { unwrapPress } = await import('@/lib/chat-cabinet/signed-payload');
+      const opId = (await pool.query<{ id: string }>(
+        `INSERT INTO partners (name, category, contact, max_chat_id) VALUES ('Оператор переписки', 'operator', '{}', 9300099) RETURNING id`,
+      )).rows[0].id;
+      const lead = await leads.createLeadDetailed({
+        name: 'Ольга Пишет', phone: '+79995550303', comment: 'Вулкан, трое', route_title: 'Горелый',
+        source_url: 'https://vedarai.ru/kuzmich', operator_id: opId, pd_consent: consentOf('operator'),
+        source_data: { source: 'kuzmich_max' }, skip_ai_processing: true,
+      });
+      const A = 9_300_021;
+      const B = 9_300_022;
+      const fresh = await status.issueRequestKeyRecord({ leadId: lead!.id }, 'create_lead', { opensChat: true });
+      expect(await links.linkChatToKeys('max', A, [fresh!.key], 'created')).toBe(1);
+
+      // Кнопка — в ответе «Моей поездки» этого чата; в Telegram кнопки нет, есть строка.
+      const msg = await myTrip.myTripMessage('max', A);
+      expect(msg.buttons).toHaveLength(1);
+      expect(msg.buttons[0]!.text).toBe('Написать оператору');
+      const press = unwrapPress(msg.buttons[0]!.payload);
+      expect(press.ok).toBe(true);
+      const payload = press.ok ? press.payload : '';
+      expect(write.parseMyTripWrite(payload)).toEqual({ kind: 'lead', id: lead!.id });
+
+      // Чат без связи с заявкой — «не подключена», переписка не открыта.
+      expect((await write.pressMyTripWrite(payload, B)).text).toMatch(/не подключена к этому чату/);
+      expect((await pool.query(`SELECT guest_max_chat_id FROM leads WHERE id = $1`, [lead!.id])).rows[0].guest_max_chat_id).toBeNull();
+
+      // Свой чат — чат подключён к заявке, следующее сообщение ждёт отправки.
+      const reply = await write.pressMyTripWrite(payload, A);
+      expect(reply.text).not.toMatch(/не подключена|Не удалось/);
+      expect(String((await pool.query(`SELECT guest_max_chat_id FROM leads WHERE id = $1`, [lead!.id])).rows[0].guest_max_chat_id)).toBe(String(A));
+      const waits = await pool.query(
+        `SELECT side, status FROM request_chat_waits WHERE channel = 'max' AND chat_id = $1 AND lead_id = $2::uuid`, [String(A), lead!.id]);
+      expect(waits.rows).toEqual([{ side: 'guest', status: 'waiting' }]);
+
+      // Второй чат со связью той же заявки переписку у первого не забирает.
+      expect(await links.linkChatToKeys('max', B, [fresh!.key], 'status_link')).toBe(1);
+      expect((await write.pressMyTripWrite(payload, B)).text).toMatch(/не подключена к этому чату/);
+      expect(String((await pool.query(`SELECT guest_max_chat_id FROM leads WHERE id = $1`, [lead!.id])).rows[0].guest_max_chat_id)).toBe(String(A));
+
+      // Ключ без переписки (повтор заявки) — только статус: «по этой ссылке переписки нет».
+      const lead2 = await leads.createLeadDetailed({
+        name: 'Ольга Повтор', phone: '+79995550404', comment: 'Повтор', route_title: 'Горелый',
+        source_url: 'https://vedarai.ru/kuzmich', operator_id: opId, pd_consent: consentOf('operator'),
+        source_data: { source: 'kuzmich_max' }, skip_ai_processing: true,
+      });
+      const repeat = await status.issueRequestKeyRecord({ leadId: lead2!.id }, 'create_lead', { opensChat: false });
+      expect(await links.linkChatToKeys('max', A, [repeat!.key], 'created')).toBe(1);
+      const repeatPayload = write.myTripWritePayload({ kind: 'lead', id: lead2!.id });
+      expect((await write.pressMyTripWrite(repeatPayload, A)).text).toMatch(/переписки нет/);
+      expect((await pool.query(`SELECT guest_max_chat_id FROM leads WHERE id = $1`, [lead2!.id])).rows[0].guest_max_chat_id).toBeNull();
+      // И в списке у такой заявки кнопки нет.
+      const after = await myTrip.myTripMessage('max', A);
+      expect(after.buttons.map((b) => b.text)).toEqual(['Написать оператору · 2']);
+      expect(myTrip.myTripText(await myTrip.loadMyTrip('telegram', A), { channel: 'telegram' })).not.toContain('Написать оператору');
+    });
+
     it('удалили заявку — связи ушли вместе с её ключами', async () => {
       const own = await pool.query(`SELECT lead_id::text AS lead FROM agent_request_keys WHERE id = $1`, [keyId]);
       await pool.query(`DELETE FROM agent_request_keys WHERE lead_id = $1::uuid`, [own.rows[0].lead]);
