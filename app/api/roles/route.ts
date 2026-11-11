@@ -5,6 +5,7 @@ import { requireAdmin } from '@/lib/auth/middleware';
 import { query } from '@/lib/database';
 import { ensurePartnerForRole } from '@/lib/auth/partner-profile';
 import { getClientIp } from '@/lib/rate-limit';
+import { agentRoleOpen, AGENT_ROLE_FROZEN_NOTE } from '@/lib/auth/agent-role';
 
 export const dynamic = 'force-dynamic';
 
@@ -21,6 +22,7 @@ const UpdateRoleSchema = z.object({
 // GET /api/roles - Public
 export async function GET(request: NextRequest) {
   try {
+    const agentOpen = agentRoleOpen();
     const roles = [
       {
         id: 'tourist',
@@ -131,25 +133,29 @@ export async function GET(request: NextRequest) {
         ],
         dashboard: '/hub/carrier',
       },
+      // Агент — то, что есть в его кабинете (#3212, слово владельца 11.11).
+      // Прежнее описание обещало ваучеры (удалены 26.09), GDS, белые метки и
+      // «управление комиссиями»; пока Ведар не принимает оплату, роль
+      // заморожена, и о вознаграждении здесь ни слова.
       {
         id: 'agent',
         name: 'Агент',
-        description: 'Управление группами, ваучерами и партнерствами',
+        description: agentOpen
+          ? 'Продажа туров клиентам за вознаграждение с оплаченных продаж'
+          : `Продажа туров клиентам. ${AGENT_ROLE_FROZEN_NOTE} Новая регистрация агентом закрыта.`,
+        frozen: !agentOpen,
         permissions: [
-          'manage_groups',
-          'manage_vouchers',
-          'view_commissions',
-          'manage_partnerships',
-          'view_analytics',
-          'gds_integration',
+          'find_tours',
+          'manage_clients',
+          'manage_tasks',
+          'book_for_client',
+          ...(agentOpen ? ['view_commissions', 'manage_referrals'] : []),
         ],
         features: [
-          'Создание групповых туров',
-          'Система ваучеров',
-          'Управление комиссиями',
-          'GDS интеграции',
-          'B2B платформы',
-          'Белые метки',
+          'Поиск туров с датами и свободными местами',
+          'Клиенты и задачи',
+          'Бронь за клиента — заявка оператору',
+          ...(agentOpen ? ['Вознаграждение с оплаченных продаж', 'Реферальные ссылки'] : []),
         ],
         dashboard: '/hub/agent',
       },

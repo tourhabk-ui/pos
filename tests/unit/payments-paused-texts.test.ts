@@ -35,6 +35,17 @@ const GATED = [
   'app/hub/guide/_GuideDashboardClient.tsx',
   'components/booking/TourPaymentModal.tsx',
   'lib/pdf/contract-generator.ts',
+  // 11.11, роль агента заморожена до включения оплаты (#3212): эти файлы
+  // спрашивают agentRoleOpen() — правило, выведенное из того же флага.
+  'components/agent/AgentFrozenNote.tsx',
+  'components/agent/Dashboard/AgentMetricsGrid.tsx',
+  'components/agent/Dashboard/UpcomingBookingsTable.tsx',
+  'app/hub/agent/find/_FindToursClient.tsx',
+  'app/hub/agent/stats/_StatsClient.tsx',
+  'app/auth/login/_AuthPageClient.tsx',
+  'app/api/auth/register/route.ts',
+  'app/api/auth/register-operator/route.ts',
+  'app/api/roles/route.ts',
 ];
 
 describe('тексты при выключенной оплате', () => {
@@ -42,9 +53,12 @@ describe('тексты при выключенной оплате', () => {
     expect(PLATFORM_ACCEPTS_PAYMENTS).toBe(false);
   });
 
+  // agentRoleOpen() — правило роли агента, выведенное из флага
+  // (lib/auth/agent-role, #3212); что оно и есть флаг, держит рендер-сторож
+  // tests/unit/agent-role-frozen.test.tsx.
   for (const f of GATED) {
     it(`${f} спрашивает флаг`, () => {
-      expect(readFileSync(f, 'utf8')).toMatch(/platformAcceptsPayments\(\)/);
+      expect(readFileSync(f, 'utf8')).toMatch(/platformAcceptsPayments\(\)|agentRoleOpen\(\)/);
     });
   }
 

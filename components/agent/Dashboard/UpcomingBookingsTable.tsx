@@ -4,6 +4,7 @@ import React, { useState, useEffect } from 'react';
 import Link from 'next/link';
 import { LoadingSpinner } from '../../admin/shared/LoadingSpinner';
 import { StatusBadge } from '../../admin/shared/StatusBadge';
+import { agentRoleOpen } from '@/lib/auth/agent-role';
 
 interface UpcomingBooking {
   id: string;
@@ -24,6 +25,8 @@ export function UpcomingBookingsTable({ limit = 5 }: UpcomingBookingsTableProps)
   const [bookings, setBookings] = useState<UpcomingBooking[]>([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
+  // Комиссия агента — только при открытой роли (#3212).
+  const money = agentRoleOpen();
 
   useEffect(() => {
     fetchBookings();
@@ -116,12 +119,15 @@ export function UpcomingBookingsTable({ limit = 5 }: UpcomingBookingsTableProps)
               <th className="px-6 py-3 text-left text-xs font-medium text-[var(--text-muted)] uppercase tracking-wider">
                 Дата
               </th>
+              {/* Сумма брони — деньги туриста оператору, а не доход агента. */}
               <th className="px-6 py-3 text-left text-xs font-medium text-[var(--text-muted)] uppercase tracking-wider">
-                Доход
+                Сумма брони
               </th>
-              <th className="px-6 py-3 text-left text-xs font-medium text-[var(--text-muted)] uppercase tracking-wider">
-                Комиссия
-              </th>
+              {money && (
+                <th className="px-6 py-3 text-left text-xs font-medium text-[var(--text-muted)] uppercase tracking-wider">
+                  Комиссия
+                </th>
+              )}
             </tr>
           </thead>
           <tbody className="divide-y divide-[var(--border)]">
@@ -146,9 +152,11 @@ export function UpcomingBookingsTable({ limit = 5 }: UpcomingBookingsTableProps)
                   <td className="px-6 py-4 whitespace-nowrap text-sm text-[var(--accent)] font-medium">
                     {booking.totalPrice === null ? '—' : `${booking.totalPrice.toLocaleString('ru-RU')} ₽`}
                   </td>
-                  <td className="px-6 py-4 whitespace-nowrap text-sm text-[var(--success)] font-medium">
-                    {booking.commission === null ? '—' : `${booking.commission.toLocaleString('ru-RU')} ₽`}
-                  </td>
+                  {money && (
+                    <td className="px-6 py-4 whitespace-nowrap text-sm text-[var(--success)] font-medium">
+                      {booking.commission === null ? '—' : `${booking.commission.toLocaleString('ru-RU')} ₽`}
+                    </td>
+                  )}
                 </tr>
               );
             })}

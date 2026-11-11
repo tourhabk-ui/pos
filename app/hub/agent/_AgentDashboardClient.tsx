@@ -10,7 +10,7 @@ import {
   Link2, TrendingUp, User, ArrowRight, ListChecks, type LucideIcon,
 } from 'lucide-react';
 import { useOnboardingGuard } from '@/components/hub/usePartnerOnboarding';
-import { platformAcceptsPayments } from '@/lib/payments/accepting';
+import { agentRoleOpen } from '@/lib/auth/agent-role';
 
 // Обзор агента в общем формате кабинетов (гид/турист): плитки разделов с
 // икон-чипами + сводка метрик + живые таблицы. Референс агентских CRM
@@ -20,7 +20,9 @@ import { platformAcceptsPayments } from '@/lib/payments/accepting';
 // Быстрая навигация по разделам — реальные страницы кабинета (sidebar в
 // layout.tsx), сгруппировано по смыслу, формат = SectionsNav гида.
 interface SectionLink { href: string; label: string; icon: LucideIcon }
-const SECTION_GROUPS: Array<{ title: string; items: SectionLink[] }> = [
+// Деньги — только при открытой роли агента (#3212): считается на рендере,
+// а не при загрузке модуля, чтобы правило было одно и живое.
+const sectionGroups = (): Array<{ title: string; items: SectionLink[] }> => [
   {
     title: 'Продажи',
     items: [
@@ -31,9 +33,9 @@ const SECTION_GROUPS: Array<{ title: string; items: SectionLink[] }> = [
     ],
   },
   {
-    title: platformAcceptsPayments() ? 'Деньги и рост' : 'Рост',
+    title: agentRoleOpen() ? 'Деньги и рост' : 'Рост',
     items: [
-      ...(platformAcceptsPayments() ? [
+      ...(agentRoleOpen() ? [
         { href: '/hub/agent/commissions', label: 'Комиссии',   icon: CreditCard },
         { href: '/hub/agent/referral',    label: 'Рефералы',   icon: Link2 },
       ] : []),
@@ -65,7 +67,7 @@ function SectionTile({ href, label, icon: Icon }: SectionLink) {
 function SectionsNav() {
   return (
     <div className="space-y-6">
-      {SECTION_GROUPS.map((group) => (
+      {sectionGroups().map((group) => (
         <div key={group.title}>
           <p className="ds-label mb-3 flex items-center gap-2">
             <span className="w-4 h-px bg-[var(--accent)]/70" aria-hidden />

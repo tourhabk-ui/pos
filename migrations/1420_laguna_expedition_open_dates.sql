@@ -1,4 +1,4 @@
--- 1419: «Лагуна Экспедиция» — открыты даты опубликованных туров: каждый день в
+-- 1420: «Лагуна Экспедиция» — открыты даты опубликованных туров: каждый день в
 -- сезоне тура, мест на дату — вместимость тура.
 -- Created: 2026-11-11
 --
@@ -170,7 +170,7 @@ DECLARE
 BEGIN
   SELECT count(*) INTO v_p FROM partners WHERE slug = 'laguna-expedition';
   IF v_p <> 1 THEN
-    RAISE WARNING '[1419] карточек laguna-expedition: % (нужна одна, её заводит 1323) — даты не открыты', v_p;
+    RAISE WARNING '[1420] карточек laguna-expedition: % (нужна одна, её заводит 1323) — даты не открыты', v_p;
     RETURN;
   END IF;
   SELECT count(*) INTO v_live FROM operator_tours t
@@ -195,12 +195,12 @@ BEGIN
     JOIN _lagexp_dates s ON s.slug = t.slug
    WHERE t.deleted_at IS NULL AND COALESCE(t.is_published, FALSE) AND COALESCE(t.is_active, FALSE)
      AND NOT (t.max_participants >= 1);
-  RAISE WARNING '[1419] «Лагуна Экспедиция»: опубликованных туров %, из списка %, с открытыми датами впереди %', v_live, v_listed, v_open;
+  RAISE WARNING '[1420] «Лагуна Экспедиция»: опубликованных туров %, из списка %, с открытыми датами впереди %', v_live, v_listed, v_open;
   IF v_other IS NOT NULL THEN
-    RAISE WARNING '[1419] не из списка, даты не открывались: %', v_other;
+    RAISE WARNING '[1420] не из списка, даты не открывались: %', v_other;
   END IF;
   IF v_noseats IS NOT NULL THEN
-    RAISE WARNING '[1419] без вместимости, даты не открыты: %', v_noseats;
+    RAISE WARNING '[1420] без вместимости, даты не открыты: %', v_noseats;
   END IF;
 END $$;
 
