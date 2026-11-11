@@ -13,6 +13,7 @@ import {
 } from '@/lib/partners/categories';
 import { escapeHtml } from '@/lib/text/escape-html';
 import { ROLE_HUB } from '@/lib/auth/role-routes';
+import { agentRoleOpen, AGENT_SIGNUP_CLOSED } from '@/lib/auth/agent-role';
 
 /** Кто зарегистрировался — словом для писем. */
 const PARTNER_KIND_WORDS: Record<string, string> = {
@@ -89,6 +90,12 @@ export async function POST(request: NextRequest) {
         { success: false, error: 'Неизвестная категория партнёра' },
         { status: 400 }
       );
+    }
+    // Роль агента заморожена, пока Ведар не принимает оплату (#3212) — то же
+    // правило, что у POST /api/auth/register: вторая дверь регистрации
+    // партнёра не должна выдавать роль, которую закрыла первая.
+    if (category === 'agent' && !agentRoleOpen()) {
+      return NextResponse.json({ success: false, error: AGENT_SIGNUP_CLOSED }, { status: 403 });
     }
 
     client = await pool.connect();
