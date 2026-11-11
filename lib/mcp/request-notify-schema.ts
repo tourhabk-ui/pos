@@ -88,13 +88,13 @@ function listRu(xs: readonly number[]): string {
  * кодах (tests/unit/request-notify.test.ts).
  */
 export const NOTIFY_RESPONSE_RULES =
-  `Ответ приёмника: 2xx — доставлено. 410 и любой другой 4xx, кроме ${listRu(NOTIFY_RETRY_4XX)}, отключают подписку с первого ответа, без повторов — `
+  `Ответ приёмника: 2xx — доставлено (ответ туроператора кнопкой из принятого уведомления передайте человеку сами: по подписке вызова, создавшего заявку, он считается дошедшим до человека). 410 и любой другой 4xx, кроме ${listRu(NOTIFY_RETRY_4XX)}, отключают подписку с первого ответа, без повторов — `
   + 'проверка подписи на приёмнике должна работать к первому уведомлению. '
   + `3xx (редиректам не следуем), ${listRu(NOTIFY_RETRY_4XX)}, 5xx, таймаут и сетевой отказ — повтор с растущим интервалом; `
   + `после ${NOTIFY_MAX_FAILURES} неудач подряд подписка отключается.`;
 
 export const NOTIFY_RESPONSE_RULES_EN =
-  `Receiver replies: 2xx means delivered. 410 or any other 4xx except ${NOTIFY_RETRY_4XX.join('/')} disables the subscription on the first reply, with no retries, `
+  `Receiver replies: 2xx means delivered (relay a tour operator's answer from an accepted notification to the person yourself: on a subscription made by the call that created the request it counts as delivered to the person). 410 or any other 4xx except ${NOTIFY_RETRY_4XX.join('/')} disables the subscription on the first reply, with no retries, `
   + 'so signature checking must work by the first notification. '
   + `3xx (redirects are not followed), ${NOTIFY_RETRY_4XX.join('/')}, 5xx, timeouts and network errors are retried with growing intervals; `
   + `after ${NOTIFY_MAX_FAILURES} consecutive failures the subscription is disabled.`;

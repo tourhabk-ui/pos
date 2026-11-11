@@ -19,6 +19,7 @@ import { platformAcceptsPayments } from '@/lib/payments/accepting';
 import { A2A_CATALOGS } from '@/lib/a2a/catalogs';
 import { OPENAPI_PATH, API_CATALOG_PATH } from '@/lib/api/openapi';
 import { NOTIFY_RESPONSE_RULES } from '@/lib/mcp/request-notify-schema';
+import { ANSWER_RELAY_RULE } from '@/lib/mcp/request-status-schema';
 import { recordAgentEntryHit } from '@/lib/analytics/agent-entry-hits';
 import { publicAccommodationSql } from '@/lib/stay/moderation';
 import { carrierPagePath } from '@/lib/transfers/charter-format';
@@ -374,6 +375,7 @@ ${parks.length ? parks.map((p) => `- [${p.displayName}](${BASE}/park/${p.slug})`
   passengers, guest_count (MCP, REST /api/hub/bookings/create и чат Кузьмича)
 - Состояние заявки — get_request_status по ключу из ответа; date — действующая
   дата брони (оператор мог перенести), requested_date — дата из заявки
+- ${ANSWER_RELAY_RULE}
 - Уведомление об изменении заявки — необязательный notify_url у create_lead,
   create_booking_request, request_charter, create_car_rental_request и create_trip_request:
   подписанный POST (Standard Webhooks: webhook-id, webhook-timestamp,

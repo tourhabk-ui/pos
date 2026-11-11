@@ -32,7 +32,8 @@ import {
   bookingState, buildRequestView, catalogTourOf, REQUEST_STATUS_BY_KEY_IDS_SQL, type StatusRow,
 } from '@/lib/mcp/request-status';
 import { BOOKING_STATUSES, LEAD_STATUSES } from '@/lib/types/statuses';
-import { REQUEST_STATES, REQUEST_KINDS, REQUEST_KEY_MIN_CHARS, CONSENT_PURPOSES } from '@/lib/mcp/request-status-schema';
+import { REQUEST_STATES, REQUEST_KINDS, REQUEST_KEY_MIN_CHARS, CONSENT_PURPOSES, ADDRESSEE_WORDS, ANSWER_RELAY_RULE } from '@/lib/mcp/request-status-schema';
+import { NOTICE_ANSWERS } from '@/lib/requests/chat-answer';
 import {
   PUBLIC_MCP_TOOLS, TOOL_ANNOTATIONS, TOOL_ENGLISH, PARAM_ENGLISH, WRITE_TOOL_NAMES,
   CREATE_LEAD_TOOL, BOOKING_REQUEST_TOOL, STAY_REQUEST_TOOL, REQUEST_CHARTER_TOOL,
@@ -774,6 +775,16 @@ describe('ответ владельца жилья кнопкой (1359)', () =>
     expect(buildRequestView({ ...STAY, stay_owner_answer: 'free' }, NOW).human).toMatch(/Это не бронь/);
     expect(buildRequestView({ ...STAY, stay_owner_answer: 'call' }, NOW)).toMatchObject({ state: 'in_progress', human: 'Владелец ответил: позвонит человеку сам.' });
   });
+
+  it('описание инструмента называет у жилья каждое состояние, которое статус отдаёт', () => {
+    // До этой правки описание знало у жилья одно состояние — delivered, а
+    // владелец с 1359 отвечает кнопкой: агент, читавший описание, не ждал
+    // ни «в работе», ни «отказ».
+    const states = new Set([null, 'free', 'busy', 'call'].map((a) => buildRequestView({ ...STAY, stay_owner_answer: a }, NOW).state));
+    expect([...states].sort()).toEqual(['declined', 'delivered', 'in_progress']);
+    const sentence = GET_REQUEST_STATUS_TOOL.description.split('. ').find((x) => x.startsWith('Заявка на жильё')) ?? '';
+    for (const state of states) expect(sentence, state).toContain(`(${state})`);
+  });
 });
 
 describe('SQL статуса читает ответ того, кто сейчас адресат', () => {
@@ -783,5 +794,67 @@ describe('SQL статуса читает ответ того, кто сейча
     expect(REQUEST_STATUS_SQL).toContain('s.owner_answer AS stay_owner_answer');
     // Причина отказа — код; свободного текста оператора (decline_note) наружу нет.
     expect(REQUEST_STATUS_SQL).not.toMatch(/decline_note/);
+  });
+});
+
+describe('правило доставки ответа: слова агенту и отметка чтения (план «после отказа», 2б)', () => {
+  /** Ответ «Нет мест» по заявке на тур; ключ выдан дверью, создавшей заявку. */
+  const ANSWERED: StatusRow = { ...TOUR_LEAD, lead_answer: 'no_seats', lead_answer_id: '77', opens_chat: true };
+
+  /** Отметки «ответ дошёл», которые чтение записало в базу: [номер ответа, чем дошёл]. */
+  async function marksAfter(row: StatusRow, read: () => Promise<unknown>): Promise<unknown[]> {
+    const { NOTICE_SHOWN_SQL } = await import('@/lib/requests/answer-notice-mark');
+    query.mockReset();
+    query.mockImplementation(async (sql: string) => (sql === NOTICE_SHOWN_SQL ? { rows: [], rowCount: 1 } : { rows: [row] }));
+    await read();
+    return query.mock.calls.filter((c) => c[0] === NOTICE_SHOWN_SQL).map((c) => c[1]);
+  }
+
+  it('get_request_status по ключу созданной заявки отмечает ответ дошедшим — и описание инструмента говорит это агенту', async () => {
+    // Связка «слова → механизм» (CLAUDE.md §4, правило 10.09): отметка без
+    // слов — доставка, о которой агент не знает; слова без отметки — обещание.
+    expect(await marksAfter(ANSWERED, () => runRequestStatusTool({ key: KEY }))).toEqual([['77', 'agent_read']]);
+    const tool = PUBLIC_MCP_TOOLS.find((t) => t.name === REQUEST_STATUS_TOOL_NAME);
+    expect(tool?.description).toContain(ANSWER_RELAY_RULE);
+    expect(ANSWER_RELAY_RULE).toContain('передайте человеку сами');
+    expect(ANSWER_RELAY_RULE).toContain('считается дошедшим до человека');
+    expect(ANSWER_RELAY_RULE).toContain('менеджера звонить не просит');
+  });
+
+  it('правило называет словами каждый ответ, по которому человеку уходит сообщение, и чтение каждого отмечается', async () => {
+    // Новый вид ответа с сообщением (NOTICE_ANSWERS) без слова в правиле — красный.
+    const WORDS: Record<(typeof NOTICE_ANSWERS)[number], { word: string; row: Partial<StatusRow> }> = {
+      no_seats: { word: 'мест нет', row: {} },
+      decline: { word: 'отказ', row: { lead_status: 'lost' } },
+      other_date: { word: 'другая дата', row: { lead_status: 'contacted' } },
+    };
+    expect(Object.keys(WORDS).sort()).toEqual([...NOTICE_ANSWERS].sort());
+    for (const [answer, { word, row }] of Object.entries(WORDS)) {
+      expect(ANSWER_RELAY_RULE, answer).toContain(word);
+      const marks = await marksAfter({ ...ANSWERED, ...row, lead_answer: answer }, () => runRequestStatusTool({ key: KEY }));
+      expect(marks, answer).toEqual([['77', 'agent_read']]);
+    }
+  });
+
+  it('ключ повтора и чтение без читателя доставкой не считаются — оговорка о ключе в правиле не лишняя', async () => {
+    expect(await marksAfter({ ...ANSWERED, opens_chat: false }, () => runRequestStatusTool({ key: KEY }))).toEqual([]);
+    // Кузьмич по вставленному ключу: человек спросил сам.
+    expect(await marksAfter(ANSWERED, () => readRequestStatus(KEY))).toEqual([]);
+    expect(ANSWER_RELAY_RULE).toContain('ключа, выданного при создании заявки');
+  });
+
+  it('заявка ещё ждёт ответа — отмечать нечего', async () => {
+    expect(await marksAfter({ ...TOUR_LEAD, opens_chat: true }, () => runRequestStatusTool({ key: KEY }))).toEqual([]);
+  });
+});
+
+describe('consent_purpose: описание называет каждого получателя из списка значений', () => {
+  it('значение и слово получателя — у всех, прокатчик в том числе', () => {
+    // До этой правки значений было четыре, а в описании — три: без rental.
+    const d = GET_REQUEST_STATUS_TOOL.outputSchema.properties.consent_purpose.description;
+    for (const p of CONSENT_PURPOSES) {
+      expect(d, p).toContain(`${p} — `);
+      expect(d, p).toContain(ADDRESSEE_WORDS[p].dat);
+    }
   });
 });

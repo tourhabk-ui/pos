@@ -15,6 +15,8 @@ import { describe, it, expect, vi } from 'vitest';
 import { handleA2A, readText, readToolCall, type A2AExecutors } from '@/lib/a2a/handle';
 import { memoryTaskStore, type A2ATaskStore } from '@/lib/a2a/task-store';
 import type { PublicToolOutcome } from '@/lib/mcp/tool-outcome';
+import { buildSkills } from '@/lib/a2a/agent-card';
+import { WRITE_TOOL_NAMES } from '@/lib/mcp/public-tools';
 
 function deps(toolOutcome: PublicToolOutcome, chat: Awaited<ReturnType<A2AExecutors['chat']>> = { ok: true, text: 'Кузьмич отвечает' }) {
   const executors: A2AExecutors = {
@@ -208,3 +210,35 @@ describe('разбор частей', () => {
     expect(readText([{ kind: 'text', text: ' a ' }, { kind: 'file' }, { kind: 'text', text: 'b' }])).toBe('a\nb');
   });
 });
+
+describe('визитка обещает те исходы задачи, которые диспетчер отдаёт', () => {
+  const OUTCOMES: Array<[PublicToolOutcome, string, string]> = [
+    [{ kind: 'ok', text: 'Состояние заявки' }, 'TASK_STATE_COMPLETED', 'completed'],
+    [{ kind: 'refused', text: 'Ключ не найден' }, 'TASK_STATE_REJECTED', 'rejected'],
+    [{ kind: 'rate_limited', text: 'Подождите' }, 'TASK_STATE_REJECTED', 'rejected'],
+    [{ kind: 'failed', text: 'Сбой на стороне Ведара' }, 'TASK_STATE_FAILED', 'failed'],
+  ];
+
+  it.each(['get_request_status', 'create_booking_request'])('%s: каждый исход исполнителя — состояние, названное в навыке', async (tool) => {
+    // До этой правки читающий навык обещал только completed, а неизвестный
+    // ключ статуса и лимит отдают rejected, сбой — failed.
+    const skill = buildSkills().find((x) => x.id === tool);
+    expect(skill, tool).toBeDefined();
+    for (const [outcome, wire, word] of OUTCOMES) {
+      const out = await handleA2A('SendMessage', dataMsg(tool, {}), ctx(), deps(outcome));
+      expect(out.ok && (out.result.task as { status: { state: string } }).status.state, outcome.kind).toBe(wire);
+      expect(skill?.description, `${tool}: ${word}`).toContain(word);
+    }
+  });
+
+  it('каждый навык-инструмент называет все три состояния; пишущий и читающий — свои причины отказа', () => {
+    const tools = buildSkills().slice(1);
+    expect(tools.length).toBeGreaterThan(0);
+    for (const sk of tools) {
+      for (const word of ['completed', 'rejected', 'failed']) expect(sk.description, `${sk.id}: ${word}`).toContain(word);
+      if (WRITE_TOOL_NAMES.has(sk.id)) expect(sk.description, sk.id).toContain('нет согласия');
+      else expect(sk.description, sk.id).not.toContain('нет согласия');
+    }
+  });
+});
+

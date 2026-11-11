@@ -416,6 +416,12 @@ describe('сверка: принятое уведомление с ответо�
     expect(r.delivered).toBe(2);
     const marks = query.mock.calls.filter((c) => c[0] === NOTICE_SHOWN_SQL).map((c) => c[1]);
     expect(marks).toEqual([['77', 'agent_webhook']]);
+    // Связка «слова → механизм»: раз принятое уведомление — доставка ответа,
+    // правило ответа приёмника обязано говорить это агенту на обоих языках.
+    const rules = await import('@/lib/mcp/request-notify-schema');
+    // «По подписке вызова, создавшего заявку» — не лишнее: второй ключ выше — повтор, и по нему отметки нет.
+    expect(rules.NOTIFY_RESPONSE_RULES).toContain('2xx — доставлено (ответ туроператора кнопкой из принятого уведомления передайте человеку сами: по подписке вызова, создавшего заявку, он считается дошедшим до человека)');
+    expect(rules.NOTIFY_RESPONSE_RULES_EN).toContain("2xx means delivered (relay a tour operator's answer from an accepted notification to the person yourself: on a subscription made by the call that created the request it counts as delivered to the person)");
   });
 
   it('только названные ключи: без истечения, уборки и сверки молчания', async () => {

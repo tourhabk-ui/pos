@@ -184,7 +184,9 @@ export function buildSkills(): AgentSkill[] {
       description:
         `${t.description} Вызов: DataPart ${dataPartExample(t.name)} — аргументы по схеме инструмента ${t.name} `
         + `(tools/list на ${A2A_JSONRPC_PATH.replace('/a2a', '/mcp')}). Ответ: Task в состоянии completed с текстом инструмента`
-        + (write ? '; отказ по входу (нет согласия, нет мест, лимит) — состояние rejected с объяснением.' : '.'),
+        + (write
+          ? '; отказ по входу (нет согласия, нет мест, лимит) — состояние rejected с объяснением; сбой на стороне Ведара — failed.'
+          : '; отказ по входу (неверные аргументы, неизвестный ключ, лимит) — состояние rejected с объяснением; сбой на стороне Ведара — failed.'),
       tags: SKILL_TAGS[t.name] ?? ['kamchatka'],
       examples: [dataPartExample(t.name), ...(TEXT_EXAMPLES[t.name] ?? [])],
       inputModes: ['application/json'],

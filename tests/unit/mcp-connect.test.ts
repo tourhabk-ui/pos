@@ -26,6 +26,8 @@ import {
 import { CANONICAL_BASE_URL } from '@/lib/config';
 import { GET as manifestGet } from '@/app/.well-known/mcp.json/route';
 import { SERVER_INSTRUCTIONS } from '@/lib/mcp/server-instructions';
+import { PUBLIC_MCP_TOOLS } from '@/lib/mcp/public-tools';
+import { ANSWER_RELAY_RULE, REQUEST_STATUS_TOOL_NAME } from '@/lib/mcp/request-status-schema';
 
 const ROOT = process.cwd();
 const read = (p: string) => readFileSync(join(ROOT, p), 'utf-8');
@@ -204,6 +206,14 @@ describe('первоисточники читают модуль, а не дер
     // Тот же текст, что сервер отдаёт в initialize: агент видит правила до
     // подключения, и второго источника у них нет.
     expect(body.instructions).toBe(SERVER_INSTRUCTIONS);
+  });
+
+  it('манифест отдаёт описание статуса заявки с правилом доставки ответа — тем же, что у сервера', async () => {
+    const res = await manifestGet();
+    const body = await res.json() as { tools: Array<{ name: string; description: string }> };
+    const status = body.tools.find((t) => t.name === REQUEST_STATUS_TOOL_NAME);
+    expect(status?.description).toContain(ANSWER_RELAY_RULE);
+    expect(status?.description).toBe(PUBLIC_MCP_TOOLS.find((t) => t.name === REQUEST_STATUS_TOOL_NAME)?.description);
   });
 
   it('/mcp и llms.txt импортируют модуль; deeplink-схемы в разметке не захардкожены', () => {
