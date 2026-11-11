@@ -1,14 +1,15 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { pool } from '@/lib/db-pool';
 import { s3PublicUrl } from '@/lib/storage/s3';
-import { imageTypeByPath, isOurStoredUrl, serveStoredObject } from '@/lib/images/serve-stored';
+import { imageTypeByPath, ourStoredUrl, serveStoredObject } from '@/lib/images/serve-stored';
 
 const CACHE_LONG = 'public, max-age=31536000, immutable';
 
 /** Снимок галереи — с нашего домена, как герой места (11.11, lib/images/serve-stored). */
 async function sendStored(req: Request, url: string, source: string): Promise<Response> {
-  if (isOurStoredUrl(url)) {
-    return serveStoredObject(url, req, { cache: CACHE_LONG, fallbackType: imageTypeByPath(url), logScope: 'gallery', source });
+  const ours = ourStoredUrl(url);
+  if (ours) {
+    return serveStoredObject(ours, req, { cache: CACHE_LONG, fallbackType: imageTypeByPath(url), logScope: 'gallery', source });
   }
   return NextResponse.redirect(url, { status: 302, headers: { 'Cache-Control': CACHE_LONG, 'X-Source': source } });
 }

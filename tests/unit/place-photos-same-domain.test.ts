@@ -60,6 +60,18 @@ describe('чей адрес отдаётся с нашего домена', () =
     expect(serve.isOurStoredUrl('https://s3.twcstorage.ru/other-bucket/a.jpg')).toBe(false);
     expect(serve.isOurStoredUrl(`${BASE}-evil/a.jpg`)).toBe(false);
     expect(serve.isOurStoredUrl(`${BASE}/../other/a.jpg`)).toBe(false);
+    // Ревью безопасности #3238: точечные сегменты в кодировке разбор адреса
+    // превращает в «..» — проверка судит адрес после разбора, как его видит fetch.
+    expect(serve.isOurStoredUrl(`${BASE}/%2e%2e/other-bucket/key.jpg`)).toBe(false);
+    expect(serve.isOurStoredUrl(`${BASE}/.%2E/other-bucket/key.jpg`)).toBe(false);
+    expect(serve.isOurStoredUrl(`${BASE}/places/%2e%2e/%2e%2e/x.jpg`)).toBe(false);
+    expect(serve.isOurStoredUrl('https://user:pw@s3.twcstorage.ru/vedar-test/a.jpg')).toBe(false);
+    // Чужой хост с тем же путём бакета — не наш.
+    expect(serve.isOurStoredUrl('https://evil.example/vedar-test/a.jpg')).toBe(false);
+    expect(serve.isOurStoredUrl('http://s3.twcstorage.ru/vedar-test/a.jpg')).toBe(false);
+    expect(serve.isOurStoredUrl(`${BASE}/`)).toBe(false);
+    // Тот же адрес иначе записанный — свой, и отдаётся разобранным.
+    expect(serve.ourStoredUrl('https://S3.TWCSTORAGE.RU:443/vedar-test/places/a.jpg')).toBe(`${BASE}/places/a.jpg`);
     expect(serve.isOurStoredUrl(null)).toBe(false);
   });
 
@@ -110,6 +122,32 @@ describe('герой места', () => {
     rows = [{ image_data: null, mime_type: 'image/jpeg', s3_url: `${BASE}/places/a.png`, s3_key: null, thumb_url: null }];
     const res = await heroCall(hero);
     expect(res.headers.get('content-type')).toBe('image/png');
+  });
+
+  it('адрес с закодированным «..» не скачивается — редирект браузеру', async () => {
+    const { hero } = await load();
+    rows = [{ image_data: null, mime_type: 'image/jpeg', s3_url: `${BASE}/%2e%2e/other-bucket/key.jpg`, s3_key: null, thumb_url: null }];
+    const res = await heroCall(hero);
+    expect(res.status).toBe(302);
+    expect(fetched).toHaveLength(0);
+  });
+
+  it('по переадресации хранилища сервер не идёт: redirect manual, 3xx — 502 с логом', async () => {
+    const { hero } = await load();
+    const log = vi.spyOn(console, 'error').mockImplementation(() => undefined);
+    let mode: unknown;
+    vi.stubGlobal('fetch', vi.fn(async (u: string, init?: { redirect?: string }) => {
+      fetched.push({ url: String(u), headers: {} });
+      mode = init?.redirect;
+      return new Response(null, { status: 302, headers: { location: 'http://169.254.169.254/' } });
+    }));
+    rows = [{ image_data: null, mime_type: 'image/jpeg', s3_url: `${BASE}/places/a.jpg`, s3_key: null, thumb_url: null }];
+    const res = await heroCall(hero);
+    expect(mode).toBe('manual');
+    expect(res.status).toBe(502);
+    expect(res.headers.get('location')).toBeNull();
+    expect(log.mock.calls.some((c) => String(c[0]).includes('переадресацией'))).toBe(true);
+    log.mockRestore();
   });
 
   it('объекта нет — 404; хранилище упало — 502 и строка в лог', async () => {

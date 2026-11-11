@@ -2,7 +2,7 @@ import { NextRequest, NextResponse } from 'next/server';
 import { pool } from '@/lib/db-pool';
 import { shownPhotoSql, PARTNER_NO_CONSENT } from '@/lib/images/origin';
 import { s3PublicUrl } from '@/lib/storage/s3';
-import { imageTypeByPath, isOurStoredUrl, serveStoredObject } from '@/lib/images/serve-stored';
+import { imageTypeByPath, ourStoredUrl, serveStoredObject } from '@/lib/images/serve-stored';
 
 export const dynamic = 'force-dynamic';
 
@@ -51,8 +51,9 @@ const CACHE_UNTIL_THUMB = 'public, max-age=3600';
  * не скачивает: такой — редиректом, как раньше.
  */
 async function sendStored(req: Request, url: string, cache: string, source: string): Promise<Response> {
-  if (isOurStoredUrl(url)) {
-    return serveStoredObject(url, req, { cache, fallbackType: imageTypeByPath(url), logScope: 'images/route', source });
+  const ours = ourStoredUrl(url);
+  if (ours) {
+    return serveStoredObject(ours, req, { cache, fallbackType: imageTypeByPath(url), logScope: 'images/route', source });
   }
   return NextResponse.redirect(url, { status: 302, headers: { 'Cache-Control': cache, 'X-Source': source } });
 }

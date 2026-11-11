@@ -26,17 +26,31 @@ const UPSTREAM_TIMEOUT_MS = 15_000;
 const SERVED_TYPES: ReadonlySet<string> = new Set(['image/jpeg', 'image/png', 'image/webp']);
 
 /**
- * Адрес — объект НАШЕГО бакета (начинается с публичной базы хранилища).
- * Только такой отдаётся с нашего домена: строка в базе — не доказательство
- * происхождения, и чужой адрес (у части снимков `s3_url` — адрес источника)
- * сервер скачивать не станет — его отдаёт браузер по редиректу, как раньше.
+ * Адрес — объект НАШЕГО бакета: тот же источник (схема, хост, порт), что у
+ * публичной базы хранилища, и путь внутри бакета. Только такой отдаётся с
+ * нашего домена: строка в базе — не доказательство происхождения, и чужой
+ * адрес (у части снимков `s3_url` — адрес источника) сервер скачивать не
+ * станет — его отдаёт браузер по редиректу, как раньше.
+ *
+ * Сравнивается адрес ПОСЛЕ разбора по WHATWG — тем же разбором, что делает
+ * fetch, — и возвращается он же (ревью безопасности #3238): строковая проверка
+ * префикса и `..` пропускала `%2e%2e` и `.%2E`, которые разбор превращает в
+ * `..` и уводит путь из бакета. Логин и пароль в адресе — не наш адрес.
  */
-export function isOurStoredUrl(url: string | null | undefined): url is string {
-  if (typeof url !== 'string' || !url) return false;
+export function ourStoredUrl(url: string | null | undefined): string | null {
+  if (typeof url !== 'string' || !url) return null;
   const base = s3PublicBase();
-  // Бакета нет — база кончается на «/», и проверка не пропустит ничего лишнего.
-  if (base.endsWith('/')) return false;
-  return url.startsWith(`${base}/`) && !url.includes('..');
+  // Бакета нет — база кончается на «/», своим не считается ничего.
+  if (base.endsWith('/') || !URL.canParse(url) || !URL.canParse(base)) return null;
+  const u = new URL(url);
+  const b = new URL(`${base}/`);
+  if (u.origin !== b.origin || u.username || u.password) return null;
+  if (!u.pathname.startsWith(b.pathname) || u.pathname.length <= b.pathname.length) return null;
+  return u.href;
+}
+
+export function isOurStoredUrl(url: string | null | undefined): url is string {
+  return ourStoredUrl(url) !== null;
 }
 
 /** Тип по расширению адреса — когда хранилище своего не назвало. */
@@ -63,6 +77,9 @@ export async function serveStoredObject(
     upstream = await fetch(url, {
       headers: conditional,
       cache: 'no-store',
+      // По переадресации хранилища сервер не идёт (ревью безопасности #3238):
+      // иначе запрос с адреса приложения ушёл бы на любой хост, куда укажет ответ.
+      redirect: 'manual',
       signal: AbortSignal.timeout(UPSTREAM_TIMEOUT_MS),
     });
   } catch (err) {
@@ -83,6 +100,10 @@ export async function serveStoredObject(
     // Публичный бакет на отсутствующий ключ отвечает 403 или 404 — для туриста это одно: снимка нет.
     console.error(`[${opts.logScope}] объекта нет в хранилище`, { url, status: upstream.status });
     return NextResponse.json({ error: 'Снимок не найден' }, { status: 404 });
+  }
+  if (upstream.status >= 300 && upstream.status < 400) {
+    console.error(`[${opts.logScope}] хранилище ответило переадресацией — не иду`, { url, status: upstream.status });
+    return NextResponse.json({ error: 'Снимок временно недоступен' }, { status: 502 });
   }
   if (!upstream.ok || !upstream.body) {
     console.error(`[${opts.logScope}] хранилище ответило ошибкой`, { url, status: upstream.status });
