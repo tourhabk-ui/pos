@@ -465,7 +465,10 @@ withPg('кабинет в чате на настоящем PostgreSQL', () => {
       expect(withoutPilot?.partners).toBe(1);
       await pool.query(`UPDATE partners SET slug = NULL WHERE id = $1`, [otherId]);
       const text = JSON.stringify(body);
-      for (const leak of [String(CHAT), String(MEMBER_CHAT), 'Анна', 'Петрова', '+79140001122']) expect(text, leak).not.toContain(leak);
+      // Номер чата ищется отдельным числом: «8201» как хвост случайного id
+      // партнёра (…7a9ba7b38201, kernel-pg 11.11) — не утечка чата.
+      for (const chat of [CHAT, MEMBER_CHAT]) expect(text, String(chat)).not.toMatch(new RegExp(`(?<![0-9A-Za-z-])${chat}(?![0-9A-Za-z-])`));
+      for (const leak of ['Анна', 'Петрова', '+79140001122']) expect(text, leak).not.toContain(leak);
       const unauth = await GET(new NextRequest('http://localhost/api/cron/chat-cabinet-census'));
       expect(unauth.status).toBe(401);
     });

@@ -618,6 +618,37 @@ export function chineseNumeralsOf(s: string): Set<string> {
 /** Месяц в переводе: 12月, 6至9月, 10-11月 — оба конца диапазона. */
 const ZH_MONTH = /(?<![\d.])(\d{1,2})(?:\s*[-–—~～至到]\s*(\d{1,2}))?\s*月/g;
 
+/**
+ * Счёт «на единицу», который по-китайски пишется без цифры (прогоны 10–14,
+ * 11.11): «цена за 1 машину» → 每辆车 «за каждую машину», «на 1 человека» →
+ * 每人, «1-местный» → 单人间, «2-местный» → 双人间. Четыре поля «не входит»
+ * четыре прогона подряд уходили в отказ «нет чисел исходника: 1» при верном
+ * переводе. Цифра исходника прощается только в этой форме и только когда в
+ * переводе стоит тот же знак (每, 单, 双): «1 день» → 每天 по-прежнему отказ —
+ * там нет «за/на» перед цифрой.
+ */
+const PER_UNIT: ReadonlyArray<{ re: RegExp; zh: string }> = [
+  { re: /(?<![\d.,])(?:за|на)\s+1(?=\s+[а-яё])/gi, zh: '每' },
+  { re: /(?<![\d.,])1\s*-?\s*(?:х\s*-?\s*)?местн/gi, zh: '单' },
+  { re: /(?<![\d.,])2\s*-?\s*(?:х\s*-?\s*)?местн/gi, zh: '双' },
+];
+
+function withoutPerUnit(src: string, zh: string): string {
+  let out = src;
+  for (const { re, zh: mark } of PER_UNIT) {
+    if (!zh.includes(mark)) continue;
+    out = out.replace(re, (whole) => whole.replace(/\d/g, ' '));
+  }
+  return out;
+}
+
+/**
+ * Обычные английские слова, а не имена: переводить их можно, и 水疗 за «spa»,
+ * 欢迎 за «welcome-сет» — перевод, а не потеря (прогон 14, туры 120 и 121).
+ * Названия («ReKa», «Sever Truck», «SUP») по-прежнему обязаны сохраниться.
+ */
+const TRANSLATABLE_LATIN: ReadonlySet<string> = new Set(['spa', 'welcome']);
+
 /** Латинские слова от двух букв, кроме плейсхолдеров чистки в квадратных скобках. */
 export function latinWordsOf(s: string): Set<string> {
   const plain = s.replace(/\[[^\]]*\]/g, ' ');
@@ -641,7 +672,7 @@ export function checkSegment(source: string, zh: string): string | null {
   const zhAny = new Set([...numbersOf(zhText), ...chineseNumeralsOf(t), ...zhScaled.map((q) => q.value)]);
   // Число с множителем, чья величина есть в переводе, вычеркнуто из исходника
   // на своём месте: «6 миллионов» за 600万 не прикрывает потерю «6 часов».
-  const lost = [...numbersOf(withoutMatched(src, srcScaled, zhAny))].filter((n) => !zhAny.has(n));
+  const lost = [...numbersOf(withoutPerUnit(withoutMatched(src, srcScaled, zhAny), t))].filter((n) => !zhAny.has(n));
   if (lost.length) return `в переводе нет чисел исходника: ${lost.slice(0, 5).join(', ')}`;
   const wrongScale = [...new Set(zhScaled.filter((q) => !srcAny.has(q.value)).map((q) => q.value))];
   if (wrongScale.length) return `в переводе другая величина: ${wrongScale.slice(0, 5).join(', ')}`;
@@ -661,7 +692,7 @@ export function checkSegment(source: string, zh: string): string | null {
   for (const n of numbersOf(rest)) if (!srcAny.has(n)) extra.add(n);
   if (extra.size) return `в переводе появились числа, которых нет в исходнике: ${[...extra].slice(0, 5).join(', ')}`;
   const zhLower = t.toLowerCase();
-  const lostLatin = [...latinWordsOf(source)].filter((w) => !zhLower.includes(w));
+  const lostLatin = [...latinWordsOf(source)].filter((w) => !TRANSLATABLE_LATIN.has(w) && !zhLower.includes(w));
   if (lostLatin.length) return `в переводе пропали латинские слова: ${lostLatin.slice(0, 5).join(', ')}`;
   return null;
 }
