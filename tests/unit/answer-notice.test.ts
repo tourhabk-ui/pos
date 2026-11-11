@@ -230,7 +230,7 @@ describe('доставка в нажатии оператора', () => {
     const logged = [...spy.mock.calls, ...warn.mock.calls].flat().map(String).join(' ');
     expect(logged).not.toContain(CHAT_ID);
     expect(logged).not.toMatch(/Ирина|79995550707/);
-    // Код отправки в «куда пробовали» — тоже без id: CHECK 1423 принял бы только [a-z0-9_:,].
+    // Код отправки в «куда пробовали» — тоже без id: CHECK 1424 принял бы только [a-z0-9_:,].
     expect(String(ran(NOTICE_UNDELIVERED_SQL)[0]!.params[1])).toMatch(/^[a-z0-9_:,]+$/);
     expect(String(ran(NOTICE_UNDELIVERED_SQL)[0]!.params[1])).not.toContain(CHAT_ID);
     spy.mockRestore();

@@ -1832,7 +1832,7 @@ async function checkFailedLeadDeliveries(): Promise<CheckResult> {
 
 /**
  * Сообщение человеку после ответа оператора застряло (план «после отказа», 2б,
- * answer_notices 1423) — выборка NOTICE_STUCK_SQL в lib/requests/answer-notice.
+ * answer_notices 1424) — выборка NOTICE_STUCK_SQL в lib/requests/answer-notice.
  * Без ПД: число и короткие номера заявок.
  */
 async function checkStuckAnswerNotices(): Promise<CheckResult> {

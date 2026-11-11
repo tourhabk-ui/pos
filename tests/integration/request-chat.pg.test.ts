@@ -1336,7 +1336,7 @@ withPg('переписка по заявке на настоящем PostgreSQL'
       await pool.query(`DELETE FROM tour_availability WHERE operator_tour_id = $1::bigint`, [tourId]);
     });
 
-    it('сообщение после ответа (2б, 1423): одно на ответ, в чат заявки, иначе менеджеру; прочли — «звонить не нужно»', async () => {
+    it('сообщение после ответа (2б, 1424): одно на ответ, в чат заявки, иначе менеджеру; прочли — «звонить не нужно»', async () => {
       process.env.CALLBACK_SIGNING_SECRET ??= 'pg-test-signing';
       const answers = await import('@/lib/requests/chat-answer');
       const notices = await import('@/lib/requests/answer-notice');

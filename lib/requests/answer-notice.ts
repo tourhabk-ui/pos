@@ -227,7 +227,7 @@ function codeOf(err: unknown): string {
 }
 
 /**
- * Код отправки — из белого списка: он ляжет в `tried` (CHECK 1423) и в лог.
+ * Код отправки — из белого списка: он ляжет в `tried` (CHECK 1424) и в лог.
  * Свободный текст ошибки канала мог бы нести id чата — его сюда не пускаем.
  */
 const CHAT_CODES = new Set(['no_token', 'bad_id', 'api_error', 'timeout', 'exception']);
