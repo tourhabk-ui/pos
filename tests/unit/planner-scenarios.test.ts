@@ -306,3 +306,44 @@ describe('Б30: подсказка модели не просит рейтинг
     expect(prompt).toMatch(/оценок и рейтингов не называй/);
   });
 });
+
+describe('Сценарии раздела 4 аудита, дописанные 11.11 (#3199)', () => {
+  const AVACHA: Tour = { tourId: 't-ava', title: 'Авача за день', durationHours: 10, zone: 'avachinsky', activityType: 'volcano' };
+
+  it('сценарий 10: местный, однодневный выход — один день, без прилёта и без слов о ночах', async () => {
+    TOURS['avachinsky:volcano'] = [AVACHA];
+    const rec = await recommendTrip({ ...profile(1, ['volcano']), tripOrigin: 'local' });
+    expect(rec.days.map((d) => d.type)).toEqual(['activity']);
+    expect(rec.days[0]!.realTour?.tourId).toBe('t-ava');
+    const text = rec.warnings.map((w) => w.message).join('\n');
+    // Ночей у плана нет: ни «ночи в счёт не вошли», ни «ночёвку посчитали отдельно».
+    expect(text).not.toMatch(/Ночи в Авачинской зоне в счёт не вошли/);
+    expect(text).not.toMatch(/ночёвку по ним посчитали отдельно/);
+  });
+
+  it('сценарий 10, проверка от обратного: у приезжего ночь после дня тура есть — и слово о составе тура остаётся', async () => {
+    TOURS['avachinsky:volcano'] = [AVACHA];
+    const rec = await recommendTrip(profile(3, ['volcano']));
+    expect(rec.warnings.map((w) => w.message).join('\n')).toMatch(/ночёвку по ним посчитали отдельно/);
+  });
+
+  it('сценарий 5: у тура не указана цена — «цену оператор не указал», а не «проверить не удалось»', async () => {
+    TOURS['avachinsky:volcano'] = [{ ...AVACHA, tourId: 't-free', title: 'Авача без цены', basePrice: 0 }];
+    const rec = await recommendTrip(profile(3, ['volcano']));
+    const day = rec.days.find((d) => d.realTour?.tourId === 't-free');
+    expect(day?.realPrice).toBeUndefined();
+    expect(day?.priceMissing).toBe('Цену тура оператор не указал — её назовёт оператор.');
+    expect(rec.priceBreakdown.activityPricing.unpriced).toBe(1);
+  });
+
+  it('сценарий 1: рыбалка и вулкан за 5 дней — у тура есть дата, а дальняя зона, не вошедшая в план, названа', async () => {
+    TOURS['avachinsky:volcano'] = [AVACHA];
+    TOURS['western:fishing'] = [{ tourId: 't-fish', title: 'Рыбалка на западе', durationHours: 10, zone: 'western', activityType: 'fishing' }];
+    const rec = await recommendTrip(profile(5, ['fishing', 'volcano']));
+    for (const d of rec.days.filter((x) => x.realTour)) expect(d.availableDate, d.title).toMatch(/^\d{4}-\d{2}-\d{2}$/);
+    const westernPlanned = rec.days.some((d) => d.zone === 'western');
+    if (!westernPlanned) {
+      expect(rec.warnings.some((w) => w.type === 'zone_days' && /Западная зона в план не вошла/.test(w.message))).toBe(true);
+    }
+  });
+});

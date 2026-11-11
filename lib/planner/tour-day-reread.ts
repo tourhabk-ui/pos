@@ -24,7 +24,7 @@
 
 import { pool } from '@/lib/db-pool';
 import { createPlannerCache, fetchAvailabilityForTour } from './data';
-import { planTourPrice, PRICE_UNREAD_TEXT } from './tour-price';
+import { planTourPrice, missingPriceText, PRICE_UNREAD_TEXT } from './tour-price';
 import { publicTourSql } from '@/lib/tours/public-visibility';
 
 export interface TourDayInput {
@@ -172,7 +172,7 @@ export async function rereadTourDay(input: TourDayInput): Promise<TourDayRead> {
     out.priceTo = priced.unitPrice;
     if (priced.label) out.priceLabel = priced.label;
   } else {
-    out.priceMissing = priced.kind === 'missing' ? priced.text : PRICE_UNREAD_TEXT;
+    out.priceMissing = missingPriceText(priced);
   }
   return out;
 }

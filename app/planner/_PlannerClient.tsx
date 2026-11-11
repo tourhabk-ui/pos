@@ -2552,11 +2552,13 @@ export function PlannerClient({ initialUserId }: { initialUserId?: string | null
       </div>
 
       <div className="space-y-2">
+        {/* Уровень меняет только жильё в смете, туры от него не зависят
+            (#3199, раздел 4): подпись «Бюджет» обещала дешевле туры. */}
         <p className="text-sm font-medium text-[var(--text-primary)] flex items-center gap-2">
-          <Wallet className="w-4 h-4 text-[var(--ocean)]" />Бюджет
+          <Wallet className="w-4 h-4 text-[var(--ocean)]" />Жильё
         </p>
         <Segmented
-          label="Бюджет"
+          label="Уровень жилья"
           value={budgetTier}
           onChange={setBudgetTier}
           options={[

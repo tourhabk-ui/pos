@@ -12,14 +12,14 @@ import { pool } from '@/lib/db-pool';
 // ни один прежний читатель `@/lib/planner/engine` не был тронут.
 import {
   type ZoneId, type TransportType, type FitnessLevel, type ActivityConstraints, type BudgetTier, type DayType,
-  ZONE_NAMES, ACTIVITY_CONSTRAINTS, ACTIVITY_NAMES,
+  ZONE_NAMES, ACTIVITY_CONSTRAINTS, ACTIVITY_NAMES, nightZoneOf,
 } from '@/lib/planner/constants';
 import { ZONE_GRAPH, type ZoneEdge } from '@/lib/planner/zone-graph';
 import { zoneLegCost, legFits, legShortfallMessage, type ZoneLegCost } from '@/lib/planner/zone-leg';
 import {
   asTripOrigin, framingDays, activeBudget as framedActiveBudget,
   arrivalDayText, departureDayText,
-  HOME_NIGHTS_ASSUMPTION, LOCAL_HOME_ZONE, type TripOrigin,
+  HOME_NIGHTS_ASSUMPTION, LOCAL_HOME_ZONE, nightIsAtHome, type TripOrigin,
 } from '@/lib/planner/trip-origin';
 export { ZONE_GRAPH };
 export type { ZoneEdge };
@@ -51,7 +51,7 @@ import { withGroupMinimum } from '@/lib/planner/group-minimum';
 import { lineUpForDate, offDaysWarning, tourFitsDate, type TourDates } from '@/lib/planner/tour-day-fit';
 import { kamchatkaToday } from '@/lib/seat-requests/core';
 import { tourDurationDays } from '@/lib/bookings/duration';
-import { planTourPrice, PRICE_UNREAD_TEXT } from '@/lib/planner/tour-price';
+import { planTourPrice, missingPriceText } from '@/lib/planner/tour-price';
 import { priceFromUnit } from '@/lib/tours/price-label';
 import { activityMode, type ActivityMode } from '@/lib/planner/day-mode';
 import { rankByLoad, firstOverLimit, overLimitText, dateOfTripDay, slotOnTripDay, tripCalendarDays, type PlaceLoad } from '@/lib/planner/flow-balance';
@@ -1733,7 +1733,7 @@ async function generateDayPlans(
           realPrice = priced.unitPrice;
           if (priced.label) realTourData.priceLabel = priced.label;
         } else {
-          priceMissing = priced.kind === 'missing' ? priced.text : PRICE_UNREAD_TEXT;
+          priceMissing = missingPriceText(priced);
         }
 
         // Contingency alternatives
@@ -2402,7 +2402,11 @@ export async function recommendTrip(profile: TripProfile, opts: RecommendTripOpt
   // Допущение о доме местного — словами рядом со счётом, а не молча в цифре.
   // Условие узкое намеренно: если план вообще не ночует в Авачинской зоне,
   // допущение ни на что не повлияло, и говорить о нём нечего.
-  if (asTripOrigin(profile.tripOrigin) === 'local' && plannedZones.has(LOCAL_HOME_ZONE)) {
+  // Без единой ночи (однодневный выход) допущению не на что влиять (#3199,
+  // сценарий 10 аудита): «ночи в счёт не вошли» у плана без ночей — неправда.
+  const lastPlanDay = Math.max(0, ...days.map((d) => d.day));
+  const hasNight = (d: { day: number; type: string }) => d.type !== 'departure' && d.day < lastPlanDay;
+  if (asTripOrigin(profile.tripOrigin) === 'local' && plannedZones.has(LOCAL_HOME_ZONE) && days.some(hasNight)) {
     warnings.push({ type: 'home_nights', severity: 'info', message: HOME_NIGHTS_ASSUMPTION });
   }
 
@@ -2521,7 +2525,12 @@ export async function recommendTrip(profile: TripProfile, opts: RecommendTripOpt
   // не безобидная осторожность, по такой смете отказываются от поездки.
   // Туры, а не дни: дни продолжения многодневного тура несут тот же тур, и
   // двухдневный тур считался бы двумя (аудит 07.11, рядом с E1).
-  const unknownLodging = new Set(days.filter(d => d.realTour && d.realTour.lodgingIncluded === null).map(d => String(d.realTour!.tourId)));
+  // Только туры, у дней которых смета считает ночь: у тура в последний день
+  // и у местного дома ночёвку не считали вовсе, и «посчитали отдельно, итог
+  // завышен» было бы неправдой (#3199, сценарий 10 аудита).
+  const origin = asTripOrigin(profile.tripOrigin);
+  const countedNight = (d: DayPlan, i: number) => hasNight(d) && !nightIsAtHome(origin, nightZoneOf(d, days[i + 1]));
+  const unknownLodging = new Set(days.filter((d, i) => d.realTour && d.realTour.lodgingIncluded === null && countedNight(d, i)).map(d => String(d.realTour!.tourId)));
   if (unknownLodging.size > 0) {
     warnings.push({
       type: 'duration',
