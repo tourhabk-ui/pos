@@ -92,11 +92,26 @@ export function detectFactSignals(answer: string): GroundingSignal[] {
   return signals;
 }
 
+/**
+ * Инструменты, чей ответ несёт цены туров не всегда (разбор плохих оценок
+ * 11.11, #3179): план поездки — смету и цены туров, если план собрался;
+ * справка о месте — туры к месту с ценами, если они есть. План без дней —
+ * отказ словами, место без туров — справка без цен: такой вызов цену в ответе
+ * не заземляет. До этого все три стояли «ПРОБЕЛОМ», и честный план с ценами
+ * из сметы судился «незаземлённым» — три из шести плохих оценок недели.
+ */
+const PRICE_BEARING_TOOLS: ReadonlySet<string> = new Set(['make_trip_plan', 'edit_trip_plan', 'get_place_info']);
+
+/** Принёс ли вызов данные, которыми заземляется конкретика ответа. */
+export function groundsFacts(r: ToolRun): boolean {
+  if (!r.producedData) return false;
+  if (DATA_TOOL_PREFIXES.some((p) => r.name.startsWith(p))) return true;
+  return PRICE_BEARING_TOOLS.has(r.name) && typeof r.output === 'string' && pricesIn(r.output).length > 0;
+}
+
 /** Принёс ли данные хотя бы один инструмент «данных». */
 export function ranDataTool(runs: readonly ToolRun[]): boolean {
-  return runs.some(
-    (r) => r.producedData && DATA_TOOL_PREFIXES.some((p) => r.name.startsWith(p)),
-  );
+  return runs.some(groundsFacts);
 }
 
 /**

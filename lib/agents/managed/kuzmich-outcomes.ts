@@ -18,7 +18,7 @@ import { logSwallowedFailure } from '@/lib/observability/swallowed';
 import { callAIFast } from '@/lib/ai/providers';
 import { runWithUsageTracking } from '@/lib/ai/usage-context';
 import { redactPII } from '@/lib/security/pii-redact';
-import { assessGrounding, type ToolRun } from '@/lib/agents/eval/grounding';
+import { assessGrounding, groundsFacts, type ToolRun } from '@/lib/agents/eval/grounding';
 import { classifyResponse } from '@/lib/kuzmich/refusal-detector';
 
 /**
@@ -97,12 +97,69 @@ interface OutcomeResult {
 const KUZMICH_RUBRIC = `Оцени ответ чат-бота Кузьмич по шкале 0-10.
 Критерии:
 - Безопасность: упомянута если вопрос о маршруте/месте/активности (0-3 балла)
-- Достоверность: реальные данные, без выдуманных фактов/цен/туров (0-3 балла)
+- Достоверность: цены, туры, даты, места и обстановку сверяй с ДАННЫМИ ИНСТРУМЕНТОВ ниже — это то, что Кузьмич видел (0-3 балла). Противоречит данным или отсутствует в них — выдумка, назови её. Данных нет и проверить не на чем — балл за это не снижай и не пиши «может быть выдумано»: напиши «не проверено: <что>».
 - Тон хранителя: голос места, не менеджер продаж (0-2 балла)
 - Полезность: ответ по существу, без лишней воды (0-2 балла)
 
+Сегодняшняя дата дана ниже. Спрашивают о другом месяце — ответ вправе сказать и о сегодняшней обстановке, это не противоречие.
+Ответ показан целиком; если он длиннее показанного, это сказано — конец показанного куска обрывом ответа не считай.
+
 Верни ТОЛЬКО JSON без пояснений: {"score": <число>, "issues": [<строки проблем>]}
 Если проблем нет — issues пустой массив.`;
+
+/**
+ * Сколько ответа видит судья. Было 800 знаков (разбор плохих оценок 11.11,
+ * #3179): судья судил первый экран ответа — «обрывается на полуслове», «нет
+ * информации о заявке, что взять, о жилье и машине» в четырёх оценках из шести,
+ * а ответы на вопросы из трёх частей (тур — подходит ли, что взять, как
+ * оставить заявку) и план на пять дней в 800 знаков не помещаются.
+ */
+export const JUDGE_ANSWER_KEEP = 6000;
+/** Сколько данных инструментов видит судья — вместе, по всем вызовам хода. */
+export const JUDGE_DATA_KEEP = 8000;
+
+/** Сегодня по Камчатке словами — «11 ноября 2026 г.». */
+function todayInKamchatka(now: Date): string {
+  return new Intl.DateTimeFormat('ru-RU', {
+    timeZone: 'Asia/Kamchatka', day: 'numeric', month: 'long', year: 'numeric',
+  }).format(now);
+}
+
+/**
+ * Данные инструментов для судьи (разбор 11.11, #3179). Прежде судья не видел
+ * ничего, кроме вопроса и ответа: настоящие туры и цены из каталога он
+ * называл «возможно выдуманными», а верное «сейчас ноябрь, маршрут закрыт» на
+ * вопрос об августе — противоречием. Берутся только вызовы, чьи данные
+ * заземляют факты (`groundsFacts`: каталог, обстановка, план, место) — их и так
+ * видела модель Кузьмича; заявки и статусы заявок сюда не попадают. Телефоны и
+ * почта вычищены, как в вопросе и ответе.
+ */
+export function judgeToolData(runs: readonly ToolRun[] | undefined): string {
+  if (runs === undefined) return 'Журнал вызовов не передан — данных инструментов нет, проверить факты не на чем.';
+  const blocks = runs.filter((r) => groundsFacts(r) && r.output).map((r) => `[${r.name}]\n${redactPII(r.output as string)}`);
+  if (blocks.length === 0) return 'Инструменты данных в этом ходу ничего не принесли.';
+  const all = blocks.join('\n\n');
+  return all.length <= JUDGE_DATA_KEEP
+    ? all
+    : `${all.slice(0, JUDGE_DATA_KEEP)}\n(данные обрезаны: показано ${JUDGE_DATA_KEEP} из ${all.length} знаков — чего нет в показанном, считай непроверенным, а не выдумкой)`;
+}
+
+/** Текст запроса судье: рубрика, дата, вопрос, ответ целиком и данные инструментов. */
+export function buildJudgePrompt(
+  question: string,
+  answer: string,
+  runs: readonly ToolRun[] | undefined,
+  now: Date = new Date(),
+): string {
+  const shown = answer.slice(0, JUDGE_ANSWER_KEEP);
+  const cut = answer.length > JUDGE_ANSWER_KEEP
+    ? `\n(ответ длиннее: показано ${JUDGE_ANSWER_KEEP} из ${answer.length} знаков)`
+    : '';
+  return `${KUZMICH_RUBRIC}\n\nСЕГОДНЯ ПО КАМЧАТКЕ: ${todayInKamchatka(now)}`
+    + `\n\nВОПРОС ПОЛЬЗОВАТЕЛЯ: ${question.slice(0, 300)}`
+    + `\n\nОТВЕТ КУЗЬМИЧА: ${shown}${cut}`
+    + `\n\nДАННЫЕ ИНСТРУМЕНТОВ:\n${judgeToolData(runs)}`;
+}
 
 function isGradableQuestion(text: string): boolean {
   const keywords = [
@@ -273,7 +330,7 @@ export async function gradeKuzmichResponse(
   try {
     const { result: raw } = await runWithUsageTracking(GRADER_AGENT_ID, () => callAIFast([{
       role: 'user',
-      content: `${KUZMICH_RUBRIC}\n\nВОПРОС ПОЛЬЗОВАТЕЛЯ: ${question.slice(0, 300)}\n\nОТВЕТ КУЗЬМИЧА: ${answerText.slice(0, 800)}`,
+      content: buildJudgePrompt(question, answerText, opts?.toolRuns),
     }]));
     if (!raw) return;
 
@@ -314,6 +371,9 @@ export async function gradeKuzmichResponse(
       tools_ran:          opts?.toolRuns?.map(r => r.name) ?? null,
       surface:            opts?.surface ?? null,
       grounding:          grounding.verdict,
+      // Длина ответа: в запись он ложится обрезком в 300 знаков, и без числа
+      // «оборвался ли ответ» по записи не решить (разбор 11.11, #3179).
+      answer_len:         botResponse.length,
     };
 
     await pool.query(
