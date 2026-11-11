@@ -605,9 +605,9 @@ withPg('общая запись дат тура на настоящем PostgreS
       vi.useRealTimers();
     }
   });
-  it('миграция 1419: «Лагуна Экспедиция» — даты по сезону тура, мест — вместимость; сезон и строки оператора не тронуты; снятые с витрины и туры не из списка — без дат; повтор ничего не добавляет', async () => {
-    // Карточку и туры заводят 1323, 1339 и 1413; 1419 уже прошла при создании базы.
-    const sql = readFileSync(join(process.cwd(), 'migrations/1419_laguna_expedition_open_dates.sql'), 'utf8');
+  it('миграция 1420: «Лагуна Экспедиция» — даты по сезону тура, мест — вместимость; сезон и строки оператора не тронуты; снятые с витрины и туры не из списка — без дат; повтор ничего не добавляет', async () => {
+    // Карточку и туры заводят 1323, 1339 и 1413; 1420 уже прошла при создании базы.
+    const sql = readFileSync(join(process.cwd(), 'migrations/1420_laguna_expedition_open_dates.sql'), 'utf8');
     const lag = (await pool.query<{ id: string }>(`SELECT id::text AS id FROM partners WHERE slug = 'laguna-expedition'`)).rows[0]!.id;
     const bySlug = async (slug: string) => (await pool.query<{ id: string; max: number }>(
       `SELECT id::text AS id, max_participants AS max FROM operator_tours WHERE slug = $1`, [slug],
