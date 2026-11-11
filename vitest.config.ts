@@ -7,6 +7,12 @@ export default defineConfig({
   test: {
     globals: true,
     setupFiles: ['./test/setup.ts'],
+    // Хуки — до минуты, а не 10 с по умолчанию (11.11, kernel-pg на #3255).
+    // pg-сцены удаляют свою базу в afterAll (`dropTestDatabase`, tests/helpers/
+    // pg-schema.ts): DROP DATABASE ждёт принудительную контрольную точку, и на
+    // загруженном раннере она шла 14 с — хук падал при 916 зелёных сценах. Лимит
+    // только сверху: зависший хук по-прежнему краснеет, через минуту.
+    hookTimeout: 60_000,
     exclude: ['node_modules', 'dist', '.next', 'test/e2e/**', '.claude/**', '_archive/**'],
     // Среда — по роду файла. Почти все тесты — серверный код (роуты, SQL,
     // сервисы), и в node он проверяется в своей настоящей среде; экран рисуют
