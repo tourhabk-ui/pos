@@ -7,13 +7,19 @@ import { listActiveParks, type ParkListItem } from '@/lib/parks/list';
 import { matchesTopicText } from '@/lib/seo/query-landings-data';
 import type { LandingTopic } from '@/lib/seo/query-landings';
 
+/**
+ * Темы-виды поездки, а не места: «вертолёт» и «снегоход» в описании парка —
+ * это правило посещения или запрет, а не то, что парк о вертолётах.
+ */
+const NO_PARK_TOPICS: ReadonlySet<LandingTopic> = new Set(['all', 'helicopter', 'snowmobile']);
+
 export function parksForTopic(topic: LandingTopic, parks: readonly ParkListItem[]): ParkListItem[] {
-  if (topic === 'all') return [];
+  if (topic === 'all' || NO_PARK_TOPICS.has(topic)) return [];
   return parks.filter((p) => matchesTopicText(`${p.displayName} ${p.description ?? ''}`, topic));
 }
 
 export async function loadLandingParks(topic: LandingTopic): Promise<ParkListItem[] | null> {
-  if (topic === 'all') return [];
+  if (NO_PARK_TOPICS.has(topic)) return [];
   try {
     return parksForTopic(topic, await listActiveParks());
   } catch (err) {
