@@ -7,7 +7,8 @@ import {
 } from 'lucide-react';
 import { HubLayout } from '@/components/layout/HubLayout';
 import { PartnerChannelBanner } from '@/components/hub/PartnerChannelBanner';
-import { platformAcceptsPayments } from '@/lib/payments/accepting';
+import { agentRoleOpen } from '@/lib/auth/agent-role';
+import { AgentFrozenNote } from '@/components/agent/AgentFrozenNote';
 
 // Статистика — живая страница кабинета, но в меню её не было:
 // добраться можно было только прямой ссылкой. Ваучеры удалены 26.09:
@@ -18,7 +19,8 @@ import { platformAcceptsPayments } from '@/lib/payments/accepting';
 // сворачиваемую сетку иконок по разделам (как в админке) вместо горизонтальной
 // ленты, в которую 10 пунктов не влезали — за экраном терялись Сделки,
 // Комиссии и всё дальше. Обзор — сверху без раздела.
-const SIDEBAR_ITEMS = [
+// Меню собирается на рендере: правило роли одно и живое (#3212).
+const sidebarItems = () => [
   { href: '/hub/agent',             label: 'Обзор',      icon: LayoutDashboard },
 
   { href: '/hub/agent/find',        label: 'Найти тур',  icon: Search,     section: 'Продажи' },
@@ -27,8 +29,9 @@ const SIDEBAR_ITEMS = [
   { href: '/hub/agent/bookings',    label: 'Сделки',     icon: Handshake,  section: 'Продажи' },
 
   // Комиссии и рефералы — деньги через платформу; при выключенном приёме
-  // оплаты (05.10) начислять нечего, разделов в меню нет.
-  ...(platformAcceptsPayments() ? [
+  // оплаты (05.10) начислять нечего: роль заморожена (#3212), разделов в меню
+  // нет, а по прямому адресу страницы говорят «раздел закрыт».
+  ...(agentRoleOpen() ? [
     { href: '/hub/agent/commissions', label: 'Комиссии',   icon: CreditCard, section: 'Финансы' },
     { href: '/hub/agent/referral',    label: 'Рефералы',   icon: Link2,      section: 'Финансы' },
   ] : []),
@@ -39,8 +42,9 @@ const SIDEBAR_ITEMS = [
 
 export default function AgentHubLayout({ children }: { children: ReactNode }) {
   return (
-    <HubLayout sidebarItems={SIDEBAR_ITEMS} sidebarTitle="Кабинет агента" requiredRole="agent">
+    <HubLayout sidebarItems={sidebarItems()} sidebarTitle="Кабинет агента" requiredRole="agent">
       <PartnerChannelBanner />
+      <AgentFrozenNote />
       {children}
     </HubLayout>
   );

@@ -13,6 +13,7 @@ import { loadReferral, forgetReferral } from '@/lib/referral/link';
 import { safePartnerOAuthReturn } from '@/lib/crm/partner-oauth-public';
 import { safeTeamJoinReturn } from '@/lib/operators/team-join-path';
 import { validatePassword, PASSWORD_RULE_HINT } from '@/lib/auth/password-rule';
+import { agentRoleOpen } from '@/lib/auth/agent-role';
 
 type Mode = 'login' | 'register';
 type UserType = 'tourist' | 'partner';
@@ -492,7 +493,9 @@ export default function AuthPageClient() {
               <div className="bg-[var(--bg-card)] border border-[var(--border)] rounded-lg p-4">
                 <p className="text-xs text-[var(--text-muted)] mb-3">Выберите направления деятельности</p>
                 <div className="grid grid-cols-2 gap-2">
-                  {PARTNER_ROLES.map(role => {
+                  {/* Агента нет, пока роль заморожена (#3212): сервер такую
+                      регистрацию всё равно отклонит, а пункт обещал бы её. */}
+                  {PARTNER_ROLES.filter(role => role.id !== 'agent' || agentRoleOpen()).map(role => {
                     const selected = partnerRoles.includes(role.id);
                     return (
                       <button
