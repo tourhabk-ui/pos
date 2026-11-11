@@ -20,6 +20,7 @@ import { PUBLIC_MCP_TOOLS, WRITE_TOOL_NAMES } from '@/lib/mcp/public-tools';
 import { chinaClientFamily, clientRegion, CHINA_REGION_LABEL } from '@/lib/mcp/china-clients';
 import { externalBinary } from '../helpers/external-binary';
 import { buildServerInstructions } from '@/lib/mcp/server-instructions';
+import { ANSWER_RELAY_RULE } from '@/lib/mcp/request-status-schema';
 
 const ROOT = process.cwd();
 const read = (p: string) => readFileSync(join(ROOT, p), 'utf8');
@@ -197,6 +198,14 @@ describe('notify_url модели не отдаётся (29.10)', () => {
     // Фраза о согласии на ПД не отрезана обрезкой в 1024 знака.
     const booking = (JSON.parse(built) as Array<{ function: { name: string; description: string } }>).find((t) => t.function.name === 'create_booking_request');
     expect(booking?.function.description).toMatch(/согласие на их обработку и передай consent: true\.$/);
+    // Правило доставки ответа (план «после отказа», 2б) не отрезано тоже: в
+    // первой редакции описание статуса вышло за 1024 знака, и мост обрывал
+    // правило на «передайте человеку». Описание статуса помещается целиком —
+    // кончается точкой своего последнего предложения, а не обрывом.
+    const status = (JSON.parse(built) as Array<{ function: { name: string; description: string } }>).find((t) => t.function.name === 'get_request_status');
+    expect(status?.function.description).toContain(ANSWER_RELAY_RULE);
+    expect(status?.function.description.length).toBeLessThan(1024);
+    expect(status?.function.description).toMatch(/бронь перенесена или заведена на другую дату\.$/);
   });
 });
 

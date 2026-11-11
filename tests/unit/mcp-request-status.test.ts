@@ -62,8 +62,13 @@ describe('объявление', () => {
   });
 
   it('описание называет все пять пишущих инструмента и срок ключа — иначе агент не знает, откуда ключ', () => {
+    // Судится то, что видит агент: описание наружу — «английская фраза +
+    // русский текст» (withAnnotations). Имена называет фраза; второй раз в
+    // русском тексте их нет — описание обязано помещаться в 1024 знака моста
+    // вместе с правилом доставки ответа (vedar-mcp-bridge.test.ts).
+    const published = PUBLIC_MCP_TOOLS.find((t) => t.name === REQUEST_STATUS_TOOL_NAME)?.description ?? '';
     for (const w of WRITE_TOOL_NAMES) {
-      expect(GET_REQUEST_STATUS_TOOL.description).toContain(w);
+      expect(published, w).toContain(w);
       expect(TOOL_ENGLISH[REQUEST_STATUS_TOOL_NAME]?.lead).toContain(w);
     }
     expect(WRITE_TOOL_NAMES.size).toBe(6);
@@ -817,30 +822,30 @@ describe('правило доставки ответа: слова агенту 
     const tool = PUBLIC_MCP_TOOLS.find((t) => t.name === REQUEST_STATUS_TOOL_NAME);
     expect(tool?.description).toContain(ANSWER_RELAY_RULE);
     expect(ANSWER_RELAY_RULE).toContain('передайте человеку сами');
-    expect(ANSWER_RELAY_RULE).toContain('считается дошедшим до человека');
-    expect(ANSWER_RELAY_RULE).toContain('менеджера звонить не просит');
+    expect(ANSWER_RELAY_RULE).toContain('считается дошедшим');
+    expect(ANSWER_RELAY_RULE).toContain('Ведар человеку о нём больше не сообщает');
   });
 
-  it('правило называет словами каждый ответ, по которому человеку уходит сообщение, и чтение каждого отмечается', async () => {
-    // Новый вид ответа с сообщением (NOTICE_ANSWERS) без слова в правиле — красный.
-    const WORDS: Record<(typeof NOTICE_ANSWERS)[number], { word: string; row: Partial<StatusRow> }> = {
-      no_seats: { word: 'мест нет', row: {} },
-      decline: { word: 'отказ', row: { lead_status: 'lost' } },
-      other_date: { word: 'другая дата', row: { lead_status: 'contacted' } },
+  it('чтение отмечает каждый ответ, по которому человеку уходит сообщение, — правило говорит «ответ туроператора» без исключений', async () => {
+    // Новый вид ответа с сообщением (NOTICE_ANSWERS) без строки здесь — красный.
+    const ROWS: Record<(typeof NOTICE_ANSWERS)[number], Partial<StatusRow>> = {
+      no_seats: {},
+      decline: { lead_status: 'lost' },
+      other_date: { lead_status: 'contacted' },
     };
-    expect(Object.keys(WORDS).sort()).toEqual([...NOTICE_ANSWERS].sort());
-    for (const [answer, { word, row }] of Object.entries(WORDS)) {
-      expect(ANSWER_RELAY_RULE, answer).toContain(word);
+    expect(Object.keys(ROWS).sort()).toEqual([...NOTICE_ANSWERS].sort());
+    for (const [answer, row] of Object.entries(ROWS)) {
       const marks = await marksAfter({ ...ANSWERED, ...row, lead_answer: answer }, () => runRequestStatusTool({ key: KEY }));
       expect(marks, answer).toEqual([['77', 'agent_read']]);
     }
+    expect(ANSWER_RELAY_RULE).toMatch(/^Ответ туроператора из статуса передайте человеку сами/);
   });
 
   it('ключ повтора и чтение без читателя доставкой не считаются — оговорка о ключе в правиле не лишняя', async () => {
     expect(await marksAfter({ ...ANSWERED, opens_chat: false }, () => runRequestStatusTool({ key: KEY }))).toEqual([]);
     // Кузьмич по вставленному ключу: человек спросил сам.
     expect(await marksAfter(ANSWERED, () => readRequestStatus(KEY))).toEqual([]);
-    expect(ANSWER_RELAY_RULE).toContain('ключа, выданного при создании заявки');
+    expect(ANSWER_RELAY_RULE).toContain('по ключу, выданному при создании заявки');
   });
 
   it('заявка ещё ждёт ответа — отмечать нечего', async () => {
