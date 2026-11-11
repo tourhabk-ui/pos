@@ -120,16 +120,18 @@ describe('оператор: список и карточка лида', () => {
   it('карточка заявки агента, согласие только со слов агента — так и сказано', async () => {
     stubApi([apiLead('mcp://vedar/booking', A2A_BOOKING, {}, 'mcp')]);
     renderFresh(<LeadDetailClient leadId="l-1" />);
-    const line = await screen.findByText('Согласие на передачу данных — пока только со слов ИИ-агента: сам человек его не подтверждал');
+    const line = await screen.findByText('Согласие на передачу данных — только со слов ИИ-агента: на странице заявки его не отмечали');
     expect(line.closest('[data-lead-consent]')?.getAttribute('data-lead-consent')).toBe('agent');
   });
 
-  it('карточка заявки агента, человек подтвердил на странице заявки — так и сказано', async () => {
+  it('карточка заявки агента, отмечено на странице заявки — сказано, что кто нажал, не проверяется', async () => {
     stubApi([apiLead('mcp://vedar/booking', A2A_BOOKING, {}, 'request-page')]);
     renderFresh(<LeadDetailClient leadId="l-1" />);
-    const line = await screen.findByText('Согласие на передачу данных подтвердил сам человек на странице заявки');
-    expect(line.closest('[data-lead-consent]')?.getAttribute('data-lead-consent')).toBe('human');
+    const line = await screen.findByText(/^Согласие на передачу данных отмечено на странице заявки\. Ссылка на неё есть и у ИИ-агента/);
+    expect(line.closest('[data-lead-consent]')?.getAttribute('data-lead-consent')).toBe('page');
     expect(screen.queryByText(/только со слов ИИ-агента/)).toBeNull();
+    // Ссылка есть и у агента: «подтвердил человек» было бы неправдой (ревью #3252).
+    expect(document.body.textContent).not.toMatch(/подтвердил сам человек/);
   });
 
   it('карточка заявки человека из чата — строки согласия нет', async () => {

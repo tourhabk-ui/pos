@@ -28,7 +28,7 @@
 import { asLeadEntry, type LeadEntry } from '@/lib/leads/entry-values';
 
 export type LeadActor = 'human' | 'agent';
-export type LeadConsent = 'human' | 'agent';
+export type LeadConsent = 'page' | 'agent';
 
 export interface LeadOriginInput {
   source_url?: string | null;
@@ -49,10 +49,14 @@ export interface LeadOrigin {
   /** Одна строка для экрана и уведомления. */
   label: string;
   /**
-   * Кто подтвердил согласие на передачу данных — только у заявки, которую
-   * отправил ИИ-агент (слово владельца 11.11): `human` — сам человек на
-   * странице заявки, `agent` — пока только со слов агента. У заявок от
-   * человека и там, где след согласия не записан, — null: строки нет.
+   * След согласия на передачу данных — только у заявки, которую отправил
+   * ИИ-агент (слово владельца 11.11): `page` — отмечено на странице заявки,
+   * `agent` — только со слов агента. У заявок от человека и там, где след не
+   * записан, — null: строки нет.
+   *
+   * `page` — НЕ «подтвердил человек»: страница открывается ключом заявки, а
+   * ключ выдан агенту (ревью безопасности #3252). Кто нажал, платформа не
+   * знает, и слова строки так и говорят.
    */
   consent: LeadConsent | null;
 }
@@ -128,11 +132,11 @@ function origin(actor: LeadActor | null, via: string, what: string | null, conse
 }
 
 /**
- * След согласия у заявки агента: человек подтвердил на странице заявки
- * (`request-page`) или пока только агент (`mcp`). Иное — не знаем, null.
+ * След согласия у заявки агента: отмечено на странице заявки (`request-page`)
+ * или только со слов агента (`mcp`). Иное — не знаем, null.
  */
 function agentRequestConsent(source: string): LeadConsent | null {
-  if (source === HUMAN_CONFIRMED_CONSENT) return 'human';
+  if (source === HUMAN_CONFIRMED_CONSENT) return 'page';
   if (source === AGENT_CONSENT) return 'agent';
   return null;
 }
@@ -143,8 +147,8 @@ function agentRequestConsent(source: string): LeadConsent | null {
  * раньше (решение владельца 11.11 «оставь как есть»).
  */
 export const CONSENT_WORDS: Record<LeadConsent, string> = {
-  human: 'Согласие на передачу данных подтвердил сам человек на странице заявки',
-  agent: 'Согласие на передачу данных — пока только со слов ИИ-агента: сам человек его не подтверждал',
+  page: 'Согласие на передачу данных отмечено на странице заявки. Ссылка на неё есть и у ИИ-агента, поэтому кто нажал — человек или агент — платформа не проверяет',
+  agent: 'Согласие на передачу данных — только со слов ИИ-агента: на странице заявки его не отмечали',
 };
 
 /** Длинный адрес — укорочен: подпись не должна раздувать карточку. */

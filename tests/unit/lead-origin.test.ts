@@ -170,8 +170,8 @@ describe('согласие у заявки ИИ-агента (слово вла�
   it.each([
     ['mcp', AGENT_CONSENT, 'agent'],
     ['a2a', AGENT_CONSENT, 'agent'],
-    ['mcp', HUMAN_CONFIRMED_CONSENT, 'human'],
-    ['a2a', HUMAN_CONFIRMED_CONSENT, 'human'],
+    ['mcp', HUMAN_CONFIRMED_CONSENT, 'page'],
+    ['a2a', HUMAN_CONFIRMED_CONSENT, 'page'],
     ['mcp', null, null],
     ['mcp', 'site', null],
   ])('вход %s, след согласия %s → %s', (entry, consent, want) => {
@@ -192,7 +192,7 @@ describe('согласие у заявки ИИ-агента (слово вла�
   it('старая заявка агента (вход не записан, после отсечки) — по следу согласия', () => {
     const at = new Date(AFTER);
     expect(leadOrigin({ source_data: { source: 'mcp' }, pd_consent_source: AGENT_CONSENT, created_at: at }).consent).toBe('agent');
-    expect(leadOrigin({ source_data: { source: 'mcp' }, pd_consent_source: HUMAN_CONFIRMED_CONSENT, created_at: at }).consent).toBe('human');
+    expect(leadOrigin({ source_data: { source: 'mcp' }, pd_consent_source: HUMAN_CONFIRMED_CONSENT, created_at: at }).consent).toBe('page');
   });
 
   it('до отсечки агент неотличим от чата — о согласии молчим, а не приписываем агенту', () => {
@@ -201,9 +201,12 @@ describe('согласие у заявки ИИ-агента (слово вла�
     expect(o.consent).toBeNull();
   });
 
-  it('слова: человек подтвердил сам; иначе — только со слов агента', () => {
-    expect(CONSENT_WORDS.human).toBe('Согласие на передачу данных подтвердил сам человек на странице заявки');
-    expect(CONSENT_WORDS.agent).toBe('Согласие на передачу данных — пока только со слов ИИ-агента: сам человек его не подтверждал');
+  it('слова: отметка на странице не выдаётся за «подтвердил человек» — ссылка есть и у агента (ревью #3252)', () => {
+    expect(CONSENT_WORDS.page).toBe(
+      'Согласие на передачу данных отмечено на странице заявки. Ссылка на неё есть и у ИИ-агента, поэтому кто нажал — человек или агент — платформа не проверяет',
+    );
+    expect(CONSENT_WORDS.agent).toBe('Согласие на передачу данных — только со слов ИИ-агента: на странице заявки его не отмечали');
+    for (const w of Object.values(CONSENT_WORDS)) expect(w).not.toMatch(/подтвердил сам человек|сам человек подтвердил/);
   });
 });
 
