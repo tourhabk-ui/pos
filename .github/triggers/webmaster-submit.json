@@ -1,0 +1,16 @@
+{
+  "run": 1,
+  "note": "11.11, владелец: «поработай с вебмастером, загрузи им наши файлы». Прогон 1: карта сайта https://vedarai.ru/sitemap.xml и переобход главных разделов для https-сайта, подтверждённого 11.11. Если Вебмастер ответит HOST_NOT_LOADED (сайт добавлен сегодня и ещё не загружен), прогон назовёт это и повторяется следующим маркером.",
+  "sitemaps": ["https://vedarai.ru/sitemap.xml"],
+  "recrawl": [
+    "https://vedarai.ru/",
+    "https://vedarai.ru/catalog",
+    "https://vedarai.ru/operators",
+    "https://vedarai.ru/places",
+    "https://vedarai.ru/routes",
+    "https://vedarai.ru/safety",
+    "https://vedarai.ru/transfers",
+    "https://vedarai.ru/planner",
+    "https://vedarai.ru/zh"
+  ]
+}
