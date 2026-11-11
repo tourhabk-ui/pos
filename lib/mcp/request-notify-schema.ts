@@ -16,9 +16,10 @@ import { REQUEST_KINDS, REQUEST_STATES } from '@/lib/mcp/request-status-schema';
 export { NOTIFY_PUBLIC_REASONS, publicDisabledReason, NOTIFY_STATUS_PROPERTY, type NotifyPublicReason, type RequestNotifyStatus } from '@/lib/mcp/request-status-schema';
 
 /**
- * Инструменты, принимающие notify_url. Заявки на жильё здесь нет: после
- * передачи владельцу её состояние не меняется (ответ — звонком, платформа его
- * не видит), и подписка была бы проводом в никуда (правило 10.09).
+ * Инструменты, принимающие notify_url. Заявки на жильё здесь нет: подписка
+ * для неё не заведена. До 11.11 причиной стояло «состояние после передачи не
+ * меняется» — с 1359 владелец отвечает кнопкой, и ответ виден в
+ * get_request_status; подписку для жилья заводить — отдельной правкой.
  */
 export const NOTIFY_TOOL_NAMES = [
   'create_lead', 'create_booking_request', 'request_charter', 'create_car_rental_request',

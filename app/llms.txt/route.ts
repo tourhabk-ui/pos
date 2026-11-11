@@ -378,8 +378,8 @@ ${parks.length ? parks.map((p) => `- [${p.displayName}](${BASE}/park/${p.slug})`
   create_booking_request, request_charter, create_car_rental_request и create_trip_request:
   подписанный POST (Standard Webhooks: webhook-id, webhook-timestamp,
   webhook-signature), ключ подписи — в ответе один раз; сверка примерно раз
-  в 30 минут, срок не гарантирован; у заявки на жильё уведомлений нет — её
-  состояние после передачи не меняется. ${NOTIFY_RESPONSE_RULES}
+  в 30 минут, срок не гарантирован; у заявки на жильё уведомлений нет — ответ
+  владельца кнопкой виден в get_request_status. ${NOTIFY_RESPONSE_RULES}
 - Мгновенного подтверждения и оплаты через MCP нет by design. Rate-limit по IP.
 - Для коннекторов ChatGPT (и deep research) есть пара search / fetch: поиск по
   турам, местам, жилью и маршрутам и полный текст записи по id с адресом страницы

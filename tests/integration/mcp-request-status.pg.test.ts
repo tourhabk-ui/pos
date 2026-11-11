@@ -711,4 +711,105 @@ withPg('get_request_status на настоящем PostgreSQL', () => {
       else process.env.MCP_HASH_SALT = prevSalt;
     }
   });
+
+  // План «после отказа», этап 1 (11.11): статус читает ответ адресата кнопкой.
+  // До этого дня после «Нет мест» SQL не видел ответа, и агент слышал «ждём».
+  it('ответ адресата кнопкой: тур — текущего адресата; машина — журнал; жильё — owner_answer; ПД нет', async () => {
+    const { issueRequestKey, readRequestStatus, runRequestStatusTool } = await import('@/lib/mcp/request-status');
+    const part = async (name: string, category: string) => (await pool.query<{ id: string }>(
+      `INSERT INTO partners (name, category, contact) VALUES ($1, $2, '{}') RETURNING id`, [name, category],
+    )).rows[0].id;
+    const opA = await part('Оператор ответа А', 'operator');
+    const opB = await part('Оператор ответа Б', 'operator');
+    const carrier = await part('Перевозчик ответа', 'transfer');
+    const lead = async (status: string, operatorId: string, date: string | null) => (await pool.query<{ id: string }>(
+      `INSERT INTO leads (name, phone, comment, status, operator_id, source_data)
+       VALUES ('Анна Ответова', '+79990005511', 'Заявка для ответа кнопкой', $1, $2, $3::jsonb) RETURNING id`,
+      [status, operatorId, JSON.stringify(date ? { date, tour_id: String(tourId) } : {})],
+    )).rows[0].id;
+
+    // «Нет мест» текущего адресата — отказ с датой.
+    const l1 = await lead('new', opA, '2027-01-15');
+    await pool.query(`INSERT INTO partner_incoming_answers (partner_id, subject_kind, subject_id, answer) VALUES ($1, 'lead', $2, 'no_seats')`, [opA, l1]);
+    const k1 = (await issueRequestKey({ leadId: l1 }, 'create_booking_request')) ?? '';
+    const v1 = await readRequestStatus(k1);
+    expect(v1).toMatchObject({ state: 'declined', human: 'Оператор ответил: на 2027-01-15 мест нет.' });
+    expect(await runRequestStatusTool({ key: k1 })).not.toMatch(/Анна|7999000|для ответа/);
+
+    // Ответ прежнего адресата после передачи заявки другому — не в счёт.
+    const l2 = await lead('new', opA, '2027-01-16');
+    await pool.query(`INSERT INTO partner_incoming_answers (partner_id, subject_kind, subject_id, answer) VALUES ($1, 'lead', $2, 'no_seats')`, [opB, l2]);
+    const k2 = (await issueRequestKey({ leadId: l2 }, 'create_booking_request')) ?? '';
+    expect((await readRequestStatus(k2)).state).toBe('awaiting_operator');
+
+    // «Отказать» с причиной — причина словами, свободного текста нет.
+    const l3 = await lead('lost', opA, '2027-01-17');
+    await pool.query(
+      `INSERT INTO partner_incoming_answers (partner_id, subject_kind, subject_id, answer, decline_reason, decline_note)
+       VALUES ($1, 'lead', $2, 'decline', 'weather', 'Записка оператора')`, [opA, l3],
+    );
+    const k3 = (await issueRequestKey({ leadId: l3 }, 'create_booking_request')) ?? '';
+    const v3 = await readRequestStatus(k3);
+    expect(v3.human).toBe('Оператор отказал по заявке. Причина: погода, безопасность.');
+    expect(await runRequestStatusTool({ key: k3 })).not.toMatch(/Записка/);
+
+    // Машина: «Не могу» — запись журнала (одна на заявку, индекс 1326).
+    const l4 = await lead('lost', carrier, null);
+    await pool.query(
+      `INSERT INTO lead_activity_log (lead_id, actor, action, details)
+       VALUES ($1, 'partner', 'partner_answered', '{"answer":"decline","kind":"charter"}')`, [l4],
+    );
+    const k4 = (await issueRequestKey({ leadId: l4 }, 'request_charter')) ?? '';
+    const v4 = await readRequestStatus(k4);
+    expect(v4.state).toBe('declined');
+    expect(v4.human).toMatch(/^Перевозчик ответил: выполнить заявку не может/);
+    expect(v4.next).toMatch(/search_transfers/);
+    expect(v4.next).not.toMatch(/get_tours/);
+
+    // Ключ из кода между каналами (handoff:*) — род по самой заявке: статус
+    // и согласие на странице — перевозчику, а не туроператору.
+    await pool.query(`UPDATE leads SET source_data = source_data || '{"kind":"charter"}'::jsonb WHERE id = $1`, [l4]);
+    const kh = (await issueRequestKey({ leadId: l4 }, 'handoff:telegram', { opensChat: false })) ?? '';
+    const vh = await readRequestStatus(kh);
+    expect(vh.consent_purpose).toBe('carrier');
+    expect(vh.human).toMatch(/^Перевозчик ответил/);
+    const { readConsentPurpose } = await import('@/lib/mcp/request-status');
+    expect(await readConsentPurpose(kh)).toBe('carrier');
+
+    // Большая группа: «Нет мест» — передача другим, а не «другой тур»; после
+    // передачи кроном (адресата нет, declined_by) — то же.
+    const lg = (await pool.query<{ id: string }>(
+      `INSERT INTO leads (name, phone, comment, status, operator_id, source_data)
+       VALUES ('Анна Ответова', '+79990005511', 'Группа', 'new', $1, $2::jsonb) RETURNING id`,
+      [opA, JSON.stringify({ date: '2027-01-20', tour_id: String(tourId), group_over_seats: true })],
+    )).rows[0].id;
+    await pool.query(`INSERT INTO partner_incoming_answers (partner_id, subject_kind, subject_id, answer) VALUES ($1, 'lead', $2, 'no_seats')`, [opA, lg]);
+    const kg = (await issueRequestKey({ leadId: lg }, 'create_booking_request')) ?? '';
+    expect(await readRequestStatus(kg)).toMatchObject({ state: 'awaiting_operator' });
+    expect((await readRequestStatus(kg)).human).toMatch(/увидят другие операторы/);
+    await pool.query(
+      `UPDATE leads SET operator_id = NULL, source_data = source_data || '{"declined_by":"status-op"}'::jsonb WHERE id = $1`, [lg],
+    );
+    const vg = await readRequestStatus(kg);
+    expect(vg.state).toBe('awaiting_operator');
+    expect(vg.human).toMatch(/передана другим операторам/);
+
+    // Жильё: «Занято» кнопкой — отказ, а не «передана».
+    const acc = await pool.query<{ id: string }>(
+      `INSERT INTO accommodations (name, type, coordinates, contact_phone)
+       VALUES ('Дом ответа', 'guesthouse', '{"lat":53.0,"lng":158.6}', '+70000000002') RETURNING id`,
+    );
+    const sr = await pool.query<{ id: string }>(
+      `INSERT INTO stay_requests (accommodation_id, check_in_date, check_out_date, guests, guest_name, guest_phone, comment, door,
+                                  pd_consent_at, pd_consent_ip, pd_consent_source, pd_consent_version,
+                                  owner_channel, platform_channel, delivery_recorded_at)
+       VALUES ($1, '2027-07-20', '2027-07-22', 2, 'Анна Ответова', '+79990005511', 'Тихо', 'mcp',
+               NOW(), '203.0.113.9', 'mcp', $2, 'max', 'max', NOW()) RETURNING id`,
+      [acc.rows[0].id, (await import('@/lib/legal/pd-consent')).PD_CONSENT_STAY_VERSION],
+    );
+    const k5 = (await issueRequestKey({ stayRequestId: sr.rows[0].id }, 'create_stay_request')) ?? '';
+    expect((await readRequestStatus(k5)).state).toBe('delivered');
+    await pool.query(`UPDATE stay_requests SET owner_answer = 'busy', owner_answered_at = NOW(), owner_answer_via = 'max' WHERE id = $1`, [sr.rows[0].id]);
+    expect(await readRequestStatus(k5)).toMatchObject({ state: 'declined', human: 'Владелец ответил: на эти даты занято.' });
+  });
 });
