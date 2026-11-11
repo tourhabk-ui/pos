@@ -351,3 +351,65 @@ describe('сообщение оператору', () => {
     expect(t).not.toMatch(/\+7|телефон/i);
   });
 });
+
+/**
+ * Находки Bugbot к #3234 (11.11). Кнопка меню не подписана и не истекает,
+ * поэтому «поездка впереди» проверяет само нажатие, а не только список; и
+ * состоявшаяся бронь, которую статус показывает «подтверждена», кнопки под
+ * списком не получает — нажатие ответило бы «заявка закрыта».
+ */
+describe('прошедшая поездка и состоявшаяся бронь', () => {
+  // 20.07.2027, полдень по Камчатке: заявка на 15.07.2027 уже прошла.
+  const AFTER = Date.UTC(2027, 6, 20, 0, 0, 0);
+
+  it('прошедшая поездка: меню и выбор отказывают, запроса дат, записи и сообщения оператору нет', async () => {
+    world.free = [{ date: '2027-07-25', free: 5 }];
+    const m = await pressMyTripDate(myTripDateMenuPayload(LEAD), 'max', CHAT, { now: AFTER });
+    expect(m.text).toMatch(/уже прошла/);
+    expect(m.buttons).toEqual([]);
+    const p = await pressMyTripDate(myTripDatePickPayload(LEAD, '2027-07-25'), 'max', CHAT, { now: AFTER });
+    expect(p.text).toMatch(/уже прошла/);
+    expect(callsOf(FREE_DATES_SQL)).toHaveLength(0);
+    expect(callsOf(MY_TRIP_DATE_CHANGE_SQL)).toHaveLength(0);
+    expect(callsOf(MY_TRIP_DATE_REQUEST_LOG_SQL)).toHaveLength(0);
+    expect(h.alert).not.toHaveBeenCalled();
+  });
+
+  it('прошедшей считается действующая дата: у брони — её день, а не дата заявки', async () => {
+    world.lead = baseLead({ date: '2027-08-01', answered: true, booking_status: 'confirmed', booking_date: '2027-07-15' });
+    const m = await pressMyTripDate(myTripDateMenuPayload(LEAD), 'max', CHAT, { now: AFTER });
+    expect(m.text).toMatch(/уже прошла/);
+  });
+
+  it('сегодняшняя поездка ещё не прошла — даты показываются', async () => {
+    world.free = [{ date: '2027-07-25', free: 5 }];
+    world.lead = baseLead({ date: '2027-07-20' });
+    const m = await pressMyTripDate(myTripDateMenuPayload(LEAD), 'max', CHAT, { now: AFTER });
+    expect(m.text).not.toMatch(/уже прошла/);
+    expect(m.buttons.map((b) => b.text)).toEqual(['25.07 · мест 5']);
+  });
+
+  it('под списком: состоявшаяся бронь без «Изменить дату», подтверждённая — с ней', async () => {
+    const { loadMyTrip } = await import('@/lib/requests/my-trip');
+    const { CHAT_KEY_IDS_SQL } = await import('@/lib/requests/chat-links');
+    const { REQUEST_STATUS_BY_KEY_IDS_SQL } = await import('@/lib/mcp/request-status');
+    const DONE = 'aaaaaaaa-bbbb-4ccc-8ddd-eeeeeeeeeeee';
+    const row = (lead: string, key: string, booking: string) => ({
+      key_id: key, tool_name: 'create_booking_request', lead_id: lead, seat_request_id: null, stay_request_id: null,
+      lead_status: 'converted', route_title: null, lead_requested_date: '2027-07-15', lead_tour: 'Тур',
+      booking_status: booking, booking_date: '2027-07-15', booking_participants: 2, booking_tour: 'Тур',
+      opens_chat: true, lead_addressed: true,
+    });
+    h.query.mockImplementation(async (sql: string) => {
+      if (sql === CHAT_KEY_IDS_SQL) return { rows: [{ key_id: 'k1' }, { key_id: 'k2' }] };
+      if (sql === REQUEST_STATUS_BY_KEY_IDS_SQL) return { rows: [row(LEAD, 'k1', 'confirmed'), row(DONE, 'k2', 'completed')] };
+      return { rows: [] };
+    });
+    const trip = await loadMyTrip('max', CHAT, { now: Date.UTC(2027, 6, 1), sources: async () => ({}) as never });
+    expect(trip.outcome).toBe('ok');
+    const items = trip.outcome === 'ok' ? trip.items : [];
+    expect(items).toHaveLength(2);
+    expect(items[0]!.dateChange).toBe(LEAD);
+    expect(items[1]!.dateChange).toBeNull();
+  });
+});

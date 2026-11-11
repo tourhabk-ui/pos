@@ -469,18 +469,39 @@ const BUDGET_WORDS: Array<[RegExp, BudgetTier]> = [
 
 export const BUDGET_LABEL: Record<BudgetTier, string> = { economy: 'эконом', comfort: 'комфорт', premium: 'премиум' };
 
+/** Прямые слова уровня, которые читаются и рядом с суммой. */
+const TIER_NEXT_TO_SUM: Array<[RegExp, BudgetTier]> = [
+  [/^(economy|эконом|хостел|палат)/i, 'economy'],
+  [/^(comfort|комфорт|гостиниц|отел|апартамент)/i, 'comfort'],
+  [/^(premium|премиум|люкс|vip|лодж|эко-лодж)/i, 'premium'],
+];
+
+/** Уровень, названный рядом с суммой; два разных уровня — не выбираем. */
+function tierNamedNextToSum(t: string): BudgetTier | null {
+  const found = new Set<BudgetTier>();
+  for (const w of t.toLowerCase().split(/[^a-zа-яё-]+/i)) {
+    if (!w) continue;
+    for (const [re, tier] of TIER_NEXT_TO_SUM) if (re.test(w)) found.add(tier);
+  }
+  return found.size === 1 ? [...found][0]! : null;
+}
+
 /** Уровень бюджета: код или русское слово. Не понял — «комфорт», и это сказано. */
 export function readBudgetTier(raw: string | undefined): { tier: BudgetTier; given: boolean; note: string | null } {
   const t = (raw ?? '').trim();
   if (!t) return { tier: 'comfort', given: false, note: null };
   // Названа сумма («до 100 000 ₽», «бюджет 500 тысяч»): потолка цены у плана
   // нет, и это говорится, а не прячется (#3199, раздел 4). Прежде «бюджет
-  // 500 тысяч» читалось по первому слову как «эконом» — молча.
+  // 500 тысяч» читалось по первому слову как «эконом» — молча. Уровень,
+  // названный рядом с суммой («премиум до 200 тысяч»), при этом не теряется
+  // (Bugbot к #3235): берётся только прямое слово уровня — «бюджет»,
+  // «дорого» и «недорого» рядом с суммой говорят о деньгах, а не о жилье.
   if (/\d/.test(t)) {
-    return {
-      tier: 'comfort', given: false,
-      note: `Сумму «${t}» не учитываю: план собирается без потолка цены, итог — в смете ниже. Жильё считаю на уровне «комфорт»; можно: эконом, комфорт, премиум.`,
-    };
+    const named = tierNamedNextToSum(t);
+    const sum = `Сумму «${t}» не учитываю: план собирается без потолка цены, итог — в смете ниже.`;
+    return named
+      ? { tier: named, given: true, note: `${sum} Жильё — «${BUDGET_LABEL[named]}», как названо.` }
+      : { tier: 'comfort', given: false, note: `${sum} Жильё считаю на уровне «комфорт»; можно: эконом, комфорт, премиум.` };
   }
   const word = t.replace(/^(на|в)\s+/i, '');
   for (const [re, tier] of BUDGET_WORDS) if (re.test(word)) return { tier, given: true, note: null };
@@ -1194,8 +1215,17 @@ export function readPlanEdit(args: {
     }
     return { ok: false, error: 'Для shift_dates нужен новый первый день поездки (start_date: «20 июля», 20.07.2027 или 2027-07-20) или сдвиг в днях (shift_days: 7 — позже, -3 — раньше).' };
   }
-  const tier = readBudgetTier(args.lodging);
-  return tier.given ? { ok: true, edit: { kind: 'set_lodging', tier: tier.tier } } : { ok: false, error: tier.note ?? 'Для set_lodging нужен уровень жилья (lodging): эконом, комфорт или премиум.' };
+  const rawLodging = (args.lodging ?? '').trim();
+  const tier = readBudgetTier(rawLodging);
+  if (tier.given) return { ok: true, edit: { kind: 'set_lodging', tier: tier.tier } };
+  // Не разобрано — правки нет, и ответ не говорит «считаю комфорт»: заметка
+  // readBudgetTier про сборку плана, а здесь план остаётся прежним (Bugbot к #3235).
+  return {
+    ok: false,
+    error: rawLodging
+      ? `Уровень жилья «${rawLodging}» не разобрал — нужно: эконом, комфорт или премиум.`
+      : 'Для set_lodging нужен уровень жилья (lodging): эконом, комфорт или премиум.',
+  };
 }
 
 /** Обработчик edit_trip_plan: прочитать черновик, поправить, записать, показать. */

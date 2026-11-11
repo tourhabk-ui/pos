@@ -29,7 +29,7 @@ import type { DepartingTour, SituationSources } from '@/lib/trips/situation-stor
 import { logText } from '@/lib/log/log-text';
 import type { ChatTarget } from '@/lib/requests/request-chat';
 import { signPayload } from '@/lib/chat-cabinet/signed-payload';
-import { myTripDateMenuPayload, myTripDateText, myTripWritePayload, myTripWriteText } from '@/lib/requests/my-trip-ask';
+import { MY_TRIP_CLOSED_BOOKING, myTripDateMenuPayload, myTripDateText, myTripWritePayload, myTripWriteText } from '@/lib/requests/my-trip-ask';
 
 /** Сколько дней вперёд показывается обстановка: столько дней даёт прогноз (liveSources). */
 export const MY_TRIP_SITUATION_DAYS = 5;
@@ -231,6 +231,9 @@ export async function loadMyTrip(
         : null;
     const dateChange = row.lead_id && row.tool_name === BOOKING_REQUEST_TOOL && row.opens_chat === true
       && row.lead_addressed === true && DATE_CHANGE_STATES.has(view.state) && date !== null && date >= today
+      // Состоявшаяся бронь показывается как «подтверждена», но нажатие ответит
+      // «заявка закрыта» — кнопки у неё нет (Bugbot к #3234).
+      && !(row.booking_status !== null && MY_TRIP_CLOSED_BOOKING.has(row.booking_status))
       ? row.lead_id
       : null;
     return { what: view.tour ?? view.accommodation, date, human: view.human, situation, write, dateChange };

@@ -39,7 +39,8 @@ import { getPublicBaseUrl } from '@/lib/config';
 import { signPayload } from '@/lib/chat-cabinet/signed-payload';
 import { LEAD_WAITING_STATUSES } from '@/lib/leads/owner-lead-words';
 import { loadFreeDates } from '@/lib/tours/nearest-free-date';
-import { parseMyTripDate, myTripDatePickPayload, myTripDateMenuPayload } from '@/lib/requests/my-trip-ask';
+import { parseMyTripDate, myTripDatePickPayload, myTripDateMenuPayload, MY_TRIP_CLOSED_BOOKING } from '@/lib/requests/my-trip-ask';
+import { kamchatkaToday } from '@/lib/seat-requests/core';
 import type { LinkChannel } from '@/lib/requests/chat-links';
 import type { ChatReply } from '@/lib/requests/request-chat-service';
 
@@ -147,8 +148,6 @@ interface LeadDateRow {
 export type OperatorNotice = 'max' | 'telegram' | 'none' | 'unknown';
 
 const ISO_DAY = /^\d{4}-\d{2}-\d{2}$/;
-/** Бронь закрыта — дату больше не меняют ни так, ни просьбой. */
-const CLOSED_BOOKING = new Set(['cancelled', 'no_show', 'completed']);
 
 const TEXT = {
   unknownButton: 'Кнопка не распознана — ничего не изменено. Откройте «Моя поездка» заново.',
@@ -157,6 +156,7 @@ const TEXT = {
   closed: 'Заявка закрыта — дату по ней не меняю. Новую поездку можно подобрать здесь же, в чате.',
   noData: 'В заявке не записаны тур или дата — сменить дату кнопкой нельзя. Напишите оператору: дату он поменяет сам.',
   datesFailed: 'Свободные даты тура сейчас не прочитались — это сбой, а не «дат нет». Ничего не изменено, повторите через минуту.',
+  past: 'Поездка по заявке уже прошла — дату по ней не меняю. Новую поездку можно подобрать здесь же, в чате.',
   limit: `Дату по этой заявке за сутки уже меняли ${MY_TRIP_DATE_DAILY_LIMIT} раза — дальше договоритесь с оператором напрямую: он видит заявку и вашу последнюю дату.`,
 } as const;
 
@@ -194,15 +194,22 @@ async function readLead(channel: LinkChannel, chatId: string | number, leadId: s
 /** `date` — действующая дата поездки; смена без оператора возможна только без брони, и тогда это дата заявки. */
 type Usable = { lead: LeadDateRow; tourId: number; date: string; people: number; title: string };
 
-/** Отказ словами или заявка, у которой можно сменить дату. */
-function usable(lead: LeadDateRow | null | 'failed'): Usable | ChatReply {
+/**
+ * Отказ словами или заявка, у которой можно сменить дату. Прошедшая поездка
+ * (день по Камчатке раньше сегодняшнего) — отказ: кнопка меню не подписана и
+ * не истекает, поэтому условие «поездка впереди» проверяется здесь, а не
+ * только под списком (Bugbot к #3234: иначе прошедшую заявку молча
+ * переносили и оператору уходил «перенос»).
+ */
+function usable(lead: LeadDateRow | null | 'failed', today: string): Usable | ChatReply {
   if (lead === 'failed') return reply(TEXT.unchecked);
   if (lead === null) return reply(TEXT.notYours);
-  if (lead.status === 'lost' || (lead.booking_status !== null && CLOSED_BOOKING.has(lead.booking_status))) return reply(TEXT.closed);
+  if (lead.status === 'lost' || (lead.booking_status !== null && MY_TRIP_CLOSED_BOOKING.has(lead.booking_status))) return reply(TEXT.closed);
   const tourId = lead.tour_id === null ? NaN : Number(lead.tour_id);
   // Действующая дата: у брони — её день, без брони — та, что в заявке.
   const date = lead.booking_date ?? lead.date;
   if (!Number.isFinite(tourId) || !date || !ISO_DAY.test(date)) return reply(TEXT.noData);
+  if (date < today) return reply(TEXT.past);
   return {
     lead,
     tourId,
@@ -222,8 +229,8 @@ function ruleLine(answered: boolean): string {
 }
 
 /** «Изменить дату»: свободные даты тура кнопками. Только чтение. */
-async function menu(channel: LinkChannel, chatId: string | number, leadId: string): Promise<ChatReply> {
-  const u = usable(await readLead(channel, chatId, leadId));
+async function menu(channel: LinkChannel, chatId: string | number, leadId: string, today: string): Promise<ChatReply> {
+  const u = usable(await readLead(channel, chatId, leadId), today);
   if (isReply(u)) return u;
   if (u.lead.date_actions >= MY_TRIP_DATE_DAILY_LIMIT) return reply(TEXT.limit);
   const head = `Тур «${escapeHtml(u.title)}», в заявке ${ruDate(u.date)}, участников ${u.people}.`;
@@ -289,8 +296,8 @@ async function notifyOperator(operatorId: string, leadId: string, text: string):
 const NOT_TOLD = 'Сообщить оператору сейчас не удалось — у него не подключён чат или он не ответил. Заявку он видит в кабинете';
 
 /** Нажатие на дату: смена сразу или просьба оператору. */
-async function pick(channel: LinkChannel, chatId: string | number, leadId: string, date: string): Promise<ChatReply> {
-  let u = usable(await readLead(channel, chatId, leadId));
+async function pick(channel: LinkChannel, chatId: string | number, leadId: string, date: string, today: string): Promise<ChatReply> {
+  let u = usable(await readLead(channel, chatId, leadId), today);
   if (isReply(u)) return u;
   if (date === u.date) return reply(`${ruDate(date)} уже стоит в заявке — ничего не изменено.`);
   if (u.lead.date_actions >= MY_TRIP_DATE_DAILY_LIMIT) return reply(TEXT.limit);
@@ -330,7 +337,7 @@ async function pick(channel: LinkChannel, chatId: string | number, leadId: strin
     // Строки нет: оператор ответил между чтением и записью — или дату уже
     // сменило второе нажатие той же кнопки. Перечитываем, чтобы сказать
     // правду: «оператор ответил» туристу, у которого он не отвечал, — ложь.
-    const again = usable(await readLead(channel, chatId, leadId));
+    const again = usable(await readLead(channel, chatId, leadId), today);
     if (isReply(again)) return again;
     if (!again.lead.answered) {
       return reply(again.date === date
@@ -356,8 +363,11 @@ async function pick(channel: LinkChannel, chatId: string | number, leadId: strin
  * Нажатие «Изменить дату» или даты под «Моей поездкой» — MAX и Telegram.
  * Канал и чат — того апдейта, в котором нажали (личный диалог).
  */
-export async function pressMyTripDate(payload: string, channel: LinkChannel, chatId: string | number): Promise<ChatReply> {
+export async function pressMyTripDate(
+  payload: string, channel: LinkChannel, chatId: string | number, opts: { now?: number } = {},
+): Promise<ChatReply> {
   const p = parseMyTripDate(payload);
   if (!p) return reply(TEXT.unknownButton);
-  return p.kind === 'menu' ? menu(channel, chatId, p.leadId) : pick(channel, chatId, p.leadId, p.date);
+  const today = kamchatkaToday(opts.now);
+  return p.kind === 'menu' ? menu(channel, chatId, p.leadId, today) : pick(channel, chatId, p.leadId, p.date, today);
 }
