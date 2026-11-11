@@ -13,6 +13,7 @@ import { appendFileSync, readFileSync } from 'node:fs';
 import { webmasterCensus, type Fetcher } from '@/lib/seo/webmaster-census';
 import { runnerEnv, censusDigest, censusOutcome } from '@/lib/seo/webmaster-census-report';
 import { kamchatkaToday } from '@/lib/planner/calendar-days';
+import { withGatewayRetry, sleep } from '@/lib/seo/webmaster-submit';
 
 function intField(obj: Record<string, unknown>, key: string, def: number, min: number, max: number): number {
   const v = obj[key];
@@ -32,7 +33,11 @@ async function main(): Promise<number> {
 
   const env = runnerEnv(process.env);
 
-  const fetcher: Fetcher = (url, init) => fetch(url, { ...init, signal: AbortSignal.timeout(20_000) });
+  // Сбой шлюза Яндекса (502/503/504) повторяется тем же правилом, что у загрузки.
+  const fetcher: Fetcher = withGatewayRetry<Parameters<Fetcher>[1], Awaited<ReturnType<Fetcher>>>(
+    (url, init) => fetch(url, { ...init, signal: AbortSignal.timeout(20_000) }),
+    sleep,
+  );
   const census = await webmasterCensus({ env, fetcher, today: kamchatkaToday(), days, topQueries: top });
 
   const lines = censusDigest(census, { topQueries: top, examples: 5 });

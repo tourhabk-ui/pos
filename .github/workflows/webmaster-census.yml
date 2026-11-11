@@ -39,7 +39,7 @@ jobs:
   census:
     runs-on: ubuntu-latest
     # Пять запросов к API по 20 с на каждого кандидата плюс npm ci.
-    timeout-minutes: 15
+    timeout-minutes: 25
     steps:
       - uses: actions/checkout@v7
 
