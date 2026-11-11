@@ -412,4 +412,36 @@ describe('прошедшая поездка и состоявшаяся брон
     expect(items[0]!.dateChange).toBe(LEAD);
     expect(items[1]!.dateChange).toBeNull();
   });
+
+  // Ревью этапа 1 плана «после отказа» (11.11): статус стал читать ответ
+  // кнопкой, и кнопка «Изменить дату» не должна пропасть ровно там, где другая
+  // дата нужнее всего — после «Нет мест» и «Другая дата». Отказ с закрытием —
+  // без кнопки: заявка закрыта.
+  it('под списком: после «Нет мест» и «Другая дата» — с «Изменить дату», после отказа — без', async () => {
+    const { loadMyTrip } = await import('@/lib/requests/my-trip');
+    const { CHAT_KEY_IDS_SQL } = await import('@/lib/requests/chat-links');
+    const { REQUEST_STATUS_BY_KEY_IDS_SQL } = await import('@/lib/mcp/request-status');
+    const L2 = 'aaaaaaaa-bbbb-4ccc-8ddd-eeeeeeeeeee2';
+    const L3 = 'aaaaaaaa-bbbb-4ccc-8ddd-eeeeeeeeeee3';
+    const row = (lead: string, key: string, status: string, answer: string) => ({
+      key_id: key, tool_name: 'create_booking_request', lead_id: lead, seat_request_id: null, stay_request_id: null,
+      lead_status: status, route_title: null, lead_requested_date: '2027-07-15', lead_tour: 'Тур',
+      booking_status: null, booking_date: null, booking_participants: null, booking_tour: null,
+      opens_chat: true, lead_addressed: true, lead_answer: answer,
+    });
+    h.query.mockImplementation(async (sql: string) => {
+      if (sql === CHAT_KEY_IDS_SQL) return { rows: [{ key_id: 'k1' }, { key_id: 'k2' }, { key_id: 'k3' }] };
+      if (sql === REQUEST_STATUS_BY_KEY_IDS_SQL) {
+        return { rows: [row(LEAD, 'k1', 'new', 'no_seats'), row(L2, 'k2', 'contacted', 'other_date'), row(L3, 'k3', 'lost', 'decline')] };
+      }
+      return { rows: [] };
+    });
+    const trip = await loadMyTrip('max', CHAT, { now: Date.UTC(2027, 6, 1), sources: async () => ({}) as never });
+    const items = trip.outcome === 'ok' ? trip.items : [];
+    expect(items).toHaveLength(3);
+    expect(items[0]!.human).toMatch(/мест нет/);
+    expect(items[0]!.dateChange).toBe(LEAD);
+    expect(items[1]!.dateChange).toBe(L2);
+    expect(items[2]!.dateChange).toBeNull();
+  });
 });

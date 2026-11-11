@@ -107,8 +107,18 @@ function addDays(iso: string, n: number): string {
   return d.toISOString().slice(0, 10);
 }
 
-/** Состояния, при которых дату ещё меняют: сразу или просьбой оператору. */
-const DATE_CHANGE_STATES = new Set(['awaiting_operator', 'operator_contacted', 'in_progress', 'confirmed']);
+/**
+ * Состояния, при которых дату ещё меняют: сразу или просьбой оператору.
+ * «Другая дата» и «Нет мест» (ответ кнопкой, 11.11) — ровно те, после которых
+ * другая дата нужнее всего: заявка не закрыта, и просьба уйдёт оператору
+ * (lib/requests/my-trip-date). Отказ с закрытием (`lost`) — нет: там
+ * «заявка закрыта».
+ */
+const DATE_CHANGE_STATES = new Set(['awaiting_operator', 'operator_contacted', 'in_progress', 'confirmed', 'other_date']);
+
+function dateStillChangeable(state: string, leadStatus: string | null): boolean {
+  return DATE_CHANGE_STATES.has(state) || (state === 'declined' && leadStatus !== null && leadStatus !== 'lost');
+}
 
 const isHandoffKey = (r: StatusRow): boolean => typeof r.tool_name === 'string' && r.tool_name.startsWith('handoff:');
 
@@ -230,7 +240,7 @@ export async function loadMyTrip(
         ? { kind: 'lead', id: row.lead_id }
         : null;
     const dateChange = row.lead_id && row.tool_name === BOOKING_REQUEST_TOOL && row.opens_chat === true
-      && row.lead_addressed === true && DATE_CHANGE_STATES.has(view.state) && date !== null && date >= today
+      && row.lead_addressed === true && dateStillChangeable(view.state, row.lead_status) && date !== null && date >= today
       // Состоявшаяся бронь показывается как «подтверждена», но нажатие ответит
       // «заявка закрыта» — кнопки у неё нет (Bugbot к #3234).
       && !(row.booking_status !== null && MY_TRIP_CLOSED_BOOKING.has(row.booking_status))
