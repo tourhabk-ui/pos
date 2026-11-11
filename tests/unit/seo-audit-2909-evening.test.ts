@@ -9,10 +9,25 @@
  * robots.ts и зеленел, пока заголовок закрывал страницу, — держал половину
  * связки (§10.09).
  */
-import { describe, it, expect } from 'vitest';
+import { describe, it, expect, vi } from 'vitest';
 import { readFileSync } from 'node:fs';
 import { join } from 'node:path';
 import { createRequire } from 'node:module';
+
+// Заголовок каталога собирает generateMetadata (год — из свободных дат,
+// 11.11), поэтому он судится вызовом, а не строкой исходника. База — пустая:
+// дат нет, заголовок без года.
+vi.mock('@/lib/db-pool', () => ({ pool: { query: async () => ({ rows: [] }) } }));
+vi.mock('@/components/layout/Header', () => ({ Header: () => null }));
+vi.mock('@/components/shared/BottomNav', () => ({ default: () => null }));
+vi.mock('@/components/marketplace/MarketplaceClient', () => ({ default: () => null }));
+vi.mock('@/components/marketplace/CatalogFooter', () => ({ CatalogFooter: () => null }));
+vi.mock('@/components/shared/KuzmichContacts', () => ({ default: () => null }));
+
+async function catalogTitle(): Promise<string> {
+  const { generateMetadata } = await import('@/app/catalog/(list)/page');
+  return String((await generateMetadata()).title);
+}
 
 const ROOT = process.cwd();
 const req = createRequire(join(ROOT, 'package.json'));
@@ -129,8 +144,8 @@ describe('главная, каталог и рыбалка называют сп
     }
   });
 
-  it('точную фразу «Туры на Камчатку» в начале title держат каталог и планы, а не главная', () => {
-    expect(code('app/catalog/(list)/page.tsx')).toMatch(/title: 'Туры на Камчатку/);
+  it('точную фразу «Туры на Камчатку» в начале title держат каталог и планы, а не главная', async () => {
+    expect(await catalogTitle()).toMatch(/^Туры на Камчатку /);
     expect(code('app/plans/page.tsx')).toMatch(/title: 'Туры на Камчатку/);
     expect(code('app/page.tsx')).not.toMatch(/HOME_TITLE = 'Туры на Камчатку/);
   });
@@ -146,9 +161,9 @@ describe('главная, каталог и рыбалка называют сп
     expect(code('components/homepage/desk/DeskHero.tsx')).toMatch(/Соберите безопасную поездку на Камчатку/);
   });
 
-  it('H1 и title каталога туров — «Туры на Камчатку»', () => {
+  it('H1 и title каталога туров — «Туры на Камчатку»', async () => {
     expect(code('components/marketplace/MarketplaceClient.tsx')).toMatch(/<h1[\s\S]{0,200}>\s*Туры на Камчатку\s*<\/h1>/);
-    expect(code('app/catalog/(list)/page.tsx')).toMatch(/title: 'Туры на Камчатку/);
+    expect(await catalogTitle()).toMatch(/^Туры на Камчатку /);
   });
 
   it('/hub/fishing: H1 совпадает с запросом, у ссылки есть картинка', () => {

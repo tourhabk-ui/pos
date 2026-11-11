@@ -434,9 +434,15 @@ async function addDay(plan: EditablePlan, interest: string, deps: EditDeps): Pro
   ].sort((a, b) => a.day - b.day);
   next.params.departureDate = shiftIso(plan.params.departureDate, 1);
   if (!next.params.interests.includes(interest)) next.params.interests.push(interest);
+  // День отъезда уезжает на день всегда — поездка длиннее. Прежде записка
+  // говорила «остальные дни не менялись», а дата обратного рейса сменилась
+  // (#3199, Б21).
+  const departureWords = dateWords(next.params.departureDate);
   return {
     ok: true, plan: next, moved: shifted,
-    note: `Добавил день ${insertAt}: ${pick.day.title}. Поездка стала на день длиннее, остальные дни не менялись.`,
+    note: shifted.length > 0
+      ? `Добавил день ${insertAt}: ${pick.day.title}. Дни после него сдвинулись на день позже, отъезд теперь ${departureWords}.`
+      : `Добавил день ${insertAt}: ${pick.day.title}. Поездка стала на день длиннее — отъезд теперь ${departureWords}; дни до него не менялись.`,
     warnings: pick.warnings,
     toursTouched: toursOf(next.days.filter((d) => shifted.includes(d.day)), 'shifted'),
   };

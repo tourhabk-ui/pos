@@ -50,6 +50,7 @@ import { asTripOrigin, nightIsAtHome, paysAirportTransfers, type TripOrigin } fr
 import { bookingTotal } from '@/lib/tours/booking-total';
 import { dateOfTripDay } from '@/lib/planner/flow-balance';
 import type { PlanChoices } from '@/lib/planner/plan-choices';
+import { nightLodgingIncluded } from '@/lib/planner/lodging-included';
 
 // ── Входные данные ───────────────────────────────────────────────────────────
 
@@ -156,12 +157,12 @@ function countsAirportTransfer(origin: TripOrigin, needs: EstimateProfile['needs
   return !(needs?.car === true && needs.transfer !== true);
 }
 
-/**
- * Верх вилки тура: цена оператора может вырасти (сезон, доплаты). Один
- * множитель на карточку дня и на смету: до 09.10 день показывал ×1.3, а
- * смета считала ×1.2, и сумма карточек не сходилась с итогом.
+/*
+ * Множителей сметы нет (решение владельца 11.11, #3199, E12). Прежде у тура
+ * был верх вилки ×1,2 («цена может вырасти»), у ночи — ×0,8–×1,2 вокруг
+ * ориентира зоны. Ни одного из этих чисел не было в данных: цену тура
+ * называет оператор, ночь — ориентир по зоне. Смета показывает их как есть.
  */
-export const TOUR_PRICE_HEADROOM = 1.2;
 
 function budgetIndex(tier: BudgetTier): 0 | 1 | 2 {
   return tier === 'economy' ? 0 : tier === 'comfort' ? 1 : 2;
@@ -182,14 +183,15 @@ function nightOf(
   day: EstimateDay, next: EstimateDay | undefined, lastDayNum: number, origin: TripOrigin, bi: 0 | 1 | 2,
 ): { zone: ZoneId; price: [number, number] } | null {
   if (day.type === 'departure' || day.day === lastDayNum) return null;
-  if (day.realTour?.lodgingIncluded === true) return null;
+  // Ночь после последнего дня тура тур не покрывает (Б32).
+  if (nightLodgingIncluded(day, next) === true) return null;
   // В зоне не ночуют — ночь считается там, где ночуют на самом деле; ночь
   // переезда — там, куда приехали (nightZoneOf, аудит 07.11, E11).
   const sleepZone = nightZoneOf(day, next);
   if (nightIsAtHome(origin, sleepZone)) return null;
   const acc = ZONE_ACCOMMODATION[sleepZone];
   const nightPrice = acc.pricePerNight[bi] || acc.pricePerNight[0];
-  return { zone: sleepZone, price: [Math.round(nightPrice * 0.8), Math.round(nightPrice * 1.2)] };
+  return { zone: sleepZone, price: [nightPrice, nightPrice] };
 }
 
 // ── Вилка на человека ────────────────────────────────────────────────────────
@@ -244,7 +246,7 @@ export function calculatePriceBreakdown(days: EstimateDay[], profile: Pick<Estim
     if (d.realPrice) {
       if (d.realTour && d.realTour.priceUnit !== 'per_person') { activityPricing.excluded++; continue; }
       actFrom += d.realPrice;
-      actTo += Math.round(d.realPrice * TOUR_PRICE_HEADROOM);
+      actTo += d.realPrice;
       activityPricing.tourPriced++;
       continue;
     }
@@ -433,7 +435,7 @@ function tourLine(day: EstimateDay, days: EstimateDay[], people: number): Estima
   const cap = day.realTour?.maxParticipants ?? 0;
   const cost = (p: number) => tourGroupCost({ unitPrice: p, priceUnit: unit, people, maxParticipants: cap, tourDays })!;
   const groups = cost(price).groups;
-  const total: [number, number] = [cost(price).total, cost(Math.round(price * TOUR_PRICE_HEADROOM)).total];
+  const total: [number, number] = [cost(price).total, cost(price).total];
 
   if (unit === 'per_person') {
     return { kind: 'tour', label, basis: `${fmt(price)} ₽ × ${peopleWord(people)}`, total, source: 'tour' };

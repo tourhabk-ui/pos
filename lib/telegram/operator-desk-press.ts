@@ -10,17 +10,21 @@ import { isRentalPilotSlug } from '@/lib/rental/operator-pilot';
 import { appendMenu, type MenuButton } from '@/lib/roles/chat-menu';
 import { partnerMenu } from '@/lib/roles/role-menu';
 import {
-  ASK_CANCELLED, chatAnswerAsk, chatAnswerLeadStatus, chatAnswerText, DECLINE_PICK_TEXT, DECLINE_REASON_LABEL, declineReasonButtons,
-  inboxOwns, parseChatAnswer, recordChatAnswer,
+  ASK_CANCELLED, chatAnswerAsk, chatAnswerDateChangedText, chatAnswerLeadStatus, chatAnswerText, DECLINE_REASON_LABEL, declinePickText,
+  declineReasonButtons, inboxOwns, parseChatAnswer, readLeadAnswerDate, recordChatAnswer,
 } from '@/lib/requests/chat-answer';
 import { createTicket } from '@/lib/support/ticket.service';
 import {
   loadOperatorTours, operatorHelpText, operatorSeatsText, operatorToursReply, SUPPORT_BUTTON,
 } from '@/lib/telegram/operator-desk';
 import { WIZARD_TEXT } from '@/lib/operators/chat-dates/wizard';
+import { answerDateCodable } from '@/lib/requests/answer-date';
 
 const NOT_THIS = 'Эта кнопка — кабинет туроператора. В этом чате её не выполняю.';
 const UNREAD = 'Не удалось проверить, чей это чат. Кнопку не выполнил.';
+const DATE_UNREAD = 'Не удалось прочитать дату заявки. Ответ не записал — повторите через минуту.';
+/** «Да» или причина отказа без даты заявки в кнопке — выпущены до 1422. */
+const LEGACY_PRESS = 'Кнопка старая — сверьте дату заявки и подтвердите ответ ещё раз.';
 
 /**
  * «Помощь» туроператора: справка и кнопка «Написать в поддержку» над строкой
@@ -104,12 +108,25 @@ export async function operatorDeskPress(opts: {
       : 'Этой заявки во входящих нет. Ответ не записал.';
     return withMenu(missed);
   }
+  // Дата заявки (1422): оператор отвечает о той дате, которую видит в
+  // вопросе, — она уходит в «Да» и в кнопки причин, и ответ запишется, только
+  // если к нажатию дата заявки та же. Турист мог перенести её после «Нет мест».
+  const leadDate = parsed.kind === 'lead' ? await readLeadAnswerDate(parsed.subjectId) : undefined;
+  if (leadDate === 'failed') return withMenu(DATE_UNREAD);
+  const reasons = (date: string | null | undefined) => declineReasonButtons(parsed.kind, parsed.subjectId, date);
   // «Отказать»: сначала причина кнопкой, запись — только нажатием причины.
-  if (parsed.answer === 'decline_pick') return withMenu(DECLINE_PICK_TEXT, declineReasonButtons(parsed.kind, parsed.subjectId));
+  if (parsed.answer === 'decline_pick') return withMenu(declinePickText(leadDate), reasons(leadDate));
+  // «Да» и причина без даты в кнопке у заявки — выпущены до 1422: дату,
+  // которую оператор видел, не знаем, поэтому спрашиваем заново с датой.
+  // Дата, которой нет в календаре (30.02), в кнопку не кладётся (answerDayCode):
+  // такую кнопку старой не считаем, а пишем без сверки — иначе вопрос по кругу.
+  const legacy = parsed.kind === 'lead' && (parsed.answer === 'decline' || parsed.confirmed) && parsed.date === undefined
+    && answerDateCodable(leadDate ?? null);
+  if (parsed.answer === 'decline' && legacy) return withMenu(`${LEGACY_PRESS}\n${declinePickText(leadDate)}`, reasons(leadDate));
   // Первое нажатие одной из пяти кнопок — только вопрос; пишет второе «Да».
-  if (parsed.answer !== 'decline' && !parsed.confirmed) {
-    const ask = chatAnswerAsk(parsed.answer, parsed.kind, parsed.subjectId);
-    let text = ask.text;
+  if (parsed.answer !== 'decline' && (!parsed.confirmed || legacy)) {
+    const ask = chatAnswerAsk(parsed.answer, parsed.kind, parsed.subjectId, leadDate);
+    let text = legacy ? `${LEGACY_PRESS}\n${ask.text}` : ask.text;
     if (parsed.answer === 'other_date' && parsed.kind === 'booking') {
       const { nextOpenDates, openDatesLine } = await import('@/lib/operators/live-seats');
       text = `${openDatesLine(await nextOpenDates(partner.partnerId, parsed.subjectId))}\n${text}`;
@@ -117,17 +134,24 @@ export async function operatorDeskPress(opts: {
     return withMenu(text, ask.rows);
   }
   const reason = parsed.answer === 'decline' ? parsed.reason : null;
-  const doneText = (already: boolean) => (reason && !already
-    ? `${chatAnswerText('decline', false)} Причина: ${DECLINE_REASON_LABEL[reason].toLowerCase()}.`
-    : chatAnswerText(parsed.answer as Exclude<typeof parsed.answer, 'decline_pick'>, already));
   const saved = await recordChatAnswer({
     partnerId: partner.partnerId,
     kind: parsed.kind,
     subjectId: parsed.subjectId,
     answer: parsed.answer,
     reason,
+    expectDate: parsed.kind === 'lead' ? parsed.date : undefined,
   });
   if (!saved.ok) return withMenu('Не удалось записать ответ. Бронь не менял.');
+  if (saved.dateChanged) {
+    const head = chatAnswerDateChangedText(saved.subjectDate);
+    if (parsed.answer === 'decline') return withMenu(`${head}\n${declinePickText(saved.subjectDate)}`, reasons(saved.subjectDate));
+    const ask = chatAnswerAsk(parsed.answer, parsed.kind, parsed.subjectId, saved.subjectDate);
+    return withMenu(`${head}\n${ask.text}`, ask.rows);
+  }
+  const doneText = (already: boolean) => (reason && !already
+    ? `${chatAnswerText('decline', false)} Причина: ${DECLINE_REASON_LABEL[reason].toLowerCase()}.`
+    : chatAnswerText(parsed.answer as Exclude<typeof parsed.answer, 'decline_pick'>, already, saved.subjectDate));
   const leadStatus = chatAnswerLeadStatus(parsed.kind, parsed.answer);
   if (saved.already || !leadStatus) return withMenu(doneText(saved.already));
   // Статус заявки — только своей: скоуп карточки без захвата ничейных,

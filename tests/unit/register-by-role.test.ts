@@ -27,6 +27,16 @@ vi.mock('@/lib/database', () => ({
   },
 }));
 
+// Вторая дверь регистрации партнёра (register-operator) берёт пул отсюда.
+vi.mock('@/lib/db-pool', () => ({
+  pool: {
+    connect: () => Promise.resolve({
+      query: (...args: unknown[]) => clientQueryMock(...args),
+      release: () => undefined,
+    }),
+  },
+}));
+
 vi.mock('@/lib/rate-limit', () => ({
   createRateLimiter: () => ({ check: () => true }),
   getClientIp: () => '10.0.0.1',
@@ -41,9 +51,18 @@ vi.mock('@/lib/auth/password', async (importOriginal) => ({
   hashPassword: vi.fn().mockResolvedValue('$hashed$'),
 }));
 
+// Выключатель оплаты: настоящий — false; сцена «оплату открыли» переключает
+// его здесь, не правя код роли (#3212).
+const payments = vi.hoisted(() => ({ accepts: false }));
+vi.mock('@/lib/payments/accepting', () => ({
+  PLATFORM_ACCEPTS_PAYMENTS: false,
+  platformAcceptsPayments: () => payments.accepts,
+}));
+
 process.env.JWT_SECRET = 'test-secret-for-register-by-role';
 
 import { POST } from '@/app/api/auth/register/route';
+import { POST as POST_OPERATOR_FORM } from '@/app/api/auth/register-operator/route';
 
 function registerReq(body: Record<string, unknown>): NextRequest {
   return new Request('http://localhost/api/auth/register', {
@@ -76,6 +95,7 @@ function partnerInsertCalls() {
 }
 
 beforeEach(() => {
+  payments.accepts = false;
   clientQueryMock.mockReset();
   mockDb();
 });
@@ -137,6 +157,74 @@ describe('POST /api/auth/register — партнёрские профили по
     expect(body.user.roles).toEqual(['stay', 'gear']);
     expect(body.token).toBeTruthy();
     expect(res.headers.get('set-cookie')).toContain('auth_token=');
+  });
+});
+
+describe('POST /api/auth/register — роль агента заморожена, пока Ведар не принимает оплату (#3212)', () => {
+  it('агентом зарегистрироваться нельзя: 403 с причиной словами, в базу ничего не пишется', async () => {
+    for (const body of [{ role: 'agent' }, { roles: ['agent'] }, { roles: ['guide', 'agent'] }]) {
+      clientQueryMock.mockClear();
+      const res = await POST(registerReq({ email: 'ag@x.ru', password: 'Secret123', name: 'Агент', ...body }));
+      expect(res.status, JSON.stringify(body)).toBe(403);
+      const json = await res.json() as { success: boolean; error: string };
+      expect(json.success).toBe(false);
+      expect(json.error).toMatch(/^Регистрация агентом закрыта: роль заморожена, пока Ведар не принимает оплату\./);
+      expect(clientQueryMock).not.toHaveBeenCalled();
+    }
+  });
+
+  it('другие партнёрские роли регистрируются как раньше', async () => {
+    const res = await POST(registerReq({ email: 'g@x.ru', password: 'Secret123', name: 'Гид', roles: ['guide'] }));
+    expect(res.status).toBe(201);
+  });
+
+  it('вторая дверь — форма партнёра (register-operator) с категорией агента: тот же отказ, в базу ничего', async () => {
+    const res = await POST_OPERATOR_FORM(new Request('http://localhost/api/auth/register-operator', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        companyName: 'Тест', category: 'agent', contactName: 'Иван', phone: '+79000000000',
+        email: 'ag2@x.ru', password: 'Secret123', pd_consent: true,
+      }),
+    }) as unknown as NextRequest);
+    expect(res.status).toBe(403);
+    const json = await res.json() as { success: boolean; error: string };
+    expect(json.error).toMatch(/^Регистрация агентом закрыта: роль заморожена, пока Ведар не принимает оплату\./);
+    expect(clientQueryMock).not.toHaveBeenCalled();
+  });
+
+  it('форма партнёра: гида заморозка не касается — запрос идёт в базу', async () => {
+    const res = await POST_OPERATOR_FORM(new Request('http://localhost/api/auth/register-operator', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        companyName: 'Тест', category: 'guide', contactName: 'Иван', phone: '+79000000000',
+        email: 'g2@x.ru', password: 'Secret123', pd_consent: true,
+      }),
+    }) as unknown as NextRequest);
+    expect(res.status).not.toBe(403);
+    expect(clientQueryMock).toHaveBeenCalled();
+  });
+
+  it('оплату открыли — форма партнёра пропускает агента дальше, в базу', async () => {
+    payments.accepts = true;
+    const res = await POST_OPERATOR_FORM(new Request('http://localhost/api/auth/register-operator', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        companyName: 'Тест', category: 'agent', contactName: 'Иван', phone: '+79000000000',
+        email: 'ag3@x.ru', password: 'Secret123', pd_consent: true,
+      }),
+    }) as unknown as NextRequest);
+    expect(res.status).not.toBe(403);
+    expect(clientQueryMock).toHaveBeenCalled();
+  });
+
+  it('оплату открыли — агент регистрируется без правок кода роли', async () => {
+    payments.accepts = true;
+    const res = await POST(registerReq({ email: 'ag@x.ru', password: 'Secret123', name: 'Агент', role: 'agent' }));
+    expect(res.status).toBe(201);
+    expect(partnerInsertCalls().map(([, params]) => (params as unknown[])[2])).toEqual(['agent']);
   });
 });
 

@@ -86,8 +86,8 @@ describe('смета на группу в /planner', () => {
     expect(within(estimate).getByText(/Смета на группу · 2 чел\./)).toBeTruthy();
     expect(within(estimate).getByText('10 000 ₽ × 2 чел.')).toBeTruthy();
     expect(within(estimate).getByText('30 000 ₽ за группу')).toBeTruthy();
-    // 10 000 × 2 + 30 000 = 50 000; верх вилки тура ×1.2 → 60 000.
-    expect(text(estimate)).toContain('Итого на группу50 000 — 60 000 ₽');
+    // 10 000 × 2 + 30 000 = 50 000; множителей нет (решение владельца 11.11, #3199 E12) — одна сумма.
+    expect(text(estimate)).toContain('Итого на группу50 000 ₽');
     // Ориентиров в этом плане нет — подпись не выдаёт пустую вилку «(0 ₽)».
     expect(text(estimate)).toContain('Все суммы — цены туров от операторов.');
     expect(text(estimate)).not.toContain('(0 ₽)');
@@ -114,7 +114,7 @@ describe('смета на группу в /planner', () => {
     const sd = JSON.parse(String(call![1]!.body)).source_data;
     expect(sd.plan.party).toEqual({ adults: 2, children: [] });
     expect(sd.plan.days[1].tour).toMatchObject({ id: 't-2', price: 30000, unit: 'per_tour' });
-    expect(sd.plan.estimate.total).toEqual([50000, 60000]);
+    expect(sd.plan.estimate.total).toEqual([50000, 50000]);
     expect(sd.day_plan).toBeUndefined();
   });
 
@@ -122,6 +122,6 @@ describe('смета на группу в /planner', () => {
     const estimate = await buildPlan();
     fireEvent.click(deleteButtonOf('Мутновский вулкан'));
     expect(screen.queryByText('30 000 ₽ за группу')).toBeNull();
-    expect(text(estimate)).toContain('Итого на группу20 000 — 24 000 ₽');
+    expect(text(estimate)).toContain('Итого на группу20 000 ₽');
   });
 });

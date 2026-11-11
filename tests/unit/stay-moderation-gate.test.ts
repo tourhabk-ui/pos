@@ -82,7 +82,6 @@ describe('условие витрины', () => {
       // Карточка: GET и страница читают общий загрузчик (аудит 01.10).
       'lib/stay/accommodation-detail.ts',
       'app/accommodations/[id]/page.tsx',
-      'app/api/trip/plan/route.ts',
       'lib/kuzmich/accommodation-search.ts',
       'lib/seo/sitemap-entries.ts',
       'app/api/cron/planner-material-census/route.ts',

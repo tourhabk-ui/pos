@@ -37,6 +37,11 @@ export interface ExtrasValues {
   video_clips: OwnClip[];
   /** Подпись «Фото: …» к снимкам без подписи. */
   photo_credit: string;
+  /**
+   * Подписи, поправленные под конкретными фото (11.11): адрес → текст после
+   * «Фото:». Только тронутые; пустая — снять подпись.
+   */
+  photo_captions?: Record<string, string>;
 }
 
 export type ListKey = 'included' | 'not_included' | 'what_to_bring' | 'safety_notes';
@@ -79,6 +84,10 @@ export function extrasBody(v: ExtrasValues): Record<string, unknown> {
     video_clips: v.video_clips.map(({ key, poster, label }) => ({ key, poster, label: label.trim() || 'Видео тура' })),
   };
   if (v.photo_credit.trim().length >= 2 && v.photos.length > 0) body.photo_credit = v.photo_credit.trim();
+  const captions = Object.fromEntries(Object.entries(v.photo_captions ?? {})
+    .filter(([url]) => v.photos.includes(url))
+    .map(([url, text]) => [url, text.trim()]));
+  if (Object.keys(captions).length > 0) body.photo_captions = captions;
   for (const key of Object.keys(LIST_LABELS) as ListKey[]) {
     const lines = listLines(v[key]);
     body[key] = lines.length > 0 ? lines : null;
@@ -161,7 +170,7 @@ async function uploadPhoto(file: File): Promise<{ url: string } | { error: strin
   }
 }
 
-export function PhotosField({ idBase, photos, onChange, credits = {}, credit, onCredit }: {
+export function PhotosField({ idBase, photos, onChange, credits = {}, credit, onCredit, captions = {}, onCaption }: {
   idBase: string;
   photos: string[];
   onChange: (photos: string[]) => void;
@@ -170,6 +179,9 @@ export function PhotosField({ idBase, photos, onChange, credits = {}, credit, on
   /** Подпись «Фото: …» к снимкам без подписи. */
   credit?: string;
   onCredit?: (credit: string) => void;
+  /** Поправленные подписи (адрес → текст); есть onCaption — подпись правится под каждым фото. */
+  captions?: Record<string, string>;
+  onCaption?: (url: string, text: string) => void;
 }) {
   const [busy, setBusy] = useState(false);
   const [problems, setProblems] = useState<string[]>([]);
@@ -204,7 +216,18 @@ export function PhotosField({ idBase, photos, onChange, credits = {}, credit, on
             <li key={url} className="space-y-1" data-testid={`own-tour-photo-${i}`}>
               {/* eslint-disable-next-line @next/next/no-img-element -- превью загруженного, без оптимизатора (images.unoptimized) */}
               <img src={url} alt={i === 0 ? 'Главное фото тура' : `Фото тура ${i + 1}`} className="aspect-[4/3] w-full rounded-lg object-cover" />
-              <p className="text-xs text-[var(--text-muted)]">{credits[url] ? `Фото: ${credits[url]}` : credit?.trim() ? `Фото: ${credit.trim()} — после «Сохранить»` : 'Без подписи'}</p>
+              {onCaption ? (
+                // Подпись правится в любой момент, и после публикации (11.11).
+                <label className="block text-xs" htmlFor={`${idBase}-caption-${i}`}>
+                  <span className="text-[var(--text-muted)]">Подпись: «Фото: …»</span>
+                  <input id={`${idBase}-caption-${i}`} className="ds-input mt-1 w-full" maxLength={120}
+                    value={captions[url] ?? credits[url] ?? ''}
+                    placeholder={credit?.trim() ? `${credit.trim()} — после «Сохранить»` : 'без подписи'}
+                    onChange={(e) => onCaption(url, e.target.value)} />
+                </label>
+              ) : (
+                <p className="text-xs text-[var(--text-muted)]">{credits[url] ? `Фото: ${credits[url]}` : credit?.trim() ? `Фото: ${credit.trim()} — после «Сохранить»` : 'Без подписи'}</p>
+              )}
               <div className="flex flex-wrap gap-1">
                 {i === 0
                   ? <span className="ds-badge"><Star size={12} aria-hidden /> Главное</span>
@@ -238,7 +261,7 @@ export function PhotosField({ idBase, photos, onChange, credits = {}, credit, on
       )}
       {onCredit && (
         <label className="block text-sm" htmlFor={`${idBase}-credit`}>
-          <span className="text-[var(--text-secondary)]">Чьи снимки — подпись «Фото: …» под фото на странице тура</span>
+          <span className="text-[var(--text-secondary)]">Чьи снимки — подпись «Фото: …» для фото без подписи (свою у каждого фото правьте выше)</span>
           <input id={`${idBase}-credit`} className="ds-input mt-1 w-full" value={credit ?? ''} maxLength={120}
             onChange={(e) => onCredit(e.target.value)} />
         </label>

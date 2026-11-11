@@ -228,8 +228,8 @@ Last-Updated: ${new Date().toISOString().slice(0, 10)}
 - [Главная](${BASE}) — обзор платформы
 - [Каталог маршрутов](${BASE}/routes) — маршруты и природные объекты (места)
 - [Карта Камчатки](${BASE}/map) — интерактивная карта объектов
-- [Планировщик](${BASE}/planner) — AI-конструктор маршрута (зоны, живая занятость, погода)
-- [Готовые планы поездок](${BASE}/plans) — планы по дням с погодой и заявкой оператору на туры
+- [Планировщик](${BASE}/planner) — AI-конструктор маршрута (зоны, живая занятость)
+- [Готовые планы поездок](${BASE}/plans) — планы по дням с заявкой оператору на туры
 - [Туры от операторов](${BASE}/catalog) — реальные коммерческие предложения операторов
 - [Рыбалка на Камчатке](${BASE}/hub/fishing) — рыболовные туры операторов: цены, сезоны по видам лосося, как оставить заявку
 - [Операторы](${BASE}/operators) — верифицированные туроператоры и гиды
@@ -325,7 +325,7 @@ no auth): ${BASE}/api/mcp — docs: ${BASE}/mcp. Booking, stay and charter reque
 human (operator, owner or manager), no instant booking. ${paymentRuleEn(acceptsPayments)} Full English file: ${BASE}/llms-en.txt.
 ${agentRequestRulesEn(acceptsPayments)}
 
-## Готовые планы поездок (по дням, с погодой и заявкой оператору)
+## Готовые планы поездок (по дням, с заявкой оператору)
 
 ${planLines}
 
@@ -378,8 +378,8 @@ ${parks.length ? parks.map((p) => `- [${p.displayName}](${BASE}/park/${p.slug})`
   create_booking_request, request_charter, create_car_rental_request и create_trip_request:
   подписанный POST (Standard Webhooks: webhook-id, webhook-timestamp,
   webhook-signature), ключ подписи — в ответе один раз; сверка примерно раз
-  в 30 минут, срок не гарантирован; у заявки на жильё уведомлений нет — её
-  состояние после передачи не меняется. ${NOTIFY_RESPONSE_RULES}
+  в 30 минут, срок не гарантирован; у заявки на жильё уведомлений нет — ответ
+  владельца кнопкой виден в get_request_status. ${NOTIFY_RESPONSE_RULES}
 - Мгновенного подтверждения и оплаты через MCP нет by design. Rate-limit по IP.
 - Для коннекторов ChatGPT (и deep research) есть пара search / fetch: поиск по
   турам, местам, жилью и маршрутам и полный текст записи по id с адресом страницы

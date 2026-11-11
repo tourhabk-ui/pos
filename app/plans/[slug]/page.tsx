@@ -97,7 +97,10 @@ const loadPresetPlan = unstable_cache(
       children: [],
       fitnessLevel: 'moderate',
       budgetTier: 'comfort',
-    });
+      // Без подробной программы от модели: страница её не показывает, а
+      // каждый промах кэша платил флагманской модели за выброшенный текст
+      // (#3199, (в)-5).
+    }, { itinerary: 'plain' });
     if (rec.days.length === 0) throw new Error('движок вернул пустой план');
     // Тур дня — тот, что поставил движок (H16); подбор по виду — только дням
     // без него. Строка тура для страницы — из витрины по id.
@@ -279,7 +282,7 @@ export default async function PlanPresetPage({ params }: PageProps) {
               Этот план — отправная точка
             </h2>
             <p className="text-sm" style={{ color: 'var(--text-secondary)' }}>
-              Планировщик пересоберёт его под ваши даты, детей, бюджет и погоду — и покажет живые места в турах.
+              Планировщик пересоберёт его под ваши даты, детей и бюджет — и покажет живые места в турах.
             </p>
             <Link href="/planner" className="ds-btn ds-btn-primary inline-flex px-6 py-3">
               Собрать свой план

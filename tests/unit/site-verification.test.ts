@@ -13,6 +13,7 @@ import {
   verificationTagFromEnv,
   BING_SITE_VERIFICATION,
   CHINA_VERIFICATION_SLOTS,
+  YANDEX_HTTPS_SITE_VERIFICATION,
 } from '@/lib/seo/site-verification';
 
 /**
@@ -51,13 +52,21 @@ describe('подтверждение сайта для вебмастеров', 
     expect(renderHead({})).toContain('<meta name="msvalidate.01" content="AC1C1C2A5C527F87684D3E2571543A82"/>');
   });
 
-  it('Google и Яндекс по-прежнему из переменных окружения; без них — пусто, а не выдумка', () => {
-    const withEnv = siteVerification({ GOOGLE_SITE_VERIFICATION: 'g-token', YANDEX_VERIFICATION: 'y-token' } as NodeJS.ProcessEnv);
-    expect(withEnv.google).toBe('g-token');
-    expect(withEnv.yandex).toBe('y-token');
-    const empty = siteVerification({} as NodeJS.ProcessEnv);
-    expect(empty.google).toBeUndefined();
-    expect(empty.yandex).toBeUndefined();
+  it('Google из окружения; без него — пусто, а не выдумка', () => {
+    expect(siteVerification({ GOOGLE_SITE_VERIFICATION: 'g-token' } as NodeJS.ProcessEnv).google).toBe('g-token');
+    expect(siteVerification({} as NodeJS.ProcessEnv).google).toBeUndefined();
+  });
+
+  it('Яндекс: код https-версии всегда, код http-версии из окружения — рядом, не вместо (11.11)', () => {
+    expect(YANDEX_HTTPS_SITE_VERIFICATION).toBe('39aeed623ef83a6e');
+    const both = renderHead({ YANDEX_VERIFICATION: 'y-token' });
+    expect(both).toContain('<meta name="yandex-verification" content="y-token"/>');
+    expect(both).toContain('<meta name="yandex-verification" content="39aeed623ef83a6e"/>');
+    const onlyHttps = renderHead({});
+    expect(onlyHttps.match(/name="yandex-verification"/g)).toHaveLength(1);
+    expect(onlyHttps).toContain('content="39aeed623ef83a6e"');
+    // Тот же код в окружении — один тег, не два.
+    expect(renderHead({ YANDEX_VERIFICATION: '39aeed623ef83a6e' }).match(/name="yandex-verification"/g)).toHaveLength(1);
   });
 
   it('реестр слотов — пять площадок, включая Baidu, с именами тегов из их форм и справок', () => {

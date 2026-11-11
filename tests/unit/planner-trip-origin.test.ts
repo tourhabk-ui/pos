@@ -41,6 +41,7 @@
  * адреса платформа не знает, и занизить счёт на догадке молча нельзя (§4.0).
  */
 import { describe, it, expect } from 'vitest';
+import { returnLegMissingMessage } from '@/lib/planner/plan-edit-warnings';
 import { readFileSync } from 'node:fs';
 import { join } from 'node:path';
 import {
@@ -209,9 +210,10 @@ describe('про самолёт не говорится тому, кто не л
   });
 
   it('невозможное возвращение объясняется без вылета, если человек местный', () => {
-    const idx = CODE.indexOf('вылет из города в тот же день невозможен');
-    expect(idx).toBeGreaterThan(0);
-    expect(CODE.slice(idx - 500, idx)).toMatch(/=== 'local'/);
+    // Слова — общие у движка и у ответа правки (#3199, M10): судится вызов.
+    expect(returnLegMissingMessage('western', 'local')).not.toMatch(/вылет/);
+    expect(returnLegMissingMessage('western', 'local')).toMatch(/вернуться в город в тот же день не выйдет/);
+    expect(returnLegMissingMessage('western', 'visitor')).toMatch(/вылет из города в тот же день невозможен/);
   });
 });
 

@@ -245,8 +245,8 @@ const WRITERS: Readonly<Record<string, string>> = {
 const ROW_DOORS: Readonly<Record<string, string>> = {
   'lib/octo/service.ts':
     'холд реселлера: гейт общий (readTourDays + assertDaysOpen под FOR UPDATE тура), цена опции и холд — внешний контракт OCTO',
-  'app/api/hub/operator/bookings/route.ts':
-    'ручная бронь оператора: гейта нет намеренно — оператор записывает договорённость, которая уже состоялась',
+  'lib/bookings/manual-booking.ts':
+    'ручная бронь продавца тура — оператора и гида-продавца (#3211): гейта нет намеренно — продавец записывает договорённость, которая уже состоялась',
 };
 
 const INSERT_RE = /INSERT\s+INTO\s+(?:public\.)?operator_bookings\b/gi;

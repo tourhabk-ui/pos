@@ -159,6 +159,54 @@ withPg('команда оператора и кабинет гида на нас
     }
   });
 
+  it('расписание: брони своих туров гида в окне — без ПД; многодневное назначение, начатое до окна, видно (#3213)', async () => {
+    // Свой тур гида: продавец — сам гид (operator_tours.operator_id = гид).
+    const ownTour = (await pool.query<{ id: string }>(
+      `INSERT INTO operator_tours (operator_id, title, base_price, max_participants, is_active, is_published, activity_type, duration_hours)
+       VALUES ($1, 'Свой тур гида', 5000, 10, TRUE, TRUE, 'hiking', 6) RETURNING id::text`, [ids.g1],
+    )).rows[0].id;
+    const made: string[] = [];
+    const mk = async (tourId: string, from: number, to: number | null, status: string, guide: string | null = null) => {
+      const id = (await pool.query<{ id: string }>(
+        `INSERT INTO operator_bookings (operator_tour_id, booking_date, end_date, participants, booking_status, payment_status,
+                                        tourist_name, tourist_phone, guide_partner_id)
+         VALUES ($1::bigint, CURRENT_DATE + $2::int, CASE WHEN $3::int IS NULL THEN NULL ELSE CURRENT_DATE + $3::int END,
+                 2, $4, 'pending', 'Свой Турист', '+79990000002', $5)
+         RETURNING id::text`,
+        [tourId, from, to, status, guide],
+      )).rows[0].id;
+      made.push(id);
+      return id;
+    };
+    try {
+      // Окно — один день `date` (+7).
+      const multi = await mk(ownTour, 5, 8, 'new');       // началась до окна, задевает его
+      const single = await mk(ownTour, 7, null, 'confirmed');
+      await mk(ownTour, 7, null, 'cancelled');            // отменена — не работа
+      await mk(ownTour, 9, null, 'confirmed');            // после окна
+      await mk(ownTour, 3, 6, 'confirmed');               // кончилась до окна
+      const own = await pool.query<{ booking_id: string; end_date: string | null; booking_status: string }>(
+        TEAM_SQL.ownToursInRange, [ids.g1, date, date],
+      );
+      expect(own.rows.map((r) => r.booking_id).sort()).toEqual([multi, single].sort());
+      expect(own.rows.find((r) => r.booking_id === multi)).toMatchObject({ booking_status: 'new' });
+      expect(own.rows.find((r) => r.booking_id === multi)?.end_date).not.toBeNull();
+      // Без ПД: имени и телефона туриста в строке нет.
+      for (const r of own.rows) expect(Object.keys(r).filter((k) => /tourist/.test(k))).toEqual([]);
+      // Бронь чужого тура, назначенная гиду, — не «свой тур».
+      expect(own.rows.map((r) => r.booking_id)).not.toContain(ids.bookingA);
+      expect((await pool.query(TEAM_SQL.ownToursInRange, [ids.g2, date, date])).rows).toHaveLength(0);
+
+      // Назначение оператора на многодневную бронь, начатую до окна, — в окне.
+      const longAssigned = await mk(ids.tourA, 5, 8, 'confirmed', ids.g1);
+      const assigned = await pool.query<{ booking_id: string }>(TEAM_SQL.assignedInRange, [ids.g1, date, date]);
+      expect(assigned.rows.map((r) => r.booking_id)).toEqual(expect.arrayContaining([ids.bookingA, longAssigned]));
+    } finally {
+      await pool.query(`DELETE FROM operator_bookings WHERE id = ANY($1::bigint[])`, [made]);
+      await pool.query(`DELETE FROM operator_tours WHERE id = $1::bigint`, [ownTour]);
+    }
+  });
+
   it('календарь: вставка, пересечение, одна запись на бронь, владение', async () => {
     const ins = await pool.query<{ id: string }>(SCHEDULE_SQL.insert, [
       ids.g1, date, '10:00', '12:00', 'Выход с группой', null, ids.bookingA, 10, 'Парковка', null,

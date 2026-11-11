@@ -29,6 +29,7 @@
 import { pool } from '@/lib/db-pool';
 import { freeSlotsSql, occupiedOnDaySql } from '@/lib/bookings/occupancy';
 import { logText } from '@/lib/log/log-text';
+import { publicTourSql } from '@/lib/tours/public-visibility';
 
 const ALIAS = /^[a-z_][a-z0-9_]*$/;
 
@@ -133,6 +134,120 @@ export async function loadNearestFreeDates(tourIds: readonly (string | number)[]
     const code = (err as { code?: unknown })?.code;
     console.error(
       '[nearest-free-date] ближайшие даты туров не прочитаны:',
+      typeof code === 'string' ? `SQLSTATE=${logText(code, 10)}` : 'SQLSTATE=нет',
+      logText(err instanceof Error ? err.message : err, 200),
+    );
+    return { state: 'failed' };
+  }
+}
+
+/**
+ * Годы, на которые у туров витрины есть свободная дата, — по тому же
+ * условию, что ближайшая свободная дата: от сегодняшнего дня по Камчатке
+ * на год вперёд, строка календаря жива, место есть. Окно в год накрывает
+ * не больше двух календарных лет, и каждый проверяется одним EXISTS.
+ *
+ * Для заголовков витрин (владелец 11.11: «туры на Камчатку 2026? там же есть
+ * и 2027»): год в заголовке стоял числом в коде и в ноябре звал в сезон,
+ * который уже кончился. Тур без календаря («даты по заявке») года не даёт:
+ * сезон оператора — не дата.
+ *
+ * `activityType` — только туры этого вида (посадочная «Рыбалка»).
+ * Отказ базы — null и строка в логе с SQLSTATE: заголовок тогда без года,
+ * а не с выдуманным (§4.0).
+ */
+export async function loadOpenDateYears(opts: { activityType?: string } = {}): Promise<number[] | null> {
+  try {
+    const { rows } = await pool.query<{ y: number | string }>(
+      `WITH today AS (SELECT (NOW() AT TIME ZONE 'Asia/Kamchatka')::date AS d)
+       SELECT yr.y
+         FROM today
+         CROSS JOIN LATERAL (VALUES (EXTRACT(YEAR FROM today.d)::int), (EXTRACT(YEAR FROM today.d)::int + 1)) AS yr(y)
+        WHERE EXISTS (
+          SELECT 1
+            FROM operator_tours ot
+            JOIN tour_availability ta_y ON ta_y.operator_tour_id = ot.id
+            CROSS JOIN LATERAL (${occupiedOnDaySql({ booking: 'ob_y', day: 'ta_y.date', tourId: 'ta_y.operator_tour_id' })}) occ_y
+           WHERE ${publicTourSql('ot')}
+             AND ($1::text IS NULL OR ot.activity_type::text = $1::text)
+             AND ta_y.date >= GREATEST(today.d, make_date(yr.y, 1, 1))
+             AND ta_y.date <= LEAST((today.d + INTERVAL '1 year')::date, make_date(yr.y, 12, 31))
+             AND COALESCE(ta_y.is_cancelled, false) = false
+             AND ta_y.deleted_at IS NULL
+             AND ${freeSlotsSql('ta_y', 'ot', 'occ_y.taken')} > 0)
+        ORDER BY yr.y`,
+      [opts.activityType ?? null],
+    );
+    return rows.map((r) => Number(r.y)).filter((y) => Number.isInteger(y));
+  } catch (err) {
+    const code = (err as { code?: unknown })?.code;
+    console.error(
+      '[nearest-free-date] годы свободных дат не прочитаны:',
+      typeof code === 'string' ? `SQLSTATE=${logText(code, 10)}` : 'SQLSTATE=нет',
+      logText(err instanceof Error ? err.message : err, 200),
+    );
+    return null;
+  }
+}
+
+/**
+ * Годы словами для заголовка: [] или null — пусто (года нет, а не выдуманный),
+ * [2026] — «2026», [2026, 2027] — «2026–2027».
+ */
+export function openYearsLabel(years: readonly number[] | null): string {
+  if (!years || years.length === 0) return '';
+  const sorted = [...years].sort((a, b) => a - b);
+  const first = sorted[0]!;
+  const last = sorted[sorted.length - 1]!;
+  return first === last ? String(first) : `${first}–${last}`;
+}
+
+/**
+ * Свободные даты тура для выбора кнопками (#2970, «Изменить дату»): то же
+ * условие, что у ближайшей свободной даты, плюс мест хватает на `people`.
+ * `$1` — тур, `$2` — люди, `$3` — сколько дат, `$4` — одна дата или NULL
+ * (проверка выбранной перед записью).
+ */
+export const FREE_DATES_SQL = `
+  SELECT ta_fd.date::text AS date, ${freeSlotsSql('ta_fd', 'ot_fd', 'occ_fd.taken')}::int AS free
+    FROM tour_availability ta_fd
+    JOIN operator_tours ot_fd ON ot_fd.id = ta_fd.operator_tour_id
+    CROSS JOIN LATERAL (${occupiedOnDaySql({ booking: 'ob_fd', day: 'ta_fd.date', tourId: 'ta_fd.operator_tour_id' })}) occ_fd
+   WHERE ta_fd.operator_tour_id = $1::bigint
+     AND ta_fd.date >= (NOW() AT TIME ZONE 'Asia/Kamchatka')::date
+     AND ta_fd.date <= (NOW() AT TIME ZONE 'Asia/Kamchatka')::date + INTERVAL '1 year'
+     AND COALESCE(ta_fd.is_cancelled, false) = false
+     AND ta_fd.deleted_at IS NULL
+     AND ($4::date IS NULL OR ta_fd.date = $4::date)
+     AND ${freeSlotsSql('ta_fd', 'ot_fd', 'occ_fd.taken')} >= GREATEST($2::int, 1)
+   ORDER BY ta_fd.date
+   LIMIT $3::int`;
+
+/** Есть ли у тура хоть одна будущая строка календаря: нет — «даты по заявке», а не «мест нет». */
+export const TOUR_HAS_CALENDAR_SQL = `
+  SELECT EXISTS (
+    SELECT 1 FROM tour_availability ta_hc
+     WHERE ta_hc.operator_tour_id = $1::bigint
+       AND ta_hc.date >= (NOW() AT TIME ZONE 'Asia/Kamchatka')::date
+       AND ta_hc.deleted_at IS NULL
+  ) AS has`;
+
+export type FreeDates =
+  | { state: 'ok'; dates: { date: string; free: number }[]; hasCalendar: boolean }
+  | { state: 'failed' };
+
+/** Свободные даты тура на `people` человек, по возрастанию; отказ базы — `failed` и SQLSTATE в лог. */
+export async function loadFreeDates(tourId: number, people: number, limit: number, onlyDate: string | null = null): Promise<FreeDates> {
+  try {
+    const [free, cal] = await Promise.all([
+      pool.query<{ date: string; free: number }>(FREE_DATES_SQL, [tourId, people, limit, onlyDate]),
+      pool.query<{ has: boolean }>(TOUR_HAS_CALENDAR_SQL, [tourId]),
+    ]);
+    return { state: 'ok', dates: free.rows.map((r) => ({ date: r.date, free: Number(r.free) })), hasCalendar: cal.rows[0]?.has === true };
+  } catch (err) {
+    const code = (err as { code?: unknown })?.code;
+    console.error(
+      '[nearest-free-date] свободные даты тура не прочитаны:',
       typeof code === 'string' ? `SQLSTATE=${logText(code, 10)}` : 'SQLSTATE=нет',
       logText(err instanceof Error ? err.message : err, 200),
     );

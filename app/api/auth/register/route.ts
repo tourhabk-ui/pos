@@ -5,6 +5,7 @@ import { hashPassword, passwordSchema } from '@/lib/auth/password';
 import { createToken } from '@/lib/auth/jwt';
 import { recordUserSession, SESSION_TTL_DAYS } from '@/lib/auth/session-record';
 import { createRateLimiter, getTrustedClientIp } from '@/lib/rate-limit';
+import { agentRoleOpen, requestsAgentRole, AGENT_SIGNUP_CLOSED } from '@/lib/auth/agent-role';
 
 const VALID_ROLES = ['tourist', 'operator', 'guide', 'transfer', 'agent', 'stay', 'gear'] as const;
 // Роли, которым нужен партнёрский профиль (partners.category совпадает с ролью)
@@ -59,6 +60,13 @@ export async function POST(request: NextRequest) {
         { success: false, error: parsed.error.issues[0]?.message || 'Некорректные данные' },
         { status: 400 }
       );
+    }
+
+    // Роль агента заморожена, пока Ведар не принимает оплату (#3212): отказ
+    // словами и до лимита — это проверка поля, а не попытка регистрации.
+    // Роль остаётся в VALID_ROLES: откроют оплату — дверь откроется сама.
+    if (!agentRoleOpen() && requestsAgentRole(parsed.data.role, parsed.data.roles)) {
+      return NextResponse.json({ success: false, error: AGENT_SIGNUP_CLOSED }, { status: 403 });
     }
 
     const ip = getTrustedClientIp(request.headers);

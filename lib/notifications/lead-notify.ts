@@ -27,6 +27,21 @@ import { notifyTeam } from '@/lib/operators/team-notify';
 import { leadAnswerButtons, leadChatActionsEnabledFor } from '@/lib/bookings/chat-owner-press';
 import { isChatTargetId, ownerReplyButton } from '@/lib/requests/request-chat';
 
+/**
+ * Кнопки ответа на заявку в личном сообщении владельцу тура — одно правило на
+ * уведомление о новой заявке и на «турист перенёс дату» (lib/requests/
+ * my-trip-date): гиду со своими турами — «Связался / Договорились / Отказ»,
+ * туроператору — «Подтвердить / Другая дата / …». Нажатие проверяет, что
+ * заявка во входящих этого партнёра, и только тогда пишет.
+ */
+export function ownerLeadAnswerButtons(
+  reach: { category?: string | null; sellsTours?: boolean } | null,
+  leadId: string,
+): Array<{ text: string; payload: string }> {
+  if (reach && leadChatActionsEnabledFor({ category: reach.category, sellsTours: reach.sellsTours })) return leadAnswerButtons(leadId);
+  return reach?.category === 'operator' && isChatTargetId(leadId) ? chatAnswerButtons(null, 'lead', leadId) : [];
+}
+
 function esc(s: string): string {
   return s.replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;');
 }
@@ -227,11 +242,7 @@ export async function notifyPartnerNewLeadPersonally(params: {
   // Гиду со своими турами — «Связался / Договорились / Отказ»; туроператору —
   // «Подтвердить / Другая дата / …» (lib/requests/chat-answer): нажатие
   // проверяет, что заявка во входящих этого оператора, и только тогда пишет.
-  const answer = reach && leadChatActionsEnabledFor({ category: reach.category, sellsTours: reach.sellsTours })
-    ? leadAnswerButtons(params.leadId)
-    : reach?.category === 'operator' && isChatTargetId(params.leadId)
-      ? chatAnswerButtons(null, 'lead', params.leadId)
-      : [];
+  const answer = ownerLeadAnswerButtons(reach, params.leadId);
 
   // Менеджеры команды кабинета (CRM 2г-4) — до проверки адреса кабинета: у
   // команды свои адреса, и заявка доходит до неё, даже если у кабинета канала нет.

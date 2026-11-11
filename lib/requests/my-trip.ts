@@ -27,9 +27,15 @@ import { kamchatkaToday } from '@/lib/seat-requests/core';
 import { situationLine, type Situation } from '@/lib/trips/situation';
 import type { DepartingTour, SituationSources } from '@/lib/trips/situation-store';
 import { logText } from '@/lib/log/log-text';
+import type { ChatTarget } from '@/lib/requests/request-chat';
+import { signPayload } from '@/lib/chat-cabinet/signed-payload';
+import { MY_TRIP_CLOSED_BOOKING, myTripDateMenuPayload, myTripDateText, myTripWritePayload, myTripWriteText } from '@/lib/requests/my-trip-ask';
 
 /** Сколько дней вперёд показывается обстановка: столько дней даёт прогноз (liveSources). */
 export const MY_TRIP_SITUATION_DAYS = 5;
+/** Ключ заявки на тур на дату — только у неё дату меняют кнопкой. */
+const BOOKING_REQUEST_TOOL = 'create_booking_request';
+
 /** Сколько заявок показываем: свежие первыми. */
 export const MY_TRIP_MAX_ITEMS = 5;
 
@@ -49,6 +55,18 @@ export interface MyTripItem {
   /** Статус словами для человека (тот же, что у страницы заявки). */
   human: string;
   situation: TripSituationNote;
+  /**
+   * Переписка с адресатом заявки (1349, 1350), если её ключ открывает:
+   * лид, адресованный партнёру, ключом новой заявки, или заявка на жильё.
+   * Кнопка «Написать оператору» (#2970, шаг 3) — по ней; null — писать некому.
+   */
+  write: ChatTarget | null;
+  /**
+   * Номер лида, у которого можно сменить дату свободной датой тура (#2970,
+   * шаг 3): заявка на тур на дату, адресованная оператору, ключом новой
+   * заявки, не закрыта и поездка ещё впереди. null — кнопки нет.
+   */
+  dateChange: string | null;
 }
 
 export type MyTrip =
@@ -87,6 +105,19 @@ function addDays(iso: string, n: number): string {
   const d = new Date(`${iso}T00:00:00Z`);
   d.setUTCDate(d.getUTCDate() + n);
   return d.toISOString().slice(0, 10);
+}
+
+/**
+ * Состояния, при которых дату ещё меняют: сразу или просьбой оператору.
+ * «Другая дата» и «Нет мест» (ответ кнопкой, 11.11) — ровно те, после которых
+ * другая дата нужнее всего: заявка не закрыта, и просьба уйдёт оператору
+ * (lib/requests/my-trip-date). Отказ с закрытием (`lost`) — нет: там
+ * «заявка закрыта».
+ */
+const DATE_CHANGE_STATES = new Set(['awaiting_operator', 'operator_contacted', 'in_progress', 'confirmed', 'other_date']);
+
+function dateStillChangeable(state: string, leadStatus: string | null): boolean {
+  return DATE_CHANGE_STATES.has(state) || (state === 'declined' && leadStatus !== null && leadStatus !== 'lost');
 }
 
 const isHandoffKey = (r: StatusRow): boolean => typeof r.tool_name === 'string' && r.tool_name.startsWith('handoff:');
@@ -203,7 +234,19 @@ export async function loadMyTrip(
     if (situations.has(target)) situation = situations.get(target)!;
     else if (date !== null && date > horizon && (hasTour || tourOf === 'failed')) situation = { kind: 'later' };
     else if (date !== null && date >= today && tourOf === 'failed') situation = { kind: 'unchecked' };
-    return { what: view.tour ?? view.accommodation, date, human: view.human, situation };
+    const write: ChatTarget | null = row.stay_request_id && row.opens_chat === true
+      ? { kind: 'stay', id: row.stay_request_id }
+      : row.lead_id && row.opens_chat === true && row.lead_addressed === true
+        ? { kind: 'lead', id: row.lead_id }
+        : null;
+    const dateChange = row.lead_id && row.tool_name === BOOKING_REQUEST_TOOL && row.opens_chat === true
+      && row.lead_addressed === true && dateStillChangeable(view.state, row.lead_status) && date !== null && date >= today
+      // Состоявшаяся бронь показывается как «подтверждена», но нажатие ответит
+      // «заявка закрыта» — кнопки у неё нет (Bugbot к #3234).
+      && !(row.booking_status !== null && MY_TRIP_CLOSED_BOOKING.has(row.booking_status))
+      ? row.lead_id
+      : null;
+    return { what: view.tour ?? view.accommodation, date, human: view.human, situation, write, dateChange };
   });
   return { outcome: 'ok', items };
 }
@@ -238,8 +281,15 @@ export const MY_TRIP_NO_CHANNEL_TEXT =
   'В этом канале список заявок не показываю. Статус заявки — по ссылке из сообщения о ней; '
   + 'список «Моя поездка» есть в чате Кузьмича в MAX и Telegram.';
 
+/**
+ * Строка под списком в Telegram: переписка клиента с адресатом живёт в MAX и
+ * на странице заявки (lib/requests/request-chat), кнопки здесь нет.
+ */
+export const MY_TRIP_WRITE_ELSEWHERE_TEXT =
+  'Написать оператору по заявке можно в чате Кузьмича в MAX (кнопка под «Моей поездкой») или на странице заявки — ссылка в сообщении о ней.';
+
 /** Ответ человеку. Без ПД: название, дата, статус словами, обстановка. */
-export function myTripText(trip: MyTrip): string {
+export function myTripText(trip: MyTrip, opts: { channel?: LinkChannel } = {}): string {
   if (trip.outcome === 'none') return MY_TRIP_NONE_TEXT;
   if (trip.outcome === 'failed') return MY_TRIP_FAILED_TEXT;
   const blocks = trip.items.map((it, i) => {
@@ -251,14 +301,45 @@ export function myTripText(trip: MyTrip): string {
     else if (s.kind === 'unchecked') lines.push('Обстановку на дату поездки сейчас не проверил — это не значит, что всё спокойно.');
     return lines.filter(Boolean).join('\n');
   });
+  const writeElsewhere = opts.channel === 'telegram' && trip.items.some((it) => it.write !== null);
   return [
     trip.items.length === 1 ? 'Ваша заявка в этом чате:' : 'Ваши заявки в этом чате:',
     ...blocks,
+    ...(writeElsewhere ? [MY_TRIP_WRITE_ELSEWHERE_TEXT] : []),
     'Решение о выезде принимает оператор. Экстренный вызов — 112.',
   ].join('\n\n');
 }
 
+/** Кнопка под «Моей поездкой»: подпись и назначение. */
+export interface MyTripButton {
+  text: string;
+  payload: string;
+}
+
+/**
+ * Кнопки под списком, по заявкам: «Написать оператору» (только MAX —
+ * переписка клиента живёт там) и «Изменить дату» (MAX и Telegram); номер —
+ * номер заявки в списке, если их больше одной.
+ */
+export function myTripButtons(trip: MyTrip, channel: LinkChannel = 'max'): MyTripButton[] {
+  if (trip.outcome !== 'ok') return [];
+  const many = trip.items.length > 1;
+  return trip.items.flatMap((it, i) => {
+    const n = many ? i + 1 : null;
+    const out: MyTripButton[] = [];
+    if (it.write && channel === 'max') out.push({ text: myTripWriteText(it.write, n), payload: signPayload(myTripWritePayload(it.write)) });
+    if (it.dateChange) out.push({ text: myTripDateText(n), payload: myTripDateMenuPayload(it.dateChange) });
+    return out;
+  });
+}
+
+/** Ответ с кнопками: текст и кнопки канала. */
+export async function myTripMessage(channel: LinkChannel, chatId: string | number): Promise<{ text: string; buttons: MyTripButton[] }> {
+  const trip = await loadMyTrip(channel, chatId);
+  return { text: myTripText(trip, { channel }), buttons: myTripButtons(trip, channel) };
+}
+
 /** Всё вместе: прочитать и сказать. */
 export async function myTripReply(channel: LinkChannel, chatId: string | number): Promise<string> {
-  return myTripText(await loadMyTrip(channel, chatId));
+  return myTripText(await loadMyTrip(channel, chatId), { channel });
 }

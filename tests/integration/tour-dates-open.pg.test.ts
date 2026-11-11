@@ -35,6 +35,8 @@
  * Без неё файл честно пропускается — «не прогнано», а не «прошло».
  */
 import { describe, it, expect, beforeAll, afterAll, vi } from 'vitest';
+import { readFileSync } from 'node:fs';
+import { join } from 'node:path';
 import { createTestDatabase, dropTestDatabase } from '../helpers/pg-schema';
 
 const { operatorA, operatorB } = vi.hoisted(() => ({
@@ -602,5 +604,169 @@ withPg('общая запись дат тура на настоящем PostgreS
     } finally {
       vi.useRealTimers();
     }
+  });
+  it('миграция 1420: «Лагуна Экспедиция» — даты по сезону тура, мест — вместимость; сезон и строки оператора не тронуты; снятые с витрины и туры не из списка — без дат; повтор ничего не добавляет', async () => {
+    // Карточку и туры заводят 1323, 1339 и 1413; 1420 уже прошла при создании базы.
+    const sql = readFileSync(join(process.cwd(), 'migrations/1420_laguna_expedition_open_dates.sql'), 'utf8');
+    const lag = (await pool.query<{ id: string }>(`SELECT id::text AS id FROM partners WHERE slug = 'laguna-expedition'`)).rows[0]!.id;
+    const bySlug = async (slug: string) => (await pool.query<{ id: string; max: number }>(
+      `SELECT id::text AS id, max_participants AS max FROM operator_tours WHERE slug = $1`, [slug],
+    )).rows[0]!;
+    const winter = await bySlug('lagexp-mys-mayachnyj');
+    const ny = await bySlug('lagexp-novyj-god-na-kamchatke');
+    const year = await bySlug('lagexp-konnaya-progulka');
+    const own = await bySlug('lagexp-dva-vulkana-avachinskij-pereval');
+    const archived = await bySlug('lagexp-krabovoe-safari-v-avachinskoj-bukhte'); // снят с витрины 1408
+    const draft = await bySlug('lagexp-khalaktyrskij-plyazh'); // черновик 1339
+    const unlisted = await addTour(lag, 'Не из списка', { slug: 'lagexp-tur-ne-iz-spiska' });
+    const w = (await pool.query<{ today: string; horizon: string }>(
+      `SELECT (NOW() AT TIME ZONE 'Asia/Kamchatka')::date::text AS today,
+              ((NOW() AT TIME ZONE 'Asia/Kamchatka')::date + INTERVAL '1 year')::date::text AS horizon`,
+    )).rows[0]!;
+    const shift = async (n: number) => (await pool.query<{ d: string }>(`SELECT ($1::date + $2::int)::text AS d`, [w.today, n])).rows[0]!.d;
+
+    /** Сколько дней в [from, to], обрезанном сегодня и горизонтом. */
+    const expected = async (from: string | null, to: string | null) => Number((await pool.query<{ n: string }>(
+      `SELECT GREATEST(0, LEAST(COALESCE($2::date, $4::date), $4::date) - GREATEST(COALESCE($1::date, $3::date), $3::date) + 1)::text AS n`,
+      [from, to, w.today, w.horizon],
+    )).rows[0]!.n);
+    const dates = async (id: string) => (await pool.query<{ n: string; min_slots: number | null; max_slots: number | null; first: string | null; last: string | null }>(
+      `SELECT count(*)::text AS n, min(available_slots) AS min_slots, max(available_slots) AS max_slots,
+              min(date)::text AS first, max(date)::text AS last
+         FROM tour_availability WHERE operator_tour_id = $1 AND COALESCE(is_cancelled, FALSE) = FALSE AND deleted_at IS NULL`,
+      [id],
+    )).rows[0]!;
+    const season = async (id: string) => (await pool.query<{ s: string | null; e: string | null }>(
+      `SELECT season_start::text AS s, season_end::text AS e FROM operator_tours WHERE id = $1`, [id],
+    )).rows[0]!;
+    const total = async () => Number((await pool.query<{ n: string }>(
+      `SELECT count(*)::text AS n FROM tour_availability a JOIN operator_tours t ON t.id = a.operator_tour_id
+         JOIN partners p ON p.id = t.operator_id WHERE p.slug = 'laguna-expedition'`,
+    )).rows[0]!.n);
+
+    // Зимняя однодневка: окно зимнего маршрута, каждый день, по вместимости.
+    expect(await season(winter.id)).toEqual({ s: '2026-11-13', e: '2027-04-10' });
+    const wd = await dates(winter.id);
+    expect(Number(wd.n)).toBe(await expected('2026-11-13', '2027-04-10'));
+    if (Number(wd.n) > 0) expect([wd.min_slots, wd.max_slots]).toEqual([winter.max, winter.max]);
+    // Новогодний на 7 дней: выезды 25.12–08.01, конец сезона — последний выезд + 6 дней.
+    expect(await season(ny.id)).toEqual({ s: '2026-12-25', e: '2027-01-14' });
+    const nd = await dates(ny.id);
+    expect(Number(nd.n)).toBe(await expected('2026-12-25', '2027-01-08'));
+    if (Number(nd.n) > 0) expect([nd.min_slots, nd.max_slots, nd.last]).toEqual([ny.max, ny.max, '2027-01-08']);
+    // Сезон не назван: круглый год до горизонта, сезон не пишется.
+    expect(await season(year.id)).toEqual({ s: null, e: null });
+    const yd = await dates(year.id);
+    expect(Number(yd.n)).toBe(await expected(null, null));
+    expect([yd.first, yd.last, yd.min_slots]).toEqual([w.today, w.horizon, year.max]);
+    // Снятые с витрины — ни даты, ни сезона.
+    for (const t of [archived, draft]) {
+      expect(Number((await dates(t.id)).n), t.id).toBe(0);
+      expect(await season(t.id), t.id).toEqual({ s: null, e: null });
+    }
+
+    // Оператор поставил свой сезон и свои строки: повтор миграции их не трогает,
+    // даты — только в окне оператора.
+    await pool.query(`DELETE FROM tour_availability WHERE operator_tour_id = $1`, [own.id]);
+    await pool.query(`UPDATE operator_tours SET season_start = '2027-01-10', season_end = '2027-02-10' WHERE id = $1`, [own.id]);
+    const openDay = await shift(3);
+    const closedDay = await shift(5);
+    await pool.query(`DELETE FROM tour_availability WHERE operator_tour_id = $1 AND date IN ($2::date, $3::date)`, [year.id, openDay, closedDay]);
+    await pool.query(`INSERT INTO tour_availability (operator_tour_id, date, available_slots) VALUES ($1, $2::date, 3)`, [year.id, openDay]);
+    await pool.query(
+      `INSERT INTO tour_availability (operator_tour_id, date, available_slots, is_cancelled, cancellation_reason) VALUES ($1, $2::date, 12, TRUE, 'ремонт вездехода')`,
+      [year.id, closedDay],
+    );
+    // Тур из списка, который оператор снял с витрины, повтор не открывает.
+    const hidden = await bySlug('lagexp-kamchatka-letnij-ekspress');
+    await pool.query(`DELETE FROM tour_availability WHERE operator_tour_id = $1`, [hidden.id]);
+    await pool.query(`UPDATE operator_tours SET is_published = FALSE, season_start = NULL, season_end = NULL WHERE id = $1`, [hidden.id]);
+    await pool.query(sql);
+    expect(Number((await dates(hidden.id)).n)).toBe(0);
+    expect(await season(hidden.id)).toEqual({ s: null, e: null });
+    expect(await season(own.id)).toEqual({ s: '2027-01-10', e: '2027-02-10' });
+    const od = await dates(own.id);
+    expect(Number(od.n)).toBe(await expected('2027-01-10', '2027-02-10'));
+    if (Number(od.n) > 0) expect([od.first, od.last]).toEqual(['2027-01-10', '2027-02-10']);
+    expect(await row(year.id, openDay)).toMatchObject({ slots: 3, is_cancelled: false });
+    expect(await row(year.id, closedDay)).toMatchObject({ is_cancelled: true, reason: 'ремонт вездехода' });
+    // Тур карточки не из списка и снятые с витрины — не тронуты и на повторе.
+    for (const id of [unlisted, archived.id, draft.id]) {
+      expect(Number((await dates(id)).n), id).toBe(0);
+      expect(await season(id), id).toEqual({ s: null, e: null });
+    }
+
+    // Повтор миграции: ни строки, ни правки сезона.
+    const before = await total();
+    await pool.query(sql);
+    expect(await total()).toBe(before);
+    expect(await season(ny.id)).toEqual({ s: '2026-12-25', e: '2027-01-14' });
+  });
+
+  it('миграция 1421: зима «Лагуны» закрыта у пяти туров — даты закрыты, а не удалены; бронь, удержание мест и правка оператора сильнее; остальные туры и даты вне окна не тронуты; повтор ничего не меняет', async () => {
+    const sql = readFileSync(join(process.cwd(), 'migrations/1421_laguna_expedition_winter_closed.sql'), 'utf8');
+    const lag = (await pool.query<{ id: string }>(`SELECT id::text AS id FROM partners WHERE slug = 'laguna-expedition'`)).rows[0]!.id;
+    const tourId = async (slug: string) => (await pool.query<{ id: string }>(`SELECT id::text AS id FROM operator_tours WHERE slug = $1`, [slug])).rows[0]!.id;
+    const canyon = await tourId('lagexp-kanon-opasnyj');
+    const flight = await tourId('lagexp-obljot-avachinskoj-bukhty-i-avachinskogo-vulkana-timonovskie-istochniki');
+    const horses = await tourId('lagexp-konnaya-progulka'); // не из списка: зимой открыт
+
+    // Свои даты сцены: не зависят от того, какой сегодня день и что открыла 1420.
+    const days = ['2027-01-15', '2027-01-16', '2027-01-17', '2027-01-18', '2027-05-15', '2026-11-30'];
+    for (const id of [canyon, flight, horses]) {
+      await pool.query(`DELETE FROM tour_seat_holds WHERE tour_id = $1`, [id]);
+      await pool.query(`DELETE FROM tour_availability WHERE operator_tour_id = $1 AND date = ANY($2::date[])`, [id, days]);
+      for (const d of days) {
+        await pool.query(`INSERT INTO tour_availability (operator_tour_id, date, available_slots) VALUES ($1, $2::date, 8)`, [id, d]);
+      }
+    }
+    // 16.01 — бронь (занятые места), 17.01 — удержание мест, 18.01 — оператор правил дату.
+    await pool.query(`UPDATE tour_availability SET booked_slots = 2 WHERE operator_tour_id = $1 AND date = '2027-01-16'`, [canyon]);
+    await pool.query(
+      `INSERT INTO tour_seat_holds (operator_id, tour_id, hold_date, seats, subject_kind, subject_id, via)
+       VALUES ($1::uuid, $2, '2027-01-17', 2, 'lead', 'scene-1421', 'site')`,
+      [lag, canyon],
+    );
+    await pool.query(
+      `UPDATE tour_availability SET created_at = NOW() - INTERVAL '1 day' WHERE operator_tour_id = $1 AND date = '2027-01-18'`,
+      [canyon],
+    );
+
+    await pool.query(sql);
+
+    const state = async (id: string, d: string) => (await pool.query<{ closed: boolean; reason: string | null; slots: number; deleted: boolean }>(
+      `SELECT COALESCE(is_cancelled, FALSE) AS closed, cancellation_reason AS reason, available_slots AS slots, deleted_at IS NOT NULL AS deleted
+         FROM tour_availability WHERE operator_tour_id = $1 AND date = $2::date`,
+      [id, d],
+    )).rows[0];
+    // Зимняя дата закрыта, не удалена; места остались — оператор откроет её одной кнопкой.
+    for (const id of [canyon, flight]) {
+      const st = await state(id, '2027-01-15');
+      expect(st, id).toMatchObject({ closed: true, slots: 8, deleted: false });
+      expect(st?.reason).toMatch(/^Закрыто Ведаром: зимой тур по его описанию под вопросом \(1421\)/);
+    }
+    expect((await state(flight, '2027-01-16'))?.closed).toBe(true);
+    // Бронь, удержание мест и правка оператора — дата открыта.
+    expect((await state(canyon, '2027-01-16'))?.closed).toBe(false);
+    expect((await state(canyon, '2027-01-17'))?.closed).toBe(false);
+    expect((await state(canyon, '2027-01-18'))?.closed).toBe(false);
+    // Вне окна (до 01.12 и после 30.04) — открыто.
+    expect((await state(canyon, '2027-05-15'))?.closed).toBe(false);
+    expect((await state(canyon, '2026-11-30'))?.closed).toBe(false);
+    // Тур не из списка — зимой открыт.
+    expect((await state(horses, '2027-01-15'))?.closed).toBe(false);
+
+    // Оператор открыл зимнюю дату сам (дата создана 1420 раньше — сутки назад,
+    // правка сдвигает updated_at триггером) — повтор её не закрывает;
+    // закрытые остаются как есть.
+    await pool.query(
+      `UPDATE tour_availability SET is_cancelled = FALSE, cancellation_reason = NULL, created_at = NOW() - INTERVAL '1 day'
+        WHERE operator_tour_id = $1 AND date = '2027-01-15'`,
+      [flight],
+    );
+    await pool.query(sql);
+    expect((await state(flight, '2027-01-15'))?.closed).toBe(false);
+    expect((await state(canyon, '2027-01-15'))?.closed).toBe(true);
+    expect((await state(canyon, '2027-01-16'))?.closed).toBe(false);
   });
 });

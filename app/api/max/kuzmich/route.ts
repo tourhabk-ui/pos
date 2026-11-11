@@ -88,11 +88,14 @@ import { memberCabinetText } from '@/lib/chat-cabinet/member-entry';
 import { cabinetPressEdits } from '@/lib/chat-cabinet/payload';
 import { deliverCabinetMax, type MaxCabinetApi } from '@/lib/chat-cabinet/max-deliver';
 import { forgetMenuMessage, isMenuPayload, noteMenuMessage, sentMid, type TailApi } from '@/lib/max/menu-tail';
+import { splitMaxText } from '@/lib/max/split-text';
 import type { CabinetScreen } from '@/lib/chat-cabinet/screens';
 import { isCabinetSection } from '@/lib/roles/role-screen';
 import { MCHS_CHAT_BUTTON, MCHS_TOURIST_PAYLOAD, mchsTouristLinks, mchsTouristText } from '@/lib/safety/mchs-chat';
 import { chatHasRequests } from '@/lib/requests/chat-links';
-import { MY_TRIP_BUTTON, myTripReply } from '@/lib/requests/my-trip';
+import { MY_TRIP_BUTTON, isMyTripAsk, myTripMessage } from '@/lib/requests/my-trip';
+import { isMyTripWritePayload, pressMyTripWrite } from '@/lib/requests/my-trip-write';
+import { isMyTripDatePayload } from '@/lib/requests/my-trip-ask';
 import { getPublicBaseUrl } from '@/lib/config';
 
 type ButtonIntent = 'default' | 'positive' | 'negative';
@@ -115,6 +118,21 @@ function maxCabinetButtons(content: CabinetButton[][]): MaxButton[][] {
  * Ответы переписки по заявке (1349, 1350): у каждого — свои кнопки
  * «Ответить гостю/клиенту» / «Написать …», по одной в строке.
  */
+/**
+ * «Моя поездка» (#2970): список заявок чата и под ним «Написать оператору» —
+ * по кнопке на заявку с перепиской. Только по заверенному апдейту: зовущий
+ * проверил.
+ */
+async function sendMyTrip(chatId: number): Promise<void> {
+  const { text, buttons } = await myTripMessage('max', chatId);
+  const html = escapeHtml(text);
+  if (buttons.length === 0) {
+    await maxReply(chatId, html);
+    return;
+  }
+  await maxReplyWithButtons(chatId, html, buttons.map((b) => [{ type: 'callback' as const, text: b.text, payload: b.payload }]));
+}
+
 async function sendChatReplies(chatId: number, replies: ChatReply[]): Promise<void> {
   for (const r of replies) {
     const rows: MaxButton[][] = r.buttons.map((b) => ('url' in b
@@ -205,11 +223,18 @@ async function maxReply(chatId: number, text: string, quick?: string[][]): Promi
   }
   const api = getApi();
   if (!api) return;
-  try {
-    await api.sendMessageToChat(chatId, text, { format: 'html' });
-  } catch (err) {
-    // Ответ не блокирует обработку, но отказ доставки виден в логе.
-    logFailure('ответ в чат MAX', err);
+  // Длиннее предела MAX — частями (#3199, K8): одно сообщение сверх 4000
+  // знаков API может не принять, и человек не получил бы ничего.
+  const { parts, droppedChars } = splitMaxText(text);
+  if (droppedChars > 0) logFailure('ответ в чат MAX: хвост длиннее пяти сообщений не отправлен', new Error(`droppedChars=${droppedChars}`));
+  for (let i = 0; i < parts.length; i++) {
+    try {
+      await api.sendMessageToChat(chatId, parts[i]!, { format: 'html' });
+    } catch (err) {
+      // Ответ не блокирует обработку, но отказ доставки виден в логе.
+      logFailure(parts.length > 1 ? `ответ в чат MAX, часть ${i + 1} из ${parts.length}` : 'ответ в чат MAX', err);
+      return;
+    }
   }
 }
 
@@ -227,9 +252,21 @@ async function maxReplyToUser(userId: number, text: string): Promise<void> {
 async function maxReplyWithButtons(chatId: number, text: string, buttons: MaxButton[][]): Promise<void> {
   const api = getApi();
   if (!api) return;
+  // Длиннее предела MAX — частями (#3199, K8); кнопки — под последней.
+  const { parts, droppedChars } = splitMaxText(text);
+  if (droppedChars > 0) logFailure('ответ с кнопками в чат MAX: хвост длиннее пяти сообщений не отправлен', new Error(`droppedChars=${droppedChars}`));
+  for (let i = 0; i < parts.length - 1; i++) {
+    try {
+      await api.sendMessageToChat(chatId, parts[i]!, { format: 'html' });
+    } catch (err) {
+      logFailure(`ответ с кнопками в чат MAX, часть ${i + 1} из ${parts.length}`, err);
+      return;
+    }
+  }
+  const lastText = parts[parts.length - 1]!;
   let res: unknown;
   try {
-    res = await (api.sendMessageToChat as (chatId: number, text: string, opts: unknown) => Promise<unknown>)(chatId, text, {
+    res = await (api.sendMessageToChat as (chatId: number, text: string, opts: unknown) => Promise<unknown>)(chatId, lastText, {
       format: 'html',
       attachments: [{ type: 'inline_keyboard', payload: { buttons } }],
     });
@@ -238,7 +275,7 @@ async function maxReplyWithButtons(chatId: number, text: string, buttons: MaxBut
     return;
   }
   // Строка меню — только под последним сообщением (31.10): у прежнего снимаем.
-  await noteMenuMessage(api as unknown as TailApi, chatId, sentMid(res), text, buttons);
+  await noteMenuMessage(api as unknown as TailApi, chatId, sentMid(res), lastText, buttons);
 }
 
 /** Правка сообщения с кнопками принята: если на нём строка меню — оно теперь последнее. */
@@ -567,6 +604,14 @@ async function deliverTouristText(opts: {
 }): Promise<void> {
   let capturedReply = '';
   const verified = opts?.verifiedOrigin === true;
+  // «Моя поездка» словами — с теми же кнопками «Написать оператору», что у
+  // кнопки меню (#2970). Раньше фразу ловил «код раньше модели» в
+  // lib/kuzmich/core, на этом же пути и только текстом. Без заверения — туда
+  // же, как было: список чата не читается.
+  if (verified && isMyTripAsk(opts.text)) {
+    await sendMyTrip(opts.chatId);
+    return;
+  }
   await processMessage({
     chatId: opts.chatId,
     text: opts.text,
@@ -946,6 +991,17 @@ async function handleActionPress(
     }
     if (parseDraftPress(payload)) {
       await sendChatReplies(chatId, [await pressDraft(payload, chatId, 'max')]);
+      return;
+    }
+    // «Написать оператору» под «Моей поездкой» (#2970): право — связь чата с заявкой.
+    if (isMyTripWritePayload(payload)) {
+      await sendChatReplies(chatId, [await pressMyTripWrite(payload, chatId)]);
+      return;
+    }
+    // «Изменить дату» под «Моей поездкой» (#2970, шаг 3): та же связь чата с заявкой.
+    if (isMyTripDatePayload(payload)) {
+      const { pressMyTripDate } = await import('@/lib/requests/my-trip-date');
+      await sendChatReplies(chatId, [await pressMyTripDate(payload, 'max', chatId)]);
       return;
     }
     const press = parseChatPress(payload);
@@ -2004,9 +2060,11 @@ async function handleUpdate(update: MaxUpdate, opts?: { verifiedOrigin?: boolean
 
     // «Моя поездка» (#2970): заявки ЭТОГО чата — только по заверенному апдейту.
     if (payload === MY_TRIP_PAYLOAD) {
-      await maxReply(resolvedChatId, opts?.verifiedOrigin === true
-        ? escapeHtml(await myTripReply('max', resolvedChatId))
-        : UNVERIFIED_CHAT_REPLY.myTrip);
+      if (opts?.verifiedOrigin !== true) {
+        await maxReply(resolvedChatId, UNVERIFIED_CHAT_REPLY.myTrip);
+        return;
+      }
+      await sendMyTrip(resolvedChatId);
       return;
     }
 

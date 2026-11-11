@@ -17,6 +17,7 @@
  */
 import { query } from '@/lib/database';
 import { LEAD_WAITING_STATUSES } from '@/lib/leads/owner-lead-words';
+import { leadPeopleSql } from '@/lib/leads/lead-people';
 import { publicTourSql } from '@/lib/tours/public-visibility';
 import { publishBlockersSql } from '@/lib/guides/own-tour-publish';
 import { normalizeField } from '@/lib/guides/tour-edit/store';
@@ -87,6 +88,16 @@ export interface OwnLead {
   comment: string | null;
   desired_dates: string | null;
   group_size: number | null;
+  /**
+   * Что записала дверь заявки (#3211, «Завести бронь» из заявки): число людей
+   * (`lib/leads/lead-people`), тур и дата заявки на тур. null — не записано;
+   * форма брони тогда спрашивает сама, а не подставляет догадку.
+   */
+  people: number | null;
+  tour_id: string | null;
+  requested_date: string | null;
+  /** Брони, заведённые из этой заявки, — только по турам гида. */
+  bookings: Array<{ id: string; booking_date: string; booking_status: string }>;
 }
 
 /** Туры гида: опубликованные и черновики, с числом открытых будущих дат и тем, чего не хватает до сайта. */
@@ -159,7 +170,17 @@ export async function loadOwnBookings(partnerId: string): Promise<OwnBooking[]> 
 export async function loadOwnLeads(partnerId: string): Promise<OwnLead[]> {
   const { rows } = await query<OwnLead>(
     `SELECT l.id::text AS id, l.created_at::text AS created_at, l.status, l.name, l.phone, l.email,
-            l.comment, l.desired_dates, l.group_size
+            l.comment, l.desired_dates, l.group_size,
+            ${leadPeopleSql('l')} AS people,
+            CASE WHEN l.source_data->>'tour_id' ~ '^[0-9]{1,18}$' THEN l.source_data->>'tour_id' END AS tour_id,
+            CASE WHEN l.source_data->>'date' ~ '^[0-9]{4}-[0-9]{2}-[0-9]{2}$' THEN l.source_data->>'date' END AS requested_date,
+            COALESCE((
+              SELECT json_agg(json_build_object('id', b.id::text, 'booking_date', b.booking_date::text, 'booking_status', b.booking_status)
+                              ORDER BY b.created_at DESC)
+                FROM operator_bookings b
+                JOIN operator_tours bt ON bt.id = b.operator_tour_id
+               WHERE b.lead_id = l.id AND b.deleted_at IS NULL AND bt.operator_id = $1::uuid
+            ), '[]'::json) AS bookings
        FROM leads l
       WHERE l.operator_id = $1::uuid AND l.is_self = FALSE
       ORDER BY (l.status = ANY($2::text[])) DESC, l.created_at DESC

@@ -52,3 +52,18 @@ export function parseInterestWords(raw: string): string[] {
   }
   return [...found];
 }
+
+/**
+ * Текст без слов, уже разобранных словарём (#3199, Б23). Второй словарь
+ * (`parseInterestsFromText`, подбор маршрутов) читает «вулкан», «гора»,
+ * «маршрут» как треккинг. Читая тот же текст целиком, он добавлял
+ * непрошенный треккинг к «вулканам» — план вёз на восхождение того, кто
+ * просил посмотреть. Ему отдаётся только то, чего этот словарь не понял.
+ */
+export function withoutInterestWords(raw: string): string {
+  let rest = (raw || '').toLowerCase();
+  for (const word of Object.keys(INTEREST_WORDS)) {
+    if (rest.includes(word)) rest = rest.split(word).join(' ');
+  }
+  return rest;
+}

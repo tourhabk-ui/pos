@@ -156,6 +156,47 @@ describe('POST ручной брони: бронь из лида', () => {
   });
 });
 
+describe('ручная бронь оператора: права команды — общим правилом продавца (#3211)', () => {
+  /** Кабинет: владелец или менеджер с правом своей цены или без. */
+  function cabinet(kind: 'owner' | 'manager', canEditPrices = false) {
+    routeDb(true);
+    poolQueryMock.mockImplementation(async (sql: string) => {
+      if (/WITH own AS/.test(sql)) {
+        return {
+          rows: [kind === 'owner'
+            ? { own_partner_id: OPERATOR, member_partner_id: null, member_id: null, can_edit_prices: null, can_cancel_bookings: null, was_revoked: false }
+            : { own_partner_id: null, member_partner_id: OPERATOR, member_id: 'm-1', can_edit_prices: canEditPrices, can_cancel_bookings: false, was_revoked: false }],
+        };
+      }
+      return { rows: [] };
+    });
+  }
+  const inserted = () => txCalls.some((c) => /INSERT INTO operator_bookings/.test(String(c[0])));
+  beforeEach(() => authMock.mockResolvedValue({ userId: '00000000-0000-4000-8000-0000000000a2', role: 'operator' }));
+
+  it('менеджер без права цены: своя цена — 403, брони нет; цена тура — можно', async () => {
+    cabinet('manager');
+    expect((await POST(postReq({ ...BASE, final_price: 5000 }))).status).toBe(403);
+    expect(inserted()).toBe(false);
+    expect((await POST(postReq({ ...BASE, final_price: 20000 }))).status).toBe(201);
+  });
+
+  it('менеджер с правом цены — своя цена записывается', async () => {
+    cabinet('manager', true);
+    expect((await POST(postReq({ ...BASE, final_price: 5000 }))).status).toBe(201);
+    expect(inserted()).toBe(true);
+  });
+
+  it('«оплачено» отмечает только владелец: менеджеру — 403 без брони, владельцу — 201', async () => {
+    cabinet('manager', true);
+    const res = await POST(postReq({ ...BASE, payment_status: 'paid' }));
+    expect(res.status).toBe(403);
+    expect(inserted()).toBe(false);
+    cabinet('owner');
+    expect((await POST(postReq({ ...BASE, payment_status: 'paid', final_price: 5000 }))).status).toBe(201);
+  });
+});
+
 describe('брони лида на карточке', () => {
   it('отказ базы — «не прочитано» и лог, а не пустой список', async () => {
     poolQueryMock.mockRejectedValue(Object.assign(new Error('column b.lead_id does not exist'), { code: '42703' }));

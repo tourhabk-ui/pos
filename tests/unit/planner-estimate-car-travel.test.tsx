@@ -21,7 +21,7 @@ const d = (day: number, type: EstimateDay['type'], zone: EstimateDay['zone'], ex
   day, type, zone, title: `День ${day}`, priceFrom: 0, priceTo: 0, ...extra,
 });
 const PROFILE: EstimateProfile = { adults: 2, children: [], budgetTier: 'comfort', tripOrigin: 'visitor' };
-/** Прилёт и вылет: одна ночь в Авачинской зоне, 5 600–8 400 ₽ на человека. */
+/** Прилёт и вылет: одна ночь в Авачинской зоне, 7 000 ₽ на человека. */
 const SHORT = [d(1, 'arrival', 'avachinsky'), d(2, 'departure', 'avachinsky')];
 const hasTransfer = (days: EstimateDay[], profile: EstimateProfile) =>
   estimateGroup(days, profile).lines.some((l) => l.label === 'Трансферы аэропорта');
@@ -30,9 +30,9 @@ describe('машина напрокат вместо трансфера (E7)', (
   it('машина — трансфера нет, итог без него, прокат назван словами', () => {
     const withCar = estimateGroup(SHORT, { ...PROFILE, needs: { car: true } });
     expect(withCar.lines.some((l) => l.label === 'Трансферы аэропорта')).toBe(false);
-    expect(withCar.total).toEqual([11200, 16800]);
+    expect(withCar.total).toEqual([14000, 14000]);
     expect(withCar.assumptions).toContain('Трансфер аэропорта не посчитан: в плане машина напрокат. Прокат в смету не входит — цену подтверждает прокатчик.');
-    expect(estimateGroup(SHORT, PROFILE).total).toEqual([16200, 26800]);
+    expect(estimateGroup(SHORT, PROFILE).total).toEqual([19000, 24000]);
   });
 
   it('машина и трансфер отмечены оба — трансфер остаётся', () => {
@@ -56,7 +56,7 @@ describe('машина напрокат вместо трансфера (E7)', (
   it('заявка считает так же, как экран', () => {
     const needs = { lodging: false, transfer: false, car: true };
     const plan = planForLead(SHORT, { ...PROFILE, arrivalDate: '2030-08-01' }, undefined, needs);
-    expect(plan.estimate.total).toEqual([11200, 16800]);
+    expect(plan.estimate.total).toEqual([14000, 14000]);
     expect(plan.estimate.lines.map((l) => l.label)).not.toContain('Трансферы аэропорта');
   });
 });
@@ -77,8 +77,8 @@ describe('ночь дня переезда — в зоне, куда приех�
       ['Проживание в Авачинской зоне', '2 ночи × 2 чел.'],
       ['Проживание в Западной зоне', '2 ночи × 2 чел.'],
     ]);
-    // Вилка на человека — то же правило: 2 ночи по 5 600 и 2 по 16 000.
-    expect(calculatePriceBreakdown(TRIP, PROFILE).accommodation).toEqual([2 * 5600 + 2 * 16000, 2 * 8400 + 2 * 24000]);
+    // Вилка на человека — то же правило: 2 ночи по 7 000 и 2 по 20 000, без множителей.
+    expect(calculatePriceBreakdown(TRIP, PROFILE).accommodation).toEqual([2 * 7000 + 2 * 20000, 2 * 7000 + 2 * 20000]);
   });
 
   it('подбор жилья: ночь переезда входит в стоянку зоны назначения', () => {

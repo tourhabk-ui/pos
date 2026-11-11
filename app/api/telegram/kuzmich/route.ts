@@ -14,6 +14,7 @@
  */
 
 import { NextRequest, NextResponse } from 'next/server';
+import { runApprovalCommand } from '@/lib/agents/safeguards/approval-command';
 import { type PendingBooking, cleanupPending, hasLiveBookingFlow, processMessage, isBookingTrigger } from '@/lib/kuzmich/core';
 import { boundChatContext, boundChatLaneFor } from '@/lib/kuzmich/bound-chat-route';
 import { adminChatYieldsToPartner } from '@/lib/roles/admin-partner-chat';
@@ -289,38 +290,15 @@ async function downloadTgFile(fileId: string): Promise<{ base64: string; mimeTyp
 
 // ── Owner admin pipeline ──────────────────────────────────────────────────────
 
+// /approve_ и /reject_ — общий модуль (находка C3 25.10: uuid без LIKE и
+// 'rejected' вне CHECK execution_status — команда не срабатывала ни разу).
 async function handleApproval(cmd: string, chatId: number): Promise<void> {
-  const isApprove = cmd.startsWith('/approve_');
-  const shortId = cmd.replace(/^\/(approve|reject)_/, '');
-  if (shortId.length < 7) { await tgReply(chatId, 'Неверный формат.'); return; }
-
-  try {
-    const { rows } = await pool.query<{ id: string; description: string; action_type: string }>(
-      `SELECT id, description, action_type FROM agent_approvals WHERE id LIKE $1 AND status = 'pending' LIMIT 1`,
-      [shortId + '%'],
-    );
-    if (!rows[0]) { await tgReply(chatId, `Инициатива <code>${shortId}</code> не найдена.`); return; }
-    const { id, description, action_type } = rows[0];
-
-    await pool.query(
-      `UPDATE agent_approvals SET status = $1, execution_status = $2, reviewed_at = NOW(),
-       review_notes = $3 WHERE id = $4`,
-      [isApprove ? 'approved' : 'rejected',
-       isApprove ? 'assigned' : 'rejected',
-       `${isApprove ? 'Approved' : 'Rejected'} via Telegram bot`,
-       id],
-    );
-    await tgReply(chatId,
-      `<b>${isApprove ? 'Одобрено' : 'Отклонено'}</b>\n\nТип: <code>${action_type}</code>\n${description}`
-    );
-  } catch (err) {
-    await tgReply(chatId, `Ошибка: ${err instanceof Error ? err.message : String(err)}`);
-  }
+  await runApprovalCommand(cmd, (html) => tgReply(chatId, html));
 }
 
 async function handleOwnerCommand(cmd: string, text: string, chatId: number): Promise<void> {
   if (cmd === '/help' || cmd === '/start') {
-    await tgReply(chatId, '<b>Admin режим</b>\n\n/kuzmich — пост о маршруте\n/tip — совет\n/sezon — сезонный пост\n/safety — пост о безопасности\n/approve_XXX / /reject_XXX — инициативы');
+    await tgReply(chatId, '<b>Admin режим</b>\n\n/kuzmich — пост о маршруте\n/tip — совет\n/sezon — сезонный пост\n/safety — пост о безопасности');
     return;
   }
   if (cmd === '/kuzmich' || cmd === '/tip' || cmd === '/sezon' || cmd === '/safety') {

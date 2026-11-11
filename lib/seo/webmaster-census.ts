@@ -93,7 +93,19 @@ async function section<T>(run: () => Promise<T>): Promise<Section<T>> {
   }
 }
 
-interface ApiHost { host_id: string; ascii_host_url: string; verified?: boolean; main_mirror?: unknown }
+export interface ApiHost { host_id: string; ascii_host_url: string; verified?: boolean; main_mirror?: unknown }
+
+/**
+ * Какой из наших хостов аккаунта читать (11.11). Вебмастер держит http:// и
+ * https:// отдельными сайтами; прогон 2 нашёл в аккаунте только
+ * `http://vedarai.ru/` — с нулями во всех разделах, потому что сайт отдаётся по
+ * https. Когда в аккаунте окажутся оба, первым в списке может стоять старый:
+ * берётся https с подтверждёнными правами, затем https, затем подтверждённый.
+ */
+export function pickOurHost<T extends ApiHost>(ours: readonly T[]): T | undefined {
+  const rank = (h: ApiHost) => (h.ascii_host_url.startsWith('https://') ? 0 : 2) + (h.verified === true ? 0 : 1);
+  return [...ours].sort((a, b) => rank(a) - rank(b))[0];
+}
 interface ApiQuery { query_text: string; indicators?: Record<string, number | null> }
 interface ApiEvent { url: string; event: string; excluded_url_status?: string; bad_http_status?: number; event_date?: string }
 
@@ -181,7 +193,8 @@ export async function webmasterCensus(opts: {
   result.hosts = await section(async () => {
     const body = await call(opts.fetcher, token!, `${u}/hosts`) as { hosts?: ApiHost[] };
     const hosts = body.hosts ?? [];
-    const site = hosts.find((h) => new RegExp(`(^|//|:)(www\\.)?${SITE_HOST.replace('.', '\\.')}(:|/|$)`).test(h.ascii_host_url));
+    const ours = hosts.filter((h) => new RegExp(`(^|//|:)(www\\.)?${SITE_HOST.replace('.', '\\.')}(:|/|$)`).test(h.ascii_host_url));
+    const site = pickOurHost(ours);
     hostId = site?.host_id ?? null;
     return {
       total: hosts.length,

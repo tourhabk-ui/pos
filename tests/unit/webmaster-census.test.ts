@@ -7,14 +7,14 @@
  */
 import { describe, it, expect, vi } from 'vitest';
 import { NextRequest } from 'next/server';
-import { tokenCandidates, webmasterCensus, excludedByReason, type Fetcher } from '@/lib/seo/webmaster-census';
+import { tokenCandidates, webmasterCensus, excludedByReason, pickOurHost, type Fetcher } from '@/lib/seo/webmaster-census';
 
 const GOOD = 'y0_test_good_token_value_000';
 const BAD = 'y0_test_bad_token_value_111';
 const HOST_ID = 'https:vedarai.ru:443';
 
 /** Подставная сеть: отвечает по пути и записывает, что звали и с каким токеном. */
-function fakeApi(opts: { summaryFails?: boolean } = {}) {
+function fakeApi(opts: { summaryFails?: boolean; httpFirst?: boolean } = {}) {
   const calls: Array<{ path: string; auth: string }> = [];
   const fetcher: Fetcher = async (url, init) => {
     const path = url.replace('https://api.webmaster.yandex.net/v4', '');
@@ -25,6 +25,8 @@ function fakeApi(opts: { summaryFails?: boolean } = {}) {
     if (path === '/user/42/hosts') {
       return json(200, { hosts: [
         { host_id: 'https:other.ru:443', ascii_host_url: 'https://other.ru/', verified: true },
+        // Прогон 2 (11.11): в аккаунте был только http://vedarai.ru/ — с нулями.
+        ...(opts.httpFirst ? [{ host_id: 'http:vedarai.ru:80', ascii_host_url: 'http://vedarai.ru/', verified: true }] : []),
         { host_id: HOST_ID, ascii_host_url: 'https://vedarai.ru/', verified: true },
       ] });
     }
@@ -147,5 +149,22 @@ describe('роут /api/cron/webmaster-census', () => {
     expect(spy).not.toHaveBeenCalled();
     spy.mockRestore();
     vi.unstubAllEnvs();
+  });
+});
+
+describe('какой из наших хостов читать (прогон 2, 11.11)', () => {
+  it('http и https в аккаунте — читается https, даже если http стоит первым', async () => {
+    const { fetcher, calls } = fakeApi({ httpFirst: true });
+    const r = await webmasterCensus({ env: ENV, fetcher, today: '2026-11-11', days: 90, topQueries: 10 });
+    expect(r.host_id).toBe(HOST_ID);
+    expect(calls.some((c) => c.path.includes(encodeURIComponent('http:vedarai.ru:80')))).toBe(false);
+  });
+
+  it('порядок: https с правами, https, http с правами, http', () => {
+    const h = (url: string, verified: boolean) => ({ host_id: url, ascii_host_url: url, verified });
+    expect(pickOurHost([h('http://vedarai.ru/', true), h('https://vedarai.ru/', false)])?.ascii_host_url).toBe('https://vedarai.ru/');
+    expect(pickOurHost([h('https://vedarai.ru/', false), h('https://www.vedarai.ru/', true)])?.ascii_host_url).toBe('https://www.vedarai.ru/');
+    expect(pickOurHost([h('http://vedarai.ru/', false), h('http://www.vedarai.ru/', true)])?.ascii_host_url).toBe('http://www.vedarai.ru/');
+    expect(pickOurHost([])).toBeUndefined();
   });
 });

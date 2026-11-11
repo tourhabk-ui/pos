@@ -22,6 +22,7 @@ import TourDateField from '@/components/marketplace/TourDateField';
 import { bookingTotal, normalizePriceUnit } from '@/lib/tours/booking-total';
 import { PRICE_UNIT_SHORT } from '@/lib/tours/labels';
 import { platformAcceptsPayments } from '@/lib/payments/accepting';
+import { agentRoleOpen } from '@/lib/auth/agent-role';
 
 interface AgentSale {
   id: string;
@@ -378,9 +379,12 @@ export default function AgentBookingsPageClient() {
                 <p className="py-2.5 text-sm text-[var(--text-primary)]">
                   {estimate != null ? fmtRub(estimate) : '—'}
                 </p>
-                <p className="text-xs text-[var(--text-muted)]">
-                  Ставку вашего вознаграждения назначает платформа.
-                </p>
+                {/* Роль заморожена (#3212) — о вознаграждении ни слова. */}
+                {agentRoleOpen() && (
+                  <p className="text-xs text-[var(--text-muted)]">
+                    Ставку вашего вознаграждения назначает платформа.
+                  </p>
+                )}
               </div>
               <div className="sm:col-span-2">
                 <label htmlFor="ab-requests" className="ds-label">Пожелания оператору (необязательно)</label>

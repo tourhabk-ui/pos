@@ -423,7 +423,6 @@ const MOVED_TO_GATE = [
   'app/api/planner/partners/route.ts',
   'app/api/planner/tours-for-day/route.ts',
   'app/api/public/now/route.ts',
-  'app/api/trip/plan/route.ts',
   'app/fish/[id]/page.tsx',
   'app/hub/fishing/page.tsx',
   'lib/kuzmich/engagement.ts',
@@ -645,7 +644,6 @@ const TOURIST_SELECTIONS: Record<string, string> = {
   'lib/planner/data.ts': 'туры и запасные туры планера',
   'app/api/planner/partners/route.ts': 'операторы дня планера по их турам',
   'app/api/planner/tours-for-day/route.ts': 'туры на день планера',
-  'app/api/trip/plan/route.ts': 'план поездки ИИ (вызывающих нет, запрос читает несуществующие колонки — шлюз стоит, чтобы починка не вернула черновик)',
   'lib/services/operators/lead-processor.service.ts': 'подбор трёх туров в предложение клиенту по лиду',
   'app/api/p/[code]/route.ts': 'подборка оператора, открытая клиентом по ссылке',
   // Кузьмич, ИИ и агенты

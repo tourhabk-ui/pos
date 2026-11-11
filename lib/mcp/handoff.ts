@@ -25,6 +25,14 @@ import { logMcpFailure } from '@/lib/mcp/log-failure';
 const BASE_URL = process.env.NEXT_PUBLIC_SITE_URL ?? 'https://vedarai.ru';
 const COOKIE_NAME = 'vedar_mcp_attr';
 const HANDOFF_TTL_MS = 48 * 60 * 60 * 1000;        // ссылка: 48 часов
+/**
+ * Ссылка на страницу сохранённого плана живёт столько же, сколько сам план:
+ * черновик хранится 7 дней и продлевается правкой (lib/planner/plan-drafts,
+ * миграция 1182), а ответ говорит «План хранится 7 дней». Ссылка на 48 часов
+ * гасла бы на третий день у живого плана (#3199, M11в). Токен новых данных
+ * не открывает: путь /trip/<id> назван в том же ответе.
+ */
+export const PLAN_PAGE_HANDOFF_TTL_MS = 7 * 24 * 60 * 60 * 1000;
 const ATTRIBUTION_TTL_SECONDS = 30 * 24 * 60 * 60; // cookie после перехода: 30 дней
 
 export type McpTargetType = 'planner' | 'plan' | 'tour' | 'place' | 'safety';
@@ -66,6 +74,13 @@ export function isSafeTarget(target: HandoffTarget): boolean {
     allowedPrefixes[target.targetType].some((prefix) => target.targetPath.startsWith(prefix));
 }
 
+/** Срок ссылки по цели: страница плана — как план, остальное — 48 часов. */
+export function handoffTtlMs(target: HandoffTarget): number {
+  return target.targetType === 'plan' && target.targetPath.startsWith('/trip/')
+    ? PLAN_PAGE_HANDOFF_TTL_MS
+    : HANDOFF_TTL_MS;
+}
+
 export async function issueMcpHandoff(input: {
   mcpSessionId?: string;
   mcpInvocationId?: string;
@@ -77,7 +92,7 @@ export async function issueMcpHandoff(input: {
   // 32 байта => 256 бит энтропии. Сохраняем хеш, а не token.
   const token = randomBytes(32).toString('base64url');
   const tokenHash = sha256(token);
-  const expiresAt = new Date(Date.now() + HANDOFF_TTL_MS);
+  const expiresAt = new Date(Date.now() + handoffTtlMs(input.target));
 
   try {
     const result = await pool.query<{ id: string }>(

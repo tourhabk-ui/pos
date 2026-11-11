@@ -38,7 +38,7 @@ describe('какая реплика открывает «Мою поездку»
 
 describe('ответ человеку', () => {
   const item = (over: Partial<MyTripItem>): MyTripItem => ({
-    what: 'Сплав по Быстрой', date: '2026-11-14', human: 'Оператор ещё не ответил.', situation: { kind: 'none' }, ...over,
+    what: 'Сплав по Быстрой', date: '2026-11-14', human: 'Оператор ещё не ответил.', situation: { kind: 'none' }, write: null, dateChange: null, ...over,
   });
 
   it('заявок в чате нет — как привязать заявку с сайта, без поиска по телефону', () => {

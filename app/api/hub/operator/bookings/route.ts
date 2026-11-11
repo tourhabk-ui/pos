@@ -5,19 +5,16 @@
  */
 
 import { NextRequest, NextResponse } from 'next/server';
-import { bookingTotal } from '@/lib/tours/booking-total';
 import { requireOperator } from '@/lib/auth/middleware';
 import { PaginationSchema } from '@/lib/api/operator-tours';
 import { notifyNewBooking } from '@/lib/notifications/operator-booking';
-import { query, transaction } from '@/lib/database';
-import { insertBookingRow, type BookingRowValues } from '@/lib/bookings/reserve';
+import { query } from '@/lib/database';
+import { createManualBooking } from '@/lib/bookings/manual-booking';
 import { z } from 'zod';
-import { linkContactQuietly } from '@/lib/crm/contacts';
 import { leadOwnershipCond } from '@/lib/leads/ownership';
 import {
   managerMay, operatorAccess, ownerOnlyDenied, permissionDenied, type OperatorAccessOk,
 } from '@/lib/operators/team-access';
-import { recordSourceEventQuietly, statusChangeTitle } from '@/lib/crm/events';
 
 export const dynamic = 'force-dynamic';
 
@@ -174,135 +171,31 @@ export async function POST(request: NextRequest) {
 
     const body = await request.json();
     const input = CreateBookingSchema.parse(body);
-    const tourId = BigInt(input.operator_tour_id);
-
-    // Verify tour belongs to this operator
-    const tourResult = await query(
-      `SELECT id, title, base_price, price_unit, multi_day_count, duration_hours FROM operator_tours
-       WHERE id = $1 AND operator_id = $2 AND deleted_at IS NULL LIMIT 1`,
-      [tourId, operator_id]
-    );
-    if (tourResult.rows.length === 0) {
-      return NextResponse.json({ error: 'Tour not found' }, { status: 404 });
-    }
-    const tour = tourResult.rows[0];
-    const tourTitle = tour.title as string;
-    const basePrice = Number(tour.base_price);
-    const duration = {
-      multi_day_count: tour.multi_day_count == null ? null : Number(tour.multi_day_count),
-      duration_hours: tour.duration_hours == null ? null : Number(tour.duration_hours),
-    };
-    const computedTotal = bookingTotal({
-      basePrice,
-      priceUnit: tour.price_unit as string | null,
-      participants: input.participants,
-      duration,
-    });
-    const finalPrice = input.final_price ?? computedTotal;
-
-    // CRM 2г: своя цена брони — по праву can_edit_prices; «оплачено» — деньги,
-    // их отмечает только владелец кабинета. Цена тура без правки — любому.
-    const access: OperatorAccessOk = operator.access;
-    if (input.final_price !== undefined && input.final_price !== computedTotal
-        && !managerMay(access, 'can_edit_prices')) {
-      return permissionDenied('can_edit_prices');
-    }
-    if (input.payment_status === 'paid' && access.kind !== 'owner') {
-      return ownerOnlyDenied();
-    }
-
-    // Бронь из лида: лид должен быть доступен этому оператору (свой или
-    // ничейный — тот же скоуп, что у /api/leads). Чужой неотличим от
-    // несуществующего (404).
-    let lead: { id: string; status: string } | null = null;
-    if (input.lead_id) {
-      const scope = await leadOwnershipCond(authOrResponse, 2);
-      const leadRes = await query<{ id: string; status: string }>(
-        `SELECT id::text AS id, status FROM leads WHERE id = $1::uuid${scope.cond} LIMIT 1`,
-        [input.lead_id, ...scope.vals],
-      );
-      lead = leadRes.rows[0] ?? null;
-      if (!lead) {
-        return NextResponse.json({ error: 'Лид не найден' }, { status: 404 });
-      }
-    }
-
-    const row: BookingRowValues = {
-      operator_tour_id: input.operator_tour_id,
-      tourist_name: input.tourist_name || null,
-      tourist_phone: input.tourist_phone || null,
-      tourist_email: input.tourist_email || null,
-      booking_date: input.booking_date,
-      participants: input.participants,
-      adult_count: input.adult_count || null,
-      child_count: input.child_count || null,
-      base_total_price: computedTotal,
-      final_price: finalPrice,
-      payment_status: input.payment_status,
-      payment_method: input.payment_method || null,
-      booking_status: input.booking_status,
-      special_requests: input.special_requests || null,
-      created_via: input.created_via,
-      // Без лида колонка lead_id не упоминается вовсе: ручная бронь не
-      // зависит от миграции 1214.
-      ...(lead ? { lead_id: lead.id } : {}),
-    };
 
     /**
-     * Строка брони — общей вставкой (lib/bookings/reserve.ts, аудит 15.10,
-     * P2-01). Своя вставка не писала `end_date` и `duration_days`: группа на
-     * пятидневном туре, заведённая по звонку, занимала для календарей, витрины
-     * дат и гейта брони только день выезда, и дни 2..N продавались снова.
-     *
-     * Гейта календаря и мест здесь НЕТ намеренно: оператор записывает то, о
-     * чём уже договорился сам, и отказ в записи потерял бы бронь, которая всё
-     * равно состоится.
-     *
-     * Бронь из лида и «Сделка» лиду — одной транзакцией: ничейный лид
-     * становится лидом этого оператора, как при первом действии над ним
-     * (app/api/leads/[id]). Без брони лид «Сделкой» не становится.
-     *
-     * Гейта мест нет, но мимо записи дат бронь не проходит: строка тура —
-     * `FOR SHARE` до вставки (ревью 22.10). Запись дат (lib/tours/
-     * availability-open) берёт `FOR NO KEY UPDATE` и с этой блокировкой
-     * конфликтует: пока идёт ручная бронь, места даты не поставить ниже
-     * занятых — запись дождётся брони и увидит её. Без замка внешний ключ брони
-     * брал только `KEY SHARE`, запись дат шла параллельно, и дата получала 5
-     * мест при 7 записанных. `FOR SHARE`, а не `FOR UPDATE`: две ручные брони
-     * друг друга не ждут — гейта мест у них нет.
+     * Ручная бронь — общим правилом продавца тура (lib/bookings/manual-booking,
+     * #3211: та же дверь у гида-продавца). Здесь — что разрешено кабинету:
+     * своя цена брони — по праву can_edit_prices (CRM 2г); «оплачено» —
+     * деньги, их отмечает только владелец кабинета; заявка — своя или
+     * ничейная (тот же скоуп, что у /api/leads).
      */
-    const booking = await transaction(async (client) => {
-      await client.query('SELECT 1 FROM operator_tours WHERE id = $1 FOR SHARE', [tourId]);
-      const created = await insertBookingRow(client, row, duration);
-      if (lead) {
-        await client.query(
-          `UPDATE leads
-              SET status = 'converted', operator_id = COALESCE(operator_id, $2::uuid), updated_at = NOW()
-            WHERE id = $1::uuid`,
-          [lead.id, operator_id],
-        );
-      }
-      // Ответ кабинету — прежние пять полей.
-      return {
-        id: created.id,
-        booking_date: created.booking_date,
-        participants: created.participants,
-        final_price: created.final_price,
-        booking_status: created.booking_status,
-      };
-    });
-
-    if (lead && lead.status !== 'converted') {
-      await recordSourceEventQuietly({
-        kind: 'status_change', sourceKind: 'lead', sourceId: lead.id,
-        actorKind: 'partner_user', actorUserId: authOrResponse.userId,
-        title: statusChangeTitle('lead', lead.status, 'converted'),
-        payload: { from: lead.status, to: 'converted', booking_id: String(booking.id) },
-      });
+    const access: OperatorAccessOk = operator.access;
+    const outcome = await createManualBooking({
+      partnerId: operator_id,
+      actorUserId: authOrResponse.userId,
+      mayEditPrice: managerMay(access, 'can_edit_prices'),
+      mayMarkPaid: access.kind !== 'manager',
+      leadScope: () => leadOwnershipCond(authOrResponse, 2),
+    }, input);
+    if (outcome.kind === 'tour_not_found') {
+      return NextResponse.json({ error: 'Tour not found' }, { status: 404 });
     }
-
-    // Клиент оператора в CRM (#2325): бронь, заведённая по звонку, — тоже клиент.
-    await linkContactQuietly('operator_booking', booking.id as string | number);
+    if (outcome.kind === 'price_denied') return permissionDenied('can_edit_prices');
+    if (outcome.kind === 'paid_denied') return ownerOnlyDenied();
+    if (outcome.kind === 'lead_not_found') {
+      return NextResponse.json({ error: 'Лид не найден' }, { status: 404 });
+    }
+    const { booking, tourTitle, finalPrice } = outcome;
 
     // Fire-and-forget Telegram notification
     notifyNewBooking({
