@@ -24,10 +24,14 @@ export async function GET(req: NextRequest) {
     return NextResponse.json({ success: false, error: 'Слишком много запросов' }, { status: 429 });
   }
   const k = req.nextUrl.searchParams.get('k') ?? '';
+  // Вкладка на виду (`seen=1`, план «после отказа», 2б): только такое чтение
+  // считается тем, что человек увидел ответ оператора. Фоновая вкладка
+  // опрашивает раз в минуту — она ответ не «доставляет».
+  const seen = req.nextUrl.searchParams.get('seen') === '1';
   try {
     const {
       state, kind, tour, accommodation, accommodation_url, date, check_out, participants, alt_date, deadline, human, consent, consent_purpose,
-    } = await readRequestStatus(k);
+    } = await readRequestStatus(k, { reader: 'page', seen });
     return NextResponse.json({
       success: true,
       data: { state, kind, tour, accommodation, accommodation_url, date, check_out, participants, alt_date, deadline, human, consent, consent_purpose },

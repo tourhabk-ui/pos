@@ -59,7 +59,7 @@ import { join } from 'path';
 import { UTC_WALL_NOW_SQL } from '@/lib/db/timestamp-iso';
 
 export interface WatchdogAlert {
-  type: 'unconfirmed_booking' | 'operator_no_response' | 'unprocessed_lead' | 'sos_ignored' | 'sos_unattributed' | 'sos_abandoned' | 'seismic_cron_dead' | 'unconfirmed_stay_booking' | 'safety_cron_dead' | 'pending_gear_rental' | 'pending_transfer_booking' | 'push_undelivered' | 'cron_idle' | 'cron_failing' | 'migration_unapplied' | 'migration_failed' | 'operator_registration_spike' | 'payout_release_stuck' | 'payment_held_for_cancelled_booking' | 'cron_fruitless' | 'operator_unreachable' | 'mcp_silent' | 'nonsafety_cron_dead' | 'seat_request_failed' | 'lead_delivery_failed';
+  type: 'unconfirmed_booking' | 'operator_no_response' | 'unprocessed_lead' | 'sos_ignored' | 'sos_unattributed' | 'sos_abandoned' | 'seismic_cron_dead' | 'unconfirmed_stay_booking' | 'safety_cron_dead' | 'pending_gear_rental' | 'pending_transfer_booking' | 'push_undelivered' | 'cron_idle' | 'cron_failing' | 'migration_unapplied' | 'migration_failed' | 'operator_registration_spike' | 'payout_release_stuck' | 'payment_held_for_cancelled_booking' | 'cron_fruitless' | 'operator_unreachable' | 'mcp_silent' | 'nonsafety_cron_dead' | 'seat_request_failed' | 'lead_delivery_failed' | 'answer_notice_stuck';
   count: number;
   details: string;
   /**
@@ -1830,6 +1830,29 @@ async function checkFailedLeadDeliveries(): Promise<CheckResult> {
   }
 }
 
+/**
+ * Сообщение человеку после ответа оператора застряло (план «после отказа», 2б,
+ * answer_notices 1423) — выборка NOTICE_STUCK_SQL в lib/requests/answer-notice.
+ * Без ПД: число и короткие номера заявок.
+ */
+async function checkStuckAnswerNotices(): Promise<CheckResult> {
+  try {
+    const { NOTICE_STUCK_SQL } = await import('@/lib/requests/answer-notice');
+    const { rows } = await pool.query<{ count: string; ids: string | null }>(NOTICE_STUCK_SQL);
+    const count = parseInt(rows[0]?.count ?? '0', 10);
+    if (count === 0) return null;
+    return {
+      type: 'answer_notice_stuck',
+      count,
+      details: `${count} ответов оператора не дошли до туриста и не переданы менеджеру (заявки: ${rows[0]?.ids ?? '?'}). Позвонить по заявкам из админки.`,
+      debounceOn: `answer_notice_stuck:${rows[0]?.ids ?? ''}`,
+    };
+  } catch (err) {
+    console.error('[watchdog] checkStuckAnswerNotices:', err instanceof Error ? err.message : err);
+    return checkFailure('checkStuckAnswerNotices', err);
+  }
+}
+
 async function checkMcpSilent(): Promise<CheckResult> {
   try {
     const { rows } = await pool.query<{ calls: string; callers: string }>(
@@ -1961,6 +1984,8 @@ export async function runWatchdog(): Promise<WatchdogResult> {
     checkMcpSilent,
     // Недоставленные оператору заявки (MAX/TG) — только тревога админу.
     checkFailedLeadDeliveries,
+    // Ответ оператора не дошёл до туриста и не передан менеджеру (2б).
+    checkStuckAnswerNotices,
   ];
 
   const results = await Promise.all(CHECKS.map(run => run()));

@@ -1281,7 +1281,7 @@ withPg('переписка по заявке на настоящем PostgreSQL'
       };
 
       // «Нет мест» на D0: запись с датой заявки; повтор — «уже», второй строки нет.
-      expect(await record(D0)).toEqual({ ok: true, already: false, dateChanged: false, subjectDate: D0 });
+      expect(await record(D0)).toMatchObject({ ok: true, already: false, dateChanged: false, subjectDate: D0 });
       expect(await record(D0)).toEqual({ ok: true, already: true, dateChanged: false, subjectDate: D0 });
       expect((await tripItem()).human).toMatch(/мест нет/);
 
@@ -1310,7 +1310,7 @@ withPg('переписка по заявке на настоящем PostgreSQL'
       // «Да», нажатое по вопросу о D0, после переноса ответа не пишет.
       expect(await record(D0)).toEqual({ ok: true, already: false, dateChanged: true, subjectDate: D1 });
       // «Нет мест» на D1 — вторая строка; ответ другого партнёра на ту же дату ключ не нарушает, но статус его не читает.
-      expect(await record(D1)).toEqual({ ok: true, already: false, dateChanged: false, subjectDate: D1 });
+      expect(await record(D1)).toMatchObject({ ok: true, already: false, dateChanged: false, subjectDate: D1 });
       expect((await record(D1, otherOp)).ok).toBe(true);
       const rows = (await pool.query<{ partner_id: string; subject_date: string }>(
         `SELECT partner_id::text, subject_date FROM partner_incoming_answers WHERE subject_id = $1 ORDER BY id`, [lead!.id],
@@ -1330,8 +1330,151 @@ withPg('переписка по заявке на настоящем PostgreSQL'
 
       // Ответ без даты у заявки без ISO-даты — одна строка на партнёра (NULLS NOT DISTINCT).
       await pool.query(`UPDATE leads SET source_data = source_data - 'date' WHERE id = $1`, [lead!.id]);
-      expect(await record(null)).toEqual({ ok: true, already: false, dateChanged: false, subjectDate: null });
+      expect(await record(null)).toMatchObject({ ok: true, already: false, dateChanged: false, subjectDate: null });
       expect(await record(null)).toEqual({ ok: true, already: true, dateChanged: false, subjectDate: null });
+
+      await pool.query(`DELETE FROM tour_availability WHERE operator_tour_id = $1::bigint`, [tourId]);
+    });
+
+    it('сообщение после ответа (2б, 1423): одно на ответ, в чат заявки, иначе менеджеру; прочли — «звонить не нужно»', async () => {
+      process.env.CALLBACK_SIGNING_SECRET ??= 'pg-test-signing';
+      const answers = await import('@/lib/requests/chat-answer');
+      const notices = await import('@/lib/requests/answer-notice');
+      const { kamchatkaToday } = await import('@/lib/seat-requests/core');
+      const day = (n: number) => {
+        const d = new Date(`${kamchatkaToday()}T00:00:00Z`);
+        d.setUTCDate(d.getUTCDate() + n);
+        return d.toISOString().slice(0, 10);
+      };
+      // D5 — ближе всех к сегодняшнему дню, но дальше всех от даты заявки.
+      const [D0, Dm1, D2, D9, D5] = [day(30), day(29), day(32), day(39), day(5)];
+      const opId = (await pool.query<{ id: string }>(
+        `INSERT INTO partners (name, category, contact, max_chat_id) VALUES ('Оператор 2б', 'operator', '{}', 9300399) RETURNING id`,
+      )).rows[0].id;
+      const tourId = (await pool.query<{ id: number }>(
+        `INSERT INTO operator_tours (title, base_price, operator_id, max_participants, is_active, is_published)
+         VALUES ('Толбачик', 9000, $1, 12, true, true) RETURNING id`, [opId],
+      )).rows[0].id;
+      // Рядом с D0: D-1 и D+2 ближе, чем D+9; сама D0 и отменённая — не предлагаются.
+      await pool.query(
+        `INSERT INTO tour_availability (operator_tour_id, date, available_slots, is_cancelled) VALUES
+           ($1, $2::date, 10, false), ($1, $3::date, 5, false), ($1, $4::date, 6, false), ($1, $5::date, 6, false),
+           ($1, $6::date, 6, false)`,
+        [tourId, D0, Dm1, D2, D9, D5],
+      );
+      const mkLead = async (name: string, phone: string) => (await leads.createLeadDetailed({
+        name, phone, comment: `[Заявка на бронь] Тур "Толбачик" (ID${tourId}), дата ${D0}, участников 2.`,
+        route_title: 'Толбачик', source_url: 'mcp://vedar/booking', operator_id: opId, pd_consent: consentOf('operator'),
+        source_data: { source: 'mcp', tool: 'create_booking_request', tour_id: tourId, date: D0, participants: 2 },
+        skip_ai_processing: true,
+      }))!.id;
+      const answer = (lead: string, a: 'no_seats' | 'decline' | 'accept', partnerId = opId) => answers.recordChatAnswer({
+        partnerId, kind: 'lead', subjectId: lead, answer: a, reason: a === 'decline' ? 'seats' : null, expectDate: D0,
+      });
+      const noticeOf = async (lead: string) => (await pool.query(
+        `SELECT state, skipped_reason, delivered_via, tried, manager_channel, (manager_alerted_at IS NOT NULL) AS alerted,
+                (manager_cleared_at IS NOT NULL) AS cleared FROM answer_notices WHERE lead_id = $1::uuid ORDER BY id`, [lead],
+      )).rows;
+
+      // 1. Заявка из чата Кузьмича: ответ «Нет мест» — сообщение в этот чат, с датами рядом кнопками.
+      const L1 = await mkLead('Анна Чат', '+79995550801');
+      const k1 = await status.issueRequestKeyRecord({ leadId: L1 }, 'create_booking_request', { opensChat: true });
+      const C1 = 9_300_051;
+      expect(await links.linkChatToKeys('max', C1, [k1!.key], 'created')).toBe(1);
+      // Чат с ключом ПОВТОРА той же заявки сообщения не получает.
+      const rep = await status.issueRequestKeyRecord({ leadId: L1 }, 'create_booking_request', { opensChat: false });
+      expect(await links.linkChatToKeys('max', 9_300_052, [rep!.key], 'created')).toBe(1);
+      // Даты рядом — ближайшие к дате заявки, а не к сегодняшнему дню; сама дата и исключённые — нет.
+      const { loadFreeDatesNear } = await import('@/lib/tours/nearest-free-date');
+      expect(await loadFreeDatesNear(tourId, 2, D0, [D0], 2)).toMatchObject({ state: 'ok', dates: [{ date: Dm1 }, { date: D2 }] });
+      expect(await loadFreeDatesNear(tourId, 2, D0, [D0, Dm1, 'не дата'], 1)).toMatchObject({ dates: [{ date: D2 }] });
+      await pool.query(`UPDATE operator_tours SET is_published = false WHERE id = $1`, [tourId]);
+      expect(await loadFreeDatesNear(tourId, 2, D0, [D0], 4)).toMatchObject({ state: 'ok', dates: [] });
+      await pool.query(`UPDATE operator_tours SET is_published = true WHERE id = $1`, [tourId]);
+      const targets = (await pool.query(notices.NOTICE_TARGETS_SQL, [L1])).rows;
+      expect(targets).toEqual([{ channel: 'max', chat_id: String(C1), can_pick: true }]);
+
+      const s1 = await answer(L1, 'no_seats');
+      expect(s1).toMatchObject({ ok: true, already: false, notice: { state: 'pending' } });
+      // Повтор нажатия: ответ «уже», второй строки сообщения нет.
+      expect(await answer(L1, 'no_seats')).toMatchObject({ already: true });
+      expect(await noticeOf(L1)).toHaveLength(1);
+      sent.dm.length = 0;
+      sent.pd.length = 0;
+      const o1 = await notices.deliverAnswerNotice(s1.ok && s1.notice ? s1.notice.id : '0');
+      // Четыре ближайшие к дате заявки (по возрастанию): D5 — четвёртая по близости, всё ещё в списке.
+      expect(o1).toEqual({ state: 'delivered', via: 'max', dates: [D5, Dm1, D2, D9] });
+      expect(sent.dm).toHaveLength(1);
+      expect(String(sent.dm[0]!.chatId)).toBe(String(C1));
+      expect(sent.dm[0]!.text).toContain('Оператор «Оператор 2б» ответил: на эту дату мест нет.');
+      expect(sent.dm[0]!.text).not.toMatch(/Анна|79995550801/);
+      expect((sent.dm[0]!.buttons ?? []).length).toBe(5); // четыре даты и «Другие даты»
+      expect(sent.pd).toHaveLength(0);
+      expect(await noticeOf(L1)).toEqual([expect.objectContaining({ state: 'delivered', delivered_via: 'max' })]);
+      // Повторная доставка той же строки ничего не шлёт.
+      await notices.deliverAnswerNotice(s1.ok && s1.notice ? s1.notice.id : '0');
+      expect(sent.dm).toHaveLength(1);
+      // Исход по ответу — для повторного нажатия оператора.
+      expect(await notices.readNoticeOutcomeFor(L1, opId, D0)).toMatchObject({ state: 'delivered', via: 'max' });
+
+      // 2. Заявка без чата и без агента: «Отказать» — не доставлено, менеджеру с телефоном сразу.
+      const L2 = await mkLead('Борис Безчата', '+79995550802');
+      const k2 = await status.issueRequestKeyRecord({ leadId: L2 }, 'create_booking_request', { opensChat: true });
+      await pool.query(`UPDATE leads SET status = 'lost' WHERE id = $1`, [L2]); // как после «Отказать» (changeLeadStatus)
+      // Отказ на уже закрытой заявке — «пропущено»: туристу «оператор отказал» по закрытой не уходит.
+      const L3 = await mkLead('Вера Закрыто', '+79995550803');
+      await pool.query(`UPDATE leads SET status = 'lost' WHERE id = $1`, [L3]);
+      expect(await answer(L3, 'decline')).toMatchObject({ notice: { state: 'skipped', skipped: 'lead_closed' } });
+      // Ответ не адресата — «пропущено».
+      const otherOp = (await pool.query<{ id: string }>(`INSERT INTO partners (name, category, contact) VALUES ('Чужой 2б', 'operator', '{}') RETURNING id`)).rows[0].id;
+      const L4 = await mkLead('Глеб Чужой', '+79995550804');
+      expect(await answer(L4, 'no_seats', otherOp)).toMatchObject({ notice: { state: 'skipped', skipped: 'not_addressee' } });
+      // «Подтвердить» — не из тех ответов, о которых сообщаем.
+      const L5 = await mkLead('Дина Да', '+79995550805');
+      expect(await answer(L5, 'accept')).toMatchObject({ notice: null });
+
+      await pool.query(`UPDATE leads SET status = 'new' WHERE id = $1`, [L2]);
+      const s2 = await answer(L2, 'decline');
+      await pool.query(`UPDATE leads SET status = 'lost' WHERE id = $1`, [L2]);
+      sent.dm.length = 0;
+      sent.pd.length = 0;
+      const o2 = await notices.deliverAnswerNotice(s2.ok && s2.notice ? s2.notice.id : '0');
+      expect(o2).toEqual({ state: 'undelivered', manager: 'max', hadChat: false });
+      expect(sent.dm).toHaveLength(0);
+      expect(sent.pd).toHaveLength(1);
+      expect(sent.pd[0]!.to).toBeUndefined();
+      expect(sent.pd[0]!.text).toContain('+79995550802');
+      expect(sent.pd[0]!.stub).not.toMatch(/Борис|79995550802/);
+      expect(await noticeOf(L2)).toEqual([expect.objectContaining({ state: 'undelivered', manager_channel: 'max', alerted: true, cleared: false })]);
+
+      // 3. Агент прочитал статус по ключу новой заявки — доставлено; добивка пишет менеджеру «звонить не нужно» один раз.
+      await status.readRequestStatus(k2!.key, { reader: 'agent' });
+      expect(await noticeOf(L2)).toEqual([expect.objectContaining({ state: 'delivered', delivered_via: 'agent_read' })]);
+      sent.pd.length = 0;
+      const run = await notices.runAnswerNotices();
+      expect(run.status).toBe('ok');
+      expect(run.manager_cleared).toBeGreaterThanOrEqual(1);
+      expect(sent.pd.filter((p) => p.text.includes('звонить не нужно'))).toHaveLength(1);
+      expect(sent.pd.every((p) => !/Борис|79995550802/.test(p.text))).toBe(true);
+      expect(await noticeOf(L2)).toEqual([expect.objectContaining({ cleared: true })]);
+      sent.pd.length = 0;
+      await notices.runAnswerNotices();
+      expect(sent.pd.filter((p) => p.text.includes(L2))).toHaveLength(0);
+
+      // Чтение ключом повтора доставкой не считается; страница — только на виду.
+      const L6 = await mkLead('Ева Страница', '+79995550806');
+      const k6 = await status.issueRequestKeyRecord({ leadId: L6 }, 'create_booking_request', { opensChat: true });
+      const k6rep = await status.issueRequestKeyRecord({ leadId: L6 }, 'create_booking_request', { opensChat: false });
+      await answer(L6, 'no_seats');
+      await status.readRequestStatus(k6rep!.key, { reader: 'agent' });
+      await status.readRequestStatus(k6!.key, { reader: 'page', seen: false });
+      expect(await noticeOf(L6)).toEqual([expect.objectContaining({ state: 'pending' })]);
+      await status.readRequestStatus(k6!.key, { reader: 'page', seen: true });
+      expect(await noticeOf(L6)).toEqual([expect.objectContaining({ state: 'delivered', delivered_via: 'page_seen' })]);
+
+      // Застрявшее для сторожа — запрос выполняется; ждущее с истёкшим захватом добивка берёт.
+      await pool.query(`UPDATE answer_notices SET claimed_until = NOW() - INTERVAL '1 hour' WHERE lead_id = $1::uuid`, [L6]);
+      expect((await pool.query(notices.NOTICE_STUCK_SQL)).rows[0]).toHaveProperty('count');
 
       await pool.query(`DELETE FROM tour_availability WHERE operator_tour_id = $1::bigint`, [tourId]);
     });
