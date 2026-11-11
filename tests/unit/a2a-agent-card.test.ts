@@ -19,6 +19,7 @@ import {
 } from '@/lib/a2a/agent-card';
 import { PUBLIC_MCP_TOOL_NAMES, PUBLIC_MCP_TOOLS, WRITE_TOOL_NAMES, MCP_SERVER_INFO } from '@/lib/mcp/public-tools';
 import { validateToolArgs } from '@/lib/kuzmich/tool-schemas';
+import { ANSWER_RELAY_RULE, REQUEST_STATUS_TOOL_NAME } from '@/lib/mcp/request-status-schema';
 
 const BASE = 'https://vedarai.ru';
 const card = buildAgentCard(BASE) as Record<string, unknown>;
@@ -100,6 +101,13 @@ describe('навыки — из реестра инструментов', () => 
         expect(s.description, s.id).toMatch(/rejected/);
       }
     }
+  });
+
+  it('навык статуса заявки несёт правило доставки ответа — агент A2A читает его там же, где агент MCP', () => {
+    // Чтение статуса через A2A отмечает ответ дошедшим тем же исполнителем,
+    // что MCP (runPublicTool), — значит и слова об этом обязаны быть в навыке.
+    const status = skills.find((s) => s.id === REQUEST_STATUS_TOOL_NAME);
+    expect(status?.description).toContain(ANSWER_RELAY_RULE);
   });
 
   it('пример DataPart называет только параметры инструмента, все обязательные, и схема их не отбрасывает', () => {
