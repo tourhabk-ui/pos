@@ -582,7 +582,7 @@ describe('ответ туроператора кнопкой', () => {
   it('«Нет мест» при лиде new — отказ с датой, а не «ждём ответа»', () => {
     const v = buildRequestView({ ...TOUR_LEAD, lead_answer: 'no_seats' }, NOW);
     expect(v.state).toBe('declined');
-    expect(v.human).toBe('Оператор ответил: на 2027-01-15 мест нет.');
+    expect(v.human).toBe('Оператор ответил: на 15.01.2027 мест нет.');
     expect(v.next).toMatch(/get_tour_availability/);
     expect(v.human + v.next).not.toMatch(/ещё не ответил/);
   });
@@ -617,7 +617,7 @@ describe('ответ туроператора кнопкой', () => {
   it('«Другая дата» — оператор предложит дату, своей даты нет', () => {
     const v = buildRequestView({ ...TOUR_LEAD, lead_status: 'contacted', lead_answer: 'other_date' }, NOW);
     expect(v).toMatchObject({ state: 'other_date', alt_date: null });
-    expect(v.human).toBe('Оператор ответил: на 2027-01-15 не может и предложит другую дату — напишет или позвонит человеку.');
+    expect(v.human).toBe('Оператор ответил: на 15.01.2027 не может и предложит другую дату — напишет или позвонит человеку.');
   });
 
   it('«Уточнить» и «Свяжусь сам» — в работе, а не «ждём ответа»', () => {
@@ -684,6 +684,16 @@ describe('большая группа после отказа адресата �
 
   it('обычная заявка на «Нет мест» — по-прежнему отказ', () => {
     expect(buildRequestView({ ...TOUR_LEAD, lead_answer: 'no_seats' }, NOW).state).toBe('declined');
+  });
+
+  it('отказ по погоде или безопасности группу не передаёт (крон её не отдаёт) — отказ с проверкой безопасности', () => {
+    const v = buildRequestView({ ...GROUP, lead_status: 'lost', lead_answer: 'decline', lead_decline_reason: 'weather' }, NOW);
+    expect(v.state).toBe('declined');
+    expect(v.human).not.toMatch(/другие операторы|передана/);
+    expect(v.next).toMatch(/safety_status/);
+    // Отказ с другой причиной — передача, как и было.
+    const other = buildRequestView({ ...GROUP, lead_status: 'lost', lead_answer: 'decline', lead_decline_reason: 'group' }, NOW);
+    expect(other.human).toMatch(/увидят другие операторы/);
   });
 });
 
