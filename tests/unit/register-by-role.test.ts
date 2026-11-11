@@ -63,6 +63,7 @@ process.env.JWT_SECRET = 'test-secret-for-register-by-role';
 
 import { POST } from '@/app/api/auth/register/route';
 import { POST as POST_OPERATOR_FORM } from '@/app/api/auth/register-operator/route';
+import { GET as GET_ROLES } from '@/app/api/roles/route';
 
 function registerReq(body: Record<string, unknown>): NextRequest {
   return new Request('http://localhost/api/auth/register', {
@@ -218,6 +219,28 @@ describe('POST /api/auth/register — роль агента заморожена
     }) as unknown as NextRequest);
     expect(res.status).not.toBe(403);
     expect(clientQueryMock).toHaveBeenCalled();
+  });
+
+  it('публичное описание ролей (GET /api/roles): агент заморожен, о вознаграждении ни слова', async () => {
+    const res = await GET_ROLES(new Request('http://localhost/api/roles') as unknown as NextRequest);
+    const { data } = await res.json() as { data: Array<{ id: string; description: string; features: string[]; permissions: string[]; frozen?: boolean }> };
+    const agent = data.find((r) => r.id === 'agent');
+    expect(agent?.frozen).toBe(true);
+    expect(agent?.description).toBe(
+      'Продажа туров клиентам. Роль заморожена: вознаграждение не начисляется, пока Ведар не принимает оплату. Новая регистрация агентом закрыта.',
+    );
+    expect(JSON.stringify(agent)).not.toMatch(/ваучер|GDS|Белые метки|комисси|Вознаграждение с|Реферальн|view_commissions/i);
+    expect(agent?.features).toContain('Бронь за клиента — заявка оператору');
+  });
+
+  it('оплату открыли — описание агента снова говорит о вознаграждении', async () => {
+    payments.accepts = true;
+    const res = await GET_ROLES(new Request('http://localhost/api/roles') as unknown as NextRequest);
+    const { data } = await res.json() as { data: Array<{ id: string; description: string; features: string[]; frozen?: boolean }> };
+    const agent = data.find((r) => r.id === 'agent');
+    expect(agent?.frozen).toBe(false);
+    expect(agent?.description).toBe('Продажа туров клиентам за вознаграждение с оплаченных продаж');
+    expect(agent?.features).toContain('Вознаграждение с оплаченных продаж');
   });
 
   it('оплату открыли — агент регистрируется без правок кода роли', async () => {

@@ -45,6 +45,7 @@ const GATED = [
   'app/auth/login/_AuthPageClient.tsx',
   'app/api/auth/register/route.ts',
   'app/api/auth/register-operator/route.ts',
+  'app/api/roles/route.ts',
 ];
 
 describe('тексты при выключенной оплате', () => {
