@@ -78,6 +78,14 @@ beforeEach(() => {
   mockDb();
 });
 
+describe('GET /api/roles снят (11.11, «вычисти /api/roles»)', () => {
+  it('у роута нет GET: витрины ролей, расходящейся с кабинетами, больше нет — Next отвечает 405', async () => {
+    const mod = await import('@/app/api/roles/route');
+    expect(Object.keys(mod).filter((k) => /^(GET|HEAD|PUT|PATCH|DELETE)$/.test(k))).toEqual([]);
+    expect(typeof mod.POST).toBe('function');
+  });
+});
+
 describe('POST /api/roles', () => {
   it('обновляет users.role и добавляет роль в preferences.roles', async () => {
     const res = await postRole(jsonReq('http://localhost/api/roles', 'POST', { userId: USER_ID, role: 'stay' }));
