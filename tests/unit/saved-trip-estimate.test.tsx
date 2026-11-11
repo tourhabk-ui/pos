@@ -113,9 +113,10 @@ describe('страница сохранённой поездки', () => {
     tripReply = TRIP;
     render(<TripDetailClient tripId="trip-1" />);
     const est = await screen.findByTestId('price-estimate');
-    // 10 000 × 2 + 30 000 за группу = 50 000; верх ×1.2 = 60 000. Вертолёт
-    // в выборе транспорта первого дня (25 000 из константы) в смету не входит.
-    expect(text(est)).toContain('Итого на группу50 000 — 60 000 ₽');
+    // 10 000 × 2 + 30 000 за группу = 50 000, без множителей (решение владельца
+    // 11.11, #3199 E12). Вертолёт в выборе транспорта первого дня (25 000 из
+    // константы) в смету не входит.
+    expect(text(est)).toContain('Итого на группу50 000 ₽');
     expect(text(document.body)).toContain('30 000 ₽ за группу');
     expect(text(document.body)).not.toContain('Ориентировочная стоимость');
   });
@@ -141,7 +142,7 @@ describe('страница сохранённой поездки', () => {
     const sd = JSON.parse(String(call![1]!.body)).source_data;
     expect(sd.source).toBe('saved_trip');
     expect(sd.plan.party).toEqual({ adults: 2, children: [] });
-    expect(sd.plan.estimate.total).toEqual([50000, 60000]);
+    expect(sd.plan.estimate.total).toEqual([50000, 50000]);
   });
 });
 

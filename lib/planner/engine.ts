@@ -43,7 +43,8 @@ import {
   fetchForecastDays, tripForecastWindow, computeQualityScore, assessHealthCompatibility,
 } from '@/lib/planner/intelligence';
 import { lodgingIncluded } from '@/lib/planner/lodging-included';
-import { calculatePriceBreakdown, TOUR_PRICE_HEADROOM, type PriceBreakdown } from '@/lib/planner/estimate';
+import { returnLegMissingMessage } from '@/lib/planner/plan-edit-warnings';
+import { calculatePriceBreakdown, type PriceBreakdown } from '@/lib/planner/estimate';
 import { tourPlanSpan, tourRoom } from '@/lib/planner/tour-span';
 import { capacityWarningFor } from '@/lib/planner/tour-day-reread';
 import { withGroupMinimum } from '@/lib/planner/group-minimum';
@@ -1767,7 +1768,7 @@ async function generateDayPlans(
         // Цены для группы нет — нет у дня и ориентира: справочная вилка вида
         // активности рядом с туром читалась бы как его цена.
         priceFrom: realPrice ?? (priceMissing ? 0 : c.pricePerPerson[0]),
-        priceTo: realPrice ? Math.round(realPrice * TOUR_PRICE_HEADROOM) : (priceMissing ? 0 : c.pricePerPerson[1]),
+        priceTo: realPrice ? realPrice : (priceMissing ? 0 : c.pricePerPerson[1]),
         coords,
         defaultTransport: transport,
         allowedTransports: allowed.length > 0 ? allowed : [transport],
@@ -2412,10 +2413,8 @@ export async function recommendTrip(profile: TripProfile, opts: RecommendTripOpt
     warnings.push({
       type: 'zone_days',
       severity: 'critical',
-      message: `План кончается в ${ZONE_NAMES[returnLegMissing] ?? returnLegMissing}, а дня на возвращение в Петропавловск в нём нет — `
-        + (asTripOrigin(profile.tripOrigin) === 'local'
-          ? 'вернуться в город в тот же день не выйдет. Добавьте день к поездке или уберите дальнюю зону; мы это учтём при следующей сборке.'
-          : 'вылет из города в тот же день невозможен. Добавьте день к поездке или уберите дальнюю зону; мы это учтём при следующей сборке.'),
+      // Слова — одни с ответом правки плана (#3199, M10).
+      message: returnLegMissingMessage(returnLegMissing, asTripOrigin(profile.tripOrigin)),
     });
   }
 

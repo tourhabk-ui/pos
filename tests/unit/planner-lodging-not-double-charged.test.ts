@@ -191,7 +191,7 @@ describe('ночь считается там, где её проводят', () 
     // по цене Авачинской зоны, а не ноль Северной.
     const days = [planDay(1, 'arrival', 'avachinsky'), planDay(2, 'activity', 'northern'), planDay(3, 'departure', 'avachinsky')];
     const lines = estimateGroup(days, { adults: 1, children: [], budgetTier: 'comfort', tripOrigin: 'visitor' }).lines;
-    expect(lines.find((l) => l.label === 'Проживание в Авачинской зоне')).toMatchObject({ basis: '2 ночи × 1 чел.', total: [11200, 16800] });
+    expect(lines.find((l) => l.label === 'Проживание в Авачинской зоне')).toMatchObject({ basis: '2 ночи × 1 чел.', total: [14000, 14000] });
     expect(lines.some((l) => /Северной зоне/.test(l.label))).toBe(false);
   });
 

@@ -76,6 +76,20 @@ describe('сборка документа экранирует каждое зн
     expect(html).toContain('class="warning warning-important">Медведи</div>');
   });
 
+  it('смета без вилки — одна сумма, а не «X — X ₽» (#3199, E12)', () => {
+    const html = buildPlanPrintHtml({
+      ...base,
+      estimate: {
+        ...base.estimate!,
+        lines: [{ label: 'Тур', basis: '10 000 ₽ × 2 чел.', source: 'tour', total: [20000, 20000] }],
+        total: [20000, 20000], perPerson: [10000, 10000],
+      },
+    }).replace(/[\u00a0\u202f]/g, ' ');
+    expect(html).toContain('<span>20 000 ₽</span>');
+    expect(html).toContain('<span>10 000 ₽</span>');
+    expect(html).not.toContain('20 000 — 20 000');
+  });
+
   it('в компоненте планера нет своего HTML-документа: он собирается только здесь', () => {
     const src = readFileSync('app/planner/_PlannerClient.tsx', 'utf-8');
     expect(src).not.toMatch(/<!DOCTYPE html>/i);
