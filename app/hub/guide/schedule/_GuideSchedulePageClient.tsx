@@ -3,14 +3,17 @@
 import { useState } from 'react';
 import Link from 'next/link';
 import { LoadingSpinner } from '@/components/admin/shared';
-import { Calendar, CalendarDays, Clock, MapPin, Users, Plus, Loader2, AlertCircle, RefreshCw, ClipboardList } from 'lucide-react';
+import { Calendar, CalendarDays, Clock, MapPin, Users, Plus, Loader2, AlertCircle, AlertTriangle, RefreshCw, ClipboardList, Compass } from 'lucide-react';
 import { useApiFetch } from '@/hooks/use-api-fetch';
 import { plural } from '@/lib/home/data-freshness';
+import { OWNER_BOOKING_STATUS_LABEL } from '@/lib/bookings/owner-status-words';
 
 /**
  * Контракт — ровно тот, что отдаёт GET /api/guide/schedule (миграция 1019):
  * записи личного календаря гида (`schedule`) и брони, на которые его назначил
- * оператор (`assignments`, без ПД — контакт туриста живёт в «Группах»).
+ * оператор (`assignments`, без ПД — контакт туриста живёт в «Группах»),
+ * брони своих туров гида (`ownBookings`, #3213, без ПД — контакт в «Свои
+ * туры») и дни, где назначение оператора и свой тур совпали (`conflicts`).
  *
  * Время — «ЧЧ:ММ» местное, как ввёл гид: колонка `time`, без часовых поясов.
  * До 25.09 экран слал ISO-метку в колонку time, а отказ загрузки рисовал как
@@ -32,12 +35,22 @@ interface ScheduleItem {
 interface Assignment {
   bookingId: string;
   date: string;
+  endDate: string | null;
   tourTitle: string;
   participants: number;
   status: string;
 }
 
-interface ScheduleApiResponse { schedule: ScheduleItem[]; assignments: Assignment[] }
+interface Conflict { date: string; assigned: string[]; own: string[] }
+
+interface ScheduleApiResponse {
+  schedule: ScheduleItem[];
+  assignments: Assignment[];
+  ownBookings: Assignment[];
+  conflicts: Conflict[];
+}
+
+const quoted = (titles: string[]) => titles.map((t) => `«${t}»`).join(', ');
 
 function getStatusStyle(status: string): { color: string; borderColor: string; backgroundColor: string } {
   switch (status) {
@@ -92,12 +105,19 @@ export default function GuideSchedulePageClient() {
 
   const { data, loading, error, refetch } = useApiFetch<ScheduleApiResponse, ScheduleApiResponse>(
     `/api/guide/schedule?dateFrom=${selectedDate}&dateTo=${selectedDate}`,
-    (d) => ({ schedule: d?.schedule ?? [], assignments: d?.assignments ?? [] }),
+    (d) => ({
+      schedule: d?.schedule ?? [],
+      assignments: d?.assignments ?? [],
+      ownBookings: d?.ownBookings ?? [],
+      conflicts: d?.conflicts ?? [],
+    }),
     { errorMessage: 'Не удалось загрузить расписание' },
   );
 
   const items = data?.schedule ?? [];
   const assignments = data?.assignments ?? [];
+  const ownBookings = data?.ownBookings ?? [];
+  const conflicts = data?.conflicts ?? [];
 
   async function submit(e: React.FormEvent) {
     e.preventDefault();
@@ -145,7 +165,7 @@ export default function GuideSchedulePageClient() {
             <CalendarDays className="w-6 h-6 text-[var(--ocean)]" />
             Расписание
           </h1>
-          <p className="text-sm text-[var(--text-muted)] mt-0.5">Ваш календарь и назначения оператора</p>
+          <p className="text-sm text-[var(--text-muted)] mt-0.5">Ваш календарь, назначения оператора и брони ваших туров</p>
         </div>
         <button
           onClick={() => setShowForm((s) => !s)}
@@ -237,14 +257,56 @@ export default function GuideSchedulePageClient() {
             <RefreshCw className="w-4 h-4" /> Повторить
           </button>
         </div>
-      ) : items.length === 0 && assignments.length === 0 ? (
+      ) : items.length === 0 && assignments.length === 0 && ownBookings.length === 0 ? (
         <div className="bg-[var(--bg-card)] border border-[var(--border)] rounded-lg p-12 text-center">
           <Calendar className="w-14 h-14 mx-auto mb-4 text-[var(--text-muted)]" />
           <h2 className="text-sm font-semibold text-[var(--text-primary)] mb-2">На этот день пока пусто</h2>
-          <p className="text-sm text-[var(--text-muted)]">Нет ни ваших записей, ни назначений оператора</p>
+          <p className="text-sm text-[var(--text-muted)]">Нет ни ваших записей, ни назначений оператора, ни броней ваших туров</p>
         </div>
       ) : (
         <div className="space-y-3">
+          {conflicts.map((c) => (
+            <div
+              key={`c-${c.date}`}
+              role="alert"
+              className="bg-[var(--bg-card)] border border-[var(--warning)] rounded-lg px-5 py-4 flex items-start gap-3"
+            >
+              <AlertTriangle className="w-4 h-4 mt-0.5 shrink-0 text-[var(--warning)]" />
+              <div className="text-sm">
+                <p className="font-medium text-[var(--text-primary)]">Пересечение: в этот день назначение оператора и бронь вашего тура</p>
+                <p className="text-[var(--text-secondary)] mt-0.5">
+                  Оператор назначил вас на {quoted(c.assigned)}, а у вас бронь своего тура {quoted(c.own)}.
+                  {' '}Оператор брони ваших туров не видит — решите, кто поведёт группу.
+                </p>
+              </div>
+            </div>
+          ))}
+          {ownBookings.map((o) => (
+            <Link
+              key={`o-${o.bookingId}`}
+              href={`/hub/guide/own#booking-${o.bookingId}`}
+              className="block bg-[var(--bg-card)] border border-[var(--ocean)]/30 rounded-lg px-5 py-4 hover:bg-[var(--bg-hover)] transition-colors"
+            >
+              <div className="flex items-start justify-between gap-4">
+                <div>
+                  <h3 className="text-sm font-semibold text-[var(--text-primary)] mb-1">{o.tourTitle}</h3>
+                  <p className="text-xs text-[var(--text-muted)] flex flex-wrap items-center gap-x-3 gap-y-1">
+                    <span className="flex items-center gap-1"><Users className="w-3.5 h-3.5" /> {o.participants} {plural(o.participants, 'человек', 'человека', 'человек')}</span>
+                    <span>бронь #{o.bookingId}</span>
+                    <span>{OWNER_BOOKING_STATUS_LABEL[o.status] ?? o.status}</span>
+                    {o.endDate && o.endDate !== o.date && (
+                      <span>
+                        {new Date(`${o.date}T00:00:00`).toLocaleDateString('ru-RU')}–{new Date(`${o.endDate}T00:00:00`).toLocaleDateString('ru-RU')}
+                      </span>
+                    )}
+                  </p>
+                </div>
+                <span className="shrink-0 inline-flex items-center gap-1 px-2.5 py-1 rounded-full text-xs border border-[var(--ocean)] text-[var(--ocean)]">
+                  <Compass className="w-3.5 h-3.5" /> Свой тур
+                </span>
+              </div>
+            </Link>
+          ))}
           {assignments.map((a) => (
             <Link
               key={`b-${a.bookingId}`}

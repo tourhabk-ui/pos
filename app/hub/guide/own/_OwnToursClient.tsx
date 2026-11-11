@@ -97,7 +97,7 @@ function BookingRow({ b, onDone }: { b: OwnBooking; onDone: (msg: string) => voi
 
   const actions = actionsFor(b.booking_status);
   return (
-    <li className="ds-card space-y-2" data-testid={`own-booking-${b.id}`}>
+    <li id={`booking-${b.id}`} className="ds-card space-y-2 scroll-mt-20" data-testid={`own-booking-${b.id}`}>
       <div className="flex flex-wrap items-baseline justify-between gap-2">
         <p className="font-medium text-[var(--text-primary)]">{b.tour_title}</p>
         <span className="text-sm text-[var(--text-secondary)]">{STATUS_LABEL[b.booking_status] ?? b.booking_status}</span>
