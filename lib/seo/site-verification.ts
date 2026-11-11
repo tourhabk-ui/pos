@@ -22,6 +22,17 @@ import type { Metadata } from 'next';
 export const BING_SITE_VERIFICATION = 'AC1C1C2A5C527F87684D3E2571543A82';
 
 /**
+ * Яндекс для https://vedarai.ru/ — значением в коде, как Bing (11.11).
+ * Вебмастер держит http:// и https:// отдельными сайтами: в аккаунте был
+ * подтверждён только http://vedarai.ru/ (его код — в YANDEX_VERIFICATION на
+ * Timeweb), и перепись по нему видела нули. Владелец добавил https-версию,
+ * Вебмастер выдал код; он публичный по природе (Яндекс читает его из <head>),
+ * поэтому не переменная. Прежний код из окружения остаётся рядом: убрать его —
+ * потерять подтверждение http-версии.
+ */
+export const YANDEX_HTTPS_SITE_VERIFICATION = '39aeed623ef83a6e';
+
+/**
  * Китайские вебмастера — из переменных окружения, а не значением в коде
  * (находка CN-verify аудита 15.10). Причина в сроке: у Sogou и 360 код
  * подтверждения живёт 6 часов («请在6小时之内完成验证»), и PR, CI и выкат
@@ -108,9 +119,10 @@ export function siteVerification(env: NodeJS.ProcessEnv = process.env): NonNulla
     const tag = verificationTagFromEnv(env[slot.env], slot);
     if (tag) other[tag.name] = tag.content;
   }
+  const yandex = [...new Set([env.YANDEX_VERIFICATION?.trim(), YANDEX_HTTPS_SITE_VERIFICATION].filter((v): v is string => !!v))];
   return {
     google: env.GOOGLE_SITE_VERIFICATION,
-    yandex: env.YANDEX_VERIFICATION,
+    yandex: yandex.length === 1 ? yandex[0] : yandex,
     other,
   };
 }
