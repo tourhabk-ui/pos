@@ -702,4 +702,71 @@ withPg('общая запись дат тура на настоящем PostgreS
     expect(await total()).toBe(before);
     expect(await season(ny.id)).toEqual({ s: '2026-12-25', e: '2027-01-14' });
   });
+
+  it('миграция 1421: зима «Лагуны» закрыта у пяти туров — даты закрыты, а не удалены; бронь, удержание мест и правка оператора сильнее; остальные туры и даты вне окна не тронуты; повтор ничего не меняет', async () => {
+    const sql = readFileSync(join(process.cwd(), 'migrations/1421_laguna_expedition_winter_closed.sql'), 'utf8');
+    const lag = (await pool.query<{ id: string }>(`SELECT id::text AS id FROM partners WHERE slug = 'laguna-expedition'`)).rows[0]!.id;
+    const tourId = async (slug: string) => (await pool.query<{ id: string }>(`SELECT id::text AS id FROM operator_tours WHERE slug = $1`, [slug])).rows[0]!.id;
+    const canyon = await tourId('lagexp-kanon-opasnyj');
+    const flight = await tourId('lagexp-obljot-avachinskoj-bukhty-i-avachinskogo-vulkana-timonovskie-istochniki');
+    const horses = await tourId('lagexp-konnaya-progulka'); // не из списка: зимой открыт
+
+    // Свои даты сцены: не зависят от того, какой сегодня день и что открыла 1420.
+    const days = ['2027-01-15', '2027-01-16', '2027-01-17', '2027-01-18', '2027-05-15', '2026-11-30'];
+    for (const id of [canyon, flight, horses]) {
+      await pool.query(`DELETE FROM tour_seat_holds WHERE tour_id = $1`, [id]);
+      await pool.query(`DELETE FROM tour_availability WHERE operator_tour_id = $1 AND date = ANY($2::date[])`, [id, days]);
+      for (const d of days) {
+        await pool.query(`INSERT INTO tour_availability (operator_tour_id, date, available_slots) VALUES ($1, $2::date, 8)`, [id, d]);
+      }
+    }
+    // 16.01 — бронь (занятые места), 17.01 — удержание мест, 18.01 — оператор правил дату.
+    await pool.query(`UPDATE tour_availability SET booked_slots = 2 WHERE operator_tour_id = $1 AND date = '2027-01-16'`, [canyon]);
+    await pool.query(
+      `INSERT INTO tour_seat_holds (operator_id, tour_id, hold_date, seats, subject_kind, subject_id, via)
+       VALUES ($1::uuid, $2, '2027-01-17', 2, 'lead', 'scene-1421', 'site')`,
+      [lag, canyon],
+    );
+    await pool.query(
+      `UPDATE tour_availability SET created_at = NOW() - INTERVAL '1 day' WHERE operator_tour_id = $1 AND date = '2027-01-18'`,
+      [canyon],
+    );
+
+    await pool.query(sql);
+
+    const state = async (id: string, d: string) => (await pool.query<{ closed: boolean; reason: string | null; slots: number; deleted: boolean }>(
+      `SELECT COALESCE(is_cancelled, FALSE) AS closed, cancellation_reason AS reason, available_slots AS slots, deleted_at IS NOT NULL AS deleted
+         FROM tour_availability WHERE operator_tour_id = $1 AND date = $2::date`,
+      [id, d],
+    )).rows[0];
+    // Зимняя дата закрыта, не удалена; места остались — оператор откроет её одной кнопкой.
+    for (const id of [canyon, flight]) {
+      const st = await state(id, '2027-01-15');
+      expect(st, id).toMatchObject({ closed: true, slots: 8, deleted: false });
+      expect(st?.reason).toMatch(/^Закрыто Ведаром: зимой тур по его описанию под вопросом \(1421\)/);
+    }
+    expect((await state(flight, '2027-01-16'))?.closed).toBe(true);
+    // Бронь, удержание мест и правка оператора — дата открыта.
+    expect((await state(canyon, '2027-01-16'))?.closed).toBe(false);
+    expect((await state(canyon, '2027-01-17'))?.closed).toBe(false);
+    expect((await state(canyon, '2027-01-18'))?.closed).toBe(false);
+    // Вне окна (до 01.12 и после 30.04) — открыто.
+    expect((await state(canyon, '2027-05-15'))?.closed).toBe(false);
+    expect((await state(canyon, '2026-11-30'))?.closed).toBe(false);
+    // Тур не из списка — зимой открыт.
+    expect((await state(horses, '2027-01-15'))?.closed).toBe(false);
+
+    // Оператор открыл зимнюю дату сам (дата создана 1420 раньше — сутки назад,
+    // правка сдвигает updated_at триггером) — повтор её не закрывает;
+    // закрытые остаются как есть.
+    await pool.query(
+      `UPDATE tour_availability SET is_cancelled = FALSE, cancellation_reason = NULL, created_at = NOW() - INTERVAL '1 day'
+        WHERE operator_tour_id = $1 AND date = '2027-01-15'`,
+      [flight],
+    );
+    await pool.query(sql);
+    expect((await state(flight, '2027-01-15'))?.closed).toBe(false);
+    expect((await state(canyon, '2027-01-15'))?.closed).toBe(true);
+    expect((await state(canyon, '2027-01-16'))?.closed).toBe(false);
+  });
 });
