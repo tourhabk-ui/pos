@@ -756,6 +756,17 @@ withPg('витрина туров: снятый тур не в плане и н�
       // Снятые туры выезжают раньше живых: прежняя копия без is_published
       // назвала бы ближайшим выездом черновик. Погода — чужой сервис, здесь она
       // не нужна.
+      // Туры из миграций (у «Лагуны Экспедиции» даты открыты с сегодняшнего
+      // дня, 1419) выезжают раньше тестовых: на время вопроса их даты до d2
+      // сняты и потом возвращены — судится отбор, а не чужое расписание.
+      const hidden = (await pool.query<{ id: string }>(
+        `UPDATE tour_availability ta SET deleted_at = NOW()
+           FROM operator_tours t
+          WHERE t.id = ta.operator_tour_id AND t.operator_id::text <> $1::text
+            AND ta.deleted_at IS NULL AND ta.date <= $2::date
+        RETURNING ta.id::text`,
+        [OPERATOR.id, d2],
+      )).rows.map((r) => r.id);
       const fetchSpy = vi.spyOn(globalThis, 'fetch').mockRejectedValue(new Error('сеть в тесте не нужна'));
       try {
         const now = await import('@/app/api/public/now/route');
@@ -763,6 +774,7 @@ withPg('витрина туров: снятый тур не в плане и н�
         expect(body.data.nextDeparture?.tourName).toBe(title('live'));
       } finally {
         fetchSpy.mockRestore();
+        await pool.query(`UPDATE tour_availability SET deleted_at = NULL WHERE id::text = ANY($1::text[])`, [hidden]);
       }
     });
 
