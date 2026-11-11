@@ -27,6 +27,9 @@ import { kamchatkaToday } from '@/lib/seat-requests/core';
 import { situationLine, type Situation } from '@/lib/trips/situation';
 import type { DepartingTour, SituationSources } from '@/lib/trips/situation-store';
 import { logText } from '@/lib/log/log-text';
+import type { ChatTarget } from '@/lib/requests/request-chat';
+import { signPayload } from '@/lib/chat-cabinet/signed-payload';
+import { myTripWritePayload, myTripWriteText } from '@/lib/requests/my-trip-ask';
 
 /** Сколько дней вперёд показывается обстановка: столько дней даёт прогноз (liveSources). */
 export const MY_TRIP_SITUATION_DAYS = 5;
@@ -49,6 +52,12 @@ export interface MyTripItem {
   /** Статус словами для человека (тот же, что у страницы заявки). */
   human: string;
   situation: TripSituationNote;
+  /**
+   * Переписка с адресатом заявки (1349, 1350), если её ключ открывает:
+   * лид, адресованный партнёру, ключом новой заявки, или заявка на жильё.
+   * Кнопка «Написать оператору» (#2970, шаг 3) — по ней; null — писать некому.
+   */
+  write: ChatTarget | null;
 }
 
 export type MyTrip =
@@ -203,7 +212,12 @@ export async function loadMyTrip(
     if (situations.has(target)) situation = situations.get(target)!;
     else if (date !== null && date > horizon && (hasTour || tourOf === 'failed')) situation = { kind: 'later' };
     else if (date !== null && date >= today && tourOf === 'failed') situation = { kind: 'unchecked' };
-    return { what: view.tour ?? view.accommodation, date, human: view.human, situation };
+    const write: ChatTarget | null = row.stay_request_id && row.opens_chat === true
+      ? { kind: 'stay', id: row.stay_request_id }
+      : row.lead_id && row.opens_chat === true && row.lead_addressed === true
+        ? { kind: 'lead', id: row.lead_id }
+        : null;
+    return { what: view.tour ?? view.accommodation, date, human: view.human, situation, write };
   });
   return { outcome: 'ok', items };
 }
@@ -238,8 +252,15 @@ export const MY_TRIP_NO_CHANNEL_TEXT =
   'В этом канале список заявок не показываю. Статус заявки — по ссылке из сообщения о ней; '
   + 'список «Моя поездка» есть в чате Кузьмича в MAX и Telegram.';
 
+/**
+ * Строка под списком в Telegram: переписка клиента с адресатом живёт в MAX и
+ * на странице заявки (lib/requests/request-chat), кнопки здесь нет.
+ */
+export const MY_TRIP_WRITE_ELSEWHERE_TEXT =
+  'Написать оператору по заявке можно в чате Кузьмича в MAX (кнопка под «Моей поездкой») или на странице заявки — ссылка в сообщении о ней.';
+
 /** Ответ человеку. Без ПД: название, дата, статус словами, обстановка. */
-export function myTripText(trip: MyTrip): string {
+export function myTripText(trip: MyTrip, opts: { channel?: LinkChannel } = {}): string {
   if (trip.outcome === 'none') return MY_TRIP_NONE_TEXT;
   if (trip.outcome === 'failed') return MY_TRIP_FAILED_TEXT;
   const blocks = trip.items.map((it, i) => {
@@ -251,14 +272,40 @@ export function myTripText(trip: MyTrip): string {
     else if (s.kind === 'unchecked') lines.push('Обстановку на дату поездки сейчас не проверил — это не значит, что всё спокойно.');
     return lines.filter(Boolean).join('\n');
   });
+  const writeElsewhere = opts.channel === 'telegram' && trip.items.some((it) => it.write !== null);
   return [
     trip.items.length === 1 ? 'Ваша заявка в этом чате:' : 'Ваши заявки в этом чате:',
     ...blocks,
+    ...(writeElsewhere ? [MY_TRIP_WRITE_ELSEWHERE_TEXT] : []),
     'Решение о выезде принимает оператор. Экстренный вызов — 112.',
   ].join('\n\n');
 }
 
+/** Кнопка-запись под «Моей поездкой» в MAX: подпись и назначение. */
+export interface MyTripButton {
+  text: string;
+  payload: string;
+}
+
+/**
+ * Кнопки «Написать оператору» под списком — по одной на заявку с перепиской;
+ * номер — номер заявки в списке, если их больше одной. Только MAX.
+ */
+export function myTripButtons(trip: MyTrip): MyTripButton[] {
+  if (trip.outcome !== 'ok') return [];
+  const many = trip.items.length > 1;
+  return trip.items.flatMap((it, i) => (it.write
+    ? [{ text: myTripWriteText(it.write, many ? i + 1 : null), payload: signPayload(myTripWritePayload(it.write)) }]
+    : []));
+}
+
+/** Ответ с кнопками: текст и кнопки (кнопки — только MAX). */
+export async function myTripMessage(channel: LinkChannel, chatId: string | number): Promise<{ text: string; buttons: MyTripButton[] }> {
+  const trip = await loadMyTrip(channel, chatId);
+  return { text: myTripText(trip, { channel }), buttons: channel === 'max' ? myTripButtons(trip) : [] };
+}
+
 /** Всё вместе: прочитать и сказать. */
 export async function myTripReply(channel: LinkChannel, chatId: string | number): Promise<string> {
-  return myTripText(await loadMyTrip(channel, chatId));
+  return myTripText(await loadMyTrip(channel, chatId), { channel });
 }

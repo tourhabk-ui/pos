@@ -93,7 +93,8 @@ import type { CabinetScreen } from '@/lib/chat-cabinet/screens';
 import { isCabinetSection } from '@/lib/roles/role-screen';
 import { MCHS_CHAT_BUTTON, MCHS_TOURIST_PAYLOAD, mchsTouristLinks, mchsTouristText } from '@/lib/safety/mchs-chat';
 import { chatHasRequests } from '@/lib/requests/chat-links';
-import { MY_TRIP_BUTTON, myTripReply } from '@/lib/requests/my-trip';
+import { MY_TRIP_BUTTON, isMyTripAsk, myTripMessage } from '@/lib/requests/my-trip';
+import { isMyTripWritePayload, pressMyTripWrite } from '@/lib/requests/my-trip-write';
 import { getPublicBaseUrl } from '@/lib/config';
 
 type ButtonIntent = 'default' | 'positive' | 'negative';
@@ -116,6 +117,21 @@ function maxCabinetButtons(content: CabinetButton[][]): MaxButton[][] {
  * Ответы переписки по заявке (1349, 1350): у каждого — свои кнопки
  * «Ответить гостю/клиенту» / «Написать …», по одной в строке.
  */
+/**
+ * «Моя поездка» (#2970): список заявок чата и под ним «Написать оператору» —
+ * по кнопке на заявку с перепиской. Только по заверенному апдейту: зовущий
+ * проверил.
+ */
+async function sendMyTrip(chatId: number): Promise<void> {
+  const { text, buttons } = await myTripMessage('max', chatId);
+  const html = escapeHtml(text);
+  if (buttons.length === 0) {
+    await maxReply(chatId, html);
+    return;
+  }
+  await maxReplyWithButtons(chatId, html, buttons.map((b) => [{ type: 'callback' as const, text: b.text, payload: b.payload }]));
+}
+
 async function sendChatReplies(chatId: number, replies: ChatReply[]): Promise<void> {
   for (const r of replies) {
     const rows: MaxButton[][] = r.buttons.map((b) => ('url' in b
@@ -587,6 +603,14 @@ async function deliverTouristText(opts: {
 }): Promise<void> {
   let capturedReply = '';
   const verified = opts?.verifiedOrigin === true;
+  // «Моя поездка» словами — с теми же кнопками «Написать оператору», что у
+  // кнопки меню (#2970). Раньше фразу ловил «код раньше модели» в
+  // lib/kuzmich/core, на этом же пути и только текстом. Без заверения — туда
+  // же, как было: список чата не читается.
+  if (verified && isMyTripAsk(opts.text)) {
+    await sendMyTrip(opts.chatId);
+    return;
+  }
   await processMessage({
     chatId: opts.chatId,
     text: opts.text,
@@ -966,6 +990,11 @@ async function handleActionPress(
     }
     if (parseDraftPress(payload)) {
       await sendChatReplies(chatId, [await pressDraft(payload, chatId, 'max')]);
+      return;
+    }
+    // «Написать оператору» под «Моей поездкой» (#2970): право — связь чата с заявкой.
+    if (isMyTripWritePayload(payload)) {
+      await sendChatReplies(chatId, [await pressMyTripWrite(payload, chatId)]);
       return;
     }
     const press = parseChatPress(payload);
@@ -2024,9 +2053,11 @@ async function handleUpdate(update: MaxUpdate, opts?: { verifiedOrigin?: boolean
 
     // «Моя поездка» (#2970): заявки ЭТОГО чата — только по заверенному апдейту.
     if (payload === MY_TRIP_PAYLOAD) {
-      await maxReply(resolvedChatId, opts?.verifiedOrigin === true
-        ? escapeHtml(await myTripReply('max', resolvedChatId))
-        : UNVERIFIED_CHAT_REPLY.myTrip);
+      if (opts?.verifiedOrigin !== true) {
+        await maxReply(resolvedChatId, UNVERIFIED_CHAT_REPLY.myTrip);
+        return;
+      }
+      await sendMyTrip(resolvedChatId);
       return;
     }
 
