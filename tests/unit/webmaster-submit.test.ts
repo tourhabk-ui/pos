@@ -88,6 +88,47 @@ describe('загрузка в Вебмастер', () => {
     expect(submitOutcome(r).level).toBe('error');
   });
 
+  it('сбой шлюза (504 без кода) повторяется с паузой, и запись проходит', async () => {
+    const { fetcher: base } = fakeApi();
+    const left = new Map<string, number>();
+    const fetcher: WriteFetcher = async (url, init) => {
+      if (init.method === 'POST') {
+        const key = `${url} ${init.body}`;
+        const n = left.get(key) ?? 2;
+        left.set(key, n - 1);
+        if (n > 0) return { ok: false, status: 504, json: async () => { throw new Error('not json'); } };
+      }
+      return base(url, init);
+    };
+    const pauses: number[] = [];
+    const r = await webmasterSubmit({ token: TOKEN, fetcher, sitemaps: [SITEMAP], recrawl: ['https://vedarai.ru/'], pause: async (ms) => { pauses.push(ms); } });
+    expect(r.sitemaps).toEqual([{ url: SITEMAP, outcome: 'done' }]);
+    expect(r.recrawl).toEqual([{ url: 'https://vedarai.ru/', outcome: 'done' }]);
+    expect(pauses).toEqual([5_000, 10_000, 5_000, 10_000]);
+    expect(submitOutcome(r).level).toBe('ok');
+  });
+
+  it('504 после всех повторов — отказ назван, прогон красный', async () => {
+    let posts504 = 0;
+    const { fetcher: base } = fakeApi();
+    const fetcher: WriteFetcher = async (url, init) => {
+      if (init.method === 'POST') { posts504 += 1; return { ok: false, status: 504, json: async () => null }; }
+      return base(url, init);
+    };
+    const r = await webmasterSubmit({ token: TOKEN, fetcher, sitemaps: [SITEMAP], recrawl: [], pause: async () => {} });
+    expect(posts504).toBe(3);
+    expect((r.sitemaps[0] as { detail: string }).detail).toMatch(/HTTP 504 \(нет кода\)/);
+    expect(submitOutcome(r).level).toBe('error');
+  });
+
+  it('ответ с кодом ошибки Яндекса не повторяется', async () => {
+    const { fetcher, calls } = fakeApi({ postFails: 'HOST_NOT_LOADED' });
+    const pauses: number[] = [];
+    await webmasterSubmit({ token: TOKEN, fetcher, sitemaps: [SITEMAP], recrawl: [], pause: async (ms) => { pauses.push(ms); } });
+    expect(posts(calls)).toHaveLength(1);
+    expect(pauses).toEqual([]);
+  });
+
   it('токена нет — в сеть не ходим; не принят — причина названа', async () => {
     const { fetcher, calls } = fakeApi();
     const none = await webmasterSubmit({ token: '  ', fetcher, sitemaps: [SITEMAP], recrawl: [] });

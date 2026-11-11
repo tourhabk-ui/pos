@@ -52,6 +52,35 @@ async function api(fetcher: WriteFetcher, token: string, method: 'GET' | 'POST',
   return json;
 }
 
+/**
+ * Повтор при сбое шлюза Яндекса (502/503/504). Прогон 1 (11.11, Actions
+ * 43007784634): все десять пишущих запросов получили 504 без кода ошибки, при
+ * том что чтения того же хоста прошли. Это отказ шлюза, а не ответ API, и один
+ * такой не решает судьбу прогона: до двух повторов с паузой. Ответ с кодом
+ * ошибки Яндекса не повторяется: там Яндекс сказал, что не так. Пишущий запрос
+ * после 504 мог и пройти; повторная карта сайта отвечает своим кодом, и он
+ * будет назван, а не спрятан.
+ */
+export const GATEWAY_RETRY_STATUSES: ReadonlySet<number> = new Set([502, 503, 504]);
+export const GATEWAY_RETRY_PAUSES_MS: readonly number[] = [5_000, 10_000];
+
+export function withGatewayRetry<I, R extends { status: number }>(
+  fetcher: (url: string, init: I) => Promise<R>,
+  pause: (ms: number) => Promise<void>,
+): (url: string, init: I) => Promise<R> {
+  return async (url, init) => {
+    let res = await fetcher(url, init);
+    for (const ms of GATEWAY_RETRY_PAUSES_MS) {
+      if (!GATEWAY_RETRY_STATUSES.has(res.status)) return res;
+      await pause(ms);
+      res = await fetcher(url, init);
+    }
+    return res;
+  };
+}
+
+export const sleep = (ms: number) => new Promise<void>((resolve) => setTimeout(resolve, ms));
+
 const errText = (e: unknown) => (e instanceof Error ? e.message : String(e));
 
 export type ItemOutcome =
@@ -78,7 +107,10 @@ export async function webmasterSubmit(opts: {
   fetcher: WriteFetcher;
   sitemaps: readonly string[];
   recrawl: readonly string[];
+  /** Пауза перед повтором при сбое шлюза; в тестах — без ожидания. */
+  pause?: (ms: number) => Promise<void>;
 }): Promise<SubmitResult> {
+  const fetcher = withGatewayRetry(opts.fetcher, opts.pause ?? sleep);
   const rejected = [...opts.sitemaps, ...opts.recrawl].filter((u) => !isOurUrl(u));
   const sitemaps = [...new Set(opts.sitemaps.filter(isOurUrl))];
   const recrawl = [...new Set(opts.recrawl.filter(isOurUrl))];
@@ -89,7 +121,7 @@ export async function webmasterSubmit(opts: {
 
   let userId: number;
   try {
-    const me = await api(opts.fetcher, token, 'GET', '/user') as { user_id?: unknown };
+    const me = await api(fetcher, token, 'GET', '/user') as { user_id?: unknown };
     if (typeof me?.user_id !== 'number') { result.token = 'ответ без user_id'; return result; }
     userId = me.user_id;
     result.token = 'ok';
@@ -101,7 +133,7 @@ export async function webmasterSubmit(opts: {
   const u = `/user/${userId}`;
   let hostId: string;
   try {
-    const body = await api(opts.fetcher, token, 'GET', `${u}/hosts`) as { hosts?: ApiHost[] };
+    const body = await api(fetcher, token, 'GET', `${u}/hosts`) as { hosts?: ApiHost[] };
     const ours = (body.hosts ?? []).filter((h) => new RegExp(`(^|//|:)(www\\.)?${SITE_HOST.replace('.', '\\.')}(:|/|$)`).test(h.ascii_host_url));
     const site = pickOurHost(ours);
     if (!site) { result.host = null; return result; }
@@ -116,7 +148,7 @@ export async function webmasterSubmit(opts: {
   // Карты сайта: уже добавленные не шлём повторно.
   let have: Set<string> | null = null;
   try {
-    const list = await api(opts.fetcher, token, 'GET', `${h}/user-added-sitemaps`) as { sitemaps?: Array<{ sitemap_url?: string }> };
+    const list = await api(fetcher, token, 'GET', `${h}/user-added-sitemaps`) as { sitemaps?: Array<{ sitemap_url?: string }> };
     have = new Set((list.sitemaps ?? []).map((s) => s.sitemap_url ?? '').filter(Boolean));
   } catch (e) {
     // Список не прочитался — добавить всё равно пробуем: повтор Вебмастер
@@ -127,7 +159,7 @@ export async function webmasterSubmit(opts: {
   for (const url of sitemaps) {
     if (have?.has(url)) { result.sitemaps.push({ url, outcome: 'already' }); continue; }
     try {
-      await api(opts.fetcher, token, 'POST', `${h}/user-added-sitemaps`, { url });
+      await api(fetcher, token, 'POST', `${h}/user-added-sitemaps`, { url });
       result.sitemaps.push({ url, outcome: 'done' });
     } catch (e) {
       result.sitemaps.push({ url, outcome: 'failed', detail: errText(e) });
@@ -138,7 +170,7 @@ export async function webmasterSubmit(opts: {
   let remainder = Number.POSITIVE_INFINITY;
   if (recrawl.length > 0) {
     try {
-      const q = await api(opts.fetcher, token, 'GET', `${h}/recrawl/quota`) as { daily_quota?: unknown; quota_remainder?: unknown };
+      const q = await api(fetcher, token, 'GET', `${h}/recrawl/quota`) as { daily_quota?: unknown; quota_remainder?: unknown };
       const num = (v: unknown) => (typeof v === 'number' ? v : null);
       result.quota = { daily: num(q.daily_quota), remainder: num(q.quota_remainder) };
       if (result.quota.remainder !== null) remainder = result.quota.remainder;
@@ -149,7 +181,7 @@ export async function webmasterSubmit(opts: {
   for (const url of recrawl) {
     if (remainder <= 0) { result.recrawl.push({ url, outcome: 'no_quota' }); continue; }
     try {
-      await api(opts.fetcher, token, 'POST', `${h}/recrawl/queue`, { url });
+      await api(fetcher, token, 'POST', `${h}/recrawl/queue`, { url });
       result.recrawl.push({ url, outcome: 'done' });
       remainder -= 1;
     } catch (e) {
