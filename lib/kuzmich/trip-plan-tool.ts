@@ -34,6 +34,7 @@ import { McpUserError } from '@/lib/mcp/jsonrpc';
 import { parsePlanStart, rangeDays, planStartRefusal, type PlanStart } from '@/lib/kuzmich/plan-start';
 import { planOfferLines } from '@/lib/kuzmich/plan-offers';
 import { nightLodgingIncluded } from '@/lib/planner/lodging-included';
+import { EDIT_NOT_RECHECKED_NOTE, planWideAfterEdit } from '@/lib/planner/plan-edit-warnings';
 
 /**
  * Как ехать — из слова модели. Принимаются и коды (self/operator/mixed), и
@@ -1219,9 +1220,13 @@ export async function editTripPlanForKuzmich(args: {
   const plan = result.plan;
   const arrival = new Date(`${plan.params.arrivalDate}T00:00:00Z`);
   const plannedFor = ruDayMonth(arrival);
+  // Общие строки плана после правки (#3199, M10): из дней выводится
+  // самопроверка возвращения; чего не вывести — названо одной строкой, а не
+  // пропадает молча. Черновик плана — для прилетающих (поля «откуда едут» у
+  // него нет), допущения «ночи дома» здесь не бывает.
   const text = formatTripPlanForChat(
     plan.days,
-    result.warnings ?? [],
+    [...planWideAfterEdit(plan.days), ...(result.warnings ?? []), EDIT_NOT_RECHECKED_NOTE],
     null,
     {
       refusal: '', plannedFor, arrivalIso: plan.params.arrivalDate,

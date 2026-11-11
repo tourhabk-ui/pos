@@ -43,6 +43,7 @@ import {
   fetchForecastDays, tripForecastWindow, computeQualityScore, assessHealthCompatibility,
 } from '@/lib/planner/intelligence';
 import { lodgingIncluded } from '@/lib/planner/lodging-included';
+import { returnLegMissingMessage } from '@/lib/planner/plan-edit-warnings';
 import { calculatePriceBreakdown, TOUR_PRICE_HEADROOM, type PriceBreakdown } from '@/lib/planner/estimate';
 import { tourPlanSpan, tourRoom } from '@/lib/planner/tour-span';
 import { capacityWarningFor } from '@/lib/planner/tour-day-reread';
@@ -2412,10 +2413,8 @@ export async function recommendTrip(profile: TripProfile, opts: RecommendTripOpt
     warnings.push({
       type: 'zone_days',
       severity: 'critical',
-      message: `План кончается в ${ZONE_NAMES[returnLegMissing] ?? returnLegMissing}, а дня на возвращение в Петропавловск в нём нет — `
-        + (asTripOrigin(profile.tripOrigin) === 'local'
-          ? 'вернуться в город в тот же день не выйдет. Добавьте день к поездке или уберите дальнюю зону; мы это учтём при следующей сборке.'
-          : 'вылет из города в тот же день невозможен. Добавьте день к поездке или уберите дальнюю зону; мы это учтём при следующей сборке.'),
+      // Слова — одни с ответом правки плана (#3199, M10).
+      message: returnLegMissingMessage(returnLegMissing, asTripOrigin(profile.tripOrigin)),
     });
   }
 
