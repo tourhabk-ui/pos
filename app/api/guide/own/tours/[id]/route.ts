@@ -19,9 +19,9 @@ import { requireRole } from '@/lib/auth/middleware';
 import { getGuidePartnerId } from '@/lib/auth/guide-helpers';
 import { transaction } from '@/lib/database';
 import { writeTourPatch } from '@/lib/tours/tour-write';
-import { writePhotoCredits } from '@/lib/tours/editor-media';
+import { setPhotoCaptions, writePhotoCredits } from '@/lib/tours/editor-media';
 import { pingTourChanged } from '@/lib/seo/indexnow';
-import { OwnTourEditSchema as BodySchema } from '@/lib/guides/own-tour-edit';
+import { OwnTourEditSchema as BodySchema, keptStoredPhotos } from '@/lib/guides/own-tour-edit';
 import { zodErrorMessage } from '@/lib/api/zod-errors';
 
 export const dynamic = 'force-dynamic';
@@ -43,7 +43,7 @@ export async function PATCH(request: NextRequest, { params }: { params: Promise<
   // пустой массив карточка тура читает как «не записано», как и null.
   const emptied = (v: string[] | null | undefined) => (v === null ? [] : v);
   // Подпись снимков — не колонка тура: она уходит в карту авторов партнёра.
-  const { photo_credit: photoCredit, ...fields } = body.data;
+  const { photo_credit: photoCredit, photo_captions: photoCaptions, ...fields } = body.data;
   const input = {
     ...fields,
     short_description: fields.short_description === '' ? null : fields.short_description,
@@ -59,6 +59,17 @@ export async function PATCH(request: NextRequest, { params }: { params: Promise<
 
   try {
     const written = await transaction(async (c) => {
+      // Снимок из хранилища (1406) пускается, только если он уже стоит у этого
+      // тура: чужой снимок платформы на витрину гида не поставить.
+      const kept = keptStoredPhotos(fields.photos ?? []);
+      if (kept.length > 0) {
+        const cur = await c.query<{ photos: string[] | null }>(
+          `SELECT photos FROM operator_tours WHERE id = $1::bigint AND operator_id = $2::uuid AND deleted_at IS NULL FOR UPDATE`,
+          [id, partnerId],
+        );
+        const have = new Set(cur.rows[0]?.photos ?? []);
+        if (kept.some((u) => !have.has(u))) return { outcome: 'foreign_photo' as const };
+      }
       const w = await writeTourPatch(c, { tourId: id, ownerId: partnerId, input, current: {} });
       // «Фото: <автор>» (05.11, слово владельца): снимкам тура без подписи —
       // автор из формы, в карту партнёра (partners.gallery_credits, её читает
@@ -66,8 +77,16 @@ export async function PATCH(request: NextRequest, { params }: { params: Promise<
       if (w.outcome === 'written' && photoCredit && fields.photos?.length) {
         await writePhotoCredits(c, partnerId, photoCredit, fields.photos);
       }
+      // Подпись каждого снимка своей рукой (11.11) — после общей: правка
+      // конкретного фото сильнее «чьи снимки». Только снимки этого тура.
+      if (w.outcome === 'written' && photoCaptions) {
+        await setPhotoCaptions(c, partnerId, id, photoCaptions);
+      }
       return w;
     });
+    if (written.outcome === 'foreign_photo') {
+      return NextResponse.json({ success: false, error: 'Фото — только загруженное здесь же или уже стоящее у этого тура' }, { status: 400 });
+    }
     if (written.outcome === 'empty') {
       return NextResponse.json({ success: false, error: 'Нечего сохранять' }, { status: 400 });
     }
