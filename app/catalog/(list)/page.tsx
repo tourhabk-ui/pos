@@ -23,40 +23,54 @@ import { defaultOgImages } from '@/lib/seo/og-image';
 import { catalogHreflang } from '@/lib/zh/pages';
 import { plural } from '@/lib/home/data-freshness';
 import { jsonLdHtml } from '@/lib/seo/json-ld-html';
+import { loadOpenDateYears, openYearsLabel } from '@/lib/tours/nearest-free-date';
 
 export const dynamic = 'force-dynamic';
 
 const SITE = process.env.NEXT_PUBLIC_SITE_URL ?? 'https://vedarai.ru';
 
-export const metadata: Metadata = {
-  title: 'Туры на Камчатку 2026 — цены и даты от местных операторов',
-  description: 'Туры на Камчатку 2026: вулканы, рыбалка, медведи, термальные источники — цены и свободные даты от местных операторов, заявка без комиссии.',
-  keywords: [
-    'туры Камчатка',
-    'туры Камчатка 2026',
-    'рыбалка Камчатка тур',
-    'бронирование туров Камчатка',
-    'рыболовные туры Камчатка',
-    'восхождение на вулканы Камчатка',
-    'термальные источники тур',
-  ],
-  alternates: {
-    canonical: `${SITE}/catalog`,
-    languages: catalogHreflang(SITE),
-  },
-  openGraph: {
-    images: defaultOgImages(),
-    title: 'Туры на Камчатку 2026 — цены и даты от местных операторов',
-    description: 'Туры по Камчатке: программа, цена и условия на виду, потом заявка оператору.',
-    type: 'website',
-    url: `${SITE}/catalog`,
-  },
-  twitter: {
-    card: 'summary_large_image',
-    title: 'Туры на Камчатку 2026 — цены и даты от местных операторов',
-    description: 'Каталог реальных туров от операторов Камчатки с прозрачными условиями.',
-  },
-};
+/**
+ * Год в заголовке — из данных, а не числом в коде (владелец 11.11: «туры на
+ * Камчатку 2026? там же есть и 2027»). «2026» стоял здесь литералом и в
+ * ноябре звал в кончившийся сезон, хотя у туров открыты даты и на 2027.
+ * Годы — те, на которые у туров витрины есть свободная дата
+ * (`loadOpenDateYears`); не прочитались или дат нет — заголовок без года.
+ */
+export async function generateMetadata(): Promise<Metadata> {
+  const open = await loadOpenDateYears();
+  const years = openYearsLabel(open);
+  const head = years ? `Туры на Камчатку ${years}` : 'Туры на Камчатку';
+  const title = `${head} — цены и даты от местных операторов`;
+  return {
+    title,
+    description: `${head}: вулканы, рыбалка, медведи, термальные источники — цены и свободные даты от местных операторов, заявка без комиссии.`,
+    keywords: [
+      'туры Камчатка',
+      ...(open ?? []).map((y) => `туры Камчатка ${y}`),
+      'рыбалка Камчатка тур',
+      'бронирование туров Камчатка',
+      'рыболовные туры Камчатка',
+      'восхождение на вулканы Камчатка',
+      'термальные источники тур',
+    ],
+    alternates: {
+      canonical: `${SITE}/catalog`,
+      languages: catalogHreflang(SITE),
+    },
+    openGraph: {
+      images: defaultOgImages(),
+      title,
+      description: 'Туры по Камчатке: программа, цена и условия на виду, потом заявка оператору.',
+      type: 'website',
+      url: `${SITE}/catalog`,
+    },
+    twitter: {
+      card: 'summary_large_image',
+      title,
+      description: 'Каталог реальных туров от операторов Камчатки с прозрачными условиями.',
+    },
+  };
+}
 
 /**
  * Сервер НЕ читает `searchParams` (аудит 02.10): ожидание этого промиса

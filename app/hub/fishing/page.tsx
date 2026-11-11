@@ -1,7 +1,7 @@
 import type { Metadata } from 'next';
 import { pool } from '@/lib/db-pool';
 import { publicTourSql } from '@/lib/tours/public-visibility';
-import { nearestFreeDateSql } from '@/lib/tours/nearest-free-date';
+import { nearestFreeDateSql, loadOpenDateYears, openYearsLabel } from '@/lib/tours/nearest-free-date';
 import { orderOffersBy } from '@/lib/tours/offer-order';
 import { FishingPageClient } from './_FishingPageClient';
 import { FishingGuide, fishingFaqJsonLd } from './_FishingGuide';
@@ -14,30 +14,41 @@ import { jsonLdHtml } from '@/lib/seo/json-ld-html';
 
 export const dynamic = 'force-dynamic';
 
-export const metadata: Metadata = {
-  title: 'Рыбалка на Камчатке 2026 — туры, цены, сезоны',
-  description: 'Рыболовные туры на Камчатке 2026: цены операторов, сезоны чавычи, нерки, кеты и кижуча, зимняя рыбалка. Заявка оператору напрямую, без комиссии.',
-  keywords: ['рыбалка Камчатка тур', 'рыбалка на Камчатке 2026', 'рыбалка Камчатка', 'рыболовные туры Камчатка', 'рыбалка на лосося', 'рыбалка на реке Камчатка', 'рыбалка тур'],
-  // Посадочная «Рыбалка» из шапки сайта и главной. Родительский /hub/layout
-  // ставит noindex всему кабинету — и эта публичная страница молча выпадала
-  // из поиска, хотя robots.txt её явно открывал (аудит SEO 29.09, Н13).
-  robots: { index: true, follow: true },
-  alternates: { canonical: '/hub/fishing' },
-  // Без картинки ссылка на посадочную уходила в мессенджеры голой (аудит
-  // SEO 29.09, вечер). Снимок — тот же, что у категории «Рыбалка» в каталоге.
-  openGraph: {
-    url: '/hub/fishing',
-    title: 'Рыбалка на Камчатке 2026 — туры, цены, сезоны',
-    description: 'Лосось, кижуч, чавыча — рыбалка на реке Камчатка с профессиональными гидами.',
-    type: 'website',
-    images: [{ url: '/images/activities/fishing.jpg', width: 1680, height: 1141, alt: 'Рыбалка на Камчатке' }],
-  },
-  twitter: {
-    card: 'summary_large_image',
-    title: 'Рыбалка на Камчатке 2026 — туры, цены, сезоны',
-    images: ['/images/activities/fishing.jpg'],
-  },
-};
+/**
+ * Год в заголовке — из данных (владелец 11.11: «туры на Камчатку 2026? там же
+ * есть и 2027»): годы, на которые у туров-рыбалок витрины есть свободная
+ * дата. Не прочитались или дат нет — заголовок без года, а не с прошлым.
+ */
+export async function generateMetadata(): Promise<Metadata> {
+  const open = await loadOpenDateYears({ activityType: 'fishing' });
+  const years = openYearsLabel(open);
+  const head = years ? `Рыбалка на Камчатке ${years}` : 'Рыбалка на Камчатке';
+  const title = `${head} — туры, цены, сезоны`;
+  return {
+    title,
+    description: `Рыболовные туры на Камчатке${years ? ` ${years}` : ''}: цены операторов, сезоны чавычи, нерки, кеты и кижуча, зимняя рыбалка. Заявка оператору напрямую, без комиссии.`,
+    keywords: ['рыбалка Камчатка тур', ...(open ?? []).map((y) => `рыбалка на Камчатке ${y}`), 'рыбалка Камчатка', 'рыболовные туры Камчатка', 'рыбалка на лосося', 'рыбалка на реке Камчатка', 'рыбалка тур'],
+    // Посадочная «Рыбалка» из шапки сайта и главной. Родительский /hub/layout
+    // ставит noindex всему кабинету — и эта публичная страница молча выпадала
+    // из поиска, хотя robots.txt её явно открывал (аудит SEO 29.09, Н13).
+    robots: { index: true, follow: true },
+    alternates: { canonical: '/hub/fishing' },
+    // Без картинки ссылка на посадочную уходила в мессенджеры голой (аудит
+    // SEO 29.09, вечер). Снимок — тот же, что у категории «Рыбалка» в каталоге.
+    openGraph: {
+      url: '/hub/fishing',
+      title,
+      description: 'Лосось, кижуч, чавыча — рыбалка на реке Камчатка с профессиональными гидами.',
+      type: 'website',
+      images: [{ url: '/images/activities/fishing.jpg', width: 1680, height: 1141, alt: 'Рыбалка на Камчатке' }],
+    },
+    twitter: {
+      card: 'summary_large_image',
+      title,
+      images: ['/images/activities/fishing.jpg'],
+    },
+  };
+}
 
 interface FishingTour {
   id: number;
