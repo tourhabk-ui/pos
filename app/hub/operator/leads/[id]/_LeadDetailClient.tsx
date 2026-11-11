@@ -11,7 +11,7 @@ import {
   TrendingUp, TrendingDown, Target, RefreshCw, Send,
   MapPin, Calendar, Users, Wallet, ExternalLink, Ticket,
 } from 'lucide-react';
-import { LeadOriginLine, type LeadOriginView } from '@/components/leads/LeadOriginLine';
+import { LeadConsentLine, LeadOriginLine, type LeadOriginView } from '@/components/leads/LeadOriginLine';
 import { leadPageUrl } from '@/lib/leads/origin';
 
 // ── Типы ──────────────────────────────────────────────────────────────────────
@@ -408,6 +408,8 @@ export default function LeadDetailClient({ leadId }: Props) {
           )}
           {/* Откуда заявка — словами сервера, а не сырым адресом вроде mcp://vedar/booking (08.11). */}
           <LeadOriginLine origin={lead.origin} className="text-xs text-[var(--text-muted)]" />
+          {/* Заявка ИИ-агента: подтвердил ли сам человек согласие (11.11). */}
+          <LeadConsentLine origin={lead.origin} className="text-xs text-[var(--text-muted)]" />
           {leadPageUrl(lead.source_url) && (
             <div className="flex items-center gap-2 text-xs text-[var(--text-muted)]">
               <ExternalLink className="w-3 h-3" />

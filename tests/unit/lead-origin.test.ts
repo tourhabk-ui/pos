@@ -15,7 +15,7 @@ vi.mock('@/lib/db-pool', () => ({ pool: { query: vi.fn() } }));
 
 import { AGENT_CONSENT_SOURCE, HUMAN_CONSENT_SOURCE } from '@/lib/mcp/request-status';
 import {
-  AGENT_CONSENT, CHAT_CONSENT_RECORDED_SINCE, HUMAN_CONFIRMED_CONSENT, leadOrigin, leadPageUrl, withLeadOrigin,
+  AGENT_CONSENT, CHAT_CONSENT_RECORDED_SINCE, CONSENT_WORDS, HUMAN_CONFIRMED_CONSENT, leadOrigin, leadPageUrl, withLeadOrigin,
 } from '@/lib/leads/origin';
 import { LEAD_ENTRIES } from '@/lib/leads/entry-values';
 import { LEAD_CHANNELS, normalizeLeadChannel } from '@/lib/leads/channel';
@@ -154,7 +154,7 @@ describe('форма без источника — страница словам
 
 describe('чего не знаем — так и сказано', () => {
   it('ничего не записано', () => {
-    expect(leadOrigin({})).toEqual({ actor: null, via: 'не записано', what: null, label: 'не записано' });
+    expect(leadOrigin({})).toEqual({ actor: null, via: 'не записано', what: null, label: 'не записано', consent: null });
     expect(leadOrigin({ source_url: '', source_data: null })).toMatchObject({ actor: null, label: 'не записано' });
   });
 
@@ -163,6 +163,50 @@ describe('чего не знаем — так и сказано', () => {
     expect(o.actor).toBeNull();
     expect(o.label).toContain('не распознано');
     expect(o.label).toContain('fax_machine');
+  });
+});
+
+describe('согласие у заявки ИИ-агента (слово владельца 11.11)', () => {
+  it.each([
+    ['mcp', AGENT_CONSENT, 'agent'],
+    ['a2a', AGENT_CONSENT, 'agent'],
+    ['mcp', HUMAN_CONFIRMED_CONSENT, 'page'],
+    ['a2a', HUMAN_CONFIRMED_CONSENT, 'page'],
+    ['mcp', null, null],
+    ['mcp', 'site', null],
+  ])('вход %s, след согласия %s → %s', (entry, consent, want) => {
+    const o = leadOrigin({ source_data: { source: 'mcp', entry }, pd_consent_source: consent });
+    expect(o.actor).toBe('agent');
+    expect(o.consent).toBe(want);
+  });
+
+  it('заявка человека — строки согласия нет: галочку он ставил сам', () => {
+    expect(leadOrigin({ source_data: { source: 'mcp', entry: 'kuzmich-tg' }, pd_consent_source: 'kuzmich-tg' }).consent).toBeNull();
+    // Даже со следом страницы заявки: строка — о заявках агента, не о чате.
+    expect(leadOrigin({ source_data: { source: 'mcp', entry: 'kuzmich-web' }, pd_consent_source: HUMAN_CONFIRMED_CONSENT }).consent).toBeNull();
+    expect(leadOrigin({ source_data: { source: 'trip_planner' }, pd_consent_source: 'site' }).consent).toBeNull();
+    expect(leadOrigin({ source_url: 'https://vedarai.ru/planner', pd_consent_source: HUMAN_CONFIRMED_CONSENT }).consent).toBeNull();
+    expect(leadOrigin({}).consent).toBeNull();
+  });
+
+  it('старая заявка агента (вход не записан, после отсечки) — по следу согласия', () => {
+    const at = new Date(AFTER);
+    expect(leadOrigin({ source_data: { source: 'mcp' }, pd_consent_source: AGENT_CONSENT, created_at: at }).consent).toBe('agent');
+    expect(leadOrigin({ source_data: { source: 'mcp' }, pd_consent_source: HUMAN_CONFIRMED_CONSENT, created_at: at }).consent).toBe('page');
+  });
+
+  it('до отсечки агент неотличим от чата — о согласии молчим, а не приписываем агенту', () => {
+    const o = leadOrigin({ source_data: { source: 'mcp' }, pd_consent_source: AGENT_CONSENT, created_at: new Date(BEFORE) });
+    expect(o.actor).toBeNull();
+    expect(o.consent).toBeNull();
+  });
+
+  it('слова: отметка на странице не выдаётся за «подтвердил человек» — ссылка есть и у агента (ревью #3252)', () => {
+    expect(CONSENT_WORDS.page).toBe(
+      'Согласие на передачу данных отмечено на странице заявки. Ссылка на неё есть и у ИИ-агента, поэтому кто нажал — человек или агент — платформа не проверяет',
+    );
+    expect(CONSENT_WORDS.agent).toBe('Согласие на передачу данных — только со слов ИИ-агента: на странице заявки его не отмечали');
+    for (const w of Object.values(CONSENT_WORDS)) expect(w).not.toMatch(/подтвердил сам человек|сам человек подтвердил/);
   });
 });
 
@@ -175,6 +219,8 @@ describe('строка лида для экрана', () => {
     expect('pd_consent_source' in row).toBe(false);
     expect(row.id).toBe('lead-1');
     expect(row.origin.actor).toBe('agent');
+    // Канал наружу не уходит, а вывод из него — уходит: «пока только агент».
+    expect(row.origin.consent).toBe('agent');
   });
 });
 

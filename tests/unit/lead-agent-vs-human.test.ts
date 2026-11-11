@@ -69,10 +69,13 @@ describe('уведомление о лиде: агент или человек',
     expect(p.stub).not.toContain('79990001122');
   });
 
-  it('человек подтвердил: отдельное сообщение без ПД, с номером заявки и ссылкой в CRM', async () => {
+  it('отмечено на странице заявки: отдельное сообщение без ПД, с номером заявки и ссылкой в CRM', async () => {
     await notifyLeadHumanConfirmedQuietly(LEAD);
     const p = send.mock.calls[0][0];
-    expect(p.text).toMatch(/Человек подтвердил заявку/);
+    expect(p.text).toMatch(/Согласие отмечено на странице заявки/);
+    // Ссылка есть и у агента: «человек подтвердил» и «заявка человека» были бы неправдой (ревью #3252).
+    expect(p.text).toMatch(/кто нажал, человек или агент, платформа не проверяет/);
+    expect(p.text).not.toMatch(/Человек подтвердил|Это заявка человека/);
     expect(p.text).toContain(LEAD);
     expect(p.stub).toBe(p.text);
     expect(p.buttons).toEqual([{ text: 'Открыть в CRM', url: `https://vedarai.ru/hub/operator/leads/${LEAD}` }]);
