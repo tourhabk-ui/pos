@@ -1,6 +1,17 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { pool } from '@/lib/db-pool';
 import { s3PublicUrl } from '@/lib/storage/s3';
+import { imageTypeByPath, isOurStoredUrl, serveStoredObject } from '@/lib/images/serve-stored';
+
+const CACHE_LONG = 'public, max-age=31536000, immutable';
+
+/** Снимок галереи — с нашего домена, как герой места (11.11, lib/images/serve-stored). */
+async function sendStored(req: Request, url: string, source: string): Promise<Response> {
+  if (isOurStoredUrl(url)) {
+    return serveStoredObject(url, req, { cache: CACHE_LONG, fallbackType: imageTypeByPath(url), logScope: 'gallery', source });
+  }
+  return NextResponse.redirect(url, { status: 302, headers: { 'Cache-Control': CACHE_LONG, 'X-Source': source } });
+}
 
 export const dynamic = 'force-dynamic';
 
@@ -18,8 +29,9 @@ interface Props { params: Promise<{ arkId: string; position: string }> }
  * Порядок хранилищ — тот же, что у героя, и по той же причине (миграция 944,
  * переезд байтов в S3):
  *
- *   s3_url есть  → редирект на объект, база и Node из пути уходят;
- *   s3_key есть  → тот же редирект, адрес из S3_BUCKET (13.10: снимки из
+ *   s3_url есть  → объект хранилища: байты с нашего домена (11.11, как у
+ *                  героя), чужой адрес — редиректом;
+ *   s3_key есть  → то же, адрес из S3_BUCKET (13.10: снимки из
  *                  миграций пишут ключ, не адрес; колонка — 1227);
  *   иначе        → отдаём байты;
  *   ничего       → 404.
@@ -28,7 +40,7 @@ interface Props { params: Promise<{ arkId: string; position: string }> }
  * `place_gallery_photos_has_image`; 404 здесь на случай, если места или
  * позиции нет вовсе.
  */
-export async function GET(_req: NextRequest, { params }: Props) {
+export async function GET(req: NextRequest, { params }: Props) {
   const { arkId, position } = await params;
 
   if (!/^[0-9a-f-]{36}$/.test(arkId)) {
@@ -56,26 +68,10 @@ export async function GET(_req: NextRequest, { params }: Props) {
 
     const row = rows[0];
 
-    if (row?.s3_url) {
-      return NextResponse.redirect(row.s3_url, {
-        status: 302,
-        headers: {
-          'Cache-Control': 'public, max-age=31536000, immutable',
-          'X-Source': 's3',
-        },
-      });
-    }
+    if (row?.s3_url) return await sendStored(req, row.s3_url, 's3');
 
     const keyUrl = row?.s3_key ? s3PublicUrl(row.s3_key) : null;
-    if (keyUrl) {
-      return NextResponse.redirect(keyUrl, {
-        status: 302,
-        headers: {
-          'Cache-Control': 'public, max-age=31536000, immutable',
-          'X-Source': 's3-key',
-        },
-      });
-    }
+    if (keyUrl) return await sendStored(req, keyUrl, 's3-key');
 
     if (row?.image_data) {
       // Uint8Array, а не Buffer: с TS 5.9 Buffer<ArrayBufferLike> не проходит
