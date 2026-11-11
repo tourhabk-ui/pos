@@ -122,10 +122,15 @@ export const TEAM_SQL = {
      ORDER BY b.booking_date, t.title, b.id
      LIMIT 200`,
 
-  /** $1 — гид, $2/$3 — границы дат. Назначения в диапазоне БЕЗ ПД (для календаря). */
+  /**
+   * $1 — гид, $2/$3 — границы дат. Назначения, задевающие диапазон, БЕЗ ПД
+   * (для календаря). Многодневная бронь, начатая до окна, тоже в нём (#3213):
+   * иначе её последние дни выглядели свободными.
+   */
   assignedInRange: `
     SELECT b.id::text           AS booking_id,
            b.booking_date::text AS booking_date,
+           b.end_date::text     AS end_date,
            t.title              AS tour_title,
            b.participants,
            b.booking_status
@@ -136,8 +141,32 @@ export const TEAM_SQL = {
        AND g.guide_operator_id = t.operator_id
        AND b.deleted_at IS NULL AND t.deleted_at IS NULL
        AND ${ACTIVE_BOOKING}
-       AND b.booking_date BETWEEN $2::date AND $3::date
+       AND b.booking_date <= $3::date
+       AND COALESCE(b.end_date, b.booking_date) >= $2::date
      ORDER BY b.booking_date, t.title`,
+
+  /**
+   * $1 — partners.id гида, $2/$3 — границы дат. Брони СВОИХ туров гида
+   * (тур, где гид — продавец: operator_tours.operator_id = гид), задевающие
+   * диапазон, — для расписания (#3213). БЕЗ ПД: имя и телефон туриста гид
+   * видит в «Свои туры», расписанию они не нужны. Чтение, не копия в
+   * guide_schedule: копия разошлась бы с бронью.
+   */
+  ownToursInRange: `
+    SELECT b.id::text           AS booking_id,
+           b.booking_date::text AS booking_date,
+           b.end_date::text     AS end_date,
+           t.title              AS tour_title,
+           b.participants,
+           b.booking_status
+      FROM operator_bookings b
+      JOIN operator_tours t ON t.id = b.operator_tour_id
+     WHERE t.operator_id = $1::uuid
+       AND b.deleted_at IS NULL AND t.deleted_at IS NULL
+       AND ${ACTIVE_BOOKING}
+       AND b.booking_date <= $3::date
+       AND COALESCE(b.end_date, b.booking_date) >= $2::date
+     ORDER BY b.booking_date, t.title, b.id`,
 
   /** $1 — оператор команды, $2 — гид. Туры оператора и сколько из них назначено гиду. */
   operatorTours: `

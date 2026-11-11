@@ -357,7 +357,10 @@ describe('экраны: ПД только в MAX, «нет данных» ≠ «
   });
 
   it('расписание: имена и телефоны группы — только в MAX', () => {
-    const schedule = { schedule: [], assignments: [{ bookingId: '1', date: '2026-11-02', tourTitle: 'Авача', participants: 2, status: 'confirmed' }] };
+    const schedule = {
+      schedule: [], assignments: [{ bookingId: '1', date: '2026-11-02', endDate: null, tourTitle: 'Авача', participants: 2, status: 'confirmed' }],
+      ownBookings: [], conflicts: [],
+    };
     const group = {
       key: 'k', date: '2026-11-02', tourId: '1', tourTitle: 'Авача', meetingPoint: 'Площадь', operatorName: 'Оператор', totalParticipants: 2,
       bookings: [{ bookingId: '1', status: 'confirmed', participants: 2, touristName: 'Иван Турист', touristPhone: '+70000000001', specialRequests: null, endDate: null }],

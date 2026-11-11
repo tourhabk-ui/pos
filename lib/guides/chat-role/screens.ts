@@ -21,6 +21,7 @@ import { OWNER_BOOKING_STATUS_LABEL } from '@/lib/bookings/owner-status-words';
 import { GUIDE_REPLY_MAX } from '@/lib/guides/review-reply';
 import type { GuideTeam } from '@/lib/guides/team-actions';
 import type { GuideSchedule } from '@/lib/guides/schedule-read';
+import { daysInWindow } from '@/lib/guides/schedule-conflicts';
 import type { GuideGroup } from '@/lib/guides/groups';
 import type { GuideEarnings } from '@/lib/guides/earnings-read';
 import { PROFILE_LABEL, type ProfileField, type ProfileReject, type ProfileValue } from './parse';
@@ -331,8 +332,19 @@ export function scheduleScreen(args: {
     }
     for (const g of byTour.values()) add(g.date, `  Группа: ${escapeHtml(g.title)} — ${g.people} чел., броней ${g.n}`);
   }
+  // Брони своих туров (#3213): гид здесь продавец. Без ПД — имя и телефон
+  // туриста в «Свои туры» на сайте; строка встаёт на первый день брони в окне.
+  for (const o of schedule.ownBookings) {
+    const first = daysInWindow(o, from, to)[0];
+    if (!first) continue;
+    const span = o.endDate && o.endDate.slice(0, 10) !== o.date.slice(0, 10) ? `, ${ruShort(o.date)}–${ruShort(o.endDate)}` : '';
+    add(first, `  Свой тур: ${escapeHtml(o.tourTitle)} — ${o.participants} чел., ${bookingWords(o.status)}${span}`);
+  }
+  for (const c of schedule.conflicts) {
+    add(c.date, `  Пересечение: оператор назначил вас на «${c.assigned.map(escapeHtml).join('», «')}», а у вас бронь своего тура «${c.own.map(escapeHtml).join('», «')}». Оператор брони ваших туров не видит — решите, кто поведёт группу.`);
+  }
   if (days.size === 0) {
-    lines.push('На эти дни записей календаря и назначений на брони нет.');
+    lines.push('На эти дни записей календаря, назначений на брони и броней ваших туров нет.');
   } else {
     for (const d of [...days.keys()].sort()) lines.push(`<b>${ruShort(d)} ${weekday(d)}</b>`, ...(days.get(d) ?? []));
   }
