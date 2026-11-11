@@ -28,6 +28,7 @@
 import { asLeadEntry, type LeadEntry } from '@/lib/leads/entry-values';
 
 export type LeadActor = 'human' | 'agent';
+export type LeadConsent = 'human' | 'agent';
 
 export interface LeadOriginInput {
   source_url?: string | null;
@@ -47,6 +48,13 @@ export interface LeadOrigin {
   what: string | null;
   /** Одна строка для экрана и уведомления. */
   label: string;
+  /**
+   * Кто подтвердил согласие на передачу данных — только у заявки, которую
+   * отправил ИИ-агент (слово владельца 11.11): `human` — сам человек на
+   * странице заявки, `agent` — пока только со слов агента. У заявок от
+   * человека и там, где след согласия не записан, — null: строки нет.
+   */
+  consent: LeadConsent | null;
 }
 
 /**
@@ -114,10 +122,30 @@ function text(v: unknown): string {
   return typeof v === 'string' ? v.trim() : '';
 }
 
-function origin(actor: LeadActor | null, via: string, what: string | null): LeadOrigin {
+function origin(actor: LeadActor | null, via: string, what: string | null, consent: LeadConsent | null = null): LeadOrigin {
   const who = actor ? ACTOR_WORDS[actor] : 'Кто отправил — не записано';
-  return { actor, via, what, label: [who, via, what].filter(Boolean).join(' · ') };
+  return { actor, via, what, label: [who, via, what].filter(Boolean).join(' · '), consent };
 }
+
+/**
+ * След согласия у заявки агента: человек подтвердил на странице заявки
+ * (`request-page`) или пока только агент (`mcp`). Иное — не знаем, null.
+ */
+function agentRequestConsent(source: string): LeadConsent | null {
+  if (source === HUMAN_CONFIRMED_CONSENT) return 'human';
+  if (source === AGENT_CONSENT) return 'agent';
+  return null;
+}
+
+/**
+ * Строка согласия для карточки заявки (слово владельца 11.11): оператор
+ * знает, с чем звонит. Ничего не блокирует — заявка уходит оператору как
+ * раньше (решение владельца 11.11 «оставь как есть»).
+ */
+export const CONSENT_WORDS: Record<LeadConsent, string> = {
+  human: 'Согласие на передачу данных подтвердил сам человек на странице заявки',
+  agent: 'Согласие на передачу данных — пока только со слов ИИ-агента: сам человек его не подтверждал',
+};
 
 /** Длинный адрес — укорочен: подпись не должна раздувать карточку. */
 function short(s: string): string {
@@ -170,7 +198,8 @@ export function leadOrigin(input: LeadOriginInput): LeadOrigin {
   const entry = asLeadEntry(data.entry);
   if (entry) {
     const e = ENTRY_WORDS[entry];
-    return origin(e.actor, e.via, what);
+    const consent = e.actor === 'agent' ? agentRequestConsent(text(input.pd_consent_source)) : null;
+    return origin(e.actor, e.via, what, consent);
   }
 
   // 2. Заявка через инструменты Ведара до 08.11: вход не записывался.
@@ -180,7 +209,7 @@ export function leadOrigin(input: LeadOriginInput): LeadOrigin {
     if (chat && chat.startsWith('kuzmich-')) return origin('human', ENTRY_WORDS[chat].via, what);
     const agentConsent = consent === AGENT_CONSENT || consent === HUMAN_CONFIRMED_CONSENT;
     if (agentConsent && createdSince(input.created_at, CHAT_CONSENT_RECORDED_SINCE)) {
-      return origin('agent', 'MCP или A2A (вход до 08.11 не записывался)', what);
+      return origin('agent', 'MCP или A2A (вход до 08.11 не записывался)', what, agentRequestConsent(consent));
     }
     return origin(null, 'MCP, A2A или чат Кузьмича (вход не записан)', what);
   }
@@ -199,7 +228,7 @@ export function leadOrigin(input: LeadOriginInput): LeadOrigin {
 
   // 5. Не записано или не распознано — так и сказано.
   if (source) return origin(null, `не распознано («${source.slice(0, 40)}»)`, null);
-  return { actor: null, via: ORIGIN_NOT_RECORDED, what: null, label: ORIGIN_NOT_RECORDED };
+  return { actor: null, via: ORIGIN_NOT_RECORDED, what: null, label: ORIGIN_NOT_RECORDED, consent: null };
 }
 
 /**
