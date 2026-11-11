@@ -47,7 +47,7 @@
 import { isOwnerPressPayload } from '@/lib/bookings/chat-owner-press';
 import { isTaskPressPayload } from '@/lib/crm/chat-task-press';
 import { isChatPressPayload } from '@/lib/requests/request-chat';
-import { isMyTripWritePayload } from '@/lib/requests/my-trip-ask';
+import { isMyTripDatePayload, isMyTripWritePayload } from '@/lib/requests/my-trip-ask';
 import { isConvPayload } from '@/lib/chat/conversation-reply';
 import { isCabinetPayload } from '@/lib/chat-cabinet/payload';
 
@@ -131,6 +131,9 @@ export function pressActionOf(payload: string): MaxPressAction | null {
   // `mw:` — «Написать оператору» под «Моей поездкой» (lib/requests/my-trip-write,
   // #2970): подключает чат клиента к заявке — та же полоса и право.
   if (isMyTripWritePayload(payload)) return 'request_chat';
+  // `md:` / `mp:` — «Изменить дату» и выбор даты (lib/requests/my-trip-date):
+  // дату заявки меняет тот же чат клиента — та же полоса и право.
+  if (isMyTripDatePayload(payload)) return 'request_chat';
   // `cv:` — ответ туристу в чате Ведара (lib/chat/conversation-reply): та же полоса.
   if (isConvPayload(payload)) return 'request_chat';
   // Кабинет в чате (lib/chat-cabinet): экраны с именами клиентов, звонок и

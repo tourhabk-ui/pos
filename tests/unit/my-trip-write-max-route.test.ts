@@ -21,6 +21,7 @@ const m = vi.hoisted(() => ({
   findAdmin: vi.fn(),
   myTrip: vi.fn(),
   press: vi.fn(),
+  datePress: vi.fn(),
 }));
 
 vi.mock('@/lib/db-pool', () => ({
@@ -93,11 +94,16 @@ vi.mock('@/lib/requests/my-trip-write', async (orig) => ({
   ...(await orig<typeof import('@/lib/requests/my-trip-write')>()),
   pressMyTripWrite: (...a: unknown[]) => m.press(...a),
 }));
+vi.mock('@/lib/requests/my-trip-date', async (orig) => ({
+  ...(await orig<typeof import('@/lib/requests/my-trip-date')>()),
+  pressMyTripDate: (...a: unknown[]) => m.datePress(...a),
+}));
 
 const max = await import('@/app/api/max/kuzmich/route');
 const { clearMaxMessageDedup } = await import('@/lib/max/update-dedup');
 const { signPayload } = await import('@/lib/chat-cabinet/signed-payload');
 const { myTripWritePayload } = await import('@/lib/requests/my-trip-write');
+const { myTripDateMenuPayload, myTripDatePickPayload } = await import('@/lib/requests/my-trip-date');
 
 const KEY = 'test-webhook-key-my-trip-write';
 const VERIFIED = `http://localhost/api/max/kuzmich?s=${KEY}`;
@@ -146,6 +152,7 @@ beforeEach(() => {
   m.orNull.mockResolvedValue('ОТВЕТ БЕЗ ИНСТРУМЕНТОВ');
   m.myTrip.mockResolvedValue({ text: 'Ваша заявка в этом чате:\n\n1. Горелый', buttons: [{ text: 'Написать оператору', payload: signPayload(RAW) }] });
   m.press.mockResolvedValue({ text: 'Напишите одним сообщением — оно уйдёт оператору.', buttons: [] });
+  m.datePress.mockResolvedValue({ text: 'Свободные даты на 2 чел.:', buttons: [{ text: '18.07 · мест 5', payload: 'mp:x' }] });
 });
 afterEach(() => { vi.restoreAllMocks(); vi.unstubAllEnvs(); vi.unstubAllGlobals(); });
 
@@ -183,5 +190,39 @@ describe('«Моя поездка» в MAX — с кнопкой «Написа�
   it('без заверения апдейта — нажатие не доходит до проверки права', async () => {
     await press(signPayload(RAW), 'dialog', 'http://localhost/api/max/kuzmich');
     expect(m.press).not.toHaveBeenCalled();
+  });
+});
+
+describe('«Изменить дату» под «Моей поездкой» в MAX (#2970, шаг 3)', () => {
+  const MENU = myTripDateMenuPayload(LEAD);
+  const PICK = myTripDatePickPayload(LEAD, '2027-07-18');
+
+  it('«Изменить дату» в личном диалоге — даты кнопками, канал и чат этого апдейта', async () => {
+    await press(MENU);
+    expect(m.datePress).toHaveBeenCalledWith(MENU, 'max', CHAT);
+    const out = sent();
+    expect(out.map((s) => s.text)).toEqual(['Свободные даты на 2 чел.:']);
+    expect(out[0]!.extra).toContain('18.07 · мест 5');
+  });
+
+  it('выбор даты — подписанная кнопка доходит без подписи до смены даты', async () => {
+    await press(signPayload(PICK));
+    expect(m.datePress).toHaveBeenCalledWith(PICK, 'max', CHAT);
+  });
+
+  it('выбор даты без подписи после срока старых кнопок — не принят: это кнопка-запись', async () => {
+    // Тестовая обвязка (test/setup.ts) продлевает приём неподписанных кнопок; здесь — боевой срок.
+    vi.stubEnv('CALLBACK_LEGACY_UNTIL_MS', String(Date.parse('2026-11-05T12:00:00Z')));
+    await press(PICK);
+    expect(m.datePress).not.toHaveBeenCalled();
+    expect(sent().map((s) => s.text).join('\n')).not.toMatch(/Свободные даты/);
+  });
+
+  it('из группы и без заверения апдейта — дата не меняется', async () => {
+    await press(signPayload(PICK), 'chat');
+    expect(m.datePress).not.toHaveBeenCalled();
+    expect(sent().map((s) => s.text).join('\n')).toMatch(/личном диалоге/);
+    await press(signPayload(PICK), 'dialog', 'http://localhost/api/max/kuzmich');
+    expect(m.datePress).not.toHaveBeenCalled();
   });
 });

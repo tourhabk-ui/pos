@@ -1123,6 +1123,118 @@ withPg('переписка по заявке на настоящем PostgreSQL'
       expect(myTrip.myTripText(await myTrip.loadMyTrip('telegram', A), { channel: 'telegram' })).not.toContain('Написать оператору');
     });
 
+    it('«Изменить дату» (#2970, шаг 3): свободные даты на людей заявки; до ответа оператора — сразу, после — просьбой', async () => {
+      process.env.CALLBACK_SIGNING_SECRET ??= 'pg-test-signing';
+      const myTrip = await import('@/lib/requests/my-trip');
+      const dates = await import('@/lib/requests/my-trip-date');
+      const { unwrapPress } = await import('@/lib/chat-cabinet/signed-payload');
+      const { kamchatkaToday } = await import('@/lib/seat-requests/core');
+      const day = (n: number) => {
+        const d = new Date(`${kamchatkaToday()}T00:00:00Z`);
+        d.setUTCDate(d.getUTCDate() + n);
+        return d.toISOString().slice(0, 10);
+      };
+      const short = (iso: string) => `${iso.slice(8, 10)}.${iso.slice(5, 7)}`;
+      const [D0, D1, D2, D3, D4] = [day(10), day(12), day(14), day(16), day(18)];
+      const opId = (await pool.query<{ id: string }>(
+        `INSERT INTO partners (name, category, contact, max_chat_id) VALUES ('Оператор дат', 'operator', '{}', 9300199) RETURNING id`,
+      )).rows[0].id;
+      const tourId = (await pool.query<{ id: number }>(
+        `INSERT INTO operator_tours (title, base_price, operator_id, max_participants) VALUES ('Горелый & кратер', 9000, $1, 12) RETURNING id`, [opId],
+      )).rows[0].id;
+      // D0 — дата заявки; D2 — одно место на двоих; D3 — отменена. Свободны на двоих D1 и D4.
+      await pool.query(
+        `INSERT INTO tour_availability (operator_tour_id, date, available_slots, is_cancelled) VALUES
+           ($1, $2::date, 10, false), ($1, $3::date, 5, false), ($1, $4::date, 1, false), ($1, $5::date, 8, true), ($1, $6::date, 6, false)`,
+        [tourId, D0, D1, D2, D3, D4],
+      );
+      const comment = `[Заявка на бронь] Тур "Горелый & кратер" (ID${tourId}), дата ${D0}, участников 2. С детьми`;
+      const lead = await leads.createLeadDetailed({
+        name: 'Ирина Дата', phone: '+79995550505', comment, route_title: 'Горелый & кратер',
+        source_url: 'mcp://vedar/booking', operator_id: opId, pd_consent: consentOf('operator'),
+        source_data: { source: 'mcp', tool: 'create_booking_request', tour_id: tourId, date: D0, participants: 2 },
+        skip_ai_processing: true,
+      });
+      const A = 9_300_031;
+      const B = 9_300_032;
+      const TG = 7_300_031;
+      const fresh = await status.issueRequestKeyRecord({ leadId: lead!.id }, 'create_booking_request', { opensChat: true });
+      expect(await links.linkChatToKeys('max', A, [fresh!.key], 'created')).toBe(1);
+      expect(await links.linkChatToKeys('telegram', TG, [fresh!.key], 'status_link')).toBe(1);
+      // Чат с ключом ПОВТОРА той же заявки видит статус, но дату не меняет.
+      const repeat = await status.issueRequestKeyRecord({ leadId: lead!.id }, 'create_booking_request', { opensChat: false });
+      expect(await links.linkChatToKeys('max', B, [repeat!.key], 'created')).toBe(1);
+
+      // Кнопки под списком: в MAX — «Написать» и «Изменить дату», в Telegram — только дата, у повтора — ничего.
+      expect((await myTrip.myTripMessage('max', A)).buttons.map((b) => b.text)).toEqual(['Написать оператору', 'Изменить дату']);
+      const tg = await myTrip.myTripMessage('telegram', TG);
+      expect(tg.buttons.map((b) => b.text)).toEqual(['Изменить дату']);
+      expect((await myTrip.myTripMessage('max', B)).buttons).toEqual([]);
+      const menuPayload = tg.buttons[0]!.payload;
+      expect((await dates.pressMyTripDate(menuPayload, 'max', B)).text).toMatch(/не подключена к этому чату/);
+
+      // Даты — свободные на двоих, без текущей, без отменённой и без одного места.
+      const menu = await dates.pressMyTripDate(menuPayload, 'telegram', TG);
+      expect(menu.text).toMatch(/выбранная дата сразу встанет в заявку/);
+      expect(menu.buttons.map((b) => b.text)).toEqual([`${short(D1)} · мест 5`, `${short(D4)} · мест 6`]);
+      const pickOf = (b: (typeof menu.buttons)[number]) => {
+        const p = unwrapPress('payload' in b ? b.payload : '');
+        return p.ok ? p.payload : '';
+      };
+
+      // Оператор не ответил — дата в заявке и в строке для оператора меняется сразу; журнал и сообщение оператору.
+      sent.pd.length = 0;
+      const changed = await dates.pressMyTripDate(pickOf(menu.buttons[0]!), 'telegram', TG);
+      expect(changed.text).toMatch(/^Дата в заявке изменена: тур «Горелый &amp; кратер», теперь /);
+      const row = (await pool.query(`SELECT source_data->>'date' AS date, comment FROM leads WHERE id = $1`, [lead!.id])).rows[0];
+      expect(row.date).toBe(D1);
+      expect(row.comment).toBe(`[Заявка на бронь] Тур "Горелый & кратер" (ID${tourId}), дата ${D1}, участников 2. С детьми`);
+      expect(sent.pd).toHaveLength(1);
+      expect(sent.pd[0]!.text).toContain('Турист перенёс заявку на другую дату');
+      expect(String(sent.pd[0]!.to?.maxChatId)).toBe('9300199');
+      expect(sent.pd[0]!.text).not.toMatch(/Ирина|79995550505/);
+      const journal = async () => (await pool.query(
+        `SELECT actor, action, details FROM lead_activity_log WHERE lead_id = $1 AND action LIKE 'date_change%' ORDER BY id`, [lead!.id],
+      )).rows;
+      expect(await journal()).toEqual([
+        { actor: 'tourist', action: 'date_changed', details: { from: D0, to: D1, channel: 'telegram', delivery: 'max' } },
+      ]);
+      // Статус заявки называет новую дату.
+      const trip = await myTrip.loadMyTrip('max', A);
+      expect(trip.outcome === 'ok' && trip.items[0]!.date).toBe(D1);
+
+      // Оператор ответил кнопкой — условная запись больше не проходит, даже с верной прежней датой.
+      await pool.query(
+        `INSERT INTO partner_incoming_answers (partner_id, subject_kind, subject_id, answer) VALUES ($1, 'lead', $2, 'accept')`,
+        [opId, lead!.id],
+      );
+      const blocked = await pool.query(dates.MY_TRIP_DATE_CHANGE_SQL, [lead!.id, D4, D1, 'max']);
+      expect(blocked.rows).toEqual([]);
+      // Теперь выбор даты — просьба оператору; дата в заявке прежняя.
+      const menu2 = await dates.pressMyTripDate(menuPayload, 'max', A);
+      expect(menu2.text).toMatch(/Оператор уже ответил по заявке, поэтому дату меняет он/);
+      // Прежняя D0 снова в списке: дата заявки теперь D1.
+      expect(menu2.buttons.map((b) => b.text)).toEqual([`${short(D0)} · мест 10`, `${short(D4)} · мест 6`]);
+      sent.pd.length = 0;
+      const asked = await dates.pressMyTripDate(pickOf(menu2.buttons[1]!), 'max', A);
+      expect(asked.text).toMatch(/просьба перенести на .* ему отправлена/);
+      expect(sent.pd[0]!.text).toContain('Турист просит перенести заявку');
+      expect((await pool.query(`SELECT source_data->>'date' AS date FROM leads WHERE id = $1`, [lead!.id])).rows[0].date).toBe(D1);
+      expect((await journal()).map((r) => [r.action, r.details])).toEqual([
+        ['date_changed', { from: D0, to: D1, channel: 'telegram', delivery: 'max' }],
+        ['date_change_requested', { from: D1, to: D4, channel: 'max', delivery: 'max' }],
+      ]);
+
+      // Сутки считаются по журналу: две записи — ещё можно, три — хватит.
+      const lim = await pool.query<{ date_actions: number; answered: boolean }>(dates.MY_TRIP_DATE_LEAD_SQL, ['max', String(A), lead!.id]);
+      expect(lim.rows[0]).toMatchObject({ date_actions: 2, answered: true });
+      await dates.pressMyTripDate(pickOf(menu2.buttons[0]!), 'max', A);
+      expect((await dates.pressMyTripDate(menuPayload, 'max', A)).text).toMatch(/за сутки уже меняли/);
+
+      // Лиды и календарь этой сцены не мешают соседним.
+      await pool.query(`DELETE FROM tour_availability WHERE operator_tour_id = $1::bigint`, [tourId]);
+    });
+
     it('удалили заявку — связи ушли вместе с её ключами', async () => {
       const own = await pool.query(`SELECT lead_id::text AS lead FROM agent_request_keys WHERE id = $1`, [keyId]);
       await pool.query(`DELETE FROM agent_request_keys WHERE lead_id = $1::uuid`, [own.rows[0].lead]);
