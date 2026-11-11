@@ -153,9 +153,33 @@ export async function operatorDeskPress(opts: {
     ? `${chatAnswerText('decline', false)} Причина: ${DECLINE_REASON_LABEL[reason].toLowerCase()}.`
     : chatAnswerText(parsed.answer as Exclude<typeof parsed.answer, 'decline_pick'>, already, saved.subjectDate));
   const leadStatus = chatAnswerLeadStatus(parsed.kind, parsed.answer);
-  if (saved.already || !leadStatus) return withMenu(doneText(saved.already));
+  // Что ушло туристу (план «после отказа», 2б): строка исхода к ответу.
+  const outcomeLine = async (): Promise<string | null> => {
+    if (parsed.kind !== 'lead') return null;
+    const notices = await import('@/lib/requests/answer-notice');
+    const { operatorOutcomeLine } = await import('@/lib/requests/answer-notice-text');
+    if (saved.already) {
+      const was = await notices.readNoticeOutcomeFor(parsed.subjectId, partner.partnerId, saved.subjectDate);
+      return was ? operatorOutcomeLine(was) : null;
+    }
+    const n = saved.notice;
+    if (!n) return null;
+    if (n.state === 'skipped') {
+      const reason = n.skipped === 'lead_closed' || n.skipped === 'not_addressee' || n.skipped === 'self' ? n.skipped : 'outgrown';
+      return operatorOutcomeLine({ state: 'skipped', reason });
+    }
+    return operatorOutcomeLine(await notices.deliverAnswerNotice(n.id));
+  };
+  const withOutcome = async (text: string) => {
+    const line = await outcomeLine();
+    return withMenu(line ? `${text}\n${line}` : text);
+  };
+  if (saved.already || !leadStatus) return withOutcome(doneText(saved.already));
   // Статус заявки — только своей: скоуп карточки без захвата ничейных,
   // поверх проверки входящих выше. Ошибка не прячется — оператор её видит.
+  // Сообщение туристу — после статуса: вид заявки, из которого строится
+  // сообщение, читает статус («Отказать» — `lost`).
+  let statusNote: string | null = null;
   try {
     const { changeLeadStatus } = await import('@/lib/leads/owner-lead-status');
     const res = await changeLeadStatus({
@@ -165,14 +189,12 @@ export async function operatorDeskPress(opts: {
       scope: { kind: 'owner', partnerId: partner.partnerId, claimUnowned: false },
       via: opts.channel,
     });
-    if (res.kind === 'not_found') {
-      return withMenu('Ответ записан, но заявка не ваша по карточке — статус не менял.');
-    }
+    if (res.kind === 'not_found') statusNote = 'Ответ записан, но заявка не ваша по карточке — статус не менял.';
   } catch (err) {
     console.error('[operator-desk] статус заявки не сменён, SQLSTATE', (err as { code?: string }).code ?? 'нет SQLSTATE');
-    return withMenu('Ответ записан, статус заявки сменить не удалось. Отметьте её в кабинете.');
+    statusNote = 'Ответ записан, статус заявки сменить не удалось. Отметьте её в кабинете.';
   }
-  return withMenu(doneText(false));
+  return withOutcome(statusNote ?? doneText(false));
 }
 
 async function supportTicketText(partner: PartnerChatContext, channel: 'telegram' | 'max'): Promise<string> {

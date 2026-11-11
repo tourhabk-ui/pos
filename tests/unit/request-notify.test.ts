@@ -401,6 +401,40 @@ function fakeSend(clock: { now: number }, answer: (url: string) => SendOutcome |
 const OK: SendOutcome = { kind: 'delivered', code: 'http_200' };
 const T0 = Date.parse('2027-07-01T00:00:00Z');
 
+describe('сверка: принятое уведомление с ответом оператора — его доставка (план «после отказа», 2б)', () => {
+  it('ключ новой заявки и вид из ответа кнопкой — отметка agent_webhook; ключ повтора — нет', async () => {
+    const { NOTICE_SHOWN_SQL } = await import('@/lib/requests/answer-notice-mark');
+    const clock = { now: T0 };
+    const db = fakeDb(clock);
+    const answerView = { lead_answer: 'no_seats', lead_answer_id: '77', lead_status: 'new' };
+    db.add({ view: { opens_chat: true }, change: answerView });
+    db.add({ view: { opens_chat: false }, change: { ...answerView, lead_answer_id: '78' } });
+    const { send } = fakeSend(clock, () => OK);
+    query.mockReset();
+    query.mockResolvedValue({ rows: [], rowCount: 1 });
+    const r = await runRequestNotify({ query: db.query, send, now: () => clock.now });
+    expect(r.delivered).toBe(2);
+    const marks = query.mock.calls.filter((c) => c[0] === NOTICE_SHOWN_SQL).map((c) => c[1]);
+    expect(marks).toEqual([['77', 'agent_webhook']]);
+  });
+
+  it('только названные ключи: без истечения, уборки и сверки молчания', async () => {
+    const { LIVE_BY_KEYS_SQL } = await import('@/lib/mcp/request-notify');
+    const clock = { now: T0 };
+    const db = fakeDb(clock);
+    const s = db.add();
+    const q = async (sql: string, params: unknown[] = []) => (sql === LIVE_BY_KEYS_SQL ? db.query(LIVE_SQL, []) : db.query(sql, params));
+    const seen: string[] = [];
+    const { send } = fakeSend(clock, () => OK);
+    await runRequestNotify({ query: async (sql, p) => { seen.push(sql); return q(sql, p); }, send, now: () => clock.now, onlyKeyIds: [s.key_id] });
+    expect(seen).toContain(LIVE_BY_KEYS_SQL);
+    expect(seen).not.toContain(EXPIRE_SQL);
+    expect(seen).not.toContain(RETENTION_SQL);
+    expect(seen).not.toContain(STALL_SQL);
+    expect(seen).not.toContain(LIVE_SQL);
+  });
+});
+
 describe('сверка: изменение → одно уведомление', () => {
   it('изменилось состояние — один POST, тело без ПД, подпись проверяется независимо, лог — хост без пути', async () => {
     const clock = { now: T0 };

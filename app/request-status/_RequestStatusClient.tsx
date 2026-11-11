@@ -192,7 +192,10 @@ export function RequestStatusClient() {
     if (!key) return;
     const asked = key;
     try {
-      const res = await fetch(`/api/requests/status?k=${encodeURIComponent(asked)}`, { cache: 'no-store' });
+      // seen=1 — вкладка на виду: только так открытая страница считается тем,
+      // что человек увидел ответ оператора (план «после отказа», 2б).
+      const seen = typeof document !== 'undefined' && document.visibilityState === 'visible' ? 1 : 0;
+      const res = await fetch(`/api/requests/status?k=${encodeURIComponent(asked)}&seen=${seen}`, { cache: 'no-store' });
       const body = await res.json().catch(() => null) as { success: true; data: View } | { success: false; error?: string } | null;
       if (activeKey.current !== asked) return;
       if (res.status === 400 || res.status === 404) {
@@ -225,6 +228,16 @@ export function RequestStatusClient() {
     const t = setInterval(() => { void load(); }, view === null ? 10_000 : 60_000);
     return () => clearInterval(t);
   }, [key, view, error, fatal, load]);
+
+  // Фоновая вкладка, вернувшаяся на вид, переспрашивает один раз: опрос
+  // останавливается, когда заявка ушла из ожидания, и иначе ответ, пришедший
+  // в фоне, так и не был бы отмечен увиденным.
+  useEffect(() => {
+    if (!key || fatal) return;
+    const onVisible = () => { if (document.visibilityState === 'visible') void load(); };
+    document.addEventListener('visibilitychange', onVisible);
+    return () => document.removeEventListener('visibilitychange', onVisible);
+  }, [key, fatal, load]);
 
   const confirm = useCallback(async () => {
     if (!key || !pdConsent) return;

@@ -376,6 +376,8 @@ export interface StatusRow {
   /** Крон добивки отдал лид менеджеру (`source_data.escalated_to_admin`) — и поставил ему `contacted`. */
   lead_escalated?: boolean | null;
   /** Заявка на группу больше мест тура (`source_data.group_over_seats`) и кто от неё отказался (`declined_by`). */
+  /** Номер ответа кнопкой (partner_incoming_answers.id), который читает статус. */
+  lead_answer_id?: string | null;
   lead_group_over?: boolean | null;
   lead_declined_by?: string | null;
   /** Род лида (`source_data.kind`): `charter`, `car_rental` — у ключа из кода между каналами имени инструмента нет. */
@@ -706,9 +708,8 @@ function leadAnswerView(row: StatusRow, purpose: ConsentPurpose, requested: stri
     // Большая группа после отказа адресата уходит другим операторам — это
     // не конец заявки, а передача. Кроме отказа по погоде или безопасности:
     // его крон не передаёт (lib/leads/followup-scope, GROUP_DECLINED_LEAD_SQL).
-    const passedOn = row.lead_answer === 'no_seats'
-      || (row.lead_answer === 'decline' && row.lead_decline_reason !== 'weather');
-    if (group && passedOn && answerHolds(status, row.lead_answer === 'decline' ? 'lost' : null)) {
+    if (group && groupPassedOnAnswer(row.lead_answer, row.lead_decline_reason ?? null)
+      && answerHolds(status, row.lead_answer === 'decline' ? 'lost' : null)) {
       return { ...GROUP_PASSED_ON, human: 'Оператор тура не может взять всю группу. Заявку на группу увидят другие операторы того же вида туров.' };
     }
     view = tourAnswerView(row.lead_answer, row.lead_decline_reason ?? null, status, requested);
@@ -732,6 +733,30 @@ function leadAnswerView(row: StatusRow, purpose: ConsentPurpose, requested: stri
     return { ...GROUP_PASSED_ON, human: 'Оператор тура не смог взять всю группу; заявка передана другим операторам того же вида туров.' };
   }
   return null;
+}
+
+/**
+ * Ответ, после которого большую группу увидят другие операторы: «Нет мест» и
+ * отказ не по погоде (тот же выбор, что GROUP_DECLINED_LEAD_SQL).
+ */
+export function groupPassedOnAnswer(answer: string | null | undefined, reason: string | null | undefined): boolean {
+  return answer === 'no_seats' || (answer === 'decline' && reason !== 'weather');
+}
+
+/**
+ * Номер ответа туроператора кнопкой, если вид заявки построен именно из него
+ * (план «после отказа», 2б): тогда сообщение о нём человеку правдиво, а
+ * прочтение такого вида — доставка. null — вид говорит другое (бронь, ответ
+ * перерос статус, другая дата, заявка не туроператору): сообщать не о чем.
+ */
+export function shownTourAnswerId(row: StatusRow): string | null {
+  if (!row.lead_answer_id || !row.lead_answer || row.booking_status) return null;
+  if (consentPurposeOfKey(row) !== 'operator') return null;
+  const status = row.lead_status ?? null;
+  if (row.lead_group_over === true && groupPassedOnAnswer(row.lead_answer, row.lead_decline_reason ?? null)) {
+    return answerHolds(status, row.lead_answer === 'decline' ? 'lost' : null) ? row.lead_answer_id : null;
+  }
+  return tourAnswerView(row.lead_answer, row.lead_decline_reason ?? null, status, null) ? row.lead_answer_id : null;
 }
 
 /** Ответ владельца жилья кнопкой (1359, lib/stay/owner-answer). Это не бронь. */
@@ -801,7 +826,7 @@ const REQUEST_STATUS_SELECT = `
          sm.n AS chat_partner_replies, sm.last_at AS chat_partner_last_at,
          (COALESCE(s.guest_max_chat_id, l.guest_max_chat_id) IS NOT NULL) AS chat_guest_on_max,
          n.ref AS notify_ref, n.disabled_reason AS notify_disabled_reason,
-         pa.answer AS lead_answer, pa.decline_reason AS lead_decline_reason,
+         pa.id::text AS lead_answer_id, pa.answer AS lead_answer, pa.decline_reason AS lead_decline_reason,
          la.answer AS lead_partner_answer,
          (l.source_data->>'escalated_to_admin') = 'true' AS lead_escalated,
          (l.source_data->>'group_over_seats') = 'true' AS lead_group_over,
@@ -874,6 +899,26 @@ export const REQUEST_STATUS_BY_KEY_IDS_SQL = `
            (opens_chat OR stay_request_id IS NOT NULL) AS opens_chat
       FROM agent_request_keys
      WHERE id = ANY($1::uuid[]) AND expires_at > NOW()
+  )${REQUEST_STATUS_SELECT}`;
+
+/**
+ * По номеру заявки, без сырого ключа и без отметки прочтения: так читает
+ * сообщение человеку после ответа оператора (lib/requests/answer-notice).
+ * Ключ — новой заявки, если он есть; заявки без ключа (форма до 1350) читаются
+ * как `handoff:none`: род берётся по самой заявке (consentPurposeOfKey), а не
+ * по умолчанию «подбор».
+ */
+export const REQUEST_STATUS_BY_LEAD_SQL = `
+  WITH k AS (
+    SELECT kk.id, x.lead_id, NULL::uuid AS seat_request_id, NULL::uuid AS stay_request_id,
+           COALESCE(kk.tool_name, 'handoff:none') AS tool_name, COALESCE(kk.opens_chat, false) AS opens_chat
+      FROM (SELECT $1::uuid AS lead_id) x
+      LEFT JOIN LATERAL (
+        SELECT id, tool_name, opens_chat FROM agent_request_keys
+         WHERE lead_id = x.lead_id AND expires_at > NOW()
+         ORDER BY opens_chat DESC, created_at
+         LIMIT 1
+      ) kk ON TRUE
   )${REQUEST_STATUS_SELECT}`;
 
 const ISO_DAY = /^\d{4}-\d{2}-\d{2}$/;
@@ -1081,7 +1126,15 @@ export function catalogTourOf(row: StatusRow): string | null {
   return row.booking_tour ?? leadCatalogTour(row);
 }
 
-export async function readRequestStatus(rawKey: unknown): Promise<RequestStatusView> {
+/**
+ * Кто читает статус. `agent` — get_request_status (MCP, A2A); `page` —
+ * страница заявки, `seen` — вкладка на виду; без `reader` — чтение не
+ * считается доставкой ответа (Кузьмич по вставленному ключу: человек спросил
+ * сам, сообщение ему ушло бы и так).
+ */
+export interface StatusReader { reader?: 'agent' | 'page'; seen?: boolean }
+
+export async function readRequestStatus(rawKey: unknown, opts: StatusReader = {}): Promise<RequestStatusView> {
   const key = readKey(rawKey);
   // Пробный ключ не хранится — заявки нет (lib/mcp/test-run, 08.11).
   if (isTestKey(key)) return testKeyStatus(key);
@@ -1097,6 +1150,14 @@ export async function readRequestStatus(rawKey: unknown): Promise<RequestStatusV
     throw new McpUserError(`Ключ не найден или истёк (ключ живёт ${REQUEST_KEY_TTL_DAYS} дней). Проверьте, что передан ключ из ответа инструмента целиком.`, 'key_not_found');
   }
   const core = buildRequestView(row, Date.now());
+  // Ответ оператора дошёл, если его прочитал держатель ключа новой заявки
+  // (план «после отказа», 2б; слово владельца 11.11 «мы доверяем агенту»).
+  const shown = row.opens_chat === true ? shownTourAnswerId(row) : null;
+  const via = opts.reader === 'agent' ? 'agent_read' : opts.reader === 'page' && opts.seen === true ? 'page_seen' : null;
+  if (shown && via) {
+    const { markNoticeShown } = await import('@/lib/requests/answer-notice-mark');
+    await markNoticeShown(shown, via);
+  }
   return {
     ...core,
     page: requestStatusPageUrl(key),
@@ -1221,5 +1282,5 @@ export async function readConsentPurpose(rawKey: unknown): Promise<ConsentPurpos
 
 /** Исполнитель для роута MCP: JSON-строка того же объекта (как у search/fetch). */
 export async function runRequestStatusTool(rawArgs: Record<string, unknown>): Promise<string> {
-  return JSON.stringify(await readRequestStatus(rawArgs.key));
+  return JSON.stringify(await readRequestStatus(rawArgs.key, { reader: 'agent' }));
 }

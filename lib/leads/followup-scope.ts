@@ -92,6 +92,21 @@ export const GROUP_DECLINED_LEAD_SQL = `(
      )`;
 
 /**
+ * Статусы, в которых заявку на группу после отказа адресата берёт добивка.
+ * Те же, в которых вид заявки обещает человеку «заявку увидят другие
+ * операторы» (lib/mcp/request-status: после «Нет мест» — любой, кроме
+ * взятого человеком, после «Отказать» — `lost`), и об этом ему уходит
+ * сообщение (answer-notice). До ревью 2б добивка брала только `new`, а
+ * конвейер разбора (leads-process) за полчаса переводит заявку в
+ * `ai_qualified` — и обещание не исполнялось никогда, пока работает ИИ.
+ *
+ * `ai_processing` не берётся намеренно: его держит конвейер секунды, и
+ * сброс адресата посреди разбора он затёр бы своим `ai_qualified`; заявку в
+ * этом статусе добивка возьмёт следующим прогоном.
+ */
+export const GROUP_HANDOFF_STATUSES = ['new', 'ai_qualified', 'lost'] as const;
+
+/**
  * Лиды для добивки: `new` старше 2 часов, без адресата, без свежей добивки, не
  * отданные админу — и не заявки на машину или прокат, и не псевдолиды чата
  * виджета. Плюс заявка на большую группу после отказа адресата (выше).
@@ -103,7 +118,7 @@ export const FOLLOWUP_LEADS_SQL = `
          (SELECT p.slug FROM partners p WHERE p.id = leads.operator_id) AS addressee_slug
     FROM leads
    WHERE ((status = 'new' AND operator_id IS NULL)
-          OR (status IN ('new', 'lost') AND ${GROUP_DECLINED_LEAD_SQL}))
+          OR (status IN (${GROUP_HANDOFF_STATUSES.map((s) => `'${s}'`).join(', ')}) AND ${GROUP_DECLINED_LEAD_SQL}))
      AND created_at < NOW() - INTERVAL '2 hours'
      AND (
        source_data->>'last_followup' IS NULL

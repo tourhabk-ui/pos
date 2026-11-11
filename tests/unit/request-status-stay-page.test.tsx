@@ -78,7 +78,8 @@ describe('страница заявки на жильё', () => {
     expect(screen.getByText(/Владелец позвонит по телефону из заявки/)).toBeInTheDocument();
     expect(screen.queryByText(/Ждём ответа оператора/)).not.toBeInTheDocument();
     // Статус спрошен с ключом из фрагмента адреса.
-    expect(fetchMock.mock.calls[0][0]).toBe(`/api/requests/status?k=${KEY}`);
+    // seen=1 — вкладка на виду (план «после отказа», 2б): так страница отмечает, что ответ увиден.
+    expect(fetchMock.mock.calls[0][0]).toBe(`/api/requests/status?k=${KEY}&seen=1`);
   });
 
   it('ведёт на карточку объекта и в раздел жилья, а не в каталог туров', async () => {

@@ -363,6 +363,9 @@ export const CRON_CAPABILITIES: Record<string, readonly Capability[]> = {
   // Запрос мест (29.09): закрывает просроченные и пишет туристу в его мессенджер
   // (Telegram или MAX) — без ПД, только исход запроса.
   'seat-requests-expire': ['db_read', 'db_write', 'net_out', 'telegram'],
+  // Сообщение после ответа оператора (2б): человеку — без ПД; менеджеру о
+  // недоставленном — имя и телефон через sendPdAlert (только MAX).
+  'answer-notices': ['db_read', 'db_write', 'net_out', 'telegram'],
   'smart-notify': ['db_read', 'db_write', 'net_out', 'telegram', 'pd_direct'],
   'sos-census': ['db_read', 'pd_direct'],
   'sos-events-bridge': ['db_read', 'db_write'],
