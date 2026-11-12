@@ -12,10 +12,14 @@ import { useEffect, useState } from 'react';
  * хук двигает только «сейчас», а не данные. Вкладка в фоне не тикает
  * впустую: при возврате время обновляется сразу.
  */
-export function useNow(everyMs = 30_000): Date {
-  const [now, setNow] = useState(() => new Date());
+export function useNow(everyMs = 30_000, serverNow?: string): Date {
+  // serverNow — «сейчас» сервера на момент разметки: первый рендер клиента
+  // совпадает с ней (без расхождения гидрации), а сразу после монтирования
+  // время берётся своё.
+  const [now, setNow] = useState(() => (serverNow ? new Date(serverNow) : new Date()));
   useEffect(() => {
     const tick = () => setNow(new Date());
+    if (serverNow) tick();
     const id = window.setInterval(() => {
       if (document.visibilityState !== 'hidden') tick();
     }, everyMs);
@@ -25,6 +29,6 @@ export function useNow(everyMs = 30_000): Date {
       window.clearInterval(id);
       document.removeEventListener('visibilitychange', onVisible);
     };
-  }, [everyMs]);
+  }, [everyMs, serverNow]);
   return now;
 }

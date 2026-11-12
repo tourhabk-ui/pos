@@ -10,6 +10,8 @@
  * визит, без подсветки.
  */
 
+import { logSwallowedFailure } from '@/lib/observability/swallowed';
+
 export const SEEN_ALERTS_KEY = 'vedar:alerts-seen';
 /** Сколько ключей помнить: лента редко длиннее пары десятков. */
 export const SEEN_ALERTS_CAP = 200;
@@ -53,5 +55,10 @@ export function readSeen(storage: Pick<Storage, 'getItem'> | null): string[] | n
 
 export function writeSeen(storage: Pick<Storage, 'setItem'> | null, keys: string[]): void {
   if (!storage) return;
-  try { storage.setItem(SEEN_ALERTS_KEY, JSON.stringify(keys)); } catch { /* хранилище закрыто: подсветка просто не запомнится */ }
+  try {
+    storage.setItem(SEEN_ALERTS_KEY, JSON.stringify(keys));
+  } catch (err) {
+    // Хранилище закрыто или полно: подсветка не запомнится, лента та же.
+    logSwallowedFailure('new-alerts', 'запись показанных предупреждений', err);
+  }
 }

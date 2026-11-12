@@ -17,7 +17,8 @@ import { query } from '@/lib/database';
 import { FEED_ALERT_TYPES } from '@/lib/services/safety/feed-types';
 import { alertOrigin, UNKNOWN_ORIGIN_TEXT } from '@/lib/safety/alert-origin';
 import { alertDayLabel, alertTerm } from '@/lib/safety/alert-dates';
-import { UTC_WALL_NOW_SQL, utcWallIsoSql } from '@/lib/db/timestamp-iso';
+import { isoUtcSql, UTC_WALL_NOW_SQL, utcWallIsoSql } from '@/lib/db/timestamp-iso';
+import { alertKey } from '@/lib/safety/new-alerts';
 import { loadSvodka, type Svodka } from '@/lib/svodka/svodka';
 
 /** Сколько строк «Что меняет план» на главной; остальные — по ссылке. */
@@ -42,6 +43,12 @@ export interface PlanChange {
   term: string | null;
   /** Откуда строка. Не узнали — так и сказано, не ближайшая правдоподобная лента. */
   origin: string;
+  /**
+   * Ключ записи для одноразовой подсветки нового (12.11, `alertKey`): исходный
+   * заголовок и время публикации. Не показывается — по нему браузер узнаёт,
+   * видел ли он эту строку.
+   */
+  key: string;
 }
 
 const KIND: Record<string, { kind: ChangeKind; label: string }> = {
@@ -133,6 +140,7 @@ export async function loadPlanChanges(limit = DESK_CHANGES_LIMIT): Promise<PlanC
         kindLabel: k.label,
         term: planChangeTerm(row.created_iso, row.expires_iso, manual, Date.now(), row.alert_type),
         origin: alertOrigin(row.external_id, row.source_url)?.label ?? UNKNOWN_ORIGIN_TEXT,
+        key: alertKey({ title: row.title, at: row.created_iso }),
       };
     });
   } catch (err) {
@@ -169,6 +177,28 @@ export interface DeskBrief {
    * не рисуется (тот же порог, что был у прежнего героя).
    */
   safetyTrusted: boolean;
+  /**
+   * Когда обновлялся статус мест (MAX(location_real_time_status.updated_at)) —
+   * та же метка, что у радара на телефоне. От неё считается «обновлено N минут
+   * назад» у сводки; null — не прочитали, и возраст не рисуется.
+   */
+  statusUpdatedAt: string | null;
+  /** «Сейчас» сервера, когда собиралась сводка, — от него первый рендер возраста. */
+  serverNow: string;
+}
+
+async function loadStatusUpdatedAt(): Promise<string | null> {
+  try {
+    const r = await query<{ last_update: string | null }>(
+      `SELECT ${isoUtcSql('MAX(updated_at)')} AS last_update FROM location_real_time_status`,
+    );
+    return r.rows[0]?.last_update ?? null;
+  } catch (err) {
+    console.error('[home] свежесть статуса мест не прочитана', {
+      code: (err as { code?: string })?.code, message: err instanceof Error ? err.message : String(err),
+    });
+    return null;
+  }
 }
 
 async function loadLastIngest(): Promise<string | null> {
@@ -193,13 +223,14 @@ export function isSafetyTrusted(svodka: Svodka | null, lastIngestAt: string | nu
 }
 
 export async function loadDeskBrief(now: Date = new Date()): Promise<DeskBrief> {
-  const [svodka, changes, lastIngestAt] = await Promise.all([
+  const [svodka, changes, lastIngestAt, statusUpdatedAt] = await Promise.all([
     cachedSvodka().catch((err: unknown) => {
       console.error('[home] сводка дня не собрана:', err instanceof Error ? err.message : err);
       return null;
     }),
     loadPlanChanges(),
     loadLastIngest(),
+    loadStatusUpdatedAt(),
   ]);
   return {
     weekdayLabel: now.toLocaleDateString('ru-RU', { weekday: 'long', day: 'numeric', month: 'long', timeZone: 'Asia/Kamchatka' }),
@@ -207,5 +238,7 @@ export async function loadDeskBrief(now: Date = new Date()): Promise<DeskBrief> 
     changes,
     lastIngestAt,
     safetyTrusted: isSafetyTrusted(svodka, lastIngestAt, now.getTime()),
+    statusUpdatedAt,
+    serverNow: now.toISOString(),
   };
 }

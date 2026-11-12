@@ -21,7 +21,8 @@ import {
 } from '@/lib/services/safety/kvert-vona';
 import { coastPaths } from '@/lib/geo/coastline';
 import { useEffect, useMemo, useState, type CSSProperties, type ReactNode } from 'react';
-import { alertKey, newAlertKeys, nextSeen, readSeen, writeSeen, NEW_ALERT_HIGHLIGHT_MS } from '@/lib/safety/new-alerts';
+import { alertKey } from '@/lib/safety/new-alerts';
+import { useNewAlerts } from '@/hooks/use-new-alerts';
 import Link from 'next/link';
 import { ChevronDown } from 'lucide-react';
 import type { SafetyAlert } from '@/app/_home/data';
@@ -553,31 +554,8 @@ interface PulseQuake { magnitude: number; place: string; time: number; depth: nu
  * есть всегда, даже когда лента стоит: в строку не влезает деталь, ради которой
  * и разворачивают.
  */
-/**
- * Новые с прошлого визита предупреждения — на пару секунд (12.11). Читается
- * после монтирования: сервер про браузер ничего не знает, и подсветка не
- * должна расходиться с разметкой сервера.
- */
-function useNewAlerts(alerts: SafetyAlert[]): Set<string> {
-  const keysSig = alerts.map(alertKey).join('\n');
-  const [fresh, setFresh] = useState<Set<string>>(() => new Set());
-  useEffect(() => {
-    const keys = keysSig ? keysSig.split('\n') : [];
-    let storage: Storage | null = null;
-    try { storage = window.localStorage; } catch { storage = null; }
-    const seen = readSeen(storage);
-    const added = newAlertKeys(keys, seen);
-    writeSeen(storage, nextSeen(keys, seen));
-    if (added.size === 0) return;
-    setFresh(added);
-    const t = window.setTimeout(() => setFresh(new Set()), NEW_ALERT_HIGHLIGHT_MS);
-    return () => window.clearTimeout(t);
-  }, [keysSig]);
-  return fresh;
-}
-
 export function AlertsTicker({ alerts, lines }: { alerts: SafetyAlert[]; lines?: number }) {
-  const fresh = useNewAlerts(alerts);
+  const fresh = useNewAlerts(alerts.map(alertKey));
   const compact = lines != null && lines > 0;
   const scroll = alerts.length > (compact ? lines : 2);
   const [open, setOpen] = useState(false);
