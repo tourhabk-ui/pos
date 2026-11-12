@@ -78,6 +78,18 @@ export function queueSubjectLine(i: QueueItem): string {
   return [`Жильё «${i.accommodation_name}»`, span(i.check_in, i.check_out), `гостей: ${i.guests}`].filter(Boolean).join(', ');
 }
 
+/**
+ * Другие компании, ответившие Ведару «Беру» на дату заявки (этап 4б). Это их
+ * слово, не бронь: заявку клиент оставляет им сам — так и сказано тому, кто
+ * будет звонить.
+ */
+export function takesLine(takes: readonly string[] | null | undefined): string | null {
+  // Ответ старой сборки сервера поля не несёт — экран от этого не падает.
+  if (!takes || takes.length === 0) return null;
+  const names = takes.map((n) => `«${n}»`).join(', ');
+  return `На вопрос Ведара «возьмёте на эту дату?» ответили «Беру»: ${names}. Это слово ${takes.length === 1 ? 'компании' : 'компаний'}, не бронь — заявку клиент оставляет сам.`;
+}
+
 /** Что ответил партнёр и что известно о сообщении клиенту. */
 export function queueStateLines(i: QueueItem): string[] {
   if (i.kind === 'answer_notice') {
@@ -85,6 +97,7 @@ export function queueStateLines(i: QueueItem): string[] {
       `${partner(i.partner_name, 'Оператор')}: ${noticeAnswer(i)}.`,
       'Сообщение об этом до клиента не дошло.',
       i.manager_channel ? MANAGER_CHANNEL[i.manager_channel] ?? null : 'Письмо менеджеру ещё не отправлялось.',
+      takesLine(i.takes),
     ].filter((x): x is string => typeof x === 'string');
   }
   if (i.kind === 'vehicle_decline') {

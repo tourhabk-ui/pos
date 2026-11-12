@@ -54,7 +54,7 @@ const NOTICE: NoticeItem = {
   kind: 'answer_notice', id: '101', happened_at: '2026-11-12T03:10:00.000Z', partner_name: 'Оператор',
   contact_name: 'Анна', contact_phone: '+79990000001', take: null,
   lead_id: LEAD, lead_status: 'lost', answer: 'decline', decline_reason: 'weather', manager_channel: 'max',
-  tour_title: 'Мутновский', date: '2026-12-02', people: 2,
+  tour_title: 'Мутновский', date: '2026-12-02', people: 2, takes: [],
 };
 const VEHICLE: VehicleItem = {
   kind: 'vehicle_decline', id: '51', happened_at: '2026-11-12T04:00:00.000Z', partner_name: 'Перевозчик',
@@ -114,6 +114,9 @@ describe('список очереди в MAX', () => {
       ADMIN_QUEUE_TEXT.hint,
     ]);
     expect(r.buttonsLabel).toBe(ADMIN_QUEUE_TEXT.buttonsLabel);
+    // Другая компания ответила «Беру» — в строке случая, теми же словами, что на сайте.
+    const took = adminQueueReply({ ...FULL, answer_notice: { state: 'ok', items: [{ ...NOTICE, takes: ['Компания <Б>'] }], more: false } });
+    expect(took.text).toContain('ответили «Беру»: «Компания &lt;Б&gt;». Это слово компании, не бронь — заявку клиент оставляет сам.');
   });
 
   it('кнопки «Взял N» — по номерам строк; каждая подписана как запись и разбирается в род и номер случая', () => {

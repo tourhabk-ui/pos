@@ -21,14 +21,14 @@ process.env.CALLBACK_SIGNING_SECRET = 'unit-test-signing';
 
 import {
   askOtherCompanies, askOtherCompaniesWithinPress, answerOfferAsk,
-  OFFER_ASKS_INSERT_SQL, OFFER_ASK_ANSWER_SQL, OFFER_ASK_READ_SQL, OFFER_ASK_SENT_SQL, OFFER_ASK_TOLD_SQL,
+  OFFER_ASKS_INSERT_SQL, OFFER_ASK_ANSWER_SQL, OFFER_ASK_MANAGER_SQL, OFFER_ASK_READ_SQL, OFFER_ASK_SENT_SQL, OFFER_ASK_TOLD_SQL,
   OFFER_ASK_SEND_TIMEOUT_MS, OFFER_ASKS_PRESS_BUDGET_MS, type OfferAsksDeps,
 } from '@/lib/requests/offer-asks';
 import {
-  isOfferAskPayload, offerAskButtons, offerAskPayload, offerAskReplyText, offerAsksOperatorLine, offerAskText, offerTookText,
+  isOfferAskPayload, managerTookText, offerAskButtons, offerAskPayload, offerAskReplyText, offerAsksOperatorLine, offerAskText, offerTookText,
   parseOfferAskPress, type OfferAskOutcome,
 } from '@/lib/requests/offer-asks-text';
-import { NOTICE_TARGETS_SQL } from '@/lib/requests/answer-notice';
+import { NOTICE_CONTACT_SQL, NOTICE_TARGETS_SQL } from '@/lib/requests/answer-notice';
 import { REQUEST_STATUS_BY_LEAD_SQL, type StatusRow } from '@/lib/mcp/request-status';
 import { CALLBACK_MAX_BYTES, isWritePayload, unwrapPress } from '@/lib/chat-cabinet/signed-payload';
 import { NOTICE_PRESS_BUDGET_MS } from '@/lib/requests/press-budget';
@@ -82,6 +82,7 @@ function world(over: {
     if (sql === OFFER_ASK_ANSWER_SQL) return { rows: over.answered === null ? [] : [over.answered ?? { lead_id: LEAD, tour_id: '201', ask_date: '2027-01-15', people: 3 }] };
     if (sql === OFFER_ASK_READ_SQL) return { rows: over.was ? [over.was] : [] };
     if (sql === NOTICE_TARGETS_SQL) return { rows: over.targets ?? [{ channel: 'max', chat_id: '555' }] };
+    if (sql === NOTICE_CONTACT_SQL) return { rows: [{ name: 'Анна <Петрова>', phone: '+7 900 123-45-67' }] };
     return { rows: [], rowCount: 1 };
   });
   const offers = vi.fn(async () => OFFERS as unknown);
@@ -91,8 +92,9 @@ function world(over: {
     [D]: reachOf({ maxChatId: '804', telegramChatId: '904', telegramSource: 'partner', reachable: true }),
   };
   const reach = vi.fn(async (id: string) => (id in reaches ? reaches[id]! : reachOf({})));
+  // Без адресата письмо идёт менеджеру — в его рабочий MAX; с адресатом — компании: в её MAX или заглушкой в Telegram.
   const pdAlert = vi.fn(async (p: { to?: { maxChatId?: unknown } }) => (
-    p.to?.maxChatId ? { channel: 'max' as const, delivered: true, reason: 'ok' } : { channel: 'telegram-stub' as const, delivered: false, reason: 'ok' }
+    !p.to || p.to.maxChatId ? { channel: 'max' as const, delivered: true, reason: 'ok' } : { channel: 'telegram-stub' as const, delivered: false, reason: 'ok' }
   ));
   const sendMax = vi.fn(async () => ({ ok: true as const }));
   const sendTelegram = vi.fn(async () => ({ ok: true as const }));
@@ -167,11 +169,15 @@ describe('слова', () => {
     expect(say({ state: 'took', told: 'telegram', date: '2027-01-15', tourTitle: 'К кратеру' })).toContain('Человеку сообщено в Telegram');
     const silent: OfferAskOutcome[] = [
       { state: 'took', told: 'status', date: '2027-01-15', tourTitle: 'К кратеру' },
+      { state: 'took', told: 'manager', date: '2027-01-15', tourTitle: 'К кратеру' },
       { state: 'took', told: 'outgrown' }, { state: 'took', told: 'unlisted' }, { state: 'took', told: 'unknown' }, { state: 'took', told: 'sending' },
       { state: 'declined' }, { state: 'already', answer: 'take' }, { state: 'not_yours' }, { state: 'date_passed' }, { state: 'failed' },
     ];
     for (const o of silent) expect(say(o), JSON.stringify(o)).not.toContain('Человеку сообщено');
     expect(say(silent[0]!)).toContain('увидит на странице своей заявки');
+    // «Передан менеджеру» — только у исхода, где письмо менеджер принял.
+    expect(say(silent[1]!)).toContain('ваш ответ передан менеджеру Ведара, чтобы он сообщил человеку');
+    for (const o of silent.filter((x) => !(x.state === 'took' && x.told === 'manager'))) expect(say(o), JSON.stringify(o)).not.toContain('менеджер');
     expect(say({ state: 'took', told: 'outgrown' })).toContain('Ему ничего не отправлено.');
     expect(say({ state: 'took', told: 'unlisted' })).toContain('Ему ничего не отправлено.');
     // Отправка не уложилась в срок нажатия: ни «сообщено», ни «не отправлено» — «отправляется».
@@ -186,6 +192,24 @@ describe('слова', () => {
     // Каждый исход — своя фраза: два разных исхода одними словами не говорятся.
     const all = [{ state: 'took', told: 'max', date: '2027-01-15', tourTitle: 'Т' } as OfferAskOutcome, ...silent].map(say);
     expect(new Set(all).size).toBe(all.length);
+  });
+
+  it('менеджеру о «Беру»: контакт не записан — так и сказано; заглушка без ПД; разметку ввод не ломает', () => {
+    const m = managerTookText({
+      leadId: LEAD, partnerName: 'Б <i>', tourTitle: 'Т', price: null, date: '2027-01-15', people: null,
+      url: 'https://vedarai.ru/t?a=1&b=2', tried: ['telegram:timeout'],
+    }, { name: null, phone: null });
+    expect(m.text.split('\n')).toEqual([
+      '<b>Другая компания ответила «Беру» — клиенту не сообщено, позвонить</b>',
+      `Заявка <code>${LEAD}</code>: после отказа Ведар спросил другие компании. «Б &lt;i&gt;» ответила: возьмёт 15.01.2027 — тур «Т», цена не указана.`,
+      'Это слово компании, ещё не бронь: заявку клиент оставляет ей сам — https://vedarai.ru/t?a=1&amp;b=2',
+      '<b>Имя:</b> не записано',
+      '<b>Телефон:</b> не записан',
+      'Почему письмо: Telegram клиента сообщение не принял (timeout).',
+      'На странице заявки клиента ответ компании стоит. ИИ-агенту клиента, если заявку создавал он, уведомление о «Беру» не уходит — он прочтёт ответ в статусе заявки.',
+    ]);
+    expect(m.stub.split('\n')).toHaveLength(3);
+    expect(m.stub).not.toMatch(/Имя|Телефон:/);
   });
 
   it('отказавшему оператору — строка только о дошедших вопросах', () => {
@@ -362,22 +386,86 @@ describe('ответ компании', () => {
     expect(w.offers.mock.calls[0]![0]).toEqual({ tourId: '70', date: '2027-01-15', people: 3, leadId: LEAD });
   });
 
-  it('первый чат не принял — пробуется следующий; не принял никто или чата нет — «увидит в статусе», отметки «сообщено» нет', async () => {
+  it('первый чат не принял — пробуется следующий; принял — менеджеру письма нет', async () => {
     const two = took(world({ targets: [{ channel: 'max', chat_id: '555' }, { channel: 'telegram', chat_id: '777' }] }));
     const warn = vi.spyOn(console, 'warn').mockImplementation(() => {});
     two.sendMax.mockResolvedValue({ ok: false, code: 'bad_id' } as never);
     expect(await answerOfferAsk({ partnerId: B, askId: '11', answer: 'take', via: 'max' }, two.deps)).toMatchObject({ state: 'took', told: 'telegram' });
     expect(two.of(OFFER_ASK_TOLD_SQL)[0]!.params).toEqual(['11', 'telegram']);
-    two.sendTelegram.mockResolvedValue({ ok: false, code: 'api_error' } as never);
-    two.ran.length = 0;
-    expect(await answerOfferAsk({ partnerId: B, askId: '11', answer: 'take', via: 'max' }, two.deps)).toMatchObject({ state: 'took', told: 'status' });
-    expect(two.of(OFFER_ASK_TOLD_SQL)).toHaveLength(0);
-    const none = took(world({ targets: [] }));
-    expect(await answerOfferAsk({ partnerId: B, askId: '11', answer: 'take', via: 'max' }, none.deps)).toMatchObject({ state: 'took', told: 'status' });
-    expect(none.sendMax).not.toHaveBeenCalled();
+    // Человек узнал сам — контакт не читается и менеджеру ничего не уходит.
+    expect(two.pdAlert).not.toHaveBeenCalled();
+    expect(two.of(NOTICE_CONTACT_SQL)).toHaveLength(0);
+    expect(two.of(OFFER_ASK_MANAGER_SQL)).toHaveLength(0);
     // В логе — канал, но не чат.
     expect(warn.mock.calls.flat().join(' ')).not.toMatch(/555|777/);
     warn.mockRestore();
+  });
+
+  it('чата нет или не принял никто — письмо менеджеру: контакт только в MAX, в заглушке его нет; компании — «передан менеджеру»', async () => {
+    const warn = vi.spyOn(console, 'warn').mockImplementation(() => {});
+    const none = took(world({ targets: [] }));
+    expect(await answerOfferAsk({ partnerId: B, askId: '11', answer: 'take', via: 'max' }, none.deps))
+      .toEqual({ state: 'took', told: 'manager', date: '2027-01-15', tourTitle: 'Горелый & кратер' });
+    expect(none.sendMax).not.toHaveBeenCalled();
+    expect(none.pdAlert).toHaveBeenCalledTimes(1);
+    const letter = none.pdAlert.mock.calls[0]![0] as unknown as { text: string; stub: string; to?: unknown; buttons: Array<{ text: string; url: string }> };
+    // Адресата нет — письмо уходит менеджеру, а не компании, нажавшей «Беру».
+    expect(letter.to).toBeUndefined();
+    expect(letter.text).toContain('Другая компания ответила «Беру» — клиенту не сообщено, позвонить');
+    expect(letter.text).toContain(`Заявка <code>${LEAD}</code>`);
+    expect(letter.text).toContain('«Компания «Б»» ответила: возьмёт 15.01.2027 — тур «Горелый &amp; кратер» на 3 чел., 12 000 ₽ за человека.');
+    expect(letter.text).toContain('<b>Имя:</b> Анна &lt;Петрова&gt;');
+    expect(letter.text).toContain('<b>Телефон:</b> +7 900 123-45-67');
+    expect(letter.text).toContain('Почему письмо: чата с Ведаром у клиента нет.');
+    expect(letter.text).toContain('ещё не бронь');
+    // Заглушка для Telegram: что случилось — да, имя и телефон — нет.
+    expect(letter.stub).toContain('Другая компания ответила «Беру»');
+    expect(letter.stub).toContain('в Telegram они не передаются');
+    expect(letter.stub).not.toMatch(/Анна|Петрова|900|123-45-67/);
+    expect(letter.buttons.map((b) => b.url)).toEqual([expect.stringMatching(/\/hub\/admin\/queue$/), expect.stringMatching(/\/hub\/admin\/leads$/)]);
+    // Отметка — про менеджера; «человек узнал» не записано.
+    expect(none.of(OFFER_ASK_MANAGER_SQL)[0]!.params).toEqual(['11', 'max']);
+    expect(none.of(OFFER_ASK_TOLD_SQL)).toHaveLength(0);
+
+    const refused = took(world({ targets: [{ channel: 'max', chat_id: '555' }, { channel: 'telegram', chat_id: '777' }] }));
+    refused.sendMax.mockResolvedValue({ ok: false, code: 'bad_id 555' } as never);
+    refused.sendTelegram.mockResolvedValue({ ok: false, code: 'api_error' } as never);
+    expect(await answerOfferAsk({ partnerId: B, askId: '11', answer: 'take', via: 'max' }, refused.deps)).toMatchObject({ state: 'took', told: 'manager' });
+    const why = (refused.pdAlert.mock.calls[0]![0] as unknown as { text: string }).text;
+    // Код не из списка в письмо не идёт: в свободном тексте ошибки мог бы стоять id чата.
+    expect(why).toContain('Почему письмо: MAX клиента сообщение не принял (api_error); Telegram клиента сообщение не принял (api_error).');
+    expect(why).not.toMatch(/555|777/);
+    warn.mockRestore();
+  });
+
+  it('письмо менеджеру ушло заглушкой в Telegram — так и записано; не принял никто — «увидит в статусе», «передан менеджеру» не говорится', async () => {
+    const error = vi.spyOn(console, 'error').mockImplementation(() => {});
+    const stub = took(world({ targets: [] }));
+    stub.pdAlert.mockResolvedValue({ channel: 'telegram-stub', delivered: false, reason: 'max_failed' } as never);
+    expect(await answerOfferAsk({ partnerId: B, askId: '11', answer: 'take', via: 'max' }, stub.deps)).toMatchObject({ state: 'took', told: 'manager' });
+    expect(stub.of(OFFER_ASK_MANAGER_SQL)[0]!.params).toEqual(['11', 'telegram-stub']);
+
+    for (const fail of [
+      async () => ({ channel: 'none', delivered: false, reason: 'no_channel' }),
+      async () => ({ channel: 'max', delivered: false, reason: 'api_error' }),
+      async () => { throw new Error('boom'); },
+      () => new Promise<never>(() => undefined),
+    ]) {
+      const w = took(world({ targets: [] }));
+      w.pdAlert.mockImplementation(fail as never);
+      expect(await answerOfferAsk({ partnerId: B, askId: '11', answer: 'take', via: 'max' }, { ...w.deps, timeoutMs: 20 }))
+        .toEqual({ state: 'took', told: 'status', date: '2027-01-15', tourTitle: 'Горелый & кратер' });
+      expect(w.of(OFFER_ASK_MANAGER_SQL)).toHaveLength(0);
+    }
+    // Письмо принято, а отметка не записалась — менеджер его получил, исход «передано» правдив.
+    const unrecorded = took(world({ targets: [] }));
+    const base = unrecorded.q.getMockImplementation()!;
+    unrecorded.q.mockImplementation(async (sql: string, params?: unknown[]) => {
+      if (sql === OFFER_ASK_MANAGER_SQL) throw Object.assign(new Error('db'), { code: '57P01' });
+      return base(sql, params);
+    });
+    expect(await answerOfferAsk({ partnerId: B, askId: '11', answer: 'take', via: 'max' }, unrecorded.deps)).toMatchObject({ state: 'took', told: 'manager' });
+    error.mockRestore();
   });
 
   it('заявка с тех пор изменилась — «Беру» записано, человеку ничего не уходит', async () => {
@@ -393,6 +481,9 @@ describe('ответ компании', () => {
       expect(await answerOfferAsk({ partnerId: B, askId: '11', answer: 'take', via: 'max' }, w.deps), name).toEqual({ state: 'took', told: 'outgrown' });
       expect(w.sendMax, name).not.toHaveBeenCalled();
       expect(w.of(OFFER_ASK_TOLD_SQL), name).toHaveLength(0);
+      // Звонить не о чем: «возьмёт на прежнюю дату» человеку уже не нужно.
+      expect(w.pdAlert, name).not.toHaveBeenCalled();
+      expect(w.of(NOTICE_CONTACT_SQL), name).toHaveLength(0);
     }
   });
 
@@ -406,7 +497,11 @@ describe('ответ компании', () => {
     const unknown = world();
     unknown.offers.mockResolvedValue({ state: 'failed' });
     expect(await answerOfferAsk({ partnerId: B, askId: '11', answer: 'take', via: 'max' }, unknown.deps)).toEqual({ state: 'took', told: 'unknown' });
-    for (const w of [unlisted, gone, unknown]) expect(w.sendMax).not.toHaveBeenCalled();
+    for (const w of [unlisted, gone, unknown]) {
+      expect(w.sendMax).not.toHaveBeenCalled();
+      // Тур не назвать — менеджеру звонить не с чем.
+      expect(w.pdAlert).not.toHaveBeenCalled();
+    }
   });
 
   it('не записалось: чужой вопрос, уже отвечено, дата прошла, сбой базы — у каждого своё слово, человеку ничего', async () => {
