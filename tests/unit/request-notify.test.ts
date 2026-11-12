@@ -420,8 +420,24 @@ describe('сверка: принятое уведомление с ответо�
     // правило ответа приёмника обязано говорить это агенту на обоих языках.
     const rules = await import('@/lib/mcp/request-notify-schema');
     // «По подписке вызова, создавшего заявку» — не лишнее: второй ключ выше — повтор, и по нему отметки нет.
-    expect(rules.NOTIFY_RESPONSE_RULES).toContain('2xx — доставлено (ответ туроператора кнопкой из принятого уведомления передайте человеку сами: по подписке вызова, создавшего заявку, он считается дошедшим до человека)');
-    expect(rules.NOTIFY_RESPONSE_RULES_EN).toContain("2xx means delivered (relay a tour operator's answer from an accepted notification to the person yourself: on a subscription made by the call that created the request it counts as delivered to the person)");
+    expect(rules.NOTIFY_RESPONSE_RULES).toContain('2xx — доставлено (ответ туроператора, перевозчика или прокатчика из принятого уведомления передайте человеку сами: по подписке вызова, создавшего заявку, он считается дошедшим до человека)');
+    expect(rules.NOTIFY_RESPONSE_RULES_EN).toContain("2xx means delivered (relay a tour operator's, carrier's or car rental company's answer from an accepted notification to the person yourself: on a subscription made by the call that created the request it counts as delivered to the person)");
+  });
+
+  it('«Не могу» перевозчика (этап 2б-2): принятое уведомление отмечает запись журнала — своим запросом, не запросом кнопки туроператора', async () => {
+    const { NOTICE_SHOWN_BY_ACTIVITY_SQL, NOTICE_SHOWN_SQL } = await import('@/lib/requests/answer-notice-mark');
+    const clock = { now: T0 };
+    const db = fakeDb(clock);
+    const declined = { tool_name: 'request_charter', lead_partner_answer: 'decline', lead_partner_answer_id: '901', lead_status: 'lost' };
+    db.add({ view: { opens_chat: true, tool_name: 'request_charter' }, change: declined });
+    db.add({ view: { opens_chat: false, tool_name: 'request_charter' }, change: { ...declined, lead_partner_answer_id: '902' } });
+    const { send } = fakeSend(clock, () => OK);
+    query.mockReset();
+    query.mockResolvedValue({ rows: [], rowCount: 1 });
+    const r = await runRequestNotify({ query: db.query, send, now: () => clock.now });
+    expect(r.delivered).toBe(2);
+    expect(query.mock.calls.filter((c) => c[0] === NOTICE_SHOWN_BY_ACTIVITY_SQL).map((c) => c[1])).toEqual([['901', 'agent_webhook']]);
+    expect(query.mock.calls.filter((c) => c[0] === NOTICE_SHOWN_SQL)).toEqual([]);
   });
 
   it('только названные ключи: без истечения, уборки и сверки молчания', async () => {

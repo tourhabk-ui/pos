@@ -46,10 +46,10 @@ import { pool } from '@/lib/db-pool';
 import { decryptBound, encryptBound, hasEncryptionKey } from '@/lib/encryption';
 import { logText } from '@/lib/log/log-text';
 import {
-  REQUEST_STATUS_BY_KEY_IDS_SQL, buildRequestView, catalogTourOf, issueRequestKey, issueRequestKeyRecord, keyLine, shownTourAnswerId,
+  REQUEST_STATUS_BY_KEY_IDS_SQL, buildRequestView, catalogTourOf, issueRequestKey, issueRequestKeyRecord, keyLine, shownAnswerRef, type ShownAnswerRef,
   type IssuedRequestKey, type RequestCore, type RequestKeyTarget, type StatusRow,
 } from '@/lib/mcp/request-status';
-import { markNoticeShown } from '@/lib/requests/answer-notice-mark';
+import { markNoticeShown, markVehicleNoticeShown } from '@/lib/requests/answer-notice-mark';
 import type { RequestKind, RequestState } from '@/lib/mcp/request-status-schema';
 import {
   NOTIFY_CHANGED_FIELDS, NOTIFY_DISABLED_REASONS, NOTIFY_HOW_TO_VERIFY, NOTIFY_MAX_FAILURES, NOTIFY_RESPONSE_RULES,
@@ -526,7 +526,7 @@ interface Due {
   previous: NotifySnapshot | null;
   toolName: string;
   /** Ответ оператора кнопкой, из которого построен вид (ключ новой заявки): принятое уведомление — его доставка. */
-  answerId: string | null;
+  answerRef: ShownAnswerRef | null;
 }
 
 function previousOf(l: LiveRow): NotifySnapshot | null {
@@ -638,7 +638,7 @@ export async function runRequestNotify(deps: NotifyRunDeps = {}): Promise<Notify
         res.changed++;
         if (!previous) res.baseline_unknown++;
         if (l.next_attempt_at !== null && time(l.next_attempt_at) - NOTIFY_DUE_SLACK_MIN * 60_000 > nowMs) continue;
-        due.push({ live: l, core, snap, fp, previous, toolName: row.tool_name, answerId: row.opens_chat === true ? shownTourAnswerId(row) : null });
+        due.push({ live: l, core, snap, fp, previous, toolName: row.tool_name, answerRef: row.opens_chat === true ? shownAnswerRef(row) : null });
       }
       res.due = due.length;
       if (reverted.length > 0) {
@@ -708,7 +708,9 @@ export async function runRequestNotify(deps: NotifyRunDeps = {}): Promise<Notify
           res.delivered++;
           await record(DELIVERED_SQL, [d.live.id, d.snap.state, d.snap.date, d.snap.alt_date, d.snap.tour, d.snap.participants, d.fp, sha256(body)]);
           // Агент принял вид с ответом оператора — ответ до человека дошёл (2б).
-          if (d.answerId) await markNoticeShown(d.answerId, 'agent_webhook');
+          // Тур — по номеру кнопки, машина и прокат — по записи журнала (2б-2).
+          if (d.answerRef?.source === 'tour') await markNoticeShown(d.answerRef.id, 'agent_webhook');
+          else if (d.answerRef?.source === 'vehicle') await markVehicleNoticeShown(d.answerRef.id, 'agent_webhook');
           return 'done';
         }
         console.warn(line);

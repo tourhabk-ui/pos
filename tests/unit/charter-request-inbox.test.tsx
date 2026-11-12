@@ -69,6 +69,40 @@ describe('«Входящие» перевозчика', () => {
     expect(calls.find((c) => c.method === 'POST')?.body).toEqual({ answer: 'decline' });
   });
 
+  it('«Не могу» (этап 2б-2): подсказка называет сообщение заказчику, итог — исход отправки; не дошло — предупреждением по признаку сервера', async () => {
+    answerReply = { status: 200, body: { success: true, outcome: 'charter_decline', attention: false, message: 'Ваш ответ: не могу. Заказчику ушло сообщение в MAX: ваш ответ.' } };
+    render(<InboxScreen />);
+    await screen.findByText('Вулкан Горелый');
+    expect(screen.getByText(/«Не могу» — заказчику уйдёт сообщение об этом/)).toBeTruthy();
+    expect(screen.queryByText(/остаётся у менеджера/)).toBeNull();
+    fireEvent.click(screen.getByRole('button', { name: 'Не могу' }));
+    const ok = await screen.findByRole('status');
+    expect(ok.textContent).toContain('Заказчику ушло сообщение в MAX');
+    expect(ok.className).toContain('--success');
+    cleanup();
+
+    // Слова «не ушло» в тексте нет — тон берётся из признака, а не из угаданной фразы.
+    answerReply = { status: 200, body: { success: true, outcome: 'charter_decline', attention: true, message: 'Ваш ответ: не могу. Заказчику сообщить не удалось: чат с ним не подключён. Заявку с телефоном получил менеджер Ведара — он позвонит.' } };
+    render(<InboxScreen />);
+    await screen.findByText('Вулкан Горелый');
+    fireEvent.click(screen.getByRole('button', { name: 'Не могу' }));
+    const warn = await screen.findByRole('status');
+    expect(warn.textContent).toContain('Заказчику сообщить не удалось');
+    expect(warn.className).toContain('--warning');
+    cleanup();
+
+    // Связь оборвалась: ответ мог записаться — экран не утверждает обратного.
+    vi.stubGlobal('fetch', vi.fn(async (url: string) => {
+      if (String(url).startsWith(CRM_INBOX_API)) return { ok: true, status: 200, json: async () => inboxBody } as Response;
+      throw new Error('offline');
+    }));
+    render(<InboxScreen />);
+    await screen.findByText('Вулкан Горелый');
+    fireEvent.click(screen.getByRole('button', { name: 'Не могу' }));
+    const lost = await screen.findByText(/Записан ли ответ — неизвестно/);
+    expect(lost.textContent).not.toMatch(/ответ не отправлен/);
+  });
+
   it('«Поездка состоялась?» (#2862 этап B): кнопки исхода, «состоялась» уходит в дверь сайта, итог — над списком', async () => {
     inboxBody = inbox('transfer', 'charter_ride');
     answerReply = { status: 200, body: { success: true, outcome: 'held', message: 'Записано: поездка состоялась. Заказчику отправлена ссылка на отзыв о вас.' } };

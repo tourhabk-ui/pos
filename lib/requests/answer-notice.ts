@@ -6,7 +6,7 @@
  * До этой правки «Нет мест», «Отказать» и «Другая дата» туристу не уходили
  * никак — ответ видел только тот, кто сам открыл статус. Теперь сразу в
  * нажатии оператора:
- *  1. вид заявки по-прежнему построен из этого ответа (shownTourAnswerId) —
+ *  1. вид заявки по-прежнему построен из этого ответа (shownAnswerRef) —
  *     иначе сообщать не о чем: бронь, новая дата, ответ перерос статус;
  *  2. чаты человека — те, что вправе нажимать даты этой заявки: связь чата с
  *     ключом НОВОЙ заявки (`opens_chat`), `guest_max_chat_id`, Telegram старых
@@ -33,6 +33,13 @@
  * Письмо менеджеру из добивки уходит, только пока вид заявки — из этого
  * ответа: бронь или новая дата делают звонок с прежним отказом неправдой.
  *
+ * Машина целиком и прокат (этап 2б-2, слово владельца 12.11 «1 да»): «Не
+ * могу» перевозчика или прокатчика — та же строка и та же отправка, только
+ * ответ лежит в журнале заявки (`activity_id`, 1425), а не в кнопке
+ * туроператора. Дат рядом у них нет. Направление заявки на машину — свободный
+ * ввод заказчика (адрес, имя): в Telegram (чат заказчика, заглушка менеджеру)
+ * оно не уходит вовсе; название машины проката — из прайса прокатчика.
+ *
  * Логи — номер заявки, канал и код. Ни id чатов, ни текста ошибок MAX (там
  * может быть id), ни имени и телефона.
  */
@@ -45,11 +52,12 @@ import { LEAD_ANSWER_DATE_SQL } from '@/lib/requests/answer-date';
 import { DECLINE_REASONS, type DeclineReason } from '@/lib/requests/chat-answer-buttons';
 import { MY_TRIP_DATE_ACTIONS_SQL, myTripDatePressable } from '@/lib/requests/my-trip-date';
 import { kamchatkaToday } from '@/lib/seat-requests/core';
-import { REQUEST_STATUS_BY_LEAD_SQL, groupPassedOnAnswer, shownTourAnswerId, type StatusRow } from '@/lib/mcp/request-status';
+import { REQUEST_STATUS_BY_LEAD_SQL, groupPassedOnAnswer, shownAnswerRef, type ShownAnswerRef, type StatusRow } from '@/lib/mcp/request-status';
+import { redactPII } from '@/lib/security/pii-redact';
 import type { NotifyRunResult } from '@/lib/mcp/request-notify';
 import {
-  answerWantsDates, managerClearedText, managerUndeliveredText, touristAnswerText, undeliveredWhy,
-  type DatesBlock, type ManagerChannel, type NoticeAnswer, type NoticeFacts, type NoticeOutcome,
+  answerWantsDates, managerClearedText, managerUndeliveredText, personOf, touristAnswerText, undeliveredWhy,
+  type DatesBlock, type ManagerChannel, type NoticeAnswer, type NoticeFacts, type NoticeKind, type NoticeOutcome,
 } from '@/lib/requests/answer-notice-text';
 import type { PdAlertParams, PdAlertResult } from '@/lib/notifications/pd-alert';
 
@@ -97,9 +105,19 @@ export interface NoticeDeps {
 
 const TOUR_ID_SQL = `CASE WHEN l.source_data->>'tour_id' ~ '^[0-9]{1,18}$' THEN (l.source_data->>'tour_id')::bigint END`;
 
-/** Строка сообщения и факты заявки для слов — без имени и телефона. */
+/**
+ * Строка сообщения и факты заявки для слов — без имени и телефона. Ответ —
+ * либо кнопка туроператора (`answer_id`), либо запись журнала перевозчика или
+ * прокатчика (`activity_id`, 1425): тогда род, предмет и даты заявки — из
+ * деталей этой записи, как их видел партнёр в момент ответа. Ответивший у
+ * машины и проката — адресат заявки: чужую заявку ответ не записывает
+ * (loadOwnedRentalRequest), а другим партнёрам такие заявки не передаются.
+ */
 export const NOTICE_FACTS_SQL = `
-  SELECT n.id::text AS id, n.lead_id::text AS lead_id, n.answer_id::text AS answer_id, n.answer, n.decline_reason,
+  SELECT n.id::text AS id, n.lead_id::text AS lead_id, n.answer_id::text AS answer_id, n.activity_id::text AS activity_id,
+         n.answer, n.decline_reason,
+         al.details->>'kind' AS vehicle_kind, al.details->>'car_title' AS vehicle_title,
+         al.details->>'date_from' AS vehicle_from, al.details->>'date_to' AS vehicle_to,
          n.state, n.skipped_reason, n.delivered_via, n.tried, n.attempts, n.manager_channel,
          (n.manager_alerted_at IS NOT NULL) AS manager_alerted, (n.manager_cleared_at IS NOT NULL) AS manager_cleared,
          l.status AS lead_status,
@@ -116,9 +134,10 @@ export const NOTICE_FACTS_SQL = `
          ${MY_TRIP_DATE_ACTIONS_SQL} AS date_actions
     FROM answer_notices n
     JOIN leads l ON l.id = n.lead_id
-    JOIN partner_incoming_answers pa ON pa.id = n.answer_id
+    LEFT JOIN partner_incoming_answers pa ON pa.id = n.answer_id
+    LEFT JOIN lead_activity_log al ON al.id = n.activity_id
     LEFT JOIN operator_tours ot ON ot.id = ${TOUR_ID_SQL}
-    LEFT JOIN partners p ON p.id = pa.partner_id
+    LEFT JOIN partners p ON p.id = COALESCE(pa.partner_id, l.operator_id)
    WHERE n.id = $1::bigint`;
 
 /**
@@ -254,7 +273,14 @@ export const NOTICE_STUCK_SQL = `
 interface NoticeRow {
   id: string;
   lead_id: string;
-  answer_id: string;
+  /** Кнопка туроператора; у машины и проката — null. */
+  answer_id: string | null;
+  /** Запись журнала с ответом перевозчика или прокатчика; у тура — null. */
+  activity_id: string | null;
+  vehicle_kind: string | null;
+  vehicle_title: string | null;
+  vehicle_from: string | null;
+  vehicle_to: string | null;
   answer: NoticeAnswer;
   decline_reason: string | null;
   state: 'pending' | 'delivered' | 'undelivered' | 'skipped';
@@ -321,8 +347,13 @@ export function agentLegCode(r: NotifyRunResult | null | undefined): string {
   return 'exception';
 }
 
-/** Исход по записанной строке — для повторного нажатия и после чужой записи. */
-export function outcomeOfRow(r: Pick<NoticeRow, 'state' | 'skipped_reason' | 'delivered_via' | 'tried' | 'manager_channel'>): NoticeOutcome {
+/**
+ * Исход по записанной строке — для повторного нажатия и после чужой записи.
+ * `held` — строку «ждёт» ещё держит захват нажатия: отправка идёт сейчас.
+ */
+export function outcomeOfRow(
+  r: Pick<NoticeRow, 'state' | 'skipped_reason' | 'delivered_via' | 'tried' | 'manager_channel'> & { held?: boolean | null },
+): NoticeOutcome {
   switch (r.state) {
     case 'delivered':
       return { state: 'delivered', via: r.delivered_via ?? 'max', dates: [] };
@@ -335,7 +366,7 @@ export function outcomeOfRow(r: Pick<NoticeRow, 'state' | 'skipped_reason' | 'de
     case 'skipped':
       return { state: 'skipped', reason: r.skipped_reason ?? 'outgrown' };
     default:
-      return { state: 'pending' };
+      return r.held === true ? { state: 'pending', sending: true } : { state: 'pending' };
   }
 }
 
@@ -348,10 +379,39 @@ function isDeclineReason(v: unknown): v is DeclineReason {
   return typeof v === 'string' && (DECLINE_REASONS as readonly string[]).includes(v);
 }
 
+/** Род заявки строки: журнал без `kind` — прокат (так писали до 30.10). */
+function kindOf(r: Pick<NoticeRow, 'activity_id' | 'vehicle_kind'>): NoticeKind {
+  if (!r.activity_id) return 'tour';
+  return r.vehicle_kind === 'charter' ? 'charter' : 'rental';
+}
+
+/** Ответ, на который ссылается строка, — в той же форме, что у вида заявки. */
+function refOf(r: Pick<NoticeRow, 'answer_id' | 'activity_id'>): ShownAnswerRef | null {
+  if (r.activity_id) return { source: 'vehicle', id: r.activity_id };
+  return r.answer_id ? { source: 'tour', id: r.answer_id } : null;
+}
+
+/** Вид заявки по-прежнему построен из ответа этой строки. */
+function viewHolds(status: StatusRow | undefined, r: Pick<NoticeRow, 'answer_id' | 'activity_id'>): boolean {
+  if (!status) return false;
+  const shown = shownAnswerRef(status);
+  const mine = refOf(r);
+  return shown !== null && mine !== null && shown.source === mine.source && shown.id === mine.id;
+}
+
+/** Где смотреть других: витрина перевозчиков или проката. */
+const OFFERS_PATH: Record<Exclude<NoticeKind, 'tour'>, string> = { charter: '/transfers', rental: '/car-rental' };
+
 function factsOf(r: NoticeRow, st: StatusRow | undefined): NoticeFacts {
   const reason = isDeclineReason(r.decline_reason) ? r.decline_reason : null;
+  const kind = kindOf(r);
   return {
     leadId: r.lead_id,
+    kind,
+    ...(kind === 'tour' ? {} : {
+      vehicleTitle: r.vehicle_title, vehicleFrom: r.vehicle_from, vehicleTo: r.vehicle_to,
+      offersUrl: `${getPublicBaseUrl()}${OFFERS_PATH[kind]}`,
+    }),
     answer: r.answer,
     reason,
     tourTitle: r.tour_title,
@@ -365,7 +425,8 @@ function factsOf(r: NoticeRow, st: StatusRow | undefined): NoticeFacts {
 
 /** Свободные даты рядом с датой заявки — без текущей и без прежних «Нет мест». */
 async function datesOf(r: NoticeRow, f: NoticeFacts, load: typeof loadFreeDatesNear): Promise<DatesBlock> {
-  if (!answerWantsDates(f)) return { kind: 'skip' };
+  // У машины и проката календаря дат нет: заказчик называет их сам.
+  if (personOf(f.kind) === 'client' || !answerWantsDates(f)) return { kind: 'skip' };
   const tourId = r.tour_id === null ? NaN : Number(r.tour_id);
   // Тура нет на витрине — других его дат не предлагаем: заявку на них не оставить.
   if (!Number.isFinite(tourId) || !r.tour_public || !r.lead_date) return { kind: 'skip' };
@@ -432,6 +493,20 @@ async function pdAlertInTime(p: PdAlertParams, deps: NoticeDeps): Promise<PdAler
   return r.ok ? r.value : r.why;
 }
 
+/**
+ * Те же факты для Telegram (критика 11.11, п. 7; ревью 2б-2, п. 5).
+ * Направление заявки на машину — свободный ввод заказчика: телефон и почту
+ * из него вырезать можно, адрес и имя — нет, поэтому туда оно не уходит
+ * вовсе, а текст говорит «в заявке». Название машины проката — из прайса
+ * прокатчика; чистка на нём — страховка, не правило.
+ */
+export function telegramSafeFacts(f: NoticeFacts): NoticeFacts {
+  if (!f.vehicleTitle) return f;
+  return f.kind === 'charter'
+    ? { ...f, vehicleTitle: null, vehicleTitleHidden: true }
+    : { ...f, vehicleTitle: redactPII(f.vehicleTitle) };
+}
+
 /** Менеджеру: до человека не дошло. Канал письма — в строку; «дошло» — только при канале. */
 async function alertManager(
   q: Query, r: NoticeRow, f: NoticeFacts, tried: string[], dates: string[], deps: NoticeDeps,
@@ -443,7 +518,8 @@ async function alertManager(
     const msg = managerUndeliveredText(f, { name: contact.name ?? null, phone: contact.phone ?? null }, tried, dates);
     const res = await pdAlertInTime({
       text: msg.text,
-      stub: msg.stub,
+      // Заглушка уходит в Telegram: слова заказчика — только после чистки.
+      stub: managerUndeliveredText(telegramSafeFacts(f), { name: null, phone: null }, tried, dates).stub,
       buttons: [{ text: 'Заявки в админке', url: `${getPublicBaseUrl()}/hub/admin/leads` }],
     }, deps);
     if (typeof res === 'string') {
@@ -475,7 +551,7 @@ export async function deliverAnswerNotice(noticeId: string, deps: NoticeDeps = {
     // 1. Вид заявки построен из этого ответа — иначе сообщать не о чем.
     const { rows: [st] } = await q(REQUEST_STATUS_BY_LEAD_SQL, [r.lead_id]);
     const status = st as StatusRow | undefined;
-    if (!status || shownTourAnswerId(status) !== r.answer_id) {
+    if (!viewHolds(status, r)) {
       await q(NOTICE_SKIPPED_SQL, [r.id, 'outgrown']);
       return outcomeOfRow((await readRow(q, noticeId)) ?? { ...r, state: 'skipped', skipped_reason: 'outgrown' });
     }
@@ -494,7 +570,7 @@ export async function deliverAnswerNotice(noticeId: string, deps: NoticeDeps = {
     const tried: string[] = [];
     const targets = (await q(NOTICE_TARGETS_SQL, [r.lead_id])).rows as Array<{ channel: 'max' | 'telegram'; chat_id: string; can_pick: boolean }>;
     for (const t of targets) {
-      const msg = touristAnswerText(f, dates, t.can_pick === true && !r.trip_part && pressable);
+      const msg = touristAnswerText(t.channel === 'telegram' ? telegramSafeFacts(f) : f, dates, t.can_pick === true && !r.trip_part && pressable);
       const send = t.channel === 'max' ? (deps.sendMax ?? defaultSendMax) : (deps.sendTelegram ?? defaultSendTelegram);
       const res = await sendInTime(send(String(t.chat_id), msg.text, msg.buttons));
       if (res.ok) {
@@ -534,7 +610,8 @@ export async function deliverAnswerNotice(noticeId: string, deps: NoticeDeps = {
 
 /** Исход сообщения по ответу этого партнёра на эту дату заявки — повторное нажатие оператора. */
 export const NOTICE_BY_ANSWER_SQL = `
-  SELECT n.state, n.skipped_reason, n.delivered_via, n.tried, n.manager_channel
+  SELECT n.state, n.skipped_reason, n.delivered_via, n.tried, n.manager_channel,
+         (n.claimed_until > NOW()) AS held
     FROM answer_notices n
     JOIN partner_incoming_answers pa ON pa.id = n.answer_id
    WHERE pa.subject_kind = 'lead' AND pa.subject_id = $1::text AND pa.partner_id = $2::uuid
@@ -547,6 +624,27 @@ export async function readNoticeOutcomeFor(
   const q: Query = deps.query ?? ((sql, params) => pool.query(sql, params));
   try {
     const { rows: [row] } = await q(NOTICE_BY_ANSWER_SQL, [leadId, partnerId, date]);
+    return row ? outcomeOfRow(row as NoticeRow) : null;
+  } catch (err) {
+    console.error(`${LOG} заявка ${leadId}: исход сообщения не прочитан, SQLSTATE`, codeOf(err));
+    return null;
+  }
+}
+
+/** Исход сообщения по ответу перевозчика или прокатчика: ответ на заявку один (индекс 1326). */
+export const NOTICE_BY_VEHICLE_LEAD_SQL = `
+  SELECT n.state, n.skipped_reason, n.delivered_via, n.tried, n.manager_channel,
+         (n.claimed_until > NOW()) AS held
+    FROM answer_notices n
+   WHERE n.lead_id = $1::uuid AND n.activity_id IS NOT NULL
+   ORDER BY n.id DESC
+   LIMIT 1`;
+
+/** null — сообщения по этой заявке нет («Беру» или ответ до 1425) или не прочиталось. */
+export async function readVehicleNoticeOutcome(leadId: string, deps: NoticeDeps = {}): Promise<NoticeOutcome | null> {
+  const q: Query = deps.query ?? ((sql, params) => pool.query(sql, params));
+  try {
+    const { rows: [row] } = await q(NOTICE_BY_VEHICLE_LEAD_SQL, [leadId]);
     return row ? outcomeOfRow(row as NoticeRow) : null;
   } catch (err) {
     console.error(`${LOG} заявка ${leadId}: исход сообщения не прочитан, SQLSTATE`, codeOf(err));
@@ -604,7 +702,7 @@ export async function runAnswerNotices(deps: NoticeDeps = {}): Promise<NoticeRun
       if (!r) continue;
       if (r.state === 'delivered') {
         if (!r.manager_alerted || r.manager_cleared) continue;
-        const text = managerClearedText(r.lead_id, outcomeOfRow(r) as NoticeOutcome & { state: 'delivered' });
+        const text = managerClearedText(r.lead_id, outcomeOfRow(r) as NoticeOutcome & { state: 'delivered' }, kindOf(r));
         const sent = await pdAlertInTime({ text, stub: text }, deps);
         if (typeof sent !== 'string' && sent.channel !== 'none') {
           await q(NOTICE_CLEARED_SQL, [r.id]);
@@ -616,7 +714,7 @@ export async function runAnswerNotices(deps: NoticeDeps = {}): Promise<NoticeRun
       // или новой даты звонок с прежним отказом был бы неправдой.
       const { rows: [st] } = await q(REQUEST_STATUS_BY_LEAD_SQL, [r.lead_id]);
       const status = st as StatusRow | undefined;
-      const holds = status !== undefined && shownTourAnswerId(status) === r.answer_id;
+      const holds = viewHolds(status, r);
       const f = factsOf(r, status);
       if (r.state === 'pending') {
         if (!holds) {

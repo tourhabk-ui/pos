@@ -838,7 +838,36 @@ describe('правило доставки ответа: слова агенту 
       const marks = await marksAfter({ ...ANSWERED, ...row, lead_answer: answer }, () => runRequestStatusTool({ key: KEY }));
       expect(marks, answer).toEqual([['77', 'agent_read']]);
     }
-    expect(ANSWER_RELAY_RULE).toMatch(/^Ответ туроператора из статуса передайте человеку сами/);
+    expect(ANSWER_RELAY_RULE).toMatch(/^Ответ туроператора, перевозчика или прокатчика из статуса передайте человеку сами/);
+  });
+
+  it('«Не могу» перевозчика и прокатчика (этап 2б-2): чтение отмечает запись журнала, а не кнопку туроператора, — и правило называет обоих', async () => {
+    const { NOTICE_SHOWN_BY_ACTIVITY_SQL, NOTICE_SHOWN_SQL } = await import('@/lib/requests/answer-notice-mark');
+    const vehicleMarks = async (row: StatusRow, read: () => Promise<unknown> = () => runRequestStatusTool({ key: KEY })) => {
+      query.mockReset();
+      query.mockImplementation(async (sql: string) => (sql === NOTICE_SHOWN_BY_ACTIVITY_SQL || sql === NOTICE_SHOWN_SQL ? { rows: [], rowCount: 1 } : { rows: [row] }));
+      await read();
+      // Отметка по кнопке туроператора у заявки на машину — ошибка источника: её быть не должно.
+      expect(query.mock.calls.filter((c) => c[0] === NOTICE_SHOWN_SQL)).toEqual([]);
+      return query.mock.calls.filter((c) => c[0] === NOTICE_SHOWN_BY_ACTIVITY_SQL).map((c) => c[1]);
+    };
+    const CHARTER: StatusRow = {
+      ...TOUR_LEAD, tool_name: 'request_charter', lead_requested_date: null, lead_tour: null, opens_chat: true,
+      lead_status: 'lost', lead_partner_answer: 'decline', lead_partner_answer_id: '901',
+    };
+    const RENTAL: StatusRow = { ...CHARTER, tool_name: 'create_car_rental_request', lead_status: 'new' };
+    expect(await vehicleMarks(CHARTER)).toEqual([['901', 'agent_read']]);
+    expect(await vehicleMarks(RENTAL)).toEqual([['901', 'agent_read']]);
+    // Заявка из кода между каналами: род — по самой заявке.
+    expect(await vehicleMarks({ ...CHARTER, tool_name: 'handoff:max', lead_kind: 'charter' })).toEqual([['901', 'agent_read']]);
+    // Ключ повтора, чтение без читателя, статус перерос ответ, «Беру» без строки сообщения — отметки нет.
+    expect(await vehicleMarks({ ...CHARTER, opens_chat: false })).toEqual([]);
+    expect(await vehicleMarks(CHARTER, () => readRequestStatus(KEY))).toEqual([]);
+    expect(await vehicleMarks({ ...RENTAL, lead_status: 'contacted' })).toEqual([]);
+    expect(await vehicleMarks({ ...CHARTER, lead_partner_answer_id: null })).toEqual([]);
+    // По заявке заведена бронь — говорит она, а не прежний отказ.
+    expect(await vehicleMarks({ ...CHARTER, booking_status: 'confirmed' })).toEqual([]);
+    for (const who of ['перевозчика', 'прокатчика']) expect(ANSWER_RELAY_RULE, who).toContain(who);
   });
 
   it('ключ повтора и чтение без читателя доставкой не считаются — оговорка о ключе в правиле не лишняя', async () => {

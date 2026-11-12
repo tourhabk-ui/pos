@@ -8,6 +8,11 @@
  * у проката, ни у перевозчика. В деталях — `kind` и `at` (ISO из
  * приложения: у `created_at` таблицы тип без зоны, см. delivery-outcome), по
  * `at` «Входящие» перевозчика считают время первого ответа.
+ *
+ * «Не могу» в той же транзакции рождает строку сообщения заказчику
+ * (`answer_notices.activity_id`, 1425; план «после отказа», этап 2б-2):
+ * откат ответа уносит и её, повтор нажатия второй строки не даёт. Отправляет
+ * её вызывающий (lib/requests/answer-notice) уже после фиксации.
  */
 
 import type { PoolClient } from 'pg';
@@ -201,8 +206,35 @@ export async function readPartnerAnswer(leadId: string): Promise<RequestAnswer |
   }
 }
 
+/**
+ * Строка сообщения заказчику, рождённая ответом «Не могу». Сразу «пропущено»,
+ * если заявка не этого партнёра, своя проба или уже закрыта до ответа —
+ * тот же выбор, что у ответа туроператора (CHAT_ANSWER_INSERT_SQL). Иначе —
+ * «ждёт» с захватом на 5 минут: отправляет нажатие, добивка берёт строку
+ * только после захвата.
+ */
+export const VEHICLE_NOTICE_INSERT_SQL = `
+  INSERT INTO answer_notices (lead_id, activity_id, answer, lead_status_before,
+                              state, skipped_reason, claimed_until, decided_at)
+  SELECT l.id, $2::bigint, 'decline', l.status,
+         CASE WHEN s.skip IS NULL THEN 'pending' ELSE 'skipped' END, s.skip,
+         CASE WHEN s.skip IS NULL THEN NOW() + INTERVAL '5 minutes' END,
+         CASE WHEN s.skip IS NOT NULL THEN NOW() END
+    FROM leads l
+   CROSS JOIN LATERAL (
+     SELECT CASE WHEN l.operator_id IS DISTINCT FROM $3::uuid THEN 'not_addressee'
+                 WHEN l.is_self THEN 'self'
+                 WHEN l.status IN ('lost', 'converted') THEN 'lead_closed' END AS skip
+   ) s
+   WHERE l.id = $1::uuid
+  RETURNING id::text AS id, state, skipped_reason`;
+
+/** Запись о сообщении заказчику, рождённая этим ответом. */
+export interface NewVehicleNotice { id: string; state: 'pending' | 'skipped'; skipped: string | null }
+
 export type ClaimAnswer =
-  | { outcome: 'saved'; marked: number | null }
+  /** `notice` — только у «Не могу»: о «Беру» заказчику говорит сам партнёр. */
+  | { outcome: 'saved'; marked: number | null; notice: NewVehicleNotice | null }
   | { outcome: 'already'; answer: RequestAnswer }
   | { outcome: 'db_error' };
 
@@ -253,9 +285,10 @@ export async function claimPartnerAnswer(opts: {
       }
       if (wrote.outcome === 'saved') marked = wrote.marked;
     }
-    await client.query(
+    const logged = await client.query<{ id: string }>(
       `INSERT INTO lead_activity_log (lead_id, actor, action, details)
-       VALUES ($1::uuid, 'partner', 'partner_answered', $2::jsonb)`,
+       VALUES ($1::uuid, 'partner', 'partner_answered', $2::jsonb)
+       RETURNING id::text AS id`,
       [opts.leadId, JSON.stringify({
         answer: opts.answer,
         kind: opts.kind ?? 'car_rental',
@@ -267,8 +300,17 @@ export async function claimPartnerAnswer(opts: {
         days_marked: marked,
       })],
     );
+    let notice: NewVehicleNotice | null = null;
+    if (opts.answer === 'decline') {
+      const activityId = logged.rows[0]?.id;
+      const { rows: [n] } = await client.query<{ id: string; state: 'pending' | 'skipped'; skipped_reason: string | null }>(
+        VEHICLE_NOTICE_INSERT_SQL, [opts.leadId, activityId, opts.partnerId],
+      );
+      // Заявка стёрта между чтением и ответом — журнал упал бы раньше (FK); сюда строка приходит всегда.
+      notice = n ? { id: n.id, state: n.state, skipped: n.skipped_reason } : null;
+    }
     await client.query('COMMIT');
-    return { outcome: 'saved', marked };
+    return { outcome: 'saved', marked, notice };
   } catch (err) {
     try {
       await client.query('ROLLBACK');

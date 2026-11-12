@@ -79,6 +79,35 @@ describe('экран «Прокат»', () => {
     await waitFor(() => expect(screen.getByRole('status').textContent).toMatch(/отмечены занятыми \(2\)/));
   });
 
+  it('«Не могу» (этап 2б-2): вопрос называет сообщение заказчику; не дошло — итог предупреждением, обрыв связи — «неизвестно», а не «не записан»', async () => {
+    const answer = async (reply: () => Promise<Response>) => {
+      fetchMock.mockImplementation((url: string) => (String(url).endsWith(`/requests/${LEAD}`) ? reply() : ok(cabinet())));
+      render(<RentalClient />);
+      const card = await screen.findByTestId(`request-${LEAD}`);
+      expect(screen.getByText(/заказчику уйдёт сообщение об отказе — дошло ли, покажем после ответа/)).toBeTruthy();
+      fireEvent.click(within(card).getByRole('button', { name: /Не могу/ }));
+      expect(within(card).getByRole('group', { name: 'Подтверждение ответа' }).textContent).toMatch(/Заказчику уйдёт сообщение об отказе/);
+      fireEvent.click(within(card).getByRole('button', { name: 'Да, ответить' }));
+    };
+
+    await answer(() => ok(undefined, { attention: false, message: 'Ваш ответ: не могу. Дни не отмечал. Заказчику ушло сообщение в MAX: ваш ответ.' }));
+    const fine = await screen.findByRole('status');
+    await waitFor(() => expect(fine.textContent).toContain('Заказчику ушло сообщение в MAX'));
+    expect(fine.className).toContain('--success');
+    cleanup();
+
+    await answer(() => ok(undefined, { attention: true, message: 'Ваш ответ: не могу. Дни не отмечал. Заказчику сообщить не удалось: чат с ним не подключён.' }));
+    const warn = await screen.findByText(/Заказчику сообщить не удалось/);
+    expect(warn.className).toContain('--warning');
+    expect(warn.getAttribute('role')).toBe('status');
+    cleanup();
+
+    await answer(() => Promise.reject(new Error('offline')));
+    const lost = await screen.findByRole('alert');
+    expect(lost.textContent).toContain('Записан ли ответ — неизвестно');
+    expect(lost.textContent).not.toMatch(/Ответ не записан/);
+  });
+
   it('списки не прочитались — «не смогли прочитать», а не «нет»', async () => {
     fetchMock.mockImplementation(() => ok(cabinet({ cars: null, requests: null, edits: null })));
     render(<RentalClient />);
@@ -125,7 +154,7 @@ describe('экран «Прокат»', () => {
 describe('исход ответа — в статус и текст без разметки', () => {
   it.each([
     [{ kind: 'take', from: '2026-12-01', to: '2026-12-02', marked: 2 }, 200],
-    [{ kind: 'decline' }, 200],
+    [{ kind: 'decline', notice: null }, 200],
     [{ kind: 'take_no_car' }, 200],
     [{ kind: 'already', answer: 'take' }, 409],
     [{ kind: 'missing' }, 404],

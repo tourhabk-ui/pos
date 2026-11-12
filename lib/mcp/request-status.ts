@@ -373,6 +373,8 @@ export interface StatusRow {
   lead_answer?: string | null;
   lead_decline_reason?: string | null;
   lead_partner_answer?: string | null;
+  /** Номер записи журнала (lead_activity_log.id) с ответом перевозчика или прокатчика. */
+  lead_partner_answer_id?: string | null;
   /** Крон добивки отдал лид менеджеру (`source_data.escalated_to_admin`) — и поставил ему `contacted`. */
   lead_escalated?: boolean | null;
   /** Заявка на группу больше мест тура (`source_data.group_over_seats`) и кто от неё отказался (`declined_by`). */
@@ -759,6 +761,34 @@ export function shownTourAnswerId(row: StatusRow): string | null {
   return tourAnswerView(row.lead_answer, row.lead_decline_reason ?? null, status, null) ? row.lead_answer_id : null;
 }
 
+/**
+ * Номер записи журнала с ответом перевозчика или прокатчика, если вид заявки
+ * построен именно из него (план «после отказа», 2б-2): тогда сообщение о нём
+ * заказчику правдиво, а прочтение такого вида — доставка. null — бронь,
+ * статус перерос ответ или заявка не на машину.
+ */
+export function shownVehicleAnswerId(row: StatusRow): string | null {
+  if (!row.lead_partner_answer_id || !row.lead_partner_answer || row.booking_status) return null;
+  const purpose = consentPurposeOfKey(row);
+  if (purpose !== 'carrier' && purpose !== 'rental') return null;
+  return vehicleAnswerView(row.lead_partner_answer, purpose, row.lead_status ?? null) ? row.lead_partner_answer_id : null;
+}
+
+/**
+ * Ответ адресата, из которого построен вид заявки, — ссылкой для сообщения
+ * человеку (answer_notices): `tour` — кнопка туроператора
+ * (partner_incoming_answers), `vehicle` — запись журнала перевозчика или
+ * прокатчика. Два источника не пересекаются: род заявки один.
+ */
+export type ShownAnswerRef = { source: 'tour' | 'vehicle'; id: string };
+
+export function shownAnswerRef(row: StatusRow): ShownAnswerRef | null {
+  const tour = shownTourAnswerId(row);
+  if (tour) return { source: 'tour', id: tour };
+  const vehicle = shownVehicleAnswerId(row);
+  return vehicle ? { source: 'vehicle', id: vehicle } : null;
+}
+
 /** Ответ владельца жилья кнопкой (1359, lib/stay/owner-answer). Это не бронь. */
 function stayAnswerView(answer: string | null | undefined): AnswerView | null {
   switch (answer) {
@@ -827,7 +857,7 @@ const REQUEST_STATUS_SELECT = `
          (COALESCE(s.guest_max_chat_id, l.guest_max_chat_id) IS NOT NULL) AS chat_guest_on_max,
          n.ref AS notify_ref, n.disabled_reason AS notify_disabled_reason,
          pa.id::text AS lead_answer_id, pa.answer AS lead_answer, pa.decline_reason AS lead_decline_reason,
-         la.answer AS lead_partner_answer,
+         la.answer AS lead_partner_answer, la.id AS lead_partner_answer_id,
          (l.source_data->>'escalated_to_admin') = 'true' AS lead_escalated,
          (l.source_data->>'group_over_seats') = 'true' AS lead_group_over,
          l.source_data->>'declined_by' AS lead_declined_by,
@@ -845,7 +875,7 @@ const REQUEST_STATUS_SELECT = `
           -- Уникальность (предмет, партнёр, дата) — не больше строки на ключ.
           AND pa.subject_date IS NOT DISTINCT FROM ${LEAD_ANSWER_DATE_SQL('l')}
     LEFT JOIN LATERAL (
-      SELECT pal.details->>'answer' AS answer
+      SELECT pal.id::text AS id, pal.details->>'answer' AS answer
         FROM lead_activity_log pal
        WHERE pal.lead_id = k.lead_id AND pal.action = 'partner_answered'
        ORDER BY pal.id DESC
@@ -1152,11 +1182,12 @@ export async function readRequestStatus(rawKey: unknown, opts: StatusReader = {}
   const core = buildRequestView(row, Date.now());
   // Ответ оператора дошёл, если его прочитал держатель ключа новой заявки
   // (план «после отказа», 2б; слово владельца 11.11 «мы доверяем агенту»).
-  const shown = row.opens_chat === true ? shownTourAnswerId(row) : null;
+  const shown = row.opens_chat === true ? shownAnswerRef(row) : null;
   const via = opts.reader === 'agent' ? 'agent_read' : opts.reader === 'page' && opts.seen === true ? 'page_seen' : null;
   if (shown && via) {
-    const { markNoticeShown } = await import('@/lib/requests/answer-notice-mark');
-    await markNoticeShown(shown, via);
+    const { markNoticeShown, markVehicleNoticeShown } = await import('@/lib/requests/answer-notice-mark');
+    if (shown.source === 'tour') await markNoticeShown(shown.id, via);
+    else await markVehicleNoticeShown(shown.id, via);
   }
   return {
     ...core,

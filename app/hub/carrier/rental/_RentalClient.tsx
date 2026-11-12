@@ -36,10 +36,14 @@ type Load = { state: 'loading' } | { state: 'ok'; data: Cabinet } | { state: 'fa
 
 const rub = (n: number) => `${n.toLocaleString('ru-RU')} ₽`;
 
-async function readJson<T>(res: Response): Promise<{ ok: boolean; data?: T; message?: string; error?: string }> {
-  const body = (await res.json().catch(() => null)) as { success?: boolean; data?: T; message?: string; error?: string } | null;
+/** Итог действия над списком: успех, записано-но-не-дошло, отказ. */
+type FlashKind = 'ok' | 'warn' | 'err';
+
+async function readJson<T>(res: Response): Promise<{ ok: boolean; data?: T; message?: string; error?: string; attention?: boolean }> {
+  const body = (await res.json().catch(() => null)) as { success?: boolean; data?: T; message?: string; error?: string; attention?: boolean } | null;
   if (!res.ok || !body?.success) return { ok: false, error: body?.error ?? `Ошибка ${res.status}` };
-  return { ok: true, data: body.data, message: body.message };
+  // `attention` — ответ записан, а до заказчика не дошло: это предупреждение, не успех.
+  return { ok: true, data: body.data, message: body.message, attention: body.attention === true };
 }
 
 async function fetchCabinet(): Promise<Load> {
@@ -66,7 +70,7 @@ async function fetchDays(offerId: string): Promise<DaysLoad> {
 
 export default function RentalClient() {
   const [load, setLoad] = useState<Load>({ state: 'loading' });
-  const [flash, setFlash] = useState<{ kind: 'ok' | 'err'; text: string } | null>(null);
+  const [flash, setFlash] = useState<{ kind: FlashKind; text: string } | null>(null);
 
   useEffect(() => {
     let alive = true;
@@ -76,7 +80,7 @@ export default function RentalClient() {
 
   const reload = useCallback(() => { void fetchCabinet().then(setLoad); }, []);
 
-  const say = (kind: 'ok' | 'err', text: string) => setFlash({ kind, text });
+  const say = (kind: FlashKind, text: string) => setFlash({ kind, text });
 
   return (
     <div className="p-5 lg:p-6 max-w-3xl">
@@ -87,7 +91,7 @@ export default function RentalClient() {
       </p>
 
       {flash && (
-        <p role={flash.kind === 'err' ? 'alert' : 'status'} className={`text-sm mb-4 ${flash.kind === 'ok' ? 'text-[var(--success)]' : 'text-[var(--danger)]'}`}>
+        <p role={flash.kind === 'err' ? 'alert' : 'status'} className={`text-sm mb-4 ${flash.kind === 'ok' ? 'text-[var(--success)]' : flash.kind === 'warn' ? 'text-[var(--warning)]' : 'text-[var(--danger)]'}`}>
           {flash.text}
         </p>
       )}
@@ -245,7 +249,7 @@ function Requests({ requests, older, canWrite, say, onAnswered }: {
   requests: CabinetRequest[] | null;
   older: boolean;
   canWrite: boolean;
-  say: (k: 'ok' | 'err', t: string) => void;
+  say: (k: FlashKind, t: string) => void;
   onAnswered: () => void;
 }) {
   const [confirm, setConfirm] = useState<{ leadId: string; answer: 'take' | 'decline' } | null>(null);
@@ -257,11 +261,12 @@ function Requests({ requests, older, canWrite, say, onAnswered }: {
       const r = await readJson(await fetch(`/api/hub/carrier/rental/requests/${leadId}`, {
         method: 'POST', credentials: 'include', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ answer }),
       }));
-      say(r.ok ? 'ok' : 'err', r.ok ? (r.message ?? 'Ответ записан.') : (r.error ?? 'Ответ не записан.'));
+      say(!r.ok ? 'err' : r.attention ? 'warn' : 'ok', r.ok ? (r.message ?? 'Ответ записан.') : (r.error ?? 'Ответ не записан.'));
       setConfirm(null);
       onAnswered();
     } catch {
-      say('err', 'Нет связи с сервером. Ответ не записан.');
+      // Ответ мог записаться до обрыва связи: «не записан» было бы догадкой. Повтор безопасен — второго ответа не бывает.
+      say('err', 'Нет связи с сервером. Записан ли ответ — неизвестно: обновите страницу или нажмите ещё раз.');
     } finally {
       setBusyId(null);
     }
@@ -271,7 +276,7 @@ function Requests({ requests, older, canWrite, say, onAnswered }: {
     <section className="mb-8">
       <h2 className="ds-h2 mb-1 flex items-center gap-2"><Inbox size={16} /> Заявки</h2>
       <p className="text-xs text-[var(--text-secondary)] mb-3">
-        «Беру» отмечает дни машины занятыми и не закрепляет машину на сайте. «Не могу» дни не занимает. Ответ даётся один раз.
+        «Беру» отмечает дни машины занятыми и не закрепляет машину на сайте. «Не могу» дни не занимает; заказчику уйдёт сообщение об отказе — дошло ли, покажем после ответа. Ответ даётся один раз.
       </p>
       {requests === null && <Failed what="заявки" message="база не ответила" />}
       {requests !== null && requests.length === 0 && <p className="text-sm text-[var(--text-secondary)]">Заявок на прокат пока нет.</p>}
@@ -300,7 +305,7 @@ function Requests({ requests, older, canWrite, say, onAnswered }: {
               {canWrite && confirm?.leadId === r.leadId && (
                 <div className="flex flex-wrap items-center gap-2 mt-3 p-3 rounded-lg bg-[var(--bg-card)] border border-[var(--border)]" role="group" aria-label="Подтверждение ответа">
                   <span className="text-sm text-[var(--text-primary)]">
-                    {confirm.answer === 'take' ? 'Ответить «беру»? Дни заявки станут занятыми.' : 'Ответить «не могу»?'} Изменить ответ потом нельзя.
+                    {confirm.answer === 'take' ? 'Ответить «беру»? Дни заявки станут занятыми.' : 'Ответить «не могу»? Заказчику уйдёт сообщение об отказе.'} Изменить ответ потом нельзя.
                   </span>
                   <button type="button" className="ds-btn ds-btn-primary text-sm" disabled={busyId === r.leadId} onClick={() => void send(r.leadId, confirm.answer)}>
                     Да, ответить
