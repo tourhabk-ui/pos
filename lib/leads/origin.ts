@@ -112,6 +112,8 @@ const SOURCE_WORDS: Record<string, string> = {
   partner_site: 'сайт партнёра',
   transfer_page: 'сайт, страница перевозчика',
   car_rental_page: 'сайт, страница проката',
+  // Вопрос оператору о дате, закрытой Ведаром, с формы брони тура (этап 6б).
+  tour_page: 'сайт, форма брони тура',
 };
 
 const ACTOR_WORDS: Record<LeadActor, string> = { human: 'Человек', agent: 'ИИ-агент' };

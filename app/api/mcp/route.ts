@@ -66,6 +66,7 @@ import type { TourPlaceEntry } from '@/lib/mcp/place-status-schema';
 import { loadTourGroupFacts, groupOverSeats, groupOverSeatsLine, type GroupOverSeats } from '@/lib/mcp/booking-capacity';
 import { PLATFORM_CLOSED_LEAD_NOTE, otherCompaniesInTime, otherCompaniesNote, platformClosedAccepted, platformClosedTrial } from '@/lib/mcp/booking-closed-date';
 import { isClosedByPlatform } from '@/lib/tours/date-closure';
+import { tourRequestPrefix } from '@/lib/requests/tour-date-question';
 import { loadTourPlaceStatus, tourPlaceRequestNote, TOUR_PLACE_NOT_READ_NOTE } from '@/lib/safety/tour-place-status';
 import type { RequestKind, ConsentPurpose } from '@/lib/mcp/request-status-schema';
 import { logMcpToolCall, logMcpClient } from '@/lib/mcp/call-log';
@@ -615,7 +616,7 @@ async function executeCreateBookingRequest(rawArgs: Record<string, unknown>, ctx
     }
   }
 
-  const leadComment = `[Заявка на бронь] Тур "${tour.title}" (ID${tour.id}), дата ${date}, участников ${participants}.`
+  const leadComment = `${tourRequestPrefix(tour.title, tour.id, date)} участников ${participants}.`
     + (group ? ` Группа больше мест: ${groupOverSeatsLine(group)} Возьмёте ли всю группу (ещё машины, несколько выездов)?` : '')
     + (platformClosed ? PLATFORM_CLOSED_LEAD_NOTE : '')
     + (comment ? ` ${comment}` : '');
@@ -672,7 +673,8 @@ async function executeCreateBookingRequest(rawArgs: Record<string, unknown>, ctx
     + placeNote
     + planAttachNote(planAttach)
     + requestConfirmNote();
-  const bookingPrefix = `[Заявка на бронь] Тур "${tour.title}" (ID${tour.id}), дата ${date},`;
+  // Префикс один у MCP и у формы сайта (вопрос о дате, закрытой Ведаром): повтор узнаётся между дверями.
+  const bookingPrefix = tourRequestPrefix(tour.title, tour.id, date);
   const existing = await findRecentLeadByCommentPrefix(phone, bookingPrefix);
   // Повтор (тот же телефон, тур и дата за 24 ч) идёт тем же выходом, что и
   // новая заявка: текст тот же, второго лида нет, а ключ статуса — свой на

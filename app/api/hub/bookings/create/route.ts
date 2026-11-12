@@ -287,8 +287,11 @@ export async function POST(req: NextRequest) {
     // Отказ по существу: тур снят, дата закрыта, мест нет. Текст приходит из
     // общего модуля — тот же самый, что услышит турист в чате у Кузьмича.
     if (err instanceof ReserveError) {
+      // Код отказа — рядом со словами: по нему форма узнаёт дату, закрытую
+      // Ведаром, и предлагает спросить оператора (этап 6б). Слова по-прежнему
+      // главные: код их не заменяет.
       return NextResponse.json(
-        { created: false, error: err.message },
+        { created: false, error: err.message, code: err.code },
         { status: err.code === 'NOT_FOUND' ? 404 : 422 },
       );
     }
