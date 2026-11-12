@@ -693,6 +693,23 @@ export function classifyEqkam(id: string, text: string, datetime: string): Seism
 // `source_observed` в safety-ingest, одна строка на источник на прогон
 // (route.ts:54). Живость конвейера видна там, где ей место, и стоит
 // двухсотой доли прежнего объёма.
+/**
+ * Запрет подходить к вулкану — «Вулкан X: не приближаться» (#3275, 12.11).
+ * Суточная сводка МЧС повторяет его каждый день, и каждый день другими
+ * словами вокруг. Контент-дедуп сверял заголовок И описание, поэтому сводка
+ * 10.11 и сводка 11.11 давали две действующие строки на каждый вулкан
+ * (prod-check 177: Шивелуч, Ключевской, Безымянный, Крашенинникова — пары из
+ * vk_mchs с разными днями и разными описаниями). Для такого запрета повтор —
+ * тот же вулкан и тот же заголовок: описание не сверяется, повтор продлевает
+ * срок живой строки. Пеплопад, извержение и прочие события вулкана с другим
+ * заголовком сверяются по-прежнему целиком.
+ */
+export function isVolcanoApproachBan(event: Pick<SeismicEvent, 'alert_type' | 'volcano_name' | 'title'>): boolean {
+  return event.alert_type === 'volcanic_eruption'
+    && typeof event.volcano_name === 'string' && event.volcano_name.trim() !== ''
+    && /: не приближаться$/.test(event.title.trim());
+}
+
 export async function saveEvent(event: SeismicEvent): Promise<'inserted' | 'skipped'> {
   const payloadHash = hashPayload({
     alert_type: event.alert_type,
@@ -822,7 +839,8 @@ export async function saveEvent(event: SeismicEvent): Promise<'inserted' | 'skip
            FROM external_alerts
           WHERE alert_type = $1
             AND regexp_replace(lower(trim(title)), '\\s+', ' ', 'g') = regexp_replace(lower(trim($2)), '\\s+', ' ', 'g')
-            AND regexp_replace(lower(trim(COALESCE(description, ''))), '\\s+', ' ', 'g') = regexp_replace(lower(trim(COALESCE($3, ''))), '\\s+', ' ', 'g')
+            AND ($10::boolean
+                 OR regexp_replace(lower(trim(COALESCE(description, ''))), '\\s+', ' ', 'g') = regexp_replace(lower(trim(COALESCE($3, ''))), '\\s+', ' ', 'g'))
             AND expires_at > ${UTC_WALL_NOW_SQL}
             AND ended_by IS NULL
        ) prev
@@ -839,7 +857,8 @@ export async function saveEvent(event: SeismicEvent): Promise<'inserted' | 'skip
                  prev.affected_parks AS prev_parks`,
       [event.alert_type, event.title, event.description, expiresAt, event.severity, event.affected_zones, [...KRAI_FAR_ZONES],
         event.published_at_inferred ? null : event.published_at,
-        event.affected_parks && event.affected_parks.length > 0 ? event.affected_parks : null]
+        event.affected_parks && event.affected_parks.length > 0 ? event.affected_parks : null,
+        isVolcanoApproachBan(event)]
     );
     if ((dup.rowCount ?? 0) > 0) {
       // Запись только если срок ДЕЙСТВИТЕЛЬНО сдвинулся. Лента отдаёт один и
