@@ -15,7 +15,7 @@
 import { describe, it, expect, vi, beforeAll, beforeEach, afterEach } from 'vitest';
 import React from 'react';
 import { render, screen, cleanup, within } from '@testing-library/react';
-import { RequestOtherOffers, OTHER_OFFERS_FAILED_RU, type OtherOffersBlock } from '@/components/requests/RequestOtherOffers';
+import { RequestOtherOffers, OTHER_OFFERS_FAILED_RU, sitePath, type OtherOffersBlock } from '@/components/requests/RequestOtherOffers';
 import { RequestStatusClient } from '@/app/request-status/_RequestStatusClient';
 import { OTHER_OFFERS_NOT_ANSWER_RU, otherOfferSeatsWords } from '@/lib/requests/other-offers-words';
 import { OFFER_ORDER_NOTE_ON_DATE_RU } from '@/lib/tours/offer-order';
@@ -24,6 +24,10 @@ import { touristAnswerText, type NoticeFacts } from '@/lib/requests/answer-notic
 const FORM_A = 'https://vedarai.ru/catalog/tours/gorely-za-den?date=2027-01-15&guests=3#booking';
 const FORM_B = 'https://vedarai.ru/catalog/tours/202?date=2027-01-15&guests=3#booking';
 const PLACE_URL = 'https://vedarai.ru/places/gorely#tours';
+/** В ссылку идёт только путь на этом сайте — хост из данных отбрасывается. */
+const FORM_A_PATH = '/catalog/tours/gorely-za-den?date=2027-01-15&guests=3#booking';
+const FORM_B_PATH = '/catalog/tours/202?date=2027-01-15&guests=3#booking';
+const PLACE_PATH = '/places/gorely#tours';
 
 const LISTED: OtherOffersBlock = {
   state: 'listed', place: 'Вулкан Горелый', place_url: PLACE_URL, date: '2027-01-15', participants: 3,
@@ -49,8 +53,8 @@ describe('блок «другие компании»', () => {
     expect(rows[1]!.textContent).toContain('Тур «К кратеру» · цена не указана');
     expect(rows[1]!.textContent).toContain('Расписания на Ведаре нет — дату подтверждает оператор.');
     // Ссылка каждой строки — форма тура ЭТОЙ компании, с датой и людьми.
-    expect(within(rows[0]!).getByRole('link', { name: 'Оставить заявку: Компания «А&Б», тур «Горелый за день»' })).toHaveAttribute('href', FORM_A);
-    expect(within(rows[1]!).getByRole('link', { name: 'Оставить заявку: Вторая, тур «К кратеру»' })).toHaveAttribute('href', FORM_B);
+    expect(within(rows[0]!).getByRole('link', { name: 'Оставить заявку: Компания «А&Б», тур «Горелый за день»' })).toHaveAttribute('href', FORM_A_PATH);
+    expect(within(rows[1]!).getByRole('link', { name: 'Оставить заявку: Вторая, тур «К кратеру»' })).toHaveAttribute('href', FORM_B_PATH);
   });
 
   it('сказано, что это не ответ компаний и кому уйдёт телефон; порядок назван правилом; оценок нет', () => {
@@ -69,7 +73,7 @@ describe('блок «другие компании»', () => {
   it('компании, не вошедшие в список, — числом и ссылкой на страницу места', () => {
     render(<RequestOtherOffers block={LISTED} />);
     expect(screen.getByText(/Ещё 1 компания —/)).toBeInTheDocument();
-    expect(screen.getByRole('link', { name: 'на странице места' })).toHaveAttribute('href', PLACE_URL);
+    expect(screen.getByRole('link', { name: 'на странице места' })).toHaveAttribute('href', PLACE_PATH);
     cleanup();
     render(<RequestOtherOffers block={{ ...LISTED, more_companies: 0 }} />);
     expect(screen.queryByText(/Ещё \d+ компан/)).not.toBeInTheDocument();
@@ -95,17 +99,50 @@ describe('блок «другие компании»', () => {
     expect(screen.queryByRole('list')).not.toBeInTheDocument();
   });
 
-  it('ссылка — только на сайт: чужая схема адреса кнопкой не становится', () => {
-    render(<RequestOtherOffers block={{
-      ...LISTED,
-      place_url: 'javascript:alert(1)',
-      offers: [
-        { ...LISTED.offers[0]!, url: 'javascript:alert(1)' },
-        { ...LISTED.offers[1]!, url: '//evil.example/x' },
-      ],
-    }} />);
-    expect(screen.getAllByRole('listitem')).toHaveLength(2);
-    expect(screen.queryByRole('link')).not.toBeInTheDocument();
+  it('ссылка — только на этот сайт: адрес, который увёл бы на чужой хост, кнопкой не становится', () => {
+    // Каждый из этих адресов браузер открыл бы не на нашем сайте (или исполнил бы как код).
+    const foreign = [
+      'javascript:alert(1)',
+      'data:text/html,<script>alert(1)</script>',
+      '//evil.example/x',
+      '/\\evil.example/x',
+      '/\t/evil.example/x',
+      '\\\\evil.example/x',
+      'https://vedarai.ru//evil.example/x',
+      'https://vedarai.ru/\\evil.example/x',
+      'https://vedarai.ru/\t/evil.example/x',
+      // Относительный адрес не принимается вовсе: сервер отдаёт только полный.
+      '/catalog/tours/201',
+      'catalog/tours/201',
+      '',
+    ];
+    for (const url of foreign) expect(sitePath(url), JSON.stringify(url)).toBeNull();
+    expect(sitePath(null)).toBeNull();
+    expect(sitePath(undefined)).toBeNull();
+    for (const url of foreign.slice(0, 9)) {
+      cleanup();
+      render(<RequestOtherOffers block={{
+        ...LISTED,
+        place_url: url,
+        offers: [{ ...LISTED.offers[0]!, url }, { ...LISTED.offers[1]!, url }],
+      }} />);
+      // Компании названы, а кнопок и ссылок нет.
+      expect(screen.getAllByRole('listitem')).toHaveLength(2);
+      expect(screen.queryByRole('link'), JSON.stringify(url)).not.toBeInTheDocument();
+    }
+  });
+
+  it('в ссылку идёт только путь: чужой хост в данных не уводит с сайта', () => {
+    expect(sitePath(FORM_A)).toBe(FORM_A_PATH);
+    expect(sitePath(PLACE_URL)).toBe(PLACE_PATH);
+    // Хост из данных отброшен: ссылка останется на том сайте, где открыта страница заявки.
+    expect(sitePath('https://evil.example/catalog/tours/201?date=2027-01-15#booking')).toBe('/catalog/tours/201?date=2027-01-15#booking');
+    expect(sitePath('http://localhost:3000/places/gorely#tours')).toBe(PLACE_PATH);
+    cleanup();
+    render(<RequestOtherOffers block={{ ...LISTED, offers: [{ ...LISTED.offers[0]!, url: 'https://evil.example/catalog/tours/201' }] }} />);
+    const link = screen.getByRole('link', { name: /^Оставить заявку/ });
+    expect(link).toHaveAttribute('href', '/catalog/tours/201');
+    expect(link.getAttribute('href')).not.toContain('evil.example');
   });
 
   it('слова о местах — те же, что в сообщении человеку в чат', () => {

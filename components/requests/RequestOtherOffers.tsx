@@ -55,9 +55,29 @@ function capitalized(s: string): string {
   return s.length > 0 ? s[0].toUpperCase() + s.slice(1) : s;
 }
 
-/** Ссылка — только на сайт: адрес приходит с сервера, но в href идёт то, что проверено здесь. */
-function safeHref(url: string | null): string | null {
-  return url && (/^https:\/\//.test(url) || /^\/(?!\/)/.test(url)) ? url : null;
+/**
+ * Ссылка — только на этот сайт. Сервер отдаёт полный адрес формы, но в href
+ * идёт лишь его путь: какой бы хост ни стоял в данных, кнопка «Оставить
+ * заявку» на чужой сайт не уведёт.
+ *
+ * Адрес обязан разбираться как абсолютный http(s): относительный здесь не
+ * принимается вовсе. Проверка «начинается с / и не с //» пропускала `/\host`
+ * и `/<таб>/host` — браузер читает обратный слэш как прямой, а таб выбрасывает,
+ * и такая ссылка вела на чужой хост (ревью безопасности 12.11). Путь после
+ * разбора обязан начинаться с `/` и буквы или цифры: `//host` из
+ * `https://сайт//host/…` тоже отсекается.
+ */
+export function sitePath(url: string | null | undefined): string | null {
+  if (!url) return null;
+  let parsed: URL;
+  try {
+    parsed = new URL(url);
+  } catch {
+    return null;
+  }
+  if (parsed.protocol !== 'https:' && parsed.protocol !== 'http:') return null;
+  const path = `${parsed.pathname}${parsed.search}${parsed.hash}`;
+  return /^\/[A-Za-z0-9]/.test(path) ? path : null;
 }
 
 export function RequestOtherOffers({ block }: { block: OtherOffersBlock | null | undefined }) {
@@ -70,7 +90,7 @@ export function RequestOtherOffers({ block }: { block: OtherOffersBlock | null |
     );
   }
   if (block.offers.length === 0) return null;
-  const placeHref = safeHref(block.place_url);
+  const placeHref = sitePath(block.place_url);
   return (
     <section aria-labelledby="other-offers-title" className="space-y-3 pt-4 border-t border-[var(--border)]">
       <h2 id="other-offers-title" className="text-lg font-bold text-[var(--text-primary)]" style={{ fontFamily: 'var(--font-playfair)' }}>
@@ -79,7 +99,7 @@ export function RequestOtherOffers({ block }: { block: OtherOffersBlock | null |
       <ol className="divide-y divide-[var(--border)]">
         {block.offers.map((o, i) => {
           const more = otherOfferMoreToursWords(o.more_tours);
-          const href = safeHref(o.url);
+          const href = sitePath(o.url);
           return (
             <li key={o.tour_id} className="py-3 flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
               <div className="min-w-0 space-y-1">
