@@ -185,9 +185,46 @@ describe('колода мест', () => {
     await waitFor(() => expect(screen.getByText('1 из 3')).toBeInTheDocument(), { timeout: 2000 });
   });
 
+  it('колоду узнать сразу: подсказка, счётчик и края следующих карточек', () => {
+    render(<PlaceSwipeDeck places={places} />);
+    const deck = screen.getByRole('group', { name: 'Места: листайте карточки' });
+    expect(screen.getByText('Листайте карточки')).toBeInTheDocument();
+    expect(screen.getByText('1 из 3')).toBeInTheDocument();
+    const peeks = deck.querySelectorAll('[data-deck-peek]');
+    expect(peeks).toHaveLength(2);
+    peeks.forEach((el) => expect(el).toHaveAttribute('aria-hidden', 'true'));
+    // Края — справа, не снизу: видны в первом экране без прокрутки.
+    expect((peeks[0] as HTMLElement).style.transform).toMatch(/translateX\(\d+px\)/);
+    // Под краями — следующие места, а не копии верхнего.
+    expect(Array.from(peeks).map((el) => el.textContent)).toEqual(
+      expect.arrayContaining([expect.stringContaining('Озеро Курильское'), expect.stringContaining('Халактырский пляж')]),
+    );
+    // Отступы не зависят от утилит, которые съедает сброс главной.
+    const btn = screen.getByRole('button', { name: 'Следующее место' });
+    expect(btn.style.padding).toBe('0px 16px');
+  });
+
+  // «Уменьшить движение» framer-motion читает один раз на процесс — подменить
+  // его посреди набора нельзя; ветка `reduce` в эффекте стоит первой проверкой.
+  it('подсказка жеста — один раз за сессию', () => {
+    const observed: Element[] = [];
+    class IO { constructor(public cb: IntersectionObserverCallback) {} observe(el: Element) { observed.push(el); } disconnect() {} }
+    vi.stubGlobal('IntersectionObserver', IO);
+    window.sessionStorage.removeItem('vedar:place-deck-nudged');
+    render(<PlaceSwipeDeck places={places} />);
+    expect(observed).toHaveLength(1);
+    cleanup();
+
+    window.sessionStorage.setItem('vedar:place-deck-nudged', '1');
+    render(<PlaceSwipeDeck places={places} />);
+    expect(observed).toHaveLength(1);
+    window.sessionStorage.removeItem('vedar:place-deck-nudged');
+  });
+
   it('одно место — без кнопок листания; пусто — колоды нет', () => {
     render(<PlaceSwipeDeck places={[places[0]]} />);
     expect(screen.queryByRole('button', { name: 'Следующее место' })).toBeNull();
+    expect(screen.queryByText('Листайте карточки')).toBeNull();
     cleanup();
     const { container } = render(<PlaceSwipeDeck places={[]} />);
     expect(container.innerHTML).toBe('');
