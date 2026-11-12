@@ -48,6 +48,14 @@ interface ScopeRow {
   places_covered: string;
   farthest_km: string | null;
   farthest_place: string | null;
+  source_prefix: string | null;
+  external_day: string | null;
+  created_at: string | null;
+  expires_at: string | null;
+  last_published_at: string | null;
+  description_md5: string;
+  twins_same_title: number;
+  twins_same_description: number;
 }
 
 export async function GET(req: NextRequest) {
@@ -102,7 +110,26 @@ export async function GET(req: NextRequest) {
               ea.affected_zones                               AS zones,
               COALESCE(agg.places_covered, '0')               AS places_covered,
               ROUND(agg.farthest_km::numeric, 1)::text        AS farthest_km,
-              agg.farthest_place
+              agg.farthest_place,
+              -- Двойники (#3275): строки ленты с тем же типом и заголовком.
+              -- Откуда пришла строка (префикс источника и день в external_id),
+              -- когда записана и до какого срока, и совпадает ли описание у
+              -- пары — чтобы причину дубля назвали данные, а не догадка.
+              split_part(ea.external_id, '/', 1)              AS source_prefix,
+              NULLIF(split_part(ea.external_id, '/', 2), '')  AS external_day,
+              ea.created_at::text                             AS created_at,
+              ea.expires_at::text                             AS expires_at,
+              ea.last_published_at::text                      AS last_published_at,
+              left(md5(COALESCE(ea.description, '')), 8)      AS description_md5,
+              (SELECT COUNT(*)::int FROM external_alerts tw
+                WHERE tw.id <> ea.id AND tw.title = ea.title
+                  AND tw.alert_type IS NOT DISTINCT FROM ea.alert_type
+                  AND (tw.expires_at IS NULL OR tw.expires_at > ${UTC_WALL_NOW_SQL})) AS twins_same_title,
+              (SELECT COUNT(*)::int FROM external_alerts tw
+                WHERE tw.id <> ea.id AND tw.title = ea.title
+                  AND tw.alert_type IS NOT DISTINCT FROM ea.alert_type
+                  AND COALESCE(tw.description, '') = COALESCE(ea.description, '')
+                  AND (tw.expires_at IS NULL OR tw.expires_at > ${UTC_WALL_NOW_SQL})) AS twins_same_description
          FROM external_alerts ea
          LEFT JOIN agg ON agg.alert_id = ea.id
         WHERE (ea.expires_at IS NULL OR ea.expires_at > ${UTC_WALL_NOW_SQL})
@@ -123,6 +150,14 @@ export async function GET(req: NextRequest) {
       places_covered: Number(r.places_covered),
       farthest_km: r.farthest_km != null ? Number(r.farthest_km) : null,
       farthest_place: r.farthest_place,
+      source_prefix: r.source_prefix,
+      external_day: r.external_day,
+      created_at: r.created_at,
+      expires_at: r.expires_at,
+      last_published_at: r.last_published_at,
+      description_md5: r.description_md5,
+      twins_same_title: Number(r.twins_same_title),
+      twins_same_description: Number(r.twins_same_description),
     }));
 
     /**
@@ -147,6 +182,10 @@ export async function GET(req: NextRequest) {
       unanchored_place_scoped: unanchoredPlaceScoped.map((a) => ({
         type: a.type, title: a.title, volcano_name: a.volcano_name,
       })),
+      // Двойники по заголовку (#3275): сколько действующих строк повторяют
+      // чужой тип и заголовок, и сколько из них — с тем же описанием.
+      title_twins: alerts.filter((a) => a.twins_same_title > 0).length,
+      title_twins_same_description: alerts.filter((a) => a.twins_same_description > 0).length,
       volcanic_unanchored: alerts.filter(
         (a) => a.type === 'volcanic_eruption' && !a.volcano_anchored,
       ).length,
