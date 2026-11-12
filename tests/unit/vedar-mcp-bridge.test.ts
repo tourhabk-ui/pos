@@ -132,7 +132,11 @@ describe('мост обещает о платформе только то, чт�
       const sentences = text.trim().split(/(?<=[.!?])\s+/);
       // Целым словом, как у моста: «test» не вырезает предложение с «latest».
       const kept = sentences.filter((s) => ![...hidden].some((h) => new RegExp(`\\b${h}\\b`).test(s)));
-      return (kept.length === sentences.length ? text.trim() : kept.join(' ')).slice(0, 1024);
+      const whole = kept.length === sentences.length ? text.trim() : kept.join(' ');
+      if (whole.length <= 1024) return whole;
+      // Не поместилось — целые предложения с конца, а не обрыв фразы (12.11).
+      while (kept.length > 1 && kept.join(' ').length > 1024) kept.pop();
+      return kept.join(' ').slice(0, 1024);
     };
     for (const live of PUBLIC_MCP_TOOLS) {
       const snap = byName.get(live.name);
@@ -253,6 +257,51 @@ describe('notify_url модели не отдаётся (29.10)', () => {
     expect(status?.function.description).toContain(ANSWER_RELAY_RULE);
     expect(status?.function.description.length).toBeLessThan(1024);
     expect(status?.function.description).toMatch(/бронь перенесена или заведена на другую дату\.$/);
+    // Заявка на прокат (12.11): описание кончалось обрывом «Никогда не с» —
+    // ровно 1024 знака посреди правила о согласии. Теперь помещается целиком.
+    const rental = (JSON.parse(built) as Array<{ function: { name: string; description: string } }>).find((t) => t.function.name === 'create_car_rental_request');
+    expect(rental?.function.description.length).toBeLessThan(1024);
+    expect(rental?.function.description).toMatch(/Никогда не ставь consent: true сам, без ответа человека\.$/);
+  });
+
+  it('ни одно описание в снимке не кончается обрывом фразы', () => {
+    const snapshot = JSON.parse(read(`${DIR}/vedar_tools.json`)) as Array<{ function: { name: string; description: string } }>;
+    expect(snapshot.length).toBeGreaterThan(20);
+    for (const t of snapshot) {
+      const d = t.function.description;
+      expect(d.length, `${t.function.name}: длиннее предела`).toBeLessThanOrEqual(1024);
+      // Конец предложения — точка, знак или закрывающая скобка/кавычка после них.
+      expect(d, `${t.function.name}: описание оборвано посреди фразы`).toMatch(/[.!?][»")]?$/);
+    }
+  });
+
+  it('обрезка моста идёт по границе предложения, а не по знаку', () => {
+    const code = [
+      'import importlib.util, json, sys',
+      `spec = importlib.util.spec_from_file_location("bridge", ${JSON.stringify(join(ROOT, SCRIPT))})`,
+      'm = importlib.util.module_from_spec(spec)',
+      'spec.loader.exec_module(m)',
+      'texts = json.loads(sys.stdin.read())',
+      'sys.stdout.write(json.dumps([m.bridge_description(t) for t in texts], ensure_ascii=False))',
+    ].join('\n');
+    const first = `${'А'.repeat(600)}.`;
+    const second = `${'Б'.repeat(300)}.`;
+    const third = `${'В'.repeat(300)}!`;
+    const out = JSON.parse(execFileSync('python3', ['-I', '-B', '-c', code], {
+      input: JSON.stringify([
+        `${first} ${second} ${third}`,          // три предложения, третье не помещается
+        `${first} ${second}`,                   // помещается целиком
+        `${'Г'.repeat(2000)}.`,                 // одно предложение длиннее предела
+        `${first} Скрытое поле notify_url сюда не идёт. ${second} ${third}`,
+      ]),
+      encoding: 'utf-8',
+    })) as string[];
+    expect(out[0]).toBe(`${first} ${second}`);
+    expect(out[1]).toBe(`${first} ${second}`);
+    // Резать больше негде — жёсткий предел остаётся страховкой.
+    expect(out[2]).toHaveLength(1024);
+    // Сначала уходят предложения о скрытых полях, потом — хвост по границе.
+    expect(out[3]).toBe(`${first} ${second}`);
   });
 });
 
