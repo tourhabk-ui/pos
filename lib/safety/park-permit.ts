@@ -200,6 +200,15 @@ export const FEDERALIZED_PARKS: readonly FederalizedPark[] = [
   { match: 'южно-камчат', name: '«Южно-Камчатский»', ...VOLCANOES_DECREE },
 ];
 
+/**
+ * Оговорка у парка, ушедшего в федеральное ведение, — одни слова на карточку
+ * маршрута и на ответ агенту (lib/parks/route-permit, #3302).
+ */
+export const FEDERAL_PERMIT_UNKNOWN_RU =
+  'Как теперь выдаются разрешения, ещё не объявлено: положение о парке Минприроды должно ' +
+  'утвердить в течение шести месяцев, а способы ниже действовали до перехода — уточните ' +
+  'перед выходом.';
+
 /** Парк, ушедший в федеральное ведение, — по `park_name` маршрута или названию. */
 export function federalizedPark(...names: Array<string | null | undefined>): FederalizedPark | null {
   for (const raw of names) {
@@ -250,6 +259,16 @@ export const KRONOKI_REQUESTS = {
   asOf: 'октябрь 2026',
 } as const;
 
+/**
+ * Порядок посещения территорий Кроноцкого заповедника словами — один на
+ * карточку маршрута и на ответ агенту (lib/parks/route-permit, #3302).
+ */
+export const KRONOKI_ORDER_RU =
+  `Посещение — по заявке и разрешению ${KRONOKI_REQUESTS.authority}: форму заявки скачивают на ` +
+  `сайте заповедника и отправляют на ${KRONOKI_REQUESTS.email}. Заявка включает группу в план ` +
+  'посещений — многодневные группы и однодневные пешие группы у Курильского озера, — а ' +
+  `разрешение оформляется отдельно (${KRONOKI_REQUESTS.asOf}).`;
+
 export const KRONOKI_TERRITORIES: readonly KronokiTerritory[] = [
   {
     name: 'Южно-Камчатский федеральный заказник',
@@ -273,4 +292,36 @@ export function kronokiTerritory(...names: Array<string | null | undefined>): Kr
     if (hit) return hit;
   }
   return null;
+}
+
+/**
+ * Какое правило разрешения относится к маршруту или месту — ОДНО на карточку
+ * (components/safety/ParkPermitAction) и на ответ агенту
+ * (lib/parks/route-permit, #3302).
+ *
+ * Порядок проверок — часть правила, а не оформление: Вачкажец лежит вне парка
+ * и разрешения не требует, хотя в `park_name` его маршрутов стоит имя
+ * территории; Курильское озеро — заказник Кроноцкого заповедника, а не
+ * краевой парк; Авачинский перевал — зона свободного посещения внутри парка.
+ * Пока порядок жил только в разметке компонента, второй читатель правила
+ * (текст для Кузьмича и MCP) повторил бы его на память — и разошёлся бы.
+ *
+ *   no_permit  — территория, где разрешение не предусмотрено её режимом;
+ *   kronoki    — заявка в Кроноцкий заповедник;
+ *   free_visit — зона свободного посещения парка;
+ *   park       — всё остальное: способы зависят от территории.
+ */
+export type PermitRule =
+  | { kind: 'no_permit'; territory: NoPermitTerritory }
+  | { kind: 'kronoki'; territory: KronokiTerritory }
+  | { kind: 'free_visit' }
+  | { kind: 'park'; federal: FederalizedPark | null };
+
+export function permitRuleFor(input: { title?: string | null; parkName?: string | null }): PermitRule {
+  const noPermit = noPermitTerritory(input.title);
+  if (noPermit) return { kind: 'no_permit', territory: noPermit };
+  const kronoki = kronokiTerritory(input.parkName, input.title);
+  if (kronoki) return { kind: 'kronoki', territory: kronoki };
+  if (isFreeVisitArea(input.title)) return { kind: 'free_visit' };
+  return { kind: 'park', federal: federalizedPark(input.parkName, input.title) };
 }

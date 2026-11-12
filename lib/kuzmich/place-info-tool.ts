@@ -39,6 +39,7 @@ import { containsPattern } from '@/lib/db/like';
 import { KUZMICH_KNOWLEDGE_SCOPE_SQL } from '@/lib/kuzmich/knowledge-scope';
 import { loadPlaceTours, offerLinesForAgent } from '@/lib/places/place-tours';
 import { getPublicBaseUrl } from '@/lib/config';
+import { permitLinesForRoutes, routePermitCasesFor } from '@/lib/parks/route-permit';
 
 export interface PlaceRow {
   /** id места — для ссылки на карточку (только в чате, см. pageLinks). */
@@ -126,6 +127,11 @@ export interface PlaceInfoOptions {
    * нет, ничего нет» о нём было неправдой.
    */
   namedRoutes?: RouteFactsSource[];
+  /**
+   * Условия посещения территории по каждому из `namedRoutes` (тот же порядок):
+   * разрешение парка — справочный факт о маршруте, и справка его называет.
+   */
+  namedRoutePermitLines?: string[][];
 }
 
 /** Указатель с карточки-справки на оценку дня: справка о сегодняшнем дне не говорит. */
@@ -133,14 +139,19 @@ export const ROUTE_TODAY_POINTER =
   'Оценка маршрута на сегодня и действующие предупреждения — инструмент get_guardian_context с названием маршрута.';
 
 /** Маршруты каталога вместо места: факты из базы, ссылка (в чате) и куда идти за оценкой дня. */
-export function namedRoutesInfoLines(routes: readonly RouteFactsSource[], opts: { pageLinks?: boolean } = {}): string[] {
+export function namedRoutesInfoLines(
+  routes: readonly RouteFactsSource[],
+  opts: { pageLinks?: boolean; permitLines?: readonly (readonly string[])[] } = {},
+): string[] {
   if (routes.length === 0) return [];
   const lines = ['В каталоге Ведара есть маршрут с этими словами в названии — данные из базы:'];
   if (routes.length > 1) lines[0] = `В каталоге Ведара есть маршруты с этими словами в названии (${routes.length}) — данные из базы:`;
-  for (const r of routes) {
+  routes.forEach((r, i) => {
     lines.push(namedRouteFactsLine(r));
+    const permit = opts.permitLines?.[i];
+    if (permit?.length) lines.push(...permit);
     if (opts.pageLinks) lines.push(`Страница маршрута на сайте: ${namedRouteUrl(r)}`);
-  }
+  });
   lines.push(ROUTE_TODAY_POINTER);
   return lines;
 }
@@ -166,7 +177,7 @@ export function composePlaceInfo(query: string, places: PlaceRow[], notes: NoteR
   // неправдой — название точное, это маршрут.
   if (!primary && routes.length > 0) {
     parts.push(`Места «${query}» в справочнике не нашлось — тип, координаты и опасности места по этому названию неизвестны.`);
-    parts.push(namedRoutesInfoLines(routes, { pageLinks: opts.pageLinks }).join('\n'));
+    parts.push(namedRoutesInfoLines(routes, { pageLinks: opts.pageLinks, permitLines: opts.namedRoutePermitLines }).join('\n'));
   } else if (!primary) {
     parts.push(`Места «${query}» в справочнике не нашлось — тип, координаты и опасности по этому названию неизвестны. Ниже только заметка Кузьмича; уточните точное название места.`);
   }
@@ -251,5 +262,8 @@ export async function placeInfoForKuzmich(placeName: string, opts: PlaceInfoOpti
   // (routesNamedBy). Отказ базы уже записан в лог там; здесь он не выдаётся ни
   // за «маршрутов нет», ни за ответ: справка скажет только то, что знает.
   const namedRoutes = primary ? undefined : (await routesNamedBy(placeName)) ?? undefined;
-  return composePlaceInfo(placeName, pr.rows, kr.rows, { ...opts, routeLines, offerLines, namedRoutes });
+  const namedRoutePermitLines = namedRoutes?.length
+    ? permitLinesForRoutes(namedRoutes, await routePermitCasesFor(namedRoutes))
+    : undefined;
+  return composePlaceInfo(placeName, pr.rows, kr.rows, { ...opts, routeLines, offerLines, namedRoutes, namedRoutePermitLines });
 }
