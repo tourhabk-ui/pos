@@ -27,6 +27,10 @@ describe('телефон — по форме номера', () => {
     ['79147822222', PHONE_MARK],
     ['+44 20 7946 0958', PHONE_MARK],
     ['+86 138 0013 8000', PHONE_MARK],
+    ['+7 (4152) 20-01-12', PHONE_MARK],
+    ['8 (4152) 30-10-91', PHONE_MARK],
+    ['(4152) 20-01-12', PHONE_MARK],
+    ['+7 (41531) 2-12-34', PHONE_MARK],
   ])('%s — номер', (input, want) => {
     expect(clean(`тел. ${input}, звоните`)).toBe(`тел. ${want}, звоните`);
   });
@@ -43,8 +47,20 @@ describe('телефон — по форме номера', () => {
     'sha 3a8f9001234567c',
     'x = a+7 * 100',
     'versions 1.89001234567',
+    'бюджет: 80 000–120 000 руб.',
+    'Катер на 8-12 чел: 80 000-200 000/рейс',
+    'd="M1 12s4-8 11-8 11 8 11 8-4 8-11 8-11-8-11-8z"',
   ])('%s — не номер, остаётся', (input) => {
     expect(clean(input)).toBe(input);
+  });
+
+  it.each([
+    ['Звоните +7 914 782-22-22.', `Звоните ${PHONE_MARK}.`],
+    ['тел. +7-984-160-04-90. Маршруты', `тел. ${PHONE_MARK}. Маршруты`],
+    ['номер 89001234567.', `номер ${PHONE_MARK}.`],
+    ['+44 20 7946 0958.', `${PHONE_MARK}.`],
+  ])('номер в конце предложения — тоже номер (ревью #3304): %s', (input, want) => {
+    expect(clean(input)).toBe(want);
   });
 
   it('перевод строки номер не склеивает: строки на месте', () => {
@@ -59,10 +75,17 @@ describe('почта — кроме адресов платформы и при�
     expect(clean('visit@park-vulcany.ru')).toBe(EMAIL_MARK);
   });
 
+  it.each(['flo@vedarai.ru', 'flo+operator@vedarai.ru', 'anna@tourhab.ru'])(
+    '%s — личный ящик на домене платформы тоже заменяется (ревью #3304)',
+    (input) => {
+      expect(clean(`to: '${input}'`)).toBe(`to: '${EMAIL_MARK}'`);
+    },
+  );
+
   it.each([
-    'flo@vedarai.ru',
+    'info@vedarai.ru',
     'noreply@mail.vedarai.ru',
-    'old@tourhab.ru',
+    'support@tourhab.ru',
     'user@example.com',
     'bot@max.local',
     'a@b.invalid',

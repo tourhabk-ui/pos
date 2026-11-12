@@ -214,8 +214,21 @@ jobs:
             exit 1
           fi
           git log --format='%s%n%n%b' HEAD^1..HEAD > "$T/message"
-          git archive HEAD^1 | tar -x -C "$T/base"
-          git archive HEAD | tar -x -C "$T/head"
+          # Не git archive: он слушает export-ignore из .gitattributes PR, и PR
+          # спрятал бы от ревьюера свой же файл (ревью #3304). Дерево — через
+          # отдельный индекс, и число файлов сверяется с деревом коммита.
+          for side in base head; do
+            ref=HEAD; [ "$side" = base ] && ref=HEAD^1
+            GIT_INDEX_FILE="$T/index-$side" git read-tree "$ref"
+            GIT_INDEX_FILE="$T/index-$side" git checkout-index -a -f --prefix="$T/$side/"
+            want=$(git ls-tree -r "$ref" | grep -cv '^160000 ' || true)
+            got=$(find "$T/$side" -type f -o -type l | wc -l | tr -d ' ')
+            if [ "$want" != "$got" ]; then
+              echo "::error::Копия для ревьюера неполная ($side): в коммите файлов $want, в копии $got — ревью не идёт."
+              exit 1
+            fi
+            rm -f "$T/index-$side"
+          done
           node "$SCRUB" "$T/base" "$T/head" "$T/message"
           [ -n "$(tr -d '[:space:]' < "$T/message")" ] || echo "PR" > "$T/message"
           # Рабочий каталог — заново: только копия, без исходного клона.

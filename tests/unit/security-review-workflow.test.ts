@@ -370,6 +370,20 @@ describe('Копия для ревьюера: зарубежной модели 
     expect(diff).not.toContain('89001234567');
   });
 
+  it('PR прячет свой файл через .gitattributes export-ignore — ревьюер его всё равно видит (ревью #3304)', () => {
+    repo('base');
+    put('app/api/x/route.ts', 'export const GET = () => new Response("открыто");\n');
+    put('.gitattributes', '/app/api/x/route.ts export-ignore\n/.gitattributes export-ignore\n');
+    git('add', '-A');
+    git('commit', '-q', '-m', 'ещё');
+    const r = runStep(step, ctxHere());
+    expect(r.code, r.out).toBe(0);
+    const diff = git('diff', 'HEAD~1', 'HEAD', '--name-only').stdout.split('\n');
+    expect(diff).toContain('app/api/x/route.ts');
+    expect(diff).toContain('.gitattributes');
+    expect(existsSync(join(work(), 'app/api/x/route.ts'))).toBe(true);
+  });
+
   it('в базе скрипта нет (PR, который его заводит) — из PR, и это сказано', () => {
     repo('pr');
     const r = runStep(step, ctxHere());

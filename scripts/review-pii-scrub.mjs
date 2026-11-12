@@ -13,13 +13,14 @@
  * человека и режет любое слово из 10–15 цифр — в коде это метки времени
  * (1730000000000), предел int (2147483647), номера заявок. Ревьюер увидел бы
  * «[телефон]» вместо константы, от которой зависит проверка. Здесь телефон —
- * только по форме номера: «+7»/«8» и 10 цифр группами, «+» и 10–15 цифр
- * международного номера, «79…»/«89…» одним словом из 11 цифр.
+ * только по форме номера: «+7»/«8» и 10 цифр в любой разбивке (и городской с
+ * кодом в скобках), «+» и 10–15 цифр международного номера, «79…»/«89…»
+ * одним словом из 11 цифр.
  *
- * Почты — все, кроме доменов, которые не принадлежат человеку: свой
- * (vedarai.ru и прежний tourhab.ru — ревьюеру нужно видеть, кому уходит
- * письмо платформы) и зарезервированные для примеров (example.*, .invalid,
- * .test, .local, localhost).
+ * Почты — все, кроме ролевых ящиков платформы (info@, noreply@ и подобные на
+ * vedarai.ru и прежнем tourhab.ru — ревьюеру нужно видеть, кому уходит письмо
+ * платформы) и доменов для примеров (example.*, .invalid, .test, .local,
+ * localhost). Личный ящик на домене платформы — заменяется.
  *
  * Строки не сдвигаются: замена не съедает перевод строки, и номер строки в
  * находке ревью совпадает с PR. Бинарные файлы и файлы не в UTF-8 не
@@ -36,24 +37,38 @@ export const PHONE_MARK = '[телефон]';
 export const EMAIL_MARK = '[email]';
 
 // Разделители внутри номера — только в строке: перевод строки номер не склеивает.
-const SEP = '[ \\t\\u00a0\\-–—]*';
-const RU_PHONE = new RegExp(
-  `(?<![\\w+.-])(?:\\+7|8)${SEP}\\(?${SEP}\\d{3}${SEP}\\)?${SEP}\\d{3}${SEP}\\d{2}${SEP}\\d{2}(?![\\w.])`,
-  'g',
-);
+const SEP = '[ \\t\\u00a0()\\-–—]*';
+// Конец номера: не буква и не цифра, и не дробь («…22-22.» — конец фразы,
+// а «…1234567.5» — число). Ревью #3304: прежнее «не точка» пропускало номер
+// в конце предложения.
+const END = '(?!\\w|\\.\\d)';
+// «+7» или «8» и десять цифр в любой разбивке: «+7 914 782-22-22»,
+// «8 (900) 123-45-67», городской «+7 (4152) 20-01-12». Код — 3–5 цифр подряд
+// (в скобках или без), с 3–9, всего цифр 10: «80 000-200 000» — цена,
+// «8-4 8-11 8-11» — путь SVG, не номер.
+const RU_PHONE = new RegExp(`(?<![\\w+.-])(?:\\+7|8)${SEP}(?:\\([3-9]\\d{2,4}\\)|[3-9]\\d{2,4})(?:${SEP}\\d){5,7}${END}`, 'g');
+// Городской без кода страны: «(4152) 20-01-12».
+const LOCAL_PHONE = new RegExp(`(?<![\\w+.-])\\(\\d{3,5}\\)(?:${SEP}\\d){5,7}${END}`, 'g');
 // «79147822222», «89001234567» — одним словом.
-const RU_PHONE_WORD = /(?<![\w.+])[78]9\d{9}(?![\w.])/g;
+const RU_PHONE_WORD = new RegExp(`(?<![\\w.+])[78]9\\d{9}${END}`, 'g');
 // Международный: «+», затем 10–15 цифр с разделителями.
-const INTL_PHONE = /(?<![\w+])\+\d[\d \t\u00a0()\-–]{8,22}\d(?![\w.])/g;
-const EMAIL = /(?<![\w.%+-])[A-Za-z0-9._%+-]+@([A-Za-z0-9-]+(?:\.[A-Za-z0-9-]+)*\.[A-Za-z]{2,})(?![\w-])/g;
+const INTL_PHONE = new RegExp(`(?<![\\w+])\\+\\d(?:${SEP}\\d){9,14}${END}`, 'g');
+const EMAIL = /(?<![\w.%+-])([A-Za-z0-9._%+-]+)@([A-Za-z0-9-]+(?:\.[A-Za-z0-9-]+)*\.[A-Za-z]{2,})(?![\w-])/g;
 
-const KEEP_DOMAINS = ['vedarai.ru', 'tourhab.ru', 'example.com', 'example.org', 'example.net', 'example.ru', 'localhost'];
-const KEEP_TLDS = ['invalid', 'test', 'example', 'localhost', 'local'];
+// Домены платформы: видны только ролевые ящики (кому уходит письмо
+// платформы), личный ящик и его plus-адрес — нет (ревью #3304).
+const PLATFORM_DOMAINS = ['vedarai.ru', 'tourhab.ru'];
+const ROLE_BOXES = ['info', 'noreply', 'no-reply', 'support', 'privacy', 'photos', 'booking', 'help', 'hello', 'partners', 'admin', 'security', 'abuse', 'postmaster'];
+// Зарезервированные для примеров — целиком.
+const EXAMPLE_DOMAINS = ['example.com', 'example.org', 'example.net', 'example.ru', 'localhost'];
+const EXAMPLE_TLDS = ['invalid', 'test', 'example', 'localhost', 'local'];
 
-function keptDomain(domain) {
+const under = (d, list) => list.some((k) => d === k || d.endsWith(`.${k}`));
+
+function keptEmail(local, domain) {
   const d = domain.toLowerCase();
-  if (KEEP_DOMAINS.some((k) => d === k || d.endsWith(`.${k}`))) return true;
-  return KEEP_TLDS.includes(d.slice(d.lastIndexOf('.') + 1));
+  if (under(d, EXAMPLE_DOMAINS) || EXAMPLE_TLDS.includes(d.slice(d.lastIndexOf('.') + 1))) return true;
+  return under(d, PLATFORM_DOMAINS) && ROLE_BOXES.includes(local.toLowerCase());
 }
 
 const digits = (s) => s.replace(/\D/g, '').length;
@@ -62,22 +77,24 @@ const digits = (s) => s.replace(/\D/g, '').length;
 export function scrubCode(text) {
   let phones = 0;
   let emails = 0;
-  let out = text.replace(EMAIL, (m, domain) => {
-    if (keptDomain(domain)) return m;
+  let out = text.replace(EMAIL, (m, local, domain) => {
+    if (keptEmail(local, domain)) return m;
     emails += 1;
     return EMAIL_MARK;
   });
-  out = out.replace(RU_PHONE, () => {
+  out = out.replace(RU_PHONE, (m) => {
+    if (digits(m) !== 11) return m;
     phones += 1;
     return PHONE_MARK;
   });
-  out = out.replace(RU_PHONE_WORD, () => {
-    phones += 1;
-    return PHONE_MARK;
-  });
-  out = out.replace(INTL_PHONE, (m) => {
-    const n = digits(m);
-    if (n < 10 || n > 15) return m;
+  for (const re of [INTL_PHONE, RU_PHONE_WORD]) {
+    out = out.replace(re, () => {
+      phones += 1;
+      return PHONE_MARK;
+    });
+  }
+  out = out.replace(LOCAL_PHONE, (m) => {
+    if (digits(m) !== 10) return m;
     phones += 1;
     return PHONE_MARK;
   });
