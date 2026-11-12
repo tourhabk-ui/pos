@@ -63,6 +63,7 @@ import {
 } from '@/lib/requests/answer-notice-text';
 import type { PdAlertParams, PdAlertResult } from '@/lib/notifications/pd-alert';
 import { SELLER_CLOSED_ACTION } from '@/lib/leads/lost-reason';
+import { managerQueueUrl } from '@/lib/manager-queue/link';
 
 const LOG = '[answer-notice]';
 /** Срок одной отправки в чат: больше сокетного срока MAX (15 с), чтобы дошедшее не записать «не дошло». */
@@ -429,14 +430,25 @@ function kindOf(r: Pick<NoticeRow, 'activity_id' | 'activity_action' | 'vehicle_
   return r.vehicle_kind === 'charter' ? 'charter' : 'rental';
 }
 
+/** На какой ответ ссылается строка сообщения: кнопка туроператора либо запись журнала заявки и её род. */
+export interface NoticeAnswerRef {
+  answer_id: string | null;
+  activity_id: string | null;
+  activity_action?: string | null;
+}
+
 /** Ответ, на который ссылается строка, — в той же форме, что у вида заявки. */
-function refOf(r: Pick<NoticeRow, 'answer_id' | 'activity_id' | 'activity_action'>): ShownAnswerRef | null {
+function refOf(r: NoticeAnswerRef): ShownAnswerRef | null {
   if (r.activity_id) return { source: isSellerClosed(r) ? 'closed' : 'vehicle', id: r.activity_id };
   return r.answer_id ? { source: 'tour', id: r.answer_id } : null;
 }
 
-/** Вид заявки по-прежнему построен из ответа этой строки. */
-function viewHolds(status: StatusRow | undefined, r: Pick<NoticeRow, 'answer_id' | 'activity_id' | 'activity_action'>): boolean {
+/**
+ * Вид заявки по-прежнему построен из ответа этой строки. Этим же правилом
+ * живёт очередь менеджера (lib/manager-queue, этап 3б): заявка переросла отказ
+ * (бронь, новая дата, возврат в работу) — звонить с ним некому и незачем.
+ */
+export function viewHolds(status: StatusRow | undefined, r: NoticeAnswerRef): boolean {
   if (!status) return false;
   const shown = shownAnswerRef(status);
   const mine = refOf(r);
@@ -605,7 +617,11 @@ async function alertManager(
       text: msg.text,
       // Заглушка уходит в Telegram: слова заказчика — только после чистки.
       stub: managerUndeliveredText(telegramSafeFacts(f), { name: null, phone: null }, tried, dates).stub,
-      buttons: [{ text: 'Заявки в админке', url: `${getPublicBaseUrl()}/hub/admin/leads` }],
+      // Недоставленный отказ стоит в очереди менеджера (этап 3б): там же отметка «Взял».
+      buttons: [
+        { text: 'Очередь менеджера', url: managerQueueUrl() },
+        { text: 'Заявки в админке', url: `${getPublicBaseUrl()}/hub/admin/leads` },
+      ],
     }, deps);
     if (typeof res === 'string') {
       console.error(`${LOG} заявка ${r.lead_id}: письмо менеджеру — ${res}, повторит добивка`);

@@ -2585,6 +2585,259 @@ withPg('переписка по заявке на настоящем PostgreSQL'
       await pool.query(`DELETE FROM tour_availability WHERE operator_tour_id = $1::bigint`, [tourId]);
     });
 
+    it('очередь менеджера (этап 3б, 1430): три источника настоящими запросами; случай стоит, пока вид заявки построен из отказа; «Взял» — один раз', async () => {
+      const queue = await import('@/lib/manager-queue/queue');
+      const { managerQueueUrl } = await import('@/lib/manager-queue/link');
+      const { changeLeadStatus } = await import('@/lib/leads/owner-lead-status');
+      const notices = await import('@/lib/requests/answer-notice');
+      const { answerRentalRequest } = await import('@/lib/rental/request-answer-flow');
+      const { claimPartnerAnswer } = await import('@/lib/rental/request-answer-store');
+      const { answerStayRequest } = await import('@/lib/stay/owner-answer-flow');
+      const { PD_CONSENT_STAY_VERSION } = await import('@/lib/legal/pd-consent');
+      const { kamchatkaToday } = await import('@/lib/seat-requests/core');
+      const QUEUE_LINE = `В очереди менеджера — там же отметка «Взял»: ${managerQueueUrl()}`;
+
+      const one = async <T extends Record<string, unknown>>(sql: string, params: unknown[] = []) => (await pool.query<T>(sql, params)).rows[0]!;
+      const day = (n: number) => {
+        const d = new Date(`${kamchatkaToday()}T00:00:00Z`);
+        d.setUTCDate(d.getUTCDate() + n);
+        return d.toISOString().slice(0, 10);
+      };
+      const [D0, D1] = [day(25), day(26)];
+      const today = (await one<{ d: string }>(`SELECT NOW()::date::text AS d`)).d;
+      const tomorrow = (await one<{ d: string }>(`SELECT (NOW() + INTERVAL '1 day')::date::text AS d`)).d;
+      // День начала очереди в проверке задан явно: сцена не зависит от часов раннера.
+      const SINCE = '2026-01-01';
+      const load = (since = SINCE) => queue.loadManagerQueue({ since });
+      type Source = Awaited<ReturnType<typeof load>>['answer_notice' | 'vehicle_decline' | 'stay_busy'];
+      const itemOf = (s: Source, id: string) => {
+        if (s.state !== 'ok') throw new Error('источник очереди не прочитался');
+        return (s.items as Array<{ id: string }>).find((i) => i.id === id) ?? null;
+      };
+      const marks = async (kind: string, id: string) => (await pool.query<{ taken_by: string | null; via: string }>(
+        `SELECT taken_by::text AS taken_by, via FROM manager_queue_takes WHERE subject_kind = $1 AND subject_id = $2`, [kind, id],
+      )).rows;
+
+      const user = async (email: string, name: string) => (await one<{ id: string }>(
+        `INSERT INTO users (email, name, password_hash, role) VALUES ($1, $2, 'x', 'admin') RETURNING id`, [email, name],
+      )).id;
+      const U1 = await user('queue-one@example.com', 'Ирина Первая');
+      const U2 = await user('queue-two@example.com', 'Олег Второй');
+      const NAME: Record<string, string> = { [U1]: 'Ирина Первая', [U2]: 'Олег Второй' };
+
+      // ── 1. Отказ оператора, не дошедший до человека ──────────────────────
+      const opId = (await one<{ id: string }>(
+        `INSERT INTO partners (name, category, contact, slug) VALUES ('Оператор 3б', 'operator', '{}', 'op-3b') RETURNING id`,
+      )).id;
+      const tourId = (await one<{ id: number }>(
+        `INSERT INTO operator_tours (title, base_price, operator_id, max_participants) VALUES ('Толбачик 3б', 9000, $1, 12) RETURNING id`, [opId],
+      )).id;
+      const mk = async (name: string, phone: string) => (await leads.createLeadDetailed({
+        name, phone, comment: `[Заявка на бронь] Тур "Толбачик 3б" (ID${tourId}), дата ${D0}, участников 3.`,
+        route_title: 'Толбачик 3б', source_url: 'mcp://vedar/booking', operator_id: opId, pd_consent: consentOf('operator'),
+        source_data: { source: 'mcp', tool: 'create_booking_request', tour_id: tourId, date: D0, participants: 3 },
+        skip_ai_processing: true,
+      }))!.id;
+      const owner = { kind: 'owner' as const, partnerId: opId, claimUnowned: true };
+      const actor = { kind: 'partner_user' as const, userId: null };
+      const set = (lead: string, st: 'contacted' | 'lost') => changeLeadStatus({ leadId: lead, status: st, actor, scope: owner, via: 'site' });
+      /** «Отказ» с причиной на сайте; у человека нет ни чата, ни ИИ-агента — сообщение не дошло, менеджеру ушло письмо. */
+      const refuse = async (lead: string) => {
+        const c = await changeLeadStatus({
+          leadId: lead, status: 'lost', actor, scope: owner, via: 'site', lost: { reason: 'seats', partnerId: opId },
+        });
+        if (c.kind !== 'ok' || !c.closed?.notice) throw new Error('закрытие с причиной не записало сообщение');
+        expect(await notices.deliverAnswerNotice(c.closed.notice.id)).toMatchObject({ state: 'undelivered', manager: 'max' });
+        return c.closed.notice.id;
+      };
+
+      const L1 = await mk('Зинаида Очередь', '+79995551101');
+      sent.pd.length = 0;
+      const N1 = await refuse(L1);
+      // Письмо менеджеру о недоставке ведёт в очередь — первой кнопкой.
+      expect(sent.pd).toHaveLength(1);
+      expect((sent.pd[0]!.buttons as Array<{ text: string; url: string }>)[0]).toEqual({ text: 'Очередь менеджера', url: managerQueueUrl() });
+
+      const q1 = await load();
+      expect(itemOf(q1.answer_notice, N1)).toEqual({
+        kind: 'answer_notice', id: N1, happened_at: expect.stringMatching(/^\d{4}-\d{2}-\d{2}T/), partner_name: 'Оператор 3б',
+        contact_name: 'Зинаида Очередь', contact_phone: '+79995551101', take: null,
+        lead_id: L1, lead_status: 'lost', answer: 'decline', decline_reason: 'seats', manager_channel: 'max',
+        tour_title: 'Толбачик 3б', date: D0, people: 3,
+      });
+      // День начала очереди: по умолчанию — константа, случай раньше неё в очередь не входит.
+      expect(itemOf((await queue.loadManagerQueue()).answer_notice, N1) !== null).toBe(today >= queue.MANAGER_QUEUE_SINCE);
+      expect(itemOf((await load(tomorrow)).answer_notice, N1)).toBeNull();
+      expect(await queue.takeQueueItem({ kind: 'answer_notice', id: N1, userId: U1, via: 'site' }, { since: tomorrow })).toEqual({ kind: 'not_in_queue' });
+      expect(await marks('answer_notice', N1)).toEqual([]);
+
+      // Сверка идёт одним запросом на список: строка на заявку, повтор заявки строку не множит.
+      const LX = await mk('Соседняя Заявка', '+79995551109');
+      const rows = (await pool.query<{ lead_id: string; lead_status: string }>(status.REQUEST_STATUS_BY_LEADS_SQL, [[L1, LX, L1]])).rows;
+      expect(rows.map((r) => [r.lead_id, r.lead_status]).sort()).toEqual([[L1, 'lost'], [LX, 'new']].sort());
+
+      // Своя проба владельца сайта в очередь не встаёт.
+      const L2 = await mk('Своя Проба', '+79995551102');
+      const N2 = await refuse(L2);
+      expect(itemOf((await load()).answer_notice, N2)).not.toBeNull();
+      await pool.query(`UPDATE leads SET is_self = TRUE WHERE id = $1`, [L2]);
+      expect(itemOf((await load()).answer_notice, N2)).toBeNull();
+      expect(await queue.takeQueueItem({ kind: 'answer_notice', id: N2, userId: U1, via: 'site' }, { since: SINCE })).toEqual({ kind: 'not_in_queue' });
+
+      // ── 2. «Взял» — один раз; второй видит, кто взял ─────────────────────
+      const take = (userId: string, id = N1, kind: 'answer_notice' | 'vehicle_decline' | 'stay_busy' = 'answer_notice', via: 'site' | 'max' = 'site') =>
+        queue.takeQueueItem({ kind, id, userId, via }, { since: SINCE });
+      expect(await take(U1)).toEqual({ kind: 'taken', at: expect.stringMatching(/^\d{4}-/) });
+      expect(await take(U2)).toMatchObject({ kind: 'already', by: 'Ирина Первая', mine: false });
+      expect(await take(U1)).toMatchObject({ kind: 'already', by: 'Ирина Первая', mine: true });
+      expect(await marks('answer_notice', N1)).toEqual([{ taken_by: U1, via: 'site' }]);
+      expect(itemOf((await load()).answer_notice, N1)).toMatchObject({ take: { via: 'site', by: 'Ирина Первая' } });
+      // «Вернуть в очередь» — случай снова ждёт.
+      expect(await queue.releaseQueueItem({ kind: 'answer_notice', id: N1 })).toEqual({ kind: 'released' });
+      expect(await queue.releaseQueueItem({ kind: 'answer_notice', id: N1 })).toEqual({ kind: 'not_taken' });
+      expect(itemOf((await load()).answer_notice, N1)).toMatchObject({ take: null });
+      // Двое нажали разом: отметка одна, и второй читает имя первого.
+      const race = await Promise.all([take(U1), take(U2)]);
+      expect(race.map((r) => r.kind).sort()).toEqual(['already', 'taken']);
+      const winner = (await marks('answer_notice', N1))[0]!.taken_by!;
+      expect([U1, U2]).toContain(winner);
+      expect(race.find((r) => r.kind === 'already')).toMatchObject({ by: NAME[winner], mine: false });
+
+      // ── 3. Заявка переросла отказ — случая в очереди нет, отметить его нельзя ──
+      expect(await set(L1, 'contacted')).toMatchObject({ kind: 'ok', changed: true });
+      expect(itemOf((await load()).answer_notice, N1)).toBeNull();
+      await queue.releaseQueueItem({ kind: 'answer_notice', id: N1 });
+      expect(await take(U2)).toEqual({ kind: 'not_in_queue' });
+      expect(await marks('answer_notice', N1)).toEqual([]);
+      // Закрыли снова — в очереди новый отказ, прежний не вернулся.
+      const N1b = await refuse(L1);
+      expect(N1b).not.toBe(N1);
+      const q3 = await load();
+      expect(itemOf(q3.answer_notice, N1b)).toMatchObject({ lead_id: L1, take: null });
+      expect(itemOf(q3.answer_notice, N1)).toBeNull();
+      // Сообщение дошло (ИИ-агент прочитал статус) — звонить не нужно.
+      await pool.query(`UPDATE answer_notices SET state = 'delivered', delivered_via = 'agent_read', delivered_at = NOW() WHERE id = $1::bigint`, [N1b]);
+      expect(itemOf((await load()).answer_notice, N1b)).toBeNull();
+      expect(await take(U1, N1b)).toEqual({ kind: 'not_in_queue' });
+      expect(await marks('answer_notice', N1b)).toEqual([]);
+
+      // ── 4. «Не могу» перевозчика и прокатчика ────────────────────────────
+      const carrier = (await one<{ id: string }>(
+        `INSERT INTO partners (name, category, contact, slug) VALUES ('Перевозчик 3б', 'transfer', '{}', 'carrier-3b') RETURNING id`,
+      )).id;
+      const charter = async (name: string, phone: string) => (await leads.createLeadDetailed({
+        name, phone, comment: `[Заявка на машину] «Перевозчик 3б», с ${D0}, Мутновский, человек: 4 (${phone.slice(-2)})`,
+        route_title: 'Машина: Мутновский', operator_id: carrier, source_url: 'https://vedarai.ru/transfers/carrier-3b',
+        pd_consent: consentOf('carrier'),
+        source_data: { source: 'transfer_page', kind: 'charter', carrier_id: carrier, destination: 'Елизово — Мутновский', date_from: D0, date_to: D1, passengers: 4 },
+        skip_ai_processing: true,
+      }))!.id;
+      const partner = { partnerId: carrier, partnerName: 'Перевозчик 3б', userId: null };
+      const managers: string[] = [];
+      const notifyManager = async (t: string) => { managers.push(t); };
+      const LC = await charter('Пётр Заказчик', '+79995551103');
+      const declined = await answerRentalRequest({ partner, leadId: LC, answer: 'decline', via: 'site', notifyManager });
+      expect(declined.tell).toMatchObject({ kind: 'charter_decline', notice: { state: 'undelivered' } });
+      // Менеджеру сказано, где случай лежит; ПД в рабочий Telegram не уходит.
+      expect(managers).toHaveLength(1);
+      expect(managers[0]!.split('\n').at(-1)).toBe(QUEUE_LINE);
+      expect(managers[0]).not.toMatch(/Пётр|79995551103/);
+      const V1 = (await one<{ id: string }>(`SELECT id::text AS id FROM lead_activity_log WHERE lead_id = $1 AND action = 'partner_answered'`, [LC])).id;
+      const V1notice = (await one<{ id: string }>(`SELECT id::text AS id FROM answer_notices WHERE lead_id = $1::uuid`, [LC])).id;
+      const q4 = await load();
+      expect(itemOf(q4.vehicle_decline, V1)).toEqual({
+        kind: 'vehicle_decline', id: V1, happened_at: expect.stringMatching(/^\d{4}-\d{2}-\d{2}T/), partner_name: 'Перевозчик 3б',
+        contact_name: 'Пётр Заказчик', contact_phone: '+79995551103', take: null,
+        lead_id: LC, lead_status: 'lost', vehicle_kind: 'charter', vehicle_title: 'Елизово — Мутновский',
+        date_from: D0, date_to: D1, notice_state: 'undelivered',
+      });
+      // У «Не могу» своя строка: в недоставленные отказы операторов оно не попадает и случай не двоится.
+      expect(itemOf(q4.answer_notice, V1notice)).toBeNull();
+      // «Беру» в очередь не встаёт.
+      const LC2 = await charter('Раиса Заказчица', '+79995551104');
+      const took = await answerRentalRequest({ partner, leadId: LC2, answer: 'take', via: 'site', notifyManager });
+      expect(took.tell.kind).toBe('charter_take');
+      expect(managers[1]).not.toContain(managerQueueUrl());
+      const V2 = (await one<{ id: string }>(`SELECT id::text AS id FROM lead_activity_log WHERE lead_id = $1 AND action = 'partner_answered'`, [LC2])).id;
+      expect(itemOf((await load()).vehicle_decline, V2)).toBeNull();
+      expect(await take(U1, V2, 'vehicle_decline')).toEqual({ kind: 'not_in_queue' });
+      // Прокатчик: статус заявки ответ не меняет, сообщение заказчику ещё не отправлено — так и видно.
+      const rentalP = (await one<{ id: string }>(
+        `INSERT INTO partners (name, category, contact, slug) VALUES ('Прокат 3б', 'cars', '{}', 'rental-3b') RETURNING id`,
+      )).id;
+      const LR = (await leads.createLeadDetailed({
+        name: 'Семён Арендатор', phone: '+79995551106', comment: `[Заявка на прокат] УАЗ Патриот, с ${D0} по ${D1}`,
+        route_title: 'Прокат: УАЗ Патриот', operator_id: rentalP, source_url: 'https://vedarai.ru/car-rental', pd_consent: consentOf('carrier'),
+        source_data: { source: 'car_rental_page', kind: 'car_rental', company_id: rentalP, offer_title: 'УАЗ Патриот', date_from: D0, date_to: D1 },
+        skip_ai_processing: true,
+      }))!.id;
+      const claimed = await claimPartnerAnswer({
+        leadId: LR, answer: 'decline', kind: 'car_rental', partnerId: rentalP, offerId: null, carTitle: 'УАЗ Патриот', dateFrom: D0, dateTo: D1, mark: null,
+      });
+      expect(claimed).toMatchObject({ outcome: 'saved', notice: { state: 'pending' } });
+      const V3 = (await one<{ id: string }>(`SELECT id::text AS id FROM lead_activity_log WHERE lead_id = $1 AND action = 'partner_answered'`, [LR])).id;
+      expect(itemOf((await load()).vehicle_decline, V3)).toMatchObject({
+        vehicle_kind: 'car_rental', vehicle_title: 'УАЗ Патриот', lead_status: 'new', notice_state: 'pending', partner_name: 'Прокат 3б',
+      });
+      // Менеджер взял заявку перевозчика в работу — случай ушёл из очереди сам, отметить его уже нельзя.
+      expect(await take(U1, V1, 'vehicle_decline')).toMatchObject({ kind: 'taken' });
+      await pool.query(`UPDATE leads SET status = 'contacted' WHERE id = $1`, [LC]);
+      expect(itemOf((await load()).vehicle_decline, V1)).toBeNull();
+      await queue.releaseQueueItem({ kind: 'vehicle_decline', id: V1 });
+      expect(await take(U2, V1, 'vehicle_decline')).toEqual({ kind: 'not_in_queue' });
+
+      // ── 5. «Занято» хозяина жилья ────────────────────────────────────────
+      const stayP = (await one<{ id: string }>(
+        `INSERT INTO partners (name, category, contact, is_public, is_verified) VALUES ('Дом 3б', 'stay', '{}', FALSE, FALSE) RETURNING id`,
+      )).id;
+      const acc = (await one<{ id: string }>(
+        `INSERT INTO accommodations (name, type, coordinates, partner_id) VALUES ('Дом 3б', 'guesthouse', '{"lat":53.0,"lng":158.6}', $1) RETURNING id`, [stayP],
+      )).id;
+      const stayReq = async (name: string, phone: string) => (await one<{ id: string }>(
+        `INSERT INTO stay_requests (accommodation_id, check_in_date, check_out_date, guests, guest_name, guest_phone,
+                                    pd_consent_at, pd_consent_ip, pd_consent_source, pd_consent_version, door)
+         VALUES ($1, '2099-08-10', '2099-08-12', 2, $2, $3, NOW(), '203.0.113.9', 'stay-request', $4, 'form') RETURNING id`,
+        [acc, name, phone, PD_CONSENT_STAY_VERSION],
+      )).id;
+      const host = { partnerId: stayP, partnerName: 'Дом 3б' };
+      const S1 = await stayReq('Галина Гостья', '+79995551105');
+      const S2 = await stayReq('Дарья Гостья', '+79995551107');
+      managers.length = 0;
+      expect((await answerStayRequest({ partner: host, requestId: S1, answer: 'busy', via: 'max', db: pool, notifyManager })).tell.kind).toBe('answered');
+      expect((await answerStayRequest({ partner: host, requestId: S2, answer: 'free', via: 'max', db: pool, notifyManager })).tell.kind).toBe('answered');
+      expect(managers[0]!.split('\n').at(-1)).toBe(QUEUE_LINE);
+      expect(managers[0]).not.toMatch(/Галина|79995551105/);
+      expect(managers[1]).not.toContain(managerQueueUrl());
+      const q5 = await load();
+      expect(itemOf(q5.stay_busy, S1)).toEqual({
+        kind: 'stay_busy', id: S1, stay_request_id: S1, happened_at: expect.stringMatching(/^\d{4}-\d{2}-\d{2}T/), partner_name: 'Дом 3б',
+        contact_name: 'Галина Гостья', contact_phone: '+79995551105', take: null,
+        accommodation_name: 'Дом 3б', check_in: '2099-08-10', check_out: '2099-08-12', guests: 2,
+      });
+      expect(itemOf(q5.stay_busy, S2)).toBeNull();
+      expect(await take(U1, S2, 'stay_busy')).toEqual({ kind: 'not_in_queue' });
+      expect(itemOf((await load(tomorrow)).stay_busy, S1)).toBeNull();
+      expect(await take(U2, S1, 'stay_busy', 'max')).toMatchObject({ kind: 'taken' });
+      expect(itemOf((await load()).stay_busy, S1)).toMatchObject({ take: { via: 'max', by: 'Олег Второй' } });
+      // Взятый случай виден неделю, потом уходит из списка; невзятый остаётся, пока он правда.
+      await pool.query(`UPDATE manager_queue_takes SET taken_at = NOW() - INTERVAL '8 days' WHERE subject_kind = 'stay_busy' AND subject_id = $1`, [S1]);
+      expect(itemOf((await load()).stay_busy, S1)).toBeNull();
+      await pool.query(`UPDATE manager_queue_takes SET taken_at = NOW() WHERE subject_kind = 'stay_busy' AND subject_id = $1`, [S1]);
+      // Аккаунт взявшего удалён — отметка остаётся, без имени.
+      await pool.query(`DELETE FROM users WHERE id = $1`, [U2]);
+      expect(itemOf((await load()).stay_busy, S1)).toMatchObject({ take: { via: 'max', by: null } });
+      expect(await take(U1, S1, 'stay_busy')).toMatchObject({ kind: 'already', by: null, mine: false });
+
+      // ── 6. Таблица отметок: чужая форма не принимается; миграция повторяется без вреда ──
+      for (const [kind, id, via] of [['lead', '1', 'site'], ['answer_notice', S1, 'site'], ['stay_busy', '12', 'site'], ['vehicle_decline', '7', 'telegram']]) {
+        await expect(pool.query(
+          `INSERT INTO manager_queue_takes (subject_kind, subject_id, via) VALUES ($1, $2, $3)`, [kind, id, via],
+        ), `${kind} ${id} ${via}`).rejects.toMatchObject({ code: '23514' });
+      }
+      await pool.query(readFileSync(join(process.cwd(), 'migrations', '1430_manager_queue_takes.sql'), 'utf8'));
+      expect(await marks('stay_busy', S1)).toEqual([{ taken_by: null, via: 'max' }]);
+    });
+
     it('удалили заявку — связи ушли вместе с её ключами', async () => {
       const own = await pool.query(`SELECT lead_id::text AS lead FROM agent_request_keys WHERE id = $1`, [keyId]);
       await pool.query(`DELETE FROM agent_request_keys WHERE lead_id = $1::uuid`, [own.rows[0].lead]);

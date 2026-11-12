@@ -1023,11 +1023,11 @@ export const REQUEST_STATUS_BY_KEY_IDS_SQL = `
  * как `handoff:none`: род берётся по самой заявке (consentPurposeOfKey), а не
  * по умолчанию «подбор».
  */
-export const REQUEST_STATUS_BY_LEAD_SQL = `
+const statusByLeads = (leads: string): string => `
   WITH k AS (
     SELECT kk.id, x.lead_id, NULL::uuid AS seat_request_id, NULL::uuid AS stay_request_id,
            COALESCE(kk.tool_name, 'handoff:none') AS tool_name, COALESCE(kk.opens_chat, false) AS opens_chat
-      FROM (SELECT $1::uuid AS lead_id) x
+      FROM (${leads}) x
       LEFT JOIN LATERAL (
         SELECT id, tool_name, opens_chat FROM agent_request_keys
          WHERE lead_id = x.lead_id AND expires_at > NOW()
@@ -1035,6 +1035,15 @@ export const REQUEST_STATUS_BY_LEAD_SQL = `
          LIMIT 1
       ) kk ON TRUE
   )${REQUEST_STATUS_SELECT}`;
+
+export const REQUEST_STATUS_BY_LEAD_SQL = statusByLeads('SELECT $1::uuid AS lead_id');
+
+/**
+ * То же по списку заявок одним запросом — строка на заявку, `lead_id` в ней.
+ * Так очередь менеджера (lib/manager-queue) сверяет, что вид каждой заявки
+ * по-прежнему построен из отказа, по которому человеку собираются звонить.
+ */
+export const REQUEST_STATUS_BY_LEADS_SQL = statusByLeads('SELECT DISTINCT unnest($1::uuid[]) AS lead_id');
 
 const ISO_DAY = /^\d{4}-\d{2}-\d{2}$/;
 

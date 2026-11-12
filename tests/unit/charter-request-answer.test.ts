@@ -54,6 +54,7 @@ import { DECLINE_TELL_BUDGET_MS, answerRentalRequest, handleRentalRequestAnswer 
 import { clientCharterTakeText, managerAnswerText, partnerAnswerText } from '@/lib/rental/request-answer';
 import { answerTellAttention, answerTellPlain } from '@/lib/rental/web-cabinet';
 import type { NoticeOutcome } from '@/lib/requests/answer-notice-text';
+import { managerQueueUrl } from '@/lib/manager-queue/link';
 import { itemCardScreen, type CabinetPartner } from '@/lib/chat-cabinet/screens';
 import { tryRentalCabinetTelegramPress } from '@/lib/rental/cabinet-telegram';
 import { INBOX_BY_CATEGORY, INBOX_KINDS, INBOX_NOT_HERE, RESPONSE_METRIC_KINDS } from '@/lib/crm/inbox-kinds';
@@ -163,6 +164,8 @@ describe('«Беру» перевозчика', () => {
     expect(managers[0]).not.toContain('Горелый');
     expect(managers[0]).toContain(LEAD);
     expect(managers[0]).not.toContain(PHONE);
+    // «Беру» в очередь менеджера не встаёт — ссылки на неё в сообщении нет.
+    expect(managers[0]).not.toContain(managerQueueUrl());
   });
 
   it('«Не могу»: лид → lost, заказчику — одно сообщение Ведара после смены статуса, слов перевозчика в переписке нет; партнёру и менеджеру — исход', async () => {
@@ -189,6 +192,8 @@ describe('«Беру» перевозчика', () => {
     // Менеджеру — и что заявка теперь за ним, и знает ли заказчик об отказе.
     expect(managers[0]).toContain('Нужен другой перевозчик: заявка остаётся у менеджера. Заказчику ушло сообщение об отказе в MAX');
     expect(managers[0]).not.toContain(PHONE);
+    // «Не могу» встаёт в очередь менеджера (этап 3б): последней строкой — где она и где отметка «Взял».
+    expect(managers[0]!.split('\n').at(-1)).toBe(`В очереди менеджера — там же отметка «Взял»: ${managerQueueUrl()}`);
     const told = partnerAnswerText(r.tell);
     expect(told).toContain('<b>Ваш ответ:</b> не могу. Заказчику ушло сообщение в MAX: ваш ответ.');
     expect(told).not.toMatch(/остаётся у менеджера|турист/i);

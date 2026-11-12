@@ -30,6 +30,7 @@
  */
 
 import { tgSend } from '@/lib/notifications/tg-send';
+import { withQueueLine } from '@/lib/manager-queue/link';
 import { isRentalPilotSlug } from '@/lib/rental/operator-pilot';
 import {
   clientCharterTakeText, managerAnswerText, parseRequestAnswer, partnerAnswerText, requestAnswerEditText,
@@ -195,7 +196,7 @@ export async function answerRentalRequest(opts: {
         ? { kind: 'take_bad_dates' }
         : { kind: 'take_no_car' };
   try {
-    await notify(managerAnswerText({
+    await notify(withQueueLine(managerAnswerText({
       kind: 'car_rental',
       partnerName: partner.partnerName,
       leadId: request.leadId,
@@ -205,7 +206,7 @@ export async function answerRentalRequest(opts: {
       to: request.dateTo,
       marked: opts.answer === 'take' ? claimed.marked : null,
       notice,
-    }));
+    }), opts.answer === 'decline'));
   } catch (err) {
     console.error('[rental-request-answer] менеджеру не доставлено:', err instanceof Error ? err.message : err);
   }
@@ -241,7 +242,7 @@ async function answerCharter(
   const clientTold = answer === 'take' ? await tellCharterClient(partner, request.leadId) : null;
   const notice = answer === 'decline' ? await tellDeclinedClient(request.leadId, claimed.notice) : null;
   try {
-    await notify(managerAnswerText({
+    await notify(withQueueLine(managerAnswerText({
       kind: 'charter',
       partnerName: partner.partnerName,
       leadId: request.leadId,
@@ -251,7 +252,7 @@ async function answerCharter(
       to: request.dateTo,
       marked: null,
       notice,
-    }));
+    }), answer === 'decline'));
   } catch (err) {
     console.error('[charter-request-answer] менеджеру не доставлено:', err instanceof Error ? err.message : err);
   }
