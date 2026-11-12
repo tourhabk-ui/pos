@@ -38,7 +38,7 @@ import { safetyPill } from '@/lib/home/safety-pill';
 import { photoSrc } from '@/lib/images/variant';
 import { BEAR_PHOTOS, type CreditedPhoto } from '@/lib/media/wildlife-photos';
 import {
-  dataFreshness, freshnessDot, freshnessShort,
+  dataFreshness, freshnessShort,
 } from '@/lib/home/data-freshness';
 import { plateFacts, HOME_PLATES_ORDER_NOTE, HOME_TOURS_PHOTO_NOTE } from '@/lib/home/plate-facts';
 import { OperatorNameLink } from '@/components/operators/OperatorNameLink';
@@ -55,6 +55,8 @@ import { withStayPlate, isStayPlate } from '@/lib/home/stay-plate';
 import { sessionState } from '@/lib/auth/session-state';
 import { HeroBackdrop } from '@/components/homepage/HeroBackdrop';
 import { PlaceSwipeDeck } from '@/components/places/PlaceSwipeDeck';
+import { LiveFreshnessDot } from '@/components/ui/LiveFreshnessDot';
+import { useNow } from '@/hooks/use-now';
 import { geolocationOnce } from '@/lib/geo/current-position';
 
 
@@ -151,7 +153,10 @@ export default function HomeV8Client({ data, weather }: { data: HomeV8Data; weat
   // Свежесть источника — отдельно от состояния. «Спокойно» по позавчерашним
   // данным и «спокойно» по свежим — разные утверждения, и человек должен
   // видеть, какое из них ему показали.
-  const fresh = dataFreshness({ updatedAt: safety.updatedAt, source: 'safety' });
+  // «Сейчас» тикает раз в полминуты (12.11): «3 мин назад» на плитке «Радар»
+  // идёт само, а данные, состарившиеся при открытой странице, честно желтеют.
+  const now = useNow();
+  const fresh = dataFreshness({ updatedAt: safety.updatedAt, source: 'safety', now });
   // Состояние обстановки словом. Дроби нет: районного статуса в базе не
   // существует, а знаменатель по 763 точкам читается как шум — см. safety-pill.
   // Свежесть передаётся внутрь (аудит 24.09, #44): «Спокойно» в шапке при
@@ -455,12 +460,8 @@ export default function HomeV8Client({ data, weather }: { data: HomeV8Data; weat
           >
             <span className="qt-ic">
               <Radar size={19} strokeWidth={1.8} aria-hidden />
-              <i
-                className="qt-badge"
-                style={freshnessDot(fresh.state)
-                  ? { background: freshnessDot(fresh.state) as string }
-                  : { border: '1px solid var(--text-muted)', background: 'var(--bg-card)' }}
-              />
+              {/* Пульс — только у свежих данных; возраст ниже идёт сам (12.11). */}
+              <LiveFreshnessDot className="qt-badge" state={fresh.state} />
             </span>
             <span className="qt-tx">
               <b>Радар</b>
@@ -1177,7 +1178,7 @@ const CSS = `
 .v7 .hero-kick{margin-bottom:10px;font:600 12px/1.4 var(--fm);letter-spacing:.18em;text-transform:uppercase;color:rgba(255,255,255,.85)}
 .v7 .hero-photo .sub{margin-top:12px;font:500 14px/1.55 var(--font-outfit),system-ui,sans-serif;color:rgba(255,255,255,.92);max-width:34ch}
 .v7 .hero-photo .kvert{margin-top:14px;display:inline-flex;align-items:center;gap:8px;font:400 9.5px/1 var(--fm);letter-spacing:.08em;color:rgba(255,255,255,.85)}
-.v7 .hero-photo .kvert i{width:7px;height:7px;border-radius:50%}
+.v7 .hero-photo .kvert i{width:7px;height:7px;border-radius:50%;transition:background-color .6s ease}
 /* Первый блок встаёт на растворяющийся низ фото — место, где раньше лежала
    строка поиска (снята 25.09). */
 .v7 nav.qt-top{position:relative;z-index:2;margin:-16px 0 0}

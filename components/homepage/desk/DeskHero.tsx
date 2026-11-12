@@ -9,6 +9,7 @@ import { EMERGENCY_PRIMARY } from '@/lib/safety/emergency-numbers';
 import type { DeskBrief } from '@/lib/home/desk-brief';
 import { keepDailyDescription } from '@/lib/weather/day-parts';
 import { photoSrc, photoSrcSet } from '@/lib/images/variant';
+import { DeskFreshness } from './DeskFreshness';
 
 /**
  * Первый экран десктопной главной — «сводка дня поверх фото» (доска
@@ -231,6 +232,7 @@ export function DeskHero({ brief }: { brief: DeskBrief }) {
               </Link>
             ))}
           </div>
+          <DeskFreshness updatedAt={brief.statusUpdatedAt} serverNow={brief.serverNow} />
         </div>
       </div>
     </section>

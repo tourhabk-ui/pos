@@ -63,6 +63,40 @@ export const HEADER_NAV = [
 ] as const;
 
 /**
+ * Какой пункт центральной навигации — текущий адрес (12.11): «Туры» горит и
+ * на карточке тура, «Места» — на карточке места. -1 — адрес не из меню.
+ */
+export function headerNavIndex(pathname: string | null | undefined): number {
+  if (!pathname) return -1;
+  return HEADER_NAV.findIndex((i) => pathname === i.href || pathname.startsWith(`${i.href}/`));
+}
+
+/**
+ * Полоска под пунктом навигации. Своя дорожка у самой навигации остаётся
+ * (сторож header-actions-reachable): полоска лежит внутри <nav> высотой 2px
+ * и не ловит нажатий, накрыть кнопки она не может.
+ */
+function NavUnderline({ bar, index, color }: { bar: { left: number; width: number; ready: boolean }; index: number; color: string }) {
+  return (
+    <span
+      aria-hidden
+      data-nav-bar={index}
+      className={bar.ready ? 'transition-[left,width] duration-300 ease-out motion-reduce:transition-none' : undefined}
+      style={{
+        position: 'absolute',
+        bottom: '0px',
+        left: `${bar.left}px`,
+        width: `${bar.width}px`,
+        height: '2px',
+        borderRadius: '1px',
+        background: color,
+        pointerEvents: 'none',
+      }}
+    />
+  );
+}
+
+/**
  * Слово рядом со знаком. Голое «Ведар» / vedarai в поиске сталкивается с
  * чужими сущностями, поэтому бренд — «Ведар Камчатка» (EN Vedar Kamchatka,
  * ZH Vedar 堪察加). Язык — по первому сегменту пути, как у <html lang>.
@@ -76,7 +110,33 @@ export function headerBrand(pathname: string | null | undefined): { first: strin
 
 export function Header({ overPhoto = false }: HeaderProps = {}) {
   const scrollY = useScrollY();
-  const brand = headerBrand(usePathname());
+  const pathname = usePathname();
+  const brand = headerBrand(pathname);
+
+  /**
+   * Полоска под пунктом навигации (12.11, десктопная пара плашки нижнего
+   * меню): одна на всю навигацию, переезжает к нажатому пункту сразу, не
+   * дожидаясь загрузки страницы, и встаёт под пункт текущего адреса.
+   * Пункты разной ширины, поэтому место берётся замером, а не долей.
+   * Первое появление — без перехода; при «уменьшить движение» — без перехода.
+   */
+  const activeNav = headerNavIndex(pathname);
+  const [pickedNav, setPickedNav] = React.useState<{ on: string | null; index: number } | null>(null);
+  const navUnder = pickedNav && pickedNav.on === pathname ? pickedNav.index : activeNav;
+  const navLinks = React.useRef<(HTMLAnchorElement | null)[]>([]);
+  const [navBar, setNavBar] = React.useState<{ left: number; width: number; ready: boolean } | null>(null);
+  React.useLayoutEffect(() => {
+    const measure = () => {
+      const el = navUnder >= 0 ? navLinks.current[navUnder] : null;
+      // Навигация скрыта ниже xl: ширина 0 — полоски нет.
+      if (!el || el.offsetWidth === 0) { setNavBar(null); return; }
+      setNavBar((prev) => ({ left: el.offsetLeft + 10, width: el.offsetWidth - 20, ready: prev !== null }));
+    };
+    measure();
+    window.addEventListener('resize', measure);
+    document.fonts?.ready.then(measure).catch(() => { /* шрифт не загрузился — замер прежний */ });
+    return () => window.removeEventListener('resize', measure);
+  }, [navUnder]);
   /**
    * Вошёл ли смотрящий. `null` — ещё не спросили или сеть не ответила: это
    * отдельное состояние, а не «гость». Спрашивается один раз за монтирование,
@@ -220,11 +280,18 @@ export function Header({ overPhoto = false }: HeaderProps = {}) {
         justifySelf: 'center',
         gridColumn: 2,
         gap: '2px',
+        position: 'relative',
       }} className="hidden xl:flex">
         {HEADER_NAV.map(item => (
           <Link
             key={item.href}
             href={item.href}
+            ref={(el) => { navLinks.current[HEADER_NAV.indexOf(item)] = el; }}
+            aria-current={HEADER_NAV.indexOf(item) === activeNav ? 'page' : undefined}
+            onClick={(e) => {
+              if (e.defaultPrevented || e.button !== 0 || e.metaKey || e.ctrlKey || e.shiftKey || e.altKey) return;
+              setPickedNav({ on: pathname, index: HEADER_NAV.indexOf(item) });
+            }}
             style={{
               padding: '6px 10px',
               borderRadius: '20px',
@@ -240,6 +307,7 @@ export function Header({ overPhoto = false }: HeaderProps = {}) {
             {item.label}
           </Link>
         ))}
+        {navBar && <NavUnderline bar={navBar} index={navUnder} color={iconColor} />}
       </nav>
 
       {/* Right side — icon buttons */}
