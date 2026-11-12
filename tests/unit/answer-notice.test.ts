@@ -52,7 +52,7 @@ import {
 import { REQUEST_STATUS_BY_LEAD_SQL, type StatusRow } from '@/lib/mcp/request-status';
 import type { NotifyRunResult } from '@/lib/mcp/request-notify';
 import {
-  DATE_CHECK_SHORT, NOTICE_TEXT_MAX, dateCheckWords, managerClearedText, managerUndeliveredText, operatorOutcomeLine, touristAnswerText,
+  DATE_CHECK_SHORT, MANAGER_OFFERS_MAX, NOTICE_TEXT_MAX, dateCheckWords, managerClearedText, managerUndeliveredText, operatorOutcomeLine, touristAnswerText,
   type NoticeFacts,
 } from '@/lib/requests/answer-notice-text';
 import { SITUATION_FORECAST_DAYS } from '@/lib/trips/situation';
@@ -1318,13 +1318,49 @@ describe('другие компании к месту на дату (этап 4�
     expect(NOTICE_OFFERS_TIMEOUT_MS).toBeLessThanOrEqual(NOTICE_CHECK_TIMEOUT_MS);
   });
 
-  it('не дошло до человека — исход без «названы», письмо менеджеру прежнее', async () => {
+  it('не дошло до человека — исход без «названы»; менеджеру, который будет звонить, названо, кого ещё можно предложить', async () => {
     otherOffers.mockResolvedValue(offersOk());
     w.targets = [];
     const o = await deliverAnswerNotice('501', at());
     expect(o).toMatchObject({ state: 'undelivered', manager: 'max' });
     expect(o).not.toHaveProperty('offers');
-    expect(managerText().text).not.toContain('другие компании');
+    const m = managerText();
+    expect(m.text).toContain(
+      'Кого ещё можно назвать клиенту на эту дату — к месту «Вулкан &lt;Горелый&gt;», по календарю Ведара, это не ответ компаний: '
+      + '«Компания «А&amp;Б»» — тур «Горелый за день» (в календаре места есть); «Вторая» — тур «К кратеру» (дату подтверждает оператор); ещё 1 компания. '
+      + `Все туры к месту: ${PLACE_URL} Заявку другой компании клиент оставляет сам.`,
+    );
+    // Заглушка в Telegram короткая: список — в письме с телефоном и на странице места.
+    expect(m.stub).not.toContain('Кого ещё можно назвать');
+    expect(m.text).not.toMatch(/рекоменд|лучш|дешевл/i);
+  });
+
+  it('письмо менеджеру: не больше трёх компаний, остальные — числом; после погоды, у группы и без списка строки нет', () => {
+    const five = {
+      kind: 'offers' as const, placeName: 'Вулкан Горелый', placeUrl: PLACE_URL, more: 2,
+      offers: ['А', 'Б', 'В', 'Г', 'Д'].map((n, i) => ({
+        partnerName: n, tourId: String(300 + i), title: `Тур ${n}`, price: null, seats: 'calendar' as const, url: FORM_A, moreTours: 0,
+      })),
+    };
+    const contact = { name: null, phone: null };
+    const F: NoticeFacts = {
+      leadId: LEAD, answer: 'no_seats', reason: null, tourTitle: 'Тур', tourUrl: null,
+      date: '2027-01-15', people: 2, operatorName: 'Оп', groupPassedOn: false,
+    };
+    const text = managerUndeliveredText({ ...F, answer: 'no_seats' }, contact, [], [], five).text;
+    expect(MANAGER_OFFERS_MAX).toBe(3);
+    expect(text).toContain('«А» — тур «Тур А» (в календаре места есть); «Б» — тур «Тур Б» (в календаре места есть); «В» — тур «Тур В» (в календаре места есть); ещё 4 компании.');
+    expect(text).not.toMatch(/«Г»|«Д»/);
+    // Те же случаи, где человеку список не называют, — и менеджеру не называем.
+    const silent = (f: NoticeFacts, block?: Parameters<typeof managerUndeliveredText>[4] | null) => managerUndeliveredText(f, contact, [], [], block === null ? undefined : block ?? five).text;
+    expect(silent({ ...F, answer: 'decline', reason: 'weather' })).not.toContain('Кого ещё можно назвать');
+    expect(silent({ ...F, answer: 'no_seats', groupPassedOn: true })).not.toContain('Кого ещё можно назвать');
+    expect(silent({ ...F, answer: 'other_date' })).not.toContain('Кого ещё можно назвать');
+    for (const block of [{ kind: 'none' as const }, { kind: 'failed' as const }, { kind: 'skip' as const }, null]) {
+      expect(silent({ ...F, answer: 'no_seats' }, block)).not.toContain('Кого ещё можно назвать');
+    }
+    // Проверка самой проверки: с переданным списком строка есть.
+    expect(silent({ ...F, answer: 'no_seats' })).toContain('Кого ещё можно назвать');
   });
 
   it('длинные названия обрезаны, а блок укладывается в предел сообщения: не вошедшие компании названы числом и в исход не идут', async () => {

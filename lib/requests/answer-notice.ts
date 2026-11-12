@@ -649,13 +649,14 @@ export function telegramSafeFacts(f: NoticeFacts): NoticeFacts {
 
 /** Менеджеру: до человека не дошло. Канал письма — в строку; «дошло» — только при канале. */
 async function alertManager(
-  q: Query, r: NoticeRow, f: NoticeFacts, tried: string[], dates: string[], deps: NoticeDeps,
+  q: Query, r: NoticeRow, f: NoticeFacts, tried: string[], dates: string[], offers: OffersBlock, deps: NoticeDeps,
 ): Promise<'max' | 'telegram-stub' | 'none'> {
   let channel: 'max' | 'telegram-stub' | 'none' = 'none';
   try {
     const { rows: [c] } = await q(NOTICE_CONTACT_SQL, [r.lead_id]);
     const contact = (c ?? {}) as { name?: string | null; phone?: string | null };
-    const msg = managerUndeliveredText(f, { name: contact.name ?? null, phone: contact.phone ?? null }, tried, dates);
+    // Другие компании на дату — тому, кто будет звонить: человеку список не дошёл.
+    const msg = managerUndeliveredText(f, { name: contact.name ?? null, phone: contact.phone ?? null }, tried, dates, offers);
     const res = await pdAlertInTime({
       text: msg.text,
       // Заглушка уходит в Telegram: слова заказчика — только после чистки.
@@ -749,7 +750,7 @@ export async function deliverAnswerNotice(noticeId: string, deps: NoticeDeps = {
       const now = await readRow(q, noticeId);
       return now ? outcomeOfRow(now) : { state: 'pending' };
     }
-    const manager = await alertManager(q, r, f, tried, shownDates, deps);
+    const manager = await alertManager(q, r, f, tried, shownDates, offers, deps);
     return { state: 'undelivered', manager, why: undeliveredWhy(tried) };
   } catch (err) {
     console.error(`${LOG} заявка ${leadId}: сообщение не отправлено — повторит добивка, SQLSTATE`, codeOf(err));
@@ -876,7 +877,8 @@ export async function runAnswerNotices(deps: NoticeDeps = {}): Promise<NoticeRun
         const und = await q(NOTICE_UNDELIVERED_SQL, [r.id, tried.join(',')]);
         if ((und.rowCount ?? 0) > 0) {
           res.undelivered++;
-          await alertManager(q, r, f, tried, [], deps);
+          // Повтор и письмо после исчерпанных попыток — без дат и без других компаний: их здесь не читали.
+          await alertManager(q, r, f, tried, [], { kind: 'skip' }, deps);
         }
       } else if (r.state === 'undelivered') {
         if (!holds) {
@@ -885,7 +887,7 @@ export async function runAnswerNotices(deps: NoticeDeps = {}): Promise<NoticeRun
           continue;
         }
         res.manager_retried++;
-        await alertManager(q, r, f, r.tried ? r.tried.split(',') : [], [], deps);
+        await alertManager(q, r, f, r.tried ? r.tried.split(',') : [], [], { kind: 'skip' }, deps);
       }
     } catch (err) {
       res.status = 'db_error';

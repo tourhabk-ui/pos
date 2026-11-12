@@ -109,6 +109,51 @@ export interface RequestNotifyStatus {
 }
 
 /**
+ * Поле other_offers в ответе get_request_status (план «после отказа», этап
+ * 4а): другие компании с турами к тому же месту на дату заявки — после «Нет
+ * мест» и отказа туроператора. Собирает lib/requests/other-offers-status тем же
+ * отбором и порядком, что сообщение человеку в чат. Пояснение живёт здесь, а
+ * не в описании инструмента: то обязано помещаться в 1024 знака моста.
+ */
+export const OTHER_OFFERS_STATES = ['listed', 'none', 'failed'] as const;
+
+export const OTHER_OFFERS_PROPERTY = {
+  type: ['object', 'null'],
+  description: 'Другие компании с турами к тому же месту на дату заявки — после ответа туроператора «мест нет» или отказа. '
+    + 'null — к этой заявке не относится: ответ не отказ, отказ по погоде или безопасности (тогда замену проверяйте сами, как сказано в next), '
+    + 'заявка на большую группу, у заявки нет тура или даты, дата прошла. '
+    + 'state: listed — компании в offers; none — Ведар проверил и не нашёл; failed — не прочиталось, это не «не нашёл». '
+    + 'Это не ответ компаний: «может принять» значит календарь тура, места и дату подтверждает сама компания. Что делать со списком — в how.',
+  properties: {
+    state: { type: 'string', enum: [...OTHER_OFFERS_STATES] },
+    place: { type: ['string', 'null'], description: 'Место, к которому идут туры' },
+    place_url: { type: ['string', 'null'], description: 'Страница места: там все туры к нему' },
+    date: { type: 'string', description: 'Дата заявки YYYY-MM-DD, на которую считали' },
+    participants: { type: ['integer', 'null'], description: 'На сколько человек считали места; null — в заявке не записано, считали на одного' },
+    offers: {
+      type: 'array',
+      description: 'По одному туру на компанию. Порядок — общее правило витрины, назван в how; цена на него не влияет',
+      items: {
+        type: 'object',
+        properties: {
+          company: { type: 'string' },
+          tour: { type: 'string' },
+          tour_id: { type: 'string', description: 'Номер тура: им оставляют заявку — create_booking_request' },
+          price: { type: ['string', 'null'], description: 'Цена словами с единицей; null — не записана' },
+          seats: { type: 'string', enum: ['calendar', 'by_request'], description: 'calendar — в календаре тура на эту дату мест на группу хватает; by_request — расписания на Ведаре нет, дату подтверждает оператор' },
+          url: { type: 'string', description: 'Форма заявки тура с подставленными датой и числом людей — для человека' },
+          more_tours: { type: 'integer', description: 'Сколько ещё туров этой компании к месту могут принять на дату' },
+        },
+        required: ['company', 'tour', 'tour_id', 'price', 'seats', 'url', 'more_tours'],
+      },
+    },
+    more_companies: { type: 'integer', description: 'Сколько компаний в список не вошло — они на странице места' },
+    how: { type: 'string', description: 'Что это за список и что с ним делать' },
+  },
+  required: ['state', 'place', 'place_url', 'date', 'participants', 'offers', 'more_companies', 'how'],
+} as const;
+
+/**
  * Правило доставки ответа — словами для агента (план «после отказа», 2б;
  * слово владельца 11.11 «мы доверяем агенту»). Исполняет readRequestStatus
  * (lib/mcp/request-status): вид, построенный из ответа туроператора кнопкой
@@ -184,6 +229,7 @@ export const GET_REQUEST_STATUS_TOOL = {
       partner_last_reply_at: { type: ['string', 'null'], description: 'Когда адресат написал последнее сообщение (ISO 8601); null — не писал или переписки по ключу нет' },
       max_link: { type: ['string', 'null'], description: 'Ссылка подключить MAX: ответы адресата будут приходить человеку туда. Дайте её человеку, не публикуйте; null — MAX уже подключён или переписки по ключу нет' },
       notify: NOTIFY_STATUS_PROPERTY,
+      other_offers: OTHER_OFFERS_PROPERTY,
     },
     required: ['state', 'kind', 'human', 'next', 'consent', 'consent_purpose', 'page'],
   },

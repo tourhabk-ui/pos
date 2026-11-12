@@ -26,6 +26,7 @@ import Link from 'next/link';
 import { Loader2, CheckCircle2, XCircle, CalendarClock, Clock, AlertTriangle, ShieldCheck, PhoneCall } from 'lucide-react';
 import { PdConsentCheckbox } from '@/components/legal/PdConsentCheckbox';
 import { RequestChat } from '@/components/requests/RequestChat';
+import { RequestOtherOffers, type OtherOffersBlock } from '@/components/requests/RequestOtherOffers';
 import { RequestSteps } from '@/components/requests/RequestSteps';
 import { RequestTicket } from '@/components/requests/RequestTicket';
 import { requestSteps } from '@/lib/requests/request-steps';
@@ -51,6 +52,8 @@ interface View {
   human: string;
   consent: ConsentBy;
   consent_purpose: ConsentPurpose;
+  /** Другие компании к месту на дату после отказа туроператора (4а); нет поля — к заявке не относится. */
+  other_offers?: OtherOffersBlock | null;
 }
 
 interface StateText { title: string; tone: string; next: string }
@@ -341,6 +344,7 @@ export function RequestStatusClient() {
               <p className="text-sm text-[var(--text-primary)]">Предложенная дата: <b>{dateRu(view.alt_date)}</b>.</p>
             )}
             <p className="text-sm text-[var(--text-secondary)]">{nextText(view)}</p>
+            <RequestOtherOffers block={view.other_offers} />
 
             {view.consent !== 'human' ? (
               <div className="space-y-2 pt-3 border-t border-[var(--border)]">

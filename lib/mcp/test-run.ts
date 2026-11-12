@@ -58,6 +58,7 @@ export function testKeyStatus(key: string) {
     page: `${getPublicBaseUrl()}/mcp`,
     partner_replies: null, partner_last_reply_at: null, max_link: null,
     notify: null,
+    other_offers: null,
   };
 }
 

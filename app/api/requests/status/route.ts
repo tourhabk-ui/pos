@@ -3,6 +3,8 @@
  * по ключу из ответа агента (вторая половина ступени 1 контура, #2371).
  * То же, что агенту даёт get_request_status, без подсказок про инструменты
  * и без имени и телефона — они человеку известны.
+ * После отказа туроператора — и другие компании к тому же месту на дату
+ * заявки (`other_offers`, этап 4а): только вывески, туры и ссылки на формы.
  *
  * AUTH: публичный (реестр lib/auth/public-api-routes); доступ — по ключу,
  * который получили только агент и человек. Частота — по IP. Ключ в запросе
@@ -13,6 +15,7 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { createRateLimiter, getTrustedClientIp } from '@/lib/rate-limit';
 import { readRequestStatus } from '@/lib/mcp/request-status';
+import { pageOtherOffers } from '@/lib/requests/other-offers-status';
 import { McpUserError } from '@/lib/mcp/jsonrpc';
 
 export const dynamic = 'force-dynamic';
@@ -31,10 +34,15 @@ export async function GET(req: NextRequest) {
   try {
     const {
       state, kind, tour, accommodation, accommodation_url, date, check_out, participants, alt_date, deadline, human, consent, consent_purpose,
+      other_offers,
     } = await readRequestStatus(k, { reader: 'page', seen });
     return NextResponse.json({
       success: true,
-      data: { state, kind, tour, accommodation, accommodation_url, date, check_out, participants, alt_date, deadline, human, consent, consent_purpose },
+      data: {
+        state, kind, tour, accommodation, accommodation_url, date, check_out, participants, alt_date, deadline, human, consent, consent_purpose,
+        // Другие компании к месту на дату (4а) — без слов для агента: с человеком страница говорит своими.
+        other_offers: pageOtherOffers(other_offers),
+      },
     });
   } catch (err) {
     if (err instanceof McpUserError) {
