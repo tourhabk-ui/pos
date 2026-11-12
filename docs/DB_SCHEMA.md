@@ -1,6 +1,6 @@
 # Схема базы данных Ведара
 
-> Снято 2026-11-12 с настоящего PostgreSQL 18.6 (Debian 18.6-1.pgdg13+2): baseline прода (`lib/database/baseline/schema-baseline.sql`, снимок 2026-08-15) + миграции новее него, накатанные штатным раннером. Последняя миграция в снимке: `1433_other_offer_asks.sql`.
+> Снято 2026-11-12 с настоящего PostgreSQL 18.6 (Debian 18.6-1.pgdg13+2): baseline прода (`lib/database/baseline/schema-baseline.sql`, снимок 2026-08-15) + миграции новее него, накатанные штатным раннером. Последняя миграция в снимке: `1434_offer_ask_manager.sql`.
 > Файл порождён `scripts/gen-db-schema.ts` (`npm run db:schema-doc`); править руками бессмысленно — следующий прогон перепишет.
 > Что здесь НЕ учтено: дрейф прода после baseline, не отражённый миграциями. Судья дрейфа — `GET /api/cron/schema-drift` на проде (`lib/db/schema-drift.ts`). Значений данных в файле нет — только имена и типы.
 
@@ -8,7 +8,7 @@
 |---|---:|
 | Таблиц | 326 |
 | Представлений (VIEW) | 12 |
-| Колонок | 4252 |
+| Колонок | 4254 |
 | Внешних ключей | 391 |
 | Таблиц без единого FK в обе стороны | 87 |
 
@@ -1565,9 +1565,9 @@ B2B-агенты, продающие туры за комиссию. Не пут
 
 `id uuid!=` `operator_id uuid!` `change jsonb!` `preview jsonb!` `source varchar!=` `created_at timestamptz!=` `expires_at timestamptz!` `used_at timestamptz` `confirmed_by uuid`
 
-**other_offer_asks** · 14 кол. · PK id · lead_id → leads.id, partner_id → partners.id, tour_id → operator_tours.id · индексов 3
+**other_offer_asks** · 16 кол. · PK id · lead_id → leads.id, partner_id → partners.id, tour_id → operator_tours.id · индексов 3
 
-`id bigint!=` `lead_id uuid!` `partner_id uuid!` `tour_id bigint!` `ask_date date!` `people integer!` `asked_at timestamptz!=` `sent_via text` `send_note text` `answer text` `answered_at timestamptz` `answered_via text` `told_via text` `told_at timestamptz`
+`id bigint!=` `lead_id uuid!` `partner_id uuid!` `tour_id bigint!` `ask_date date!` `people integer!` `asked_at timestamptz!=` `sent_via text` `send_note text` `answer text` `answered_at timestamptz` `answered_via text` `told_via text` `told_at timestamptz` `manager_via text` `manager_at timestamptz`
 
 **password_reset_tokens** · 7 кол. · PK id · issued_by → users.id, user_id → users.id · индексов 3
 
