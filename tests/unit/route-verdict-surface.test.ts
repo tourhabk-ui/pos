@@ -16,6 +16,7 @@ import { describe, it, expect } from 'vitest';
 import { readFileSync } from 'node:fs';
 import { join } from 'node:path';
 import { verdictLook, verdictInlineNote } from '@/lib/routes/verdict-presentation';
+import { verdictFactLines } from '@/lib/routes/verdict-facts';
 
 const read = (p: string) => readFileSync(join(process.cwd(), p), 'utf-8');
 
@@ -64,7 +65,12 @@ describe('блок не исчезает', () => {
   });
 
   it('запасной ответ — «Осторожно» с названной нехваткой, а не «Идти»', () => {
-    const offline = BLOCK.slice(BLOCK.indexOf('const OFFLINE'), BLOCK.indexOf('const ACC_RU'));
+    // Конец среза — шапка хука: до 12.11 якорем был `const ACC_RU`, и когда
+    // слова фактов уехали в lib/routes/verdict-facts, indexOf дал бы -1 и
+    // срез молча взял бы файл почти целиком.
+    const end = BLOCK.indexOf('export function useRouteVerdict');
+    expect(end).toBeGreaterThan(BLOCK.indexOf('const OFFLINE'));
+    const offline = BLOCK.slice(BLOCK.indexOf('const OFFLINE'), end);
     expect(offline).toMatch(/status:\s*'caution'/);
     expect(offline).not.toMatch(/status:\s*'go'/);
     expect(offline).toMatch(/unknown:\s*\[[^\]]+\]/);
@@ -73,14 +79,26 @@ describe('блок не исчезает', () => {
     expect(offline).toMatch(/volcanoes:\s*null/);
   });
 
+  // Слова фактов — lib/routes/verdict-facts (12.11, #3302): те же строки
+  // читает ответ Кузьмича и MCP о маршруте. Судится вызов, а не текст файла:
+  // прежняя проверка искала `length === 0` в исходнике компонента и после
+  // переезда слов зеленела бы на пустом совпадении.
   it('«не смогли узнать» показано словами, а не пропущено', () => {
-    expect(BLOCK).toContain('не смогли узнать');
+    const unknown = verdictFactLines({ alerts: null, volcanoes: null, inSeason: null, weather: null, closures: null });
+    expect(unknown.map((f) => f.label)).toEqual(['Предупреждения', 'Вулканы на маршруте', 'Закрытые точки']);
+    expect(unknown.every((f) => f.value === 'не смогли узнать')).toBe(true);
   });
 
   it('пустой список и незнание выглядят по-разному', () => {
     // Один и тот же текст на оба случая свёл бы различение к нулю на экране.
-    const empty = BLOCK.match(/length === 0[\s\S]{0,220}/g)?.join('\n') ?? '';
-    expect(empty).not.toContain('не смогли узнать');
+    const empty = verdictFactLines({ alerts: [], volcanoes: [], inSeason: null, weather: null, closures: [] });
+    expect(empty).toHaveLength(3);
+    expect(empty.map((f) => f.value).join(' ')).not.toContain('не смогли узнать');
+  });
+
+  it('компонент берёт слова из общего модуля, своей копии строк у него нет', () => {
+    expect(BLOCK).toMatch(/from '@\/lib\/routes\/verdict-facts'/);
+    expect(BLOCK).not.toContain('не смогли узнать');
   });
 });
 

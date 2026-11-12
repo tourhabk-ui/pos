@@ -2723,7 +2723,7 @@ async function executeTool(name: string, args: Record<string, string>, opts: Too
     if (name === 'get_guardian_context') {
       const { getGuardianContextDetailed } = await import('@/lib/kuzmich/guardian-context');
       const detail = await getGuardianContextDetailed(args.place ?? args.name ?? '', { pageLinks: opts.surface !== 'mcp' });
-      opts.onStructured?.({ found: detail.found, places: detail.places });
+      opts.onStructured?.({ found: detail.found, places: detail.places, routes: detail.routes });
       const ctx = detail.text;
       // «Попробую поискать через другие источники» — подсказка модели чата,
       // у которой есть веб-поиск. На MCP никакого поиска нет, и обещание

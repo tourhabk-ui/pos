@@ -50,8 +50,21 @@ import { sameParksParam, sameParksSql } from '@/lib/services/safety/push-same-ki
 import { PARK_CLOSURE_HOLD_HOURS } from '@/lib/safety/park-closure';
 import { createTestDatabase } from '../helpers/pg-schema';
 import { applyPlanParkStatus, loadPlanParkAlerts, PARK_STATUS_UNREAD_NOTE } from '@/lib/planner/park-status';
+import { getGuardianContextDetailed } from '@/lib/kuzmich/guardian-context';
 import { ACTIVE_MCHS_WARNINGS_SQL } from '@/lib/safety/active-warnings';
 import { warningsFromRows, type AlertWarningRow } from '@/lib/safety/mchs-bulletin';
+
+/**
+ * Страж (#3302) ходит в базу общим пулом приложения, а не переданным запросом,
+ * как сборщик сигналов выше. В этом файле общий пул — пул теста: остальные
+ * сцены передают запрос явно и подмены не замечают.
+ */
+const appDb = vi.hoisted(() => ({
+  pool: null as null | { query: (sql: string, params?: unknown[]) => Promise<unknown> },
+}));
+vi.mock('@/lib/db-pool', () => ({
+  pool: { query: (sql: string, params?: unknown[]) => appDb.pool!.query(sql, params) },
+}));
 
 const PG_URL = process.env.KERNEL_PG_TEST_URL ?? '';
 const withPg = PG_URL ? describe : describe.skip;
@@ -95,6 +108,7 @@ withPg('кого накрывает предупреждение', () => {
     // tests/helpers/pg-schema.ts, аудит 15.10, P2-10.
     const dbUrl = await createTestDatabase(PG_URL, TEST_DB);
     pool = new Pool({ connectionString: dbUrl, max: 4 });
+    appDb.pool = pool;
     // Мир теста — только его места. Миграции заводят и настоящие (Кроноцкий
     // заповедник, Каньон на Шивелуче…), а 1293 даёт строку реалтайма каждому
     // видимому месту — без чистки они попадали бы в счёт охвата.
@@ -1045,6 +1059,46 @@ withPg('кого накрывает предупреждение', () => {
     expect(signals.alerts, 'запрос предупреждений маршрута не выполнился').not.toBeNull();
     expect(signals.alerts!.map((a) => a.title)).toContain(title);
     expect(signals.alerts!.find((a) => a.title === title)?.type).toBe('park_closure');
+  });
+
+  /**
+   * Страж о маршруте без записи места (#3302, 12.11). «Вилючинский водопад»
+   * на проде: маршрут парка опубликован, места с таким названием нет —
+   * `get_guardian_context` отвечал `found: false` и ни слова о сегодняшнем
+   * дне. Здесь весь путь исполняется на настоящей базе: поиск маршрута по
+   * названию (с id строки и slug), сбор сигналов по этому id и закрытие парка,
+   * которое находит маршрут по park_name тем же предикатом, что у мест.
+   */
+  it('страж: маршрут парка без записи места получает «Не сегодня» по закрытию парка (#3302)', async () => {
+    const title = 'Закрыты маршруты природного парка «Налычево» (тест стража)';
+    await insertAlert({ type: 'park_closure', title, zones: [], parks: ['nalychevo'] });
+
+    const d = await getGuardianContextDetailed('Тропа к Таловским источникам');
+    expect(d.found, 'места с таким названием в мире теста нет').toBe(false);
+    expect(d.places).toEqual([]);
+    expect(d.routes).toHaveLength(1);
+    const route = d.routes[0]!;
+    expect(route).toMatchObject({
+      id: PARK_ROUTE_ID, title: 'Тропа к Таловским источникам (тест)', today: 'no', code: 'alert_ban',
+      unknown: [], park_name: 'Природный парк "Налычево"',
+    });
+    expect(route.alerts, 'предупреждения маршрута не прочитаны').not.toBeNull();
+    expect(route.alerts).toContain(title);
+    // Адрес — по slug, который база выдала маршруту при записи (триггер 1237),
+    // тот же, что у ссылки на карточке.
+    const { rows: [row] } = await pool.query<{ slug: string | null }>(
+      `SELECT slug FROM kamchatka_routes WHERE id = $1`, [PARK_ROUTE_ID],
+    );
+    expect(row?.slug, 'slug маршруту теста не выдан').toBeTruthy();
+    expect(route.url.endsWith(`/routes/${row!.slug}`)).toBe(true);
+    expect(d.text).toContain('Маршрут каталога «Тропа к Таловским источникам (тест)» [НЕ СЕГОДНЯ]');
+    expect(d.text).toContain('Оценка маршрута на сегодня — «Не сегодня»: МЧС: ');
+    expect(d.text).toContain(title);
+    expect(d.text).not.toContain('уточни точное название места');
+
+    // Слово «маршрут» в запросе поиска не ломает: название его не содержит.
+    const again = await getGuardianContextDetailed('маршрут Тропа к Таловским источникам');
+    expect(again.routes.map((r) => r.id)).toEqual([PARK_ROUTE_ID]);
   });
 
   /**
