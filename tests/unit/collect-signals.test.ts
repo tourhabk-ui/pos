@@ -12,7 +12,7 @@
  * уронить любой из них по отдельности. Проверяется не «функция вызвалась», а
  * обещание: отказ источника НИКОГДА не выглядит как чистый день.
  */
-import { describe, it, expect } from 'vitest';
+import { describe, it, expect, vi } from 'vitest';
 import { readFileSync } from 'node:fs';
 import { join } from 'node:path';
 import {
@@ -22,7 +22,7 @@ import { goVerdict } from '@/lib/routes/go-verdict';
 
 const ROUTE_ID = '00000000-0000-0000-0000-000000000001';
 
-const ROUTE_ROW = { zone: 'avacha', season: 'summer', lat: '53.25', lng: '158.83' };
+const ROUTE_ROW = { id: ROUTE_ID, zone: 'avacha', season: 'summer', lat: '53.25', lng: '158.83' };
 const WAYPOINT_ROW = { zone: 'nalychevo', lat: '53.30', lng: '158.90' };
 
 type Rows = Record<string, unknown[]>;
@@ -374,6 +374,76 @@ describe('маршрут судится правилом мест, а не св�
     const alertsFn = SRC.split('async function loadAlerts')[1]?.split('async function loadVolcanoes')[0] ?? '';
     expect(alertsFn).toContain('console.error');
     expect(alertsFn).toContain('SQLSTATE');
+  });
+});
+
+/**
+ * У маршрута два id (12.11, #3302). Карточка зовёт вердикт по id из своего
+ * адреса — id представления, COALESCE(ark_id, id). Путевые точки, закрытия и
+ * тревоги живут на kamchatka_routes.id. Пока сборщик искал строку только по
+ * `id`, у маршрута с заполненным ark_id он не находил НИЧЕГО и отвечал
+ * «не знаем» на каждый день — карточка показывала «Осторожно — данных мало»
+ * и при закрытом парке, и при закрытой точке.
+ */
+describe('маршрут находится по любому из двух своих id (#3302)', () => {
+  const CARD_ID = '11111111-1111-4111-8111-111111111111'; // ark_id: в адресе карточки
+  const ROW_ID = '22222222-2222-4222-8222-222222222222';  // kamchatka_routes.id
+
+  /** База, где строка маршрута отдаётся по id карточки, а всё прочее спрашивается по id строки. */
+  function twoIdDb(seen: Array<{ table: string; params: unknown[] }>): QueryFn {
+    return (async (sql: string, params: unknown[]) => {
+      const table = sql.includes('external_alerts') ? 'alerts'
+        : sql.includes('location_real_time_status') ? 'closures'
+        : sql.includes('route_waypoints') ? 'waypoints'
+        : sql.includes('volcano_status') ? 'volcanoes'
+        : sql.includes('kamchatka_routes') ? 'route'
+        : 'unknown';
+      seen.push({ table, params });
+      if (table === 'route') return { rows: params[0] === CARD_ID || params[0] === ROW_ID ? [{ ...ROUTE_ROW, id: ROW_ID }] : [] };
+      if (table === 'waypoints') return { rows: params[0] === ROW_ID ? [WAYPOINT_ROW] : [] };
+      if (table === 'closures') return { rows: params[0] === ROW_ID ? [{ name: 'Кордон', reason: 'закрыт до весны' }] : [] };
+      return { rows: [] };
+    }) as QueryFn;
+  }
+
+  it('по id карточки: строка найдена, точки, тревоги и закрытия спрошены по id строки', async () => {
+    const seen: Array<{ table: string; params: unknown[] }> = [];
+    const s = await collectRouteSignals(CARD_ID, { query: twoIdDb(seen), month: 7 });
+
+    expect(seen.find((q) => q.table === 'route')?.params).toEqual([CARD_ID]);
+    expect(seen.find((q) => q.table === 'waypoints')?.params).toEqual([ROW_ID]);
+    expect(seen.find((q) => q.table === 'closures')?.params).toEqual([ROW_ID]);
+    // Тревоги: id маршрута — четвёртый параметр (по нему закрытие парка находит маршрут).
+    expect(seen.find((q) => q.table === 'alerts')?.params[3]).toBe(ROW_ID);
+
+    // До починки здесь было бы «не знаем ничего» и «Осторожно — данных мало».
+    expect(s.alerts).toEqual([]);
+    expect(s.closures).toEqual([{ place: 'Кордон', reason: 'закрыт до весны' }]);
+    const v = goVerdict(s);
+    expect(v.status).toBe('no');
+    expect(v.code).toBe('point_closed');
+  });
+
+  it('по id строки — как прежде: тот же ответ', async () => {
+    const seen: Array<{ table: string; params: unknown[] }> = [];
+    const s = await collectRouteSignals(ROW_ID, { query: twoIdDb(seen), month: 7 });
+    expect(seen.find((q) => q.table === 'closures')?.params).toEqual([ROW_ID]);
+    expect(goVerdict(s).code).toBe('point_closed');
+  });
+
+  it('чужой id — маршрута нет: «не знаем», а не «чисто»', async () => {
+    const s = await collectRouteSignals('33333333-3333-4333-8333-333333333333', { query: twoIdDb([]), month: 7 });
+    expect(s).toEqual({ alerts: null, volcanoes: null, inSeason: null, weather: null, closures: null });
+    expect(goVerdict(s).code).toBe('signals_unknown');
+  });
+
+  it('отказ чтения строки маршрута пишется в лог, а не глушится', async () => {
+    const err = vi.spyOn(console, 'error').mockImplementation(() => undefined);
+    const broken = (async () => { throw Object.assign(new Error('boom'), { code: '57014' }); }) as QueryFn;
+    const s = await collectRouteSignals(CARD_ID, { query: broken, month: 7 });
+    expect(s.alerts).toBeNull();
+    expect(err.mock.calls.flat().join(' ')).toContain('57014');
+    err.mockRestore();
   });
 });
 

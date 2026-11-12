@@ -58,7 +58,7 @@ describe('guardian: места нет, вулкан есть в сводках',
     };
     mockQuery.mockImplementation((sql: string) => {
       // Сборщик сигналов маршрута: строка маршрута и вулканы на его коридоре.
-      if (sql.includes('SELECT zone, season')) return Promise.resolve({ rows: [{ zone: null, season: null, lat: '50.32', lng: '155.46' }] });
+      if (sql.includes('zone, season, lat')) return Promise.resolve({ rows: [{ zone: null, season: null, lat: '50.32', lng: '155.46' }] });
       if (sql.includes('WITH anchor') && sql.includes('FROM volcano_status vs')) return Promise.resolve({ rows: [{ name: 'Чикурачки', acc: 'orange' }] });
       if (sql.includes('FROM kamchatka_routes kr')) return Promise.resolve({ rows: [route] });
       if (sql.includes('FROM volcano_status')) return Promise.resolve({ rows: [CHIKURACHKI] });

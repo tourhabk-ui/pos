@@ -79,7 +79,7 @@ export function isInSeason(season: string | null, month: number): boolean | null
   return null;
 }
 
-interface RouteRow { zone: string | null; season: string | null; lat: string | null; lng: string | null }
+interface RouteRow { id: string | null; zone: string | null; season: string | null; lat: string | null; lng: string | null }
 interface PointRow { zone: string | null; lat: string | null; lng: string | null }
 interface AlertRow { title: string; severity: number | null; alert_type: string | null; zonal: boolean | null }
 interface VolcanoRow { name: string; acc: string }
@@ -87,32 +87,56 @@ interface ClosureRow { name: string; reason: string | null }
 
 /** Опорные точки маршрута: он сам плюс его путевые точки. */
 interface RouteShape {
+  /** `kamchatka_routes.id` найденной строки: на нём живут путевые точки. */
+  dbId: string;
   zones: string[];
   season: string | null;
   points: Array<{ lat: number; lng: number }>;
 }
 
+/**
+ * Строка маршрута по ЛЮБОМУ из двух его id (12.11, #3302).
+ *
+ * У маршрута два id, и до этого дня сборщик знал один. Карточка маршрута
+ * живёт на id представления — `COALESCE(ark_id, id)` (миграция 677): он стоит
+ * в её адресе, и им же она зовёт `/api/routes/<id>/verdict`. А путевые точки,
+ * закрытия и сам этот запрос живут на `kamchatka_routes.id`. У маршрута с
+ * заполненным `ark_id` запрос `WHERE id = <id карточки>` не находил ничего:
+ * форма маршрута «неизвестна», все сигналы — `null`, и карточка показывала
+ * «Осторожно — данных мало: не знаем предупреждения, вулканы, закрытые точки»
+ * при любом дне. Закрытие парка и закрытая точка до человека не доходили.
+ * Ровно та же развилка, на которой карточка уже теряла трек и МЧС-поля
+ * (lib/routes/route-detail: `kr.id = ark.id OR kr.ark_id = ark.id`).
+ *
+ * Строка ищется по обоим id; свой id строки — первым: перепись и страж
+ * (lib/routes/route-today) передают именно его. Дальше все запросы идут по
+ * id найденной строки.
+ */
+export const ROUTE_ROW_BY_ANY_ID_SQL = `
+  SELECT id::text AS id, zone, season, lat::text, lng::text
+    FROM kamchatka_routes
+   WHERE id::text = $1 OR ark_id::text = $1
+   ORDER BY (id::text = $1) DESC
+   LIMIT 1`;
+
 async function loadRouteShape(routeId: string, q: QueryFn): Promise<RouteShape | null> {
   try {
-    const [route, points] = await Promise.all([
-      q<RouteRow>(
-        `SELECT zone, season, lat::text, lng::text FROM kamchatka_routes WHERE id = $1`,
-        [routeId],
-      ),
-      q<PointRow>(
-        // «Рядом» не опора маршрута (§4.1): место в 15 км от центра (миграция
-        // 167) расширяло коридор, по которому меряются вулканы и тревоги, на
-        // то, куда маршрут не ходит. Тем же приёмом, что закрытия ниже.
-        `SELECT DISTINCT p.zone, p.lat::text, p.lng::text
-           FROM route_waypoints rw
-           JOIN places p ON p.id = rw.place_id
-          WHERE rw.route_id = $1
-            AND COALESCE(to_jsonb(rw)->>'link_kind', 'unknown') <> 'nearby'`,
-        [routeId],
-      ),
-    ]);
+    const route = await q<RouteRow>(ROUTE_ROW_BY_ANY_ID_SQL, [routeId]);
     const r = route.rows[0];
     if (!r) return null; // маршрута нет — это не «пустые зоны», это незнание
+    const dbId = r.id || routeId;
+
+    const points = await q<PointRow>(
+      // «Рядом» не опора маршрута (§4.1): место в 15 км от центра (миграция
+      // 167) расширяло коридор, по которому меряются вулканы и тревоги, на
+      // то, куда маршрут не ходит. Тем же приёмом, что закрытия ниже.
+      `SELECT DISTINCT p.zone, p.lat::text, p.lng::text
+         FROM route_waypoints rw
+         JOIN places p ON p.id = rw.place_id
+        WHERE rw.route_id = $1
+          AND COALESCE(to_jsonb(rw)->>'link_kind', 'unknown') <> 'nearby'`,
+      [dbId],
+    );
 
     const zones = new Set<string>();
     if (r.zone) zones.add(r.zone);
@@ -130,9 +154,12 @@ async function loadRouteShape(routeId: string, q: QueryFn): Promise<RouteShape |
     push(r.lat, r.lng);
     for (const p of points.rows) push(p.lat, p.lng);
 
-    return { zones: [...zones], season: r.season, points: coords };
-  } catch {
+    return { dbId, zones: [...zones], season: r.season, points: coords };
+  } catch (err) {
     // Форма маршрута неизвестна — значит неизвестно и всё, что от неё зависит.
+    // Молчать при этом нельзя (§4.0): отказ чтения — в лог с SQLSTATE.
+    const code = (err as { code?: string }).code ?? 'нет SQLSTATE';
+    console.error(`[collect-signals] строка или точки маршрута не прочитаны, SQLSTATE ${code}`);
     return null;
   }
 }
@@ -369,10 +396,12 @@ export async function collectRouteSignals(
     return { alerts: null, volcanoes: null, inSeason: null, weather: null, closures: null };
   }
 
+  // Тревоги и закрытия — по id найденной строки, а не по тому, что пришло:
+  // пришёл мог id карточки (см. ROUTE_ROW_BY_ANY_ID_SQL).
   const [alerts, volcanoes, closures] = await Promise.all([
-    loadAlerts(shape.zones, shape.points, routeId, q),
+    loadAlerts(shape.zones, shape.points, shape.dbId, q),
     loadVolcanoes(shape.points, q),
-    loadClosures(routeId, q),
+    loadClosures(shape.dbId, q),
   ]);
 
   return {
