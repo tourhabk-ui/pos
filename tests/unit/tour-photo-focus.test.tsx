@@ -36,6 +36,8 @@ afterEach(() => { cleanup(); });
 const MYS = '/api/images/s3/photos/laguna-expedition/mys-mayachnyj-cover.jpg';
 const SEVER = '/api/images/s3/photos/laguna-expedition/chasovaya-progulka-cover.jpg';
 const FISHER = '/api/images/s3/photos/fishingkam/catch-01.jpg';
+// Не в ручном списке: точку посчитал станок (scripts/photo-focus.mjs).
+const MYS_1 = '/api/images/s3/photos/laguna-expedition/mys-mayachnyj-1.jpg';
 
 describe('точка кадра снимка', () => {
   it('один снимок узнаётся во всех своих адресах', () => {
@@ -111,10 +113,11 @@ const tour = (over: Partial<Tour>): Tour => ({
 const KEY = JSON.stringify({ search: '', activityFilter: '', sort: 'recommended', difficulty: '', priceRange: '', durationType: '' });
 
 describe('карточка каталога рисует снимок с его точкой', () => {
-  it('Мыс Маячный — на бухте, рыбак — на верхе кадра', () => {
+  it('Мыс Маячный — на бухте, рыбак — на верхе кадра, новая обложка — на посчитанной точке', () => {
     const tours = [
       tour({ id: 90, slug: 'mys', title: 'За снегоходом на Мыс Маячный', tour_image: MYS }),
       tour({ id: 7, slug: 'fish', title: 'Семейный тур выходного дня', tour_image: FISHER, activity_type: 'fishing' }),
+      tour({ id: 91, slug: 'mys-1', title: 'На край света', tour_image: MYS_1 }),
     ];
     const { container } = render(
       <MarketplaceClient initialTours={tours} initialTotal={tours.length} initialKey={KEY} summary={null} />,
@@ -122,5 +125,9 @@ describe('карточка каталога рисует снимок с его 
     const byAlt = (alt: string) => container.querySelector<HTMLImageElement>(`img[alt="${alt}"]`);
     expect(byAlt('За снегоходом на Мыс Маячный')?.style.objectPosition).toBe('50% 70%');
     expect(byAlt('Семейный тур выходного дня')?.style.objectPosition).toBe('50% 0%');
+    const auto = photoFocusY(MYS_1);
+    expect(auto, 'станок должен был посчитать точку этому снимку').not.toBeNull();
+    expect(auto).toBeGreaterThan(0);
+    expect(byAlt('На край света')?.style.objectPosition).toBe(`50% ${auto}%`);
   });
 });
