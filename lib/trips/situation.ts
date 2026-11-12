@@ -22,6 +22,9 @@ import type { DayVerdict, OfficialAlert } from '@/lib/agents/evo/rescue-judge';
 
 export type SituationKind = 'calm' | 'risk' | 'unknown';
 
+/** На сколько дней вперёд спрашивается прогноз: дальше дата «не проверена», а не «спокойно». */
+export const SITUATION_FORECAST_DAYS = 5;
+
 export interface ZoneDangerInput {
   /** Название зоны словами («Авачинская группа»). */
   name: string;

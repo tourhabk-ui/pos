@@ -30,6 +30,7 @@ vi.mock('@/lib/requests/answer-notice', () => ({
 import { answerDayCode } from '@/lib/requests/answer-date';
 import { CHAT_ANSWER_INSERT_SQL, LEAD_ANSWER_DATE_READ_SQL } from '@/lib/requests/chat-answer';
 import { operatorDeskPress } from '@/lib/telegram/operator-desk-press';
+import { NOTICE_PRESS_BUDGET_MS, withinPress } from '@/lib/requests/press-budget';
 
 const ID = '0f0e0d0c-0b0a-4908-8706-050403020100';
 const PARTNER = '22222222-3333-4444-8555-666666666666';
@@ -78,6 +79,36 @@ describe('нажатие оператора шлёт туристу сразу',
     expect(r!.text).toContain('Туристу сообщить не удалось: чат с ним не подключён.');
     expect(r!.text).not.toMatch(/ИИ-агент/);
     expect(r!.text).toContain('менеджер Ведара — он позвонит');
+  });
+
+  it('нажатие ждёт отправку не дольше общего срока: дальше оператор читает «отправляется», а не «не ушло»', async () => {
+    vi.useFakeTimers();
+    try {
+      // Отправка зависла (канал не отвечает, проверка дат после отказа по погоде тянется).
+      h.deliver.mockImplementation(() => new Promise(() => {}));
+      let done: Awaited<ReturnType<typeof press>> | undefined;
+      const run = press(`ia:rw:l:${ID}:${answerDayCode(DAY)}`).then((r) => { done = r; });
+      await vi.advanceTimersByTimeAsync(NOTICE_PRESS_BUDGET_MS - 1);
+      expect(done).toBeUndefined();
+      await vi.advanceTimersByTimeAsync(2);
+      await run;
+      expect(done!.text).toContain('Сообщение туристу отправляется; не уйдёт — повторю автоматически');
+      expect(done!.text).not.toMatch(/сейчас не ушло/);
+      // Срок нажатия не длиннее полуминуты. Сколько ждёт ответа сам вебхук мессенджера,
+      // в этой сессии не проверено — число здесь наше, а не его.
+      expect(NOTICE_PRESS_BUDGET_MS).toBeLessThanOrEqual(30_000);
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
+  it('срок нажатия: работа успела — её итог; не успела — запасной итог, а сама работа не отменяется', async () => {
+    expect(await withinPress(Promise.resolve('готово'), 'поздно', 50)).toBe('готово');
+    let finished = false;
+    const slow = new Promise<string>((resolve) => setTimeout(() => { finished = true; resolve('готово'); }, 40));
+    expect(await withinPress(slow, 'поздно', 5)).toBe('поздно');
+    await slow;
+    expect(finished).toBe(true);
   });
 
   it('строка «пропущено» — никуда не шлёт и называет причину', async () => {

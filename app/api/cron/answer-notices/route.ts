@@ -22,7 +22,7 @@ import { claimCronWindow, shouldRun, leaseSkipBody } from '@/lib/agents/cron-lea
 import { runAnswerNotices } from '@/lib/requests/answer-notice';
 
 export const dynamic = 'force-dynamic';
-/** Строки начинаются до 40-й секунды, худшая идёт 125 с (NOTICE_ROW_WORST_MS). */
+/** Строки начинаются до 40-й секунды, худшая идёт 135 с (NOTICE_ROW_WORST_MS). */
 export const maxDuration = 180;
 
 export async function GET(req: Request) {

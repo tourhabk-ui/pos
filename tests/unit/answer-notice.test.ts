@@ -32,16 +32,25 @@
 import { readFileSync } from 'node:fs';
 import { join } from 'node:path';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
+
+// Настоящая проверка дат ходит в базу и в сеть; здесь проверяется только то, что отправка
+// зовёт именно её, когда подмены нет (ревью 2в: связка по умолчанию была без теста).
+const realCheck = vi.hoisted(() => ({ fn: vi.fn() }));
+vi.mock('@/lib/trips/date-check', () => ({ checkTourDates: (...a: unknown[]) => realCheck.fn(...a) }));
 import {
   NOTICE_AGENT_KEYS_SQL, NOTICE_AGENT_TIMEOUT_MS, NOTICE_ATTEMPT_SQL, NOTICE_CLAIM_DUE_SQL, NOTICE_CLEARED_SQL, NOTICE_CONTACT_SQL,
   NOTICE_DELIVERED_SQL, NOTICE_FACTS_SQL, NOTICE_MANAGER_SQL, NOTICE_MANAGER_TIMEOUT_MS, NOTICE_RELEASE_SQL, NOTICE_ROW_WORST_MS,
   NOTICE_RUN_START_BUDGET_MS, NOTICE_SEND_TIMEOUT_MS, NOTICE_SKIPPED_SQL, NOTICE_TARGETS_SQL, NOTICE_UNDELIVERED_SQL,
-  NOTICE_BY_VEHICLE_LEAD_SQL,
+  NOTICE_BY_VEHICLE_LEAD_SQL, NOTICE_CHAT_TARGETS_MAX, NOTICE_CHECK_CANDIDATES, NOTICE_CHECK_TIMEOUT_MS, NOTICE_DATES,
   agentLegCode, deliverAnswerNotice, outcomeOfRow, readVehicleNoticeOutcome, runAnswerNotices, telegramSafeFacts, type NoticeDeps,
 } from '@/lib/requests/answer-notice';
 import { REQUEST_STATUS_BY_LEAD_SQL, type StatusRow } from '@/lib/mcp/request-status';
 import type { NotifyRunResult } from '@/lib/mcp/request-notify';
-import { managerClearedText, managerUndeliveredText, operatorOutcomeLine, touristAnswerText, type NoticeFacts } from '@/lib/requests/answer-notice-text';
+import {
+  DATE_CHECK_SHORT, dateCheckWords, managerClearedText, managerUndeliveredText, operatorOutcomeLine, touristAnswerText, type NoticeFacts,
+} from '@/lib/requests/answer-notice-text';
+import { SITUATION_FORECAST_DAYS } from '@/lib/trips/situation';
+import type { DateCheck } from '@/lib/trips/date-check';
 import { parseMyTripDate } from '@/lib/requests/my-trip-ask';
 import { unwrapPress } from '@/lib/chat-cabinet/signed-payload';
 import { MAX_FETCH_TIMEOUT_MS } from '@/lib/max/max-fetch';
@@ -109,14 +118,21 @@ const sendTelegram = vi.fn();
 const pdAlert = vi.fn();
 const notifyRun = vi.fn();
 const freeDates = vi.fn();
-const deps = (): NoticeDeps => ({ query, sendMax, sendTelegram, pdAlert, notifyRun, freeDates });
+/** Проверка дат после отказа по погоде (2в): по умолчанию причина отказа видна, все свободные даты проходят. */
+const checkDates = vi.fn();
+const confirmed = (over: Partial<Extract<DateCheck, { state: 'confirmed' }>> = {}): DateCheck => ({
+  state: 'confirmed', risks: ['погода: ветер до 90 км/ч'], clear: [], risk: 0, unchecked: 0, beyond: 0,
+  place: 'Горелый', zoneAssessed: true, ...over,
+});
+const deps = (): NoticeDeps => ({ query, sendMax, sendTelegram, pdAlert, notifyRun, freeDates, checkDates });
 const ran = (sql: string) => calls.filter((c) => c.sql === sql);
 const managerText = () => (pdAlert.mock.calls[0]![0] as { text: string; stub: string });
 
 beforeEach(() => {
   vi.stubEnv('CALLBACK_SIGNING_SECRET', 'unit-signing');
   calls.length = 0;
-  for (const f of [sendMax, sendTelegram, pdAlert, notifyRun, freeDates]) f.mockReset();
+  for (const f of [sendMax, sendTelegram, pdAlert, notifyRun, freeDates, checkDates]) f.mockReset();
+  checkDates.mockImplementation(async (_tour: number, _declined: string, dates: readonly string[]) => confirmed({ clear: [...dates].sort() }));
   w = {
     row: baseRow(), status: baseStatus(), targets: [{ channel: 'max', chat_id: CHAT_ID, can_pick: true }],
     agents: [], undeliveredRows: 1, free: ['2027-01-14', '2027-01-18'], due: null,
@@ -140,7 +156,9 @@ describe('доставка в нажатии оператора', () => {
     expect(ran(NOTICE_DELIVERED_SQL)[0]!.params).toEqual(['501', 'max', null]);
     const [chat, text, buttons] = sendMax.mock.calls[0] as [string, string, Array<{ text: string; payload: string }>];
     expect(chat).toBe(CHAT_ID);
-    expect(text).toContain('Тур «Горелый &amp; кратер», 15.01.2027, 3 чел.');
+    // Шапка кончается одной точкой: «3 чел.» уже с ней (до 12.11 стояло «3 чел..»).
+    expect(text).toContain('Тур «Горелый &amp; кратер», 15.01.2027, 3 чел.\n');
+    expect(text).not.toContain('чел..');
     expect(text).toContain('Оператор «Вулканы &lt;Север&gt;» ответил: на эту дату мест нет.');
     expect(text).toContain('по календарю тура на Ведаре: 14.01, 18.01');
     expect(text).toContain('сразу встанет в заявку');
@@ -179,6 +197,10 @@ describe('доставка в нажатии оператора', () => {
     expect(sent.text).toContain('+79995550707');
     expect(sent.text).toContain('Ирина Тестова');
     expect(sent.text).toContain('MAX не принял (bad_id); подписки ИИ-агента нет.');
+    // Строка заявки кончается одной точкой — и в письме, и в заглушке.
+    expect(sent.text).toContain('15.01.2027, 3 чел.\n');
+    expect(sent.stub).toContain('15.01.2027, 3 чел. Ответ оператора');
+    expect(`${sent.text}${sent.stub}`).not.toContain('чел..');
     expect(sent.stub).not.toMatch(/Ирина|79995550707/);
     expect(ran(NOTICE_MANAGER_SQL)[0]!.params).toEqual(['501', 'max']);
     const line = operatorOutcomeLine(o);
@@ -278,16 +300,336 @@ describe('доставка в нажатии оператора', () => {
     expect(ran(NOTICE_SKIPPED_SQL)[0]!.params).toEqual(['501', 'outgrown']);
   });
 
-  it('погода: без дат и без «подобрать другой тур», причина словами и 112; дат даже не читаем', async () => {
-    w.row = { ...baseRow(), answer: 'decline', decline_reason: 'weather' };
-    w.status = { ...baseStatus(), lead_status: 'lost', lead_answer: 'decline', lead_decline_reason: 'weather' };
-    await deliverAnswerNotice('501', deps());
-    const [, text, buttons] = sendMax.mock.calls[0] as [string, string, unknown[]];
-    expect(text).toContain('на эту дату — погода или безопасность');
-    expect(text).toContain('112');
-    expect(text).not.toMatch(/Подобрать другой тур|по календарю тура/);
-    expect(buttons).toEqual([]);
-    expect(freeDates).not.toHaveBeenCalled();
+  describe('отказ «погода или безопасность» (2в): только даты, прошедшие проверку', () => {
+    const weather = () => {
+      w.row = { ...baseRow(), answer: 'decline', decline_reason: 'weather', refused_dates: [], weather_refused_dates: [] };
+      w.status = { ...baseStatus(), lead_status: 'lost', lead_answer: 'decline', lead_decline_reason: 'weather' };
+    };
+    const sentText = () => (sendMax.mock.calls[0] as [string, string, unknown[]]);
+    /** Ни одной даты и ни слова «безопасно» — в любом сообщении без названных дат. */
+    const noDates = (text: string) => {
+      // Дата самой заявки стоит в шапке — других дат в сообщении быть не должно.
+      expect(text.replace('15.01.2027', '')).not.toMatch(/\d\d\.\d\d|безопасн(?:о|ы|а|ая|ые)(?![а-яё])|Подобрать другой тур/);
+      expect(text).toContain('на эту дату — погода или безопасность. Решение о выезде за оператором.');
+      expect(text).toMatch(/Экстренный вызов — 112\.$/);
+    };
+    const again = () => {
+      sendMax.mockClear();
+      w.row = { ...w.row, state: 'pending' };
+    };
+
+    it('данные видят причину отказа: она названа, даты — только прошедшие проверку, что проверено — словами; без кнопок, с 112', async () => {
+      weather();
+      w.free = ['2027-01-13', '2027-01-14', '2027-01-16', '2027-01-18', '2027-01-20'];
+      checkDates.mockResolvedValue(confirmed({ clear: ['2027-01-14', '2027-01-18'], risk: 1, unchecked: 1, beyond: 1 }));
+      const o = await deliverAnswerNotice('501', deps());
+      const [, text, buttons] = sentText();
+      expect(text).toContain('на эту дату — погода или безопасность. Решение о выезде за оператором.');
+      // Объяснение замены — то, что данные Ведара называют опасным на дату заявки.
+      expect(text).toContain('По данным Ведара на вашу дату: погода: ветер до 90 км/ч.');
+      expect(text).toContain('Вместо неё называю свободные по календарю тура, на которые Ведар сейчас не нашёл ни опасной погоды в прогнозе, ни предупреждений: 14.01, 18.01.');
+      // «На дату» и «на сейчас» названы порознь: статус места и оценка зоны о дате не говорят.
+      // Предупреждения — «уже выпущенные» и «по главному месту»: на дни вперёд их могли ещё не выпустить, чужое место не проверялось.
+      expect(text).toContain('Проверено: прогноз погоды на дату и уже выпущенные официальные предупреждения по главному месту тура («Горелый»); статус места и оценка опасности зоны — на сейчас.');
+      expect(text).toContain('Это не обещание погоды и не разрешение на выезд');
+      expect(text).toContain('Другие свободные даты рядом не называю: с опасной погодой или действующим предупреждением — 1, вне прогноза — 1, проверить не удалось — 1.');
+      expect(text).toContain('https://');
+      expect(text).toMatch(/Экстренный вызов — 112\.$/);
+      // Ни одной даты, не прошедшей проверку; слова «безопасно» нет.
+      expect(text).not.toMatch(/13\.01|16\.01|20\.01|безопасн(?:о|ы|а|ая|ые)(?![а-яё])|Подобрать другой тур/);
+      expect(buttons).toEqual([]);
+      // Кандидатов берётся больше, чем показывается: часть отсеет проверка.
+      expect(freeDates).toHaveBeenCalledWith(42, 3, '2027-01-15', ['2027-01-15'], NOTICE_CHECK_CANDIDATES);
+      // Проверке уходят тур, дата отказа и свободные даты — о человеке ничего.
+      expect(checkDates).toHaveBeenCalledWith(42, '2027-01-15', w.free, { now: undefined });
+      expect(o).toEqual({ state: 'delivered', via: 'max', dates: ['2027-01-14', '2027-01-18'], check: 'confirmed' });
+      // Даты названы — слов «других дат не назвал» в строке оператору нет.
+      expect(operatorOutcomeLine(o)).toBe('Туристу ушло сообщение в MAX: ваш ответ и свободные даты рядом, на которые Ведар не нашёл ни опасной погоды в прогнозе, ни предупреждений по месту (14.01.2027, 18.01.2027); выезд на них подтверждаете вы.');
+    });
+
+    it('оценка зоны не входила в проверку — в словах её нет; чужой текст из сводки экранирован, пунктов — не больше трёх', async () => {
+      weather();
+      checkDates.mockResolvedValue(confirmed({
+        clear: ['2027-01-14'], zoneAssessed: false, place: 'Мыс <Маячный>',
+        risks: ['официальное предупреждение: Шторм <b>сильный</b>', 'погода: ветер до 90 км/ч', 'погода: туман', 'ещё одно', 'и ещё'],
+      }));
+      await deliverAnswerNotice('501', deps());
+      const text = sentText()[1];
+      expect(text).toContain('Проверено: прогноз погоды на дату и уже выпущенные официальные предупреждения по главному месту тура («Мыс &lt;Маячный&gt;»); статус места — на сейчас.');
+      expect(text).not.toContain('оценка опасности зоны');
+      expect(text).toContain('По данным Ведара на вашу дату: официальное предупреждение: Шторм &lt;b&gt;сильный&lt;/b&gt;; погода: ветер до 90 км/ч; погода: туман и ещё 2.');
+      expect(text).not.toContain('<b>сильный</b>');
+    });
+
+    it('длинный пункт причины обрезается до 200 знаков — чужой заголовок сообщение не раздувает', async () => {
+      weather();
+      checkDates.mockResolvedValue(confirmed({ clear: ['2027-01-14'], risks: [`официальное предупреждение: ${'я'.repeat(300)}`] }));
+      await deliverAnswerNotice('501', deps());
+      const text = sentText()[1];
+      const item = /По данным Ведара на вашу дату: (.+?)\. Вместо неё/.exec(text)![1];
+      expect(item).toHaveLength(200);
+      expect(item.endsWith('…')).toBe(true);
+    });
+
+    it('в данных Ведара причина отказа не отражена — дат нет: оператор знает больше; оператору сказано, что туриста отправили к нему', async () => {
+      weather();
+      checkDates.mockResolvedValue({ state: 'unconfirmed', place: 'Горелый', zoneAssessed: true });
+      const o = await deliverAnswerNotice('501', deps());
+      const text = sentText()[1];
+      noDates(text);
+      expect(text).toContain('Других дат не предлагаю: в данных Ведара причина отказа не отражена (проверено: прогноз погоды на дату и уже выпущенные официальные предупреждения по главному месту тура («Горелый»); статус места и оценка опасности зоны — на сейчас)');
+      expect(text).toContain('оператор знает то, чего в этих данных нет, и назвать другую дату проверенной по ним нельзя. О других датах спросите его: контакты на странице тура https://');
+      // Ведар не спорит с оператором: слов «опасного не видно» о дате отказа нет.
+      expect(text).not.toMatch(/опасного не видно|не опасн/);
+      expect(o).toEqual({ state: 'delivered', via: 'max', dates: [], check: 'unconfirmed' });
+      expect(operatorOutcomeLine(o)).toBe('Туристу ушло сообщение в MAX: ваш ответ. Других дат Ведар туристу не назвал: причины вашего отказа он по своим данным назвать не может — туристу сказано спросить о датах у вас.');
+    });
+
+    it('на дату заявки действует постоянный режим — он назван как есть, причиной не объявлен; дат нет', async () => {
+      weather();
+      checkDates.mockResolvedValue({ state: 'unconfirmed', place: 'Горелый', zoneAssessed: false, standing: ['Проезд по <b>пропускам</b>'] });
+      const o = await deliverAnswerNotice('501', deps());
+      let text = sentText()[1];
+      noDates(text);
+      // Чужой заголовок экранирован; о причине сказано «не знаю», а не «вот причина» и не «причины нет».
+      expect(text).toContain('Других дат не предлагаю: на вашу дату по данным Ведара действует предупреждение «Проезд по &lt;b&gt;пропускам&lt;/b&gt;» — причина ли это отказа, Ведар не знает (проверено: прогноз погоды на дату и уже выпущенные официальные предупреждения по главному месту тура («Горелый»); статус места — на сейчас). Назвать другую дату проверенной по этим данным нельзя. О других датах спросите оператора: контакты на странице тура https://');
+      expect(text).not.toMatch(/причина отказа не отражена|По данным Ведара на вашу дату:|опасного не видно|не опасн/);
+      expect(text).toContain('Экстренный вызов — 112.');
+      expect(o).toEqual({ state: 'delivered', via: 'max', dates: [], check: 'unconfirmed' });
+
+      // Несколько — не больше трёх, остальные числом; длинный заголовок обрезан до 200 знаков.
+      checkDates.mockResolvedValue({ state: 'unconfirmed', place: 'Горелый', zoneAssessed: true, standing: ['Первое', 'Второе', 'я'.repeat(300), 'Четвёртое', 'Пятое'] });
+      again();
+      await deliverAnswerNotice('501', deps());
+      text = sentText()[1];
+      expect(text).toContain(`действуют предупреждения «Первое», «Второе», «${'я'.repeat(199)}…» и ещё 2 — причина ли это отказа, Ведар не знает`);
+      expect(text).not.toMatch(/Четвёртое|Пятое/);
+    });
+
+    it('проверка вернула «чисто», но причину отказа данные не видят — даты всё равно не называются', async () => {
+      weather();
+      // Такого ответа настоящая проверка не даёт; отправка не должна зависеть от её аккуратности.
+      checkDates.mockResolvedValue({ state: 'unconfirmed', place: 'Горелый', zoneAssessed: true, clear: ['2027-01-14'] } as DateCheck);
+      const o = await deliverAnswerNotice('501', deps());
+      noDates(sentText()[1]);
+      expect(o).toMatchObject({ dates: [] });
+    });
+
+    it('место или зона сейчас опасны; дата вне прогноза или прошла; данных для проверки нет; проверить не удалось — каждое своими словами, туристу и оператору', async () => {
+      weather();
+      const cases: Array<[DateCheck, string, string]> = [
+        [{ state: 'place_risk', place: 'Горелый', level: 'closed' }, 'главное место тура «Горелый» сейчас отмечено закрытым — пока это так, назвать другую дату проверенной нельзя', 'главное место тура сейчас закрыто либо в жёлтом или красном статусе'],
+        [{ state: 'place_risk', place: 'Горелый', level: 'yellow' }, 'главное место тура «Горелый» сейчас в статусе ЖЁЛТЫЙ', 'главное место тура сейчас закрыто либо в жёлтом или красном статусе'],
+        [{ state: 'zone_risk', zone: 'Авачинская <группа>', level: 'high' }, 'опасность в зоне «Авачинская &lt;группа&gt;» сейчас оценена как высокая — пока это так, назвать другую дату проверенной нельзя. Позже о дате можно спросить здесь, в чате.', 'опасность в зоне тура сейчас оценена не ниже высокой'],
+        [{ state: 'zone_risk', zone: 'Северная группа', level: 'critical' }, 'опасность в зоне «Северная группа» сейчас оценена как критическая', 'опасность в зоне тура сейчас оценена не ниже высокой'],
+        [{ state: 'beyond' }, `ваша дата вне прогноза, и проверить, чем она опасна и чем от неё отличаются соседние, Ведару нечем. Прогноз есть только на ${SITUATION_FORECAST_DAYS} суток, считая сегодня`, 'дата заявки дальше прогноза'],
+        [{ state: 'past' }, 'дата заявки уже прошла, и сверить её с прогнозом нельзя. О новой дате можно спросить здесь, в чате.', 'дата заявки уже прошла'],
+        [{ state: 'no_data', missing: ['place'] }, 'у Ведара нет данных, чтобы проверить место этого тура. О других датах спросите оператора: контакты на странице тура https://', 'у тура на Ведаре не хватает данных для проверки (координаты, главное место со сводками и зоной); туристу сказано спросить о датах у вас'],
+        [{ state: 'unchecked', why: ['статус главного места устарел'] }, 'проверить обстановку на вашу дату сейчас не удалось. Позже о дате можно спросить здесь, в чате.', 'проверить обстановку сейчас не удалось'],
+      ];
+      for (const [check, words, toOperator] of cases) {
+        again();
+        checkDates.mockResolvedValue(check);
+        const o = await deliverAnswerNotice('501', deps());
+        const text = sentText()[1];
+        noDates(text);
+        expect(text, check.state).toContain(`Других дат не предлагаю: ${words}`);
+        expect(o, check.state).toEqual({ state: 'delivered', via: 'max', dates: [], check: check.state });
+        // Оператор читает не голое «ваш ответ.», а что туристу сказано о других датах.
+        expect(operatorOutcomeLine(o), check.state).toBe(`Туристу ушло сообщение в MAX: ваш ответ. Других дат Ведар туристу не назвал: ${toOperator}.`);
+      }
+      // Прошедшей дате не говорят «ближе к дате», и про прогноз — только когда дело в нём.
+      expect(sentText()[1]).not.toContain('устарел');
+      again();
+      checkDates.mockResolvedValue({ state: 'past' });
+      await deliverAnswerNotice('501', deps());
+      expect(sentText()[1]).not.toMatch(/ближе к дате|Прогноз есть только/);
+    });
+
+    it('причина видна, но ни одна свободная дата не прошла — сказано, сколько каких; про прогноз — только когда дело в нём', async () => {
+      weather();
+      checkDates.mockResolvedValue(confirmed({ risk: 2 }));
+      await deliverAnswerNotice('501', deps());
+      let text = sentText()[1];
+      noDates(text);
+      expect(text).toContain('По данным Ведара на вашу дату: погода: ветер до 90 км/ч. Других дат не предлагаю: из свободных дат рядом проверку не прошла ни одна (с опасной погодой или действующим предупреждением — 2).');
+      expect(text).not.toContain('Прогноз есть только');
+      // Причина видна, дат нет — оператору так и сказано.
+      expect(operatorOutcomeLine({ state: 'delivered', via: 'max', dates: [], check: 'confirmed' }))
+        .toBe('Туристу ушло сообщение в MAX: ваш ответ. Других дат Ведар туристу не назвал: из свободных рядом проверку по прогнозу и предупреждениям не прошла ни одна.');
+
+      again();
+      checkDates.mockResolvedValue(confirmed({ risk: 1, beyond: 3, unchecked: 1 }));
+      await deliverAnswerNotice('501', deps());
+      text = sentText()[1];
+      noDates(text);
+      expect(text).toContain('проверку не прошла ни одна (с опасной погодой или действующим предупреждением — 1, вне прогноза — 3, проверить не удалось — 1).');
+      expect(text).toContain(`Прогноз есть только на ${SITUATION_FORECAST_DAYS} суток, считая сегодня; ближе к дате о дате можно спросить здесь, в чате.`);
+
+      again();
+      checkDates.mockResolvedValue(confirmed());
+      await deliverAnswerNotice('501', deps());
+      expect(sentText()[1]).toContain('Других свободных дат рядом, которые можно проверить, нет.');
+    });
+
+    it('без подмены отправка зовёт настоящую проверку дат — с туром, датой отказа, свободными датами и числом людей', async () => {
+      weather();
+      realCheck.fn.mockReset();
+      realCheck.fn.mockResolvedValue(confirmed({ clear: ['2027-01-18'] }));
+      const { checkDates: _omit, ...withoutStub } = deps();
+      const o = await deliverAnswerNotice('501', withoutStub);
+      expect(realCheck.fn).toHaveBeenCalledTimes(1);
+      expect(realCheck.fn).toHaveBeenCalledWith(42, '2027-01-15', ['2027-01-14', '2027-01-18'], { now: undefined });
+      expect(checkDates).not.toHaveBeenCalled();
+      expect(o).toMatchObject({ dates: ['2027-01-18'], check: 'confirmed' });
+    });
+
+    it('дата, которой нет среди свободных, не называется, даже если проверка её вернула', async () => {
+      weather();
+      checkDates.mockResolvedValue(confirmed({ clear: ['2027-01-14', '2027-02-01'] }));
+      const o = await deliverAnswerNotice('501', deps());
+      expect(sentText()[1]).toContain('ни предупреждений: 14.01.');
+      expect(sentText()[1]).not.toMatch(/01\.02/);
+      expect(o).toMatchObject({ dates: ['2027-01-14'] });
+    });
+
+    it('прошло больше, чем показывается, — ближайшие к дате заявки, по возрастанию', async () => {
+      weather();
+      w.free = ['2027-01-09', '2027-01-11', '2027-01-13', '2027-01-14', '2027-01-16', '2027-01-17', '2027-01-21', '2027-01-25'];
+      const o = await deliverAnswerNotice('501', deps());
+      expect(NOTICE_DATES).toBe(4);
+      expect(o).toMatchObject({ dates: ['2027-01-13', '2027-01-14', '2027-01-16', '2027-01-17'], check: 'confirmed' });
+    });
+
+    it('даты, по которым на этом туре уже отказывали по погоде, не проверяются и не называются — но и «в календаре дат нет» про них не говорится', async () => {
+      weather();
+      w.free = ['2027-01-13', '2027-01-14', '2027-01-16', '2027-01-18'];
+      w.row = { ...w.row, weather_refused_dates: ['2027-01-14', '2027-01-16', '2027-03-01'] };
+      // Проверка вернула «чисто» и по отказанной дате — отправка её всё равно не называет.
+      checkDates.mockResolvedValue(confirmed({ clear: ['2027-01-13', '2027-01-14', '2027-01-18'] }));
+      const o = await deliverAnswerNotice('501', deps());
+      // Календарь читается без этого отсева: иначе свободные даты сошли бы за «дат нет».
+      // …и с запасом на отказанные даты: три будущих отказа — на три даты шире.
+      expect(freeDates).toHaveBeenCalledWith(42, 3, '2027-01-15', ['2027-01-15'], NOTICE_CHECK_CANDIDATES + 3);
+      expect(checkDates).toHaveBeenCalledWith(42, '2027-01-15', ['2027-01-13', '2027-01-18'], { now: undefined });
+      const text = sentText()[1];
+      expect(text).toContain('ни предупреждений: 13.01, 18.01.');
+      expect(text).not.toMatch(/14\.01|16\.01/);
+      expect(text).toContain('Другие свободные даты рядом не называю: уже был отказ по погоде или безопасности — 2.');
+      expect(o).toEqual({ state: 'delivered', via: 'max', dates: ['2027-01-13', '2027-01-18'], check: 'confirmed' });
+    });
+
+    it('запас на отказанные даты — только будущие; проверке уходит не больше восьми ближайших к дате заявки', async () => {
+      weather();
+      const now = () => Date.parse('2027-01-12T03:00:00Z');
+      // Одиннадцать свободных; две — с прежним отказом по погоде, ещё один отказ — в прошлом и календаря не касается.
+      w.free = ['2027-01-13', '2027-01-14', '2027-01-16', '2027-01-17', '2027-01-18', '2027-01-19', '2027-01-20', '2027-01-21', '2027-01-22', '2027-01-23', '2027-01-24'];
+      w.row = { ...w.row, weather_refused_dates: ['2027-01-05', '2027-01-14', '2027-01-16'] };
+      await deliverAnswerNotice('501', { ...deps(), now });
+      // Восемь ближайших отказанных не должны заслонить девятую свободную: календарь читается шире ровно на будущие отказы.
+      expect(freeDates).toHaveBeenCalledWith(42, 3, '2027-01-15', ['2027-01-15'], NOTICE_CHECK_CANDIDATES + 2);
+      expect(NOTICE_CHECK_CANDIDATES).toBe(8);
+      // Девять открытых — проверяются восемь ближайших к 15.01; 24.01 — дальше всех.
+      expect(checkDates).toHaveBeenCalledWith(42, '2027-01-15',
+        ['2027-01-13', '2027-01-17', '2027-01-18', '2027-01-19', '2027-01-20', '2027-01-21', '2027-01-22', '2027-01-23'], { now });
+    });
+
+    it('по всем свободным датам рядом уже был отказ по погоде — так и сказано, проверка не зовётся', async () => {
+      weather();
+      w.free = ['2027-01-14', '2027-01-16'];
+      w.row = { ...w.row, weather_refused_dates: ['2027-01-14', '2027-01-16'] };
+      const o = await deliverAnswerNotice('501', deps());
+      const text = sentText()[1];
+      noDates(text);
+      expect(text).toContain('Других дат не предлагаю: по свободным датам рядом (2) уже был отказ из-за погоды или безопасности. О других датах спросите оператора: контакты на странице тура https://');
+      // Свободные даты в календаре есть — слов «в календаре дат нет» быть не может.
+      expect(text).not.toContain('в календаре тура на год вперёд нет');
+      expect(checkDates).not.toHaveBeenCalled();
+      expect(o).toEqual({ state: 'delivered', via: 'max', dates: [], check: 'weather_refused' });
+      expect(operatorOutcomeLine(o)).toBe('Туристу ушло сообщение в MAX: ваш ответ. Других дат Ведар туристу не назвал: по свободным датам рядом уже был отказ по погоде или безопасности; туристу сказано спросить о датах у вас.');
+    });
+
+    it('причина видна, дат нет, а часть свободных — с прежним отказом по погоде: это названо числом', async () => {
+      weather();
+      w.free = ['2027-01-14', '2027-01-16'];
+      w.row = { ...w.row, weather_refused_dates: ['2027-01-16'] };
+      checkDates.mockResolvedValue(confirmed({ risk: 1 }));
+      await deliverAnswerNotice('501', deps());
+      noDates(sentText()[1]);
+      expect(sentText()[1]).toContain('проверку не прошла ни одна (с опасной погодой или действующим предупреждением — 1, уже был отказ по погоде или безопасности — 1).');
+    });
+
+    it('проверка не уложилась в срок или упала — сообщение уходит без дат, причина в логе', async () => {
+      weather();
+      const warn = vi.spyOn(console, 'warn').mockImplementation(() => {});
+      vi.useFakeTimers();
+      checkDates.mockImplementation(() => new Promise(() => {}));
+      const run = deliverAnswerNotice('501', deps());
+      await vi.advanceTimersByTimeAsync(NOTICE_CHECK_TIMEOUT_MS + 1);
+      let o = await run;
+      vi.useRealTimers();
+      noDates(sentText()[1]);
+      expect(sentText()[1]).toContain('Других дат не предлагаю: проверить обстановку на вашу дату сейчас не удалось.');
+      expect(o).toEqual({ state: 'delivered', via: 'max', dates: [], check: 'unchecked' });
+      expect(warn).toHaveBeenCalledWith(expect.stringContaining('не кончилась (timeout)'));
+
+      again();
+      checkDates.mockRejectedValue(new Error('boom'));
+      o = await deliverAnswerNotice('501', deps());
+      noDates(sentText()[1]);
+      expect(o).toMatchObject({ state: 'delivered', dates: [] });
+      expect(warn).toHaveBeenCalledWith(expect.stringContaining('не кончилась (exception)'));
+      warn.mockRestore();
+    });
+
+    it('свободных дат нет, календаря нет, даты не прочитались — проверка не зовётся, слова свои', async () => {
+      weather();
+      w.free = [];
+      await deliverAnswerNotice('501', deps());
+      expect(sentText()[1]).toContain('Других свободных дат на 3 чел. в календаре тура на год вперёд нет.');
+
+      for (const [answer, words] of [
+        [{ state: 'ok', dates: [], hasCalendar: false }, 'Расписания у тура на Ведаре нет — других дат назвать не могу'],
+        [{ state: 'failed' }, 'это сбой, а не «дат нет». Других дат не предлагаю.'],
+      ] as const) {
+        again();
+        freeDates.mockResolvedValue(answer);
+        await deliverAnswerNotice('501', deps());
+        expect(sentText()[1]).toContain(words);
+      }
+      expect(checkDates).not.toHaveBeenCalled();
+    });
+
+    it('тура нет на витрине — дат нет, проверка и календарь не читаются, 112 на месте', async () => {
+      weather();
+      w.row = { ...w.row, tour_public: false };
+      await deliverAnswerNotice('501', deps());
+      const text = sentText()[1];
+      noDates(text);
+      expect(text).toContain('Других дат не предлагаю: назвать можно только проверенную по прогнозу и предупреждениям, а для этой заявки такой проверки нет.');
+      expect(text).not.toContain('Прогноз есть только');
+      expect(freeDates).not.toHaveBeenCalled();
+      expect(checkDates).not.toHaveBeenCalled();
+    });
+
+    it('менеджеру при недоставке — проверенные даты названы проверенными', async () => {
+      weather();
+      w.targets = [];
+      checkDates.mockResolvedValue(confirmed({ clear: ['2027-01-14'], unchecked: 1 }));
+      await deliverAnswerNotice('501', deps());
+      expect(managerText().text).toContain(`Свободные даты рядом, на которые Ведар не нашёл ни опасной погоды, ни предупреждений (${DATE_CHECK_SHORT}): 14.01 — выезд и места подтверждает оператор.`);
+      // Зоны в коротком перечне нет: она входит в проверку не у каждого тура.
+      expect(DATE_CHECK_SHORT).not.toMatch(/зон/);
+      expect(managerText().text).not.toMatch(/18\.01/);
+    });
+
+    it('не погода — проверка не зовётся, даты по календарю как раньше, чужие отказы по погоде их не убирают', async () => {
+      w.row = { ...baseRow(), weather_refused_dates: ['2027-01-14'] };
+      await deliverAnswerNotice('501', deps());
+      expect(checkDates).not.toHaveBeenCalled();
+      expect(freeDates).toHaveBeenCalledWith(42, 3, '2027-01-15', ['2027-01-15', '2027-01-15'], NOTICE_DATES);
+      expect(sentText()[1]).toContain('по календарю тура на Ведаре: 14.01, 18.01');
+    });
   });
 
   it('большая группа после «Нет мест» — «увидят другие операторы», без дат', async () => {
@@ -470,6 +812,19 @@ describe('срок шага: худшая строка успевает', () => 
     expect(supervisorTimeout()).toBeGreaterThan(last);
   });
 
+  it('число худшего срока в комментариях шага и роута — то же, что в коде', () => {
+    const sec = `${NOTICE_ROW_WORST_MS / 1000} с`;
+    expect(readFileSync(join(ROOT, '.github/workflows/cron-safety-heartbeat.yml'), 'utf8')).toContain(`# ${sec} (lib/requests/answer-notice, NOTICE_ROW_WORST_MS`);
+    expect(readFileSync(join(ROOT, 'app/api/cron/answer-notices/route.ts'), 'utf8')).toContain(`худшая идёт ${sec} (NOTICE_ROW_WORST_MS)`);
+  });
+
+  it('худший срок строки длиннее суммы сроков всех её ног, включая проверку дат после отказа по погоде', () => {
+    // Строго больше: сверх ног строка ещё ходит в базу.
+    expect(NOTICE_ROW_WORST_MS).toBeGreaterThan(
+      NOTICE_CHECK_TIMEOUT_MS + NOTICE_CHAT_TARGETS_MAX * NOTICE_SEND_TIMEOUT_MS + NOTICE_AGENT_TIMEOUT_MS + NOTICE_MANAGER_TIMEOUT_MS,
+    );
+  });
+
   it('срок отправки в чат длиннее сокетного срока MAX: дошедшее не запишется «не дошло»', () => {
     expect(MAX_FETCH_TIMEOUT_MS).toBeGreaterThan(0);
     expect(NOTICE_SEND_TIMEOUT_MS).toBeGreaterThan(MAX_FETCH_TIMEOUT_MS);
@@ -486,6 +841,22 @@ describe('слова', () => {
     expect(m.text).toContain('предложит другую — напишет или позвонит');
     expect(m.text).toContain('оператор получит вашу просьбу перенести');
     expect(m.text).not.toMatch(/сразу встанет в заявку/);
+  });
+  it('погода: блок просто свободных дат после такого отказа молчит — непроверенная дата не называется', () => {
+    const wf = { ...F, answer: 'decline' as const, reason: 'weather' as const };
+    const t = touristAnswerText(wf, { kind: 'dates', dates: ['2027-01-20'] }, true);
+    expect(t.text).not.toMatch(/20\.01/);
+    expect(t.text).toContain('Других дат не предлагаю: проверить свободные даты сейчас не удалось.');
+    expect(t.buttons).toEqual([]);
+    // Проверенные даты у других ответов не печатаются: такого блока у них нет.
+    const checked = { kind: 'checked' as const, dates: ['2027-01-20'], check: { state: 'confirmed' as const, risks: ['погода: туман'], clear: ['2027-01-20'], risk: 0, unchecked: 0, beyond: 0, place: 'Горелый', zoneAssessed: true } };
+    expect(touristAnswerText({ ...F, answer: 'no_seats' }, checked, false).text).not.toMatch(/20\.01|По данным Ведара/);
+    // Слова «что проверено» собираются из того, что входило в проверку.
+    expect(dateCheckWords({ place: 'Горелый', zoneAssessed: true })).toContain('оценка опасности зоны');
+    expect(dateCheckWords({ place: 'Горелый', zoneAssessed: false })).not.toContain('оценка опасности зоны');
+    // Менеджеру по обычному отказу — прежние слова, без «не нашёл опасного».
+    expect(managerUndeliveredText({ ...F, answer: 'no_seats' }, { name: null, phone: null }, [], ['2027-01-20']).text)
+      .toContain('Свободные даты рядом по календарю: 20.01 — места подтверждает оператор.');
   });
   it('сбой дат — «сбой, а не дат нет»; календаря нет — «показать не могу»', () => {
     expect(touristAnswerText({ ...F, answer: 'no_seats' }, { kind: 'failed' }, true).text).toContain('это сбой, а не «дат нет»');

@@ -1336,6 +1336,121 @@ withPg('переписка по заявке на настоящем PostgreSQL'
       await pool.query(`DELETE FROM tour_availability WHERE operator_tour_id = $1::bigint`, [tourId]);
     });
 
+    it('отказ «погода или безопасность» (2в): даты — из проверки на настоящей схеме; прежние отказы по погоде не проверяются и названы числом', async () => {
+      process.env.CALLBACK_SIGNING_SECRET ??= 'pg-test-signing';
+      const answers = await import('@/lib/requests/chat-answer');
+      const notices = await import('@/lib/requests/answer-notice');
+      const { datesLine } = await import('@/lib/requests/answer-notice-text');
+      const { checkTourDates } = await import('@/lib/trips/date-check');
+      const { liveSources } = await import('@/lib/trips/situation-store');
+      const { kamchatkaToday } = await import('@/lib/seat-requests/core');
+      const day = (n: number) => {
+        const d = new Date(`${kamchatkaToday()}T00:00:00Z`);
+        d.setUTCDate(d.getUTCDate() + n);
+        return d.toISOString().slice(0, 10);
+      };
+      // Прогноз — на сегодня и четыре дня вперёд: D1 — дата заявки, D2 — отказ по погоде в другой
+      // заявке, D3 — свободна и в прогнозе, D9 — свободна, но вне прогноза.
+      const [D1, D2, D3, D9] = [day(1), day(2), day(3), day(9)];
+      const opW = (await pool.query<{ id: string }>(
+        `INSERT INTO partners (name, category, contact, max_chat_id) VALUES ('Оператор 2в', 'operator', '{}', 9300599) RETURNING id`,
+      )).rows[0].id;
+      const place = (await pool.query<{ id: string; ark: string }>(
+        `INSERT INTO places (id, name, lat, lng, ark_id, location_type, zone, is_visible)
+         VALUES (gen_random_uuid(), 'Вилючинский перевал', 52.7, 158.3, gen_random_uuid(), 'mountain', 'avachinsky', TRUE)
+         RETURNING id::text AS id, ark_id::text AS ark`,
+      )).rows[0];
+      await pool.query(
+        `INSERT INTO location_real_time_status (agent_route_id, is_open, recommender_status, updated_at)
+         VALUES ($1::uuid, TRUE, 'green', (NOW() AT TIME ZONE 'UTC'))`, [place.ark],
+      );
+      const tourW = (await pool.query<{ id: number }>(
+        `INSERT INTO operator_tours (title, base_price, operator_id, max_participants, is_active, is_published, main_place_id)
+         VALUES ('Вилючинский', 9000, $1, 12, true, true, $2::uuid) RETURNING id`, [opW, place.id],
+      )).rows[0].id;
+      await pool.query(
+        `INSERT INTO tour_availability (operator_tour_id, date, available_slots, is_cancelled) VALUES
+           ($1, $2::date, 10, false), ($1, $3::date, 10, false), ($1, $4::date, 10, false), ($1, $5::date, 10, false)`,
+        [tourW, D1, D2, D3, D9],
+      );
+      const mk = async (name: string, phone: string, date: string) => (await leads.createLeadDetailed({
+        name, phone, comment: `[Заявка на бронь] Тур "Вилючинский" (ID${tourW}), дата ${date}, участников 2.`,
+        route_title: 'Вилючинский', source_url: 'mcp://vedar/booking', operator_id: opW, pd_consent: consentOf('operator'),
+        source_data: { source: 'mcp', tool: 'create_booking_request', tour_id: tourW, date, participants: 2 },
+        skip_ai_processing: true,
+      }))!.id;
+      const decline = (lead: string, date: string) => answers.recordChatAnswer({
+        partnerId: opW, kind: 'lead', subjectId: lead, answer: 'decline', reason: 'weather', expectDate: date,
+      });
+      const LA = await mk('Вера Погода', '+79995550911', D1);
+      const LB = await mk('Глеб Погода', '+79995550912', D2);
+      // Не в счёт: отказ «мест нет» на D3 по этому же туру и отказ по погоде на D3 по ДРУГОМУ туру оператора.
+      const LS = await mk('Зоя Места', '+79995550913', D3);
+      const sS = await answers.recordChatAnswer({ partnerId: opW, kind: 'lead', subjectId: LS, answer: 'decline', reason: 'seats', expectDate: D3 });
+      expect(sS).toMatchObject({ ok: true });
+      const tourX = (await pool.query<{ id: number }>(
+        `INSERT INTO operator_tours (title, base_price, operator_id, max_participants, is_active, is_published)
+         VALUES ('Другой тур 2в', 9000, $1, 12, true, true) RETURNING id`, [opW],
+      )).rows[0].id;
+      const LX = (await leads.createLeadDetailed({
+        name: 'Иван Другой', phone: '+79995550914', comment: `[Заявка на бронь] Тур "Другой тур 2в" (ID${tourX}), дата ${D3}, участников 2.`,
+        route_title: 'Другой тур 2в', source_url: 'mcp://vedar/booking', operator_id: opW, pd_consent: consentOf('operator'),
+        source_data: { source: 'mcp', tool: 'create_booking_request', tour_id: tourX, date: D3, participants: 2 },
+        skip_ai_processing: true,
+      }))!.id;
+      expect(await decline(LX, D3)).toMatchObject({ ok: true });
+      const kA = await status.issueRequestKeyRecord({ leadId: LA }, 'create_booking_request', { opensChat: true });
+      const CW = 9_300_061;
+      expect(await links.linkChatToKeys('max', CW, [kA!.key], 'created')).toBe(1);
+
+      // Сначала оператор отказал по погоде другой заявке — на D2; потом этой — на D1.
+      expect(await decline(LB, D2)).toMatchObject({ ok: true });
+      await pool.query(`UPDATE leads SET status = 'lost' WHERE id = $1`, [LB]);
+      const sA = await decline(LA, D1);
+      expect(sA).toMatchObject({ ok: true, notice: { state: 'pending' } });
+      await pool.query(`UPDATE leads SET status = 'lost' WHERE id = $1`, [LA]);
+      const noticeId = sA.ok && sA.notice ? sA.notice.id : '0';
+      // Строка сообщения знает даты, по которым этот оператор уже отказал по погоде на этом туре.
+      const facts = (await pool.query<{ weather_refused_dates: string[] }>(notices.NOTICE_FACTS_SQL, [noticeId])).rows[0]!;
+      expect([...facts.weather_refused_dates].sort()).toEqual([D1, D2]);
+      // Список считается только для отказа по погоде: у «мест нет» его нет вовсе.
+      const seatsNotice = sS.ok && sS.notice ? sS.notice.id : '0';
+      expect(seatsNotice).not.toBe('0');
+      expect((await pool.query<{ weather_refused_dates: string[] | null }>(notices.NOTICE_FACTS_SQL, [seatsNotice])).rows[0]!.weather_refused_dates).toBeNull();
+
+      // Прогноз — подставной (сети в тесте нет): на D1 ветер, дальше спокойно; оценка зоны — подставная
+      // «низкая». Тур, главное место и его статус, лента предупреждений, календарь — из базы.
+      const fday = (date: string, windKmh: number) => ({ date, tempMax: null, tempMin: null, precipMm: null, windKmh, weatherCode: 3, description: 'облачно' });
+      const sources = {
+        ...liveSources(),
+        forecast: async () => ({ ok: true as const, days: [fday(D1, 95), fday(D2, 10), fday(D3, 12)] }),
+        zone: async () => ({ name: 'Авачинско-Петропавловский', level: 'low' as const }),
+      };
+      sent.dm.length = 0;
+      const o = await notices.deliverAnswerNotice(noticeId, {
+        checkDates: (tour, declined, candidates, d) => checkTourDates(tour, declined, candidates, { ...d, sources }),
+      });
+      expect(o).toEqual({ state: 'delivered', via: 'max', dates: [D3], check: 'confirmed' });
+      expect(sent.dm).toHaveLength(1);
+      expect(String(sent.dm[0]!.chatId)).toBe(String(CW));
+      const text = sent.dm[0]!.text;
+      expect(text).toContain('По данным Ведара на вашу дату: погода: ветер до 95 км/ч.');
+      expect(text).toContain(`на которые Ведар сейчас не нашёл ни опасной погоды в прогнозе, ни предупреждений: ${datesLine([D3], D1)}.`);
+      expect(text).toContain('Проверено: прогноз погоды на дату и уже выпущенные официальные предупреждения по главному месту тура («Вилючинский перевал»); статус места и оценка опасности зоны — на сейчас.');
+      // D2 — отказ по погоде в другой заявке: в календаре свободна, но не проверяется и не названа —
+      // числом, как и D9 вне прогноза. Слов «в календаре дат нет» при свободных датах нет.
+      expect(text).toContain('Другие свободные даты рядом не называю: вне прогноза — 1, уже был отказ по погоде или безопасности — 1.');
+      expect(text).not.toContain('в календаре тура на год вперёд нет');
+      expect(text).not.toContain(datesLine([D2], D1));
+      expect(text).not.toContain(datesLine([D9], D1));
+      expect(sent.dm[0]!.buttons ?? []).toEqual([]);
+
+      // Статус места стал жёлтым — следующий такой же отказ дат уже не называет.
+      await pool.query(`UPDATE location_real_time_status SET recommender_status = 'yellow' WHERE agent_route_id = $1::uuid`, [place.ark]);
+      expect(await checkTourDates(tourW, D1, [D3, D9], { sources })).toEqual({ state: 'place_risk', place: 'Вилючинский перевал', level: 'yellow' });
+      await pool.query(`DELETE FROM tour_availability WHERE operator_tour_id = $1::bigint`, [tourW]);
+    });
+
     it('сообщение после ответа (2б, 1424): одно на ответ, в чат заявки, иначе менеджеру; прочли — «звонить не нужно»', async () => {
       process.env.CALLBACK_SIGNING_SECRET ??= 'pg-test-signing';
       const answers = await import('@/lib/requests/chat-answer');

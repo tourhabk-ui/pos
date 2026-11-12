@@ -302,7 +302,8 @@ jobs:
       # Обычный путь — сразу в нажатии оператора. Здесь — только обрыв
       # отправки, письмо менеджеру о недоставленном и «звонить не нужно».
       # 180 с: новая строка начинается до 40-й секунды, худший срок строки —
-      # 125 с (lib/requests/answer-notice, NOTICE_ROW_WORST_MS); сторож сверки —
+      # 135 с (lib/requests/answer-notice, NOTICE_ROW_WORST_MS; с 12.11 в нём
+      # 10 с проверки дат после отказа по погоде); сторож сверки —
       # tests/unit/answer-notice.test.ts.
       - name: Answer notices
         id: answer_notices

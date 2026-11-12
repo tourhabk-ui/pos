@@ -97,6 +97,16 @@ export interface OfficialAlert {
   affected_zones: string[] | null;
   expires_at: string | Date;
   source_url: string | null;
+  /**
+   * Чем место установлено помимо зоны: парком (закрытие парка), координатой
+   * (дорога, пожар, землетрясение) или вулканом. Читает их проверка дат после
+   * отказа по погоде (lib/trips/date-check, `unplacedAlertsOn`); Rescue и
+   * планер эти колонки не выбирают, и им они не нужны.
+   */
+  affected_parks?: string[] | null;
+  lat?: number | string | null;
+  lng?: number | string | null;
+  volcano_ark_id?: string | null;
 }
 
 export interface OfficialMatch {
@@ -110,7 +120,7 @@ export interface OfficialMatch {
 const KAMCHATKA_OFFSET = '+12:00';
 
 /** Действует ли предупреждение в день брони: истекает позже начала этого дня. */
-function activeOn(alert: OfficialAlert, day: string): boolean {
+export function activeOn(alert: Pick<OfficialAlert, 'expires_at'>, day: string): boolean {
   const expires = new Date(alert.expires_at).getTime();
   const dayStart = Date.parse(`${day}T00:00:00${KAMCHATKA_OFFSET}`);
   return Number.isFinite(expires) && Number.isFinite(dayStart) && expires > dayStart;

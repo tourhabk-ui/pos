@@ -24,15 +24,16 @@ import { pool } from '@/lib/db-pool';
 import { chatLinkedKeyIds, type LinkChannel } from '@/lib/requests/chat-links';
 import { REQUEST_STATUS_BY_KEY_IDS_SQL, buildRequestView, type StatusRow } from '@/lib/mcp/request-status';
 import { kamchatkaToday } from '@/lib/seat-requests/core';
-import { situationLine, type Situation } from '@/lib/trips/situation';
+import { SITUATION_FORECAST_DAYS, situationLine, type Situation } from '@/lib/trips/situation';
+import { TOUR_SITE_COLUMNS_SQL, TOUR_SITE_JOINS_SQL } from '@/lib/trips/tour-site-sql';
 import type { DepartingTour, SituationSources } from '@/lib/trips/situation-store';
 import { logText } from '@/lib/log/log-text';
 import type { ChatTarget } from '@/lib/requests/request-chat';
 import { signPayload } from '@/lib/chat-cabinet/signed-payload';
 import { MY_TRIP_CLOSED_BOOKING, myTripDateMenuPayload, myTripDateText, myTripWritePayload, myTripWriteText } from '@/lib/requests/my-trip-ask';
 
-/** Сколько дней вперёд показывается обстановка: столько дней даёт прогноз (liveSources). */
-export const MY_TRIP_SITUATION_DAYS = 5;
+/** Сколько дней вперёд показывается обстановка: столько дней даёт прогноз (liveSources) — одно число. */
+export const MY_TRIP_SITUATION_DAYS = SITUATION_FORECAST_DAYS;
 /** Ключ заявки на тур на дату — только у неё дату меняют кнопкой. */
 const BOOKING_REQUEST_TOOL = 'create_booking_request';
 
@@ -88,12 +89,9 @@ export const REQUEST_TOUR_IDS_SQL = `
 export const TRIP_TOURS_SQL = `
   SELECT ot.id::int AS tour_id, ot.title, ot.operator_id::text AS operator_id,
          ot.activity_type, ot.location_type,
-         COALESCE(kr.zone, p.zone) AS zone,
-         COALESCE(ot.latitude, p.lat, kr.lat)::float8 AS lat,
-         COALESCE(ot.longitude, p.lng, kr.lng)::float8 AS lng
+         ${TOUR_SITE_COLUMNS_SQL}
     FROM operator_tours ot
-    LEFT JOIN places p ON p.id = ot.main_place_id
-    LEFT JOIN kamchatka_routes kr ON kr.id = ot.route_id
+    ${TOUR_SITE_JOINS_SQL}
    WHERE ot.id = ANY($1::bigint[])`;
 
 const sqlState = (err: unknown) => {
