@@ -74,7 +74,9 @@ export function offerAskText(a: OfferAskFacts): string {
 export type OfferAskOutcome =
   /** «Беру» записано, человеку сообщено в чат. */
   | { state: 'took'; told: 'max' | 'telegram'; date: string; tourTitle: string }
-  /** «Беру» записано; чата у человека нет или он не принял — ответ виден в статусе заявки. */
+  /** «Беру» записано; чат человека не принял или его нет — письмо о «Беру» принял менеджер Ведара. */
+  | { state: 'took'; told: 'manager'; date: string; tourTitle: string }
+  /** «Беру» записано; ни чат человека, ни менеджер письма не приняли — ответ виден только в статусе заявки. */
   | { state: 'took'; told: 'status'; date: string; tourTitle: string }
   /** «Беру» записано, но заявка человека с тех пор изменилась — ему ничего не отправлено. */
   | { state: 'took'; told: 'outgrown' }
@@ -99,6 +101,9 @@ export function offerAskReplyText(o: OfferAskOutcome): string {
     case 'took':
       if (o.told === 'max' || o.told === 'telegram') {
         return `Записал: «Беру». Человеку сообщено в ${o.told === 'max' ? 'MAX' : 'Telegram'}: ваша компания готова принять его ${ruDay(o.date)} — тур «${escapeHtml(o.tourTitle)}». ${ASK_LATER}`;
+      }
+      if (o.told === 'manager') {
+        return `Записал: «Беру». Сообщить человеку в чат не удалось или чата у него нет — ваш ответ передан менеджеру Ведара, чтобы он сообщил человеку; на странице заявки человека ответ тоже стоит. ${ASK_LATER}`;
       }
       if (o.told === 'status') {
         return `Записал: «Беру». Сообщить человеку в чат не удалось или чата у него нет — ваш ответ он увидит на странице своей заявки или узнает от своего ИИ-помощника. ${ASK_LATER}`;
@@ -141,6 +146,49 @@ export function offerTookText(a: {
     `Это ответ на вопрос Ведара, ещё не бронь. Заявку вы оставляете сами: ${escapeHtml(a.url)}`,
     'Имя и телефон получит только эта компания.',
   ].join('\n');
+}
+
+const CHANNEL_WORD: Record<string, string> = { max: 'MAX', telegram: 'Telegram' };
+
+/** Почему письмо менеджеру: чата у человека нет или какие чаты не приняли (коды отправки, без id чатов). */
+function triedChatsWords(tried: readonly string[]): string {
+  if (tried.length === 0) return 'чата с Ведаром у клиента нет';
+  return tried.map((t) => {
+    const [ch, code] = t.split(':');
+    return `${CHANNEL_WORD[ch ?? ''] ?? 'чат'} клиента сообщение не принял (${code ?? 'api_error'})`;
+  }).join('; ');
+}
+
+/**
+ * Менеджеру: компания ответила «Беру», а человеку сообщить некуда — позвонить
+ * (правило плана «доставлено»: не дошло — сразу менеджеру). `text` с именем и
+ * телефоном уходит только в MAX (sendPdAlert), `stub` — без ПД.
+ */
+export function managerTookText(a: {
+  leadId: string; partnerName: string; tourTitle: string; price: string | null; date: string; people: number | null; url: string;
+  /** Чаты человека, не принявшие сообщение: `max:bad_id`. Пусто — чата нет. */
+  tried: readonly string[];
+}, contact: { name: string | null; phone: string | null }): { text: string; stub: string } {
+  const title = '<b>Другая компания ответила «Беру» — клиенту не сообщено, позвонить</b>';
+  const facts = `тур «${escapeHtml(a.tourTitle)}»${a.people ? ` на ${a.people} чел.` : ''}, ${escapeHtml(a.price ?? 'цена не указана')}`;
+  const what = `Заявка <code>${escapeHtml(a.leadId)}</code>: после отказа Ведар спросил другие компании. `
+    + `«${escapeHtml(a.partnerName)}» ответила: возьмёт ${ruDay(a.date)} — ${facts}.`;
+  const text = [
+    title,
+    what,
+    `Это слово компании, ещё не бронь: заявку клиент оставляет ей сам — ${escapeHtml(a.url)}`,
+    `<b>Имя:</b> ${escapeHtml(contact.name ?? 'не записано')}`,
+    `<b>Телефон:</b> ${escapeHtml(contact.phone ?? 'не записан')}`,
+    `Почему письмо: ${triedChatsWords(a.tried)}.`,
+    'На странице заявки клиента ответ компании стоит. ИИ-агенту клиента, если заявку создавал он, уведомление о «Беру» не уходит — он прочтёт ответ в статусе заявки.',
+  ].join('\n');
+  // Заглушка уходит, когда MAX письмо не принял: звать в MAX за телефоном нельзя — его там нет.
+  const stub = [
+    title,
+    what,
+    'MAX не сработал: имя и телефон — в админке (кнопка ниже), в Telegram они не передаются.',
+  ].join('\n');
+  return { text, stub };
 }
 
 /** Отказавшему оператору: что сделал Ведар после его ответа (строка к исходу сообщения туристу). */

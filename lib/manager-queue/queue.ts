@@ -68,6 +68,19 @@ const VEHICLE_IN_QUEUE = `al.action = 'partner_answered' AND al.details->>'answe
 const STAY_IN_QUEUE = `s.owner_answer = 'busy'`;
 
 /**
+ * Другие компании, ответившие «Беру» на вопрос Ведара по этой заявке (этап
+ * 4б) — тому, кто будет звонить. Только на дату, которая стоит в заявке
+ * сейчас: «Беру» на прежнюю дату человеку уже не нужно. «Не могу» и вопросы
+ * без ответа сюда не входят.
+ */
+const NOTICE_TAKES = `ARRAY(
+           SELECT tp.name
+             FROM other_offer_asks oa
+             JOIN partners tp ON tp.id = oa.partner_id
+            WHERE oa.lead_id = l.id AND oa.answer = 'take' AND oa.ask_date::text = l.source_data->>'date'
+            ORDER BY oa.answered_at, oa.id)`;
+
+/**
  * Отказ туроператора или гида, не дошедший до человека. «Не могу» перевозчика
  * и прокатчика сюда не входит: у него своя строка (vehicle_decline), и там же
  * сказано, дошло ли сообщение, — иначе случай после доставки «переезжал» бы из
@@ -79,7 +92,7 @@ export const QUEUE_NOTICES_SQL = `
          n.answer_id::text AS answer_id, n.activity_id::text AS activity_id, al.action AS activity_action,
          l.id::text AS lead_id, l.name AS contact_name, l.phone AS contact_phone, l.status AS lead_status,
          l.route_title, l.source_data->>'date' AS req_date, l.source_data->>'participants' AS people,
-         p.name AS partner_name, ${TAKE_COLS}
+         p.name AS partner_name, ${NOTICE_TAKES} AS takes, ${TAKE_COLS}
     FROM answer_notices n
     JOIN leads l ON l.id = n.lead_id
     LEFT JOIN lead_activity_log al ON al.id = n.activity_id
@@ -153,6 +166,7 @@ const toNotice = (r: Row): NoticeItem => ({
   ...baseOf(r), kind: 'answer_notice', lead_id: String(r.lead_id), lead_status: str(r.lead_status),
   answer: String(r.answer), decline_reason: str(r.decline_reason), manager_channel: str(r.manager_channel),
   tour_title: str(r.route_title), date: day(r.req_date), people: count(r.people),
+  takes: Array.isArray(r.takes) ? r.takes.filter((x): x is string => typeof x === 'string' && x !== '') : [],
 });
 const toVehicle = (r: Row): VehicleItem => ({
   ...baseOf(r), kind: 'vehicle_decline', lead_id: String(r.lead_id), lead_status: str(r.lead_status),

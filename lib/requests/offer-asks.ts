@@ -9,9 +9,9 @@
  *
  * Правила:
  *  - вопрос — не заявка: в нём место, дата, число людей и тур самой компании.
- *    Имя и телефон человека сюда не читаются и никому не уходят: согласие он
- *    давал одному оператору. Компании, ответившей «Беру», заявку он оставляет
- *    сам — по ссылке на форму её тура;
+ *    Имя и телефон человека в вопрос не читаются и компаниям не уходят:
+ *    согласие он давал одному оператору. Компании, ответившей «Беру», заявку
+ *    он оставляет сам — по ссылке на форму её тура;
  *  - спрашиваются те же компании, что названы человеку (lib/requests/other-offers,
  *    тот же отбор и тот же предел), все сразу, одним текстом: очереди и выбора
  *    Ведара нет, и это сказано в самом вопросе;
@@ -24,14 +24,19 @@
  *    в Telegram, привязанный к карточке. В личный Telegram аккаунта вопрос не
  *    идёт — кнопка там ответила бы «не выполняю»;
  *  - «Беру» — человеку сообщение в его чат тем же путём, что сообщение об
- *    отказе; чата нет — ответ виден в статусе и на странице заявки. Сообщается,
+ *    отказе. Чата нет или он не принял — письмо менеджеру Ведара с именем и
+ *    телефоном (только в MAX, sendPdAlert): правило плана «доставлено» — не
+ *    дошло до человека, значит сразу менеджеру. Это единственное место, где
+ *    модуль читает контакт человека, и компании он не уходит. Сообщается,
  *    только пока заявка всё ещё стоит с тем отказом и той датой и тур компании
  *    всё ещё можно назвать (тот же отбор). «Не могу» человеку не сообщается:
  *    компания просто уходит из его списка.
  *
  * Отправка вопроса — одна попытка: не дошёл — в строке записано почему, а
  * компания остаётся в списке человека по календарю. Повторов по таймеру нет
- * (правило плана: сроков наугад не заводим).
+ * (правило плана: сроков наугад не заводим). Письмо менеджеру о «Беру» — тоже
+ * одна попытка: не принято — компании сказано «увидит на странице заявки», а
+ * не «передан менеджеру».
  *
  * Только сервер. Сторожа: tests/unit/offer-asks.test.ts (правила, слова,
  * исходы — вызовом), tests/integration/request-chat.pg.test.ts (сцена «вопрос
@@ -41,9 +46,11 @@ import { pool } from '@/lib/db-pool';
 import { REQUEST_STATUS_BY_LEAD_SQL, buildRequestView, type StatusRow } from '@/lib/mcp/request-status';
 import type { PdAlertParams, PdAlertResult } from '@/lib/notifications/pd-alert';
 import type { PartnerReach } from '@/lib/partners/reach';
-import { NOTICE_TARGETS_SQL, defaultSendMax, defaultSendTelegram } from '@/lib/requests/answer-notice';
+import { getPublicBaseUrl } from '@/lib/config';
+import { managerQueueUrl } from '@/lib/manager-queue/link';
+import { NOTICE_CONTACT_SQL, NOTICE_TARGETS_SQL, defaultSendMax, defaultSendTelegram } from '@/lib/requests/answer-notice';
 import {
-  offerAskButtons, offerAsksOperatorLine, offerAskText, offerTookText, type OfferAskAnswer, type OfferAskOutcome,
+  managerTookText, offerAskButtons, offerAsksOperatorLine, offerAskText, offerTookText, type OfferAskAnswer, type OfferAskOutcome,
 } from '@/lib/requests/offer-asks-text';
 import { withinPress } from '@/lib/requests/press-budget';
 import { loadOtherOffers } from '@/lib/requests/other-offers';
@@ -108,6 +115,15 @@ export const OFFER_ASK_READ_SQL = `
 export const OFFER_ASK_TOLD_SQL = `
   UPDATE other_offer_asks SET told_via = $2::text, told_at = NOW()
    WHERE id = $1::bigint AND answer = 'take' AND told_via IS NULL`;
+
+/** Куда ушло письмо менеджеру о «Беру» — один раз на вопрос. */
+export const OFFER_ASK_MANAGER_SQL = `
+  UPDATE other_offer_asks SET manager_via = $2::text, manager_at = NOW()
+   WHERE id = $1::bigint AND answer = 'take' AND manager_via IS NULL`;
+
+/** Код отправки — из белого списка: свободный текст ошибки канала мог бы нести id чата. */
+const CHAT_CODES = new Set(['no_token', 'bad_id', 'api_error', 'timeout', 'exception']);
+const chatCode = (v: string): string => (CHAT_CODES.has(v) ? v : 'api_error');
 
 function codeOf(err: unknown): string {
   const code = (err as { code?: unknown })?.code;
@@ -241,6 +257,44 @@ export async function askOtherCompaniesWithinPress(leadId: string, deps: OfferAs
 
 type Told = Extract<OfferAskOutcome, { state: 'took' }>;
 
+/**
+ * Чат человека «Беру» не принял или чата нет — письмо менеджеру, чтобы
+ * позвонил. Имя и телефон читаются только здесь и уходят только в MAX
+ * менеджера; в Telegram — заглушка без них. null — письмо никто не принял.
+ */
+async function tellManager(
+  q: Query, leadId: string, askId: string, facts: Parameters<typeof offerTookText>[0], tried: string[], deps: OfferAsksDeps,
+): Promise<'max' | 'telegram-stub' | null> {
+  let channel: 'max' | 'telegram-stub' | null = null;
+  try {
+    const { rows: [c] } = await q(NOTICE_CONTACT_SQL, [leadId]);
+    const contact = (c ?? {}) as { name?: string | null; phone?: string | null };
+    const msg = managerTookText({ ...facts, leadId, tried }, { name: contact.name ?? null, phone: contact.phone ?? null });
+    const res = await inTime((deps.pdAlert ?? defaultPdAlert)({
+      text: msg.text, stub: msg.stub,
+      buttons: [
+        { text: 'Очередь менеджера', url: managerQueueUrl() },
+        { text: 'Заявки в админке', url: `${getPublicBaseUrl()}/hub/admin/leads` },
+      ],
+    }), deps.timeoutMs ?? OFFER_ASK_SEND_TIMEOUT_MS);
+    if (res.ok) channel = res.value.channel === 'max' && res.value.delivered ? 'max' : res.value.channel === 'telegram-stub' ? 'telegram-stub' : null;
+    if (!channel) {
+      console.error(`${LOG} вопрос ${askId}: письмо менеджеру о «Беру» не дошло (${res.ok ? res.value.channel : res.why})`);
+      return null;
+    }
+  } catch (err) {
+    console.error(`${LOG} вопрос ${askId}: письмо менеджеру о «Беру» не собрано, SQLSTATE`, codeOf(err));
+    return null;
+  }
+  try {
+    await q(OFFER_ASK_MANAGER_SQL, [askId, channel]);
+  } catch (err) {
+    // Письмо менеджер получил — исход «передано» правдив и без отметки.
+    console.error(`${LOG} вопрос ${askId}: канал письма менеджеру не записан, SQLSTATE`, codeOf(err));
+  }
+  return channel;
+}
+
 /** «Беру» записано — сказать человеку. Сбой ответа компании не отменяет. */
 async function tellPerson(
   q: Query, saved: { lead_id: string; ask_date: string }, askId: string, partnerId: string, deps: OfferAsksDeps, now: number,
@@ -256,9 +310,11 @@ async function tellPerson(
     // Тем же отбором, что список человека: тур снят с витрины или дата закрыта — не называем.
     const mine = offers.state === 'ok' ? offers.offers.find((o) => o.partnerId === partnerId && o.said === 'take') : undefined;
     if (!mine) return { state: 'took', told: 'unlisted' };
-    const text = offerTookText({
+    const facts = {
       partnerName: mine.partnerName, tourTitle: mine.title, price: mine.price, date: ask.date, people: ask.people, url: mine.url,
-    });
+    };
+    const text = offerTookText(facts);
+    const tried: string[] = [];
     const targets = (await q(NOTICE_TARGETS_SQL, [saved.lead_id])).rows as Array<{ channel: 'max' | 'telegram'; chat_id: string }>;
     for (const t of targets) {
       const send = t.channel === 'max' ? (deps.sendMax ?? defaultSendMax) : (deps.sendTelegram ?? defaultSendTelegram);
@@ -267,9 +323,12 @@ async function tellPerson(
         await q(OFFER_ASK_TOLD_SQL, [askId, t.channel]);
         return { state: 'took', told: t.channel, date: ask.date, tourTitle: mine.title };
       }
+      tried.push(`${t.channel}:${chatCode(res.ok ? (res.value.ok ? 'api_error' : res.value.code) : res.why)}`);
       console.warn(`${LOG} вопрос ${askId}: ${t.channel} человека сообщение не принял`);
     }
-    return { state: 'took', told: 'status', date: ask.date, tourTitle: mine.title };
+    // Не дошло до человека — сразу менеджеру: слово компании «возьму» не должно лежать непрочитанным.
+    const manager = await tellManager(q, saved.lead_id, askId, facts, tried, deps);
+    return { state: 'took', told: manager ? 'manager' : 'status', date: ask.date, tourTitle: mine.title };
   } catch (err) {
     console.error(`${LOG} вопрос ${askId}: человеку о «Беру» не сообщено, SQLSTATE`, codeOf(err));
     return { state: 'took', told: 'unknown' };

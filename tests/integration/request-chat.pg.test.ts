@@ -2471,6 +2471,67 @@ withPg('переписка по заявке на настоящем PostgreSQL'
       expect(await asks.askOtherCompanies(lead3)).toEqual({ state: 'asked', created: 4, sent: 3 });
       expect((await pool.query(`SELECT answer FROM other_offer_asks WHERE lead_id = $1`, [lead3])).rows.map((r) => r.answer)).toEqual([null, null, null, null]);
 
+      // 4б-2 (1434). У этой заявки чата нет (как у заявки с формы сайта): «Беру» человеку слать некуда —
+      // письмо менеджеру с именем и телефоном, компании сказано «передан менеджеру», а не «сообщено».
+      const queue = await import('@/lib/manager-queue/queue');
+      const ask3 = async (partnerId: string) => (await pool.query<{ id: string; answer: string | null; told_via: string | null; manager_via: string | null; has_at: boolean }>(
+        `SELECT id::text AS id, answer, told_via, manager_via, (manager_at IS NOT NULL) AS has_at
+           FROM other_offer_asks WHERE lead_id = $1 AND partner_id = $2`, [lead3, partnerId],
+      )).rows[0]!;
+      const said3 = await pool.query<{ id: string }>(`SELECT id::text AS id FROM answer_notices WHERE lead_id = $1`, [lead3]);
+      // Отказ до человека не дошёл — случай стоит в очереди менеджера; «Беру» пока никто не сказал.
+      expect(await notices.deliverAnswerNotice(said3.rows[0]!.id)).toMatchObject({ state: 'undelivered', manager: 'max' });
+      const caseOf = async () => {
+        const src = (await queue.loadManagerQueue({ since: '2026-01-01' })).answer_notice;
+        if (src.state !== 'ok') throw new Error('очередь не прочиталась');
+        return src.items.find((i) => i.lead_id === lead3) ?? null;
+      };
+      expect((await caseOf())!.takes).toEqual([]);
+      // «Не могу» в список «Беру» не попадает.
+      expect(await asks.answerOfferAsk({ partnerId: opC, askId: (await ask3(opC)).id, answer: 'decline', via: 'max' })).toEqual({ state: 'declined' });
+      expect((await caseOf())!.takes).toEqual([]);
+
+      sent.dm.length = 0;
+      const pdBefore = sent.pd.length;
+      expect(await asks.answerOfferAsk({ partnerId: opB, askId: (await ask3(opB)).id, answer: 'take', via: 'max' }))
+        .toEqual({ state: 'took', told: 'manager', date: D, tourTitle: 'Мыс 4б на джипах' });
+      expect(sent.dm).toHaveLength(0);
+      expect(sent.pd).toHaveLength(pdBefore + 1);
+      const letter = sent.pd.at(-1)! as Pd;
+      // Письмо — менеджеру (адресата нет), а не компании, нажавшей «Беру».
+      expect(letter.to).toBeUndefined();
+      expect(letter.text).toContain('Другая компания ответила «Беру» — клиенту не сообщено, позвонить');
+      expect(letter.text).toContain(`Заявка <code>${lead3}</code>`);
+      expect(letter.text).toContain(`«Берёт 4б &amp; Ко» ответила: возьмёт ${ruDay(D)} — тур «Мыс 4б на джипах» на 2 чел.`);
+      expect(letter.text).toContain('<b>Имя:</b> Пётр Пятый');
+      expect(letter.text).toMatch(/<b>Телефон:<\/b> \+?79995550953/);
+      expect(letter.text).toContain('Почему письмо: чата с Ведаром у клиента нет.');
+      // Заглушка для Telegram — без имени и телефона.
+      expect(letter.stub).not.toMatch(/Пётр|Пятый|79995550953/);
+      expect(await ask3(opB)).toMatchObject({ answer: 'take', told_via: null, manager_via: 'max', has_at: true });
+      // В очереди менеджера у этого случая — кто ответил «Беру»; контакт компании не получала.
+      expect((await caseOf())!.takes).toEqual(['Берёт 4б & Ко']);
+      // «Беру» на другую дату (вопрос задавали до того, как человек её сменил) к случаю на дату заявки не относится.
+      await pool.query(`UPDATE other_offer_asks SET ask_date = $2::date WHERE id = $1`, [(await ask3(opB)).id, day(23)]);
+      expect((await caseOf())!.takes).toEqual([]);
+      await pool.query(`UPDATE other_offer_asks SET ask_date = $2::date WHERE id = $1`, [(await ask3(opB)).id, D]);
+      expect((await caseOf())!.takes).toEqual(['Берёт 4б & Ко']);
+
+      // Рабочий чат менеджера письмо не принял — «передан менеджеру» не говорится и отметки нет.
+      sent.adminFails = true;
+      try {
+        expect(await asks.answerOfferAsk({ partnerId: guide, askId: (await ask3(guide)).id, answer: 'take', via: 'max' }))
+          .toEqual({ state: 'took', told: 'status', date: D, tourTitle: 'Мыс 4б с гидом' });
+      } finally {
+        sent.adminFails = false;
+      }
+      expect(await ask3(guide)).toMatchObject({ answer: 'take', told_via: null, manager_via: null, has_at: false });
+      // Отметка о менеджере — только у «Беру»: база не даст записать её вопросу без ответа или с «Не могу».
+      await expect(pool.query(`UPDATE other_offer_asks SET manager_via = 'max', manager_at = NOW() WHERE id = $1`, [(await ask3(opC)).id]))
+        .rejects.toMatchObject({ code: '23514' });
+      await expect(pool.query(`UPDATE other_offer_asks SET manager_via = 'sms', manager_at = NOW() WHERE id = $1`, [(await ask3(opB)).id]))
+        .rejects.toMatchObject({ code: '23514' });
+
       // Удалили заявку — её вопросы ушли вместе с ней.
       await pool.query(`DELETE FROM leads WHERE id = $1`, [lead3]);
       expect((await pool.query(`SELECT 1 FROM other_offer_asks WHERE lead_id = $1`, [lead3])).rowCount).toBe(0);
@@ -3173,7 +3234,7 @@ withPg('переписка по заявке на настоящем PostgreSQL'
         kind: 'answer_notice', id: N1, happened_at: expect.stringMatching(/^\d{4}-\d{2}-\d{2}T/), partner_name: 'Оператор 3б',
         contact_name: 'Зинаида Очередь', contact_phone: '+79995551101', take: null,
         lead_id: L1, lead_status: 'lost', answer: 'decline', decline_reason: 'seats', manager_channel: 'max',
-        tour_title: 'Толбачик 3б', date: D0, people: 3,
+        tour_title: 'Толбачик 3б', date: D0, people: 3, takes: [],
       });
       // День начала очереди: по умолчанию — константа, случай раньше неё в очередь не входит.
       expect(itemOf((await queue.loadManagerQueue()).answer_notice, N1) !== null).toBe(today >= queue.MANAGER_QUEUE_SINCE);

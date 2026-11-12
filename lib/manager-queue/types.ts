@@ -37,6 +37,8 @@ export interface NoticeItem extends QueueBase {
   tour_title: string | null;
   date: string | null;
   people: number | null;
+  /** Другие компании, ответившие Ведару «Беру» на дату этой заявки (этап 4б); пусто — таких ответов нет. */
+  takes: string[];
 }
 export interface VehicleItem extends QueueBase {
   kind: 'vehicle_decline';

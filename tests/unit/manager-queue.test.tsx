@@ -160,8 +160,27 @@ describe('чтение очереди: три источника, три исх�
       kind: 'answer_notice', id: '101', happened_at: '2026-11-12T03:10:00.000Z', partner_name: 'Оператор',
       contact_name: 'Анна', contact_phone: '+79990000001', take: null,
       lead_id: A, lead_status: 'lost', answer: 'decline', decline_reason: 'seats', manager_channel: 'max',
-      tour_title: 'Мутновский', date: '2026-12-02', people: 2,
+      tour_title: 'Мутновский', date: '2026-12-02', people: 2, takes: [],
     });
+  });
+
+  it('другие компании, ответившие «Беру», — именами в случае; пустое и не строка в список не идут', async () => {
+    const [A, B] = [1, 2].map(lead);
+    const db = fakeDb([
+      [QUEUE_NOTICES_SQL, () => [
+        noticeRow('101', A, { answer_id: '11', takes: ['Компания Б', '', null, 'Третья'] }),
+        noticeRow('102', B, { answer_id: '12', takes: null }),
+      ]],
+      [QUEUE_VEHICLE_SQL, () => []],
+      [QUEUE_STAY_SQL, () => []],
+      [REQUEST_STATUS_BY_LEADS_SQL, () => [
+        st(A, { lead_status: 'lost', lead_answer_id: '11', lead_answer: 'decline', lead_decline_reason: 'seats' }),
+        st(B, { lead_status: 'lost', lead_answer_id: '12', lead_answer: 'decline', lead_decline_reason: 'seats' }),
+      ] as unknown as Rows],
+    ]);
+    const q = await loadManagerQueue({ query: db.query });
+    const items = q.answer_notice.state === 'ok' ? q.answer_notice.items : [];
+    expect(items.map((i) => i.takes)).toEqual([['Компания Б', 'Третья'], []]);
   });
 
   it('тот же отказ, но ответ на другой номер: чужой ответ вид заявки не подтверждает', async () => {
@@ -386,7 +405,7 @@ const NOTICE: NoticeItem = {
   kind: 'answer_notice', id: '101', happened_at: '2026-11-12T03:10:00.000Z', partner_name: 'Оператор',
   contact_name: 'Анна', contact_phone: '+79990000001', take: null,
   lead_id: lead(1), lead_status: 'lost', answer: 'decline', decline_reason: 'weather', manager_channel: 'max',
-  tour_title: 'Мутновский', date: '2026-12-02', people: 2,
+  tour_title: 'Мутновский', date: '2026-12-02', people: 2, takes: [],
 };
 const VEHICLE: VehicleItem = {
   kind: 'vehicle_decline', id: '51', happened_at: '2026-11-12T04:00:00.000Z', partner_name: 'Перевозчик',
@@ -415,6 +434,13 @@ describe('слова очереди: только записанное', () => {
     ]);
     expect(queueStateLines({ ...NOTICE, manager_channel: 'telegram-stub' })[2]).toBe('В MAX письмо не ушло; в Telegram — заглушка без телефона.');
     expect(queueStateLines({ ...NOTICE, manager_channel: 'none' })[2]).toBe('Письмо менеджеру пока не дошло — отправка повторяется.');
+    // Другие компании ответили «Беру» — тому, кто звонит: чьё это слово и что это не бронь.
+    expect(queueStateLines({ ...NOTICE, takes: ['Компания Б'] })[3])
+      .toBe('На вопрос Ведара «возьмёте на эту дату?» ответили «Беру»: «Компания Б». Это слово компании, не бронь — заявку клиент оставляет сам.');
+    expect(queueStateLines({ ...NOTICE, takes: ['Компания Б', 'Третья'] })[3])
+      .toBe('На вопрос Ведара «возьмёте на эту дату?» ответили «Беру»: «Компания Б», «Третья». Это слово компаний, не бронь — заявку клиент оставляет сам.');
+    // Ответ старой сборки сервера поля не несёт: строки нет, экран не падает.
+    expect(queueStateLines({ ...NOTICE, takes: undefined as unknown as string[] })).toHaveLength(3);
 
     expect(queueSubjectLine(VEHICLE)).toBe('Машина под заказ: Елизово — Мутновский, с 05.12.2026 по 06.12.2026');
     expect(queueStateLines(VEHICLE)).toEqual(['Перевозчик «Перевозчик» ответил «Не могу».', 'Сообщение об отказе до заказчика не дошло — позвонить.']);
@@ -528,6 +554,15 @@ describe('экран очереди', () => {
     const stays = screen.getByRole('region', { name: /Жильё занято — ждут: 0/ });
     expect(within(stays).getByText('Ответов «занято» нет.')).toBeTruthy();
     expect(screen.getByText(/Очередь ведётся с 12\.11\.2026/)).toBeTruthy();
+  });
+
+  it('другая компания ответила «Беру» — в карточке случая названа: кто, и что это не бронь', async () => {
+    stubApi([queueOf({
+      answer_notice: { state: 'ok', items: [{ ...NOTICE, takes: ['Компания Б'] }], more: false },
+    })], () => ({ status: 200, json: { success: true, outcome: 'taken' } }));
+    renderQueue();
+    const card = await screen.findByTestId('queue-answer_notice-101');
+    expect(card.textContent).toContain('ответили «Беру»: «Компания Б». Это слово компании, не бронь — заявку клиент оставляет сам.');
   });
 
   it('«Взял» уходит запросом с родом и номером случая; после ответа список перечитан и отметка видна', async () => {
