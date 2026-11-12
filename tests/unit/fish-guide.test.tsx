@@ -52,3 +52,17 @@ describe('разбор кеты на странице вида', () => {
     expect(text).not.toMatch(/\p{Extended_Pictographic}/u);
   });
 });
+
+describe('разбор чавычи (12.11)', () => {
+  const chav = FISH_BY_ID.chavycha!;
+  it('раздел «Почему чавыча такая большая» с двумя пунктами', () => {
+    render(<FishGuide species={chav} />);
+    expect(screen.getAllByRole('heading', { level: 2 }).map((h) => h.textContent)).toEqual(['Почему чавыча такая большая']);
+    expect(screen.getAllByRole('heading', { level: 3 }).map((h) => h.textContent)).toEqual(['Долгий морской нагул', 'Генетика и эволюционная стратегия']);
+  });
+  it('сезон 1 июня — 15 июля; на общей странице вида нет телефона и рекорда базы', () => {
+    expect(chav.seasonMonths).toEqual([6, 7]);
+    const text = JSON.stringify(chav);
+    expect(text).not.toMatch(/\+7\d{10}|рекорд базы|брон/i);
+  });
+});
