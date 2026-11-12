@@ -2130,6 +2130,216 @@ withPg('переписка по заявке на настоящем PostgreSQL'
       await pool.query(`DELETE FROM tour_availability WHERE operator_tour_id = ANY($1::bigint[])`, [[tA, tA2, tB, tB1, tB2, tD, tE, tF, tH, tI]]);
     });
 
+    it('вопрос другим компаниям (4б, 1433): после «Нет мест» — вопрос без имени и телефона; «Беру» названо человеку, «Не могу» убирает компанию из его списка; отвечает только та, кого спросили', async () => {
+      process.env.CALLBACK_SIGNING_SECRET ??= 'pg-test-signing';
+      const answers = await import('@/lib/requests/chat-answer');
+      const notices = await import('@/lib/requests/answer-notice');
+      const { ruDay } = await import('@/lib/requests/answer-notice-text');
+      const asks = await import('@/lib/requests/offer-asks');
+      const { offerAskReplyText } = await import('@/lib/requests/offer-asks-text');
+      const { loadOtherOffers } = await import('@/lib/requests/other-offers');
+      const { operatorDeskPress } = await import('@/lib/telegram/operator-desk-press');
+      const { unwrapPress } = await import('@/lib/chat-cabinet/signed-payload');
+      const { kamchatkaToday } = await import('@/lib/seat-requests/core');
+      const day = (n: number) => {
+        const d = new Date(`${kamchatkaToday()}T00:00:00Z`);
+        d.setUTCDate(d.getUTCDate() + n);
+        return d.toISOString().slice(0, 10);
+      };
+      const D = day(22);
+      const partner = async (name: string, chat: number | null, category = 'operator') => (await pool.query<{ id: string }>(
+        `INSERT INTO partners (name, category, contact, max_chat_id) VALUES ($1, $2, '{}', $3) RETURNING id`, [name, category, chat],
+      )).rows[0].id;
+      const place = (await pool.query<{ id: string }>(
+        `INSERT INTO places (id, name, lat, lng, ark_id, location_type, zone, is_visible)
+         VALUES (gen_random_uuid(), 'Мыс 4б <северный>', 52.9, 158.7, gen_random_uuid(), 'cape', 'avachinsky', TRUE) RETURNING id::text AS id`,
+      )).rows[0].id;
+      const tour = async (op: string, title: string) => Number((await pool.query<{ id: number }>(
+        `INSERT INTO operator_tours (title, base_price, operator_id, max_participants, is_active, is_published, main_place_id)
+         VALUES ($1, 9000, $2, 12, true, true, $3) RETURNING id`, [title, op, place],
+      )).rows[0].id);
+      const slot = (t: number, slots: number) => pool.query(
+        `INSERT INTO tour_availability (operator_tour_id, date, available_slots, is_cancelled) VALUES ($1, $2::date, $3, false)`, [t, D, slots],
+      );
+      const [CHAT_A, CHAT_B, CHAT_C, CHAT_G, CHAT_PERSON] = [9_300_801, 9_300_802, 9_300_803, 9_300_805, 9_300_081];
+      const opA = await partner('Отказавшая 4б', CHAT_A);
+      const tA = await tour(opA, 'Мыс 4б — отказанный');
+      const opB = await partner('Берёт 4б & Ко', CHAT_B);
+      const tB = await tour(opB, 'Мыс 4б на джипах');
+      const opC = await partner('Не может 4б', CHAT_C);
+      const tC = await tour(opC, 'Мыс 4б по заявке');
+      const opD = await partner('Без чата 4б', null);
+      const tD = await tour(opD, 'Мыс 4б пешком');
+      // Гид со своим туром: вопрос задан и ему — отвечает тем же правом, что туроператор.
+      const guide = await partner('Гид 4б', CHAT_G, 'guide');
+      const tG = await tour(guide, 'Мыс 4б с гидом');
+      await slot(tA, 10);
+      await slot(tB, 10);
+
+      const mkLead = async (name: string, phone: string, tourId: number, title: string) => (await leads.createLeadDetailed({
+        name, phone, comment: `[Заявка на бронь] Тур "${title}" (ID${tourId}), дата ${D}, участников 2.`,
+        route_title: title, source_url: 'mcp://vedar/booking', operator_id: opA, pd_consent: consentOf('operator'),
+        source_data: { source: 'mcp', tool: 'create_booking_request', tour_id: tourId, date: D, participants: 2 },
+        skip_ai_processing: true,
+      }))!.id;
+      const lead = await mkLead('Нина Пятая', '+79995550951', tA, 'Мыс 4б — отказанный');
+      const key = await status.issueRequestKeyRecord({ leadId: lead }, 'create_booking_request', { opensChat: true });
+      expect(await links.linkChatToKeys('max', CHAT_PERSON, [key!.key], 'created')).toBe(1);
+      const rows = async () => (await pool.query<{
+        id: string; partner_id: string; tour_id: string; ask_date: string; people: number; sent_via: string | null; send_note: string | null;
+        answer: string | null; answered_via: string | null; told_via: string | null;
+      }>(
+        `SELECT id::text AS id, partner_id::text AS partner_id, tour_id::text AS tour_id, ask_date::text AS ask_date, people,
+                sent_via, send_note, answer, answered_via, told_via
+           FROM other_offer_asks WHERE lead_id = $1 ORDER BY id`, [lead],
+      )).rows;
+      const askOf = async (partnerId: string) => (await rows()).find((r) => r.partner_id === partnerId)!;
+
+      // До отказа вопросов нет: заявка ждёт своего оператора.
+      expect(await asks.askOtherCompanies(lead)).toEqual({ state: 'skip' });
+      expect(await rows()).toEqual([]);
+
+      const said = await answers.recordChatAnswer({ partnerId: opA, kind: 'lead', subjectId: lead, answer: 'no_seats', expectDate: D });
+      expect(said).toMatchObject({ ok: true, notice: { state: 'pending' } });
+      await notices.deliverAnswerNotice(said.ok && said.notice ? said.notice.id : '0');
+
+      // Вопрос — четырём компаниям из списка человека; до трёх дошёл (у четвёртой нет чата).
+      sent.pd.length = 0;
+      expect(await asks.askOtherCompanies(lead)).toEqual({ state: 'asked', created: 4, sent: 3 });
+      const asked = await rows();
+      expect(asked.map((r) => [r.partner_id, r.tour_id, r.ask_date, r.people, r.sent_via, r.send_note, r.answer]).sort()).toEqual([
+        [opB, String(tB), D, 2, 'max', null, null],
+        [opC, String(tC), D, 2, 'max', null, null],
+        [opD, String(tD), D, 2, null, 'no_channel', null],
+        [guide, String(tG), D, 2, 'max', null, null],
+      ].sort());
+      // Отказавшей компании вопрос не задаётся.
+      expect(asked.some((r) => r.partner_id === opA)).toBe(false);
+      type Pd = { text: string; stub: string; buttons?: Array<{ text: string; payload: string }>; stubActions?: unknown[]; to?: { maxChatId?: unknown; telegramChatId?: unknown } };
+      const questions = sent.pd as Pd[];
+      expect(questions.map((q) => String(q.to?.maxChatId)).sort()).toEqual([CHAT_B, CHAT_C, CHAT_G].map(String).sort());
+      const toB = questions.find((q) => String(q.to?.maxChatId) === String(CHAT_B))!;
+      expect(toB.text.split('\n').slice(0, 3)).toEqual([
+        '<b>Вопрос от Ведара — это не заявка</b>',
+        `Человеку отказала другая компания: тур к месту «Мыс 4б &lt;северный&gt;» на ${ruDay(D)}, 2 чел.`,
+        'У вас к этому месту есть тур «Мыс 4б на джипах». Возьмёте на эту дату?',
+      ]);
+      // Ни имени, ни телефона человека, ни названия отказавшей компании — ни в одном вопросе, ни в запасном тексте.
+      for (const q of questions) {
+        expect(`${q.text}\n${q.stub}`).not.toMatch(/Нина|Пятая|79995550951|Отказавшая/);
+        expect(q.stub).toBe(q.text);
+        expect(q.buttons?.map((b) => b.text)).toEqual(['Беру', 'Не могу']);
+        // В личный Telegram аккаунта кнопки не уходят: чат карточки в Telegram ни у кого не привязан.
+        expect(q.stubActions).toEqual([]);
+        expect(q.to?.telegramChatId ?? null).toBeNull();
+      }
+      const pressOf = (q: Pd, i: 0 | 1) => {
+        const v = unwrapPress(q.buttons![i]!.payload);
+        if (!v.ok) throw new Error('кнопка вопроса не подписана');
+        return v.payload;
+      };
+      const [takeB, declineB] = [pressOf(toB, 0), pressOf(toB, 1)];
+      expect(takeB).toBe(`oq:y:${(await askOf(opB)).id}`);
+      const toC = questions.find((q) => String(q.to?.maxChatId) === String(CHAT_C))!;
+      const toG = questions.find((q) => String(q.to?.maxChatId) === String(CHAT_G))!;
+
+      // Повтор (второе нажатие отказавшего, добивка) новых вопросов не заводит и ничего не шлёт.
+      expect(await asks.askOtherCompanies(lead)).toEqual({ state: 'asked', created: 0, sent: 0 });
+      expect(sent.pd).toHaveLength(3);
+      expect(await rows()).toHaveLength(4);
+
+      // Чужой вопрос: компания «Не может» жмёт кнопку вопроса, заданного «Берёт»; чат без карточки — тоже мимо.
+      const NOT_YOURS = offerAskReplyText({ state: 'not_yours' });
+      expect((await operatorDeskPress({ channel: 'max', chatId: CHAT_C, payload: takeB }))!.text).toBe(NOT_YOURS);
+      expect((await operatorDeskPress({ channel: 'max', chatId: CHAT_A, payload: takeB }))!.text).toBe(NOT_YOURS);
+      expect((await operatorDeskPress({ channel: 'max', chatId: 9_399_999, payload: takeB }))!.text).toBe(NOT_YOURS);
+      // Привязки в Telegram у «Берёт» нет: тот же номер чата в другом канале — не её чат.
+      expect((await operatorDeskPress({ channel: 'telegram', chatId: CHAT_B, payload: takeB }))!.text).toBe(NOT_YOURS);
+      expect((await askOf(opB)).answer).toBeNull();
+
+      // «Не могу»: записано, человеку ничего не уходит.
+      sent.dm.length = 0;
+      const no = await operatorDeskPress({ channel: 'max', chatId: CHAT_C, payload: pressOf(toC, 1) });
+      expect(no!.text).toBe('Записал: «Не могу». В списке этого человека вашей компании не будет.');
+      expect(await askOf(opC)).toMatchObject({ answer: 'decline', answered_via: 'max', told_via: null });
+      expect(sent.dm).toHaveLength(0);
+
+      // «Беру»: записано, человеку — сообщение в его чат со ссылкой на форму тура этой компании.
+      const yes = await operatorDeskPress({ channel: 'max', chatId: CHAT_B, payload: takeB });
+      expect(yes!.text).toBe(
+        `Записал: «Беру». Человеку сообщено в MAX: ваша компания готова принять его ${ruDay(D)} — тур «Мыс 4б на джипах». `
+        + 'Заявку он оставит сам — она придёт вам обычной заявкой с его контактами.',
+      );
+      expect(await askOf(opB)).toMatchObject({ answer: 'take', answered_via: 'max', told_via: 'max' });
+      expect(sent.dm).toHaveLength(1);
+      expect(String(sent.dm[0]!.chatId)).toBe(String(CHAT_PERSON));
+      const told = sent.dm[0]!.text.split('\n');
+      expect(told[0]).toBe(`<b>Компания «Берёт 4б &amp; Ко» ответила Ведару: возьмёт вас ${ruDay(D)}</b>`);
+      expect(told[1]).toMatch(/^Тур «Мыс 4б на джипах» на 2 чел\., 9[\s ]000 ₽ [^,.]+\.$/);
+      expect(told[2]).toMatch(new RegExp(`^Это ответ на вопрос Ведара, ещё не бронь\\. Заявку вы оставляете сами: https?://\\S+\\?date=${D}&amp;guests=2#booking$`));
+      expect(told[3]).toBe('Имя и телефон получит только эта компания.');
+
+      // Ответ один: второе нажатие — «уже ответили», запись и сообщение прежние.
+      const again = await operatorDeskPress({ channel: 'max', chatId: CHAT_B, payload: declineB });
+      expect(again!.text).toBe('Вы уже ответили на этот вопрос: «Беру». Ответ один — второй раз не записываю.');
+      expect(await askOf(opB)).toMatchObject({ answer: 'take', told_via: 'max' });
+      expect(sent.dm).toHaveLength(1);
+
+      // Статус заявки: ответившая «Беру» названа с ответом, «Не могу» — нет в списке, молчавшие — по календарю.
+      const view = await status.readRequestStatus(key!.key, { reader: 'agent' });
+      expect(view.state).toBe('declined');
+      expect(view.other_offers!.state).toBe('listed');
+      const listed = view.other_offers!.offers;
+      expect(listed[0]).toMatchObject({ company: 'Берёт 4б & Ко', tour_id: String(tB), seats: 'calendar', said: 'take' });
+      expect(listed.map((x) => [x.company, x.said]).sort()).toEqual([
+        ['Без чата 4б', null], ['Берёт 4б & Ко', 'take'], ['Гид 4б', null],
+      ].sort());
+      expect(JSON.stringify(view.other_offers)).not.toMatch(/Не может 4б|Нина|79995550951/);
+      expect(JSON.stringify(view.other_offers)).not.toContain(opB);
+      // Ответ — про эту заявку: тот же тур и дата без заявки (или с другой заявкой) «Не может» называют.
+      const plain = await loadOtherOffers({ tourId: tA, date: D, people: 2 });
+      expect(plain.state === 'ok' ? plain.offers.map((o) => [o.partnerName, o.said]).sort() : null).toEqual([
+        ['Без чата 4б', null], ['Берёт 4б & Ко', null], ['Гид 4б', null], ['Не может 4б', null],
+      ].sort());
+
+      // Дата в вопросе прошла — ответ не записывается.
+      await pool.query(`UPDATE other_offer_asks SET ask_date = $2::date WHERE id = $1`, [(await askOf(guide)).id, day(-1)]);
+      expect((await operatorDeskPress({ channel: 'max', chatId: CHAT_G, payload: pressOf(toG, 0) }))!.text)
+        .toBe('Дата в вопросе уже прошла. Ничего не записал.');
+      expect((await askOf(guide)).answer).toBeNull();
+      await pool.query(`UPDATE other_offer_asks SET ask_date = $2::date WHERE id = $1`, [(await askOf(guide)).id, D]);
+
+      // Человек отменил заявку — гид отвечает «Беру»: записано, но человеку ничего не уходит, и гиду так и сказано.
+      await pool.query(`UPDATE leads SET status = 'cancelled' WHERE id = $1`, [lead]);
+      const late = await operatorDeskPress({ channel: 'max', chatId: CHAT_G, payload: pressOf(toG, 0) });
+      expect(late!.text).toContain('Записал: «Беру». Но заявка человека с тех пор изменилась');
+      expect(late!.text).toContain('Ему ничего не отправлено.');
+      expect(await askOf(guide)).toMatchObject({ answer: 'take', answered_via: 'max', told_via: null });
+      expect(sent.dm).toHaveLength(1);
+
+      // Отказ по погоде: других компаний к тому же месту в тот же день не спрашиваем.
+      const lead2 = await mkLead('Олег Пятый', '+79995550952', tA, 'Мыс 4б — отказанный');
+      const said2 = await answers.recordChatAnswer({ partnerId: opA, kind: 'lead', subjectId: lead2, answer: 'decline', reason: 'weather', expectDate: D });
+      expect(said2).toMatchObject({ ok: true });
+      await pool.query(`UPDATE leads SET status = 'lost' WHERE id = $1`, [lead2]);
+      const before = sent.pd.length;
+      expect(await asks.askOtherCompanies(lead2)).toEqual({ state: 'skip' });
+      expect((await pool.query(`SELECT 1 FROM other_offer_asks WHERE lead_id = $1`, [lead2])).rowCount).toBe(0);
+      expect(sent.pd).toHaveLength(before);
+
+      // Тот же отказ «мест нет» по другой заявке — свои вопросы: ответы первой на неё не переносятся.
+      const lead3 = await mkLead('Пётр Пятый', '+79995550953', tA, 'Мыс 4б — отказанный');
+      expect(await answers.recordChatAnswer({ partnerId: opA, kind: 'lead', subjectId: lead3, answer: 'no_seats', expectDate: D })).toMatchObject({ ok: true });
+      expect(await asks.askOtherCompanies(lead3)).toEqual({ state: 'asked', created: 4, sent: 3 });
+      expect((await pool.query(`SELECT answer FROM other_offer_asks WHERE lead_id = $1`, [lead3])).rows.map((r) => r.answer)).toEqual([null, null, null, null]);
+
+      // Удалили заявку — её вопросы ушли вместе с ней.
+      await pool.query(`DELETE FROM leads WHERE id = $1`, [lead3]);
+      expect((await pool.query(`SELECT 1 FROM other_offer_asks WHERE lead_id = $1`, [lead3])).rowCount).toBe(0);
+
+      await pool.query(`DELETE FROM tour_availability WHERE operator_tour_id = ANY($1::bigint[])`, [[tA, tB]]);
+    });
+
     it('сообщение после ответа (2б, 1424): одно на ответ, в чат заявки, иначе менеджеру; прочли — «звонить не нужно»', async () => {
       process.env.CALLBACK_SIGNING_SECRET ??= 'pg-test-signing';
       const answers = await import('@/lib/requests/chat-answer');

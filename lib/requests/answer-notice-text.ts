@@ -49,7 +49,7 @@ import { PLACE_COLOR_WORD } from '@/lib/safety/place-day-status';
 import { OFFER_ORDER_NOTE_ON_DATE_RU } from '@/lib/tours/offer-order';
 import { plural } from '@/lib/home/data-freshness';
 import {
-  OTHER_OFFERS_NOT_ANSWER_RU, otherOfferMoreToursWords, otherOfferSeatsWords, otherOffersMoreCompaniesWords,
+  otherOfferMoreToursWords, otherOfferSeatsWords, otherOffersMoreCompaniesWords, otherOffersNoteWords,
 } from '@/lib/requests/other-offers-words';
 
 export type NoticeAnswer = 'no_seats' | 'decline' | 'other_date';
@@ -128,6 +128,8 @@ export interface OfferLine {
   url: string;
   /** Сколько ещё туров этой компании к месту могут принять на дату. */
   moreTours: number;
+  /** Компания сама ответила Ведару «Беру» по этой заявке (этап 4б); нет поля или null — не отвечала. */
+  said?: 'take' | null;
 }
 
 /** Другие компании к тому же месту на дату заявки — что удалось узнать (lib/requests/other-offers). */
@@ -405,7 +407,7 @@ function clip(text: string, max: number): string {
 function offersText(f: NoticeFacts, o: Extract<OffersBlock, { kind: 'offers' }>, count: number): string {
   const on = f.date ? ` на ${ruDay(f.date)}` : '';
   const lines = o.offers.slice(0, count).map((x, i) => {
-    const seats = otherOfferSeatsWords(x.seats, f.people);
+    const seats = otherOfferSeatsWords(x.seats, f.people, x.said ?? null);
     const more = x.moreTours > 0 ? `; ${otherOfferMoreToursWords(x.moreTours)}` : '';
     return `${i + 1}. «${escapeHtml(clip(x.partnerName, OFFER_NAME_CHARS))}» — тур «${escapeHtml(clip(x.title, OFFER_NAME_CHARS))}», `
       + `${escapeHtml(x.price ?? 'цена не указана')}; ${seats}${more}. Заявка: ${escapeHtml(x.url)}`;
@@ -415,7 +417,7 @@ function offersText(f: NoticeFacts, o: Extract<OffersBlock, { kind: 'offers' }>,
     `<b>К месту «${escapeHtml(clip(o.placeName, OFFER_NAME_CHARS))}»${on} — другие компании</b>`,
     ...lines,
     rest > 0 ? `${otherOffersMoreCompaniesWords(rest)} — на странице места: ${escapeHtml(o.placeUrl)}` : null,
-    OTHER_OFFERS_NOT_ANSWER_RU,
+    otherOffersNoteWords(o.offers.slice(0, count).some((x) => x.said === 'take')),
     OFFER_ORDER_NOTE_ON_DATE_RU,
   ].filter((l): l is string => !!l).join('\n');
 }
@@ -581,9 +583,10 @@ function managerOffersNote(f: NoticeFacts, o: OffersBlock): string | null {
   if (!answerWantsOffers(f) || o.kind !== 'offers' || o.offers.length === 0) return null;
   const shown = o.offers.slice(0, MANAGER_OFFERS_MAX);
   const names = shown.map((x) => `«${escapeHtml(clip(x.partnerName, OFFER_NAME_CHARS))}» — тур «${escapeHtml(clip(x.title, OFFER_NAME_CHARS))}» `
-    + `(${x.seats === 'calendar' ? 'в календаре места есть' : 'дату подтверждает оператор'})`);
+    + `(${x.said === 'take' ? 'ответила Ведару: возьмёт' : x.seats === 'calendar' ? 'в календаре места есть' : 'дату подтверждает оператор'})`);
   const rest = o.more + (o.offers.length - shown.length);
-  return `Кого ещё можно назвать клиенту на эту дату — к месту «${escapeHtml(clip(o.placeName, OFFER_NAME_CHARS))}», по календарю Ведара, это не ответ компаний: `
+  const basis = shown.some((x) => x.said === 'take') ? 'по календарю Ведара и ответам компаний' : 'по календарю Ведара, это не ответ компаний';
+  return `Кого ещё можно назвать клиенту на эту дату — к месту «${escapeHtml(clip(o.placeName, OFFER_NAME_CHARS))}», ${basis}: `
     + `${names.join('; ')}${rest > 0 ? `; ${otherOffersMoreCompaniesWords(rest).toLowerCase()}` : ''}. `
     + `Все туры к месту: ${escapeHtml(o.placeUrl)} Заявку другой компании клиент оставляет сам.`;
 }

@@ -20,16 +20,20 @@
  *            большая группа, нет тура и даты, дата прошла).
  *
  * Имя и телефон человека сюда не читаются: в чтение идут тур, дата и число
- * людей. Только сервер. Сторожа: tests/unit/other-offers-status.test.ts
- * (правило и три исхода — вызовом), tests/integration/request-chat.pg.test.ts
- * (сцена «другие компании на дату»).
+ * людей, а с этапа 4б — номер заявки: по нему берутся ответы компаний на
+ * вопрос Ведара («Не могу» — компании в списке нет, «Беру» — названо).
+ * Карточка компании (partnerId) наружу не отдаётся.
+ *
+ * Только сервер. Сторожа: tests/unit/other-offers-status.test.ts (правило и
+ * три исхода — вызовом), tests/integration/request-chat.pg.test.ts (сцены
+ * «другие компании на дату» и «вопрос другим компаниям»).
  */
 import { isClientLostReason } from '@/lib/leads/lost-reason';
 import { groupPassedOnAnswer, shownAnswerRef, type RequestCore, type StatusRow } from '@/lib/mcp/request-status';
 import { answerWantsOffers } from '@/lib/requests/answer-notice-text';
 import { DECLINE_REASONS, type DeclineReason } from '@/lib/requests/chat-answer-buttons';
 import { loadOtherOffers } from '@/lib/requests/other-offers';
-import type { OtherOfferSeats } from '@/lib/requests/other-offers-words';
+import type { OtherOfferSaid, OtherOfferSeats } from '@/lib/requests/other-offers-words';
 import { kamchatkaToday } from '@/lib/seat-requests/core';
 import { OFFER_ORDER_NOTE_ON_DATE_RU } from '@/lib/tours/offer-order';
 
@@ -49,6 +53,8 @@ export interface RequestOtherOffer {
   url: string;
   /** Сколько ещё туров этой компании к месту могут принять на дату. */
   more_tours: number;
+  /** `take` — компания сама ответила Ведару, что возьмёт на эту дату (этап 4б); null — не отвечала. */
+  said: OtherOfferSaid;
 }
 
 export interface RequestOtherOffers {
@@ -71,7 +77,9 @@ export interface RequestOtherOffers {
 export type PageOtherOffers = Omit<RequestOtherOffers, 'how'>;
 
 const HOW_LISTED =
-  'Это туры других компаний к тому же месту на ту же дату — не ответ этих компаний: места и дату каждая подтверждает сама. '
+  'Это туры других компаний к тому же месту на ту же дату. '
+  + 'said: take — компания сама ответила Ведару, что возьмёт на эту дату: это её слово, но ещё не бронь. '
+  + 'said: null — компания не отвечала: строка построена по её календарю, места и дату она подтверждает сама. '
   + 'seats: calendar — в календаре тура на эту дату мест на всю группу хватает; by_request — расписания на Ведаре нет, дату подтверждает оператор. '
   + 'Назовите их человеку как есть, без «лучше» и «дешевле»: компанию выбирает человек, не вы. '
   + 'Заявку выбранной компании оставляет человек по url или вы — create_booking_request с её tour_id, только после его согласия: '
@@ -94,6 +102,8 @@ function isDeclineReason(v: string | null | undefined): v is DeclineReason {
 
 /** О чём спрашивать загрузчик: отказанный тур, дата заявки, число людей. */
 export interface OtherOffersAsk {
+  /** Заявка: по ней читаются ответы компаний на вопрос Ведара (этап 4б). */
+  leadId: string | null;
   tourId: string;
   date: string;
   /** Число людей из заявки; null — не записано (места считаются на одного). */
@@ -125,7 +135,7 @@ export function otherOffersAsk(
   const date = row.lead_requested_date ?? null;
   if (!tourId || !date || !ISO_DAY.test(date) || date < today) return null;
   const people = Number(row.lead_people ?? 0);
-  return { tourId, date, people: Number.isFinite(people) && people > 0 ? Math.trunc(people) : null };
+  return { leadId: row.lead_id ?? null, tourId, date, people: Number.isFinite(people) && people > 0 ? Math.trunc(people) : null };
 }
 
 export interface StatusOffersDeps {
@@ -161,7 +171,7 @@ export async function readStatusOtherOffers(
   if (!ask) return null;
   const base = { place: null, place_url: null, date: ask.date, participants: ask.people, offers: [], more_companies: 0 };
   const run = await inTime(
-    (deps.load ?? loadOtherOffers)({ tourId: ask.tourId, date: ask.date, people: ask.people ?? 1 }, { now: new Date(now) }),
+    (deps.load ?? loadOtherOffers)({ tourId: ask.tourId, date: ask.date, people: ask.people ?? 1, leadId: ask.leadId }, { now: new Date(now) }),
     deps.timeoutMs ?? STATUS_OFFERS_TIMEOUT_MS,
   );
   if (!run.ok) {
@@ -179,6 +189,7 @@ export async function readStatusOtherOffers(
     participants: ask.people,
     offers: o.offers.map((x) => ({
       company: x.partnerName, tour: x.title, tour_id: x.tourId, price: x.price, seats: x.seats, url: x.url, more_tours: x.moreTours,
+      said: x.said ?? null,
     })),
     more_companies: o.more,
     how: HOW_LISTED,
