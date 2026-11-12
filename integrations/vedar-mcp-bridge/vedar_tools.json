@@ -74,7 +74,7 @@
     "type": "function",
     "function": {
       "name": "get_place_info",
-      "description": "Kamchatka place facts on record: type, coordinates, altitude, hazards, distance to medical help, satellite comms, MChS registration, tours by company. No live alerts — use get_guardian_context. Найти базовую информацию о месте из базы данных: тип, координаты, ссылка на страницу места на сайте (её и давай, когда просят ссылку или координаты). Отдаёт все предложения туров к месту с компанией у каждого; порядок — правило платформы, названное в ответе. Для полного контекста с безопасностью и алертами — get_guardian_context.",
+      "description": "Kamchatka place facts on record: type, coordinates, altitude, hazards, distance to medical help, satellite comms, MChS registration, tours by company. No live alerts — use get_guardian_context. Найти базовую информацию о месте из базы данных: тип, координаты, ссылка на страницу места на сайте (её и давай, когда просят ссылку или координаты). Отдаёт все предложения туров к месту с компанией у каждого; порядок — правило платформы, названное в ответе. Места с таким названием нет, а маршрут каталога есть — назовёт маршрут и его данные. Для полного контекста с безопасностью и алертами — get_guardian_context.",
       "parameters": {
         "type": "object",
         "properties": {
@@ -566,7 +566,7 @@
     "type": "function",
     "function": {
       "name": "fetch",
-      "description": "Full text of one Vedar Kamchatka record by id from search (tour, place, stay, route): description, price, program, safety facts, canonical url. Published records only. Полный текст одной записи витрины Ведара по id из search (tour:<id>, place:<slug>, stay:<uuid>, route:<slug>): описание, цена и состав тура, факты о месте и его опасностях, жильё, маршрут. У места отдаёт все предложения туров к нему с компанией у каждого; порядок — правило платформы, названное в ответе. Только опубликованное; записи, которой нет на витрине, — отказ с объяснением.",
+      "description": "Full text of one Vedar Kamchatka record by id from search (tour, place, stay, route): description, price, program, safety facts, url; a route adds a dated go/caution/no call. Published records only. Полный текст одной записи витрины Ведара по id из search (tour:<id>, place:<slug>, stay:<uuid>, route:<slug>): описание, цена и состав тура, факты о месте и его опасностях, жильё, маршрут. У места отдаёт все предложения туров к нему с компанией у каждого; порядок — правило платформы, названное в ответе. У маршрута — оценка на день сборки документа (идти / осторожно / не сегодня) с причиной и датой; позже этой даты её спрашивают заново. Только опубликованное; записи, которой нет на витрине, — отказ с объяснением.",
       "parameters": {
         "type": "object",
         "properties": {

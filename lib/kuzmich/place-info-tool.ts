@@ -27,7 +27,10 @@
  */
 import { pool } from '@/lib/db-pool';
 import { exactNameKey, placeNameOrAliasSearchSql, placeRankOrderSql } from '@/lib/places/name-match';
-import { gradeNameMatch, placePageUrl, routesLinesForKuzmich } from '@/lib/kuzmich/guardian-context';
+import {
+  gradeNameMatch, namedRouteFactsLine, namedRouteUrl, placePageUrl, routesLinesForKuzmich, routesNamedBy,
+  type RouteFactsSource,
+} from '@/lib/kuzmich/guardian-context';
 import { placeTypeLabel } from '@/lib/places/type-label';
 import { HAZARDS } from '@/lib/safety/hazard-labels';
 import { describeForAgent } from '@/lib/places/description-voice';
@@ -117,6 +120,29 @@ export interface PlaceInfoOptions {
    * порядке правила 1в, который назван строкой (слово владельца 29.10).
    */
   offerLines?: string[];
+  /**
+   * Маршруты каталога, названные запросом (#3302), — читаются, только когда
+   * места с таким названием нет: «Вилючинский водопад» — маршрут, и «места
+   * нет, ничего нет» о нём было неправдой.
+   */
+  namedRoutes?: RouteFactsSource[];
+}
+
+/** Указатель с карточки-справки на оценку дня: справка о сегодняшнем дне не говорит. */
+export const ROUTE_TODAY_POINTER =
+  'Оценка маршрута на сегодня и действующие предупреждения — инструмент get_guardian_context с названием маршрута.';
+
+/** Маршруты каталога вместо места: факты из базы, ссылка (в чате) и куда идти за оценкой дня. */
+export function namedRoutesInfoLines(routes: readonly RouteFactsSource[], opts: { pageLinks?: boolean } = {}): string[] {
+  if (routes.length === 0) return [];
+  const lines = ['В каталоге Ведара есть маршрут с этими словами в названии — данные из базы:'];
+  if (routes.length > 1) lines[0] = `В каталоге Ведара есть маршруты с этими словами в названии (${routes.length}) — данные из базы:`;
+  for (const r of routes) {
+    lines.push(namedRouteFactsLine(r));
+    if (opts.pageLinks) lines.push(`Страница маршрута на сайте: ${namedRouteUrl(r)}`);
+  }
+  lines.push(ROUTE_TODAY_POINTER);
+  return lines;
 }
 
 export function composePlaceInfo(query: string, places: PlaceRow[], notes: NoteRow[], opts: PlaceInfoOptions = {}): string | null {
@@ -128,12 +154,20 @@ export function composePlaceInfo(query: string, places: PlaceRow[], notes: NoteR
   // может знать скрытое место.
   const others = rest.filter((p) => p.is_visible !== false);
   const own = notes.filter((n) => gradeNameMatch(query, n.title) === 'high');
-  if (!primary && own.length === 0) return null;
+  // Маршрут вместо места — только когда места нет (условие ниже): у
+  // найденного места маршруты идут своей строкой (routeLines).
+  const routes = opts.namedRoutes ?? [];
+  if (!primary && own.length === 0 && routes.length === 0) return null;
 
   const parts: string[] = [];
   // Места нет, заметка есть (issue #2063): «Ключевской» отдавал одну
   // легенду, и ответ выглядел полным. Отсутствие фактов называется словами.
-  if (!primary) {
+  // Места нет, а маршрут каталога есть (#3302): «уточните название» было бы
+  // неправдой — название точное, это маршрут.
+  if (!primary && routes.length > 0) {
+    parts.push(`Места «${query}» в справочнике не нашлось — тип, координаты и опасности места по этому названию неизвестны.`);
+    parts.push(namedRoutesInfoLines(routes, { pageLinks: opts.pageLinks }).join('\n'));
+  } else if (!primary) {
     parts.push(`Места «${query}» в справочнике не нашлось — тип, координаты и опасности по этому названию неизвестны. Ниже только заметка Кузьмича; уточните точное название места.`);
   }
   if (primary) {
@@ -213,5 +247,9 @@ export async function placeInfoForKuzmich(placeName: string, opts: PlaceInfoOpti
     visible ? loadPlaceTours(primary.id as string) : Promise.resolve(null),
   ]);
   const offerLines = offers && primary ? offerLinesForAgent(primary.name, offers, getPublicBaseUrl()) : undefined;
-  return composePlaceInfo(placeName, pr.rows, kr.rows, { ...opts, routeLines, offerLines });
+  // Места нет — спросить каталог маршрутов тем же правилом, что страж
+  // (routesNamedBy). Отказ базы уже записан в лог там; здесь он не выдаётся ни
+  // за «маршрутов нет», ни за ответ: справка скажет только то, что знает.
+  const namedRoutes = primary ? undefined : (await routesNamedBy(placeName)) ?? undefined;
+  return composePlaceInfo(placeName, pr.rows, kr.rows, { ...opts, routeLines, offerLines, namedRoutes });
 }
