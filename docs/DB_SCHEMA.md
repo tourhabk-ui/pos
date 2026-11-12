@@ -1,6 +1,6 @@
 # Схема базы данных Ведара
 
-> Снято 2026-11-12 с настоящего PostgreSQL 18.6 (Debian 18.6-1.pgdg13+2): baseline прода (`lib/database/baseline/schema-baseline.sql`, снимок 2026-08-15) + миграции новее него, накатанные штатным раннером. Последняя миграция в снимке: `1434_offer_ask_manager.sql`.
+> Снято 2026-11-12 с настоящего PostgreSQL 18.6 (Debian 18.6-1.pgdg13+2): baseline прода (`lib/database/baseline/schema-baseline.sql`, снимок 2026-08-15) + миграции новее него, накатанные штатным раннером. Последняя миграция в снимке: `1435_availability_closed_by.sql`.
 > Файл порождён `scripts/gen-db-schema.ts` (`npm run db:schema-doc`); править руками бессмысленно — следующий прогон перепишет.
 > Что здесь НЕ учтено: дрейф прода после baseline, не отражённый миграциями. Судья дрейфа — `GET /api/cron/schema-drift` на проде (`lib/db/schema-drift.ts`). Значений данных в файле нет — только имена и типы.
 
@@ -8,7 +8,7 @@
 |---|---:|
 | Таблиц | 326 |
 | Представлений (VIEW) | 12 |
-| Колонок | 4254 |
+| Колонок | 4255 |
 | Внешних ключей | 391 |
 | Таблиц без единого FK в обе стороны | 87 |
 
@@ -645,9 +645,9 @@ SOS пишет `sos_events` (`app/api/safety/sos`, §7). Внешние сигн
 
 `tour_id uuid!` `asset_id uuid!`
 
-**tour_availability** · 15 кол. · PK id · operator_tour_id → operator_tours.id · на неё ссылаются: tour_availability_alternatives · индексов 6 · триггеры: trigger_tour_availability_timestamp
+**tour_availability** · 16 кол. · PK id · operator_tour_id → operator_tours.id · на неё ссылаются: tour_availability_alternatives · индексов 6 · триггеры: trigger_tour_availability_closed_by, trigger_tour_availability_timestamp
 
-`id bigint!=` `operator_tour_id bigint!` `date date!` `day_of_week integer` `available_slots integer!` `booked_slots integer=` `base_price_override numeric` `weather_status varchar=` `weather_data jsonb` `weather_check_time timestamp` `is_cancelled boolean=` `cancellation_reason varchar` `created_at timestamp=` `updated_at timestamp=` `deleted_at timestamp`
+`id bigint!=` `operator_tour_id bigint!` `date date!` `day_of_week integer` `available_slots integer!` `booked_slots integer=` `base_price_override numeric` `weather_status varchar=` `weather_data jsonb` `weather_check_time timestamp` `is_cancelled boolean=` `cancellation_reason varchar` `created_at timestamp=` `updated_at timestamp=` `deleted_at timestamp` `closed_by text`
 
 **tour_availability_alternatives** · 3 кол. · PK availability_id, alternative_tour_id · alternative_tour_id → operator_tours.id, availability_id → tour_availability.id · индексов 2
 
