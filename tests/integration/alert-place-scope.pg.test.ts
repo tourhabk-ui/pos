@@ -1062,6 +1062,58 @@ withPg('кого накрывает предупреждение', () => {
   });
 
   /**
+   * У маршрута два id (#3302, 12.11). Карточка зовёт вердикт по id из своего
+   * адреса — id представления, COALESCE(ark_id, id), — а путевые точки и
+   * тревоги живут на kamchatka_routes.id. Пока сборщик искал строку только по
+   * `id`, маршрут с заполненным ark_id получал «не знаем» на каждый день: ни
+   * закрытие парка, ни закрытая точка до карточки не доходили.
+   */
+  it('карточка зовёт вердикт по id из адреса (ark_id): сигналы те же, что по id строки (#3302)', async () => {
+    const ROW = 'd0000000-0000-4000-8000-0000000000a1';
+    const CARD = 'd0000000-0000-4000-8000-0000000000a2';
+    const title = 'Закрыты маршруты природного парка «Налычево» (тест двух id)';
+    const q: QueryFn = (sql, params) => pool.query(sql, params) as never;
+    await pool.query(
+      `INSERT INTO kamchatka_routes (id, ark_id, category, title, park_name, zone, is_visible)
+       VALUES ($1, $2, 'trekking', 'Тропа с двумя id (тест)', 'Природный парк "Налычево"', 'avachinsky', TRUE)`,
+      [ROW, CARD],
+    );
+    try {
+      await pool.query(
+        `INSERT INTO route_waypoints (route_id, place_id, position, link_kind) VALUES ($1, $2, 0, 'waypoint')`,
+        [ROW, ON_PARK_ROUTE.id],
+      );
+      await pool.query(
+        `UPDATE location_real_time_status SET is_open = FALSE, alert_message = 'кордон закрыт (тест двух id)'
+          WHERE agent_route_id = $1`,
+        [ON_PARK_ROUTE.ark],
+      );
+      await insertAlert({ type: 'park_closure', title, zones: [], parks: ['nalychevo'] });
+
+      const byCard = await collectRouteSignals(CARD, { query: q, month: 10 });
+      const byRow = await collectRouteSignals(ROW, { query: q, month: 10 });
+
+      expect(byCard.alerts, 'по id карточки предупреждения не прочитаны').not.toBeNull();
+      expect(byCard.alerts!.map((a) => a.title)).toContain(title);
+      expect(byCard.volcanoes, 'по id карточки путевые точки не найдены — мерить вулканы не от чего').not.toBeNull();
+      expect(byCard.closures).toEqual([{ place: ON_PARK_ROUTE.id, reason: 'кордон закрыт (тест двух id)' }]);
+      expect(byCard).toEqual(byRow);
+
+      // Чужой id — маршрута нет: «не знаем», а не «чисто».
+      const none = await collectRouteSignals('d0000000-0000-4000-8000-0000000000ff', { query: q, month: 10 });
+      expect(none).toEqual({ alerts: null, volcanoes: null, inSeason: null, weather: null, closures: null });
+    } finally {
+      // Мир файла общий: маршрут и закрытие точки дальше не нужны никому.
+      await pool.query(
+        `UPDATE location_real_time_status SET is_open = TRUE, alert_message = NULL WHERE agent_route_id = $1`,
+        [ON_PARK_ROUTE.ark],
+      );
+      await pool.query(`DELETE FROM route_waypoints WHERE route_id = $1`, [ROW]);
+      await pool.query(`DELETE FROM kamchatka_routes WHERE id = $1`, [ROW]);
+    }
+  });
+
+  /**
    * Страж о маршруте без записи места (#3302, 12.11). «Вилючинский водопад»
    * на проде: маршрут парка опубликован, места с таким названием нет —
    * `get_guardian_context` отвечал `found: false` и ни слова о сегодняшнем

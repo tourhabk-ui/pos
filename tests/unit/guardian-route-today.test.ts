@@ -63,7 +63,7 @@ function db(w: World = {}) {
   mockQuery.mockImplementation((sql: string, params: unknown[] = []) => {
     calls.push({ sql, params });
     // Сборщик сигналов (lib/routes/collect-signals).
-    if (sql.includes('SELECT zone, season')) return reply(w.shape, [{ zone: 'avachinsky', season: null, lat: '52.69', lng: '158.25' }]);
+    if (sql.includes('zone, season, lat')) return reply(w.shape, [{ zone: 'avachinsky', season: null, lat: '52.69', lng: '158.25' }]);
     if (sql.includes('SELECT DISTINCT p.zone')) return reply(w.points);
     if (sql.includes('JOIN ark ON')) return reply(w.routeAlerts);
     if (sql.includes('WITH anchor') && sql.includes('FROM volcano_status vs')) return reply(w.volcanoes);
@@ -166,7 +166,7 @@ describe('места нет, маршрут каталога есть — оце
   it('оценка считается по id строки маршрута (на нём путевые точки), а не по id карточки', async () => {
     db();
     await getGuardianContextDetailed('Вилючинский водопад');
-    const shape = calls.find((c) => c.sql.includes('SELECT zone, season'));
+    const shape = calls.find((c) => c.sql.includes('zone, season, lat'));
     const closures = calls.find((c) => c.sql.includes('rs.is_open = FALSE'));
     expect(shape?.params).toEqual([DB_ID]);
     expect(closures?.params).toEqual([DB_ID]);
@@ -213,7 +213,7 @@ describe('места нет, маршрут каталога есть — оце
     db({ named: [waterfall, winter] });
     const d = await getGuardianContextDetailed('Вилючинский водопад');
     expect(d.routes.map((r) => r.id)).toEqual([CARD_ID, 'card-2']);
-    const asked = calls.filter((c) => c.sql.includes('SELECT zone, season')).map((c) => c.params[0]);
+    const asked = calls.filter((c) => c.sql.includes('zone, season, lat')).map((c) => c.params[0]);
     expect(asked.sort()).toEqual([DB_ID, 'db-2'].sort());
     expect(d.text).toContain('Маршрут каталога «Вилючинский водопад (зимний)»');
     // «С таким названием» про два маршрута было бы неправдой — сказано, сколько их.
@@ -277,7 +277,7 @@ describe('когда ответ — о месте, а когда — о марш
     expect(d.text).not.toContain('Оценка маршрута на сегодня');
     expect(d.text).toContain('Маршруты каталога к этому месту — данные из базы Ведара:');
     // Сигналы маршрута не собирались вовсе: лишних запросов на живом пути нет.
-    expect(calls.some((c) => c.sql.includes('SELECT zone, season'))).toBe(false);
+    expect(calls.some((c) => c.sql.includes('zone, season, lat'))).toBe(false);
   });
 
   it('скрытая запись с таким названием цвета не даёт — маршрут получает оценку, иначе о дне не сказано бы ничего', async () => {

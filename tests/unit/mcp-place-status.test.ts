@@ -110,7 +110,7 @@ function dispatch(sql: string) {
   }
   if (/FROM kamchatka_routes kr/.test(sql)) return { rows: guardianRoute ? [guardianRoute] : [] };
   // Строка маршрута для сборщика сигналов: без неё всё было бы «не смогли узнать».
-  if (/SELECT zone, season/.test(sql)) return { rows: guardianRoute ? [{ zone: 'avachinsky', season: null, lat: '52.69', lng: '158.25' }] : [] };
+  if (/zone, season, lat/.test(sql)) return { rows: guardianRoute ? [{ zone: 'avachinsky', season: null, lat: '52.69', lng: '158.25' }] : [] };
   return { rows: [] };
 }
 

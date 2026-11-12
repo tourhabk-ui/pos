@@ -1857,12 +1857,21 @@ COPY --from=builder /app/start.js ./start.js
 - `found` по-прежнему про место; маршрут — в `routes`. Метки «[ОСТОРОЖНО]»,
   «[НЕ СЕГОДНЯ]» и «ЗАКРЫТО» у места читает сторож утверждений Кузьмича
   (`lib/kuzmich/safety-claim-guard`): «можно идти» при них получает поправку.
+- **У маршрута два id.** Карточка живёт на id представления — `COALESCE(ark_id, id)`:
+  он в её адресе, и им она зовёт `/api/routes/<id>/verdict`. Путевые точки,
+  закрытия и тревоги живут на `kamchatka_routes.id`. Сборщик находит строку по
+  любому из двух (`ROUTE_ROW_BY_ANY_ID_SQL`) и дальше спрашивает по id строки. До
+  12.11 он искал только по `id`, и маршрут с заполненным `ark_id` получал на
+  карточке «Осторожно — данных мало» при любом дне — закрытие парка и закрытая
+  точка до неё не доходили. Сколько таких маршрутов — называет перепись
+  `GET /api/cron/verdict-census` (`card_id_differs`), а не эта строка.
 - Не сделано и названо: условия посещения парка (разрешение) в ответе о маршруте;
   оценка маршрутов у найденного места; `get_place_info` и `fetch` о маршруте
   по-прежнему молчат о сегодняшнем дне.
 
 Сторожа: `tests/unit/guardian-route-today.test.ts`,
-`tests/unit/route-verdict-card.test.tsx`, сцена в
+`tests/unit/route-verdict-card.test.tsx`, `tests/unit/collect-signals.test.ts`
+(два id), `tests/unit/verdict-census.test.ts`, сцены в
 `tests/integration/alert-place-scope.pg.test.ts`.
 
 ### Данные (июль 2026)
