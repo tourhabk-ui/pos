@@ -385,7 +385,7 @@ export function routeSubjectLines(
     lines.push('Регистрация в МЧС по этому маршруту в базе не записана — это не значит, что она не нужна.');
   }
   // Ссылка — только в чате: на MCP свои ссылки (поле routes[].url).
-  if (opts.pageLinks) lines.push(`Страница маршрута на сайте: ${routePageUrl({ id: r.id, slug: r.slug ?? null })}`);
+  if (opts.pageLinks) lines.push(`Страница маршрута на сайте: ${namedRouteUrl(r)}`);
   return lines;
 }
 
@@ -458,6 +458,40 @@ async function routesByName(placeName: string): Promise<RouteFactsSource[] | nul
     console.error('[guardian] маршруты по названию не прочитаны:', err instanceof Error ? err.message : err);
     return null;
   }
+}
+
+/**
+ * Назван ли маршрут запросом: все слова запроса стоят в названии (это уже
+ * сделал поиск) и совпадение сильное — то же правило, что у имени места
+ * (gradeNameMatch). Строка без id базы оценки не получит, предметом ответа
+ * она быть не может.
+ */
+export function isRouteNamedBy(query: string, r: Pick<RouteFactsSource, 'title' | 'db_id'>): boolean {
+  return Boolean(r.db_id) && gradeNameMatch(routeNameWords(query).join(' '), r.title) === 'high';
+}
+
+/**
+ * Маршруты каталога, названные запросом, — одна мера для ответа стража,
+ * `get_place_info` и ссылки «Продолжить в Ведаре» (#3302): ссылка и текст
+ * должны говорить об одном и том же маршруте, а не о результате второго,
+ * чуть другого поиска. null — база отказала: «не смог посмотреть», а не
+ * «маршрутов нет» (§4.0).
+ */
+export async function routesNamedBy(queryRaw: string): Promise<RouteFactsSource[] | null> {
+  const { text: query } = sanitizePromptInput(queryRaw);
+  if (!query.trim()) return [];
+  const named = await routesByName(query);
+  return named === null ? null : named.filter((r) => isRouteNamedBy(query, r));
+}
+
+/** Факты одного названного маршрута для карточки-справки (get_place_info). */
+export function namedRouteFactsLine(r: RouteFactsSource): string {
+  return `«${r.title}»: ${routeFactsBody(r)}`;
+}
+
+/** Адрес карточки названного маршрута — тот же, что в поле routes[].url. */
+export function namedRouteUrl(r: Pick<RouteFactsSource, 'id' | 'slug'>): string {
+  return routePageUrl({ id: r.id, slug: r.slug ?? null });
 }
 
 /** Адрес карточки места на сайте — один для всех ответов Кузьмича. */
@@ -703,7 +737,7 @@ export async function getGuardianContextDetailed(placeNameRaw: string, opts: Gua
   );
   const subjectRoutes = strongVisiblePlace
     ? []
-    : (namedRoutes ?? []).filter((r) => Boolean(r.db_id) && gradeNameMatch(routeNameWords(placeName).join(' '), r.title) === 'high');
+    : (namedRoutes ?? []).filter((r) => isRouteNamedBy(placeName, r));
   const subjectToday = await Promise.all(subjectRoutes.map((r) => routeToday(r.db_id as string)));
   const routeStatuses: GuardianRouteStatus[] = [];
 
@@ -1002,7 +1036,7 @@ export async function getGuardianContextDetailed(placeNameRaw: string, opts: Gua
     routeStatuses.push({
       id: r.id,
       title: r.title,
-      url: routePageUrl({ id: r.id, slug: r.slug ?? null }),
+      url: namedRouteUrl(r),
       today: today.verdict.status,
       code: today.verdict.code,
       reason: today.verdict.reason,

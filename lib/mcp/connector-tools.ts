@@ -63,6 +63,8 @@ import { asProfileSource, honestSafetyFields } from '@/lib/safety/profile-source
 import { HAZARDS } from '@/lib/safety/hazard-labels';
 import { describeForAgent } from '@/lib/places/description-voice';
 import { garbageSignature } from '@/lib/agents/evo/content-sanitizer';
+import { routeToday, routeTodayLines } from '@/lib/routes/route-today';
+import { kamchatkaToday } from '@/lib/seat-requests/core';
 import { placeZoneLabel, routeDifficultyLabel, routeSeasonLabel, routeTypeLabel } from '@/lib/places/zone-labels';
 import { groupSentenceIfUnlimited } from '@/lib/tours/group-size';
 import {
@@ -487,6 +489,8 @@ async function fetchStay(key: string, base: string): Promise<FetchResult> {
 }
 
 interface RouteRow {
+  /** `kamchatka_routes.id` — им считается оценка на сегодня (lib/routes/route-today). */
+  db_id: string;
   key: string; title: string; description: string | null; difficulty: string | null; distance_km: string | null;
   duration_hours: string | null; duration_days: number | null; elevation_gain_m: number | null; season: string | null;
   route_type: string | null; hazards: string[] | null; equipment: string[] | null; mchs_registration_required: boolean | null;
@@ -496,7 +500,7 @@ interface RouteRow {
 async function fetchRoute(key: string, base: string): Promise<FetchResult> {
   const id = docId('route', key);
   const { rows: [r] } = await pool.query<RouteRow>(
-    `SELECT COALESCE(r.slug, r.ark_id::text, r.id::text) AS key, r.title, r.description, r.difficulty,
+    `SELECT r.id::text AS db_id, COALESCE(r.slug, r.ark_id::text, r.id::text) AS key, r.title, r.description, r.difficulty,
             r.distance_km::text AS distance_km, r.duration_hours::text AS duration_hours, r.duration_days,
             r.elevation_gain_m, r.season, r.route_type, r.hazards, r.equipment, r.mchs_registration_required,
             r.park_name, r.zone
@@ -508,6 +512,14 @@ async function fetchRoute(key: string, base: string): Promise<FetchResult> {
     [key],
   );
   if (!r) throw notFound(id);
+  // Оценка маршрута на сегодня (#3302) — та же, что на его карточке и в
+  // get_guardian_context. Коннекторы, которые зовут только search и fetch,
+  // другого пути к ней не имеют: без неё текст маршрута молчал о закрытом
+  // парке. Документ могут прочитать позже, чем он собран, — поэтому дата
+  // названа числом, а строки стоят раньше описания: срез длины текста не
+  // должен съесть запрет.
+  const today = await routeToday(r.db_id);
+  const [, mm, dd] = kamchatkaToday().split('-');
   const text = joinLines([
     // Район, вид, сложность и сезон — словами: код из данных агенту не
     // печатается («avachinsky», «radial», «medium», «summer»), молчание лучше
@@ -519,6 +531,8 @@ async function fetchRoute(key: string, base: string): Promise<FetchResult> {
     r.duration_days ? `Длительность: ${r.duration_days} дн.` : (r.duration_hours ? `Длительность: ${Number(r.duration_hours)} ч` : null),
     r.elevation_gain_m ? `Набор высоты: ${r.elevation_gain_m} м` : null,
     line('Сезон', routeSeasonLabel(r.season)),
+    `Обстановка по маршруту на ${dd}.${mm} (по Камчатке; позже этой даты — спросите заново, инструмент get_guardian_context):`,
+    ...routeTodayLines(today),
     // Сырая выдача модели (VS-JSON) вместо описания — не текст о маршруте
     // (14.10: «Восхождение на Корякскую сопку» отдавалось JSON с «probability»).
     r.description && !garbageSignature(r.description) ? r.description : null,
@@ -535,6 +549,8 @@ async function fetchRoute(key: string, base: string): Promise<FetchResult> {
     text,
     url: docUrl('route', r.key, base),
     metadata: { kind: 'route', difficulty: r.difficulty, distance_km: r.distance_km ? Number(r.distance_km) : null, season: r.season,
+      // Оценка на день сборки документа: go / caution / no и код причины.
+      today: today.verdict.status, today_code: today.verdict.code, today_date: kamchatkaToday(),
       // Только true — утверждение: false у колонки дефолтный и «не требуется»
       // не значит (миграция 933); агенту он отдаётся как null — «не записано».
       mchs_registration_required: r.mchs_registration_required === true ? true : null },
