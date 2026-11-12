@@ -31,7 +31,7 @@ function Code({ code }: { code: string | null }) {
   }
   return (
     <span className="flex items-center gap-1.5 text-[13px]">
-      <span className="h-2.5 w-2.5 rounded-full" style={{ background: d.color }} aria-hidden />
+      <span className="h-2.5 w-2.5 rounded-full transition-colors duration-500 motion-reduce:transition-none" style={{ background: d.color }} aria-hidden />
       {d.word}
     </span>
   );
