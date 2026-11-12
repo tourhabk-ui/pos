@@ -14,6 +14,7 @@ import {
   managerAnswerText, parseRequestAnswer, partnerAnswerText, rentalAnswerButtons, rentalSpanDays, requestAnswerEditText,
 } from '@/lib/rental/request-answer';
 import { handleRentalRequestAnswer } from '@/lib/rental/request-answer-flow';
+import { managerQueueUrl } from '@/lib/manager-queue/link';
 
 const { pool, deliverMock, readNoticeMock } = vi.hoisted(() => ({ pool: vi.fn(), deliverMock: vi.fn(), readNoticeMock: vi.fn() }));
 vi.mock('@/lib/requests/answer-notice', () => ({
@@ -136,6 +137,8 @@ describe('поток ответа', () => {
     expect(managers).toHaveLength(1);
     expect(managers[0]).not.toContain(PHONE);
     expect(managers[0]).toContain('3');
+    // «Беру» в очередь менеджера не встаёт.
+    expect(managers[0]).not.toContain(managerQueueUrl());
     expect(sent).toHaveLength(1);
     expect(sent[0]?.edit).toBe('mid-1');
     expect(sent[0]?.text).toContain('отмечены занятыми (3)');
@@ -183,6 +186,8 @@ describe('поток ответа', () => {
     expect(managers[0]).toContain('не могу');
     expect(managers[0]).toContain('Заказчику ушло сообщение об отказе в Telegram');
     expect(managers[0]).not.toContain(PHONE);
+    // «Не могу» встаёт в очередь менеджера (этап 3б).
+    expect(managers[0]!.split('\n').at(-1)).toBe(`В очереди менеджера — там же отметка «Взял»: ${managerQueueUrl()}`);
     expect(sent[0]?.text).toContain('<b>Ваш ответ:</b> не могу. Дни не отмечал. Заказчику ушло сообщение в Telegram: ваш ответ.');
     expect(sent[0]?.text).not.toMatch(/турист/i);
   });

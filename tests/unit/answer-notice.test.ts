@@ -54,6 +54,7 @@ import type { DateCheck } from '@/lib/trips/date-check';
 import { parseMyTripDate } from '@/lib/requests/my-trip-ask';
 import { unwrapPress } from '@/lib/chat-cabinet/signed-payload';
 import { MAX_FETCH_TIMEOUT_MS } from '@/lib/max/max-fetch';
+import { managerQueueUrl } from '@/lib/manager-queue/link';
 
 const LEAD = '0f1e2d3c-4b5a-4968-8776-655443322110';
 const CHAT_ID = '987654321';
@@ -192,8 +193,11 @@ describe('доставка в нажатии оператора', () => {
     expect(o).toEqual({ state: 'undelivered', manager: 'max', why: { broken: false, chat: 'refused', agent: 'none' } });
     expect(notifyRun).not.toHaveBeenCalled();
     expect(pdAlert).toHaveBeenCalledTimes(1);
-    const sent = pdAlert.mock.calls[0]![0] as { text: string; stub: string; to?: unknown };
+    const sent = pdAlert.mock.calls[0]![0] as { text: string; stub: string; to?: unknown; buttons?: Array<{ text: string; url: string }> };
     expect(sent.to).toBeUndefined();
+    // Недоставленный отказ стоит в очереди менеджера (этап 3б): первая кнопка ведёт туда, где отметка «Взял».
+    expect(sent.buttons?.map((b) => b.text)).toEqual(['Очередь менеджера', 'Заявки в админке']);
+    expect(sent.buttons?.[0]?.url).toBe(managerQueueUrl());
     expect(sent.text).toContain('+79995550707');
     expect(sent.text).toContain('Ирина Тестова');
     expect(sent.text).toContain('MAX не принял (bad_id); подписки ИИ-агента нет.');

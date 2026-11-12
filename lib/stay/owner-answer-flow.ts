@@ -16,6 +16,7 @@
  * Бронь этим не создаётся, даты не закрываются, оплата не открывается (1206).
  */
 import { pool } from '@/lib/db-pool';
+import { withQueueLine } from '@/lib/manager-queue/link';
 import { tgSend } from '@/lib/notifications/tg-send';
 import { postOwnerMessage } from '@/lib/requests/request-chat-service';
 import { isChatTargetId, ownerReplyButton } from '@/lib/requests/request-chat';
@@ -103,7 +104,11 @@ export async function answerStayRequest(opts: {
   // Ответ записан; дальше — следствия, каждое само по себе и каждое с логом.
   const guestTold = await tellGuest(opts.requestId, guestStayAnswerText(facts, opts.answer));
   try {
-    await notify(managerStayAnswerText({ partnerName: opts.partner.partnerName, requestId: opts.requestId, answer: opts.answer, facts }));
+    // «Занято» встаёт в очередь менеджера (этап 3б): в сообщении — где она и где отметка «Взял».
+    await notify(withQueueLine(
+      managerStayAnswerText({ partnerName: opts.partner.partnerName, requestId: opts.requestId, answer: opts.answer, facts }),
+      opts.answer === 'busy',
+    ));
   } catch (err) {
     console.error('[stay-request-answer] менеджеру не доставлено:', err instanceof Error ? err.message : err);
   }
