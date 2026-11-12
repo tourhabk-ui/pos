@@ -22,12 +22,19 @@
  *      чата в течение 15 минут (`captureOwnerReason`), «отмена» гасит.
  *      `ld:<k|w|l>:<uuid>` — заявка читается под тем же скоупом, вопрос:
  *      «Отметить заявку «Тур», 2 чел, от 28.10: «Связался»?» — [Да] [Не надо].
- *      Причина не нужна, перехода «нельзя» у заявки нет (как на сайте).
+ *      Перехода «нельзя» у заявки нет (как на сайте). «Отказ» вместо «Да»
+ *      показывает причины кнопками (этап 3а, lib/leads/lost-reason): от
+ *      причины зависит, что узнает турист, и без неё заявка не закрывается.
  *   2. `oc:y:<uuid>` — строка захватывается одним UPDATE ... WHERE
  *      status = 'ready' AND expires_at > NOW() и партнёром ЭТОГО чата,
  *      прочитанным заново: второе нажатие строку уже не захватит, а чат,
  *      перепривязанный к другой карточке, чужую строку не исполнит. Затем
  *      правило смены статуса, итог — в outcome. Повтор отвечает прежним итогом.
+ *      `oc:r<код>:<uuid>` — причина под «Отказом» по заявке: тот же захват, но
+ *      только строки заявки с действием «отказ»; причина пишется в строку, а
+ *      заявку закрывает `closeLeadWithReason` (lib/leads/seller-lost-flow) —
+ *      та же запись и та же отправка туристу, что у двери сайта. «Да» без
+ *      причины такую строку не исполняет: спрашивает причину ещё раз.
  *
  * ── Кто вправе (каждая проверка — свой исход, «не смог проверить» ≠ «нельзя») ─
  *
@@ -60,13 +67,15 @@ import { changeOwnerBookingStatus, type OwnerStatusResult } from '@/lib/bookings
 import { OWNER_BOOKING_STATUS_LABEL, alreadyInStatusText } from '@/lib/bookings/owner-status-words';
 import {
   BOOKING_ACTION_STATUS, answerPressPayload, bookingChatActionsEnabledFor, chatActionsEnabledFor, isLeadChatAction,
-  leadChatActionsEnabledFor, parseOwnerPress,
+  leadChatActionsEnabledFor, leadReasonButtons, parseOwnerPress,
   type BookingChatAction, type LeadChatAction,
 } from '@/lib/bookings/chat-owner-press';
 import { ALLOWED_TRANSITIONS, type BookingStatus } from '@/types/booking.types';
 import { changeLeadStatus, type LeadChangeResult } from '@/lib/leads/owner-lead-status';
 import { leadScopeCond, type LeadScope } from '@/lib/leads/ownership';
 import { LEAD_STATUS_WORDS, OWNER_LEAD_ACTION_LABEL, leadAlreadyText } from '@/lib/leads/owner-lead-words';
+import { LOST_REASON_GROUPS, LOST_REASON_LABEL, isLostReason, type LostReason } from '@/lib/leads/lost-reason';
+import { closeLeadWithReason } from '@/lib/leads/seller-lost-flow';
 import { redactPII } from '@/lib/security/pii-redact';
 import { appendMenu, type MenuButton } from '@/lib/roles/chat-menu';
 import { partnerMenu, roleMenuAsk } from '@/lib/roles/role-menu';
@@ -332,7 +341,7 @@ interface LeadFacts {
 }
 
 /** Скоуп раздела «Свои туры»: заявки карточки, ничейную не видит и не занимает. */
-function ownLeadScope(partnerId: string): LeadScope {
+function ownLeadScope(partnerId: string): Extract<LeadScope, { kind: 'owner' }> {
   return { kind: 'owner', partnerId, claimUnowned: false };
 }
 
@@ -364,16 +373,33 @@ function leadFactsLine(l: LeadFacts): string {
   return bits.join(', ');
 }
 
-const LEAD_YES_LABEL: Record<LeadChatAction, string> = {
+/** «Да» под отметкой заявки. У «Отказа» кнопки «Да» нет: её место занимают причины. */
+const LEAD_YES_LABEL: Record<Exclude<LeadChatAction, 'lost'>, string> = {
   contacted: 'Да, связался',
   converted: 'Да, договорились',
-  lost: 'Да, отказ',
 };
 
 function leadQuestionText(action: LeadChatAction, l: LeadFacts): string {
   const now = LEAD_STATUS_WORDS[l.status] ?? l.status;
   return `Отметить заявку ${leadFactsLine(l)}: «${OWNER_LEAD_ACTION_LABEL[action]}»? Сейчас: «${escapeHtml(now)}». `
     + 'Туристу ничего не уйдёт — отметка для вашего кабинета и ленты клиента.';
+}
+
+/**
+ * Вопрос под «Отказом»: причины кнопками, и до нажатия сказано, что получит
+ * турист после каждой группы причин (те же слова, что в выборе на сайте).
+ */
+function lostQuestionText(l: LeadFacts | null): string {
+  const now = l ? LEAD_STATUS_WORDS[l.status] ?? l.status : null;
+  const head = l
+    ? `Закрыть заявку ${leadFactsLine(l)}: «${OWNER_LEAD_ACTION_LABEL.lost}»? Сейчас: «${escapeHtml(now ?? '')}».`
+    : `Закрыть заявку: «${OWNER_LEAD_ACTION_LABEL.lost}»?`;
+  // Причины — теми же подписями, что на кнопках ниже; разделитель не запятая:
+  // она есть внутри подписи «Погода, безопасность».
+  const groups = LOST_REASON_GROUPS.map((g) => (
+    `<b>${escapeHtml(g.title)}</b> — ${g.reasons.map((r) => escapeHtml(LOST_REASON_LABEL[r])).join(' · ')}. ${escapeHtml(g.note)}`
+  ));
+  return [`${head} Выберите причину — от неё зависит, что узнает турист.`, ...groups].join('\n\n');
 }
 
 async function askLead(
@@ -392,8 +418,10 @@ async function askLead(
     partnerId: g.partner.partnerId, channel, chatId, subjectKind: 'lead', subjectId: l.id, action, status: 'ready',
   });
   if (!id) return withMenu(OWNER_ACTION_TEXT.notSaved, g.menu);
+  // «Отказ» — только с причиной (этап 3а): вместо «Да» — причины кнопками.
+  if (action === 'lost') return withMenu(lostQuestionText(l), g.menu, leadReasonButtons(id));
   return withMenu(leadQuestionText(action, l), g.menu, [[
-    { text: LEAD_YES_LABEL[action], payload: answerPressPayload(true, id), intent: action === 'lost' ? 'negative' : 'positive' },
+    { text: LEAD_YES_LABEL[action], payload: answerPressPayload(true, id), intent: 'positive' },
     { text: 'Не надо', payload: answerPressPayload(false, id) },
   ]]);
 }
@@ -404,7 +432,12 @@ async function askLead(
 type StoredOutcome =
   | { kind: 'done'; booking: string; status: string; changed: boolean; notice: string | null }
   | { kind: 'refused'; booking: string; reason: 'not_found' | 'bad_transition' | 'error' | 'unsupported'; from?: string }
-  | { kind: 'lead_done'; lead: string; status: string; changed: boolean }
+  /**
+   * `tourist` — что на деле ушло туристу после «Отказа» с причиной (строка
+   * lib/leads/seller-lost-flow); её же повторяет второе нажатие. Нет поля —
+   * отметка без причины: туристу ничего не отправлялось.
+   */
+  | { kind: 'lead_done'; lead: string; status: string; changed: boolean; tourist?: string }
   | { kind: 'lead_refused'; lead: string; reason: 'not_found' | 'error' };
 
 function readStored(v: unknown): StoredOutcome | null {
@@ -421,7 +454,10 @@ function readStored(v: unknown): StoredOutcome | null {
     return { kind: 'refused', booking: o.booking, reason: o.reason, ...(typeof o.from === 'string' ? { from: o.from } : {}) };
   }
   if (o.kind === 'lead_done' && typeof o.lead === 'string' && typeof o.status === 'string') {
-    return { kind: 'lead_done', lead: o.lead, status: o.status, changed: o.changed === true };
+    return {
+      kind: 'lead_done', lead: o.lead, status: o.status, changed: o.changed === true,
+      ...(typeof o.tourist === 'string' && o.tourist ? { tourist: o.tourist } : {}),
+    };
   }
   if (o.kind === 'lead_refused' && typeof o.lead === 'string' && (o.reason === 'not_found' || o.reason === 'error')) {
     return { kind: 'lead_refused', lead: o.lead, reason: o.reason };
@@ -447,7 +483,9 @@ export function touristNoticeText(status: string, notice: string | null): string
 export function outcomeText(o: StoredOutcome): string {
   if (o.kind === 'lead_done') {
     if (!o.changed) return leadAlreadyText(o.status);
-    return `Заявка отмечена: «${escapeHtml(LEAD_STATUS_WORDS[o.status] ?? o.status)}». Туристу ничего не отправлено.`;
+    const head = `Заявка отмечена: «${escapeHtml(LEAD_STATUS_WORDS[o.status] ?? o.status)}».`;
+    // После «Отказа» с причиной — что на деле ушло туристу (исход отправки); строка без ПД.
+    return o.tourist ? `${head} ${escapeHtml(o.tourist)}` : `${head} Туристу ничего не отправлено.`;
   }
   if (o.kind === 'lead_refused') {
     if (o.reason === 'not_found') return OWNER_ACTION_TEXT.leadNotFound;
@@ -472,12 +510,13 @@ interface StateRow {
   status: string;
   subject_kind: string;
   subject_id: string;
+  action: string;
   outcome: unknown;
   expired: boolean;
   stale: boolean;
 }
 
-const STATE_SQL = `SELECT status, subject_kind, subject_id, outcome, expires_at <= NOW() AS expired,
+const STATE_SQL = `SELECT status, subject_kind, subject_id, action, outcome, expires_at <= NOW() AS expired,
        (used_at IS NOT NULL AND used_at < NOW() - make_interval(secs => $5::int)) AS stale
   FROM partner_chat_actions
  WHERE id = $1::uuid AND channel = $2 AND chat_id = $3::bigint AND partner_id = $4::uuid`;
@@ -536,9 +575,12 @@ async function finish(actionId: string, status: 'done' | 'refused', outcome: Sto
   }
 }
 
-function storedFromLead(leadId: string, result: LeadChangeResult): StoredOutcome {
+function storedFromLead(leadId: string, result: LeadChangeResult, tourist: string | null = null): StoredOutcome {
   if (result.kind === 'not_found') return { kind: 'lead_refused', lead: leadId, reason: 'not_found' };
-  return { kind: 'lead_done', lead: leadId, status: result.lead.status, changed: result.changed };
+  return {
+    kind: 'lead_done', lead: leadId, status: result.lead.status, changed: result.changed,
+    ...(tourist ? { tourist } : {}),
+  };
 }
 
 /**
@@ -552,16 +594,21 @@ async function answerLead(
   actionId: string,
   leadId: string,
   action: LeadChatAction,
+  /** Причина «Отказа» — выбрана кнопкой; у остальных отметок её нет. */
+  reason: LostReason | null = null,
 ): Promise<StoredOutcome> {
+  const actor = { kind: 'partner_user' as const, userId: g.partner.userId };
+  const scope = ownLeadScope(g.partner.partnerId);
   let stored: StoredOutcome;
   try {
-    stored = storedFromLead(leadId, await changeLeadStatus({
-      leadId,
-      status: action,
-      actor: { kind: 'partner_user', userId: g.partner.userId },
-      scope: ownLeadScope(g.partner.partnerId),
-      via: channel,
-    }));
+    if (action === 'lost' && reason) {
+      // Та же запись и та же отправка туристу, что у двери сайта: статус,
+      // причина, журнал и строка сообщения одним запросом, исход — словами.
+      const closed = await closeLeadWithReason({ leadId, reason, actor, scope, via: channel });
+      stored = storedFromLead(leadId, closed.outcome, closed.touristLine);
+    } else {
+      stored = storedFromLead(leadId, await changeLeadStatus({ leadId, status: action, actor, scope, via: channel }));
+    }
   } catch (err) {
     logFail('отметка заявки из чата', err);
     stored = { kind: 'lead_refused', lead: leadId, reason: 'error' };
@@ -577,12 +624,17 @@ function storedFromResult(bookingId: string, result: OwnerStatusResult): StoredO
   return { kind: 'done', booking: bookingId, status, changed: result.changed, notice: result.touristNotice };
 }
 
+/** Строка действия — «Отказ» по заявке: исполняется только нажатием причины. */
+const LOST_ROW_SQL = `subject_kind = 'lead' AND action = 'lost'`;
+
 async function answer(
   g: Extract<Gate, { ok: true }>,
   channel: OwnerChatChannel,
   chatId: number,
   actionId: string,
   yes: boolean,
+  /** Причина под «Отказом» по заявке (`oc:r…`): она же «Да». null — обычное «Да» / «Не надо». */
+  reason: LostReason | null = null,
 ): Promise<OwnerReply> {
   const partnerId = g.partner.partnerId;
   if (!yes) {
@@ -605,27 +657,54 @@ async function answer(
   }
 
   // Захват: одна строка, этого чата и ЭТОЙ карточки (прочитанной заново), готовая и не истёкшая.
+  // «Отказ» по заявке захватывает только нажатие причины — и только такую
+  // строку: «Да» без причины её не исполнит, а причина не исполнит чужое действие.
   let claimed: { subject_kind: string; subject_id: string; action: string; reason: string | null } | undefined;
   try {
     const { rows } = await pool.query<{ subject_kind: string; subject_id: string; action: string; reason: string | null }>(
-      `UPDATE partner_chat_actions SET status = 'running', used_at = NOW()
-        WHERE id = $1::uuid AND channel = $2 AND chat_id = $3::bigint AND partner_id = $4::uuid
-          AND status = 'ready' AND expires_at > NOW()
-        RETURNING subject_kind, subject_id, action, reason`,
-      [actionId, channel, String(chatId), partnerId],
+      reason
+        ? `UPDATE partner_chat_actions SET status = 'running', used_at = NOW(), reason = $5
+            WHERE id = $1::uuid AND channel = $2 AND chat_id = $3::bigint AND partner_id = $4::uuid
+              AND status = 'ready' AND expires_at > NOW() AND ${LOST_ROW_SQL}
+            RETURNING subject_kind, subject_id, action, reason`
+        : `UPDATE partner_chat_actions SET status = 'running', used_at = NOW()
+            WHERE id = $1::uuid AND channel = $2 AND chat_id = $3::bigint AND partner_id = $4::uuid
+              AND status = 'ready' AND expires_at > NOW() AND NOT (${LOST_ROW_SQL})
+            RETURNING subject_kind, subject_id, action, reason`,
+      reason ? [actionId, channel, String(chatId), partnerId, reason] : [actionId, channel, String(chatId), partnerId],
     );
     claimed = rows[0];
   } catch (err) {
-    logFail('захват «Да»', err);
+    logFail(reason ? 'захват причины отказа' : 'захват «Да»', err);
     return withMenu(OWNER_ACTION_TEXT.unchecked, g.menu);
   }
   if (!claimed) {
     const st = await readState(channel, chatId, partnerId, actionId);
-    return withMenu(st === 'unavailable' ? OWNER_ACTION_TEXT.unchecked : blockedText(st), g.menu);
+    if (st === 'unavailable') return withMenu(OWNER_ACTION_TEXT.unchecked, g.menu);
+    // Строка готова и не истекла, а не захвачена — кнопка не от этого вопроса.
+    if (st && st.status === 'ready' && !st.expired) {
+      const lostRow = st.subject_kind === 'lead' && st.action === 'lost';
+      // «Да» под «Отказом» (кнопка до этой правки или собранная руками): заявка
+      // без причины не закрывается — причина спрашивается ещё раз, той же строкой.
+      if (lostRow && !reason) {
+        const l = await readOwnLead(partnerId, st.subject_id);
+        return withMenu(lostQuestionText(l === 'unavailable' ? null : l), g.menu, leadReasonButtons(actionId));
+      }
+      // Причина под другим вопросом — не её кнопка.
+      return withMenu(OWNER_ACTION_TEXT.unknownButton, g.menu);
+    }
+    return withMenu(blockedText(st), g.menu);
   }
 
   if (claimed.subject_kind === 'lead' && isLeadChatAction(claimed.action)) {
-    return withMenu(outcomeText(await answerLead(g, channel, actionId, claimed.subject_id, claimed.action)), g.menu);
+    // Причину берём из строки, как её записал захват: мусор в колонке — отметка без причины не уйдёт.
+    const lostReason = claimed.action === 'lost' && isLostReason(claimed.reason) ? claimed.reason : null;
+    if (claimed.action === 'lost' && !lostReason) {
+      const stored: StoredOutcome = { kind: 'lead_refused', lead: claimed.subject_id, reason: 'error' };
+      await finish(actionId, 'refused', stored);
+      return withMenu(outcomeText(stored), g.menu);
+    }
+    return withMenu(outcomeText(await answerLead(g, channel, actionId, claimed.subject_id, claimed.action, lostReason)), g.menu);
   }
 
   const action = claimed.action as BookingChatAction;
@@ -685,6 +764,13 @@ export async function handleOwnerPress(input: {
       return withMenu(g.partner.category === 'operator' ? OWNER_ACTION_TEXT.operatorLead : OWNER_ACTION_TEXT.notThis, g.menu);
     }
     return askLead(g, input.channel, input.chatId, press.action, press.leadId);
+  }
+  if (press.kind === 'lead_reason') {
+    // Причина — кнопка заявки: кому кнопки заявки не включены, тому и она не исполняется.
+    if (!leadChatActionsEnabledFor(g.partner)) {
+      return withMenu(g.partner.category === 'operator' ? OWNER_ACTION_TEXT.operatorLead : OWNER_ACTION_TEXT.notThis, g.menu);
+    }
+    return answer(g, input.channel, input.chatId, press.actionId, true, press.reason);
   }
   return answer(g, input.channel, input.chatId, press.actionId, press.yes);
 }

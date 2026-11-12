@@ -10,7 +10,11 @@
  *                                 тур прошёл, турист не пришёл;
  *   `ld:<k|w|l>:<uuid заявки>` — вопрос: связался, договорились, отказ
  *                                 (шаг 7; «Обсуждаем» — на сайте);
- *   `oc:<y|x>:<uuid строки>`   — «Да» / «Не надо» под вопросом.
+ *   `oc:<y|x>:<uuid строки>`   — «Да» / «Не надо» под вопросом;
+ *   `oc:r<код>:<uuid строки>`  — причина под вопросом «Отказ» по заявке (этап
+ *                                 3а): нажатие причины и есть «Да». Без неё
+ *                                 заявка «Отказ» не получает — от причины
+ *                                 зависит, что узнает турист.
  * В payload только номера: id брони, uuid заявки и uuid строки действия.
  * Ни ПД, ни id тура.
  *
@@ -28,6 +32,7 @@ import { signPayload } from '@/lib/chat-cabinet/signed-payload';
 import type { MenuButton } from '@/lib/roles/chat-menu';
 import { sellsOwnTours, type TourSellerFacts } from '@/lib/partners/tour-seller';
 import { OWNER_LEAD_ACTION_LABEL } from '@/lib/leads/owner-lead-words';
+import { LOST_REASON_GROUPS, LOST_REASON_LABEL, type LostReason } from '@/lib/leads/lost-reason';
 
 export type BookingChatAction = 'confirm' | 'cancel' | 'complete' | 'no_show';
 
@@ -90,10 +95,40 @@ export function answerPressPayload(yes: boolean, actionId: string): string {
   return signPayload(`oc:${yes ? 'y' : 'x'}:${actionId}`);
 }
 
+/** Причина отказа по заявке — одна буква в payload `oc:r<код>:…`. */
+const LOST_REASON_CODE: Readonly<Record<LostReason, string>> = {
+  seats: 's', weather: 'w', dates: 'd', group: 'g', other: 'o', no_contact: 'n', client_declined: 'c',
+};
+const CODE_LOST_REASON = new Map(Object.entries(LOST_REASON_CODE).map(([r, c]) => [c, r as LostReason]));
+
+export function leadReasonPressPayload(reason: LostReason, actionId: string): string {
+  return signPayload(`oc:r${LOST_REASON_CODE[reason]}:${actionId}`);
+}
+
+/**
+ * Кнопки причин под вопросом «Отказ»: по строке на группу, в том же порядке и
+ * с теми же подписями, что выбор причины на сайте (lib/leads/lost-reason), —
+ * отказ продавца (длинные подписи — по две в строке) и причина на стороне
+ * клиента; «Не надо» — последней строкой.
+ */
+export function leadReasonButtons(actionId: string): MenuButton[][] {
+  const rows: MenuButton[][] = [];
+  for (const group of LOST_REASON_GROUPS) {
+    const buttons = group.reasons.map((reason) => ({
+      text: LOST_REASON_LABEL[reason], payload: leadReasonPressPayload(reason, actionId),
+    }));
+    for (let i = 0; i < buttons.length; i += 2) rows.push(buttons.slice(i, i + 2));
+  }
+  rows.push([{ text: 'Не надо', payload: answerPressPayload(false, actionId) }]);
+  return rows;
+}
+
 export type OwnerPress =
   | { kind: 'booking'; action: BookingChatAction; bookingId: string }
   | { kind: 'lead'; action: LeadChatAction; leadId: string }
-  | { kind: 'answer'; yes: boolean; actionId: string };
+  | { kind: 'answer'; yes: boolean; actionId: string }
+  /** Причина под вопросом «Отказ» по заявке: она же подтверждение. */
+  | { kind: 'lead_reason'; reason: LostReason; actionId: string };
 
 /** null — не наша кнопка или испорченный payload. */
 export function parseOwnerPress(payload: string): OwnerPress | null {
@@ -113,6 +148,12 @@ export function parseOwnerPress(payload: string): OwnerPress | null {
   if (oc) {
     const id = (oc[2] ?? '').toLowerCase();
     return UUID.test(id) ? { kind: 'answer', yes: oc[1] === 'y', actionId: id } : null;
+  }
+  const reasoned = /^oc:r([a-z]):(.+)$/.exec(payload);
+  if (reasoned) {
+    const reason = CODE_LOST_REASON.get(reasoned[1] ?? '');
+    const id = (reasoned[2] ?? '').toLowerCase();
+    return reason && UUID.test(id) ? { kind: 'lead_reason', reason, actionId: id } : null;
   }
   return null;
 }
