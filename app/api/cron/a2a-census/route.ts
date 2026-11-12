@@ -15,6 +15,15 @@
  * журнал ведётся, — ноль только что заведённой таблицы не читается как
  * «никто не ходит»; «не прочиталось» — 503 с SQLSTATE в логе.
  *
+ * Перепись 12.11 (prod-check 174) ответила на «есть ли спрос на A2A» не до
+ * конца: число сообщений внешних агентов пришлось складывать руками, какие
+ * инструменты они звали — не было видно вовсе, а `vedar-eval` (наш экзамен
+ * Кузьмича) и `vedar-research` (чьё — не записано нигде) стояли среди внешних.
+ * Теперь: сводка внешних с сообщениями и исходами; вызовы инструментов внешних
+ * по именам, пишущие отмечены; имена «как у наших», которых нет в списке
+ * проверок, — отдельной строкой и без переноса в другой род: чьи они, перепись
+ * не знает и так и говорит.
+ *
  * Сырых User-Agent и IP в журнале нет by construction; caller_hash наружу не
  * отдаётся — только число суточных ключей. Ничего не пишет ни при каком
  * аргументе. Запуск — рукой или из prod-check.json (род manual в
@@ -28,6 +37,7 @@ import { pool } from '@/lib/db-pool';
 import { a2aAgentKind, type A2aAgentKind } from '@/lib/a2a/agent-kind';
 import { clientRegion, CHINA_REGION_LABEL } from '@/lib/mcp/china-clients';
 import { RU_REGION_LABEL } from '@/lib/mcp/ru-clients';
+import { WRITE_TOOL_NAMES } from '@/lib/mcp/public-tools';
 import { logText } from '@/lib/log/log-text';
 
 export const dynamic = 'force-dynamic';
@@ -40,7 +50,12 @@ const KINDS: readonly A2aAgentKind[] = ['external', 'registry', 'probe', 'self']
 export const CAVEATS = [
   'регион — по самоназванию программы из реестров КНР и РФ, не по IP: null значит «не из реестра», а не «не из Китая»',
   'вызовы инструментов через MCP считает mcp-census; обходчиков визиток и манифестов — agent-entry-census',
+  'external_tools — только сообщения A2A с вызовом инструмента (DataPart); вопросы текстом Кузьмичу в них не входят; tool: null — имя инструмента в журнал не записано',
+  'named_like_ours — имя начинается с «vedar», в списке проверок его нет: чьи это программы, перепись не знает; в числе внешних они есть',
 ] as const;
+
+/** Имя как у наших программ. Это примета, а не род: `vedar-eval` стал проверкой по списку, не по ней. */
+const NAMED_LIKE_OURS_RE = /^vedar/i;
 
 export interface A2aCensusAgentRow {
   agent: string;
@@ -60,6 +75,18 @@ export interface A2aCensusAgentRow {
   last_seen: string;
 }
 
+/** Вызовы инструментов через A2A: одна строка на агента и инструмент. */
+export interface A2aCensusToolRow {
+  agent: string;
+  ua_family: string;
+  is_self: boolean;
+  tool: string | null;
+  sends: number;
+  completed: number;
+  rejected: number;
+  failed: number;
+}
+
 interface BoundsRow { since: string | null; total: number }
 
 export function readDays(raw: string | null): number {
@@ -71,6 +98,16 @@ interface Tally { agents: number; requests: number }
 
 const tally = (rows: ReadonlyArray<{ requests: number }>): Tally =>
   ({ agents: rows.length, requests: rows.reduce((s, r) => s + r.requests, 0) });
+
+const VOLUME_KEYS = ['requests', 'card_reads', 'protocol_errors', 'sends', 'text_sends', 'tool_sends', 'completed', 'rejected', 'failed'] as const;
+type Volume = { agents: number } & Record<(typeof VOLUME_KEYS)[number], number>;
+
+/** Сумма по строкам агентов: запросы, чтения визитки, сообщения и их исходы. */
+function volume(rows: readonly A2aCensusAgentRow[]): Volume {
+  const out = { agents: rows.length } as Volume;
+  for (const k of VOLUME_KEYS) out[k] = rows.reduce((s, r) => s + r[k], 0);
+  return out;
+}
 
 /**
  * Разметка агентов и сводки — чистая функция над строками журнала. Регион и
@@ -92,12 +129,62 @@ export function summarizeA2aAgents(rows: readonly A2aCensusAgentRow[]) {
       names: inRegion.map((a) => `${a.agent} (${a.kind}, ${a.requests})`),
     };
   };
+  const external = agents.filter((a) => a.kind === 'external');
+  const likeOurs = external.filter((a) => NAMED_LIKE_OURS_RE.test(a.agent));
   return {
     by_agent: agents,
     by_kind: byKind,
+    // Спрос: что внешние агенты делали, а не только сколько раз пришли.
+    external: volume(external),
+    named_like_ours: {
+      names: likeOurs.map((a) => `${a.agent} (${a.requests}, сообщений ${a.sends})`),
+      ...volume(likeOurs),
+    },
+    external_without_named_like_ours: volume(external.filter((a) => !NAMED_LIKE_OURS_RE.test(a.agent))),
     china: region(CHINA_REGION_LABEL),
     ru: region(RU_REGION_LABEL),
     window_total: agents.reduce((s, a) => s + a.requests, 0),
+  };
+}
+
+/**
+ * Вызовы инструментов внешних агентов по именам. Род — тем же правилом, что у
+ * агентов; свои, проверки и реестр сюда не входят. Пишущий инструмент (заявка)
+ * отмечен: чтение каталога и оставленная заявка — разный спрос.
+ */
+export function summarizeA2aTools(rows: readonly A2aCensusToolRow[]) {
+  const byTool = new Map<string | null, { sends: number; completed: number; rejected: number; failed: number; agents: Set<string> }>();
+  for (const r of rows) {
+    if (a2aAgentKind(r.agent, r.ua_family, r.is_self) !== 'external') continue;
+    const t = byTool.get(r.tool) ?? { sends: 0, completed: 0, rejected: 0, failed: 0, agents: new Set<string>() };
+    t.sends += r.sends;
+    t.completed += r.completed;
+    t.rejected += r.rejected;
+    t.failed += r.failed;
+    t.agents.add(r.agent);
+    byTool.set(r.tool, t);
+  }
+  const tools = [...byTool.entries()]
+    .map(([tool, t]) => ({
+      tool,
+      write: tool !== null && WRITE_TOOL_NAMES.has(tool),
+      sends: t.sends,
+      completed: t.completed,
+      rejected: t.rejected,
+      failed: t.failed,
+      agents: t.agents.size,
+      agent_names: [...t.agents].sort(),
+    }))
+    // По числу вызовов; «имя не записано» — после названных; дальше по имени.
+    .sort((a, b) => b.sends - a.sends
+      || Number(a.tool === null) - Number(b.tool === null)
+      || (a.tool ?? '').localeCompare(b.tool ?? ''));
+  const write = tools.filter((t) => t.write);
+  return {
+    tools,
+    total_sends: tools.reduce((s, t) => s + t.sends, 0),
+    write_sends: write.reduce((s, t) => s + t.sends, 0),
+    write_completed: write.reduce((s, t) => s + t.completed, 0),
   };
 }
 
@@ -113,7 +200,7 @@ export async function GET(request: NextRequest) {
   const days = readDays(request.nextUrl.searchParams.get('days'));
 
   try {
-    const [byAgent, bounds] = await Promise.all([
+    const [byAgent, byTool, bounds] = await Promise.all([
       pool.query<A2aCensusAgentRow>(
         `SELECT agent, ua_family, is_self,
                 COUNT(*)::int                                    AS requests,
@@ -134,6 +221,18 @@ export async function GET(request: NextRequest) {
           ORDER BY COUNT(*) DESC, agent ASC`,
         [days],
       ),
+      pool.query<A2aCensusToolRow>(
+        `SELECT agent, ua_family, is_self, tool,
+                COUNT(*)::int                                    AS sends,
+                COUNT(*) FILTER (WHERE state = 'completed')::int AS completed,
+                COUNT(*) FILTER (WHERE state = 'rejected')::int  AS rejected,
+                COUNT(*) FILTER (WHERE state = 'failed')::int    AS failed
+           FROM a2a_requests
+          WHERE created_at >= NOW() - ($1::int * INTERVAL '1 day')
+            AND input = 'tool'
+          GROUP BY agent, ua_family, is_self, tool`,
+        [days],
+      ),
       pool.query<BoundsRow>(
         `SELECT to_char(MIN(created_at) AT TIME ZONE 'Asia/Kamchatka', 'YYYY-MM-DD') AS since,
                 COUNT(*)::int AS total
@@ -142,6 +241,7 @@ export async function GET(request: NextRequest) {
     ]);
 
     const summary = summarizeA2aAgents(byAgent.rows);
+    const tools = summarizeA2aTools(byTool.rows);
     const b = bounds.rows[0] ?? { since: null, total: 0 };
 
     return NextResponse.json({
@@ -161,6 +261,12 @@ export async function GET(request: NextRequest) {
       // Четыре рода, не один: external — спрос, registry — проверка реестра A2A,
       // probe — пробы и curl, self — метка владельца.
       by_kind: summary.by_kind,
+      // Спрос внешних: сообщения и исходы суммой, инструменты — по именам.
+      external: summary.external,
+      external_tools: tools,
+      // Имя «как у наших», а в списке проверок его нет: чьё — не установлено.
+      named_like_ours: summary.named_like_ours,
+      external_without_named_like_ours: summary.external_without_named_like_ours,
       // Регионы: внешние отдельно от своих и проверок.
       china: summary.china,
       ru: summary.ru,
