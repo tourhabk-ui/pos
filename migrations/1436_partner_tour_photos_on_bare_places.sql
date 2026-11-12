@@ -34,6 +34,20 @@
 
 BEGIN;
 
+-- ── Удаление партнёра (поправка CI #3303) ──────────────────────────────────
+--
+-- 1431 завела ссылку `partner_id` без правила удаления, и удалить партнёра,
+-- у которого есть кадр на карточке места, стало нельзя (23503: так упал
+-- посев проката, удаляющий «Лагуну Экспедицию»). Кадр партнёра без партнёра
+-- показан быть не может — согласия нет, — поэтому он уходит вместе с
+-- партнёром, как и само согласие (partner_material_consents, ON DELETE
+-- CASCADE). SET NULL здесь недопустим: кадр без partner_id показывается
+-- всегда, то есть удаление партнёра открыло бы его снимки без согласия.
+ALTER TABLE place_gallery_photos DROP CONSTRAINT IF EXISTS place_gallery_photos_partner_id_fkey;
+ALTER TABLE place_gallery_photos
+  ADD CONSTRAINT place_gallery_photos_partner_id_fkey
+  FOREIGN KEY (partner_id) REFERENCES partners(id) ON DELETE CASCADE;
+
 CREATE TEMP TABLE _shots1436 (
   place_slug   text,
   partner_slug text,

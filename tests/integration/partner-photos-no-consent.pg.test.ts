@@ -521,6 +521,11 @@ withPg('снимки партнёров без согласия: спрятан�
         .toEqual([`/api/images/place-gallery/${GORELY.ark}/1`]);
       expect(Object.values(c2.photoCredits)).toContain('Андрей Запорожец');
       await revokeAll(zapId);
+
+      // Удаление партнёра уносит его кадры (CASCADE), а не открывает их без
+      // согласия (SET NULL показал бы кадр всем).
+      await pool.query(`DELETE FROM partners WHERE id = $1`, [zapId]);
+      expect((await rows()).map((r) => r.s3_key)).toEqual(['photos/mestechko/vulkan-gorelyy-05.jpg']);
     });
   });
 });
