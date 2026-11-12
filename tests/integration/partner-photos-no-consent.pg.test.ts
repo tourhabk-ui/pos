@@ -435,5 +435,52 @@ withPg('снимки партнёров без согласия: спрятан�
       expect(await galleryStatus(NOHERO.ark, 2)).toBe(404);
       await revokeAll(partnerIds[MESTECHKO.partner]!);
     });
+
+    it('перепись «места без фото и снимки партнёров» (12.11): только записанная связь, тур со снимками, состояние согласия', async () => {
+      const BARE = { id: 'b1260000-0000-4000-8000-00000000000b', ark: 'a1260000-0000-4000-8000-00000000000b' };
+      await pool.query(
+        `INSERT INTO places (id, name, lat, lng, ark_id, location_type, zone, is_visible)
+         VALUES ($1, 'Озеро без фото (тест)', 53.4, 158.9, $2, 'lake', 'avachinsky', TRUE)`,
+        [BARE.id, BARE.ark],
+      );
+      const tour = async (title: string, place: string, photos: string[]) => pool.query(
+        `INSERT INTO operator_tours (operator_id, title, base_price, max_participants, is_active, is_published, main_place_id, photos)
+         VALUES ($1::uuid, $2, 10000, 10, TRUE, TRUE, $3, $4::text[])`,
+        [partnerIds[MESTECHKO.partner], title, place, photos],
+      );
+      await tour('Тур к озеру со снимками (тест)', BARE.id, ['/api/images/s3/photos/test/1.jpg', '/api/images/s3/photos/test/2.jpg']);
+      await tour('Тур к озеру без снимков (тест)', BARE.id, []);
+      // У Корякской сопки свой главный кадр — места в списке нет.
+      await tour('Тур к сопке (тест)', VOLCANO.id, ['/api/images/s3/photos/test/3.jpg']);
+
+      process.env.CRON_SECRET = 'test-secret-12-11';
+      const { GET } = await import('@/app/api/cron/place-photo-coverage/route');
+      const ask = async () => {
+        const res = await GET(new NextRequest('http://localhost/api/cron/place-photo-coverage?list=partner_candidates&limit=300', {
+          headers: { authorization: 'Bearer test-secret-12-11' },
+        }));
+        expect(res.status).toBe(200);
+        return await res.json() as {
+          places_without_any_shown_photo: number;
+          places: Array<{ place: string; tours: Array<{ tour: string; link: string; photos: number; partner: string; consent: string }> }>;
+        };
+      };
+      const r = await ask();
+      expect(r.places_without_any_shown_photo).toBeGreaterThan(0);
+      const lake = r.places.find((p) => p.place === 'Озеро без фото (тест)');
+      expect(lake?.tours).toEqual([
+        { tour_id: expect.any(String), tour: 'Тур к озеру со снимками (тест)', link: 'main_place', photos: 2, partner: MESTECHKO.partner, partner_slug: 'mestechko', consent: 'none' },
+      ]);
+      expect(r.places.some((p) => p.place === 'Корякская сопка (тест)')).toBe(false);
+
+      // Подпись прежней версии — `old`, новой — `covers`.
+      await sign(partnerIds[MESTECHKO.partner]!, '2026-10-23');
+      expect((await ask()).places.find((p) => p.place === 'Озеро без фото (тест)')?.tours[0]?.consent).toBe('old');
+      const { PLACE_CARDS_CONSENT_FROM } = await import('@/lib/legal/partner-materials-consent');
+      await revokeAll(partnerIds[MESTECHKO.partner]!);
+      await sign(partnerIds[MESTECHKO.partner]!, PLACE_CARDS_CONSENT_FROM);
+      expect((await ask()).places.find((p) => p.place === 'Озеро без фото (тест)')?.tours[0]?.consent).toBe('covers');
+      await revokeAll(partnerIds[MESTECHKO.partner]!);
+    });
   });
 });
