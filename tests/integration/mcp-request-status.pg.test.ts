@@ -854,4 +854,75 @@ withPg('get_request_status на настоящем PostgreSQL', () => {
     await pool.query(`UPDATE stay_requests SET owner_answer = 'busy', owner_answered_at = NOW(), owner_answer_via = 'max' WHERE id = $1`, [sr.rows[0].id]);
     expect(await readRequestStatus(k5)).toMatchObject({ state: 'declined', human: 'Владелец ответил: на эти даты занято.' });
   });
+
+  it('1428: ключ заявки убран из журнала вызовов — и уже записанный, и новый', async () => {
+    const { readFileSync } = await import('node:fs');
+    const { join } = await import('node:path');
+    const MIG_1428 = readFileSync(join(process.cwd(), 'migrations/1428_mcp_calls_request_key_scrub.sql'), 'utf8');
+    // Ключ настоящей формы (issueRequestKey): так он и лежал в журнале до 12.11.
+    expect(leadKey).toMatch(/^[A-Za-z0-9_-]{32}$/);
+    const MISNAMED_KEY = 'Zq3vT-xYLmK_aB7cDreFlgH8jNopRisU';
+    const NO_DIGITS_KEY = 'ZqXvTxYLmKaBkcDreFlgHmjNopRisUab';
+    const rows: Array<[string, string | null, string | null]> = [
+      ['get_request_status', 'key', leadKey],
+      // Ключ без единой цифры закрывает имя аргумента, а не форма значения.
+      ['get_request_status', 'key', 'ZqXvTxYLmKaBkcDreFlgHmjNopRisUab'],
+      // Ключ под чужим именем аргумента: у инструмента статуса чистится любое
+      // значение — и ключ без единой цифры тоже (ревью безопасности к #3280).
+      ['get_request_status', 'status_key', MISNAMED_KEY],
+      ['get_request_status', 'status_key', NO_DIGITS_KEY],
+      // Обрывок ключа словами — у инструмента статуса чистится и он: правило «по инструменту».
+      ['get_request_status', 'k', `ключ ${MISNAMED_KEY.slice(0, 15)}`],
+      // Ключ в обёртке у чужого инструмента — по отрезку внутри значения.
+      ['search', 'query', `"${MISNAMED_KEY}"`],
+      ['search', 'query', `key: ${NO_DIGITS_KEY}`],
+      // Отрезок короче ключа, но с цифрой (обрезанный ключ) — тоже.
+      ['search', 'query', MISNAMED_KEY.slice(0, 22)],
+      // Аргумент по имени `key` у любого инструмента — значение не хранится, каким бы оно ни было.
+      ['fetch', 'key', `обрывок ${MISNAMED_KEY.slice(0, 9)}`],
+      ['get_place_info', 'name', 'Долина гейзеров'],
+      ['get_place_info', 'name', 'Petropavlovsk-Kamchatsky'],
+      ['get_tours', 'activity_type', null],
+      ['get_weather', 'place', '[скрыто]'],
+    ];
+    await pool.query('DELETE FROM mcp_tool_calls');
+    for (const [tool, k, v] of rows) {
+      await pool.query(`INSERT INTO mcp_tool_calls (tool, ok, arg_key, arg_value) VALUES ($1, TRUE, $2, $3)`, [tool, k, v]);
+    }
+    await pool.query(MIG_1428);
+    const after = (await pool.query<{ arg_key: string | null; arg_value: string | null }>(
+      'SELECT arg_key, arg_value FROM mcp_tool_calls ORDER BY id',
+    )).rows.map((r) => [r.arg_key, r.arg_value]);
+    expect(after).toEqual([
+      ['key', '[скрыто]'],
+      ['key', '[скрыто]'],
+      ['status_key', '[скрыто]'],
+      ['status_key', '[скрыто]'],
+      ['k', '[скрыто]'],
+      ['query', '[скрыто]'],
+      ['query', '[скрыто]'],
+      ['query', '[скрыто]'],
+      ['key', '[скрыто]'],
+      ['name', 'Долина гейзеров'],
+      ['name', 'Petropavlovsk-Kamchatsky'],
+      ['activity_type', null],
+      ['place', '[скрыто]'],
+    ]);
+    // Повторный прогон ничего не меняет.
+    const again = await pool.query(MIG_1428);
+    const updated = (Array.isArray(again) ? again : [again]).reduce((n, r) => n + (r.command === 'UPDATE' ? r.rowCount ?? 0 : 0), 0);
+    expect(updated).toBe(0);
+
+    // Новая запись: правило журнала в коде то же, что у миграции.
+    const { primaryArg, HIDDEN_VALUE } = await import('@/lib/mcp/call-reason');
+    expect(primaryArg({ key: leadKey }, false)).toEqual({ key: 'key', value: HIDDEN_VALUE });
+    expect(primaryArg({ status_key: MISNAMED_KEY }, false).value).toBe(HIDDEN_VALUE);
+    // Каждое значение, которое миграция скрыла, скрыл бы и код — и наоборот.
+    // (У инструмента статуса код значение не пишет вовсе — сравнивать нечего.)
+    for (const [tool, k, v] of rows) {
+      if (v === null || k === null || tool === 'get_request_status') continue;
+      const kept = after[rows.findIndex((r) => r[1] === k && r[2] === v)]![1];
+      expect(primaryArg({ [k]: v }, false).value === HIDDEN_VALUE, `${k}=${v}`).toBe(kept === '[скрыто]');
+    }
+  });
 });

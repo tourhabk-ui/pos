@@ -13,6 +13,8 @@
  *     статуса и ключа подписи уведомлений (notify_url, 29.10): агент получил
  *     их в ответе SendMessage, а ключ в открытом виде в базе — второй ключ от
  *     заявки (ключ подписи — право подделывать наши уведомления);
+ *   · у статуса заявки (get_request_status) — тоже заглушка (12.11): его ответ
+ *     несёт страницу заявки и ссылку MAX, а в обеих — тот же ключ;
  *   · память разговора — по hash contextId, реплики после redactPII.
  *
  * Чтение — три исхода (§4.0): нашлась; нет её (или старше часа); база не
@@ -30,6 +32,7 @@
 import { pool } from '@/lib/db-pool';
 import { redactPII } from '@/lib/security/pii-redact';
 import { WRITE_TOOL_NAMES } from '@/lib/mcp/public-tools';
+import { REQUEST_STATUS_TOOL_NAME } from '@/lib/mcp/request-status-schema';
 import { logText } from '@/lib/log/log-text';
 import { contextKey } from './journal';
 import { CONTEXT_TURNS_MAX, TASK_TTL_MS, createTaskStore, type A2ATaskStore, type ChatTurn, type TaskStore } from './task-store';
@@ -55,6 +58,19 @@ function writeToolStub(tool: string, state: string): string {
       + 'после перезапуска сервиса Ведар её не хранит.';
 }
 
+/**
+ * Ответ статуса заявки: поля `page` и `max_link` несут ключ заявки (страница —
+ * во фрагменте адреса, ссылка MAX — параметром). Копия хранит заглушку, а не
+ * ответ с вырезанными полями: тот же ответ уходит и текстом, одной JSON-строкой.
+ */
+function statusToolStub(state: string): string {
+  return state === 'completed'
+    ? `Инструмент ${REQUEST_STATUS_TOOL_NAME} ответил. Состояние заявки было в ответе SendMessage; `
+      + 'после перезапуска сервиса Ведар его не хранит: в ответе страница заявки, а в её адресе — ключ. Спросите статус ещё раз.'
+    : `Инструмент ${REQUEST_STATUS_TOOL_NAME} состояние не отдал (${state}). Причина была в ответе SendMessage; `
+      + 'после перезапуска сервиса Ведар её не хранит.';
+}
+
 function cleanPart(p: OutPart): OutPart {
   if ('text' in p) return { text: redactPII(p.text) };
   const data: Record<string, unknown> = { ...p.data };
@@ -62,10 +78,13 @@ function cleanPart(p: OutPart): OutPart {
   return { data: redactDeep(data) as Record<string, unknown> };
 }
 
-/** Копия задачи для базы: без ПД, без токена handoff, у заявок — без ключа статуса. */
+/** Копия задачи для базы: без ПД, без токена handoff, у заявок и у статуса заявки — без ключа. */
 export function storableTask(task: TaskRecord): TaskRecord {
   const tool = typeof task.metadata.tool === 'string' ? task.metadata.tool : null;
-  const stub = tool !== null && WRITE_TOOL_NAMES.has(tool) ? writeToolStub(tool, task.state) : null;
+  const stub = tool === null ? null
+    : WRITE_TOOL_NAMES.has(tool) ? writeToolStub(tool, task.state)
+      : tool === REQUEST_STATUS_TOOL_NAME ? statusToolStub(task.state)
+        : null;
   const parts = (list: OutPart[]): OutPart[] => (stub !== null ? [{ text: stub }] : list.map(cleanPart));
   const message = (m: OutMessage): OutMessage => ({ ...m, contextId: redactPII(m.contextId), parts: parts(m.parts) });
   return {
