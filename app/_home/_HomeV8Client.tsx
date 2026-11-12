@@ -36,6 +36,7 @@ import { EMERGENCY_NUMBERS } from '@/lib/safety/emergency-numbers';
 import { INTENT_CHIPS } from '@/lib/home/intent-chips';
 import { safetyPill } from '@/lib/home/safety-pill';
 import { photoSrc } from '@/lib/images/variant';
+import { photoFocusY } from '@/lib/tours/photo-focus';
 import { BEAR_PHOTOS, type CreditedPhoto } from '@/lib/media/wildlife-photos';
 import {
   dataFreshness, freshnessShort,
@@ -89,6 +90,18 @@ function tripDatesLabel(a: string | null, d: string | null): string | null {
 
 const ACC_LABEL: Record<string, string> = { red: 'красный', orange: 'оранжевый', yellow: 'жёлтый' };
 const ACC_VAR: Record<string, string> = { red: 'var(--danger)', orange: 'var(--accent)', yellow: 'var(--warning)' };
+
+/**
+ * Фон плитки тура. По умолчанию — верх кадра (стиль `.img`, голова рыбака
+ * цела); у портретного пейзажа с записанной точкой — его точка, иначе плитка
+ * 4:3 показывает небо (владелец 12.11, lib/tours/photo-focus).
+ */
+function tourPlateImageStyle(imageUrl: string): React.CSSProperties {
+  const y = photoFocusY(imageUrl);
+  const style: React.CSSProperties = { backgroundImage: `url('${photoSrc(imageUrl, 640)}')` };
+  if (y != null) style.backgroundPosition = `50% ${y}%`;
+  return style;
+}
 
 function fmtPrice(n: number | null): string | null {
   if (n == null || !Number.isFinite(n) || n <= 0) return null;
@@ -579,7 +592,7 @@ export default function HomeV8Client({ data, weather }: { data: HomeV8Data; weat
                 const pf = plateFacts(p);
                 return (
                   <figure className="plate" key={clone ? `${p.id}-loop` : p.id} role={clone ? undefined : 'group'} aria-label={clone ? undefined : `Карточка ${i + 1} из ${cards.length}: тур`} aria-hidden={clone || undefined}>
-                    <Link href={href} tabIndex={-1} aria-hidden><div className="img" style={p.imageUrl ? { backgroundImage: `url('${photoSrc(p.imageUrl, 640)}')` } : undefined}>
+                    <Link href={href} tabIndex={-1} aria-hidden><div className="img" style={p.imageUrl ? tourPlateImageStyle(p.imageUrl) : undefined}>
                       {!p.imageUrl && <span className="noimg" />}
                       {/* Длительность — стеклянным чипом на фото (владелец 20.10):
                           видна до чтения текста. Ссылка-обёртка aria-hidden,
