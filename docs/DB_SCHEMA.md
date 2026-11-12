@@ -1,6 +1,6 @@
 # Схема базы данных Ведара
 
-> Снято 2026-11-11 с настоящего PostgreSQL 18.6 (Debian 18.6-1.pgdg13+2): baseline прода (`lib/database/baseline/schema-baseline.sql`, снимок 2026-08-15) + миграции новее него, накатанные штатным раннером. Последняя миграция в снимке: `1424_answer_notices.sql`.
+> Снято 2026-11-12 с настоящего PostgreSQL 18.6 (Debian 18.6-1.pgdg13+2): baseline прода (`lib/database/baseline/schema-baseline.sql`, снимок 2026-08-15) + миграции новее него, накатанные штатным раннером. Последняя миграция в снимке: `1425_answer_notices_vehicle.sql`.
 > Файл порождён `scripts/gen-db-schema.ts` (`npm run db:schema-doc`); править руками бессмысленно — следующий прогон перепишет.
 > Что здесь НЕ учтено: дрейф прода после baseline, не отражённый миграциями. Судья дрейфа — `GET /api/cron/schema-drift` на проде (`lib/db/schema-drift.ts`). Значений данных в файле нет — только имена и типы.
 
@@ -8,8 +8,8 @@
 |---|---:|
 | Таблиц | 324 |
 | Представлений (VIEW) | 12 |
-| Колонок | 4230 |
-| Внешних ключей | 385 |
+| Колонок | 4231 |
+| Внешних ключей | 386 |
 | Таблиц без единого FK в обе стороны | 88 |
 
 Обозначения в списках колонок: `!` — NOT NULL, `=` — есть DEFAULT, `PK` — первичный ключ, `→` — внешний ключ.
@@ -1045,7 +1045,7 @@ B2B-агенты, продающие туры за комиссию. Не пут
 
 `id bigint!=` `step varchar!` `entity_id text` `visitor_hash varchar` `created_at timestamptz!=` `is_self boolean!=` `reason varchar` `source varchar`
 
-**lead_activity_log** · 6 кол. · PK id · lead_id → leads.id · индексов 5
+**lead_activity_log** · 6 кол. · PK id · lead_id → leads.id · на неё ссылаются: answer_notices · индексов 5
 
 `id bigint!=` `lead_id uuid!` `actor varchar!=` `action varchar!` `details jsonb=` `created_at timestamp=`
 
@@ -1501,9 +1501,9 @@ B2B-агенты, продающие туры за комиссию. Не пут
 
 `id bigint!=` `user_id uuid!` `token_hash text!` `expires_at timestamptz!` `used_at timestamptz` `created_at timestamptz!=`
 
-**answer_notices** · 18 кол. · PK id · answer_id → partner_incoming_answers.id, lead_id → leads.id · индексов 4
+**answer_notices** · 19 кол. · PK id · activity_id → lead_activity_log.id, answer_id → partner_incoming_answers.id, lead_id → leads.id · индексов 5
 
-`id bigint!=` `lead_id uuid!` `answer_id bigint!` `answer text!` `decline_reason text` `lead_status_before text` `state text!=` `skipped_reason text` `delivered_via text` `tried text` `attempts integer!=` `claimed_until timestamptz` `manager_channel text` `manager_alerted_at timestamptz` `manager_cleared_at timestamptz` `created_at timestamptz!=` `decided_at timestamptz` `delivered_at timestamptz`
+`id bigint!=` `lead_id uuid!` `answer_id bigint` `answer text!` `decline_reason text` `lead_status_before text` `state text!=` `skipped_reason text` `delivered_via text` `tried text` `attempts integer!=` `claimed_until timestamptz` `manager_channel text` `manager_alerted_at timestamptz` `manager_cleared_at timestamptz` `created_at timestamptz!=` `decided_at timestamptz` `delivered_at timestamptz` `activity_id bigint`
 
 **car_rental_offers** · 20 кол. · PK id · partner_id → partners.id · на неё ссылаются: rental_car_busy, rental_offer_edits · индексов 3
 
