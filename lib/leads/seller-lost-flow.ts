@@ -10,6 +10,10 @@
  *
  * Отправка ждёт не дольше срока нажатия (press-budget): зависший канал не
  * держит форму, исход допишется в строку сообщения, обрыв подберёт добивка.
+ *
+ * После отказа продавца Ведар спрашивает другие компании с турами к тому же
+ * месту, возьмут ли они человека на эту дату (этап 4б, lib/requests/offer-asks)
+ * — без его имени и телефона; продавцу об этом сказано строкой.
  */
 import { changeLeadStatus, type LeadChangeResult } from '@/lib/leads/owner-lead-status';
 import { lostReasonTellsTourist, type LostReason } from '@/lib/leads/lost-reason';
@@ -37,6 +41,8 @@ export interface SellerLostResult {
 export interface SellerLostDeps {
   change?: typeof changeLeadStatus;
   deliver?: (noticeId: string) => Promise<NoticeOutcome>;
+  /** Вопрос другим компаниям после отказа (этап 4б): строка продавцу о дошедших вопросах или null. */
+  ask?: (leadId: string) => Promise<string | null>;
 }
 
 export async function closeLeadWithReason(args: {
@@ -64,6 +70,17 @@ export async function closeLeadWithReason(args: {
     return { outcome, touristLine: operatorOutcomeLine({ state: 'skipped', reason }) };
   }
   const deliver = deps.deliver ?? (async (id: string) => (await import('@/lib/requests/answer-notice')).deliverAnswerNotice(id));
-  const sent = await withinPress<NoticeOutcome>(deliver(notice.id), { state: 'pending', sending: true });
-  return { outcome, touristLine: operatorOutcomeLine(sent) };
+  // Вопрос другим компаниям (4б) идёт рядом с сообщением человеку, со своим, более
+  // коротким сроком: форма ждёт не дольше прежнего. Когда спрашивать, решает сам
+  // вопрос (тот же вид заявки, что «назвать других»).
+  const ask = deps.ask ?? (async (id: string) => (await import('@/lib/requests/offer-asks')).askOtherCompaniesWithinPress(id));
+  const [sent, asked] = await Promise.all([
+    withinPress<NoticeOutcome>(deliver(notice.id), { state: 'pending', sending: true }),
+    // Сбой вопросов закрытие заявки и сообщение человеку не отменяет: строки о них просто нет.
+    ask(args.leadId).catch((err: unknown) => {
+      console.error('[seller-lost-flow] вопрос другим компаниям не задан', err instanceof Error ? err.name : 'ошибка');
+      return null;
+    }),
+  ]);
+  return { outcome, touristLine: [operatorOutcomeLine(sent), asked].filter(Boolean).join(' ') };
 }

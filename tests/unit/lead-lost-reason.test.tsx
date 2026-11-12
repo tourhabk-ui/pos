@@ -145,10 +145,13 @@ describe('поток двери: что на деле ушло человеку'
   const ok = (closed?: { activityId: string; notice: { id: string; state: 'pending' | 'skipped'; skipped: string | null } | null }): LeadChangeResult => ({
     kind: 'ok', changed: true, prevStatus: 'new', lead: { id: 'L', status: 'lost', notes: null }, ...(closed ? { closed } : {}),
   });
-  const run = (reason: Parameters<typeof closeLeadWithReason>[0]['reason'], result: LeadChangeResult, deliver = vi.fn()) => {
+  const run = (
+    reason: Parameters<typeof closeLeadWithReason>[0]['reason'], result: LeadChangeResult, deliver = vi.fn(),
+    ask: (leadId: string) => Promise<string | null> = vi.fn(async () => null),
+  ) => {
     const change = vi.fn(async () => result);
-    return closeLeadWithReason({ leadId: 'L', reason, notes: 'звонил', actor, scope, via: 'site' }, { change, deliver })
-      .then((r) => ({ r, change, deliver }));
+    return closeLeadWithReason({ leadId: 'L', reason, notes: 'звонил', actor, scope, via: 'site' }, { change, deliver, ask })
+      .then((r) => ({ r, change, deliver, ask }));
   };
 
   it('в запись уходит статус «lost», причина и карточка продавца; сообщение отправляет дверь и говорит исход', async () => {
@@ -186,6 +189,38 @@ describe('поток двери: что на деле ушло человеку'
     const vehicle = await run('seats', ok({ activityId: '9', notice: null }));
     expect(vehicle.r.touristLine).toBe(NO_NOTICE_KIND_LINE);
     expect(vehicle.deliver).not.toHaveBeenCalled();
+  });
+
+  it('после отказа продавца другим компаниям задан вопрос — продавцу сказано строкой; сбой вопросов отказ не роняет', async () => {
+    const pending = ok({ activityId: '9', notice: { id: '77', state: 'pending', skipped: null } });
+    const deliver = vi.fn(async () => ({ state: 'delivered' as const, via: 'max' as const, dates: [] }));
+    const ASKED = 'Другим компаниям с турами к этому месту (2) задан вопрос, возьмут ли они туриста на эту дату, — без его имени и телефона.';
+    const asked = await run('seats', pending, deliver, vi.fn(async () => ASKED));
+    expect(asked.ask).toHaveBeenCalledWith('L');
+    expect(asked.r.touristLine).toBe(`Туристу ушло сообщение в MAX: ваш ответ. ${ASKED}`);
+    // Вопросов нет (погода, группа, некого спросить) — строка прежняя.
+    const none = await run('seats', pending, deliver, vi.fn(async () => null));
+    expect(none.r.touristLine).toBe('Туристу ушло сообщение в MAX: ваш ответ.');
+    // Вопросы упали — заявка закрыта, человеку сообщено, о вопросах ни слова.
+    const error = vi.spyOn(console, 'error').mockImplementation(() => {});
+    const broken = await run('seats', pending, deliver, vi.fn(async () => { throw new Error('boom'); }));
+    expect(broken.r.outcome.kind).toBe('ok');
+    expect(broken.r.touristLine).toBe('Туристу ушло сообщение в MAX: ваш ответ.');
+    error.mockRestore();
+  });
+
+  it('сообщение человеку не рождалось (причина клиента, ничейная, своя проба, машина) — и вопросов другим компаниям нет', async () => {
+    const cases: Array<[Parameters<typeof closeLeadWithReason>[0]['reason'], LeadChangeResult]> = [
+      ['no_contact', ok({ activityId: '9', notice: null })],
+      ['seats', ok({ activityId: '9', notice: { id: '77', state: 'skipped', skipped: 'not_addressee' } })],
+      ['seats', ok({ activityId: '9', notice: { id: '77', state: 'skipped', skipped: 'self' } })],
+      ['seats', ok({ activityId: '9', notice: null })],
+      ['seats', { kind: 'not_found' }],
+    ];
+    for (const [reason, result] of cases) {
+      const { ask } = await run(reason, result);
+      expect(ask, `${reason}/${JSON.stringify(result)}`).not.toHaveBeenCalled();
+    }
   });
 
   it('отказ этим запросом не записан (не найдена, уже закрыта, отменена клиентом) — о туристе не говорится ничего', async () => {

@@ -21,6 +21,7 @@ import { WIZARD_TEXT } from '@/lib/operators/chat-dates/wizard';
 import { answerDateCodable } from '@/lib/requests/answer-date';
 import { LEAD_CANCELLED_ANSWER_TEXT } from '@/lib/leads/client-cancelled';
 import { LEAD_CLIENT_CANCELLED } from '@/lib/types/statuses';
+import { isOfferAskPayload, offerAskReplyText, parseOfferAskPress } from '@/lib/requests/offer-asks-text';
 
 const NOT_THIS = 'Эта кнопка — кабинет туроператора. В этом чате её не выполняю.';
 const UNREAD = 'Не удалось проверить, чей это чат. Кнопку не выполнил.';
@@ -38,7 +39,8 @@ export function operatorHelpPress(menu: MenuButton[]): { text: string; buttons: 
 }
 
 export function isOperatorDeskPayload(payload: string): boolean {
-  return payload === 'sup:new' || payload === 'opd:tours' || payload === 'opd:seats' || payload.startsWith('ia:') || payload.startsWith('sh:') || payload.startsWith('ss:');
+  return payload === 'sup:new' || payload === 'opd:tours' || payload === 'opd:seats' || payload.startsWith('ia:') || payload.startsWith('sh:') || payload.startsWith('ss:')
+    || isOfferAskPayload(payload);
 }
 
 export async function operatorDeskPress(opts: {
@@ -52,6 +54,22 @@ export async function operatorDeskPress(opts: {
   if (!isOperatorDeskPayload(opts.payload)) return null;
   const lookup = await findPartnerByChat(opts.channel, opts.chatId);
   if (lookup.outcome === 'unavailable') return { text: UNREAD, buttons: [] };
+  // Вопрос Ведара другой компании после отказа (этап 4б): «Беру» / «Не могу».
+  // Отвечает тот, кому он задан, — туроператор или гид со своими турами,
+  // поэтому категория здесь не проверяется: право — в самой записи ответа
+  // (вопрос этой карточки, lib/requests/offer-asks). Чат без карточки — отказ.
+  if (isOfferAskPayload(opts.payload)) {
+    const parsedAsk = parseOfferAskPress(opts.payload);
+    if (lookup.outcome !== 'found' || !parsedAsk) return { text: offerAskReplyText({ state: 'not_yours' }), buttons: [] };
+    const { answerOfferAsk } = await import('@/lib/requests/offer-asks');
+    const asked = await answerOfferAsk({
+      partnerId: lookup.partner.partnerId, askId: parsedAsk.askId, answer: parsedAsk.answer, via: opts.channel,
+    });
+    const askMenu = partnerMenu({
+      partnerId: lookup.partner.partnerId, category: lookup.partner.category, slug: lookup.partner.slug, userId: lookup.partner.userId,
+    }) ?? [];
+    return { text: offerAskReplyText(asked), buttons: appendMenu([], askMenu) };
+  }
   if (lookup.outcome !== 'found' || lookup.partner.category !== 'operator' || isRentalPilotSlug(lookup.partner.slug)) {
     return { text: NOT_THIS, buttons: [] };
   }
@@ -176,7 +194,18 @@ export async function operatorDeskPress(opts: {
     }
     // Нажатие ждёт отправку не дольше общего срока: дальше она идёт сама, оператор читает «отправляется».
     const { withinPress } = await import('@/lib/requests/press-budget');
-    return operatorOutcomeLine(await withinPress<NoticeOutcome>(notices.deliverAnswerNotice(n.id), { state: 'pending', sending: true }));
+    // Вопрос другим компаниям (4б) идёт рядом с сообщением человеку, со своим, более
+    // коротким сроком: нажатие ждёт не дольше прежнего. Когда спрашивать, решает сам
+    // вопрос (тот же вид заявки, что «назвать других»); после других ответов его нет.
+    const refused = parsed.answer === 'no_seats' || parsed.answer === 'decline';
+    const [sent, asks] = await Promise.all([
+      withinPress<NoticeOutcome>(notices.deliverAnswerNotice(n.id), { state: 'pending', sending: true }),
+      refused
+        ? import('@/lib/requests/offer-asks').then((m) => m.askOtherCompaniesWithinPress(parsed.subjectId))
+        : Promise.resolve(null),
+    ]);
+    const line = operatorOutcomeLine(sent);
+    return asks ? `${line}\n${asks}` : line;
   };
   const withOutcome = async (text: string) => {
     const line = await outcomeLine();

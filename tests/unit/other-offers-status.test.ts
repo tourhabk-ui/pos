@@ -59,8 +59,8 @@ const PLACE_URL = 'https://vedarai.ru/places/gorely#tours';
 const OK = {
   state: 'ok' as const, placeName: 'Вулкан Горелый', placeUrl: PLACE_URL,
   offers: [
-    { partnerName: 'Компания А', tourId: '201', title: 'Горелый за день', price: '12 000 ₽ за человека', seats: 'calendar' as const, url: FORM_A, moreTours: 2 },
-    { partnerName: 'Вторая', tourId: '202', title: 'К кратеру', price: null, seats: 'by_request' as const, url: FORM_B, moreTours: 0 },
+    { partnerId: 'p-a', partnerName: 'Компания А', tourId: '201', title: 'Горелый за день', price: '12 000 ₽ за человека', seats: 'calendar' as const, url: FORM_A, moreTours: 2, said: null },
+    { partnerId: 'p-b', partnerName: 'Вторая', tourId: '202', title: 'К кратеру', price: null, seats: 'by_request' as const, url: FORM_B, moreTours: 0, said: null },
   ],
   more: 1,
 };
@@ -73,14 +73,14 @@ beforeEach(() => {
 
 describe('когда называть другие компании', () => {
   it('после «Нет мест» — спрашиваем: отказанный тур, дата заявки, число людей', () => {
-    expect(ask(NO_SEATS)).toEqual({ tourId: '70', date: '2027-01-15', people: 3 });
+    expect(ask(NO_SEATS)).toEqual({ leadId: 'L', tourId: '70', date: '2027-01-15', people: 3 });
   });
 
   it('после «Отказать» — у каждой причины, кроме погоды и безопасности: то же место в тот же день называть нельзя', () => {
     for (const reason of DECLINE_REASONS) {
       const got = ask(declined(reason));
       if (reason === 'weather') expect(got).toBeNull();
-      else expect(got).toEqual({ tourId: '70', date: '2027-01-15', people: 3 });
+      else expect(got).toEqual({ leadId: 'L', tourId: '70', date: '2027-01-15', people: 3 });
     }
   });
 
@@ -88,7 +88,7 @@ describe('когда называть другие компании', () => {
     for (const reason of DECLINE_REASONS) {
       const got = ask(closed(reason));
       if (reason === 'weather') expect(got).toBeNull();
-      else expect(got).toEqual({ tourId: '70', date: '2027-01-15', people: 3 });
+      else expect(got).toEqual({ leadId: 'L', tourId: '70', date: '2027-01-15', people: 3 });
     }
     for (const reason of CLIENT_LOST_REASONS) expect(ask(closed(reason))).toBeNull();
   });
@@ -126,7 +126,7 @@ describe('когда называть другие компании', () => {
     expect(ask({ ...NO_SEATS, lead_requested_date: null })).toBeNull();
     expect(ask({ ...NO_SEATS, lead_requested_date: '15.01.2027' })).toBeNull();
     expect(ask(NO_SEATS, '2027-01-16')).toBeNull();
-    expect(ask(NO_SEATS, '2027-01-15')).toEqual({ tourId: '70', date: '2027-01-15', people: 3 });
+    expect(ask(NO_SEATS, '2027-01-15')).toEqual({ leadId: 'L', tourId: '70', date: '2027-01-15', people: 3 });
   });
 
   it('число людей — как в заявке, до сотен; не записано — null, а не выдуманное', () => {
@@ -172,7 +172,9 @@ describe('чтение: три исхода и «не про эту заявку
         { company: 'Вторая', tour: 'К кратеру', tour_id: '202', price: null, seats: 'by_request', url: FORM_B, more_tours: 0 },
       ],
     });
-    expect(o!.how).toContain('не ответ этих компаний');
+    // Молчавшая компания — это её календарь, а не её слово; ответившая — её слово, но не бронь.
+    expect(o!.how).toContain('said: null — компания не отвечала: строка построена по её календарю, места и дату она подтверждает сама');
+    expect(o!.how).toContain('said: take — компания сама ответила Ведару, что возьмёт на эту дату: это её слово, но ещё не бронь');
     expect(o!.how).toContain('create_booking_request');
     expect(o!.how).toContain('только после его согласия');
     expect(o!.how).toContain('компанию выбирает человек, не вы');
@@ -180,18 +182,28 @@ describe('чтение: три исхода и «не про эту заявку
     expect(o!.how).not.toMatch(/рекоменд|выгодн|лучший/i);
   });
 
-  it('в чтение идут только тур, дата и число людей — ни номера заявки, ни имени, ни телефона', async () => {
+  it('ответ компании «Беру» доходит до вида заявки полем said; карточка компании наружу не отдаётся', async () => {
+    loadOtherOffers.mockResolvedValue({ ...OK, offers: [OK.offers[0]!, { ...OK.offers[1]!, said: 'take' as const }] });
+    const o = await readStatusOtherOffers(NO_SEATS, core(NO_SEATS), deps);
+    expect(o!.offers.map((x) => [x.company, x.said])).toEqual([['Компания А', null], ['Вторая', 'take']]);
+    expect(JSON.stringify(o)).not.toContain('p-b');
+    for (const x of o!.offers) expect(Object.keys(x)).not.toContain('partnerId');
+    // Странице уходит то же поле — без слов для агента.
+    expect(pageOtherOffers(o)!.offers[1]!.said).toBe('take');
+  });
+
+  it('в чтение идут тур, дата, число людей и номер заявки (по нему — ответы компаний на вопрос Ведара) — ни имени, ни телефона', async () => {
     loadOtherOffers.mockResolvedValue({ state: 'none' });
     await readStatusOtherOffers(NO_SEATS, core(NO_SEATS), deps);
     expect(loadOtherOffers).toHaveBeenCalledTimes(1);
-    expect(loadOtherOffers.mock.calls[0]![0]).toEqual({ tourId: '70', date: '2027-01-15', people: 3 });
+    expect(loadOtherOffers.mock.calls[0]![0]).toEqual({ leadId: 'L', tourId: '70', date: '2027-01-15', people: 3 });
   });
 
   it('число людей не записано — места считаются на одного, а в ответе стоит null, не единица', async () => {
     loadOtherOffers.mockResolvedValue(OK);
     const row = { ...NO_SEATS, lead_people: null };
     const o = await readStatusOtherOffers(row, core(row), deps);
-    expect(loadOtherOffers.mock.calls[0]![0]).toEqual({ tourId: '70', date: '2027-01-15', people: 1 });
+    expect(loadOtherOffers.mock.calls[0]![0]).toEqual({ leadId: 'L', tourId: '70', date: '2027-01-15', people: 1 });
     expect(o!.participants).toBeNull();
   });
 

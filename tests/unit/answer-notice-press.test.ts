@@ -16,7 +16,7 @@
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 
 const h = vi.hoisted(() => ({
-  query: vi.fn(), find: vi.fn(), inbox: vi.fn(), status: vi.fn(), deliver: vi.fn(), readOutcome: vi.fn(),
+  query: vi.fn(), find: vi.fn(), inbox: vi.fn(), status: vi.fn(), deliver: vi.fn(), readOutcome: vi.fn(), ask: vi.fn(),
 }));
 vi.mock('@/lib/db-pool', () => ({ pool: { query: (sql: string, params?: unknown[]) => h.query(sql, params ?? []) } }));
 vi.mock('@/lib/kuzmich/operator-chat', () => ({ findPartnerByChat: (...a: unknown[]) => h.find(...a), processPartnerMessage: vi.fn() }));
@@ -26,6 +26,9 @@ vi.mock('@/lib/requests/answer-notice', () => ({
   deliverAnswerNotice: (...a: unknown[]) => h.deliver(...a),
   readNoticeOutcomeFor: (...a: unknown[]) => h.readOutcome(...a),
 }));
+
+// Вопрос другим компаниям после отказа (этап 4б): сам поток — tests/unit/offer-asks.test.ts.
+vi.mock('@/lib/requests/offer-asks', () => ({ askOtherCompaniesWithinPress: (...a: unknown[]) => h.ask(...a) }));
 
 import { answerDayCode } from '@/lib/requests/answer-date';
 import { CHAT_ANSWER_INSERT_SQL, LEAD_ANSWER_DATE_READ_SQL } from '@/lib/requests/chat-answer';
@@ -51,6 +54,7 @@ beforeEach(() => {
   h.status.mockResolvedValue({ kind: 'changed' });
   h.deliver.mockResolvedValue({ state: 'delivered', via: 'max', dates: [] });
   h.readOutcome.mockResolvedValue({ state: 'undelivered', manager: 'max', why: { broken: false, chat: 'none', agent: 'none' } });
+  h.ask.mockResolvedValue(null);
   h.query.mockImplementation(async (sql: string) => {
     if (sql === LEAD_ANSWER_DATE_READ_SQL) return { rows: [{ d: DAY }] };
     if (sql === CHAT_ANSWER_INSERT_SQL) return { rows: [inserted] };
@@ -112,6 +116,59 @@ describe('нажатие оператора шлёт туристу сразу',
     expect(await withinPress(slow, 'поздно', 5)).toBe('поздно');
     await slow;
     expect(finished).toBe(true);
+  });
+
+  it('после «Нет мест» и «Отказать» другим компаниям задан вопрос — оператору сказано строкой; после других ответов вопроса нет', async () => {
+    const ASKED = 'Другим компаниям с турами к этому месту (2) задан вопрос, возьмут ли они туриста на эту дату, — без его имени и телефона.';
+    h.ask.mockResolvedValue(ASKED);
+    for (const payload of [yes('n'), `ia:rs:l:${ID}:${answerDayCode(DAY)}`]) {
+      h.ask.mockClear();
+      const r = await press(payload);
+      expect(h.ask, payload).toHaveBeenCalledTimes(1);
+      // Спрашивают по заявке; кого и о чём — решает сам вопрос, не кнопка.
+      expect(h.ask.mock.calls[0]).toEqual([ID]);
+      expect(r!.text).toContain(`Туристу ушло сообщение в MAX: ваш ответ.\n${ASKED}`);
+    }
+    // Вопросов нет (погода, группа, некого спросить) — строка исхода прежняя.
+    h.ask.mockResolvedValue(null);
+    const plain = await press(yes('n'));
+    expect(plain!.text).toContain('Туристу ушло сообщение в MAX');
+    expect(plain!.text).not.toContain('задан вопрос');
+  });
+
+  it('вопросов другим компаниям нет: ответ не отказ, сообщение пропущено, повтор нажатия', async () => {
+    // «Другая дата» рождает сообщение человеку, но не вопрос другим: оператор от человека не отказался.
+    const other = await press(yes('d'));
+    expect(other).not.toBeNull();
+    expect(h.ask).not.toHaveBeenCalled();
+    // «Подтвердить» — сообщения нет вовсе.
+    inserted = { answer_id: '902', subject_date: DAY, notice_id: null, notice_state: null, notice_skip: null };
+    await press(yes('a'));
+    // Сообщение пропущено (заявка закрыта, своя проба, не адресат).
+    inserted = { answer_id: '903', subject_date: DAY, notice_id: '556', notice_state: 'skipped', notice_skip: 'self' };
+    await press(yes('n'));
+    // Повтор нажатия: вопросы уже ушли с первым.
+    inserted = { answer_id: null, subject_date: DAY, notice_id: null, notice_state: null, notice_skip: null };
+    await press(yes('n'));
+    expect(h.ask).not.toHaveBeenCalled();
+  });
+
+  it('вопросы идут рядом с сообщением человеку: нажатие ждёт дольшее из двух, а не их сумму', async () => {
+    vi.useFakeTimers();
+    try {
+      const later = <T,>(value: T, ms: number) => new Promise<T>((resolve) => setTimeout(() => resolve(value), ms));
+      h.deliver.mockImplementation(() => later({ state: 'delivered', via: 'max', dates: [] }, 10_000));
+      h.ask.mockImplementation(() => later('Одной другой компании задан вопрос.', 7_000));
+      let done: Awaited<ReturnType<typeof press>> | undefined;
+      const run = press(yes('n')).then((r) => { done = r; });
+      await vi.advanceTimersByTimeAsync(9_999);
+      expect(done).toBeUndefined();
+      await vi.advanceTimersByTimeAsync(2);
+      await run;
+      expect(done!.text).toContain('Туристу ушло сообщение в MAX: ваш ответ.\nОдной другой компании задан вопрос.');
+    } finally {
+      vi.useRealTimers();
+    }
   });
 
   it('строка «пропущено» — никуда не шлёт и называет причину', async () => {

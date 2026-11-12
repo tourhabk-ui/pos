@@ -17,7 +17,9 @@ import React from 'react';
 import { render, screen, cleanup, within } from '@testing-library/react';
 import { RequestOtherOffers, OTHER_OFFERS_FAILED_RU, sitePath, type OtherOffersBlock } from '@/components/requests/RequestOtherOffers';
 import { RequestStatusClient } from '@/app/request-status/_RequestStatusClient';
-import { OTHER_OFFERS_NOT_ANSWER_RU, otherOfferSeatsWords } from '@/lib/requests/other-offers-words';
+import {
+  OTHER_OFFERS_NOT_ANSWER_RU, OTHER_OFFERS_PARTLY_ANSWERED_RU, OTHER_OFFER_TOOK_RU, otherOfferSeatsWords, otherOffersNoteWords,
+} from '@/lib/requests/other-offers-words';
 import { OFFER_ORDER_NOTE_ON_DATE_RU } from '@/lib/tours/offer-order';
 import { touristAnswerText, type NoticeFacts } from '@/lib/requests/answer-notice-text';
 
@@ -77,6 +79,37 @@ describe('блок «другие компании»', () => {
     cleanup();
     render(<RequestOtherOffers block={{ ...LISTED, more_companies: 0 }} />);
     expect(screen.queryByText(/Ещё \d+ компан/)).not.toBeInTheDocument();
+  });
+
+  it('компания ответила «Беру» — так и сказано у её строки, и подпись под списком называет, где чьё слово', () => {
+    const block: OtherOffersBlock = {
+      ...LISTED,
+      offers: [{ ...LISTED.offers[0]!, said: null }, { ...LISTED.offers[1]!, said: 'take' }],
+    };
+    render(<RequestOtherOffers block={block} />);
+    const rows = screen.getAllByRole('listitem');
+    // Молчавшая — по календарю, как раньше.
+    expect(rows[0]!.textContent).toContain('В календаре на эту дату места на 3 чел. есть');
+    expect(rows[0]!.textContent).not.toContain('ответила Ведару');
+    // Ответившая — её словом, а не «расписания нет».
+    expect(rows[1]!.textContent).toContain('Компания ответила Ведару: возьмёт на эту дату (3 чел.).');
+    expect(rows[1]!.textContent).not.toContain('дату подтверждает оператор');
+    // Заявку человек по-прежнему оставляет сам — кнопка на месте.
+    expect(within(rows[1]!).getByRole('link', { name: /^Оставить заявку/ })).toHaveAttribute('href', FORM_B_PATH);
+    const section = screen.getByRole('region');
+    expect(within(section).getByText(OTHER_OFFERS_PARTLY_ANSWERED_RU)).toBeInTheDocument();
+    // «Это не ответ этих компаний» про ответившую было бы неправдой.
+    expect(within(section).queryByText(OTHER_OFFERS_NOT_ANSWER_RU)).not.toBeInTheDocument();
+    expect(OTHER_OFFERS_PARTLY_ANSWERED_RU).toContain('ещё не бронь');
+    expect(OTHER_OFFERS_PARTLY_ANSWERED_RU).toContain('имя и телефон получит только та компания, которой вы её оставите');
+  });
+
+  it('слова об ответе компании: число людей — только записанное; подпись выбирается по списку', () => {
+    expect(otherOfferSeatsWords('by_request', 2, 'take')).toBe(`${OTHER_OFFER_TOOK_RU} (2 чел.)`);
+    expect(otherOfferSeatsWords('calendar', null, 'take')).toBe(OTHER_OFFER_TOOK_RU);
+    expect(otherOfferSeatsWords('calendar', 2, null)).toBe(otherOfferSeatsWords('calendar', 2));
+    expect(otherOffersNoteWords(false)).toBe(OTHER_OFFERS_NOT_ANSWER_RU);
+    expect(otherOffersNoteWords(true)).toBe(OTHER_OFFERS_PARTLY_ANSWERED_RU);
   });
 
   it('число людей не записано — «места есть» без выдуманного числа', () => {
@@ -160,6 +193,18 @@ describe('блок «другие компании»', () => {
     expect(chat).toContain(otherOfferSeatsWords('calendar', 3));
     expect(chat).toContain(otherOfferSeatsWords('by_request', 3));
     expect(chat).toContain(OTHER_OFFERS_NOT_ANSWER_RU);
+    // Компания ответила «Беру» — чат говорит это теми же словами, что страница, и подпись другая.
+    const answered = touristAnswerText(f, { kind: 'skip' }, false, {
+      kind: 'offers', placeName: 'Вулкан Горелый', placeUrl: PLACE_URL, more: 0,
+      offers: [
+        { partnerName: 'А', tourId: '201', title: 'Горелый за день', price: null, seats: 'calendar', url: FORM_A, moreTours: 0, said: null },
+        { partnerName: 'Б', tourId: '202', title: 'К кратеру', price: null, seats: 'by_request', url: FORM_B, moreTours: 0, said: 'take' },
+      ],
+    }).text;
+    expect(answered).toContain(otherOfferSeatsWords('by_request', 3, 'take'));
+    expect(answered).toContain(otherOfferSeatsWords('calendar', 3));
+    expect(answered).toContain(OTHER_OFFERS_PARTLY_ANSWERED_RU);
+    expect(answered).not.toContain(OTHER_OFFERS_NOT_ANSWER_RU);
   });
 });
 

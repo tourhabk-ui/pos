@@ -21,8 +21,8 @@
 
 import { OFFER_ORDER_NOTE_ON_DATE_RU } from '@/lib/tours/offer-order';
 import {
-  OTHER_OFFERS_NOT_ANSWER_RU, otherOfferMoreToursWords, otherOfferSeatsWords, otherOffersMoreCompaniesWords,
-  type OtherOfferSeats,
+  otherOfferMoreToursWords, otherOfferSeatsWords, otherOffersMoreCompaniesWords, otherOffersNoteWords,
+  type OtherOfferSaid, type OtherOfferSeats,
 } from '@/lib/requests/other-offers-words';
 
 export interface OtherOffersBlock {
@@ -39,6 +39,8 @@ export interface OtherOffersBlock {
     seats: OtherOfferSeats;
     url: string;
     more_tours: number;
+    /** Компания сама ответила Ведару «Беру» (этап 4б); нет поля — не отвечала. */
+    said?: OtherOfferSaid;
   }>;
   more_companies: number;
 }
@@ -106,7 +108,7 @@ export function RequestOtherOffers({ block }: { block: OtherOffersBlock | null |
                 <p className="text-sm font-semibold text-[var(--text-primary)]">{i + 1}. {o.company}</p>
                 <p className="text-sm text-[var(--text-secondary)]">Тур «{o.tour}» · {o.price ?? 'цена не указана'}</p>
                 <p className="text-sm text-[var(--text-secondary)]">
-                  {capitalized(otherOfferSeatsWords(o.seats, block.participants))}{more ? `; ${more}` : ''}.
+                  {capitalized(otherOfferSeatsWords(o.seats, block.participants, o.said ?? null))}{more ? `; ${more}` : ''}.
                 </p>
               </div>
               {href && (
@@ -124,7 +126,7 @@ export function RequestOtherOffers({ block }: { block: OtherOffersBlock | null |
           <a href={placeHref} className="text-[var(--ocean)] hover:underline">на странице места</a>.
         </p>
       )}
-      <p className="text-xs text-[var(--text-muted)]">{OTHER_OFFERS_NOT_ANSWER_RU}</p>
+      <p className="text-xs text-[var(--text-muted)]">{otherOffersNoteWords(block.offers.some((o) => o.said === 'take'))}</p>
       <p className="text-xs text-[var(--text-muted)]">{OFFER_ORDER_NOTE_ON_DATE_RU}</p>
     </section>
   );

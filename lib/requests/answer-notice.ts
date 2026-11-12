@@ -564,7 +564,8 @@ async function offersOf(r: NoticeRow, f: NoticeFacts, deps: NoticeDeps): Promise
   if (!Number.isFinite(tourId) || !r.lead_date) return { kind: 'skip' };
   if (r.lead_date < kamchatkaToday((deps.now ?? Date.now)())) return { kind: 'skip' };
   const run = await inTime(
-    (deps.otherOffers ?? loadOtherOffers)({ tourId, date: r.lead_date, people: f.people ?? 1 }, { now: new Date((deps.now ?? Date.now)()) }),
+    // С заявкой: компании, уже ответившие на вопрос Ведара (4б), — «Не могу» из списка уходит, «Беру» названо.
+    (deps.otherOffers ?? loadOtherOffers)({ tourId, date: r.lead_date, people: f.people ?? 1, leadId: r.lead_id }, { now: new Date((deps.now ?? Date.now)()) }),
     NOTICE_OFFERS_TIMEOUT_MS,
   );
   if (!run.ok) {
@@ -599,7 +600,8 @@ async function sendInTime(p: Promise<SendResult>): Promise<SendResult> {
   return r.ok ? r.value : { ok: false, code: r.why };
 }
 
-async function defaultSendMax(chatId: string, text: string, buttons: Button[]): Promise<SendResult> {
+/** Сообщение человеку в его MAX. Экспорт — тем же путём идёт «компания ответила: возьмёт» (lib/requests/offer-asks). */
+export async function defaultSendMax(chatId: string, text: string, buttons: Button[]): Promise<SendResult> {
   const { maxSendDm } = await import('@/lib/notifications/max-channel');
   const r = await maxSendDm(chatId, text, buttons.length > 0 ? { buttons } : undefined);
   if (r.ok) return { ok: true };
@@ -608,7 +610,8 @@ async function defaultSendMax(chatId: string, text: string, buttons: Button[]): 
   return { ok: false, code: e.includes('MAX_BOT_TOKEN') ? 'no_token' : e === 'invalid chat_id' ? 'bad_id' : 'api_error' };
 }
 
-async function defaultSendTelegram(chatId: string, text: string, buttons: Button[]): Promise<SendResult> {
+/** Сообщение человеку в его Telegram — тем же путём, что сообщение об отказе. */
+export async function defaultSendTelegram(chatId: string, text: string, buttons: Button[]): Promise<SendResult> {
   const { telegramService } = await import('@/lib/notifications/telegram');
   const r = await telegramService.sendMessage({
     chatId, text, parseMode: 'HTML',

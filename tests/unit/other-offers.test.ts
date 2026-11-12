@@ -20,7 +20,9 @@ import { describe, expect, it, vi } from 'vitest';
 
 vi.mock('@/lib/db-pool', () => ({ pool: { query: () => Promise.reject(new Error('база в этом тесте не зовётся')) } }));
 
-import { OTHER_OFFERS_MAX, OTHER_OFFERS_TOUR_SQL, isOtherCompanyOffer, loadOtherOffers, pickOtherOffers } from '@/lib/requests/other-offers';
+import {
+  OTHER_OFFERS_ANSWERS_SQL, OTHER_OFFERS_MAX, OTHER_OFFERS_TOUR_SQL, isOtherCompanyOffer, loadAskAnswers, loadOtherOffers, pickOtherOffers,
+} from '@/lib/requests/other-offers';
 import type { PlaceTourOffer, PlaceToursResult } from '@/lib/places/place-tours';
 import { OFFER_ORDER_NOTE_ON_DATE_RU, companyLot } from '@/lib/tours/offer-order';
 
@@ -153,6 +155,139 @@ describe('список — по компаниям, порядок — прав�
     expect(OFFER_ORDER_NOTE_ON_DATE_RU).toContain('сначала те, у кого в календаре есть места на эту дату');
     expect(OFFER_ORDER_NOTE_ON_DATE_RU).toContain('жребий дня');
     expect(OFFER_ORDER_NOTE_ON_DATE_RU.endsWith('Место в списке не продаётся.')).toBe(true);
+  });
+});
+
+describe('ответы компаний на вопрос «возьмёте?» (этап 4б)', () => {
+  const LEAD = '11111111-1111-4111-8111-111111111111';
+  const five = () => Array.from({ length: OTHER_OFFERS_MAX + 2 }, (_, i) => offer({ id: String(300 + i), partnerId: `p-${i}`, partnerName: `К${i}` }));
+
+  it('«Не могу» — компании в списке этой заявки нет, со всеми её турами; порядок остальных прежний', () => {
+    const offers = [
+      offer({ id: '11', partnerId: 'p-a', partnerName: 'А' }),
+      offer({ id: '12', partnerId: 'p-a', partnerName: 'А', title: 'Её второй' }),
+      offer({ id: '21', partnerId: 'p-b', partnerName: 'Б' }),
+      offer({ id: '31', partnerId: 'p-c', partnerName: 'В', keepsSchedule: false, hasDatesByRequest: true }),
+    ];
+    const before = pick(offers, ['11', '12', '21']).offers.map((o) => o.partnerName);
+    const after = pick(offers, ['11', '12', '21'], { declined: new Set(['p-a']) }).offers.map((o) => o.partnerName);
+    expect(before).toContain('А');
+    expect(after).toEqual(before.filter((n) => n !== 'А'));
+  });
+
+  it('«Беру» — компания названа с ответом и тем туром, о котором её спрашивали; молчавшие — без ответа', () => {
+    const offers = [
+      offer({ id: '11', partnerId: 'p-a', partnerName: 'А', title: 'Первый' }),
+      offer({ id: '12', partnerId: 'p-a', partnerName: 'А', title: 'О нём спрашивали' }),
+      offer({ id: '21', partnerId: 'p-b', partnerName: 'Б' }),
+    ];
+    for (const asked of ['11', '12']) {
+      const r = pick(offers, ['11', '12', '21'], { took: new Map([['p-a', asked]]) });
+      const a = r.offers.find((o) => o.partnerName === 'А')!;
+      expect([a.tourId, a.said, a.moreTours]).toEqual([asked, 'take', 1]);
+      expect(r.offers.find((o) => o.partnerName === 'Б')!.said).toBeNull();
+    }
+    // Без ответов поле есть у каждой строки и пусто.
+    expect(pick(offers, ['11', '12', '21']).offers.map((o) => o.said)).toEqual([null, null]);
+  });
+
+  it('«Беру» сильнее пустого календаря и сезона, но не закрытой даты', () => {
+    const full = offer({ id: '41', partnerId: 'p-full', partnerName: 'Календарь без мест' });
+    const season = offer({ id: '42', partnerId: 'p-season', partnerName: 'Вне сезона', keepsSchedule: false, hasDatesByRequest: true, seasonStart: '2027-06-01', seasonEnd: '2027-09-30' });
+    const closed = offer({ id: '43', partnerId: 'p-closed', partnerName: 'Дата закрыта', keepsSchedule: false, hasDatesByRequest: true });
+    const took = new Map([['p-full', '41'], ['p-season', '42'], ['p-closed', '43']]);
+    // Без ответа ни один из трёх не называется.
+    expect(pick([full, season, closed], [], { closed: new Set(['43']) }).offers).toEqual([]);
+    const r = pick([full, season, closed], [], { closed: new Set(['43']), took });
+    expect(r.offers.map((o) => [o.partnerName, o.said, o.seats]).sort()).toEqual([
+      ['Вне сезона', 'take', 'by_request'],
+      // Календарь мест не показывает — «места есть» по календарю не говорится: сказано только слово компании.
+      ['Календарь без мест', 'take', 'by_request'],
+    ]);
+  });
+
+  it('ответ про один тур не называет «Беру» у другого тура той же компании', () => {
+    // Тур, о котором спрашивали, из «Туров к месту» ушёл — у компании остался другой, с местами.
+    const r = pick([offer({ id: '52', partnerId: 'p-a', partnerName: 'А' })], ['52'], { took: new Map([['p-a', '51']]) });
+    expect(r.offers.map((o) => [o.tourId, o.said])).toEqual([['52', null]]);
+  });
+
+  it('предел списка ответившую «Беру» не срезает, а порядок от ответов не меняется', () => {
+    const offers = five();
+    const free = offers.map((o) => o.id);
+    const plain = pick(offers, free);
+    expect(plain.offers).toHaveLength(OTHER_OFFERS_MAX);
+    const order = [...offers].sort((x, y) => companyLot(DAY, x.partnerId) - companyLot(DAY, y.partnerId)).map((o) => o.partnerName);
+    const last = [...offers].sort((x, y) => companyLot(DAY, x.partnerId) - companyLot(DAY, y.partnerId)).at(-1)!;
+    const r = pick(offers, free, { took: new Map([[last.partnerId, last.id]]) });
+    // Первые пять — те же и в том же порядке; ответившая — следом, на своём месте по жребию.
+    expect(r.offers.map((o) => o.partnerName)).toEqual([...order.slice(0, OTHER_OFFERS_MAX), last.partnerName]);
+    expect(r.offers.at(-1)!.said).toBe('take');
+    expect(r.more).toBe(1);
+    // Ответившая в первой пятёрке места не меняет.
+    const first = offers.find((o) => o.partnerName === order[2])!;
+    expect(pick(offers, free, { took: new Map([[first.partnerId, first.id]]) }).offers.map((o) => o.partnerName)).toEqual(order.slice(0, OTHER_OFFERS_MAX));
+  });
+
+  it('чтение со своей заявкой спрашивает ответы; без заявки — не спрашивает', async () => {
+    const TOUR_ROW = { operator_id: 'p-refused', place_id: 'pl-1', place_name: 'Вулкан Горелый', place_slug: 'gorely', place_ark_id: null };
+    const deps = (answers: ReturnType<typeof vi.fn>) => ({
+      query: vi.fn(async () => ({ rows: [TOUR_ROW] })),
+      placeTours: vi.fn(async (): Promise<PlaceToursResult> => ({ state: 'ok', day: DAY, offers: [
+        offer({ id: '100', partnerId: 'p-refused' }),
+        offer({ id: '201', partnerId: 'p-b', partnerName: 'Б' }),
+        offer({ id: '202', partnerId: 'p-c', partnerName: 'В', keepsSchedule: false, hasDatesByRequest: true }),
+      ] })),
+      onDate: vi.fn(async () => ({ state: 'ok' as const, free: new Set(['201']), closed: new Set<string>() })),
+      answers,
+      now: new Date('2026-11-12T03:00:00Z'),
+    });
+    const said = vi.fn(async () => ({ state: 'ok' as const, declined: new Set(['p-b']), took: new Map([['p-c', '202']]) }));
+    const withLead = await loadOtherOffers({ tourId: 100, date: DATE, people: 2, leadId: LEAD }, deps(said));
+    expect(said).toHaveBeenCalledWith(LEAD, DATE);
+    if (withLead.state !== 'ok') throw new Error('ожидался список');
+    expect(withLead.offers.map((o) => [o.partnerName, o.said])).toEqual([['В', 'take']]);
+
+    const silent = vi.fn(async () => ({ state: 'ok' as const, declined: new Set<string>(), took: new Map<string, string>() }));
+    const noLead = await loadOtherOffers({ tourId: 100, date: DATE, people: 2 }, deps(silent));
+    expect(silent).not.toHaveBeenCalled();
+    if (noLead.state !== 'ok') throw new Error('ожидался список');
+    expect(noLead.offers.map((o) => [o.partnerName, o.said])).toEqual([['Б', null], ['В', null]]);
+
+    // Все ответили «Не могу» — называть некого.
+    const all = vi.fn(async () => ({ state: 'ok' as const, declined: new Set(['p-b', 'p-c']), took: new Map<string, string>() }));
+    expect(await loadOtherOffers({ tourId: 100, date: DATE, people: 2, leadId: LEAD }, deps(all))).toEqual({ state: 'none' });
+
+    // Ответы не прочитались — «не прочиталось», а не список, где названа отказавшаяся.
+    const broken = vi.fn(async () => ({ state: 'failed' as const }));
+    expect(await loadOtherOffers({ tourId: 100, date: DATE, people: 2, leadId: LEAD }, deps(broken))).toEqual({ state: 'failed' });
+  });
+
+  it('ответы читаются по заявке и дате; вопрос без ответа список не меняет; отказ базы — «не прочиталось»', async () => {
+    const q = vi.fn(async (sql: string, params?: unknown[]) => {
+      expect(sql).toBe(OTHER_OFFERS_ANSWERS_SQL);
+      expect(params).toEqual([LEAD, DATE]);
+      return { rows: [
+        { partner_id: 'p-b', tour_id: '201', answer: 'decline' },
+        { partner_id: 'p-c', tour_id: '202', answer: 'take' },
+        // Строка без ответа или с незнакомым словом — не «Беру» и не «Не могу».
+        { partner_id: 'p-d', tour_id: '203', answer: null as unknown as string },
+        { partner_id: 'p-e', tour_id: '204', answer: 'maybe' },
+      ] };
+    });
+    const r = await loadAskAnswers(LEAD, DATE, q);
+    if (r.state !== 'ok') throw new Error('ожидались ответы');
+    expect([...r.declined]).toEqual(['p-b']);
+    expect([...r.took]).toEqual([['p-c', '202']]);
+    // Запрос берёт только отвеченные вопросы этой заявки на эту дату.
+    expect(OTHER_OFFERS_ANSWERS_SQL).toContain('a.answer IS NOT NULL');
+    expect(OTHER_OFFERS_ANSWERS_SQL).toContain('a.lead_id = $1::uuid AND a.ask_date = $2::date');
+
+    const spy = vi.spyOn(console, 'error').mockImplementation(() => {});
+    const down = vi.fn(async () => { throw Object.assign(new Error('db'), { code: '57P01' }); });
+    expect(await loadAskAnswers(LEAD, DATE, down)).toEqual({ state: 'failed' });
+    expect(spy.mock.calls.flat().map((x) => JSON.stringify(x)).join(' ')).toContain('57P01');
+    spy.mockRestore();
   });
 });
 

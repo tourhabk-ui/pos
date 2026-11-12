@@ -1184,7 +1184,8 @@ describe('другие компании к месту на дату (этап 4�
     const o = await deliverAnswerNotice('501', at());
     expect(o).toEqual({ state: 'delivered', via: 'max', dates: ['2027-01-14', '2027-01-18'], offers: 2 });
     // Читается по туру, дате и числу людей заявки — имени и телефона среди аргументов нет.
-    expect(otherOffers.mock.calls[0]![0]).toEqual({ tourId: 42, date: '2027-01-15', people: 3 });
+    // Номер заявки — чтобы список знал ответы компаний на вопрос Ведара (4б); имени и телефона в чтении нет.
+    expect(otherOffers.mock.calls[0]![0]).toEqual({ tourId: 42, date: '2027-01-15', people: 3, leadId: LEAD });
     const text = sendMax.mock.calls[0]![1] as string;
     const lines = text.split('\n');
     const head = lines.indexOf('<b>К месту «Вулкан &lt;Горелый&gt;» на 15.01.2027 — другие компании</b>');

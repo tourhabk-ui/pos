@@ -31,6 +31,14 @@
  *    — ссылка на форму тура с подставленными датой и числом людей, и заявку
  *    другой компании человек оставляет сам, со своим согласием.
  *
+ * С этапа 4б компаниям из списка Ведар задаёт вопрос «возьмёте на эту дату?»
+ * (lib/requests/offer-asks) — без имени и телефона человека. Ответы читаются
+ * здесь же, по заявке: компания, ответившая «Не могу», из списка этой заявки
+ * уходит; ответившая «Беру» названа с этим ответом и тем туром, о котором её
+ * спрашивали, — даже если её календарь мест не показывает (календарь — не
+ * слово компании). Закрытая дата сильнее ответа: такой тур не называется.
+ * Порядок списка от ответов не меняется — правило одно.
+ *
  * Три исхода (§4.0): есть / нет / «не прочиталось». Третий не выдаётся за
  * второй — вызывающий решает, что с ним делать (в сообщении блока просто нет,
  * отказ записан в лог).
@@ -53,6 +61,8 @@ export const OTHER_OFFERS_MAX = 5;
 
 /** Строка списка: компания и её первый по правилу 1в тур, который может принять на дату. */
 export interface OtherOffer {
+  /** Карточка компании — кому задать вопрос «возьмёте?» (этап 4б). Наружу — человеку, агенту, в письмо — не отдаётся. */
+  partnerId: string;
   partnerName: string;
   tourId: string;
   title: string;
@@ -67,7 +77,17 @@ export interface OtherOffer {
   url: string;
   /** Сколько ещё туров этой компании к месту могут принять на дату. */
   moreTours: number;
+  /**
+   * Компания ответила Ведару «Беру» на вопрос по этой заявке и этому туру
+   * (этап 4б); null — не отвечала, не спрашивали или список собран без заявки.
+   */
+  said: 'take' | null;
 }
+
+/** Ответы компаний на вопрос по заявке: кто отказался и кто берёт (и каким туром). */
+export type AskAnswers =
+  | { state: 'ok'; declined: Set<string>; took: Map<string, string> }
+  | { state: 'failed' };
 
 export type OtherOffers =
   | {
@@ -86,7 +106,38 @@ export interface OtherOffersDeps {
   query?: (sql: string, params?: unknown[]) => Promise<{ rows: unknown[] }>;
   placeTours?: (placePk: string, opts?: { now?: Date }) => Promise<PlaceToursResult>;
   onDate?: (tourIds: readonly string[], date: string, people: number) => Promise<ToursOnDate>;
+  answers?: (leadId: string, date: string) => Promise<AskAnswers>;
   now?: Date;
+}
+
+/**
+ * Ответы компаний на вопрос «возьмёте?» по этой заявке и этой дате (1433).
+ * Вопрос без ответа сюда не входит: молчание списка не меняет.
+ */
+export const OTHER_OFFERS_ANSWERS_SQL = `
+  SELECT a.partner_id::text AS partner_id, a.tour_id::text AS tour_id, a.answer
+    FROM other_offer_asks a
+   WHERE a.lead_id = $1::uuid AND a.ask_date = $2::date AND a.answer IS NOT NULL`;
+
+/** Не прочиталось — `failed`: список без ответов назвал бы компанию, которая уже сказала «Не могу». */
+export async function loadAskAnswers(
+  leadId: string, date: string,
+  q: NonNullable<OtherOffersDeps['query']> = (sql, params) => pool.query(sql, params),
+): Promise<AskAnswers> {
+  try {
+    const rows = (await q(OTHER_OFFERS_ANSWERS_SQL, [leadId, date])).rows as Array<{ partner_id: string; tour_id: string; answer: string }>;
+    const declined = new Set<string>();
+    const took = new Map<string, string>();
+    for (const r of rows) {
+      if (r.answer === 'decline') declined.add(r.partner_id);
+      else if (r.answer === 'take') took.set(r.partner_id, r.tour_id);
+    }
+    return { state: 'ok', declined, took };
+  } catch (err) {
+    const code = (err as { code?: unknown })?.code;
+    console.error('[other-offers] ответы компаний на вопрос не прочитаны', { sqlstate: typeof code === 'string' ? logText(code, 10) : null });
+    return { state: 'failed' };
+  }
 }
 
 /**
@@ -140,25 +191,40 @@ export function pickOtherOffers(args: {
   people: number;
   day: string;
   base: string;
+  /** Компании, ответившие «Не могу» на вопрос по этой заявке (этап 4б). */
+  declined?: ReadonlySet<string>;
+  /** Компании, ответившие «Беру»: карточка → тур, о котором спрашивали. */
+  took?: ReadonlyMap<string, string>;
 }): { offers: OtherOffer[]; more: number } {
+  const declined = args.declined ?? new Set<string>();
+  const took = args.took ?? new Map<string, string>();
+  const saidTake = (o: Pick<PlaceTourOffer, 'id' | 'partnerId'>) => took.get(o.partnerId) === o.id;
+  const inCalendar = (o: Pick<PlaceTourOffer, 'id' | 'keepsSchedule'>) => o.keepsSchedule && args.free.has(o.id);
   const able = args.offers
     .filter((o) => isOtherCompanyOffer(o, args.refusedTourId, args.refusedPartnerId))
-    .filter((o) => (o.keepsSchedule ? args.free.has(o.id) : !args.closed.has(o.id) && inSeason(o, args.date)))
+    // «Не могу» — слово самой компании об этой заявке: её туров в списке нет.
+    .filter((o) => !declined.has(o.partnerId))
+    // Закрытая дата не называется никогда; «Беру» сильнее пустого календаря и сезона.
+    .filter((o) => !args.closed.has(o.id) && (saidTake(o) || (o.keepsSchedule ? args.free.has(o.id) : inSeason(o, args.date))))
     // Ключ правила 1в: «ближайшая свободная дата» здесь — дата заявки, если календарь её подтверждает.
-    .map((o) => ({ ...o, nearestFreeDate: o.keepsSchedule ? args.date : null }));
+    .map((o) => ({ ...o, nearestFreeDate: inCalendar(o) ? args.date : null }));
   const companies = groupOffersByCompany(able, { day: args.day });
-  const shown = companies.slice(0, OTHER_OFFERS_MAX);
+  // Предел списка ответившую «Беру» не срезает: её ответ человек обязан увидеть. Порядок прежний.
+  const shown = companies.filter((g, i) => i < OTHER_OFFERS_MAX || g.tours.some(saidTake));
   return {
     offers: shown.map((g) => {
-      const o = g.tours[0]!;
+      // Компания ответила про конкретный тур — он и назван, а не первый по жребию.
+      const o = g.tours.find(saidTake) ?? g.tours[0]!;
       return {
+        partnerId: g.partnerId,
         partnerName: g.partnerName,
         tourId: o.id,
         title: o.title,
         price: priceWithUnitWords(o.basePrice, o.priceUnit),
-        seats: o.keepsSchedule ? 'calendar' as const : 'by_request' as const,
+        seats: inCalendar(o) ? 'calendar' as const : 'by_request' as const,
         url: `${args.base}${tourBookingFormPath({ id: o.id, slug: o.slug }, args.date, args.people)}`,
         moreTours: g.tours.length - 1,
+        said: saidTake(o) ? 'take' as const : null,
       };
     }),
     more: companies.length - shown.length,
@@ -170,7 +236,7 @@ export function pickOtherOffers(args: {
  * принять `people` человек на `date`.
  */
 export async function loadOtherOffers(
-  args: { tourId: number | string; date: string; people: number },
+  args: { tourId: number | string; date: string; people: number; leadId?: string | null },
   deps: OtherOffersDeps = {},
 ): Promise<OtherOffers> {
   const tourId = String(args.tourId);
@@ -202,10 +268,16 @@ export async function loadOtherOffers(
   const onDate = await (deps.onDate ?? loadToursOnDate)(others.map((o) => o.id), args.date, people);
   if (onDate.state === 'failed') return { state: 'failed' };
 
+  // Ответы компаний на вопрос по этой заявке (4б). Список без заявки (первое сообщение — вопросов ещё нет) их не читает.
+  const answers: AskAnswers = args.leadId
+    ? await (deps.answers ?? ((leadId, date) => loadAskAnswers(leadId, date, q)))(args.leadId, args.date)
+    : { state: 'ok', declined: new Set(), took: new Map() };
+  if (answers.state === 'failed') return { state: 'failed' };
+
   const base = getPublicBaseUrl();
   const picked = pickOtherOffers({
     offers: others, free: onDate.free, closed: onDate.closed, refusedTourId: tourId, refusedPartnerId,
-    date: args.date, people, day: offerOrderDay(now), base,
+    date: args.date, people, day: offerOrderDay(now), base, declined: answers.declined, took: answers.took,
   });
   if (picked.offers.length === 0) return { state: 'none' };
   return {

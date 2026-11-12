@@ -9,6 +9,7 @@ import { odOpen } from '@/lib/operators/chat-dates/flow';
 import {
   adminAnswerPayload, adminBookingConfirmPayload, adminLeadPayload, adminOpenBookingPayload, adminOpenLeadPayload, adminTourPayload,
 } from '@/lib/max/admin-actions';
+import { offerAskButtons } from '@/lib/requests/offer-asks-text';
 
 const UUID = '0f13cf25-e5a5-461f-a979-9d65e232a6d8';
 const NOW = Date.parse('2026-11-10T00:00:00Z');
@@ -57,6 +58,8 @@ describe('signed write buttons', () => {
       adminLeadPayload('contacted', UUID), adminLeadPayload('lost', UUID),
       adminAnswerPayload(true, UUID), adminAnswerPayload(false, UUID), adminTourPayload(UUID, 7),
       adminBookingConfirmPayload('9223372036854775807'),
+      // «Беру» / «Не могу» на вопрос Ведара другой компании (этап 4б) — самый длинный номер вопроса.
+      ...offerAskButtons('999999999999999999').map((b) => b.payload),
     ];
     for (const p of all) {
       expect(isWritePayload(p.split('~')[0]!)).toBe(true);
