@@ -2085,6 +2085,24 @@ withPg('переписка по заявке на настоящем PostgreSQL'
       expect(sent.dm[0]!.text).not.toMatch(/Нина|79995550941/);
       expect(operatorOutcomeLine(o)).toContain('Ещё туристу названы 2 другие компании с турами к этому месту на эту дату');
 
+      // Статус той же заявки (4а-2): ИИ-агент и страница заявки читают тех же компаний тем же порядком.
+      const view = await status.readRequestStatus(key!.key, { reader: 'agent' });
+      expect(view.state).toBe('declined');
+      expect(view.other_offers).toMatchObject({ state: 'listed', place: 'Мыс 4а <дальний>', date: D, participants: 2, more_companies: 0 });
+      expect(view.other_offers!.offers.map((x) => [x.company, x.seats, x.more_tours])).toEqual([
+        ['Берёт по календарю & Ко', 'calendar', 1],
+        ['По заявке 4а', 'by_request', 0],
+      ]);
+      expect([String(tB), String(tB2)]).toContain(view.other_offers!.offers[0]!.tour_id);
+      expect(view.other_offers!.offers[1]!.tour_id).toBe(String(tC));
+      expect(view.other_offers!.offers[0]!.url).toMatch(new RegExp(`\\?date=${D}&guests=2#booking$`));
+      expect(view.other_offers!.how).toContain('create_booking_request');
+      expect(JSON.stringify(view.other_offers)).not.toMatch(/Нина|79995550941|Отказавшая/);
+      // Страница заявки — тот же список, без слов для агента.
+      const { pageOtherOffers } = await import('@/lib/requests/other-offers-status');
+      expect(pageOtherOffers((await status.readRequestStatus(key!.key, { reader: 'page', seen: true })).other_offers))
+        .toEqual((({ how: _how, ...rest }) => rest)(view.other_offers!));
+
       // Отказ по погоде на той же схеме: других компаний к тому же месту в тот же день не называем.
       const lead2 = (await leads.createLeadDetailed({
         name: 'Олег Четвёртый', phone: '+79995550942', comment: `[Заявка на бронь] Тур "Мыс 4а — её второй тур" (ID${tA2}), дата ${D}, участников 2.`,
@@ -2104,6 +2122,10 @@ withPg('переписка по заявке на настоящем PostgreSQL'
       expect(o2).toMatchObject({ state: 'delivered', via: 'max' });
       expect(o2).not.toHaveProperty('offers');
       expect(sent.dm[0]!.text).not.toContain('другие компании');
+      // И в статусе этой заявки списка нет: после отказа по погоде замену проверяют, а не перечисляют.
+      const view2 = await status.readRequestStatus(key2!.key, { reader: 'agent' });
+      expect(view2.state).toBe('declined');
+      expect(view2.other_offers).toBeNull();
 
       await pool.query(`DELETE FROM tour_availability WHERE operator_tour_id = ANY($1::bigint[])`, [[tA, tA2, tB, tB1, tB2, tD, tE, tF, tH, tI]]);
     });

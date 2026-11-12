@@ -206,8 +206,10 @@ describe('чтение состояния', () => {
     const obj = JSON.parse(text) as Record<string, unknown>;
     expect(Object.keys(obj).sort()).toEqual([
       'accommodation', 'accommodation_url', 'alt_date', 'check_out', 'consent', 'consent_purpose', 'date', 'deadline',
-      'human', 'kind', 'max_link', 'next', 'notify', 'page', 'participants', 'partner_last_reply_at', 'partner_replies', 'requested_date', 'state', 'tour',
+      'human', 'kind', 'max_link', 'next', 'notify', 'other_offers', 'page', 'participants', 'partner_last_reply_at', 'partner_replies', 'requested_date', 'state', 'tour',
     ]);
+    // Вид не из отказа туроператора — о других компаниях речи нет (4а).
+    expect(obj.other_offers).toBeNull();
     // Подписки на уведомления не заводилось — null, а не выдуманная (1348).
     expect(obj.notify).toBeNull();
     // Каждое поле ответа объявлено в схеме — агент не получает необъявленного.

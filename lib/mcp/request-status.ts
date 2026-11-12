@@ -76,6 +76,7 @@ import { notifyLeadHumanConfirmedQuietly } from '@/lib/notifications/lead-human-
 import { guestBotLink } from '@/lib/requests/request-chat';
 import { logText } from '@/lib/log/log-text';
 import { isTestKey, testKeyStatus } from '@/lib/mcp/test-run';
+import type { RequestOtherOffers } from '@/lib/requests/other-offers-status';
 import { effectiveStatus, type SeatRequestStatus, type FailureKind } from '@/lib/seat-requests/core';
 import {
   REQUEST_KEY_MIN_CHARS, REQUEST_KEY_MAX_CHARS, REQUEST_STATES, ADDRESSEE_WORDS, capitalized, publicDisabledReason,
@@ -298,6 +299,12 @@ export interface RequestStatusView {
   max_link: string | null;
   /** Подписка на уведомления этой заявки (1348): null — не заводилась или уже удалена. */
   notify: RequestNotifyStatus | null;
+  /**
+   * Другие компании к тому же месту на дату заявки после отказа туроператора
+   * (4а): названы, не найдены или не прочитались. null — вид не из такого
+   * отказа. Читается отдельно от вида (база), поэтому в `RequestCore` его нет.
+   */
+  other_offers: RequestOtherOffers | null;
 }
 
 /**
@@ -397,6 +404,14 @@ export interface StatusRow {
    */
   lead_lost_reason?: string | null;
   lead_closed_id?: string | null;
+  /**
+   * Тур заявки (номер каталога по `source_data.tour_id`) и число людей в ней —
+   * для «других компаний к месту на дату» (4а, lib/requests/other-offers-status).
+   * Людей — до трёх знаков, как читает сообщение человеку: `lead_participants`
+   * (два знака) группу в 100 человек не видит.
+   */
+  lead_tour_id?: string | null;
+  lead_people?: number | null;
 }
 
 /**
@@ -915,6 +930,11 @@ const REQUEST_STATUS_SELECT = `
   SELECT k.id::text AS key_id, k.tool_name, k.lead_id::text, k.seat_request_id::text, k.stay_request_id::text,
          l.status AS lead_status, l.route_title, l.source_data->>'date' AS lead_requested_date,
          CASE WHEN l.source_data->>'participants' ~ '^[0-9]{1,2}$' THEN (l.source_data->>'participants')::int END AS lead_participants, lt.title AS lead_tour,
+         -- Тур и число людей заявки — для «других компаний на дату» (4а): то же
+         -- чтение, что у сообщения человеку (NOTICE_FACTS_SQL), иначе чат и статус
+         -- одной заявки считали бы места на разное число людей.
+         lt.id::text AS lead_tour_id,
+         CASE WHEN l.source_data->>'participants' ~ '^[0-9]{1,3}$' THEN (l.source_data->>'participants')::int END AS lead_people,
          ob.booking_status, ob.booking_date::text AS booking_date, ob.participants AS booking_participants, ot.title AS booking_tour,
          r.status AS seat_status, r.deadline_at, r.answered_at, r.tour_date::text AS seat_date,
          r.participants AS seat_participants, r.alt_date::text AS alt_date, r.failure_kind, st.title AS seat_tour,
@@ -1067,7 +1087,7 @@ function dateChangeNote(requested: string | null, actual: string | null): string
  * уведомлений. Ссылки с ключом (страница, MAX) — только в ответе по ключу:
  * сырого ключа у сверки нет и быть не должно.
  */
-export type RequestCore = Omit<RequestStatusView, 'page' | 'notify' | 'max_link'>;
+export type RequestCore = Omit<RequestStatusView, 'page' | 'notify' | 'max_link' | 'other_offers'>;
 
 /** Переписки у запроса мест нет: поля есть, значения null. */
 const NO_CHAT = { partner_replies: null, partner_last_reply_at: null } as const;
@@ -1286,6 +1306,14 @@ export async function readRequestStatus(rawKey: unknown, opts: StatusReader = {}
     const { markShownRef } = await import('@/lib/requests/answer-notice-mark');
     await markShownRef(shown, via);
   }
+  // Другие компании к месту на дату (4а): только у вида-отказа, поэтому модуль
+  // (и его чтение базы) подгружается, когда он нужен. Вид важнее списка — тот
+  // не бросает: не прочитался — `failed`.
+  let other_offers: RequestOtherOffers | null = null;
+  if (core.kind === 'lead' && core.state === 'declined') {
+    const { readStatusOtherOffers } = await import('@/lib/requests/other-offers-status');
+    other_offers = await readStatusOtherOffers(row, core);
+  }
   return {
     ...core,
     page: requestStatusPageUrl(key),
@@ -1293,6 +1321,7 @@ export async function readRequestStatus(rawKey: unknown, opts: StatusReader = {}
     // только здесь. Переписка по ключу открыта — partner_replies не null.
     max_link: core.partner_replies !== null && row.chat_guest_on_max !== true ? guestBotLink(maxBot(), key) : null,
     notify: notifyStatusOf(row),
+    other_offers,
   };
 }
 

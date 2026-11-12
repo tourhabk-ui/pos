@@ -48,6 +48,9 @@ import type { DateCheck } from '@/lib/trips/date-check';
 import { PLACE_COLOR_WORD } from '@/lib/safety/place-day-status';
 import { OFFER_ORDER_NOTE_ON_DATE_RU } from '@/lib/tours/offer-order';
 import { plural } from '@/lib/home/data-freshness';
+import {
+  OTHER_OFFERS_NOT_ANSWER_RU, otherOfferMoreToursWords, otherOfferSeatsWords, otherOffersMoreCompaniesWords,
+} from '@/lib/requests/other-offers-words';
 
 export type NoticeAnswer = 'no_seats' | 'decline' | 'other_date';
 
@@ -402,12 +405,8 @@ function clip(text: string, max: number): string {
 function offersText(f: NoticeFacts, o: Extract<OffersBlock, { kind: 'offers' }>, count: number): string {
   const on = f.date ? ` на ${ruDay(f.date)}` : '';
   const lines = o.offers.slice(0, count).map((x, i) => {
-    const seats = x.seats === 'calendar'
-      ? `в календаре на эту дату места${f.people ? ` на ${f.people} чел.` : ''} есть`
-      : 'расписания на Ведаре нет — дату подтверждает оператор';
-    const more = x.moreTours > 0
-      ? `; у компании к этому месту ещё ${x.moreTours} ${plural(x.moreTours, 'тур', 'тура', 'туров')}`
-      : '';
+    const seats = otherOfferSeatsWords(x.seats, f.people);
+    const more = x.moreTours > 0 ? `; ${otherOfferMoreToursWords(x.moreTours)}` : '';
     return `${i + 1}. «${escapeHtml(clip(x.partnerName, OFFER_NAME_CHARS))}» — тур «${escapeHtml(clip(x.title, OFFER_NAME_CHARS))}», `
       + `${escapeHtml(x.price ?? 'цена не указана')}; ${seats}${more}. Заявка: ${escapeHtml(x.url)}`;
   });
@@ -415,8 +414,8 @@ function offersText(f: NoticeFacts, o: Extract<OffersBlock, { kind: 'offers' }>,
   return [
     `<b>К месту «${escapeHtml(clip(o.placeName, OFFER_NAME_CHARS))}»${on} — другие компании</b>`,
     ...lines,
-    rest > 0 ? `Ещё ${rest} ${plural(rest, 'компания', 'компании', 'компаний')} — на странице места: ${escapeHtml(o.placeUrl)}` : null,
-    'Это не ответ этих компаний: места и дату каждая подтверждает сама. Заявку вы оставляете сами по ссылке — имя и телефон получит только та компания, которой вы её оставите.',
+    rest > 0 ? `${otherOffersMoreCompaniesWords(rest)} — на странице места: ${escapeHtml(o.placeUrl)}` : null,
+    OTHER_OFFERS_NOT_ANSWER_RU,
     OFFER_ORDER_NOTE_ON_DATE_RU,
   ].filter((l): l is string => !!l).join('\n');
 }
@@ -568,6 +567,27 @@ export function touristAnswerText(
   return { text: lines.join('\n'), buttons, offers: named };
 }
 
+/** Сколько компаний называется менеджеру: звонок короткий, остальные — на странице места. */
+export const MANAGER_OFFERS_MAX = 3;
+
+/**
+ * Менеджеру, который будет звонить: кого ещё можно назвать человеку на эту
+ * дату (4а). Те же компании и тем же порядком, что получил бы человек в чате —
+ * до него сообщение не дошло. Ссылок на формы нет: по телефону их не
+ * продиктовать; страница места — одна. После отказа по погоде, у большой
+ * группы и когда список не прочитался, строки нет (answerWantsOffers).
+ */
+function managerOffersNote(f: NoticeFacts, o: OffersBlock): string | null {
+  if (!answerWantsOffers(f) || o.kind !== 'offers' || o.offers.length === 0) return null;
+  const shown = o.offers.slice(0, MANAGER_OFFERS_MAX);
+  const names = shown.map((x) => `«${escapeHtml(clip(x.partnerName, OFFER_NAME_CHARS))}» — тур «${escapeHtml(clip(x.title, OFFER_NAME_CHARS))}» `
+    + `(${x.seats === 'calendar' ? 'в календаре места есть' : 'дату подтверждает оператор'})`);
+  const rest = o.more + (o.offers.length - shown.length);
+  return `Кого ещё можно назвать клиенту на эту дату — к месту «${escapeHtml(clip(o.placeName, OFFER_NAME_CHARS))}», по календарю Ведара, это не ответ компаний: `
+    + `${names.join('; ')}${rest > 0 ? `; ${otherOffersMoreCompaniesWords(rest).toLowerCase()}` : ''}. `
+    + `Все туры к месту: ${escapeHtml(o.placeUrl)} Заявку другой компании клиент оставляет сам.`;
+}
+
 /** Ответ оператора словами — для менеджера. */
 function answerShort(f: NoticeFacts): string {
   if (f.answer === 'no_seats') return 'мест нет';
@@ -604,6 +624,7 @@ export function triedWords(tried: readonly string[]): string {
  */
 export function managerUndeliveredText(
   f: NoticeFacts, contact: { name: string | null; phone: string | null }, tried: readonly string[], dates: readonly string[],
+  offers: OffersBlock = { kind: 'skip' },
 ): { text: string; stub: string } {
   const vehicle = personOf(f.kind) === 'client';
   const tour = vehicle
@@ -627,6 +648,7 @@ export function managerUndeliveredText(
     `<b>Телефон:</b> ${escapeHtml(contact.phone ?? 'не записан')}`,
     `Куда пробовали: ${triedWords(tried)}.`,
     datesNote,
+    managerOffersNote(f, offers),
     `${vehicle ? 'Брони не было; машина за заказчиком не закреплялась.' : 'Брони не было; оплату Ведар не принимает.'} Если ИИ-агент или человек прочтёт статус позже — пришлю «звонить не нужно».`,
   ].filter(Boolean).join('\n');
   // Заглушка уходит ровно тогда, когда MAX НЕ принял письмо (pd-alert): в MAX
