@@ -1135,11 +1135,12 @@ export function buildOpenApiDocument(base: string): Json {
       summary: manifest.description,
       description:
         'Публичный API информационного портала «Ведар Камчатка». Ведар не турагентство и не туроператор. Для программ, которым недоступны MCP и A2A-клиенты. '
-        + 'Всё без авторизации. Запись — только заявки через инструменты create_lead, create_booking_request, '
+        + 'Всё без авторизации. Запись — заявки через инструменты create_trip_request, create_lead, create_booking_request, '
         + 'create_stay_request, request_charter, create_car_rental_request (A2A DataPart или MCP tools/call), их подтверждает человек; '
+        + 'отмена и перенос заявки на тур — change_request по её ключу: пока оператор не ответил — сразу, после — просьбой ему; '
         + 'мгновенной брони и оплаты нет. Данные на русском. Экстренный вызов на Камчатке — 112. '
         + 'Public API of Vedar Kamchatka, a Kamchatka travel information portal and AI guide, not a travel agency and not a tour operator. For clients without MCP or A2A: read endpoints, A2A REST binding, MCP endpoint. '
-        + 'Requests are human-confirmed; no instant booking or payment.'
+        + 'Requests are human-confirmed; change_request cancels or reschedules a tour request by its status key; no instant booking or payment.'
         + ' ' + OPENAPI_DESCRIPTION_ZH,
       termsOfService: `${b}/legal/terms`,
       contact: { name: 'Ведар', url: `${b}/contact` },

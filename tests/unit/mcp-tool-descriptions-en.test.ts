@@ -22,7 +22,7 @@ import { describe, it, expect } from 'vitest';
 import {
   PUBLIC_MCP_TOOLS, TOOL_ENGLISH, TOOL_ANNOTATIONS, EXCLUDED_TOOLS, PARAM_ENGLISH,
   CREATE_LEAD_TOOL, BOOKING_REQUEST_TOOL, REQUEST_CHARTER_TOOL,
-  CAR_RENTAL_REQUEST_TOOL, TRIP_REQUEST_TOOL, STAY_REQUEST_TOOL,
+  CAR_RENTAL_REQUEST_TOOL, TRIP_REQUEST_TOOL, STAY_REQUEST_TOOL, CHANGE_REQUEST_TOOL,
 } from '@/lib/mcp/public-tools';
 import { TOOL_REGISTRY } from '@/lib/kuzmich/tool-schemas';
 // Пара коннекторов ChatGPT (ступень 2, 12.10): не из реестра Кузьмича, схемы свои.
@@ -42,6 +42,7 @@ function kuzmichDescription(name: string): string {
   if (name === SEARCH_TOOL.name) return SEARCH_TOOL.description;
   if (name === FETCH_TOOL.name) return FETCH_TOOL.description;
   if (name === GET_REQUEST_STATUS_TOOL.name) return GET_REQUEST_STATUS_TOOL.description;
+  if (name === CHANGE_REQUEST_TOOL.name) return CHANGE_REQUEST_TOOL.description;
   const t = Object.values(TOOL_REGISTRY).find((r) => r.definition.function.name === name);
   if (!t) throw new Error(`${name}: нет в реестре Кузьмича`);
   return t.definition.function.description;
@@ -58,6 +59,7 @@ function kuzmichSchema(name: string): { properties?: Record<string, { descriptio
   if (name === SEARCH_TOOL.name) return SEARCH_TOOL.inputSchema;
   if (name === FETCH_TOOL.name) return FETCH_TOOL.inputSchema;
   if (name === GET_REQUEST_STATUS_TOOL.name) return GET_REQUEST_STATUS_TOOL.inputSchema;
+  if (name === CHANGE_REQUEST_TOOL.name) return CHANGE_REQUEST_TOOL.inputSchema;
   const t = Object.values(TOOL_REGISTRY).find((r) => r.definition.function.name === name);
   if (!t) throw new Error(`${name}: нет в реестре Кузьмича`);
   return t.definition.function.parameters as { properties?: Record<string, { description?: string }> };

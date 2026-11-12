@@ -37,7 +37,7 @@ import { pool } from '@/lib/db-pool';
 import { a2aAgentKind, type A2aAgentKind } from '@/lib/a2a/agent-kind';
 import { clientRegion, CHINA_REGION_LABEL } from '@/lib/mcp/china-clients';
 import { RU_REGION_LABEL } from '@/lib/mcp/ru-clients';
-import { WRITE_TOOL_NAMES } from '@/lib/mcp/public-tools';
+import { WRITE_TOOL_NAMES, CHANGE_TOOL_NAMES } from '@/lib/mcp/public-tools';
 import { logText } from '@/lib/log/log-text';
 
 export const dynamic = 'force-dynamic';
@@ -167,7 +167,8 @@ export function summarizeA2aTools(rows: readonly A2aCensusToolRow[]) {
   const tools = [...byTool.entries()]
     .map(([tool, t]) => ({
       tool,
-      write: tool !== null && WRITE_TOOL_NAMES.has(tool),
+      // Пишущие — заявки и изменение заявки по ключу (change_request).
+      write: tool !== null && (WRITE_TOOL_NAMES.has(tool) || CHANGE_TOOL_NAMES.has(tool)),
       sends: t.sends,
       completed: t.completed,
       rejected: t.rejected,

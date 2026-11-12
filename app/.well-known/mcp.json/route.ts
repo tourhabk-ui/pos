@@ -75,7 +75,8 @@ export async function GET(request?: Request) {
       // Человекочитаемый первоисточник — для людей и поисковых AI-ответов.
       homepage: `${base}/mcp`,
       // Данные публичные, ключей не требуем — а писать наружу можно только
-      // заявки, и каждую подтверждает человек (WRITE_TOOL_NAMES).
+      // заявки, и каждую подтверждает человек (WRITE_TOOL_NAMES); свою заявку
+      // на тур по её ключу можно отменить или перенести (CHANGE_TOOL_NAMES).
       authentication: 'none',
       capabilities: { tools: {} },
       tools: PUBLIC_MCP_TOOLS.map((t) => ({ name: t.name, description: t.description })),

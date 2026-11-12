@@ -412,7 +412,7 @@ describe('согласие человека (вторая половина ст�
 describe('роут MCP', () => {
   it('диспетчеризует инструмент и кладёт объект в structuredContent', () => {
     expect(ROUTE).toContain('if (name === REQUEST_STATUS_TOOL_NAME) return runRequestStatusTool(rawArgs);');
-    expect(ROUTE).toMatch(/toolName === REQUEST_STATUS_TOOL_NAME \? parseStructured\(text\)/);
+    expect(ROUTE).toMatch(/toolName === REQUEST_STATUS_TOOL_NAME \|\| toolName === CHANGE_REQUEST_TOOL_NAME\s+\? parseStructured\(text\)/);
   });
 
   it('ключ выдаётся во всех ответах пишущих инструментов: бронь (новая и повтор), запрос мест, подбор, вахтовка, жильё, прокат', () => {

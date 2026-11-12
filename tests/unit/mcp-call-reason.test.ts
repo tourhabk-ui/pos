@@ -63,7 +63,7 @@ describe('главный аргумент: имя всегда, значение
     expect(withDigits.slice(0, 22).replace(/[^0-9]/g, '')).toHaveLength(2);
     expect(safeArgValue(withDigits.slice(0, 22))).toBe(HIDDEN_VALUE);
     // У инструмента с ключом заявки значение не пишется вовсе — ни под каким именем.
-    expect([...KEY_ARG_TOOL_NAMES]).toContain('get_request_status');
+    expect([...KEY_ARG_TOOL_NAMES].sort()).toEqual(['change_request', 'get_request_status']);
     expect(primaryArg({ status_key: 'что угодно' }, true)).toEqual({ key: 'status_key', value: null });
     // Пустой ключ остаётся пустым, а не «скрыто»: скрывать нечего.
     expect(primaryArg({ key: '' }, false)).toEqual({ key: 'key', value: null });
@@ -99,8 +99,8 @@ describe('главный аргумент: имя всегда, значение
   });
 
   it('роут пишет причину и аргумент в каждый исход журнала, значение — не из toolArgs напрямую', () => {
-    // Только имя — у заявок и у инструментов, которым передают ключ заявки.
-    expect(ROUTE).toContain('const arg = primaryArg(toolArgs, isWrite || KEY_ARG_TOOL_NAMES.has(toolName));');
+    // Что у инструментов с ключом заявки в журнал идёт только имя аргумента,
+    // судит вызов роута: tests/unit/mcp-key-not-in-journal.test.ts.
     expect(ROUTE).toContain("errorCode: userFacing ? toolErr.code : classifyExecutionError(toolErr)");
     expect(ROUTE).toContain("errorCode: 'tool_failed'");
     const calls = ROUTE.match(/logMcpToolCall\(\{[^}]+\}\)/gs) ?? [];

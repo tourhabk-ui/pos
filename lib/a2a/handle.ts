@@ -204,7 +204,7 @@ export async function handleA2A(
       const found = lookupResult(await deps.store.get(read.id), read.id);
       if (!found.ok) return found;
       const { state } = found.task;
-      return { ok: false, error: a2aError('TaskNotCancelable', `Задача ${read.id} уже завершена (${state}): отменять нечего.`, { taskId: read.id, state }) };
+      return { ok: false, error: a2aError('TaskNotCancelable', `Задача ${read.id} уже завершена (${state}): отменять нечего. CancelTask отменяет задачу A2A, а не заявку: заявку на тур отменяет инструмент change_request по её ключу.`, { taskId: read.id, state }) };
     }
     case 'ListTasks':
       return { ok: false, error: a2aError('UnsupportedOperation', 'Список задач анонимному клиенту не отдаётся: задачи читаются по id (GetTask).') };

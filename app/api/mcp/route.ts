@@ -70,6 +70,7 @@ import { logMcpToolCall, logMcpClient } from '@/lib/mcp/call-log';
 import type { PublicToolOutcome } from '@/lib/mcp/tool-outcome';
 import { CONNECTOR_TOOL_NAMES, runConnectorTool } from '@/lib/mcp/connector-tools';
 import { REQUEST_STATUS_TOOL_NAME, runRequestStatusTool, issueRequestKey, keyLine, requestStatusPageUrl } from '@/lib/mcp/request-status';
+import { CHANGE_REQUEST_TOOL_NAME, runChangeRequestTool } from '@/lib/mcp/change-request';
 import { issueKeyWithNotify, STAY_NOTIFY_REFUSAL, type SubscribeOutcome } from '@/lib/mcp/request-notify';
 import { notifyUrlField } from '@/lib/mcp/request-notify-schema';
 import { randomUUID } from 'node:crypto';
@@ -1230,6 +1231,9 @@ async function executeTool(
   if (CONNECTOR_TOOL_NAMES.has(name)) return runConnectorTool(name, localized.args as typeof rawArgs);
   // Состояние заявки по ключу (ступень 1 контура): свой исполнитель, JSON как у пары.
   if (name === REQUEST_STATUS_TOOL_NAME) return runRequestStatusTool(rawArgs);
+  // Отмена и перенос заявки на тур по её ключу (12.11): правило — то же, что у
+  // кнопок «Моей поездки»; дверь A2A пишется в журнал заявки своим словом.
+  if (name === CHANGE_REQUEST_TOOL_NAME) return runChangeRequestTool(rawArgs, currentLeadEntry()?.entry === 'a2a' ? 'a2a' : 'mcp');
   // Аргументы от внешнего клиента — та же граница недоверия, что
   // модель→executor у Кузьмича: тот же Zod-валидатор (коэрсия к строкам,
   // trim, обрезка длины), затем тот же исполнитель.
@@ -1471,7 +1475,8 @@ async function runPublicToolCore(call: PublicToolCall): Promise<PublicToolOutcom
   const limiter = isWrite ? writeLimiter : readLimiter;
   // Главный аргумент для журнала: имя всегда, значение — только у читающих
   // инструментов и не похожее на телефон (lib/mcp/call-reason, 1143).
-  // Только имя аргумента — у заявок (там ПД) и у инструментов с ключом заявки.
+  // Только имя аргумента — у заявок (там ПД) и у инструментов с ключом заявки
+  // (статус, отмена и перенос).
   const arg = primaryArg(toolArgs, isWrite || KEY_ARG_TOOL_NAMES.has(toolName));
   if (!limiter.check(`${isWrite ? 'w' : 'r'}:${ip}`)) {
     if (rateLimitedLogGate.check(ip)) {
@@ -1548,7 +1553,9 @@ async function runPublicToolCore(call: PublicToolCall): Promise<PublicToolOutcom
     const structured = isWrite
       ? { ...writeStructured(testRun, ctx.issued ?? [], { places: ctx.places ?? [], group: ctx.group }) }
       : ctx.structured
-        ?? (CONNECTOR_TOOL_NAMES.has(toolName) || toolName === REQUEST_STATUS_TOOL_NAME ? parseStructured(text) : undefined);
+        ?? (CONNECTOR_TOOL_NAMES.has(toolName) || toolName === REQUEST_STATUS_TOOL_NAME || toolName === CHANGE_REQUEST_TOOL_NAME
+          ? parseStructured(text)
+          : undefined);
     return { kind: 'ok', text, handoffUrl: handoff ? handoff.url : null, ...(structured ? { structured } : {}) };
   } catch (toolErr) {
     // Наружу — только текст, написанный для агента. Отказ пула или чужое
