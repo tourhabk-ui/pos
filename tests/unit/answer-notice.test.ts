@@ -21,7 +21,12 @@
  *    сроку прогона отпускается; третий обрыв — менеджеру словами «неизвестно»;
  *    заявка переросла ответ — менеджеру не пишем; дошедшее после письма
  *    менеджеру — одна строка «звонить не нужно»;
- *  - худшая строка успевает до срока шага workflow и супервизора.
+ *  - худшая строка успевает до срока шага workflow и супервизора;
+ *  - машина целиком и прокат (этап 2б-2, слово владельца 12.11 «1 да»): «Не
+ *    могу» перевозчика и прокатчика идёт той же отправкой — текст о машине, а
+ *    не о туре, без дат и кнопок, без обещания «менеджер свяжется»; слова
+ *    заказчика (направление, название машины) в Telegram — без телефона и
+ *    почты; ответ сверяется с видом заявки по источнику и номеру.
  * Сам SQL — на настоящем PostgreSQL: tests/integration/request-chat.pg.test.ts.
  */
 import { readFileSync } from 'node:fs';
@@ -31,11 +36,12 @@ import {
   NOTICE_AGENT_KEYS_SQL, NOTICE_AGENT_TIMEOUT_MS, NOTICE_ATTEMPT_SQL, NOTICE_CLAIM_DUE_SQL, NOTICE_CLEARED_SQL, NOTICE_CONTACT_SQL,
   NOTICE_DELIVERED_SQL, NOTICE_FACTS_SQL, NOTICE_MANAGER_SQL, NOTICE_MANAGER_TIMEOUT_MS, NOTICE_RELEASE_SQL, NOTICE_ROW_WORST_MS,
   NOTICE_RUN_START_BUDGET_MS, NOTICE_SEND_TIMEOUT_MS, NOTICE_SKIPPED_SQL, NOTICE_TARGETS_SQL, NOTICE_UNDELIVERED_SQL,
-  agentLegCode, deliverAnswerNotice, outcomeOfRow, runAnswerNotices, type NoticeDeps,
+  NOTICE_BY_VEHICLE_LEAD_SQL,
+  agentLegCode, deliverAnswerNotice, outcomeOfRow, readVehicleNoticeOutcome, runAnswerNotices, telegramSafeFacts, type NoticeDeps,
 } from '@/lib/requests/answer-notice';
 import { REQUEST_STATUS_BY_LEAD_SQL, type StatusRow } from '@/lib/mcp/request-status';
 import type { NotifyRunResult } from '@/lib/mcp/request-notify';
-import { managerUndeliveredText, operatorOutcomeLine, touristAnswerText, type NoticeFacts } from '@/lib/requests/answer-notice-text';
+import { managerClearedText, managerUndeliveredText, operatorOutcomeLine, touristAnswerText, type NoticeFacts } from '@/lib/requests/answer-notice-text';
 import { parseMyTripDate } from '@/lib/requests/my-trip-ask';
 import { unwrapPress } from '@/lib/chat-cabinet/signed-payload';
 import { MAX_FETCH_TIMEOUT_MS } from '@/lib/max/max-fetch';
@@ -514,5 +520,260 @@ describe('слова', () => {
     expect(operatorOutcomeLine({ state: 'undelivered', manager: 'max', why: why({ broken: true }) })).toMatch(/дошло ли — неизвестно/);
     expect(operatorOutcomeLine({ state: 'skipped', reason: 'lead_closed' })).toMatch(/уже была закрыта/);
     expect(operatorOutcomeLine({ state: 'pending' })).toMatch(/повторю автоматически/);
+  });
+});
+
+// ── Машина целиком и прокат: «Не могу» (этап 2б-2) ──────────────────────────
+
+const PHONE_IN_TITLE = '+79001112233';
+type Vehicle = 'charter' | 'car_rental';
+
+/** Строка сообщения по ответу из журнала заявки: кнопки туроператора у неё нет. */
+const vehicleRow = (kind: Vehicle, over: Record<string, unknown> = {}) => ({
+  ...baseRow(), answer_id: null, activity_id: '901', answer: 'decline',
+  vehicle_kind: kind,
+  vehicle_title: kind === 'charter' ? 'Вулкан Горелый <база>' : 'Suzuki Jimny',
+  vehicle_from: '2027-01-15', vehicle_to: kind === 'charter' ? '2027-01-16' : '2027-01-17',
+  // Перевозчик «Не могу» закрывает заявку, прокатчик статус не меняет.
+  lead_status: kind === 'charter' ? 'lost' : 'new',
+  lead_date: null, people: null, tour_id: null, tour_title: null, tour_slug: null, tour_public: false,
+  operator_name: kind === 'charter' ? 'Шатун' : 'Лагуна Прокат', refused_dates: [],
+  ...over,
+});
+const vehicleStatus = (kind: Vehicle, over: Partial<StatusRow> = {}): Partial<StatusRow> => ({
+  tool_name: kind === 'charter' ? 'request_charter' : 'create_car_rental_request', lead_id: LEAD,
+  lead_status: kind === 'charter' ? 'lost' : 'new', booking_status: null,
+  lead_answer: null, lead_answer_id: null, lead_partner_answer: 'decline', lead_partner_answer_id: '901', lead_kind: kind,
+  ...over,
+});
+const arm = (kind: Vehicle, row: Record<string, unknown> = {}, status: Partial<StatusRow> = {}) => {
+  w.row = vehicleRow(kind, row);
+  w.status = vehicleStatus(kind, status);
+};
+
+describe('машина целиком и прокат: «Не могу» перевозчика и прокатчика', () => {
+  it('перевозчик: заказчику одно сообщение о машине — направление, даты, вывеска, где смотреть других; дат рядом и кнопок нет', async () => {
+    arm('charter');
+    const o = await deliverAnswerNotice('501', deps());
+    expect(o).toEqual({ state: 'delivered', via: 'max', dates: [] });
+    expect(pdAlert).not.toHaveBeenCalled();
+    expect(freeDates).not.toHaveBeenCalled();
+    const [chat, text, buttons] = sendMax.mock.calls[0]! as [string, string, unknown[]];
+    expect(chat).toBe(CHAT_ID);
+    expect(buttons).toEqual([]);
+    expect(text.split('\n')).toEqual([
+      '<b>Ответ по вашей заявке на машину</b>',
+      'Машина под заказ: направление «Вулкан Горелый &lt;база&gt;», с 15.01.2027 по 16.01.2027.',
+      'Перевозчик «Шатун» ответил: выполнить заявку не может. Брони не было, машина за вами не закреплялась.',
+      expect.stringMatching(/^Другие перевозчики и их цены за машину — https?:\/\/[^ ]+\/transfers; новую заявку можно оставить там же\.$/),
+    ]);
+    // Обещаний, которых никто не исполняет, и слов о туре в сообщении нет.
+    expect(text).not.toMatch(/менеджер|свяжется|тур|оператор/i);
+    expect(operatorOutcomeLine(o, 'client')).toBe('Заказчику ушло сообщение в MAX: ваш ответ.');
+  });
+
+  it('прокат: текст о прокате и его витрине; выезд без даты возврата и машина без названия названы как есть', async () => {
+    arm('car_rental');
+    await deliverAnswerNotice('501', deps());
+    const text = String(sendMax.mock.calls[0]![1]);
+    expect(text).toContain('<b>Ответ по вашей заявке на прокат</b>');
+    expect(text).toContain('Прокат: «Suzuki Jimny», с 15.01.2027 по 17.01.2027.');
+    expect(text).toContain('Прокат «Лагуна Прокат» ответил: выполнить заявку не может.');
+    expect(text).toMatch(/Другие машины проката — https?:\/\/[^ ]+\/car-rental; новую заявку можно оставить там же\.$/);
+
+    // Журнал до 30.10 вида не нёс — это прокат; пустые поля не выдумываются.
+    const F0: NoticeFacts = { leadId: LEAD, kind: 'rental', answer: 'decline', reason: null, tourTitle: null, tourUrl: null, date: null, people: null, operatorName: null, groupPassedOn: false };
+    expect(touristAnswerText({ ...F0, vehicleFrom: 'завтра' }, { kind: 'skip' }, true).text).toContain('Прокат: машина не названа.');
+    expect(touristAnswerText({ ...F0, kind: 'charter', vehicleFrom: '2027-01-15', vehicleTo: '2027-01-15' }, { kind: 'skip' }, true).text)
+      .toContain('Машина под заказ: направление не названо, выезд 15.01.2027.');
+    arm('car_rental', { vehicle_kind: null });
+    sendMax.mockClear();
+    await deliverAnswerNotice('501', deps());
+    expect(String(sendMax.mock.calls[0]![1])).toContain('на прокат');
+  });
+
+  it('направление заявки — свободный ввод заказчика — в Telegram не уходит вовсе: ни в его чат, ни в заглушку менеджеру; в MAX — как есть', async () => {
+    // Телефон и почту чистка вырезала бы; адрес и имя — нет. Поэтому в Telegram направления нет совсем.
+    const dirty = `Горелый, встретить Петра у дома на Тестовой, ${PHONE_IN_TITLE} или anna@example.com`;
+    arm('charter', { vehicle_title: dirty });
+    w.targets = [{ channel: 'telegram', chat_id: CHAT_ID, can_pick: false }];
+    await deliverAnswerNotice('501', deps());
+    const tg = String(sendTelegram.mock.calls[0]![1]);
+    expect(tg).toContain('Машина под заказ: направление — в заявке, с 15.01.2027 по 16.01.2027.');
+    expect(tg).not.toMatch(/Горелый|Петра|Тестовой|не названо/);
+    expect(tg).not.toContain(PHONE_IN_TITLE);
+    expect(tg).not.toContain('anna@example.com');
+
+    arm('charter', { vehicle_title: dirty });
+    w.targets = [{ channel: 'max', chat_id: CHAT_ID, can_pick: false }];
+    sendMax.mockResolvedValue({ ok: false, code: 'bad_id' });
+    await deliverAnswerNotice('501', deps());
+    // MAX — российский канал с ПД: слова заказчика уходят ему же как есть.
+    expect(String(sendMax.mock.calls[0]![1])).toContain(PHONE_IN_TITLE);
+    const m = managerText();
+    expect(m.text).toContain(PHONE_IN_TITLE);
+    expect(m.stub).toContain('машина под заказ — направление — в заявке');
+    expect(m.stub).not.toMatch(/Горелый|Петра|Тестовой/);
+    expect(m.stub).not.toContain(PHONE_IN_TITLE);
+    expect(m.stub).not.toContain('anna@example.com');
+    expect(m.stub).not.toMatch(/Ирина|79995550707/);
+    // Скрывается только направление; остальные факты те же.
+    const f: NoticeFacts = { leadId: LEAD, kind: 'charter', vehicleTitle: dirty, answer: 'decline', reason: null, tourTitle: null, tourUrl: null, date: null, people: null, operatorName: 'Шатун', groupPassedOn: false };
+    expect(telegramSafeFacts(f)).toEqual({ ...f, vehicleTitle: null, vehicleTitleHidden: true });
+    expect(telegramSafeFacts({ ...f, vehicleTitle: null })).toEqual({ ...f, vehicleTitle: null });
+    // Название машины проката — из прайса прокатчика: остаётся, телефон из него на всякий случай вырезается.
+    const rental = telegramSafeFacts({ ...f, kind: 'rental', vehicleTitle: `Suzuki Jimny ${PHONE_IN_TITLE}` });
+    expect(rental.vehicleTitle).toContain('Suzuki Jimny');
+    expect(rental.vehicleTitle).not.toContain(PHONE_IN_TITLE);
+    expect(rental.vehicleTitleHidden).toBeUndefined();
+  });
+
+  it('до заказчика не дошло: менеджеру сразу — о перевозчике, а не об операторе тура; имя и телефон только в MAX', async () => {
+    arm('charter');
+    w.targets = [];
+    const o = await deliverAnswerNotice('501', deps());
+    expect(o).toEqual({ state: 'undelivered', manager: 'max', why: { broken: false, chat: 'none', agent: 'none' } });
+    const m = managerText();
+    expect(m.text).toContain('<b>Ответ перевозчика не доставлен клиенту — позвонить</b>');
+    expect(m.text).toContain('машина под заказ — направление «Вулкан Горелый &lt;база&gt;», с 15.01.2027 по 16.01.2027.');
+    expect(m.text).toContain('Ответ перевозчика «Шатун»: выполнить заявку не может.');
+    expect(m.text).toContain('Ирина Тестова');
+    expect(m.text).toContain('+79995550707');
+    expect(m.text).toContain('Брони не было; машина за заказчиком не закреплялась.');
+    expect(m.text).not.toMatch(/оператор|Свободные даты/);
+    expect(m.stub).toContain('Ответ перевозчика не доставлен клиенту');
+    expect(m.stub).not.toMatch(/Ирина|79995550707/);
+    expect(operatorOutcomeLine(o, 'client')).toBe('Заказчику сообщить не удалось: чат с ним не подключён. Заявку с телефоном получил менеджер Ведара — он позвонит.');
+
+    arm('car_rental');
+    w.targets = [];
+    pdAlert.mockClear();
+    await deliverAnswerNotice('501', deps());
+    expect(managerText().text).toContain('<b>Ответ прокатчика не доставлен клиенту — позвонить</b>');
+    expect(managerText().text).toContain('Ответ проката «Лагуна Прокат»: выполнить заявку не может.');
+  });
+
+  it('чатов нет, у ключа подписка ИИ-агента: сверка приняла — доставка, менеджер молчит', async () => {
+    arm('charter');
+    w.targets = [];
+    w.agents = [{ key_id: 'k-9' }];
+    notifyRun.mockImplementation(async () => { w.row.state = 'delivered'; w.row.delivered_via = 'agent_webhook'; return run({ delivered: 1 }); });
+    const o = await deliverAnswerNotice('501', deps());
+    expect(notifyRun).toHaveBeenCalledWith(['k-9']);
+    expect(o).toEqual({ state: 'delivered', via: 'agent_webhook', dates: [] });
+    expect(pdAlert).not.toHaveBeenCalled();
+    expect(operatorOutcomeLine(o, 'client')).toBe('Ответ ушёл ИИ-агенту заказчика: его уведомление принято.');
+  });
+
+  it('вид заявки уже не из этого ответа — пропущено, никому ничего: статус перерос, ответ другой, источник не тот', async () => {
+    const skipped = async () => {
+      sendMax.mockClear();
+      pdAlert.mockClear();
+      const o = await deliverAnswerNotice('501', deps());
+      expect(o).toEqual({ state: 'skipped', reason: 'outgrown' });
+      expect(sendMax).not.toHaveBeenCalled();
+      expect(pdAlert).not.toHaveBeenCalled();
+      return o;
+    };
+    // Прокатчик статус не меняет: заявку успел взять в работу человек.
+    arm('car_rental', {}, { lead_status: 'contacted' });
+    // Заявку уже вели, сообщение не ушло: об отказе заказчику больше сказать некому — партнёру так и сказано.
+    expect(operatorOutcomeLine(await skipped(), 'client')).toBe(
+      'Статус заявки уже сменился — заказчику ничего не отправлял. Если он ещё не знает об отказе, сообщите ему сами по телефону из заявки.',
+    );
+    // У перевозчика «закрыта отказом» — его же статус: вид держится; «в работе» — уже нет.
+    arm('charter', {}, { lead_status: 'contacted' });
+    await skipped();
+    // В журнале уже другая запись ответа.
+    arm('charter', {}, { lead_partner_answer_id: '902' });
+    await skipped();
+    // Тот же номер у ответа другого источника — не совпадение: строка о кнопке туроператора, вид — из журнала.
+    w.row = { ...baseRow(), answer_id: '901' };
+    w.status = vehicleStatus('charter');
+    await skipped();
+    // И наоборот: строка о журнале, вид — из кнопки туроператора с тем же номером.
+    w.row = vehicleRow('charter');
+    w.status = { ...baseStatus(), lead_answer_id: '901' };
+    await skipped();
+    // Заявки не прочитать — тоже не шлём.
+    arm('charter');
+    w.status = null;
+    await skipped();
+  });
+
+  it('статус перевозчику сменить не удалось (заявка ещё «новая») — сообщение всё равно уходит', async () => {
+    arm('charter', { lead_status: 'new' }, { lead_status: 'new' });
+    expect(await deliverAnswerNotice('501', deps())).toMatchObject({ state: 'delivered', via: 'max' });
+  });
+
+  it('добивка: дошло после письма менеджеру — «ответ перевозчика дошёл, звонить не нужно»; заявка переросла — письмо не повторяется', async () => {
+    arm('charter', { state: 'delivered', delivered_via: 'page_seen', manager_alerted: true, manager_cleared: false, manager_channel: 'max' });
+    const r = await runAnswerNotices(deps());
+    expect(r.manager_cleared).toBe(1);
+    expect(managerText().text).toMatch(/ответ перевозчика до клиента дошёл \(клиент открыл страницу заявки\) — звонить не нужно/);
+    expect(managerClearedText(LEAD, { state: 'delivered', via: 'agent_read', dates: [] }, 'rental')).toContain('ответ прокатчика до клиента дошёл');
+    expect(managerClearedText(LEAD, { state: 'delivered', via: 'agent_read', dates: [] })).toContain('ответ оператора до клиента дошёл');
+
+    arm('car_rental', { state: 'undelivered', manager_channel: 'none', tried: null }, { lead_status: 'contacted' });
+    pdAlert.mockClear();
+    const again = await runAnswerNotices(deps());
+    expect(again.manager_not_needed).toBe(1);
+    expect(pdAlert).not.toHaveBeenCalled();
+    expect(ran(NOTICE_MANAGER_SQL).at(-1)!.params).toEqual(['501', 'not_needed']);
+
+    arm('car_rental', { state: 'undelivered', manager_channel: 'none', tried: null });
+    const retry = await runAnswerNotices(deps());
+    expect(retry.manager_retried).toBe(1);
+    expect(managerText().text).toContain('Ответ прокатчика не доставлен клиенту');
+  });
+
+  it('партнёру о заказчике — словом «заказчик», а не «турист», в каждом исходе', () => {
+    const why = { broken: false, chat: 'refused' as const, agent: 'refused' as const };
+    const lines = [
+      operatorOutcomeLine({ state: 'delivered', via: 'telegram', dates: [] }, 'client'),
+      operatorOutcomeLine({ state: 'delivered', via: 'agent_read', dates: [] }, 'client'),
+      operatorOutcomeLine({ state: 'delivered', via: 'page_seen', dates: [] }, 'client'),
+      operatorOutcomeLine({ state: 'undelivered', manager: 'telegram-stub', why }, 'client'),
+      operatorOutcomeLine({ state: 'undelivered', manager: 'none', why }, 'client'),
+      operatorOutcomeLine({ state: 'skipped', reason: 'lead_closed' }, 'client'),
+      operatorOutcomeLine({ state: 'skipped', reason: 'not_addressee' }, 'client'),
+      operatorOutcomeLine({ state: 'skipped', reason: 'self' }, 'client'),
+      operatorOutcomeLine({ state: 'skipped', reason: 'outgrown' }, 'client'),
+      operatorOutcomeLine({ state: 'pending' }, 'client'),
+    ];
+    for (const l of lines) {
+      expect(l, l).toMatch(/[Зз]аказчик/);
+      expect(l, l).not.toMatch(/турист|бронь|новый ответ/i);
+    }
+    expect(lines[1]).toBe('Ваш ответ уже прочитал ИИ-агент заказчика.');
+    expect(lines[2]).toBe('Заказчик уже открыл страницу заявки и видит ваш ответ.');
+    // У тура слова прежние.
+    expect(operatorOutcomeLine({ state: 'skipped', reason: 'outgrown' })).toBe('Статус заявки уже сменился (бронь или новый ответ) — туристу ничего не отправлял.');
+  });
+
+  it('повторное нажатие читает исход по заявке; сообщения нет — null, сбой чтения — null и строка в логе', async () => {
+    const q = vi.fn(async (sql: string, params?: unknown[]) => {
+      expect(sql).toBe(NOTICE_BY_VEHICLE_LEAD_SQL);
+      expect(params).toEqual([LEAD]);
+      return { rows: [{ state: 'delivered', skipped_reason: null, delivered_via: 'max', tried: null, manager_channel: null }] };
+    });
+    expect(await readVehicleNoticeOutcome(LEAD, { query: q })).toEqual({ state: 'delivered', via: 'max', dates: [] });
+    expect(await readVehicleNoticeOutcome(LEAD, { query: async () => ({ rows: [] }) })).toBeNull();
+    // Строку «ждёт» ещё держит захват нажатия — отправка идёт: «не ушло» было бы неправдой за секунду до «ушло».
+    const row = (held: boolean | null) => ({ state: 'pending', skipped_reason: null, delivered_via: null, tried: null, manager_channel: null, held });
+    expect(await readVehicleNoticeOutcome(LEAD, { query: async () => ({ rows: [row(true)] }) })).toEqual({ state: 'pending', sending: true });
+    expect(await readVehicleNoticeOutcome(LEAD, { query: async () => ({ rows: [row(false)] }) })).toEqual({ state: 'pending' });
+    expect(await readVehicleNoticeOutcome(LEAD, { query: async () => ({ rows: [row(null)] }) })).toEqual({ state: 'pending' });
+    expect(operatorOutcomeLine({ state: 'pending', sending: true }, 'client')).toBe(
+      'Сообщение заказчику отправляется; не уйдёт — повторю автоматически, не выйдет — передам менеджеру Ведара.',
+    );
+    expect(operatorOutcomeLine({ state: 'pending', sending: true })).toMatch(/^Сообщение туристу отправляется;/);
+    expect(operatorOutcomeLine({ state: 'pending' }, 'client')).toMatch(/сейчас не ушло/);
+    // Захват у доставленной или недоставленной строки на слова не влияет.
+    expect(outcomeOfRow({ state: 'delivered', skipped_reason: null, delivered_via: 'max', tried: null, manager_channel: null, held: true })).toEqual({ state: 'delivered', via: 'max', dates: [] });
+    const err = vi.spyOn(console, 'error').mockImplementation(() => undefined);
+    expect(await readVehicleNoticeOutcome(LEAD, { query: async () => { throw Object.assign(new Error('x'), { code: '57P01' }); } })).toBeNull();
+    expect(err.mock.calls.flat().join(' ')).toMatch(/исход сообщения не прочитан, SQLSTATE 57P01/);
+    err.mockRestore();
   });
 });

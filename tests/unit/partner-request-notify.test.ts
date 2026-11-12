@@ -169,6 +169,12 @@ describe('доставка: адрес партнёра, четыре исход
     const charter: PartnerRequestNotice = { ...rental, kind: 'charter', companySlug: 'shatun' };
     expect(partnerRequestButtons(charter)).toEqual(buttons);
     expect(partnerRequestTexts(charter).text).toContain('Машина заявкой не закрепляется');
+    // «Не могу» (этап 2б-2): заказчик получает сообщение Ведара; обещания «заявка остаётся у менеджера» нет.
+    expect(partnerRequestTexts(charter).text).toContain('«Не могу» — заказчику уйдёт сообщение об этом');
+    expect(partnerRequestTexts(rental).text).toContain('«Не могу» дни не занимает; заказчику уйдёт сообщение об отказе');
+    // Доставка не обещана безусловно: исход партнёр узнаёт после ответа.
+    for (const n of [charter, rental]) expect(partnerRequestTexts(n).text).toContain('дошло ли, скажу после ответа');
+    for (const n of [charter, rental]) expect(partnerRequestTexts(n).text).not.toMatch(/остаётся у менеджера/);
     expect(partnerRequestTexts(charter).text).not.toContain('Менеджер Ведара согласует заказ');
     expect(partnerRequestTexts(charter).text).not.toContain('отмечает эти дни занятыми');
     expect(partnerRequestTexts(charter).stub).toContain('во «Входящих»');

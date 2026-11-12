@@ -15,6 +15,14 @@
  * обстановке — следующий шаг (2в), поэтому здесь дат после такого отказа нет:
  * непроверенная дата под словами «вместо погоды» была бы обещанием, которого
  * система не держит. Слово «безопасно» не говорится ни о чём.
+ *
+ * Машина целиком и прокат (этап 2б-2, слово владельца 12.11 «1 да»): после
+ * «Не могу» перевозчика или прокатчика заказчик получает одно сообщение от
+ * Ведара — что ответил партнёр и где смотреть других. Обещания «менеджер
+ * свяжется» в нём нет: система его не отслеживала — заявка закрывалась как
+ * отказ, и напомнить менеджеру было нечем. Направление заявки на машину —
+ * свободный ввод заказчика (там бывает адрес или имя): в Telegram вызывающий
+ * его не отдаёт вовсе (`vehicleTitleHidden`), здесь оно экранируется как есть.
  */
 import { escapeHtml } from '@/lib/text/escape-html';
 import { DECLINE_REASON_LABEL, type DeclineReason } from '@/lib/requests/chat-answer-buttons';
@@ -23,9 +31,33 @@ import { signPayload } from '@/lib/chat-cabinet/signed-payload';
 
 export type NoticeAnswer = 'no_seats' | 'decline' | 'other_date';
 
+/** Род заявки: тур, машина целиком у перевозчика или прокат без водителя. */
+export type NoticeKind = 'tour' | 'charter' | 'rental';
+
+/** Кому сообщение о заявке: у тура — турист, у машины и проката — заказчик. */
+export type NoticePerson = 'tourist' | 'client';
+
+export function personOf(kind: NoticeKind | undefined): NoticePerson {
+  return kind === 'charter' || kind === 'rental' ? 'client' : 'tourist';
+}
+
 /** Факты заявки для слов — без имени и телефона. */
 export interface NoticeFacts {
   leadId: string;
+  /** Не задан — тур (так строки писались до 2б-2). */
+  kind?: NoticeKind;
+  /**
+   * Машина проката (название из прайса прокатчика) или направление заявки на
+   * машину — свободный ввод заказчика.
+   */
+  vehicleTitle?: string | null;
+  /** Направление есть, но в этот канал не отдаётся (Telegram): так и сказано, а не «не названо». */
+  vehicleTitleHidden?: boolean;
+  /** Даты заявки на машину или прокат, ISO; не той формы — не показываются. */
+  vehicleFrom?: string | null;
+  vehicleTo?: string | null;
+  /** Где смотреть других перевозчиков или другие машины проката — полный адрес. */
+  offersUrl?: string | null;
   answer: NoticeAnswer;
   reason: DeclineReason | null;
   tourTitle: string | null;
@@ -100,8 +132,11 @@ export type NoticeOutcome =
   | { state: 'delivered'; via: 'max' | 'telegram' | 'agent_webhook' | 'agent_read' | 'page_seen'; dates: string[] }
   | { state: 'undelivered'; manager: ManagerChannel; why: UndeliveredWhy }
   | { state: 'skipped'; reason: 'lead_closed' | 'not_addressee' | 'self' | 'outgrown' }
-  /** Сбой посреди отправки: повторит добивка. */
-  | { state: 'pending' };
+  /**
+   * Не решено. `sending` — отправка идёт прямо сейчас (строку держит захват
+   * нажатия); без него — сбой посреди отправки, повторит добивка.
+   */
+  | { state: 'pending'; sending?: boolean };
 
 export function ruDay(iso: string): string {
   const [y, m, d] = iso.slice(0, 10).split('-');
@@ -195,6 +230,49 @@ function answerLine(f: NoticeFacts, d: DatesBlock): string {
   }
 }
 
+const ISO_DAY = /^\d{4}-\d{2}-\d{2}$/;
+const isoDay = (v: string | null | undefined): string | null => (typeof v === 'string' && ISO_DAY.test(v) ? v : null);
+
+/** Кто ответил по заявке на машину или прокат — с вывеской, если она записана. */
+function vehiclePartner(f: NoticeFacts, form: 'nom' | 'gen'): string {
+  const word = f.kind === 'rental' ? (form === 'nom' ? 'Прокат' : 'проката') : (form === 'nom' ? 'Перевозчик' : 'перевозчика');
+  return f.operatorName ? `${word} «${escapeHtml(f.operatorName)}»` : word;
+}
+
+/** Предмет заявки одной строкой: направление и даты у машины, машина и дни у проката. */
+function vehicleSubject(f: NoticeFacts): string {
+  const from = isoDay(f.vehicleFrom);
+  const to = isoDay(f.vehicleTo);
+  const title = f.vehicleTitle ? `«${escapeHtml(f.vehicleTitle)}»` : null;
+  if (f.kind === 'rental') {
+    const span = from && to ? `с ${ruDay(from)} по ${ruDay(to)}` : from ? `с ${ruDay(from)}` : null;
+    return [title ?? 'машина не названа', span].filter(Boolean).join(', ');
+  }
+  const span = from && to && to !== from ? `с ${ruDay(from)} по ${ruDay(to)}` : from ? `выезд ${ruDay(from)}` : null;
+  const where = title ? `направление ${title}` : f.vehicleTitleHidden ? 'направление — в заявке' : 'направление не названо';
+  return [where, span].filter(Boolean).join(', ');
+}
+
+/**
+ * Заказчику после «Не могу» перевозчика или прокатчика. Обещаний нет: машина
+ * не закреплялась, другого перевозчика Ведар сам не подбирает — где смотреть,
+ * сказано ссылкой.
+ */
+function vehicleDeclineText(f: NoticeFacts): string {
+  const rental = f.kind === 'rental';
+  const where = f.offersUrl
+    ? (rental
+      ? `Другие машины проката — ${f.offersUrl}; новую заявку можно оставить там же.`
+      : `Другие перевозчики и их цены за машину — ${f.offersUrl}; новую заявку можно оставить там же.`)
+    : null;
+  return [
+    `<b>Ответ по вашей заявке на ${rental ? 'прокат' : 'машину'}</b>`,
+    `${rental ? 'Прокат' : 'Машина под заказ'}: ${vehicleSubject(f)}.`,
+    `${vehiclePartner(f, 'nom')} ответил: выполнить заявку не может. Брони не было, машина за вами не закреплялась.`,
+    where,
+  ].filter((l): l is string => !!l).join('\n');
+}
+
 const TAIL = 'Подобрать другой тур можно здесь же — напишите, что ищете.';
 
 /**
@@ -204,6 +282,7 @@ const TAIL = 'Подобрать другой тур можно здесь же 
 export function touristAnswerText(
   f: NoticeFacts, d: DatesBlock, canPick: boolean,
 ): { text: string; buttons: Array<{ text: string; payload: string }> } {
+  if (personOf(f.kind) === 'client') return { text: vehicleDeclineText(f), buttons: [] };
   const pick = datesPickable(f, canPick);
   const block = answerWantsDates(f) ? datesText(f, d, pick) : null;
   const weather = f.answer === 'decline' && f.reason === 'weather';
@@ -255,10 +334,17 @@ export function triedWords(tried: readonly string[]): string {
 export function managerUndeliveredText(
   f: NoticeFacts, contact: { name: string | null; phone: string | null }, tried: readonly string[], dates: readonly string[],
 ): { text: string; stub: string } {
-  const tour = [f.tourTitle ? `тур «${escapeHtml(f.tourTitle)}»` : 'тур', f.date ? ruDay(f.date) : null, f.people ? `${f.people} чел.` : null]
-    .filter(Boolean).join(', ');
-  const title = '<b>Ответ оператора не доставлен клиенту — позвонить</b>';
-  const answer = `Ответ ${f.operatorName ? `оператора «${escapeHtml(f.operatorName)}»` : 'оператора'}: ${answerShort(f)}.`;
+  const vehicle = personOf(f.kind) === 'client';
+  const tour = vehicle
+    ? `${f.kind === 'rental' ? 'прокат' : 'машина под заказ'} — ${vehicleSubject(f)}`
+    : [f.tourTitle ? `тур «${escapeHtml(f.tourTitle)}»` : 'тур', f.date ? ruDay(f.date) : null, f.people ? `${f.people} чел.` : null]
+      .filter(Boolean).join(', ');
+  const title = vehicle
+    ? `<b>Ответ ${f.kind === 'rental' ? 'прокатчика' : 'перевозчика'} не доставлен клиенту — позвонить</b>`
+    : '<b>Ответ оператора не доставлен клиенту — позвонить</b>';
+  const answer = vehicle
+    ? `Ответ ${vehiclePartner(f, 'gen')}: выполнить заявку не может.`
+    : `Ответ ${f.operatorName ? `оператора «${escapeHtml(f.operatorName)}»` : 'оператора'}: ${answerShort(f)}.`;
   const datesNote = dates.length > 0 ? `Свободные даты рядом по календарю: ${datesLine(dates, f.date)} — места подтверждает оператор.` : null;
   const text = [
     title,
@@ -268,7 +354,7 @@ export function managerUndeliveredText(
     `<b>Телефон:</b> ${escapeHtml(contact.phone ?? 'не записан')}`,
     `Куда пробовали: ${triedWords(tried)}.`,
     datesNote,
-    'Брони не было; оплату Ведар не принимает. Если ИИ-агент или человек прочтёт статус позже — пришлю «звонить не нужно».',
+    `${vehicle ? 'Брони не было; машина за заказчиком не закреплялась.' : 'Брони не было; оплату Ведар не принимает.'} Если ИИ-агент или человек прочтёт статус позже — пришлю «звонить не нужно».`,
   ].filter(Boolean).join('\n');
   // Заглушка уходит ровно тогда, когда MAX НЕ принял письмо (pd-alert): в MAX
   // телефона нет, и звать туда нельзя — тот же урок, что у жилья 10.10
@@ -288,30 +374,41 @@ const VIA_WORDS: Record<'agent_webhook' | 'agent_read' | 'page_seen', string> = 
 };
 
 /** Менеджеру позже, без ПД: дошло — звонить не нужно. */
-export function managerClearedText(leadId: string, via: NoticeOutcome & { state: 'delivered' }): string {
+export function managerClearedText(leadId: string, via: NoticeOutcome & { state: 'delivered' }, kind: NoticeKind = 'tour'): string {
   const how = via.via === 'max' || via.via === 'telegram' ? `сообщение принял ${via.via === 'max' ? 'MAX' : 'Telegram'}` : VIA_WORDS[via.via];
-  return `Заявка <code>${escapeHtml(leadId)}</code>: ответ оператора до клиента дошёл (${how}) — звонить не нужно.`;
+  const whose = kind === 'charter' ? 'перевозчика' : kind === 'rental' ? 'прокатчика' : 'оператора';
+  return `Заявка <code>${escapeHtml(leadId)}</code>: ответ ${whose} до клиента дошёл (${how}) — звонить не нужно.`;
 }
 
-/** Строка оператору: что на самом деле ушло человеку. */
-export function operatorOutcomeLine(o: NoticeOutcome): string {
+/** Слова о человеке в строке партнёру: турист у тура, заказчик у машины и проката. */
+const PERSON: Record<NoticePerson, { Nom: string; gen: string; Dat: string; dat: string }> = {
+  tourist: { Nom: 'Турист', gen: 'туриста', Dat: 'Туристу', dat: 'туристу' },
+  client: { Nom: 'Заказчик', gen: 'заказчика', Dat: 'Заказчику', dat: 'заказчику' },
+};
+
+/**
+ * Строка партнёру: что на самом деле ушло человеку. `person` — о ком речь:
+ * у перевозчика и прокатчика это заказчик, и свободных дат у них нет.
+ */
+export function operatorOutcomeLine(o: NoticeOutcome, person: NoticePerson = 'tourist'): string {
+  const w = PERSON[person];
   switch (o.state) {
     case 'delivered':
       if (o.via === 'max' || o.via === 'telegram') {
-        return `Туристу ушло сообщение в ${o.via === 'max' ? 'MAX' : 'Telegram'}: ваш ответ${o.dates.length > 0 ? ` и свободные даты тура рядом по календарю (${datesLine(o.dates, null)})` : ''}.`;
+        return `${w.Dat} ушло сообщение в ${o.via === 'max' ? 'MAX' : 'Telegram'}: ваш ответ${o.dates.length > 0 ? ` и свободные даты тура рядом по календарю (${datesLine(o.dates, null)})` : ''}.`;
       }
-      if (o.via === 'agent_webhook') return 'Ответ ушёл ИИ-агенту туриста: его уведомление принято.';
-      return o.via === 'agent_read' ? 'Ваш ответ уже прочитал ИИ-агент туриста.' : 'Турист уже открыл страницу заявки и видит ваш ответ.';
+      if (o.via === 'agent_webhook') return `Ответ ушёл ИИ-агенту ${w.gen}: его уведомление принято.`;
+      return o.via === 'agent_read' ? `Ваш ответ уже прочитал ИИ-агент ${w.gen}.` : `${w.Nom} уже открыл страницу заявки и видит ваш ответ.`;
     case 'undelivered': {
       // Об агенте — только то, что было: подписки могло не быть вовсе (заявка с формы).
-      const w = o.why;
-      const why = w.broken
+      const y = o.why;
+      const why = y.broken
         ? 'отправка несколько раз обрывалась сбоем, дошло ли — неизвестно'
         : [
-          w.chat === 'refused' ? 'чат не принял сообщение' : 'чат с ним не подключён',
-          w.agent === 'refused' ? 'ИИ-агент уведомления не принял' : w.agent === 'not_sent' ? 'ИИ-агенту уведомление не ушло' : null,
+          y.chat === 'refused' ? 'чат не принял сообщение' : 'чат с ним не подключён',
+          y.agent === 'refused' ? 'ИИ-агент уведомления не принял' : y.agent === 'not_sent' ? 'ИИ-агенту уведомление не ушло' : null,
         ].filter(Boolean).join(', ');
-      const base = `Туристу сообщить не удалось: ${why}.`;
+      const base = `${w.Dat} сообщить не удалось: ${why}.`;
       if (o.manager === 'max') return `${base} Заявку с телефоном получил менеджер Ведара — он позвонит.`;
       if (o.manager === 'telegram-stub') return `${base} Менеджеру Ведара ушло уведомление без телефона — номер он видит в админке.`;
       if (o.manager === 'not_needed') return `${base} Заявка с тех пор изменилась — менеджеру её не передавал.`;
@@ -319,12 +416,19 @@ export function operatorOutcomeLine(o: NoticeOutcome): string {
     }
     case 'skipped':
       return {
-        lead_closed: 'Заявка уже была закрыта — туристу ничего не отправлял.',
-        not_addressee: 'Заявка сейчас не ваша по карточке — туристу ничего не отправлял.',
-        self: 'Это тестовая заявка вашей карточки — туристу ничего не отправлял.',
-        outgrown: 'Статус заявки уже сменился (бронь или новый ответ) — туристу ничего не отправлял.',
+        lead_closed: `Заявка уже была закрыта — ${w.dat} ничего не отправлял.`,
+        not_addressee: `Заявка сейчас не ваша по карточке — ${w.dat} ничего не отправлял.`,
+        self: `Это тестовая заявка вашей карточки — ${w.dat} ничего не отправлял.`,
+        // У машины и проката брони и повторного ответа не бывает — причину не выдумываем.
+        // Заказчик об отказе не узнал ни от кого: сказать ему больше некому (ревью 2б-2, п. 2).
+        outgrown: person === 'client'
+          ? `Статус заявки уже сменился — ${w.dat} ничего не отправлял. Если он ещё не знает об отказе, сообщите ему сами по телефону из заявки.`
+          : `Статус заявки уже сменился (бронь или новый ответ) — ${w.dat} ничего не отправлял.`,
       }[o.reason];
     case 'pending':
-      return 'Сообщение туристу сейчас не ушло — повторю автоматически в течение получаса, не выйдет — передам менеджеру Ведара.';
+      // Отправка ещё идёт — «не ушло» было бы неправдой за секунду до «ушло» (ревью 2б-2, п. 4).
+      return o.sending
+        ? `Сообщение ${w.dat} отправляется; не уйдёт — повторю автоматически, не выйдет — передам менеджеру Ведара.`
+        : `Сообщение ${w.dat} сейчас не ушло — повторю автоматически в течение получаса, не выйдет — передам менеджеру Ведара.`;
   }
 }

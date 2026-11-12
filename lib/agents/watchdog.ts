@@ -1831,11 +1831,12 @@ async function checkFailedLeadDeliveries(): Promise<CheckResult> {
 }
 
 /**
- * Сообщение человеку после ответа оператора застряло (план «после отказа», 2б,
- * answer_notices 1424) — выборка NOTICE_STUCK_SQL в lib/requests/answer-notice,
- * окно — сутки. Две разные беды, и слова у них разные: до туриста не дошло и
- * менеджер не знает — звонить; дошло, а «звонить не нужно» менеджеру не ушло —
- * НЕ звонить. Без ПД: число и короткие номера заявок.
+ * Сообщение человеку после ответа партнёра застряло (план «после отказа», 2б,
+ * answer_notices 1424; с 2б-2 — и «Не могу» перевозчика и прокатчика, 1425) —
+ * выборка NOTICE_STUCK_SQL в lib/requests/answer-notice, окно — сутки. Две
+ * разные беды, и слова у них разные: до человека не дошло и менеджер не знает —
+ * звонить; дошло, а «звонить не нужно» менеджеру не ушло — НЕ звонить. Без ПД:
+ * число и короткие номера заявок.
  */
 async function checkStuckAnswerNotices(): Promise<CheckResult> {
   try {
@@ -1845,8 +1846,8 @@ async function checkStuckAnswerNotices(): Promise<CheckResult> {
     const uncleared = parseInt(rows[0]?.uncleared ?? '0', 10);
     if (stuck + uncleared === 0) return null;
     const parts = [
-      stuck > 0 ? `${stuck} ответов оператора не дошли до туриста, и менеджеру письмо не ушло (заявки: ${rows[0]?.ids ?? '?'}) — позвонить по ним из админки.` : null,
-      uncleared > 0 ? `${uncleared} ответов дошли до туриста уже после письма менеджеру, а «звонить не нужно» ему не ушло (заявки: ${rows[0]?.uncleared_ids ?? '?'}) — по ним звонить не нужно.` : null,
+      stuck > 0 ? `${stuck} ответов партнёра (оператора, перевозчика или прокатчика) не дошли до человека, и менеджеру письмо не ушло (заявки: ${rows[0]?.ids ?? '?'}) — позвонить по ним из админки.` : null,
+      uncleared > 0 ? `${uncleared} ответов дошли до человека уже после письма менеджеру, а «звонить не нужно» ему не ушло (заявки: ${rows[0]?.uncleared_ids ?? '?'}) — по ним звонить не нужно.` : null,
     ].filter(Boolean);
     return {
       type: 'answer_notice_stuck',
@@ -1991,7 +1992,7 @@ export async function runWatchdog(): Promise<WatchdogResult> {
     checkMcpSilent,
     // Недоставленные оператору заявки (MAX/TG) — только тревога админу.
     checkFailedLeadDeliveries,
-    // Ответ оператора не дошёл до туриста и не передан менеджеру (2б).
+    // Ответ партнёра не дошёл до человека и не передан менеджеру (2б, 2б-2).
     checkStuckAnswerNotices,
   ];
 
