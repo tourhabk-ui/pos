@@ -27,6 +27,7 @@ vi.mock('@/lib/config', () => ({ getPublicBaseUrl: () => 'https://vedarai.ru' })
 
 import OwnToursClient, { actionsFor, STATUS_LABEL } from '@/app/hub/guide/own/_OwnToursClient';
 import { LEAD_STATUS_WORDS, OWNER_LEAD_ACTION_LABEL, OWNER_LEAD_STATUSES } from '@/lib/leads/owner-lead-words';
+import { CLIENT_LOST_REASONS, LOST_REASON_LABEL, SELLER_LOST_REASONS } from '@/lib/leads/lost-reason';
 import { ownerBookingsListUrl, ownerBookingsUrl, ownerLeadUrl } from '@/lib/partners/cabinet-links';
 import { ALLOWED_TRANSITIONS } from '@/types/booking.types';
 
@@ -203,7 +204,7 @@ describe('заявки своего тура: отметка ответа в д�
     render(<OwnToursClient />);
     let row = await screen.findByTestId(`own-lead-${LEAD.id}`);
     fireEvent.click(within(row).getByRole('button', { name: 'Отказ' }));
-    fireEvent.click(within(row).getByRole('button', { name: /Да, отметить/ }));
+    fireEvent.click(within(row).getByRole('button', { name: 'Нет мест' }));
     await screen.findByText('Заявка уже отмечена: «Отказ» — ничего не изменено.');
     cleanup();
 
@@ -211,9 +212,50 @@ describe('заявки своего тура: отметка ответа в д�
     render(<OwnToursClient />);
     row = await screen.findByTestId(`own-lead-${LEAD.id}`);
     fireEvent.click(within(row).getByRole('button', { name: 'Отказ' }));
-    fireEvent.click(within(row).getByRole('button', { name: /Да, отметить/ }));
+    fireEvent.click(within(row).getByRole('button', { name: 'Нет мест' }));
     expect((await within(row).findByRole('alert')).textContent).toBe('Заявка не найдена среди ваших');
     expect(screen.queryByText(/Заявка от .*: «/)).toBeNull();
+  });
+
+  // Этап 3а плана «после отказа»: «Отказ» — только с причиной, и до выбора видно, что получит турист.
+  it('«Отказ» спрашивает причину: отказ продавца — туристу уйдёт сообщение, причина клиента — нет; уходит причина, показано, что ушло на деле', async () => {
+    withLead(LEAD);
+    patchReply = {
+      ok: true,
+      body: { success: true, changed: true, data: { id: LEAD.id, status: 'lost' }, tourist: 'Туристу ушло сообщение в MAX: ваш ответ.' },
+    };
+    render(<OwnToursClient />);
+    let row = await screen.findByTestId(`own-lead-${LEAD.id}`);
+    fireEvent.click(within(row).getByRole('button', { name: 'Отказ' }));
+    // Ни «Да, отметить», ни запроса: сначала причина.
+    expect(within(row).queryByRole('button', { name: /Да, отметить/ })).toBeNull();
+    expect(calls.some((c) => c.method === 'PATCH')).toBe(false);
+    const seller = within(row).getByRole('group', { name: 'Отказываю я' });
+    expect(seller.textContent).toContain('Туристу уйдёт сообщение Ведара');
+    expect(within(seller).getAllByRole('button').map((b) => b.textContent))
+      .toEqual(SELLER_LOST_REASONS.map((r) => LOST_REASON_LABEL[r]));
+    const client = within(row).getByRole('group', { name: 'Причина на стороне клиента' });
+    expect(client.textContent).toContain('Туристу ничего не уйдёт');
+    expect(client.textContent).toContain('«по словам оператора»');
+    expect(within(client).getAllByRole('button').map((b) => b.textContent))
+      .toEqual(CLIENT_LOST_REASONS.map((r) => LOST_REASON_LABEL[r]));
+
+    fireEvent.click(within(seller).getByRole('button', { name: 'Погода, безопасность' }));
+    // Исход для туриста — словами сервера, как есть.
+    await screen.findByText(/Заявка от .*: «Отказ»\. Туристу ушло сообщение в MAX: ваш ответ\./);
+    expect(calls.find((c) => c.method === 'PATCH')).toEqual({
+      url: `/api/guide/own/leads/${LEAD.id}`, method: 'PATCH', body: { status: 'lost', lostReason: 'weather' },
+    });
+    cleanup();
+
+    // «Назад» из выбора причины — ничего не ушло.
+    calls.length = 0;
+    render(<OwnToursClient />);
+    row = await screen.findByTestId(`own-lead-${LEAD.id}`);
+    fireEvent.click(within(row).getByRole('button', { name: 'Отказ' }));
+    fireEvent.click(within(row).getByRole('button', { name: 'Назад' }));
+    expect(calls.some((c) => c.method === 'PATCH')).toBe(false);
+    expect(within(row).getByRole('button', { name: 'Отказ' })).toBeTruthy();
   });
 });
 

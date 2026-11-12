@@ -21,7 +21,7 @@ import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
 
 const h = vi.hoisted(() => ({
   query: vi.fn(), dbQuery: vi.fn(), getProposal: vi.fn(), sendEmail: vi.fn(), event: vi.fn(), ai: vi.fn(),
-  process: vi.fn(), change: vi.fn(),
+  process: vi.fn(), change: vi.fn(), scope: vi.fn(),
 }));
 vi.mock('@/lib/db-pool', () => ({ pool: { query: (sql: string, params?: unknown[]) => h.query(sql, params ?? []) } }));
 vi.mock('@/lib/database', () => ({ query: (sql: string, params?: unknown[]) => h.dbQuery(sql, params ?? []) }));
@@ -38,7 +38,7 @@ vi.mock('@/lib/auth/guide-helpers', () => ({ getGuidePartnerId: async () => 'p-g
 vi.mock('@/lib/leads/ownership', async (orig) => ({
   ...(await orig<typeof import('@/lib/leads/ownership')>()),
   canAccessLead: async () => true,
-  operatorLeadScope: async () => ({ kind: 'owner', partnerId: 'p-op', claimUnowned: true }),
+  operatorLeadScope: (...a: unknown[]) => h.scope(...a),
 }));
 vi.mock('@/lib/leads/owner-lead-status', async (orig) => ({
   ...(await orig<typeof import('@/lib/leads/owner-lead-status')>()),
@@ -73,6 +73,7 @@ beforeEach(() => {
   vi.stubGlobal('fetch', fetchMock);
   vi.stubEnv('TELEGRAM_BOT_TOKEN', 'unit-token');
   h.event.mockResolvedValue(undefined);
+  h.scope.mockResolvedValue({ kind: 'owner', partnerId: 'p-op', claimUnowned: true });
   h.sendEmail.mockResolvedValue({ success: true });
 });
 afterEach(() => { vi.unstubAllGlobals(); vi.unstubAllEnvs(); });
@@ -196,7 +197,7 @@ describe('двери сайта: продавцу не говорят «гото
     expect(res.status).toBe(409);
     expect(await res.json()).toMatchObject({ error: 'Заявку отменил клиент — статус не меняется' });
 
-    const both = await operatorPatch(req({ status: 'lost', notes: 'звонил' }), params);
+    const both = await operatorPatch(req({ status: 'lost', lostReason: 'seats', notes: 'звонил' }), params);
     expect(both.status).toBe(409);
     expect((await both.json() as { error: string }).error).toBe('Заявку отменил клиент — статус не меняется. Заметка сохранена.');
   });

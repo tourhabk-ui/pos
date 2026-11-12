@@ -62,6 +62,7 @@ import {
   type WeatherDatesOutcome,
 } from '@/lib/requests/answer-notice-text';
 import type { PdAlertParams, PdAlertResult } from '@/lib/notifications/pd-alert';
+import { SELLER_CLOSED_ACTION } from '@/lib/leads/lost-reason';
 
 const LOG = '[answer-notice]';
 /** Срок одной отправки в чат: больше сокетного срока MAX (15 с), чтобы дошедшее не записать «не дошло». */
@@ -124,15 +125,20 @@ const TOUR_ID_SQL = `CASE WHEN l.source_data->>'tour_id' ~ '^[0-9]{1,18}$' THEN 
 
 /**
  * Строка сообщения и факты заявки для слов — без имени и телефона. Ответ —
- * либо кнопка туроператора (`answer_id`), либо запись журнала перевозчика или
- * прокатчика (`activity_id`, 1425): тогда род, предмет и даты заявки — из
- * деталей этой записи, как их видел партнёр в момент ответа. Ответивший у
- * машины и проката — адресат заявки: чужую заявку ответ не записывает
- * (loadOwnedRentalRequest), а другим партнёрам такие заявки не передаются.
+ * либо кнопка туроператора (`answer_id`), либо запись журнала (`activity_id`,
+ * 1425). Запись журнала — двух родов (`activity_action`):
+ *  - `partner_answered` — «Не могу» перевозчика или прокатчика: род, предмет и
+ *    даты заявки — из деталей записи, как их видел партнёр в момент ответа.
+ *    Ответивший — адресат заявки: чужую заявку ответ не записывает
+ *    (loadOwnedRentalRequest), а другим партнёрам такие заявки не передаются;
+ *  - `seller_closed` — продавец тура закрыл заявку «Отказ» с причиной в
+ *    кабинете (этап 3а, lib/leads/owner-lead-status): заявка — на тур, слова —
+ *    те же, что после кнопки «Отказать».
  */
 export const NOTICE_FACTS_SQL = `
   SELECT n.id::text AS id, n.lead_id::text AS lead_id, n.answer_id::text AS answer_id, n.activity_id::text AS activity_id,
          n.answer, n.decline_reason,
+         al.action AS activity_action,
          al.details->>'kind' AS vehicle_kind, al.details->>'car_title' AS vehicle_title,
          al.details->>'date_from' AS vehicle_from, al.details->>'date_to' AS vehicle_to,
          n.state, n.skipped_reason, n.delivered_via, n.tried, n.attempts, n.manager_channel,
@@ -305,8 +311,10 @@ interface NoticeRow {
   lead_id: string;
   /** Кнопка туроператора; у машины и проката — null. */
   answer_id: string | null;
-  /** Запись журнала с ответом перевозчика или прокатчика; у тура — null. */
+  /** Запись журнала: ответ перевозчика или прокатчика либо закрытие продавцом тура с причиной; у кнопки — null. */
   activity_id: string | null;
+  /** Род записи журнала: `partner_answered` или `seller_closed`. */
+  activity_action?: string | null;
   vehicle_kind: string | null;
   vehicle_title: string | null;
   vehicle_from: string | null;
@@ -411,20 +419,24 @@ function isDeclineReason(v: unknown): v is DeclineReason {
   return typeof v === 'string' && (DECLINE_REASONS as readonly string[]).includes(v);
 }
 
-/** Род заявки строки: журнал без `kind` — прокат (так писали до 30.10). */
-function kindOf(r: Pick<NoticeRow, 'activity_id' | 'vehicle_kind'>): NoticeKind {
-  if (!r.activity_id) return 'tour';
+/** Строка рождена закрытием продавцом тура с причиной, а не ответом перевозчика или прокатчика. */
+const isSellerClosed = (r: Pick<NoticeRow, 'activity_id' | 'activity_action'>): boolean =>
+  !!r.activity_id && r.activity_action === SELLER_CLOSED_ACTION;
+
+/** Род заявки строки: журнал ответа без `kind` — прокат (так писали до 30.10). */
+function kindOf(r: Pick<NoticeRow, 'activity_id' | 'activity_action' | 'vehicle_kind'>): NoticeKind {
+  if (!r.activity_id || isSellerClosed(r)) return 'tour';
   return r.vehicle_kind === 'charter' ? 'charter' : 'rental';
 }
 
 /** Ответ, на который ссылается строка, — в той же форме, что у вида заявки. */
-function refOf(r: Pick<NoticeRow, 'answer_id' | 'activity_id'>): ShownAnswerRef | null {
-  if (r.activity_id) return { source: 'vehicle', id: r.activity_id };
+function refOf(r: Pick<NoticeRow, 'answer_id' | 'activity_id' | 'activity_action'>): ShownAnswerRef | null {
+  if (r.activity_id) return { source: isSellerClosed(r) ? 'closed' : 'vehicle', id: r.activity_id };
   return r.answer_id ? { source: 'tour', id: r.answer_id } : null;
 }
 
 /** Вид заявки по-прежнему построен из ответа этой строки. */
-function viewHolds(status: StatusRow | undefined, r: Pick<NoticeRow, 'answer_id' | 'activity_id'>): boolean {
+function viewHolds(status: StatusRow | undefined, r: Pick<NoticeRow, 'answer_id' | 'activity_id' | 'activity_action'>): boolean {
   if (!status) return false;
   const shown = shownAnswerRef(status);
   const mine = refOf(r);

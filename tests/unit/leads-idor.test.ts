@@ -89,15 +89,17 @@ describe('lib/leads/ownership.ts — единственный источник �
     expect(guide.r).toEqual({ kind: 'not_found' });
     expect(guide.prevCte).toContain('AND operator_id = $6');
     expect(guide.prevCte).not.toContain('IS NULL');
-    expect(guide.params).toEqual([lead, 'contacted', false, null, null, 'G']);
+    // Хвост — пять параметров отказа с причиной (этап 3а): без причины все пусты.
+    const noLost = [null, 'partner', 'site', false, null];
+    expect(guide.params).toEqual([lead, 'contacted', false, null, null, 'G', ...noLost]);
 
     const op = await call({ kind: 'owner', partnerId: 'P', claimUnowned: true });
     expect(op.prevCte).toContain('AND (operator_id = $6 OR operator_id IS NULL)');
-    expect(op.params).toEqual([lead, 'contacted', false, null, 'P', 'P']);
+    expect(op.params).toEqual([lead, 'contacted', false, null, 'P', 'P', ...noLost]);
 
     const none = await call({ kind: 'unowned_only' });
     expect(none.prevCte).toContain('AND operator_id IS NULL');
-    expect(none.params).toEqual([lead, 'contacted', false, null, null]);
+    expect(none.params).toEqual([lead, 'contacted', false, null, null, ...noLost]);
   });
 });
 
@@ -105,7 +107,9 @@ describe('владение лидом: /api/leads/[id]', () => {
   it('GET применяет скоуп к SQL, PATCH отдаёт скоуп кабинета общему правилу смены (lib/leads/owner-lead-status)', () => {
     expect(DETAIL).toMatch(/FROM leads WHERE id = \$1\$\{scope\.cond\}/);
     const patch = DETAIL.slice(DETAIL.indexOf('export async function PATCH'), DETAIL.indexOf('export async function GET'));
-    expect(patch).toMatch(/changeLeadStatus\(\{[\s\S]*scope: await operatorLeadScope\(user\)/);
+    // Что скоуп кабинета доходит до правила смены, судит вызов роута:
+    // tests/unit/cancelled-lead-not-revived.test.ts («двери сайта: «Отказ» только с причиной»).
+    expect(patch).toMatch(/const scope = await operatorLeadScope\(user\)/);
     expect(patch).not.toMatch(/UPDATE leads/);
   });
 

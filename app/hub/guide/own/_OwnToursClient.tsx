@@ -10,6 +10,8 @@ import { OWNER_BOOKING_STATUS_LABEL, alreadyInStatusText } from '@/lib/bookings/
 import {
   LEAD_STATUS_WORDS, OWNER_LEAD_ACTION_LABEL, leadAlreadyText, leadIsWaiting, ownerLeadActionsFor, type OwnerLeadStatus,
 } from '@/lib/leads/owner-lead-words';
+import type { LostReason } from '@/lib/leads/lost-reason';
+import { LostReasonChooser } from '@/components/leads/LostReasonChooser';
 
 /**
  * «Свои туры» гида — туры, которые гид продаёт сам: сами туры (новый тур
@@ -159,23 +161,24 @@ function LeadRow({ l, tours, onDone }: { l: OwnLead; tours: OwnTour[] | null; on
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
-  const send = async (status: OwnerLeadStatus) => {
+  const send = async (status: OwnerLeadStatus, lostReason?: LostReason) => {
     setBusy(true);
     setError(null);
     try {
       const res = await fetch(`/api/guide/own/leads/${l.id}`, {
         method: 'PATCH',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ status }),
+        body: JSON.stringify(lostReason ? { status, lostReason } : { status }),
       });
-      const json = await res.json().catch(() => null) as { success?: boolean; error?: string; changed?: boolean } | null;
+      const json = await res.json().catch(() => null) as { success?: boolean; error?: string; changed?: boolean; tourist?: string | null } | null;
       if (!res.ok || !json?.success) { setError(json?.error ?? 'Не записано — попробуйте ещё раз'); return; }
       setPending(null);
       // Заявка уже была с этой отметкой (другая вкладка, повтор): ничего не
-      // изменено — так и сказано.
+      // изменено — так и сказано. После отказа с причиной сервер говорит, что
+      // на деле ушло туристу, — показываем как есть.
       onDone(json.changed === false
         ? leadAlreadyText(status)
-        : `Заявка от ${fmtDate(l.created_at)}: «${LEAD_STATUS_WORDS[status] ?? status}».`);
+        : [`Заявка от ${fmtDate(l.created_at)}: «${LEAD_STATUS_WORDS[status] ?? status}».`, json.tourist].filter(Boolean).join(' '));
     } catch {
       setError('Сеть недоступна — ничего не изменено');
     } finally {
@@ -212,6 +215,9 @@ function LeadRow({ l, tours, onDone }: { l: OwnLead; tours: OwnTour[] | null; on
 
       {booking && tours ? (
         <ManualBookingForm tours={tours} lead={l} onDone={(msg) => { setBooking(false); onDone(msg); }} onCancel={() => setBooking(false)} />
+      ) : pending === 'lost' ? (
+        // «Отказ» — только с причиной (этап 3а): от неё зависит, что узнает турист.
+        <LostReasonChooser busy={busy} onChoose={(reason) => void send('lost', reason)} onCancel={() => setPending(null)} />
       ) : pending ? (
         <div className="space-y-2">
           <p className="text-[var(--text-primary)]">
