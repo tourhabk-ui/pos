@@ -35,7 +35,8 @@ const KEY = 'ds-key-7f3a';
 const SECRETS = { DEEPSEEK_API_KEY: KEY, CRON_SECRET: 'cron-secret-55aa', ANTHROPIC_API_KEY: 'console-key-91bc', OPENROUTER_API_KEY: 'or-key-7f3a' };
 
 const RUN_STEPS = [
-  'Claude Code', 'bubblewrap для изоляции подпроцессов', 'База диффа и правила — ревьюеру, настройки проекта — нет',
+  'Claude Code', 'bubblewrap для изоляции подпроцессов', 'Копия для ревьюера — без телефонов и почт',
+  'База диффа и правила — ревьюеру, настройки проекта — нет',
   'Ревью', 'Ревью состоялось', 'Итог ревью — комментарием в PR',
 ];
 const ctxOn = { env: { DEEPSEEK_KEY: KEY }, steps: { scope: { outputs: { run: 'true' } }, verdict: { outcome: 'success' } } };
@@ -286,6 +287,102 @@ describe('Ревью: deepseek-flash, одна голова, /security-review', 
     expect(runStep(step, ctxHere()).code).toBe(0);
     expect(readFileSync(join(dir, 'calls'), 'utf-8').trim()).toBe('1');
     expect(outputs()).toMatchObject({ attempt: '1' });
+  });
+});
+
+describe('Копия для ревьюера: зарубежной модели — без телефонов и почт (ревью #3298, 12.11)', () => {
+  const step = stepByName(job, 'Копия для ревьюера — без телефонов и почт');
+  const rules = stepByName(job, 'База диффа и правила — ревьюеру, настройки проекта — нет');
+  const work = () => join(dir, 'work');
+  const SCRUBBER = readFileSync('scripts/review-pii-scrub.mjs', 'utf-8');
+  const PHONE = '+7 914 782-22-22';
+  const git = (...a: string[]) =>
+    spawnSync('git', ['-c', 'user.email=dev.person@mail.ru', '-c', 'user.name=Разработчик', '-c', 'commit.gpgsign=false', ...a], { cwd: work(), encoding: 'utf-8' });
+  const put = (f: string, text: string) => {
+    mkdirSync(dirname(join(work(), f)), { recursive: true });
+    writeFileSync(join(work(), f), text);
+  };
+
+  /** База и PR одним коммитом; где лежит скрипт чистки — решает тест. */
+  function repo(scrubberIn: 'base' | 'pr' | 'none'): { base: string; head: string } {
+    git('init', '-q');
+    if (scrubberIn === 'base') put('scripts/review-pii-scrub.mjs', SCRUBBER);
+    put('.github/security-review-rules.md', 'Правило базы.');
+    put('lib/partners/data.ts', `export const contact = { name: 'Анатолий', phone: '${PHONE}' };\nexport const at = 1730000000000;\n`);
+    put('.gitignore', 'ignored.log\n');
+    git('add', '-A');
+    put('ignored.log', 'tracked, хоть и под .gitignore');
+    git('add', '-f', 'ignored.log');
+    git('commit', '-q', '-m', 'база');
+    const base = git('rev-parse', 'HEAD').stdout.trim();
+    if (scrubberIn === 'pr') put('scripts/review-pii-scrub.mjs', SCRUBBER);
+    put('lib/requests/x.ts', "// пишите anna.petrova@gmail.com или 89001234567\nexport const limit = 2147483647;\n");
+    git('add', '-A');
+    git('commit', '-q', '-m', 'PR: звонить 8 (900) 123-45-67');
+    return { base, head: git('rev-parse', 'HEAD').stdout.trim() };
+  }
+
+  /** Всё, что ревьюер может прочитать: файлы, объекты и история копии. */
+  function visible(): string {
+    return [
+      git('log', '--format=%an %ae %cn %ce%n%B').stdout,
+      git('show', 'HEAD~1:lib/partners/data.ts').stdout,
+      git('show', 'HEAD:lib/requests/x.ts').stdout,
+      git('diff', 'HEAD~1', 'HEAD').stdout,
+      readFileSync(join(work(), 'lib/partners/data.ts'), 'utf-8'),
+      readFileSync(join(work(), 'lib/requests/x.ts'), 'utf-8'),
+    ].join('\n');
+  }
+
+  it('телефоны и почты — в файлах, диффе и тексте коммитов заменены; почты автора нет; код и строки на месте', () => {
+    const { base, head } = repo('base');
+    const r = runStep(step, ctxHere());
+    expect(r.code, r.out).toBe(0);
+    expect(r.out).toContain('Скрипт чистки — из базы PR.');
+    const seen = visible();
+    for (const leak of [PHONE, '782-22-22', '89001234567', '123-45-67', 'anna.petrova@gmail.com', 'dev.person@mail.ru', 'Разработчик']) {
+      expect(seen, leak).not.toContain(leak);
+    }
+    expect(seen).toContain('[телефон]');
+    expect(seen).toContain('[email]');
+    expect(seen).toContain('1730000000000');
+    expect(seen).toContain('2147483647');
+    expect(readFileSync(join(work(), 'lib/requests/x.ts'), 'utf-8').split('\n')).toHaveLength(3);
+    // В копии два коммита, исходных объектов нет вовсе.
+    expect(git('rev-list', '--count', 'HEAD').stdout.trim()).toBe('2');
+    for (const sha of [base, head]) expect(git('cat-file', '-e', sha).status, sha).not.toBe(0);
+    // Файл под .gitignore, но в репозитории — в копии тоже.
+    expect(git('ls-files').stdout.split('\n')).toContain('ignored.log');
+    // Счётчики в логе — без самих значений.
+    expect(r.out).not.toContain(PHONE);
+    expect(r.out).toMatch(/телефонов [1-9]/);
+  });
+
+  it('после копии правила — из её базы, origin/HEAD — база копии, дифф — изменения PR', () => {
+    repo('base');
+    expect(runStep(step, ctxHere()).code).toBe(0);
+    const r = runStep(rules, ctxHere());
+    expect(r.code, r.out).toBe(0);
+    expect(readFileSync(join(dir, 'review-rules.md'), 'utf-8')).toBe('Правило базы.');
+    expect(git('rev-parse', 'origin/HEAD').stdout.trim()).toBe(git('rev-parse', 'HEAD~1').stdout.trim());
+    const diff = git('diff', 'origin/HEAD...').stdout;
+    expect(diff).toContain('lib/requests/x.ts');
+    expect(diff).not.toContain('89001234567');
+  });
+
+  it('в базе скрипта нет (PR, который его заводит) — из PR, и это сказано', () => {
+    repo('pr');
+    const r = runStep(step, ctxHere());
+    expect(r.code, r.out).toBe(0);
+    expect(r.out).toMatch(/::notice::.*скрипт чистки взят из PR/);
+    expect(visible()).not.toContain(PHONE);
+  });
+
+  it('скрипта нет нигде — красный: без чистки модели не уходит ничего', () => {
+    repo('none');
+    const r = runStep(step, ctxHere());
+    expect(r.code).not.toBe(0);
+    expect(r.out).toMatch(/::error::Скрипта чистки нет/);
   });
 });
 
