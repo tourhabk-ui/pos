@@ -158,6 +158,7 @@ export async function operatorDeskPress(opts: {
     if (parsed.kind !== 'lead') return null;
     const notices = await import('@/lib/requests/answer-notice');
     const { operatorOutcomeLine } = await import('@/lib/requests/answer-notice-text');
+    type NoticeOutcome = import('@/lib/requests/answer-notice-text').NoticeOutcome;
     if (saved.already) {
       const was = await notices.readNoticeOutcomeFor(parsed.subjectId, partner.partnerId, saved.subjectDate);
       return was ? operatorOutcomeLine(was) : null;
@@ -168,7 +169,9 @@ export async function operatorDeskPress(opts: {
       const reason = n.skipped === 'lead_closed' || n.skipped === 'not_addressee' || n.skipped === 'self' ? n.skipped : 'outgrown';
       return operatorOutcomeLine({ state: 'skipped', reason });
     }
-    return operatorOutcomeLine(await notices.deliverAnswerNotice(n.id));
+    // Нажатие ждёт отправку не дольше общего срока: дальше она идёт сама, оператор читает «отправляется».
+    const { withinPress } = await import('@/lib/requests/press-budget');
+    return operatorOutcomeLine(await withinPress<NoticeOutcome>(notices.deliverAnswerNotice(n.id), { state: 'pending', sending: true }));
   };
   const withOutcome = async (text: string) => {
     const line = await outcomeLine();

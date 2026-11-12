@@ -48,6 +48,7 @@ import { getPublicBaseUrl } from '@/lib/config';
 import { tourPath } from '@/lib/tours/tour-url';
 import { publicTourSql } from '@/lib/tours/public-visibility';
 import { loadFreeDatesNear, type FreeDates } from '@/lib/tours/nearest-free-date';
+import { checkTourDates, type DateCheck, type DateCheckDeps } from '@/lib/trips/date-check';
 import { LEAD_ANSWER_DATE_SQL } from '@/lib/requests/answer-date';
 import { DECLINE_REASONS, type DeclineReason } from '@/lib/requests/chat-answer-buttons';
 import { MY_TRIP_DATE_ACTIONS_SQL, myTripDatePressable } from '@/lib/requests/my-trip-date';
@@ -56,8 +57,9 @@ import { REQUEST_STATUS_BY_LEAD_SQL, groupPassedOnAnswer, shownAnswerRef, type S
 import { redactPII } from '@/lib/security/pii-redact';
 import type { NotifyRunResult } from '@/lib/mcp/request-notify';
 import {
-  answerWantsDates, managerClearedText, managerUndeliveredText, personOf, touristAnswerText, undeliveredWhy,
+  answerWantsDates, isWeatherDecline, managerClearedText, managerUndeliveredText, personOf, touristAnswerText, undeliveredWhy,
   type DatesBlock, type ManagerChannel, type NoticeAnswer, type NoticeFacts, type NoticeKind, type NoticeOutcome,
+  type WeatherDatesOutcome,
 } from '@/lib/requests/answer-notice-text';
 import type { PdAlertParams, PdAlertResult } from '@/lib/notifications/pd-alert';
 
@@ -70,8 +72,21 @@ export const NOTICE_CHAT_TARGETS_MAX = 3;
 export const NOTICE_AGENT_TIMEOUT_MS = 25_000;
 /** Письмо менеджеру: MAX до 15 с, затем заглушка в Telegram — у неё своего срока нет. */
 export const NOTICE_MANAGER_TIMEOUT_MS = 30_000;
+/**
+ * Проверка дат после отказа по погоде (2в): прогноз, предупреждения, зона,
+ * статус места. Не уложилась — даты считаются непроверенными и не называются.
+ * Сам запрос прогноза ждёт источник до 12 с (lib/planner/intelligence): ответ,
+ * пришедший между 10-й и 12-й секундой, здесь уже «не успел» — в сторону «дат
+ * не называю». Поднять срок нельзя, не съев запас шага крона (см. ниже).
+ */
+export const NOTICE_CHECK_TIMEOUT_MS = 10_000;
+/** Сколько свободных дат рядом проверять после отказа по погоде: часть отсеется. */
+export const NOTICE_CHECK_CANDIDATES = 8;
+/** На сколько дат с прежним отказом по погоде читать календарь шире — потолок, чтобы запрос не рос без меры. */
+export const NOTICE_REFUSED_ROOM = 40;
 /** Худший срок одной строки — все ноги по своему сроку плюс запросы к базе. */
-export const NOTICE_ROW_WORST_MS = NOTICE_CHAT_TARGETS_MAX * NOTICE_SEND_TIMEOUT_MS + NOTICE_AGENT_TIMEOUT_MS + NOTICE_MANAGER_TIMEOUT_MS + 10_000;
+export const NOTICE_ROW_WORST_MS = NOTICE_CHECK_TIMEOUT_MS + NOTICE_CHAT_TARGETS_MAX * NOTICE_SEND_TIMEOUT_MS
+  + NOTICE_AGENT_TIMEOUT_MS + NOTICE_MANAGER_TIMEOUT_MS + 10_000;
 /**
  * После стольких мс от начала прогона новая строка не начинается: она должна
  * кончиться до срока шага (`--max-time` в cron-safety-heartbeat.yml и
@@ -98,6 +113,8 @@ export interface NoticeDeps {
   /** Внеочередная сверка подписок этих ключей (request-notify, onlyKeyIds). */
   notifyRun?: (keyIds: string[]) => Promise<NotifyRunResult>;
   freeDates?: typeof loadFreeDatesNear;
+  /** Проверка дат после отказа по погоде или безопасности (lib/trips/date-check). */
+  checkDates?: (tourId: number, declined: string, candidates: readonly string[], deps?: DateCheckDeps) => Promise<DateCheck>;
   now?: () => number;
 }
 
@@ -131,6 +148,19 @@ export const NOTICE_FACTS_SQL = `
                 WHERE pa_r.subject_kind = 'lead' AND pa_r.subject_id = l.id::text
                   AND pa_r.partner_id = l.operator_id AND pa_r.answer = 'no_seats'
                   AND pa_r.subject_date IS NOT NULL) AS refused_dates,
+         -- Даты, по которым на этом туре уже отказывали по погоде или безопасности
+         -- (в любой заявке): тому, кто ведёт тур, виднее, чем прогнозу, — такую
+         -- дату «проверенной» не называем (ревью 2в). Считается только для
+         -- отказа по погоде: остальным строкам список не нужен. Приведение
+         -- стоит на стороне лида (id::text): subject_id — текст любого рода
+         -- предмета, и обратное приведение уронило бы запрос на не-uuid.
+         CASE WHEN n.answer = 'decline' AND n.decline_reason = 'weather' THEN
+           ARRAY(SELECT DISTINCT pa_w.subject_date FROM partner_incoming_answers pa_w
+                   JOIN leads l_w ON l_w.id::text = pa_w.subject_id
+                  WHERE pa_w.subject_kind = 'lead' AND pa_w.answer = 'decline' AND pa_w.decline_reason = 'weather'
+                    AND pa_w.subject_date IS NOT NULL
+                    AND l_w.source_data->>'tour_id' = l.source_data->>'tour_id')
+         END AS weather_refused_dates,
          ${MY_TRIP_DATE_ACTIONS_SQL} AS date_actions
     FROM answer_notices n
     JOIN leads l ON l.id = n.lead_id
@@ -301,6 +331,8 @@ interface NoticeRow {
   operator_name: string | null;
   trip_part: boolean;
   refused_dates: string[] | null;
+  /** Даты этого тура, по которым уже отказывали «погода или безопасность» — в любой заявке. */
+  weather_refused_dates?: string[] | null;
   date_actions: number | null;
 }
 
@@ -423,18 +455,59 @@ function factsOf(r: NoticeRow, st: StatusRow | undefined): NoticeFacts {
   };
 }
 
-/** Свободные даты рядом с датой заявки — без текущей и без прежних «Нет мест». */
-async function datesOf(r: NoticeRow, f: NoticeFacts, load: typeof loadFreeDatesNear): Promise<DatesBlock> {
+/** Ближайшие к дате заявки, по возрастанию — не больше `limit`. */
+function nearestDates(dates: readonly string[], around: string, limit: number): string[] {
+  const at = Date.parse(`${around}T00:00:00Z`);
+  const gap = (d: string) => Math.abs(Date.parse(`${d}T00:00:00Z`) - at);
+  return [...dates].sort((a, b) => gap(a) - gap(b) || a.localeCompare(b)).slice(0, limit).sort();
+}
+
+/**
+ * Свободные даты рядом с датой заявки — без текущей и без прежних «Нет мест».
+ * После отказа «погода или безопасность» (2в) — только прошедшие проверку
+ * обстановки и места; проверка не уложилась в срок или не смогла — все
+ * свободные даты считаются непроверенными, и ни одна не называется. Даты с
+ * прежним отказом по погоде на этом туре не проверяются вовсе: они названы
+ * числом, а если других свободных рядом нет — так и сказано.
+ */
+async function datesOf(r: NoticeRow, f: NoticeFacts, deps: NoticeDeps): Promise<DatesBlock> {
   // У машины и проката календаря дат нет: заказчик называет их сам.
   if (personOf(f.kind) === 'client' || !answerWantsDates(f)) return { kind: 'skip' };
   const tourId = r.tour_id === null ? NaN : Number(r.tour_id);
   // Тура нет на витрине — других его дат не предлагаем: заявку на них не оставить.
   if (!Number.isFinite(tourId) || !r.tour_public || !r.lead_date) return { kind: 'skip' };
+  const weather = isWeatherDecline(f);
   const exclude = [r.lead_date, ...(r.refused_dates ?? [])];
-  const free: FreeDates = await load(tourId, f.people ?? 1, r.lead_date, exclude, NOTICE_DATES);
+  const people = f.people ?? 1;
+  // Даты с прежним отказом по погоде в календаре свободны — «в календаре дат нет» о них
+  // сказать нельзя (ревью 2в): они отсеиваются после чтения календаря и называются числом.
+  // Читается с запасом на них: иначе восемь ближайших отказанных заслонили бы девятую свободную.
+  const today = kamchatkaToday((deps.now ?? Date.now)());
+  const refusedBefore = new Set((weather ? r.weather_refused_dates ?? [] : []).filter((d) => d >= today));
+  const limit = weather ? NOTICE_CHECK_CANDIDATES + Math.min(refusedBefore.size, NOTICE_REFUSED_ROOM) : NOTICE_DATES;
+  const free: FreeDates = await (deps.freeDates ?? loadFreeDatesNear)(tourId, people, r.lead_date, exclude, limit);
   if (free.state === 'failed') return { kind: 'failed' };
   if (!free.hasCalendar) return { kind: 'no_calendar' };
-  return free.dates.length > 0 ? { kind: 'dates', dates: free.dates.map((d) => d.date) } : { kind: 'none' };
+  const dates = free.dates.map((d) => d.date);
+  if (dates.length === 0) return { kind: 'none' };
+  if (!weather) return { kind: 'dates', dates };
+
+  const open = dates.filter((d) => !refusedBefore.has(d));
+  const refused = dates.length - open.length;
+  if (open.length === 0) return { kind: 'weather_refused', count: refused };
+  const candidates = nearestDates(open, r.lead_date, NOTICE_CHECK_CANDIDATES);
+
+  const run = await inTime((deps.checkDates ?? checkTourDates)(tourId, r.lead_date, candidates, { now: deps.now }), NOTICE_CHECK_TIMEOUT_MS);
+  if (!run.ok) {
+    // Срок вышел или проверка упала — ни одна дата не проверена, и ни одна не называется.
+    console.warn(`${LOG} заявка ${r.lead_id}: проверка дат после отказа по погоде не кончилась (${run.why}) — дат не называю`);
+    return { kind: 'checked', check: { state: 'unchecked', why: [run.why] }, dates: [], refused };
+  }
+  const check = run.value;
+  // Называется только дата из календаря, которую проверка вернула «чисто», — и только когда
+  // данные Ведара видят причину отказа.
+  const offered = check.state === 'confirmed' ? check.clear.filter((d) => candidates.includes(d)) : [];
+  return { kind: 'checked', check, dates: nearestDates(offered, r.lead_date, NOTICE_DATES), refused };
 }
 
 // ── Отправка ─────────────────────────────────────────────────────────────────
@@ -556,8 +629,11 @@ export async function deliverAnswerNotice(noticeId: string, deps: NoticeDeps = {
       return outcomeOfRow((await readRow(q, noticeId)) ?? { ...r, state: 'skipped', skipped_reason: 'outgrown' });
     }
     const f = factsOf(r, status);
-    const dates = await datesOf(r, f, deps.freeDates ?? loadFreeDatesNear);
-    const shownDates = dates.kind === 'dates' ? dates.dates : [];
+    const dates = await datesOf(r, f, deps);
+    const shownDates = dates.kind === 'dates' || dates.kind === 'checked' ? dates.dates : [];
+    // Чем кончился блок дат после отказа по погоде — оператору: что сказано туристу.
+    const check: WeatherDatesOutcome | undefined = dates.kind === 'checked' ? dates.check.state
+      : dates.kind === 'weather_refused' ? 'weather_refused' : undefined;
     // Кнопки дат — только если нажатие пройдёт: поездка впереди, лимит смен не
     // исчерпан (то же правило, что у «Изменить дату»). Брони нет: иначе вид
     // заявки был бы не из этого ответа (шаг 1).
@@ -576,7 +652,7 @@ export async function deliverAnswerNotice(noticeId: string, deps: NoticeDeps = {
       if (res.ok) {
         await q(NOTICE_DELIVERED_SQL, [r.id, t.channel, tried.join(',') || null]);
         console.info(`${LOG} заявка ${r.lead_id}: доставлено (${t.channel})`);
-        return { state: 'delivered', via: t.channel, dates: shownDates };
+        return { state: 'delivered', via: t.channel, dates: shownDates, ...(check ? { check } : {}) };
       }
       const code = res.ok ? 'api_error' : chatCode(res.code);
       tried.push(`${t.channel}:${code}`);

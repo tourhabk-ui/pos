@@ -40,6 +40,7 @@ import {
   claimPartnerAnswer, loadOwnedRentalRequest, resolveRequestOffer, type NewVehicleNotice, type OwnedRentalRequest,
 } from '@/lib/rental/request-answer-store';
 import { deliverAnswerNotice, readVehicleNoticeOutcome } from '@/lib/requests/answer-notice';
+import { NOTICE_PRESS_BUDGET_MS, withinPress } from '@/lib/requests/press-budget';
 import { changeLeadStatus } from '@/lib/leads/owner-lead-status';
 import { postOwnerMessage } from '@/lib/requests/request-chat-service';
 import { isChatTargetId, ownerReplyButton } from '@/lib/requests/request-chat';
@@ -97,14 +98,8 @@ async function markCharterLeadStatus(partner: AnswerActor, leadId: string, answe
   }
 }
 
-/**
- * Сколько нажатие «Не могу» ждёт отправку заказчику. Обычная отправка — доли
- * секунды; зависший канал держал бы ответ партнёру до двух минут (все ноги по
- * своему сроку), и сайт показал бы «нет связи» по ответу, который записан.
- * После срока отправка идёт сама: исход запишется в строку, обрыв подберёт
- * добивка, повторное нажатие его назовёт.
- */
-export const DECLINE_TELL_BUDGET_MS = 20_000;
+/** Сколько нажатие «Не могу» ждёт отправку заказчику — общий срок нажатия (lib/requests/press-budget). */
+export const DECLINE_TELL_BUDGET_MS = NOTICE_PRESS_BUDGET_MS;
 
 /**
  * Заказчику после «Не могу» — сообщение Ведара по строке, рождённой ответом.
@@ -116,15 +111,7 @@ async function tellDeclinedClient(leadId: string, notice: NewVehicleNotice | nul
     console.error(`[rental-request-answer] заявка ${leadId}: строка сообщения заказчику не создана`);
     return null;
   }
-  let timer: ReturnType<typeof setTimeout> | undefined;
-  const late = new Promise<DeclineNotice>((resolve) => {
-    timer = setTimeout(() => resolve({ state: 'pending', sending: true }), DECLINE_TELL_BUDGET_MS);
-  });
-  try {
-    return await Promise.race([deliverAnswerNotice(notice.id), late]);
-  } finally {
-    clearTimeout(timer);
-  }
+  return withinPress<DeclineNotice>(deliverAnswerNotice(notice.id), { state: 'pending', sending: true });
 }
 
 /** Заказчику после «Беру» — в переписку заявки. true/false — записано и видно / нет; отказ назван в логе. */
