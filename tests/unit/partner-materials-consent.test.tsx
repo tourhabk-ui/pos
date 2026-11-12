@@ -56,8 +56,8 @@ vi.mock('@/lib/partners/material-consent', async (orig) => {
 });
 
 import {
-  PARTNER_MATERIALS_CONSENT_VERSION, authorityStatement, consentDocument, materialsConsentLine, materialsConsentParagraphs,
-  siteWords,
+  PARTNER_MATERIALS_CONSENT_VERSION, PLACE_CARDS_CONSENT_FROM, authorityStatement, consentCoversPlaceCards, consentDocument,
+  materialsConsentLine, materialsConsentParagraphs, siteWords,
 } from '@/lib/legal/partner-materials-consent';
 import { consentWording, PD_CONSENT_VERSION } from '@/lib/legal/pd-consent';
 import {
@@ -103,7 +103,7 @@ describe('текст согласия', () => {
     expect(text).toMatch(/не даёт ему места выше/);
     expect(text).toMatch(/Отозвать можно/);
     expect(authorityStatement('Лагуна Прокат')).toContain('от имени «Лагуна Прокат»');
-    expect(PARTNER_MATERIALS_CONSENT_VERSION).toBe('2026-10-23');
+    expect(PARTNER_MATERIALS_CONSENT_VERSION).toBe('2026-11-12');
   });
 
   it('называет то, что перепись путей 23.10 нашла в коде: получателей, хранение, изменения, чтение сайта', () => {
@@ -113,10 +113,28 @@ describe('текст согласия', () => {
       /сервисы веб-аналитики/, /открытом репозитории кода Ведара на GitHub \(США\)/, /хранилище Timeweb \(Россия\)/,
       /пересказывать и дополнять своими словами/, /на экране может подкрашивать/, /цену — показывать словом «от»/,
       /Раз в сутки Ведар читает главную страницу сайта партнёра/, /озвучивает ответы/, /английском/,
-      /размещённые партнёром на сторонних площадках/, /вручную снимает с показа/, /Ведар удалить не может/,
+      /размещённые партнёром на сторонних площадках/, /остальные материалы, взятые у партнёра, менеджер Ведара снимает с показа вручную/, /Ведар удалить не может/,
     ]) {
       expect(text, String(fact)).toMatch(fact);
     }
+  });
+
+  it('снимки на карточках мест и маршрутов (12.11): названы с подписью партнёра и с тем, что при отзыве они уходят сами', () => {
+    const text = consentDocument(LAGUNA);
+    expect(text).toContain('на карточках мест и маршрутов Камчатки');
+    expect(text).toContain('там, где других снимков нет');
+    expect(text).toContain('с подписью «Фото: Лагуна Прокат»');
+    expect(text).toContain('снимки партнёра на карточках мест и маршрутов перестают показываться сами');
+  });
+
+  it('карточки мест покрывает только подпись версии с 12.11; прежняя и мусор — нет', () => {
+    expect(PLACE_CARDS_CONSENT_FROM).toBe('2026-11-12');
+    expect(consentCoversPlaceCards(PARTNER_MATERIALS_CONSENT_VERSION)).toBe(true);
+    expect(consentCoversPlaceCards('2026-11-12')).toBe(true);
+    expect(consentCoversPlaceCards('2026-12-01')).toBe(true);
+    expect(consentCoversPlaceCards('2026-10-23')).toBe(false);
+    expect(consentCoversPlaceCards('')).toBe(false);
+    expect(consentCoversPlaceCards('v3')).toBe(false);
   });
 
   it('обещаний, которых платформа не исполняет, в тексте нет (ревью 23.10)', () => {

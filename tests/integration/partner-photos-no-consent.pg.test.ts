@@ -18,6 +18,12 @@
  *     обещающий возврат, без этой проверки был бы объявлением без исполнения
  *     (§10.09).
  *
+ *   по согласию (1431, владелец 12.11 «да, подписывай») — кадр галереи с
+ *     `partner_id` показывается только при действующем согласии версии,
+ *     называющей карточки мест: без подписи, по подписи прежней версии и после
+ *     отзыва его нет ни на карточке, ни у маршрута, ни по прямому адресу;
+ *     1431 переводит кадры, спрятанные 1263/1265, под это правило.
+ *
  * Мок ответил бы на любой SQL, поэтому сцена разыгрывается на схеме baseline
  * прода плюс всех миграций; 1263 и 1265 затем прогоняются ещё дважды по
  * засеянным строкам — так же, как они лягут на прод, и повторно, как велит
@@ -27,7 +33,10 @@
  * KERNEL_PG_TEST_URL=postgresql://user:pass@host/db. Без неё файл честно
  * пропускается — «не прогнано», а не «прошло».
  */
-import { describe, it, expect, beforeAll, afterAll } from 'vitest';
+import { describe, it, expect, beforeAll, afterAll, vi } from 'vitest';
+
+// Загрузка из админки (ревью #3291) — роут за requireAdmin.
+vi.mock('@/lib/auth/middleware', () => ({ requireAdmin: async () => ({ userId: 'admin', role: 'admin' }) }));
 import { readFileSync } from 'node:fs';
 import { join } from 'node:path';
 import { NextRequest } from 'next/server';
@@ -61,6 +70,8 @@ const CASES = [
   },
 ] as const;
 const [MESTECHKO, VOLCANOESLAND] = CASES;
+const M1431 = readFileSync(join(process.cwd(), 'migrations/1431_place_gallery_partner_consent.sql'), 'utf-8');
+const SLUGS = { 'Местечко Камчатка': 'mestechko', 'Край Вулканов': 'volcanoesland' } as const;
 
 const S3 = 'https://s3.example.test/bucket';
 const heroUrl = (ark: string) => `${S3}/places/${ark}/hero.jpg`;
@@ -283,5 +294,146 @@ withPg('снимки партнёров без согласия: спрятан�
     expect(springs.photoAttribution?.author).toBe(MESTECHKO.partner);
     expect(await heroStatus(SPRINGS.ark)).toBe(302);
     expect(await galleryStatus(SPRINGS.ark, 1)).toBe(302);
+  });
+
+  describe('по согласию партнёра (1431)', () => {
+    const partnerIds: Record<string, string> = {};
+
+    async function sign(partnerId: string, version: string): Promise<string> {
+      const { rows } = await pool.query<{ id: string }>(
+        `INSERT INTO partner_material_consents
+           (partner_id, text_version, signed_text, sites, signer_name, signer_role, source,
+            pd_consent_at, pd_consent_ip, pd_consent_source, pd_consent_version)
+         VALUES ($1, $2, $3, '{}', 'Тест', 'директор', 'link', NOW(), '203.0.113.7', 'partner-consent-page', 'тест')
+         RETURNING id::text`,
+        [partnerId, version, 'Текст согласия для теста. '.repeat(12)],
+      );
+      return rows[0]!.id;
+    }
+    const revokeAll = (partnerId: string) => pool.query(
+      `UPDATE partner_material_consents SET revoked_at = NOW(), revoke_reason = 'отозвано в тесте'
+        WHERE partner_id = $1 AND revoked_at IS NULL`, [partnerId]);
+
+    async function shown(place: { id: string; ark: string }) {
+      const c = await card(place.id);
+      return {
+        onCard: c.images.some((u) => u.startsWith(`/api/images/place-gallery/${place.ark}/1`)),
+        onRoute: (await routePhotos()).some((u) => u.startsWith(`/api/images/place-gallery/${place.ark}/1`)),
+        direct: await galleryStatus(place.ark, 1),
+        credits: Object.values(c.photoCredits),
+        sources: Object.values((c as unknown as { photoRights: Record<string, { sourceUrl: string | null }> }).photoRights)
+          .map((r) => r.sourceUrl),
+      };
+    }
+    const HIDDEN = { onCard: false, onRoute: false, direct: 404 };
+
+    beforeAll(async () => {
+      for (const c of CASES) {
+        const slug = SLUGS[c.partner];
+        const have = await pool.query<{ id: string }>(`SELECT id::text FROM partners WHERE slug = $1`, [slug]);
+        partnerIds[c.partner] = have.rows[0]?.id ?? (await pool.query<{ id: string }>(
+          `INSERT INTO partners (name, category, contact, slug) VALUES ($1, 'operator', '{}', $2) RETURNING id::text`,
+          [c.partner, slug],
+        )).rows[0]!.id;
+        await pool.query(`DELETE FROM partner_material_consents WHERE partner_id = $1`, [partnerIds[c.partner]]);
+        await pool.query(`UPDATE partners SET is_public = TRUE, name = $2 WHERE id = $1`, [partnerIds[c.partner], c.partner]);
+      }
+      // Как на проде: кадры спрятаны 1263/1265, затем приходит 1431.
+      for (const c of CASES) await pool.query(c.sql);
+    });
+
+    it('1431 привязывает кадры галереи к партнёрам и снимает ручную причину; повтор ничего не меняет', async () => {
+      await pool.query(M1431);
+      const once = await snapshot();
+      await pool.query(M1431);
+      expect(await snapshot()).toEqual(once);
+      const { rows } = await pool.query<{ ark: string; position: number; partner_id: string | null; hidden_reason: string | null }>(
+        `SELECT ark_id::text AS ark, position, partner_id::text, hidden_reason
+           FROM place_gallery_photos WHERE ark_id = ANY($1::uuid[]) ORDER BY ark_id, position`,
+        [[SPRINGS.ark, LAKE.ark]],
+      );
+      for (const { partner, place } of CASES) {
+        const g1 = rows.find((r) => r.ark === place.ark && r.position === 1)!;
+        expect(g1, partner).toMatchObject({ partner_id: partnerIds[partner], hidden_reason: null });
+        // Кадр владельца партнёру не приписан.
+        expect(rows.find((r) => r.ark === place.ark && r.position === 2)?.partner_id).toBeNull();
+      }
+    });
+
+    it('без подписи и по подписи прежней версии — кадра нет нигде; кадр владельца на месте', async () => {
+      for (const { partner, place } of CASES) {
+        expect(await shown(place), partner).toMatchObject(HIDDEN);
+        expect(await galleryStatus(place.ark, 2)).toBe(302);
+      }
+      await sign(partnerIds[MESTECHKO.partner]!, '2026-10-23');
+      expect(await shown(SPRINGS)).toMatchObject(HIDDEN);
+      expect((await shown(SPRINGS)).credits).not.toContain(MESTECHKO.partner);
+    });
+
+    it('подпись версии с 12.11 — кадр на карточке, у маршрута и по адресу, с подписью партнёра; чужой партнёр не открывается', async () => {
+      const { PLACE_CARDS_CONSENT_FROM } = await import('@/lib/legal/partner-materials-consent');
+      await revokeAll(partnerIds[MESTECHKO.partner]!);
+      await sign(partnerIds[MESTECHKO.partner]!, PLACE_CARDS_CONSENT_FROM);
+      const s1 = await shown(SPRINGS);
+      expect(s1).toMatchObject({ onCard: true, onRoute: true, direct: 302 });
+      expect(s1.credits).toContain(MESTECHKO.partner);
+      // Имя в подписи ведёт на страницу партнёра на Ведаре (владелец 12.11).
+      expect(s1.sources).toContain('/operators/mestechko');
+      // Подпись «Местечка» не открывает кадры «Края Вулканов».
+      expect(await shown(LAKE)).toMatchObject(HIDDEN);
+    });
+
+    it('отзыв — кадр пропадает сам, без правки кадра', async () => {
+      await revokeAll(partnerIds[MESTECHKO.partner]!);
+      expect(await shown(SPRINGS)).toMatchObject(HIDDEN);
+    });
+
+    it('загрузка из админки (ревью #3291): снимок с именем партнёра получает партнёра и ложится в галерею, даже у места без главного кадра', async () => {
+      const NOHERO = { id: 'b1260000-0000-4000-8000-000000000009', ark: 'a1260000-0000-4000-8000-000000000009' };
+      await pool.query(
+        `INSERT INTO places (id, name, lat, lng, ark_id, location_type, zone, is_visible)
+         VALUES ($1, 'Место без фото (тест)', 53.4, 158.9, $2, 'lake', 'avachinsky', TRUE)`,
+        [NOHERO.id, NOHERO.ark],
+      );
+      const sharp = (await import('sharp')).default;
+      const jpeg = await sharp({ create: { width: 40, height: 30, channels: 3, background: { r: 90, g: 90, b: 90 } } }).jpeg().toBuffer();
+      const { POST } = await import('@/app/api/admin/places/[id]/photo/route');
+      const upload = async (fields: Record<string, string>) => {
+        const fd = new FormData();
+        fd.set('file', new File([new Uint8Array(jpeg)], 'p.jpg', { type: 'image/jpeg' }));
+        for (const [k, v] of Object.entries(fields)) fd.set(k, v);
+        const res = await POST(new NextRequest(`http://localhost/api/admin/places/${NOHERO.id}/photo`, { method: 'POST', body: fd }),
+          { params: Promise.resolve({ id: NOHERO.id }) });
+        return { status: res.status, body: await res.json() as { slot?: string; partner?: { id: string } | null; rights?: { author: string | null } } };
+      };
+
+      // По автору, совпавшему с именем партнёра.
+      const a = await upload({ author: ' местечко камчатка ' });
+      expect(a.status).toBe(200);
+      expect(a.body).toMatchObject({ slot: 'gallery', partner: { id: partnerIds[MESTECHKO.partner] }, rights: { author: MESTECHKO.partner } });
+      // По полю partner_id — автор берётся из карточки партнёра.
+      const b = await upload({ partner_id: partnerIds[VOLCANOESLAND.partner]!, author: 'кто угодно' });
+      expect(b.body).toMatchObject({ slot: 'gallery', partner: { id: partnerIds[VOLCANOESLAND.partner] }, rights: { author: VOLCANOESLAND.partner } });
+      // Снимок не партнёра — как раньше: у места без главного кадра — главным.
+      const c = await upload({ author: 'владелец платформы' });
+      expect(c.body).toMatchObject({ slot: 'hero', rights: { author: 'владелец платформы' } });
+
+      const { rows } = await pool.query<{ position: number; partner_id: string | null }>(
+        `SELECT position, partner_id::text FROM place_gallery_photos WHERE ark_id = $1 ORDER BY position`, [NOHERO.ark]);
+      expect(rows).toEqual([
+        { position: 1, partner_id: partnerIds[MESTECHKO.partner] },
+        { position: 2, partner_id: partnerIds[VOLCANOESLAND.partner] },
+      ]);
+      // Без подписи ни один из двух не показывается — ни на карточке, ни по адресу.
+      const before = await card(NOHERO.id);
+      expect(before.images.some((u) => u.includes('/place-gallery/'))).toBe(false);
+      expect(await galleryStatus(NOHERO.ark, 1)).toBe(404);
+      const { PLACE_CARDS_CONSENT_FROM } = await import('@/lib/legal/partner-materials-consent');
+      await sign(partnerIds[MESTECHKO.partner]!, PLACE_CARDS_CONSENT_FROM);
+      // Байты в базе — отдаются сами (200); объект хранилища был бы 302.
+      expect(await galleryStatus(NOHERO.ark, 1)).toBe(200);
+      expect(await galleryStatus(NOHERO.ark, 2)).toBe(404);
+      await revokeAll(partnerIds[MESTECHKO.partner]!);
+    });
   });
 });
