@@ -27,6 +27,7 @@ import { Loader2, CheckCircle2, XCircle, CalendarClock, Clock, AlertTriangle, Sh
 import { PdConsentCheckbox } from '@/components/legal/PdConsentCheckbox';
 import { RequestChat } from '@/components/requests/RequestChat';
 import { RequestOtherOffers, type OtherOffersBlock } from '@/components/requests/RequestOtherOffers';
+import { RequestOtherStays, type OtherStaysBlock } from '@/components/requests/RequestOtherStays';
 import { RequestSteps } from '@/components/requests/RequestSteps';
 import { RequestTicket } from '@/components/requests/RequestTicket';
 import { requestSteps } from '@/lib/requests/request-steps';
@@ -54,6 +55,8 @@ interface View {
   consent_purpose: ConsentPurpose;
   /** Другие компании к месту на дату после отказа туроператора (4а); нет поля — к заявке не относится. */
   other_offers?: OtherOffersBlock | null;
+  /** Другое жильё на те же ночи после «Занято» хозяина (этап 5). */
+  other_stays?: OtherStaysBlock | null;
 }
 
 interface StateText { title: string; tone: string; next: string }
@@ -345,6 +348,7 @@ export function RequestStatusClient() {
             )}
             <p className="text-sm text-[var(--text-secondary)]">{nextText(view)}</p>
             <RequestOtherOffers block={view.other_offers} />
+            <RequestOtherStays block={view.other_stays} />
 
             {view.consent !== 'human' ? (
               <div className="space-y-2 pt-3 border-t border-[var(--border)]">

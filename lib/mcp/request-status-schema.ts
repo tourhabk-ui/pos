@@ -156,6 +156,47 @@ export const OTHER_OFFERS_PROPERTY = {
 } as const;
 
 /**
+ * Поле other_stays в ответе get_request_status (план «после отказа», этап 5):
+ * другое жильё в той же зоне на те же ночи после ответа хозяина «Занято».
+ * Словарь состояний — один на схему и на код (lib/stay/other-stays-status).
+ */
+export const OTHER_STAYS_STATES = ['listed', 'none', 'failed'] as const;
+
+export const OTHER_STAYS_PROPERTY = {
+  type: ['object', 'null'],
+  description: 'Другое жильё в той же зоне на те же ночи — после ответа хозяина «занято». '
+    + 'null — к этой заявке не относится: хозяин не отвечал «занято», заезд прошёл или зона объекта не размечена (тогда ищите сами: search_accommodations). '
+    + 'state: listed — жильё в stays; none — Ведар проверил и не нашёл; failed — не прочиталось, это не «не нашёл». '
+    + 'Это не ответ хозяев этих объектов: даты и цену каждый подтверждает сам. Что делать со списком — в how.',
+  properties: {
+    state: { type: 'string', enum: [...OTHER_STAYS_STATES] },
+    zone: { type: ['string', 'null'], description: 'Зона, в которой искали' },
+    check_in: { type: 'string', description: 'Заезд YYYY-MM-DD' },
+    check_out: { type: 'string', description: 'Выезд YYYY-MM-DD' },
+    guests: { type: ['integer', 'null'], description: 'На сколько гостей считали; null — в заявке не записано, считали на одного' },
+    stays: {
+      type: 'array',
+      description: 'Порядок — правило подбора жилья, названо в how',
+      items: {
+        type: 'object',
+        properties: {
+          name: { type: 'string' },
+          accommodation_id: { type: 'string', description: 'Номер объекта: им оставляют заявку — create_stay_request' },
+          type: { type: ['string', 'null'], description: 'Тип объекта словами; null — не записан' },
+          dates: { type: 'string', enum: ['calendar', 'by_request'], description: 'calendar — по календарю Ведара номера свободны на все ночи; by_request — номеров на Ведаре нет, хозяин эти ночи не закрывал: даты и цену подтверждает он' },
+          price_from: { type: ['number', 'null'], description: 'Цена за ночь «от», ₽; null — не названа' },
+          stay_total: { type: ['number', 'null'], description: 'Цена всех ночей на всю группу по формуле брони, ₽; null — не посчитана (жильё без номеров или группа не помещается в один тип номеров)' },
+          url: { type: 'string', description: 'Карточка объекта с подставленными датами и числом гостей — для человека' },
+        },
+        required: ['name', 'accommodation_id', 'type', 'dates', 'price_from', 'stay_total', 'url'],
+      },
+    },
+    how: { type: 'string', description: 'Что это за список и что с ним делать' },
+  },
+  required: ['state', 'zone', 'check_in', 'check_out', 'guests', 'stays', 'how'],
+} as const;
+
+/**
  * Правило доставки ответа — словами для агента (план «после отказа», 2б;
  * слово владельца 11.11 «мы доверяем агенту»). Исполняет readRequestStatus
  * (lib/mcp/request-status): вид, построенный из ответа туроператора кнопкой
@@ -232,6 +273,7 @@ export const GET_REQUEST_STATUS_TOOL = {
       max_link: { type: ['string', 'null'], description: 'Ссылка подключить MAX: ответы адресата будут приходить человеку туда. Дайте её человеку, не публикуйте; null — MAX уже подключён или переписки по ключу нет' },
       notify: NOTIFY_STATUS_PROPERTY,
       other_offers: OTHER_OFFERS_PROPERTY,
+      other_stays: OTHER_STAYS_PROPERTY,
     },
     required: ['state', 'kind', 'human', 'next', 'consent', 'consent_purpose', 'page'],
   },

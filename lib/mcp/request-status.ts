@@ -77,6 +77,7 @@ import { guestBotLink } from '@/lib/requests/request-chat';
 import { logText } from '@/lib/log/log-text';
 import { isTestKey, testKeyStatus } from '@/lib/mcp/test-run';
 import type { RequestOtherOffers } from '@/lib/requests/other-offers-status';
+import type { RequestOtherStays } from '@/lib/stay/other-stays-status';
 import { effectiveStatus, type SeatRequestStatus, type FailureKind } from '@/lib/seat-requests/core';
 import {
   REQUEST_KEY_MIN_CHARS, REQUEST_KEY_MAX_CHARS, REQUEST_STATES, ADDRESSEE_WORDS, capitalized, publicDisabledReason,
@@ -305,6 +306,13 @@ export interface RequestStatusView {
    * отказа. Читается отдельно от вида (база), поэтому в `RequestCore` его нет.
    */
   other_offers: RequestOtherOffers | null;
+  /**
+   * Другое жильё в той же зоне на те же ночи после ответа хозяина «Занято»
+   * (этап 5): названо, не найдено или не прочиталось. null — вид не из такого
+   * ответа, заезд прошёл или зона объекта не размечена. Читается отдельно от
+   * вида (база), поэтому в `RequestCore` его нет.
+   */
+  other_stays: RequestOtherStays | null;
 }
 
 /**
@@ -886,7 +894,7 @@ function stayAnswerView(answer: string | null | undefined): AnswerView | null {
       return {
         state: 'declined',
         human: 'Владелец ответил: на эти даты занято.',
-        next: 'Другое жильё на эти даты — search_accommodations; новая заявка — create_stay_request.',
+        next: 'Другое жильё в той же зоне на эти ночи — в поле other_stays (если оно не null); искать шире — search_accommodations; новая заявка — create_stay_request.',
       };
     case 'call':
       return {
@@ -1087,7 +1095,7 @@ function dateChangeNote(requested: string | null, actual: string | null): string
  * уведомлений. Ссылки с ключом (страница, MAX) — только в ответе по ключу:
  * сырого ключа у сверки нет и быть не должно.
  */
-export type RequestCore = Omit<RequestStatusView, 'page' | 'notify' | 'max_link' | 'other_offers'>;
+export type RequestCore = Omit<RequestStatusView, 'page' | 'notify' | 'max_link' | 'other_offers' | 'other_stays'>;
 
 /** Переписки у запроса мест нет: поля есть, значения null. */
 const NO_CHAT = { partner_replies: null, partner_last_reply_at: null } as const;
@@ -1314,6 +1322,13 @@ export async function readRequestStatus(rawKey: unknown, opts: StatusReader = {}
     const { readStatusOtherOffers } = await import('@/lib/requests/other-offers-status');
     other_offers = await readStatusOtherOffers(row, core);
   }
+  // Другое жильё на те же ночи (этап 5): только после «Занято» хозяина. Тем же
+  // порядком: вид важнее списка, список не бросает.
+  let other_stays: RequestOtherStays | null = null;
+  if (core.kind === 'stay_request' && core.state === 'declined') {
+    const { readStatusOtherStays } = await import('@/lib/stay/other-stays-status');
+    other_stays = await readStatusOtherStays(row, core);
+  }
   return {
     ...core,
     page: requestStatusPageUrl(key),
@@ -1322,6 +1337,7 @@ export async function readRequestStatus(rawKey: unknown, opts: StatusReader = {}
     max_link: core.partner_replies !== null && row.chat_guest_on_max !== true ? guestBotLink(maxBot(), key) : null,
     notify: notifyStatusOf(row),
     other_offers,
+    other_stays,
   };
 }
 

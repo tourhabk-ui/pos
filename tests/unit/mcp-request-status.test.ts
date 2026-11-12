@@ -206,7 +206,7 @@ describe('чтение состояния', () => {
     const obj = JSON.parse(text) as Record<string, unknown>;
     expect(Object.keys(obj).sort()).toEqual([
       'accommodation', 'accommodation_url', 'alt_date', 'check_out', 'consent', 'consent_purpose', 'date', 'deadline',
-      'human', 'kind', 'max_link', 'next', 'notify', 'other_offers', 'page', 'participants', 'partner_last_reply_at', 'partner_replies', 'requested_date', 'state', 'tour',
+      'human', 'kind', 'max_link', 'next', 'notify', 'other_offers', 'other_stays', 'page', 'participants', 'partner_last_reply_at', 'partner_replies', 'requested_date', 'state', 'tour',
     ]);
     // Вид не из отказа туроператора — о других компаниях речи нет (4а).
     expect(obj.other_offers).toBeNull();

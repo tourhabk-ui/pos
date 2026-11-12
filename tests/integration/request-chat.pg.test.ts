@@ -520,6 +520,144 @@ withPg('переписка по заявке на настоящем PostgreSQL'
       await pool.query(`UPDATE accommodations SET planner_zone = NULL WHERE id = $1`, [accId]);
     });
 
+    it('другое жильё на даты (этап 5): после «Занято» гостю — отдельное сообщение Ведара и тот же список в статусе; отбор — на настоящей схеме', async () => {
+      const { answerStayRequest } = await import('@/lib/stay/owner-answer-flow');
+      const { ownerStayAnswerText } = await import('@/lib/stay/owner-answer');
+      const { tellGuestOtherStays } = await import('@/lib/stay/other-stays-notice');
+      const { loadOtherStays } = await import('@/lib/stay/other-stays');
+      const { pageOtherStays } = await import('@/lib/stay/other-stays-status');
+      const { OTHER_STAYS_LIMIT_NOTE_RU, OTHER_STAYS_NOT_ANSWER_RU, OTHER_STAYS_ORDER_NOTE_RU } = await import('@/lib/stay/other-stays-words');
+      const { setObjectBusy } = await import('@/lib/stay/busy-flow');
+      const { PD_CONSENT_STAY_VERSION } = await import('@/lib/legal/pd-consent');
+      const [IN, OUT] = ['2099-09-10', '2099-09-12'];
+      const [OWNER5, GUEST5] = [9_300_901, 9_300_902];
+      // Северная зона в базе пуста: подбор плана отдаёт по три объекта, и чужие строки вытеснили бы свои.
+      expect((await pool.query(`SELECT 1 FROM accommodations WHERE planner_zone = 'northern'`)).rows).toEqual([]);
+      const owner = (await pool.query<{ id: string }>(
+        `INSERT INTO partners (name, category, contact, is_public, is_verified, max_chat_id)
+         VALUES ('Дом 5а', 'stay', '{}', FALSE, FALSE, $1) RETURNING id`, [OWNER5],
+      )).rows[0].id;
+      const acc = async (name: string, zone: string | null, price: number | null = 5000) => (await pool.query<{ id: string }>(
+        `INSERT INTO accommodations (name, type, coordinates, contact_phone, partner_id, planner_zone, price_per_night_from, is_active, moderation_status)
+         VALUES ($1, 'guesthouse', '{"lat":56.3,"lng":160.8}', '+70000000005', $2, $3, $4, TRUE, 'approved') RETURNING id::text AS id`,
+        [name, owner, zone, price],
+      )).rows[0].id;
+      const refused = await acc('5а отказавший <дом>', 'northern');
+      const withRooms = await acc('5а с номерами & Ко', 'northern', 7000);
+      const byRequest = await acc('5а по заявке', 'northern', null);
+      const closed = await acc('5а закрыл ночь', 'northern');
+      const elsewhere = await acc('5а в другой зоне', 'western');
+      const unzoned = await acc('5а без зоны', null);
+      await pool.query(
+        `INSERT INTO accommodation_rooms (accommodation_id, name, room_type, max_guests, available_rooms, price_per_night, is_active)
+         VALUES ($1, 'Двухместный', 'double', 2, 2, 7000, TRUE)`, [withRooms],
+      );
+      expect(await setObjectBusy({ partnerId: owner, accommodationId: closed, from: '2099-09-11', to: '2099-09-11', action: 'block', via: 'max', db: pool }))
+        .toMatchObject({ outcome: 'saved' });
+      const mkRequest = async (guestChat: number | null) => {
+        const id = (await pool.query<{ id: string }>(
+          `INSERT INTO stay_requests (accommodation_id, check_in_date, check_out_date, guests, guest_name, guest_phone,
+                                      pd_consent_at, pd_consent_ip, pd_consent_source, pd_consent_version, door, guest_max_chat_id, guest_chat_bound_at)
+           VALUES ($1, $2, $3, 2, 'Глеб Пятый', '+79995550961', NOW(), '203.0.113.9', 'stay-request', $4, 'form', $5, CASE WHEN $5::bigint IS NULL THEN NULL ELSE NOW() END)
+           RETURNING id`, [refused, IN, OUT, PD_CONSENT_STAY_VERSION, guestChat],
+        )).rows[0].id;
+        return { id, key: (await status.issueRequestKey({ stayRequestId: id }, status.STAY_FORM_KEY_NAME, { opensChat: true })) ?? '' };
+      };
+      const first = await mkRequest(GUEST5);
+
+      // Отбор на настоящей схеме: номера свободны на обе ночи — по календарю; без номеров и без закрытых ночей — по заявке.
+      const read = await loadOtherStays({ accommodationId: refused, checkIn: IN, checkOut: OUT, guests: 2 });
+      expect(read).toMatchObject({ state: 'ok', zoneName: 'Северная зона' });
+      if (read.state !== 'ok') throw new Error('другое жильё не прочитано');
+      expect(read.items.map((s) => [s.name, s.dates, s.stayTotal, s.priceFrom])).toEqual([
+        ['5а с номерами & Ко', 'calendar', 14000, 7000],
+        ['5а по заявке', 'by_request', null, null],
+      ]);
+      expect(read.items[0]!.url).toMatch(new RegExp(`/accommodations/${withRooms}\\?check_in=${IN}&check_out=${OUT}&adults=2&children=0$`));
+      // Группа, которой номеров не хватает: объект остаётся, но цены всех ночей нет.
+      const big = await loadOtherStays({ accommodationId: refused, checkIn: IN, checkOut: OUT, guests: 9 });
+      expect(big.state === 'ok' ? big.items.map((s) => [s.name, s.stayTotal]) : null).toEqual([['5а с номерами & Ко', null], ['5а по заявке', null]]);
+
+      // До ответа хозяина гостю ничего не называется, и в статусе списка нет.
+      expect(await tellGuestOtherStays(first.id)).toEqual({ state: 'nothing' });
+      expect((await status.readRequestStatus(first.key, { reader: 'agent' })).other_stays).toBeNull();
+
+      // «Занято»: сначала слова хозяина, затем — отдельное сообщение Ведара в MAX гостя.
+      const manager: string[] = [];
+      sent.dm.length = 0;
+      const busy = await answerStayRequest({
+        partner: { partnerId: owner, partnerName: 'Дом 5а' }, requestId: first.id, answer: 'busy', via: 'max', db: pool,
+        notifyManager: async (t) => { manager.push(t); },
+      });
+      expect(busy.tell).toEqual({
+        kind: 'answered', answer: 'busy', guestTold: true, others: { state: 'sent', names: ['5а с номерами & Ко', '5а по заявке'] },
+      });
+      expect(ownerStayAnswerText(busy.tell)).toContain('Ведар отдельным сообщением назвал гостю другое жильё на эти даты (2).');
+      expect(sent.dm.map((m) => String(m.chatId))).toEqual([String(GUEST5), String(GUEST5)]);
+      expect(sent.dm[0]!.text).toContain('занято');
+      const lines = sent.dm[1]!.text.split('\n');
+      expect(lines[0]).toBe('<b>Другое жильё на ваши даты — Северная зона</b>');
+      expect(lines[1]).toBe('С 10.09.2099 по 12.09.2099, гостей: 2. Это сообщение Ведара, а не хозяина «5а отказавший &lt;дом&gt;».');
+      expect(lines[2]).toMatch(/^1\. «5а с номерами &amp; Ко» \(гостевой дом\) — в календаре на эти ночи номера на 2 гостей есть — 14[\s ]000 ₽ за все ночи\. Заявка: https?:\/\/\S+adults=2&amp;children=0$/);
+      expect(lines[3]).toMatch(/^2\. «5а по заявке» \(гостевой дом\) — номеров на Ведаре нет — даты и цену подтверждает хозяин\. Заявка: https?:\/\/\S+$/);
+      expect(lines[4]).toMatch(new RegExp(`^${OTHER_STAYS_LIMIT_NOTE_RU.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')} https?://\\S+/accommodations$`));
+      expect(lines.slice(5)).toEqual([OTHER_STAYS_NOT_ANSWER_RU, OTHER_STAYS_ORDER_NOTE_RU]);
+      // Ни закрытого, ни чужой зоны, ни объекта без зоны; ни имени, ни телефона гостя.
+      expect(sent.dm[1]!.text).not.toMatch(/закрыл ночь|в другой зоне|без зоны|Глеб|79995550961/);
+      expect(manager).toHaveLength(1);
+      expect(manager[0]).toContain('Другое жильё на эти даты в той же зоне (по календарю Ведара, это не ответ хозяев): «5а с номерами &amp; Ко», «5а по заявке». Гостю оно названо сообщением в MAX.');
+      expect(manager[0]).not.toMatch(/Глеб|79995550961/);
+
+      // Статус той же заявки: ИИ-агент и страница читают то же жильё тем же порядком.
+      const view = await status.readRequestStatus(first.key, { reader: 'agent' });
+      expect(view.state).toBe('declined');
+      expect(view.next).toContain('other_stays');
+      expect(view.other_stays).toMatchObject({ state: 'listed', zone: 'Северная зона', check_in: IN, check_out: OUT, guests: 2 });
+      expect(view.other_stays!.stays.map((x) => [x.name, x.accommodation_id, x.type, x.dates, x.stay_total])).toEqual([
+        ['5а с номерами & Ко', withRooms, 'Гостевой дом', 'calendar', 14000],
+        ['5а по заявке', byRequest, 'Гостевой дом', 'by_request', null],
+      ]);
+      expect(view.other_stays!.how).toContain('create_stay_request');
+      expect(JSON.stringify(view.other_stays)).not.toMatch(/Глеб|79995550961|отказавший|закрыл ночь/);
+      expect(pageOtherStays((await status.readRequestStatus(first.key, { reader: 'page', seen: true })).other_stays))
+        .toEqual((({ how: _how, ...rest }) => rest)(view.other_stays!));
+
+      // Гость без MAX: сообщения Ведара нет, хозяину сказано «на странице заявки», список — в статусе.
+      const second = await mkRequest(null);
+      sent.dm.length = 0;
+      const noChat = await answerStayRequest({
+        partner: { partnerId: owner, partnerName: 'Дом 5а' }, requestId: second.id, answer: 'busy', via: 'max', db: pool,
+        notifyManager: async () => undefined,
+      });
+      expect(noChat.tell).toMatchObject({ kind: 'answered', answer: 'busy', others: { state: 'page' } });
+      expect(ownerStayAnswerText(noChat.tell)).toContain('Другое жильё на эти даты (2) Ведар показывает гостю на странице его заявки: в MAX оно не ушло или MAX у гостя не подключён.');
+      expect(sent.dm).toEqual([]);
+      expect((await status.readRequestStatus(second.key, { reader: 'agent' })).other_stays).toMatchObject({ state: 'listed' });
+
+      // «Свободно» — о другом жилье речи нет.
+      const third = await mkRequest(GUEST5);
+      sent.dm.length = 0;
+      const free = await answerStayRequest({
+        partner: { partnerId: owner, partnerName: 'Дом 5а' }, requestId: third.id, answer: 'free', via: 'max', db: pool,
+        notifyManager: async () => undefined,
+      });
+      expect(free.tell).toEqual({ kind: 'answered', answer: 'free', guestTold: true });
+      expect(sent.dm).toHaveLength(1);
+      expect((await status.readRequestStatus(third.key, { reader: 'agent' })).other_stays).toBeNull();
+
+      // Зона объекта не размечена — «рядом» искать негде: списка нет вовсе, а не «не нашёл».
+      await pool.query(`UPDATE accommodations SET planner_zone = NULL WHERE id = $1`, [refused]);
+      expect(await loadOtherStays({ accommodationId: refused, checkIn: IN, checkOut: OUT, guests: 2 })).toEqual({ state: 'unzoned' });
+      expect((await status.readRequestStatus(first.key, { reader: 'agent' })).other_stays).toBeNull();
+      // В зоне остался только сам объект — «не нашёл».
+      await pool.query(`UPDATE accommodations SET planner_zone = 'western' WHERE id = ANY($1::uuid[])`, [[withRooms, byRequest, closed]]);
+      await pool.query(`UPDATE accommodations SET planner_zone = 'northern' WHERE id = $1`, [refused]);
+      expect(await loadOtherStays({ accommodationId: refused, checkIn: IN, checkOut: OUT, guests: 2 })).toEqual({ state: 'none' });
+      expect((await status.readRequestStatus(first.key, { reader: 'agent' })).other_stays).toMatchObject({ state: 'none', stays: [] });
+
+      await pool.query(`DELETE FROM accommodations WHERE id = ANY($1::uuid[])`, [[refused, withRooms, byRequest, closed, elsewhere, unzoned]]);
+    });
+
     it('удалили заявку — переписка и ожидания ушли с ней', async () => {
       await pool.query(`DELETE FROM stay_requests WHERE id = $1`, [requestId]);
       const m = await pool.query(`SELECT count(*)::int AS n FROM request_messages WHERE stay_request_id = $1`, [requestId]);
