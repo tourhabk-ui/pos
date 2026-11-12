@@ -73,7 +73,13 @@ describe('страница заявки на жильё', () => {
     serve(STAY_VIEW);
     render(<RequestStatusClient />);
     expect(await screen.findByRole('heading', { name: 'Заявка передана' })).toBeInTheDocument();
-    expect(screen.getByText(/Кутха · .*2027.* — .*2027.* · гостей: 9/)).toBeInTheDocument();
+    // С 12.11 объект, даты и гости — на билете заявки, а не строкой под заголовком.
+    const ticket = screen.getByRole('region', { name: 'Заявка' });
+    expect(ticket.textContent).toMatch(/Кутха/);
+    expect(ticket.textContent).toMatch(/Заезд10 июля 2027/);
+    expect(ticket.textContent).toMatch(/Выезд12 июля 2027/);
+    expect(ticket.textContent).toMatch(/Гостей9/);
+    expect(ticket.textContent).toMatch(/Это заявка, а не бронь: подтверждает владелец жилья/);
     expect(screen.getByText(STAY_VIEW.human)).toBeInTheDocument();
     expect(screen.getByText(/Владелец позвонит по телефону из заявки/)).toBeInTheDocument();
     expect(screen.queryByText(/Ждём ответа оператора/)).not.toBeInTheDocument();

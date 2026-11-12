@@ -54,6 +54,7 @@ import { withTransferPlate, isTransferPlate } from '@/lib/home/transfer-plate';
 import { withStayPlate, isStayPlate } from '@/lib/home/stay-plate';
 import { sessionState } from '@/lib/auth/session-state';
 import { HeroBackdrop } from '@/components/homepage/HeroBackdrop';
+import { PlaceSwipeDeck } from '@/components/places/PlaceSwipeDeck';
 import { geolocationOnce } from '@/lib/geo/current-position';
 
 
@@ -781,18 +782,9 @@ export default function HomeV8Client({ data, weather }: { data: HomeV8Data; weat
         {explore.length > 0 && (
           <section className="explore-sec">
             <div className="shead"><h2>Исследовать</h2><span className="line" /><Link className="all" href="/routes?kind=place">Все места</Link></div>
-            <div className="plates explore">
-              {explore.map((pl, i) => (
-                <Link key={pl.id} href={`/places/${pl.urlSlug ?? pl.id}`} className="plate place" aria-label={`${pl.title}, место ${i + 1} из ${explore.length}`}>
-                  <div className="img" style={pl.imageUrl ? { backgroundImage: `url('${photoSrc(pl.imageUrl, 640)}')` } : undefined}>
-                    {!pl.imageUrl && <span className="noimg" />}
-                  </div>
-                  <span className="kind">{pl.typeLabel}</span>
-                  <div className="row"><b>{pl.title}</b></div>
-                  {pl.description && <div className="cap">{pl.description}</div>}
-                </Link>
-              ))}
-            </div>
+            {/* Колода мест (12.11, «Свайп мест»): листается пальцем и кнопками,
+                тап открывает карточку места; цены и брони здесь нет (§9). */}
+            <PlaceSwipeDeck places={explore} />
           </section>
         )}
 

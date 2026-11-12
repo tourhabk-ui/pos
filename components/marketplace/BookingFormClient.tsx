@@ -6,7 +6,9 @@ import { useEffect, useRef, useState } from 'react';
 import { bookingTotal, normalizePriceUnit } from '@/lib/tours/booking-total';
 import { tourDurationDays } from '@/lib/bookings/duration';
 import { useRouter } from 'next/navigation';
-import { Calendar, Users, Phone, Mail, User, ChevronRight, AlertCircle, Loader2, MessageSquare } from 'lucide-react';
+import { Calendar, Users, Phone, Mail, User, ChevronRight, AlertCircle, MessageSquare } from 'lucide-react';
+import { SubmitButton } from '@/components/ui/SubmitButton';
+import { waitDoneBeat } from '@/lib/ui/motion-pref';
 import TourDateField from '@/components/marketplace/TourDateField';
 import type { SeasonWindowView } from '@/lib/tours/request-window';
 import { SeatRequestForm } from '@/components/planner/SeatRequestForm';
@@ -90,6 +92,8 @@ export default function BookingFormClient({ tourId, basePrice, maxParticipants =
   const [plainBooking, setPlainBooking] = useState(!askSeatsFirst || Boolean(initialDate || initialGuests));
   const [seatsOpen, setSeatsOpen] = useState(false);
   const [loading, setLoading] = useState(false);
+  // Сервер записал заявку: кнопка показывает галочку до перехода на страницу брони.
+  const [sentOk, setSentOk] = useState(false);
   const [error, setError] = useState<FormError | null>(null);
   const errorRef = useRef<HTMLDivElement>(null);
   // Сообщение об ошибке обязано оказаться на экране: кнопка внизу длинной
@@ -335,6 +339,8 @@ export default function BookingFormClient({ tourId, basePrice, maxParticipants =
       const token = typeof data === 'object' && data !== null && 'access_token' in data
         ? String((data as Record<string, unknown>).access_token)
         : '';
+      setSentOk(true);
+      await waitDoneBeat();
       router.push(`/booking-success/${id}?t=${encodeURIComponent(token)}`);
     } catch (err) {
       // Отказ не глушится (§4.0): сообщение — человеку, причина сети — в консоль.
@@ -633,25 +639,14 @@ export default function BookingFormClient({ tourId, basePrice, maxParticipants =
             (issue #1780), человек жал и не понимал, что не так.
             При отправке текст остаётся рядом со спиннером — ширина кнопки
             не прыгает, и видно, что происходит. */}
-        <button
-          type="submit"
-          disabled={loading || !formData.booking_date || !pdConsent}
+        <SubmitButton
+          phase={sentOk ? 'done' : loading ? 'sending' : 'idle'}
+          disabled={!formData.booking_date || !pdConsent}
           aria-describedby={!formData.booking_date || !pdConsent ? 'booking-submit-hint' : undefined}
-          aria-busy={loading || undefined}
-          className="ds-btn ds-btn-primary w-full inline-flex items-center justify-center gap-2 whitespace-nowrap px-6 disabled:opacity-50 disabled:cursor-not-allowed transition-all duration-200"
-        >
-          {loading ? (
-            <>
-              <Loader2 className="w-4 h-4 animate-spin" aria-hidden="true" />
-              Отправляем…
-            </>
-          ) : (
-            <>
-              Оставить заявку
-              <ChevronRight className="w-4 h-4" aria-hidden="true" />
-            </>
-          )}
-        </button>
+          className="ds-btn ds-btn-primary w-full whitespace-nowrap px-6 disabled:opacity-50 disabled:cursor-not-allowed transition-all duration-200"
+          idleLabel={<>Оставить заявку<ChevronRight className="w-4 h-4" aria-hidden="true" /></>}
+          doneLabel="Заявка записана"
+        />
         {/* Причина, по которой кнопка выключена, называется КОНКРЕТНАЯ. Одно
             «заполните форму» на два разных препятствия заставляет искать
             глазами, чего не хватает (урок #1780). Текст — основным цветом,

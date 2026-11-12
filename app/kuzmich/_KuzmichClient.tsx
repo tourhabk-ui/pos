@@ -15,6 +15,7 @@ import {
   Fish, Mountain, Droplets, Waves, Backpack, Binoculars, Thermometer, Map,
   type LucideIcon,
 } from 'lucide-react';
+import { ThinkingText } from '@/components/ui/ThinkingText';
 import { compressImageToLimit } from '@/lib/images/compress-client';
 import BookingAccessLink from '@/components/bookings/BookingAccessLink';
 import SpeakButton from '@/components/kuzmich/SpeakButton';
@@ -650,7 +651,7 @@ export default function KuzmichClient() {
                   <Sparkles className="w-3.5 h-3.5 text-[var(--accent)]" />
                 </div>
                 <div className="bg-[var(--bg-hover)] rounded-xl rounded-bl-sm px-3.5 sm:px-4 py-3 text-sm text-[var(--text-muted)] flex items-center gap-2">
-                  <Loader2 size={14} className="animate-spin" /> думаю...
+                  <ThinkingText />
                 </div>
               </div>
             )}

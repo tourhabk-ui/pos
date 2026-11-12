@@ -18,6 +18,8 @@
  */
 
 import { useEffect, useState } from 'react';
+import { SubmitButton } from '@/components/ui/SubmitButton';
+import { waitDoneBeat } from '@/lib/ui/motion-pref';
 import { Send, CheckCircle2 } from 'lucide-react';
 import { PdConsentCheckbox } from '@/components/legal/PdConsentCheckbox';
 import { RequestChatLinks } from '@/components/requests/RequestChatLinks';
@@ -57,6 +59,8 @@ export function StayRequestForm({ accommodationId, phoneLabel, ownerOnMax }: {
   const [comment, setComment] = useState('');
   const [pdConsent, setPdConsent] = useState(false);
   const [sending, setSending] = useState(false);
+  // Сервер записал заявку: кнопка показывает галочку перед экраном «принята».
+  const [sentOk, setSentOk] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [done, setDone] = useState<Delivered | null>(null);
   // Страница заявки с перепиской и ссылка подключить MAX (1349). null — ключ
@@ -130,6 +134,8 @@ export function StayRequestForm({ accommodationId, phoneLabel, ownerOnMax }: {
         | null;
       if (body && body.success) {
         // Маяка воронки нет намеренно: каждая заявка — строка stay_requests.
+        setSentOk(true);
+        await waitDoneBeat();
         setLinks({ page: body.data.page ?? null, max: body.data.max_link ?? null });
         setDone(body.data.delivered);
       } else {
@@ -226,11 +232,12 @@ export function StayRequestForm({ accommodationId, phoneLabel, ownerOnMax }: {
           {error}{phoneLabel ? ` Телефон владельца: ${phoneLabel}.` : ''}
         </p>
       )}
-      <button type="submit" disabled={sending || !pdConsent || chosenBusy.length > 0}
-              className="ds-btn ds-btn-primary w-full sm:w-auto inline-flex items-center justify-center gap-2 disabled:opacity-50">
-        <Send className="w-4 h-4" />
-        {sending ? 'Отправляем…' : 'Отправить заявку'}
-      </button>
+      <SubmitButton
+        phase={sentOk ? 'done' : sending ? 'sending' : 'idle'}
+        disabled={!pdConsent || chosenBusy.length > 0}
+        className="ds-btn ds-btn-primary w-full sm:w-auto disabled:opacity-50"
+        idleLabel={<><Send className="w-4 h-4" aria-hidden="true" />Отправить заявку</>}
+      />
       <p className="text-xs text-[var(--text-muted)]">
         Это заявка, а не бронь: даты и цену подтверждает владелец. Платформа оплату не принимает.
       </p>

@@ -15,6 +15,8 @@
  */
 
 import { useEffect, useState, type FormEvent } from 'react';
+import { SubmitButton } from '@/components/ui/SubmitButton';
+import { waitDoneBeat } from '@/lib/ui/motion-pref';
 import { Send, CheckCircle2, AlertCircle } from 'lucide-react';
 import { PdConsentCheckbox } from '@/components/legal/PdConsentCheckbox';
 import { formatRub, rateOnScreenOf, type CharterRate } from '@/lib/transfers/charter-format';
@@ -87,6 +89,8 @@ export function CharterRequestForm({ carrierSlug, carrierName, destinations, ini
   const [comment, setComment] = useState('');
   const [pdConsent, setPdConsent] = useState(false);
   const [submitting, setSubmitting] = useState(false);
+  // Сервер записал заявку: кнопка показывает галочку перед экраном «принята».
+  const [sentOk, setSentOk] = useState(false);
   const [outcome, setOutcome] = useState<Outcome>({ kind: 'idle' });
   // Глубокая ссылка агента: ?date=&date_to=&guests= (или passengers) —
   // форма открывается заполненной (разбор 01.11: параметры игнорировались).
@@ -145,6 +149,8 @@ export function CharterRequestForm({ carrierSlug, carrierName, destinations, ini
         data?: { price_line?: Sent['priceLine']; page?: string | null; max_link?: string | null };
       };
       if (res.ok && body.success === true) {
+        setSentOk(true);
+        await waitDoneBeat();
         setOutcome({
           kind: 'sent',
           sent: { destination, priceLine: body.data?.price_line ?? null, page: body.data?.page ?? null, maxLink: body.data?.max_link ?? null },
@@ -283,13 +289,13 @@ export function CharterRequestForm({ carrierSlug, carrierName, destinations, ini
 
       {/* Неактивная — и выглядит неактивной: прежде она оставалась яркой, и
           нажатие без ответа читалось как «не работает». */}
-      <button type="submit"
-        className="ds-btn ds-btn-primary w-full inline-flex items-center justify-center gap-2 disabled:opacity-50 disabled:cursor-not-allowed"
+      <SubmitButton
+        phase={sentOk ? 'done' : submitting ? 'sending' : 'idle'}
+        className="ds-btn ds-btn-primary w-full disabled:opacity-50 disabled:cursor-not-allowed"
         disabled={!ready || !pdConsent} style={{ minHeight: 44 }}
-        aria-describedby={missing.length > 0 ? 'charter-missing' : undefined}>
-        <Send className="w-4 h-4" aria-hidden />
-        {submitting ? 'Отправляем…' : 'Отправить заявку на машину'}
-      </button>
+        aria-describedby={missing.length > 0 ? 'charter-missing' : undefined}
+        idleLabel={<><Send className="w-4 h-4" aria-hidden />Отправить заявку на машину</>}
+      />
       {missing.length > 0 && (
         <p id="charter-missing" className="text-sm text-[var(--text-secondary)]">
           Чтобы отправить, осталось: {missing.join(', ')}.
