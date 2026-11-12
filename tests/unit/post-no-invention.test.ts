@@ -98,7 +98,10 @@ describe('чужого снимка у поста о месте нет (реше
   const body = CHANNEL.match(/export async function postKuzmichRoute[\s\S]*?\n\}/)?.[0] ?? '';
 
   it('кандидат выбирается только со своим фото — условие в SQL', () => {
-    expect(body).toMatch(/EXISTS \(\s*SELECT 1 FROM ai_route_images i\s*WHERE i\.route_id = ark\.id AND i\.model = ANY\(\$2\)/);
+    // Запрос выбора вынесен в KUZMICH_ROUTE_PICK_SQL (12.11) — функция зовёт его.
+    expect(body).toMatch(/query<KuzmichRouteRow>\(KUZMICH_ROUTE_PICK_SQL,/);
+    const pickSql = CHANNEL.match(/export const KUZMICH_ROUTE_PICK_SQL = `[\s\S]*?`;/)?.[0] ?? '';
+    expect(pickSql).toMatch(/EXISTS \(\s*SELECT 1 FROM ai_route_images i\s*WHERE i\.route_id = ark\.id AND i\.model = ANY\(\$2\)/);
     // 18.09: канал держал СВОЙ список родов, и он разошёлся с карточкой —
     // снимки владельца (real-photo) не брал ни тот, ни другая. Теперь список
     // один на платформу; здесь держим сам факт, что канал берёт его оттуда,

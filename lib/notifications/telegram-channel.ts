@@ -13,7 +13,7 @@ import { withAiChannelFooter } from '@/lib/notifications/ai-channel-footer';
 import { ruThousands } from '@/lib/text/digest-polish';
 import { callAIWithModelDirect, callAIQuality } from '@/lib/ai/providers';
 import { getModelForAgent } from '@/lib/ai/agent-models';
-import { validateRoutePost, validateTextPost, logValidationFailure, blockingTextIssue, promisesRouteOrTrack, advisesLeavingTrail, familiarVoiceIssue } from '@/lib/notifications/post-validation';
+import { validateRoutePost, validateTextPost, logValidationFailure, blockingTextIssue, promisesRouteOrTrack, advisesLeavingTrail, familiarVoiceIssue, MIN_DESTINATION_CHARS } from '@/lib/notifications/post-validation';
 import { unsourcedPercents, unsupportedClaims } from '@/lib/agents/fact-check';
 import { stripTags } from '@/lib/html/text';
 import { absolutePhotoUrls } from '@/lib/notifications/photo-urls';
@@ -883,21 +883,13 @@ function ownPhotoUrl(routeId: string): string {
  * Промпт запрещал выдумывать — и не помог, как не помог 12.07 и 19.08.
  * Сторож структурный: тексту неоткуда взять то, чего нет в записи.
  */
-export async function postKuzmichRoute(): Promise<{ ok: boolean; routeId?: string; error?: string; photo?: PhotoOutcome; photoError?: string }> {
-  const channelId = process.env.TELEGRAM_CHANNEL_ID;
-  if (!channelId) return { ok: false, error: 'TELEGRAM_CHANNEL_ID not set' };
-
-  // Пост ОБЯЗАН пройти validateRoutePost (12.07: канал опубликовал ссылку на
-  // мёртвую страницу — валидатор существовал, но не был подключён). Невалидный
-  // кандидат логируется и заменяется следующим, до 3 попыток.
-  const rejectedIds: string[] = [];
-
-  for (let attempt = 0; attempt < 6; attempt++) {
-    // Берём маршрут, который не постили последние 30 дней. Приоритет — местам
-    // с реальным GPS-треком: пост «Гора Красная поляна» вёл на карточку без
-    // маршрута («место есть, трека нет» — владелец, 12.07), обещание в тексте
-    // не совпадало с содержимым страницы
-    const pickResult = await query<KuzmichRouteRow>(`
+/**
+ * Кандидат в «место дня» (#3305 разбор, 12.11): со своим фото, с описанием,
+ * которое пройдёт validateRoutePost, и не опубликованный за 30 дней. Места с
+ * треком — первыми. $1 — уже отклонённые id, $2 — роды своих снимков, $3 —
+ * MIN_DESTINATION_CHARS.
+ */
+export const KUZMICH_ROUTE_PICK_SQL = `
       SELECT ark.id, ark.title, ark.description, ark.location_type, ark.activity_type,
              EXISTS (
                SELECT 1 FROM kamchatka_routes k
@@ -908,6 +900,11 @@ export async function postKuzmichRoute(): Promise<{ ok: boolean; routeId?: strin
       FROM agent_route_knowledge ark
       WHERE ark.is_visible = TRUE
         AND ark.id::text <> ALL($1)
+        -- Описание, с которым карточка пройдёт проверку поста
+        -- (destinationTextIssue: от $3 знаков без разметки). С 22.10 тексты
+        -- мест сняты (1309, 1310), и случайный кандидат без описания
+        -- отбраковывался шесть раз подряд — пост падал 500 почти каждый день.
+        AND char_length(btrim(regexp_replace(COALESCE(ark.description, ''), '<[^>]*>', '', 'g'))) >= $3
         AND EXISTS (
           SELECT 1 FROM ai_route_images i
           WHERE i.route_id = ark.id AND i.model = ANY($2)
@@ -926,9 +923,25 @@ export async function postKuzmichRoute(): Promise<{ ok: boolean; routeId?: strin
                       OR k.metadata->>'place_ark_id' = ark.id::text)
              ) DESC, RANDOM()
       LIMIT 1
-    `, [rejectedIds, [...OWN_PHOTO_MODELS]]);
+    `;
 
-    if (!pickResult.rows[0]) return { ok: false, error: 'Нет мест для поста: со своим фото и не опубликованных за 30 дней не осталось' };
+export async function postKuzmichRoute(): Promise<{ ok: boolean; routeId?: string; error?: string; photo?: PhotoOutcome; photoError?: string }> {
+  const channelId = process.env.TELEGRAM_CHANNEL_ID;
+  if (!channelId) return { ok: false, error: 'TELEGRAM_CHANNEL_ID not set' };
+
+  // Пост ОБЯЗАН пройти validateRoutePost (12.07: канал опубликовал ссылку на
+  // мёртвую страницу — валидатор существовал, но не был подключён). Невалидный
+  // кандидат логируется и заменяется следующим, до 3 попыток.
+  const rejectedIds: string[] = [];
+
+  for (let attempt = 0; attempt < 6; attempt++) {
+    // Берём маршрут, который не постили последние 30 дней. Приоритет — местам
+    // с реальным GPS-треком: пост «Гора Красная поляна» вёл на карточку без
+    // маршрута («место есть, трека нет» — владелец, 12.07), обещание в тексте
+    // не совпадало с содержимым страницы
+    const pickResult = await query<KuzmichRouteRow>(KUZMICH_ROUTE_PICK_SQL, [rejectedIds, [...OWN_PHOTO_MODELS], MIN_DESTINATION_CHARS]);
+
+    if (!pickResult.rows[0]) return { ok: false, error: 'Нет мест для поста: со своим фото, с описанием от ' + MIN_DESTINATION_CHARS + ' знаков и не опубликованных за 30 дней не осталось' };
     const r = pickResult.rows[0];
 
     const locLabel = LOCATION_LABELS[r.location_type ?? ''] ?? r.location_type ?? '';
