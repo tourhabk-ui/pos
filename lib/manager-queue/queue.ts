@@ -31,11 +31,12 @@
 import { pool } from '@/lib/db-pool';
 import { REQUEST_STATUS_BY_LEADS_SQL, type StatusRow } from '@/lib/mcp/request-status';
 import { viewHolds, type NoticeAnswerRef } from '@/lib/requests/answer-notice';
-import type {
-  ManagerQueue, NoticeItem, QueueBase, QueueKind, QueueSource, QueueTake, StayItem, VehicleItem,
+import {
+  isQueueSubjectId,
+  type ManagerQueue, type NoticeItem, type QueueBase, type QueueKind, type QueueSource, type QueueTake, type StayItem, type VehicleItem,
 } from '@/lib/manager-queue/types';
 
-export { QUEUE_KINDS } from '@/lib/manager-queue/types';
+export { QUEUE_KINDS, isQueueSubjectId } from '@/lib/manager-queue/types';
 export type {
   ManagerQueue, NoticeItem, QueueItem, QueueKind, QueueSource, QueueTake, StayItem, VehicleItem,
 } from '@/lib/manager-queue/types';
@@ -50,14 +51,6 @@ export const MANAGER_QUEUE_SINCE = '2026-11-12';
 export const QUEUE_SOURCE_LIMIT = 200;
 /** Сколько дней взятый случай остаётся на виду. */
 export const QUEUE_TAKEN_DAYS = 7;
-
-const UUID_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/;
-const NUM_RE = /^[0-9]{1,18}$/;
-
-/** Номер случая по форме его рода: строка журнала и сообщения — число, заявка на жильё — uuid. */
-export function isQueueSubjectId(kind: QueueKind, id: string): boolean {
-  return kind === 'stay_busy' ? UUID_RE.test(id) : NUM_RE.test(id);
-}
 
 const takeJoin = (kind: QueueKind, idExpr: string) => `
     LEFT JOIN manager_queue_takes t ON t.subject_kind = '${kind}' AND t.subject_id = ${idExpr}

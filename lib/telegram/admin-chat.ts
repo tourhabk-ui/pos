@@ -108,8 +108,9 @@ async function answerTelegramAdmin(opts: {
     return;
   }
   const cmd = adminCommandOf(opts.text);
+  // «Очередь» — тоже чтение: в Telegram вместо списка с контактами уходит строка без ПД (role-screen).
   const action = cmd === 'help' || cmd === 'dates' || cmd === 'bookings' || cmd === 'leads'
-    || cmd === 'summary' || cmd === 'health'
+    || cmd === 'summary' || cmd === 'health' || cmd === 'queue'
     ? cmd
     : null;
   if (!action) {

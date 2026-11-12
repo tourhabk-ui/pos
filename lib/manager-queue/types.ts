@@ -7,6 +7,14 @@
 export const QUEUE_KINDS = ['answer_notice', 'vehicle_decline', 'stay_busy'] as const;
 export type QueueKind = (typeof QUEUE_KINDS)[number];
 
+const UUID_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/;
+const NUM_RE = /^[0-9]{1,18}$/;
+
+/** Номер случая по форме его рода: строка журнала и сообщения — число, заявка на жильё — uuid. */
+export function isQueueSubjectId(kind: QueueKind, id: string): boolean {
+  return kind === 'stay_busy' ? UUID_RE.test(id) : NUM_RE.test(id);
+}
+
 export interface QueueTake { at: string; via: string; by: string | null }
 
 export interface QueueBase {

@@ -245,7 +245,9 @@ describe('robots.txt: адреса, которые называют агента
       if (await routeHasNoGet(p.split('?')[0])) continue;
       for (const r of groups) expect(allowed(r, p), `${source}: ${String(r.userAgent)} ${p}`).toBe(true);
     }
-  });
+    // Запас времени: тест сам грузит десять роутов с их графами импорта — 3,4 с на
+    // свободной машине при общем лимите 5 с; под нагрузкой он упирался в лимит (12.11).
+  }, 30_000);
 
   it('намеренно закрытое действительно закрыто', async () => {
     for (const r of await rules()) for (const p of INTENDED_CLOSED) expect(allowed(r, p)).toBe(false);

@@ -2703,6 +2703,34 @@ withPg('переписка по заявке на настоящем PostgreSQL'
       expect([U1, U2]).toContain(winner);
       expect(race.find((r) => r.kind === 'already')).toMatchObject({ by: NAME[winner], mine: false });
 
+      // ── 2а. Та же очередь в MAX администратора (3б-2): список с контактами и «Взял N» ──
+      const maxActions = await import('@/lib/max/admin-actions');
+      const maxQueue = await import('@/lib/max/admin-queue');
+      const { unwrapPress } = await import('@/lib/chat-cabinet/signed-payload');
+      const [MAX_U1, MAX_STRANGER] = [9_400_101, 9_400_199];
+      await pool.query('INSERT INTO admin_max_bindings (user_id, max_user_id) VALUES ($1, $2)', [U1, MAX_U1]);
+      const L3 = await mk('Тамара Максова', '+79995551108');
+      const N3 = await refuse(L3);
+      const listed = maxQueue.adminQueueReply(await load());
+      expect(listed.pd).toBe(true);
+      expect(listed.text).toContain('1. Тамара Максова, +79995551108 · Тур «Толбачик 3б»');
+      // Самый свежий недоставленный отказ — первая строка и первая кнопка.
+      expect(unwrapPress((listed.buttons ?? []).flat()[0]!.payload)).toEqual({ ok: true, payload: `ad:q:n:${N3}` });
+      const pressAs = (presserId: number) => maxActions.handleAdminPress({
+        chatId: presserId, privateChat: true, presserId, payload: `ad:q:n:${N3}`,
+      });
+      // Не администратор — отметки нет.
+      expect((await pressAs(MAX_STRANGER)).text).toBe(maxActions.ADMIN_ACTION_TEXT.notAdmin);
+      expect(await marks('answer_notice', N3)).toEqual([]);
+      // Администратор: отметка — на аккаунт, привязанный к этому MAX, дверь — max; повтор отметку не множит.
+      expect((await pressAs(MAX_U1)).text).toBe(maxQueue.ADMIN_QUEUE_TEXT.taken);
+      expect(await marks('answer_notice', N3)).toEqual([{ taken_by: U1, via: 'max' }]);
+      expect((await pressAs(MAX_U1)).text).toMatch(/^Этот случай уже взяли вы — \d{2}\.\d{2}, \d{2}:\d{2} по Камчатке\.$/);
+      expect(await marks('answer_notice', N3)).toEqual([{ taken_by: U1, via: 'max' }]);
+      expect(itemOf((await load()).answer_notice, N3)).toMatchObject({ take: { via: 'max', by: 'Ирина Первая' } });
+      // Взятый случай из списка MAX ушёл вместе с контактами.
+      expect(maxQueue.adminQueueReply(await load()).text).not.toContain('Тамара Максова');
+
       // ── 3. Заявка переросла отказ — случая в очереди нет, отметить его нельзя ──
       expect(await set(L1, 'contacted')).toMatchObject({ kind: 'ok', changed: true });
       expect(itemOf((await load()).answer_notice, N1)).toBeNull();
