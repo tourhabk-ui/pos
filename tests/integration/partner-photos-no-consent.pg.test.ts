@@ -33,7 +33,10 @@
  * KERNEL_PG_TEST_URL=postgresql://user:pass@host/db. Без неё файл честно
  * пропускается — «не прогнано», а не «прошло».
  */
-import { describe, it, expect, beforeAll, afterAll } from 'vitest';
+import { describe, it, expect, beforeAll, afterAll, vi } from 'vitest';
+
+// Загрузка из админки (ревью #3291) — роут за requireAdmin.
+vi.mock('@/lib/auth/middleware', () => ({ requireAdmin: async () => ({ userId: 'admin', role: 'admin' }) }));
 import { readFileSync } from 'node:fs';
 import { join } from 'node:path';
 import { NextRequest } from 'next/server';
@@ -383,6 +386,54 @@ withPg('снимки партнёров без согласия: спрятан�
     it('отзыв — кадр пропадает сам, без правки кадра', async () => {
       await revokeAll(partnerIds[MESTECHKO.partner]!);
       expect(await shown(SPRINGS)).toMatchObject(HIDDEN);
+    });
+
+    it('загрузка из админки (ревью #3291): снимок с именем партнёра получает партнёра и ложится в галерею, даже у места без главного кадра', async () => {
+      const NOHERO = { id: 'b1260000-0000-4000-8000-000000000009', ark: 'a1260000-0000-4000-8000-000000000009' };
+      await pool.query(
+        `INSERT INTO places (id, name, lat, lng, ark_id, location_type, zone, is_visible)
+         VALUES ($1, 'Место без фото (тест)', 53.4, 158.9, $2, 'lake', 'avachinsky', TRUE)`,
+        [NOHERO.id, NOHERO.ark],
+      );
+      const sharp = (await import('sharp')).default;
+      const jpeg = await sharp({ create: { width: 40, height: 30, channels: 3, background: { r: 90, g: 90, b: 90 } } }).jpeg().toBuffer();
+      const { POST } = await import('@/app/api/admin/places/[id]/photo/route');
+      const upload = async (fields: Record<string, string>) => {
+        const fd = new FormData();
+        fd.set('file', new File([new Uint8Array(jpeg)], 'p.jpg', { type: 'image/jpeg' }));
+        for (const [k, v] of Object.entries(fields)) fd.set(k, v);
+        const res = await POST(new NextRequest(`http://localhost/api/admin/places/${NOHERO.id}/photo`, { method: 'POST', body: fd }),
+          { params: Promise.resolve({ id: NOHERO.id }) });
+        return { status: res.status, body: await res.json() as { slot?: string; partner?: { id: string } | null; rights?: { author: string | null } } };
+      };
+
+      // По автору, совпавшему с именем партнёра.
+      const a = await upload({ author: ' местечко камчатка ' });
+      expect(a.status).toBe(200);
+      expect(a.body).toMatchObject({ slot: 'gallery', partner: { id: partnerIds[MESTECHKO.partner] }, rights: { author: MESTECHKO.partner } });
+      // По полю partner_id — автор берётся из карточки партнёра.
+      const b = await upload({ partner_id: partnerIds[VOLCANOESLAND.partner]!, author: 'кто угодно' });
+      expect(b.body).toMatchObject({ slot: 'gallery', partner: { id: partnerIds[VOLCANOESLAND.partner] }, rights: { author: VOLCANOESLAND.partner } });
+      // Снимок не партнёра — как раньше: у места без главного кадра — главным.
+      const c = await upload({ author: 'владелец платформы' });
+      expect(c.body).toMatchObject({ slot: 'hero', rights: { author: 'владелец платформы' } });
+
+      const { rows } = await pool.query<{ position: number; partner_id: string | null }>(
+        `SELECT position, partner_id::text FROM place_gallery_photos WHERE ark_id = $1 ORDER BY position`, [NOHERO.ark]);
+      expect(rows).toEqual([
+        { position: 1, partner_id: partnerIds[MESTECHKO.partner] },
+        { position: 2, partner_id: partnerIds[VOLCANOESLAND.partner] },
+      ]);
+      // Без подписи ни один из двух не показывается — ни на карточке, ни по адресу.
+      const before = await card(NOHERO.id);
+      expect(before.images.some((u) => u.includes('/place-gallery/'))).toBe(false);
+      expect(await galleryStatus(NOHERO.ark, 1)).toBe(404);
+      const { PLACE_CARDS_CONSENT_FROM } = await import('@/lib/legal/partner-materials-consent');
+      await sign(partnerIds[MESTECHKO.partner]!, PLACE_CARDS_CONSENT_FROM);
+      // Байты в базе — отдаются сами (200); объект хранилища был бы 302.
+      expect(await galleryStatus(NOHERO.ark, 1)).toBe(200);
+      expect(await galleryStatus(NOHERO.ark, 2)).toBe(404);
+      await revokeAll(partnerIds[MESTECHKO.partner]!);
     });
   });
 });

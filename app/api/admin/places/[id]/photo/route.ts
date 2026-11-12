@@ -11,6 +11,9 @@
  *   license_url  — где прочитать условия
  *   source_url   — откуда взят снимок
  *   replace_hero — 'true': заменить главное фото, а не добавить в галерею
+ *   partner_id   — снимок партнёра (1431): ляжет в галерею и покажется только
+ *                  при его согласии на карточки мест; без поля партнёр
+ *                  узнаётся по автору, совпавшему с именем ровно одного
  *
  * ВТОРОЙ СНИМОК НЕ СТИРАЕТ ПЕРВЫЙ (14.09). До этой правки у места могло быть
  * ровно одно фото: `ON CONFLICT (route_id) DO UPDATE` — загрузка второго
@@ -123,10 +126,39 @@ export async function POST(request: NextRequest, { params }: Props) {
     const trimmed = v.trim();
     return trimmed === '' ? null : trimmed.slice(0, 500);
   };
-  const author     = rights('author');
+  const authorRaw  = rights('author');
   const license    = rights('license');
   const licenseUrl = rights('license_url');
   const sourceUrl  = rights('source_url');
+
+  // Снимок партнёра (1431, ревью #3291). Кадр с `partner_id` показывается
+  // только при согласии партнёра на карточки мест (galleryShownSql); кадр
+  // без него — всегда. Значит партнёр должен проставляться и здесь, а не
+  // только разовой миграцией: иначе снимок, подписанный именем партнёра,
+  // обошёл бы согласие. Партнёр — из поля `partner_id` либо по автору, если
+  // он слово в слово совпал с именем ровно одного партнёра. Такой снимок
+  // ложится только в галерею: главный кадр согласием не управляется.
+  let partner: { id: string; name: string } | null = null;
+  const partnerField = rights('partner_id');
+  try {
+    if (partnerField) {
+      if (!/^[0-9a-f-]{36}$/i.test(partnerField)) {
+        return NextResponse.json({ error: 'Неверный partner_id' }, { status: 400 });
+      }
+      const r = await pool.query<{ id: string; name: string }>(
+        `SELECT id::text, name FROM partners WHERE id = $1::uuid`, [partnerField]);
+      if (!r.rows[0]) return NextResponse.json({ error: 'Партнёр не найден' }, { status: 404 });
+      partner = r.rows[0];
+    } else if (authorRaw) {
+      const r = await pool.query<{ id: string; name: string }>(
+        `SELECT id::text, name FROM partners WHERE lower(btrim(name)) = lower(btrim($1::text)) LIMIT 2`, [authorRaw]);
+      if (r.rows.length === 1) partner = r.rows[0]!;
+    }
+  } catch (err) {
+    console.error('[place-photo] не смог проверить, чей снимок:', arkId, (err as { code?: string })?.code ?? err);
+    return NextResponse.json({ error: 'Не удалось проверить, чей снимок. Попробуйте ещё раз.' }, { status: 503 });
+  }
+  const author = partner ? partner.name : authorRaw;
 
   // Куда класть: герой или галерея. Решает НАЛИЧИЕ героя, а не догадка о
   // намерении — и решение уходит в ответ, чтобы загрузивший его видел.
@@ -137,7 +169,7 @@ export async function POST(request: NextRequest, { params }: Props) {
   const hasHero = (heroRow.rowCount ?? 0) > 0;
   const replaceHero = formData.get('replace_hero') === 'true';
 
-  if (hasHero && !replaceHero) {
+  if ((hasHero && !replaceHero) || partner) {
     // Галерея: следующая свободная позиция. Позиция считается отдельным
     // запросом, а не `INSERT ... SELECT MAX(...)`: у такой формы параметрам
     // негде взять якорь типа, и она отвечает 42P08 «inconsistent types
@@ -157,10 +189,10 @@ export async function POST(request: NextRequest, { params }: Props) {
         await pool.query(
           `INSERT INTO place_gallery_photos
              (ark_id, position, image_data, mime_type, width, height,
-              author, license, license_url, source_url)
-           VALUES ($1, $2, $3, 'image/jpeg', $4, $5, $6, $7, $8, $9)`,
+              author, license, license_url, source_url, partner_id)
+           VALUES ($1, $2, $3, 'image/jpeg', $4, $5, $6, $7, $8, $9, $10::uuid)`,
           [arkId, position, processed, TARGET_WIDTH, TARGET_HEIGHT,
-           author, license, licenseUrl, sourceUrl],
+           author, license, licenseUrl, sourceUrl, partner?.id ?? null],
         );
         break;
       } catch (err) {
@@ -186,6 +218,9 @@ export async function POST(request: NextRequest, { params }: Props) {
       height: TARGET_HEIGHT,
       sizeKb: Math.round(processed.length / 1024),
       rights: { author, license, licenseUrl, sourceUrl },
+      // Снимок партнёра виден на карточке только при его согласии на
+      // карточки мест — загрузивший должен это знать, а не гадать.
+      partner: partner ? { id: partner.id, name: partner.name, shownOnlyWithConsent: true } : null,
       url: `/api/images/place-gallery/${arkId}/${position}?t=${Date.now()}`,
     });
   }
