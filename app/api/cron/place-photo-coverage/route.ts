@@ -303,16 +303,16 @@ export async function GET(req: NextRequest) {
         `WITH bare AS (
            SELECT p.id::text AS place_id, p.name, p.slug FROM places p WHERE ${NO_PHOTO}
          ), link AS (
-           SELECT b.place_id, ot.id AS tour_id, 'main_place' AS link
-             FROM bare b JOIN operator_tours ot ON ot.main_place_id = b.place_id
+           SELECT bp.place_id, ot.id AS tour_id, 'main_place' AS link
+             FROM bare bp JOIN operator_tours ot ON ot.main_place_id = bp.place_id
            UNION
-           SELECT b.place_id, ot.id, 'waypoint'
-             FROM bare b
-             JOIN route_waypoints rw ON rw.place_id::text = b.place_id
+           SELECT bp.place_id, ot.id, 'waypoint'
+             FROM bare bp
+             JOIN route_waypoints rw ON rw.place_id::text = bp.place_id
               AND COALESCE(to_jsonb(rw)->>'link_kind', 'unknown') <> 'nearby'
              JOIN operator_tours ot ON ot.route_id = rw.route_id
          )
-         SELECT b.name AS place, b.slug AS place_slug, b.place_id,
+         SELECT bp.name AS place, bp.slug AS place_slug, bp.place_id,
                 min(l.link) AS link,
                 ot.id::text AS tour_id, ot.title AS tour,
                 COALESCE(cardinality(ot.photos), 0) AS photos,
@@ -324,13 +324,13 @@ export async function GET(req: NextRequest) {
                                    WHERE c.partner_id = pa.id AND c.revoked_at IS NULL) THEN 'old'
                      ELSE 'none' END AS consent
            FROM link l
-           JOIN bare b ON b.place_id = l.place_id
+           JOIN bare bp ON bp.place_id = l.place_id
            JOIN operator_tours ot ON ot.id = l.tour_id
            JOIN partners pa ON pa.id = ot.operator_id
           WHERE ${publicTourSql('ot')}
             AND COALESCE(cardinality(ot.photos), 0) > 0
-          GROUP BY b.name, b.slug, b.place_id, ot.id, ot.title, ot.photos, pa.id, pa.name, pa.slug
-          ORDER BY b.name, pa.name, ot.title
+          GROUP BY bp.name, bp.slug, bp.place_id, ot.id, ot.title, ot.photos, pa.id, pa.name, pa.slug
+          ORDER BY bp.name, pa.name, ot.title
           LIMIT $1 OFFSET $2`,
         [limit, offset],
       );
