@@ -26,6 +26,8 @@ import { publicReviewerName } from '@/lib/reviews/public-name';
 import { loadPlaceTours, type PlaceTourOffer } from '@/lib/places/place-tours';
 import { offerOrderDay } from '@/lib/tours/offer-order';
 import { descriptionVoice } from '@/lib/places/description-voice';
+import { galleryShownSql } from '@/lib/places/gallery-shown';
+import { operatorPagePath } from '@/lib/operators/page-link';
 import type { PlacePhotoAttribution, PlacePhotoRights, PlaceTour } from '@/components/places/types';
 
 export interface PlaceDetailResult {
@@ -150,23 +152,30 @@ export async function loadPlaceDetail(id: string, opts: { countView: boolean }):
                    ORDER BY g.position
                  ), '[]'::json)
             FROM place_gallery_photos g
-           -- Спрятанный кадр (hidden_reason, 1263) не показывается: например,
-           -- снимок партнёра без согласия на карточки мест.
-           WHERE g.ark_id = p.ark_id AND g.hidden_reason IS NULL) AS gallery_urls,
+           -- Спрятанный кадр (hidden_reason, 1263) и снимок партнёра без
+           -- согласия на карточки мест (1431) не показываются: galleryShownSql.
+           WHERE g.ark_id = p.ark_id AND ${galleryShownSql('g')}) AS gallery_urls,
          -- Автор каждого кадра галереи, тем же порядком, что gallery_urls:
          -- подпись под фото называет автора ТОГО кадра, что на экране (04.10).
-         (SELECT COALESCE(json_agg(NULLIF(btrim(g.author), '') ORDER BY g.position), '[]'::json)
+         -- У снимка партнёра (1431) автор — имя партнёра из его карточки, а
+         -- не строка, записанная при загрузке (владелец 12.11: «и ссылка на
+         -- партнёра — так будет честнее»).
+         (SELECT COALESCE(json_agg(COALESCE(NULLIF(btrim(pa.name), ''), NULLIF(btrim(g.author), '')) ORDER BY g.position), '[]'::json)
             FROM place_gallery_photos g
-           WHERE g.ark_id = p.ark_id AND g.hidden_reason IS NULL) AS gallery_authors,
+            LEFT JOIN partners pa ON pa.id = g.partner_id
+           WHERE g.ark_id = p.ark_id AND ${galleryShownSql('g')}) AS gallery_authors,
          -- Лицензия и страница файла каждого кадра галереи, тем же порядком
          -- (15.10): снимку Commons в галерее одного имени автора мало.
          (SELECT COALESCE(json_agg(json_build_object(
                    'license', NULLIF(btrim(g.license), ''),
                    'license_url', NULLIF(btrim(g.license_url), ''),
-                   'source_url', NULLIF(btrim(g.source_url), '')
+                   'source_url', NULLIF(btrim(g.source_url), ''),
+                   'partner_slug', pa.slug,
+                   'partner_public', pa.is_public
                  ) ORDER BY g.position), '[]'::json)
             FROM place_gallery_photos g
-           WHERE g.ark_id = p.ark_id AND g.hidden_reason IS NULL) AS gallery_rights,
+            LEFT JOIN partners pa ON pa.id = g.partner_id
+           WHERE g.ark_id = p.ark_id AND ${galleryShownSql('g')}) AS gallery_rights,
          ai.model      AS photo_model,
          ai.author     AS photo_author,
          ai.license    AS photo_license,
@@ -649,10 +658,15 @@ export function photoRightsOf(r: Record<string, unknown>): Record<string, PlaceP
     if (typeof u !== 'string') return;
     const g = rows[i] as Record<string, unknown> | null | undefined;
     if (!g || typeof g !== 'object') return;
+    // Снимок партнёра (1431): имя в подписи ведёт на его страницу на Ведаре
+    // (владелец 12.11). Страницы нет — ссылка на источник, как у остальных.
+    const partnerPage = typeof g.partner_slug === 'string'
+      ? operatorPagePath({ slug: g.partner_slug, is_public: g.partner_public === true })
+      : null;
     const one: PlacePhotoRights = {
       license: str(g.license),
       licenseUrl: str(g.license_url),
-      sourceUrl: str(g.source_url),
+      sourceUrl: partnerPage ?? str(g.source_url),
     };
     if (one.license || one.licenseUrl || one.sourceUrl) rights[u] = one;
   });

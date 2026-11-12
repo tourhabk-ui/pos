@@ -34,7 +34,8 @@ describe('место: автор у каждого кадра свой', () => {
   it('ключи совпадают с адресами, которыми карточка отдаёт кадры', () => {
     const src = read('lib/places/place-detail.ts');
     expect(src).toContain("`/api/images/route/${r.ark_id}${v}`");
-    expect(src).toMatch(/json_agg\(NULLIF\(btrim\(g\.author\), ''\) ORDER BY g\.position\)/);
+    // У снимка партнёра (1431) автор — имя из его карточки, у остальных — записанный.
+    expect(src).toMatch(/json_agg\(COALESCE\(NULLIF\(btrim\(pa\.name\), ''\), NULLIF\(btrim\(g\.author\), ''\)\) ORDER BY g\.position\)/);
     expect(src).toMatch(/'\/api\/images\/place-gallery\/' \|\| g\.ark_id[\s\S]{0,120}ORDER BY g\.position/);
   });
 

@@ -130,7 +130,8 @@ withPg('согласие партнёра на материалы на наст�
     });
     const list = await mc.loadPartnerConsents(lagunaId);
     expect(list.filter((c) => !c.revokedAt)).toHaveLength(1);
-    expect(list[0]).toMatchObject({ signerName: 'Иван Сидоров', revokedAt: null, revokedOn: null, textVersion: '2026-10-23' });
+    const { PARTNER_MATERIALS_CONSENT_VERSION } = await import('@/lib/legal/partner-materials-consent');
+    expect(list[0]).toMatchObject({ signerName: 'Иван Сидоров', revokedAt: null, revokedOn: null, textVersion: PARTNER_MATERIALS_CONSENT_VERSION });
     expect(list.slice(1).every((c) => c.revokeReason === mc.SUPERSEDED_REASON)).toBe(true);
 
     expect(await mc.revokeMaterialsConsent(lagunaId, 'Написал в MAX 25.10: снять всё')).toEqual({ ok: true, revoked: 1 });

@@ -83,7 +83,7 @@ describe('производитель — таблица галереи', () => {
 describe('раздача снимка галереи', () => {
   it('читает place_gallery_photos параметризованно', () => {
     expect(RASTER).toMatch(/FROM place_gallery_photos/);
-    expect(RASTER).toMatch(/WHERE ark_id = \$1::uuid AND position = \$2/);
+    expect(RASTER).toMatch(/WHERE g\.ark_id = \$1::uuid AND g\.position = \$2/);
   });
 
   it('нулевая позиция не обслуживается: герой лежит в другой таблице', () => {
