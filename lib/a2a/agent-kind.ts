@@ -5,7 +5,7 @@
  * возможностей (cron-capability-registry) честно припишет ей db_write.
  * journal реэкспортирует отсюда же: правило одно.
  */
-import { PROBE_NAME_PATTERN } from '@/lib/mcp/probe-clients';
+import { PROBE_CLIENT_NAMES, PROBE_NAME_PATTERN } from '@/lib/mcp/probe-clients';
 
 /** Кто это: внешний агент, проверка реестра A2A, иная проверка (curl, пробы) или свой клиент. */
 export type A2aAgentKind = 'external' | 'registry' | 'probe' | 'self';
@@ -15,8 +15,17 @@ export const A2A_REGISTRY_PATTERN = '^A2A-Registry-';
 const REGISTRY_RE = new RegExp(A2A_REGISTRY_PATTERN, 'i');
 const PROBE_RE = new RegExp(PROBE_NAME_PATTERN, 'i');
 
-/** Параметры предиката a2aExternalSql — всегда в этом порядке: образец реестра, образец проб. */
-export const A2A_EXTERNAL_PARAMS: [string, string] = [A2A_REGISTRY_PATTERN, PROBE_NAME_PATTERN];
+/**
+ * Проверки, известные по имени (lib/mcp/probe-clients). Перепись 12.11
+ * (prod-check 174): образец ремесла их не узнаёт — `vedar-eval`, наш же
+ * экзамен Кузьмича, числился внешним агентом A2A с 32 сообщениями. Список
+ * один на MCP и A2A. Имя в журнале — самоназвание программы без версии
+ * (agentLabel), поэтому сравнение — по имени целиком, без учёта регистра.
+ */
+const KNOWN_PROBE_NAMES: ReadonlySet<string> = new Set(PROBE_CLIENT_NAMES.map((n) => n.toLowerCase()));
+
+/** Параметры предиката a2aExternalSql — всегда в этом порядке: образец реестра, образец проб, имена проверок. */
+export const A2A_EXTERNAL_PARAMS: [string, string, string[]] = [A2A_REGISTRY_PATTERN, PROBE_NAME_PATTERN, [...KNOWN_PROBE_NAMES]];
 
 /**
  * То же правило, что a2aAgentKind(...) === 'external', — для счёта в SQL
@@ -24,19 +33,20 @@ export const A2A_EXTERNAL_PARAMS: [string, string] = [A2A_REGISTRY_PATTERN, PROB
  * групп по имени, если считать разных вызывающих. Совпадение с JS держит
  * tests/integration/admin-day-counts.pg.test.ts.
  */
-export function a2aExternalSql(t: string, registryParam: string, probeParam: string): string {
-  return `(${t}.is_self = FALSE AND ${t}.agent !~* ${registryParam}::text AND ${t}.agent !~* ${probeParam}::text AND COALESCE(${t}.ua_family, '') <> 'curl')`;
+export function a2aExternalSql(t: string, registryParam: string, probeParam: string, namesParam: string): string {
+  return `(${t}.is_self = FALSE AND ${t}.agent !~* ${registryParam}::text AND ${t}.agent !~* ${probeParam}::text`
+    + ` AND lower(${t}.agent) <> ALL(${namesParam}::text[]) AND COALESCE(${t}.ua_family, '') <> 'curl')`;
 }
 
 /**
  * Кто это — по самоназванию и метке, не по адресу. Реестр A2A раз в сутки
  * шлёт настоящий message/send (`A2A-Registry-TaskProbe/1.0`, при регистрации
  * `A2A-Registry-Smoke/1.0`) — это не турист и не чужой агент; прочие пробы —
- * по образцу ремесла из lib/mcp/probe-clients и по curl.
+ * по образцу ремесла, по списку имён из lib/mcp/probe-clients и по curl.
  */
 export function a2aAgentKind(agent: string, family: string, isSelf: boolean): A2aAgentKind {
   if (isSelf) return 'self';
   if (REGISTRY_RE.test(agent)) return 'registry';
-  if (PROBE_RE.test(agent) || family === 'curl') return 'probe';
+  if (PROBE_RE.test(agent) || KNOWN_PROBE_NAMES.has(agent.toLowerCase()) || family === 'curl') return 'probe';
   return 'external';
 }
