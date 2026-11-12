@@ -124,7 +124,12 @@ jobs:
           # .well-known с OAuth, video с путём от человека), вход и роли,
           # оплата, MCP, данные людей (лиды, брони, CRM, админка,
           # уведомления, шифрование), сторожа 152-ФЗ, workflow.
-          SENSITIVE: '^(app/api/|app/.*route\.(ts|js)$|(.*/)?middleware\.ts$|lib/auth\.ts$|lib/auth/|lib/roles/|lib/account/|lib/api/|lib/payments/|lib/security/|lib/encryption\.ts$|lib/mcp/|lib/crm/|lib/admin/|lib/leads/|lib/bookings/|lib/notifications/|lib/max/|lib/miniapp/|lib/agents/compliance/|\.github/workflows/)'
+          # 12.11: заявки после ответа адресата (lib/requests — имя и телефон
+          # заявки, сообщения в чаты людей и письмо менеджеру), очередь
+          # менеджера, заявки на жильё и запросы мест. PR #3297 читал контакт
+          # человека и слал его менеджеру, а ревью не запускалось: эти
+          # каталоги под «данные людей» не попадали.
+          SENSITIVE: '^(app/api/|app/.*route\.(ts|js)$|(.*/)?middleware\.ts$|lib/auth\.ts$|lib/auth/|lib/roles/|lib/account/|lib/api/|lib/payments/|lib/security/|lib/encryption\.ts$|lib/mcp/|lib/crm/|lib/admin/|lib/leads/|lib/bookings/|lib/notifications/|lib/max/|lib/miniapp/|lib/requests/|lib/manager-queue/|lib/stay/|lib/seat-requests/|lib/agents/compliance/|\.github/workflows/)'
         run: |
           if [ "$LABELED" = "true" ]; then
             echo "run=true" >> "$GITHUB_OUTPUT"

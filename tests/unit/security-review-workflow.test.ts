@@ -646,6 +646,11 @@ describe('платное ревью — только где ошибка сто�
       'lib/crm/partner-oauth-public.ts', 'lib/encryption.ts', 'lib/roles/role-telegram.ts',
       'lib/admin/booking-contact.ts', 'lib/leads/create.ts', 'lib/bookings/auto-confirm.ts',
       'lib/auth/вход.ts', 'app/api/оплата/route.ts',
+      // 12.11, PR #3297: контакт человека читался в lib/requests и уходил
+      // менеджеру, а ревью не шло. Заявки после ответа, очередь менеджера,
+      // заявки на жильё и запросы мест — тоже данные людей.
+      'lib/requests/offer-asks.ts', 'lib/manager-queue/queue.ts', 'lib/stay/owner-answer-flow.ts',
+      'lib/seat-requests/service.ts',
     ]) {
       expect([f, runScope([f], false).run]).toEqual([f, 'true']);
     }
