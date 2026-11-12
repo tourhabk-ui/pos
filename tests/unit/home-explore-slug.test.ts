@@ -6,6 +6,7 @@
  */
 import { describe, it, expect } from 'vitest';
 import { readFileSync } from 'node:fs';
+import { placeHref } from '@/components/places/PlaceSwipeDeck';
 
 describe('плитки «Открыть» на главной', () => {
   it('данные несут urlSlug из каталога', () => {
@@ -15,8 +16,12 @@ describe('плитки «Открыть» на главной', () => {
   });
 
   it('ссылка — по slug, по id только когда slug нет', () => {
+    // С 12.11 места на главной — колодой (components/places/PlaceSwipeDeck):
+    // ссылку строит её placeHref, рендер ссылки — tests/unit/motion-kit.test.tsx.
     const client = readFileSync('app/_home/_HomeV8Client.tsx', 'utf-8');
-    expect(client).toContain('href={`/places/${pl.urlSlug ?? pl.id}`}');
+    expect(client).toMatch(/places=\{explore\}/);
     expect(client).not.toContain('href={`/places/${pl.id}`}');
+    expect(placeHref({ id: 'uuid-1', urlSlug: 'vulkan-gorelyj' })).toBe('/places/vulkan-gorelyj');
+    expect(placeHref({ id: 'uuid-1', urlSlug: null })).toBe('/places/uuid-1');
   });
 });

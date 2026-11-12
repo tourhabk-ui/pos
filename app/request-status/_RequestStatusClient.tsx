@@ -26,6 +26,9 @@ import Link from 'next/link';
 import { Loader2, CheckCircle2, XCircle, CalendarClock, Clock, AlertTriangle, ShieldCheck, PhoneCall } from 'lucide-react';
 import { PdConsentCheckbox } from '@/components/legal/PdConsentCheckbox';
 import { RequestChat } from '@/components/requests/RequestChat';
+import { RequestSteps } from '@/components/requests/RequestSteps';
+import { RequestTicket } from '@/components/requests/RequestTicket';
+import { requestSteps } from '@/lib/requests/request-steps';
 import { platformAcceptsPayments } from '@/lib/payments/accepting';
 import {
   REQUEST_KEY_MIN_CHARS, REQUEST_KEY_MAX_CHARS, ADDRESSEE_WORDS, capitalized,
@@ -279,6 +282,11 @@ export function RequestStatusClient() {
       ].filter(Boolean).join(' · ')
       : [view.tour, dateRu(view.date), view.participants ? `${view.participants} чел.` : null].filter(Boolean).join(' · ');
 
+  // Путь заявки и билет (12.11): шаги — только по распознанному состоянию,
+  // билет — когда на нём есть название или дата; иначе остаётся строка деталей.
+  const steps = view ? requestSteps(view.state, view.consent_purpose) : null;
+  const hasTicket = !!view && !!((view.kind === 'stay_request' ? view.accommodation : view.tour) || view.date);
+
   return (
     <main className="ds-page min-h-screen px-4 py-10">
       <div className="max-w-md mx-auto space-y-4">
@@ -316,9 +324,12 @@ export function RequestStatusClient() {
                 <h1 className="text-2xl font-bold text-[var(--text-primary)]" style={{ fontFamily: 'var(--font-playfair)' }}>
                   {textFor(view).title}
                 </h1>
-                {details && <p className="text-sm text-[var(--text-secondary)] mt-1">{details}</p>}
+                {details && !hasTicket && <p className="text-sm text-[var(--text-secondary)] mt-1">{details}</p>}
               </div>
             </div>
+
+            {steps && <RequestSteps steps={steps} />}
+            {hasTicket && <RequestTicket view={view} />}
 
             <p className="text-sm text-[var(--text-primary)]">{view.human}</p>
             {view.state === 'awaiting_operator' && view.deadline && (
