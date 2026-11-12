@@ -6,6 +6,7 @@
  * Модуль без базы и сети — его импортируют и клиентские экраны. Само правило
  * смены статуса — lib/leads/owner-lead-status.
  */
+import { LEAD_CLIENT_CANCELLED } from '@/lib/types/statuses';
 
 /**
  * Статусы, которые продавец своего тура ставит заявке сам. Остальные
@@ -36,6 +37,8 @@ export const LEAD_STATUS_WORDS: Readonly<Record<string, string>> = {
   qualified: 'Обсуждаете детали',
   converted: 'Договорились',
   lost: 'Отказ',
+  // 1427: отменил сам клиент — продавец этот статус не ставит и не снимает.
+  cancelled: 'Отменена клиентом',
 };
 
 /** Кнопки ответа на заявку. */
@@ -49,8 +52,11 @@ export const OWNER_LEAD_ACTION_LABEL: Readonly<Record<OwnerLeadStatus, string>> 
 /**
  * Какие отметки предложить: все, кроме той, что уже стоит. Перехода «нельзя»
  * у заявки нет — ни в кабинете оператора, ни здесь: отказ мог передумать.
+ * Одно исключение (1427): заявку отменил клиент — отметок нет вовсе, вернуть
+ * её в работу продавец не может.
  */
 export function ownerLeadActionsFor(status: string | null | undefined): OwnerLeadStatus[] {
+  if (status === LEAD_CLIENT_CANCELLED) return [];
   return OWNER_LEAD_STATUSES.filter((s) => s !== status);
 }
 

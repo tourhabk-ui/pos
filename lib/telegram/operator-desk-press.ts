@@ -19,6 +19,8 @@ import {
 } from '@/lib/telegram/operator-desk';
 import { WIZARD_TEXT } from '@/lib/operators/chat-dates/wizard';
 import { answerDateCodable } from '@/lib/requests/answer-date';
+import { LEAD_CANCELLED_ANSWER_TEXT } from '@/lib/leads/client-cancelled';
+import { LEAD_CLIENT_CANCELLED } from '@/lib/types/statuses';
 
 const NOT_THIS = 'Эта кнопка — кабинет туроператора. В этом чате её не выполняю.';
 const UNREAD = 'Не удалось проверить, чей это чат. Кнопку не выполнил.';
@@ -149,6 +151,9 @@ export async function operatorDeskPress(opts: {
     const ask = chatAnswerAsk(parsed.answer, parsed.kind, parsed.subjectId, saved.subjectDate);
     return withMenu(`${head}\n${ask.text}`, ask.rows);
   }
+  // Клиент отменил заявку (1427): ответ записан, но заявка закрыта — оператор читает это,
+  // а не «принято»: иначе он готовился бы к поездке, от которой человек отказался.
+  if (parsed.kind === 'lead' && saved.leadStatus === LEAD_CLIENT_CANCELLED) return withMenu(LEAD_CANCELLED_ANSWER_TEXT);
   const doneText = (already: boolean) => (reason && !already
     ? `${chatAnswerText('decline', false)} Причина: ${DECLINE_REASON_LABEL[reason].toLowerCase()}.`
     : chatAnswerText(parsed.answer as Exclude<typeof parsed.answer, 'decline_pick'>, already, saved.subjectDate));

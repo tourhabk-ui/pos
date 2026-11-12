@@ -16,6 +16,8 @@ import { requireRole } from '@/lib/auth/middleware';
 import { getGuidePartnerId } from '@/lib/auth/guide-helpers';
 import { changeLeadStatus } from '@/lib/leads/owner-lead-status';
 import { OWNER_LEAD_STATUSES } from '@/lib/leads/owner-lead-words';
+import { LEAD_CANCELLED_STATUS_TEXT } from '@/lib/leads/client-cancelled';
+import { LEAD_CLIENT_CANCELLED } from '@/lib/types/statuses';
 
 export const dynamic = 'force-dynamic';
 
@@ -59,6 +61,10 @@ export async function PATCH(
     });
     if (outcome.kind === 'not_found') {
       return NextResponse.json({ success: false, error: 'Заявка не найдена среди ваших' }, { status: 404 });
+    }
+    // Заявку отменил клиент (1427): отметка не записана — «уже отмечена» здесь было бы неправдой.
+    if (outcome.prevStatus === LEAD_CLIENT_CANCELLED) {
+      return NextResponse.json({ success: false, error: LEAD_CANCELLED_STATUS_TEXT }, { status: 409 });
     }
     return NextResponse.json({
       success: true,

@@ -19,6 +19,7 @@ import { leadOwnershipCond } from '@/lib/leads/ownership';
 import { LEADS_PAGE_MAX } from '@/lib/leads/list-page';
 import { logSwallowedFailure } from '@/lib/observability/swallowed';
 import { LeadIsVehicleOrderError } from '@/lib/leads/vehicle-order';
+import { LEAD_STATUSES } from '@/lib/types/statuses';
 import { widgetOrigin } from '@/lib/embed/widget-origin';
 import { withLeadOrigin, type LeadOriginInput } from '@/lib/leads/origin';
 
@@ -44,10 +45,10 @@ const LeadSchema = z.object({
 });
 
 const ListSchema = z.object({
-  status: z.enum([
-    'new', 'ai_processing', 'ai_qualified', 'proposal_sent',
-    'awaiting_confirm', 'contacted', 'qualified', 'converted', 'lost', 'all',
-  ]).optional().default('all'),
+  // Все статусы словаря, а не свой список: доска оператора спрашивает колонку
+  // «Отказ» двумя статусами — `lost` и `cancelled` (отменена клиентом, 1427), и
+  // статус, которого здесь нет, отвечал бы 400 пустой колонкой.
+  status: z.enum([...LEAD_STATUSES, 'all']).optional().default('all'),
   // Потолок общий с канбаном (lib/leads/list-page.ts): доска читает страницами.
   limit:  z.coerce.number().min(1).max(LEADS_PAGE_MAX).optional().default(50),
   offset: z.coerce.number().min(0).optional().default(0),

@@ -43,7 +43,7 @@ import { emphasizeTripDays, sanitizeForTelegram } from '@/lib/telegram/kuzmich-f
 import { matchTouristButton, touristReplyMarkup, touristRentalText, TOURIST_ASK_TEXT, type TouristButton } from '@/lib/telegram/tourist-keyboard';
 import { chatHasRequests } from '@/lib/requests/chat-links';
 import { isMyTripAsk, myTripMessage } from '@/lib/requests/my-trip';
-import { isMyTripDatePayload } from '@/lib/requests/my-trip-ask';
+import { isMyTripCancelPayload, isMyTripDatePayload } from '@/lib/requests/my-trip-ask';
 import { MCHS_CHAT_BUTTON, mchsTouristLinks, mchsTouristText } from '@/lib/safety/mchs-chat';
 import { catalogFacts, loadShowcaseTours } from '@/lib/telegram/tourist-tours';
 import { touristOperatorsList } from '@/lib/telegram/operators-list';
@@ -1868,6 +1868,21 @@ async function deliverTelegramUpdate(update: TelegramUpdate): Promise<void> {
       return;
     }
 
+    // «Отменить заявку» под «Моей поездкой» (1427): вопрос и «Да». Только личный
+    // чат; право — связь этого чата с заявкой ключом новой заявки
+    // (lib/requests/my-trip-cancel).
+    if (isMyTripCancelPayload(data)) {
+      await telegramService.answerCallback(cq.id);
+      const pressChat = cq.message?.chat;
+      if (!pressChat || pressChat.type !== 'private') {
+        await sendHTML(callbackChatId, 'Заявку отменяют в личном диалоге с ботом. Здесь ничего не изменено.');
+        return;
+      }
+      const { pressMyTripCancel } = await import('@/lib/requests/my-trip-cancel');
+      await sendChatReplyTg(String(pressChat.id), await pressMyTripCancel(data, 'telegram', pressChat.id));
+      return;
+    }
+
     if (isOperatorDeskPayload(data)) {
       await telegramService.answerCallback(cq.id);
       const privateDesk = (cq.message?.chat?.type ?? 'private') === 'private';
@@ -2067,6 +2082,9 @@ async function deliverTelegramUpdate(update: TelegramUpdate): Promise<void> {
         await sendHTML(callbackChatId, `Заявка <code>${leadId}</code> — статус: <b>${res.label}</b>`);
       } else if (res.outcome === 'not_found') {
         await telegramService.answerCallback(cq.id, 'Лид не найден');
+      } else if (res.outcome === 'cancelled_by_client') {
+        await telegramService.answerCallback(cq.id, 'Заявку отменил клиент');
+        await sendHTML(callbackChatId, `Заявку <code>${leadId}</code> отменил клиент — статус не изменён.`);
       } else {
         await telegramService.answerCallback(cq.id, 'Не удалось изменить статус');
         await sendHTML(callbackChatId, `Статус заявки <code>${leadId}</code> не изменён: ${res.reason}`);

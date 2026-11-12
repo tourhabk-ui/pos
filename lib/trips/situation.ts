@@ -64,7 +64,12 @@ export function judgeSituation(input: SituationInput): Situation {
 
   if (input.officials === 'failed') unchecked.push('официальные предупреждения — лента не прочиталась');
   else {
-    for (const a of input.officials) risks.push(`официальное предупреждение: ${a.title.replace(/\s+/g, ' ').trim()}`);
+    // Одно предупреждение лента может нести двумя строками (prod-check 176: запреты у
+    // вулканов — парами): человеку оно называется один раз.
+    for (const a of input.officials) {
+      const line = `официальное предупреждение: ${a.title.replace(/\s+/g, ' ').trim()}`;
+      if (!risks.includes(line)) risks.push(line);
+    }
     if (input.officialsUnassessed) unchecked.push('официальные предупреждения по зоне — у тура не записана зона маршрута');
   }
 

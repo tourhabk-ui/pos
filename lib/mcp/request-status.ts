@@ -83,7 +83,9 @@ import {
 } from '@/lib/mcp/request-status-schema';
 import { DECLINE_REASON_LABEL, DECLINE_REASONS, type DeclineReason } from '@/lib/requests/chat-answer-buttons';
 import { LEAD_ANSWER_DATE_SQL, ruAnswerDate } from '@/lib/requests/answer-date';
-import { BOOKING_STATUSES, LEAD_STATUSES, UNATTENDED_LEAD_STATUSES, type BookingStatus, type LeadStatus } from '@/lib/types/statuses';
+import {
+  BOOKING_STATUSES, LEAD_CLIENT_CANCELLED, LEAD_STATUSES, UNATTENDED_LEAD_STATUSES, type BookingStatus, type LeadStatus,
+} from '@/lib/types/statuses';
 
 export { REQUEST_STATUS_TOOL_NAME, GET_REQUEST_STATUS_TOOL } from '@/lib/mcp/request-status-schema';
 
@@ -425,6 +427,8 @@ const LEAD_STATE: Record<LeadStatus, RequestState> = {
   awaiting_confirm: 'in_progress',
   converted: 'confirmed',
   lost: 'declined',
+  // Отменил клиент (1427). Слова — CLIENT_CANCELLED_HUMAN: «бронь отменена» здесь было бы неправдой.
+  cancelled: 'cancelled',
 };
 
 function inDictionary<T extends string>(dict: readonly T[], value: string | null | undefined): value is T {
@@ -549,6 +553,12 @@ function nextText(state: RequestState, purpose: ConsentPurpose): string {
 }
 
 const HUMAN = Object.fromEntries(REQUEST_STATES.map((s) => [s, humanText(s, 'operator')])) as Record<RequestState, string>;
+
+/**
+ * Заявку отменил сам клиент, пока адресат не ответил (1427). Состояние то же —
+ * `cancelled`, слова свои: у такой заявки брони не было.
+ */
+export const CLIENT_CANCELLED_HUMAN = 'Заявка отменена клиентом.';
 
 const NEXT: Record<RequestState, string> = {
   awaiting_operator: 'Подождите звонка оператора; повторно спрашивать статус раньше чем через час не нужно.',
@@ -1106,9 +1116,13 @@ export function buildRequestView(row: StatusRow, now: number): RequestCore {
   // адресованный партнёру. Без текста — число и время ответов.
   const chat = row.lead_id !== null && row.lead_status !== null && row.opens_chat === true && row.lead_addressed === true;
   const replies = Number(row.chat_partner_replies ?? 0);
+  // Отменил клиент (1427): брони нет, и «бронь по заявке отменена» было бы неправдой.
+  const clientCancelled = !answered && !row.booking_status && row.lead_status === LEAD_CLIENT_CANCELLED;
   const human = answered
     ? answered.human
-    : humanText(state, consent_purpose) + (row.booking_status ? dateChangeNote(requested, row.booking_date) : '');
+    : clientCancelled
+      ? CLIENT_CANCELLED_HUMAN
+      : humanText(state, consent_purpose) + (row.booking_status ? dateChangeNote(requested, row.booking_date) : '');
   return {
     state,
     kind: 'lead',

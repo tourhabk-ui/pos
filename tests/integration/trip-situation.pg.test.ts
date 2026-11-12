@@ -72,6 +72,8 @@ withPg('обстановка на день выезда — SQL', () => {
     )).rows[0].id;
     ids.lLive = await lead('new', { tool: 'create_booking_request', tour_id: Number(ids.tourA), date: D2 }, false, 8008);
     ids.lLost = await lead('lost', { tour_id: Number(ids.tourA), date: D2 }, false, 8009);
+    // Заявку отменил клиент (1427): ни в счёт выезда, ни в рассылку обстановки она не идёт.
+    ids.lCancelled = await lead('cancelled', { tool: 'create_booking_request', tour_id: Number(ids.tourA), date: D2 }, false, 8011);
     ids.lSelf = await lead('new', { tour_id: Number(ids.tourA), date: D2 }, true, 8010);
   }, 240_000);
 
@@ -87,7 +89,7 @@ withPg('обстановка на день выезда — SQL', () => {
     const tours = await loadDepartingTours([D1, D2]);
     expect(tours.map((t) => [t.tourId, t.date, t.travellers])).toEqual([
       [Number(ids.tourB), D1, 1],
-      [Number(ids.tourA), D2, 3], // две брони и одна живая заявка; отменённая, «lost» и своя — мимо
+      [Number(ids.tourA), D2, 3], // две брони и одна живая заявка; отменённая бронь, «lost», отменённая клиентом и своя — мимо
     ]);
     const a = tours.find((t) => t.tourId === Number(ids.tourA))!;
     expect(a).toMatchObject({ lat: 53.25, lng: 158.83, zone: 'avachinsky', operatorId: ids.operator });
@@ -103,6 +105,7 @@ withPg('обстановка на день выезда — SQL', () => {
     expect(by.get(ids.lLive)).toMatchObject({ kind: 'tourist_lead', channel: 'max', chatId: '8008' });
     expect(by.has(ids.bCancelled)).toBe(false);
     expect(by.has(ids.lLost)).toBe(false);
+    expect(by.has(ids.lCancelled)).toBe(false);
     expect(by.has(ids.lSelf)).toBe(false);
   });
 

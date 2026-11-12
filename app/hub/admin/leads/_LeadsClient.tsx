@@ -84,6 +84,8 @@ export const STATUS_META: Record<LeadStatus, { label: string; color: string }> =
   ai_qualified:    { label: 'AI-квалифицирован',  color: 'bg-[var(--accent)]/10 text-[var(--accent)]' },
   proposal_sent:   { label: 'КП отправлено',      color: 'bg-[var(--warning)]/10 text-[var(--warning)]' },
   awaiting_confirm:{ label: 'Ждёт подтверждения', color: 'bg-[var(--warning)]/10 text-[var(--warning)]' },
+  // 1427: отменил сам клиент; вручную этот статус не ставят и не снимают.
+  cancelled:       { label: 'Отменена клиентом',  color: 'bg-[var(--bg-hover)] text-[var(--text-muted)]' },
 };
 
 // На случай статуса, которого нет в карте (новые значения в БД) — не крашимся.

@@ -20,9 +20,35 @@ import { recordSourceEventQuietly, statusChangeTitle } from '@/lib/crm/events';
 import { tourDays } from '@/lib/tours/catalog-availability';
 import { groundIntentNumbers } from '@/lib/leads/intent-grounding';
 import { isVehicleOrder, LeadIsVehicleOrderError } from '@/lib/leads/vehicle-order';
+import { LeadCancelledByClientError } from '@/lib/leads/client-cancelled';
+import { LEAD_CLIENT_CANCELLED } from '@/lib/types/statuses';
 import { publicTourSql } from '@/lib/tours/public-visibility';
 import { nearestFreeDateSql } from '@/lib/tours/nearest-free-date';
 import { compareTourOffers, offerOrderDay } from '@/lib/tours/offer-order';
+
+/**
+ * Записи статуса конвейера — именованные, чтобы их исполнял тест на настоящем
+ * PostgreSQL (tests/integration/request-chat.pg.test.ts). Правило одно: конвейер
+ * не затирает статус, поставленный за время разбора клиентом (отмена, 1427)
+ * или оператором.
+ */
+/** «В обработке». `$1` — лид, `$2` — статус «отменена клиентом»: такую не трогаем (нет строки — заявка отменена). */
+export const LEAD_AI_START_SQL = `UPDATE leads SET status = 'ai_processing', updated_at = NOW() WHERE id = $1 AND status <> $2`;
+/** Итог разбора: поля пишутся всегда, статус — только если он всё ещё «в обработке». */
+export const LEAD_AI_DONE_SQL = `UPDATE leads
+         SET status = CASE WHEN status = 'ai_processing' THEN 'ai_qualified' ELSE status END,
+             ai_score = $1,
+             ai_summary = $2,
+             ai_intent = $3,
+             matched_tour_ids = $4,
+             proposal_id = $5,
+             processed_at = NOW(),
+             updated_at = NOW()
+         WHERE id = $6`;
+/** Откат ошибки снимает только СВОЮ отметку «в обработке». */
+export const LEAD_AI_ROLLBACK_SQL = `UPDATE leads SET status = 'new', updated_at = NOW() WHERE id = $1 AND status = 'ai_processing'`;
+/** «Предложение отправлено» — не по заявке, которую отменил клиент (`$2`). */
+export const LEAD_PROPOSAL_SENT_SQL = `UPDATE leads SET status = 'proposal_sent', updated_at = NOW() WHERE id = $1 AND status <> $2`;
 
 // ── Типы ──────────────────────────────────────────────────────────────────────
 
@@ -200,7 +226,6 @@ export class LeadProcessorService {
     if (lead.status === 'proposal_sent' || lead.status === 'converted') {
       throw new Error('Лид уже имеет предложение');
     }
-
     // Заявка на машину — не подбор тура. Лид закрывается для крона (как
     // заявка из request_charter), статус остаётся прежним: его ведёт менеджер.
     if (isVehicleOrder([lead.route_title, lead.comment].filter(Boolean).join('\n'))) {
@@ -212,11 +237,11 @@ export class LeadProcessorService {
       throw new LeadIsVehicleOrderError();
     }
 
-    // 2. Ставим статус "в обработке"
-    await pool.query(
-      `UPDATE leads SET status = 'ai_processing', updated_at = NOW() WHERE id = $1`,
-      [leadId]
-    );
+    // 2. Ставим статус "в обработке". Отменённую клиентом заявку (1427) конвейер
+    // не трогает — ни прочитанную такой, ни отменённую между чтением и записью:
+    // условие стоит в самой записи, и по ней подбирать и писать предложение некому.
+    const started = await pool.query(LEAD_AI_START_SQL, [leadId, LEAD_CLIENT_CANCELLED]);
+    if (started.rowCount === 0) throw new LeadCancelledByClientError();
     await this.logActivity(leadId, 'ai', 'processing_started', {});
 
     try {
@@ -260,17 +285,11 @@ export class LeadProcessorService {
       });
 
       // 8. Обновляем лид
+      // Разбор идёт минуты (вызов модели): за это время заявку мог отменить
+      // клиент или взять оператор. Итог разбора записывается всегда, а статус —
+      // только если он всё ещё «в обработке»: чужой статус конвейер не затирает.
       await pool.query(
-        `UPDATE leads
-         SET status = 'ai_qualified',
-             ai_score = $1,
-             ai_summary = $2,
-             ai_intent = $3,
-             matched_tour_ids = $4,
-             proposal_id = $5,
-             processed_at = NOW(),
-             updated_at = NOW()
-         WHERE id = $6`,
+        LEAD_AI_DONE_SQL,
         [
           aiScore,
           proposal.summary.slice(0, 500),
@@ -310,11 +329,9 @@ export class LeadProcessorService {
         adversarial:  verdict,
       };
     } catch (err) {
-      // При ошибке — снимаем статус
-      await pool.query(
-        `UPDATE leads SET status = 'new', updated_at = NOW() WHERE id = $1`,
-        [leadId]
-      );
+      // При ошибке — снимаем СВОЮ отметку: статус, поставленный за это время
+      // клиентом (отмена) или оператором, остаётся.
+      await pool.query(LEAD_AI_ROLLBACK_SQL, [leadId]);
       await this.logActivity(leadId, 'system', 'processing_error', {
         error: err instanceof Error ? err.message : String(err),
       });
@@ -885,10 +902,7 @@ ${toursText}
         `UPDATE lead_proposals SET status = 'sent', sent_at = NOW(), updated_at = NOW() WHERE id = $1`,
         [proposalId]
       ),
-      pool.query(
-        `UPDATE leads SET status = 'proposal_sent', updated_at = NOW() WHERE id = $1`,
-        [leadId]
-      ),
+      pool.query(LEAD_PROPOSAL_SENT_SQL, [leadId, LEAD_CLIENT_CANCELLED]),
     ]);
     await this.logActivity(leadId, 'system', 'proposal_sent', { proposal_id: proposalId });
   }

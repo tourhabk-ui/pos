@@ -95,7 +95,7 @@ import { MCHS_CHAT_BUTTON, MCHS_TOURIST_PAYLOAD, mchsTouristLinks, mchsTouristTe
 import { chatHasRequests } from '@/lib/requests/chat-links';
 import { MY_TRIP_BUTTON, isMyTripAsk, myTripMessage } from '@/lib/requests/my-trip';
 import { isMyTripWritePayload, pressMyTripWrite } from '@/lib/requests/my-trip-write';
-import { isMyTripDatePayload } from '@/lib/requests/my-trip-ask';
+import { isMyTripCancelPayload, isMyTripDatePayload } from '@/lib/requests/my-trip-ask';
 import { getPublicBaseUrl } from '@/lib/config';
 
 type ButtonIntent = 'default' | 'positive' | 'negative';
@@ -523,6 +523,8 @@ async function handleLeadCallback(payload: string, chatId: number): Promise<void
     await maxReply(chatId, `Лид <b>${escHtml(res.name)}</b> — статус: <b>${res.label}</b>\n<code>${escHtml(parsed.leadId)}</code>`);
   } else if (res.outcome === 'not_found') {
     await maxReply(chatId, 'Лид не найден — статус не изменён.');
+  } else if (res.outcome === 'cancelled_by_client') {
+    await maxReply(chatId, `Заявку отменил клиент — статус не изменён.\n<code>${escHtml(parsed.leadId)}</code>`);
   } else {
     await maxReply(chatId, `Статус не изменён: ${res.reason}`);
   }
@@ -1002,6 +1004,12 @@ async function handleActionPress(
     if (isMyTripDatePayload(payload)) {
       const { pressMyTripDate } = await import('@/lib/requests/my-trip-date');
       await sendChatReplies(chatId, [await pressMyTripDate(payload, 'max', chatId)]);
+      return;
+    }
+    // «Отменить заявку» под «Моей поездкой» (1427): та же связь чата с заявкой.
+    if (isMyTripCancelPayload(payload)) {
+      const { pressMyTripCancel } = await import('@/lib/requests/my-trip-cancel');
+      await sendChatReplies(chatId, [await pressMyTripCancel(payload, 'max', chatId)]);
       return;
     }
     const press = parseChatPress(payload);

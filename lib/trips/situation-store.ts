@@ -53,7 +53,7 @@ export const DEPARTING_TOURS_SQL = `
      WHERE l.source_data->>'tour_id' ~ '^[0-9]{1,18}$'
        AND l.source_data->>'date' = ANY($2::text[])
        AND COALESCE(l.is_self, false) = false
-       AND l.status NOT IN ('lost', 'converted')
+       AND l.status NOT IN ('lost', 'converted', 'cancelled')
   )
   SELECT ot.id::int AS tour_id, t.d::text AS d, COUNT(*)::int AS travellers,
          ot.title, ot.operator_id::text AS operator_id, ot.activity_type, ot.location_type,
@@ -234,7 +234,7 @@ export const TOURIST_RECIPIENTS_SQL = `
    WHERE l.source_data->>'tour_id' ~ '^[0-9]{1,9}$'
      AND l.source_data->>'date' = $1::text
      AND COALESCE(l.is_self, false) = false
-     AND l.status NOT IN ('lost', 'converted')`;
+     AND l.status NOT IN ('lost', 'converted', 'cancelled')`;
 
 export async function loadTouristRecipients(date: string): Promise<TouristRecipient[]> {
   const { rows } = await pool.query<{ kind: TouristRecipient['kind']; ref: string; tour_id: number; channel: 'max' | 'telegram' | null; chat_id: string | null }>(

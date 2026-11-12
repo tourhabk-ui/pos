@@ -52,20 +52,22 @@ export const CHAT_ANSWER_INSERT_SQL = `
      CROSS JOIN LATERAL (
        SELECT CASE WHEN lead.operator_id IS DISTINCT FROM $1::uuid THEN 'not_addressee'
                    WHEN lead.is_self THEN 'self'
-                   WHEN lead.status IN ('lost', 'converted') THEN 'lead_closed' END AS skip
+                   WHEN lead.status IN ('lost', 'converted', 'cancelled') THEN 'lead_closed' END AS skip
      ) s
      WHERE $4::text IN (${NOTICE_ANSWERS.map((a) => `'${a}'`).join(', ')})
     RETURNING id, state, skipped_reason
   )
   SELECT (SELECT id::text FROM ins) AS answer_id, (SELECT d FROM lead) AS subject_date,
          (SELECT id::text FROM note) AS notice_id, (SELECT state FROM note) AS notice_state,
-         (SELECT skipped_reason FROM note) AS notice_skip`;
+         (SELECT skipped_reason FROM note) AS notice_skip,
+         (SELECT status FROM lead) AS lead_status`;
 
 /** Запись о сообщении человеку, рождённая этим ответом; null — ответ не из тех, о которых сообщаем. */
 export interface NewNotice { id: string; state: 'pending' | 'skipped'; skipped: string | null }
 
 export type ChatAnswerRecord =
-  | { ok: true; already: boolean; dateChanged: false; subjectDate: string | null; notice?: NewNotice | null }
+  /** `leadStatus` — статус заявки на момент ответа (только у заявки): по нему оператор узнаёт, что её отменил клиент. */
+  | { ok: true; already: boolean; dateChanged: false; subjectDate: string | null; notice?: NewNotice | null; leadStatus?: string | null }
   /** Дата заявки сменилась после вопроса: ответ не записан, `subjectDate` — дата сейчас. */
   | { ok: true; already: false; dateChanged: true; subjectDate: string | null }
   | { ok: false };
@@ -99,6 +101,7 @@ export async function recordChatAnswer(opts: {
     const { rows: [row] } = await pool.query<{
       answer_id: string | null; subject_date: string | null;
       notice_id: string | null; notice_state: 'pending' | 'skipped' | null; notice_skip: string | null;
+      lead_status: string | null;
     }>(
       CHAT_ANSWER_INSERT_SQL,
       [
@@ -108,12 +111,13 @@ export async function recordChatAnswer(opts: {
       ],
     );
     const subjectDate = row?.subject_date ?? null;
+    const leadStatus = row?.lead_status ?? null;
     if (row?.answer_id) {
       const notice = row.notice_id && row.notice_state ? { id: row.notice_id, state: row.notice_state, skipped: row.notice_skip } : null;
-      return { ok: true, already: false, dateChanged: false, subjectDate, notice };
+      return { ok: true, already: false, dateChanged: false, subjectDate, notice, leadStatus };
     }
     if (check && subjectDate !== (opts.expectDate ?? null)) return { ok: true, already: false, dateChanged: true, subjectDate };
-    return { ok: true, already: true, dateChanged: false, subjectDate };
+    return { ok: true, already: true, dateChanged: false, subjectDate, leadStatus };
   } catch (err) {
     console.error('[chat-answer] ответ не записан, SQLSTATE', (err as { code?: string }).code ?? 'нет SQLSTATE');
     return { ok: false };

@@ -37,7 +37,10 @@ const PARTNER = '22222222-3333-4444-8555-666666666666';
 const DAY = '2027-01-15';
 
 /** Что вернёт запись ответа: answer_id null — повтор (ответ уже был, дата та же). */
-let inserted: { answer_id: string | null; subject_date: string; notice_id: string | null; notice_state: string | null; notice_skip: string | null };
+let inserted: {
+  answer_id: string | null; subject_date: string; notice_id: string | null; notice_state: string | null; notice_skip: string | null;
+  lead_status?: string | null;
+};
 
 beforeEach(() => {
   vi.stubEnv('CALLBACK_SIGNING_SECRET', 'unit-signing');
@@ -116,6 +119,30 @@ describe('нажатие оператора шлёт туристу сразу',
     const r = await press(`ia:rs:l:${ID}:${answerDayCode(DAY)}`);
     expect(h.deliver).not.toHaveBeenCalled();
     expect(r!.text).toContain('Заявка уже была закрыта — туристу ничего не отправлял.');
+  });
+
+  it('клиент отменил заявку (1427): оператору сказано это, а не «принято» — на любой ответ и на повтор; статус не трогается, туристу ничего не шлётся', async () => {
+    const CANCELLED = 'Клиент отменил эту заявку — она закрыта. Отвечать по ней и держать места не нужно.';
+    const cases: Array<[string, typeof inserted]> = [
+      // «Подтвердить»: без этой строки оператор прочёл бы «Заявка отмечена «Связался»» и ждал бы человека.
+      [yes('a'), { answer_id: '901', subject_date: DAY, notice_id: null, notice_state: null, notice_skip: null, lead_status: 'cancelled' }],
+      [yes('n'), { answer_id: '902', subject_date: DAY, notice_id: '557', notice_state: 'skipped', notice_skip: 'lead_closed', lead_status: 'cancelled' }],
+      [`ia:rs:l:${ID}:${answerDayCode(DAY)}`, { answer_id: '903', subject_date: DAY, notice_id: '558', notice_state: 'skipped', notice_skip: 'lead_closed', lead_status: 'cancelled' }],
+      // Повтор нажатия по уже отменённой.
+      [yes('a'), { answer_id: null, subject_date: DAY, notice_id: null, notice_state: null, notice_skip: null, lead_status: 'cancelled' }],
+    ];
+    for (const [payload, row] of cases) {
+      inserted = row;
+      const r = await press(payload);
+      expect(r!.text, payload).toBe(CANCELLED);
+    }
+    expect(h.status).not.toHaveBeenCalled();
+    expect(h.deliver).not.toHaveBeenCalled();
+    expect(h.readOutcome).not.toHaveBeenCalled();
+    // Живая заявка с тем же ответом — прежние слова.
+    inserted = { answer_id: '904', subject_date: DAY, notice_id: null, notice_state: null, notice_skip: null, lead_status: 'new' };
+    expect((await press(yes('a')))!.text).toContain('Ваш ответ: подтверждаю заявку.');
+    expect(h.status).toHaveBeenCalledTimes(1);
   });
 
   it('повтор нажатия — исход записанного сообщения по ответу на ту же дату, второй отправки нет', async () => {

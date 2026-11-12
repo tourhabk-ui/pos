@@ -244,6 +244,15 @@ describe('checkTourDates: видят ли данные Ведара причин
       placeAlerts: alertsOf([placeAlert({ alert_type: 'road_closure', title: 'Проезд по пропускам' }), placeAlert({ alert_type: 'bear', title: 'У посёлка замечен медведь' })]),
     });
     expect(await checkTourDates(42, D13, [D14], two)).toMatchObject({ state: 'unconfirmed', standing: ['Проезд по пропускам', 'У посёлка замечен медведь'] });
+    // Один режим двумя строками ленты называется один раз.
+    const twins = deps({
+      sources: sources({ forecast: calm }),
+      placeAlerts: alertsOf([
+        placeAlert({ alert_type: 'road_closure', title: 'Проезд по пропускам' }), placeAlert({ alert_type: 'road_closure', title: 'Проезд  по пропускам ' }),
+        placeAlert({ alert_type: 'bear', title: 'У посёлка замечен медведь' }),
+      ]),
+    });
+    expect(await checkTourDates(42, D13, [D14], twins)).toMatchObject({ state: 'unconfirmed', standing: ['Проезд по пропускам', 'У посёлка замечен медведь'] });
     // При ветре на дату отказа причина — ветер, и только он; день под тем же режимом проверку не проходит.
     const fire = placeAlert({ alert_type: 'fire_danger', title: 'В лесах 3 класс пожарной опасности' });
     expect(await checkTourDates(42, D13, [D12, D14], deps({ placeAlerts: alertsOf([fire]) }))).toEqual({

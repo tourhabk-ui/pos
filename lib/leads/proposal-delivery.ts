@@ -18,6 +18,23 @@ import { leadProcessor } from '@/lib/services/operators/lead-processor.service';
 import { getPublicBaseUrl } from '@/lib/config';
 import { sendEmail } from '@/lib/email';
 import { recordSourceEventQuietly, statusChangeTitle } from '@/lib/crm/events';
+import { LEAD_CLIENT_CANCELLED } from '@/lib/types/statuses';
+
+/**
+ * Захват лида под отправку: перевести его в `proposal_sent` может только один
+ * вызов. `$1` — лид, `$2` — статус «отменена клиентом» (1427). Нет строки —
+ * предложение уже отправлено либо заявку отменил клиент: отменённую
+ * предложением в работу не возвращаем и человеку, который отказался, не пишем.
+ */
+export const PROPOSAL_CLAIM_SQL = `
+  WITH prev AS (SELECT status FROM leads WHERE id = $1)
+  UPDATE leads SET status = 'proposal_sent', updated_at = NOW()
+   WHERE id = $1 AND status IS DISTINCT FROM 'proposal_sent' AND status IS DISTINCT FROM $2
+  RETURNING (SELECT status FROM prev) AS prev_status`;
+
+const LEAD_CANCELLED_OUTCOME = {
+  ok: false, reason: 'lead_cancelled', message: 'Заявку отменил клиент — предложение не отправляется.',
+} as const;
 
 export type DeliveryChannel = 'telegram' | 'email' | 'both';
 
@@ -25,7 +42,7 @@ export type DeliveryOutcome =
   | { ok: true; sent: string[]; failed: string[]; pdfUrl: string; message: string }
   | {
       ok: false;
-      reason: 'not_found' | 'no_proposal' | 'already_sent' | 'proposal_missing' | 'not_delivered' | 'no_recipient';
+      reason: 'not_found' | 'no_proposal' | 'already_sent' | 'proposal_missing' | 'not_delivered' | 'no_recipient' | 'lead_cancelled';
       message: string;
     };
 
@@ -87,6 +104,8 @@ export async function sendProposalToClient(
   if (!lead) {
     return { ok: false, reason: 'not_found', message: 'Лид не найден' };
   }
+  // Заявку отменил клиент (1427): предложение ему не шлём, статус не трогаем.
+  if (lead.status === LEAD_CLIENT_CANCELLED) return LEAD_CANCELLED_OUTCOME;
   if (!lead.proposal_id) {
     return { ok: false, reason: 'no_proposal', message: 'Предложение ещё не сформировано. Запустите AI-обработку.' };
   }
@@ -101,14 +120,12 @@ export async function sendProposalToClient(
 
   // Захват: перевести лид в proposal_sent МОЖЕТ только один вызов. Проверка
   // выше — для внятного сообщения, а гонку закрывает именно это условие.
-  const claim = await pool.query<{ prev_status: string }>(
-    `WITH prev AS (SELECT status FROM leads WHERE id = $1)
-     UPDATE leads SET status = 'proposal_sent', updated_at = NOW()
-      WHERE id = $1 AND status IS DISTINCT FROM 'proposal_sent'
-     RETURNING (SELECT status FROM prev) AS prev_status`,
-    [leadId],
-  );
+  const claim = await pool.query<{ prev_status: string }>(PROPOSAL_CLAIM_SQL, [leadId, LEAD_CLIENT_CANCELLED]);
   if (claim.rowCount === 0) {
+    // Не занялся: предложение уже отправлено — или клиент отменил заявку между
+    // чтением и захватом. Это разные ответы оператору, поэтому читаем заново.
+    const { rows: [now] } = await pool.query<{ status: string }>(`SELECT status FROM leads WHERE id = $1`, [leadId]);
+    if (now?.status === LEAD_CLIENT_CANCELLED) return LEAD_CANCELLED_OUTCOME;
     return { ok: false, reason: 'already_sent', message: 'Предложение уже было отправлено.' };
   }
   const prevStatus = claim.rows[0].prev_status;

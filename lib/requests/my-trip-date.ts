@@ -43,6 +43,8 @@ import { parseMyTripDate, myTripDatePickPayload, myTripDateMenuPayload, MY_TRIP_
 import { kamchatkaToday } from '@/lib/seat-requests/core';
 import type { LinkChannel } from '@/lib/requests/chat-links';
 import type { ChatReply } from '@/lib/requests/request-chat-service';
+import { notifyRequestOperator, type OperatorNotice } from '@/lib/requests/notify-request-operator';
+import { LEAD_CLIENT_CANCELLED } from '@/lib/types/statuses';
 
 export { isMyTripDatePayload, myTripDateMenuPayload, myTripDatePickPayload, parseMyTripDate } from '@/lib/requests/my-trip-ask';
 
@@ -174,8 +176,7 @@ interface LeadDateRow {
   date_actions: number;
 }
 
-/** Исход сообщения оператору: дошло в MAX / заглушкой в Telegram / некуда / адрес не прочитался. */
-export type OperatorNotice = 'max' | 'telegram' | 'none' | 'unknown';
+export type { OperatorNotice } from '@/lib/requests/notify-request-operator';
 
 const ISO_DAY = /^\d{4}-\d{2}-\d{2}$/;
 
@@ -229,7 +230,10 @@ export type DateGate = Pick<LeadDateRow, 'status' | 'booking_status' | 'booking_
 
 /** Почему нажатие даты не пройдёт — или null. Одно правило на меню, выбор и кнопки в сообщении. */
 function dateBlock(lead: DateGate, today: string): 'closed' | 'noData' | 'past' | null {
-  if (lead.status === 'lost' || (lead.booking_status !== null && MY_TRIP_CLOSED_BOOKING.has(lead.booking_status))) return 'closed';
+  // Отказ, отмена клиентом (1427) и закрытая бронь — заявка закрыта: старая кнопка
+  // «Изменить дату» под прежним сообщением просьбу оператору по ней не отправит.
+  if (lead.status === 'lost' || lead.status === LEAD_CLIENT_CANCELLED
+    || (lead.booking_status !== null && MY_TRIP_CLOSED_BOOKING.has(lead.booking_status))) return 'closed';
   const tourId = lead.tour_id === null ? NaN : Number(lead.tour_id);
   // Действующая дата: у брони — её день, без брони — та, что в заявке.
   const date = lead.booking_date ?? lead.date;
@@ -342,43 +346,11 @@ export function operatorDateText(
     ].join('\n');
 }
 
-/**
- * Оператору — лично, в его MAX или Telegram (без ПД — один текст на оба).
- * `answer` — под сообщением кнопки ответа по заявке (перенос даты: ответ нужен
- * по новой дате). Текст без ПД, поэтому кнопки туроператора уходят и в
- * Telegram (`stubActions`) — но только в чат, привязанный к карточке: кабинет
- * в Telegram узнаёт оператора по `partners.telegram_chat_id`, а в личный
- * Telegram из `users.telegram_id` кнопка ответила бы «не выполняю». У гида
- * кнопки «Связался / …» — только в MAX. Текст зовёт к кнопкам, только когда
- * они под ним есть (`text(withButtons)`).
- */
-async function notifyOperator(
+/** Оператору — лично, в его MAX или Telegram: общий путь с «Отменить заявку» (lib/requests/notify-request-operator). */
+function notifyOperator(
   operatorId: string, leadId: string, text: (withButtons: boolean) => string, answer = false,
 ): Promise<OperatorNotice> {
-  const { reachForPartner } = await import('@/lib/partners/reach');
-  const reach = await reachForPartner(operatorId);
-  if (reach === null) {
-    console.error(`[my-trip-date] адрес оператора ${operatorId} не прочитался — о дате по заявке ${leadId} не сообщено`);
-    return 'unknown';
-  }
-  if (!reach.reachable) {
-    console.error(`[my-trip-date] у оператора ${operatorId} нет ни MAX, ни Telegram — о дате по заявке ${leadId} не сообщено`);
-    return 'none';
-  }
-  const { sendPdAlert } = await import('@/lib/notifications/pd-alert');
-  const answers = answer ? (await import('@/lib/notifications/lead-notify')).ownerLeadAnswerButtons(reach, leadId) : [];
-  const stubActions = reach.category === 'operator' && reach.telegramSource === 'partner' ? answers : [];
-  const res = await sendPdAlert({
-    text: text(answers.length > 0),
-    stub: text(stubActions.length > 0),
-    buttons: [...answers, { text: 'Открыть в кабинете', url: `${getPublicBaseUrl()}/hub/operator/leads/${leadId}` }],
-    stubActions,
-    to: { maxChatId: reach.maxChatId, telegramChatId: reach.telegramChatId },
-  });
-  if (res.channel === 'max' && res.delivered) return 'max';
-  if (res.channel === 'telegram-stub') return 'telegram';
-  console.error(`[my-trip-date] оператору ${operatorId} о дате по заявке ${leadId} не доставлено (${res.channel}) — ${logText(res.reason, 160)}`);
-  return 'none';
+  return notifyRequestOperator({ operatorId, leadId, text, answer, log: { tag: 'my-trip-date', about: 'о дате' } });
 }
 
 const NOT_TOLD = 'Сообщить оператору сейчас не удалось — у него не подключён чат или он не ответил. Заявку он видит в кабинете';

@@ -13,6 +13,8 @@ import {
 } from 'lucide-react';
 import { LeadConsentLine, LeadOriginLine, type LeadOriginView } from '@/components/leads/LeadOriginLine';
 import { leadPageUrl } from '@/lib/leads/origin';
+import { LEAD_CANCELLED_STATUS_TEXT } from '@/lib/leads/client-cancelled';
+import { LEAD_CLIENT_CANCELLED } from '@/lib/types/statuses';
 
 // ── Типы ──────────────────────────────────────────────────────────────────────
 
@@ -117,6 +119,7 @@ const STATUS_CONFIG: Record<string, { label: string; color: string }> = {
   qualified:        { label: 'Квалифицирован',        color: 'text-[var(--success)] bg-[var(--success)]/10' },
   converted:        { label: 'Конвертирован',         color: 'text-[var(--success)] bg-[var(--success)]/10' },
   lost:             { label: 'Потерян',               color: 'text-[var(--text-muted)] bg-[var(--bg-hover)]' },
+  cancelled:        { label: 'Отменена клиентом', color: 'text-[var(--text-muted)] bg-[var(--bg-hover)]' },
 };
 
 const URGENCY_CONFIG = {
@@ -608,7 +611,7 @@ export default function LeadDetailClient({ leadId }: Props) {
               <button
                 key={s}
                 onClick={() => handleStatusChange(s)}
-                disabled={updatingStatus || lead.status === s}
+                disabled={updatingStatus || lead.status === s || lead.status === LEAD_CLIENT_CANCELLED}
                 className={`px-3 py-1.5 rounded-lg text-sm font-medium transition-colors border ${
                   lead.status === s
                     ? 'border-[var(--accent)] text-[var(--accent)] bg-[var(--accent)]/10 cursor-default'
@@ -619,6 +622,9 @@ export default function LeadDetailClient({ leadId }: Props) {
               </button>
             ))}
           </div>
+          {lead.status === LEAD_CLIENT_CANCELLED && (
+            <p className="text-sm text-[var(--text-muted)]">{LEAD_CANCELLED_STATUS_TEXT}.</p>
+          )}
         </div>
 
         {/* Бронь из лида (CRM фаза 2): лид доводится до брони здесь же, и
