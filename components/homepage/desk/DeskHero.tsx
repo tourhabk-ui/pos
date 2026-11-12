@@ -232,7 +232,9 @@ export function DeskHero({ brief }: { brief: DeskBrief }) {
               </Link>
             ))}
           </div>
-          <DeskFreshness updatedAt={brief.statusUpdatedAt} serverNow={brief.serverNow} />
+          <p className="fx-glass self-start rounded-full px-3 py-1.5 text-xs">
+            <DeskFreshness updatedAt={brief.statusUpdatedAt} serverNow={brief.serverNow} />
+          </p>
         </div>
       </div>
     </section>
