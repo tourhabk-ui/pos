@@ -93,9 +93,11 @@ export default async function Page() {
   }
 
   // ── Десктоп-дерево (и все боты/SEO): «Сводка дня» (доска 30.09) ───────
-  // Порядок доски «Десктоп — сводка дня»: сводка поверх фото → что меняет
-  // план и табло вулканов → можно поехать → Кузьмич и подготовка без связи →
-  // о Ведаре и остальные разделы.
+  // Порядок доски «Десктоп — сводка дня»: сводка поверх фото → можно поехать
+  // → что меняет план и табло вулканов → Кузьмич и подготовка без связи →
+  // о Ведаре и остальные разделы. Туры выше обстановки — слово владельца
+  // 12.11 («в дестопе поменять местами блоки туры и что меняет план с табло
+  // вулканов»); главное об обстановке остаётся в сводке героя. Телефон не тронут.
   // Сводка — та же, что уходит гидам и что говорит Кузьмич (lib/svodka);
   // витрина туров — та же, что у телефона (fetchPlates): порядок, фильтр
   // живого тура и правило сезона одни на оба дерева.
@@ -130,6 +132,10 @@ export default async function Page() {
         <DeskHero brief={brief} />
 
         <div className={`${HOME_CONTAINER} flex flex-col gap-24 pb-24 pt-20`}>
+          <SectionErrorBoundary>
+            <DeskTours plates={plates} transfer={transfer} stay={stay} total={catalogSummary?.total ?? null} />
+          </SectionErrorBoundary>
+
           <section className="grid grid-cols-1 items-start gap-10 lg:grid-cols-12 lg:gap-14" aria-label="Обстановка сегодня">
             <div className="lg:col-span-7">
               <DeskPlanChanges changes={brief.changes} feedCount={brief.svodka?.safety?.feedCount ?? null} trusted={brief.safetyTrusted} />
@@ -138,10 +144,6 @@ export default async function Page() {
               <DeskVolcanoBoard volcanoes={brief.svodka?.volcanoes ?? null} />
             </div>
           </section>
-
-          <SectionErrorBoundary>
-            <DeskTours plates={plates} transfer={transfer} stay={stay} total={catalogSummary?.total ?? null} />
-          </SectionErrorBoundary>
 
           <DeskHelp />
 
