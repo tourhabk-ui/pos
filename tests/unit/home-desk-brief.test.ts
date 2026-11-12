@@ -27,8 +27,9 @@ const FILES = readdirSync(join(process.cwd(), DESK)).filter((f) => f.endsWith('.
 const BRIEF = code('lib/home/desk-brief.ts');
 
 describe('порядок доски', () => {
-  it('сводка → что меняет план и вулканы → можно поехать → помощь', () => {
-    const order = ['<DeskHero', '<DeskPlanChanges', '<DeskVolcanoBoard', '<DeskTours', '<DeskHelp', '<DeskAbout'].map((t) => DESKTOP.indexOf(t));
+  // Туры выше обстановки — слово владельца 12.11 (до этого с 30.09 было наоборот).
+  it('сводка → можно поехать → что меняет план и вулканы → помощь', () => {
+    const order = ['<DeskHero', '<DeskTours', '<DeskPlanChanges', '<DeskVolcanoBoard', '<DeskHelp', '<DeskAbout'].map((t) => DESKTOP.indexOf(t));
     expect(order.every((i) => i > 0)).toBe(true);
     expect([...order].sort((a, b) => a - b)).toEqual(order);
   });
