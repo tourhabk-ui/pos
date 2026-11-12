@@ -1,6 +1,6 @@
 import Link from 'next/link';
 import { ArrowRight } from 'lucide-react';
-import type { PlanChange } from '@/lib/home/desk-brief';
+import type { PlanChange } from '@/lib/home/plan-change';
 import { DeskChangeRows } from './DeskChangeRows';
 import { plural } from '@/lib/home/data-freshness';
 import { SAFETY_FEEDS_TEXT } from '@/lib/safety/current-status';

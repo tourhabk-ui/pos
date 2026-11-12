@@ -5,7 +5,7 @@ import {
   AlertTriangle, CloudRain, Construction, Mountain, PawPrint, Snowflake, TreePine, Waves,
   type LucideIcon,
 } from 'lucide-react';
-import type { ChangeKind, PlanChange } from '@/lib/home/desk-brief';
+import type { ChangeKind, PlanChange } from '@/lib/home/plan-change';
 import { useNewAlerts } from '@/hooks/use-new-alerts';
 
 /**
