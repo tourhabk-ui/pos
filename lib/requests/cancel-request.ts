@@ -81,6 +81,12 @@ export interface CancelRequestMark {
 
 /** Сколько минут запись просьбы без исхода считается «ещё отправляется». */
 export const CANCEL_REQUEST_PENDING_MINUTES = 2;
+/**
+ * Тот же срок интервалом SQL: единица — литералом, число — множителем. Число
+ * внутрь литерала (`INTERVAL '2 minutes'` склейкой) не подставляется — это
+ * форма, которую запрещает сторож sql-interval-not-concatenated.
+ */
+const CANCEL_REQUEST_PENDING_SQL = `(INTERVAL '1 minute' * ${CANCEL_REQUEST_PENDING_MINUTES})`;
 
 /** Колонки заявки для отмены — одни на каждую дверь; псевдоним лида — `l`. */
 export const CANCEL_LEAD_COLUMNS_SQL = `
@@ -93,7 +99,7 @@ export const CANCEL_LEAD_COLUMNS_SQL = `
   (SELECT jsonb_build_object(
             'delivery', g_c.details->>'delivery',
             'manager', g_c.details->>'manager',
-            'fresh', g_c.created_at > NOW() - INTERVAL '${CANCEL_REQUEST_PENDING_MINUTES} minutes')
+            'fresh', g_c.created_at > NOW() - ${CANCEL_REQUEST_PENDING_SQL})
      FROM lead_activity_log g_c
     WHERE g_c.lead_id = l.id AND g_c.action = 'cancel_requested') AS cancel_request`;
 
@@ -174,7 +180,7 @@ export const CANCEL_REQUEST_RELEASE_SQL = `
    WHERE lead_id = $1::uuid AND action = 'cancel_requested'
      AND COALESCE(details->>'delivery', '') NOT IN ('max', 'telegram')
      AND COALESCE(details->>'manager', '') <> 'told'
-     AND created_at <= NOW() - INTERVAL '${CANCEL_REQUEST_PENDING_MINUTES} minutes'`;
+     AND created_at <= NOW() - ${CANCEL_REQUEST_PENDING_SQL}`;
 
 const ISO_DAY = /^\d{4}-\d{2}-\d{2}$/;
 
