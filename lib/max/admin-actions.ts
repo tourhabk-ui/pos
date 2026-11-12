@@ -63,6 +63,7 @@ import { escapeHtml } from '@/lib/text/escape-html';
 import { adminMenu } from '@/lib/roles/role-menu';
 import { menuRows, type MenuButton } from '@/lib/roles/chat-menu';
 import { signPayload } from '@/lib/chat-cabinet/signed-payload';
+import { isQueueSubjectId, type QueueKind } from '@/lib/manager-queue/types';
 
 /** Сколько живёт вопрос «Да / Не надо», минут. Префикс кнопок `ad:` — в реестре lib/max/verified-press. */
 export const ADMIN_ACTION_TTL_MIN = 15;
@@ -86,12 +87,22 @@ export type AdminPress =
   | { kind: 'tour_choice'; actionId: string; index: number }
   /** «Бронь N» под списком «Брони» и «Оператор подтвердил» (lib/max/admin-bookings). */
   | { kind: 'open_booking'; bookingId: string }
-  | { kind: 'booking_confirm'; bookingId: string };
+  | { kind: 'booking_confirm'; bookingId: string }
+  /** «Взял N» под очередью после отказа (lib/max/admin-queue): отметка в очереди менеджера. */
+  | { kind: 'queue_take'; queueKind: QueueKind; id: string };
+
+const QUEUE_CODE: Record<QueueKind, string> = { answer_notice: 'n', vehicle_decline: 'v', stay_busy: 's' };
+const CODE_QUEUE: Record<string, QueueKind> = { n: 'answer_notice', v: 'vehicle_decline', s: 'stay_busy' };
 
 /** Разбор кнопки `ad:`. null — не наша форма: ничего не выполняется. */
 export function parseAdminPress(payload: string): AdminPress | null {
   const t = /^ad:t:(.+):([0-7])$/.exec(payload);
   if (t) return UUID.test(t[1]) ? { kind: 'tour_choice', actionId: t[1], index: Number(t[2]) } : null;
+  const q = /^ad:q:([nvs]):([0-9a-f-]{1,36})$/.exec(payload);
+  if (q) {
+    const queueKind = CODE_QUEUE[q[1]];
+    return isQueueSubjectId(queueKind, q[2]) ? { kind: 'queue_take', queueKind, id: q[2] } : null;
+  }
   const b = /^ad:([bc]):([1-9][0-9]{0,18})$/.exec(payload);
   if (b) return b[1] === 'b' ? { kind: 'open_booking', bookingId: b[2] } : { kind: 'booking_confirm', bookingId: b[2] };
   const m = /^ad:([okvlyn]):(.+)$/.exec(payload);
@@ -116,6 +127,9 @@ export const adminTourPayload = (actionId: string, index: number): string =>
 export const adminOpenBookingPayload = (bookingId: string): string => `ad:b:${bookingId}`;
 /** «Оператор подтвердил» — запись: заводит вопрос «Да / Не надо», подписана. */
 export const adminBookingConfirmPayload = (bookingId: string): string => signPayload(`ad:c:${bookingId}`);
+
+/** «Взял N» — запись: отметка в очереди менеджера. Подписана; с uuid жилья — 58 байт с хвостом. */
+export const adminQueueTakePayload = (kind: QueueKind, id: string): string => signPayload(`ad:q:${QUEUE_CODE[kind]}:${id}`);
 
 /** Кнопки «Бронь 1…N» под списком «Брони»: открыть карточку брони. */
 export function adminBookingOpenButtons(bookingIds: readonly string[]): MenuButton[][] {
@@ -498,6 +512,10 @@ export async function handleAdminPress(input: {
   if (press.kind === 'open_booking') return (await import('@/lib/max/admin-bookings')).bookingCardReply(press.bookingId);
   if (press.kind === 'booking_confirm') {
     return (await import('@/lib/max/admin-bookings')).askBookingConfirm(admin.userId, input.chatId, press.bookingId);
+  }
+  // «Взял» — на аккаунт, привязанный к этому MAX: кто взял, берётся из привязки, а не из кнопки.
+  if (press.kind === 'queue_take') {
+    return (await import('@/lib/max/admin-queue')).takeFromAdminChat(admin.userId, press.queueKind, press.id);
   }
   return answer(admin.userId, input.chatId, press.actionId, press.yes);
 }

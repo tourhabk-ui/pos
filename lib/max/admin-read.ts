@@ -35,6 +35,7 @@ import { readDaySummary } from '@/lib/analytics/day-summary';
 import type { Metric } from '@/lib/analytics/day-summary-types';
 import { escapeHtml } from '@/lib/text/escape-html';
 import { ADMIN_LEAD_BUTTONS, adminBookingOpenButtons, adminLeadOpenButtons } from '@/lib/max/admin-actions';
+import { adminQueueButton } from '@/lib/roles/role-menu';
 import type { MenuButton } from '@/lib/roles/chat-menu';
 
 /** Предел одного сообщения MAX — с запасом под «и ещё N». */
@@ -43,7 +44,7 @@ export const ADMIN_DATES_DAYS = 30;
 const LIST_LIMIT = 20;
 const TOURS_LIMIT = 60;
 
-export type AdminCommand = 'help' | 'dates' | 'bookings' | 'leads' | 'summary' | 'health';
+export type AdminCommand = 'help' | 'dates' | 'bookings' | 'leads' | 'summary' | 'health' | 'queue';
 
 /**
  * Ответ администратору: текст в HTML MAX и есть ли в нём ПД туристов.
@@ -66,6 +67,10 @@ export interface AdminReply {
 export function adminCommandOf(text: string): AdminCommand | null {
   const t = text.trim().toLowerCase().replace(/ё/g, 'е');
   if (/^\/(start|help)\b/.test(t) || /^(помощь|команды|меню|что умеешь)/.test(t)) return 'help';
+  // Раньше «заявок» и «броней»: «очередь заявок после отказа» — это очередь.
+  // «В первую очередь покажи даты» — оборот речи, а не команда: его очередью не считаем.
+  if (/после отказ/.test(t)
+    || (/(^|[^а-я])очеред[ьи]/.test(t) && !/(перв|втор|треть|последн|сво)[а-я]*\s+очеред/.test(t))) return 'queue';
   if (/дат|расписан|свободн.*мест/.test(t)) return 'dates';
   if (/брон/.test(t)) return 'bookings';
   if (/заявк|лид/.test(t)) return 'leads';
@@ -79,6 +84,7 @@ export const ADMIN_HELP_TEXT = [
   '• <b>даты</b> — открытые даты всех туров витрины на 30 дней, со свободными местами;',
   '• <b>брони</b> — брони, которые ждут подтверждения оператора, с контактами туристов;',
   '• <b>заявки</b> — заявки без ответа человека, с контактами;',
+  '• <b>очередь</b> — кому после отказа нужен звонок или замена, с контактами; под списком кнопки «Взял N»;',
   '• <b>сводка</b> — посетители, MCP, A2A и ответы Кузьмича за сегодня и вчера;',
   '• <b>здоровье</b> — последний прогон сторожа платформы: что проверено, сколько тревог.',
   '',
@@ -249,7 +255,8 @@ export async function readWaitingLeads(): Promise<AdminReply> {
     console.error('[max/admin] заявки не прочитаны, SQLSTATE', sqlstate(err));
     return { text: 'Заявки не прочитались: база не ответила. Это не «заявок нет» — спросите чуть позже.', pd: false };
   }
-  if (rows.length === 0) return { text: 'Заявок без ответа человека нет.', pd: false };
+  // «Очередь после отказа» — рядом с заявками: отказ закрывает заявку, и в этом списке её уже нет.
+  if (rows.length === 0) return { text: 'Заявок без ответа человека нет.', pd: false, buttons: [[adminQueueButton()]] };
   const total = rows[0].total;
   // Номер строки — номер кнопки «Заявка N» под списком (первые ADMIN_LEAD_BUTTONS).
   const items = rows.map((r, i) => {
@@ -260,7 +267,10 @@ export async function readWaitingLeads(): Promise<AdminReply> {
     return `${i < ADMIN_LEAD_BUTTONS ? `${i + 1}.` : '•'} ${who} · ${what} · ${to} · ${age}`;
   });
   const head = [`<b>Заявки без ответа человека: ${total}</b>${total > rows.length ? ` (показаны ${rows.length} старших)` : ''}`];
-  return { text: fitLines(head, items), pd: true, buttons: adminLeadOpenButtons(rows.map((r) => r.id)) };
+  return {
+    text: fitLines(head, items), pd: true,
+    buttons: [...adminLeadOpenButtons(rows.map((r) => r.id)), [adminQueueButton()]],
+  };
 }
 
 // ── сводка ──────────────────────────────────────────────────────────────
@@ -339,6 +349,7 @@ export async function adminReplyFor(cmd: AdminCommand, nowMs: number = Date.now(
     case 'dates': return readOpenDates(nowMs);
     case 'bookings': return readPendingBookings();
     case 'leads': return readWaitingLeads();
+    case 'queue': return (await import('@/lib/max/admin-queue')).readAdminQueue();
     case 'summary': return readDaySummaryText(new Date(nowMs));
     case 'health': return readHealth();
   }

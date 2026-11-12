@@ -31,7 +31,12 @@ export type MenuAction =
   /** «Сегодня» (план CRM): заменил «Задачи» в строке меню всех ролей. */
   | 'today'
   /** «Занято» хозяина жилья (30.10): раздел кабинета в чате, lib/chat-cabinet. */
-  | 'busy';
+  | 'busy'
+  /**
+   * «Очередь после отказа» администратора (этап 3б): не в строке меню — она и так
+   * в два ряда, — а кнопкой под «Заявками» и словом «очередь».
+   */
+  | 'queue';
 
 const ROLE_CODE: Record<MenuRole, string> = {
   admin: 'ad',
@@ -57,12 +62,18 @@ const ACTION_CODE: Record<MenuAction, string> = {
   more: 'mn',
   busy: 'bz',
   today: 'td',
+  queue: 'qu',
 };
 
 const CODE_ACTION = new Map(Object.entries(ACTION_CODE).map(([action, code]) => [code, action as MenuAction]));
 
 function button(role: MenuRole, action: MenuAction, text: string): MenuButton {
   return { text, payload: `rm:${ROLE_CODE[role]}:${ACTION_CODE[action]}` };
+}
+
+/** «Очередь после отказа» — под ответом «Заявки» у администратора (lib/max/admin-queue). */
+export function adminQueueButton(): MenuButton {
+  return button('admin', 'queue', 'Очередь после отказа');
 }
 
 export function adminMenu(): MenuButton[] {
@@ -158,7 +169,8 @@ export function parseRoleMenuPress(payload: string): { role: MenuRole; action: M
   const action = CODE_ACTION.get(match[2] ?? '');
   if (!role || !action) return null;
   if (role === 'admin') {
-    // У администратора нет «Входящих», «Моих туров» и кабинета в чате — только его шесть чтений.
+    // У администратора нет «Входящих», «Моих туров» и кабинета в чате — только его чтения:
+    // шесть в строке меню и «Очередь после отказа» под «Заявками».
     if (action === 'inbox' || action === 'tours' || action === 'tasks' || action === 'clients' || action === 'more' || action === 'today') return null;
     return { role, action };
   }
@@ -351,11 +363,16 @@ export function partnerMenuHelp(role: Exclude<MenuRole, 'admin'>, partner: MenuP
  * пишет канал `max`, и Telegram-справка их не обещает — она говорит, где они.
  */
 export function adminMenuHelp(channel: 'max' | 'telegram' = 'max'): string {
+  // В Telegram кнопок под списками нет, и список очереди туда не уходит: справка говорит, где он.
+  const queue = channel === 'telegram'
+    ? 'Очередь после отказа — слово «очередь»: кому после отказа нужен звонок или замена. Список с контактами и отметка «Взял» — в MAX администратора и на сайте, в «Очереди менеджера».'
+    : 'Очередь после отказа — кнопка под «Заявками» или слово «очередь»: кому после отказа нужен звонок или замена. Контакты — только в MAX.';
   const base = [
     'Кабинет администратора. Под ответом те же кнопки:',
     'Даты — открытые даты туров витрины на 30 дней.',
     'Брони — ждут подтверждения оператора. Контакты туристов — только в MAX.',
     'Заявки — без ответа человека. Контакты — только в MAX.',
+    queue,
     'Сводка — посетители и ответы Кузьмича за сегодня и вчера.',
     'Здоровье — последний прогон сторожа платформы.',
     'Помощь — этот текст.',
@@ -367,6 +384,7 @@ export function adminMenuHelp(channel: 'max' | 'telegram' = 'max'): string {
     ...base,
     'Кнопка «Бронь N» под списком броней: «Оператор подтвердил» — после «Да», если оператор сказал вам «да».',
     'Кнопка «Заявка N» под списком заявок: отметить «Связался», «Договорились» или «Отказ» — после «Да».',
+    'Кнопка «Взял N» под очередью после отказа: отметка, что случаем занимаетесь вы, — сразу, без «Да»; снять её можно на сайте.',
     'Даты за оператора — фразой, как пишет оператор: «открой 3 и 5 декабря на Горелый, 6 мест», затем «Да».',
     'Пост в канал — «пост» и с новой строки текст: покажу, как он выйдет, затем «Да».',
     'Бронь подтверждается, даты открываются и пост уходит только после «Да».',
