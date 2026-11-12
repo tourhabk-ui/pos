@@ -135,14 +135,43 @@ describe('кабинет оператора: PATCH /api/leads/[id]', () => {
     expect(h.deliver).not.toHaveBeenCalled();
   });
 
-  it('другие отметки идут как раньше: без причины, и про туриста ответ молчит', async () => {
+  it('другие отметки идут как раньше: без причины, со скоупом кабинета, и про туриста ответ молчит', async () => {
     h.change.mockResolvedValue(plainOk('contacted'));
     const res = await patch(operatorPatch, { status: 'contacted' });
     expect(res.status).toBe(200);
-    const args = h.change.mock.calls[0][0];
-    expect(args.status).toBe('contacted');
-    expect('lost' in args).toBe(false);
+    // Скоуп и автор уходят в запись и в этой ветке: без них чужая заявка сменила бы статус.
+    expect(h.change).toHaveBeenCalledWith({
+      leadId: LEAD, status: 'contacted', notes: undefined,
+      actor: { kind: 'partner_user', userId: OP_USER },
+      scope: { kind: 'owner', partnerId: 'p-op', claimUnowned: true },
+      via: 'site',
+    });
     expect((await res.json()).tourist).toBeNull();
+  });
+
+  it('заметка без статуса — тоже только в пределах своего кабинета', async () => {
+    h.change.mockResolvedValue({ kind: 'ok', changed: false, prevStatus: 'new', lead: { id: LEAD, status: 'new', notes: 'перезвонить' } });
+    const res = await patch(operatorPatch, { notes: 'перезвонить' });
+    expect(res.status).toBe(200);
+    expect(h.change).toHaveBeenCalledWith({
+      leadId: LEAD, status: undefined, notes: 'перезвонить',
+      actor: { kind: 'partner_user', userId: OP_USER },
+      scope: { kind: 'owner', partnerId: 'p-op', claimUnowned: true },
+      via: 'site',
+    });
+  });
+
+  it('доступ к кабинету не проверился (база не ответила) — ни отметки, ни отказа, ни чтения: дверь не открывается «на всякий случай»', async () => {
+    h.access.mockResolvedValue({ kind: 'unavailable', reason: 'db' });
+    for (const body of [{ status: 'contacted' }, { status: 'lost', lostReason: 'seats' }, { notes: 'x' }]) {
+      await expect(patch(operatorPatch, body), JSON.stringify(body)).rejects.toThrow(/доступ к кабинету не проверен/);
+    }
+    await expect(operatorGet(
+      new NextRequest(`http://localhost/api/leads/${LEAD}`), { params: Promise.resolve({ id: LEAD }) },
+    )).rejects.toThrow(/доступ к кабинету не проверен/);
+    expect(h.change).not.toHaveBeenCalled();
+    expect(h.deliver).not.toHaveBeenCalled();
+    expect(h.query).not.toHaveBeenCalled();
   });
 
   it('администратор закрывает без причины, как раньше; причина от него не принимается', async () => {

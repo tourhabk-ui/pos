@@ -85,9 +85,9 @@ function fakeQuery(sql: string, params: unknown[] = []): { rows: unknown[]; rowC
     r.status = 'running';
     return res([{ subject_kind: r.subject_kind, subject_id: r.subject_id, action: r.action, reason: r.reason }]);
   }
-  if (/SELECT status, subject_kind, subject_id, outcome/.test(sql)) {
+  if (/SELECT status, subject_kind, subject_id, action, outcome/.test(sql)) {
     const r = db.rows.find(mine);
-    return res(r ? [{ status: r.status, subject_kind: r.subject_kind, subject_id: r.subject_id, outcome: r.outcome, expired: r.expired, stale: false }] : []);
+    return res(r ? [{ status: r.status, subject_kind: r.subject_kind, subject_id: r.subject_id, action: r.action, outcome: r.outcome, expired: r.expired, stale: false }] : []);
   }
   if (/SET status = \$2, outcome = \$3::jsonb/.test(sql)) {
     const r = db.rows.find((x) => x.id === p[0] && x.status === 'running');
