@@ -124,12 +124,17 @@ jobs:
           # .well-known с OAuth, video с путём от человека), вход и роли,
           # оплата, MCP, данные людей (лиды, брони, CRM, админка,
           # уведомления, шифрование), сторожа 152-ФЗ, workflow.
-          # 12.11: заявки после ответа адресата (lib/requests — имя и телефон
-          # заявки, сообщения в чаты людей и письмо менеджеру), очередь
-          # менеджера, заявки на жильё и запросы мест. PR #3297 читал контакт
-          # человека и слал его менеджеру, а ревью не запускалось: эти
-          # каталоги под «данные людей» не попадали.
-          SENSITIVE: '^(app/api/|app/.*route\.(ts|js)$|(.*/)?middleware\.ts$|lib/auth\.ts$|lib/auth/|lib/roles/|lib/account/|lib/api/|lib/payments/|lib/security/|lib/encryption\.ts$|lib/mcp/|lib/crm/|lib/admin/|lib/leads/|lib/bookings/|lib/notifications/|lib/max/|lib/miniapp/|lib/requests/|lib/manager-queue/|lib/stay/|lib/seat-requests/|lib/agents/compliance/|\.github/workflows/)'
+          # 12.11: PR #3297 читал контакт человека в lib/requests и слал его
+          # менеджеру, а ревью не запускалось: каталога в списке не было.
+          # Перепись того же дня: за списком стояли ещё вход через мессенджеры
+          # (lib/telegram, lib/partners, lib/alice, lib/meta), чаты и память
+          # Кузьмича, кабинеты ролей, прокат, трансфер, безопасность (SOS,
+          # контроль выхода), письма, выгрузки. Замер: одно ревью — $0.033 по
+          # книгам, расход не довод держать список узким.
+          # Каталог lib/, которого нет ни здесь, ни в списке «вне ревью»
+          # сторожа (tests/unit/security-review-workflow.test.ts), — красный:
+          # новый каталог не проходит мимо ревью молча.
+          SENSITIVE: '^(app/api/|app/.*route\.(ts|js)$|(.*/)?middleware\.ts$|lib/(a2a|account|admin|agent|agent-cabinet|agents|ai|alice|analytics|api|auth|booking|bookings|channels|chat|chat-cabinet|client-errors|crm|eco|embed|guides|integrations|kuzmich|leads|legal|loyalty|manager-queue|max|mcp|mesh|meta|miniapp|notifications|octo|offline|operator|operators|partners|payments|pdf|referral|rental|requests|reviews|roles|safety|sales|seat-requests|security|services|stay|storage|support|telegram|tourist|transfers|trips)/|lib/(auth|compute-fund|email|encryption|rate-limit)\.ts$|\.github/workflows/)'
         run: |
           if [ "$LABELED" = "true" ]; then
             echo "run=true" >> "$GITHUB_OUTPUT"
