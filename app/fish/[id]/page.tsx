@@ -8,6 +8,7 @@ import {
 import { Header } from '@/components/layout/Header';
 import { FISH_SPECIES, FISH_BY_ID, formatSeasonMonths } from '@/lib/fish-species';
 import DescriptionWithFishLinks from '@/components/shared/DescriptionWithFishLinks';
+import { FishGuide } from '@/components/fish/FishGuide';
 import { query } from '@/lib/database';
 import { publicTourSql } from '@/lib/tours/public-visibility';
 import { nearestFreeDateSql } from '@/lib/tours/nearest-free-date';
@@ -261,6 +262,9 @@ export default async function FishDetailPage({ params }: Props) {
               </div>
             </div>
           </section>
+
+          {/* Подробный разбор вида — если записан (12.11, кета). */}
+          <FishGuide species={species} />
 
           {/* Интересный факт */}
           <section
