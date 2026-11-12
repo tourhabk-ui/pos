@@ -22,6 +22,7 @@ const m = vi.hoisted(() => ({
   myTrip: vi.fn(),
   press: vi.fn(),
   datePress: vi.fn(),
+  cancelPress: vi.fn(),
 }));
 
 vi.mock('@/lib/db-pool', () => ({
@@ -98,12 +99,17 @@ vi.mock('@/lib/requests/my-trip-date', async (orig) => ({
   ...(await orig<typeof import('@/lib/requests/my-trip-date')>()),
   pressMyTripDate: (...a: unknown[]) => m.datePress(...a),
 }));
+vi.mock('@/lib/requests/my-trip-cancel', async (orig) => ({
+  ...(await orig<typeof import('@/lib/requests/my-trip-cancel')>()),
+  pressMyTripCancel: (...a: unknown[]) => m.cancelPress(...a),
+}));
 
 const max = await import('@/app/api/max/kuzmich/route');
 const { clearMaxMessageDedup } = await import('@/lib/max/update-dedup');
 const { signPayload } = await import('@/lib/chat-cabinet/signed-payload');
 const { myTripWritePayload } = await import('@/lib/requests/my-trip-write');
 const { myTripDateMenuPayload, myTripDatePickPayload } = await import('@/lib/requests/my-trip-date');
+const { myTripCancelAskPayload, myTripCancelYesPayload } = await import('@/lib/requests/my-trip-cancel');
 
 const KEY = 'test-webhook-key-my-trip-write';
 const VERIFIED = `http://localhost/api/max/kuzmich?s=${KEY}`;
@@ -153,6 +159,7 @@ beforeEach(() => {
   m.myTrip.mockResolvedValue({ text: 'Ваша заявка в этом чате:\n\n1. Горелый', buttons: [{ text: 'Написать оператору', payload: signPayload(RAW) }] });
   m.press.mockResolvedValue({ text: 'Напишите одним сообщением — оно уйдёт оператору.', buttons: [] });
   m.datePress.mockResolvedValue({ text: 'Свободные даты на 2 чел.:', buttons: [{ text: '18.07 · мест 5', payload: 'mp:x' }] });
+  m.cancelPress.mockResolvedValue({ text: 'Отменить заявку?', buttons: [{ text: 'Да, отменить заявку', payload: 'mx:x' }] });
 });
 afterEach(() => { vi.restoreAllMocks(); vi.unstubAllEnvs(); vi.unstubAllGlobals(); });
 
@@ -224,5 +231,40 @@ describe('«Изменить дату» под «Моей поездкой» в 
     expect(sent().map((s) => s.text).join('\n')).toMatch(/личном диалоге/);
     await press(signPayload(PICK), 'dialog', 'http://localhost/api/max/kuzmich');
     expect(m.datePress).not.toHaveBeenCalled();
+  });
+});
+
+describe('«Отменить заявку» под «Моей поездкой» в MAX (1427)', () => {
+  const ASK = myTripCancelAskPayload(LEAD);
+  const YES = myTripCancelYesPayload(LEAD);
+
+  it('вопрос в личном диалоге — ответ с кнопкой «Да», канал и чат этого апдейта', async () => {
+    await press(ASK);
+    expect(m.cancelPress).toHaveBeenCalledWith(ASK, 'max', CHAT);
+    const out = sent();
+    expect(out.map((s) => s.text)).toEqual(['Отменить заявку?']);
+    expect(out[0]!.extra).toContain('Да, отменить заявку');
+    // Нажатие отмены не уходит ни в смену даты, ни в переписку.
+    expect(m.datePress).not.toHaveBeenCalled();
+    expect(m.press).not.toHaveBeenCalled();
+  });
+
+  it('«Да» — подписанная кнопка доходит до отмены без подписи', async () => {
+    await press(signPayload(YES));
+    expect(m.cancelPress).toHaveBeenCalledWith(YES, 'max', CHAT);
+  });
+
+  it('«Да» без подписи после срока старых кнопок — не принято: это кнопка-запись', async () => {
+    vi.stubEnv('CALLBACK_LEGACY_UNTIL_MS', String(Date.parse('2026-11-05T12:00:00Z')));
+    await press(YES);
+    expect(m.cancelPress).not.toHaveBeenCalled();
+  });
+
+  it('из группы и без заверения апдейта — заявка не отменяется', async () => {
+    await press(signPayload(YES), 'chat');
+    expect(m.cancelPress).not.toHaveBeenCalled();
+    expect(sent().map((s) => s.text).join('\n')).toMatch(/личном диалоге/);
+    await press(signPayload(YES), 'dialog', 'http://localhost/api/max/kuzmich');
+    expect(m.cancelPress).not.toHaveBeenCalled();
   });
 });

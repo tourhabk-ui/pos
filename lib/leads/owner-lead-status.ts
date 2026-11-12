@@ -19,13 +19,26 @@
  * ни второго события в ленте, ни нового `updated_at` (по нему недельная
  * сводка считает сделки — повторное «Договорились» не сделало бы старую
  * сделку новой). Исход говорит `changed: false`, и дверь отвечает «уже».
+ *
+ * Заявку, которую отменил клиент (`cancelled`, 1427), в работу не возвращают:
+ * ни статусом, ни занятием ничейной. Запрет стоит здесь, в самой записи, а не
+ * у дверей — их семь (кабинет, гид, кнопки в MAX и Telegram, администратор,
+ * перевозчик, прокат), и «Связался» по отменённой заявке иначе воскресил бы
+ * её у любой из них. Заметку к такой заявке писать можно. Исход говорит
+ * `prevStatus: 'cancelled'` и `changed: false` — дверь отвечает «отменена
+ * клиентом».
  */
 import { pool } from '@/lib/db-pool';
 import { recordSourceEventQuietly, statusChangeTitle } from '@/lib/crm/events';
 import type { OwnerStatusVia } from '@/lib/bookings/owner-status';
 import { leadScopeCond, type LeadScope } from '@/lib/leads/ownership';
+import { LEAD_CLIENT_CANCELLED } from '@/lib/types/statuses';
 
-/** Все статусы, которые принимает CHECK `leads_status_check` (миграция 083). */
+/**
+ * Статусы, которые ставит продавец, администратор или конвейер. `cancelled`
+ * (1427) в CHECK тоже есть, но здесь его нет намеренно: его ставит только
+ * отмена клиентом (lib/requests/cancel-request), и вручную его не выбрать.
+ */
 export const LEAD_STATUSES = [
   'new',
   'ai_processing',
@@ -79,15 +92,15 @@ export async function changeLeadStatus(args: {
        SELECT id, status, notes, operator_id FROM leads WHERE id = $1::uuid${owned.cond} FOR UPDATE
      ), upd AS (
        UPDATE leads l
-          SET status = COALESCE($2::text, l.status),
+          SET status = CASE WHEN prev.status = '${LEAD_CLIENT_CANCELLED}' THEN l.status ELSE COALESCE($2::text, l.status) END,
               notes = CASE WHEN $3::boolean THEN $4::text ELSE l.notes END,
-              operator_id = COALESCE(l.operator_id, $5::uuid),
+              operator_id = CASE WHEN prev.status = '${LEAD_CLIENT_CANCELLED}' THEN l.operator_id ELSE COALESCE(l.operator_id, $5::uuid) END,
               updated_at = NOW()
          FROM prev
         WHERE l.id = prev.id
-          AND (($2::text IS NOT NULL AND $2::text IS DISTINCT FROM prev.status)
+          AND (($2::text IS NOT NULL AND $2::text IS DISTINCT FROM prev.status AND prev.status <> '${LEAD_CLIENT_CANCELLED}')
                OR $3::boolean
-               OR (prev.operator_id IS NULL AND $5::uuid IS NOT NULL))
+               OR (prev.operator_id IS NULL AND $5::uuid IS NOT NULL AND prev.status <> '${LEAD_CLIENT_CANCELLED}'))
         RETURNING l.id, l.status, l.notes
      )
      SELECT prev.id::text AS id,
@@ -102,7 +115,8 @@ export async function changeLeadStatus(args: {
   if (!row) return { kind: 'not_found' };
 
   const { prev_status: prevStatus, ...lead } = row;
-  const changed = status !== undefined && prevStatus !== status;
+  // «Сменился» — по тому, что записано, а не по тому, что прислали: у отменённой клиентом статус не трогается.
+  const changed = status !== undefined && prevStatus !== status && lead.status === status;
 
   // Лента клиента (CRM #2325): событие — когда статус сменился, а не когда
   // его прислали тем же. Канал — как у брони (план мини-приложения, §6.7).

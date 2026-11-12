@@ -217,6 +217,38 @@ describe('leads-process — отметка под ключом реестра le
     expect(runRows()).toEqual([{ agentId: agentOf('leads'), status: 'failed' }]);
   });
 
+  it('вся выборка отменена клиентами (1427) — разбирать было нечего: прогон не отказ, отменённые названы числом', async () => {
+    const { LeadCancelledByClientError } = await import('@/lib/leads/client-cancelled');
+    answer = (sql) => (/FROM leads/.test(sql) ? [{ id: 'l1' }, { id: 'l2' }] : []);
+    leadProcess.mockRejectedValue(new LeadCancelledByClientError());
+    const res = await call();
+    expect(await res.json()).toMatchObject({ ok: true, processed: 0, failed: 0, cancelled_by_client: 2, results: [] });
+    expect(runRows()).toEqual([{ agentId: agentOf('leads'), status: 'success' }]);
+  });
+
+  it('отменённая клиентом рядом с упавшей: отменённая в «не обработано» не идёт, упавшая — идёт, и прогон красный', async () => {
+    const { LeadCancelledByClientError } = await import('@/lib/leads/client-cancelled');
+    answer = (sql) => (/FROM leads/.test(sql) ? [{ id: 'l1' }, { id: 'l2' }] : []);
+    leadProcess.mockRejectedValueOnce(new LeadCancelledByClientError()).mockRejectedValueOnce(new Error('model down'));
+    const res = await call();
+    expect(await res.json()).toMatchObject({ processed: 0, failed: 1, cancelled_by_client: 1, results: [{ id: 'l2', ok: false, error: 'model down' }] });
+    expect(runRows()).toEqual([{ agentId: agentOf('leads'), status: 'failed' }]);
+  });
+
+  it('ответ крона печатает workflow в лог публичного репозитория — имени туриста в нём нет, и из базы оно не читается', async () => {
+    let selected = '';
+    answer = (sql) => {
+      if (!/FROM leads/.test(sql)) return [];
+      selected = sql;
+      return [{ id: 'l1', name: 'Анна Туристова' }, { id: 'l2', name: 'Пётр Гостев' }];
+    };
+    leadProcess.mockResolvedValueOnce(undefined).mockRejectedValueOnce(new Error('model down'));
+    const body = JSON.stringify(await (await call()).json());
+    expect(body).toContain('"l1"');
+    expect(body).not.toMatch(/Анна|Туристова|Пётр|Гостев|"name"/);
+    expect(selected).toMatch(/SELECT id FROM leads/);
+  });
+
   it('база упала на выборке — failed и 500, а не немой отказ', async () => {
     answer = (sql) => (/FROM leads/.test(sql) ? dbDown() : []);
     const res = await call();

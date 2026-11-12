@@ -144,6 +144,8 @@ describe('напоминание оператору — те же строки',
       if (sql === FOLLOWUP_LEADS_SQL) {
         return { rows: [{ id: 'l-plan', name: 'Анна Обычная', phone: '+79990000003', source_data: plannerLeadSource(INPUT), pd_consent_version: '2026-09-01' }] };
       }
+      // Крон перед передачей сверяет, что заявку не отменил клиент (1427): заявка жива.
+      if (/SELECT TRUE AS ok FROM leads/.test(sql)) return { rows: [{ ok: true }] };
       if (/COUNT\(\*\) AS total/.test(sql)) return { rows: [{ total: '1', with_telegram: '0', with_max: '1' }] };
       if (/FROM partners p/.test(sql)) return { rows: [{ name: 'Туроператор', slug: 'tour-op', telegram_chat_id: null, user_telegram_id: null, max_chat_id: '555' }] };
       return { rows: [] };

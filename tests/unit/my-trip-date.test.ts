@@ -32,6 +32,7 @@ vi.mock('@/lib/notifications/pd-alert', () => ({ sendPdAlert: (...a: unknown[]) 
 import {
   pressMyTripDate, operatorDateText, myTripDateMenuPayload, myTripDatePickPayload, parseMyTripDate, isMyTripDatePayload,
   MY_TRIP_DATE_LEAD_SQL, MY_TRIP_DATE_CHANGE_SQL, MY_TRIP_DATE_DELIVERY_SQL, MY_TRIP_DATE_REQUEST_LOG_SQL, MY_TRIP_DATE_DAILY_LIMIT,
+  myTripDatePressable,
 } from '@/lib/requests/my-trip-date';
 import { FREE_DATES_SQL, TOUR_HAS_CALENDAR_SQL } from '@/lib/tours/nearest-free-date';
 import { myTripButtons, type MyTrip } from '@/lib/requests/my-trip';
@@ -214,6 +215,21 @@ describe('меню: свободные даты кнопками', () => {
     expect((await menu()).text).toMatch(/Заявка закрыта/);
     world.lead = baseLead({ answered: true, booking_status: 'cancelled', booking_date: '2027-07-15' });
     expect((await menu()).text).toMatch(/Заявка закрыта/);
+  });
+
+  it('заявку отменил клиент (1427): старая кнопка даты ничего не меняет и оператору просьбу не шлёт', async () => {
+    world.lead = baseLead({ status: 'cancelled', answered: true });
+    world.free = [{ date: '2027-07-18', free: 5 }];
+    expect((await menu()).text).toMatch(/^Заявка закрыта — дату по ней не меняю\./);
+    expect((await pick('2027-07-18')).text).toMatch(/^Заявка закрыта — дату по ней не меняю\./);
+    expect(callsOf(MY_TRIP_DATE_CHANGE_SQL)).toHaveLength(0);
+    expect(callsOf(MY_TRIP_DATE_REQUEST_LOG_SQL)).toHaveLength(0);
+    expect(callsOf(FREE_DATES_SQL)).toHaveLength(0);
+    expect(h.alert).not.toHaveBeenCalled();
+    // Тот же гейт у кнопок дат в сообщении после ответа оператора: по отменённой их не дают.
+    const gate = { booking_status: null, booking_date: null, date: '2027-07-15', tour_id: 5, date_actions: 0 };
+    expect(myTripDatePressable({ ...gate, status: 'new' }, '2027-07-01')).toBe(true);
+    expect(myTripDatePressable({ ...gate, status: 'cancelled' }, '2027-07-01')).toBe(false);
   });
 
   it(`за сутки уже ${MY_TRIP_DATE_DAILY_LIMIT} смены — дальше напрямую с оператором`, async () => {

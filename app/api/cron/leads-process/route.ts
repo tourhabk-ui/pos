@@ -12,6 +12,7 @@ import { NextRequest, NextResponse } from 'next/server';
 import { pool } from '@/lib/db-pool';
 import { timingSafeCompare } from '@/lib/security/timing-safe';
 import { leadProcessor } from '@/lib/services/operators/lead-processor.service';
+import { LeadCancelledByClientError } from '@/lib/leads/client-cancelled';
 import { getCronSecret, diagnoseCronAuth } from '@/lib/auth/cron';
 import { claimCronWindow, shouldRun, leaseSkipBody } from '@/lib/agents/cron-lease';
 import { recordCronRun } from '@/lib/agents/cron-heartbeat';
@@ -44,10 +45,13 @@ export async function GET(request: NextRequest) {
   // «Widget: …» с пробелом — 25, пустой телефон — 5), то есть processed_at
   // оставался пустым, а отказ модели возвращает лид в `new` — и конвейер
   // тратил на него вызовы модели каждые полчаса (аудит 15.10, W3-pseudo).
-  let rows: Array<{ id: string; name: string }>;
+  // Имя туриста здесь не читается: ответ крона печатает workflow
+  // (cron-safety-heartbeat.yml) в лог публичного репозитория, а для разбора
+  // оно не нужно — заявку называет её номер.
+  let rows: Array<{ id: string }>;
   try {
-    ({ rows } = await pool.query<{ id: string; name: string }>(
-      `SELECT id, name FROM leads
+    ({ rows } = await pool.query<{ id: string }>(
+      `SELECT id FROM leads
        WHERE status = 'new'
          AND created_at < NOW() - INTERVAL '2 minutes'
          AND processed_at IS NULL
@@ -69,16 +73,21 @@ export async function GET(request: NextRequest) {
     return NextResponse.json({ ok: true, processed: 0, message: 'Нет необработанных лидов' });
   }
 
-  const results: { id: string; name: string; ok: boolean; error?: string }[] = [];
+  const results: { id: string; ok: boolean; error?: string }[] = [];
+  // Заявки, которые клиент отменил между выборкой и разбором (1427): не разобраны и не отказ.
+  let cancelledByClient = 0;
 
   for (const lead of rows) {
     try {
       await leadProcessor.process(lead.id);
-      results.push({ id: lead.id, name: lead.name, ok: true });
+      results.push({ id: lead.id, ok: true });
     } catch (err) {
+      if (err instanceof LeadCancelledByClientError) {
+        cancelledByClient += 1;
+        continue;
+      }
       results.push({
         id: lead.id,
-        name: lead.name,
         ok: false,
         error: err instanceof Error ? err.message : String(err),
       });
@@ -90,11 +99,12 @@ export async function GET(request: NextRequest) {
 
   // Ни одного разобранного при непустой выборке — отказ, а не успех (§4.0).
   // Частичный разбор — успех с названным остатком.
-  recordCronRun('leads', t0, processed === 0 ? 'failed' : 'success', {
+  // Вся выборка отменена клиентами — разбирать было нечего: это не отказ конвейера.
+  recordCronRun('leads', t0, processed === 0 && failed > 0 ? 'failed' : 'success', {
     items: processed,
     error: failed > 0 ? `не обработано ${failed} из ${rows.length}` : undefined,
   });
 
-  return NextResponse.json({ ok: true, processed, failed, results });
+  return NextResponse.json({ ok: true, processed, failed, cancelled_by_client: cancelledByClient, results });
   });
 }

@@ -47,6 +47,8 @@ beforeEach(() => {
   queryMock.mockReset();
   queryMock.mockImplementation(async (sql: string) => {
     if (sql === FOLLOWUP_LEADS_SQL) return { rows: [BROKEN, NEXT] };
+    // Крон перед передачей сверяет, что заявку не отменил клиент (1427): заявка жива.
+    if (/SELECT TRUE AS ok FROM leads/.test(sql)) return { rows: [{ ok: true }] };
     if (/COUNT\(\*\) AS total/.test(sql)) return { rows: [{ total: '1', with_telegram: '1', with_max: '1' }] };
     if (/FROM partners p/.test(sql)) return { rows: [OPERATOR] };
     return { rows: [] };

@@ -102,6 +102,8 @@ function db(leads: unknown[], byInterests: unknown[], anyOperator: unknown[]) {
   queryMock.mockReset();
   queryMock.mockImplementation(async (sql: string) => {
     if (sql === FOLLOWUP_LEADS_SQL) return { rows: leads };
+    // Крон перед передачей сверяет, что заявку не отменил клиент (1427): заявка жива.
+    if (/SELECT TRUE AS ok FROM leads/.test(sql)) return { rows: [{ ok: true }] };
     if (/COUNT\(\*\) AS total/.test(sql)) return { rows: [{ total: '3', with_telegram: '0', with_max: '3' }] };
     if (/FROM partners p/.test(sql)) {
       partnerQueries.push(sql);

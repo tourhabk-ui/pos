@@ -7,6 +7,8 @@ import { leadOwnershipCond, operatorLeadScope } from '@/lib/leads/ownership';
 import { changeLeadStatus, LEAD_STATUSES } from '@/lib/leads/owner-lead-status';
 import { bookingsForLead, type LeadBookings } from '@/lib/leads/lead-bookings';
 import { withLeadOrigin, type LeadOriginInput } from '@/lib/leads/origin';
+import { LEAD_CANCELLED_STATUS_TEXT } from '@/lib/leads/client-cancelled';
+import { LEAD_CLIENT_CANCELLED } from '@/lib/types/statuses';
 
 const PatchSchema = z.object({
   status: z.enum(LEAD_STATUSES).optional(),
@@ -54,6 +56,14 @@ export async function PATCH(
 
   if (outcome.kind === 'not_found') {
     return NextResponse.json({ error: 'Лид не найден' }, { status: 404 });
+  }
+  // Заявку отменил клиент (1427): статус не сменён и не будет — ответить «изменён» было бы неправдой.
+  // Заметка, присланная тем же запросом, записана: об этом сказано.
+  if (status !== undefined && outcome.prevStatus === LEAD_CLIENT_CANCELLED) {
+    return NextResponse.json(
+      { error: notes !== undefined ? `${LEAD_CANCELLED_STATUS_TEXT}. Заметка сохранена.` : LEAD_CANCELLED_STATUS_TEXT, lead: outcome.lead },
+      { status: 409 },
+    );
   }
 
   return NextResponse.json({ success: true, lead: outcome.lead, changed: outcome.changed });

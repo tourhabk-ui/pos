@@ -30,7 +30,10 @@ import type { DepartingTour, SituationSources } from '@/lib/trips/situation-stor
 import { logText } from '@/lib/log/log-text';
 import type { ChatTarget } from '@/lib/requests/request-chat';
 import { signPayload } from '@/lib/chat-cabinet/signed-payload';
-import { MY_TRIP_CLOSED_BOOKING, myTripDateMenuPayload, myTripDateText, myTripWritePayload, myTripWriteText } from '@/lib/requests/my-trip-ask';
+import {
+  MY_TRIP_CLOSED_BOOKING, myTripCancelAskPayload, myTripCancelText, myTripDateMenuPayload, myTripDateText,
+  myTripWritePayload, myTripWriteText,
+} from '@/lib/requests/my-trip-ask';
 
 /** Сколько дней вперёд показывается обстановка: столько дней даёт прогноз (liveSources) — одно число. */
 export const MY_TRIP_SITUATION_DAYS = SITUATION_FORECAST_DAYS;
@@ -68,6 +71,13 @@ export interface MyTripItem {
    * заявки, не закрыта и поездка ещё впереди. null — кнопки нет.
    */
   dateChange: string | null;
+  /**
+   * Номер лида, который человек может отменить (1427): заявка на тур на дату
+   * ключом новой заявки, ещё не закрыта и поездка не прошла. Адресат не
+   * обязателен — большую группу, переданную другим операторам, отменить
+   * можно. null — кнопки нет.
+   */
+  cancel: string | null;
 }
 
 export type MyTrip =
@@ -244,7 +254,14 @@ export async function loadMyTrip(
       && !(row.booking_status !== null && MY_TRIP_CLOSED_BOOKING.has(row.booking_status))
       ? row.lead_id
       : null;
-    return { what: view.tour ?? view.accommodation, date, human: view.human, situation, write, dateChange };
+    // «Отменить заявку» — там же, где заявка ещё живая: те же состояния, что у
+    // смены даты, но адресат не обязателен, а незаписанная дата — не помеха.
+    const cancel = row.lead_id && row.tool_name === BOOKING_REQUEST_TOOL && row.opens_chat === true
+      && dateStillChangeable(view.state, row.lead_status) && (date === null || date >= today)
+      && !(row.booking_status !== null && MY_TRIP_CLOSED_BOOKING.has(row.booking_status))
+      ? row.lead_id
+      : null;
+    return { what: view.tour ?? view.accommodation, date, human: view.human, situation, write, dateChange, cancel };
   });
   return { outcome: 'ok', items };
 }
@@ -316,8 +333,8 @@ export interface MyTripButton {
 
 /**
  * Кнопки под списком, по заявкам: «Написать оператору» (только MAX —
- * переписка клиента живёт там) и «Изменить дату» (MAX и Telegram); номер —
- * номер заявки в списке, если их больше одной.
+ * переписка клиента живёт там), «Изменить дату» и «Отменить заявку» (MAX и
+ * Telegram); номер — номер заявки в списке, если их больше одной.
  */
 export function myTripButtons(trip: MyTrip, channel: LinkChannel = 'max'): MyTripButton[] {
   if (trip.outcome !== 'ok') return [];
@@ -327,6 +344,8 @@ export function myTripButtons(trip: MyTrip, channel: LinkChannel = 'max'): MyTri
     const out: MyTripButton[] = [];
     if (it.write && channel === 'max') out.push({ text: myTripWriteText(it.write, n), payload: signPayload(myTripWritePayload(it.write)) });
     if (it.dateChange) out.push({ text: myTripDateText(n), payload: myTripDateMenuPayload(it.dateChange) });
+    // «Отменить заявку» только спрашивает — запись делает «Да» (lib/requests/my-trip-cancel).
+    if (it.cancel) out.push({ text: myTripCancelText(n), payload: myTripCancelAskPayload(it.cancel) });
     return out;
   });
 }

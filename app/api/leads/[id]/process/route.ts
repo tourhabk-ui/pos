@@ -11,6 +11,7 @@ import { requireOperator } from '@/lib/auth/middleware';
 import { leadProcessor } from '@/lib/services/operators/lead-processor.service';
 import { canAccessLead } from '@/lib/leads/ownership';
 import { LeadIsVehicleOrderError } from '@/lib/leads/vehicle-order';
+import { LeadCancelledByClientError } from '@/lib/leads/client-cancelled';
 import type { JWTPayload } from '@/lib/auth/jwt';
 
 export async function POST(
@@ -35,7 +36,9 @@ export async function POST(
   } catch (err) {
     const message = err instanceof Error ? err.message : 'Ошибка обработки лида';
     // Заявка на машину — не сбой, а не тот вид заявки: 422 с объяснением.
+    // Отменённая клиентом — тоже не сбой: 409, как «уже».
     const status = err instanceof LeadIsVehicleOrderError ? 422
+      : err instanceof LeadCancelledByClientError ? 409
       : message.includes('не найден') ? 404
       : message.includes('уже') ? 409
       : 500;

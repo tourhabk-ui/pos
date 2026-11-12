@@ -55,6 +55,7 @@ const STATUS_CONFIG: Record<string, { label: string; color: string }> = {
   qualified:        { label: 'Квалифицирован',   color: 'text-[var(--success)] bg-[var(--success)]/10' },
   converted:        { label: 'Конвертирован',    color: 'text-[var(--success)] bg-[var(--success)]/10' },
   lost:             { label: 'Потерян',          color: 'text-[var(--text-muted)] bg-[var(--bg-hover)]' },
+  cancelled:        { label: 'Отменена клиентом', color: 'text-[var(--text-muted)] bg-[var(--bg-hover)]' },
 };
 
 const FILTER_OPTIONS = [

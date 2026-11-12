@@ -7,6 +7,8 @@ import { z } from 'zod';
 import { query } from '@/lib/database';
 import { requireAgent } from '@/lib/auth/middleware';
 import { recordSourceEventQuietly, statusChangeTitle } from '@/lib/crm/events';
+import { LEAD_CLIENT_CANCELLED } from '@/lib/types/statuses';
+import { LEAD_CANCELLED_STATUS_TEXT } from '@/lib/leads/client-cancelled';
 
 export const dynamic = 'force-dynamic';
 
@@ -44,14 +46,20 @@ export async function PATCH(
     return NextResponse.json({ success: false, error: 'Некорректные данные', details: parsed.error.issues }, { status: 400 });
   }
 
+  // Заявку, которую отменил клиент (1427), в работу не возвращают: условие — в самой записи.
   const result = await query<{ id: string; status: string; notes: string | null; prev_status: string | null }>(
     `WITH prev AS (SELECT status FROM leads WHERE id = $1)
      UPDATE leads SET status = $2, notes = COALESCE($3, notes), updated_at = NOW()
-     WHERE id = $1 RETURNING id, status, notes, (SELECT status FROM prev) AS prev_status`,
-    [params.id, parsed.data.status, parsed.data.notes ?? null]
+     WHERE id = $1 AND status <> $4 RETURNING id, status, notes, (SELECT status FROM prev) AS prev_status`,
+    [params.id, parsed.data.status, parsed.data.notes ?? null, LEAD_CLIENT_CANCELLED]
   );
 
   if (result.rowCount === 0) {
+    // Нет строки: лида нет — или его отменил клиент. Это разные ответы.
+    const now = await query<{ status: string }>(`SELECT status FROM leads WHERE id = $1`, [params.id]);
+    if (now.rows[0]?.status === LEAD_CLIENT_CANCELLED) {
+      return NextResponse.json({ success: false, error: LEAD_CANCELLED_STATUS_TEXT }, { status: 409 });
+    }
     return NextResponse.json({ success: false, error: 'Лид не найден' }, { status: 404 });
   }
 

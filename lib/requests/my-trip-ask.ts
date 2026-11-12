@@ -102,6 +102,44 @@ export function myTripDateText(n: number | null): string {
   return n === null ? 'Изменить дату' : `Изменить дату · ${n}`;
 }
 
+// ── «Отменить заявку» под «Моей поездкой» (1427) ────────────────────────────
+// Слово владельца 11.11: отмена — «как самим человеком»; пока оператор не
+// ответил — сразу, после ответа — просьбой ему. Отмена необратима, поэтому
+// нажатий два: вопрос (чтение) и «Да» (запись, подписывается). Само нажатие —
+// lib/requests/my-trip-cancel.
+
+/** `mc:<32 hex>` — спросить «отменить?» (только чтение). */
+const CANCEL_ASK_RE = /^mc:([0-9a-f]{32})$/;
+
+/** `mx:<32 hex>` — «Да, отменить» (запись, подписывается). */
+const CANCEL_YES_RE = /^mx:([0-9a-f]{32})$/;
+
+export function myTripCancelAskPayload(leadId: string): string {
+  return `mc:${compact(leadId)}`;
+}
+
+export function myTripCancelYesPayload(leadId: string): string {
+  return `mx:${compact(leadId)}`;
+}
+
+export function isMyTripCancelPayload(payload: string): boolean {
+  return payload.startsWith('mc:') || payload.startsWith('mx:');
+}
+
+export type MyTripCancelPress = { kind: 'ask' | 'yes'; leadId: string };
+
+export function parseMyTripCancel(payload: string): MyTripCancelPress | null {
+  const ask = CANCEL_ASK_RE.exec(payload);
+  if (ask) return { kind: 'ask', leadId: uuidOf(ask[1]!) };
+  const yes = CANCEL_YES_RE.exec(payload);
+  return yes ? { kind: 'yes', leadId: uuidOf(yes[1]!) } : null;
+}
+
+/** Надпись кнопки под списком; номер — номер заявки, если их больше одной. */
+export function myTripCancelText(n: number | null): string {
+  return n === null ? 'Отменить заявку' : `Отменить заявку · ${n}`;
+}
+
 /**
  * Бронь закрыта — дату больше не меняют ни так, ни просьбой. Одно множество на
  * кнопку под списком и на нажатие: иначе кнопка видна там, где нажатие

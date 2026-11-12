@@ -20,7 +20,7 @@ import { render, screen, waitFor, cleanup } from '@testing-library/react';
 import React from 'react';
 
 import { MANUAL_LEAD_STATUSES, LEAD_STATUSES } from '@/lib/types/statuses';
-import { COLUMNS, moveBetweenColumns, type Lead as _Lead } from '@/app/hub/admin/leads/_LeadsKanban';
+import { COLUMNS, OPERATOR_COLUMNS, moveBetweenColumns, type Lead as _Lead } from '@/app/hub/admin/leads/_LeadsKanban';
 import { LeadsKanban } from '@/app/hub/admin/leads/_LeadsKanban';
 import { LEADS_PAGE_MAX } from '@/lib/leads/list-page';
 
@@ -108,5 +108,25 @@ describe('LeadsKanban рендерит лидов по фактическому 
       expect(screen.getByText('Иван')).toBeTruthy();
       expect(screen.getByText('Пётр')).toBeTruthy();
     });
+  });
+
+  it('оператор: отменённая клиентом (1427) лежит рядом с отказом, названа точным статусом и не переносится', async () => {
+    vi.stubGlobal('fetch', vi.fn((url: string) => {
+      const status = new URL(url, 'http://x').searchParams.get('status');
+      const leads = status === 'cancelled' ? [lead('l9', 'cancelled', 'Олег')]
+        : status === 'lost' ? [lead('l8', 'lost', 'Зоя')]
+        : [];
+      return Promise.resolve({ ok: true, json: async () => ({ leads }) });
+    }));
+    render(<LeadsKanban columns={OPERATOR_COLUMNS} />);
+    await waitFor(() => expect(screen.getByText('Олег')).toBeTruthy());
+    // Статус спрошен отдельной выборкой — иначе отменённые пропали бы с доски.
+    expect(vi.mocked(fetch).mock.calls.some((c) => /status=cancelled/.test(String(c[0])))).toBe(true);
+    const cardOf = (name: string) => screen.getByText(name).closest('[aria-roledescription="draggable"]') as HTMLElement;
+    expect(cardOf('Олег').textContent).toContain('Отменена клиентом');
+    // Перенос выключен: вернуть отменённую клиентом в работу нельзя. Обычный отказ переносится.
+    expect(cardOf('Олег').getAttribute('aria-disabled')).toBe('true');
+    expect(cardOf('Зоя').getAttribute('aria-disabled')).toBe('false');
+    expect(cardOf('Зоя').textContent).not.toContain('Отменена клиентом');
   });
 });

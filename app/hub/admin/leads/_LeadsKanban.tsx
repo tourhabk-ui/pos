@@ -8,7 +8,7 @@ import {
   type DragEndEvent, type DragStartEvent,
 } from '@dnd-kit/core';
 import { Phone, AlertTriangle } from 'lucide-react';
-import { MANUAL_LEAD_STATUSES, type LeadStatus } from '@/lib/types/statuses';
+import { LEAD_CLIENT_CANCELLED, MANUAL_LEAD_STATUSES, type LeadStatus } from '@/lib/types/statuses';
 import { LEADS_PAGE_MAX, leadsPageUrl } from '@/lib/leads/list-page';
 import { Sensitive } from '@/components/admin/shared/Sensitive';
 import { STATUS_META, ScoreBadge, formatDate, type Lead } from './_LeadsClient';
@@ -52,7 +52,9 @@ export const OPERATOR_COLUMNS: readonly KanbanColumnSpec[] = [
   { key: 'contacted', members: ['contacted', 'proposal_sent', 'awaiting_confirm'] },
   { key: 'qualified', members: ['qualified'] },
   { key: 'converted', members: ['converted'] },
-  { key: 'lost',      members: ['lost'] },
+  // Отменённая клиентом (1427) лежит рядом с отказом: на карточке — точный
+  // статус, а перенос из неё выключен — вернуть её в работу нельзя.
+  { key: 'lost',      members: ['lost', 'cancelled'] },
 ];
 
 /**
@@ -102,7 +104,7 @@ function KanbanCard({ lead, columnKey, href }: { lead: Lead; columnKey: LeadStat
   const { attributes, listeners, setNodeRef, transform, isDragging } = useDraggable({
     id: lead.id,
     data: { lead },
-    disabled: lead.status === 'ai_processing',
+    disabled: lead.status === 'ai_processing' || lead.status === LEAD_CLIENT_CANCELLED,
   });
   const exactStatus = lead.status !== columnKey ? STATUS_META[lead.status] : null;
   const interests = lead.source_data?.interests ?? [];

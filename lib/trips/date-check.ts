@@ -363,7 +363,8 @@ export async function checkTourDates(
     if (why.length > 0) return unchecked(why);
     // Всё, что действует на дату отказа и до сюда дошло, отказ не объясняет (иначе был бы риск):
     // причиной не названо, но человеку сказано, что оно есть.
-    const standing = known.filter((a) => activeOn(a, declined)).map((a) => a.title.replace(/\s+/g, ' ').trim());
+    // Одинаковые заголовки (лента несёт их и двумя строками) называются один раз.
+    const standing = [...new Set(known.filter((a) => activeOn(a, declined)).map((a) => a.title.replace(/\s+/g, ' ').trim()))];
     return { state: 'unconfirmed', place: placeName, zoneAssessed, ...(standing.length > 0 ? { standing } : {}) };
   }
 

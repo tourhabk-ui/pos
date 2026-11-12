@@ -78,6 +78,9 @@ export async function POST(request: NextRequest) {
     if (outcome.kind === 'lead_not_found') {
       return NextResponse.json({ success: false, error: 'Заявка не найдена среди ваших' }, { status: 404 });
     }
+    if (outcome.kind === 'lead_cancelled') {
+      return NextResponse.json({ success: false, error: 'Заявку отменил клиент — бронь по ней не заводится' }, { status: 409 });
+    }
     if (outcome.kind !== 'ok') {
       // Гиду своя цена разрешена, «оплачено» он не передаёт: сюда не дойти.
       console.error('[guide/own/bookings] неожиданный отказ ручной брони:', outcome.kind);
