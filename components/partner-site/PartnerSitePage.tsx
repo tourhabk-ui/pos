@@ -26,7 +26,7 @@ import {
 } from '@/lib/operators/profile-parse';
 import { priceUnitLabel } from '@/lib/tours/labels';
 import { tourPath } from '@/lib/tours/tour-url';
-import { TOUR_PHOTO_POSITION } from '@/lib/tours/photo-focus';
+import { tourPhotoPosition } from '@/lib/tours/photo-focus';
 import { OperatorGallery } from '@/components/operator/OperatorGallery';
 import { OperatorLegalInfo } from '@/components/operator/OperatorLegalInfo';
 import { OperatorLeadForm, PARTNER_SITE_LEAD_SOURCE } from '@/components/operators/OperatorLeadForm';
@@ -127,7 +127,7 @@ export function PartnerSitePage({ data, host, vedarBase }: {
                 fill
                 priority
                 className="object-cover"
-                style={{ objectPosition: TOUR_PHOTO_POSITION }}
+                style={{ objectPosition: tourPhotoPosition(hero) }}
                 sizes="100vw"
               />
             )}
@@ -171,7 +171,7 @@ export function PartnerSitePage({ data, host, vedarBase }: {
                     <article key={t.id} className="ds-card overflow-hidden flex flex-col" aria-labelledby={`tour-${t.id}`}>
                       {img && (
                         <div className="relative h-44">
-                          <Image src={img} alt={t.title} fill className="object-cover" style={{ objectPosition: TOUR_PHOTO_POSITION }} sizes="(max-width: 768px) 100vw, 33vw" />
+                          <Image src={img} alt={t.title} fill className="object-cover" style={{ objectPosition: tourPhotoPosition(img) }} sizes="(max-width: 768px) 100vw, 33vw" />
                         </div>
                       )}
                       <div className="p-5 flex flex-col gap-2 flex-1">

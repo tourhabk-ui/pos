@@ -15,7 +15,7 @@ import {
   extractServices, extractFeatures, extractContacts, extractFaq,
   extractGallery, extractLegalInfo,
 } from '@/lib/operators/profile-parse';
-import { TOUR_PHOTO_POSITION } from '@/lib/tours/photo-focus';
+import { tourPhotoPosition } from '@/lib/tours/photo-focus';
 import { tourPath } from '@/lib/tours/tour-url';
 import { defaultOgImages } from '@/lib/seo/og-image';
 import { operatorMetaDescription } from '@/lib/seo/operator-meta';
@@ -282,7 +282,7 @@ export default async function OperatorProfilePage(
               <div>
                 <div className="relative w-full h-64 sm:h-80 rounded-lg overflow-hidden bg-[var(--bg-hover)] border border-[var(--border)]">
                   {heroImage ? (
-                    <Image src={heroImage} alt={profile.name} fill className="object-cover" style={{ objectPosition: TOUR_PHOTO_POSITION }} sizes="(max-width: 1024px) 100vw, 50vw" priority />
+                    <Image src={heroImage} alt={profile.name} fill className="object-cover" style={{ objectPosition: tourPhotoPosition(heroImage) }} sizes="(max-width: 1024px) 100vw, 50vw" priority />
                   ) : (
                     <div className="w-full h-full flex items-center justify-center text-[var(--text-muted)]">
                       <MapPin className="w-10 h-10" />
@@ -323,7 +323,7 @@ export default async function OperatorProfilePage(
                       <Link href={tourPath(t)} className="flex flex-col flex-1">
                         {img && (
                           <div className="relative h-36">
-                            <Image src={img} alt={t.title} fill className="object-cover" style={{ objectPosition: TOUR_PHOTO_POSITION }} sizes="(max-width: 640px) 100vw, 33vw" />
+                            <Image src={img} alt={t.title} fill className="object-cover" style={{ objectPosition: tourPhotoPosition(img) }} sizes="(max-width: 640px) 100vw, 33vw" />
                           </div>
                         )}
                         <div className="p-4 pb-2 space-y-1.5 flex-1">

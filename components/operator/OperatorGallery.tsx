@@ -14,7 +14,7 @@
 import Image from 'next/image';
 import { useState } from 'react';
 import { PhotoLightbox } from '@/components/shared/PhotoLightbox';
-import { TOUR_PHOTO_POSITION } from '@/lib/tours/photo-focus';
+import { tourPhotoPosition } from '@/lib/tours/photo-focus';
 
 const SHOWN = 6;
 
@@ -43,7 +43,7 @@ export function OperatorGallery({ images, name, captions }: {
                 alt={`${name} ${i + 1}`}
                 fill
                 className="object-cover group-hover:scale-105 transition-transform duration-300"
-                style={{ objectPosition: TOUR_PHOTO_POSITION }}
+                style={{ objectPosition: tourPhotoPosition(url) }}
                 sizes="(max-width: 640px) 50vw, 33vw"
               />
               {rest > 0 && i === shown.length - 1 && (

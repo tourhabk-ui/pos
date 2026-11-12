@@ -15,7 +15,7 @@ import Link from 'next/link';
 import { OperatorNameLink } from '@/components/operators/OperatorNameLink';
 import Image from 'next/image';
 import { paceIsShowable } from '@/lib/routes/route-contradiction';
-import { TOUR_PHOTO_POSITION } from '@/lib/tours/photo-focus';
+import { tourPhotoPosition } from '@/lib/tours/photo-focus';
 import { tourPath } from '@/lib/tours/tour-url';
 
 interface TourSuggestion {
@@ -201,7 +201,7 @@ function TourCard({ tour }: { tour: TourSuggestion }) {
       <Link href={tourPath(tour)} className="absolute inset-0 z-[1] rounded-lg" aria-label={tour.title} />
       <div className="relative z-[2] pointer-events-none w-16 h-16 rounded-md overflow-hidden shrink-0 bg-[var(--bg-hover)]">
         {tour.tour_image ? (
-          <Image src={tour.tour_image} alt={tour.title} fill sizes="64px" className="object-cover" style={{ objectPosition: TOUR_PHOTO_POSITION }} />
+          <Image src={tour.tour_image} alt={tour.title} fill sizes="64px" className="object-cover" style={{ objectPosition: tourPhotoPosition(tour.tour_image) }} />
         ) : (
           <div className="w-full h-full flex items-center justify-center">
             <MapPin className="w-5 h-5 text-[var(--text-muted)]" />
