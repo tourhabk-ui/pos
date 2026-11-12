@@ -12,6 +12,8 @@
  *   2. Для каждого лида ищем следующего оператора с подходящими активностями,
  *      ещё не получавшего уведомление об этом лиде.
  *      Если интересы не указаны — берём любого оператора.
+ *      Кого именно из подходящих — решает жребий дня компании
+ *      (lib/leads/next-operator, слово владельца 12.11), а не первая строка базы.
  *   3. Если оператор найден — отправляем повторное уведомление.
  *   4. Если операторов больше нет — эскалация к admin + смена статуса на 'contacted'.
  *
@@ -34,6 +36,9 @@ import { FOLLOWUP_LEADS_SQL, FOLLOWUP_LEADS_PARAMS, addressedToPartnerOnly } fro
 import { sqlState } from '@/lib/guides/db-failure';
 import { tripFactsOf, tripRequestLines } from '@/lib/planner/trip-request-lines';
 import { redactPII } from '@/lib/security/pii-redact';
+import { pickNextOperator } from '@/lib/leads/next-operator';
+import { offerOrderDay } from '@/lib/tours/offer-order';
+import { LEAD_CLIENT_CANCELLED } from '@/lib/types/statuses';
 
 export const dynamic = 'force-dynamic';
 
@@ -76,6 +81,8 @@ interface FollowupLead {
  * зеркало и не видел Telegram, привязанный входом.
  */
 interface OperatorMatch extends PartnerReachRow {
+  /** id партнёра — по нему тянется билет жребия дня. */
+  id: string;
   name: string;
   slug: string;
 }
@@ -134,6 +141,8 @@ export async function GET(request: NextRequest) {
     let processed = 0;
     let escalated = 0;
     let noOperators = 0;
+    // День жребия — календарная дата Камчатки, одна на весь прогон.
+    const lotDay = offerOrderDay();
 
     for (const lead of leadsRes.rows) {
       const sd: LeadSourceData = lead.source_data ?? {};
@@ -144,27 +153,41 @@ export async function GET(request: NextRequest) {
       const interests = sd.interests ?? [];
       // Адресат, отказавшийся от заявки на большую группу, её второй раз не получает.
       const alreadyNotified = [...(sd.notified_operators ?? []), ...(lead.addressee_slug ? [lead.addressee_slug] : [])];
+      // Клиент мог отменить заявку, пока прогон шёл по списку (1427): выборка
+      // отменённых не берёт, но между ней и этой строкой — отправки по прежним
+      // заявкам. Отменённую не передаём никому: её имя и телефон другим
+      // операторам уже не нужны.
+      const { rows: [alive] } = await pool.query<{ ok: boolean }>(
+        `SELECT TRUE AS ok FROM leads WHERE id = $1 AND status <> $2`, [lead.id, LEAD_CLIENT_CANCELLED],
+      );
+      if (!alive) continue;
       if (lead.addressee_slug) {
         // Заявка становится ничейной (слово владельца 08.11): кабинет оператора
         // видит свои и ничейные лиды (lib/leads/ownership), и следующий оператор
         // по кнопке «Открыть в CRM» иначе получил бы «не найден». Первое действие
         // над ничейной делает её своей. Отказавшийся адресат — в notified_operators.
-        await pool.query(
+        // Условие на статус — чтобы отмену клиента этот UPDATE не затёр статусом `new`.
+        const freed = await pool.query(
           `UPDATE leads SET operator_id = NULL, status = 'new',
                   source_data = source_data || jsonb_build_object('declined_by', $2::text, 'notified_operators', $3::jsonb),
                   updated_at = NOW()
-            WHERE id = $1`,
-          [lead.id, lead.addressee_slug, JSON.stringify(alreadyNotified)],
+            WHERE id = $1 AND status <> $4`,
+          [lead.id, lead.addressee_slug, JSON.stringify(alreadyNotified), LEAD_CLIENT_CANCELLED],
         );
+        if (freed.rowCount === 0) continue;
       }
       const followupCount = sd.followup_count ?? 0;
 
       // ── Ищем следующего операторa с подходящими активностями ──────────────
+      // Запросы отдают ВСЕХ подходящих, без LIMIT и без ORDER BY: кто из них
+      // следующий, решает жребий дня компании (lib/leads/next-operator). До
+      // 12.11 стоял LIMIT 1 без порядка — первая строка базы, то есть один и
+      // тот же оператор изо дня в день.
       let nextOperator: OperatorMatch | null = null;
 
       if (interests.length > 0) {
         const opRes = await pool.query<OperatorMatch>(
-          `SELECT p.name, p.slug, p.telegram_chat_id, u_reach.telegram_id AS user_telegram_id,
+          `SELECT p.id::text AS id, p.name, p.slug, p.telegram_chat_id, u_reach.telegram_id AS user_telegram_id,
                   p.max_chat_id::text AS max_chat_id
            FROM partners p
            LEFT JOIN users u_reach ON u_reach.id = p.user_id
@@ -175,11 +198,10 @@ export async function GET(request: NextRequest) {
              AND EXISTS (
                SELECT 1 FROM operator_tours ot
                 WHERE ot.operator_id = p.id AND ot.is_active = TRUE AND ot.activity_type = ANY($1)
-             )
-           LIMIT 1`,
+             )`,
           [interests, alreadyNotified]
         );
-        nextOperator = opRes.rows[0] ?? null;
+        nextOperator = pickNextOperator(opRes.rows, lotDay);
       }
 
       // Fallback: если нет интересов или не нашли по интересам — любой ОПЕРАТОР
@@ -188,18 +210,17 @@ export async function GET(request: NextRequest) {
       // кабинет оператора, которую они не откроют.
       if (!nextOperator) {
         const fallbackRes = await pool.query<OperatorMatch>(
-          `SELECT p.name, p.slug, p.telegram_chat_id, u_reach.telegram_id AS user_telegram_id,
+          `SELECT p.id::text AS id, p.name, p.slug, p.telegram_chat_id, u_reach.telegram_id AS user_telegram_id,
                   p.max_chat_id::text AS max_chat_id
            FROM partners p
            LEFT JOIN users u_reach ON u_reach.id = p.user_id
            WHERE p.category = 'operator'
              AND p.is_public = TRUE
              AND (p.max_chat_id IS NOT NULL OR p.telegram_chat_id IS NOT NULL OR u_reach.telegram_id IS NOT NULL)
-             AND NOT (p.slug = ANY($1))
-           LIMIT 1`,
+             AND NOT (p.slug = ANY($1))`,
           [alreadyNotified]
         );
-        nextOperator = fallbackRes.rows[0] ?? null;
+        nextOperator = pickNextOperator(fallbackRes.rows, lotDay);
       }
 
       if (nextOperator) {
@@ -307,12 +328,14 @@ export async function GET(request: NextRequest) {
         }
 
         // Меняем статус на 'contacted' + помечаем как обработанный кроном
-        await pool.query(
+        // Отмену клиента статусом «связались» не затираем (1427): условие на
+        // статус, и событие в ленту — только когда статус правда сменился.
+        const taken = await pool.query(
           `UPDATE leads
            SET status      = 'contacted',
                source_data = source_data || $1::jsonb,
                updated_at  = NOW()
-           WHERE id = $2`,
+           WHERE id = $2 AND status <> $3`,
           [
             JSON.stringify({
               followup_count: followupCount + 1,
@@ -320,12 +343,15 @@ export async function GET(request: NextRequest) {
               escalated_to_admin: true,
             }),
             lead.id,
+            LEAD_CLIENT_CANCELLED,
           ]
         );
-        await recordSourceEventQuietly({
-          kind: 'status_change', sourceKind: 'lead', sourceId: lead.id, actorKind: 'system',
-          title: statusChangeTitle('lead', 'new', 'contacted'), payload: { from: 'new', to: 'contacted', followup_count: followupCount + 1 },
-        });
+        if ((taken.rowCount ?? 0) > 0) {
+          await recordSourceEventQuietly({
+            kind: 'status_change', sourceKind: 'lead', sourceId: lead.id, actorKind: 'system',
+            title: statusChangeTitle('lead', 'new', 'contacted'), payload: { from: 'new', to: 'contacted', followup_count: followupCount + 1 },
+          });
+        }
       }
 
       processed++;

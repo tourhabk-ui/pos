@@ -122,6 +122,12 @@ describe('самоназвание и род агента', () => {
     expect(a2aAgentKind('A2A-Registry-Smoke', 'неизвестен', false)).toBe('registry');
     expect(a2aAgentKind('glama-mcp-inspector', 'node', false)).toBe('probe');
     expect(a2aAgentKind('curl', 'curl', false)).toBe('probe');
+    // Проверка, известная по имени (lib/mcp/probe-clients): образец ремесла её не узнаёт (перепись 12.11).
+    expect(a2aAgentKind('vedar-eval', 'node', false)).toBe('probe');
+    expect(a2aAgentKind('Vedar-Eval', 'node', false)).toBe('probe');
+    expect(a2aAgentKind('connectors-manager', 'node', false)).toBe('probe');
+    // Имя «как у наших» само по себе рода не даёт.
+    expect(a2aAgentKind('vedar-research', 'python', false)).toBe('external');
     expect(a2aAgentKind('python-requests', 'python', false)).toBe('external');
     expect(a2aAgentKind('GPTBot', 'openai', false)).toBe('external');
     // Метка владельца сильнее любого имени.

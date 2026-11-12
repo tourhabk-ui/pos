@@ -10,6 +10,8 @@
 import type { InboxItem } from '@/lib/crm/inbox';
 import type { InboxKind } from '@/lib/crm/inbox-kinds';
 import { signPayload } from '@/lib/chat-cabinet/signed-payload';
+import { answerDayCode, answerDayOf, ruAnswerDate } from '@/lib/requests/answer-date';
+import { DECLINE_REASON_LABEL, type DeclineReason } from '@/lib/requests/decline-reasons';
 
 export const CHAT_ANSWER_KINDS = ['lead', 'stay_request', 'stay_booking', 'gear', 'booking'] as const;
 export type ChatAnswerKind = (typeof CHAT_ANSWER_KINDS)[number];
@@ -17,19 +19,12 @@ export type ChatAnswer = 'accept' | 'other_date' | 'no_seats' | 'clarify' | 'sel
 
 /**
  * Причина отказа (решение владельца 02.11: отказ — отдельный статус с
- * причиной). Код — одна буква в payload `ia:r<код>:…`.
+ * причиной). Список и подписи — lib/requests/decline-reasons (один с «Отказом»
+ * в кабинете на сайте). Код — одна буква в payload `ia:r<код>:…`.
  */
-export const DECLINE_REASONS = ['seats', 'weather', 'dates', 'group', 'other'] as const;
-export type DeclineReason = (typeof DECLINE_REASONS)[number];
+export { DECLINE_REASONS, DECLINE_REASON_LABEL, type DeclineReason } from '@/lib/requests/decline-reasons';
 const REASON_CODE: Record<DeclineReason, string> = { seats: 's', weather: 'w', dates: 'd', group: 'g', other: 'o' };
 const CODE_REASON = new Map(Object.entries(REASON_CODE).map(([r, c]) => [c, r as DeclineReason]));
-export const DECLINE_REASON_LABEL: Record<DeclineReason, string> = {
-  seats: 'Нет мест',
-  weather: 'Погода, безопасность',
-  dates: 'Даты не подходят',
-  group: 'Не подходит группа',
-  other: 'Другое',
-};
 
 const KIND_CODE: Record<ChatAnswerKind, string> = {
   lead: 'l',
@@ -57,14 +52,28 @@ const INBOX_KIND: Partial<Record<InboxKind, ChatAnswerKind>> = {
   gear_rental: 'gear',
 };
 
-const ANSWER_LINE: Record<ChatAnswer, string> = {
-  accept: 'Ваш ответ: подтверждаю заявку. Заявка отмечена «Связался». Бронь этим не подтверждена, оплата не открыта: дату и цену согласуйте с заказчиком сами.',
-  other_date: 'Ваш ответ: предложу другую дату. Заявка отмечена «Связался», бронь не создана. Напишите заказчику, какие даты есть.',
-  no_seats: 'Ваш ответ: нет мест. Расписание не закрывал.',
-  clarify: 'Ваш ответ: уточню. Заявку не закрывал.',
-  self: 'Ваш ответ: свяжусь сам. Контакты заказчика в Telegram не отправляю.',
-  decline: 'Ваш ответ: отказ, записан к заявке. Туристу из чата ничего не ушло, бронь и оплата не менялись.',
+/** `on` — « на ДД.ММ.ГГГГ» у заявки на дату, иначе пусто. */
+const ANSWER_LINE: Record<ChatAnswer, (on: string) => string> = {
+  accept: () => 'Ваш ответ: подтверждаю заявку. Заявка отмечена «Связался». Бронь этим не подтверждена, оплата не открыта: дату и цену согласуйте с заказчиком сами.',
+  other_date: () => 'Ваш ответ: предложу другую дату. Заявка отмечена «Связался», бронь не создана. Напишите заказчику, какие даты есть.',
+  no_seats: (on) => `Ваш ответ: нет мест${on}. Расписание не закрывал.`,
+  clarify: () => 'Ваш ответ: уточню. Заявку не закрывал.',
+  self: () => 'Ваш ответ: свяжусь сам. Контакты заказчика в Telegram не отправляю.',
+  decline: () => 'Ваш ответ: отказ, записан к заявке. Бронь и оплата не менялись.',
 };
+
+const onDate = (date: string | null | undefined): string => (date ? ` на ${ruAnswerDate(date)}` : '');
+
+/**
+ * Хвост кнопки записи у заявки (`lead`): `:<код дня>` — на какую дату заявки
+ * оператор отвечает (1422, lib/requests/answer-date). У других предметов
+ * даты нет — хвоста нет. `undefined` — дату не передали: кнопка без хвоста.
+ */
+function dayTail(kind: ChatAnswerKind, date: string | null | undefined): string {
+  if (kind !== 'lead' || date === undefined) return '';
+  const code = answerDayCode(date);
+  return code === null ? '' : `:${code}`;
+}
 
 const ALREADY = 'Ответ по этой заявке уже записан. Повторно ничего не меняю.';
 
@@ -95,23 +104,28 @@ export function chatAnswerButtons(
   ];
 }
 
-const ASK_LINE: Record<Exclude<ChatAnswer, 'decline'>, string> = {
-  accept: 'Записать ответ «Подтверждаю заявку»? Бронь этим не подтверждается, оплата не открывается.',
-  other_date: 'Записать ответ «Предложу другую дату»? Заявка будет отмечена «Связался».',
-  no_seats: 'Записать ответ «Нет мест»? Расписание не закрывается.',
-  clarify: 'Записать ответ «Уточню»?',
-  self: 'Записать ответ «Свяжусь сам»?',
+/** `on` — « по заявке на ДД.ММ.ГГГГ» / « на ДД.ММ.ГГГГ» у заявки на дату, иначе пусто. */
+const ASK_LINE: Record<Exclude<ChatAnswer, 'decline'>, (date: string | null | undefined) => string> = {
+  accept: (d) => `Записать ответ «Подтверждаю заявку»${d ? ` по заявке на ${ruAnswerDate(d)}` : ''}? Бронь этим не подтверждается, оплата не открывается.`,
+  other_date: (d) => `Записать ответ «Предложу другую дату»${d ? ` по заявке на ${ruAnswerDate(d)}` : ''}? Заявка будет отмечена «Связался», туристу уйдёт сообщение, что вы предложите другую дату.`,
+  no_seats: (d) => `Записать ответ «Нет мест»${onDate(d)}? Туристу уйдёт сообщение об этом и свободные даты тура рядом по календарю. Расписание не закрывается.`,
+  clarify: (d) => `Записать ответ «Уточню»${d ? ` по заявке на ${ruAnswerDate(d)}` : ''}?`,
+  self: (d) => `Записать ответ «Свяжусь сам»${d ? ` по заявке на ${ruAnswerDate(d)}` : ''}?`,
 };
 
-/** Второе нажатие (решение владельца 02.11): «Да» пишет ответ, «Нет» ничего не меняет. */
+/**
+ * Второе нажатие (решение владельца 02.11): «Да» пишет ответ, «Нет» ничего не
+ * меняет. `date` — дата заявки, которую оператор видит в вопросе: она же
+ * уходит в «Да», и ответ запишется, только если дата заявки к нажатию та же.
+ */
 export function chatAnswerAsk(
-  answer: Exclude<ChatAnswer, 'decline'>, kind: ChatAnswerKind, subjectId: string,
+  answer: Exclude<ChatAnswer, 'decline'>, kind: ChatAnswerKind, subjectId: string, date?: string | null,
 ): { text: string; rows: Array<Array<{ text: string; payload: string }>> } {
   const id = subjectId.toLowerCase();
   return {
-    text: ASK_LINE[answer],
+    text: ASK_LINE[answer](kind === 'lead' ? date : undefined),
     rows: [[
-      { text: 'Да', payload: signPayload(`ia:y${ANSWER_CODE[answer]}:${KIND_CODE[kind]}:${id}`) },
+      { text: 'Да', payload: signPayload(`ia:y${ANSWER_CODE[answer]}:${KIND_CODE[kind]}:${id}${dayTail(kind, date)}`) },
       { text: 'Нет', payload: signPayload('ia:no') },
     ]],
   };
@@ -127,21 +141,57 @@ export function declineButton(kind: ChatAnswerKind, subjectId: string): { text: 
   return { text: 'Отказать', payload: signPayload(`ia:x:${KIND_CODE[kind]}:${subjectId.toLowerCase()}`) };
 }
 
-export function declineReasonButtons(kind: ChatAnswerKind, subjectId: string): Array<Array<{ text: string; payload: string }>> {
+export function declineReasonButtons(
+  kind: ChatAnswerKind, subjectId: string, date?: string | null,
+): Array<Array<{ text: string; payload: string }>> {
   const id = subjectId.toLowerCase();
-  const b = (r: DeclineReason) => ({ text: DECLINE_REASON_LABEL[r], payload: signPayload(`ia:r${REASON_CODE[r]}:${KIND_CODE[kind]}:${id}`) });
+  const tail = dayTail(kind, date);
+  const b = (r: DeclineReason) => ({ text: DECLINE_REASON_LABEL[r], payload: signPayload(`ia:r${REASON_CODE[r]}:${KIND_CODE[kind]}:${id}${tail}`) });
   return [[b('seats'), b('weather')], [b('dates'), b('group')], [b('other')]];
 }
 
-export const DECLINE_PICK_TEXT = 'Почему отказ? Выберите причину — она запишется к заявке. Туристу из чата ничего не уйдёт, бронь и оплата не меняются.';
+export const DECLINE_PICK_TEXT = 'Почему отказ? Выберите причину — она запишется к заявке, заявка закроется как отказ, и туристу уйдёт сообщение с этой причиной. Бронь и оплата не меняются.';
 
+/** Вопрос о причине отказа; у заявки на дату — с датой, на которую отказ. */
+export function declinePickText(date?: string | null): string {
+  return date
+    ? `Почему отказ по заявке на ${ruAnswerDate(date)}? Выберите причину — она запишется к заявке, заявка закроется как отказ, и туристу уйдёт сообщение с этой причиной. Бронь и оплата не меняются.`
+    : DECLINE_PICK_TEXT;
+}
+
+/**
+ * Дата заявки сменилась между вопросом и «Да» (турист перенёс её после «Нет
+ * мест», «Моя поездка» → «Изменить дату»). Ответ не записан: он был о дате,
+ * которой в заявке уже нет.
+ */
+export function chatAnswerDateChangedText(now: string | null): string {
+  return now
+    ? `Дата заявки сменилась: сейчас в ней ${ruAnswerDate(now)}. Ответ не записал — он был о прежней дате. Ответьте по новой дате:`
+    : 'Дата в заявке сменилась. Ответ не записал — он был о прежней дате. Ответьте заново:';
+}
+
+/**
+ * `date` — дата заявки из хвоста кнопки (1422): строка — ISO, null — «у
+ * заявки даты не было», undefined — хвоста нет (кнопка не заявки или выпущена
+ * до 1422).
+ */
 export type ParsedChatAnswer =
   /** confirmed=false — первое нажатие: только вопрос «Записать?» (решение владельца 02.11: второе «Да»). */
-  | { answer: Exclude<ChatAnswer, 'decline'>; kind: ChatAnswerKind; subjectId: string; confirmed: boolean }
-  | { answer: 'decline'; reason: DeclineReason; kind: ChatAnswerKind; subjectId: string }
+  | { answer: Exclude<ChatAnswer, 'decline'>; kind: ChatAnswerKind; subjectId: string; confirmed: boolean; date?: string | null }
+  | { answer: 'decline'; reason: DeclineReason; kind: ChatAnswerKind; subjectId: string; date?: string | null }
   | { answer: 'decline_pick'; kind: ChatAnswerKind; subjectId: string };
 
 const SUBJECT = '([0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}|\\d{1,18})';
+/** Необязательный хвост даты — только у заявки. */
+const DAY = '(?::([0-9a-z]{1,4}))?';
+
+/** Хвост даты: только у заявки и только разборчивый; иначе вся кнопка не разобрана. */
+function dayOfTail(kind: ChatAnswerKind, code: string | undefined): { ok: true; date?: string | null } | { ok: false } {
+  if (code === undefined) return { ok: true };
+  if (kind !== 'lead') return { ok: false };
+  const date = answerDayOf(code.toLowerCase());
+  return date === undefined ? { ok: false } : { ok: true, date };
+}
 
 export function parseChatAnswer(payload: string): ParsedChatAnswer | null {
   const pick = new RegExp(`^ia:x:([lhsgb]):${SUBJECT}$`, 'i').exec(payload);
@@ -149,22 +199,30 @@ export function parseChatAnswer(payload: string): ParsedChatAnswer | null {
     const kind = CODE_KIND.get(pick[1]!.toLowerCase());
     return kind ? { answer: 'decline_pick', kind, subjectId: pick[2]!.toLowerCase() } : null;
   }
-  const decline = new RegExp(`^ia:r([swdgo]):([lhsgb]):${SUBJECT}$`, 'i').exec(payload);
+  const decline = new RegExp(`^ia:r([swdgo]):([lhsgb]):${SUBJECT}${DAY}$`, 'i').exec(payload);
   if (decline) {
     const reason = CODE_REASON.get(decline[1]!.toLowerCase());
     const kind = CODE_KIND.get(decline[2]!.toLowerCase());
-    return reason && kind ? { answer: 'decline', reason, kind, subjectId: decline[3]!.toLowerCase() } : null;
+    if (!reason || !kind) return null;
+    const day = dayOfTail(kind, decline[4]);
+    if (!day.ok) return null;
+    return { answer: 'decline', reason, kind, subjectId: decline[3]!.toLowerCase(), ...('date' in day ? { date: day.date } : {}) };
   }
-  const match = new RegExp(`^ia:(y?)([adncm]):([lhsgb]):${SUBJECT}$`, 'i').exec(payload);
+  const match = new RegExp(`^ia:(y?)([adncm]):([lhsgb]):${SUBJECT}${DAY}$`, 'i').exec(payload);
   if (!match) return null;
   const answer = CODE_ANSWER.get(match[2]!.toLowerCase());
   const kind = CODE_KIND.get(match[3]!.toLowerCase());
   if (!answer || answer === 'decline' || !kind) return null;
-  return { answer, kind, subjectId: match[4]!.toLowerCase(), confirmed: match[1]!.toLowerCase() === 'y' };
+  const confirmed = match[1]!.toLowerCase() === 'y';
+  // Дата — только у «Да»: первое нажатие ничего не пишет и дату читает заново.
+  if (match[5] !== undefined && !confirmed) return null;
+  const day = dayOfTail(kind, match[5]);
+  if (!day.ok) return null;
+  return { answer, kind, subjectId: match[4]!.toLowerCase(), confirmed, ...('date' in day ? { date: day.date } : {}) };
 }
 
-export function chatAnswerText(answer: ChatAnswer, already: boolean): string {
-  return already ? ALREADY : ANSWER_LINE[answer];
+export function chatAnswerText(answer: ChatAnswer, already: boolean, date?: string | null): string {
+  return already ? ALREADY : ANSWER_LINE[answer](onDate(date));
 }
 
 /** Предмет есть во входящих этого партнёра. Чужой id не записываем. */

@@ -16,7 +16,7 @@ import { z } from 'zod';
 import { requirePartner } from '@/lib/crm/partner-context';
 import { isLeadId } from '@/lib/rental/request-answer';
 import { answerRentalRequest } from '@/lib/rental/request-answer-flow';
-import { answerTellPlain, answerTellStatus, loadRentalActor } from '@/lib/rental/web-cabinet';
+import { answerTellAttention, answerTellPlain, answerTellStatus, loadRentalActor } from '@/lib/rental/web-cabinet';
 
 export const dynamic = 'force-dynamic';
 
@@ -54,7 +54,7 @@ export async function POST(req: NextRequest, { params }: Ctx) {
   const status = answerTellStatus(tell);
   return NextResponse.json(
     status === 200
-      ? { success: true, outcome: tell.kind, message: answerTellPlain(tell) }
+      ? { success: true, outcome: tell.kind, message: answerTellPlain(tell), attention: answerTellAttention(tell) }
       : { success: false, outcome: tell.kind, error: answerTellPlain(tell) },
     { status },
   );

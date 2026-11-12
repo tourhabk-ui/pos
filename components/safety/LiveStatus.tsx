@@ -20,7 +20,9 @@ import {
   isVolcanoObservationStale, type AccColor,
 } from '@/lib/services/safety/kvert-vona';
 import { coastPaths } from '@/lib/geo/coastline';
-import { useMemo, useState, type CSSProperties, type ReactNode } from 'react';
+import { useEffect, useMemo, useState, type CSSProperties, type ReactNode } from 'react';
+import { alertKey } from '@/lib/safety/new-alerts';
+import { useNewAlerts } from '@/hooks/use-new-alerts';
 import Link from 'next/link';
 import { ChevronDown } from 'lucide-react';
 import type { SafetyAlert } from '@/app/_home/data';
@@ -553,12 +555,13 @@ interface PulseQuake { magnitude: number; place: string; time: number; depth: nu
  * и разворачивают.
  */
 export function AlertsTicker({ alerts, lines }: { alerts: SafetyAlert[]; lines?: number }) {
+  const fresh = useNewAlerts(alerts.map(alertKey));
   const compact = lines != null && lines > 0;
   const scroll = alerts.length > (compact ? lines : 2);
   const [open, setOpen] = useState(false);
   const animate = scroll && !open; // бегущая строка только в свёрнутом длинном списке
   const row = (a: SafetyAlert, i: number, dup: boolean) => (
-    <li key={`${dup ? 'd' : 'a'}-${i}`} aria-hidden={dup || undefined}>
+    <li key={`${dup ? 'd' : 'a'}-${i}`} aria-hidden={dup || undefined} className={fresh.has(alertKey(a)) ? 'is-new' : undefined} data-new={fresh.has(alertKey(a)) ? 'true' : undefined}>
       {/* Порог цвета — правило платформы: важность 2+ — опасность (как у
           пилюли шапки, push-рассылки и статуса мест). До 26.09 лента красила
           красным только с 3, и паводок важности 2 был красным на главной и
@@ -746,7 +749,7 @@ export function VolcanoPulse({ items, degraded = false }: { items: PulseVolcano[
       </div>
       <div className="pbars">
         {bars.map((v, i) => (
-          <button key={v.placeId ?? v.name} className={`pbar${sel === i ? ' on' : ''}`}
+          <button key={v.placeId ?? v.name} className={`pbar vbar${sel === i ? ' on' : ''}`} data-acc={v.acc}
             style={{ height: `${ACC_BAR_H[v.acc] ?? 16}%`, background: meta(v.acc).token }}
             aria-label={`${v.name}: ${meta(v.acc).short}`} onClick={() => setSel(sel === i ? null : i)} />
         ))}
@@ -837,7 +840,9 @@ export const LIVE_STATUS_CSS = `
 .kh-live .ticker-toggle.open .tchev{transform:rotate(180deg);opacity:1}
 @keyframes v7-ticker{from{transform:translateY(0)}to{transform:translateY(-50%)}}
 .kh-live .alerts{list-style:none}
-.kh-live .alerts li{display:flex;align-items:baseline;gap:10px;padding:7px 0;border-top:1px solid color-mix(in srgb,var(--border) 55%,transparent)}
+.kh-live .alerts li{display:flex;align-items:baseline;gap:10px;padding:7px 0;border-top:1px solid color-mix(in srgb,var(--border) 55%,transparent);transition:background-color 1.2s ease;border-radius:6px}
+.kh-live .alerts li.is-new{background:color-mix(in srgb,var(--accent) 14%,transparent)}
+@media (prefers-reduced-motion:reduce){.kh-live .alerts li{transition:none}}
 .kh-live .ticker:not(.scroll) .alerts li:first-child{border-top:0}
 .kh-live .alerts li i{width:6px;height:6px;border-radius:50%;flex:none;align-self:center}
 .kh-live .alerts i.sev-hi{background:var(--danger)}.kh-live .alerts i.sev-mid{background:var(--warning)}.kh-live .alerts i.sev-lo{background:var(--ocean)}
@@ -875,6 +880,9 @@ export const LIVE_STATUS_CSS = `
 .kh-live .pulse .pbar{flex:1;min-width:0;border:0;padding:0;border-radius:2px;cursor:pointer;opacity:.62;transition:opacity .18s ease,box-shadow .18s ease;transform-origin:bottom}
 .kh-live .pulse .pbar:hover{opacity:.9}
 .kh-live .pulse .pbar.on{opacity:1;box-shadow:0 0 0 1.5px var(--bg-primary),0 0 0 3px var(--text-primary)}
+.kh-live .pulse .pbar.vbar{transition:opacity .18s ease,box-shadow .18s ease,background-color .6s ease,height .6s ease}
+.kh-live .pulse .psel .pmag{transition:background-color .6s ease}
+@media (prefers-reduced-motion:reduce){.kh-live .pulse .pbar.vbar,.kh-live .pulse .psel .pmag{transition:none}}
 .kh-live .pulse .paxis{margin-top:8px;display:flex;justify-content:space-between;font:400 7.5px/1 var(--fm);letter-spacing:.1em;text-transform:uppercase;color:var(--text-muted)}
 .kh-live .pulse .psum{margin-top:11px;padding-top:9px;border-top:1px solid color-mix(in srgb,var(--border) 55%,transparent);font:400 9px/1.4 var(--fm);color:var(--text-secondary)}
 .kh-live .pulse .psel{margin-top:11px;width:100%;display:flex;align-items:center;gap:10px;text-align:left;background:none;border:0;border-top:1px solid color-mix(in srgb,var(--border) 55%,transparent);padding:10px 0 0;cursor:pointer;font-family:var(--font-outfit),system-ui,sans-serif}

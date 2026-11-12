@@ -1,8 +1,8 @@
 # vedar-mcp-bridge — любой LLM с OpenAI-совместимым API ходит в Ведар
 
 Скрипт владельца (13.10.2026): DeepSeek, Qwen, Kimi, Doubao, GLM и любой другой
-провайдер с `chat/completions` и function calling получают 20 инструментов MCP-сервера
-Ведара без MCP-клиента. Ноль зависимостей, только стандартная библиотека Python 3.
+провайдер с `chat/completions` и function calling получают инструменты MCP-сервера
+Ведара без MCP-клиента (сколько их — `--tools`; число в прозе здесь уже расходилось с сервером). Ноль зависимостей, только стандартная библиотека Python 3.
 
 ```bash
 export LLM_API_KEY=sk-...            # ключ провайдера
@@ -20,8 +20,11 @@ python3 vedar_mcp_bridge.py --schema vedar_tools.json   # снимок схем�
 `dashscope-intl.aliyuncs.com` — задаётся `LLM_BASE_URL`.
 
 Что мост держит сам:
-- пять пишущих инструментов (`create_lead`, `create_booking_request`, `create_stay_request`,
-  `request_charter`, `create_car_rental_request`) не уходят без `consent: true` от человека в этом диалоге;
+- шесть заявок (`create_lead`, `create_booking_request`, `create_stay_request`,
+  `request_charter`, `create_car_rental_request`, `create_trip_request`) не уходят без `consent: true` от человека в этом диалоге;
+- отмена и перенос заявки (`change_request`) идут только с подтверждением человека у терминала:
+  в интерактивном режиме мост спрашивает «Выполнить? [да/нет]», а в `--serve` и при одиночном
+  вопросе спросить некого — вызова нет, и модели сказано почему;
 - системная подсказка: данные только из инструментов, безопасность перед советом, ответ на
   языке вопроса, заявка — не бронь, экстренный вызов 112;
 - в журнал Ведара мост представляется `vedar-mcp-bridge/<провайдер>` — в `/hub/admin/mcp`
@@ -32,9 +35,10 @@ python3 vedar_mcp_bridge.py --schema vedar_tools.json   # снимок схем�
 `--serve 8080` поднимает `POST /chat` без авторизации — только для локальной машины или
 за своим прокси.
 
-Снимок `vedar_tools.json` — 20 инструментов в формате OpenAI function; сторож
-`tests/unit/vedar-mcp-bridge.test.ts` держит его имена равными живым публичным
-инструментам сервера, а ворота согласия — четырём пишущим.
+Снимок `vedar_tools.json` — инструменты сервера в формате OpenAI function; сторож
+`tests/unit/vedar-mcp-bridge.test.ts` держит его равным живым публичным инструментам
+сервера байт в байт, ворота согласия — заявкам, ворота подтверждения — инструментам,
+меняющим заявку.
 
 Живой прогон с китайскими моделями — `.github/workflows/china-bridge-probe.yml` по
 маркеру `.github/triggers/china-bridge-probe.json`: с раннера, ключи DeepSeek и DashScope

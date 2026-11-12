@@ -52,7 +52,8 @@ export async function GET(req: NextRequest) {
     JOIN leads l ON l.id = f.lead_id
     WHERE f.status = 'pending'
       AND f.scheduled_at <= NOW()
-      AND l.status NOT IN ('converted', 'rejected', 'ai_processing')
+      -- cancelled (1427): заявку отменил клиент — «позвоните сегодня» по ней не шлём.
+      AND l.status NOT IN ('converted', 'rejected', 'ai_processing', 'cancelled')
       -- Свой лид (проверка владельца, 1145): напоминать некому — он сам его оставил.
       AND l.is_self = FALSE
     ORDER BY f.scheduled_at ASC

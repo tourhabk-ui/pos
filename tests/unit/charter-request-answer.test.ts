@@ -11,8 +11,13 @@
  *   · ответ записывается один раз (та же строка partner_answered, что у
  *     проката), с видом и меткой времени; повтор ничего не меняет;
  *   · после ответа: статус лида той же дверью, что у оператора и гида,
- *     заказчику — сообщение в переписку заявки, менеджеру — факт без ПД;
- *     отказ следствий не отменяет ответ и назван (в логе и партнёру);
+ *     после «Беру» заказчику — сообщение в переписку заявки, менеджеру — факт
+ *     без ПД; отказ следствий не отменяет ответ и назван (в логе и партнёру);
+ *   · «Не могу» (план «после отказа», этап 2б-2, слово владельца 12.11):
+ *     строка сообщения заказчику рождается в транзакции ответа, отправляется
+ *     один раз и после смены статуса; слов перевозчика в переписке нет;
+ *     партнёру и менеджеру назван исход отправки, обещания «заявка остаётся у
+ *     менеджера Ведара» нет нигде;
  *   · карточка кабинета в чате даёт те же кнопки в MAX и Telegram, переписку
  *     — только в MAX; Telegram-нажатие не из пилота идёт без строки проката;
  *   · дверь сайта — перевозчику, тем же правилом;
@@ -24,8 +29,9 @@ import { NextRequest, NextResponse } from 'next/server';
 import { readFileSync } from 'node:fs';
 import { join } from 'node:path';
 
-const { pool, statusMock, postMock, tgMock, lookupMock, requirePartnerMock } = vi.hoisted(() => ({
+const { pool, statusMock, postMock, tgMock, lookupMock, requirePartnerMock, deliverMock, readNoticeMock } = vi.hoisted(() => ({
   pool: vi.fn(), statusMock: vi.fn(), postMock: vi.fn(), tgMock: vi.fn(), lookupMock: vi.fn(), requirePartnerMock: vi.fn(),
+  deliverMock: vi.fn(), readNoticeMock: vi.fn(),
 }));
 vi.mock('@/lib/db-pool', () => ({
   pool: {
@@ -38,9 +44,17 @@ vi.mock('@/lib/requests/request-chat-service', () => ({ postOwnerMessage: (...a:
 vi.mock('@/lib/notifications/tg-send', () => ({ tgSend: (...a: unknown[]) => tgMock(...a) }));
 vi.mock('@/lib/kuzmich/operator-chat', () => ({ findPartnerByChat: (...a: unknown[]) => lookupMock(...a) }));
 vi.mock('@/lib/crm/partner-context', () => ({ requirePartner: (...a: unknown[]) => requirePartnerMock(...a) }));
+// Сама отправка заказчику — в tests/unit/answer-notice.test.ts; здесь — что дверь зовёт её один раз и когда.
+vi.mock('@/lib/requests/answer-notice', () => ({
+  deliverAnswerNotice: (...a: unknown[]) => deliverMock(...a),
+  readVehicleNoticeOutcome: (...a: unknown[]) => readNoticeMock(...a),
+}));
 
-import { answerRentalRequest, handleRentalRequestAnswer } from '@/lib/rental/request-answer-flow';
-import { clientCharterAnswerText } from '@/lib/rental/request-answer';
+import { DECLINE_TELL_BUDGET_MS, answerRentalRequest, handleRentalRequestAnswer } from '@/lib/rental/request-answer-flow';
+import { clientCharterTakeText, managerAnswerText, partnerAnswerText } from '@/lib/rental/request-answer';
+import { answerTellAttention, answerTellPlain } from '@/lib/rental/web-cabinet';
+import type { NoticeOutcome } from '@/lib/requests/answer-notice-text';
+import { managerQueueUrl } from '@/lib/manager-queue/link';
 import { itemCardScreen, type CabinetPartner } from '@/lib/chat-cabinet/screens';
 import { tryRentalCabinetTelegramPress } from '@/lib/rental/cabinet-telegram';
 import { INBOX_BY_CATEGORY, INBOX_KINDS, INBOX_NOT_HERE, RESPONSE_METRIC_KINDS } from '@/lib/crm/inbox-kinds';
@@ -65,11 +79,27 @@ function charterLead(over: Record<string, unknown> = {}) {
 }
 
 let journal: Array<Record<string, unknown>> = [];
+/** Параметры вставки строки сообщения заказчику: [заявка, запись журнала, партнёр]. */
+let notices: unknown[][] = [];
+/** Порядок следствий: что шло раньше — статус или отправка. */
+let order: string[] = [];
 
-function arm(opts: { lead?: Record<string, unknown> | null } = {}) {
+const DELIVERED_MAX: NoticeOutcome = { state: 'delivered', via: 'max', dates: [] };
+const UNDELIVERED: NoticeOutcome = { state: 'undelivered', manager: 'max', why: { broken: false, chat: 'none', agent: 'none' } };
+
+function arm(opts: { lead?: Record<string, unknown> | null; notice?: 'none' | 'throws' | { state: 'pending' | 'skipped'; skipped_reason: string | null } } = {}) {
   journal = [];
+  notices = [];
+  order = [];
   pool.mockImplementation(async (sql: unknown, params?: unknown[]) => {
     const s = String(sql);
+    order.push(/^\s*(BEGIN|COMMIT|ROLLBACK)/.exec(s)?.[1] ?? (/INSERT INTO answer_notices/.test(s) ? 'notice' : /INSERT INTO lead_activity_log/.test(s) ? 'journal' : 'sql'));
+    if (/INSERT INTO answer_notices/.test(s)) {
+      if (opts.notice === 'throws') throw Object.assign(new Error('x'), { code: '57P01' });
+      notices.push(params ?? []);
+      if (opts.notice === 'none') return { rows: [] };
+      return { rows: [{ id: '77', state: 'pending', skipped_reason: null, ...(typeof opts.notice === 'object' ? opts.notice : {}) }] };
+    }
     if (/FROM leads/.test(s)) return { rows: opts.lead === null ? [] : [opts.lead ?? charterLead()] };
     if (/lead_activity_log/.test(s) && /SELECT/.test(s)) {
       const last = journal.at(-1);
@@ -77,7 +107,7 @@ function arm(opts: { lead?: Record<string, unknown> | null } = {}) {
     }
     if (/INSERT INTO lead_activity_log/.test(s)) {
       journal.push(JSON.parse(String(params?.[1])) as Record<string, unknown>);
-      return { rows: [{ id: '1' }] };
+      return { rows: [{ id: '41' }] };
     }
     if (/FROM partners/.test(s)) return { rows: [{ name: 'Шатун <ИП>', slug: 'shatun' }] };
     return { rows: [] };
@@ -86,7 +116,12 @@ function arm(opts: { lead?: Record<string, unknown> | null } = {}) {
 
 beforeEach(() => {
   pool.mockReset();
-  statusMock.mockReset().mockResolvedValue({ kind: 'ok', changed: true, prevStatus: 'new', lead: { id: LEAD, status: 'contacted', notes: null } });
+  statusMock.mockReset().mockImplementation(async () => {
+    order.push('status');
+    return { kind: 'ok', changed: true, prevStatus: 'new', lead: { id: LEAD, status: 'contacted', notes: null } };
+  });
+  deliverMock.mockReset().mockImplementation(async () => { order.push('deliver'); return DELIVERED_MAX; });
+  readNoticeMock.mockReset().mockResolvedValue(null);
   postMock.mockReset().mockResolvedValue({ outcome: 'sent', delivery: 'max' });
   tgMock.mockReset().mockResolvedValue({ ok: true });
   lookupMock.mockReset();
@@ -125,19 +160,111 @@ describe('«Беру» перевозчика', () => {
 
     expect(managers).toHaveLength(1);
     expect(managers[0]).toContain('Перевозчик «Шатун &lt;ИП&gt;» ответил «беру» на заявку на машину');
-    expect(managers[0]).toContain('Направление: Вулкан Горелый');
+    // Направление — свободный ввод заказчика: в рабочий Telegram оно не уходит вовсе, заявка находится по номеру.
+    expect(managers[0]).not.toContain('Горелый');
+    expect(managers[0]).toContain(LEAD);
     expect(managers[0]).not.toContain(PHONE);
+    // «Беру» в очередь менеджера не встаёт — ссылки на неё в сообщении нет.
+    expect(managers[0]).not.toContain(managerQueueUrl());
   });
 
-  it('«Не могу»: лид → lost, заказчику — «остаётся у менеджера», менеджеру — «нужен другой перевозчик»', async () => {
+  it('«Не могу»: лид → lost, заказчику — одно сообщение Ведара после смены статуса, слов перевозчика в переписке нет; партнёру и менеджеру — исход', async () => {
     arm();
     const managers: string[] = [];
     const r = await answerRentalRequest({ partner: SHATUN, leadId: LEAD, answer: 'decline', via: 'site', notifyManager: async (t) => { managers.push(t); } });
-    expect(r.tell).toEqual({ kind: 'charter_decline', clientTold: true });
+    expect(r.tell).toEqual({ kind: 'charter_decline', notice: DELIVERED_MAX });
     expect(statusMock.mock.calls[0][0]).toMatchObject({ status: 'lost', via: 'site' });
-    expect(String(postMock.mock.calls[0][1])).toContain('не может выполнить эту заявку');
-    expect(String(postMock.mock.calls[0][1])).toContain('остаётся у менеджера Ведара');
-    expect(managers[0]).toContain('Нужен другой перевозчик');
+
+    // Строка сообщения — в транзакции ответа: после журнала и до фиксации, с номером записи журнала и партнёром.
+    expect(notices).toEqual([[LEAD, '41', PARTNER]]);
+    const tx = order.filter((o) => o !== 'sql');
+    expect(tx.slice(0, 4)).toEqual(['BEGIN', 'journal', 'notice', 'COMMIT']);
+    // Отправка — одна, по этой строке, и после статуса: вид заявки, из которого она строится, читает его.
+    expect(deliverMock).toHaveBeenCalledTimes(1);
+    expect(deliverMock.mock.calls[0][0]).toBe('77');
+    expect(tx.indexOf('status')).toBeGreaterThan(tx.indexOf('COMMIT'));
+    expect(tx.indexOf('deliver')).toBeGreaterThan(tx.indexOf('status'));
+    // Двух сообщений об одном отказе заказчик не получает.
+    expect(postMock).not.toHaveBeenCalled();
+
+    expect(managers).toHaveLength(1);
+    expect(managers[0]).toContain('ответил «не могу» на заявку на машину');
+    // Менеджеру — и что заявка теперь за ним, и знает ли заказчик об отказе.
+    expect(managers[0]).toContain('Нужен другой перевозчик: заявка остаётся у менеджера. Заказчику ушло сообщение об отказе в MAX');
+    expect(managers[0]).not.toContain(PHONE);
+    // «Не могу» встаёт в очередь менеджера (этап 3б): последней строкой — где она и где отметка «Взял».
+    expect(managers[0]!.split('\n').at(-1)).toBe(`В очереди менеджера — там же отметка «Взял»: ${managerQueueUrl()}`);
+    const told = partnerAnswerText(r.tell);
+    expect(told).toContain('<b>Ваш ответ:</b> не могу. Заказчику ушло сообщение в MAX: ваш ответ.');
+    expect(told).not.toMatch(/остаётся у менеджера|турист/i);
+  });
+
+  it('«Не могу», а до заказчика не дошло: партнёр читает, кто позвонит, менеджер — что письмо с телефоном ушло отдельно; сайт помечает итог предупреждением', async () => {
+    arm();
+    deliverMock.mockResolvedValue(UNDELIVERED);
+    const managers: string[] = [];
+    const r = await answerRentalRequest({ partner: SHATUN, leadId: LEAD, answer: 'decline', notifyManager: async (t) => { managers.push(t); } });
+    expect(r.tell).toEqual({ kind: 'charter_decline', notice: UNDELIVERED });
+    expect(partnerAnswerText(r.tell)).toContain('Заказчику сообщить не удалось: чат с ним не подключён. Заявку с телефоном получил менеджер Ведара — он позвонит.');
+    expect(managers[0]).toContain('До заказчика отказ не дошёл — заявка с телефоном ушла отдельным сообщением в MAX: позвонить.');
+    expect(answerTellAttention(r.tell)).toBe(true);
+    expect(answerTellAttention({ kind: 'charter_decline', notice: DELIVERED_MAX })).toBe(false);
+    expect(answerTellAttention({ kind: 'charter_decline', notice: { state: 'skipped', reason: 'lead_closed' } })).toBe(false);
+    expect(answerTellAttention({ kind: 'charter_decline', notice: { state: 'pending' } })).toBe(true);
+    expect(answerTellAttention({ kind: 'charter_decline', notice: { state: 'pending', sending: true } })).toBe(true);
+    expect(answerTellAttention({ kind: 'charter_decline', notice: null })).toBe(true);
+  });
+
+  it('канал завис: нажатие ждёт отправку не дольше срока, партнёр читает «отправляется», а не «не ушло» и не «ушло»', async () => {
+    arm();
+    vi.useFakeTimers();
+    try {
+      // Отправка не кончается никогда — как при зависшем канале.
+      deliverMock.mockImplementation(() => { order.push('deliver'); return new Promise(() => undefined); });
+      const managers: string[] = [];
+      const pending = answerRentalRequest({ partner: SHATUN, leadId: LEAD, answer: 'decline', notifyManager: async (t) => { managers.push(t); } });
+      await vi.advanceTimersByTimeAsync(DECLINE_TELL_BUDGET_MS - 1);
+      expect(managers).toHaveLength(0);
+      await vi.advanceTimersByTimeAsync(1);
+      const r = await pending;
+      expect(r.tell).toEqual({ kind: 'charter_decline', notice: { state: 'pending', sending: true } });
+      expect(partnerAnswerText(r.tell)).toContain('Сообщение заказчику отправляется; не уйдёт — повторю автоматически');
+      expect(partnerAnswerText(r.tell)).not.toMatch(/сейчас не ушло|ушло сообщение/);
+      expect(managers[0]).toContain('Сообщение заказчику об отказе отправляется');
+      // Срок — меньше худшего срока самой отправки, иначе он ничего не ограничивает.
+      expect(DECLINE_TELL_BUDGET_MS).toBeLessThanOrEqual(30_000);
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
+  it('строка сообщения не создалась — отправки нет, партнёру сказано «не записалось», а не «ушло»; сбой её записи откатывает и ответ', async () => {
+    arm({ notice: 'none' });
+    const managers: string[] = [];
+    const r = await answerRentalRequest({ partner: SHATUN, leadId: LEAD, answer: 'decline', notifyManager: async (t) => { managers.push(t); } });
+    expect(r.tell).toEqual({ kind: 'charter_decline', notice: null });
+    expect(deliverMock).not.toHaveBeenCalled();
+    expect(partnerAnswerText(r.tell)).toContain('Сообщение заказчику не записалось — свяжитесь с ним сами по телефону из заявки.');
+    expect(managers[0]).toContain('Сообщение заказчику об отказе не записалось');
+    expect(vi.mocked(console.error).mock.calls.flat().join(' ')).toMatch(/строка сообщения заказчику не создана/);
+
+    arm({ notice: 'throws' });
+    statusMock.mockClear();
+    const failed = await answerRentalRequest({ partner: SHATUN, leadId: LEAD, answer: 'decline', notifyManager: async () => undefined });
+    expect(failed.tell).toEqual({ kind: 'retry' });
+    expect(order).toContain('ROLLBACK');
+    expect(order).not.toContain('COMMIT');
+    expect(statusMock).not.toHaveBeenCalled();
+    expect(deliverMock).not.toHaveBeenCalled();
+  });
+
+  it('«Беру» строки сообщения не рождает: о нём заказчику говорит сам перевозчик', async () => {
+    arm();
+    const r = await answerRentalRequest({ partner: SHATUN, leadId: LEAD, answer: 'take', notifyManager: async () => undefined });
+    expect(r.tell).toEqual({ kind: 'charter_take', clientTold: true });
+    expect(notices).toEqual([]);
+    expect(deliverMock).not.toHaveBeenCalled();
+    expect(postMock).toHaveBeenCalledTimes(1);
   });
 
   it('повтор, даже другим ответом, — «уже записан»: ни статуса, ни сообщения, ни менеджера второй раз', async () => {
@@ -146,11 +273,30 @@ describe('«Беру» перевозчика', () => {
     const notify = async (t: string) => { managers.push(t); };
     await answerRentalRequest({ partner: SHATUN, leadId: LEAD, answer: 'take', notifyManager: notify });
     const again = await answerRentalRequest({ partner: SHATUN, leadId: LEAD, answer: 'decline', notifyManager: notify });
-    expect(again.tell).toEqual({ kind: 'already', answer: 'take' });
+    expect(again.tell).toEqual({ kind: 'already', answer: 'take', notice: null });
     expect(journal).toHaveLength(1);
     expect(statusMock).toHaveBeenCalledTimes(1);
     expect(postMock).toHaveBeenCalledTimes(1);
     expect(managers).toHaveLength(1);
+    expect(notices).toEqual([]);
+    expect(deliverMock).not.toHaveBeenCalled();
+    expect(readNoticeMock).not.toHaveBeenCalled();
+  });
+
+  it('повтор после «Не могу»: второго сообщения заказчику нет, партнёр читает прежний исход', async () => {
+    arm();
+    const notify = async () => undefined;
+    await answerRentalRequest({ partner: SHATUN, leadId: LEAD, answer: 'decline', notifyManager: notify });
+    readNoticeMock.mockResolvedValue(UNDELIVERED);
+    const again = await answerRentalRequest({ partner: SHATUN, leadId: LEAD, answer: 'decline', notifyManager: notify });
+    expect(again.tell).toEqual({ kind: 'already', answer: 'decline', notice: UNDELIVERED });
+    expect(readNoticeMock).toHaveBeenCalledWith(LEAD);
+    expect(deliverMock).toHaveBeenCalledTimes(1);
+    expect(notices).toHaveLength(1);
+    expect(partnerAnswerText(again.tell)).toContain('Ответ уже записан: не могу.');
+    expect(partnerAnswerText(again.tell)).toContain('Заказчику сообщить не удалось');
+    // Исход не прочитался — строки об отправке нет, выдумывать её нечем.
+    expect(partnerAnswerText({ kind: 'already', answer: 'decline', notice: null })).toBe('Ответ уже записан: не могу. Дни не отмечал.');
   });
 
   it('отказ следствий не отменяет ответ и назван: статус не сменился — в лог, заказчику не ушло — партнёру словами', async () => {
@@ -182,10 +328,37 @@ describe('«Беру» перевозчика', () => {
     expect(postMock).not.toHaveBeenCalled();
   });
 
-  it('текст заказчику без суммы и без «машина за вами»; пустое имя — «Перевозчик»', () => {
-    expect(clientCharterAnswerText('  ', 'take')).toContain('Перевозчик «Перевозчик» берёт');
-    expect(clientCharterAnswerText('Шатун', 'take')).toContain('согласуете с ним напрямую');
-    expect(clientCharterAnswerText('Шатун', 'decline')).toContain('не может выполнить');
+  it('текст заказчику после «Беру» без суммы и без «машина за вами»; пустое имя — «Перевозчик»', () => {
+    expect(clientCharterTakeText('  ')).toContain('Перевозчик «Перевозчик» берёт');
+    expect(clientCharterTakeText('Шатун')).toContain('согласуете с ним напрямую');
+    expect(clientCharterTakeText('Шатун')).not.toMatch(/₽|руб|менеджер/);
+  });
+
+  it('менеджеру в Telegram: направление — слова заказчика, телефон и почта из них не уходят; исход отправки назван по каждому случаю', () => {
+    const base = { kind: 'charter' as const, partnerName: 'Шатун', leadId: LEAD, answer: 'decline' as const, from: '2026-11-10', to: null, marked: null };
+    const dirty = managerAnswerText({ ...base, carTitle: `Горелый, встретить Петра у дома на Тестовой, ${PHONE}, ivan@example.com`, notice: DELIVERED_MAX });
+    // Не только телефон и почта: адрес и имя чисткой не вырезать, поэтому направления в тексте нет вовсе.
+    expect(dirty).not.toMatch(/Горелый|Петра|Тестовой|Направление/);
+    expect(dirty).not.toContain(PHONE);
+    expect(dirty).not.toContain('ivan@example.com');
+    const CUE = 'Нужен другой перевозчик: заявка остаётся у менеджера. ';
+    const line = (notice: NoticeOutcome | null) => {
+      const last = managerAnswerText({ ...base, carTitle: 'Горелый', notice }).split('\n').at(-1)!;
+      expect(last.startsWith(CUE), last).toBe(true);
+      return last.slice(CUE.length);
+    };
+    expect(line({ state: 'delivered', via: 'agent_webhook', dates: [] })).toBe('Отказ ушёл ИИ-агенту заказчика: его уведомление принято.');
+    expect(line({ state: 'delivered', via: 'page_seen', dates: [] })).toBe('Заказчик уже открыл страницу заявки и видит отказ.');
+    expect(line({ ...UNDELIVERED, manager: 'telegram-stub' } as NoticeOutcome)).toContain('заглушка без телефона, номер в админке');
+    expect(line({ ...UNDELIVERED, manager: 'none' } as NoticeOutcome)).toContain('письмо с телефоном сейчас не ушло — повторится автоматически');
+    expect(line({ state: 'skipped', reason: 'self' })).toBe('Тестовая заявка карточки партнёра — заказчику ничего не отправлялось.');
+    expect(line({ state: 'pending' })).toBe('Сообщение заказчику сейчас не ушло — отправка повторится автоматически.');
+    expect(line({ state: 'pending', sending: true })).toBe('Сообщение заказчику об отказе отправляется; не уйдёт — повторится автоматически.');
+    // Заявку уже вели, сообщение не ушло — об отказе заказчику больше сказать некому.
+    expect(line({ state: 'skipped', reason: 'outgrown' })).toBe('Статус заявки уже сменился — заказчику ничего не отправлялось: об отказе ему нужно сказать самим.');
+    expect(line(null)).toContain('не записалось');
+    // «Беру» строки об отправке отказа не несёт.
+    expect(managerAnswerText({ ...base, answer: 'take', carTitle: 'Горелый' })).toContain('Перевозчик свяжется с заказчиком сам');
   });
 });
 
@@ -247,6 +420,8 @@ describe('нажатие в чате', () => {
       expect(payloads.includes(`lq:o:${LEAD}`), channel).toBe(channel === 'max');
       expect(screen.text, channel).toContain('Заявка на машину');
       expect(screen.text, channel).toContain('машина заявкой не закрепляется');
+      expect(screen.text, channel).toContain('«Не могу» — заказчику уйдёт сообщение об этом');
+      expect(screen.text, channel).not.toContain('остаётся у менеджера');
       expect(screen.pd, channel).toBe(false);
     }
     // У оператора такой карточки с кнопками нет: вид — перевозчика.
@@ -278,6 +453,22 @@ describe('дверь сайта — POST /api/hub/crm/charter-requests/[id]/answ
 
     const again = await POST(req({ answer: 'decline' }), { params });
     expect(again.status).toBe(409);
+  });
+
+  it('«Не могу» с сайта: 200, в тексте исход отправки заказчику; не дошло — признак attention', async () => {
+    arm();
+    requirePartnerMock.mockResolvedValue({ outcome: 'ok', partnerId: PARTNER, category: 'transfer', userId: 'u-shatun', seat: 'owner' });
+    const { POST } = await import('@/app/api/hub/crm/charter-requests/[id]/answer/route');
+    const ok = await (await POST(req({ answer: 'decline' }), { params })).json();
+    expect(ok).toMatchObject({ success: true, outcome: 'charter_decline', attention: false });
+    expect(ok.message).toBe('Ваш ответ: не могу. Заказчику ушло сообщение в MAX: ваш ответ.');
+
+    arm();
+    deliverMock.mockResolvedValue(UNDELIVERED);
+    const warn = await (await POST(req({ answer: 'decline' }), { params })).json();
+    expect(warn).toMatchObject({ success: true, attention: true });
+    expect(warn.message).toContain('Заказчику сообщить не удалось');
+    expect(answerTellPlain({ kind: 'charter_decline', notice: UNDELIVERED })).not.toMatch(/<b>/);
   });
 
   it('не перевозчик — 403 без чтения; гард не пропустил — его ответ; кривое тело — 400', async () => {

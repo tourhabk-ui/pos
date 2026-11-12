@@ -145,11 +145,11 @@ const line = (e: ReturnType<typeof estimateGroup>, label: RegExp) => {
 describe('смета: выбранное — пунктом плана вместо ориентира', () => {
   it('ночи выбранной стоянки выходят из ориентира, стоянка — строкой с ценой предложения', () => {
     const before = estimateGroup(DAYS, PROFILE);
-    // comfort, Авачинская: 7 000 ₽ ×0.8…×1.2 на человека за ночь; 3 ночи × 2 чел.
-    expect(line(before, /Проживание в Авачинской/)?.total).toEqual([33600, 50400]);
+    // comfort, Авачинская: 7 000 ₽ на человека за ночь, без множителей (решение владельца 11.11, #3199 E12); 3 ночи × 2 чел.
+    expect(line(before, /Проживание в Авачинской/)?.total).toEqual([42000, 42000]);
 
     const e = estimateGroup(DAYS, PROFILE, choices({ stays: [STAY] }));
-    expect(line(e, /Проживание в Авачинской/)).toMatchObject({ basis: '1 ночь × 2 чел.', total: [11200, 16800] });
+    expect(line(e, /Проживание в Авачинской/)).toMatchObject({ basis: '1 ночь × 2 чел.', total: [14000, 14000] });
     expect(line(e, /Жильё «Гостиница»/)).toMatchObject({
       label: 'Жильё «Гостиница», 03.08–05.08', basis: '2 ночи × 1 номер «Стандарт»', total: [20000, 20000], source: 'offer',
     });
@@ -159,10 +159,10 @@ describe('смета: выбранное — пунктом плана вмес�
 
   it('стоянка в другой зоне чужих ночей не вынимает; без даты прилёта выбранное не ставится вовсе', () => {
     const western = estimateGroup(DAYS, PROFILE, choices({ stays: [{ ...STAY, zone: 'western' }] }));
-    expect(line(western, /Проживание в Авачинской/)?.total).toEqual([33600, 50400]);
+    expect(line(western, /Проживание в Авачинской/)?.total).toEqual([42000, 42000]);
     const noDate = estimateGroup(DAYS, { ...PROFILE, arrivalDate: null }, choices({ stays: [STAY] }));
     expect(line(noDate, /Жильё/)).toBeUndefined();
-    expect(line(noDate, /Проживание в Авачинской/)?.total).toEqual([33600, 50400]);
+    expect(line(noDate, /Проживание в Авачинской/)?.total).toEqual([42000, 42000]);
   });
 
   it('группа не помещается или цены нет — строка без суммы, в итог не входит, причина названа', () => {

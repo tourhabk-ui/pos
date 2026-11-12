@@ -65,10 +65,13 @@ describe('разбор клипов тура', () => {
 describe('файлы и заливка', () => {
   const marker = JSON.parse(read(MARKER)) as { upload: boolean; items: Array<{ file: string; key: string }> };
 
+  // Срок задан явно: строк маркера 1898 на 235 МБ (после переезда снимков партнёров, 08.11),
+  // и каждую проверка читает с диска. Под нагрузкой полного прогона это заняло 12 с
+  // при сроке по умолчанию 5 с (12.11) — красный без единого дефекта.
   it('каждая строка маркера проходит проверку заливки', () => {
     expect(marker.items.length).toBeGreaterThan(0);
     for (const it of marker.items) expect(typeof checkItem(it, ROOT), it.file).toBe('object');
-  });
+  }, 60_000);
 
   it('клипы без звука: в MP4 есть дорожка видео и нет дорожки звука', () => {
     for (const it of marker.items.filter((i) => i.file.endsWith('.mp4'))) {

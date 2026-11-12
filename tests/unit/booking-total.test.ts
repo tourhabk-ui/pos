@@ -49,7 +49,7 @@ describe('все двери считают одной функцией', () => {
     // 26.09: /api/bookings/tour удалён, агентская бронь и модалка брони
     // заводятся через reserveBooking / BookingFormClient (сторож agent-pack-a).
     ['app/hub/agent/bookings/_AgentBookingsPageClient.tsx', 'сумма в заявке агента'],
-    ['app/api/hub/operator/bookings/route.ts', 'ручная бронь оператора'],
+    ['lib/bookings/manual-booking.ts', 'ручная бронь продавца: оператор и гид-продавец'],
     ['lib/bookings/booking.service.ts', 'перенос на другой тур'],
     ['components/marketplace/BookingFormClient.tsx', 'сумма в форме тура'],
     ['app/hub/tourist/cart/checkout/_CheckoutClient.tsx', 'итог корзины'],

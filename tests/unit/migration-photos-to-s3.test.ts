@@ -156,23 +156,38 @@ describe('раздача читает ключ: адрес из S3_BUCKET, по�
 
   afterEach(() => { vi.unstubAllEnvs(); vi.doUnmock('@/lib/db-pool'); });
 
-  it('только ключ — 302 на объект хранилища', async () => {
+  // С 11.11 объект нашего бакета отдаётся телом с нашего домена, а не 302
+  // (lib/images/serve-stored): какой адрес читается — видно по запросу к хранилищу.
+  const fetched: string[] = [];
+  function stubStorage() {
+    fetched.length = 0;
+    vi.stubGlobal('fetch', vi.fn(async (u: string) => {
+      fetched.push(String(u));
+      return new Response('jpegbytes', { status: 200, headers: { 'content-type': 'image/jpeg' } });
+    }));
+  }
+  afterEach(() => { vi.unstubAllGlobals(); });
+
+  it('только ключ — объект хранилища по адресу из S3_BUCKET', async () => {
     const { hero, gallery } = await routes();
+    stubStorage();
     rows = [{ image_data: null, mime_type: 'image/jpeg', s3_url: null, s3_key: KEY, thumb_url: null }];
     const h = await hero.GET(req(`http://x/api/images/route/${ark}`), { params: Promise.resolve({ routeId: ark }) });
-    expect(h.status).toBe(302);
-    expect(h.headers.get('location')).toBe(`https://s3.twcstorage.ru/vedar-test/${KEY}`);
+    expect(h.status).toBe(200);
+    expect(h.headers.get('location')).toBeNull();
     expect(h.headers.get('x-source')).toBe('s3-key');
     const g = await gallery.GET(req(`http://x/api/images/place-gallery/${ark}/1`), { params: Promise.resolve({ arkId: ark, position: '1' }) });
-    expect(g.status).toBe(302);
-    expect(g.headers.get('location')).toBe(`https://s3.twcstorage.ru/vedar-test/${KEY}`);
+    expect(g.status).toBe(200);
+    expect(fetched).toEqual([`https://s3.twcstorage.ru/vedar-test/${KEY}`, `https://s3.twcstorage.ru/vedar-test/${KEY}`]);
   });
 
   it('адрес s3_url старше ключа; байты — только когда нет ни того, ни другого', async () => {
     const { hero, gallery } = await routes();
+    stubStorage();
     rows = [{ image_data: Buffer.from('x'), mime_type: 'image/jpeg', s3_url: 'https://s3.twcstorage.ru/vedar-test/places/old.jpg', s3_key: KEY, thumb_url: null }];
     const h = await hero.GET(req(`http://x/api/images/route/${ark}`), { params: Promise.resolve({ routeId: ark }) });
-    expect(h.headers.get('location')).toBe('https://s3.twcstorage.ru/vedar-test/places/old.jpg');
+    expect(h.status).toBe(200);
+    expect(fetched).toEqual(['https://s3.twcstorage.ru/vedar-test/places/old.jpg']);
     rows = [{ image_data: Buffer.from('jpegbytes'), mime_type: 'image/jpeg', s3_url: null, s3_key: null }];
     const g = await gallery.GET(req(`http://x/api/images/place-gallery/${ark}/1`), { params: Promise.resolve({ arkId: ark, position: '1' }) });
     expect(g.status).toBe(200);

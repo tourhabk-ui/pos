@@ -2,8 +2,9 @@
 
 /**
  * Ответ перевозчика на заявку на машину прямо во «Входящих» (#2862 этап A):
- * «Беру» — готов выполнить и свяжется с заказчиком сам, «Не могу» — заявка
- * остаётся у менеджера Ведара. Та же функция, что у кнопки под заявкой в MAX
+ * «Беру» — готов выполнить и свяжется с заказчиком сам, «Не могу» — заказчик
+ * получает сообщение Ведара об отказе (этап 2б-2), а перевозчик — что с ним
+ * вышло. Та же функция, что у кнопки под заявкой в MAX
  * и в карточке кабинета в чате (answerRentalRequest). Машина заявкой не
  * закрепляется, суммы здесь нет (§14); контакты заказчика — в самой заявке,
  * которую перевозчик получил в MAX, и в «Клиентах».
@@ -44,8 +45,8 @@ export function CharterRequestActions({ leadId, onAnswered }: { leadId: string; 
       const message = isRecord(json) && typeof json.message === 'string' ? json.message : null;
       const error = isRecord(json) && typeof json.error === 'string' ? json.error : null;
       if (res.ok && message) {
-        // «Сообщение заказчику не ушло» — ответ записан, но связаться надо самому.
-        onAnswered({ text: message, tone: /не ушло/.test(message) ? 'warn' : 'ok' });
+        // Ответ записан, а до заказчика не дошло — сервер называет это признаком `attention`.
+        onAnswered({ text: message, tone: isRecord(json) && json.attention === true ? 'warn' : 'ok' });
       } else if (res.status === 409) {
         // Ответ уже был: повторять нельзя, это не ошибка ввода.
         onAnswered({ text: error ?? 'Ответ уже записан.', tone: 'warn' });
@@ -53,7 +54,8 @@ export function CharterRequestActions({ leadId, onAnswered }: { leadId: string; 
         setResult({ text: error ?? `Ответ не принят (${res.status})`, tone: 'error' });
       }
     } catch {
-      setResult({ text: 'Нет связи с сервером — ответ не отправлен. Попробуйте ещё раз.', tone: 'error' });
+      // Ответ мог записаться до обрыва связи: «не отправлен» было бы догадкой. Повтор безопасен — второго ответа не бывает.
+      setResult({ text: 'Нет связи с сервером. Записан ли ответ — неизвестно: нажмите ещё раз, второй раз он не запишется.', tone: 'error' });
     } finally {
       setBusy(false);
     }
@@ -66,7 +68,7 @@ export function CharterRequestActions({ leadId, onAnswered }: { leadId: string; 
         <button type="button" disabled={busy} onClick={() => void send('decline')} className="ds-btn ds-btn-secondary">Не могу</button>
       </div>
       <p className="text-xs text-[var(--text-muted)]">
-        «Беру» — вы свяжетесь с заказчиком сами и договоритесь напрямую; машина заявкой не закрепляется. «Не могу» — заявка остаётся у менеджера Ведара.
+        «Беру» — вы свяжетесь с заказчиком сами и договоритесь напрямую; машина заявкой не закрепляется. «Не могу» — заказчику уйдёт сообщение об этом; что ушло, появится здесь после ответа.
       </p>
       {result && <p role="status" className="text-xs text-[var(--danger)]">{result.text}</p>}
     </div>

@@ -228,7 +228,9 @@ export const CRON_CAPABILITIES: Record<string, readonly Capability[]> = {
   'kuzmich-redteam': ['db_read', 'db_write', 'net_out', 'telegram', 'ai'],
   'kvert-acc': ['db_read', 'db_write', 'net_out'],
   'leads-followup': ['db_read', 'db_write', 'net_out', 'telegram', 'pd_direct'],
-  'leads-process': ['db_read', 'db_write', 'net_out', 'ai', 'pd_direct'],
+  // 12.11 (1427): имя туриста крон больше не читает и в ответе не отдаёт — ответ печатает
+  // workflow в лог публичного репозитория. Работа с ПД ушла из самого роута.
+  'leads-process': ['db_read', 'db_write', 'net_out', 'ai'],
   'legacy-tours-census': ['db_read'],
   'legacy-tours-cleanup': ['db_write'],
   'legislation-sync': ['db_read', 'db_write', 'net_out', 'ai'],
@@ -363,6 +365,9 @@ export const CRON_CAPABILITIES: Record<string, readonly Capability[]> = {
   // Запрос мест (29.09): закрывает просроченные и пишет туристу в его мессенджер
   // (Telegram или MAX) — без ПД, только исход запроса.
   'seat-requests-expire': ['db_read', 'db_write', 'net_out', 'telegram'],
+  // Сообщение после ответа оператора (2б): человеку — без ПД; менеджеру о
+  // недоставленном — имя и телефон через sendPdAlert (только MAX).
+  'answer-notices': ['db_read', 'db_write', 'net_out', 'telegram'],
   'smart-notify': ['db_read', 'db_write', 'net_out', 'telegram', 'pd_direct'],
   'sos-census': ['db_read', 'pd_direct'],
   'sos-events-bridge': ['db_read', 'db_write'],

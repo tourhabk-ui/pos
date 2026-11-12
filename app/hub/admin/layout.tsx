@@ -7,7 +7,7 @@ import {
   Activity, Bell, Settings, Brain, Tag, Award, ClipboardList, Plug, TrendingUp, Send,
   Building2, HardHat, AlertTriangle, Share2, Sparkles, Mail, Database, Image as ImageIcon, Globe,
   Route, LineChart, Video, Sprout, MessageCircle, ShieldCheck, LifeBuoy,
-  Trash2, Webhook, Gauge, Package, BookUser, Bot,} from 'lucide-react';
+  Trash2, Webhook, Gauge, Package, PhoneCall, BookUser, Bot,} from 'lucide-react';
 import { HubLayout } from '@/components/layout/HubLayout';
 import { AiAssistant } from '@/components/admin/AiAssistant';
 
@@ -19,6 +19,8 @@ const SIDEBAR_ITEMS = [
 
   // Продажи
   { href: '/hub/admin/leads', label: 'CRM — Лиды', icon: ClipboardList, section: 'Продажи' },
+  // Клиенты, которым после отказа нужен звонок или замена, и отметка «Взял» (план «после отказа», этап 3б).
+  { href: '/hub/admin/queue', label: 'Очередь менеджера', icon: PhoneCall, section: 'Продажи' },
   // Клиенты всех партнёров — только просмотр: метки и заметки ведёт партнёр (CRM #2325).
   { href: '/hub/admin/clients', label: 'Клиенты партнёров', icon: BookUser, section: 'Продажи' },
   { href: '/hub/admin/bookings', label: 'Бронирования', icon: Calendar, section: 'Продажи' },
@@ -46,6 +48,9 @@ const SIDEBAR_ITEMS = [
   // Разбор утверждений Кузьмича о безопасности (#2300): сверка — автоматом,
   // отметка «верно / ошибка» — человеком, после отправки, а не до неё.
   { href: '/hub/admin/kuzmich-safety', label: 'Кузьмич: безопасность', icon: ShieldCheck, section: 'Контент' },
+  // Плохие оценки Кузьмича случаями (#3179): свод в публичном issue называет
+  // только числа и номера, здесь их можно открыть — вопрос, ответ, судья.
+  { href: '/hub/admin/kuzmich-outcomes', label: 'Кузьмич: плохие оценки', icon: ShieldCheck, section: 'Контент' },
   { href: '/hub/admin/content/partners', label: 'Партнёры', icon: Briefcase, section: 'Контент' },
   { href: '/hub/admin/guide-certifications', label: 'Сертификаты гидов', icon: Award, section: 'Контент' },
   { href: '/hub/admin/enrich-places', label: 'Обогащение мест', icon: Sprout, section: 'Контент' },

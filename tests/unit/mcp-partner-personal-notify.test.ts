@@ -34,9 +34,12 @@ describe('MCP create_booking_request — личная доставка опер�
     expect(ROUTE).toMatch(/if \(saved\.created && !ctx\.self && tour\.operator_id\) \{/);
     const call = ROUTE.indexOf('notifyPartnerPersonallyAboutMcpLead({');
     expect(call).toBeGreaterThan(ROUTE.indexOf('const saved = existing ? { id: existing, created: false } : await createLeadDetailed({'));
-    // С 29.10 ключ статуса и подписка на уведомления выдаются одной функцией.
-    expect(call).toBeLessThan(ROUTE.indexOf('return accepted + await issueKeyWithNotify'));
-    const block = ROUTE.slice(call, ROUTE.indexOf('return accepted + await issueKeyWithNotify'));
+    // С 29.10 ключ статуса и подписка на уведомления выдаются одной функцией;
+    // с 12.11 её хвост лежит в keyTail: после него идут другие компании (этап 6).
+    const keyAt = ROUTE.indexOf('const keyTail = await issueKeyWithNotify({ leadId }');
+    expect(keyAt).toBeGreaterThan(-1);
+    expect(call).toBeLessThan(keyAt);
+    const block = ROUTE.slice(call, keyAt);
     expect(block).toMatch(/operatorId: tour\.operator_id/);
     expect(block).toMatch(/routeTitle: tour\.title/);
   });

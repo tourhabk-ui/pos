@@ -13,6 +13,11 @@
  *  - до «Да» заявка не меняется; «Да» — правило со скоупом карточки этого
  *    чата, от человека карточки, с каналом; повтор «Да» — прежний итог,
  *    правило один раз; тот же статус — «уже» без вопроса;
+ *  - «Отказ» (этап 3а) — без кнопки «Да»: причины кнопками, и до нажатия
+ *    сказано, что получит турист; причина и есть подтверждение — запись и
+ *    отправка туристу те же, что у двери сайта (closeLeadWithReason), итог
+ *    говорит, что на деле ушло; «Да» без причины такую заявку не закрывает,
+ *    причина под другим вопросом не исполняется;
  *  - туроператор, гид команды, карточка без аккаунта, привязка без
  *    записанного человека, нажал не тот, групповой чат, незаверенный MAX —
  *    у каждого свой отказ, ничего не записано;
@@ -41,12 +46,13 @@ const m = vi.hoisted(() => ({
   tgSend: vi.fn(),
   team: vi.fn(),
   reach: vi.fn(),
+  deliver: vi.fn(),
 }));
 
 /** Поддельная база: только запросы, которыми ходит lib/bookings/chat-owner-action. */
 interface FakeRow {
   id: string; partner_id: string; channel: string; chat_id: string; subject_kind: string; subject_id: string;
-  action: string; status: string; outcome: unknown; expired: boolean;
+  action: string; status: string; outcome: unknown; expired: boolean; reason?: string | null;
 }
 const db = vi.hoisted(() => ({
   owner: '602' as string | null,
@@ -89,14 +95,21 @@ function fakeQuery(sql: string, params: unknown[] = []): { rows: unknown[]; rowC
     return res([{ subject_kind: r.subject_kind, subject_id: r.subject_id }]);
   }
   if (/SET status = 'running'/.test(sql)) {
-    const r = db.rows.find((x) => mine(x) && x.status === 'ready' && !x.expired);
+    // Условие захвата — как его пишет запрос: «Да» не берёт строку «Отказа»
+    // по заявке, причина берёт только её (и пишет себя в строку).
+    const isLost = (x: FakeRow) => x.subject_kind === 'lead' && x.action === 'lost';
+    const notLost = /AND NOT \(subject_kind = 'lead' AND action = 'lost'\)/.test(sql);
+    const lostOnly = !notLost && /AND subject_kind = 'lead' AND action = 'lost'/.test(sql);
+    const r = db.rows.find((x) => mine(x) && x.status === 'ready' && !x.expired
+      && (!notLost || !isLost(x)) && (!lostOnly || isLost(x)));
     if (!r) return res([]);
     r.status = 'running';
-    return res([{ subject_kind: r.subject_kind, subject_id: r.subject_id, action: r.action, reason: null }]);
+    if (/reason = \$5/.test(sql)) r.reason = p[4] ?? null;
+    return res([{ subject_kind: r.subject_kind, subject_id: r.subject_id, action: r.action, reason: r.reason ?? null }]);
   }
-  if (/SELECT status, subject_kind, subject_id, outcome/.test(sql)) {
+  if (/SELECT status, subject_kind, subject_id, action, outcome/.test(sql)) {
     const r = db.rows.find(mine);
-    return res(r ? [{ status: r.status, subject_kind: r.subject_kind, subject_id: r.subject_id, outcome: r.outcome, expired: r.expired, stale: false }] : []);
+    return res(r ? [{ status: r.status, subject_kind: r.subject_kind, subject_id: r.subject_id, action: r.action, outcome: r.outcome, expired: r.expired, stale: false }] : []);
   }
   if (/SET status = \$2, outcome = \$3::jsonb/.test(sql)) {
     const r = db.rows.find((x) => x.id === p[0] && x.status === 'running');
@@ -133,6 +146,11 @@ vi.mock('@/lib/leads/owner-lead-status', async (orig) => ({
   changeLeadStatus: m.changeLead,
 }));
 vi.mock('@/lib/bookings/owner-status', () => ({ changeOwnerBookingStatus: m.changeBooking }));
+// Отправка сообщения туристу после «Отказа» с причиной: здесь судится, что ушло в запись и что сказано гиду.
+vi.mock('@/lib/requests/answer-notice', async (orig) => ({
+  ...(await orig<typeof import('@/lib/requests/answer-notice')>()),
+  deliverAnswerNotice: m.deliver,
+}));
 vi.mock('@/lib/notifications/pd-alert', () => ({ sendPdAlert: m.pdAlert }));
 vi.mock('@/lib/operators/team-notify', () => ({ notifyTeam: m.team }));
 vi.mock('@/lib/partners/reach', async (orig) => ({
@@ -160,6 +178,8 @@ const { notifyPartnerNewLeadPersonally } = await import('@/lib/notifications/lea
 const max = await import('@/app/api/max/kuzmich/route');
 const telegram = await import('@/app/api/telegram/webhook/route');
 const { clearMaxMessageDedup } = await import('@/lib/max/update-dedup');
+const { isWritePayload } = await import('@/lib/chat-cabinet/signed-payload');
+const { CLIENT_REASON_LINE, NOT_ADDRESSED_LINE } = await import('@/lib/leads/seller-lost-flow');
 
 // ── Данные: выдуманные турист, тур и гид ────────────────────────────────────
 
@@ -223,6 +243,11 @@ type TgMessage = { chatId: string; text: string; replyMarkup?: { inline_keyboard
 const tgSent = () => m.tgSend.mock.calls.map((c) => c[0] as TgMessage).filter((x) => x.chatId === String(TG_CHAT));
 
 const OK = (status: string, changed = true) => ({ kind: 'ok', changed, prevStatus: 'new', lead: { id: LEAD, status, notes: null } });
+/** Итог закрытия с причиной: запись журнала и строка сообщения туристу (или её нет). */
+const CLOSED = (notice: { id: string; state: 'pending' | 'skipped'; skipped: string | null } | null) => ({
+  ...OK('lost'), closed: { activityId: '9', notice },
+});
+const REASON_CODES = ['s', 'w', 'd', 'g', 'o', 'n', 'c'];
 
 beforeEach(() => {
   clearMaxMessageDedup();
@@ -236,6 +261,7 @@ beforeEach(() => {
   m.findPartner.mockResolvedValue({ outcome: 'found', partner: SELLER });
   m.findAdmin.mockResolvedValue({ outcome: 'none' });
   m.changeLead.mockResolvedValue(OK('contacted'));
+  m.deliver.mockResolvedValue({ state: 'delivered', via: 'max', dates: [] });
   m.pdAlert.mockResolvedValue({ channel: 'max', delivered: true, reason: 'доставлено в MAX' });
   m.tgSend.mockResolvedValue({ success: true });
   m.team.mockResolvedValue({ state: 'none' });
@@ -269,6 +295,34 @@ describe('форма кнопок заявки', () => {
     // Номер заявки — только uuid; заглавные буквы приводятся.
     expect(press.parseOwnerPress(`ld:k:${LEAD.toUpperCase()}`)).toEqual({ kind: 'lead', action: 'contacted', leadId: LEAD });
     for (const bad of [`ld:q:${LEAD}`, 'ld:k:501', 'ld:k:', `ld:k:${LEAD}x`, 'ld:kk:x']) {
+      expect(press.parseOwnerPress(bad), bad).toBeNull();
+    }
+  });
+
+  it('причины под «Отказом»: подписи и порядок — как в выборе на сайте, «Не надо» последней; payload разбирается обратно, подписывается и влезает в callback_data', () => {
+    const ACTION = '00000000-0000-4000-8000-000000000042';
+    const rows = press.leadReasonButtons(ACTION);
+    expect(rows.map((r) => r.map((b) => b.text))).toEqual([
+      ['Нет мест', 'Погода, безопасность'],
+      ['Даты не подходят', 'Не подходит группа'],
+      ['Другое'],
+      ['Клиент не отвечает', 'Клиент передумал'],
+      ['Не надо'],
+    ]);
+    const flat = rows.flat();
+    // Кнопка причины — запись: у неё хвост подписи и срока, как у «Да». Вебхук снимает его до разбора.
+    const bare = flat.map((b) => b.payload.split('~')[0]!);
+    expect(bare).toEqual([...REASON_CODES.map((c) => `oc:r${c}:${ACTION}`), `oc:x:${ACTION}`]);
+    const reasons = ['seats', 'weather', 'dates', 'group', 'other', 'no_contact', 'client_declined'];
+    flat.slice(0, 7).forEach((b, i) => {
+      expect(press.parseOwnerPress(bare[i]!), bare[i]).toEqual({ kind: 'lead_reason', reason: reasons[i], actionId: ACTION });
+      expect(pressActionOf(bare[i]!), bare[i]).toBe('owner');
+      expect(isWritePayload(bare[i]!), bare[i]).toBe(true);
+      // Подписана (ключ в этом наборе есть) — и с хвостом влезает в callback_data Telegram.
+      expect(b.payload, bare[i]).not.toBe(bare[i]);
+      expect(Buffer.byteLength(b.payload), b.payload).toBeLessThanOrEqual(64);
+    });
+    for (const bad of [`oc:rz:${ACTION}`, `oc:r:${ACTION}`, 'oc:rs:501', `oc:rs:${ACTION}x`, `oc:rss:${ACTION}`]) {
       expect(press.parseOwnerPress(bad), bad).toBeNull();
     }
   });
@@ -385,7 +439,7 @@ describe('MAX: вопрос, затем «Да»', () => {
 
   it('между вопросом и «Да» заявка ушла другому — «не найдена», строка — отказ', async () => {
     m.changeLead.mockResolvedValueOnce({ kind: 'not_found' });
-    await postMax(VERIFIED, tap(`ld:l:${LEAD}`));
+    await postMax(VERIFIED, tap(`ld:w:${LEAD}`));
     await postMax(VERIFIED, tap(`oc:y:${idFrom(lastMax().payloads, 'oc:y:')}`));
     expect(lastMax().text).toBe(OWNER_ACTION_TEXT.leadNotFound);
     expect(db.rows[0]).toMatchObject({ status: 'refused', outcome: { kind: 'lead_refused', reason: 'not_found' } });
@@ -434,6 +488,177 @@ describe('MAX: вопрос, затем «Да»', () => {
   });
 });
 
+// ── «Отказ»: причина вместо «Да» ────────────────────────────────────────────
+
+describe('MAX: «Отказ» — только с причиной (этап 3а)', () => {
+  const askLost = async () => {
+    await postMax(VERIFIED, tap(`ld:l:${LEAD}`));
+    const q = lastMax();
+    return { q, id: idFrom(q.payloads, 'oc:x:') };
+  };
+
+  it('вопрос: причины кнопками, «Да» нет; до нажатия сказано, что получит турист; ПД нет; заявка не тронута', async () => {
+    const { q, id } = await askLost();
+    expect(q.text).toBe([
+      'Закрыть заявку «Пещеры &lt;Камчатки&gt;», 2 чел, от 28.10: «Отказ»? Сейчас: «Новая — ждёт вашего ответа». '
+        + 'Выберите причину — от неё зависит, что узнает турист.',
+      '<b>Отказываю я</b> — Нет мест · Погода, безопасность · Даты не подходят · Не подходит группа · Другое. '
+        + 'Туристу уйдёт сообщение Ведара: что вы отказали и почему.',
+      '<b>Причина на стороне клиента</b> — Клиент не отвечает · Клиент передумал. '
+        + 'Туристу ничего не уйдёт. В статусе заявки он увидит причину с пометкой «по словам оператора».',
+    ].join('\n\n'));
+    noPd(q.text);
+    expect(q.payloads).toEqual([
+      ...REASON_CODES.map((c) => `oc:r${c}:${id}`), `oc:x:${id}`, 'rm:gd:td', 'rm:gd:in', 'rm:gd:cl', 'rm:gd:mn',
+    ]);
+    expect(q.payloads.some((x) => x.startsWith('oc:y:'))).toBe(false);
+    expect(db.rows).toMatchObject([{ subject_kind: 'lead', subject_id: LEAD, action: 'lost', status: 'ready' }]);
+    expect(m.changeLead).not.toHaveBeenCalled();
+  });
+
+  it('отказ продавца: в запись — причина и карточка этого чата со скоупом гида; сообщение отправлено; гиду — что на деле ушло; повтор — прежний итог', async () => {
+    const { id } = await askLost();
+    m.changeLead.mockResolvedValueOnce(CLOSED({ id: '77', state: 'pending', skipped: null }));
+    await postMax(VERIFIED, tap(`oc:rs:${id}`));
+    expect(m.changeLead).toHaveBeenCalledTimes(1);
+    expect(m.changeLead).toHaveBeenCalledWith({
+      leadId: LEAD, status: 'lost', notes: undefined,
+      actor: { kind: 'partner_user', userId: SELLER.userId },
+      scope: { kind: 'owner', partnerId: SELLER.partnerId, claimUnowned: false },
+      via: 'max', lost: { reason: 'seats', partnerId: SELLER.partnerId },
+    });
+    expect(m.deliver).toHaveBeenCalledTimes(1);
+    expect(m.deliver).toHaveBeenCalledWith('77');
+    expect(lastMax().text).toBe('Заявка отмечена: «Отказ». Туристу ушло сообщение в MAX: ваш ответ.');
+    expect(db.rows[0]).toMatchObject({
+      status: 'done', reason: 'seats',
+      outcome: { kind: 'lead_done', lead: LEAD, status: 'lost', changed: true, tourist: 'Туристу ушло сообщение в MAX: ваш ответ.' },
+    });
+
+    // Второе нажатие — той же или другой причины: заявка закрыта один раз, сообщение одно.
+    await postMax(VERIFIED, tap(`oc:rw:${id}`));
+    expect(m.changeLead).toHaveBeenCalledTimes(1);
+    expect(m.deliver).toHaveBeenCalledTimes(1);
+    expect(lastMax().text).toBe('Уже нажато раньше. Заявка отмечена: «Отказ». Туристу ушло сообщение в MAX: ваш ответ.');
+    expect(db.rows[0]).toMatchObject({ reason: 'seats' });
+  });
+
+  it('сообщение не дошло — гиду так и сказано, с тем, кто теперь позвонит', async () => {
+    const { id } = await askLost();
+    m.changeLead.mockResolvedValueOnce(CLOSED({ id: '78', state: 'pending', skipped: null }));
+    m.deliver.mockResolvedValueOnce({ state: 'undelivered', manager: 'max', why: { chat: 'none', agent: 'none', broken: false } });
+    await postMax(VERIFIED, tap(`oc:rw:${id}`));
+    expect(m.changeLead.mock.calls[0]![0].lost).toEqual({ reason: 'weather', partnerId: SELLER.partnerId });
+    expect(lastMax().text).toBe('Заявка отмечена: «Отказ». Туристу сообщить не удалось: чат с ним не подключён. '
+      + 'Заявку с телефоном получил менеджер Ведара — он позвонит.');
+  });
+
+  it('причина на стороне клиента: отправки нет, гиду сказано, что туристу ничего не ушло', async () => {
+    for (const [code, reason] of [['n', 'no_contact'], ['c', 'client_declined']] as const) {
+      m.changeLead.mockReset(); m.deliver.mockReset();
+      const { id } = await askLost();
+      m.changeLead.mockResolvedValueOnce(CLOSED(null));
+      await postMax(VERIFIED, tap(`oc:r${code}:${id}`));
+      expect(m.changeLead.mock.calls[0]![0].lost, code).toEqual({ reason, partnerId: SELLER.partnerId });
+      expect(m.deliver, code).not.toHaveBeenCalled();
+      expect(lastMax().text, code).toBe(`Заявка отмечена: «Отказ». ${CLIENT_REASON_LINE}`);
+    }
+  });
+
+  it('заявка не была адресована — отправки нет, и сказано почему', async () => {
+    const { id } = await askLost();
+    m.changeLead.mockResolvedValueOnce(CLOSED({ id: '79', state: 'skipped', skipped: 'not_addressee' }));
+    await postMax(VERIFIED, tap(`oc:rd:${id}`));
+    expect(m.deliver).not.toHaveBeenCalled();
+    expect(lastMax().text).toBe(`Заявка отмечена: «Отказ». ${NOT_ADDRESSED_LINE}`);
+  });
+
+  it('«Да» под «Отказом» (старая или собранная руками кнопка) заявку не закрывает: причина спрашивается ещё раз той же строкой', async () => {
+    const { id } = await askLost();
+    await postMax(VERIFIED, tap(`oc:y:${id}`));
+    expect(m.changeLead).not.toHaveBeenCalled();
+    expect(db.rows[0]).toMatchObject({ status: 'ready', action: 'lost' });
+    const again = lastMax();
+    expect(again.text).toContain('Выберите причину — от неё зависит, что узнает турист.');
+    expect(again.payloads.slice(0, 8)).toEqual([...REASON_CODES.map((c) => `oc:r${c}:${id}`), `oc:x:${id}`]);
+    // И после этого причина по-прежнему работает.
+    m.changeLead.mockResolvedValueOnce(CLOSED(null));
+    await postMax(VERIFIED, tap(`oc:rn:${id}`));
+    expect(m.changeLead).toHaveBeenCalledTimes(1);
+  });
+
+  it('причина под другим вопросом не исполняется: ни «Связался» с причиной, ни чужая отметка не закрывают заявку', async () => {
+    await postMax(VERIFIED, tap(`ld:k:${LEAD}`));
+    const id = idFrom(lastMax().payloads, 'oc:y:');
+    await postMax(VERIFIED, tap(`oc:rs:${id}`));
+    expect(lastMax().text).toBe(OWNER_ACTION_TEXT.unknownButton);
+    expect(m.changeLead).not.toHaveBeenCalled();
+    expect(db.rows[0]).toMatchObject({ status: 'ready', action: 'contacted' });
+    expect(db.rows[0]!.reason ?? null).toBeNull();
+  });
+
+  it('«Не надо», истёкший вопрос и заявка, ушедшая другому: заявка без изменений либо честный отказ', async () => {
+    const first = await askLost();
+    await postMax(VERIFIED, tap(`oc:x:${first.id}`));
+    expect(lastMax().text).toBe('Хорошо, заявка без изменений.');
+    await postMax(VERIFIED, tap(`oc:rs:${first.id}`));
+    expect(lastMax().text).toBe('Это действие отменено — заявка без изменений.');
+
+    const late = await askLost();
+    db.rows.find((r) => r.id === late.id)!.expired = true;
+    await postMax(VERIFIED, tap(`oc:rs:${late.id}`));
+    expect(lastMax().text).toBe('Вопрос устарел (15 минут) — нажмите кнопку заявки ещё раз. Ничего не изменено.');
+    expect(m.changeLead).not.toHaveBeenCalled();
+
+    const gone = await askLost();
+    m.changeLead.mockResolvedValueOnce({ kind: 'not_found' });
+    await postMax(VERIFIED, tap(`oc:rs:${gone.id}`));
+    expect(lastMax().text).toBe(OWNER_ACTION_TEXT.leadNotFound);
+    expect(m.deliver).not.toHaveBeenCalled();
+  });
+
+  it('пока думали, заявку уже закрыли — «уже», про туриста ни слова; отказ базы — «не знаю, изменилась ли»', async () => {
+    const a = await askLost();
+    m.changeLead.mockResolvedValueOnce(OK('lost', false));
+    await postMax(VERIFIED, tap(`oc:rs:${a.id}`));
+    expect(lastMax().text).toBe('Заявка уже отмечена: «Отказ» — ничего не изменено.');
+    expect(m.deliver).not.toHaveBeenCalled();
+
+    const b = await askLost();
+    m.changeLead.mockRejectedValueOnce(Object.assign(new Error('связь оборвалась'), { code: '08006' }));
+    await postMax(VERIFIED, tap(`oc:rs:${b.id}`));
+    expect(lastMax().text).toContain('Не удалось записать отметку: не знаю, изменилась ли заявка.');
+    expect(db.rows.find((r) => r.id === b.id)).toMatchObject({ status: 'refused', outcome: { kind: 'lead_refused', reason: 'error' } });
+  });
+
+  it('туроператор и гид без своих туров причину не исполняют; нажал не тот, кто подключил чат, — тоже', async () => {
+    const { id } = await askLost();
+    m.findPartner.mockResolvedValue({ outcome: 'found', partner: { ...SELLER, category: 'operator', crmCategory: 'operator' } });
+    await postMax(VERIFIED, tap(`oc:rs:${id}`));
+    expect(lastMax().text).toBe(OWNER_ACTION_TEXT.operatorLead);
+    m.findPartner.mockResolvedValue({ outcome: 'found', partner: { ...SELLER, sellsTours: false } });
+    await postMax(VERIFIED, tap(`oc:rs:${id}`));
+    expect(lastMax().text).toBe(OWNER_ACTION_TEXT.notThis);
+    m.findPartner.mockResolvedValue({ outcome: 'found', partner: SELLER });
+    db.owner = '999';
+    await postMax(VERIFIED, tap(`oc:rs:${id}`));
+    expect(lastMax().text).toBe(OWNER_ACTION_TEXT.notOwner);
+    expect(m.changeLead).not.toHaveBeenCalled();
+    expect(db.rows[0]).toMatchObject({ status: 'ready' });
+  });
+
+  it('незаверенное нажатие причины — «не засчитано», ничего не записано', async () => {
+    const { id } = await askLost();
+    const before = actionWrites();
+    m.maxSend.mockClear();
+    vi.stubEnv('MAX_WEBHOOK_SECRET', '');
+    await postMax(UNVERIFIED, tap(`oc:rs:${id}`));
+    expect(maxReplies().map((x) => x.text)).toEqual([UNVERIFIED_PRESS_REPLY.owner]);
+    expect(actionWrites()).toBe(before);
+    expect(m.changeLead).not.toHaveBeenCalled();
+  });
+});
+
 // ── Telegram ────────────────────────────────────────────────────────────────
 
 describe('Telegram: те же два шага', () => {
@@ -454,6 +679,24 @@ describe('Telegram: те же два шага', () => {
     await tgTap(`ld:l:${LEAD}`, 'group');
     expect(tgSent().at(-1)!.text).toBe(OWNER_ACTION_TEXT.notDialog);
     expect(actionWrites()).toBe(before);
+  });
+
+  it('«Отказ»: те же причины кнопками без «Да»; причина — запись с каналом telegram и исход отправки гиду', async () => {
+    await tgTap(`ld:l:${LEAD}`);
+    const q = tgSent().at(-1)!;
+    expect(q.text).toContain('Выберите причину — от неё зависит, что узнает турист.');
+    noPd(q.text);
+    const data = (q.replyMarkup?.inline_keyboard ?? []).flat().map((b) => (b.callback_data ?? '').split('~')[0]!);
+    const id = idFrom(data, 'oc:x:');
+    expect(data.filter((x) => x.startsWith('oc:'))).toEqual([...REASON_CODES.map((c) => `oc:r${c}:${id}`), `oc:x:${id}`]);
+    m.changeLead.mockResolvedValueOnce(CLOSED({ id: '81', state: 'pending', skipped: null }));
+    m.deliver.mockResolvedValueOnce({ state: 'delivered', via: 'telegram', dates: [] });
+    await tgTap(`oc:rg:${id}`);
+    expect(m.changeLead).toHaveBeenCalledWith(expect.objectContaining({
+      leadId: LEAD, status: 'lost', via: 'telegram', lost: { reason: 'group', partnerId: SELLER.partnerId },
+    }));
+    expect(m.deliver).toHaveBeenCalledWith('81');
+    expect(tgSent().at(-1)!.text).toBe('Заявка отмечена: «Отказ». Туристу ушло сообщение в Telegram: ваш ответ.');
   });
 });
 
@@ -500,7 +743,9 @@ describe('кнопки под «Входящими» и уведомлением
 
   it('справка меню продавца называет кнопки заявки и кто их нажимает', () => {
     const help = partnerMenuHelp('guide', SELLER);
-    expect(help).toContain('В карточке ждущей заявки — «Связался», «Договорились», «Отказ»');
+    expect(help).toContain('В карточке ждущей заявки — «Связался» и «Договорились»: тоже после «Да», туристу ничего не уходит.');
+    // «Отказ» — не «после «Да»»: с причиной, и отказ продавца туристу сообщается.
+    expect(help).toContain('«Отказ» — с причиной кнопкой: если отказываете вы, туристу уйдёт сообщение Ведара, и бот скажет, что ушло.');
     expect(help).toContain('Кнопки брони и заявки нажимает тот, кто подключил этот чат ссылкой из кабинета.');
     const team = partnerMenuHelp('guide', { ...SELLER, sellsTours: false });
     expect(team).not.toContain('«Связался»');

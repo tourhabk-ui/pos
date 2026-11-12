@@ -120,12 +120,12 @@ describe('движок: состав, бюджет и цена', () => {
     const rec = await recommendTrip(BASE, { itinerary: 'plain' });
     const e = estimateGroup(rec.days, { adults: 2, children: [], budgetTier: 'comfort' });
     const perGroup = e.lines.filter((l) => l.kind === 'tour' && l.basis.includes('за группу'));
-    // Вместимость 10, вас двое — одна группа: 10 000 тура, верх вилки ×1.2.
-    expect(perGroup.map((l) => l.total)).toEqual([[10000, 12000]]);
+    // Вместимость 10, вас двое — одна группа: 10 000 тура, без множителей (решение владельца 11.11, #3199 E12).
+    expect(perGroup.map((l) => l.total)).toEqual([[10000, 10000]]);
     // Всё остальное — ровно вилка на человека, умноженная на состав.
     expect(e.total).toEqual([
       rec.priceBreakdown.perPersonTotal[0] * 2 + 10000,
-      rec.priceBreakdown.perPersonTotal[1] * 2 + 12000,
+      rec.priceBreakdown.perPersonTotal[1] * 2 + 10000,
     ]);
   });
 
@@ -143,6 +143,10 @@ describe('разбор слов: состав и бюджет', () => {
     expect(readAdults('3 человека').adults).toBe(3);
     expect(readAdults('много').note).toMatch(/не разобрал.*считаю двоих/);
     expect(readAdults('50').adults).toBe(2);
+    // Число целиком (#3199, M11а): «100» не становится 10, «250 человек» — 25.
+    expect(readAdults('100').given).toBe(false);
+    expect(readAdults('250 человек').given).toBe(false);
+    expect(readAdults('3 человека')).toEqual({ adults: 3, given: true, note: null });
   });
 
   // Ловушка MCP 29.10: голое «12» (агент имел в виду «12 детей») читалось как

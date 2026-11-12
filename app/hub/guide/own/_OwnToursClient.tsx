@@ -1,14 +1,17 @@
 'use client';
 
 import { useCallback, useEffect, useState } from 'react';
-import { Compass, CalendarPlus, Inbox, Loader2, AlertCircle, RefreshCw, Phone, Mail, Users } from 'lucide-react';
+import { Compass, CalendarPlus, Inbox, Loader2, AlertCircle, RefreshCw, Phone, Mail, Users, ClipboardPlus } from 'lucide-react';
 import { ALLOWED_TRANSITIONS } from '@/types/booking.types';
 import type { OwnBooking, OwnLead, OwnTour } from '@/lib/guides/own-tours';
 import { OwnToursManager } from '@/components/guide/OwnToursManager';
+import { ManualBookingForm } from '@/components/guide/ManualBookingForm';
 import { OWNER_BOOKING_STATUS_LABEL, alreadyInStatusText } from '@/lib/bookings/owner-status-words';
 import {
   LEAD_STATUS_WORDS, OWNER_LEAD_ACTION_LABEL, leadAlreadyText, leadIsWaiting, ownerLeadActionsFor, type OwnerLeadStatus,
 } from '@/lib/leads/owner-lead-words';
+import type { LostReason } from '@/lib/leads/lost-reason';
+import { LostReasonChooser } from '@/components/leads/LostReasonChooser';
 
 /**
  * «Свои туры» гида — туры, которые гид продаёт сам: сами туры (новый тур
@@ -18,7 +21,9 @@ import {
  * GET /api/guide/own; смена статуса брони — PATCH /api/guide/own/bookings/[id],
  * заявки — PATCH /api/guide/own/leads/[id] (те же правила, что у кабинета
  * оператора); даты — POST /api/guide/own/dates. Каждое действие — в два шага:
- * кнопка, затем «Да».
+ * кнопка, затем «Да». Бронь рукой — по звонку («Записать бронь» в «Бронях»)
+ * или из заявки («Завести бронь»): форма, затем «Записать бронь»,
+ * POST /api/guide/own/bookings (#3211).
  *
  * Список, который не прочитался, приходит null и показывается «не
  * загрузилось», а не «пусто» (§4.0).
@@ -97,7 +102,7 @@ function BookingRow({ b, onDone }: { b: OwnBooking; onDone: (msg: string) => voi
 
   const actions = actionsFor(b.booking_status);
   return (
-    <li className="ds-card space-y-2" data-testid={`own-booking-${b.id}`}>
+    <li id={`booking-${b.id}`} className="ds-card space-y-2 scroll-mt-20" data-testid={`own-booking-${b.id}`}>
       <div className="flex flex-wrap items-baseline justify-between gap-2">
         <p className="font-medium text-[var(--text-primary)]">{b.tour_title}</p>
         <span className="text-sm text-[var(--text-secondary)]">{STATUS_LABEL[b.booking_status] ?? b.booking_status}</span>
@@ -150,28 +155,30 @@ function BookingRow({ b, onDone }: { b: OwnBooking; onDone: (msg: string) => voi
   );
 }
 
-function LeadRow({ l, onDone }: { l: OwnLead; onDone: (msg: string) => void }) {
+function LeadRow({ l, tours, onDone }: { l: OwnLead; tours: OwnTour[] | null; onDone: (msg: string) => void }) {
   const [pending, setPending] = useState<OwnerLeadStatus | null>(null);
+  const [booking, setBooking] = useState(false);
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
-  const send = async (status: OwnerLeadStatus) => {
+  const send = async (status: OwnerLeadStatus, lostReason?: LostReason) => {
     setBusy(true);
     setError(null);
     try {
       const res = await fetch(`/api/guide/own/leads/${l.id}`, {
         method: 'PATCH',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ status }),
+        body: JSON.stringify(lostReason ? { status, lostReason } : { status }),
       });
-      const json = await res.json().catch(() => null) as { success?: boolean; error?: string; changed?: boolean } | null;
+      const json = await res.json().catch(() => null) as { success?: boolean; error?: string; changed?: boolean; tourist?: string | null } | null;
       if (!res.ok || !json?.success) { setError(json?.error ?? 'Не записано — попробуйте ещё раз'); return; }
       setPending(null);
       // Заявка уже была с этой отметкой (другая вкладка, повтор): ничего не
-      // изменено — так и сказано.
+      // изменено — так и сказано. После отказа с причиной сервер говорит, что
+      // на деле ушло туристу, — показываем как есть.
       onDone(json.changed === false
         ? leadAlreadyText(status)
-        : `Заявка от ${fmtDate(l.created_at)}: «${LEAD_STATUS_WORDS[status] ?? status}».`);
+        : [`Заявка от ${fmtDate(l.created_at)}: «${LEAD_STATUS_WORDS[status] ?? status}».`, json.tourist].filter(Boolean).join(' '));
     } catch {
       setError('Сеть недоступна — ничего не изменено');
     } finally {
@@ -190,11 +197,28 @@ function LeadRow({ l, onDone }: { l: OwnLead; onDone: (msg: string) => void }) {
         {l.phone && <a href={`tel:${l.phone}`} className="inline-flex items-center gap-1 text-[var(--ocean)]"><Phone size={14} /> {l.phone}</a>}
         {l.email && <a href={`mailto:${l.email}`} className="inline-flex items-center gap-1 text-[var(--ocean)]"><Mail size={14} /> {l.email}</a>}
         {l.desired_dates && <span>Даты: {l.desired_dates}</span>}
-        {l.group_size ? <span>Человек: {l.group_size}</span> : null}
+        {!l.desired_dates && l.requested_date && <span>Дата: {fmtDate(l.requested_date)}</span>}
+        {(l.people ?? l.group_size) ? <span>Человек: {l.people ?? l.group_size}</span> : null}
       </p>
       {l.comment && <p className="text-[var(--text-muted)] whitespace-pre-line">{l.comment}</p>}
+      {l.bookings?.length ? (
+        <p className="text-[var(--text-secondary)]">
+          Брони по заявке:{' '}
+          {l.bookings.map((b, i) => (
+            <span key={b.id}>
+              {i > 0 ? ', ' : ''}
+              <a href={`#booking-${b.id}`} className="text-[var(--ocean)]">№{b.id}</a> — {fmtDate(b.booking_date)}, {(STATUS_LABEL[b.booking_status] ?? b.booking_status).toLowerCase()}
+            </span>
+          ))}
+        </p>
+      ) : null}
 
-      {pending ? (
+      {booking && tours ? (
+        <ManualBookingForm tours={tours} lead={l} onDone={(msg) => { setBooking(false); onDone(msg); }} onCancel={() => setBooking(false)} />
+      ) : pending === 'lost' ? (
+        // «Отказ» — только с причиной (этап 3а): от неё зависит, что узнает турист.
+        <LostReasonChooser busy={busy} onChoose={(reason) => void send('lost', reason)} onCancel={() => setPending(null)} />
+      ) : pending ? (
         <div className="space-y-2">
           <p className="text-[var(--text-primary)]">
             Отметить заявку: «{OWNER_LEAD_ACTION_LABEL[pending]}»? Туристу ничего не отправляется.
@@ -214,6 +238,11 @@ function LeadRow({ l, onDone }: { l: OwnLead; onDone: (msg: string) => void }) {
               {OWNER_LEAD_ACTION_LABEL[a]}
             </button>
           ))}
+          {tours && tours.length > 0 ? (
+            <button type="button" className="ds-btn ds-btn-secondary" onClick={() => setBooking(true)}>
+              <ClipboardPlus size={14} /> Завести бронь
+            </button>
+          ) : null}
         </div>
       )}
       {error && <p role="alert" className="text-[var(--danger)]">{error}</p>}
@@ -286,6 +315,7 @@ export default function OwnToursClient() {
   const [error, setError] = useState<string | null>(null);
   const [loading, setLoading] = useState(true);
   const [notice, setNotice] = useState<string | null>(null);
+  const [recording, setRecording] = useState(false);
 
   const load = useCallback(async () => {
     setLoading(true);
@@ -341,7 +371,17 @@ export default function OwnToursClient() {
           </section>
 
           <section className="space-y-3">
-            <h2 className="ds-h2">Брони</h2>
+            <div className="flex flex-wrap items-center justify-between gap-3">
+              <h2 className="ds-h2">Брони</h2>
+              {tours && tours.length > 0 && !recording ? (
+                <button type="button" className="ds-btn ds-btn-secondary" onClick={() => setRecording(true)}>
+                  <ClipboardPlus size={14} /> Записать бронь
+                </button>
+              ) : null}
+            </div>
+            {recording && tours ? (
+              <ManualBookingForm tours={tours} onDone={(msg) => { setRecording(false); done(msg); }} onCancel={() => setRecording(false)} />
+            ) : null}
             {bookings === null ? (
               <p role="alert" className="text-sm text-[var(--danger)]">Брони не загрузились — обновите страницу.</p>
             ) : bookings.length === 0 ? (
@@ -358,7 +398,7 @@ export default function OwnToursClient() {
             ) : leads.length === 0 ? (
               <p className="text-sm text-[var(--text-secondary)]">Заявок пока нет.</p>
             ) : (
-              <ul className="space-y-3">{leads.map((l) => <LeadRow key={l.id} l={l} onDone={done} />)}</ul>
+              <ul className="space-y-3">{leads.map((l) => <LeadRow key={l.id} l={l} tours={tours} onDone={done} />)}</ul>
             )}
           </section>
 

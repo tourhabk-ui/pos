@@ -47,6 +47,7 @@
  * пропускает заявку на машину и на прокат, даже если отбор её отдал).
  */
 import { PD_CONSENT_CARRIER_VERSION, PD_CONSENT_RENTAL_VERSION } from '@/lib/legal/pd-consent';
+import { LEAD_ANSWER_DATE_SQL } from '@/lib/requests/answer-date';
 import { WIDGET_CHAT_PSEUDO_LEAD_SQL } from '@/lib/leads/widget-chat-pseudo';
 
 /**
@@ -70,6 +71,13 @@ export const NOT_FOR_OTHER_PARTNERS_KINDS: readonly string[] = [...PARTNER_ONLY_
  * адресата она остаётся у него, как любая адресованная. Согласие человека —
  * «передачу туроператору для связи по заявке» (PD_CONSENT_TEXT): получатель
  * не назван поимённо, и добивка заявок без адресата стоит на том же тексте.
+ *
+ * Ответ — на ТЕКУЩУЮ дату заявки (1422): «Нет мест» на прежнюю дату, после
+ * которой человек сам выбрал другую, о новой ничего не говорит, и заявка на
+ * новую дату ждёт ответа адресата. Отказ по погоде или безопасности группу
+ * дальше не передаёт (слово владельца 11.11, план, вопрос 3): на ту же дату
+ * другой оператор того же вида туров поехал бы в ту же погоду — человеку
+ * предлагаются только проверенно безопасные варианты, а не передача.
  */
 export const GROUP_DECLINED_LEAD_SQL = `(
        COALESCE((source_data->>'group_over_seats')::boolean, false)
@@ -78,8 +86,25 @@ export const GROUP_DECLINED_LEAD_SQL = `(
          SELECT 1 FROM partner_incoming_answers a
           WHERE a.subject_kind = 'lead' AND a.subject_id = leads.id::text
             AND a.partner_id = leads.operator_id AND a.answer IN ('no_seats', 'decline')
+            AND a.decline_reason IS DISTINCT FROM 'weather'
+            AND a.subject_date IS NOT DISTINCT FROM ${LEAD_ANSWER_DATE_SQL('leads')}
        )
      )`;
+
+/**
+ * Статусы, в которых заявку на группу после отказа адресата берёт добивка.
+ * Те же, в которых вид заявки обещает человеку «заявку увидят другие
+ * операторы» (lib/mcp/request-status: после «Нет мест» — любой, кроме
+ * взятого человеком, после «Отказать» — `lost`), и об этом ему уходит
+ * сообщение (answer-notice). До ревью 2б добивка брала только `new`, а
+ * конвейер разбора (leads-process) за полчаса переводит заявку в
+ * `ai_qualified` — и обещание не исполнялось никогда, пока работает ИИ.
+ *
+ * `ai_processing` не берётся намеренно: его держит конвейер секунды, и
+ * сброс адресата посреди разбора он затёр бы своим `ai_qualified`; заявку в
+ * этом статусе добивка возьмёт следующим прогоном.
+ */
+export const GROUP_HANDOFF_STATUSES = ['new', 'ai_qualified', 'lost'] as const;
 
 /**
  * Лиды для добивки: `new` старше 2 часов, без адресата, без свежей добивки, не
@@ -93,7 +118,7 @@ export const FOLLOWUP_LEADS_SQL = `
          (SELECT p.slug FROM partners p WHERE p.id = leads.operator_id) AS addressee_slug
     FROM leads
    WHERE ((status = 'new' AND operator_id IS NULL)
-          OR (status IN ('new', 'lost') AND ${GROUP_DECLINED_LEAD_SQL}))
+          OR (status IN (${GROUP_HANDOFF_STATUSES.map((s) => `'${s}'`).join(', ')}) AND ${GROUP_DECLINED_LEAD_SQL}))
      AND created_at < NOW() - INTERVAL '2 hours'
      AND (
        source_data->>'last_followup' IS NULL

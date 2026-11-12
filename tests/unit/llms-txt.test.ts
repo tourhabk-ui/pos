@@ -24,6 +24,7 @@ import { WRITE_TOOL_NAMES } from '@/lib/mcp/public-tools';
 
 const COUNT_WORDS: Record<number, string> = { 4: 'четыре', 5: 'пять', 6: 'шесть', 7: 'семь', 8: 'восемь' };
 import { NOTIFY_RESPONSE_RULES } from '@/lib/mcp/request-notify-schema';
+import { ANSWER_RELAY_RULE } from '@/lib/mcp/request-status-schema';
 
 async function body(): Promise<string> {
   const res = await GET();
@@ -37,6 +38,14 @@ describe('/llms.txt — актуально и честно', () => {
   it('бренд Ведар и канонический домен vedarai.ru', () => {
     expect(text).toContain('Ведар');
     expect(text).toContain('vedarai.ru');
+  });
+
+  it('планировщик и готовые планы не обещают погоду (#3199, M9)', () => {
+    // Готовые планы считаются минимум на 30 дней вперёд — прогноза у них не
+    // бывает по построению; текст плана прогноза не несёт вовсе.
+    const lines = text.split('\n').filter((l) => /\/planner\)|\/plans\)|^## Готовые планы поездок/.test(l));
+    expect(lines.length).toBeGreaterThanOrEqual(3);
+    for (const l of lines) expect(l, l).not.toMatch(/погод/i);
   });
 
   it('НЕ содержит старый домен tourhab.ru', () => {
@@ -84,6 +93,8 @@ describe('/llms.txt — актуально и честно', () => {
     // Правило ответа приёмника — тот же текст, что у инструмента и OpenAPI.
     expect(text).toContain(NOTIFY_RESPONSE_RULES);
     expect(text).not.toMatch(/ответ 410 отключает;/);
+    // Правило доставки ответа оператора — тот же текст, что в описании get_request_status.
+    expect(text).toContain(ANSWER_RELAY_RULE);
   });
 
   it('дата обновления — сегодняшняя: списки в файле собираются из базы', () => {

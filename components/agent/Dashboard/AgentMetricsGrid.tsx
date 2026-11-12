@@ -7,6 +7,7 @@ import {
 } from 'lucide-react';
 import { MetricCard } from '../../admin/shared/MetricCard';
 import { LoadingSpinner } from '../../admin/shared/LoadingSpinner';
+import { agentRoleOpen } from '@/lib/auth/agent-role';
 
 // Икон-чип метрики — тот же язык, что чипы разделов кабинетов (vedar §9:
 // lucide через --ocean, не эмодзи; здесь до этого жили огрызки вырезанных
@@ -113,8 +114,13 @@ export function AgentMetricsGrid({ period = '30' }: AgentMetricsGridProps) {
     ? null
     : (commission.waiting ?? 0) + (commission.payable ?? 0) + commission.requested + commission.paidOut;
 
+  // Роль заморожена (#3212) — вознаграждение не начисляется: плиток денег
+  // агента нет, остаются клиенты и брони.
+  const money = agentRoleOpen();
+
   return (
     <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-6">
+      {money && (<>
       <MetricCard
         title="Оплаченные продажи"
         value={rub(metrics.paidRevenue)}
@@ -132,6 +138,7 @@ export function AgentMetricsGrid({ period = '30' }: AgentMetricsGridProps) {
         icon={<MetricIcon icon={CreditCard} />}
         trend={earned !== null && earned > 0 ? 'up' : 'neutral'}
       />
+      </>)}
 
       <MetricCard
         title="Клиенты"

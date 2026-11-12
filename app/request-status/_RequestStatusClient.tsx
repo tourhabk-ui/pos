@@ -12,9 +12,11 @@
  * в шапке lib/mcp/write-guard.ts). Пока заявка ждёт оператора, страница
  * переспрашивает состояние сама; «ссылка неверна» / «не найдена» окончательны.
  *
- * Заявка на жильё (14.10): своего статуса ответа у неё нет — владелец звонит
- * гостю или пишет в переписке ниже (1349, components/requests/RequestChat), и
- * страница говорит «передана», не переспрашивая состояние.
+ * Заявка на жильё (14.10): владелец звонит гостю или пишет в переписке ниже
+ * (1349, components/requests/RequestChat), а с 1359 отвечает и кнопкой —
+ * тогда страница говорит его ответ; состояние она не переспрашивает.
+ * Адресат и витрина — по роду заявки (11.11): у машины — перевозчик и
+ * трансферы, у проката — прокатчик и прокат, не «оператор» и каталог туров.
  * Галочка — тем текстом, кому уходят данные (`consent_purpose`): владельцу
  * жилья, перевозчику или туроператору; тот же текст записывает сервер.
  */
@@ -24,9 +26,15 @@ import Link from 'next/link';
 import { Loader2, CheckCircle2, XCircle, CalendarClock, Clock, AlertTriangle, ShieldCheck, PhoneCall } from 'lucide-react';
 import { PdConsentCheckbox } from '@/components/legal/PdConsentCheckbox';
 import { RequestChat } from '@/components/requests/RequestChat';
+import { RequestOtherOffers, type OtherOffersBlock } from '@/components/requests/RequestOtherOffers';
+import { RequestOtherStays, type OtherStaysBlock } from '@/components/requests/RequestOtherStays';
+import { RequestSteps } from '@/components/requests/RequestSteps';
+import { RequestTicket } from '@/components/requests/RequestTicket';
+import { requestSteps } from '@/lib/requests/request-steps';
 import { platformAcceptsPayments } from '@/lib/payments/accepting';
 import {
-  REQUEST_KEY_MIN_CHARS, REQUEST_KEY_MAX_CHARS, type RequestState, type RequestKind, type ConsentPurpose,
+  REQUEST_KEY_MIN_CHARS, REQUEST_KEY_MAX_CHARS, ADDRESSEE_WORDS, capitalized,
+  type RequestState, type RequestKind, type ConsentPurpose,
 } from '@/lib/mcp/request-status-schema';
 
 type ConsentBy = 'human' | 'agent' | 'none';
@@ -45,50 +53,88 @@ interface View {
   human: string;
   consent: ConsentBy;
   consent_purpose: ConsentPurpose;
+  /** Другие компании к месту на дату после отказа туроператора (4а); нет поля — к заявке не относится. */
+  other_offers?: OtherOffersBlock | null;
+  /** Другое жильё на те же ночи после «Занято» хозяина (этап 5). */
+  other_stays?: OtherStaysBlock | null;
 }
 
 interface StateText { title: string; tone: string; next: string }
 
-const TEXT: Record<RequestState, StateText> = {
-  awaiting_operator: { title: 'Ждём ответа оператора', tone: 'var(--ocean)', next: 'Оператор свяжется по телефону из заявки. Страница обновится сама, когда ответ появится.' },
-  delivered: { title: 'Заявка передана', tone: 'var(--ocean)', next: 'Ответ дают звонком по телефону из заявки, и платформа его не видит.' },
-  operator_contacted: { title: 'Оператор связался с вами', tone: 'var(--ocean)', next: 'Дальнейшее согласуйте с оператором по телефону.' },
-  in_progress: { title: 'Заявка в работе у оператора', tone: 'var(--ocean)', next: 'Оператор уточняет детали. Дальнейшее согласуйте с ним по телефону.' },
-  confirmed: { title: 'Оператор подтвердил заявку', tone: 'var(--success)', next: '' },
-  declined: { title: 'Оператор отказал по заявке', tone: 'var(--text-secondary)', next: 'Можно выбрать другой тур или дату в каталоге.' },
-  other_date: { title: 'Оператор предлагает другую дату', tone: 'var(--warning)', next: 'Если дата подходит, подтвердите её оператору по телефону; иначе выберите другой тур или дату.' },
-  no_answer: { title: 'Оператор не ответил в срок', tone: 'var(--warning)', next: 'Это не значит, что мест нет: оставьте заявку на карточке тура, и менеджер свяжется с оператором сам.' },
-  cancelled: { title: 'Бронь по заявке отменена', tone: 'var(--text-secondary)', next: 'Можно оставить новую заявку в каталоге.' },
-  failed: { title: 'Ответ оператора не записался', tone: 'var(--danger)', next: 'Свяжитесь с оператором напрямую или оставьте заявку на карточке тура.' },
-  unknown: { title: 'Состояние заявки не распознано', tone: 'var(--danger)', next: 'Свяжитесь с оператором напрямую или оставьте заявку на карточке тура.' },
-  // Пробная заявка ИИ-ассистента (test: true) — её нет: страница по такому ключу не открывается, запись — для полноты словаря.
-  test: { title: 'Пробная заявка', tone: 'var(--text-secondary)', next: 'Заявка не записана и никому не передана.' },
+/**
+ * Тексты состояний — с тем адресатом, кому ушла заявка: оператор, перевозчик,
+ * прокатчик (`consent_purpose`). До 11.11 заявка на машину говорила «Ждём
+ * ответа оператора» и звала в каталог туров.
+ */
+function baseText(state: RequestState, purpose: ConsentPurpose): StateText {
+  const w = ADDRESSEE_WORDS[purpose];
+  const who = capitalized(w.nom);
+  const tours = purpose === 'operator';
+  const other = tours ? 'Можно выбрать другой тур или дату в каталоге.' : OTHER_OFFERS_WORDS[purpose];
+  const direct = tours
+    ? `Свяжитесь с ${w.ins} напрямую или оставьте заявку на карточке тура.`
+    : `Свяжитесь с ${w.ins} напрямую. ${other}`;
+  switch (state) {
+    case 'awaiting_operator': return { title: `Ждём ответа ${w.gen}`, tone: 'var(--ocean)', next: `${who} свяжется по телефону из заявки. Страница обновится сама, когда ответ появится.` };
+    case 'delivered': return { title: 'Заявка передана', tone: 'var(--ocean)', next: 'Ответ дают звонком по телефону из заявки, и платформа его не видит.' };
+    case 'operator_contacted': return { title: `${who} связался с вами`, tone: 'var(--ocean)', next: `Дальнейшее согласуйте с ${w.ins} по телефону.` };
+    // Кто ведёт заявку, говорит текст ниже заголовка: адресат ответил кнопкой
+    // или её передали менеджеру Ведара (эскалация кроном добивки).
+    case 'in_progress': return { title: 'Заявка в работе', tone: 'var(--ocean)', next: 'Дальнейшее согласуйте по телефону из заявки.' };
+    case 'confirmed': return { title: `${who} подтвердил заявку`, tone: 'var(--success)', next: '' };
+    case 'declined': return { title: `${who} отказал по заявке`, tone: 'var(--text-secondary)', next: other };
+    case 'other_date': return { title: `${who} предлагает другую дату`, tone: 'var(--warning)', next: `Если дата подходит, подтвердите её ${w.dat} по телефону; иначе выберите другой тур или дату.` };
+    case 'no_answer': return { title: `${who} не ответил в срок`, tone: 'var(--warning)', next: tours ? 'Это не значит, что мест нет: оставьте заявку на карточке тура, и менеджер свяжется с оператором сам.' : direct };
+    case 'cancelled': return { title: 'Бронь по заявке отменена', tone: 'var(--text-secondary)', next: tours ? 'Можно оставить новую заявку в каталоге.' : other };
+    case 'failed': return { title: `Ответ ${w.gen} не записался`, tone: 'var(--danger)', next: direct };
+    case 'unknown': return { title: 'Состояние заявки не распознано', tone: 'var(--danger)', next: direct };
+    // Пробная заявка ИИ-ассистента (test: true) — её нет: страница по такому ключу не открывается, запись — для полноты словаря.
+    case 'test': return { title: 'Пробная заявка', tone: 'var(--text-secondary)', next: 'Заявка не записана и никому не передана.' };
+  }
+}
+
+/** Куда идти после отказа по машине и прокату — не в каталог туров. */
+const OTHER_OFFERS_WORDS: Record<Exclude<ConsentPurpose, 'operator'>, string> = {
+  carrier: 'Других перевозчиков и цены по направлению смотрите на странице трансферов.',
+  rental: 'Другие предложения проката — на странице проката.',
+  stay: 'Другое жильё — на странице жилья.',
 };
 
 /**
- * Заявка на жильё: у неё бывают только «передана», «не дошла» и «не
- * записано, куда дошла» — и говорят они о владельце, а не об операторе.
+ * Заявка на жильё: «передана», «не дошла», «не записано, куда дошла» и
+ * ответ владельца кнопкой (1359) — «свободно» или «позвоню» (в работе) и
+ * «занято» (отказ). Говорят они о владельце, а не об операторе.
  */
 const STAY_TEXT: Partial<Record<RequestState, StateText>> = {
   delivered: { title: 'Заявка передана', tone: 'var(--ocean)', next: 'Владелец позвонит по телефону из заявки или ответит в переписке ниже и подтвердит даты и цену. Если ответа долго нет, позвоните сами: телефон на карточке объекта.' },
+  in_progress: { title: 'Владелец ответил', tone: 'var(--ocean)', next: 'Даты и цену владелец подтвердит звонком или в переписке ниже. Если звонка долго нет, позвоните сами: телефон на карточке объекта.' },
+  declined: { title: 'Владелец ответил: занято', tone: 'var(--text-secondary)', next: 'Другое жильё на эти даты — на странице жилья.' },
   failed: { title: 'Заявка не дошла до владельца', tone: 'var(--danger)', next: 'Позвоните владельцу сами: телефон на карточке объекта.' },
   unknown: { title: 'Не записано, куда дошла заявка', tone: 'var(--warning)', next: 'Если владелец не позвонил, позвоните ему сами: телефон на карточке объекта.' },
 };
 
-function textFor(view: Pick<View, 'state' | 'kind'>): StateText {
-  return (view.kind === 'stay_request' ? STAY_TEXT[view.state] : undefined) ?? TEXT[view.state];
+function textFor(view: Pick<View, 'state' | 'kind' | 'consent_purpose'>): StateText {
+  return (view.kind === 'stay_request' ? STAY_TEXT[view.state] : undefined) ?? baseText(view.state, view.consent_purpose);
 }
 
-function nextText(view: Pick<View, 'state' | 'kind'>): string {
+function nextText(view: Pick<View, 'state' | 'kind' | 'consent_purpose'>): string {
   if (view.state === 'confirmed') {
+    const w = ADDRESSEE_WORDS[view.consent_purpose];
     return platformAcceptsPayments()
-      ? 'Оператор скажет, как оплатить.'
-      : 'Оплата — оператору напрямую, он скажет как. Через платформу оплаты нет.';
+      ? `${capitalized(w.nom)} скажет, как оплатить.`
+      : `Оплата — ${w.dat} напрямую, он скажет как. Через платформу оплаты нет.`;
   }
   return textFor(view).next;
 }
 
-function Icon({ view }: { view: Pick<View, 'state' | 'kind'> }) {
+/** Витрина того же рода, что заявка: туры, трансферы, прокат. */
+const SHELF: Record<Exclude<ConsentPurpose, 'stay'>, { href: string; label: string }> = {
+  operator: { href: '/catalog', label: 'Каталог туров' },
+  carrier: { href: '/transfers', label: 'Трансферы' },
+  rental: { href: '/car-rental', label: 'Прокат машин' },
+};
+
+function Icon({ view }: { view: Pick<View, 'state' | 'kind' | 'consent_purpose'> }) {
   const s = view.state;
   const cls = 'w-6 h-6 shrink-0';
   const style = { color: textFor(view).tone };
@@ -155,7 +201,10 @@ export function RequestStatusClient() {
     if (!key) return;
     const asked = key;
     try {
-      const res = await fetch(`/api/requests/status?k=${encodeURIComponent(asked)}`, { cache: 'no-store' });
+      // seen=1 — вкладка на виду: только так открытая страница считается тем,
+      // что человек увидел ответ оператора (план «после отказа», 2б).
+      const seen = typeof document !== 'undefined' && document.visibilityState === 'visible' ? 1 : 0;
+      const res = await fetch(`/api/requests/status?k=${encodeURIComponent(asked)}&seen=${seen}`, { cache: 'no-store' });
       const body = await res.json().catch(() => null) as { success: true; data: View } | { success: false; error?: string } | null;
       if (activeKey.current !== asked) return;
       if (res.status === 400 || res.status === 404) {
@@ -188,6 +237,16 @@ export function RequestStatusClient() {
     const t = setInterval(() => { void load(); }, view === null ? 10_000 : 60_000);
     return () => clearInterval(t);
   }, [key, view, error, fatal, load]);
+
+  // Фоновая вкладка, вернувшаяся на вид, переспрашивает один раз: опрос
+  // останавливается, когда заявка ушла из ожидания, и иначе ответ, пришедший
+  // в фоне, так и не был бы отмечен увиденным.
+  useEffect(() => {
+    if (!key || fatal) return;
+    const onVisible = () => { if (document.visibilityState === 'visible') void load(); };
+    document.addEventListener('visibilitychange', onVisible);
+    return () => document.removeEventListener('visibilitychange', onVisible);
+  }, [key, fatal, load]);
 
   const confirm = useCallback(async () => {
     if (!key || !pdConsent) return;
@@ -229,6 +288,11 @@ export function RequestStatusClient() {
       ].filter(Boolean).join(' · ')
       : [view.tour, dateRu(view.date), view.participants ? `${view.participants} чел.` : null].filter(Boolean).join(' · ');
 
+  // Путь заявки и билет (12.11): шаги — только по распознанному состоянию,
+  // билет — когда на нём есть название или дата; иначе остаётся строка деталей.
+  const steps = view ? requestSteps(view.state, view.consent_purpose) : null;
+  const hasTicket = !!view && !!((view.kind === 'stay_request' ? view.accommodation : view.tour) || view.date);
+
   return (
     <main className="ds-page min-h-screen px-4 py-10">
       <div className="max-w-md mx-auto space-y-4">
@@ -266,9 +330,12 @@ export function RequestStatusClient() {
                 <h1 className="text-2xl font-bold text-[var(--text-primary)]" style={{ fontFamily: 'var(--font-playfair)' }}>
                   {textFor(view).title}
                 </h1>
-                {details && <p className="text-sm text-[var(--text-secondary)] mt-1">{details}</p>}
+                {details && !hasTicket && <p className="text-sm text-[var(--text-secondary)] mt-1">{details}</p>}
               </div>
             </div>
+
+            {steps && <RequestSteps steps={steps} />}
+            {hasTicket && <RequestTicket view={view} />}
 
             <p className="text-sm text-[var(--text-primary)]">{view.human}</p>
             {view.state === 'awaiting_operator' && view.deadline && (
@@ -280,6 +347,8 @@ export function RequestStatusClient() {
               <p className="text-sm text-[var(--text-primary)]">Предложенная дата: <b>{dateRu(view.alt_date)}</b>.</p>
             )}
             <p className="text-sm text-[var(--text-secondary)]">{nextText(view)}</p>
+            <RequestOtherOffers block={view.other_offers} />
+            <RequestOtherStays block={view.other_stays} />
 
             {view.consent !== 'human' ? (
               <div className="space-y-2 pt-3 border-t border-[var(--border)]">
@@ -318,7 +387,9 @@ export function RequestStatusClient() {
                   <Link href="/accommodations" className="text-[var(--ocean)] hover:underline">Жильё</Link>
                 </>
               ) : (
-                <Link href="/catalog" className="text-[var(--ocean)] hover:underline">Каталог туров</Link>
+                <Link href={SHELF[view.consent_purpose === 'stay' ? 'operator' : view.consent_purpose].href} className="text-[var(--ocean)] hover:underline">
+                  {SHELF[view.consent_purpose === 'stay' ? 'operator' : view.consent_purpose].label}
+                </Link>
               )}
               <Link href="/legal/privacy" className="text-[var(--ocean)] hover:underline">Политика конфиденциальности</Link>
             </div>

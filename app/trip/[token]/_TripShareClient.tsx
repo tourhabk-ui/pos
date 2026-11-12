@@ -17,6 +17,9 @@ import { OfflineSave } from './_OfflineSave';
 import { KUZMICH_MAX_URL } from '@/components/shared/KuzmichActions';
 import { PlanKindOffers, PlanTourRule } from '@/components/plans/PlanKindOffers';
 import { dayAvailabilityLine, type TripDayAvailability } from '@/lib/trips/day-availability';
+// Подпись зоны — общим словарём (#3199): свой давал «Мильковская» западной
+// зоне и «Тигильская» северной — округа, которые база относит к другим зонам.
+import { zoneName } from '@/lib/planner/zone-style';
 
 const LeafletMap = dynamic(() => import('@/components/shared/LeafletMap'), { ssr: false });
 
@@ -108,12 +111,6 @@ function useDayStatus(): { title: string | null; hasAlert: boolean } | null {
   return status;
 }
 
-const ZONE_LABELS: Record<string, string> = {
-  avachinsky: 'Авачинская',
-  western: 'Мильковская',
-  eastern: 'Карагинская',
-  northern: 'Тигильская',
-};
 
 const ZONE_COLORS: Record<string, string> = {
   avachinsky: 'var(--accent)',
@@ -356,7 +353,7 @@ export function TripShareClient({ trip, token }: { trip: Trip; token: string }) 
                       <div className="flex flex-wrap gap-2 text-xs" style={{ color: 'var(--text-secondary)' }}>
                         <span className="px-2 py-0.5 rounded-full"
                           style={{ background: `${zoneColor}20`, color: zoneColor }}>
-                          {ZONE_LABELS[day.zone] || day.zone}
+                          {zoneName(day.zone)}
                         </span>
                         {transport && (
                           <span className="px-2 py-0.5 rounded-full" style={{ background: 'var(--bg-hover)' }}>

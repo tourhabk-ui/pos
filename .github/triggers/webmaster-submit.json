@@ -1,0 +1,19 @@
+{
+  "run": 2,
+  "note": "Прогон 2: те же адреса, с повтором при сбое шлюза Яндекса (502/503/504, до двух повторов с паузой). Карта сайта, если первая попытка всё же прошла, окажется в списке уже добавленных и повторно не пошлётся.",
+  "sitemaps": [
+    "https://vedarai.ru/sitemap.xml"
+  ],
+  "recrawl": [
+    "https://vedarai.ru/",
+    "https://vedarai.ru/catalog",
+    "https://vedarai.ru/operators",
+    "https://vedarai.ru/places",
+    "https://vedarai.ru/routes",
+    "https://vedarai.ru/safety",
+    "https://vedarai.ru/transfers",
+    "https://vedarai.ru/planner",
+    "https://vedarai.ru/zh"
+  ],
+  "run1_result": "11.11, run 1 (Actions 43007784634): токен принят, сайт https://vedarai.ru/ найден, квота переобхода прочиталась (150 из 150), список карт прочитался; все 10 пишущих запросов (карта сайта и 9 адресов переобхода) — HTTP 504 без кода ошибки Яндекса. Отказ шлюза, не ответ API."
+}

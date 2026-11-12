@@ -83,6 +83,14 @@ describe('канбан лидов читает колонку настоящим
     }
   });
 
+  it('отменённые клиентом (1427) — второй статус колонки «Отказ»: роут его принимает, а не отвечает 400 пустой колонкой', async () => {
+    seed('cancelled', 2);
+    seed('lost', 1);
+    const leads = await fetchColumn('cancelled');
+    expect(leads.map((l) => l.id)).toEqual(['cancelled-0', 'cancelled-1']);
+    expect(statuses).toEqual([200]);
+  });
+
   it('ровно страница — второй запрос не нужен; пустая колонка — один запрос', async () => {
     seed('qualified', LEADS_PAGE_MAX);
     expect(await fetchColumn('qualified')).toHaveLength(LEADS_PAGE_MAX);

@@ -27,12 +27,12 @@ export default function VolcanoAccBadge({ status }: { status: VolcanoAccStatus }
   return (
     <div className="pt-3">
       <div
-        className="rounded-lg border border-[var(--border)] bg-[var(--bg-card)] p-4"
+        className="rounded-lg border border-[var(--border)] bg-[var(--bg-card)] p-4 transition-colors duration-500 motion-reduce:transition-none"
         style={{ borderLeftWidth: '4px', borderLeftColor: meta.token }}
       >
         <div className="flex items-center gap-2.5 mb-2">
           <span
-            className="inline-flex items-center justify-center w-8 h-8 rounded-full flex-shrink-0"
+            className="inline-flex items-center justify-center w-8 h-8 rounded-full flex-shrink-0 transition-colors duration-500 motion-reduce:transition-none"
             style={{ backgroundColor: meta.token }}
             aria-hidden
           >

@@ -15,6 +15,8 @@ import Link from 'next/link';
 import { Header } from '@/components/layout/Header';
 import { JsonLd } from '@/components/seo/JsonLd';
 import { PUBLIC_MCP_TOOLS, MCP_SERVER_INFO, MCP_READ_PER_MINUTE } from '@/lib/mcp/public-tools';
+import { CHANGE_REQUEST_RULE } from '@/lib/mcp/change-request-schema';
+import { DATE_CHANGE_DAILY_LIMIT } from '@/lib/requests/date-change-limit';
 import { NOTIFY_TOOL_NAMES, NOTIFY_HOW_TO_VERIFY, NOTIFY_RESPONSE_RULES } from '@/lib/mcp/request-notify-schema';
 // Числа лимитов — из модуля без базы: страница пререндерится на сборке, где
 // DATABASE_URL нет, а write-guard тянет lib/db-pool (no-build-time-db).
@@ -437,8 +439,10 @@ export default function McpLandingPage() {
               Проверить подключение, не отправляя заявку, — <code>test: true</code>: те же
               проверки, но ничего не записывается и никому не уходит. Ключ статуса, страница
               заявки и подписка приходят и в <code>structuredContent</code>.
-              Лимиты с одного IP: чтение — {MCP_READ_PER_MINUTE} вызовов в минуту, заявки — {CLIENT_MAX_PER_WINDOW} за
-              {' '}{CLIENT_WINDOW_MINUTES} минут и {CLIENT_MAX_PER_DAY} в сутки.
+              {' '}{CHANGE_REQUEST_RULE}
+              {' '}Лимиты с одного IP: чтение — {MCP_READ_PER_MINUTE} вызовов в минуту, заявки — {CLIENT_MAX_PER_WINDOW} за
+              {' '}{CLIENT_WINDOW_MINUTES} минут и {CLIENT_MAX_PER_DAY} в сутки; отмена и перенос идут в счёте чтения,
+              а по одной заявке — не больше {DATE_CHANGE_DAILY_LIMIT} переносов в сутки.
               Клиент умеет только stdio или уходит в SSE — мост:
               {' '}<code>npx -y mcp-remote https://vedarai.ru/api/mcp --transport http-only</code>.
             </p>

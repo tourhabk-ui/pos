@@ -74,7 +74,8 @@ describe('при схлопывании ничего не потерялось',
 describe('живой блок обстановки честен', () => {
   it('свежесть считается общим модулем, а не своей формулой', () => {
     expect(CODE).toMatch(/dataFreshness/);
-    expect(CODE).toMatch(/freshnessDot/);
+    // Цвет точки — общий LiveFreshnessDot поверх freshnessDot (12.11).
+    expect(CODE).toMatch(/LiveFreshnessDot/);
   });
 
   it('когда точки нет — не подставляется зелёный по умолчанию', () => {

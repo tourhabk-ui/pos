@@ -27,6 +27,7 @@ vi.mock('@/lib/crm/events', () => ({ recordSourceEventQuietly: vi.fn(), statusCh
 vi.mock('@/lib/config', () => ({ getPublicBaseUrl: () => 'https://vedarai.ru' }));
 
 import { GET } from '@/app/api/cron/leads-followup/route';
+import { recordSourceEventQuietly } from '@/lib/crm/events';
 import { PD_CONSENT_CARRIER_VERSION, PD_CONSENT_RENTAL_VERSION } from '@/lib/legal/pd-consent';
 import { addressedToPartnerOnly, FOLLOWUP_LEADS_SQL, FOLLOWUP_LEADS_PARAMS } from '@/lib/leads/followup-scope';
 
@@ -37,14 +38,32 @@ const RENTAL = { id: 'l-rental', name: 'Олег Арендов', phone: '+79990
 const RENTAL_CONSENT_ONLY = { id: 'l-rental-consent', name: 'Зоя Прокатова', phone: '+79990000005', source_data: {}, pd_consent_version: PD_CONSENT_RENTAL_VERSION };
 const TRIP_PART = { id: 'l-trip', name: 'Вера Поездкина', phone: '+79990000006', source_data: { source: 'mcp', kind: 'trip_manager', trip_id: 'TRIP-abc123', trip_parts: ['transfer'] }, pd_consent_version: '2026-10-08' };
 const PLAIN = { id: 'l-plain', name: 'Анна Обычная', phone: '+79990000003', source_data: { interests: ['volcano'] }, pd_consent_version: '2026-09-01' };
-const OPERATOR = { name: 'Туроператор', slug: 'tour-op', telegram_chat_id: null, user_telegram_id: null, max_chat_id: '555' };
+// Большая группа, от которой отказался адресат: крон сначала делает её ничейной, потом передаёт следующему.
+const GROUP = { id: 'l-group', name: 'Глеб Группов', phone: '+79990000007', source_data: { interests: ['volcano'], group_over_seats: true }, pd_consent_version: '2026-09-01', addressee_slug: 'first-op' };
+const OPERATOR = { id: '7f3b2c1a-0000-4000-8000-000000000001', name: 'Туроператор', slug: 'tour-op', telegram_chat_id: null, user_telegram_id: null, max_chat_id: '555' };
 
 let leadsParams: unknown[] | undefined;
+/** Заявки, которые клиент отменил между выборкой и передачей. */
+const cancelledMeanwhile = new Set<string>();
+/** Что отдаёт выборка крона; по умолчанию — набор первого теста. */
+let selected: unknown[] = [];
+/** Заявки, которые клиент отменил между повторной сверкой и записью «ничейная». */
+const cancelledAtFree = new Set<string>();
+/** Операторов для передачи нет — заявка уходит менеджеру. */
+let noOperators = false;
+/** Заявки, которые клиент отменил между сверкой и записью эскалации. */
+const cancelledAtEscalation = new Set<string>();
 const savedSecret = process.env.CRON_SECRET;
 
 beforeEach(() => {
   process.env.CRON_SECRET = 'test-secret';
   leadsParams = undefined;
+  cancelledMeanwhile.clear();
+  cancelledAtFree.clear();
+  cancelledAtEscalation.clear();
+  noOperators = false;
+  vi.mocked(recordSourceEventQuietly).mockClear();
+  selected = [CHARTER, CONSENT_ONLY, RENTAL, RENTAL_CONSENT_ONLY, TRIP_PART, PLAIN];
   alertMock.mockReset();
   alertMock.mockResolvedValue({ delivered: true, channel: 'max' });
   queryMock.mockReset();
@@ -52,10 +71,18 @@ beforeEach(() => {
     if (sql === FOLLOWUP_LEADS_SQL) {
       leadsParams = params;
       // Пул «пропустил» заявки на машину и на прокат — проверяется второй замок, в цикле.
-      return { rows: [CHARTER, CONSENT_ONLY, RENTAL, RENTAL_CONSENT_ONLY, TRIP_PART, PLAIN] };
+      return { rows: selected };
+    }
+    // Запись «заявка ничейная»: условие на статус — отмену клиента она не затирает (1427).
+    if (/UPDATE leads SET operator_id = NULL, status = 'new'/.test(sql)) {
+      return { rows: [], rowCount: cancelledAtFree.has(String(params?.[0])) ? 0 : 1 };
     }
     if (/COUNT\(\*\) AS total/.test(sql)) return { rows: [{ total: '1', with_telegram: '0', with_max: '1' }] };
-    if (/FROM partners p/.test(sql)) return { rows: [OPERATOR] };
+    if (/FROM partners p/.test(sql)) return { rows: noOperators ? [] : [OPERATOR] };
+    // Эскалация менеджеру: «связались» с условием на статус (1427).
+    if (/SET status\s+= 'contacted'/.test(sql)) return { rows: [], rowCount: cancelledAtEscalation.has(String(params?.[1])) ? 0 : 1 };
+    // Повторная сверка перед передачей (1427): заявку за время прогона не отменил клиент.
+    if (/SELECT TRUE AS ok FROM leads/.test(sql)) return { rows: cancelledMeanwhile.has(String(params?.[0])) ? [] : [{ ok: true }] };
     return { rows: [] };
   });
 });
@@ -88,6 +115,54 @@ describe('добивка лидов и заявка на машину', () => {
     // Заявки на машину и на прокат не помечены как добитые и не эскалированы: их ведёт менеджер.
     const updates = queryMock.mock.calls.filter(([sql]) => /UPDATE leads/.test(String(sql)));
     expect(updates.map(([, params]) => (params as unknown[])[1])).toEqual(['l-plain']);
+  });
+
+  it('клиент отменил заявку, пока прогон шёл по списку, — её имя и телефон никому не уходят и статус не трогается (1427)', async () => {
+    cancelledMeanwhile.add('l-plain');
+    const res = await call();
+    expect(res.status).toBe(200);
+    expect((await res.json() as { processed: number }).processed).toBe(0);
+    expect(alertMock).not.toHaveBeenCalled();
+    expect(queryMock.mock.calls.filter(([sql]) => /UPDATE leads/.test(String(sql)))).toHaveLength(0);
+    // Сверка спрашивает именно статус «отменена клиентом».
+    const probe = queryMock.mock.calls.find(([sql]) => /SELECT TRUE AS ok FROM leads/.test(String(sql)));
+    expect(probe?.[1]).toEqual(['l-plain', 'cancelled']);
+  });
+
+  it('большая группа после отказа адресата: «ничейной» её делает запись с условием на статус; отменил клиент в этот миг — никому не уходит (1427)', async () => {
+    selected = [GROUP];
+    let res = await call();
+    expect((await res.json() as { processed: number }).processed).toBe(1);
+    const free = queryMock.mock.calls.find(([sql]) => /UPDATE leads SET operator_id = NULL, status = 'new'/.test(String(sql)));
+    expect(String(free?.[0])).toMatch(/WHERE id = \$1 AND status <> \$4/);
+    expect((free?.[1] as unknown[])[0]).toBe('l-group');
+    expect((free?.[1] as unknown[])[3]).toBe('cancelled');
+    expect(alertMock).toHaveBeenCalledTimes(1);
+
+    // Клиент отменил между сверкой и записью: строка не обновилась — заявку не передаём.
+    alertMock.mockClear();
+    queryMock.mockClear();
+    cancelledAtFree.add('l-group');
+    res = await call();
+    expect((await res.json() as { processed: number }).processed).toBe(0);
+    expect(alertMock).not.toHaveBeenCalled();
+    expect(queryMock.mock.calls.filter(([sql]) => /UPDATE leads/.test(String(sql)))).toHaveLength(1);
+  });
+
+  it('эскалация менеджеру: «связались» ставится с условием на статус, событие в ленту — только если статус правда сменился (1427)', async () => {
+    selected = [PLAIN];
+    noOperators = true;
+    await call();
+    const esc = queryMock.mock.calls.find(([sql]) => /SET status\s+= 'contacted'/.test(String(sql)));
+    expect(String(esc?.[0])).toMatch(/WHERE id = \$2 AND status <> \$3/);
+    expect((esc?.[1] as unknown[])[2]).toBe('cancelled');
+    expect(vi.mocked(recordSourceEventQuietly)).toHaveBeenCalledTimes(1);
+
+    // Клиент отменил в этот миг: строка не обновилась — события «новая → связались» нет.
+    vi.mocked(recordSourceEventQuietly).mockClear();
+    cancelledAtEscalation.add('l-plain');
+    await call();
+    expect(vi.mocked(recordSourceEventQuietly)).not.toHaveBeenCalled();
   });
 
   it('отказ базы — 500 и след в логе с SQLSTATE, а не «лидов нет»', async () => {

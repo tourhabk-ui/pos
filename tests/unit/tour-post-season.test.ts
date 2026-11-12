@@ -49,9 +49,9 @@ describe('сезон тура для поста', () => {
     expect(tourPostSeason(KIZUCH, NOW).season).toBe('in_season');
   });
 
-  it('рыба следующего месяца не отсекает анонс: чавыча в апреле (ход с мая)', () => {
-    const april = new Date('2026-04-20T07:00:00Z');
-    expect(tourPostSeason({ ...CHAVYCHA, season_start: '2026-06-01', season_end: '2026-08-15' }, april).season)
+  it('рыба следующего месяца не отсекает анонс: чавыча в мае (ход с июня, справочник 12.11)', () => {
+    const may = new Date('2026-05-20T07:00:00Z');
+    expect(tourPostSeason({ ...CHAVYCHA, season_start: '2026-06-01', season_end: '2026-08-15' }, may).season)
       .not.toBe('out_of_season');
   });
 

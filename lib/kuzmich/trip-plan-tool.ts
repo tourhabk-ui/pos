@@ -19,7 +19,7 @@ import {
 import { PLAN_PRESETS, type PlanPreset } from '@/lib/plans/presets';
 // Словарь переехал в чистый модуль без зависимостей: те же слова читает
 // клиент планировщика, а сюда тянется `pool` (см. шапку interest-words).
-import { INTEREST_WORDS, parseInterestWords } from '@/lib/planner/interest-words';
+import { INTEREST_WORDS, parseInterestWords, withoutInterestWords } from '@/lib/planner/interest-words';
 import { parseTravelPreferences } from '@/lib/planner/travel-style-words';
 import { MAX_REST_DAYS, type TravelStyle } from '@/lib/planner/travel-style';
 import { tourKeepsSchedule } from '@/lib/seat-requests/service';
@@ -33,6 +33,8 @@ import { saveDraft, loadDraft, updateDraft, isDraftId, type DraftSurface } from 
 import { McpUserError } from '@/lib/mcp/jsonrpc';
 import { parsePlanStart, rangeDays, planStartRefusal, type PlanStart } from '@/lib/kuzmich/plan-start';
 import { planOfferLines } from '@/lib/kuzmich/plan-offers';
+import { nightLodgingIncluded } from '@/lib/planner/lodging-included';
+import { EDIT_NOT_RECHECKED_NOTE, planWideAfterEdit } from '@/lib/planner/plan-edit-warnings';
 
 /**
  * Как ехать — из слова модели. Принимаются и коды (self/operator/mixed), и
@@ -185,10 +187,7 @@ export function parseChatInterestsDetailed(raw: string): { interests: string[]; 
   // ('вулкан' → trekking в lib/planner/interests): план «вулканы, 6 дней» вёз
   // группу на треккинг в Восточную зону, а экран планера (только первый
   // словарь) тех же слов так не понимал.
-  let rest = text;
-  for (const word of Object.keys(INTEREST_WORDS)) {
-    if (rest.includes(word)) rest = rest.split(word).join(' ');
-  }
+  const rest = withoutInterestWords(text);
   try {
     const parsed = parseInterestsFromText(rest);
     for (const k of parsed.interests ?? []) found.add(k);
@@ -265,7 +264,9 @@ const MAX_GROUP = 30;
 export function readAdults(raw: string | undefined): { adults: number; given: boolean; note: string | null } {
   const t = (raw ?? '').trim();
   if (!t) return { adults: 2, given: false, note: null };
-  const m = /^\d{1,2}/.exec(t);
+  // Число целиком (#3199, M11а): `\d{1,2}` читало «100» как 10 и «250
+  // человек» как 25 — молча и с given: true.
+  const m = /^\d+/.exec(t);
   const n = m ? Number(m[0]) : NaN;
   if (!Number.isInteger(n) || n < 1 || n > MAX_GROUP) {
     return { adults: 2, given: false, note: `Число взрослых «${t}» не разобрал (нужно 1–${MAX_GROUP}) — считаю двоих.` };
@@ -468,10 +469,40 @@ const BUDGET_WORDS: Array<[RegExp, BudgetTier]> = [
 
 export const BUDGET_LABEL: Record<BudgetTier, string> = { economy: 'эконом', comfort: 'комфорт', premium: 'премиум' };
 
+/** Прямые слова уровня, которые читаются и рядом с суммой. */
+const TIER_NEXT_TO_SUM: Array<[RegExp, BudgetTier]> = [
+  [/^(economy|эконом|хостел|палат)/i, 'economy'],
+  [/^(comfort|комфорт|гостиниц|отел|апартамент)/i, 'comfort'],
+  [/^(premium|премиум|люкс|vip|лодж|эко-лодж)/i, 'premium'],
+];
+
+/** Уровень, названный рядом с суммой; два разных уровня — не выбираем. */
+function tierNamedNextToSum(t: string): BudgetTier | null {
+  const found = new Set<BudgetTier>();
+  for (const w of t.toLowerCase().split(/[^a-zа-яё-]+/i)) {
+    if (!w) continue;
+    for (const [re, tier] of TIER_NEXT_TO_SUM) if (re.test(w)) found.add(tier);
+  }
+  return found.size === 1 ? [...found][0]! : null;
+}
+
 /** Уровень бюджета: код или русское слово. Не понял — «комфорт», и это сказано. */
 export function readBudgetTier(raw: string | undefined): { tier: BudgetTier; given: boolean; note: string | null } {
   const t = (raw ?? '').trim();
   if (!t) return { tier: 'comfort', given: false, note: null };
+  // Названа сумма («до 100 000 ₽», «бюджет 500 тысяч»): потолка цены у плана
+  // нет, и это говорится, а не прячется (#3199, раздел 4). Прежде «бюджет
+  // 500 тысяч» читалось по первому слову как «эконом» — молча. Уровень,
+  // названный рядом с суммой («премиум до 200 тысяч»), при этом не теряется
+  // (Bugbot к #3235): берётся только прямое слово уровня — «бюджет»,
+  // «дорого» и «недорого» рядом с суммой говорят о деньгах, а не о жилье.
+  if (/\d/.test(t)) {
+    const named = tierNamedNextToSum(t);
+    const sum = `Сумму «${t}» не учитываю: план собирается без потолка цены, итог — в смете ниже.`;
+    return named
+      ? { tier: named, given: true, note: `${sum} Жильё — «${BUDGET_LABEL[named]}», как названо.` }
+      : { tier: 'comfort', given: false, note: `${sum} Жильё считаю на уровне «комфорт»; можно: эконом, комфорт, премиум.` };
+  }
   const word = t.replace(/^(на|в)\s+/i, '');
   for (const [re, tier] of BUDGET_WORDS) if (re.test(word)) return { tier, given: true, note: null };
   return { tier: 'comfort', given: false, note: `Уровень бюджета «${t}» не разобрал — считаю «комфорт». Можно: эконом, комфорт, премиум.` };
@@ -869,7 +900,10 @@ export function formatTripPlanForChat(
   }
   lines.push('');
   if (preset) {
-    lines.push(`Готовая страница этого формата с турами и заявкой оператору: ${SITE}/plans/${preset.slug}`);
+    // Не «страница этого плана»: образец считает свой план — на двоих
+    // взрослых и на свои ближайшие даты (#3199, M8). Страница этого плана —
+    // строка /trip/<id> ниже.
+    lines.push(`Похожий готовый план-образец «${preset.title}» — собран на двоих взрослых и на свои даты, это не ваш план: ${SITE}/plans/${preset.slug}`);
   }
   lines.push(`Пересобрать под свои даты и состав: ${SITE}/planner`);
   return lines.join('\n');
@@ -899,11 +933,29 @@ export async function makeTripPlanForKuzmich(
     : null;
 
   const group = readAdults(args.adults);
+  // Число взрослых названо, но не годится (0, 50, «много») — плана нет и
+  // черновика нет, как у детей и у даты (#3199, M11а). «Считаю двоих» было бы
+  // ответом на другой вопрос: группе из 50 места и смета на двоих.
+  if ((args.adults ?? '').trim() && !group.given) {
+    return `План не собран: число взрослых «${(args.adults ?? '').trim()}» не разобрал — нужно от 1 до ${MAX_GROUP}. Группу больше ${MAX_GROUP} человек собирает оператор по заявке.`;
+  }
   const kids = readChildren(args.children, opts.surface ?? 'chat');
   // Возраст детей не разобран — плана нет и черновика нет: собрать план
   // «как для взрослых» значило бы снять возрастные допуски (ловушка 29.10).
   if (kids.kind === 'unknown') return kids.refusal;
   const budget = readBudgetTier(args.budget_tier);
+  // Как ехать и дни отдыха: названо и не разобрано — план собирается без них,
+  // и это говорится вслух, как у длительности и интересов (#3199, M11б).
+  const travelStyle = readTravelStyle(args.travel_style);
+  const restDays = readRestDays(args.rest_days);
+  const styleRaw = (args.travel_style ?? '').trim();
+  const restRaw = (args.rest_days ?? '').trim();
+  const styleNote = styleRaw && travelStyle === undefined
+    ? `Как ехать «${styleRaw}» не разобрал — собрал вперемешку. Можно: сам, с оператором, вперемешку.`
+    : null;
+  const restNote = restRaw && restDays === undefined
+    ? `Дни отдыха «${restRaw}» не разобрал (нужно число от 0 до ${MAX_REST_DAYS}) — дней отдыха в план не ставил.`
+    : null;
 
   const arrival = start.date;
   // `daysNum` — КАЛЕНДАРНЫЕ дни, считая первый и последний, поэтому шагов
@@ -919,8 +971,8 @@ export async function makeTripPlanForKuzmich(
     children: kids.children,
     fitnessLevel: 'moderate',
     budgetTier: budget.tier,
-    travelStyle: readTravelStyle(args.travel_style),
-    restDays: readRestDays(args.rest_days),
+    travelStyle,
+    restDays,
   }, { itinerary: 'plain' });
 
   // Жильё и машина к плану — настоящие варианты тем же подбором, что экран
@@ -928,7 +980,8 @@ export async function makeTripPlanForKuzmich(
   // занятостью туров: запросы независимы.
   const offersP = rec.days.length > 0
     ? planOfferLines({
-      days: rec.days.map((d) => ({ day: d.day, type: d.type, zone: d.zone, lodgingIncluded: d.realTour?.lodgingIncluded ?? null })),
+      // Ночь после последнего дня тура тур не покрывает (Б32).
+      days: rec.days.map((d, i) => ({ day: d.day, type: d.type, zone: d.zone, lodgingIncluded: nightLodgingIncluded(d, rec.days[i + 1]) })),
       arrivalIso: arrival.toISOString().slice(0, 10),
       departureIso: departure.toISOString().slice(0, 10),
       adults: group.adults, children: kids.children, surface: opts.surface ?? 'chat',
@@ -943,7 +996,9 @@ export async function makeTripPlanForKuzmich(
   const text = formatTripPlanForChat(
     rec.days,
     planWarningLines(rec),
-    matchPreset(daysNum, interests, PLAN_PRESETS, month),
+    // Образец собран на двоих взрослых — семье с детьми он показал бы занятия
+    // не по возрасту (#3199, M8).
+    kids.children.length > 0 ? null : matchPreset(daysNum, interests, PLAN_PRESETS, month),
     {
       refusal: buildRefusal(month, interests, SITE, rec.catalogueOpen, rec.childBlocked ?? []), plannedFor,
       arrivalIso: arrival.toISOString().slice(0, 10), keepsSchedule,
@@ -961,7 +1016,7 @@ export async function makeTripPlanForKuzmich(
   }, opts.surface ?? 'chat');
   const notes = [
     startNote(start, plannedFor), daysNote, interestsNote,
-    group.note, budget.note, assumptions,
+    group.note, styleNote, restNote, budget.note, assumptions,
   ].filter(Boolean);
 
   // План сохраняется черновиком — правка идёт по его id (#2224). Отказа
@@ -1160,8 +1215,17 @@ export function readPlanEdit(args: {
     }
     return { ok: false, error: 'Для shift_dates нужен новый первый день поездки (start_date: «20 июля», 20.07.2027 или 2027-07-20) или сдвиг в днях (shift_days: 7 — позже, -3 — раньше).' };
   }
-  const tier = readBudgetTier(args.lodging);
-  return tier.given ? { ok: true, edit: { kind: 'set_lodging', tier: tier.tier } } : { ok: false, error: tier.note ?? 'Для set_lodging нужен уровень жилья (lodging): эконом, комфорт или премиум.' };
+  const rawLodging = (args.lodging ?? '').trim();
+  const tier = readBudgetTier(rawLodging);
+  if (tier.given) return { ok: true, edit: { kind: 'set_lodging', tier: tier.tier } };
+  // Не разобрано — правки нет, и ответ не говорит «считаю комфорт»: заметка
+  // readBudgetTier про сборку плана, а здесь план остаётся прежним (Bugbot к #3235).
+  return {
+    ok: false,
+    error: rawLodging
+      ? `Уровень жилья «${rawLodging}» не разобрал — нужно: эконом, комфорт или премиум.`
+      : 'Для set_lodging нужен уровень жилья (lodging): эконом, комфорт или премиум.',
+  };
 }
 
 /** Обработчик edit_trip_plan: прочитать черновик, поправить, записать, показать. */
@@ -1195,9 +1259,13 @@ export async function editTripPlanForKuzmich(args: {
   const plan = result.plan;
   const arrival = new Date(`${plan.params.arrivalDate}T00:00:00Z`);
   const plannedFor = ruDayMonth(arrival);
+  // Общие строки плана после правки (#3199, M10): из дней выводится
+  // самопроверка возвращения; чего не вывести — названо одной строкой, а не
+  // пропадает молча. Черновик плана — для прилетающих (поля «откуда едут» у
+  // него нет), допущения «ночи дома» здесь не бывает.
   const text = formatTripPlanForChat(
     plan.days,
-    result.warnings ?? [],
+    [...planWideAfterEdit(plan.days), ...(result.warnings ?? []), EDIT_NOT_RECHECKED_NOTE],
     null,
     {
       refusal: '', plannedFor, arrivalIso: plan.params.arrivalDate,

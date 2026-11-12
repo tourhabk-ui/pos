@@ -17,7 +17,7 @@ import { describe, it, expect } from 'vitest';
 import {
   fnv1a32, fmix32, lotOf, tourLot, companyLot, compareTourOffers, orderOffers, orderOffersBy,
   groupOffersByCompany, roundRobinByCompany, offersSummary, offerDatesPhrase,
-  offerOrderDay, pinnedOfferDay, OFFER_ORDER_NOTE, OFFER_ORDER_NOTE_GROUPED_RU, OFFER_ORDER_NOTE_AGENT,
+  offerOrderDay, pinnedOfferDay, OFFER_ORDER_NOTE, OFFER_ORDER_NOTE_GROUPED_RU, OFFER_ORDER_NOTE_AGENT, OFFER_ORDER_NOTE_ON_DATE_RU,
   type DatesPhraseInput,
 } from '@/lib/tours/offer-order';
 import { ZH_TOURS_ORDER_NOTE, OPERATORS_ORDER_NOTE } from '@/lib/operators/order-note';
@@ -230,6 +230,7 @@ describe('подписи правила', () => {
     expect(OFFER_ORDER_NOTE.ru.endsWith('Место в списке не продаётся.')).toBe(true);
     expect(OFFER_ORDER_NOTE_GROUPED_RU.endsWith('Место в списке не продаётся.')).toBe(true);
     expect(OFFER_ORDER_NOTE_AGENT.endsWith('Место в списке не продаётся.')).toBe(true);
+    expect(OFFER_ORDER_NOTE_ON_DATE_RU.endsWith('Место в списке не продаётся.')).toBe(true);
     expect(OFFER_ORDER_NOTE.zh).toContain('不出售');
     expect(OFFER_ORDER_NOTE.zh).toContain('最近出发');
     expect(OFFER_ORDER_NOTE.en).toMatch(/not for sale/);

@@ -66,7 +66,7 @@ import { parseChatBookingPrefill } from '@/lib/kuzmich/booking-prefill';
 import { planFromBookingFlow, planChatRequest, parseChatContact, chatPastDateAsk } from '@/lib/kuzmich/chat-request';
 import { submitChatRequest } from '@/lib/kuzmich/chat-request-submit';
 import { type QuickReplies, tourPickButtons, parseTourPick, GUEST_BUTTONS, CONFIRM_BUTTONS, CANCEL_BUTTONS, isCorrection } from '@/lib/kuzmich/quick-replies';
-import { tourPath } from '@/lib/tours/tour-url';
+import { tourBookingFormPath, tourPath } from '@/lib/tours/tour-url';
 import { sendPdAlert } from '@/lib/notifications/pd-alert';
 import { containsPattern } from '@/lib/db/like';
 import { KUZMICH_KNOWLEDGE_SCOPE_SQL } from '@/lib/kuzmich/knowledge-scope';
@@ -458,7 +458,7 @@ async function loadUserSituation(chatId: number): Promise<string> {
   return `=== СИТУАЦИЯ ТУРИСТА (учитывай в ответе, не выдумывай сверх этого) ===\n${parts.join('\n')}`;
 }
 
-function extractBotMemoryPatch(text: string): Partial<BotMemory> {
+export function extractBotMemoryPatch(text: string): Partial<BotMemory> {
   const lower = text.toLowerCase();
   const ACTIVITY_KW: Record<string, string> = {
     рыбал: 'fishing', рыб: 'fishing', fishing: 'fishing', лосось: 'fishing', нерка: 'fishing',
@@ -488,8 +488,11 @@ function extractBotMemoryPatch(text: string): Partial<BotMemory> {
   else if (/экстрим|adventure/.test(lower))         travel_style = 'adventure';
   else if (/комфорт|люкс|luxury/.test(lower))       travel_style = 'comfort';
   let budget_level: string | null = null;
-  if (/бюджет|дёшево|эконом/.test(lower))           budget_level = 'budget';
-  else if (/премиум|vip|дорог/.test(lower))         budget_level = 'premium';
+  // Уровень — по словам об уровне, а не по «бюджету» и «дороге» (#3199,
+  // раздел 4): «бюджет 500 тысяч» становился «эконом», «дорога на Мутновский»
+  // — «премиум», и это уходило в промпт как пожелание туриста.
+  if (/дёшево|дешево|недорог|эконом|бюджетн/.test(lower)) budget_level = 'budget';
+  else if (/премиум|\bvip\b|люкс|подороже/.test(lower))   budget_level = 'premium';
   return {
     ...(activities.size ? { activities: [...activities] } : {}),
     ...(locations.size  ? { locations:  [...locations]  } : {}),
@@ -2399,11 +2402,7 @@ export const BOOKING_CONSENT_LINE =
  * или в MAX; заявка та же, только ПД вводятся там.
  */
 export function bookingFormUrl(tour: TourRow, date?: string, guests?: number): string {
-  const q = new URLSearchParams();
-  if (date) q.set('date', date);
-  if (guests) q.set('guests', String(guests));
-  const qs = q.toString();
-  return `${getPublicBaseUrl()}${tourPath({ id: tour.id, slug: tour.slug ?? null })}${qs ? `?${qs}` : ''}#booking`;
+  return `${getPublicBaseUrl()}${tourBookingFormPath({ id: tour.id, slug: tour.slug ?? null }, date, guests)}`;
 }
 
 async function tourChosen(
@@ -3240,7 +3239,10 @@ export async function aiChat(opts: {
   const loopTiming = newLoopTiming();
   let answer = await aiChatAgentLoop(userContent, systemContent, history, extraUserMsg, toolRuns, provenance, loopTiming)
     .then(r => (r?.trim() ? cleanAIResponse(r.trim()) : ''))
-    .catch(() => '');
+    // Отказ цикла инструментов называется в логе, как на сайте, в стриме и в
+    // A2A (#3199, K9): молча он неотличим от «все ноги вернули пусто», а
+    // турист получает запасной ответ без данных.
+    .catch((err: unknown) => { logSwallowedFailure('kuzmich', 'цикл инструментов', err); return ''; });
 
   // Ответ ли это агентного цикла — от этого зависит, заземляют ли его вызовы
   // инструментов. Запасной путь идёт БЕЗ них, и приписывать ему чужие вызовы

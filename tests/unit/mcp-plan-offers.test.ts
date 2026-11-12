@@ -43,13 +43,15 @@ function day(n: number, type: DayPlan['type'], zone: ZoneId, lodgingIncluded?: b
 }
 
 /**
- * План на 10–14 июля 2027: две ночи в Авачинской зоне, ночь в Восточной,
- * ночь в туре с проживанием, день отъезда.
+ * План на 10–14 июля 2027: две ночи в Авачинской зоне, двухдневный тур с
+ * проживанием в Восточной (дни 3–4: ночь между ними — в туре), ночь после
+ * последнего дня тура — в Восточной (тур её не покрывает, #3199, Б32), день
+ * отъезда.
  */
 const DAYS: DayPlan[] = [
   day(1, 'arrival', 'avachinsky'),
   day(2, 'activity', 'avachinsky', false),
-  day(3, 'activity', 'eastern'),
+  day(3, 'activity', 'eastern', true),
   day(4, 'activity', 'eastern', true),
   day(5, 'departure', 'avachinsky'),
 ];
@@ -160,7 +162,7 @@ describe('make_trip_plan по MCP: жильё и машина к плану', ()
     await mcpPlan(PLAN_ARGS);
     expect(x.lodging.mock.calls.map((c) => c[0])).toEqual([
       { zone: 'avachinsky', checkIn: '2027-07-10', checkOut: '2027-07-12', nights: 2 },
-      { zone: 'eastern', checkIn: '2027-07-12', checkOut: '2027-07-13', nights: 1 },
+      { zone: 'eastern', checkIn: '2027-07-13', checkOut: '2027-07-14', nights: 1 },
     ]);
     // Четверо взрослых и ребёнок — пять мест.
     expect(x.lodging.mock.calls.map((c) => c[1])).toEqual([5, 5]);
@@ -174,7 +176,7 @@ describe('make_trip_plan по MCP: жильё и машина к плану', ()
     // Группа в один тип номеров не помещается — цена на группу не выдумывается.
     expect(block).toContain('«Вилюй», отель — цена не указана: группа целиком в один тип номеров не помещается — номера подберёт хозяин.');
     // «Номеров не нашли» читалось как «всё занято», хотя в зоне жилья нет (08.11).
-    expect(block).toContain('Жильё — Восточная зона, 12.07 — 13.07 (1 ночь): в этой зоне жилья, свободного на все эти ночи, на платформе нет.');
+    expect(block).toContain('Жильё — Восточная зона, 13.07 — 14.07 (1 ночь): в этой зоне жилья, свободного на все эти ночи, на платформе нет.');
     expect(block).not.toMatch(/без разметки зоны/);
     expect(block).toContain('Ещё 1 ночь — в турах с проживанием, на них жильё не искали.');
     expect(block).toContain('Бронь номера — на карточке по ссылке: даты стоянки, гости и номер уже подставлены. Оплата — владельцу при заселении, после подтверждения брони.');
@@ -189,7 +191,7 @@ describe('make_trip_plan по MCP: жильё и машина к плану', ()
     const block = plain(offersBlock(await mcpPlan(PLAN_ARGS)));
     expect(block).toContain(`«Дом у озера» (accommodation: ${STAY_B}), гостевой дом — по заявке хозяину, от 24 000 ₽ за ночь; `
       + 'свободно ли на эти ночи и сколько человек примет, подтверждает хозяин.');
-    expect(block).toContain(`/accommodations/${STAY_B}?check_in=2027-07-12&check_out=2027-07-13&adults=4&children=1`);
+    expect(block).toContain(`/accommodations/${STAY_B}?check_in=2027-07-13&check_out=2027-07-14&adults=4&children=1`);
     expect(block).not.toMatch(/Восточная зона[^\n]*на платформе нет/);
     expect(block).toMatch(/create_stay_request \(accommodation, даты стоянки, гости\)/);
     expect(block).toContain('Ещё объектов жилья без разметки зоны: 2 — планер их не предлагает, они есть в каталоге');
@@ -200,7 +202,7 @@ describe('make_trip_plan по MCP: жильё и машина к плану', ()
   it('подбор по заявке не прочитался — «не смогли проверить», а не «нет»', async () => {
     x.byRequest.mockResolvedValue({ state: 'unavailable' });
     const block = plain(offersBlock(await mcpPlan(PLAN_ARGS)));
-    expect(block).toMatch(/Восточная зона, 12\.07 — 13\.07 \(1 ночь\): не смогли проверить/);
+    expect(block).toMatch(/Восточная зона, 13\.07 — 14\.07 \(1 ночь\): не смогли проверить/);
     expect(block).toMatch(/Авачинская зона[\s\S]*- остальное не смогли проверить/);
   });
 

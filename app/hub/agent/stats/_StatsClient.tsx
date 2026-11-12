@@ -3,6 +3,7 @@
 import { useCallback, useEffect, useState } from 'react';
 import { Protected } from '@/components/auth/Protected';
 import { TrendingUp, Loader2, Users, Repeat, Wallet, AlertTriangle } from 'lucide-react';
+import { agentRoleOpen } from '@/lib/auth/agent-role';
 
 /**
  * Статистика агента (GET /api/agent/stats). Начисления — из единственной
@@ -60,6 +61,9 @@ export default function StatsClient() {
   const amounts = (data?.commissions ?? []).map((c) => c.amount ?? 0);
   const totalEarned = data?.rate === null ? null : amounts.reduce((s, a) => s + a, 0);
   const maxAmount = Math.max(...amounts, 1);
+  // Начисления — только при открытой роли агента (#3212): замороженному
+  // вознаграждение не начисляется, и «Начислено» было бы обещанием.
+  const money = agentRoleOpen();
 
   return (
     <Protected roles={['agent', 'admin']}>
@@ -81,14 +85,16 @@ export default function StatsClient() {
           </div>
         ) : (
           <div className="space-y-6">
-            <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
-              <div className="bg-[var(--bg-card)] border border-[var(--border)] rounded-lg p-5">
-                <div className="flex items-center gap-2 text-[var(--text-secondary)] text-sm mb-1"><Wallet className="w-4 h-4" /> Начислено</div>
-                <p className="text-2xl font-bold text-[var(--text-primary)]">
-                  {totalEarned === null ? 'ставка не назначена' : rub(totalEarned)}
-                </p>
-                <p className="text-xs text-[var(--text-muted)] mt-1">оплаченные и не отменённые продажи</p>
-              </div>
+            <div className={`grid grid-cols-1 gap-4 ${money ? 'md:grid-cols-3' : 'md:grid-cols-2'}`}>
+              {money && (
+                <div className="bg-[var(--bg-card)] border border-[var(--border)] rounded-lg p-5">
+                  <div className="flex items-center gap-2 text-[var(--text-secondary)] text-sm mb-1"><Wallet className="w-4 h-4" /> Начислено</div>
+                  <p className="text-2xl font-bold text-[var(--text-primary)]">
+                    {totalEarned === null ? 'ставка не назначена' : rub(totalEarned)}
+                  </p>
+                  <p className="text-xs text-[var(--text-muted)] mt-1">оплаченные и не отменённые продажи</p>
+                </div>
+              )}
               <div className="bg-[var(--bg-card)] border border-[var(--border)] rounded-lg p-5">
                 <div className="flex items-center gap-2 text-[var(--text-secondary)] text-sm mb-1"><Repeat className="w-4 h-4" /> Удержание клиентов</div>
                 <p className="text-2xl font-bold text-[var(--text-primary)]">
@@ -101,6 +107,7 @@ export default function StatsClient() {
               </div>
             </div>
 
+            {money && (
             <div className="bg-[var(--bg-card)] border border-[var(--border)] rounded-lg p-5">
               <h2 className="text-lg font-semibold text-[var(--text-primary)] mb-4 flex items-center gap-2"><TrendingUp className="w-5 h-5" /> Начисления по месяцам тура</h2>
               {data.commissions.length === 0 ? (
@@ -119,6 +126,7 @@ export default function StatsClient() {
                 </div>
               )}
             </div>
+            )}
 
             <div className="bg-[var(--bg-card)] border border-[var(--border)] rounded-lg p-5">
               <h2 className="text-lg font-semibold text-[var(--text-primary)] mb-4">Лучшие туры</h2>

@@ -56,6 +56,7 @@ export const A2A_DESCRIPTION =
   + 'six human-confirmed requests (create_trip_request, create_lead, create_booking_request, create_stay_request, request_charter, create_car_rental_request, '
   + 'consent: true required), no instant booking, no payment through the guide, no auth. '
   + 'Besides requests, make_trip_plan and edit_trip_plan save an anonymous plan draft for 7 days: no name or phone, no human receives it. '
+  + 'change_request cancels a tour request or moves it to another date by its status key, only when the person asks: done at once before the operator answers, sent to the operator as a request after. '
   + 'Change notifications: optional notify_url in the arguments of a request tool (not for stays) gets a signed POST (Standard Webhooks) when the request changes; task push notifications are not used, a task completes in the reply. '
   + 'Русский: информационный портал «Ведар Камчатка» и ИИ-проводник, не турагентство и не туроператор. '
   + 'Туры местных операторов с живой занятостью, безопасность мест и обстановка в крае, '
@@ -64,7 +65,9 @@ export const A2A_DESCRIPTION =
   + 'DataPart {"tool": "<имя>", "arguments": {...}} по схемам из tools/list на /api/mcp. Заявок шесть, и все их '
   + 'подтверждает человек: create_trip_request, create_lead, create_booking_request, create_stay_request, request_charter, create_car_rental_request '
   + '(нужен consent: true — согласие человека на обработку имени и телефона). Кроме заявок, make_trip_plan и edit_trip_plan '
-  + 'сохраняют черновик плана: анонимно, на 7 дней, без имени и телефона, до человека он не доходит. Брони и оплаты через агента нет. '
+  + 'сохраняют черновик плана: анонимно, на 7 дней, без имени и телефона, до человека он не доходит. '
+  + 'change_request отменяет заявку на тур или переносит её на другую дату по ключу заявки и только по просьбе человека: пока оператор не ответил — сразу, после его ответа — просьбой ему. '
+  + 'Брони и оплаты через агента нет. '
   + 'Анонимно, лимиты по адресу; задача завершается в ответе на SendMessage и хранится час. '
   + 'Об изменении самой заявки — необязательный notify_url в аргументах пишущего инструмента (кроме жилья): подписанный POST по Standard Webhooks; push-уведомлений задач нет. '
   // Китайский хвост (12.10) — текст в lib/mcp/zh-layer, один на все поверхности.
@@ -88,7 +91,7 @@ export const SKILL_TAGS: Record<string, string[]> = {
   search_transfers:       ['kamchatka', 'transfers', 'charter', 'vakhtovka'],
   search_car_rental:      ['kamchatka', 'car-rental', 'self-drive', 'suv', 'price-per-day'],
   search_gear:            ['kamchatka', 'gear', 'rental'],
-  make_trip_plan:         ['kamchatka', 'trip-plan', 'itinerary', 'weather'],
+  make_trip_plan:         ['kamchatka', 'trip-plan', 'itinerary'],
   edit_trip_plan:         ['kamchatka', 'trip-plan', 'itinerary', 'edit'],
   search:                 ['kamchatka', 'search', 'catalogue', 'places', 'stays', 'routes'],
   fetch:                  ['kamchatka', 'document', 'details', 'citation'],
@@ -99,6 +102,8 @@ export const SKILL_TAGS: Record<string, string[]> = {
   create_trip_request: ['kamchatka', 'request', 'trip', 'tour', 'stay', 'transfer', 'human-confirmed', 'consent'],
   create_car_rental_request: ['kamchatka', 'request', 'car-rental', 'self-drive', 'human-confirmed', 'consent'],
   get_request_status:     ['kamchatka', 'request', 'status', 'operator-answer'],
+  // Не заявка: согласия не просит, ПД не берёт — тега consent нет.
+  change_request:         ['kamchatka', 'request', 'cancel', 'reschedule', 'status-key'],
 };
 
 /**
@@ -168,8 +173,9 @@ export function buildSkills(): AgentSkill[] {
     description:
       'Свободный вопрос текстом (TextPart), по-русски или по-английски. Отвечает Кузьмич — хранитель Камчатки — '
       + 'данными из инструментов платформы: туры и занятость, безопасность и обстановка, места, погода, жильё, '
-      + 'трансферы, прокат машин без водителя, план поездки. Заявки в этом режиме не оформляются: для них — навыки create_* с DataPart. '
-      + 'Free-text question in Russian or English, answered with platform data; requests only via create_* skills.',
+      + 'трансферы, прокат машин без водителя, план поездки. Заявки в этом режиме не оформляются: для них — навыки create_* с DataPart; '
+      + 'отмена и перенос заявки на тур — навык change_request. '
+      + 'Free-text question in Russian or English, answered with platform data; requests only via create_* skills, cancelling or rescheduling via change_request.',
     tags: ['kamchatka', 'assistant', 'free-text', 'travel', 'safety'],
     examples: TEXT_EXAMPLES[CHAT_SKILL_ID] ?? [],
     inputModes: ['text/plain'],
@@ -184,7 +190,9 @@ export function buildSkills(): AgentSkill[] {
       description:
         `${t.description} Вызов: DataPart ${dataPartExample(t.name)} — аргументы по схеме инструмента ${t.name} `
         + `(tools/list на ${A2A_JSONRPC_PATH.replace('/a2a', '/mcp')}). Ответ: Task в состоянии completed с текстом инструмента`
-        + (write ? '; отказ по входу (нет согласия, нет мест, лимит) — состояние rejected с объяснением.' : '.'),
+        + (write
+          ? '; отказ по входу (нет согласия, нет мест, лимит) — состояние rejected с объяснением; сбой на стороне Ведара — failed.'
+          : '; отказ по входу (неверные аргументы, неизвестный ключ, лимит) — состояние rejected с объяснением; сбой на стороне Ведара — failed.'),
       tags: SKILL_TAGS[t.name] ?? ['kamchatka'],
       examples: [dataPartExample(t.name), ...(TEXT_EXAMPLES[t.name] ?? [])],
       inputModes: ['application/json'],

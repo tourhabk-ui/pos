@@ -152,7 +152,7 @@ describe('мелочи с видимой ценой', () => {
     const tours = JSX.slice(JSX.indexOf('<h2>Туры сезона</h2>'), JSX.indexOf('className="plates more-tours"'));
     expect(tours).toContain('href="/catalog"');
     expect(tours).not.toContain('href="/routes');
-    const explore = JSX.slice(JSX.indexOf('<h2>Исследовать</h2>'), JSX.indexOf('className="plates explore"'));
+    const explore = JSX.slice(JSX.indexOf('<h2>Исследовать</h2>'), JSX.indexOf('places={explore}'));
     expect(explore).toContain('href="/routes?kind=place"');
     expect(explore).not.toContain('href="/catalog"');
   });
@@ -207,10 +207,14 @@ describe('два направления и безопасность одним �
 
   it('«Исследовать» — места после «Перед выходом»: без цены и без брони (§9)', () => {
     expect(pos('id="radar"')).toBeLessThan(pos('<h2>Исследовать</h2>'));
-    const at = pos('className="plates explore"');
+    // С 12.11 места — колодой (components/places/PlaceSwipeDeck): ссылку по
+    // ЧПУ и отсутствие цены держит рендер в tests/unit/motion-kit.test.tsx,
+    // здесь — что секция отдаёт колоде именно места и ничего торгового.
+    const at = pos('places={explore}');
+    expect(at).toBeGreaterThan(pos('<h2>Исследовать</h2>'));
     const explore = JSX.slice(at, JSX.indexOf('</section>', at));
-    // Ссылка по ЧПУ, по id — только без slug (аудит 02.10, home-explore-slug).
-    expect(explore).toContain('href={`/places/${pl.urlSlug ?? pl.id}`}');
     expect(explore).not.toMatch(/price|buy-cta|Забронировать|marketplace/);
+    const deck = readFileSync(join(process.cwd(), 'components/places/PlaceSwipeDeck.tsx'), 'utf8');
+    expect(deck).not.toMatch(/price|buy-cta|Забронировать|marketplace/);
   });
 });

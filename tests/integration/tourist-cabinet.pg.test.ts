@@ -1636,7 +1636,9 @@ withPg('кабинет туриста на настоящем PostgreSQL', () =>
     expect(await events(unowned)).toEqual([
       { partner_id: op, actor_kind: 'partner_user', actor_user_id: opUser, from: 'new', to: 'contacted', via: 'site' },
     ]);
-    expect((await opPatch(mine, { status: 'lost' })).status).toBe(404);
+    // «Отказ» продавец ставит только с причиной (этап 3а) — и с ней чужая заявка «не найдена», как раньше.
+    expect((await opPatch(mine, { status: 'lost' })).status).toBe(422);
+    expect((await opPatch(mine, { status: 'lost', lostReason: 'seats' })).status).toBe(404);
     expect((await row(mine)).status).toBe('contacted');
     // Заметка без статуса — пишется, события смены нет.
     const note = await opPatch(foreign, { notes: 'перезвонить в среду' });
@@ -1644,6 +1646,141 @@ withPg('кабинет туриста на настоящем PostgreSQL', () =>
     expect(note.json.changed).toBe(false);
     expect((await pool.query<{ notes: string }>(`SELECT notes FROM leads WHERE id = $1`, [foreign])).rows[0].notes).toBe('перезвонить в среду');
     expect(await events(foreign)).toEqual([]);
+
+    // Гид закрывает свою заявку «Отказ» — дверь, поток и запись вместе (этап 3а):
+    // без причины не принимается; причина на стороне клиента записана в заявку и журнал,
+    // а человеку ничего не уходит — и гиду так и сказано.
+    expect((await guidePatch(mine, { status: 'lost' })).status).toBe(422);
+    expect((await row(mine)).status).toBe('contacted');
+    const closedByGuide = await guidePatch(mine, { status: 'lost', lostReason: 'client_declined' });
+    expect(closedByGuide.status, JSON.stringify(closedByGuide.json)).toBe(200);
+    expect(closedByGuide.json).toMatchObject({ changed: true, data: { id: mine, status: 'lost' } });
+    expect((closedByGuide.json as { tourist?: string | null }).tourist).toMatch(/^Туристу ничего не отправлено: причина на стороне клиента/);
+    const closedRow = (await pool.query<{ status: string; lost_reason: string | null }>(
+      `SELECT status, lost_reason FROM leads WHERE id = $1`, [mine],
+    )).rows[0];
+    expect(closedRow).toEqual({ status: 'lost', lost_reason: 'client_declined' });
+    const journal = await pool.query<{ actor: string; details: Record<string, unknown> }>(
+      `SELECT actor, details FROM lead_activity_log WHERE lead_id = $1 AND action = 'seller_closed'`, [mine],
+    );
+    expect(journal.rows).toEqual([{ actor: 'partner', details: { reason: 'client_declined', via: 'site', from: 'contacted' } }]);
+    expect((await pool.query(`SELECT 1 FROM answer_notices WHERE lead_id = $1::uuid`, [mine])).rowCount).toBe(0);
+    // Чужая заявка этой дверью не закрылась и сообщения по ней нет.
+    expect((await pool.query(`SELECT 1 FROM answer_notices WHERE lead_id = ANY($1::uuid[])`, [[foreign, unowned]])).rowCount).toBe(0);
+  });
+
+  it('бронь рукой гида-продавца (#3211): по звонку и из заявки одной транзакцией; чужой тур, чужая и ничейная заявка — 404 и не тронуты; клиент в CRM; заявка уходит из «Входящих»', async () => {
+    const guideUser = (await pool.query<{ id: string }>(
+      `INSERT INTO users (email, name, password_hash, role) VALUES ('manual-guide@example.com', 'Гид брони', 'x', 'guide') RETURNING id`,
+    )).rows[0].id;
+    const guide = (await pool.query<{ id: string }>(
+      `INSERT INTO partners (name, category, contact, is_verified, is_public, slug, user_id)
+       VALUES ('Гид брони', 'guide', '{}', TRUE, TRUE, 'manual-guide', $1) RETURNING id`, [guideUser],
+    )).rows[0].id;
+    const op = (await pool.query<{ id: string }>(
+      `INSERT INTO partners (name, category, contact, is_verified, is_public, slug)
+       VALUES ('Оператор чужой брони', 'operator', '{}', TRUE, TRUE, 'manual-op') RETURNING id`,
+    )).rows[0].id;
+    // Трёхдневный тур: общая вставка пишет конец брони, а не один день.
+    const tour = (await pool.query<{ id: string }>(
+      `INSERT INTO operator_tours (operator_id, title, base_price, price_unit, max_participants, is_active, is_published, multi_day_count)
+       VALUES ($1, 'Тур гида по звонку', 12000, 'per_person', 6, TRUE, TRUE, 3) RETURNING id::text AS id`, [guide],
+    )).rows[0].id;
+    const foreignTour = (await pool.query<{ id: string }>(
+      `INSERT INTO operator_tours (operator_id, title, base_price, max_participants, is_active, is_published)
+       VALUES ($1, 'Тур чужого оператора', 9000, 10, TRUE, TRUE) RETURNING id::text AS id`, [op],
+    )).rows[0].id;
+    const lead = async (operatorId: string | null, phone: string) => (await pool.query<{ id: string }>(
+      `INSERT INTO leads (name, phone, comment, status, operator_id, source_data)
+       VALUES ('Турист звонка', $2, 'Хотим втроём', 'new', $1, $3::jsonb) RETURNING id::text AS id`,
+      [operatorId, phone, JSON.stringify({ source: 'mcp', tool: 'create_booking_request', tour_id: Number(tour), date: '2027-07-26', participants: 3 })],
+    )).rows[0].id;
+    const mine = await lead(guide, '+79990200001');
+    const foreign = await lead(op, '+79990200002');
+    const unowned = await lead(null, '+79990200003');
+
+    const { NextRequest } = await import('next/server');
+    const asGuide = async <T,>(fn: () => Promise<T>): Promise<T> => {
+      authAs.userId = guideUser;
+      authAs.role = 'guide';
+      try { return await fn(); } finally { authAs.userId = userId; authAs.role = 'tourist'; }
+    };
+    const post = (body: Record<string, unknown>) => asGuide(async () => {
+      const { POST } = await import('@/app/api/guide/own/bookings/route');
+      const res = await POST(new NextRequest('http://localhost/api/guide/own/bookings', {
+        method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify(body),
+      }) as unknown as NextRequest);
+      return { status: res.status, json: await res.json() as { data?: { id: string; lead_id: string | null }; error?: string } };
+    });
+    const bookingsCount = async () => Number((await pool.query(`SELECT count(*) FROM operator_bookings WHERE operator_tour_id = ANY($1::bigint[])`, [[tour, foreignTour]])).rows[0].count);
+
+    // «Свои туры»: заявка — с тем, что записала дверь заявки, без броней.
+    const ownBefore = await asGuide(async () => {
+      const { GET } = await import('@/app/api/guide/own/route');
+      return (await (await GET(new NextRequest('http://localhost/api/guide/own') as unknown as NextRequest)).json()) as { data: { leads: Array<Record<string, unknown>> } };
+    });
+    expect(ownBefore.data.leads).toHaveLength(1);
+    expect(ownBefore.data.leads[0]).toMatchObject({ id: mine, people: 3, tour_id: tour, requested_date: '2027-07-26', bookings: [] });
+
+    // По звонку: подтверждённая, без оплаты, цена тура × люди, конец трёхдневной брони записан.
+    const call = await post({ operator_tour_id: Number(tour), booking_date: '2027-08-02', participants: 2, tourist_name: 'Иван', tourist_phone: '+79990200009', payment_status: 'paid' });
+    expect(call.status, JSON.stringify(call.json)).toBe(201);
+    const callRow = (await pool.query(
+      `SELECT booking_status, payment_status, payment_method, created_via, final_price::numeric::int AS final_price,
+              end_date::text AS end_date, lead_id FROM operator_bookings WHERE id = $1`, [call.json.data!.id],
+    )).rows[0];
+    expect(callRow).toEqual({
+      booking_status: 'confirmed', payment_status: 'pending', payment_method: null, created_via: 'direct_contact',
+      final_price: 24000, end_date: '2027-08-04', lead_id: null,
+    });
+
+    // Чужой тур, чужая и ничейная заявка — 404, ни брони, ни правки заявки.
+    const before = await bookingsCount();
+    expect((await post({ operator_tour_id: Number(foreignTour), booking_date: '2027-08-02', participants: 1 })).status).toBe(404);
+    for (const id of [foreign, unowned]) {
+      const r = await post({ operator_tour_id: Number(tour), booking_date: '2027-07-26', participants: 3, lead_id: id });
+      expect(r.status, id).toBe(404);
+      expect(r.json.error).toBe('Заявка не найдена среди ваших');
+    }
+    expect(await bookingsCount()).toBe(before);
+    const leadRow = async (id: string) => (await pool.query<{ status: string; operator_id: string | null }>(
+      `SELECT status, operator_id::text AS operator_id FROM leads WHERE id = $1`, [id],
+    )).rows[0];
+    expect(await leadRow(foreign)).toEqual({ status: 'new', operator_id: op });
+    expect(await leadRow(unowned)).toEqual({ status: 'new', operator_id: null });
+
+    // Из своей заявки: бронь помнит заявку, заявка «Договорились», событие от гида.
+    const { loadInbox } = await import('@/lib/crm/inbox');
+    const waitingLeads = async () => (await loadInbox(guide, 'guide', guideUser, { unreadChat: async () => 0 })).items.filter((i) => i.kind === 'lead').map((i) => i.id);
+    expect(await waitingLeads()).toEqual([mine]);
+    const fromLead = await post({ operator_tour_id: Number(tour), booking_date: '2027-07-26', participants: 3, tourist_name: 'Турист звонка', tourist_phone: '+79990200001', lead_id: mine });
+    expect(fromLead.status, JSON.stringify(fromLead.json)).toBe(201);
+    expect(fromLead.json.data!.lead_id).toBe(mine);
+    expect((await pool.query(`SELECT lead_id::text AS lead_id FROM operator_bookings WHERE id = $1`, [fromLead.json.data!.id])).rows[0].lead_id).toBe(mine);
+    expect(await leadRow(mine)).toEqual({ status: 'converted', operator_id: guide });
+    const ev = (await pool.query(
+      `SELECT partner_id::text AS partner_id, actor_user_id::text AS actor, payload->>'from' AS "from", payload->>'to' AS "to", payload->>'booking_id' AS booking
+         FROM crm_events WHERE source_kind = 'lead' AND source_id = $1 AND kind = 'status_change'`, [mine],
+    )).rows;
+    expect(ev).toEqual([{ partner_id: guide, actor: guideUser, from: 'new', to: 'converted', booking: fromLead.json.data!.id }]);
+    // Заявка ушла из «Входящих»; подтверждённые брони там не ждут ответа.
+    expect(await waitingLeads()).toEqual([]);
+    const inbox = await loadInbox(guide, 'guide', guideUser, { unreadChat: async () => 0 });
+    expect(inbox.failed).toEqual([]);
+    expect(inbox.items.filter((i) => i.kind === 'operator_booking')).toEqual([]);
+    // Клиенты в CRM гида — обе брони.
+    const links = (await pool.query(
+      `SELECT source_id FROM crm_contact_links WHERE partner_id = $1 AND source_kind = 'operator_booking' ORDER BY source_id`, [guide],
+    )).rows.map((r) => String(r.source_id));
+    expect(links).toEqual([call.json.data!.id, fromLead.json.data!.id].sort());
+    // Под заявкой в «Своих турах» — её бронь.
+    const ownAfter = await asGuide(async () => {
+      const { GET } = await import('@/app/api/guide/own/route');
+      return (await (await GET(new NextRequest('http://localhost/api/guide/own') as unknown as NextRequest)).json()) as { data: { leads: Array<{ id: string; bookings: unknown[] }> } };
+    });
+    expect(ownAfter.data.leads.find((l) => l.id === mine)?.bookings).toEqual([
+      { id: fromLead.json.data!.id, booking_date: '2027-07-26', booking_status: 'confirmed' },
+    ]);
   });
 
   it('повтор того же статуса — не новое действие: двери оператора и гида подтверждают и отменяют дважды — письмо, push, Telegram, места и возврат по разу, ответ changed:false, время и причина отмены первые; из отменённой в подтверждённую — 409 (29.10)', async () => {
@@ -2153,6 +2290,39 @@ withPg('кабинет туриста на настоящем PostgreSQL', () =>
       const lost = await press(`ld:l:${mine}`);
       expect((await press(`oc:x:${actionIdOf(lost, 'oc:x:')}`)).text).toBe('Хорошо, заявка без изменений.');
       expect((await row(mine)).status).toBe('converted');
+
+      // «Отказ» — только с причиной (этап 3а): под вопросом причины, кнопки «Да» нет.
+      const lostAsk = await press(`ld:l:${mine}`);
+      const lostId = actionIdOf(lostAsk, 'oc:x:');
+      const lostPayloads = lostAsk.buttons.flat().map((b) => b.payload).filter((x) => x.startsWith('oc:'));
+      expect(lostPayloads).toEqual([...['s', 'w', 'd', 'g', 'o', 'n', 'c'].map((c) => `oc:r${c}:${lostId}`), `oc:x:${lostId}`]);
+      for (const pd of ['Турист кнопки заявки', PHONE, '9990200001', 'конец июля', 'перезвоните']) expect(lostAsk.text).not.toContain(pd);
+      // «Да» без причины (старая кнопка) заявку не закрывает: причина спрашивается ещё раз.
+      expect((await press(`oc:y:${lostId}`)).text).toContain('Выберите причину — от неё зависит, что узнает турист.');
+      expect((await row(mine)).status).toBe('converted');
+      // Две причины одновременно: закрытие одно — одна причина в заявке, одна запись журнала, одно событие.
+      const [r1, r2] = await Promise.all([press(`oc:rn:${lostId}`), press(`oc:rc:${lostId}`)]);
+      const lostTexts = [r1.text, r2.text];
+      expect(lostTexts.filter((t) => t.startsWith('Заявка отмечена: «Отказ». Туристу ничего не отправлено: причина на стороне клиента.'))).toHaveLength(1);
+      expect(lostTexts.filter((t) => /Уже выполняю|Уже нажато раньше/.test(t))).toHaveLength(1);
+      const closedLead = (await pool.query<{ status: string; lost_reason: string | null }>(
+        `SELECT status, lost_reason FROM leads WHERE id = $1`, [mine],
+      )).rows[0];
+      expect(closedLead.status).toBe('lost');
+      expect(['no_contact', 'client_declined']).toContain(closedLead.lost_reason);
+      const closings = await pool.query<{ actor: string; details: Record<string, unknown> }>(
+        `SELECT actor, details FROM lead_activity_log WHERE lead_id = $1 AND action = 'seller_closed'`, [mine],
+      );
+      expect(closings.rows).toEqual([{ actor: 'partner', details: { reason: closedLead.lost_reason, via: 'max', from: 'converted' } }]);
+      // Причина клиента: строки сообщения туристу нет.
+      expect((await pool.query(`SELECT 1 FROM answer_notices WHERE lead_id = $1::uuid`, [mine])).rowCount).toBe(0);
+      // Строка действия несёт ту же причину, что заявка, и итог со словами для гида.
+      const lostRow = (await pool.query<{ status: string; reason: string | null; outcome: { tourist?: string } }>(
+        `SELECT status, reason, outcome FROM partner_chat_actions WHERE id = $1::uuid`, [lostId],
+      )).rows[0];
+      expect(lostRow).toMatchObject({ status: 'done', reason: closedLead.lost_reason });
+      expect(lostRow.outcome.tourist).toMatch(/^Туристу ничего не отправлено: причина на стороне клиента/);
+      expect((await events(mine)).map((e) => [e.from, e.to, e.via]).at(-1)).toEqual(['converted', 'lost', 'max']);
 
       // CHECK: действие брони над заявкой и заявка не uuid — не ложатся; согласованная — ложится.
       const put = async (action: string, subject: string) => pool.query(

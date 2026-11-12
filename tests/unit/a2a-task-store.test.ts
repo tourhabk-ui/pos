@@ -156,6 +156,26 @@ describe('задачи и переписка переживают перезап
     expect(refused.statusMessage!.parts).toEqual([{ text: expect.stringMatching(/записи не сделал \(rejected\)/) }]);
   });
 
+  it('статус заявки: в базе заглушка — ни страницы заявки, ни ссылки MAX с ключом', () => {
+    const key = 'Zq3vT-x9LmK_aB7cD2eF5gH8jN4pR6sU';
+    const view = {
+      state: 'awaiting_operator', kind: 'lead', human: 'Заявка ждёт ответа оператора.', next: 'Спросите позже.',
+      page: `https://vedarai.ru/request-status#${key}`, max_link: `https://max.ru/vedar_bot?start=sq_${key}`,
+    };
+    const status = realTask('t-4', [{ text: JSON.stringify(view) }, { data: { tool: 'get_request_status', result: view } }],
+      { input: 'tool', tool: 'get_request_status' });
+    // Сам ответ ключ несёт — иначе проверять нечего.
+    expect(JSON.stringify(status)).toContain(key);
+    const copy = storableTask(status);
+    expect(JSON.stringify(copy)).not.toContain(key);
+    expect(JSON.stringify(copy)).not.toMatch(/request-status#|sq_/);
+    expect(copy.state).toBe('completed');
+    expect(copy.artifacts[0]!.parts).toEqual([{ text: expect.stringMatching(/get_request_status ответил.*не хранит.*Спросите статус ещё раз/) }]);
+    // Соседний читающий инструмент хранится как раньше — ответом, а не заглушкой.
+    const tours = storableTask(realTask('t-5', [{ text: 'Туры: сплав, рыбалка.' }], { input: 'tool', tool: 'get_tours' }));
+    expect(tours.artifacts[0]!.parts).toEqual([{ text: 'Туры: сплав, рыбалка.' }]);
+  });
+
   it('нет в базе — missing; запись не задача — unavailable, а не found', async () => {
     const store = createDurableTaskStore(createTaskStore());
     expect(await store.get('nope')).toEqual({ kind: 'missing' });

@@ -124,7 +124,9 @@ describe('POST ручной брони: бронь из лида', () => {
     expect(String(insert?.[0])).toMatch(/lead_id\)/);
     expect(insert?.[1]).toEqual(expect.arrayContaining([LEAD_ID]));
     expect(String(update?.[0])).toMatch(/SET status = 'converted', operator_id = COALESCE\(operator_id, \$2::uuid\)/);
-    expect(update?.[1]).toEqual([LEAD_ID, OPERATOR]);
+    // Третий параметр — статус «отменена клиентом» (1427): из такой заявки бронь не заводится.
+    expect(update?.[1]).toEqual([LEAD_ID, OPERATOR, 'cancelled']);
+    expect(String(update?.[0])).toMatch(/AND status <> \$3/);
     expect(txCalls.indexOf(insert!)).toBeLessThan(txCalls.indexOf(update!));
     expect(eventMock).toHaveBeenCalledWith(expect.objectContaining({
       kind: 'status_change', sourceKind: 'lead', sourceId: LEAD_ID,
@@ -149,10 +151,74 @@ describe('POST ручной брони: бронь из лида', () => {
     expect(eventMock).not.toHaveBeenCalled();
   });
 
+  it('заявку отменил клиент (1427) — 409 словами, брони нет; отменил между чтением и записью — транзакция с бронью откатывается', async () => {
+    routeDb(true, 'cancelled');
+    let res = await POST(postReq({ ...BASE, lead_id: LEAD_ID }));
+    expect(res.status).toBe(409);
+    expect((await res.json() as { error: string }).error).toBe('Заявку отменил клиент — бронь по ней не заводится');
+    expect(queryMock.mock.calls.some((c) => /INSERT INTO operator_bookings/.test(String(c[0])))).toBe(false);
+    expect(eventMock).not.toHaveBeenCalled();
+
+    // Гонка: при чтении заявка ещё живая, а условная запись «Сделка» строку уже не находит.
+    routeDb(true, 'new');
+    const base = queryMock.getMockImplementation()!;
+    queryMock.mockImplementation(async (sql: string, ...rest: unknown[]) => {
+      if (/UPDATE leads/.test(sql)) return { rows: [], rowCount: 0 };
+      return base(sql, ...rest);
+    });
+    txCalls.length = 0;
+    res = await POST(postReq({ ...BASE, lead_id: LEAD_ID }));
+    expect(res.status).toBe(409);
+    // Вставка брони была — и ушла вместе с транзакцией: обратный вызов бросил, а не вернул бронь.
+    expect(txCalls.some((c) => /INSERT INTO operator_bookings/.test(String(c[0])))).toBe(true);
+    expect(eventMock).not.toHaveBeenCalled();
+  });
+
   it('лид уже «Сделка» — второго события о смене статуса нет', async () => {
     routeDb(true, 'converted');
     await POST(postReq({ ...BASE, lead_id: LEAD_ID }));
     expect(eventMock).not.toHaveBeenCalled();
+  });
+});
+
+describe('ручная бронь оператора: права команды — общим правилом продавца (#3211)', () => {
+  /** Кабинет: владелец или менеджер с правом своей цены или без. */
+  function cabinet(kind: 'owner' | 'manager', canEditPrices = false) {
+    routeDb(true);
+    poolQueryMock.mockImplementation(async (sql: string) => {
+      if (/WITH own AS/.test(sql)) {
+        return {
+          rows: [kind === 'owner'
+            ? { own_partner_id: OPERATOR, member_partner_id: null, member_id: null, can_edit_prices: null, can_cancel_bookings: null, was_revoked: false }
+            : { own_partner_id: null, member_partner_id: OPERATOR, member_id: 'm-1', can_edit_prices: canEditPrices, can_cancel_bookings: false, was_revoked: false }],
+        };
+      }
+      return { rows: [] };
+    });
+  }
+  const inserted = () => txCalls.some((c) => /INSERT INTO operator_bookings/.test(String(c[0])));
+  beforeEach(() => authMock.mockResolvedValue({ userId: '00000000-0000-4000-8000-0000000000a2', role: 'operator' }));
+
+  it('менеджер без права цены: своя цена — 403, брони нет; цена тура — можно', async () => {
+    cabinet('manager');
+    expect((await POST(postReq({ ...BASE, final_price: 5000 }))).status).toBe(403);
+    expect(inserted()).toBe(false);
+    expect((await POST(postReq({ ...BASE, final_price: 20000 }))).status).toBe(201);
+  });
+
+  it('менеджер с правом цены — своя цена записывается', async () => {
+    cabinet('manager', true);
+    expect((await POST(postReq({ ...BASE, final_price: 5000 }))).status).toBe(201);
+    expect(inserted()).toBe(true);
+  });
+
+  it('«оплачено» отмечает только владелец: менеджеру — 403 без брони, владельцу — 201', async () => {
+    cabinet('manager', true);
+    const res = await POST(postReq({ ...BASE, payment_status: 'paid' }));
+    expect(res.status).toBe(403);
+    expect(inserted()).toBe(false);
+    cabinet('owner');
+    expect((await POST(postReq({ ...BASE, payment_status: 'paid', final_price: 5000 }))).status).toBe(201);
   });
 });
 

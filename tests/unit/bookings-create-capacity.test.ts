@@ -54,7 +54,7 @@ const TOUR_ROW = {
   duration_hours: 8,
 };
 
-interface CalendarRow { available_slots: number; is_cancelled: boolean }
+interface CalendarRow { available_slots: number; is_cancelled: boolean; closed_by?: string | null }
 
 /**
  * Календарь и занятость приходят ОДНИМ запросом по дням диапазона (14.09):
@@ -70,6 +70,7 @@ function mockQueries(opts: { calendar: CalendarRow[]; alreadyBooked?: string }) 
     occupied: opts.alreadyBooked ?? '0',
     available_slots: slot ? slot.available_slots : null,
     is_cancelled: slot ? slot.is_cancelled : null,
+    closed_by: slot ? slot.closed_by ?? null : null,
   };
   clientQueryMock.mockImplementation((sql: string) => {
     if (sql.includes('FROM operator_tours')) return Promise.resolve({ rows: [TOUR_ROW] });
@@ -128,6 +129,22 @@ describe('POST /api/hub/bookings/create — календарь оператор�
 
     expect(res.status).toBe(422);
     expect(json.error).toContain('закрыл приём заявок');
+    // Код отказа — рядом со словами (этап 6б): по нему форма различает отказы.
+    expect(json.code).toBe('DATE_BLOCKED');
+    expect(json.created).toBe(false);
+    expect(insertCalled()).toBe(false);
+  });
+
+  it('дату закрыл Ведар (closed_by = platform) → 422 DATE_CLOSED_BY_PLATFORM со своими словами, INSERT не вызван', async () => {
+    mockQueries({ calendar: [{ available_slots: 10, is_cancelled: true, closed_by: 'platform' }] });
+    const res = await POST(postReq(2));
+    const json = await res.json();
+
+    expect(res.status).toBe(422);
+    expect(json.code).toBe('DATE_CLOSED_BY_PLATFORM');
+    expect(json.created).toBe(false);
+    expect(json.error).toContain('закрыл Ведар по описанию тура — оператор её не закрывал');
+    expect(json.error).not.toContain('Оператор закрыл');
     expect(insertCalled()).toBe(false);
   });
 

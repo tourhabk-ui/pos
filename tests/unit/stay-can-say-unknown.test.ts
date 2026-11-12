@@ -41,7 +41,8 @@ import { publicRating } from '@/lib/reviews/public-rating';
 const ROOT = process.cwd();
 const MIGRATION = readFileSync(join(ROOT, 'migrations/1006_stay_can_say_unknown.sql'), 'utf-8');
 const CATALOG   = readFileSync(join(ROOT, 'app/api/accommodations/route.ts'), 'utf-8');
-const PLANNER   = readFileSync(join(ROOT, 'app/api/trip/plan/route.ts'), 'utf-8');
+// Планер жилья /api/trip/plan снят заглушкой 410 (#3199, (а)-3): его
+// проверки отсюда убраны вместе с роутом.
 const CALENDAR  = readFileSync(join(ROOT, 'app/api/stay/calendar/route.ts'), 'utf-8');
 const PRICES    = readFileSync(join(ROOT, 'app/api/accommodations/[id]/prices/route.ts'), 'utf-8');
 const CARD      = readFileSync(join(ROOT, 'components/shared/AccommodationCard.tsx'), 'utf-8');
@@ -185,27 +186,9 @@ describe('неизвестное не притворяется ни лучшим
     expect(code).toMatch(/price_desc: 'a\.price_per_night_from DESC NULLS LAST'/);
     expect(code).toMatch(/rating_desc: 'a\.rating DESC NULLS LAST/);
   });
-
-  it('в планере тоже — и по оценке, и по цене', () => {
-    const code = codeOnly(PLANNER);
-    expect(code).toMatch(/a\.rating DESC NULLS LAST/);
-    expect(code).toMatch(/a\.price_per_night_from ASC NULLS LAST/);
-  });
 });
 
 describe('платформа не отсеивает неоценённое сама', () => {
-  it('планер допускает объект без оценки', () => {
-    const code = codeOnly(PLANNER);
-    expect(code).toMatch(/\(a\.rating IS NULL OR a\.rating >= 3\.5\)/);
-    // Голое условие отсеивало объект без отзывов навсегда.
-    expect(code).not.toMatch(/AND a\.rating >= 3\.5\s*$/m);
-  });
-
-  it('планер допускает объект без объявленной цены при заданном бюджете', () => {
-    const code = codeOnly(PLANNER);
-    expect(code).toMatch(/a\.price_per_night_from IS NULL OR a\.price_per_night_from <= \$1/);
-  });
-
   it('фильтры, которые задал ТУРИСТ, остаются строгими', () => {
     // Разница по существу: диапазон цены человек спросил сам, и объект с
     // неизвестной ценой под него не подходит. Условие платформы он не просил.

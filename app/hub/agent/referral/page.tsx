@@ -1,4 +1,5 @@
 import type { Metadata } from 'next';
+import { AgentMoneyGate } from '@/components/agent/AgentFrozenNote';
 import ReferralClient from './_ReferralClient';
 
 export const metadata: Metadata = {
@@ -7,6 +8,13 @@ export const metadata: Metadata = {
   robots: 'noindex, nofollow',
 };
 
+// Деньги агента — только при открытой роли (#3212): по прямому адресу
+// замороженный агент видит «раздел закрыт», а не начисления
+// (правило роли — в AgentMoneyGate).
 export default function AgentReferralPage() {
-  return <ReferralClient />;
+  return (
+    <AgentMoneyGate title="Реферальные ссылки">
+      <ReferralClient />
+    </AgentMoneyGate>
+  );
 }

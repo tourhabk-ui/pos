@@ -38,6 +38,17 @@ export function answerTellPlain(tell: AnswerTell): string {
   return partnerAnswerText(tell).replace(/<\/?b>/g, '');
 }
 
+/**
+ * Ответ записан, а до заказчика не дошло (или дошло ли — ещё неизвестно:
+ * отправка идёт): экран показывает итог предупреждением, а не «всё хорошо». Пропуск отправки по
+ * закрытой или тестовой заявке — не предупреждение: сообщать было некому.
+ */
+export function answerTellAttention(tell: AnswerTell): boolean {
+  if (tell.kind === 'charter_take') return tell.clientTold === false;
+  if (tell.kind !== 'decline' && tell.kind !== 'charter_decline') return false;
+  return tell.notice === null || tell.notice.state === 'undelivered' || tell.notice.state === 'pending';
+}
+
 /** HTTP-статус исхода ответа: записано — 200, остальное называет причину. */
 export function answerTellStatus(tell: AnswerTell): number {
   switch (tell.kind) {

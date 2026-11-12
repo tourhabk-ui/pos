@@ -34,6 +34,7 @@ import { parseTravelPreferences } from '@/lib/planner/travel-style-words';
 import { recordTouristDemand } from '@/lib/ai/tourist-demand-aggregator';
 import { createRateLimiter, getClientIp } from '@/lib/rate-limit';
 import { redactPII } from '@/lib/security/pii-redact';
+import { parseInterestWords, withoutInterestWords } from '@/lib/planner/interest-words';
 
 export const dynamic = 'force-dynamic';
 
@@ -108,9 +109,15 @@ function defaultDates(durationDays: number): { arrival: string; departure: strin
   return { arrival, departure };
 }
 
-/** Keyword-based fallback parsing */
+/**
+ * Запасной разбор по словам. Сначала — словарь планера (тот же, что у
+ * Кузьмича и экрана), и только непонятое им — словарю подбора маршрутов:
+ * тот читает «вулкан» как треккинг и добавлял его к «посмотреть вулканы»
+ * (#3199, Б23).
+ */
 function keywordParse(message: string) {
-  const { interests, dateFrom, dateTo } = parseInterestsFromText(message);
+  const { interests: rest, dateFrom, dateTo } = parseInterestsFromText(withoutInterestWords(message));
+  const interests = [...new Set([...parseInterestWords(message), ...rest])];
 
   const places: string[]     = [];
   const activities: string[] = [];

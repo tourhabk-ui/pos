@@ -53,6 +53,10 @@ describe('/api/mcp — паритет с реестром Кузьмича', () 
     // get_request_status — состояние заявки по ключу из ответа пишущего
     // инструмента (ступень 1 контура, 12.10): нужен агенту, который вернётся к
     // человеку с ответом оператора; Кузьмич видит заявку сам.
+    // change_request — отмена и перенос заявки на тур по её ключу (слово
+    // владельца 11.11 «мы доверяем агенту»): у человека в чате для этого
+    // кнопки «Моей поездки», модели чата инструмент не даётся — по ключу,
+    // увиденному в чужом тексте, она отменила бы заявку.
     const expected = [
       ...Object.keys(TOOL_REGISTRY).filter((n) => !EXCLUDED.includes(n)),
       'search',
@@ -63,6 +67,7 @@ describe('/api/mcp — паритет с реестром Кузьмича', () 
       'request_charter',
       'create_car_rental_request',
       'get_request_status',
+      'change_request',
       'create_trip_request',
     ].sort();
     expect(tools.map((t) => t.name).sort()).toEqual(expected);

@@ -191,7 +191,8 @@ export function OwnTourForm({ tour, onDone, onCancel }: {
             <ListField key={k} idBase={id} field={k} value={x[k]} onChange={(text) => setX({ ...x, [k]: text })} />
           ))}
           <PhotosField idBase={id} photos={x.photos} onChange={(photos) => setX({ ...x, photos })}
-            credits={tour?.photo_credits ?? {}} credit={x.photo_credit} onCredit={(photo_credit) => setX({ ...x, photo_credit })} />
+            credits={tour?.photo_credits ?? {}} credit={x.photo_credit} onCredit={(photo_credit) => setX({ ...x, photo_credit })}
+            captions={x.photo_captions ?? {}} onCaption={(url, text) => setX({ ...x, photo_captions: { ...(x.photo_captions ?? {}), [url]: text } })} />
           <VideosField idBase={id} clips={x.video_clips} onChange={(video_clips) => setX({ ...x, video_clips })} />
           <MaterialsConsent />
         </>

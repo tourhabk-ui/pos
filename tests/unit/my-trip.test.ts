@@ -9,7 +9,9 @@
 import { describe, it, expect } from 'vitest';
 import { isMyTripAsk, MY_TRIP_BUTTON } from '@/lib/requests/my-trip-ask';
 import { classifyCodeFirst } from '@/lib/kuzmich/code-first';
-import { myTripText, MY_TRIP_NONE_TEXT, MY_TRIP_FAILED_TEXT, MY_TRIP_SITUATION_DAYS, type MyTripItem } from '@/lib/requests/my-trip';
+import { myTripText, MY_TRIP_NONE_TEXT, MY_TRIP_FAILED_TEXT, MY_TRIP_SITUATION_DAYS, TRIP_TOURS_SQL, type MyTripItem } from '@/lib/requests/my-trip';
+import { SITUATION_FORECAST_DAYS } from '@/lib/trips/situation';
+import { TOUR_SITE_COLUMNS_SQL, TOUR_SITE_JOINS_SQL } from '@/lib/trips/tour-site-sql';
 import { touristReplyMarkup } from '@/lib/telegram/tourist-keyboard';
 
 describe('какая реплика открывает «Мою поездку»', () => {
@@ -38,7 +40,7 @@ describe('какая реплика открывает «Мою поездку»
 
 describe('ответ человеку', () => {
   const item = (over: Partial<MyTripItem>): MyTripItem => ({
-    what: 'Сплав по Быстрой', date: '2026-11-14', human: 'Оператор ещё не ответил.', situation: { kind: 'none' }, ...over,
+    what: 'Сплав по Быстрой', date: '2026-11-14', human: 'Оператор ещё не ответил.', situation: { kind: 'none' }, write: null, dateChange: null, ...over,
   });
 
   it('заявок в чате нет — как привязать заявку с сайта, без поиска по телефону', () => {
@@ -70,6 +72,16 @@ describe('ответ человеку', () => {
     const t = myTripText({ outcome: 'ok', items: [item({})] });
     expect(t.startsWith('Ваша заявка в этом чате:')).toBe(true);
     expect(t).not.toMatch(/Обстановк/);
+  });
+});
+
+describe('одно правило с судьёй обстановки (ревью 2в: копии уже расходились бы молча)', () => {
+  it('обстановка показывается на столько дней, на сколько спрашивается прогноз', () => {
+    expect(MY_TRIP_SITUATION_DAYS).toBe(SITUATION_FORECAST_DAYS);
+  });
+  it('где тур — тот же фрагмент запроса, что у выездов и у проверки дат после отказа', () => {
+    expect(TRIP_TOURS_SQL).toContain(TOUR_SITE_COLUMNS_SQL);
+    expect(TRIP_TOURS_SQL).toContain(TOUR_SITE_JOINS_SQL);
   });
 });
 

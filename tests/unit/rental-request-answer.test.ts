@@ -3,14 +3,24 @@
  * «Беру» / «Не могу» на заявке проката: кнопка разбирается, дни считаются,
  * чужая заявка не пишется, повтор не отмечает дни второй раз, менеджеру
  * уходит факт без телефона заказчика.
+ *
+ * «Не могу» (план «после отказа», этап 2б-2, слово владельца 12.11 «1 да»):
+ * строка сообщения заказчику рождается в транзакции ответа и отправляется
+ * один раз; прокатчик и менеджер читают исход отправки. Сама отправка —
+ * tests/unit/answer-notice.test.ts, здесь — что дверь её зовёт.
  */
 import { describe, it, expect, vi, beforeEach } from 'vitest';
 import {
   managerAnswerText, parseRequestAnswer, partnerAnswerText, rentalAnswerButtons, rentalSpanDays, requestAnswerEditText,
 } from '@/lib/rental/request-answer';
 import { handleRentalRequestAnswer } from '@/lib/rental/request-answer-flow';
+import { managerQueueUrl } from '@/lib/manager-queue/link';
 
-const pool = vi.hoisted(() => vi.fn());
+const { pool, deliverMock, readNoticeMock } = vi.hoisted(() => ({ pool: vi.fn(), deliverMock: vi.fn(), readNoticeMock: vi.fn() }));
+vi.mock('@/lib/requests/answer-notice', () => ({
+  deliverAnswerNotice: (...a: unknown[]) => deliverMock(...a),
+  readVehicleNoticeOutcome: (...a: unknown[]) => readNoticeMock(...a),
+}));
 vi.mock('@/lib/db-pool', () => ({
   pool: {
     query: (...a: unknown[]) => pool(...a),
@@ -37,6 +47,8 @@ function leadRow(over: Record<string, unknown> = {}) {
 
 beforeEach(() => {
   pool.mockReset();
+  deliverMock.mockReset().mockResolvedValue({ state: 'delivered', via: 'telegram', dates: [] });
+  readNoticeMock.mockReset().mockResolvedValue(null);
   vi.stubEnv('RENTAL_OPERATOR_PILOT_SLUGS', 'laguna-prokat');
 });
 
@@ -75,7 +87,7 @@ describe('разбор кнопки и дни', () => {
     expect(text).toContain('Лагуна &lt;Прокат&gt;');
     expect(text).not.toContain(PHONE);
     expect(text).not.toContain('<Прокат>');
-    const edited = requestAnswerEditText(`Анна ${PHONE} <script>`, partnerAnswerText({ kind: 'decline' }));
+    const edited = requestAnswerEditText(`Анна ${PHONE} <script>`, partnerAnswerText({ kind: 'decline', notice: { state: 'pending' } }));
     expect(edited).toContain('не могу');
     expect(edited).toContain('&lt;script&gt;');
     expect(edited).not.toContain('<script>');
@@ -93,6 +105,8 @@ describe('поток ответа', () => {
     managers.length = 0;
     pool.mockImplementation(async (sql: unknown, params?: unknown[]) => {
       const s = String(sql);
+      // Раньше чтения заявки: вставка строки сообщения тоже читает leads.
+      if (/INSERT INTO answer_notices/.test(s)) return { rows: [{ id: '9', state: 'pending', skipped_reason: null }] };
       if (/FROM leads/.test(s)) return { rows: opts.lead === null ? [] : [opts.lead ?? leadRow()] };
       if (/lead_activity_log/.test(s) && /SELECT/.test(s)) return { rows: opts.prior ? [{ answer: opts.prior }] : [] };
       if (/INSERT INTO lead_activity_log/.test(s)) return { rows: [{ id: '1' }] };
@@ -123,10 +137,15 @@ describe('поток ответа', () => {
     expect(managers).toHaveLength(1);
     expect(managers[0]).not.toContain(PHONE);
     expect(managers[0]).toContain('3');
+    // «Беру» в очередь менеджера не встаёт.
+    expect(managers[0]).not.toContain(managerQueueUrl());
     expect(sent).toHaveLength(1);
     expect(sent[0]?.edit).toBe('mid-1');
     expect(sent[0]?.text).toContain('отмечены занятыми (3)');
     expect(sent[0]?.text).toContain(PHONE);
+    // «Беру» сообщения заказчику от Ведара не рождает.
+    expect(pool.mock.calls.some((c) => /INSERT INTO answer_notices/.test(String(c[0])))).toBe(false);
+    expect(deliverMock).not.toHaveBeenCalled();
   });
 
   it('«Беру №2» из списка список не правит: отдельное сообщение называет заявку', async () => {
@@ -154,13 +173,56 @@ describe('поток ответа', () => {
     expect(sent[0]?.text).toContain('не ваша');
   });
 
-  it('«Не могу» дни не занимает', async () => {
+  it('«Не могу» дни не занимает; заказчику — одно сообщение Ведара, прокатчику и менеджеру — его исход', async () => {
     arm();
     await press(`rr:n:${LEAD}`);
     expect(pool.mock.calls.some((c) => /INSERT INTO rental_car_busy/.test(String(c[0])))).toBe(false);
+    // Строка сообщения — от записи журнала этого ответа и от этого партнёра.
+    const notice = pool.mock.calls.filter((c) => /INSERT INTO answer_notices/.test(String(c[0])));
+    expect(notice).toHaveLength(1);
+    expect(notice[0]?.[1]).toEqual([LEAD, '1', PARTNER]);
+    expect(deliverMock).toHaveBeenCalledTimes(1);
+    expect(deliverMock.mock.calls[0]?.[0]).toBe('9');
     expect(managers[0]).toContain('не могу');
+    expect(managers[0]).toContain('Заказчику ушло сообщение об отказе в Telegram');
     expect(managers[0]).not.toContain(PHONE);
-    expect(sent[0]?.text).toContain('не могу');
+    // «Не могу» встаёт в очередь менеджера (этап 3б).
+    expect(managers[0]!.split('\n').at(-1)).toBe(`В очереди менеджера — там же отметка «Взял»: ${managerQueueUrl()}`);
+    expect(sent[0]?.text).toContain('<b>Ваш ответ:</b> не могу. Дни не отмечал. Заказчику ушло сообщение в Telegram: ваш ответ.');
+    expect(sent[0]?.text).not.toMatch(/турист/i);
+  });
+
+  it('«Не могу», а до заказчика не дошло: прокатчик читает это словами, второе нажатие читает прежний исход и ничего не шлёт', async () => {
+    const undelivered = { state: 'undelivered' as const, manager: 'telegram-stub' as const, why: { broken: false, chat: 'refused' as const, agent: 'none' as const } };
+    arm();
+    deliverMock.mockResolvedValue(undelivered);
+    await press(`rr:n:${LEAD}`);
+    expect(sent[0]?.text).toContain('Заказчику сообщить не удалось: чат не принял сообщение. Менеджеру Ведара ушло уведомление без телефона — номер он видит в админке.');
+    expect(managers[0]).toContain('До заказчика отказ не дошёл — отдельным сообщением ушла заглушка без телефона');
+
+    pool.mockClear();
+    arm({ prior: 'decline' });
+    deliverMock.mockClear();
+    readNoticeMock.mockResolvedValue(undelivered);
+    await press(`rr:n:${LEAD}`);
+    expect(readNoticeMock).toHaveBeenCalledWith(LEAD);
+    expect(deliverMock).not.toHaveBeenCalled();
+    expect(pool.mock.calls.some((c) => /INSERT INTO answer_notices/.test(String(c[0])))).toBe(false);
+    expect(managers).toHaveLength(0);
+    expect(sent[0]?.text).toContain('Ответ уже записан: не могу.');
+    expect(sent[0]?.text).toContain('Заказчику сообщить не удалось');
+  });
+
+  it('менеджеру в Telegram название машины из заявки уходит без телефона и почты', () => {
+    const text = managerAnswerText({
+      partnerName: 'Лагуна Прокат', leadId: LEAD, answer: 'decline',
+      carTitle: `Jimny, тел ${PHONE} anna@example.com`, from: '2026-11-10', to: '2026-11-12', marked: null,
+      notice: { state: 'skipped', reason: 'lead_closed' },
+    });
+    expect(text).toContain('Машина: Jimny');
+    expect(text).not.toContain(PHONE);
+    expect(text).not.toContain('anna@example.com');
+    expect(text).toContain('Заявка уже была закрыта — заказчику ничего не отправлялось.');
   });
 
   it('второе нажатие, даже другим ответом, дни не занимает и менеджера не будит', async () => {

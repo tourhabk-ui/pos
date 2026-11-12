@@ -45,6 +45,20 @@ const AVACHA_WORD = /(^|[^а-яё])авачинск[а-яё]*(?![а-яё])(?!\s+
 const GEYSERS_WORD = /(^|[^а-яё])долин[а-яё]*\s+гейзер/i;
 const GEYSERS_SMALL = /(^|[^а-яё])мал(ая|ой|ую|ою)\s+долин[а-яё]*\s+гейзер/i;
 const FISHING_WORD = /(^|[^а-яё])рыбал(ка|ки|ке|ку|кой|ок|ках)(?![а-яё])/i;
+// Мутновский вулкан по имени: «Мутновская ГеоЭС» и «Мутновское плато» — тоже
+// его окрестности, но тур туда не тур к вулкану; слово — прилагательное мужского рода.
+const MUTNOVSKY_WORD = /(^|[^а-яё])мутновск(ий|ого|ому|им|ом)(?![а-яё])/i;
+// Халактырский пляж; Халактырское озеро — другое место.
+const KHALAKTYR_WORD = /(^|[^а-яё])халактырск(ий|ого|ому|им|ом)\s+пляж/i;
+
+// Толбачик по имени: Плоский и Острый Толбачик, «Толбачик: по следам извержений».
+const TOLBACHIK_WORD = /(^|[^а-яё])толбачик[а-яё]*(?![а-яё])/i;
+// Вертолёт словом целиком во всех падежах; «облёт» без вертолёта не берём —
+// облетают и на самолёте.
+const HELICOPTER_WORD = /(^|[^а-яё])вертол[её]т(а|у|ом|е|ы|ов|ам|ами|ах)?(?![а-яё])/i;
+// Снегоход и «снегоходная экскурсия»; в описании и программе слово встречается
+// у зимней рыбалки (дорога на базу) — туда не смотрим.
+const SNOWMOBILE_WORD = /(^|[^а-яё])снегоход[а-яё]*(?![а-яё])/i;
 
 export interface TopicInput { activity_type: string | null; title: string; location_name: string | null }
 
@@ -60,6 +74,13 @@ export function matchesTopicText(text: string, topic: Exclude<LandingTopic, 'all
     case 'avacha': return AVACHA_WORD.test(text);
     case 'geysers': return GEYSERS_WORD.test(text) && !GEYSERS_SMALL.test(text);
     case 'fishing': return FISHING_WORD.test(text);
+    // Курильское озеро — то же слово, что делает тур медвежьим (BEAR_PLACE).
+    case 'kurile': return BEAR_PLACE.test(text);
+    case 'mutnovsky': return MUTNOVSKY_WORD.test(text);
+    case 'khalaktyr': return KHALAKTYR_WORD.test(text);
+    case 'tolbachik': return TOLBACHIK_WORD.test(text);
+    case 'helicopter': return HELICOPTER_WORD.test(text);
+    case 'snowmobile': return SNOWMOBILE_WORD.test(text);
     // Трансфер — машина под заказ, а не тур: туров и статей у этой темы нет.
     case 'transfer': return false;
     default: throw new Error(`matchesTopicText: неизвестная тема ${String(topic)}`);
@@ -75,6 +96,9 @@ export function matchesTopic(t: TopicInput, topic: LandingTopic): boolean {
     case 'avacha': return matchesTopicText(text, 'avacha');
     case 'geysers': return matchesTopicText(text, 'geysers');
     case 'fishing': return t.activity_type === 'fishing' || matchesTopicText(text, 'fishing');
+    case 'kurile': case 'mutnovsky': case 'khalaktyr': case 'tolbachik': return matchesTopicText(text, topic);
+    case 'helicopter': return t.activity_type === 'helicopter' || matchesTopicText(text, 'helicopter');
+    case 'snowmobile': return t.activity_type === 'snowmobile' || matchesTopicText(text, 'snowmobile');
     case 'transfer': return false;
     default: throw new Error(`matchesTopic: неизвестная тема ${String(topic)}`);
   }

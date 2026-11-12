@@ -21,20 +21,21 @@ beforeEach(() => {
   vi.resetModules();
 });
 
-describe('fetchCrowdLoad — из живого календаря', () => {
-  it('загрузка дат считается из tour_availability + v_tour_daily_occupancy', async () => {
-    poolQueryMock.mockResolvedValue({ rows: [{ total_departures: '10', booked_ratio: '60' }] });
+describe('занятость планера — из живого календаря', () => {
+  it('единственный читатель занятости зон — data.ts по v_tour_daily_occupancy', async () => {
+    const fs = await import('node:fs');
+    const data = fs.readFileSync('lib/planner/data.ts', 'utf8');
+    expect(data).toContain('v_tour_daily_occupancy');
+    expect(data).not.toMatch(/(FROM|JOIN)\s+tour_departures/);
+  });
 
-    // fetchCrowdLoad приватная — дёргаем через публичный вход рекомендателя нельзя
-    // без тяжёлого сетапа; проверяем через модуль напрямую: SQL уходит в pool.
-    const { recommendTrip } = await import('@/lib/planner/engine');
-    expect(typeof recommendTrip).toBe('function');
-
-    // Прямая проверка SQL: в исходнике не осталось чтения tour_departures
+  it('второго, неподключённого счётчика загрузки в движке нет (#3199, E13)', async () => {
+    // fetchCrowdLoad не вызывал никто, а его «~X%» — занятость×0,7 плюс
+    // надбавка за число слотов, без дат — константы по месяцу сервера.
+    // Подключать такое значило бы показать туристу выдуманное число.
     const fs = await import('node:fs');
     const src = fs.readFileSync('lib/planner/engine.ts', 'utf8');
-    expect(src).toContain('v_tour_daily_occupancy');
-    expect(src).not.toMatch(/FROM tour_departures/);
+    expect(src).not.toMatch(/fetchCrowdLoad|crowdLoad/);
   });
 });
 
@@ -46,6 +47,7 @@ describe('код больше не читает tour_departures', () => {
       'app/api/mcp/route.ts',
       'app/api/cron/digest/route.ts',
       'lib/planner/engine.ts',
+      'lib/planner/data.ts',
       'lib/bookings/booking.service.ts',
     ]) {
       const src = fs.readFileSync(f, 'utf8');

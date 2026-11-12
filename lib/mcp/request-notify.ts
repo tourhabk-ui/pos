@@ -46,9 +46,10 @@ import { pool } from '@/lib/db-pool';
 import { decryptBound, encryptBound, hasEncryptionKey } from '@/lib/encryption';
 import { logText } from '@/lib/log/log-text';
 import {
-  REQUEST_STATUS_BY_KEY_IDS_SQL, buildRequestView, catalogTourOf, issueRequestKey, issueRequestKeyRecord, keyLine,
+  REQUEST_STATUS_BY_KEY_IDS_SQL, buildRequestView, catalogTourOf, issueRequestKey, issueRequestKeyRecord, keyLine, shownAnswerRef, type ShownAnswerRef,
   type IssuedRequestKey, type RequestCore, type RequestKeyTarget, type StatusRow,
 } from '@/lib/mcp/request-status';
+import { markShownRef } from '@/lib/requests/answer-notice-mark';
 import type { RequestKind, RequestState } from '@/lib/mcp/request-status-schema';
 import {
   NOTIFY_CHANGED_FIELDS, NOTIFY_DISABLED_REASONS, NOTIFY_HOW_TO_VERIFY, NOTIFY_MAX_FAILURES, NOTIFY_RESPONSE_RULES,
@@ -305,8 +306,14 @@ export async function issueKeyWithNotify(
   return keyLine(issued.key, kind, offers) + notifyLine(sub);
 }
 
-/** Агент передал notify_url заявке на жильё: подписки нет, и это сказано словами. */
-export const STAY_NOTIFY_REFUSAL = ' notify_url для заявки на жильё не заводится: после передачи владельцу её состояние не меняется. Ответ владелец даёт звонком или в переписке на странице заявки; сколько он написал, покажет get_request_status (partner_replies).';
+/**
+ * Агент передал notify_url заявке на жильё: подписки нет, и это сказано
+ * словами. До 11.11 причиной стояло «после передачи её состояние не
+ * меняется» — неправда с 1359: владелец отвечает кнопкой, и ответ виден в
+ * get_request_status. Подписки нет потому, что её не завели, а не потому,
+ * что сообщать нечего.
+ */
+export const STAY_NOTIFY_REFUSAL = ' notify_url для заявки на жильё не заводится. Ответ владельца кнопкой («свободно», «занято», «позвоню сам») появится в get_request_status — спрашивайте не чаще раза в час; сколько он написал в переписке на странице заявки, покажет partner_replies.';
 
 // ── Сверка (крон) ───────────────────────────────────────────────────────────
 
@@ -348,6 +355,15 @@ export const LIVE_SQL = `
     FROM agent_request_notify
    WHERE disabled_at IS NULL AND expires_at > NOW()
      AND (claimed_until IS NULL OR claimed_until < NOW())`;
+
+/**
+ * Только подписки названных ключей — внеочередная сверка одной заявки сразу
+ * после ответа оператора (план «после отказа», 2б): крон ходит часами, а
+ * человеку без чата ответ должен уйти сейчас. Тот же захват (CLAIM_SQL), что у
+ * крона, — двойной отправки нет.
+ */
+export const LIVE_BY_KEYS_SQL = `${LIVE_SQL}
+     AND key_id = ANY($1::uuid[])`;
 
 /** Подписок хоста с попыткой за сутки — суточный бюджет хоста. */
 export const HOST_DAY_SQL = `
@@ -459,6 +475,11 @@ export interface NotifyRunDeps {
   send?: SendFn;
   now?: () => number;
   timeBudgetMs?: number;
+  /**
+   * Только эти ключи (внеочередная сверка одной заявки): без истечения,
+   * уборки и сверки молчания — это работа крона.
+   */
+  onlyKeyIds?: readonly string[];
 }
 
 export interface NotifyRunResult {
@@ -504,6 +525,8 @@ interface Due {
   fp: string;
   previous: NotifySnapshot | null;
   toolName: string;
+  /** Ответ оператора кнопкой, из которого построен вид (ключ новой заявки): принятое уведомление — его доставка. */
+  answerRef: ShownAnswerRef | null;
 }
 
 function previousOf(l: LiveRow): NotifySnapshot | null {
@@ -566,12 +589,15 @@ export async function runRequestNotify(deps: NotifyRunDeps = {}): Promise<Notify
   const finish = () => { res.duration_ms = Math.max(0, now() - started); return res; };
   let step = 'истечение';
 
+  const only = deps.onlyKeyIds ? [...deps.onlyKeyIds] : null;
   try {
-    res.disabled.expired = (await q(EXPIRE_SQL)).rowCount ?? 0;
-    step = 'уборка';
-    res.deleted_after_retention = (await q(RETENTION_SQL, [NOTIFY_RETENTION_DAYS])).rowCount ?? 0;
+    if (!only) {
+      res.disabled.expired = (await q(EXPIRE_SQL)).rowCount ?? 0;
+      step = 'уборка';
+      res.deleted_after_retention = (await q(RETENTION_SQL, [NOTIFY_RETENTION_DAYS])).rowCount ?? 0;
+    }
     step = 'живые';
-    const live = (await q(LIVE_SQL)).rows as LiveRow[];
+    const live = (only ? (await q(LIVE_BY_KEYS_SQL, [only])).rows : (await q(LIVE_SQL)).rows) as LiveRow[];
     res.subscriptions_live = live.length;
     if (live.length === 0) return finish();
     if (!hasEncryptionKey()) {
@@ -612,7 +638,7 @@ export async function runRequestNotify(deps: NotifyRunDeps = {}): Promise<Notify
         res.changed++;
         if (!previous) res.baseline_unknown++;
         if (l.next_attempt_at !== null && time(l.next_attempt_at) - NOTIFY_DUE_SLACK_MIN * 60_000 > nowMs) continue;
-        due.push({ live: l, core, snap, fp, previous, toolName: row.tool_name });
+        due.push({ live: l, core, snap, fp, previous, toolName: row.tool_name, answerRef: row.opens_chat === true ? shownAnswerRef(row) : null });
       }
       res.due = due.length;
       if (reverted.length > 0) {
@@ -681,6 +707,10 @@ export async function runRequestNotify(deps: NotifyRunDeps = {}): Promise<Notify
           console.info(line);
           res.delivered++;
           await record(DELIVERED_SQL, [d.live.id, d.snap.state, d.snap.date, d.snap.alt_date, d.snap.tour, d.snap.participants, d.fp, sha256(body)]);
+          // Агент принял вид с ответом оператора — ответ до человека дошёл (2б).
+          // Тур — по номеру кнопки; машина, прокат и закрытие продавцом с
+          // причиной — по записи журнала (2б-2, 3а).
+          if (d.answerRef) await markShownRef(d.answerRef, 'agent_webhook');
           return 'done';
         }
         console.warn(line);
@@ -721,6 +751,7 @@ export async function runRequestNotify(deps: NotifyRunDeps = {}): Promise<Notify
       if (release.length > 0) await record(RELEASE_SQL, [release]);
     };
     await deliverDue();
+    if (only) return finish();
 
     step = 'молчание сети';
     const st = (await q(STALL_SQL, [[...NOTIFY_NETWORK_CODES]])).rows[0] as { hosts: number; since: Date | string | null; delivered_since: boolean } | undefined;

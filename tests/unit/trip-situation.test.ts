@@ -31,6 +31,19 @@ describe('judgeSituation — три исхода', () => {
     expect(s.kind).toBe('risk');
     expect(situationLine(s)).toBe('есть риски — погода: ветер до 72 км/ч; официальное предупреждение: Штормовое предупреждение: ветер до 25 м/с; опасность в зоне «Авачинская группа»: высокая.');
   });
+  it('одно предупреждение двумя строками ленты (prod-check 176: запреты у вулканов — парами) названо один раз; разные — оба', () => {
+    const twin = (id: number, title: string) => alert({ id, alert_type: 'volcanic_eruption', title });
+    const s = judgeSituation({
+      weather: { kind: 'calm', description: 'ясно' },
+      officials: [twin(449399, 'Вулкан Ключевской: не приближаться'), twin(449404, 'Вулкан  Ключевской:\nне приближаться'), twin(449400, 'Вулкан Безымянный: не приближаться')],
+      officialsUnassessed: false, zoneDanger: null,
+    });
+    expect(s.kind).toBe('risk');
+    expect(s.risks).toEqual([
+      'официальное предупреждение: Вулкан Ключевской: не приближаться',
+      'официальное предупреждение: Вулкан Безымянный: не приближаться',
+    ]);
+  });
   it('источник погоды не ответил — «не смог проверить погоду», а не «спокойно»', () => {
     const s = judgeSituation({ weather: { kind: 'unknown', reason: 'прогноз не загрузился (timeout)' }, officials: [], officialsUnassessed: false, zoneDanger: null });
     expect(s.kind).toBe('unknown');

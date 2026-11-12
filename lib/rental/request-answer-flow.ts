@@ -9,11 +9,20 @@
  *    перевозчик с привязанным чатом, без пилотного списка. Дни не отмечаются
  *    и машина не закрепляется (§14). После записи ответа: статус лида
  *    («Беру» → contacted, «Не могу» → lost) той же дверью, что у оператора и
- *    гида (lib/leads/owner-lead-status), заказчику — сообщение в переписку
- *    заявки (1350) от имени перевозчика, менеджеру Ведара — факт без ПД
- *    («Не могу» — «нужен другой перевозчик»). Отказ любого из трёх шагов не
- *    отменяет записанный ответ: он назван в логе и, для заказчика, в ответе
- *    партнёру («сообщение не ушло — свяжитесь сами»).
+ *    гида (lib/leads/owner-lead-status), после «Беру» заказчику — сообщение в
+ *    переписку заявки (1350) от имени перевозчика, менеджеру Ведара — факт
+ *    без ПД. Отказ любого из шагов не отменяет записанный ответ: он назван в
+ *    логе и, для заказчика, в ответе партнёру («сообщение не ушло — свяжитесь
+ *    сами»).
+ *
+ * «Не могу» обоих видов (план «после отказа», этап 2б-2, слово владельца
+ * 12.11 «1 да»): заказчик получает одно сообщение Ведара — что ответил
+ * партнёр и где смотреть других (lib/requests/answer-notice: чаты заказчика,
+ * ИИ-агент с подпиской, иначе менеджеру с телефоном в MAX). Партнёру и
+ * менеджеру называется исход этой отправки. Слова заказчику и перевозчику
+ * «заявка остаётся у менеджера Ведара — он свяжется» сняты: система этого не
+ * отслеживала. Нажатие ждёт отправку не дольше DECLINE_TELL_BUDGET_MS —
+ * дольше она идёт сама, а партнёр читает «отправляется».
  *
  * Кнопка из списка «Заявки» (с номером строки) список не правит: в нём
  * кнопки других заявок. Ответ — отдельным сообщением, первой строкой
@@ -21,15 +30,18 @@
  */
 
 import { tgSend } from '@/lib/notifications/tg-send';
+import { withQueueLine } from '@/lib/manager-queue/link';
 import { isRentalPilotSlug } from '@/lib/rental/operator-pilot';
 import {
-  clientCharterAnswerText, managerAnswerText, parseRequestAnswer, partnerAnswerText, requestAnswerEditText,
+  clientCharterTakeText, managerAnswerText, parseRequestAnswer, partnerAnswerText, requestAnswerEditText,
   requestAnswerListHead,
-  type AnswerTell, type ClientTold, type RequestAnswer,
+  type AnswerTell, type ClientTold, type DeclineNotice, type RequestAnswer,
 } from '@/lib/rental/request-answer';
 import {
-  claimPartnerAnswer, loadOwnedRentalRequest, resolveRequestOffer, type OwnedRentalRequest,
+  claimPartnerAnswer, loadOwnedRentalRequest, resolveRequestOffer, type NewVehicleNotice, type OwnedRentalRequest,
 } from '@/lib/rental/request-answer-store';
+import { deliverAnswerNotice, readVehicleNoticeOutcome } from '@/lib/requests/answer-notice';
+import { NOTICE_PRESS_BUDGET_MS, withinPress } from '@/lib/requests/press-budget';
 import { changeLeadStatus } from '@/lib/leads/owner-lead-status';
 import { postOwnerMessage } from '@/lib/requests/request-chat-service';
 import { isChatTargetId, ownerReplyButton } from '@/lib/requests/request-chat';
@@ -87,11 +99,27 @@ async function markCharterLeadStatus(partner: AnswerActor, leadId: string, answe
   }
 }
 
-/** Заказчику — в переписку заявки. true/false — записано и видно / нет; отказ назван в логе. */
-async function tellCharterClient(partner: AnswerActor, leadId: string, answer: RequestAnswer): Promise<ClientTold> {
+/** Сколько нажатие «Не могу» ждёт отправку заказчику — общий срок нажатия (lib/requests/press-budget). */
+export const DECLINE_TELL_BUDGET_MS = NOTICE_PRESS_BUDGET_MS;
+
+/**
+ * Заказчику после «Не могу» — сообщение Ведара по строке, рождённой ответом.
+ * Отправка не бросает и сама называет исход; строки нет — null, и партнёр
+ * читает «не записалось», а не «ушло».
+ */
+async function tellDeclinedClient(leadId: string, notice: NewVehicleNotice | null): Promise<DeclineNotice> {
+  if (!notice) {
+    console.error(`[rental-request-answer] заявка ${leadId}: строка сообщения заказчику не создана`);
+    return null;
+  }
+  return withinPress<DeclineNotice>(deliverAnswerNotice(notice.id), { state: 'pending', sending: true });
+}
+
+/** Заказчику после «Беру» — в переписку заявки. true/false — записано и видно / нет; отказ назван в логе. */
+async function tellCharterClient(partner: AnswerActor, leadId: string): Promise<ClientTold> {
   if (!isChatTargetId(leadId)) return null;
   try {
-    const r = await postOwnerMessage({ kind: 'lead', id: leadId }, clientCharterAnswerText(partner.partnerName, answer));
+    const r = await postOwnerMessage({ kind: 'lead', id: leadId }, clientCharterTakeText(partner.partnerName));
     // Записано и прочитать есть где (MAX клиента или страница заявки с живой ссылкой).
     if (r.outcome === 'sent') return r.pageVisible !== false;
     console.error(`[charter-request-answer] заказчику по заявке ${leadId} не сообщено: ${r.outcome}`);
@@ -156,17 +184,19 @@ export async function answerRentalRequest(opts: {
       : null,
   });
   if (claimed.outcome === 'db_error') return { tell: { kind: 'retry' }, request };
-  if (claimed.outcome === 'already') return { tell: { kind: 'already', answer: claimed.answer }, request };
+  if (claimed.outcome === 'already') return { tell: await alreadyTell(request.leadId, claimed.answer), request };
 
+  // «Не могу»: заказчику — сообщение Ведара; что с ним вышло, узнают партнёр и менеджер.
+  const notice = opts.answer === 'decline' ? await tellDeclinedClient(request.leadId, claimed.notice) : null;
   const tell: AnswerTell = opts.answer === 'decline'
-    ? { kind: 'decline' }
+    ? { kind: 'decline', notice }
     : claimed.marked !== null && span
       ? { kind: 'take', from: span.from, to: span.to, marked: claimed.marked }
       : offer?.outcome === 'ok' && !span
         ? { kind: 'take_bad_dates' }
         : { kind: 'take_no_car' };
   try {
-    await notify(managerAnswerText({
+    await notify(withQueueLine(managerAnswerText({
       kind: 'car_rental',
       partnerName: partner.partnerName,
       leadId: request.leadId,
@@ -175,7 +205,8 @@ export async function answerRentalRequest(opts: {
       from: request.dateFrom,
       to: request.dateTo,
       marked: opts.answer === 'take' ? claimed.marked : null,
-    }));
+      notice,
+    }), opts.answer === 'decline'));
   } catch (err) {
     console.error('[rental-request-answer] менеджеру не доставлено:', err instanceof Error ? err.message : err);
   }
@@ -201,13 +232,17 @@ async function answerCharter(
     mark: null,
   });
   if (claimed.outcome === 'db_error') return { tell: { kind: 'retry' }, request };
-  if (claimed.outcome === 'already') return { tell: { kind: 'already', answer: claimed.answer }, request };
+  if (claimed.outcome === 'already') return { tell: await alreadyTell(request.leadId, claimed.answer), request };
 
   // Ответ записан; дальше — следствия, каждое само по себе и каждое с логом.
+  // Статус — раньше сообщения: вид заявки, из которого оно строится, читает его.
   await markCharterLeadStatus(partner, request.leadId, answer, via);
-  const clientTold = await tellCharterClient(partner, request.leadId, answer);
+  // «Беру» — слова перевозчика в переписку заявки; «Не могу» — одно сообщение
+  // Ведара (двух строк об одном отказе заказчик не получает, критика 11.11, п. 6).
+  const clientTold = answer === 'take' ? await tellCharterClient(partner, request.leadId) : null;
+  const notice = answer === 'decline' ? await tellDeclinedClient(request.leadId, claimed.notice) : null;
   try {
-    await notify(managerAnswerText({
+    await notify(withQueueLine(managerAnswerText({
       kind: 'charter',
       partnerName: partner.partnerName,
       leadId: request.leadId,
@@ -216,14 +251,20 @@ async function answerCharter(
       from: request.dateFrom,
       to: request.dateTo,
       marked: null,
-    }));
+      notice,
+    }), answer === 'decline'));
   } catch (err) {
     console.error('[charter-request-answer] менеджеру не доставлено:', err instanceof Error ? err.message : err);
   }
   return {
-    tell: answer === 'take' ? { kind: 'charter_take', clientTold } : { kind: 'charter_decline', clientTold },
+    tell: answer === 'take' ? { kind: 'charter_take', clientTold } : { kind: 'charter_decline', notice },
     request,
   };
+}
+
+/** Повторное нажатие: ответ уже записан; у «Не могу» — прежний исход сообщения заказчику, второго нет. */
+async function alreadyTell(leadId: string, answer: RequestAnswer): Promise<AnswerTell> {
+  return { kind: 'already', answer, notice: answer === 'decline' ? await readVehicleNoticeOutcome(leadId) : null };
 }
 
 /** Исход, после которого сообщение заявки правится (ответ записан или уже был). */

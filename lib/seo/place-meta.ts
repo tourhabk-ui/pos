@@ -43,6 +43,12 @@ export interface PlaceMetaFacts {
   /** Координаты места (у места они обязательны) — последний запас фактов. */
   lat?: number | null;
   lng?: number | null;
+  /**
+   * Сколько туров витрины идут к месту (главное место или точка пути —
+   * lib/places/place-tours, тот же отбор, что блок «Туры к этому месту»).
+   * null / не передано — не прочитано: слова «туры» в заголовке нет (§4.0).
+   */
+  toursCount?: number | null;
 }
 
 /**
@@ -62,8 +68,11 @@ function nearbyDistance(km: number): string {
 export const PLACE_TITLE_FALLBACK = ' — место на Камчатке';
 
 /** Из каких ответов складывается хвост заголовка места. */
-export function placeTitleTopics(f: Pick<PlaceMetaFacts, 'bestSeason' | 'hazardsRecorded' | 'registrationRequired'>): string[] {
-  const topics = ['как добраться'];
+export function placeTitleTopics(f: Pick<PlaceMetaFacts, 'bestSeason' | 'hazardsRecorded' | 'registrationRequired' | 'toursCount'>): string[] {
+  // «туры» — первым: этим словом люди ищут место (план продвижения 10.11:
+  // «Авачинский тур», «Курильское озеро экскурсия»), а блок туров на карточке
+  // есть. Только когда туры к месту на витрине действительно есть.
+  const topics = (f.toursCount ?? 0) > 0 ? ['туры', 'как добраться'] : ['как добраться'];
   if (f.bestSeason) topics.push('сезон');
   if (f.hazardsRecorded || f.registrationRequired) topics.push('опасности');
   return topics;
@@ -76,9 +85,12 @@ export function placeTitleTopics(f: Pick<PlaceMetaFacts, 'bestSeason' | 'hazards
  */
 export function placeTitle(f: PlaceMetaFacts, limit: number = TITLE_LIMIT): string {
   const topics = placeTitleTopics(f);
+  const withTours = topics[0] === 'туры';
+  const rest = withTours ? topics.slice(1) : topics;
   const tails = [
     `: ${topics.join(', ')}`,
-    ...(topics.length > 1 ? [': как добраться и что знать'] : []),
+    ...(withTours ? [': туры и как добраться', ': туры'] : []),
+    ...(rest.length > 1 ? [': как добраться и что знать'] : []),
     ': как добраться',
     PLACE_TITLE_FALLBACK,
   ];

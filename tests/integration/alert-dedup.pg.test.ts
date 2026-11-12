@@ -178,6 +178,37 @@ withPg('дедуп external_alerts на настоящем PostgreSQL', () => {
     expect(rows[0].n).toBe(1);
   });
 
+  // #3275 (12.11): суточная сводка МЧС повторяет «не приближаться» каждый
+  // день другими словами — до правки две действующие строки на вулкан.
+  it('запрет у вулкана из сводки следующего дня с другим описанием — продление, строка одна', async () => {
+    const ban = (id: string, desc: string, hoursLater: number) => sampleEvent({
+      source_id: `t.me/kbgsras/pg-test-ban-${id}`,
+      alert_type: 'volcanic_eruption', severity: 2,
+      title: 'Вулкан Шивелуч: не приближаться', volcano_name: 'Шивелуч',
+      description: desc, affected_zones: ['northern'], expires_hours: 48,
+      published_at: new Date(PUBLISHED_AT.getTime() + hoursLater * HOUR),
+    });
+    expect(await parser.saveEvent(ban('1', 'Сводка за 10 ноября: не рекомендуется приближаться к вулкану Шивелуч.', 0))).toBe('inserted');
+    const before = (await pool.query(`SELECT expires_at FROM external_alerts WHERE external_id = $1`, ['t.me/kbgsras/pg-test-ban-1'])).rows[0].expires_at as Date;
+    expect(await parser.saveEvent(ban('2', 'Сводка за 11 ноября: сохраняется опасность, к Шивелучу не приближаться.', 23))).toBe('skipped');
+    const { rows } = await pool.query(`SELECT count(*)::int AS n, max(expires_at) AS exp FROM external_alerts WHERE external_id LIKE 't.me/kbgsras/pg-test-ban-%'`);
+    expect(rows[0].n).toBe(1);
+    expect((rows[0].exp as Date).getTime()).toBeGreaterThan(before.getTime());
+  });
+
+  it('другое событие того же вулкана (не запрет) с другим описанием — своя строка, как раньше', async () => {
+    const ash = (id: string, desc: string) => sampleEvent({
+      source_id: `t.me/kbgsras/pg-test-ash-${id}`,
+      alert_type: 'volcanic_eruption', severity: 2,
+      title: 'Вулкан Шивелуч: пеплопад', volcano_name: 'Шивелуч',
+      description: desc, affected_zones: ['northern'], expires_hours: 48,
+    });
+    expect(await parser.saveEvent(ash('1', 'Пепел в Ключах.'))).toBe('inserted');
+    expect(await parser.saveEvent(ash('2', 'Пепел в Козыревске.'))).toBe('inserted');
+    const { rows } = await pool.query(`SELECT count(*)::int AS n FROM external_alerts WHERE external_id LIKE 't.me/kbgsras/pg-test-ash-%'`);
+    expect(rows[0].n).toBe(2);
+  });
+
   it('повтор с более поздней публикацией ПРОДЛЕВАЕТ срок оригинала', async () => {
     await parser.saveEvent(sampleEvent());
     const before = (await pool.query(

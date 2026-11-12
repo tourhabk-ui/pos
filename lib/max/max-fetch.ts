@@ -116,7 +116,8 @@ function maxAgent(): https.Agent {
   return agent;
 }
 
-const TIMEOUT_MS = 15_000;
+/** Сокетный срок запроса к MAX: дольше — запрос обрывается (сообщение после ответа оператора ждёт дольше, answer-notice). */
+export const MAX_FETCH_TIMEOUT_MS = 15_000;
 
 function bodyOf(body: RequestInit['body']): string | Uint8Array | undefined {
   if (body === undefined || body === null) return undefined;
@@ -145,7 +146,7 @@ export async function maxFetch(input: string | URL | Request, init: RequestInit 
   return new Promise<Response>((resolve, reject) => {
     const req = https.request(
       url,
-      { method: init.method ?? 'GET', headers, agent: maxAgent(), timeout: TIMEOUT_MS },
+      { method: init.method ?? 'GET', headers, agent: maxAgent(), timeout: MAX_FETCH_TIMEOUT_MS },
       (res) => {
         const chunks: Buffer[] = [];
         res.on('data', (c: Buffer) => chunks.push(c));
@@ -162,7 +163,7 @@ export async function maxFetch(input: string | URL | Request, init: RequestInit 
         });
       },
     );
-    req.on('timeout', () => req.destroy(new Error(`MAX не ответил за ${TIMEOUT_MS / 1000} с`)));
+    req.on('timeout', () => req.destroy(new Error(`MAX не ответил за ${MAX_FETCH_TIMEOUT_MS / 1000} с`)));
     req.on('error', reject);
     const signal = init.signal;
     if (signal) {

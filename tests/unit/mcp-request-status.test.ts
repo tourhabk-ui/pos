@@ -32,7 +32,8 @@ import {
   bookingState, buildRequestView, catalogTourOf, REQUEST_STATUS_BY_KEY_IDS_SQL, type StatusRow,
 } from '@/lib/mcp/request-status';
 import { BOOKING_STATUSES, LEAD_STATUSES } from '@/lib/types/statuses';
-import { REQUEST_STATES, REQUEST_KINDS, REQUEST_KEY_MIN_CHARS, CONSENT_PURPOSES } from '@/lib/mcp/request-status-schema';
+import { REQUEST_STATES, REQUEST_KINDS, REQUEST_KEY_MIN_CHARS, CONSENT_PURPOSES, ADDRESSEE_WORDS, ANSWER_RELAY_RULE } from '@/lib/mcp/request-status-schema';
+import { NOTICE_ANSWERS } from '@/lib/requests/chat-answer';
 import {
   PUBLIC_MCP_TOOLS, TOOL_ANNOTATIONS, TOOL_ENGLISH, PARAM_ENGLISH, WRITE_TOOL_NAMES,
   CREATE_LEAD_TOOL, BOOKING_REQUEST_TOOL, STAY_REQUEST_TOOL, REQUEST_CHARTER_TOOL,
@@ -61,8 +62,13 @@ describe('объявление', () => {
   });
 
   it('описание называет все пять пишущих инструмента и срок ключа — иначе агент не знает, откуда ключ', () => {
+    // Судится то, что видит агент: описание наружу — «английская фраза +
+    // русский текст» (withAnnotations). Имена называет фраза; второй раз в
+    // русском тексте их нет — описание обязано помещаться в 1024 знака моста
+    // вместе с правилом доставки ответа (vedar-mcp-bridge.test.ts).
+    const published = PUBLIC_MCP_TOOLS.find((t) => t.name === REQUEST_STATUS_TOOL_NAME)?.description ?? '';
     for (const w of WRITE_TOOL_NAMES) {
-      expect(GET_REQUEST_STATUS_TOOL.description).toContain(w);
+      expect(published, w).toContain(w);
       expect(TOOL_ENGLISH[REQUEST_STATUS_TOOL_NAME]?.lead).toContain(w);
     }
     expect(WRITE_TOOL_NAMES.size).toBe(6);
@@ -200,8 +206,10 @@ describe('чтение состояния', () => {
     const obj = JSON.parse(text) as Record<string, unknown>;
     expect(Object.keys(obj).sort()).toEqual([
       'accommodation', 'accommodation_url', 'alt_date', 'check_out', 'consent', 'consent_purpose', 'date', 'deadline',
-      'human', 'kind', 'max_link', 'next', 'notify', 'page', 'participants', 'partner_last_reply_at', 'partner_replies', 'requested_date', 'state', 'tour',
+      'human', 'kind', 'max_link', 'next', 'notify', 'other_offers', 'other_stays', 'page', 'participants', 'partner_last_reply_at', 'partner_replies', 'requested_date', 'state', 'tour',
     ]);
+    // Вид не из отказа туроператора — о других компаниях речи нет (4а).
+    expect(obj.other_offers).toBeNull();
     // Подписки на уведомления не заводилось — null, а не выдуманная (1348).
     expect(obj.notify).toBeNull();
     // Каждое поле ответа объявлено в схеме — агент не получает необъявленного.
@@ -406,7 +414,7 @@ describe('согласие человека (вторая половина ст�
 describe('роут MCP', () => {
   it('диспетчеризует инструмент и кладёт объект в structuredContent', () => {
     expect(ROUTE).toContain('if (name === REQUEST_STATUS_TOOL_NAME) return runRequestStatusTool(rawArgs);');
-    expect(ROUTE).toMatch(/toolName === REQUEST_STATUS_TOOL_NAME \? parseStructured\(text\)/);
+    expect(ROUTE).toMatch(/toolName === REQUEST_STATUS_TOOL_NAME \|\| toolName === CHANGE_REQUEST_TOOL_NAME\s+\? parseStructured\(text\)/);
   });
 
   it('ключ выдаётся во всех ответах пишущих инструментов: бронь (новая и повтор), запрос мест, подбор, вахтовка, жильё, прокат', () => {
@@ -566,5 +574,323 @@ describe('обёртка для сверки', () => {
     expect(REQUEST_STATUS_SQL).toContain('LEFT JOIN agent_request_notify n ON n.key_id = k.id');
     expect(REQUEST_STATUS_SQL).not.toMatch(/\bn\.(url_enc|secret_enc|url_host|last_error)\b/);
     expect(REQUEST_STATUS_SQL).not.toMatch(/tourist_(name|phone)|access_token/);
+  });
+});
+
+// ── Ответ адресата кнопкой (11.11, план «после отказа», этап 1) ────────────
+// До этого дня статус читал только leads.status: после «Нет мест» человек и
+// агент слышали «ждём ответа», после «Беру» перевозчика — «оператор связался».
+
+const TOUR_LEAD: StatusRow = {
+  ...SEAT_BASE, seat_request_id: null, seat_status: null, seat_booking_id: null, seat_booking_status: null,
+  lead_id: 'L', lead_status: 'new', lead_requested_date: '2027-01-15', lead_tour: 'Облёт вулканов',
+};
+
+describe('ответ туроператора кнопкой', () => {
+  it('«Нет мест» при лиде new — отказ с датой, а не «ждём ответа»', () => {
+    const v = buildRequestView({ ...TOUR_LEAD, lead_answer: 'no_seats' }, NOW);
+    expect(v.state).toBe('declined');
+    expect(v.human).toBe('Оператор ответил: на 15.01.2027 мест нет.');
+    expect(v.next).toMatch(/get_tour_availability/);
+    expect(v.human + v.next).not.toMatch(/ещё не ответил/);
+  });
+
+  it('без ответа — прежнее «ждём ответа»', () => {
+    expect(buildRequestView(TOUR_LEAD, NOW)).toMatchObject({ state: 'awaiting_operator', human: 'Заявка принята, оператор ещё не ответил.' });
+  });
+
+  it('«Отказать» с причиной — причина словами; погода — без туров на ту же дату', () => {
+    const dates = buildRequestView({ ...TOUR_LEAD, lead_status: 'lost', lead_answer: 'decline', lead_decline_reason: 'dates' }, NOW);
+    expect(dates).toMatchObject({ state: 'declined', human: 'Оператор отказал по заявке. Причина: даты не подходят.' });
+    const weather = buildRequestView({ ...TOUR_LEAD, lead_status: 'lost', lead_answer: 'decline', lead_decline_reason: 'weather' }, NOW);
+    expect(weather.human).toBe('Оператор отказал по заявке. Причина: погода, безопасность.');
+    // Слово владельца 11.11: другие варианты — только безопасные и с причиной замены.
+    // Обстановка и место знают «сейчас»; на дату — только прогноз, дальше него проверить нельзя.
+    expect(weather.next).toMatch(/только если проверили их безопасность/);
+    expect(weather.next).toMatch(/safety_status/);
+    expect(weather.next).toMatch(/get_guardian_context/);
+    expect(weather.next).toMatch(/прогноз на эту дату — get_weather/);
+    expect(weather.next).toMatch(/Дата дальше прогноза — проверить нельзя/);
+    expect(weather.next).toMatch(/почему замена/);
+    expect(dates.next).not.toMatch(/безопасн/);
+  });
+
+  it('«Подтвердить» — в работе, «брони ещё нет», а не «связался с человеком»', () => {
+    const v = buildRequestView({ ...TOUR_LEAD, lead_status: 'contacted', lead_answer: 'accept' }, NOW);
+    expect(v.state).toBe('in_progress');
+    expect(v.human).toMatch(/берёт заявку. Брони ещё нет/);
+    expect(v.human).not.toMatch(/связался/);
+  });
+
+  it('«Другая дата» — оператор предложит дату, своей даты нет', () => {
+    const v = buildRequestView({ ...TOUR_LEAD, lead_status: 'contacted', lead_answer: 'other_date' }, NOW);
+    expect(v).toMatchObject({ state: 'other_date', alt_date: null });
+    expect(v.human).toBe('Оператор ответил: на 15.01.2027 не может и предложит другую дату — напишет или позвонит человеку.');
+  });
+
+  it('«Уточнить» и «Свяжусь сам» — в работе, а не «ждём ответа»', () => {
+    expect(buildRequestView({ ...TOUR_LEAD, lead_answer: 'clarify' }, NOW)).toMatchObject({ state: 'in_progress', human: 'Оператор ответил: уточнит детали и свяжется с человеком.' });
+    expect(buildRequestView({ ...TOUR_LEAD, lead_answer: 'self' }, NOW)).toMatchObject({ state: 'in_progress', human: 'Оператор ответил: свяжется с человеком сам.' });
+  });
+
+  it('статус перерос ответ — говорит статус: после «Нет мест» оператор связался на сайте', () => {
+    const v = buildRequestView({ ...TOUR_LEAD, lead_status: 'contacted', lead_answer: 'no_seats' }, NOW);
+    expect(v).toMatchObject({ state: 'operator_contacted', human: 'Оператор связался с человеком по заявке.' });
+    const closed = buildRequestView({ ...TOUR_LEAD, lead_status: 'converted', lead_answer: 'accept' }, NOW);
+    expect(closed.state).toBe('confirmed');
+  });
+
+  it('бронь по лиду главнее ответа кнопкой', () => {
+    const v = buildRequestView({ ...TOUR_LEAD, lead_answer: 'no_seats', booking_status: 'confirmed', booking_date: '2027-01-16' }, NOW);
+    expect(v.state).toBe('confirmed');
+  });
+
+  it('ответ без даты в заявке — «на запрошенную дату», не выдуманная дата', () => {
+    const v = buildRequestView({ ...TOUR_LEAD, tool_name: 'create_lead', lead_answer: 'no_seats' }, NOW);
+    expect(v.human).toBe('Оператор ответил: на запрошенную дату мест нет.');
+  });
+
+  it('незнакомый ответ — говорит статус', () => {
+    expect(buildRequestView({ ...TOUR_LEAD, lead_answer: 'maybe' }, NOW).state).toBe('awaiting_operator');
+  });
+
+  it('эскалация кроном добивки — менеджер Ведара, а не «оператор связался»', () => {
+    const v = buildRequestView({ ...TOUR_LEAD, tool_name: 'create_lead', lead_status: 'contacted', lead_escalated: true }, NOW);
+    expect(v.state).toBe('in_progress');
+    expect(v.human).toMatch(/менеджеру Ведара/);
+    expect(v.human).not.toMatch(/связался/);
+    // Почему отдал, не утверждается: операторов могли и не спросить.
+    expect(v.human).not.toMatch(/не ответили/);
+  });
+
+  it('ответ кнопкой не теряется, когда адресат ещё и написал в переписке', () => {
+    const v = buildRequestView({ ...TOUR_LEAD, lead_status: 'lost', lead_answer: 'decline', lead_decline_reason: 'weather',
+      opens_chat: true, lead_addressed: true, chat_partner_replies: 2 }, NOW);
+    expect(v.human).toMatch(/Причина: погода, безопасность/);
+    expect(v.next).toMatch(/только если проверили их безопасность/);
+    expect(v.next).toMatch(/страницу заявки/);
+  });
+});
+
+describe('большая группа после отказа адресата уходит другим операторам', () => {
+  const GROUP: StatusRow = { ...TOUR_LEAD, lead_group_over: true, lead_addressed: true };
+
+  it('«Нет мест» — не «ищите другой тур», а передача; новую заявку не заводить', () => {
+    const v = buildRequestView({ ...GROUP, lead_answer: 'no_seats' }, NOW);
+    expect(v.state).toBe('awaiting_operator');
+    expect(v.human).toMatch(/увидят другие операторы/);
+    expect(v.next).toMatch(/Новую заявку на эту группу заводить не нужно/);
+    expect(v.next).not.toMatch(/get_tours/);
+  });
+
+  it('после передачи кроном (адресата нет, declined_by записан) — то же, без дребезга в «ещё не ответил»', () => {
+    const v = buildRequestView({ ...GROUP, lead_addressed: false, lead_declined_by: 'op-a', lead_answer: null }, NOW);
+    expect(v.state).toBe('awaiting_operator');
+    expect(v.human).toMatch(/передана другим операторам/);
+    expect(v.human).not.toMatch(/ещё не ответил/);
+  });
+
+  it('обычная заявка на «Нет мест» — по-прежнему отказ', () => {
+    expect(buildRequestView({ ...TOUR_LEAD, lead_answer: 'no_seats' }, NOW).state).toBe('declined');
+  });
+
+  it('отказ по погоде или безопасности группу не передаёт (крон её не отдаёт) — отказ с проверкой безопасности', () => {
+    const v = buildRequestView({ ...GROUP, lead_status: 'lost', lead_answer: 'decline', lead_decline_reason: 'weather' }, NOW);
+    expect(v.state).toBe('declined');
+    expect(v.human).not.toMatch(/другие операторы|передана/);
+    expect(v.next).toMatch(/safety_status/);
+    // Отказ с другой причиной — передача, как и было.
+    const other = buildRequestView({ ...GROUP, lead_status: 'lost', lead_answer: 'decline', lead_decline_reason: 'group' }, NOW);
+    expect(other.human).toMatch(/увидят другие операторы/);
+  });
+});
+
+describe('ключ из кода между каналами (handoff:*) — род по самой заявке', () => {
+  it('машина: «перевозчик», ответ журнала читается; жильё — «владелец жилья»', () => {
+    const v = buildRequestView({ ...TOUR_LEAD, tool_name: 'handoff:telegram', lead_kind: 'charter', lead_status: 'contacted', lead_partner_answer: 'take' }, NOW);
+    expect(v.consent_purpose).toBe('carrier');
+    expect(v.human).toMatch(/^Перевозчик ответил: берёт заявку/);
+    expect(buildRequestView({ ...TOUR_LEAD, tool_name: 'handoff:max', lead_kind: 'car_rental' }, NOW).consent_purpose).toBe('rental');
+    expect(buildRequestView({ ...TOUR_LEAD, tool_name: 'handoff:max', lead_kind: null }, NOW).consent_purpose).toBe('operator');
+  });
+
+  it('согласие на странице по такому ключу — тому, кому ушла заявка', async () => {
+    query.mockResolvedValue({ rows: [{ tool_name: 'handoff:telegram', stay_request_id: null, lead_kind: 'charter' }] });
+    expect(await readConsentPurpose(KEY)).toBe('carrier');
+    query.mockResolvedValue({ rows: [{ tool_name: 'handoff:max', stay_request_id: 'H', lead_kind: null }] });
+    expect(await readConsentPurpose(KEY)).toBe('stay');
+    expect(CONSENT_PURPOSE_SQL).toMatch(/LEFT JOIN leads l ON l\.id = k\.lead_id/);
+  });
+});
+
+describe('ответ перевозчика и прокатчика', () => {
+  const CHARTER: StatusRow = { ...TOUR_LEAD, tool_name: 'request_charter', lead_requested_date: null, lead_tour: null };
+  const RENTAL: StatusRow = { ...CHARTER, tool_name: 'create_car_rental_request' };
+
+  it('до ответа — «перевозчик ещё не ответил», дальше — не туры', () => {
+    const v = buildRequestView(CHARTER, NOW);
+    expect(v).toMatchObject({ state: 'awaiting_operator', human: 'Заявка принята, перевозчик ещё не ответил.' });
+    expect(buildRequestView({ ...CHARTER, lead_status: 'lost' }, NOW).next).toMatch(/search_transfers/);
+    expect(buildRequestView({ ...CHARTER, lead_status: 'lost' }, NOW).next).not.toMatch(/get_tours|create_lead/);
+  });
+
+  it('«Беру» перевозчика — в работе, машина не закреплена; не «связался»', () => {
+    const v = buildRequestView({ ...CHARTER, lead_status: 'contacted', lead_partner_answer: 'take' }, NOW);
+    expect(v.state).toBe('in_progress');
+    expect(v.human).toBe('Перевозчик ответил: берёт заявку и свяжется с человеком сам. Машина этим не закреплена, сумма не названа.');
+  });
+
+  it('«Не могу» перевозчика — отказ и другие перевозчики', () => {
+    const v = buildRequestView({ ...CHARTER, lead_status: 'lost', lead_partner_answer: 'decline' }, NOW);
+    expect(v.state).toBe('declined');
+    expect(v.next).toMatch(/search_transfers/);
+  });
+
+  it('«Не могу» прокатчика статус не меняет — и всё равно отказ, а не «ждём ответа»', () => {
+    const v = buildRequestView({ ...RENTAL, lead_partner_answer: 'decline' }, NOW);
+    expect(v.state).toBe('declined');
+    expect(v.human).toMatch(/^Прокатчик ответил: выполнить заявку не может/);
+    expect(v.next).toMatch(/search_car_rental/);
+  });
+
+  it('ответ кнопкой туроператора у машины не читается (у неё свой журнал)', () => {
+    expect(buildRequestView({ ...CHARTER, lead_answer: 'no_seats' }, NOW).state).toBe('awaiting_operator');
+  });
+});
+
+describe('ответ владельца жилья кнопкой (1359)', () => {
+  const STAY: StatusRow = {
+    ...SEAT_BASE, seat_request_id: null, seat_status: null, seat_booking_id: null, seat_booking_status: null,
+    tool_name: 'create_stay_request', stay_request_id: 'H', stay_accommodation_id: 'A', stay_name: 'Кутха',
+    stay_check_in: '2027-07-10', stay_check_out: '2027-07-12', stay_guests: 2,
+    stay_owner_channel: 'max', stay_platform_channel: null, stay_delivery_recorded_at: new Date(NOW),
+  };
+
+  it('до ответа — «передана», и статус ещё может измениться', () => {
+    const v = buildRequestView(STAY, NOW);
+    expect(v.state).toBe('delivered');
+    expect(v.next).not.toMatch(/не меняется/);
+    expect(v.next).toMatch(/ответит кнопкой/);
+  });
+
+  it('«Занято» — отказ и другое жильё', () => {
+    expect(buildRequestView({ ...STAY, stay_owner_answer: 'busy' }, NOW)).toMatchObject({ state: 'declined', human: 'Владелец ответил: на эти даты занято.' });
+  });
+
+  it('«Свободно, беру» и «Позвоню сам» — в работе, не бронь', () => {
+    expect(buildRequestView({ ...STAY, stay_owner_answer: 'free' }, NOW)).toMatchObject({ state: 'in_progress' });
+    expect(buildRequestView({ ...STAY, stay_owner_answer: 'free' }, NOW).human).toMatch(/Это не бронь/);
+    expect(buildRequestView({ ...STAY, stay_owner_answer: 'call' }, NOW)).toMatchObject({ state: 'in_progress', human: 'Владелец ответил: позвонит человеку сам.' });
+  });
+
+  it('описание инструмента называет у жилья каждое состояние, которое статус отдаёт', () => {
+    // До этой правки описание знало у жилья одно состояние — delivered, а
+    // владелец с 1359 отвечает кнопкой: агент, читавший описание, не ждал
+    // ни «в работе», ни «отказ».
+    const states = new Set([null, 'free', 'busy', 'call'].map((a) => buildRequestView({ ...STAY, stay_owner_answer: a }, NOW).state));
+    expect([...states].sort()).toEqual(['declined', 'delivered', 'in_progress']);
+    const sentence = GET_REQUEST_STATUS_TOOL.description.split('. ').find((x) => x.startsWith('Заявка на жильё')) ?? '';
+    for (const state of states) expect(sentence, state).toContain(`(${state})`);
+  });
+});
+
+describe('SQL статуса читает ответ того, кто сейчас адресат', () => {
+  it('ответ кнопкой — только текущего адресата лида; журнал машины — последняя запись', () => {
+    expect(REQUEST_STATUS_SQL).toMatch(/partner_incoming_answers pa\s+ON pa\.subject_kind = 'lead' AND pa\.subject_id = k\.lead_id::text\s+AND pa\.partner_id::text = l\.operator_id::text/);
+    expect(REQUEST_STATUS_SQL).toMatch(/action = 'partner_answered'\s+ORDER BY pal\.id DESC\s+LIMIT 1/);
+    expect(REQUEST_STATUS_SQL).toContain('s.owner_answer AS stay_owner_answer');
+    // Причина отказа — код; свободного текста оператора (decline_note) наружу нет.
+    expect(REQUEST_STATUS_SQL).not.toMatch(/decline_note/);
+  });
+});
+
+describe('правило доставки ответа: слова агенту и отметка чтения (план «после отказа», 2б)', () => {
+  /** Ответ «Нет мест» по заявке на тур; ключ выдан дверью, создавшей заявку. */
+  const ANSWERED: StatusRow = { ...TOUR_LEAD, lead_answer: 'no_seats', lead_answer_id: '77', opens_chat: true };
+
+  /** Отметки «ответ дошёл», которые чтение записало в базу: [номер ответа, чем дошёл]. */
+  async function marksAfter(row: StatusRow, read: () => Promise<unknown>): Promise<unknown[]> {
+    const { NOTICE_SHOWN_SQL } = await import('@/lib/requests/answer-notice-mark');
+    query.mockReset();
+    query.mockImplementation(async (sql: string) => (sql === NOTICE_SHOWN_SQL ? { rows: [], rowCount: 1 } : { rows: [row] }));
+    await read();
+    return query.mock.calls.filter((c) => c[0] === NOTICE_SHOWN_SQL).map((c) => c[1]);
+  }
+
+  it('get_request_status по ключу созданной заявки отмечает ответ дошедшим — и описание инструмента говорит это агенту', async () => {
+    // Связка «слова → механизм» (CLAUDE.md §4, правило 10.09): отметка без
+    // слов — доставка, о которой агент не знает; слова без отметки — обещание.
+    expect(await marksAfter(ANSWERED, () => runRequestStatusTool({ key: KEY }))).toEqual([['77', 'agent_read']]);
+    const tool = PUBLIC_MCP_TOOLS.find((t) => t.name === REQUEST_STATUS_TOOL_NAME);
+    expect(tool?.description).toContain(ANSWER_RELAY_RULE);
+    expect(ANSWER_RELAY_RULE).toContain('передайте человеку сами');
+    expect(ANSWER_RELAY_RULE).toContain('считается дошедшим');
+    expect(ANSWER_RELAY_RULE).toContain('Ведар человеку о нём больше не сообщает');
+  });
+
+  it('чтение отмечает каждый ответ, по которому человеку уходит сообщение, — правило говорит «ответ туроператора» без исключений', async () => {
+    // Новый вид ответа с сообщением (NOTICE_ANSWERS) без строки здесь — красный.
+    const ROWS: Record<(typeof NOTICE_ANSWERS)[number], Partial<StatusRow>> = {
+      no_seats: {},
+      decline: { lead_status: 'lost' },
+      other_date: { lead_status: 'contacted' },
+    };
+    expect(Object.keys(ROWS).sort()).toEqual([...NOTICE_ANSWERS].sort());
+    for (const [answer, row] of Object.entries(ROWS)) {
+      const marks = await marksAfter({ ...ANSWERED, ...row, lead_answer: answer }, () => runRequestStatusTool({ key: KEY }));
+      expect(marks, answer).toEqual([['77', 'agent_read']]);
+    }
+    expect(ANSWER_RELAY_RULE).toMatch(/^Ответ туроператора, перевозчика или прокатчика из статуса передайте человеку сами/);
+  });
+
+  it('«Не могу» перевозчика и прокатчика (этап 2б-2): чтение отмечает запись журнала, а не кнопку туроператора, — и правило называет обоих', async () => {
+    const { NOTICE_SHOWN_BY_ACTIVITY_SQL, NOTICE_SHOWN_SQL } = await import('@/lib/requests/answer-notice-mark');
+    const vehicleMarks = async (row: StatusRow, read: () => Promise<unknown> = () => runRequestStatusTool({ key: KEY })) => {
+      query.mockReset();
+      query.mockImplementation(async (sql: string) => (sql === NOTICE_SHOWN_BY_ACTIVITY_SQL || sql === NOTICE_SHOWN_SQL ? { rows: [], rowCount: 1 } : { rows: [row] }));
+      await read();
+      // Отметка по кнопке туроператора у заявки на машину — ошибка источника: её быть не должно.
+      expect(query.mock.calls.filter((c) => c[0] === NOTICE_SHOWN_SQL)).toEqual([]);
+      return query.mock.calls.filter((c) => c[0] === NOTICE_SHOWN_BY_ACTIVITY_SQL).map((c) => c[1]);
+    };
+    const CHARTER: StatusRow = {
+      ...TOUR_LEAD, tool_name: 'request_charter', lead_requested_date: null, lead_tour: null, opens_chat: true,
+      lead_status: 'lost', lead_partner_answer: 'decline', lead_partner_answer_id: '901',
+    };
+    const RENTAL: StatusRow = { ...CHARTER, tool_name: 'create_car_rental_request', lead_status: 'new' };
+    expect(await vehicleMarks(CHARTER)).toEqual([['901', 'agent_read']]);
+    expect(await vehicleMarks(RENTAL)).toEqual([['901', 'agent_read']]);
+    // Заявка из кода между каналами: род — по самой заявке.
+    expect(await vehicleMarks({ ...CHARTER, tool_name: 'handoff:max', lead_kind: 'charter' })).toEqual([['901', 'agent_read']]);
+    // Ключ повтора, чтение без читателя, статус перерос ответ, «Беру» без строки сообщения — отметки нет.
+    expect(await vehicleMarks({ ...CHARTER, opens_chat: false })).toEqual([]);
+    expect(await vehicleMarks(CHARTER, () => readRequestStatus(KEY))).toEqual([]);
+    expect(await vehicleMarks({ ...RENTAL, lead_status: 'contacted' })).toEqual([]);
+    expect(await vehicleMarks({ ...CHARTER, lead_partner_answer_id: null })).toEqual([]);
+    // По заявке заведена бронь — говорит она, а не прежний отказ.
+    expect(await vehicleMarks({ ...CHARTER, booking_status: 'confirmed' })).toEqual([]);
+    for (const who of ['перевозчика', 'прокатчика']) expect(ANSWER_RELAY_RULE, who).toContain(who);
+  });
+
+  it('ключ повтора и чтение без читателя доставкой не считаются — оговорка о ключе в правиле не лишняя', async () => {
+    expect(await marksAfter({ ...ANSWERED, opens_chat: false }, () => runRequestStatusTool({ key: KEY }))).toEqual([]);
+    // Кузьмич по вставленному ключу: человек спросил сам.
+    expect(await marksAfter(ANSWERED, () => readRequestStatus(KEY))).toEqual([]);
+    expect(ANSWER_RELAY_RULE).toContain('по ключу, выданному при создании заявки');
+  });
+
+  it('заявка ещё ждёт ответа — отмечать нечего', async () => {
+    expect(await marksAfter({ ...TOUR_LEAD, opens_chat: true }, () => runRequestStatusTool({ key: KEY }))).toEqual([]);
+  });
+});
+
+describe('consent_purpose: описание называет каждого получателя из списка значений', () => {
+  it('значение и слово получателя — у всех, прокатчик в том числе', () => {
+    // До этой правки значений было четыре, а в описании — три: без rental.
+    const d = GET_REQUEST_STATUS_TOOL.outputSchema.properties.consent_purpose.description;
+    for (const p of CONSENT_PURPOSES) {
+      expect(d, p).toContain(`${p} — `);
+      expect(d, p).toContain(ADDRESSEE_WORDS[p].dat);
+    }
   });
 });

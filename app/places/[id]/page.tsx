@@ -20,6 +20,7 @@ import { asProfileSource, mayStateAsFact } from '@/lib/safety/profile-source';
 import { NEARBY_PLACES_SQL } from '@/lib/places/nearby';
 import { ownPlacePhoto } from '@/lib/images/own-image-url';
 import { zhPlaceAlternatePath } from '@/lib/zh/content';
+import { loadPlaceTours, goesToPlace } from '@/lib/places/place-tours';
 
 interface Props {
   params: Promise<{ id: string }>;
@@ -73,6 +74,8 @@ export async function generateMetadata({ params }: Props): Promise<Metadata> {
       lng: r.lng != null ? Number(r.lng) : null,
       // Без очерка описание добирается блоком «Рядом» — тем же запросом.
       nearby: hasEssenceText(r) ? [] : await nearbyForMeta(r),
+      // «туры» в заголовке — только если блок «Туры к этому месту» их покажет.
+      toursCount: await toursToPlaceCount(String(r.place_pk)),
     };
     const desc = placeDescription(facts) || 'Место на Камчатке';
     // Canonical — ЧПУ места. До 29.09 его не было у всех 379 карточек (Н4):
@@ -115,6 +118,18 @@ export async function generateMetadata({ params }: Props): Promise<Metadata> {
     console.error('[places/page] метаданные места не прочитаны:', id, `sqlstate=${err?.code ?? 'нет'}`, err?.message ?? String(e));
     return { title: 'Место на Камчатке' };
   }
+}
+
+/**
+ * Сколько туров витрины идут к месту — тем же отбором, что блок карточки
+ * (lib/places/place-tours, связь «к этому месту»). Не прочиталось — null:
+ * слова «туры» в заголовке нет, причина уже в логе загрузчика (§4.0).
+ */
+async function toursToPlaceCount(placePk: string): Promise<number | null> {
+  const r = await loadPlaceTours(placePk);
+  if (r.state === 'failed') return null;
+  if (r.state === 'empty') return 0;
+  return r.offers.filter(goesToPlace).length;
 }
 
 /** Очерк есть — «Рядом» в описание не идёт, и лишний запрос не нужен. */

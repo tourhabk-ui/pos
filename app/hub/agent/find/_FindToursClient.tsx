@@ -8,6 +8,7 @@ import {
 import { useSearchParams } from 'next/navigation';
 import { normalizePriceUnit } from '@/lib/tours/booking-total';
 import { PRICE_UNIT_SHORT } from '@/lib/tours/labels';
+import { agentRoleOpen } from '@/lib/auth/agent-role';
 
 interface TourSlot {
   tour_id:          number;
@@ -244,7 +245,7 @@ export default function FindToursClient() {
                   </div>
                 )}
 
-                {/* Цена + комиссия */}
+                {/* Цена (и подпись о вознаграждении при открытой роли) */}
                 <div className="flex items-end justify-between pt-2 border-t border-[var(--border)]">
                   <div>
                     <p className="text-lg font-bold text-[var(--text-primary)]">
@@ -252,11 +253,14 @@ export default function FindToursClient() {
                       <span className="text-sm font-normal text-[var(--text-muted)]"> {PRICE_UNIT_SHORT[normalizePriceUnit(t.price_unit)]}</span>
                     </p>
                     {/* Ставку вознаграждения назначает владелец платформы —
-                        выдуманные «10%» здесь агент принял бы за обещание. */}
-                    <p className="text-xs flex items-center gap-1 text-[var(--text-secondary)]">
-                      <Banknote size={13} />
-                      Ставку вознаграждения назначает платформа
-                    </p>
+                        выдуманные «10%» здесь агент принял бы за обещание.
+                        Роль заморожена (#3212) — подписи нет вовсе. */}
+                    {agentRoleOpen() && (
+                      <p className="text-xs flex items-center gap-1 text-[var(--text-secondary)]">
+                        <Banknote size={13} />
+                        Ставку вознаграждения назначает платформа
+                      </p>
+                    )}
                   </div>
                   {t.operator_phone && (
                     <a

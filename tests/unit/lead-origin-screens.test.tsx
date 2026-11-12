@@ -30,8 +30,12 @@ const BASE = {
 };
 
 /** Лид, как его отдаёт /api/leads: поля строки и подпись сервера. */
-function apiLead(sourceUrl: string, sourceData: Record<string, unknown>, over: Record<string, unknown> = {}) {
-  return { ...BASE, source_url: sourceUrl, source_data: sourceData, origin: leadOrigin({ source_url: sourceUrl, source_data: sourceData }), ...over };
+function apiLead(sourceUrl: string, sourceData: Record<string, unknown>, over: Record<string, unknown> = {}, consentSource: string | null = null) {
+  return {
+    ...BASE, source_url: sourceUrl, source_data: sourceData,
+    origin: leadOrigin({ source_url: sourceUrl, source_data: sourceData, pd_consent_source: consentSource }),
+    ...over,
+  };
 }
 
 function stubApi(leads: Array<Record<string, unknown>>) {
@@ -111,6 +115,31 @@ describe('оператор: список и карточка лида', () => {
     expect(await screen.findByText('Откуда: ИИ-агент · A2A · заявка на тур')).toBeTruthy();
     expect(document.body.textContent).not.toContain('mcp://');
     expect(screen.queryByText(/^Страница:/)).toBeNull();
+  });
+
+  it('карточка заявки агента, согласие только со слов агента — так и сказано', async () => {
+    stubApi([apiLead('mcp://vedar/booking', A2A_BOOKING, {}, 'mcp')]);
+    renderFresh(<LeadDetailClient leadId="l-1" />);
+    const line = await screen.findByText('Согласие на передачу данных — только со слов ИИ-агента: на странице заявки его не отмечали');
+    expect(line.closest('[data-lead-consent]')?.getAttribute('data-lead-consent')).toBe('agent');
+  });
+
+  it('карточка заявки агента, отмечено на странице заявки — сказано, что кто нажал, не проверяется', async () => {
+    stubApi([apiLead('mcp://vedar/booking', A2A_BOOKING, {}, 'request-page')]);
+    renderFresh(<LeadDetailClient leadId="l-1" />);
+    const line = await screen.findByText(/^Согласие на передачу данных отмечено на странице заявки\. Ссылка на неё есть и у ИИ-агента/);
+    expect(line.closest('[data-lead-consent]')?.getAttribute('data-lead-consent')).toBe('page');
+    expect(screen.queryByText(/только со слов ИИ-агента/)).toBeNull();
+    // Ссылка есть и у агента: «подтвердил человек» было бы неправдой (ревью #3252).
+    expect(document.body.textContent).not.toMatch(/подтвердил сам человек/);
+  });
+
+  it('карточка заявки человека из чата — строки согласия нет', async () => {
+    stubApi([apiLead('mcp://vedar', TG_CHAT, {}, 'kuzmich-tg')]);
+    renderFresh(<LeadDetailClient leadId="l-1" />);
+    await screen.findByText('Откуда: Человек · Кузьмич в Telegram · подбор тура');
+    expect(document.querySelector('[data-lead-consent]')).toBeNull();
+    expect(screen.queryByText(/Согласие на передачу данных/)).toBeNull();
   });
 
   it('карточка заявки с формы сайта — подпись и адрес страницы', async () => {

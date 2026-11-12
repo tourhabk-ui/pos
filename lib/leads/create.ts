@@ -15,6 +15,7 @@ import { linkContactQuietly } from '@/lib/crm/contacts';
 import { AGENT_CONSENT_SOURCE } from '@/lib/mcp/request-status';
 import { planFingerprint } from '@/lib/leads/plan-fingerprint';
 import { currentLeadEntry } from '@/lib/leads/entry-context';
+import { NOT_CLIENT_CANCELLED_SQL } from '@/lib/leads/client-cancelled';
 
 /** Копия source_data без служебных ключей; без них — тот же объект, пустота — пустота. */
 function withoutKeys(data: Record<string, unknown> | undefined, keys: string[]): Record<string, unknown> | undefined {
@@ -93,6 +94,7 @@ export async function findRecentLeadByCommentPrefix(phone: string, prefix: strin
       `SELECT id FROM leads
         WHERE phone = $1 AND comment LIKE $2 || '%'
           AND created_at > NOW() - INTERVAL '24 hours'
+          AND ${NOT_CLIENT_CANCELLED_SQL}
         LIMIT 1`,
       [phone, escaped],
     );
@@ -170,11 +172,13 @@ export async function createLeadDetailed(params: CreateLeadParams): Promise<{ id
                WHERE phone = $1 AND COALESCE(comment, '') = $2
                  AND source_data->>'plan_fingerprint' = $3
                  AND created_at > NOW() - INTERVAL '24 hours'
+                 AND ${NOT_CLIENT_CANCELLED_SQL}
                LIMIT 1`, values: [phone, comment ?? '', fingerprint] }
     : phone && comment
       ? { sql: `SELECT id FROM leads
                  WHERE phone = $1 AND comment = $2
                    AND created_at > NOW() - INTERVAL '24 hours'
+                   AND ${NOT_CLIENT_CANCELLED_SQL}
                  LIMIT 1`, values: [phone, comment] }
       : null;
   if (dup) {

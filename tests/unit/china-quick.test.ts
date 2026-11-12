@@ -37,7 +37,7 @@ import {
 import { GET as sitemapGET } from '@/app/sitemap.xml/route';
 import { collectSitemapEntriesWithStatus } from '@/lib/seo/sitemap-entries';
 import { NOT_COUNTED, GET as entryCensusGET } from '@/app/api/cron/agent-entry-census/route';
-import { GET as a2aCensusGET, summarizeA2aAgents, readDays, type A2aCensusAgentRow } from '@/app/api/cron/a2a-census/route';
+import { GET as a2aCensusGET, summarizeA2aAgents, summarizeA2aTools, readDays, CAVEATS, type A2aCensusAgentRow, type A2aCensusToolRow } from '@/app/api/cron/a2a-census/route';
 import { GET as indexnowGET, deployPageUrls } from '@/app/api/cron/indexnow-plans/route';
 import { LOGGED_URLS_MAX, pingIndexNow } from '@/lib/seo/indexnow';
 import { PLAN_PRESETS } from '@/lib/plans/presets';
@@ -315,6 +315,54 @@ describe('5. перепись A2A', () => {
     expect(s.by_agent.find((a) => a.agent === 'A2A-Registry-TaskProbe')?.region).toBeNull();
   });
 
+  // Перепись 12.11 (prod-check 174): свой экзамен стоял среди внешних, а сообщения внешних складывались руками.
+  const OWN_ROWS: A2aCensusAgentRow[] = [
+    { ...row('Qwen-Agent', 'other', 9), sends: 4, text_sends: 3, tool_sends: 1, completed: 3, rejected: 1, card_reads: 3, protocol_errors: 2 },
+    { ...row('vedar-eval', 'node', 32), sends: 32, text_sends: 32, completed: 32 },          // наш экзамен — в списке проверок
+    { ...row('Vedar-Eval', 'node', 2), sends: 2, text_sends: 2, completed: 2 },              // регистр не важен
+    { ...row('vedar-research', 'python', 129), sends: 129, text_sends: 129, completed: 120, failed: 9 }, // имя как у наших, в списке нет
+    { ...row('vedar-evaluator', 'python', 1), sends: 1, text_sends: 1, completed: 1 },       // похожее имя — не оно
+  ];
+
+  it('своя проверка по имени — не внешний агент; имя «как у наших» вне списка — внешний, но названо отдельно', () => {
+    const s = summarizeA2aAgents(OWN_ROWS);
+    expect(s.by_kind.probe).toEqual({ agents: 2, requests: 34 });
+    expect(s.by_kind.external).toEqual({ agents: 3, requests: 139 });
+    expect(s.external).toEqual({
+      agents: 3, requests: 139, card_reads: 3, protocol_errors: 2,
+      sends: 134, text_sends: 133, tool_sends: 1, completed: 124, rejected: 1, failed: 9,
+    });
+    // Род не подменён приметой: чьи это программы, перепись не знает.
+    expect(s.named_like_ours.names).toEqual(['vedar-research (129, сообщений 129)', 'vedar-evaluator (1, сообщений 1)']);
+    expect(s.named_like_ours).toMatchObject({ agents: 2, requests: 130, sends: 130 });
+    expect(s.external_without_named_like_ours).toMatchObject({ agents: 1, requests: 9, sends: 4, completed: 3, rejected: 1 });
+    expect(s.by_agent.find((a) => a.agent === 'vedar-research')?.kind).toBe('external');
+    expect(CAVEATS.join(' ')).toMatch(/чьи это программы, перепись не знает/);
+  });
+
+  it('инструменты — только внешних агентов; пишущий отмечен, «имя не записано» — отдельная строка', () => {
+    const t = (agent: string, ua_family: string, tool: string | null, sends: number, over: Partial<A2aCensusToolRow> = {}): A2aCensusToolRow =>
+      ({ agent, ua_family, is_self: false, tool, sends, completed: sends, rejected: 0, failed: 0, ...over });
+    const s = summarizeA2aTools([
+      t('Qwen-Agent', 'other', 'get_tours', 5),
+      t('GigaChat', 'other', 'get_tours', 2, { completed: 1, failed: 1 }),
+      t('GigaChat', 'other', 'create_lead', 3, { completed: 1, rejected: 2 }),
+      t('Qwen-Agent', 'other', null, 1, { completed: 0, rejected: 1 }),
+      t('vedar-eval', 'node', 'get_tours', 40),               // своя проверка
+      t('glama-mcp-inspector', 'node', 'create_lead', 7),     // проверка по ремеслу
+      t('A2A-Registry-TaskProbe', 'other', 'safety_status', 9),
+      t('curl', 'curl', 'get_tours', 4),
+      t('Qwen-Agent', 'other', 'get_weather', 6, { is_self: true }), // метка владельца
+    ]);
+    expect(s.tools).toEqual([
+      { tool: 'get_tours', write: false, sends: 7, completed: 6, rejected: 0, failed: 1, agents: 2, agent_names: ['GigaChat', 'Qwen-Agent'] },
+      { tool: 'create_lead', write: true, sends: 3, completed: 1, rejected: 2, failed: 0, agents: 1, agent_names: ['GigaChat'] },
+      { tool: null, write: false, sends: 1, completed: 0, rejected: 1, failed: 0, agents: 1, agent_names: ['Qwen-Agent'] },
+    ]);
+    expect(s).toMatchObject({ total_sends: 11, write_sends: 3, write_completed: 1 });
+    expect(summarizeA2aTools([])).toEqual({ tools: [], total_sends: 0, write_sends: 0, write_completed: 0 });
+  });
+
   it('без секрета — 500; чужой секрет — 401, база не тронута', async () => {
     delete process.env.CRON_SECRET;
     expect((await a2aCensusGET(new NextRequest('http://localhost/api/cron/a2a-census'))).status).toBe(500);
@@ -324,15 +372,38 @@ describe('5. перепись A2A', () => {
     expect(query).not.toHaveBeenCalled();
   });
 
-  it('данные: окно в параметре, только SELECT, ответ с регионами', async () => {
-    query.mockImplementation((async (sql: string) => (String(sql).includes('GROUP BY agent')
-      ? { rows: ROWS }
-      : { rows: [{ since: '2026-10-12', total: 40 }] })) as never);
+  /** Три запроса переписи: агенты, инструменты, границы журнала. */
+  const answer = (agents: unknown[], tools: unknown[], bounds: unknown[]) => (async (sql: string) => {
+    const q = String(sql);
+    if (/GROUP BY agent, ua_family, is_self, tool/.test(q)) return { rows: tools };
+    if (q.includes('GROUP BY agent')) return { rows: agents };
+    return { rows: bounds };
+  }) as never;
+
+  it('данные: окно в параметре, только SELECT, ответ с регионами, спросом внешних и инструментами', async () => {
+    query.mockImplementation(answer(
+      ROWS,
+      [
+        { agent: 'Qwen-Agent', ua_family: 'other', is_self: false, tool: 'request_charter', sends: 2, completed: 1, rejected: 1, failed: 0 },
+        { agent: 'deepseek-audit', ua_family: 'other', is_self: false, tool: 'get_tours', sends: 3, completed: 3, rejected: 0, failed: 0 },
+      ],
+      [{ since: '2026-10-12', total: 40 }],
+    ));
     const res = await a2aCensusGET(new NextRequest('http://localhost/api/cron/a2a-census?days=7', { headers: { authorization: 'Bearer test-secret' } }));
     expect(res.status).toBe(200);
-    const body = await res.json() as { ok: boolean; window_days: number; empty: boolean; china: { external: { requests: number } }; journal_since: string };
+    const body = await res.json() as {
+      ok: boolean; window_days: number; empty: boolean; china: { external: { requests: number } }; journal_since: string;
+      external: { agents: number; sends: number }; named_like_ours: { agents: number; names: string[] };
+      external_tools: { tools: Array<{ tool: string | null; write: boolean; sends: number }>; write_sends: number };
+    };
     expect(body).toMatchObject({ ok: true, window_days: 7, empty: false, journal_since: '2026-10-12' });
     expect(body.china.external.requests).toBe(5);
+    expect(body.external).toMatchObject({ agents: 2, sends: 7 });
+    expect(body.named_like_ours).toMatchObject({ agents: 0, names: [] });
+    // Проба deepseek-audit в инструменты внешних не попала.
+    expect(body.external_tools.tools).toEqual([expect.objectContaining({ tool: 'request_charter', write: true, sends: 2, completed: 1, rejected: 1 })]);
+    expect(body.external_tools.write_sends).toBe(2);
+    expect(query).toHaveBeenCalledTimes(3);
     for (const [sql, params] of query.mock.calls) {
       expect(String(sql).trimStart()).toMatch(/^SELECT/);
       if (params) expect(params).toEqual([7]);
@@ -340,12 +411,14 @@ describe('5. перепись A2A', () => {
   });
 
   it('пустое окно — с датой начала журнала, а не «никто не ходит»; пустой журнал — своими словами', async () => {
-    query.mockImplementation((async (sql: string) => (String(sql).includes('GROUP BY agent')
-      ? { rows: [] }
-      : { rows: [{ since: '2026-10-12', total: 40 }] })) as never);
-    const body = await (await a2aCensusGET(new NextRequest('http://localhost/api/cron/a2a-census', { headers: { authorization: 'Bearer test-secret' } }))).json() as { empty: boolean; note: string };
+    query.mockImplementation(answer([], [], [{ since: '2026-10-12', total: 40 }]));
+    const body = await (await a2aCensusGET(new NextRequest('http://localhost/api/cron/a2a-census', { headers: { authorization: 'Bearer test-secret' } }))).json() as {
+      empty: boolean; note: string; external: { agents: number; sends: number }; external_tools: { tools: unknown[]; total_sends: number };
+    };
     expect(body.empty).toBe(true);
     expect(body.note).toContain('2026-10-12');
+    expect(body.external).toMatchObject({ agents: 0, sends: 0 });
+    expect(body.external_tools).toMatchObject({ tools: [], total_sends: 0 });
 
     query.mockImplementation((async () => ({ rows: [] })) as never);
     const empty = await (await a2aCensusGET(new NextRequest('http://localhost/api/cron/a2a-census', { headers: { authorization: 'Bearer test-secret' } }))).json() as { note: string };

@@ -231,6 +231,8 @@ const CONSENT_ENDPOINTS = [
   'app/api/gear/rentals/route.ts',
   'app/api/car-rental-requests/route.ts',
   'app/api/partner-consent/route.ts',
+  // Вопрос оператору о дате, закрытой Ведаром, с формы брони тура (этап 6б, 12.11).
+  'app/api/leads/tour-date-question/route.ts',
 ];
 
 describe('сервер записывает согласие, а не только принимает', () => {

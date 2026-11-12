@@ -302,7 +302,7 @@
     "type": "function",
     "function": {
       "name": "make_trip_plan",
-      "description": "Day-by-day Kamchatka trip plan with weather and live availability; returns a plan ID for edit_trip_plan. Собрать план поездки по Камчатке по дням: зоны, активности, честные цены, предупреждения сезона, ориентир цены на человека с разбивкой. Используй, когда туриста интересует «что посмотреть за N дней», «составь маршрут/план поездки», «как спланировать неделю на Камчатке». Ответ содержит ссылку на страницу готового плана с турами и заявкой оператору. Ответ несёт ID плана: добавить, убрать, переставить или заменить день, сменить уровень жилья или состав группы, сдвинуть поездку на другие даты, учесть задержку рейса — через edit_trip_plan с этим ID, остальные дни не меняются. Другие интересы или стиль поездки — вызови make_trip_plan снова с прежними аргументами плюс изменение.",
+      "description": "Day-by-day Kamchatka trip plan with live availability and season warnings; returns a plan ID for edit_trip_plan. No forecast: use get_weather. Собрать план поездки по Камчатке по дням: зоны, активности, честные цены, предупреждения сезона, ориентир цены на человека с разбивкой. Используй, когда туриста интересует «что посмотреть за N дней», «составь маршрут/план поездки», «как спланировать неделю на Камчатке». Ответ содержит ссылку на страницу этого плана с заявкой на туры и, если найден, на похожий план-образец (он собран на двоих взрослых и на свои даты). Ответ несёт ID плана: добавить, убрать, переставить или заменить день, сменить уровень жилья или состав группы, сдвинуть поездку на другие даты, учесть задержку рейса — через edit_trip_plan с этим ID, остальные дни не меняются. Другие интересы или стиль поездки — вызови make_trip_plan снова с прежними аргументами плюс изменение.",
       "parameters": {
         "type": "object",
         "properties": {
@@ -544,7 +544,7 @@
     "type": "function",
     "function": {
       "name": "search",
-      "description": "Keyword search across Vedar Kamchatka: operator tours, places, stays, routes; returns up to 10 results with id for fetch, title and canonical url. For live seats use get_tour_availability. Поиск по витрине Ведара для коннекторов ChatGPT: туры операторов Камчатки, места, жильё и маршруты по словам запроса (русский или английский). Отдаёт до 10 результатов с id для fetch, названием и адресом страницы. Для живой занятости тура и обстановки есть get_tour_availability и safety_status.",
+      "description": "Keyword search across Vedar Kamchatka: operator tours, places, stays, routes; returns up to 10 results with id for fetch, title and canonical url. For live seats use get_tour_availability. Поиск по витрине Ведара для коннекторов ChatGPT: туры операторов Камчатки, места, жильё и маршруты по словам запроса (русский или английский). Отдаёт до 10 результатов с id для fetch, названием и адресом страницы. Для живой занятости тура и обстановки есть get_tour_availability и safety_status. План поездки по дням search не строит — его собирает make_trip_plan или страница планировщика vedarai.ru/planner.",
       "parameters": {
         "type": "object",
         "properties": {
@@ -588,7 +588,7 @@
     "type": "function",
     "function": {
       "name": "get_request_status",
-      "description": "Kamchatka request status by key from create_lead, create_booking_request, create_stay_request, request_charter, create_car_rental_request, create_trip_request. No personal data. Состояние заявки, отправленной через create_lead, create_booking_request, create_stay_request, request_charter, create_car_rental_request или create_trip_request (ключи частей поездки), по ключу статуса из ответа того инструмента: ждёт оператора, оператор связался, подтверждена, отказ, другая дата, нет ответа. Заявка на жильё — кому передана (delivered). partner_replies — сколько адресат заявки написал в переписке (без текста). Без имени и телефона. Ключ выдаётся на каждую заявку и живёт 90 дней; без ключа состояние не узнать — номера заявок не называются. В ответе есть page — страница заявки для человека: там он сам подтверждает согласие на обработку данных и видит ответ оператора. date — действующая дата (у брони — дата брони сейчас), requested_date — дата из заявки: разошлись — бронь перенесена или заведена на другую дату.",
+      "description": "Kamchatka request status by key from create_lead, create_booking_request, create_stay_request, request_charter, create_car_rental_request, create_trip_request. No personal data. Состояние заявки по ключу статуса из ответа пишущего инструмента (у create_trip_request — ключи частей поездки): ждёт оператора, оператор связался, подтверждена, отказ, другая дата, нет ответа. Заявка на жильё — передана (delivered), после ответа владельца кнопкой — в работе (in_progress) или отказ (declined). Ключ выдаётся на каждую заявку и живёт 90 дней; без ключа состояние не узнать. page — страница заявки для человека: там он сам подтверждает согласие на обработку данных и видит ответ. Ответ туроператора, перевозчика или прокатчика из статуса передайте человеку сами: прочитанный по ключу, выданному при создании заявки, он считается дошедшим, и Ведар человеку о нём больше не сообщает. date — действующая дата (у брони — дата брони сейчас), requested_date — дата из заявки: разошлись — бронь перенесена или заведена на другую дату.",
       "parameters": {
         "type": "object",
         "properties": {
@@ -599,6 +599,44 @@
         },
         "required": [
           "key"
+        ]
+      }
+    }
+  },
+  {
+    "type": "function",
+    "function": {
+      "name": "change_request",
+      "description": "Cancel a Kamchatka tour request or move it to another date by its status key, only when the person asks: done at once before the operator answers, sent to the operator as a request after. Отменить заявку на тур или перенести её на другую дату — по ключу статуса, который create_booking_request выдал при создании заявки. Вызывайте, только когда человек сам попросил об отмене или переносе. Оператор ещё не ответил — заявка отменяется или дата меняется сразу, оператору уходит сообщение. Оператор уже ответил, есть бронь или договорённость — ему уходит просьба: заявка и бронь не меняются, решает он. Отменённую заявку вернуть нельзя. Перенос — только на дату, где по календарю тура есть места на всех (get_tour_availability), и не больше трёх раз в сутки. Ключ повторного вызова create_booking_request и ключи других заявок (подбор, машина, прокат, жильё) менять заявку не дают — ответ это скажет. Ответ называет исход (outcome), изменилась ли заявка (changed) и кто узнал на деле (told) — передайте человеку как есть.",
+      "parameters": {
+        "type": "object",
+        "properties": {
+          "key": {
+            "type": "string",
+            "description": "Status key from the create_booking_request reply that created the request, as is. Ключ статуса из ответа create_booking_request, как есть (20–120 знаков)."
+          },
+          "action": {
+            "type": "string",
+            "enum": [
+              "cancel",
+              "change_date"
+            ],
+            "description": "cancel to cancel the request; change_date to move it to the date in the date field. cancel — отменить заявку; change_date — перенести на дату из поля date.",
+            "examples": [
+              "cancel"
+            ]
+          },
+          "date": {
+            "type": "string",
+            "description": "New tour date, YYYY-MM-DD; required for change_date. Новая дата тура, YYYY-MM-DD. Обязательна для change_date.",
+            "examples": [
+              "2027-07-18"
+            ]
+          }
+        },
+        "required": [
+          "key",
+          "action"
         ]
       }
     }
@@ -655,7 +693,7 @@
     "type": "function",
     "function": {
       "name": "create_booking_request",
-      "description": "Use when the user wants to book a Kamchatka tour on a date: live availability checked first, human-confirmed by the operator, no payment. Needs consent: true. No tour yet — use create_lead. Заявка оператору на конкретный тур и дату. Сначала проверь даты через get_tour_availability. Заявку подтверждает оператор по телефону; мгновенной брони нет, оплаты через платформу нет. Если по названию подходят туры разных компаний, в tour имя компании или гида либо совпала лишь часть слов — заявки нет: в ответе туры с номерами и компаниями; спроси человека и повтори вызов с номером выбранного тура. Нет мест на дату — заявки нет, в ответе ближайшие свободные даты. Запрос оператору вместо отказа, без закрепления мест, — в двух случаях: у тура нет расписания в системе — ссылку на страницу статуса из ответа передай человеку; группа больше, чем тур берёт на выезд, или группа у тура не ограничена — запрос на всю группу. Имя и телефон — персональные данные: спроси согласие на их обработку и передай consent: true.",
+      "description": "Use when the user wants to book a Kamchatka tour on a date: live availability checked first, human-confirmed by the operator, no payment. Needs consent: true. No tour yet — use create_lead. Заявка оператору на конкретный тур и дату. Сначала проверь даты через get_tour_availability. Заявку подтверждает оператор по телефону; мгновенной брони нет, оплаты через платформу нет. Подходят туры разных компаний, в tour имя компании или гида либо совпала часть слов — заявки нет: в ответе туры с номерами и компаниями; спроси человека и повтори вызов с номером тура. Нет мест на дату — заявки нет, в ответе ближайшие свободные даты. Запрос оператору вместо отказа, без закрепления мест: у тура нет расписания — ссылку на страницу статуса из ответа передай человеку; группа больше, чем тур берёт на выезд, или группа у тура не ограничена — запрос на всю группу; дату закрыл Ведар, не оператор, — вопрос, ходит ли он в этот день. Имя и телефон — персональные данные: спроси согласие на их обработку и передай consent: true.",
       "parameters": {
         "type": "object",
         "properties": {

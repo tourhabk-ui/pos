@@ -23,7 +23,7 @@ export const metadata: Metadata = {
     'блог камчатка',
     'путешествия камчатка',
     'маршруты камчатка новости',
-    'туризм камчатка 2026',
+    'туризм камчатка',
   ],
   alternates: { canonical: `${SITE}/blog` },
   openGraph: {

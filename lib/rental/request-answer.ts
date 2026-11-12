@@ -22,6 +22,8 @@
 
 import { isRealDate, shiftDate } from '@/lib/analytics/kamchatka-day';
 import { escapeHtml } from '@/lib/text/escape-html';
+import { redactPII } from '@/lib/security/pii-redact';
+import { operatorOutcomeLine, type NoticeOutcome } from '@/lib/requests/answer-notice-text';
 
 const LEAD_ID = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
 
@@ -111,16 +113,24 @@ export function rentalSpanDays(from: string, to: string): string[] | null {
  */
 export type ClientTold = boolean | null;
 
+/**
+ * Что ушло заказчику после «Не могу» (lib/requests/answer-notice): исход
+ * отправки или null — строки сообщения нет. У `already` null значит «по этому
+ * ответу сообщения не было» («Беру» или ответ до 1425).
+ */
+export type DeclineNotice = NoticeOutcome | null;
+
 export type AnswerTell =
-  | { kind: 'decline' }
+  | { kind: 'decline'; notice: DeclineNotice }
   | { kind: 'take'; from: string; to: string; marked: number }
   | { kind: 'take_no_car' }
   | { kind: 'take_bad_dates' }
   /** Перевозчик берёт заявку на машину: без отметки дней и без закрепления машины. */
   | { kind: 'charter_take'; clientTold: ClientTold }
-  | { kind: 'charter_decline'; clientTold: ClientTold }
+  /** О «Не могу» заказчику сообщает Ведар, одним сообщением: слов перевозчика в переписке нет. */
+  | { kind: 'charter_decline'; notice: DeclineNotice }
   | { kind: 'retry' }
-  | { kind: 'already'; answer: RequestAnswer }
+  | { kind: 'already'; answer: RequestAnswer; notice?: DeclineNotice }
   | { kind: 'not_yours' }
   | { kind: 'missing' }
   | { kind: 'unread' }
@@ -131,7 +141,7 @@ export type AnswerTell =
 export function partnerAnswerText(tell: AnswerTell): string {
   switch (tell.kind) {
     case 'decline':
-      return '<b>Ваш ответ:</b> не могу. Дни не отмечал.';
+      return `<b>Ваш ответ:</b> не могу. Дни не отмечал. ${declineNoticeLine(tell.notice)}`;
     case 'take':
       return `<b>Ваш ответ:</b> беру. Дни с ${escapeHtml(tell.from)} по ${escapeHtml(tell.to)} отмечены занятыми (${tell.marked}).`;
     case 'take_no_car':
@@ -141,13 +151,13 @@ export function partnerAnswerText(tell: AnswerTell): string {
     case 'charter_take':
       return `<b>Ваш ответ:</b> беру. Машина заявкой не закрепляется — свяжитесь с заказчиком и договоритесь напрямую. ${clientToldLine(tell.clientTold, 'берёте заявку и свяжетесь')}`;
     case 'charter_decline':
-      return `<b>Ваш ответ:</b> не могу. Заявка остаётся у менеджера Ведара. ${clientToldLine(tell.clientTold, 'не можете выполнить заявку')}`;
+      return `<b>Ваш ответ:</b> не могу. ${declineNoticeLine(tell.notice)}`;
     case 'retry':
       return 'Ответ не записал: календарь не ответил. Нажмите кнопку ещё раз.';
     case 'already':
-      return tell.answer === 'take'
-        ? 'Ответ уже записан: беру. Повторно дни не отмечаю.'
-        : 'Ответ уже записан: не могу. Дни не отмечал.';
+      if (tell.answer === 'take') return 'Ответ уже записан: беру. Повторно дни не отмечаю.';
+      // Прежний исход сообщения заказчику — если оно было; второго не шлём.
+      return `Ответ уже записан: не могу. Дни не отмечал.${tell.notice ? ` ${operatorOutcomeLine(tell.notice, 'client')}` : ''}`;
     case 'not_yours':
       return 'Эта заявка не ваша. Ответ не записан.';
     case 'missing':
@@ -161,6 +171,17 @@ export function partnerAnswerText(tell: AnswerTell): string {
   }
 }
 
+/**
+ * Что ушло заказчику после «Не могу» — исходом отправки, а не обещанием.
+ * Строки сообщения нет (не записалась) — так и сказано: позвонить некому,
+ * кроме самого партнёра.
+ */
+function declineNoticeLine(notice: DeclineNotice): string {
+  return notice
+    ? operatorOutcomeLine(notice, 'client')
+    : 'Сообщение заказчику не записалось — свяжитесь с ним сами по телефону из заявки.';
+}
+
 /** Что сказано заказчику — тремя исходами: сообщил / не ушло / не отправляли. */
 function clientToldLine(told: ClientTold, what: string): string {
   if (told === true) return `Заказчику сообщил, что вы ${what}.`;
@@ -169,15 +190,18 @@ function clientToldLine(told: ClientTold, what: string): string {
 }
 
 /**
- * Заказчику в переписку заявки (1350): ответ перевозчика его словами, без
- * суммы и без обещания машины — машина заявкой не закрепляется (§14).
- * Текст уходит в MAX клиента и на страницу заявки: там он без разметки.
+ * Заказчику в переписку заявки (1350) после «Беру»: ответ перевозчика его
+ * словами, без суммы и без обещания машины — машина заявкой не закрепляется
+ * (§14). Текст уходит в MAX клиента и на страницу заявки: там он без разметки.
+ *
+ * О «Не могу» сюда не пишется (этап 2б-2): заказчик получает одно сообщение
+ * Ведара с исходом доставки (answer-notice). Прежний текст обещал «заявка
+ * остаётся у менеджера Ведара — он свяжется с вами», а система этого не
+ * отслеживала: заявка закрывалась как отказ, и напомнить менеджеру было нечем.
  */
-export function clientCharterAnswerText(partnerName: string, answer: RequestAnswer): string {
+export function clientCharterTakeText(partnerName: string): string {
   const who = partnerName.trim() || 'Перевозчик';
-  return answer === 'take'
-    ? `Перевозчик «${who}» берёт вашу заявку и свяжется с вами по телефону из заявки. Условия и сумму вы согласуете с ним напрямую.`
-    : `Перевозчик «${who}» не может выполнить эту заявку. Заявка остаётся у менеджера Ведара — он свяжется с вами.`;
+  return `Перевозчик «${who}» берёт вашу заявку и свяжется с вами по телефону из заявки. Условия и сумму вы согласуете с ним напрямую.`;
 }
 
 /**
@@ -192,9 +216,50 @@ export function requestAnswerEditText(originalText: string | null | undefined, r
   return (head.length > room ? `${head.slice(0, Math.max(0, room - 1))}…` : head) + tail;
 }
 
+const NOTICE_VIA_MANAGER: Record<(NoticeOutcome & { state: 'delivered' })['via'], string> = {
+  max: 'Заказчику ушло сообщение об отказе в MAX — со ссылкой, где смотреть других.',
+  telegram: 'Заказчику ушло сообщение об отказе в Telegram — со ссылкой, где смотреть других.',
+  agent_webhook: 'Отказ ушёл ИИ-агенту заказчика: его уведомление принято.',
+  agent_read: 'Отказ уже прочитал ИИ-агент заказчика.',
+  page_seen: 'Заказчик уже открыл страницу заявки и видит отказ.',
+};
+
+/** Менеджеру: что стало с сообщением заказчику об отказе. Без ПД. */
+export function managerDeclineNoticeLine(notice: DeclineNotice): string {
+  if (!notice) return 'Сообщение заказчику об отказе не записалось — знает ли он об отказе, неизвестно.';
+  switch (notice.state) {
+    case 'delivered':
+      return NOTICE_VIA_MANAGER[notice.via];
+    case 'undelivered':
+      if (notice.manager === 'max') return 'До заказчика отказ не дошёл — заявка с телефоном ушла отдельным сообщением в MAX: позвонить.';
+      if (notice.manager === 'telegram-stub') return 'До заказчика отказ не дошёл — отдельным сообщением ушла заглушка без телефона, номер в админке: позвонить.';
+      if (notice.manager === 'not_needed') return 'До заказчика отказ не дошёл, а заявка с тех пор изменилась — звонить по нему не нужно.';
+      return 'До заказчика отказ не дошёл, и письмо с телефоном сейчас не ушло — повторится автоматически.';
+    case 'skipped':
+      return {
+        lead_closed: 'Заявка уже была закрыта — заказчику ничего не отправлялось.',
+        not_addressee: 'Заявка по карточке не этого партнёра — заказчику ничего не отправлялось.',
+        self: 'Тестовая заявка карточки партнёра — заказчику ничего не отправлялось.',
+        // Заявку уже вели: об отказе заказчик не узнал ни от кого (ревью 2б-2, п. 2).
+        outgrown: 'Статус заявки уже сменился — заказчику ничего не отправлялось: об отказе ему нужно сказать самим.',
+      }[notice.reason];
+    case 'pending':
+      return notice.sending
+        ? 'Сообщение заказчику об отказе отправляется; не уйдёт — повторится автоматически.'
+        : 'Сообщение заказчику сейчас не ушло — отправка повторится автоматически.';
+  }
+}
+
 /**
  * Менеджеру Ведара, в рабочий чат Telegram. Без имени, телефона и пожеланий
- * заказчика: их менеджер уже видел в своей копии заявки.
+ * заказчика: их менеджер уже видел в своей копии заявки. Направление заявки
+ * на машину — свободный ввод заказчика (адрес, имя, телефон): в Telegram оно
+ * не уходит вовсе, заявку менеджер находит по номеру (критика 11.11, п. 7;
+ * ревью 2б-2, п. 5). Название машины проката — из прайса прокатчика.
+ *
+ * После «Не могу» перевозчика строка «нужен другой перевозчик» остаётся: она
+ * говорит менеджеру, что заявка теперь за ним, — и рядом исход сообщения
+ * заказчику, чтобы было видно, знает ли тот об отказе.
  */
 export function managerAnswerText(opts: {
   /** Прокат (по умолчанию — так звали до 30.10) или машина целиком. */
@@ -207,26 +272,28 @@ export function managerAnswerText(opts: {
   from: string | null;
   to: string | null;
   marked: number | null;
+  /** Только у «Не могу»: что ушло заказчику. */
+  notice?: DeclineNotice;
 }): string {
   const who = escapeHtml(opts.partnerName);
   const verb = opts.answer === 'take' ? 'беру' : 'не могу';
+  const title = opts.carTitle ? escapeHtml(redactPII(opts.carTitle)) : null;
   if (opts.kind === 'charter') {
     const lines = [
       `Перевозчик «${who}» ответил «${verb}» на заявку на машину <code>${escapeHtml(opts.leadId)}</code>.`,
     ];
-    if (opts.carTitle) lines.push(`Направление: ${escapeHtml(opts.carTitle)}`);
     if (opts.from) lines.push(opts.to ? `Даты: с ${escapeHtml(opts.from)} по ${escapeHtml(opts.to)}` : `Дата выезда: ${escapeHtml(opts.from)}`);
     lines.push(opts.answer === 'take'
       ? 'Перевозчик свяжется с заказчиком сам; машина заявкой не закреплена.'
-      : 'Нужен другой перевозчик: заявка остаётся у менеджера.');
+      : `Нужен другой перевозчик: заявка остаётся у менеджера. ${managerDeclineNoticeLine(opts.notice ?? null)}`);
     return lines.join('\n');
   }
   const lines = [
     `Прокатчик «${who}» ответил «${verb}» на заявку <code>${escapeHtml(opts.leadId)}</code>.`,
   ];
-  if (opts.carTitle) lines.push(`Машина: ${escapeHtml(opts.carTitle)}`);
+  if (title) lines.push(`Машина: ${title}`);
   if (opts.from && opts.to) lines.push(`Даты: с ${escapeHtml(opts.from)} по ${escapeHtml(opts.to)}`);
-  if (opts.answer === 'decline') lines.push('Дни не отмечал.');
+  if (opts.answer === 'decline') lines.push('Дни не отмечал.', managerDeclineNoticeLine(opts.notice ?? null));
   else if (opts.marked === null) lines.push('Дни не отметил: машину в прайсе или даты разобрать не удалось.');
   else lines.push(`Дни отмечены занятыми: ${opts.marked}.`);
   return lines.join('\n');

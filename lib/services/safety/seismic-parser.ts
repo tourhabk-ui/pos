@@ -693,6 +693,23 @@ export function classifyEqkam(id: string, text: string, datetime: string): Seism
 // `source_observed` в safety-ingest, одна строка на источник на прогон
 // (route.ts:54). Живость конвейера видна там, где ей место, и стоит
 // двухсотой доли прежнего объёма.
+/**
+ * Запрет подходить к вулкану — «Вулкан X: не приближаться» (#3275, 12.11).
+ * Суточная сводка МЧС повторяет его каждый день, и каждый день другими
+ * словами вокруг. Контент-дедуп сверял заголовок И описание, поэтому сводка
+ * 10.11 и сводка 11.11 давали две действующие строки на каждый вулкан
+ * (prod-check 177: Шивелуч, Ключевской, Безымянный, Крашенинникова — пары из
+ * vk_mchs с разными днями и разными описаниями). Для такого запрета повтор —
+ * тот же вулкан и тот же заголовок: описание не сверяется, повтор продлевает
+ * срок живой строки. Пеплопад, извержение и прочие события вулкана с другим
+ * заголовком сверяются по-прежнему целиком.
+ */
+export function isVolcanoApproachBan(event: Pick<SeismicEvent, 'alert_type' | 'volcano_name' | 'title'>): boolean {
+  return event.alert_type === 'volcanic_eruption'
+    && typeof event.volcano_name === 'string' && event.volcano_name.trim() !== ''
+    && /: не приближаться$/.test(event.title.trim());
+}
+
 export async function saveEvent(event: SeismicEvent): Promise<'inserted' | 'skipped'> {
   const payloadHash = hashPayload({
     alert_type: event.alert_type,
@@ -822,7 +839,8 @@ export async function saveEvent(event: SeismicEvent): Promise<'inserted' | 'skip
            FROM external_alerts
           WHERE alert_type = $1
             AND regexp_replace(lower(trim(title)), '\\s+', ' ', 'g') = regexp_replace(lower(trim($2)), '\\s+', ' ', 'g')
-            AND regexp_replace(lower(trim(COALESCE(description, ''))), '\\s+', ' ', 'g') = regexp_replace(lower(trim(COALESCE($3, ''))), '\\s+', ' ', 'g')
+            AND ($10::boolean
+                 OR regexp_replace(lower(trim(COALESCE(description, ''))), '\\s+', ' ', 'g') = regexp_replace(lower(trim(COALESCE($3, ''))), '\\s+', ' ', 'g'))
             AND expires_at > ${UTC_WALL_NOW_SQL}
             AND ended_by IS NULL
        ) prev
@@ -839,7 +857,8 @@ export async function saveEvent(event: SeismicEvent): Promise<'inserted' | 'skip
                  prev.affected_parks AS prev_parks`,
       [event.alert_type, event.title, event.description, expiresAt, event.severity, event.affected_zones, [...KRAI_FAR_ZONES],
         event.published_at_inferred ? null : event.published_at,
-        event.affected_parks && event.affected_parks.length > 0 ? event.affected_parks : null]
+        event.affected_parks && event.affected_parks.length > 0 ? event.affected_parks : null,
+        isVolcanoApproachBan(event)]
     );
     if ((dup.rowCount ?? 0) > 0) {
       // Запись только если срок ДЕЙСТВИТЕЛЬНО сдвинулся. Лента отдаёт один и
@@ -1542,7 +1561,7 @@ export function titleFromText(text: string): string {
   const raw = cleanPostText(text);
   const noGreeting = stripGreeting(raw).trim();
   const clean = noGreeting.length >= 10 ? noGreeting : raw;
-  const first = (/^[^.!?]{10,}/.exec(clean)?.[0] ?? clean).trim();
+  const first = headingLine(text) ?? (/^[^.!?]{10,}/.exec(clean)?.[0] ?? clean).trim();
   if (first.length <= ALERT_TITLE_MAX) return first;
   // Место под многоточие; последнее слово, не влезшее целиком, и висящая
   // пунктуация перед ним уходят.
@@ -1550,6 +1569,30 @@ export function titleFromText(text: string): string {
   const space = room.lastIndexOf(' ');
   const head = (space > ALERT_TITLE_MAX / 2 ? room.slice(0, space) : room).replace(/[\s,;:—–-]+$/u, '');
   return `${head}…`;
+}
+
+/**
+ * Первая строка поста, если она сама заголовок (#3216).
+ *
+ * cleanPostText схлопывает переносы строк, и первая фраза бралась до первой
+ * точки. У поста, который открывается строкой-заголовком без точки, в
+ * заголовок уезжало и следующее предложение: 10.11 пост ГИМС про осенний лёд
+ * лёг в ленту строкой «…об опасности осеннего льда То и дело можно заметить
+ * жителей…», и на карточке каждого места стоял рядом с собой короче.
+ *
+ * Строка считается заголовком, только когда это видно по самому тексту: в ней
+ * нет конца фразы (. ! ?), она не вводит список двоеточием и следующая
+ * непустая строка начинается с заглавной буквы или цифры — то есть это не
+ * перенос посреди фразы. Иначе — null, и работает прежнее правило.
+ */
+function headingLine(text: string): string | null {
+  const body = stripGreeting(text.replace(/^[^\p{L}\p{N}]+/u, ''));
+  const lines = body.split(/\r?\n/).map((l) => cleanPostText(l)).filter((l) => l !== '');
+  if (lines.length < 2) return null;
+  const [head, next] = lines;
+  if (head.length < 10 || /[.!?…:]/.test(head)) return null;
+  if (!/^[\p{Lu}\p{N}]/u.test(next)) return null;
+  return head;
 }
 
 /**
@@ -1597,6 +1640,34 @@ export function splitSummaryItems(text: string): string[] {
     .split('\n')
     .map((l) => l.replace(/^[^\p{L}\p{N}]+/u, '').trim())
     .filter((l) => l.length >= 25);
+}
+
+/**
+ * Пункты сводки Минтура с учётом раздела (12.11). Сводка о доступности делит
+ * пункты разделами: «Природные парки:», «Транспортная доступность:». Под
+ * «Природными парками» строка называет парк без слова «парк»: «„Налычево“ и
+ * „Южно-Камчатский“, „Быстринский“ — маршруты закрыты», «„Вилючинский“ —
+ * маршруты открыты для посещения». Поодиночке такая строка не узнавалась как
+ * парк: закрытие трёх парков уходило «закрытой дорогой», открытие терялось.
+ * Здесь строке раздела парков возвращается слово из её заголовка — «Природный
+ * парк …»; дальше её судят те же правила закрытия и открытия, что и любую.
+ * Раздел кончается на следующем заголовке (короткая строка с двоеточием).
+ */
+export function minturSummaryItems(text: string): string[] {
+  const out: string[] = [];
+  let parks = false;
+  for (const raw of text.split('\n')) {
+    // Кавычку перед названием оставляем: «„Налычево“ и …» без неё читается обрывком.
+    const line = raw.replace(/^[^\p{L}\p{N}«„"]+/u, '').trim();
+    if (!line) continue;
+    if (/^[^.!?]{3,40}:$/.test(line)) {
+      parks = /^природн[а-яё]*\s+парк/i.test(line);
+      continue;
+    }
+    const item = parks && !/парк|заповедник/i.test(line) ? `Природный парк ${line}` : line;
+    if (item.length >= 25) out.push(item);
+  }
+  return out;
 }
 
 /**
@@ -1714,7 +1785,7 @@ export function classifyMchsItems(
   const mintur = isMinturBulletin(`${title} ${description}`);
   if (title.trim() !== '' && !mintur) return citeEvents(whole ? [whole] : [], description, link);
 
-  const items = splitSummaryItems(description);
+  const items = mintur ? minturSummaryItems(description) : splitSummaryItems(description);
   // Короче трёх пунктов — не суточная сводка. Но одна строка «не приближаться
   // к названным вулканам» (так MAX отдаёт пост построчно) всё равно событие:
   // иначе запрет теряется, потому что не набрал порог «три темы».

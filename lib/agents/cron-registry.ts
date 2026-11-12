@@ -236,6 +236,13 @@ export const CRON_REGISTRY: CronEntry[] = [
     endpoint: 'seat-requests-expire',
   },
   {
+    key: 'answer-notices', label: 'Answer Notices',
+    description: 'Сообщение человеку после ответа туроператора кнопкой: обрыв отправки, письмо менеджеру о недоставленном, «звонить не нужно».',
+    workflow: 'cron-safety-heartbeat.yml', cron: '12,42 * * * *', schedule: 'каждые 30 мин',
+    everyMin: 30, tier: 'ops', agentId: 'answer-notices', triggerable: false,
+    endpoint: 'answer-notices',
+  },
+  {
     key: 'agent-request-notify', label: 'Agent Request Notify',
     description: 'Подписки агентов на изменения заявок (notify_url, 1348): сверка вида заявки и подписанный POST с разницей.',
     workflow: 'cron-safety-heartbeat.yml', cron: '12,42 * * * *', schedule: 'каждые 30 мин',
@@ -643,6 +650,9 @@ export const CRON_IDLE_MEANING: Record<string, IdleMeaning> = {
   // Ноль просроченных запросов мест — норма: операторы ответили вовремя или
   // запросов не было. Поломка видна иначе — HTTP не 200 валит шаг сразу.
   'seat-requests-expire': 'normal',
+  // Ноль строк — норма: нажатие довело все сообщения само. Поломка видна иначе:
+  // отказ базы отдаёт 500, а недоставленное без менеджера называет Watchdog.
+  'answer-notices': 'normal',
   // Ноль напоминаний — норма: сроки не подошли или тихие часы. Поломка видна
   // иначе — отказ базы отдаёт 500, ни одной доставки при должниках — 502.
   'crm-reminders': 'normal',

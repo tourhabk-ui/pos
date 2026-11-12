@@ -59,6 +59,9 @@ import { timingSafeCompare } from '@/lib/security/timing-safe';
 import { getCronSecret } from '@/lib/auth/cron';
 import { shownPhotoSql, SHOWN_MODELS, whyNotShown } from '@/lib/images/origin';
 import { cardImage, type CardImageKind } from '@/lib/routes/card-image';
+import { galleryShownSql } from '@/lib/places/gallery-shown';
+import { publicTourSql } from '@/lib/tours/public-visibility';
+import { PLACE_CARDS_CONSENT_FROM } from '@/lib/legal/partner-materials-consent';
 
 export const dynamic = 'force-dynamic';
 export const maxDuration = 60;
@@ -268,6 +271,85 @@ export async function GET(req: NextRequest) {
           license: r.license,
           storage: r.in_s3 ? 's3' : r.has_bytes ? 'байты в базе' : 'ни байтов, ни ссылки',
         })),
+      });
+    }
+
+    // ── Места без фото и снимки партнёров к ним (12.11) ─────────────────
+    //
+    // Владелец 12.11: «есть места и маршруты без фото — можем использовать
+    // фото туров наших партнёров с подписями». Список — материал для пар
+    // «снимок — место», которые утверждает человек: место без единого
+    // показываемого кадра (ни главного, ни галереи — galleryShownSql) и туры
+    // на витрине, ЗАПИСАННЫЕ к нему (главное место тура или точка пути его
+    // маршрута; «рядом» не в счёт), у которых есть снимки. По похожести имён
+    // ничего не подбирается. У партнёра — состояние согласия: `covers`
+    // (подпись версии, называющей карточки мест), `old` (действующая подпись
+    // прежней версии), `none` (подписи нет) — кадр партнёра покажется только
+    // при `covers`.
+    if (list === 'partner_candidates') {
+      const NO_PHOTO = `p.is_visible IS NOT FALSE AND p.merged_into_id IS NULL
+            AND NOT EXISTS (SELECT 1 FROM ai_route_images i
+                             WHERE i.route_id = p.ark_id AND ${shownPhotoSql('i.model')})
+            AND NOT EXISTS (SELECT 1 FROM place_gallery_photos g
+                             WHERE g.ark_id = p.ark_id AND ${galleryShownSql('g')})`;
+      const { rows: cnt } = await pool.query<{ n: string }>(
+        `SELECT count(*)::text AS n FROM places p WHERE ${NO_PHOTO}`,
+      );
+      const { rows: pairs } = await pool.query<{
+        place: string; place_slug: string | null; place_id: string; link: string;
+        tour_id: string; tour: string; photos: number; partner: string; partner_slug: string | null;
+        consent: 'covers' | 'old' | 'none';
+      }>(
+        `WITH bare AS (
+           SELECT p.id::text AS place_id, p.name, p.slug FROM places p WHERE ${NO_PHOTO}
+         ), link AS (
+           SELECT bp.place_id, ot.id AS tour_id, 'main_place' AS link
+             FROM bare bp JOIN operator_tours ot ON ot.main_place_id = bp.place_id
+           UNION
+           SELECT bp.place_id, ot.id, 'waypoint'
+             FROM bare bp
+             JOIN route_waypoints rw ON rw.place_id::text = bp.place_id
+              AND COALESCE(to_jsonb(rw)->>'link_kind', 'unknown') <> 'nearby'
+             JOIN operator_tours ot ON ot.route_id = rw.route_id
+         )
+         SELECT bp.name AS place, bp.slug AS place_slug, bp.place_id,
+                min(l.link) AS link,
+                ot.id::text AS tour_id, ot.title AS tour,
+                COALESCE(cardinality(ot.photos), 0) AS photos,
+                pa.name AS partner, pa.slug AS partner_slug,
+                CASE WHEN EXISTS (SELECT 1 FROM partner_material_consents c
+                                   WHERE c.partner_id = pa.id AND c.revoked_at IS NULL
+                                     AND c.text_version >= '${PLACE_CARDS_CONSENT_FROM}') THEN 'covers'
+                     WHEN EXISTS (SELECT 1 FROM partner_material_consents c
+                                   WHERE c.partner_id = pa.id AND c.revoked_at IS NULL) THEN 'old'
+                     ELSE 'none' END AS consent
+           FROM link l
+           JOIN bare bp ON bp.place_id = l.place_id
+           JOIN operator_tours ot ON ot.id = l.tour_id
+           JOIN partners pa ON pa.id = ot.operator_id
+          WHERE ${publicTourSql('ot')}
+            AND COALESCE(cardinality(ot.photos), 0) > 0
+          GROUP BY bp.name, bp.slug, bp.place_id, ot.id, ot.title, ot.photos, pa.id, pa.name, pa.slug
+          ORDER BY bp.name, pa.name, ot.title
+          LIMIT $1 OFFSET $2`,
+        [limit, offset],
+      );
+      const byPlace = new Map<string, { place: string; slug: string | null; tours: unknown[] }>();
+      for (const r of pairs) {
+        const e = byPlace.get(r.place_id) ?? { place: r.place, slug: r.place_slug, tours: [] };
+        e.tours.push({
+          tour_id: r.tour_id, tour: r.tour, link: r.link, photos: Number(r.photos),
+          partner: r.partner, partner_slug: r.partner_slug, consent: r.consent,
+        });
+        byPlace.set(r.place_id, e);
+      }
+      return NextResponse.json({
+        ok: true, probe: 'place_photo_coverage_v1', list: 'partner_candidates',
+        places_without_any_shown_photo: Number(cnt[0]?.n ?? 0),
+        page: { limit, offset, pairs_returned: pairs.length },
+        places: [...byPlace.values()],
+        note: 'Связь тура с местом — только записанная (главное место тура или точка пути маршрута). ' +
+          'Пары «снимок — место» утверждает человек; кадр партнёра покажется только при consent = covers.',
       });
     }
 

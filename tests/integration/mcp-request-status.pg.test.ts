@@ -711,4 +711,218 @@ withPg('get_request_status на настоящем PostgreSQL', () => {
       else process.env.MCP_HASH_SALT = prevSalt;
     }
   });
+
+  // 1422: ответ, записанный до миграции, получает дату заявки тем же правилом,
+  // что LEAD_ANSWER_DATE_SQL; повтор миграции ничего не ломает.
+  it('миграция 1422: дата старым ответам — по заявке, строгий ISO; повтор безопасен', async () => {
+    const { readFileSync } = await import('node:fs');
+    const { LEAD_ANSWER_DATE_SQL } = await import('@/lib/requests/answer-date');
+    const op = (await pool.query<{ id: string }>(
+      `INSERT INTO partners (name, category, contact) VALUES ('Оператор 1422', 'operator', '{}') RETURNING id`,
+    )).rows[0].id;
+    const lead = async (sd: object) => (await pool.query<{ id: string }>(
+      `INSERT INTO leads (name, phone, comment, status, operator_id, source_data)
+       VALUES ('Тест', '+79990001422', 'тест', 'new', $1, $2::jsonb) RETURNING id::text AS id`, [op, JSON.stringify(sd)],
+    )).rows[0].id;
+    const dated = await lead({ date: '2027-03-05' });
+    const loose = await lead({ date: 'начало марта' });
+    const none = await lead({});
+    // Как писал код до 1422: без даты.
+    for (const id of [dated, loose, none]) {
+      await pool.query(`INSERT INTO partner_incoming_answers (partner_id, subject_kind, subject_id, answer) VALUES ($1, 'lead', $2, 'no_seats')`, [op, id]);
+    }
+    await pool.query(readFileSync('migrations/1422_incoming_answer_subject_date.sql', 'utf8'));
+    const got = await pool.query<{ subject_id: string; subject_date: string | null; want: string | null }>(
+      `SELECT pa.subject_id, pa.subject_date, ${LEAD_ANSWER_DATE_SQL('l')} AS want
+         FROM partner_incoming_answers pa JOIN leads l ON l.id::text = pa.subject_id
+        WHERE pa.subject_id = ANY($1)`, [[dated, loose, none]],
+    );
+    expect(new Map(got.rows.map((r) => [r.subject_id, r.subject_date]))).toEqual(new Map([[dated, '2027-03-05'], [loose, null], [none, null]]));
+    for (const r of got.rows) expect(r.subject_date).toBe(r.want);
+    // Кривая дата в колонку не ляжет; у не-заявки даты нет.
+    await expect(pool.query(
+      `INSERT INTO partner_incoming_answers (partner_id, subject_kind, subject_id, answer, subject_date) VALUES ($1, 'lead', $2, 'accept', '05.03.2027')`, [op, none],
+    )).rejects.toMatchObject({ code: '23514' });
+    await expect(pool.query(
+      `INSERT INTO partner_incoming_answers (partner_id, subject_kind, subject_id, answer, subject_date) VALUES ($1, 'booking', '77', 'accept', '2027-03-05')`, [op],
+    )).rejects.toMatchObject({ code: '23514' });
+    await pool.query(`DELETE FROM partner_incoming_answers WHERE partner_id = $1`, [op]);
+  });
+
+  // План «после отказа», этап 1 (11.11): статус читает ответ адресата кнопкой.
+  // До этого дня после «Нет мест» SQL не видел ответа, и агент слышал «ждём».
+  it('ответ адресата кнопкой: тур — текущего адресата; машина — журнал; жильё — owner_answer; ПД нет', async () => {
+    const { issueRequestKey, readRequestStatus, runRequestStatusTool } = await import('@/lib/mcp/request-status');
+    const part = async (name: string, category: string) => (await pool.query<{ id: string }>(
+      `INSERT INTO partners (name, category, contact) VALUES ($1, $2, '{}') RETURNING id`, [name, category],
+    )).rows[0].id;
+    const opA = await part('Оператор ответа А', 'operator');
+    const opB = await part('Оператор ответа Б', 'operator');
+    const carrier = await part('Перевозчик ответа', 'transfer');
+    const lead = async (status: string, operatorId: string, date: string | null) => (await pool.query<{ id: string }>(
+      `INSERT INTO leads (name, phone, comment, status, operator_id, source_data)
+       VALUES ('Анна Ответова', '+79990005511', 'Заявка для ответа кнопкой', $1, $2, $3::jsonb) RETURNING id`,
+      [status, operatorId, JSON.stringify(date ? { date, tour_id: String(tourId) } : {})],
+    )).rows[0].id;
+
+    // «Нет мест» текущего адресата — отказ с датой.
+    const l1 = await lead('new', opA, '2027-01-15');
+    // Ответ — на дату заявки (1422): так его пишет recordChatAnswer.
+    await pool.query(`INSERT INTO partner_incoming_answers (partner_id, subject_kind, subject_id, answer, subject_date) VALUES ($1, 'lead', $2, 'no_seats', '2027-01-15')`, [opA, l1]);
+    const k1 = (await issueRequestKey({ leadId: l1 }, 'create_booking_request')) ?? '';
+    const v1 = await readRequestStatus(k1);
+    expect(v1).toMatchObject({ state: 'declined', human: 'Оператор ответил: на 15.01.2027 мест нет.' });
+    expect(await runRequestStatusTool({ key: k1 })).not.toMatch(/Анна|7999000|для ответа/);
+
+    // Ответ на прежнюю дату заявки (1422) о текущей не говорит: человек сам выбрал другую.
+    await pool.query(`UPDATE leads SET source_data = source_data || '{"date":"2027-01-25"}'::jsonb WHERE id = $1`, [l1]);
+    expect((await readRequestStatus(k1)).state).toBe('awaiting_operator');
+
+    // Ответ прежнего адресата после передачи заявки другому — не в счёт.
+    const l2 = await lead('new', opA, '2027-01-16');
+    await pool.query(`INSERT INTO partner_incoming_answers (partner_id, subject_kind, subject_id, answer, subject_date) VALUES ($1, 'lead', $2, 'no_seats', '2027-01-16')`, [opB, l2]);
+    const k2 = (await issueRequestKey({ leadId: l2 }, 'create_booking_request')) ?? '';
+    expect((await readRequestStatus(k2)).state).toBe('awaiting_operator');
+
+    // «Отказать» с причиной — причина словами, свободного текста нет.
+    const l3 = await lead('lost', opA, '2027-01-17');
+    await pool.query(
+      `INSERT INTO partner_incoming_answers (partner_id, subject_kind, subject_id, answer, decline_reason, decline_note, subject_date)
+       VALUES ($1, 'lead', $2, 'decline', 'weather', 'Записка оператора', '2027-01-17')`, [opA, l3],
+    );
+    const k3 = (await issueRequestKey({ leadId: l3 }, 'create_booking_request')) ?? '';
+    const v3 = await readRequestStatus(k3);
+    expect(v3.human).toBe('Оператор отказал по заявке. Причина: погода, безопасность.');
+    expect(await runRequestStatusTool({ key: k3 })).not.toMatch(/Записка/);
+
+    // Машина: «Не могу» — запись журнала (одна на заявку, индекс 1326).
+    const l4 = await lead('lost', carrier, null);
+    await pool.query(
+      `INSERT INTO lead_activity_log (lead_id, actor, action, details)
+       VALUES ($1, 'partner', 'partner_answered', '{"answer":"decline","kind":"charter"}')`, [l4],
+    );
+    const k4 = (await issueRequestKey({ leadId: l4 }, 'request_charter')) ?? '';
+    const v4 = await readRequestStatus(k4);
+    expect(v4.state).toBe('declined');
+    expect(v4.human).toMatch(/^Перевозчик ответил: выполнить заявку не может/);
+    expect(v4.next).toMatch(/search_transfers/);
+    expect(v4.next).not.toMatch(/get_tours/);
+
+    // Ключ из кода между каналами (handoff:*) — род по самой заявке: статус
+    // и согласие на странице — перевозчику, а не туроператору.
+    await pool.query(`UPDATE leads SET source_data = source_data || '{"kind":"charter"}'::jsonb WHERE id = $1`, [l4]);
+    const kh = (await issueRequestKey({ leadId: l4 }, 'handoff:telegram', { opensChat: false })) ?? '';
+    const vh = await readRequestStatus(kh);
+    expect(vh.consent_purpose).toBe('carrier');
+    expect(vh.human).toMatch(/^Перевозчик ответил/);
+    const { readConsentPurpose } = await import('@/lib/mcp/request-status');
+    expect(await readConsentPurpose(kh)).toBe('carrier');
+
+    // Большая группа: «Нет мест» — передача другим, а не «другой тур»; после
+    // передачи кроном (адресата нет, declined_by) — то же.
+    const lg = (await pool.query<{ id: string }>(
+      `INSERT INTO leads (name, phone, comment, status, operator_id, source_data)
+       VALUES ('Анна Ответова', '+79990005511', 'Группа', 'new', $1, $2::jsonb) RETURNING id`,
+      [opA, JSON.stringify({ date: '2027-01-20', tour_id: String(tourId), group_over_seats: true })],
+    )).rows[0].id;
+    await pool.query(`INSERT INTO partner_incoming_answers (partner_id, subject_kind, subject_id, answer, subject_date) VALUES ($1, 'lead', $2, 'no_seats', '2027-01-20')`, [opA, lg]);
+    const kg = (await issueRequestKey({ leadId: lg }, 'create_booking_request')) ?? '';
+    expect(await readRequestStatus(kg)).toMatchObject({ state: 'awaiting_operator' });
+    expect((await readRequestStatus(kg)).human).toMatch(/увидят другие операторы/);
+    await pool.query(
+      `UPDATE leads SET operator_id = NULL, source_data = source_data || '{"declined_by":"status-op"}'::jsonb WHERE id = $1`, [lg],
+    );
+    const vg = await readRequestStatus(kg);
+    expect(vg.state).toBe('awaiting_operator');
+    expect(vg.human).toMatch(/передана другим операторам/);
+
+    // Жильё: «Занято» кнопкой — отказ, а не «передана».
+    const acc = await pool.query<{ id: string }>(
+      `INSERT INTO accommodations (name, type, coordinates, contact_phone)
+       VALUES ('Дом ответа', 'guesthouse', '{"lat":53.0,"lng":158.6}', '+70000000002') RETURNING id`,
+    );
+    const sr = await pool.query<{ id: string }>(
+      `INSERT INTO stay_requests (accommodation_id, check_in_date, check_out_date, guests, guest_name, guest_phone, comment, door,
+                                  pd_consent_at, pd_consent_ip, pd_consent_source, pd_consent_version,
+                                  owner_channel, platform_channel, delivery_recorded_at)
+       VALUES ($1, '2027-07-20', '2027-07-22', 2, 'Анна Ответова', '+79990005511', 'Тихо', 'mcp',
+               NOW(), '203.0.113.9', 'mcp', $2, 'max', 'max', NOW()) RETURNING id`,
+      [acc.rows[0].id, (await import('@/lib/legal/pd-consent')).PD_CONSENT_STAY_VERSION],
+    );
+    const k5 = (await issueRequestKey({ stayRequestId: sr.rows[0].id }, 'create_stay_request')) ?? '';
+    expect((await readRequestStatus(k5)).state).toBe('delivered');
+    await pool.query(`UPDATE stay_requests SET owner_answer = 'busy', owner_answered_at = NOW(), owner_answer_via = 'max' WHERE id = $1`, [sr.rows[0].id]);
+    expect(await readRequestStatus(k5)).toMatchObject({ state: 'declined', human: 'Владелец ответил: на эти даты занято.' });
+  });
+
+  it('1428: ключ заявки убран из журнала вызовов — и уже записанный, и новый', async () => {
+    const { readFileSync } = await import('node:fs');
+    const { join } = await import('node:path');
+    const MIG_1428 = readFileSync(join(process.cwd(), 'migrations/1428_mcp_calls_request_key_scrub.sql'), 'utf8');
+    // Ключ настоящей формы (issueRequestKey): так он и лежал в журнале до 12.11.
+    expect(leadKey).toMatch(/^[A-Za-z0-9_-]{32}$/);
+    const MISNAMED_KEY = 'Zq3vT-xYLmK_aB7cDreFlgH8jNopRisU';
+    const NO_DIGITS_KEY = 'ZqXvTxYLmKaBkcDreFlgHmjNopRisUab';
+    const rows: Array<[string, string | null, string | null]> = [
+      ['get_request_status', 'key', leadKey],
+      // Ключ без единой цифры закрывает имя аргумента, а не форма значения.
+      ['get_request_status', 'key', 'ZqXvTxYLmKaBkcDreFlgHmjNopRisUab'],
+      // Ключ под чужим именем аргумента: у инструмента статуса чистится любое
+      // значение — и ключ без единой цифры тоже (ревью безопасности к #3280).
+      ['get_request_status', 'status_key', MISNAMED_KEY],
+      ['get_request_status', 'status_key', NO_DIGITS_KEY],
+      // Обрывок ключа словами — у инструмента статуса чистится и он: правило «по инструменту».
+      ['get_request_status', 'k', `ключ ${MISNAMED_KEY.slice(0, 15)}`],
+      // Ключ в обёртке у чужого инструмента — по отрезку внутри значения.
+      ['search', 'query', `"${MISNAMED_KEY}"`],
+      ['search', 'query', `key: ${NO_DIGITS_KEY}`],
+      // Отрезок короче ключа, но с цифрой (обрезанный ключ) — тоже.
+      ['search', 'query', MISNAMED_KEY.slice(0, 22)],
+      // Аргумент по имени `key` у любого инструмента — значение не хранится, каким бы оно ни было.
+      ['fetch', 'key', `обрывок ${MISNAMED_KEY.slice(0, 9)}`],
+      ['get_place_info', 'name', 'Долина гейзеров'],
+      ['get_place_info', 'name', 'Petropavlovsk-Kamchatsky'],
+      ['get_tours', 'activity_type', null],
+      ['get_weather', 'place', '[скрыто]'],
+    ];
+    await pool.query('DELETE FROM mcp_tool_calls');
+    for (const [tool, k, v] of rows) {
+      await pool.query(`INSERT INTO mcp_tool_calls (tool, ok, arg_key, arg_value) VALUES ($1, TRUE, $2, $3)`, [tool, k, v]);
+    }
+    await pool.query(MIG_1428);
+    const after = (await pool.query<{ arg_key: string | null; arg_value: string | null }>(
+      'SELECT arg_key, arg_value FROM mcp_tool_calls ORDER BY id',
+    )).rows.map((r) => [r.arg_key, r.arg_value]);
+    expect(after).toEqual([
+      ['key', '[скрыто]'],
+      ['key', '[скрыто]'],
+      ['status_key', '[скрыто]'],
+      ['status_key', '[скрыто]'],
+      ['k', '[скрыто]'],
+      ['query', '[скрыто]'],
+      ['query', '[скрыто]'],
+      ['query', '[скрыто]'],
+      ['key', '[скрыто]'],
+      ['name', 'Долина гейзеров'],
+      ['name', 'Petropavlovsk-Kamchatsky'],
+      ['activity_type', null],
+      ['place', '[скрыто]'],
+    ]);
+    // Повторный прогон ничего не меняет.
+    const again = await pool.query(MIG_1428);
+    const updated = (Array.isArray(again) ? again : [again]).reduce((n, r) => n + (r.command === 'UPDATE' ? r.rowCount ?? 0 : 0), 0);
+    expect(updated).toBe(0);
+
+    // Новая запись: правило журнала в коде то же, что у миграции.
+    const { primaryArg, HIDDEN_VALUE } = await import('@/lib/mcp/call-reason');
+    expect(primaryArg({ key: leadKey }, false)).toEqual({ key: 'key', value: HIDDEN_VALUE });
+    expect(primaryArg({ status_key: MISNAMED_KEY }, false).value).toBe(HIDDEN_VALUE);
+    // Каждое значение, которое миграция скрыла, скрыл бы и код — и наоборот.
+    // (У инструмента статуса код значение не пишет вовсе — сравнивать нечего.)
+    for (const [tool, k, v] of rows) {
+      if (v === null || k === null || tool === 'get_request_status') continue;
+      const kept = after[rows.findIndex((r) => r[1] === k && r[2] === v)]![1];
+      expect(primaryArg({ [k]: v }, false).value === HIDDEN_VALUE, `${k}=${v}`).toBe(kept === '[скрыто]');
+    }
+  });
 });

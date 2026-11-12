@@ -19,10 +19,11 @@ export const REQUEST_KEY_MAX_CHARS = 120;
  * у лида, запроса мест и заявки на жильё словари разные, здесь они сведены
  * в один.
  *
- * `delivered` — заявка передана, и дальше платформа ответа не видит. Так
- * устроена заявка на жильё (#2371, 14.10): своего жизненного цикла у неё
- * нет, владелец отвечает гостю звонком. «Ждёт ответа» здесь было бы
- * обещанием, которое не сбудется: страница переспрашивала бы вечно.
+ * `delivered` — заявка передана, и ответа платформа пока не видит. Так
+ * устроена заявка на жильё (#2371, 14.10): владелец отвечает гостю звонком.
+ * «Ждёт ответа» здесь было бы обещанием, которое может не сбыться: страница
+ * переспрашивала бы вечно. С 1359 владелец отвечает и кнопкой — тогда
+ * состояние говорит его ответ (`in_progress` или `declined`).
  *
  * `test` — пробная заявка (`test: true`, 08.11, lib/mcp/test-run): проверки
  * пройдены, но заявки нет — она не записана и никому не передана.
@@ -44,6 +45,23 @@ export type RequestKind = (typeof REQUEST_KINDS)[number];
  */
 export const CONSENT_PURPOSES = ['operator', 'stay', 'carrier', 'rental'] as const satisfies readonly PdConsentPurpose[];
 export type ConsentPurpose = (typeof CONSENT_PURPOSES)[number];
+
+/**
+ * Кто отвечает по заявке — словами, в нужном падеже. Одна таблица на ответ
+ * агенту (lib/mcp/request-status) и страницу заявки: до 11.11 у заявки на
+ * машину и прокат обе говорили «оператор» и звали в каталог туров.
+ */
+export const ADDRESSEE_WORDS: Record<ConsentPurpose, { nom: string; gen: string; dat: string; ins: string }> = {
+  operator: { nom: 'оператор', gen: 'оператора', dat: 'оператору', ins: 'оператором' },
+  stay: { nom: 'владелец жилья', gen: 'владельца жилья', dat: 'владельцу жилья', ins: 'владельцем жилья' },
+  carrier: { nom: 'перевозчик', gen: 'перевозчика', dat: 'перевозчику', ins: 'перевозчиком' },
+  rental: { nom: 'прокатчик', gen: 'прокатчика', dat: 'прокатчику', ins: 'прокатчиком' },
+};
+
+/** Первая буква — заглавная: подлежащее в начале фразы. */
+export function capitalized(s: string): string {
+  return s.length > 0 ? s[0].toUpperCase() + s.slice(1) : s;
+}
 
 // ── Подписка на уведомления (29.10, lib/mcp/request-notify-schema) ──────────
 // Здесь, а не там: поле notify — часть ответа этого инструмента, а модуль
@@ -90,14 +108,135 @@ export interface RequestNotifyStatus {
   disabled_reason: NotifyPublicReason | null;
 }
 
+/**
+ * Поле other_offers в ответе get_request_status (план «после отказа», этап
+ * 4а): другие компании с турами к тому же месту на дату заявки — после «Нет
+ * мест» и отказа туроператора. Собирает lib/requests/other-offers-status тем же
+ * отбором и порядком, что сообщение человеку в чат. Пояснение живёт здесь, а
+ * не в описании инструмента: то обязано помещаться в 1024 знака моста.
+ */
+export const OTHER_OFFERS_STATES = ['listed', 'none', 'failed'] as const;
+
+export const OTHER_OFFERS_PROPERTY = {
+  type: ['object', 'null'],
+  description: 'Другие компании с турами к тому же месту на дату заявки — после ответа туроператора «мест нет» или отказа. '
+    + 'null — к этой заявке не относится: ответ не отказ, отказ по погоде или безопасности (тогда замену проверяйте сами, как сказано в next), '
+    + 'заявка на большую группу, у заявки нет тура или даты, дата прошла. '
+    + 'state: listed — компании в offers; none — Ведар проверил и не нашёл; failed — не прочиталось, это не «не нашёл». '
+    + 'Этим компаниям Ведар задаёт вопрос «возьмёте на эту дату?» без имени и телефона человека: ответившая «Не могу» из списка уходит, ответившая «Беру» отмечена said: take. '
+    + 'Без такой отметки «может принять» значит календарь тура, а не ответ компании: места и дату она подтверждает сама. Что делать со списком — в how.',
+  properties: {
+    state: { type: 'string', enum: [...OTHER_OFFERS_STATES] },
+    place: { type: ['string', 'null'], description: 'Место, к которому идут туры' },
+    place_url: { type: ['string', 'null'], description: 'Страница места: там все туры к нему' },
+    date: { type: 'string', description: 'Дата заявки YYYY-MM-DD, на которую считали' },
+    participants: { type: ['integer', 'null'], description: 'На сколько человек считали места; null — в заявке не записано, считали на одного' },
+    offers: {
+      type: 'array',
+      description: 'По одному туру на компанию. Порядок — общее правило витрины, назван в how; цена на него не влияет',
+      items: {
+        type: 'object',
+        properties: {
+          company: { type: 'string' },
+          tour: { type: 'string' },
+          tour_id: { type: 'string', description: 'Номер тура: им оставляют заявку — create_booking_request' },
+          price: { type: ['string', 'null'], description: 'Цена словами с единицей; null — не записана' },
+          seats: { type: 'string', enum: ['calendar', 'by_request'], description: 'calendar — в календаре тура на эту дату мест на группу хватает; by_request — расписания на Ведаре нет, дату подтверждает оператор' },
+          url: { type: 'string', description: 'Форма заявки тура с подставленными датой и числом людей — для человека' },
+          more_tours: { type: 'integer', description: 'Сколько ещё туров этой компании к месту могут принять на дату' },
+          said: { type: ['string', 'null'], enum: ['take', null], description: 'take — компания сама ответила Ведару на вопрос по этой заявке, что возьмёт на эту дату: её слово, но ещё не бронь. null — не отвечала или её не спрашивали' },
+        },
+        required: ['company', 'tour', 'tour_id', 'price', 'seats', 'url', 'more_tours', 'said'],
+      },
+    },
+    more_companies: { type: 'integer', description: 'Сколько компаний в список не вошло — они на странице места' },
+    how: { type: 'string', description: 'Что это за список и что с ним делать' },
+  },
+  required: ['state', 'place', 'place_url', 'date', 'participants', 'offers', 'more_companies', 'how'],
+} as const;
+
+/**
+ * Поле other_stays в ответе get_request_status (план «после отказа», этап 5):
+ * другое жильё в той же зоне на те же ночи после ответа хозяина «Занято».
+ * Словарь состояний — один на схему и на код (lib/stay/other-stays-status).
+ */
+export const OTHER_STAYS_STATES = ['listed', 'none', 'failed'] as const;
+
+export const OTHER_STAYS_PROPERTY = {
+  type: ['object', 'null'],
+  description: 'Другое жильё в той же зоне на те же ночи — после ответа хозяина «занято». '
+    + 'null — к этой заявке не относится: хозяин не отвечал «занято», заезд прошёл или зона объекта не размечена (тогда ищите сами: search_accommodations). '
+    + 'state: listed — жильё в stays; none — Ведар проверил и не нашёл; failed — не прочиталось, это не «не нашёл». '
+    + 'Это не ответ хозяев этих объектов: даты и цену каждый подтверждает сам. Что делать со списком — в how.',
+  properties: {
+    state: { type: 'string', enum: [...OTHER_STAYS_STATES] },
+    zone: { type: ['string', 'null'], description: 'Зона, в которой искали' },
+    check_in: { type: 'string', description: 'Заезд YYYY-MM-DD' },
+    check_out: { type: 'string', description: 'Выезд YYYY-MM-DD' },
+    guests: { type: ['integer', 'null'], description: 'На сколько гостей считали; null — в заявке не записано, считали на одного' },
+    stays: {
+      type: 'array',
+      description: 'Порядок — правило подбора жилья, названо в how',
+      items: {
+        type: 'object',
+        properties: {
+          name: { type: 'string' },
+          accommodation_id: { type: 'string', description: 'Номер объекта: им оставляют заявку — create_stay_request' },
+          type: { type: ['string', 'null'], description: 'Тип объекта словами; null — не записан' },
+          dates: { type: 'string', enum: ['calendar', 'by_request'], description: 'calendar — по календарю Ведара номера свободны на все ночи; by_request — номеров на Ведаре нет, хозяин эти ночи не закрывал: даты и цену подтверждает он' },
+          price_from: { type: ['number', 'null'], description: 'Цена за ночь «от», ₽; null — не названа' },
+          stay_total: { type: ['number', 'null'], description: 'Цена всех ночей на всю группу по формуле брони, ₽; null — не посчитана (жильё без номеров или группа не помещается в один тип номеров)' },
+          url: { type: 'string', description: 'Карточка объекта с подставленными датами и числом гостей — для человека' },
+        },
+        required: ['name', 'accommodation_id', 'type', 'dates', 'price_from', 'stay_total', 'url'],
+      },
+    },
+    how: { type: 'string', description: 'Что это за список и что с ним делать' },
+  },
+  required: ['state', 'zone', 'check_in', 'check_out', 'guests', 'stays', 'how'],
+} as const;
+
+/**
+ * Правило доставки ответа — словами для агента (план «после отказа», 2б;
+ * слово владельца 11.11 «мы доверяем агенту»). Исполняет readRequestStatus
+ * (lib/mcp/request-status): вид, построенный из ответа туроператора кнопкой
+ * или из «Не могу» перевозчика и прокатчика (этап 2б-2, shownAnswerRef),
+ * прочитал держатель ключа новой заявки (`opens_chat`) — отметка `agent_read`
+ * в answer_notices. После неё добивка человеку не пишет, а менеджеру, если
+ * письмо ему уже ушло, отправляет «звонить не нужно» (lib/requests/answer-notice).
+ *
+ * Механизм появился раньше слов (#3263): агент, опросивший статус и не
+ * сказавший человеку, оставлял его без ответа молча — Ведар считал ответ
+ * дошедшим, а агент об этом не знал. «Мы доверяем агенту» держится, только
+ * когда агенту сказано, что ему доверено.
+ *
+ * Один текст на описание инструмента (отсюда — в манифест и навык A2A) и на
+ * llms.txt. Сторож связки «слова → отметка»: tests/unit/mcp-request-status.test.ts.
+ *
+ * Коротко намеренно: мост для моделей с OpenAI-совместимым API режет описание
+ * на 1024 знаках (integrations/vedar-mcp-bridge, bridge_description), и первая
+ * редакция правила обрывалась там на полуслове. Правило обязано помещаться
+ * целиком — это держит tests/unit/vedar-mcp-bridge.test.ts.
+ */
+export const ANSWER_RELAY_RULE =
+  'Ответ туроператора, перевозчика или прокатчика из статуса передайте человеку сами: прочитанный по ключу, выданному при создании заявки, '
+  + 'он считается дошедшим, и Ведар человеку о нём больше не сообщает.';
+
 export const GET_REQUEST_STATUS_TOOL = {
   name: REQUEST_STATUS_TOOL_NAME,
+  // Описание наружу — всегда «английская фраза + этот текст» (withAnnotations в
+  // lib/mcp/public-tools): имена шести пишущих инструментов и «No personal
+  // data» называет фраза, здесь они не повторяются. Вместе с фразой и без
+  // предложения о notify_url текст обязан помещаться в 1024 знака моста —
+  // иначе тот обрежет его на полуслове; пояснения полей (partner_replies и
+  // прочие) живут в outputSchema.
   description:
-    'Состояние заявки, отправленной через create_lead, create_booking_request, create_stay_request, request_charter, create_car_rental_request или create_trip_request (ключи частей поездки), по ключу статуса из ответа того инструмента: '
+    'Состояние заявки по ключу статуса из ответа пишущего инструмента (у create_trip_request — ключи частей поездки): '
     + 'ждёт оператора, оператор связался, подтверждена, отказ, другая дата, нет ответа. '
-    + 'Заявка на жильё — кому передана (delivered). partner_replies — сколько адресат заявки написал в переписке (без текста). Без имени и телефона. '
-    + 'Ключ выдаётся на каждую заявку и живёт 90 дней; без ключа состояние не узнать — номера заявок не называются. '
-    + 'В ответе есть page — страница заявки для человека: там он сам подтверждает согласие на обработку данных и видит ответ оператора. '
+    + 'Заявка на жильё — передана (delivered), после ответа владельца кнопкой — в работе (in_progress) или отказ (declined). '
+    + 'Ключ выдаётся на каждую заявку и живёт 90 дней; без ключа состояние не узнать. '
+    + 'page — страница заявки для человека: там он сам подтверждает согласие на обработку данных и видит ответ. '
+    + `${ANSWER_RELAY_RULE} `
     + 'date — действующая дата (у брони — дата брони сейчас), requested_date — дата из заявки: разошлись — бронь перенесена или заведена на другую дату. '
     + 'Если при создании заявки передан notify_url, об изменении состояния, даты, предложенной даты, тура или числа человек приходит подписанный POST; поле notify показывает, жива ли подписка.',
   inputSchema: {
@@ -126,13 +265,15 @@ export const GET_REQUEST_STATUS_TOOL = {
       deadline: { type: ['string', 'null'], description: 'До какого времени ждём ответ оператора (ISO 8601), у запроса мест' },
       human: { type: 'string', description: 'Состояние словами для человека' },
       next: { type: 'string', description: 'Что делать дальше' },
-      consent: { type: 'string', enum: ['human', 'agent', 'none'], description: 'Чьё согласие на обработку персональных данных записано: human — человек подтвердил сам (страница заявки или форма сайта); agent — передал агент при создании; none — не записано' },
-      consent_purpose: { type: 'string', enum: [...CONSENT_PURPOSES], description: 'На передачу кому согласие по заявке: operator — туроператору, stay — владельцу жилья, carrier — перевозчику. Этот текст человек подтверждает на странице заявки' },
+      consent: { type: 'string', enum: ['human', 'agent', 'none'], description: 'Как записано согласие на обработку персональных данных: human — отмечено на странице заявки или в форме сайта (страница открывается ключом заявки, поэтому кто нажал, платформа не проверяет); agent — передал агент при создании; none — не записано' },
+      consent_purpose: { type: 'string', enum: [...CONSENT_PURPOSES], description: 'На передачу кому согласие по заявке: operator — туроператору, stay — владельцу жилья, carrier — перевозчику, rental — прокатчику. Этот текст человек подтверждает на странице заявки' },
       page: { type: 'string', description: 'Страница заявки для человека: состояние, ответ оператора и подтверждение согласия своей рукой. Дайте её человеку, не публикуйте.' },
       partner_replies: { type: ['integer', 'null'], description: 'Сколько сообщений адресат заявки (владелец жилья, туроператор, перевозчик, прокат) написал человеку в переписке; текст — только на странице заявки. null — переписки по этому ключу нет' },
       partner_last_reply_at: { type: ['string', 'null'], description: 'Когда адресат написал последнее сообщение (ISO 8601); null — не писал или переписки по ключу нет' },
       max_link: { type: ['string', 'null'], description: 'Ссылка подключить MAX: ответы адресата будут приходить человеку туда. Дайте её человеку, не публикуйте; null — MAX уже подключён или переписки по ключу нет' },
       notify: NOTIFY_STATUS_PROPERTY,
+      other_offers: OTHER_OFFERS_PROPERTY,
+      other_stays: OTHER_STAYS_PROPERTY,
     },
     required: ['state', 'kind', 'human', 'next', 'consent', 'consent_purpose', 'page'],
   },

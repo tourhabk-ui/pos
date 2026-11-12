@@ -12,14 +12,14 @@ import { pool } from '@/lib/db-pool';
 // ни один прежний читатель `@/lib/planner/engine` не был тронут.
 import {
   type ZoneId, type TransportType, type FitnessLevel, type ActivityConstraints, type BudgetTier, type DayType,
-  ZONE_NAMES, ACTIVITY_CONSTRAINTS, ACTIVITY_NAMES,
+  ZONE_NAMES, ACTIVITY_CONSTRAINTS, ACTIVITY_NAMES, nightZoneOf,
 } from '@/lib/planner/constants';
 import { ZONE_GRAPH, type ZoneEdge } from '@/lib/planner/zone-graph';
 import { zoneLegCost, legFits, legShortfallMessage, type ZoneLegCost } from '@/lib/planner/zone-leg';
 import {
   asTripOrigin, framingDays, activeBudget as framedActiveBudget,
   arrivalDayText, departureDayText,
-  HOME_NIGHTS_ASSUMPTION, LOCAL_HOME_ZONE, type TripOrigin,
+  HOME_NIGHTS_ASSUMPTION, LOCAL_HOME_ZONE, nightIsAtHome, type TripOrigin,
 } from '@/lib/planner/trip-origin';
 export { ZONE_GRAPH };
 export type { ZoneEdge };
@@ -43,14 +43,15 @@ import {
   fetchForecastDays, tripForecastWindow, computeQualityScore, assessHealthCompatibility,
 } from '@/lib/planner/intelligence';
 import { lodgingIncluded } from '@/lib/planner/lodging-included';
-import { calculatePriceBreakdown, TOUR_PRICE_HEADROOM, type PriceBreakdown } from '@/lib/planner/estimate';
+import { returnLegMissingMessage } from '@/lib/planner/plan-edit-warnings';
+import { calculatePriceBreakdown, type PriceBreakdown } from '@/lib/planner/estimate';
 import { tourPlanSpan, tourRoom } from '@/lib/planner/tour-span';
 import { capacityWarningFor } from '@/lib/planner/tour-day-reread';
 import { withGroupMinimum } from '@/lib/planner/group-minimum';
 import { lineUpForDate, offDaysWarning, tourFitsDate, type TourDates } from '@/lib/planner/tour-day-fit';
 import { kamchatkaToday } from '@/lib/seat-requests/core';
 import { tourDurationDays } from '@/lib/bookings/duration';
-import { planTourPrice, PRICE_UNREAD_TEXT } from '@/lib/planner/tour-price';
+import { planTourPrice, missingPriceText } from '@/lib/planner/tour-price';
 import { priceFromUnit } from '@/lib/tours/price-label';
 import { activityMode, type ActivityMode } from '@/lib/planner/day-mode';
 import { rankByLoad, firstOverLimit, overLimitText, dateOfTripDay, slotOnTripDay, tripCalendarDays, type PlaceLoad } from '@/lib/planner/flow-balance';
@@ -408,58 +409,6 @@ async function fetchRoutesForZone(zone: ZoneId, activityType: string, limit: num
   }
 }
 
-// ─── Crowd load ───────────────────────────────────────────────────────────────
-
-interface CrowdRow {
-  total_departures: string;
-  booked_ratio: string;
-}
-
-/**
- * Returns a crowd score 0-100 for a date range.
- * Считает по живому календарю tour_availability + реальным броням
- * (v_tour_daily_occupancy). Раньше считал по tour_departures — там счётчик
- * booked_slots никогда не заполнялся, и ratio всегда был 0 (эвристика
- * вырождалась в сезонный fallback).
- * Higher score = more crowded. Affects zone scoring.
- */
-async function fetchCrowdLoad(arrivalDate?: string, departureDate?: string): Promise<number> {
-  if (!arrivalDate || !departureDate) {
-    // No dates: estimate from season (July-August = peak)
-    const month = new Date().getMonth() + 1;
-    if ([7, 8].includes(month)) return 75;
-    if ([6, 9].includes(month)) return 50;
-    return 20;
-  }
-  try {
-    const { rows } = await pool.query<CrowdRow>(
-      `SELECT
-         COUNT(*)::text                                                          AS total_departures,
-         ROUND(
-           COALESCE(
-             SUM(COALESCE(occ.occupied, 0))::numeric / NULLIF(SUM(ta.available_slots), 0) * 100,
-             0
-           )
-         )::text                                                                AS booked_ratio
-       FROM tour_availability ta
-       LEFT JOIN v_tour_daily_occupancy occ
-         ON occ.operator_tour_id = ta.operator_tour_id AND occ.date = ta.date
-       WHERE ta.is_cancelled = FALSE
-         AND ta.deleted_at IS NULL
-         AND ta.date BETWEEN $1::date AND $2::date`,
-      [arrivalDate, departureDate]
-    );
-    const row = rows[0];
-    if (!row) return 20;
-    const ratio = parseFloat(row.booked_ratio) || 0;
-    const count = parseInt(row.total_departures, 10) || 0;
-    // Weighted: bookings ratio + volume bonus
-    return Math.min(100, Math.round(ratio * 0.7 + Math.min(count * 2, 30)));
-  } catch {
-    return 20;
-  }
-}
-
 // ─── Safety alerts ────────────────────────────────────────────────────────────
 
 export interface SafetyAlert {
@@ -716,7 +665,6 @@ function collectWarnings(
   profile: TripProfile,
   zones: ZoneRecommendation[],
   tripDays: number,
-  crowdLoad: number = 0,
   alerts: SafetyAlert[] = [],
   /** Открытое каталогом на этот месяц; `null` — каталог спросить не вышло. */
   catalogueOpen: Set<string> | null,
@@ -774,19 +722,6 @@ function collectWarnings(
         message: 'Авачинская бухта и побережье доступны без морских выходов: пешие маршруты, смотровые площадки, маяки.',
       });
     }
-  }
-
-  // ── Crowd load ────────────────────────────────────────────────────────────
-  if (crowdLoad > 70) {
-    warnings.push({
-      type: 'crowd', severity: 'important',
-      message: `Высокий сезон: популярные локации загружены на ~${crowdLoad}%. Рекомендуем бронировать гидов и трансфер за 2-3 недели. Некоторые дни скорректированы на менее популярные маршруты.`,
-    });
-  } else if (crowdLoad > 50) {
-    warnings.push({
-      type: 'crowd', severity: 'info',
-      message: `Умеренная загрузка (~${crowdLoad}%). Брони лучше подтвердить за 1 неделю до выезда.`,
-    });
   }
 
   // Min trip duration
@@ -1798,7 +1733,7 @@ async function generateDayPlans(
           realPrice = priced.unitPrice;
           if (priced.label) realTourData.priceLabel = priced.label;
         } else {
-          priceMissing = priced.kind === 'missing' ? priced.text : PRICE_UNREAD_TEXT;
+          priceMissing = missingPriceText(priced);
         }
 
         // Contingency alternatives
@@ -1833,7 +1768,7 @@ async function generateDayPlans(
         // Цены для группы нет — нет у дня и ориентира: справочная вилка вида
         // активности рядом с туром читалась бы как его цена.
         priceFrom: realPrice ?? (priceMissing ? 0 : c.pricePerPerson[0]),
-        priceTo: realPrice ? Math.round(realPrice * TOUR_PRICE_HEADROOM) : (priceMissing ? 0 : c.pricePerPerson[1]),
+        priceTo: realPrice ? realPrice : (priceMissing ? 0 : c.pricePerPerson[1]),
         coords,
         defaultTransport: transport,
         allowedTransports: allowed.length > 0 ? allowed : [transport],
@@ -2188,7 +2123,9 @@ function buildAIPrompt(profile: TripProfile, zones: ZoneRecommendation[], days: 
   const daysSummary = days.map(d => {
     let line = `День ${d.day} (${d.type}): ${d.title} [${d.zone}]`;
     if (d.realTour) {
-      line += ` — оператор: ${d.realTour.operatorName} (${d.realTour.operatorRating.toFixed(1)})`;
+      // Только имя (#3199, Б30): рейтинг неоценённого оператора — 0, и модель
+      // называла туристу «0.0» или сочиняла оценку. Оценок модель не называет.
+      line += ` — оператор: ${d.realTour.operatorName}`;
     }
     // Цена — с единицей тура: «за группу» без подписи модель пересказала бы
     // как цену с человека (#2304).
@@ -2227,7 +2164,7 @@ ${warningsSummary ? `Предупреждения:\n${warningsSummary}` : ''}
 - Дни переезда и отдыха — это норма, не извиняйся за них
 - Если есть дети — упомяни что программа адаптирована
 - Упомяни ключевые впечатления: что увидят, что почувствуют
-- Если есть реальные операторы — упомяни их и рейтинг
+- Если есть реальные операторы — называй их по имени; оценок и рейтингов не называй
 - Если есть прогноз погоды — кратко упомяни что ожидать
 - Если среди предупреждений есть МЧС, не называй эти места безопасными или без риска
 - Не нумеруй дни, пиши связным текстом`;
@@ -2307,7 +2244,7 @@ export async function recommendTrip(profile: TripProfile, opts: RecommendTripOpt
     : { forTrip: [] as ActiveWarning[], endedBefore: [] as ActiveWarning[] };
   const { days, unchecked, spanUnknown, tooLong, extendedForTour, overLimit, preferenceNotes, selfSkipped, selfSafetyUnchecked, skippedLegs, returnLegMissing, offDays, missReasons, skippedNoTour } = await generateDayPlans(planProfile, zones, tripDays, cache, catalogueOpen, onRequestOnly, mchsTrip.forTrip);
   const plannedZones = new Set<ZoneId>(days.map((d) => d.zone));
-  const warnings = collectWarnings(profile, zones, tripDays, 0, alerts, catalogueOpen, plannedZones, days.some((d) => d.type === 'buffer'));
+  const warnings = collectWarnings(profile, zones, tripDays, alerts, catalogueOpen, plannedZones, days.some((d) => d.type === 'buffer'));
   if (alertsRead === null) {
     warnings.push({ type: 'safety', severity: 'important', message: SAFETY_ALERTS_UNREAD_NOTE });
   }
@@ -2465,7 +2402,11 @@ export async function recommendTrip(profile: TripProfile, opts: RecommendTripOpt
   // Допущение о доме местного — словами рядом со счётом, а не молча в цифре.
   // Условие узкое намеренно: если план вообще не ночует в Авачинской зоне,
   // допущение ни на что не повлияло, и говорить о нём нечего.
-  if (asTripOrigin(profile.tripOrigin) === 'local' && plannedZones.has(LOCAL_HOME_ZONE)) {
+  // Без единой ночи (однодневный выход) допущению не на что влиять (#3199,
+  // сценарий 10 аудита): «ночи в счёт не вошли» у плана без ночей — неправда.
+  const lastPlanDay = Math.max(0, ...days.map((d) => d.day));
+  const hasNight = (d: { day: number; type: string }) => d.type !== 'departure' && d.day < lastPlanDay;
+  if (asTripOrigin(profile.tripOrigin) === 'local' && plannedZones.has(LOCAL_HOME_ZONE) && days.some(hasNight)) {
     warnings.push({ type: 'home_nights', severity: 'info', message: HOME_NIGHTS_ASSUMPTION });
   }
 
@@ -2476,10 +2417,8 @@ export async function recommendTrip(profile: TripProfile, opts: RecommendTripOpt
     warnings.push({
       type: 'zone_days',
       severity: 'critical',
-      message: `План кончается в ${ZONE_NAMES[returnLegMissing] ?? returnLegMissing}, а дня на возвращение в Петропавловск в нём нет — `
-        + (asTripOrigin(profile.tripOrigin) === 'local'
-          ? 'вернуться в город в тот же день не выйдет. Добавьте день к поездке или уберите дальнюю зону; мы это учтём при следующей сборке.'
-          : 'вылет из города в тот же день невозможен. Добавьте день к поездке или уберите дальнюю зону; мы это учтём при следующей сборке.'),
+      // Слова — одни с ответом правки плана (#3199, M10).
+      message: returnLegMissingMessage(returnLegMissing, asTripOrigin(profile.tripOrigin)),
     });
   }
 
@@ -2586,7 +2525,12 @@ export async function recommendTrip(profile: TripProfile, opts: RecommendTripOpt
   // не безобидная осторожность, по такой смете отказываются от поездки.
   // Туры, а не дни: дни продолжения многодневного тура несут тот же тур, и
   // двухдневный тур считался бы двумя (аудит 07.11, рядом с E1).
-  const unknownLodging = new Set(days.filter(d => d.realTour && d.realTour.lodgingIncluded === null).map(d => String(d.realTour!.tourId)));
+  // Только туры, у дней которых смета считает ночь: у тура в последний день
+  // и у местного дома ночёвку не считали вовсе, и «посчитали отдельно, итог
+  // завышен» было бы неправдой (#3199, сценарий 10 аудита).
+  const origin = asTripOrigin(profile.tripOrigin);
+  const countedNight = (d: DayPlan, i: number) => hasNight(d) && !nightIsAtHome(origin, nightZoneOf(d, days[i + 1]));
+  const unknownLodging = new Set(days.filter((d, i) => d.realTour && d.realTour.lodgingIncluded === null && countedNight(d, i)).map(d => String(d.realTour!.tourId)));
   if (unknownLodging.size > 0) {
     warnings.push({
       type: 'duration',

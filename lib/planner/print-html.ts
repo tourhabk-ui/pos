@@ -77,6 +77,8 @@ const STYLE = `
 export function buildPlanPrintHtml(input: PrintPlanInput): string {
   const e = escapeHtml;
   const { fmt } = input;
+  // Вилка, у которой нижняя граница равна верхней, — одна сумма, а не «X — X».
+  const rubRange = ([a, b]: readonly [number, number]) => (a === b ? `${fmt(a)} ₽` : `${fmt(a)} — ${fmt(b)} ₽`);
   const range = input.dateRange ? e(input.dateRange) : '';
   const kids = input.childAges.length > 0 ? ` + дети: ${input.childAges.map((a) => e(a)).join(', ')} лет` : '';
   const daysHtml = input.days.map((d) => `<div class="day${d.confirmed ? ' confirmed' : ''}">
@@ -94,9 +96,9 @@ export function buildPlanPrintHtml(input: PrintPlanInput): string {
   const est = input.estimate;
   const estimateHtml = est ? `<div class="footer">
   <div style="font-size:11px;font-weight:600;margin-bottom:6px">Смета на группу · ${e(est.people)} чел. — цены туров от операторов и выбранных предложений, остальное ориентир по средним ценам</div>
-  ${est.lines.map((l) => `<div class="price-row"><span>${e(l.label)} · ${e(l.basis)}${l.source === 'estimate' ? ' · ориентир' : l.source === 'offer' ? ' · выбрано' : ''}</span><span>${l.total ? `${e(fmt(l.total[0]))} — ${e(fmt(l.total[1]))} ₽` : 'цена не указана'}</span></div>`).join('')}
-  <div class="price-total"><span>Итого на группу</span><span>${e(fmt(est.total[0]))} — ${e(fmt(est.total[1]))} ₽</span></div>
-  <div class="price-row"><span>На человека</span><span>${e(fmt(est.perPerson[0]))} — ${e(fmt(est.perPerson[1]))} ₽</span></div>
+  ${est.lines.map((l) => `<div class="price-row"><span>${e(l.label)} · ${e(l.basis)}${l.source === 'estimate' ? ' · ориентир' : l.source === 'offer' ? ' · выбрано' : ''}</span><span>${l.total ? e(rubRange(l.total)) : 'цена не указана'}</span></div>`).join('')}
+  <div class="price-total"><span>Итого на группу</span><span>${e(rubRange(est.total))}</span></div>
+  <div class="price-row"><span>На человека</span><span>${e(rubRange(est.perPerson))}</span></div>
   ${est.assumptions.map((a) => `<div style="font-size:11px;color:#9a9590;margin-top:4px">${e(a)}</div>`).join('')}
   <div style="font-size:11px;color:#9a9590;margin-top:6px">Без авиабилетов Москва — Камчатка</div>
 </div>` : '';

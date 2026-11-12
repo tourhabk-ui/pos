@@ -521,20 +521,37 @@ withPg('крон добивки лидов на настоящем PostgreSQL', 
     const silent = await ins('Группа 24 тишина', 'new', group);
     const plainDeclined = await ins('Обычная с отказом', 'lost', { source: 'mcp', interests: ['big_group_probe'] });
     const otherAnswered = await ins('Группа 24 ответил не адресат', 'lost', group);
-    const answer = (partner: string, leadId: string, ans: string) => pool.query(
-      `INSERT INTO partner_incoming_answers (partner_id, subject_kind, subject_id, answer, decline_reason)
-       VALUES ($1, 'lead', $2, $3, $4)`, [partner, leadId, ans, ans === 'decline' ? 'group' : null],
+    // 1422: «Нет мест» на прежнюю дату — человек сам выбрал другую, о новой
+    // адресат ещё не ответил; отказ по погоде — группу не передают.
+    // «Нет мест» на текущую дату (decline_reason NULL) — передаётся, как и отказ.
+    const noSeats = await ins('Группа 24 нет мест', 'new', group);
+    const movedOn = await ins('Группа 24 перенесла дату', 'new', { ...group, date: '2099-07-20' });
+    const weather = await ins('Группа 24 погода', 'lost', group);
+    // Ревью 2б: конвейер разбора за полчаса переводит заявку в ai_qualified, а
+    // человеку после «Нет мест» обещано «увидят другие операторы» — добивка её
+    // берёт. Посреди разбора (ai_processing) — нет: конвейер затёр бы сброс адресата.
+    const qualified = await ins('Группа 24 разобрана ИИ', 'ai_qualified', group);
+    const processing = await ins('Группа 24 разбор идёт', 'ai_processing', group);
+    // Дата ответа — та, что в заявке на момент ответа (как пишет recordChatAnswer).
+    const answer = (partner: string, leadId: string, ans: string, reason: string | null = ans === 'decline' ? 'group' : null, date: string | null = '2099-07-15') => pool.query(
+      `INSERT INTO partner_incoming_answers (partner_id, subject_kind, subject_id, answer, decline_reason, subject_date)
+       VALUES ($1, 'lead', $2, $3, $4, $5)`, [partner, leadId, ans, reason, date],
     );
     await answer(opB, declined, 'decline');
-    await answer(opB, plainDeclined, 'no_seats');
+    await answer(opB, plainDeclined, 'no_seats', null, null);
     await answer(opA, otherAnswered, 'no_seats');
+    await answer(opB, noSeats, 'no_seats');
+    await answer(opB, movedOn, 'no_seats');
+    await answer(opB, weather, 'decline', 'weather');
+    await answer(opB, qualified, 'no_seats');
+    await answer(opB, processing, 'no_seats');
 
-    const mine = [declined, silent, plainDeclined, otherAnswered];
+    const mine = [declined, silent, plainDeclined, otherAnswered, noSeats, movedOn, weather, qualified, processing];
     const { FOLLOWUP_LEADS_SQL, FOLLOWUP_LEADS_PARAMS } = await import('@/lib/leads/followup-scope');
     const { rows } = await pool.query<{ id: string; addressee_slug: string | null }>(FOLLOWUP_LEADS_SQL, [...FOLLOWUP_LEADS_PARAMS]);
     const picked = rows.filter((r) => mine.includes(r.id));
-    expect(picked.map((r) => r.id)).toEqual([declined]);
-    expect(picked[0]!.addressee_slug).toBe('group-op-b');
+    expect(picked.map((r) => r.id).sort()).toEqual([declined, noSeats, qualified].sort());
+    expect(picked.every((r) => r.addressee_slug === 'group-op-b')).toBe(true);
 
     // Крон отдаёт её оператору A — не отказавшемуся B; чей тур и чей отказ — не называет.
     const { sendPdAlert } = await import('@/lib/notifications/pd-alert');
@@ -547,8 +564,14 @@ withPg('крон добивки лидов на настоящем PostgreSQL', 
     const sentGroup = send.mock.calls.map((c) => c[0]).filter((p) => p.text.includes('Группа 24 отказ'));
     expect(sentGroup).toHaveLength(1);
     expect(sentGroup[0]!.to?.maxChatId).toBe('7000077');
+    const sentNoSeats = send.mock.calls.map((c) => c[0]).filter((p) => p.text.includes('Группа 24 нет мест'));
+    expect(sentNoSeats.map((p) => p.to?.maxChatId)).toEqual(['7000077']);
+    const sentQualified = send.mock.calls.map((c) => c[0]).filter((p) => p.text.includes('Группа 24 разобрана ИИ'));
+    expect(sentQualified.map((p) => p.to?.maxChatId)).toEqual(['7000077']);
+    expect(send.mock.calls.some((c) => c[0].text.includes('Группа 24 разбор идёт'))).toBe(false);
     expect(sentGroup[0]!.text).toContain('24 чел., 2099-07-15 — исполнитель выбранного тура не смог взять всю группу');
-    expect(send.mock.calls.some((c) => c[0].text.includes('Группа 24 тишина') || c[0].text.includes('Обычная с отказом'))).toBe(false);
+    expect(send.mock.calls.some((c) => ['Группа 24 тишина', 'Обычная с отказом', 'Группа 24 перенесла дату', 'Группа 24 погода']
+      .some((name) => c[0].text.includes(name)))).toBe(false);
     // Заявка стала ничейной: кабинет оператора A её откроет, отказавшийся B — в списке уведомлённых.
     const st = await pool.query<{ status: string; operator_id: string | null; notified: string[]; declined_by: string | null }>(
       `SELECT status, operator_id::text AS operator_id, source_data->'notified_operators' AS notified,
@@ -561,6 +584,76 @@ withPg('крон добивки лидов на настоящем PostgreSQL', 
 
     await pool.query(`DELETE FROM partner_incoming_answers WHERE subject_id = ANY($1)`, [mine]);
     await pool.query(`DELETE FROM leads WHERE id = ANY($1::uuid[])`, [mine]);
+  });
+
+  it('следующий оператор — победитель жребия дня компании, а не первая строка базы (слово владельца 12.11)', async () => {
+    // До 12.11 оба запроса кандидатов кончались LIMIT 1 без ORDER BY: лид
+    // получал тот, чью строку база вернула первой. Свои операторы и свой вид
+    // туров, как в сцене выше: чужие фикстуры файла исход не решают.
+    const { pickNextOperator } = await import('@/lib/leads/next-operator');
+    const { offerOrderDay } = await import('@/lib/tours/offer-order');
+    const made: Array<{ id: string; slug: string; chat: string }> = [];
+    for (let i = 0; i < 6; i++) {
+      const slug = `lot-op-${i + 1}`;
+      const chat = String(7100001 + i);
+      // Сначала скрытые: кандидатами они станут ниже, в выбранном порядке.
+      const { rows } = await pool.query<{ id: string }>(
+        `INSERT INTO partners (name, category, contact, is_verified, is_public, slug, max_chat_id)
+         VALUES ($1, 'operator', '{"phone":"+79001112244"}', TRUE, FALSE, $2, $3::bigint) RETURNING id::text AS id`,
+        [`Жребий ${i + 1}`, slug, chat],
+      );
+      made.push({ id: rows[0]!.id, slug, chat });
+      await pool.query(
+        `INSERT INTO operator_tours (operator_id, title, base_price, max_participants, is_active, is_published, activity_type, difficulty, duration_hours)
+         VALUES ($1, 'Тур жребия', 15000, 4, TRUE, TRUE, 'lot_probe', 'easy', 8)`, [rows[0]!.id],
+      );
+    }
+    const dayBefore = offerOrderDay();
+    const winner = pickNextOperator(made, dayBefore)!;
+    // Победителя открываем ПОСЛЕДНИМ: его строка ложится в таблицу после
+    // остальных, и «первая строка базы» им не окажется. Сам исход от этого
+    // порядка не зависит — на нём краснеет только прежний код.
+    for (const op of [...made.filter((o) => o.id !== winner.id), winner]) {
+      await pool.query(`UPDATE partners SET is_public = TRUE WHERE id = $1`, [op.id]);
+    }
+    const lead = (await pool.query<{ id: string }>(
+      `INSERT INTO leads (name, phone, comment, status, operator_id, source_data, created_at)
+       VALUES ('Лид жребия', '+79990005566', 'тест', 'new', NULL, $1::jsonb, NOW() - INTERVAL '3 hours') RETURNING id::text AS id`,
+      [JSON.stringify({ source: 'mcp', interests: ['lot_probe'] })],
+    )).rows[0]!.id;
+
+    const { sendPdAlert } = await import('@/lib/notifications/pd-alert');
+    const send = vi.mocked(sendPdAlert);
+    send.mockClear();
+    const { NextRequest } = await import('next/server');
+    const { GET } = await import('@/app/api/cron/leads-followup/route');
+    const res = await GET(new NextRequest('http://localhost/api/cron/leads-followup', { headers: { authorization: `Bearer ${CRON_SECRET}` } }));
+    expect(res.status).toBe(200);
+
+    // Прогон мог перейти полночь по Камчатке: победитель — по дню до или после.
+    const winners = new Set([winner.chat, pickNextOperator(made, offerOrderDay())!.chat]);
+    const sent = send.mock.calls.map((c) => c[0]).filter((x) => x.text.includes('Лид жребия'));
+    expect(sent).toHaveLength(1);
+    expect(winners.has(String(sent[0]!.to?.maxChatId))).toBe(true);
+    const st = await pool.query<{ notified: string[] }>(`SELECT source_data->'notified_operators' AS notified FROM leads WHERE id = $1`, [lead]);
+    expect(st.rows[0]!.notified).toHaveLength(1);
+    expect(made.find((o) => o.slug === st.rows[0]!.notified[0])?.chat).toBe(String(sent[0]!.to?.maxChatId));
+
+    // Второй шаг добивки: уже получивший лид в жребии не участвует, следующий
+    // — победитель среди остальных.
+    await pool.query(`UPDATE leads SET source_data = source_data - 'last_followup' WHERE id = $1`, [lead]);
+    send.mockClear();
+    const rest = made.filter((o) => o.slug !== st.rows[0]!.notified[0]);
+    const res2 = await GET(new NextRequest('http://localhost/api/cron/leads-followup', { headers: { authorization: `Bearer ${CRON_SECRET}` } }));
+    expect(res2.status).toBe(200);
+    const second = send.mock.calls.map((c) => c[0]).filter((x) => x.text.includes('Лид жребия'));
+    expect(second).toHaveLength(1);
+    const seconds = new Set([pickNextOperator(rest, dayBefore)!.chat, pickNextOperator(rest, offerOrderDay())!.chat]);
+    expect(seconds.has(String(second[0]!.to?.maxChatId))).toBe(true);
+    expect(String(second[0]!.to?.maxChatId)).not.toBe(String(sent[0]!.to?.maxChatId));
+
+    await pool.query(`DELETE FROM leads WHERE id = $1`, [lead]);
+    await pool.query(`UPDATE partners SET is_public = FALSE WHERE slug LIKE 'lot-op-%'`);
   });
 
   it('миграция 1411: «Кутха» в Авачинской зоне планера — объект встаёт в подбор ночёвок', async () => {

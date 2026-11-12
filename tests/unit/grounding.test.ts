@@ -137,17 +137,13 @@ describe('каждый инструмент реестра Кузьмича на
     get_volcano_status: 'состояние вулканов: сигналов метрики (цена, телефон, места) не несёт',
     get_flight_board: 'табло рейсов: время и статус, сигналов метрики не несёт',
     safety_status: 'обстановка в крае: телефоны в ней экстренные, их источник — код (EMERGENCY_PHONES_RE)',
-    // Известные пробелы — названы, а не спрятаны. Ответ этих инструментов несёт
-    // цены туров, и правка метрики для них — отдельное решение, не часть
-    // compare_tours (ревью 29.10).
-    get_place_info: 'ПРОБЕЛ: туры к месту с ценами (#2835), в список данных не внесён — отдельная правка метрики',
-    make_trip_plan: 'ПРОБЕЛ: план с ценами туров, в список данных не внесён — отдельная правка метрики',
-    edit_trip_plan: 'ПРОБЕЛ: план с ценами туров, в список данных не внесён — отдельная правка метрики',
   };
 
   it('нет инструмента без решения; запись о незаземляющем уходит, когда он начал заземлять', async () => {
     const { KUZMICH_TOOLS } = await import('@/lib/kuzmich/tool-schemas');
-    const grounds = (name: string) => ranDataTool([{ name, producedData: true }]);
+    // Вывод с ценой: план и справка о месте заземляют, только когда несут цены
+    // (PRICE_BEARING_TOOLS в grounding.ts, разбор 11.11, #3179).
+    const grounds = (name: string) => ranDataTool([{ name, producedData: true, output: 'Итого на группу: 45 000 ₽' }]);
     for (const t of KUZMICH_TOOLS) {
       const name = t.function.name;
       if (grounds(name)) {
@@ -192,5 +188,27 @@ describe('цены из каталога базы в промпте (свод п
   });
   it('наличие мест каталогом не заземляется', () => {
     expect(assessG('45 000 ₽, есть места на завтра', [], { catalogText: catalog }).verdict).toBe('ungrounded');
+  });
+});
+
+describe('план и справка о месте заземляют цены, только когда их несут (разбор 11.11, #3179)', () => {
+  const PLAN = 'День 1. Прилёт.\nДень 2. Восхождение на Авачинский — 12 000 ₽ с человека.\nИтого на группу: 24 000 ₽';
+  it('план со сметой заземляет цену ответа', () => {
+    const g = assessG('Восхождение — 12 000 ₽, итого 24 000 ₽ на двоих.', [{ name: 'make_trip_plan', producedData: true, output: PLAN }]);
+    expect(g.verdict).toBe('grounded');
+  });
+  it('правка плана со сметой — тоже', () => {
+    expect(ranDataTool([{ name: 'edit_trip_plan', producedData: true, output: PLAN }])).toBe(true);
+  });
+  it('план без сметы (отказ словами) цену не заземляет', () => {
+    const g = assessG('Тур стоит 12 000 ₽.', [{ name: 'make_trip_plan', producedData: true, output: 'План не собран: число взрослых «сто» не разобрал.' }]);
+    expect(g.verdict).toBe('ungrounded');
+  });
+  it('справка о месте с турами и ценами заземляет, без туров — нет', () => {
+    expect(ranDataTool([{ name: 'get_place_info', producedData: true, output: 'Туры к месту: Курильское озеро — 45 000 ₽' }])).toBe(true);
+    expect(ranDataTool([{ name: 'get_place_info', producedData: true, output: 'Вулкан Горелый. Опасности: газы.' }])).toBe(false);
+  });
+  it('план без вывода в журнале — не заземляет: проверить нечем', () => {
+    expect(ranDataTool([{ name: 'make_trip_plan', producedData: true }])).toBe(false);
   });
 });

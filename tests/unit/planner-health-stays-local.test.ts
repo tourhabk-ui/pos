@@ -27,8 +27,12 @@ vi.mock('@/lib/agents/memory/agent-memory', () => ({
 import { POST } from '@/app/api/planner/recommend/route';
 import { parseTravelPreferences } from '@/lib/planner/travel-style-words';
 
+// У роута предел частоты по адресу (#3199, (а)-1): каждому запросу — свой
+// адрес, иначе десятый вызов файла упёрся бы в предел, а не в проверку.
+let ipSeq = 0;
 const post = (body: unknown) => POST(new NextRequest('http://localhost/api/planner/recommend', {
-  method: 'POST', body: JSON.stringify(body), headers: { 'content-type': 'application/json' },
+  method: 'POST', body: JSON.stringify(body),
+  headers: { 'content-type': 'application/json', 'x-real-ip': `10.9.0.${++ipSeq}` },
 }));
 
 const VALID = {

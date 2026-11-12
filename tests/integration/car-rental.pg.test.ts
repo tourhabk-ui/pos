@@ -647,7 +647,9 @@ withPg('прокат автомобилей на настоящем PostgreSQL',
       claimPartnerAnswer({ ...claim, answer: 'take' }),
       claimPartnerAnswer({ ...claim, answer: 'take' }),
     ]);
-    expect([first, second].filter((r) => r.outcome === 'saved')).toEqual([{ outcome: 'saved', marked: 3 }]);
+    // «Беру» строки сообщения заказчику не рождает (2б-2): о нём говорит сам партнёр.
+    expect([first, second].filter((r) => r.outcome === 'saved')).toEqual([{ outcome: 'saved', marked: 3, notice: null }]);
+    expect((await pool.query(`SELECT 1 FROM answer_notices WHERE lead_id = $1::uuid`, [lead!.id])).rowCount).toBe(0);
     expect([first, second].filter((r) => r.outcome === 'already')).toEqual([{ outcome: 'already', answer: 'take' }]);
     expect(await readPartnerAnswer(lead!.id)).toBe('take');
     expect(await claimPartnerAnswer({ ...claim, answer: 'decline' })).toEqual({ outcome: 'already', answer: 'take' });
@@ -665,6 +667,173 @@ withPg('прокат автомобилей на настоящем PostgreSQL',
     );
     expect(answers[0]?.n).toBe(1);
     expect(await loadOwnedRentalRequest('00000000-0000-4000-8000-000000000099', lead!.id)).toEqual({ outcome: 'not_yours' });
+  });
+
+  it('«Не могу» прокатчика и перевозчика (2б-2, 1425): строка сообщения заказчику — в транзакции ответа, одна на ответ; отправка, отметка чтения, повтор', async () => {
+    const store = await import('@/lib/rental/request-answer-store');
+    const notices = await import('@/lib/requests/answer-notice');
+    const { markVehicleNoticeShown, markNoticeShown } = await import('@/lib/requests/answer-notice-mark');
+    const { REQUEST_STATUS_BY_LEAD_SQL, shownAnswerRef } = await import('@/lib/mcp/request-status');
+    type Row = Parameters<typeof shownAnswerRef>[0];
+    const P = partner.laguna;
+
+    // Миграция 1425 применяется повторно без ошибки; ограничения — по одному.
+    const migration = readFileSync(join(process.cwd(), 'migrations', '1425_answer_notices_vehicle.sql'), 'utf8');
+    await pool.query(migration);
+    await pool.query(migration);
+    const cons = await pool.query<{ conname: string }>(`SELECT conname FROM pg_constraint WHERE conrelid = 'answer_notices'::regclass`);
+    expect(cons.rows.filter((r) => r.conname === 'answer_notices_ref_check')).toHaveLength(1);
+
+    const mkLead = async (kind: 'car_rental' | 'charter', over: { status?: string; isSelf?: boolean; operator?: string; maxChat?: number; title?: string } = {}) => {
+      const data = kind === 'charter'
+        ? { kind, carrier_id: over.operator ?? P, destination: over.title ?? 'Вулкан Горелый', date_from: '2027-02-10', date_to: '2027-02-11', passengers: 6 }
+        : { kind, company_id: over.operator ?? P, offer_title: over.title ?? 'ГАЗ Соболь', date_from: '2027-02-10', date_to: '2027-02-12' };
+      const { rows: [l] } = await pool.query<{ id: string }>(
+        `INSERT INTO leads (name, phone, comment, status, operator_id, source_data, is_self, guest_max_chat_id, created_at)
+         VALUES ('Заказчик Отказов', '+79990003344', 'тест 2б-2', $1, $2, $3::jsonb, $4, $5, NOW())
+         RETURNING id::text AS id`,
+        [over.status ?? 'new', over.operator ?? P, JSON.stringify(data), over.isSelf ?? false, over.maxChat ?? null],
+      );
+      return l!.id;
+    };
+    const claim = (leadId: string, kind: 'car_rental' | 'charter', answer: 'take' | 'decline' = 'decline', partnerId = P) => store.claimPartnerAnswer({
+      leadId, answer, kind, partnerId, offerId: null,
+      carTitle: kind === 'charter' ? 'Вулкан Горелый' : 'ГАЗ Соболь', dateFrom: '2027-02-10', dateTo: kind === 'charter' ? '2027-02-11' : '2027-02-12', mark: null,
+    });
+    const noticeOf = async (leadId: string) => (await pool.query<{
+      id: string; answer_id: string | null; activity_id: string | null; answer: string; state: string; skipped_reason: string | null;
+      delivered_via: string | null; held: boolean; lead_status_before: string | null; manager_channel: string | null;
+    }>(
+      `SELECT id::text AS id, answer_id::text AS answer_id, activity_id::text AS activity_id, answer, state, skipped_reason, delivered_via,
+              (claimed_until > NOW()) AS held, lead_status_before, manager_channel
+         FROM answer_notices WHERE lead_id = $1::uuid ORDER BY id`, [leadId],
+    )).rows;
+    const journalOf = async (leadId: string) => (await pool.query<{ id: string }>(
+      `SELECT id::text AS id FROM lead_activity_log WHERE lead_id = $1::uuid AND action = 'partner_answered' ORDER BY id`, [leadId],
+    )).rows.map((r) => r.id);
+
+    // 1. Прокат: два нажатия разом — один ответ и одна строка сообщения, с захватом на отправку.
+    const L1 = await mkLead('car_rental', { maxChat: 9_425_001 });
+    const [a, b] = await Promise.all([claim(L1, 'car_rental'), claim(L1, 'car_rental')]);
+    const saved = [a, b].filter((r) => r.outcome === 'saved');
+    expect(saved).toHaveLength(1);
+    expect([a, b].filter((r) => r.outcome === 'already')).toEqual([{ outcome: 'already', answer: 'decline' }]);
+    const [log1] = await journalOf(L1);
+    expect(await journalOf(L1)).toHaveLength(1);
+    const n1 = await noticeOf(L1);
+    expect(n1).toEqual([expect.objectContaining({ answer_id: null, activity_id: log1, answer: 'decline', state: 'pending', held: true, lead_status_before: 'new' })]);
+    expect(saved[0]).toEqual({ outcome: 'saved', marked: null, notice: { id: n1[0]!.id, state: 'pending', skipped: null } });
+
+    // Факты для слов — из записи журнала: род, машина, даты; вывеска — партнёра. Имени и телефона заказчика в выборке нет.
+    const { rows: [facts] } = await pool.query(notices.NOTICE_FACTS_SQL, [n1[0]!.id]);
+    expect(facts).toMatchObject({
+      answer_id: null, activity_id: log1, vehicle_kind: 'car_rental', vehicle_title: 'ГАЗ Соболь',
+      vehicle_from: '2027-02-10', vehicle_to: '2027-02-12', operator_name: 'Прокат у залива', tour_id: null, lead_status: 'new',
+    });
+    expect(JSON.stringify(facts)).not.toMatch(/Отказов|79990003344/);
+    // Вид заявки без ключа читается по самой заявке: ответ журнала — тот, о котором сообщаем.
+    const { rows: [st1] } = await pool.query(REQUEST_STATUS_BY_LEAD_SQL, [L1]);
+    expect(shownAnswerRef(st1 as Row)).toEqual({ source: 'vehicle', id: log1 });
+
+    // Отправка в чат заказчика (MAX из заявки): текст о прокате, без ПД; повтор ничего не шлёт.
+    const dm: Array<{ chat: string; text: string }> = [];
+    const pd: Array<{ text: string; stub: string }> = [];
+    const deps = {
+      sendMax: async (chat: string, text: string) => { dm.push({ chat, text }); return { ok: true as const }; },
+      sendTelegram: async () => ({ ok: false as const, code: 'api_error' }),
+      pdAlert: async (p: { text: string; stub?: string }) => { pd.push({ text: p.text, stub: p.stub ?? '' }); return { channel: 'max' as const, delivered: true, reason: 'ok' }; },
+    };
+    expect(await notices.deliverAnswerNotice(n1[0]!.id, deps)).toEqual({ state: 'delivered', via: 'max', dates: [] });
+    expect(dm).toHaveLength(1);
+    expect(dm[0]!.chat).toBe('9425001');
+    expect(dm[0]!.text).toContain('Прокат: «ГАЗ Соболь», с 10.02.2027 по 12.02.2027.');
+    expect(dm[0]!.text).toContain('Прокат «Прокат у залива» ответил: выполнить заявку не может.');
+    expect(dm[0]!.text).not.toMatch(/Отказов|79990003344|менеджер/);
+    await notices.deliverAnswerNotice(n1[0]!.id, deps);
+    expect(dm).toHaveLength(1);
+    expect(pd).toHaveLength(0);
+    expect(await noticeOf(L1)).toEqual([expect.objectContaining({ state: 'delivered', delivered_via: 'max', held: null })]);
+    expect(await notices.readVehicleNoticeOutcome(L1)).toEqual({ state: 'delivered', via: 'max', dates: [] });
+    // Третье нажатие — «уже», строка по-прежнему одна.
+    expect(await claim(L1, 'car_rental')).toEqual({ outcome: 'already', answer: 'decline' });
+    expect(await noticeOf(L1)).toHaveLength(1);
+
+    // 2. Перевозчик: чата и агента нет — не доставлено, менеджеру сразу; имя и телефон — только в тексте для MAX.
+    const L2 = await mkLead('charter', { title: 'Горелый, тел. +79001112233' });
+    const c2 = await claim(L2, 'charter');
+    expect(c2).toMatchObject({ outcome: 'saved', notice: { state: 'pending' } });
+    // Дверь ставит заявке «потерян» раньше отправки — вид «отказ перевозчика» держится и в этом статусе.
+    await pool.query(`UPDATE leads SET status = 'lost' WHERE id = $1::uuid`, [L2]);
+    const n2 = (await noticeOf(L2))[0]!;
+    expect(await notices.deliverAnswerNotice(n2.id, deps)).toEqual({ state: 'undelivered', manager: 'max', why: { broken: false, chat: 'none', agent: 'none' } });
+    expect(dm).toHaveLength(1);
+    expect(pd).toHaveLength(1);
+    expect(pd[0]!.text).toContain('Ответ перевозчика не доставлен клиенту');
+    expect(pd[0]!.text).toContain('Заказчик Отказов');
+    expect(pd[0]!.text).toContain('+79990003344');
+    // Заглушка уходит в Telegram: ни ПД, ни направления — свободного ввода заказчика.
+    expect(pd[0]!.stub).not.toMatch(/Отказов|79990003344|79001112233|Горелый/);
+    expect(pd[0]!.text).toContain('Горелый');
+    expect(await noticeOf(L2)).toEqual([expect.objectContaining({ state: 'undelivered', manager_channel: 'max' })]);
+    // Заказчик открыл страницу заявки — отметка по записи журнала; отметка по кнопке туроператора с тем же номером строку не трогает.
+    expect(await markNoticeShown(n2.activity_id!, 'page_seen')).toBe(false);
+    expect((await noticeOf(L2))[0]!.state).toBe('undelivered');
+    expect(await markVehicleNoticeShown(n2.activity_id!, 'page_seen')).toBe(true);
+    expect(await noticeOf(L2)).toEqual([expect.objectContaining({ state: 'delivered', delivered_via: 'page_seen' })]);
+    expect(await markVehicleNoticeShown(n2.activity_id!, 'agent_read')).toBe(false);
+
+    // 3. Сразу «пропущено»: заявка закрыта до ответа, своя проба, не адресат. «Беру» строки не рождает.
+    const closed = await mkLead('car_rental', { status: 'lost' });
+    expect(await claim(closed, 'car_rental')).toMatchObject({ outcome: 'saved', notice: { state: 'skipped', skipped: 'lead_closed' } });
+    const self = await mkLead('charter', { isSelf: true });
+    expect(await claim(self, 'charter')).toMatchObject({ outcome: 'saved', notice: { state: 'skipped', skipped: 'self' } });
+    const foreign = await mkLead('car_rental', { operator: partner.operatorWithPrice });
+    expect(await claim(foreign, 'car_rental')).toMatchObject({ outcome: 'saved', notice: { state: 'skipped', skipped: 'not_addressee' } });
+    expect((await noticeOf(foreign))[0]).toMatchObject({ state: 'skipped', held: null });
+    expect(await notices.deliverAnswerNotice((await noticeOf(closed))[0]!.id, deps)).toEqual({ state: 'skipped', reason: 'lead_closed' });
+    const taken = await mkLead('charter');
+    expect(await claim(taken, 'charter', 'take')).toEqual({ outcome: 'saved', marked: null, notice: null });
+    expect(await noticeOf(taken)).toEqual([]);
+    expect(await notices.readVehicleNoticeOutcome(taken)).toBeNull();
+    expect(dm).toHaveLength(1);
+
+    // 4. Прокатчик статус не меняет: заявку взял в работу человек — вид уже не из ответа, сообщение не уходит.
+    const L4 = await mkLead('car_rental', { maxChat: 9_425_004 });
+    const c4 = await claim(L4, 'car_rental');
+    await pool.query(`UPDATE leads SET status = 'contacted' WHERE id = $1::uuid`, [L4]);
+    expect(await notices.deliverAnswerNotice(c4.outcome === 'saved' && c4.notice ? c4.notice.id : '0', deps)).toEqual({ state: 'skipped', reason: 'outgrown' });
+    expect(dm).toHaveLength(1);
+
+    // 5. Строка сообщения не записалась — откатывается и ответ: кнопку можно нажать снова.
+    const L5 = await mkLead('car_rental');
+    await pool.query(`ALTER TABLE answer_notices ADD CONSTRAINT tmp_no_vehicle CHECK (activity_id IS NULL) NOT VALID`);
+    try {
+      expect(await claim(L5, 'car_rental')).toEqual({ outcome: 'db_error' });
+    } finally {
+      await pool.query(`ALTER TABLE answer_notices DROP CONSTRAINT tmp_no_vehicle`);
+    }
+    expect(await journalOf(L5)).toEqual([]);
+    expect(await noticeOf(L5)).toEqual([]);
+    expect(await claim(L5, 'car_rental')).toMatchObject({ outcome: 'saved', notice: { state: 'pending' } });
+    // Строку держит захват нажатия — повторное нажатие читает «отправляется», а не «не ушло».
+    expect(await notices.readVehicleNoticeOutcome(L5)).toEqual({ state: 'pending', sending: true });
+
+    // 6. Схема: ровно одна ссылка на ответ и одна строка на запись журнала.
+    const [log5] = await journalOf(L5);
+    expect(await sqlState(pool.query(
+      `INSERT INTO answer_notices (lead_id, answer, state) VALUES ($1::uuid, 'decline', 'pending')`, [L5],
+    ))).toBe('23514');
+    expect(await sqlState(pool.query(
+      `INSERT INTO answer_notices (lead_id, activity_id, answer, state) VALUES ($1::uuid, $2::bigint, 'decline', 'pending')`, [L5, log5],
+    ))).toBe('23505');
+    // Захват истёк — добивка берёт и строку машины, тем же запросом, что строки туров.
+    await pool.query(`UPDATE answer_notices SET claimed_until = NOW() - INTERVAL '1 minute' WHERE lead_id = $1::uuid`, [L5]);
+    expect(await notices.readVehicleNoticeOutcome(L5)).toEqual({ state: 'pending' });
+    const due = (await pool.query<{ id: string; state: string }>(notices.NOTICE_CLAIM_DUE_SQL)).rows;
+    expect(due).toContainEqual({ id: (await noticeOf(L5))[0]!.id, state: 'pending' });
+    // Удаление заявки уносит журнал и строку сообщения.
+    await pool.query(`DELETE FROM leads WHERE id = $1::uuid`, [L5]);
+    expect((await pool.query(`SELECT 1 FROM answer_notices WHERE activity_id = $1::bigint`, [log5])).rowCount).toBe(0);
   });
 
   it('черновик цены и описания не меняет прайс; одобрение меняет, отказ — нет', async () => {
@@ -835,6 +1004,32 @@ withPg('прокат автомобилей на настоящем PostgreSQL',
     const again = await press();
     expect(again.status).toBe(409);
     expect(await again.json()).toMatchObject({ success: false, outcome: 'already' });
+
+    // «Не могу» с сайта (2б-2): ответ записан; чата у заказчика нет, а письму менеджеру в тесте уйти некуда —
+    // итог приходит с признаком `attention`, и текст называет исход отправки, а не «всё хорошо».
+    const { rows: [lead2] } = await pool.query<{ id: string }>(
+      `INSERT INTO leads (name, phone, comment, status, operator_id, source_data, created_at)
+       VALUES ('Заказчик сайта второй', '+79990003355', 'тест', 'new', $1, $2::jsonb, NOW())
+       RETURNING id::text AS id`,
+      [laguna.id, JSON.stringify({
+        kind: 'car_rental', company_id: laguna.id, offer_id: tank.id,
+        offer_title: 'Tank-300', date_from: '2026-12-05', date_to: '2026-12-06',
+      })],
+    );
+    const declined = await answer.POST(
+      new NextRequest(`https://vedarai.ru/api/hub/carrier/rental/requests/${lead2.id}`, {
+        method: 'POST', headers: { ...auth, 'content-type': 'application/json' }, body: JSON.stringify({ answer: 'decline' }),
+      }),
+      { params: Promise.resolve({ id: lead2.id }) },
+    );
+    expect(declined.status).toBe(200);
+    const declinedBody = (await declined.json()) as { success: boolean; outcome: string; attention: boolean; message: string };
+    expect(declinedBody).toMatchObject({ success: true, outcome: 'decline', attention: true });
+    expect(declinedBody.message).toContain('Ваш ответ: не могу. Дни не отмечал. Заказчику сообщить не удалось: чат с ним не подключён.');
+    expect(declinedBody.message).not.toMatch(/Заказчик сайта|79990003355/);
+    expect((await pool.query(`SELECT state FROM answer_notices WHERE lead_id = $1::uuid`, [lead2.id])).rows).toEqual([{ state: 'undelivered' }]);
+    // «Беру» выше признака не несёт: сообщать заказчику от Ведара было нечего.
+    expect((await pool.query(`SELECT 1 FROM answer_notices WHERE lead_id = $1::uuid`, [lead.id])).rowCount).toBe(0);
 
     const calendar = await import('@/app/api/hub/carrier/rental/calendar/route');
     const { kamchatkaDate, shiftDate } = await import('@/lib/analytics/kamchatka-day');

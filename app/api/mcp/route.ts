@@ -34,7 +34,7 @@ import { localizeToolArgs, toolLangNote } from '@/lib/mcp/query-lang';
 import { NextRequest, NextResponse } from 'next/server';
 import { z } from 'zod';
 import { validateToolArgs } from '@/lib/kuzmich/tool-schemas';
-import { PUBLIC_MCP_TOOLS, PUBLIC_MCP_TOOL_NAMES, WRITE_TOOL_NAMES, CREATE_LEAD_TOOL, BOOKING_REQUEST_TOOL, REQUEST_CHARTER_TOOL, STAY_REQUEST_TOOL, CAR_RENTAL_REQUEST_TOOL, TRIP_REQUEST_TOOL, MCP_SERVER_INFO, MCP_READ_PER_MINUTE } from '@/lib/mcp/public-tools';
+import { PUBLIC_MCP_TOOLS, PUBLIC_MCP_TOOL_NAMES, WRITE_TOOL_NAMES, KEY_ARG_TOOL_NAMES, CREATE_LEAD_TOOL, BOOKING_REQUEST_TOOL, REQUEST_CHARTER_TOOL, STAY_REQUEST_TOOL, CAR_RENTAL_REQUEST_TOOL, TRIP_REQUEST_TOOL, MCP_SERVER_INFO, MCP_READ_PER_MINUTE } from '@/lib/mcp/public-tools';
 import { SERVER_INSTRUCTIONS } from '@/lib/mcp/server-instructions';
 import { requestConfirmNote } from '@/lib/mcp/request-confirm-note';
 import { negotiateProtocolVersion, isSupportedProtocolVersion, isModernProtocolVersion, SUPPORTED_PROTOCOL_VERSIONS, LEGACY_PROTOCOL_VERSIONS } from '@/lib/mcp/protocol-version';
@@ -64,12 +64,16 @@ import { normalizePhone, implausiblePhone } from '@/lib/mcp/normalize-phone';
 import { issueTestKey, testRunText, writeStructured, type IssuedWrite } from '@/lib/mcp/test-run';
 import type { TourPlaceEntry } from '@/lib/mcp/place-status-schema';
 import { loadTourGroupFacts, groupOverSeats, groupOverSeatsLine, type GroupOverSeats } from '@/lib/mcp/booking-capacity';
+import { PLATFORM_CLOSED_LEAD_NOTE, otherCompaniesInTime, otherCompaniesNote, platformClosedAccepted, platformClosedTrial } from '@/lib/mcp/booking-closed-date';
+import { isClosedByPlatform } from '@/lib/tours/date-closure';
+import { tourRequestPrefix } from '@/lib/requests/tour-date-question';
 import { loadTourPlaceStatus, tourPlaceRequestNote, TOUR_PLACE_NOT_READ_NOTE } from '@/lib/safety/tour-place-status';
 import type { RequestKind, ConsentPurpose } from '@/lib/mcp/request-status-schema';
 import { logMcpToolCall, logMcpClient } from '@/lib/mcp/call-log';
 import type { PublicToolOutcome } from '@/lib/mcp/tool-outcome';
 import { CONNECTOR_TOOL_NAMES, runConnectorTool } from '@/lib/mcp/connector-tools';
 import { REQUEST_STATUS_TOOL_NAME, runRequestStatusTool, issueRequestKey, keyLine, requestStatusPageUrl } from '@/lib/mcp/request-status';
+import { CHANGE_REQUEST_TOOL_NAME, runChangeRequestTool } from '@/lib/mcp/change-request';
 import { issueKeyWithNotify, STAY_NOTIFY_REFUSAL, type SubscribeOutcome } from '@/lib/mcp/request-notify';
 import { notifyUrlField } from '@/lib/mcp/request-notify-schema';
 import { randomUUID } from 'node:crypto';
@@ -554,6 +558,15 @@ async function executeCreateBookingRequest(rawArgs: Record<string, unknown>, ctx
   let group: GroupOverSeats | null = null;
   /** Вид тура — по нему добивка ищет других операторов после отказа адресата. */
   let groupActivity: string | null = null;
+  /** Дату закрыл Ведар по оценке (1421), а не оператор: заявка идёт оператору вопросом (этап 6). */
+  let platformClosed = false;
+  /** Другие компании к месту тура на эту дату — строками; пусто, если назвать некого. */
+  const othersOnDate = async (): Promise<string> => {
+    const { loadOtherOffers } = await import('@/lib/requests/other-offers');
+    return otherCompaniesNote(
+      await otherCompaniesInTime(() => loadOtherOffers({ tourId: tour.id, date, people: participants })), date, participants,
+    );
+  };
   if (remaining < participants) {
     // Расписание есть, а мест на дату нет — честный отказ ниже. Расписания
     // нет вовсе (оператор берёт туристов без календаря) — «нет мест» было бы
@@ -582,6 +595,10 @@ async function executeCreateBookingRequest(rawArgs: Record<string, unknown>, ctx
     } else if (!keepsSchedule) {
       // Строки о парке (#3156) и о главном месте тура (08.11) — до ссылки статуса.
       return requestSeatsFromOperator({ ctx, tourId: Number(tour.id), tourTitle: tour.title, date, participants, name, phone, hasComment: Boolean(comment), consent: parsed.data.consent, notifyUrl: parsed.data.notify_url, parkNote: parkNote + placeNote });
+    } else if (remaining === 0 && (await isClosedByPlatform(tour.id, date)) === true) {
+      // Мест на дате никто не занимал: её закрыл Ведар по описанию тура, оператора
+      // не спрашивали. «Нет мест» было бы неправдой — заявка идёт оператору вопросом.
+      platformClosed = true;
     } else {
       // Честный отказ с альтернативами вместо фантомной заявки на несуществующие места.
       const horizon = new Date(Date.parse(date) + 30 * 86400000).toISOString().slice(0, 10);
@@ -589,13 +606,19 @@ async function executeCreateBookingRequest(rawArgs: Record<string, unknown>, ctx
         .filter((s) => s.remaining >= participants)
         .slice(0, 5)
         .map((s) => `${s.date} (${s.remaining} мест)`);
+      // Вместо «предложите другой тур» — компании, чьи туры идут к тому же месту
+      // и по календарю могут принять на эту дату (этап 6). Нет таких — прежние слова.
+      const others = await othersOnDate();
       return `На ${date} у тура "${tour.title}" ${remaining === 0 ? 'нет свободных мест' : `только ${remaining} мест, а нужно ${participants}`} — заявка не создана. ` +
-        (nearest.length > 0 ? `Ближайшие даты с местами: ${nearest.join(', ')}.` : 'В ближайшие 30 дней подходящих дат нет — предложите другой тур.');
+        (nearest.length > 0 ? `Ближайшие даты с местами: ${nearest.join(', ')}.`
+          : others ? 'В ближайшие 30 дней подходящих дат у этого тура нет.' : 'В ближайшие 30 дней подходящих дат нет — предложите другой тур.')
+        + others;
     }
   }
 
-  const leadComment = `[Заявка на бронь] Тур "${tour.title}" (ID${tour.id}), дата ${date}, участников ${participants}.`
+  const leadComment = `${tourRequestPrefix(tour.title, tour.id, date)} участников ${participants}.`
     + (group ? ` Группа больше мест: ${groupOverSeatsLine(group)} Возьмёте ли всю группу (ещё машины, несколько выездов)?` : '')
+    + (platformClosed ? PLATFORM_CLOSED_LEAD_NOTE : '')
     + (comment ? ` ${comment}` : '');
   // План, частью которого стоит тур (#2304, шаг 2): оператор видит поездку
   // целиком. Не приложился — заявка всё равно идёт, и агент это слышит.
@@ -604,12 +627,15 @@ async function executeCreateBookingRequest(rawArgs: Record<string, unknown>, ctx
     source: 'mcp', tool: 'create_booking_request', tour_id: tour.id, date, participants, ...planSourceFields(planAttach),
     // Отказ адресата — и заявку видят другие операторы того же вида (followup-scope).
     ...(group ? { group_over_seats: true, seats_on_date: group.seats_on_date, interests: groupActivity ? [groupActivity] : [] } : {}),
+    // Дату закрыл Ведар, не оператор: заявка — вопрос «ходите ли в этот день».
+    ...(platformClosed ? { date_closed_by: 'platform' } : {}),
   };
   refuseSilentLead(name, phone, leadComment, leadSource);
 
   const trial = stopForTest(ctx, BOOKING_REQUEST_TOOL.name, 'lead', 'operator', parsed.data.consent,
     group
       ? `запрос оператору на всю группу: тур "${tour.title}" (ID${tour.id}), ${date}, участников ${participants} — ${groupOverSeatsLine(group)}`
+      : platformClosed ? platformClosedTrial({ title: tour.title, id: tour.id, date, participants })
       : `заявка оператору на тур "${tour.title}" (ID${tour.id}), ${date}, участников ${participants}; сейчас на эту дату свободно ${remaining} мест.`,
     'оператору тура');
   // Проба говорит о парке и месте тура то же, что настоящая заявка.
@@ -639,6 +665,7 @@ async function executeCreateBookingRequest(rawArgs: Record<string, unknown>, ctx
       + 'Места не закреплены: оператор скажет, возьмёт ли всю группу (ещё машины, несколько выездов). '
       + `Он перезвонит по телефону ${phone}. Если он откажет, заявку на группу увидят другие операторы того же вида туров. `
       + 'Это заявка, не оплата.'
+    : platformClosed ? platformClosedAccepted({ title: tour.title, date, phone })
     : `Заявка оператору принята: "${tour.title}", ${date}. Сейчас на эту дату свободно ${remaining} мест. `
       + `Оператор перезвонит по телефону ${phone}, подтвердит заявку и состав группы — если число людей или пожелания изменились, `
       + 'человеку стоит сказать об этом при звонке. Это заявка, не оплата.')
@@ -646,7 +673,8 @@ async function executeCreateBookingRequest(rawArgs: Record<string, unknown>, ctx
     + placeNote
     + planAttachNote(planAttach)
     + requestConfirmNote();
-  const bookingPrefix = `[Заявка на бронь] Тур "${tour.title}" (ID${tour.id}), дата ${date},`;
+  // Префикс один у MCP и у формы сайта (вопрос о дате, закрытой Ведаром): повтор узнаётся между дверями.
+  const bookingPrefix = tourRequestPrefix(tour.title, tour.id, date);
   const existing = await findRecentLeadByCommentPrefix(phone, bookingPrefix);
   // Повтор (тот же телефон, тур и дата за 24 ч) идёт тем же выходом, что и
   // новая заявка: текст тот же, второго лида нет, а ключ статуса — свой на
@@ -689,7 +717,9 @@ async function executeCreateBookingRequest(rawArgs: Record<string, unknown>, ctx
   // ответа у повтора тот же (анти-оракул 29.09): что ключ только статусный,
   // видно лишь по самой ссылке.
   const offersChat = !ctx.self && Boolean(tour.operator_id);
-  return accepted + await issueKeyWithNotify({ leadId }, BOOKING_REQUEST_TOOL.name, parsed.data.notify_url, 'request', { opensChat: saved.created && offersChat, offersChat, onIssued: collectIssued(ctx, BOOKING_REQUEST_TOOL.name) });
+  const keyTail = await issueKeyWithNotify({ leadId }, BOOKING_REQUEST_TOOL.name, parsed.data.notify_url, 'request', { opensChat: saved.created && offersChat, offersChat, onIssued: collectIssued(ctx, BOOKING_REQUEST_TOOL.name) });
+  // Оператор может и не ходить в закрытую Ведаром дату: другие компании к месту — последним блоком, после ссылки статуса.
+  return accepted + keyTail + (platformClosed ? await othersOnDate() : '');
 }
 
 // ── request_charter (решение владельца 10.10) ─────────────────
@@ -1230,6 +1260,9 @@ async function executeTool(
   if (CONNECTOR_TOOL_NAMES.has(name)) return runConnectorTool(name, localized.args as typeof rawArgs);
   // Состояние заявки по ключу (ступень 1 контура): свой исполнитель, JSON как у пары.
   if (name === REQUEST_STATUS_TOOL_NAME) return runRequestStatusTool(rawArgs);
+  // Отмена и перенос заявки на тур по её ключу (12.11): правило — то же, что у
+  // кнопок «Моей поездки»; дверь A2A пишется в журнал заявки своим словом.
+  if (name === CHANGE_REQUEST_TOOL_NAME) return runChangeRequestTool(rawArgs, currentLeadEntry()?.entry === 'a2a' ? 'a2a' : 'mcp');
   // Аргументы от внешнего клиента — та же граница недоверия, что
   // модель→executor у Кузьмича: тот же Zod-валидатор (коэрсия к строкам,
   // trim, обрезка длины), затем тот же исполнитель.
@@ -1457,8 +1490,11 @@ async function runPublicToolCore(call: PublicToolCall): Promise<PublicToolOutcom
   const read: ReadArguments = { ...read0, args: normalizeToolHeadcount(toolName, read0.args) };
   const toolArgs = read.args;
 
-  // Журнал вызовов (Рост-6): факт, исход, длительность. Аргументы в
-  // журнал не передаются вовсе — в заявочных инструментах ПД туриста.
+  // Журнал вызовов (Рост-6): факт, исход, длительность. Из аргументов в
+  // журнал идёт один — «главный» (lib/mcp/call-reason): имя всегда, значение
+  // только у читающих инструментов, без телефонов, почт и ключа заявки.
+  // Прежняя строка здесь — «аргументы не передаются вовсе» — была неверна с
+  // 1143: ключ статуса ложился в журнал значением (закрыто 12.11, 1428).
 
   // Rate-limit до исполнения и до любой записи в базу: превышение — обычный
   // tool-ответ с isError, агент его прочитает и подождёт (429 на JSON-RPC
@@ -1468,7 +1504,9 @@ async function runPublicToolCore(call: PublicToolCall): Promise<PublicToolOutcom
   const limiter = isWrite ? writeLimiter : readLimiter;
   // Главный аргумент для журнала: имя всегда, значение — только у читающих
   // инструментов и не похожее на телефон (lib/mcp/call-reason, 1143).
-  const arg = primaryArg(toolArgs, isWrite);
+  // Только имя аргумента — у заявок (там ПД) и у инструментов с ключом заявки
+  // (статус, отмена и перенос).
+  const arg = primaryArg(toolArgs, isWrite || KEY_ARG_TOOL_NAMES.has(toolName));
   if (!limiter.check(`${isWrite ? 'w' : 'r'}:${ip}`)) {
     if (rateLimitedLogGate.check(ip)) {
       logMcpToolCall({ tool: toolName, ok: false, errorKind: 'rate_limited', errorCode: 'rate_limited', argKey: arg.key, ip, userAgent, self });
@@ -1544,7 +1582,9 @@ async function runPublicToolCore(call: PublicToolCall): Promise<PublicToolOutcom
     const structured = isWrite
       ? { ...writeStructured(testRun, ctx.issued ?? [], { places: ctx.places ?? [], group: ctx.group }) }
       : ctx.structured
-        ?? (CONNECTOR_TOOL_NAMES.has(toolName) || toolName === REQUEST_STATUS_TOOL_NAME ? parseStructured(text) : undefined);
+        ?? (CONNECTOR_TOOL_NAMES.has(toolName) || toolName === REQUEST_STATUS_TOOL_NAME || toolName === CHANGE_REQUEST_TOOL_NAME
+          ? parseStructured(text)
+          : undefined);
     return { kind: 'ok', text, handoffUrl: handoff ? handoff.url : null, ...(structured ? { structured } : {}) };
   } catch (toolErr) {
     // Наружу — только текст, написанный для агента. Отказ пула или чужое

@@ -21,7 +21,12 @@ export default function PhotoCredit({ author, license, licenseUrl, sourceUrl }: 
     <div className="pt-1.5 text-right text-[11px] text-[var(--text-muted)]">
       Фото:{' '}
       {author && (
-        sourceUrl ? (
+        sourceUrl && /^\/(?!\/)/.test(sourceUrl) ? (
+          // Своя страница (партнёр на Ведаре, 12.11) — обычная ссылка, в той же вкладке.
+          <a href={sourceUrl} className="underline hover:text-[var(--ocean)]">
+            {author}
+          </a>
+        ) : sourceUrl ? (
           <a href={sourceUrl} target="_blank" rel="noopener noreferrer nofollow" className="underline hover:text-[var(--ocean)]">
             {author}
           </a>

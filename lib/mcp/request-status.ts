@@ -34,12 +34,26 @@
  *
  * ── Заявка на жильё (14.10, миграция 1238) ─────────────────────────────────
  *
- * create_stay_request выдаёт ключ тем же путём. Своего жизненного цикла у
- * такой заявки нет: платформа знает, кому она доставлена (1213), а ответ
- * владелец даёт гостю звонком. Поэтому статус — `delivered` с тем, кому
- * передана, а не «ждёт ответа», который никогда не придёт. С 1349 владелец
+ * create_stay_request выдаёт ключ тем же путём. Платформа знает, кому
+ * заявка доставлена (1213), а ответ владелец даёт гостю звонком. Поэтому
+ * статус до ответа кнопкой — `delivered` с тем, кому передана, а не «ждёт
+ * ответа», который может не прийти. С 1349 владелец
  * отвечает и в переписке на странице заявки, с 1350 — любой адресат заявки:
- * агенту видно число ответов (`partner_replies`), текста нет.
+ * агенту видно число ответов (`partner_replies`), текста нет. С 1359
+ * владелец отвечает и кнопкой — статус её читает (ниже).
+ *
+ * ── Ответ адресата кнопкой (11.11, план «после отказа», этап 1) ────────────
+ *
+ * Оператор нажал «Нет мест» — а страница, агент и «Моя поездка» продолжали
+ * говорить «ждём ответа»: статус читал только `leads.status`, а «Нет мест»
+ * его не меняет. «Беру» перевозчика и «Другая дата» оператора ставят
+ * `contacted` — и человек читал «оператор связался с вами», хотя с ним никто
+ * не говорил. Теперь ответ кнопкой (тур — `partner_incoming_answers`, машина
+ * и прокат — `lead_activity_log.partner_answered`, жильё —
+ * `stay_requests.owner_answer`) назван словами, пока статус лида его не
+ * перерос. Состояния — из прежнего словаря: внешним агентам новых слов нет.
+ * Адресат назван своим словом (оператор, перевозчик, прокатчик), и заявка на
+ * машину не зовёт в каталог туров.
  *
  * Согласие человек подтверждает тем текстом, кому уходят его данные
  * (`consent_purpose`): владельцу жилья, перевозчику или туроператору. До
@@ -62,12 +76,19 @@ import { notifyLeadHumanConfirmedQuietly } from '@/lib/notifications/lead-human-
 import { guestBotLink } from '@/lib/requests/request-chat';
 import { logText } from '@/lib/log/log-text';
 import { isTestKey, testKeyStatus } from '@/lib/mcp/test-run';
+import type { RequestOtherOffers } from '@/lib/requests/other-offers-status';
+import type { RequestOtherStays } from '@/lib/stay/other-stays-status';
 import { effectiveStatus, type SeatRequestStatus, type FailureKind } from '@/lib/seat-requests/core';
 import {
-  REQUEST_KEY_MIN_CHARS, REQUEST_KEY_MAX_CHARS, publicDisabledReason,
+  REQUEST_KEY_MIN_CHARS, REQUEST_KEY_MAX_CHARS, REQUEST_STATES, ADDRESSEE_WORDS, capitalized, publicDisabledReason,
   type RequestState, type RequestKind, type ConsentPurpose, type RequestNotifyStatus,
 } from '@/lib/mcp/request-status-schema';
-import { BOOKING_STATUSES, LEAD_STATUSES, type BookingStatus, type LeadStatus } from '@/lib/types/statuses';
+import { DECLINE_REASON_LABEL, DECLINE_REASONS, type DeclineReason } from '@/lib/requests/chat-answer-buttons';
+import { LEAD_ANSWER_DATE_SQL, ruAnswerDate } from '@/lib/requests/answer-date';
+import { SELLER_CLOSED_ACTION, isClientLostReason, isLostReason } from '@/lib/leads/lost-reason';
+import {
+  BOOKING_STATUSES, LEAD_CLIENT_CANCELLED, LEAD_STATUSES, UNATTENDED_LEAD_STATUSES, type BookingStatus, type LeadStatus,
+} from '@/lib/types/statuses';
 
 export { REQUEST_STATUS_TOOL_NAME, GET_REQUEST_STATUS_TOOL } from '@/lib/mcp/request-status-schema';
 
@@ -139,6 +160,22 @@ export function consentPurposeForTool(toolName: string): ConsentPurpose {
   if (toolName === STAY_TOOL_NAME || toolName === STAY_FORM_KEY_NAME) return 'stay';
   if (toolName === CHARTER_TOOL_NAME || toolName === CHARTER_FORM_KEY_NAME) return 'carrier';
   if (toolName === CAR_RENTAL_TOOL_NAME || toolName === RENTAL_FORM_KEY_NAME) return 'rental';
+  return 'operator';
+}
+
+/**
+ * Род согласия по ключу. Ключ из кода между каналами (`handoff:<канал>`,
+ * lib/requests/handoff) имени инструмента не несёт, и до 11.11 у заявки на
+ * машину, прокат и жильё такой ключ читался «туроператору»: статус говорил
+ * «оператор», а страница давала подтвердить согласие не тому получателю
+ * (ревью этапа 1 плана «после отказа»). Род тогда берётся из самой заявки:
+ * жильё — по цели ключа, машина и прокат — по `source_data.kind` лида.
+ */
+export function consentPurposeOfKey(k: { tool_name: string; stay_request_id?: string | null; lead_kind?: string | null }): ConsentPurpose {
+  if (!k.tool_name.startsWith('handoff:')) return consentPurposeForTool(k.tool_name);
+  if (k.stay_request_id) return 'stay';
+  if (k.lead_kind === 'charter') return 'carrier';
+  if (k.lead_kind === 'car_rental') return 'rental';
   return 'operator';
 }
 
@@ -263,6 +300,19 @@ export interface RequestStatusView {
   max_link: string | null;
   /** Подписка на уведомления этой заявки (1348): null — не заводилась или уже удалена. */
   notify: RequestNotifyStatus | null;
+  /**
+   * Другие компании к тому же месту на дату заявки после отказа туроператора
+   * (4а): названы, не найдены или не прочитались. null — вид не из такого
+   * отказа. Читается отдельно от вида (база), поэтому в `RequestCore` его нет.
+   */
+  other_offers: RequestOtherOffers | null;
+  /**
+   * Другое жильё в той же зоне на те же ночи после ответа хозяина «Занято»
+   * (этап 5): названо, не найдено или не прочиталось. null — вид не из такого
+   * ответа, заезд прошёл или зона объекта не размечена. Читается отдельно от
+   * вида (база), поэтому в `RequestCore` его нет.
+   */
+  other_stays: RequestOtherStays | null;
 }
 
 /**
@@ -329,6 +379,47 @@ export interface StatusRow {
   chat_partner_replies?: number | null;
   chat_partner_last_at?: Date | string | null;
   chat_guest_on_max?: boolean | null;
+  /**
+   * Ответ адресата кнопкой (11.11, план «после отказа», этап 1). До этого
+   * дня статус их не читал: после «Нет мест» страница и агент слышали «ждём
+   * ответа», а после «Беру» перевозчика — «оператор связался».
+   *   - тур: `partner_incoming_answers` (1334, 1367) — того, кто сейчас
+   *     адресат лида: ответ прежнего адресата после передачи не в счёт;
+   *   - машина и прокат: последняя запись `lead_activity_log.partner_answered`;
+   *   - жильё: `stay_requests.owner_answer` (1359).
+   */
+  lead_answer?: string | null;
+  lead_decline_reason?: string | null;
+  lead_partner_answer?: string | null;
+  /** Номер записи журнала (lead_activity_log.id) с ответом перевозчика или прокатчика. */
+  lead_partner_answer_id?: string | null;
+  /** Крон добивки отдал лид менеджеру (`source_data.escalated_to_admin`) — и поставил ему `contacted`. */
+  lead_escalated?: boolean | null;
+  /** Заявка на группу больше мест тура (`source_data.group_over_seats`) и кто от неё отказался (`declined_by`). */
+  /** Номер ответа кнопкой (partner_incoming_answers.id), который читает статус. */
+  lead_answer_id?: string | null;
+  lead_group_over?: boolean | null;
+  lead_declined_by?: string | null;
+  /** Род лида (`source_data.kind`): `charter`, `car_rental` — у ключа из кода между каналами имени инструмента нет. */
+  lead_kind?: string | null;
+  stay_owner_answer?: string | null;
+  /**
+   * Причина, с которой продавец закрыл заявку «Отказ» в кабинете (12.11, этап
+   * 3а; `leads.lost_reason`, 1429). Есть только у текущего закрытия: при любой
+   * смене статуса её стирает триггер. `lead_closed_id` — запись журнала
+   * (`lead_activity_log.seller_closed`) этого закрытия: на неё ссылается
+   * сообщение человеку.
+   */
+  lead_lost_reason?: string | null;
+  lead_closed_id?: string | null;
+  /**
+   * Тур заявки (номер каталога по `source_data.tour_id`) и число людей в ней —
+   * для «других компаний к месту на дату» (4а, lib/requests/other-offers-status).
+   * Людей — до трёх знаков, как читает сообщение человеку: `lead_participants`
+   * (два знака) группу в 100 человек не видит.
+   */
+  lead_tour_id?: string | null;
+  lead_people?: number | null;
 }
 
 /**
@@ -369,6 +460,8 @@ const LEAD_STATE: Record<LeadStatus, RequestState> = {
   awaiting_confirm: 'in_progress',
   converted: 'confirmed',
   lost: 'declined',
+  // Отменил клиент (1427). Слова — CLIENT_CANCELLED_HUMAN: «бронь отменена» здесь было бы неправдой.
+  cancelled: 'cancelled',
 };
 
 function inDictionary<T extends string>(dict: readonly T[], value: string | null | undefined): value is T {
@@ -431,27 +524,74 @@ const STAY_HUMAN: Record<StayDelivery, string> = {
 
 const STAY_CALL_SELF = 'телефон на карточке объекта (accommodation_url).';
 
+/**
+ * С 1359 владелец отвечает и кнопкой («Свободно, беру», «Занято», «Позвоню
+ * сам») — ответ появляется здесь. До 11.11 эта строка говорила «после
+ * передачи статус не меняется», и агент мог не спросить снова.
+ */
+const STAY_ANSWER_LATER = 'Если владелец ответит кнопкой, ответ появится здесь; спрашивать статус чаще раза в час незачем.';
+
 const STAY_NEXT: Record<StayDelivery, string> = {
-  owner: `Владелец позвонит человеку и подтвердит даты и цену. Если звонка долго нет, человеку стоит позвонить самому: ${STAY_CALL_SELF} Спрашивать статус снова незачем: после передачи он не меняется.`,
-  platform: `Владелец позвонит человеку и подтвердит даты и цену. Если звонка долго нет, человеку стоит позвонить самому: ${STAY_CALL_SELF} Спрашивать статус снова незачем: после передачи он не меняется.`,
+  owner: `Владелец позвонит человеку и подтвердит даты и цену. Если звонка долго нет, человеку стоит позвонить самому: ${STAY_CALL_SELF} ${STAY_ANSWER_LATER}`,
+  platform: `Владелец позвонит человеку и подтвердит даты и цену. Если звонка долго нет, человеку стоит позвонить самому: ${STAY_CALL_SELF} ${STAY_ANSWER_LATER}`,
   none: `Человеку стоит позвонить владельцу самому: ${STAY_CALL_SELF}`,
   not_recorded: `Если владелец не позвонил, человеку стоит позвонить ему самому: ${STAY_CALL_SELF}`,
 };
 
-const HUMAN: Record<RequestState, string> = {
-  awaiting_operator: 'Заявка принята, оператор ещё не ответил.',
-  delivered: 'Заявка передана; ответ дают звонком, и платформа его не видит.',
-  operator_contacted: 'Оператор связался с человеком по заявке.',
-  in_progress: 'Заявка в работе у оператора: детали уточняются.',
-  confirmed: 'Оператор подтвердил заявку.',
-  declined: 'Оператор отказал по заявке или она не состоялась.',
-  other_date: 'На запрошенную дату мест нет, оператор предложил другую дату.',
-  no_answer: 'Оператор не ответил в срок.',
-  cancelled: 'Бронь по заявке отменена.',
-  failed: 'Ответ оператора не записался — исход выясняется у оператора напрямую.',
-  unknown: 'Состояние заявки не распознано.',
-  test: 'Пробная заявка: проверки пройдены, но она не записана и никому не передана.',
+/**
+ * Состояние словами — с тем адресатом, кому ушла заявка: оператор,
+ * перевозчик, прокатчик. `switch` без `default`: новое состояние в
+ * REQUEST_STATES без строки здесь не соберётся.
+ */
+function humanText(state: RequestState, purpose: ConsentPurpose): string {
+  const w = ADDRESSEE_WORDS[purpose];
+  const who = capitalized(w.nom);
+  switch (state) {
+    case 'awaiting_operator': return `Заявка принята, ${w.nom} ещё не ответил.`;
+    case 'delivered': return 'Заявка передана; ответ дают звонком, и платформа его не видит.';
+    case 'operator_contacted': return `${who} связался с человеком по заявке.`;
+    case 'in_progress': return `Заявка в работе у ${w.gen}: детали уточняются.`;
+    case 'confirmed': return `${who} подтвердил заявку.`;
+    case 'declined': return `${who} отказал по заявке или она не состоялась.`;
+    case 'other_date': return `На запрошенную дату мест нет, ${w.nom} предложил другую дату.`;
+    case 'no_answer': return `${who} не ответил в срок.`;
+    case 'cancelled': return 'Бронь по заявке отменена.';
+    case 'failed': return `Ответ ${w.gen} не записался — исход выясняется у ${w.gen} напрямую.`;
+    case 'unknown': return 'Состояние заявки не распознано.';
+    case 'test': return 'Пробная заявка: проверки пройдены, но она не записана и никому не передана.';
+  }
+}
+
+/** Куда идти дальше у заявки на машину и прокат: не в каталог туров. */
+const OTHER_OFFERS: Record<'carrier' | 'rental', string> = {
+  carrier: 'другие перевозчики по направлению — search_transfers, новая заявка — request_charter',
+  rental: 'другие предложения проката — search_car_rental, новая заявка — create_car_rental_request',
 };
+
+function nextText(state: RequestState, purpose: ConsentPurpose): string {
+  if (purpose === 'carrier' || purpose === 'rental') {
+    const w = ADDRESSEE_WORDS[purpose];
+    const alt = OTHER_OFFERS[purpose];
+    switch (state) {
+      case 'awaiting_operator': return `Подождите звонка ${w.gen}; повторно спрашивать статус раньше чем через час не нужно.`;
+      case 'operator_contacted':
+      case 'in_progress': return `Дальнейшее человек согласует с ${w.ins} по телефону.`;
+      case 'confirmed': return `Оплата — ${w.dat} напрямую. Через платформу оплаты нет.`;
+      case 'test': return NEXT.test;
+      case 'delivered': return NEXT.delivered;
+      default: return `Можно: ${alt}.`;
+    }
+  }
+  return NEXT[state];
+}
+
+const HUMAN = Object.fromEntries(REQUEST_STATES.map((s) => [s, humanText(s, 'operator')])) as Record<RequestState, string>;
+
+/**
+ * Заявку отменил сам клиент, пока адресат не ответил (1427). Состояние то же —
+ * `cancelled`, слова свои: у такой заявки брони не было.
+ */
+export const CLIENT_CANCELLED_HUMAN = 'Заявка отменена клиентом.';
 
 const NEXT: Record<RequestState, string> = {
   awaiting_operator: 'Подождите звонка оператора; повторно спрашивать статус раньше чем через час не нужно.',
@@ -468,18 +608,323 @@ const NEXT: Record<RequestState, string> = {
   test: 'Ничего делать не нужно. Чтобы заявка ушла адресату, повторите вызов без test: true.',
 };
 
+interface AnswerView { state: RequestState; human: string; next: string }
+
+/**
+ * Ответ адресата значит что-то, только пока статус лида его не перерос:
+ * лид ждёт (никто из людей не брал) или стоит ровно в том статусе, который
+ * поставил сам ответ. Дальше говорит статус: оператор мог позже связаться,
+ * отправить предложение, закрыть заявку на сайте.
+ */
+function answerHolds(status: string | null, setsStatus: LeadStatus | null): boolean {
+  if (status === null) return false;
+  if ((UNATTENDED_LEAD_STATUSES as readonly string[]).includes(status)) return true;
+  return setsStatus !== null && status === setsStatus;
+}
+
+function isDeclineReason(v: string | null | undefined): v is DeclineReason {
+  return typeof v === 'string' && (DECLINE_REASONS as readonly string[]).includes(v);
+}
+
+const TOUR_OTHER_DATES = 'Другие даты этого тура — get_tour_availability; другой тур — get_tours.';
+
+/**
+ * Отказ по погоде или безопасности (слово владельца 11.11, план, вопрос 3):
+ * другие варианты можно, но только безопасные на ЭТУ дату, и с объяснением
+ * человеку, почему замена. Обстановка и предупреждения места знают «сейчас»,
+ * а не дату поездки — на дату есть только прогноз, и он кончается через
+ * несколько дней. Дальше прогноза безопасность не проверить, и это сказано.
+ */
+const WEATHER_DECLINE_NEXT = 'Отказ из-за погоды или безопасности. Другие варианты на эту дату предлагайте, только если проверили их безопасность: '
+  + 'обстановка — safety_status, место — get_guardian_context, прогноз на эту дату — get_weather. '
+  + 'Дата дальше прогноза — проверить нельзя, так и скажите человеку. Объясните человеку, почему замена. '
+  + 'Другие даты этого тура — get_tour_availability.';
+
+/**
+ * Заявка на большую группу (`source_data.group_over_seats`, lib/mcp/
+ * booking-capacity): после «Нет мест» или отказа адресата крон добивки отдаёт
+ * её другим операторам того же вида туров (lib/leads/followup-scope,
+ * GROUP_DECLINED_LEAD_SQL; слово владельца 08.11) — и агенту при создании это
+ * обещано. «Ищите другой тур» здесь толкнуло бы агента завести вторую заявку
+ * на ту же группу.
+ */
+const GROUP_PASSED_ON = {
+  state: 'awaiting_operator' as RequestState,
+  next: 'Новую заявку на эту группу заводить не нужно. Подождите звонка оператора; повторно спрашивать статус раньше чем через час не нужно.',
+};
+
+/**
+ * Ответ туроператора кнопкой (lib/requests/chat-answer-buttons) → состояние
+ * и слова. Ни один из ответов не бронь: «Подтвердить» — оператор берёт
+ * заявку, дату и цену он согласует сам.
+ */
+function tourAnswerView(answer: string, reason: string | null, status: string | null, requested: string | null): AnswerView | null {
+  const on = requested ? ` на ${ruAnswerDate(requested)}` : ' на запрошенную дату';
+  switch (answer) {
+    case 'accept':
+      if (!answerHolds(status, 'contacted')) return null;
+      return {
+        state: 'in_progress',
+        human: 'Оператор ответил: берёт заявку. Брони ещё нет: дату и цену он согласует с человеком сам.',
+        next: 'Дальнейшее человек согласует с оператором по телефону.',
+      };
+    case 'other_date':
+      if (!answerHolds(status, 'contacted')) return null;
+      return {
+        state: 'other_date',
+        human: `Оператор ответил:${on} не может и предложит другую дату — напишет или позвонит человеку.`,
+        next: `Дату подтверждает оператор. ${TOUR_OTHER_DATES}`,
+      };
+    case 'no_seats':
+      if (!answerHolds(status, null)) return null;
+      return { state: 'declined', human: `Оператор ответил:${on} мест нет.`, next: TOUR_OTHER_DATES };
+    case 'decline': {
+      if (!answerHolds(status, 'lost')) return null;
+      const label = isDeclineReason(reason) ? DECLINE_REASON_LABEL[reason].toLowerCase() : null;
+      return {
+        state: 'declined',
+        human: label ? `Оператор отказал по заявке. Причина: ${label}.` : 'Оператор отказал по заявке.',
+        // Слово владельца 11.11 (план, вопрос 3): после отказа по погоде или
+        // безопасности можно предложить другие безопасные варианты — с
+        // объяснением, почему замена. Безопасность варианта проверяется, а не
+        // предполагается: обстановка и предупреждения по месту.
+        next: reason === 'weather'
+          ? WEATHER_DECLINE_NEXT
+          : TOUR_OTHER_DATES,
+      };
+    }
+    case 'clarify':
+      if (!answerHolds(status, null)) return null;
+      return {
+        state: 'in_progress',
+        human: 'Оператор ответил: уточнит детали и свяжется с человеком.',
+        next: 'Подождите звонка оператора по телефону из заявки.',
+      };
+    case 'self':
+      if (!answerHolds(status, null)) return null;
+      return {
+        state: 'in_progress',
+        human: 'Оператор ответил: свяжется с человеком сам.',
+        next: 'Подождите звонка оператора по телефону из заявки.',
+      };
+    default:
+      return null;
+  }
+}
+
+/**
+ * Продавец закрыл заявку «Отказ» в кабинете и назвал причину (этап 3а,
+ * lib/leads/lost-reason). Держится, только пока заявка закрыта. Отказ продавца
+ * — теми же словами, что кнопка «Отказать» в чате: человеку незачем знать,
+ * какой дверью оператор отказал. Причина на стороне клиента — «по словам
+ * оператора»: Ведар её не проверял, и выдавать её за факт нельзя.
+ */
+function sellerClosedView(reason: string | null | undefined, status: string | null): AnswerView | null {
+  if (status !== 'lost' || !isLostReason(reason)) return null;
+  if (isClientLostReason(reason)) {
+    return reason === 'no_contact'
+      ? {
+        state: 'declined',
+        human: 'Оператор закрыл заявку: по его словам, связаться с человеком по телефону из заявки не удалось.',
+        next: 'Если поездка ещё нужна, человек может позвонить оператору сам или оставить новую заявку: create_booking_request.',
+      }
+      : {
+        state: 'declined',
+        human: 'Оператор закрыл заявку: по его словам, человек отказался от поездки.',
+        next: 'Если это не так, человеку стоит позвонить оператору; новая заявка — create_booking_request.',
+      };
+  }
+  return tourAnswerView('decline', reason, status, null);
+}
+
+/** Вид заявки построен из закрытия продавцом с причиной — оно новее любого ответа кнопкой. */
+function shownSellerClosed(row: StatusRow): AnswerView | null {
+  if (row.booking_status || consentPurposeOfKey(row) !== 'operator') return null;
+  return sellerClosedView(row.lead_lost_reason, row.lead_status ?? null);
+}
+
+/**
+ * Ответ перевозчика или прокатчика («Беру» / «Не могу», lib/rental/
+ * request-answer-flow): «Беру» — готов выполнить и свяжется сам, машина этим
+ * не закреплена и сумма не названа (§14).
+ */
+function vehicleAnswerView(answer: string, purpose: 'carrier' | 'rental', status: string | null): AnswerView | null {
+  const w = ADDRESSEE_WORDS[purpose];
+  const who = capitalized(w.nom);
+  if (answer === 'take') {
+    if (!answerHolds(status, 'contacted')) return null;
+    return {
+      state: 'in_progress',
+      human: `${who} ответил: берёт заявку и свяжется с человеком сам. Машина этим не закреплена, сумма не названа.`,
+      next: `Дальнейшее человек согласует с ${w.ins} по телефону.`,
+    };
+  }
+  if (answer === 'decline') {
+    // Перевозчик «Не могу» ставит лиду lost, прокатчик — статус не меняет.
+    if (!answerHolds(status, purpose === 'carrier' ? 'lost' : null)) return null;
+    return {
+      state: 'declined',
+      human: `${who} ответил: выполнить заявку не может.`,
+      next: `Можно: ${OTHER_OFFERS[purpose]}.`,
+    };
+  }
+  return null;
+}
+
+/**
+ * Что сказать о лиде по ответу адресата — или null, и тогда говорит статус.
+ * Бронь по лиду главнее всего: она — то, что оператор сделал после ответа.
+ */
+function leadAnswerView(row: StatusRow, purpose: ConsentPurpose, requested: string | null): AnswerView | null {
+  if (row.booking_status) return null;
+  const status = row.lead_status ?? null;
+  let view: AnswerView | null = null;
+  const group = purpose === 'operator' && row.lead_group_over === true;
+  // Закрытие с причиной — последнее слово продавца: причина стирается при
+  // любой смене статуса, значит ответ кнопкой, если он был, старше.
+  const closed = purpose === 'operator' ? sellerClosedView(row.lead_lost_reason, status) : null;
+  if (closed) return closed;
+  if (purpose === 'operator' && row.lead_answer) {
+    // Большая группа после отказа адресата уходит другим операторам — это
+    // не конец заявки, а передача. Кроме отказа по погоде или безопасности:
+    // его крон не передаёт (lib/leads/followup-scope, GROUP_DECLINED_LEAD_SQL).
+    if (group && groupPassedOnAnswer(row.lead_answer, row.lead_decline_reason ?? null)
+      && answerHolds(status, row.lead_answer === 'decline' ? 'lost' : null)) {
+      return { ...GROUP_PASSED_ON, human: 'Оператор тура не может взять всю группу. Заявку на группу увидят другие операторы того же вида туров.' };
+    }
+    view = tourAnswerView(row.lead_answer, row.lead_decline_reason ?? null, status, requested);
+  } else if ((purpose === 'carrier' || purpose === 'rental') && row.lead_partner_answer) {
+    view = vehicleAnswerView(row.lead_partner_answer, purpose, status);
+  }
+  if (view) return view;
+  // Крон добивки отдал заявку менеджеру и поставил `contacted`: «оператор
+  // связался» было бы неправдой — с человеком ещё никто не говорил. Почему
+  // отдал, здесь не утверждается: операторов могли и не спросить.
+  if (status === 'contacted' && row.lead_escalated === true) {
+    return {
+      state: 'in_progress',
+      human: 'Заявка передана менеджеру Ведара для ручной обработки.',
+      next: 'Менеджер Ведара свяжется с человеком по телефону из заявки.',
+    };
+  }
+  // Большая группа уже передана: прежний адресат отказался, нового ещё нет.
+  if (group && row.lead_declined_by && row.lead_addressed === false && status !== null
+    && (UNATTENDED_LEAD_STATUSES as readonly string[]).includes(status)) {
+    return { ...GROUP_PASSED_ON, human: 'Оператор тура не смог взять всю группу; заявка передана другим операторам того же вида туров.' };
+  }
+  return null;
+}
+
+/**
+ * Ответ, после которого большую группу увидят другие операторы: «Нет мест» и
+ * отказ не по погоде (тот же выбор, что GROUP_DECLINED_LEAD_SQL).
+ */
+export function groupPassedOnAnswer(answer: string | null | undefined, reason: string | null | undefined): boolean {
+  return answer === 'no_seats' || (answer === 'decline' && reason !== 'weather');
+}
+
+/**
+ * Номер ответа туроператора кнопкой, если вид заявки построен именно из него
+ * (план «после отказа», 2б): тогда сообщение о нём человеку правдиво, а
+ * прочтение такого вида — доставка. null — вид говорит другое (бронь, ответ
+ * перерос статус, другая дата, заявка не туроператору): сообщать не о чем.
+ */
+export function shownTourAnswerId(row: StatusRow): string | null {
+  if (!row.lead_answer_id || !row.lead_answer || row.booking_status) return null;
+  if (consentPurposeOfKey(row) !== 'operator') return null;
+  // Вид говорит словами закрытия с причиной — ответ кнопкой его не строит.
+  if (shownSellerClosed(row)) return null;
+  const status = row.lead_status ?? null;
+  if (row.lead_group_over === true && groupPassedOnAnswer(row.lead_answer, row.lead_decline_reason ?? null)) {
+    return answerHolds(status, row.lead_answer === 'decline' ? 'lost' : null) ? row.lead_answer_id : null;
+  }
+  return tourAnswerView(row.lead_answer, row.lead_decline_reason ?? null, status, null) ? row.lead_answer_id : null;
+}
+
+/**
+ * Номер записи журнала с ответом перевозчика или прокатчика, если вид заявки
+ * построен именно из него (план «после отказа», 2б-2): тогда сообщение о нём
+ * заказчику правдиво, а прочтение такого вида — доставка. null — бронь,
+ * статус перерос ответ или заявка не на машину.
+ */
+export function shownVehicleAnswerId(row: StatusRow): string | null {
+  if (!row.lead_partner_answer_id || !row.lead_partner_answer || row.booking_status) return null;
+  const purpose = consentPurposeOfKey(row);
+  if (purpose !== 'carrier' && purpose !== 'rental') return null;
+  return vehicleAnswerView(row.lead_partner_answer, purpose, row.lead_status ?? null) ? row.lead_partner_answer_id : null;
+}
+
+/**
+ * Ответ адресата, из которого построен вид заявки, — ссылкой для сообщения
+ * человеку (answer_notices): `tour` — кнопка туроператора
+ * (partner_incoming_answers), `vehicle` — запись журнала перевозчика или
+ * прокатчика. Два источника не пересекаются: род заявки один.
+ */
+export type ShownAnswerRef = { source: 'tour' | 'vehicle' | 'closed'; id: string };
+
+/**
+ * Запись журнала о закрытии продавцом с причиной, если вид заявки построен
+ * именно из неё (этап 3а): тогда сообщение человеку об отказе правдиво, а
+ * прочтение такого вида — доставка. null — бронь, причины нет, статус уже
+ * другой или заявка не туроператору.
+ */
+export function shownSellerClosedId(row: StatusRow): string | null {
+  return row.lead_closed_id && shownSellerClosed(row) ? row.lead_closed_id : null;
+}
+
+export function shownAnswerRef(row: StatusRow): ShownAnswerRef | null {
+  const closed = shownSellerClosedId(row);
+  if (closed) return { source: 'closed', id: closed };
+  const tour = shownTourAnswerId(row);
+  if (tour) return { source: 'tour', id: tour };
+  const vehicle = shownVehicleAnswerId(row);
+  return vehicle ? { source: 'vehicle', id: vehicle } : null;
+}
+
+/** Ответ владельца жилья кнопкой (1359, lib/stay/owner-answer). Это не бронь. */
+function stayAnswerView(answer: string | null | undefined): AnswerView | null {
+  switch (answer) {
+    case 'free':
+      return {
+        state: 'in_progress',
+        human: 'Владелец ответил: на эти даты свободно, заявку берёт. Это не бронь: даты и цену он подтвердит звонком или в переписке.',
+        next: 'Дальнейшее человек согласует с владельцем по телефону.',
+      };
+    case 'busy':
+      return {
+        state: 'declined',
+        human: 'Владелец ответил: на эти даты занято.',
+        next: 'Другое жильё в той же зоне на эти ночи — в поле other_stays (если оно не null); искать шире — search_accommodations; новая заявка — create_stay_request.',
+      };
+    case 'call':
+      return {
+        state: 'in_progress',
+        human: 'Владелец ответил: позвонит человеку сам.',
+        next: `Подождите звонка по телефону из заявки. Если звонка долго нет, человеку стоит позвонить самому: ${STAY_CALL_SELF}`,
+      };
+    default:
+      return null;
+  }
+}
+
 function iso(v: Date | string | null): string | null {
   if (!v) return null;
   const t = v instanceof Date ? v : new Date(v);
   return Number.isNaN(t.getTime()) ? null : t.toISOString();
 }
 
-function readKey(raw: unknown): string {
+/** Ключ как он передан: форма проверена, в базу не ходили. Не похож на выданный — отказ по входу. */
+export function readKey(raw: unknown): string {
   const key = typeof raw === 'string' ? raw.trim() : '';
   if (key.length < REQUEST_KEY_MIN_CHARS || key.length > REQUEST_KEY_MAX_CHARS || !KEY_RE.test(key)) {
     throw new McpUserError('Ключ статуса не похож на выданный — передайте его как есть из ответа пишущего инструмента.', 'invalid_args:key');
   }
   return key;
+}
+
+/** Чем ключ ищется в базе (там только hash): для дверей, которые по ключу меняют заявку (lib/mcp/change-request). */
+export function requestKeyHash(key: string): string {
+  return sha256(key);
 }
 
 /**
@@ -493,6 +938,11 @@ const REQUEST_STATUS_SELECT = `
   SELECT k.id::text AS key_id, k.tool_name, k.lead_id::text, k.seat_request_id::text, k.stay_request_id::text,
          l.status AS lead_status, l.route_title, l.source_data->>'date' AS lead_requested_date,
          CASE WHEN l.source_data->>'participants' ~ '^[0-9]{1,2}$' THEN (l.source_data->>'participants')::int END AS lead_participants, lt.title AS lead_tour,
+         -- Тур и число людей заявки — для «других компаний на дату» (4а): то же
+         -- чтение, что у сообщения человеку (NOTICE_FACTS_SQL), иначе чат и статус
+         -- одной заявки считали бы места на разное число людей.
+         lt.id::text AS lead_tour_id,
+         CASE WHEN l.source_data->>'participants' ~ '^[0-9]{1,3}$' THEN (l.source_data->>'participants')::int END AS lead_people,
          ob.booking_status, ob.booking_date::text AS booking_date, ob.participants AS booking_participants, ot.title AS booking_tour,
          r.status AS seat_status, r.deadline_at, r.answered_at, r.tour_date::text AS seat_date,
          r.participants AS seat_participants, r.alt_date::text AS alt_date, r.failure_kind, st.title AS seat_tour,
@@ -508,9 +958,42 @@ const REQUEST_STATUS_SELECT = `
          k.opens_chat, (l.operator_id IS NOT NULL AND l.is_self = FALSE) AS lead_addressed,
          sm.n AS chat_partner_replies, sm.last_at AS chat_partner_last_at,
          (COALESCE(s.guest_max_chat_id, l.guest_max_chat_id) IS NOT NULL) AS chat_guest_on_max,
-         n.ref AS notify_ref, n.disabled_reason AS notify_disabled_reason
+         n.ref AS notify_ref, n.disabled_reason AS notify_disabled_reason,
+         pa.id::text AS lead_answer_id, pa.answer AS lead_answer, pa.decline_reason AS lead_decline_reason,
+         la.answer AS lead_partner_answer, la.id AS lead_partner_answer_id,
+         (l.source_data->>'escalated_to_admin') = 'true' AS lead_escalated,
+         (l.source_data->>'group_over_seats') = 'true' AS lead_group_over,
+         l.source_data->>'declined_by' AS lead_declined_by,
+         l.source_data->>'kind' AS lead_kind,
+         s.owner_answer AS stay_owner_answer,
+         l.lost_reason AS lead_lost_reason, lc.id AS lead_closed_id
     FROM k
     LEFT JOIN leads l ON l.id = k.lead_id
+    -- Ответ кнопкой того, кто сейчас адресат лида (1334): после передачи
+    -- заявки другому ответ прежнего адресата о ней ничего не говорит.
+    LEFT JOIN partner_incoming_answers pa
+           ON pa.subject_kind = 'lead' AND pa.subject_id = k.lead_id::text
+          AND pa.partner_id::text = l.operator_id::text
+          -- …и на ту дату, что сейчас в заявке (1422): после «Нет мест» человек
+          -- мог сам выбрать другую, и ответ о прежней дате о новой не говорит.
+          -- Уникальность (предмет, партнёр, дата) — не больше строки на ключ.
+          AND pa.subject_date IS NOT DISTINCT FROM ${LEAD_ANSWER_DATE_SQL('l')}
+    LEFT JOIN LATERAL (
+      SELECT pal.id::text AS id, pal.details->>'answer' AS answer
+        FROM lead_activity_log pal
+       WHERE pal.lead_id = k.lead_id AND pal.action = 'partner_answered'
+       ORDER BY pal.id DESC
+       LIMIT 1
+    ) la ON k.lead_id IS NOT NULL
+    -- Закрытие продавцом с причиной (1429): причина лежит в заявке и стирается
+    -- при смене статуса, поэтому последняя запись журнала — её закрытие.
+    LEFT JOIN LATERAL (
+      SELECT cl.id::text AS id
+        FROM lead_activity_log cl
+       WHERE cl.lead_id = k.lead_id AND cl.action = '${SELLER_CLOSED_ACTION}'
+       ORDER BY cl.id DESC
+       LIMIT 1
+    ) lc ON l.lost_reason IS NOT NULL
     -- Тур заявки на бронь — по номеру, который записал роут MCP; приведение
     -- только числу: source_data — jsonb, и чужая форма даёт «не записано», а
     -- не 22P02 на весь ответ.
@@ -561,6 +1044,35 @@ export const REQUEST_STATUS_BY_KEY_IDS_SQL = `
      WHERE id = ANY($1::uuid[]) AND expires_at > NOW()
   )${REQUEST_STATUS_SELECT}`;
 
+/**
+ * По номеру заявки, без сырого ключа и без отметки прочтения: так читает
+ * сообщение человеку после ответа оператора (lib/requests/answer-notice).
+ * Ключ — новой заявки, если он есть; заявки без ключа (форма до 1350) читаются
+ * как `handoff:none`: род берётся по самой заявке (consentPurposeOfKey), а не
+ * по умолчанию «подбор».
+ */
+const statusByLeads = (leads: string): string => `
+  WITH k AS (
+    SELECT kk.id, x.lead_id, NULL::uuid AS seat_request_id, NULL::uuid AS stay_request_id,
+           COALESCE(kk.tool_name, 'handoff:none') AS tool_name, COALESCE(kk.opens_chat, false) AS opens_chat
+      FROM (${leads}) x
+      LEFT JOIN LATERAL (
+        SELECT id, tool_name, opens_chat FROM agent_request_keys
+         WHERE lead_id = x.lead_id AND expires_at > NOW()
+         ORDER BY opens_chat DESC, created_at
+         LIMIT 1
+      ) kk ON TRUE
+  )${REQUEST_STATUS_SELECT}`;
+
+export const REQUEST_STATUS_BY_LEAD_SQL = statusByLeads('SELECT $1::uuid AS lead_id');
+
+/**
+ * То же по списку заявок одним запросом — строка на заявку, `lead_id` в ней.
+ * Так очередь менеджера (lib/manager-queue) сверяет, что вид каждой заявки
+ * по-прежнему построен из отказа, по которому человеку собираются звонить.
+ */
+export const REQUEST_STATUS_BY_LEADS_SQL = statusByLeads('SELECT DISTINCT unnest($1::uuid[]) AS lead_id');
+
 const ISO_DAY = /^\d{4}-\d{2}-\d{2}$/;
 
 /** Дата из `source_data` — текст, записанный агентом; не той формы — «не записано». */
@@ -583,7 +1095,7 @@ function dateChangeNote(requested: string | null, actual: string | null): string
  * уведомлений. Ссылки с ключом (страница, MAX) — только в ответе по ключу:
  * сырого ключа у сверки нет и быть не должно.
  */
-export type RequestCore = Omit<RequestStatusView, 'page' | 'notify' | 'max_link'>;
+export type RequestCore = Omit<RequestStatusView, 'page' | 'notify' | 'max_link' | 'other_offers' | 'other_stays'>;
 
 /** Переписки у запроса мест нет: поля есть, значения null. */
 const NO_CHAT = { partner_replies: null, partner_last_reply_at: null } as const;
@@ -610,16 +1122,20 @@ const BOOKING_GONE_HUMAN = 'Бронь по заявке не найдена —
  * опрос — другое. Чистая: строка и время на входе, без базы.
  */
 export function buildRequestView(row: StatusRow, now: number): RequestCore {
-  const consent_purpose = consentPurposeForTool(row.tool_name);
+  const consent_purpose = consentPurposeOfKey(row);
 
   if (row.stay_request_id) {
     // Строки заявки нет (удалена между UPDATE и JOIN) — честное unknown.
     const exists = row.stay_accommodation_id !== null;
     const delivery = stayDelivery(row.stay_owner_channel, row.stay_platform_channel, row.stay_delivery_recorded_at);
-    const state = exists ? stayState(delivery) : 'unknown';
+    // Ответ владельца кнопкой (1359) — главнее доставки: заявка до него дошла.
+    const answered = exists ? stayAnswerView(row.stay_owner_answer) : null;
+    const state = answered ? answered.state : exists ? stayState(delivery) : 'unknown';
     // Переписка (1349): сколько написал владелец — без текста.
     const chat = exists && row.opens_chat === true;
     const replies = Number(row.chat_partner_replies ?? 0);
+    const stayHuman = answered ? answered.human : STAY_HUMAN[delivery];
+    const stayNext = answered ? answered.next : STAY_NEXT[delivery];
     return {
       state,
       kind: 'stay_request',
@@ -633,11 +1149,11 @@ export function buildRequestView(row: StatusRow, now: number): RequestCore {
       alt_date: null,
       deadline: null,
       human: !exists ? HUMAN.unknown
-        : chat && replies > 0 ? `${STAY_HUMAN[delivery]} Владелец уже ответил в переписке (сообщений: ${replies}); текст — на странице заявки, здесь он не показывается.`
-        : STAY_HUMAN[delivery],
+        : chat && replies > 0 ? `${stayHuman} Владелец уже ответил в переписке (сообщений: ${replies}); текст — на странице заявки, здесь он не показывается.`
+        : stayHuman,
       next: !exists ? NEXT.unknown
-        : chat && replies > 0 ? CHAT_REPLIED_NEXT
-        : STAY_NEXT[delivery],
+        : chat && replies > 0 ? (answered ? `${stayNext} ${CHAT_REPLIED_NEXT}` : CHAT_REPLIED_NEXT)
+        : stayNext,
       consent: consentBy(row.stay_consent_source, row.stay_consent_at),
       consent_purpose,
       partner_replies: chat ? replies : null,
@@ -702,15 +1218,23 @@ export function buildRequestView(row: StatusRow, now: number): RequestCore {
 
   // Лид без строки lead: сама заявка удалена (ON DELETE CASCADE снял бы и
   // ключ, но строка могла исчезнуть между UPDATE и JOIN) — честное unknown.
-  const state = row.lead_id ? leadState(row.lead_status, row.booking_status) : 'unknown';
   // Запрошенная дата есть только у заявки на бронь тура (её пишет роут MCP в
   // source_data); у подбора, машины и проката даты в этом смысле нет.
   const requested = row.tool_name === BOOKING_TOOL_NAME ? dayOrNull(row.lead_requested_date) : null;
+  // Ответ адресата кнопкой — пока статус лида его не перерос (leadAnswerView).
+  const answered = row.lead_id && row.lead_status !== null ? leadAnswerView(row, consent_purpose, requested) : null;
+  const state = answered ? answered.state : row.lead_id ? leadState(row.lead_status, row.booking_status) : 'unknown';
   // Переписка с адресатом лида (1350): только ключ новой заявки и только лид,
   // адресованный партнёру. Без текста — число и время ответов.
   const chat = row.lead_id !== null && row.lead_status !== null && row.opens_chat === true && row.lead_addressed === true;
   const replies = Number(row.chat_partner_replies ?? 0);
-  const human = HUMAN[state] + (row.booking_status ? dateChangeNote(requested, row.booking_date) : '');
+  // Отменил клиент (1427): брони нет, и «бронь по заявке отменена» было бы неправдой.
+  const clientCancelled = !answered && !row.booking_status && row.lead_status === LEAD_CLIENT_CANCELLED;
+  const human = answered
+    ? answered.human
+    : clientCancelled
+      ? CLIENT_CANCELLED_HUMAN
+      : humanText(state, consent_purpose) + (row.booking_status ? dateChangeNote(requested, row.booking_date) : '');
   return {
     state,
     kind: 'lead',
@@ -726,7 +1250,9 @@ export function buildRequestView(row: StatusRow, now: number): RequestCore {
     human: chat && replies > 0
       ? `${human} Адресат заявки ответил в переписке (сообщений: ${replies}); текст — на странице заявки, здесь он не показывается.`
       : human,
-    next: chat && replies > 0 ? CHAT_REPLIED_NEXT : NEXT[state],
+    next: answered
+      ? (chat && replies > 0 ? `${answered.next} ${CHAT_REPLIED_NEXT}` : answered.next)
+      : chat && replies > 0 ? CHAT_REPLIED_NEXT : nextText(state, consent_purpose),
     consent: consentBy(row.lead_consent_source, row.lead_consent_at),
     consent_purpose,
     partner_replies: chat ? replies : null,
@@ -756,7 +1282,15 @@ export function catalogTourOf(row: StatusRow): string | null {
   return row.booking_tour ?? leadCatalogTour(row);
 }
 
-export async function readRequestStatus(rawKey: unknown): Promise<RequestStatusView> {
+/**
+ * Кто читает статус. `agent` — get_request_status (MCP, A2A); `page` —
+ * страница заявки, `seen` — вкладка на виду; без `reader` — чтение не
+ * считается доставкой ответа (Кузьмич по вставленному ключу: человек спросил
+ * сам, сообщение ему ушло бы и так).
+ */
+export interface StatusReader { reader?: 'agent' | 'page'; seen?: boolean }
+
+export async function readRequestStatus(rawKey: unknown, opts: StatusReader = {}): Promise<RequestStatusView> {
   const key = readKey(rawKey);
   // Пробный ключ не хранится — заявки нет (lib/mcp/test-run, 08.11).
   if (isTestKey(key)) return testKeyStatus(key);
@@ -772,6 +1306,29 @@ export async function readRequestStatus(rawKey: unknown): Promise<RequestStatusV
     throw new McpUserError(`Ключ не найден или истёк (ключ живёт ${REQUEST_KEY_TTL_DAYS} дней). Проверьте, что передан ключ из ответа инструмента целиком.`, 'key_not_found');
   }
   const core = buildRequestView(row, Date.now());
+  // Ответ оператора дошёл, если его прочитал держатель ключа новой заявки
+  // (план «после отказа», 2б; слово владельца 11.11 «мы доверяем агенту»).
+  const shown = row.opens_chat === true ? shownAnswerRef(row) : null;
+  const via = opts.reader === 'agent' ? 'agent_read' : opts.reader === 'page' && opts.seen === true ? 'page_seen' : null;
+  if (shown && via) {
+    const { markShownRef } = await import('@/lib/requests/answer-notice-mark');
+    await markShownRef(shown, via);
+  }
+  // Другие компании к месту на дату (4а): только у вида-отказа, поэтому модуль
+  // (и его чтение базы) подгружается, когда он нужен. Вид важнее списка — тот
+  // не бросает: не прочитался — `failed`.
+  let other_offers: RequestOtherOffers | null = null;
+  if (core.kind === 'lead' && core.state === 'declined') {
+    const { readStatusOtherOffers } = await import('@/lib/requests/other-offers-status');
+    other_offers = await readStatusOtherOffers(row, core);
+  }
+  // Другое жильё на те же ночи (этап 5): только после «Занято» хозяина. Тем же
+  // порядком: вид важнее списка, список не бросает.
+  let other_stays: RequestOtherStays | null = null;
+  if (core.kind === 'stay_request' && core.state === 'declined') {
+    const { readStatusOtherStays } = await import('@/lib/stay/other-stays-status');
+    other_stays = await readStatusOtherStays(row, core);
+  }
   return {
     ...core,
     page: requestStatusPageUrl(key),
@@ -779,6 +1336,8 @@ export async function readRequestStatus(rawKey: unknown): Promise<RequestStatusV
     // только здесь. Переписка по ключу открыта — partner_replies не null.
     max_link: core.partner_replies !== null && row.chat_guest_on_max !== true ? guestBotLink(maxBot(), key) : null,
     notify: notifyStatusOf(row),
+    other_offers,
+    other_stays,
   };
 }
 
@@ -867,9 +1426,10 @@ export async function confirmConsent(rawKey: unknown, record: PdConsentRecord): 
 
 /** Род заявки по ключу без отметки прочтения: какой текст согласия человек подтверждает. */
 export const CONSENT_PURPOSE_SQL = `
-  SELECT tool_name
-    FROM agent_request_keys
-   WHERE key_hash = $1 AND expires_at > NOW()`;
+  SELECT k.tool_name, k.stay_request_id::text AS stay_request_id, l.source_data->>'kind' AS lead_kind
+    FROM agent_request_keys k
+    LEFT JOIN leads l ON l.id = k.lead_id
+   WHERE k.key_hash = $1 AND k.expires_at > NOW()`;
 
 /**
  * На передачу кому согласие по заявке этого ключа — до записи согласия.
@@ -881,7 +1441,7 @@ export async function readConsentPurpose(rawKey: unknown): Promise<ConsentPurpos
   const key = readKey(rawKey);
   let row: { tool_name: string } | undefined;
   try {
-    ({ rows: [row] } = await pool.query<{ tool_name: string }>(CONSENT_PURPOSE_SQL, [sha256(key)]));
+    ({ rows: [row] } = await pool.query<{ tool_name: string; stay_request_id: string | null; lead_kind: string | null }>(CONSENT_PURPOSE_SQL, [sha256(key)]));
   } catch (err) {
     const code = (err as { code?: unknown })?.code;
     console.error('[request-status] род заявки не прочитан:', typeof code === 'string' ? `SQLSTATE=${logText(code, 10)}` : '', logText(err instanceof Error ? err.message : err, 200));
@@ -890,10 +1450,10 @@ export async function readConsentPurpose(rawKey: unknown): Promise<ConsentPurpos
   if (!row) {
     throw new McpUserError(`Ключ не найден или истёк (ключ живёт ${REQUEST_KEY_TTL_DAYS} дней).`, 'key_not_found');
   }
-  return consentPurposeForTool(row.tool_name);
+  return consentPurposeOfKey(row);
 }
 
 /** Исполнитель для роута MCP: JSON-строка того же объекта (как у search/fetch). */
 export async function runRequestStatusTool(rawArgs: Record<string, unknown>): Promise<string> {
-  return JSON.stringify(await readRequestStatus(rawArgs.key));
+  return JSON.stringify(await readRequestStatus(rawArgs.key, { reader: 'agent' }));
 }

@@ -25,7 +25,7 @@ describe('метрики агента', () => {
 
 describe('обзор агента — формат кабинетов', () => {
   it('плитки разделов (SectionsNav) как у гида/туриста', () => {
-    expect(dashboard).toMatch(/SECTION_GROUPS/);
+    expect(dashboard).toMatch(/sectionGroups\(\)/);
     expect(dashboard).toMatch(/SectionsNav/);
   });
 

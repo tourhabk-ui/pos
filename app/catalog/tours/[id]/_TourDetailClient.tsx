@@ -602,7 +602,12 @@ export default function TourDetailClient({ tour, reviews = [], askSeatsFirst = f
           сами. */}
       <Header overPhoto />
       {/* ═══ Кино-герой ═══ */}
-      <header className="relative overflow-hidden" style={{ height: 'min(64vh, 560px)', minHeight: 380, background: 'var(--bg-hover)' }}>
+      {/* Высота — НЕ фиксированная (11.11, гид Андрей Запорожец: «кнопка обстановка не
+          даёт прочитать название тура»). Прежде герой стоял высотой min(64vh, 560px), а
+          текст прижимался к низу абсолютом: длинное название и описание росли вверх,
+          уходили под плашку «Обстановка в крае», и крошки обрезал край героя. Теперь
+          плашка и текст в потоке колонки, и длинный текст растит героя, а не наезжает. */}
+      <header data-testid="tour-hero" className="relative overflow-hidden flex flex-col" style={{ minHeight: 'max(380px, min(64vh, 560px))', paddingTop: 'calc(env(safe-area-inset-top, 0px) + 72px)', background: 'var(--bg-hover)' }}>
         {heroImg ? (
           <button className="absolute inset-0 w-full h-full" onClick={() => setLightbox(0)} aria-label="Открыть фото">
             {/* 1280-вариант: оптимизатор Next выключен (unoptimized), и без
@@ -630,7 +635,7 @@ export default function TourDetailClient({ tour, reviews = [], askSeatsFirst = f
             SOS здесь больше нет — она в общей шапке, фиксированной на каждом
             экране; вторая кнопка того же действия на экране запрещена (#887). */}
         {dayStatus && (
-          <div className="absolute left-4 right-4 z-[2] flex items-start" style={{ top: 'calc(env(safe-area-inset-top, 0px) + 72px)' }}>
+          <div data-testid="tour-hero-status" className="relative z-[2] px-4 flex items-start">
             <Link
               href="/safety"
               className="inline-flex items-center gap-2 rounded-2xl px-3 py-2 text-xs font-semibold uppercase tracking-wider text-white hover:text-white hover:no-underline backdrop-blur-md bg-black/40 border border-white/15 transition-colors hover:bg-black/55"
@@ -661,7 +666,7 @@ export default function TourDetailClient({ tour, reviews = [], askSeatsFirst = f
         {/* Подложка привязана к текстовому блоку, а не к процентам героя:
             тёмный низ начинается над крошками и держит заголовок, описание и
             полосу фактов на любом кадре (аудит П6, #67/#72). */}
-        <div className="absolute inset-x-0 bottom-0 pointer-events-none bg-gradient-to-t from-black/70 via-black/40 to-transparent pt-16">
+        <div data-testid="tour-hero-text" className="relative mt-auto pointer-events-none bg-gradient-to-t from-black/70 via-black/40 to-transparent pt-16">
           <div className="max-w-6xl mx-auto px-4 sm:px-6 pb-9">
             {/* Цвет — на КАЖДОЙ ссылке: цвет, заданный на <nav>, перебивало
                 глобальное a{color:var(--ocean)}, и крошки выходили бирюзой по

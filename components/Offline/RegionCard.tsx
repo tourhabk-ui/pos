@@ -2,7 +2,13 @@
 
 import { type Region } from '@/lib/geo/regions';
 import { estimateTilesMb } from '@/lib/offline/tiles';
+import { useEffect, useRef, useState } from 'react';
+import { CheckCircle2 } from 'lucide-react';
 import { useOfflineRegion } from '@/lib/offline/useOfflineRegion';
+import { ProgressRing } from '@/components/ui/ProgressRing';
+
+/** Сколько держится галочка «Можно без сети» после скачивания, мс. */
+export const OFFLINE_DONE_BEAT_MS = 2600;
 
 interface RegionCardProps {
   region: Region;
@@ -30,6 +36,22 @@ export default function RegionCard({ region }: RegionCardProps) {
   // Частично скачанный регион — не «Скачан»: часть тайлов не легла в кэш
   // или уже вычищена системой. Показываем это словами и предлагаем добрать.
   const isPartial = status === 'partial';
+
+  // Галочка «Можно без сети» — только по факту: скачивание шло в этой сессии
+  // и закончилось полным регионом. Частично скачанный галочки не получает:
+  // на неполную карту в поле полагаться нельзя.
+  const wasDownloading = useRef(false);
+  const [justDone, setJustDone] = useState(false);
+  useEffect(() => {
+    if (isDownloading) { wasDownloading.current = true; return; }
+    if (wasDownloading.current && isCached) {
+      wasDownloading.current = false;
+      setJustDone(true);
+      const t = window.setTimeout(() => setJustDone(false), OFFLINE_DONE_BEAT_MS);
+      return () => window.clearTimeout(t);
+    }
+    wasDownloading.current = false;
+  }, [isDownloading, isCached]);
 
   return (
     <div className="rounded-xl border border-[var(--border)] bg-[var(--bg-secondary)] p-4 flex flex-col gap-3">
@@ -168,15 +190,25 @@ export default function RegionCard({ region }: RegionCardProps) {
 
         {isDownloading && (
           <div className="flex-1 flex items-center justify-center gap-2 px-4 py-2 rounded-lg bg-[var(--bg-tertiary)] text-[var(--text-secondary)] text-sm">
-            <svg className="w-4 h-4 animate-spin" fill="none" viewBox="0 0 24 24">
-              <circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4" />
-              <path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4z" />
-            </svg>
-            Скачивается...
+            <ProgressRing
+              percent={status === 'caching-tiles' ? progress.percent : null}
+              label={status === 'caching-tiles' ? `Скачано ${progress.percent}%` : 'Готовим список маршрутов'}
+            />
+            {status === 'caching-tiles' ? `Скачано ${progress.percent}%` : 'Готовим маршруты…'}
           </div>
         )}
 
-        {(isCached || isPartial) && (
+        {justDone && (
+          <div
+            role="status"
+            className="flex-1 flex items-center justify-center gap-2 px-4 py-2 rounded-lg bg-[var(--bg-tertiary)] text-[var(--success)] text-sm font-medium"
+          >
+            <CheckCircle2 className="w-5 h-5" aria-hidden="true" />
+            Можно без сети
+          </div>
+        )}
+
+        {!justDone && (isCached || isPartial) && (
           <>
             <button
               onClick={remove}

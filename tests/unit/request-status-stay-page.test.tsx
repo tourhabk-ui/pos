@@ -34,7 +34,7 @@ const CHARTER_VIEW = {
   accommodation: null, accommodation_url: null,
   date: null, check_out: null, participants: null,
   alt_date: null, deadline: null,
-  human: 'Заявка принята, оператор ещё не ответил.',
+  human: 'Заявка принята, перевозчик ещё не ответил.',
   consent: 'agent', consent_purpose: 'carrier',
 };
 
@@ -73,12 +73,19 @@ describe('страница заявки на жильё', () => {
     serve(STAY_VIEW);
     render(<RequestStatusClient />);
     expect(await screen.findByRole('heading', { name: 'Заявка передана' })).toBeInTheDocument();
-    expect(screen.getByText(/Кутха · .*2027.* — .*2027.* · гостей: 9/)).toBeInTheDocument();
+    // С 12.11 объект, даты и гости — на билете заявки, а не строкой под заголовком.
+    const ticket = screen.getByRole('region', { name: 'Заявка' });
+    expect(ticket.textContent).toMatch(/Кутха/);
+    expect(ticket.textContent).toMatch(/Заезд10 июля 2027/);
+    expect(ticket.textContent).toMatch(/Выезд12 июля 2027/);
+    expect(ticket.textContent).toMatch(/Гостей9/);
+    expect(ticket.textContent).toMatch(/Это заявка, а не бронь: подтверждает владелец жилья/);
     expect(screen.getByText(STAY_VIEW.human)).toBeInTheDocument();
     expect(screen.getByText(/Владелец позвонит по телефону из заявки/)).toBeInTheDocument();
     expect(screen.queryByText(/Ждём ответа оператора/)).not.toBeInTheDocument();
     // Статус спрошен с ключом из фрагмента адреса.
-    expect(fetchMock.mock.calls[0][0]).toBe(`/api/requests/status?k=${KEY}`);
+    // seen=1 — вкладка на виду (план «после отказа», 2б): так страница отмечает, что ответ увиден.
+    expect(fetchMock.mock.calls[0][0]).toBe(`/api/requests/status?k=${KEY}&seen=1`);
   });
 
   it('ведёт на карточку объекта и в раздел жилья, а не в каталог туров', async () => {
@@ -122,6 +129,60 @@ describe('страница заявки на машину', () => {
     const box = await screen.findByRole('checkbox');
     expect(box.closest('label')).toHaveTextContent(PD_CONSENT_CARRIER_TEXT);
     expect(box.closest('label')).not.toHaveTextContent(PD_CONSENT_TEXT);
-    await waitFor(() => expect(screen.getByRole('link', { name: 'Каталог туров' })).toBeInTheDocument());
+  });
+
+  // До 11.11 заявка на машину говорила «Ждём ответа оператора» и звала в
+  // каталог туров (план «после отказа», этап 1): адресат — перевозчик.
+  it('ждёт перевозчика, а не оператора, и ведёт к трансферам, а не в каталог туров', async () => {
+    serve(CHARTER_VIEW);
+    render(<RequestStatusClient />);
+    expect(await screen.findByRole('heading', { name: 'Ждём ответа перевозчика' })).toBeInTheDocument();
+    expect(screen.getByRole('link', { name: 'Трансферы' })).toHaveAttribute('href', '/transfers');
+    expect(screen.queryByRole('link', { name: 'Каталог туров' })).not.toBeInTheDocument();
+    expect(screen.queryByText(/Оператор свяжется|ответа оператора/)).not.toBeInTheDocument();
+    expect(screen.getByText(/Перевозчик свяжется по телефону из заявки/)).toBeInTheDocument();
+  });
+
+  it('отказ перевозчика — других перевозчиков ищут на странице трансферов', async () => {
+    serve({ ...CHARTER_VIEW, state: 'declined', human: 'Перевозчик ответил: выполнить заявку не может. Менеджер Ведара получил об этом сообщение.' });
+    render(<RequestStatusClient />);
+    expect(await screen.findByRole('heading', { name: 'Перевозчик отказал по заявке' })).toBeInTheDocument();
+    expect(screen.getByText(/Других перевозчиков и цены по направлению смотрите на странице трансферов/)).toBeInTheDocument();
+    expect(screen.queryByText(/другой тур/)).not.toBeInTheDocument();
+  });
+});
+
+describe('страница заявки на прокат', () => {
+  it('ждёт прокатчика и ведёт в прокат машин', async () => {
+    serve({ ...CHARTER_VIEW, consent_purpose: 'rental', human: 'Заявка принята, прокатчик ещё не ответил.' });
+    render(<RequestStatusClient />);
+    expect(await screen.findByRole('heading', { name: 'Ждём ответа прокатчика' })).toBeInTheDocument();
+    expect(screen.getByRole('link', { name: 'Прокат машин' })).toHaveAttribute('href', '/car-rental');
+  });
+});
+
+describe('страница заявки на жильё: ответ владельца кнопкой (1359)', () => {
+  it('«Занято» — отказ владельца и другое жильё, а не «передана»', async () => {
+    serve({ ...STAY_VIEW, state: 'declined', human: 'Владелец ответил: на эти даты занято.' });
+    render(<RequestStatusClient />);
+    expect(await screen.findByRole('heading', { name: 'Владелец ответил: занято' })).toBeInTheDocument();
+    expect(screen.getByText('Другое жильё на эти даты — на странице жилья.')).toBeInTheDocument();
+    expect(screen.getByRole('link', { name: 'Жильё' })).toHaveAttribute('href', '/accommodations');
+  });
+
+  it('«Свободно, беру» — владелец ответил, это не бронь', async () => {
+    serve({ ...STAY_VIEW, state: 'in_progress', human: 'Владелец ответил: на эти даты свободно, заявку берёт. Это не бронь: даты и цену он подтвердит звонком или в переписке.' });
+    render(<RequestStatusClient />);
+    expect(await screen.findByRole('heading', { name: 'Владелец ответил' })).toBeInTheDocument();
+    expect(screen.queryByText(/у оператора/)).not.toBeInTheDocument();
+  });
+});
+
+describe('страница заявки на тур: тексты оператора прежние', () => {
+  it('ждём ответа оператора и каталог туров', async () => {
+    serve({ ...CHARTER_VIEW, consent_purpose: 'operator', human: 'Заявка принята, оператор ещё не ответил.' });
+    render(<RequestStatusClient />);
+    expect(await screen.findByRole('heading', { name: 'Ждём ответа оператора' })).toBeInTheDocument();
+    await waitFor(() => expect(screen.getByRole('link', { name: 'Каталог туров' })).toHaveAttribute('href', '/catalog'));
   });
 });

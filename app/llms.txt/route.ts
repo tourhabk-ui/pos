@@ -19,6 +19,8 @@ import { platformAcceptsPayments } from '@/lib/payments/accepting';
 import { A2A_CATALOGS } from '@/lib/a2a/catalogs';
 import { OPENAPI_PATH, API_CATALOG_PATH } from '@/lib/api/openapi';
 import { NOTIFY_RESPONSE_RULES } from '@/lib/mcp/request-notify-schema';
+import { ANSWER_RELAY_RULE } from '@/lib/mcp/request-status-schema';
+import { CHANGE_REQUEST_RULE } from '@/lib/mcp/change-request-schema';
 import { recordAgentEntryHit } from '@/lib/analytics/agent-entry-hits';
 import { publicAccommodationSql } from '@/lib/stay/moderation';
 import { carrierPagePath } from '@/lib/transfers/charter-format';
@@ -228,8 +230,8 @@ Last-Updated: ${new Date().toISOString().slice(0, 10)}
 - [Главная](${BASE}) — обзор платформы
 - [Каталог маршрутов](${BASE}/routes) — маршруты и природные объекты (места)
 - [Карта Камчатки](${BASE}/map) — интерактивная карта объектов
-- [Планировщик](${BASE}/planner) — AI-конструктор маршрута (зоны, живая занятость, погода)
-- [Готовые планы поездок](${BASE}/plans) — планы по дням с погодой и заявкой оператору на туры
+- [Планировщик](${BASE}/planner) — AI-конструктор маршрута (зоны, живая занятость)
+- [Готовые планы поездок](${BASE}/plans) — планы по дням с заявкой оператору на туры
 - [Туры от операторов](${BASE}/catalog) — реальные коммерческие предложения операторов
 - [Рыбалка на Камчатке](${BASE}/hub/fishing) — рыболовные туры операторов: цены, сезоны по видам лосося, как оставить заявку
 - [Операторы](${BASE}/operators) — верифицированные туроператоры и гиды
@@ -325,7 +327,7 @@ no auth): ${BASE}/api/mcp — docs: ${BASE}/mcp. Booking, stay and charter reque
 human (operator, owner or manager), no instant booking. ${paymentRuleEn(acceptsPayments)} Full English file: ${BASE}/llms-en.txt.
 ${agentRequestRulesEn(acceptsPayments)}
 
-## Готовые планы поездок (по дням, с погодой и заявкой оператору)
+## Готовые планы поездок (по дням, с заявкой оператору)
 
 ${planLines}
 
@@ -356,7 +358,7 @@ ${parks.length ? parks.map((p) => `- [${p.displayName}](${BASE}/park/${p.slug})`
   (safety_status, get_guardian_context), погода, жильё, снаряжение,
   трансферы (search_transfers — прайс машины целиком, не места), прокат машин
   без водителя (search_car_rental — цена за сутки за машину, залог), план поездки (make_trip_plan) и его правка по ID (edit_trip_plan)
-- Запись — только ЗАЯВКИ, подтверждает человек: create_lead (подбор тура),
+- Новая запись — только ЗАЯВКИ, подтверждает человек: create_lead (подбор тура),
   create_booking_request (заявка оператору на конкретный тур и дату; занятость
   проверяется до создания — на дату без мест заявка не создаётся),
   request_charter (заявка на машину целиком у перевозчика «под заказ»:
@@ -370,16 +372,20 @@ ${parks.length ? parks.map((p) => `- [${p.displayName}](${BASE}/park/${p.slug})`
   заказано в поездке; перевозчик не назван — машину подберёт менеджер)
 - Кроме заявок, make_trip_plan и edit_trip_plan сохраняют черновик плана:
   анонимно, на 7 дней, без имени и телефона, до человека он не доходит
+- ${CHANGE_REQUEST_RULE}
+  Ключ повторного вызова create_booking_request и ключи других заявок (подбор,
+  машина, прокат, жильё) менять не дают; что произойдёт, ничего не меняя, — test: true
 - Число людей — под любым из имён: participants_count, participants, guests,
   passengers, guest_count (MCP, REST /api/hub/bookings/create и чат Кузьмича)
 - Состояние заявки — get_request_status по ключу из ответа; date — действующая
   дата брони (оператор мог перенести), requested_date — дата из заявки
+- ${ANSWER_RELAY_RULE}
 - Уведомление об изменении заявки — необязательный notify_url у create_lead,
   create_booking_request, request_charter, create_car_rental_request и create_trip_request:
   подписанный POST (Standard Webhooks: webhook-id, webhook-timestamp,
   webhook-signature), ключ подписи — в ответе один раз; сверка примерно раз
-  в 30 минут, срок не гарантирован; у заявки на жильё уведомлений нет — её
-  состояние после передачи не меняется. ${NOTIFY_RESPONSE_RULES}
+  в 30 минут, срок не гарантирован; у заявки на жильё уведомлений нет — ответ
+  владельца кнопкой виден в get_request_status. ${NOTIFY_RESPONSE_RULES}
 - Мгновенного подтверждения и оплаты через MCP нет by design. Rate-limit по IP.
 - Для коннекторов ChatGPT (и deep research) есть пара search / fetch: поиск по
   турам, местам, жилью и маршрутам и полный текст записи по id с адресом страницы
@@ -404,6 +410,8 @@ ${parks.length ? parks.map((p) => `- [${p.displayName}](${BASE}/park/${p.slug})`
   DataPart {"tool": "<имя>", "arguments": {...}} по схемам MCP
 - Заявки — те же шесть, подтверждает человек, нужен consent: true; потока и
   push-уведомлений задач нет, задача завершается в ответе и хранится час
+- Отмена и перенос заявки на тур — тот же change_request через DataPart;
+  CancelTask отменяет задачу A2A, а не заявку
 - Об изменении заявки — необязательный notify_url в аргументах пишущего
   инструмента (кроме заявки на жильё): подписанный POST по Standard Webhooks,
   ключ подписи — в ответе один раз; состояние без уведомлений — get_request_status
@@ -419,7 +427,8 @@ ${parks.length ? parks.map((p) => `- [${p.displayName}](${BASE}/park/${p.slug})`
 A2A (любой инструмент одним POST), публичные читающие эндпоинты (каталог мест,
 маршрутов и туров, туры и их занятость, карточка места, статус дня, сейсмика,
 вулканы, погода) и входы обнаружения; всё без авторизации, запись — те же шесть
-заявок через DataPart с consent: true; тело уведомления об изменении заявки
+заявок через DataPart с consent: true, отмена и перенос заявки на тур —
+change_request; тело уведомления об изменении заявки
 (notify_url) описано в разделе webhooks. Каталог API по RFC 9727 (linkset):
 ${BASE}${API_CATALOG_PATH} — на него же указывает заголовок Link rel="api-catalog"
 главной страницы.
