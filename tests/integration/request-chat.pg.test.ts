@@ -2334,6 +2334,257 @@ withPg('переписка по заявке на настоящем PostgreSQL'
       }
     });
 
+    it('«Отказ» с причиной из кабинета (этап 3а): причина, журнал и сообщение человеку — одной командой; смена статуса причину стирает', async () => {
+      const { changeLeadStatus } = await import('@/lib/leads/owner-lead-status');
+      const answers = await import('@/lib/requests/chat-answer');
+      const notices = await import('@/lib/requests/answer-notice');
+      const { kamchatkaToday } = await import('@/lib/seat-requests/core');
+      const day = (n: number) => {
+        const d = new Date(`${kamchatkaToday()}T00:00:00Z`);
+        d.setUTCDate(d.getUTCDate() + n);
+        return d.toISOString().slice(0, 10);
+      };
+      const [D0, D1] = [day(20), day(22)];
+      const opId = (await pool.query<{ id: string }>(
+        `INSERT INTO partners (name, category, contact, slug) VALUES ('Оператор 3а', 'operator', '{}', 'op-3a') RETURNING id`,
+      )).rows[0].id;
+      const otherOp = (await pool.query<{ id: string }>(
+        `INSERT INTO partners (name, category, contact, slug) VALUES ('Сосед 3а', 'operator', '{}', 'op-3a-other') RETURNING id`,
+      )).rows[0].id;
+      const tourId = (await pool.query<{ id: number }>(
+        `INSERT INTO operator_tours (title, base_price, operator_id, max_participants) VALUES ('Мутновский 3а', 9000, $1, 12) RETURNING id`, [opId],
+      )).rows[0].id;
+      await pool.query(
+        `INSERT INTO tour_availability (operator_tour_id, date, available_slots, is_cancelled)
+         SELECT $1, d::date, 10, false FROM unnest($2::text[]) AS d`, [tourId, [D0, D1]],
+      );
+      const mk = async (name: string, phone: string, extra: Record<string, unknown> = {}) => (await leads.createLeadDetailed({
+        name, phone, comment: `[Заявка на бронь] Тур "Мутновский 3а" (ID${tourId}), дата ${D0}, участников 2.`,
+        route_title: 'Мутновский 3а', source_url: 'mcp://vedar/booking', operator_id: opId, pd_consent: consentOf('operator'),
+        source_data: { source: 'mcp', tool: 'create_booking_request', tour_id: tourId, date: D0, participants: 2 },
+        skip_ai_processing: true, ...extra,
+      }))!.id;
+      const owner = { kind: 'owner' as const, partnerId: opId, claimUnowned: true };
+      const close = (lead: string, reason: Parameters<typeof changeLeadStatus>[0]['lost'] extends infer L ? L extends { reason: infer R } ? R : never : never, scope = owner) =>
+        changeLeadStatus({
+          leadId: lead, status: 'lost', actor: { kind: 'partner_user', userId: null }, scope, via: 'site',
+          lost: { reason, partnerId: scope.partnerId },
+        });
+      const set = (lead: string, st: 'contacted' | 'lost' | 'qualified') => changeLeadStatus({
+        leadId: lead, status: st, actor: { kind: 'partner_user', userId: null }, scope: owner, via: 'site',
+      });
+      const leadOf = async (lead: string) => (await pool.query<{ status: string; lost_reason: string | null; operator_id: string | null }>(
+        `SELECT status, lost_reason, operator_id::text AS operator_id FROM leads WHERE id = $1`, [lead],
+      )).rows[0]!;
+      const closings = async (lead: string) => (await pool.query<{ id: string; actor: string; details: Record<string, unknown> }>(
+        `SELECT id::text AS id, actor, details FROM lead_activity_log WHERE lead_id = $1 AND action = 'seller_closed' ORDER BY id`, [lead],
+      )).rows;
+      const noticesOf = async (lead: string) => (await pool.query<{
+        id: string; activity_id: string | null; answer_id: string | null; answer: string; decline_reason: string | null;
+        lead_status_before: string | null; state: string; skipped_reason: string | null; held: boolean; delivered_via: string | null;
+      }>(
+        `SELECT id::text AS id, activity_id::text AS activity_id, answer_id::text AS answer_id, answer, decline_reason, lead_status_before,
+                state, skipped_reason, (claimed_until > NOW()) AS held, delivered_via
+           FROM answer_notices WHERE lead_id = $1::uuid ORDER BY id`, [lead],
+      )).rows;
+      const viewOf = async (k: string) => status.readRequestStatus(k, { reader: 'agent' });
+
+      // ── 1. Прежний вызов без причины работает как раньше ─────────────────
+      const L1 = await mk('Зоя Закрытие', '+79995550901');
+      const k1 = (await status.issueRequestKeyRecord({ leadId: L1 }, 'create_booking_request', { opensChat: true }))!;
+      const C1 = 9_300_071;
+      expect(await links.linkChatToKeys('max', C1, [k1.key], 'created')).toBe(1);
+      const first = await set(L1, 'contacted');
+      expect(first).toMatchObject({ kind: 'ok', changed: true, prevStatus: 'new' });
+      expect(first.kind === 'ok' && first.closed).toBeUndefined();
+      expect(await closings(L1)).toHaveLength(0);
+      expect(await noticesOf(L1)).toHaveLength(0);
+
+      // ── 2. Отказ продавца: причина в заявке, журнал и строка сообщения — тем же запросом ──
+      const closed = await close(L1, 'seats');
+      expect(closed).toMatchObject({ kind: 'ok', changed: true, prevStatus: 'contacted', lead: { status: 'lost' } });
+      if (closed.kind !== 'ok' || !closed.closed?.notice) throw new Error('закрытие с причиной не записало сообщение');
+      expect(await leadOf(L1)).toMatchObject({ status: 'lost', lost_reason: 'seats' });
+      const j1 = await closings(L1);
+      expect(j1).toEqual([{ id: closed.closed.activityId, actor: 'partner', details: { reason: 'seats', via: 'site', from: 'contacted' } }]);
+      expect(await noticesOf(L1)).toEqual([expect.objectContaining({
+        id: closed.closed.notice.id, activity_id: closed.closed.activityId, answer_id: null, answer: 'decline', decline_reason: 'seats',
+        lead_status_before: 'contacted', state: 'pending', skipped_reason: null, held: true,
+      })]);
+      // Повтор той же отметки — не событие: ни второй записи журнала, ни второго сообщения.
+      const again = await close(L1, 'weather');
+      expect(again).toMatchObject({ kind: 'ok', changed: false, prevStatus: 'lost' });
+      expect(again.kind === 'ok' && again.closed).toBeUndefined();
+      expect(await leadOf(L1)).toMatchObject({ lost_reason: 'seats' });
+      expect(await closings(L1)).toHaveLength(1);
+      expect(await noticesOf(L1)).toHaveLength(1);
+      // Заметка к уже закрытой заявке с другой причиной в том же запросе: заметка записана,
+      // а второго отказа нет — ни причины поверх прежней, ни журнала, ни второго сообщения человеку.
+      const noted = await changeLeadStatus({
+        leadId: L1, status: 'lost', notes: 'звонил ещё раз', actor: { kind: 'partner_user', userId: null }, scope: owner, via: 'site',
+        lost: { reason: 'weather', partnerId: opId },
+      });
+      expect(noted).toMatchObject({ kind: 'ok', changed: false, prevStatus: 'lost', lead: { status: 'lost', notes: 'звонил ещё раз' } });
+      expect(noted.kind === 'ok' && noted.closed).toBeUndefined();
+      expect(await leadOf(L1)).toMatchObject({ lost_reason: 'seats' });
+      expect(await closings(L1)).toHaveLength(1);
+      expect(await noticesOf(L1)).toHaveLength(1);
+
+      // Статус для человека и ИИ-агента — словами отказа с причиной, и вид построен из этого закрытия.
+      const row1 = (await pool.query(status.REQUEST_STATUS_BY_KEY_IDS_SQL, [[k1.keyId]])).rows[0] as import('@/lib/mcp/request-status').StatusRow;
+      expect(row1).toMatchObject({ lead_status: 'lost', lead_lost_reason: 'seats', lead_closed_id: closed.closed.activityId });
+      expect(status.shownAnswerRef(row1)).toEqual({ source: 'closed', id: closed.closed.activityId });
+      // Сообщение человеку уходит в его чат теми же словами, что после кнопки «Отказать»; ПД в нём нет.
+      sent.dm.length = 0;
+      sent.pd.length = 0;
+      const o1 = await notices.deliverAnswerNotice(closed.closed.notice.id);
+      expect(o1).toMatchObject({ state: 'delivered', via: 'max' });
+      expect(sent.dm).toHaveLength(1);
+      expect(String(sent.dm[0]!.chatId)).toBe(String(C1));
+      expect(sent.dm[0]!.text).toContain('Оператор «Оператор 3а»');
+      expect(sent.dm[0]!.text).toContain('Оператор «Оператор 3а» отказал по заявке: мест нет. Заявка закрыта');
+      expect(sent.dm[0]!.text).not.toMatch(/Зоя|79995550901/);
+      expect(sent.pd).toHaveLength(0);
+      const v1 = await viewOf(k1.key);
+      expect(v1).toMatchObject({ state: 'declined', human: 'Оператор отказал по заявке. Причина: нет мест.' });
+
+      // ── 3. Вернули в работу — причина стёрта базой; закрыли другой дверью без причины — чужой причины нет ──
+      expect(await set(L1, 'contacted')).toMatchObject({ changed: true, prevStatus: 'lost' });
+      expect(await leadOf(L1)).toMatchObject({ status: 'contacted', lost_reason: null });
+      await pool.query(`UPDATE leads SET status = 'lost' WHERE id = $1`, [L1]); // как кнопка администратора (status-action)
+      expect(await leadOf(L1)).toMatchObject({ status: 'lost', lost_reason: null });
+      const row1b = (await pool.query(status.REQUEST_STATUS_BY_KEY_IDS_SQL, [[k1.keyId]])).rows[0] as import('@/lib/mcp/request-status').StatusRow;
+      expect(row1b).toMatchObject({ lead_lost_reason: null, lead_closed_id: null });
+      expect(status.shownAnswerRef(row1b)).toBeNull();
+      expect(await viewOf(k1.key)).toMatchObject({ state: 'declined', human: 'Оператор отказал по заявке или она не состоялась.' });
+
+      // Триггер смотрит на смену статуса, а не на любую правку: заметка причину не трогает,
+      // чужая запись статуса — стирает.
+      const L2 = await mk('Яна Причина', '+79995550902');
+      const k2 = (await status.issueRequestKeyRecord({ leadId: L2 }, 'create_booking_request', { opensChat: true }))!;
+      const c2 = await close(L2, 'no_contact');
+      expect(await leadOf(L2)).toMatchObject({ status: 'lost', lost_reason: 'no_contact' });
+      await pool.query(`UPDATE leads SET notes = 'перезвонить в мае' WHERE id = $1`, [L2]);
+      expect(await leadOf(L2)).toMatchObject({ lost_reason: 'no_contact' });
+      // ── 4. Причина на стороне клиента: журнал есть, сообщения человеку нет ──
+      expect(c2.kind === 'ok' && c2.closed).toMatchObject({ notice: null });
+      expect(await closings(L2)).toEqual([expect.objectContaining({ details: { reason: 'no_contact', via: 'site', from: 'new' } })]);
+      expect(await noticesOf(L2)).toHaveLength(0);
+      const v2 = await viewOf(k2.key);
+      expect(v2.state).toBe('declined');
+      expect(v2.human).toBe('Оператор закрыл заявку: по его словам, связаться с человеком по телефону из заявки не удалось.');
+      await pool.query(`UPDATE leads SET status = 'ai_qualified' WHERE id = $1`, [L2]); // конвейер заявок
+      expect(await leadOf(L2)).toMatchObject({ status: 'ai_qualified', lost_reason: null });
+      // Мусор в колонку база не принимает.
+      await expect(pool.query(`UPDATE leads SET lost_reason = 'просто так' WHERE id = $1`, [L2])).rejects.toMatchObject({ code: '23514' });
+
+      // ── 5. Кому сообщение не рождается «к отправке» ───────────────────────
+      // Ничейная заявка, которую кабинет занял этим же действием: человек этому продавцу её не слал.
+      const L3 = await mk('Ничья Заявка', '+79995550903', { operator_id: null });
+      const c3 = await close(L3, 'dates');
+      expect(c3.kind === 'ok' && c3.closed?.notice).toMatchObject({ state: 'skipped', skipped: 'not_addressee' });
+      expect(await leadOf(L3)).toMatchObject({ status: 'lost', lost_reason: 'dates', operator_id: opId });
+      // Чужая заявка недоступна вовсе: ни статуса, ни журнала.
+      const L4 = await mk('Чужая Заявка', '+79995550904', { operator_id: otherOp });
+      expect(await close(L4, 'seats')).toEqual({ kind: 'not_found' });
+      expect(await leadOf(L4)).toMatchObject({ status: 'new', lost_reason: null });
+      expect(await closings(L4)).toHaveLength(0);
+      // Своя проба владельца.
+      const L5 = await mk('Своя Проба', '+79995550905', { is_self: true });
+      const c5 = await close(L5, 'other');
+      expect(c5.kind === 'ok' && c5.closed?.notice).toMatchObject({ state: 'skipped', skipped: 'self' });
+      // Заявка на машину: причина и журнал есть, строки сообщения нет — у неё свой ответ и свои слова.
+      const L6 = await mk('Машина Целиком', '+79995550906', { source_data: { source: 'mcp', tool: 'request_charter', kind: 'charter' } });
+      const c6 = await close(L6, 'seats');
+      expect(c6.kind === 'ok' && c6.closed).toMatchObject({ notice: null });
+      expect(await noticesOf(L6)).toHaveLength(0);
+      // Заявку отменил клиент: её не закрывают «отказом» — ни статуса, ни причины, ни журнала.
+      const L7 = await mk('Отменил Сам', '+79995550907');
+      await pool.query(`UPDATE leads SET status = 'cancelled' WHERE id = $1`, [L7]);
+      const c7 = await close(L7, 'seats');
+      expect(c7).toMatchObject({ kind: 'ok', changed: false, prevStatus: 'cancelled', lead: { status: 'cancelled' } });
+      expect(c7.kind === 'ok' && c7.closed).toBeUndefined();
+      expect(await leadOf(L7)).toMatchObject({ status: 'cancelled', lost_reason: null });
+      expect(await closings(L7)).toHaveLength(0);
+      expect(await noticesOf(L7)).toHaveLength(0);
+      // И с заметкой в том же запросе: заметка записана, причина отказа к отменённой заявке не прилипает.
+      const c7n = await changeLeadStatus({
+        leadId: L7, status: 'lost', notes: 'поздно узнал', actor: { kind: 'partner_user', userId: null }, scope: owner, via: 'site',
+        lost: { reason: 'seats', partnerId: opId },
+      });
+      expect(c7n).toMatchObject({ kind: 'ok', changed: false, prevStatus: 'cancelled', lead: { status: 'cancelled', notes: 'поздно узнал' } });
+      expect(await leadOf(L7)).toMatchObject({ status: 'cancelled', lost_reason: null });
+      expect(await closings(L7)).toHaveLength(0);
+      expect(await noticesOf(L7)).toHaveLength(0);
+
+      // ── 6. Последнее слово продавца: закрытие с причиной новее ответа кнопкой, и наоборот ──
+      const L8 = await mk('Ольга Порядок', '+79995550908');
+      const k8 = (await status.issueRequestKeyRecord({ leadId: L8 }, 'create_booking_request', { opensChat: true }))!;
+      // Кнопка «Отказать: погода» в чате: ответ и статус, причины в заявке нет — говорит ответ.
+      const pressed = await answers.recordChatAnswer({ partnerId: opId, kind: 'lead', subjectId: L8, answer: 'decline', reason: 'weather', expectDate: D0 });
+      expect(pressed).toMatchObject({ ok: true, already: false, notice: { state: 'pending' } });
+      expect(await set(L8, 'lost')).toMatchObject({ changed: true });
+      expect(await leadOf(L8)).toMatchObject({ status: 'lost', lost_reason: null });
+      // Вид читается по строке, без отметки прочтения: сообщение об ответе кнопкой остаётся «ждёт».
+      const row8 = (await pool.query(status.REQUEST_STATUS_BY_KEY_IDS_SQL, [[k8.keyId]])).rows[0] as import('@/lib/mcp/request-status').StatusRow;
+      expect(status.buildRequestView(row8, Date.now()).human).toBe('Оператор отказал по заявке. Причина: погода, безопасность.');
+      expect(status.shownAnswerRef(row8)).toMatchObject({ source: 'tour' });
+      // Вернул в работу и закрыл в кабинете с другой причиной: говорит закрытие, ответ кнопкой вид больше не строит.
+      await set(L8, 'contacted');
+      const c8 = await close(L8, 'dates');
+      if (c8.kind !== 'ok' || !c8.closed?.notice) throw new Error('второе закрытие не записало сообщение');
+      expect(c8.closed.notice.state).toBe('pending');
+      const row8b = (await pool.query(status.REQUEST_STATUS_BY_KEY_IDS_SQL, [[k8.keyId]])).rows[0] as import('@/lib/mcp/request-status').StatusRow;
+      expect(status.shownAnswerRef(row8b)).toEqual({ source: 'closed', id: c8.closed.activityId });
+      // Агент прочитал статус по ключу новой заявки — это доставка именно этого сообщения.
+      expect((await viewOf(k8.key)).human).toBe('Оператор отказал по заявке. Причина: даты не подходят.');
+      const n8 = await noticesOf(L8);
+      expect(n8.find((n) => n.id === c8.closed!.notice!.id)).toMatchObject({ state: 'delivered', delivered_via: 'agent_read' });
+      // Сообщение об ответе кнопкой при этом «доставленным чтением» не стало: вид был не из него.
+      expect(n8.find((n) => n.answer_id !== null)).toMatchObject({ state: 'pending' });
+
+      // ── 7. Продавец вернул заявку в работу раньше, чем сообщение ушло: отказ взят назад — не отправляется ──
+      const L9 = await mk('Вера Возврат', '+79995550909');
+      const k9 = (await status.issueRequestKeyRecord({ leadId: L9 }, 'create_booking_request', { opensChat: true }))!;
+      const C9 = 9_300_079;
+      expect(await links.linkChatToKeys('max', C9, [k9.key], 'created')).toBe(1);
+      const c9 = await close(L9, 'group');
+      if (c9.kind !== 'ok' || !c9.closed?.notice) throw new Error('закрытие с причиной не записало сообщение');
+      await set(L9, 'contacted');
+      sent.dm.length = 0;
+      expect(await notices.deliverAnswerNotice(c9.closed.notice.id)).toMatchObject({ state: 'skipped', reason: 'outgrown' });
+      expect(sent.dm).toHaveLength(0);
+      expect((await noticesOf(L9))[0]).toMatchObject({ state: 'skipped', skipped_reason: 'outgrown' });
+
+      // ── 8. Тот же запрос у остальных скоупов: номера параметров у них другие, и выполниться он обязан у каждого ──
+      // Администратор закрывает без причины: ни причины, ни журнала, ни сообщения.
+      const L10 = await mk('Админ Закрыл', '+79995550910');
+      const a10 = await changeLeadStatus({ leadId: L10, status: 'lost', actor: { kind: 'admin', userId: null }, scope: { kind: 'admin' }, via: 'site' });
+      expect(a10).toMatchObject({ kind: 'ok', changed: true, prevStatus: 'new', lead: { status: 'lost' } });
+      expect(a10.kind === 'ok' && a10.closed).toBeUndefined();
+      expect(await leadOf(L10)).toMatchObject({ status: 'lost', lost_reason: null });
+      expect(await closings(L10)).toHaveLength(0);
+      expect(await noticesOf(L10)).toHaveLength(0);
+      // Оператор без карточки: только ничейные, занять нечем.
+      const L11 = await mk('Ничья Вторая', '+79995550911', { operator_id: null });
+      const noCard = { kind: 'unowned_only' as const };
+      expect(await changeLeadStatus({ leadId: L11, status: 'lost', actor: { kind: 'partner_user', userId: null }, scope: noCard, via: 'site' }))
+        .toMatchObject({ kind: 'ok', changed: true, lead: { status: 'lost' } });
+      expect(await leadOf(L11)).toMatchObject({ status: 'lost', lost_reason: null, operator_id: null });
+      expect(await changeLeadStatus({ leadId: L10, status: 'contacted', actor: { kind: 'partner_user', userId: null }, scope: noCard, via: 'site' }))
+        .toEqual({ kind: 'not_found' });
+      // Гид: только адресованные его карточке — отказ с причиной рождает сообщение; ничейную не видит и не занимает.
+      const guideScope = { kind: 'owner' as const, partnerId: opId, claimUnowned: false };
+      const L12 = await mk('Гид Отказал', '+79995550912');
+      const g12 = await close(L12, 'weather', guideScope);
+      expect(g12.kind === 'ok' && g12.closed?.notice).toMatchObject({ state: 'pending', skipped: null });
+      expect(await leadOf(L12)).toMatchObject({ status: 'lost', lost_reason: 'weather' });
+      const L13 = await mk('Ничья Третья', '+79995550913', { operator_id: null });
+      expect(await close(L13, 'seats', guideScope)).toEqual({ kind: 'not_found' });
+      expect(await leadOf(L13)).toMatchObject({ status: 'new', lost_reason: null, operator_id: null });
+      await pool.query(`DELETE FROM tour_availability WHERE operator_tour_id = $1::bigint`, [tourId]);
+    });
+
     it('удалили заявку — связи ушли вместе с её ключами', async () => {
       const own = await pool.query(`SELECT lead_id::text AS lead FROM agent_request_keys WHERE id = $1`, [keyId]);
       await pool.query(`DELETE FROM agent_request_keys WHERE lead_id = $1::uuid`, [own.rows[0].lead]);

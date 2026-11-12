@@ -15,6 +15,8 @@ import { LeadConsentLine, LeadOriginLine, type LeadOriginView } from '@/componen
 import { leadPageUrl } from '@/lib/leads/origin';
 import { LEAD_CANCELLED_STATUS_TEXT } from '@/lib/leads/client-cancelled';
 import { LEAD_CLIENT_CANCELLED } from '@/lib/types/statuses';
+import { LOST_REASON_LABEL, isLostReason, type LostReason } from '@/lib/leads/lost-reason';
+import { LostReasonChooser } from '@/components/leads/LostReasonChooser';
 
 // ── Типы ──────────────────────────────────────────────────────────────────────
 
@@ -50,6 +52,8 @@ interface Lead {
   updated_at: string;
   /** Есть ли Telegram или почта: без них отправлять некуда (#1804). */
   has_recipient?: boolean;
+  /** Причина отказа продавца (1429) — только у текущего закрытия. */
+  lost_reason?: string | null;
 }
 
 interface MatchedTour {
@@ -187,13 +191,17 @@ interface Props {
 export default function LeadDetailClient({ leadId }: Props) {
   const [processingAI, setProcessingAI] = useState(false);
   const [updatingStatus, setUpdatingStatus] = useState(false);
+  /** Открыт выбор причины отказа (этап 3а): «Потерян» у продавца — только с причиной. */
+  const [choosingLost, setChoosingLost] = useState(false);
+  /** Что на деле ушло туристу после отказа — остаётся на экране: уведомление гаснет через пять секунд. */
+  const [touristLine, setTouristLine] = useState<string | null>(null);
   const [sendingProposal, setSendingProposal] = useState(false);
   const [notes, setNotes] = useState('');
   const [notesEditing, setNotesEditing] = useState(false);
   const [notification, setNotification] = useState<{ type: 'success' | 'error'; text: string } | null>(null);
 
   const { data: leadData, error: leadError, isLoading: leadLoading, mutate: mutateLead } =
-    useSWR<{ lead: Lead; bookings?: LeadBooking[] | null }>(`/api/leads/${leadId}`, fetcher);
+    useSWR<{ lead: Lead; bookings?: LeadBooking[] | null; lost_needs_reason?: boolean }>(`/api/leads/${leadId}`, fetcher);
 
   const { data: proposalData, error: proposalError, mutate: mutateProposal } =
     useSWR<{ proposal: Proposal }>(`/api/leads/${leadId}/proposal`, fetcher, {
@@ -232,17 +240,20 @@ export default function LeadDetailClient({ leadId }: Props) {
     }
   }, [leadId, mutateLead, mutateProposal]);
 
-  const handleStatusChange = useCallback(async (status: string) => {
+  const handleStatusChange = useCallback(async (status: string, lostReason?: LostReason) => {
     setUpdatingStatus(true);
     try {
       const res = await fetch(`/api/leads/${leadId}`, {
         method: 'PATCH',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ status }),
+        body: JSON.stringify(lostReason ? { status, lostReason } : { status }),
       });
-      const json = await res.json() as { success?: boolean; error?: string };
+      const json = await res.json() as { success?: boolean; error?: string; changed?: boolean; tourist?: string | null };
       if (!res.ok) throw new Error(json.error ?? 'Ошибка');
-      showNotification('success', `Статус изменён`);
+      // После отказа с причиной сервер говорит, что на деле ушло туристу, — показываем как есть.
+      showNotification('success', json.changed === false ? 'Статус уже был таким' : 'Статус изменён');
+      setTouristLine(json.tourist ?? null);
+      setChoosingLost(false);
       mutateLead();
     } catch (err) {
       showNotification('error', err instanceof Error ? err.message : 'Ошибка');
@@ -610,7 +621,7 @@ export default function LeadDetailClient({ leadId }: Props) {
             {['contacted', 'qualified', 'proposal_sent', 'converted', 'lost'].map(s => (
               <button
                 key={s}
-                onClick={() => handleStatusChange(s)}
+                onClick={() => (s === 'lost' && leadData?.lost_needs_reason ? setChoosingLost(true) : handleStatusChange(s))}
                 disabled={updatingStatus || lead.status === s || lead.status === LEAD_CLIENT_CANCELLED}
                 className={`px-3 py-1.5 rounded-lg text-sm font-medium transition-colors border ${
                   lead.status === s
@@ -622,6 +633,19 @@ export default function LeadDetailClient({ leadId }: Props) {
               </button>
             ))}
           </div>
+          {choosingLost && lead.status !== 'lost' && lead.status !== LEAD_CLIENT_CANCELLED && (
+            <LostReasonChooser
+              busy={updatingStatus}
+              onChoose={(reason) => handleStatusChange('lost', reason)}
+              onCancel={() => setChoosingLost(false)}
+            />
+          )}
+          {lead.status === 'lost' && isLostReason(lead.lost_reason) && (
+            <p className="text-sm text-[var(--text-secondary)]">Причина отказа: {LOST_REASON_LABEL[lead.lost_reason].toLowerCase()}.</p>
+          )}
+          {touristLine && lead.status === 'lost' && (
+            <p className="text-sm text-[var(--text-primary)]" role="status">{touristLine}</p>
+          )}
           {lead.status === LEAD_CLIENT_CANCELLED && (
             <p className="text-sm text-[var(--text-muted)]">{LEAD_CANCELLED_STATUS_TEXT}.</p>
           )}

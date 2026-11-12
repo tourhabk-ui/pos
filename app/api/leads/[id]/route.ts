@@ -9,10 +9,16 @@ import { bookingsForLead, type LeadBookings } from '@/lib/leads/lead-bookings';
 import { withLeadOrigin, type LeadOriginInput } from '@/lib/leads/origin';
 import { LEAD_CANCELLED_STATUS_TEXT } from '@/lib/leads/client-cancelled';
 import { LEAD_CLIENT_CANCELLED } from '@/lib/types/statuses';
+import {
+  LOST_REASONS, LOST_REASON_ONLY_WITH_LOST, LOST_REASON_REQUIRED, LOST_REASON_SELLER_ONLY, LOST_REASON_UNKNOWN,
+} from '@/lib/leads/lost-reason';
+import { closeLeadWithReason } from '@/lib/leads/seller-lost-flow';
 
 const PatchSchema = z.object({
   status: z.enum(LEAD_STATUSES).optional(),
   notes: z.string().max(2000).optional(),
+  /** Причина отказа — вместе со `status: 'lost'` (этап 3а, lib/leads/lost-reason). */
+  lostReason: z.enum(LOST_REASONS, { message: LOST_REASON_UNKNOWN }).optional(),
 });
 
 export async function PATCH(
@@ -35,7 +41,7 @@ export async function PATCH(
     return NextResponse.json({ error: parse.error.issues[0]?.message }, { status: 422 });
   }
 
-  const { status, notes } = parse.data;
+  const { status, notes, lostReason } = parse.data;
   if (!status && notes === undefined) {
     return NextResponse.json({ error: 'Нечего обновлять' }, { status: 400 });
   }
@@ -45,14 +51,31 @@ export async function PATCH(
   // несуществующего (404, не 403); первое действие над ничейным делает его
   // своим (25.09) — иначе два оператора звонили одному туристу и перетирали
   // заметки друг друга.
-  const outcome = await changeLeadStatus({
-    leadId: id,
-    status,
-    notes,
-    actor: { kind: user.role === 'admin' ? 'admin' : 'partner_user', userId: user.userId },
-    scope: await operatorLeadScope(user),
-    via: 'site',
-  });
+  const scope = await operatorLeadScope(user);
+  const actor = { kind: user.role === 'admin' ? 'admin' as const : 'partner_user' as const, userId: user.userId };
+
+  // «Отказ» продавца — только с причиной (этап 3а): от неё зависит, уйдёт ли
+  // человеку сообщение. Администратор и оператор без карточки закрывают как
+  // раньше: продавцом заявки они не являются, и сообщение «оператор отказал»
+  // от них было бы неправдой.
+  // Причина, которую некуда записать, не принимается молча (§4.0): с другой
+  // отметкой и не от продавца — отказ словами, заявка не тронута.
+  if (lostReason && status !== 'lost') {
+    return NextResponse.json({ error: LOST_REASON_ONLY_WITH_LOST }, { status: 422 });
+  }
+  if (lostReason && scope.kind !== 'owner') {
+    return NextResponse.json({ error: LOST_REASON_SELLER_ONLY }, { status: 422 });
+  }
+  let touristLine: string | null = null;
+  let outcome;
+  if (status === 'lost' && scope.kind === 'owner') {
+    if (!lostReason) return NextResponse.json({ error: LOST_REASON_REQUIRED }, { status: 422 });
+    const closed = await closeLeadWithReason({ leadId: id, reason: lostReason, notes, actor, scope, via: 'site' });
+    outcome = closed.outcome;
+    touristLine = closed.touristLine;
+  } else {
+    outcome = await changeLeadStatus({ leadId: id, status, notes, actor, scope, via: 'site' });
+  }
 
   if (outcome.kind === 'not_found') {
     return NextResponse.json({ error: 'Лид не найден' }, { status: 404 });
@@ -66,7 +89,8 @@ export async function PATCH(
     );
   }
 
-  return NextResponse.json({ success: true, lead: outcome.lead, changed: outcome.changed });
+  // `tourist` — что на деле ушло человеку после отказа с причиной; null — отказ этим запросом не записан.
+  return NextResponse.json({ success: true, lead: outcome.lead, changed: outcome.changed, tourist: touristLine });
 }
 
 export async function GET(
@@ -85,6 +109,8 @@ export async function GET(
     `SELECT id, name, phone, email, comment, route_id, route_title, source_url, source_data,
             status, notes, proposal_id, ai_score, ai_summary, group_size, budget_rub, desired_dates,
             created_at, updated_at,
+            -- Причина отказа продавца (1429); есть только у текущего закрытия.
+            lost_reason,
             -- Только ради подписи «откуда» (lib/leads/origin), наружу не уходит.
             pd_consent_source,
             -- Есть ли куда отправлять предложение. Экран выключает кнопку
@@ -109,6 +135,9 @@ export async function GET(
     // Откуда заявка — одной подписью (слово владельца 08.11).
     lead: withLeadOrigin(res.rows[0] as LeadOriginInput & Record<string, unknown>),
     bookings: bookings.kind === 'ok' ? bookings.rows : null,
+    // «Отказ» спрашивает причину только у продавца с карточкой (этап 3а):
+    // экран узнаёт это заранее, а не из отказа сервера.
+    lost_needs_reason: user.role !== 'admin' && !!operatorId,
   });
 }
 

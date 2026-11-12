@@ -49,7 +49,7 @@ import {
   REQUEST_STATUS_BY_KEY_IDS_SQL, buildRequestView, catalogTourOf, issueRequestKey, issueRequestKeyRecord, keyLine, shownAnswerRef, type ShownAnswerRef,
   type IssuedRequestKey, type RequestCore, type RequestKeyTarget, type StatusRow,
 } from '@/lib/mcp/request-status';
-import { markNoticeShown, markVehicleNoticeShown } from '@/lib/requests/answer-notice-mark';
+import { markShownRef } from '@/lib/requests/answer-notice-mark';
 import type { RequestKind, RequestState } from '@/lib/mcp/request-status-schema';
 import {
   NOTIFY_CHANGED_FIELDS, NOTIFY_DISABLED_REASONS, NOTIFY_HOW_TO_VERIFY, NOTIFY_MAX_FAILURES, NOTIFY_RESPONSE_RULES,
@@ -708,9 +708,9 @@ export async function runRequestNotify(deps: NotifyRunDeps = {}): Promise<Notify
           res.delivered++;
           await record(DELIVERED_SQL, [d.live.id, d.snap.state, d.snap.date, d.snap.alt_date, d.snap.tour, d.snap.participants, d.fp, sha256(body)]);
           // Агент принял вид с ответом оператора — ответ до человека дошёл (2б).
-          // Тур — по номеру кнопки, машина и прокат — по записи журнала (2б-2).
-          if (d.answerRef?.source === 'tour') await markNoticeShown(d.answerRef.id, 'agent_webhook');
-          else if (d.answerRef?.source === 'vehicle') await markVehicleNoticeShown(d.answerRef.id, 'agent_webhook');
+          // Тур — по номеру кнопки; машина, прокат и закрытие продавцом с
+          // причиной — по записи журнала (2б-2, 3а).
+          if (d.answerRef) await markShownRef(d.answerRef, 'agent_webhook');
           return 'done';
         }
         console.warn(line);

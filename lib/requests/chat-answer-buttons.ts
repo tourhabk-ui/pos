@@ -11,6 +11,7 @@ import type { InboxItem } from '@/lib/crm/inbox';
 import type { InboxKind } from '@/lib/crm/inbox-kinds';
 import { signPayload } from '@/lib/chat-cabinet/signed-payload';
 import { answerDayCode, answerDayOf, ruAnswerDate } from '@/lib/requests/answer-date';
+import { DECLINE_REASON_LABEL, type DeclineReason } from '@/lib/requests/decline-reasons';
 
 export const CHAT_ANSWER_KINDS = ['lead', 'stay_request', 'stay_booking', 'gear', 'booking'] as const;
 export type ChatAnswerKind = (typeof CHAT_ANSWER_KINDS)[number];
@@ -18,19 +19,12 @@ export type ChatAnswer = 'accept' | 'other_date' | 'no_seats' | 'clarify' | 'sel
 
 /**
  * Причина отказа (решение владельца 02.11: отказ — отдельный статус с
- * причиной). Код — одна буква в payload `ia:r<код>:…`.
+ * причиной). Список и подписи — lib/requests/decline-reasons (один с «Отказом»
+ * в кабинете на сайте). Код — одна буква в payload `ia:r<код>:…`.
  */
-export const DECLINE_REASONS = ['seats', 'weather', 'dates', 'group', 'other'] as const;
-export type DeclineReason = (typeof DECLINE_REASONS)[number];
+export { DECLINE_REASONS, DECLINE_REASON_LABEL, type DeclineReason } from '@/lib/requests/decline-reasons';
 const REASON_CODE: Record<DeclineReason, string> = { seats: 's', weather: 'w', dates: 'd', group: 'g', other: 'o' };
 const CODE_REASON = new Map(Object.entries(REASON_CODE).map(([r, c]) => [c, r as DeclineReason]));
-export const DECLINE_REASON_LABEL: Record<DeclineReason, string> = {
-  seats: 'Нет мест',
-  weather: 'Погода, безопасность',
-  dates: 'Даты не подходят',
-  group: 'Не подходит группа',
-  other: 'Другое',
-};
 
 const KIND_CODE: Record<ChatAnswerKind, string> = {
   lead: 'l',

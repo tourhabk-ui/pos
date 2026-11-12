@@ -83,6 +83,7 @@ import {
 } from '@/lib/mcp/request-status-schema';
 import { DECLINE_REASON_LABEL, DECLINE_REASONS, type DeclineReason } from '@/lib/requests/chat-answer-buttons';
 import { LEAD_ANSWER_DATE_SQL, ruAnswerDate } from '@/lib/requests/answer-date';
+import { SELLER_CLOSED_ACTION, isClientLostReason, isLostReason } from '@/lib/leads/lost-reason';
 import {
   BOOKING_STATUSES, LEAD_CLIENT_CANCELLED, LEAD_STATUSES, UNATTENDED_LEAD_STATUSES, type BookingStatus, type LeadStatus,
 } from '@/lib/types/statuses';
@@ -387,6 +388,15 @@ export interface StatusRow {
   /** Род лида (`source_data.kind`): `charter`, `car_rental` — у ключа из кода между каналами имени инструмента нет. */
   lead_kind?: string | null;
   stay_owner_answer?: string | null;
+  /**
+   * Причина, с которой продавец закрыл заявку «Отказ» в кабинете (12.11, этап
+   * 3а; `leads.lost_reason`, 1429). Есть только у текущего закрытия: при любой
+   * смене статуса её стирает триггер. `lead_closed_id` — запись журнала
+   * (`lead_activity_log.seller_closed`) этого закрытия: на неё ссылается
+   * сообщение человеку.
+   */
+  lead_lost_reason?: string | null;
+  lead_closed_id?: string | null;
 }
 
 /**
@@ -680,6 +690,37 @@ function tourAnswerView(answer: string, reason: string | null, status: string | 
 }
 
 /**
+ * Продавец закрыл заявку «Отказ» в кабинете и назвал причину (этап 3а,
+ * lib/leads/lost-reason). Держится, только пока заявка закрыта. Отказ продавца
+ * — теми же словами, что кнопка «Отказать» в чате: человеку незачем знать,
+ * какой дверью оператор отказал. Причина на стороне клиента — «по словам
+ * оператора»: Ведар её не проверял, и выдавать её за факт нельзя.
+ */
+function sellerClosedView(reason: string | null | undefined, status: string | null): AnswerView | null {
+  if (status !== 'lost' || !isLostReason(reason)) return null;
+  if (isClientLostReason(reason)) {
+    return reason === 'no_contact'
+      ? {
+        state: 'declined',
+        human: 'Оператор закрыл заявку: по его словам, связаться с человеком по телефону из заявки не удалось.',
+        next: 'Если поездка ещё нужна, человек может позвонить оператору сам или оставить новую заявку: create_booking_request.',
+      }
+      : {
+        state: 'declined',
+        human: 'Оператор закрыл заявку: по его словам, человек отказался от поездки.',
+        next: 'Если это не так, человеку стоит позвонить оператору; новая заявка — create_booking_request.',
+      };
+  }
+  return tourAnswerView('decline', reason, status, null);
+}
+
+/** Вид заявки построен из закрытия продавцом с причиной — оно новее любого ответа кнопкой. */
+function shownSellerClosed(row: StatusRow): AnswerView | null {
+  if (row.booking_status || consentPurposeOfKey(row) !== 'operator') return null;
+  return sellerClosedView(row.lead_lost_reason, row.lead_status ?? null);
+}
+
+/**
  * Ответ перевозчика или прокатчика («Беру» / «Не могу», lib/rental/
  * request-answer-flow): «Беру» — готов выполнить и свяжется сам, машина этим
  * не закреплена и сумма не названа (§14).
@@ -716,6 +757,10 @@ function leadAnswerView(row: StatusRow, purpose: ConsentPurpose, requested: stri
   const status = row.lead_status ?? null;
   let view: AnswerView | null = null;
   const group = purpose === 'operator' && row.lead_group_over === true;
+  // Закрытие с причиной — последнее слово продавца: причина стирается при
+  // любой смене статуса, значит ответ кнопкой, если он был, старше.
+  const closed = purpose === 'operator' ? sellerClosedView(row.lead_lost_reason, status) : null;
+  if (closed) return closed;
   if (purpose === 'operator' && row.lead_answer) {
     // Большая группа после отказа адресата уходит другим операторам — это
     // не конец заявки, а передача. Кроме отказа по погоде или безопасности:
@@ -764,6 +809,8 @@ export function groupPassedOnAnswer(answer: string | null | undefined, reason: s
 export function shownTourAnswerId(row: StatusRow): string | null {
   if (!row.lead_answer_id || !row.lead_answer || row.booking_status) return null;
   if (consentPurposeOfKey(row) !== 'operator') return null;
+  // Вид говорит словами закрытия с причиной — ответ кнопкой его не строит.
+  if (shownSellerClosed(row)) return null;
   const status = row.lead_status ?? null;
   if (row.lead_group_over === true && groupPassedOnAnswer(row.lead_answer, row.lead_decline_reason ?? null)) {
     return answerHolds(status, row.lead_answer === 'decline' ? 'lost' : null) ? row.lead_answer_id : null;
@@ -790,9 +837,21 @@ export function shownVehicleAnswerId(row: StatusRow): string | null {
  * (partner_incoming_answers), `vehicle` — запись журнала перевозчика или
  * прокатчика. Два источника не пересекаются: род заявки один.
  */
-export type ShownAnswerRef = { source: 'tour' | 'vehicle'; id: string };
+export type ShownAnswerRef = { source: 'tour' | 'vehicle' | 'closed'; id: string };
+
+/**
+ * Запись журнала о закрытии продавцом с причиной, если вид заявки построен
+ * именно из неё (этап 3а): тогда сообщение человеку об отказе правдиво, а
+ * прочтение такого вида — доставка. null — бронь, причины нет, статус уже
+ * другой или заявка не туроператору.
+ */
+export function shownSellerClosedId(row: StatusRow): string | null {
+  return row.lead_closed_id && shownSellerClosed(row) ? row.lead_closed_id : null;
+}
 
 export function shownAnswerRef(row: StatusRow): ShownAnswerRef | null {
+  const closed = shownSellerClosedId(row);
+  if (closed) return { source: 'closed', id: closed };
   const tour = shownTourAnswerId(row);
   if (tour) return { source: 'tour', id: tour };
   const vehicle = shownVehicleAnswerId(row);
@@ -878,7 +937,8 @@ const REQUEST_STATUS_SELECT = `
          (l.source_data->>'group_over_seats') = 'true' AS lead_group_over,
          l.source_data->>'declined_by' AS lead_declined_by,
          l.source_data->>'kind' AS lead_kind,
-         s.owner_answer AS stay_owner_answer
+         s.owner_answer AS stay_owner_answer,
+         l.lost_reason AS lead_lost_reason, lc.id AS lead_closed_id
     FROM k
     LEFT JOIN leads l ON l.id = k.lead_id
     -- Ответ кнопкой того, кто сейчас адресат лида (1334): после передачи
@@ -897,6 +957,15 @@ const REQUEST_STATUS_SELECT = `
        ORDER BY pal.id DESC
        LIMIT 1
     ) la ON k.lead_id IS NOT NULL
+    -- Закрытие продавцом с причиной (1429): причина лежит в заявке и стирается
+    -- при смене статуса, поэтому последняя запись журнала — её закрытие.
+    LEFT JOIN LATERAL (
+      SELECT cl.id::text AS id
+        FROM lead_activity_log cl
+       WHERE cl.lead_id = k.lead_id AND cl.action = '${SELLER_CLOSED_ACTION}'
+       ORDER BY cl.id DESC
+       LIMIT 1
+    ) lc ON l.lost_reason IS NOT NULL
     -- Тур заявки на бронь — по номеру, который записал роут MCP; приведение
     -- только числу: source_data — jsonb, и чужая форма даёт «не записано», а
     -- не 22P02 на весь ответ.
@@ -1205,9 +1274,8 @@ export async function readRequestStatus(rawKey: unknown, opts: StatusReader = {}
   const shown = row.opens_chat === true ? shownAnswerRef(row) : null;
   const via = opts.reader === 'agent' ? 'agent_read' : opts.reader === 'page' && opts.seen === true ? 'page_seen' : null;
   if (shown && via) {
-    const { markNoticeShown, markVehicleNoticeShown } = await import('@/lib/requests/answer-notice-mark');
-    if (shown.source === 'tour') await markNoticeShown(shown.id, via);
-    else await markVehicleNoticeShown(shown.id, via);
+    const { markShownRef } = await import('@/lib/requests/answer-notice-mark');
+    await markShownRef(shown, via);
   }
   return {
     ...core,
