@@ -31,6 +31,7 @@ import { ACTIVITY_ALIASES, ACTIVITY_LABELS, activityLabel } from '@/lib/tours/la
 import { typeMatches } from '@/lib/kuzmich/tour-filter';
 import { stemRu } from '@/lib/search/query-words';
 import { GROUP_TOTAL_EXCLUDES_SENTENCE, groupTotalLabel, type GroupTotal } from '@/lib/tours/group-total';
+import { datesClosedByPlatform } from '@/lib/tours/date-closure';
 
 export { groupTotalLabel, type GroupTotal } from '@/lib/tours/group-total';
 
@@ -1192,6 +1193,29 @@ export async function nearestSlotFor(tourId: number, people: number | null, toda
  * nearest_free_date кандидата здесь не годится: она считается от сегодня, без
  * числа людей, и при date_from в будущем указывает раньше окна.
  */
+/**
+ * Даты окна, которые закрыл Ведар по описанию тура (миграции 1421, 1435), —
+ * одной строкой. Занятость называет их «мест нет» наравне с разобранными и
+ * закрытыми оператором, а это другое: оператора никто не спрашивал, и заявка
+ * на такую дату уходит ему вопросом (create_booking_request, этап 6). Не
+ * прочиталось — строки нет: «закрыл Ведар» не утверждается по догадке.
+ */
+async function platformClosedLines(tourId: number | string, from: string, to: string, today: string): Promise<string[]> {
+  const dates = await datesClosedByPlatform(tourId, from, to);
+  if (!dates || dates.length === 0) return [];
+  const one = dates.length === 1;
+  const dayMs = 86_400_000;
+  const contiguous = dates.every((d, i) => i === 0 || Date.parse(d) - Date.parse(dates[i - 1]!) === dayMs);
+  const SHOWN_CLOSED = 5;
+  const span = one ? dayIn(dates[0]!, today)
+    : contiguous ? `с ${dayIn(dates[0]!, today)} по ${dayIn(dates[dates.length - 1]!, today)}`
+      : `${dates.slice(0, SHOWN_CLOSED).map((d) => dayIn(d, today)).join(', ')}${dates.length > SHOWN_CLOSED ? ` и ещё ${dates.length - SHOWN_CLOSED}` : ''}`;
+  return [
+    `${one ? 'Дату' : 'Даты'} ${span} в календаре закрыл Ведар по описанию тура — оператор ${one ? 'её' : 'их'} не закрывал и не подтверждал. `
+    + `Мест на ${one ? 'неё' : 'них'} в системе нет, но это не отказ оператора: create_booking_request на такую дату отправит ему заявку вопросом, ходит ли он в этот день.`,
+  ];
+}
+
 async function emptyWindowAnswer(
   tour: ResolvedTour, from: string, to: string, today: string, people: number | null,
   cache: ReturnType<typeof createPlannerCache>,
@@ -1362,7 +1386,7 @@ async function availabilityForTour(tour: ResolvedTour, args: AvailabilityArgs): 
       // Отказ поиска за окном — свой третий исход внутри emptyWindowAnswer,
       // а не внешний «Занятость временно недоступна»: окно-то прочитано.
       const body = await emptyWindowAnswer(tour, from, to, today, people, cache);
-      return [...notes, ...body].join('\n');
+      return [...notes, ...body, ...await platformClosedLines(tour.id, from, to, today)].join('\n');
     }
     const SHOWN = 12;
     const people = parsePeople(args.people);
@@ -1407,6 +1431,7 @@ async function availabilityForTour(tour: ResolvedTour, args: AvailabilityArgs): 
       ...lines,
       ...more,
       ...groupLines,
+      ...await platformClosedLines(tour.id, from, to, today),
       // Ссылка — полным адресом: относительная у внешнего агента никуда не
       // ведёт (проверка MCP 29.09).
       `Заявка оператору на странице: ${getPublicBaseUrl()}${tourPath(tour)}?date=<дата>. Данные на ${shortDate(today)} (по Камчатке).`,

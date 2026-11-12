@@ -78,7 +78,7 @@ export const ALL_FUNNEL_STEPS = [...FUNNEL_STEPS, ...SERVER_FUNNEL_STEPS] as con
 export type AnyFunnelStep = (typeof ALL_FUNNEL_STEPS)[number];
 
 /**
- * Причины отказа в брони — коды, не текст. Шесть первых — коды
+ * Причины отказа в брони — коды, не текст. Семь первых — коды
  * `ReserveError` (lib/bookings/reserve): новый код отказа там не соберётся,
  * пока не назван здесь (reason у booking_rejected типизирован этим словарём).
  * Остальные — отказы двери сайта до общего модуля и сбой сервера.
@@ -86,6 +86,7 @@ export type AnyFunnelStep = (typeof ALL_FUNNEL_STEPS)[number];
 export const BOOKING_REJECT_REASONS = [
   'NOT_FOUND',            // тура нет, снят с публикации или удалён
   'DATE_BLOCKED',         // оператор закрыл дату в календаре
+  'DATE_CLOSED_BY_PLATFORM', // дату закрыл Ведар по оценке, оператор её не закрывал
   'MAX_EXCEEDED',         // запрошено больше, чем вмещает тур или дата
   'NO_SLOTS',             // мест на дату не осталось
   'OUT_OF_SEASON',        // даты нет в календаре, и она вне сезона тура
@@ -101,6 +102,7 @@ export type BookingRejectReason = (typeof BOOKING_REJECT_REASONS)[number];
 export const BOOKING_REJECT_REASON_RU: Record<BookingRejectReason, string> = {
   NOT_FOUND: 'тур не найден или снят с витрины',
   DATE_BLOCKED: 'дата закрыта оператором',
+  DATE_CLOSED_BY_PLATFORM: 'дата закрыта Ведаром по оценке',
   MAX_EXCEEDED: 'группа больше вместимости',
   NO_SLOTS: 'мест на дату нет',
   OUT_OF_SEASON: 'дата вне сезона',

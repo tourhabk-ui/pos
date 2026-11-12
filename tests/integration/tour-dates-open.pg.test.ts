@@ -792,4 +792,101 @@ withPg('общая запись дат тура на настоящем PostgreS
     expect((await state(canyon, '2027-01-15'))?.closed).toBe(true);
     expect((await state(canyon, '2027-01-16'))?.closed).toBe(false);
   });
+
+  it('миграция 1435: дату, закрытую Ведаром, отличает признак, а не слова; правка закрытия оператором его стирает; бронь и чтение говорят, кто закрыл', async () => {
+    const sql = readFileSync(join(process.cwd(), 'migrations/1435_availability_closed_by.sql'), 'utf8');
+    const { isClosedByPlatform, datesClosedByPlatform } = await import('@/lib/tours/date-closure');
+    const { closeTourDates } = await import('@/lib/tours/availability-close');
+    const reserve = await import('@/lib/bookings/reserve');
+    const REASON = 'Закрыто Ведаром: зимой тур по его описанию под вопросом (1421). Если тур ходит — откройте даты.';
+    const t = await addTour(operatorA, 'Тур 1435');
+    const put = (d: string, closed: boolean, reason: string | null) => pool.query(
+      `INSERT INTO tour_availability (operator_tour_id, date, available_slots, is_cancelled, cancellation_reason)
+       VALUES ($1, $2::date, 8, $3, $4)`, [t, d, closed, reason],
+    );
+    await put('2027-02-01', true, REASON);                       // закрыл Ведар
+    await put('2027-02-02', true, 'Заблокировано оператором');   // закрыл оператор
+    await put('2027-02-03', false, null);                        // открыта
+    await put('2027-02-04', true, REASON);                       // закрыл Ведар, строка потом снята
+    await pool.query(`UPDATE tour_availability SET deleted_at = NOW() WHERE operator_tour_id = $1 AND date = '2027-02-04'`, [t]);
+    await put('2027-02-05', true, REASON);
+    await put('2027-02-06', true, REASON);
+    // Оператор закрыл дату словами, похожими на слова Ведара, — это его закрытие.
+    await put('2027-02-07', true, 'Закрыто Ведаром? Нет, это я закрыл');
+    const by = async (d: string) => (await pool.query<{ closed_by: string | null }>(
+      `SELECT closed_by FROM tour_availability WHERE operator_tour_id = $1 AND date = $2::date`, [t, d],
+    )).rows[0]?.closed_by ?? null;
+    // Новая строка признака не несёт, какой бы ни была причина: его ставит миграция.
+    expect(await by('2027-02-01')).toBeNull();
+    expect(await isClosedByPlatform(t, '2027-02-01')).toBe(false);
+
+    await pool.query(sql);
+    expect(await by('2027-02-01')).toBe('platform');
+    expect(await by('2027-02-02')).toBeNull();
+    expect(await by('2027-02-03')).toBeNull();
+    expect(await by('2027-02-04')).toBeNull();   // снятая строка не размечается
+    expect(await by('2027-02-05')).toBe('platform');
+    expect(await by('2027-02-07')).toBeNull();   // причина не слово в слово — не Ведар
+
+    // Чтение: только живая закрытая строка с признаком.
+    expect(await isClosedByPlatform(t, '2027-02-01')).toBe(true);
+    for (const d of ['2027-02-02', '2027-02-03', '2027-02-04', '2027-02-07', '2027-02-20']) {
+      expect(await isClosedByPlatform(t, d), d).toBe(false);
+    }
+    expect(await datesClosedByPlatform(t, '2027-02-01', '2027-02-28')).toEqual(['2027-02-01', '2027-02-05', '2027-02-06']);
+    expect(await datesClosedByPlatform(t, '2027-02-02', '2027-02-04')).toEqual([]);
+
+    // Бронь: о дате, закрытой Ведаром, — свои слова; о закрытой оператором — прежние.
+    const refusal = async (d: string) => {
+      const days = await reserve.readTourDays(pool, t, d, d);
+      try {
+        reserve.assertDaysOpen(days, { participants: 2, maxParticipants: 10, durationDays: 1 });
+      } catch (e) {
+        return e as InstanceType<typeof reserve.ReserveError>;
+      }
+      return null;
+    };
+    const byVedar = await refusal('2027-02-01');
+    expect(byVedar?.code).toBe('DATE_CLOSED_BY_PLATFORM');
+    expect(byVedar?.message).toContain('закрыл Ведар по описанию тура — оператор её не закрывал');
+    const byOperator = await refusal('2027-02-02');
+    expect(byOperator?.code).toBe('DATE_BLOCKED');
+    expect(byOperator?.message).toBe('Оператор закрыл приём заявок на эту дату.');
+    expect(await refusal('2027-02-03')).toBeNull();
+
+    // Оператор открыл дату в кабинете — она открыта, и оценка Ведара к ней больше не относится.
+    expect(await mod.openTourDates(cabinet(t, ['2027-02-01'], 8))).toMatchObject({ ok: true, perDate: [{ result: 'reopened' }] });
+    expect(await by('2027-02-01')).toBeNull();
+    expect(await isClosedByPlatform(t, '2027-02-01')).toBe(false);
+    expect(await refusal('2027-02-01')).toBeNull();
+
+    // Оператор закрыл своими словами дату, которую закрывал Ведар, — теперь это его закрытие.
+    expect(await closeTourDates(pool, { operatorId: operatorA, tourId: t, dates: ['2027-02-05'], reason: 'Заблокировано оператором' }))
+      .toEqual({ ok: true, closed: 1 });
+    expect(await by('2027-02-05')).toBeNull();
+    expect((await refusal('2027-02-05'))?.code).toBe('DATE_BLOCKED');
+
+    // Правка не о закрытии (места) признак не трогает.
+    await pool.query(`UPDATE tour_availability SET available_slots = 6 WHERE operator_tour_id = $1 AND date = '2027-02-06'`, [t]);
+    expect(await by('2027-02-06')).toBe('platform');
+
+    // База не даёт признак открытой дате и не знает других значений.
+    await expect(pool.query(`UPDATE tour_availability SET closed_by = 'platform' WHERE operator_tour_id = $1 AND date = '2027-02-03'`, [t]))
+      .rejects.toMatchObject({ code: '23514' });
+    await expect(pool.query(`UPDATE tour_availability SET closed_by = 'operator' WHERE operator_tour_id = $1 AND date = '2027-02-02'`, [t]))
+      .rejects.toMatchObject({ code: '23514' });
+
+    // Повтор миграции: открытая и перезакрытая оператором даты признак не получают обратно.
+    await pool.query(sql);
+    expect(await by('2027-02-01')).toBeNull();
+    expect(await by('2027-02-05')).toBeNull();
+    expect(await by('2027-02-06')).toBe('platform');
+
+    // Строку с признаком сняли из календаря: признак в ней остался, но дата больше не «закрыта Ведаром».
+    expect(await isClosedByPlatform(t, '2027-02-06')).toBe(true);
+    await pool.query(`UPDATE tour_availability SET deleted_at = NOW() WHERE operator_tour_id = $1 AND date = '2027-02-06'`, [t]);
+    expect(await by('2027-02-06')).toBe('platform');
+    expect(await isClosedByPlatform(t, '2027-02-06')).toBe(false);
+    expect(await datesClosedByPlatform(t, '2027-02-01', '2027-02-28')).toEqual([]);
+  });
 });
