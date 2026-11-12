@@ -528,4 +528,28 @@ withPg('снимки партнёров без согласия: спрятан�
       expect((await rows()).map((r) => r.s3_key)).toEqual(['photos/mestechko/vulkan-gorelyy-05.jpg']);
     });
   });
+
+  describe('«место дня» Кузьмича: кандидат — только с описанием, которое пройдёт проверку поста (12.11)', () => {
+    it('место со своим снимком без описания в кандидаты не идёт; с описанием от MIN_DESTINATION_CHARS — идёт', async () => {
+      const { KUZMICH_ROUTE_PICK_SQL, OWN_PHOTO_MODELS } = await import('@/lib/notifications/telegram-channel');
+      const { MIN_DESTINATION_CHARS } = await import('@/lib/notifications/post-validation');
+      // Место сцены со своим главным кадром владельца: только оно и кандидат.
+      await pool.query(`UPDATE places SET is_visible = FALSE WHERE ark_id <> $1::uuid`, [VOLCANO.ark]);
+      const pick = async () => (await pool.query<{ id: string }>(
+        KUZMICH_ROUTE_PICK_SQL, [[], [...OWN_PHOTO_MODELS], MIN_DESTINATION_CHARS])).rows.map((r) => r.id);
+
+      await pool.query(`UPDATE places SET description = NULL WHERE ark_id = $1::uuid`, [VOLCANO.ark]);
+      expect(await pick()).toEqual([]);
+      // Короче порога — тоже нет: такую карточку validateRoutePost отклонит.
+      await pool.query(`UPDATE places SET description = $2 WHERE ark_id = $1::uuid`, [VOLCANO.ark, 'Короткий текст.']);
+      expect(await pick()).toEqual([]);
+      // Разметка не считается: 200 знаков тегами вокруг короткой фразы — не описание.
+      await pool.query(`UPDATE places SET description = $2 WHERE ark_id = $1::uuid`,
+        [VOLCANO.ark, '<p>' + '<b></b>'.repeat(40) + 'Короткий текст.</p>']);
+      expect(await pick()).toEqual([]);
+      await pool.query(`UPDATE places SET description = $2 WHERE ark_id = $1::uuid`,
+        [VOLCANO.ark, 'Корякская сопка — действующий стратовулкан к северу от Петропавловска. '.repeat(4)]);
+      expect(await pick()).toEqual([VOLCANO.ark]);
+    });
+  });
 });
