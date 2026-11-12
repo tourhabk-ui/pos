@@ -57,6 +57,12 @@ vi.mock('@/lib/auth/middleware', async (orig) => ({
   requireOperator: vi.fn(async () => ({ userId: 'd0e10000-0000-4000-8000-0000000000aa', role: 'operator', email: 'op-a@example.test' })),
 }));
 vi.mock('@/lib/notifications/operator-booking', () => ({ notifyNewBooking: vi.fn(async () => undefined) }));
+// Заявка-вопрос (этап 6б) пишется настоящим createLeadDetailed: уведомление
+// администратору из теста не уходит.
+vi.mock('@/lib/notifications/telegram-channel', async (orig) => ({
+  ...(await orig<typeof import('@/lib/notifications/telegram-channel')>()),
+  notifyAdminNewLead: vi.fn(async () => undefined),
+}));
 
 const PG_URL = process.env.KERNEL_PG_TEST_URL ?? '';
 const withPg = PG_URL ? describe : describe.skip;
@@ -888,5 +894,71 @@ withPg('общая запись дат тура на настоящем PostgreS
     expect(await by('2027-02-06')).toBe('platform');
     expect(await isClosedByPlatform(t, '2027-02-06')).toBe(false);
     expect(await datesClosedByPlatform(t, '2027-02-01', '2027-02-28')).toEqual([]);
+  });
+
+  it('вопрос оператору с формы сайта (этап 6б): заявка — только на дату, закрытую Ведаром; повтор — та же заявка', async () => {
+    const { askOperatorAboutDate, tourRequestPrefix } = await import('@/lib/requests/tour-date-question');
+    const { PLATFORM_CLOSED_LEAD_NOTE } = await import('@/lib/mcp/booking-closed-date');
+    const REASON = 'Закрыто Ведаром: зимой тур по его описанию под вопросом (1421). Если тур ходит — откройте даты.';
+    const t = await addTour(operatorA, 'Тур 6б');
+    await pool.query(
+      `INSERT INTO tour_availability (operator_tour_id, date, available_slots, is_cancelled, cancellation_reason, closed_by)
+       VALUES ($1, '2027-02-01', 8, true, $2, 'platform'),
+              ($1, '2027-02-02', 8, true, 'Заблокировано оператором', NULL),
+              ($1, '2027-02-03', 8, false, NULL, NULL)`, [t, REASON],
+    );
+    const consent = { at: new Date('2026-10-22T03:00:00Z'), ip: '203.0.113.9', source: 'tour-form', version: 'test-6b' };
+    const today = () => TODAY;
+    const input = (date: string, phone = '+79005550601') => ({
+      tourId: Number(t), date, participants: 2, name: 'Пётр Шестой', phone, comment: 'С детьми',
+      consent, sourceUrl: `https://vedarai.ru/catalog/tours/${t}`,
+    });
+    interface LeadRow {
+      id: string; operator_id: string | null; comment: string; status: string; source_channel: string;
+      source_data: Record<string, unknown>; pd_consent_source: string | null; consented: boolean; is_self: boolean;
+    }
+    const leadsOf = async (phone: string) => (await pool.query<LeadRow>(
+      `SELECT id::text, operator_id::text, comment, status, source_channel, source_data, pd_consent_source,
+              (pd_consent_at IS NOT NULL) AS consented, is_self
+         FROM leads WHERE phone = $1 ORDER BY created_at`, [phone],
+    )).rows;
+
+    // Дату закрыл оператор, дата открыта, строки в календаре нет — вопрос этой дверью не задаётся.
+    for (const d of ['2027-02-02', '2027-02-03', '2027-02-04']) {
+      expect(await askOperatorAboutDate(input(d), { today }), d).toEqual({ state: 'not_platform_closed' });
+    }
+    expect(await leadsOf('+79005550601')).toEqual([]);
+
+    // Дату закрыл Ведар — заявка-вопрос оператору тура, с согласием и отметкой источника.
+    const sent = await askOperatorAboutDate(input('2027-02-01'), { today });
+    expect(sent).toMatchObject({ state: 'sent', created: true, tourTitle: 'Тур 6б', operatorId: operatorA });
+    const [lead] = await leadsOf('+79005550601');
+    expect(lead).toMatchObject({
+      operator_id: operatorA, status: 'new', source_channel: 'site_tour',
+      pd_consent_source: 'tour-form', consented: true, is_self: false,
+    });
+    expect(lead!.comment).toBe(`${tourRequestPrefix('Тур 6б', t, '2027-02-01')} участников 2.${PLATFORM_CLOSED_LEAD_NOTE} С детьми`);
+    expect(lead!.source_data).toMatchObject({
+      source: 'tour_page', form: 'tour-date-question', tour_id: t, date: '2027-02-01', participants: 2, date_closed_by: 'platform',
+    });
+    expect(sent).toMatchObject({ leadId: lead!.id });
+
+    // Повтор (тот же телефон, тур и дата, другие слова) — прежняя заявка, второй нет.
+    const again = await askOperatorAboutDate({ ...input('2027-02-01'), comment: 'Другие слова' }, { today });
+    expect(again).toMatchObject({ state: 'sent', created: false, leadId: lead!.id });
+    expect(await leadsOf('+79005550601')).toHaveLength(1);
+
+    // Тур не на витрине — «нет тура», заявки нет.
+    const hidden = await addTour(operatorA, 'Тур 6б скрытый', { is_published: false });
+    await pool.query(
+      `INSERT INTO tour_availability (operator_tour_id, date, available_slots, is_cancelled, cancellation_reason, closed_by)
+       VALUES ($1, '2027-02-01', 8, true, $2, 'platform')`, [hidden, REASON],
+    );
+    expect(await askOperatorAboutDate({ ...input('2027-02-01', '+79005550602'), tourId: Number(hidden) }, { today })).toEqual({ state: 'no_tour' });
+
+    // Оператор открыл дату — оценка Ведара к ней больше не относится: вопрос не нужен.
+    expect(await mod.openTourDates(cabinet(t, ['2027-02-01'], 8))).toMatchObject({ ok: true, perDate: [{ result: 'reopened' }] });
+    expect(await askOperatorAboutDate(input('2027-02-01', '+79005550602'), { today })).toEqual({ state: 'not_platform_closed' });
+    expect(await leadsOf('+79005550602')).toEqual([]);
   });
 });

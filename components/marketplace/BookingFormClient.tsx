@@ -85,7 +85,20 @@ interface FormError {
   message: string;
   field: FormField | null;
   kind: 'validation' | 'send';
+  /**
+   * Отказ «дату в календаре закрыл Ведар, а не оператор» (код
+   * DATE_CLOSED_BY_PLATFORM): под словами отказа — кнопка «Спросить
+   * оператора». Живёт в самом отказе: любая правка формы снимает отказ, а с
+   * ним и кнопку — вопрос не уйдёт про дату, которой на экране уже нет.
+   */
+  askOperator?: boolean;
 }
+
+/** Код отказа брони, при котором форма предлагает спросить оператора (lib/bookings/reserve). */
+const DATE_CLOSED_BY_PLATFORM = 'DATE_CLOSED_BY_PLATFORM';
+
+/** Вопрос оператору отправлен: слова сервера и ссылки на страницу заявки и MAX (могут не выдаться). */
+interface AskedState { message: string; page: string | null; maxLink: string | null }
 
 export default function BookingFormClient({ tourId, basePrice, maxParticipants = 10, groupSizeUnlimited = false, tourTitle, priceUnit, duration, initialDate, initialGuests, cancellationTerms, askSeatsFirst = false, seasonWindow = null }: BookingFormProps) {
   const router = useRouter();
@@ -95,6 +108,9 @@ export default function BookingFormClient({ tourId, basePrice, maxParticipants =
   // Сервер записал заявку: кнопка показывает галочку до перехода на страницу брони.
   const [sentOk, setSentOk] = useState(false);
   const [error, setError] = useState<FormError | null>(null);
+  // Вопрос оператору о дате, закрытой Ведаром (этап 6б): идёт отправка / отправлен.
+  const [asking, setAsking] = useState(false);
+  const [asked, setAsked] = useState<AskedState | null>(null);
   const errorRef = useRef<HTMLDivElement>(null);
   // Сообщение об ошибке обязано оказаться на экране: кнопка внизу длинной
   // формы, над ней липкая панель, и отказ, выведенный вне видимой зоны,
@@ -233,6 +249,8 @@ export default function BookingFormClient({ tourId, basePrice, maxParticipants =
   const setDate = (date: string) => {
     setFormData(prev => ({ ...prev, booking_date: date }));
     setError(null);
+    // «Вопрос отправлен» — про прежнюю дату: с новой датой его на экране нет.
+    setAsked(null);
   };
   const setConsent = (v: boolean) => {
     setPdConsent(v);
@@ -279,6 +297,8 @@ export default function BookingFormClient({ tourId, basePrice, maxParticipants =
     setError(null);
     // Поле, которое назвал сервер, — чтобы подсветить именно его.
     let serverField: FormField | null = null;
+    // Код отказа: дату закрыл Ведар — под отказом будет «Спросить оператора».
+    let serverCode = '';
 
     // Код агентской ссылки: сперва адресная строка, потом память (30 дней,
     // ReferralCapture). До 26.09 эта форма — главная дверь брони — кода не
@@ -327,6 +347,9 @@ export default function BookingFormClient({ tourId, basePrice, maxParticipants =
         serverField = typeof data === 'object' && data !== null && 'field' in data
           ? asFormField((data as Record<string, unknown>).field)
           : null;
+        serverCode = typeof data === 'object' && data !== null && typeof (data as Record<string, unknown>).code === 'string'
+          ? String((data as Record<string, unknown>).code)
+          : '';
         throw new Error(msg);
       }
 
@@ -350,9 +373,63 @@ export default function BookingFormClient({ tourId, basePrice, maxParticipants =
         ? (err as Error).message
         : 'Не удалось отправить заявку. Проверьте связь и попробуйте ещё раз.';
       // Поле назвал сервер — это отказ по вводу, повтор тут не поможет.
-      setError({ message, field: serverField, kind: serverField ? 'validation' : 'send' });
+      // Дату закрыл Ведар — повтор тоже не поможет: это отказ по существу, и
+      // под ним предлагается спросить оператора.
+      const askOperator = serverCode === DATE_CLOSED_BY_PLATFORM;
+      setError({ message, field: serverField, kind: serverField || askOperator ? 'validation' : 'send', askOperator });
     } finally {
       setLoading(false);
+    }
+  };
+
+  /**
+   * Вопрос оператору: ходит ли он в дату, которую в календаре закрыл Ведар.
+   * Уходит заявкой (не бронью) с теми же именем, телефоном и согласием, что
+   * человек уже ввёл для брони; что дата закрыта Ведаром, проверяет сервер.
+   */
+  const askOperatorAboutDate = async () => {
+    if (asking || !pdConsent || !formData.booking_date) return;
+    const phone = normalizePhone(formData.tourist_phone);
+    if (!phone) {
+      setError({ message: 'Проверьте телефон: нужен номер из 10–15 цифр, например +7 900 000 00 00', field: 'tourist_phone', kind: 'validation' });
+      return;
+    }
+    setAsking(true);
+    try {
+      const res = await fetch('/api/leads/tour-date-question', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          tour_id: Number(tourId),
+          date: formData.booking_date,
+          participants,
+          name: formData.tourist_name,
+          phone,
+          comment: formData.special_requests.trim() || undefined,
+          // Состояние той же галочки, что у брони: адресат тот же — оператор тура.
+          pd_consent: pdConsent,
+        }),
+      });
+      const data = await res.json().catch(() => null) as { success?: unknown; error?: unknown; data?: { message?: unknown; page?: unknown; max_link?: unknown } } | null;
+      if (!res.ok || data?.success !== true) {
+        const raw = typeof data?.error === 'string' ? data.error : '';
+        const said = /[А-Яа-яЁё]/.test(raw) ? raw : 'Не удалось отправить вопрос. Попробуйте позже или свяжитесь с оператором напрямую.';
+        // 409 — дату Ведар не закрывал (или её уже открыли): спрашивать этой дверью нечего.
+        setError({ message: said, field: null, kind: res.status === 409 ? 'validation' : 'send', askOperator: res.status !== 409 && res.status !== 404 });
+        return;
+      }
+      const str = (v: unknown) => (typeof v === 'string' && v ? v : null);
+      setError(null);
+      setAsked({
+        message: str(data.data?.message) ?? 'Вопрос отправлен оператору. Это не бронь — места не закреплены.',
+        page: str(data.data?.page),
+        maxLink: str(data.data?.max_link),
+      });
+    } catch (err) {
+      console.error('[BookingForm] вопрос оператору не отправлен', err);
+      setError({ message: 'Не удалось отправить вопрос. Проверьте связь и попробуйте ещё раз.', field: null, kind: 'send', askOperator: true });
+    } finally {
+      setAsking(false);
     }
   };
 
@@ -579,6 +656,52 @@ export default function BookingFormClient({ tourId, basePrice, maxParticipants =
             {error.kind === 'send' && (
               <p className="text-xs">
                 Подождите минуту и попробуйте снова, а не нажимайте несколько раз подряд.
+              </p>
+            )}
+            {/* Дату закрыл Ведар, а не оператор: вместо тупика — вопрос ему.
+                Кнопка сплошная и своего цвета: это действие, а не часть отказа. */}
+            {error.askOperator && (
+              <div className="space-y-1.5 pt-1" data-ask-operator>
+                <button
+                  type="button"
+                  onClick={askOperatorAboutDate}
+                  disabled={asking || !pdConsent}
+                  className="ds-btn ds-btn-secondary w-full sm:w-auto disabled:opacity-50 disabled:cursor-not-allowed transition-all duration-200"
+                >
+                  {asking ? 'Отправляем вопрос…' : 'Спросить оператора про эту дату'}
+                </button>
+                <p className="text-xs text-[var(--text-secondary)]">
+                  Оператор получит ваши имя и телефон и вопрос, ходит ли он в этот день. Это не бронь: места не закрепляются.
+                </p>
+              </div>
+            )}
+          </div>
+        </div>
+      )}
+
+      {/* Вопрос ушёл оператору: что отправлено и где появится ответ. */}
+      {asked && (
+        <div
+          role="status"
+          data-asked-operator
+          className="flex items-start gap-2 rounded-lg border p-3 text-sm text-[var(--text-primary)]"
+          style={{
+            background: 'color-mix(in srgb, var(--success) 10%, transparent)',
+            borderColor: 'color-mix(in srgb, var(--success) 40%, transparent)',
+          }}
+        >
+          <MessageSquare className="w-4 h-4 shrink-0 mt-0.5 text-[var(--success)]" aria-hidden="true" />
+          <div className="space-y-1.5">
+            <p>{asked.message}</p>
+            {asked.page && (
+              <p>
+                <a href={asked.page} className="font-medium text-[var(--ocean)] underline underline-offset-2">Открыть страницу заявки</a>
+              </p>
+            )}
+            {asked.maxLink && (
+              <p className="text-xs text-[var(--text-secondary)]">
+                Чтобы ответ оператора пришёл в мессенджер —{' '}
+                <a href={asked.maxLink} className="text-[var(--ocean)] underline underline-offset-2">подключите MAX</a>.
               </p>
             )}
           </div>
