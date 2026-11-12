@@ -1968,6 +1968,146 @@ withPg('переписка по заявке на настоящем PostgreSQL'
       await pool.query(`DELETE FROM tour_availability WHERE operator_tour_id = $1::bigint`, [tourW]);
     });
 
+    it('другие компании на дату (4а): после «Нет мест» названы компании с турами к тому же месту, которые могут принять в этот день; отбор и порядок — на настоящей схеме', async () => {
+      process.env.CALLBACK_SIGNING_SECRET ??= 'pg-test-signing';
+      const answers = await import('@/lib/requests/chat-answer');
+      const notices = await import('@/lib/requests/answer-notice');
+      const { operatorOutcomeLine, ruDay } = await import('@/lib/requests/answer-notice-text');
+      const { loadOtherOffers } = await import('@/lib/requests/other-offers');
+      const { loadToursOnDate } = await import('@/lib/tours/nearest-free-date');
+      const { OFFER_ORDER_NOTE_ON_DATE_RU } = await import('@/lib/tours/offer-order');
+      const { kamchatkaToday } = await import('@/lib/seat-requests/core');
+      const day = (n: number) => {
+        const d = new Date(`${kamchatkaToday()}T00:00:00Z`);
+        d.setUTCDate(d.getUTCDate() + n);
+        return d.toISOString().slice(0, 10);
+      };
+      const [D, DX] = [day(20), day(25)];
+      const partner = async (name: string, chat: number | null = null) => (await pool.query<{ id: string }>(
+        `INSERT INTO partners (name, category, contact, max_chat_id) VALUES ($1, 'operator', '{}', $2) RETURNING id`, [name, chat],
+      )).rows[0].id;
+      const mkPlace = async (name: string) => (await pool.query<{ id: string }>(
+        `INSERT INTO places (id, name, lat, lng, ark_id, location_type, zone, is_visible)
+         VALUES (gen_random_uuid(), $1, 52.9, 158.7, gen_random_uuid(), 'cape', 'avachinsky', TRUE) RETURNING id::text AS id`, [name],
+      )).rows[0].id;
+      const place = await mkPlace('Мыс 4а <дальний>');
+      const elsewhere = await mkPlace('Другое место 4а');
+      const tour = async (op: string, title: string, o: { place?: string | null; published?: boolean; max?: number; season?: [string, string] } = {}) => Number((await pool.query<{ id: number }>(
+        `INSERT INTO operator_tours (title, base_price, operator_id, max_participants, is_active, is_published, main_place_id, season_start, season_end)
+         VALUES ($1, 9000, $2, $3, true, $4, $5, $6::date, $7::date) RETURNING id`,
+        [title, op, o.max ?? 12, o.published ?? true, o.place === undefined ? place : o.place, o.season?.[0] ?? null, o.season?.[1] ?? null],
+      )).rows[0].id);
+      const slot = (t: number, date: string, slots: number, cancelled = false) => pool.query(
+        `INSERT INTO tour_availability (operator_tour_id, date, available_slots, is_cancelled) VALUES ($1, $2::date, $3, $4)`, [t, date, slots, cancelled],
+      );
+      // Отказавшая компания: её второй тур к месту в список не идёт.
+      const opA = await partner('Отказавшая 4а', 9300701);
+      const tA = await tour(opA, 'Мыс 4а — отказанный');
+      const tA2 = await tour(opA, 'Мыс 4а — её второй тур');
+      // Берёт по календарю: два тура с местами на двоих и один — с одним местом.
+      const opB = await partner('Берёт по календарю & Ко');
+      const tB = await tour(opB, 'Мыс 4а на джипах');
+      const tB1 = await tour(opB, 'Мыс 4а — одно место');
+      const tB2 = await tour(opB, 'Мыс 4а пешком');
+      // Календаря нет вовсе — «дату подтверждает оператор».
+      const opC = await partner('По заявке 4а');
+      const tC = await tour(opC, 'Мыс 4а по заявке');
+      // Не подходят: дата другая; дата закрыта; черновик; вне сезона; другое место; группа больше тура.
+      const tD = await tour(await partner('Другая дата 4а'), 'Мыс 4а — другая дата');
+      const tE = await tour(await partner('Закрыла дату 4а'), 'Мыс 4а — дата закрыта');
+      const tF = await tour(await partner('Черновик 4а'), 'Мыс 4а — черновик', { published: false });
+      const tG = await tour(await partner('Не сезон 4а'), 'Мыс 4а — летом', { season: [day(60), day(90)] });
+      const tH = await tour(await partner('Другое место 4а'), 'Не к мысу', { place: elsewhere });
+      const tI = await tour(await partner('Малая группа 4а'), 'Мыс 4а — один гость', { max: 1 });
+      for (const t of [tA, tA2, tB, tB2, tF, tH, tI]) await slot(t, D, 10);
+      await slot(tB1, D, 1);
+      await slot(tD, DX, 10);
+      await slot(tE, D, 10, true);
+
+      // Календарь на дату у набора: хватает мест / дата закрыта / даты нет или мест мало.
+      const onDate = await loadToursOnDate([tB, tB1, tB2, tC, tD, tE, tF, tI].map(String), D, 2);
+      expect(onDate.state).toBe('ok');
+      if (onDate.state !== 'ok') throw new Error('календарь на дату не прочитан');
+      expect([...onDate.free].sort()).toEqual([tB, tB2].map(String).sort());
+      expect([...onDate.closed]).toEqual([String(tE)]);
+      // Одному гостю хватает и тура с одним местом, и тура на одного.
+      const forOne = await loadToursOnDate([tB1, tI].map(String), D, 1);
+      expect(forOne.state === 'ok' ? [...forOne.free].sort() : null).toEqual([tB1, tI].map(String).sort());
+
+      const read = await loadOtherOffers({ tourId: tA, date: D, people: 2 });
+      expect(read.state).toBe('ok');
+      if (read.state !== 'ok') throw new Error('другие компании не прочитаны');
+      expect(read.placeName).toBe('Мыс 4а <дальний>');
+      expect(read.more).toBe(0);
+      // Компания с местами в календаре — первой, «по заявке» — второй; остальных нет.
+      expect(read.offers.map((o) => [o.partnerName, o.seats, o.moreTours])).toEqual([
+        ['Берёт по календарю & Ко', 'calendar', 1],
+        ['По заявке 4а', 'by_request', 0],
+      ]);
+      expect([String(tB), String(tB2)]).toContain(read.offers[0]!.tourId);
+      expect(read.offers[1]!.tourId).toBe(String(tC));
+      expect(read.offers[0]!.url).toMatch(new RegExp(`/catalog/tours/[a-z0-9-]+\\?date=${D}&guests=2#booking$`));
+      // Тур без главного места и несуществующий тур — «нет», а не сбой.
+      const loose = await tour(opA, 'Без главного места 4а', { place: null });
+      expect(await loadOtherOffers({ tourId: loose, date: D, people: 2 })).toEqual({ state: 'none' });
+      expect(await loadOtherOffers({ tourId: 999_999_999, date: D, people: 2 })).toEqual({ state: 'none' });
+      // Группа больше любого календаря — по календарю никто, остаётся только «по заявке».
+      const big = await loadOtherOffers({ tourId: tA, date: D, people: 11 });
+      expect(big.state === 'ok' ? big.offers.map((o) => o.partnerName) : null).toEqual(['По заявке 4а']);
+
+      // Заявка на отказанный тур, чат человека привязан; оператор отвечает «Нет мест».
+      const lead = (await leads.createLeadDetailed({
+        name: 'Нина Четвёртая', phone: '+79995550941', comment: `[Заявка на бронь] Тур "Мыс 4а — отказанный" (ID${tA}), дата ${D}, участников 2.`,
+        route_title: 'Мыс 4а — отказанный', source_url: 'mcp://vedar/booking', operator_id: opA, pd_consent: consentOf('operator'),
+        source_data: { source: 'mcp', tool: 'create_booking_request', tour_id: tA, date: D, participants: 2 },
+        skip_ai_processing: true,
+      }))!.id;
+      const key = await status.issueRequestKeyRecord({ leadId: lead }, 'create_booking_request', { opensChat: true });
+      const CHAT = 9_300_071;
+      expect(await links.linkChatToKeys('max', CHAT, [key!.key], 'created')).toBe(1);
+      const said = await answers.recordChatAnswer({ partnerId: opA, kind: 'lead', subjectId: lead, answer: 'no_seats', expectDate: D });
+      expect(said).toMatchObject({ ok: true, notice: { state: 'pending' } });
+      sent.dm.length = 0;
+      const o = await notices.deliverAnswerNotice(said.ok && said.notice ? said.notice.id : '0');
+      expect(o).toMatchObject({ state: 'delivered', via: 'max', offers: 2 });
+      expect(sent.dm).toHaveLength(1);
+      expect(String(sent.dm[0]!.chatId)).toBe(String(CHAT));
+      const lines = sent.dm[0]!.text.split('\n');
+      const head = lines.indexOf(`<b>К месту «Мыс 4а &lt;дальний&gt;» на ${ruDay(D)} — другие компании</b>`);
+      expect(head).toBeGreaterThan(0);
+      expect(lines[head + 1]).toMatch(/^1\. «Берёт по календарю &amp; Ко» — тур «Мыс 4а (на джипах|пешком)», 9[\s ]000 ₽ [^;]+; в календаре на эту дату места на 2 чел\. есть; у компании к этому месту ещё 1 тур\. Заявка: https?:\/\/\S+#booking$/);
+      expect(lines[head + 2]).toMatch(/^2\. «По заявке 4а» — тур «Мыс 4а по заявке», 9[\s ]000 ₽ [^;]+; расписания на Ведаре нет — дату подтверждает оператор\. Заявка: https?:\/\/\S+#booking$/);
+      expect(lines[head + 3]).toContain('Это не ответ этих компаний');
+      expect(lines[head + 4]).toBe(OFFER_ORDER_NOTE_ON_DATE_RU);
+      // Ни отказавшей компании в списке, ни неподходящих туров, ни имени и телефона человека.
+      const block = lines.slice(head, head + 5).join('\n');
+      expect(block).not.toMatch(/Отказавшая|её второй тур|одно место|другая дата|дата закрыта|черновик|летом|Не к мысу|один гость/);
+      expect(sent.dm[0]!.text).not.toMatch(/Нина|79995550941/);
+      expect(operatorOutcomeLine(o)).toContain('Ещё туристу названы 2 другие компании с турами к этому месту на эту дату');
+
+      // Отказ по погоде на той же схеме: других компаний к тому же месту в тот же день не называем.
+      const lead2 = (await leads.createLeadDetailed({
+        name: 'Олег Четвёртый', phone: '+79995550942', comment: `[Заявка на бронь] Тур "Мыс 4а — её второй тур" (ID${tA2}), дата ${D}, участников 2.`,
+        route_title: 'Мыс 4а — её второй тур', source_url: 'mcp://vedar/booking', operator_id: opA, pd_consent: consentOf('operator'),
+        source_data: { source: 'mcp', tool: 'create_booking_request', tour_id: tA2, date: D, participants: 2 },
+        skip_ai_processing: true,
+      }))!.id;
+      const key2 = await status.issueRequestKeyRecord({ leadId: lead2 }, 'create_booking_request', { opensChat: true });
+      expect(await links.linkChatToKeys('max', 9_300_072, [key2!.key], 'created')).toBe(1);
+      const said2 = await answers.recordChatAnswer({ partnerId: opA, kind: 'lead', subjectId: lead2, answer: 'decline', reason: 'weather', expectDate: D });
+      expect(said2).toMatchObject({ ok: true, notice: { state: 'pending' } });
+      await pool.query(`UPDATE leads SET status = 'lost' WHERE id = $1`, [lead2]);
+      sent.dm.length = 0;
+      const o2 = await notices.deliverAnswerNotice(said2.ok && said2.notice ? said2.notice.id : '0', {
+        checkDates: async () => ({ state: 'unchecked', why: ['timeout'] }),
+      });
+      expect(o2).toMatchObject({ state: 'delivered', via: 'max' });
+      expect(o2).not.toHaveProperty('offers');
+      expect(sent.dm[0]!.text).not.toContain('другие компании');
+
+      await pool.query(`DELETE FROM tour_availability WHERE operator_tour_id = ANY($1::bigint[])`, [[tA, tA2, tB, tB1, tB2, tD, tE, tF, tH, tI]]);
+    });
+
     it('сообщение после ответа (2б, 1424): одно на ответ, в чат заявки, иначе менеджеру; прочли — «звонить не нужно»', async () => {
       process.env.CALLBACK_SIGNING_SECRET ??= 'pg-test-signing';
       const answers = await import('@/lib/requests/chat-answer');

@@ -18,6 +18,20 @@ export function tourPath(t: TourRef): string {
   return `/catalog/tours/${slug || String(t.id)}`;
 }
 
+/**
+ * Путь формы заявки на карточке тура с датой и числом людей (подстановка
+ * #2907/#2909): человек попадает сразу к форме, дата и люди уже стоят.
+ * Одно место на чат Кузьмича и на сообщение после отказа — формат адреса
+ * читает форма, и две его копии разошлись бы молча.
+ */
+export function tourBookingFormPath(t: TourRef, date?: string | null, guests?: number | null): string {
+  const q = new URLSearchParams();
+  if (date) q.set('date', date);
+  if (guests) q.set('guests', String(guests));
+  const qs = q.toString();
+  return `${tourPath(t)}${qs ? `?${qs}` : ''}#booking`;
+}
+
 export type TourParam =
   | { kind: 'id'; id: number }
   | { kind: 'slug'; slug: string };

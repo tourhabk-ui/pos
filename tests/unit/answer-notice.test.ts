@@ -26,7 +26,12 @@
  *    могу» перевозчика и прокатчика идёт той же отправкой — текст о машине, а
  *    не о туре, без дат и кнопок, без обещания «менеджер свяжется»; слова
  *    заказчика (направление, название машины) в Telegram — без телефона и
- *    почты; ответ сверяется с видом заявки по источнику и номеру.
+ *    почты; ответ сверяется с видом заявки по источнику и номеру;
+ *  - другие компании (этап 4а): после «Нет мест» и отказа не по погоде в том же
+ *    сообщении названы компании с турами к месту на дату — без ПД, без слов
+ *    «лучше» и «дешевле», с подписью порядка; после отказа по погоде, «другой
+ *    даты», у большой группы, машины и проката и на прошедшую дату их не читают
+ *    вовсе; не прочиталось или не уложилось в срок — сообщение уходит без них.
  * Сам SQL — на настоящем PostgreSQL: tests/integration/request-chat.pg.test.ts.
  */
 import { readFileSync } from 'node:fs';
@@ -41,13 +46,14 @@ import {
   NOTICE_AGENT_KEYS_SQL, NOTICE_AGENT_TIMEOUT_MS, NOTICE_ATTEMPT_SQL, NOTICE_CLAIM_DUE_SQL, NOTICE_CLEARED_SQL, NOTICE_CONTACT_SQL,
   NOTICE_DELIVERED_SQL, NOTICE_FACTS_SQL, NOTICE_MANAGER_SQL, NOTICE_MANAGER_TIMEOUT_MS, NOTICE_RELEASE_SQL, NOTICE_ROW_WORST_MS,
   NOTICE_RUN_START_BUDGET_MS, NOTICE_SEND_TIMEOUT_MS, NOTICE_SKIPPED_SQL, NOTICE_TARGETS_SQL, NOTICE_UNDELIVERED_SQL,
-  NOTICE_BY_VEHICLE_LEAD_SQL, NOTICE_CHAT_TARGETS_MAX, NOTICE_CHECK_CANDIDATES, NOTICE_CHECK_TIMEOUT_MS, NOTICE_DATES,
+  NOTICE_BY_VEHICLE_LEAD_SQL, NOTICE_CHAT_TARGETS_MAX, NOTICE_CHECK_CANDIDATES, NOTICE_CHECK_TIMEOUT_MS, NOTICE_DATES, NOTICE_OFFERS_TIMEOUT_MS,
   agentLegCode, deliverAnswerNotice, outcomeOfRow, readVehicleNoticeOutcome, runAnswerNotices, telegramSafeFacts, type NoticeDeps,
 } from '@/lib/requests/answer-notice';
 import { REQUEST_STATUS_BY_LEAD_SQL, type StatusRow } from '@/lib/mcp/request-status';
 import type { NotifyRunResult } from '@/lib/mcp/request-notify';
 import {
-  DATE_CHECK_SHORT, dateCheckWords, managerClearedText, managerUndeliveredText, operatorOutcomeLine, touristAnswerText, type NoticeFacts,
+  DATE_CHECK_SHORT, NOTICE_TEXT_MAX, dateCheckWords, managerClearedText, managerUndeliveredText, operatorOutcomeLine, touristAnswerText,
+  type NoticeFacts,
 } from '@/lib/requests/answer-notice-text';
 import { SITUATION_FORECAST_DAYS } from '@/lib/trips/situation';
 import type { DateCheck } from '@/lib/trips/date-check';
@@ -55,6 +61,7 @@ import { parseMyTripDate } from '@/lib/requests/my-trip-ask';
 import { unwrapPress } from '@/lib/chat-cabinet/signed-payload';
 import { MAX_FETCH_TIMEOUT_MS } from '@/lib/max/max-fetch';
 import { managerQueueUrl } from '@/lib/manager-queue/link';
+import { OFFER_ORDER_NOTE_ON_DATE_RU } from '@/lib/tours/offer-order';
 
 const LEAD = '0f1e2d3c-4b5a-4968-8776-655443322110';
 const CHAT_ID = '987654321';
@@ -125,14 +132,17 @@ const confirmed = (over: Partial<Extract<DateCheck, { state: 'confirmed' }>> = {
   state: 'confirmed', risks: ['погода: ветер до 90 км/ч'], clear: [], risk: 0, unchecked: 0, beyond: 0,
   place: 'Горелый', zoneAssessed: true, ...over,
 });
-const deps = (): NoticeDeps => ({ query, sendMax, sendTelegram, pdAlert, notifyRun, freeDates, checkDates });
+/** Другие компании к месту на дату (4а): по умолчанию их нет — прежние сообщения те же. */
+const otherOffers = vi.fn();
+const deps = (): NoticeDeps => ({ query, sendMax, sendTelegram, pdAlert, notifyRun, freeDates, checkDates, otherOffers });
 const ran = (sql: string) => calls.filter((c) => c.sql === sql);
 const managerText = () => (pdAlert.mock.calls[0]![0] as { text: string; stub: string });
 
 beforeEach(() => {
   vi.stubEnv('CALLBACK_SIGNING_SECRET', 'unit-signing');
   calls.length = 0;
-  for (const f of [sendMax, sendTelegram, pdAlert, notifyRun, freeDates, checkDates]) f.mockReset();
+  for (const f of [sendMax, sendTelegram, pdAlert, notifyRun, freeDates, checkDates, otherOffers]) f.mockReset();
+  otherOffers.mockResolvedValue({ state: 'none' });
   checkDates.mockImplementation(async (_tour: number, _declined: string, dates: readonly string[]) => confirmed({ clear: [...dates].sort() }));
   w = {
     row: baseRow(), status: baseStatus(), targets: [{ channel: 'max', chat_id: CHAT_ID, can_pick: true }],
@@ -1150,5 +1160,229 @@ describe('машина целиком и прокат: «Не могу» пер�
     expect(await readVehicleNoticeOutcome(LEAD, { query: async () => { throw Object.assign(new Error('x'), { code: '57P01' }); } })).toBeNull();
     expect(err.mock.calls.flat().join(' ')).toMatch(/исход сообщения не прочитан, SQLSTATE 57P01/);
     err.mockRestore();
+  });
+});
+
+describe('другие компании к месту на дату (этап 4а)', () => {
+  const FORM_A = 'https://vedarai.ru/catalog/tours/gorely-za-den?date=2027-01-15&guests=3#booking';
+  const FORM_B = 'https://vedarai.ru/catalog/tours/202?date=2027-01-15&guests=3#booking';
+  const PLACE_URL = 'https://vedarai.ru/places/gorely#tours';
+  const offersOk = (n = 2) => ({
+    state: 'ok' as const, placeName: 'Вулкан <Горелый>', placeUrl: PLACE_URL,
+    offers: [
+      { partnerName: 'Компания «А&Б»', tourId: '201', title: 'Горелый за день', price: '12 000 ₽ за человека', seats: 'calendar' as const, url: FORM_A, moreTours: 2 },
+      { partnerName: 'Вторая', tourId: '202', title: 'К кратеру', price: null, seats: 'by_request' as const, url: FORM_B, moreTours: 0 },
+    ].slice(0, n),
+    more: 1,
+  });
+  /** Сегодня по Камчатке — 10.01.2027: заявка на 15.01 впереди. */
+  const at = (): NoticeDeps => ({ ...deps(), now: () => Date.parse('2027-01-10T00:00:00Z') });
+  const NOT_ANSWER = 'Это не ответ этих компаний: места и дату каждая подтверждает сама. Заявку вы оставляете сами по ссылке — имя и телефон получит только та компания, которой вы её оставите.';
+
+  it('после «Нет мест»: компании с турами к месту на дату — ссылкой на заявку, без ПД и без оценок; оператору сказано, что они названы', async () => {
+    otherOffers.mockResolvedValue(offersOk());
+    const o = await deliverAnswerNotice('501', at());
+    expect(o).toEqual({ state: 'delivered', via: 'max', dates: ['2027-01-14', '2027-01-18'], offers: 2 });
+    // Читается по туру, дате и числу людей заявки — имени и телефона среди аргументов нет.
+    expect(otherOffers.mock.calls[0]![0]).toEqual({ tourId: 42, date: '2027-01-15', people: 3 });
+    const text = sendMax.mock.calls[0]![1] as string;
+    const lines = text.split('\n');
+    const head = lines.indexOf('<b>К месту «Вулкан &lt;Горелый&gt;» на 15.01.2027 — другие компании</b>');
+    expect(head).toBeGreaterThan(0);
+    expect(lines.slice(head + 1, head + 6)).toEqual([
+      // Ссылка экранирована, как весь чужой текст в HTML-сообщении: «&» в адресе — «&amp;».
+      `1. «Компания «А&amp;Б»» — тур «Горелый за день», 12 000 ₽ за человека; в календаре на эту дату места на 3 чел. есть; у компании к этому месту ещё 2 тура. Заявка: ${FORM_A.replace('&', '&amp;')}`,
+      `2. «Вторая» — тур «К кратеру», цена не указана; расписания на Ведаре нет — дату подтверждает оператор. Заявка: ${FORM_B.replace('&', '&amp;')}`,
+      `Ещё 1 компания — на странице места: ${PLACE_URL}`,
+      NOT_ANSWER,
+      OFFER_ORDER_NOTE_ON_DATE_RU,
+    ]);
+    // Блок стоит после дат этого же тура и перед «подобрать другой тур».
+    expect(text.indexOf('по календарю тура на Ведаре')).toBeLessThan(text.indexOf('другие компании</b>'));
+    expect(lines[lines.length - 1]).toBe('Подобрать другой тур можно здесь же — напишите, что ищете.');
+    expect(text).not.toMatch(/Ирина|79995550707/);
+    expect(text).not.toMatch(/лучш|дешевл|выгодн|рекоменд|советуем/i);
+    expect(operatorOutcomeLine(o)).toBe(
+      'Туристу ушло сообщение в MAX: ваш ответ и свободные даты тура рядом по календарю (14.01.2027, 18.01.2027). '
+      + 'Ещё туристу названы 2 другие компании с турами к этому месту на эту дату — по общему правилу порядка витрины.',
+    );
+  });
+
+  it('одна компания — «названа другая компания»; в Telegram блок тот же', async () => {
+    otherOffers.mockResolvedValue({ ...offersOk(1), more: 0 });
+    w.targets = [{ channel: 'telegram', chat_id: CHAT_ID, can_pick: false }];
+    const o = await deliverAnswerNotice('501', at());
+    expect(o).toMatchObject({ state: 'delivered', via: 'telegram', offers: 1 });
+    const text = sendTelegram.mock.calls[0]![1] as string;
+    expect(text).toContain('<b>К месту «Вулкан &lt;Горелый&gt;» на 15.01.2027 — другие компании</b>');
+    expect(text).toContain(`Заявка: ${FORM_A.replace('&', '&amp;')}`);
+    expect(text).not.toContain('&guests=');
+    // Больше компаний нет — строки «ещё N» нет.
+    expect(text).not.toContain('на странице места:');
+    expect(operatorOutcomeLine(o)).toContain('Ещё туристу названа другая компания с турами к этому месту на эту дату');
+  });
+
+  it('после отказа с причиной не по погоде блок есть — и у «не подходит группа», где дат своего тура не называют', async () => {
+    for (const reason of ['seats', 'dates', 'group', 'other'] as const) {
+      otherOffers.mockReset();
+      otherOffers.mockResolvedValue(offersOk());
+      sendMax.mockClear();
+      w.row = { ...baseRow(), answer: 'decline', decline_reason: reason };
+      w.status = { ...baseStatus(), lead_status: 'lost', lead_answer: 'decline', lead_decline_reason: reason };
+      const o = await deliverAnswerNotice('501', at());
+      expect(o, reason).toMatchObject({ state: 'delivered', offers: 2 });
+      expect(sendMax.mock.calls[0]![1], reason).toContain('— другие компании</b>');
+    }
+  });
+
+  it('не читаются вовсе: отказ по погоде, «другая дата», большая группа, заявка без даты или тура, прошедшая дата', async () => {
+    const cases: Array<[string, () => void, NoticeDeps?]> = [
+      ['погода', () => {
+        w.row = { ...baseRow(), answer: 'decline', decline_reason: 'weather', refused_dates: [], weather_refused_dates: [] };
+        w.status = { ...baseStatus(), lead_status: 'lost', lead_answer: 'decline', lead_decline_reason: 'weather' };
+      }],
+      ['другая дата', () => {
+        w.row = { ...baseRow(), answer: 'other_date' };
+        w.status = { ...baseStatus(), lead_status: 'contacted', lead_answer: 'other_date' };
+      }],
+      ['большая группа', () => { w.status = { ...baseStatus(), lead_group_over: true }; }],
+      ['заявка без даты', () => { w.row = { ...baseRow(), lead_date: null }; }],
+      ['заявка без тура', () => { w.row = { ...baseRow(), tour_id: null, tour_public: false }; }],
+      ['дата прошла', () => {}, { ...deps(), now: () => Date.parse('2027-01-20T00:00:00Z') }],
+    ];
+    for (const [name, set, d] of cases) {
+      w = { ...w, row: baseRow(), status: baseStatus() };
+      otherOffers.mockReset();
+      otherOffers.mockResolvedValue(offersOk());
+      sendMax.mockClear();
+      set();
+      const o = await deliverAnswerNotice('501', d ?? at());
+      expect(otherOffers, name).not.toHaveBeenCalled();
+      expect(String(sendMax.mock.calls[0]?.[1] ?? 'сообщение не ушло'), name).not.toContain('другие компании');
+      expect(o, name).toMatchObject({ state: 'delivered' });
+      expect(o, name).not.toHaveProperty('offers');
+    }
+  });
+
+  it('у машины и проката блока нет: там свои витрины', async () => {
+    for (const kind of ['charter', 'car_rental'] as const) {
+      otherOffers.mockReset();
+      otherOffers.mockResolvedValue(offersOk());
+      sendMax.mockClear();
+      arm(kind);
+      const o = await deliverAnswerNotice('501', at());
+      expect(o, kind).toMatchObject({ state: 'delivered' });
+      expect(otherOffers, kind).not.toHaveBeenCalled();
+      expect(String(sendMax.mock.calls[0]![1]), kind).not.toContain('другие компании');
+    }
+  });
+
+  it('компаний нет или чтение не удалось — сообщение уходит без блока, и «нет» не говорится', async () => {
+    for (const answer of [{ state: 'none' as const }, { state: 'failed' as const }]) {
+      otherOffers.mockReset();
+      otherOffers.mockResolvedValue(answer);
+      sendMax.mockClear();
+      w.row = baseRow();
+      const o = await deliverAnswerNotice('501', at());
+      expect(o, answer.state).toEqual({ state: 'delivered', via: 'max', dates: ['2027-01-14', '2027-01-18'] });
+      const text = sendMax.mock.calls[0]![1] as string;
+      expect(text, answer.state).not.toMatch(/други[ех] компани/);
+      expect(operatorOutcomeLine(o), answer.state).not.toContain('названы');
+    }
+    // Чтение упало исключением — то же: сообщение ушло, отказ в логе без текста ошибки.
+    otherOffers.mockReset();
+    otherOffers.mockRejectedValue(new Error('секрет из текста ошибки'));
+    sendMax.mockClear();
+    w.row = baseRow();
+    const warn = vi.spyOn(console, 'warn').mockImplementation(() => {});
+    const o = await deliverAnswerNotice('501', at());
+    const logged = warn.mock.calls.flat().join(' ');
+    warn.mockRestore();
+    expect(o).toMatchObject({ state: 'delivered', via: 'max' });
+    expect(o).not.toHaveProperty('offers');
+    expect(logged).toContain('другие компании на дату не прочитались (exception)');
+    expect(logged).not.toContain('секрет');
+  });
+
+  it('чтение зависло — через срок сообщение уходит без блока; срок не длиннее проверки дат, и худшая строка не растёт', async () => {
+    vi.useFakeTimers();
+    otherOffers.mockImplementation(() => new Promise(() => {}));
+    const warn = vi.spyOn(console, 'warn').mockImplementation(() => {});
+    const p = deliverAnswerNotice('501', at());
+    await vi.advanceTimersByTimeAsync(NOTICE_OFFERS_TIMEOUT_MS);
+    const o = await p;
+    warn.mockRestore();
+    expect(o).toEqual({ state: 'delivered', via: 'max', dates: ['2027-01-14', '2027-01-18'] });
+    expect(sendMax.mock.calls[0]![1]).not.toContain('другие компании');
+    // Проверка дат (погода) и другие компании в одной строке не встречаются: срок строки считает большее из двух.
+    expect(NOTICE_OFFERS_TIMEOUT_MS).toBeLessThanOrEqual(NOTICE_CHECK_TIMEOUT_MS);
+  });
+
+  it('не дошло до человека — исход без «названы», письмо менеджеру прежнее', async () => {
+    otherOffers.mockResolvedValue(offersOk());
+    w.targets = [];
+    const o = await deliverAnswerNotice('501', at());
+    expect(o).toMatchObject({ state: 'undelivered', manager: 'max' });
+    expect(o).not.toHaveProperty('offers');
+    expect(managerText().text).not.toContain('другие компании');
+  });
+
+  it('длинные названия обрезаны, а блок укладывается в предел сообщения: не вошедшие компании названы числом и в исход не идут', async () => {
+    const long = (i: number) => ({
+      partnerName: `Компания ${i} ${'очень длинная вывеска '.repeat(20)}`, tourId: String(300 + i), title: `Тур ${i} ${'очень длинное название '.repeat(20)}`,
+      price: '12 000 ₽ за человека', seats: 'calendar' as const,
+      url: `https://vedarai.ru/catalog/tours/${'ochen-dlinnyj-adres-'.repeat(40)}${i}?date=2027-01-15&guests=3#booking`, moreTours: 0,
+    });
+    otherOffers.mockResolvedValue({ state: 'ok', placeName: 'Горелый', placeUrl: PLACE_URL, offers: [1, 2, 3, 4, 5].map(long), more: 2 });
+    const o = await deliverAnswerNotice('501', at());
+    const text = sendMax.mock.calls[0]![1] as string;
+    expect(text.length).toBeLessThanOrEqual(NOTICE_TEXT_MAX);
+    const shown = text.split('\n').filter((l) => /^[1-5]\. «Компания /.test(l));
+    // Вошли не все и не ноль — иначе проверять нечего.
+    expect(shown.length).toBeGreaterThan(0);
+    expect(shown.length).toBeLessThan(5);
+    // Вывеска и название обрезаны с многоточием, а не целиком.
+    expect(shown[0]).toMatch(/^1\. «Компания 1 [^»]{1,90}…» — тур «Тур 1 [^»]{1,90}…», /);
+    // Не вошедшие и те, что не вошли ещё при отборе, — одним числом; в исходе — только названные.
+    expect(text).toContain(`Ещё ${2 + (5 - shown.length)} компани`);
+    expect(o).toMatchObject({ state: 'delivered', offers: shown.length });
+    // Сам ответ оператора и подпись порядка на месте.
+    expect(text).toContain('ответил: на эту дату мест нет.');
+    expect(text).toContain(OFFER_ORDER_NOTE_ON_DATE_RU);
+  });
+
+  it('блок не помещается вовсе — сообщение об отказе уходит как было, без блока', () => {
+    const base: NoticeFacts = {
+      leadId: LEAD, answer: 'no_seats', reason: null, tourTitle: 'Тур', tourUrl: null, date: '2027-01-15', people: 2,
+      operatorName: 'Оператор', groupPassedOn: false,
+    };
+    const huge = { partnerName: 'К', title: 'Т', price: null, seats: 'calendar' as const, url: `https://vedarai.ru/${'a'.repeat(NOTICE_TEXT_MAX)}`, moreTours: 0 };
+    const plain = touristAnswerText(base, { kind: 'none' }, false);
+    const tried = touristAnswerText(base, { kind: 'none' }, false, { kind: 'offers', placeName: 'Горелый', placeUrl: PLACE_URL, offers: [huge], more: 0 });
+    expect(tried.text).toBe(plain.text);
+    expect(tried.offers).toBe(0);
+    expect(plain.offers).toBe(0);
+  });
+
+  it('слова блока: без блока по умолчанию; после погоды, «другой даты», у группы и машины он не печатается, даже если передан', () => {
+    const base: NoticeFacts = {
+      leadId: LEAD, answer: 'no_seats', reason: null, tourTitle: 'Тур', tourUrl: null, date: '2027-01-15', people: null,
+      operatorName: null, groupPassedOn: false,
+    };
+    const block = { kind: 'offers' as const, placeName: 'Горелый', placeUrl: PLACE_URL, offers: offersOk().offers, more: 0 };
+    expect(touristAnswerText(base, { kind: 'skip' }, false).text).not.toContain('другие компании');
+    // Число людей не записано — «на N чел.» не выдумывается.
+    expect(touristAnswerText(base, { kind: 'skip' }, false, block).text).toContain('в календаре на эту дату места есть; у компании');
+    for (const f of [
+      { ...base, answer: 'decline' as const, reason: 'weather' as const },
+      { ...base, answer: 'other_date' as const },
+      { ...base, groupPassedOn: true },
+      { ...base, kind: 'charter' as const },
+    ]) {
+      expect(touristAnswerText(f, { kind: 'skip' }, false, block).text, JSON.stringify(f)).not.toContain('другие компании');
+    }
+    for (const empty of [{ kind: 'none' as const }, { kind: 'failed' as const }, { kind: 'skip' as const }, { ...block, offers: [] }]) {
+      expect(touristAnswerText(base, { kind: 'skip' }, false, empty).text).not.toContain('другие компании');
+    }
   });
 });

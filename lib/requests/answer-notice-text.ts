@@ -22,6 +22,15 @@
  * о дате отказа нет: Ведар говорит, что причина отказа в его данных не
  * отражена, а не спорит с оператором.
  *
+ * Другие компании (этап 4а; слова владельца 11.11: «передавать другим — да»,
+ * «карт-бланш по плану»): после «Нет мест» и отказа не по погоде человеку
+ * называются компании, чьи туры идут к тому же месту и могут принять на его
+ * дату (lib/requests/other-offers). Это не ответ этих компаний и не передача
+ * заявки: имя и телефон никому не уходят, заявку человек оставляет сам по
+ * ссылке. После отказа по погоде или безопасности блока нет — то же место в
+ * тот же день; после «предложит другую дату» и у большой группы, которую уже
+ * видят другие операторы, — тоже.
+ *
  * Машина целиком и прокат (этап 2б-2, слово владельца 12.11 «1 да»): после
  * «Не могу» перевозчика или прокатчика заказчик получает одно сообщение от
  * Ведара — что ответил партнёр и где смотреть других. Обещания «менеджер
@@ -37,6 +46,8 @@ import { signPayload } from '@/lib/chat-cabinet/signed-payload';
 import { SITUATION_FORECAST_DAYS } from '@/lib/trips/situation';
 import type { DateCheck } from '@/lib/trips/date-check';
 import { PLACE_COLOR_WORD } from '@/lib/safety/place-day-status';
+import { OFFER_ORDER_NOTE_ON_DATE_RU } from '@/lib/tours/offer-order';
+import { plural } from '@/lib/home/data-freshness';
 
 export type NoticeAnswer = 'no_seats' | 'decline' | 'other_date';
 
@@ -102,6 +113,30 @@ export type DatesBlock =
   /** Блока нет по смыслу ответа: большая группа, «не подходит группа», тура нет на витрине. */
   | { kind: 'skip' };
 
+/** Строка списка других компаний: компания и её тур, который может принять на дату. */
+export interface OfferLine {
+  partnerName: string;
+  title: string;
+  /** Цена словами с единицей; null — не записана. */
+  price: string | null;
+  /** `calendar` — в календаре на дату хватает мест; `by_request` — календаря нет, дату подтверждает оператор. */
+  seats: 'calendar' | 'by_request';
+  /** Полный адрес формы заявки тура с датой и числом людей. */
+  url: string;
+  /** Сколько ещё туров этой компании к месту могут принять на дату. */
+  moreTours: number;
+}
+
+/** Другие компании к тому же месту на дату заявки — что удалось узнать (lib/requests/other-offers). */
+export type OffersBlock =
+  | { kind: 'offers'; placeName: string; placeUrl: string; offers: OfferLine[]; more: number }
+  /** Главного места у тура нет, других компаний к нему нет или никто не может на эту дату. */
+  | { kind: 'none' }
+  /** Не прочиталось: в сообщении блока нет, отказ — в логе. */
+  | { kind: 'failed' }
+  /** Блока нет по смыслу ответа (answerWantsOffers) или у заявки нет тура и даты. */
+  | { kind: 'skip' };
+
 /**
  * Письмо менеджеру: в MAX с телефоном, заглушкой в Telegram, никуда не дошло —
  * или не нужно: пока оно ждало повтора, заявка переросла этот ответ.
@@ -162,6 +197,8 @@ export type NoticeOutcome =
      * с остальным дат нет, и оператору сказано почему.
      */
     check?: WeatherDatesOutcome;
+    /** Сколько других компаний названо человеку (этап 4а); нет поля — ни одной. */
+    offers?: number;
   }
   | { state: 'undelivered'; manager: ManagerChannel; why: UndeliveredWhy }
   | { state: 'skipped'; reason: 'lead_closed' | 'not_addressee' | 'self' | 'outgrown' }
@@ -329,6 +366,62 @@ function checkedDatesText(f: NoticeFacts, c: DateCheck, dates: readonly string[]
 }
 
 /**
+ * Есть ли у ответа блок «другие компании на вашу дату» по смыслу (этап 4а).
+ * Нет: у машины и проката (там свои витрины); у большой группы, которую уже
+ * видят другие операторы; после «предложит другую дату» — это не отказ; после
+ * отказа по погоде или безопасности — то же место в тот же день, и замену там
+ * можно называть только проверенную (слово владельца 11.11, вопрос 3).
+ */
+export function answerWantsOffers(f: Pick<NoticeFacts, 'kind' | 'answer' | 'reason' | 'groupPassedOn'>): boolean {
+  if (personOf(f.kind) === 'client') return false;
+  if (f.groupPassedOn) return false;
+  if (f.answer === 'other_date') return false;
+  return !isWeatherDecline(f);
+}
+
+/**
+ * Предел текста сообщения человеку: с запасом под пределы MAX и Telegram.
+ * Блок других компаний в него обязан уложиться — сообщение об отказе важнее.
+ */
+export const NOTICE_TEXT_MAX = 3800;
+/** Длиннее этого название тура и вывеска компании в строке списка обрезаются. */
+const OFFER_NAME_CHARS = 90;
+
+/** Обрезка по символам, а не по половинкам пар. */
+function clip(text: string, max: number): string {
+  const chars = Array.from(text);
+  return chars.length > max ? `${chars.slice(0, max - 1).join('')}…` : text;
+}
+
+/**
+ * Другие компании к тому же месту на дату заявки — первые `count` из блока.
+ * Слов «лучше», «дешевле», «рекомендуем» нет; сказано, что это не ответ
+ * компаний и что телефон получит только та, которой человек оставит заявку
+ * сам; порядок назван правилом. Компании, не вошедшие в текст, названы числом.
+ */
+function offersText(f: NoticeFacts, o: Extract<OffersBlock, { kind: 'offers' }>, count: number): string {
+  const on = f.date ? ` на ${ruDay(f.date)}` : '';
+  const lines = o.offers.slice(0, count).map((x, i) => {
+    const seats = x.seats === 'calendar'
+      ? `в календаре на эту дату места${f.people ? ` на ${f.people} чел.` : ''} есть`
+      : 'расписания на Ведаре нет — дату подтверждает оператор';
+    const more = x.moreTours > 0
+      ? `; у компании к этому месту ещё ${x.moreTours} ${plural(x.moreTours, 'тур', 'тура', 'туров')}`
+      : '';
+    return `${i + 1}. «${escapeHtml(clip(x.partnerName, OFFER_NAME_CHARS))}» — тур «${escapeHtml(clip(x.title, OFFER_NAME_CHARS))}», `
+      + `${escapeHtml(x.price ?? 'цена не указана')}; ${seats}${more}. Заявка: ${escapeHtml(x.url)}`;
+  });
+  const rest = o.more + (o.offers.length - count);
+  return [
+    `<b>К месту «${escapeHtml(clip(o.placeName, OFFER_NAME_CHARS))}»${on} — другие компании</b>`,
+    ...lines,
+    rest > 0 ? `Ещё ${rest} ${plural(rest, 'компания', 'компании', 'компаний')} — на странице места: ${escapeHtml(o.placeUrl)}` : null,
+    'Это не ответ этих компаний: места и дату каждая подтверждает сама. Заявку вы оставляете сами по ссылке — имя и телефон получит только та компания, которой вы её оставите.',
+    OFFER_ORDER_NOTE_ON_DATE_RU,
+  ].filter((l): l is string => !!l).join('\n');
+}
+
+/**
  * Кнопки дат — только где нажатие пройдёт: чат вправе менять дату этой
  * заявки, поездка впереди и лимит смен за сутки не исчерпан (`canPick`, то же
  * правило, что у нажатия, — myTripDatePressable), и ответ её не закрыл. После
@@ -445,17 +538,26 @@ const TAIL = 'Подобрать другой тур можно здесь же 
  * (тогда даты — кнопками «Изменить дату», иначе текстом и ссылкой на тур).
  */
 export function touristAnswerText(
-  f: NoticeFacts, d: DatesBlock, canPick: boolean,
-): { text: string; buttons: Array<{ text: string; payload: string }> } {
-  if (personOf(f.kind) === 'client') return { text: vehicleDeclineText(f), buttons: [] };
+  f: NoticeFacts, d: DatesBlock, canPick: boolean, offers: OffersBlock = { kind: 'skip' },
+): { text: string; buttons: Array<{ text: string; payload: string }>; offers: number } {
+  if (personOf(f.kind) === 'client') return { text: vehicleDeclineText(f), buttons: [], offers: 0 };
   const pick = datesPickable(f, canPick);
   const block = answerWantsDates(f) ? datesText(f, d, pick) : null;
   const weather = isWeatherDecline(f);
-  const lines = [
+  const compose = (others: string | null) => [
     head(f), answerLine(f, d),
     weather ? (block ?? WEATHER_NO_BLOCK) : block,
+    others,
     weather ? 'Экстренный вызов — 112.' : f.groupPassedOn ? null : TAIL,
   ].filter((l): l is string => !!l);
+  // Блок других компаний встаёт в сообщение столькими строками, сколько помещается в предел:
+  // не поместилась ни одна — блока нет, а сообщение об отказе уходит как было.
+  let named = answerWantsOffers(f) && offers.kind === 'offers' ? offers.offers.length : 0;
+  let lines = compose(null);
+  for (; named > 0; named--) {
+    const withOffers = compose(offersText(f, offers as Extract<OffersBlock, { kind: 'offers' }>, named));
+    if (withOffers.join('\n').length <= NOTICE_TEXT_MAX) { lines = withOffers; break; }
+  }
   const buttons: Array<{ text: string; payload: string }> = [];
   if (pick && block && d.kind === 'dates') {
     for (const iso of d.dates) {
@@ -463,7 +565,7 @@ export function touristAnswerText(
     }
     buttons.push({ text: 'Другие даты', payload: myTripDateMenuPayload(f.leadId) });
   }
-  return { text: lines.join('\n'), buttons };
+  return { text: lines.join('\n'), buttons, offers: named };
 }
 
 /** Ответ оператора словами — для менеджера. */
@@ -588,7 +690,11 @@ export function operatorOutcomeLine(o: NoticeOutcome, person: NoticePerson = 'to
           ? ` и свободные даты рядом, на которые Ведар не нашёл ни опасной погоды в прогнозе, ни предупреждений по месту (${datesLine(o.dates, null)}); выезд на них подтверждаете вы`
           : ` и свободные даты тура рядом по календарю (${datesLine(o.dates, null)})`;
         const why = o.check && !checked ? ` ${NO_DATES_TO_OPERATOR[o.check]}` : '';
-        return `${w.Dat} ушло сообщение в ${o.via === 'max' ? 'MAX' : 'Telegram'}: ваш ответ${dates}.${why}`;
+        // Оператору сказано и это: после его отказа человеку названы другие компании (этап 4а).
+        const others = o.offers && o.offers > 0
+          ? ` Ещё ${w.dat} ${o.offers > 1 ? `названы ${o.offers} ${plural(o.offers, 'другая компания', 'другие компании', 'других компаний')}` : 'названа другая компания'} с турами к этому месту на эту дату — по общему правилу порядка витрины.`
+          : '';
+        return `${w.Dat} ушло сообщение в ${o.via === 'max' ? 'MAX' : 'Telegram'}: ваш ответ${dates}.${why}${others}`;
       }
       if (o.via === 'agent_webhook') return `Ответ ушёл ИИ-агенту ${w.gen}: его уведомление принято.`;
       return o.via === 'agent_read' ? `Ваш ответ уже прочитал ИИ-агент ${w.gen}.` : `${w.Nom} уже открыл страницу заявки и видит ваш ответ.`;

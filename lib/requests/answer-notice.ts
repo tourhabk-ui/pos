@@ -40,6 +40,14 @@
  * ввод заказчика (адрес, имя): в Telegram (чат заказчика, заглушка менеджеру)
  * оно не уходит вовсе; название машины проката — из прайса прокатчика.
  *
+ * Другие компании (этап 4а): после «Нет мест» и отказа не по погоде в то же
+ * сообщение встаёт список компаний с турами к тому же месту, которые могут
+ * принять на дату заявки (lib/requests/other-offers). Чтение — одним сроком с
+ * проверкой дат после отказа по погоде: в одной строке они не встречаются
+ * (после отказа по погоде других компаний не называем), и худший срок строки
+ * не растёт. Не прочиталось или не уложилось — блока в сообщении нет, само
+ * сообщение уходит.
+ *
  * Логи — номер заявки, канал и код. Ни id чатов, ни текста ошибок MAX (там
  * может быть id), ни имени и телефона.
  */
@@ -57,10 +65,12 @@ import { REQUEST_STATUS_BY_LEAD_SQL, groupPassedOnAnswer, shownAnswerRef, type S
 import { redactPII } from '@/lib/security/pii-redact';
 import type { NotifyRunResult } from '@/lib/mcp/request-notify';
 import {
-  answerWantsDates, isWeatherDecline, managerClearedText, managerUndeliveredText, personOf, touristAnswerText, undeliveredWhy,
-  type DatesBlock, type ManagerChannel, type NoticeAnswer, type NoticeFacts, type NoticeKind, type NoticeOutcome,
+  answerWantsDates, answerWantsOffers, isWeatherDecline, managerClearedText, managerUndeliveredText, personOf, touristAnswerText,
+  undeliveredWhy,
+  type DatesBlock, type ManagerChannel, type NoticeAnswer, type NoticeFacts, type NoticeKind, type NoticeOutcome, type OffersBlock,
   type WeatherDatesOutcome,
 } from '@/lib/requests/answer-notice-text';
+import { loadOtherOffers } from '@/lib/requests/other-offers';
 import type { PdAlertParams, PdAlertResult } from '@/lib/notifications/pd-alert';
 import { SELLER_CLOSED_ACTION } from '@/lib/leads/lost-reason';
 import { managerQueueUrl } from '@/lib/manager-queue/link';
@@ -82,6 +92,12 @@ export const NOTICE_MANAGER_TIMEOUT_MS = 30_000;
  * не называю». Поднять срок нельзя, не съев запас шага крона (см. ниже).
  */
 export const NOTICE_CHECK_TIMEOUT_MS = 10_000;
+/**
+ * Чтение других компаний к месту на дату (4а): три запроса к базе. Срок — не
+ * больше срока проверки дат: в одной строке они не встречаются, и
+ * NOTICE_ROW_WORST_MS считает одно из двух.
+ */
+export const NOTICE_OFFERS_TIMEOUT_MS = 5_000;
 /** Сколько свободных дат рядом проверять после отказа по погоде: часть отсеется. */
 export const NOTICE_CHECK_CANDIDATES = 8;
 /** На сколько дат с прежним отказом по погоде читать календарь шире — потолок, чтобы запрос не рос без меры. */
@@ -117,6 +133,8 @@ export interface NoticeDeps {
   freeDates?: typeof loadFreeDatesNear;
   /** Проверка дат после отказа по погоде или безопасности (lib/trips/date-check). */
   checkDates?: (tourId: number, declined: string, candidates: readonly string[], deps?: DateCheckDeps) => Promise<DateCheck>;
+  /** Другие компании к тому же месту на дату заявки (lib/requests/other-offers). */
+  otherOffers?: typeof loadOtherOffers;
   now?: () => number;
 }
 
@@ -534,6 +552,31 @@ async function datesOf(r: NoticeRow, f: NoticeFacts, deps: NoticeDeps): Promise<
   return { kind: 'checked', check, dates: nearestDates(offered, r.lead_date, NOTICE_DATES), refused };
 }
 
+/**
+ * Другие компании к главному месту тура, которые могут принять на дату заявки
+ * (4а). Блока нет по смыслу ответа, у заявки без тура или даты и когда дата
+ * уже прошла. Не прочиталось или не уложилось в срок — `failed`: сообщение
+ * уходит без блока.
+ */
+async function offersOf(r: NoticeRow, f: NoticeFacts, deps: NoticeDeps): Promise<OffersBlock> {
+  if (!answerWantsOffers(f)) return { kind: 'skip' };
+  const tourId = r.tour_id === null ? NaN : Number(r.tour_id);
+  if (!Number.isFinite(tourId) || !r.lead_date) return { kind: 'skip' };
+  if (r.lead_date < kamchatkaToday((deps.now ?? Date.now)())) return { kind: 'skip' };
+  const run = await inTime(
+    (deps.otherOffers ?? loadOtherOffers)({ tourId, date: r.lead_date, people: f.people ?? 1 }, { now: new Date((deps.now ?? Date.now)()) }),
+    NOTICE_OFFERS_TIMEOUT_MS,
+  );
+  if (!run.ok) {
+    console.warn(`${LOG} заявка ${r.lead_id}: другие компании на дату не прочитались (${run.why}) — сообщение уходит без них`);
+    return { kind: 'failed' };
+  }
+  const o = run.value;
+  if (o.state === 'failed') return { kind: 'failed' };
+  if (o.state === 'none') return { kind: 'none' };
+  return { kind: 'offers', placeName: o.placeName, placeUrl: o.placeUrl, offers: o.offers, more: o.more };
+}
+
 // ── Отправка ─────────────────────────────────────────────────────────────────
 
 /** Срок на ногу. Срок не отменяет начатое — оно доработает само, исход назовётся по записи. */
@@ -658,6 +701,7 @@ export async function deliverAnswerNotice(noticeId: string, deps: NoticeDeps = {
     }
     const f = factsOf(r, status);
     const dates = await datesOf(r, f, deps);
+    const offers = await offersOf(r, f, deps);
     const shownDates = dates.kind === 'dates' || dates.kind === 'checked' ? dates.dates : [];
     // Чем кончился блок дат после отказа по погоде — оператору: что сказано туристу.
     const check: WeatherDatesOutcome | undefined = dates.kind === 'checked' ? dates.check.state
@@ -674,13 +718,14 @@ export async function deliverAnswerNotice(noticeId: string, deps: NoticeDeps = {
     const tried: string[] = [];
     const targets = (await q(NOTICE_TARGETS_SQL, [r.lead_id])).rows as Array<{ channel: 'max' | 'telegram'; chat_id: string; can_pick: boolean }>;
     for (const t of targets) {
-      const msg = touristAnswerText(t.channel === 'telegram' ? telegramSafeFacts(f) : f, dates, t.can_pick === true && !r.trip_part && pressable);
+      const msg = touristAnswerText(t.channel === 'telegram' ? telegramSafeFacts(f) : f, dates, t.can_pick === true && !r.trip_part && pressable, offers);
       const send = t.channel === 'max' ? (deps.sendMax ?? defaultSendMax) : (deps.sendTelegram ?? defaultSendTelegram);
       const res = await sendInTime(send(String(t.chat_id), msg.text, msg.buttons));
       if (res.ok) {
         await q(NOTICE_DELIVERED_SQL, [r.id, t.channel, tried.join(',') || null]);
         console.info(`${LOG} заявка ${r.lead_id}: доставлено (${t.channel})`);
-        return { state: 'delivered', via: t.channel, dates: shownDates, ...(check ? { check } : {}) };
+        // Сколько компаний названо — по тексту, который ушёл: строки, не вошедшие в предел, не в счёт.
+        return { state: 'delivered', via: t.channel, dates: shownDates, ...(check ? { check } : {}), ...(msg.offers > 0 ? { offers: msg.offers } : {}) };
       }
       const code = res.ok ? 'api_error' : chatCode(res.code);
       tried.push(`${t.channel}:${code}`);

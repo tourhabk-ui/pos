@@ -260,7 +260,56 @@ export const NEAR_FREE_DATES_SQL = `
    ORDER BY abs(ta_fd.date - $5::date), ta_fd.date
    LIMIT $3::int`;
 
+/**
+ * Что календарь говорит об одной дате у набора туров (план «после отказа»,
+ * этап 4а: «другие компании на вашу дату»). Строка есть только у тура, у
+ * которого эта дата в календаре записана:
+ *  - `closed` — дата закрыта (оператором или платформой, миграция 1421):
+ *    на неё тур не зовём, даже если другого календаря у него нет;
+ *  - `enough` — мест хватает на `people` человек, тем же условием свободы, что
+ *    FREE_DATES_SQL.
+ * Один запрос на набор, со шлюзом витрины. `$1` — туры, `$2` — дата, `$3` — люди.
+ */
+export const TOURS_ON_DATE_SQL = `
+  SELECT ta_od.operator_tour_id::text AS tour_id,
+         COALESCE(ta_od.is_cancelled, false) AS closed,
+         (${freeSlotsSql('ta_od', 'ot_od', 'occ_od.taken')} >= GREATEST($3::int, 1)) AS enough
+    FROM tour_availability ta_od
+    JOIN operator_tours ot_od ON ot_od.id = ta_od.operator_tour_id
+    CROSS JOIN LATERAL (${occupiedOnDaySql({ booking: 'ob_od', day: 'ta_od.date', tourId: 'ta_od.operator_tour_id' })}) occ_od
+   WHERE ta_od.operator_tour_id = ANY($1::bigint[])
+     AND ${publicTourSql('ot_od')}
+     AND ta_od.date = $2::date
+     AND ta_od.date >= (NOW() AT TIME ZONE 'Asia/Kamchatka')::date
+     AND ta_od.date <= (NOW() AT TIME ZONE 'Asia/Kamchatka')::date + INTERVAL '1 year'
+     AND ta_od.deleted_at IS NULL`;
+
+/** `free` — на дату хватает мест; `closed` — дата в календаре тура закрыта. Тура нет ни там, ни там — даты в его календаре нет. */
+export type ToursOnDate = { state: 'ok'; free: Set<string>; closed: Set<string> } | { state: 'failed' };
+
 const ISO_ONLY = /^\d{4}-\d{2}-\d{2}$/;
+const TOUR_ID_ONLY = /^[0-9]{1,18}$/;
+
+/** Что календарь говорит о дате у туров набора; отказ базы и кривая дата — `failed`, а не «ни у кого». */
+export async function loadToursOnDate(tourIds: readonly string[], date: string, people: number): Promise<ToursOnDate> {
+  if (!ISO_ONLY.test(date)) return { state: 'failed' };
+  const ids = tourIds.filter((id) => TOUR_ID_ONLY.test(id));
+  if (ids.length === 0) return { state: 'ok', free: new Set(), closed: new Set() };
+  try {
+    const { rows } = await pool.query<{ tour_id: string; closed: boolean; enough: boolean }>(TOURS_ON_DATE_SQL, [ids, date, people]);
+    const free = new Set<string>();
+    const closed = new Set<string>();
+    for (const r of rows) {
+      if (r.closed === true) closed.add(String(r.tour_id));
+      else if (r.enough === true) free.add(String(r.tour_id));
+    }
+    return { state: 'ok', free, closed };
+  } catch (err) {
+    const code = (err as { code?: unknown })?.code;
+    console.error('[nearest-free-date] календарь на дату у набора туров не прочитан:', typeof code === 'string' ? `SQLSTATE=${logText(code, 10)}` : 'SQLSTATE=нет');
+    return { state: 'failed' };
+  }
+}
 
 /** Даты рядом, по возрастанию. Кривые значения `exclude` отброшены: иначе приведение к date[] уронит запрос. */
 export async function loadFreeDatesNear(
