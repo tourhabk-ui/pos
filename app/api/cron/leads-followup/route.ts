@@ -12,6 +12,8 @@
  *   2. Для каждого лида ищем следующего оператора с подходящими активностями,
  *      ещё не получавшего уведомление об этом лиде.
  *      Если интересы не указаны — берём любого оператора.
+ *      Кого именно из подходящих — решает жребий дня компании
+ *      (lib/leads/next-operator, слово владельца 12.11), а не первая строка базы.
  *   3. Если оператор найден — отправляем повторное уведомление.
  *   4. Если операторов больше нет — эскалация к admin + смена статуса на 'contacted'.
  *
@@ -34,6 +36,8 @@ import { FOLLOWUP_LEADS_SQL, FOLLOWUP_LEADS_PARAMS, addressedToPartnerOnly } fro
 import { sqlState } from '@/lib/guides/db-failure';
 import { tripFactsOf, tripRequestLines } from '@/lib/planner/trip-request-lines';
 import { redactPII } from '@/lib/security/pii-redact';
+import { pickNextOperator } from '@/lib/leads/next-operator';
+import { offerOrderDay } from '@/lib/tours/offer-order';
 
 export const dynamic = 'force-dynamic';
 
@@ -76,6 +80,8 @@ interface FollowupLead {
  * зеркало и не видел Telegram, привязанный входом.
  */
 interface OperatorMatch extends PartnerReachRow {
+  /** id партнёра — по нему тянется билет жребия дня. */
+  id: string;
   name: string;
   slug: string;
 }
@@ -134,6 +140,8 @@ export async function GET(request: NextRequest) {
     let processed = 0;
     let escalated = 0;
     let noOperators = 0;
+    // День жребия — календарная дата Камчатки, одна на весь прогон.
+    const lotDay = offerOrderDay();
 
     for (const lead of leadsRes.rows) {
       const sd: LeadSourceData = lead.source_data ?? {};
@@ -160,11 +168,15 @@ export async function GET(request: NextRequest) {
       const followupCount = sd.followup_count ?? 0;
 
       // ── Ищем следующего операторa с подходящими активностями ──────────────
+      // Запросы отдают ВСЕХ подходящих, без LIMIT и без ORDER BY: кто из них
+      // следующий, решает жребий дня компании (lib/leads/next-operator). До
+      // 12.11 стоял LIMIT 1 без порядка — первая строка базы, то есть один и
+      // тот же оператор изо дня в день.
       let nextOperator: OperatorMatch | null = null;
 
       if (interests.length > 0) {
         const opRes = await pool.query<OperatorMatch>(
-          `SELECT p.name, p.slug, p.telegram_chat_id, u_reach.telegram_id AS user_telegram_id,
+          `SELECT p.id::text AS id, p.name, p.slug, p.telegram_chat_id, u_reach.telegram_id AS user_telegram_id,
                   p.max_chat_id::text AS max_chat_id
            FROM partners p
            LEFT JOIN users u_reach ON u_reach.id = p.user_id
@@ -175,11 +187,10 @@ export async function GET(request: NextRequest) {
              AND EXISTS (
                SELECT 1 FROM operator_tours ot
                 WHERE ot.operator_id = p.id AND ot.is_active = TRUE AND ot.activity_type = ANY($1)
-             )
-           LIMIT 1`,
+             )`,
           [interests, alreadyNotified]
         );
-        nextOperator = opRes.rows[0] ?? null;
+        nextOperator = pickNextOperator(opRes.rows, lotDay);
       }
 
       // Fallback: если нет интересов или не нашли по интересам — любой ОПЕРАТОР
@@ -188,18 +199,17 @@ export async function GET(request: NextRequest) {
       // кабинет оператора, которую они не откроют.
       if (!nextOperator) {
         const fallbackRes = await pool.query<OperatorMatch>(
-          `SELECT p.name, p.slug, p.telegram_chat_id, u_reach.telegram_id AS user_telegram_id,
+          `SELECT p.id::text AS id, p.name, p.slug, p.telegram_chat_id, u_reach.telegram_id AS user_telegram_id,
                   p.max_chat_id::text AS max_chat_id
            FROM partners p
            LEFT JOIN users u_reach ON u_reach.id = p.user_id
            WHERE p.category = 'operator'
              AND p.is_public = TRUE
              AND (p.max_chat_id IS NOT NULL OR p.telegram_chat_id IS NOT NULL OR u_reach.telegram_id IS NOT NULL)
-             AND NOT (p.slug = ANY($1))
-           LIMIT 1`,
+             AND NOT (p.slug = ANY($1))`,
           [alreadyNotified]
         );
-        nextOperator = fallbackRes.rows[0] ?? null;
+        nextOperator = pickNextOperator(fallbackRes.rows, lotDay);
       }
 
       if (nextOperator) {

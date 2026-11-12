@@ -61,7 +61,11 @@
 Каталог говорит «показано N из M» и дозагружает остальное; карточка маршрута
 больше не ставит выше по комиссии вьюхи (`marketplace_score`); на главную туры
 допускаются только со снимком (поправка владельца 29.10), туры без снимка — в
-каталоге. Компании на `/operators` — по алфавиту (это не список туров). Сторожа:
+каталоге. Компании на `/operators` — по алфавиту (это не список туров). Добивка
+лидов (`/api/cron/leads-followup`) берёт следующего оператора тем же жребием дня
+компании (слово владельца 12.11 «жребий дня»; до этого — `LIMIT 1` без порядка,
+первая строка базы): `lib/leads/next-operator.ts`, ступень «по интересам» стоит
+раньше жребия, сторож — `tests/unit/leads-next-operator.test.ts`. Сторожа:
 `tests/unit/offer-order.test.ts`, `tests/unit/tour-choice.test.ts`,
 `tests/unit/place-tours-offers.test.tsx`, `tests/unit/catalog-storefront.test.tsx`,
 `tests/unit/route-offers-order.test.tsx`, `tests/unit/home-plates-tours.test.ts`,
