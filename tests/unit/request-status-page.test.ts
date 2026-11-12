@@ -111,10 +111,12 @@ describe('роуты', () => {
     const { data } = await res.json() as { data: Record<string, unknown> };
     expect(Object.keys(data).sort()).toEqual([
       'accommodation', 'accommodation_url', 'alt_date', 'check_out', 'consent', 'consent_purpose', 'date', 'deadline',
-      'human', 'kind', 'other_offers', 'participants', 'state', 'tour',
+      'human', 'kind', 'other_offers', 'other_stays', 'participants', 'state', 'tour',
     ]);
     // Заявка на жильё — не отказ туроператора: о других компаниях речи нет (4а).
     expect(data.other_offers).toBeNull();
+    // Хозяин «Занято» не отвечал — о другом жилье речи тоже нет (этап 5).
+    expect(data.other_stays).toBeNull();
     expect(data).toMatchObject({ state: 'delivered', kind: 'stay_request', accommodation: 'Кутха', consent_purpose: 'stay' });
     for (const src of [STATUS_ROUTE, CONSENT_ROUTE, CLIENT]) {
       expect(src).not.toMatch(/tourist_name|tourist_phone|guest_name|guest_phone|\bphone\b|\bemail\b|lead_id/);

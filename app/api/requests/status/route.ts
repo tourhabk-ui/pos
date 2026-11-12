@@ -16,6 +16,7 @@ import { NextRequest, NextResponse } from 'next/server';
 import { createRateLimiter, getTrustedClientIp } from '@/lib/rate-limit';
 import { readRequestStatus } from '@/lib/mcp/request-status';
 import { pageOtherOffers } from '@/lib/requests/other-offers-status';
+import { pageOtherStays } from '@/lib/stay/other-stays-status';
 import { McpUserError } from '@/lib/mcp/jsonrpc';
 
 export const dynamic = 'force-dynamic';
@@ -34,7 +35,7 @@ export async function GET(req: NextRequest) {
   try {
     const {
       state, kind, tour, accommodation, accommodation_url, date, check_out, participants, alt_date, deadline, human, consent, consent_purpose,
-      other_offers,
+      other_offers, other_stays,
     } = await readRequestStatus(k, { reader: 'page', seen });
     return NextResponse.json({
       success: true,
@@ -42,6 +43,8 @@ export async function GET(req: NextRequest) {
         state, kind, tour, accommodation, accommodation_url, date, check_out, participants, alt_date, deadline, human, consent, consent_purpose,
         // Другие компании к месту на дату (4а) — без слов для агента: с человеком страница говорит своими.
         other_offers: pageOtherOffers(other_offers),
+        // Другое жильё на те же ночи после «Занято» (этап 5) — так же, без слов для агента.
+        other_stays: pageOtherStays(other_stays),
       },
     });
   } catch (err) {

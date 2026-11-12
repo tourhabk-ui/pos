@@ -59,6 +59,7 @@ export function testKeyStatus(key: string) {
     partner_replies: null, partner_last_reply_at: null, max_link: null,
     notify: null,
     other_offers: null,
+    other_stays: null,
   };
 }
 

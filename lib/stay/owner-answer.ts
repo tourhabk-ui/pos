@@ -64,8 +64,16 @@ export interface StayAnswerFacts {
  */
 export type GuestTold = boolean | null;
 
+/**
+ * Названо ли гостю другое жильё на те же ночи после «Занято» (этап 5,
+ * lib/stay/other-stays-notice): `sent` — сообщением Ведара в его MAX,
+ * `page` — чата нет или он сообщение не принял: список стоит на странице заявки;
+ * null — называть было нечего или не удалось. `names` — что названо.
+ */
+export type OthersTold = { state: 'sent' | 'page'; names: string[] } | null;
+
 export type StayAnswerTell =
-  | { kind: 'answered'; answer: StayOwnerAnswer; guestTold: GuestTold }
+  | { kind: 'answered'; answer: StayOwnerAnswer; guestTold: GuestTold; others?: OthersTold }
   | { kind: 'already'; answer: StayOwnerAnswer }
   | { kind: 'not_yours' }
   | { kind: 'missing' }
@@ -102,6 +110,15 @@ function guestToldLine(told: GuestTold): string {
   return '';
 }
 
+/** Хозяину: что Ведар сделал после его «Занято». Объекты не называются — только число. */
+function othersToldLine(others: OthersTold | undefined): string {
+  if (!others || others.names.length === 0) return '';
+  const n = others.names.length;
+  return others.state === 'sent'
+    ? `Ведар отдельным сообщением назвал гостю другое жильё на эти даты (${n}).`
+    : `Другое жильё на эти даты (${n}) Ведар показывает гостю на странице его заявки: в MAX оно не ушло или MAX у гостя не подключён.`;
+}
+
 /** Хозяину — строка под заявкой. HTML. Повтора имени и телефона гостя здесь нет. */
 export function ownerStayAnswerText(tell: StayAnswerTell): string {
   switch (tell.kind) {
@@ -112,7 +129,8 @@ export function ownerStayAnswerText(tell: StayAnswerTell): string {
         : tell.answer === 'busy'
           ? 'Больше ничего делать не нужно.'
           : 'Телефон гостя — в заявке выше.';
-      return `<b>Ваш ответ:</b> ${escapeHtml(word)}. ${guestToldLine(tell.guestTold)} ${tail}`.replace(/\s+/g, ' ').trim();
+      const others = tell.answer === 'busy' ? othersToldLine(tell.others) : '';
+      return `<b>Ваш ответ:</b> ${escapeHtml(word)}. ${guestToldLine(tell.guestTold)} ${others} ${tail}`.replace(/\s+/g, ' ').trim();
     }
     case 'already':
       return `Ответ уже записан: ${escapeHtml(STAY_ANSWER_WORDS[tell.answer].toLowerCase())}. Второй раз ничего не меняю.`;
@@ -129,14 +147,30 @@ export function ownerStayAnswerText(tell: StayAnswerTell): string {
   }
 }
 
+/** Сколько объектов называется менеджеру; остальные — числом. */
+export const MANAGER_STAYS_MAX = 3;
+
 /** Менеджеру Ведара, в рабочий чат. Без имени и телефона гостя — он видел их в своей копии заявки. */
-export function managerStayAnswerText(opts: { partnerName: string; requestId: string; answer: StayOwnerAnswer; facts: StayAnswerFacts }): string {
+export function managerStayAnswerText(opts: {
+  partnerName: string; requestId: string; answer: StayOwnerAnswer; facts: StayAnswerFacts; others?: OthersTold;
+}): string {
   const word = STAY_ANSWER_WORDS[opts.answer].toLowerCase();
   const lines = [
     `Хозяин жилья «${escapeHtml(opts.partnerName)}» ответил «${word}» на заявку <code>${escapeHtml(opts.requestId)}</code>.`,
     `Объект: ${escapeHtml(opts.facts.accommodationName)} · ${datesWords(opts.facts)} · гостей: ${opts.facts.guests}`,
   ];
-  if (opts.answer === 'busy') lines.push('Гостю сказано, что занято; если нужна помощь с другим жильём — он напишет или позвонит.');
+  if (opts.answer === 'busy') {
+    lines.push('Гостю сказано, что занято; если нужна помощь с другим жильём — он напишет или позвонит.');
+    const others = opts.others;
+    if (others && others.names.length > 0) {
+      const shown = others.names.slice(0, MANAGER_STAYS_MAX).map((n) => `«${escapeHtml(n)}»`).join(', ');
+      const rest = others.names.length - Math.min(others.names.length, MANAGER_STAYS_MAX);
+      lines.push(
+        `Другое жильё на эти даты в той же зоне (по календарю Ведара, это не ответ хозяев): ${shown}${rest > 0 ? ` и ещё ${rest}` : ''}. `
+        + (others.state === 'sent' ? 'Гостю оно названо сообщением в MAX.' : 'В MAX гостю оно не ушло или MAX у него не подключён — список стоит на странице его заявки.'),
+      );
+    }
+  }
   return lines.join('\n');
 }
 
