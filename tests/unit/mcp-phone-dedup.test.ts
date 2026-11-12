@@ -82,7 +82,10 @@ describe('идемпотентность заявки на бронь: (теле
     expect((fn.match(/return accepted/g) ?? []).length).toBe(1);
     // С 29.10 ключ и подписка на уведомления (notify_url) — одной функцией;
     // её хвост от повтора тоже не зависит.
-    expect(fn.trimEnd()).toMatch(/return accepted \+ await issueKeyWithNotify\(\{ leadId \}, BOOKING_REQUEST_TOOL\.name, parsed\.data\.notify_url, 'request', \{ opensChat: saved\.created && offersChat, offersChat, onIssued: collectIssued\(ctx, BOOKING_REQUEST_TOOL\.name\) \}\);\s*\}$/);
+    expect(fn).toMatch(/const keyTail = await issueKeyWithNotify\(\{ leadId \}, BOOKING_REQUEST_TOOL\.name, parsed\.data\.notify_url, 'request', \{ opensChat: saved\.created && offersChat, offersChat, onIssued: collectIssued\(ctx, BOOKING_REQUEST_TOOL\.name\) \}\);/);
+    // С 12.11 после ключа — другие компании на дату, закрытую Ведаром (этап 6):
+    // хвост зависит от тура и даты, а не от того, новая ли заявка.
+    expect(fn.trimEnd()).toMatch(/return accepted \+ keyTail \+ \(platformClosed \? await othersOnDate\(\) : ''\);\s*\}$/);
     // Хвост о переписке (1350) зависит от адресата заявки, а не от того, новая
     // ли она: иначе текст выдал бы повтор. Новизна решает лишь, откроет ли
     // переписку сам ключ.

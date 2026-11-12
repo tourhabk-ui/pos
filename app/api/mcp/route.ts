@@ -64,6 +64,8 @@ import { normalizePhone, implausiblePhone } from '@/lib/mcp/normalize-phone';
 import { issueTestKey, testRunText, writeStructured, type IssuedWrite } from '@/lib/mcp/test-run';
 import type { TourPlaceEntry } from '@/lib/mcp/place-status-schema';
 import { loadTourGroupFacts, groupOverSeats, groupOverSeatsLine, type GroupOverSeats } from '@/lib/mcp/booking-capacity';
+import { PLATFORM_CLOSED_LEAD_NOTE, otherCompaniesInTime, otherCompaniesNote, platformClosedAccepted, platformClosedTrial } from '@/lib/mcp/booking-closed-date';
+import { isClosedByPlatform } from '@/lib/tours/date-closure';
 import { loadTourPlaceStatus, tourPlaceRequestNote, TOUR_PLACE_NOT_READ_NOTE } from '@/lib/safety/tour-place-status';
 import type { RequestKind, ConsentPurpose } from '@/lib/mcp/request-status-schema';
 import { logMcpToolCall, logMcpClient } from '@/lib/mcp/call-log';
@@ -555,6 +557,15 @@ async function executeCreateBookingRequest(rawArgs: Record<string, unknown>, ctx
   let group: GroupOverSeats | null = null;
   /** Вид тура — по нему добивка ищет других операторов после отказа адресата. */
   let groupActivity: string | null = null;
+  /** Дату закрыл Ведар по оценке (1421), а не оператор: заявка идёт оператору вопросом (этап 6). */
+  let platformClosed = false;
+  /** Другие компании к месту тура на эту дату — строками; пусто, если назвать некого. */
+  const othersOnDate = async (): Promise<string> => {
+    const { loadOtherOffers } = await import('@/lib/requests/other-offers');
+    return otherCompaniesNote(
+      await otherCompaniesInTime(() => loadOtherOffers({ tourId: tour.id, date, people: participants })), date, participants,
+    );
+  };
   if (remaining < participants) {
     // Расписание есть, а мест на дату нет — честный отказ ниже. Расписания
     // нет вовсе (оператор берёт туристов без календаря) — «нет мест» было бы
@@ -583,6 +594,10 @@ async function executeCreateBookingRequest(rawArgs: Record<string, unknown>, ctx
     } else if (!keepsSchedule) {
       // Строки о парке (#3156) и о главном месте тура (08.11) — до ссылки статуса.
       return requestSeatsFromOperator({ ctx, tourId: Number(tour.id), tourTitle: tour.title, date, participants, name, phone, hasComment: Boolean(comment), consent: parsed.data.consent, notifyUrl: parsed.data.notify_url, parkNote: parkNote + placeNote });
+    } else if (remaining === 0 && (await isClosedByPlatform(tour.id, date)) === true) {
+      // Мест на дате никто не занимал: её закрыл Ведар по описанию тура, оператора
+      // не спрашивали. «Нет мест» было бы неправдой — заявка идёт оператору вопросом.
+      platformClosed = true;
     } else {
       // Честный отказ с альтернативами вместо фантомной заявки на несуществующие места.
       const horizon = new Date(Date.parse(date) + 30 * 86400000).toISOString().slice(0, 10);
@@ -590,13 +605,19 @@ async function executeCreateBookingRequest(rawArgs: Record<string, unknown>, ctx
         .filter((s) => s.remaining >= participants)
         .slice(0, 5)
         .map((s) => `${s.date} (${s.remaining} мест)`);
+      // Вместо «предложите другой тур» — компании, чьи туры идут к тому же месту
+      // и по календарю могут принять на эту дату (этап 6). Нет таких — прежние слова.
+      const others = await othersOnDate();
       return `На ${date} у тура "${tour.title}" ${remaining === 0 ? 'нет свободных мест' : `только ${remaining} мест, а нужно ${participants}`} — заявка не создана. ` +
-        (nearest.length > 0 ? `Ближайшие даты с местами: ${nearest.join(', ')}.` : 'В ближайшие 30 дней подходящих дат нет — предложите другой тур.');
+        (nearest.length > 0 ? `Ближайшие даты с местами: ${nearest.join(', ')}.`
+          : others ? 'В ближайшие 30 дней подходящих дат у этого тура нет.' : 'В ближайшие 30 дней подходящих дат нет — предложите другой тур.')
+        + others;
     }
   }
 
   const leadComment = `[Заявка на бронь] Тур "${tour.title}" (ID${tour.id}), дата ${date}, участников ${participants}.`
     + (group ? ` Группа больше мест: ${groupOverSeatsLine(group)} Возьмёте ли всю группу (ещё машины, несколько выездов)?` : '')
+    + (platformClosed ? PLATFORM_CLOSED_LEAD_NOTE : '')
     + (comment ? ` ${comment}` : '');
   // План, частью которого стоит тур (#2304, шаг 2): оператор видит поездку
   // целиком. Не приложился — заявка всё равно идёт, и агент это слышит.
@@ -605,12 +626,15 @@ async function executeCreateBookingRequest(rawArgs: Record<string, unknown>, ctx
     source: 'mcp', tool: 'create_booking_request', tour_id: tour.id, date, participants, ...planSourceFields(planAttach),
     // Отказ адресата — и заявку видят другие операторы того же вида (followup-scope).
     ...(group ? { group_over_seats: true, seats_on_date: group.seats_on_date, interests: groupActivity ? [groupActivity] : [] } : {}),
+    // Дату закрыл Ведар, не оператор: заявка — вопрос «ходите ли в этот день».
+    ...(platformClosed ? { date_closed_by: 'platform' } : {}),
   };
   refuseSilentLead(name, phone, leadComment, leadSource);
 
   const trial = stopForTest(ctx, BOOKING_REQUEST_TOOL.name, 'lead', 'operator', parsed.data.consent,
     group
       ? `запрос оператору на всю группу: тур "${tour.title}" (ID${tour.id}), ${date}, участников ${participants} — ${groupOverSeatsLine(group)}`
+      : platformClosed ? platformClosedTrial({ title: tour.title, id: tour.id, date, participants })
       : `заявка оператору на тур "${tour.title}" (ID${tour.id}), ${date}, участников ${participants}; сейчас на эту дату свободно ${remaining} мест.`,
     'оператору тура');
   // Проба говорит о парке и месте тура то же, что настоящая заявка.
@@ -640,6 +664,7 @@ async function executeCreateBookingRequest(rawArgs: Record<string, unknown>, ctx
       + 'Места не закреплены: оператор скажет, возьмёт ли всю группу (ещё машины, несколько выездов). '
       + `Он перезвонит по телефону ${phone}. Если он откажет, заявку на группу увидят другие операторы того же вида туров. `
       + 'Это заявка, не оплата.'
+    : platformClosed ? platformClosedAccepted({ title: tour.title, date, phone })
     : `Заявка оператору принята: "${tour.title}", ${date}. Сейчас на эту дату свободно ${remaining} мест. `
       + `Оператор перезвонит по телефону ${phone}, подтвердит заявку и состав группы — если число людей или пожелания изменились, `
       + 'человеку стоит сказать об этом при звонке. Это заявка, не оплата.')
@@ -690,7 +715,9 @@ async function executeCreateBookingRequest(rawArgs: Record<string, unknown>, ctx
   // ответа у повтора тот же (анти-оракул 29.09): что ключ только статусный,
   // видно лишь по самой ссылке.
   const offersChat = !ctx.self && Boolean(tour.operator_id);
-  return accepted + await issueKeyWithNotify({ leadId }, BOOKING_REQUEST_TOOL.name, parsed.data.notify_url, 'request', { opensChat: saved.created && offersChat, offersChat, onIssued: collectIssued(ctx, BOOKING_REQUEST_TOOL.name) });
+  const keyTail = await issueKeyWithNotify({ leadId }, BOOKING_REQUEST_TOOL.name, parsed.data.notify_url, 'request', { opensChat: saved.created && offersChat, offersChat, onIssued: collectIssued(ctx, BOOKING_REQUEST_TOOL.name) });
+  // Оператор может и не ходить в закрытую Ведаром дату: другие компании к месту — последним блоком, после ссылки статуса.
+  return accepted + keyTail + (platformClosed ? await othersOnDate() : '');
 }
 
 // ── request_charter (решение владельца 10.10) ─────────────────
