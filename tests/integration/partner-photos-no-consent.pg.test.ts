@@ -71,6 +71,7 @@ const CASES = [
 ] as const;
 const [MESTECHKO, VOLCANOESLAND] = CASES;
 const M1431 = readFileSync(join(process.cwd(), 'migrations/1431_place_gallery_partner_consent.sql'), 'utf-8');
+const M1436 = readFileSync(join(process.cwd(), 'migrations/1436_partner_tour_photos_on_bare_places.sql'), 'utf-8');
 const SLUGS = { 'Местечко Камчатка': 'mestechko', 'Край Вулканов': 'volcanoesland' } as const;
 
 const S3 = 'https://s3.example.test/bucket';
@@ -481,6 +482,45 @@ withPg('снимки партнёров без согласия: спрятан�
       await sign(partnerIds[MESTECHKO.partner]!, PLACE_CARDS_CONSENT_FROM);
       expect((await ask()).places.find((p) => p.place === 'Озеро без фото (тест)')?.tours[0]?.consent).toBe('covers');
       await revokeAll(partnerIds[MESTECHKO.partner]!);
+    });
+
+    it('1436: снимки туров партнёров на местах без фото — по одному от партнёра, по алфавиту, с партнёром; без подписи не видны; повтор ничего не меняет', async () => {
+      const GORELY = { id: 'b1260000-0000-4000-8000-000000000c01', ark: 'a1260000-0000-4000-8000-000000000c01' };
+      await pool.query(
+        `INSERT INTO places (id, name, slug, lat, lng, ark_id, location_type, zone, is_visible)
+         VALUES ($1, 'Вулкан Горелый (тест)', 'vulkan-gorelyj', 52.55, 158.03, $2, 'volcano', 'avachinsky', TRUE)
+         ON CONFLICT DO NOTHING`,
+        [GORELY.id, GORELY.ark],
+      );
+      const zap = await pool.query<{ id: string }>(`SELECT id::text FROM partners WHERE slug = 'andrey-zaporozhets'`);
+      const zapId = zap.rows[0]?.id ?? (await pool.query<{ id: string }>(
+        `INSERT INTO partners (name, category, contact, slug, is_public) VALUES ('Андрей Запорожец', 'guide', '{}', 'andrey-zaporozhets', TRUE) RETURNING id::text`,
+      )).rows[0]!.id;
+      await pool.query(`UPDATE partners SET name = 'Андрей Запорожец' WHERE id = $1`, [zapId]);
+
+      await pool.query(M1436);
+      const rows = async () => (await pool.query<{ position: number; s3_key: string; author: string; partner_id: string | null }>(
+        `SELECT position, s3_key, author, partner_id::text FROM place_gallery_photos WHERE ark_id = $1 ORDER BY position`, [GORELY.ark])).rows;
+      const once = await rows();
+      expect(once).toEqual([
+        { position: 1, s3_key: 'photos/zaporozhets/gorely-crater-lake.jpg', author: 'Андрей Запорожец', partner_id: zapId },
+        { position: 2, s3_key: 'photos/mestechko/vulkan-gorelyy-05.jpg', author: MESTECHKO.partner, partner_id: partnerIds[MESTECHKO.partner] },
+      ]);
+      await pool.query(M1436);
+      expect(await rows()).toEqual(once);
+
+      // Подписи нет ни у кого — карточка снимков партнёров не показывает.
+      await pool.query(`DELETE FROM partner_material_consents WHERE partner_id = $1`, [zapId]);
+      const c = await card(GORELY.id);
+      expect(c.images.some((u) => u.includes('/place-gallery/'))).toBe(false);
+      // Подписал один — виден только его снимок.
+      const { PLACE_CARDS_CONSENT_FROM } = await import('@/lib/legal/partner-materials-consent');
+      await sign(zapId, PLACE_CARDS_CONSENT_FROM);
+      const c2 = await card(GORELY.id);
+      expect(c2.images.filter((u) => u.includes('/place-gallery/')).map((u) => u.split('?')[0]))
+        .toEqual([`/api/images/place-gallery/${GORELY.ark}/1`]);
+      expect(Object.values(c2.photoCredits)).toContain('Андрей Запорожец');
+      await revokeAll(zapId);
     });
   });
 });
