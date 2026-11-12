@@ -37,6 +37,29 @@ describe('главный аргумент: имя всегда, значение
     expect(safeArgValue('')).toBeNull();
   });
 
+  it('ключ заявки в журнал не пишется: ни под именем key, ни под чужим', () => {
+    // Форма настоящего ключа: 24 случайных байта в base64url, 32 знака.
+    const withDigits = 'Zq3vT-xYLmK_aB7cDreFlgH8jNopRisU';
+    const noDigits = 'ZqXvT-xYLmK_aBkcDreFlgHmjNopRisU';
+    expect(withDigits).toHaveLength(32);
+    // До 12.11 оба значения ложились в журнал целиком: цифр меньше семи, почты нет.
+    expect(withDigits.replace(/[^0-9]/g, '')).toHaveLength(3);
+    expect(primaryArg({ key: withDigits }, false)).toEqual({ key: 'key', value: HIDDEN_VALUE });
+    expect(primaryArg({ key: noDigits }, false)).toEqual({ key: 'key', value: HIDDEN_VALUE });
+    // Имя — как есть: по нему видно, что спрашивали статус.
+    expect(primaryArg({ key: withDigits, action: 'cancel' }, false).key).toBe('key');
+    // Ключ под чужим именем (агент перепутал поле) — тоже скрыт.
+    expect(primaryArg({ status_key: withDigits }, false)).toEqual({ key: 'status_key', value: HIDDEN_VALUE });
+    expect(safeArgValue(`sq_${withDigits}`)).toBe(HIDDEN_VALUE);
+    // Пустой ключ остаётся пустым, а не «скрыто»: скрывать нечего.
+    expect(primaryArg({ key: '' }, false)).toEqual({ key: 'key', value: null });
+    // Обычные значения не задеты: место латиницей, длинное слово, номер тура.
+    expect(safeArgValue('Petropavlovsk-Kamchatsky')).toBe('Petropavlovsk-Kamchatsky');
+    expect(safeArgValue('Kronotsky-Nature-Reserve')).toBe('Kronotsky-Nature-Reserve');
+    expect(safeArgValue('tour:12')).toBe('tour:12');
+    expect(primaryArg({ name: 'Долина гейзеров' }, false).value).toBe('Долина гейзеров');
+  });
+
   it('код исполнения: SQLSTATE, сеть, таймаут, иначе класс ошибки', () => {
     expect(classifyExecutionError(Object.assign(new Error('x'), { code: '42P08' }))).toBe('pg:42P08');
     expect(classifyExecutionError(Object.assign(new Error('x'), { code: 'ECONNREFUSED' }))).toBe('net:ECONNREFUSED');
