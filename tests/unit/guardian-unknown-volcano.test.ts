@@ -51,6 +51,31 @@ describe('guardian: места нет, вулкан есть в сводках',
     expect(await getGuardianContext('Несуществующее озеро')).toBe('');
   });
 
+  it('вулкан из сводок и маршрут каталога с этим словом: после кодов вулкана — связка и оценка маршрута (#3302)', async () => {
+    const route = {
+      id: 'card-ch', db_id: 'db-ch', slug: 'voshozhdenie-na-chikurachki', title: 'Восхождение на Чикурачки',
+      distance_km: '14', difficulty: 'hard', mchs_registration_required: true, mchs_phone: null, description: null,
+    };
+    mockQuery.mockImplementation((sql: string) => {
+      // Сборщик сигналов маршрута: строка маршрута и вулканы на его коридоре.
+      if (sql.includes('SELECT zone, season')) return Promise.resolve({ rows: [{ zone: null, season: null, lat: '50.32', lng: '155.46' }] });
+      if (sql.includes('WITH anchor') && sql.includes('FROM volcano_status vs')) return Promise.resolve({ rows: [{ name: 'Чикурачки', acc: 'orange' }] });
+      if (sql.includes('FROM kamchatka_routes kr')) return Promise.resolve({ rows: [route] });
+      if (sql.includes('FROM volcano_status')) return Promise.resolve({ rows: [CHIKURACHKI] });
+      if (sql.includes('MAX(observed_date)')) return Promise.resolve({ rows: [{ d: null }] });
+      return Promise.resolve({ rows: [] });
+    });
+    const out = await getGuardianContext('Чикурачки');
+    const volcano = out.indexOf('Вулкан есть в сводках вулканов:');
+    const intro = out.indexOf('В каталоге Ведара есть маршрут со словами «Чикурачки» в названии — ниже его оценка на сегодня и данные из базы.');
+    const block = out.indexOf('Маршрут каталога «Восхождение на Чикурачки» [ОСТОРОЖНО]');
+    expect(volcano).toBeGreaterThan(-1);
+    expect(intro).toBeGreaterThan(volcano);
+    expect(block).toBeGreaterThan(intro);
+    expect(out).toContain('Оценка маршрута на сегодня — «Осторожно»: Чикурачки: оранжевый код KVERT.');
+    expect(out).toContain('Вулканы на маршруте: Чикурачки — оранжевый.');
+  });
+
   it('сводки не прочитались — в лог, ответ без них, а не падение', async () => {
     const err = vi.spyOn(console, 'error').mockImplementation(() => {});
     mockDb(new Error('connection reset'));

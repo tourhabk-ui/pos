@@ -52,7 +52,7 @@
     "type": "function",
     "function": {
       "name": "get_guardian_context",
-      "description": "Kamchatka safety context for a place or route: hazards, active alerts, advice. For plain facts (type, coordinates) use get_place_info. Получить полный контекст места как Хранитель: статус (открыто/закрыто), реалтайм алерты КБГС РАН, опасности, загрузка, традиционные знания о месте. Используй ВСЕГДА когда спрашивают о конкретном месте, вулкане, озере, маршруте, источнике Камчатки.",
+      "description": "Kamchatka safety context for a place or route: place status, hazards, active alerts; a catalog route with no place record gets today's go / caution / no call. Plain facts: get_place_info. Получить полный контекст места как Хранитель: статус (открыто/закрыто), реалтайм алерты КБГС РАН, опасности, загрузка, традиционные знания о месте. Места с таким названием нет, а маршрут каталога есть — оценка маршрута на сегодня (идти / осторожно / не сегодня) с причиной, та же, что на его карточке. Используй ВСЕГДА когда спрашивают о конкретном месте, вулкане, озере, маршруте, источнике Камчатки.",
       "parameters": {
         "type": "object",
         "properties": {

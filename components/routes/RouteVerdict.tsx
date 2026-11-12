@@ -22,6 +22,7 @@ import React, { useEffect, useState } from 'react';
 import { CircleCheck, TriangleAlert, OctagonX } from 'lucide-react';
 import type { VerdictStatus, RouteSignals, Verdict } from '@/lib/routes/go-verdict';
 import { verdictLook } from '@/lib/routes/verdict-presentation';
+import { verdictFactLines, VERDICT_DISCLAIMER_RU } from '@/lib/routes/verdict-facts';
 
 export interface VerdictResponse {
   verdict: Verdict & { label: string };
@@ -44,11 +45,6 @@ const OFFLINE: VerdictResponse = {
     label: 'Осторожно',
   },
   signals: { alerts: null, volcanoes: null, inSeason: null, weather: null, closures: null },
-};
-
-const ACC_RU: Record<string, string> = {
-  green: 'зелёный', yellow: 'жёлтый', orange: 'оранжевый',
-  red: 'красный', unassigned: 'код не присвоен',
 };
 
 /**
@@ -78,53 +74,12 @@ export function useRouteVerdict(routeId: string): VerdictResponse | null {
   return data;
 }
 
-/** Строка факта: что спросили и что ответили. `null` называется словами. */
-function factLines(s: RouteSignals): Array<{ label: string; value: string; dim: boolean }> {
-  const out: Array<{ label: string; value: string; dim: boolean }> = [];
-
-  out.push(s.alerts === null
-    ? { label: 'Предупреждения', value: 'не смогли узнать', dim: true }
-    : s.alerts.length === 0
-      ? { label: 'Предупреждения', value: 'действующих нет', dim: false }
-      : { label: 'Предупреждения', value: s.alerts.map((a) => a.title).join(' · '), dim: false });
-
-  out.push(s.volcanoes === null
-    ? { label: 'Вулканы на маршруте', value: 'не смогли узнать', dim: true }
-    : s.volcanoes.length === 0
-      ? { label: 'Вулканы на маршруте', value: 'в 25 км нет', dim: false }
-      : {
-          label: 'Вулканы на маршруте',
-          value: s.volcanoes.map((v) => `${v.name} — ${ACC_RU[v.acc] ?? v.acc}`).join(' · '),
-          dim: false,
-        });
-
-  // Закрытые точки пути (issue #2079). Старый ответ сервера поля не несёт —
-  // тогда строки нет вовсе, а не «закрытых нет».
-  if (s.closures !== undefined) {
-    out.push(s.closures === null
-      ? { label: 'Закрытые точки', value: 'не смогли узнать', dim: true }
-      // «Нет» читалось как проверка точек. Закрытие — отметка администратора,
-      // и её отсутствие ничего не проверяет (15.10, §0).
-      : s.closures.length === 0
-        ? { label: 'Закрытые точки', value: 'администратор не отмечал', dim: false }
-        : {
-            label: 'Закрытые точки',
-            value: s.closures.map((c) => (c.reason ? `${c.place} — ${c.reason}` : c.place)).join(' · '),
-            dim: false,
-          });
-  }
-
-  if (s.inSeason !== null) {
-    out.push({ label: 'Сезон', value: s.inSeason ? 'маршрут в своём сезоне' : 'маршрут вне сезона', dim: false });
-  }
-
-  return out;
-}
-
+// Слова фактов — lib/routes/verdict-facts: те же, что в ответе Кузьмича и MCP
+// о маршруте (#3302). Своей копии строк здесь быть не должно.
 function Facts({ signals }: { signals: RouteSignals }) {
   return (
     <dl className="mt-3 space-y-1">
-      {factLines(signals).map((f) => (
+      {verdictFactLines(signals).map((f) => (
         <div key={f.label} className="flex flex-wrap gap-x-2 text-xs">
           <dt className="text-[var(--text-muted)]">{f.label}:</dt>
           <dd className={f.dim ? 'text-[var(--text-muted)] italic' : 'text-[var(--text-secondary)]'}>
@@ -197,9 +152,7 @@ export default function RouteVerdict({ routeId, data: given }: { routeId: string
 
           {look.disclaimer && (
             <p className="mt-3 text-[10px] leading-relaxed text-[var(--text-muted)]">
-              Это не официальный бюллетень: районных сводок по Камчатке нет.
-              Вердикт складывается по правилам из того, что известно платформе,
-              и решение остаётся за вами.
+              {VERDICT_DISCLAIMER_RU}
             </p>
           )}
         </div>
