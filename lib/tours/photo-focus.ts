@@ -29,14 +29,30 @@
  * посмотрят. Ключ — путь снимка в хранилище без расширения и без суффикса
  * нарезки (`.640.webp`), чтобы один снимок узнавался во всех своих адресах.
  *
+ * 12.11, вдогонку («карт-бланш»): список руками лечит только просмотренные
+ * снимки, и новая вертикальная обложка снова показала бы небо. Поэтому у
+ * каждого портретного снимка в хранилище точку считает станок
+ * (`scripts/photo-focus.mjs`, входит в `npm run images`): где в кадре
+ * кончается ровное небо и начинаются детали. Файл —
+ * `lib/images/photo-focus.json`. Порядок: ручная точка, затем посчитанная,
+ * затем верх кадра. Снимок, загруженный оператором в рантайме, станок не
+ * видел — он стоит на верхе кадра.
+ *
  * Герой карточки тура остаётся на своих `50% 30%` — у него другой кадр.
  */
+import autoFocus from '@/lib/images/photo-focus.json';
+
 export const TOUR_PHOTO_POSITION = '50% 0%';
+
+/** Точки, посчитанные станком по самим снимкам. */
+export const AUTO_PHOTO_FOCUS_Y: Readonly<Record<string, number>> = autoFocus as Record<string, number>;
 
 /**
  * Вертикальная точка (0 — верх, 100 — низ) у портретных пейзажей, проверенная
  * на обрезке 16:10 12.11. Значение — где у снимка предмет съёмки: вулкан,
  * бухта, каньон. Сюда не вносят портреты людей — им нужен верх кадра.
+ * Главнее посчитанной: глаз видит предмет, станок — только начало деталей
+ * (у каньона это хребет над ним, а не водопад внизу).
  * Сторож: tests/unit/tour-photo-focus.test.ts (снимок существует в
  * media/s3/photos, он портретный, точка в 0..100).
  */
@@ -72,18 +88,25 @@ export function photoFocusKey(src: string | null | undefined): string | null {
   return path || null;
 }
 
-/** Записанная точка снимка или `null`, если снимок не проверен. */
-export function photoFocusY(src: string | null | undefined): number | null {
-  const key = photoFocusKey(src);
-  if (!key || !Object.prototype.hasOwnProperty.call(PHOTO_FOCUS_Y, key)) return null;
-  const y = PHOTO_FOCUS_Y[key];
+function own(table: Readonly<Record<string, number>>, key: string): number | null {
+  if (!Object.prototype.hasOwnProperty.call(table, key)) return null;
+  const y = table[key];
   if (typeof y !== 'number' || !Number.isFinite(y)) return null;
   return Math.min(100, Math.max(0, Math.round(y)));
 }
 
 /**
- * Точка кадрирования фото тура для широкой плитки: записанная у снимка, иначе
- * верх кадра (`TOUR_PHOTO_POSITION`).
+ * Точка снимка: ручная, иначе посчитанная станком, иначе `null` (верх кадра).
+ */
+export function photoFocusY(src: string | null | undefined): number | null {
+  const key = photoFocusKey(src);
+  if (!key) return null;
+  return own(PHOTO_FOCUS_Y, key) ?? own(AUTO_PHOTO_FOCUS_Y, key);
+}
+
+/**
+ * Точка кадрирования фото тура для широкой плитки: точка снимка (ручная или
+ * посчитанная), иначе верх кадра (`TOUR_PHOTO_POSITION`).
  */
 export function tourPhotoPosition(src: string | null | undefined): string {
   const y = photoFocusY(src);
