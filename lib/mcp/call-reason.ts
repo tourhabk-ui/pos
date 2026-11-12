@@ -34,21 +34,29 @@ const CONTROL = /[\u0000-\u001f\u007f]/g;
 const SECRET_ARG_KEYS: ReadonlySet<string> = new Set(['key']);
 
 /**
- * Похоже на ключ заявки, под каким бы именем его ни передали: 20+ знаков
- * base64url подряд и хотя бы одна цифра. Название места латиницей
- * («Petropavlovsk-Kamchatsky») цифр не несёт и остаётся. Ключ из 32 случайных
- * знаков без единой цифры возможен (доля (54/64)^32, около 0,4%) — такой
- * закрывает имя аргумента `key`.
+ * Отрезок, похожий на ключ заявки, — где бы в значении он ни стоял и под каким
+ * бы именем аргумента ни пришёл: ключ в кавычках или с приставкой («key: …»,
+ * `sq_…`) — тот же ключ (ревью безопасности к #3280).
+ *
+ * Отрезок — 20+ знаков base64url подряд. Ключом считается отрезок с цифрой
+ * либо любой отрезок от 32 знаков: ключ — ровно 32 случайных знака, и без
+ * единой цифры он тоже бывает (доля (54/64)^32, около 0,4%). Название места
+ * латиницей («Petropavlovsk-Kamchatsky», 24 знака без цифр) остаётся.
  */
-const KEY_LIKE = /^(?=[A-Za-z0-9_-]*\d)[A-Za-z0-9_-]{20,}$/;
+const KEY_RUN = /[A-Za-z0-9_-]{20,}/g;
+const KEY_LENGTH = 32;
 
-/** Значение годится в журнал: не телефон (7+ цифр подряд с разделителями), не почта и не ключ заявки. */
+function carriesKey(s: string): boolean {
+  return (s.match(KEY_RUN) ?? []).some((run) => run.length >= KEY_LENGTH || /\d/.test(run));
+}
+
+/** Значение годится в журнал: не телефон (7+ цифр подряд с разделителями), не почта и без ключа заявки. */
 export function safeArgValue(raw: unknown): string | null {
   if (raw == null) return null;
   const s = String(raw).replace(CONTROL, ' ').replace(/\s+/g, ' ').trim();
   if (!s) return null;
   const digits = s.replace(/[^\d]/g, '').length;
-  if (digits >= 7 || s.includes('@') || KEY_LIKE.test(s)) return HIDDEN_VALUE;
+  if (digits >= 7 || s.includes('@') || carriesKey(s)) return HIDDEN_VALUE;
   return s.slice(0, ARG_VALUE_MAX);
 }
 
@@ -58,15 +66,17 @@ export interface PrimaryArg {
 }
 
 /**
- * Главный аргумент вызова. `isWrite` — инструмент пишет (заявка, бронь):
- * тогда только имя аргумента, значение — никогда.
+ * Главный аргумент вызова. `nameOnly` — только имя аргумента, значение не
+ * пишется никогда: у заявок там имя и телефон человека, у инструментов,
+ * которым передают ключ заявки (`KEY_ARG_TOOL_NAMES`), — сам ключ, под каким
+ * бы именем аргумента он ни пришёл.
  */
-export function primaryArg(args: Record<string, unknown>, isWrite: boolean): PrimaryArg {
+export function primaryArg(args: Record<string, unknown>, nameOnly: boolean): PrimaryArg {
   const keys = Object.keys(args);
   if (keys.length === 0) return { key: null, value: null };
   const key = PRIMARY_KEYS.find(k => k in args && args[k] != null && args[k] !== '') ?? keys[0];
   const safeKey = /^[A-Za-z_][A-Za-z0-9_]{0,39}$/.test(key) ? key : 'не-идентификатор';
-  if (isWrite) return { key: safeKey, value: null };
+  if (nameOnly) return { key: safeKey, value: null };
   const value = safeArgValue(args[key]);
   // Секретный аргумент: значение было — пишется, что оно скрыто; пустое остаётся пустым.
   return { key: safeKey, value: value !== null && SECRET_ARG_KEYS.has(key) ? HIDDEN_VALUE : value };

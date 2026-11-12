@@ -34,7 +34,7 @@ import { localizeToolArgs, toolLangNote } from '@/lib/mcp/query-lang';
 import { NextRequest, NextResponse } from 'next/server';
 import { z } from 'zod';
 import { validateToolArgs } from '@/lib/kuzmich/tool-schemas';
-import { PUBLIC_MCP_TOOLS, PUBLIC_MCP_TOOL_NAMES, WRITE_TOOL_NAMES, CREATE_LEAD_TOOL, BOOKING_REQUEST_TOOL, REQUEST_CHARTER_TOOL, STAY_REQUEST_TOOL, CAR_RENTAL_REQUEST_TOOL, TRIP_REQUEST_TOOL, MCP_SERVER_INFO, MCP_READ_PER_MINUTE } from '@/lib/mcp/public-tools';
+import { PUBLIC_MCP_TOOLS, PUBLIC_MCP_TOOL_NAMES, WRITE_TOOL_NAMES, KEY_ARG_TOOL_NAMES, CREATE_LEAD_TOOL, BOOKING_REQUEST_TOOL, REQUEST_CHARTER_TOOL, STAY_REQUEST_TOOL, CAR_RENTAL_REQUEST_TOOL, TRIP_REQUEST_TOOL, MCP_SERVER_INFO, MCP_READ_PER_MINUTE } from '@/lib/mcp/public-tools';
 import { SERVER_INSTRUCTIONS } from '@/lib/mcp/server-instructions';
 import { requestConfirmNote } from '@/lib/mcp/request-confirm-note';
 import { negotiateProtocolVersion, isSupportedProtocolVersion, isModernProtocolVersion, SUPPORTED_PROTOCOL_VERSIONS, LEGACY_PROTOCOL_VERSIONS } from '@/lib/mcp/protocol-version';
@@ -1471,7 +1471,8 @@ async function runPublicToolCore(call: PublicToolCall): Promise<PublicToolOutcom
   const limiter = isWrite ? writeLimiter : readLimiter;
   // Главный аргумент для журнала: имя всегда, значение — только у читающих
   // инструментов и не похожее на телефон (lib/mcp/call-reason, 1143).
-  const arg = primaryArg(toolArgs, isWrite);
+  // Только имя аргумента — у заявок (там ПД) и у инструментов с ключом заявки.
+  const arg = primaryArg(toolArgs, isWrite || KEY_ARG_TOOL_NAMES.has(toolName));
   if (!limiter.check(`${isWrite ? 'w' : 'r'}:${ip}`)) {
     if (rateLimitedLogGate.check(ip)) {
       logMcpToolCall({ tool: toolName, ok: false, errorKind: 'rate_limited', errorCode: 'rate_limited', argKey: arg.key, ip, userAgent, self });
