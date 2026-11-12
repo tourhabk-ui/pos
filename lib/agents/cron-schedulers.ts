@@ -286,6 +286,7 @@ export const MANUAL_ENDPOINTS: Record<string, SchedulerDeclaration> = {
   'route-web-null':            { kind: 'manual', writes: false, note: 'маршруты без веб-источника' },
   'routes-dedup':              { kind: 'manual', writes: true,  note: 'схлопывание дублей маршрутов' },
   'routes-unmerge':            { kind: 'manual', writes: false, note: 'откат схлопывания' },
+  'route-permit-census':       { kind: 'manual', writes: false, note: 'перепись условий посещения территорий по маршрутам' },
   'tour-tracks-census':        { kind: 'manual', writes: false, note: 'перепись треков у туров' },
   'track-attachment-audit':    { kind: 'manual', writes: false, note: 'разбор привязки треков' },
   'verdict-census':            { kind: 'manual', writes: false, note: 'перепись вердиктов' },

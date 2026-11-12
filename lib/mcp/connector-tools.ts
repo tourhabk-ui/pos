@@ -64,6 +64,7 @@ import { HAZARDS } from '@/lib/safety/hazard-labels';
 import { describeForAgent } from '@/lib/places/description-voice';
 import { garbageSignature } from '@/lib/agents/evo/content-sanitizer';
 import { routeToday, routeTodayLines } from '@/lib/routes/route-today';
+import { routePermitCaseFor, routePermitLines } from '@/lib/parks/route-permit';
 import { kamchatkaToday } from '@/lib/seat-requests/core';
 import { placeZoneLabel, routeDifficultyLabel, routeSeasonLabel, routeTypeLabel } from '@/lib/places/zone-labels';
 import { groupSentenceIfUnlimited } from '@/lib/tours/group-size';
@@ -518,7 +519,9 @@ async function fetchRoute(key: string, base: string): Promise<FetchResult> {
   // парке. Документ могут прочитать позже, чем он собран, — поэтому дата
   // названа числом, а строки стоят раньше описания: срез длины текста не
   // должен съесть запрет.
-  const today = await routeToday(r.db_id);
+  // Условия посещения территории (разрешение парка) — рядом с её названием:
+  // строки те же, что в get_guardian_context (lib/parks/route-permit).
+  const [today, permit] = await Promise.all([routeToday(r.db_id), routePermitCaseFor(r)]);
   const [, mm, dd] = kamchatkaToday().split('-');
   const text = joinLines([
     // Район, вид, сложность и сезон — словами: код из данных агенту не
@@ -541,6 +544,7 @@ async function fetchRoute(key: string, base: string): Promise<FetchResult> {
     r.mchs_registration_required ? 'Требуется регистрация в МЧС перед выходом.' : null,
     // Род не утверждается (14.10): park_name — и памятник природы, и национальный парк.
     line('Охраняемая территория', r.park_name),
+    ...routePermitLines(permit),
     'Экстренный вызов на Камчатке — 112.',
   ]);
   return {

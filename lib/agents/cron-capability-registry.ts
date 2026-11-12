@@ -327,6 +327,8 @@ export const CRON_CAPABILITIES: Record<string, readonly Capability[]> = {
   'route-lay-census': ['db_read'],
   'route-link-suggest': ['db_read'],
   'route-links-repair': ['db_read', 'db_write'],
+  // Условия посещения территорий по маршрутам — только счёт (#3302, срез 4).
+  'route-permit-census': ['db_read'],
   'route-place-twins': ['db_read'],
   'route-popularity': ['db_read'],
   'route-sanity-census': ['db_read'],

@@ -51,6 +51,9 @@ import { PARK_CLOSURE_HOLD_HOURS } from '@/lib/safety/park-closure';
 import { createTestDatabase } from '../helpers/pg-schema';
 import { applyPlanParkStatus, loadPlanParkAlerts, PARK_STATUS_UNREAD_NOTE } from '@/lib/planner/park-status';
 import { getGuardianContextDetailed } from '@/lib/kuzmich/guardian-context';
+import { loadParkLookup, routePermitCaseFor, PERMIT_NOT_MCHS_RU } from '@/lib/parks/route-permit';
+import { runRoutePermitCensus } from '@/lib/parks/route-permit-census';
+import { PARK_PERMIT_SOURCE, GREEN_BUTTON } from '@/lib/safety/park-permit';
 import { ACTIVE_MCHS_WARNINGS_SQL } from '@/lib/safety/active-warnings';
 import { warningsFromRows, type AlertWarningRow } from '@/lib/safety/mchs-bulletin';
 
@@ -1151,6 +1154,71 @@ withPg('кого накрывает предупреждение', () => {
     // Слово «маршрут» в запросе поиска не ломает: название его не содержит.
     const again = await getGuardianContextDetailed('маршрут Тропа к Таловским источникам');
     expect(again.routes.map((r) => r.id)).toEqual([PARK_ROUTE_ID]);
+  });
+
+  /**
+   * Условия посещения территории маршрута (#3302, срез 4): запрос к
+   * справочнику парков, перепись и ответ стража исполняются на базе.
+   * `park_name` у маршрута теста записан свободным текстом импорта —
+   * «Природный парк "Налычево"», с прямыми кавычками.
+   */
+  it('страж: условия посещения территории — из справочника парков (#3302)', async () => {
+    const before = await pool.query<{ permit_url: string | null; permit_email: string | null }>(
+      `SELECT permit_url, permit_email FROM parks WHERE slug = 'nalychevo'`,
+    );
+    const HIDDEN_ROUTE = 'd0000000-0000-4000-8000-0000000000f4';
+    try {
+      // Снятая запись справочника с тем же корнем имени и скрытый маршрут:
+      // первая не должна сделать территорию «неоднозначной», второй — попасть в перепись.
+      await pool.query(
+        `INSERT INTO parks (slug, display_name, search_term, is_active)
+         VALUES ('nalychevo-snyataya-test', 'Снятая запись (тест)', 'Налычево', FALSE)`,
+      );
+      await pool.query(
+        `INSERT INTO kamchatka_routes (id, category, title, park_name, zone, is_visible)
+         VALUES ($1, 'trekking', 'Скрытый маршрут (тест условий)', 'Скрытая территория (тест)', 'avachinsky', FALSE)`,
+        [HIDDEN_ROUTE],
+      );
+      // Строка справочника без единого канала — «не записаны», а не способы КГБУ.
+      await pool.query(`UPDATE parks SET permit_url = NULL, permit_email = NULL WHERE slug = 'nalychevo'`);
+      expect((await loadParkLookup('Природный парк "Налычево"'))).toMatchObject({ state: 'one', park: { slug: 'nalychevo', permitUrl: null } });
+      const bare = await getGuardianContextDetailed('Тропа к Таловским источникам');
+      expect(bare.text).toContain('В данных маршрута названа территория «Природный парк "Налычево"». Условия её посещения в базе Ведара не записаны');
+      expect(bare.text).not.toContain(GREEN_BUTTON.name);
+
+      // Справочник ведёт на страницу условий КГБУ (так его записала 1248) — способы названы.
+      await pool.query(`UPDATE parks SET permit_url = $1 WHERE slug = 'nalychevo'`, [PARK_PERMIT_SOURCE.url]);
+      expect((await routePermitCaseFor({ title: 'Тропа', park_name: 'Природный парк "Налычево"' })).kind).toBe('kgbu');
+      const d = await getGuardianContextDetailed('Тропа к Таловским источникам');
+      expect(d.text).toContain(`Условия посещения — Природный парк «Налычево»: посещение — по разрешению ${PARK_PERMIT_SOURCE.authority}`);
+      expect(d.text).toContain(`— «${GREEN_BUTTON.name}»:`);
+      expect(d.text).toContain(PERMIT_NOT_MCHS_RU);
+
+      // Заказник и парк с общим корнем имени не путаются (правило routeInParkSql).
+      const zakaznik = await loadParkLookup('Южно-Камчатский заказник федерального значения');
+      expect(zakaznik).toMatchObject({ state: 'one', park: { slug: 'yuzhno-kamchatsky-zakaznik' } });
+      const parkOnly = await loadParkLookup('Южно-Камчатский');
+      expect(parkOnly).toMatchObject({ state: 'one', park: { slug: 'yuzhno-kamchatsky' } });
+      expect(await loadParkLookup('Территория, которой в справочнике нет')).toEqual({ state: 'none' });
+
+      // Перепись: оба запроса исполняются, маршрут теста посчитан своим случаем.
+      const census = await runRoutePermitCensus();
+      expect(census.routes_total).toBeGreaterThan(0);
+      expect(Object.values(census.by_kind).reduce((a, b) => a + b, 0)).toBe(census.routes_total);
+      const row = census.park_names.find((p) => p.park_name === 'Природный парк "Налычево"');
+      expect(row, 'территория маршрута теста в переписи не названа').toBeTruthy();
+      expect(row!.parks).toEqual(['nalychevo']);
+      expect(row!.kinds.kgbu ?? 0).toBeGreaterThanOrEqual(1);
+      expect(census.by_kind.unread, 'территория осталась без чтения справочника').toBe(0);
+      expect(census.park_names.map((p) => p.park_name), 'скрытый маршрут посчитан').not.toContain('Скрытая территория (тест)');
+    } finally {
+      await pool.query(`DELETE FROM kamchatka_routes WHERE id = $1`, [HIDDEN_ROUTE]);
+      await pool.query(`DELETE FROM parks WHERE slug = 'nalychevo-snyataya-test'`);
+      await pool.query(
+        `UPDATE parks SET permit_url = $1, permit_email = $2 WHERE slug = 'nalychevo'`,
+        [before.rows[0]?.permit_url ?? null, before.rows[0]?.permit_email ?? null],
+      );
+    }
   });
 
   /**

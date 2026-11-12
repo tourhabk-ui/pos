@@ -40,11 +40,10 @@ import {
   PARK_PERMIT_CHANNELS,
   PARK_PERMIT_SOURCE,
   GREEN_BUTTON,
-  isFreeVisitArea,
-  noPermitTerritory,
-  federalizedPark,
-  kronokiTerritory,
+  permitRuleFor,
   KRONOKI_REQUESTS,
+  KRONOKI_ORDER_RU,
+  FEDERAL_PERMIT_UNKNOWN_RU,
 } from '@/lib/safety/park-permit';
 
 interface Props {
@@ -79,8 +78,11 @@ export default function ParkPermitAction({
   // Молчать о ней нельзя: турист иначе пойдёт оформлять ненужное разрешение.
   // Территория вне парка со своим режимом без разрешения (Вачкажец, 14.10):
   // «Зелёная кнопка» звала бы оформлять то, чего ведомство не выдаёт.
-  const noPermit = noPermitTerritory(title);
-  if (noPermit) {
+  // Какое правило относится к маршруту — permitRuleFor: тот же порядок
+  // проверок читает ответ Кузьмича и MCP (lib/parks/route-permit, #3302).
+  const rule = permitRuleFor({ title, parkName });
+  if (rule.kind === 'no_permit') {
+    const noPermit = rule.territory;
     return (
       <p className="flex items-start gap-2 text-sm text-[var(--text-secondary)]">
         <Check className="mt-0.5 h-4 w-4 shrink-0 text-[var(--success)]" aria-hidden />
@@ -100,8 +102,8 @@ export default function ParkPermitAction({
 
   // Кроноцкий и Корякский заповедники, Южно-Камчатский заказник — заявка в
   // Кроноцкий заповедник, а не «Зелёная кнопка» краевого КГБУ (14.10).
-  const kronoki = kronokiTerritory(parkName, title);
-  if (kronoki) {
+  if (rule.kind === 'kronoki') {
+    const kronoki = rule.territory;
     if (variant === 'compact') {
       return (
         <a
@@ -125,12 +127,7 @@ export default function ParkPermitAction({
           </div>
         </div>
         <div className="space-y-4 px-5 py-4">
-          <p className="text-sm leading-relaxed text-[var(--text-secondary)]">
-            Посещение — по заявке и разрешению {KRONOKI_REQUESTS.authority}: форму заявки скачивают на
-            сайте заповедника и отправляют на {KRONOKI_REQUESTS.email}. Заявка включает группу в план
-            посещений — многодневные группы и однодневные пешие группы у Курильского озера, — а
-            разрешение оформляется отдельно ({KRONOKI_REQUESTS.asOf}).
-          </p>
+          <p className="text-sm leading-relaxed text-[var(--text-secondary)]">{KRONOKI_ORDER_RU}</p>
           <div className="flex flex-col gap-3 sm:flex-row">
             <a
               href={KRONOKI_REQUESTS.url}
@@ -163,7 +160,7 @@ export default function ParkPermitAction({
     );
   }
 
-  if (isFreeVisitArea(title)) {
+  if (rule.kind === 'free_visit') {
     return (
       <p className="flex items-start gap-2 text-sm text-[var(--text-secondary)]">
         <Check className="mt-0.5 h-4 w-4 shrink-0 text-[var(--success)]" aria-hidden />
@@ -203,7 +200,7 @@ export default function ParkPermitAction({
 
   // Парк ушёл в федеральное ведение (14.10, миграция 1245): способы ниже
   // принадлежат краевому КГБУ, и действуют ли они теперь — не объявлено.
-  const federal = federalizedPark(parkName, title);
+  const federal = rule.federal;
 
   return (
     <div className="overflow-hidden rounded-lg border border-[var(--border)] bg-[var(--bg-card)]">
@@ -230,9 +227,7 @@ export default function ParkPermitAction({
             <a href={federal.url} target="_blank" rel="noopener noreferrer" className="underline hover:text-[var(--ocean)]">
               {federal.source}
             </a>
-            ). Как теперь выдаются разрешения, ещё не объявлено: положение о парке Минприроды должно
-            утвердить в течение шести месяцев, а способы ниже действовали до перехода — уточните
-            перед выходом.
+            ). {FEDERAL_PERMIT_UNKNOWN_RU}
           </p>
         )}
         <div className="flex flex-col gap-3 sm:flex-row">

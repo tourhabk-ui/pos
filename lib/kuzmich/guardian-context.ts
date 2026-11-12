@@ -24,6 +24,7 @@ import { garbageSignature } from '@/lib/agents/evo/content-sanitizer';
 import { PLACE_COLOR_WORD, kamchatkaStamp, placeStatusFields } from '@/lib/safety/place-day-status';
 import type { GuardianPlaceStatus, GuardianRouteStatus, GuardianStructured } from '@/lib/mcp/place-status-schema';
 import { namedRouteAlerts, routeToday, routeTodayLines, ROUTE_TODAY_MARK, type RouteToday } from '@/lib/routes/route-today';
+import { permitLinesForRoutes, routePermitCasesFor } from '@/lib/parks/route-permit';
 import { KURIL_NORTH_NOTE, isOutsideKraiSources } from '@/lib/safety/kuril-north';
 
 interface GuardianPlaceRow {
@@ -375,7 +376,7 @@ function routeFactsBody(r: RouteFactsSource): string {
 export function routeSubjectLines(
   r: RouteFactsSource,
   today: RouteToday,
-  opts: { pageLinks?: boolean } = {},
+  opts: { pageLinks?: boolean; permitLines?: readonly string[] } = {},
 ): string[] {
   const mark = ROUTE_TODAY_MARK[today.verdict.status];
   const lines = [mark ? `Маршрут каталога «${r.title}» [${mark}]` : `Маршрут каталога «${r.title}»`];
@@ -384,6 +385,9 @@ export function routeSubjectLines(
   if (r.mchs_registration_required !== true) {
     lines.push('Регистрация в МЧС по этому маршруту в базе не записана — это не значит, что она не нужна.');
   }
+  // Условия посещения территории (разрешение) — вторая обязанность, отдельно
+  // от МЧС; строки собирает lib/parks/route-permit из справочника и правил.
+  if (opts.permitLines?.length) lines.push(...opts.permitLines);
   // Ссылка — только в чате: на MCP свои ссылки (поле routes[].url).
   if (opts.pageLinks) lines.push(`Страница маршрута на сайте: ${namedRouteUrl(r)}`);
   return lines;
@@ -738,7 +742,13 @@ export async function getGuardianContextDetailed(placeNameRaw: string, opts: Gua
   const subjectRoutes = strongVisiblePlace
     ? []
     : (namedRoutes ?? []).filter((r) => isRouteNamedBy(placeName, r));
-  const subjectToday = await Promise.all(subjectRoutes.map((r) => routeToday(r.db_id as string)));
+  // Оценка дня и условия посещения территории читаются разом: это разные
+  // таблицы, и ждать одну ради другой незачем.
+  const [subjectToday, subjectPermitCases] = await Promise.all([
+    Promise.all(subjectRoutes.map((r) => routeToday(r.db_id as string))),
+    routePermitCasesFor(subjectRoutes),
+  ]);
+  const subjectPermitLines = permitLinesForRoutes(subjectRoutes, subjectPermitCases);
   const routeStatuses: GuardianRouteStatus[] = [];
 
   const parts: string[] = [];
@@ -1030,7 +1040,7 @@ export async function getGuardianContextDetailed(placeNameRaw: string, opts: Gua
   }
   subjectRoutes.forEach((r, i) => {
     const today = subjectToday[i] as RouteToday;
-    parts.push(...routeSubjectLines(r, today, { pageLinks: opts.pageLinks }));
+    parts.push(...routeSubjectLines(r, today, { pageLinks: opts.pageLinks, permitLines: subjectPermitLines[i] }));
     // Названные поимённо предупреждения ниже не повторяются (как у мест).
     namedRouteAlerts(today).forEach((a) => shownAlerts.add(a));
     routeStatuses.push({
