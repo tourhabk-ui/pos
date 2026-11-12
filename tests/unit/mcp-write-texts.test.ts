@@ -20,20 +20,30 @@
  * и карточка A2A.
  */
 import { describe, it, expect } from 'vitest';
-import { MCP_SERVER_INFO, PUBLIC_MCP_TOOLS, WRITE_TOOL_NAMES } from '@/lib/mcp/public-tools';
+import { MCP_SERVER_INFO, PUBLIC_MCP_TOOLS, WRITE_TOOL_NAMES, CHANGE_TOOL_NAMES } from '@/lib/mcp/public-tools';
 import { A2A_DESCRIPTION } from '@/lib/a2a/agent-card';
 
 const COUNT_RU: Record<number, string> = { 4: 'четыре', 5: 'пять', 6: 'шесть', 7: 'семь', 8: 'восемь' };
 const COUNT_EN: Record<number, string> = { 4: 'four', 5: 'five', 6: 'six', 7: 'seven', 8: 'eight' };
 
-/** Пишут, но не заявки: черновик без человека и без ПД. */
+/**
+ * Пишут, но не заявки: черновик без человека и без ПД. Изменение заявки по
+ * ключу (change_request) — не черновик: оно доходит до оператора.
+ */
 const DRAFT_WRITERS = PUBLIC_MCP_TOOLS
-  .filter((t) => t.annotations?.readOnlyHint === false && !WRITE_TOOL_NAMES.has(t.name))
+  .filter((t) => t.annotations?.readOnlyHint === false && !WRITE_TOOL_NAMES.has(t.name) && !CHANGE_TOOL_NAMES.has(t.name))
   .map((t) => t.name);
 
 describe('тексты для агентов: заявки и черновики', () => {
   it('черновики плана есть в реестре — их и называют тексты', () => {
     expect(DRAFT_WRITERS.sort()).toEqual(['edit_trip_plan', 'make_trip_plan']);
+  });
+
+  it('пишущих три рода и только они: заявки, черновики плана, изменение заявки по ключу', () => {
+    const writers = PUBLIC_MCP_TOOLS.filter((t) => t.annotations?.readOnlyHint === false).map((t) => t.name).sort();
+    expect(writers).toEqual([...WRITE_TOOL_NAMES, ...DRAFT_WRITERS, ...CHANGE_TOOL_NAMES].sort());
+    expect([...CHANGE_TOOL_NAMES]).toEqual(['change_request']);
+    for (const name of CHANGE_TOOL_NAMES) expect(WRITE_TOOL_NAMES.has(name), name).toBe(false);
   });
 
   it('описание MCP: заявок столько, сколько в реестре, и каждая названа; «записей» не говорит', () => {
@@ -48,7 +58,7 @@ describe('тексты для агентов: заявки и черновики
     expect(A2A_DESCRIPTION).toContain(`${COUNT_EN[WRITE_TOOL_NAMES.size]} human-confirmed requests`);
     expect(A2A_DESCRIPTION).toContain(`Заявок ${COUNT_RU[WRITE_TOOL_NAMES.size]}`);
     expect(A2A_DESCRIPTION).not.toMatch(/Записей/);
-    for (const name of [...WRITE_TOOL_NAMES, ...DRAFT_WRITERS]) {
+    for (const name of [...WRITE_TOOL_NAMES, ...DRAFT_WRITERS, ...CHANGE_TOOL_NAMES]) {
       // По разу в английской и в русской части.
       expect(A2A_DESCRIPTION.split(name).length - 1, name).toBeGreaterThanOrEqual(2);
     }

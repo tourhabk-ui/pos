@@ -606,6 +606,44 @@
   {
     "type": "function",
     "function": {
+      "name": "change_request",
+      "description": "Cancel a Kamchatka tour request or move it to another date by its status key, only when the person asks: done at once before the operator answers, sent to the operator as a request after. Отменить заявку на тур или перенести её на другую дату — по ключу статуса, который create_booking_request выдал при создании заявки. Вызывайте, только когда человек сам попросил об отмене или переносе. Оператор ещё не ответил — заявка отменяется или дата меняется сразу, оператору уходит сообщение. Оператор уже ответил, есть бронь или договорённость — ему уходит просьба: заявка и бронь не меняются, решает он. Отменённую заявку вернуть нельзя. Перенос — только на дату, где по календарю тура есть места на всех (get_tour_availability), и не больше трёх раз в сутки. Ключ повторного вызова create_booking_request и ключи других заявок (подбор, машина, прокат, жильё) менять заявку не дают — ответ это скажет. Ответ называет исход (outcome), изменилась ли заявка (changed) и кто узнал на деле (told) — передайте человеку как есть.",
+      "parameters": {
+        "type": "object",
+        "properties": {
+          "key": {
+            "type": "string",
+            "description": "Status key from the create_booking_request reply that created the request, as is. Ключ статуса из ответа create_booking_request, как есть (20–120 знаков)."
+          },
+          "action": {
+            "type": "string",
+            "enum": [
+              "cancel",
+              "change_date"
+            ],
+            "description": "cancel to cancel the request; change_date to move it to the date in the date field. cancel — отменить заявку; change_date — перенести на дату из поля date.",
+            "examples": [
+              "cancel"
+            ]
+          },
+          "date": {
+            "type": "string",
+            "description": "New tour date, YYYY-MM-DD; required for change_date. Новая дата тура, YYYY-MM-DD. Обязательна для change_date.",
+            "examples": [
+              "2027-07-18"
+            ]
+          }
+        },
+        "required": [
+          "key",
+          "action"
+        ]
+      }
+    }
+  },
+  {
+    "type": "function",
+    "function": {
       "name": "create_lead",
       "description": "Tour-selection request for Kamchatka when no tour or date is chosen yet; human-confirmed by a manager, no payment. Needs consent: true, else refused. Whole-vehicle charter: request_charter. Оставить заявку на подбор тура по Камчатке: менеджер платформы свяжется по телефону. Обязательны имя, телефон и описание запроса (даты, состав группы, интересы). Заказ машины целиком (вахтовка, микроавтобус) — не сюда, а request_charter. Это только заявка: оплаты через платформу нет. Имя и телефон — персональные данные: спроси у человека согласие на их обработку и передай consent: true, иначе заявка не создаётся.",
       "parameters": {

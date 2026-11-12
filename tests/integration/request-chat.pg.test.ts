@@ -2168,6 +2168,172 @@ withPg('переписка по заявке на настоящем PostgreSQL'
       await pool.query(`DELETE FROM tour_availability WHERE operator_tour_id = $1::bigint`, [tourId]);
     });
 
+    it('change_request (12.11): право — у ключа новой заявки на тур; правило, журнал и лимит — те же, что у кнопок', async () => {
+      const { changeRequest, CHANGE_CANCEL_LEAD_SQL, CHANGE_DATE_LEAD_SQL } = await import('@/lib/mcp/change-request');
+      const { McpUserError } = await import('@/lib/mcp/jsonrpc');
+      const { MY_TRIP_DATE_REQUEST_LOG_SQL } = await import('@/lib/requests/my-trip-date');
+      const { kamchatkaToday } = await import('@/lib/seat-requests/core');
+      const day = (n: number) => {
+        const d = new Date(`${kamchatkaToday()}T00:00:00Z`);
+        d.setUTCDate(d.getUTCDate() + n);
+        return d.toISOString().slice(0, 10);
+      };
+      const [D0, D1, D2, D3, D4] = [day(10), day(12), day(14), day(16), day(18)];
+      const opId = (await pool.query<{ id: string }>(
+        `INSERT INTO partners (name, category, contact, slug, max_chat_id) VALUES ('Оператор ключа', 'operator', '{}', 'op-change-key', 9300399) RETURNING id`,
+      )).rows[0].id;
+      const tourId = (await pool.query<{ id: number }>(
+        `INSERT INTO operator_tours (title, base_price, operator_id, max_participants) VALUES ('Толбачик по ключу', 9000, $1, 12) RETURNING id`, [opId],
+      )).rows[0].id;
+      await pool.query(
+        `INSERT INTO tour_availability (operator_tour_id, date, available_slots, is_cancelled)
+         SELECT $1, d::date, 10, false FROM unnest($2::text[]) AS d`, [tourId, [D0, D1, D2, D3, D4]],
+      );
+      const mk = async (name: string, phone: string, extra: Record<string, unknown> = {}) => (await leads.createLeadDetailed({
+        name, phone, comment: `[Заявка на бронь] Тур "Толбачик по ключу" (ID${tourId}), дата ${D0}, участников 2.`,
+        route_title: 'Толбачик по ключу', source_url: 'mcp://vedar/booking', operator_id: opId, pd_consent: consentOf('operator'),
+        source_data: { source: 'mcp', tool: 'create_booking_request', tour_id: tourId, date: D0, participants: 2 },
+        skip_ai_processing: true, ...extra,
+      }))!;
+      const codeOf = async (p: Promise<unknown>) => {
+        const e = await p.then(() => null, (x: unknown) => x);
+        expect(e).toBeInstanceOf(McpUserError);
+        return (e as InstanceType<typeof McpUserError>).code;
+      };
+      const stateOf = async (lead: string) => (await pool.query<{ status: string; date: string }>(
+        `SELECT status, source_data->>'date' AS date FROM leads WHERE id = $1`, [lead],
+      )).rows[0]!;
+      const journal = async (lead: string) => (await pool.query(
+        `SELECT action, details FROM lead_activity_log
+          WHERE lead_id = $1 AND action IN ('client_cancelled', 'cancel_requested', 'date_changed', 'date_change_requested') ORDER BY id`, [lead],
+      )).rows;
+      const rightRows = async (sql: string, k: string) => (await pool.query(sql, [status.requestKeyHash(k)])).rows.length;
+
+      // ── 1. Право — в самом чтении заявки ─────────────────────────────────
+      const L1 = await mk('Кира Ключ', '+79995550701');
+      const fresh = (await status.issueRequestKeyRecord({ leadId: L1.id }, 'create_booking_request', { opensChat: true }))!;
+      const repeat = (await status.issueRequestKeyRecord({ leadId: L1.id }, 'create_booking_request', { opensChat: false }))!;
+      const expired = (await status.issueRequestKeyRecord({ leadId: L1.id }, 'create_booking_request', { opensChat: true }))!;
+      await pool.query(`UPDATE agent_request_keys SET expires_at = NOW() - INTERVAL '1 day' WHERE id = $1`, [expired.keyId]);
+      // Своя проба владельца с ключом переписки в жизни не выдаётся — право обязано держать и её.
+      const mine = await mk('Своя Проба', '+79995550709', { is_self: true });
+      const self = (await status.issueRequestKeyRecord({ leadId: mine.id }, 'create_booking_request', { opensChat: true }))!;
+      // Ключ другого инструмента с правом переписки (так выдаёт заявка на машину) — не заявка на тур.
+      const charter = (await status.issueRequestKeyRecord({ leadId: L1.id }, 'request_charter', { opensChat: true }))!;
+      for (const sql of [CHANGE_CANCEL_LEAD_SQL, CHANGE_DATE_LEAD_SQL]) {
+        expect(await rightRows(sql, fresh.key)).toBe(1);
+        expect(await rightRows(sql, repeat.key)).toBe(0);
+        expect(await rightRows(sql, expired.key)).toBe(0);
+        expect(await rightRows(sql, self.key)).toBe(0);
+        expect(await rightRows(sql, charter.key)).toBe(0);
+        // Ключ заявки на подбор (внешний `key`) — тоже.
+        expect(await rightRows(sql, key)).toBe(0);
+      }
+      // Перенос требует адресата, отмена — нет: заявку без оператора по ключу отменить можно, перенести — нет.
+      const lone = await mk('Нина Безадресная', '+79995550708');
+      const loneKey = (await status.issueRequestKeyRecord({ leadId: lone.id }, 'create_booking_request', { opensChat: true }))!;
+      await pool.query(`UPDATE leads SET operator_id = NULL WHERE id = $1`, [lone.id]);
+      expect(await rightRows(CHANGE_CANCEL_LEAD_SQL, loneKey.key)).toBe(1);
+      expect(await rightRows(CHANGE_DATE_LEAD_SQL, loneKey.key)).toBe(0);
+      expect(await codeOf(changeRequest({ key: loneKey.key, action: 'change_date', date: D1 }, 'mcp'))).toBe('no_addressee');
+      expect(await codeOf(changeRequest({ key: charter.key, action: 'cancel' }, 'mcp'))).toBe('not_supported');
+      sent.pd.length = 0;
+      expect(await codeOf(changeRequest({ key: repeat.key, action: 'cancel' }, 'mcp'))).toBe('status_only_key');
+      expect(await codeOf(changeRequest({ key: repeat.key, action: 'cancel', test: true }, 'mcp'))).toBe('status_only_key');
+      expect(await codeOf(changeRequest({ key: self.key, action: 'cancel' }, 'mcp'))).toBe('status_only_key');
+      expect(await codeOf(changeRequest({ key: expired.key, action: 'cancel' }, 'mcp'))).toBe('key_not_found');
+      expect(await codeOf(changeRequest({ key: 'A'.repeat(32), action: 'change_date', date: D1 }, 'mcp'))).toBe('key_not_found');
+      expect(await codeOf(changeRequest({ key, action: 'cancel' }, 'mcp'))).toBe('not_supported');
+      expect(await stateOf(L1.id)).toEqual({ status: 'new', date: D0 });
+      expect(await stateOf(mine.id)).toEqual({ status: 'new', date: D0 });
+
+      // ── 2. Проба: что произошло бы — и ни записи, ни сообщения ───────────
+      const dry = await changeRequest({ key: fresh.key, action: 'cancel', test: true }, 'mcp');
+      expect(dry).toMatchObject({ outcome: 'would_cancel', changed: false, test: true, told: null, date: D0 });
+      const dryDate = await changeRequest({ key: fresh.key, action: 'change_date', date: D1, test: true }, 'mcp');
+      expect(dryDate).toMatchObject({ outcome: 'would_change_date', changed: false, test: true, date: D0 });
+      expect(await stateOf(L1.id)).toEqual({ status: 'new', date: D0 });
+      expect(await journal(L1.id)).toEqual([]);
+      expect(sent.pd).toHaveLength(0);
+
+      // ── 3. Перенос до ответа оператора — сразу ───────────────────────────
+      const moved = await changeRequest({ key: fresh.key, action: 'change_date', date: D1 }, 'mcp');
+      expect(moved).toMatchObject({ action: 'change_date', outcome: 'date_changed', changed: true, test: false, told: 'operator', date: D1 });
+      expect(await stateOf(L1.id)).toEqual({ status: 'new', date: D1 });
+      expect(sent.pd).toHaveLength(1);
+      expect(sent.pd[0]!.text).toContain('Турист перенёс заявку на другую дату');
+      expect(sent.pd[0]!.text).toContain('Передал ИИ-агент туриста по ключу заявки.');
+      expect(sent.pd[0]!.text).not.toMatch(/Кира|79995550701/);
+      expect(await journal(L1.id)).toEqual([
+        { action: 'date_changed', details: { from: D0, to: D1, channel: 'mcp', delivery: 'max' } },
+      ]);
+      // Статус по тому же ключу видит новую дату.
+      expect(await status.readRequestStatus(fresh.key)).toMatchObject({ requested_date: D1 });
+      // Дня без выезда в календаре нет — ничего не меняется.
+      expect(await changeRequest({ key: fresh.key, action: 'change_date', date: day(11) }, 'mcp'))
+        .toMatchObject({ outcome: 'no_seats', changed: false, date: D1 });
+
+      // ── 4. Оператор ответил — просьба; лимит за сутки держит сам запрос ──
+      await pool.query(`UPDATE leads SET status = 'contacted' WHERE id = $1`, [L1.id]);
+      sent.pd.length = 0;
+      const asked = await changeRequest({ key: fresh.key, action: 'change_date', date: D2 }, 'a2a');
+      expect(asked).toMatchObject({ outcome: 'date_change_requested', changed: false, told: 'operator', date: D1 });
+      expect(await stateOf(L1.id)).toEqual({ status: 'contacted', date: D1 });
+      expect(sent.pd[0]!.text).toContain('Турист просит перенести заявку');
+      expect(sent.pd[0]!.text).toContain('Передал ИИ-агент туриста по ключу заявки.');
+      expect((await journal(L1.id))[1]).toEqual(
+        { action: 'date_change_requested', details: { from: D1, to: D2, channel: 'a2a', delivery: 'max' } },
+      );
+      // Третье действие за сутки проходит, четвёртое — нет, и оператору не уходит ничего.
+      expect(await changeRequest({ key: fresh.key, action: 'change_date', date: D3 }, 'mcp')).toMatchObject({ outcome: 'date_change_requested' });
+      sent.pd.length = 0;
+      expect(await changeRequest({ key: fresh.key, action: 'change_date', date: D4 }, 'mcp')).toMatchObject({ outcome: 'daily_limit', changed: false, date: D1 });
+      expect(await changeRequest({ key: fresh.key, action: 'change_date', date: D4, test: true }, 'mcp')).toMatchObject({ outcome: 'daily_limit', test: true });
+      expect(sent.pd).toHaveLength(0);
+      // Вызов, прошедший чтение «до лимита» (параллельный), запись всё равно не сделает: условие — в запросе.
+      expect((await pool.query(MY_TRIP_DATE_REQUEST_LOG_SQL, [L1.id, D1, D4, 'mcp'])).rows).toEqual([]);
+      expect(await journal(L1.id)).toHaveLength(3);
+
+      // ── 5. Отмена после ответа — просьба, заявка в силе; повтор не дублирует ─
+      sent.pd.length = 0;
+      const wouldAsk = await changeRequest({ key: fresh.key, action: 'cancel', test: true }, 'mcp');
+      expect(wouldAsk).toMatchObject({ outcome: 'would_request_cancel', changed: false, test: true });
+      expect(sent.pd).toHaveLength(0);
+      const cancelAsked = await changeRequest({ key: fresh.key, action: 'cancel' }, 'mcp');
+      expect(cancelAsked).toMatchObject({ outcome: 'cancel_requested', changed: false, told: 'operator', date: D1 });
+      expect((await stateOf(L1.id)).status).toBe('contacted');
+      expect(sent.pd).toHaveLength(1);
+      expect(sent.pd[0]!.text).toContain('Турист просит отменить заявку');
+      expect(sent.pd[0]!.text).toContain('Просьбу передал ИИ-агент туриста по ключу заявки.');
+      expect(await changeRequest({ key: fresh.key, action: 'cancel' }, 'a2a')).toMatchObject({ outcome: 'cancel_already_requested', changed: false, told: 'operator' });
+      expect(sent.pd).toHaveLength(1);
+
+      // ── 6. Отмена до ответа — сразу и навсегда ───────────────────────────
+      const L2 = await mk('Лев Ключ', '+79995550702');
+      const k2 = (await status.issueRequestKeyRecord({ leadId: L2.id }, 'create_booking_request', { opensChat: true }))!;
+      sent.pd.length = 0;
+      const done = await changeRequest({ key: k2.key, action: 'cancel' }, 'a2a');
+      expect(done).toMatchObject({ action: 'cancel', outcome: 'cancelled', changed: true, test: false, told: 'operator', date: D0 });
+      expect((await stateOf(L2.id)).status).toBe('cancelled');
+      expect(sent.pd).toHaveLength(1);
+      expect(sent.pd[0]!.text).toContain('Отмену передал ИИ-агент туриста по ключу заявки, пока вы не ответили.');
+      expect(sent.pd[0]!.text).not.toContain('в чате Ведара');
+      expect(await journal(L2.id)).toEqual([
+        { action: 'client_cancelled', details: { channel: 'a2a', from: 'new', delivery: 'max', manager: 'not_needed' } },
+      ]);
+      expect(await status.readRequestStatus(k2.key)).toMatchObject({ state: 'cancelled', human: 'Заявка отменена клиентом.' });
+      sent.pd.length = 0;
+      expect(await changeRequest({ key: k2.key, action: 'cancel' }, 'mcp')).toMatchObject({ outcome: 'already_cancelled', changed: false });
+      expect(await changeRequest({ key: k2.key, action: 'change_date', date: D1 }, 'mcp')).toMatchObject({ outcome: 'closed', changed: false });
+      expect(sent.pd).toHaveLength(0);
+
+      // Агенту — без ключа и без номера заявки (номер — оракул, ключ — второй ключ от заявки).
+      for (const r of [dry, dryDate, moved, asked, wouldAsk, cancelAsked, done]) {
+        const flat = JSON.stringify(r);
+        for (const secret of [fresh.key, k2.key, L1.id, L2.id, opId]) expect(flat).not.toContain(secret);
+      }
+    });
+
     it('удалили заявку — связи ушли вместе с её ключами', async () => {
       const own = await pool.query(`SELECT lead_id::text AS lead FROM agent_request_keys WHERE id = $1`, [keyId]);
       await pool.query(`DELETE FROM agent_request_keys WHERE lead_id = $1::uuid`, [own.rows[0].lead]);

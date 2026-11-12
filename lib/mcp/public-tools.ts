@@ -13,7 +13,8 @@
 
 import { TOOL_REGISTRY } from '@/lib/kuzmich/tool-schemas';
 import { SEARCH_TOOL, FETCH_TOOL } from '@/lib/mcp/connector-schemas';
-import { GET_REQUEST_STATUS_TOOL } from '@/lib/mcp/request-status-schema';
+import { GET_REQUEST_STATUS_TOOL, REQUEST_KEY_MIN_CHARS, REQUEST_KEY_MAX_CHARS } from '@/lib/mcp/request-status-schema';
+import { CHANGE_ACTIONS, CHANGE_REQUEST_OUTPUT_SCHEMA } from '@/lib/mcp/change-request-schema';
 import { NOTIFY_URL_PROPERTY, NOTIFY_TOOL_PHRASE } from '@/lib/mcp/request-notify-schema';
 import { WRITE_OUTPUT_SCHEMA } from '@/lib/mcp/test-run';
 import { GUARDIAN_OUTPUT_SCHEMA } from '@/lib/mcp/place-status-schema';
@@ -246,6 +247,49 @@ export const TRIP_REQUEST_TOOL = {
 } as const;
 
 /**
+ * change_request — отмена и перенос заявки на тур по её ключу (слово владельца
+ * 11.11: «мы доверяем агенту»; отменить и перенести можно «как самим
+ * человеком», а что будет — «зависит от ответа»).
+ *
+ * Не заявка и не черновик — третий род записи. Имени и телефона не берёт и
+ * согласия не просит, поэтому его нет в WRITE_TOOL_NAMES: там договор шести
+ * заявок (consent, plan_id, общий счёт «5 заявок в час», структурный итог с
+ * ключом). Но до человека доходит — оператору уходит сообщение, а отмену не
+ * вернуть, — поэтому `destructiveHint: true`: хост спросит человека перед
+ * вызовом. Правило и запись — те же, что у кнопок «Моей поездки»
+ * (lib/requests/cancel-request, lib/requests/my-trip-date); исполнение —
+ * lib/mcp/change-request.
+ *
+ * Объявление стоит здесь, а не в файле схемы: сторож
+ * mcp-public-brain-disjoint ищет имена пишущих инструментов в этом файле.
+ */
+export const CHANGE_REQUEST_TOOL = {
+  name: 'change_request',
+  description: 'Отменить заявку на тур или перенести её на другую дату — по ключу статуса, который create_booking_request выдал при создании заявки. '
+    + 'Вызывайте, только когда человек сам попросил об отмене или переносе. '
+    + 'Оператор ещё не ответил — заявка отменяется или дата меняется сразу, оператору уходит сообщение. '
+    + 'Оператор уже ответил, есть бронь или договорённость — ему уходит просьба: заявка и бронь не меняются, решает он. '
+    + 'Отменённую заявку вернуть нельзя. Перенос — только на дату, где по календарю тура есть места на всех (get_tour_availability), и не больше трёх раз в сутки. '
+    + 'Ключ повторного вызова create_booking_request и ключи других заявок (подбор, машина, прокат, жильё) менять заявку не дают — ответ это скажет. '
+    + 'Ответ называет исход (outcome), изменилась ли заявка (changed) и кто узнал на деле (told) — передайте человеку как есть. '
+    + 'Узнать, что произойдёт, ничего не меняя, — test: true.',
+  inputSchema: {
+    type: 'object',
+    properties: {
+      key: {
+        type: 'string',
+        description: `Ключ статуса из ответа create_booking_request, как есть (${REQUEST_KEY_MIN_CHARS}–${REQUEST_KEY_MAX_CHARS} знаков).`,
+      },
+      action: { type: 'string', enum: [...CHANGE_ACTIONS], description: 'cancel — отменить заявку; change_date — перенести на дату из поля date.' },
+      date: { type: 'string', description: 'Новая дата тура, YYYY-MM-DD. Обязательна для change_date.' },
+      test: { type: 'boolean', description: 'true — пробный вызов: ответ говорит, что произошло бы; заявка не меняется, никому ничего не уходит.' },
+    },
+    required: ['key', 'action'],
+  },
+  outputSchema: CHANGE_REQUEST_OUTPUT_SCHEMA,
+} as const;
+
+/**
  * Подсказки хосту о природе инструмента (MCP `ToolAnnotations`).
  *
  * Хост по ним решает, спрашивать ли человека перед вызовом, и каталоги
@@ -318,6 +362,10 @@ export const TOOL_ANNOTATIONS: Record<string, Omit<McpToolAnnotations, 'title'>>
   request_charter:       WRITE,
   create_car_rental_request: WRITE,
   create_trip_request:   WRITE,
+  // Меняет уже существующую заявку, и отмену не вернуть — честный ответ хосту
+  // «может необратимо изменить». Повтор не всегда пуст: просьба оператору о
+  // переносе на ту же дату уйдёт второй раз (в пределах трёх в сутки).
+  change_request:        { readOnlyHint: false, destructiveHint: true, idempotentHint: false, openWorldHint: false },
 };
 
 /**
@@ -367,6 +415,7 @@ export const TOOL_ENGLISH: Record<string, { title: string; lead: string }> = {
   fetch:                 { title: 'Fetch (ChatGPT connector)',  lead: 'Full text of one Vedar Kamchatka record by id from search (tour, place, stay, route): description, price, program, safety facts, canonical url. Published records only.' },
   create_trip_request:   { title: 'Trip request',          lead: 'Whole Kamchatka trip in one request: tour + stay + charter vehicle under one trip id; each partner sees the rest. Human-confirmed, no payment. Needs consent: true.' },
   get_request_status:    { title: 'Request status',        lead: 'Kamchatka request status by key from create_lead, create_booking_request, create_stay_request, request_charter, create_car_rental_request, create_trip_request. No personal data.' },
+  change_request:        { title: 'Change request',        lead: 'Cancel a Kamchatka tour request or move it to another date by its status key, only when the person asks: done at once before the operator answers, sent to the operator as a request after.' },
 };
 
 /**
@@ -389,6 +438,12 @@ export const PARAM_ENGLISH: Record<string, Record<string, { lead: string; exampl
   },
   get_request_status: {
     key: { lead: 'Status key from the reply of the writing tool, as is.' },
+  },
+  change_request: {
+    key: { lead: 'Status key from the create_booking_request reply that created the request, as is.' },
+    action: { lead: 'cancel to cancel the request; change_date to move it to the date in the date field.', example: 'cancel' },
+    date: { lead: 'New tour date, YYYY-MM-DD; required for change_date.', example: '2027-07-18' },
+    test: { lead: 'true for a dry run: the reply says what would happen; nothing is changed or sent.', example: false },
   },
   get_tours: {
     activity_type: { lead: 'Activity filter, free text (Russian works best): fishing, volcanoes, bears, geysers, trekking. Matches the activity type and the word in the tour title, place, short description or main place; tours that have the word only in the full description or programme come in a separate unverified block (check them with get_tour_details); company and guide names are not searched.', example: 'вулканы' },
@@ -622,6 +677,9 @@ export const PUBLIC_MCP_TOOLS: PublicMcpTool[] = [
   // Состояние заявки по ключу (ступень 1 контура, 12.10): тоже не из реестра
   // Кузьмича — в чате заявку видно и так, ключ нужен внешнему агенту.
   withAnnotations(GET_REQUEST_STATUS_TOOL),
+  // Отмена и перенос заявки на тур по её ключу (12.11): тоже не из реестра
+  // Кузьмича — у человека в чате для этого кнопки «Моей поездки».
+  withAnnotations(CHANGE_REQUEST_TOOL),
   withAnnotations(CREATE_LEAD_TOOL),
   withAnnotations(BOOKING_REQUEST_TOOL),
   withAnnotations(STAY_REQUEST_TOOL),
@@ -653,12 +711,20 @@ export const WRITE_TOOL_NAMES = new Set([
 ]);
 
 /**
+ * Инструменты, которые меняют уже существующую заявку по её ключу (12.11).
+ * Отдельный набор, не WRITE_TOOL_NAMES: согласия и телефона здесь нет, а счёт
+ * «5 заявок в час» у заявок свой.
+ */
+export const CHANGE_TOOL_NAMES = new Set(['change_request']);
+
+/**
  * Инструменты, которым аргументом приходит ключ заявки. Значение аргументов
  * таких вызовов в журнал не пишется ни под каким именем: агент, перепутавший
  * поле, прислал бы ключ как `status_key`, и правило «по имени аргумента» его
- * не узнало бы (ревью безопасности к #3280).
+ * не узнало бы (ревью безопасности к #3280). Полноту держит тест: инструмент
+ * с параметром `key` в схеме обязан быть здесь (tests/unit/mcp-call-reason).
  */
-export const KEY_ARG_TOOL_NAMES = new Set(['get_request_status']);
+export const KEY_ARG_TOOL_NAMES = new Set(['get_request_status', ...CHANGE_TOOL_NAMES]);
 
 /**
  * Лимит чтения с одного адреса в минуту. Один источник для сервера

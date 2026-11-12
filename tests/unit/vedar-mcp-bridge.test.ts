@@ -16,7 +16,7 @@ import { describe, it, expect } from 'vitest';
 import { readFileSync, existsSync } from 'node:fs';
 import { join } from 'node:path';
 import { execFileSync } from 'node:child_process';
-import { PUBLIC_MCP_TOOLS, WRITE_TOOL_NAMES } from '@/lib/mcp/public-tools';
+import { PUBLIC_MCP_TOOLS, WRITE_TOOL_NAMES, CHANGE_TOOL_NAMES } from '@/lib/mcp/public-tools';
 import { chinaClientFamily, clientRegion, CHINA_REGION_LABEL } from '@/lib/mcp/china-clients';
 import { externalBinary } from '../helpers/external-binary';
 import { buildServerInstructions } from '@/lib/mcp/server-instructions';
@@ -56,6 +56,47 @@ describe('мост обещает о платформе только то, чт�
     expect(pythonSet(src, 'WRITE_TOOLS')).toEqual([...WRITE_TOOL_NAMES].sort());
     // Ворота — поведение: без consent заявка не уходит, модели говорят спросить человека.
     expect(src).toMatch(/if fn in WRITE_TOOLS and not args\.get\("consent"\)/);
+  });
+
+  it.skipIf(PY.skip)(PY.title('отмена и перенос заявки: мост спрашивает человека у терминала, а где спросить некого — не вызывает'), () => {
+    PY.require('ворота изменения заявки в мосте');
+    // Набор — тот же, что у сервера: инструмент, меняющий заявку, не пройдёт мимо ворот.
+    expect(pythonSet(src, 'CHANGE_TOOLS')).toEqual([...CHANGE_TOOL_NAMES].sort());
+    for (const name of CHANGE_TOOL_NAMES) expect(pythonSet(src, 'WRITE_TOOLS')).not.toContain(name);
+    const code = [
+      'import importlib.util, json, sys',
+      `spec = importlib.util.spec_from_file_location("bridge", ${JSON.stringify(join(ROOT, SCRIPT))})`,
+      'm = importlib.util.module_from_spec(spec)',
+      'spec.loader.exec_module(m)',
+      'asked = []',
+      'def yes(a):',
+      '    asked.append(a.get("action")); return True',
+      'def no(a):',
+      '    asked.append(a.get("action")); return False',
+      'cancel = {"key": "k", "action": "cancel"}',
+      'out = {',
+      '  "nobody": m.change_gate("change_request", cancel, None),',
+      '  "refused": m.change_gate("change_request", cancel, no),',
+      '  "confirmed": m.change_gate("change_request", {"key": "k", "action": "change_date", "date": "2027-07-18"}, yes),',
+      '  "other_tool": m.change_gate("get_request_status", {"key": "k"}, None),',
+      '  "asked": asked,',
+      '}',
+      'sys.stdout.write(json.dumps(out, ensure_ascii=False))',
+    ].join('\n');
+    const out = JSON.parse(execFileSync('python3', ['-I', '-B', '-c', code], { encoding: 'utf-8' })) as {
+      nobody: string | null; refused: string | null; confirmed: string | null; other_tool: string | null; asked: string[];
+    };
+    // HTTP-режим и одиночный вопрос: человека у терминала нет — вызова нет, модели сказано почему.
+    expect(out.nobody).toMatch(/только с подтверждением человека.*заявка не изменена/);
+    expect(out.refused).toMatch(/не подтвердил — заявка не изменена/);
+    expect(out.confirmed).toBeNull();
+    expect(out.other_tool).toBeNull();
+    // Спросили оба раза, когда было кого; без человека — не спрашивали.
+    expect(out.asked).toEqual(['cancel', 'change_date']);
+    // Ворота стоят в цикле вызовов, а спрашивающий есть только в интерактивном режиме.
+    expect(src).toMatch(/refusal = change_gate\(fn, args, self\.confirm_change\)/);
+    expect(src).toMatch(/def interactive\(agent\):\n(?:\s*#.*\n)*\s*agent\.confirm_change = confirm_change_at_terminal/);
+    expect(src).toMatch(/self\.confirm_change = None/);
   });
 
   it('снимок схемы vedar_tools.json — имена живых публичных инструментов, формат OpenAI function', () => {
@@ -198,6 +239,12 @@ describe('notify_url модели не отдаётся (29.10)', () => {
     // Фраза о согласии на ПД не отрезана обрезкой в 1024 знака.
     const booking = (JSON.parse(built) as Array<{ function: { name: string; description: string } }>).find((t) => t.function.name === 'create_booking_request');
     expect(booking?.function.description).toMatch(/согласие на их обработку и передай consent: true\.$/);
+    // Отмена и перенос: описание помещается целиком (последняя фраза — о том, что передать человеку),
+    // а поле пробы модели не показано — мост говорит с живым человеком.
+    const change = (JSON.parse(built) as Array<{ function: { name: string; description: string; parameters: { properties: Record<string, unknown> } } }>).find((t) => t.function.name === 'change_request');
+    expect(change?.function.description.length).toBeLessThanOrEqual(1024);
+    expect(change?.function.description).toMatch(/кто узнал на деле \(told\) — передайте человеку как есть\.$/);
+    expect(Object.keys(change?.function.parameters.properties ?? {}).sort()).toEqual(['action', 'date', 'key']);
     // Правило доставки ответа (план «после отказа», 2б) не отрезано тоже: в
     // первой редакции описание статуса вышло за 1024 знака, и мост обрывал
     // правило на «передайте человеку». Описание статуса помещается целиком —

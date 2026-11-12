@@ -831,12 +831,18 @@ function iso(v: Date | string | null): string | null {
   return Number.isNaN(t.getTime()) ? null : t.toISOString();
 }
 
-function readKey(raw: unknown): string {
+/** Ключ как он передан: форма проверена, в базу не ходили. Не похож на выданный — отказ по входу. */
+export function readKey(raw: unknown): string {
   const key = typeof raw === 'string' ? raw.trim() : '';
   if (key.length < REQUEST_KEY_MIN_CHARS || key.length > REQUEST_KEY_MAX_CHARS || !KEY_RE.test(key)) {
     throw new McpUserError('Ключ статуса не похож на выданный — передайте его как есть из ответа пишущего инструмента.', 'invalid_args:key');
   }
   return key;
+}
+
+/** Чем ключ ищется в базе (там только hash): для дверей, которые по ключу меняют заявку (lib/mcp/change-request). */
+export function requestKeyHash(key: string): string {
+  return sha256(key);
 }
 
 /**

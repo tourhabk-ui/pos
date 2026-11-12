@@ -41,6 +41,7 @@ function txNoise(sql: string): boolean {
 const {
   checkMcpWrite, CLIENT_MAX_PER_WINDOW, PHONE_MAX_PER_DAY,
 } = await import('@/lib/mcp/write-guard');
+const { PUBLIC_MCP_TOOLS, WRITE_TOOL_NAMES, CHANGE_TOOL_NAMES } = await import('@/lib/mcp/public-tools');
 
 const ROOT = process.cwd();
 const GUARD_SRC = readFileSync(join(ROOT, 'lib/mcp/write-guard.ts'), 'utf-8');
@@ -128,9 +129,23 @@ describe('согласие спрашивается и объясняется', 
   });
 
   it('все заявочные инструменты ТРЕБУЮТ consent в схеме', () => {
-    const required = [...TOOLS.matchAll(/required:\s*\[([^\]]*)\]/g)].map((m) => m[1]);
-    expect(required.length).toBe(6);
-    for (const r of required) expect(r).toContain("'consent'");
+    const requests = PUBLIC_MCP_TOOLS.filter((t) => WRITE_TOOL_NAMES.has(t.name));
+    expect(requests.length).toBe(6);
+    for (const t of requests) {
+      expect((t.inputSchema as { required: string[] }).required, t.name).toContain('consent');
+    }
+  });
+
+  it('изменение заявки по ключу ПД не берёт: ни имени, ни телефона, ни согласия', () => {
+    // Потому и не заявка: согласие спрашивают на передачу данных, а здесь
+    // передавать нечего — только ключ, действие и дата.
+    const changes = PUBLIC_MCP_TOOLS.filter((t) => CHANGE_TOOL_NAMES.has(t.name));
+    expect(changes.map((t) => t.name)).toEqual(['change_request']);
+    for (const t of changes) {
+      const schema = t.inputSchema as { properties: Record<string, unknown>; required: string[] };
+      expect(Object.keys(schema.properties).sort(), t.name).toEqual(['action', 'date', 'key', 'test']);
+      expect(schema.required, t.name).toEqual(['key', 'action']);
+    }
   });
 });
 

@@ -31,6 +31,12 @@
  * перебор дат не превращается в поток сообщений оператору.
  *
  * ПД нет ни в ответе туристу, ни оператору: тур, даты, число людей.
+ *
+ * Ядро и двери (12.11): само правило — `changeLeadDateByClient`, одно на чат
+ * «Моей поездки» и на инструмент change_request для ИИ-агента (lib/mcp/
+ * change-request). Дверь проверяет право («чья заявка») и говорит исход
+ * своими словами; правило «ответил — просьба, не ответил — сразу», лимит и
+ * сообщение оператору у дверей общие.
  */
 import { pool } from '@/lib/db-pool';
 import { logText } from '@/lib/log/log-text';
@@ -43,15 +49,16 @@ import { parseMyTripDate, myTripDatePickPayload, myTripDateMenuPayload, MY_TRIP_
 import { kamchatkaToday } from '@/lib/seat-requests/core';
 import type { LinkChannel } from '@/lib/requests/chat-links';
 import type { ChatReply } from '@/lib/requests/request-chat-service';
-import { notifyRequestOperator, type OperatorNotice } from '@/lib/requests/notify-request-operator';
+import { notifyRequestOperator, operatorTold, type OperatorNotice } from '@/lib/requests/notify-request-operator';
 import { LEAD_CLIENT_CANCELLED } from '@/lib/types/statuses';
+import { DATE_CHANGE_DAILY_LIMIT } from '@/lib/requests/date-change-limit';
 
 export { isMyTripDatePayload, myTripDateMenuPayload, myTripDatePickPayload, parseMyTripDate } from '@/lib/requests/my-trip-ask';
 
 /** Сколько свободных дат показываем кнопками. */
 export const MY_TRIP_DATE_CHOICES = 6;
-/** Смен даты и просьб о переносе по одной заявке за сутки. */
-export const MY_TRIP_DATE_DAILY_LIMIT = 3;
+/** Смен даты и просьб о переносе по одной заявке за сутки — одно число на чат и на change_request. */
+export const MY_TRIP_DATE_DAILY_LIMIT = DATE_CHANGE_DAILY_LIMIT;
 
 const WAITING_SQL = `(${LEAD_WAITING_STATUSES.map((s) => `'${s}'`).join(', ')})`;
 
@@ -92,30 +99,37 @@ export const MY_TRIP_DATE_ACTIONS_SQL = `(SELECT count(*)::int FROM lead_activit
            WHERE g.lead_id = l.id AND g.action IN ('date_changed', 'date_change_requested')
              AND g.created_at > NOW() - INTERVAL '24 hours')`;
 
+/** Колонки заявки для смены даты — одни на каждую дверь; псевдоним лида — `l`. */
+export const DATE_LEAD_COLUMNS_SQL = `
+  l.id::text AS id, l.status, l.operator_id::text AS operator_id,
+  l.source_data->>'date' AS date,
+  CASE WHEN l.source_data->>'tour_id' ~ '^[0-9]{1,18}$' THEN (l.source_data->>'tour_id')::bigint END AS tour_id,
+  CASE WHEN l.source_data->>'participants' ~ '^[0-9]{1,3}$' THEN (l.source_data->>'participants')::int END AS participants,
+  ot.title AS tour_title,
+  bk.booking_status, bk.booking_date::text AS booking_date,
+  ${ANSWERED_SQL} AS answered,
+  ${REFUSED_DATES_SQL} AS refused_dates,
+  ${MY_TRIP_DATE_ACTIONS_SQL} AS date_actions`;
+
+export const DATE_LEAD_JOINS_SQL = `
+  LEFT JOIN operator_tours ot
+         ON ot.id = CASE WHEN l.source_data->>'tour_id' ~ '^[0-9]{1,18}$' THEN (l.source_data->>'tour_id')::bigint END
+  LEFT JOIN LATERAL (
+    SELECT b.booking_status, b.booking_date FROM operator_bookings b
+     WHERE b.lead_id = l.id AND b.deleted_at IS NULL
+     ORDER BY b.created_at DESC
+     LIMIT 1
+  ) bk ON TRUE`;
+
 /**
  * Заявка на тур, привязанная к этому чату ключом новой заявки. `$1` — канал,
  * `$2` — чат, `$3` — лид. Нет строки — заявка не этого чата (или ключ истёк,
  * или это не заявка на тур на дату).
  */
 export const MY_TRIP_DATE_LEAD_SQL = `
-  SELECT l.id::text AS id, l.status, l.operator_id::text AS operator_id,
-         l.source_data->>'date' AS date,
-         CASE WHEN l.source_data->>'tour_id' ~ '^[0-9]{1,18}$' THEN (l.source_data->>'tour_id')::bigint END AS tour_id,
-         CASE WHEN l.source_data->>'participants' ~ '^[0-9]{1,3}$' THEN (l.source_data->>'participants')::int END AS participants,
-         ot.title AS tour_title,
-         bk.booking_status, bk.booking_date::text AS booking_date,
-         ${ANSWERED_SQL} AS answered,
-         ${REFUSED_DATES_SQL} AS refused_dates,
-         ${MY_TRIP_DATE_ACTIONS_SQL} AS date_actions
+  SELECT ${DATE_LEAD_COLUMNS_SQL}
     FROM leads l
-    LEFT JOIN operator_tours ot
-           ON ot.id = CASE WHEN l.source_data->>'tour_id' ~ '^[0-9]{1,18}$' THEN (l.source_data->>'tour_id')::bigint END
-    LEFT JOIN LATERAL (
-      SELECT b.booking_status, b.booking_date FROM operator_bookings b
-       WHERE b.lead_id = l.id AND b.deleted_at IS NULL
-       ORDER BY b.created_at DESC
-       LIMIT 1
-    ) bk ON TRUE
+    ${DATE_LEAD_JOINS_SQL}
    WHERE l.id = $3::uuid
      AND l.operator_id IS NOT NULL AND l.is_self = FALSE
      AND EXISTS (
@@ -153,13 +167,25 @@ export const MY_TRIP_DATE_DELIVERY_SQL = `
   UPDATE lead_activity_log SET details = details || jsonb_build_object('delivery', $2::text)
    WHERE id = $1::bigint`;
 
-/** Просьба оператору перенести — запись журнала с исходом доставки. */
+/**
+ * Просьба оператору перенести — запись журнала ДО сообщения и только пока
+ * лимит за сутки не исчерпан: условие стоит в самом запросе. Нет строки —
+ * лимит выбрали между чтением и записью, сообщение оператору не уходит. До
+ * 12.11 запись шла после отправки: вызовы, пришедшие разом, проходили проверку
+ * лимита все и слали оператору по сообщению каждый — кнопке в чате это почти
+ * не грозило, ИИ-агенту (change_request) грозит. Исход доставки дописывает
+ * `MY_TRIP_DATE_DELIVERY_SQL`.
+ */
 export const MY_TRIP_DATE_REQUEST_LOG_SQL = `
   INSERT INTO lead_activity_log (lead_id, actor, action, details)
-  VALUES ($1::uuid, 'tourist', 'date_change_requested',
-          jsonb_build_object('from', $2::text, 'to', $3::text, 'channel', $4::text, 'delivery', $5::text))`;
+  SELECT l.id, 'tourist', 'date_change_requested',
+         jsonb_build_object('from', $2::text, 'to', $3::text, 'channel', $4::text)
+    FROM leads l
+   WHERE l.id = $1::uuid
+     AND ${MY_TRIP_DATE_ACTIONS_SQL} < ${MY_TRIP_DATE_DAILY_LIMIT}
+  RETURNING id::text AS log_id`;
 
-interface LeadDateRow {
+export interface DateLeadRow {
   id: string;
   status: string | null;
   operator_id: string;
@@ -212,9 +238,9 @@ function logFail(what: string, err: unknown): void {
   );
 }
 
-async function readLead(channel: LinkChannel, chatId: string | number, leadId: string): Promise<LeadDateRow | null | 'failed'> {
+async function readLead(channel: LinkChannel, chatId: string | number, leadId: string): Promise<DateLeadRow | null | 'failed'> {
   try {
-    const { rows: [row] } = await pool.query<LeadDateRow>(MY_TRIP_DATE_LEAD_SQL, [channel, String(chatId), leadId]);
+    const { rows: [row] } = await pool.query<DateLeadRow>(MY_TRIP_DATE_LEAD_SQL, [channel, String(chatId), leadId]);
     return row ?? null;
   } catch (err) {
     logFail('заявка не прочиталась', err);
@@ -223,13 +249,15 @@ async function readLead(channel: LinkChannel, chatId: string | number, leadId: s
 }
 
 /** `date` — действующая дата поездки; смена без оператора возможна только без брони, и тогда это дата заявки. */
-type Usable = { lead: LeadDateRow; tourId: number; date: string; people: number; title: string };
+type Usable = { lead: DateLeadRow; tourId: number; date: string; people: number; title: string };
 
 /** Поля заявки, по которым решается, можно ли сменить дату нажатием. */
-export type DateGate = Pick<LeadDateRow, 'status' | 'booking_status' | 'booking_date' | 'date' | 'tour_id' | 'date_actions'>;
+export type DateGate = Pick<DateLeadRow, 'status' | 'booking_status' | 'booking_date' | 'date' | 'tour_id' | 'date_actions'>;
 
 /** Почему нажатие даты не пройдёт — или null. Одно правило на меню, выбор и кнопки в сообщении. */
-function dateBlock(lead: DateGate, today: string): 'closed' | 'noData' | 'past' | null {
+type DateBlock = 'closed' | 'noData' | 'past';
+
+function dateBlock(lead: DateGate, today: string): DateBlock | null {
   // Отказ, отмена клиентом (1427) и закрытая бронь — заявка закрыта: старая кнопка
   // «Изменить дату» под прежним сообщением просьбу оператору по ней не отправит.
   if (lead.status === 'lost' || lead.status === LEAD_CLIENT_CANCELLED
@@ -259,11 +287,9 @@ export function myTripDatePressable(lead: DateGate, today: string): boolean {
  * только под списком (Bugbot к #3234: иначе прошедшую заявку молча
  * переносили и оператору уходил «перенос»).
  */
-function usable(lead: LeadDateRow | null | 'failed', today: string): Usable | ChatReply {
-  if (lead === 'failed') return reply(TEXT.unchecked);
-  if (lead === null) return reply(TEXT.notYours);
+function usable(lead: DateLeadRow, today: string): Usable | DateBlock {
   const block = dateBlock(lead, today);
-  if (block) return reply(TEXT[block]);
+  if (block) return block;
   const date = (lead.booking_date ?? lead.date)!;
   return {
     lead,
@@ -274,9 +300,9 @@ function usable(lead: LeadDateRow | null | 'failed', today: string): Usable | Ch
   };
 }
 
-const isReply = (x: Usable | ChatReply): x is ChatReply => 'text' in x;
+const isBlock = (x: Usable | DateBlock): x is DateBlock => typeof x === 'string';
 
-const refusedOf = (lead: LeadDateRow): string[] => (lead.refused_dates ?? []).filter((d) => ISO_DAY.test(d));
+const refusedOf = (lead: DateLeadRow): string[] => (lead.refused_dates ?? []).filter((d) => ISO_DAY.test(d));
 
 /** Что будет по нажатию — одной строкой над датами. */
 function ruleLine(answered: boolean, refusedOn: string | null): string {
@@ -288,8 +314,11 @@ function ruleLine(answered: boolean, refusedOn: string | null): string {
 
 /** «Изменить дату»: свободные даты тура кнопками. Только чтение. */
 async function menu(channel: LinkChannel, chatId: string | number, leadId: string, today: string): Promise<ChatReply> {
-  const u = usable(await readLead(channel, chatId, leadId), today);
-  if (isReply(u)) return u;
+  const lead = await readLead(channel, chatId, leadId);
+  if (lead === 'failed') return reply(TEXT.unchecked);
+  if (lead === null) return reply(TEXT.notYours);
+  const u = usable(lead, today);
+  if (isBlock(u)) return reply(TEXT[u]);
   if (u.lead.date_actions >= MY_TRIP_DATE_DAILY_LIMIT) return reply(TEXT.limit);
   const head = `Тур «${escapeHtml(u.title)}», в заявке ${ruDate(u.date)}, участников ${u.people}.`;
   // Даты, на которые оператор уже ответил «Нет мест», не предлагаются: по
@@ -310,24 +339,35 @@ async function menu(channel: LinkChannel, chatId: string | number, leadId: strin
   );
 }
 
+/** Откуда пришла смена даты — в журнал заявки: чат человека или ИИ-агент по ключу заявки. */
+export type DateChannel = LinkChannel | 'mcp' | 'a2a';
+
+const viaAgent = (channel: DateChannel): boolean => channel === 'mcp' || channel === 'a2a';
+
+/** Оператору: перенос или просьбу передал не сам человек в чате, а его ИИ-агент. */
+const AGENT_LINE = 'Передал ИИ-агент туриста по ключу заявки.';
+
 /**
  * Сообщение оператору без ПД: тур, даты, люди, места на новую дату.
  * `refusedOn` — перенос после его «Нет мест» на прежнюю дату (1422): тогда
  * так и сказано, и ответить по новой дате он может кнопками под сообщением.
+ * `agent` — действие передал ИИ-агент по ключу заявки: оператору это названо.
  */
 export function operatorDateText(
   kind: 'changed' | 'request',
-  u: { title: string; from: string; to: string; people: number; free: number; refusedOn?: string | null },
+  u: { title: string; from: string; to: string; people: number; free: number; refusedOn?: string | null; agent?: boolean },
   /** Под сообщением есть кнопки ответа — только тогда текст зовёт к ним. */
   withButtons = true,
 ): string {
   const tour = `Тур «${escapeHtml(u.title)}», участников ${u.people}`;
   const seats = `По календарю на ${ruDate(u.to)} свободно мест: ${u.free}.`;
+  const agent = u.agent ? [AGENT_LINE] : [];
   if (kind === 'changed' && u.refusedOn) {
     return [
       '<b>Турист перенёс заявку после вашего «Нет мест»</b>',
       `${tour}: на ${ruDate(u.refusedOn)} вы ответили «Нет мест», турист выбрал ${ruDate(u.to)} из свободных по календарю.`,
       seats,
+      ...agent,
       withButtons ? 'Ответьте по новой дате кнопками ниже или в кабинете.' : 'Ответьте по новой дате в кабинете.',
     ].join('\n');
   }
@@ -336,12 +376,14 @@ export function operatorDateText(
       '<b>Турист перенёс заявку на другую дату</b>',
       `${tour}: было ${ruDate(u.from)}, стало ${ruDate(u.to)}.`,
       seats,
+      ...agent,
       'Дату турист выбрал сам из свободных: пока вы не ответили, она меняется без вас. Ответ по заявке — как обычно.',
     ].join('\n')
     : [
       '<b>Турист просит перенести заявку</b>',
       `${tour}: сейчас ${ruDate(u.from)}, просит ${ruDate(u.to)}.`,
       seats,
+      ...agent,
       'Вы уже ответили по заявке, поэтому дату в ней и в брони меняете вы. Туристу ответьте в переписке по заявке или звонком.',
     ].join('\n');
 }
@@ -353,33 +395,86 @@ function notifyOperator(
   return notifyRequestOperator({ operatorId, leadId, text, answer, log: { tag: 'my-trip-date', about: 'о дате' } });
 }
 
-const NOT_TOLD = 'Сообщить оператору сейчас не удалось — у него не подключён чат или он не ответил. Заявку он видит в кабинете';
+/** Чем кончилась попытка сменить дату — одно на каждую дверь; слова — у двери. */
+export type DateOutcome =
+  /** Заявка закрыта, в ней нет тура или даты, поездка прошла. */
+  | { kind: 'closed' | 'noData' | 'past' }
+  /** Эта дата уже стоит в заявке. */
+  | { kind: 'same'; date: string }
+  /** На эту дату адресат уже ответил «Нет мест». */
+  | { kind: 'refusedDate'; date: string }
+  /** Смен и просьб за сутки уже `MY_TRIP_DATE_DAILY_LIMIT`. */
+  | { kind: 'limit' }
+  /** На дату нет мест на число людей заявки; `hasCalendar` — есть ли у тура расписание вовсе. */
+  | { kind: 'noSeats'; date: string; people: number; hasCalendar: boolean }
+  /** Дата в заявке изменена; `told` — узнал ли оператор. */
+  | { kind: 'changed'; title: string; from: string; date: string; told: OperatorNotice }
+  /** Оператор уже ответил: ему ушла просьба (или не дошла — `told`); в заявке прежняя дата `current`. */
+  | { kind: 'requested'; date: string; current: string; told: OperatorNotice }
+  /** Дату только что сменили другим нажатием или вызовом. */
+  | { kind: 'changedElsewhere' }
+  /** Заявка перестала читаться этой дверью (ключ истёк, связь снята). */
+  | { kind: 'gone' }
+  /** Свободные даты не прочитались — сбой, не «дат нет». */
+  | { kind: 'datesFailed' }
+  /** Сбой базы: ничего не изменено. */
+  | { kind: 'failed' };
 
-/** Нажатие на дату: смена сразу или просьба оператору. */
-async function pick(channel: LinkChannel, chatId: string | number, leadId: string, date: string, today: string): Promise<ChatReply> {
-  let u = usable(await readLead(channel, chatId, leadId), today);
-  if (isReply(u)) return u;
-  if (date === u.date) return reply(`${ruDate(date)} уже стоит в заявке — ничего не изменено.`);
-  if (refusedOf(u.lead).includes(date)) {
-    return reply(
-      `На ${ruDate(date)} оператор уже ответил «Нет мест» — выберите другую дату.`,
-      [{ text: 'Изменить дату', payload: myTripDateMenuPayload(leadId) }],
-    );
-  }
-  if (u.lead.date_actions >= MY_TRIP_DATE_DAILY_LIMIT) return reply(TEXT.limit);
-  // Дата свободна СЕЙЧАС: между списком и нажатием места могли разобрать.
+/** Проверки пройдены: заявку можно менять на эту дату, мест хватает. */
+type DateReady = { u: Usable; slot: { date: string; free: number } };
+
+const isReady = (x: DateOutcome | DateReady): x is DateReady => 'slot' in x;
+
+/**
+ * Всё, что решается до записи: заявка открыта, дата другая и не отказанная,
+ * лимит не выбран, места на дату есть СЕЙЧАС (между списком и нажатием их
+ * могли разобрать). Одно на смену и на пробу — иначе проба обещала бы то, что
+ * вызов не сделает.
+ */
+async function checkDateChange(lead: DateLeadRow, date: string, today: string): Promise<DateOutcome | DateReady> {
+  const u = usable(lead, today);
+  if (isBlock(u)) return { kind: u };
+  if (date === u.date) return { kind: 'same', date };
+  if (refusedOf(u.lead).includes(date)) return { kind: 'refusedDate', date };
+  if (u.lead.date_actions >= MY_TRIP_DATE_DAILY_LIMIT) return { kind: 'limit' };
   const free = await loadFreeDates(u.tourId, u.people, 1, date);
-  if (free.state === 'failed') return reply(TEXT.datesFailed);
+  if (free.state === 'failed') return { kind: 'datesFailed' };
   const slot = free.dates[0];
-  if (!slot) {
-    return reply(
-      `На ${ruDate(date)} мест на ${u.people} чел. уже нет — ничего не изменено. Откройте «Изменить дату» заново.`,
-      [{ text: 'Изменить дату', payload: myTripDateMenuPayload(leadId) }],
-    );
-  }
+  if (!slot) return { kind: 'noSeats', date, people: u.people, hasCalendar: free.hasCalendar };
+  return { u, slot };
+}
+
+/** Что сделал бы вызов: сменил бы дату сразу или отправил просьбу оператору. Только чтение. */
+export type DatePreview = DateOutcome | { kind: 'wouldChange' | 'wouldRequest'; date: string; current: string };
+
+export async function previewLeadDateChange(args: { lead: DateLeadRow; date: string; today: string }): Promise<DatePreview> {
+  const ready = await checkDateChange(args.lead, args.date, args.today);
+  if (!isReady(ready)) return ready;
+  return { kind: ready.u.lead.answered ? 'wouldRequest' : 'wouldChange', date: args.date, current: ready.u.date };
+}
+
+/**
+ * Сменить дату заявки или попросить об этом оператора. `lead` — уже прочитанная
+ * дверью заявка (право проверено там, адресат у неё есть); `reread` — её же
+ * чтение ещё раз: запись не прошла — правду о заявке надо узнать, а не угадать.
+ */
+export async function changeLeadDateByClient(args: {
+  lead: DateLeadRow;
+  date: string;
+  channel: DateChannel;
+  today: string;
+  reread: () => Promise<DateLeadRow | null | 'failed'>;
+}): Promise<DateOutcome> {
+  const { date, channel, today } = args;
+  const ready = await checkDateChange(args.lead, date, today);
+  if (!isReady(ready)) return ready;
+  let { u } = ready;
+  const { slot } = ready;
+  const leadId = u.lead.id;
   const factsOf = (cur: Usable) => ({
     title: cur.title, from: cur.date, to: date, people: cur.people, free: slot.free,
     refusedOn: refusedOf(cur.lead).includes(cur.date) ? cur.date : null,
+    agent: viaAgent(channel),
   });
 
   if (!u.lead.answered) {
@@ -389,7 +484,7 @@ async function pick(channel: LinkChannel, chatId: string | number, leadId: strin
       logId = row?.log_id ?? null;
     } catch (err) {
       logFail('дата заявки не записана', err);
-      return reply(TEXT.unchecked);
+      return { kind: 'failed' };
     }
     if (logId !== null) {
       const changedFacts = factsOf(u);
@@ -399,35 +494,82 @@ async function pick(channel: LinkChannel, chatId: string | number, leadId: strin
       } catch (err) {
         logFail('исход сообщения оператору не записан', err);
       }
-      const told = notice === 'max' || notice === 'telegram'
-        ? 'Оператору ушло сообщение о переносе.'
-        : `${NOT_TOLD}, уже с новой датой.`;
-      return reply(`Дата в заявке изменена: тур «${escapeHtml(u.title)}», теперь ${ruDate(date)}. ${told} Заявку по-прежнему подтверждает оператор.`);
+      return { kind: 'changed', title: u.title, from: u.date, date, told: notice };
     }
     // Строки нет: оператор ответил между чтением и записью — или дату уже
     // сменило второе нажатие той же кнопки. Перечитываем, чтобы сказать
     // правду: «оператор ответил» туристу, у которого он не отвечал, — ложь.
-    const again = usable(await readLead(channel, chatId, leadId), today);
-    if (isReply(again)) return again;
-    if (!again.lead.answered) {
-      return reply(again.date === date
-        ? `${ruDate(date)} уже стоит в заявке — ничего не изменено.`
-        : 'Дату по заявке только что изменили в другом окне — ничего не изменено. Откройте «Изменить дату» заново.');
-    }
+    const reread = await args.reread();
+    if (reread === 'failed') return { kind: 'failed' };
+    if (reread === null) return { kind: 'gone' };
+    const again = usable(reread, today);
+    if (isBlock(again)) return { kind: again };
+    if (!again.lead.answered) return again.date === date ? { kind: 'same', date } : { kind: 'changedElsewhere' };
     u = again;
   }
 
+  // Просьба: сначала запись журнала (с лимитом в самом запросе), потом сообщение.
+  let logId: string | null = null;
+  try {
+    const { rows: [row] } = await pool.query<{ log_id: string }>(MY_TRIP_DATE_REQUEST_LOG_SQL, [leadId, u.date, date, channel]);
+    logId = row?.log_id ?? null;
+  } catch (err) {
+    logFail('просьба о переносе не записана в журнал', err);
+    return { kind: 'failed' };
+  }
+  if (logId === null) return { kind: 'limit' };
   const requested = operatorDateText('request', factsOf(u));
   const notice = await notifyOperator(u.lead.operator_id, leadId, () => requested);
   try {
-    await pool.query(MY_TRIP_DATE_REQUEST_LOG_SQL, [leadId, u.date, date, channel, notice]);
+    await pool.query(MY_TRIP_DATE_DELIVERY_SQL, [logId, notice]);
   } catch (err) {
-    logFail('просьба о переносе не записана в журнал', err);
+    logFail('исход просьбы о переносе не записан', err);
   }
-  if (notice === 'max' || notice === 'telegram') {
-    return reply(`Оператор уже ответил по заявке, поэтому дату меняет он: просьба перенести на ${ruDate(date)} ему отправлена. В заявке пока прежняя дата — ${ruDate(u.date)}.`);
+  return { kind: 'requested', date, current: u.date, told: notice };
+}
+
+const NOT_TOLD = 'Сообщить оператору сейчас не удалось — у него не подключён чат или он не ответил. Заявку он видит в кабинете';
+
+const again = (leadId: string): ChatReply['buttons'] => [{ text: 'Изменить дату', payload: myTripDateMenuPayload(leadId) }];
+
+/** Исход смены даты — словами человеку в чате. */
+function dateReply(o: DateOutcome, leadId: string): ChatReply {
+  switch (o.kind) {
+    case 'closed':
+    case 'noData':
+    case 'past':
+    case 'limit':
+    case 'datesFailed':
+      return reply(TEXT[o.kind]);
+    case 'failed': return reply(TEXT.unchecked);
+    case 'gone': return reply(TEXT.notYours);
+    case 'same': return reply(`${ruDate(o.date)} уже стоит в заявке — ничего не изменено.`);
+    case 'refusedDate':
+      return reply(`На ${ruDate(o.date)} оператор уже ответил «Нет мест» — выберите другую дату.`, again(leadId));
+    case 'noSeats':
+      return reply(`На ${ruDate(o.date)} мест на ${o.people} чел. уже нет — ничего не изменено. Откройте «Изменить дату» заново.`, again(leadId));
+    case 'changedElsewhere':
+      return reply('Дату по заявке только что изменили в другом окне — ничего не изменено. Откройте «Изменить дату» заново.');
+    case 'changed': {
+      const told = operatorTold(o.told) ? 'Оператору ушло сообщение о переносе.' : `${NOT_TOLD}, уже с новой датой.`;
+      return reply(`Дата в заявке изменена: тур «${escapeHtml(o.title)}», теперь ${ruDate(o.date)}. ${told} Заявку по-прежнему подтверждает оператор.`);
+    }
+    case 'requested':
+      return operatorTold(o.told)
+        ? reply(`Оператор уже ответил по заявке, поэтому дату меняет он: просьба перенести на ${ruDate(o.date)} ему отправлена. В заявке пока прежняя дата — ${ruDate(o.current)}.`)
+        : reply(`Оператор уже ответил по заявке, поэтому дату меняет он. ${NOT_TOLD}, но о просьбе не знает — напишите ему или позвоните. В заявке прежняя дата — ${ruDate(o.current)}.`);
   }
-  return reply(`Оператор уже ответил по заявке, поэтому дату меняет он. ${NOT_TOLD}, но о просьбе не знает — напишите ему или позвоните. В заявке прежняя дата — ${ruDate(u.date)}.`);
+}
+
+/** Нажатие на дату: смена сразу или просьба оператору. */
+async function pick(channel: LinkChannel, chatId: string | number, leadId: string, date: string, today: string): Promise<ChatReply> {
+  const lead = await readLead(channel, chatId, leadId);
+  if (lead === 'failed') return reply(TEXT.unchecked);
+  if (lead === null) return reply(TEXT.notYours);
+  const outcome = await changeLeadDateByClient({
+    lead, date, channel, today, reread: () => readLead(channel, chatId, leadId),
+  });
+  return dateReply(outcome, leadId);
 }
 
 /**

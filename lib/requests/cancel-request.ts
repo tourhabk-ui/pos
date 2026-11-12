@@ -51,8 +51,11 @@ import { notifyRequestOperator, operatorTold, type OperatorNotice } from '@/lib/
 import { LEAD_CLIENT_CANCELLED } from '@/lib/types/statuses';
 import type { LinkChannel } from '@/lib/requests/chat-links';
 
-/** Откуда пришла отмена — в журнал заявки. */
-export type CancelChannel = LinkChannel;
+/** Откуда пришла отмена — в журнал заявки: чат человека или ИИ-агент по ключу заявки (change_request). */
+export type CancelChannel = LinkChannel | 'mcp' | 'a2a';
+
+/** Отмену передал не сам человек в чате, а его ИИ-агент: адресату и менеджеру это названо. */
+const viaAgent = (channel: CancelChannel): boolean => channel === 'mcp' || channel === 'a2a';
 
 export interface CancelLeadRow {
   id: string;
@@ -252,23 +255,30 @@ const factsOf = (lead: CancelLeadRow): CancelFacts => ({
   people: lead.participants,
 });
 
-/** Адресату без ПД: что отменено или о чём просят. Сообщение самодостаточно — тур, дата, люди. */
-export function operatorCancelText(kind: 'cancelled' | 'request', f: CancelFacts): string {
+/**
+ * Адресату без ПД: что отменено или о чём просят. Сообщение самодостаточно —
+ * тур, дата, люди. `agent` — отмену передал ИИ-агент по ключу заявки: «отменил
+ * сам турист в чате» о таком вызове было бы неправдой.
+ */
+export function operatorCancelText(kind: 'cancelled' | 'request', f: CancelFacts, agent = false): string {
   return kind === 'cancelled'
     ? [
       '<b>Турист отменил заявку</b>',
       `${factsLine(f)}.`,
-      'Отменил сам турист в чате Ведара, пока вы не ответили. Заявка закрыта: отвечать по ней и держать места не нужно.',
+      `${agent ? 'Отмену передал ИИ-агент туриста по ключу заявки' : 'Отменил сам турист в чате Ведара'}, пока вы не ответили. Заявка закрыта: отвечать по ней и держать места не нужно.`,
     ].join('\n')
     : [
       '<b>Турист просит отменить заявку</b>',
       `${factsLine(f)}.`,
+      ...(agent ? ['Просьбу передал ИИ-агент туриста по ключу заявки.'] : []),
       'Вы уже ответили по заявке, поэтому закрываете её вы — и бронь, если она заведена: Ведар ничего не менял. Туристу ответьте в переписке по заявке или звонком.',
     ].join('\n');
 }
 
 /** Менеджеру без ПД: адресат об отмене или просьбе не узнал — или адресата у заявки нет. */
-export function managerCancelText(kind: 'cancelled' | 'request', leadId: string, f: CancelFacts, why: 'no_addressee' | 'not_told'): string {
+export function managerCancelText(
+  kind: 'cancelled' | 'request', leadId: string, f: CancelFacts, why: 'no_addressee' | 'not_told', agent = false,
+): string {
   const what = kind === 'cancelled' ? 'Клиент отменил заявку' : 'Клиент просит отменить заявку';
   const tail = why === 'no_addressee'
     ? kind === 'cancelled'
@@ -277,16 +287,23 @@ export function managerCancelText(kind: 'cancelled' | 'request', leadId: string,
     : kind === 'cancelled'
       ? 'Оператору сообщить не удалось — сообщите ему: он может держать места.'
       : 'Оператору сообщить не удалось — передайте ему просьбу: заявка (и бронь, если она заведена) пока действует.';
-  return [`<b>${what}</b>`, `Заявка <code>${escapeHtml(leadId)}</code>: ${factsLine(f)}.`, tail].join('\n');
+  return [
+    `<b>${what}</b>`,
+    `Заявка <code>${escapeHtml(leadId)}</code>: ${factsLine(f)}.`,
+    ...(agent ? ['Передал ИИ-агент клиента по ключу заявки.'] : []),
+    tail,
+  ].join('\n');
 }
 
 /** Строка менеджеру: ушла / не ушла / не требовалась (адресат узнал сам). */
 export type ManagerNotice = 'told' | 'failed' | 'not_needed';
 
-async function tellManager(kind: 'cancelled' | 'request', leadId: string, f: CancelFacts, why: 'no_addressee' | 'not_told'): Promise<Exclude<ManagerNotice, 'not_needed'>> {
+async function tellManager(
+  kind: 'cancelled' | 'request', leadId: string, f: CancelFacts, why: 'no_addressee' | 'not_told', agent: boolean,
+): Promise<Exclude<ManagerNotice, 'not_needed'>> {
   try {
     const { sendPdAlert } = await import('@/lib/notifications/pd-alert');
-    const text = managerCancelText(kind, leadId, f, why);
+    const text = managerCancelText(kind, leadId, f, why, agent);
     // ПД в тексте нет — он один на MAX и на заглушку в Telegram.
     const res = await sendPdAlert({
       text, stub: text,
@@ -331,6 +348,7 @@ export async function cancelLeadByClient(args: {
   reread: () => Promise<CancelLeadRow | null | 'failed'>;
 }): Promise<CancelOutcome> {
   let lead = args.lead;
+  const agent = viaAgent(args.channel);
   // Вторая попытка — после перечитывания: адресат мог ответить между чтением и записью.
   for (let attempt = 0; attempt < 2; attempt += 1) {
     const block = cancelBlock(lead, args.today);
@@ -358,11 +376,11 @@ export async function cancelLeadByClient(args: {
           ? 'no_addressee'
           : await notifyRequestOperator({
             operatorId: row.operator_id, leadId: lead.id,
-            text: () => operatorCancelText('cancelled', facts),
+            text: () => operatorCancelText('cancelled', facts, agent),
             log: { tag: 'cancel-request', about: 'об отмене' },
           });
         const manager: ManagerNotice = told === 'no_addressee' || !operatorTold(told)
-          ? await tellManager('cancelled', lead.id, facts, told === 'no_addressee' ? 'no_addressee' : 'not_told')
+          ? await tellManager('cancelled', lead.id, facts, told === 'no_addressee' ? 'no_addressee' : 'not_told', agent)
           : 'not_needed';
         await recordDelivery(row.log_id, told, manager);
         return { kind: 'cancelled', told, manager };
@@ -385,12 +403,12 @@ export async function cancelLeadByClient(args: {
           ? 'no_addressee'
           : await notifyRequestOperator({
             operatorId: lead.operator_id, leadId: lead.id,
-            text: () => operatorCancelText('request', facts),
+            text: () => operatorCancelText('request', facts, agent),
             log: { tag: 'cancel-request', about: 'о просьбе отменить' },
           });
         const manager: ManagerNotice = told !== 'no_addressee' && operatorTold(told)
           ? 'not_needed'
-          : await tellManager('request', lead.id, facts, told === 'no_addressee' ? 'no_addressee' : 'not_told');
+          : await tellManager('request', lead.id, facts, told === 'no_addressee' ? 'no_addressee' : 'not_told', agent);
         if (manager === 'failed') {
           // Не узнал никто: просьбы как бы не было — так и записано, и человеку сказано это.
           await recordDelivery(logId, told, manager, CANCEL_REQUEST_UNDELIVERED_SQL);

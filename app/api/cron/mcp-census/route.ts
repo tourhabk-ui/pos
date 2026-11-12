@@ -24,7 +24,7 @@ import { pool } from '@/lib/db-pool';
 import { timingSafeCompare } from '@/lib/security/timing-safe';
 import { getCronSecret } from '@/lib/auth/cron';
 import { PROBE_PARAMS, probeCallSql } from '@/lib/mcp/probe-clients';
-import { WRITE_TOOL_NAMES } from '@/lib/mcp/public-tools';
+import { WRITE_TOOL_NAMES, CHANGE_TOOL_NAMES } from '@/lib/mcp/public-tools';
 import { clientRegion, CHINA_REGION_LABEL } from '@/lib/mcp/china-clients';
 import { RU_REGION_LABEL } from '@/lib/mcp/ru-clients';
 
@@ -103,7 +103,7 @@ export async function GET(req: NextRequest) {
     measure('write_calls', async () => (await pool.query<{ at: string; tool: string; ok: boolean; error_kind: string | null; error_code: string | null; arg_key: string | null; origin: string; duration_ms: number | null }>(
       `SELECT to_char(t.created_at, 'YYYY-MM-DD HH24:MI') AS at, t.tool, t.ok, t.error_kind, t.error_code, t.arg_key, ${ORIGIN} AS origin, t.duration_ms
          FROM mcp_tool_calls t WHERE ${W} AND t.tool = ANY($5::text[])
-        ORDER BY t.created_at DESC LIMIT 100`, [...p, [...WRITE_TOOL_NAMES]])).rows),
+        ORDER BY t.created_at DESC LIMIT 100`, [...p, [...WRITE_TOOL_NAMES, ...CHANGE_TOOL_NAMES]])).rows),
 
 
     // refused_since — по всему журналу, не по окну: до первой строки рода

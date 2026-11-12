@@ -20,6 +20,7 @@ import { A2A_CATALOGS } from '@/lib/a2a/catalogs';
 import { OPENAPI_PATH, API_CATALOG_PATH } from '@/lib/api/openapi';
 import { NOTIFY_RESPONSE_RULES } from '@/lib/mcp/request-notify-schema';
 import { ANSWER_RELAY_RULE } from '@/lib/mcp/request-status-schema';
+import { CHANGE_REQUEST_RULE } from '@/lib/mcp/change-request-schema';
 import { recordAgentEntryHit } from '@/lib/analytics/agent-entry-hits';
 import { publicAccommodationSql } from '@/lib/stay/moderation';
 import { carrierPagePath } from '@/lib/transfers/charter-format';
@@ -357,7 +358,7 @@ ${parks.length ? parks.map((p) => `- [${p.displayName}](${BASE}/park/${p.slug})`
   (safety_status, get_guardian_context), погода, жильё, снаряжение,
   трансферы (search_transfers — прайс машины целиком, не места), прокат машин
   без водителя (search_car_rental — цена за сутки за машину, залог), план поездки (make_trip_plan) и его правка по ID (edit_trip_plan)
-- Запись — только ЗАЯВКИ, подтверждает человек: create_lead (подбор тура),
+- Новая запись — только ЗАЯВКИ, подтверждает человек: create_lead (подбор тура),
   create_booking_request (заявка оператору на конкретный тур и дату; занятость
   проверяется до создания — на дату без мест заявка не создаётся),
   request_charter (заявка на машину целиком у перевозчика «под заказ»:
@@ -371,6 +372,9 @@ ${parks.length ? parks.map((p) => `- [${p.displayName}](${BASE}/park/${p.slug})`
   заказано в поездке; перевозчик не назван — машину подберёт менеджер)
 - Кроме заявок, make_trip_plan и edit_trip_plan сохраняют черновик плана:
   анонимно, на 7 дней, без имени и телефона, до человека он не доходит
+- ${CHANGE_REQUEST_RULE}
+  Ключ повторного вызова create_booking_request и ключи других заявок (подбор,
+  машина, прокат, жильё) менять не дают; что произойдёт, ничего не меняя, — test: true
 - Число людей — под любым из имён: participants_count, participants, guests,
   passengers, guest_count (MCP, REST /api/hub/bookings/create и чат Кузьмича)
 - Состояние заявки — get_request_status по ключу из ответа; date — действующая
@@ -406,6 +410,8 @@ ${parks.length ? parks.map((p) => `- [${p.displayName}](${BASE}/park/${p.slug})`
   DataPart {"tool": "<имя>", "arguments": {...}} по схемам MCP
 - Заявки — те же шесть, подтверждает человек, нужен consent: true; потока и
   push-уведомлений задач нет, задача завершается в ответе и хранится час
+- Отмена и перенос заявки на тур — тот же change_request через DataPart;
+  CancelTask отменяет задачу A2A, а не заявку
 - Об изменении заявки — необязательный notify_url в аргументах пишущего
   инструмента (кроме заявки на жильё): подписанный POST по Standard Webhooks,
   ключ подписи — в ответе один раз; состояние без уведомлений — get_request_status
@@ -421,7 +427,8 @@ ${parks.length ? parks.map((p) => `- [${p.displayName}](${BASE}/park/${p.slug})`
 A2A (любой инструмент одним POST), публичные читающие эндпоинты (каталог мест,
 маршрутов и туров, туры и их занятость, карточка места, статус дня, сейсмика,
 вулканы, погода) и входы обнаружения; всё без авторизации, запись — те же шесть
-заявок через DataPart с consent: true; тело уведомления об изменении заявки
+заявок через DataPart с consent: true, отмена и перенос заявки на тур —
+change_request; тело уведомления об изменении заявки
 (notify_url) описано в разделе webhooks. Каталог API по RFC 9727 (linkset):
 ${BASE}${API_CATALOG_PATH} — на него же указывает заголовок Link rel="api-catalog"
 главной страницы.

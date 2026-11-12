@@ -28,7 +28,7 @@ import { describe, it, expect, vi } from 'vitest';
 import { readFileSync } from 'node:fs';
 import { join } from 'node:path';
 import { NextRequest } from 'next/server';
-import { PUBLIC_MCP_TOOLS, WRITE_TOOL_NAMES, TOOL_ANNOTATIONS, MCP_SERVER_INFO } from '@/lib/mcp/public-tools';
+import { PUBLIC_MCP_TOOLS, WRITE_TOOL_NAMES, CHANGE_TOOL_NAMES, TOOL_ANNOTATIONS, MCP_SERVER_INFO } from '@/lib/mcp/public-tools';
 import { CANONICAL_BASE_URL } from '@/lib/config';
 import {
   SUPPORTED_PROTOCOL_VERSIONS, LATEST_PROTOCOL_VERSION, negotiateProtocolVersion,
@@ -221,6 +221,13 @@ describe('аннотации — у каждого инструмента, и п
       if (WRITE_TOOL_NAMES.has(t.name)) {
         expect(a.readOnlyHint).toBe(false);
         expect(a.destructiveHint).toBe(false);
+      } else if (CHANGE_TOOL_NAMES.has(t.name)) {
+        // Меняет уже существующую заявку, отмену не вернуть: хост обязан
+        // спросить человека. Повтор не всегда пуст — не идемпотентен.
+        expect(a.readOnlyHint, t.name).toBe(false);
+        expect(a.destructiveHint, t.name).toBe(true);
+        expect(a.idempotentHint, t.name).toBe(false);
+        expect(a.openWorldHint, t.name).toBe(false);
       } else if (t.name === 'edit_trip_plan' || t.name === 'make_trip_plan') {
         // Persists an anonymous draft plan server-side (7 days, by id):
         // honest annotation is a write, but no human/operator receives
