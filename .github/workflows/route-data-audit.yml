@@ -49,13 +49,19 @@ on:
 jobs:
   audit:
     runs-on: ubuntu-latest
-    # Больше, чем ожидание сборки (30 минут) плюс сама перепись.
+    # Больше, чем ожидание сборки (45 минут) плюс сама перепись.
     #
     # Прогон 18.08 12:06 был убит по таймауту на 10-й минуте, пока ждал прод,
     # и GitHub показал это как «cancelled» — то есть как чьё-то решение, а не
     # как поломку. Цикл ожидания в 30 минут внутри джоба на 10 не может
     # завершиться никогда.
-    timeout-minutes: 45
+    #
+    # Ожидание поднято с 30 до 45 минут 13.11. С 15.10 прод собирается только
+    # после зелёного CI на main, и путь от влития до выката вырос: замер 13.11
+    # по записям выката — 21, 23, 25, 26 и 27 минут на пяти влитиях подряд.
+    # Тридцать минут оставляли запас в три минуты: одна медленная сборка, и
+    # прогон краснел бы, не дождавшись своего кода.
+    timeout-minutes: 60
     steps:
       # Репозиторий нужен ради одного файла — маркера ожидаемой версии
       # переписи. Прогон 18.08 03:23 упал именно на этом: шаг читал
@@ -92,14 +98,14 @@ jobs:
           WANT=$(python3 -c "import json;print(json.load(open('.github/triggers/route-data-audit.json')).get('expect_v',0))")
           if [ "$WANT" != "0" ]; then
             READY=""
-            for i in $(seq 1 30); do
+            for i in $(seq 1 45); do
               V=$(curl -s --max-time 30 "$URL" | python3 -c "import json,sys;print(json.load(sys.stdin).get('v',0))" 2>/dev/null || echo 0)
               if [ "$V" -ge "$WANT" ] 2>/dev/null; then READY=1; echo "прод отдаёт перепись версии $V (ждали $WANT)"; break; fi
-              echo "прод ещё на версии $V, ждём $WANT — попытка $i/30"
+              echo "прод ещё на версии $V, ждём $WANT — попытка $i/45"
               sleep 60
             done
             if [ -z "$READY" ]; then
-              echo "::error::Прод так и не поднялся с переписью версии $WANT за 30 минут. Цифры старого кода — не ответ."
+              echo "::error::Прод так и не поднялся с переписью версии $WANT за 45 минут. Цифры старого кода — не ответ."
               exit 1
             fi
           fi
@@ -406,6 +412,23 @@ jobs:
               print(f"  доказательство свежее: {fr.get('current', 0)},"
                     f" пора пересмотреть: {fr.get('review_due', 0)},"
                     f" неизвестно: {fr.get('unknown', 0)}")
+          # Когда сделаны сверки и когда они устареют (13.11). «Свежих 231»
+          # не говорит, до какого дня: сверки сделаны одним прогоном и
+          # устаревают разом, а с ними — право вести по трём уликам.
+          sc = a.get('source_checks')
+          if sc is not None:
+              if sc.get('readable') is False:
+                  print('  ДАТЫ СВЕРОК НЕ ПРОЧИТАЛИСЬ: таблица сверок не ответила — это «не смог», а не «сверок нет»')
+              else:
+                  print(f"  сверок с источником записано: {sc.get('total', 0)}"
+                        f" (без даты: {sc.get('undated', 0)})")
+                  if sc.get('oldest_checked_at'):
+                      print(f"    сделаны: с {sc.get('oldest_checked_at')} по {sc.get('newest_checked_at')}")
+                      print('    по дням: ' + ', '.join(
+                          f'{d} — {n}' for d, n in sorted((sc.get('by_day') or {}).items())))
+                      print(f"    годны {sc.get('fresh_days')} дней:"
+                            f" устареют с {sc.get('first_expires_at')} по {sc.get('last_expires_at')}")
+                      print(f"    уже за сроком: {sc.get('expired', 0)}")
           lk = a.get('link_kinds') or {}
           print(f"  связи: путь {lk.get('waypoint', 0)}"
                 f" · рядом {lk.get('nearby', 0)}"

@@ -245,7 +245,7 @@ const KNOWN_EMPTY_CATCHES: Record<string, number> = {
   'lib/referral/agent-link.ts': 2,
   'lib/referral/link.ts': 2,
   'lib/routes/catalog-return.ts': 2,
-  'lib/routes/geometry-audit.ts': 3,
+  'lib/routes/geometry-audit.ts': 2,
   'lib/routes/route-detail.ts': 1,
   'lib/search/tour-recommend.ts': 2,
   'lib/security/route-inventory.ts': 1,

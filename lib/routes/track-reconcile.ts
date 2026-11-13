@@ -184,8 +184,80 @@ export function checkFreshness(
   }
   const at = check.checkedAt instanceof Date ? check.checkedAt : new Date(check.checkedAt);
   if (Number.isNaN(at.getTime())) return 'unknown';
-  const ageDays = (now.getTime() - at.getTime()) / 86_400_000;
-  return ageDays <= CHECK_FRESH_DAYS ? 'current' : 'review_due';
+  return isPastTerm(at.getTime(), now) ? 'review_due' : 'current';
+}
+
+const DAY_MS = 86_400_000;
+
+/** Сверка старше срока годности. Одно правило на свежесть и на счёт просроченных. */
+function isPastTerm(checkedAtMs: number, now: Date): boolean {
+  return (now.getTime() - checkedAtMs) / DAY_MS > CHECK_FRESH_DAYS;
+}
+
+/**
+ * Когда сделаны сохранённые сверки и когда они устареют.
+ *
+ * 13.11.2026 этого нельзя было узнать ниоткуда. Перепись печатала «свежих
+ * 231», но не дату, после которой свежих станет ноль. А сверки сделаны одним
+ * прогоном и устаревают разом: право вести по трём уликам пропадает у двухсот
+ * маршрутов в один день, и порог переписи краснеет. В `census-verdict`
+ * записано «видеть это надо ДО того» — видеть было нечем.
+ *
+ * `readable: false` — таблица не прочиталась. Это «не смог», а не «сверок
+ * нет» (§4.0): все числа тогда нулевые и ни о чём не говорят.
+ */
+export interface SourceCheckDates {
+  readable: boolean;
+  /** Строк сверок всего. */
+  total: number;
+  /** Из них без разбираемой даты. */
+  undated: number;
+  oldest_checked_at: string | null;
+  newest_checked_at: string | null;
+  /** Сколько сверок сделано в каждый день (UTC). */
+  by_day: Record<string, number>;
+  /** Срок годности сверки, дней. */
+  fresh_days: number;
+  /** Когда устареет самая ранняя и самая поздняя сверка. */
+  first_expires_at: string | null;
+  last_expires_at: string | null;
+  /** Уже за сроком на момент переписи. */
+  expired: number;
+}
+
+export function sourceCheckDates(
+  checkedAts: ReadonlyArray<string | Date | null | undefined>,
+  now: Date,
+  readable = true,
+): SourceCheckDates {
+  const out: SourceCheckDates = {
+    readable, total: 0, undated: 0,
+    oldest_checked_at: null, newest_checked_at: null,
+    by_day: {}, fresh_days: CHECK_FRESH_DAYS,
+    first_expires_at: null, last_expires_at: null, expired: 0,
+  };
+  if (!readable) return out;
+
+  out.total = checkedAts.length;
+  let oldest = Number.POSITIVE_INFINITY;
+  let newest = Number.NEGATIVE_INFINITY;
+  for (const raw of checkedAts) {
+    const ms = raw instanceof Date ? raw.getTime() : raw ? new Date(raw).getTime() : Number.NaN;
+    if (Number.isNaN(ms)) { out.undated += 1; continue; }
+    oldest = Math.min(oldest, ms);
+    newest = Math.max(newest, ms);
+    const day = new Date(ms).toISOString().slice(0, 10);
+    out.by_day[day] = (out.by_day[day] ?? 0) + 1;
+    if (isPastTerm(ms, now)) out.expired += 1;
+  }
+  if (Number.isFinite(oldest)) {
+    const termMs = CHECK_FRESH_DAYS * DAY_MS;
+    out.oldest_checked_at = new Date(oldest).toISOString();
+    out.newest_checked_at = new Date(newest).toISOString();
+    out.first_expires_at = new Date(oldest + termMs).toISOString();
+    out.last_expires_at = new Date(newest + termMs).toISOString();
+  }
+  return out;
 }
 
 /**

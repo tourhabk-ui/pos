@@ -41,7 +41,7 @@ import { asLinkKind, isPathPoint, type LinkKind } from '@/lib/routes/link-kind';
 import { nameMatchScore } from '@/lib/routes/place-link';
 import { detectTravelMode } from '@/lib/routes/travel-mode';
 import { routeTrustDecision } from '@/lib/routes/trust-decision';
-import { geometryFingerprint } from '@/lib/routes/track-reconcile';
+import { geometryFingerprint, sourceCheckDates, type SourceCheckDates } from '@/lib/routes/track-reconcile';
 
 /** Сколько маршрутов считать одновременно. */
 const CONCURRENCY = 8;
@@ -452,6 +452,14 @@ export interface GeometryAudit {
     freshness: Record<string, number>;
   };
   /**
+   * Когда сделаны сохранённые сверки с источником и когда они устареют.
+   *
+   * `trust.freshness` говорит, сколько сверок свежи СЕЙЧАС; этот блок — когда
+   * свежих не останется. Все сверки сделаны одним прогоном, поэтому право
+   * вести по трём уликам пропадает у всех линий в один день.
+   */
+  source_checks: SourceCheckDates;
+  /**
    * Доехала ли разметка связей (колонка `route_waypoints.link_kind`).
    *
    * `false` — миграция 874 не применилась, и все связи считаются `unknown`.
@@ -766,6 +774,8 @@ export async function runGeometryAudit(limit?: number): Promise<GeometryAudit> {
    * тот же урок, что стоил ночью карточки маршрута.
    */
   const checks = new Map<string, { verdict: string | null; checkedAt: string | null; geometryHash: string | null }>();
+  /** Прочиталась ли таблица сверок: «не смог» и «сверок нет» — разные ответы. */
+  let checksReadable = true;
   try {
     const res = await pool.query<{ route_id: string; verdict: string; checked_at: string; geometry_hash: string | null }>(
       `SELECT route_id::text, verdict, checked_at::text, geometry_hash FROM route_source_checks`,
@@ -773,8 +783,12 @@ export async function runGeometryAudit(limit?: number): Promise<GeometryAudit> {
     for (const r of res.rows) {
       checks.set(r.route_id, { verdict: r.verdict, checkedAt: r.checked_at, geometryHash: r.geometry_hash });
     }
-  } catch {
-    // Таблицы ещё нет — все записи окажутся «не сверялись», и это честно.
+  } catch (err) {
+    // Таблицы может не быть — тогда все записи окажутся «не сверялись». Но
+    // отказ назван: в ответе `source_checks.readable: false`, в логе — код.
+    checksReadable = false;
+    console.error('[route-data-audit] route_source_checks не прочиталась:',
+      `sqlstate=${(err as { code?: string })?.code ?? 'нет'}`);
   }
   const trust = {
     states: {} as Record<string, number>,
@@ -1273,6 +1287,7 @@ export async function runGeometryAudit(limit?: number): Promise<GeometryAudit> {
     // разбирают. Этот разбирают.
     conflict_cases: conflictCases,
     trust,
+    source_checks: sourceCheckDates([...checks.values()].map((c) => c.checkedAt), auditNow, checksReadable),
     link_kinds: linkKinds,
     link_kind_available: linkKindAvailable,
     migration_failures: migrationFailures,
