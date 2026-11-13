@@ -52,6 +52,18 @@ describe('список каталогов — один, и он совпадае
     expect(MCP_DESCRIPTION_EN).not.toMatch(/[А-Яа-я]/);
   });
 
+  it('описание для каталогов не обещает бронь: заявка — не бронь (13.11)', () => {
+    // В реестре и в Glama стояло «…safety, booking requests» — рядом с именем
+    // инструмента create_booking_request это читалось как «Ведар бронирует».
+    // Заявку подтверждает человек; мгновенной брони нет. Запрет — регуляркой:
+    // этих слов в описании быть не должно.
+    expect(MCP_DESCRIPTION_EN).not.toMatch(/\bbooking requests?\b/i);
+    expect(MCP_DESCRIPTION_EN).not.toMatch(/\b(?:instant|online|direct)\s+booking/i);
+    expect(MCP_DESCRIPTION_EN).not.toMatch(/\bbook(?:s|ing)?\s+(?:tours?|hotels?|stays?|transfers?)\b/i);
+    // И сказано прямо, чем заявка не является.
+    expect(MCP_DESCRIPTION_EN).toMatch(/requests, not bookings/i);
+  });
+
   it('Smithery: имя равно имени в маркере публикации, команда подключения — по нему', () => {
     const smithery = MCP_CATALOGS.find((c) => c.catalog === 'Smithery');
     expect(smithery).toBeDefined();

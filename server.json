@@ -2,8 +2,8 @@
   "$schema": "https://static.modelcontextprotocol.io/schemas/2025-12-11/server.schema.json",
   "name": "ru.vedarai/mcp",
   "title": "Vedar — Kamchatka travel",
-  "description": "Kamchatka, Russia travel: tours, hotels, transfers, volcano status, safety, booking requests",
-  "version": "2.10.1",
+  "description": "Kamchatka, Russia travel: tours, hotels, transfers, volcano status, safety; requests, not bookings",
+  "version": "2.10.2",
   "websiteUrl": "https://vedarai.ru/mcp",
   "icons": [
     {
