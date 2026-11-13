@@ -457,6 +457,8 @@ function notifyPartnerPersonallyAboutMcpLead(params: {
   name: string;
   phone: string;
   comment?: string;
+  /** Слова самого клиента без служебной части — для перевода оператору, если они не по-русски. */
+  clientText?: string;
   routeTitle?: string;
   /** Тур, дата, люди — для черновика оператору (живые места из базы). */
   draft?: { tourId: number; date: string; participants: number };
@@ -708,6 +710,7 @@ async function executeCreateBookingRequest(rawArgs: Record<string, unknown>, ctx
       name,
       phone,
       comment: leadComment,
+      clientText: comment,
       routeTitle: tour.title,
       draft: { tourId: Number(tour.id), date, participants },
     });

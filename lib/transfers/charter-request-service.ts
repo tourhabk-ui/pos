@@ -145,6 +145,8 @@ function deliverToCarrier(leadId: string, i: SaveCharterLeadInput): void {
     partnerId, leadId, kind: 'charter',
     lines: charterRequestLines(i.facts),
     name: i.name, phone: i.phone, comment: i.facts.comment,
+    // Направление и пожелания — свободный ввод заказчика: не по-русски — с переводом.
+    foreign: [{ what: 'направление', text: i.facts.destination }, { what: 'пожелания', text: i.facts.comment }],
   })
     .then((outcome) => recordPartnerDelivery(leadId, partnerId, outcome))
     .catch((err: unknown) => {

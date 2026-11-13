@@ -21,6 +21,7 @@ import { publicAccommodationSql } from '@/lib/stay/moderation';
 import { containsPattern } from '@/lib/db/like';
 import { linkContactQuietly } from '@/lib/crm/contacts';
 import { ownerReplyButton } from '@/lib/requests/request-chat';
+import { clientTranslationLines } from '@/lib/requests/foreign-text';
 import { stayAnswerButtons } from '@/lib/stay/owner-answer';
 import { objectBusyNightsSql } from '@/lib/stay/busy-flow';
 import type { PdConsentRecord } from '@/lib/legal/pd-consent';
@@ -134,7 +135,14 @@ export async function submitStayRequest(i: StayRequestInput): Promise<StayReques
     return { ok: false, reason: 'save_failed' };
   }
 
+  // Комментарий гостя не по-русски — хозяину с машинным переводом рядом (13.11).
+  // Заявка уже записана: перевод ждём недолго, и она уходит и без него.
+  const translation = await clientTranslationLines(
+    [{ what: 'комментарий', text: i.comment }],
+    `заявка на жильё ${requestId}`,
+  );
   const { text, ownerStub, platformStub } = stayRequestTexts({
+    translation,
     accommodationName: obj.name,
     checkIn: i.checkIn,
     checkOut: i.checkOut,

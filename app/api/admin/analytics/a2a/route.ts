@@ -33,7 +33,7 @@ import { pool } from '@/lib/db-pool';
 import { logText } from '@/lib/log/log-text';
 import { a2aAgentKind, type A2aAgentKind } from '@/lib/a2a/journal';
 import { RETENTION_DAYS } from '@/lib/a2a/dialog-log';
-import { needsRussian } from '@/lib/ai/translate-text';
+import { needsRussian } from '@/lib/ai/russian-text';
 import { isProbeClient } from '@/lib/mcp/probe-clients';
 import { clientRegion } from '@/lib/mcp/china-clients';
 import { BOT_FAMILIES } from '@/lib/analytics/bot-detect';
