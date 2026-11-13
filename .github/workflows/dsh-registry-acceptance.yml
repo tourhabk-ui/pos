@@ -1,0 +1,221 @@
+name: Каталог коннекторов DeepSeek — приёмочный прогон чтения их скриптом
+
+# ── Зачем ────────────────────────────────────────────────────────────
+#
+# Подача Ведара в каталог коннекторов DeepSeek Harness
+# (duhu2000/dsh-mcp-connector-registry, PR #44) открыта с 13.10. Проверяющий
+# каталога принимает сервер по отчёту своего же скрипта: `initialize`,
+# `tools/list` и один читающий вызов, с контрольной суммой ответа. Отчёт
+# привязан к версии сервера. Последний наш отчёт снят 30.10 на версии 2.10.0
+# (23 инструмента); 13.11 сервер — 2.10.2, инструментов 25, и проверяющий с
+# 30.10 просит сверить запись с нынешней версией реестра.
+#
+# Из контейнера разработки vedarai.ru закрыт, поэтому прогон идёт с раннера —
+# как у остальных проб прода.
+#
+# ── Что исполняется ──────────────────────────────────────────────────
+#
+# Скрипт чужой: он лежит в каталоге, а не у нас. Поэтому репозиторий, коммит
+# и путь к скрипту приколоты в маркере (.github/triggers/dsh-registry-acceptance.json)
+# — полный sha, а не ветка: код, который исполнится, тот, что прочитан перед
+# запуском. Скрипт ходит только на наш адрес, берёт только встроенные модули
+# Node и сам отказывается звать инструмент без readOnlyHint=true. Секретов
+# прогон не берёт, токен — только на чтение этого репозитория.
+#
+# Второй шаг — один вызов `tools/list` своим кодом: имена инструментов, которые
+# меняют состояние, и какие из них требуют согласия. Отчёт скрипта называет
+# только число инструментов, а карточке каталога нужны имена.
+#
+# Третий шаг читает запись сервера в официальном реестре MCP: версию, статус
+# и даты — их проверяющий просит записать в подачу.
+#
+# ── Три исхода (§4.0) ────────────────────────────────────────────────
+#
+# Скрипт ответил «pass» — зелёный. Ответил «fail» или упал — красный с его же
+# словами. Каталог не склонировался, коммит не тот, прод не ответил — красный
+# «не смог», а не «не прошёл».
+#
+# Вызовы прогона (три скрипта и один наш) лягут в статистику MCP как внешние
+# заходы: скрипт срезает параметры адреса, пометить его «своим» нечем. Заявок
+# прогон не создаёт и персональных данных не шлёт.
+
+on:
+  workflow_dispatch:
+  push:
+    branches: [main]
+    paths:
+      - '.github/triggers/dsh-registry-acceptance.json'
+
+permissions:
+  contents: read
+  deployments: read   # запись выката для scripts/wait-for-deploy.sh
+
+concurrency:
+  group: dsh-registry-acceptance
+  cancel-in-progress: false
+
+jobs:
+  accept:
+    runs-on: ubuntu-latest
+    # Ожидание своей сборки — до 70 мин (scripts/wait-for-deploy.sh, 140 x 30 с) и одной попытки сверх; потолок строго больше.
+    timeout-minutes: 90
+    steps:
+      - uses: actions/checkout@v7
+        with:
+          persist-credentials: false
+          # История за окно CODE_PATHS (65 мин) — запасной путь wait-for-deploy.sh, когда запись выката не прочитана.
+          fetch-depth: 200
+
+      # Маркер едет в main пушем вместе с кодом. Отчёт привязан к версии
+      # сервера, поэтому, если сервер MCP менялся тем же влитием, ждём его
+      # выката; не менялся — ожидание отпускает сразу.
+      - name: Wait for fresh deploy
+        if: github.event_name == 'push'
+        env:
+          BASE: https://vedarai.ru
+          WANT_SHA: ${{ github.sha }}
+          # Запись выката (deploy.yml) читается с токеном — без него ждём по built_at.
+          GH_TOKEN: ${{ github.token }}
+          NEED_AFTER: ${{ github.event.head_commit.timestamp }}
+          CODE_PATHS: 'app/api/mcp lib/mcp server.json'
+        run: bash scripts/wait-for-deploy.sh
+
+      - uses: actions/setup-node@v7
+        with:
+          node-version: '22'
+
+      - name: Скрипт каталога — приколотый коммит
+        run: |
+          set -euo pipefail
+          M=.github/triggers/dsh-registry-acceptance.json
+          REPO=$(python3 -c "import json; print(json.load(open('$M'))['registry_repo'])")
+          SHA=$(python3 -c "import json; print(json.load(open('$M'))['registry_sha'])")
+          SCRIPT=$(python3 -c "import json; print(json.load(open('$M'))['script'])")
+          if ! [[ "$REPO" =~ ^[A-Za-z0-9._-]+/[A-Za-z0-9._-]+$ ]]; then
+            echo "::error::registry_repo в маркере не похож на owner/repo"
+            exit 1
+          fi
+          if ! [[ "$SHA" =~ ^[0-9a-f]{40}$ ]]; then
+            echo "::error::registry_sha в маркере — не полный sha коммита: ветку и короткий sha не исполняем"
+            exit 1
+          fi
+          if ! [[ "$SCRIPT" =~ ^[A-Za-z0-9._/-]+\.mjs$ ]] || [[ "$SCRIPT" == *..* ]] || [[ "$SCRIPT" == /* ]]; then
+            echo "::error::script в маркере — не путь к .mjs внутри каталога"
+            exit 1
+          fi
+          D="$RUNNER_TEMP/registry"
+          mkdir -p "$D"
+          cd "$D"
+          git init -q
+          git remote add origin "https://github.com/$REPO.git"
+          if ! git fetch -q --depth 1 origin "$SHA"; then
+            echo "::error::не смог получить коммит $SHA из $REPO — прогон не начат"
+            exit 1
+          fi
+          git checkout -q FETCH_HEAD
+          GOT=$(git rev-parse HEAD)
+          if [ "$GOT" != "$SHA" ]; then
+            echo "::error::получен коммит $GOT, а приколот $SHA"
+            exit 1
+          fi
+          if [ ! -f "$SCRIPT" ]; then
+            echo "::error::в коммите нет файла $SCRIPT"
+            exit 1
+          fi
+          echo "Каталог: $REPO @ $GOT"
+          echo "Скрипт: $SCRIPT, sha256 $(sha256sum "$SCRIPT" | cut -d' ' -f1)"
+
+      - name: Приёмочный прогон — один читающий вызов
+        run: |
+          set -euo pipefail
+          M="$GITHUB_WORKSPACE/.github/triggers/dsh-registry-acceptance.json"
+          SCRIPT=$(python3 -c "import json; print(json.load(open('$M'))['script'])")
+          TOOL=$(python3 -c "import json; print(json.load(open('$M'))['tool'])")
+          ARGS=$(python3 -c "import json; print(json.dumps(json.load(open('$M'))['args']))")
+          REVIEWER=$(python3 -c "import json; print(json.load(open('$M'))['reviewer'])")
+          cd "$RUNNER_TEMP/registry"
+          echo "Вызов: $TOOL $ARGS"
+          # pipefail: код выхода скрипта — код шага; «fail» у него — код 1.
+          node "$SCRIPT" --url https://vedarai.ru/api/mcp --tool "$TOOL" --args "$ARGS" --reviewer "$REVIEWER" | tee "$RUNNER_TEMP/acceptance.md"
+          {
+            echo "## Приёмочный прогон скриптом каталога"
+            echo
+            cat "$RUNNER_TEMP/acceptance.md"
+          } >> "$GITHUB_STEP_SUMMARY"
+
+      - name: Состав сервера — кто меняет состояние
+        run: |
+          set -euo pipefail
+          export TOOLS_FILE="$RUNNER_TEMP/tools.txt"
+          CODE=$(curl -sS --max-time 40 -o "$TOOLS_FILE" -w '%{http_code}' \
+            -A 'VedarBot/1.0 (+https://vedarai.ru)' \
+            -H 'Content-Type: application/json' -H 'Accept: application/json, text/event-stream' \
+            -d '{"jsonrpc":"2.0","id":1,"method":"tools/list","params":{}}' \
+            https://vedarai.ru/api/mcp) || CODE=000
+          if [ "$CODE" != "200" ]; then
+            echo "::error::tools/list ответил кодом $CODE — состав сервера не прочитан"
+            exit 1
+          fi
+          python3 - <<'PY' | tee -a "$GITHUB_STEP_SUMMARY"
+          import json, os, sys
+          raw = open(os.environ['TOOLS_FILE'], encoding='utf-8').read()
+          doc = None
+          # Ответ — JSON или поток событий: берём последнюю строку data: с целым объектом.
+          for cand in [raw.strip()] + [l[5:].strip() for l in raw.splitlines() if l.startswith('data:')][::-1]:
+              try:
+                  doc = json.loads(cand)
+                  break
+              except ValueError:
+                  continue
+          tools = (doc or {}).get('result', {}).get('tools')
+          if not isinstance(tools, list) or not tools:
+              print('::error::в ответе tools/list нет списка инструментов')
+              sys.exit(1)
+          print('## Состав сервера по tools/list')
+          print()
+          print(f'Инструментов: {len(tools)}')
+          changing = [t for t in tools if (t.get('annotations') or {}).get('readOnlyHint') is not True]
+          print(f'Меняют состояние (readOnlyHint не true): {len(changing)}')
+          print()
+          print('| Инструмент | destructiveHint | idempotentHint | consent обязателен | имя и телефон в схеме |')
+          print('|---|---|---|---|---|')
+          for t in changing:
+              a = t.get('annotations') or {}
+              schema = t.get('inputSchema') or {}
+              required = schema.get('required') or []
+              props = schema.get('properties') or {}
+              pd = 'да' if ('name' in props and 'phone' in props) else 'нет'
+              print(f"| {t.get('name')} | {a.get('destructiveHint')} | {a.get('idempotentHint')} | {'да' if 'consent' in required else 'нет'} | {pd} |")
+          PY
+
+      - name: Запись сервера в официальном реестре MCP
+        run: |
+          set -uo pipefail
+          # Не наш сервис: не ответил — предупреждение, а не красный прогон.
+          # «Не прочитал» при этом сказано словами и не равно «записи нет».
+          export REGISTRY_FILE="$RUNNER_TEMP/registry.json"
+          CODE=$(curl -sS --max-time 40 -o "$REGISTRY_FILE" -w '%{http_code}' \
+            -A 'VedarBot/1.0 (+https://vedarai.ru)' \
+            'https://registry.modelcontextprotocol.io/v0.1/servers/ru.vedarai%2Fmcp/versions/latest') || CODE=000
+          if [ "$CODE" != "200" ]; then
+            echo "::warning::реестр MCP ответил кодом $CODE — запись не прочитана"
+            echo "Реестр MCP: не прочитан (код $CODE)" >> "$GITHUB_STEP_SUMMARY"
+            exit 0
+          fi
+          python3 - <<'PY' | tee -a "$GITHUB_STEP_SUMMARY"
+          import json, os
+          try:
+              doc = json.load(open(os.environ['REGISTRY_FILE'], encoding='utf-8'))
+          except ValueError:
+              print('Реестр MCP: ответ не разобрался как JSON')
+              raise SystemExit(0)
+          server = doc.get('server') or doc
+          meta = (doc.get('_meta') or {}).get('io.modelcontextprotocol.registry/official') or {}
+          print('## Запись в официальном реестре MCP (latest)')
+          print()
+          print(f"- name: {server.get('name')}")
+          print(f"- version: {server.get('version')}")
+          print(f"- description: {server.get('description')}")
+          for key in ('status', 'publishedAt', 'updatedAt', 'isLatest'):
+              print(f"- {key}: {meta.get(key, 'в ответе нет')}")
+          PY

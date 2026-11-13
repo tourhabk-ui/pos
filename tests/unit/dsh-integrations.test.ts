@@ -25,7 +25,7 @@ import { readFileSync } from 'node:fs';
 import { join } from 'node:path';
 import { load as loadYaml } from 'js-yaml';
 import semver from 'semver';
-import { PUBLIC_MCP_TOOL_NAMES, WRITE_TOOL_NAMES, TOOL_ENGLISH } from '@/lib/mcp/public-tools';
+import { PUBLIC_MCP_TOOL_NAMES, WRITE_TOOL_NAMES, CHANGE_TOOL_NAMES, TOOL_ENGLISH } from '@/lib/mcp/public-tools';
 
 const ROOT = process.cwd();
 const read = (p: string) => readFileSync(join(ROOT, p), 'utf8');
@@ -183,10 +183,12 @@ describe('карточка для каталога коннекторов DeepSe
     expect(card.description).toMatch(/112/);
   });
 
-  it('примеры запросов — только чтение: не зовут четыре пишущих инструмента и не несут телефонов и почт', () => {
+  it('примеры запросов — только чтение: не зовут ни один пишущий или меняющий инструмент и не несут телефонов и почт', () => {
     expect(card.prompts.length).toBeGreaterThan(0);
+    // Список — из самого сервера: до 13.11 здесь стояли четыре имени из шести,
+    // и пример с заявкой на прокат или на поездку целиком прошёл бы.
     for (const p of card.prompts) {
-      expect(p.text).not.toMatch(/create_lead|create_booking_request|create_stay_request|request_charter/);
+      for (const name of [...WRITE_TOOL_NAMES, ...CHANGE_TOOL_NAMES]) expect(p.text, name).not.toContain(name);
       expect(p.text).not.toMatch(/@|\+7|\d{6,}/);
     }
   });
