@@ -11,6 +11,7 @@
  */
 import { describe, it, expect } from 'vitest';
 import { routeTrustDecision, toSourceMatch } from '@/lib/routes/trust-decision';
+import { CHECK_FRESH_DAYS } from '@/lib/routes/track-reconcile';
 
 const now = new Date('2026-08-19T00:00:00Z');
 const line: Array<[number, number]> = Array.from({ length: 120 }, (_, i) => [
@@ -84,10 +85,19 @@ describe('право вести по трём уликам', () => {
   it('протухшая сверка ничем не лучше отсутствующей', () => {
     const d = routeTrustDecision({
       ...proven,
-      sourceCheck: { ...proven.sourceCheck, checkedAt: '2026-01-01T00:00:00Z' },
+      // Старше срока годности на сутки — срок берётся из правила, не из головы:
+      // 13.11.2026 он стал годом, и зашитая дата «восемь месяцев назад» перестала быть протухшей.
+      sourceCheck: { ...proven.sourceCheck, checkedAt: new Date(now.getTime() - (CHECK_FRESH_DAYS + 1) * 86_400_000).toISOString() },
     });
     expect(d.freshness).toBe('review_due');
     expect(d.canLead).toBe(false);
+    // А на сутки моложе срока — ещё годна.
+    const fresh = routeTrustDecision({
+      ...proven,
+      sourceCheck: { ...proven.sourceCheck, checkedAt: new Date(now.getTime() - (CHECK_FRESH_DAYS - 1) * 86_400_000).toISOString() },
+    });
+    expect(fresh.freshness).toBe('current');
+    expect(fresh.canLead).toBe(true);
   });
 });
 

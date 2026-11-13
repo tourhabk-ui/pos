@@ -20,7 +20,7 @@
  * базой, печать итога — исполнением настоящего скрипта из workflow.
  */
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
-import { readFileSync, mkdtempSync, writeFileSync, rmSync } from 'node:fs';
+import { readFileSync, readdirSync, mkdtempSync, writeFileSync, rmSync } from 'node:fs';
 import { join } from 'node:path';
 import { tmpdir } from 'node:os';
 import { spawnSync } from 'node:child_process';
@@ -31,7 +31,7 @@ vi.mock('@/lib/db-pool', () => ({
   pool: { query: (...args: unknown[]) => queryMock(...args) },
 }));
 
-import { sourceCheckDates, checkFreshness, CHECK_FRESH_DAYS } from '@/lib/routes/track-reconcile';
+import { sourceCheckDates, checkFreshness, CHECK_FRESH_DAYS, SOURCE_RECHECK_AVAILABLE } from '@/lib/routes/track-reconcile';
 import { runGeometryAudit } from '@/lib/routes/geometry-audit';
 
 const NOW = new Date('2026-11-13T05:00:00Z');
@@ -49,18 +49,19 @@ describe('даты сверок: когда сделаны и когда уст�
       newest_checked_at: '2026-08-20T10:00:00.000Z',
       by_day: { '2026-08-19': 2, '2026-08-20': 1 },
       fresh_days: CHECK_FRESH_DAYS,
-      first_expires_at: '2026-11-17T00:00:05.123Z',
-      last_expires_at: '2026-11-18T10:00:00.000Z',
+      first_expires_at: '2027-08-19T00:00:05.123Z',
+      last_expires_at: '2027-08-20T10:00:00.000Z',
       expired: 0,
+      recheck_available: false,
     });
   });
 
   it('просроченные считаются тем же правилом, что свежесть улики', () => {
     const at = '2026-08-19T00:13:50Z';
     // За секунду до срока — ещё свежая, через секунду после — уже нет.
-    expect(sourceCheckDates([at], new Date('2026-11-17T00:13:49Z')).expired).toBe(0);
-    expect(sourceCheckDates([at], new Date('2026-11-17T00:13:51Z')).expired).toBe(1);
-    for (const now of ['2026-11-16T12:45:00Z', '2026-11-17T00:13:49Z', '2026-11-17T00:13:51Z', '2026-11-23T04:10:00Z']) {
+    expect(sourceCheckDates([at], new Date('2027-08-19T00:13:49Z')).expired).toBe(0);
+    expect(sourceCheckDates([at], new Date('2027-08-19T00:13:51Z')).expired).toBe(1);
+    for (const now of ['2026-11-23T04:10:00Z', '2027-08-19T00:13:49Z', '2027-08-19T00:13:51Z', '2027-08-23T04:10:00Z']) {
       const n = new Date(now);
       const stale = checkFreshness({ checkedAt: at, geometryHash: null }, null, n) === 'review_due';
       expect(sourceCheckDates([at], n).expired, now).toBe(stale ? 1 : 0);
@@ -94,6 +95,40 @@ describe('даты сверок: когда сделаны и когда уст�
     const r = sourceCheckDates(['2026-08-19T00:00:00Z'], NOW, false);
     expect(r.readable).toBe(false);
     expect(r).toMatchObject({ total: 0, oldest_checked_at: null, first_expires_at: null, by_day: {} });
+  });
+});
+
+describe('срок сверки — год (слово владельца 13.11 «продлить»)', () => {
+  // Все сверки на проде сделаны 19.08.2026 с 00:06 до 00:14 UTC (перепись 13.11).
+  const check = { checkedAt: '2026-08-19T00:13:48Z', geometryHash: 'h' };
+
+  it('сверка 19.08.2026 свежа в понедельники 16.11 и 23.11.2026 и устаревает через год', () => {
+    expect(CHECK_FRESH_DAYS).toBe(365);
+    for (const monday of ['2026-11-16T12:00:00Z', '2026-11-23T12:00:00Z', '2027-08-16T12:00:00Z']) {
+      expect([monday, checkFreshness(check, 'h', new Date(monday))]).toEqual([monday, 'current']);
+    }
+    expect(checkFreshness(check, 'h', new Date('2027-08-19T00:13:49Z'))).toBe('review_due');
+    expect(checkFreshness(check, 'h', new Date('2027-08-23T12:00:00Z'))).toBe('review_due');
+  });
+
+  it('продление не подменяет другую линию: изменилась геометрия — улика неизвестна, как и была', () => {
+    expect(checkFreshness(check, 'другая', new Date('2026-11-23T12:00:00Z'))).toBe('unknown');
+  });
+
+  it('«повторить сверку нечем» — правда о коде: строк в таблицу сверок никто не пишет', () => {
+    // Запрет, а не форма: появился писатель — константу меняют в том же PR.
+    const writers: string[] = [];
+    const walk = (dir: string): void => {
+      for (const e of readdirSync(dir, { withFileTypes: true })) {
+        if (e.name === 'node_modules' || e.name.startsWith('.')) continue;
+        const path = join(dir, e.name);
+        if (e.isDirectory()) walk(path);
+        else if (/\.(ts|tsx|js|mjs)$/.test(e.name) && /(INSERT\s+INTO|UPDATE)\s+route_source_checks/i.test(readFileSync(path, 'utf8'))) writers.push(path);
+      }
+    };
+    for (const root of ['app', 'lib', 'scripts']) walk(join(process.cwd(), root));
+    expect(SOURCE_RECHECK_AVAILABLE).toBe(false);
+    expect(writers).toEqual([]);
   });
 });
 
@@ -131,8 +166,9 @@ describe('перепись отдаёт даты сверок', () => {
       oldest_checked_at: '2026-08-19T00:00:05.000Z',
       newest_checked_at: '2026-08-19T00:13:50.000Z',
       by_day: { '2026-08-19': 2 },
-      first_expires_at: '2026-11-17T00:00:05.000Z',
-      last_expires_at: '2026-11-17T00:13:50.000Z',
+      first_expires_at: '2027-08-19T00:00:05.000Z',
+      last_expires_at: '2027-08-19T00:13:50.000Z',
+      recheck_available: false,
     });
   });
 
@@ -193,8 +229,9 @@ describe('итог прогона переписи называет даты с�
       source_checks: {
         readable: true, total: 231, undated: 0,
         oldest_checked_at: '2026-08-19T00:00:05.000Z', newest_checked_at: '2026-08-19T00:13:50.000Z',
-        by_day: { '2026-08-19': 231 }, fresh_days: 90,
-        first_expires_at: '2026-11-17T00:00:05.000Z', last_expires_at: '2026-11-17T00:13:50.000Z', expired: 0,
+        by_day: { '2026-08-19': 231 }, fresh_days: 365,
+        first_expires_at: '2027-08-19T00:00:05.000Z', last_expires_at: '2027-08-19T00:13:50.000Z', expired: 0,
+        recheck_available: false,
       },
     });
     const tail = out.slice(out.indexOf('ИТОГ'));
@@ -202,8 +239,19 @@ describe('итог прогона переписи называет даты с�
     expect(tail).toContain('сверок с источником записано: 231');
     expect(tail).toContain('сделаны: с 2026-08-19T00:00:05.000Z по 2026-08-19T00:13:50.000Z');
     expect(tail).toContain('по дням: 2026-08-19 — 231');
-    expect(tail).toContain('годны 90 дней: устареют с 2026-11-17T00:00:05.000Z по 2026-11-17T00:13:50.000Z');
+    expect(tail).toContain('годны 365 дней: устареют с 2027-08-19T00:00:05.000Z по 2027-08-19T00:13:50.000Z');
     expect(tail).toContain('уже за сроком: 0');
+    // Продление срока сверку не обновляет — это сказано рядом с датой.
+    expect(tail).toContain('повторить сверку нечем: после этого срока право по трём уликам пропадёт насовсем');
+  });
+
+  it('сверку можно повторить или сборка об этом молчит — строки «нечем» нет', () => {
+    const dated = {
+      readable: true, total: 1, undated: 0, oldest_checked_at: '2026-08-19T00:00:05.000Z', newest_checked_at: '2026-08-19T00:00:05.000Z',
+      by_day: { '2026-08-19': 1 }, fresh_days: 365, first_expires_at: '2027-08-19T00:00:05.000Z', last_expires_at: '2027-08-19T00:00:05.000Z', expired: 0,
+    };
+    expect(summary({ ...BASE, source_checks: { ...dated, recheck_available: true } })).not.toContain('повторить сверку нечем');
+    expect(summary({ ...BASE, source_checks: dated })).not.toContain('повторить сверку нечем');
   });
 
   it('таблица не прочиталась — так и сказано, числа не печатаются', () => {
