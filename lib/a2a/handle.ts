@@ -34,6 +34,7 @@ import { randomUUID } from 'node:crypto';
 import type { PublicToolOutcome } from '@/lib/mcp/tool-outcome';
 import type { AgentAnswer } from './chat';
 import type { A2ATaskStore, ChatTurn, TaskLookup } from './task-store';
+import { safeRejectCode } from './reject-reason';
 import {
   a2aError, encodeSendMessageResult, encodeTask, readSendMessageParams, readTaskIdParams,
   TERMINAL_STATES,
@@ -143,6 +144,8 @@ async function sendMessage(params: unknown, ctx: A2AContext, deps: Deps): Promis
     const metadata = { input: 'tool', tool: call.tool };
     // Причина отказа — кодом рядом с видом входа (13.11): агент чинит запрос по
     // коду, а журнал A2A называет причину, не читая текст (lib/a2a/reject-reason).
+    // Код проходит ту же проверку вида, что перед записью в журнал: в metadata
+    // задачи тоже не попадёт ни слов агента, ни значения аргумента.
     const rejected = (reason: string) => ({ ...metadata, reason });
     let task: TaskRecord;
     switch (outcome.kind) {
@@ -159,7 +162,7 @@ async function sendMessage(params: unknown, ctx: A2AContext, deps: Deps): Promis
         task = makeTask({ ids, now, id: taskId, contextId, state: 'rejected', text: outcome.message, extra: outcome.data, metadata: rejected('unknown_tool') });
         break;
       case 'refused':
-        task = makeTask({ ids, now, id: taskId, contextId, state: 'rejected', text: outcome.text, metadata: rejected(outcome.code ?? 'refused') });
+        task = makeTask({ ids, now, id: taskId, contextId, state: 'rejected', text: outcome.text, metadata: rejected(safeRejectCode(outcome.code) ?? 'refused') });
         break;
       case 'rate_limited':
         task = makeTask({ ids, now, id: taskId, contextId, state: 'rejected', text: outcome.text, metadata: rejected('rate_limited') });

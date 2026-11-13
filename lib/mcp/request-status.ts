@@ -39,8 +39,10 @@
  * статус до ответа кнопкой — `delivered` с тем, кому передана, а не «ждёт
  * ответа», который может не прийти. С 1349 владелец
  * отвечает и в переписке на странице заявки, с 1350 — любой адресат заявки:
- * агенту видно число ответов (`partner_replies`), текста нет. С 1359
- * владелец отвечает и кнопкой — статус её читает (ниже).
+ * агенту видно число ответов (`partner_replies`), а с 13.11 — и сами слова
+ * адресата (`partner_messages`, lib/mcp/partner-messages): перевести их
+ * человеку на его язык может только тот, кто их видит. С 1359 владелец
+ * отвечает и кнопкой — статус её читает (ниже).
  *
  * ── Ответ адресата кнопкой (11.11, план «после отказа», этап 1) ────────────
  *
@@ -78,6 +80,7 @@ import { logText } from '@/lib/log/log-text';
 import { isTestKey, testKeyStatus } from '@/lib/mcp/test-run';
 import type { RequestOtherOffers } from '@/lib/requests/other-offers-status';
 import type { RequestOtherStays } from '@/lib/stay/other-stays-status';
+import type { PartnerMessages } from '@/lib/mcp/partner-messages';
 import { effectiveStatus, type SeatRequestStatus, type FailureKind } from '@/lib/seat-requests/core';
 import {
   REQUEST_KEY_MIN_CHARS, REQUEST_KEY_MAX_CHARS, REQUEST_STATES, ADDRESSEE_WORDS, capitalized, publicDisabledReason,
@@ -246,8 +249,8 @@ export async function issueRequestKeyRecord(target: RequestKeyTarget, toolName: 
 export function keyLine(key: string | null, kind: 'request' | 'stay' = 'request', chat = false): string {
   if (kind === 'stay') {
     return key
-      ? ` Ключ статуса заявки: ${key} — по нему get_request_status покажет, кому передана заявка и сколько владелец ответил (без имени и телефона).`
-        + ' Ответ владелец даёт звонком или сообщением на странице заявки; текст переписки get_request_status не отдаёт.'
+      ? ` Ключ статуса заявки: ${key} — по нему get_request_status покажет, кому передана заявка и что владелец ответил (без имени и телефона человека).`
+        + ' Ответ владелец даёт звонком или сообщением в переписке заявки: его слова get_request_status отдаёт в partner_messages.'
         + ` Человеку дайте ссылку ${requestStatusPageUrl(key)}: там он сам подтверждает согласие на передачу данных владельцу жилья и переписывается с владельцем.`
         + ` Чтобы ответы владельца приходили человеку в MAX, дайте ему и эту ссылку: ${guestBotLink(maxBot(), key)}.`
         + ' Ключ и ссылку не публикуйте; ссылку на MAX — тоже.'
@@ -255,7 +258,7 @@ export function keyLine(key: string | null, kind: 'request' | 'stay' = 'request'
   }
   if (!key) return ' Ключ статуса заявки не выдан (сбой записи ключа): узнать исход можно только по звонку оператора.';
   return chat
-    ? ` Ключ статуса заявки: ${key} — по нему get_request_status покажет состояние и сколько адресат ответил в переписке (без имени и телефона); текст переписки get_request_status не отдаёт.`
+    ? ` Ключ статуса заявки: ${key} — по нему get_request_status покажет состояние и что адресат ответил в переписке (partner_messages; без имени и телефона человека).`
       + ` Человеку дайте ссылку ${requestStatusPageUrl(key)}: там он сам подтверждает согласие на обработку данных и переписывается с адресатом заявки.`
       + ` Чтобы ответы приходили человеку в MAX, дайте ему и эту ссылку: ${guestBotLink(maxBot(), key)}.`
       + ' Ключ и ссылку не публикуйте; ссылку на MAX — тоже.'
@@ -292,10 +295,18 @@ export interface RequestStatusView {
    * Переписка (1349, 1350): сколько сообщений написал адресат заявки —
    * владелец жилья, туроператор, перевозчик, прокат — и когда последнее.
    * null — переписки по этому ключу нет (ключ повтора, запрос мест, лид без
-   * адресата). Текста нет.
+   * адресата). Сами слова — в `partner_messages`.
    */
   partner_replies: number | null;
   partner_last_reply_at: string | null;
+  /**
+   * Последние сообщения адресата (13.11) — только чтению агента по ключу,
+   * который открывает переписку: названы, адресат не писал или не
+   * прочитались. null — переписки по ключу нет либо читает не агент (страница
+   * показывает переписку сама, Кузьмич отвечает кодом). Читается отдельно от
+   * вида (база), поэтому в `RequestCore` его нет.
+   */
+  partner_messages: PartnerMessages | null;
   /** Ссылка подключить MAX клиента; null — подключён или переписки по ключу нет. */
   max_link: string | null;
   /** Подписка на уведомления этой заявки (1348): null — не заводилась или уже удалена. */
@@ -526,8 +537,8 @@ export function stayState(delivery: StayDelivery): RequestState {
 }
 
 const STAY_HUMAN: Record<StayDelivery, string> = {
-  owner: 'Заявка передана владельцу жилья в мессенджер. Владелец отвечает звонком по телефону из заявки или сообщением на странице заявки; текст переписки здесь не показывается.',
-  platform: 'Заявка у оператора Ведара: владелец пока не подключил мессенджер, оператор передаст её ему. Владелец отвечает звонком или сообщением на странице заявки; текст переписки здесь не показывается.',
+  owner: 'Заявка передана владельцу жилья в мессенджер. Владелец отвечает звонком по телефону из заявки или сообщением в переписке заявки.',
+  platform: 'Заявка у оператора Ведара: владелец пока не подключил мессенджер, оператор передаст её ему. Владелец отвечает звонком или сообщением в переписке заявки.',
   none: 'Заявка записана, но не дошла ни владельцу, ни оператору Ведара.',
   not_recorded: 'Заявка записана, но куда она дошла, не записано.',
 };
@@ -1137,7 +1148,7 @@ function dateChangeNote(requested: string | null, actual: string | null): string
  * уведомлений. Ссылки с ключом (страница, MAX) — только в ответе по ключу:
  * сырого ключа у сверки нет и быть не должно.
  */
-export type RequestCore = Omit<RequestStatusView, 'page' | 'notify' | 'max_link' | 'other_offers' | 'other_stays'>;
+export type RequestCore = Omit<RequestStatusView, 'page' | 'notify' | 'max_link' | 'other_offers' | 'other_stays' | 'partner_messages'>;
 
 /** Переписки у запроса мест нет: поля есть, значения null. */
 const NO_CHAT = { partner_replies: null, partner_last_reply_at: null } as const;
@@ -1145,9 +1156,19 @@ const NO_CHAT = { partner_replies: null, partner_last_reply_at: null } as const;
 /**
  * Адресат уже ответил в переписке. Те же слова уходят и в уведомление (поле
  * next), а в его теле нет ни страницы, ни ссылки MAX — поэтому текст отсылает
- * к ответу get_request_status, а не к полям этого же ответа.
+ * к ответу get_request_status, а не к полям этого же ответа. Их же читает
+ * человек в чате Кузьмича по вставленному ключу (lib/kuzmich/code-first).
  */
-const CHAT_REPLIED_NEXT = 'Дайте человеку страницу заявки из ответа get_request_status: там ответ, и ответить можно там же или в MAX.';
+export const CHAT_REPLIED_NEXT = 'Дайте человеку страницу заявки из ответа get_request_status: там ответ, и ответить можно там же или в MAX.';
+
+/**
+ * То же — агенту, который получил сами слова адресата (`partner_messages`,
+ * 13.11): страница остаётся местом, где человек отвечает, а ответ адресата
+ * агент передаёт сам. Подставляется только в чтении агента и только когда
+ * слова названы: не прочитались — остаётся отсылка на страницу, там они есть.
+ */
+export const CHAT_REPLIED_NEXT_AGENT = 'Слова адресата — в поле partner_messages: передайте их человеку на его языке. '
+  + 'Ответить адресату человек может на странице заявки (page) или в MAX.';
 
 /** Поле notify ответа: есть строка подписки — номер, жива ли и почему нет (словом для агента). */
 export function notifyStatusOf(row: StatusRow): RequestNotifyStatus | null {
@@ -1173,7 +1194,7 @@ export function buildRequestView(row: StatusRow, now: number): RequestCore {
     // Ответ владельца кнопкой (1359) — главнее доставки: заявка до него дошла.
     const answered = exists ? stayAnswerView(row.stay_owner_answer) : null;
     const state = answered ? answered.state : exists ? stayState(delivery) : 'unknown';
-    // Переписка (1349): сколько написал владелец — без текста.
+    // Переписка (1349): сколько написал владелец; сами слова агенту читает readRequestStatus.
     const chat = exists && row.opens_chat === true;
     const replies = Number(row.chat_partner_replies ?? 0);
     const stayHuman = answered ? answered.human : STAY_HUMAN[delivery];
@@ -1191,7 +1212,7 @@ export function buildRequestView(row: StatusRow, now: number): RequestCore {
       alt_date: null,
       deadline: null,
       human: !exists ? HUMAN.unknown
-        : chat && replies > 0 ? `${stayHuman} Владелец уже ответил в переписке (сообщений: ${replies}); текст — на странице заявки, здесь он не показывается.`
+        : chat && replies > 0 ? `${stayHuman} Владелец уже ответил в переписке (сообщений: ${replies}); текст — на странице заявки.`
         : stayHuman,
       next: !exists ? NEXT.unknown
         : chat && replies > 0 ? (answered ? `${stayNext} ${CHAT_REPLIED_NEXT}` : CHAT_REPLIED_NEXT)
@@ -1267,7 +1288,7 @@ export function buildRequestView(row: StatusRow, now: number): RequestCore {
   const answered = row.lead_id && row.lead_status !== null ? leadAnswerView(row, consent_purpose, requested) : null;
   const state = answered ? answered.state : row.lead_id ? leadState(row.lead_status, row.booking_status) : 'unknown';
   // Переписка с адресатом лида (1350): только ключ новой заявки и только лид,
-  // адресованный партнёру. Без текста — число и время ответов.
+  // адресованный партнёру. Здесь число и время ответов; слова агенту читает readRequestStatus.
   const chat = row.lead_id !== null && row.lead_status !== null && row.opens_chat === true && row.lead_addressed === true;
   const replies = Number(row.chat_partner_replies ?? 0);
   // Отменил клиент (1427): брони нет, и «бронь по заявке отменена» было бы неправдой.
@@ -1290,7 +1311,7 @@ export function buildRequestView(row: StatusRow, now: number): RequestCore {
     alt_date: null,
     deadline: null,
     human: chat && replies > 0
-      ? `${human} Адресат заявки ответил в переписке (сообщений: ${replies}); текст — на странице заявки, здесь он не показывается.`
+      ? `${human} Адресат заявки ответил в переписке (сообщений: ${replies}); текст — на странице заявки.`
       : human,
     next: answered
       ? (chat && replies > 0 ? `${answered.next} ${CHAT_REPLIED_NEXT}` : answered.next)
@@ -1371,8 +1392,22 @@ export async function readRequestStatus(rawKey: unknown, opts: StatusReader = {}
     const { readStatusOtherStays } = await import('@/lib/stay/other-stays-status');
     other_stays = await readStatusOtherStays(row, core);
   }
+  // Слова адресата (13.11) — только агенту и только по ключу, который
+  // открывает переписку (partner_replies не null). Вид важнее списка: чтение
+  // не бросает, «не прочиталось» — свой исход, а не «не писал».
+  let partner_messages: PartnerMessages | null = null;
+  if (opts.reader === 'agent' && core.partner_replies !== null) {
+    const { readPartnerMessages } = await import('@/lib/mcp/partner-messages');
+    const stay = core.kind === 'stay_request';
+    partner_messages = await readPartnerMessages(
+      { stayRequestId: stay ? row.stay_request_id : null, leadId: stay ? null : row.lead_id },
+      core.partner_replies,
+    );
+  }
   return {
     ...core,
+    // Слова названы агенту — «что дальше» говорит о них, а не шлёт за ними на страницу.
+    next: partner_messages?.state === 'listed' ? core.next.replace(CHAT_REPLIED_NEXT, CHAT_REPLIED_NEXT_AGENT) : core.next,
     page: requestStatusPageUrl(key),
     // Подключить MAX клиента (1349, 1350): ссылку строит сырой ключ, он есть
     // только здесь. Переписка по ключу открыта — partner_replies не null.
@@ -1380,6 +1415,7 @@ export async function readRequestStatus(rawKey: unknown, opts: StatusReader = {}
     notify: notifyStatusOf(row),
     other_offers,
     other_stays,
+    partner_messages,
   };
 }
 
