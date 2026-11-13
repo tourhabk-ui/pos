@@ -126,6 +126,7 @@
 **DS-утилиты:** `ds-page` `ds-card` `ds-input` `ds-btn` `ds-btn-primary` `ds-btn-secondary` `ds-btn-danger` `ds-section` `ds-badge` `ds-h1` `ds-h2` `ds-label` `ds-skeleton`
 
 > Полный агент-читаемый справочник DS (токены, утилиты, запреты, композиция) — `.claude/DESIGN_SYSTEM.md`. Перед генерацией UI сверяться с ним, не выдумывать классы/библиотеки.
+> Таблица выше и таблица справочника — пересказ `app/globals.css`. 13.11 в справочнике нашлись четыре значения светлой темы от прежнего оранжевого акцента; теперь оба пересказа сверяет со стилями сторож `tests/unit/design-tokens-docs-match-css.test.ts`.
 
 **Типографика:** заголовки — `Playfair Display` (`--font-playfair`), текст — `Outfit` (`--font-outfit`)
 
@@ -1713,7 +1714,7 @@ COPY --from=builder /app/start.js ./start.js
 - Опасности (`hazard_types`) — бейджи: лавины, камнепад, термальные, высота
 - До медпомощи (`nearest_medical_km`)
 - Спутниковая связь (`sat_communicator_required`)
-- Экстренные телефоны (112, МЧС Камчатка)
+- Экстренные телефоны (112, МЧС Камчатка) — только из `lib/safety/emergency-numbers.ts`: региональный номер показывается, если его проверил владелец. В скиллах и командах агентов других номеров тоже быть не может (13.11 в справке скилла `trust-first` стояли два непроверенных); сторож — `tests/unit/agent-instructions-emergency-numbers.test.ts`
 - НЕ инструкция как идти — это свойство места
 
 **7. Маршруты (ссылки-кнопки):**

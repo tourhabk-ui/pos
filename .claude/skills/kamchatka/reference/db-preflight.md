@@ -1,6 +1,6 @@
 # DB Preflight — проверка схемы перед SQL
 
-Перед написанием любого кода с SQL-запросами **обязательно** выполни эти запросы через `mcp__postgres__query`.
+Перед написанием кода с SQL-запросами сверь схему. Запросы ниже выполняются через `mcp__postgres__query`, если он подключён (`infra/mcp-postgres/README.md`), или на локальном PostgreSQL (скилл `pg-verify`). Нет ни того, ни другого — читай `docs/DB_SCHEMA.md` (снимок схемы с настоящего PostgreSQL) и `migrations/`. Имя колонки по памяти не пишется ни в одном из случаев.
 
 ## 1. Список operator_* таблиц
 
@@ -47,7 +47,7 @@ WHERE tc.constraint_type = 'FOREIGN KEY' AND tc.table_name = '{TABLE_NAME}';
 | `name` (tours) | `title` (operator_tours) |
 | `price` (tours) | `base_price` (operator_tours) |
 | `photos` — JSONB | `photos` — TEXT[] |
-| `included` — TEXT | `included` — JSONB |
+| `included` — JSONB | `included` — TEXT[] (operator_tours; JSONB — у `program`) |
 
 ## Запрещено
 

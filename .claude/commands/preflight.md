@@ -24,7 +24,7 @@
 - API routes имеют auth check и Zod валидацию
 - Импорт pool — named (`{ pool }`)
 - Нет прямого `SELECT * FROM kamchatka_routes` (только через `v_kamchatka_routes_api`)
-- Нет `await callDeepSeek/callMiMo/callOpenrouter` напрямую (только `callAIWaterfall/callAIFast`)
+- Нет `callDeepSeek` / `callOpenrouter` напрямую, с `await` и без (только `callAIWaterfall` / `callAIFast`; сторож — `tests/unit/ai-direct-calls.test.ts`)
 
 ### 5. Вердикт
 

@@ -20,7 +20,7 @@ Run before every public release of a safety-claiming feature. Each gate is binar
 
 **Test:** Open on mobile, tap each emergency number.
 
-- [ ] All numbers render as `<a href="tel:...">` (not plain text)
+- [ ] All numbers come from the one verified source (on Vedar: `lib/safety/emergency-numbers.ts`) and render as a `tel:` link built by its helper (`telHref`), not plain text
 - [ ] 112 listed first
 - [ ] Numbers work on mobile (no spaces/dashes that break tel: protocol)
 
@@ -68,7 +68,7 @@ Run before every public release of a safety-claiming feature. Each gate is binar
 
 **Test:** Check all price displays.
 
-- [ ] Every price has "from" qualifier or exact conditions defined
+- [ ] Every price names its unit (per person, per vehicle, per night) through the shared helper (on Vedar: `priceWithUnitWords`); "from" appears only where the source really is a minimum
 - [ ] Cached prices show last-updated date if >24h old
 - [ ] No price shown from >7 day old cache
 

@@ -17,14 +17,14 @@
 
 ### 4. API routes
 - POST/PATCH без Zod-валидации
-- API route без `getSession()` check (кроме public: health, auth/signin, webhooks)
+- Защищённый API route без проверки JWT — `requireAuth` / `requireAdmin` / `requireRole` из `lib/auth/middleware.ts` (кроме публичных: health, auth, webhooks; у `/api/cron/*` — `CRON_SECRET`)
 - SQL без try/catch
 
 ### 5. Дизайн-система
 - Хардкод hex цветов (#fff, #000, #E8734A) вместо CSS vars
-- `bg-white` вместо `card` или `bg-[var(--card-bg)]`
-- `backdrop-blur` (запрещено)
-- `rounded-2xl` (запрещено — максимум rounded-lg)
+- `bg-white` / `text-white` на сплошном фоне вместо токенов (`bg-[var(--bg-card)]`, `text-[var(--text-primary)]`); поверх фото и стекла — допустимо
+- Стекло (`backdrop-blur`) на светлом сплошном фоне, у SOS и у подтверждений; поверх фото, карт и тёмных подложек стекло разрешено (решение владельца 26.09.2026, `CLAUDE.md` §2)
+- `rounded-2xl` вне стекла и bento-тайлов
 - Эмодзи в коде и UI
 
 ## Как искать

@@ -13,16 +13,16 @@
 ### Цвета
 | Токен | Назначение | dark | light |
 |-------|-----------|------|-------|
-| `--bg-primary` | фон страницы | #0D1117 | #FAFAF9 |
-| `--bg-secondary` | фон секций | #161B22 | #EDE9E3 |
+| `--bg-primary` | фон страницы | #0D1117 | #F5F5F5 |
+| `--bg-secondary` | фон секций | #161B22 | #EBEBEB |
 | `--bg-card` | карточки | #21262D | #FFFFFF |
 | `--bg-hover` | hover | #30363D | #EEF3FB |
 | `--text-primary` | заголовки | #F0F6FC | #1A1A1A |
 | `--text-secondary` | подписи | #8B949E | #595959 |
 | `--text-muted` | плейсхолдеры, подписи (AA 4,5:1, 01.10) | #838D9A | #6B6B6B |
-| `--accent` | CTA, лава | #E8734A | #006CE4 |
-| `--accent-hover` | hover CTA | #d4623c | #B83E0A |
-| `--accent-muted` | фон-акцент | rgba(232,115,74,.1) | rgba(194,65,10,.1) |
+| `--accent` | CTA (в тёмной теме — лава, в светлой — синий) | #E8734A | #006CE4 |
+| `--accent-hover` | hover CTA | #d4623c | #0057B8 |
+| `--accent-muted` | фон-акцент | rgba(232,115,74,.1) | rgba(0,108,228,.1) |
 | `--ocean` | ссылки, иконки | #00A8CC | #003580 |
 | `--success` | эко, успех | #3FB950 | #008234 |
 | `--warning` | предупреждение | #D29922 | #876316 |
@@ -55,7 +55,7 @@
 | `ds-section` | bg-card + border + radius-lg + padding 1.5rem | блок-секция |
 | `ds-input` | поле ввода: min-height 44px, focus = accent-рамка | все input/textarea |
 | `ds-btn` | база кнопки: flex, min-height 44px, radius-md, scale на :active | все кнопки (+ модификатор) |
-| `ds-btn-primary` | accent-фон, тёмный текст | главный CTA |
+| `ds-btn-primary` | accent-фон, текст `--on-accent` (тёмный в тёмной теме, белый в светлой) | главный CTA |
 | `ds-btn-secondary` | прозрачная, border-strong | вторичное действие |
 | `ds-btn-danger` | danger-фон, белый текст | SOS, удаление |
 | `ds-badge` | пилюля-статус (radius 9999px, 0.75rem) | бейджи статусов |

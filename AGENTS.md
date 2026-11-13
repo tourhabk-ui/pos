@@ -1,7 +1,8 @@
 # KamchatourHub — AI Agents
 
 > Реестр рабочих AI-агентов платформы.
-> Обновлено: август 2026
+> Обновлено: ноябрь 2026 (сверка с кодом 13.11). Расписания и порядок моделей здесь
+> не повторяются: они менялись чаще этого файла. Источники названы в разделах ниже.
 
 ---
 
@@ -45,7 +46,9 @@
 **3. Слабое звено цикла — не дизайн, а питание.** Наш Agentic Loop построен
 целиком и стоит без движения, когда на ключе кончаются кредиты: `.github/workflows/claude.yml`
 падает с `Credit balance is too low`, и находки копятся неразобранными. Смена
-харнеса этого не лечит — упрётся в тот же счёт с другим провайдером.
+харнеса этого не лечит — упрётся в тот же счёт с другим провайдером. С 03.11
+руки по умолчанию идут через OpenRouter (Anthropic отвечал 403
+`verification_required`); вывод прежний — питание и доступ решают раньше дизайна.
 
 ### Чем мы владеем, а чем нет
 
@@ -61,20 +64,21 @@
 
 ### Cron-агенты (автономные)
 
-| Агент | Файл | Cron | Что делает |
-|-------|------|------|------------|
-| **Watchdog** | `lib/agents/watchdog.ts` | каждые 30 мин | Бронирования без подтверждения >24ч, операторы без ответа >48ч, лиды >2ч, SOS >30 мин. Алерты в Telegram. |
-| **Editor** | `lib/agents/editor.ts` | 02:00 UTC | Туры с описанием <300 символов → AI-рерайт → `route_description_cache`. Smoke-test: проверяет что записи реально попали в БД, при тихом отказе → Telegram алерт. |
-| **Kuzmich Place Enricher** | `lib/agents/kuzmich-place-enricher.ts` | 04:00 UTC | Генерирует `kuzmich_review` для мест без него. 20 мест за запуск. |
-| **Scout Digest** | `lib/agents/scout-digest.ts` | стадия `runEvoOrchestrator`, 4×/сутки (`evo.run` с cron-job.org); своего крона нет с 29.08, ручной прогон — маркер `.github/triggers/scout-digest.json` | 15 источников (`RSS_SOURCES`) + safety-слой для раздела «Камчатка»: RSS (Habr AI, Simon Willison, Hugging Face, MarkTechPost, HN, OpenAI, Google AI, DeepMind, Турпром, RATA, Skift, Product Hunt) + Telegram-превью (РСТ, Минэк-туризм, Vibecoding) → дедупликация URL (TTL 30д) → AI-синтез → Telegram. Гео-закрытые для РФ источники (t.me, openai.com) — через реле Cloudflare `infra/safety-relay` (`SCOUT_RELAY_BASE`, клиент `lib/agents/scout-relay.ts`); проверка реле с прода — `GET /api/cron/scout-relay-check`. Kamgov/ATOR сняты 01.08 (ленты умерли). |
-| **Scout Innovator** | `lib/agents/scout-innovator.ts` | 08:00 UTC | Анализ трендов + платформы → структурированные proposals → GitHub Issues (`agent-proposal`). Дедуп по открытым issues (Jaccard ≥ 0.5) + critic-gate (отсев нарушающего CLAUDE.md/готового) + task-locking (кросс-прогонный дедуп). |
-| **Danger Analyst** | `lib/agents/agencies/danger-analyst-agency.ts` | каждые 30 мин | Анализ опасностей по зонам маршрутов, данные в `v_current_danger`. |
-| **Legislation Sync** | `lib/services/legislation-importer.ts` | 1×/неделю | Парсинг законодательства (Путешествуем.рф) → `legislation_docs` → контекст Кузьмича со ссылкой. Нужны `FIRECRAWL_API_KEY` + URL'ы. `/api/cron/legislation-sync`. |
+| Агент | Файл | Запуск | Что делает |
+|-------|------|--------|------------|
+| **Watchdog** | `lib/agents/watchdog.ts` | каждые 30 мин на проде; GitHub — запасной раз в час | Единственный сторож операционной безопасности: SOS без реакции >15 мин (координаты и 112), брони без подтверждения >24 ч, операторы без ответа >48 ч, лиды >2 ч, кроны, переставшие запускаться. Полный список проверок — CLAUDE.md §8. Алерты в Telegram. |
+| **Editor** | `lib/agents/editor.ts` | раз в сутки, вне пика DeepSeek | Описания маршрутов: пустые и свои короткие. Пересказ фактов базы без выводов; нечего сказать — «НЕТ», и запись не пишется. Тексты мест не пишет с 22.10 (выключатель `MODEL_WRITES_PLACE_TEXT`). |
+| **Kuzmich Place Enricher** | `lib/agents/kuzmich-place-enricher.ts` | выключен 22.10 | Новые заметки «Кузьмич о месте» закрыты тем же выключателем `MODEL_WRITES_PLACE_TEXT` (`lib/places/model-place-text.ts`). Включение обратно — видимым коммитом по слову владельца. |
+| **Scout Digest** | `lib/agents/scout-digest.ts` | свой крон `cron-scout-digest.yml`, 2 раза в сутки (с 05.09; до этого был стадией `evo.run`); ручной прогон — маркер `.github/triggers/scout-digest.json` | 15 источников (`RSS_SOURCES`) + safety-слой для раздела «Камчатка»: RSS (Habr AI, Simon Willison, Hugging Face, MarkTechPost, HN, OpenAI, Google AI, DeepMind, Турпром, RATA, Skift, Product Hunt) + Telegram-превью (РСТ, Минэк-туризм, Vibecoding) → дедупликация URL (TTL 30д) → AI-синтез → Telegram. Гео-закрытые для РФ источники (t.me, openai.com) — через реле Cloudflare `infra/safety-relay` (`SCOUT_RELAY_BASE`, клиент `lib/agents/scout-relay.ts`); проверка реле с прода — `GET /api/cron/scout-relay-check`. Kamgov/ATOR сняты 01.08 (ленты умерли). |
+| **Scout Innovator** | `lib/agents/scout-innovator.ts` | расписание снято 29.08; только вручную (`cron-scout.yml`, `workflow_dispatch`) | Анализ трендов + платформы → структурированные proposals → GitHub Issues (`agent-proposal`). Дедуп по открытым issues (Jaccard ≥ 0.5) + critic-gate (отсев нарушающего CLAUDE.md/готового) + task-locking (кросс-прогонный дедуп). |
+| **Danger Analyst** | `lib/agents/agencies/danger-analyst-agency.ts` | каждые 30 мин, шаг `cron-safety-heartbeat.yml` | Анализ опасностей по зонам маршрутов, данные в `v_current_danger`. |
+| **Legislation Sync** | `lib/services/ingest/legislation-importer.ts` | 1×/неделю | Парсинг законодательства (Путешествуем.рф) → `legislation_docs` → контекст Кузьмича со ссылкой. Нужны `FIRECRAWL_API_KEY` + URL'ы. `/api/cron/legislation-sync`. |
 | **Memory Reflector** | `lib/agents/memory-reflector.ts` | 1×/сутки | Истекающие intel-сигналы → durable insight-страницы в `agent_knowledge`. `/api/cron/memory-reflect`. |
 | **Contradiction Scanner** | `lib/agents/memory-contradiction.ts` | 1×/сутки | Safety: прямые противоречия в данных → флаг в `agent_knowledge` + алерт. `/api/cron/memory-contradiction`. |
 | **Editor Eval** | `lib/agents/eval/editor-regression.ts` | on-demand | Регрессионный TSR + Wilson CI + LLM-judge качества Editor до выкатки промпта. `/api/cron/editor-eval?judge=1`. |
 
-GitHub Actions: `.github/workflows/cron-watchdog.yml`, `cron-editor.yml`, `cron-scout-digest.yml`, `cron-scout.yml`, `cron-kuzmich-places.yml`
+GitHub Actions: `.github/workflows/cron-watchdog.yml`, `cron-editor.yml`, `cron-scout-digest.yml`, `cron-kuzmich-places.yml`, `cron-safety-heartbeat.yml`; `cron-scout.yml` — только ручной запуск.
+Точное расписание каждого крона — `lib/agents/cron-registry.ts`; сторож `tests/unit/cron-registry-honesty.test.ts` сверяет его с workflow. В таблице выше расписание названо словами намеренно: записанные часы расходились с кодом.
 Новые croны (Legislation Sync, Memory Reflector, Contradiction Scanner, Editor Eval) — через cron-job.org; настройка в [`docs/ACTIVATION_CHECKLIST.md`](./docs/ACTIVATION_CHECKLIST.md).
 
 ### Loop-агенты (GitHub Actions, loop engineering)
@@ -110,17 +114,17 @@ LLM-петля готовит изменения draft-PR'ом, мержит ч�
 |-------|----------|--------|
 | Веб (полная страница) | `/kuzmich` | Работает |
 | Виджет (все страницы) | `components/kuzmich/KuzmichWidget.tsx` в `layout.tsx` | Работает |
-| Telegram | `/api/telegram/kuzmich` | Активен (разговоры сегодня) |
-| MAX (VK) | `/api/max/kuzmich` | Активен (разговоры вчера) |
+| Telegram | `/api/telegram/webhook` — живой вход бота (`/api/telegram/kuzmich` к боту не подключён) | Работает |
+| MAX (VK) | `/api/max/kuzmich` | Работает |
 | WhatsApp | `/api/whatsapp/kuzmich` | Код готов |
 
-Возможности: текст + фото (Gemini Vision), инлайн-бронирование с QR-оплатой (Точка Банк), UTM-трекинг, долгосрочная память (`user_ai_memory`), поиск туров из БД.
+Возможности: текст и фото (зрение — Qwen VL: Gemini с прода недоступен), заявки на тур, машину, жильё и прокат — каждую подтверждает человек, UTM-трекинг, долгосрочная память (`user_ai_memory`), поиск туров из БД. Оплату платформа не принимает с 05.10 (`lib/payments/accepting.ts`), поэтому QR-оплаты в чате нет.
 
 ### Danger Analyst
 
 | Файл | Cron | Что делает |
 |------|------|------------|
-| `lib/agents/agencies/danger-analyst-agency.ts` | 30 мин (cron-job.org) | Анализ опасностей по зонам маршрутов |
+| `lib/agents/agencies/danger-analyst-agency.ts` | каждые 30 мин, шаг `cron-safety-heartbeat.yml` | Анализ опасностей по зонам маршрутов |
 
 Endpoint: `/api/cron/danger-analysis`
 
@@ -136,7 +140,6 @@ Endpoint: `/api/cron/danger-analysis`
 | **Rescue** | `agencies/rescue-agency.ts` | SOS-консультации | PlatformAgent |
 | **Lead** | `agencies/lead-agency.ts` | Обработка лидов | PlatformAgent |
 | **Marketing** | `agencies/marketing-agency.ts` | Маркетинг | PlatformAgent |
-| **Transfer** | `agencies/transfer-operator-agency.ts` | Трансферы | PlatformAgent |
 
 ---
 
@@ -174,42 +177,31 @@ Endpoint: `/api/cron/danger-analysis`
 
 ## AI WATERFALL
 
-```
-Tier 1 (гонка): OpenRouter + DeepSeek + Gemini + MiMo + GLM
-Tier 2 (гонка): YandexGPT + MiniMax
-Tier 3 (последовательно): Anthropic
-```
+Порядка ступеней здесь нет намеренно: он меняется чаще этого файла, и
+записанная таблица называла удалённых провайдеров живыми.
 
-| Провайдер | Env | Статус |
-|-----------|-----|--------|
-| OpenRouter | `OR_API_KEY` | Tier 1 |
-| DeepSeek | `DEEPSEEK_API_KEY` | Tier 1 |
-| Gemini 2.0 Flash | `GEMINI_API_KEY` | Tier 1 |
-| Xiaomi MiMo | `XIAOMI_API_KEY` | Tier 1 |
-| GLM Z1 | `OR_API_KEY` (via OR) | Tier 1 |
-| Fugu Ultra | `FUGU_API_KEY` | Tier 1 |
-| YandexGPT | `YANDEX_API_KEY` + `YANDEX_FOLDER_ID` | Tier 2 |
-| MiniMax | `MINIMAX_API_KEY` | Tier 2 |
-| Anthropic | `ANTHROPIC_API_KEY` | Tier 3 |
-
-Файл: `lib/ai/providers.ts`
+- Водопады (`callAIWaterfall`, `callAIFast`), цикл инструментов Кузьмича и
+  решатель эволюции (`callAIDecision`) — `lib/ai/providers.ts`.
+- Кто чем решает и почему — CLAUDE.md §8.
+- Модель выбирается из каталога провайдера (`lib/ai/model-resolver.ts`); id
+  модели в коде не пишется.
+- Провайдера напрямую не зовут — только через водопад (сторож
+  `tests/unit/ai-direct-calls.test.ts`).
+- Имена переменных с ключами — `lib/ai/provider-config.ts`.
 
 ---
 
 ## CRON-ЗАДАЧИ
 
-| Endpoint | Запускатор | Расписание | Статус |
-|----------|-----------|------------|--------|
-| `/api/cron/watchdog` | GitHub Actions | 30 мин | Работает |
-| `/api/cron/editor` | GitHub Actions | 02:00 UTC | Работает |
-| `/api/cron/scout-digest` | GitHub Actions | 07:00 UTC | Работает |
-| `/api/cron/leads-process` | GitHub Actions | 30 мин | Работает |
-| `/api/cron/followups` | GitHub Actions | 30 мин | Работает |
-| `/api/cron/intelligence` | cron-job.org | 6ч | Работает |
-| `/api/cron/danger-analysis` | cron-job.org | 30 мин | Работает |
-| `/api/cron/health` | cron-job.org | 1ч | Работает |
-| `/api/cron/kuzmich` | cron-job.org | 12ч | Посты Кузьмича |
-| `/api/cron/abandoned-bookings` | cron-job.org | 1ч | Напоминания/auto-cancel |
+Таблицы расписаний здесь нет намеренно: она расходилась с кодом.
+
+- Кроны GitHub Actions и их расписания — `lib/agents/cron-registry.ts`.
+- Роуты без workflow (внешний планировщик или запуск рукой) —
+  `lib/agents/cron-schedulers.ts`. Идёт ли внешний планировщик на деле,
+  репозиторий подтвердить не может: проверять по следу в данных.
+- Семь получасовых кронов сведены в `cron-safety-heartbeat.yml`. Частоту
+  безопасности на проде держит супервизор `start.js`, GitHub — запасная нога.
+  Подробности — CLAUDE.md §8.
 
 ---
 
@@ -232,7 +224,7 @@ Tier 3 (последовательно): Anthropic
 ```
 lib/agents/
   watchdog.ts              — Watchdog (мониторинг)
-  editor.ts                — Editor (описания туров)
+  editor.ts                — Editor (описания маршрутов)
   scout-digest.ts          — Scout Digest (RSS дайджест)
   platform-agent.ts        — Диспетчер intent → agency
   intent-classifier.ts     — Классификатор интентов
@@ -247,7 +239,6 @@ lib/agents/
     rescue-agency.ts       — SOS-консультации
     lead-agency.ts         — Обработка лидов
     marketing-agency.ts    — Маркетинг
-    transfer-operator-agency.ts — Трансферы
     danger-analyst-agency.ts — Анализ опасностей
 
 lib/kuzmich/
@@ -271,26 +262,30 @@ lib/mcp/dev-tools/server.ts — MCP: brain_* tools
 4. Retrieved context (файлы, RAG) — стабильны в пределах задачи
 5. История диалога и tool results — единственная динамическая часть
 
-Всё новое дописывается ТОЛЬКО в конец. Префикс не мутируется никогда.
+Новое в диалоге дописывается в конец; начало контекста среда не переставляет.
 
-### Что ломает кэш (запрещено в рабочей сессии)
-- Редактирование AGENTS.md, CLAUDE.md или system-файлов в середине сессии
+### Что ломает кэш
+Это цена, а не запрет: каждое действие ниже заставляет заплатить за запись
+кэша заново. Делай его, когда оно нужно работе, и не делай без нужды.
+- Правка AGENTS.md, CLAUDE.md или system-файлов. В PR это обычная работа:
+  решение записывается в CLAUDE.md вместе с кодом. Цена — следующий ход
+  перечитает файл без кэша
 - Переключение модели (Sonnet↔Opus) внутри задачи
 - Подключение/отключение MCP-серверов во время работы
 - Timestamp, дата, счётчик в system prompt или AGENTS.md
 - Перестановка порядка tool definitions (должен быть детерминированный, алфавитный)
 - `/clear` без реальной необходимости
-- Пауза > 5 минут (ephemeral TTL) — кэш испаряется, следующий ход оплачивается как write
+- Пауза дольше срока жизни кэша (5 минут или час — зависит от среды): следующий ход оплачивается как запись
 
 ### Что делать вместо
 - Обновление состояния → append reminder-тегом к user-сообщению, не редактировать префикс
 - Контекст раздулся → `/compact`, не `/clear`
 - Смена модели нужна → заканчивать задачу, начинать новую сессию
-- Пауза > 5 мин ожидается → закрыть сессию, открыть новую с чистого листа
+- Долгая пауза в сессии с нужным контекстом — не причина её бросать: запись кэша дешевле, чем собирать контекст задачи заново
 
 ### Минимальные пороги кэширования
-- Sonnet 4.x, Haiku 4.5: 1024 токена
-- Opus 4.x: 2048–4096 токенов
+Порог зависит от модели. Для моделей Claude 4.x он был от 1024 до 4096
+токенов; для текущей модели число смотреть в её документации.
 
 AGENTS.md должен быть длиннее порога, иначе кэш молча не включится.
 
@@ -299,6 +294,7 @@ AGENTS.md должен быть длиннее порога, иначе кэш �
 - Long session hygiene: 1 задача = 1 сессия. Не смешивать в одном окне деплой, homepage и AI Lead Processor — у них разный retrieved context, и переключения ломают кэш
 
 ### Источники экономии на KamchatourHub
+Оценка весны 2026 года для Sonnet 4.x (свежий замер счёта — CLAUDE.md §5.1).
 Сессия на 30 минут по KamchatourHub при обычной работе ест ~$6 на
 Sonnet без кэша. При hit-rate 92% — ~$1.15. Разница 5x. На горизонте
 месяца активной разработки — десятки тысяч рублей.
@@ -311,7 +307,7 @@ Sonnet без кэша. При hit-rate 92% — ~$1.15. Разница 5x. На 
 |--------|---------|
 | Dev server | `npm run dev` (port 3000) |
 | Lint | `npm run lint` |
-| Tests | `npx vitest run` (156 tests, ~3s) |
+| Tests | `npx vitest run` (весь набор — около 7 минут; один файл — `npx vitest run <путь>`) |
 | Type-check | `npx tsc --noEmit` |
 | Migrations | `DATABASE_URL=... npm run migrate` |
 

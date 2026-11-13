@@ -1,5 +1,12 @@
 # Offline-First Design — wilderness & expedition apps
 
+> The code below shows the pattern; it is not the platform's code. On Vedar
+> the real files are `public/sw.js` (service worker), `public/manifest.json`
+> (icons `/icons/icon-192.png`, `/icons/icon-512.png`), and the route GPX is
+> served by `GET /api/routes/[id]/export?format=gpx`. Read those before
+> changing offline behaviour, and do not copy file names or colours from the
+> examples.
+
 ## What must work without internet
 
 Priority order for caching:
@@ -97,7 +104,7 @@ function OfflineAwareData({ data, cachedAt }: { data: unknown; cachedAt?: Date }
 ```tsx
 function DownloadGPXButton({ routeId, routeTitle }: { routeId: string; routeTitle: string }) {
   async function download() {
-    const res = await fetch(`/api/routes/${routeId}/gpx`);
+    const res = await fetch(`/api/routes/${routeId}/export?format=gpx`);
     const blob = await res.blob();
     const url = URL.createObjectURL(blob);
     const a = document.createElement('a');

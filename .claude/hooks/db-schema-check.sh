@@ -5,6 +5,6 @@ if echo "$staged" | grep -qE '\.(ts|tsx|sql)$'; then
   has_sql=$(git diff --cached -- '*.ts' '*.tsx' '*.sql' 2>/dev/null \
     | grep -iE '^\+.*(SELECT|FROM|JOIN|pool\.query|\.query)' | head -3)
   if [ -n "$has_sql" ]; then
-    printf '{"systemMessage": "DB SCHEMA CHECK: В стейдже есть SQL-запросы. Проверил колонки через MCP postgres query? Угаданное имя колонки = битый прод."}'
+    printf '{"systemMessage": "DB SCHEMA CHECK: В стейдже есть SQL-запросы. Проверил колонки через MCP postgres query? Не подключён — сверь по migrations/ и docs/DB_SCHEMA.md. Угаданное имя колонки = битый прод."}'
   fi
 fi

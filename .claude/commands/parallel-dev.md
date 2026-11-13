@@ -17,7 +17,7 @@ UI_DATA:     {что отображать} — e.g. total_earned, pending_payout
 CONTRACT:    {JSON-структура ответа API}
 ```
 
-Если чего-то не знаешь — сначала прочитай схему через `mcp__postgres__query`, потом продолжай.
+Если чего-то не знаешь — сначала прочитай схему, потом продолжай: `docs/DB_SCHEMA.md` и `migrations/`; запрос к базе на чтение — `mcp__postgres__query`, если он подключён (`infra/mcp-postgres/README.md`).
 
 ## Шаг 2 — Параллельный запуск
 
@@ -42,9 +42,11 @@ Route: {API_ROUTE}
 - Тип ответа: {CONTRACT}
 
 НЕ трогай: middleware.ts, lib/auth.ts, app/api/payments/, app/api/safety/sos
+(полный список защищённых зон — scripts/protected-zones.mjs)
 
 Таблицы для работы: {API_TABLES}
-Перед написанием SQL — прочитай схему таблиц через mcp__postgres__query.
+Перед написанием SQL — прочитай схему таблиц: docs/DB_SCHEMA.md и migrations/
+(или mcp__postgres__query, если он подключён). Имя колонки не угадывай.
 
 Формат ответа: верни только код файла(ов), без объяснений.
 ```
@@ -63,7 +65,9 @@ Route: {API_ROUTE}
 - DS-классы: ds-card, ds-page, ds-btn, ds-btn-primary, ds-h1, ds-h2, ds-label, ds-badge
 - Шрифты: font-[family-name:var(--font-playfair)] для заголовков, остальное Outfit
 - Иконки: только lucide-react
-- Запрещено: bg-white, text-white, backdrop-blur, glassmorphism, emoji, hardcode hex
+- Запрещено: emoji, hardcode hex; bg-white и text-white — на сплошном фоне
+- Стекло (backdrop-blur) — только поверх фото, карт и тёмных подложек; на светлом
+  сплошном фоне, у SOS и у подтверждений его нет (CLAUDE.md §2)
 
 Структура страницы (Next.js App Router):
 - page.tsx — server component с metadata export
