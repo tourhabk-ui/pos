@@ -262,6 +262,7 @@ withPg('переписка по заявке на настоящем PostgreSQL'
       const v = await status.readRequestStatus(key, { reader: 'agent' });
       expect(v.partner_replies).toBe(1);
       expect(v.partner_messages?.state).toBe('listed');
+      // Запрос с именем гостя для маски исполняется и у заявки на жильё.
       expect(v.partner_messages?.items.map((m) => m.text)).toEqual(['Да, ждём с 12:00']);
       expect(v.partner_messages?.items[0].at).toBe(v.partner_last_reply_at);
       expect(v.partner_messages?.earlier).toBe(0);
@@ -844,19 +845,32 @@ withPg('переписка по заявке на настоящем PostgreSQL'
       expect(JSON.stringify(r)).not.toContain('Подача в 7:00');
 
       // Шесть сообщений адресата и одно клиента после них: агенту — пять
-      // последних слов адресата по порядку и «одно более раннее».
+      // последних слов адресата по порядку и «одно более раннее». В последнем
+      // адресат повторил имя клиента и написал телефон и почту: агенту —
+      // плейсхолдеры (имя берёт сам запрос из заявки), странице — как есть.
+      const guest = (await pool.query<{ name: string }>(`SELECT name FROM leads WHERE id = $1::uuid`, [leadId])).rows[0].name;
+      expect(guest.trim().length).toBeGreaterThan(2);
+      const sixth = `${guest}, звоните: +7 914 123-45-67, почта shatun@example.ru`;
       const added = await pool.query<{ id: string }>(
         `INSERT INTO request_messages (lead_id, author, door, body, created_at)
          SELECT $1::uuid, x.author, 'max', x.body, NOW() + (x.n * INTERVAL '1 second')
            FROM (VALUES (1, 'owner', 'Второе'), (2, 'owner', 'Третье'), (3, 'owner', 'Четвёртое'),
-                        (4, 'owner', 'Пятое'), (5, 'owner', 'Шестое'), (6, 'guest', 'Спасибо, понял')) AS x(n, author, body)
-         RETURNING id`, [leadId]);
+                        (4, 'owner', 'Пятое'), (5, 'owner', $2::text), (6, 'guest', 'Спасибо, понял')) AS x(n, author, body)
+         RETURNING id`, [leadId, sixth]);
       try {
         const many = await status.readRequestStatus(key, { reader: 'agent' });
         expect(many.partner_replies).toBe(6);
-        expect(many.partner_messages?.items.map((m) => m.text)).toEqual(['Второе', 'Третье', 'Четвёртое', 'Пятое', 'Шестое']);
+        expect(many.partner_messages?.items.map((m) => m.text)).toEqual([
+          'Второе', 'Третье', 'Четвёртое', 'Пятое', '[имя], звоните: [телефон], почта [email]',
+        ]);
         expect(many.partner_messages?.earlier).toBe(1);
-        expect(JSON.stringify(many)).not.toContain('Спасибо, понял');
+        const out = JSON.stringify(many);
+        expect(out).not.toContain('Спасибо, понял');
+        expect(out).not.toMatch(/914|123-45-67|shatun@/);
+        expect(out).not.toContain(guest);
+        // Человек на странице заявки читает тот же ответ целиком.
+        const page = await svc.readRequestChat(key);
+        expect(page.outcome === 'ok' && page.messages.some((m) => m.body === sixth)).toBe(true);
       } finally {
         await pool.query(`DELETE FROM request_messages WHERE id = ANY($1::uuid[])`, [added.rows.map((x) => x.id)]);
       }

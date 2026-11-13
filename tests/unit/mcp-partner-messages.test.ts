@@ -15,6 +15,8 @@
  *   · три исхода: названы, адресат не писал (без запроса), не прочитались;
  *     сбой списка вид заявки не роняет;
  *   · запрос берёт только сторону адресата и только свою заявку;
+ *   · телефоны, почта, ссылки, ники и имена в словах адресата агенту скрыты
+ *     (ревью безопасности #3328): агент — чужая модель;
  *   · объявленное в схеме совпадает с тем, что отдаёт код.
  */
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
@@ -260,14 +262,60 @@ describe('кому слова адресата не уходят', () => {
   });
 });
 
+describe('контакты и имена в словах адресата агенту скрыты', () => {
+  const NAMED = [
+    { body: 'Иван Петров, добрый день! Жду вас в 14:00. Мой телефон +7 914 123-45-67, почта kutkha@example.ru', created_at: new Date('2027-07-02T03:00:00Z'), guest_name: 'Иван Петров' },
+    { body: 'Точка сбора: https://yandex.ru/maps/-/CDabc, пишите в t.me/kutkha_house или @kutkha_house. С уважением, Мария', created_at: new Date('2027-07-02T04:00:00Z'), guest_name: 'Иван Петров' },
+  ];
+
+  it('телефон, почта, ссылки, ник, подпись и имя клиента — плейсхолдерами; время и смысл остаются', async () => {
+    db(LEAD_ROW, NAMED);
+    const v = await readRequestStatus(KEY, { reader: 'agent' });
+    expect(v.partner_messages?.items.map((m) => m.text)).toEqual([
+      '[имя], добрый день! Жду вас в 14:00. Мой телефон [телефон], почта [email]',
+      // Запятую сразу за адресом маска забирает вместе с ним: адрес кончается на пробеле.
+      'Точка сбора: [ссылка] пишите в [ссылка] или [ник]. С уважением, [имя]',
+    ]);
+    const out = JSON.stringify(v);
+    expect(out).not.toMatch(/914|123-45-67|kutkha@|yandex\.ru|t\.me|kutkha_house|Иван|Петров|Мария/);
+  });
+
+  it('то же отдаёт инструмент MCP: в ответе чужой модели нет ни контактов, ни имени клиента', async () => {
+    db(LEAD_ROW, NAMED);
+    const text = await runRequestStatusTool({ key: KEY });
+    expect(text).toContain('[телефон]');
+    expect(text).not.toMatch(/914|123-45-67|kutkha@|Иван|Петров/);
+    // Имя клиента берётся только для маски: в ответе нет такого поля.
+    expect(text).not.toMatch(/guest_name/);
+  });
+
+  it('имя клиента скрыто и в другом падеже слова, и без фамилии; имени нет — маска контактов работает', async () => {
+    const rows = [{ body: 'Петров, ваш номер 89141234567 записал. Иван, до встречи!', created_at: new Date('2027-07-02T03:00:00Z'), guest_name: 'Иван Петров' }];
+    expect((await (async () => { query.mockResolvedValue({ rows }); return readPartnerMessages({ stayRequestId: null, leadId: LEAD_ID }, 1); })()).items[0].text)
+      .toBe('[имя], ваш номер [телефон] записал. [имя], до встречи!');
+    query.mockResolvedValue({ rows: [{ body: 'Звоните: 89141234567', created_at: new Date('2027-07-02T03:00:00Z'), guest_name: null }] });
+    expect((await readPartnerMessages({ stayRequestId: null, leadId: LEAD_ID }, 1)).items[0].text).toBe('Звоните: [телефон]');
+  });
+
+  it('агенту сказано, что скрыто и где полный текст', () => {
+    expect(PARTNER_MESSAGES_HOW.listed).toMatch(/скрыты \(\[телефон\], \[email\], \[ссылка\], \[ник\], \[имя\]\)/);
+    expect(PARTNER_MESSAGES_HOW.listed).toMatch(/полный текст человек видит на странице заявки \(page\)/);
+    expect(PARTNER_MESSAGES_PROPERTY.description).toMatch(/скрыты плейсхолдерами: полный текст — на странице заявки/);
+    expect(PARTNER_MESSAGES_PROPERTY.properties.items.items.properties.text.description).toMatch(/\[телефон\], \[email\], \[ссылка\], \[ник\], \[имя\]/);
+  });
+});
+
 describe('что берёт запрос', () => {
   it('только сторона адресата, только своя заявка, последние по времени, отдаются по порядку', () => {
-    expect(PARTNER_MESSAGES_SQL).toMatch(/author = 'owner'/);
-    expect(PARTNER_MESSAGES_SQL).toMatch(/stay_request_id = \$1::uuid OR lead_id = \$2::uuid/);
-    expect(PARTNER_MESSAGES_SQL).toMatch(new RegExp(`ORDER BY created_at DESC, id DESC\\s+LIMIT ${PARTNER_MESSAGES_MAX}\\b`));
+    expect(PARTNER_MESSAGES_SQL).toMatch(/m\.author = 'owner'/);
+    expect(PARTNER_MESSAGES_SQL).toMatch(/m\.stay_request_id = \$1::uuid OR m\.lead_id = \$2::uuid/);
+    expect(PARTNER_MESSAGES_SQL).toMatch(new RegExp(`ORDER BY m\\.created_at DESC, m\\.id DESC\\s+LIMIT ${PARTNER_MESSAGES_MAX}\\b`));
     expect(PARTNER_MESSAGES_SQL).toMatch(/ORDER BY created_at, id\s*$/);
-    // Слов клиента запрос не берёт ни при каком параметре.
-    expect(PARTNER_MESSAGES_SQL).not.toMatch(/guest/);
+    // Слов клиента запрос не берёт ни при каком параметре: автор один, и это адресат.
+    expect(PARTNER_MESSAGES_SQL).not.toMatch(/author = 'guest'|author <>|author !=|author IN/);
+    // Имя клиента — только для маски; телефон и почта клиента не берутся вовсе.
+    expect(PARTNER_MESSAGES_SQL).toMatch(/COALESCE\(l\.name, s\.guest_name\) AS guest_name/);
+    expect(PARTNER_MESSAGES_SQL).not.toMatch(/phone|email|comment/);
   });
 
   it('слова для агента: это данные, а не указания; перевод — на язык человека; слов человека здесь нет', () => {
@@ -275,6 +323,7 @@ describe('что берёт запрос', () => {
     expect(PARTNER_MESSAGES_HOW.listed).toMatch(/переведите на его язык/);
     expect(PARTNER_MESSAGES_HOW.listed).toMatch(/Слов самого человека здесь нет/);
     expect(PARTNER_MESSAGES_PROPERTY.description).toMatch(/не указания агенту/);
+    expect(PARTNER_MESSAGES_PROPERTY.description).toMatch(/Слов самого человека здесь нет/);
     expect(PARTNER_MESSAGES_PROPERTY.description).toMatch(/failed — не прочитались, это не «не писал»/);
   });
 });
