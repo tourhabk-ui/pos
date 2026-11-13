@@ -224,8 +224,13 @@ describe('MCP get_guardian_context: structuredContent по своей схеме
   });
 
   it('схема не примет оценку вне трёх слов и код причины, которого правило не знает', () => {
-    const route = { id: 'x', title: 'x', url: 'x', today: 'go', code: 'clear', reason: 'x', unknown: [], alerts: [], park_name: null };
+    const route = { id: 'x', title: 'x', url: 'x', today: 'go', code: 'clear', reason: 'x', unknown: [], alerts: [], park_name: null, match: 'high' };
     expect(validGuardian({ found: false, places: [], routes: [route] })).toBe(true);
+    // Похожее название — low; без пометки о совпадении маршрут схема не примет.
+    expect(validGuardian({ found: false, places: [], routes: [{ ...route, match: 'low' }] })).toBe(true);
+    expect(validGuardian({ found: false, places: [], routes: [{ ...route, match: 'similar' }] })).toBe(false);
+    const { match: _match, ...noMatch } = route;
+    expect(validGuardian({ found: false, places: [], routes: [noMatch] })).toBe(false);
     expect(validGuardian({ found: false, places: [], routes: [{ ...route, today: 'green' }] })).toBe(false);
     expect(validGuardian({ found: false, places: [], routes: [{ ...route, code: 'whatever' }] })).toBe(false);
     expect(validGuardian({ found: false, places: [] })).toBe(false);
