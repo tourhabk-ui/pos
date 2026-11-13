@@ -18,12 +18,14 @@
  * что отличает замер от красивого текста.
  */
 import { describe, it, expect } from 'vitest';
-import { readFileSync, mkdtempSync, writeFileSync, chmodSync, existsSync, rmSync } from 'fs';
+import { readFileSync, mkdtempSync, mkdirSync, writeFileSync, chmodSync, existsSync, rmSync } from 'fs';
 import { join } from 'path';
 import { tmpdir } from 'os';
 import { spawnSync } from 'child_process';
 import { load } from 'js-yaml';
-import { evidenceIsQuoted, evidenceFragments, namedFiles, safeRepoPath, journalOverlap } from '../../scripts/os-audit-runner';
+import {
+  evidenceIsQuoted, evidenceFragments, namedFiles, safeRepoPath, journalOverlap, usdOf, PROBE_MAX_OUTPUT,
+} from '../../scripts/os-audit-runner';
 
 const SRC = readFileSync(join(process.cwd(), 'scripts/os-audit-runner.ts'), 'utf8');
 const WF = readFileSync(join(process.cwd(), '.github/workflows/os-audit.yml'), 'utf8');
@@ -432,6 +434,102 @@ describe('смена модели не ломает прогон и не выд�
   it('модель маркера имеет профиль — иначе цену никто не посчитает', () => {
     const marker = JSON.parse(readFileSync('.github/triggers/os-audit.json', 'utf8'));
     expect(SRC).toContain(`'${marker.model}':`);
+  });
+});
+
+// Слово владельца 13.11: аудит платформы переведён с Fable 5.1 на 5.2. Цена
+// сверена по странице тарифов Anthropic в тот же день.
+describe('аудит идёт на Fable 5.2, и цена у неё своя', () => {
+  it('смета считается по тарифу 5.2: $8 вход и $40 выход за миллион', () => {
+    expect(usdOf('claude-fable-5-2', 1_000_000, 0)).toBe(8);
+    expect(usdOf('claude-fable-5-2', 0, 1_000_000)).toBe(40);
+    // Прежняя модель дороже на четверть — её тариф не подставлен новой.
+    expect(usdOf('claude-fable-5-1', 1_000_000, 1_000_000)).toBe(60);
+    expect(usdOf('claude-fable-5-2', 1_000_000, 1_000_000)).toBe(48);
+  });
+
+  it('у незнакомой модели цены нет — отказ по бюджету на ней молчит, и это видно', () => {
+    expect(usdOf('claude-fable-9-9', 1_000_000, 1_000_000)).toBeNull();
+  });
+
+  it('проба формы оставляет место рассуждению', () => {
+    // У 5.2 рассуждение считается в потолок выхода: при 64 токенах ответ может
+    // кончиться до текста, и аудит откажется начинать проход.
+    expect(PROBE_MAX_OUTPUT).toBeGreaterThanOrEqual(512);
+    // Запрет: проба не идёт с зашитым малым потолком мимо константы.
+    expect(SRC).not.toMatch(/max_tokens: 64\b/);
+  });
+});
+
+// Правка маркера сама запускает workflow, а проход стоит денег. Шаг прохода
+// исполняется настоящим bash с подложенным npx: судится, позвали раннер или нет.
+describe('удержание: правка маркера не равна запуску прохода', () => {
+  type WfStep = { name?: string; run?: string };
+  const doc = load(WF) as { jobs: Record<string, { steps: WfStep[] }> };
+  const pass = Object.values(doc.jobs).flatMap((j) => j.steps).find((st) => st.name === 'Аудит одним проходом');
+
+  function runPass(marker: string | null) {
+    const dir = mkdtempSync(join(tmpdir(), 'os-audit-hold-'));
+    try {
+      const calls = join(dir, 'npx-calls');
+      writeFileSync(join(dir, 'npx'), `#!/bin/sh\nprintf '%s\\n' "$*" >> "${calls}"\n`);
+      chmodSync(join(dir, 'npx'), 0o755);
+      if (marker !== null) {
+        mkdirSync(join(dir, '.github/triggers'), { recursive: true });
+        writeFileSync(join(dir, '.github/triggers/os-audit.json'), marker);
+      }
+      const r = spawnSync('bash', ['-c', pass?.run ?? 'exit 99'], {
+        cwd: dir, env: { PATH: `${dir}:${process.env.PATH ?? ''}` }, encoding: 'utf8',
+      });
+      const called = existsSync(calls) ? readFileSync(calls, 'utf8').trim().split('\n') : [];
+      return { status: r.status, out: `${r.stdout}${r.stderr}`, called };
+    } finally {
+      rmSync(dir, { recursive: true, force: true });
+    }
+  }
+  const marker = (extra: Record<string, unknown>) =>
+    JSON.stringify({ model: 'claude-fable-5-2', targets: ['a.ts', 'b.ts'], ...extra });
+
+  it('hold: true — раннер не зовётся, прогон зелёный, модель следующего прохода названа', () => {
+    const r = runPass(marker({ hold: true }));
+    expect(r.status).toBe(0);
+    expect(r.called).toEqual([]);
+    expect(r.out).toContain('на удержании');
+    expect(r.out).toContain('claude-fable-5-2');
+  });
+
+  it('удержания нет или оно снято — раннер зовётся с моделью и набором маркера', () => {
+    for (const m of [marker({}), marker({ hold: false })]) {
+      const r = runPass(m);
+      expect(r.status).toBe(0);
+      expect(r.called).toEqual(['tsx scripts/os-audit-runner.ts claude-fable-5-2 a.ts b.ts']);
+    }
+  });
+
+  it('маркер не читается — отказ, а не проход моделью по умолчанию', () => {
+    for (const broken of ['{"hold": tru', '[]', '"строка"', null]) {
+      const r = runPass(broken);
+      expect(r.status, `маркер: ${broken}`).toBe(1);
+      expect(r.called, `маркер: ${broken}`).toEqual([]);
+      expect(r.out).toContain('не читается');
+    }
+  });
+
+  it('hold не true и не false — отказ: «почти да» проход не запускает', () => {
+    for (const hold of ['true', 'false', 1, 0, 'да', {}]) {
+      const r = runPass(marker({ hold }));
+      expect(r.status, `hold: ${JSON.stringify(hold)}`).toBe(1);
+      expect(r.called, `hold: ${JSON.stringify(hold)}`).toEqual([]);
+    }
+  });
+
+  it('маркер репозитория шаг читает: исход — удержание или проход, не отказ', () => {
+    const real = readFileSync('.github/triggers/os-audit.json', 'utf8');
+    const r = runPass(real);
+    expect(r.status).toBe(0);
+    const m = JSON.parse(real) as { hold?: unknown; model: string };
+    if (m.hold === true) expect(r.called).toEqual([]);
+    else expect(r.called[0]).toContain(`scripts/os-audit-runner.ts ${m.model} `);
   });
 });
 

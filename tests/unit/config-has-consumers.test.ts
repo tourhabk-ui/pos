@@ -48,7 +48,7 @@
  * объявление без источника, от которого весь этот файл.
  */
 import { describe, it, expect } from 'vitest';
-import { readFileSync, readdirSync, statSync } from 'node:fs';
+import { existsSync, readFileSync, readdirSync, statSync } from 'node:fs';
 import { join } from 'node:path';
 
 const CONFIG_FILE = 'lib/config.ts';
@@ -204,5 +204,16 @@ describe('config: у объявленной секции есть потреби
     // §8: модель берут из /v1/models, id в коде не прибивают. Конфиг — самое
     // соблазнительное место нарушить это правило: там id выглядит настройкой.
     expect(aiBody).not.toMatch(/deepseek-v4|grok-\d|abab|llama-3|claude-(opus|sonnet|haiku)-\d/);
+  });
+
+  // Слово владельца 13.11 («3 да»): тот же род мёртвого конфига лежал вне
+  // lib/config.ts. `config/models.json` — таблица «агент → модель» февраля
+  // 2026, которую не читал ни один файл кода; `.agents/orchestrator.md` —
+  // описание устройства агентов той же даты (Prisma, shadcn/ui), ссылавшееся
+  // на неё как на действующую. Оба выглядели местом, где настраиваются модели.
+  it('удалённые мёртвые описания моделей не возвращаются', () => {
+    for (const gone of ['config/models.json', '.agents/orchestrator.md']) {
+      expect(existsSync(join(process.cwd(), gone)), `${gone} удалён 13.11 — кто его читает?`).toBe(false);
+    }
   });
 });

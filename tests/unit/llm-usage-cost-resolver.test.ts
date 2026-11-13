@@ -330,6 +330,8 @@ describe('руки называют модель слагом: anthropic:anthrop
     ['anthropic:anthropic/claude-sonnet-5.5', 0.003],
     ['anthropic:claude-sonnet-5-5', 0.003],
     ['anthropic:claude-sonnet-5', 0.003],
+    // Fable 5.2 — $8/$40 за млн: на ней с 13.11 идёт аудит платформы.
+    ['anthropic:claude-fable-5-2', 0.012],
     // Haiku 4.5 — $1/$5 за млн; прежние 0.00025 были ставками Haiku 3.
     ['anthropic:claude-haiku-4-5-20251001', 0.0015],
   ];

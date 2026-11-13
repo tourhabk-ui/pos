@@ -22,7 +22,7 @@
  */
 
 import { describe, it, expect } from 'vitest';
-import { readFileSync, existsSync } from 'node:fs';
+import { readFileSync, existsSync, readdirSync } from 'node:fs';
 import { join } from 'node:path';
 
 const ROOT = process.cwd();
@@ -99,5 +99,67 @@ describe('правило, которое их зовёт', () => {
     const block = CLAUDE_MD.slice(at, at + 2600);
     expect(block).toContain('$114.92');
     expect(block).toContain('$49.96');
+  });
+});
+
+/**
+ * Слово владельца 13.11: скилл разбора кабинета роли и команда параллельной
+ * разработки велели помощникам писать код — первый раздавал пакеты правок по
+ * копиям репозитория, вторая запускала двух агентов «верни только код». Это
+ * расходилось с правилом выше, и тексты приведены к нему.
+ *
+ * Стиль инструкции сторож судить не умеет. Это запрет («этого быть не
+ * должно»): три оборота, которыми работа над кодом отдавалась помощнику, не
+ * возвращаются ни в одну команду и ни в один рабочий скилл проекта. Новую
+ * формулировку той же мысли он не поймает — это названо, а не скрыто.
+ */
+describe('инструкции не отдают помощнику правку кода', () => {
+  const COMMANDS_DIR = join(ROOT, '.claude/commands');
+  const SKILLS_DIR = join(ROOT, '.claude/skills');
+  const files: string[] = [
+    ...readdirSync(COMMANDS_DIR).filter((n) => n.endsWith('.md')).map((n) => `.claude/commands/${n}`),
+    ...readdirSync(SKILLS_DIR)
+      .filter((n) => existsSync(join(SKILLS_DIR, n, 'SKILL.md')))
+      .map((n) => `.claude/skills/${n}/SKILL.md`),
+  ];
+
+  /** Обороты, которыми правка отдавалась помощнику. */
+  const HANDS_CODE_TO_HELPER: Array<[RegExp, string]> = [
+    [/верни только код/i, 'помощнику велено вернуть код'],
+    [/субагент\S*\s+в\s+своих\s+worktree/i, 'пакеты правок розданы помощникам по копиям репозитория'],
+    [/коммит в своей ветке\.?\s+Не пушить/i, 'помощнику велено коммитить в своей ветке'],
+  ];
+
+  it('команды и скиллы прочитаны', () => {
+    // Пустой обход — отказ, а не «нарушений нет».
+    expect(files.filter((f) => f.startsWith('.claude/commands/')).length).toBeGreaterThan(5);
+    expect(files.filter((f) => f.startsWith('.claude/skills/')).length).toBeGreaterThan(5);
+  });
+
+  it('ни одна команда и ни один скилл не велит помощнику писать код', () => {
+    const found: string[] = [];
+    for (const f of files) {
+      const src = readFileSync(join(ROOT, f), 'utf8');
+      for (const [re, what] of HANDS_CODE_TO_HELPER) {
+        if (re.test(src)) found.push(`${f}: ${what}`);
+      }
+    }
+    expect(found, 'правку делает главная сессия (CLAUDE.md §5.1)').toEqual([]);
+  });
+
+  it('оба приведённых текста называют правило, которому следуют', () => {
+    for (const f of ['.claude/skills/role-audit/SKILL.md', '.claude/commands/parallel-dev.md']) {
+      const src = readFileSync(join(ROOT, f), 'utf8');
+      expect(src, `${f} не ссылается на CLAUDE.md §5.1`).toContain('§5.1');
+      expect(src, `${f} не говорит, кто пишет код`).toMatch(/главн\S+ сесси/i);
+    }
+  });
+
+  it('у помощников поиска и разбора по-прежнему нет права писать', () => {
+    // Вторая половина связки: текст «помощник только читает» держится тем,
+    // что писать ему нечем. Проверяется выше по каждому; здесь — что список
+    // помощников рутины не разошёлся с каталогом.
+    const defined = readdirSync(join(ROOT, '.claude/agents')).filter((n) => n.endsWith('.md')).map((n) => n.replace(/\.md$/, '')).sort();
+    expect(defined).toEqual([...ROUTINE_AGENTS].sort());
   });
 });
