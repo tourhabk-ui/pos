@@ -7,7 +7,8 @@
  * Три двери одним экраном: журнал A2A (кто, сколько, диалоги, текст или
  * инструмент, исходы, версии, последние запросы), клиенты MCP (кто подключался)
  * и чтение визиток и манифестов обходчиками. Под журналом A2A — журнал общения
- * (решение владельца 13.10): что агент спросил у Кузьмича и что тот ответил. Каждый блок читается отдельно и
+ * (решение владельца 13.10, ./_DialogJournal): что агент спросил у Кузьмича и что тот ответил, с переводом на
+ * русский по кнопке (13.11). Каждый блок читается отдельно и
  * отказ чтения показывается отказом, а не пустой таблицей (§4.0); пустой
  * журнал показывается с датой, с которой он ведётся.
  *
@@ -16,9 +17,9 @@
 
 import { useEffect, useState } from 'react';
 import { AlertTriangle, Bot, MessagesSquare, RefreshCw } from 'lucide-react';
+import DialogJournal, { KIND_LABEL, STATE_LABEL, kindClass, type AgentKind, type DialogsData } from './_DialogJournal';
 
 type Block<T> = ({ ok: true } & T) | { ok: false; error: string };
-type AgentKind = 'external' | 'registry' | 'probe' | 'self';
 
 interface AgentRow {
   agent: string; ua_family: string; kind: AgentKind; is_self: boolean; region?: string | null;
@@ -38,12 +39,7 @@ interface A2aBlock {
   since: string | null; total_all_time: number; total_window: number; recent_limit: number;
   by_agent: AgentRow[]; by_day: DayRow[]; by_tool: ToolRow[]; recent: RecentRow[];
 }
-interface DialogItem {
-  at: string; agent: string; kind: AgentKind; dialog: string | null; turn: number;
-  question: string; answer: string; state: string; duration_ms: number | null;
-  ip?: string | null; user_agent?: string | null;
-}
-interface DialogsBlock { since: string | null; total: number; retention_days: number; limit: number; items: DialogItem[] }
+type DialogsBlock = DialogsData;
 interface McpClientRow { client: string; kind: string; origin: 'probe' | 'external'; region?: string | null; caller_days: number; days: number; first_seen: string | null; last_seen: string | null }
 interface McpBlock { clients: McpClientRow[] }
 interface EntryRow { family: string; vendor: string | null; hits: number; paths: number; last_day: string }
@@ -60,21 +56,6 @@ const WINDOWS = [1, 7, 30, 90] as const;
 /** «сутки» для окна в 1 день, иначе «N дн.» — подпись и в переключателе, и в заголовках. */
 const winLabel = (d: number) => (d === 1 ? 'сутки' : `${d} дн.`);
 
-const KIND_LABEL: Record<AgentKind, string> = {
-  external: 'внешний',
-  registry: 'проверка реестра A2A',
-  probe: 'проверка',
-  self: 'свой',
-};
-
-const STATE_LABEL: Record<string, string> = { completed: 'выполнено', rejected: 'отказ', failed: 'сбой' };
-
-function kindClass(kind: AgentKind): string {
-  if (kind === 'external') return 'text-[var(--success)]';
-  if (kind === 'self') return 'text-[var(--text-muted)]';
-  return 'text-[var(--text-secondary)]';
-}
-
 function ErrorCard({ title, error, consequence }: { title: string; error: string; consequence: string }) {
   return (
     <div className="ds-card p-4 border-[var(--danger)]">
@@ -87,41 +68,6 @@ function ErrorCard({ title, error, consequence }: { title: string; error: string
         </div>
       </div>
     </div>
-  );
-}
-
-/**
- * Одна реплика разговора: вопрос агента целиком, ответ Кузьмича — свёрнутым
- * (ответы длинные, а глазами сперва ищут, ЧТО спрашивают). Ключ диалога —
- * 8 знаков hash: реплики одного разговора узнаются по нему.
- */
-function DialogEntry({ d }: { d: DialogItem }) {
-  return (
-    <li className="border-t border-[var(--border)] pt-3 first:border-t-0 first:pt-0">
-      <p className="text-[11px] text-[var(--text-muted)] tabular-nums">
-        {d.at} · <span className="font-medium text-[var(--text-primary)]">{d.agent}</span>{' '}
-        <span className={kindClass(d.kind)}>· {KIND_LABEL[d.kind]}</span>
-        {d.dialog ? ` · разговор ${d.dialog}, реплика ${d.turn}` : ''}
-        {' · '}
-        <span className={d.state === 'completed' ? '' : 'text-[var(--warning)]'}>{STATE_LABEL[d.state] ?? d.state}</span>
-        {d.duration_ms !== null ? ` · ${d.duration_ms} мс` : ''}
-      </p>
-      {(d.ip || d.user_agent) && (
-        <p className="text-[11px] text-[var(--text-muted)] break-all">
-          {d.ip ? (
-            <>IP <a className="text-[var(--ocean)] underline" href={`https://ipinfo.io/${encodeURIComponent(d.ip)}`} target="_blank" rel="noopener noreferrer">{d.ip}</a></>
-          ) : 'IP —'}
-          {d.user_agent ? ` · ${d.user_agent}` : ''}
-        </p>
-      )}
-      <p className="mt-1 text-sm text-[var(--text-primary)] whitespace-pre-wrap break-words">
-        <span className="text-[var(--text-muted)]">Вопрос: </span>{d.question}
-      </p>
-      <details className="mt-1">
-        <summary className="cursor-pointer text-xs text-[var(--ocean)]">Ответ Кузьмича</summary>
-        <p className="mt-1 text-sm text-[var(--text-secondary)] whitespace-pre-wrap break-words">{d.answer}</p>
-      </details>
-    </li>
   );
 }
 
@@ -195,8 +141,9 @@ export default function A2aClient() {
             <p className="text-[var(--text-secondary)] mt-2 max-w-2xl">
               Три двери для агентов: протокол A2A (<code>/api/a2a</code>, <code>/api/a2a/v1</code>), MCP (<code>/api/mcp</code>)
               и визитки с манифестами (robots, llms.txt, карточки, OpenAPI). Агент называется так, как он
-              представился в заголовке: это имя программы, не строка целиком. Сырые User-Agent, IP, тексты вопросов
-              и аргументы инструментов не хранятся нигде.
+              представился в заголовке: это имя программы, не строка целиком. Журнал запросов не хранит сырых
+              User-Agent, IP, текстов и аргументов инструментов. Текст вопросов и ответов, IP и User-Agent есть
+              только в журнале общения ниже; срок хранения назван там.
             </p>
           </div>
           <div className="flex items-center gap-2">
@@ -403,16 +350,7 @@ export default function A2aClient() {
                   </p>
                 </div>
               ) : (
-                <div className="ds-card p-4">
-                  <p className="text-[10px] text-[var(--text-muted)] mb-3">
-                    Последние {data.dialogs.items.length} из {data.dialogs.total} реплик (ведётся с {data.dialogs.since}).
-                    Телефоны и почты вычищены до записи, текст хранится {data.dialogs.retention_days} суток.
-                    Вызовы инструментов без текста — в «Последних запросах» выше.
-                  </p>
-                  <ul className="space-y-3">
-                    {data.dialogs.items.map((d, i) => <DialogEntry key={`${d.at}:${i}`} d={d} />)}
-                  </ul>
-                </div>
+                <DialogJournal data={data.dialogs} />
               )}
             </div>
           )}

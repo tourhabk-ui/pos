@@ -215,7 +215,7 @@ const HAN = /\p{Script=Han}/u;
 const CYRILLIC = /\p{Script=Cyrillic}/u;
 
 /** Полноширинные цифры → обычные; разделители тысяч внутри числа убраны. */
-function normalizeDigits(s: string): string {
+export function normalizeDigits(s: string): string {
   return s
     .replace(/[０-９]/g, (c) => String.fromCharCode(c.charCodeAt(0) - 0xfee0))
     .replace(/(\d)[\s  ,'’](?=\d{3}(?!\d))/g, '$1');
@@ -504,7 +504,7 @@ export function scaledChineseOf(s: string): ScaledNumber[] {
  * сторону, — каждое на своём месте и только там. Диапазон («1,5–3,5
  * миллиона») вычёркивается, когда сошлись оба конца.
  */
-function withoutMatched(text: string, nums: readonly ScaledNumber[], other: ReadonlySet<string>): string {
+export function withoutMatched(text: string, nums: readonly ScaledNumber[], other: ReadonlySet<string>): string {
   const spans = new Map<number, { end: number; ok: boolean }>();
   for (const q of nums) {
     const ok = other.has(q.value);
