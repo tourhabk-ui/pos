@@ -133,7 +133,11 @@ describe('E1: многодневный тур не режется на краю 
     const estimated = notTour.reduce((sum, d) => sum + (d.priceFrom ?? 0), 0);
     expect(rec.priceBreakdown.activityPricing.estimated).toBe(notTour.filter((d) => (d.priceFrom ?? 0) > 0).length);
     // У каждого тура цена 10 000 ₽ за человека; не поставленный тур в вилку не входит.
-    expect(rec.priceBreakdown.activities[0]).toBe(placedTours * 10000 + estimated);
+    // Цены дня прилёта, отдыха и отъезда — тоже в сумме (#3338): они стоят на
+    // карточках, и итог без них с карточками не сходился.
+    const dayCosts = rec.days.filter((d) => d.type === 'arrival' || d.type === 'rest' || d.type === 'departure')
+      .reduce((sum, d) => sum + (d.priceFrom ?? 0), 0);
+    expect(rec.priceBreakdown.activities[0]).toBe(placedTours * 10000 + estimated + dayCosts);
   });
 });
 

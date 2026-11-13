@@ -1605,8 +1605,10 @@ async function generateDayPlans(
       const coords: [number, number] = realTour
         ? [realTour.lat, realTour.lng]
         : route ? [route.lat, route.lng] : ZONE_COORDS[block.zone];
+      // Заголовок дня без тура и маршрута — с заглавной (#3338: «вулканы —
+      // Авачинская зона» стоял заголовком карточки со строчной).
       const title = realTour?.title ?? route?.title
-        ?? `${ACTIVITY_NAMES[interest] ?? interest} — ${ZONE_NAMES[block.zone]}`;
+        ?? `${upperFirst(ACTIVITY_NAMES[interest] ?? interest)} — ${ZONE_NAMES[block.zone]}`;
 
       // Занятие не по возрасту сюда не доходит: его убирает splitByChildAge
       // до раскладки (08.10). childOk остаётся признаком дня, а не фильтром.
@@ -2113,6 +2115,11 @@ function describePreferences(input: {
 export { calculatePriceBreakdown };
 
 // ── AI itinerary ────────────────────────────────────────────────────────────
+
+/** Первая буква — заглавная: заголовок дня из слова словаря (#3338). */
+function upperFirst(s: string): string {
+  return s.charAt(0).toUpperCase() + s.slice(1);
+}
 
 function buildAIPrompt(profile: TripProfile, zones: ZoneRecommendation[], days: DayPlan[], warnings: TripWarning[]): string {
   const groupDesc = [`${profile.adults} взрослых`];

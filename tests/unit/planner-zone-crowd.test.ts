@@ -53,8 +53,6 @@ const DATA = read('lib/planner/data.ts');
 const DATA_CODE = code(DATA);
 const ENGINE = read('lib/planner/engine.ts');
 const ENGINE_CODE = code(ENGINE);
-const CLIENT = read('app/planner/_PlannerClient.tsx');
-const CLIENT_CODE = code(CLIENT);
 
 describe('у метки загрузки есть производитель', () => {
   it('движок пишет измеренную занятость, а не литерал', () => {
@@ -115,15 +113,6 @@ describe('два запроса об одном отбирают одно', () =
   });
 });
 
-describe('метка на экране не утверждает лишнего', () => {
-  it('метка требует ЧИСЛА, а не «не undefined»', () => {
-    // `!== undefined` пропускал бы null и показывал «свободно» там, где не
-    // мерили: null > 50 ложно, но сравнение с null — уже утверждение о нём.
-    expect(CLIENT_CODE).toMatch(/typeof z\.crowdScore === 'number' && z\.crowdScore > 50/);
-    expect(CLIENT_CODE, 'метка снова судит по !== undefined').not.toMatch(/crowdScore !== undefined/);
-  });
-
-  it('пороги остались прежними: 50 — умеренно, 70 — загружено', () => {
-    expect(CLIENT_CODE).toMatch(/z\.crowdScore > 70 \? 'загружено' : 'умеренно'/);
-  });
-});
+// Метка загрузки на экране (число, а не «не undefined»; пороги 50 и 70)
+// судится рендером блока «Зоны» — tests/unit/planner-run-3338.test.tsx
+// (components/planner/PlanZones, #3338).
