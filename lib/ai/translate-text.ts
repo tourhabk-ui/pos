@@ -115,6 +115,67 @@ function placeholdersKept(source: string, out: string): string | null {
   return null;
 }
 
+// ── Одно время и одно число в разных записях ────────────────────────────
+//
+// Локальная проба сверки 13.11 показала отказы годным переводам: «19:00» →
+// «7:00 p.m.» и «晚上7点», «2 of us» → «Нас двое», «1.5 hours» → «полтора
+// часа». Отказ сверки — это «перевод не получен» у человека, поэтому одно и
+// то же время и число в разных записях сверка обязана узнавать.
+
+/** 13…23 ч → 1…11, 0 ч → 12: «19:00», «7 p.m.» и «晚上7点» — один час. */
+const h12 = (h: number): number => ((h + 11) % 12) + 1;
+const CLOCK = /(?<![\d:：])([01]?\d|2[0-3])[:：]([0-5]\d)(?![\d:：])/g;
+const ZH_HOUR = /(?<!\d)(1[3-9]|2[0-3])(?=\s*[点點时時](?![间間]))/g;
+
+/**
+ * Время суток — к одному виду перед сверкой чисел: час в 12-часовом счёте,
+ * нулевые минуты опущены («19:00» → «7», «8:30» → «8:30», «19点» → «7点»).
+ * Утро с вечером сверка после этого не различает: она ловит потерянное и
+ * выдуманное число, а не смысл — поэтому перевод и стоит рядом с исходником.
+ */
+export function clockCanon(text: string): string {
+  return normalizeDigits(text)
+    .replace(CLOCK, (_m: string, h: string, mm: string) => (mm === '00' ? String(h12(Number(h))) : `${h12(Number(h))}:${mm}`))
+    .replace(ZH_HOUR, (h: string) => String(h12(Number(h))));
+}
+
+// Час суток в русском тексте — только с предлогом времени: «в 19 часов», «к 19
+// часам», «около 14 часов». «Дорога занимает 15 часов» — длительность, и за
+// «3 pm» она не сойдёт, что бы ни стояло в переводе (замечание ревью #3331).
+const RU_HOUR = /(?<![а-яё])(?:в|к|до|после|с|около|примерно)\s+(1[3-9]|2[0-3])\s*(?:час(?:ов|ами|ам|ах|а|у)?|ч\.?)(?![а-яё])/gi;
+
+/** Стоит ли в тексте этот час как время суток: «19:30» или «7 p.m.», «晚上7点». */
+function hourShown(text: string, h24: string, hour12: string): boolean {
+  const t = normalizeDigits(text);
+  return new RegExp(`(?<![\\d:：])${h24}[:：][0-5]\\d`).test(t)
+    || new RegExp(`(?<![\\d:：.,])${hour12}(?:[:：][0-5]\\d)?\\s*p\\.?\\s?m\\b`, 'i').test(t)
+    || new RegExp(`(?:下午|晚上|傍晚|夜里|夜晚)\\s*${hour12}\\s*[点點时時:：]`).test(t);
+}
+
+/**
+ * «В 19 часов» — то же, что «19:00» и «7 p.m.»: час русского текста в
+ * 12-часовом счёте, но только если по ту сторону перевода этот час стоит как
+ * время суток. «Дорога 20 часов» остаётся двадцатью: «8 hours» её не заменит.
+ * `ru` — русский текст, `other` — текст на другом языке (исходник или перевод).
+ */
+export function russianHourAlts(ru: string, other: string): Map<string, string> {
+  const out = new Map<string, string>();
+  for (const m of normalizeDigits(ru).matchAll(RU_HOUR)) {
+    const alt = String(h12(Number(m[1])));
+    if (hourShown(other, m[1], alt)) out.set(m[1], alt);
+  }
+  return out;
+}
+
+const RU_HALF = /(?<![а-яё])(?:полтор[аы]|полутор[аы]?)(?![а-яё])/i;
+const RU_HALF_HOUR = /(?<![а-яё])(?:полчаса|получаса)(?![а-яё])/i;
+
+/** Числа русских слов, которых нет среди числительных: «полтора» — 1.5, «полчаса» — 30 минут. */
+export function russianFractionNumbersOf(text: string): string[] {
+  const s = text.replace(/ё/g, 'е');
+  return [...(RU_HALF.test(s) ? ['1', '5'] : []), ...(RU_HALF_HOUR.test(s) ? ['30'] : [])];
+}
+
 /**
  * Годен ли русский перевод. null — годен; иначе причина отказа словами.
  * `source` — то, что видела модель (после redactPII).
@@ -130,13 +191,21 @@ export function checkRussianTranslation(source: string, ru: string): string | nu
 
   // Числа исходника на месте: цифрой, русским словом («три дня»), месяцем
   // («5月3日» → «3 мая») или величиной («1.5万» → «15 000»).
-  const src = normalizeDigits(source);
+  // Время — к одному виду с обеих сторон; «в 19 часов» перевода годится и за 7.
+  const src = clockCanon(source);
+  const ruText = clockCanon(t);
   const ruAny = new Set([
-    ...numbersOf(t), ...russianWordNumbersOf(t), ...russianMonthsOf(t),
-    ...scaledRussianOf(t).map((q) => q.value),
+    ...numbersOf(ruText), ...russianWordNumbersOf(t), ...russianMonthsOf(t),
+    ...scaledRussianOf(ruText).map((q) => q.value),
+    ...russianHourAlts(t, source).values(), ...russianFractionNumbersOf(t),
   ]);
   const lost = [...numbersOf(withoutMatched(src, scaledChineseOf(src), ruAny))].filter((n) => !ruAny.has(n));
   if (lost.length) return `в переводе нет чисел исходника: ${lost.slice(0, 5).join(', ')}`;
+  // Нулевые минуты исходника сверка опускает, поэтому минуты перевода сверяются
+  // отдельно: «8:00» → «8:45» — выдумка, а не другая запись (замечание ревью #3331).
+  const srcNums = numbersOf(src);
+  const invented = [...normalizeDigits(t).matchAll(CLOCK)].map((m) => m[2]).filter((mm) => mm !== '00' && !srcNums.has(mm));
+  if (invented.length) return `в переводе появились числа, которых нет в исходнике: ${[...new Set(invented)].slice(0, 5).join(', ')}`;
 
   const moved = placeholdersKept(source, t);
   if (moved) return moved;
@@ -225,19 +294,24 @@ export function checkForeignTranslation(source: string, out: string, family: Scr
   if (family === 'han') {
     // На китайский — правило переводов карточек: одно число в разных записях,
     // месяцы, величины, латинские имена (lib/zh/fields).
-    const why = checkSegment(source, t);
+    // Время — к одному виду с обеих сторон: «19:00» и «晚上7点» — один час.
+    const why = checkSegment(clockCanon(source), clockCanon(t));
     if (why) return why;
   } else {
     // Прочие языки: промпт велит оставить цифры цифрами. Число исходника
     // обязано быть в переводе; новое число оправдано только числом исходника —
     // цифрой, словом («в пять утра» → «at 5 am») или месяцем.
-    const src = normalizeDigits(source);
-    const got = numbersOf(normalizeDigits(t));
-    const lost = [...numbersOf(src)].filter((n) => !got.has(n));
+    // Время — к одному виду с обеих сторон; «в 19 часов» исходника годится и
+    // как 19, и как 7 («at 7 p.m.»).
+    const src = clockCanon(source);
+    const got = numbersOf(clockCanon(t));
+    const hourAlts = russianHourAlts(source, t);
+    const lost = [...numbersOf(src)].filter((n) => !got.has(n) && !got.has(hourAlts.get(n) ?? ''));
     if (lost.length) return `в переводе нет чисел исходника: ${lost.slice(0, 5).join(', ')}`;
     const allowed = new Set([
       ...numbersOf(src), ...russianWordNumbersOf(source), ...russianMonthsOf(source),
       ...scaledRussianOf(src).map((q) => q.value),
+      ...hourAlts.values(), ...russianFractionNumbersOf(source),
     ]);
     const extra = [...got].filter((n) => !allowed.has(n));
     if (extra.length) return `в переводе появились числа, которых нет в исходнике: ${extra.slice(0, 5).join(', ')}`;

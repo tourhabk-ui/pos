@@ -192,6 +192,7 @@ export const SPEND_LABELS: Readonly<Record<string, string>> = {
   'channel-parity': 'Сверка MCP и сайта',
   'yandex-mcp-probe': 'Проба: модель Яндекса ходит в Ведар',
   'deepseek-model-probe': 'Проба модели DeepSeek для Кузьмича',
+  'translation-probe': 'Проба: машинный перевод с прода',
   digest: 'Ежедневный дайджест метрик',
   'editor-eval': 'Editor: проверка качества описаний',
   'enrich-passports': 'Обогащение карточек маршрутов',
