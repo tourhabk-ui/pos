@@ -10,6 +10,10 @@
  * (mcp_clients.client_name); curl рукопожатия не делает и опознаётся по роду
  * заголовка. Список открытый: новая проба добавляется сюда, и сторож
  * требует, чтобы каждое имя из clientInfo в scripts/ здесь было.
+ *
+ * Тот же список читает род агента A2A (lib/a2a/agent-kind, 12.11): там имя —
+ * самоназвание программы из User-Agent, и scripts/kuzmich-fact-exam.ts ходит
+ * в A2A под тем же `vedar-eval`.
  */
 export const PROBE_CLIENT_NAMES: readonly string[] = [
   'vedar-deploy-smoke',   // scripts/deploy-smoke.mjs — один вызов на деплой

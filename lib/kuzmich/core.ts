@@ -66,7 +66,7 @@ import { parseChatBookingPrefill } from '@/lib/kuzmich/booking-prefill';
 import { planFromBookingFlow, planChatRequest, parseChatContact, chatPastDateAsk } from '@/lib/kuzmich/chat-request';
 import { submitChatRequest } from '@/lib/kuzmich/chat-request-submit';
 import { type QuickReplies, tourPickButtons, parseTourPick, GUEST_BUTTONS, CONFIRM_BUTTONS, CANCEL_BUTTONS, isCorrection } from '@/lib/kuzmich/quick-replies';
-import { tourPath } from '@/lib/tours/tour-url';
+import { tourBookingFormPath, tourPath } from '@/lib/tours/tour-url';
 import { sendPdAlert } from '@/lib/notifications/pd-alert';
 import { containsPattern } from '@/lib/db/like';
 import { KUZMICH_KNOWLEDGE_SCOPE_SQL } from '@/lib/kuzmich/knowledge-scope';
@@ -2402,11 +2402,7 @@ export const BOOKING_CONSENT_LINE =
  * или в MAX; заявка та же, только ПД вводятся там.
  */
 export function bookingFormUrl(tour: TourRow, date?: string, guests?: number): string {
-  const q = new URLSearchParams();
-  if (date) q.set('date', date);
-  if (guests) q.set('guests', String(guests));
-  const qs = q.toString();
-  return `${getPublicBaseUrl()}${tourPath({ id: tour.id, slug: tour.slug ?? null })}${qs ? `?${qs}` : ''}#booking`;
+  return `${getPublicBaseUrl()}${tourBookingFormPath({ id: tour.id, slug: tour.slug ?? null }, date, guests)}`;
 }
 
 async function tourChosen(
@@ -2727,7 +2723,7 @@ async function executeTool(name: string, args: Record<string, string>, opts: Too
     if (name === 'get_guardian_context') {
       const { getGuardianContextDetailed } = await import('@/lib/kuzmich/guardian-context');
       const detail = await getGuardianContextDetailed(args.place ?? args.name ?? '', { pageLinks: opts.surface !== 'mcp' });
-      opts.onStructured?.({ found: detail.found, places: detail.places });
+      opts.onStructured?.({ found: detail.found, places: detail.places, routes: detail.routes });
       const ctx = detail.text;
       // «Попробую поискать через другие источники» — подсказка модели чата,
       // у которой есть веб-поиск. На MCP никакого поиска нет, и обещание

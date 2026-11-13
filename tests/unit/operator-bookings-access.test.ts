@@ -137,7 +137,8 @@ describe('лиды: скоуп один, ничейный лид станови�
   // а гид — нет, доказывается на настоящей базе
   // (tests/integration/tourist-cabinet.pg.test.ts) и вызовом (leads-idor).
   it('правка ничейного лида оператором его занимает', () => {
-    expect(read('lib/leads/owner-lead-status.ts')).toMatch(/operator_id = COALESCE\(l\.operator_id, \$5::uuid\)/);
-    expect(read('app/api/leads/[id]/route.ts')).toMatch(/scope: await operatorLeadScope\(user\)/);
+    // Занятие ничейного — то же выражение; с 1427 оно стоит в CASE: заявку, отменённую клиентом, не занимают.
+    expect(read('lib/leads/owner-lead-status.ts')).toMatch(/operator_id = CASE WHEN [^\n]+ ELSE COALESCE\(l\.operator_id, \$5::uuid\) END/);
+    expect(read('app/api/leads/[id]/route.ts')).toMatch(/const scope = await operatorLeadScope\(user\)/);
   });
 });

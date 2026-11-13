@@ -101,7 +101,9 @@ describe('согласие называет настоящего получат�
     expect(FORM).not.toMatch(/pd_consent:\s*true/);
     expect(FORM).toMatch(/if \(!pdConsent\)/);
     // Кнопка гаснет без согласия; с 30.10 — и на даты, закрытые хозяином (stay-request-form-busy — рендером).
-    expect(FORM).toMatch(/disabled=\{sending \|\| !pdConsent/);
+    // С 12.11 кнопка — SubmitButton: на отправке она гаснет сама (phase), без согласия — по disabled.
+    expect(FORM).toMatch(/phase=\{sentOk \? 'done' : sending \? 'sending' : 'idle'\}/);
+    expect(FORM).toMatch(/disabled=\{!pdConsent/);
   });
 
   it('роут записывает согласие варианта «жильё» в той же вставке', () => {

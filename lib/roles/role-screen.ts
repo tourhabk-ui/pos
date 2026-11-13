@@ -89,7 +89,7 @@ export async function roleMenuScreen(opts: {
 async function adminScreen(action: MenuAction, channel: 'max' | 'telegram', nowMs?: number): Promise<RoleScreen> {
   if (action === 'help') return { text: adminMenuHelp(channel), pd: false };
   const cmd = action === 'dates' || action === 'bookings' || action === 'leads'
-    || action === 'summary' || action === 'health'
+    || action === 'summary' || action === 'health' || action === 'queue'
     ? action
     : null;
   if (!cmd) return { text: 'Такой кнопки в кабинете администратора нет.', pd: false };

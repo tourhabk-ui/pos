@@ -57,6 +57,12 @@ vi.mock('@/lib/auth/middleware', async (orig) => ({
   requireOperator: vi.fn(async () => ({ userId: 'd0e10000-0000-4000-8000-0000000000aa', role: 'operator', email: 'op-a@example.test' })),
 }));
 vi.mock('@/lib/notifications/operator-booking', () => ({ notifyNewBooking: vi.fn(async () => undefined) }));
+// Заявка-вопрос (этап 6б) пишется настоящим createLeadDetailed: уведомление
+// администратору из теста не уходит.
+vi.mock('@/lib/notifications/telegram-channel', async (orig) => ({
+  ...(await orig<typeof import('@/lib/notifications/telegram-channel')>()),
+  notifyAdminNewLead: vi.fn(async () => undefined),
+}));
 
 const PG_URL = process.env.KERNEL_PG_TEST_URL ?? '';
 const withPg = PG_URL ? describe : describe.skip;
@@ -606,7 +612,7 @@ withPg('общая запись дат тура на настоящем PostgreS
     }
   });
   it('миграция 1420: «Лагуна Экспедиция» — даты по сезону тура, мест — вместимость; сезон и строки оператора не тронуты; снятые с витрины и туры не из списка — без дат; повтор ничего не добавляет', async () => {
-    // Карточку и туры заводят 1323, 1339 и 1413; 1420 уже прошла при создании базы.
+    // Карточку и туры заводят 1323, 1339 и 1413; 1420 уже прошла при создании базы — в день сборки шаблона.
     const sql = readFileSync(join(process.cwd(), 'migrations/1420_laguna_expedition_open_dates.sql'), 'utf8');
     const lag = (await pool.query<{ id: string }>(`SELECT id::text AS id FROM partners WHERE slug = 'laguna-expedition'`)).rows[0]!.id;
     const bySlug = async (slug: string) => (await pool.query<{ id: string; max: number }>(
@@ -619,10 +625,33 @@ withPg('общая запись дат тура на настоящем PostgreS
     const archived = await bySlug('lagexp-krabovoe-safari-v-avachinskoj-bukhte'); // снят с витрины 1408
     const draft = await bySlug('lagexp-khalaktyrskij-plyazh'); // черновик 1339
     const unlisted = await addTour(lag, 'Не из списка', { slug: 'lagexp-tur-ne-iz-spiska' });
-    const w = (await pool.query<{ today: string; horizon: string }>(
+    const kamchatkaDay = async () => (await pool.query<{ today: string; horizon: string }>(
       `SELECT (NOW() AT TIME ZONE 'Asia/Kamchatka')::date::text AS today,
               ((NOW() AT TIME ZONE 'Asia/Kamchatka')::date + INTERVAL '1 year')::date::text AS horizon`,
     )).rows[0]!;
+
+    // Что 1420 открыла при создании базы — судим без «сегодня»: шаблон базы
+    // (tests/helpers/pg-schema) собирается один раз на набор миграций и мог быть
+    // собран в другой камчатский день. Круглогодичный тур открыт от дня сборки
+    // ровно на год вперёд, по вместимости.
+    const made = (await pool.query<{ n: string; year_ahead: boolean; slots: number | null }>(
+      `SELECT count(*)::text AS n, (max(date) = (min(date) + INTERVAL '1 year')::date) AS year_ahead, min(available_slots) AS slots
+         FROM tour_availability WHERE operator_tour_id = $1 AND COALESCE(is_cancelled, FALSE) = FALSE AND deleted_at IS NULL`,
+      [year.id],
+    )).rows[0]!;
+    expect([Number(made.n) >= 366, made.year_ahead, made.slots]).toEqual([true, true, year.max]);
+
+    // Дальше окно меряется от сегодня, поэтому строки трёх туров, которые сверяются
+    // с окном, убраны и миграция повторена сейчас. Полночь по Камчатке посреди
+    // повтора — повторяем на новом дне: «сегодня» теста и миграции обязаны совпасть.
+    let w = await kamchatkaDay();
+    for (;;) {
+      await pool.query(`DELETE FROM tour_availability WHERE operator_tour_id = ANY($1::bigint[])`, [[winter.id, ny.id, year.id]]);
+      await pool.query(sql);
+      const after = await kamchatkaDay();
+      if (after.today === w.today) break;
+      w = after;
+    }
     const shift = async (n: number) => (await pool.query<{ d: string }>(`SELECT ($1::date + $2::int)::text AS d`, [w.today, n])).rows[0]!.d;
 
     /** Сколько дней в [from, to], обрезанном сегодня и горизонтом. */
@@ -768,5 +797,168 @@ withPg('общая запись дат тура на настоящем PostgreS
     expect((await state(flight, '2027-01-15'))?.closed).toBe(false);
     expect((await state(canyon, '2027-01-15'))?.closed).toBe(true);
     expect((await state(canyon, '2027-01-16'))?.closed).toBe(false);
+  });
+
+  it('миграция 1435: дату, закрытую Ведаром, отличает признак, а не слова; правка закрытия оператором его стирает; бронь и чтение говорят, кто закрыл', async () => {
+    const sql = readFileSync(join(process.cwd(), 'migrations/1435_availability_closed_by.sql'), 'utf8');
+    const { isClosedByPlatform, datesClosedByPlatform } = await import('@/lib/tours/date-closure');
+    const { closeTourDates } = await import('@/lib/tours/availability-close');
+    const reserve = await import('@/lib/bookings/reserve');
+    const REASON = 'Закрыто Ведаром: зимой тур по его описанию под вопросом (1421). Если тур ходит — откройте даты.';
+    const t = await addTour(operatorA, 'Тур 1435');
+    const put = (d: string, closed: boolean, reason: string | null) => pool.query(
+      `INSERT INTO tour_availability (operator_tour_id, date, available_slots, is_cancelled, cancellation_reason)
+       VALUES ($1, $2::date, 8, $3, $4)`, [t, d, closed, reason],
+    );
+    await put('2027-02-01', true, REASON);                       // закрыл Ведар
+    await put('2027-02-02', true, 'Заблокировано оператором');   // закрыл оператор
+    await put('2027-02-03', false, null);                        // открыта
+    await put('2027-02-04', true, REASON);                       // закрыл Ведар, строка потом снята
+    await pool.query(`UPDATE tour_availability SET deleted_at = NOW() WHERE operator_tour_id = $1 AND date = '2027-02-04'`, [t]);
+    await put('2027-02-05', true, REASON);
+    await put('2027-02-06', true, REASON);
+    // Оператор закрыл дату словами, похожими на слова Ведара, — это его закрытие.
+    await put('2027-02-07', true, 'Закрыто Ведаром? Нет, это я закрыл');
+    const by = async (d: string) => (await pool.query<{ closed_by: string | null }>(
+      `SELECT closed_by FROM tour_availability WHERE operator_tour_id = $1 AND date = $2::date`, [t, d],
+    )).rows[0]?.closed_by ?? null;
+    // Новая строка признака не несёт, какой бы ни была причина: его ставит миграция.
+    expect(await by('2027-02-01')).toBeNull();
+    expect(await isClosedByPlatform(t, '2027-02-01')).toBe(false);
+
+    await pool.query(sql);
+    expect(await by('2027-02-01')).toBe('platform');
+    expect(await by('2027-02-02')).toBeNull();
+    expect(await by('2027-02-03')).toBeNull();
+    expect(await by('2027-02-04')).toBeNull();   // снятая строка не размечается
+    expect(await by('2027-02-05')).toBe('platform');
+    expect(await by('2027-02-07')).toBeNull();   // причина не слово в слово — не Ведар
+
+    // Чтение: только живая закрытая строка с признаком.
+    expect(await isClosedByPlatform(t, '2027-02-01')).toBe(true);
+    for (const d of ['2027-02-02', '2027-02-03', '2027-02-04', '2027-02-07', '2027-02-20']) {
+      expect(await isClosedByPlatform(t, d), d).toBe(false);
+    }
+    expect(await datesClosedByPlatform(t, '2027-02-01', '2027-02-28')).toEqual(['2027-02-01', '2027-02-05', '2027-02-06']);
+    expect(await datesClosedByPlatform(t, '2027-02-02', '2027-02-04')).toEqual([]);
+
+    // Бронь: о дате, закрытой Ведаром, — свои слова; о закрытой оператором — прежние.
+    const refusal = async (d: string) => {
+      const days = await reserve.readTourDays(pool, t, d, d);
+      try {
+        reserve.assertDaysOpen(days, { participants: 2, maxParticipants: 10, durationDays: 1 });
+      } catch (e) {
+        return e as InstanceType<typeof reserve.ReserveError>;
+      }
+      return null;
+    };
+    const byVedar = await refusal('2027-02-01');
+    expect(byVedar?.code).toBe('DATE_CLOSED_BY_PLATFORM');
+    expect(byVedar?.message).toContain('закрыл Ведар по описанию тура — оператор её не закрывал');
+    const byOperator = await refusal('2027-02-02');
+    expect(byOperator?.code).toBe('DATE_BLOCKED');
+    expect(byOperator?.message).toBe('Оператор закрыл приём заявок на эту дату.');
+    expect(await refusal('2027-02-03')).toBeNull();
+
+    // Оператор открыл дату в кабинете — она открыта, и оценка Ведара к ней больше не относится.
+    expect(await mod.openTourDates(cabinet(t, ['2027-02-01'], 8))).toMatchObject({ ok: true, perDate: [{ result: 'reopened' }] });
+    expect(await by('2027-02-01')).toBeNull();
+    expect(await isClosedByPlatform(t, '2027-02-01')).toBe(false);
+    expect(await refusal('2027-02-01')).toBeNull();
+
+    // Оператор закрыл своими словами дату, которую закрывал Ведар, — теперь это его закрытие.
+    expect(await closeTourDates(pool, { operatorId: operatorA, tourId: t, dates: ['2027-02-05'], reason: 'Заблокировано оператором' }))
+      .toEqual({ ok: true, closed: 1 });
+    expect(await by('2027-02-05')).toBeNull();
+    expect((await refusal('2027-02-05'))?.code).toBe('DATE_BLOCKED');
+
+    // Правка не о закрытии (места) признак не трогает.
+    await pool.query(`UPDATE tour_availability SET available_slots = 6 WHERE operator_tour_id = $1 AND date = '2027-02-06'`, [t]);
+    expect(await by('2027-02-06')).toBe('platform');
+
+    // База не даёт признак открытой дате и не знает других значений.
+    await expect(pool.query(`UPDATE tour_availability SET closed_by = 'platform' WHERE operator_tour_id = $1 AND date = '2027-02-03'`, [t]))
+      .rejects.toMatchObject({ code: '23514' });
+    await expect(pool.query(`UPDATE tour_availability SET closed_by = 'operator' WHERE operator_tour_id = $1 AND date = '2027-02-02'`, [t]))
+      .rejects.toMatchObject({ code: '23514' });
+
+    // Повтор миграции: открытая и перезакрытая оператором даты признак не получают обратно.
+    await pool.query(sql);
+    expect(await by('2027-02-01')).toBeNull();
+    expect(await by('2027-02-05')).toBeNull();
+    expect(await by('2027-02-06')).toBe('platform');
+
+    // Строку с признаком сняли из календаря: признак в ней остался, но дата больше не «закрыта Ведаром».
+    expect(await isClosedByPlatform(t, '2027-02-06')).toBe(true);
+    await pool.query(`UPDATE tour_availability SET deleted_at = NOW() WHERE operator_tour_id = $1 AND date = '2027-02-06'`, [t]);
+    expect(await by('2027-02-06')).toBe('platform');
+    expect(await isClosedByPlatform(t, '2027-02-06')).toBe(false);
+    expect(await datesClosedByPlatform(t, '2027-02-01', '2027-02-28')).toEqual([]);
+  });
+
+  it('вопрос оператору с формы сайта (этап 6б): заявка — только на дату, закрытую Ведаром; повтор — та же заявка', async () => {
+    const { askOperatorAboutDate, tourRequestPrefix } = await import('@/lib/requests/tour-date-question');
+    const { PLATFORM_CLOSED_LEAD_NOTE } = await import('@/lib/mcp/booking-closed-date');
+    const REASON = 'Закрыто Ведаром: зимой тур по его описанию под вопросом (1421). Если тур ходит — откройте даты.';
+    const t = await addTour(operatorA, 'Тур 6б');
+    await pool.query(
+      `INSERT INTO tour_availability (operator_tour_id, date, available_slots, is_cancelled, cancellation_reason, closed_by)
+       VALUES ($1, '2027-02-01', 8, true, $2, 'platform'),
+              ($1, '2027-02-02', 8, true, 'Заблокировано оператором', NULL),
+              ($1, '2027-02-03', 8, false, NULL, NULL)`, [t, REASON],
+    );
+    const consent = { at: new Date('2026-10-22T03:00:00Z'), ip: '203.0.113.9', source: 'tour-form', version: 'test-6b' };
+    const today = () => TODAY;
+    const input = (date: string, phone = '+79005550601') => ({
+      tourId: Number(t), date, participants: 2, name: 'Пётр Шестой', phone, comment: 'С детьми',
+      consent, sourceUrl: `https://vedarai.ru/catalog/tours/${t}`,
+    });
+    interface LeadRow {
+      id: string; operator_id: string | null; comment: string; status: string; source_channel: string;
+      source_data: Record<string, unknown>; pd_consent_source: string | null; consented: boolean; is_self: boolean;
+    }
+    const leadsOf = async (phone: string) => (await pool.query<LeadRow>(
+      `SELECT id::text, operator_id::text, comment, status, source_channel, source_data, pd_consent_source,
+              (pd_consent_at IS NOT NULL) AS consented, is_self
+         FROM leads WHERE phone = $1 ORDER BY created_at`, [phone],
+    )).rows;
+
+    // Дату закрыл оператор, дата открыта, строки в календаре нет — вопрос этой дверью не задаётся.
+    for (const d of ['2027-02-02', '2027-02-03', '2027-02-04']) {
+      expect(await askOperatorAboutDate(input(d), { today }), d).toEqual({ state: 'not_platform_closed' });
+    }
+    expect(await leadsOf('+79005550601')).toEqual([]);
+
+    // Дату закрыл Ведар — заявка-вопрос оператору тура, с согласием и отметкой источника.
+    const sent = await askOperatorAboutDate(input('2027-02-01'), { today });
+    expect(sent).toMatchObject({ state: 'sent', created: true, tourTitle: 'Тур 6б', operatorId: operatorA });
+    const [lead] = await leadsOf('+79005550601');
+    expect(lead).toMatchObject({
+      operator_id: operatorA, status: 'new', source_channel: 'site_tour',
+      pd_consent_source: 'tour-form', consented: true, is_self: false,
+    });
+    expect(lead!.comment).toBe(`${tourRequestPrefix('Тур 6б', t, '2027-02-01')} участников 2.${PLATFORM_CLOSED_LEAD_NOTE} С детьми`);
+    expect(lead!.source_data).toMatchObject({
+      source: 'tour_page', form: 'tour-date-question', tour_id: t, date: '2027-02-01', participants: 2, date_closed_by: 'platform',
+    });
+    expect(sent).toMatchObject({ leadId: lead!.id });
+
+    // Повтор (тот же телефон, тур и дата, другие слова) — прежняя заявка, второй нет.
+    const again = await askOperatorAboutDate({ ...input('2027-02-01'), comment: 'Другие слова' }, { today });
+    expect(again).toMatchObject({ state: 'sent', created: false, leadId: lead!.id });
+    expect(await leadsOf('+79005550601')).toHaveLength(1);
+
+    // Тур не на витрине — «нет тура», заявки нет.
+    const hidden = await addTour(operatorA, 'Тур 6б скрытый', { is_published: false });
+    await pool.query(
+      `INSERT INTO tour_availability (operator_tour_id, date, available_slots, is_cancelled, cancellation_reason, closed_by)
+       VALUES ($1, '2027-02-01', 8, true, $2, 'platform')`, [hidden, REASON],
+    );
+    expect(await askOperatorAboutDate({ ...input('2027-02-01', '+79005550602'), tourId: Number(hidden) }, { today })).toEqual({ state: 'no_tour' });
+
+    // Оператор открыл дату — оценка Ведара к ней больше не относится: вопрос не нужен.
+    expect(await mod.openTourDates(cabinet(t, ['2027-02-01'], 8))).toMatchObject({ ok: true, perDate: [{ result: 'reopened' }] });
+    expect(await askOperatorAboutDate(input('2027-02-01', '+79005550602'), { today })).toEqual({ state: 'not_platform_closed' });
+    expect(await leadsOf('+79005550602')).toEqual([]);
   });
 });

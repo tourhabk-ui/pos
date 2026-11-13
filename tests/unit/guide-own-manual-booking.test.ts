@@ -158,12 +158,35 @@ describe('POST /api/guide/own/bookings — из заявки', () => {
     expect(insert?.[1]).toEqual(expect.arrayContaining([LEAD]));
     const update = h.tx.find((c) => /UPDATE leads/.test(String(c[0])));
     expect(String(update?.[0])).toMatch(/SET status = 'converted'/);
-    expect(update?.[1]).toEqual([LEAD, GUIDE]);
+    // Третий параметр — статус «отменена клиентом» (1427): из такой заявки бронь не заводится.
+    expect(update?.[1]).toEqual([LEAD, GUIDE, 'cancelled']);
     expect(h.tx.indexOf(insert!)).toBeLessThan(h.tx.indexOf(update!));
     expect(h.event).toHaveBeenCalledWith(expect.objectContaining({
       kind: 'status_change', sourceKind: 'lead', sourceId: LEAD, actorKind: 'partner_user', actorUserId: GUIDE_USER,
       payload: expect.objectContaining({ from: 'new', to: 'converted', booking_id: '9001' }),
     }));
+  });
+
+  it('заявку отменил клиент (1427) — 409 словами, вставки нет; отменил между чтением и записью — бронь откатывается с транзакцией', async () => {
+    world.lead = { id: LEAD, status: 'cancelled' };
+    let res = await post({ ...BASE, lead_id: LEAD });
+    expect(res.status).toBe(409);
+    expect((await res.json()).error).toBe('Заявку отменил клиент — бронь по ней не заводится');
+    expect(insertOf()).toBeUndefined();
+    expect(h.event).not.toHaveBeenCalled();
+
+    // Гонка: при чтении заявка живая, условная запись «Договорились» строку уже не находит.
+    world.lead = { id: LEAD, status: 'new' };
+    const base = h.query.getMockImplementation()!;
+    h.query.mockImplementation(async (sql: string, ...rest: unknown[]) => {
+      if (/UPDATE leads/.test(sql)) return { rows: [], rowCount: 0 };
+      return base(sql, ...rest);
+    });
+    res = await post({ ...BASE, lead_id: LEAD });
+    expect(res.status).toBe(409);
+    expect(insertOf()).toBeDefined();
+    expect(h.event).not.toHaveBeenCalled();
+    expect(h.link).not.toHaveBeenCalled();
   });
 
   it('чужая или ничейная заявка — 404 «не найдена среди ваших», вставки нет', async () => {

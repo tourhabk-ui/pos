@@ -10,7 +10,7 @@ import { join } from 'path';
 import { primaryArg, safeArgValue, classifyExecutionError, HIDDEN_VALUE } from '@/lib/mcp/call-reason';
 import { nearestToolName, unknownToolResponse } from '@/lib/mcp/unknown-tool';
 import { McpUserError } from '@/lib/mcp/jsonrpc';
-import { PUBLIC_MCP_TOOL_NAMES, WRITE_TOOL_NAMES } from '@/lib/mcp/public-tools';
+import { PUBLIC_MCP_TOOL_NAMES, WRITE_TOOL_NAMES, KEY_ARG_TOOL_NAMES } from '@/lib/mcp/public-tools';
 
 const read = (p: string) => readFileSync(join(process.cwd(), p), 'utf8');
 const ROUTE = read('app/api/mcp/route.ts');
@@ -18,7 +18,9 @@ const ROUTE = read('app/api/mcp/route.ts');
 describe('главный аргумент: имя всегда, значение — только у читающих и без ПД', () => {
   it('у читающего инструмента значение пишется, обрезается до 40', () => {
     expect(primaryArg({ name: 'Долина гейзеров' }, false)).toEqual({ key: 'name', value: 'Долина гейзеров' });
-    expect(primaryArg({ place: 'x'.repeat(80) }, false).value).toHaveLength(40);
+    // Длинное значение словами обрезается; сплошной отрезок латиницы от 32 знаков — уже «похоже на ключ» и скрыт.
+    expect(primaryArg({ place: 'Очень длинное название места, которое в журнал целиком не помещается' }, false).value).toHaveLength(40);
+    expect(primaryArg({ place: 'x'.repeat(80) }, false).value).toBe(HIDDEN_VALUE);
     expect(primaryArg({ limit: 5, activity_type: 'fishing' }, false)).toEqual({ key: 'activity_type', value: 'fishing' });
     expect(primaryArg({}, false)).toEqual({ key: null, value: null });
   });
@@ -35,6 +37,41 @@ describe('главный аргумент: имя всегда, значение
     expect(safeArgValue('Вулкан 3456 м')).toBe('Вулкан 3456 м');
     expect(safeArgValue('  a\u0000b  ')).toBe('a b');
     expect(safeArgValue('')).toBeNull();
+  });
+
+  it('ключ заявки в журнал не пишется: ни под именем key, ни под чужим', () => {
+    // Форма настоящего ключа: 24 случайных байта в base64url, 32 знака.
+    const withDigits = 'Zq3vT-xYLmK_aB7cDreFlgH8jNopRisU';
+    const noDigits = 'ZqXvT-xYLmK_aBkcDreFlgHmjNopRisU';
+    expect(withDigits).toHaveLength(32);
+    // До 12.11 оба значения ложились в журнал целиком: цифр меньше семи, почты нет.
+    expect(withDigits.replace(/[^0-9]/g, '')).toHaveLength(3);
+    expect(primaryArg({ key: withDigits }, false)).toEqual({ key: 'key', value: HIDDEN_VALUE });
+    expect(primaryArg({ key: noDigits }, false)).toEqual({ key: 'key', value: HIDDEN_VALUE });
+    // Имя — как есть: по нему видно, что спрашивали статус.
+    expect(primaryArg({ key: withDigits, action: 'cancel' }, false).key).toBe('key');
+    // Ключ под чужим именем (агент перепутал поле) — тоже скрыт: и с цифрами,
+    // и без единой цифры (32 знака подряд — уже ключ; ревью безопасности к #3280).
+    expect(primaryArg({ status_key: withDigits }, false)).toEqual({ key: 'status_key', value: HIDDEN_VALUE });
+    expect(primaryArg({ status_key: noDigits }, false)).toEqual({ key: 'status_key', value: HIDDEN_VALUE });
+    expect(safeArgValue(`sq_${withDigits}`)).toBe(HIDDEN_VALUE);
+    // Ключ в обёртке — тот же ключ: кавычки, приставка, слова вокруг.
+    expect(safeArgValue(`"${withDigits}"`)).toBe(HIDDEN_VALUE);
+    expect(safeArgValue(`key: ${noDigits}`)).toBe(HIDDEN_VALUE);
+    expect(safeArgValue(`статус ${withDigits} пожалуйста`)).toBe(HIDDEN_VALUE);
+    // Обрезанный ключ: отрезок короче 32 знаков, но с цифрой — тоже не в журнал.
+    expect(withDigits.slice(0, 22).replace(/[^0-9]/g, '')).toHaveLength(2);
+    expect(safeArgValue(withDigits.slice(0, 22))).toBe(HIDDEN_VALUE);
+    // У инструмента с ключом заявки значение не пишется вовсе — ни под каким именем.
+    expect([...KEY_ARG_TOOL_NAMES].sort()).toEqual(['change_request', 'get_request_status']);
+    expect(primaryArg({ status_key: 'что угодно' }, true)).toEqual({ key: 'status_key', value: null });
+    // Пустой ключ остаётся пустым, а не «скрыто»: скрывать нечего.
+    expect(primaryArg({ key: '' }, false)).toEqual({ key: 'key', value: null });
+    // Обычные значения не задеты: место латиницей, длинное слово, номер тура.
+    expect(safeArgValue('Petropavlovsk-Kamchatsky')).toBe('Petropavlovsk-Kamchatsky');
+    expect(safeArgValue('Kronotsky-Nature-Reserve')).toBe('Kronotsky-Nature-Reserve');
+    expect(safeArgValue('tour:12')).toBe('tour:12');
+    expect(primaryArg({ name: 'Долина гейзеров' }, false).value).toBe('Долина гейзеров');
   });
 
   it('код исполнения: SQLSTATE, сеть, таймаут, иначе класс ошибки', () => {
@@ -62,7 +99,8 @@ describe('главный аргумент: имя всегда, значение
   });
 
   it('роут пишет причину и аргумент в каждый исход журнала, значение — не из toolArgs напрямую', () => {
-    expect(ROUTE).toContain('const arg = primaryArg(toolArgs, isWrite)');
+    // Что у инструментов с ключом заявки в журнал идёт только имя аргумента,
+    // судит вызов роута: tests/unit/mcp-key-not-in-journal.test.ts.
     expect(ROUTE).toContain("errorCode: userFacing ? toolErr.code : classifyExecutionError(toolErr)");
     expect(ROUTE).toContain("errorCode: 'tool_failed'");
     const calls = ROUTE.match(/logMcpToolCall\(\{[^}]+\}\)/gs) ?? [];

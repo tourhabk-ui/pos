@@ -3,7 +3,7 @@
 import { Fragment, useState } from 'react';
 import { Fish, Clock, Users, Mountain, ChevronRight, Calendar } from 'lucide-react';
 import Link from 'next/link';
-import { TOUR_PHOTO_POSITION } from '@/lib/tours/photo-focus';
+import { tourPhotoPosition } from '@/lib/tours/photo-focus';
 import { tourPath } from '@/lib/tours/tour-url';
 import { OperatorNameLink } from '@/components/operators/OperatorNameLink';
 import { OFFER_ORDER_NOTE } from '@/lib/tours/offer-order';
@@ -70,7 +70,7 @@ function TourCard({ tour }: { tour: FishingTour }) {
               src={photo}
               alt={tour.title}
               className="w-full h-full object-cover group-hover:scale-105 transition-transform duration-300"
-              style={{ objectPosition: TOUR_PHOTO_POSITION }}
+              style={{ objectPosition: tourPhotoPosition(photo) }}
             />
           ) : (
             <div className="w-full h-full flex items-center justify-center">

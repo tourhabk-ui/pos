@@ -78,7 +78,7 @@ import { BEAR_FALLBACK, shortCredit } from '@/lib/media/wildlife-photos';
 const HERO_SRC = '/images/marketplace/hero-marketplace.jpg';
 import { plural } from '@/lib/home/data-freshness';
 import { detectFishSpecies } from '@/lib/fish-species';
-import { TOUR_PHOTO_POSITION } from '@/lib/tours/photo-focus';
+import { tourPhotoPosition } from '@/lib/tours/photo-focus';
 import { tourPath } from '@/lib/tours/tour-url';
 import { cardDuration, cardPrice } from '@/lib/tours/card-facts';
 import { OperatorNameLink } from '@/components/operators/OperatorNameLink';
@@ -372,7 +372,7 @@ function TourCard({
           fetchPriority={priority ? 'high' : undefined}
           sizes="(max-width: 768px) 100vw, (max-width: 1024px) 50vw, 33vw"
           className="object-cover"
-          style={{ objectPosition: TOUR_PHOTO_POSITION, filter: 'saturate(1.12) contrast(1.04)' }}
+          style={{ objectPosition: tourPhotoPosition(tour.tour_image), filter: 'saturate(1.12) contrast(1.04)' }}
         />
         {placeholderCredit && (
           <span className="absolute bottom-2 left-2 z-[2] px-2 py-0.5 rounded-full text-[10px] leading-tight text-white backdrop-blur-md bg-black/40 border border-white/15 pointer-events-none">

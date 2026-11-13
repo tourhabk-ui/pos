@@ -6,6 +6,7 @@ import React, { useState, useRef, useEffect, useCallback, useId } from 'react';
 import { usePathname } from 'next/navigation';
 import { isForeignSurface } from '@/lib/embed/widget-frame';
 import { Sparkles, Send, Loader2, X, MessageCircle, Camera, ExternalLink, Fish, Mountain, Droplets, Waves, CheckCircle, Minus, Plus } from 'lucide-react';
+import { ThinkingText } from '@/components/ui/ThinkingText';
 import Link from 'next/link';
 import Image from 'next/image';
 import { useGeo } from '@/contexts/GeoContext';
@@ -518,7 +519,7 @@ export default function KuzmichWidget() {
                   <Sparkles className="w-3 h-3 text-[var(--accent)]" />
                 </div>
                 <div className="bg-[var(--bg-hover)] rounded-xl rounded-bl-sm px-3 py-2 text-xs text-[var(--text-muted)] flex items-center gap-1.5">
-                  <Loader2 size={11} className="animate-spin" /> думаю...
+                  <ThinkingText />
                 </div>
               </div>
             )}

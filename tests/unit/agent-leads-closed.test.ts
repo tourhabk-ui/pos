@@ -51,6 +51,39 @@ describe('заявки платформы — не для агента', () => {
     const res = await GET(new Request('http://x/api/agent/leads') as unknown as NextRequest);
     expect(res.status).toBe(200);
   });
+});
+
+describe('правка статуса администратором и заявка, которую отменил клиент (1427)', () => {
+  const patch = (status = 'contacted') => PATCH(
+    new Request('http://x/api/agent/leads/l-1', { method: 'PATCH', body: JSON.stringify({ status }) }) as unknown as NextRequest,
+    { params: { id: 'l-1' } },
+  );
+
+  it('живая заявка: запись условная — четвёртый параметр «отменена клиентом»', async () => {
+    roleRef.role = 'admin';
+    queryMock.mockResolvedValue({ rows: [{ id: 'l-1', status: 'contacted', notes: null, prev_status: 'contacted' }], rowCount: 1 });
+    const res = await patch();
+    expect(res.status).toBe(200);
+    expect(queryMock).toHaveBeenCalledTimes(1);
+    const [sql, params] = queryMock.mock.calls[0] as [string, unknown[]];
+    expect(sql).toMatch(/WHERE id = \$1 AND status <> \$4/);
+    expect(params).toEqual(['l-1', 'contacted', null, 'cancelled']);
+  });
+
+  it('заявку отменил клиент — 409 своими словами, а не «не найден»; пропавший лид — по-прежнему 404', async () => {
+    roleRef.role = 'admin';
+    queryMock.mockResolvedValueOnce({ rows: [], rowCount: 0 }).mockResolvedValueOnce({ rows: [{ status: 'cancelled' }], rowCount: 1 });
+    const res = await patch('lost');
+    expect(res.status).toBe(409);
+    expect(await res.json()).toEqual({ success: false, error: 'Заявку отменил клиент — статус не меняется' });
+
+    queryMock.mockReset();
+    queryMock.mockResolvedValueOnce({ rows: [], rowCount: 0 }).mockResolvedValueOnce({ rows: [], rowCount: 0 });
+    expect((await patch('lost')).status).toBe(404);
+  });
+});
+
+describe('агентский раздел', () => {
 
   it('раздела «Заявки» нет в меню и на обзоре агента', () => {
     expect(read('app/hub/agent/layout.tsx')).not.toMatch(/\/hub\/agent\/leads/);

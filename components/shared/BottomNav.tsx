@@ -1,6 +1,6 @@
 'use client';
 
-import { useEffect, useRef } from 'react';
+import { useEffect, useRef, useState } from 'react';
 import Link from 'next/link';
 import { Map, Compass, Navigation, Ticket, type LucideIcon } from 'lucide-react';
 import { HomeVolcanoesIcon } from '@/components/shared/HomeVolcanoesIcon';
@@ -59,8 +59,22 @@ interface BottomNavProps {
  */
 export const BOTTOM_NAV_HEIGHT_VAR = '--bottom-nav-h';
 
+/** Номер пункта, подсвеченного на этом адресе; -1 — ни одного. */
+export function activeNavIndex(activePath: string): number {
+  return ITEMS.findIndex((it) => it.activeOn.includes(activePath));
+}
+
 export default function BottomNav({ activePath, onNavClick }: BottomNavProps) {
   const ref = useRef<HTMLElement>(null);
+  // Плашка под подписью — одна на весь бар и переезжает к нажатому пункту
+  // сразу по нажатию (12.11, «нижнее меню: плашка переезжает»), не дожидаясь,
+  // пока откроется страница. Новая страница рисует бар заново — плашка уже
+  // на своём месте. Если переход отменили, плашка остаётся, где была.
+  const active = activeNavIndex(activePath);
+  // Нажатие помнит адрес, на котором случилось: на новом адресе оно уже
+  // ничего не значит, и плашка встаёт по самому адресу.
+  const [picked, setPicked] = useState<{ on: string; index: number } | null>(null);
+  const plaque = picked && picked.on === activePath ? picked.index : active;
 
   useEffect(() => {
     const el = ref.current;
@@ -104,7 +118,12 @@ export default function BottomNav({ activePath, onNavClick }: BottomNavProps) {
             key={href}
             href={href}
             aria-label={label}
-            onClick={onNavClick}
+            onClick={(e) => {
+              onNavClick?.(e);
+              if (!e.defaultPrevented && !e.metaKey && !e.ctrlKey && !e.shiftKey && e.button === 0) {
+                setPicked({ on: activePath, index: ITEMS.findIndex((it) => it.href === href) });
+              }
+            }}
             // Типографика north-star (полевой скриншот 01.08): капс 8px читался
             // мелкой технической подписью. Обычный регистр + активная точка под
             // подписью вместо пилюли-подложки.
@@ -234,20 +253,32 @@ export default function BottomNav({ activePath, onNavClick }: BottomNavProps) {
               </span>
             )}
             <span>{label}</span>
-            <span
-              aria-hidden
-              style={{
-                width: '4px',
-                height: '4px',
-                borderRadius: '50%',
-                background: isActive ? 'var(--accent)' : 'transparent',
-                transition: 'background 220ms ease',
-              }}
-            />
+            {/* Место под плашку: сама плашка одна, ниже, поверх ряда. */}
+            <span aria-hidden style={{ width: '4px', height: '4px' }} />
           </Link>
         );
       })}
 
+      {plaque >= 0 && (
+        <span
+          aria-hidden
+          data-nav-plaque={plaque}
+          className="transition-transform duration-300 ease-out motion-reduce:transition-none"
+          style={{
+            position: 'absolute',
+            left: '4px',
+            bottom: 'calc(8px + env(safe-area-inset-bottom))',
+            width: `calc((100% - 8px) / ${ITEMS.length})`,
+            height: '4px',
+            display: 'flex',
+            justifyContent: 'center',
+            pointerEvents: 'none',
+            transform: `translateX(${plaque * 100}%)`,
+          }}
+        >
+          <span style={{ width: '16px', height: '4px', borderRadius: '2px', background: 'var(--accent)' }} />
+        </span>
+      )}
     </nav>
   );
 }

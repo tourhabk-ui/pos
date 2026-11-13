@@ -109,7 +109,9 @@ describe('все поверхности с фото туров держат го
       // Пейзажи — герой каталога и фото мест/маршрутов — не портреты туров.
       const imgs = coverImages(src).filter((t) => !/hero-marketplace\.jpg|HERO_SRC|route\.imageUrl/.test(t));
       expect(imgs.length, `${f}: не нашёл ни одного фото — сторож смотрит не туда`).toBeGreaterThan(0);
-      for (const t of imgs) expect(t, `${f}: фото без точки кадрирования`).toMatch(/objectPosition:\s*TOUR_PHOTO_POSITION/);
+      // Точка кадра — у снимка (12.11, tests/unit/tour-photo-focus.test.tsx);
+      // по умолчанию верх кадра.
+      for (const t of imgs) expect(t, `${f}: фото без точки кадрирования`).toMatch(/objectPosition:\s*tourPhotoPosition\(/);
       expect(src).toMatch(/from '@\/lib\/tours\/photo-focus'/);
     });
   }

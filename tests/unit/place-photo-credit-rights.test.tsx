@@ -52,7 +52,7 @@ describe('права кадра галереи из загрузчика', () =>
     const sql = readFileSync(join(process.cwd(), 'lib/places/place-detail.ts'), 'utf8');
     const block = sql.slice(sql.indexOf('AS gallery_authors'), sql.indexOf('AS gallery_rights'));
     expect(block).toMatch(/\) ORDER BY g\.position\), '\[\]'::json\)/);
-    expect(block).toMatch(/WHERE g\.ark_id = p\.ark_id AND g\.hidden_reason IS NULL\)\s*$/);
+    expect(block).toMatch(/WHERE g\.ark_id = p\.ark_id AND \$\{galleryShownSql\('g'\)\}\)\s*$/);
   });
 });
 
@@ -95,5 +95,22 @@ describe('подпись под кадром на экране', () => {
   it('ни автора, ни лицензии — подписи нет', () => {
     const { container } = render(<PhotoCredit author={null} license={null} licenseUrl={null} sourceUrl="https://x.test" />);
     expect(container.textContent).toBe('');
+  });
+
+  it('снимок партнёра (12.11): имя ведёт на его страницу на Ведаре в той же вкладке; «//хост» своей страницей не считается', () => {
+    render(<PhotoCredit author="Местечко Камчатка" license={null} licenseUrl={null} sourceUrl="/operators/mestechko" />);
+    const own = screen.getByRole('link', { name: 'Местечко Камчатка' });
+    expect(own.getAttribute('href')).toBe('/operators/mestechko');
+    expect(own.getAttribute('target')).toBeNull();
+    cleanup();
+    render(<PhotoCredit author="Чужой" license={null} licenseUrl={null} sourceUrl="//evil.example/x" />);
+    expect(screen.getByRole('link', { name: 'Чужой' }).getAttribute('target')).toBe('_blank');
+  });
+
+  it('права кадра партнёра: страница партнёра вместо источника; без открытой страницы — источник', () => {
+    const url = '/api/images/place-gallery/a/1?v=1';
+    const row = (pub: boolean) => ({ gallery_urls: [url], gallery_rights: [{ license: null, license_url: null, source_url: 'https://site.example/tour', partner_slug: 'mestechko', partner_public: pub }] });
+    expect(photoRightsOf(row(true))[url]?.sourceUrl).toBe('/operators/mestechko');
+    expect(photoRightsOf(row(false))[url]?.sourceUrl).toBe('https://site.example/tour');
   });
 });

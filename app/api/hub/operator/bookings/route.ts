@@ -195,6 +195,9 @@ export async function POST(request: NextRequest) {
     if (outcome.kind === 'lead_not_found') {
       return NextResponse.json({ error: 'Лид не найден' }, { status: 404 });
     }
+    if (outcome.kind === 'lead_cancelled') {
+      return NextResponse.json({ error: 'Заявку отменил клиент — бронь по ней не заводится' }, { status: 409 });
+    }
     const { booking, tourTitle, finalPrice } = outcome;
 
     // Fire-and-forget Telegram notification

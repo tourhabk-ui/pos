@@ -15,6 +15,7 @@ const m = vi.hoisted(() => ({
   tgSend: vi.fn(),
   myTrip: vi.fn(),
   datePress: vi.fn(),
+  cancelPress: vi.fn(),
   processMessage: vi.fn(),
   findPartner: vi.fn(),
 }));
@@ -49,10 +50,15 @@ vi.mock('@/lib/requests/my-trip-date', async (orig) => ({
   ...(await orig<typeof import('@/lib/requests/my-trip-date')>()),
   pressMyTripDate: (...a: unknown[]) => m.datePress(...a),
 }));
+vi.mock('@/lib/requests/my-trip-cancel', async (orig) => ({
+  ...(await orig<typeof import('@/lib/requests/my-trip-cancel')>()),
+  pressMyTripCancel: (...a: unknown[]) => m.cancelPress(...a),
+}));
 
 const telegram = await import('@/app/api/telegram/webhook/route');
 const { signPayload } = await import('@/lib/chat-cabinet/signed-payload');
 const { myTripDateMenuPayload, myTripDatePickPayload } = await import('@/lib/requests/my-trip-date');
+const { myTripCancelAskPayload, myTripCancelYesPayload } = await import('@/lib/requests/my-trip-cancel');
 
 const TG_CHAT = 7_970;
 const LEAD = '0f1e2d3c-4b5a-4968-8776-655443322110';
@@ -82,6 +88,7 @@ beforeEach(() => {
   m.processMessage.mockResolvedValue(undefined);
   m.myTrip.mockResolvedValue({ text: 'Ваша заявка в этом чате:\n\n1. Горелый & кратер', buttons: [{ text: 'Изменить дату', payload: MENU }] });
   m.datePress.mockResolvedValue({ text: 'Свободные даты на 2 чел.:', buttons: [{ text: '18.07 · мест 5', payload: signPayload(PICK) }] });
+  m.cancelPress.mockResolvedValue({ text: 'Отменить заявку?', buttons: [{ text: 'Да, отменить заявку', payload: signPayload(myTripCancelYesPayload(LEAD)) }] });
   vi.stubEnv('TELEGRAM_CHAT_ID', '-100500');
   vi.stubEnv('TELEGRAM_BOT_TOKEN', 'tg-test-token');
   vi.stubEnv('CALLBACK_SIGNING_SECRET', 'tg-signing');
@@ -136,5 +143,53 @@ describe('нажатия «Изменить дату» в Telegram', () => {
     await tap(signPayload(PICK), 'group');
     expect(m.datePress).not.toHaveBeenCalled();
     expect(sent().map((x) => x.text).join('\n')).toMatch(/в личном диалоге с ботом/);
+  });
+});
+
+describe('кнопка статуса под заявкой в рабочем чате Telegram (1427)', () => {
+  it('заявку отменил клиент — администратору сказано это, статус не меняется', async () => {
+    const { pool } = await import('@/lib/db-pool');
+    const { LEAD_STATUS_ACTION_SQL } = await import('@/lib/leads/status-action');
+    const q = vi.mocked(pool.query) as unknown as ReturnType<typeof vi.fn>;
+    q.mockImplementation(async (sql: string) => (sql === LEAD_STATUS_ACTION_SQL
+      ? { rows: [{ name: null, prev_status: 'cancelled', updated: false }], rowCount: 1 }
+      : { rows: [], rowCount: 0 }));
+    vi.stubEnv('TELEGRAM_CHAT_ID', String(TG_CHAT));
+    try {
+      await tap(`lead_contacted:${LEAD}`);
+      expect(q.mock.calls.filter(([s]) => s === LEAD_STATUS_ACTION_SQL).map(([, p]) => p)).toEqual([['contacted', LEAD, 'cancelled']]);
+      expect(sent().map((x) => x.text)).toEqual([`Заявку <code>${LEAD}</code> отменил клиент — статус не изменён.`]);
+    } finally {
+      q.mockImplementation(async () => ({ rows: [], rowCount: 0 }));
+    }
+  });
+});
+
+describe('нажатия «Отменить заявку» в Telegram (1427)', () => {
+  const ASK = myTripCancelAskPayload(LEAD);
+  const YES = myTripCancelYesPayload(LEAD);
+
+  it('вопрос в личном чате — ответ с кнопкой «Да», канал и чат этого нажатия', async () => {
+    await tap(ASK);
+    expect(m.cancelPress).toHaveBeenCalledWith(ASK, 'telegram', TG_CHAT);
+    const out = sent();
+    expect(out.map((x) => x.text)).toEqual(['Отменить заявку?']);
+    expect(inline(out[0]).map((b) => b.text)).toEqual(['Да, отменить заявку']);
+    expect(m.datePress).not.toHaveBeenCalled();
+  });
+
+  it('«Да»: подписанная кнопка доходит без подписи; без подписи после срока старых кнопок — не принята', async () => {
+    await tap(signPayload(YES));
+    expect(m.cancelPress).toHaveBeenCalledWith(YES, 'telegram', TG_CHAT);
+    m.cancelPress.mockClear();
+    vi.stubEnv('CALLBACK_LEGACY_UNTIL_MS', String(Date.parse('2026-11-05T12:00:00Z')));
+    await tap(YES);
+    expect(m.cancelPress).not.toHaveBeenCalled();
+  });
+
+  it('из группы — заявка не отменяется, сказано, где отменяют', async () => {
+    await tap(signPayload(YES), 'group');
+    expect(m.cancelPress).not.toHaveBeenCalled();
+    expect(sent().map((x) => x.text).join('\n')).toMatch(/Заявку отменяют в личном диалоге с ботом/);
   });
 });

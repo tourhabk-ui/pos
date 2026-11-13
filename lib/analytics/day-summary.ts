@@ -84,11 +84,11 @@ export async function readDaySummary(now: Date = new Date()): Promise<DaySummary
     }),
     settle('A2A', async () => {
       const { rows } = await pool.query<{ d: Day; requests: number; callers: number }>(
-        `SELECT ${DAY_OF('r.created_at', '$4')} AS d,
+        `SELECT ${DAY_OF('r.created_at', '$5')} AS d,
                 COUNT(*)::int AS requests, COUNT(DISTINCT r.caller_hash)::int AS callers
            FROM a2a_requests r
-          WHERE r.created_at >= $3::timestamptz AND r.created_at <= $5::timestamptz
-            AND r.op <> 'card' AND ${a2aExternalSql('r', '$1', '$2')}
+          WHERE r.created_at >= $4::timestamptz AND r.created_at <= $6::timestamptz
+            AND r.op <> 'card' AND ${a2aExternalSql('r', '$1', '$2', '$3')}
           GROUP BY 1`,
         [...A2A_EXTERNAL_PARAMS, w.from, w.split, w.to],
       );

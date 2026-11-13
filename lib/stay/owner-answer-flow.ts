@@ -11,19 +11,24 @@
  *    или страница заявки; это же сообщение снимает заявку с ожидания во
  *    «Входящих»), менеджеру Ведара — факт без имени и телефона гостя. Отказ
  *    следствий записанный ответ не отменяет: он назван в логе и хозяину
- *    («сообщение гостю не ушло — позвоните»).
+ *    («сообщение гостю не ушло — позвоните»);
+ *  - после «Занято» — ещё одно сообщение гостю, уже от Ведара: другое жильё
+ *    на те же ночи (этап 5, lib/stay/other-stays-notice). Хозяину и менеджеру
+ *    сказано, что названо и куда.
  *
  * Бронь этим не создаётся, даты не закрываются, оплата не открывается (1206).
  */
 import { pool } from '@/lib/db-pool';
+import { withQueueLine } from '@/lib/manager-queue/link';
 import { tgSend } from '@/lib/notifications/tg-send';
 import { postOwnerMessage } from '@/lib/requests/request-chat-service';
 import { isChatTargetId, ownerReplyButton } from '@/lib/requests/request-chat';
+import { withinPress } from '@/lib/requests/press-budget';
 import { requestAnswerEditText } from '@/lib/rental/request-answer';
 import type { PartnerChatLookup } from '@/lib/kuzmich/operator-chat';
 import {
   guestStayAnswerText, managerStayAnswerText, ownerStayAnswerText, parseStayAnswerPress,
-  type GuestTold, type StayAnswerFacts, type StayAnswerTell, type StayOwnerAnswer,
+  type GuestTold, type OthersTold, type StayAnswerFacts, type StayAnswerTell, type StayOwnerAnswer,
 } from '@/lib/stay/owner-answer';
 
 export type StayAnswerVia = 'max' | 'telegram' | 'site';
@@ -70,6 +75,21 @@ async function tellGuest(requestId: string, text: string): Promise<GuestTold> {
   }
 }
 
+/** Сколько нажатие хозяина ждёт сообщение гостю о другом жилье; дальше оно идёт само. */
+export const OTHER_STAYS_PRESS_BUDGET_MS = 8_000;
+
+/**
+ * После «Занято» — другое жильё на те же ночи, отдельным сообщением Ведара
+ * (этап 5). null — называть нечего, не удалось или не уложилось в срок: о
+ * недошедшем хозяину и менеджеру не говорится.
+ */
+async function tellOthers(requestId: string): Promise<OthersTold> {
+  if (!isChatTargetId(requestId)) return null;
+  const { tellGuestOtherStays } = await import('@/lib/stay/other-stays-notice');
+  const told = await tellGuestOtherStays(requestId);
+  return told.state === 'nothing' ? null : told;
+}
+
 export async function answerStayRequest(opts: {
   partner: StayAnswerActor;
   requestId: string;
@@ -77,6 +97,8 @@ export async function answerStayRequest(opts: {
   via: StayAnswerVia;
   db?: Db;
   notifyManager?: (text: string) => Promise<void>;
+  /** Другое жильё гостю после «Занято»; подмена — для проверки вызовом. */
+  tellOthers?: (requestId: string) => Promise<OthersTold>;
 }): Promise<{ tell: StayAnswerTell; facts: StayAnswerFacts | null }> {
   const db = opts.db ?? pool;
   const notify = opts.notifyManager ?? tellManager;
@@ -102,12 +124,26 @@ export async function answerStayRequest(opts: {
 
   // Ответ записан; дальше — следствия, каждое само по себе и каждое с логом.
   const guestTold = await tellGuest(opts.requestId, guestStayAnswerText(facts, opts.answer));
+  // После «Занято» — другое жильё на те же ночи: вторым сообщением, от Ведара, после слов хозяина.
+  let others: OthersTold = null;
+  if (opts.answer === 'busy') {
+    try {
+      others = await withinPress<OthersTold>((opts.tellOthers ?? tellOthers)(opts.requestId), null, OTHER_STAYS_PRESS_BUDGET_MS);
+    } catch (err) {
+      console.error('[stay-request-answer] другое жильё гостю не названо:', err instanceof Error ? err.name : 'ошибка');
+    }
+  }
   try {
-    await notify(managerStayAnswerText({ partnerName: opts.partner.partnerName, requestId: opts.requestId, answer: opts.answer, facts }));
+    // «Занято» встаёт в очередь менеджера (этап 3б): в сообщении — где она и где отметка «Взял».
+    await notify(withQueueLine(
+      managerStayAnswerText({ partnerName: opts.partner.partnerName, requestId: opts.requestId, answer: opts.answer, facts, others }),
+      opts.answer === 'busy',
+    ));
   } catch (err) {
     console.error('[stay-request-answer] менеджеру не доставлено:', err instanceof Error ? err.message : err);
   }
-  return { tell: { kind: 'answered', answer: opts.answer, guestTold }, facts };
+  // Поле `others` — только у «Занято»: у других ответов о другом жилье речи нет.
+  return { tell: { kind: 'answered', answer: opts.answer, guestTold, ...(opts.answer === 'busy' ? { others } : {}) }, facts };
 }
 
 /**

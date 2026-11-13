@@ -38,6 +38,7 @@ import { tripFactsOf, tripRequestLines } from '@/lib/planner/trip-request-lines'
 import { redactPII } from '@/lib/security/pii-redact';
 import { pickNextOperator } from '@/lib/leads/next-operator';
 import { offerOrderDay } from '@/lib/tours/offer-order';
+import { LEAD_CLIENT_CANCELLED } from '@/lib/types/statuses';
 
 export const dynamic = 'force-dynamic';
 
@@ -152,18 +153,28 @@ export async function GET(request: NextRequest) {
       const interests = sd.interests ?? [];
       // Адресат, отказавшийся от заявки на большую группу, её второй раз не получает.
       const alreadyNotified = [...(sd.notified_operators ?? []), ...(lead.addressee_slug ? [lead.addressee_slug] : [])];
+      // Клиент мог отменить заявку, пока прогон шёл по списку (1427): выборка
+      // отменённых не берёт, но между ней и этой строкой — отправки по прежним
+      // заявкам. Отменённую не передаём никому: её имя и телефон другим
+      // операторам уже не нужны.
+      const { rows: [alive] } = await pool.query<{ ok: boolean }>(
+        `SELECT TRUE AS ok FROM leads WHERE id = $1 AND status <> $2`, [lead.id, LEAD_CLIENT_CANCELLED],
+      );
+      if (!alive) continue;
       if (lead.addressee_slug) {
         // Заявка становится ничейной (слово владельца 08.11): кабинет оператора
         // видит свои и ничейные лиды (lib/leads/ownership), и следующий оператор
         // по кнопке «Открыть в CRM» иначе получил бы «не найден». Первое действие
         // над ничейной делает её своей. Отказавшийся адресат — в notified_operators.
-        await pool.query(
+        // Условие на статус — чтобы отмену клиента этот UPDATE не затёр статусом `new`.
+        const freed = await pool.query(
           `UPDATE leads SET operator_id = NULL, status = 'new',
                   source_data = source_data || jsonb_build_object('declined_by', $2::text, 'notified_operators', $3::jsonb),
                   updated_at = NOW()
-            WHERE id = $1`,
-          [lead.id, lead.addressee_slug, JSON.stringify(alreadyNotified)],
+            WHERE id = $1 AND status <> $4`,
+          [lead.id, lead.addressee_slug, JSON.stringify(alreadyNotified), LEAD_CLIENT_CANCELLED],
         );
+        if (freed.rowCount === 0) continue;
       }
       const followupCount = sd.followup_count ?? 0;
 
@@ -317,12 +328,14 @@ export async function GET(request: NextRequest) {
         }
 
         // Меняем статус на 'contacted' + помечаем как обработанный кроном
-        await pool.query(
+        // Отмену клиента статусом «связались» не затираем (1427): условие на
+        // статус, и событие в ленту — только когда статус правда сменился.
+        const taken = await pool.query(
           `UPDATE leads
            SET status      = 'contacted',
                source_data = source_data || $1::jsonb,
                updated_at  = NOW()
-           WHERE id = $2`,
+           WHERE id = $2 AND status <> $3`,
           [
             JSON.stringify({
               followup_count: followupCount + 1,
@@ -330,12 +343,15 @@ export async function GET(request: NextRequest) {
               escalated_to_admin: true,
             }),
             lead.id,
+            LEAD_CLIENT_CANCELLED,
           ]
         );
-        await recordSourceEventQuietly({
-          kind: 'status_change', sourceKind: 'lead', sourceId: lead.id, actorKind: 'system',
-          title: statusChangeTitle('lead', 'new', 'contacted'), payload: { from: 'new', to: 'contacted', followup_count: followupCount + 1 },
-        });
+        if ((taken.rowCount ?? 0) > 0) {
+          await recordSourceEventQuietly({
+            kind: 'status_change', sourceKind: 'lead', sourceId: lead.id, actorKind: 'system',
+            title: statusChangeTitle('lead', 'new', 'contacted'), payload: { from: 'new', to: 'contacted', followup_count: followupCount + 1 },
+          });
+        }
       }
 
       processed++;

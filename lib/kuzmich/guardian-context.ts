@@ -18,11 +18,15 @@ import { alertLineForPlace } from '@/lib/kuzmich/alert-mention';
 import { loadVolcanoInput, volcanoLinesForName } from '@/lib/kuzmich/volcano-tool';
 import { EMERGENCY_PRIMARY } from '@/lib/safety/emergency-numbers';
 import { getPublicBaseUrl } from '@/lib/config';
-import { placeRoutesFor, placeRoutesLines, type PlaceRouteRow } from '@/lib/places/place-routes';
+import { placeRoutesFor, placeRoutesLines, routePageUrl, type PlaceRouteRow } from '@/lib/places/place-routes';
 import { routeFacts } from '@/lib/ai/route-knowledge';
 import { garbageSignature } from '@/lib/agents/evo/content-sanitizer';
 import { PLACE_COLOR_WORD, kamchatkaStamp, placeStatusFields } from '@/lib/safety/place-day-status';
-import type { GuardianPlaceStatus, GuardianStructured } from '@/lib/mcp/place-status-schema';
+import type { GuardianPlaceStatus, GuardianRouteStatus, GuardianStructured } from '@/lib/mcp/place-status-schema';
+import { namedRouteAlerts, routeToday, routeTodayLines, ROUTE_TODAY_MARK, type RouteToday } from '@/lib/routes/route-today';
+import { permitLinesForRoutes, routePermitCasesFor } from '@/lib/parks/route-permit';
+import { stemRu } from '@/lib/search/query-words';
+import { VERDICT_LABELS } from '@/lib/routes/go-verdict';
 import { KURIL_NORTH_NOTE, isOutsideKraiSources } from '@/lib/safety/kuril-north';
 
 interface GuardianPlaceRow {
@@ -288,7 +292,14 @@ export const ROUTE_FACTS_MAX = 4;
 
 /** Строка маршрута для фактов: поля §10 и, у найденных по названию, описание. */
 export interface RouteFactsSource {
+  /** id карточки маршрута: COALESCE(ark_id, id), как в адресе и у маршрутов места. */
   id: string;
+  /**
+   * `kamchatka_routes.id` — на нём живут путевые точки, и им считается оценка
+   * на сегодня (lib/routes/route-today). Есть только у найденных по названию.
+   */
+  db_id?: string | null;
+  slug?: string | null;
   title: string;
   difficulty?: string | null;
   distance_km?: string | number | null;
@@ -316,35 +327,94 @@ export function routeFactsLines(routes: RouteFactsSource[]): string[] {
   }
   if (shown.length === 0) return [];
 
-  const asText = (v: string | number | null | undefined): string | null => (v == null ? null : String(v));
   const lines = ['Маршруты каталога к этому месту — данные из базы Ведара:'];
-  for (const r of shown) {
-    const facts = routeFacts({
-      difficulty: r.difficulty ?? null,
-      distance_km: asText(r.distance_km),
-      elevation_gain_m: r.elevation_gain_m ?? null,
-      duration_hours: asText(r.duration_hours),
-      season: r.season ?? null,
-      hazards: r.hazards ?? null,
-      equipment: r.equipment ?? null,
-      mchs_registration_required: r.mchs_registration_required ?? null,
-      mchs_phone: r.mchs_phone ?? null,
-      park_name: r.park_name ?? null,
-    });
-    // Описание — тем же фильтром голоса, что у мест; сырой JSON модели
-    // (санитар контента его ещё не убрал) не цитируется вовсе.
-    const desc = r.description && !garbageSignature(r.description)
-      ? describeForAgent(r.description, ROUTE_DESCRIPTION_CHARS)
-      : null;
-    const body = [facts.length ? facts.join('. ') : 'параметры маршрута в базе не записаны', desc]
-      .filter(Boolean)
-      .join('. ');
-    lines.push(`«${r.title}»: ${body}`);
-  }
+  for (const r of shown) lines.push(`«${r.title}»: ${routeFactsBody(r)}`);
   if (!shown.some((r) => r.mchs_registration_required === true)) {
     lines.push('Регистрация в МЧС по этим маршрутам в базе не записана — это не значит, что она не нужна.');
   }
   return lines;
+}
+
+/** Факты и описание одного маршрута одной фразой: нет данных — нет слова (routeFacts). */
+function routeFactsBody(r: RouteFactsSource): string {
+  const asText = (v: string | number | null | undefined): string | null => (v == null ? null : String(v));
+  const facts = routeFacts({
+    difficulty: r.difficulty ?? null,
+    distance_km: asText(r.distance_km),
+    elevation_gain_m: r.elevation_gain_m ?? null,
+    duration_hours: asText(r.duration_hours),
+    season: r.season ?? null,
+    hazards: r.hazards ?? null,
+    equipment: r.equipment ?? null,
+    mchs_registration_required: r.mchs_registration_required ?? null,
+    mchs_phone: r.mchs_phone ?? null,
+    park_name: r.park_name ?? null,
+  });
+  // Описание — тем же фильтром голоса, что у мест; сырой JSON модели
+  // (санитар контента его ещё не убрал) не цитируется вовсе.
+  const desc = r.description && !garbageSignature(r.description)
+    ? describeForAgent(r.description, ROUTE_DESCRIPTION_CHARS)
+    : null;
+  return [facts.length ? facts.join('. ') : 'параметры маршрута в базе не записаны', desc]
+    .filter(Boolean)
+    .join('. ');
+}
+
+/**
+ * Маршрут каталога как ПРЕДМЕТ ответа (#3302, 12.11).
+ *
+ * «Вилючинский водопад» — опубликованный маршрут в природном парке, а записи
+ * места с таким названием нет. Инструмент находил маршрут (routesByName),
+ * печатал его длину и набор высоты — и ни слова о сегодняшнем дне: статус
+ * считается у мест. Агент читал `found: false` и «в справочнике не нашлось»,
+ * турист — «ничего нет» там, где у маршрута на его же карточке стоит оценка
+ * «Идти / Осторожно / Не сегодня». При закрытии парка маршрут остался бы без
+ * предупреждения именно там, где о нём спросили.
+ *
+ * Теперь маршрут, названный человеком, получает ту же оценку, что на
+ * карточке (lib/routes/route-today): слово, причину и факты, из которых оно
+ * посчитано. Своего правила здесь нет.
+ */
+export function routeSubjectLines(
+  r: RouteFactsSource,
+  today: RouteToday,
+  opts: { pageLinks?: boolean; permitLines?: readonly string[] } = {},
+): string[] {
+  const mark = ROUTE_TODAY_MARK[today.verdict.status];
+  const lines = [mark ? `Маршрут каталога «${r.title}» [${mark}]` : `Маршрут каталога «${r.title}»`];
+  lines.push(...routeTodayLines(today));
+  lines.push(`Данные маршрута из базы Ведара: ${routeFactsBody(r)}`);
+  if (r.mchs_registration_required !== true) {
+    lines.push('Регистрация в МЧС по этому маршруту в базе не записана — это не значит, что она не нужна.');
+  }
+  // Условия посещения территории (разрешение) — вторая обязанность, отдельно
+  // от МЧС; строки собирает lib/parks/route-permit из справочника и правил.
+  if (opts.permitLines?.length) lines.push(...opts.permitLines);
+  // Ссылка — только в чате: на MCP свои ссылки (поле routes[].url).
+  if (opts.pageLinks) lines.push(`Страница маршрута на сайте: ${namedRouteUrl(r)}`);
+  return lines;
+}
+
+/**
+ * Строка перед блоками маршрутов: что нашлось и что идёт ниже. «С таким
+ * названием» говорится, только когда название совпало целиком; иначе — что
+ * слова запроса стоят в названии, и сколько таких маршрутов. Поиск отдаёт не
+ * больше ROUTE_FACTS_MAX — это сказано словами, а не обрезано молча.
+ */
+export function routeSubjectIntro(query: string, routes: readonly RouteFactsSource[]): string {
+  const asked = routeNameWords(query).join(' ');
+  const [only] = routes;
+  if (routes.length === 1 && only && significantWords(only.title).join(' ') === asked) {
+    return `В каталоге Ведара есть маршрут «${only.title}» — ниже его оценка на сегодня и данные из базы.`;
+  }
+  if (routes.length === 1) {
+    return `В каталоге Ведара есть маршрут со словами «${query}» в названии — ниже его оценка на сегодня и данные из базы.`;
+  }
+  const capNote = routes.length >= ROUTE_FACTS_MAX
+    ? ` Показано не больше ${ROUTE_FACTS_MAX}: если нужного маршрута среди них нет, уточни название.`
+    : '';
+  return `В каталоге Ведара есть маршруты со словами «${query}» в названии (${routes.length}) — `
+    + `ниже оценка каждого на сегодня и данные из базы.${capNote}`;
 }
 
 /**
@@ -357,6 +427,15 @@ const GENERIC_PLACE_WORDS: ReadonlySet<string> = new Set([
 ]);
 
 /**
+ * Слова запроса для поиска маршрута по названию. Слово «маршрут» отброшено
+ * (#3302): «маршрут Вилючинский водопад» искал название, содержащее само
+ * слово «маршрут», и не находил «Вилючинский водопад».
+ */
+export function routeNameWords(raw: string): string[] {
+  return significantWords(raw).filter((w) => !/^маршрут(а|у|ом|е|ы|ов|ам|ами|ах)?$/.test(w));
+}
+
+/**
  * Маршруты каталога, в названии которых есть все слова запроса (то же
  * правило слов, что у мест, lib/places/name-match). Маршрут, связанный с
  * местом путевыми точками, находится и без этого — но связи есть не у всех:
@@ -364,12 +443,12 @@ const GENERIC_PLACE_WORDS: ReadonlySet<string> = new Set([
  * null — отказ базы: «не смог посмотреть», а не «маршрутов нет» (§4.0).
  */
 async function routesByName(placeName: string): Promise<RouteFactsSource[] | null> {
-  const words = significantWords(placeName);
+  const words = routeNameWords(placeName);
   if (words.length === 0 || words.every((w) => GENERIC_PLACE_WORDS.has(w))) return [];
   const match = nameContainsAllWordsSql('kr.title', words, 1);
   try {
     const { rows } = await pool.query<RouteFactsSource>(
-      `SELECT COALESCE(kr.ark_id, kr.id)::text AS id, kr.title, kr.description,
+      `SELECT COALESCE(kr.ark_id, kr.id)::text AS id, kr.id::text AS db_id, kr.slug, kr.title, kr.description,
               kr.difficulty, kr.distance_km, kr.elevation_gain_m, kr.duration_hours, kr.season,
               kr.hazards, kr.equipment, kr.mchs_registration_required, kr.mchs_phone, kr.park_name
          FROM kamchatka_routes kr
@@ -385,6 +464,141 @@ async function routesByName(placeName: string): Promise<RouteFactsSource[] | nul
     console.error('[guardian] маршруты по названию не прочитаны:', err instanceof Error ? err.message : err);
     return null;
   }
+}
+
+/**
+ * Назван ли маршрут запросом: все слова запроса стоят в названии (это уже
+ * сделал поиск) и совпадение сильное — то же правило, что у имени места
+ * (gradeNameMatch). Строка без id базы оценки не получит, предметом ответа
+ * она быть не может.
+ */
+export function isRouteNamedBy(query: string, r: Pick<RouteFactsSource, 'title' | 'db_id'>): boolean {
+  return Boolean(r.db_id) && gradeNameMatch(routeNameWords(query).join(' '), r.title) === 'high';
+}
+
+/**
+ * Маршруты каталога, названные запросом, — одна мера для ответа стража,
+ * `get_place_info` и ссылки «Продолжить в Ведаре» (#3302): ссылка и текст
+ * должны говорить об одном и том же маршруте, а не о результате второго,
+ * чуть другого поиска. null — база отказала: «не смог посмотреть», а не
+ * «маршрутов нет» (§4.0).
+ */
+export async function routesNamedBy(queryRaw: string): Promise<RouteFactsSource[] | null> {
+  const { text: query } = sanitizePromptInput(queryRaw);
+  if (!query.trim()) return [];
+  const named = await routesByName(query);
+  return named === null ? null : named.filter((r) => isRouteNamedBy(query, r));
+}
+
+/** Сколько похожих названий назвать: подсказка, а не список каталога. */
+export const ROUTE_SIMILAR_MAX = 3;
+
+/** Сколько строк читать до сверки основ: шаблон SQL шире правила. */
+const ROUTE_SIMILAR_SCAN = 40;
+
+/** Сходятся ли два слова по основе (правило основы — общее с поиском, stemRu). */
+function stemsAgree(a: string, b: string): boolean {
+  const x = stemRu(a);
+  const y = stemRu(b);
+  return x.length >= 4 && y.length >= 4 && (x.startsWith(y) || y.startsWith(x));
+}
+
+/**
+ * Похоже ли название маршрута на запрос: каждое слово запроса сходится по
+ * основе с каким-то словом названия («Вилючинские водопады» — «Вилючинский
+ * водопад»). Запрос из одних общих слов («водопады») не похож ни на что.
+ *
+ * Это правило ПОДСКАЗКИ, а не совпадения. Данные по основе не прикладываются
+ * — ни здесь, ни у мест (lib/places/name-match: «Авачинский» по основе
+ * сходится с «Авачинская бухта»): похожий маршрут называется с пометкой о
+ * неточном совпадении, и человек подтверждает, о нём ли речь.
+ */
+export function isSimilarRouteTitle(query: string, title: string): boolean {
+  const q = routeNameWords(query);
+  if (namesNothingBySimilarity(q)) return false;
+  const t = significantWords(title);
+  return q.every((w) => t.some((x) => x === w || stemsAgree(w, x)));
+}
+
+/**
+ * Слова, по которым похожее название не ищут: их нет, или все они общие
+ * («водопады», «вулканы и озёра») — в любом числе и падеже.
+ */
+function namesNothingBySimilarity(words: string[]): boolean {
+  const generic = (w: string) => [...GENERIC_PLACE_WORDS].some((g) => g === w || stemsAgree(w, g));
+  return words.length === 0 || words.every(generic);
+}
+
+/**
+ * Шаблон слова для отбора в SQL: шире основы, сверку делает isSimilarRouteTitle.
+ * Регистр — тем же ILIKE, что у поиска по точным словам (nameContainsAllWordsSql);
+ * шаблон — через containsPattern, как у всех инструментов агента (lib/db/like).
+ */
+function looseTitlePattern(word: string): string {
+  const w = word.toLowerCase().replace(/ё/g, 'е');
+  return containsPattern(w.length < 5 ? w : w.slice(0, Math.max(4, w.length - 3)));
+}
+
+/**
+ * Маршруты каталога с ПОХОЖИМ названием (#3302, срез 5): запрос в другом
+ * числе или падеже — «Вилючинские водопады», «к Вилючинскому водопаду» —
+ * не находил ни места, ни маршрута, и ответ был «ничего нет» при маршруте
+ * на витрине. Зовётся, только когда по точным словам маршрута нет.
+ * null — база отказала (в лог): подсказки нет, и это не «похожих нет».
+ */
+export async function routesSimilarTo(queryRaw: string): Promise<RouteFactsSource[] | null> {
+  const { text: query } = sanitizePromptInput(queryRaw);
+  const words = routeNameWords(query);
+  // Общие слова базу не спрашивают: «вулканы» подобрали бы сорок строк, и все отсеялись бы.
+  if (namesNothingBySimilarity(words) || !words.some((w) => w.length >= 5)) return [];
+  try {
+    const { rows } = await pool.query<RouteFactsSource>(
+      `SELECT COALESCE(kr.ark_id, kr.id)::text AS id, kr.id::text AS db_id, kr.slug, kr.title,
+              kr.mchs_registration_required, kr.park_name
+         FROM kamchatka_routes kr
+        WHERE kr.is_visible = TRUE AND kr.merged_into_id IS NULL
+          AND ${words.map((_, i) => `translate(kr.title, 'ёЁ', 'еЕ') ILIKE $${i + 1}`).join(' AND ')}
+        ORDER BY kr.search_count DESC NULLS LAST, kr.title
+        LIMIT ${ROUTE_SIMILAR_SCAN}`,
+      words.map(looseTitlePattern),
+    );
+    return rows.filter((r) => Boolean(r.db_id) && isSimilarRouteTitle(query, r.title)).slice(0, ROUTE_SIMILAR_MAX);
+  } catch (err) {
+    console.error('[guardian] похожие названия маршрутов не прочитаны:', err instanceof Error ? err.message : err);
+    return null;
+  }
+}
+
+/**
+ * Строки о маршруте с похожим названием — по образцу слабого совпадения
+ * места: название и пометка, данные не приложены. Оценку «Осторожно» или «Не
+ * сегодня» молча ронять нельзя: она идёт с рамкой неуверенности и с меткой в
+ * скобках, которую читает сторож утверждений Кузьмича.
+ */
+export function routeSimilarLines(query: string, r: Pick<RouteFactsSource, 'title'>, today: RouteToday): string[] {
+  const lines = [
+    `(!) Похожее название в каталоге Ведара — маршрут «${r.title}»: совпадение с запросом «${query}» неточное, `
+    + 'данные этого маршрута не приложены. Уточни у пользователя, о нём ли речь, и спроси по точному названию.',
+  ];
+  const mark = ROUTE_TODAY_MARK[today.verdict.status];
+  if (mark) {
+    const reason = today.verdict.reason.trim().replace(/[.!?…]+$/, '');
+    lines.push(
+      `Но у маршрута с похожим названием «${r.title}» [${mark}] оценка на сегодня — `
+      + `«${VERDICT_LABELS[today.verdict.status]}»: ${reason}. Уточни, о нём ли речь.`,
+    );
+  }
+  return lines;
+}
+
+/** Факты одного названного маршрута для карточки-справки (get_place_info). */
+export function namedRouteFactsLine(r: RouteFactsSource): string {
+  return `«${r.title}»: ${routeFactsBody(r)}`;
+}
+
+/** Адрес карточки названного маршрута — тот же, что в поле routes[].url. */
+export function namedRouteUrl(r: Pick<RouteFactsSource, 'id' | 'slug'>): string {
+  return routePageUrl({ id: r.id, slug: r.slug ?? null });
 }
 
 /** Адрес карточки места на сайте — один для всех ответов Кузьмича. */
@@ -508,7 +722,7 @@ export async function getGuardianContextDetailed(placeNameRaw: string, opts: Gua
   // Флаг injectionSuspected доступен через sanitizePromptInput для логирования
   // на уровне вызывающего кода; здесь просто не пропускаем маркеры в промпт.
   const { text: placeName } = sanitizePromptInput(placeNameRaw);
-  if (!placeName.trim()) return { text: '', found: false, places: [] };
+  if (!placeName.trim()) return { text: '', found: false, places: [], routes: [] };
 
   // Слова, не буквальная фраза (issue #1986/#1987): ILIKE '%Мутновский
   // вулкан%' не находит «Вулкан Мутновский» (обратный порядок) и вместо
@@ -614,10 +828,43 @@ export async function getGuardianContextDetailed(placeNameRaw: string, opts: Gua
     }
   }
 
+  // Маршрут как предмет ответа (#3302): видимого места с сильным совпадением
+  // нет, а маршрут каталога с таким названием есть — ему считается оценка на
+  // сегодня, та же, что на его карточке. Есть такое место — ответ о нём, и
+  // маршруты идут фактами ниже, как прежде: статус места уже отвечает за день.
+  // Скрытая запись предметом не считается: цвета у неё нет (placesForAnswer),
+  // и без оценки маршрута человек остался бы без ответа о сегодняшнем дне.
+  const strongVisiblePlace = placeRows.some(
+    (p) => p.is_visible !== false && gradePlaceMatch(placeName, p.name, p.aliases) === 'high',
+  );
+  const subjectRoutes = strongVisiblePlace
+    ? []
+    : (namedRoutes ?? []).filter((r) => isRouteNamedBy(placeName, r));
+
+  // Похожее название (#3302, срез 5): ни места с сильным совпадением, ни
+  // маршрута по точным словам — запрос мог стоять в другом числе или падеже
+  // («Вилючинские водопады»). Каталог не прочитался (null) — не спрашиваем
+  // второй раз: «не смог посмотреть» уже записано в лог. Маршрут по точным
+  // словам есть, пусть и со слабым совпадением, — его данные идут ниже своей
+  // строкой, и подсказка «данные не приложены» о нём же была бы неправдой.
+  const similarRoutes = !strongVisiblePlace && namedRoutes !== null && namedRoutes.length === 0
+    ? (await routesSimilarTo(placeName)) ?? []
+    : [];
+
   if (placeRows.length === 0 && alertsRes.rows.length === 0 && knowledgeRes.rows.length === 0 && !volcanoLines
-      && !namedRoutes?.length) {
-    return { text: '', found: false, places: [] };
+      && !namedRoutes?.length && similarRoutes.length === 0) {
+    return { text: '', found: false, places: [], routes: [] };
   }
+  // Оценка дня и условия посещения территории читаются разом: это разные
+  // таблицы, и ждать одну ради другой незачем.
+  const [subjectToday, subjectPermitCases, similarToday] = await Promise.all([
+    Promise.all(subjectRoutes.map((r) => routeToday(r.db_id as string))),
+    routePermitCasesFor(subjectRoutes),
+    // У похожего маршрута оценка считается ради одного: не уронить запрет молча.
+    Promise.all(similarRoutes.map((r) => routeToday(r.db_id as string))),
+  ]);
+  const subjectPermitLines = permitLinesForRoutes(subjectRoutes, subjectPermitCases);
+  const routeStatuses: GuardianRouteStatus[] = [];
 
   const parts: string[] = [];
 
@@ -631,6 +878,19 @@ export async function getGuardianContextDetailed(placeNameRaw: string, opts: Gua
       `это НЕ значит, что там безопасно. Вулкан есть в сводках вулканов:`,
       ...volcanoLines,
       `Экстренный вызов на Камчатке — ${EMERGENCY_PRIMARY.phone}.`,
+    );
+  } else if (placeRows.length === 0 && subjectRoutes.length > 0) {
+    // Места нет, маршрут есть: «уточни название» здесь было бы неправдой —
+    // название точное, просто это маршрут, а не место.
+    parts.push(
+      `Места «${placeName}» в справочнике не нашлось — статуса места, кодов KVERT и КФ ЕГС ` +
+      `и опасностей места по этому названию нет. ${routeSubjectIntro(placeName, subjectRoutes)}`,
+    );
+  } else if (placeRows.length === 0 && similarRoutes.length > 0) {
+    // Ни места, ни маршрута по точным словам; есть только похожее название.
+    parts.push(
+      `Ни места, ни маршрута с названием «${placeName}» в справочнике Ведара не нашлось — статуса, кодов ` +
+      `KVERT и КФ ЕГС и опасностей по этому названию нет. Это НЕ значит, что там безопасно.`,
     );
   } else if (placeRows.length === 0) {
     parts.push(
@@ -891,6 +1151,51 @@ export async function getGuardianContextDetailed(placeNameRaw: string, opts: Gua
     if (descLine) parts.push(descLine);
   }
 
+  // Маршрут-предмет: оценка на сегодня раньше описаний и упоминаний —
+  // безопасность важнее. Места выше, если были, — неточные совпадения или
+  // скрытые записи, и строка-связка называет, что дальше речь о маршруте.
+  // Вулкан из сводок без записи места (#2134) свою шапку уже получил — о
+  // маршруте в ней ни слова, и связка нужна так же.
+  if (subjectRoutes.length > 0 && (placeRows.length > 0 || volcanoLines)) {
+    parts.push(routeSubjectIntro(placeName, subjectRoutes));
+  }
+  subjectRoutes.forEach((r, i) => {
+    const today = subjectToday[i] as RouteToday;
+    parts.push(...routeSubjectLines(r, today, { pageLinks: opts.pageLinks, permitLines: subjectPermitLines[i] }));
+    // Названные поимённо предупреждения ниже не повторяются (как у мест).
+    namedRouteAlerts(today).forEach((a) => shownAlerts.add(a));
+    routeStatuses.push({
+      id: r.id,
+      title: r.title,
+      url: namedRouteUrl(r),
+      today: today.verdict.status,
+      code: today.verdict.code,
+      reason: today.verdict.reason,
+      unknown: today.verdict.unknown,
+      alerts: today.signals.alerts === null ? null : today.signals.alerts.map((a) => a.title),
+      park_name: r.park_name ?? null,
+      match: 'high',
+    });
+  });
+  // Похожие названия — после мест и названных маршрутов (их в этой ветке нет):
+  // пометка о неточном совпадении и, если есть, оценка с рамкой неуверенности.
+  similarRoutes.forEach((r, i) => {
+    const today = similarToday[i] as RouteToday;
+    parts.push(...routeSimilarLines(placeName, r, today));
+    routeStatuses.push({
+      id: r.id,
+      title: r.title,
+      url: namedRouteUrl(r),
+      today: today.verdict.status,
+      code: today.verdict.code,
+      reason: today.verdict.reason,
+      unknown: today.verdict.unknown,
+      alerts: today.signals.alerts === null ? null : today.signals.alerts.map((a) => a.title),
+      park_name: r.park_name ?? null,
+      match: 'low',
+    });
+  });
+
   for (const a of alertsRes.rows) {
     // active_alerts мест хранит те же ea.title (safety-ingest) — алерт, уже
     // показанный в строке места, здесь не повторяем.
@@ -908,10 +1213,12 @@ export async function getGuardianContextDetailed(placeNameRaw: string, opts: Gua
   // Факты маршрутов (14.10): сначала найденные по названию — их назвал сам
   // человек, — затем маршруты через место. Отказ базы — словами (§4.0); в
   // чате отказ чтения маршрутов места уже назван строкой у места.
+  // Маршрут-предмет уже назван своим блоком выше — второй раз не идёт.
+  const subjectIds = new Set(subjectRoutes.map((r) => r.id));
   const factRoutes: RouteFactsSource[] = [
     ...(namedRoutes ?? []),
     ...(throughRoutes ?? []).filter((r) => r.link_kind !== 'nearby'),
-  ];
+  ].filter((r) => !subjectIds.has(r.id));
   parts.push(...routeFactsLines(factRoutes));
   if (namedRoutes === null || (throughRoutes === null && !opts.pageLinks)) {
     parts.push('Маршруты к этому месту проверить не удалось — не говори, что их нет.');
@@ -925,5 +1232,5 @@ export async function getGuardianContextDetailed(placeNameRaw: string, opts: Gua
     }
   }
 
-  return { text: parts.join('\n'), found: placeRows.length > 0, places: statuses };
+  return { text: parts.join('\n'), found: placeRows.length > 0, places: statuses, routes: routeStatuses };
 }

@@ -228,7 +228,9 @@ export const CRON_CAPABILITIES: Record<string, readonly Capability[]> = {
   'kuzmich-redteam': ['db_read', 'db_write', 'net_out', 'telegram', 'ai'],
   'kvert-acc': ['db_read', 'db_write', 'net_out'],
   'leads-followup': ['db_read', 'db_write', 'net_out', 'telegram', 'pd_direct'],
-  'leads-process': ['db_read', 'db_write', 'net_out', 'ai', 'pd_direct'],
+  // 12.11 (1427): имя туриста крон больше не читает и в ответе не отдаёт — ответ печатает
+  // workflow в лог публичного репозитория. Работа с ПД ушла из самого роута.
+  'leads-process': ['db_read', 'db_write', 'net_out', 'ai'],
   'legacy-tours-census': ['db_read'],
   'legacy-tours-cleanup': ['db_write'],
   'legislation-sync': ['db_read', 'db_write', 'net_out', 'ai'],
@@ -325,6 +327,8 @@ export const CRON_CAPABILITIES: Record<string, readonly Capability[]> = {
   'route-lay-census': ['db_read'],
   'route-link-suggest': ['db_read'],
   'route-links-repair': ['db_read', 'db_write'],
+  // Условия посещения территорий по маршрутам — только счёт (#3302, срез 4).
+  'route-permit-census': ['db_read'],
   'route-place-twins': ['db_read'],
   'route-popularity': ['db_read'],
   'route-sanity-census': ['db_read'],

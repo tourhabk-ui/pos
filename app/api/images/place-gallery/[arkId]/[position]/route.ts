@@ -2,6 +2,7 @@ import { NextRequest, NextResponse } from 'next/server';
 import { pool } from '@/lib/db-pool';
 import { s3PublicUrl } from '@/lib/storage/s3';
 import { imageTypeByPath, ourStoredUrl, serveStoredObject } from '@/lib/images/serve-stored';
+import { galleryShownSql } from '@/lib/places/gallery-shown';
 
 const CACHE_LONG = 'public, max-age=31536000, immutable';
 
@@ -58,11 +59,12 @@ export async function GET(req: NextRequest, { params }: Props) {
     const { rows } = await pool.query<{
       image_data: Buffer | null; mime_type: string; s3_url: string | null; s3_key: string | null;
     }>(
-      // Спрятанный кадр (hidden_reason, 1263) не отдаётся и по прямому адресу:
-      // у снимка партнёра без согласия показа нет нигде, а не только в списке.
-      `SELECT image_data, mime_type, s3_url, s3_key
-         FROM place_gallery_photos
-        WHERE ark_id = $1::uuid AND position = $2 AND hidden_reason IS NULL
+      // Спрятанный кадр (1263) и снимок партнёра без согласия на карточки
+      // мест (1431) не отдаются и по прямому адресу: показа нет нигде, а не
+      // только в списке.
+      `SELECT g.image_data, g.mime_type, g.s3_url, g.s3_key
+         FROM place_gallery_photos g
+        WHERE g.ark_id = $1::uuid AND g.position = $2 AND ${galleryShownSql('g')}
         LIMIT 1`,
       [arkId, pos],
     );

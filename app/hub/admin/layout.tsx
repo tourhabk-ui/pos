@@ -7,7 +7,7 @@ import {
   Activity, Bell, Settings, Brain, Tag, Award, ClipboardList, Plug, TrendingUp, Send,
   Building2, HardHat, AlertTriangle, Share2, Sparkles, Mail, Database, Image as ImageIcon, Globe,
   Route, LineChart, Video, Sprout, MessageCircle, ShieldCheck, LifeBuoy,
-  Trash2, Webhook, Gauge, Package, BookUser, Bot,} from 'lucide-react';
+  Trash2, Webhook, Gauge, Package, PhoneCall, BookUser, Bot,} from 'lucide-react';
 import { HubLayout } from '@/components/layout/HubLayout';
 import { AiAssistant } from '@/components/admin/AiAssistant';
 
@@ -19,6 +19,8 @@ const SIDEBAR_ITEMS = [
 
   // Продажи
   { href: '/hub/admin/leads', label: 'CRM — Лиды', icon: ClipboardList, section: 'Продажи' },
+  // Клиенты, которым после отказа нужен звонок или замена, и отметка «Взял» (план «после отказа», этап 3б).
+  { href: '/hub/admin/queue', label: 'Очередь менеджера', icon: PhoneCall, section: 'Продажи' },
   // Клиенты всех партнёров — только просмотр: метки и заметки ведёт партнёр (CRM #2325).
   { href: '/hub/admin/clients', label: 'Клиенты партнёров', icon: BookUser, section: 'Продажи' },
   { href: '/hub/admin/bookings', label: 'Бронирования', icon: Calendar, section: 'Продажи' },

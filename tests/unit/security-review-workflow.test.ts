@@ -22,7 +22,7 @@
  */
 import { describe, it, expect, beforeEach, afterEach } from 'vitest';
 import { spawnSync } from 'node:child_process';
-import { mkdtempSync, mkdirSync, writeFileSync, rmSync, existsSync, readFileSync, chmodSync } from 'node:fs';
+import { mkdtempSync, mkdirSync, writeFileSync, rmSync, existsSync, readFileSync, readdirSync, chmodSync } from 'node:fs';
 import { join, dirname } from 'node:path';
 import { tmpdir } from 'node:os';
 import { loadWorkflow, stepByName, evalIf, evalTemplate, type WorkflowStep } from '../helpers/workflow-semantics';
@@ -646,6 +646,17 @@ describe('платное ревью — только где ошибка сто�
       'lib/crm/partner-oauth-public.ts', 'lib/encryption.ts', 'lib/roles/role-telegram.ts',
       'lib/admin/booking-contact.ts', 'lib/leads/create.ts', 'lib/bookings/auto-confirm.ts',
       'lib/auth/вход.ts', 'app/api/оплата/route.ts',
+      // 12.11, PR #3297: контакт человека читался в lib/requests и уходил
+      // менеджеру, а ревью не шло. Заявки после ответа, очередь менеджера,
+      // заявки на жильё и запросы мест — тоже данные людей.
+      'lib/requests/offer-asks.ts', 'lib/manager-queue/queue.ts', 'lib/stay/owner-answer-flow.ts',
+      'lib/seat-requests/service.ts',
+      // Ревью PR #3298: вход через мессенджеры и подпись входящих стояли вне
+      // списка, как и чаты Кузьмича, кабинеты, прокат, выплаты, письма.
+      'lib/telegram/connect-token.ts', 'lib/partners/messenger-login.ts', 'lib/alice/webhook-url.ts',
+      'lib/meta/webhook-signature.ts', 'lib/kuzmich/core.ts', 'lib/rental/rental-request-service.ts',
+      'lib/operators/payout-details.ts', 'lib/tourist/cabinet.ts', 'lib/booking/request-prefill.ts',
+      'lib/safety/trip-watch.ts', 'lib/agents/watchdog.ts', 'lib/email.ts', 'lib/rate-limit.ts',
     ]) {
       expect([f, runScope([f], false).run]).toEqual([f, 'true']);
     }
@@ -655,6 +666,61 @@ describe('платное ревью — только где ошибка сто�
     const r = runScope(['app/planner/_PlannerClient.tsx', 'tests/unit/x.test.ts', 'lib/planner/engine.ts'], false);
     expect(r.run).toBe('false');
     expect(r.out).toMatch(/метку security-review/);
+  });
+
+  /**
+   * Каталоги и файлы верхнего уровня lib/, на которых платное ревью не идёт:
+   * в них нет входа, денег и данных людей. Список — решение, а не остаток:
+   * новый каталог lib/ обязан попасть либо в SENSITIVE, либо сюда с причиной.
+   * 12.11: список SENSITIVE был перечислением, и каталог, которого в нём нет,
+   * молча считался «не чувствительным» — так без ревью прошёл PR #3297.
+   */
+  const OUTSIDE_REVIEW: Record<string, string[]> = {
+    'карта, места, маршруты, погода, поле': [
+      'field', 'flights', 'geo', 'import', 'map', 'navigation', 'on-route', 'parks', 'places', 'preparation',
+      'routes', 'routing', 'weather',
+    ],
+    'витрина туров, планер, подборки': [
+      'collections', 'explain', 'gear', 'home', 'planner', 'plans', 'search', 'svodka', 'tours', 'travel-apps',
+      'trending', 'trip', 'wishlist', 'fish-species.ts', 'planner-constants.ts',
+    ],
+    'тексты, страницы, переводы, оформление': [
+      'articles', 'blog', 'calendar', 'chronicle', 'currency', 'dates', 'docs', 'help', 'html', 'http', 'hub', 'i18n',
+      'partner-sites', 'seo', 'text', 'ui', 'utils', 'zh', 'share.ts', 'text-links.ts', 'theme.ts',
+    ],
+    'снимки и видео': ['images', 'media'],
+    'журналы, переписи, качество кода': [
+      'errors', 'events', 'funnel', 'log', 'moderation', 'monitoring', 'observability', 'quality', 'server-errors', 'stats',
+    ],
+    'база, сборка, внешнее чтение без данных людей': [
+      'build', 'database', 'db', 'scraping', 'types', 'x', 'config.ts', 'database.ts', 'db-pool.ts', 'platform-settings.ts',
+    ],
+  };
+
+  it('каждый каталог и файл lib/ либо под ревью, либо назван вне ревью с причиной', () => {
+    const sensitive = new RegExp(scopeEnv.SENSITIVE ?? 'нет SENSITIVE');
+    const pathOf = (name: string) => (/\.[a-z]+$/.test(name) ? `lib/${name}` : `lib/${name}/x.ts`);
+    const outside = Object.values(OUTSIDE_REVIEW).flat();
+    const top = readdirSync('lib', { withFileTypes: true })
+      .filter((e) => e.isDirectory() || /\.(ts|tsx|js|mjs)$/.test(e.name))
+      .map((e) => e.name);
+    expect(top.length).toBeGreaterThan(100);
+
+    // Не решено: ни под ревью, ни в списке.
+    expect(top.filter((n) => !sensitive.test(pathOf(n)) && !outside.includes(n))).toEqual([]);
+    // Список не врёт: записи нет на диске или она уже под ревью — убрать.
+    expect(outside.filter((n) => !top.includes(n))).toEqual([]);
+    expect(outside.filter((n) => sensitive.test(pathOf(n)))).toEqual([]);
+    expect(new Set(outside).size).toBe(outside.length);
+  });
+
+  it('вне ревью — по настоящему шагу: каталог из списка модель не зовёт', () => {
+    for (const f of ['lib/tours/offer-order.ts', 'lib/map/line-standard.ts', 'lib/seo/page-snapshot.ts', 'lib/config.ts']) {
+      expect([f, runScope([f], false).run]).toEqual([f, 'false']);
+    }
+    // Соседи по имени не сливаются: agent/ и agents/ под ревью, а чужой префикс — нет.
+    expect(runScope(['lib/agentless/x.ts'], false).run).toBe('false');
+    expect(runScope(['lib/authority.ts'], false).run).toBe('false');
   });
 
   it('по метке — ревью идёт всегда', () => {

@@ -50,9 +50,16 @@ jobs:
 
       - name: Trigger Kuzmich route post
         run: |
-          curl -X GET "https://vedarai.ru/api/cron/kuzmich?type=route" \
-          -H "Authorization: Bearer ${{ secrets.CRON_SECRET }}" \
+          # Тело ответа печатается: в нём причина отказа словами («нет мест
+          # для поста», «все кандидаты не прошли валидацию: …»). С --fail
+          # журнал показывал только «500», и причина три дня была не видна.
+          # ПД в ответе нет: id и названия мест.
+          code=$(curl -sS -o resp.json -w '%{http_code}' -X GET "https://vedarai.ru/api/cron/kuzmich?type=route" \
+            -H "Authorization: Bearer ${{ secrets.CRON_SECRET }}" \
             -H "Content-Type: application/json" \
             -H "User-Agent: GitHub-Actions" \
-            --max-time 120 \
-            --fail
+            --max-time 120) || code=000
+          echo "HTTP $code"
+          cat resp.json 2>/dev/null || true
+          echo
+          [ "$code" = "200" ]

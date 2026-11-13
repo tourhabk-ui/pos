@@ -30,6 +30,7 @@
  */
 
 import { tgSend } from '@/lib/notifications/tg-send';
+import { withQueueLine } from '@/lib/manager-queue/link';
 import { isRentalPilotSlug } from '@/lib/rental/operator-pilot';
 import {
   clientCharterTakeText, managerAnswerText, parseRequestAnswer, partnerAnswerText, requestAnswerEditText,
@@ -40,6 +41,7 @@ import {
   claimPartnerAnswer, loadOwnedRentalRequest, resolveRequestOffer, type NewVehicleNotice, type OwnedRentalRequest,
 } from '@/lib/rental/request-answer-store';
 import { deliverAnswerNotice, readVehicleNoticeOutcome } from '@/lib/requests/answer-notice';
+import { NOTICE_PRESS_BUDGET_MS, withinPress } from '@/lib/requests/press-budget';
 import { changeLeadStatus } from '@/lib/leads/owner-lead-status';
 import { postOwnerMessage } from '@/lib/requests/request-chat-service';
 import { isChatTargetId, ownerReplyButton } from '@/lib/requests/request-chat';
@@ -97,14 +99,8 @@ async function markCharterLeadStatus(partner: AnswerActor, leadId: string, answe
   }
 }
 
-/**
- * Сколько нажатие «Не могу» ждёт отправку заказчику. Обычная отправка — доли
- * секунды; зависший канал держал бы ответ партнёру до двух минут (все ноги по
- * своему сроку), и сайт показал бы «нет связи» по ответу, который записан.
- * После срока отправка идёт сама: исход запишется в строку, обрыв подберёт
- * добивка, повторное нажатие его назовёт.
- */
-export const DECLINE_TELL_BUDGET_MS = 20_000;
+/** Сколько нажатие «Не могу» ждёт отправку заказчику — общий срок нажатия (lib/requests/press-budget). */
+export const DECLINE_TELL_BUDGET_MS = NOTICE_PRESS_BUDGET_MS;
 
 /**
  * Заказчику после «Не могу» — сообщение Ведара по строке, рождённой ответом.
@@ -116,15 +112,7 @@ async function tellDeclinedClient(leadId: string, notice: NewVehicleNotice | nul
     console.error(`[rental-request-answer] заявка ${leadId}: строка сообщения заказчику не создана`);
     return null;
   }
-  let timer: ReturnType<typeof setTimeout> | undefined;
-  const late = new Promise<DeclineNotice>((resolve) => {
-    timer = setTimeout(() => resolve({ state: 'pending', sending: true }), DECLINE_TELL_BUDGET_MS);
-  });
-  try {
-    return await Promise.race([deliverAnswerNotice(notice.id), late]);
-  } finally {
-    clearTimeout(timer);
-  }
+  return withinPress<DeclineNotice>(deliverAnswerNotice(notice.id), { state: 'pending', sending: true });
 }
 
 /** Заказчику после «Беру» — в переписку заявки. true/false — записано и видно / нет; отказ назван в логе. */
@@ -208,7 +196,7 @@ export async function answerRentalRequest(opts: {
         ? { kind: 'take_bad_dates' }
         : { kind: 'take_no_car' };
   try {
-    await notify(managerAnswerText({
+    await notify(withQueueLine(managerAnswerText({
       kind: 'car_rental',
       partnerName: partner.partnerName,
       leadId: request.leadId,
@@ -218,7 +206,7 @@ export async function answerRentalRequest(opts: {
       to: request.dateTo,
       marked: opts.answer === 'take' ? claimed.marked : null,
       notice,
-    }));
+    }), opts.answer === 'decline'));
   } catch (err) {
     console.error('[rental-request-answer] менеджеру не доставлено:', err instanceof Error ? err.message : err);
   }
@@ -254,7 +242,7 @@ async function answerCharter(
   const clientTold = answer === 'take' ? await tellCharterClient(partner, request.leadId) : null;
   const notice = answer === 'decline' ? await tellDeclinedClient(request.leadId, claimed.notice) : null;
   try {
-    await notify(managerAnswerText({
+    await notify(withQueueLine(managerAnswerText({
       kind: 'charter',
       partnerName: partner.partnerName,
       leadId: request.leadId,
@@ -264,7 +252,7 @@ async function answerCharter(
       to: request.dateTo,
       marked: null,
       notice,
-    }));
+    }), answer === 'decline'));
   } catch (err) {
     console.error('[charter-request-answer] менеджеру не доставлено:', err instanceof Error ? err.message : err);
   }

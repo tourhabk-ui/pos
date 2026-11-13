@@ -40,6 +40,14 @@
  * ввод заказчика (адрес, имя): в Telegram (чат заказчика, заглушка менеджеру)
  * оно не уходит вовсе; название машины проката — из прайса прокатчика.
  *
+ * Другие компании (этап 4а): после «Нет мест» и отказа не по погоде в то же
+ * сообщение встаёт список компаний с турами к тому же месту, которые могут
+ * принять на дату заявки (lib/requests/other-offers). Чтение — одним сроком с
+ * проверкой дат после отказа по погоде: в одной строке они не встречаются
+ * (после отказа по погоде других компаний не называем), и худший срок строки
+ * не растёт. Не прочиталось или не уложилось — блока в сообщении нет, само
+ * сообщение уходит.
+ *
  * Логи — номер заявки, канал и код. Ни id чатов, ни текста ошибок MAX (там
  * может быть id), ни имени и телефона.
  */
@@ -48,6 +56,7 @@ import { getPublicBaseUrl } from '@/lib/config';
 import { tourPath } from '@/lib/tours/tour-url';
 import { publicTourSql } from '@/lib/tours/public-visibility';
 import { loadFreeDatesNear, type FreeDates } from '@/lib/tours/nearest-free-date';
+import { checkTourDates, type DateCheck, type DateCheckDeps } from '@/lib/trips/date-check';
 import { LEAD_ANSWER_DATE_SQL } from '@/lib/requests/answer-date';
 import { DECLINE_REASONS, type DeclineReason } from '@/lib/requests/chat-answer-buttons';
 import { MY_TRIP_DATE_ACTIONS_SQL, myTripDatePressable } from '@/lib/requests/my-trip-date';
@@ -56,10 +65,15 @@ import { REQUEST_STATUS_BY_LEAD_SQL, groupPassedOnAnswer, shownAnswerRef, type S
 import { redactPII } from '@/lib/security/pii-redact';
 import type { NotifyRunResult } from '@/lib/mcp/request-notify';
 import {
-  answerWantsDates, managerClearedText, managerUndeliveredText, personOf, touristAnswerText, undeliveredWhy,
-  type DatesBlock, type ManagerChannel, type NoticeAnswer, type NoticeFacts, type NoticeKind, type NoticeOutcome,
+  answerWantsDates, answerWantsOffers, isWeatherDecline, managerClearedText, managerUndeliveredText, personOf, touristAnswerText,
+  undeliveredWhy,
+  type DatesBlock, type ManagerChannel, type NoticeAnswer, type NoticeFacts, type NoticeKind, type NoticeOutcome, type OffersBlock,
+  type WeatherDatesOutcome,
 } from '@/lib/requests/answer-notice-text';
+import { loadOtherOffers } from '@/lib/requests/other-offers';
 import type { PdAlertParams, PdAlertResult } from '@/lib/notifications/pd-alert';
+import { SELLER_CLOSED_ACTION } from '@/lib/leads/lost-reason';
+import { managerQueueUrl } from '@/lib/manager-queue/link';
 
 const LOG = '[answer-notice]';
 /** Срок одной отправки в чат: больше сокетного срока MAX (15 с), чтобы дошедшее не записать «не дошло». */
@@ -70,8 +84,27 @@ export const NOTICE_CHAT_TARGETS_MAX = 3;
 export const NOTICE_AGENT_TIMEOUT_MS = 25_000;
 /** Письмо менеджеру: MAX до 15 с, затем заглушка в Telegram — у неё своего срока нет. */
 export const NOTICE_MANAGER_TIMEOUT_MS = 30_000;
+/**
+ * Проверка дат после отказа по погоде (2в): прогноз, предупреждения, зона,
+ * статус места. Не уложилась — даты считаются непроверенными и не называются.
+ * Сам запрос прогноза ждёт источник до 12 с (lib/planner/intelligence): ответ,
+ * пришедший между 10-й и 12-й секундой, здесь уже «не успел» — в сторону «дат
+ * не называю». Поднять срок нельзя, не съев запас шага крона (см. ниже).
+ */
+export const NOTICE_CHECK_TIMEOUT_MS = 10_000;
+/**
+ * Чтение других компаний к месту на дату (4а): три запроса к базе. Срок — не
+ * больше срока проверки дат: в одной строке они не встречаются, и
+ * NOTICE_ROW_WORST_MS считает одно из двух.
+ */
+export const NOTICE_OFFERS_TIMEOUT_MS = 5_000;
+/** Сколько свободных дат рядом проверять после отказа по погоде: часть отсеется. */
+export const NOTICE_CHECK_CANDIDATES = 8;
+/** На сколько дат с прежним отказом по погоде читать календарь шире — потолок, чтобы запрос не рос без меры. */
+export const NOTICE_REFUSED_ROOM = 40;
 /** Худший срок одной строки — все ноги по своему сроку плюс запросы к базе. */
-export const NOTICE_ROW_WORST_MS = NOTICE_CHAT_TARGETS_MAX * NOTICE_SEND_TIMEOUT_MS + NOTICE_AGENT_TIMEOUT_MS + NOTICE_MANAGER_TIMEOUT_MS + 10_000;
+export const NOTICE_ROW_WORST_MS = NOTICE_CHECK_TIMEOUT_MS + NOTICE_CHAT_TARGETS_MAX * NOTICE_SEND_TIMEOUT_MS
+  + NOTICE_AGENT_TIMEOUT_MS + NOTICE_MANAGER_TIMEOUT_MS + 10_000;
 /**
  * После стольких мс от начала прогона новая строка не начинается: она должна
  * кончиться до срока шага (`--max-time` в cron-safety-heartbeat.yml и
@@ -98,6 +131,10 @@ export interface NoticeDeps {
   /** Внеочередная сверка подписок этих ключей (request-notify, onlyKeyIds). */
   notifyRun?: (keyIds: string[]) => Promise<NotifyRunResult>;
   freeDates?: typeof loadFreeDatesNear;
+  /** Проверка дат после отказа по погоде или безопасности (lib/trips/date-check). */
+  checkDates?: (tourId: number, declined: string, candidates: readonly string[], deps?: DateCheckDeps) => Promise<DateCheck>;
+  /** Другие компании к тому же месту на дату заявки (lib/requests/other-offers). */
+  otherOffers?: typeof loadOtherOffers;
   now?: () => number;
 }
 
@@ -107,15 +144,20 @@ const TOUR_ID_SQL = `CASE WHEN l.source_data->>'tour_id' ~ '^[0-9]{1,18}$' THEN 
 
 /**
  * Строка сообщения и факты заявки для слов — без имени и телефона. Ответ —
- * либо кнопка туроператора (`answer_id`), либо запись журнала перевозчика или
- * прокатчика (`activity_id`, 1425): тогда род, предмет и даты заявки — из
- * деталей этой записи, как их видел партнёр в момент ответа. Ответивший у
- * машины и проката — адресат заявки: чужую заявку ответ не записывает
- * (loadOwnedRentalRequest), а другим партнёрам такие заявки не передаются.
+ * либо кнопка туроператора (`answer_id`), либо запись журнала (`activity_id`,
+ * 1425). Запись журнала — двух родов (`activity_action`):
+ *  - `partner_answered` — «Не могу» перевозчика или прокатчика: род, предмет и
+ *    даты заявки — из деталей записи, как их видел партнёр в момент ответа.
+ *    Ответивший — адресат заявки: чужую заявку ответ не записывает
+ *    (loadOwnedRentalRequest), а другим партнёрам такие заявки не передаются;
+ *  - `seller_closed` — продавец тура закрыл заявку «Отказ» с причиной в
+ *    кабинете (этап 3а, lib/leads/owner-lead-status): заявка — на тур, слова —
+ *    те же, что после кнопки «Отказать».
  */
 export const NOTICE_FACTS_SQL = `
   SELECT n.id::text AS id, n.lead_id::text AS lead_id, n.answer_id::text AS answer_id, n.activity_id::text AS activity_id,
          n.answer, n.decline_reason,
+         al.action AS activity_action,
          al.details->>'kind' AS vehicle_kind, al.details->>'car_title' AS vehicle_title,
          al.details->>'date_from' AS vehicle_from, al.details->>'date_to' AS vehicle_to,
          n.state, n.skipped_reason, n.delivered_via, n.tried, n.attempts, n.manager_channel,
@@ -131,6 +173,19 @@ export const NOTICE_FACTS_SQL = `
                 WHERE pa_r.subject_kind = 'lead' AND pa_r.subject_id = l.id::text
                   AND pa_r.partner_id = l.operator_id AND pa_r.answer = 'no_seats'
                   AND pa_r.subject_date IS NOT NULL) AS refused_dates,
+         -- Даты, по которым на этом туре уже отказывали по погоде или безопасности
+         -- (в любой заявке): тому, кто ведёт тур, виднее, чем прогнозу, — такую
+         -- дату «проверенной» не называем (ревью 2в). Считается только для
+         -- отказа по погоде: остальным строкам список не нужен. Приведение
+         -- стоит на стороне лида (id::text): subject_id — текст любого рода
+         -- предмета, и обратное приведение уронило бы запрос на не-uuid.
+         CASE WHEN n.answer = 'decline' AND n.decline_reason = 'weather' THEN
+           ARRAY(SELECT DISTINCT pa_w.subject_date FROM partner_incoming_answers pa_w
+                   JOIN leads l_w ON l_w.id::text = pa_w.subject_id
+                  WHERE pa_w.subject_kind = 'lead' AND pa_w.answer = 'decline' AND pa_w.decline_reason = 'weather'
+                    AND pa_w.subject_date IS NOT NULL
+                    AND l_w.source_data->>'tour_id' = l.source_data->>'tour_id')
+         END AS weather_refused_dates,
          ${MY_TRIP_DATE_ACTIONS_SQL} AS date_actions
     FROM answer_notices n
     JOIN leads l ON l.id = n.lead_id
@@ -275,8 +330,10 @@ interface NoticeRow {
   lead_id: string;
   /** Кнопка туроператора; у машины и проката — null. */
   answer_id: string | null;
-  /** Запись журнала с ответом перевозчика или прокатчика; у тура — null. */
+  /** Запись журнала: ответ перевозчика или прокатчика либо закрытие продавцом тура с причиной; у кнопки — null. */
   activity_id: string | null;
+  /** Род записи журнала: `partner_answered` или `seller_closed`. */
+  activity_action?: string | null;
   vehicle_kind: string | null;
   vehicle_title: string | null;
   vehicle_from: string | null;
@@ -301,6 +358,8 @@ interface NoticeRow {
   operator_name: string | null;
   trip_part: boolean;
   refused_dates: string[] | null;
+  /** Даты этого тура, по которым уже отказывали «погода или безопасность» — в любой заявке. */
+  weather_refused_dates?: string[] | null;
   date_actions: number | null;
 }
 
@@ -379,20 +438,35 @@ function isDeclineReason(v: unknown): v is DeclineReason {
   return typeof v === 'string' && (DECLINE_REASONS as readonly string[]).includes(v);
 }
 
-/** Род заявки строки: журнал без `kind` — прокат (так писали до 30.10). */
-function kindOf(r: Pick<NoticeRow, 'activity_id' | 'vehicle_kind'>): NoticeKind {
-  if (!r.activity_id) return 'tour';
+/** Строка рождена закрытием продавцом тура с причиной, а не ответом перевозчика или прокатчика. */
+const isSellerClosed = (r: Pick<NoticeRow, 'activity_id' | 'activity_action'>): boolean =>
+  !!r.activity_id && r.activity_action === SELLER_CLOSED_ACTION;
+
+/** Род заявки строки: журнал ответа без `kind` — прокат (так писали до 30.10). */
+function kindOf(r: Pick<NoticeRow, 'activity_id' | 'activity_action' | 'vehicle_kind'>): NoticeKind {
+  if (!r.activity_id || isSellerClosed(r)) return 'tour';
   return r.vehicle_kind === 'charter' ? 'charter' : 'rental';
 }
 
+/** На какой ответ ссылается строка сообщения: кнопка туроператора либо запись журнала заявки и её род. */
+export interface NoticeAnswerRef {
+  answer_id: string | null;
+  activity_id: string | null;
+  activity_action?: string | null;
+}
+
 /** Ответ, на который ссылается строка, — в той же форме, что у вида заявки. */
-function refOf(r: Pick<NoticeRow, 'answer_id' | 'activity_id'>): ShownAnswerRef | null {
-  if (r.activity_id) return { source: 'vehicle', id: r.activity_id };
+function refOf(r: NoticeAnswerRef): ShownAnswerRef | null {
+  if (r.activity_id) return { source: isSellerClosed(r) ? 'closed' : 'vehicle', id: r.activity_id };
   return r.answer_id ? { source: 'tour', id: r.answer_id } : null;
 }
 
-/** Вид заявки по-прежнему построен из ответа этой строки. */
-function viewHolds(status: StatusRow | undefined, r: Pick<NoticeRow, 'answer_id' | 'activity_id'>): boolean {
+/**
+ * Вид заявки по-прежнему построен из ответа этой строки. Этим же правилом
+ * живёт очередь менеджера (lib/manager-queue, этап 3б): заявка переросла отказ
+ * (бронь, новая дата, возврат в работу) — звонить с ним некому и незачем.
+ */
+export function viewHolds(status: StatusRow | undefined, r: NoticeAnswerRef): boolean {
   if (!status) return false;
   const shown = shownAnswerRef(status);
   const mine = refOf(r);
@@ -423,18 +497,85 @@ function factsOf(r: NoticeRow, st: StatusRow | undefined): NoticeFacts {
   };
 }
 
-/** Свободные даты рядом с датой заявки — без текущей и без прежних «Нет мест». */
-async function datesOf(r: NoticeRow, f: NoticeFacts, load: typeof loadFreeDatesNear): Promise<DatesBlock> {
+/** Ближайшие к дате заявки, по возрастанию — не больше `limit`. */
+function nearestDates(dates: readonly string[], around: string, limit: number): string[] {
+  const at = Date.parse(`${around}T00:00:00Z`);
+  const gap = (d: string) => Math.abs(Date.parse(`${d}T00:00:00Z`) - at);
+  return [...dates].sort((a, b) => gap(a) - gap(b) || a.localeCompare(b)).slice(0, limit).sort();
+}
+
+/**
+ * Свободные даты рядом с датой заявки — без текущей и без прежних «Нет мест».
+ * После отказа «погода или безопасность» (2в) — только прошедшие проверку
+ * обстановки и места; проверка не уложилась в срок или не смогла — все
+ * свободные даты считаются непроверенными, и ни одна не называется. Даты с
+ * прежним отказом по погоде на этом туре не проверяются вовсе: они названы
+ * числом, а если других свободных рядом нет — так и сказано.
+ */
+async function datesOf(r: NoticeRow, f: NoticeFacts, deps: NoticeDeps): Promise<DatesBlock> {
   // У машины и проката календаря дат нет: заказчик называет их сам.
   if (personOf(f.kind) === 'client' || !answerWantsDates(f)) return { kind: 'skip' };
   const tourId = r.tour_id === null ? NaN : Number(r.tour_id);
   // Тура нет на витрине — других его дат не предлагаем: заявку на них не оставить.
   if (!Number.isFinite(tourId) || !r.tour_public || !r.lead_date) return { kind: 'skip' };
+  const weather = isWeatherDecline(f);
   const exclude = [r.lead_date, ...(r.refused_dates ?? [])];
-  const free: FreeDates = await load(tourId, f.people ?? 1, r.lead_date, exclude, NOTICE_DATES);
+  const people = f.people ?? 1;
+  // Даты с прежним отказом по погоде в календаре свободны — «в календаре дат нет» о них
+  // сказать нельзя (ревью 2в): они отсеиваются после чтения календаря и называются числом.
+  // Читается с запасом на них: иначе восемь ближайших отказанных заслонили бы девятую свободную.
+  const today = kamchatkaToday((deps.now ?? Date.now)());
+  const refusedBefore = new Set((weather ? r.weather_refused_dates ?? [] : []).filter((d) => d >= today));
+  const limit = weather ? NOTICE_CHECK_CANDIDATES + Math.min(refusedBefore.size, NOTICE_REFUSED_ROOM) : NOTICE_DATES;
+  const free: FreeDates = await (deps.freeDates ?? loadFreeDatesNear)(tourId, people, r.lead_date, exclude, limit);
   if (free.state === 'failed') return { kind: 'failed' };
   if (!free.hasCalendar) return { kind: 'no_calendar' };
-  return free.dates.length > 0 ? { kind: 'dates', dates: free.dates.map((d) => d.date) } : { kind: 'none' };
+  const dates = free.dates.map((d) => d.date);
+  if (dates.length === 0) return { kind: 'none' };
+  if (!weather) return { kind: 'dates', dates };
+
+  const open = dates.filter((d) => !refusedBefore.has(d));
+  const refused = dates.length - open.length;
+  if (open.length === 0) return { kind: 'weather_refused', count: refused };
+  const candidates = nearestDates(open, r.lead_date, NOTICE_CHECK_CANDIDATES);
+
+  const run = await inTime((deps.checkDates ?? checkTourDates)(tourId, r.lead_date, candidates, { now: deps.now }), NOTICE_CHECK_TIMEOUT_MS);
+  if (!run.ok) {
+    // Срок вышел или проверка упала — ни одна дата не проверена, и ни одна не называется.
+    console.warn(`${LOG} заявка ${r.lead_id}: проверка дат после отказа по погоде не кончилась (${run.why}) — дат не называю`);
+    return { kind: 'checked', check: { state: 'unchecked', why: [run.why] }, dates: [], refused };
+  }
+  const check = run.value;
+  // Называется только дата из календаря, которую проверка вернула «чисто», — и только когда
+  // данные Ведара видят причину отказа.
+  const offered = check.state === 'confirmed' ? check.clear.filter((d) => candidates.includes(d)) : [];
+  return { kind: 'checked', check, dates: nearestDates(offered, r.lead_date, NOTICE_DATES), refused };
+}
+
+/**
+ * Другие компании к главному месту тура, которые могут принять на дату заявки
+ * (4а). Блока нет по смыслу ответа, у заявки без тура или даты и когда дата
+ * уже прошла. Не прочиталось или не уложилось в срок — `failed`: сообщение
+ * уходит без блока.
+ */
+async function offersOf(r: NoticeRow, f: NoticeFacts, deps: NoticeDeps): Promise<OffersBlock> {
+  if (!answerWantsOffers(f)) return { kind: 'skip' };
+  const tourId = r.tour_id === null ? NaN : Number(r.tour_id);
+  if (!Number.isFinite(tourId) || !r.lead_date) return { kind: 'skip' };
+  if (r.lead_date < kamchatkaToday((deps.now ?? Date.now)())) return { kind: 'skip' };
+  const run = await inTime(
+    // С заявкой: компании, уже ответившие на вопрос Ведара (4б), — «Не могу» из списка уходит, «Беру» названо.
+    (deps.otherOffers ?? loadOtherOffers)({ tourId, date: r.lead_date, people: f.people ?? 1, leadId: r.lead_id }, { now: new Date((deps.now ?? Date.now)()) }),
+    NOTICE_OFFERS_TIMEOUT_MS,
+  );
+  if (!run.ok) {
+    console.warn(`${LOG} заявка ${r.lead_id}: другие компании на дату не прочитались (${run.why}) — сообщение уходит без них`);
+    return { kind: 'failed' };
+  }
+  const o = run.value;
+  if (o.state === 'failed') return { kind: 'failed' };
+  if (o.state === 'none') return { kind: 'none' };
+  return { kind: 'offers', placeName: o.placeName, placeUrl: o.placeUrl, offers: o.offers, more: o.more };
 }
 
 // ── Отправка ─────────────────────────────────────────────────────────────────
@@ -459,7 +600,8 @@ async function sendInTime(p: Promise<SendResult>): Promise<SendResult> {
   return r.ok ? r.value : { ok: false, code: r.why };
 }
 
-async function defaultSendMax(chatId: string, text: string, buttons: Button[]): Promise<SendResult> {
+/** Сообщение человеку в его MAX. Экспорт — тем же путём идёт «компания ответила: возьмёт» (lib/requests/offer-asks). */
+export async function defaultSendMax(chatId: string, text: string, buttons: Button[]): Promise<SendResult> {
   const { maxSendDm } = await import('@/lib/notifications/max-channel');
   const r = await maxSendDm(chatId, text, buttons.length > 0 ? { buttons } : undefined);
   if (r.ok) return { ok: true };
@@ -468,7 +610,8 @@ async function defaultSendMax(chatId: string, text: string, buttons: Button[]): 
   return { ok: false, code: e.includes('MAX_BOT_TOKEN') ? 'no_token' : e === 'invalid chat_id' ? 'bad_id' : 'api_error' };
 }
 
-async function defaultSendTelegram(chatId: string, text: string, buttons: Button[]): Promise<SendResult> {
+/** Сообщение человеку в его Telegram — тем же путём, что сообщение об отказе. */
+export async function defaultSendTelegram(chatId: string, text: string, buttons: Button[]): Promise<SendResult> {
   const { telegramService } = await import('@/lib/notifications/telegram');
   const r = await telegramService.sendMessage({
     chatId, text, parseMode: 'HTML',
@@ -509,18 +652,23 @@ export function telegramSafeFacts(f: NoticeFacts): NoticeFacts {
 
 /** Менеджеру: до человека не дошло. Канал письма — в строку; «дошло» — только при канале. */
 async function alertManager(
-  q: Query, r: NoticeRow, f: NoticeFacts, tried: string[], dates: string[], deps: NoticeDeps,
+  q: Query, r: NoticeRow, f: NoticeFacts, tried: string[], dates: string[], offers: OffersBlock, deps: NoticeDeps,
 ): Promise<'max' | 'telegram-stub' | 'none'> {
   let channel: 'max' | 'telegram-stub' | 'none' = 'none';
   try {
     const { rows: [c] } = await q(NOTICE_CONTACT_SQL, [r.lead_id]);
     const contact = (c ?? {}) as { name?: string | null; phone?: string | null };
-    const msg = managerUndeliveredText(f, { name: contact.name ?? null, phone: contact.phone ?? null }, tried, dates);
+    // Другие компании на дату — тому, кто будет звонить: человеку список не дошёл.
+    const msg = managerUndeliveredText(f, { name: contact.name ?? null, phone: contact.phone ?? null }, tried, dates, offers);
     const res = await pdAlertInTime({
       text: msg.text,
       // Заглушка уходит в Telegram: слова заказчика — только после чистки.
       stub: managerUndeliveredText(telegramSafeFacts(f), { name: null, phone: null }, tried, dates).stub,
-      buttons: [{ text: 'Заявки в админке', url: `${getPublicBaseUrl()}/hub/admin/leads` }],
+      // Недоставленный отказ стоит в очереди менеджера (этап 3б): там же отметка «Взял».
+      buttons: [
+        { text: 'Очередь менеджера', url: managerQueueUrl() },
+        { text: 'Заявки в админке', url: `${getPublicBaseUrl()}/hub/admin/leads` },
+      ],
     }, deps);
     if (typeof res === 'string') {
       console.error(`${LOG} заявка ${r.lead_id}: письмо менеджеру — ${res}, повторит добивка`);
@@ -556,8 +704,12 @@ export async function deliverAnswerNotice(noticeId: string, deps: NoticeDeps = {
       return outcomeOfRow((await readRow(q, noticeId)) ?? { ...r, state: 'skipped', skipped_reason: 'outgrown' });
     }
     const f = factsOf(r, status);
-    const dates = await datesOf(r, f, deps.freeDates ?? loadFreeDatesNear);
-    const shownDates = dates.kind === 'dates' ? dates.dates : [];
+    const dates = await datesOf(r, f, deps);
+    const offers = await offersOf(r, f, deps);
+    const shownDates = dates.kind === 'dates' || dates.kind === 'checked' ? dates.dates : [];
+    // Чем кончился блок дат после отказа по погоде — оператору: что сказано туристу.
+    const check: WeatherDatesOutcome | undefined = dates.kind === 'checked' ? dates.check.state
+      : dates.kind === 'weather_refused' ? 'weather_refused' : undefined;
     // Кнопки дат — только если нажатие пройдёт: поездка впереди, лимит смен не
     // исчерпан (то же правило, что у «Изменить дату»). Брони нет: иначе вид
     // заявки был бы не из этого ответа (шаг 1).
@@ -570,13 +722,14 @@ export async function deliverAnswerNotice(noticeId: string, deps: NoticeDeps = {
     const tried: string[] = [];
     const targets = (await q(NOTICE_TARGETS_SQL, [r.lead_id])).rows as Array<{ channel: 'max' | 'telegram'; chat_id: string; can_pick: boolean }>;
     for (const t of targets) {
-      const msg = touristAnswerText(t.channel === 'telegram' ? telegramSafeFacts(f) : f, dates, t.can_pick === true && !r.trip_part && pressable);
+      const msg = touristAnswerText(t.channel === 'telegram' ? telegramSafeFacts(f) : f, dates, t.can_pick === true && !r.trip_part && pressable, offers);
       const send = t.channel === 'max' ? (deps.sendMax ?? defaultSendMax) : (deps.sendTelegram ?? defaultSendTelegram);
       const res = await sendInTime(send(String(t.chat_id), msg.text, msg.buttons));
       if (res.ok) {
         await q(NOTICE_DELIVERED_SQL, [r.id, t.channel, tried.join(',') || null]);
         console.info(`${LOG} заявка ${r.lead_id}: доставлено (${t.channel})`);
-        return { state: 'delivered', via: t.channel, dates: shownDates };
+        // Сколько компаний названо — по тексту, который ушёл: строки, не вошедшие в предел, не в счёт.
+        return { state: 'delivered', via: t.channel, dates: shownDates, ...(check ? { check } : {}), ...(msg.offers > 0 ? { offers: msg.offers } : {}) };
       }
       const code = res.ok ? 'api_error' : chatCode(res.code);
       tried.push(`${t.channel}:${code}`);
@@ -600,7 +753,7 @@ export async function deliverAnswerNotice(noticeId: string, deps: NoticeDeps = {
       const now = await readRow(q, noticeId);
       return now ? outcomeOfRow(now) : { state: 'pending' };
     }
-    const manager = await alertManager(q, r, f, tried, shownDates, deps);
+    const manager = await alertManager(q, r, f, tried, shownDates, offers, deps);
     return { state: 'undelivered', manager, why: undeliveredWhy(tried) };
   } catch (err) {
     console.error(`${LOG} заявка ${leadId}: сообщение не отправлено — повторит добивка, SQLSTATE`, codeOf(err));
@@ -727,7 +880,8 @@ export async function runAnswerNotices(deps: NoticeDeps = {}): Promise<NoticeRun
         const und = await q(NOTICE_UNDELIVERED_SQL, [r.id, tried.join(',')]);
         if ((und.rowCount ?? 0) > 0) {
           res.undelivered++;
-          await alertManager(q, r, f, tried, [], deps);
+          // Повтор и письмо после исчерпанных попыток — без дат и без других компаний: их здесь не читали.
+          await alertManager(q, r, f, tried, [], { kind: 'skip' }, deps);
         }
       } else if (r.state === 'undelivered') {
         if (!holds) {
@@ -736,7 +890,7 @@ export async function runAnswerNotices(deps: NoticeDeps = {}): Promise<NoticeRun
           continue;
         }
         res.manager_retried++;
-        await alertManager(q, r, f, r.tried ? r.tried.split(',') : [], [], deps);
+        await alertManager(q, r, f, r.tried ? r.tried.split(',') : [], [], { kind: 'skip' }, deps);
       }
     } catch (err) {
       res.status = 'db_error';

@@ -101,6 +101,48 @@ WRITE_TOOLS = {
     "create_trip_request",
 }
 
+# Отмена и перенос заявки по её ключу (12.11). Не заявка: согласия на данные
+# не просит, поэтому ворота WRITE_TOOLS его не держат. Но отмену не вернуть, а
+# сервер помечает инструмент «может необратимо изменить» — такой вызов хост
+# обязан подтвердить у человека. Хост здесь — сам мост: вопрос у терминала,
+# а где спросить некого (HTTP, одиночный вопрос) — вызова нет.
+CHANGE_TOOLS = {
+    "change_request",
+}
+
+
+def confirm_change_at_terminal(args):
+    """Вопрос человеку у терминала перед отменой или переносом заявки."""
+    if args.get("action") == "cancel":
+        what = "ОТМЕНИТЬ заявку (вернуть её будет нельзя)"
+    else:
+        what = f"ПЕРЕНЕСТИ заявку на {args.get('date')}"
+    try:
+        answer = input(f"Модель хочет {what}. Выполнить? [да/нет] ").strip().lower()
+    except (EOFError, KeyboardInterrupt):
+        return False
+    return answer in ("да", "д", "yes", "y")
+
+
+def change_gate(fn, args, confirm):
+    """Отказ словами, если вызов меняет заявку, а человек его не подтвердил; иначе None.
+
+    confirm — функция, спрашивающая человека (у терминала), или None, когда
+    спросить некого.
+    """
+    if fn not in CHANGE_TOOLS:
+        return None
+    if confirm is None:
+        return (
+            "Отмена и перенос заявки через мост идут только с подтверждением человека "
+            "у терминала (интерактивный режим). Здесь спросить некого — заявка не изменена. "
+            "Скажи это пользователю."
+        )
+    if not confirm(args):
+        return "Человек не подтвердил — заявка не изменена. Скажи это пользователю."
+    return None
+
+
 # Аргументы, которые мост модели не показывает и не передаёт (29.10).
 # notify_url — адрес приёмника уведомлений об изменении заявки: своего
 # приёмника у моста нет, а модель могла бы выдумать адрес — и снимки чужих
@@ -115,12 +157,19 @@ def bridge_args(args):
     return {k: v for k, v in args.items() if k not in BRIDGE_HIDDEN_ARGS}
 
 
+BRIDGE_DESCRIPTION_MAX = 1024
+
+
 def bridge_description(text):
     """Описание без предложений о скрытых полях, не длиннее 1024 знаков.
 
     Поле модели не показано, значит и фраза о нём ей не нужна: иначе модель
     читает про notify_url, которого в схеме нет, а на длинных описаниях
     (create_booking_request) обрезка в 1024 знака резала фразу посередине.
+
+    Не поместилось и без них — отбрасываются целые предложения с конца
+    (12.11): описание заявки на прокат кончалось обрывом «Никогда не с», а
+    оборванное правило модель дочитывает сама, как ей удобно.
     """
     text = (text or "").strip()
     sentences = re.split(r"(?<=[.!?])\s+", text)
@@ -128,7 +177,13 @@ def bridge_description(text):
     kept = [s for s in sentences if not any(re.search(r"\b" + re.escape(h) + r"\b", s) for h in BRIDGE_HIDDEN_ARGS)]
     if len(kept) != len(sentences):
         text = " ".join(kept)
-    return text[:1024]
+    if len(text) <= BRIDGE_DESCRIPTION_MAX:
+        return text
+    while len(kept) > 1 and len(" ".join(kept)) > BRIDGE_DESCRIPTION_MAX:
+        kept.pop()
+    clipped = " ".join(kept)
+    # Одно предложение длиннее предела — резать больше негде.
+    return clipped[:BRIDGE_DESCRIPTION_MAX]
 
 # Системный промпт моста = правила самого моста + инструкция сервера из
 # ответа initialize (поле instructions, 30.10). До этого мост держал свою
@@ -147,7 +202,13 @@ get_volcano_status, get_weather) вызывай ДО того, как совет
 create_stay_request, request_charter, create_car_rental_request, create_trip_request) вызывай ТОЛЬКО если пользователь
 в этом же диалоге явно сказал, что он согласен на обработку данных,
 и только с теми данными, которые он назвал сам. Никогда не подставляй
-свой телефон, имя или согласие от себя."""
+свой телефон, имя или согласие от себя.
+
+change_request (отмена и перенос заявки на тур) вызывай ТОЛЬКО если пользователь
+в этом же диалоге сам попросил отменить или перенести заявку, и только с ключом,
+который вернул create_booking_request в этом диалоге. Перед вызовом мост спросит
+человека сам; ответ инструмента передай как есть — отменена заявка, перенесена
+или ушла просьба оператору."""
 
 # Только когда сервер инструкции не прислал (старая версия, сбой): самое
 # общее, без утверждений об оплате и бронях — их знает только сервер.
@@ -335,6 +396,8 @@ class Agent:
         self.version = info.get("version", "?")
         self.system_prompt = build_system_prompt(init.get("instructions"))
         self.history = [{"role": "system", "content": self.system_prompt}]
+        # Кто подтверждает отмену и перенос заявки; None — спросить некого.
+        self.confirm_change = None
 
     def say(self, text):
         info = f"[{self.title} v{self.version} | тулов: {len(self.tools)} | "
@@ -362,12 +425,15 @@ class Agent:
                 except json.JSONDecodeError:
                     args = {}
 
+                refusal = change_gate(fn, args, self.confirm_change)
                 if fn in WRITE_TOOLS and not args.get("consent"):
                     args.pop("consent", None)
                     result = (
                         "Согласие пользователя на обработку данных не подтверждено. "
                         "Спроси его явно и передай ответ сюда — до этого заявку не отправляем."
                     )
+                elif refusal is not None:
+                    result = refusal
                 else:
                     print(
                         f"  -> {fn} {json.dumps(args, ensure_ascii=False)[:180]}",
@@ -387,6 +453,8 @@ class Agent:
 # ---------------------------------------------------------------- режимы
 
 def interactive(agent):
+    # Только здесь есть человек у терминала — он и подтверждает отмену и перенос.
+    agent.confirm_change = confirm_change_at_terminal
     print(agent.say("Интерактив. /tools — список, /clear — сброс диалога, Ctrl-C — выход.\n"))
     while True:
         try:

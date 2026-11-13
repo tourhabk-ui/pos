@@ -7,6 +7,13 @@ import { redactPII } from '@/lib/security/pii-redact';
 import { recordSourceEventQuietly, statusChangeTitle } from '@/lib/crm/events';
 import { WIDGET_CHAT_PSEUDO_LEAD_SQL } from '@/lib/leads/widget-chat-pseudo';
 
+/**
+ * Отметка «квалифицирован». `$1` — заметка, `$2` — лид. Только пока заявка всё
+ * ещё `new`: вызов модели идёт секунды, и статус, поставленный за это время
+ * клиентом (отмена, 1427) или оператором, квалификация не затирает.
+ */
+export const LEAD_AGENCY_QUALIFY_SQL = `UPDATE leads SET status = 'qualified', notes = $1 WHERE id = $2 AND status = 'new'`;
+
 export interface LeadContext {
   leadId?: string;
   limit?: number;
@@ -72,13 +79,15 @@ ${leads.map((l, i) => `${i + 1}. "${redactPII(l.comment || 'без коммен�
       for (const item of qualified) {
         const lead = leads[(Number(item.lead) || 0) - 1];
         if (lead) {
-          await query(
-            `UPDATE leads SET status = 'qualified', notes = $1 WHERE id = $2`,
+          const marked = await query(
+            LEAD_AGENCY_QUALIFY_SQL,
             [
               `Квалификация: ${item.score}/10, интерес к ${item.intent}`,
               lead.id,
             ]
           );
+          // Событие в ленту — только когда статус правда сменился.
+          if ((marked.rowCount ?? 0) === 0) continue;
           await recordSourceEventQuietly({
             kind: 'status_change', sourceKind: 'lead', sourceId: lead.id, actorKind: 'system',
             title: statusChangeTitle('lead', null, 'qualified'), payload: { to: 'qualified', score: item.score },

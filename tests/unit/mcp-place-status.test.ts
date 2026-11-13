@@ -91,8 +91,14 @@ const TOUR = { id: 27, title: 'Восхождение на Авачинский'
 /** Строка tp_* загрузчика статуса места тура. */
 let tourPlace: Record<string, unknown> | Error = {};
 let guardianPlace: Record<string, unknown> | null = null;
+/** Маршрут каталога, найденный стражем по названию (#3302). */
+let guardianRoute: Record<string, unknown> | null = null;
 
 function dispatch(sql: string) {
+  // Предупреждения маршрута (collect-signals) — первым правилом: предикат
+  // тревог внутри себя читает и `kamchatka_routes kr`, и `COUNT(*)`, и без
+  // этой строки запрос получил бы чужие строки.
+  if (/JOIN ark ON/.test(sql)) return { rows: [] };
   if (/COUNT\(\*\)/.test(sql)) return { rows: [{ a: '0', b: '0', c: '0' }] };
   if (/SELECT tp\.\* FROM operator_tours ot/.test(sql)) {
     if (tourPlace instanceof Error) throw tourPlace;
@@ -102,6 +108,9 @@ function dispatch(sql: string) {
   if (/LEFT JOIN location_real_time_status lrs/.test(sql) && /FROM places p/.test(sql)) {
     return { rows: guardianPlace ? [guardianPlace] : [] };
   }
+  if (/FROM kamchatka_routes kr/.test(sql)) return { rows: guardianRoute ? [guardianRoute] : [] };
+  // Строка маршрута для сборщика сигналов: без неё всё было бы «не смогли узнать».
+  if (/zone, season, lat/.test(sql)) return { rows: guardianRoute ? [{ zone: 'avachinsky', season: null, lat: '52.69', lng: '158.25' }] : [] };
   return { rows: [] };
 }
 
@@ -111,6 +120,7 @@ beforeEach(() => {
   avail.keepsSchedule = true;
   tourPlace = {};
   guardianPlace = null;
+  guardianRoute = null;
   createLeadMock.mockClear();
   query.mockReset().mockImplementation(async (sql: string) => dispatch(sql));
 });
@@ -189,8 +199,41 @@ describe('MCP get_guardian_context: structuredContent по своей схеме
   it('места нет: found=false и пустой список — по той же схеме', async () => {
     const r = await call('get_guardian_context', { place: 'Несуществующее место' });
     expect(r.isError).toBeUndefined();
-    expect(r.structuredContent).toEqual({ found: false, places: [] });
+    expect(r.structuredContent).toEqual({ found: false, places: [], routes: [] });
     expect(validGuardian(r.structuredContent)).toBe(true);
+  });
+
+  it('места нет, маршрут каталога есть (#3302): оценка на сегодня в тексте и полем routes — по той же схеме', async () => {
+    guardianRoute = {
+      id: 'card-1', db_id: 'db-1', slug: 'vilyuchinskij-vodopad', title: 'Вилючинский водопад',
+      distance_km: '1.9', elevation_gain_m: 325, difficulty: 'easy', park_name: 'Природный парк «Вилючинский»',
+      mchs_registration_required: false, description: null,
+    };
+    const r = await call('get_guardian_context', { place: 'Вилючинский водопад' });
+    expect(r.isError).toBeUndefined();
+    expect(r.content[0]!.text).toContain('Маршрут каталога «Вилючинский водопад»');
+    expect(r.content[0]!.text).toContain('Оценка маршрута на сегодня — «Идти»');
+    expect(r.content[0]!.text).not.toContain('Данные о месте не найдены');
+    expect(validGuardian(r.structuredContent), JSON.stringify(validGuardian.errors)).toBe(true);
+    expect(undeclaredKeys(GUARDIAN_OUTPUT_SCHEMA, r.structuredContent)).toEqual([]);
+    expect(r.structuredContent).toMatchObject({
+      found: false, places: [],
+      routes: [{ id: 'card-1', title: 'Вилючинский водопад', today: 'go', code: 'clear', unknown: [], alerts: [], park_name: 'Природный парк «Вилючинский»' }],
+    });
+    expect((r.structuredContent as { routes: Array<{ url: string }> }).routes[0]!.url).toMatch(/\/routes\/vilyuchinskij-vodopad$/);
+  });
+
+  it('схема не примет оценку вне трёх слов и код причины, которого правило не знает', () => {
+    const route = { id: 'x', title: 'x', url: 'x', today: 'go', code: 'clear', reason: 'x', unknown: [], alerts: [], park_name: null, match: 'high' };
+    expect(validGuardian({ found: false, places: [], routes: [route] })).toBe(true);
+    // Похожее название — low; без пометки о совпадении маршрут схема не примет.
+    expect(validGuardian({ found: false, places: [], routes: [{ ...route, match: 'low' }] })).toBe(true);
+    expect(validGuardian({ found: false, places: [], routes: [{ ...route, match: 'similar' }] })).toBe(false);
+    const { match: _match, ...noMatch } = route;
+    expect(validGuardian({ found: false, places: [], routes: [noMatch] })).toBe(false);
+    expect(validGuardian({ found: false, places: [], routes: [{ ...route, today: 'green' }] })).toBe(false);
+    expect(validGuardian({ found: false, places: [], routes: [{ ...route, code: 'whatever' }] })).toBe(false);
+    expect(validGuardian({ found: false, places: [] })).toBe(false);
   });
 });
 

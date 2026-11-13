@@ -48,3 +48,14 @@ export async function markNoticeShown(answerId: string, via: ShownVia): Promise<
 export async function markVehicleNoticeShown(activityId: string, via: ShownVia): Promise<boolean> {
   return mark(NOTICE_SHOWN_BY_ACTIVITY_SQL, activityId, via);
 }
+
+/**
+ * Дошёл ответ, из которого построен вид заявки, — каким бы он ни был: кнопка
+ * туроператора (`tour`) — по номеру ответа; «Не могу» перевозчика и
+ * прокатчика (`vehicle`) и закрытие продавцом с причиной (`closed`, этап 3а) —
+ * по записи журнала. Один вход на все двери чтения: род, забытый в одной из
+ * них, оставил бы доставленное «недоставленным» — и менеджер звонил бы зря.
+ */
+export async function markShownRef(ref: { source: 'tour' | 'vehicle' | 'closed'; id: string }, via: ShownVia): Promise<boolean> {
+  return mark(ref.source === 'tour' ? NOTICE_SHOWN_SQL : NOTICE_SHOWN_BY_ACTIVITY_SQL, ref.id, via);
+}

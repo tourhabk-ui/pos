@@ -93,9 +93,10 @@ describe('радар зелёный, но цвет не выдаёт себя з
   });
 
   it('состояние по-прежнему несёт точка свежести, а не зелень плитки', () => {
-    expect(HOME).toContain('freshnessDot(fresh.state)');
-    // «нет данных» — контур без заливки, а не зелёная точка.
-    expect(HOME).toMatch(/: \{ border: '1px solid var\(--text-muted\)', background: 'var\(--bg-card\)' \}/);
+    // Точка — общий компонент (12.11, пульс только у свежих). Её цвет и
+    // «нет данных» контуром без заливки судит рендер в live-animations.test.tsx.
+    expect(HOME).toMatch(/import \{ LiveFreshnessDot \} from '@\/components\/ui\/LiveFreshnessDot'/);
+    expect(HOME).toMatch(/state=\{fresh\.state\}/);
   });
 });
 

@@ -112,6 +112,7 @@ import { recordFunnelEvent, type VisitorContext } from '@/lib/funnel/record';
 export type ReserveErrorCode =
   | 'NOT_FOUND'      // тура нет, снят с публикации или удалён
   | 'DATE_BLOCKED'   // оператор закрыл дату в календаре
+  | 'DATE_CLOSED_BY_PLATFORM' // дату закрыл Ведар по оценке (1421, closed_by = platform), оператор её не закрывал
   | 'MAX_EXCEEDED'   // запрошено больше, чем вмещает тур или дата
   | 'NO_SLOTS'       // мест на дату не осталось
   | 'OUT_OF_SEASON'  // даты нет в календаре, и она вне записанного сезона тура
@@ -232,6 +233,19 @@ export interface TourDay {
   occupied: string;
   available_slots: number | null;
   is_cancelled: boolean | null;
+  /** `platform` — дату закрыл Ведар по оценке (миграция 1435); иначе null. */
+  closed_by?: string | null;
+}
+
+/**
+ * Дату закрыл Ведар, а не оператор (1421: «зимой тур по его описанию под
+ * вопросом»). Сказать о ней «оператор закрыл» — неправда: он её не закрывал и
+ * не подтверждал. Слова одни на форму сайта, чат и агента.
+ */
+export function platformClosedText(date: string, multiDay: boolean): string {
+  return multiDay
+    ? `Дату ${date} (она входит в тур) в календаре закрыл Ведар по описанию тура — оператор её не закрывал и не подтверждал. Выберите другие даты или спросите оператора, ходит ли он в эти дни.`
+    : 'Эту дату в календаре закрыл Ведар по описанию тура — оператор её не закрывал и не подтверждал. Выберите другую дату или спросите оператора, ходит ли он в этот день.';
 }
 
 /**
@@ -277,7 +291,8 @@ export async function readTourDays(
     `SELECT d.day::date AS date,
             (COALESCE(occ.occupied, 0) + COALESCE(hold.held, 0)) AS occupied,
             ta.available_slots,
-            ta.is_cancelled
+            ta.is_cancelled,
+            ta.closed_by
        FROM generate_series($2::date, $3::date, '1 day') AS d(day)
        LEFT JOIN tour_availability ta
               ON ta.operator_tour_id = $1 AND ta.date = d.day::date
@@ -316,6 +331,9 @@ export function assertDaysOpen(
   opts: { participants: number; maxParticipants: number | null; durationDays: number },
 ): void {
   for (const day of days) {
+    if (day.is_cancelled && day.closed_by === 'platform') {
+      throw new ReserveError('DATE_CLOSED_BY_PLATFORM', platformClosedText(day.date, opts.durationDays > 1));
+    }
     if (day.is_cancelled) {
       throw new ReserveError(
         'DATE_BLOCKED',

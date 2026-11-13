@@ -1,9 +1,7 @@
 import Link from 'next/link';
-import {
-  AlertTriangle, ArrowRight, CloudRain, Construction, Mountain, PawPrint, Snowflake, TreePine, Waves,
-  type LucideIcon,
-} from 'lucide-react';
-import type { ChangeKind, PlanChange } from '@/lib/home/desk-brief';
+import { ArrowRight } from 'lucide-react';
+import type { PlanChange } from '@/lib/home/plan-change';
+import { DeskChangeRows } from './DeskChangeRows';
 import { plural } from '@/lib/home/data-freshness';
 import { SAFETY_FEEDS_TEXT } from '@/lib/safety/current-status';
 
@@ -15,17 +13,6 @@ import { SAFETY_FEEDS_TEXT } from '@/lib/safety/current-status';
  * Три исхода: список, «предупреждений нет» с перечнем лент, по которым это
  * известно, и «не смогли прочитать» — последнее не рисует пустоту.
  */
-
-const ICON: Record<ChangeKind, LucideIcon> = {
-  road: Construction,
-  volcano: Mountain,
-  water: Waves,
-  snow: Snowflake,
-  weather: CloudRain,
-  bear: PawPrint,
-  park: TreePine,
-  other: AlertTriangle,
-};
 
 export function DeskPlanChanges({ changes: rows, feedCount, trusted }: {
   changes: PlanChange[] | null;
@@ -52,31 +39,7 @@ export function DeskPlanChanges({ changes: rows, feedCount, trusted }: {
         </div>
       )}
 
-      {changes?.map((c, i) => {
-        const Icon = ICON[c.kind];
-        return (
-          <Link
-            key={`${c.place ?? ''}${c.what}${i}`}
-            href="/safety/incidents"
-            className="group grid grid-cols-[40px_minmax(0,1fr)_auto] items-start gap-4 border-t border-[var(--border)] py-5 no-underline transition-colors duration-200 hover:no-underline focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-[var(--ocean)]"
-          >
-            <span className="grid h-10 w-10 place-items-center rounded-full bg-[var(--bg-hover)] text-[var(--accent)] transition-transform duration-200 group-hover:scale-105">
-              <Icon size={18} aria-hidden />
-            </span>
-            <span className="flex min-w-0 flex-col gap-1">
-              {c.place && <span className="text-lg font-semibold leading-snug text-[var(--text-primary)] group-hover:text-[var(--accent)] transition-colors duration-200">{c.place}</span>}
-              <span className={c.place ? 'text-[15px] leading-snug text-[var(--text-secondary)]' : 'text-lg font-semibold leading-snug text-[var(--text-primary)] group-hover:text-[var(--accent)] transition-colors duration-200'}>
-                {c.what}
-              </span>
-              <span className="text-xs text-[var(--text-secondary)]">{c.origin}</span>
-            </span>
-            <span className="flex min-w-[112px] flex-col items-end gap-1 pt-1 text-right text-[13px] text-[var(--text-secondary)]">
-              <span>{c.kindLabel}</span>
-              {c.term && <span className="text-[var(--text-secondary)]">{c.term}</span>}
-            </span>
-          </Link>
-        );
-      })}
+      {changes && changes.length > 0 && <DeskChangeRows changes={changes} />}
 
       <Link
         href="/safety/incidents"

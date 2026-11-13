@@ -32,6 +32,7 @@ vi.mock('@/lib/notifications/pd-alert', () => ({ sendPdAlert: (...a: unknown[]) 
 import {
   pressMyTripDate, operatorDateText, myTripDateMenuPayload, myTripDatePickPayload, parseMyTripDate, isMyTripDatePayload,
   MY_TRIP_DATE_LEAD_SQL, MY_TRIP_DATE_CHANGE_SQL, MY_TRIP_DATE_DELIVERY_SQL, MY_TRIP_DATE_REQUEST_LOG_SQL, MY_TRIP_DATE_DAILY_LIMIT,
+  myTripDatePressable,
 } from '@/lib/requests/my-trip-date';
 import { FREE_DATES_SQL, TOUR_HAS_CALENDAR_SQL } from '@/lib/tours/nearest-free-date';
 import { myTripButtons, type MyTrip } from '@/lib/requests/my-trip';
@@ -60,6 +61,8 @@ interface World {
   hasCalendar: boolean;
   /** Строка журнала, которую вернёт условная запись; null — запись не прошла. */
   changed: string | null | Error;
+  /** Строка журнала просьбы; null — лимит за сутки выбран к моменту записи. */
+  requested: string | null | Error;
 }
 let world: World;
 
@@ -68,7 +71,7 @@ beforeEach(() => {
   h.reach.mockReset();
   h.alert.mockReset();
   vi.stubEnv('CALLBACK_SIGNING_SECRET', 'unit-signing');
-  world = { lead: baseLead(), free: [], hasCalendar: true, changed: '501' };
+  world = { lead: baseLead(), free: [], hasCalendar: true, changed: '501', requested: '601' };
   h.reach.mockResolvedValue({ maxChatId: '777', telegramChatId: null, reachable: true });
   h.alert.mockResolvedValue({ channel: 'max', delivered: true, reason: 'доставлено' });
   h.query.mockImplementation(async (sql: string, params: unknown[]) => {
@@ -87,7 +90,12 @@ beforeEach(() => {
       if (world.changed instanceof Error) throw world.changed;
       return { rows: world.changed ? [{ log_id: world.changed }] : [] };
     }
-    if (sql === MY_TRIP_DATE_DELIVERY_SQL || sql === MY_TRIP_DATE_REQUEST_LOG_SQL) return { rows: [] };
+    // Просьба: строка журнала — до сообщения; нет строки — лимит за сутки выбран.
+    if (sql === MY_TRIP_DATE_REQUEST_LOG_SQL) {
+      if (world.requested instanceof Error) throw world.requested;
+      return { rows: world.requested ? [{ log_id: world.requested }] : [] };
+    }
+    if (sql === MY_TRIP_DATE_DELIVERY_SQL) return { rows: [] };
     throw new Error(`неожиданный запрос: ${sql.slice(0, 60)}`);
   });
 });
@@ -216,6 +224,21 @@ describe('меню: свободные даты кнопками', () => {
     expect((await menu()).text).toMatch(/Заявка закрыта/);
   });
 
+  it('заявку отменил клиент (1427): старая кнопка даты ничего не меняет и оператору просьбу не шлёт', async () => {
+    world.lead = baseLead({ status: 'cancelled', answered: true });
+    world.free = [{ date: '2027-07-18', free: 5 }];
+    expect((await menu()).text).toMatch(/^Заявка закрыта — дату по ней не меняю\./);
+    expect((await pick('2027-07-18')).text).toMatch(/^Заявка закрыта — дату по ней не меняю\./);
+    expect(callsOf(MY_TRIP_DATE_CHANGE_SQL)).toHaveLength(0);
+    expect(callsOf(MY_TRIP_DATE_REQUEST_LOG_SQL)).toHaveLength(0);
+    expect(callsOf(FREE_DATES_SQL)).toHaveLength(0);
+    expect(h.alert).not.toHaveBeenCalled();
+    // Тот же гейт у кнопок дат в сообщении после ответа оператора: по отменённой их не дают.
+    const gate = { booking_status: null, booking_date: null, date: '2027-07-15', tour_id: 5, date_actions: 0 };
+    expect(myTripDatePressable({ ...gate, status: 'new' }, '2027-07-01')).toBe(true);
+    expect(myTripDatePressable({ ...gate, status: 'cancelled' }, '2027-07-01')).toBe(false);
+  });
+
   it(`за сутки уже ${MY_TRIP_DATE_DAILY_LIMIT} смены — дальше напрямую с оператором`, async () => {
     world.lead = baseLead({ date_actions: MY_TRIP_DATE_DAILY_LIMIT });
     expect((await menu()).text).toMatch(/за сутки уже меняли/);
@@ -264,7 +287,9 @@ describe('выбор даты', () => {
     const r = await pick('2027-07-18');
     expect(callsOf(MY_TRIP_DATE_CHANGE_SQL)).toHaveLength(1);
     expect((h.alert.mock.calls[0]![0] as { text: string }).text).toContain('Турист просит перенести заявку');
-    expect(callsOf(MY_TRIP_DATE_REQUEST_LOG_SQL)).toEqual([[LEAD, '2027-07-15', '2027-07-18', 'max', 'max']]);
+    expect(callsOf(MY_TRIP_DATE_REQUEST_LOG_SQL)).toEqual([[LEAD, '2027-07-15', '2027-07-18', 'max']]);
+    // Исход доставки — в ту же запись журнала.
+    expect(callsOf(MY_TRIP_DATE_DELIVERY_SQL)).toEqual([['601', 'max']]);
     expect(r.text).toMatch(/просьба перенести на 18\.07\.2027 ему отправлена\. В заявке пока прежняя дата — 15\.07\.2027\./);
   });
 
@@ -312,8 +337,41 @@ describe('выбор даты', () => {
     const err = vi.spyOn(console, 'error').mockImplementation(() => undefined);
     const r = await pick('2027-07-18');
     expect(h.alert).not.toHaveBeenCalled();
-    expect(callsOf(MY_TRIP_DATE_REQUEST_LOG_SQL)[0]![4]).toBe('none');
+    expect(callsOf(MY_TRIP_DATE_DELIVERY_SQL)).toEqual([['601', 'none']]);
     expect(r.text).toMatch(/о просьбе не знает — напишите ему или позвоните/);
+    err.mockRestore();
+  });
+
+  it('просьба: запись журнала — раньше сообщения оператору; лимит выбран к моменту записи — сообщения нет', async () => {
+    world.lead = baseLead({ answered: true, status: 'contacted' });
+    const order: string[] = [];
+    const base = h.query.getMockImplementation()!;
+    h.query.mockImplementation(async (sql: string, params: unknown[]) => {
+      if (sql === MY_TRIP_DATE_REQUEST_LOG_SQL) order.push('журнал');
+      return base(sql, params);
+    });
+    h.alert.mockImplementation(async () => { order.push('сообщение'); return { channel: 'max', delivered: true, reason: 'доставлено' }; });
+    await pick('2027-07-18');
+    expect(order).toEqual(['журнал', 'сообщение']);
+
+    // Параллельные вызовы прошли чтение все, а запись с условием лимита — нет:
+    // оператору не уходит ничего, человеку сказано про лимит.
+    h.alert.mockClear();
+    world.requested = null;
+    const r = await pick('2027-07-18');
+    expect(h.alert).not.toHaveBeenCalled();
+    expect(callsOf(MY_TRIP_DATE_DELIVERY_SQL)).toHaveLength(1);
+    expect(r.text).toMatch(/за сутки уже меняли 3 раза/);
+  });
+
+  it('просьба не записалась (сбой базы) — оператору ничего не уходит, человеку «сбой», а не «отправлена»', async () => {
+    world.lead = baseLead({ answered: true, status: 'contacted' });
+    world.requested = Object.assign(new Error('boom'), { code: '57014' });
+    const err = vi.spyOn(console, 'error').mockImplementation(() => undefined);
+    const r = await pick('2027-07-18');
+    expect(h.alert).not.toHaveBeenCalled();
+    expect(r.text).toMatch(/сбой на нашей стороне\. Ничего не изменено/);
+    expect(err.mock.calls.flat().join(' ')).toContain('SQLSTATE=57014');
     err.mockRestore();
   });
 

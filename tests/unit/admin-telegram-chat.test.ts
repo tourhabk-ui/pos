@@ -290,6 +290,25 @@ describe('вебхук: кабинет администратора', () => {
     );
   });
 
+  it('«очередь» привязанного — консоль, а не «Не понял команду»: строка без контактов, списка и кнопок «Взял» нет (этап 3б-2)', async () => {
+    queryMode = 'admin';
+    await webhookPost('очередь', { from: ADMIN_TG, chat: ADMIN_TG });
+    expect(m.adminReply).toHaveBeenCalledWith('queue', expect.anything());
+    const text = sentWebhook().join('\n');
+    expect(text).not.toContain('Не понял команду');
+    expect(text).toContain('Контакты туристов в этом списке есть только в MAX');
+    expect(text).not.toContain(PD);
+    expect(m.pd).not.toHaveBeenCalled();
+    const markup = m.tgSend.mock.calls.at(-1)?.[0] as { replyMarkup?: { inline_keyboard: Array<Array<{ callback_data: string }>> } };
+    expect(markup.replyMarkup?.inline_keyboard.flat().some((b) => b.callback_data.startsWith('ad:'))).toBe(false);
+
+    // Ждать некого — ответ без ПД доходит как есть.
+    m.tgSend.mockClear();
+    m.adminReply.mockResolvedValue({ text: 'В очереди после отказа никого нет: звонка никто не ждёт.', pd: false });
+    await webhookPost('покажи очередь', { from: ADMIN_TG, chat: ADMIN_TG });
+    expect(sentWebhook().join('\n')).toContain('В очереди после отказа никого нет');
+  });
+
   it('«хочу забронировать тур» — Кузьмич туриста, не список броней', async () => {
     queryMode = 'admin';
     await webhookPost('хочу забронировать тур', { from: ADMIN_TG, chat: ADMIN_TG });

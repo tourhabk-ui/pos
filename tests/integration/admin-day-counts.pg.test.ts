@@ -100,6 +100,8 @@ withPg('числа суток в админке', () => {
     await a2a(TODAY_AT(2), 'TravelAgent/2.1', { hash: 'aX', op: 'card' });
     await a2a(TODAY_AT(3), 'A2A-Registry-TaskProbe/1.0');
     await a2a(TODAY_AT(3), 'agent-probe/0.1');
+    // Своя проверка по имени (перепись 12.11): в счёт внешних не идёт.
+    await a2a(TODAY_AT(3), 'vedar-eval', { hash: 'aE' });
     await a2a(TODAY_AT(3), 'curl/8.5', { family: 'curl' });
     await a2a(TODAY_AT(4), 'OwnerAgent/1', { self: true });
     await a2a(YESTERDAY_AT(12), 'OtherAgent/1', { hash: 'aY' });
@@ -145,14 +147,21 @@ withPg('числа суток в админке', () => {
       ['a2a-registry-smoke/1.0', 'other', false], ['agent-probe/0.1', 'other', false],
       ['TendleReview/1', 'other', false], ['curl/8.5', 'curl', false], ['OwnerAgent/1', 'other', true],
       ['Claude-User', 'browser', false],
+      // Проверки по имени (перепись 12.11): образец ремесла их не узнаёт. Регистр не важен; похожее имя — не оно.
+      ['vedar-eval', 'other', false], ['Vedar-Eval', 'other', false], ['vedar-evaluator', 'other', false],
+      ['connectors-manager', 'node', false],
     ];
     const { rows } = await pool.query<{ i: number; ext: boolean }>(
-      `SELECT v.i, ${a2aExternalSql('v', '$1', '$2')} AS ext
-         FROM (SELECT * FROM jsonb_to_recordset($3::jsonb) AS x(i int, agent text, ua_family text, is_self boolean)) v
+      `SELECT v.i, ${a2aExternalSql('v', '$1', '$2', '$3')} AS ext
+         FROM (SELECT * FROM jsonb_to_recordset($4::jsonb) AS x(i int, agent text, ua_family text, is_self boolean)) v
         ORDER BY v.i`,
       [...A2A_EXTERNAL_PARAMS, JSON.stringify(samples.map(([agent, ua_family, is_self], i) => ({ i, agent, ua_family, is_self })))],
     );
     expect(rows.map((r) => r.ext)).toEqual(samples.map(([a, f, self]) => a2aAgentKind(a, f, self) === 'external'));
+    // Правило не выродилось: свой экзамен — проверка, чужое похожее имя — внешний.
+    expect(a2aAgentKind('vedar-eval', 'other', false)).toBe('probe');
+    expect(a2aAgentKind('Vedar-Eval', 'other', false)).toBe('probe');
+    expect(a2aAgentKind('vedar-evaluator', 'other', false)).toBe('external');
   });
 
   it('отказ одного запроса — «не загрузилось» у одного числа, остальные стоят', async () => {

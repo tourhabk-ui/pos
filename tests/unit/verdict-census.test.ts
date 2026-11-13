@@ -7,9 +7,16 @@
  * сигналов, что и карточка маршрута. Быстрая пересборка «одним запросом»
  * была бы второй реализацией правил и мерила бы саму себя.
  */
-import { describe, it, expect } from 'vitest';
+import { describe, it, expect, vi, beforeEach } from 'vitest';
 import { readFileSync } from 'node:fs';
 import { join } from 'node:path';
+
+const mockQuery = vi.fn();
+vi.mock('@/lib/db-pool', () => ({
+  pool: { query: (...args: unknown[]) => mockQuery(...args) },
+}));
+
+import { runVerdictCensus } from '@/lib/routes/verdict-census';
 
 const read = (p: string) => readFileSync(join(process.cwd(), p), 'utf-8');
 
@@ -75,5 +82,56 @@ describe('доступ к переписи', () => {
     // Пустой ответ читался бы как «маршрутов нет».
     expect(API).toMatch(/status:\s*500/);
     expect(API).not.toMatch(/catch[\s\S]{0,120}routes_total:\s*0/);
+  });
+});
+
+/**
+ * Маршруты с двумя разными id (12.11, #3302). Карточка живёт на id
+ * представления — COALESCE(ark_id, id), — а сборщик сигналов до этого дня
+ * искал строку только по её id: у таких маршрутов карточка показывала
+ * «Осторожно — данных мало» при любом дне. Перепись называет, сколько их и
+ * какой была их настоящая оценка, — вызовом на подменённой базе.
+ */
+describe('перепись называет маршруты, у которых id карточки не равен id строки', () => {
+  const ROUTES = [
+    { id: 'row-1', ark_id: null, title: 'Без ark_id' },
+    { id: 'row-2', ark_id: 'card-2', title: 'С закрытой точкой' },
+    { id: 'row-3', ark_id: 'row-3', title: 'ark_id равен id' },
+    { id: 'row-4', ark_id: 'card-4', title: 'Спокойный' },
+  ];
+
+  beforeEach(() => {
+    mockQuery.mockReset().mockImplementation(async (sql: string, params: unknown[] = []) => {
+      // Тревоги маршрута — первым правилом: их предикат сам содержит COUNT(*).
+      if (/JOIN ark ON/.test(sql)) return { rows: [] };
+      if (/COUNT\(\*\)/.test(sql)) return { rows: [{ n: String(ROUTES.length) }] };
+      if (/SELECT id::text, ark_id::text AS ark_id, title FROM kamchatka_routes/.test(sql)) return { rows: ROUTES };
+      if (/zone, season, lat/.test(sql)) return { rows: [{ id: params[0], zone: 'avachinsky', season: null, lat: '53.1', lng: '158.6' }] };
+      if (/rs\.is_open = FALSE/.test(sql)) return { rows: params[0] === 'row-2' ? [{ name: 'Кордон', reason: null }] : [] };
+      return { rows: [] };
+    });
+  });
+
+  it('считает только те, где ark_id записан и отличается; настоящая оценка — по id строки', async () => {
+    const c = await runVerdictCensus();
+    expect(c.routes_counted).toBe(4);
+    expect(c.card_id_differs.count).toBe(2);
+    expect(c.card_id_differs.by_status).toEqual({ go: 1, caution: 0, no: 1 });
+    const closed = c.card_id_differs.examples.find((e) => e.id === 'row-2');
+    expect(closed).toEqual({ id: 'row-2', card_id: 'card-2', title: 'С закрытой точкой', status: 'no', reason: 'Закрыто: Кордон' });
+    expect(c.card_id_differs.examples.map((e) => e.id).sort()).toEqual(['row-2', 'row-4']);
+  });
+
+  it('таких маршрутов нет — ноль, а не пропуск поля', async () => {
+    const one = [ROUTES[0]!];
+    mockQuery.mockImplementation(async (sql: string, params: unknown[] = []) => {
+      if (/JOIN ark ON/.test(sql)) return { rows: [] };
+      if (/COUNT\(\*\)/.test(sql)) return { rows: [{ n: '1' }] };
+      if (/SELECT id::text, ark_id::text AS ark_id, title FROM kamchatka_routes/.test(sql)) return { rows: one };
+      if (/zone, season, lat/.test(sql)) return { rows: [{ id: params[0], zone: null, season: null, lat: null, lng: null }] };
+      return { rows: [] };
+    });
+    const c = await runVerdictCensus();
+    expect(c.card_id_differs).toEqual({ count: 0, by_status: { go: 0, caution: 0, no: 0 }, examples: [] });
   });
 });

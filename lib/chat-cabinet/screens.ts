@@ -257,7 +257,7 @@ export function itemCardScreen(args: {
     lines.push('«Подтвердить» и «Отклонить»: бот спросит, и бронь меняется только после «Да». Отклонение — с причиной, её получит турист.');
   } else if (item.kind === 'lead' && partner.leadActions) {
     rows.push(leadAnswerButtons(item.id, null));
-    lines.push('Отметка заявки — после «Да»; туристу ничего не уходит.');
+    lines.push('«Связался» и «Договорились» — после «Да»; туристу ничего не уходит. «Отказ» — с причиной кнопкой: отказ с вашей стороны сообщается туристу, что ушло — бот скажет после ответа.');
   } else if (item.kind === 'lead' && partner.operatorAnswers) {
     const answers = chatAnswerButtons(null, 'lead', item.id);
     rows.push(answers.slice(0, 2), answers.slice(2), [declineButton('lead', item.id)]);

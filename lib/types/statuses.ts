@@ -39,7 +39,16 @@ export const BOOKING_STATUSES = [
 ] as const;
 export type BookingStatus = (typeof BOOKING_STATUSES)[number];
 
-/** leads.status — полный набор, включая статусы AI Lead Processor. */
+/**
+ * leads.status — полный набор, включая статусы AI Lead Processor.
+ *
+ * `cancelled` (1427) — «отменена клиентом». Ставит его только отмена самим
+ * человеком (lib/requests/cancel-request): вручную его не
+ * выбирают (в `MANUAL_LEAD_STATUSES` и у кнопок продавца его нет), и из него
+ * заявку не возвращают (`LEAD_CLIENT_CANCELLED`, lib/leads/owner-lead-status).
+ * `lost` для этого не годится: его ставят продавцы, и читается он «оператор
+ * отказал».
+ */
 export const LEAD_STATUSES = [
   'new',
   'contacted',
@@ -50,8 +59,12 @@ export const LEAD_STATUSES = [
   'ai_qualified',
   'proposal_sent',
   'awaiting_confirm',
+  'cancelled',
 ] as const;
 export type LeadStatus = (typeof LEAD_STATUSES)[number];
+
+/** Заявку отменил клиент: дальше её не ведут, не передают и не возвращают в работу. */
+export const LEAD_CLIENT_CANCELLED = 'cancelled' satisfies LeadStatus;
 
 /**
  * Лид, которого ещё не взял ЧЕЛОВЕК: пришёл (`new`), разбирается конвейером

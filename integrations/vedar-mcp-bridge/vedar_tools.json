@@ -52,7 +52,7 @@
     "type": "function",
     "function": {
       "name": "get_guardian_context",
-      "description": "Kamchatka safety context for a place or route: hazards, active alerts, advice. For plain facts (type, coordinates) use get_place_info. Получить полный контекст места как Хранитель: статус (открыто/закрыто), реалтайм алерты КБГС РАН, опасности, загрузка, традиционные знания о месте. Используй ВСЕГДА когда спрашивают о конкретном месте, вулкане, озере, маршруте, источнике Камчатки.",
+      "description": "Kamchatka safety context for a place or route: place status, hazards, active alerts; a catalog route with no place record gets today's go/caution/no call and park permit terms. Facts: get_place_info. Получить полный контекст места как Хранитель: статус (открыто/закрыто), реалтайм алерты КБГС РАН, опасности, загрузка, традиционные знания о месте. Места с таким названием нет, а маршрут каталога есть — оценка маршрута на сегодня (идти / осторожно / не сегодня) с причиной, та же, что на его карточке, и условия посещения его охраняемой территории (разрешение парка), как они записаны в базе. Нет и маршрута по точным словам, а похожее название в каталоге есть — назовёт его с пометкой о неточном совпадении. Используй ВСЕГДА когда спрашивают о конкретном месте, вулкане, озере, маршруте, источнике Камчатки.",
       "parameters": {
         "type": "object",
         "properties": {
@@ -74,7 +74,7 @@
     "type": "function",
     "function": {
       "name": "get_place_info",
-      "description": "Kamchatka place facts on record: type, coordinates, altitude, hazards, distance to medical help, satellite comms, MChS registration, tours by company. No live alerts — use get_guardian_context. Найти базовую информацию о месте из базы данных: тип, координаты, ссылка на страницу места на сайте (её и давай, когда просят ссылку или координаты). Отдаёт все предложения туров к месту с компанией у каждого; порядок — правило платформы, названное в ответе. Для полного контекста с безопасностью и алертами — get_guardian_context.",
+      "description": "Kamchatka place facts on record: type, coordinates, altitude, hazards, distance to medical help, satellite comms, MChS registration, tours by company. No live alerts — use get_guardian_context. Найти базовую информацию о месте из базы данных: тип, координаты, ссылка на страницу места на сайте (её и давай, когда просят ссылку или координаты). Отдаёт все предложения туров к месту с компанией у каждого; порядок — правило платформы, названное в ответе. Места с таким названием нет, а маршрут каталога есть — назовёт маршрут, его данные и условия посещения его охраняемой территории (разрешение парка); есть только похожее название маршрута — назовёт его подсказкой. Для полного контекста с безопасностью и алертами — get_guardian_context.",
       "parameters": {
         "type": "object",
         "properties": {
@@ -566,7 +566,7 @@
     "type": "function",
     "function": {
       "name": "fetch",
-      "description": "Full text of one Vedar Kamchatka record by id from search (tour, place, stay, route): description, price, program, safety facts, canonical url. Published records only. Полный текст одной записи витрины Ведара по id из search (tour:<id>, place:<slug>, stay:<uuid>, route:<slug>): описание, цена и состав тура, факты о месте и его опасностях, жильё, маршрут. У места отдаёт все предложения туров к нему с компанией у каждого; порядок — правило платформы, названное в ответе. Только опубликованное; записи, которой нет на витрине, — отказ с объяснением.",
+      "description": "Full text of one Vedar Kamchatka record by id from search (tour, place, stay, route): description, price, program, safety facts; route: dated go/caution/no call, permit terms. Published records only. Полный текст одной записи витрины Ведара по id из search (tour:<id>, place:<slug>, stay:<uuid>, route:<slug>): описание, цена и состав тура, факты о месте и его опасностях, жильё, маршрут. У места отдаёт все предложения туров к нему с компанией у каждого; порядок — правило платформы, названное в ответе. У маршрута — оценка на день сборки документа (идти / осторожно / не сегодня) с причиной и датой; позже этой даты её спрашивают заново. Там же — условия посещения охраняемой территории маршрута (разрешение парка), как они записаны в базе. Только опубликованное; записи, которой нет на витрине, — отказ с объяснением.",
       "parameters": {
         "type": "object",
         "properties": {
@@ -599,6 +599,44 @@
         },
         "required": [
           "key"
+        ]
+      }
+    }
+  },
+  {
+    "type": "function",
+    "function": {
+      "name": "change_request",
+      "description": "Cancel a Kamchatka tour request or move it to another date by its status key, only when the person asks: done at once before the operator answers, sent to the operator as a request after. Отменить заявку на тур или перенести её на другую дату — по ключу статуса, который create_booking_request выдал при создании заявки. Вызывайте, только когда человек сам попросил об отмене или переносе. Оператор ещё не ответил — заявка отменяется или дата меняется сразу, оператору уходит сообщение. Оператор уже ответил, есть бронь или договорённость — ему уходит просьба: заявка и бронь не меняются, решает он. Отменённую заявку вернуть нельзя. Перенос — только на дату, где по календарю тура есть места на всех (get_tour_availability), и не больше трёх раз в сутки. Ключ повторного вызова create_booking_request и ключи других заявок (подбор, машина, прокат, жильё) менять заявку не дают — ответ это скажет. Ответ называет исход (outcome), изменилась ли заявка (changed) и кто узнал на деле (told) — передайте человеку как есть.",
+      "parameters": {
+        "type": "object",
+        "properties": {
+          "key": {
+            "type": "string",
+            "description": "Status key from the create_booking_request reply that created the request, as is. Ключ статуса из ответа create_booking_request, как есть (20–120 знаков)."
+          },
+          "action": {
+            "type": "string",
+            "enum": [
+              "cancel",
+              "change_date"
+            ],
+            "description": "cancel to cancel the request; change_date to move it to the date in the date field. cancel — отменить заявку; change_date — перенести на дату из поля date.",
+            "examples": [
+              "cancel"
+            ]
+          },
+          "date": {
+            "type": "string",
+            "description": "New tour date, YYYY-MM-DD; required for change_date. Новая дата тура, YYYY-MM-DD. Обязательна для change_date.",
+            "examples": [
+              "2027-07-18"
+            ]
+          }
+        },
+        "required": [
+          "key",
+          "action"
         ]
       }
     }
@@ -655,7 +693,7 @@
     "type": "function",
     "function": {
       "name": "create_booking_request",
-      "description": "Use when the user wants to book a Kamchatka tour on a date: live availability checked first, human-confirmed by the operator, no payment. Needs consent: true. No tour yet — use create_lead. Заявка оператору на конкретный тур и дату. Сначала проверь даты через get_tour_availability. Заявку подтверждает оператор по телефону; мгновенной брони нет, оплаты через платформу нет. Если по названию подходят туры разных компаний, в tour имя компании или гида либо совпала лишь часть слов — заявки нет: в ответе туры с номерами и компаниями; спроси человека и повтори вызов с номером выбранного тура. Нет мест на дату — заявки нет, в ответе ближайшие свободные даты. Запрос оператору вместо отказа, без закрепления мест, — в двух случаях: у тура нет расписания в системе — ссылку на страницу статуса из ответа передай человеку; группа больше, чем тур берёт на выезд, или группа у тура не ограничена — запрос на всю группу. Имя и телефон — персональные данные: спроси согласие на их обработку и передай consent: true.",
+      "description": "Use when the user wants to book a Kamchatka tour on a date: live availability checked first, human-confirmed by the operator, no payment. Needs consent: true. No tour yet — use create_lead. Заявка оператору на конкретный тур и дату. Сначала проверь даты через get_tour_availability. Заявку подтверждает оператор по телефону; мгновенной брони нет, оплаты через платформу нет. Подходят туры разных компаний, в tour имя компании или гида либо совпала часть слов — заявки нет: в ответе туры с номерами и компаниями; спроси человека и повтори вызов с номером тура. Нет мест на дату — заявки нет, в ответе ближайшие свободные даты. Запрос оператору вместо отказа, без закрепления мест: у тура нет расписания — ссылку на страницу статуса из ответа передай человеку; группа больше, чем тур берёт на выезд, или группа у тура не ограничена — запрос на всю группу; дату закрыл Ведар, не оператор, — вопрос, ходит ли он в этот день. Имя и телефон — персональные данные: спроси согласие на их обработку и передай consent: true.",
       "parameters": {
         "type": "object",
         "properties": {
@@ -867,7 +905,7 @@
     "type": "function",
     "function": {
       "name": "create_car_rental_request",
-      "description": "Two-step Kamchatka self-drive car rental request: step 1 returns a draft and confirmation code; step 2 only after the person explicitly agrees. Never set consent yourself. Заявка прокатчику на машину без водителя на даты: какая машина, с какого по какое число, где забрать. Машины и прокатчиков смотри через search_car_rental — машина называется так, как в прайсе. Это заявка, не бронь: менеджер Ведара свяжется по телефону и подтвердит с прокатчиком; занятость машин платформа не ведёт, оплаты через платформу нет — расчёт напрямую с прокатчиком. Два шага. Сначала спроси у человека имя и телефон — не придумывай и не подставляй их. Шаг 1: вызов без confirmation (consent: false) — заявка проверяется, но НЕ создаётся; в ответе черновик и код confirmation. Покажи черновик человеку и прямо спроси, согласен ли он на обработку имени и телефона и их передачу прокатчику и на отправку заявки. Шаг 2 — только после явного «да» самого человека: тот же вызов с теми же полями, confirmation из ответа и consent: true. Никогда не с",
+      "description": "Two-step Kamchatka self-drive car rental request: step 1 returns a draft and confirmation code; step 2 only after the person explicitly agrees. Never set consent yourself. Заявка прокатчику на машину без водителя: какая машина, с какого по какое число, где забрать. Машины и прокатчики — search_car_rental; машину называй так, как в прайсе. Это заявка, не бронь: менеджер Ведара свяжется по телефону и подтвердит с прокатчиком; занятость машин платформа не ведёт, оплаты через платформу нет — расчёт напрямую с прокатчиком. Сначала спроси у человека имя и телефон — не придумывай и не подставляй их. Шаг 1: вызов без confirmation (consent: false) — заявка проверяется, но НЕ создаётся; в ответе черновик и код. Покажи черновик человеку и прямо спроси, согласен ли он на обработку имени и телефона, их передачу прокатчику и отправку заявки. Шаг 2 — только после явного «да» самого человека: тот же вызов с теми же полями, confirmation из ответа и consent: true. Никогда не ставь consent: true сам, без ответа человека.",
       "parameters": {
         "type": "object",
         "properties": {

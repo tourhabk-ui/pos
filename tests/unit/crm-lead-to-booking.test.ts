@@ -124,7 +124,9 @@ describe('POST ручной брони: бронь из лида', () => {
     expect(String(insert?.[0])).toMatch(/lead_id\)/);
     expect(insert?.[1]).toEqual(expect.arrayContaining([LEAD_ID]));
     expect(String(update?.[0])).toMatch(/SET status = 'converted', operator_id = COALESCE\(operator_id, \$2::uuid\)/);
-    expect(update?.[1]).toEqual([LEAD_ID, OPERATOR]);
+    // Третий параметр — статус «отменена клиентом» (1427): из такой заявки бронь не заводится.
+    expect(update?.[1]).toEqual([LEAD_ID, OPERATOR, 'cancelled']);
+    expect(String(update?.[0])).toMatch(/AND status <> \$3/);
     expect(txCalls.indexOf(insert!)).toBeLessThan(txCalls.indexOf(update!));
     expect(eventMock).toHaveBeenCalledWith(expect.objectContaining({
       kind: 'status_change', sourceKind: 'lead', sourceId: LEAD_ID,
@@ -146,6 +148,29 @@ describe('POST ручной брони: бронь из лида', () => {
     const insert = txCalls.find((c) => /INSERT INTO operator_bookings/.test(String(c[0])));
     expect(String(insert?.[0])).not.toMatch(/lead_id|UPDATE leads/);
     expect(queryMock.mock.calls.some((c) => /UPDATE leads/.test(String(c[0])))).toBe(false);
+    expect(eventMock).not.toHaveBeenCalled();
+  });
+
+  it('заявку отменил клиент (1427) — 409 словами, брони нет; отменил между чтением и записью — транзакция с бронью откатывается', async () => {
+    routeDb(true, 'cancelled');
+    let res = await POST(postReq({ ...BASE, lead_id: LEAD_ID }));
+    expect(res.status).toBe(409);
+    expect((await res.json() as { error: string }).error).toBe('Заявку отменил клиент — бронь по ней не заводится');
+    expect(queryMock.mock.calls.some((c) => /INSERT INTO operator_bookings/.test(String(c[0])))).toBe(false);
+    expect(eventMock).not.toHaveBeenCalled();
+
+    // Гонка: при чтении заявка ещё живая, а условная запись «Сделка» строку уже не находит.
+    routeDb(true, 'new');
+    const base = queryMock.getMockImplementation()!;
+    queryMock.mockImplementation(async (sql: string, ...rest: unknown[]) => {
+      if (/UPDATE leads/.test(sql)) return { rows: [], rowCount: 0 };
+      return base(sql, ...rest);
+    });
+    txCalls.length = 0;
+    res = await POST(postReq({ ...BASE, lead_id: LEAD_ID }));
+    expect(res.status).toBe(409);
+    // Вставка брони была — и ушла вместе с транзакцией: обратный вызов бросил, а не вернул бронь.
+    expect(txCalls.some((c) => /INSERT INTO operator_bookings/.test(String(c[0])))).toBe(true);
     expect(eventMock).not.toHaveBeenCalled();
   });
 

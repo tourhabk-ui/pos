@@ -289,6 +289,12 @@ describe('кнопки-действия: только из заверенног�
     expect(repliesTo(9_000)).toEqual(['Действие по лиду доступно только в рабочем чате.']);
   });
 
+  it('лид: заявку отменил клиент — рабочему чату сказано именно это, а не «сбой» и не «не найден» (1427)', async () => {
+    m.applyLead.mockResolvedValue({ outcome: 'cancelled_by_client' });
+    await post(VERIFIED, press(`lead_contacted:${LEAD}`));
+    expect(repliesTo(OPERATOR_CHAT)).toEqual([`Заявку отменил клиент — статус не изменён.\n<code>${LEAD}</code>`]);
+  });
+
   it('места: заверенное нажатие из чужого чата не применяется', async () => {
     m.seatMine.mockResolvedValue(false);
     await post(VERIFIED, press(`sr:y:${SEAT}`, 9_000));

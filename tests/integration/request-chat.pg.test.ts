@@ -520,6 +520,144 @@ withPg('переписка по заявке на настоящем PostgreSQL'
       await pool.query(`UPDATE accommodations SET planner_zone = NULL WHERE id = $1`, [accId]);
     });
 
+    it('другое жильё на даты (этап 5): после «Занято» гостю — отдельное сообщение Ведара и тот же список в статусе; отбор — на настоящей схеме', async () => {
+      const { answerStayRequest } = await import('@/lib/stay/owner-answer-flow');
+      const { ownerStayAnswerText } = await import('@/lib/stay/owner-answer');
+      const { tellGuestOtherStays } = await import('@/lib/stay/other-stays-notice');
+      const { loadOtherStays } = await import('@/lib/stay/other-stays');
+      const { pageOtherStays } = await import('@/lib/stay/other-stays-status');
+      const { OTHER_STAYS_LIMIT_NOTE_RU, OTHER_STAYS_NOT_ANSWER_RU, OTHER_STAYS_ORDER_NOTE_RU } = await import('@/lib/stay/other-stays-words');
+      const { setObjectBusy } = await import('@/lib/stay/busy-flow');
+      const { PD_CONSENT_STAY_VERSION } = await import('@/lib/legal/pd-consent');
+      const [IN, OUT] = ['2099-09-10', '2099-09-12'];
+      const [OWNER5, GUEST5] = [9_300_901, 9_300_902];
+      // Северная зона в базе пуста: подбор плана отдаёт по три объекта, и чужие строки вытеснили бы свои.
+      expect((await pool.query(`SELECT 1 FROM accommodations WHERE planner_zone = 'northern'`)).rows).toEqual([]);
+      const owner = (await pool.query<{ id: string }>(
+        `INSERT INTO partners (name, category, contact, is_public, is_verified, max_chat_id)
+         VALUES ('Дом 5а', 'stay', '{}', FALSE, FALSE, $1) RETURNING id`, [OWNER5],
+      )).rows[0].id;
+      const acc = async (name: string, zone: string | null, price: number | null = 5000) => (await pool.query<{ id: string }>(
+        `INSERT INTO accommodations (name, type, coordinates, contact_phone, partner_id, planner_zone, price_per_night_from, is_active, moderation_status)
+         VALUES ($1, 'guesthouse', '{"lat":56.3,"lng":160.8}', '+70000000005', $2, $3, $4, TRUE, 'approved') RETURNING id::text AS id`,
+        [name, owner, zone, price],
+      )).rows[0].id;
+      const refused = await acc('5а отказавший <дом>', 'northern');
+      const withRooms = await acc('5а с номерами & Ко', 'northern', 7000);
+      const byRequest = await acc('5а по заявке', 'northern', null);
+      const closed = await acc('5а закрыл ночь', 'northern');
+      const elsewhere = await acc('5а в другой зоне', 'western');
+      const unzoned = await acc('5а без зоны', null);
+      await pool.query(
+        `INSERT INTO accommodation_rooms (accommodation_id, name, room_type, max_guests, available_rooms, price_per_night, is_active)
+         VALUES ($1, 'Двухместный', 'double', 2, 2, 7000, TRUE)`, [withRooms],
+      );
+      expect(await setObjectBusy({ partnerId: owner, accommodationId: closed, from: '2099-09-11', to: '2099-09-11', action: 'block', via: 'max', db: pool }))
+        .toMatchObject({ outcome: 'saved' });
+      const mkRequest = async (guestChat: number | null) => {
+        const id = (await pool.query<{ id: string }>(
+          `INSERT INTO stay_requests (accommodation_id, check_in_date, check_out_date, guests, guest_name, guest_phone,
+                                      pd_consent_at, pd_consent_ip, pd_consent_source, pd_consent_version, door, guest_max_chat_id, guest_chat_bound_at)
+           VALUES ($1, $2, $3, 2, 'Глеб Пятый', '+79995550961', NOW(), '203.0.113.9', 'stay-request', $4, 'form', $5, CASE WHEN $5::bigint IS NULL THEN NULL ELSE NOW() END)
+           RETURNING id`, [refused, IN, OUT, PD_CONSENT_STAY_VERSION, guestChat],
+        )).rows[0].id;
+        return { id, key: (await status.issueRequestKey({ stayRequestId: id }, status.STAY_FORM_KEY_NAME, { opensChat: true })) ?? '' };
+      };
+      const first = await mkRequest(GUEST5);
+
+      // Отбор на настоящей схеме: номера свободны на обе ночи — по календарю; без номеров и без закрытых ночей — по заявке.
+      const read = await loadOtherStays({ accommodationId: refused, checkIn: IN, checkOut: OUT, guests: 2 });
+      expect(read).toMatchObject({ state: 'ok', zoneName: 'Северная зона' });
+      if (read.state !== 'ok') throw new Error('другое жильё не прочитано');
+      expect(read.items.map((s) => [s.name, s.dates, s.stayTotal, s.priceFrom])).toEqual([
+        ['5а с номерами & Ко', 'calendar', 14000, 7000],
+        ['5а по заявке', 'by_request', null, null],
+      ]);
+      expect(read.items[0]!.url).toMatch(new RegExp(`/accommodations/${withRooms}\\?check_in=${IN}&check_out=${OUT}&adults=2&children=0$`));
+      // Группа, которой номеров не хватает: объект остаётся, но цены всех ночей нет.
+      const big = await loadOtherStays({ accommodationId: refused, checkIn: IN, checkOut: OUT, guests: 9 });
+      expect(big.state === 'ok' ? big.items.map((s) => [s.name, s.stayTotal]) : null).toEqual([['5а с номерами & Ко', null], ['5а по заявке', null]]);
+
+      // До ответа хозяина гостю ничего не называется, и в статусе списка нет.
+      expect(await tellGuestOtherStays(first.id)).toEqual({ state: 'nothing' });
+      expect((await status.readRequestStatus(first.key, { reader: 'agent' })).other_stays).toBeNull();
+
+      // «Занято»: сначала слова хозяина, затем — отдельное сообщение Ведара в MAX гостя.
+      const manager: string[] = [];
+      sent.dm.length = 0;
+      const busy = await answerStayRequest({
+        partner: { partnerId: owner, partnerName: 'Дом 5а' }, requestId: first.id, answer: 'busy', via: 'max', db: pool,
+        notifyManager: async (t) => { manager.push(t); },
+      });
+      expect(busy.tell).toEqual({
+        kind: 'answered', answer: 'busy', guestTold: true, others: { state: 'sent', names: ['5а с номерами & Ко', '5а по заявке'] },
+      });
+      expect(ownerStayAnswerText(busy.tell)).toContain('Ведар отдельным сообщением назвал гостю другое жильё на эти даты (2).');
+      expect(sent.dm.map((m) => String(m.chatId))).toEqual([String(GUEST5), String(GUEST5)]);
+      expect(sent.dm[0]!.text).toContain('занято');
+      const lines = sent.dm[1]!.text.split('\n');
+      expect(lines[0]).toBe('<b>Другое жильё на ваши даты — Северная зона</b>');
+      expect(lines[1]).toBe('С 10.09.2099 по 12.09.2099, гостей: 2. Это сообщение Ведара, а не хозяина «5а отказавший &lt;дом&gt;».');
+      expect(lines[2]).toMatch(/^1\. «5а с номерами &amp; Ко» \(гостевой дом\) — в календаре на эти ночи номера на 2 гостей есть — 14[\s ]000 ₽ за все ночи\. Заявка: https?:\/\/\S+adults=2&amp;children=0$/);
+      expect(lines[3]).toMatch(/^2\. «5а по заявке» \(гостевой дом\) — номеров на Ведаре нет — даты и цену подтверждает хозяин\. Заявка: https?:\/\/\S+$/);
+      expect(lines[4]).toMatch(new RegExp(`^${OTHER_STAYS_LIMIT_NOTE_RU.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')} https?://\\S+/accommodations$`));
+      expect(lines.slice(5)).toEqual([OTHER_STAYS_NOT_ANSWER_RU, OTHER_STAYS_ORDER_NOTE_RU]);
+      // Ни закрытого, ни чужой зоны, ни объекта без зоны; ни имени, ни телефона гостя.
+      expect(sent.dm[1]!.text).not.toMatch(/закрыл ночь|в другой зоне|без зоны|Глеб|79995550961/);
+      expect(manager).toHaveLength(1);
+      expect(manager[0]).toContain('Другое жильё на эти даты в той же зоне (по календарю Ведара, это не ответ хозяев): «5а с номерами &amp; Ко», «5а по заявке». Гостю оно названо сообщением в MAX.');
+      expect(manager[0]).not.toMatch(/Глеб|79995550961/);
+
+      // Статус той же заявки: ИИ-агент и страница читают то же жильё тем же порядком.
+      const view = await status.readRequestStatus(first.key, { reader: 'agent' });
+      expect(view.state).toBe('declined');
+      expect(view.next).toContain('other_stays');
+      expect(view.other_stays).toMatchObject({ state: 'listed', zone: 'Северная зона', check_in: IN, check_out: OUT, guests: 2 });
+      expect(view.other_stays!.stays.map((x) => [x.name, x.accommodation_id, x.type, x.dates, x.stay_total])).toEqual([
+        ['5а с номерами & Ко', withRooms, 'Гостевой дом', 'calendar', 14000],
+        ['5а по заявке', byRequest, 'Гостевой дом', 'by_request', null],
+      ]);
+      expect(view.other_stays!.how).toContain('create_stay_request');
+      expect(JSON.stringify(view.other_stays)).not.toMatch(/Глеб|79995550961|отказавший|закрыл ночь/);
+      expect(pageOtherStays((await status.readRequestStatus(first.key, { reader: 'page', seen: true })).other_stays))
+        .toEqual((({ how: _how, ...rest }) => rest)(view.other_stays!));
+
+      // Гость без MAX: сообщения Ведара нет, хозяину сказано «на странице заявки», список — в статусе.
+      const second = await mkRequest(null);
+      sent.dm.length = 0;
+      const noChat = await answerStayRequest({
+        partner: { partnerId: owner, partnerName: 'Дом 5а' }, requestId: second.id, answer: 'busy', via: 'max', db: pool,
+        notifyManager: async () => undefined,
+      });
+      expect(noChat.tell).toMatchObject({ kind: 'answered', answer: 'busy', others: { state: 'page' } });
+      expect(ownerStayAnswerText(noChat.tell)).toContain('Другое жильё на эти даты (2) Ведар показывает гостю на странице его заявки: в MAX оно не ушло или MAX у гостя не подключён.');
+      expect(sent.dm).toEqual([]);
+      expect((await status.readRequestStatus(second.key, { reader: 'agent' })).other_stays).toMatchObject({ state: 'listed' });
+
+      // «Свободно» — о другом жилье речи нет.
+      const third = await mkRequest(GUEST5);
+      sent.dm.length = 0;
+      const free = await answerStayRequest({
+        partner: { partnerId: owner, partnerName: 'Дом 5а' }, requestId: third.id, answer: 'free', via: 'max', db: pool,
+        notifyManager: async () => undefined,
+      });
+      expect(free.tell).toEqual({ kind: 'answered', answer: 'free', guestTold: true });
+      expect(sent.dm).toHaveLength(1);
+      expect((await status.readRequestStatus(third.key, { reader: 'agent' })).other_stays).toBeNull();
+
+      // Зона объекта не размечена — «рядом» искать негде: списка нет вовсе, а не «не нашёл».
+      await pool.query(`UPDATE accommodations SET planner_zone = NULL WHERE id = $1`, [refused]);
+      expect(await loadOtherStays({ accommodationId: refused, checkIn: IN, checkOut: OUT, guests: 2 })).toEqual({ state: 'unzoned' });
+      expect((await status.readRequestStatus(first.key, { reader: 'agent' })).other_stays).toBeNull();
+      // В зоне остался только сам объект — «не нашёл».
+      await pool.query(`UPDATE accommodations SET planner_zone = 'western' WHERE id = ANY($1::uuid[])`, [[withRooms, byRequest, closed]]);
+      await pool.query(`UPDATE accommodations SET planner_zone = 'northern' WHERE id = $1`, [refused]);
+      expect(await loadOtherStays({ accommodationId: refused, checkIn: IN, checkOut: OUT, guests: 2 })).toEqual({ state: 'none' });
+      expect((await status.readRequestStatus(first.key, { reader: 'agent' })).other_stays).toMatchObject({ state: 'none', stays: [] });
+
+      await pool.query(`DELETE FROM accommodations WHERE id = ANY($1::uuid[])`, [[refused, withRooms, byRequest, closed, elsewhere, unzoned]]);
+    });
+
     it('удалили заявку — переписка и ожидания ушли с ней', async () => {
       await pool.query(`DELETE FROM stay_requests WHERE id = $1`, [requestId]);
       const m = await pool.query(`SELECT count(*)::int AS n FROM request_messages WHERE stay_request_id = $1`, [requestId]);
@@ -1123,6 +1261,523 @@ withPg('переписка по заявке на настоящем PostgreSQL'
       expect(myTrip.myTripText(await myTrip.loadMyTrip('telegram', A), { channel: 'telegram' })).not.toContain('Написать оператору');
     });
 
+    it('«Отменить заявку» (1427): до ответа оператора — сразу, после — просьбой; отменённую не возвращают, не передают и не считают прежней', async () => {
+      process.env.CALLBACK_SIGNING_SECRET ??= 'pg-test-signing';
+      const myTrip = await import('@/lib/requests/my-trip');
+      const cancel = await import('@/lib/requests/my-trip-cancel');
+      const core = await import('@/lib/requests/cancel-request');
+      const { unwrapPress } = await import('@/lib/chat-cabinet/signed-payload');
+      const { kamchatkaToday } = await import('@/lib/seat-requests/core');
+      const { changeLeadStatus } = await import('@/lib/leads/owner-lead-status');
+      const { FOLLOWUP_LEADS_SQL, FOLLOWUP_LEADS_PARAMS } = await import('@/lib/leads/followup-scope');
+      const answers = await import('@/lib/requests/chat-answer');
+      const d = new Date(`${kamchatkaToday()}T00:00:00Z`);
+      d.setUTCDate(d.getUTCDate() + 20);
+      const D0 = d.toISOString().slice(0, 10);
+      const ru = `${D0.slice(8, 10)}.${D0.slice(5, 7)}.${D0.slice(0, 4)}`;
+      const opId = (await pool.query<{ id: string }>(
+        `INSERT INTO partners (name, category, contact, slug, max_chat_id) VALUES ('Оператор отмены', 'operator', '{}', 'op-cancel-1427', 9300299) RETURNING id`,
+      )).rows[0].id;
+      const tourId = (await pool.query<{ id: number }>(
+        `INSERT INTO operator_tours (title, base_price, operator_id, max_participants) VALUES ('Мутновский <кратер>', 9000, $1, 12) RETURNING id`, [opId],
+      )).rows[0].id;
+      const commentOf = (people: number) => `[Заявка на бронь] Тур "Мутновский <кратер>" (ID${tourId}), дата ${D0}, участников ${people}.`;
+      const mk = async (name: string, phone: string, people = 2, extra: Record<string, unknown> = {}) => (await leads.createLeadDetailed({
+        name, phone, comment: commentOf(people), route_title: 'Мутновский <кратер>',
+        source_url: 'mcp://vedar/booking', operator_id: opId, pd_consent: consentOf('operator'),
+        source_data: { source: 'mcp', tool: 'create_booking_request', tour_id: tourId, date: D0, participants: people, ...extra },
+        skip_ai_processing: true,
+      }))!;
+      const statusOf = async (lead: string) => (await pool.query<{ status: string; operator_id: string | null }>(
+        `SELECT status, operator_id::text AS operator_id FROM leads WHERE id = $1`, [lead],
+      )).rows[0]!;
+      const journal = async (lead: string) => (await pool.query(
+        `SELECT actor, action, details FROM lead_activity_log WHERE lead_id = $1 AND action IN ('client_cancelled', 'cancel_requested') ORDER BY id`, [lead],
+      )).rows;
+      const yesOf = (r: { buttons: Array<{ text: string } & ({ payload: string } | { url: string })> }) => {
+        const b = r.buttons[0]!;
+        const p = unwrapPress('payload' in b ? b.payload : '');
+        return p.ok ? p.payload : '';
+      };
+      const A = 9_300_041;
+      const B = 9_300_042;
+      const TG = 7_300_041;
+
+      // ── 1. Оператор не ответил — заявка отменяется сразу ──────────────────
+      const L1 = await mk('Олег Отмена', '+79995550601');
+      expect(L1.created).toBe(true);
+      const k1 = await status.issueRequestKeyRecord({ leadId: L1.id }, 'create_booking_request', { opensChat: true });
+      expect(await links.linkChatToKeys('max', A, [k1!.key], 'created')).toBe(1);
+      // Чат с ключом ПОВТОРА видит статус, но не отменяет.
+      const repeat = await status.issueRequestKeyRecord({ leadId: L1.id }, 'create_booking_request', { opensChat: false });
+      expect(await links.linkChatToKeys('max', B, [repeat!.key], 'created')).toBe(1);
+
+      const list = await myTrip.myTripMessage('max', A);
+      expect(list.buttons.map((b) => b.text)).toEqual(['Написать оператору', 'Изменить дату', 'Отменить заявку']);
+      expect((await myTrip.myTripMessage('max', B)).buttons).toEqual([]);
+      const askPayload = list.buttons[2]!.payload;
+      expect((await cancel.pressMyTripCancel(askPayload, 'max', B)).text).toMatch(/не подключена к этому чату/);
+      // Тот же номер чата в другом мессенджере — другой чат: связь проверяется с каналом.
+      expect((await cancel.pressMyTripCancel(askPayload, 'telegram', A)).text).toMatch(/не подключена к этому чату/);
+
+      // Вопрос говорит, что произойдёт, и ничего не пишет.
+      const asked = await cancel.pressMyTripCancel(askPayload, 'max', A);
+      expect(asked.text).toBe([
+        'Отменить заявку?',
+        `Тур «Мутновский &lt;кратер&gt;», ${ru}, участников 2.`,
+        'Оператор ещё не ответил — заявка отменится сразу, оператору уйдёт сообщение.',
+        'Вернуть отменённую заявку нельзя: понадобится новая.',
+        'Передумали — ничего нажимать не нужно.',
+      ].join('\n'));
+      expect(asked.buttons.map((b) => b.text)).toEqual(['Да, отменить заявку']);
+      expect((await statusOf(L1.id)).status).toBe('new');
+      expect(await journal(L1.id)).toEqual([]);
+      const yes = yesOf(asked);
+      expect(yes).toMatch(/^mx:[0-9a-f]{32}$/);
+      // «Да» из чата с ключом повтора — не отмена.
+      expect((await cancel.pressMyTripCancel(yes, 'max', B)).text).toMatch(/не подключена к этому чату/);
+      expect((await statusOf(L1.id)).status).toBe('new');
+
+      sent.pd.length = 0;
+      const done = await cancel.pressMyTripCancel(yes, 'max', A);
+      expect(done.text).toBe(`Заявка отменена: Тур «Мутновский &lt;кратер&gt;», ${ru}, участников 2. Оператору ушло сообщение. Новую заявку можно оставить здесь же, в чате.`);
+      expect((await statusOf(L1.id)).status).toBe('cancelled');
+      expect(sent.pd).toHaveLength(1);
+      expect(sent.pd[0]!.text).toContain('Турист отменил заявку');
+      expect(sent.pd[0]!.text).toContain(`Тур «Мутновский &lt;кратер&gt;», ${ru}, участников 2.`);
+      expect(String(sent.pd[0]!.to?.maxChatId)).toBe('9300299');
+      expect(sent.pd[0]!.text).not.toMatch(/Олег|79995550601/);
+      expect(await journal(L1.id)).toEqual([
+        { actor: 'tourist', action: 'client_cancelled', details: { channel: 'max', from: 'new', delivery: 'max', manager: 'not_needed' } },
+      ]);
+      // Событие в ленте клиента — от туриста, а не от партнёра.
+      const ev = (await pool.query(
+        `SELECT actor_kind, payload FROM crm_events WHERE source_kind = 'lead' AND source_id = $1 AND kind = 'status_change' ORDER BY occurred_at DESC LIMIT 1`, [L1.id],
+      )).rows[0];
+      expect(ev).toMatchObject({ actor_kind: 'tourist', payload: { from: 'new', to: 'cancelled', via: 'max' } });
+
+      // Повтор «Да» и новый вопрос — «уже отменена»; второго сообщения оператору нет.
+      sent.pd.length = 0;
+      expect((await cancel.pressMyTripCancel(yes, 'max', A)).text).toBe('Заявка уже отменена — ничего не изменено.');
+      expect((await cancel.pressMyTripCancel(askPayload, 'max', A)).text).toBe('Заявка уже отменена — ничего не изменено.');
+      expect(sent.pd).toHaveLength(0);
+      expect(await journal(L1.id)).toHaveLength(1);
+      // Вторая запись отмены на ту же заявку базой не принимается (индекс 1427).
+      await expect(pool.query(
+        `INSERT INTO lead_activity_log (lead_id, actor, action, details) VALUES ($1, 'tourist', 'client_cancelled', '{}')`, [L1.id],
+      )).rejects.toMatchObject({ code: '23505' });
+
+      // Статус для ИИ-агента и «Моя поездка»: отменена клиентом — не «бронь отменена»; кнопок даты и отмены больше нет.
+      const view = await status.readRequestStatus(k1!.key, { reader: 'agent' });
+      expect(view).toMatchObject({ state: 'cancelled', human: 'Заявка отменена клиентом.' });
+      const after = await myTrip.myTripMessage('max', A);
+      expect(after.text).toContain('Заявка отменена клиентом.');
+      expect(after.buttons.map((b) => b.text)).toEqual(['Написать оператору']);
+      // Старая кнопка «Изменить дату» под прежним сообщением: заявка закрыта — оператору просьба о переносе не уходит.
+      const staleDate = list.buttons[1]!.payload;
+      sent.pd.length = 0;
+      expect((await (await import('@/lib/requests/my-trip-date')).pressMyTripDate(staleDate, 'max', A)).text)
+        .toBe('Заявка закрыта — дату по ней не меняю. Новую поездку можно подобрать здесь же, в чате.');
+      expect(sent.pd).toHaveLength(0);
+
+      // Вернуть в работу нельзя: ни статусом из кабинета, ни «Договорились»; заметку — можно.
+      const scope = { kind: 'owner' as const, partnerId: opId, claimUnowned: true };
+      const actor = { kind: 'partner_user' as const, userId: null };
+      const stamp = async (lead: string) => (await pool.query<{ u: string }>(`SELECT updated_at::text AS u FROM leads WHERE id = $1`, [lead])).rows[0]!.u;
+      const stamp1 = await stamp(L1.id);
+      for (const st of ['contacted', 'qualified', 'converted', 'lost', 'new'] as const) {
+        const r = await changeLeadStatus({ leadId: L1.id, status: st, actor, scope, via: 'site' });
+        expect(r, st).toMatchObject({ kind: 'ok', changed: false, prevStatus: 'cancelled', lead: { status: 'cancelled' } });
+      }
+      // Строка заявки при этом не переписывалась вовсе: время правки то же (в списках она не «всплывает»).
+      expect(await stamp(L1.id)).toBe(stamp1);
+      const noted = await changeLeadStatus({ leadId: L1.id, status: 'contacted', notes: 'звонил, отменил сам', actor, scope, via: 'site' });
+      expect(noted).toMatchObject({ kind: 'ok', changed: false, lead: { status: 'cancelled', notes: 'звонил, отменил сам' } });
+      expect((await statusOf(L1.id)).status).toBe('cancelled');
+
+      // Ответ оператора кнопкой по отменённой заявке клиенту не уходит: строка сообщения гасится сразу.
+      const late = await answers.recordChatAnswer({ partnerId: opId, kind: 'lead', subjectId: L1.id, answer: 'no_seats', reason: null, expectDate: D0 });
+      // Запись ответа называет статус заявки: по нему оператору говорят «клиент отменил», а не «принято».
+      expect(late).toMatchObject({ ok: true, leadStatus: 'cancelled' });
+      expect((await pool.query(`SELECT state, skipped_reason FROM answer_notices WHERE lead_id = $1::uuid`, [L1.id])).rows)
+        .toEqual([{ state: 'skipped', skipped_reason: 'lead_closed' }]);
+
+      // Новая заявка тем же телефоном на тот же тур и дату — новая, а не «прежняя» отменённая.
+      // Пока новой нет, поиск «прежней» по началу комментария отменённую не находит.
+      expect(await leads.findRecentLeadByCommentPrefix('+79995550601', `[Заявка на бронь] Тур "Мутновский <кратер>" (ID${tourId}), дата ${D0}`)).toBeNull();
+      const again = await mk('Олег Отмена', '+79995550601');
+      expect(again.created).toBe(true);
+      expect(again.id).not.toBe(L1.id);
+      expect(await leads.findRecentLeadByCommentPrefix('+79995550601', `[Заявка на бронь] Тур "Мутновский <кратер>" (ID${tourId}), дата ${D0}`)).toBe(again.id);
+
+      // Конвейер разбора отмену не затирает: ни «в обработке», ни итогом, ни откатом ошибки, ни «предложение отправлено».
+      const ai = await import('@/lib/services/operators/lead-processor.service');
+      await expect(ai.leadProcessor.process(L1.id)).rejects.toMatchObject({ name: 'LeadCancelledByClientError' });
+      expect((await pool.query(ai.LEAD_AI_START_SQL, [L1.id, 'cancelled'])).rowCount).toBe(0);
+      await pool.query(ai.LEAD_AI_DONE_SQL, [77, 'итог разбора', '{}', [], null, L1.id]);
+      await pool.query(ai.LEAD_AI_ROLLBACK_SQL, [L1.id]);
+      expect((await pool.query(ai.LEAD_PROPOSAL_SENT_SQL, [L1.id, 'cancelled'])).rowCount).toBe(0);
+      // Итог разбора записан, статус — нет.
+      expect((await pool.query(`SELECT status, ai_score FROM leads WHERE id = $1`, [L1.id])).rows[0]).toEqual({ status: 'cancelled', ai_score: 77 });
+      // На живой заявке те же записи работают: новая → в обработке; откат ошибки снимает свою отметку…
+      const aiStatus = async () => (await statusOf(again.id)).status;
+      expect((await pool.query(ai.LEAD_AI_START_SQL, [again.id, 'cancelled'])).rowCount).toBe(1);
+      expect(await aiStatus()).toBe('ai_processing');
+      await pool.query(ai.LEAD_AI_ROLLBACK_SQL, [again.id]);
+      expect(await aiStatus()).toBe('new');
+      // …итог разбора переводит «в обработке» в «разобрана»…
+      await pool.query(ai.LEAD_AI_START_SQL, [again.id, 'cancelled']);
+      await pool.query(ai.LEAD_AI_DONE_SQL, [50, 'итог', '{}', [], null, again.id]);
+      expect(await aiStatus()).toBe('ai_qualified');
+      // …а статус, который оператор поставил, пока шёл разбор, не затирают ни итог, ни откат.
+      await pool.query(`UPDATE leads SET status = 'contacted' WHERE id = $1`, [again.id]);
+      await pool.query(ai.LEAD_AI_DONE_SQL, [60, 'итог', '{}', [], null, again.id]);
+      await pool.query(ai.LEAD_AI_ROLLBACK_SQL, [again.id]);
+      expect((await pool.query(`SELECT status, ai_score FROM leads WHERE id = $1`, [again.id])).rows[0]).toEqual({ status: 'contacted', ai_score: 60 });
+      expect((await pool.query(ai.LEAD_PROPOSAL_SENT_SQL, [again.id, 'cancelled'])).rowCount).toBe(1);
+      expect(await aiStatus()).toBe('proposal_sent');
+
+      // Двери мимо кабинета отменённую тоже не возвращают.
+      // Кнопка статуса в рабочем чате: свой исход, статус на месте; у живой заявки и у несуществующей — прежние.
+      const { applyLeadStatus, LEAD_STATUS_ACTION_SQL } = await import('@/lib/leads/status-action');
+      for (const prefix of ['lead_contacted', 'lead_qualified', 'lead_converted', 'lead_lost']) {
+        expect(await applyLeadStatus(prefix, L1.id), prefix).toEqual({ outcome: 'cancelled_by_client' });
+      }
+      expect((await statusOf(L1.id)).status).toBe('cancelled');
+      expect((await pool.query(LEAD_STATUS_ACTION_SQL, ['lost', L1.id, 'cancelled'])).rows).toEqual([{ name: null, prev_status: 'cancelled', updated: false }]);
+      expect(await applyLeadStatus('lead_lost', '00000000-0000-4000-8000-000000000000')).toEqual({ outcome: 'not_found' });
+      expect(await applyLeadStatus('lead_contacted', again.id)).toEqual({ outcome: 'updated', status: 'contacted', label: 'Связались', name: 'Олег Отмена' });
+      expect(await aiStatus()).toBe('contacted');
+      // Отправка предложения: отменённой — отказ своими словами, лид не занят; живую захват берёт и помнит прежний статус.
+      const delivery = await import('@/lib/leads/proposal-delivery');
+      expect(await delivery.sendProposalToClient(L1.id)).toEqual({ ok: false, reason: 'lead_cancelled', message: 'Заявку отменил клиент — предложение не отправляется.' });
+      expect((await pool.query(delivery.PROPOSAL_CLAIM_SQL, [L1.id, 'cancelled'])).rows).toEqual([]);
+      expect((await statusOf(L1.id)).status).toBe('cancelled');
+      expect((await pool.query(delivery.PROPOSAL_CLAIM_SQL, [again.id, 'cancelled'])).rows).toEqual([{ prev_status: 'contacted' }]);
+      expect(await aiStatus()).toBe('proposal_sent');
+      expect((await pool.query(delivery.PROPOSAL_CLAIM_SQL, [again.id, 'cancelled'])).rows).toEqual([]);
+      // Квалификация моделью: только пока заявка всё ещё новая.
+      const { LEAD_AGENCY_QUALIFY_SQL } = await import('@/lib/agents/agencies/lead-agency');
+      expect((await pool.query(LEAD_AGENCY_QUALIFY_SQL, ['Квалификация: 9/10', L1.id])).rowCount).toBe(0);
+      expect((await pool.query(LEAD_AGENCY_QUALIFY_SQL, ['Квалификация: 9/10', again.id])).rowCount).toBe(0);
+      expect((await pool.query(`SELECT status, notes FROM leads WHERE id = $1`, [L1.id])).rows[0]).toEqual({ status: 'cancelled', notes: 'звонил, отменил сам' });
+      await pool.query(`UPDATE leads SET status = 'new' WHERE id = $1`, [again.id]);
+      expect((await pool.query(LEAD_AGENCY_QUALIFY_SQL, ['Квалификация: 9/10', again.id])).rowCount).toBe(1);
+      expect((await pool.query(`SELECT status, notes FROM leads WHERE id = $1`, [again.id])).rows[0]).toEqual({ status: 'qualified', notes: 'Квалификация: 9/10' });
+
+      // ── 2. Оператор ответил — отмена только просьбой; заявка и бронь не трогаются ──
+      const L2 = await mk('Вера Просьба', '+79995550602', 3);
+      const k2 = await status.issueRequestKeyRecord({ leadId: L2.id }, 'create_booking_request', { opensChat: true });
+      expect(await links.linkChatToKeys('telegram', TG, [k2!.key], 'created')).toBe(1);
+      const ask2 = (await myTrip.myTripMessage('telegram', TG)).buttons.find((b) => b.text === 'Отменить заявку')!.payload;
+      // Вопрос задан до ответа оператора…
+      const early = await cancel.pressMyTripCancel(ask2, 'telegram', TG);
+      expect(early.buttons.map((b) => b.text)).toEqual(['Да, отменить заявку']);
+      // …а оператор ответил раньше «Да»: условная запись не проходит, уходит просьба.
+      await pool.query(
+        `INSERT INTO partner_incoming_answers (partner_id, subject_kind, subject_id, answer, subject_date) VALUES ($1, 'lead', $2, 'accept', $3)`,
+        [opId, L2.id, D0],
+      );
+      expect((await pool.query(core.CANCEL_NOW_SQL, [L2.id, 'telegram'])).rows).toEqual([]);
+      sent.pd.length = 0;
+      const req = await cancel.pressMyTripCancel(yesOf(early), 'telegram', TG);
+      expect(req.text).toBe('Оператор уже ответил по заявке, поэтому отменяет он: просьба ему отправлена. Заявка действует, пока он её не закроет.');
+      expect((await statusOf(L2.id)).status).toBe('new');
+      expect(sent.pd).toHaveLength(1);
+      expect(sent.pd[0]!.text).toContain('Турист просит отменить заявку');
+      expect(sent.pd[0]!.text).not.toMatch(/Вера|79995550602/);
+      expect(await journal(L2.id)).toEqual([
+        { actor: 'tourist', action: 'cancel_requested', details: { channel: 'telegram', delivery: 'max', manager: 'not_needed' } },
+      ]);
+      const readRow = async (lead: string) => (await pool.query(
+        `SELECT ${core.CANCEL_LEAD_COLUMNS_SQL} FROM leads l ${core.CANCEL_LEAD_JOINS_SQL} WHERE l.id = $1::uuid`, [lead],
+      )).rows[0];
+      // Запись просьбы помнит, кому дошла, — этим и отвечает повтор.
+      expect((await readRow(L2.id)).cancel_request).toEqual({ delivery: 'max', manager: 'not_needed', fresh: true });
+      expect(core.priorCancelRequest(await readRow(L2.id))).toBe('operator');
+      // Вопрос теперь говорит о просьбе, и вторая просьба не уходит.
+      sent.pd.length = 0;
+      const ask2b = await cancel.pressMyTripCancel(ask2, 'telegram', TG);
+      expect(ask2b.text).toMatch(/^Просьба об отмене по этой заявке уже отправлена оператору/);
+      expect(ask2b.buttons).toEqual([]);
+      expect((await cancel.pressMyTripCancel(yesOf(early), 'telegram', TG)).text).toMatch(/^Просьба об отмене по этой заявке уже отправлена оператору/);
+      expect(sent.pd).toHaveLength(0);
+      expect(await journal(L2.id)).toHaveLength(1);
+      expect((await pool.query(core.CANCEL_REQUEST_SQL, [L2.id, 'telegram'])).rows).toEqual([]);
+
+      // ── 3. Бронь по заявке — всегда просьба, бронь не тронута ─────────────
+      const L3 = await mk('Нина Бронь', '+79995550603', 1);
+      const b3 = (await pool.query<{ id: string }>(
+        `INSERT INTO operator_bookings (operator_tour_id, booking_date, participants, booking_status, lead_id, tourist_name, base_total_price, final_price)
+         VALUES ($1, $2::date, 1, 'confirmed', $3::uuid, 'Нина Бронь', 9000, 9000) RETURNING id::text`, [tourId, D0, L3.id],
+      )).rows[0]!.id;
+      await pool.query(`UPDATE leads SET status = 'converted' WHERE id = $1`, [L3.id]);
+      const row3 = (await pool.query(`SELECT ${core.CANCEL_LEAD_COLUMNS_SQL} FROM leads l ${core.CANCEL_LEAD_JOINS_SQL} WHERE l.id = $1::uuid`, [L3.id])).rows[0];
+      expect(row3).toMatchObject({ status: 'converted', booking_status: 'confirmed', answered: true, cancel_request: null, participants: 1 });
+      expect(core.cancelMode(row3)).toBe('request');
+      expect((await pool.query(core.CANCEL_NOW_SQL, [L3.id, 'max'])).rows).toEqual([]);
+      expect((await pool.query(`SELECT booking_status FROM operator_bookings WHERE id = $1::bigint`, [b3])).rows[0].booking_status).toBe('confirmed');
+
+      // ── 4. Большая группа, переданная другим: адресата нет — отмена сразу, дальше её не раздают ──
+      const L4 = await mk('Пётр Группа', '+79995550604', 20, { group_over_seats: true });
+      const k4 = await status.issueRequestKeyRecord({ leadId: L4.id }, 'create_booking_request', { opensChat: true });
+      const G = 9_300_043;
+      expect(await links.linkChatToKeys('max', G, [k4!.key], 'created')).toBe(1);
+      await answers.recordChatAnswer({ partnerId: opId, kind: 'lead', subjectId: L4.id, answer: 'no_seats', reason: null, expectDate: D0 });
+      // Как крон добивки: адресата нет, отказавшийся — в declined_by; заявка старше двух часов.
+      await pool.query(
+        `UPDATE leads SET operator_id = NULL, status = 'new', created_at = NOW() - INTERVAL '3 hours',
+                source_data = source_data || '{"declined_by":"op-cancel-1427","notified_operators":["op-cancel-1427"]}'::jsonb
+          WHERE id = $1`, [L4.id],
+      );
+      const inFollowup = async () => (await pool.query<{ id: string }>(FOLLOWUP_LEADS_SQL, [...FOLLOWUP_LEADS_PARAMS])).rows.map((r) => r.id);
+      expect(await inFollowup()).toContain(L4.id);
+      const ask4 = (await myTrip.myTripMessage('max', G)).buttons.find((b) => b.text === 'Отменить заявку')!.payload;
+      const q4 = await cancel.pressMyTripCancel(ask4, 'max', G);
+      expect(q4.text).toContain('Оператора у заявки сейчас нет — она отменится сразу, и дальше её никому не передадут.');
+      sent.pd.length = 0;
+      const done4 = await cancel.pressMyTripCancel(yesOf(q4), 'max', G);
+      expect(done4.text).toMatch(/^Заявка отменена: .* Оператора у неё не было — дальше её никому не передадут\./);
+      expect(await statusOf(L4.id)).toEqual({ status: 'cancelled', operator_id: null });
+      // Оператору писать некому — строка без ПД уходит менеджеру (в рабочий чат, без адресата).
+      expect(sent.pd).toHaveLength(1);
+      expect(sent.pd[0]!.to).toBeUndefined();
+      expect(sent.pd[0]!.text).toContain('Клиент отменил заявку');
+      expect(sent.pd[0]!.text).toContain('У заявки нет адресата');
+      expect(sent.pd[0]!.text).not.toMatch(/Пётр|79995550604/);
+      expect(await journal(L4.id)).toEqual([
+        { actor: 'tourist', action: 'client_cancelled', details: { channel: 'max', from: 'new', delivery: 'no_addressee', manager: 'told' } },
+      ]);
+      // Крон добивки отменённую больше не берёт.
+      expect(await inFollowup()).not.toContain(L4.id);
+      // Статус заявки — «отменена клиентом», а не прежний ответ отказавшегося оператора.
+      expect(await status.readRequestStatus(k4!.key, { reader: 'agent' })).toMatchObject({ state: 'cancelled', human: 'Заявка отменена клиентом.' });
+
+      // ── 5. Отказ оператора закрыл заявку; прошедшая поездка — отменять нечего ──
+      const L5 = await mk('Яна Отказ', '+79995550605', 4);
+      await pool.query(`UPDATE leads SET status = 'lost' WHERE id = $1`, [L5.id]);
+      const read5 = async () => (await pool.query(`SELECT ${core.CANCEL_LEAD_COLUMNS_SQL} FROM leads l ${core.CANCEL_LEAD_JOINS_SQL} WHERE l.id = $1::uuid`, [L5.id])).rows[0];
+      expect(core.cancelBlock(await read5(), kamchatkaToday())).toBe('closed');
+      expect((await pool.query(core.CANCEL_NOW_SQL, [L5.id, 'max'])).rows).toEqual([]);
+      expect((await pool.query(core.CANCEL_REQUEST_SQL, [L5.id, 'max'])).rows).toEqual([]);
+      await pool.query(`UPDATE leads SET status = 'new', source_data = jsonb_set(source_data, '{date}', '"2020-01-01"') WHERE id = $1`, [L5.id]);
+      expect(core.cancelBlock(await read5(), kamchatkaToday())).toBe('past');
+
+      // Ничейную отменённую заявку оператор не занимает первым действием — и статус её не меняет.
+      const stamp4 = await stamp(L4.id);
+      const claim = await changeLeadStatus({ leadId: L4.id, status: 'contacted', actor, scope, via: 'max' });
+      expect(claim).toMatchObject({ kind: 'ok', changed: false, prevStatus: 'cancelled', lead: { status: 'cancelled' } });
+      expect(await statusOf(L4.id)).toEqual({ status: 'cancelled', operator_id: null });
+      expect(await stamp(L4.id)).toBe(stamp4);
+      // Заметка к ничейной отменённой пишется, но своей заявку не делает.
+      const noted4 = await changeLeadStatus({ leadId: L4.id, status: 'contacted', notes: 'клиент отменил сам', actor, scope, via: 'site' });
+      expect(noted4).toMatchObject({ kind: 'ok', changed: false, lead: { status: 'cancelled', notes: 'клиент отменил сам' } });
+      expect(await statusOf(L4.id)).toEqual({ status: 'cancelled', operator_id: null });
+
+      // ── 6. Право: только живой ключ НОВОЙ заявки на тур на дату, не своя проба ──
+      const L6 = await mk('Тимур Право', '+79995550606', 2);
+      const k6 = await status.issueRequestKeyRecord({ leadId: L6.id }, 'create_booking_request', { opensChat: true });
+      const R = 9_300_044;
+      expect(await links.linkChatToKeys('max', R, [k6!.key], 'created')).toBe(1);
+      const ask6 = cancel.myTripCancelAskPayload(L6.id);
+      const canAsk = async () => (await cancel.pressMyTripCancel(ask6, 'max', R)).buttons.length === 1;
+      const refused = async () => (await cancel.pressMyTripCancel(ask6, 'max', R)).text;
+      const hasCancel = async () => (await myTrip.myTripMessage('max', R)).buttons.some((b) => b.text === 'Отменить заявку');
+      expect(await canAsk()).toBe(true);
+      expect(await hasCancel()).toBe(true);
+      // Ключ другого инструмента (заявка на машину) эту дверь не открывает — и кнопки под списком у него нет.
+      await pool.query(`UPDATE agent_request_keys SET tool_name = 'request_charter' WHERE lead_id = $1::uuid`, [L6.id]);
+      expect(await refused()).toMatch(/не подключена к этому чату/);
+      expect(await hasCancel()).toBe(false);
+      await pool.query(`UPDATE agent_request_keys SET tool_name = 'create_booking_request' WHERE lead_id = $1::uuid`, [L6.id]);
+      // Истёкший ключ — тоже.
+      await pool.query(`UPDATE agent_request_keys SET expires_at = NOW() - INTERVAL '1 minute' WHERE lead_id = $1::uuid`, [L6.id]);
+      expect(await refused()).toMatch(/не подключена к этому чату/);
+      await pool.query(`UPDATE agent_request_keys SET expires_at = NOW() + INTERVAL '1 day' WHERE lead_id = $1::uuid`, [L6.id]);
+      // Своя проба владельца — не заявка клиента.
+      await pool.query(`UPDATE leads SET is_self = TRUE WHERE id = $1`, [L6.id]);
+      expect(await refused()).toMatch(/не подключена к этому чату/);
+      await pool.query(`UPDATE leads SET is_self = FALSE WHERE id = $1`, [L6.id]);
+      expect(await canAsk()).toBe(true);
+
+      // Кнопка под списком: у действующей брони — есть (отмена пойдёт просьбой); у состоявшейся брони и у прошедшей поездки — нет.
+      const b6 = (await pool.query<{ id: string }>(
+        `INSERT INTO operator_bookings (operator_tour_id, booking_date, participants, booking_status, lead_id, tourist_name, base_total_price, final_price)
+         VALUES ($1, $2::date, 2, 'confirmed', $3::uuid, 'Тимур Право', 18000, 18000) RETURNING id::text`, [tourId, D0, L6.id],
+      )).rows[0]!.id;
+      expect(await hasCancel()).toBe(true);
+      expect((await cancel.pressMyTripCancel(ask6, 'max', R)).text).toMatch(/^Попросить оператора отменить заявку\?/);
+      await pool.query(`UPDATE operator_bookings SET booking_status = 'completed' WHERE id = $1::bigint`, [b6]);
+      expect(await hasCancel()).toBe(false);
+      await pool.query(`DELETE FROM operator_bookings WHERE id = $1::bigint`, [b6]);
+      await pool.query(`UPDATE leads SET source_data = jsonb_set(source_data, '{date}', '"2020-01-01"') WHERE id = $1`, [L6.id]);
+      expect(await hasCancel()).toBe(false);
+      // Поездка сегодня ещё не прошла — отменить можно.
+      await pool.query(`UPDATE leads SET source_data = jsonb_set(source_data, '{date}', to_jsonb($2::text)) WHERE id = $1`, [L6.id, kamchatkaToday()]);
+      expect(await hasCancel()).toBe(true);
+      await pool.query(`UPDATE leads SET source_data = jsonb_set(source_data, '{date}', to_jsonb($2::text)) WHERE id = $1`, [L6.id, D0]);
+      expect(await hasCancel()).toBe(true);
+
+      // Дата в заявке не записана — не помеха: кнопка есть (нажатие по такой заявке тоже проходит).
+      await pool.query(`UPDATE leads SET source_data = source_data - 'date' WHERE id = $1`, [L6.id]);
+      expect(await hasCancel()).toBe(true);
+      await pool.query(`UPDATE leads SET source_data = jsonb_set(source_data, '{date}', to_jsonb($2::text)) WHERE id = $1`, [L6.id, D0]);
+
+      // Пояса условной отмены там, где «ответил» не судит (заявка без адресата): отказ, «Договорились» и бронь её не дают.
+      await pool.query(`UPDATE leads SET operator_id = NULL, status = 'lost' WHERE id = $1`, [L6.id]);
+      expect((await pool.query(core.CANCEL_NOW_SQL, [L6.id, 'max'])).rows).toEqual([]);
+      await pool.query(`UPDATE leads SET status = 'converted' WHERE id = $1`, [L6.id]);
+      expect((await pool.query(core.CANCEL_NOW_SQL, [L6.id, 'max'])).rows).toEqual([]);
+      await pool.query(`UPDATE leads SET status = 'new' WHERE id = $1`, [L6.id]);
+      const b6b = (await pool.query<{ id: string }>(
+        `INSERT INTO operator_bookings (operator_tour_id, booking_date, participants, booking_status, lead_id, tourist_name, base_total_price, final_price)
+         VALUES ($1, $2::date, 2, 'new', $3::uuid, 'Тимур Право', 18000, 18000) RETURNING id::text`, [tourId, D0, L6.id],
+      )).rows[0]!.id;
+      expect((await pool.query(core.CANCEL_NOW_SQL, [L6.id, 'max'])).rows).toEqual([]);
+      await pool.query(`DELETE FROM operator_bookings WHERE id = $1::bigint`, [b6b]);
+      // Без брони и без адресата — отменяется, даже когда статус уже не «ждёт» (крон отдал её менеджеру: «связались»):
+      // у ничейной «ответил» не судит. Прежний статус и адресат возвращены записью.
+      await pool.query(`UPDATE leads SET status = 'contacted' WHERE id = $1`, [L6.id]);
+      expect((await readRow(L6.id)).answered).toBe(true);
+      expect((await pool.query(core.CANCEL_NOW_SQL, [L6.id, 'max'])).rows).toEqual([
+        { log_id: expect.stringMatching(/^\d+$/), prev_status: 'contacted', operator_id: null },
+      ]);
+      expect(await journal(L6.id)).toEqual([
+        { actor: 'tourist', action: 'client_cancelled', details: { channel: 'max', from: 'contacted' } },
+      ]);
+
+      // Заявка из планера ищет «прежнюю» по отпечатку плана — отменённая клиентом и там не «прежняя».
+      const { planForLead } = await import('@/lib/planner/plan-for-lead');
+      type PlanDay = Parameters<typeof planForLead>[0][number];
+      const pday = (n: number, title: string, extra: Partial<PlanDay> = {}): PlanDay => ({
+        day: n, type: 'activity', zone: 'avachinsky', title, activityType: 'volcano', priceFrom: 0, priceTo: 0, ...extra,
+      } as PlanDay);
+      const tripPlan = planForLead(
+        [pday(1, 'Прилёт', { type: 'arrival' }), pday(2, 'Авачинский вулкан'), pday(3, 'Вылет', { type: 'departure' })],
+        { adults: 2, children: [], budgetTier: 'comfort', tripOrigin: 'visitor', arrivalDate: '2030-08-01' },
+      );
+      const planLead = async () => (await leads.createLeadDetailed({
+        name: 'Ася План', phone: '+79995550607', comment: 'Маршрут 2030-08-01 (3 дн.)',
+        source_data: { plan: tripPlan, source: 'saved_trip' }, pd_consent: consentOf('operator'), skip_ai_processing: true,
+      }))!;
+      const p1 = await planLead();
+      expect(p1.created).toBe(true);
+      expect(await planLead()).toMatchObject({ id: p1.id, created: false });
+      await pool.query(`UPDATE leads SET status = 'cancelled' WHERE id = $1`, [p1.id]);
+      const p2 = await planLead();
+      expect(p2.created).toBe(true);
+      expect(p2.id).not.toBe(p1.id);
+
+      // ── 7. Просьба помнит, кому дошла; не дошла никому — заявка в силе, и нажатие отправляет заново ──
+      const L7 = await mk('Зоя Доставка', '+79995550608', 2);
+      const k7 = await status.issueRequestKeyRecord({ leadId: L7.id }, 'create_booking_request', { opensChat: true });
+      const S = 9_300_045;
+      expect(await links.linkChatToKeys('max', S, [k7!.key], 'created')).toBe(1);
+      await pool.query(
+        `INSERT INTO partner_incoming_answers (partner_id, subject_kind, subject_id, answer, subject_date) VALUES ($1, 'lead', $2, 'accept', $3)`,
+        [opId, L7.id, D0],
+      );
+      const ask7 = cancel.myTripCancelAskPayload(L7.id);
+      const yes7 = cancel.myTripCancelYesPayload(L7.id);
+      const requests7 = async () => (await pool.query(
+        `SELECT action, details FROM lead_activity_log WHERE lead_id = $1 AND action LIKE 'cancel_request%' ORDER BY id`, [L7.id],
+      )).rows;
+      expect((await readRow(L7.id)).cancel_request).toBeNull();
+      // У оператора нет чата, рабочий чат платформы не принимает: о просьбе не узнал никто.
+      await pool.query(`UPDATE partners SET max_chat_id = NULL WHERE id = $1`, [opId]);
+      sent.adminFails = true;
+      try {
+        for (const n of [1, 2]) {
+          const none = await cancel.pressMyTripCancel(yes7, 'max', S);
+          expect(none.text).toBe('Оператор уже ответил по заявке, поэтому отменяет он, но передать просьбу сейчас не удалось — ни ему, ни менеджеру Ведара. Заявка остаётся в силе. Нажмите ещё раз через пару минут или напишите оператору, позвоните ему.');
+          // Запись ушла из единственных: «уже отправлена» она не станет, и второе нажатие пробует снова.
+          expect(await requests7()).toHaveLength(n);
+          expect((await readRow(L7.id)).cancel_request).toBeNull();
+        }
+        expect(await requests7()).toEqual([
+          { action: 'cancel_request_undelivered', details: { channel: 'max', delivery: 'none', manager: 'failed' } },
+          { action: 'cancel_request_undelivered', details: { channel: 'max', delivery: 'none', manager: 'failed' } },
+        ]);
+      } finally {
+        sent.adminFails = false;
+      }
+      // Рабочий чат принял, оператор всё ещё без чата: просьба дошла менеджеру — и повтор говорит именно это.
+      sent.pd.length = 0;
+      const viaManager = await cancel.pressMyTripCancel(yes7, 'max', S);
+      expect(viaManager.text).toBe('Оператор уже ответил по заявке, поэтому отменяет он. Сообщить ему сейчас не удалось — просьба передана менеджеру Ведара. Заявка остаётся в силе, пока её не закроют; надёжнее написать оператору или позвонить.');
+      expect(sent.pd).toHaveLength(1);
+      expect(sent.pd[0]!.to).toBeUndefined();
+      expect(sent.pd[0]!.text).toContain('Клиент просит отменить заявку');
+      expect(sent.pd[0]!.text).not.toMatch(/Зоя|79995550608/);
+      expect((await readRow(L7.id)).cancel_request).toEqual({ delivery: 'none', manager: 'told', fresh: true });
+      sent.pd.length = 0;
+      expect((await cancel.pressMyTripCancel(yes7, 'max', S)).text).toBe('Просьба об отмене по этой заявке уже передана менеджеру Ведара — повторно не отправляю. Заявка действует, пока её не закроют.');
+      expect((await cancel.pressMyTripCancel(ask7, 'max', S)).text).toMatch(/уже передана менеджеру Ведара/);
+      expect(sent.pd).toHaveLength(0);
+      expect((await statusOf(L7.id)).status).toBe('new');
+      // Дошедшую просьбу «зависшей» не считаем, сколько бы ей ни было.
+      await pool.query(`UPDATE lead_activity_log SET created_at = created_at - INTERVAL '10 minutes' WHERE lead_id = $1 AND action = 'cancel_requested'`, [L7.id]);
+      expect((await readRow(L7.id)).cancel_request).toEqual({ delivery: 'none', manager: 'told', fresh: false });
+      expect((await pool.query(core.CANCEL_REQUEST_RELEASE_SQL, [L7.id])).rowCount).toBe(0);
+      await pool.query(`UPDATE lead_activity_log SET details = details || '{"delivery":"telegram","manager":"not_needed"}'::jsonb WHERE lead_id = $1 AND action = 'cancel_requested'`, [L7.id]);
+      expect((await pool.query(core.CANCEL_REQUEST_RELEASE_SQL, [L7.id])).rowCount).toBe(0);
+      // Запись без исхода (процесс умер между записью и отправкой): свежая — «отправляется» и не освобождается…
+      await pool.query(`UPDATE lead_activity_log SET details = '{"channel":"max"}'::jsonb, created_at = NOW() WHERE lead_id = $1 AND action = 'cancel_requested'`, [L7.id]);
+      expect((await readRow(L7.id)).cancel_request).toEqual({ delivery: null, manager: null, fresh: true });
+      expect((await cancel.pressMyTripCancel(yes7, 'max', S)).text).toMatch(/^Просьба об отмене по этой заявке уже отправляется — второе нажатие ничего не добавило\./);
+      expect((await pool.query(core.CANCEL_REQUEST_RELEASE_SQL, [L7.id])).rowCount).toBe(0);
+      expect(sent.pd).toHaveLength(0);
+      // …а старше срока — освобождается, и просьба уходит заново, теперь оператору.
+      await pool.query(`UPDATE lead_activity_log SET created_at = created_at - INTERVAL '3 minutes' WHERE lead_id = $1 AND action = 'cancel_requested'`, [L7.id]);
+      expect((await readRow(L7.id)).cancel_request).toEqual({ delivery: null, manager: null, fresh: false });
+      expect(core.priorCancelRequest(await readRow(L7.id))).toBe('stale');
+      await pool.query(`UPDATE partners SET max_chat_id = 9300299 WHERE id = $1`, [opId]);
+      const redo = await cancel.pressMyTripCancel(yes7, 'max', S);
+      expect(redo.text).toBe('Оператор уже ответил по заявке, поэтому отменяет он: просьба ему отправлена. Заявка действует, пока он её не закроет.');
+      expect(sent.pd).toHaveLength(1);
+      expect(String(sent.pd[0]!.to?.maxChatId)).toBe('9300299');
+      expect(await requests7()).toEqual([
+        { action: 'cancel_request_undelivered', details: { channel: 'max', delivery: 'none', manager: 'failed' } },
+        { action: 'cancel_request_undelivered', details: { channel: 'max', delivery: 'none', manager: 'failed' } },
+        { action: 'cancel_request_undelivered', details: { channel: 'max' } },
+        { action: 'cancel_requested', details: { channel: 'max', delivery: 'max', manager: 'not_needed' } },
+      ]);
+      // Двух действующих просьб у заявки быть не может (индекс 1427).
+      await expect(pool.query(
+        `INSERT INTO lead_activity_log (lead_id, actor, action, details) VALUES ($1, 'tourist', 'cancel_requested', '{}')`, [L7.id],
+      )).rejects.toMatchObject({ code: '23505' });
+
+      // ── 8. «Договорились» у заявки без адресата: не «сбой», а просьба менеджеру; заявка не тронута ──
+      const L8 = await mk('Кира Договор', '+79995550609', 2);
+      const k8 = await status.issueRequestKeyRecord({ leadId: L8.id }, 'create_booking_request', { opensChat: true });
+      const Q = 9_300_046;
+      expect(await links.linkChatToKeys('max', Q, [k8!.key], 'created')).toBe(1);
+      await pool.query(`UPDATE leads SET operator_id = NULL, status = 'converted' WHERE id = $1`, [L8.id]);
+      const ask8 = (await myTrip.myTripMessage('max', Q)).buttons.find((b) => b.text === 'Отменить заявку')!.payload;
+      const q8 = await cancel.pressMyTripCancel(ask8, 'max', Q);
+      expect(q8.text).toBe([
+        'Попросить отменить заявку?',
+        `Тур «Мутновский &lt;кратер&gt;», ${ru}, участников 2.`,
+        'По заявке уже есть договорённость, поэтому сразу она не отменяется: просьба уйдёт менеджеру Ведара. Заявка действует, пока её не закроют.',
+        'Передумали — ничего нажимать не нужно.',
+      ].join('\n'));
+      sent.pd.length = 0;
+      const r8 = await cancel.pressMyTripCancel(yesOf(q8), 'max', Q);
+      expect(r8.text).toBe('По заявке уже есть договорённость, поэтому сразу она не отменяется: просьба об отмене передана менеджеру Ведара. Заявка действует, пока её не закроют.');
+      expect(await statusOf(L8.id)).toEqual({ status: 'converted', operator_id: null });
+      expect(sent.pd).toHaveLength(1);
+      expect(sent.pd[0]!.to).toBeUndefined();
+      expect(sent.pd[0]!.text).toContain('Клиент просит отменить заявку');
+      expect(sent.pd[0]!.text).toContain('У заявки нет адресата, но по ней записана бронь или отметка «Договорились»');
+      expect(sent.pd[0]!.text).not.toMatch(/Кира|79995550609/);
+      expect(await journal(L8.id)).toEqual([
+        { actor: 'tourist', action: 'cancel_requested', details: { channel: 'max', delivery: 'no_addressee', manager: 'told' } },
+      ]);
+      expect((await cancel.pressMyTripCancel(yesOf(q8), 'max', Q)).text).toMatch(/^Просьба об отмене по этой заявке уже передана менеджеру Ведара/);
+
+      await pool.query(`DELETE FROM operator_bookings WHERE id = $1::bigint`, [b3]);
+    });
+
     it('«Изменить дату» (#2970, шаг 3): свободные даты на людей заявки; до ответа оператора — сразу, после — просьбой', async () => {
       process.env.CALLBACK_SIGNING_SECRET ??= 'pg-test-signing';
       const myTrip = await import('@/lib/requests/my-trip');
@@ -1165,10 +1820,10 @@ withPg('переписка по заявке на настоящем PostgreSQL'
       const repeat = await status.issueRequestKeyRecord({ leadId: lead!.id }, 'create_booking_request', { opensChat: false });
       expect(await links.linkChatToKeys('max', B, [repeat!.key], 'created')).toBe(1);
 
-      // Кнопки под списком: в MAX — «Написать» и «Изменить дату», в Telegram — только дата, у повтора — ничего.
-      expect((await myTrip.myTripMessage('max', A)).buttons.map((b) => b.text)).toEqual(['Написать оператору', 'Изменить дату']);
+      // Кнопки под списком: в MAX — «Написать», «Изменить дату» и «Отменить заявку» (1427), в Telegram — без «Написать», у повтора — ничего.
+      expect((await myTrip.myTripMessage('max', A)).buttons.map((b) => b.text)).toEqual(['Написать оператору', 'Изменить дату', 'Отменить заявку']);
       const tg = await myTrip.myTripMessage('telegram', TG);
-      expect(tg.buttons.map((b) => b.text)).toEqual(['Изменить дату']);
+      expect(tg.buttons.map((b) => b.text)).toEqual(['Изменить дату', 'Отменить заявку']);
       expect((await myTrip.myTripMessage('max', B)).buttons).toEqual([]);
       const menuPayload = tg.buttons[0]!.payload;
       expect((await dates.pressMyTripDate(menuPayload, 'max', B)).text).toMatch(/не подключена к этому чату/);
@@ -1282,7 +1937,7 @@ withPg('переписка по заявке на настоящем PostgreSQL'
 
       // «Нет мест» на D0: запись с датой заявки; повтор — «уже», второй строки нет.
       expect(await record(D0)).toMatchObject({ ok: true, already: false, dateChanged: false, subjectDate: D0 });
-      expect(await record(D0)).toEqual({ ok: true, already: true, dateChanged: false, subjectDate: D0 });
+      expect(await record(D0)).toEqual({ ok: true, already: true, dateChanged: false, subjectDate: D0, leadStatus: 'new' });
       expect((await tripItem()).human).toMatch(/мест нет/);
 
       // Дата не заперта: ответа «за оператором» нет, D0 — среди отказанных.
@@ -1331,9 +1986,557 @@ withPg('переписка по заявке на настоящем PostgreSQL'
       // Ответ без даты у заявки без ISO-даты — одна строка на партнёра (NULLS NOT DISTINCT).
       await pool.query(`UPDATE leads SET source_data = source_data - 'date' WHERE id = $1`, [lead!.id]);
       expect(await record(null)).toMatchObject({ ok: true, already: false, dateChanged: false, subjectDate: null });
-      expect(await record(null)).toEqual({ ok: true, already: true, dateChanged: false, subjectDate: null });
+      expect(await record(null)).toEqual({ ok: true, already: true, dateChanged: false, subjectDate: null, leadStatus: 'new' });
 
       await pool.query(`DELETE FROM tour_availability WHERE operator_tour_id = $1::bigint`, [tourId]);
+    });
+
+    it('отказ «погода или безопасность» (2в): даты — из проверки на настоящей схеме; прежние отказы по погоде не проверяются и названы числом', async () => {
+      process.env.CALLBACK_SIGNING_SECRET ??= 'pg-test-signing';
+      const answers = await import('@/lib/requests/chat-answer');
+      const notices = await import('@/lib/requests/answer-notice');
+      const { datesLine } = await import('@/lib/requests/answer-notice-text');
+      const { checkTourDates } = await import('@/lib/trips/date-check');
+      const { liveSources } = await import('@/lib/trips/situation-store');
+      const { kamchatkaToday } = await import('@/lib/seat-requests/core');
+      const day = (n: number) => {
+        const d = new Date(`${kamchatkaToday()}T00:00:00Z`);
+        d.setUTCDate(d.getUTCDate() + n);
+        return d.toISOString().slice(0, 10);
+      };
+      // Прогноз — на сегодня и четыре дня вперёд: D1 — дата заявки, D2 — отказ по погоде в другой
+      // заявке, D3 — свободна и в прогнозе, D9 — свободна, но вне прогноза.
+      const [D1, D2, D3, D9] = [day(1), day(2), day(3), day(9)];
+      const opW = (await pool.query<{ id: string }>(
+        `INSERT INTO partners (name, category, contact, max_chat_id) VALUES ('Оператор 2в', 'operator', '{}', 9300599) RETURNING id`,
+      )).rows[0].id;
+      const place = (await pool.query<{ id: string; ark: string }>(
+        `INSERT INTO places (id, name, lat, lng, ark_id, location_type, zone, is_visible)
+         VALUES (gen_random_uuid(), 'Вилючинский перевал', 52.7, 158.3, gen_random_uuid(), 'mountain', 'avachinsky', TRUE)
+         RETURNING id::text AS id, ark_id::text AS ark`,
+      )).rows[0];
+      await pool.query(
+        `INSERT INTO location_real_time_status (agent_route_id, is_open, recommender_status, updated_at)
+         VALUES ($1::uuid, TRUE, 'green', (NOW() AT TIME ZONE 'UTC'))`, [place.ark],
+      );
+      const tourW = (await pool.query<{ id: number }>(
+        `INSERT INTO operator_tours (title, base_price, operator_id, max_participants, is_active, is_published, main_place_id)
+         VALUES ('Вилючинский', 9000, $1, 12, true, true, $2::uuid) RETURNING id`, [opW, place.id],
+      )).rows[0].id;
+      await pool.query(
+        `INSERT INTO tour_availability (operator_tour_id, date, available_slots, is_cancelled) VALUES
+           ($1, $2::date, 10, false), ($1, $3::date, 10, false), ($1, $4::date, 10, false), ($1, $5::date, 10, false)`,
+        [tourW, D1, D2, D3, D9],
+      );
+      const mk = async (name: string, phone: string, date: string) => (await leads.createLeadDetailed({
+        name, phone, comment: `[Заявка на бронь] Тур "Вилючинский" (ID${tourW}), дата ${date}, участников 2.`,
+        route_title: 'Вилючинский', source_url: 'mcp://vedar/booking', operator_id: opW, pd_consent: consentOf('operator'),
+        source_data: { source: 'mcp', tool: 'create_booking_request', tour_id: tourW, date, participants: 2 },
+        skip_ai_processing: true,
+      }))!.id;
+      const decline = (lead: string, date: string) => answers.recordChatAnswer({
+        partnerId: opW, kind: 'lead', subjectId: lead, answer: 'decline', reason: 'weather', expectDate: date,
+      });
+      const LA = await mk('Вера Погода', '+79995550911', D1);
+      const LB = await mk('Глеб Погода', '+79995550912', D2);
+      // Не в счёт: отказ «мест нет» на D3 по этому же туру и отказ по погоде на D3 по ДРУГОМУ туру оператора.
+      const LS = await mk('Зоя Места', '+79995550913', D3);
+      const sS = await answers.recordChatAnswer({ partnerId: opW, kind: 'lead', subjectId: LS, answer: 'decline', reason: 'seats', expectDate: D3 });
+      expect(sS).toMatchObject({ ok: true });
+      const tourX = (await pool.query<{ id: number }>(
+        `INSERT INTO operator_tours (title, base_price, operator_id, max_participants, is_active, is_published)
+         VALUES ('Другой тур 2в', 9000, $1, 12, true, true) RETURNING id`, [opW],
+      )).rows[0].id;
+      const LX = (await leads.createLeadDetailed({
+        name: 'Иван Другой', phone: '+79995550914', comment: `[Заявка на бронь] Тур "Другой тур 2в" (ID${tourX}), дата ${D3}, участников 2.`,
+        route_title: 'Другой тур 2в', source_url: 'mcp://vedar/booking', operator_id: opW, pd_consent: consentOf('operator'),
+        source_data: { source: 'mcp', tool: 'create_booking_request', tour_id: tourX, date: D3, participants: 2 },
+        skip_ai_processing: true,
+      }))!.id;
+      expect(await decline(LX, D3)).toMatchObject({ ok: true });
+      const kA = await status.issueRequestKeyRecord({ leadId: LA }, 'create_booking_request', { opensChat: true });
+      const CW = 9_300_061;
+      expect(await links.linkChatToKeys('max', CW, [kA!.key], 'created')).toBe(1);
+
+      // Сначала оператор отказал по погоде другой заявке — на D2; потом этой — на D1.
+      expect(await decline(LB, D2)).toMatchObject({ ok: true });
+      await pool.query(`UPDATE leads SET status = 'lost' WHERE id = $1`, [LB]);
+      const sA = await decline(LA, D1);
+      expect(sA).toMatchObject({ ok: true, notice: { state: 'pending' } });
+      await pool.query(`UPDATE leads SET status = 'lost' WHERE id = $1`, [LA]);
+      const noticeId = sA.ok && sA.notice ? sA.notice.id : '0';
+      // Строка сообщения знает даты, по которым этот оператор уже отказал по погоде на этом туре.
+      const facts = (await pool.query<{ weather_refused_dates: string[] }>(notices.NOTICE_FACTS_SQL, [noticeId])).rows[0]!;
+      expect([...facts.weather_refused_dates].sort()).toEqual([D1, D2]);
+      // Список считается только для отказа по погоде: у «мест нет» его нет вовсе.
+      const seatsNotice = sS.ok && sS.notice ? sS.notice.id : '0';
+      expect(seatsNotice).not.toBe('0');
+      expect((await pool.query<{ weather_refused_dates: string[] | null }>(notices.NOTICE_FACTS_SQL, [seatsNotice])).rows[0]!.weather_refused_dates).toBeNull();
+
+      // Прогноз — подставной (сети в тесте нет): на D1 ветер, дальше спокойно; оценка зоны — подставная
+      // «низкая». Тур, главное место и его статус, лента предупреждений, календарь — из базы.
+      const fday = (date: string, windKmh: number) => ({ date, tempMax: null, tempMin: null, precipMm: null, windKmh, weatherCode: 3, description: 'облачно' });
+      const sources = {
+        ...liveSources(),
+        forecast: async () => ({ ok: true as const, days: [fday(D1, 95), fday(D2, 10), fday(D3, 12)] }),
+        zone: async () => ({ name: 'Авачинско-Петропавловский', level: 'low' as const }),
+      };
+      sent.dm.length = 0;
+      const o = await notices.deliverAnswerNotice(noticeId, {
+        checkDates: (tour, declined, candidates, d) => checkTourDates(tour, declined, candidates, { ...d, sources }),
+      });
+      expect(o).toEqual({ state: 'delivered', via: 'max', dates: [D3], check: 'confirmed' });
+      expect(sent.dm).toHaveLength(1);
+      expect(String(sent.dm[0]!.chatId)).toBe(String(CW));
+      const text = sent.dm[0]!.text;
+      expect(text).toContain('По данным Ведара на вашу дату: погода: ветер до 95 км/ч.');
+      expect(text).toContain(`на которые Ведар сейчас не нашёл ни опасной погоды в прогнозе, ни предупреждений: ${datesLine([D3], D1)}.`);
+      expect(text).toContain('Проверено: прогноз погоды на дату и уже выпущенные официальные предупреждения по главному месту тура («Вилючинский перевал»); статус места и оценка опасности зоны — на сейчас.');
+      // D2 — отказ по погоде в другой заявке: в календаре свободна, но не проверяется и не названа —
+      // числом, как и D9 вне прогноза. Слов «в календаре дат нет» при свободных датах нет.
+      expect(text).toContain('Другие свободные даты рядом не называю: вне прогноза — 1, уже был отказ по погоде или безопасности — 1.');
+      expect(text).not.toContain('в календаре тура на год вперёд нет');
+      expect(text).not.toContain(datesLine([D2], D1));
+      expect(text).not.toContain(datesLine([D9], D1));
+      expect(sent.dm[0]!.buttons ?? []).toEqual([]);
+
+      // Статус места стал жёлтым — следующий такой же отказ дат уже не называет.
+      await pool.query(`UPDATE location_real_time_status SET recommender_status = 'yellow' WHERE agent_route_id = $1::uuid`, [place.ark]);
+      expect(await checkTourDates(tourW, D1, [D3, D9], { sources })).toEqual({ state: 'place_risk', place: 'Вилючинский перевал', level: 'yellow' });
+      await pool.query(`DELETE FROM tour_availability WHERE operator_tour_id = $1::bigint`, [tourW]);
+    });
+
+    it('другие компании на дату (4а): после «Нет мест» названы компании с турами к тому же месту, которые могут принять в этот день; отбор и порядок — на настоящей схеме', async () => {
+      process.env.CALLBACK_SIGNING_SECRET ??= 'pg-test-signing';
+      const answers = await import('@/lib/requests/chat-answer');
+      const notices = await import('@/lib/requests/answer-notice');
+      const { operatorOutcomeLine, ruDay } = await import('@/lib/requests/answer-notice-text');
+      const { loadOtherOffers } = await import('@/lib/requests/other-offers');
+      const { loadToursOnDate } = await import('@/lib/tours/nearest-free-date');
+      const { OFFER_ORDER_NOTE_ON_DATE_RU } = await import('@/lib/tours/offer-order');
+      const { kamchatkaToday } = await import('@/lib/seat-requests/core');
+      const day = (n: number) => {
+        const d = new Date(`${kamchatkaToday()}T00:00:00Z`);
+        d.setUTCDate(d.getUTCDate() + n);
+        return d.toISOString().slice(0, 10);
+      };
+      const [D, DX] = [day(20), day(25)];
+      const partner = async (name: string, chat: number | null = null) => (await pool.query<{ id: string }>(
+        `INSERT INTO partners (name, category, contact, max_chat_id) VALUES ($1, 'operator', '{}', $2) RETURNING id`, [name, chat],
+      )).rows[0].id;
+      const mkPlace = async (name: string) => (await pool.query<{ id: string }>(
+        `INSERT INTO places (id, name, lat, lng, ark_id, location_type, zone, is_visible)
+         VALUES (gen_random_uuid(), $1, 52.9, 158.7, gen_random_uuid(), 'cape', 'avachinsky', TRUE) RETURNING id::text AS id`, [name],
+      )).rows[0].id;
+      const place = await mkPlace('Мыс 4а <дальний>');
+      const elsewhere = await mkPlace('Другое место 4а');
+      const tour = async (op: string, title: string, o: { place?: string | null; published?: boolean; max?: number; season?: [string, string] } = {}) => Number((await pool.query<{ id: number }>(
+        `INSERT INTO operator_tours (title, base_price, operator_id, max_participants, is_active, is_published, main_place_id, season_start, season_end)
+         VALUES ($1, 9000, $2, $3, true, $4, $5, $6::date, $7::date) RETURNING id`,
+        [title, op, o.max ?? 12, o.published ?? true, o.place === undefined ? place : o.place, o.season?.[0] ?? null, o.season?.[1] ?? null],
+      )).rows[0].id);
+      const slot = (t: number, date: string, slots: number, cancelled = false) => pool.query(
+        `INSERT INTO tour_availability (operator_tour_id, date, available_slots, is_cancelled) VALUES ($1, $2::date, $3, $4)`, [t, date, slots, cancelled],
+      );
+      // Отказавшая компания: её второй тур к месту в список не идёт.
+      const opA = await partner('Отказавшая 4а', 9300701);
+      const tA = await tour(opA, 'Мыс 4а — отказанный');
+      const tA2 = await tour(opA, 'Мыс 4а — её второй тур');
+      // Берёт по календарю: два тура с местами на двоих и один — с одним местом.
+      const opB = await partner('Берёт по календарю & Ко');
+      const tB = await tour(opB, 'Мыс 4а на джипах');
+      const tB1 = await tour(opB, 'Мыс 4а — одно место');
+      const tB2 = await tour(opB, 'Мыс 4а пешком');
+      // Календаря нет вовсе — «дату подтверждает оператор».
+      const opC = await partner('По заявке 4а');
+      const tC = await tour(opC, 'Мыс 4а по заявке');
+      // Не подходят: дата другая; дата закрыта; черновик; вне сезона; другое место; группа больше тура.
+      const tD = await tour(await partner('Другая дата 4а'), 'Мыс 4а — другая дата');
+      const tE = await tour(await partner('Закрыла дату 4а'), 'Мыс 4а — дата закрыта');
+      const tF = await tour(await partner('Черновик 4а'), 'Мыс 4а — черновик', { published: false });
+      const tG = await tour(await partner('Не сезон 4а'), 'Мыс 4а — летом', { season: [day(60), day(90)] });
+      const tH = await tour(await partner('Другое место 4а'), 'Не к мысу', { place: elsewhere });
+      const tI = await tour(await partner('Малая группа 4а'), 'Мыс 4а — один гость', { max: 1 });
+      for (const t of [tA, tA2, tB, tB2, tF, tH, tI]) await slot(t, D, 10);
+      await slot(tB1, D, 1);
+      await slot(tD, DX, 10);
+      await slot(tE, D, 10, true);
+
+      // Календарь на дату у набора: хватает мест / дата закрыта / даты нет или мест мало.
+      const onDate = await loadToursOnDate([tB, tB1, tB2, tC, tD, tE, tF, tI].map(String), D, 2);
+      expect(onDate.state).toBe('ok');
+      if (onDate.state !== 'ok') throw new Error('календарь на дату не прочитан');
+      expect([...onDate.free].sort()).toEqual([tB, tB2].map(String).sort());
+      expect([...onDate.closed]).toEqual([String(tE)]);
+      // Одному гостю хватает и тура с одним местом, и тура на одного.
+      const forOne = await loadToursOnDate([tB1, tI].map(String), D, 1);
+      expect(forOne.state === 'ok' ? [...forOne.free].sort() : null).toEqual([tB1, tI].map(String).sort());
+
+      const read = await loadOtherOffers({ tourId: tA, date: D, people: 2 });
+      expect(read.state).toBe('ok');
+      if (read.state !== 'ok') throw new Error('другие компании не прочитаны');
+      expect(read.placeName).toBe('Мыс 4а <дальний>');
+      expect(read.more).toBe(0);
+      // Компания с местами в календаре — первой, «по заявке» — второй; остальных нет.
+      expect(read.offers.map((o) => [o.partnerName, o.seats, o.moreTours])).toEqual([
+        ['Берёт по календарю & Ко', 'calendar', 1],
+        ['По заявке 4а', 'by_request', 0],
+      ]);
+      expect([String(tB), String(tB2)]).toContain(read.offers[0]!.tourId);
+      expect(read.offers[1]!.tourId).toBe(String(tC));
+      expect(read.offers[0]!.url).toMatch(new RegExp(`/catalog/tours/[a-z0-9-]+\\?date=${D}&guests=2#booking$`));
+      // Тур без главного места и несуществующий тур — «нет», а не сбой.
+      const loose = await tour(opA, 'Без главного места 4а', { place: null });
+      expect(await loadOtherOffers({ tourId: loose, date: D, people: 2 })).toEqual({ state: 'none' });
+      expect(await loadOtherOffers({ tourId: 999_999_999, date: D, people: 2 })).toEqual({ state: 'none' });
+      // Группа больше любого календаря — по календарю никто, остаётся только «по заявке».
+      const big = await loadOtherOffers({ tourId: tA, date: D, people: 11 });
+      expect(big.state === 'ok' ? big.offers.map((o) => o.partnerName) : null).toEqual(['По заявке 4а']);
+
+      // Заявка на отказанный тур, чат человека привязан; оператор отвечает «Нет мест».
+      const lead = (await leads.createLeadDetailed({
+        name: 'Нина Четвёртая', phone: '+79995550941', comment: `[Заявка на бронь] Тур "Мыс 4а — отказанный" (ID${tA}), дата ${D}, участников 2.`,
+        route_title: 'Мыс 4а — отказанный', source_url: 'mcp://vedar/booking', operator_id: opA, pd_consent: consentOf('operator'),
+        source_data: { source: 'mcp', tool: 'create_booking_request', tour_id: tA, date: D, participants: 2 },
+        skip_ai_processing: true,
+      }))!.id;
+      const key = await status.issueRequestKeyRecord({ leadId: lead }, 'create_booking_request', { opensChat: true });
+      const CHAT = 9_300_071;
+      expect(await links.linkChatToKeys('max', CHAT, [key!.key], 'created')).toBe(1);
+      const said = await answers.recordChatAnswer({ partnerId: opA, kind: 'lead', subjectId: lead, answer: 'no_seats', expectDate: D });
+      expect(said).toMatchObject({ ok: true, notice: { state: 'pending' } });
+      sent.dm.length = 0;
+      const o = await notices.deliverAnswerNotice(said.ok && said.notice ? said.notice.id : '0');
+      expect(o).toMatchObject({ state: 'delivered', via: 'max', offers: 2 });
+      expect(sent.dm).toHaveLength(1);
+      expect(String(sent.dm[0]!.chatId)).toBe(String(CHAT));
+      const lines = sent.dm[0]!.text.split('\n');
+      const head = lines.indexOf(`<b>К месту «Мыс 4а &lt;дальний&gt;» на ${ruDay(D)} — другие компании</b>`);
+      expect(head).toBeGreaterThan(0);
+      expect(lines[head + 1]).toMatch(/^1\. «Берёт по календарю &amp; Ко» — тур «Мыс 4а (на джипах|пешком)», 9[\s ]000 ₽ [^;]+; в календаре на эту дату места на 2 чел\. есть; у компании к этому месту ещё 1 тур\. Заявка: https?:\/\/\S+#booking$/);
+      expect(lines[head + 2]).toMatch(/^2\. «По заявке 4а» — тур «Мыс 4а по заявке», 9[\s ]000 ₽ [^;]+; расписания на Ведаре нет — дату подтверждает оператор\. Заявка: https?:\/\/\S+#booking$/);
+      expect(lines[head + 3]).toContain('Это не ответ этих компаний');
+      expect(lines[head + 4]).toBe(OFFER_ORDER_NOTE_ON_DATE_RU);
+      // Ни отказавшей компании в списке, ни неподходящих туров, ни имени и телефона человека.
+      const block = lines.slice(head, head + 5).join('\n');
+      expect(block).not.toMatch(/Отказавшая|её второй тур|одно место|другая дата|дата закрыта|черновик|летом|Не к мысу|один гость/);
+      expect(sent.dm[0]!.text).not.toMatch(/Нина|79995550941/);
+      expect(operatorOutcomeLine(o)).toContain('Ещё туристу названы 2 другие компании с турами к этому месту на эту дату');
+
+      // Статус той же заявки (4а-2): ИИ-агент и страница заявки читают тех же компаний тем же порядком.
+      const view = await status.readRequestStatus(key!.key, { reader: 'agent' });
+      expect(view.state).toBe('declined');
+      expect(view.other_offers).toMatchObject({ state: 'listed', place: 'Мыс 4а <дальний>', date: D, participants: 2, more_companies: 0 });
+      expect(view.other_offers!.offers.map((x) => [x.company, x.seats, x.more_tours])).toEqual([
+        ['Берёт по календарю & Ко', 'calendar', 1],
+        ['По заявке 4а', 'by_request', 0],
+      ]);
+      expect([String(tB), String(tB2)]).toContain(view.other_offers!.offers[0]!.tour_id);
+      expect(view.other_offers!.offers[1]!.tour_id).toBe(String(tC));
+      expect(view.other_offers!.offers[0]!.url).toMatch(new RegExp(`\\?date=${D}&guests=2#booking$`));
+      expect(view.other_offers!.how).toContain('create_booking_request');
+      expect(JSON.stringify(view.other_offers)).not.toMatch(/Нина|79995550941|Отказавшая/);
+      // Страница заявки — тот же список, без слов для агента.
+      const { pageOtherOffers } = await import('@/lib/requests/other-offers-status');
+      expect(pageOtherOffers((await status.readRequestStatus(key!.key, { reader: 'page', seen: true })).other_offers))
+        .toEqual((({ how: _how, ...rest }) => rest)(view.other_offers!));
+
+      // Отказ по погоде на той же схеме: других компаний к тому же месту в тот же день не называем.
+      const lead2 = (await leads.createLeadDetailed({
+        name: 'Олег Четвёртый', phone: '+79995550942', comment: `[Заявка на бронь] Тур "Мыс 4а — её второй тур" (ID${tA2}), дата ${D}, участников 2.`,
+        route_title: 'Мыс 4а — её второй тур', source_url: 'mcp://vedar/booking', operator_id: opA, pd_consent: consentOf('operator'),
+        source_data: { source: 'mcp', tool: 'create_booking_request', tour_id: tA2, date: D, participants: 2 },
+        skip_ai_processing: true,
+      }))!.id;
+      const key2 = await status.issueRequestKeyRecord({ leadId: lead2 }, 'create_booking_request', { opensChat: true });
+      expect(await links.linkChatToKeys('max', 9_300_072, [key2!.key], 'created')).toBe(1);
+      const said2 = await answers.recordChatAnswer({ partnerId: opA, kind: 'lead', subjectId: lead2, answer: 'decline', reason: 'weather', expectDate: D });
+      expect(said2).toMatchObject({ ok: true, notice: { state: 'pending' } });
+      await pool.query(`UPDATE leads SET status = 'lost' WHERE id = $1`, [lead2]);
+      sent.dm.length = 0;
+      const o2 = await notices.deliverAnswerNotice(said2.ok && said2.notice ? said2.notice.id : '0', {
+        checkDates: async () => ({ state: 'unchecked', why: ['timeout'] }),
+      });
+      expect(o2).toMatchObject({ state: 'delivered', via: 'max' });
+      expect(o2).not.toHaveProperty('offers');
+      expect(sent.dm[0]!.text).not.toContain('другие компании');
+      // И в статусе этой заявки списка нет: после отказа по погоде замену проверяют, а не перечисляют.
+      const view2 = await status.readRequestStatus(key2!.key, { reader: 'agent' });
+      expect(view2.state).toBe('declined');
+      expect(view2.other_offers).toBeNull();
+
+      await pool.query(`DELETE FROM tour_availability WHERE operator_tour_id = ANY($1::bigint[])`, [[tA, tA2, tB, tB1, tB2, tD, tE, tF, tH, tI]]);
+    });
+
+    it('вопрос другим компаниям (4б, 1433): после «Нет мест» — вопрос без имени и телефона; «Беру» названо человеку, «Не могу» убирает компанию из его списка; отвечает только та, кого спросили', async () => {
+      process.env.CALLBACK_SIGNING_SECRET ??= 'pg-test-signing';
+      const answers = await import('@/lib/requests/chat-answer');
+      const notices = await import('@/lib/requests/answer-notice');
+      const { ruDay } = await import('@/lib/requests/answer-notice-text');
+      const asks = await import('@/lib/requests/offer-asks');
+      const { offerAskReplyText } = await import('@/lib/requests/offer-asks-text');
+      const { loadOtherOffers } = await import('@/lib/requests/other-offers');
+      const { operatorDeskPress } = await import('@/lib/telegram/operator-desk-press');
+      const { unwrapPress } = await import('@/lib/chat-cabinet/signed-payload');
+      const { kamchatkaToday } = await import('@/lib/seat-requests/core');
+      const day = (n: number) => {
+        const d = new Date(`${kamchatkaToday()}T00:00:00Z`);
+        d.setUTCDate(d.getUTCDate() + n);
+        return d.toISOString().slice(0, 10);
+      };
+      const D = day(22);
+      const partner = async (name: string, chat: number | null, category = 'operator') => (await pool.query<{ id: string }>(
+        `INSERT INTO partners (name, category, contact, max_chat_id) VALUES ($1, $2, '{}', $3) RETURNING id`, [name, category, chat],
+      )).rows[0].id;
+      const place = (await pool.query<{ id: string }>(
+        `INSERT INTO places (id, name, lat, lng, ark_id, location_type, zone, is_visible)
+         VALUES (gen_random_uuid(), 'Мыс 4б <северный>', 52.9, 158.7, gen_random_uuid(), 'cape', 'avachinsky', TRUE) RETURNING id::text AS id`,
+      )).rows[0].id;
+      const tour = async (op: string, title: string) => Number((await pool.query<{ id: number }>(
+        `INSERT INTO operator_tours (title, base_price, operator_id, max_participants, is_active, is_published, main_place_id)
+         VALUES ($1, 9000, $2, 12, true, true, $3) RETURNING id`, [title, op, place],
+      )).rows[0].id);
+      const slot = (t: number, slots: number) => pool.query(
+        `INSERT INTO tour_availability (operator_tour_id, date, available_slots, is_cancelled) VALUES ($1, $2::date, $3, false)`, [t, D, slots],
+      );
+      const [CHAT_A, CHAT_B, CHAT_C, CHAT_G, CHAT_PERSON] = [9_300_801, 9_300_802, 9_300_803, 9_300_805, 9_300_081];
+      const opA = await partner('Отказавшая 4б', CHAT_A);
+      const tA = await tour(opA, 'Мыс 4б — отказанный');
+      const opB = await partner('Берёт 4б & Ко', CHAT_B);
+      const tB = await tour(opB, 'Мыс 4б на джипах');
+      const opC = await partner('Не может 4б', CHAT_C);
+      const tC = await tour(opC, 'Мыс 4б по заявке');
+      const opD = await partner('Без чата 4б', null);
+      const tD = await tour(opD, 'Мыс 4б пешком');
+      // Гид со своим туром: вопрос задан и ему — отвечает тем же правом, что туроператор.
+      const guide = await partner('Гид 4б', CHAT_G, 'guide');
+      const tG = await tour(guide, 'Мыс 4б с гидом');
+      await slot(tA, 10);
+      await slot(tB, 10);
+
+      const mkLead = async (name: string, phone: string, tourId: number, title: string) => (await leads.createLeadDetailed({
+        name, phone, comment: `[Заявка на бронь] Тур "${title}" (ID${tourId}), дата ${D}, участников 2.`,
+        route_title: title, source_url: 'mcp://vedar/booking', operator_id: opA, pd_consent: consentOf('operator'),
+        source_data: { source: 'mcp', tool: 'create_booking_request', tour_id: tourId, date: D, participants: 2 },
+        skip_ai_processing: true,
+      }))!.id;
+      const lead = await mkLead('Нина Пятая', '+79995550951', tA, 'Мыс 4б — отказанный');
+      const key = await status.issueRequestKeyRecord({ leadId: lead }, 'create_booking_request', { opensChat: true });
+      expect(await links.linkChatToKeys('max', CHAT_PERSON, [key!.key], 'created')).toBe(1);
+      const rows = async () => (await pool.query<{
+        id: string; partner_id: string; tour_id: string; ask_date: string; people: number; sent_via: string | null; send_note: string | null;
+        answer: string | null; answered_via: string | null; told_via: string | null;
+      }>(
+        `SELECT id::text AS id, partner_id::text AS partner_id, tour_id::text AS tour_id, ask_date::text AS ask_date, people,
+                sent_via, send_note, answer, answered_via, told_via
+           FROM other_offer_asks WHERE lead_id = $1 ORDER BY id`, [lead],
+      )).rows;
+      const askOf = async (partnerId: string) => (await rows()).find((r) => r.partner_id === partnerId)!;
+
+      // До отказа вопросов нет: заявка ждёт своего оператора.
+      expect(await asks.askOtherCompanies(lead)).toEqual({ state: 'skip' });
+      expect(await rows()).toEqual([]);
+
+      const said = await answers.recordChatAnswer({ partnerId: opA, kind: 'lead', subjectId: lead, answer: 'no_seats', expectDate: D });
+      expect(said).toMatchObject({ ok: true, notice: { state: 'pending' } });
+      await notices.deliverAnswerNotice(said.ok && said.notice ? said.notice.id : '0');
+
+      // Вопрос — четырём компаниям из списка человека; до трёх дошёл (у четвёртой нет чата).
+      sent.pd.length = 0;
+      expect(await asks.askOtherCompanies(lead)).toEqual({ state: 'asked', created: 4, sent: 3 });
+      const asked = await rows();
+      expect(asked.map((r) => [r.partner_id, r.tour_id, r.ask_date, r.people, r.sent_via, r.send_note, r.answer]).sort()).toEqual([
+        [opB, String(tB), D, 2, 'max', null, null],
+        [opC, String(tC), D, 2, 'max', null, null],
+        [opD, String(tD), D, 2, null, 'no_channel', null],
+        [guide, String(tG), D, 2, 'max', null, null],
+      ].sort());
+      // Отказавшей компании вопрос не задаётся.
+      expect(asked.some((r) => r.partner_id === opA)).toBe(false);
+      type Pd = { text: string; stub: string; buttons?: Array<{ text: string; payload: string }>; stubActions?: unknown[]; to?: { maxChatId?: unknown; telegramChatId?: unknown } };
+      const questions = sent.pd as Pd[];
+      expect(questions.map((q) => String(q.to?.maxChatId)).sort()).toEqual([CHAT_B, CHAT_C, CHAT_G].map(String).sort());
+      const toB = questions.find((q) => String(q.to?.maxChatId) === String(CHAT_B))!;
+      expect(toB.text.split('\n').slice(0, 3)).toEqual([
+        '<b>Вопрос от Ведара — это не заявка</b>',
+        `Человеку отказала другая компания: тур к месту «Мыс 4б &lt;северный&gt;» на ${ruDay(D)}, 2 чел.`,
+        'У вас к этому месту есть тур «Мыс 4б на джипах». Возьмёте на эту дату?',
+      ]);
+      // Ни имени, ни телефона человека, ни названия отказавшей компании — ни в одном вопросе, ни в запасном тексте.
+      for (const q of questions) {
+        expect(`${q.text}\n${q.stub}`).not.toMatch(/Нина|Пятая|79995550951|Отказавшая/);
+        expect(q.stub).toBe(q.text);
+        expect(q.buttons?.map((b) => b.text)).toEqual(['Беру', 'Не могу']);
+        // В личный Telegram аккаунта кнопки не уходят: чат карточки в Telegram ни у кого не привязан.
+        expect(q.stubActions).toEqual([]);
+        expect(q.to?.telegramChatId ?? null).toBeNull();
+      }
+      const pressOf = (q: Pd, i: 0 | 1) => {
+        const v = unwrapPress(q.buttons![i]!.payload);
+        if (!v.ok) throw new Error('кнопка вопроса не подписана');
+        return v.payload;
+      };
+      const [takeB, declineB] = [pressOf(toB, 0), pressOf(toB, 1)];
+      expect(takeB).toBe(`oq:y:${(await askOf(opB)).id}`);
+      const toC = questions.find((q) => String(q.to?.maxChatId) === String(CHAT_C))!;
+      const toG = questions.find((q) => String(q.to?.maxChatId) === String(CHAT_G))!;
+
+      // Повтор (второе нажатие отказавшего, добивка) новых вопросов не заводит и ничего не шлёт.
+      expect(await asks.askOtherCompanies(lead)).toEqual({ state: 'asked', created: 0, sent: 0 });
+      expect(sent.pd).toHaveLength(3);
+      expect(await rows()).toHaveLength(4);
+
+      // Чужой вопрос: компания «Не может» жмёт кнопку вопроса, заданного «Берёт»; чат без карточки — тоже мимо.
+      const NOT_YOURS = offerAskReplyText({ state: 'not_yours' });
+      expect((await operatorDeskPress({ channel: 'max', chatId: CHAT_C, payload: takeB }))!.text).toBe(NOT_YOURS);
+      expect((await operatorDeskPress({ channel: 'max', chatId: CHAT_A, payload: takeB }))!.text).toBe(NOT_YOURS);
+      expect((await operatorDeskPress({ channel: 'max', chatId: 9_399_999, payload: takeB }))!.text).toBe(NOT_YOURS);
+      // Привязки в Telegram у «Берёт» нет: тот же номер чата в другом канале — не её чат.
+      expect((await operatorDeskPress({ channel: 'telegram', chatId: CHAT_B, payload: takeB }))!.text).toBe(NOT_YOURS);
+      expect((await askOf(opB)).answer).toBeNull();
+
+      // «Не могу»: записано, человеку ничего не уходит.
+      sent.dm.length = 0;
+      const no = await operatorDeskPress({ channel: 'max', chatId: CHAT_C, payload: pressOf(toC, 1) });
+      expect(no!.text).toBe('Записал: «Не могу». В списке этого человека вашей компании не будет.');
+      expect(await askOf(opC)).toMatchObject({ answer: 'decline', answered_via: 'max', told_via: null });
+      expect(sent.dm).toHaveLength(0);
+
+      // «Беру»: записано, человеку — сообщение в его чат со ссылкой на форму тура этой компании.
+      const yes = await operatorDeskPress({ channel: 'max', chatId: CHAT_B, payload: takeB });
+      expect(yes!.text).toBe(
+        `Записал: «Беру». Человеку сообщено в MAX: ваша компания готова принять его ${ruDay(D)} — тур «Мыс 4б на джипах». `
+        + 'Заявку он оставит сам — она придёт вам обычной заявкой с его контактами.',
+      );
+      expect(await askOf(opB)).toMatchObject({ answer: 'take', answered_via: 'max', told_via: 'max' });
+      expect(sent.dm).toHaveLength(1);
+      expect(String(sent.dm[0]!.chatId)).toBe(String(CHAT_PERSON));
+      const told = sent.dm[0]!.text.split('\n');
+      expect(told[0]).toBe(`<b>Компания «Берёт 4б &amp; Ко» ответила Ведару: возьмёт вас ${ruDay(D)}</b>`);
+      expect(told[1]).toMatch(/^Тур «Мыс 4б на джипах» на 2 чел\., 9[\s ]000 ₽ [^,.]+\.$/);
+      expect(told[2]).toMatch(new RegExp(`^Это ответ на вопрос Ведара, ещё не бронь\\. Заявку вы оставляете сами: https?://\\S+\\?date=${D}&amp;guests=2#booking$`));
+      expect(told[3]).toBe('Имя и телефон получит только эта компания.');
+
+      // Ответ один: второе нажатие — «уже ответили», запись и сообщение прежние.
+      const again = await operatorDeskPress({ channel: 'max', chatId: CHAT_B, payload: declineB });
+      expect(again!.text).toBe('Вы уже ответили на этот вопрос: «Беру». Ответ один — второй раз не записываю.');
+      expect(await askOf(opB)).toMatchObject({ answer: 'take', told_via: 'max' });
+      expect(sent.dm).toHaveLength(1);
+
+      // Статус заявки: ответившая «Беру» названа с ответом, «Не могу» — нет в списке, молчавшие — по календарю.
+      const view = await status.readRequestStatus(key!.key, { reader: 'agent' });
+      expect(view.state).toBe('declined');
+      expect(view.other_offers!.state).toBe('listed');
+      const listed = view.other_offers!.offers;
+      expect(listed[0]).toMatchObject({ company: 'Берёт 4б & Ко', tour_id: String(tB), seats: 'calendar', said: 'take' });
+      expect(listed.map((x) => [x.company, x.said]).sort()).toEqual([
+        ['Без чата 4б', null], ['Берёт 4б & Ко', 'take'], ['Гид 4б', null],
+      ].sort());
+      expect(JSON.stringify(view.other_offers)).not.toMatch(/Не может 4б|Нина|79995550951/);
+      expect(JSON.stringify(view.other_offers)).not.toContain(opB);
+      // Ответ — про эту заявку: тот же тур и дата без заявки (или с другой заявкой) «Не может» называют.
+      const plain = await loadOtherOffers({ tourId: tA, date: D, people: 2 });
+      expect(plain.state === 'ok' ? plain.offers.map((o) => [o.partnerName, o.said]).sort() : null).toEqual([
+        ['Без чата 4б', null], ['Берёт 4б & Ко', null], ['Гид 4б', null], ['Не может 4б', null],
+      ].sort());
+
+      // Дата в вопросе прошла — ответ не записывается.
+      await pool.query(`UPDATE other_offer_asks SET ask_date = $2::date WHERE id = $1`, [(await askOf(guide)).id, day(-1)]);
+      expect((await operatorDeskPress({ channel: 'max', chatId: CHAT_G, payload: pressOf(toG, 0) }))!.text)
+        .toBe('Дата в вопросе уже прошла. Ничего не записал.');
+      expect((await askOf(guide)).answer).toBeNull();
+      await pool.query(`UPDATE other_offer_asks SET ask_date = $2::date WHERE id = $1`, [(await askOf(guide)).id, D]);
+
+      // Человек отменил заявку — гид отвечает «Беру»: записано, но человеку ничего не уходит, и гиду так и сказано.
+      await pool.query(`UPDATE leads SET status = 'cancelled' WHERE id = $1`, [lead]);
+      const late = await operatorDeskPress({ channel: 'max', chatId: CHAT_G, payload: pressOf(toG, 0) });
+      expect(late!.text).toContain('Записал: «Беру». Но заявка человека с тех пор изменилась');
+      expect(late!.text).toContain('Ему ничего не отправлено.');
+      expect(await askOf(guide)).toMatchObject({ answer: 'take', answered_via: 'max', told_via: null });
+      expect(sent.dm).toHaveLength(1);
+
+      // Отказ по погоде: других компаний к тому же месту в тот же день не спрашиваем.
+      const lead2 = await mkLead('Олег Пятый', '+79995550952', tA, 'Мыс 4б — отказанный');
+      const said2 = await answers.recordChatAnswer({ partnerId: opA, kind: 'lead', subjectId: lead2, answer: 'decline', reason: 'weather', expectDate: D });
+      expect(said2).toMatchObject({ ok: true });
+      await pool.query(`UPDATE leads SET status = 'lost' WHERE id = $1`, [lead2]);
+      const before = sent.pd.length;
+      expect(await asks.askOtherCompanies(lead2)).toEqual({ state: 'skip' });
+      expect((await pool.query(`SELECT 1 FROM other_offer_asks WHERE lead_id = $1`, [lead2])).rowCount).toBe(0);
+      expect(sent.pd).toHaveLength(before);
+
+      // Тот же отказ «мест нет» по другой заявке — свои вопросы: ответы первой на неё не переносятся.
+      const lead3 = await mkLead('Пётр Пятый', '+79995550953', tA, 'Мыс 4б — отказанный');
+      expect(await answers.recordChatAnswer({ partnerId: opA, kind: 'lead', subjectId: lead3, answer: 'no_seats', expectDate: D })).toMatchObject({ ok: true });
+      expect(await asks.askOtherCompanies(lead3)).toEqual({ state: 'asked', created: 4, sent: 3 });
+      expect((await pool.query(`SELECT answer FROM other_offer_asks WHERE lead_id = $1`, [lead3])).rows.map((r) => r.answer)).toEqual([null, null, null, null]);
+
+      // 4б-2 (1434). У этой заявки чата нет (как у заявки с формы сайта): «Беру» человеку слать некуда —
+      // письмо менеджеру с именем и телефоном, компании сказано «передан менеджеру», а не «сообщено».
+      const queue = await import('@/lib/manager-queue/queue');
+      const ask3 = async (partnerId: string) => (await pool.query<{ id: string; answer: string | null; told_via: string | null; manager_via: string | null; has_at: boolean }>(
+        `SELECT id::text AS id, answer, told_via, manager_via, (manager_at IS NOT NULL) AS has_at
+           FROM other_offer_asks WHERE lead_id = $1 AND partner_id = $2`, [lead3, partnerId],
+      )).rows[0]!;
+      const said3 = await pool.query<{ id: string }>(`SELECT id::text AS id FROM answer_notices WHERE lead_id = $1`, [lead3]);
+      // Отказ до человека не дошёл — случай стоит в очереди менеджера; «Беру» пока никто не сказал.
+      expect(await notices.deliverAnswerNotice(said3.rows[0]!.id)).toMatchObject({ state: 'undelivered', manager: 'max' });
+      const caseOf = async () => {
+        const src = (await queue.loadManagerQueue({ since: '2026-01-01' })).answer_notice;
+        if (src.state !== 'ok') throw new Error('очередь не прочиталась');
+        return src.items.find((i) => i.lead_id === lead3) ?? null;
+      };
+      expect((await caseOf())!.takes).toEqual([]);
+      // «Не могу» в список «Беру» не попадает.
+      expect(await asks.answerOfferAsk({ partnerId: opC, askId: (await ask3(opC)).id, answer: 'decline', via: 'max' })).toEqual({ state: 'declined' });
+      expect((await caseOf())!.takes).toEqual([]);
+
+      sent.dm.length = 0;
+      const pdBefore = sent.pd.length;
+      expect(await asks.answerOfferAsk({ partnerId: opB, askId: (await ask3(opB)).id, answer: 'take', via: 'max' }))
+        .toEqual({ state: 'took', told: 'manager', date: D, tourTitle: 'Мыс 4б на джипах' });
+      expect(sent.dm).toHaveLength(0);
+      expect(sent.pd).toHaveLength(pdBefore + 1);
+      const letter = sent.pd.at(-1)! as Pd;
+      // Письмо — менеджеру (адресата нет), а не компании, нажавшей «Беру».
+      expect(letter.to).toBeUndefined();
+      expect(letter.text).toContain('Другая компания ответила «Беру» — клиенту не сообщено, позвонить');
+      expect(letter.text).toContain(`Заявка <code>${lead3}</code>`);
+      expect(letter.text).toContain(`«Берёт 4б &amp; Ко» ответила: возьмёт ${ruDay(D)} — тур «Мыс 4б на джипах» на 2 чел.`);
+      expect(letter.text).toContain('<b>Имя:</b> Пётр Пятый');
+      expect(letter.text).toMatch(/<b>Телефон:<\/b> \+?79995550953/);
+      expect(letter.text).toContain('Почему письмо: чата с Ведаром у клиента нет.');
+      // Заглушка для Telegram — без имени и телефона.
+      expect(letter.stub).not.toMatch(/Пётр|Пятый|79995550953/);
+      expect(await ask3(opB)).toMatchObject({ answer: 'take', told_via: null, manager_via: 'max', has_at: true });
+      // В очереди менеджера у этого случая — кто ответил «Беру»; контакт компании не получала.
+      expect((await caseOf())!.takes).toEqual(['Берёт 4б & Ко']);
+      // «Беру» на другую дату (вопрос задавали до того, как человек её сменил) к случаю на дату заявки не относится.
+      await pool.query(`UPDATE other_offer_asks SET ask_date = $2::date WHERE id = $1`, [(await ask3(opB)).id, day(23)]);
+      expect((await caseOf())!.takes).toEqual([]);
+      await pool.query(`UPDATE other_offer_asks SET ask_date = $2::date WHERE id = $1`, [(await ask3(opB)).id, D]);
+      expect((await caseOf())!.takes).toEqual(['Берёт 4б & Ко']);
+
+      // Рабочий чат менеджера письмо не принял — «передан менеджеру» не говорится и отметки нет.
+      sent.adminFails = true;
+      try {
+        expect(await asks.answerOfferAsk({ partnerId: guide, askId: (await ask3(guide)).id, answer: 'take', via: 'max' }))
+          .toEqual({ state: 'took', told: 'status', date: D, tourTitle: 'Мыс 4б с гидом' });
+      } finally {
+        sent.adminFails = false;
+      }
+      expect(await ask3(guide)).toMatchObject({ answer: 'take', told_via: null, manager_via: null, has_at: false });
+      // Отметка о менеджере — только у «Беру»: база не даст записать её вопросу без ответа или с «Не могу».
+      await expect(pool.query(`UPDATE other_offer_asks SET manager_via = 'max', manager_at = NOW() WHERE id = $1`, [(await ask3(opC)).id]))
+        .rejects.toMatchObject({ code: '23514' });
+      await expect(pool.query(`UPDATE other_offer_asks SET manager_via = 'sms', manager_at = NOW() WHERE id = $1`, [(await ask3(opB)).id]))
+        .rejects.toMatchObject({ code: '23514' });
+
+      // Удалили заявку — её вопросы ушли вместе с ней.
+      await pool.query(`DELETE FROM leads WHERE id = $1`, [lead3]);
+      expect((await pool.query(`SELECT 1 FROM other_offer_asks WHERE lead_id = $1`, [lead3])).rowCount).toBe(0);
+
+      await pool.query(`DELETE FROM tour_availability WHERE operator_tour_id = ANY($1::bigint[])`, [[tA, tB]]);
     });
 
     it('сообщение после ответа (2б, 1424): одно на ответ, в чат заявки, иначе менеджеру; прочли — «звонить не нужно»', async () => {
@@ -1610,6 +2813,704 @@ withPg('переписка по заявке на настоящем PostgreSQL'
       const st2 = (await pool.query(status.REQUEST_STATUS_BY_LEAD_SQL, [LH])).rows[0];
       expect(st2).toMatchObject({ lead_declined_answer_id: null });
       expect(status.shownAnswerRef(st2)).toBeNull();
+    });
+
+    it('change_request (12.11): право — у ключа новой заявки на тур; правило, журнал и лимит — те же, что у кнопок', async () => {
+      const { changeRequest, CHANGE_CANCEL_LEAD_SQL, CHANGE_DATE_LEAD_SQL } = await import('@/lib/mcp/change-request');
+      const { McpUserError } = await import('@/lib/mcp/jsonrpc');
+      const { MY_TRIP_DATE_REQUEST_LOG_SQL } = await import('@/lib/requests/my-trip-date');
+      const { kamchatkaToday } = await import('@/lib/seat-requests/core');
+      const day = (n: number) => {
+        const d = new Date(`${kamchatkaToday()}T00:00:00Z`);
+        d.setUTCDate(d.getUTCDate() + n);
+        return d.toISOString().slice(0, 10);
+      };
+      const [D0, D1, D2, D3, D4] = [day(10), day(12), day(14), day(16), day(18)];
+      const opId = (await pool.query<{ id: string }>(
+        `INSERT INTO partners (name, category, contact, slug, max_chat_id) VALUES ('Оператор ключа', 'operator', '{}', 'op-change-key', 9300399) RETURNING id`,
+      )).rows[0].id;
+      const tourId = (await pool.query<{ id: number }>(
+        `INSERT INTO operator_tours (title, base_price, operator_id, max_participants) VALUES ('Толбачик по ключу', 9000, $1, 12) RETURNING id`, [opId],
+      )).rows[0].id;
+      await pool.query(
+        `INSERT INTO tour_availability (operator_tour_id, date, available_slots, is_cancelled)
+         SELECT $1, d::date, 10, false FROM unnest($2::text[]) AS d`, [tourId, [D0, D1, D2, D3, D4]],
+      );
+      const mk = async (name: string, phone: string, extra: Record<string, unknown> = {}) => (await leads.createLeadDetailed({
+        name, phone, comment: `[Заявка на бронь] Тур "Толбачик по ключу" (ID${tourId}), дата ${D0}, участников 2.`,
+        route_title: 'Толбачик по ключу', source_url: 'mcp://vedar/booking', operator_id: opId, pd_consent: consentOf('operator'),
+        source_data: { source: 'mcp', tool: 'create_booking_request', tour_id: tourId, date: D0, participants: 2 },
+        skip_ai_processing: true, ...extra,
+      }))!;
+      const codeOf = async (p: Promise<unknown>) => {
+        const e = await p.then(() => null, (x: unknown) => x);
+        expect(e).toBeInstanceOf(McpUserError);
+        return (e as InstanceType<typeof McpUserError>).code;
+      };
+      const stateOf = async (lead: string) => (await pool.query<{ status: string; date: string }>(
+        `SELECT status, source_data->>'date' AS date FROM leads WHERE id = $1`, [lead],
+      )).rows[0]!;
+      const journal = async (lead: string) => (await pool.query(
+        `SELECT action, details FROM lead_activity_log
+          WHERE lead_id = $1 AND action IN ('client_cancelled', 'cancel_requested', 'date_changed', 'date_change_requested') ORDER BY id`, [lead],
+      )).rows;
+      const rightRows = async (sql: string, k: string) => (await pool.query(sql, [status.requestKeyHash(k)])).rows.length;
+
+      // ── 1. Право — в самом чтении заявки ─────────────────────────────────
+      const L1 = await mk('Кира Ключ', '+79995550701');
+      const fresh = (await status.issueRequestKeyRecord({ leadId: L1.id }, 'create_booking_request', { opensChat: true }))!;
+      const repeat = (await status.issueRequestKeyRecord({ leadId: L1.id }, 'create_booking_request', { opensChat: false }))!;
+      const expired = (await status.issueRequestKeyRecord({ leadId: L1.id }, 'create_booking_request', { opensChat: true }))!;
+      await pool.query(`UPDATE agent_request_keys SET expires_at = NOW() - INTERVAL '1 day' WHERE id = $1`, [expired.keyId]);
+      // Своя проба владельца с ключом переписки в жизни не выдаётся — право обязано держать и её.
+      const mine = await mk('Своя Проба', '+79995550709', { is_self: true });
+      const self = (await status.issueRequestKeyRecord({ leadId: mine.id }, 'create_booking_request', { opensChat: true }))!;
+      // Ключ другого инструмента с правом переписки (так выдаёт заявка на машину) — не заявка на тур.
+      const charter = (await status.issueRequestKeyRecord({ leadId: L1.id }, 'request_charter', { opensChat: true }))!;
+      for (const sql of [CHANGE_CANCEL_LEAD_SQL, CHANGE_DATE_LEAD_SQL]) {
+        expect(await rightRows(sql, fresh.key)).toBe(1);
+        expect(await rightRows(sql, repeat.key)).toBe(0);
+        expect(await rightRows(sql, expired.key)).toBe(0);
+        expect(await rightRows(sql, self.key)).toBe(0);
+        expect(await rightRows(sql, charter.key)).toBe(0);
+        // Ключ заявки на подбор (внешний `key`) — тоже.
+        expect(await rightRows(sql, key)).toBe(0);
+      }
+      // Перенос требует адресата, отмена — нет: заявку без оператора по ключу отменить можно, перенести — нет.
+      const lone = await mk('Нина Безадресная', '+79995550708');
+      const loneKey = (await status.issueRequestKeyRecord({ leadId: lone.id }, 'create_booking_request', { opensChat: true }))!;
+      await pool.query(`UPDATE leads SET operator_id = NULL WHERE id = $1`, [lone.id]);
+      expect(await rightRows(CHANGE_CANCEL_LEAD_SQL, loneKey.key)).toBe(1);
+      expect(await rightRows(CHANGE_DATE_LEAD_SQL, loneKey.key)).toBe(0);
+      expect(await codeOf(changeRequest({ key: loneKey.key, action: 'change_date', date: D1 }, 'mcp'))).toBe('no_addressee');
+      expect(await codeOf(changeRequest({ key: charter.key, action: 'cancel' }, 'mcp'))).toBe('not_supported');
+      sent.pd.length = 0;
+      expect(await codeOf(changeRequest({ key: repeat.key, action: 'cancel' }, 'mcp'))).toBe('status_only_key');
+      expect(await codeOf(changeRequest({ key: repeat.key, action: 'cancel', test: true }, 'mcp'))).toBe('status_only_key');
+      expect(await codeOf(changeRequest({ key: self.key, action: 'cancel' }, 'mcp'))).toBe('status_only_key');
+      expect(await codeOf(changeRequest({ key: expired.key, action: 'cancel' }, 'mcp'))).toBe('key_not_found');
+      expect(await codeOf(changeRequest({ key: 'A'.repeat(32), action: 'change_date', date: D1 }, 'mcp'))).toBe('key_not_found');
+      expect(await codeOf(changeRequest({ key, action: 'cancel' }, 'mcp'))).toBe('not_supported');
+      expect(await stateOf(L1.id)).toEqual({ status: 'new', date: D0 });
+      expect(await stateOf(mine.id)).toEqual({ status: 'new', date: D0 });
+
+      // ── 2. Проба: что произошло бы — и ни записи, ни сообщения ───────────
+      const dry = await changeRequest({ key: fresh.key, action: 'cancel', test: true }, 'mcp');
+      expect(dry).toMatchObject({ outcome: 'would_cancel', changed: false, test: true, told: null, date: D0 });
+      const dryDate = await changeRequest({ key: fresh.key, action: 'change_date', date: D1, test: true }, 'mcp');
+      expect(dryDate).toMatchObject({ outcome: 'would_change_date', changed: false, test: true, date: D0 });
+      expect(await stateOf(L1.id)).toEqual({ status: 'new', date: D0 });
+      expect(await journal(L1.id)).toEqual([]);
+      expect(sent.pd).toHaveLength(0);
+
+      // ── 3. Перенос до ответа оператора — сразу ───────────────────────────
+      const moved = await changeRequest({ key: fresh.key, action: 'change_date', date: D1 }, 'mcp');
+      expect(moved).toMatchObject({ action: 'change_date', outcome: 'date_changed', changed: true, test: false, told: 'operator', date: D1 });
+      expect(await stateOf(L1.id)).toEqual({ status: 'new', date: D1 });
+      expect(sent.pd).toHaveLength(1);
+      expect(sent.pd[0]!.text).toContain('Турист перенёс заявку на другую дату');
+      expect(sent.pd[0]!.text).toContain('Передал ИИ-агент туриста по ключу заявки.');
+      expect(sent.pd[0]!.text).not.toMatch(/Кира|79995550701/);
+      expect(await journal(L1.id)).toEqual([
+        { action: 'date_changed', details: { from: D0, to: D1, channel: 'mcp', delivery: 'max' } },
+      ]);
+      // Статус по тому же ключу видит новую дату.
+      expect(await status.readRequestStatus(fresh.key)).toMatchObject({ requested_date: D1 });
+      // Дня без выезда в календаре нет — ничего не меняется.
+      expect(await changeRequest({ key: fresh.key, action: 'change_date', date: day(11) }, 'mcp'))
+        .toMatchObject({ outcome: 'no_seats', changed: false, date: D1 });
+
+      // ── 4. Оператор ответил — просьба; лимит за сутки держит сам запрос ──
+      await pool.query(`UPDATE leads SET status = 'contacted' WHERE id = $1`, [L1.id]);
+      sent.pd.length = 0;
+      const asked = await changeRequest({ key: fresh.key, action: 'change_date', date: D2 }, 'a2a');
+      expect(asked).toMatchObject({ outcome: 'date_change_requested', changed: false, told: 'operator', date: D1 });
+      expect(await stateOf(L1.id)).toEqual({ status: 'contacted', date: D1 });
+      expect(sent.pd[0]!.text).toContain('Турист просит перенести заявку');
+      expect(sent.pd[0]!.text).toContain('Передал ИИ-агент туриста по ключу заявки.');
+      expect((await journal(L1.id))[1]).toEqual(
+        { action: 'date_change_requested', details: { from: D1, to: D2, channel: 'a2a', delivery: 'max' } },
+      );
+      // Третье действие за сутки проходит, четвёртое — нет, и оператору не уходит ничего.
+      expect(await changeRequest({ key: fresh.key, action: 'change_date', date: D3 }, 'mcp')).toMatchObject({ outcome: 'date_change_requested' });
+      sent.pd.length = 0;
+      expect(await changeRequest({ key: fresh.key, action: 'change_date', date: D4 }, 'mcp')).toMatchObject({ outcome: 'daily_limit', changed: false, date: D1 });
+      expect(await changeRequest({ key: fresh.key, action: 'change_date', date: D4, test: true }, 'mcp')).toMatchObject({ outcome: 'daily_limit', test: true });
+      expect(sent.pd).toHaveLength(0);
+      // Вызов, прошедший чтение «до лимита» (параллельный), запись всё равно не сделает: условие — в запросе.
+      expect((await pool.query(MY_TRIP_DATE_REQUEST_LOG_SQL, [L1.id, D1, D4, 'mcp'])).rows).toEqual([]);
+      expect(await journal(L1.id)).toHaveLength(3);
+
+      // ── 5. Отмена после ответа — просьба, заявка в силе; повтор не дублирует ─
+      sent.pd.length = 0;
+      const wouldAsk = await changeRequest({ key: fresh.key, action: 'cancel', test: true }, 'mcp');
+      expect(wouldAsk).toMatchObject({ outcome: 'would_request_cancel', changed: false, test: true });
+      expect(sent.pd).toHaveLength(0);
+      const cancelAsked = await changeRequest({ key: fresh.key, action: 'cancel' }, 'mcp');
+      expect(cancelAsked).toMatchObject({ outcome: 'cancel_requested', changed: false, told: 'operator', date: D1 });
+      expect((await stateOf(L1.id)).status).toBe('contacted');
+      expect(sent.pd).toHaveLength(1);
+      expect(sent.pd[0]!.text).toContain('Турист просит отменить заявку');
+      expect(sent.pd[0]!.text).toContain('Просьбу передал ИИ-агент туриста по ключу заявки.');
+      expect(await changeRequest({ key: fresh.key, action: 'cancel' }, 'a2a')).toMatchObject({ outcome: 'cancel_already_requested', changed: false, told: 'operator' });
+      expect(sent.pd).toHaveLength(1);
+
+      // ── 6. Отмена до ответа — сразу и навсегда ───────────────────────────
+      const L2 = await mk('Лев Ключ', '+79995550702');
+      const k2 = (await status.issueRequestKeyRecord({ leadId: L2.id }, 'create_booking_request', { opensChat: true }))!;
+      sent.pd.length = 0;
+      const done = await changeRequest({ key: k2.key, action: 'cancel' }, 'a2a');
+      expect(done).toMatchObject({ action: 'cancel', outcome: 'cancelled', changed: true, test: false, told: 'operator', date: D0 });
+      expect((await stateOf(L2.id)).status).toBe('cancelled');
+      expect(sent.pd).toHaveLength(1);
+      expect(sent.pd[0]!.text).toContain('Отмену передал ИИ-агент туриста по ключу заявки, пока вы не ответили.');
+      expect(sent.pd[0]!.text).not.toContain('в чате Ведара');
+      expect(await journal(L2.id)).toEqual([
+        { action: 'client_cancelled', details: { channel: 'a2a', from: 'new', delivery: 'max', manager: 'not_needed' } },
+      ]);
+      expect(await status.readRequestStatus(k2.key)).toMatchObject({ state: 'cancelled', human: 'Заявка отменена клиентом.' });
+      sent.pd.length = 0;
+      expect(await changeRequest({ key: k2.key, action: 'cancel' }, 'mcp')).toMatchObject({ outcome: 'already_cancelled', changed: false });
+      expect(await changeRequest({ key: k2.key, action: 'change_date', date: D1 }, 'mcp')).toMatchObject({ outcome: 'closed', changed: false });
+      expect(sent.pd).toHaveLength(0);
+
+      // Агенту — без ключа и без номера заявки (номер — оракул, ключ — второй ключ от заявки).
+      for (const r of [dry, dryDate, moved, asked, wouldAsk, cancelAsked, done]) {
+        const flat = JSON.stringify(r);
+        for (const secret of [fresh.key, k2.key, L1.id, L2.id, opId]) expect(flat).not.toContain(secret);
+      }
+    });
+
+    it('«Отказ» с причиной из кабинета (этап 3а): причина, журнал и сообщение человеку — одной командой; смена статуса причину стирает', async () => {
+      const { changeLeadStatus } = await import('@/lib/leads/owner-lead-status');
+      const answers = await import('@/lib/requests/chat-answer');
+      const notices = await import('@/lib/requests/answer-notice');
+      const { kamchatkaToday } = await import('@/lib/seat-requests/core');
+      const day = (n: number) => {
+        const d = new Date(`${kamchatkaToday()}T00:00:00Z`);
+        d.setUTCDate(d.getUTCDate() + n);
+        return d.toISOString().slice(0, 10);
+      };
+      const [D0, D1] = [day(20), day(22)];
+      const opId = (await pool.query<{ id: string }>(
+        `INSERT INTO partners (name, category, contact, slug) VALUES ('Оператор 3а', 'operator', '{}', 'op-3a') RETURNING id`,
+      )).rows[0].id;
+      const otherOp = (await pool.query<{ id: string }>(
+        `INSERT INTO partners (name, category, contact, slug) VALUES ('Сосед 3а', 'operator', '{}', 'op-3a-other') RETURNING id`,
+      )).rows[0].id;
+      const tourId = (await pool.query<{ id: number }>(
+        `INSERT INTO operator_tours (title, base_price, operator_id, max_participants) VALUES ('Мутновский 3а', 9000, $1, 12) RETURNING id`, [opId],
+      )).rows[0].id;
+      await pool.query(
+        `INSERT INTO tour_availability (operator_tour_id, date, available_slots, is_cancelled)
+         SELECT $1, d::date, 10, false FROM unnest($2::text[]) AS d`, [tourId, [D0, D1]],
+      );
+      const mk = async (name: string, phone: string, extra: Record<string, unknown> = {}) => (await leads.createLeadDetailed({
+        name, phone, comment: `[Заявка на бронь] Тур "Мутновский 3а" (ID${tourId}), дата ${D0}, участников 2.`,
+        route_title: 'Мутновский 3а', source_url: 'mcp://vedar/booking', operator_id: opId, pd_consent: consentOf('operator'),
+        source_data: { source: 'mcp', tool: 'create_booking_request', tour_id: tourId, date: D0, participants: 2 },
+        skip_ai_processing: true, ...extra,
+      }))!.id;
+      const owner = { kind: 'owner' as const, partnerId: opId, claimUnowned: true };
+      const close = (lead: string, reason: Parameters<typeof changeLeadStatus>[0]['lost'] extends infer L ? L extends { reason: infer R } ? R : never : never, scope = owner) =>
+        changeLeadStatus({
+          leadId: lead, status: 'lost', actor: { kind: 'partner_user', userId: null }, scope, via: 'site',
+          lost: { reason, partnerId: scope.partnerId },
+        });
+      const set = (lead: string, st: 'contacted' | 'lost' | 'qualified') => changeLeadStatus({
+        leadId: lead, status: st, actor: { kind: 'partner_user', userId: null }, scope: owner, via: 'site',
+      });
+      const leadOf = async (lead: string) => (await pool.query<{ status: string; lost_reason: string | null; operator_id: string | null }>(
+        `SELECT status, lost_reason, operator_id::text AS operator_id FROM leads WHERE id = $1`, [lead],
+      )).rows[0]!;
+      const closings = async (lead: string) => (await pool.query<{ id: string; actor: string; details: Record<string, unknown> }>(
+        `SELECT id::text AS id, actor, details FROM lead_activity_log WHERE lead_id = $1 AND action = 'seller_closed' ORDER BY id`, [lead],
+      )).rows;
+      const noticesOf = async (lead: string) => (await pool.query<{
+        id: string; activity_id: string | null; answer_id: string | null; answer: string; decline_reason: string | null;
+        lead_status_before: string | null; state: string; skipped_reason: string | null; held: boolean; delivered_via: string | null;
+      }>(
+        `SELECT id::text AS id, activity_id::text AS activity_id, answer_id::text AS answer_id, answer, decline_reason, lead_status_before,
+                state, skipped_reason, (claimed_until > NOW()) AS held, delivered_via
+           FROM answer_notices WHERE lead_id = $1::uuid ORDER BY id`, [lead],
+      )).rows;
+      const viewOf = async (k: string) => status.readRequestStatus(k, { reader: 'agent' });
+
+      // ── 1. Прежний вызов без причины работает как раньше ─────────────────
+      const L1 = await mk('Зоя Закрытие', '+79995550901');
+      const k1 = (await status.issueRequestKeyRecord({ leadId: L1 }, 'create_booking_request', { opensChat: true }))!;
+      const C1 = 9_300_071;
+      expect(await links.linkChatToKeys('max', C1, [k1.key], 'created')).toBe(1);
+      const first = await set(L1, 'contacted');
+      expect(first).toMatchObject({ kind: 'ok', changed: true, prevStatus: 'new' });
+      expect(first.kind === 'ok' && first.closed).toBeUndefined();
+      expect(await closings(L1)).toHaveLength(0);
+      expect(await noticesOf(L1)).toHaveLength(0);
+
+      // ── 2. Отказ продавца: причина в заявке, журнал и строка сообщения — тем же запросом ──
+      const closed = await close(L1, 'seats');
+      expect(closed).toMatchObject({ kind: 'ok', changed: true, prevStatus: 'contacted', lead: { status: 'lost' } });
+      if (closed.kind !== 'ok' || !closed.closed?.notice) throw new Error('закрытие с причиной не записало сообщение');
+      expect(await leadOf(L1)).toMatchObject({ status: 'lost', lost_reason: 'seats' });
+      const j1 = await closings(L1);
+      expect(j1).toEqual([{ id: closed.closed.activityId, actor: 'partner', details: { reason: 'seats', via: 'site', from: 'contacted' } }]);
+      expect(await noticesOf(L1)).toEqual([expect.objectContaining({
+        id: closed.closed.notice.id, activity_id: closed.closed.activityId, answer_id: null, answer: 'decline', decline_reason: 'seats',
+        lead_status_before: 'contacted', state: 'pending', skipped_reason: null, held: true,
+      })]);
+      // Повтор той же отметки — не событие: ни второй записи журнала, ни второго сообщения.
+      const again = await close(L1, 'weather');
+      expect(again).toMatchObject({ kind: 'ok', changed: false, prevStatus: 'lost' });
+      expect(again.kind === 'ok' && again.closed).toBeUndefined();
+      expect(await leadOf(L1)).toMatchObject({ lost_reason: 'seats' });
+      expect(await closings(L1)).toHaveLength(1);
+      expect(await noticesOf(L1)).toHaveLength(1);
+      // Заметка к уже закрытой заявке с другой причиной в том же запросе: заметка записана,
+      // а второго отказа нет — ни причины поверх прежней, ни журнала, ни второго сообщения человеку.
+      const noted = await changeLeadStatus({
+        leadId: L1, status: 'lost', notes: 'звонил ещё раз', actor: { kind: 'partner_user', userId: null }, scope: owner, via: 'site',
+        lost: { reason: 'weather', partnerId: opId },
+      });
+      expect(noted).toMatchObject({ kind: 'ok', changed: false, prevStatus: 'lost', lead: { status: 'lost', notes: 'звонил ещё раз' } });
+      expect(noted.kind === 'ok' && noted.closed).toBeUndefined();
+      expect(await leadOf(L1)).toMatchObject({ lost_reason: 'seats' });
+      expect(await closings(L1)).toHaveLength(1);
+      expect(await noticesOf(L1)).toHaveLength(1);
+
+      // Статус для человека и ИИ-агента — словами отказа с причиной, и вид построен из этого закрытия.
+      const row1 = (await pool.query(status.REQUEST_STATUS_BY_KEY_IDS_SQL, [[k1.keyId]])).rows[0] as import('@/lib/mcp/request-status').StatusRow;
+      expect(row1).toMatchObject({ lead_status: 'lost', lead_lost_reason: 'seats', lead_closed_id: closed.closed.activityId });
+      expect(status.shownAnswerRef(row1)).toEqual({ source: 'closed', id: closed.closed.activityId });
+      // Сообщение человеку уходит в его чат теми же словами, что после кнопки «Отказать»; ПД в нём нет.
+      sent.dm.length = 0;
+      sent.pd.length = 0;
+      const o1 = await notices.deliverAnswerNotice(closed.closed.notice.id);
+      expect(o1).toMatchObject({ state: 'delivered', via: 'max' });
+      expect(sent.dm).toHaveLength(1);
+      expect(String(sent.dm[0]!.chatId)).toBe(String(C1));
+      expect(sent.dm[0]!.text).toContain('Оператор «Оператор 3а»');
+      expect(sent.dm[0]!.text).toContain('Оператор «Оператор 3а» отказал по заявке: мест нет. Заявка закрыта');
+      expect(sent.dm[0]!.text).not.toMatch(/Зоя|79995550901/);
+      expect(sent.pd).toHaveLength(0);
+      const v1 = await viewOf(k1.key);
+      expect(v1).toMatchObject({ state: 'declined', human: 'Оператор отказал по заявке. Причина: нет мест.' });
+
+      // ── 3. Вернули в работу — причина стёрта базой; закрыли другой дверью без причины — чужой причины нет ──
+      expect(await set(L1, 'contacted')).toMatchObject({ changed: true, prevStatus: 'lost' });
+      expect(await leadOf(L1)).toMatchObject({ status: 'contacted', lost_reason: null });
+      await pool.query(`UPDATE leads SET status = 'lost' WHERE id = $1`, [L1]); // как кнопка администратора (status-action)
+      expect(await leadOf(L1)).toMatchObject({ status: 'lost', lost_reason: null });
+      const row1b = (await pool.query(status.REQUEST_STATUS_BY_KEY_IDS_SQL, [[k1.keyId]])).rows[0] as import('@/lib/mcp/request-status').StatusRow;
+      expect(row1b).toMatchObject({ lead_lost_reason: null, lead_closed_id: null });
+      expect(status.shownAnswerRef(row1b)).toBeNull();
+      expect(await viewOf(k1.key)).toMatchObject({ state: 'declined', human: 'Оператор отказал по заявке или она не состоялась.' });
+
+      // Триггер смотрит на смену статуса, а не на любую правку: заметка причину не трогает,
+      // чужая запись статуса — стирает.
+      const L2 = await mk('Яна Причина', '+79995550902');
+      const k2 = (await status.issueRequestKeyRecord({ leadId: L2 }, 'create_booking_request', { opensChat: true }))!;
+      const c2 = await close(L2, 'no_contact');
+      expect(await leadOf(L2)).toMatchObject({ status: 'lost', lost_reason: 'no_contact' });
+      await pool.query(`UPDATE leads SET notes = 'перезвонить в мае' WHERE id = $1`, [L2]);
+      expect(await leadOf(L2)).toMatchObject({ lost_reason: 'no_contact' });
+      // ── 4. Причина на стороне клиента: журнал есть, сообщения человеку нет ──
+      expect(c2.kind === 'ok' && c2.closed).toMatchObject({ notice: null });
+      expect(await closings(L2)).toEqual([expect.objectContaining({ details: { reason: 'no_contact', via: 'site', from: 'new' } })]);
+      expect(await noticesOf(L2)).toHaveLength(0);
+      const v2 = await viewOf(k2.key);
+      expect(v2.state).toBe('declined');
+      expect(v2.human).toBe('Оператор закрыл заявку: по его словам, связаться с человеком по телефону из заявки не удалось.');
+      await pool.query(`UPDATE leads SET status = 'ai_qualified' WHERE id = $1`, [L2]); // конвейер заявок
+      expect(await leadOf(L2)).toMatchObject({ status: 'ai_qualified', lost_reason: null });
+      // Мусор в колонку база не принимает.
+      await expect(pool.query(`UPDATE leads SET lost_reason = 'просто так' WHERE id = $1`, [L2])).rejects.toMatchObject({ code: '23514' });
+
+      // ── 5. Кому сообщение не рождается «к отправке» ───────────────────────
+      // Ничейная заявка, которую кабинет занял этим же действием: человек этому продавцу её не слал.
+      const L3 = await mk('Ничья Заявка', '+79995550903', { operator_id: null });
+      const c3 = await close(L3, 'dates');
+      expect(c3.kind === 'ok' && c3.closed?.notice).toMatchObject({ state: 'skipped', skipped: 'not_addressee' });
+      expect(await leadOf(L3)).toMatchObject({ status: 'lost', lost_reason: 'dates', operator_id: opId });
+      // Чужая заявка недоступна вовсе: ни статуса, ни журнала.
+      const L4 = await mk('Чужая Заявка', '+79995550904', { operator_id: otherOp });
+      expect(await close(L4, 'seats')).toEqual({ kind: 'not_found' });
+      expect(await leadOf(L4)).toMatchObject({ status: 'new', lost_reason: null });
+      expect(await closings(L4)).toHaveLength(0);
+      // Своя проба владельца.
+      const L5 = await mk('Своя Проба', '+79995550905', { is_self: true });
+      const c5 = await close(L5, 'other');
+      expect(c5.kind === 'ok' && c5.closed?.notice).toMatchObject({ state: 'skipped', skipped: 'self' });
+      // Заявка на машину: причина и журнал есть, строки сообщения нет — у неё свой ответ и свои слова.
+      const L6 = await mk('Машина Целиком', '+79995550906', { source_data: { source: 'mcp', tool: 'request_charter', kind: 'charter' } });
+      const c6 = await close(L6, 'seats');
+      expect(c6.kind === 'ok' && c6.closed).toMatchObject({ notice: null });
+      expect(await noticesOf(L6)).toHaveLength(0);
+      // Заявку отменил клиент: её не закрывают «отказом» — ни статуса, ни причины, ни журнала.
+      const L7 = await mk('Отменил Сам', '+79995550907');
+      await pool.query(`UPDATE leads SET status = 'cancelled' WHERE id = $1`, [L7]);
+      const c7 = await close(L7, 'seats');
+      expect(c7).toMatchObject({ kind: 'ok', changed: false, prevStatus: 'cancelled', lead: { status: 'cancelled' } });
+      expect(c7.kind === 'ok' && c7.closed).toBeUndefined();
+      expect(await leadOf(L7)).toMatchObject({ status: 'cancelled', lost_reason: null });
+      expect(await closings(L7)).toHaveLength(0);
+      expect(await noticesOf(L7)).toHaveLength(0);
+      // И с заметкой в том же запросе: заметка записана, причина отказа к отменённой заявке не прилипает.
+      const c7n = await changeLeadStatus({
+        leadId: L7, status: 'lost', notes: 'поздно узнал', actor: { kind: 'partner_user', userId: null }, scope: owner, via: 'site',
+        lost: { reason: 'seats', partnerId: opId },
+      });
+      expect(c7n).toMatchObject({ kind: 'ok', changed: false, prevStatus: 'cancelled', lead: { status: 'cancelled', notes: 'поздно узнал' } });
+      expect(await leadOf(L7)).toMatchObject({ status: 'cancelled', lost_reason: null });
+      expect(await closings(L7)).toHaveLength(0);
+      expect(await noticesOf(L7)).toHaveLength(0);
+
+      // ── 6. Последнее слово продавца: закрытие с причиной новее ответа кнопкой, и наоборот ──
+      const L8 = await mk('Ольга Порядок', '+79995550908');
+      const k8 = (await status.issueRequestKeyRecord({ leadId: L8 }, 'create_booking_request', { opensChat: true }))!;
+      // Кнопка «Отказать: погода» в чате: ответ и статус, причины в заявке нет — говорит ответ.
+      const pressed = await answers.recordChatAnswer({ partnerId: opId, kind: 'lead', subjectId: L8, answer: 'decline', reason: 'weather', expectDate: D0 });
+      expect(pressed).toMatchObject({ ok: true, already: false, notice: { state: 'pending' } });
+      expect(await set(L8, 'lost')).toMatchObject({ changed: true });
+      expect(await leadOf(L8)).toMatchObject({ status: 'lost', lost_reason: null });
+      // Вид читается по строке, без отметки прочтения: сообщение об ответе кнопкой остаётся «ждёт».
+      const row8 = (await pool.query(status.REQUEST_STATUS_BY_KEY_IDS_SQL, [[k8.keyId]])).rows[0] as import('@/lib/mcp/request-status').StatusRow;
+      expect(status.buildRequestView(row8, Date.now()).human).toBe('Оператор отказал по заявке. Причина: погода, безопасность.');
+      expect(status.shownAnswerRef(row8)).toMatchObject({ source: 'tour' });
+      // Вернул в работу и закрыл в кабинете с другой причиной: говорит закрытие, ответ кнопкой вид больше не строит.
+      await set(L8, 'contacted');
+      const c8 = await close(L8, 'dates');
+      if (c8.kind !== 'ok' || !c8.closed?.notice) throw new Error('второе закрытие не записало сообщение');
+      expect(c8.closed.notice.state).toBe('pending');
+      const row8b = (await pool.query(status.REQUEST_STATUS_BY_KEY_IDS_SQL, [[k8.keyId]])).rows[0] as import('@/lib/mcp/request-status').StatusRow;
+      expect(status.shownAnswerRef(row8b)).toEqual({ source: 'closed', id: c8.closed.activityId });
+      // Агент прочитал статус по ключу новой заявки — это доставка именно этого сообщения.
+      expect((await viewOf(k8.key)).human).toBe('Оператор отказал по заявке. Причина: даты не подходят.');
+      const n8 = await noticesOf(L8);
+      expect(n8.find((n) => n.id === c8.closed!.notice!.id)).toMatchObject({ state: 'delivered', delivered_via: 'agent_read' });
+      // Сообщение об ответе кнопкой при этом «доставленным чтением» не стало: вид был не из него.
+      expect(n8.find((n) => n.answer_id !== null)).toMatchObject({ state: 'pending' });
+
+      // ── 7. Продавец вернул заявку в работу раньше, чем сообщение ушло: отказ взят назад — не отправляется ──
+      const L9 = await mk('Вера Возврат', '+79995550909');
+      const k9 = (await status.issueRequestKeyRecord({ leadId: L9 }, 'create_booking_request', { opensChat: true }))!;
+      const C9 = 9_300_079;
+      expect(await links.linkChatToKeys('max', C9, [k9.key], 'created')).toBe(1);
+      const c9 = await close(L9, 'group');
+      if (c9.kind !== 'ok' || !c9.closed?.notice) throw new Error('закрытие с причиной не записало сообщение');
+      await set(L9, 'contacted');
+      sent.dm.length = 0;
+      expect(await notices.deliverAnswerNotice(c9.closed.notice.id)).toMatchObject({ state: 'skipped', reason: 'outgrown' });
+      expect(sent.dm).toHaveLength(0);
+      expect((await noticesOf(L9))[0]).toMatchObject({ state: 'skipped', skipped_reason: 'outgrown' });
+
+      // ── 8. Тот же запрос у остальных скоупов: номера параметров у них другие, и выполниться он обязан у каждого ──
+      // Администратор закрывает без причины: ни причины, ни журнала, ни сообщения.
+      const L10 = await mk('Админ Закрыл', '+79995550910');
+      const a10 = await changeLeadStatus({ leadId: L10, status: 'lost', actor: { kind: 'admin', userId: null }, scope: { kind: 'admin' }, via: 'site' });
+      expect(a10).toMatchObject({ kind: 'ok', changed: true, prevStatus: 'new', lead: { status: 'lost' } });
+      expect(a10.kind === 'ok' && a10.closed).toBeUndefined();
+      expect(await leadOf(L10)).toMatchObject({ status: 'lost', lost_reason: null });
+      expect(await closings(L10)).toHaveLength(0);
+      expect(await noticesOf(L10)).toHaveLength(0);
+      // Оператор без карточки: только ничейные, занять нечем.
+      const L11 = await mk('Ничья Вторая', '+79995550911', { operator_id: null });
+      const noCard = { kind: 'unowned_only' as const };
+      expect(await changeLeadStatus({ leadId: L11, status: 'lost', actor: { kind: 'partner_user', userId: null }, scope: noCard, via: 'site' }))
+        .toMatchObject({ kind: 'ok', changed: true, lead: { status: 'lost' } });
+      expect(await leadOf(L11)).toMatchObject({ status: 'lost', lost_reason: null, operator_id: null });
+      expect(await changeLeadStatus({ leadId: L10, status: 'contacted', actor: { kind: 'partner_user', userId: null }, scope: noCard, via: 'site' }))
+        .toEqual({ kind: 'not_found' });
+      // Гид: только адресованные его карточке — отказ с причиной рождает сообщение; ничейную не видит и не занимает.
+      const guideScope = { kind: 'owner' as const, partnerId: opId, claimUnowned: false };
+      const L12 = await mk('Гид Отказал', '+79995550912');
+      const g12 = await close(L12, 'weather', guideScope);
+      expect(g12.kind === 'ok' && g12.closed?.notice).toMatchObject({ state: 'pending', skipped: null });
+      expect(await leadOf(L12)).toMatchObject({ status: 'lost', lost_reason: 'weather' });
+      const L13 = await mk('Ничья Третья', '+79995550913', { operator_id: null });
+      expect(await close(L13, 'seats', guideScope)).toEqual({ kind: 'not_found' });
+      expect(await leadOf(L13)).toMatchObject({ status: 'new', lost_reason: null, operator_id: null });
+      await pool.query(`DELETE FROM tour_availability WHERE operator_tour_id = $1::bigint`, [tourId]);
+    });
+
+    it('очередь менеджера (этап 3б, 1430): три источника настоящими запросами; случай стоит, пока вид заявки построен из отказа; «Взял» — один раз', async () => {
+      const queue = await import('@/lib/manager-queue/queue');
+      const { managerQueueUrl } = await import('@/lib/manager-queue/link');
+      const { changeLeadStatus } = await import('@/lib/leads/owner-lead-status');
+      const notices = await import('@/lib/requests/answer-notice');
+      const { answerRentalRequest } = await import('@/lib/rental/request-answer-flow');
+      const { claimPartnerAnswer } = await import('@/lib/rental/request-answer-store');
+      const { answerStayRequest } = await import('@/lib/stay/owner-answer-flow');
+      const { PD_CONSENT_STAY_VERSION } = await import('@/lib/legal/pd-consent');
+      const { kamchatkaToday } = await import('@/lib/seat-requests/core');
+      const QUEUE_LINE = `В очереди менеджера — там же отметка «Взял»: ${managerQueueUrl()}`;
+
+      const one = async <T extends Record<string, unknown>>(sql: string, params: unknown[] = []) => (await pool.query<T>(sql, params)).rows[0]!;
+      const day = (n: number) => {
+        const d = new Date(`${kamchatkaToday()}T00:00:00Z`);
+        d.setUTCDate(d.getUTCDate() + n);
+        return d.toISOString().slice(0, 10);
+      };
+      const [D0, D1] = [day(25), day(26)];
+      const today = (await one<{ d: string }>(`SELECT NOW()::date::text AS d`)).d;
+      const tomorrow = (await one<{ d: string }>(`SELECT (NOW() + INTERVAL '1 day')::date::text AS d`)).d;
+      // День начала очереди в проверке задан явно: сцена не зависит от часов раннера.
+      const SINCE = '2026-01-01';
+      const load = (since = SINCE) => queue.loadManagerQueue({ since });
+      type Source = Awaited<ReturnType<typeof load>>['answer_notice' | 'vehicle_decline' | 'stay_busy'];
+      const itemOf = (s: Source, id: string) => {
+        if (s.state !== 'ok') throw new Error('источник очереди не прочитался');
+        return (s.items as Array<{ id: string }>).find((i) => i.id === id) ?? null;
+      };
+      const marks = async (kind: string, id: string) => (await pool.query<{ taken_by: string | null; via: string }>(
+        `SELECT taken_by::text AS taken_by, via FROM manager_queue_takes WHERE subject_kind = $1 AND subject_id = $2`, [kind, id],
+      )).rows;
+
+      const user = async (email: string, name: string) => (await one<{ id: string }>(
+        `INSERT INTO users (email, name, password_hash, role) VALUES ($1, $2, 'x', 'admin') RETURNING id`, [email, name],
+      )).id;
+      const U1 = await user('queue-one@example.com', 'Ирина Первая');
+      const U2 = await user('queue-two@example.com', 'Олег Второй');
+      const NAME: Record<string, string> = { [U1]: 'Ирина Первая', [U2]: 'Олег Второй' };
+
+      // ── 1. Отказ оператора, не дошедший до человека ──────────────────────
+      const opId = (await one<{ id: string }>(
+        `INSERT INTO partners (name, category, contact, slug) VALUES ('Оператор 3б', 'operator', '{}', 'op-3b') RETURNING id`,
+      )).id;
+      const tourId = (await one<{ id: number }>(
+        `INSERT INTO operator_tours (title, base_price, operator_id, max_participants) VALUES ('Толбачик 3б', 9000, $1, 12) RETURNING id`, [opId],
+      )).id;
+      const mk = async (name: string, phone: string) => (await leads.createLeadDetailed({
+        name, phone, comment: `[Заявка на бронь] Тур "Толбачик 3б" (ID${tourId}), дата ${D0}, участников 3.`,
+        route_title: 'Толбачик 3б', source_url: 'mcp://vedar/booking', operator_id: opId, pd_consent: consentOf('operator'),
+        source_data: { source: 'mcp', tool: 'create_booking_request', tour_id: tourId, date: D0, participants: 3 },
+        skip_ai_processing: true,
+      }))!.id;
+      const owner = { kind: 'owner' as const, partnerId: opId, claimUnowned: true };
+      const actor = { kind: 'partner_user' as const, userId: null };
+      const set = (lead: string, st: 'contacted' | 'lost') => changeLeadStatus({ leadId: lead, status: st, actor, scope: owner, via: 'site' });
+      /** «Отказ» с причиной на сайте; у человека нет ни чата, ни ИИ-агента — сообщение не дошло, менеджеру ушло письмо. */
+      const refuse = async (lead: string) => {
+        const c = await changeLeadStatus({
+          leadId: lead, status: 'lost', actor, scope: owner, via: 'site', lost: { reason: 'seats', partnerId: opId },
+        });
+        if (c.kind !== 'ok' || !c.closed?.notice) throw new Error('закрытие с причиной не записало сообщение');
+        expect(await notices.deliverAnswerNotice(c.closed.notice.id)).toMatchObject({ state: 'undelivered', manager: 'max' });
+        return c.closed.notice.id;
+      };
+
+      const L1 = await mk('Зинаида Очередь', '+79995551101');
+      sent.pd.length = 0;
+      const N1 = await refuse(L1);
+      // Письмо менеджеру о недоставке ведёт в очередь — первой кнопкой.
+      expect(sent.pd).toHaveLength(1);
+      expect((sent.pd[0]!.buttons as Array<{ text: string; url: string }>)[0]).toEqual({ text: 'Очередь менеджера', url: managerQueueUrl() });
+
+      const q1 = await load();
+      expect(itemOf(q1.answer_notice, N1)).toEqual({
+        kind: 'answer_notice', id: N1, happened_at: expect.stringMatching(/^\d{4}-\d{2}-\d{2}T/), partner_name: 'Оператор 3б',
+        contact_name: 'Зинаида Очередь', contact_phone: '+79995551101', take: null,
+        lead_id: L1, lead_status: 'lost', answer: 'decline', decline_reason: 'seats', manager_channel: 'max',
+        tour_title: 'Толбачик 3б', date: D0, people: 3, takes: [],
+      });
+      // День начала очереди: по умолчанию — константа, случай раньше неё в очередь не входит.
+      expect(itemOf((await queue.loadManagerQueue()).answer_notice, N1) !== null).toBe(today >= queue.MANAGER_QUEUE_SINCE);
+      expect(itemOf((await load(tomorrow)).answer_notice, N1)).toBeNull();
+      expect(await queue.takeQueueItem({ kind: 'answer_notice', id: N1, userId: U1, via: 'site' }, { since: tomorrow })).toEqual({ kind: 'not_in_queue' });
+      expect(await marks('answer_notice', N1)).toEqual([]);
+
+      // Сверка идёт одним запросом на список: строка на заявку, повтор заявки строку не множит.
+      const LX = await mk('Соседняя Заявка', '+79995551109');
+      const rows = (await pool.query<{ lead_id: string; lead_status: string }>(status.REQUEST_STATUS_BY_LEADS_SQL, [[L1, LX, L1]])).rows;
+      expect(rows.map((r) => [r.lead_id, r.lead_status]).sort()).toEqual([[L1, 'lost'], [LX, 'new']].sort());
+
+      // Своя проба владельца сайта в очередь не встаёт.
+      const L2 = await mk('Своя Проба', '+79995551102');
+      const N2 = await refuse(L2);
+      expect(itemOf((await load()).answer_notice, N2)).not.toBeNull();
+      await pool.query(`UPDATE leads SET is_self = TRUE WHERE id = $1`, [L2]);
+      expect(itemOf((await load()).answer_notice, N2)).toBeNull();
+      expect(await queue.takeQueueItem({ kind: 'answer_notice', id: N2, userId: U1, via: 'site' }, { since: SINCE })).toEqual({ kind: 'not_in_queue' });
+
+      // ── 2. «Взял» — один раз; второй видит, кто взял ─────────────────────
+      const take = (userId: string, id = N1, kind: 'answer_notice' | 'vehicle_decline' | 'stay_busy' = 'answer_notice', via: 'site' | 'max' = 'site') =>
+        queue.takeQueueItem({ kind, id, userId, via }, { since: SINCE });
+      expect(await take(U1)).toEqual({ kind: 'taken', at: expect.stringMatching(/^\d{4}-/) });
+      expect(await take(U2)).toMatchObject({ kind: 'already', by: 'Ирина Первая', mine: false });
+      expect(await take(U1)).toMatchObject({ kind: 'already', by: 'Ирина Первая', mine: true });
+      expect(await marks('answer_notice', N1)).toEqual([{ taken_by: U1, via: 'site' }]);
+      expect(itemOf((await load()).answer_notice, N1)).toMatchObject({ take: { via: 'site', by: 'Ирина Первая' } });
+      // «Вернуть в очередь» — случай снова ждёт.
+      expect(await queue.releaseQueueItem({ kind: 'answer_notice', id: N1 })).toEqual({ kind: 'released' });
+      expect(await queue.releaseQueueItem({ kind: 'answer_notice', id: N1 })).toEqual({ kind: 'not_taken' });
+      expect(itemOf((await load()).answer_notice, N1)).toMatchObject({ take: null });
+      // Двое нажали разом: отметка одна, и второй читает имя первого.
+      const race = await Promise.all([take(U1), take(U2)]);
+      expect(race.map((r) => r.kind).sort()).toEqual(['already', 'taken']);
+      const winner = (await marks('answer_notice', N1))[0]!.taken_by!;
+      expect([U1, U2]).toContain(winner);
+      expect(race.find((r) => r.kind === 'already')).toMatchObject({ by: NAME[winner], mine: false });
+
+      // ── 2а. Та же очередь в MAX администратора (3б-2): список с контактами и «Взял N» ──
+      const maxActions = await import('@/lib/max/admin-actions');
+      const maxQueue = await import('@/lib/max/admin-queue');
+      const { unwrapPress } = await import('@/lib/chat-cabinet/signed-payload');
+      const [MAX_U1, MAX_STRANGER] = [9_400_101, 9_400_199];
+      await pool.query('INSERT INTO admin_max_bindings (user_id, max_user_id) VALUES ($1, $2)', [U1, MAX_U1]);
+      const L3 = await mk('Тамара Максова', '+79995551108');
+      const N3 = await refuse(L3);
+      const listed = maxQueue.adminQueueReply(await load());
+      expect(listed.pd).toBe(true);
+      expect(listed.text).toContain('1. Тамара Максова, +79995551108 · Тур «Толбачик 3б»');
+      // Самый свежий недоставленный отказ — первая строка и первая кнопка.
+      expect(unwrapPress((listed.buttons ?? []).flat()[0]!.payload)).toEqual({ ok: true, payload: `ad:q:n:${N3}` });
+      const pressAs = (presserId: number) => maxActions.handleAdminPress({
+        chatId: presserId, privateChat: true, presserId, payload: `ad:q:n:${N3}`,
+      });
+      // Не администратор — отметки нет.
+      expect((await pressAs(MAX_STRANGER)).text).toBe(maxActions.ADMIN_ACTION_TEXT.notAdmin);
+      expect(await marks('answer_notice', N3)).toEqual([]);
+      // Администратор: отметка — на аккаунт, привязанный к этому MAX, дверь — max; повтор отметку не множит.
+      expect((await pressAs(MAX_U1)).text).toBe(maxQueue.ADMIN_QUEUE_TEXT.taken);
+      expect(await marks('answer_notice', N3)).toEqual([{ taken_by: U1, via: 'max' }]);
+      expect((await pressAs(MAX_U1)).text).toMatch(/^Этот случай уже взяли вы — \d{2}\.\d{2}, \d{2}:\d{2} по Камчатке\.$/);
+      expect(await marks('answer_notice', N3)).toEqual([{ taken_by: U1, via: 'max' }]);
+      expect(itemOf((await load()).answer_notice, N3)).toMatchObject({ take: { via: 'max', by: 'Ирина Первая' } });
+      // Взятый случай из списка MAX ушёл вместе с контактами.
+      expect(maxQueue.adminQueueReply(await load()).text).not.toContain('Тамара Максова');
+
+      // ── 3. Заявка переросла отказ — случая в очереди нет, отметить его нельзя ──
+      expect(await set(L1, 'contacted')).toMatchObject({ kind: 'ok', changed: true });
+      expect(itemOf((await load()).answer_notice, N1)).toBeNull();
+      await queue.releaseQueueItem({ kind: 'answer_notice', id: N1 });
+      expect(await take(U2)).toEqual({ kind: 'not_in_queue' });
+      expect(await marks('answer_notice', N1)).toEqual([]);
+      // Закрыли снова — в очереди новый отказ, прежний не вернулся.
+      const N1b = await refuse(L1);
+      expect(N1b).not.toBe(N1);
+      const q3 = await load();
+      expect(itemOf(q3.answer_notice, N1b)).toMatchObject({ lead_id: L1, take: null });
+      expect(itemOf(q3.answer_notice, N1)).toBeNull();
+      // Сообщение дошло (ИИ-агент прочитал статус) — звонить не нужно.
+      await pool.query(`UPDATE answer_notices SET state = 'delivered', delivered_via = 'agent_read', delivered_at = NOW() WHERE id = $1::bigint`, [N1b]);
+      expect(itemOf((await load()).answer_notice, N1b)).toBeNull();
+      expect(await take(U1, N1b)).toEqual({ kind: 'not_in_queue' });
+      expect(await marks('answer_notice', N1b)).toEqual([]);
+
+      // ── 4. «Не могу» перевозчика и прокатчика ────────────────────────────
+      const carrier = (await one<{ id: string }>(
+        `INSERT INTO partners (name, category, contact, slug) VALUES ('Перевозчик 3б', 'transfer', '{}', 'carrier-3b') RETURNING id`,
+      )).id;
+      const charter = async (name: string, phone: string) => (await leads.createLeadDetailed({
+        name, phone, comment: `[Заявка на машину] «Перевозчик 3б», с ${D0}, Мутновский, человек: 4 (${phone.slice(-2)})`,
+        route_title: 'Машина: Мутновский', operator_id: carrier, source_url: 'https://vedarai.ru/transfers/carrier-3b',
+        pd_consent: consentOf('carrier'),
+        source_data: { source: 'transfer_page', kind: 'charter', carrier_id: carrier, destination: 'Елизово — Мутновский', date_from: D0, date_to: D1, passengers: 4 },
+        skip_ai_processing: true,
+      }))!.id;
+      const partner = { partnerId: carrier, partnerName: 'Перевозчик 3б', userId: null };
+      const managers: string[] = [];
+      const notifyManager = async (t: string) => { managers.push(t); };
+      const LC = await charter('Пётр Заказчик', '+79995551103');
+      const declined = await answerRentalRequest({ partner, leadId: LC, answer: 'decline', via: 'site', notifyManager });
+      expect(declined.tell).toMatchObject({ kind: 'charter_decline', notice: { state: 'undelivered' } });
+      // Менеджеру сказано, где случай лежит; ПД в рабочий Telegram не уходит.
+      expect(managers).toHaveLength(1);
+      expect(managers[0]!.split('\n').at(-1)).toBe(QUEUE_LINE);
+      expect(managers[0]).not.toMatch(/Пётр|79995551103/);
+      const V1 = (await one<{ id: string }>(`SELECT id::text AS id FROM lead_activity_log WHERE lead_id = $1 AND action = 'partner_answered'`, [LC])).id;
+      const V1notice = (await one<{ id: string }>(`SELECT id::text AS id FROM answer_notices WHERE lead_id = $1::uuid`, [LC])).id;
+      const q4 = await load();
+      expect(itemOf(q4.vehicle_decline, V1)).toEqual({
+        kind: 'vehicle_decline', id: V1, happened_at: expect.stringMatching(/^\d{4}-\d{2}-\d{2}T/), partner_name: 'Перевозчик 3б',
+        contact_name: 'Пётр Заказчик', contact_phone: '+79995551103', take: null,
+        lead_id: LC, lead_status: 'lost', vehicle_kind: 'charter', vehicle_title: 'Елизово — Мутновский',
+        date_from: D0, date_to: D1, notice_state: 'undelivered',
+      });
+      // У «Не могу» своя строка: в недоставленные отказы операторов оно не попадает и случай не двоится.
+      expect(itemOf(q4.answer_notice, V1notice)).toBeNull();
+      // «Беру» в очередь не встаёт.
+      const LC2 = await charter('Раиса Заказчица', '+79995551104');
+      const took = await answerRentalRequest({ partner, leadId: LC2, answer: 'take', via: 'site', notifyManager });
+      expect(took.tell.kind).toBe('charter_take');
+      expect(managers[1]).not.toContain(managerQueueUrl());
+      const V2 = (await one<{ id: string }>(`SELECT id::text AS id FROM lead_activity_log WHERE lead_id = $1 AND action = 'partner_answered'`, [LC2])).id;
+      expect(itemOf((await load()).vehicle_decline, V2)).toBeNull();
+      expect(await take(U1, V2, 'vehicle_decline')).toEqual({ kind: 'not_in_queue' });
+      // Прокатчик: статус заявки ответ не меняет, сообщение заказчику ещё не отправлено — так и видно.
+      const rentalP = (await one<{ id: string }>(
+        `INSERT INTO partners (name, category, contact, slug) VALUES ('Прокат 3б', 'cars', '{}', 'rental-3b') RETURNING id`,
+      )).id;
+      const LR = (await leads.createLeadDetailed({
+        name: 'Семён Арендатор', phone: '+79995551106', comment: `[Заявка на прокат] УАЗ Патриот, с ${D0} по ${D1}`,
+        route_title: 'Прокат: УАЗ Патриот', operator_id: rentalP, source_url: 'https://vedarai.ru/car-rental', pd_consent: consentOf('carrier'),
+        source_data: { source: 'car_rental_page', kind: 'car_rental', company_id: rentalP, offer_title: 'УАЗ Патриот', date_from: D0, date_to: D1 },
+        skip_ai_processing: true,
+      }))!.id;
+      const claimed = await claimPartnerAnswer({
+        leadId: LR, answer: 'decline', kind: 'car_rental', partnerId: rentalP, offerId: null, carTitle: 'УАЗ Патриот', dateFrom: D0, dateTo: D1, mark: null,
+      });
+      expect(claimed).toMatchObject({ outcome: 'saved', notice: { state: 'pending' } });
+      const V3 = (await one<{ id: string }>(`SELECT id::text AS id FROM lead_activity_log WHERE lead_id = $1 AND action = 'partner_answered'`, [LR])).id;
+      expect(itemOf((await load()).vehicle_decline, V3)).toMatchObject({
+        vehicle_kind: 'car_rental', vehicle_title: 'УАЗ Патриот', lead_status: 'new', notice_state: 'pending', partner_name: 'Прокат 3б',
+      });
+      // Менеджер взял заявку перевозчика в работу — случай ушёл из очереди сам, отметить его уже нельзя.
+      expect(await take(U1, V1, 'vehicle_decline')).toMatchObject({ kind: 'taken' });
+      await pool.query(`UPDATE leads SET status = 'contacted' WHERE id = $1`, [LC]);
+      expect(itemOf((await load()).vehicle_decline, V1)).toBeNull();
+      await queue.releaseQueueItem({ kind: 'vehicle_decline', id: V1 });
+      expect(await take(U2, V1, 'vehicle_decline')).toEqual({ kind: 'not_in_queue' });
+
+      // ── 5. «Занято» хозяина жилья ────────────────────────────────────────
+      const stayP = (await one<{ id: string }>(
+        `INSERT INTO partners (name, category, contact, is_public, is_verified) VALUES ('Дом 3б', 'stay', '{}', FALSE, FALSE) RETURNING id`,
+      )).id;
+      const acc = (await one<{ id: string }>(
+        `INSERT INTO accommodations (name, type, coordinates, partner_id) VALUES ('Дом 3б', 'guesthouse', '{"lat":53.0,"lng":158.6}', $1) RETURNING id`, [stayP],
+      )).id;
+      const stayReq = async (name: string, phone: string) => (await one<{ id: string }>(
+        `INSERT INTO stay_requests (accommodation_id, check_in_date, check_out_date, guests, guest_name, guest_phone,
+                                    pd_consent_at, pd_consent_ip, pd_consent_source, pd_consent_version, door)
+         VALUES ($1, '2099-08-10', '2099-08-12', 2, $2, $3, NOW(), '203.0.113.9', 'stay-request', $4, 'form') RETURNING id`,
+        [acc, name, phone, PD_CONSENT_STAY_VERSION],
+      )).id;
+      const host = { partnerId: stayP, partnerName: 'Дом 3б' };
+      const S1 = await stayReq('Галина Гостья', '+79995551105');
+      const S2 = await stayReq('Дарья Гостья', '+79995551107');
+      managers.length = 0;
+      expect((await answerStayRequest({ partner: host, requestId: S1, answer: 'busy', via: 'max', db: pool, notifyManager })).tell.kind).toBe('answered');
+      expect((await answerStayRequest({ partner: host, requestId: S2, answer: 'free', via: 'max', db: pool, notifyManager })).tell.kind).toBe('answered');
+      expect(managers[0]!.split('\n').at(-1)).toBe(QUEUE_LINE);
+      expect(managers[0]).not.toMatch(/Галина|79995551105/);
+      expect(managers[1]).not.toContain(managerQueueUrl());
+      const q5 = await load();
+      expect(itemOf(q5.stay_busy, S1)).toEqual({
+        kind: 'stay_busy', id: S1, stay_request_id: S1, happened_at: expect.stringMatching(/^\d{4}-\d{2}-\d{2}T/), partner_name: 'Дом 3б',
+        contact_name: 'Галина Гостья', contact_phone: '+79995551105', take: null,
+        accommodation_name: 'Дом 3б', check_in: '2099-08-10', check_out: '2099-08-12', guests: 2,
+      });
+      expect(itemOf(q5.stay_busy, S2)).toBeNull();
+      expect(await take(U1, S2, 'stay_busy')).toEqual({ kind: 'not_in_queue' });
+      expect(itemOf((await load(tomorrow)).stay_busy, S1)).toBeNull();
+      expect(await take(U2, S1, 'stay_busy', 'max')).toMatchObject({ kind: 'taken' });
+      expect(itemOf((await load()).stay_busy, S1)).toMatchObject({ take: { via: 'max', by: 'Олег Второй' } });
+      // Взятый случай виден неделю, потом уходит из списка; невзятый остаётся, пока он правда.
+      await pool.query(`UPDATE manager_queue_takes SET taken_at = NOW() - INTERVAL '8 days' WHERE subject_kind = 'stay_busy' AND subject_id = $1`, [S1]);
+      expect(itemOf((await load()).stay_busy, S1)).toBeNull();
+      await pool.query(`UPDATE manager_queue_takes SET taken_at = NOW() WHERE subject_kind = 'stay_busy' AND subject_id = $1`, [S1]);
+      // Аккаунт взявшего удалён — отметка остаётся, без имени.
+      await pool.query(`DELETE FROM users WHERE id = $1`, [U2]);
+      expect(itemOf((await load()).stay_busy, S1)).toMatchObject({ take: { via: 'max', by: null } });
+      expect(await take(U1, S1, 'stay_busy')).toMatchObject({ kind: 'already', by: null, mine: false });
+
+      // ── 6. Таблица отметок: чужая форма не принимается; миграция повторяется без вреда ──
+      for (const [kind, id, via] of [['lead', '1', 'site'], ['answer_notice', S1, 'site'], ['stay_busy', '12', 'site'], ['vehicle_decline', '7', 'telegram']]) {
+        await expect(pool.query(
+          `INSERT INTO manager_queue_takes (subject_kind, subject_id, via) VALUES ($1, $2, $3)`, [kind, id, via],
+        ), `${kind} ${id} ${via}`).rejects.toMatchObject({ code: '23514' });
+      }
+      await pool.query(readFileSync(join(process.cwd(), 'migrations', '1430_manager_queue_takes.sql'), 'utf8'));
+      expect(await marks('stay_busy', S1)).toEqual([{ taken_by: null, via: 'max' }]);
     });
 
     it('удалили заявку — связи ушли вместе с её ключами', async () => {

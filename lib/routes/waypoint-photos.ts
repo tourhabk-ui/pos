@@ -17,6 +17,7 @@
  *    то и подпись его»).
  */
 import { shownPhotoSql } from '@/lib/images/origin';
+import { galleryShownSql } from '@/lib/places/gallery-shown';
 
 export const WAYPOINT_PHOTOS_LIMIT = 8;
 
@@ -45,7 +46,7 @@ export const WAYPOINT_PHOTOS_SQL = `
                || '?v=' || EXTRACT(EPOCH FROM g.created_at)::bigint,
              NULLIF(btrim(g.author), ''), g.position
         FROM place_gallery_photos g
-       WHERE g.ark_id = wp.ark_id AND g.hidden_reason IS NULL
+       WHERE g.ark_id = wp.ark_id AND ${galleryShownSql('g')}
     ) u ON TRUE
    ORDER BY wp.pos, u.ord
    LIMIT ${WAYPOINT_PHOTOS_LIMIT}`;

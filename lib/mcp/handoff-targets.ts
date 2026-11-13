@@ -5,10 +5,10 @@
  * Правила:
  *  - Пути строит ТОЛЬКО этот серверный код по белому списку isSafeTarget —
  *    URL из аргументов внешнего агента не берётся никогда.
- *  - Сущность (тур, место) резолвится ТЕМИ ЖЕ функциями, какими её находит
- *    сам инструмент (resolveTourChoice, resolvePlaceForLink) — одна мера в
- *    одном месте: ссылка ведёт на то, о чём инструмент ответил, а не на
- *    результат второго, чуть другого поиска.
+ *  - Сущность (тур, место, маршрут) резолвится ТЕМИ ЖЕ функциями, какими её
+ *    находит сам инструмент (resolveTourChoice, resolvePlaceForLink,
+ *    routesNamedBy) — одна мера в одном месте: ссылка ведёт на то, о чём
+ *    инструмент ответил, а не на результат второго, чуть другого поиска.
  *  - Не нашли сущность — нет ссылки. Ссылка «на каталог вообще» после
  *    вопроса о конкретном туре хуже отсутствия ссылки.
  *  - Запрос подошёл турам нескольких компаний (слово владельца 29.10) —
@@ -24,7 +24,7 @@ import { resolveTourChoice, type TourChoice } from '@/lib/kuzmich/tour-availabil
 import { ruPlacePath } from '@/lib/zh/pages';
 import { tourPath } from '@/lib/tours/tour-url';
 import { parsePlanStart, planIdFromAnswer, rangeDays, readPlanDays } from '@/lib/kuzmich/trip-plan-tool';
-import { resolvePlaceForLink } from '@/lib/kuzmich/guardian-context';
+import { resolvePlaceForLink, routesNamedBy } from '@/lib/kuzmich/guardian-context';
 
 function str(v: unknown): string {
   return typeof v === 'string' ? v.trim() : '';
@@ -98,7 +98,15 @@ export async function handoffTargetForTool(
       const q = str(args.place) || str(args.name);
       if (!q) return null;
       const placeId = await resolvePlaceForLink(q);
-      return placeId ? { targetType: 'place', targetPath: `/places/${placeId}` } : null;
+      if (placeId) return { targetType: 'place', targetPath: `/places/${placeId}` };
+      // Места нет, а маршрут каталога с таким названием есть (#3302): ответ
+      // инструмента — о нём, и ссылка ведёт на его карточку. Маршрутов
+      // несколько — ссылки нет: она выбрала бы один за человека (как у туров).
+      const routes = await routesNamedBy(q);
+      const [only] = routes ?? [];
+      return routes?.length === 1 && only
+        ? { targetType: 'place', targetPath: `/routes/${only.slug ?? only.id}` }
+        : null;
     }
 
     case 'edit_trip_plan': {

@@ -40,10 +40,26 @@ export interface VerdictCensus {
   green_pct: number;
   /** По три примера на статус: распределение без имён нечитаемо. */
   examples: Record<VerdictStatus, Array<{ id: string; title: string; reason: string }>>;
+  /**
+   * Маршруты, у которых id карточки — `COALESCE(ark_id, id)`, он же в адресе
+   * `/routes/<id>` — не равен id строки (12.11, #3302). До этого дня сборщик
+   * сигналов искал строку только по её id, а карточка звала вердикт по id из
+   * адреса: у таких маршрутов она показывала «Осторожно — данных мало» при
+   * любом дне. Счёт называет, сколько карточек это задевало, а `by_status` —
+   * какой была их настоящая оценка сегодня (посчитана по id строки).
+   */
+  card_id_differs: {
+    count: number;
+    by_status: Record<VerdictStatus, number>;
+    examples: Array<{ id: string; card_id: string; title: string; status: VerdictStatus; reason: string }>;
+  };
   duration_ms: number;
 }
 
-interface RouteRow { id: string; title: string | null }
+interface RouteRow { id: string; ark_id: string | null; title: string | null }
+
+/** Сколько примеров маршрутов с двумя разными id отдать поимённо. */
+const CARD_ID_EXAMPLES = 5;
 
 /** Разложить массив по пачкам, чтобы не открывать 300 соединений разом. */
 async function mapLimit<T, R>(items: T[], limit: number, fn: (item: T) => Promise<R>): Promise<R[]> {
@@ -71,10 +87,10 @@ export async function runVerdictCensus(limit?: number): Promise<VerdictCensus> {
 
   const listRes = await pool.query<RouteRow>(
     limit
-      ? `SELECT id::text, title FROM kamchatka_routes
+      ? `SELECT id::text, ark_id::text AS ark_id, title FROM kamchatka_routes
           WHERE (is_visible = TRUE OR is_visible IS NULL)
           ORDER BY id LIMIT $1`
-      : `SELECT id::text, title FROM kamchatka_routes
+      : `SELECT id::text, ark_id::text AS ark_id, title FROM kamchatka_routes
           WHERE (is_visible = TRUE OR is_visible IS NULL)
           ORDER BY id`,
     limit ? [limit] : [],
@@ -86,6 +102,9 @@ export async function runVerdictCensus(limit?: number): Promise<VerdictCensus> {
   const signal_empty = { alerts: 0, volcanoes: 0 };
   const examples: Record<VerdictStatus, Array<{ id: string; title: string; reason: string }>> = {
     go: [], caution: [], no: [],
+  };
+  const card_id_differs: VerdictCensus['card_id_differs'] = {
+    count: 0, by_status: { go: 0, caution: 0, no: 0 }, examples: [],
   };
 
   await mapLimit(listRes.rows, CONCURRENCY, async (r) => {
@@ -104,6 +123,16 @@ export async function runVerdictCensus(limit?: number): Promise<VerdictCensus> {
     if (examples[v.status].length < 3) {
       examples[v.status].push({ id: r.id, title: r.title ?? '(без названия)', reason: v.reason });
     }
+
+    if (r.ark_id !== null && r.ark_id !== r.id) {
+      card_id_differs.count += 1;
+      card_id_differs.by_status[v.status] += 1;
+      if (card_id_differs.examples.length < CARD_ID_EXAMPLES) {
+        card_id_differs.examples.push({
+          id: r.id, card_id: r.ark_id, title: r.title ?? '(без названия)', status: v.status, reason: v.reason,
+        });
+      }
+    }
   });
 
   const routes_counted = listRes.rows.length;
@@ -121,6 +150,7 @@ export async function runVerdictCensus(limit?: number): Promise<VerdictCensus> {
       ? Math.round((by_status.go / routes_counted) * 1000) / 10
       : 0,
     examples,
+    card_id_differs,
     duration_ms: Date.now() - startedAt,
   };
 }

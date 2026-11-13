@@ -28,6 +28,8 @@ import { bookingTotal } from '@/lib/tours/booking-total';
 import { insertBookingRow, type BookingRowValues } from '@/lib/bookings/reserve';
 import { linkContactQuietly } from '@/lib/crm/contacts';
 import { recordSourceEventQuietly, statusChangeTitle } from '@/lib/crm/events';
+import { LeadCancelledByClientError } from '@/lib/leads/client-cancelled';
+import { LEAD_CLIENT_CANCELLED } from '@/lib/types/statuses';
 
 /** Что продавец записывает. Поля — те же, что у формы оператора. */
 export interface ManualBookingInput {
@@ -81,6 +83,8 @@ export type ManualBookingResult =
   | { kind: 'price_denied' }
   | { kind: 'paid_denied' }
   | { kind: 'lead_not_found' }
+  /** Заявку отменил клиент (1427): бронь из неё не заводят. */
+  | { kind: 'lead_cancelled' }
   | { kind: 'ok'; booking: ManualBookingRow; tourTitle: string; finalPrice: number; leadId: string | null };
 
 /**
@@ -131,6 +135,8 @@ export async function createManualBooking(seller: ManualBookingSeller, input: Ma
     );
     lead = leadRes.rows[0] ?? null;
     if (!lead) return { kind: 'lead_not_found' };
+    // Отменил клиент — брони по этой заявке он не ждёт; новую он оставит сам.
+    if (lead.status === LEAD_CLIENT_CANCELLED) return { kind: 'lead_cancelled' };
   }
 
   const row: BookingRowValues = {
@@ -154,16 +160,21 @@ export async function createManualBooking(seller: ManualBookingSeller, input: Ma
     ...(lead ? { lead_id: lead.id } : {}),
   };
 
-  const booking = await transaction(async (client) => {
+  let booking: ManualBookingRow;
+  try {
+    booking = await transaction(async (client) => {
     await client.query('SELECT 1 FROM operator_tours WHERE id = $1 FOR SHARE', [tourId]);
     const created = await insertBookingRow(client, row, duration);
     if (lead) {
-      await client.query(
+      // Клиент мог отменить заявку между чтением и записью: тогда бронь не
+      // остаётся — транзакция откатывается целиком (LeadCancelledByClientError).
+      const converted = await client.query(
         `UPDATE leads
             SET status = 'converted', operator_id = COALESCE(operator_id, $2::uuid), updated_at = NOW()
-          WHERE id = $1::uuid`,
-        [lead.id, seller.partnerId],
+          WHERE id = $1::uuid AND status <> $3`,
+        [lead.id, seller.partnerId, LEAD_CLIENT_CANCELLED],
       );
+      if (converted.rowCount === 0) throw new LeadCancelledByClientError();
     }
     return {
       id: created.id,
@@ -173,6 +184,11 @@ export async function createManualBooking(seller: ManualBookingSeller, input: Ma
       booking_status: created.booking_status,
     } as ManualBookingRow;
   });
+  } catch (err) {
+    // Отмена клиента пришла между чтением заявки и записью: бронь откатилась вместе с транзакцией.
+    if (err instanceof LeadCancelledByClientError) return { kind: 'lead_cancelled' };
+    throw err;
+  }
 
   if (lead && lead.status !== 'converted') {
     await recordSourceEventQuietly({

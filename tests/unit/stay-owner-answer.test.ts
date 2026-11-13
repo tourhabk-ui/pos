@@ -32,6 +32,7 @@ import { answerStayRequest, handleStayAnswerPress, ANSWER_STAY_SQL } from '@/lib
 import { pressActionOf, UNVERIFIED_PRESS_REPLY, PRESS_WITHOUT_MESSAGE_REPLY } from '@/lib/max/verified-press';
 import { channelBoundText, boundMenuRow, stayBoundText } from '@/lib/partners/bind-channel';
 import { partnerMenuHelp, partnerMenu } from '@/lib/roles/role-menu';
+import { managerQueueUrl } from '@/lib/manager-queue/link';
 
 const REQ = '3f2a1b4c-5d6e-4f70-8a91-b2c3d4e5f607';
 const PARTNER = '22222222-2222-4222-8222-222222222222';
@@ -103,6 +104,20 @@ describe('запись и следствия', () => {
     expect(params).toEqual([REQ, PARTNER, 'free', 'max']);
     expect(postMock).toHaveBeenCalledWith({ kind: 'stay', id: REQ }, expect.stringContaining('«Кутха»: свободно'));
     expect(tgMock).toHaveBeenCalledWith('stay-request-answer', expect.stringContaining('ответил «свободно, беру»'));
+    // «Свободно» в очередь менеджера не встаёт — ссылки на неё в сообщении нет.
+    expect(String(tgMock.mock.calls[0]![1])).not.toContain(managerQueueUrl());
+  });
+
+  it('«Занято» встаёт в очередь менеджера (этап 3б): в сообщении ему — где она и где отметка «Взял»; ПД в нём нет', async () => {
+    pool.mockResolvedValueOnce({ rows: [FACTS] });
+    postMock.mockResolvedValueOnce({ outcome: 'sent', delivery: 'guest', pageVisible: true });
+    const r = await answerStayRequest({ partner: KUTKHA, requestId: REQ, answer: 'busy', via: 'max' });
+    expect(r.tell).toMatchObject({ kind: 'answered', answer: 'busy' });
+    expect(tgMock).toHaveBeenCalledTimes(1);
+    const text = String(tgMock.mock.calls[0]![1]);
+    expect(text).toContain('ответил «занято»');
+    expect(text.split('\n').at(-1)).toBe(`В очереди менеджера — там же отметка «Взял»: ${managerQueueUrl()}`);
+    for (const p of PD) expect(text).not.toContain(p);
   });
 
   it('повтор — «уже записан» без следствий; чужая — «не ваша»; нет такой — «не нашёл»; база упала — «нажмите ещё раз»', async () => {

@@ -18,8 +18,9 @@ import { fetchForecastDays, type ForecastResult } from '@/lib/planner/intelligen
 import { judgeForecastDay, matchOfficialAlerts, type OfficialAlert } from '@/lib/agents/evo/rescue-judge';
 import { ZONE_NAMES, zoneName } from '@/lib/safety/zone-names';
 import { UTC_WALL_NOW_SQL } from '@/lib/db/timestamp-iso';
+import { TOUR_SITE_COLUMNS_SQL, TOUR_SITE_JOINS_SQL } from '@/lib/trips/tour-site-sql';
 import {
-  judgeSituation, situationFingerprint, situationLine,
+  SITUATION_FORECAST_DAYS, judgeSituation, situationFingerprint, situationLine,
   type Situation, type SituationKind, type ZoneDangerInput,
 } from '@/lib/trips/situation';
 
@@ -52,17 +53,14 @@ export const DEPARTING_TOURS_SQL = `
      WHERE l.source_data->>'tour_id' ~ '^[0-9]{1,18}$'
        AND l.source_data->>'date' = ANY($2::text[])
        AND COALESCE(l.is_self, false) = false
-       AND l.status NOT IN ('lost', 'converted')
+       AND l.status NOT IN ('lost', 'converted', 'cancelled')
   )
   SELECT ot.id::int AS tour_id, t.d::text AS d, COUNT(*)::int AS travellers,
          ot.title, ot.operator_id::text AS operator_id, ot.activity_type, ot.location_type,
-         COALESCE(kr.zone, p.zone) AS zone,
-         COALESCE(ot.latitude, p.lat, kr.lat)::float8 AS lat,
-         COALESCE(ot.longitude, p.lng, kr.lng)::float8 AS lng
+         ${TOUR_SITE_COLUMNS_SQL}
     FROM trips t
     JOIN operator_tours ot ON ot.id = t.tour_id
-    LEFT JOIN places p ON p.id = ot.main_place_id
-    LEFT JOIN kamchatka_routes kr ON kr.id = ot.route_id
+    ${TOUR_SITE_JOINS_SQL}
    GROUP BY ot.id, t.d, ot.title, ot.operator_id, ot.activity_type, ot.location_type, kr.zone, p.zone,
             ot.latitude, p.lat, kr.lat, ot.longitude, p.lng, kr.lng
    ORDER BY t.d, ot.id`;
@@ -81,8 +79,39 @@ export async function loadDepartingTours(dates: readonly string[]): Promise<Depa
   }));
 }
 
+/** Тур без даты: где он и чем он является — для проверки дат, которых нет ни в бронях, ни в заявках. */
+export type TourSite = Omit<DepartingTour, 'date' | 'travellers'>;
+
+export const TOUR_SITE_SQL = `
+  SELECT ot.id::int AS tour_id, ot.title, ot.operator_id::text AS operator_id, ot.activity_type, ot.location_type,
+         ${TOUR_SITE_COLUMNS_SQL}
+    FROM operator_tours ot
+    ${TOUR_SITE_JOINS_SQL}
+   WHERE ot.id = $1::bigint`;
+
+/** null — тура нет. Отказ базы — исключение: вызывающий называет его «не смог проверить». */
+export async function loadTourSite(tourId: number): Promise<TourSite | null> {
+  const { rows } = await pool.query<{
+    tour_id: number; title: string; operator_id: string; activity_type: string | null; location_type: string | null;
+    zone: string | null; lat: number | null; lng: number | null;
+  }>(TOUR_SITE_SQL, [tourId]);
+  const r = rows[0];
+  if (!r) return null;
+  return {
+    tourId: Number(r.tour_id), title: r.title, operatorId: r.operator_id,
+    activityType: r.activity_type, locationType: r.location_type, zone: r.zone,
+    lat: r.lat === null ? null : Number(r.lat), lng: r.lng === null ? null : Number(r.lng),
+  };
+}
+
+/**
+ * `affected_parks`, `lat`, `lng`, `volcano_ark_id` — чем место предупреждения
+ * установлено помимо зоны: по ним проверка дат (lib/trips/date-check) отличает
+ * «закрыт парк» от «место не установлено» (`unplacedAlertsOn`).
+ */
 export const OFFICIAL_ALERTS_SQL = `
-  SELECT id, alert_type, severity, title, description, affected_zones, expires_at, source_url
+  SELECT id, alert_type, severity, title, description, affected_zones, expires_at, source_url,
+         affected_parks, lat, lng, volcano_ark_id::text AS volcano_ark_id
     FROM external_alerts
    WHERE expires_at > ${UTC_WALL_NOW_SQL}
      AND (severity >= 2 OR alert_type = 'flood')
@@ -105,7 +134,7 @@ export function liveSources(): SituationSources {
   return {
     forecast(lat, lng) {
       const key = `${lat.toFixed(2)},${lng.toFixed(2)}`;
-      if (!forecasts.has(key)) forecasts.set(key, fetchForecastDays(lat, lng, 5));
+      if (!forecasts.has(key)) forecasts.set(key, fetchForecastDays(lat, lng, SITUATION_FORECAST_DAYS));
       return forecasts.get(key)!;
     },
     officials() {
@@ -133,7 +162,7 @@ export function liveSources(): SituationSources {
 }
 
 /** Оценивается четыре зоны модели опасности; прочие метки (охват по координатам) — нет. */
-const isZone = (z: string | null): z is string => z !== null && Object.prototype.hasOwnProperty.call(ZONE_NAMES, z);
+export const isAssessedZone = (z: string | null): z is string => z !== null && Object.prototype.hasOwnProperty.call(ZONE_NAMES, z);
 
 /** Обстановка одного выезда по источникам прогона. */
 export async function situationFor(tour: DepartingTour, src: SituationSources): Promise<Situation> {
@@ -156,7 +185,7 @@ export async function situationFor(tour: DepartingTour, src: SituationSources): 
     officials = [...new Map(m.matches.map((x) => [x.alert.id, x.alert])).values()];
     unassessed = m.unassessed.length > 0;
   }
-  const zoneDanger = isZone(tour.zone) ? await src.zone(tour.zone) : null;
+  const zoneDanger = isAssessedZone(tour.zone) ? await src.zone(tour.zone) : null;
   return judgeSituation({ weather, officials, officialsUnassessed: unassessed, zoneDanger });
 }
 
@@ -205,7 +234,7 @@ export const TOURIST_RECIPIENTS_SQL = `
    WHERE l.source_data->>'tour_id' ~ '^[0-9]{1,9}$'
      AND l.source_data->>'date' = $1::text
      AND COALESCE(l.is_self, false) = false
-     AND l.status NOT IN ('lost', 'converted')`;
+     AND l.status NOT IN ('lost', 'converted', 'cancelled')`;
 
 export async function loadTouristRecipients(date: string): Promise<TouristRecipient[]> {
   const { rows } = await pool.query<{ kind: TouristRecipient['kind']; ref: string; tour_id: number; channel: 'max' | 'telegram' | null; chat_id: string | null }>(

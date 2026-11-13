@@ -117,6 +117,23 @@ withPg('китайский контур на схеме прода (CN-quick)', 
         );
       }
     }
+    // Вызовы инструментов через A2A (перепись 12.11): внешний читает и оставляет заявку,
+    // своя проверка зовёт тоже — в счёт внешних она не идёт; одна строка вне окна.
+    const toolCall = async (agent: string, tool: string | null, state: string, count = 1, ago = '1 hour') => {
+      for (let i = 0; i < count; i++) {
+        await pool.query(
+          `INSERT INTO a2a_requests (created_at, binding, op, version, ok, input, tool, state, agent, ua_family, caller_hash)
+           VALUES (NOW() - $1::interval, 'jsonrpc', 'SendMessage', '1.0', TRUE, 'tool', $2, $3, $4, 'other', $5)`,
+          [ago, tool, state, agent, `hash-${agent}`],
+        );
+      }
+    };
+    await toolCall('Qwen-Agent', 'get_tours', 'completed', 2);
+    await toolCall('Qwen-Agent', 'create_lead', 'rejected');
+    await toolCall('GigaChat', null, 'failed');
+    await toolCall('vedar-eval', 'get_tours', 'completed', 3);
+    await toolCall('vedar-research', 'safety_status', 'completed');
+    await toolCall('Qwen-Agent', 'get_weather', 'completed', 1, '40 days');
 
     // Китайские конспекты: маршрут живого тура и маршрут снятого тура, четыре
     // места с разной связью и видимостью, имена места из двух источников.
@@ -226,16 +243,37 @@ withPg('китайский контур на схеме прода (CN-quick)', 
       window_total: number; journal_total_all_time: number;
       china: { external: { agents: number; requests: number }; own_and_probes: { agents: number; requests: number } };
       ru: { external: { requests: number } };
-      by_kind: { registry: { requests: number } };
+      by_kind: { registry: { requests: number }; probe: { agents: number; requests: number } };
       by_agent: Array<{ agent: string }>;
+      external: Record<string, number>;
+      external_tools: { tools: Array<Record<string, unknown>>; total_sends: number; write_sends: number; write_completed: number };
+      named_like_ours: { names: string[]; agents: number; sends: number };
+      external_without_named_like_ours: { agents: number; sends: number };
     };
-    expect(body.window_total).toBe(10);
-    expect(body.journal_total_all_time).toBe(15);
+    expect(body.window_total).toBe(18);
+    expect(body.journal_total_all_time).toBe(24);
     expect(body.by_agent.map((a) => a.agent)).not.toContain('Kimi-Old');
-    expect(body.china.external).toEqual({ agents: 1, requests: 3 });
+    expect(body.china.external).toEqual({ agents: 1, requests: 6 });
     expect(body.china.own_and_probes).toEqual({ agents: 1, requests: 2 });
-    expect(body.ru.external.requests).toBe(1);
+    expect(body.ru.external.requests).toBe(2);
     expect(body.by_kind.registry.requests).toBe(4);
+    // Своя проверка по имени (vedar-eval) — среди проб, не среди внешних.
+    expect(body.by_kind.probe).toEqual({ agents: 2, requests: 5 });
+    expect(body.external).toEqual({
+      agents: 3, requests: 9, card_reads: 0, protocol_errors: 0,
+      sends: 9, text_sends: 4, tool_sends: 5, completed: 7, rejected: 1, failed: 1,
+    });
+    // Инструменты — только внешних и только в окне; пишущий отмечен; сумма сходится со сводкой.
+    expect(body.external_tools.tools).toEqual([
+      { tool: 'get_tours', write: false, sends: 2, completed: 2, rejected: 0, failed: 0, agents: 1, agent_names: ['Qwen-Agent'] },
+      { tool: 'create_lead', write: true, sends: 1, completed: 0, rejected: 1, failed: 0, agents: 1, agent_names: ['Qwen-Agent'] },
+      { tool: 'safety_status', write: false, sends: 1, completed: 1, rejected: 0, failed: 0, agents: 1, agent_names: ['vedar-research'] },
+      { tool: null, write: false, sends: 1, completed: 0, rejected: 0, failed: 1, agents: 1, agent_names: ['GigaChat'] },
+    ]);
+    expect(body.external_tools).toMatchObject({ total_sends: body.external.tool_sends, write_sends: 1, write_completed: 0 });
+    // Имя «как у наших» вне списка проверок: названо, род не подменён.
+    expect(body.named_like_ours).toMatchObject({ names: ['vedar-research (1, сообщений 1)'], agents: 1, sends: 1 });
+    expect(body.external_without_named_like_ours).toMatchObject({ agents: 2, sends: 8 });
     const after = (await pool.query(`SELECT COUNT(*)::int AS n FROM a2a_requests`)).rows[0].n;
     expect(after).toBe(before);
   });

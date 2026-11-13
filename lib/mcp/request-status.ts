@@ -76,6 +76,8 @@ import { notifyLeadHumanConfirmedQuietly } from '@/lib/notifications/lead-human-
 import { guestBotLink } from '@/lib/requests/request-chat';
 import { logText } from '@/lib/log/log-text';
 import { isTestKey, testKeyStatus } from '@/lib/mcp/test-run';
+import type { RequestOtherOffers } from '@/lib/requests/other-offers-status';
+import type { RequestOtherStays } from '@/lib/stay/other-stays-status';
 import { effectiveStatus, type SeatRequestStatus, type FailureKind } from '@/lib/seat-requests/core';
 import {
   REQUEST_KEY_MIN_CHARS, REQUEST_KEY_MAX_CHARS, REQUEST_STATES, ADDRESSEE_WORDS, capitalized, publicDisabledReason,
@@ -83,7 +85,10 @@ import {
 } from '@/lib/mcp/request-status-schema';
 import { DECLINE_REASON_LABEL, DECLINE_REASONS, type DeclineReason } from '@/lib/requests/chat-answer-buttons';
 import { LEAD_ANSWER_DATE_SQL, ruAnswerDate } from '@/lib/requests/answer-date';
-import { BOOKING_STATUSES, LEAD_STATUSES, UNATTENDED_LEAD_STATUSES, type BookingStatus, type LeadStatus } from '@/lib/types/statuses';
+import { SELLER_CLOSED_ACTION, isClientLostReason, isLostReason } from '@/lib/leads/lost-reason';
+import {
+  BOOKING_STATUSES, LEAD_CLIENT_CANCELLED, LEAD_STATUSES, UNATTENDED_LEAD_STATUSES, type BookingStatus, type LeadStatus,
+} from '@/lib/types/statuses';
 
 export { REQUEST_STATUS_TOOL_NAME, GET_REQUEST_STATUS_TOOL } from '@/lib/mcp/request-status-schema';
 
@@ -295,6 +300,19 @@ export interface RequestStatusView {
   max_link: string | null;
   /** Подписка на уведомления этой заявки (1348): null — не заводилась или уже удалена. */
   notify: RequestNotifyStatus | null;
+  /**
+   * Другие компании к тому же месту на дату заявки после отказа туроператора
+   * (4а): названы, не найдены или не прочитались. null — вид не из такого
+   * отказа. Читается отдельно от вида (база), поэтому в `RequestCore` его нет.
+   */
+  other_offers: RequestOtherOffers | null;
+  /**
+   * Другое жильё в той же зоне на те же ночи после ответа хозяина «Занято»
+   * (этап 5): названо, не найдено или не прочиталось. null — вид не из такого
+   * ответа, заезд прошёл или зона объекта не размечена. Читается отдельно от
+   * вида (база), поэтому в `RequestCore` его нет.
+   */
+  other_stays: RequestOtherStays | null;
 }
 
 /**
@@ -395,6 +413,23 @@ export interface StatusRow {
   /** Род лида (`source_data.kind`): `charter`, `car_rental` — у ключа из кода между каналами имени инструмента нет. */
   lead_kind?: string | null;
   stay_owner_answer?: string | null;
+  /**
+   * Причина, с которой продавец закрыл заявку «Отказ» в кабинете (12.11, этап
+   * 3а; `leads.lost_reason`, 1429). Есть только у текущего закрытия: при любой
+   * смене статуса её стирает триггер. `lead_closed_id` — запись журнала
+   * (`lead_activity_log.seller_closed`) этого закрытия: на неё ссылается
+   * сообщение человеку.
+   */
+  lead_lost_reason?: string | null;
+  lead_closed_id?: string | null;
+  /**
+   * Тур заявки (номер каталога по `source_data.tour_id`) и число людей в ней —
+   * для «других компаний к месту на дату» (4а, lib/requests/other-offers-status).
+   * Людей — до трёх знаков, как читает сообщение человеку: `lead_participants`
+   * (два знака) группу в 100 человек не видит.
+   */
+  lead_tour_id?: string | null;
+  lead_people?: number | null;
 }
 
 /**
@@ -435,6 +470,8 @@ const LEAD_STATE: Record<LeadStatus, RequestState> = {
   awaiting_confirm: 'in_progress',
   converted: 'confirmed',
   lost: 'declined',
+  // Отменил клиент (1427). Слова — CLIENT_CANCELLED_HUMAN: «бронь отменена» здесь было бы неправдой.
+  cancelled: 'cancelled',
 };
 
 function inDictionary<T extends string>(dict: readonly T[], value: string | null | undefined): value is T {
@@ -560,6 +597,12 @@ function nextText(state: RequestState, purpose: ConsentPurpose): string {
 
 const HUMAN = Object.fromEntries(REQUEST_STATES.map((s) => [s, humanText(s, 'operator')])) as Record<RequestState, string>;
 
+/**
+ * Заявку отменил сам клиент, пока адресат не ответил (1427). Состояние то же —
+ * `cancelled`, слова свои: у такой заявки брони не было.
+ */
+export const CLIENT_CANCELLED_HUMAN = 'Заявка отменена клиентом.';
+
 const NEXT: Record<RequestState, string> = {
   awaiting_operator: 'Подождите звонка оператора; повторно спрашивать статус раньше чем через час не нужно.',
   delivered: 'Подождите звонка; спрашивать статус снова незачем: после передачи он не меняется.',
@@ -680,6 +723,37 @@ function tourAnswerView(answer: string, reason: string | null, status: string | 
 }
 
 /**
+ * Продавец закрыл заявку «Отказ» в кабинете и назвал причину (этап 3а,
+ * lib/leads/lost-reason). Держится, только пока заявка закрыта. Отказ продавца
+ * — теми же словами, что кнопка «Отказать» в чате: человеку незачем знать,
+ * какой дверью оператор отказал. Причина на стороне клиента — «по словам
+ * оператора»: Ведар её не проверял, и выдавать её за факт нельзя.
+ */
+function sellerClosedView(reason: string | null | undefined, status: string | null): AnswerView | null {
+  if (status !== 'lost' || !isLostReason(reason)) return null;
+  if (isClientLostReason(reason)) {
+    return reason === 'no_contact'
+      ? {
+        state: 'declined',
+        human: 'Оператор закрыл заявку: по его словам, связаться с человеком по телефону из заявки не удалось.',
+        next: 'Если поездка ещё нужна, человек может позвонить оператору сам или оставить новую заявку: create_booking_request.',
+      }
+      : {
+        state: 'declined',
+        human: 'Оператор закрыл заявку: по его словам, человек отказался от поездки.',
+        next: 'Если это не так, человеку стоит позвонить оператору; новая заявка — create_booking_request.',
+      };
+  }
+  return tourAnswerView('decline', reason, status, null);
+}
+
+/** Вид заявки построен из закрытия продавцом с причиной — оно новее любого ответа кнопкой. */
+function shownSellerClosed(row: StatusRow): AnswerView | null {
+  if (row.booking_status || consentPurposeOfKey(row) !== 'operator') return null;
+  return sellerClosedView(row.lead_lost_reason, row.lead_status ?? null);
+}
+
+/**
  * Ответ перевозчика или прокатчика («Беру» / «Не могу», lib/rental/
  * request-answer-flow): «Беру» — готов выполнить и свяжется сам, машина этим
  * не закреплена и сумма не названа (§14).
@@ -716,6 +790,10 @@ function leadAnswerView(row: StatusRow, purpose: ConsentPurpose, requested: stri
   const status = row.lead_status ?? null;
   let view: AnswerView | null = null;
   const group = purpose === 'operator' && row.lead_group_over === true;
+  // Закрытие с причиной — последнее слово продавца: причина стирается при
+  // любой смене статуса, значит ответ кнопкой, если он был, старше.
+  const closed = purpose === 'operator' ? sellerClosedView(row.lead_lost_reason, status) : null;
+  if (closed) return closed;
   if (purpose === 'operator' && row.lead_answer) {
     // Большая группа после отказа адресата уходит другим операторам — это
     // не конец заявки, а передача. Кроме отказа по погоде или безопасности:
@@ -764,6 +842,8 @@ export function groupPassedOnAnswer(answer: string | null | undefined, reason: s
 export function shownTourAnswerId(row: StatusRow): string | null {
   if (row.booking_status) return null;
   if (consentPurposeOfKey(row) !== 'operator') return null;
+  // Вид говорит словами закрытия с причиной — ответ кнопкой его не строит.
+  if (shownSellerClosed(row)) return null;
   const handedOff = groupHandOffAnswerId(row);
   if (handedOff) return handedOff;
   if (!row.lead_answer_id || !row.lead_answer) return null;
@@ -809,9 +889,21 @@ export function shownVehicleAnswerId(row: StatusRow): string | null {
  * (partner_incoming_answers), `vehicle` — запись журнала перевозчика или
  * прокатчика. Два источника не пересекаются: род заявки один.
  */
-export type ShownAnswerRef = { source: 'tour' | 'vehicle'; id: string };
+export type ShownAnswerRef = { source: 'tour' | 'vehicle' | 'closed'; id: string };
+
+/**
+ * Запись журнала о закрытии продавцом с причиной, если вид заявки построен
+ * именно из неё (этап 3а): тогда сообщение человеку об отказе правдиво, а
+ * прочтение такого вида — доставка. null — бронь, причины нет, статус уже
+ * другой или заявка не туроператору.
+ */
+export function shownSellerClosedId(row: StatusRow): string | null {
+  return row.lead_closed_id && shownSellerClosed(row) ? row.lead_closed_id : null;
+}
 
 export function shownAnswerRef(row: StatusRow): ShownAnswerRef | null {
+  const closed = shownSellerClosedId(row);
+  if (closed) return { source: 'closed', id: closed };
   const tour = shownTourAnswerId(row);
   if (tour) return { source: 'tour', id: tour };
   const vehicle = shownVehicleAnswerId(row);
@@ -831,7 +923,7 @@ function stayAnswerView(answer: string | null | undefined): AnswerView | null {
       return {
         state: 'declined',
         human: 'Владелец ответил: на эти даты занято.',
-        next: 'Другое жильё на эти даты — search_accommodations; новая заявка — create_stay_request.',
+        next: 'Другое жильё в той же зоне на эти ночи — в поле other_stays (если оно не null); искать шире — search_accommodations; новая заявка — create_stay_request.',
       };
     case 'call':
       return {
@@ -850,12 +942,18 @@ function iso(v: Date | string | null): string | null {
   return Number.isNaN(t.getTime()) ? null : t.toISOString();
 }
 
-function readKey(raw: unknown): string {
+/** Ключ как он передан: форма проверена, в базу не ходили. Не похож на выданный — отказ по входу. */
+export function readKey(raw: unknown): string {
   const key = typeof raw === 'string' ? raw.trim() : '';
   if (key.length < REQUEST_KEY_MIN_CHARS || key.length > REQUEST_KEY_MAX_CHARS || !KEY_RE.test(key)) {
     throw new McpUserError('Ключ статуса не похож на выданный — передайте его как есть из ответа пишущего инструмента.', 'invalid_args:key');
   }
   return key;
+}
+
+/** Чем ключ ищется в базе (там только hash): для дверей, которые по ключу меняют заявку (lib/mcp/change-request). */
+export function requestKeyHash(key: string): string {
+  return sha256(key);
 }
 
 /**
@@ -869,6 +967,11 @@ const REQUEST_STATUS_SELECT = `
   SELECT k.id::text AS key_id, k.tool_name, k.lead_id::text, k.seat_request_id::text, k.stay_request_id::text,
          l.status AS lead_status, l.route_title, l.source_data->>'date' AS lead_requested_date,
          CASE WHEN l.source_data->>'participants' ~ '^[0-9]{1,2}$' THEN (l.source_data->>'participants')::int END AS lead_participants, lt.title AS lead_tour,
+         -- Тур и число людей заявки — для «других компаний на дату» (4а): то же
+         -- чтение, что у сообщения человеку (NOTICE_FACTS_SQL), иначе чат и статус
+         -- одной заявки считали бы места на разное число людей.
+         lt.id::text AS lead_tour_id,
+         CASE WHEN l.source_data->>'participants' ~ '^[0-9]{1,3}$' THEN (l.source_data->>'participants')::int END AS lead_people,
          ob.booking_status, ob.booking_date::text AS booking_date, ob.participants AS booking_participants, ot.title AS booking_tour,
          r.status AS seat_status, r.deadline_at, r.answered_at, r.tour_date::text AS seat_date,
          r.participants AS seat_participants, r.alt_date::text AS alt_date, r.failure_kind, st.title AS seat_tour,
@@ -892,7 +995,8 @@ const REQUEST_STATUS_SELECT = `
          l.source_data->>'declined_by' AS lead_declined_by,
          pd.id AS lead_declined_answer_id, pd.answer AS lead_declined_answer, pd.decline_reason AS lead_declined_reason,
          l.source_data->>'kind' AS lead_kind,
-         s.owner_answer AS stay_owner_answer
+         s.owner_answer AS stay_owner_answer,
+         l.lost_reason AS lead_lost_reason, lc.id AS lead_closed_id
     FROM k
     LEFT JOIN leads l ON l.id = k.lead_id
     -- Ответ кнопкой того, кто сейчас адресат лида (1334): после передачи
@@ -923,6 +1027,15 @@ const REQUEST_STATUS_SELECT = `
        ORDER BY pal.id DESC
        LIMIT 1
     ) la ON k.lead_id IS NOT NULL
+    -- Закрытие продавцом с причиной (1429): причина лежит в заявке и стирается
+    -- при смене статуса, поэтому последняя запись журнала — её закрытие.
+    LEFT JOIN LATERAL (
+      SELECT cl.id::text AS id
+        FROM lead_activity_log cl
+       WHERE cl.lead_id = k.lead_id AND cl.action = '${SELLER_CLOSED_ACTION}'
+       ORDER BY cl.id DESC
+       LIMIT 1
+    ) lc ON l.lost_reason IS NOT NULL
     -- Тур заявки на бронь — по номеру, который записал роут MCP; приведение
     -- только числу: source_data — jsonb, и чужая форма даёт «не записано», а
     -- не 22P02 на весь ответ.
@@ -980,11 +1093,11 @@ export const REQUEST_STATUS_BY_KEY_IDS_SQL = `
  * как `handoff:none`: род берётся по самой заявке (consentPurposeOfKey), а не
  * по умолчанию «подбор».
  */
-export const REQUEST_STATUS_BY_LEAD_SQL = `
+const statusByLeads = (leads: string): string => `
   WITH k AS (
     SELECT kk.id, x.lead_id, NULL::uuid AS seat_request_id, NULL::uuid AS stay_request_id,
            COALESCE(kk.tool_name, 'handoff:none') AS tool_name, COALESCE(kk.opens_chat, false) AS opens_chat
-      FROM (SELECT $1::uuid AS lead_id) x
+      FROM (${leads}) x
       LEFT JOIN LATERAL (
         SELECT id, tool_name, opens_chat FROM agent_request_keys
          WHERE lead_id = x.lead_id AND expires_at > NOW()
@@ -992,6 +1105,15 @@ export const REQUEST_STATUS_BY_LEAD_SQL = `
          LIMIT 1
       ) kk ON TRUE
   )${REQUEST_STATUS_SELECT}`;
+
+export const REQUEST_STATUS_BY_LEAD_SQL = statusByLeads('SELECT $1::uuid AS lead_id');
+
+/**
+ * То же по списку заявок одним запросом — строка на заявку, `lead_id` в ней.
+ * Так очередь менеджера (lib/manager-queue) сверяет, что вид каждой заявки
+ * по-прежнему построен из отказа, по которому человеку собираются звонить.
+ */
+export const REQUEST_STATUS_BY_LEADS_SQL = statusByLeads('SELECT DISTINCT unnest($1::uuid[]) AS lead_id');
 
 const ISO_DAY = /^\d{4}-\d{2}-\d{2}$/;
 
@@ -1015,7 +1137,7 @@ function dateChangeNote(requested: string | null, actual: string | null): string
  * уведомлений. Ссылки с ключом (страница, MAX) — только в ответе по ключу:
  * сырого ключа у сверки нет и быть не должно.
  */
-export type RequestCore = Omit<RequestStatusView, 'page' | 'notify' | 'max_link'>;
+export type RequestCore = Omit<RequestStatusView, 'page' | 'notify' | 'max_link' | 'other_offers' | 'other_stays'>;
 
 /** Переписки у запроса мест нет: поля есть, значения null. */
 const NO_CHAT = { partner_replies: null, partner_last_reply_at: null } as const;
@@ -1148,9 +1270,13 @@ export function buildRequestView(row: StatusRow, now: number): RequestCore {
   // адресованный партнёру. Без текста — число и время ответов.
   const chat = row.lead_id !== null && row.lead_status !== null && row.opens_chat === true && row.lead_addressed === true;
   const replies = Number(row.chat_partner_replies ?? 0);
+  // Отменил клиент (1427): брони нет, и «бронь по заявке отменена» было бы неправдой.
+  const clientCancelled = !answered && !row.booking_status && row.lead_status === LEAD_CLIENT_CANCELLED;
   const human = answered
     ? answered.human
-    : humanText(state, consent_purpose) + (row.booking_status ? dateChangeNote(requested, row.booking_date) : '');
+    : clientCancelled
+      ? CLIENT_CANCELLED_HUMAN
+      : humanText(state, consent_purpose) + (row.booking_status ? dateChangeNote(requested, row.booking_date) : '');
   return {
     state,
     kind: 'lead',
@@ -1227,9 +1353,23 @@ export async function readRequestStatus(rawKey: unknown, opts: StatusReader = {}
   const shown = row.opens_chat === true ? shownAnswerRef(row) : null;
   const via = opts.reader === 'agent' ? 'agent_read' : opts.reader === 'page' && opts.seen === true ? 'page_seen' : null;
   if (shown && via) {
-    const { markNoticeShown, markVehicleNoticeShown } = await import('@/lib/requests/answer-notice-mark');
-    if (shown.source === 'tour') await markNoticeShown(shown.id, via);
-    else await markVehicleNoticeShown(shown.id, via);
+    const { markShownRef } = await import('@/lib/requests/answer-notice-mark');
+    await markShownRef(shown, via);
+  }
+  // Другие компании к месту на дату (4а): только у вида-отказа, поэтому модуль
+  // (и его чтение базы) подгружается, когда он нужен. Вид важнее списка — тот
+  // не бросает: не прочитался — `failed`.
+  let other_offers: RequestOtherOffers | null = null;
+  if (core.kind === 'lead' && core.state === 'declined') {
+    const { readStatusOtherOffers } = await import('@/lib/requests/other-offers-status');
+    other_offers = await readStatusOtherOffers(row, core);
+  }
+  // Другое жильё на те же ночи (этап 5): только после «Занято» хозяина. Тем же
+  // порядком: вид важнее списка, список не бросает.
+  let other_stays: RequestOtherStays | null = null;
+  if (core.kind === 'stay_request' && core.state === 'declined') {
+    const { readStatusOtherStays } = await import('@/lib/stay/other-stays-status');
+    other_stays = await readStatusOtherStays(row, core);
   }
   return {
     ...core,
@@ -1238,6 +1378,8 @@ export async function readRequestStatus(rawKey: unknown, opts: StatusReader = {}
     // только здесь. Переписка по ключу открыта — partner_replies не null.
     max_link: core.partner_replies !== null && row.chat_guest_on_max !== true ? guestBotLink(maxBot(), key) : null,
     notify: notifyStatusOf(row),
+    other_offers,
+    other_stays,
   };
 }
 

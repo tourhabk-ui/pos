@@ -11,10 +11,25 @@
  *  - оператору — что ушло человеку на самом деле.
  *
  * Отказ по погоде или безопасности (слово владельца 11.11, вопрос 3): замену
- * предлагать можно только проверенно безопасную. Проверка дат по прогнозу и
- * обстановке — следующий шаг (2в), поэтому здесь дат после такого отказа нет:
- * непроверенная дата под словами «вместо погоды» была бы обещанием, которого
- * система не держит. Слово «безопасно» не говорится ни о чём.
+ * предлагать можно только проверенную — «проверка обстановки и места, а не
+ * догадка», и с объяснением, почему замена. С этапа 2в после такого отказа
+ * даты называются, только когда данные Ведара сами видят причину отказа на
+ * дату заявки (она и есть объяснение замены), и только прошедшие ту же
+ * проверку целиком (lib/trips/date-check). Рядом сказано, что проверено «на
+ * дату», а что «на сейчас»; что не названо и почему — тоже. Непроверенная дата
+ * не называется никогда: блок дат другого рода (`dates`) после такого отказа
+ * молчит. Слово «безопасно» не говорится ни о чём, и слов «опасного не видно»
+ * о дате отказа нет: Ведар говорит, что причина отказа в его данных не
+ * отражена, а не спорит с оператором.
+ *
+ * Другие компании (этап 4а; слова владельца 11.11: «передавать другим — да»,
+ * «карт-бланш по плану»): после «Нет мест» и отказа не по погоде человеку
+ * называются компании, чьи туры идут к тому же месту и могут принять на его
+ * дату (lib/requests/other-offers). Это не ответ этих компаний и не передача
+ * заявки: имя и телефон никому не уходят, заявку человек оставляет сам по
+ * ссылке. После отказа по погоде или безопасности блока нет — то же место в
+ * тот же день; после «предложит другую дату» и у большой группы, которую уже
+ * видят другие операторы, — тоже.
  *
  * Машина целиком и прокат (этап 2б-2, слово владельца 12.11 «1 да»): после
  * «Не могу» перевозчика или прокатчика заказчик получает одно сообщение от
@@ -28,6 +43,14 @@ import { escapeHtml } from '@/lib/text/escape-html';
 import { DECLINE_REASON_LABEL, type DeclineReason } from '@/lib/requests/chat-answer-buttons';
 import { myTripDateMenuPayload, myTripDatePickPayload } from '@/lib/requests/my-trip-ask';
 import { signPayload } from '@/lib/chat-cabinet/signed-payload';
+import { SITUATION_FORECAST_DAYS } from '@/lib/trips/situation';
+import type { DateCheck } from '@/lib/trips/date-check';
+import { PLACE_COLOR_WORD } from '@/lib/safety/place-day-status';
+import { OFFER_ORDER_NOTE_ON_DATE_RU } from '@/lib/tours/offer-order';
+import { plural } from '@/lib/home/data-freshness';
+import {
+  otherOfferMoreToursWords, otherOfferSeatsWords, otherOffersMoreCompaniesWords, otherOffersNoteWords,
+} from '@/lib/requests/other-offers-words';
 
 export type NoticeAnswer = 'no_seats' | 'decline' | 'other_date';
 
@@ -77,7 +100,46 @@ export type DatesBlock =
   | { kind: 'none' }
   | { kind: 'no_calendar' }
   | { kind: 'failed' }
-  /** Блока нет по смыслу ответа: погода, большая группа, «не подходит группа». */
+  /**
+   * После отказа «погода или безопасность» (2в): чем кончилась проверка
+   * (lib/trips/date-check) и какие даты называются — только прошедшие её
+   * целиком и только когда данные Ведара видят причину отказа. `refused` —
+   * сколько свободных дат рядом не проверялось из-за прежнего отказа по погоде.
+   */
+  | { kind: 'checked'; check: DateCheck; dates: string[]; refused?: number }
+  /**
+   * Все свободные даты рядом — с прежним отказом по погоде или безопасности
+   * (в любой заявке на этот тур): в календаре они свободны, но «проверенными»
+   * их не называем, и проверка не запускалась.
+   */
+  | { kind: 'weather_refused'; count: number }
+  /** Блока нет по смыслу ответа: большая группа, «не подходит группа», тура нет на витрине. */
+  | { kind: 'skip' };
+
+/** Строка списка других компаний: компания и её тур, который может принять на дату. */
+export interface OfferLine {
+  partnerName: string;
+  title: string;
+  /** Цена словами с единицей; null — не записана. */
+  price: string | null;
+  /** `calendar` — в календаре на дату хватает мест; `by_request` — календаря нет, дату подтверждает оператор. */
+  seats: 'calendar' | 'by_request';
+  /** Полный адрес формы заявки тура с датой и числом людей. */
+  url: string;
+  /** Сколько ещё туров этой компании к месту могут принять на дату. */
+  moreTours: number;
+  /** Компания сама ответила Ведару «Беру» по этой заявке (этап 4б); нет поля или null — не отвечала. */
+  said?: 'take' | null;
+}
+
+/** Другие компании к тому же месту на дату заявки — что удалось узнать (lib/requests/other-offers). */
+export type OffersBlock =
+  | { kind: 'offers'; placeName: string; placeUrl: string; offers: OfferLine[]; more: number }
+  /** Главного места у тура нет, других компаний к нему нет или никто не может на эту дату. */
+  | { kind: 'none' }
+  /** Не прочиталось: в сообщении блока нет, отказ — в логе. */
+  | { kind: 'failed' }
+  /** Блока нет по смыслу ответа (answerWantsOffers) или у заявки нет тура и даты. */
   | { kind: 'skip' };
 
 /**
@@ -127,9 +189,22 @@ export function undeliveredWhy(tried: readonly string[]): UndeliveredWhy {
   };
 }
 
+/** Чем кончился блок дат после отказа по погоде: исход проверки или «по всем датам рядом уже отказывали». */
+export type WeatherDatesOutcome = DateCheck['state'] | 'weather_refused';
+
 /** Чем кончилось сообщение человеку — для оператора и менеджера. */
 export type NoticeOutcome =
-  | { state: 'delivered'; via: 'max' | 'telegram' | 'agent_webhook' | 'agent_read' | 'page_seen'; dates: string[] }
+  | {
+    state: 'delivered'; via: 'max' | 'telegram' | 'agent_webhook' | 'agent_read' | 'page_seen'; dates: string[];
+    /**
+     * После отказа по погоде или безопасности (2в): чем кончилась проверка дат.
+     * С `confirmed` даты в `dates` — прошедшие проверку, а не просто свободные;
+     * с остальным дат нет, и оператору сказано почему.
+     */
+    check?: WeatherDatesOutcome;
+    /** Сколько других компаний названо человеку (этап 4а); нет поля — ни одной. */
+    offers?: number;
+  }
   | { state: 'undelivered'; manager: ManagerChannel; why: UndeliveredWhy }
   | { state: 'skipped'; reason: 'lead_closed' | 'not_addressee' | 'self' | 'outgrown' }
   /**
@@ -149,6 +224,9 @@ export function datesLine(dates: readonly string[], around: string | null): stri
   return dates.map((d) => (d.slice(0, 4) === year ? `${d.slice(8, 10)}.${d.slice(5, 7)}` : ruDay(d))).join(', ');
 }
 
+/** Точка в конце, если её ещё нет («…, 3 чел.» кончается своей). */
+const endDot = (line: string) => (line.endsWith('.') ? line : `${line}.`);
+
 const who = (f: NoticeFacts) => (f.operatorName ? `Оператор «${escapeHtml(f.operatorName)}»` : 'Оператор');
 
 function head(f: NoticeFacts): string {
@@ -157,14 +235,191 @@ function head(f: NoticeFacts): string {
     f.date ? ruDay(f.date) : null,
     f.people && f.people > 0 ? `${f.people} чел.` : null,
   ].filter(Boolean);
-  return `<b>Ответ по вашей заявке</b>\n${parts.join(', ')}.`;
+  // «3 чел.» уже кончается точкой: вторая не ставится.
+  return `<b>Ответ по вашей заявке</b>\n${endDot(parts.join(', '))}`;
 }
 
 /** Есть ли у ответа блок дат по смыслу. */
 export function answerWantsDates(f: Pick<NoticeFacts, 'answer' | 'reason' | 'groupPassedOn'>): boolean {
   if (f.groupPassedOn) return false;
-  if (f.answer === 'decline') return f.reason !== 'weather' && f.reason !== 'group';
+  if (f.answer === 'decline') return f.reason !== 'group';
   return true;
+}
+
+/** Отказ «погода или безопасность»: даты — только проверенные (2в). */
+export function isWeatherDecline(f: Pick<NoticeFacts, 'answer' | 'reason'>): boolean {
+  return f.answer === 'decline' && f.reason === 'weather';
+}
+
+/** Что проверяется у даты после отказа по погоде — коротко, менеджеру. Зоны здесь нет: она входит в проверку не у каждого тура. */
+export const DATE_CHECK_SHORT = 'прогноз на дату, уже выпущенные предупреждения по главному месту, статус места на сейчас';
+
+/**
+ * Что именно проверено — по тому, что входило в проверку этого тура, а не
+ * общим списком. «На дату» и «на сейчас» названы порознь: статус места и
+ * оценка зоны о дате не говорят. Предупреждения — «уже выпущенные» и «по
+ * главному месту»: на дни вперёд их могли ещё не выпустить, а чужое место в
+ * проверку не входит (ревью 2в).
+ */
+export function dateCheckWords(c: { place: string; zoneAssessed: boolean }): string {
+  const place = `«${escapeHtml(c.place)}»`;
+  return `прогноз погоды на дату и уже выпущенные официальные предупреждения по главному месту тура (${place}); `
+    + `статус места${c.zoneAssessed ? ' и оценка опасности зоны' : ''} — на сейчас`;
+}
+
+const WEATHER_NO_OFFER = 'Других дат не предлагаю';
+const ASK = 'о дате можно спросить здесь, в чате';
+/** Прогноз — на сегодня и ещё несколько дней: «суток», чтобы число не требовало склонения. */
+const FORECAST_SPAN = `Прогноз есть только на ${SITUATION_FORECAST_DAYS} суток, считая сегодня`;
+/** Когда проверки нет вовсе: тура нет на витрине или в заявке нет даты. */
+const WEATHER_NO_BLOCK = `${WEATHER_NO_OFFER}: назвать можно только проверенную по прогнозу и предупреждениям, а для этой заявки такой проверки нет. О дате можно спросить здесь, в чате.`;
+
+/** Что данные Ведара называют опасным на дату заявки — не больше трёх пунктов, чужой текст экранирован. */
+function risksWords(risks: readonly string[]): string {
+  const shown = risks.slice(0, 3).map((r) => escapeHtml(r.length > 200 ? `${r.slice(0, 199)}…` : r));
+  return shown.join('; ') + (risks.length > shown.length ? ` и ещё ${risks.length - shown.length}` : '');
+}
+
+/** Заголовки предупреждений — не больше трёх, в кавычках; чужой текст экранирован и обрезан. */
+function titlesWords(titles: readonly string[]): string {
+  const shown = titles.slice(0, 3).map((t) => `«${escapeHtml(t.length > 200 ? `${t.slice(0, 199)}…` : t)}»`);
+  return shown.join(', ') + (titles.length > shown.length ? ` и ещё ${titles.length - shown.length}` : '');
+}
+
+const operatorContacts = (f: NoticeFacts) => (f.tourUrl ? `: контакты на странице тура ${f.tourUrl}` : '');
+
+const ZONE_LEVEL_WORD: Record<'high' | 'critical', string> = { high: 'высокая', critical: 'критическая' };
+
+/** «уже был отказ по погоде — 2»: свободные даты рядом, которые не проверялись из-за прежнего отказа. */
+const refusedWords = (n: number) => `уже был отказ по погоде или безопасности — ${n}`;
+
+/**
+ * Даты после отказа «погода или безопасность». Называются только прошедшие
+ * проверку — и только когда данные Ведара видят причину отказа; иначе сказано,
+ * почему дат нет. Блок просто свободных дат (`dates`) сюда попасть не должен
+ * — и если попал, даты из него не печатаются.
+ */
+function weatherDatesText(f: NoticeFacts, d: DatesBlock): string | null {
+  switch (d.kind) {
+    case 'skip':
+      return null;
+    case 'failed':
+      return `Свободные даты сейчас не прочитались — это сбой, а не «дат нет». ${WEATHER_NO_OFFER}.`;
+    case 'no_calendar':
+      return 'Расписания у тура на Ведаре нет — других дат назвать не могу; спросите о них у оператора.';
+    case 'none':
+      return `Других свободных дат${f.people ? ` на ${f.people} чел.` : ''} в календаре тура на год вперёд нет.`;
+    case 'weather_refused':
+      return `${WEATHER_NO_OFFER}: по свободным датам рядом (${d.count}) уже был отказ из-за погоды или безопасности. `
+        + `О других датах спросите оператора${operatorContacts(f)}.`;
+    case 'dates':
+      return `${WEATHER_NO_OFFER}: проверить свободные даты сейчас не удалось. Позже ${ASK}.`;
+    case 'checked':
+      return checkedDatesText(f, d.check, d.dates, d.refused ?? 0);
+  }
+}
+
+function checkedDatesText(f: NoticeFacts, c: DateCheck, dates: readonly string[], refused: number): string {
+  switch (c.state) {
+    case 'no_data':
+      return `${WEATHER_NO_OFFER}: у Ведара нет данных, чтобы проверить место этого тура. О других датах спросите оператора${operatorContacts(f)}.`;
+    case 'past':
+      return `${WEATHER_NO_OFFER}: дата заявки уже прошла, и сверить её с прогнозом нельзя. О новой дате можно спросить здесь, в чате.`;
+    case 'beyond':
+      return `${WEATHER_NO_OFFER}: ваша дата вне прогноза, и проверить, чем она опасна и чем от неё отличаются соседние, Ведару нечем. ${FORECAST_SPAN}; ближе к дате ${ASK}.`;
+    case 'place_risk': {
+      const now = c.level === 'closed' ? 'отмечено закрытым' : `в статусе ${PLACE_COLOR_WORD[c.level]}`;
+      return `${WEATHER_NO_OFFER}: главное место тура «${escapeHtml(c.place)}» сейчас ${now} — пока это так, назвать другую дату проверенной нельзя. Позже ${ASK}.`;
+    }
+    case 'zone_risk':
+      return `${WEATHER_NO_OFFER}: опасность в зоне «${escapeHtml(c.zone)}» сейчас оценена как ${ZONE_LEVEL_WORD[c.level]} — пока это так, назвать другую дату проверенной нельзя. Позже ${ASK}.`;
+    case 'unchecked':
+      return `${WEATHER_NO_OFFER}: проверить обстановку на вашу дату сейчас не удалось. Позже ${ASK}.`;
+    case 'unconfirmed': {
+      const standing = c.standing ?? [];
+      // Постоянный режим на дату заявки (пропуска на дороге, класс пожарной опасности) причиной отказа по
+      // погоде не называется — но и не замалчивается: что есть в данных, сказано как есть.
+      if (standing.length > 0) {
+        return `${WEATHER_NO_OFFER}: на вашу дату по данным Ведара ${standing.length > 1 ? 'действуют предупреждения' : 'действует предупреждение'} `
+          + `${titlesWords(standing)} — причина ли это отказа, Ведар не знает (проверено: ${dateCheckWords(c)}). `
+          + `Назвать другую дату проверенной по этим данным нельзя. О других датах спросите оператора${operatorContacts(f)}.`;
+      }
+      // Не «опасного не видно»: Ведар не спорит с оператором, а говорит, чего нет в его данных.
+      return `${WEATHER_NO_OFFER}: в данных Ведара причина отказа не отражена (проверено: ${dateCheckWords(c)}) — значит, оператор знает то, чего в этих данных нет, `
+        + `и назвать другую дату проверенной по ним нельзя. О других датах спросите его${operatorContacts(f)}.`;
+    }
+    case 'confirmed': {
+      const seen = `По данным Ведара на вашу дату: ${risksWords(c.risks)}.`;
+      const rest = [
+        c.risk > 0 ? `с опасной погодой или действующим предупреждением — ${c.risk}` : null,
+        c.beyond > 0 ? `вне прогноза — ${c.beyond}` : null,
+        c.unchecked > 0 ? `проверить не удалось — ${c.unchecked}` : null,
+        refused > 0 ? refusedWords(refused) : null,
+      ].filter(Boolean).join(', ');
+      if (dates.length > 0) {
+        const page = f.tourUrl ? ` Заявку на другую дату можно оставить на странице тура: ${f.tourUrl}` : '';
+        return `${seen} Вместо неё называю свободные по календарю тура, на которые Ведар сейчас не нашёл ни опасной погоды в прогнозе, ни предупреждений: ${datesLine(dates, f.date)}. `
+          + `Проверено: ${dateCheckWords(c)}. Это не обещание погоды и не разрешение на выезд: прогноз меняется, выезд и места подтверждает оператор.`
+          + (rest ? ` Другие свободные даты рядом не называю: ${rest}.` : '')
+          + page;
+      }
+      if (!rest) return `${seen} Других свободных дат рядом, которые можно проверить, нет.`;
+      return `${seen} ${WEATHER_NO_OFFER}: из свободных дат рядом проверку не прошла ни одна (${rest}).`
+        + (c.beyond > 0 ? ` ${FORECAST_SPAN}; ближе к дате ${ASK}.` : '');
+    }
+  }
+}
+
+/**
+ * Есть ли у ответа блок «другие компании на вашу дату» по смыслу (этап 4а).
+ * Нет: у машины и проката (там свои витрины); у большой группы, которую уже
+ * видят другие операторы; после «предложит другую дату» — это не отказ; после
+ * отказа по погоде или безопасности — то же место в тот же день, и замену там
+ * можно называть только проверенную (слово владельца 11.11, вопрос 3).
+ */
+export function answerWantsOffers(f: Pick<NoticeFacts, 'kind' | 'answer' | 'reason' | 'groupPassedOn'>): boolean {
+  if (personOf(f.kind) === 'client') return false;
+  if (f.groupPassedOn) return false;
+  if (f.answer === 'other_date') return false;
+  return !isWeatherDecline(f);
+}
+
+/**
+ * Предел текста сообщения человеку: с запасом под пределы MAX и Telegram.
+ * Блок других компаний в него обязан уложиться — сообщение об отказе важнее.
+ */
+export const NOTICE_TEXT_MAX = 3800;
+/** Длиннее этого название тура и вывеска компании в строке списка обрезаются. */
+const OFFER_NAME_CHARS = 90;
+
+/** Обрезка по символам, а не по половинкам пар. */
+function clip(text: string, max: number): string {
+  const chars = Array.from(text);
+  return chars.length > max ? `${chars.slice(0, max - 1).join('')}…` : text;
+}
+
+/**
+ * Другие компании к тому же месту на дату заявки — первые `count` из блока.
+ * Слов «лучше», «дешевле», «рекомендуем» нет; сказано, что это не ответ
+ * компаний и что телефон получит только та, которой человек оставит заявку
+ * сам; порядок назван правилом. Компании, не вошедшие в текст, названы числом.
+ */
+function offersText(f: NoticeFacts, o: Extract<OffersBlock, { kind: 'offers' }>, count: number): string {
+  const on = f.date ? ` на ${ruDay(f.date)}` : '';
+  const lines = o.offers.slice(0, count).map((x, i) => {
+    const seats = otherOfferSeatsWords(x.seats, f.people, x.said ?? null);
+    const more = x.moreTours > 0 ? `; ${otherOfferMoreToursWords(x.moreTours)}` : '';
+    return `${i + 1}. «${escapeHtml(clip(x.partnerName, OFFER_NAME_CHARS))}» — тур «${escapeHtml(clip(x.title, OFFER_NAME_CHARS))}», `
+      + `${escapeHtml(x.price ?? 'цена не указана')}; ${seats}${more}. Заявка: ${escapeHtml(x.url)}`;
+  });
+  const rest = o.more + (o.offers.length - count);
+  return [
+    `<b>К месту «${escapeHtml(clip(o.placeName, OFFER_NAME_CHARS))}»${on} — другие компании</b>`,
+    ...lines,
+    rest > 0 ? `${otherOffersMoreCompaniesWords(rest)} — на странице места: ${escapeHtml(o.placeUrl)}` : null,
+    otherOffersNoteWords(o.offers.slice(0, count).some((x) => x.said === 'take')),
+    OFFER_ORDER_NOTE_ON_DATE_RU,
+  ].filter((l): l is string => !!l).join('\n');
 }
 
 /**
@@ -179,6 +434,7 @@ export function datesPickable(f: Pick<NoticeFacts, 'answer'>, canPick: boolean):
 }
 
 function datesText(f: NoticeFacts, d: DatesBlock, pick: boolean): string | null {
+  if (isWeatherDecline(f)) return weatherDatesText(f, d);
   const page = f.tourUrl ? ` Заявку на другую дату можно оставить на странице тура: ${f.tourUrl}` : '';
   switch (d.kind) {
     case 'skip':
@@ -191,6 +447,10 @@ function datesText(f: NoticeFacts, d: DatesBlock, pick: boolean): string | null 
       return 'Расписания у тура на Ведаре нет — свободных дат показать не могу; другую дату можно спросить у оператора.';
     case 'none':
       return `Других свободных дат${f.people ? ` на ${f.people} чел.` : ''} в календаре тура на год вперёд нет.`;
+    // Проверенные даты — только после отказа по погоде (weatherDatesText); у других ответов такого блока нет.
+    case 'checked':
+    case 'weather_refused':
+      return null;
     case 'dates': {
       const line = datesLine(d.dates, f.date);
       if (f.answer === 'other_date') {
@@ -214,8 +474,7 @@ function answerLine(f: NoticeFacts, d: DatesBlock): string {
   if (f.answer === 'other_date') return `${who(f)} ответил: на эту дату не может и предложит другую — напишет или позвонит по телефону из заявки.`;
   switch (f.reason) {
     case 'weather':
-      return `${who(f)} отказал по заявке: на эту дату — погода или безопасность. Решение о выезде за оператором. `
-        + 'Другие даты здесь не предлагаю: безопасна ли дата, видно только по прогнозу и обстановке ближе к ней — спросите о ней здесь, в чате. Экстренный вызов — 112.';
+      return `${who(f)} отказал по заявке: на эту дату — погода или безопасность. Решение о выезде за оператором.`;
     case 'seats':
       return `${who(f)} отказал по заявке: мест нет. Заявка закрыта; брони не было, оплату Ведар не принимает.`;
     case 'dates':
@@ -280,13 +539,26 @@ const TAIL = 'Подобрать другой тур можно здесь же 
  * (тогда даты — кнопками «Изменить дату», иначе текстом и ссылкой на тур).
  */
 export function touristAnswerText(
-  f: NoticeFacts, d: DatesBlock, canPick: boolean,
-): { text: string; buttons: Array<{ text: string; payload: string }> } {
-  if (personOf(f.kind) === 'client') return { text: vehicleDeclineText(f), buttons: [] };
+  f: NoticeFacts, d: DatesBlock, canPick: boolean, offers: OffersBlock = { kind: 'skip' },
+): { text: string; buttons: Array<{ text: string; payload: string }>; offers: number } {
+  if (personOf(f.kind) === 'client') return { text: vehicleDeclineText(f), buttons: [], offers: 0 };
   const pick = datesPickable(f, canPick);
   const block = answerWantsDates(f) ? datesText(f, d, pick) : null;
-  const weather = f.answer === 'decline' && f.reason === 'weather';
-  const lines = [head(f), answerLine(f, d), block, weather || f.groupPassedOn ? null : TAIL].filter((l): l is string => !!l);
+  const weather = isWeatherDecline(f);
+  const compose = (others: string | null) => [
+    head(f), answerLine(f, d),
+    weather ? (block ?? WEATHER_NO_BLOCK) : block,
+    others,
+    weather ? 'Экстренный вызов — 112.' : f.groupPassedOn ? null : TAIL,
+  ].filter((l): l is string => !!l);
+  // Блок других компаний встаёт в сообщение столькими строками, сколько помещается в предел:
+  // не поместилась ни одна — блока нет, а сообщение об отказе уходит как было.
+  let named = answerWantsOffers(f) && offers.kind === 'offers' ? offers.offers.length : 0;
+  let lines = compose(null);
+  for (; named > 0; named--) {
+    const withOffers = compose(offersText(f, offers as Extract<OffersBlock, { kind: 'offers' }>, named));
+    if (withOffers.join('\n').length <= NOTICE_TEXT_MAX) { lines = withOffers; break; }
+  }
   const buttons: Array<{ text: string; payload: string }> = [];
   if (pick && block && d.kind === 'dates') {
     for (const iso of d.dates) {
@@ -294,7 +566,29 @@ export function touristAnswerText(
     }
     buttons.push({ text: 'Другие даты', payload: myTripDateMenuPayload(f.leadId) });
   }
-  return { text: lines.join('\n'), buttons };
+  return { text: lines.join('\n'), buttons, offers: named };
+}
+
+/** Сколько компаний называется менеджеру: звонок короткий, остальные — на странице места. */
+export const MANAGER_OFFERS_MAX = 3;
+
+/**
+ * Менеджеру, который будет звонить: кого ещё можно назвать человеку на эту
+ * дату (4а). Те же компании и тем же порядком, что получил бы человек в чате —
+ * до него сообщение не дошло. Ссылок на формы нет: по телефону их не
+ * продиктовать; страница места — одна. После отказа по погоде, у большой
+ * группы и когда список не прочитался, строки нет (answerWantsOffers).
+ */
+function managerOffersNote(f: NoticeFacts, o: OffersBlock): string | null {
+  if (!answerWantsOffers(f) || o.kind !== 'offers' || o.offers.length === 0) return null;
+  const shown = o.offers.slice(0, MANAGER_OFFERS_MAX);
+  const names = shown.map((x) => `«${escapeHtml(clip(x.partnerName, OFFER_NAME_CHARS))}» — тур «${escapeHtml(clip(x.title, OFFER_NAME_CHARS))}» `
+    + `(${x.said === 'take' ? 'ответила Ведару: возьмёт' : x.seats === 'calendar' ? 'в календаре места есть' : 'дату подтверждает оператор'})`);
+  const rest = o.more + (o.offers.length - shown.length);
+  const basis = shown.some((x) => x.said === 'take') ? 'по календарю Ведара и ответам компаний' : 'по календарю Ведара, это не ответ компаний';
+  return `Кого ещё можно назвать клиенту на эту дату — к месту «${escapeHtml(clip(o.placeName, OFFER_NAME_CHARS))}», ${basis}: `
+    + `${names.join('; ')}${rest > 0 ? `; ${otherOffersMoreCompaniesWords(rest).toLowerCase()}` : ''}. `
+    + `Все туры к месту: ${escapeHtml(o.placeUrl)} Заявку другой компании клиент оставляет сам.`;
 }
 
 /** Ответ оператора словами — для менеджера. */
@@ -333,6 +627,7 @@ export function triedWords(tried: readonly string[]): string {
  */
 export function managerUndeliveredText(
   f: NoticeFacts, contact: { name: string | null; phone: string | null }, tried: readonly string[], dates: readonly string[],
+  offers: OffersBlock = { kind: 'skip' },
 ): { text: string; stub: string } {
   const vehicle = personOf(f.kind) === 'client';
   const tour = vehicle
@@ -345,15 +640,18 @@ export function managerUndeliveredText(
   const answer = vehicle
     ? `Ответ ${vehiclePartner(f, 'gen')}: выполнить заявку не может.`
     : `Ответ ${f.operatorName ? `оператора «${escapeHtml(f.operatorName)}»` : 'оператора'}: ${answerShort(f)}.`;
-  const datesNote = dates.length > 0 ? `Свободные даты рядом по календарю: ${datesLine(dates, f.date)} — места подтверждает оператор.` : null;
+  const datesNote = dates.length === 0 ? null : isWeatherDecline(f)
+    ? `Свободные даты рядом, на которые Ведар не нашёл ни опасной погоды, ни предупреждений (${DATE_CHECK_SHORT}): ${datesLine(dates, f.date)} — выезд и места подтверждает оператор.`
+    : `Свободные даты рядом по календарю: ${datesLine(dates, f.date)} — места подтверждает оператор.`;
   const text = [
     title,
-    `Заявка <code>${escapeHtml(f.leadId)}</code>: ${tour}.`,
+    `Заявка <code>${escapeHtml(f.leadId)}</code>: ${endDot(tour)}`,
     answer,
     `<b>Имя:</b> ${escapeHtml(contact.name ?? 'не записано')}`,
     `<b>Телефон:</b> ${escapeHtml(contact.phone ?? 'не записан')}`,
     `Куда пробовали: ${triedWords(tried)}.`,
     datesNote,
+    managerOffersNote(f, offers),
     `${vehicle ? 'Брони не было; машина за заказчиком не закреплялась.' : 'Брони не было; оплату Ведар не принимает.'} Если ИИ-агент или человек прочтёт статус позже — пришлю «звонить не нужно».`,
   ].filter(Boolean).join('\n');
   // Заглушка уходит ровно тогда, когда MAX НЕ принял письмо (pd-alert): в MAX
@@ -361,7 +659,7 @@ export function managerUndeliveredText(
   // (lib/stay/stay-request.ts).
   const stub = [
     title,
-    `Заявка <code>${escapeHtml(f.leadId)}</code>: ${tour}. ${answer}`,
+    `Заявка <code>${escapeHtml(f.leadId)}</code>: ${endDot(tour)} ${answer}`,
     'MAX не сработал: имя и телефон — в админке (кнопка ниже), в Telegram они не передаются.',
   ].join('\n');
   return { text, stub };
@@ -387,6 +685,23 @@ const PERSON: Record<NoticePerson, { Nom: string; gen: string; Dat: string; dat:
 };
 
 /**
+ * Оператору после отказа по погоде, когда других дат туристу не назвали:
+ * почему. Иначе он читает «ваш ответ.» и не знает, что туриста отправили за
+ * датами к нему, а у тура не хватает данных для проверки (ревью 2в).
+ */
+const NO_DATES_TO_OPERATOR: Record<WeatherDatesOutcome, string> = {
+  confirmed: 'Других дат Ведар туристу не назвал: из свободных рядом проверку по прогнозу и предупреждениям не прошла ни одна.',
+  unconfirmed: 'Других дат Ведар туристу не назвал: причины вашего отказа он по своим данным назвать не может — туристу сказано спросить о датах у вас.',
+  place_risk: 'Других дат Ведар туристу не назвал: главное место тура сейчас закрыто либо в жёлтом или красном статусе.',
+  zone_risk: 'Других дат Ведар туристу не назвал: опасность в зоне тура сейчас оценена не ниже высокой.',
+  no_data: 'Других дат Ведар туристу не назвал: у тура на Ведаре не хватает данных для проверки (координаты, главное место со сводками и зоной); туристу сказано спросить о датах у вас.',
+  past: 'Других дат Ведар туристу не назвал: дата заявки уже прошла.',
+  beyond: 'Других дат Ведар туристу не назвал: дата заявки дальше прогноза.',
+  unchecked: 'Других дат Ведар туристу не назвал: проверить обстановку сейчас не удалось.',
+  weather_refused: 'Других дат Ведар туристу не назвал: по свободным датам рядом уже был отказ по погоде или безопасности; туристу сказано спросить о датах у вас.',
+};
+
+/**
  * Строка партнёру: что на самом деле ушло человеку. `person` — о ком речь:
  * у перевозчика и прокатчика это заказчик, и свободных дат у них нет.
  */
@@ -395,7 +710,16 @@ export function operatorOutcomeLine(o: NoticeOutcome, person: NoticePerson = 'to
   switch (o.state) {
     case 'delivered':
       if (o.via === 'max' || o.via === 'telegram') {
-        return `${w.Dat} ушло сообщение в ${o.via === 'max' ? 'MAX' : 'Telegram'}: ваш ответ${o.dates.length > 0 ? ` и свободные даты тура рядом по календарю (${datesLine(o.dates, null)})` : ''}.`;
+        const checked = o.check === 'confirmed' && o.dates.length > 0;
+        const dates = o.dates.length === 0 ? '' : checked
+          ? ` и свободные даты рядом, на которые Ведар не нашёл ни опасной погоды в прогнозе, ни предупреждений по месту (${datesLine(o.dates, null)}); выезд на них подтверждаете вы`
+          : ` и свободные даты тура рядом по календарю (${datesLine(o.dates, null)})`;
+        const why = o.check && !checked ? ` ${NO_DATES_TO_OPERATOR[o.check]}` : '';
+        // Оператору сказано и это: после его отказа человеку названы другие компании (этап 4а).
+        const others = o.offers && o.offers > 0
+          ? ` Ещё ${w.dat} ${o.offers > 1 ? `названы ${o.offers} ${plural(o.offers, 'другая компания', 'другие компании', 'других компаний')}` : 'названа другая компания'} с турами к этому месту на эту дату — по общему правилу порядка витрины.`
+          : '';
+        return `${w.Dat} ушло сообщение в ${o.via === 'max' ? 'MAX' : 'Telegram'}: ваш ответ${dates}.${why}${others}`;
       }
       if (o.via === 'agent_webhook') return `Ответ ушёл ИИ-агенту ${w.gen}: его уведомление принято.`;
       return o.via === 'agent_read' ? `Ваш ответ уже прочитал ИИ-агент ${w.gen}.` : `${w.Nom} уже открыл страницу заявки и видит ваш ответ.`;

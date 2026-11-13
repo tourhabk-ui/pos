@@ -60,6 +60,7 @@ const m = vi.hoisted(() => ({
   preview: vi.fn(),
   createProposal: vi.fn(),
   pressOpen: vi.fn(),
+  deliver: vi.fn(),
 }));
 
 /** Поддельная база: только запросы lib/bookings/chat-owner-action. */
@@ -140,14 +141,20 @@ function fakeQuery(sql: string, params: unknown[] = []): { rows: unknown[]; rowC
     return res([{ subject_kind: r.subject_kind, subject_id: r.subject_id }]);
   }
   if (/SET status = 'running'/.test(sql)) {
-    const r = db.rows.find((x) => mine(x) && x.status === 'ready');
+    // Условие захвата — как его пишет запрос: «Да» не берёт строку «Отказа»
+    // по заявке, причина берёт только её и пишет себя в строку.
+    const isLost = (x: FakeRow) => x.subject_kind === 'lead' && x.action === 'lost';
+    const notLost = /AND NOT \(subject_kind = 'lead' AND action = 'lost'\)/.test(sql);
+    const lostOnly = !notLost && /AND subject_kind = 'lead' AND action = 'lost'/.test(sql);
+    const r = db.rows.find((x) => mine(x) && x.status === 'ready' && (!notLost || !isLost(x)) && (!lostOnly || isLost(x)));
     if (!r) return res([]);
     r.status = 'running';
+    if (/reason = \$5/.test(sql)) r.reason = p[4] ?? null;
     return res([{ subject_kind: r.subject_kind, subject_id: r.subject_id, action: r.action, reason: r.reason }]);
   }
-  if (/SELECT status, subject_kind, subject_id, outcome/.test(sql)) {
+  if (/SELECT status, subject_kind, subject_id, action, outcome/.test(sql)) {
     const r = db.rows.find(mine);
-    return res(r ? [{ status: r.status, subject_kind: r.subject_kind, subject_id: r.subject_id, outcome: r.outcome, expired: false, stale: false }] : []);
+    return res(r ? [{ status: r.status, subject_kind: r.subject_kind, subject_id: r.subject_id, action: r.action, outcome: r.outcome, expired: false, stale: false }] : []);
   }
   if (/SET status = \$2, outcome = \$3::jsonb/.test(sql)) {
     const r = db.rows.find((x) => x.id === p[0] && x.status === 'running');
@@ -217,6 +224,11 @@ vi.mock('@/lib/max/admin-link', async (orig) => ({
   findMaxAdmin: m.findAdmin,
 }));
 vi.mock('@/lib/bookings/owner-status', () => ({ changeOwnerBookingStatus: m.change }));
+// Отправка сообщения туристу после «Отказа» с причиной: здесь судится, что ушло в запись и что сказано гиду.
+vi.mock('@/lib/requests/answer-notice', async (orig) => ({
+  ...(await orig<typeof import('@/lib/requests/answer-notice')>()),
+  deliverAnswerNotice: m.deliver,
+}));
 vi.mock('@/lib/leads/owner-lead-status', async (orig) => ({
   ...(await orig<typeof import('@/lib/leads/owner-lead-status')>()),
   changeLeadStatus: m.changeLead,
@@ -260,6 +272,7 @@ const { channelBoundText } = await import('@/lib/partners/bind-channel');
 const { buildWelcomeText } = await import('@/lib/telegram/welcome');
 const { INBOX_NOT_HERE } = await import('@/lib/crm/inbox-kinds');
 const { LEAD_STATUS_WORDS } = await import('@/lib/leads/owner-lead-words');
+const { LOST_REASONS, LOST_REASON_LABEL } = await import('@/lib/leads/lost-reason');
 const { telegramDatesText } = await import('@/lib/operators/chat-dates/texts');
 const { roleChatCommands } = await import('@/lib/telegram/role-commands');
 const max = await import('@/app/api/max/kuzmich/route');
@@ -335,6 +348,9 @@ const CHANNELS: readonly Channel[] = ['max', 'telegram'];
  *    sendPdAlert в этот чат MAX;
  *  - `ask_yes` — вопрос без ПД, затем «Да» — правило смены статуса с этим
  *    каналом (у «Отклонить» между ними — причина одним сообщением);
+ *  - `ask_reason` — «Отказ» по заявке (этап 3а): вопрос без ПД и без «Да»,
+ *    причины кнопками; причина закрывает заявку тем же правилом, что дверь
+ *    сайта, с этим каналом, и итог говорит, что на деле ушло туристу;
  *  - `repeat` — «Да» исполняет правило один раз, повтор отвечает прежним итогом;
  *  - `kept` — «Не надо»: ничего не изменено, и «Да» того же вопроса уже не исполняется;
  *  - `dates_open` — фраза даёт предложение с «Открыть», нажатие пишет даты
@@ -347,7 +363,7 @@ const CHANNELS: readonly Channel[] = ['max', 'telegram'];
  *    экран говорит, что они в MAX.
  */
 type Outcome =
-  | 'screen' | 'screen_pd' | 'ask_yes' | 'repeat' | 'kept' | 'dates_open' | 'dates_link'
+  | 'screen' | 'screen_pd' | 'ask_yes' | 'ask_reason' | 'repeat' | 'kept' | 'dates_open' | 'dates_link'
   | 'task_done' | 'task_tomorrow' | 'max_only';
 
 /** Вкладки строки меню и экраны «Ещё». */
@@ -424,9 +440,11 @@ const DESK: readonly DeskRow[] = [
     name: 'Договорились', namedBy: 'help', max: 'ask_yes', telegram: 'ask_yes', under: ['Входящие'], subject: 'lead',
     ask: /^Отметить заявку .*: «Договорились»\?/, status: 'converted', done: new RegExp(`^Заявка отмечена: «${LEAD_STATUS_WORDS.converted}»`),
   },
+  // «Отказ» — без «Да»: причина кнопкой, отказ продавца сообщается туристу.
   {
-    name: 'Отказ', namedBy: 'help', max: 'ask_yes', telegram: 'ask_yes', under: ['Входящие'], subject: 'lead',
-    ask: /^Отметить заявку .*: «Отказ»\?/, status: 'lost', done: new RegExp(`^Заявка отмечена: «${LEAD_STATUS_WORDS.lost}»`),
+    name: 'Отказ', namedBy: 'help', max: 'ask_reason', telegram: 'ask_reason', under: ['Входящие'], subject: 'lead',
+    ask: /^Закрыть заявку .*: «Отказ»\?/, status: 'lost',
+    done: new RegExp(`^Заявка отмечена: «${LEAD_STATUS_WORDS.lost}»\\. Туристу ушло сообщение в (?:MAX|Telegram): ваш ответ\\.$`),
   },
   // Под вопросом.
   { name: 'Да', namedBy: 'help', max: 'repeat', telegram: 'repeat' },
@@ -769,6 +787,38 @@ const RUN: Record<Outcome, (d: Driver, row: DeskRow) => Promise<void>> = {
       });
     }
   },
+  async ask_reason(d, row) {
+    const screens: Said[] = [];
+    for (const where of row.under!) {
+      const s = await screenWith(d, where, row);
+      buttonNamed(s, row.name);
+      screens.push(s);
+    }
+    const ask = one(await d.press(buttonNamed(screens[0]!, row.name).payload), `вопрос «${row.name}»`);
+    expect(ask.text).toMatch(row.ask!);
+    expect(ask.text).toContain('Выберите причину — от неё зависит, что узнает турист.');
+    expectMenuUnder(ask);
+    // Кнопки «Да» нет: её место занимают причины — те же семь, что в выборе на сайте.
+    expect(ask.buttons.some((b) => labelIs(b.text, 'Да'))).toBe(false);
+    for (const reason of LOST_REASONS) buttonNamed(ask, LOST_REASON_LABEL[reason]);
+    expect(m.changeLead).not.toHaveBeenCalled();
+    m.changeLead.mockResolvedValueOnce({
+      kind: 'ok', changed: true, prevStatus: 'new', lead: { id: LEAD, status: 'lost', notes: null },
+      closed: { activityId: '9', notice: { id: '77', state: 'pending', skipped: null } },
+    });
+    m.deliver.mockResolvedValueOnce({ state: 'delivered', via: d.channel, dates: [] });
+    const done = one(await d.press(buttonNamed(ask, LOST_REASON_LABEL.seats).payload), `итог «${row.name}»`);
+    expect(done.text).toMatch(row.done!);
+    expect(m.changeLead).toHaveBeenCalledTimes(1);
+    expect(m.changeLead.mock.calls[0]![0]).toMatchObject({
+      leadId: LEAD,
+      status: row.status,
+      scope: { kind: 'owner', partnerId: SELLER.partnerId, claimUnowned: false },
+      via: d.channel,
+      lost: { reason: 'seats', partnerId: SELLER.partnerId },
+    });
+    expect(m.deliver).toHaveBeenCalledWith('77');
+  },
   async repeat(d) {
     const ask = one(await d.press(buttonNamed(await openScreen(d, 'Брони'), 'Подтвердить').payload), 'вопрос');
     const yes = buttonNamed(ask, 'Да');
@@ -839,6 +889,7 @@ const OUTCOME_WORDS: Record<Outcome, string> = {
   screen: 'экран под строкой меню',
   screen_pd: 'экран с контактами — только через sendPdAlert в этот чат',
   ask_yes: 'вопрос, затем «Да» — правило с этим каналом',
+  ask_reason: 'вопрос с причинами вместо «Да» — причина закрывает заявку правилом сайта с этим каналом',
   repeat: '«Да» исполняет один раз, повтор — прежний итог',
   kept: '«Не надо» — без изменений, «Да» того же вопроса не исполняется',
   dates_open: 'фраза — предложение с «Открыть», нажатие пишет даты карточки гида',
