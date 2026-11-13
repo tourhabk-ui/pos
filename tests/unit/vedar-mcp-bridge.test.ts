@@ -128,11 +128,14 @@ describe('мост обещает о платформе только то, чт�
     };
     // Предложения о скрытых полях мост из описания убирает (bridge_description):
     // модели не показано поле — не нужна и фраза о нём.
-    const withoutHiddenSentences = (text: string) => {
+    const hiddenStripped = (text: string) => {
       const sentences = text.trim().split(/(?<=[.!?])\s+/);
       // Целым словом, как у моста: «test» не вырезает предложение с «latest».
       const kept = sentences.filter((s) => ![...hidden].some((h) => new RegExp(`\\b${h}\\b`).test(s)));
-      const whole = kept.length === sentences.length ? text.trim() : kept.join(' ');
+      return { kept, whole: kept.length === sentences.length ? text.trim() : kept.join(' ') };
+    };
+    const withoutHiddenSentences = (text: string) => {
+      const { kept, whole } = hiddenStripped(text);
       if (whole.length <= 1024) return whole;
       // Не поместилось — целые предложения с конца, а не обрыв фразы (12.11).
       while (kept.length > 1 && kept.join(' ').length > 1024) kept.pop();
@@ -140,6 +143,13 @@ describe('мост обещает о платформе только то, чт�
     };
     for (const live of PUBLIC_MCP_TOOLS) {
       const snap = byName.get(live.name);
+      // Мост отбрасывает предложения с конца, а у пишущих инструментов последним
+      // стоит правило о согласии: описание, которое не помещается, потеряло бы
+      // его молча (замечание ревью #3314). Не помещается — сокращать описание.
+      expect(
+        hiddenStripped(live.description).whole.length,
+        `${live.name}: описание не помещается в предел моста — последнее предложение будет отброшено; сократите описание`,
+      ).toBeLessThanOrEqual(1024);
       expect(snap?.description, `${live.name}: описание в снимке устарело`).toBe(withoutHiddenSentences(live.description));
       expect(snap?.description, `${live.name}: фраза о скрытом поле осталась в снимке`).not.toMatch(/notify_url|\btest: true\b/);
       expect(snap?.parameters, `${live.name}: параметры в снимке устарели`).toEqual(withoutHidden(live.inputSchema));
