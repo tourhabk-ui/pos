@@ -1,10 +1,11 @@
 /**
- * Перепись условий посещения по маршрутам (#3302, срез 4).
+ * Перепись условий посещения по маршрутам (#3302, срезы 4 и 6).
  *
- * Перепись отвечает на вопрос, которого по коду не решить: где карточка
- * маршрута показывает способы КГБУ («Зелёная кнопка», Госуслуги41), а
- * справочник парков этого не подтверждает. Судится счёт на заданных строках и
- * дверь роута — вызовом (CLAUDE.md §4).
+ * Перепись отвечает на вопрос, которого по коду не решить: что блок о
+ * разрешении парка говорит на карточках живых маршрутов — где утверждает
+ * «нужно разрешение», где говорит с условием и где утверждает без
+ * подтверждения справочника. Судится счёт на заданных строках и дверь роута —
+ * вызовом (CLAUDE.md §4).
  */
 import { describe, it, expect, vi, beforeEach } from 'vitest';
 import { NextRequest } from 'next/server';
@@ -15,7 +16,7 @@ vi.mock('@/lib/db-pool', () => ({
 }));
 
 import {
-  cardShowsKgbuBlock, countRoutePermits, runRoutePermitCensus, CENSUS_PARKS_SQL, CENSUS_ROUTES_SQL,
+  cardShowsPermitBlock, countRoutePermits, runRoutePermitCensus, CENSUS_PARKS_SQL, CENSUS_ROUTES_SQL,
 } from '@/lib/parks/route-permit-census';
 import { GET } from '@/app/api/cron/route-permit-census/route';
 
@@ -69,18 +70,34 @@ describe('счёт случаев', () => {
     });
   });
 
-  it('расхождение с карточкой: способы КГБУ показаны, а справочник их не подтверждает', () => {
-    // Карточка показывает способы КГБУ семи маршрутам из одиннадцати: трёх
-    // узнало правило по названию (Вачкажец, Курильское озеро, Авачинский
-    // перевал), у одного нет ни территории, ни регистрации, ни ссылки.
-    expect(c.card_kgbu_block.total).toBe(7);
-    expect(c.card_kgbu_block.by_agent_kind).toMatchObject({ kgbu: 2, federal: 1, recorded: 1, unrecorded: 1, ambiguous: 1, none: 1 });
-    expect(c.card_kgbu_block.mismatch_total).toBe(4);
-    expect(c.card_kgbu_block.mismatch_examples).toEqual([
-      { title: 'Остров Беринга', park_name: 'Командорские острова', agent_kind: 'recorded' },
+  it('что блок говорит на карточке: утверждает только там, где подтверждает справочник', () => {
+    // Блок стоит на семи карточках из одиннадцати: трёх увело правило по
+    // названию (Вачкажец, Курильское озеро, Авачинский перевал), у одного
+    // маршрута нет ни территории, ни регистрации, ни ссылки.
+    expect(c.card_block.total).toBe(7);
+    expect(c.card_block.by_agent_kind).toMatchObject({ kgbu: 2, federal: 1, recorded: 1, unrecorded: 1, ambiguous: 1, none: 1 });
+    // Утверждают три: два маршрута парка КГБУ и парк в федеральном ведении (со
+    // своей оговоркой). Территория без условий в базе и маршрут без территории —
+    // с условием; своя запись территории и спорное название — своими словами.
+    expect(c.card_block.by_wording).toEqual({ asserted: 3, conditional: 2, recorded: 1, ambiguous: 1 });
+    expect(Object.values(c.card_block.by_wording).reduce((a, b) => a + b, 0)).toBe(c.card_block.total);
+    expect(c.card_block.asserted_unconfirmed_total).toBe(0);
+    expect(c.card_block.asserted_unconfirmed_examples).toEqual([]);
+  });
+
+  it('ссылка согласования — основание утверждать; такие карточки названы поимённо', () => {
+    const withLinks = countRoutePermits([
+      route('Тропа со ссылкой', null, { approval: 'https://example.org/approve' }),
+      route('Голубые озёра', 'Природный парк «Голубые озёра»', { approval: 'https://example.org/blue' }),
+      route('Остров Беринга', 'Командорские острова', { approval: 'https://example.org/bering' }),
+      route('Тропа с пустой ссылкой', null, { mchs: true, approval: '   ' }),
+    ], NAMES);
+    // Своя запись территории сильнее ссылки: чужое ведомство способами КГБУ не подменяется.
+    expect(withLinks.card_block.by_wording).toEqual({ asserted: 2, conditional: 1, recorded: 1, ambiguous: 0 });
+    expect(withLinks.card_block.asserted_unconfirmed_total).toBe(2);
+    expect(withLinks.card_block.asserted_unconfirmed_examples).toEqual([
+      { title: 'Тропа со ссылкой', park_name: null, agent_kind: 'none' },
       { title: 'Голубые озёра', park_name: 'Природный парк «Голубые озёра»', agent_kind: 'unrecorded' },
-      { title: 'Тропа без парка', park_name: null, agent_kind: 'none' },
-      { title: 'Спорная', park_name: 'Парк', agent_kind: 'ambiguous' },
     ]);
   });
 
@@ -102,17 +119,21 @@ describe('счёт случаев', () => {
   });
 });
 
-describe('когда карточка показывает способы КГБУ', () => {
+describe('когда карточка показывает блок о разрешении парка', () => {
   it('территория, регистрация в МЧС или ссылка согласования — любое из трёх', () => {
-    expect(cardShowsKgbuBlock(route('Тропа', 'Парк'))).toBe(true);
-    expect(cardShowsKgbuBlock(route('Тропа', null, { mchs: true }))).toBe(true);
-    expect(cardShowsKgbuBlock(route('Тропа', null, { approval: 'https://example.org' }))).toBe(true);
-    expect(cardShowsKgbuBlock(route('Тропа', null))).toBe(false);
+    expect(cardShowsPermitBlock(route('Тропа', 'Парк'))).toBe(true);
+    expect(cardShowsPermitBlock(route('Тропа', null, { mchs: true }))).toBe(true);
+    expect(cardShowsPermitBlock(route('Тропа', null, { approval: 'https://example.org' }))).toBe(true);
+    expect(cardShowsPermitBlock(route('Тропа', null))).toBe(false);
   });
-  it('правило по названию карточку от способов КГБУ уводит', () => {
-    expect(cardShowsKgbuBlock(route('Горный массив Вачкажец', 'Вачкажец'))).toBe(false);
-    expect(cardShowsKgbuBlock(route('Курильское озеро', null, { mchs: true }))).toBe(false);
-    expect(cardShowsKgbuBlock(route('Авачинский перевал', 'Налычево'))).toBe(false);
+  it('правило по названию уводит карточку к своим строкам', () => {
+    expect(cardShowsPermitBlock(route('Горный массив Вачкажец', 'Вачкажец'))).toBe(false);
+    expect(cardShowsPermitBlock(route('Курильское озеро', null, { mchs: true }))).toBe(false);
+    expect(cardShowsPermitBlock(route('Авачинский перевал', 'Налычево'))).toBe(false);
+    // Заказник в обратном порядке слов (перепись 13.11) — тоже территория заповедника.
+    expect(cardShowsPermitBlock(route('Тропа', 'государственный природный заказник федерального значения «Южно-Камчатский»'))).toBe(false);
+    // Природный парк с тем же именем — другая территория: блок остаётся.
+    expect(cardShowsPermitBlock(route('Тропа', 'Природный парк «Южно-Камчатский»'))).toBe(true);
   });
 });
 
@@ -147,7 +168,7 @@ describe('чтение и дверь', () => {
     const ok = await GET(req('Bearer census-secret'));
     expect(ok.status).toBe(200);
     const body = await ok.json();
-    expect(body).toMatchObject({ success: true, routes_total: 11, card_kgbu_block: { mismatch_total: 4 } });
+    expect(body).toMatchObject({ success: true, routes_total: 11, card_block: { total: 7, by_wording: { asserted: 3, conditional: 2 } } });
 
     mockQuery.mockRejectedValue(Object.assign(new Error('relation "parks" does not exist'), { code: '42P01' }));
     const bad = await GET(req('Bearer census-secret'));

@@ -19,6 +19,8 @@ import { collapseOperationalAlerts } from '@/lib/routes/operational-alerts';
 import { buildRoutePassport } from '@/lib/routes/passport';
 import { MIN_ROUTE_WAYPOINTS } from '@/lib/routes/navigability';
 import { routeInParkSql } from '@/lib/parks/route-in-park';
+import { routePermitCaseFor } from '@/lib/parks/route-permit';
+import { permitCardCase } from '@/lib/parks/route-permit-card';
 import { routeCardNavigability, hasCoords, type WaypointRow } from '@/lib/routes/card-navigability';
 import { explainNavigability, type ExplainedDecision } from '@/lib/explain/navigability-explainer';
 import { deriveStages, NEAR_LINE_KM, type DerivedStagesResult } from '@/lib/routes/derived-stages';
@@ -146,6 +148,15 @@ export async function loadRouteDetail(id: string, opts: RouteDetailOptions) {
   // Канонический id строки kamchatka_routes: id VIEW может быть ark_id,
   // а route_waypoints / operator_tours / view_count живут на kr.id.
   const routeDbId = (r.kr_id as string | null) ?? id;
+
+  // Условия посещения территории. Справочник парков спрашивается, только когда
+  // правило не отвечает по названию, а территория у маршрута записана. Отказ
+  // базы — случай `unread` (в лог пишет loadParkLookup): карточку он не роняет
+  // и за «условий нет» не выдаётся (§4.0).
+  const permitCase = permitCardCase(await routePermitCaseFor({
+    title: r.title as string | null,
+    park_name: r.park_name as string | null,
+  }));
 
   // Increment view count (fire-and-forget)
   if (opts.countView) {
@@ -513,6 +524,12 @@ export async function loadRouteDetail(id: string, opts: RouteDetailOptions) {
       parkName:        (r.park_name as string | null) ?? null,
       parkApprovalUrl: (r.park_approval_url as string | null) ?? null,
       parkSlug:        (r.park_slug as string | null) ?? null,
+      /**
+       * Условия посещения территории — то же правило, что в ответе Кузьмича и
+       * MCP (lib/parks/route-permit). Карточка по нему решает, утверждать ли
+       * «нужно разрешение парка» или сказать, что территория не записана.
+       */
+      permit: permitCase,
       hazards:         (r.hazards as string[] | null) ?? null,
       distanceKm:      r.distance_km != null ? Number(r.distance_km) : null,
       elevationGainM:  r.elevation_gain_m != null ? Number(r.elevation_gain_m) : null,

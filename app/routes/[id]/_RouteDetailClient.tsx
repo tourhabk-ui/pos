@@ -25,6 +25,7 @@ import AvailabilityCalendar from '@/components/routes/AvailabilityCalendar';
 import { RouteOfferSortBar } from '@/components/routes/RouteOfferSortBar';
 import { sortRouteOffers, type RouteOfferSort } from '@/lib/routes/route-offer-sort';
 import ParkPermitAction from '@/components/safety/ParkPermitAction';
+import type { RoutePermitCardCase } from '@/lib/parks/route-permit-card';
 import ReliefChart from '@/components/routes/ReliefChart';
 import MchsRegistrationBlock from '@/components/safety/MchsRegistrationBlock';
 import { registerFormHref } from '@/lib/safety/register-submit';
@@ -232,6 +233,8 @@ export interface RouteDetail {
   parkName: string | null;
   parkSlug: string | null;
   parkApprovalUrl: string | null;
+  /** Условия посещения территории — случай с сервера; у старой офлайн-копии поля нет. */
+  permit?: RoutePermitCardCase | null;
   hazards: string[] | null;
   distanceKm: number | null;
   elevationGainM: number | null;
@@ -1817,13 +1820,17 @@ export default function RouteDetailClient({ id, mapPackBaseUrl, summary = null, 
             Решение владельца 19.09: где нужна регистрация — там же и «Зелёная
             кнопка». Блок отдельный от МЧС намеренно: это разные обязанности
             перед разными ведомствами, и выполнивший одну не освобождён от
-            второй. Факты — из lib/safety/park-permit (страница парка). */}
+            второй. Факты — из lib/safety/park-permit (страница парка).
+            Что блок УТВЕРЖДАЕТ, решает случай территории с сервера
+            (route.permit, #3302): парк не записан — способы названы с
+            условием, а не словами «нужны оба». */}
         {(route.mchsRequired || route.parkName || route.parkApprovalUrl) && (
           <div className="mt-10 pt-8 border-t border-[var(--border)]">
             <ParkPermitAction
               title={route.title}
               parkName={route.parkName}
               parkApprovalUrl={route.parkApprovalUrl}
+              permit={route.permit ?? null}
             />
           </div>
         )}

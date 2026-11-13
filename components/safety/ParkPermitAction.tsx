@@ -45,6 +45,17 @@ import {
   KRONOKI_ORDER_RU,
   FEDERAL_PERMIT_UNKNOWN_RU,
 } from '@/lib/safety/park-permit';
+import {
+  permitCardWording,
+  webHref,
+  ambiguousTerritoryRu,
+  TERRITORY_NOT_RECORDED_RU,
+  CONDITIONS_NOT_RECORDED_RU,
+  CONDITIONS_UNREAD_RU,
+  RECORDED_UNKNOWN_RU,
+  KGBU_IF_IN_PARK_RU,
+  type RoutePermitCardCase,
+} from '@/lib/parks/route-permit-card';
 
 interface Props {
   /** Название маршрута или места — только чтобы узнать зону свободного посещения. */
@@ -55,6 +66,18 @@ interface Props {
   parkApprovalUrl?: string | null;
   /** `compact` — одна строка со ссылкой (карточка места); `full` — блок (карточка маршрута). */
   variant?: 'full' | 'compact';
+  /**
+   * Случай территории маршрута с сервера (lib/parks/route-permit, то же правило,
+   * что в ответе Кузьмича и MCP). По нему блок решает, утверждать ли «нужно
+   * разрешение парка». Не передан — прежний вид (страница регистрации, старая
+   * офлайн-копия карточки).
+   */
+  permit?: RoutePermitCardCase | null;
+}
+
+/** Почта из справочника — в `mailto:`, только если это похоже на адрес. */
+function mailHref(email: string | null): string | null {
+  return email && /^[^\s@<>"']+@[^\s@<>"']+\.[^\s@<>"']+$/.test(email.trim()) ? `mailto:${email.trim()}` : null;
 }
 
 /** Общая геометрия кнопок: 44px — это палец в перчатке и требование §10. */
@@ -67,6 +90,7 @@ export default function ParkPermitAction({
   parkName,
   parkApprovalUrl,
   variant = 'full',
+  permit = null,
 }: Props) {
   // Оба магазина, когда адрес известен. iPhone без подтверждённого адреса —
   // не ссылка наугад, а строка «ищите по названию» ниже (§4.0).
@@ -202,21 +226,126 @@ export default function ParkPermitAction({
   // принадлежат краевому КГБУ, и действуют ли они теперь — не объявлено.
   const federal = rule.federal;
 
+  // Что блок утверждает (#3302, перепись 13.11): «нужно разрешение парка» —
+  // только там, где это подтверждает справочник или ссылка согласования. Иначе
+  // карточка звала за разрешением КГБУ на маршруты без парка и к чужому ведомству.
+  // Ссылка согласования — только веб-адрес: пустая строка и чужая схема ссылкой не считаются.
+  const approvalHref = webHref(parkApprovalUrl);
+  const wording = permitCardWording(permit, { hasApprovalUrl: approvalHref !== null });
+
+  // У территории своя запись в справочнике — её каналы, без «Зелёной кнопки».
+  if (wording === 'recorded' && permit?.kind === 'recorded') {
+    const park = permit.park;
+    const links: Array<{ label: string; href: string }> = [];
+    const page = webHref(park.permitUrl);
+    if (page) links.push({ label: 'Страница условий', href: page });
+    const online = webHref(park.onlineUrl);
+    if (online) links.push({ label: 'Онлайн-заявка', href: online });
+    const gosuslugi = webHref(park.gosuslugiUrl);
+    if (gosuslugi) links.push({ label: 'Госуслуги41', href: gosuslugi });
+    const mail = mailHref(park.email);
+    return (
+      <div className="overflow-hidden rounded-lg border border-[var(--border)] bg-[var(--bg-card)]">
+        <div className="flex items-center gap-3 border-b border-[var(--border)] px-5 py-4">
+          <Ticket className="h-5 w-5 shrink-0 text-[var(--success)]" aria-hidden />
+          <div>
+            <p className="font-semibold text-[var(--text-primary)]">Разрешение на посещение</p>
+            <p className="mt-0.5 text-xs text-[var(--text-secondary)]">{park.displayName}</p>
+          </div>
+        </div>
+        <div className="space-y-4 px-5 py-4">
+          <p className="text-sm leading-relaxed text-[var(--text-secondary)]">{RECORDED_UNKNOWN_RU}</p>
+          {(links.length > 0 || mail) && (
+            <div className="flex flex-col gap-3 sm:flex-row sm:flex-wrap">
+              {links.map((l) => (
+                <a
+                  key={l.label}
+                  href={l.href}
+                  target="_blank"
+                  rel="noopener noreferrer"
+                  className={`${BTN} border border-[var(--border)] text-[var(--text-primary)]`}
+                >
+                  <ExternalLink className="h-4 w-4" aria-hidden />
+                  {l.label}
+                </a>
+              ))}
+              {mail && park.email && (
+                <a href={mail} className={`${BTN} border border-[var(--border)] text-[var(--text-primary)]`}>
+                  {park.email.trim()}
+                </a>
+              )}
+            </div>
+          )}
+          {park.officeAddress && (
+            <p className="text-xs leading-relaxed text-[var(--text-secondary)]">
+              <span className="font-medium text-[var(--text-primary)]">Офис:</span> {park.officeAddress}
+              {park.officeHours ? ` (${park.officeHours})` : ''}
+            </p>
+          )}
+          <p className="text-xs leading-relaxed text-[var(--text-secondary)]">
+            <span className="font-semibold text-[var(--text-primary)]">
+              Это не то же, что регистрация в МЧС:
+            </span>{' '}
+            территории — право находиться на ней, спасателям — сведения о группе.
+          </p>
+        </div>
+      </div>
+    );
+  }
+
+  // К названию территории подходят несколько записей — чьи условия, не определить.
+  if (wording === 'ambiguous' && permit?.kind === 'ambiguous') {
+    return (
+      <div className="overflow-hidden rounded-lg border border-[var(--border)] bg-[var(--bg-card)]">
+        <div className="flex items-center gap-3 border-b border-[var(--border)] px-5 py-4">
+          <Ticket className="h-5 w-5 shrink-0 text-[var(--success)]" aria-hidden />
+          <div>
+            <p className="font-semibold text-[var(--text-primary)]">Разрешение на посещение</p>
+            <p className="mt-0.5 text-xs text-[var(--text-secondary)]">{permit.territory}</p>
+          </div>
+        </div>
+        <p className="px-5 py-4 text-sm leading-relaxed text-[var(--text-secondary)]">
+          {ambiguousTerritoryRu(permit.names)}
+        </p>
+      </div>
+    );
+  }
+
+  // Парк маршрута записью не подтверждён: способы КГБУ названы с условием.
+  const conditional = wording === 'conditional';
+  const namedTerritory = conditional && permit && (permit.kind === 'unrecorded' || permit.kind === 'unread')
+    ? permit.territory
+    : null;
+
   return (
     <div className="overflow-hidden rounded-lg border border-[var(--border)] bg-[var(--bg-card)]">
       <div className="flex items-center gap-3 border-b border-[var(--border)] px-5 py-4">
         <Ticket className="h-5 w-5 shrink-0 text-[var(--success)]" aria-hidden />
         <div>
           <p className="font-semibold text-[var(--text-primary)]">
-            Разрешение на посещение парка
+            {conditional ? 'Разрешение парка' : 'Разрешение на посещение парка'}
           </p>
-          {parkName && (
-            <p className="mt-0.5 text-xs text-[var(--text-secondary)]">{parkName}</p>
+          {conditional ? (
+            // Названная территория стоит строкой ниже, вместе с тем, что о ней не записано.
+            !namedTerritory && (
+              <p className="mt-0.5 text-xs text-[var(--text-secondary)]">{TERRITORY_NOT_RECORDED_RU}</p>
+            )
+          ) : (
+            parkName && <p className="mt-0.5 text-xs text-[var(--text-secondary)]">{parkName}</p>
           )}
         </div>
       </div>
 
       <div className="space-y-4 px-5 py-4">
+        {conditional && namedTerritory && (
+          <p className="border-l-2 border-[var(--warning)] pl-3 text-xs leading-relaxed text-[var(--text-secondary)]">
+            <span className="font-semibold text-[var(--text-primary)]">{namedTerritory}.</span>{' '}
+            {permit?.kind === 'unread' ? CONDITIONS_UNREAD_RU : CONDITIONS_NOT_RECORDED_RU}
+          </p>
+        )}
+        {conditional && (
+          <p className="text-sm leading-relaxed text-[var(--text-secondary)]">{KGBU_IF_IN_PARK_RU}</p>
+        )}
         {federal && (
           <p className="border-l-2 border-[var(--warning)] pl-3 text-xs leading-relaxed text-[var(--text-secondary)]">
             <span className="font-semibold text-[var(--text-primary)]">
@@ -245,9 +374,9 @@ export default function ParkPermitAction({
             </a>
           ))}
 
-          {parkApprovalUrl && (
+          {approvalHref && (
             <a
-              href={parkApprovalUrl}
+              href={approvalHref}
               target="_blank"
               rel="noopener noreferrer"
               className={`${BTN} border border-[var(--border)] bg-[var(--bg-hover)] font-medium text-[var(--text-primary)]`}
@@ -271,7 +400,8 @@ export default function ParkPermitAction({
           <span className="font-semibold text-[var(--text-primary)]">
             Это не то же, что регистрация в МЧС:
           </span>{' '}
-          парку — право находиться на территории, спасателям — сведения о группе. Нужны оба.
+          парку — право находиться на территории, спасателям — сведения о группе.{' '}
+          {conditional ? 'В парке нужны оба.' : 'Нужны оба.'}
         </p>
 
         <details className="group border-t border-[var(--border)] pt-3">

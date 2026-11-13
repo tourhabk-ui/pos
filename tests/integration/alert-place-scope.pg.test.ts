@@ -53,6 +53,7 @@ import { applyPlanParkStatus, loadPlanParkAlerts, PARK_STATUS_UNREAD_NOTE } from
 import { getGuardianContextDetailed, routesNamedBy, routesSimilarTo } from '@/lib/kuzmich/guardian-context';
 import { loadParkLookup, routePermitCaseFor, PERMIT_NOT_MCHS_RU } from '@/lib/parks/route-permit';
 import { runRoutePermitCensus } from '@/lib/parks/route-permit-census';
+import { permitCardCase, permitCardWording } from '@/lib/parks/route-permit-card';
 import { PARK_PERMIT_SOURCE, GREEN_BUTTON } from '@/lib/safety/park-permit';
 import { ACTIVE_MCHS_WARNINGS_SQL } from '@/lib/safety/active-warnings';
 import { warningsFromRows, type AlertWarningRow } from '@/lib/safety/mchs-bulletin';
@@ -1185,10 +1186,18 @@ withPg('кого накрывает предупреждение', () => {
       const bare = await getGuardianContextDetailed('Тропа к Таловским источникам');
       expect(bare.text).toContain('В данных маршрута названа территория «Природный парк "Налычево"». Условия её посещения в базе Ведара не записаны');
       expect(bare.text).not.toContain(GREEN_BUTTON.name);
+      // Карточке сервер отдаёт тот же случай (срез 6): условий нет — блок говорит с условием.
+      const bareCard = permitCardCase(await routePermitCaseFor({ title: 'Тропа', park_name: 'Природный парк "Налычево"' }));
+      expect(bareCard).toEqual({ kind: 'unrecorded', territory: 'Природный парк "Налычево"' });
+      expect(permitCardWording(bareCard, { hasApprovalUrl: false })).toBe('conditional');
 
       // Справочник ведёт на страницу условий КГБУ (так его записала 1248) — способы названы.
       await pool.query(`UPDATE parks SET permit_url = $1 WHERE slug = 'nalychevo'`, [PARK_PERMIT_SOURCE.url]);
       expect((await routePermitCaseFor({ title: 'Тропа', park_name: 'Природный парк "Налычево"' })).kind).toBe('kgbu');
+      expect(permitCardWording(
+        permitCardCase(await routePermitCaseFor({ title: 'Тропа', park_name: 'Природный парк "Налычево"' })),
+        { hasApprovalUrl: false },
+      )).toBe('asserted');
       const d = await getGuardianContextDetailed('Тропа к Таловским источникам');
       expect(d.text).toContain(`Условия посещения — Природный парк «Налычево»: посещение — по разрешению ${PARK_PERMIT_SOURCE.authority}`);
       expect(d.text).toContain(`— «${GREEN_BUTTON.name}»:`);
@@ -1210,6 +1219,10 @@ withPg('кого накрывает предупреждение', () => {
       expect(row!.parks).toEqual(['nalychevo']);
       expect(row!.kinds.kgbu ?? 0).toBeGreaterThanOrEqual(1);
       expect(census.by_kind.unread, 'территория осталась без чтения справочника').toBe(0);
+      // Слова блока на карточках (срез 6): каждый показанный блок посчитан ровно одним родом слов.
+      expect(Object.values(census.card_block.by_wording).reduce((a, b) => a + b, 0)).toBe(census.card_block.total);
+      expect(census.card_block.by_wording.asserted).toBeGreaterThanOrEqual(1);
+      expect(census.card_block.asserted_unconfirmed_examples.length).toBeLessThanOrEqual(census.card_block.asserted_unconfirmed_total);
       expect(census.park_names.map((p) => p.park_name), 'скрытый маршрут посчитан').not.toContain('Скрытая территория (тест)');
     } finally {
       await pool.query(`DELETE FROM kamchatka_routes WHERE id = $1`, [HIDDEN_ROUTE]);
