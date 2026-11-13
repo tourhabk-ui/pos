@@ -61,6 +61,10 @@ import { TRIP_MANAGER_LEAD_KIND } from '@/lib/leads/followup-scope';
 import { readToolArguments, argsRefusal, type ReadArguments } from '@/lib/mcp/tool-arguments';
 import { unknownToolResponse } from '@/lib/mcp/unknown-tool';
 import { normalizePhone, implausiblePhone } from '@/lib/mcp/normalize-phone';
+import {
+  CONSENT_ALSO_NOTE, argsRefusalEn, consentProblem, inputRefusalText, phoneProblem, problemsFromIssues, unknownFields,
+  type InputProblem, type PhoneCase, type SchemaIssue,
+} from '@/lib/mcp/input-refusal';
 import { issueTestKey, testRunText, writeStructured, type IssuedWrite } from '@/lib/mcp/test-run';
 import type { TourPlaceEntry } from '@/lib/mcp/place-status-schema';
 import { loadTourGroupFacts, groupOverSeats, groupOverSeatsLine, type GroupOverSeats } from '@/lib/mcp/booking-capacity';
@@ -115,6 +119,9 @@ const writeLimiter = createRateLimiter({ windowMs: CLIENT_WINDOW_MINUTES * 60_00
 // Какие инструменты пишущие, знает аннотация (`readOnlyHint: false`) — один
 // источник и для лимита, и для подсказки хосту. Свой список здесь разошёлся бы.
 const WRITE_TOOLS = WRITE_TOOL_NAMES;
+// Инструменты, где согласие нужно с первого вызова. У проката `consent: false`
+// на первом шаге — черновик с кодом подтверждения, а не отказ.
+const CONSENT_UPFRONT_TOOLS = new Set([...WRITE_TOOL_NAMES].filter((n) => n !== CAR_RENTAL_REQUEST_TOOL.name));
 
 // IP — из заголовка, который ставит прокси (x-real-ip), а не из первого
 // элемента X-Forwarded-For: тот пишет сам клиент. От этого адреса зависят
@@ -177,20 +184,64 @@ async function tourPlaceForRequest(ctx: McpCallContext, tool: string, tourId: nu
   }
 }
 
-/** Телефон заявки: формат и правдоподобие (ревью MCP 08.11: +70000000000 ушёл менеджеру). */
-function phoneOrRefuse(raw: string): string {
+/** Что не так с телефоном; null — номер годен. */
+function phoneCase(raw: string): PhoneCase | null {
   const phone = normalizePhone(raw);
-  if (!phone) {
-    throw new McpUserError('Телефон не похож на номер (нужно 10–15 цифр, например +79001234567) — заявка не создана.', 'bad_phone');
+  if (!phone) return 'bad';
+  return implausiblePhone(phone) ? 'implausible' : null;
+}
+
+/**
+ * Телефон заявки: формат и правдоподобие (ревью MCP 08.11: +70000000000 ушёл
+ * менеджеру). Отказ называет всё разом (13.11): если при негодном номере нет
+ * ещё и согласия, агент слышит про оба — иначе он исправит номер и получит
+ * второй отказ. `consent` — как прислано; у проката согласие на первом шаге
+ * не требуется (черновик), поэтому туда оно не передаётся.
+ */
+function phoneOrRefuse(raw: string, consent?: unknown): string {
+  const kind = phoneCase(raw);
+  if (kind) {
+    const problems: InputProblem[] = [phoneProblem(kind)];
+    if (consent === false) problems.push(consentProblem('refused'));
+    const text = inputRefusalText(problems);
+    if (kind === 'bad') throw new McpUserError(text, 'bad_phone');
+    throw new McpUserError(text, 'implausible_phone');
   }
-  if (implausiblePhone(phone)) {
-    throw new McpUserError(
-      'Такого номера не бывает (в зоне +7 нет кодов на 0, 1 и 2, а номер из одних одинаковых цифр не набрать) — заявка не создана. '
-      + 'Спросите у человека его номер. Чтобы проверить интеграцию, не отправляя заявку, передайте test: true.',
-      'implausible_phone',
-    );
+  return normalizePhone(raw) as string;
+}
+
+/**
+ * Отказ по входу — все неверные поля разом, с именами, на двух языках (13.11,
+ * lib/mcp/input-refusal). До этого дня агент получал первую ошибку схемы без
+ * имени поля («Invalid input: expected string, received undefined») и чинил
+ * запрос вслепую, по одному полю за вызов.
+ *
+ * Кроме ошибок схемы сюда входят телефон и согласие, которые схема не судит:
+ * негодный номер и `consent: false` видны уже по сырому запросу.
+ * `consentUpfront: false` — у проката: там `consent: false` на первом шаге —
+ * черновик, а не отказ.
+ */
+function refuseInput(
+  schema: { shape: Record<string, unknown> },
+  rawArgs: Record<string, unknown>,
+  issues: ReadonlyArray<SchemaIssue>,
+  consentUpfront = true,
+): never {
+  const problems = problemsFromIssues(issues, rawArgs);
+  const has = (field: string) => problems.some((x) => x.field === field);
+  if (!has('phone') && typeof rawArgs.phone === 'string') {
+    const kind = phoneCase(rawArgs.phone);
+    if (kind) problems.push(phoneProblem(kind));
   }
-  return phone;
+  if (consentUpfront && !has('consent') && rawArgs.consent === false) problems.push(consentProblem('refused'));
+  // Лишние поля называются рядом с пропавшим обязательным: скорее всего это
+  // оно же под другим именем (tour_id вместо tour).
+  const missing = issues.some((x) => x.code === 'invalid_type' && rawArgs[String(x.path[0] ?? '')] === undefined);
+  const unknown = missing ? unknownFields(rawArgs, Object.keys(schema.shape)) : [];
+  throw new McpUserError(
+    problems.length > 0 ? inputRefusalText(problems, unknown) : 'Некорректные данные заявки',
+    `invalid_args:${String(problems[0]?.field ?? '').slice(0, 20)}`,
+  );
 }
 
 /** Ключ, выданный заявке, — в структурный итог вызова. */
@@ -225,7 +276,7 @@ function stopForTest(
   consent: boolean | undefined, would: string, recipient: string | null,
 ): string | null {
   if (!ctx.test) return null;
-  if (consent !== true) throw new McpUserError(NO_CONSENT_MESSAGE, 'write_guard');
+  if (consent !== true) throw new McpUserError(NO_CONSENT_MESSAGE, 'no_consent');
   const key = issueTestKey(kind, purpose);
   ctx.issued?.push({ tool, outcome: 'test', status_key: key, status_page: null, notify: null });
   return testRunText(would, recipient, key);
@@ -269,6 +320,9 @@ async function admitWrite(
   // а не сторожа: анонимный приём ПД — не то место, где непроверенное
   // пропускают. Потери нет: счёт живёт в той же базе, что и лид.
   if (verdict.decision !== 'allow') {
+    // Причина в журнале — своя у согласия (13.11): под общим write_guard отказ
+    // «человек не согласился» был неотличим от «лимит заявок с адреса».
+    if (verdict.decision === 'deny' && verdict.outcome === 'no_consent') throw new McpUserError(verdict.message, 'no_consent');
     throw new McpUserError(verdict.message, 'write_guard');
   }
   const record = ctx.consentFrom
@@ -490,14 +544,12 @@ function notifyPartnerPersonallyAboutMcpLead(params: {
 
 async function executeCreateBookingRequest(rawArgs: Record<string, unknown>, ctx: McpCallContext): Promise<string> {
   const parsed = bookingRequestArgsSchema.safeParse(rawArgs);
-  if (!parsed.success) {
-    throw new McpUserError(parsed.error.issues[0]?.message ?? 'Некорректные данные заявки', `invalid_args:${String(parsed.error.issues[0]?.path?.[0] ?? '').slice(0, 20)}`);
-  }
+  if (!parsed.success) refuseInput(bookingRequestArgsSchema, rawArgs, parsed.error.issues);
   const { tour: tourQuery, date, participants, name, comment } = parsed.data;
 
   // Аудит 08.08, замечание 2: телефон нормализуется, мусор не проходит —
   // заявка без дозвонного номера бесполезна менеджеру.
-  const phone = phoneOrRefuse(parsed.data.phone);
+  const phone = phoneOrRefuse(parsed.data.phone, parsed.data.consent);
 
   const { resolveTourChoice, candidateLines, choiceListLines, choiceListReason } = await import('@/lib/kuzmich/tour-availability-tool');
   // Отказ базы — не «тур не найден»: заявка не создаётся, агент знает, что
@@ -752,9 +804,7 @@ const charterRequestArgsSchema = z.object({
 
 async function executeRequestCharter(rawArgs: Record<string, unknown>, ctx: McpCallContext): Promise<string> {
   const parsed = charterRequestArgsSchema.safeParse(rawArgs);
-  if (!parsed.success) {
-    throw new McpUserError(parsed.error.issues[0]?.message ?? 'Некорректные данные заявки', `invalid_args:${String(parsed.error.issues[0]?.path?.[0] ?? '').slice(0, 20)}`);
-  }
+  if (!parsed.success) refuseInput(charterRequestArgsSchema, rawArgs, parsed.error.issues);
   const { destination, date_from: dateFrom, name } = parsed.data;
   const dateTo = parsed.data.date_to ?? null;
   // План (аудит 07.11, M7): число людей, которого агент не назвал, — из плана.
@@ -766,7 +816,7 @@ async function executeRequestCharter(rawArgs: Record<string, unknown>, ctx: McpC
   }
   const comment = parsed.data.comment || null;
 
-  const phone = phoneOrRefuse(parsed.data.phone);
+  const phone = phoneOrRefuse(parsed.data.phone, parsed.data.consent);
 
   // Даты — по Камчатке, как у заявки на бронь: по UTC с 12:00 до 24:00 прошедший
   // там день принимался бы как сегодняшний. Правило — общее с формой на
@@ -896,9 +946,7 @@ function pickRentalOffer(offers: RentalOffer[], want: string): RentalOffer | Ren
 
 async function executeCarRentalRequest(rawArgs: Record<string, unknown>, ctx: McpCallContext): Promise<string> {
   const parsed = carRentalRequestArgsSchema.safeParse(rawArgs);
-  if (!parsed.success) {
-    throw new McpUserError(parsed.error.issues[0]?.message ?? 'Некорректные данные заявки', `invalid_args:${String(parsed.error.issues[0]?.path?.[0] ?? '').slice(0, 20)}`);
-  }
+  if (!parsed.success) refuseInput(carRentalRequestArgsSchema, rawArgs, parsed.error.issues, false);
   const { name } = parsed.data;
   // План (аудит 07.11, M7): даты, которых агент не назвал, — первый и
   // последний день плана. Одинаково на обоих шагах: код подтверждения
@@ -1019,11 +1067,9 @@ async function executeCarRentalRequest(rawArgs: Record<string, unknown>, ctx: Mc
 
 async function executeCreateLead(rawArgs: Record<string, unknown>, ctx: McpCallContext, tripPart?: TripManagerPart): Promise<string> {
   const parsed = createLeadArgsSchema.safeParse(rawArgs);
-  if (!parsed.success) {
-    throw new McpUserError(parsed.error.issues[0]?.message ?? 'Некорректные данные заявки', `invalid_args:${String(parsed.error.issues[0]?.path?.[0] ?? '').slice(0, 20)}`);
-  }
+  if (!parsed.success) refuseInput(createLeadArgsSchema, rawArgs, parsed.error.issues);
   const { name, comment, interest } = parsed.data;
-  const phone = phoneOrRefuse(parsed.data.phone);
+  const phone = phoneOrRefuse(parsed.data.phone, parsed.data.consent);
   const leadComment = interest ? `[Интерес: ${interest}] ${comment}` : comment;
   // План по plan_id (#2304, шаг 2): менеджер получает поездку целиком.
   const planAttach = await planFromDraft(parsed.data.plan_id);
@@ -1114,11 +1160,9 @@ const stayRequestArgsSchema = z.object({
 
 async function executeCreateStayRequest(rawArgs: Record<string, unknown>, ctx: McpCallContext): Promise<string> {
   const parsed = stayRequestArgsSchema.safeParse(rawArgs);
-  if (!parsed.success) {
-    throw new McpUserError(parsed.error.issues[0]?.message ?? 'Некорректные данные заявки', `invalid_args:${String(parsed.error.issues[0]?.path?.[0] ?? '').slice(0, 20)}`);
-  }
+  if (!parsed.success) refuseInput(stayRequestArgsSchema, rawArgs, parsed.error.issues);
   const { accommodation, name, comment } = parsed.data;
-  const phone = phoneOrRefuse(parsed.data.phone);
+  const phone = phoneOrRefuse(parsed.data.phone, parsed.data.consent);
   const planAttach = await planFromDraft(parsed.data.plan_id);
   const planFacts = planAttach.kind === 'attached' ? planAttach.facts : null;
   const check_in = parsed.data.check_in ?? planFacts?.arrivalDate;
@@ -1274,7 +1318,9 @@ async function executeTool(
     // Пусто, «не объект» и «не те поля» — разные отказы и в тексте агенту,
     // и в журнале (lib/mcp/tool-arguments, перепись 08.10).
     const refusal = argsRefusal(read, validation.error);
-    throw new McpUserError(refusal.message, refusal.code);
+    // Рядом — то же по-английски и по полям (13.11): отказ читают и агенты,
+    // которым русская фраза ничего не говорит.
+    throw new McpUserError(`${refusal.message}\n\n${argsRefusalEn(validation.problems)}`, refusal.code);
   }
   const text = await executeKuzmichTool(name, validation.args, {
     surface: 'mcp',
@@ -1588,7 +1634,11 @@ async function runPublicToolCore(call: PublicToolCall): Promise<PublicToolOutcom
         ?? (CONNECTOR_TOOL_NAMES.has(toolName) || toolName === REQUEST_STATUS_TOOL_NAME || toolName === CHANGE_REQUEST_TOOL_NAME
           ? parseStructured(text)
           : undefined);
-    return { kind: 'ok', text, handoffUrl: handoff ? handoff.url : null, ...(structured ? { structured } : {}) };
+    // «Заявка не создана» ответом, а не отказом (нет мест, дата вне сезона) при
+    // `consent: false`: согласие названо тут же. Заявки при этом нет по
+    // построению — без согласия допуск к записи не пройти.
+    const said = (ctx.issued ?? []).length === 0 ? withConsentNote(toolName, toolArgs, text) : text;
+    return { kind: 'ok', text: said, handoffUrl: handoff ? handoff.url : null, ...(structured ? { structured } : {}) };
   } catch (toolErr) {
     // Наружу — только текст, написанный для агента. Отказ пула или чужое
     // исключение уходит общим текстом, подробность — в лог: раньше аноним
@@ -1614,10 +1664,20 @@ async function runPublicToolCore(call: PublicToolCall): Promise<PublicToolOutcom
       userAgent,
       self,
     });
-    return userFacing
-      ? { kind: 'refused', text: toolErr.message }
-      : { kind: 'failed', text: MCP_INTERNAL_ERROR_TEXT };
+    if (!userFacing) return { kind: 'failed', text: MCP_INTERNAL_ERROR_TEXT };
+    return { kind: 'refused', text: withConsentNote(toolName, toolArgs, toolErr.message), code: toolErr.code };
   }
+}
+
+/**
+ * Ответ о несозданной заявке при `consent: false` называет и согласие (13.11):
+ * иначе агент исправит дело (другая дата, другой тур) и получит второй отказ —
+ * уже про согласие. Ответ, который о согласии уже говорит, не трогается. У
+ * проката `consent: false` на первом шаге — черновик, там приписки нет.
+ */
+function withConsentNote(toolName: string, args: Record<string, unknown>, text: string): string {
+  const silent = CONSENT_UPFRONT_TOOLS.has(toolName) && args.consent === false && !/consent/.test(text);
+  return silent ? `${text}\n\n${CONSENT_ALSO_NOTE}` : text;
 }
 
 /**

@@ -51,7 +51,7 @@ const read = (p: string) => readFileSync(join(ROOT, p), 'utf-8');
 
 const INSERT_COLUMNS = [
   'binding', 'op', 'version', 'version_declared', 'ok', 'error_code', 'input', 'tool', 'state',
-  'duration_ms', 'agent', 'ua_family', 'caller_hash', 'context_key', 'is_self', 'method',
+  'duration_ms', 'agent', 'ua_family', 'caller_hash', 'context_key', 'is_self', 'method', 'reject_code',
 ];
 const HASH = /^[0-9a-f]{32}$/;
 
@@ -142,12 +142,12 @@ describe('самоназвание и род агента', () => {
     expect(contextKey('ctx-1')).not.toBe(contextKey('ctx-2'));
     expect(contextKey('ctx-1')).not.toContain('ctx');
     expect(sendMessageFacts({ task: { contextId: 'c1', status: { state: 'TASK_STATE_COMPLETED' }, metadata: { input: 'tool', tool: 'get_tours' } } }))
-      .toEqual({ contextId: 'c1', state: 'completed', input: 'tool', tool: 'get_tours' });
+      .toEqual({ contextId: 'c1', state: 'completed', input: 'tool', tool: 'get_tours', reason: null });
     expect(sendMessageFacts({ kind: 'task', contextId: 'c2', status: { state: 'rejected' }, metadata: { input: 'text' } }))
-      .toEqual({ contextId: 'c2', state: 'rejected', input: 'text', tool: null });
+      .toEqual({ contextId: 'c2', state: 'rejected', input: 'text', tool: null, reason: null });
     // Несуществующий инструмент в журнал идёт как 'unknown' (та же дисциплина, что у MCP).
     expect(sendMessageFacts({ task: { contextId: 'c3', status: { state: 'TASK_STATE_REJECTED' }, metadata: { input: 'tool', tool: 'drop_table' } } }).tool).toBe('unknown');
-    expect(sendMessageFacts({ task: { status: { state: 'TASK_STATE_WORKING' } } })).toEqual({ contextId: null, state: null, input: null, tool: null });
+    expect(sendMessageFacts({ task: { status: { state: 'TASK_STATE_WORKING' } } })).toEqual({ contextId: null, state: null, input: null, tool: null, reason: null });
   });
 });
 
@@ -160,7 +160,7 @@ describe('запись в журнал', () => {
     });
     const { sql, params } = lastInsert();
     expect(sql).toContain(`INSERT INTO a2a_requests (${INSERT_COLUMNS.join(', ')})`);
-    expect(sql).toMatch(/VALUES \(\$1, \$2, \$3, \$4, \$5, \$6, \$7, \$8, \$9, \$10, \$11, \$12, \$13, \$14, \$15, \$16\)/);
+    expect(sql).toMatch(/VALUES \(\$1, \$2, \$3, \$4, \$5, \$6, \$7, \$8, \$9, \$10, \$11, \$12, \$13, \$14, \$15, \$16, \$17\)/);
     expect(params).toHaveLength(INSERT_COLUMNS.length);
     expect(params.slice(0, 12)).toEqual(['rest', 'SendMessage', '1.0', true, true, null, 'tool', 'get_tours', 'completed', 43, 'A2A-Registry-TaskProbe', 'неизвестен']);
     expect(params[12]).toMatch(HASH);
@@ -168,6 +168,8 @@ describe('запись в журнал', () => {
     expect(params[14]).toBe(false);
     // Имя метода пишется только при MethodNotFound.
     expect(params[15]).toBeNull();
+    // Причина отказа — только у отклонённой задачи (1438).
+    expect(params[16]).toBeNull();
     const flat = JSON.stringify(params);
     expect(flat).not.toContain('203.0.113.7');
     expect(flat).not.toContain('a2aregistry.org');
@@ -330,7 +332,9 @@ describe('миграция 1219', () => {
     expect(sql).toMatch(/CREATE TABLE IF NOT EXISTS a2a_requests/);
     const ddl = sql.slice(sql.indexOf('CREATE TABLE'), sql.indexOf(');')).replace(/--.*$/gm, '');
     // method добавлен миграцией 1229 — проверяется у неё.
-    for (const col of INSERT_COLUMNS.filter((c) => c !== 'method')) expect(ddl, col).toMatch(new RegExp(`^\\s*${col}\\s+`, 'm'));
+    for (const col of INSERT_COLUMNS.filter((c) => c !== 'method' && c !== 'reject_code')) expect(ddl, col).toMatch(new RegExp(`^\\s*${col}\\s+`, 'm'));
+    // reject_code добавлен миграцией 1438 — проверяется на настоящей базе (admin-day-counts.pg).
+    expect(read('migrations/1438_a2a_requests_reject_code.sql')).toMatch(/ADD COLUMN IF NOT EXISTS reject_code VARCHAR\(40\)/);
     expect(read('migrations/1229_a2a_tasks_contexts.sql')).toMatch(/ALTER TABLE a2a_requests ADD COLUMN IF NOT EXISTS method VARCHAR\(64\)/);
     expect(ddl).not.toMatch(/user_agent|\bip\b|\btext\b|arguments|question/i);
     expect(sql).toMatch(/CREATE INDEX IF NOT EXISTS idx_a2a_requests_created_at/);
@@ -359,6 +363,14 @@ describe('срез /api/admin/analytics/a2a', () => {
     }
     if (/GROUP BY 1 ORDER BY 1/.test(sql)) return { rows: [{ day: '2026-10-12', requests: 3, agents: 2 }] };
     if (/WHERE tool IS NOT NULL/.test(sql)) return { rows: [{ tool: 'get_tours', calls: 1, completed: 1, rejected: 0, failed: 0, agents: 1 }] };
+    // Отказы по причинам (1438) — раньше общего «ORDER BY created_at DESC» не стоит: у сводки своего порядка по времени нет.
+    if (/GROUP BY reject_code, tool/.test(sql)) {
+      return { rows: [
+        { code: 'no_consent', tool: 'create_booking_request', tasks: 2, agents: 1 },
+        { code: 'invalid_args:tour', tool: 'create_booking_request', tasks: 1, agents: 1 },
+        { code: null, tool: null, tasks: 3, agents: 2 },
+      ] };
+    }
     if (/ORDER BY created_at DESC/.test(sql)) return { rows: [{ at: '2026-10-12 10:00:00', binding: 'rest', op: 'SendMessage', version: '1.0', version_declared: true, ok: true, error_code: null, input: 'tool', tool: 'get_tours', state: 'completed', duration_ms: 120, agent: 'A2A-Registry-TaskProbe', ua_family: 'неизвестен', is_self: false }] };
     if (/FROM mcp_clients/.test(sql)) {
       return { rows: [
@@ -392,6 +404,17 @@ describe('срез /api/admin/analytics/a2a', () => {
     expect(json.a2a.by_agent[1]).toMatchObject({ agent: 'python-requests', kind: 'external', versions: ['0.3', '2.0'] });
     expect(json.a2a.recent[0]).toMatchObject({ op: 'SendMessage', tool: 'get_tours', kind: 'registry' });
     expect(json.a2a.by_tool).toEqual([{ tool: 'get_tours', calls: 1, completed: 1, rejected: 0, failed: 0, agents: 1 }]);
+    // Отказы по причинам: код и слова; причина не записана — так и сказано, а не выдумана.
+    expect(json.a2a.by_reason).toEqual([
+      { code: 'no_consent', tool: 'create_booking_request', tasks: 2, agents: 1, label: 'нет согласия человека на обработку данных' },
+      { code: 'invalid_args:tour', tool: 'create_booking_request', tasks: 1, agents: 1, label: 'не то в поле tour' },
+      { code: null, tool: null, tasks: 3, agents: 2, label: 'причина не записана' },
+    ]);
+    // У выполненной задачи причины отказа нет.
+    expect(json.a2a.recent[0].reject_label).toBeNull();
+    const reasonSql = query.mock.calls.map((c) => String(c[0])).find((q) => /GROUP BY reject_code, tool/.test(q)) ?? '';
+    expect(reasonSql).toContain("state = 'rejected'");
+    expect(reasonSql).toContain("created_at >= NOW() - ($1::int * INTERVAL '1 day')");
     expect(json.mcp.ok).toBe(true);
     expect(json.mcp.clients[0]).toMatchObject({ client: 'claude-ai', kind: 'представился', origin: 'external', days: 3 });
     expect(json.mcp.clients[1]).toMatchObject({ client: 'curl', kind: 'по заголовку', origin: 'probe' });

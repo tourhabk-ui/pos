@@ -243,7 +243,7 @@ describe('телефон, которого не бывает, — отказ д�
     it(`${tool}: +70000000000 — отказ, лида нет; подсказка про test: true`, async () => {
       const r = await call(tool, { ...ARGS[tool], phone: '+70000000000' });
       expect(r.isError).toBe(true);
-      expect(r.content[0]!.text).toMatch(/Такого номера не бывает/);
+      expect(r.content[0]!.text).toMatch(/phone — такого номера не бывает/);
       expect(r.content[0]!.text).toMatch(/test: true/);
       nothingSent();
     });

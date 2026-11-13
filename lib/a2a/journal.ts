@@ -44,6 +44,7 @@ import { uaFamily } from '@/lib/mcp/client-id';
 import { BOT_FAMILIES } from '@/lib/analytics/bot-detect';
 import { redactPII } from '@/lib/security/pii-redact';
 import type { A2AOperation } from '@/lib/a2a/wire';
+import { safeRejectCode } from '@/lib/a2a/reject-reason';
 
 export type A2aBinding = 'jsonrpc' | 'rest';
 /** Операции журнала: диспетчерские, визитка, уведомление JSON-RPC и отказ до диспетчера. */
@@ -65,6 +66,8 @@ export interface A2aJournalEntry {
   input?: A2aInput | null;
   tool?: string | null;
   state?: A2aTaskState | null;
+  /** Причина отказа задаче — код из metadata.reason (lib/a2a/reject-reason); пишется только у rejected. */
+  rejectCode?: string | null;
   /** contextId агента — в журнал уходит только hash. */
   contextId?: string | null;
   durationMs?: number | null;
@@ -128,6 +131,8 @@ export interface SendMessageFacts {
   state: A2aTaskState | null;
   input: A2aInput | null;
   tool: string | null;
+  /** Причина отказа кодом; null — задача не отклонена или причина не названа. */
+  reason: string | null;
 }
 
 /**
@@ -146,7 +151,8 @@ export function sendMessageFacts(result: Record<string, unknown>): SendMessageFa
   const input: A2aInput | null = metadata.input === 'text' || metadata.input === 'tool' ? metadata.input : null;
   const tool = typeof metadata.tool === 'string' ? safeToolName(metadata.tool) : null;
   const contextId = typeof task.contextId === 'string' ? task.contextId : null;
-  return { contextId, state, input, tool };
+  const reason = state === 'rejected' ? safeRejectCode(metadata.reason) : null;
+  return { contextId, state, input, tool, reason };
 }
 
 function clip(value: string | null | undefined, max: number): string | null {
@@ -169,8 +175,8 @@ export function safeMethodName(method: string | null | undefined): string | null
 export function logA2aRequest(entry: A2aJournalEntry): void {
   void pool
     .query(
-      `INSERT INTO a2a_requests (binding, op, version, version_declared, ok, error_code, input, tool, state, duration_ms, agent, ua_family, caller_hash, context_key, is_self, method)
-       VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16)`,
+      `INSERT INTO a2a_requests (binding, op, version, version_declared, ok, error_code, input, tool, state, duration_ms, agent, ua_family, caller_hash, context_key, is_self, method, reject_code)
+       VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16, $17)`,
       [
         entry.binding,
         clip(entry.op, 32),
@@ -188,6 +194,7 @@ export function logA2aRequest(entry: A2aJournalEntry): void {
         contextKey(entry.contextId),
         entry.self,
         safeMethodName(entry.method),
+        entry.state === 'rejected' ? safeRejectCode(entry.rejectCode) : null,
       ],
     )
     .catch((err: unknown) => {

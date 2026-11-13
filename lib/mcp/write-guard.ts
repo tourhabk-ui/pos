@@ -70,6 +70,7 @@ import type { PoolClient } from 'pg';
 import { pool } from '@/lib/db-pool';
 import { tgSend } from '@/lib/notifications/tg-send';
 import { CLIENT_WINDOW_MINUTES, CLIENT_MAX_PER_WINDOW, CLIENT_MAX_PER_DAY } from './write-limits';
+import { consentProblem, inputRefusalText } from './input-refusal';
 
 /**
  * Квота записи — решение владельца 01.10 (разбор публичного аудита): «квота на
@@ -84,9 +85,13 @@ import { CLIENT_WINDOW_MINUTES, CLIENT_MAX_PER_WINDOW, CLIENT_MAX_PER_DAY } from
  */
 export { CLIENT_WINDOW_MINUTES, CLIENT_MAX_PER_WINDOW, CLIENT_MAX_PER_DAY };
 
-/** Отказ без согласия — один текст у заявки и у её пробы (`test: true`, lib/mcp/test-run). */
-export const NO_CONSENT_MESSAGE = 'Заявка не создана: нет согласия на обработку персональных данных. '
-  + 'Спросите человека прямо и передайте consent: true — без этого имя и телефон принимать нельзя.';
+/**
+ * Отказ без согласия — один текст у заявки и у её пробы (`test: true`,
+ * lib/mcp/test-run). На двух языках и с именем поля (13.11): отказ читают
+ * китайские и английские агенты, и русская фраза без слова `consent` в начале
+ * строки им ничего не говорила. Слова — из общего сборщика отказов.
+ */
+export const NO_CONSENT_MESSAGE = inputRefusalText([consentProblem('refused')]);
 /**
  * Дедуп по телефону: одна ПРИНЯТАЯ заявка на номер за сутки — в пределах
  * одного инструмента. Подбор (create_lead), а потом бронь конкретной даты

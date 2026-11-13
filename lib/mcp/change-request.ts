@@ -28,6 +28,7 @@ import { z } from 'zod';
 import { pool } from '@/lib/db-pool';
 import { logText } from '@/lib/log/log-text';
 import { McpUserError } from '@/lib/mcp/jsonrpc';
+import { inputRefusalText, problemsFromIssues, REQUEST_NOT_CHANGED } from '@/lib/mcp/input-refusal';
 import { isTestKey } from '@/lib/mcp/test-run';
 import { REQUEST_KEY_TTL_DAYS, consentPurposeOfKey, readKey, requestKeyHash } from '@/lib/mcp/request-status';
 import { ADDRESSEE_WORDS } from '@/lib/mcp/request-status-schema';
@@ -343,8 +344,13 @@ export async function changeRequest(rawArgs: Record<string, unknown>, via: Chang
   const key = readKey(rawArgs.key);
   const parsed = argsSchema.safeParse(rawArgs);
   if (!parsed.success) {
-    const issue = parsed.error.issues[0];
-    throw new McpUserError(issue?.message ?? 'Некорректные аргументы', `invalid_args:${String(issue?.path?.[0] ?? '').slice(0, 20)}`);
+    // Все негодные поля разом, с именами и на двух языках (13.11): тот же
+    // сборщик, что у заявок, со своим заголовком — заявка не изменена.
+    const problems = problemsFromIssues(parsed.error.issues, rawArgs);
+    throw new McpUserError(
+      problems.length > 0 ? inputRefusalText(problems, [], REQUEST_NOT_CHANGED) : 'Некорректные аргументы',
+      `invalid_args:${String(problems[0]?.field ?? '').slice(0, 20)}`,
+    );
   }
   const action: ChangeAction = parsed.data.action;
   const test = parsed.data.test === true || parsed.data.test === 'true';

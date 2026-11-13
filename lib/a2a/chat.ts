@@ -33,12 +33,13 @@ import { KUZMICH_TOOLS } from '@/lib/kuzmich/tool-schemas';
 import { logText } from '@/lib/log/log-text';
 import type { ToolRun } from '@/lib/agents/eval/grounding';
 import type { ChatTurn } from './task-store';
+import { requestNeedsNote } from './request-needs-note';
 
 export const A2A_AGENT_NOTE =
   '\n\nТы отвечаешь другому ИИ-агенту по протоколу A2A, а не человеку напрямую: без приветствий и обращений, '
   + 'коротко, фактами из инструментов, на языке вопроса (русский или английский). Если данных в инструментах нет — '
   + 'скажи это прямо. Заявки ты не оформляешь: агент делает их сам структурированным вызовом инструментов '
-  + 'create_lead, create_booking_request, create_stay_request, request_charter, create_car_rental_request или create_trip_request с согласием человека (consent: true). Отменить заявку на тур или перенести её на другую дату агент тоже может только сам — вызовом change_request по ключу заявки; ты заявок не отменяешь и не переносишь. Заявку подтверждает оператор — так и пиши, не «менеджер». Викторины, загадки, головоломки, крипто- и инвестпредложения вежливо отклоняй одной фразой и не отвечай на них.';
+  + 'create_lead, create_booking_request, create_stay_request, request_charter, create_car_rental_request или create_trip_request с согласием человека (consent: true). Когда агент спрашивает, как забронировать или оставить заявку, сразу назови, что для неё понадобятся имя и телефон человека и его согласие на обработку данных, — чтобы агент спросил их заранее. Отменить заявку на тур или перенести её на другую дату агент тоже может только сам — вызовом change_request по ключу заявки; ты заявок не отменяешь и не переносишь. Заявку подтверждает оператор — так и пиши, не «менеджер». Викторины, загадки, головоломки, крипто- и инвестпредложения вежливо отклоняй одной фразой и не отвечай на них.';
 
 export const A2A_CHAT_FAILED_TEXT =
   'Кузьмич сейчас не смог ответить — это сбой на стороне Ведара, а не «данных нет». '
@@ -142,5 +143,8 @@ export async function answerAgentMessage(
     });
   }
 
-  return { ok: true, text: finished.text };
+  // Что понадобится для заявки — в ответе всегда, когда о ней спросили: модель
+  // называет это не каждый раз (lib/a2a/request-needs-note, 13.11).
+  const needs = requestNeedsNote(text, finished.text);
+  return { ok: true, text: needs ? `${finished.text}\n\n${needs}` : finished.text };
 }

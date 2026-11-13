@@ -65,6 +65,22 @@ describe('JSON-RPC биндинг', () => {
     expect(typeof runPublicTool.mock.calls[0][0].ip).toBe('string');
   });
 
+  it('отказ инструмента: код причины — агенту в metadata задачи и в строку журнала запросов (1438)', async () => {
+    runPublicTool.mockResolvedValue({ kind: 'refused', text: 'Заявка не создана', code: 'no_consent' });
+    const res = await rpc('SendMessage', { message: { messageId: 'm1', role: 'ROLE_USER', parts: [{ data: { tool: 'create_booking_request', arguments: { tour: '27' } } }] } }, { 'A2A-Version': '1.0' });
+    const body = await res.json();
+    expect(body.result.task.status.state).toBe('TASK_STATE_REJECTED');
+    expect(body.result.task.metadata).toEqual({ input: 'tool', tool: 'create_booking_request', reason: 'no_consent' });
+    let params: unknown[] | undefined;
+    await vi.waitFor(() => {
+      params = query.mock.calls.find(([sql]) => /INSERT INTO a2a_requests/.test(String(sql)))?.[1] as unknown[] | undefined;
+      expect(params).toBeDefined();
+    });
+    // state — 9-й параметр, reject_code — 17-й.
+    expect(params?.[8]).toBe('rejected');
+    expect(params?.[16]).toBe('no_consent');
+  });
+
   it('без заголовка — форма 0.3: message/send, Task с kind и строчным состоянием', async () => {
     const res = await rpc('message/send', { message: { messageId: 'm1', role: 'user', parts: [{ kind: 'text', text: 'Что на Горелом?' }] } });
     const body = await res.json();

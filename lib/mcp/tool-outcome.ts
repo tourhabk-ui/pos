@@ -13,8 +13,13 @@
 export type PublicToolOutcome =
   | { kind: 'rate_limited'; text: string }
   | { kind: 'unknown_tool'; message: string; data: { available: string[]; suggestion: string | null } }
-  /** Инструмент ответил отказом по входу (McpUserError) — агент передал не то. */
-  | { kind: 'refused'; text: string }
+  /**
+   * Инструмент ответил отказом по входу (McpUserError) — агент передал не то.
+   * `code` — причина машинным кодом (тот же, что в журнале вызовов MCP):
+   * `no_consent`, `bad_phone`, `invalid_args:<поле>`, `write_guard`… По нему
+   * журнал A2A называет причину отказа, не читая текст (13.11).
+   */
+  | { kind: 'refused'; text: string; code?: string }
   /** Наш код упал или не смог получить данные — сбой, не «ничего нет». */
   | { kind: 'failed'; text: string }
   /**

@@ -32,6 +32,7 @@ import { requireAdmin } from '@/lib/auth/middleware';
 import { pool } from '@/lib/db-pool';
 import { logText } from '@/lib/log/log-text';
 import { a2aAgentKind, type A2aAgentKind } from '@/lib/a2a/journal';
+import { rejectReasonLabel } from '@/lib/a2a/reject-reason';
 import { RETENTION_DAYS } from '@/lib/a2a/dialog-log';
 import { needsRussian } from '@/lib/ai/russian-text';
 import { isProbeClient } from '@/lib/mcp/probe-clients';
@@ -88,8 +89,12 @@ interface A2aToolRow { tool: string; calls: number; completed: number; rejected:
 interface A2aRecentRow {
   at: string; binding: string; op: string; version: string; version_declared: boolean; ok: boolean;
   error_code: string | null; method: string | null; input: string | null; tool: string | null; state: string | null;
+  /** Причина отказа кодом (1438); NULL — не отклонена или записана до миграции. */
+  reject_code: string | null;
   duration_ms: number | null; agent: string; ua_family: string; is_self: boolean;
 }
+/** Отказы окна по причинам; `code: null` — причина не записана (строки до 1438). */
+interface A2aReasonRow { code: string | null; tool: string | null; tasks: number; agents: number }
 interface BoundsRow { since: string | null; total: number }
 interface DialogRow {
   id: string | number;
@@ -105,7 +110,7 @@ const WINDOW = `created_at >= NOW() - ($1::int * INTERVAL '1 day')`;
 const KAM = `AT TIME ZONE 'Asia/Kamchatka'`;
 
 export async function readA2a(days: number) {
-  const [bounds, byAgent, byDay, byTool, recent] = await Promise.all([
+  const [bounds, byAgent, byDay, byTool, recent, byReason] = await Promise.all([
     pool.query<BoundsRow>(`SELECT to_char(MIN(created_at) ${KAM}, 'YYYY-MM-DD') AS since, COUNT(*)::int AS total FROM a2a_requests`),
     pool.query<A2aAgentRow>(
       `SELECT agent, ua_family, is_self,
@@ -153,11 +158,24 @@ export async function readA2a(days: number) {
     ),
     pool.query<A2aRecentRow>(
       `SELECT to_char(created_at ${KAM}, 'YYYY-MM-DD HH24:MI:SS') AS at,
-              binding, op, version, version_declared, ok, error_code, method, input, tool, state, duration_ms, agent, ua_family, is_self
+              binding, op, version, version_declared, ok, error_code, method, input, tool, state, reject_code, duration_ms, agent, ua_family, is_self
          FROM a2a_requests
         ORDER BY created_at DESC
         LIMIT $1::int`,
       [RECENT_LIMIT],
+    ),
+    // Отчего отклоняли (13.11): «отказ» без причины читался как «нет согласия»
+    // при любом случае. Счёт тот же, что у столбца «отказ» по агентам: сумма
+    // строк здесь равна сумме отказов там.
+    pool.query<A2aReasonRow>(
+      `SELECT reject_code AS code, tool,
+              COUNT(*)::int AS tasks,
+              COUNT(DISTINCT agent)::int AS agents
+         FROM a2a_requests
+        WHERE state = 'rejected' AND ${WINDOW}
+        GROUP BY reject_code, tool
+        ORDER BY COUNT(*) DESC, reject_code NULLS LAST, tool NULLS LAST`,
+      [days],
     ),
   ]);
   const b = bounds.rows[0] ?? { since: null, total: 0 };
@@ -178,7 +196,13 @@ export async function readA2a(days: number) {
     by_agent: byAgentRows,
     by_day: byDay.rows,
     by_tool: byTool.rows,
-    recent: recent.rows.map((r) => ({ ...r, kind: a2aAgentKind(r.agent, r.ua_family, r.is_self) })),
+    by_reason: byReason.rows.map((r) => ({ ...r, label: rejectReasonLabel(r.code) })),
+    recent: recent.rows.map((r) => ({
+      ...r,
+      kind: a2aAgentKind(r.agent, r.ua_family, r.is_self),
+      // Причина словами — только у отказа: у выполненной задачи её нет.
+      reject_label: r.state === 'rejected' ? rejectReasonLabel(r.reject_code) : null,
+    })),
   };
 }
 

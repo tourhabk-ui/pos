@@ -17,7 +17,8 @@
 
 import { useEffect, useState } from 'react';
 import { AlertTriangle, Bot, MessagesSquare, RefreshCw } from 'lucide-react';
-import DialogJournal, { KIND_LABEL, STATE_LABEL, kindClass, type AgentKind, type DialogsData } from './_DialogJournal';
+import DialogJournal, { KIND_LABEL, kindClass, type AgentKind, type DialogsData } from './_DialogJournal';
+import { RejectReasons, RequestOutcome, type ReasonRow } from './_RejectReasons';
 
 type Block<T> = ({ ok: true } & T) | { ok: false; error: string };
 
@@ -33,11 +34,12 @@ interface ToolRow { tool: string; calls: number; completed: number; rejected: nu
 interface RecentRow {
   at: string; binding: string; op: string; version: string; version_declared: boolean; ok: boolean;
   error_code: string | null; method: string | null; input: string | null; tool: string | null; state: string | null;
+  reject_code?: string | null; reject_label?: string | null;
   duration_ms: number | null; agent: string; ua_family: string; is_self: boolean; kind: AgentKind;
 }
 interface A2aBlock {
   since: string | null; total_all_time: number; total_window: number; recent_limit: number;
-  by_agent: AgentRow[]; by_day: DayRow[]; by_tool: ToolRow[]; recent: RecentRow[];
+  by_agent: AgentRow[]; by_day: DayRow[]; by_tool: ToolRow[]; by_reason?: ReasonRow[]; recent: RecentRow[];
 }
 type DialogsBlock = DialogsData;
 interface McpClientRow { client: string; kind: string; origin: 'probe' | 'external'; region?: string | null; caller_days: number; days: number; first_seen: string | null; last_seen: string | null }
@@ -256,11 +258,13 @@ export default function A2aClient() {
                     </tbody>
                   </table>
                   <p className="text-[10px] text-[var(--text-muted)] mt-2">
-                    «Диалоги» — разные contextId (считаются по хэшу). «Отказ» — задача rejected: нет согласия, нет мест,
-                    лимит, несуществующий инструмент; «сбой» — failed, на нашей стороне. Ошибки протокола — ответы
-                    с ошибкой A2A/JSON-RPC (неверные params, неизвестный метод, неподдерживаемая версия).
+                    «Диалоги» — разные contextId (считаются по хэшу). «Отказ» — задача rejected; отчего именно — в блоке
+                    «Отказы по причинам» ниже и в строке каждого запроса. «Сбой» — failed, на нашей стороне. Ошибки
+                    протокола — ответы с ошибкой A2A/JSON-RPC (неверные params, неизвестный метод, неподдерживаемая версия).
                   </p>
                 </div>
+
+                <RejectReasons rows={a2a.by_reason ?? []} days={data.window_days} />
 
                 <div className="grid md:grid-cols-2 gap-3">
                   <div className="ds-card p-4">
@@ -317,11 +321,7 @@ export default function A2aClient() {
                           <Td>{r.op}</Td>
                           <Td muted>{r.version}{r.version_declared ? '' : ' (по умолчанию)'}</Td>
                           <Td>{r.input === 'tool' ? <code>{r.tool}</code> : (r.input === 'text' ? 'текст' : '—')}</Td>
-                          <Td>
-                            {r.ok
-                              ? (r.state ? STATE_LABEL[r.state] ?? r.state : 'ответ')
-                              : <span className="text-[var(--warning)]">ошибка: {r.error_code ?? '?'}{r.method ? <> · <code>{r.method}</code></> : null}</span>}
-                          </Td>
+                          <Td><RequestOutcome r={r} /></Td>
                           <Td right muted>{r.duration_ms ?? '—'}</Td>
                         </tr>
                       ))}

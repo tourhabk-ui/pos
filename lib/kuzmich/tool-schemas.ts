@@ -20,6 +20,7 @@
 import { z } from 'zod';
 import type { ToolDefinition } from '@/lib/ai/providers';
 import { tourCountRefusal } from '@/lib/tours/compare-input';
+import { problemsFromIssues, type InputProblem } from '@/lib/mcp/input-refusal';
 
 /**
  * Строковое поле: допускает нестроковый JSON (число/bool → String(...)),
@@ -28,6 +29,11 @@ import { tourCountRefusal } from '@/lib/tours/compare-input';
  * Пустая после trim строка остаётся невалидной (обязательное поле не может
  * быть пустым — на это и раньше нельзя было опереться).
  */
+// У каждого `.refine` назван `path` (13.11): по нему отказ называет поле и
+// по-английски (lib/mcp/input-refusal) — русские слова схемы поле уже называют,
+// а английская половина без пути знала бы только «invalid value». Правило
+// «нужно указать …» помечено `params: { missing: true }`: поле пропало, а не
+// пришло негодным.
 function looseString(max: number) {
   return z.preprocess(
     (v) => {
@@ -115,7 +121,7 @@ const getTourDetailsSchema = z.object({
   query: looseString(200).optional(),
   ...aliasFields(TOUR_ALIASES, 200),
 }).transform(v => ({ name: firstOf(v, ['name', 'query', ...TOUR_ALIASES]) }))
-  .refine(v => !!v.name, { message: 'нужно указать name (название или ключевое слово тура)' });
+  .refine(v => !!v.name, { path: ['name'], params: { missing: true }, message: 'нужно указать name (название или ключевое слово тура)' });
 
 // ── get_guardian_context ──────────────────────────────────────────────────
 // executeTool исторически принимает `place` ИЛИ `name` (args.place ?? args.name) —
@@ -125,7 +131,7 @@ const getGuardianContextSchema = z.object({
   name: looseString(200).optional(),
   ...aliasFields(PLACE_ALIASES, 200),
 }).transform(v => ({ place: firstOf(v, ['place', 'name', ...PLACE_ALIASES]) }))
-  .refine(v => !!v.place, { message: 'нужно указать place (название места)' });
+  .refine(v => !!v.place, { path: ['place'], params: { missing: true }, message: 'нужно указать place (название места)' });
 
 // ── get_place_info ────────────────────────────────────────────────────────
 const getPlaceInfoSchema = z.object({
@@ -133,7 +139,7 @@ const getPlaceInfoSchema = z.object({
   place: looseString(200).optional(),
   ...aliasFields(PLACE_ALIASES, 200),
 }).transform(v => ({ name: firstOf(v, ['name', 'place', ...PLACE_ALIASES]) }))
-  .refine(v => !!v.name, { message: 'нужно указать name (название места)' });
+  .refine(v => !!v.name, { path: ['name'], params: { missing: true }, message: 'нужно указать name (название места)' });
 
 // ── get_weather ───────────────────────────────────────────────────────────
 // Место или точка (25.09): до этого схема была пустой, и спросить погоду на
@@ -224,7 +230,7 @@ const getTourAvailabilitySchema = z.object({
   days: v.days,
   people: v.people,
 }))
-  .refine(v => !!v.tour, { message: 'нужно указать tour (название, ключевое слово или ID тура)' });
+  .refine(v => !!v.tour, { path: ['tour'], params: { missing: true }, message: 'нужно указать tour (название, ключевое слово или ID тура)' });
 
 // ── compare_tours ─────────────────────────────────────────────────────────
 // 2–4 тура рядом по тому, что важно человеку (слово владельца 29.10).
@@ -268,10 +274,10 @@ const compareToursSchema = z.object({
     ...(date ? { date } : {}),
   };
 })
-  .refine((v) => !!v.tours, { message: 'нужно указать tours: 2–4 тура номерами через запятую («61, 70») или названиями через «;»' })
+  .refine((v) => !!v.tours, { path: ['tours'], params: { missing: true }, message: 'нужно указать tours: 2–4 тура номерами через запятую («61, 70») или названиями через «;»' })
   .superRefine((v, ctx) => {
     const refusal = v.tours ? tourCountRefusal(v.tours) : null;
-    if (refusal) ctx.addIssue({ code: 'custom', message: refusal });
+    if (refusal) ctx.addIssue({ code: 'custom', path: ['tours'], message: refusal });
   });
 
 // ── search_taaft ──────────────────────────────────────────────────────────
@@ -279,7 +285,7 @@ const compareToursSchema = z.object({
 const searchTaaftSchema = z.object({
   task: looseString(300).optional(),
   query: looseString(300).optional(),
-}).refine(v => !!(v.task || v.query), { message: 'нужно указать task (что нужно сделать)' });
+}).refine(v => !!(v.task || v.query), { path: ['task'], params: { missing: true }, message: 'нужно указать task (что нужно сделать)' });
 
 // ── search_accommodations ───────────────────────────────────────────────────
 // Все фильтры необязательны — без них отдаём топ по рейтингу. price_max
@@ -647,7 +653,8 @@ export const KUZMICH_TOOLS: ToolDefinition[] = Object.values(TOOL_REGISTRY).map(
 
 export type ToolValidation =
   | { ok: true; args: Record<string, string> }
-  | { ok: false; error: string };
+  /** `problems` — те же ошибки по полям: из них вход MCP собирает английскую половину отказа. */
+  | { ok: false; error: string; problems: InputProblem[] };
 
 /**
  * Валидирует сырые аргументы tool_call перед исполнением (Roitman: защитный
@@ -662,8 +669,12 @@ export function validateToolArgs(name: string, rawArgs: Record<string, string>):
 
   const parsed = spec.schema.safeParse(rawArgs);
   if (!parsed.success) {
-    const message = parsed.error.issues.map(i => i.message).join('; ') || 'некорректные аргументы';
-    return { ok: false, error: `Аргументы для ${name} не прошли проверку: ${message}. Повтори вызов с корректными аргументами.` };
+    // Поле называется всегда (13.11): у схемы без своих слов агент получал
+    // «Invalid input: expected string, received undefined» и не знал, что
+    // править. Свои слова схемы поле уже называют — к ним имя не добавляется.
+    const problems = problemsFromIssues(parsed.error.issues, rawArgs);
+    const message = problems.map((p) => (p.own ? p.ru : `${p.field} — ${p.ru}`)).join('; ') || 'некорректные аргументы';
+    return { ok: false, error: `Аргументы для ${name} не прошли проверку: ${message}. Повтори вызов с корректными аргументами.`, problems };
   }
   return { ok: true, args: parsed.data as Record<string, string> };
 }

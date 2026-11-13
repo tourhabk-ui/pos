@@ -300,7 +300,7 @@ describe('notify_url — адрес приёмника уведомлений (2
   ])('%s: неверный адрес — заявки нет, отказ называет поле', async (tool, args) => {
     const r = await result(await call(tool, { ...args, notify_url: BAD }));
     expect(r.isError).toBe(true);
-    expect(r.content[0]!.text).toMatch(/^notify_url: /);
+    expect(r.content[0]!.text).toMatch(/^• notify_url — \S/m);
     expect(r.content[0]!.text).toMatch(/Заявка не создана/);
     expect(createLeadMock).not.toHaveBeenCalled();
     expect(query.mock.calls.some((c) => /INSERT INTO (leads|tour_seat_requests|agent_request)/.test(String(c[0])))).toBe(false);
@@ -313,7 +313,7 @@ describe('notify_url — адрес приёмника уведомлений (2
     for (const url of ['https://[::ffff:7f00:1]/x', 'https://pospkam-pospktry-c1f3.twc1.net/api/mcp', longHost]) {
       const r = await result(await call('create_lead', { ...LEAD, notify_url: url }));
       expect(r.isError, url).toBe(true);
-      expect(r.content[0]!.text).toMatch(/^notify_url: /);
+      expect(r.content[0]!.text).toMatch(/^• notify_url — \S/m);
     }
     expect(createLeadMock).not.toHaveBeenCalled();
   });
@@ -393,7 +393,7 @@ describe('notify_url — адрес приёмника уведомлений (2
   it('дверь A2A (runPublicTool — та же, что у навыков A2A и схем OpenAPI): неверный адрес — отказ по полю', async () => {
     const o = await runPublicTool({ toolName: 'create_lead', rawArguments: { ...LEAD, notify_url: BAD }, ip: '10.77.0.1', userAgent: 'a2a-test', self: false });
     expect(o.kind).toBe('refused');
-    expect(o.kind === 'refused' && o.text).toMatch(/^notify_url: /);
+    expect(o.kind === 'refused' && o.text).toMatch(/^• notify_url — \S/m);
     expect(createLeadMock).not.toHaveBeenCalled();
   });
 });
