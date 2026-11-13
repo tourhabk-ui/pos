@@ -30,11 +30,13 @@ No plugin? Put the same row into `~/.dsh/profiles/web/cordis.patch.yml` (identic
 
 Or add it by URL in a settings panel (`dsh-mcp-center`, `dsh-mcp-panel`, `dsh-mcp-connector`): type Streamable HTTP, URL `https://vedarai.ru/api/mcp`, auth none.
 
-## Tools (23)
+## Tools (25)
 
 Read: `get_tours`, `get_tour_details`, `get_tour_availability`, `compare_tours`, `get_place_info`, `get_volcano_status`, `safety_status`, `get_guardian_context`, `get_weather`, `search_accommodations`, `search_gear`, `search_transfers`, `search_car_rental`, `make_trip_plan`, `edit_trip_plan`, `get_request_status`, `search`, `fetch`.
 
-Write, five requests confirmed by a human, no online payment: `create_lead`, `create_booking_request`, `create_stay_request`, `request_charter`, `create_car_rental_request`.
+Write, six requests confirmed by a human, no online payment: `create_trip_request`, `create_lead`, `create_booking_request`, `create_stay_request`, `request_charter`, `create_car_rental_request`.
+
+Change: `change_request` cancels a tour request or moves it to another date by its status key, only when the person asks.
 
 Platform data is in Russian; tool arguments work best in Russian or English. Emergency number in Kamchatka: 112.
 

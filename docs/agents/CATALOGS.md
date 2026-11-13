@@ -41,6 +41,7 @@
 | Канал | Адрес | Держит |
 |---|---|---|
 | MCP Registry (официальный) | `ru.vedarai/mcp`, манифест `server.json`, публикация маркером `.github/triggers/mcp-registry-publish.json` | `mcp-registry-publish.test.ts` |
+| Соседние репозитории владельца (`vedar-mcp`, `vedar-mcp-examples`, `vedar-kamchatka-mcp`, `dsh-vedar`) повторяют список инструментов, манифест и плагин | после публикации версии и после правки списка инструментов — обновить их; отстал ли кто, говорит прогон `sister-repos-census.yml` (CLAUDE.md §22) | `sister-repos.test.ts` |
 | Smithery | `tourhabk/vedar`, `npx -y smithery mcp add tourhabk/vedar` | `mcp-catalogs.test.ts` |
 | Glama | владение подтверждено `/.well-known/glama.json`; оценка сервера — **A**, высшая (владелец, 25.10) | `lib/mcp/catalogs.ts` |
 | Карточка сервера (MCP Server Card, SEP-2127) | `https://vedarai.ru/api/mcp/server-card` | `agent-discovery-cards.test.ts` |

@@ -30,11 +30,13 @@ dsh plugin --profile web add github:tourhabk-ui/dsh-vedar
 
 也可以用图形面板（`dsh-mcp-center`、`dsh-mcp-panel`、`dsh-mcp-connector`）按 URL 添加：类型 Streamable HTTP，地址 `https://vedarai.ru/api/mcp`，认证 none。
 
-## 工具（23 个）
+## 工具（25 个）
 
 读取：`get_tours`、`get_tour_details`、`get_tour_availability`、`compare_tours`、`get_place_info`、`get_volcano_status`、`safety_status`、`get_guardian_context`、`get_weather`、`search_accommodations`、`search_gear`、`search_transfers`、`search_car_rental`、`make_trip_plan`、`edit_trip_plan`、`get_request_status`、`search`、`fetch`。
 
-写入（五种申请，均由人工确认，无在线支付）：`create_lead`（选团）、`create_booking_request`（指定团和日期的预订申请）、`create_stay_request`（住宿申请）、`request_charter`（包车申请）、`create_car_rental_request`（租车申请）。
+写入（六种申请，均由人工确认，无在线支付）：`create_trip_request`（整趟行程）、`create_lead`（选团）、`create_booking_request`（指定团和日期的预订申请）、`create_stay_request`（住宿申请）、`request_charter`（包车申请）、`create_car_rental_request`（租车申请）。
+
+变更：`change_request` 凭申请密钥取消或改期团队游申请，仅在用户本人要求时调用。
 
 接口返回的名称与说明为俄文，工具参数以俄文或英文为佳。中文页面另列价格、时长与季节。堪察加紧急电话：112。
 

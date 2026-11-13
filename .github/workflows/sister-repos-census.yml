@@ -1,0 +1,95 @@
+name: Соседние репозитории — сверка с основным
+
+# ── Зачем ────────────────────────────────────────────────────────────
+#
+# У владельца, кроме этого репозитория, есть ещё четыре своих, и каждый
+# повторяет сведения о сервере MCP: список инструментов, манифест, плагин
+# DeepSeek Harness. 13.11 описание сервера поменяли и опубликовали версию
+# 2.10.2, не зная о копиях: манифест в vedar-mcp стоял на 1.0.0, его README
+# называли 22 инструмента из 25, README vedar-mcp-examples — 21 из 25, а
+# выложенный плагин dsh-vedar отличался от исходника в четырёх файлах из семи.
+#
+# Этот прогон читает сами репозитории и говорит, какой отстал. Записи
+# «синхронизировано такого-то» нет намеренно: её обновили бы вместе с версией,
+# а соседний репозиторий — нет.
+#
+# Реестр и правило — lib/mcp/sister-repos.ts, чтение файлов —
+# scripts/sister-repos-census.ts, сторож — tests/unit/sister-repos.test.ts.
+#
+# ── Когда идёт ───────────────────────────────────────────────────────
+#
+# Расписания нет: очередь запланированных прогонов и так тесная (CLAUDE.md §8).
+# Прогон запускает правка источника сведений в main — манифеста, списка
+# инструментов, исходника плагина, маркера публикации в реестр — и правка
+# своего маркера (.github/triggers/sister-repos-census.json): так прогон
+# повторяют после того, как соседние репозитории обновлены.
+#
+# ── Три исхода (§4.0) ────────────────────────────────────────────────
+#
+# Совпадают — зелёный. Хоть один отстал — красный, в сводке сказано, какой
+# файл и чем. Репозиторий или файл не прочитался — тоже красный, но словом
+# «не смог прочитать», а не «отстал». Выкат этот прогон не держит: красный
+# здесь значит «обнови соседние», а не «сайт сломан».
+#
+# Соседние репозитории публичные: читаются без токена, секретов прогон не берёт.
+
+on:
+  workflow_dispatch:
+  push:
+    branches: [main]
+    paths:
+      - '.github/triggers/sister-repos-census.json'
+      - '.github/triggers/mcp-registry-publish.json'
+      - 'server.json'
+      - 'lib/mcp/public-tools.ts'
+      - 'lib/mcp/sister-repos.ts'
+      - 'scripts/sister-repos-census.ts'
+      - 'integrations/dsh-vedar/**'
+
+permissions:
+  contents: read
+
+concurrency:
+  group: sister-repos-census
+  cancel-in-progress: true
+
+jobs:
+  census:
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@v7
+        with:
+          persist-credentials: false
+
+      - uses: actions/setup-node@v7
+        with:
+          node-version: '22'
+          cache: 'npm'
+
+      - name: Зависимости
+        run: npm ci
+
+      # Не склонировался — папки нет, и сверка назовёт репозиторий «не смог
+      # прочитать». Шаг при этом не падает: остальные репозитории сверяются.
+      - name: Копии соседних репозиториев
+        run: |
+          set -uo pipefail
+          mkdir -p "$RUNNER_TEMP/sisters"
+          for repo in $(npx tsx scripts/sister-repos-census.ts --list); do
+            if ! git clone --quiet --depth 1 "https://github.com/$repo" "$RUNNER_TEMP/sisters/${repo#*/}"; then
+              echo "::warning::не склонирован $repo"
+            fi
+          done
+
+      - name: Сверка
+        run: |
+          set -uo pipefail
+          npx tsx scripts/sister-repos-census.ts --dir "$RUNNER_TEMP/sisters" | tee -a "$GITHUB_STEP_SUMMARY"
+          code=${PIPESTATUS[0]}
+          if [ "$code" -eq 1 ]; then
+            echo "::error::соседние репозитории отстали от основного — список в сводке прогона"
+          elif [ "$code" -ne 0 ]; then
+            echo "::error::сверка не смогла прочитать соседние репозитории — список в сводке прогона"
+          fi
+          exit "$code"
