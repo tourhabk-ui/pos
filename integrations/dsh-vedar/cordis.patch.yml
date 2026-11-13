@@ -1,7 +1,8 @@
 # dsh-vedar — Vedar (vedarai.ru), Kamchatka travel MCP server, for DeepSeek Harness.
 # One @deepseek-ai/dsh-mcp-client instance; the model sees the tools as mcp__vedar__<tool>.
-# Streamable HTTP, no auth, rate-limited by IP. Four write tools are requests confirmed
-# by a human (create_lead, create_booking_request, create_stay_request, request_charter, create_car_rental_request).
+# Streamable HTTP, no auth, rate-limited by IP. Six write tools are requests confirmed
+# by a human (create_trip_request, create_lead, create_booking_request, create_stay_request,
+# request_charter, create_car_rental_request); change_request cancels or moves a tour request by its key.
 # Emergency number in Kamchatka: 112.
 - insert:
     - id: mcp-vedar

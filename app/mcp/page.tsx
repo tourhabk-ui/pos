@@ -177,7 +177,7 @@ export default function McpLandingPage() {
               <p style={{ color: 'var(--text-secondary)' }}>
                 GPT Actions, Copilot Studio и OpenAPI-наборы фреймворков читают описание OpenAPI 3.1: в нём REST-биндинг A2A
                 (любой инструмент одним POST), публичные читающие эндпоинты и входы обнаружения. Авторизации нет; запись —
-                те же четыре заявки, подтверждает человек.
+                те же шесть заявок, подтверждает человек.
               </p>
               <p style={{ color: 'var(--text-primary)' }}>
                 OpenAPI:{' '}
