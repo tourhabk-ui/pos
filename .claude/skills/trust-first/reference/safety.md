@@ -55,59 +55,40 @@ async function syncPendingSOS() {
 }
 ```
 
-## Emergency phone numbers — always tappable
+## Emergency phone numbers — one verified source
 
-```tsx
-// Always use tel: links — they work on mobile even without internet
-const EMERGENCY_CONTACTS = [
-  { label: 'МЧС России', phone: '112' },
-  { label: 'МЧС Камчатского края', phone: '+74152235362' },
-  { label: 'Горноспасательная служба', phone: '+74152235361' },
-];
+On Vedar the numbers are NOT written in a component. A wrong emergency number
+on a safety screen is worse than no number.
 
-function EmergencyContacts() {
-  return (
-    <div>
-      {EMERGENCY_CONTACTS.map(c => (
-        <a key={c.phone} href={`tel:${c.phone}`} className="ds-btn ds-btn-danger">
-          <Phone className="w-4 h-4" /> {c.label}: {c.phone}
-        </a>
-      ))}
-    </div>
-  );
-}
-```
+- The only source is `lib/safety/emergency-numbers.ts`: `FEDERAL_EMERGENCY`
+  (112 first), `VERIFIED_REGIONAL` (numbers the owner has verified) and
+  `EMERGENCY_NUMBERS` (both, in order). A number that is not in that file is
+  not shown anywhere — do not add one from memory, from a web page or from
+  this skill.
+- Build the link with `telHref(phone)` from the same file: it strips spaces
+  and dashes so the link dials on a phone.
+- The SOS button is one component — `components/shared/EmergencyAction.tsx`
+  (it has the offline branch). Do not write a second SOS button or a bare
+  `<a href="tel:112">` copy of it: two buttons for one action drifted apart
+  before (#887).
 
-## MChS registration — required for remote routes
+On another project keep the same shape: one file with verified numbers, one
+helper for the `tel:` link, one emergency component.
 
-When `mchs_registration_required = true` on a route, show before departure:
+## MChS registration — one door
 
-```tsx
-function MCHSRegistrationBlock({ route }: { route: Route }) {
-  if (!route.mchs_registration_required) return null;
-  return (
-    <div className="ds-card border-l-4 border-[var(--warning)] p-4">
-      <h3 className="ds-h2 text-base">Требуется регистрация в МЧС</h3>
-      <p className="text-sm text-[var(--text-secondary)] mt-1">
-        Уведомите МЧС о выходе на маршрут. Бесплатно, онлайн, 5 минут.
-      </p>
-      <a
-        href="https://forms.mchs.gov.ru/registration_tourist_groups/form"
-        target="_blank"
-        rel="noopener"
-        className="ds-btn ds-btn-secondary mt-3 text-sm"
-      >
-        Зарегистрироваться онлайн
-      </a>
-      {route.mchs_phone && (
-        <a href={`tel:${route.mchs_phone}`} className="ds-btn text-sm mt-2">
-          Позвонить в МЧС: {route.mchs_phone}
-        </a>
-      )}
-    </div>
-  );
-}
-```
+When `mchs_registration_required = true` on a route, show the block before
+departure. On Vedar it already exists — `components/safety/MchsRegistrationBlock`
+— and it is the only one:
+
+- its button leads to the platform form `/register`; there is no second
+  window on the route card;
+- Vedar does not file the registration with MChS and never says
+  «зарегистрирован»: the form collects the group data for the MChS
+  application and starts return control (`CLAUDE.md` §10).
+
+Guards: `tests/unit/mchs-block-one-door.test.tsx`,
+`tests/unit/safety-register-one-watch.test.ts`.
 
 ## GPS coordinates: always show & copy
 

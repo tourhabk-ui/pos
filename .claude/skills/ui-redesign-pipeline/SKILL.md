@@ -18,7 +18,7 @@ Use this workflow whenever a user asks to:
 
 ## Critical Project Constraints (Volcano OS / TourHab)
 If working on the TourHab / Volcano OS project, you **MUST** adhere to these rules from `DESIGN.md`:
-- **Glassmorphism allowed** (owner decision 2026-07-03): Use `backdrop-blur-md` + semi-transparent backgrounds (`bg-black/40`, `bg-white/10`) **over photos and dark surfaces only**. Background colors must be black/white alpha or CSS tokens — no hardcoded hex. Do NOT use glassmorphism on solid-color backgrounds where there is nothing to blur.
+- **Glassmorphism allowed** (owner decision 2026-09-26, `CLAUDE.md` §2): Use `backdrop-blur-md` + semi-transparent backgrounds (`bg-black/40`, `bg-white/10`) **over photos, maps, relief textures and dark surfaces** — context layers, instruments and warnings may all be glass. Only the SOS button and confirmation dialogs stay opaque. Background colors must be black/white alpha or CSS tokens — no hardcoded hex. No glass on light solid backgrounds where there is nothing to blur.
 - **NO Nested Cards**: Do not place cards inside other cards.
 - **Typography**: Playfair Display for headings (`font-playfair`), Outfit for body text. No `font-black`, max weight is `font-bold`.
 - **Colors**: Use ONLY CSS variables (`var(--bg-primary)`, `var(--bg-card)`, `var(--accent)`, `var(--ocean)`, `var(--success)`, `var(--danger)`) for solid backgrounds. For glass overlays: `bg-black/40`, `bg-white/10`, `border-white/15` are acceptable.
@@ -44,7 +44,7 @@ Ground your redesign in current design realities.
 
 ### Step 3: Concept Strategy
 Write a clear, structured concept document explaining the *why* and *what* of the redesign.
-Use the template provided in `/home/ubuntu/skills/ui-redesign-pipeline/templates/concept_template.md`.
+Use the template provided in `.claude/skills/ui-redesign-pipeline/templates/concept_template.md`.
 The concept must shift the paradigm (e.g., "From Marketplace to Field OS Dashboard") rather than just changing colors.
 
 ### Step 4: Visual Mockup Generation
@@ -59,7 +59,7 @@ Write an actionable prompt for a coding agent to implement the design.
 2. Break the implementation down into specific, achievable tasks.
 3. Explicitly state the CSS variables and utility classes (e.g., `ds-card`, `ds-btn`) to be used.
 4. For glass elements: specify `backdrop-blur-md bg-black/40 border border-white/15 rounded-2xl`.
-5. Use the template provided in `/home/ubuntu/skills/ui-redesign-pipeline/templates/handoff_prompt_template.md`.
+5. Use the template provided in `.claude/skills/ui-redesign-pipeline/templates/handoff_prompt_template.md`.
 
 ## Delivery
 Deliver the final result to the user using the `message` tool.

@@ -1,4 +1,4 @@
-You are an expert guide for the Kamhub codebase — a Next.js 15 tourism platform for Kamchatka with 94 pages, 256 API endpoints, 8 user role hubs, and an AI waterfall system.
+You are an expert guide for the Kamhub codebase — a Next.js 15 tourism platform for Kamchatka (also known as Vedar / TourHab) with per-role hubs and an AI waterfall system. Count pages and API endpoints with a command when a number is needed; do not quote one from memory.
 
 The user wants to ask questions about this codebase in plain language. Use the argument provided as their question: $ARGUMENTS
 
@@ -10,10 +10,10 @@ Before answering, verify that `.understand-anything/knowledge-graph.json` exists
 ## How to Answer
 
 1. **Understand the question** — identify what part of the codebase it concerns:
-   - Architecture / structure questions → read `AGENTS.md`, `docs/PLATFORM_MAP.md`
+   - Architecture / structure questions → read `CLAUDE.md`, `docs/DEVELOPER_GUIDE.md`, `AGENTS.md`
    - Component questions → explore `components/`
    - API questions → explore `app/api/`
-   - Database questions → check `lib/types/db-rows.ts`, `lib/database/migrations/`
+   - Database questions → check `docs/DB_SCHEMA.md`, `lib/types/db-rows.ts`, `migrations/`
    - Auth / roles questions → check `lib/auth.ts`, `lib/auth/middleware.ts`, `middleware.ts`
    - AI questions → check `lib/ai/providers.ts`, `lib/ai/prompts.ts`
    - Booking flow → check `app/api/bookings/`, `components/booking/`
@@ -32,11 +32,11 @@ Before answering, verify that `.understand-anything/knowledge-graph.json` exists
 - Stack: Next.js 15 App Router, TypeScript strict, PostgreSQL (raw SQL), Tailwind + CSS vars
 - Auth: JWT in cookies, roles enforced in `lib/auth/middleware.ts`
 - DB: `import { pool } from '@/lib/db-pool'` (named export, never default)
-- AI: 6-provider waterfall — Timeweb → OpenRouter → DeepSeek → Minimax → xAI → Anthropic
-- Routes: always read from `v_kamchatka_routes_api` view, never `kamchatka_routes` directly
-- Design: CSS vars only (`var(--accent)`, `var(--bg-card)`), no hardcoded hex, no glassmorphism
+- AI: provider waterfalls live in `lib/ai/providers.ts`; the current order of steps is described in `CLAUDE.md` §8 — read it there, the order changes
+- Routes: `SELECT * FROM kamchatka_routes` is forbidden — public reads go through the `v_kamchatka_routes_api` view; `kamchatka_routes` is the master table for writes and for queries with explicit columns (`CLAUDE.md` §4.1)
+- Design: CSS vars only (`var(--accent)`, `var(--bg-card)`), no hardcoded hex; glass only over photos, maps and dark backdrops, never on SOS or confirmation dialogs (`CLAUDE.md` §2)
 - Safety: SOS at `/api/safety/sos` (rate-limited 1/10min) — do not modify without staging test
-- Payments: CloudPayments webhook with HMAC-SHA256 — do not modify
+- Payments: `app/api/payments/` is a protected zone — do not modify; payment acceptance is switched off (`lib/payments/accepting.ts`)
 
 ## If Question is Vague
 

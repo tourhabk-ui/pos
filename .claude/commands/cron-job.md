@@ -6,145 +6,93 @@
 
 ## Шаг 1 — Определи параметры
 
-Ответь на вопросы (если не указано в аргументах — предложи разумные дефолты):
+Ответь на вопросы (если не указано в аргументах — предложи разумные значения):
 
 ```
-ROUTE:      /api/cron/{kebab-case-name}     e.g. /api/cron/booking-reminders
+ROUTE:      /api/cron/{kebab-case-name}     например /api/cron/booking-reminders
 FILE:       app/api/cron/{name}/route.ts
-SCHEDULE:   {описание} e.g. "каждый час" / "ежедневно в 09:00"
-TIMEOUT:    {секунды} e.g. 30 (для простых), 120 (для тяжёлых)
-TELEGRAM:   {да/нет} — нужно ли уведомление в Telegram при ошибке/успехе
+КТО ЗОВЁТ:  расписание GitHub Actions / шаг общего получасового файла / человек по адресу
+ПИШЕТ:      да / нет — меняет ли роут данные
+TIMEOUT:    секунды, например 30 или 120
 ```
+
+«Кто зовёт» решается до кода: роут под `/api/cron/`, который никто не зовёт и
+который нигде не объявлен, красит CI (шаг 3).
 
 ## Шаг 2 — Создай файл
 
-Имя файла: `app/api/cron/{name}/route.ts`
-
-### Обязательный шаблон:
+Образец маленького роута — `app/api/cron/route-permit-census/route.ts`
+(перепись, только чтение). Логику держи в `lib/`, роут — тонкий.
 
 ```typescript
 import { NextRequest, NextResponse } from 'next/server';
-import { pool } from '@/lib/db-pool';
-// import { sendTelegramAdminAlert } from '@/lib/notifications/telegram'; // если TELEGRAM=да
+import { timingSafeCompare } from '@/lib/security/timing-safe';
+import { getCronSecret } from '@/lib/auth/cron';
 
-export const runtime = 'nodejs';
-export const maxDuration = {TIMEOUT};  // секунды
+export const dynamic = 'force-dynamic';
+export const maxDuration = {TIMEOUT};
 
-export async function GET(req: NextRequest): Promise<NextResponse> {
-  // 1. Auth — проверка CRON_SECRET
-  const secret = req.headers.get('x-cron-secret') ?? req.nextUrl.searchParams.get('secret');
-  if (secret !== process.env.CRON_SECRET) {
+export async function GET(request: NextRequest) {
+  const secret = getCronSecret(request);
+  if (!timingSafeCompare(secret, process.env.CRON_SECRET ?? '')) {
     return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
   }
 
-  const startedAt = Date.now();
-  let processed = 0;
-  let errors = 0;
-
   try {
-    // 2. Основная логика
-    const client = await pool.connect();
-    try {
-      // {LOGIC HERE}
-
-      processed = 0; // заменить на реальный счётчик
-    } finally {
-      client.release();
-    }
-
-    const duration = Date.now() - startedAt;
-
-    // 3. (Опционально) Telegram уведомление при успехе
-    // if (processed > 0) {
-    //   await sendTelegramAdminAlert(`✓ {cron_name}: обработано ${processed} за ${duration}ms`);
-    // }
-
-    return NextResponse.json({
-      ok: true,
-      processed,
-      errors,
-      duration_ms: duration,
-    });
-
-  } catch (error) {
-    const message = error instanceof Error ? error.message : 'Unknown error';
-
-    // 4. Telegram уведомление при критической ошибке
-    // await sendTelegramAdminAlert(`✗ CRON {cron_name} failed: ${message}`).catch(() => {});
-
-    return NextResponse.json(
-      { ok: false, error: message, processed, errors },
-      { status: 500 },
-    );
+    const result = await run{Name}();          // lib/{domain}/{name}.ts
+    return NextResponse.json({ success: true, ...result });
+  } catch (err) {
+    const e = err as { code?: string; message?: string };
+    console.error('[{name}] не выполнено:', `sqlstate=${e?.code ?? 'нет'}`, e?.message ?? String(err));
+    return NextResponse.json({ success: false, error: 'Не выполнено' }, { status: 500 });
   }
 }
 ```
 
-### Правила:
+### Правила
 
-- **Auth**: всегда проверяй `CRON_SECRET` через заголовок `x-cron-secret` или query param `secret`
-- **runtime = 'nodejs'**: cron-задачи всегда Node.js, не Edge
-- **maxDuration**: 30с для лёгких задач, 120с для тяжёлых (Vercel/Timeweb лимит)
-- **pool.connect() + client.release()**: используй явный клиент в try/finally
-- **Счётчик**: всегда считай `processed` и `errors`, возвращай в ответе
-- **Telegram**: только для критических ошибок и значимых успехов (не каждый запуск)
-- Никаких `console.log` — только `console.error` в catch
-- Отвечай за `duration_ms` — полезно для мониторинга
+- **Секрет** читает `getCronSecret`: заголовок `Authorization: Bearer` или
+  `?secret=`. Сравнение — `timingSafeCompare`. Своего чтения заголовков не пиши.
+- **Отказ не глушится** (CLAUDE.md §4.0): в `catch` — имя проверки и SQLSTATE
+  в `console.error`. Пустого `catch` нет. Отказ базы — это 500, а не пустой
+  успешный ответ: пустой ответ читается как «данных нет».
+- **Ноль при нулевом входе — отказ, а не успех.** Прогон, который разобрал
+  0 из 41, обязан краснеть.
+- **Успешный прогон пишет меру** в журнал (`logAgentRun` из
+  `lib/agents/run-logger`: `items_processed` — сколько проверено,
+  `items_created` — сколько создано), если роут идёт по расписанию. Сторож:
+  `tests/unit/agent-runs-measured.test.ts`.
+- **ПД** в ответ и в лог не идут (скилл `pd-guard`). Репозиторий публичный:
+  ответ переписи виден в логах Actions всем.
+- Никаких эмодзи и `console.log`.
 
-### Пример — напоминания операторам:
+## Шаг 3 — Объяви, кто зовёт роут
 
-```typescript
-// Найти бронирования без ответа > 2 часов
-const { rows } = await client.query<{ id: string; operator_id: number }>(
-  `SELECT id, operator_id
-   FROM operator_bookings
-   WHERE booking_status = 'pending'
-     AND created_at < NOW() - INTERVAL '2 hours'
-     AND reminded_at IS NULL
-   LIMIT 50`,
-);
+Один из трёх путей. Без объявления сторож
+`tests/unit/cron-scheduler-declared.test.ts` красный.
 
-for (const booking of rows) {
-  try {
-    // ... отправить уведомление
-    await client.query(
-      `UPDATE operator_bookings SET reminded_at = NOW() WHERE id = $1`,
-      [booking.id],
-    );
-    processed++;
-  } catch {
-    errors++;
-  }
-}
-```
+1. **Человек по адресу** (перепись, разбор, починка) — запись в
+   `lib/agents/cron-schedulers.ts`: `kind: 'manual'`, `writes`, `note`.
+2. **По расписанию** — запись в `lib/agents/cron-registry.ts` и workflow в
+   `.github/workflows/`. Сначала прочитай CLAUDE.md §8 о планировщике: GitHub
+   душит очередь по числу файлов с расписанием. Получасовой шаг добавляй в
+   `cron-safety-heartbeat.yml`, а не новым файлом. Сторожа:
+   `cron-registry-honesty` (реестр и workflow совпадают) и `cron-off-peak`
+   (крон, который зовёт модель, стоит вне окон пика DeepSeek).
+3. **Внешний планировщик** — `kind: 'external'` в `cron-schedulers.ts`. Идёт ли
+   он на деле, репозиторий подтвердить не может: проверяй по следу в данных.
 
-## Шаг 3 — Зарегистрируй в vercel.json / cron-config
+## Шаг 4 — Проверка и отчёт
 
-Добавь в `vercel.json` (если используется) или в `README` раздел cron:
-
-```json
-{
-  "crons": [
-    {
-      "path": "/api/cron/{name}?secret=CRON_SECRET",
-      "schedule": "0 * * * *"
-    }
-  ]
-}
-```
-
-Для Timeweb — добавить через панель или Telegram-бот.
-
-## Шаг 4 — Отчёт
+Прод из сессии не виден. Роут зовётся с раннера GitHub маркером
+`.github/triggers/prod-check.json` (поле `urls`, свой номер `run`, причина в
+`why`); ответ читается в логе прогона после выката.
 
 ```
 CRON: {название}
-Файл:    app/api/cron/{name}/route.ts
-Route:   GET /api/cron/{name}
-Auth:    CRON_SECRET header/query
-Schedule: {расписание}
-Timeout: {N}s
-
-Для теста:
-curl -H "x-cron-secret: $CRON_SECRET" https://tourhab.ru/api/cron/{name}
+Файл:      app/api/cron/{name}/route.ts
+Route:     GET /api/cron/{name}
+Кто зовёт: {manual | расписание и файл | external}
+Пишет:     {да | нет}
+Проверка:  {тест по вызову роута} + {прогон prod-check после выката}
 ```

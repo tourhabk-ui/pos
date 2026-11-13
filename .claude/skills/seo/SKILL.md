@@ -43,12 +43,12 @@ argument-hint: "[audit|page|technical|schema|geo|sitemap|content] [url]"
 | Что | Где |
 |---|---|
 | robots | `app/robots.ts` — AI-краулеры приглашены явно |
-| sitemap | `app/sitemap.ts` — 779 мест, маршруты, туры |
+| sitemap | `app/sitemap.xml/route.ts`, записи — `lib/seo/sitemap-entries.ts`: места, маршруты, туры (сколько — считает сам sitemap, не эта строка) |
 | llms.txt | `app/llms.txt/route.ts` |
 | MCP для агентов | `/api/mcp`, `/.well-known/mcp.json` |
-| Метаданные | `generateMetadata` в `page.tsx` (176/210 страниц) |
+| Метаданные | `generateMetadata` в `page.tsx` |
 | JSON-LD | страницы туров/мест/каталога/операторов |
-| Ключевые публичные страницы | `/`, `/catalog`, `/marketplace/tours/[id]`, `/places/[id]`, `/routes/[id]`, `/safety` |
+| Ключевые публичные страницы | `/`, `/catalog`, `/catalog/tours/[id]` (прежний `/marketplace/tours/[id]` — переадресация), `/places/[id]`, `/routes/[id]`, `/safety` |
 
 ## Порядок аудита
 
@@ -58,10 +58,10 @@ argument-hint: "[audit|page|technical|schema|geo|sitemap|content] [url]"
    заголовки, самодостаточные абзацы. Факты — только из БД (§8 CLAUDE.md):
    выдуманных цифр в «цитируемых блоках» быть не может.
 4. `seo-sitemap`, `seo-content`, `seo-page` — точечно.
-5. `seo-programmatic` — наш главный масштабный кейс: 779 страниц мест и
-   294 маршрута генерируются из БД. Чеклист про thin content, index bloat,
+5. `seo-programmatic` — наш главный масштабный кейс: сотни страниц мест и
+   маршрутов генерируются из БД (точные числа — из sitemap). Чеклист про thin content, index bloat,
    шаблоны и внутреннюю перелинковку — ровно про /places и /routes.
-6. `seo-images` — 354 фото точек: alt, форматы, lazy, CLS. Части про
+6. `seo-images` — фото мест и туров: alt, форматы, lazy, CLS. Части про
    DataForSEO/конвертацию файлов в песочнице не работают — только чеклист.
 7. `seo-local` — региональный интент. ВАЖНО: скилл Google-центричен
    (GBP, map pack); для рунка читать через призму Яндекс.Бизнес и

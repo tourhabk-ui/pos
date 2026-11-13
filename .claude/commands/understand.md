@@ -55,9 +55,9 @@ KAMHUB KNOWLEDGE GRAPH
 ======================
 
 [ENTRY POINTS]
-  app/page.tsx ──── _HomePageClient.tsx
+  app/page.tsx ──── app/_home/_HomeV8Client.tsx
   app/hub/* ──── per-role dashboards
-  app/api/* ──── 256 API endpoints
+  app/api/* ──── API endpoints (count them, do not quote a number)
 
 [CORE MODULES]
   lib/database.ts ──── query wrapper
@@ -67,9 +67,9 @@ KAMHUB KNOWLEDGE GRAPH
   ...
 
 [DOMAIN CLUSTERS]
-  TOURS: tours table → tour_departures → bookings
-  AI: providers.ts → waterfall → RAG (agent_route_knowledge)
-  SAFETY: SOSButton → /api/safety/sos → notifications
+  TOURS: operator_tours → tour_availability → operator_bookings
+  AI: providers.ts → waterfall → knowledge (places, kamchatka_routes)
+  SAFETY: EmergencyAction → /api/safety/sos → notifications
   ...
 
 [EXTERNAL INTEGRATIONS]
@@ -87,7 +87,7 @@ Also provide a short confirmation that the graph was persisted to `.understand-a
 
 After mapping, quickly flag:
 - Any `any` type usage (violations of strict TypeScript)
-- Components importing directly from `kamchatka_routes` (should use view)
+- `SELECT * FROM kamchatka_routes` (public reads should use the `v_kamchatka_routes_api` view)
 - Default pool imports (should be named `{ pool }`)
 - Emoji in UI code (forbidden by project rules)
 - Hardcoded hex colors (should use CSS vars)
