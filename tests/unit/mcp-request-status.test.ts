@@ -55,7 +55,10 @@ describe('объявление', () => {
     expect(tool!.annotations?.readOnlyHint).toBe(true);
     expect(TOOL_ANNOTATIONS[REQUEST_STATUS_TOOL_NAME]?.readOnlyHint).toBe(true);
     expect(WRITE_TOOL_NAMES.has(REQUEST_STATUS_TOOL_NAME)).toBe(false);
-    expect(TOOL_ENGLISH[REQUEST_STATUS_TOOL_NAME]?.lead).toMatch(/No personal data/);
+    // «No personal data» было бы неправдой с 13.11: partner_messages несёт слова
+    // адресата как есть. Обещание точное — имени и телефона человека нет.
+    expect(TOOL_ENGLISH[REQUEST_STATUS_TOOL_NAME]?.lead).toMatch(/No client name or phone\.$/);
+    expect(TOOL_ENGLISH[REQUEST_STATUS_TOOL_NAME]?.lead).not.toMatch(/No personal data/);
     expect(PARAM_ENGLISH[REQUEST_STATUS_TOOL_NAME]?.key?.lead).toMatch(/key/i);
     expect(GET_REQUEST_STATUS_TOOL.inputSchema.required).toEqual(['key']);
     expect(GET_REQUEST_STATUS_TOOL.outputSchema.properties.state.enum).toEqual([...REQUEST_STATES]);
@@ -134,7 +137,14 @@ describe('выдача ключа', () => {
     expect(line).toContain(KEY);
     expect(line).toContain(requestStatusPageUrl(KEY));
     expect(line).toContain('владельцу жилья');
-    expect(line).toMatch(/текст переписки get_request_status не отдаёт/);
+    // Слова владельца из переписки агент получит (13.11) — хвост называет поле,
+    // а не говорит прежнее «текст не отдаёт».
+    expect(line).toMatch(/его слова get_request_status отдаёт в partner_messages/);
+    expect(line).not.toMatch(/не отдаёт/);
+    expect(keyLine(KEY, 'request', true)).toMatch(/что адресат ответил в переписке \(partner_messages/);
+    expect(keyLine(KEY, 'request', true)).not.toMatch(/не отдаёт/);
+    // Ключ без переписки её и не обещает.
+    expect(keyLine(KEY)).not.toMatch(/partner_messages|переписк/);
     expect(line).not.toMatch(/ответил ли оператор|видит ответ оператора/);
     expect(keyLine(null, 'stay')).toMatch(/не выдан/);
     expect(keyLine(null, 'stay')).not.toMatch(/звонку оператора/);
@@ -206,10 +216,12 @@ describe('чтение состояния', () => {
     const obj = JSON.parse(text) as Record<string, unknown>;
     expect(Object.keys(obj).sort()).toEqual([
       'accommodation', 'accommodation_url', 'alt_date', 'check_out', 'consent', 'consent_purpose', 'date', 'deadline',
-      'human', 'kind', 'max_link', 'next', 'notify', 'other_offers', 'other_stays', 'page', 'participants', 'partner_last_reply_at', 'partner_replies', 'requested_date', 'state', 'tour',
+      'human', 'kind', 'max_link', 'next', 'notify', 'other_offers', 'other_stays', 'page', 'participants', 'partner_last_reply_at', 'partner_messages', 'partner_replies', 'requested_date', 'state', 'tour',
     ]);
     // Вид не из отказа туроператора — о других компаниях речи нет (4а).
     expect(obj.other_offers).toBeNull();
+    // Переписки по этому ключу нет — и слов адресата нет (13.11).
+    expect(obj.partner_messages).toBeNull();
     // Подписки на уведомления не заводилось — null, а не выдуманная (1348).
     expect(obj.notify).toBeNull();
     // Каждое поле ответа объявлено в схеме — агент не получает необъявленного.
@@ -222,7 +234,10 @@ describe('чтение состояния', () => {
   it('заявке на жильё SQL не берёт ни имени гостя, ни телефона, ни комментария', () => {
     expect(REQUEST_STATUS_SQL).not.toMatch(/\bs\.(guest_name|guest_phone|comment|pd_consent_ip)\b/);
     expect(REQUEST_STATUS_SQL).not.toMatch(/\ba\.(contact_phone|contact_email)\b/);
-    // Переписка (1349): только число и время сообщений владельца, текста нет.
+    // Переписка (1349): вид заявки берёт только число и время сообщений
+    // владельца. Слова адресата агенту читает отдельный запрос
+    // (lib/mcp/partner-messages) — сверка уведомлений, «Моя поездка» и очередь
+    // менеджера, которые читают тем же SQL, текста не получают.
     expect(REQUEST_STATUS_SQL).not.toMatch(/\bbody\b/);
   });
 
@@ -269,8 +284,10 @@ describe('заявка на жильё (14.10, миграция 1238)', () => {
       consent: 'agent', consent_purpose: 'stay', page: requestStatusPageUrl(KEY),
     });
     expect(v.human).toMatch(/владельцу жилья/);
-    // Текст переписки (1349) статус не отдаёт — и говорит это.
-    expect(v.human).toMatch(/текст переписки здесь не показывается/);
+    // Слова для человека не говорят «текст здесь не показывается»: страница
+    // показывает переписку сама, агенту слова адресата идут полем (13.11).
+    expect(v.human).toMatch(/сообщением в переписке заявки\.$/);
+    expect(v.human).not.toMatch(/не показывается/);
     // Обещания «ждём ответа» нет: статус после передачи не меняется.
     expect(v.next).toMatch(/незачем/);
     expect(v.human + v.next).not.toMatch(/оператор ещё не ответил/);
@@ -668,7 +685,11 @@ describe('ответ туроператора кнопкой', () => {
       opens_chat: true, lead_addressed: true, chat_partner_replies: 2 }, NOW);
     expect(v.human).toMatch(/Причина: погода, безопасность/);
     expect(v.next).toMatch(/только если проверили их безопасность/);
+    // Общие слова (уведомление, чат Кузьмича) шлют на страницу заявки и имён
+    // полей не называют: слова адресата получает только чтение агента.
     expect(v.next).toMatch(/страницу заявки/);
+    expect(v.next).not.toMatch(/partner_messages/);
+    expect(v.human).toMatch(/Адресат заявки ответил в переписке \(сообщений: 2\); текст — на странице заявки\.$/);
   });
 });
 

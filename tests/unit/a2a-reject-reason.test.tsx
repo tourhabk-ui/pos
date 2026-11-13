@@ -104,6 +104,20 @@ describe('причина идёт от инструмента до журнал�
     expect((out.result.task as { metadata: unknown }).metadata).toEqual({ input: 'tool', tool: 'create_booking_request', reason: 'bad_phone' });
   });
 
+  it('в metadata задачи код проходит ту же проверку вида: текст вместо кода агенту не уходит', async () => {
+    // Сегодня инструменты называют причину литералом, и текста здесь быть не
+    // может. Проверка держит это и для будущего инструмента (замечание ревью 13.11).
+    for (const code of ['Иван, +79001234567', 'нет согласия', 'no consent given', 'A'.repeat(60)]) {
+      const out = await handleA2A('SendMessage', tool, ctx('1.0'), deps({ kind: 'refused', text: 'Заявка не создана', code }));
+      if (!out.ok) throw new Error('не ответил');
+      expect((out.result.task as { metadata: unknown }).metadata).toEqual({ input: 'tool', tool: 'create_booking_request', reason: 'other' });
+    }
+    // Пустой код — как отсутствующий: «отказ без названной причины».
+    const blank = await handleA2A('SendMessage', tool, ctx('1.0'), deps({ kind: 'refused', text: 'Заявка не создана', code: '  ' }));
+    if (!blank.ok) throw new Error('не ответил');
+    expect((blank.result.task as { metadata: { reason: string } }).metadata.reason).toBe('refused');
+  });
+
   it('в факты не попадает то, что кодом не является: metadata с текстом даёт other', () => {
     const forged = { task: { status: { state: 'TASK_STATE_REJECTED' }, metadata: { input: 'tool', tool: 'create_lead', reason: 'Иван, +79001234567' } } };
     expect(sendMessageFacts(forged).reason).toBe('other');

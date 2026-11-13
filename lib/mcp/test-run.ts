@@ -56,7 +56,7 @@ export function testKeyStatus(key: string) {
     consent: 'agent' as const,
     consent_purpose: purposeOf(m?.[2] ?? 'op'),
     page: `${getPublicBaseUrl()}/mcp`,
-    partner_replies: null, partner_last_reply_at: null, max_link: null,
+    partner_replies: null, partner_last_reply_at: null, max_link: null, partner_messages: null,
     notify: null,
     other_offers: null,
     other_stays: null,

@@ -247,13 +247,25 @@ withPg('переписка по заявке на настоящем PostgreSQL'
       ]);
     });
 
-    it('статус для помощника (MCP, A2A): владелец ответил, текста нет, есть ссылка подключить MAX', async () => {
+    it('статус без читателя (страница, Кузьмич): владелец ответил, текста нет, есть ссылка подключить MAX', async () => {
       const v = await status.readRequestStatus(key);
       expect(v.partner_replies).toBe(1);
       expect(v.partner_last_reply_at).toMatch(/^\d{4}-\d{2}-\d{2}T/);
       expect(v.max_link).toMatch(new RegExp(`\\?start=sq_${key}$`));
       expect(v.human).toMatch(/Владелец уже ответил/);
+      expect(v.partner_messages).toBeNull();
       expect(JSON.stringify(v)).not.toContain('ждём с 12:00');
+      expect(JSON.stringify(v)).not.toContain('Можно заехать');
+    });
+
+    it('статус для помощника (MCP, A2A, 13.11): слова владельца — да, слова гостя — нет', async () => {
+      const v = await status.readRequestStatus(key, { reader: 'agent' });
+      expect(v.partner_replies).toBe(1);
+      expect(v.partner_messages?.state).toBe('listed');
+      expect(v.partner_messages?.items.map((m) => m.text)).toEqual(['Да, ждём с 12:00']);
+      expect(v.partner_messages?.items[0].at).toBe(v.partner_last_reply_at);
+      expect(v.partner_messages?.earlier).toBe(0);
+      // Гость писал «Можно заехать в 12?» — его слов в ответе агенту нет.
       expect(JSON.stringify(v)).not.toContain('Можно заехать');
     });
 
@@ -804,17 +816,50 @@ withPg('переписка по заявке на настоящем PostgreSQL'
       expect(r.rows[0].responded_at).not.toBeNull();
     });
 
-    it('статус для помощника: адресат ответил — число без текста и ссылка MAX; ключу повтора — ничего', async () => {
+    it('статус без читателя: адресат ответил — число без текста и ссылка MAX; ключу повтора — ничего', async () => {
       const v = await status.readRequestStatus(key);
       expect(v.kind).toBe('lead');
       expect(v.partner_replies).toBe(1);
       expect(v.partner_last_reply_at).toMatch(/^\d{4}-\d{2}-\d{2}T/);
       expect(v.max_link).toMatch(new RegExp(`\\?start=sq_${key}$`));
       expect(v.human).toMatch(/Адресат заявки ответил в переписке \(сообщений: 1\)/);
+      expect(v.partner_messages).toBeNull();
       expect(JSON.stringify(v)).not.toContain('Подача в 7:00');
       const r = await status.readRequestStatus(repeatKey);
       expect(r.partner_replies).toBeNull();
       expect(r.human).not.toMatch(/ответил в переписке/);
+    });
+
+    it('статус для помощника (13.11): слова перевозчика по ключу новой заявки; ключу повтора — ничего; предел и порядок', async () => {
+      const v = await status.readRequestStatus(key, { reader: 'agent' });
+      expect(v.partner_messages?.state).toBe('listed');
+      expect(v.partner_messages?.items.map((m) => m.text)).toEqual(['Подача в 7:00 у гостиницы']);
+      // Клиент спрашивал «Во сколько подача?» — его слов в ответе агенту нет.
+      expect(JSON.stringify(v)).not.toContain('Во сколько подача');
+      // Ключ повтора (тот же телефон, вторая заявка) переписку не открывает —
+      // и слов адресата по нему не получить.
+      const r = await status.readRequestStatus(repeatKey, { reader: 'agent' });
+      expect(r.partner_replies).toBeNull();
+      expect(r.partner_messages).toBeNull();
+      expect(JSON.stringify(r)).not.toContain('Подача в 7:00');
+
+      // Шесть сообщений адресата и одно клиента после них: агенту — пять
+      // последних слов адресата по порядку и «одно более раннее».
+      const added = await pool.query<{ id: string }>(
+        `INSERT INTO request_messages (lead_id, author, door, body, created_at)
+         SELECT $1::uuid, x.author, 'max', x.body, NOW() + (x.n * INTERVAL '1 second')
+           FROM (VALUES (1, 'owner', 'Второе'), (2, 'owner', 'Третье'), (3, 'owner', 'Четвёртое'),
+                        (4, 'owner', 'Пятое'), (5, 'owner', 'Шестое'), (6, 'guest', 'Спасибо, понял')) AS x(n, author, body)
+         RETURNING id`, [leadId]);
+      try {
+        const many = await status.readRequestStatus(key, { reader: 'agent' });
+        expect(many.partner_replies).toBe(6);
+        expect(many.partner_messages?.items.map((m) => m.text)).toEqual(['Второе', 'Третье', 'Четвёртое', 'Пятое', 'Шестое']);
+        expect(many.partner_messages?.earlier).toBe(1);
+        expect(JSON.stringify(many)).not.toContain('Спасибо, понял');
+      } finally {
+        await pool.query(`DELETE FROM request_messages WHERE id = ANY($1::uuid[])`, [added.rows.map((x) => x.id)]);
+      }
     });
 
     it('«Старт» клиента по ключу подключает чат к лиду и присылает ответ перевозчика', async () => {
