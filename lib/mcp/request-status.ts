@@ -400,6 +400,16 @@ export interface StatusRow {
   lead_answer_id?: string | null;
   lead_group_over?: boolean | null;
   lead_declined_by?: string | null;
+  /**
+   * Ответ кнопкой того, кто отказался от большой группы (`declined_by`), на
+   * дату заявки — только пока у лида нет адресата. После передачи крон
+   * добивки снимает `operator_id`, и `lead_answer_id` (ответ ТЕКУЩЕГО
+   * адресата) пустеет, а вид «заявка передана другим операторам» построен
+   * именно из этого отказа (Bugbot к #3263).
+   */
+  lead_declined_answer_id?: string | null;
+  lead_declined_answer?: string | null;
+  lead_declined_reason?: string | null;
   /** Род лида (`source_data.kind`): `charter`, `car_rental` — у ключа из кода между каналами имени инструмента нет. */
   lead_kind?: string | null;
   stay_owner_answer?: string | null;
@@ -830,15 +840,34 @@ export function groupPassedOnAnswer(answer: string | null | undefined, reason: s
  * перерос статус, другая дата, заявка не туроператору): сообщать не о чем.
  */
 export function shownTourAnswerId(row: StatusRow): string | null {
-  if (!row.lead_answer_id || !row.lead_answer || row.booking_status) return null;
+  if (row.booking_status) return null;
   if (consentPurposeOfKey(row) !== 'operator') return null;
   // Вид говорит словами закрытия с причиной — ответ кнопкой его не строит.
   if (shownSellerClosed(row)) return null;
+  const handedOff = groupHandOffAnswerId(row);
+  if (handedOff) return handedOff;
+  if (!row.lead_answer_id || !row.lead_answer) return null;
   const status = row.lead_status ?? null;
   if (row.lead_group_over === true && groupPassedOnAnswer(row.lead_answer, row.lead_decline_reason ?? null)) {
     return answerHolds(status, row.lead_answer === 'decline' ? 'lost' : null) ? row.lead_answer_id : null;
   }
   return tourAnswerView(row.lead_answer, row.lead_decline_reason ?? null, status, null) ? row.lead_answer_id : null;
+}
+
+/**
+ * Большая группа уже передана другим операторам (тот же признак, что у вида
+ * «заявка передана», leadAnswerView): номер отказа прежнего адресата, из
+ * которого этот вид построен. Без него сообщение туристу о «Нет мест»,
+ * отправленное до передачи, после передачи считалось бы переросшим: добивка
+ * гасила недошедшее («outgrown») и не повторяла письмо менеджеру
+ * («not_needed») — и ни турист, ни менеджер не узнавали (Bugbot к #3263).
+ */
+function groupHandOffAnswerId(row: StatusRow): string | null {
+  if (row.lead_group_over !== true || row.lead_addressed !== false || !row.lead_declined_by) return null;
+  if (!row.lead_declined_answer_id || !groupPassedOnAnswer(row.lead_declined_answer, row.lead_declined_reason ?? null)) return null;
+  const status = row.lead_status ?? null;
+  if (status === null || !(UNATTENDED_LEAD_STATUSES as readonly string[]).includes(status)) return null;
+  return row.lead_declined_answer_id;
 }
 
 /**
@@ -964,6 +993,7 @@ const REQUEST_STATUS_SELECT = `
          (l.source_data->>'escalated_to_admin') = 'true' AS lead_escalated,
          (l.source_data->>'group_over_seats') = 'true' AS lead_group_over,
          l.source_data->>'declined_by' AS lead_declined_by,
+         pd.id AS lead_declined_answer_id, pd.answer AS lead_declined_answer, pd.decline_reason AS lead_declined_reason,
          l.source_data->>'kind' AS lead_kind,
          s.owner_answer AS stay_owner_answer,
          l.lost_reason AS lead_lost_reason, lc.id AS lead_closed_id
@@ -978,6 +1008,18 @@ const REQUEST_STATUS_SELECT = `
           -- мог сам выбрать другую, и ответ о прежней дате о новой не говорит.
           -- Уникальность (предмет, партнёр, дата) — не больше строки на ключ.
           AND pa.subject_date IS NOT DISTINCT FROM ${LEAD_ANSWER_DATE_SQL('l')}
+    -- Отказ того, кто отказался от большой группы (declined_by — slug), на
+    -- дату заявки — только пока адресата нет: из него построен вид «заявка
+    -- передана другим операторам» (Bugbot к #3263).
+    LEFT JOIN LATERAL (
+      SELECT pda.id::text AS id, pda.answer, pda.decline_reason
+        FROM partners dp
+        JOIN partner_incoming_answers pda
+          ON pda.partner_id = dp.id AND pda.subject_kind = 'lead' AND pda.subject_id = k.lead_id::text
+         AND pda.subject_date IS NOT DISTINCT FROM ${LEAD_ANSWER_DATE_SQL('l')}
+       WHERE l.operator_id IS NULL AND dp.slug = l.source_data->>'declined_by'
+       LIMIT 1
+    ) pd ON k.lead_id IS NOT NULL
     LEFT JOIN LATERAL (
       SELECT pal.id::text AS id, pal.details->>'answer' AS answer
         FROM lead_activity_log pal

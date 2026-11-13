@@ -785,6 +785,40 @@ describe('добивка', () => {
       .toMatch(/Заявка с тех пор изменилась — менеджеру её не передавал/);
   });
 
+  it('большую группу передали другим операторам: недошедшее не гаснет — повтор человеку и письмо менеджеру идут (Bugbot к #3263)', async () => {
+    // Крон добивки снял адресата: ответа ТЕКУЩЕГО адресата нет, вид «передана» построен из отказа прежнего.
+    const handedOff = (): Partial<StatusRow> => ({
+      ...baseStatus(), lead_answer: null, lead_answer_id: null, lead_group_over: true, lead_addressed: false,
+      lead_declined_by: 'vulkany-sever', lead_declined_answer_id: '77', lead_declined_answer: 'no_seats',
+    });
+    w.status = handedOff();
+    w.row = { ...baseRow(), state: 'undelivered', tried: 'max:bad_id', manager_channel: 'none' };
+    let r = await runAnswerNotices(deps());
+    expect(r).toMatchObject({ manager_retried: 1, manager_not_needed: 0 });
+    expect(pdAlert).toHaveBeenCalledTimes(1);
+    expect(ran(NOTICE_MANAGER_SQL).map((c) => c.params[1])).not.toContain('not_needed');
+
+    // «Ждёт» после обрыва: отправка идёт, а не «переросло».
+    calls.length = 0;
+    pdAlert.mockClear();
+    w.row = baseRow();
+    r = await runAnswerNotices(deps());
+    expect(r).toMatchObject({ delivered: 1, skipped: 0 });
+    expect(ran(NOTICE_SKIPPED_SQL)).toHaveLength(0);
+    expect(sendMax.mock.calls[0]![1]).toMatch(/увидят другие операторы/);
+
+    // Заявку взял менеджер (contacted) или отказ был по погоде — вид не из этого ответа, письма нет.
+    for (const st of [{ ...handedOff(), lead_status: 'contacted' }, { ...handedOff(), lead_declined_answer: 'decline', lead_decline_reason: null, lead_declined_reason: 'weather' }]) {
+      calls.length = 0;
+      pdAlert.mockClear();
+      w.status = st;
+      w.row = { ...baseRow(), state: 'undelivered', tried: 'max:bad_id', manager_channel: 'none' };
+      r = await runAnswerNotices(deps());
+      expect(r).toMatchObject({ manager_not_needed: 1, manager_retried: 0 });
+      expect(pdAlert).not.toHaveBeenCalled();
+    }
+  });
+
   it('дошло после письма менеджеру — одна строка «звонить не нужно» без ПД; второй прогон её не повторит', async () => {
     w.row = { ...baseRow(), state: 'delivered', delivered_via: 'agent_read', manager_alerted: true, manager_cleared: false, manager_channel: 'max' };
     const r = await runAnswerNotices(deps());

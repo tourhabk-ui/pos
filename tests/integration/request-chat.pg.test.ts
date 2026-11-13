@@ -2739,6 +2739,82 @@ withPg('переписка по заявке на настоящем PostgreSQL'
       await pool.query(`DELETE FROM tour_availability WHERE operator_tour_id = $1::bigint`, [tourId]);
     });
 
+    it('большую группу передали другим операторам — недошедшее о «Нет мест» не гаснет, менеджер узнаёт (Bugbot к #3263)', async () => {
+      process.env.CALLBACK_SIGNING_SECRET ??= 'pg-test-signing';
+      const answers = await import('@/lib/requests/chat-answer');
+      const notices = await import('@/lib/requests/answer-notice');
+      const { kamchatkaToday } = await import('@/lib/seat-requests/core');
+      const d = new Date(`${kamchatkaToday()}T00:00:00Z`);
+      d.setUTCDate(d.getUTCDate() + 40);
+      const D0 = d.toISOString().slice(0, 10);
+      const opG = (await pool.query<{ id: string }>(
+        `INSERT INTO partners (name, category, contact, slug, max_chat_id) VALUES ('Оператор группы 2б', 'operator', '{}', 'op-2b-group', 9300499) RETURNING id`,
+      )).rows[0].id;
+      const tourG = (await pool.query<{ id: number }>(
+        `INSERT INTO operator_tours (title, base_price, operator_id, max_participants, is_active, is_published)
+         VALUES ('Мутновский', 9000, $1, 6, true, true) RETURNING id`, [opG],
+      )).rows[0].id;
+      const mkGroup = async (name: string, phone: string) => (await leads.createLeadDetailed({
+        name, phone, comment: `[Заявка на бронь] Тур "Мутновский" (ID${tourG}), дата ${D0}, участников 20.`,
+        route_title: 'Мутновский', source_url: 'mcp://vedar/booking', operator_id: opG, pd_consent: consentOf('operator'),
+        source_data: { source: 'mcp', tool: 'create_booking_request', tour_id: tourG, date: D0, participants: 20, group_over_seats: true },
+        skip_ai_processing: true,
+      }))!.id;
+      // Как крон добивки (app/api/cron/leads-followup): адресата нет, отказавшийся — в declined_by.
+      const handOff = (lead: string) => pool.query(
+        `UPDATE leads SET operator_id = NULL, status = 'new',
+                source_data = source_data || '{"declined_by":"op-2b-group","notified_operators":["op-2b-group"]}'::jsonb
+          WHERE id = $1`, [lead],
+      );
+      const noticeOf = async (lead: string) => (await pool.query(
+        `SELECT state, skipped_reason, delivered_via, manager_channel, (manager_alerted_at IS NOT NULL) AS alerted
+           FROM answer_notices WHERE lead_id = $1::uuid`, [lead],
+      )).rows;
+
+      // 1. Не дошло, письмо менеджеру не ушло (MAX не принял) — передача группы его не отменяет.
+      const LG = await mkGroup('Олег Группа', '+79995550901');
+      const kG = await status.issueRequestKeyRecord({ leadId: LG }, 'create_booking_request', { opensChat: true });
+      const sG = await answers.recordChatAnswer({ partnerId: opG, kind: 'lead', subjectId: LG, answer: 'no_seats', reason: null, expectDate: D0 });
+      expect(sG).toMatchObject({ ok: true, notice: { state: 'pending' } });
+      await pool.query(
+        `UPDATE answer_notices SET state = 'undelivered', tried = 'max:bad_id', manager_channel = 'none',
+                decided_at = NOW() - INTERVAL '1 hour', claimed_until = NULL WHERE lead_id = $1::uuid`, [LG],
+      );
+      await handOff(LG);
+      // Статус после передачи читает отказ прежнего адресата — из него построен вид «передана».
+      const answerId = (await pool.query<{ id: string }>(
+        `SELECT id::text AS id FROM partner_incoming_answers WHERE subject_id = $1 AND partner_id = $2`, [LG, opG],
+      )).rows[0]!.id;
+      const st = (await pool.query(status.REQUEST_STATUS_BY_LEAD_SQL, [LG])).rows[0];
+      expect(st).toMatchObject({ lead_answer_id: null, lead_declined_answer_id: answerId, lead_declined_answer: 'no_seats', lead_addressed: false });
+      expect(status.shownAnswerRef(st)).toEqual({ source: 'tour', id: answerId });
+
+      // 2. «Ждёт» с истёкшим захватом после передачи — не «переросло»: отправка идёт, менеджеру сразу.
+      const LH = await mkGroup('Пётр Группа', '+79995550902');
+      await answers.recordChatAnswer({ partnerId: opG, kind: 'lead', subjectId: LH, answer: 'no_seats', reason: null, expectDate: D0 });
+      await pool.query(`UPDATE answer_notices SET claimed_until = NOW() - INTERVAL '1 hour' WHERE lead_id = $1::uuid`, [LH]);
+      await handOff(LH);
+
+      sent.pd.length = 0;
+      const run = await notices.runAnswerNotices();
+      expect(run.status).toBe('ok');
+      expect(await noticeOf(LG)).toEqual([expect.objectContaining({ state: 'undelivered', manager_channel: 'max', alerted: true })]);
+      expect(sent.pd.some((p) => p.text.includes('79995550901'))).toBe(true);
+      expect(await noticeOf(LH)).toEqual([expect.objectContaining({ state: 'undelivered', skipped_reason: null, manager_channel: 'max', alerted: true })]);
+      expect(sent.pd.some((p) => p.text.includes('79995550902'))).toBe(true);
+
+      // 3. Агент прочитал вид «передана» по ключу новой заявки — доставка того же ответа.
+      await status.readRequestStatus(kG!.key, { reader: 'agent' });
+      expect(await noticeOf(LG)).toEqual([expect.objectContaining({ state: 'delivered', delivered_via: 'agent_read' })]);
+
+      // 4. Заявку взял новый адресат — отказ прежнего вид больше не строит.
+      const opNew = (await pool.query<{ id: string }>(`INSERT INTO partners (name, category, contact) VALUES ('Новый 2б', 'operator', '{}') RETURNING id`)).rows[0].id;
+      await pool.query(`UPDATE leads SET operator_id = $2 WHERE id = $1`, [LH, opNew]);
+      const st2 = (await pool.query(status.REQUEST_STATUS_BY_LEAD_SQL, [LH])).rows[0];
+      expect(st2).toMatchObject({ lead_declined_answer_id: null });
+      expect(status.shownAnswerRef(st2)).toBeNull();
+    });
+
     it('change_request (12.11): право — у ключа новой заявки на тур; правило, журнал и лимит — те же, что у кнопок', async () => {
       const { changeRequest, CHANGE_CANCEL_LEAD_SQL, CHANGE_DATE_LEAD_SQL } = await import('@/lib/mcp/change-request');
       const { McpUserError } = await import('@/lib/mcp/jsonrpc');
