@@ -830,6 +830,56 @@ withPg('кого накрывает предупреждение', () => {
     expect(await coveredBy(other)).not.toContain(CAVES.id);
   });
 
+  it('закрытие природного парка «Южно-Камчатский» не красит заказник у Курильского озера (#3335, 13.11)', async () => {
+    // Прод 13.11: «Курильское озеро» красное по закрытию парка через маршрут
+    // «Тайны Курильского озера» с территорией «Южно-Камчатский заказник
+    // федерального значения» (1250). Корень «Южно-Камчат» один у обоих, а
+    // закрытие называет парк. Слово владельца: «развести».
+    // Имя другого озера заказника: маршрут «Курильское озеро» с территорией
+    // парка заведён тестом #2980 выше и по имени (путь 4) связал бы место.
+    const LAKE = { id: 'Ильинское озеро (тест 3335)', ark: 'c0000000-0000-4000-8000-000000000061' };
+    const MUT = { id: 'Вулкан Мутновский (тест 3335)', ark: 'c0000000-0000-4000-8000-000000000062' };
+    const ZAK_PLACE = { id: 'Южно-Камчатский заказник (тест 3335)', ark: 'c0000000-0000-4000-8000-000000000063' };
+    const ZAK_ROUTE = 'd0000000-0000-4000-8000-000000000061';
+    const PARK_ROUTE = 'd0000000-0000-4000-8000-000000000062';
+    const q: QueryFn = (sql, params) => pool.query(sql, params) as never;
+    for (const p of [LAKE, MUT, ZAK_PLACE]) {
+      await pool.query(
+        `INSERT INTO places (id, name, lat, lng, ark_id, location_type, zone, is_visible)
+         VALUES ($1, $1, 51.45, 157.09, $2, 'lake', 'southern', TRUE)`,
+        [p.id, p.ark],
+      );
+      await pool.query(`INSERT INTO location_real_time_status (agent_route_id) VALUES ($1)`, [p.ark]);
+    }
+    await pool.query(
+      `INSERT INTO kamchatka_routes (id, category, title, park_name, zone, is_visible) VALUES
+         ($1, 'trekking', 'Тайны Ильинского озера (тест 3335)', 'Южно-Камчатский заказник федерального значения', 'southern', TRUE),
+         ($2, 'trekking', 'Восхождение на Мутновский (тест 3335)', 'Южно-Камчатский', 'southern', TRUE)`,
+      [ZAK_ROUTE, PARK_ROUTE],
+    );
+    await pool.query(
+      `INSERT INTO route_waypoints (route_id, place_id, position, link_kind) VALUES
+         ($1, $3, 0, 'waypoint'), ($2, $4, 0, 'waypoint')`,
+      [ZAK_ROUTE, PARK_ROUTE, LAKE.id, MUT.id],
+    );
+    const TITLE = 'Природный парк «Налычево» и «Южно-Камчатский», «Быстринский» — маршруты закрыты (тест 3335)';
+    const id = await insertAlert({ type: 'park_closure', title: TITLE, zones: [], parks: ['nalychevo', 'yuzhno-kamchatsky', 'bystrinskiy'] });
+    const covered = await coveredBy(id);
+    // Место парка — красится, как и раньше.
+    expect(covered).toContain(MUT.id);
+    // Место заказника — нет: ни через маршрут заказника, ни по своему имени.
+    expect(covered).not.toContain(LAKE.id);
+    expect(covered).not.toContain(ZAK_PLACE.id);
+    // Маршрут — тем же правилом: заказника нет, парка есть.
+    const routeTitles = async (routeId: string) => {
+      const sig = await collectRouteSignals(routeId, { query: q, month: 11 });
+      expect(sig.alerts, 'запрос предупреждений маршрута не выполнился').not.toBeNull();
+      return sig.alerts!.map((a) => a.title);
+    };
+    expect(await routeTitles(ZAK_ROUTE)).not.toContain(TITLE);
+    expect(await routeTitles(PARK_ROUTE)).toContain(TITLE);
+  });
+
   it('закрытие Налычево доходит до места внутри контура и до маршрута через него — по связи 1407, не по имени (08.11)', async () => {
     // Корякская сопка 08.11: внутри контура парка (1248), маршруты к ней без
     // записанного парка, имя парка не называет — пять прежних путей молчат.

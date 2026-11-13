@@ -85,7 +85,8 @@ jobs:
                     '| важность:', a.get('severity'))
               print(' отбой в заголовке:', a.get('stand_down_title'), '| в теле:', a.get('stand_down_description'),
                     '| спорно:', a.get('contested'), '| пуш ушёл:', a.get('push_sent'))
-              print(' создана:', a.get('created_at'), '| до:', a.get('expires_at'))
+              print(' создана:', a.get('created_at'), '| до:', a.get('expires_at'), '| последняя публикация:', a.get('last_published_at'))
+              print(' источник:', a.get('external_id'), '|', a.get('source_url'))
               print(' заголовок:', a.get('title'))
               print(' тело (%d симв.):' % (a.get('description_len') or 0), a.get('description_head'))
 

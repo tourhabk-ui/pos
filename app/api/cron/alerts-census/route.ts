@@ -87,6 +87,7 @@ interface LiveRow {
   alert_type: string | null; severity: number | null;
   created_at: string; expires_at: string | null; push_sent: boolean;
   push_suppressed_at: string | null; push_suppressed_reason: string | null;
+  external_id: string | null; source_url: string | null; last_published_at: string | null;
 }
 interface RunRow { agent_id: string; status: string; started_at: string; age_min: number }
 
@@ -136,7 +137,11 @@ export async function GET(request: NextRequest) {
               created_at::text, expires_at::text,
               (push_sent_at IS NOT NULL) AS push_sent,
               push_suppressed_at::text AS push_suppressed_at,
-              push_suppressed_reason
+              push_suppressed_reason,
+              -- Откуда строка (#3334): один пост ГИМС лёг двумя строками с
+              -- разным текстом, и путь приёма (RSS, VK, MAX) различает только
+              -- код поста и ссылка. Посты открытых каналов — не ПД.
+              external_id, source_url, last_published_at::text AS last_published_at
          FROM external_alerts
         WHERE expires_at IS NULL OR expires_at > ${UTC_WALL_NOW_SQL}
         ORDER BY created_at DESC
@@ -170,6 +175,9 @@ export async function GET(request: NextRequest) {
         push_suppressed_at: r.push_suppressed_at,
         push_suppressed_reason: r.push_suppressed_reason,
         title: r.title,
+        external_id: r.external_id,
+        source_url: r.source_url,
+        last_published_at: r.last_published_at,
         // 300 символов оказалось мало: в прогоне 1 отбраковку жанра снимала
         // фраза из ХВОСТА суточной сводки, и по обрезанному телу вывод был
         // прямо противоположен прод-ответу. Тело сводки укладывается в 900.
