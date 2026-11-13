@@ -23,6 +23,7 @@
 import { describe, it, expect, beforeAll, afterAll } from 'vitest';
 import { createTestDatabase, dropTestDatabase } from '../helpers/pg-schema';
 import { a2aAgentKind } from '@/lib/a2a/agent-kind';
+import type { TranslationOutcome } from '@/lib/ai/translate-text';
 
 const PG_URL = process.env.KERNEL_PG_TEST_URL ?? '';
 const withPg = PG_URL ? describe : describe.skip;
@@ -305,9 +306,101 @@ withPg('числа суток в админке', () => {
       const one = await (await GET(new NextRequest(`http://localhost/api/admin/ai-analytics/chats?chat_id=row:${lone.rows[0].id}&platform=a2a`))).json();
       expect(one.messages).toHaveLength(2);
     } finally {
-      // Тест последний в файле: роуты, уже загруженные с подменой админа,
+      // Последний тест, который зовёт роуты: уже загруженные с подменой админа
       // дальше никто не зовёт; проверка «без админа — отказ» идёт раньше.
       vi.doUnmock('@/lib/auth/middleware');
     }
+  });
+
+  /**
+   * Перевод реплик журнала общения A2A (миграция 1437; слово владельца 13.11:
+   * «нужно кнопку в журнал добавить перевести, много китайцев подключилось»).
+   * Судится то, что решает база: ограничения миграции, типы параметров записи,
+   * «пишется только пустое поле» при гонке двух администраторов, уборка
+   * строки вместе с переводом. Переводчик подставной: модель здесь не нужна.
+   * Сцены стоят в этом файле, а не в своём: таблица та же, а новый pg-файл —
+   * это ещё одна база на каждый прогон CI (сторож pg-tests-run-in-ci).
+   */
+  describe('перевод реплик журнала A2A', () => {
+    const ZH_Q = '我们2个人，想11月17日去穆特诺夫斯基火山';
+    const RU_Q = 'Нас 2 человека, хотим 17 ноября на Мутновский вулкан';
+    const RU_A = 'На Мутновском 17 ноября ветер 12 м/с, перевал открыт.';
+    const fake = (map: Record<string, string>) => async (text: string): Promise<TranslationOutcome> =>
+      map[text] ? { status: 'translated', text: map[text], model: 'ai-quality' } : { status: 'not_needed' };
+    const insert = async (question: string, answer: string, at = 'NOW()'): Promise<number> => {
+      const { rows } = await pool.query<{ id: string }>(
+        `INSERT INTO a2a_dialogs (agent, ua_family, caller_hash, turn, question, answer, state, created_at)
+         VALUES ('DeerFlow', 'other', 'h', 1, $1, $2, 'completed', ${at}) RETURNING id`,
+        [question, answer],
+      );
+      return Number(rows[0].id);
+    };
+
+    it('миграция 1437: пустой перевод и перевод без отметки база не принимает', async () => {
+      const id = await insert(ZH_Q, RU_A);
+      await expect(pool.query(`UPDATE a2a_dialogs SET question_ru = '  ', translated_at = NOW(), translation_model = 'x' WHERE id = $1`, [id]))
+        .rejects.toMatchObject({ code: '23514', constraint: 'a2a_dialogs_question_ru_not_blank' });
+      await expect(pool.query(`UPDATE a2a_dialogs SET answer_ru = '', translated_at = NOW(), translation_model = 'x' WHERE id = $1`, [id]))
+        .rejects.toMatchObject({ code: '23514', constraint: 'a2a_dialogs_answer_ru_not_blank' });
+      await expect(pool.query(`UPDATE a2a_dialogs SET question_ru = 'Перевод' WHERE id = $1`, [id]))
+        .rejects.toMatchObject({ code: '23514', constraint: 'a2a_dialogs_translation_stamped' });
+    });
+
+    it('перевод записан в строку, а повтор и чужой перевод его не затирают', async () => {
+      const { translateDialog } = await import('@/lib/a2a/dialog-translate');
+      const id = await insert(ZH_Q, RU_A);
+
+      expect(await translateDialog(id, fake({ [ZH_Q]: RU_Q }))).toEqual({
+        found: true, id, question: { status: 'translated', text: RU_Q }, answer: { status: 'not_needed' },
+      });
+      const first = await pool.query(`SELECT question_ru, answer_ru, translated_at, translation_model FROM a2a_dialogs WHERE id = $1`, [id]);
+      expect(first.rows[0]).toMatchObject({ question_ru: RU_Q, answer_ru: null, translation_model: 'ai-quality' });
+      expect(first.rows[0].translated_at).toBeInstanceOf(Date);
+
+      // Повтор: перевод уже лежит — отдаётся он, даже если модель теперь сказала бы иначе.
+      expect(await translateDialog(id, fake({ [ZH_Q]: 'Другой перевод' }))).toMatchObject({
+        found: true, question: { status: 'stored', text: RU_Q },
+      });
+
+      // Гонка двух администраторов: наш перевод опоздал — в строке остаётся первый.
+      const raced = await insert(ZH_Q, RU_A);
+      const late = async (text: string): Promise<TranslationOutcome> => {
+        if (text !== ZH_Q) return { status: 'not_needed' };
+        await pool.query(`UPDATE a2a_dialogs SET question_ru = 'Перевод первого', translated_at = NOW(), translation_model = 'ai-quality' WHERE id = $1`, [raced]);
+        return { status: 'translated', text: RU_Q, model: 'ai-quality' };
+      };
+      expect(await translateDialog(raced, late)).toMatchObject({ found: true, question: { status: 'stored', text: 'Перевод первого' } });
+      const kept = await pool.query(`SELECT question_ru FROM a2a_dialogs WHERE id = $1`, [raced]);
+      expect(kept.rows[0].question_ru).toBe('Перевод первого');
+    });
+
+    it('строки нет — «не найдено»; срез журнала отдаёт номер строки и перевод', async () => {
+      const { translateDialog } = await import('@/lib/a2a/dialog-translate');
+      expect(await translateDialog(9_000_000_000, fake({}))).toEqual({ found: false });
+
+      const { readDialogs } = await import('@/app/api/admin/analytics/a2a/route');
+      const { items } = await readDialogs();
+      const done = items.find((d) => d.question_ru === RU_Q);
+      expect(done).toMatchObject({ question: ZH_Q, question_ru: RU_Q, answer_ru: null, question_foreign: true, answer_foreign: false });
+      expect(Number.isInteger(done!.id)).toBe(true);
+    });
+
+    it('уборка писателя удаляет старую строку вместе с переводом', async () => {
+      const { translateDialog } = await import('@/lib/a2a/dialog-translate');
+      const { logA2aDialog, RETENTION_DAYS } = await import('@/lib/a2a/dialog-log');
+      const old = await insert(ZH_Q, RU_A, `NOW() - INTERVAL '${RETENTION_DAYS + 1} days'`);
+      expect(await translateDialog(old, fake({ [ZH_Q]: RU_Q }))).toMatchObject({ found: true, question: { status: 'translated' } });
+      logA2aDialog({ question: 'Что на Горелом сегодня?', answer: 'Ветер.', state: 'completed', turn: 1, ip: '127.0.0.1', userAgent: 'curl/8', self: false });
+      // Запись журнала — fire-and-forget: ждём, пока новая реплика ляжет.
+      let written = false;
+      for (let i = 0; i < 50 && !written; i += 1) {
+        const { rows } = await pool.query(`SELECT 1 FROM a2a_dialogs WHERE question = 'Что на Горелом сегодня?'`);
+        written = rows.length > 0;
+        if (!written) await new Promise((r) => setTimeout(r, 100));
+      }
+      expect(written).toBe(true);
+      const { rows } = await pool.query(`SELECT 1 FROM a2a_dialogs WHERE id = $1`, [old]);
+      expect(rows).toHaveLength(0);
+    });
   });
 });

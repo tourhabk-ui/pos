@@ -195,11 +195,11 @@ describe('схема и страница', () => {
     }
   });
 
-  it('страница: карточка «Журнал общения», отказ чтения — отказом, ответ свёрнут', () => {
+  it('страница: карточка «Журнал общения», отказ чтения — отказом', () => {
+    // «Ответ свёрнут» с 13.11 судится рендером журнала — a2a-dialog-translate.test.tsx.
     const client = read('app/hub/admin/a2a/_A2aClient.tsx');
     expect(client).toMatch(/Журнал общения A2A/);
     expect(client).toMatch(/Журнал общения не прочитался/);
-    expect(client).toMatch(/<details/);
     expect(client).not.toMatch(/FROM a2a_dialogs|pool\.query/);
     expect(read('app/api/admin/analytics/a2a/route.ts')).toMatch(/block\('dialogs', \(\) => readDialogs\(\)\)/);
   });

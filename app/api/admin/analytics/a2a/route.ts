@@ -22,6 +22,9 @@
  * блоки живут. Сырых User-Agent и IP нет ни в одном источнике; текст есть
  * только в журнале общения, с вычищенными телефонами и почтами.
  *
+ *     С 13.11 у реплики есть перевод на русский (миграция 1437): кнопка
+ *     страницы зовёт POST ./translate, перевод лежит в той же строке.
+ *
  * Сторож: tests/unit/a2a-journal-admin.test.ts.
  */
 import { NextRequest, NextResponse } from 'next/server';
@@ -30,6 +33,7 @@ import { pool } from '@/lib/db-pool';
 import { logText } from '@/lib/log/log-text';
 import { a2aAgentKind, type A2aAgentKind } from '@/lib/a2a/journal';
 import { RETENTION_DAYS } from '@/lib/a2a/dialog-log';
+import { needsRussian } from '@/lib/ai/translate-text';
 import { isProbeClient } from '@/lib/mcp/probe-clients';
 import { clientRegion } from '@/lib/mcp/china-clients';
 import { BOT_FAMILIES } from '@/lib/analytics/bot-detect';
@@ -88,9 +92,11 @@ interface A2aRecentRow {
 }
 interface BoundsRow { since: string | null; total: number }
 interface DialogRow {
+  id: string | number;
   at: string; agent: string; ua_family: string; is_self: boolean; context_key: string | null;
   turn: number; question: string; answer: string; state: string; duration_ms: number | null;
   client_ip: string | null; user_agent: string | null;
+  question_ru: string | null; answer_ru: string | null;
 }
 interface McpClientRow { client_name: string | null; ua_family: string | null; caller_days: number; days: number; first_seen: string | null; last_seen: string | null }
 interface EntryFamilyRow { family: string; hits: number; paths: number; last_day: string }
@@ -186,9 +192,9 @@ export async function readDialogs() {
   const [bounds, rows] = await Promise.all([
     pool.query<BoundsRow>(`SELECT to_char(MIN(created_at) ${KAM}, 'YYYY-MM-DD') AS since, COUNT(*)::int AS total FROM a2a_dialogs`),
     pool.query<DialogRow>(
-      `SELECT to_char(created_at ${KAM}, 'YYYY-MM-DD HH24:MI:SS') AS at,
+      `SELECT id, to_char(created_at ${KAM}, 'YYYY-MM-DD HH24:MI:SS') AS at,
               agent, ua_family, is_self, context_key, turn, question, answer, state, duration_ms,
-              client_ip, user_agent
+              client_ip, user_agent, question_ru, answer_ru
          FROM a2a_dialogs
         ORDER BY created_at DESC
         LIMIT $1::int`,
@@ -202,6 +208,7 @@ export async function readDialogs() {
     retention_days: RETENTION_DAYS,
     limit: DIALOG_LIMIT,
     items: rows.rows.map((r) => ({
+      id: Number(r.id),
       at: r.at,
       agent: r.agent,
       kind: a2aAgentKind(r.agent, r.ua_family, r.is_self),
@@ -213,6 +220,13 @@ export async function readDialogs() {
       duration_ms: r.duration_ms,
       ip: r.client_ip ?? null,
       user_agent: r.user_agent ?? null,
+      // Перевод на русский (миграция 1437): null — перевода в строке нет.
+      // *_foreign — поле не по-русски: по нему страница решает, предлагать ли
+      // перевод, тем же правилом, каким переводчик решает «переводить нечего».
+      question_ru: r.question_ru ?? null,
+      answer_ru: r.answer_ru ?? null,
+      question_foreign: needsRussian(r.question),
+      answer_foreign: needsRussian(r.answer),
     })),
   };
 }
