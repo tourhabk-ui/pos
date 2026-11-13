@@ -30,6 +30,7 @@
  */
 import { pool } from '@/lib/db-pool';
 import { routeInParkSql } from '@/lib/parks/route-in-park';
+import { CONDITIONS_NOT_RECORDED_RU, RECORDED_UNKNOWN_RU, ambiguousTerritoryRu } from '@/lib/parks/route-permit-card';
 import {
   permitRuleFor,
   PARK_PERMIT_CHANNELS,
@@ -308,21 +309,17 @@ export function routePermitLines(c: RoutePermitCase): string[] {
       ];
     case 'recorded':
       return [
-        `Условия посещения — ${c.park.displayName}. Нужно ли разрешение именно на этом маршруте, справочник Ведара `
-        + 'не говорит — уточните у администрации территории. Что записано о территории:',
+        `Условия посещения — ${c.park.displayName}. ${RECORDED_UNKNOWN_RU} Что записано о территории:`,
         `— ${recordedParts(c.park).join(' · ')}`,
         PERMIT_NOT_MCHS_RU,
       ];
     case 'unrecorded':
       return [
-        `В данных маршрута названа территория «${c.territory}». Условия её посещения в базе Ведара не записаны — `
-        + 'это не значит, что разрешение не нужно: уточните у администрации территории.',
+        `В данных маршрута названа территория «${c.territory}». ${CONDITIONS_NOT_RECORDED_RU}`,
       ];
     case 'ambiguous':
       return [
-        `В данных маршрута названа территория «${c.territory}». В справочнике Ведара к этому названию подходят `
-        + `несколько записей (${c.names.join('; ')}) — чьи условия посещения действуют, по базе не определить: `
-        + 'уточните у администрации территории.',
+        `В данных маршрута названа территория «${c.territory}». ${ambiguousTerritoryRu(c.names)}`,
       ];
     case 'unread':
       return [
