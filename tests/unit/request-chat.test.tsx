@@ -13,7 +13,9 @@
  *  - «не дошло» не выдаётся за «отправлено» (§4.0);
  *  - экран клиента: сообщения, пусто, «переписки по этой ссылке нет»,
  *    «не загрузилась», отправка, ссылка MAX;
- *  - ссылки после отправки формы: страница и MAX, «ключ не выдался» словами.
+ *  - ссылки после отправки формы: страница и MAX, «ключ не выдался» словами;
+ *  - перевод (13.11): стоит рядом с исходником и назван машинным; «не
+ *    получен» сказано; в Telegram — с маской ПД; клиенту подпись на его языке.
  * Путь записи и доставки на настоящей базе — tests/integration/request-chat.pg.test.ts.
  */
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
@@ -25,6 +27,7 @@ import {
   noPlaceToReadText, ownerIncomingStub, ownerIncomingText, ownerReplyButton, parseChatPress, platformIncomingStub, platformIncomingText, roleOfCategory,
   sentReplyText, stayDates, waitPrompt, type ChatFacts,
   draftPayload, draftPreviewText, parseDraftPress,
+  GUEST_TRANSLATION_MISSING, OWNER_TRANSLATION_CAPTION, OWNER_TRANSLATION_MISSING, translationCaption, type TranslationShown,
 } from '@/lib/requests/request-chat';
 import { isWritePayload } from '@/lib/chat-cabinet/signed-payload';
 import { pressActionOf, startActionOf, UNVERIFIED_PRESS_REPLY, PRESS_WITHOUT_MESSAGE_REPLY } from '@/lib/max/verified-press';
@@ -233,6 +236,90 @@ describe('ПД и экранирование', () => {
 
 // ── Экран клиента ────────────────────────────────────────────────────────────
 
+describe('перевод рядом с сообщением (13.11)', () => {
+  const RU: TranslationShown = { status: 'translated', text: 'Можно начать в 9 утра? Мой телефон +86 138 0013 8000 <b>срочно</b>' };
+  const EN: TranslationShown = { status: 'translated', text: 'We meet at 7:00 by the hotel <b>sharp</b>.' };
+  const ZH: TranslationShown = { status: 'translated', text: '7:00在酒店门口集合。' };
+  const FAILED: TranslationShown = { status: 'failed' };
+  const BODY = 'Can we start at 9 am? My phone is +86 138 0013 8000';
+
+  it('адресату: перевод под словами клиента, назван машинным, экранирован; исходник остаётся', () => {
+    const text = ownerIncomingText(LEAD, 'Li Wei', BODY, RU);
+    expect(text).toContain(BODY);
+    expect(text).toContain(`${OWNER_TRANSLATION_CAPTION}: Можно начать в 9 утра? Мой телефон +86 138 0013 8000 &lt;b&gt;срочно&lt;/b&gt;`);
+    expect(text.indexOf(BODY)).toBeLessThan(text.indexOf(OWNER_TRANSLATION_CAPTION));
+    expect(text.indexOf(OWNER_TRANSLATION_CAPTION)).toBeLessThan(text.indexOf('Ответить в этом чате'));
+    expect(OWNER_TRANSLATION_CAPTION).toMatch(/машинный/);
+  });
+
+  it('адресату: перевод был нужен и не получен — так и сказано; не нужен — сообщение прежнее', () => {
+    expect(ownerIncomingText(LEAD, 'Li Wei', BODY, FAILED)).toContain(OWNER_TRANSLATION_MISSING);
+    expect(OWNER_TRANSLATION_MISSING).toMatch(/не получен/);
+    const plain = ownerIncomingText(LEAD, 'Анна', 'Во сколько подача?');
+    expect(ownerIncomingText(LEAD, 'Анна', 'Во сколько подача?', { status: 'not_needed' })).toBe(plain);
+    expect(plain).not.toMatch(/Перевод|перевод/);
+  });
+
+  it('Telegram адресата: перевод идёт с той же маской ПД, что и слова клиента; в заглушку без текста — не идёт вовсе', () => {
+    const stub = ownerIncomingStub(LEAD, BODY, RU);
+    expect(stub).toContain(`${OWNER_TRANSLATION_CAPTION}: Можно начать в 9 утра?`);
+    expect(stub).not.toMatch(/138 0013|8000/);
+    expect(stub).not.toContain('<b>срочно');
+    expect(ownerIncomingStub(LEAD, BODY, FAILED)).toContain(OWNER_TRANSLATION_MISSING);
+    // Имя клиента из заявки скрыто и там, где он сам написал его в тексте: строка
+    // «имя в Telegram не передаётся» обязана быть правдой.
+    // Имя стоит посреди фразы: по оборотам маска его не узнаёт, только по заявке.
+    const named = ownerIncomingStub(LEAD, 'Li Wei here, can we start at 9?', { status: 'translated', text: 'Вас беспокоит Li Wei, можно начать в 9?' }, ['Li Wei']);
+    expect(named).toContain('[имя] here, can we start at 9?');
+    expect(named).toContain(`${OWNER_TRANSLATION_CAPTION}: Вас беспокоит [имя], можно начать в 9?`);
+    expect(named).not.toContain('Li Wei');
+    // Без имени из заявки то же сообщение имя показало бы — потому оно и передаётся.
+    expect(ownerIncomingStub(LEAD, 'Li Wei here, can we start at 9?', { status: 'translated', text: 'Вас беспокоит Li Wei, можно начать в 9?' })).toContain('Li Wei');
+    // Заглушка, куда слова клиента не уходят, перевода тоже не несёт.
+    const bare = ownerIncomingStub(LEAD, undefined, RU);
+    expect(bare).not.toMatch(/Перевод|Можно начать/);
+  });
+
+  it('оператору платформы, если адресату не дошло: перевод рядом с текстом', () => {
+    const text = platformIncomingText(LEAD, 'Li Wei', BODY, 'MAX не ответил', RU);
+    expect(text).toContain(BODY);
+    expect(text).toContain(`${OWNER_TRANSLATION_CAPTION}: Можно начать в 9 утра?`);
+    expect(platformIncomingText(LEAD, 'Анна', 'Во сколько подача?', 'MAX не ответил')).not.toMatch(/Перевод/);
+  });
+
+  it('клиенту: русский ответ остаётся, под ним перевод с подписью на его языке', () => {
+    const en = guestIncomingText(LEAD, 'В 7:00 у гостиницы', EN);
+    expect(en).toContain('В 7:00 у гостиницы');
+    expect(en).toContain('Machine translation (not reviewed):\nWe meet at 7:00 by the hotel &lt;b&gt;sharp&lt;/b&gt;.');
+    expect(en.indexOf('В 7:00 у гостиницы')).toBeLessThan(en.indexOf('Machine translation'));
+    const zh = guestIncomingText(LEAD, 'В 7:00 у гостиницы', ZH);
+    expect(zh).toContain('机器翻译（未经人工校对）:\n7:00在酒店门口集合。');
+    expect(translationCaption('7:00在酒店门口集合。')).toBe('机器翻译（未经人工校对）');
+    expect(translationCaption('7月15日に集合します')).toBe('Machine translation (not reviewed)');
+  });
+
+  it('клиенту: перевод не получен — сказано по-английски; не нужен — ответ прежний', () => {
+    expect(guestIncomingText(LEAD, 'В 7:00 у гостиницы', FAILED)).toContain(GUEST_TRANSLATION_MISSING);
+    expect(GUEST_TRANSLATION_MISSING).toMatch(/^[\x20-\x7e]+$/);
+    const plain = guestIncomingText(LEAD, 'В 7:00 у гостиницы');
+    expect(guestIncomingText(LEAD, 'В 7:00 у гостиницы', { status: 'not_needed' })).toBe(plain);
+    expect(plain).not.toMatch(/translation|翻译/i);
+  });
+
+  it('адресату после отправки сказано, что с переводом: приложен или не получен', () => {
+    expect(sentReplyText('owner', 'max', LEAD, { translation: 'translated' })).toMatch(/Клиент пишет не по-русски: к ответу приложен машинный перевод на его язык\.$/);
+    expect(sentReplyText('owner', 'no_address', STAY, { translation: 'translated' })).toMatch(/Гость пишет не по-русски: к ответу приложен машинный перевод/);
+    expect(sentReplyText('owner', 'max', LEAD, { translation: 'failed' })).toMatch(/машинный перевод не получен: клиенту ушёл ваш текст как есть\.$/);
+    expect(sentReplyText('owner', 'failed', STAY, { translation: 'failed' })).toMatch(/гостю ушёл ваш текст как есть/);
+    // Переводить было незачем — о переводе ни слова.
+    expect(sentReplyText('owner', 'max', LEAD)).not.toMatch(/перевод/);
+    // Прочитать негде — о переводе не говорится: читать нечего.
+    expect(sentReplyText('owner', 'no_address', LEAD, { pageVisible: false, translation: 'translated' })).not.toMatch(/перевод/);
+    // Клиенту о переводе его слов для адресата не сообщается.
+    expect(sentReplyText('guest', 'max', LEAD, { translation: 'translated' })).toBe(sentReplyText('guest', 'max', LEAD));
+  });
+});
+
 const fetchMock = vi.fn<(url: string, init?: RequestInit) => Promise<Response>>();
 function json(body: unknown, status = 200): Response {
   return new Response(JSON.stringify(body), { status, headers: { 'Content-Type': 'application/json' } });
@@ -266,6 +353,22 @@ describe('экран переписки на странице заявки', () 
     expect(screen.getByText(/^Вы ·/)).toBeInTheDocument();
     expect(screen.getByRole('link', { name: 'Подключить MAX' })).toHaveAttribute('href', CHAT.max_link);
     expect(fetchMock.mock.calls[0][0]).toBe(`/api/requests/chat?k=${KEY}`);
+  });
+
+  it('перевод ответа адресата стоит под русским текстом с подписью; у сообщения без перевода его нет', async () => {
+    fetchMock.mockResolvedValue(json({ success: true, data: { ...CHAT, messages: [
+      { author: 'guest', body: 'What time is the pickup?', at: '2026-10-29T10:00:00.000Z', translation: null },
+      { author: 'owner', body: 'В 7:00 у гостиницы', at: '2026-10-29T10:05:00.000Z', translation: { text: 'At 7:00 by the hotel', caption: 'Machine translation (not reviewed)' } },
+    ] } }));
+    render(<RequestChat requestKey={KEY} />);
+    const original = await screen.findByText('В 7:00 у гостиницы');
+    const translated = screen.getByText('At 7:00 by the hotel');
+    expect(screen.getAllByText('Machine translation (not reviewed)')).toHaveLength(1);
+    // Перевод — в том же сообщении, после исходника.
+    const item = original.closest('li')!;
+    expect(item).toContainElement(translated);
+    expect(original.compareDocumentPosition(translated) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
+    expect(screen.getByText('What time is the pickup?').closest('li')!.textContent).not.toMatch(/translation/i);
   });
 
   it('пусто — говорит, кому можно написать; MAX подключён — ссылки нет', async () => {

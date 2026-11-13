@@ -14,13 +14,18 @@
  * по этой ссылке переписки нет (сказано почему: ключ только статусный или
  * заявку ведёт менеджер) / не загрузилась (сказано словами, повтор раз в 20
  * секунд). Сообщения переспрашиваются раз в 20 секунд, пока страница открыта.
+ *
+ * Клиент пишет не по-русски — под ответом адресата стоит машинный перевод на
+ * язык клиента с подписью на этом языке (13.11, миграция 1440). Русский ответ
+ * остаётся над ним: по переводу читают, по исходнику проверяют.
  */
 import { useCallback, useEffect, useRef, useState } from 'react';
 import { MessageCircle, Send, Loader2 } from 'lucide-react';
 
 const MAX_LEN = 2000;
 
-interface ChatMessage { author: 'owner' | 'guest'; body: string; at: string }
+/** `translation` — машинный перевод ответа адресата на язык клиента и подпись на этом языке; нет его — null. */
+interface ChatMessage { author: 'owner' | 'guest'; body: string; at: string; translation?: { text: string; caption: string } | null }
 type ChatData =
   | { available: false; reason: string }
   | {
@@ -163,6 +168,12 @@ export function RequestChat({ requestKey }: { requestKey: string }) {
                     {m.author === 'guest' ? 'Вы' : data.counterpart_label} · {timeRu(m.at)}
                   </p>
                   <p className="whitespace-pre-wrap break-words text-[var(--text-primary)]">{m.body}</p>
+                  {m.translation && (
+                    <div className="mt-2 border-t border-[var(--border)] pt-2">
+                      <p className="text-xs text-[var(--text-muted)] mb-1">{m.translation.caption}</p>
+                      <p className="whitespace-pre-wrap break-words text-[var(--text-primary)]">{m.translation.text}</p>
+                    </div>
+                  )}
                 </li>
               ))}
             </ol>

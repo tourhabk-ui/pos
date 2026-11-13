@@ -57,6 +57,15 @@ vi.mock('@/lib/notifications/telegram-channel', () => ({
   notifyAdminNewLead: vi.fn(async () => undefined),
 }));
 
+// Модель перевода переписки (13.11): подставная, чтобы судить, что в неё ушло
+// и что записано. По умолчанию молчит — нежданный вызов даёт «перевод не
+// получен», а счёт вызовов проверяют сцены.
+const ai = vi.hoisted(() => ({ quality: vi.fn() }));
+vi.mock('@/lib/ai/providers', async (importOriginal) => ({
+  ...(await importOriginal<typeof import('@/lib/ai/providers')>()),
+  callAIQualityOrNull: ai.quality,
+}));
+
 const PG_URL = process.env.KERNEL_PG_TEST_URL ?? '';
 
 /**
@@ -961,6 +970,164 @@ withPg('переписка по заявке на настоящем PostgreSQL'
   });
 
   // ── Соседние потоки чата и честные исходы (ревью 30.10) ────────────────────
+
+  // ── Перевод переписки (13.11, миграция 1440) ────────────────────────────────
+
+  describe('перевод переписки: клиент пишет не по-русски', () => {
+    const OPERATOR_CHAT = 7101;
+    const OPERATOR_TG = 7102;
+    const FOREIGN_CHAT = 7103;
+    let operatorId = '';
+    let leadId = '';
+    let key = '';
+    const lead = () => ({ kind: 'lead' as const, id: leadId });
+    const answer = (text: string) => JSON.stringify({ segments: [text] });
+    /** Что ушло в модель последним вызовом — одной строкой. */
+    const lastPrompt = () => JSON.stringify(ai.quality.mock.calls.at(-1)?.[0]);
+    const rows = async () => (await pool.query<{ author: string; body: string; translation: string | null; stamped: boolean; translation_model: string | null }>(
+      `SELECT author, body, translation, translated_at IS NOT NULL AS stamped, translation_model
+         FROM request_messages WHERE lead_id = $1 ORDER BY created_at, id`, [leadId])).rows;
+
+    beforeAll(async () => {
+      ai.quality.mockReset();
+      ai.quality.mockResolvedValue(null);
+      operatorId = (await pool.query<{ id: string }>(
+        `INSERT INTO partners (name, category, contact, max_chat_id, telegram_chat_id) VALUES ('Лагуна', 'operator', '{}', $1, $2) RETURNING id`,
+        [OPERATOR_CHAT, OPERATOR_TG],
+      )).rows[0].id;
+      const created = await leads.createLeadDetailed({
+        name: 'Li Wei', phone: '+8613800138000', comment: 'We would like to see Mutnovsky volcano, two people.',
+        route_title: 'Мутновский вулкан', operator_id: operatorId,
+        pd_consent: consentOf('operator'), source_data: { source: 'tour_page' }, skip_ai_processing: true,
+      });
+      leadId = created?.id ?? '';
+      key = (await status.issueRequestKey({ leadId }, status.CHARTER_FORM_KEY_NAME, { opensChat: true })) ?? '';
+    });
+
+    it('сообщение клиента: адресату в MAX — исходник и перевод с телефоном; в Telegram — оба с маской; в модель — без имени и телефона', async () => {
+      sent.pd.length = 0;
+      ai.quality.mockResolvedValueOnce(answer('Это [имя]. Можно начать в 9 утра? Мой телефон [телефон]'));
+      const body = 'This is Li Wei. Can we start at 9 am? My phone is +86 138 0013 8000';
+      const r = await svc.postGuestMessage(lead(), body, 'page');
+      expect(r).toEqual({ outcome: 'sent', delivery: 'max', translation: 'translated' });
+      expect(ai.quality).toHaveBeenCalledTimes(1);
+      expect(lastPrompt()).not.toMatch(/Li Wei|138 0013|8000/);
+      expect(lastPrompt()).toContain('This is [имя]. Can we start at 9 am? My phone is [телефон]');
+      // MAX адресата: слова клиента как есть и перевод с возвращённым телефоном.
+      expect(sent.pd[0].text).toContain(body);
+      expect(sent.pd[0].text).toContain('Перевод (машинный): Это [имя]. Можно начать в 9 утра? Мой телефон +86 138 0013 8000');
+      // Telegram адресата: и слова, и перевод — с маской ПД; имя клиента,
+      // которое он сам написал в тексте, скрыто тоже.
+      expect(sent.pd[0].stub).toContain('This is [имя]. Can we start at 9 am? My phone is [телефон]');
+      expect(sent.pd[0].stub).toContain('Перевод (машинный): Это [имя]. Можно начать в 9 утра? Мой телефон [телефон]');
+      expect(sent.pd[0].stub).not.toMatch(/Li Wei|138 0013/);
+      // Перевод записан в строку сообщения с отметкой.
+      expect(await rows()).toEqual([{
+        author: 'guest', body, translation: 'Это [имя]. Можно начать в 9 утра? Мой телефон +86 138 0013 8000', stamped: true, translation_model: 'ai-quality',
+      }]);
+    });
+
+    it('ответ адресата: клиенту в MAX — русский текст и перевод на его язык; образец языка — его последнее сообщение', async () => {
+      const bound = await svc.bindGuestChat(key, FOREIGN_CHAT);
+      expect(bound[0].text).toMatch(/Готово/);
+      sent.dm.length = 0;
+      ai.quality.mockResolvedValueOnce(answer('Yes, we start at 9:00. My phone is [телефон]'));
+      const armed = await svc.armChatWait('owner', lead(), OPERATOR_CHAT);
+      expect(armed.text).toMatch(/Напишите ответ клиенту/);
+      const reply = 'Да, начнём в 9:00. Мой телефон +7 914 123-45-67';
+      const r = await replyViaDraft(OPERATOR_CHAT, reply);
+      expect(r?.text).toMatch(/^Передал клиенту в MAX\./);
+      expect(r?.text).toMatch(/Клиент пишет не по-русски: к ответу приложен машинный перевод на его язык\.$/);
+      // Счёт вызовов — за эту сцену: историю подставных функций чистит общий afterEach.
+      expect(ai.quality).toHaveBeenCalledTimes(1);
+      // В модель: ответ без телефона, образец — слова клиента без имени и телефона.
+      expect(lastPrompt()).not.toMatch(/914|123-45-67|Li Wei|138 0013/);
+      expect(lastPrompt()).toContain('Да, начнём в 9:00. Мой телефон [телефон]');
+      expect(lastPrompt()).toContain('Can we start at 9 am?');
+      // Клиенту: исходник, под ним перевод с подписью на его языке и телефоном адресата.
+      expect(sent.dm).toHaveLength(1);
+      expect(String(sent.dm[0].chatId)).toBe(String(FOREIGN_CHAT));
+      expect(sent.dm[0].text).toContain(reply);
+      expect(sent.dm[0].text).toContain('Machine translation (not reviewed):\nYes, we start at 9:00. My phone is +7 914 123-45-67');
+      const all = await rows();
+      expect(all[1]).toEqual({ author: 'owner', body: reply, translation: 'Yes, we start at 9:00. My phone is +7 914 123-45-67', stamped: true, translation_model: 'ai-quality' });
+    });
+
+    it('страница заявки: под ответом адресата — перевод с подписью; у слов самого клиента перевода нет', async () => {
+      const page = await svc.readRequestChat(key);
+      expect(page.outcome).toBe('ok');
+      if (page.outcome !== 'ok') return;
+      expect(page.messages.map((m) => [m.author, m.translation])).toEqual([
+        ['guest', null],
+        ['owner', { text: 'Yes, we start at 9:00. My phone is +7 914 123-45-67', caption: 'Machine translation (not reviewed)' }],
+      ]);
+    });
+
+    it('ИИ-агенту слова адресата идут с маской и без перевода: перевод — для человека', async () => {
+      const v = await status.readRequestStatus(key, { reader: 'agent' });
+      expect(v.partner_messages?.items.map((m) => m.text)).toEqual(['Да, начнём в 9:00. Мой телефон [телефон]']);
+      expect(JSON.stringify(v)).not.toMatch(/914|Yes, we start/);
+    });
+
+    it('модель не ответила — адресату и клиенту сказано «перевод не получен», в строке перевода нет', async () => {
+      sent.dm.length = 0;
+      sent.pd.length = 0;
+      // Клиент: модель молчит (ответ по умолчанию — null).
+      const g = await svc.postGuestMessage(lead(), 'Thank you! See you tomorrow.', 'page');
+      expect(g).toEqual({ outcome: 'sent', delivery: 'max', translation: 'failed' });
+      expect(sent.pd[0].text).toContain('Сообщение не по-русски; машинный перевод не получен.');
+      expect(sent.pd[0].stub).toContain('Сообщение не по-русски; машинный перевод не получен.');
+      // Адресат: модель вернула не перевод, а тот же русский текст.
+      ai.quality.mockResolvedValueOnce(answer('До завтра! Сбор в 8:30.'));
+      await svc.armChatWait('owner', lead(), OPERATOR_CHAT);
+      const r = await replyViaDraft(OPERATOR_CHAT, 'До завтра! Сбор в 8:30.');
+      expect(r?.text).toMatch(/машинный перевод не получен: клиенту ушёл ваш текст как есть\.$/);
+      expect(sent.dm[0].text).toContain('До завтра! Сбор в 8:30.');
+      expect(sent.dm[0].text).toContain('Machine translation of this message is not available.');
+      const tail = (await rows()).slice(2);
+      expect(tail.map((m) => [m.author, m.translation, m.stamped, m.translation_model])).toEqual([
+        ['guest', null, false, null], ['owner', null, false, null],
+      ]);
+    });
+
+    it('клиент перешёл на русский — ответ адресата не переводится, модель не зовётся', async () => {
+      sent.dm.length = 0;
+      expect(await svc.postGuestMessage(lead(), 'Спасибо, всё понял!', 'page')).toEqual({ outcome: 'sent', delivery: 'max' });
+      await svc.armChatWait('owner', lead(), OPERATOR_CHAT);
+      const r = await replyViaDraft(OPERATOR_CHAT, 'Отлично, ждём вас.');
+      expect(r?.text).toBe('Передал клиенту в MAX. Ответ клиента придёт сюда.');
+      expect(sent.dm[0].text).not.toMatch(/translation/i);
+      expect(ai.quality).not.toHaveBeenCalled();
+    });
+
+    it('клиент в переписке не писал — язык называет комментарий заявки', async () => {
+      const zh = await leads.createLeadDetailed({
+        name: '王伟', phone: '+8613900139000', comment: '我们想去穆特诺夫斯基火山，两个人，可以吗？',
+        route_title: 'Мутновский вулкан', operator_id: operatorId,
+        pd_consent: consentOf('operator'), source_data: { source: 'tour_page' }, skip_ai_processing: true,
+      });
+      const zhLead = { kind: 'lead' as const, id: zh?.id ?? '' };
+      await status.issueRequestKey({ leadId: zhLead.id }, status.CHARTER_FORM_KEY_NAME, { opensChat: true });
+      ai.quality.mockResolvedValueOnce(answer('可以，8:00在酒店门口集合。'));
+      await svc.armChatWait('owner', zhLead, OPERATOR_CHAT);
+      const r = await replyViaDraft(OPERATOR_CHAT, 'Можно, сбор в 8:00 у гостиницы.');
+      expect(r?.text).toMatch(/к ответу приложен машинный перевод на его язык/);
+      expect(lastPrompt()).toContain('我们想去穆特诺夫斯基火山');
+      const m = await pool.query<{ translation: string | null }>(`SELECT translation FROM request_messages WHERE lead_id = $1`, [zhLead.id]);
+      expect(m.rows).toEqual([{ translation: '可以，8:00在酒店门口集合。' }]);
+      const zhKeyPage = await pool.query<{ n: number }>(`SELECT count(*)::int AS n FROM request_messages WHERE lead_id = $1 AND translation IS NOT NULL`, [zhLead.id]);
+      expect(zhKeyPage.rows[0].n).toBe(1);
+    });
+
+    it('миграция 1440: пустой перевод и перевод без отметки база не принимает', async () => {
+      const id = (await pool.query<{ id: string }>(`SELECT id FROM request_messages WHERE lead_id = $1 ORDER BY created_at LIMIT 1`, [leadId])).rows[0].id;
+      await expect(pool.query(`UPDATE request_messages SET translation = '   ' WHERE id = $1`, [id])).rejects.toThrow(/request_messages_translation_not_blank/);
+      await expect(pool.query(`UPDATE request_messages SET translated_at = NULL WHERE id = $1`, [id])).rejects.toThrow(/request_messages_translation_stamped/);
+      await expect(pool.query(`UPDATE request_messages SET translation_model = NULL WHERE id = $1`, [id])).rejects.toThrow(/request_messages_translation_stamped/);
+      const c = await pool.query<{ d: string }>(`SELECT obj_description('request_messages'::regclass) AS d`);
+      expect(c.rows[0].d).toMatch(/только на перевод между клиентом и адресатом, с маской телефонов, почты, ссылок и имён/);
+    });
+  });
 
   describe('соседние потоки чата и честные исходы', () => {
     const PARTNER_CHAT = 7101;

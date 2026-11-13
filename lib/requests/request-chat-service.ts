@@ -27,6 +27,12 @@
  *     человеку на его язык может только тот, кто их видит. Слова самого
  *     человека в ответы инструментов не уходят.
  *
+ * Перевод (13.11, lib/requests/chat-translation): сообщение клиента не
+ * по-русски уходит адресату с русским переводом, русский ответ адресата —
+ * клиенту с переводом на его язык. Перевод хранится в строке сообщения (1440)
+ * и на странице заявки стоит под ответом адресата. Сообщение перевода не
+ * ждёт дольше срока и от него не зависит.
+ *
  * Исходы честные (§4.0): «не дошло» и «клиент не подключил MAX» — разные
  * значения в `delivery_channel`, отказ базы — SQLSTATE в лог и свой ответ,
  * а не «нет заявки». Сообщение клиента, не дошедшее до адресата, уходит
@@ -49,10 +55,11 @@ import {
   CHAT_TEXT, REASON_SUPERSEDED_NOTE, REQUEST_CHAT_GUEST_DAILY_LIMIT, REQUEST_CHAT_WAIT_MIN,
   chatButtonText, chatPressPayload, guestBoundText, guestIncomingText, isCancelText, leadDates, noPlaceToReadText,
   normalizeChatText, ownerIncomingStub, ownerIncomingText, ownerReplyButton, platformIncomingStub, platformIncomingText,
-  roleOfCategory, sentReplyText, stayDates, waitPrompt,
+  roleOfCategory, sentReplyText, stayDates, translationCaption, waitPrompt,
   DRAFT_TEXT, draftPayload, draftPreviewText, parseDraftPress,
   type ChatDelivery, type ChatFacts, type ChatSide, type ChatTarget,
 } from '@/lib/requests/request-chat';
+import { translateForGuest, translateForOwner, type ChatTranslation } from '@/lib/requests/chat-translation';
 
 function logFail(where: string, err: unknown): void {
   const e = err as { message?: string; code?: string };
@@ -202,6 +209,12 @@ export interface ChatMessageView {
   author: ChatSide;
   body: string;
   at: string;
+  /**
+   * Машинный перевод ответа адресата на язык клиента (1440) с подписью на
+   * этом языке; null — перевода нет. У сообщений самого клиента всегда null:
+   * их русский перевод сделан для адресата, клиенту он ни к чему.
+   */
+  translation: { text: string; caption: string } | null;
 }
 
 /**
@@ -216,8 +229,8 @@ export type ChatRead =
 
 /** Последние 200 сообщений по порядку: длинная переписка не прячет новые за старыми. */
 export const CHAT_MESSAGES_SQL = `
-  SELECT author, body, created_at FROM (
-    SELECT author, body, created_at, id
+  SELECT author, body, created_at, translation FROM (
+    SELECT author, body, created_at, id, translation
       FROM request_messages
      WHERE stay_request_id = $1::uuid OR lead_id = $2::uuid
      ORDER BY created_at DESC, id DESC
@@ -239,7 +252,7 @@ export async function readRequestChat(rawKey: unknown): Promise<ChatRead> {
     if (!r) return { outcome: 'not_found' };
     if (!r.partnerId) return { outcome: 'no_counterpart' };
     if (k.outcome === 'status_only') return { outcome: 'no_chat' };
-    const { rows } = await pool.query<{ author: ChatSide; body: string; created_at: Date | string }>(
+    const { rows } = await pool.query<{ author: ChatSide; body: string; created_at: Date | string; translation: string | null }>(
       CHAT_MESSAGES_SQL, targetParams(k.target),
     );
     return {
@@ -251,6 +264,9 @@ export async function readRequestChat(rawKey: unknown): Promise<ChatRead> {
         author: m.author,
         body: m.body,
         at: (m.created_at instanceof Date ? m.created_at : new Date(m.created_at)).toISOString(),
+        translation: m.author === 'owner' && typeof m.translation === 'string' && m.translation.trim()
+          ? { text: m.translation, caption: translationCaption(m.translation) }
+          : null,
       })),
     };
   } catch (err) {
@@ -281,7 +297,7 @@ export async function requestTargetByKey(rawKey: unknown): Promise<{ outcome: 'o
  * есть живая ссылка на переписку; false — прочитать ответ ему негде.
  */
 export type PostResult =
-  | { outcome: 'sent'; delivery: ChatDelivery; relayed?: boolean; pageVisible?: boolean }
+  | { outcome: 'sent'; delivery: ChatDelivery; relayed?: boolean; pageVisible?: boolean; translation?: 'translated' | 'failed' }
   | { outcome: 'not_found' | 'no_counterpart' | 'daily_limit' | 'save_failed' | 'bad_text'; error?: string };
 
 /** Чат, из которого пишут: MAX — все, Telegram — только адресат (с маской ПД). */
@@ -306,6 +322,50 @@ async function recordDelivery(messageId: string, delivery: ChatDelivery, reason:
   } catch (err) {
     // Сообщение уже записано и отправлено: исход доставки — «не записан», а не «не дошло».
     logFail('исход доставки сообщения не записан', err);
+  }
+}
+
+/** Перевод — в строку сообщения (1440). Не записался — сообщение уже ушло с ним; SQLSTATE в лог. */
+async function recordTranslation(messageId: string, tr: ChatTranslation): Promise<void> {
+  if (tr.status !== 'translated') return;
+  try {
+    await pool.query(
+      `UPDATE request_messages SET translation = $2, translated_at = NOW(), translation_model = $3 WHERE id = $1::uuid`,
+      [messageId, tr.text.slice(0, 8000), tr.model.slice(0, 40)],
+    );
+  } catch (err) {
+    logFail('перевод сообщения не записан', err);
+  }
+}
+
+/** Поле результата отправки: перевод приложен, был нужен и не получен; иначе поля нет. */
+function translationFact(tr: ChatTranslation): { translation?: 'translated' | 'failed' } {
+  return tr.status === 'not_needed' ? {} : { translation: tr.status };
+}
+
+/**
+ * Слова клиента, по которым узнают его язык: последнее его сообщение в
+ * переписке, а если он не писал — комментарий заявки. Язык клиента нигде не
+ * записан, и угадывать его по имени или телефону нельзя.
+ */
+export const CHAT_GUEST_SAMPLE_SQL = `
+  SELECT COALESCE(
+    (SELECT m.body FROM request_messages m
+      WHERE m.author = 'guest' AND (m.stay_request_id = $1::uuid OR m.lead_id = $2::uuid)
+      ORDER BY m.created_at DESC, m.id DESC
+      LIMIT 1),
+    (SELECT s.comment FROM stay_requests s WHERE s.id = $1::uuid),
+    (SELECT l.comment FROM leads l WHERE l.id = $2::uuid)
+  ) AS sample`;
+
+/** null — слов клиента нет или база не ответила: тогда перевода нет, а SQLSTATE — в лог. */
+async function guestLanguageSample(target: ChatTarget): Promise<string | null> {
+  try {
+    const { rows: [r] } = await pool.query<{ sample: string | null }>(CHAT_GUEST_SAMPLE_SQL, targetParams(target));
+    return typeof r?.sample === 'string' && r.sample.trim() ? r.sample : null;
+  } catch (err) {
+    logFail('язык клиента не прочитан — ответ уйдёт без перевода', err);
+    return null;
   }
 }
 
@@ -377,13 +437,18 @@ export async function postGuestMessage(target: ChatTarget, rawBody: unknown, doo
     return { outcome: 'save_failed' };
   }
 
+  // Клиент пишет не по-русски — адресату с русским переводом рядом (13.11).
+  // Сообщение уже записано: перевод ждём недолго, и оно уходит и без него.
+  const tr = await translateForOwner(t.text, [r.guestName], `${target.kind}:${target.id}`);
+  await recordTranslation(messageId, tr);
+
   let delivery: ChatDelivery = 'no_address';
   let reason = 'у адресата нет подключённого MAX';
   if (r.ownerMaxChatId || r.ownerTelegramChatId) {
     const res = await sendPdAlert({
-      text: ownerIncomingText(r.facts, r.guestName, t.text),
-      // Telegram адресата: текст с маской ПД и «Ответить» (30.10).
-      stub: ownerIncomingStub(r.facts, r.ownerTelegramChatId ? t.text : undefined),
+      text: ownerIncomingText(r.facts, r.guestName, t.text, tr),
+      // Telegram адресата: текст с маской ПД и «Ответить» (30.10); перевод — с той же маской.
+      stub: ownerIncomingStub(r.facts, r.ownerTelegramChatId ? t.text : undefined, tr, [r.guestName]),
       buttons: [ownerReplyButton(target)],
       stubActions: r.ownerTelegramChatId ? [ownerReplyButton(target)] : undefined,
       to: { maxChatId: r.ownerMaxChatId, telegramChatId: r.ownerTelegramChatId },
@@ -395,7 +460,7 @@ export async function postGuestMessage(target: ChatTarget, rawBody: unknown, doo
   if (delivery !== 'max') {
     console.error(`[request-chat] ${target.kind}:${target.id}: сообщение клиента адресату не доставлено (${delivery}) — передаю оператору платформы`);
     const admin = await sendPdAlert({
-      text: platformIncomingText(r.facts, r.guestName, t.text, reason),
+      text: platformIncomingText(r.facts, r.guestName, t.text, reason, tr),
       stub: platformIncomingStub(r.facts),
       buttons: [{ text: 'Заявки', url: `${getPublicBaseUrl()}${adminPath(target)}` }],
     });
@@ -405,7 +470,9 @@ export async function postGuestMessage(target: ChatTarget, rawBody: unknown, doo
   }
   await recordDelivery(messageId, delivery, reason);
   await crmEvent(r, 'guest', door, delivery);
-  return relayed === undefined ? { outcome: 'sent', delivery } : { outcome: 'sent', delivery, relayed };
+  return relayed === undefined
+    ? { outcome: 'sent', delivery, ...translationFact(tr) }
+    : { outcome: 'sent', delivery, relayed, ...translationFact(tr) };
 }
 
 /** Ответ адресата клиенту: в MAX клиента, если он подключил бота, и всегда — на страницу заявки. */
@@ -424,10 +491,16 @@ export async function postOwnerMessage(target: ChatTarget, rawBody: unknown, doo
     return { outcome: 'save_failed' };
   }
 
+  // Клиент пишет не по-русски — ответ уходит ему с переводом на его язык
+  // (13.11). Язык называют его же слова; образец читается ПОСЛЕ записи ответа,
+  // но берёт только сторону клиента.
+  const tr = await translateForGuest(t.text, await guestLanguageSample(target), [r.guestName], `${target.kind}:${target.id}`);
+  await recordTranslation(messageId, tr);
+
   let delivery: ChatDelivery = 'no_address';
   let reason = 'клиент не подключил MAX';
   if (r.guestMaxChatId) {
-    const res = await maxSendDm(r.guestMaxChatId, guestIncomingText(r.facts, t.text), { buttons: [guestReplyButton(r)] });
+    const res = await maxSendDm(r.guestMaxChatId, guestIncomingText(r.facts, t.text, tr), { buttons: [guestReplyButton(r)] });
     delivery = res.ok ? 'max' : 'failed';
     reason = res.ok ? 'доставлено в MAX' : (res.error ?? 'MAX API error');
     if (!res.ok) console.error(`[request-chat] ${target.kind}:${target.id}: ответ клиенту не доставлен — ${reason}`);
@@ -437,7 +510,9 @@ export async function postOwnerMessage(target: ChatTarget, rawBody: unknown, doo
   if (live === false) reason = `${reason}; у клиента нет живой ссылки на переписку`;
   await recordDelivery(messageId, delivery, reason);
   await crmEvent(r, 'owner', door, delivery);
-  return live === false ? { outcome: 'sent', delivery, pageVisible: false } : { outcome: 'sent', delivery };
+  return live === false
+    ? { outcome: 'sent', delivery, pageVisible: false, ...translationFact(tr) }
+    : { outcome: 'sent', delivery, ...translationFact(tr) };
 }
 
 // ── Чат MAX: кнопка, ожидание, текст ─────────────────────────────────────────

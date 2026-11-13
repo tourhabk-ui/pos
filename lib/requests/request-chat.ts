@@ -33,10 +33,21 @@
  * публичная), без чужих ПД. Всё, что ввёл человек (текст, желаемые даты),
  * экранируется: текст уходит как HTML. В ленту CRM текст не пишется — только
  * факт сообщения: свободный текст может нести что угодно.
+ *
+ * ── Перевод (13.11) ─────────────────────────────────────────────────────────
+ *
+ * Клиент пишет не по-русски — адресат получает его слова с русским переводом
+ * рядом; клиент получает русский ответ адресата с переводом на свой язык
+ * рядом (слово владельца 13.11). Перевод делает
+ * `lib/requests/chat-translation`; здесь — только как он стоит в сообщении.
+ * Исходник не заменяется, перевод назван машинным; был нужен, а не получен —
+ * так и сказано. В Telegram адресата перевод идёт с той же маской ПД, что и
+ * сами слова клиента.
  */
 import { escapeHtml } from '@/lib/text/escape-html';
 import { redactChatPD } from '@/lib/security/pii-redact';
 import { ruDate } from '@/lib/stay/stay-request';
+import { scriptFamily } from '@/lib/ai/russian-text';
 
 /** Предел длины одного сообщения — тот же, что CHECK в 1349. */
 export const REQUEST_CHAT_MAX_LEN = 2000;
@@ -241,8 +252,36 @@ export function ownerReplyButton(target: ChatTarget): { text: string; payload: s
   return { text: chatButtonText('owner', { target: target.kind, role: 'partner' }), payload: chatPressPayload('owner', target) };
 }
 
+/**
+ * Перевод сообщения для показа рядом с ним: получен, был нужен и не получен,
+ * не нужен. Третий исход и «не передан» — одно: строки перевода нет.
+ */
+export type TranslationShown = { status: 'translated'; text: string } | { status: 'failed' } | { status: 'not_needed' };
+
+/** Подпись перевода для адресата. */
+export const OWNER_TRANSLATION_CAPTION = 'Перевод (машинный)';
+/** Адресату, когда сообщение не по-русски, а перевода нет. */
+export const OWNER_TRANSLATION_MISSING = 'Сообщение не по-русски; машинный перевод не получен.';
+/** Клиенту, когда он пишет не по-русски, а перевода ответа нет: по-английски — русской строки он не прочтёт. */
+export const GUEST_TRANSLATION_MISSING = 'Machine translation of this message is not available.';
+
+/** Подпись перевода для клиента — письменностью его языка: иероглифами или по-английски. */
+export function translationCaption(translation: string): string {
+  return scriptFamily(translation) === 'han' ? '机器翻译（未经人工校对）' : 'Machine translation (not reviewed)';
+}
+
+/**
+ * Строки перевода под словами клиента — адресату. `mask` — для Telegram: та
+ * же маска ПД, что у самих слов (`names` — известные имена клиента).
+ */
+function ownerTranslationLines(tr: TranslationShown | undefined, mask = false, names: ReadonlyArray<string | null | undefined> = []): string[] {
+  if (!tr || tr.status === 'not_needed') return [];
+  if (tr.status === 'failed') return ['', OWNER_TRANSLATION_MISSING];
+  return ['', `${OWNER_TRANSLATION_CAPTION}: ${escapeHtml(mask ? maskChatText(tr.text, names) : tr.text)}`];
+}
+
 /** Адресату: сообщение клиента. С ПД (имя клиента) — только в MAX. */
-export function ownerIncomingText(f: ChatFacts, guestName: string, body: string): string {
+export function ownerIncomingText(f: ChatFacts, guestName: string, body: string, tr?: TranslationShown): string {
   const c = client(f);
   return [
     `<b>Сообщение ${c.gen} по заявке: ${escapeHtml(f.title)}</b>`,
@@ -250,13 +289,20 @@ export function ownerIncomingText(f: ChatFacts, guestName: string, body: string)
     `${c.nom}: ${escapeHtml(guestName)}`,
     '',
     escapeHtml(body),
+    ...ownerTranslationLines(tr),
     '',
     `Ответить в этом чате — кнопка «${chatButtonText('owner', f)}».`,
   ].filter((l) => l !== null).join('\n');
 }
 
-/** Адресату в Telegram, если MAX не сработал: без имени и текста. */
-export function ownerIncomingStub(f: ChatFacts, body?: string): string {
+/**
+ * Адресату в Telegram, если MAX не сработал: без имени и текста. `names` —
+ * имя клиента из заявки: написал его в сообщении сам — оно тоже скрыто, как
+ * и обещает последняя строка («имя в Telegram не передаётся»).
+ */
+export function ownerIncomingStub(
+  f: ChatFacts, body?: string, tr?: TranslationShown, names: ReadonlyArray<string | null | undefined> = [],
+): string {
   const c = client(f);
   if (body !== undefined) {
     // Telegram адресата (30.10, владелец: «отвечать из TG можно, с маской ПД»):
@@ -265,7 +311,8 @@ export function ownerIncomingStub(f: ChatFacts, body?: string): string {
       `<b>Сообщение ${c.gen} по заявке: ${stubTitle(f)}</b>`,
       factsLine(f, true) || null,
       '',
-      escapeHtml(maskChatText(body)),
+      escapeHtml(maskChatText(body, names)),
+      ...ownerTranslationLines(tr, true, names),
       '',
       `Имя ${c.gen} в Telegram не передаётся, телефоны и почта скрыты. Ответить — кнопка ниже.`,
     ].filter((l) => l !== null).join('\n');
@@ -277,9 +324,9 @@ export function ownerIncomingStub(f: ChatFacts, body?: string): string {
   ].filter((l) => l !== null).join('\n');
 }
 
-/** Текст для Telegram: ПД (телефоны, почта, ссылки, @ники, представившееся имя) скрыты. */
-export function maskChatText(body: string): string {
-  return redactChatPD(body);
+/** Текст для Telegram: ПД (телефоны, почта, ссылки, @ники, представившееся имя и известные имена) скрыты. */
+export function maskChatText(body: string, names: ReadonlyArray<string | null | undefined> = []): string {
+  return redactChatPD(body, names);
 }
 
 // ── Черновик ответа: предпросмотр и «Отправить» ─────────────────────────────
@@ -321,7 +368,7 @@ export const DRAFT_TEXT = {
 } as const;
 
 /** Оператору платформы, если адресату сообщение не дошло: передать вручную. */
-export function platformIncomingText(f: ChatFacts, guestName: string, body: string, why: string): string {
+export function platformIncomingText(f: ChatFacts, guestName: string, body: string, why: string, tr?: TranslationShown): string {
   const c = client(f);
   return [
     `<b>Сообщение ${c.gen} не дошло до адресата: ${escapeHtml(f.title)}</b>`,
@@ -331,6 +378,7 @@ export function platformIncomingText(f: ChatFacts, guestName: string, body: stri
     `Причина: ${escapeHtml(why)}`,
     '',
     escapeHtml(body),
+    ...ownerTranslationLines(tr),
   ].filter((l) => l !== null).join('\n');
 }
 
@@ -343,13 +391,21 @@ export function platformIncomingStub(f: ChatFacts): string {
   ].join('\n');
 }
 
+/** Строки перевода под ответом адресата — клиенту, на его языке. */
+function guestTranslationLines(tr: TranslationShown | undefined): string[] {
+  if (!tr || tr.status === 'not_needed') return [];
+  if (tr.status === 'failed') return ['', GUEST_TRANSLATION_MISSING];
+  return ['', `${escapeHtml(translationCaption(tr.text))}:`, escapeHtml(tr.text)];
+}
+
 /** Клиенту: ответ адресата. ПД клиента здесь нет. */
-export function guestIncomingText(f: ChatFacts, body: string): string {
+export function guestIncomingText(f: ChatFacts, body: string, tr?: TranslationShown): string {
   return [
     `<b>Ответ: ${counterpart(f)}</b>`,
     `По вашей заявке «${escapeHtml(f.title)}»${f.dates ? `, ${escapeHtml(f.dates)}` : ''}`,
     '',
     escapeHtml(body),
+    ...guestTranslationLines(tr),
     '',
     `Ответить — кнопка «${chatButtonText('guest', f)}».`,
   ].join('\n');
@@ -376,6 +432,19 @@ export type ChatDelivery = 'max' | 'no_address' | 'failed';
 export interface DeliveryFacts {
   relayed?: boolean;
   pageVisible?: boolean;
+  /**
+   * Перевод для второй стороны: приложен или был нужен и не получен. Нет поля
+   * — переводить было незачем.
+   */
+  translation?: 'translated' | 'failed';
+}
+
+/** Адресату после отправки: что с переводом его ответа клиенту, который пишет не по-русски. */
+function ownerTranslationNote(more: DeliveryFacts, f: Pick<ChatFacts, 'target'>): string {
+  const [nom, dat] = f.target === 'stay' ? ['Гость', 'гостю'] : ['Клиент', 'клиенту'];
+  if (more.translation === 'translated') return ` ${nom} пишет не по-русски: к ответу приложен машинный перевод на его язык.`;
+  if (more.translation === 'failed') return ` ${nom} пишет не по-русски, а машинный перевод не получен: ${dat} ушёл ваш текст как есть.`;
+  return '';
 }
 
 /** Итог отправки — тому, кто писал. «Не дошло» не выдаётся за «отправлено» (§4.0). */
@@ -386,13 +455,14 @@ export function sentReplyText(
     const dat = f.target === 'stay' ? 'гостю' : 'клиенту';
     const gen = f.target === 'stay' ? 'гостя' : 'клиента';
     const nom = f.target === 'stay' ? 'гость' : 'клиент';
-    if (delivery === 'max') return `Передал ${dat} в MAX. Ответ ${gen} придёт сюда.`;
+    const tr = ownerTranslationNote(more, f);
+    if (delivery === 'max') return `Передал ${dat} в MAX. Ответ ${gen} придёт сюда.${tr}`;
     if (more.pageVisible === false) {
       return `Записал, но прочитать ${dat} это негде: MAX ${nom} не подключил, а ссылки на переписку у него нет. Позвоните по телефону из заявки.`;
     }
-    return delivery === 'no_address'
+    return (delivery === 'no_address'
       ? `Записал на странице заявки ${gen}: MAX ${nom} пока не подключил — сообщение он увидит, когда откроет страницу. Если ответ срочный — позвоните по телефону из заявки.`
-      : `Записал на странице заявки ${gen}, но в MAX передать не удалось. Если ответ срочный — позвоните по телефону из заявки.`;
+      : `Записал на странице заявки ${gen}, но в MAX передать не удалось. Если ответ срочный — позвоните по телефону из заявки.`) + tr;
   }
   const dat = ROLE_WORDS[f.role].dative;
   if (delivery === 'max') return `Передал ${dat}. Ответ придёт сюда и появится на странице заявки.`;

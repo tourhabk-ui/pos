@@ -9,22 +9,17 @@
   "run1020_result": "Итог прогона 1020 (07.11, где на сайте «Края Вулканов» лежат ролики туров) здесь не записан.",
   "run1021_result": "12.11, после выката отмены и переноса заявки для ИИ-агента (#3282): список инструментов MCP — 25, среди них change_request с destructiveHint; ключ пробной заявки и несуществующий ключ получили отказ словами, заявки не тронуты.",
   "ua": "VedarBot/1.0 (+https://vedarai.ru)",
-  "run": 1023,
+  "run": 1024,
   "run1022_result": "13.11 03:04 UTC, после выката блока о разрешении парка на карточке маршрута (#3317): на двух страницах слова как ожидалось. «Мыс Маячный» — «в базе Ведара не записано», «В парке нужны оба» и условие «если маршрут идёт по природному парку сети»; «Вилючинский водопад» — прежний заголовок и «Нужны оба.».",
-  "note": "13.11: отказ по неверным полям после правки отказов заявкам ИИ-агентов. БЕЗ ЗАПИСИ, два вызова MCP. Первый — читающий инструмент get_tour_availability без поля tour: ждём английскую половину «Arguments failed validation — fix and call again» и строку «tour — required field is missing»; по первой фразе проба ждёт выката. Второй — change_request по несуществующему ключу с негодным действием и датой: ждём «Заявка не изменена», «Request not changed» и оба поля в одном отказе; заявок этот вызов не трогает — отказ приходит до чтения ключа. Заявки (create_*) на проде не зовутся. В статистике MCP два вызова лягут внешними: метки своего вызова у раннера нет.",
+  "run1023_result": "13.11 11:26 UTC, после выката отказов заявкам ИИ-агентов (#3327): оба вызова без записи ответили HTTP 200 и isError. get_tour_availability без поля tour — русская строка «нужно указать tour» и английская половина «Arguments failed validation — fix and call again: • tour — required field is missing» (новый ответ появился с 22-й попытки, в 11:26:18). change_request по несуществующему ключу с действием delete и датой 18.07.2027 — «Заявка не изменена» и «Request not changed», названы оба поля: action (allowed values: cancel, change_date) и date (invalid format).",
+  "note": "13.11: слова адресата заявки для ИИ-агента (#3328) — проверка, что поле объявлено на проде. БЕЗ ЗАПИСИ, два вызова MCP. Первый — tools/list: в схеме ответа get_request_status есть partner_messages, сказано про скрытые плейсхолдерами контакты, английская строка — «No client name or phone». Второй — get_request_status по пробному ключу (он не хранится и заявки за ним нет): та же форма ответа, partner_messages: null, state: test. Строки «No personal data» в ответе быть не должно ни у одного инструмента: её ищем, чтобы увидеть «НЕТ». Самих слов адресата проба не читает: для этого нужна настоящая заявка с ответом. Оба вызова лягут в статистику MCP как внешние заходы.",
   "post": [
     {
       "url": "https://vedarai.ru/api/mcp",
       "body": {
         "jsonrpc": "2.0",
         "id": 1,
-        "method": "tools/call",
-        "params": {
-          "name": "get_tour_availability",
-          "arguments": {
-            "when": "завтра"
-          }
-        }
+        "method": "tools/list"
       }
     },
     {
@@ -34,30 +29,26 @@
         "id": 2,
         "method": "tools/call",
         "params": {
-          "name": "change_request",
+          "name": "get_request_status",
           "arguments": {
-            "key": "probeProbeProbeProbeProbeProbe00",
-            "action": "delete",
-            "date": "18.07.2027"
+            "key": "test_lead_op_probeProbe123456"
           }
         }
       }
     }
   ],
-  "until": "Arguments failed validation",
+  "until": "partner_messages",
   "retries": 45,
   "retryDelay": 60,
   "allowStale": true,
   "text": false,
   "bytes": 1500,
   "grep": [
-    "Arguments failed validation — fix and call again",
-    "tour — required field is missing",
-    "нужно указать tour",
-    "Заявка не изменена",
-    "Request not changed",
-    "• action — ",
-    "• date — ",
-    "\"isError\":true"
+    "partner_messages",
+    "No client name or phone",
+    "скрыты плейсхолдерами",
+    "partner_messages\\\":null",
+    "state\\\":\\\"test",
+    "No personal data"
   ]
 }
