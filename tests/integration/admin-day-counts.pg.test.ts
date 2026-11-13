@@ -403,4 +403,79 @@ withPg('числа суток в админке', () => {
       expect(rows).toHaveLength(0);
     });
   });
+
+  /**
+   * Причина отказа задаче A2A (миграция 1438, слово владельца 13.11: заявки
+   * агентов «отклонены по причине нет согласия… может, согласие не доходит?»).
+   *
+   * Судится то, что решает база: ограничения колонки, запись настоящим
+   * писателем журнала (17-й параметр доходит до своей колонки), сводка по
+   * причинам настоящим запросом среза.
+   */
+  describe('причина отказа в журнале A2A', () => {
+    const row = (state: string | null, code: string | null, agent = 'ReasonBot') => pool.query(
+      `INSERT INTO a2a_requests (binding, op, version, ok, input, tool, state, agent, ua_family, caller_hash, is_self, reject_code)
+       VALUES ('jsonrpc', 'SendMessage', '1.0', TRUE, 'tool', 'create_booking_request', $1, $2, 'other', 'h', FALSE, $3)`,
+      [state, agent, code],
+    );
+
+    it('ограничения: причина только у отклонённой задачи и только кодом', async () => {
+      await expect(row('completed', 'no_consent')).rejects.toMatchObject({ code: '23514', constraint: 'a2a_requests_reject_code_only_rejected' });
+      await expect(row('failed', 'no_consent')).rejects.toMatchObject({ code: '23514', constraint: 'a2a_requests_reject_code_only_rejected' });
+      await expect(row(null, 'no_consent')).rejects.toMatchObject({ code: '23514', constraint: 'a2a_requests_reject_code_only_rejected' });
+      for (const bad of ['Нет согласия', 'NO_CONSENT', 'no consent', '', 'invalid_args:Tour', 'a:b:c']) {
+        await expect(row('rejected', bad), bad).rejects.toMatchObject({ code: '23514', constraint: 'a2a_requests_reject_code_shape' });
+      }
+      // Отказ без причины допустим: так лежат строки до миграции.
+      await expect(row('rejected', null, 'OldBot')).resolves.toBeTruthy();
+    });
+
+    it('писатель журнала кладёт код в свою колонку; у выполненной задачи колонка пуста', async () => {
+      const { logA2aRequest } = await import('@/lib/a2a/journal');
+      const base = { binding: 'jsonrpc' as const, op: 'SendMessage' as const, version: '1.0', versionDeclared: true, ok: true, input: 'tool' as const, tool: 'create_booking_request', ip: '127.0.0.1', self: false };
+      logA2aRequest({ ...base, state: 'rejected', rejectCode: 'no_consent', userAgent: 'ReasonBot/1' });
+      logA2aRequest({ ...base, state: 'rejected', rejectCode: 'no_consent', userAgent: 'ReasonBot/1' });
+      logA2aRequest({ ...base, state: 'rejected', rejectCode: 'invalid_args:tour', userAgent: 'OtherBot/2' });
+      logA2aRequest({ ...base, state: 'rejected', rejectCode: 'Иван +79001234567', userAgent: 'OtherBot/2' });
+      logA2aRequest({ ...base, state: 'completed', rejectCode: 'no_consent', userAgent: 'ReasonBot/1' });
+      // Запись журнала — fire-and-forget: ждём, пока лягут все пять.
+      let written = 0;
+      for (let i = 0; i < 50 && written < 5; i += 1) {
+        const { rows } = await pool.query<{ n: number }>(`SELECT COUNT(*)::int AS n FROM a2a_requests WHERE agent IN ('ReasonBot', 'OtherBot')`);
+        written = rows[0].n;
+        if (written < 5) await new Promise((r) => setTimeout(r, 100));
+      }
+      expect(written).toBe(5);
+      const { rows } = await pool.query<{ agent: string; state: string; reject_code: string | null; n: number }>(
+        `SELECT agent, state, reject_code, COUNT(*)::int AS n FROM a2a_requests
+          WHERE agent IN ('ReasonBot', 'OtherBot') GROUP BY 1, 2, 3 ORDER BY 1, 2, 3 NULLS LAST`,
+      );
+      expect(rows).toEqual([
+        { agent: 'OtherBot', state: 'rejected', reject_code: 'invalid_args:tour', n: 1 },
+        // Не код — «other»: ни имени, ни телефона в колонке нет.
+        { agent: 'OtherBot', state: 'rejected', reject_code: 'other', n: 1 },
+        { agent: 'ReasonBot', state: 'completed', reject_code: null, n: 1 },
+        { agent: 'ReasonBot', state: 'rejected', reject_code: 'no_consent', n: 2 },
+      ]);
+    });
+
+    it('срез журнала: отказы по причинам с числами и словами; сумма равна отказам по агентам', async () => {
+      const { readA2a } = await import('@/app/api/admin/analytics/a2a/route');
+      const a2a = await readA2a(7);
+      const mine = a2a.by_reason.filter((r) => r.tool === 'create_booking_request');
+      expect(mine).toEqual([
+        { code: 'no_consent', tool: 'create_booking_request', tasks: 2, agents: 1, label: 'нет согласия человека на обработку данных' },
+        { code: 'invalid_args:tour', tool: 'create_booking_request', tasks: 1, agents: 1, label: 'не то в поле tour' },
+        { code: 'other', tool: 'create_booking_request', tasks: 1, agents: 1, label: 'причина записана не кодом' },
+        { code: null, tool: 'create_booking_request', tasks: 1, agents: 1, label: 'причина не записана' },
+      ]);
+      const byReason = a2a.by_reason.reduce((s, r) => s + r.tasks, 0);
+      const byAgent = a2a.by_agent.reduce((s, r) => s + r.rejected, 0);
+      expect(byReason).toBe(byAgent);
+      // Последние запросы несут причину словами только у отказа.
+      const recent = a2a.recent.filter((r) => r.agent === 'ReasonBot');
+      expect(recent.filter((r) => r.state === 'rejected').map((r) => r.reject_label)).toEqual(['нет согласия человека на обработку данных', 'нет согласия человека на обработку данных']);
+      expect(recent.find((r) => r.state === 'completed')?.reject_label).toBeNull();
+    });
+  });
 });

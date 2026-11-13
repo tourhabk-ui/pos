@@ -319,7 +319,7 @@ describe('request_charter: заявка НЕ создаётся', () => {
   });
 
   it('телефон-мусор и пустое направление — отказ по-русски', async () => {
-    expect((await text(await POST(call({ ...base(), phone: 'привет' })))).text).toContain('Телефон не похож на номер');
+    expect((await text(await POST(call({ ...base(), phone: 'привет' })))).text).toContain('phone — не похож на номер');
     expect((await text(await POST(call({ ...base(), destination: '' })))).isError).toBe(true);
     noLead();
   });

@@ -100,6 +100,7 @@ export function journalA2a(request: NextRequest, binding: A2aBinding, startedAt:
     input: facts?.input ?? null,
     tool: facts?.tool ?? null,
     state: facts?.state ?? null,
+    rejectCode: facts?.reason ?? null,
     contextId: facts?.contextId ?? null,
     durationMs: Date.now() - startedAt,
     method: f.method ?? null,

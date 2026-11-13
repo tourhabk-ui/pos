@@ -141,6 +141,9 @@ async function sendMessage(params: unknown, ctx: A2AContext, deps: Deps): Promis
   if (call) {
     const outcome = await deps.executors.runTool(call.tool, call.arguments);
     const metadata = { input: 'tool', tool: call.tool };
+    // Причина отказа — кодом рядом с видом входа (13.11): агент чинит запрос по
+    // коду, а журнал A2A называет причину, не читая текст (lib/a2a/reject-reason).
+    const rejected = (reason: string) => ({ ...metadata, reason });
     let task: TaskRecord;
     switch (outcome.kind) {
       case 'ok': {
@@ -153,11 +156,13 @@ async function sendMessage(params: unknown, ctx: A2AContext, deps: Deps): Promis
         break;
       }
       case 'unknown_tool':
-        task = makeTask({ ids, now, id: taskId, contextId, state: 'rejected', text: outcome.message, extra: outcome.data, metadata });
+        task = makeTask({ ids, now, id: taskId, contextId, state: 'rejected', text: outcome.message, extra: outcome.data, metadata: rejected('unknown_tool') });
         break;
       case 'refused':
+        task = makeTask({ ids, now, id: taskId, contextId, state: 'rejected', text: outcome.text, metadata: rejected(outcome.code ?? 'refused') });
+        break;
       case 'rate_limited':
-        task = makeTask({ ids, now, id: taskId, contextId, state: 'rejected', text: outcome.text, metadata });
+        task = makeTask({ ids, now, id: taskId, contextId, state: 'rejected', text: outcome.text, metadata: rejected('rate_limited') });
         break;
       case 'failed':
         task = makeTask({ ids, now, id: taskId, contextId, state: 'failed', text: outcome.text, metadata });
@@ -174,9 +179,10 @@ async function sendMessage(params: unknown, ctx: A2AContext, deps: Deps): Promis
   }
   const answer = await deps.executors.chat(text, await deps.store.historyFor(contextId), contextId);
   const metadata = { input: 'text' };
+  // Отказ текстовому вопросу один — лимит на адрес (app/api/a2a/_shared).
   const task = answer.ok
     ? makeTask({ ids, now, id: taskId, contextId, state: 'completed', text: answer.text, metadata })
-    : makeTask({ ids, now, id: taskId, contextId, state: answer.rejected ? 'rejected' : 'failed', text: answer.text, metadata });
+    : makeTask({ ids, now, id: taskId, contextId, state: answer.rejected ? 'rejected' : 'failed', text: answer.text, metadata: answer.rejected ? { ...metadata, reason: 'rate_limited' } : metadata });
   if (answer.ok) await deps.store.remember(contextId, [{ role: 'user', content: text }, { role: 'assistant', content: answer.text }]);
   await deps.store.put(task);
   return { ok: true, result: encodeSendMessageResult(task, ctx.version, historyLength) };

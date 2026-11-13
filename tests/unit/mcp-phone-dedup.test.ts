@@ -35,15 +35,11 @@ describe('normalizePhone: мягкая E.164, не строго-РФ', () => {
   });
 });
 
-describe('все пишущие инструменты нормализуют телефон до создания лида', () => {
-  it('create_lead, create_booking_request, request_charter, create_stay_request и create_car_rental_request зовут normalizePhone', () => {
-    // С 08.11 — через phoneOrRefuse: формат (normalizePhone) и правдоподобие
-    // (implausiblePhone) одной функцией; поведение — mcp-write-contract.
-    expect(ROUTE.match(/phoneOrRefuse\(parsed\.data\.phone\)/g)?.length).toBe(5);
-    expect(ROUTE).toMatch(/const phone = normalizePhone\(raw\);/);
-    expect(ROUTE).toMatch(/Телефон не похож на номер/);
-  });
-});
+// «Все пишущие инструменты проверяют телефон до создания лида» с 13.11 держит
+// вызов роута: tests/unit/mcp-input-refusal.test.ts шлёт телефон-мусор и номер,
+// которого не бывает, каждому из пяти инструментов и читает отказ. Прежняя
+// проверка здесь считала в исходнике вызовы `phoneOrRefuse(parsed.data.phone)`
+// — и покраснела, когда вызов получил второй аргумент, хотя правило не менялось.
 
 describe('идемпотентность заявки на бронь: (телефон, тур, дата)', () => {
   const LEADS = readFileSync(join(ROOT, 'lib/leads/create.ts'), 'utf-8');
