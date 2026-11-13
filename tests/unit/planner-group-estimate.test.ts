@@ -171,7 +171,7 @@ describe('ночи — по зоне, где ночуют', () => {
   it('у последнего дня ночи нет: три дня — две ночи', () => {
     const e = estimateGroup([day(1, 'arrival'), day(2, 'activity'), day(3, 'departure')], profile({ tripOrigin: 'visitor' }));
     const [l] = lodging(e);
-    expect(l!.label).toBe('Проживание в Авачинской зоне');
+    expect(l!.label).toBe('Проживание в Авачинской зоне, уровень «Комфорт»');
     expect(plain(l!.basis)).toBe('2 ночи × 2 чел.');
     // комфорт, Авачинская: 7 000 за ночь на человека, без множителей (решение владельца 11.11, #3199 E12).
     expect(l!.total).toEqual([2 * 7000 * 2, 2 * 7000 * 2]);
@@ -183,7 +183,7 @@ describe('ночи — по зоне, где ночуют', () => {
       day(2, 'activity', { zone: 'western' }),
       day(3, 'activity', { zone: 'western' }),
     ], profile({ tripOrigin: 'local' }));
-    expect(lodging(e).map((l) => l.label)).toEqual(['Проживание в Западной зоне']);
+    expect(lodging(e).map((l) => l.label)).toEqual(['Проживание в Западной зоне, уровень «Комфорт»']);
     expect(plain(lodging(e)[0]!.basis)).toBe('1 ночь × 2 чел.');
   });
 
@@ -200,7 +200,7 @@ describe('ночи — по зоне, где ночуют', () => {
 
   it('в Северной зоне не ночуют — ночь считается в Авачинской', () => {
     const e = estimateGroup([day(1, 'activity', { zone: 'northern' }), day(2, 'activity')], profile({ tripOrigin: 'visitor' }));
-    expect(lodging(e).map((l) => l.label)).toEqual(['Проживание в Авачинской зоне']);
+    expect(lodging(e).map((l) => l.label)).toEqual(['Проживание в Авачинской зоне, уровень «Комфорт»']);
   });
 
   it('однодневный план — без строк проживания', () => {

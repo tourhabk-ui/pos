@@ -180,6 +180,14 @@ describe('3. смета сходится с карточками дней', () =
     expect(calculatePriceBreakdown(TRIP, PROFILE).activities).toEqual([11500, 40500]);
   });
 
+  it('строка проживания называет выбранный уровень жилья', () => {
+    const label = (tier: EstimateProfile['budgetTier']) =>
+      estimateGroup(TRIP, { ...PROFILE, budgetTier: tier }).lines.find((l) => l.kind === 'lodging')?.label;
+    expect(label('economy')).toBe('Проживание в Авачинской зоне, уровень «Эконом»');
+    expect(label('comfort')).toBe('Проживание в Авачинской зоне, уровень «Комфорт»');
+    expect(label('premium')).toBe('Проживание в Авачинской зоне, уровень «Премиум»');
+  });
+
   it('свободный день (0–0) строки не даёт', () => {
     const est = estimateGroup([...TRIP.slice(0, 2), d(3, 'rest', 0, 0, 'Свободный день'), ...TRIP.slice(3)], PROFILE);
     expect(est.lines.map((l) => l.label)).not.toContain('«Свободный день», день 3');
