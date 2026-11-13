@@ -21,7 +21,7 @@
  */
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
 import { readFileSync, readdirSync, mkdtempSync, writeFileSync, rmSync } from 'node:fs';
-import { join } from 'node:path';
+import { join, relative } from 'node:path';
 import { tmpdir } from 'node:os';
 import { spawnSync } from 'node:child_process';
 import { load } from 'js-yaml';
@@ -117,18 +117,36 @@ describe('срок сверки — год (слово владельца 13.11 
 
   it('«повторить сверку нечем» — правда о коде: строк в таблицу сверок никто не пишет', () => {
     // Запрет, а не форма: появился писатель — константу меняют в том же PR.
+    // Обходится весь репозиторий, а не три каталога (ревью к #3326): сверки
+    // вернула бы и миграция с INSERT, и шаг workflow, и скрипт вне scripts/.
+    // Чего сторож не видит и не обещает: имя таблицы, собранное из переменной.
+    const SKIP = new Set(['node_modules', '.git', '.next', 'public', 'media', 'coverage', 'dist', 'out', 'tests', 'test', 'docs']);
+    const CODE = /\.(ts|tsx|mts|cts|js|mjs|cjs|sql|py|sh|ya?ml)$/;
+    const WRITES = /\b(?:INSERT\s+INTO|UPDATE(?:\s+ONLY)?|MERGE\s+INTO|COPY)\s+(?:"?public"?\s*\.\s*)?"?route_source_checks\b/i;
     const writers: string[] = [];
     const walk = (dir: string): void => {
       for (const e of readdirSync(dir, { withFileTypes: true })) {
-        if (e.name === 'node_modules' || e.name.startsWith('.')) continue;
+        if (SKIP.has(e.name)) continue;
         const path = join(dir, e.name);
         if (e.isDirectory()) walk(path);
-        else if (/\.(ts|tsx|js|mjs)$/.test(e.name) && /(INSERT\s+INTO|UPDATE)\s+route_source_checks/i.test(readFileSync(path, 'utf8'))) writers.push(path);
+        else if (e.isFile() && CODE.test(e.name) && WRITES.test(readFileSync(path, 'utf8'))) writers.push(relative(process.cwd(), path));
       }
     };
-    for (const root of ['app', 'lib', 'scripts']) walk(join(process.cwd(), root));
+    walk(process.cwd());
     expect(SOURCE_RECHECK_AVAILABLE).toBe(false);
     expect(writers).toEqual([]);
+    // Сам шаблон узнаёт запись в тех видах, в каких её пишут.
+    for (const sql of [
+      'INSERT INTO route_source_checks (route_id) VALUES ($1)',
+      'insert into public.route_source_checks select 1',
+      'INSERT INTO "route_source_checks" DEFAULT VALUES',
+      'UPDATE ONLY route_source_checks SET verdict = $1',
+      'COPY route_source_checks FROM STDIN',
+      'MERGE INTO route_source_checks t USING s ON true',
+    ]) expect([sql, WRITES.test(sql)]).toEqual([sql, true]);
+    for (const sql of ['SELECT * FROM route_source_checks', 'CREATE TABLE IF NOT EXISTS route_source_checks (', 'COMMENT ON TABLE route_source_checks IS']) {
+      expect([sql, WRITES.test(sql)]).toEqual([sql, false]);
+    }
   });
 });
 
