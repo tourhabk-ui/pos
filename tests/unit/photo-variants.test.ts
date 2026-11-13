@@ -120,8 +120,11 @@ describe('хелпер подменяет путь только по маниф�
 describe('поверхности с жалобы владельца подключены', () => {
   it('главная: карточка и плитки идут через photoSrc', () => {
     const src = readFileSync(join(ROOT, 'app/_home/_HomeV8Client.tsx'), 'utf-8');
-    const calls = src.match(/photoSrc\(/g) ?? [];
-    expect(calls.length).toBeGreaterThanOrEqual(2);
+    // Плитки с 13.11 рисует components/media/PlatePhoto (копия 640, запасной
+    // исходник): судится рендером в tests/unit/home-plate-photo-fallback.test.tsx.
+    const plate = readFileSync(join(ROOT, 'components/media/PlatePhoto.tsx'), 'utf-8');
+    expect(src.match(/photoSrc\(/g)?.length ?? 0).toBeGreaterThanOrEqual(1);
+    expect(plate).toMatch(/photoSrc\(src, 640\)/);
     // Оригинал в background-image напрямую — снова та же жалоба.
     expect(src).not.toMatch(/backgroundImage: `url\('\$\{plates\[0\]\.imageUrl\}'\)`/);
     expect(src).not.toMatch(/backgroundImage: `url\('\$\{p\.imageUrl\}'\)`/);

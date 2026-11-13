@@ -36,7 +36,7 @@ import { EMERGENCY_NUMBERS } from '@/lib/safety/emergency-numbers';
 import { INTENT_CHIPS } from '@/lib/home/intent-chips';
 import { safetyPill } from '@/lib/home/safety-pill';
 import { photoSrc } from '@/lib/images/variant';
-import { photoFocusY } from '@/lib/tours/photo-focus';
+import { PlatePhoto } from '@/components/media/PlatePhoto';
 import { BEAR_PHOTOS, type CreditedPhoto } from '@/lib/media/wildlife-photos';
 import {
   dataFreshness, freshnessShort,
@@ -90,18 +90,6 @@ function tripDatesLabel(a: string | null, d: string | null): string | null {
 
 const ACC_LABEL: Record<string, string> = { red: 'красный', orange: 'оранжевый', yellow: 'жёлтый' };
 const ACC_VAR: Record<string, string> = { red: 'var(--danger)', orange: 'var(--accent)', yellow: 'var(--warning)' };
-
-/**
- * Фон плитки тура. По умолчанию — верх кадра (стиль `.img`, голова рыбака
- * цела); у портретного пейзажа с записанной точкой — его точка, иначе плитка
- * 4:3 показывает небо (владелец 12.11, lib/tours/photo-focus).
- */
-function tourPlateImageStyle(imageUrl: string): React.CSSProperties {
-  const y = photoFocusY(imageUrl);
-  const style: React.CSSProperties = { backgroundImage: `url('${photoSrc(imageUrl, 640)}')` };
-  if (y != null) style.backgroundPosition = `50% ${y}%`;
-  return style;
-}
 
 function fmtPrice(n: number | null): string | null {
   if (n == null || !Number.isFinite(n) || n <= 0) return null;
@@ -553,8 +541,8 @@ export default function HomeV8Client({ data, weather }: { data: HomeV8Data; weat
                   // на место её не делим (lib/home/transfer-plate.ts).
                   return (
                     <figure className="plate transfer" key={clone ? `${p.id}-loop` : p.id} role={clone ? undefined : 'group'} aria-label={clone ? undefined : `Карточка ${i + 1} из ${cards.length}: трансфер`} aria-hidden={clone || undefined}>
-                      <Link href={p.href} tabIndex={-1} aria-hidden><div className="img" style={p.imageUrl ? { backgroundImage: `url('${photoSrc(p.imageUrl, 640)}')` } : undefined}>
-                        {!p.imageUrl && <span className="noimg" />}
+                      <Link href={p.href} tabIndex={-1} aria-hidden><div className="img">
+                        {p.imageUrl ? <PlatePhoto src={p.imageUrl} fallback={<span className="noimg" />} /> : <span className="noimg" />}
                       </div></Link>
                       <span className="kind"><Bus aria-hidden size={12} />Трансфер под заказ</span>
                       <div className="row"><b>{p.title}</b></div>
@@ -574,7 +562,7 @@ export default function HomeV8Client({ data, weather }: { data: HomeV8Data; weat
                   // на карточке объекта (lib/home/stay-plate.ts).
                   return (
                     <figure className="plate transfer" key={clone ? `${p.id}-loop` : p.id} role={clone ? undefined : 'group'} aria-label={clone ? undefined : `Карточка ${i + 1} из ${cards.length}: жильё`} aria-hidden={clone || undefined}>
-                      <Link href={p.href} tabIndex={-1} aria-hidden><div className="img" style={{ backgroundImage: `url('${photoSrc(p.imageUrl, 640)}')` }} /></Link>
+                      <Link href={p.href} tabIndex={-1} aria-hidden><div className="img"><PlatePhoto src={p.imageUrl} fallback={<span className="noimg" />} /></div></Link>
                       <span className="kind"><BedDouble aria-hidden size={12} />Жильё</span>
                       <div className="row"><b>{p.title}</b></div>
                       {p.caption && <div className="cap">{p.caption}</div>}
@@ -592,8 +580,8 @@ export default function HomeV8Client({ data, weather }: { data: HomeV8Data; weat
                 const pf = plateFacts(p);
                 return (
                   <figure className="plate" key={clone ? `${p.id}-loop` : p.id} role={clone ? undefined : 'group'} aria-label={clone ? undefined : `Карточка ${i + 1} из ${cards.length}: тур`} aria-hidden={clone || undefined}>
-                    <Link href={href} tabIndex={-1} aria-hidden><div className="img" style={p.imageUrl ? tourPlateImageStyle(p.imageUrl) : undefined}>
-                      {!p.imageUrl && <span className="noimg" />}
+                    <Link href={href} tabIndex={-1} aria-hidden><div className="img">
+                      {p.imageUrl ? <PlatePhoto src={p.imageUrl} fallback={<span className="noimg" />} /> : <span className="noimg" />}
                       {/* Длительность — стеклянным чипом на фото (владелец 20.10):
                           видна до чтения текста. Ссылка-обёртка aria-hidden,
                           поэтому та же длительность есть ниже для чтеца. */}
@@ -1377,6 +1365,7 @@ const CSS = `
    поэтому им эта привязка ничего не меняет. */
 .v7 .plate .img{position:relative;aspect-ratio:4/3;overflow:hidden;background:var(--bg-hover) center top/cover no-repeat}
 .v7 .plate .img::after{content:"";position:absolute;inset:7px;border:1px solid rgba(244,244,240,.35);pointer-events:none}
+.v7 .plate .plate-photo{position:absolute;inset:0;width:100%;height:100%;object-fit:cover;display:block}
 .v7 .plate .noimg{position:absolute;inset:0;background:linear-gradient(180deg,#7C9E88,#2E5140)}
 .v7 .plate .row{display:flex;align-items:baseline;gap:10px;padding:11px 12px 0}
 .v7 .plate .row b{font:600 13px/1.25 var(--font-playfair),Georgia,serif;letter-spacing:-.015em}
