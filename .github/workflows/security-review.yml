@@ -33,6 +33,9 @@ name: Security Review — AI-ревью диффа (deepseek-flash)
 #   (GITHUB_ENV и др.) ловит растяжка после ревью: обнуляет и краснеет.
 #   Правила репозитория (.github/security-review-rules.md) — из базы PR, а не
 #   из самого PR: PR не ослабит ревью самого себя.
+# - Ревьюер читает копию репозитория без телефонов и почт (шаг «Копия для
+#   ревьюера», scripts/review-pii-scrub.mjs; находка ревью PR #3298, 12.11):
+#   модель зарубежная, а читает она весь репозиторий и git log, не один дифф.
 # - У ревью свой срок — REVIEW_DEADLINE_S (40 мин). Первое настоящее ревью
 #   (PR #3101, дифф ~950 строк) за 20 минут не кончилось и было снято
 #   timeout-minutes, унаследованным от прежнего экшена: на малых диффах пробы
@@ -182,6 +185,62 @@ jobs:
           if [ -f /proc/sys/kernel/apparmor_restrict_unprivileged_userns ]; then
             sudo sysctl -w kernel.apparmor_restrict_unprivileged_userns=0
           fi
+
+      # Ревьюер — зарубежная модель, и читает он не один дифф: Read, Grep и
+      # git show видят весь репозиторий, git log — почты авторов коммитов. В
+      # коде лежат телефоны живых людей (контактные лица партнёров), и правило
+      # 2 ревьюера само называет такое трансграничной передачей ПД (находка
+      # ревью PR #3298, 12.11). Поэтому ревьюер работает в копии: два коммита —
+      # база PR и его голова, телефоны и почты в файлах и в тексте коммитов
+      # заменены на [телефон] и [email], автор коммитов — без почты человека.
+      # Исходный клон удаляется: в копии нет ни его объектов, ни истории.
+      # Скрипт чистки — из базы PR, как и правила: PR не ослабит чистку своего
+      # же ревью. В базе его нет (PR, который его заводит) — из самого PR.
+      # Почистить не удалось — красный: модели без чистки не уходит ничего.
+      - name: Копия для ревьюера — без телефонов и почт
+        if: ${{ env.DEEPSEEK_KEY != '' && steps.scope.outputs.run == 'true' }}
+        run: |
+          set -euo pipefail
+          T="$RUNNER_TEMP/review-copy"
+          SCRUB="$RUNNER_TEMP/review-pii-scrub.mjs"
+          rm -rf "$T" && mkdir -p "$T/base" "$T/head"
+          if git show HEAD^1:scripts/review-pii-scrub.mjs > "$SCRUB" 2>/dev/null && [ -s "$SCRUB" ]; then
+            echo "Скрипт чистки — из базы PR."
+          elif [ -s scripts/review-pii-scrub.mjs ]; then
+            cp scripts/review-pii-scrub.mjs "$SCRUB"
+            echo "::notice::В базе PR нет scripts/review-pii-scrub.mjs — скрипт чистки взят из PR."
+          else
+            echo "::error::Скрипта чистки нет ни в базе, ни в PR — ревью без чистки ПД не идёт."
+            exit 1
+          fi
+          git log --format='%s%n%n%b' HEAD^1..HEAD > "$T/message"
+          # Не git archive: он слушает export-ignore из .gitattributes PR, и PR
+          # спрятал бы от ревьюера свой же файл (ревью #3304). Дерево — через
+          # отдельный индекс, и число файлов сверяется с деревом коммита.
+          for side in base head; do
+            ref=HEAD; [ "$side" = base ] && ref=HEAD^1
+            GIT_INDEX_FILE="$T/index-$side" git read-tree "$ref"
+            GIT_INDEX_FILE="$T/index-$side" git checkout-index -a -f --prefix="$T/$side/"
+            want=$(git ls-tree -r "$ref" | grep -cv '^160000 ' || true)
+            got=$(find "$T/$side" -type f -o -type l | wc -l | tr -d ' ')
+            if [ "$want" != "$got" ]; then
+              echo "::error::Копия для ревьюера неполная ($side): в коммите файлов $want, в копии $got — ревью не идёт."
+              exit 1
+            fi
+            rm -f "$T/index-$side"
+          done
+          node "$SCRUB" "$T/base" "$T/head" "$T/message"
+          [ -n "$(tr -d '[:space:]' < "$T/message")" ] || echo "PR" > "$T/message"
+          # Рабочий каталог — заново: только копия, без исходного клона.
+          find . -mindepth 1 -maxdepth 1 -exec rm -rf {} +
+          export GIT_AUTHOR_NAME=review GIT_AUTHOR_EMAIL=review@invalid GIT_COMMITTER_NAME=review GIT_COMMITTER_EMAIL=review@invalid
+          git init -q -b review
+          cp -a "$T/base/." .
+          git add -A -f && git -c commit.gpgsign=false commit -q --allow-empty -m "База PR"
+          find . -mindepth 1 -maxdepth 1 ! -name .git -exec rm -rf {} +
+          cp -a "$T/head/." .
+          git add -A -f && git -c commit.gpgsign=false commit -q --allow-empty -F "$T/message"
+          rm -rf "$T" "$SCRUB"
 
       # /security-review сравнивает рабочую ветку с origin/HEAD — им становится
       # база PR (первый родитель merge-коммита). Правила ревьюера — из базы:
