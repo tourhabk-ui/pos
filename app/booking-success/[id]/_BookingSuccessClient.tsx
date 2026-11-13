@@ -11,7 +11,9 @@ import {
   FileText, Ticket, QrCode, XCircle, Info,
 } from 'lucide-react';
 import SbpQrPayment from '@/components/marketplace/SbpQrPayment';
-import { canOfferPayment, hasOperatorContacts, successHeadline } from '@/lib/bookings/success-view';
+import {
+  awaitsOperator, canOfferPayment, hasOperatorContacts, notBookingNotice, successHeadline,
+} from '@/lib/bookings/success-view';
 
 interface BookingData {
   id: number;
@@ -207,7 +209,9 @@ export default function BookingSuccessClient() {
    */
   const needsPayment = Boolean(booking && !alreadyPaid && canOfferPayment(booking.status));
   /** Заявка ещё у оператора: даты он не подтвердил, платить рано. */
-  const awaitingOperator = Boolean(booking && !alreadyPaid && booking.status === 'new');
+  const awaitingOperator = Boolean(booking && awaitsOperator({ status: booking.status, alreadyPaid }));
+  /** Крупная строка «это заявка, а не бронь» — по тому же правилу (success-view). */
+  const notBooking = booking ? notBookingNotice({ status: booking.status, alreadyPaid }) : null;
   const contactsShown = booking ? hasOperatorContacts(booking) : false;
 
   // Способы считаются ПООТДЕЛЬНОСТИ. До 04.09 вкладка СБП была вложена внутрь
@@ -269,6 +273,14 @@ export default function BookingSuccessClient() {
               ? loading ? 'Проверяем заявку…' : 'Не удалось открыть заявку'
               : headline.title}
           </h1>
+          {/* Крупно и сразу под заголовком: зелёная галочка и «Заявка создана»
+              читаются как «забронировано» (слово владельца 13.11). */}
+          {notBooking && (
+            <div data-not-booking role="note" className="mt-2 mb-2">
+              <p className="text-lg font-bold leading-snug text-[var(--text-primary)]">{notBooking.title}</p>
+              <p className="text-sm text-[var(--text-primary)]">{notBooking.text}</p>
+            </div>
+          )}
           {headline?.subtitle && (
             <p className="text-sm text-[var(--text-secondary)]">{headline.subtitle}</p>
           )}
