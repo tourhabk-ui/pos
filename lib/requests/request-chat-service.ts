@@ -57,7 +57,7 @@ import {
   normalizeChatText, ownerIncomingStub, ownerIncomingText, ownerReplyButton, platformIncomingStub, platformIncomingText,
   roleOfCategory, sentReplyText, stayDates, translationCaption, waitPrompt,
   DRAFT_TEXT, draftPayload, draftPreviewText, parseDraftPress,
-  type ChatDelivery, type ChatFacts, type ChatSide, type ChatTarget,
+  type ChatDelivery, type ChatFacts, type ChatSide, type ChatTarget, type TranslationShown,
 } from '@/lib/requests/request-chat';
 import { translateForGuest, translateForOwner, type ChatTranslation } from '@/lib/requests/chat-translation';
 
@@ -336,6 +336,11 @@ async function recordTranslation(messageId: string, tr: ChatTranslation): Promis
   } catch (err) {
     logFail('перевод сообщения не записан', err);
   }
+}
+
+/** Сохранённый перевод сообщения — для показа; нет его — «не нужен»: о несделанном когда-то переводе не говорим. */
+function storedTranslation(translation: string | null | undefined): TranslationShown {
+  return typeof translation === 'string' && translation.trim() ? { status: 'translated', text: translation } : { status: 'not_needed' };
 }
 
 /** Поле результата отправки: перевод приложен, был нужен и не получен; иначе поля нет. */
@@ -849,11 +854,11 @@ export async function bindGuestChat(rawKey: string, chatId: number): Promise<Cha
     logFail('чат клиента не подключён', err);
     return [{ text: CHAT_TEXT.bindDbError, buttons: [] }];
   }
-  let owner: { body: string }[] = [];
+  let owner: { body: string; translation: string | null }[] = [];
   try {
-    owner = (await pool.query<{ body: string }>(
-      `SELECT body FROM (
-         SELECT body, created_at, id FROM request_messages
+    owner = (await pool.query<{ body: string; translation: string | null }>(
+      `SELECT body, translation FROM (
+         SELECT body, translation, created_at, id FROM request_messages
           WHERE (stay_request_id = $1::uuid OR lead_id = $2::uuid) AND author = 'owner'
           ORDER BY created_at DESC, id DESC LIMIT 5
        ) m ORDER BY created_at, id`,
@@ -867,7 +872,9 @@ export async function bindGuestChat(rawKey: string, chatId: number): Promise<Cha
   return [
     { text: guestBoundText(row.facts, owner.length), buttons: owner.length ? [] : againButton('guest', row) },
     ...owner.map((m, i) => ({
-      text: guestIncomingText(row.facts, m.body),
+      // Перевод ответа сохранён при отправке (1440) — прошлые ответы приходят с
+      // ним же. Нет его — ответ как есть: заново при подключении не переводим.
+      text: guestIncomingText(row.facts, m.body, storedTranslation(m.translation)),
       buttons: i === owner.length - 1 ? againButton('guest', row) : [],
     })),
   ];
