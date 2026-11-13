@@ -1,6 +1,6 @@
 # Схема базы данных Ведара
 
-> Снято 2026-11-13 с настоящего PostgreSQL 18.7 (Debian 18.7-1.pgdg13+2): baseline прода (`lib/database/baseline/schema-baseline.sql`, снимок 2026-08-15) + миграции новее него, накатанные штатным раннером. Последняя миграция в снимке: `1437_a2a_dialogs_translation.sql`.
+> Снято 2026-11-13 с настоящего PostgreSQL 18.7 (Debian 18.7-1.pgdg13+2): baseline прода (`lib/database/baseline/schema-baseline.sql`, снимок 2026-08-15) + миграции новее него, накатанные штатным раннером. Последняя миграция в снимке: `1438_a2a_requests_reject_code.sql`.
 > Файл порождён `scripts/gen-db-schema.ts` (`npm run db:schema-doc`); править руками бессмысленно — следующий прогон перепишет.
 > Что здесь НЕ учтено: дрейф прода после baseline, не отражённый миграциями. Судья дрейфа — `GET /api/cron/schema-drift` на проде (`lib/db/schema-drift.ts`). Значений данных в файле нет — только имена и типы.
 
@@ -8,7 +8,7 @@
 |---|---:|
 | Таблиц | 326 |
 | Представлений (VIEW) | 12 |
-| Колонок | 4259 |
+| Колонок | 4260 |
 | Внешних ключей | 391 |
 | Таблиц без единого FK в обе стороны | 87 |
 
@@ -1473,9 +1473,9 @@ B2B-агенты, продающие туры за комиссию. Не пут
 
 `id bigint!=` `created_at timestamptz!=` `agent varchar!` `ua_family varchar!` `caller_hash varchar!` `context_key varchar` `turn integer!=` `question text!` `answer text!` `state varchar!` `duration_ms integer` `is_self boolean!=` `client_ip varchar` `user_agent varchar` `question_ru text` `answer_ru text` `translated_at timestamptz` `translation_model varchar`
 
-**a2a_requests** · 18 кол. · PK id · индексов 3
+**a2a_requests** · 19 кол. · PK id · индексов 3
 
-`id bigint!=` `created_at timestamptz!=` `binding varchar!` `op varchar!` `version varchar!` `version_declared boolean!=` `ok boolean!` `error_code varchar` `input varchar` `tool varchar` `state varchar` `duration_ms integer` `agent varchar!` `ua_family varchar!` `caller_hash varchar!` `context_key varchar` `is_self boolean!=` `method varchar`
+`id bigint!=` `created_at timestamptz!=` `binding varchar!` `op varchar!` `version varchar!` `version_declared boolean!=` `ok boolean!` `error_code varchar` `input varchar` `tool varchar` `state varchar` `duration_ms integer` `agent varchar!` `ua_family varchar!` `caller_hash varchar!` `context_key varchar` `is_self boolean!=` `method varchar` `reject_code varchar`
 
 **a2a_tasks** · 4 кол. · PK task_id · индексов 2
 
