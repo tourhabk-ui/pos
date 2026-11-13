@@ -45,6 +45,28 @@ export function needsRussian(text: string | null | undefined): boolean {
   return share !== null && share < RUSSIAN_SHARE;
 }
 
+/**
+ * Письменность текста — грубо, по знакам: по ней сверяют, что перевод с
+ * русского вышел на языке клиента, а не на первом попавшемся. `han` —
+ * иероглифы без каны (китайский); `kana` — есть кана (японский); `hangul` —
+ * корейский; `other` — всё остальное (латиница, арабская вязь, тайский…).
+ * Одно имя собственное иероглифами в английской фразе письменность не меняет.
+ */
+export type ScriptFamily = 'han' | 'kana' | 'hangul' | 'other';
+
+const KANA = /[\p{Script=Hiragana}\p{Script=Katakana}]/gu;
+const HANGUL = /\p{Script=Hangul}/gu;
+
+export function scriptFamily(text: string): ScriptFamily {
+  const u = scriptUnits(text);
+  if (u.all === 0 || u.dense / u.all <= LEFTOVER_DENSE_SHARE) return 'other';
+  const plain = text.replace(LINK, ' ');
+  const kana = (plain.match(KANA) ?? []).length;
+  const hangul = (plain.match(HANGUL) ?? []).length;
+  if (hangul > 0 && hangul >= kana) return 'hangul';
+  return kana > 0 ? 'kana' : 'han';
+}
+
 /** Длина текста в «русских» знаках: иероглиф разворачивается в несколько букв. */
 export function russianLength(text: string): number {
   let n = 0;
