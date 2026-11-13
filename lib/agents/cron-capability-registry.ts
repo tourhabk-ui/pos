@@ -394,6 +394,9 @@ export const CRON_CAPABILITIES: Record<string, readonly Capability[]> = {
   'tour-tracks-census': ['db_read'],
   'track-attachment-audit': ['db_read', 'db_write'],
   'track-import-queue': ['db_read', 'db_write', 'net_out'],
+  // 13.11: живая проба машинного перевода — зовёт модель на постоянных
+  // придуманных текстах (один вызов на случай), в базу не пишет, людям не шлёт.
+  'translation-probe': ['ai'],
   'trip-reminders': ['db_read', 'db_write', 'net_out', 'telegram'],
   // Двойники контроля выхода с формы /register — только счёт (docs/safety/MCHS_PLAN.md, волна 0).
   'trip-watch-twins-census': ['db_read'],
