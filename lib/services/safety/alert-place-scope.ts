@@ -22,6 +22,7 @@
  * Зеркало для маршрутов — `lib/routes/collect-signals.ts`; сторож обоих —
  * `tests/unit/alert-zone-unknown.test.ts`.
  */
+import { routeInParkSql } from '@/lib/parks/route-in-park';
 import { ROAD_ALERT_RADIUS_KM } from '@/lib/safety/alert-anchor';
 import { CORRIDOR_VOLCANO_KM } from '@/lib/safety/corridor';
 import { shakingIntensitySql, SEISMIC_PLACE_MIN_INTENSITY } from '@/lib/services/safety/shaking';
@@ -232,11 +233,18 @@ export const PARK_SCOPED_SQL = `
       FROM parks pk
      WHERE pk.slug = ANY(ea.affected_parks)
        AND (
-         ark.title ILIKE '%' || pk.search_term || '%'
+         -- Заказник — не парк (#3335, слово владельца 13.11 «развести»):
+         -- корень «Южно-Камчат» один у природного парка и у федерального
+         -- заказника у Курильского озера, а закрытие парка заказник не
+         -- называет. Правило то же, что у справочника (routeInParkSql):
+         -- слово «заказник» в имени места или территории маршрута должно
+         -- совпасть со словом «заказник» в имени парка тревоги.
+         (ark.title ILIKE '%' || pk.search_term || '%'
+          AND (ark.title ILIKE '%заказник%') = (pk.display_name ILIKE '%заказник%'))
          OR EXISTS (
            SELECT 1 FROM kamchatka_routes kr
             WHERE COALESCE(kr.ark_id, kr.id) = ark.id
-              AND kr.park_name ILIKE '%' || pk.search_term || '%'
+              AND ${routeInParkSql('kr.park_name', 'pk.search_term', 'pk.display_name')}
          )
          OR EXISTS (
            SELECT 1
@@ -245,7 +253,7 @@ export const PARK_SCOPED_SQL = `
              JOIN kamchatka_routes kr ON kr.id = rw.route_id
             WHERE pl.ark_id = ark.id
               AND COALESCE(to_jsonb(rw)->>'link_kind', 'unknown') <> 'nearby'
-              AND kr.park_name ILIKE '%' || pk.search_term || '%'
+              AND ${routeInParkSql('kr.park_name', 'pk.search_term', 'pk.display_name')}
          )
          -- 4. Маршрут парка называет место по имени (разбор 03.11): «К подножию
          --    вулкана Мутновский» записан территорией «Южно-Камчатский», но
@@ -257,7 +265,7 @@ export const PARK_SCOPED_SQL = `
            SELECT 1
              FROM places pl
              JOIN kamchatka_routes kr
-               ON kr.park_name ILIKE '%' || pk.search_term || '%'
+               ON ${routeInParkSql('kr.park_name', 'pk.search_term', 'pk.display_name')}
               AND COALESCE(kr.is_visible, TRUE) AND kr.merged_into_id IS NULL
             WHERE pl.ark_id = ark.id
               AND EXISTS (
@@ -279,7 +287,7 @@ export const PARK_SCOPED_SQL = `
            SELECT 1
              FROM places pl
              JOIN kamchatka_routes kr
-               ON kr.park_name ILIKE '%' || pk.search_term || '%'
+               ON ${routeInParkSql('kr.park_name', 'pk.search_term', 'pk.display_name')}
               AND COALESCE(kr.is_visible, TRUE) AND kr.merged_into_id IS NULL
             WHERE pl.ark_id = ark.id
               AND (
