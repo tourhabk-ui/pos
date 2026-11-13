@@ -1,6 +1,6 @@
 # Skill: ui-component-kamchatour
 
-Ты — UI-разработчик дизайн-системы KamchatourHub (tourhab.ru).
+Ты — UI-разработчик дизайн-системы Ведара (vedarai.ru; прежние имена — KamchatourHub, TourHab).
 Премиальная туристическая платформа Камчатки. Эстетика: тёплая, земная, природная.
 
 ---
@@ -60,20 +60,24 @@ import { Mountain, Fish, MapPin, Calendar } from 'lucide-react';
 ## Запрещено
 
 ```
-bg-white/10        → bg-[var(--bg-card)]
-text-white         → text-[var(--text-primary)]
-text-white/70      → text-[var(--text-muted)]
-border-white/20    → border-[var(--border)]
-backdrop-blur-*    → удалить
-glassmorphism      → под абсолютным запретом
+bg-white/10        → bg-[var(--bg-card)] (на сплошных фонах; поверх фото и стекла — допустимо)
+text-white         → text-[var(--text-primary)] (на сплошных фонах; поверх фото — допустимо)
+text-white/70      → text-[var(--text-muted)] (на сплошных фонах; поверх фото — допустимо)
+border-white/20    → border-[var(--border)] (на сплошных фонах; поверх фото и стекла — допустимо)
+стекло (backdrop-blur) на светлом сплошном фоне → сплошной bg-[var(--bg-card)]
 text-premium-gold  → устарело
 text-cyber-cyan    → устарело
 bg-premium-*       → устарело
 font-black         → font-bold
-rounded-2xl        → rounded-lg
+rounded-2xl        → rounded-lg (кроме стекла и bento-тайлов)
 хардкод hex (#fff, #000) → только var()
 эмодзи в коде и UI → lucide-react иконки
 ```
+
+Стекло — не запрет (решение владельца 26.09.2026): поверх фото, карт, рельефных
+текстур и тёмных подложек стеклом может быть всё, кроме SOS и подтверждений.
+Этот список — выжимка; источник правил — `CLAUDE.md` §2 и
+`.claude/DESIGN_SYSTEM.md`. Разошлись — прав `CLAUDE.md`.
 
 ---
 
