@@ -53,7 +53,9 @@ import { dayPrice, dayPriceLine } from '@/lib/planner/day-price';
 import { estimateGroup, type EstimateProfile } from '@/lib/planner/estimate';
 import { planForLead } from '@/lib/planner/plan-for-lead';
 import { plannerLeadSource, tripFactsOf, tripRequestLines } from '@/lib/planner/trip-request-lines';
-import { RequestSummary } from '@/components/planner/RequestSummary';
+import { RequestNotBooking, RequestSummary } from '@/components/planner/RequestSummary';
+import { PlanZones } from '@/components/planner/PlanZones';
+import { platformAcceptsPayments } from '@/lib/payments/accepting';
 import { EMPTY_SELECTION, resolveChoices, toggleLodging, type ChoiceSelection } from '@/lib/planner/plan-choices';
 import { buildPlanPrintHtml } from '@/lib/planner/print-html';
 import type {
@@ -199,6 +201,11 @@ function trunc(s: string | null | undefined, len: number): string {
  */
 function dayDateFrom(arrival: string, day: Pick<DayPlan, 'day'>): string {
   return planDayDate(arrival, day.day - 1);
+}
+
+/** Ключ тура дня: вид занятия, зона и дата — тур подбирается под этот день (#3338). */
+function dayTourKey(day: Pick<DayPlan, 'day' | 'activityType' | 'zone'>, arrival: string): string {
+  return `${day.activityType}|${day.zone ?? ''}|${dayDateFrom(arrival, day)}`;
 }
 
 /**
@@ -530,7 +537,7 @@ function DayCard({
           </div>
           <div className="flex-1 min-w-0">
             <div className="flex items-center gap-1.5 min-w-0">
-              <p className="text-xs font-medium text-[var(--text-primary)] truncate">{day.title}</p>
+              <p className="text-xs font-medium text-[var(--text-primary)] min-w-0 line-clamp-2 break-words" title={day.title}>{day.title}</p>
               {isSpecialDay && (
                 <span className="flex items-center gap-0.5 px-1.5 py-0.5 rounded text-[9px] font-bold shrink-0 whitespace-nowrap"
                   style={{ background: `color-mix(in srgb, ${typeConf.color} 15%, transparent)`, color: typeConf.color }}>
@@ -1376,9 +1383,9 @@ export function PlannerClient({ initialUserId }: { initialUserId?: string | null
   const [chatInput, setChatInput]   = useState('');
   const [chatLoading, setChatLoading] = useState(false);
 
-  // TripBuilder v2: marketplace tours per activity type
-  const [toursPerActivity, setToursPerActivity] = useState<Record<string, TourPreview>>({});
-  const loadedActivitiesRef = useRef<Set<string>>(new Set());
+  // Тур дня в карточке — свой у каждого дня: вид, зона и дата (#3338).
+  const [toursPerDay, setToursPerDay] = useState<Record<string, TourPreview>>({});
+  const loadedDayToursRef = useRef<Set<string>>(new Set());
 
   // TripBuilder v2: AI route validation after DnD
   const [validation, setValidation] = useState<ValidationResult | null>(null);
@@ -1539,28 +1546,33 @@ export function PlannerClient({ initialUserId }: { initialUserId?: string | null
   const setTransport = useCallback((dayNum: number, t: TransportType) =>
     setTransportByDay(prev => ({ ...prev, [dayNum]: t })), []);
 
-  // Load top tour per activity type when days change
+  // Тур дня — с выездом в ЭТОТ день (#3338). Прогон 13.11: на 21.11 карточка
+  // звала на Горелый с сезоном 15.07–15.10 — тур брался один на вид занятия,
+  // без даты. Теперь запрос несёт дату дня, и подходящего нет — ссылки нет.
   useEffect(() => {
-    const uniqueActivities = [...new Set(days.map(d => d.activityType))].filter(
-      at => !loadedActivitiesRef.current.has(at)
-    );
-    if (uniqueActivities.length === 0) return;
-    uniqueActivities.forEach(at => loadedActivitiesRef.current.add(at));
-    void Promise.all(uniqueActivities.map(async (at) => {
+    const wanted = days
+      .filter((d) => d.type === 'activity')
+      .map((d) => ({ key: dayTourKey(d, arrival), day: d }))
+      .filter(({ key }) => !loadedDayToursRef.current.has(key));
+    if (wanted.length === 0) return;
+    wanted.forEach(({ key }) => loadedDayToursRef.current.add(key));
+    void Promise.all(wanted.map(async ({ key, day }) => {
       try {
-        // Find the zone of the first day with this activity
-        const dayWithActivity = days.find(d => d.activityType === at);
-        const zone = dayWithActivity?.zone ?? '';
-        const params = new URLSearchParams({ activity_type: at, limit: '1' });
-        if (zone) params.set('zone', zone);
+        const params = new URLSearchParams({ activity_type: day.activityType, limit: '1' });
+        if (day.zone) params.set('zone', day.zone);
+        const date = dayDateFrom(arrival, day);
+        if (date) params.set('date', date);
         const res = await fetch(`/api/planner/tours-for-day?${params.toString()}`);
         const data: { success: boolean; tours?: TourPreview[] } = await res.json();
         if (data.success && data.tours && data.tours.length > 0) {
-          setToursPerActivity(prev => ({ ...prev, [at]: data.tours![0] }));
+          setToursPerDay(prev => ({ ...prev, [key]: data.tours![0] }));
         }
-      } catch { /* silent -- tours are optional */ }
+      } catch (err) {
+        // Ссылка на тур необязательна: без неё день остаётся, отказ — в консоль.
+        console.error('[planner] тур дня не загрузился', err instanceof Error ? err.message : String(err));
+      }
     }));
-  }, [days]);
+  }, [days, arrival]);
 
   // Toggle edit mode on a day
   const toggleEditDay = useCallback((dayId: number) => {
@@ -2139,6 +2151,7 @@ export function PlannerClient({ initialUserId }: { initialUserId?: string | null
           </div>
         )}
         <PdConsentCheckbox checked={pdConsent} onChange={setPdConsent} id="pd-consent-planner" />
+        <RequestNotBooking acceptsPayments={platformAcceptsPayments()} />
         <button onClick={submitLead} disabled={submitting || !pdConsent}
           className="w-full ds-btn ds-btn-primary py-2.5 font-semibold disabled:opacity-50">
           {submitting ? 'Отправляем...' : 'Отправить заявку'}
@@ -2754,30 +2767,8 @@ export function PlannerClient({ initialUserId }: { initialUserId?: string | null
             </div>
           )}
 
-          {/* Zones */}
-          <div>
-            <p className="text-[10px] font-bold uppercase tracking-widest text-[var(--text-muted)] mb-2">Зоны</p>
-            <div className="flex flex-wrap gap-1.5">
-              {recommendation.zones.map(z => (
-                <div key={z.zone} className="flex items-center gap-1.5 px-2.5 py-1 bg-[var(--bg-hover)] rounded-full border border-[var(--border)]">
-                  <div className="w-2 h-2 rounded-full" style={{ background: zoneHex(z.zone) }} />
-                  <span className="text-xs font-medium text-[var(--text-primary)]">{zoneName(z.zone)}</span>
-                  <span className="text-[10px] text-[var(--text-muted)]">{z.score}%</span>
-                  {/* Загрузка зоны — из реальных броней на даты поездки
-                      (27.09). До этого движок отдавал захардкоженный ноль, и
-                      метка не зажигалась ни при какой заполненности.
-                      `null` — не измерено (слотов на даты нет либо запрос не
-                      выполнился): тогда метки нет вовсе. Молчание честнее
-                      «свободно», которое мы не проверяли. */}
-                  {typeof z.crowdScore === 'number' && z.crowdScore > 50 && (
-                    <span className={`text-[10px] font-medium ${z.crowdScore > 70 ? 'text-[var(--warning)]' : 'text-[var(--text-secondary)]'}`}>
-                      {z.crowdScore > 70 ? 'загружено' : 'умеренно'}
-                    </span>
-                  )}
-                </div>
-              ))}
-            </div>
-          </div>
+          {/* Зоны — по дням плана, а не балл совпадения (#3338). */}
+          <PlanZones days={days} crowd={recommendation.zones} />
 
           {/* Days */}
           {days.length > 0 && (
@@ -2818,7 +2809,7 @@ export function PlannerClient({ initialUserId }: { initialUserId?: string | null
                     isEditing={day.day === editingDayId}
                     isConfirmed={confirmedDays.has(day.day)}
                     transport={getTransport(day)}
-                    topTour={toursPerActivity[day.activityType]}
+                    topTour={day.type === 'activity' ? toursPerDay[dayTourKey(day, arrival)] : undefined}
                     requestArrival={arrival}
                     requestGuests={(planProfile?.adults ?? adults) + (planProfile?.children ?? childAges).length}
                     flightBadge={

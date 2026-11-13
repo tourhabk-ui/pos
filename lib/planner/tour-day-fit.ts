@@ -23,6 +23,7 @@
  * Сторож: tests/unit/tour-day-fit.test.ts.
  */
 import { dateInWindow, requestWindow } from '@/lib/tours/request-window';
+import { tourDays } from '@/lib/tours/catalog-availability';
 
 export type TourDates =
   /** Календарь оператора: даты выезда с местами в окне поездки. */
@@ -47,6 +48,41 @@ export function tourFitsDate(info: TourDates | undefined, date: string, today: s
     season_end: info.seasonEnd,
   }, today);
   return dateInWindow(window, date);
+}
+
+/** Строка каталога, прочитанная с датой дня (tours-for-day, #3338). */
+export interface CatalogDayRow {
+  season_start?: string | null;
+  season_end?: string | null;
+  duration_type?: string | null;
+  multi_day_count?: number | null;
+  duration_hours?: number | null;
+  /** Тур ведёт календарь (keepsScheduleSql). */
+  keeps_schedule?: boolean;
+  /** Свободные места в день плана — эта дата; нет мест — null. */
+  free_on_date?: string | null;
+}
+
+/**
+ * Есть ли у тура из каталога выезд в день плана — то же правило, что у
+ * движка: календарь — свободные места в этот день, без календаря — день в
+ * сезоне выездов тура. Ссылка «оставить заявку» в карточке дня (#3338) до
+ * этого брала любой тур вида и звала на Горелый в ноябре при сезоне
+ * 15.07–15.10.
+ */
+export function catalogRowFitsDay(r: CatalogDayRow, date: string, today: string): boolean {
+  return tourFitsDate(
+    r.keeps_schedule
+      ? { kind: 'dated', dates: new Set(r.free_on_date ? [r.free_on_date] : []) }
+      : {
+        kind: 'request',
+        seasonStart: r.season_start ?? null,
+        seasonEnd: r.season_end ?? null,
+        days: tourDays({ duration_type: r.duration_type ?? null, multi_day_count: r.multi_day_count ?? null, duration_hours: r.duration_hours ?? null }),
+      },
+    date,
+    today,
+  );
 }
 
 /** Очередь туров одного интереса в блоке зоны: голова — следующий тур. */

@@ -27,3 +27,20 @@ export function RequestSummary({ lines, healthNoted }: { lines: readonly string[
     </section>
   );
 }
+
+/**
+ * Строка над «Отправить заявку» (#3338): заявка планера — не бронь, её
+ * подтверждает человек, оплаты через Ведар нет. Прогон 13.11: карточка тура
+ * это говорит, а форма планера — нет, хотя заявка та же по сути. Получает её
+ * менеджер (/api/leads), даты, места и цену называют исполнители.
+ */
+export function RequestNotBooking({ acceptsPayments }: { acceptsPayments: boolean }) {
+  return (
+    <p className="text-xs text-[var(--text-secondary)]" data-testid="planner-request-not-booking">
+      Заявка — не бронь: менеджер Ведара свяжется с вами, а даты, места и цену подтвердят операторы.
+      {acceptsPayments
+        ? ' Оплата — только после их подтверждения.'
+        : ' Оплата — им напрямую, после подтверждения: Ведар платежи не принимает.'}
+    </p>
+  );
+}

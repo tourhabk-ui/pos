@@ -164,6 +164,17 @@ function countsAirportTransfer(origin: TripOrigin, needs: EstimateProfile['needs
  * называет оператор, ночь — ориентир по зоне. Смета показывает их как есть.
  */
 
+/**
+ * Дни, чья цена на карточке входит в итог сметы (#3338). Прогон 13.11:
+ * карточки дня прилёта («0 — 3 000»), дня отдыха у источников («1 500 —
+ * 5 000») и дня отъезда («0 — 2 500 ₽ на человека») показывали цену, а итог
+ * считал только дни занятий — сумма карточек и итог расходились. Переезд —
+ * отдельной строкой транспорта, свободный день цены не несёт (0–0).
+ */
+export function countsAsActivityCost(type: DayType): boolean {
+  return type === 'activity' || type === 'buffer' || type === 'arrival' || type === 'rest' || type === 'departure';
+}
+
 function budgetIndex(tier: BudgetTier): 0 | 1 | 2 {
   return tier === 'economy' ? 0 : tier === 'comfort' ? 1 : 2;
 }
@@ -239,7 +250,7 @@ export function calculatePriceBreakdown(days: EstimateDay[], profile: Pick<Estim
   let actTo = 0;
   const activityPricing = { tourPriced: 0, estimated: 0, excluded: 0, unpriced: 0 };
   for (const d of days) {
-    if (d.type !== 'activity' && d.type !== 'buffer') continue;
+    if (!countsAsActivityCost(d.type)) continue;
     // Цены тура для группы нет — ни цена, ни ориентир: справочная вилка вида
     // активности на месте тура выдала бы себя за его цену.
     if (d.priceMissing) { activityPricing.unpriced++; continue; }
@@ -250,7 +261,10 @@ export function calculatePriceBreakdown(days: EstimateDay[], profile: Pick<Estim
       activityPricing.tourPriced++;
       continue;
     }
-    if (d.priceFrom > 0 || d.priceTo > 0) activityPricing.estimated++;
+    // «По справочной вилке вида активности» — только дни занятий; цена дня
+    // прилёта, отдыха и отъезда входит в сумму, но видом активности не
+    // называется.
+    if ((d.type === 'activity' || d.type === 'buffer') && (d.priceFrom > 0 || d.priceTo > 0)) activityPricing.estimated++;
     actFrom += d.priceFrom;
     actTo += d.priceTo;
   }
@@ -470,7 +484,7 @@ export function estimateGroup(days: EstimateDay[], profile: EstimateProfile, cho
 
   // Активности: туры по своей единице цены, дни без тура — ориентир.
   for (const d of days) {
-    if (d.type !== 'activity' && d.type !== 'buffer') continue;
+    if (!countsAsActivityCost(d.type)) continue;
     // Цены тура для этой группы нет: строка есть, в итог не входит (§4.0).
     if (d.priceMissing) {
       lines.push({
@@ -490,7 +504,9 @@ export function estimateGroup(days: EstimateDay[], profile: EstimateProfile, cho
       kind: 'activity', label: `«${d.title}», день ${d.day}`,
       basis: `${fmt(d.priceFrom)}–${fmt(d.priceTo)} ₽ × ${peopleWord(people)}`,
       total: times([d.priceFrom, d.priceTo], people), source: 'estimate',
-      note: 'Тура на этот день нет — справочная цена вида активности.',
+      note: d.type === 'activity' || d.type === 'buffer'
+        ? 'Тура на этот день нет — справочная цена вида активности.'
+        : 'Справочная цена дня: то, что стоит на его карточке.',
     });
   }
 

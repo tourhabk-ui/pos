@@ -203,15 +203,15 @@ const GOLDEN_MIXED: string[] = [
   'activity|operator|avachinsky|Восхождение на Авачинский',
   'rest|-|avachinsky|День отдыха. Термальные источники',
   'activity|self|avachinsky|Тропа к Сухой речке',
-  'activity|open|avachinsky|рыбалка — Авачинская зона',
+  'activity|open|avachinsky|Рыбалка — Авачинская зона',
   // Этот день ПОЯВИЛСЯ 27.09 вместе с починкой счёта дней: 3-12 августа — это
   // десять календарных дней, а не девять. Движок считал разницу дат (ночи) и
   // терял последний день поездки; восстановленный день заполнен настоящим
   // материалом, а не набивкой.
   'activity|self|avachinsky|Источник у дороги',
   'travel|-|avachinsky|Переезд: Авачинская зона → Восточная зона',
-  'activity|open|eastern|треккинг — Восточная зона',
-  'activity|open|eastern|горячие источники — Восточная зона',
+  'activity|open|eastern|Треккинг — Восточная зона',
+  'activity|open|eastern|Горячие источники — Восточная зона',
   'departure|-|avachinsky|Сборы утром. Трансфер в аэропорт, вылет днём',
 ];
 
@@ -223,11 +223,11 @@ const GOLDEN_TREK: string[] = [
   // С 07.11 (Б1) у источников свой маршрут, и материала хватает на все дни:
   // прежний «Свободный день» в конце больше не нужен.
   'activity|self|avachinsky|Источник у дороги',
-  'activity|open|avachinsky|треккинг — Авачинская зона',
-  'activity|open|avachinsky|горячие источники — Авачинская зона',
+  'activity|open|avachinsky|Треккинг — Авачинская зона',
+  'activity|open|avachinsky|Горячие источники — Авачинская зона',
   'travel|-|avachinsky|Переезд: Авачинская зона → Восточная зона',
-  'activity|open|eastern|треккинг — Восточная зона',
-  'activity|open|eastern|горячие источники — Восточная зона',
+  'activity|open|eastern|Треккинг — Восточная зона',
+  'activity|open|eastern|Горячие источники — Восточная зона',
   'travel|-|avachinsky|Возвращение: Восточная зона → Петропавловск',
   'departure|-|avachinsky|Сборы утром. Трансфер в аэропорт, вылет днём',
 ];
