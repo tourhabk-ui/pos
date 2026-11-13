@@ -157,12 +157,19 @@ def bridge_args(args):
     return {k: v for k, v in args.items() if k not in BRIDGE_HIDDEN_ARGS}
 
 
+BRIDGE_DESCRIPTION_MAX = 1024
+
+
 def bridge_description(text):
     """Описание без предложений о скрытых полях, не длиннее 1024 знаков.
 
     Поле модели не показано, значит и фраза о нём ей не нужна: иначе модель
     читает про notify_url, которого в схеме нет, а на длинных описаниях
     (create_booking_request) обрезка в 1024 знака резала фразу посередине.
+
+    Не поместилось и без них — отбрасываются целые предложения с конца
+    (12.11): описание заявки на прокат кончалось обрывом «Никогда не с», а
+    оборванное правило модель дочитывает сама, как ей удобно.
     """
     text = (text or "").strip()
     sentences = re.split(r"(?<=[.!?])\s+", text)
@@ -170,7 +177,13 @@ def bridge_description(text):
     kept = [s for s in sentences if not any(re.search(r"\b" + re.escape(h) + r"\b", s) for h in BRIDGE_HIDDEN_ARGS)]
     if len(kept) != len(sentences):
         text = " ".join(kept)
-    return text[:1024]
+    if len(text) <= BRIDGE_DESCRIPTION_MAX:
+        return text
+    while len(kept) > 1 and len(" ".join(kept)) > BRIDGE_DESCRIPTION_MAX:
+        kept.pop()
+    clipped = " ".join(kept)
+    # Одно предложение длиннее предела — резать больше негде.
+    return clipped[:BRIDGE_DESCRIPTION_MAX]
 
 # Системный промпт моста = правила самого моста + инструкция сервера из
 # ответа initialize (поле instructions, 30.10). До этого мост держал свою
