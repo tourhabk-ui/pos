@@ -28,7 +28,7 @@
 import { pool } from '@/lib/db-pool';
 import { exactNameKey, placeNameOrAliasSearchSql, placeRankOrderSql } from '@/lib/places/name-match';
 import {
-  gradeNameMatch, namedRouteFactsLine, namedRouteUrl, placePageUrl, routesLinesForKuzmich, routesNamedBy,
+  gradeNameMatch, namedRouteFactsLine, namedRouteUrl, placePageUrl, routesLinesForKuzmich, routesNamedBy, routesSimilarTo,
   type RouteFactsSource,
 } from '@/lib/kuzmich/guardian-context';
 import { placeTypeLabel } from '@/lib/places/type-label';
@@ -132,6 +132,12 @@ export interface PlaceInfoOptions {
    * разрешение парка — справочный факт о маршруте, и справка его называет.
    */
   namedRoutePermitLines?: string[][];
+  /**
+   * Названия маршрутов, ПОХОЖИЕ на запрос (другое число или падеж), — когда
+   * нет ни места, ни маршрута по точным словам. Только подсказка: данные по
+   * похожему названию справка не прикладывает.
+   */
+  similarRouteTitles?: string[];
 }
 
 /** Указатель с карточки-справки на оценку дня: справка о сегодняшнем дне не говорит. */
@@ -156,6 +162,13 @@ export function namedRoutesInfoLines(
   return lines;
 }
 
+/** Подсказка похожих названий: назвать, пометить неточность, сказать, что делать дальше. */
+export function similarRoutesInfoLine(titles: readonly string[]): string {
+  const list = titles.map((t) => `«${t}»`).join(', ');
+  return `Похожие названия маршрутов в каталоге Ведара: ${list} — совпадение с запросом неточное, данные этих `
+    + `маршрутов не приложены. Уточни у пользователя, о каком маршруте речь, и спроси по точному названию. ${ROUTE_TODAY_POINTER}`;
+}
+
 export function composePlaceInfo(query: string, places: PlaceRow[], notes: NoteRow[], opts: PlaceInfoOptions = {}): string | null {
   const [primary, ...rest] = places;
   // Скрытое место в «похожих» не называется (решение владельца 25.09): список
@@ -168,7 +181,10 @@ export function composePlaceInfo(query: string, places: PlaceRow[], notes: NoteR
   // Маршрут вместо места — только когда места нет (условие ниже): у
   // найденного места маршруты идут своей строкой (routeLines).
   const routes = opts.namedRoutes ?? [];
-  if (!primary && own.length === 0 && routes.length === 0) return null;
+  // Похожие названия печатают только ветки «места нет и маршрут не назван»
+  // ниже: у найденного места и рядом с названным маршрутом подсказки нет.
+  const similar = opts.similarRouteTitles ?? [];
+  if (!primary && own.length === 0 && routes.length === 0 && similar.length === 0) return null;
 
   const parts: string[] = [];
   // Места нет, заметка есть (issue #2063): «Ключевской» отдавал одну
@@ -178,8 +194,13 @@ export function composePlaceInfo(query: string, places: PlaceRow[], notes: NoteR
   if (!primary && routes.length > 0) {
     parts.push(`Места «${query}» в справочнике не нашлось — тип, координаты и опасности места по этому названию неизвестны.`);
     parts.push(namedRoutesInfoLines(routes, { pageLinks: opts.pageLinks, permitLines: opts.namedRoutePermitLines }).join('\n'));
+  } else if (!primary && own.length === 0) {
+    // Ни места, ни маршрута по точным словам, ни заметки — только похожее название.
+    parts.push(`Ни места, ни маршрута с названием «${query}» в справочнике не нашлось — тип, координаты и опасности по этому названию неизвестны.`);
+    parts.push(similarRoutesInfoLine(similar));
   } else if (!primary) {
     parts.push(`Места «${query}» в справочнике не нашлось — тип, координаты и опасности по этому названию неизвестны. Ниже только заметка Кузьмича; уточните точное название места.`);
+    if (similar.length > 0) parts.push(similarRoutesInfoLine(similar));
   }
   if (primary) {
     const cat = primary.category ? ` [${primary.category}]` : '';
@@ -261,9 +282,17 @@ export async function placeInfoForKuzmich(placeName: string, opts: PlaceInfoOpti
   // Места нет — спросить каталог маршрутов тем же правилом, что страж
   // (routesNamedBy). Отказ базы уже записан в лог там; здесь он не выдаётся ни
   // за «маршрутов нет», ни за ответ: справка скажет только то, что знает.
-  const namedRoutes = primary ? undefined : (await routesNamedBy(placeName)) ?? undefined;
+  const named = primary ? undefined : await routesNamedBy(placeName);
+  const namedRoutes = named ?? undefined;
   const namedRoutePermitLines = namedRoutes?.length
     ? permitLinesForRoutes(namedRoutes, await routePermitCasesFor(namedRoutes))
     : undefined;
-  return composePlaceInfo(placeName, pr.rows, kr.rows, { ...opts, routeLines, offerLines, namedRoutes, namedRoutePermitLines });
+  // Каталог прочитался и по точным словам пуст — спросить похожие названия
+  // (другое число или падеж). Каталог не прочитался — второй раз не спрашиваем.
+  const similarRouteTitles = !primary && named !== null && named !== undefined && named.length === 0
+    ? ((await routesSimilarTo(placeName)) ?? []).map((r) => r.title)
+    : undefined;
+  return composePlaceInfo(placeName, pr.rows, kr.rows, {
+    ...opts, routeLines, offerLines, namedRoutes, namedRoutePermitLines, similarRouteTitles,
+  });
 }

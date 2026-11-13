@@ -25,6 +25,8 @@ import { PLACE_COLOR_WORD, kamchatkaStamp, placeStatusFields } from '@/lib/safet
 import type { GuardianPlaceStatus, GuardianRouteStatus, GuardianStructured } from '@/lib/mcp/place-status-schema';
 import { namedRouteAlerts, routeToday, routeTodayLines, ROUTE_TODAY_MARK, type RouteToday } from '@/lib/routes/route-today';
 import { permitLinesForRoutes, routePermitCasesFor } from '@/lib/parks/route-permit';
+import { stemRu } from '@/lib/search/query-words';
+import { VERDICT_LABELS } from '@/lib/routes/go-verdict';
 import { KURIL_NORTH_NOTE, isOutsideKraiSources } from '@/lib/safety/kuril-north';
 
 interface GuardianPlaceRow {
@@ -488,6 +490,107 @@ export async function routesNamedBy(queryRaw: string): Promise<RouteFactsSource[
   return named === null ? null : named.filter((r) => isRouteNamedBy(query, r));
 }
 
+/** Сколько похожих названий назвать: подсказка, а не список каталога. */
+export const ROUTE_SIMILAR_MAX = 3;
+
+/** Сколько строк читать до сверки основ: шаблон SQL шире правила. */
+const ROUTE_SIMILAR_SCAN = 40;
+
+/** Сходятся ли два слова по основе (правило основы — общее с поиском, stemRu). */
+function stemsAgree(a: string, b: string): boolean {
+  const x = stemRu(a);
+  const y = stemRu(b);
+  return x.length >= 4 && y.length >= 4 && (x.startsWith(y) || y.startsWith(x));
+}
+
+/**
+ * Похоже ли название маршрута на запрос: каждое слово запроса сходится по
+ * основе с каким-то словом названия («Вилючинские водопады» — «Вилючинский
+ * водопад»). Запрос из одних общих слов («водопады») не похож ни на что.
+ *
+ * Это правило ПОДСКАЗКИ, а не совпадения. Данные по основе не прикладываются
+ * — ни здесь, ни у мест (lib/places/name-match: «Авачинский» по основе
+ * сходится с «Авачинская бухта»): похожий маршрут называется с пометкой о
+ * неточном совпадении, и человек подтверждает, о нём ли речь.
+ */
+export function isSimilarRouteTitle(query: string, title: string): boolean {
+  const q = routeNameWords(query);
+  if (namesNothingBySimilarity(q)) return false;
+  const t = significantWords(title);
+  return q.every((w) => t.some((x) => x === w || stemsAgree(w, x)));
+}
+
+/**
+ * Слова, по которым похожее название не ищут: их нет, или все они общие
+ * («водопады», «вулканы и озёра») — в любом числе и падеже.
+ */
+function namesNothingBySimilarity(words: string[]): boolean {
+  const generic = (w: string) => [...GENERIC_PLACE_WORDS].some((g) => g === w || stemsAgree(w, g));
+  return words.length === 0 || words.every(generic);
+}
+
+/**
+ * Шаблон слова для отбора в SQL: шире основы, сверку делает isSimilarRouteTitle.
+ * Регистр — тем же ILIKE, что у поиска по точным словам (nameContainsAllWordsSql);
+ * шаблон — через containsPattern, как у всех инструментов агента (lib/db/like).
+ */
+function looseTitlePattern(word: string): string {
+  const w = word.toLowerCase().replace(/ё/g, 'е');
+  return containsPattern(w.length < 5 ? w : w.slice(0, Math.max(4, w.length - 3)));
+}
+
+/**
+ * Маршруты каталога с ПОХОЖИМ названием (#3302, срез 5): запрос в другом
+ * числе или падеже — «Вилючинские водопады», «к Вилючинскому водопаду» —
+ * не находил ни места, ни маршрута, и ответ был «ничего нет» при маршруте
+ * на витрине. Зовётся, только когда по точным словам маршрута нет.
+ * null — база отказала (в лог): подсказки нет, и это не «похожих нет».
+ */
+export async function routesSimilarTo(queryRaw: string): Promise<RouteFactsSource[] | null> {
+  const { text: query } = sanitizePromptInput(queryRaw);
+  const words = routeNameWords(query);
+  // Общие слова базу не спрашивают: «вулканы» подобрали бы сорок строк, и все отсеялись бы.
+  if (namesNothingBySimilarity(words) || !words.some((w) => w.length >= 5)) return [];
+  try {
+    const { rows } = await pool.query<RouteFactsSource>(
+      `SELECT COALESCE(kr.ark_id, kr.id)::text AS id, kr.id::text AS db_id, kr.slug, kr.title,
+              kr.mchs_registration_required, kr.park_name
+         FROM kamchatka_routes kr
+        WHERE kr.is_visible = TRUE AND kr.merged_into_id IS NULL
+          AND ${words.map((_, i) => `translate(kr.title, 'ёЁ', 'еЕ') ILIKE $${i + 1}`).join(' AND ')}
+        ORDER BY kr.search_count DESC NULLS LAST, kr.title
+        LIMIT ${ROUTE_SIMILAR_SCAN}`,
+      words.map(looseTitlePattern),
+    );
+    return rows.filter((r) => Boolean(r.db_id) && isSimilarRouteTitle(query, r.title)).slice(0, ROUTE_SIMILAR_MAX);
+  } catch (err) {
+    console.error('[guardian] похожие названия маршрутов не прочитаны:', err instanceof Error ? err.message : err);
+    return null;
+  }
+}
+
+/**
+ * Строки о маршруте с похожим названием — по образцу слабого совпадения
+ * места: название и пометка, данные не приложены. Оценку «Осторожно» или «Не
+ * сегодня» молча ронять нельзя: она идёт с рамкой неуверенности и с меткой в
+ * скобках, которую читает сторож утверждений Кузьмича.
+ */
+export function routeSimilarLines(query: string, r: Pick<RouteFactsSource, 'title'>, today: RouteToday): string[] {
+  const lines = [
+    `(!) Похожее название в каталоге Ведара — маршрут «${r.title}»: совпадение с запросом «${query}» неточное, `
+    + 'данные этого маршрута не приложены. Уточни у пользователя, о нём ли речь, и спроси по точному названию.',
+  ];
+  const mark = ROUTE_TODAY_MARK[today.verdict.status];
+  if (mark) {
+    const reason = today.verdict.reason.trim().replace(/[.!?…]+$/, '');
+    lines.push(
+      `Но у маршрута с похожим названием «${r.title}» [${mark}] оценка на сегодня — `
+      + `«${VERDICT_LABELS[today.verdict.status]}»: ${reason}. Уточни, о нём ли речь.`,
+    );
+  }
+  return lines;
+}
+
 /** Факты одного названного маршрута для карточки-справки (get_place_info). */
 export function namedRouteFactsLine(r: RouteFactsSource): string {
   return `«${r.title}»: ${routeFactsBody(r)}`;
@@ -725,11 +828,6 @@ export async function getGuardianContextDetailed(placeNameRaw: string, opts: Gua
     }
   }
 
-  if (placeRows.length === 0 && alertsRes.rows.length === 0 && knowledgeRes.rows.length === 0 && !volcanoLines
-      && !namedRoutes?.length) {
-    return { text: '', found: false, places: [], routes: [] };
-  }
-
   // Маршрут как предмет ответа (#3302): видимого места с сильным совпадением
   // нет, а маршрут каталога с таким названием есть — ему считается оценка на
   // сегодня, та же, что на его карточке. Есть такое место — ответ о нём, и
@@ -742,11 +840,28 @@ export async function getGuardianContextDetailed(placeNameRaw: string, opts: Gua
   const subjectRoutes = strongVisiblePlace
     ? []
     : (namedRoutes ?? []).filter((r) => isRouteNamedBy(placeName, r));
+
+  // Похожее название (#3302, срез 5): ни места с сильным совпадением, ни
+  // маршрута по точным словам — запрос мог стоять в другом числе или падеже
+  // («Вилючинские водопады»). Каталог не прочитался (null) — не спрашиваем
+  // второй раз: «не смог посмотреть» уже записано в лог. Маршрут по точным
+  // словам есть, пусть и со слабым совпадением, — его данные идут ниже своей
+  // строкой, и подсказка «данные не приложены» о нём же была бы неправдой.
+  const similarRoutes = !strongVisiblePlace && namedRoutes !== null && namedRoutes.length === 0
+    ? (await routesSimilarTo(placeName)) ?? []
+    : [];
+
+  if (placeRows.length === 0 && alertsRes.rows.length === 0 && knowledgeRes.rows.length === 0 && !volcanoLines
+      && !namedRoutes?.length && similarRoutes.length === 0) {
+    return { text: '', found: false, places: [], routes: [] };
+  }
   // Оценка дня и условия посещения территории читаются разом: это разные
   // таблицы, и ждать одну ради другой незачем.
-  const [subjectToday, subjectPermitCases] = await Promise.all([
+  const [subjectToday, subjectPermitCases, similarToday] = await Promise.all([
     Promise.all(subjectRoutes.map((r) => routeToday(r.db_id as string))),
     routePermitCasesFor(subjectRoutes),
+    // У похожего маршрута оценка считается ради одного: не уронить запрет молча.
+    Promise.all(similarRoutes.map((r) => routeToday(r.db_id as string))),
   ]);
   const subjectPermitLines = permitLinesForRoutes(subjectRoutes, subjectPermitCases);
   const routeStatuses: GuardianRouteStatus[] = [];
@@ -770,6 +885,12 @@ export async function getGuardianContextDetailed(placeNameRaw: string, opts: Gua
     parts.push(
       `Места «${placeName}» в справочнике не нашлось — статуса места, кодов KVERT и КФ ЕГС ` +
       `и опасностей места по этому названию нет. ${routeSubjectIntro(placeName, subjectRoutes)}`,
+    );
+  } else if (placeRows.length === 0 && similarRoutes.length > 0) {
+    // Ни места, ни маршрута по точным словам; есть только похожее название.
+    parts.push(
+      `Ни места, ни маршрута с названием «${placeName}» в справочнике Ведара не нашлось — статуса, кодов ` +
+      `KVERT и КФ ЕГС и опасностей по этому названию нет. Это НЕ значит, что там безопасно.`,
     );
   } else if (placeRows.length === 0) {
     parts.push(
@@ -1053,6 +1174,25 @@ export async function getGuardianContextDetailed(placeNameRaw: string, opts: Gua
       unknown: today.verdict.unknown,
       alerts: today.signals.alerts === null ? null : today.signals.alerts.map((a) => a.title),
       park_name: r.park_name ?? null,
+      match: 'high',
+    });
+  });
+  // Похожие названия — после мест и названных маршрутов (их в этой ветке нет):
+  // пометка о неточном совпадении и, если есть, оценка с рамкой неуверенности.
+  similarRoutes.forEach((r, i) => {
+    const today = similarToday[i] as RouteToday;
+    parts.push(...routeSimilarLines(placeName, r, today));
+    routeStatuses.push({
+      id: r.id,
+      title: r.title,
+      url: namedRouteUrl(r),
+      today: today.verdict.status,
+      code: today.verdict.code,
+      reason: today.verdict.reason,
+      unknown: today.verdict.unknown,
+      alerts: today.signals.alerts === null ? null : today.signals.alerts.map((a) => a.title),
+      park_name: r.park_name ?? null,
+      match: 'low',
     });
   });
 

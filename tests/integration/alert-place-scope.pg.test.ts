@@ -50,7 +50,7 @@ import { sameParksParam, sameParksSql } from '@/lib/services/safety/push-same-ki
 import { PARK_CLOSURE_HOLD_HOURS } from '@/lib/safety/park-closure';
 import { createTestDatabase } from '../helpers/pg-schema';
 import { applyPlanParkStatus, loadPlanParkAlerts, PARK_STATUS_UNREAD_NOTE } from '@/lib/planner/park-status';
-import { getGuardianContextDetailed } from '@/lib/kuzmich/guardian-context';
+import { getGuardianContextDetailed, routesNamedBy, routesSimilarTo } from '@/lib/kuzmich/guardian-context';
 import { loadParkLookup, routePermitCaseFor, PERMIT_NOT_MCHS_RU } from '@/lib/parks/route-permit';
 import { runRoutePermitCensus } from '@/lib/parks/route-permit-census';
 import { PARK_PERMIT_SOURCE, GREEN_BUTTON } from '@/lib/safety/park-permit';
@@ -1218,6 +1218,60 @@ withPg('кого накрывает предупреждение', () => {
         `UPDATE parks SET permit_url = $1, permit_email = $2 WHERE slug = 'nalychevo'`,
         [before.rows[0]?.permit_url ?? null, before.rows[0]?.permit_email ?? null],
       );
+    }
+  });
+
+  /**
+   * Похожее название маршрута (#3302, срез 5): запрос в другом числе и падеже.
+   * Отбор по шаблонам слов исполняется на базе — регистр, «ё», видимость и
+   * слитые записи; дальше страж называет маршрут подсказкой, а запрет дня не
+   * теряет.
+   */
+  it('страж: похожее название маршрута — подсказка с пометкой, запрет не теряется (#3302)', async () => {
+    const title = 'Закрыты маршруты природного парка «Налычево» (тест похожего названия)';
+    await insertAlert({ type: 'park_closure', title, zones: [], parks: ['nalychevo'] });
+    const HIDDEN = 'd0000000-0000-4000-8000-0000000000f5';
+    const MERGED = 'd0000000-0000-4000-8000-0000000000f6';
+    const YO = 'd0000000-0000-4000-8000-0000000000f7';
+    try {
+      await pool.query(
+        `INSERT INTO kamchatka_routes (id, category, title, zone, is_visible, merged_into_id) VALUES
+           ($1, 'trekking', 'Тропа к Таловскому источнику (скрытая)', 'avachinsky', FALSE, NULL),
+           ($2, 'trekking', 'Тропа у Таловского источника (слитая)', 'avachinsky', TRUE, $4),
+           ($3, 'trekking', 'ТЁПЛЫЕ Таловские ключи (тест)', 'avachinsky', TRUE, NULL)`,
+        [HIDDEN, MERGED, YO, PARK_ROUTE_ID],
+      );
+
+      // По точным словам маршрута нет — иначе подсказка не понадобилась бы.
+      expect(await routesNamedBy('Тропы к Таловскому источнику')).toEqual([]);
+      const similar = await routesSimilarTo('Тропы к Таловскому источнику');
+      expect(similar, 'похожие названия не прочитаны').not.toBeNull();
+      expect(similar!.map((r) => r.db_id), 'скрытый или слитый маршрут назван похожим').toEqual([PARK_ROUTE_ID]);
+      // «ё» и регистр: «Теплый Таловский ключ» находит «ТЁПЛЫЕ Таловские ключи».
+      expect((await routesSimilarTo('Теплый Таловский ключ'))?.map((r) => r.db_id)).toEqual([YO]);
+      expect(await routesSimilarTo('Тёплый Таловский ключ')).toHaveLength(1);
+
+      const d = await getGuardianContextDetailed('Тропы к Таловскому источнику');
+      expect(d.found).toBe(false);
+      expect(d.places).toEqual([]);
+      expect(d.routes).toHaveLength(1);
+      expect(d.routes[0]).toMatchObject({
+        id: PARK_ROUTE_ID, title: 'Тропа к Таловским источникам (тест)', match: 'low', today: 'no', code: 'alert_ban',
+      });
+      expect(d.routes[0]!.alerts).toContain(title);
+      expect(d.text).toContain('(!) Похожее название в каталоге Ведара — маршрут «Тропа к Таловским источникам (тест)»: совпадение с запросом «Тропы к Таловскому источнику» неточное, данные этого маршрута не приложены.');
+      expect(d.text).toContain('Но у маршрута с похожим названием «Тропа к Таловским источникам (тест)» [НЕ СЕГОДНЯ] оценка на сегодня — «Не сегодня»: МЧС: ');
+      expect(d.text).toContain(title);
+      // Данные и условия посещения маршрута по неточному совпадению не прикладываются.
+      expect(d.text).not.toContain('Маршрут каталога «Тропа к Таловским источникам (тест)»');
+      expect(d.text).not.toContain('Условия посещения');
+
+      // Точное название по-прежнему даёт сам маршрут, а не подсказку.
+      const exact = await getGuardianContextDetailed('Тропа к Таловским источникам');
+      expect(exact.routes.map((r) => r.match)).toEqual(['high']);
+      expect(exact.text).not.toContain('(!) Похожее название');
+    } finally {
+      await pool.query(`DELETE FROM kamchatka_routes WHERE id = ANY($1::uuid[])`, [[HIDDEN, MERGED, YO]]);
     }
   });
 
