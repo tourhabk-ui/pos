@@ -28,6 +28,11 @@ export interface AdminLeadMessage {
   delivery_channel: 'max' | 'no_address' | 'failed' | null;
   delivery_reason: string | null;
   created_at: string;
+  /**
+   * Машинный перевод сообщения, сделанный при отправке (1440): слова клиента —
+   * на русский, слова адресата — на язык клиента. null — перевода нет.
+   */
+  translation: string | null;
 }
 
 export async function GET(request: NextRequest, { params }: { params: Promise<{ id: string }> }) {
@@ -39,7 +44,7 @@ export async function GET(request: NextRequest, { params }: { params: Promise<{ 
   }
   try {
     const { rows } = await pool.query<Omit<AdminLeadMessage, 'created_at'> & { created_at: Date }>(
-      `SELECT author, door, body, delivery_channel, delivery_reason, created_at
+      `SELECT author, door, body, delivery_channel, delivery_reason, created_at, translation
          FROM request_messages
         WHERE lead_id = $1::uuid
         ORDER BY created_at, id

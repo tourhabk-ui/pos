@@ -7,10 +7,13 @@
  *
  * Три исхода (§4.0): сообщения есть / переписки нет / не загрузилась (с
  * причиной, а не «сообщений нет»). Текст — ПД клиента, под `Sensitive`.
+ * Под сообщением — его машинный перевод, если он был сделан при отправке
+ * (1440): по нему оператор платформы читает слова клиента не по-русски.
  */
 import { useEffect, useState } from 'react';
 import { MessageCircle } from 'lucide-react';
 import { Sensitive } from '@/components/admin/shared/Sensitive';
+import { MessageTranslation } from '@/components/admin/shared/MessageTranslation';
 
 interface Message {
   author: 'owner' | 'guest';
@@ -19,6 +22,7 @@ interface Message {
   delivery_channel: 'max' | 'no_address' | 'failed' | null;
   delivery_reason: string | null;
   created_at: string;
+  translation?: string | null;
 }
 
 const DELIVERY: Record<string, string> = {
@@ -76,6 +80,7 @@ export function LeadConversation({ leadId }: { leadId: string }) {
                 {m.delivery_channel && m.delivery_channel !== 'max' && m.delivery_reason ? ` (${m.delivery_reason})` : ''}
               </span>
               <p className="text-[var(--text-primary)] whitespace-pre-line"><Sensitive>{m.body}</Sensitive></p>
+              <MessageTranslation author={m.author} translation={m.translation} />
             </li>
           ))}
         </ol>

@@ -1053,6 +1053,17 @@ withPg('переписка по заявке на настоящем PostgreSQL'
       expect(all[1]).toEqual({ author: 'owner', body: reply, translation: 'Yes, we start at 9:00. My phone is +7 914 123-45-67', stamped: true, translation_model: 'ai-quality' });
     });
 
+    it('клиент подключил MAX позже: прошлый ответ адресата приходит с сохранённым переводом, модель не зовётся', async () => {
+      // Отключаем чат клиента и подключаем заново — как человек, открывший ссылку MAX после ответа.
+      await pool.query(`UPDATE leads SET guest_max_chat_id = NULL WHERE id = $1`, [leadId]);
+      const replies = await svc.bindGuestChat(key, FOREIGN_CHAT);
+      expect(replies[0].text).toMatch(/Уже есть ответ/);
+      expect(replies).toHaveLength(2);
+      expect(replies[1].text).toContain('Да, начнём в 9:00. Мой телефон +7 914 123-45-67');
+      expect(replies[1].text).toContain('Machine translation (not reviewed):\nYes, we start at 9:00. My phone is +7 914 123-45-67');
+      expect(ai.quality).not.toHaveBeenCalled();
+    });
+
     it('страница заявки: под ответом адресата — перевод с подписью; у слов самого клиента перевода нет', async () => {
       const page = await svc.readRequestChat(key);
       expect(page.outcome).toBe('ok');
@@ -1088,6 +1099,58 @@ withPg('переписка по заявке на настоящем PostgreSQL'
       expect(tail.map((m) => [m.author, m.translation, m.stamped, m.translation_model])).toEqual([
         ['guest', null, false, null], ['owner', null, false, null],
       ]);
+    });
+
+    it('админка: обе двери отдают сохранённый перевод рядом с исходником, у сообщения без перевода — null; модель не зовётся', async () => {
+      vi.doMock('@/lib/auth/middleware', () => ({ requireAdmin: async () => ({ userId: 'admin', role: 'admin' }) }));
+      try {
+        const { NextRequest } = await import('next/server');
+        // Переписка лида — в карточке лида админки.
+        const leadRoute = await import('@/app/api/admin/leads/[id]/messages/route');
+        const res = await leadRoute.GET(
+          new NextRequest(`http://localhost/api/admin/leads/${leadId}/messages`), { params: Promise.resolve({ id: leadId }) },
+        );
+        expect(res.status).toBe(200);
+        const body = await res.json() as { data: Array<{ author: string; body: string; translation: string | null }> };
+        expect(body.data.map((m) => [m.author, m.translation])).toEqual([
+          ['guest', 'Это [имя]. Можно начать в 9 утра? Мой телефон +86 138 0013 8000'],
+          ['owner', 'Yes, we start at 9:00. My phone is +7 914 123-45-67'],
+          ['guest', null],
+          ['owner', null],
+        ]);
+        // Исходник при этом не заменён переводом.
+        expect(body.data[0].body).toBe('This is Li Wei. Can we start at 9 am? My phone is +86 138 0013 8000');
+
+        // Переписка заявки на жильё — в разделе «Заявки гостей».
+        const acc = await pool.query<{ id: string }>(
+          `INSERT INTO accommodations (name, type, coordinates, partner_id) VALUES ('Дом перевода', 'guesthouse', '{"lat":53.0,"lng":158.6}', $1) RETURNING id`,
+          [operatorId],
+        );
+        const { PD_CONSENT_STAY_VERSION } = await import('@/lib/legal/pd-consent');
+        const stayId = (await pool.query<{ id: string }>(
+          `INSERT INTO stay_requests (accommodation_id, check_in_date, check_out_date, guests, guest_name, guest_phone,
+                                      pd_consent_at, pd_consent_ip, pd_consent_source, pd_consent_version, door)
+           VALUES ($1, '2099-08-10', '2099-08-12', 2, 'Li Wei', '+8613800138000',
+                   NOW(), '203.0.113.9', 'stay-request', $2, 'form') RETURNING id`,
+          [acc.rows[0].id, PD_CONSENT_STAY_VERSION],
+        )).rows[0].id;
+        ai.quality.mockResolvedValueOnce(answer('Есть ли парковка у дома?'));
+        const sentMsg = await svc.postGuestMessage({ kind: 'stay', id: stayId }, 'Is there parking near the house?', 'page');
+        expect(sentMsg.outcome).toBe('sent');
+        expect(ai.quality).toHaveBeenCalledTimes(1);
+        const stayRoute = await import('@/app/api/admin/stay-requests/route');
+        const stayRes = await stayRoute.GET(new NextRequest('http://localhost/api/admin/stay-requests?limit=200'));
+        expect(stayRes.status).toBe(200);
+        const stayBody = await stayRes.json() as { data: { requests: Array<{ id: string; messages: Array<{ author: string; body: string; translation: string | null }> }> } };
+        const mine = stayBody.data.requests.find((r) => r.id === stayId);
+        expect(mine?.messages).toEqual([expect.objectContaining({
+          author: 'guest', body: 'Is there parking near the house?', translation: 'Есть ли парковка у дома?',
+        })]);
+        // Чтение админки перевод не заказывает: вызов модели был один — при отправке.
+        expect(ai.quality).toHaveBeenCalledTimes(1);
+      } finally {
+        vi.doUnmock('@/lib/auth/middleware');
+      }
     });
 
     it('клиент перешёл на русский — ответ адресата не переводится, модель не зовётся', async () => {

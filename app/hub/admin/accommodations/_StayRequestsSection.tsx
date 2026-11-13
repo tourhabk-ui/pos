@@ -5,6 +5,7 @@ import { useEffect, useState } from 'react';
 import Link from 'next/link';
 import { Inbox, Loader2, CheckCircle2, XCircle, HelpCircle, Phone, RefreshCw } from 'lucide-react';
 import { Sensitive } from '@/components/admin/shared/Sensitive';
+import { MessageTranslation } from '@/components/admin/shared/MessageTranslation';
 import { nightsBetween, ownerDeliveryLabel, platformDeliveryLabel, ruDate } from '@/lib/stay/stay-request';
 
 /**
@@ -45,6 +46,8 @@ interface StayRequestMessage {
   delivery: string | null;
   deliveryReason: string | null;
   at: string;
+  /** Машинный перевод сообщения (1440): слова гостя — на русский, слова хозяина — на язык гостя. */
+  translation?: string | null;
 }
 
 /** Исход доставки сообщения второй стороне (1349). Не записан — так и сказано. */
@@ -212,6 +215,7 @@ export function StayRequestsSection() {
                           {' · '}{m.delivery ? MESSAGE_DELIVERY[m.delivery] ?? m.delivery : 'исход не записан'}
                         </span>
                         <p className="text-[var(--text-primary)] whitespace-pre-line"><Sensitive>{m.body}</Sensitive></p>
+                        <MessageTranslation author={m.author} translation={m.translation} to="Гостю" />
                       </li>
                     ))}
                   </ol>

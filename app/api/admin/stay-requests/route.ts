@@ -55,6 +55,8 @@ interface MessageRow {
   delivery_channel: string | null;
   delivery_reason: string | null;
   created_at: Date;
+  /** Машинный перевод сообщения, сделанный при отправке (1440); NULL — перевода нет. */
+  translation: string | null;
 }
 
 export async function GET(request: NextRequest) {
@@ -92,7 +94,7 @@ export async function GET(request: NextRequest) {
     // передать сообщение, которое не дошло, и разобрать спор.
     const ids = list.rows.map((r) => r.id);
     const msgs = ids.length === 0 ? { rows: [] as MessageRow[] } : await pool.query<MessageRow>(
-      `SELECT stay_request_id::text AS stay_request_id, author, door, body, delivery_channel, delivery_reason, created_at
+      `SELECT stay_request_id::text AS stay_request_id, author, door, body, delivery_channel, delivery_reason, created_at, translation
          FROM request_messages
         WHERE stay_request_id = ANY($1::uuid[])
         ORDER BY created_at, id`,
@@ -132,6 +134,7 @@ export async function GET(request: NextRequest) {
             body: m.body,
             delivery: m.delivery_channel,
             deliveryReason: m.delivery_reason,
+            translation: m.translation,
             at: m.created_at.toISOString(),
           })),
         })),
