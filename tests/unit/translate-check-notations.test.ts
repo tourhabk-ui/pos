@@ -103,6 +103,37 @@ describe('время суток — одно в разных записях', ()
   });
 });
 
+describe('приведение времени не открывает дорогу выдумке (замечание ревью #3331)', () => {
+  it('на русский: минуты, которых нет в исходнике, — отказ', () => {
+    expect(toRu('We arrive at 8:00.', 'Мы приедем в 8:45.')).toMatch(/появились числа, которых нет в исходнике: 45/);
+    expect(toRu('We arrive at 8 am.', 'Мы приедем в 8:45.')).toMatch(/появились числа, которых нет в исходнике: 45/);
+    expect(toRu('我们早上8点到。', 'Мы приедем в 8:15.')).toMatch(/появились числа, которых нет в исходнике: 15/);
+    // Те же минуты, что в исходнике, и нулевые — годны.
+    expect(toRu('We arrive at 8:45.', 'Мы приедем в 8:45.')).toBeNull();
+    expect(toRu('We arrive at 8:45 pm.', 'Мы приедем в 20:45.')).toBeNull();
+    expect(toRu('We arrive at 8 am.', 'Мы приедем в 8:00.')).toBeNull();
+    expect(toRu('我们8点30分到。', 'Мы приедем в 8:30.')).toBeNull();
+  });
+
+  it('длительность без предлога времени часом суток не становится — даже если перевод выдумал «3 pm»', () => {
+    expect(toEn('Дорога занимает 15 часов.', 'Departure at 3 pm from the hotel.')).toMatch(/нет чисел исходника: 15/);
+    expect(toEn('Перелёт 14 часов.', 'The flight is at 2 pm.')).toMatch(/нет чисел исходника: 14/);
+    expect(toRu('Departure at 3 pm.', 'Дорога занимает 15 часов.')).toMatch(/нет чисел исходника: 3/);
+    expect(russianHourAlts('Дорога занимает 15 часов.', 'Departure at 3 pm.').size).toBe(0);
+    // «До 20 часов» — и срок, и длительность: за «8» сойдёт, только если по ту
+    // сторону 8 стоит как время суток.
+    expect(toEn('Идём до 20 часов.', 'We walk for up to 8 hours.')).toMatch(/нет чисел исходника: 20/);
+    expect(toEn('Идём до 20 часов.', 'We walk until 8 pm.')).toBeNull();
+    expect(toEn('Идём до 20 часов.', 'We walk for up to 20 hours.')).toBeNull();
+    expect(toRu('We walk for up to 8 hours.', 'Идём до 20 часов.')).toMatch(/нет чисел исходника: 8/);
+    expect(russianHourAlts('Идём до 20 часов.', 'We walk for up to 8 hours.').size).toBe(0);
+    // С предлогом времени — час суток: «к 19 часам», «около 14 часов».
+    expect(toEn('Вернёмся к 19 часам.', 'We will be back by 7 pm.')).toBeNull();
+    expect(toEn('Обед около 14 часов.', 'Lunch is at about 2 pm.')).toBeNull();
+    expect(toRu('We will be back by 7 pm.', 'Вернёмся к 19 часам.')).toBeNull();
+  });
+});
+
 describe('«полтора» и «полчаса»', () => {
   it('«1.5 hours» ↔ «полтора часа», «30 minutes» ↔ «полчаса»', () => {
     expect(toRu('The walk takes 1.5 hours.', 'Прогулка занимает полтора часа.')).toBeNull();

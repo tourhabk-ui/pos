@@ -139,7 +139,10 @@ export function clockCanon(text: string): string {
     .replace(ZH_HOUR, (h: string) => String(h12(Number(h))));
 }
 
-const RU_HOUR = /(?<!\d)(1[3-9]|2[0-3])\s*(?:час(?:а|ов)?|ч\.?)(?![а-яё])/gi;
+// Час суток в русском тексте — только с предлогом времени: «в 19 часов», «к 19
+// часам», «около 14 часов». «Дорога занимает 15 часов» — длительность, и за
+// «3 pm» она не сойдёт, что бы ни стояло в переводе (замечание ревью #3331).
+const RU_HOUR = /(?<![а-яё])(?:в|к|до|после|с|около|примерно)\s+(1[3-9]|2[0-3])\s*(?:час(?:ов|ами|ам|ах|а|у)?|ч\.?)(?![а-яё])/gi;
 
 /** Стоит ли в тексте этот час как время суток: «19:30» или «7 p.m.», «晚上7点». */
 function hourShown(text: string, h24: string, hour12: string): boolean {
@@ -198,6 +201,11 @@ export function checkRussianTranslation(source: string, ru: string): string | nu
   ]);
   const lost = [...numbersOf(withoutMatched(src, scaledChineseOf(src), ruAny))].filter((n) => !ruAny.has(n));
   if (lost.length) return `в переводе нет чисел исходника: ${lost.slice(0, 5).join(', ')}`;
+  // Нулевые минуты исходника сверка опускает, поэтому минуты перевода сверяются
+  // отдельно: «8:00» → «8:45» — выдумка, а не другая запись (замечание ревью #3331).
+  const srcNums = numbersOf(src);
+  const invented = [...normalizeDigits(t).matchAll(CLOCK)].map((m) => m[2]).filter((mm) => mm !== '00' && !srcNums.has(mm));
+  if (invented.length) return `в переводе появились числа, которых нет в исходнике: ${[...new Set(invented)].slice(0, 5).join(', ')}`;
 
   const moved = placeholdersKept(source, t);
   if (moved) return moved;
