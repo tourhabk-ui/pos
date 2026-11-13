@@ -17,6 +17,9 @@ name: Аудит ОС и эволюции одним проходом (с ран
 #
 # Расход: набор до 1,8 МБ ≈ 450 тыс. входных токенов ≈ 600 ₽ за проход.
 # Точная цифра печатается из usage. Это не ежедневный крон — только по маркеру.
+#
+# Маркер с hold: true проход НЕ запускает (13.11): так в нём записывают модель
+# и набор следующего прохода, не платя за сам проход. Запуск — hold: false.
 
 on:
   workflow_dispatch:
@@ -156,6 +159,43 @@ jobs:
           except Exception:
               print('')
           ")
+          # ── Удержание ───────────────────────────────────────────────────
+          # Правка маркера сама запускает этот workflow, а проход стоит денег.
+          # Поле hold: true позволяет записать в маркер модель и набор
+          # СЛЕДУЮЩЕГО прохода, не начиная его (слово владельца 13.11 —
+          # «перевести аудит на Fable 5.2», а не «запустить аудит»).
+          # Исходов три: идём, держим, маркер не читается. Третий — отказ:
+          # чтения выше на нечитаемом маркере отдают пустую строку, и проход
+          # ушёл бы моделью по умолчанию. «Не смог прочитать» не равно «запускай».
+          GATE=$(python3 -c "
+          import json
+          try:
+              d = json.load(open('.github/triggers/os-audit.json'))
+          except Exception:
+              print('unreadable')
+          else:
+              if not isinstance(d, dict):
+                  print('unreadable')
+              elif d.get('hold') is True:
+                  print('hold')
+              elif d.get('hold') is None or d.get('hold') is False:
+                  print('run')
+              else:
+                  print('badhold')
+          ")
+          case "$GATE" in
+            run) ;;
+            hold)
+              echo "Маркер на удержании (hold: true): проход не запускается, модель не зовётся."
+              echo "Модель следующего прохода: ${MODEL:-не названа}. Запуск — hold: false и свои reason и targets."
+              exit 0 ;;
+            badhold)
+              echo "::error::hold в маркере должен быть true или false — проход не начинаем."
+              exit 1 ;;
+            *)
+              echo "::error::маркер .github/triggers/os-audit.json не читается — проход не начинаем."
+              exit 1 ;;
+          esac
           npx tsx scripts/os-audit-runner.ts $MODEL $TARGETS
 
       # Находки оплаченного прохода переживают прогон — даже красный.

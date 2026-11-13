@@ -394,6 +394,16 @@ interface ModelProfile {
 const MODEL_PROFILES: Record<string, ModelProfile> = {
   // Anthropic напрямую — голое имя модели. Сэмплирование у этого поколения
   // снято (400), поэтому sampling: false.
+  //
+  // Fable 5.2 — модель аудита по слову владельца 13.11. Тариф $8 / $40 за
+  // миллион — страница цен Anthropic, сверено 13.11.2026 (5.1 стоит $10 / $50).
+  // Форма запроса у прохода та же: руководство Anthropic по переходу называет
+  // переход «mostly drop-in», а четыре ломающих изменения касаются повторной
+  // отправки рассуждений, инструментов и советника — у прохода одного запроса
+  // их нет. Без этой строки смета вернула бы «не знаю», и отказ по бюджету до
+  // траты молча не сработал бы.
+  'claude-fable-5-2': { usdPerMTokIn: 8, usdPerMTokOut: 40, sampling: false },
+  // 5.1 оставлена: по ней считается цена прежних прогонов и проверка их находок.
   'claude-fable-5-1': { usdPerMTokIn: 10, usdPerMTokOut: 50, sampling: false },
   // Тариф из каталога поставщика; через OpenRouter возможна своя наценка,
   // поэтому число названо ОЦЕНКОЙ и здесь, и в выводе.
@@ -651,6 +661,15 @@ async function handleAnswer(
 // прогоне 5.
 const ANTHROPIC_MAX_OUTPUT = 96000;
 
+// Потолок выхода пробы формы. Было 64 — и этого хватало, пока модель на
+// простом вопросе не рассуждала. У Fable 5.2 рассуждение считается в тот же
+// потолок, и руководство по переходу прямо называет исход: при малом
+// `max_tokens` ответ кончается на блоке рассуждения, до текста. Проба без
+// текста — отказ начинать проход, то есть аудит не запустился бы вовсе.
+// Платим за сгенерированное, а не за потолок: худший случай пробы — около
+// четырёх центов.
+export const PROBE_MAX_OUTPUT = 1024;
+
 interface PassResult {
   text: string | null;
   inTok: number | null;
@@ -662,7 +681,8 @@ function isAnthropicDirect(model: string): boolean {
   return !model.includes('/');
 }
 
-function usdOf(model: string, inTok: number, outTok: number): number | null {
+/** Экспортирована для сторожа: цена прохода судится вызовом, а не чтением таблицы. */
+export function usdOf(model: string, inTok: number, outTok: number): number | null {
   const p = modelProfile(model);
   if (p.usdPerMTokIn === null || p.usdPerMTokOut === null) return null;
   return (inTok * p.usdPerMTokIn + outTok * p.usdPerMTokOut) / 1e6;
@@ -711,7 +731,7 @@ async function runAnthropicPass(model: string, payload: string): Promise<PassRes
   try {
     const probe = await client.messages.create({
       model,
-      max_tokens: 64,
+      max_tokens: PROBE_MAX_OUTPUT,
       output_config: { effort: 'low' },
       messages: [{ role: 'user', content: 'Ответь одним словом: готов' }],
     });
