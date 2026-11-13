@@ -1,6 +1,6 @@
 # Схема базы данных Ведара
 
-> Снято 2026-11-13 с настоящего PostgreSQL 18.7 (Debian 18.7-1.pgdg13+2): baseline прода (`lib/database/baseline/schema-baseline.sql`, снимок 2026-08-15) + миграции новее него, накатанные штатным раннером. Последняя миграция в снимке: `1439_request_messages_comment_agent_reads.sql`.
+> Снято 2026-11-13 с настоящего PostgreSQL 18.7 (Debian 18.7-1.pgdg13+2): baseline прода (`lib/database/baseline/schema-baseline.sql`, снимок 2026-08-15) + миграции новее него, накатанные штатным раннером. Последняя миграция в снимке: `1440_request_messages_translation.sql`.
 > Файл порождён `scripts/gen-db-schema.ts` (`npm run db:schema-doc`); править руками бессмысленно — следующий прогон перепишет.
 > Что здесь НЕ учтено: дрейф прода после baseline, не отражённый миграциями. Судья дрейфа — `GET /api/cron/schema-drift` на проде (`lib/db/schema-drift.ts`). Значений данных в файле нет — только имена и типы.
 
@@ -8,7 +8,7 @@
 |---|---:|
 | Таблиц | 326 |
 | Представлений (VIEW) | 12 |
-| Колонок | 4260 |
+| Колонок | 4263 |
 | Внешних ключей | 391 |
 | Таблиц без единого FK в обе стороны | 87 |
 
@@ -1593,9 +1593,9 @@ B2B-агенты, продающие туры за комиссию. Не пут
 
 `id bigint!=` `code_hash character!` `request_key_id uuid!` `expires_at timestamptz!` `created_at timestamptz!=` `used_at timestamptz` `used_channel text`
 
-**request_messages** · 9 кол. · PK id · lead_id → leads.id, stay_request_id → stay_requests.id · индексов 3
+**request_messages** · 12 кол. · PK id · lead_id → leads.id, stay_request_id → stay_requests.id · индексов 3
 
-`id uuid!=` `stay_request_id uuid` `author text!` `door text!` `body text!` `delivery_channel text` `delivery_reason text` `created_at timestamptz!=` `lead_id uuid`
+`id uuid!=` `stay_request_id uuid` `author text!` `door text!` `body text!` `delivery_channel text` `delivery_reason text` `created_at timestamptz!=` `lead_id uuid` `translation text` `translated_at timestamptz` `translation_model varchar`
 
 **tourist_notification_preferences** · 21 кол. · PK id · tourist_id → tourist_profiles.id · индексов 2
 
