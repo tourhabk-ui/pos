@@ -39,6 +39,11 @@ export interface StayRequestMessage {
   /** Цена за сутки от и до — как записана у объекта; null — не названа. */
   priceFrom: number | null;
   priceTo: number | null;
+  /**
+   * Строки машинного перевода комментария гостя (lib/requests/foreign-text,
+   * 13.11) — когда он не по-русски. Только в текст с ПД, как сам комментарий.
+   */
+  translation?: readonly string[];
 }
 
 /** 'YYYY-MM-DD' → 'DD.MM.YYYY'. */
@@ -88,6 +93,7 @@ export function stayRequestTexts(m: StayRequestMessage): { text: string; ownerSt
     `Гость: ${escapeHtml(m.guestName)}`,
     `Телефон: ${escapeHtml(m.guestPhone)}`,
     m.comment ? `Комментарий: ${escapeHtml(m.comment)}` : null,
+    ...(m.translation ?? []).map((l) => escapeHtml(l)),
   ].filter(Boolean) as string[];
   // Под этим сообщением в MAX — три кнопки ответа (lib/stay/owner-answer,
   // 30.10) и «Ответить гостю» (1349). Слова — для хозяина, который с

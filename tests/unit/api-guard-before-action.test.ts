@@ -55,7 +55,7 @@ export const GUARD_EXCEPTIONS: Record<string, string> = {
 
 const GUARD = /\b(requireAdmin|verifyCronSecret|timingSafeCompare)\s*\(/;
 const ACTION =
-  /\b(pool\.query|query|db\.query|client\.query|withTransaction|callAIWaterfall|callAIFast|callAIDecision|fetch)\s*\(|\bBEGIN\b/;
+  /\b(pool\.query|query|db\.query|client\.query|withTransaction|callAIWaterfall|callAIFast|callAIDecision|translateDialog|fetch)\s*\(|\bBEGIN\b/;
 const HANDLER = /export\s+(?:async\s+)?function\s+(?:GET|POST|PUT|PATCH|DELETE|HEAD)\b/g;
 /** Сравнение секрета руками: обе стороны — из словаря имён, которыми его зовут. */
 const MANUAL_COMPARE =

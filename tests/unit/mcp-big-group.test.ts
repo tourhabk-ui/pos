@@ -115,6 +115,23 @@ describe('заявка на группу больше мест — запрос�
     expect(new Ajv({ strict: false }).validate(WRITE_OUTPUT_SCHEMA, r.structuredContent)).toBe(true);
   });
 
+  it('слова клиента уходят оператору отдельно от служебной части комментария — для перевода (13.11)', async () => {
+    // Оператору идёт комментарий целиком («тур …, участников …» и слова
+    // клиента), а переводятся только слова клиента: служебная часть русская.
+    const words = '我们需要中文向导，带两个小孩';
+    const r = await call({ ...BASE, participants: 24, comment: words });
+    expect(r.isError, r.content[0]?.text).toBeUndefined();
+    // Уведомление оператору уходит без ожидания, и вызов соседнего теста может
+    // прийти в это же окно: ищем вызов этой заявки по её словам.
+    type Sent = { comment: string; clientText?: string };
+    const calls = () => (personalNotifyMock.mock.calls as unknown as Array<[Sent]>).map((c) => c[0]);
+    await vi.waitFor(() => expect(calls().some((c) => c.comment.includes(words))).toBe(true));
+    const sent = calls().find((c) => c.comment.includes(words))!;
+    expect(sent.clientText).toBe(words);
+    expect(sent.comment).toContain('участников 24');
+    expect(sent.comment).toContain(words);
+  });
+
   it('группа в потолок заявки (10 из 12), а на дату 4: у тура без потолка группы — запрос, у обычного — отказ', async () => {
     facts = { max_participants: 12, group_size_unlimited: true, activity_type: 'trekking' };
     const unlimited = await call({ ...BASE, participants: 10 });

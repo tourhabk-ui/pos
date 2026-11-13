@@ -26,6 +26,7 @@ import { ownerLeadUrl } from '@/lib/partners/cabinet-links';
 import { notifyTeam } from '@/lib/operators/team-notify';
 import { leadAnswerButtons, leadChatActionsEnabledFor } from '@/lib/bookings/chat-owner-press';
 import { isChatTargetId, ownerReplyButton } from '@/lib/requests/request-chat';
+import { clientTranslationLines } from '@/lib/requests/foreign-text';
 
 /**
  * Кнопки ответа на заявку в личном сообщении владельцу тура — одно правило на
@@ -201,6 +202,12 @@ export async function notifyPartnerNewLeadPersonally(params: {
   name: string;
   phone: string;
   comment?: string;
+  /**
+   * Слова самого клиента, без служебной части комментария («тур …, участников
+   * …»). Не по-русски — оператору рядом идёт машинный перевод
+   * (lib/requests/foreign-text, 13.11). Не задано — судится `comment`.
+   */
+  clientText?: string;
   routeTitle?: string;
   /** Откуда заявка — словами для оператора («форма на вашей странице на Ведаре»). */
   origin?: string;
@@ -221,12 +228,19 @@ export async function notifyPartnerNewLeadPersonally(params: {
     params.routeTitle ? `<b>Интерес:</b> ${esc(params.routeTitle)}` : '',
     ...(params.predraft?.length ? ['', ...params.predraft] : []),
   ].filter((l, i, a) => l !== '' || (i > 0 && a[i - 1] !== ''));
+  // Слова клиента не по-русски — с переводом рядом. Только в сообщение с ПД:
+  // в заглушку Telegram слова клиента не уходят, и перевод тоже.
+  const translation = await clientTranslationLines(
+    [{ what: 'комментарий', text: params.clientText ?? params.comment }],
+    `заявка ${params.leadId}`,
+  );
   const text = [
     ...common,
     '',
     `<b>Имя:</b> ${esc(params.name)}`,
     `<b>Телефон:</b> ${esc(params.phone)}`,
     params.comment ? `<b>Комментарий:</b> ${esc(params.comment.slice(0, 200))}` : '',
+    ...translation.map((l) => esc(l)),
   ].filter(Boolean).join('\n');
   const stub = [
     ...common,

@@ -51,6 +51,12 @@ const { migrateTimeoutMs, migrationsOutcome } = new Function(
 const AT = '2026-10-15T03:00:00.000Z';
 const PHONE = '+7 914 123-45-67';
 const MAIL = 'turist@example.com';
+/**
+ * Телефон из текста ошибки — в любой записи: «914 123», «914-123», «914123».
+ * Искать один кусок «914» в выводе с живыми часами нельзя: 13.11 прогон CI
+ * покраснел на исправном коде — метка времени кончалась на «…04.914Z».
+ */
+const PHONE_LEAK = /914[ \-()]*123/;
 
 // ── 1. Правило ───────────────────────────────────────────────────────────
 
@@ -374,9 +380,16 @@ describe('настоящий start.js: отказ наката не роняет
     const r = await runStart(RUNNERS.fileFailed);
     expect(r.health.body.migrations).toMatchObject({ state: 'failed', reason: 'file_failed', file: '1300_tour_access.sql', sqlstate: '42703', failed_count: 1 });
     expect(typeof (r.health.body.migrations as { at?: unknown }).at).toBe('string');
-    expect(JSON.stringify(r.health.body)).not.toContain('914');
-    expect(r.nextEnv.migrations ?? '').not.toContain('914');
-    expect(r.output).not.toContain('914');
+    // Сам сыщик: номер из текста ошибки ловит, метку времени — нет.
+    expect(`value ${PHONE}`).toMatch(PHONE_LEAK);
+    expect('"at":"2026-11-13T08:47:04.914Z"').not.toMatch(PHONE_LEAK);
+    expect(JSON.stringify(r.health.body)).not.toMatch(PHONE_LEAK);
+    expect(r.nextEnv.migrations ?? '').not.toMatch(PHONE_LEAK);
+    expect(r.output).not.toMatch(PHONE_LEAK);
+    // Текст ошибки не проходит и словом: «value …» — начало сообщения раннера.
+    for (const text of [JSON.stringify(r.health.body), r.nextEnv.migrations ?? '', r.output]) {
+      expect(text).not.toContain('value +7');
+    }
   }, 30_000);
 
   it('накат завис — оборван по MIGRATE_TIMEOUT_MS, назван файл, Next запущен', async () => {

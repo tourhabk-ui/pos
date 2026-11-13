@@ -39,6 +39,7 @@ import type { PersonalLeadOutcome } from '@/lib/notifications/lead-notify';
 import { isRentalPilotSlug } from '@/lib/rental/operator-pilot';
 import { rentalAnswerButtons } from '@/lib/rental/request-answer';
 import { isChatTargetId, ownerReplyButton } from '@/lib/requests/request-chat';
+import { clientTranslationLines, type ForeignPart } from '@/lib/requests/foreign-text';
 
 function esc(s: string): string {
   return s.replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;');
@@ -57,6 +58,12 @@ export interface PartnerRequestNotice {
   comment: string | null;
   /** Slug прокатчика. У заявки на прокат кнопки «Беру» / «Не могу» — только у пилота. */
   companySlug?: string | null;
+  /**
+   * Свободный текст заказчика по частям (направление, пожелания). Часть не
+   * по-русски уходит партнёру с машинным переводом рядом
+   * (lib/requests/foreign-text, 13.11). Не задано — судятся одни пожелания.
+   */
+  foreign?: readonly ForeignPart[];
 }
 
 const HEADLINE: Record<PartnerRequestKind, string> = {
@@ -90,8 +97,11 @@ const ANSWER_LINE: Record<PartnerRequestKind, string> = {
   car_rental: '«Беру» отмечает эти дни занятыми. «Не могу» дни не занимает; заказчику уйдёт сообщение об отказе — дошло ли, скажу после ответа.',
 };
 
-/** Текст с ПД (MAX) и заглушка без ПД (Telegram) из одних фактов. */
-export function partnerRequestTexts(n: PartnerRequestNotice): { text: string; stub: string } {
+/**
+ * Текст с ПД (MAX) и заглушка без ПД (Telegram) из одних фактов. `translation`
+ * — строки перевода слов заказчика: только в текст с ПД, как сами слова.
+ */
+export function partnerRequestTexts(n: PartnerRequestNotice, translation: readonly string[] = []): { text: string; stub: string } {
   const common = [`<b>${HEADLINE[n.kind]}</b>`, ...n.lines.map((l) => esc(l))];
   const answers = answerButtons(n).length > 0;
   const reply = isChatTargetId(n.leadId);
@@ -101,6 +111,7 @@ export function partnerRequestTexts(n: PartnerRequestNotice): { text: string; st
     `<b>Имя:</b> ${esc(n.name)}`,
     `<b>Телефон:</b> ${esc(n.phone)}`,
     n.comment ? `<b>Пожелания:</b> ${esc(n.comment.slice(0, 200))}` : '',
+    ...translation.map((l) => esc(l)),
     '',
     // Перевозчик с кнопками отвечает сам; без кнопок (id не uuid) и у проката заказ согласует менеджер.
     n.kind === 'charter' && answers
@@ -122,7 +133,11 @@ export function partnerRequestTexts(n: PartnerRequestNotice): { text: string; st
 }
 
 export async function notifyPartnerRequestPersonally(n: PartnerRequestNotice): Promise<PersonalLeadOutcome> {
-  const { text, stub } = partnerRequestTexts(n);
+  const translation = await clientTranslationLines(
+    n.foreign ?? [{ what: 'пожелания', text: n.comment }],
+    `заявка ${n.leadId}`,
+  );
+  const { text, stub } = partnerRequestTexts(n, translation);
 
   const reach = await reachForPartner(n.partnerId);
   if (reach === null) {
