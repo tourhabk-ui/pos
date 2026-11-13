@@ -36,7 +36,9 @@ vi.mock('next/script', () => ({ default: () => null }));
 vi.mock('@/components/marketplace/SbpQrPayment', () => ({ default: () => null }));
 
 import BookingSuccessClient from '@/app/booking-success/[id]/_BookingSuccessClient';
-import { canOfferPayment, hasOperatorContacts, successHeadline } from '@/lib/bookings/success-view';
+import {
+  awaitsOperator, canOfferPayment, hasOperatorContacts, notBookingNotice, successHeadline,
+} from '@/lib/bookings/success-view';
 
 type Booking = Record<string, unknown>;
 const BASE: Booking = {
@@ -183,6 +185,100 @@ describe('заголовок не утверждает подтверждени�
       const h = successHeadline({ status, alreadyPaid: false, needsPayment: canOfferPayment(status), noPayWay: false });
       expect(h.title, status).toBe('Заявка создана');
     }
+  });
+});
+
+describe('крупная строка «это заявка, а не бронь» — пока заявка ждёт оператора (13.11)', () => {
+  // Слово владельца 13.11 «1 да». Экран после отправки говорил «Заявка
+  // создана» под зелёной галочкой, а слов «не бронь» на нём не было: человек
+  // читал его как «забронировано», оператор — как вопрос.
+  const notice = () => document.querySelector('[data-not-booking]');
+
+  it("'new': строка есть, стоит сразу под заголовком и выше карточки заявки", async () => {
+    const { container } = await loaded(BASE);
+    const box = notice();
+    expect(box, 'строки нет').not.toBeNull();
+    expect(box!.textContent).toMatch(/Это заявка, а не бронь/);
+    expect(box!.textContent).toMatch(/До ответа оператора место не гарантировано/);
+    const h1 = container.querySelector('h1')!;
+    const card = screen.getByText('Номер заявки');
+    expect(h1.compareDocumentPosition(box!) & Node.DOCUMENT_POSITION_FOLLOWING, 'строка выше заголовка').toBeTruthy();
+    expect(box!.compareDocumentPosition(card) & Node.DOCUMENT_POSITION_FOLLOWING, 'строка ниже карточки').toBeTruthy();
+    // Между заголовком и строкой нет другого текста: подзаголовок идёт после.
+    const sub = screen.getByText(/Мы передали заявку оператору/);
+    expect(box!.compareDocumentPosition(sub) & Node.DOCUMENT_POSITION_FOLLOWING, 'подзаголовок раньше строки').toBeTruthy();
+  });
+
+  it('строка крупнее подзаголовка и жирная', async () => {
+    await loaded(BASE);
+    const title = screen.getByText('Это заявка, а не бронь');
+    expect(title.className).toMatch(/\btext-lg\b/);
+    expect(title.className).toMatch(/\bfont-bold\b/);
+    const sub = screen.getByText(/Мы передали заявку оператору/);
+    expect(sub.className).toMatch(/\btext-sm\b/);
+  });
+
+  it('про место сказано только «не гарантировано»: «закреплено» у тура с календарём было бы неправдой', async () => {
+    // Новая заявка места в календаре занимает сразу (lib/bookings/occupancy),
+    // поэтому «не закреплено» экран не говорит; «закреплено» — тем более.
+    await loaded(BASE);
+    expect(text()).not.toMatch(/закреплен/i);
+    expect(text()).not.toMatch(/забронирован/i);
+  });
+
+  it('оператор подтвердил — строки нет', async () => {
+    for (const status of ['confirmed', 'pending_payment']) {
+      await loaded({ ...BASE, status });
+      expect(notice(), status).toBeNull();
+      expect(text(), status).not.toMatch(/а не бронь/);
+      cleanup();
+    }
+  });
+
+  it('отменена, завершена, неизвестный статус — строки нет', async () => {
+    for (const status of ['cancelled', 'completed', 'rejected', 'что-то новое']) {
+      await loaded({ ...BASE, status });
+      expect(notice(), status).toBeNull();
+      cleanup();
+    }
+  });
+
+  it("'new', но оплата уже отмечена — строки нет: экран говорит «Оплата получена»", async () => {
+    await loaded({ ...BASE, payment_status: 'paid' });
+    expect(text()).toMatch(/Оплата получена/);
+    expect(notice()).toBeNull();
+    expect(text()).not.toMatch(/Что дальше/);
+  });
+
+  it('пока заявка не прочитана и когда она не открылась — строки нет', async () => {
+    render(<BookingSuccessClient />);
+    await flush();
+    expect(text()).toMatch(/Проверяем заявку…/);
+    expect(notice()).toBeNull();
+    cleanup();
+    window.history.replaceState({}, '', '/booking-success/1');
+    render(<BookingSuccessClient />);
+    await flush();
+    expect(text()).toMatch(/Заявка не найдена/);
+    expect(notice()).toBeNull();
+  });
+
+  it('правило одно на строку и на блок «Что дальше»', async () => {
+    expect(awaitsOperator({ status: 'new', alreadyPaid: false })).toBe(true);
+    expect(awaitsOperator({ status: 'new', alreadyPaid: true })).toBe(false);
+    expect(awaitsOperator({ status: 'confirmed', alreadyPaid: false })).toBe(false);
+    expect(awaitsOperator({ status: null, alreadyPaid: false })).toBe(false);
+    expect(notBookingNotice({ status: 'new', alreadyPaid: false })?.title).toBe('Это заявка, а не бронь');
+    expect(notBookingNotice({ status: 'new', alreadyPaid: true })).toBeNull();
+    expect(notBookingNotice({ status: undefined, alreadyPaid: false })).toBeNull();
+    // Там, где есть строка, есть и шаги; где её нет — нет и шагов.
+    await loaded(BASE);
+    expect(notice()).not.toBeNull();
+    expect(text()).toMatch(/Что дальше/);
+    cleanup();
+    await loaded({ ...BASE, status: 'confirmed' });
+    expect(notice()).toBeNull();
+    expect(text()).not.toMatch(/Что дальше/);
   });
 });
 
