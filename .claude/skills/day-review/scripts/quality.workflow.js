@@ -6,6 +6,10 @@ export const meta = {
 
 // args: { window: { from, to }, scratch: '<каталог scratchpad>', groups: [{ key, title, prs }] }
 // — см. references/workflow-args.md
+// Модель не задаётся намеренно: искатель и опровергатель идут на модели сессии
+// (CLAUDE.md §5.1). Искатель судит ПД, 112, деньги и гонки и проверяет тесты мутацией,
+// опровергатель выносит решение — это не чтение. На Sonnet приколоты только читатели PR
+// в progress.workflow.js. Сторож: tests/unit/day-review-models.test.ts.
 const W = args.window
 const S = args.scratch
 const BASE = `Репозиторий: /home/user/pos (платформа Ведар; правила — CLAUDE.md у тебя в контексте). Проверяется КАЧЕСТВО кода, влитого в main с ${W.from} до ${W.to} UTC.
