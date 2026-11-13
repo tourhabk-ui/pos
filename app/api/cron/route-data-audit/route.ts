@@ -62,8 +62,10 @@ export const maxDuration = 120;
  *       устареют (до этого было видно, сколько свежих, но не до какого дня)
  *       (#1493): счёт 6 против 23 говорил «сколько», но размечают запись,
  *       а не строку счёта
+ *  20 — срок годности сверки — год (слово владельца 13.11 «продлить»), и
+ *       перепись говорит, можно ли сверку повторить (recheck_available)
  */
-export const AUDIT_SHAPE_VERSION = 19;
+export const AUDIT_SHAPE_VERSION = 20;
 
 export async function GET(request: NextRequest) {
   const secret = getCronSecret(request);
