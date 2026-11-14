@@ -10,7 +10,7 @@ import { requireOperator } from '@/lib/auth/middleware';
 import { pool } from '@/lib/db-pool';
 import { leadProcessor } from '@/lib/services/operators/lead-processor.service';
 import { generateProposalPDF } from '@/lib/pdf/proposal-generator';
-import { leadOwnershipCond } from '@/lib/leads/ownership';
+import { CLAIM_FIRST_TEXT, leadAccess, leadOwnershipCond } from '@/lib/leads/ownership';
 import type { JWTPayload } from '@/lib/auth/jwt';
 
 export async function GET(
@@ -22,6 +22,11 @@ export async function GET(
   const user = authResult as JWTPayload;
 
   const { id } = await params;
+
+  // Не взятая заявка без адресата (14.11): имя и контакты — после взятия.
+  const access = await leadAccess(user, id);
+  if (access === 'none') return NextResponse.json({ error: 'Лид не найден' }, { status: 404 });
+  if (access === 'unclaimed') return NextResponse.json({ error: CLAIM_FIRST_TEXT }, { status: 409 });
 
   // Владение: PDF с именем/контактами туриста не должен скачиваться по
   // чужому UUID лида (аудит кабинета оператора) — 404, не 403, чтобы не
@@ -70,7 +75,10 @@ export async function GET(
     status: 200,
     headers: {
       'Content-Type':        'application/pdf',
-      'Content-Disposition': `attachment; filename="${filename}"`,
+      // Заголовок HTTP — только латиница (ByteString): кириллица в filename роняла
+      // ответ у всякой заявки с русским именем (найдено сторожем 14.11). Имя
+      // по-русски — в filename* (RFC 5987), запасное — латиницей.
+      'Content-Disposition': `attachment; filename="proposal-${id.slice(0, 8)}.pdf"; filename*=UTF-8''${encodeURIComponent(filename)}`,
       'Content-Length':      String(pdfBytes.length),
     },
   });

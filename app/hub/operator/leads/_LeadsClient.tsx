@@ -32,6 +32,8 @@ interface Lead {
   proposal_id: string | null;
   /** Откуда заявка — подпись сервера (lib/leads/origin); нет поля — строки нет. */
   origin?: LeadOriginView | null;
+  /** Заявка без адресата, кабинетом не взята (14.11): имени и контактов в ответе нет. */
+  contact_hidden?: boolean;
   created_at: string;
   updated_at: string;
 }
@@ -113,8 +115,9 @@ function LeadRow({ lead, onProcess, processing }: LeadRowProps) {
     day: 'numeric', month: 'short', hour: '2-digit', minute: '2-digit',
   });
 
-  const canProcess = ['new', 'contacted', 'qualified'].includes(lead.status);
-  const hasProposal = !!lead.proposal_id;
+  // Не взятую заявку без адресата разбирают и шлют предложение после взятия (14.11).
+  const canProcess = !lead.contact_hidden && ['new', 'contacted', 'qualified'].includes(lead.status);
+  const hasProposal = !lead.contact_hidden && !!lead.proposal_id;
 
   // Карточка — НЕ ссылка целиком: внутри неё живут кнопка AI-обработки и
   // ссылка на PDF, а <a> внутри <a> роняет гидратацию React и ведёт себя
@@ -134,10 +137,14 @@ function LeadRow({ lead, onProcess, processing }: LeadRowProps) {
         </div>
 
         <div className="flex flex-wrap gap-x-4 gap-y-1 text-sm text-[var(--text-muted)]">
+          {lead.contact_hidden ? (
+            <span data-contact-hidden>Контакты — после взятия заявки</span>
+          ) : (
           <span className="flex items-center gap-1">
             <Phone className="w-3 h-3" />
             {lead.phone}
           </span>
+          )}
           {lead.route_title && (
             <span className="flex items-center gap-1">
               <ChevronRight className="w-3 h-3" />

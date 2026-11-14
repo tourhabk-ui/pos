@@ -17,6 +17,7 @@ import { LEAD_CANCELLED_STATUS_TEXT } from '@/lib/leads/client-cancelled';
 import { LEAD_CLIENT_CANCELLED } from '@/lib/types/statuses';
 import { LOST_REASON_LABEL, isLostReason, type LostReason } from '@/lib/leads/lost-reason';
 import { LostReasonChooser } from '@/components/leads/LostReasonChooser';
+import { CONTACT_HIDDEN_NOTE } from '@/lib/leads/unclaimed-contact';
 
 // ── Типы ──────────────────────────────────────────────────────────────────────
 
@@ -38,6 +39,8 @@ interface Lead {
   id: string;
   name: string;
   phone: string;
+  /** Заявка без адресата, кабинетом не взята (14.11): имени и контактов в ответе нет. */
+  contact_hidden?: boolean;
   email: string | null;
   comment: string | null;
   route_id: string | null;
@@ -204,7 +207,8 @@ export default function LeadDetailClient({ leadId }: Props) {
     useSWR<{ lead: Lead; bookings?: LeadBooking[] | null; lost_needs_reason?: boolean }>(`/api/leads/${leadId}`, fetcher);
 
   const { data: proposalData, error: proposalError, mutate: mutateProposal } =
-    useSWR<{ proposal: Proposal }>(`/api/leads/${leadId}/proposal`, fetcher, {
+    // Предложение не взятой заявки сервер не отдаёт (в нём имя человека) — и не спрашиваем.
+    useSWR<{ proposal: Proposal }>(leadData?.lead && !leadData.lead.contact_hidden ? `/api/leads/${leadId}/proposal` : null, fetcher, {
       onSuccess: (d) => { if (!notesEditing) setNotes(d.proposal ? '' : ''); },
     });
 
@@ -213,7 +217,8 @@ export default function LeadDetailClient({ leadId }: Props) {
   const leadBookings = leadData?.bookings;
   const proposal = proposalData?.proposal;
 
-  const canProcess = lead ? ['new', 'contacted', 'qualified'].includes(lead.status) : false;
+  const canProcess = lead ? !lead.contact_hidden && ['new', 'contacted', 'qualified'].includes(lead.status) : false;
+  const [claiming, setClaiming] = useState(false);
 
   const showNotification = (type: 'success' | 'error', text: string) => {
     setNotification({ type, text });
@@ -239,6 +244,27 @@ export default function LeadDetailClient({ leadId }: Props) {
       setProcessingAI(false);
     }
   }, [leadId, mutateLead, mutateProposal]);
+
+  // Взять заявку без адресата (14.11): после этого её видит только эта компания,
+  // и открываются имя и контакты человека.
+  const handleClaim = useCallback(async () => {
+    setClaiming(true);
+    try {
+      const res = await fetch(`/api/leads/${leadId}`, {
+        method: 'PATCH',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ claim: true }),
+      });
+      const json = await res.json() as { error?: string };
+      if (!res.ok) throw new Error(json.error ?? 'Не удалось взять заявку');
+      showNotification('success', 'Заявка ваша: имя и контакты открыты, другие компании её больше не видят.');
+      mutateLead();
+    } catch (err) {
+      showNotification('error', err instanceof Error ? err.message : 'Не удалось взять заявку');
+    } finally {
+      setClaiming(false);
+    }
+  }, [leadId, mutateLead]);
 
   const handleStatusChange = useCallback(async (status: string, lostReason?: LostReason) => {
     setUpdatingStatus(true);
@@ -388,6 +414,15 @@ export default function LeadDetailClient({ leadId }: Props) {
         {/* Контактная информация */}
         <div className="ds-card p-5 space-y-3">
           <h2 className="ds-h2 text-base">Контакт</h2>
+          {lead.contact_hidden ? (
+            <div data-contact-hidden className="space-y-3">
+              <p className="text-sm text-[var(--text-secondary)]">{CONTACT_HIDDEN_NOTE}</p>
+              <button type="button" onClick={handleClaim} disabled={claiming} className="ds-btn-primary gap-2">
+                {claiming ? <RefreshCw className="w-4 h-4 animate-spin" /> : <CheckCircle className="w-4 h-4" />}
+                Взять заявку
+              </button>
+            </div>
+          ) : (
           <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
             <a
               href={`tel:${lead.phone}`}
@@ -406,6 +441,7 @@ export default function LeadDetailClient({ leadId }: Props) {
               </a>
             )}
           </div>
+          )}
           {lead.route_title && (
             <div className="flex items-start gap-2 text-sm text-[var(--text-secondary)]">
               <MapPin className="w-4 h-4 shrink-0 mt-0.5 text-[var(--accent)]" />
@@ -659,13 +695,17 @@ export default function LeadDetailClient({ leadId }: Props) {
               <Ticket className="w-4 h-4" />
               Бронь по лиду
             </h2>
-            <Link
-              href={`/hub/operator/bookings?lead=${leadId}`}
-              className="ds-btn ds-btn-primary text-sm gap-1.5"
-            >
-              <Ticket className="w-4 h-4" />
-              Завести бронь
-            </Link>
+            {lead.contact_hidden ? (
+              <span className="text-sm text-[var(--text-muted)]">Бронь — после взятия заявки</span>
+            ) : (
+              <Link
+                href={`/hub/operator/bookings?lead=${leadId}`}
+                className="ds-btn ds-btn-primary text-sm gap-1.5"
+              >
+                <Ticket className="w-4 h-4" />
+                Завести бронь
+              </Link>
+            )}
           </div>
           {leadBookings === null ? (
             <p className="text-sm text-[var(--danger)]">Брони по лиду не прочитались — обновите страницу.</p>

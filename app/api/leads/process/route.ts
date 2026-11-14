@@ -13,7 +13,7 @@ import { z } from 'zod';
 import { requireOperator } from '@/lib/auth/middleware';
 import { leadProcessor } from '@/lib/services/operators/lead-processor.service';
 import { notifyOperatorProposal } from '@/lib/notifications/lead-notify';
-import { canAccessLead } from '@/lib/leads/ownership';
+import { CLAIM_FIRST_TEXT, leadAccess } from '@/lib/leads/ownership';
 import type { JWTPayload } from '@/lib/auth/jwt';
 
 const Schema = z.object({
@@ -45,9 +45,10 @@ export async function POST(req: NextRequest) {
   // Владение: lead_id приходит из тела запроса, не из авторизованного
   // контекста — без проверки оператор мог запустить обработку чужого лида,
   // зная только его UUID (аудит кабинета оператора).
-  if (!(await canAccessLead(user, lead_id))) {
-    return NextResponse.json({ error: 'Лид не найден' }, { status: 404 });
-  }
+  // Не взятая заявка без адресата (14.11): в ответе разбора имя человека.
+  const access = await leadAccess(user, lead_id);
+  if (access === 'none') return NextResponse.json({ error: 'Лид не найден' }, { status: 404 });
+  if (access === 'unclaimed') return NextResponse.json({ error: CLAIM_FIRST_TEXT }, { status: 409 });
 
   try {
     const proposal = await leadProcessor.process(lead_id);

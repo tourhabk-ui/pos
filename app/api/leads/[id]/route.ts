@@ -3,7 +3,8 @@ import { z } from 'zod';
 import { pool } from '@/lib/db-pool';
 import { requireAdmin, requireOperator } from '@/lib/auth/middleware';
 import type { JWTPayload } from '@/lib/auth/jwt';
-import { leadOwnershipCond, operatorLeadScope } from '@/lib/leads/ownership';
+import { leadScopeCond, operatorLeadScope } from '@/lib/leads/ownership';
+import { hideUnclaimedContact } from '@/lib/leads/unclaimed-contact';
 import { changeLeadStatus, LEAD_STATUSES } from '@/lib/leads/owner-lead-status';
 import { bookingsForLead, type LeadBookings } from '@/lib/leads/lead-bookings';
 import { withLeadOrigin, type LeadOriginInput } from '@/lib/leads/origin';
@@ -19,6 +20,8 @@ const PatchSchema = z.object({
   notes: z.string().max(2000).optional(),
   /** Причина отказа — вместе со `status: 'lost'` (этап 3а, lib/leads/lost-reason). */
   lostReason: z.enum(LOST_REASONS, { message: LOST_REASON_UNKNOWN }).optional(),
+  /** Взять заявку без адресата себе (14.11): тогда открываются имя и контакты. */
+  claim: z.literal(true).optional(),
 });
 
 export async function PATCH(
@@ -41,8 +44,8 @@ export async function PATCH(
     return NextResponse.json({ error: parse.error.issues[0]?.message }, { status: 422 });
   }
 
-  const { status, notes, lostReason } = parse.data;
-  if (!status && notes === undefined) {
+  const { status, notes, lostReason, claim } = parse.data;
+  if (!status && notes === undefined && !claim) {
     return NextResponse.json({ error: 'Нечего обновлять' }, { status: 400 });
   }
 
@@ -78,7 +81,8 @@ export async function PATCH(
   }
 
   if (outcome.kind === 'not_found') {
-    return NextResponse.json({ error: 'Лид не найден' }, { status: 404 });
+    // Взять не удалось: заявки нет или её уже взяла другая компания — сказано так.
+    return NextResponse.json({ error: claim ? 'Заявка не найдена или её уже взяла другая компания' : 'Лид не найден' }, { status: 404 });
   }
   // Заявку отменил клиент (1427): статус не сменён и не будет — ответить «изменён» было бы неправдой.
   // Заметка, присланная тем же запросом, записана: об этом сказано.
@@ -104,9 +108,10 @@ export async function GET(
   const { id } = await params;
 
   // Чужой лид не читается и неотличим от несуществующего (404, не 403).
-  const scope = await leadOwnershipCond(user, 2);
+  const leadScope = await operatorLeadScope(user);
+  const scope = leadScopeCond(leadScope, 2);
   const res = await pool.query(
-    `SELECT id, name, phone, email, comment, route_id, route_title, source_url, source_data,
+    `SELECT id, name, phone, email, comment, route_id, route_title, source_url, source_data, operator_id,
             status, notes, proposal_id, ai_score, ai_summary, group_size, budget_rub, desired_dates,
             created_at, updated_at,
             -- Причина отказа продавца (1429); есть только у текущего закрытия.
@@ -133,7 +138,8 @@ export async function GET(
 
   return NextResponse.json({
     // Откуда заявка — одной подписью (слово владельца 08.11).
-    lead: withLeadOrigin(res.rows[0] as LeadOriginInput & Record<string, unknown>),
+    // Не взятая заявка без адресата — без имени и контактов (слово владельца 14.11).
+    lead: hideUnclaimedContact(leadScope, withLeadOrigin(res.rows[0] as LeadOriginInput & Record<string, unknown>)),
     bookings: bookings.kind === 'ok' ? bookings.rows : null,
     // «Отказ» спрашивает причину только у продавца с карточкой (этап 3а):
     // экран узнаёт это заранее, а не из отказа сервера.

@@ -8,7 +8,7 @@ import { NextRequest, NextResponse } from 'next/server';
 import { requireOperator } from '@/lib/auth/middleware';
 import { leadProcessor } from '@/lib/services/operators/lead-processor.service';
 import { pool } from '@/lib/db-pool';
-import { leadOwnershipCond } from '@/lib/leads/ownership';
+import { CLAIM_FIRST_TEXT, leadAccess, leadOwnershipCond } from '@/lib/leads/ownership';
 import type { JWTPayload } from '@/lib/auth/jwt';
 
 // ── GET /api/leads/[id]/proposal ──────────────────────────────────────────────
@@ -22,6 +22,11 @@ export async function GET(
   const user = authResult as JWTPayload;
 
   const { id } = await params;
+
+  // Не взятая заявка без адресата (14.11): имя и контакты — после взятия.
+  const access = await leadAccess(user, id);
+  if (access === 'none') return NextResponse.json({ error: 'Лид не найден' }, { status: 404 });
+  if (access === 'unclaimed') return NextResponse.json({ error: CLAIM_FIRST_TEXT }, { status: 409 });
 
   // Владение проверяется здесь же, а не только ролью: чужой лид не читается
   // и неотличим от несуществующего (404, не 403) — та же дисциплина, что

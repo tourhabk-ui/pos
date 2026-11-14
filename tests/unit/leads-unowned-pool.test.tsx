@@ -79,6 +79,7 @@ vi.mock('@/lib/db-pool', () => ({
 
 import { GET } from '@/app/api/leads/route';
 import OperatorLeadsClient, { UNOWNED_POOL_CLOSED_NOTE } from '@/app/hub/operator/leads/_LeadsClient';
+import { HIDDEN_NAME } from '@/lib/leads/unclaimed-contact';
 
 function row(id: string, name: string, operatorId: string | null): Row {
   return {
@@ -94,10 +95,10 @@ const OWN = 'Заявка своей компании';
 const UNOWNED = 'Заявка без адресата';
 const FOREIGN = 'Заявка чужой компании';
 
-async function list(query = ''): Promise<{ status: number; names: string[]; total: number; pool: unknown }> {
+async function list(query = ''): Promise<{ status: number; names: string[]; total: number; pool: unknown; leads: Array<Record<string, unknown>> }> {
   const res = await GET(new NextRequest(new URL(`/api/leads${query}`, 'https://vedarai.ru')));
-  const body = await res.json() as { leads: Array<{ name: string }>; total: number; unowned_pool?: unknown };
-  return { status: res.status, names: body.leads.map((l) => l.name), total: body.total, pool: body.unowned_pool };
+  const body = await res.json() as { leads: Array<{ name: string } & Record<string, unknown>>; total: number; unowned_pool?: unknown };
+  return { status: res.status, names: body.leads.map((l) => l.name), total: body.total, pool: body.unowned_pool, leads: body.leads };
 }
 
 beforeEach(() => {
@@ -115,7 +116,11 @@ describe('GET /api/leads: заявка без адресата — только 
     h.isPublic = true;
     const r = await list();
     expect(r.status).toBe(200);
-    expect(r.names.sort()).toEqual([UNOWNED, OWN].sort());
+    // Заявка без адресата — в списке, но без имени и телефона, пока её не взяли (14.11).
+    expect(r.names.sort()).toEqual([HIDDEN_NAME, OWN].sort());
+    const free = r.leads.find((l) => l.id === 'l-free')!;
+    expect(free).toMatchObject({ phone: '', email: null, contact_hidden: true });
+    expect(r.leads.find((l) => l.id === 'l-own')).toMatchObject({ name: OWN, phone: '+70000000000', contact_hidden: false });
     expect(r.total).toBe(2);
     expect(r.pool).toBe('open');
   });
@@ -145,7 +150,7 @@ describe('GET /api/leads: заявка без адресата — только 
     expect(r.pool).toBe('closed');
   });
 
-  it('администратор видит все заявки', async () => {
+  it('администратор видит все заявки — с именами', async () => {
     h.user = { userId: 'u-admin', role: 'admin' };
     const r = await list();
     expect(r.names.sort()).toEqual([UNOWNED, OWN, FOREIGN].sort());
@@ -187,12 +192,14 @@ describe('экран заявок оператора: закрытый спис�
     expect(document.body.textContent).not.toContain(FOREIGN);
   });
 
-  it('кабинет на витрине: заявка без адресата на экране, строки о закрытом списке нет', async () => {
+  it('кабинет на витрине: заявка без адресата на экране — без имени и телефона, пока не взята', async () => {
     h.isPublic = true;
     throughTheDoor();
     renderFresh();
-    expect(await screen.findByText(UNOWNED)).toBeTruthy();
+    expect(await screen.findByText(HIDDEN_NAME)).toBeTruthy();
     expect(screen.getByText(OWN)).toBeTruthy();
+    expect(screen.getByText('Контакты — после взятия заявки')).toBeTruthy();
+    expect(document.body.textContent).not.toContain(UNOWNED);
     expect(note()).toBeNull();
     expect(document.body.textContent).not.toContain(FOREIGN);
   });

@@ -129,7 +129,7 @@ export const CABINET_DIRS = ['app/api/hub/operator', 'app/api/operator', 'app/ap
 
 /** Адреса, которые кабинет зовёт, но держит другой сторож. */
 export const HELD_ELSEWHERE: Record<string, string> = {
-  'app/api/leads/': 'лиды кабинета — leadOwnershipCond / canAccessLead, сторож leads-idor',
+  'app/api/leads/': 'лиды кабинета — leadOwnershipCond / leadAccess (взята ли), сторожа leads-idor и leads-unclaimed-contact',
   'app/api/auth/': 'свой аккаунт: профиль и пароль',
   'app/api/kamchatka-routes/': 'публичный каталог маршрутов',
   'app/api/telegram/connect/': 'свой Telegram аккаунта (users.telegram_id)',
