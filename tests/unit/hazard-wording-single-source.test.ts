@@ -127,7 +127,6 @@ describe('исход для неизвестного ключа выбирает
 describe('потребители берут слова из источника', () => {
   const consumers = [
     ['components/shared/HazardBadgeStrip.tsx', 'hazardLabel'],
-    ['app/api/tools/safety/route.ts', 'hazardLabel'],
     ['lib/kuzmich/guardian-context.ts', 'hazardLabelLower'],
     ['lib/pdf/place-card-generator.ts', 'hazardLabel'],
   ] as const;
@@ -181,7 +180,7 @@ describe('карточка места говорит опасностями, а 
   });
 
   it('бейджи остались там, где их не просили менять', () => {
-    for (const f of ['app/routes/[id]/_RouteDetailClient.tsx', 'app/tools/safety/_SafetyClient.tsx']) {
+    for (const f of ['app/routes/[id]/_RouteDetailClient.tsx', 'components/tools/SafetyToolResult.tsx']) {
       expect(readFileSync(join(ROOT, f), 'utf-8')).toContain('HazardBadgeStrip');
     }
   });

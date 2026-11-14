@@ -1,380 +1,196 @@
 /**
  * POST /api/tools/safety
- * Анализ безопасности места: данные из БД + краткий синтез Кузьмича.
+ *
+ * «Анализатор безопасности» (/tools/safety): оценка места или маршрута на
+ * сегодня. Своих правил и модели здесь НЕТ (слово владельца 14.11): ответ
+ * собран из того же, из чего собраны карточка места и карточка маршрута.
+ *
+ * ── Что было до 14.11 ───────────────────────────────────────
+ *
+ * Инструмент считал своё число риска 1–5 и просил быструю модель написать
+ * три текста: оценку, до пяти «конкретных рекомендаций» и совет на случай ЧС.
+ * Фактов модель получала несколько строк, а её слова не сверял никто — та же
+ * форма, из-за которой 23.10 ужесточали Editor: просить деталь, не дав
+ * источника, значит заказывать выдумку (§4.0). Рядом стояли ещё три
+ * расхождения с карточками:
+ *
+ *   - у маршрута была своя оценка, не та, что на карточке («Идти / Осторожно /
+ *     Не сегодня»): закрытия парка и маршрута инструмент не читал, а места
+ *     «рядом» (§4.1) складывал в опасности маршрута как точки пути;
+ *   - кнопка GPS брала ближайшее место по градусам, без предела расстояния и
+ *     без отбора видимых: за сто километров от любого места человек получал
+ *     оценку чужого места, и расстояние ему не называлось;
+ *   - две оценки одного дня об одном месте — число здесь и цвет на карточке.
+ *
+ * ── Что теперь ──────────────────────────────────────────────
+ *
+ *   место    → данные карточки места (lib/places/place-detail): обстановка дня
+ *              по `placeDayStatus`, профиль безопасности, код вулкана;
+ *   маршрут  → оценка дня карточки маршрута (lib/routes/route-today: правила
+ *              go-verdict, сигналы collect-signals) и опасности самого маршрута;
+ *   GPS      → ближайшее живое место по настоящему расстоянию; дальше
+ *              NEAREST_PLACE_MAX_KM оценка не показывается — называется место
+ *              и расстояние («не знаем, что там, где вы стоите»).
+ *
+ * Экран рисует ответ теми же компонентами, что карточки
+ * (components/tools/SafetyToolResult).
  */
 import { NextRequest, NextResponse } from 'next/server';
 import { z } from 'zod';
 import { query } from '@/lib/database';
-import { callAIFast } from '@/lib/ai/providers';
 import { createRateLimiter, getClientIp } from '@/lib/rate-limit';
-import { hazardLabel } from '@/lib/safety/hazard-labels';
-import { asProfileSource, crowdsOnScale, honestSafetyFields } from '@/lib/safety/profile-source';
-import { placeRiskScore } from '@/lib/safety/place-risk-score';
-import { routeDifficultyLabel } from '@/lib/places/zone-labels';
+import { loadPlaceDetail } from '@/lib/places/place-detail';
+import { NEAREST_PLACE_SQL, NEAREST_PLACE_MAX_KM } from '@/lib/places/nearby';
 import { ROUTE_ROW_BY_ANY_ID_SQL } from '@/lib/routes/collect-signals';
+import { routeToday } from '@/lib/routes/route-today';
+import { VERDICT_LABELS } from '@/lib/routes/go-verdict';
+import { insideKrai } from '@/lib/geo/krai-envelope';
 
 export const dynamic = 'force-dynamic';
 
 const BodySchema = z.union([
-  z.object({ placeId: z.string() }),
+  z.object({ placeId: z.string().min(10).max(80) }),
   z.object({ routeId: z.string().uuid() }),
-  z.object({
-    lat: z.number().min(50).max(58),
-    lng: z.number().min(155).max(165),
-  }),
+  z.object({ lat: z.number().min(-90).max(90), lng: z.number().min(-180).max(180) }),
 ]);
 
-
-// Роут зовет AI и открыт анониму: без потолка бот превращает его в
-// бесплатный шлюз к модели за наш счет.
+// Роут открыт анониму и читает карточку места целиком (десяток запросов):
+// потолок — от обхода ботом, человеку десяти оценок в минуту хватает.
 const limiter = createRateLimiter({ windowMs: 60_000, max: 10 });
 
-/**
- * Уровень предупреждения — шкалой источника 0-3 (1 — предупреждение,
- * 2 — критично, 3 — чрезвычайно; lib/services/safety/seismic-parser.ts). До
- * 15.10 модель получала «уровень 2/4» — критичное читалось как умеренное.
- */
-const ALERT_LEVEL_LINE = (level: number) => `ТЕКУЩЕЕ ПРЕДУПРЕЖДЕНИЕ (уровень ${level} из 3: 1 — предупреждение, 2 — критично, 3 — чрезвычайно)`;
-
-/** Текст предупреждения: записка администратора, иначе самый опасный заголовок сводки. */
-function alertText(message: unknown, alerts: unknown): string {
-  if (typeof message === 'string' && message.trim()) return message.trim();
-  const first = Array.isArray(alerts) ? alerts.find((a): a is string => typeof a === 'string' && a.trim() !== '') : undefined;
-  return first ?? 'заголовок предупреждения не записан';
+function logFail(what: string, err: unknown): void {
+  const code = (err as { code?: unknown })?.code;
+  console.error(
+    `[tools/safety] ${what}:`,
+    typeof code === 'string' ? `SQLSTATE=${code.slice(0, 10)}` : 'SQLSTATE=нет',
+    err instanceof Error ? err.message.slice(0, 160) : 'ошибка без текста',
+  );
 }
 
-/**
- * Опасностей не записано — говорим это модели прямо. Иначе пустота читается
- * как «опасностей нет», и оценка выходит спокойной на незнании (§4.0).
- */
-const HAZARDS_UNKNOWN_LINE = 'ОПАСНОСТИ: у платформы не записаны — это не значит, что их нет; не утверждай, что место безопасно';
+const fail = (error: string, status: number) => NextResponse.json({ success: false, error }, { status });
+const ok = (data: Record<string, unknown>) => NextResponse.json({ success: true, data });
+
+/** Данные карточки места — только то, что рисует экран инструмента. */
+async function placeAnswer(id: string, distanceKm: number | null): Promise<NextResponse> {
+  const loaded = await loadPlaceDetail(id, { countView: false });
+  const d = loaded.body.data;
+  if (loaded.status !== 200 || !d) {
+    // Три исхода загрузчика доезжают как есть: «не найдено» — не «сбой».
+    return fail(loaded.body.error ?? 'Место не прочиталось', loaded.status === 200 ? 500 : loaded.status);
+  }
+  return ok({
+    kind: 'place',
+    distanceKm,
+    place: {
+      id: d.id,
+      name: d.name,
+      locationType: d.locationType ?? null,
+      safety: d.safety,
+      realtime: d.realtime ?? null,
+      volcanoStatus: d.volcanoStatus ?? null,
+      eco: d.eco ?? null,
+    },
+  });
+}
+
+async function gpsAnswer(lat: number, lng: number): Promise<NextResponse> {
+  // Конверт края — один на платформу (lib/geo/krai-envelope). Прежняя своя
+  // рамка этого роута (широта до 58°, долгота до 165°) оставляла снаружи север
+  // края и Командоры.
+  if (insideKrai(lat, lng) !== true) {
+    return ok({ kind: 'outside' });
+  }
+  let rows: Array<Record<string, unknown>>;
+  try {
+    rows = (await query(NEAREST_PLACE_SQL, [lat, lng])).rows as Array<Record<string, unknown>>;
+  } catch (err) {
+    logFail('ближайшее место не прочиталось', err);
+    return fail('Ближайшее место не прочиталось — попробуйте ещё раз', 500);
+  }
+  const nearest = rows[0];
+  if (!nearest) return ok({ kind: 'none' });
+
+  const km = Number(nearest.km);
+  if (!Number.isFinite(km)) {
+    logFail('расстояние до ближайшего места не число', new Error(String(nearest.km)));
+    return fail('Ближайшее место не прочиталось — попробуйте ещё раз', 500);
+  }
+  if (km > NEAREST_PLACE_MAX_KM) {
+    return ok({
+      kind: 'far',
+      nearest: {
+        id: String(nearest.id),
+        slug: (nearest.slug as string | null) ?? null,
+        name: String(nearest.name),
+        locationType: (nearest.location_type as string | null) ?? null,
+        distanceKm: Math.round(km),
+      },
+    });
+  }
+  // До километра — «рядом», без ложной точности; дальше — целые километры.
+  return placeAnswer(String(nearest.id), km < 1 ? 0 : Math.round(km));
+}
+
+async function routeAnswer(routeId: string): Promise<NextResponse> {
+  let route: Record<string, unknown> | undefined;
+  let rowId: string | undefined;
+  try {
+    // У маршрута два id (lib/routes/collect-signals): поиск отдаёт id карточки —
+    // COALESCE(ark_id, id), а строка, её путевые точки и закрытия живут на
+    // kamchatka_routes.id. Правило «какая строка» — общее с карточкой.
+    rowId = (await query(ROUTE_ROW_BY_ANY_ID_SQL, [routeId])).rows[0]?.id as string | undefined;
+    if (!rowId) return fail('Маршрут не найден', 404);
+
+    // Видимость — как у карточки: её представление берёт строки без
+    // merged_into_id и показывает только is_visible. mchs_phone не читается
+    // намеренно: региональный номер — только из lib/safety/emergency-numbers.
+    route = (await query(
+      `SELECT COALESCE(ark_id, id)::text AS card_id, title, hazards, mchs_registration_required
+         FROM kamchatka_routes
+        WHERE id = $1::uuid AND merged_into_id IS NULL AND is_visible = TRUE
+        LIMIT 1`,
+      [rowId],
+    )).rows[0] as Record<string, unknown> | undefined;
+  } catch (err) {
+    logFail('маршрут не прочитался', err);
+    return fail('Маршрут не прочитался — попробуйте ещё раз', 500);
+  }
+  if (!route) return fail('Маршрут не найден', 404);
+
+  // Оценка — та же, что на карточке маршрута и в ответе Кузьмича. Сбой сбора
+  // сигналов route-today превращает в «Осторожно — данных мало», а не в «Идти».
+  const today = await routeToday(rowId);
+
+  return ok({
+    kind: 'route',
+    route: {
+      cardId: String(route.card_id),
+      title: String(route.title),
+      hazards: Array.isArray(route.hazards) ? (route.hazards as unknown[]).filter((h): h is string => typeof h === 'string') : [],
+      registrationRequired: route.mchs_registration_required === true,
+    },
+    verdict: { ...today.verdict, label: VERDICT_LABELS[today.verdict.status] },
+    signals: today.signals,
+  });
+}
 
 export async function POST(request: NextRequest) {
   if (!limiter.check(getClientIp(request.headers))) {
-    return NextResponse.json(
-      { success: false, error: 'Слишком много запросов — подождите минуту' },
-      { status: 429 },
-    );
+    return fail('Слишком много запросов — подождите минуту', 429);
   }
 
   let body: unknown;
   try { body = await request.json(); } catch {
-    return NextResponse.json({ success: false, error: 'Неверный JSON' }, { status: 400 });
+    return fail('Неверный JSON', 400);
   }
 
   const parsed = BodySchema.safeParse(body);
   if (!parsed.success) {
-    return NextResponse.json({ success: false, error: 'Нужен placeId или координаты lat/lng' }, { status: 400 });
+    return fail('Нужно место (placeId), маршрут (routeId) или координаты lat и lng', 400);
   }
-
   const data = parsed.data;
 
-  // ── Маршрут — агрегируем по всем точкам маршрута ─────────────────────────
-  if ('routeId' in data) {
-    try {
-      // У маршрута два id (lib/routes/collect-signals): поиск отдаёт id
-      // карточки — COALESCE(ark_id, id), а строка и её путевые точки живут на
-      // kamchatka_routes.id. До 14.11 маршрут искался только по id строки, и
-      // у маршрута с заполненным ark_id ответ был «Маршрут не найден».
-      // Правило «какая строка» одно с карточкой; дальше всё — по id строки.
-      const rowRes = await query(ROUTE_ROW_BY_ANY_ID_SQL, [data.routeId]);
-      const rowId = rowRes.rows[0]?.id as string | undefined;
-      if (!rowId) {
-        return NextResponse.json({ success: false, error: 'Маршрут не найден' }, { status: 404 });
-      }
-
-      // mchs_phone не читается намеренно: региональный номер показывается
-      // только из lib/safety/emergency-numbers (проверен владельцем), а из
-      // промпта модель переносила бы непроверенный номер в блок «ЧС».
-      const [routeRes, wpRes] = await Promise.all([
-        query(
-          `SELECT id, title, distance_km, elevation_gain_m, duration_hours,
-                  difficulty, hazards, mchs_registration_required
-           FROM kamchatka_routes WHERE id = $1::uuid LIMIT 1`,
-          [rowId],
-        ),
-        query(
-          `SELECT p.name, sp.hazard_types, sp.difficulty_level, sp.altitude_m, sp.profile_source,
-                  sp.nearest_medical_km, sp.sat_communicator_required,
-                  sp.registration_required,
-                  rs.alert_severity, rs.alert_message, rs.active_alerts
-           FROM route_waypoints rw
-           JOIN places p ON p.id = rw.place_id
-           LEFT JOIN location_safety_profile sp ON sp.agent_route_id = p.ark_id
-           LEFT JOIN location_real_time_status rs ON rs.agent_route_id = p.ark_id
-           WHERE rw.route_id = $1::uuid
-           ORDER BY rw.position`,
-          [rowId],
-        ),
-      ]);
-
-      if (!routeRes.rows.length) {
-        return NextResponse.json({ success: false, error: 'Маршрут не найден' }, { status: 404 });
-      }
-
-      const r = routeRes.rows[0];
-      const wps = wpRes.rows;
-
-      // Агрегация опасностей по всем точкам маршрута. Из точек берём только
-      // то, что не выдумал шаблон 070 (lib/safety/profile-source.ts): иначе
-      // маршрут через любой вулкан получал лавины, а через источник — химию.
-      // Опасности самого маршрута (kamchatka_routes.hazards) шаблон не
-      // заполнял — они идут как есть.
-      const honestWps = wps.map(wp => ({
-        ...wp,
-        ...honestSafetyFields(
-          {
-            hazardTypes: Array.isArray(wp.hazard_types) ? (wp.hazard_types as string[]) : [],
-            capacityPerDay: null,
-            optimalGroupSize: null,
-            difficultyLevel: wp.difficulty_level != null ? Number(wp.difficulty_level) : null,
-            terrainType: null,
-          },
-          asProfileSource(wp.profile_source),
-        ),
-      }));
-      const allHazards = new Set<string>();
-      (Array.isArray(r.hazards) ? (r.hazards as string[]) : []).forEach(h => allHazards.add(h));
-      honestWps.forEach(wp => { wp.hazardTypes.forEach(h => allHazards.add(h)); });
-      const hazards = Array.from(allHazards);
-
-      const maxAlertSeverity = wps.reduce((m: number | null, wp) => {
-        const s = wp.alert_severity != null ? Number(wp.alert_severity) : null;
-        if (s == null) return m;
-        return m == null ? s : Math.max(m, s);
-      }, null);
-
-      const maxDifficulty = honestWps.reduce((m: number | null, wp) => {
-        const d = wp.difficultyLevel;
-        if (d == null) return m;
-        return m == null ? d : Math.max(m, d);
-      // Сложность маршрута — словом (easy/medium/hard/extreme,
-      // lib/routes/difficulty-scale), а не числом 1-5, как у точки: Number()
-      // давал NaN, и в ответ уходило «СЛОЖНОСТЬ: NaN/5». Тяжёлый и
-      // экстремальный маршрут поднимают риск так же, как сложность точки 4-5.
-      }, r.difficulty === 'hard' || r.difficulty === 'extreme' ? 4 : null);
-
-      const maxAltitude = wps.reduce((m: number | null, wp) => {
-        const a = wp.altitude_m != null ? Number(wp.altitude_m) : null;
-        if (a == null) return m;
-        return m == null ? a : Math.max(m, a);
-      }, null);
-
-      const minMedical = wps.reduce((m: number | null, wp) => {
-        const v = wp.nearest_medical_km != null ? Number(wp.nearest_medical_km) : null;
-        if (v == null) return m;
-        return m == null ? v : Math.min(m, v);
-      }, null);
-
-      const satRequired = wps.some(wp => wp.sat_communicator_required);
-      const regRequired = Boolean(r.mchs_registration_required) || wps.some(wp => wp.registration_required);
-      const alertWp = wps.find(wp => wp.alert_severity != null && Number(wp.alert_severity) > 0);
-
-      const riskScore = placeRiskScore(hazards, maxAlertSeverity, maxDifficulty);
-
-      const contextParts: string[] = [
-        `МАРШРУТ: ${r.title as string}`,
-      ];
-      if (r.distance_km) contextParts.push(`ДИСТАНЦИЯ: ${r.distance_km} км`);
-      if (r.elevation_gain_m) contextParts.push(`НАБОР ВЫСОТЫ: ${r.elevation_gain_m} м`);
-      if (r.duration_hours) contextParts.push(`ДЛИТЕЛЬНОСТЬ: ${r.duration_hours} ч`);
-      if (maxAltitude) contextParts.push(`МАКСИМАЛЬНАЯ ВЫСОТА: ${maxAltitude} м`);
-      contextParts.push(hazards.length ? `ОПАСНОСТИ: ${hazards.map(h => hazardLabel(h)).join(', ')}` : HAZARDS_UNKNOWN_LINE);
-      if (maxDifficulty != null) contextParts.push(`СЛОЖНОСТЬ: ${maxDifficulty}/5`);
-      if (routeDifficultyLabel(r.difficulty as string | null)) contextParts.push(`СЛОЖНОСТЬ МАРШРУТА: ${routeDifficultyLabel(r.difficulty as string | null)}`);
-      if (minMedical != null) contextParts.push(`БЛИЖАЙШАЯ МЕДПОМОЩЬ: ${minMedical} км`);
-      if (satRequired) contextParts.push('Спутниковая связь: рекомендуется');
-      if (regRequired) contextParts.push('Регистрация в МЧС: обязательна');
-      if (maxAlertSeverity != null && maxAlertSeverity > 0 && alertWp) {
-        contextParts.push(`${ALERT_LEVEL_LINE(maxAlertSeverity)}: ${alertText(alertWp.alert_message, alertWp.active_alerts)}`);
-      }
-      if (wps.length > 0) contextParts.push(`ТОЧЕК НА МАРШРУТЕ: ${wps.length}`);
-
-      const messages = [
-        {
-          role: 'system' as const,
-          content: 'Ты Кузьмич — опытный гид по Камчатке. Давай честные, конкретные оценки безопасности. Говори прямо о реальных рисках. Отвечай ТОЛЬКО валидным JSON без markdown-блоков.',
-        },
-        {
-          role: 'user' as const,
-          content: contextParts.join('\n') + `
-
-Дай оценку безопасности маршрута строго по схеме JSON:
-{
-  "assessment": "2-3 предложения честной оценки безопасности для туриста",
-  "recommendations": ["конкретная рекомендация", "максимум 5 штук"],
-  "emergencyTip": "что делать при ЧС на этом маршруте (1 предложение)"
-}`,
-        },
-      ];
-
-      const aiText = await callAIFast(messages);
-      let synthesis: { assessment?: string; recommendations?: string[]; emergencyTip?: string } = {};
-      try {
-        const cleaned = aiText.replace(/^```(?:json)?\n?/, '').replace(/\n?```$/, '').trim();
-        synthesis = JSON.parse(cleaned) as typeof synthesis;
-      } catch {
-        synthesis = { assessment: aiText.slice(0, 300) };
-      }
-
-      return NextResponse.json({
-        success: true,
-        data: {
-          placeId:          r.id as string,
-          placeName:        r.title as string,
-          placeType:        'route',
-          altitudeM:        maxAltitude,
-          difficultyLevel:  maxDifficulty,
-          hazards,
-          nearestMedicalKm: minMedical,
-          satCommunicator:  satRequired,
-          registrationRequired: regRequired,
-          realtime: maxAlertSeverity != null && maxAlertSeverity > 0 ? {
-            isOpen: null,
-            alertSeverity: maxAlertSeverity,
-            alertMessage: (alertWp?.alert_message as string | null) ?? null,
-            currentCrowds: null,
-            activeAlerts: (alertWp?.active_alerts as string[] | null) ?? null,
-          } : null,
-          riskScore,
-          kuzmichAssessment: synthesis.assessment ?? null,
-          recommendations:   synthesis.recommendations ?? [],
-          emergencyTip:      synthesis.emergencyTip ?? null,
-        },
-      });
-    } catch (err) {
-      // Отказ не глушится (§4.0): без строки в логе 500 неотличим от «нет данных».
-      console.error('[tools/safety] разбор маршрута не выполнился:', err instanceof Error ? err.message : err);
-      return NextResponse.json({ success: false, error: 'Ошибка сервера' }, { status: 500 });
-    }
-  }
-
-  try {
-    const params: unknown[] = 'placeId' in data ? [data.placeId] : [data.lat, data.lng];
-
-    const sql = 'placeId' in data
-      ? `SELECT
-           p.id, p.name, p.location_type, p.description,
-           p.lat, p.lng,
-           sp.hazard_types, sp.difficulty_level, sp.altitude_m, sp.profile_source,
-           sp.nearest_medical_km, sp.sat_communicator_required,
-           sp.registration_required,
-           rs.is_open, rs.current_crowds, rs.alert_severity,
-           rs.alert_message, rs.active_alerts
-         FROM places p
-         LEFT JOIN location_safety_profile sp ON sp.agent_route_id = p.ark_id
-         LEFT JOIN location_real_time_status rs ON rs.agent_route_id = p.ark_id
-         WHERE p.id = $1
-         LIMIT 1`
-      : `SELECT
-           p.id, p.name, p.location_type, p.description,
-           p.lat, p.lng,
-           sp.hazard_types, sp.difficulty_level, sp.altitude_m, sp.profile_source,
-           sp.nearest_medical_km, sp.sat_communicator_required,
-           sp.registration_required,
-           rs.is_open, rs.current_crowds, rs.alert_severity,
-           rs.alert_message, rs.active_alerts
-         FROM places p
-         LEFT JOIN location_safety_profile sp ON sp.agent_route_id = p.ark_id
-         LEFT JOIN location_real_time_status rs ON rs.agent_route_id = p.ark_id
-         WHERE p.lat IS NOT NULL AND p.lng IS NOT NULL
-         ORDER BY ((p.lat::float - $1)^2 + (p.lng::float - $2)^2) ASC
-         LIMIT 1`;
-
-    const result = await query(sql, params);
-
-    if (!result.rows.length) {
-      return NextResponse.json({ success: false, error: 'Место не найдено' }, { status: 404 });
-    }
-
-    const r = result.rows[0];
-    // Опасности и сложность, выведенные шаблоном 070 из location_type, не
-    // произносятся как факты и не участвуют в оценке риска: выдуманная
-    // лавинная опасность повышала бы риск городского парка
-    // (lib/safety/profile-source.ts, миграция 1100).
-    const honest = honestSafetyFields(
-      {
-        hazardTypes: Array.isArray(r.hazard_types) ? (r.hazard_types as string[]) : [],
-        capacityPerDay: null,
-        optimalGroupSize: null,
-        difficultyLevel: r.difficulty_level != null ? Number(r.difficulty_level) : null,
-        terrainType: null,
-      },
-      asProfileSource(r.profile_source),
-    );
-    const hazards: string[] = honest.hazardTypes;
-    const alertSeverity = r.alert_severity != null ? Number(r.alert_severity) : null;
-    const difficultyLevel = honest.difficultyLevel;
-    const riskScore = placeRiskScore(hazards, alertSeverity, difficultyLevel);
-
-    const contextParts: string[] = [
-      `МЕСТО: ${r.name as string} (тип: ${(r.location_type as string | null) ?? 'неизвестно'})`,
-    ];
-    if (r.altitude_m) contextParts.push(`ВЫСОТА: ${r.altitude_m} м`);
-    contextParts.push(hazards.length ? `ОПАСНОСТИ: ${hazards.map(h => hazardLabel(h)).join(', ')}` : HAZARDS_UNKNOWN_LINE);
-    if (difficultyLevel != null) contextParts.push(`СЛОЖНОСТЬ ДОСТУПА: ${difficultyLevel}/5`);
-    if (r.nearest_medical_km != null) contextParts.push(`БЛИЖАЙШАЯ МЕДПОМОЩЬ: ${r.nearest_medical_km} км`);
-    if (r.sat_communicator_required) contextParts.push('Спутниковая связь: рекомендуется');
-    if (r.registration_required) contextParts.push('Регистрация в МЧС: обязательна');
-    if (alertSeverity != null && alertSeverity > 0) {
-      contextParts.push(`${ALERT_LEVEL_LINE(alertSeverity)}: ${alertText(r.alert_message, r.active_alerts)}`);
-    }
-
-    const messages = [
-      {
-        role: 'system' as const,
-        content: 'Ты Кузьмич — опытный гид по Камчатке. Давай честные, конкретные оценки безопасности. Говори прямо о реальных рисках. Отвечай ТОЛЬКО валидным JSON без markdown-блоков.',
-      },
-      {
-        role: 'user' as const,
-        content: contextParts.join('\n') + `
-
-Дай оценку безопасности строго по схеме JSON:
-{
-  "assessment": "2-3 предложения честной оценки безопасности для туриста",
-  "recommendations": ["конкретная рекомендация", "максимум 5 штук"],
-  "emergencyTip": "что делать при ЧС на этом месте (1 предложение)"
-}`,
-      },
-    ];
-
-    const aiText = await callAIFast(messages);
-
-    let synthesis: { assessment?: string; recommendations?: string[]; emergencyTip?: string } = {};
-    try {
-      const cleaned = aiText.replace(/^```(?:json)?\n?/, '').replace(/\n?```$/, '').trim();
-      synthesis = JSON.parse(cleaned) as typeof synthesis;
-    } catch {
-      synthesis = { assessment: aiText.slice(0, 300) };
-    }
-
-    return NextResponse.json({
-      success: true,
-      data: {
-        placeId:        r.id as string,
-        placeName:      r.name as string,
-        placeType:      (r.location_type as string | null) ?? null,
-        altitudeM:      r.altitude_m != null ? Number(r.altitude_m) : null,
-        difficultyLevel,
-        hazards,
-        nearestMedicalKm: r.nearest_medical_km != null ? Number(r.nearest_medical_km) : null,
-        satCommunicator: Boolean(r.sat_communicator_required),
-        registrationRequired: Boolean(r.registration_required),
-        realtime: alertSeverity != null || r.is_open != null ? {
-          isOpen:        r.is_open as boolean | null,
-          alertSeverity,
-          alertMessage:  (r.alert_message as string | null) ?? null,
-          currentCrowds: crowdsOnScale(r.current_crowds),
-          activeAlerts:  (r.active_alerts as string[] | null) ?? null,
-        } : null,
-        riskScore,
-        kuzmichAssessment:    synthesis.assessment ?? null,
-        recommendations:      synthesis.recommendations ?? [],
-        emergencyTip:         synthesis.emergencyTip ?? null,
-      },
-    });
-  } catch (err) {
-    console.error('[tools/safety] разбор места не выполнился:', err instanceof Error ? err.message : err);
-    return NextResponse.json({ success: false, error: 'Ошибка сервера' }, { status: 500 });
-  }
+  if ('routeId' in data) return routeAnswer(data.routeId);
+  if ('placeId' in data) return placeAnswer(data.placeId, null);
+  return gpsAnswer(data.lat, data.lng);
 }
