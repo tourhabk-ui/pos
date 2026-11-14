@@ -107,3 +107,39 @@ export interface SeasonWindowView {
 export function seasonWindowView(w: RequestWindow): SeasonWindowView | null {
   return w.kind === 'season' ? { from: w.from, to: w.to, label: windowLabel(w) } : null;
 }
+
+/**
+ * Строка человеку: записанный сезон тура кончился, а следующего в данных нет
+ * (#3347, 14.11).
+ *
+ * По правилу 08.10 такой тур без календаря принимает заявку на любую дату —
+ * в ноябре это и зима у летнего тура. Запрещать дату нельзя: сезон следующего
+ * года знает только оператор, и придумывать его здесь нечем (§4.0). Но и
+ * молчать нельзя: человек выбирает дату и не знает, что о ней в данных нет ни
+ * слова. Строка говорит, что известно (когда кончился записанный сезон) и чего
+ * нет (следующего сезона), и кто ответит.
+ *
+ * Сезон идёт, записан вперёд или не записан вовсе — строки нет: в первых двух
+ * случаях действует окно, в третьем сказать о сезоне нечего.
+ */
+export function pastSeasonNote(t: WindowInput, today: string): string | null {
+  const w = requestWindow(t, today);
+  if (w.kind !== 'unbounded' || w.why !== 'past') return null;
+  const end = isoDay(t.season_end);
+  if (!end) return null;
+  // Сезон может ещё идти, а многодневный тур в него уже не помещается.
+  const head = end < today
+    ? `Записанный сезон этого тура закончился ${longDay(end)}.`
+    : `До конца записанного сезона этого тура (${longDay(end)}) поездка уже не успевает.`;
+  return `${head} Сезон следующего года оператор не объявил — возьмёт ли он на вашу дату, скажет он сам.`;
+}
+
+/**
+ * Та же строка для формы на карточке тура. `datesRecorded` — сколько будущих
+ * дат записано в календаре тура: больше нуля — даты называет календарь, и
+ * строка о сезоне не нужна; `null` (счёт не прочитался) — не знаем, ведёт ли
+ * тур календарь, и про сезон молчим, а не гадаем.
+ */
+export function formSeasonNote(t: WindowInput, datesRecorded: number | null, today: string): string | null {
+  return datesRecorded === 0 ? pastSeasonNote(t, today) : null;
+}

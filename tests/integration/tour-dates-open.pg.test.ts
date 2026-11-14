@@ -961,4 +961,37 @@ withPg('общая запись дат тура на настоящем PostgreS
     expect(await askOperatorAboutDate(input('2027-02-01', '+79005550602'), { today })).toEqual({ state: 'not_platform_closed' });
     expect(await leadsOf('+79005550602')).toEqual([]);
   });
+
+  it('перепись сезонов (#3347): тур без календаря с прошедшим сезоном назван, с календарём и снятый с витрины — нет', async () => {
+    const { runTourSeasonCensus } = await import('@/lib/tours/season-census');
+    const { kamchatkaToday } = await import('@/lib/seat-requests/core');
+    const past = await addTour(operatorA, 'Перепись: сезон прошёл', { season_start: '2020-06-01', season_end: '2020-09-15' });
+    const withCalendar = await addTour(operatorA, 'Перепись: сезон прошёл, календарь есть', { season_start: '2020-06-01', season_end: '2020-09-15' });
+    await pool.query(
+      `INSERT INTO tour_availability (operator_tour_id, date, available_slots, is_cancelled)
+       VALUES ($1, (NOW() AT TIME ZONE 'Asia/Kamchatka')::date + 30, 8, FALSE)`,
+      [withCalendar],
+    );
+    // Календарь из одной отменённой даты календарём не считается: правило keepsScheduleSql.
+    const cancelledOnly = await addTour(operatorA, 'Перепись: дата отменена', { season_start: '2020-06-01', season_end: '2020-09-15' });
+    await pool.query(
+      `INSERT INTO tour_availability (operator_tour_id, date, available_slots, is_cancelled)
+       VALUES ($1, (NOW() AT TIME ZONE 'Asia/Kamchatka')::date + 30, 8, TRUE)`,
+      [cancelledOnly],
+    );
+    const draft = await addTour(operatorA, 'Перепись: черновик', { is_published: false, season_start: '2020-06-01', season_end: '2020-09-15' });
+
+    const census = await runTourSeasonCensus(kamchatkaToday());
+    const named = new Map(census.accepts_any_date.map((t) => [t.id, t]));
+    expect(named.get(past)).toMatchObject({ state: 'past', partner: 'Оператор dates-op-a', season_end: '2020-09-15' });
+    expect(named.get(cancelledOnly)).toMatchObject({ state: 'past' });
+    expect(named.has(withCalendar)).toBe(false);
+    // Шлюз витрины: черновик, выключенный и удалённый тур в перепись не идут.
+    for (const hidden of [draft, tour.off, tour.deleted]) expect(named.has(hidden)).toBe(false);
+    // Сезон записан на 2027 год — действует окно, любую дату тур не принимает.
+    if (kamchatkaToday() < '2027-09-30') expect(named.has(tour.season)).toBe(false);
+    expect(census.with_calendar).toBeGreaterThanOrEqual(1);
+    expect(census.tours_total).toBe(census.with_calendar + census.without_calendar);
+    expect(census.accepts_any_date_total).toBe(census.accepts_any_date.length);
+  });
 });

@@ -391,7 +391,7 @@ function SectionTitle({ children, icon: Icon, iconColor }: {
 
 /* ─── Main Component ─── */
 
-export default function TourDetailClient({ tour, reviews = [], askSeatsFirst = false, seasonWindow = null, placeOffers = null, prefill = {} }: { prefill?: { date?: string; guests?: number }; tour: TourFull; reviews?: TourReview[]; askSeatsFirst?: boolean; seasonWindow?: SeasonWindowView | null; placeOffers?: PlaceOffersView | null }) {
+export default function TourDetailClient({ tour, reviews = [], askSeatsFirst = false, seasonWindow = null, seasonNote = null, placeOffers = null, prefill = {} }: { prefill?: { date?: string; guests?: number }; tour: TourFull; reviews?: TourReview[]; askSeatsFirst?: boolean; seasonWindow?: SeasonWindowView | null; seasonNote?: string | null; placeOffers?: PlaceOffersView | null }) {
   const router = useRouter();
   const dayStatus = useDayStatus();
   const [wishlisted, setWishlisted] = useState(false);
@@ -1269,6 +1269,7 @@ export default function TourDetailClient({ tour, reviews = [], askSeatsFirst = f
                     priceUnit={tour.price_unit}
                     askSeatsFirst={askSeatsFirst}
                     seasonWindow={seasonWindow}
+                    seasonNote={seasonNote}
                     cancellationTerms={{
                       freeDays: tour.cancellation_free_days ?? null,
                       lateRefundPercent: tour.cancellation_late_refund_percent ?? null,

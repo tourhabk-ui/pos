@@ -62,6 +62,11 @@ interface BookingFormProps {
    * дату вне него сервер отвергнет, поэтому форма её и не предлагает.
    */
   seasonWindow?: SeasonWindowView | null;
+  /**
+   * Записанный сезон тура кончился, следующего в данных нет (#3347,
+   * `formSeasonNote`): дата принимается любая, и форма это называет.
+   */
+  seasonNote?: string | null;
 }
 
 /** Неразрывный пробел перед ₽: «52 000 / ₽» на двух строках — аудит 24.09. */
@@ -100,7 +105,7 @@ const DATE_CLOSED_BY_PLATFORM = 'DATE_CLOSED_BY_PLATFORM';
 /** Вопрос оператору отправлен: слова сервера и ссылки на страницу заявки и MAX (могут не выдаться). */
 interface AskedState { message: string; page: string | null; maxLink: string | null }
 
-export default function BookingFormClient({ tourId, basePrice, maxParticipants = 10, groupSizeUnlimited = false, tourTitle, priceUnit, duration, initialDate, initialGuests, cancellationTerms, askSeatsFirst = false, seasonWindow = null }: BookingFormProps) {
+export default function BookingFormClient({ tourId, basePrice, maxParticipants = 10, groupSizeUnlimited = false, tourTitle, priceUnit, duration, initialDate, initialGuests, cancellationTerms, askSeatsFirst = false, seasonWindow = null, seasonNote = null }: BookingFormProps) {
   const router = useRouter();
   const [plainBooking, setPlainBooking] = useState(!askSeatsFirst || Boolean(initialDate || initialGuests));
   const [seatsOpen, setSeatsOpen] = useState(false);
@@ -460,6 +465,11 @@ export default function BookingFormClient({ tourId, basePrice, maxParticipants =
             Предварительная бронь только по сезону: {seasonWindow.label}.
           </p>
         )}
+        {seasonNote && (
+          <p data-season-note className="text-sm text-[var(--text-primary)] leading-relaxed border-l-2 border-[var(--warning)] pl-3">
+            {seasonNote}
+          </p>
+        )}
         <button type="button" className="ds-btn ds-btn-primary w-full" onClick={() => { markFunnelStart(); setSeatsOpen(true); }}>
           Спросить места у оператора
         </button>
@@ -514,6 +524,11 @@ export default function BookingFormClient({ tourId, basePrice, maxParticipants =
           invalid={invalid('booking_date')}
           seasonWindow={seasonWindow}
         />
+        {seasonNote && (
+          <p data-season-note className="mt-2 text-sm text-[var(--text-primary)] leading-relaxed border-l-2 border-[var(--warning)] pl-3">
+            {seasonNote}
+          </p>
+        )}
       </div>
 
       {/* Участники */}

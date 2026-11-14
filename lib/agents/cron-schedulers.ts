@@ -209,6 +209,7 @@ export const MANUAL_ENDPOINTS: Record<string, SchedulerDeclaration> = {
   'payment-test-setup':        { kind: 'manual', writes: true,  note: 'обвязка проверки оплаты и комиссии: служебный партнёр, невидимый тур, бронь под QR' },
   'partner-junk-census':       { kind: 'manual', writes: false, note: 'партнёры, у которых имя не имя (реестровый номер вместо названия)' },
   'place-slug-census':         { kind: 'manual', writes: false, note: 'видимые места без адреса по имени и кто держит их адрес (после миграции 1111)' },
+  'tour-season-census':        { kind: 'manual', writes: false, note: 'живые туры без календаря, которые принимают заявку на любую дату: сезон прошёл или не записан (#3347)' },
   'trip-watch-twins-census':   { kind: 'manual', writes: false, note: 'двойники контроля выхода с формы /register: сколько пар и сколько открытых (до 10.11 форма писала две записи на выход)' },
   'route-slug-census':         { kind: 'manual', writes: false, note: 'видимые маршруты без адреса по имени и кто держит их адрес; would_assign — маршрут стал видимым мимо триггера 1237' },
   // Ходит наружу, но только на один хост, зашитый в роуте: параметров нет, иначе SSRF.
