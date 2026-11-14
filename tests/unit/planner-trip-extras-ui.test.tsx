@@ -220,8 +220,8 @@ describe('результат: настоящее, пустое, непровер
     // трансферы аэропорта — у прилетающего.
     const estimate = screen.getByTestId('price-estimate');
     expect(within(estimate).getByText(/Смета на группу · 2 чел\./)).toBeTruthy();
-    expect(within(estimate).getByText('Проживание в Авачинской зоне')).toBeTruthy();
-    expect(within(estimate).getByText('Проживание в Западной зоне')).toBeTruthy();
+    expect(within(estimate).getByText('Проживание в Авачинской зоне, уровень «Комфорт»')).toBeTruthy();
+    expect(within(estimate).getByText('Проживание в Западной зоне, уровень «Комфорт»')).toBeTruthy();
     expect(within(estimate).getAllByText(/1 ночь × 2 чел\. · ориентир/)).toHaveLength(2);
     expect(within(estimate).getByText('Трансферы аэропорта')).toBeTruthy();
     expect(estimate.textContent).toMatch(/ориентир по средним ценам/);

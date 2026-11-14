@@ -175,6 +175,9 @@ export function countsAsActivityCost(type: DayType): boolean {
   return type === 'activity' || type === 'buffer' || type === 'arrival' || type === 'rest' || type === 'departure';
 }
 
+/** Уровень жилья словами — как на кнопках шага 3 планера. */
+const TIER_WORDS: Record<BudgetTier, string> = { economy: 'Эконом', comfort: 'Комфорт', premium: 'Премиум' };
+
 function budgetIndex(tier: BudgetTier): 0 | 1 | 2 {
   return tier === 'economy' ? 0 : tier === 'comfort' ? 1 : 2;
 }
@@ -533,7 +536,9 @@ export function estimateGroup(days: EstimateDay[], profile: EstimateProfile, cho
     }
     for (const [zone, z] of byZone) {
       lines.push({
-        kind: 'lodging', label: `Проживание в ${ZONE_GENITIVE[zone]}`,
+        // Уровень жилья — в подписи строки (#3338): он меняет сумму, а строка
+        // его не называла.
+        kind: 'lodging', label: `Проживание в ${ZONE_GENITIVE[zone]}, уровень «${TIER_WORDS[profile.budgetTier] ?? profile.budgetTier}»`,
         basis: `${z.nights} ${nightWord(z.nights)} × ${peopleWord(people)}`,
         total: times(z.sum, people), source: 'estimate',
         note: 'Ориентир по зоне и уровню размещения; ночи, включённые в туры, не считаны.',
