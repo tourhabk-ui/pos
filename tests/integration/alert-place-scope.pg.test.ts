@@ -954,6 +954,76 @@ withPg('кого накрывает предупреждение', () => {
     }
   });
 
+  it('1442: закрытие «Южно-Камчатского» доходит до Ксудача, Ходутки, Асачи и Желтовской сопки — по словам парка, не по контуру (#3333)', async () => {
+    // Прод 13–14.11: парк закрыл маршруты, а Ксудач и Ходутка стояли зелёными —
+    // контур OSM 21624150 покрывает только северный кластер парка. Миграция
+    // 1442 пишет связь пяти мест по источнику. Номера мест — с прода.
+    const KSUDACH = '6e3a46a9-104d-4181-958a-2a47698f2982';
+    const NAMED = [
+      { id: KSUDACH, name: 'Вулкан Ксудач', ark: 'c1442000-0000-4000-8000-000000000061' },
+      { id: 'a1b2c3d4-e5f6-7890-abcd-ef0123456789', name: 'Вулкан Ходутка', ark: 'c1442000-0000-4000-8000-000000000062' },
+      { id: '24ee4667-c6e0-4aa0-b3f8-27073e00822f', name: 'Ходуткинские горячие источники', ark: 'c1442000-0000-4000-8000-000000000063' },
+      { id: 'ce3db5c5-69c8-41b9-8a95-8b088ac2230e', name: 'Асача', ark: 'c1442000-0000-4000-8000-000000000064' },
+      { id: '00a71c01-6a76-4227-91ba-c62ec50aefc1', name: 'Желтовская Сопка', ark: 'c1442000-0000-4000-8000-000000000065' },
+    ];
+    // Источник эту точку не называет: связи быть не должно («не установлено»).
+    const VIEWPOINT = { id: '94220a7c-c4bb-4b16-8147-430b5e770617', name: 'Северная видовка на Ксудач', ark: 'c1442000-0000-4000-8000-000000000066' };
+    const all = [...NAMED, VIEWPOINT];
+    const MIGRATION = readFileSync(join(process.cwd(), 'migrations/1442_yuzhno_kamchatsky_southern_cluster_links.sql'), 'utf-8');
+    for (const p of all) {
+      await pool.query(
+        `INSERT INTO places (id, name, lat, lng, ark_id, location_type, zone, is_visible)
+         VALUES ($1, $2, 51.81, 157.53, $3, 'volcano', 'southern', TRUE)`,
+        [p.id, p.name, p.ark],
+      );
+      await pool.query(`INSERT INTO location_real_time_status (agent_route_id) VALUES ($1)`, [p.ark]);
+    }
+    const TITLE = 'Природный парк «Южно-Камчатский» — маршруты закрыты (тест 1442)';
+    const id = await insertAlert({ type: 'park_closure', title: TITLE, zones: [], parks: ['yuzhno-kamchatsky'] });
+    try {
+      // До миграции — состояние прода: закрытие парка этих мест не касается.
+      const before = await coveredBy(id);
+      for (const p of NAMED) expect(before, p.name).not.toContain(p.name);
+
+      await pool.query(MIGRATION);
+      const covered = await coveredBy(id);
+      for (const p of NAMED) expect(covered, p.name).toContain(p.name);
+      expect(covered).not.toContain(VIEWPOINT.name);
+      expect(covered).not.toContain(CITY.id);
+
+      // Причина каждой связи называет источник и миграцию — не «по расстоянию».
+      const { rows } = await pool.query<{ place_id: string; reason: string }>(
+        `SELECT place_id, reason FROM place_park_links
+          WHERE park_slug = 'yuzhno-kamchatsky' AND place_id = ANY($1::text[])`,
+        [all.map((p) => p.id)],
+      );
+      expect(rows.map((r) => r.place_id).sort()).toEqual(NAMED.map((p) => p.id).sort());
+      for (const r of rows) {
+        expect(r.reason).toMatch(/сайт[а-я]* парка|справочник краевого Минприроды/);
+        expect(r.reason).toMatch(/проба (871|1028)/);
+        expect(r.reason).toMatch(/миграция 1442$/);
+      }
+
+      // Связь — с «Южно-Камчатским»: закрытие другого парка Ксудач не трогает.
+      const other = await insertAlert({ type: 'park_closure', title: 'Налычево закрыт (тест 1442)', zones: [], parks: ['nalychevo'] });
+      expect(await coveredBy(other)).not.toContain('Вулкан Ксудач');
+      await pool.query(`DELETE FROM external_alerts WHERE id::text = $1`, [other]);
+
+      // Повтор ничего не меняет.
+      await pool.query(MIGRATION);
+      const again = await pool.query(
+        `SELECT 1 FROM place_park_links WHERE park_slug = 'yuzhno-kamchatsky' AND place_id = ANY($1::text[])`,
+        [all.map((p) => p.id)],
+      );
+      expect(again.rowCount).toBe(NAMED.length);
+    } finally {
+      await pool.query(`DELETE FROM external_alerts WHERE id::text = $1`, [id]);
+      await pool.query(`DELETE FROM place_park_links WHERE place_id = ANY($1::text[])`, [all.map((p) => p.id)]);
+      await pool.query(`DELETE FROM location_real_time_status WHERE agent_route_id = ANY($1::uuid[])`, [all.map((p) => p.ark)]);
+      await pool.query(`DELETE FROM places WHERE id = ANY($1::text[])`, [all.map((p) => p.id)]);
+    }
+  });
+
   it('1393: записанная тревога 02.11 «на всех территориях природных парков» получает парки и красит Налычево (#2980)', async () => {
     const TITLE = 'Закрытие маршрутов «Вулканы Камчатки» сообщают о закрытии туристических маршрутов на всех территориях природных парков на период межсезонья';
     // Как её записал прежний классификатор: без парков и без зон.
