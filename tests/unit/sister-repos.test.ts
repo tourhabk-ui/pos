@@ -27,6 +27,7 @@ import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { createRequire } from 'node:module';
 import { PUBLIC_MCP_TOOLS, WRITE_TOOL_NAMES } from '@/lib/mcp/public-tools';
+import { MCP_DESCRIPTION_ZH, MCP_TITLE_ZH } from '@/lib/mcp/zh-layer';
 import {
   SISTER_REPOS, checkSister, censusOutcome, censusTable, censusVerdict, manifestLag,
   requestCountClaims, requestCountLag, toolCountClaims, toolsLag, toolsMissingIn,
@@ -51,6 +52,16 @@ const FACTS: SourceFacts = {
   manifest: { version: '2.0.0', description: 'Kamchatka travel' },
 };
 const FULL = 'Tools (3): `get_tours`, `get_tour_details`, `create_lead`.';
+
+/** Раздел markdown от заголовка (по началу строки) до следующего заголовка того же или старшего уровня; нет заголовка — пусто. */
+function sectionOf(md: string, heading: string): string {
+  const lines = md.split('\n');
+  const from = lines.findIndex((l) => l.startsWith(heading));
+  if (from === -1) return '';
+  const level = heading.match(/^#+/)?.[0].length ?? 2;
+  const next = lines.findIndex((l, i) => i > from && new RegExp(`^#{1,${level}} `).test(l));
+  return lines.slice(from, next === -1 ? undefined : next).join('\n');
+}
 
 describe('правило: назван ли инструмент', () => {
   it('имя считается названным только в обратных кавычках и целиком', () => {
@@ -256,6 +267,38 @@ describe('копии внутри этого репозитория называ
 
   it('страница /mcp не называет другого числа видов заявок', () => {
     expect(requestCountLag(read('app/mcp/page.tsx'), LIVE.requestCount)).toEqual([]);
+  });
+
+  // 13.11: карточка для каталога коннекторов DeepSeek и тексты для форм
+  // китайских каталогов называли «четыре заявки» — их правили вместе с самой
+  // подачей, то есть никогда. Подача из таких текстов уходит в чужой каталог
+  // уже устаревшей.
+  it('карточка для каталога коннекторов DeepSeek: видов заявок столько же, и каждый пишущий инструмент назван', () => {
+    const card = JSON.parse(read('integrations/dsh-mcp-connector-registry/connectors/vedar.json')) as { description: string };
+    expect(requestCountLag(card.description, LIVE.requestCount)).toEqual([]);
+    expect(requestCountClaims(card.description).length, 'число видов заявок не названо').toBeGreaterThan(0);
+    for (const name of WRITE_TOOL_NAMES) expect(card.description, name).toContain(name);
+  });
+
+  it('карточка называет каждый инструмент, меняющий состояние, и их число — по аннотациям сервера', () => {
+    // Проверяющий каталога требует назвать всё, что меняет состояние, а не
+    // только заявки: черновики плана и отмену тоже. Набор — по readOnlyHint,
+    // тем же правилом, что приёмочный прогон (ревью безопасности на #3341).
+    const card = JSON.parse(read('integrations/dsh-mcp-connector-registry/connectors/vedar.json')) as { description: string };
+    const changing = PUBLIC_MCP_TOOLS.filter((t) => t.annotations?.readOnlyHint !== true).map((t) => t.name);
+    for (const name of changing) expect(card.description, name).toContain(name);
+    const ZH: Record<string, number> = { 一: 1, 二: 2, 两: 2, 三: 3, 四: 4, 五: 5, 六: 6, 七: 7, 八: 8, 九: 9, 十: 10, 十一: 11, 十二: 12 };
+    const claimed = card.description.match(/会改变状态的工具共([一二两三四五六七八九十]+)个/)?.[1];
+    expect(claimed, 'число меняющих состояние инструментов не названо').toBeDefined();
+    expect(ZH[claimed ?? '']).toBe(changing.length);
+  });
+
+  it('тексты для форм в CHINA.md: название и описание — слово в слово из lib/mcp/zh-layer', () => {
+    const forms = sectionOf(read('docs/agents/CHINA.md'), '## Тексты для форм');
+    expect(forms, 'раздел «Тексты для форм» не найден').not.toBe('');
+    expect(forms).toContain('`' + MCP_TITLE_ZH + '`');
+    expect(forms).toContain('`' + MCP_DESCRIPTION_ZH + '`');
+    expect(requestCountLag(forms, LIVE.requestCount)).toEqual([]);
   });
 });
 

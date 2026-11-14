@@ -25,7 +25,7 @@ import { readFileSync } from 'node:fs';
 import { join } from 'node:path';
 import { load as loadYaml } from 'js-yaml';
 import semver from 'semver';
-import { PUBLIC_MCP_TOOL_NAMES, WRITE_TOOL_NAMES, TOOL_ENGLISH } from '@/lib/mcp/public-tools';
+import { PUBLIC_MCP_TOOLS, PUBLIC_MCP_TOOL_NAMES, WRITE_TOOL_NAMES, CHANGE_TOOL_NAMES, TOOL_ENGLISH } from '@/lib/mcp/public-tools';
 
 const ROOT = process.cwd();
 const read = (p: string) => readFileSync(join(ROOT, p), 'utf8');
@@ -183,10 +183,16 @@ describe('карточка для каталога коннекторов DeepSe
     expect(card.description).toMatch(/112/);
   });
 
-  it('примеры запросов — только чтение: не зовут четыре пишущих инструмента и не несут телефонов и почт', () => {
+  it('примеры запросов — только чтение: не зовут ни один инструмент, меняющий состояние, и не несут телефонов и почт', () => {
     expect(card.prompts.length).toBeGreaterThan(0);
+    // Список — по аннотациям самого сервера, тем же правилом, что приёмочный
+    // прогон: всё, что не объявило readOnlyHint. До 13.11 здесь стояли четыре
+    // имени из шести заявок; наборы заявок и отмены не знают черновиков плана
+    // (make_trip_plan, edit_trip_plan), а они пишут в базу (ревью на #3341).
+    const changing = PUBLIC_MCP_TOOLS.filter((t) => t.annotations?.readOnlyHint !== true).map((t) => t.name);
+    for (const name of [...WRITE_TOOL_NAMES, ...CHANGE_TOOL_NAMES, 'make_trip_plan', 'edit_trip_plan']) expect(changing, name).toContain(name);
     for (const p of card.prompts) {
-      expect(p.text).not.toMatch(/create_lead|create_booking_request|create_stay_request|request_charter/);
+      for (const name of changing) expect(p.text, name).not.toContain(name);
       expect(p.text).not.toMatch(/@|\+7|\d{6,}/);
     }
   });
