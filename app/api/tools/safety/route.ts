@@ -11,6 +11,7 @@ import { hazardLabel } from '@/lib/safety/hazard-labels';
 import { asProfileSource, crowdsOnScale, honestSafetyFields } from '@/lib/safety/profile-source';
 import { placeRiskScore } from '@/lib/safety/place-risk-score';
 import { routeDifficultyLabel } from '@/lib/places/zone-labels';
+import { ROUTE_ROW_BY_ANY_ID_SQL } from '@/lib/routes/collect-signals';
 
 export const dynamic = 'force-dynamic';
 
@@ -71,12 +72,26 @@ export async function POST(request: NextRequest) {
   // ── Маршрут — агрегируем по всем точкам маршрута ─────────────────────────
   if ('routeId' in data) {
     try {
+      // У маршрута два id (lib/routes/collect-signals): поиск отдаёт id
+      // карточки — COALESCE(ark_id, id), а строка и её путевые точки живут на
+      // kamchatka_routes.id. До 14.11 маршрут искался только по id строки, и
+      // у маршрута с заполненным ark_id ответ был «Маршрут не найден».
+      // Правило «какая строка» одно с карточкой; дальше всё — по id строки.
+      const rowRes = await query(ROUTE_ROW_BY_ANY_ID_SQL, [data.routeId]);
+      const rowId = rowRes.rows[0]?.id as string | undefined;
+      if (!rowId) {
+        return NextResponse.json({ success: false, error: 'Маршрут не найден' }, { status: 404 });
+      }
+
+      // mchs_phone не читается намеренно: региональный номер показывается
+      // только из lib/safety/emergency-numbers (проверен владельцем), а из
+      // промпта модель переносила бы непроверенный номер в блок «ЧС».
       const [routeRes, wpRes] = await Promise.all([
         query(
           `SELECT id, title, distance_km, elevation_gain_m, duration_hours,
-                  difficulty, hazards, mchs_registration_required, mchs_phone
-           FROM kamchatka_routes WHERE id = $1 LIMIT 1`,
-          [data.routeId],
+                  difficulty, hazards, mchs_registration_required
+           FROM kamchatka_routes WHERE id = $1::uuid LIMIT 1`,
+          [rowId],
         ),
         query(
           `SELECT p.name, sp.hazard_types, sp.difficulty_level, sp.altitude_m, sp.profile_source,
@@ -87,9 +102,9 @@ export async function POST(request: NextRequest) {
            JOIN places p ON p.id = rw.place_id
            LEFT JOIN location_safety_profile sp ON sp.agent_route_id = p.ark_id
            LEFT JOIN location_real_time_status rs ON rs.agent_route_id = p.ark_id
-           WHERE rw.route_id = $1
+           WHERE rw.route_id = $1::uuid
            ORDER BY rw.position`,
-          [data.routeId],
+          [rowId],
         ),
       ]);
 
@@ -170,7 +185,6 @@ export async function POST(request: NextRequest) {
       if (minMedical != null) contextParts.push(`БЛИЖАЙШАЯ МЕДПОМОЩЬ: ${minMedical} км`);
       if (satRequired) contextParts.push('Спутниковая связь: рекомендуется');
       if (regRequired) contextParts.push('Регистрация в МЧС: обязательна');
-      if (r.mchs_phone) contextParts.push(`Телефон МЧС: ${r.mchs_phone}`);
       if (maxAlertSeverity != null && maxAlertSeverity > 0 && alertWp) {
         contextParts.push(`${ALERT_LEVEL_LINE(maxAlertSeverity)}: ${alertText(alertWp.alert_message, alertWp.active_alerts)}`);
       }
