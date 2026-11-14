@@ -196,3 +196,27 @@ describe('/zh: язык раздела в <head>', () => {
     expect(ZH_CONTENT_LANGUAGE).toBe('zh-CN');
   });
 });
+
+// Ширина страницы (lib/layout/page-width, владелец 14.11): /zh — витрина
+// в 1280, туры сеткой, длинный текст — в ширине чтения. Скрин владельца 14.11:
+// колонка 768 px посреди монитора 1920 и 77 туров друг под другом.
+describe('/zh: витрина во всю ширину правила', () => {
+  it('контейнер витрины, туры сеткой, вступление — в ширине чтения', async () => {
+    const section = await renderTours();
+    const shell = section.parentElement as HTMLElement;
+    expect(shell.className).toContain('max-w-[1280px]');
+    expect(shell.className).not.toContain('max-w-3xl');
+    const list = section.querySelector('[data-zh-tour-layout]') as HTMLElement;
+    expect(list.getAttribute('data-zh-tour-layout')).toBe('grid');
+    expect(list.className).toContain('xl:grid-cols-3');
+    const intro = screen.getByRole('heading', { level: 1 }).closest('header') as HTMLElement;
+    expect(intro.className).toContain('max-w-3xl');
+  });
+
+  it('в колонке чтения (Харбин) список остаётся списком', () => {
+    render(<ZhTourList tours={[tour(1, 'Шатун', 'Тур')]} />);
+    const list = document.querySelector('[data-zh-tour-layout]') as HTMLElement;
+    expect(list.getAttribute('data-zh-tour-layout')).toBe('list');
+    expect(list.className).not.toContain('grid-cols');
+  });
+});

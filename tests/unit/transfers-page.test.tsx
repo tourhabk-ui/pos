@@ -93,3 +93,17 @@ describe('страница: данные и прежние ссылки', () => 
     expect(screen.getByText('Карточка: Шатун')).toBeTruthy();
   });
 });
+
+// Ширина страницы (lib/layout/page-width, владелец 14.11): список трансферов —
+// витрина 1280, а не колонка 672 при карточке перевозчика в 1152.
+describe('/transfers: витрина во всю ширину правила', () => {
+  it('контейнер витрины, перевозчики сеткой, «Как заказать» — в ширине чтения', () => {
+    const { container } = render(<TransfersPage charter={CHARTER} />);
+    const main = container.querySelector('main') as HTMLElement;
+    expect(main.className).toContain('max-w-[1280px]');
+    expect(main.className).not.toContain('max-w-2xl');
+    expect((container.querySelector('[data-carrier-grid]') as HTMLElement).className).toContain('lg:grid-cols-2');
+    const how = container.querySelector('section[aria-labelledby="how-title"]') as HTMLElement;
+    expect(how.className).toContain('max-w-3xl');
+  });
+});

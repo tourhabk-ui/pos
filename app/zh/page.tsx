@@ -20,6 +20,7 @@
  * Сторож: tests/unit/zh-entry.test.ts.
  */
 
+import { pageContainer, READING_MEASURE } from '@/lib/layout/page-width';
 import type { Metadata } from 'next';
 import Link from 'next/link';
 import { headers } from 'next/headers';
@@ -83,8 +84,8 @@ export default async function ZhEntryPage() {
       <JsonLd data={jsonLd} />
       <Header />
       <main className="ds-page" lang="zh-CN">
-        <div className="max-w-3xl mx-auto px-4 py-8 space-y-8">
-          <header className="space-y-3">
+        <div className={`${pageContainer('showcase')} py-8 space-y-8`}>
+          <header className={`space-y-3 ${READING_MEASURE}`}>
             <h1 className="font-playfair text-3xl sm:text-4xl font-bold" style={{ color: 'var(--text-primary)' }}>
               {ZH_PAGE.h1}
             </h1>
@@ -94,21 +95,21 @@ export default async function ZhEntryPage() {
             </div>
           </header>
 
-          <section className="space-y-3">
+          <section className={`space-y-3 ${READING_MEASURE}`}>
             <h2 className="ds-h2">平台能做什么</h2>
             <ul className="ds-card p-4 space-y-1 text-sm list-disc list-inside" style={{ color: 'var(--text-primary)' }}>
               {ZH_PAGE.capabilities.map((c) => <li key={c}>{c}</li>)}
             </ul>
           </section>
 
-          <ZhTourList tours={tours} cny={cny} />
+          <ZhTourList tours={tours} cny={cny} layout="grid" />
 
-          <section className="space-y-3">
+          <section className={`space-y-3 ${READING_MEASURE}`}>
             <h2 className="ds-h2">如何预订</h2>
             <p className="ds-card p-4 text-sm" style={{ color: 'var(--text-primary)' }}>{ZH_PAGE.booking}</p>
           </section>
 
-          <section className="space-y-3">
+          <section className={`space-y-3 ${READING_MEASURE}`}>
             <h2 className="ds-h2">AI 代理接口</h2>
             <div className="ds-card p-4 space-y-2 text-sm" style={{ color: 'var(--text-primary)' }}>
               <p>{ZH_PAGE.agents}</p>
@@ -131,8 +132,8 @@ export default async function ZhEntryPage() {
               не было, поэтому у каждого — источник, дата и пометка «界面可能不同». */}
           <section className="space-y-3" id="connect">
             <h2 className="ds-h2">{ZH_CONNECT.heading}</h2>
-            <p className="text-sm" style={{ color: 'var(--text-secondary)' }}>{ZH_CONNECT.intro}</p>
-            <ul className="space-y-3">
+            <p className={`text-sm ${READING_MEASURE}`} style={{ color: 'var(--text-secondary)' }}>{ZH_CONNECT.intro}</p>
+            <ul className="grid gap-3 lg:grid-cols-2">
               {ZH_CLIENT_GUIDES.map((g) => (
                 <li key={g.id} className="ds-card p-4 space-y-2 text-sm" style={{ color: 'var(--text-primary)' }} data-zh-client={g.id}>
                   <h3 className="font-semibold">{g.client}</h3>

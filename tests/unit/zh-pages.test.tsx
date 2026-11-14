@@ -484,3 +484,32 @@ describe('русские карточки: у тура ответная ссыл
     });
   });
 });
+
+// Ширина страницы (lib/layout/page-width, владелец 14.11 «do it»): конспект —
+// карточка, а не колонка 768 px посреди монитора. Факты и ссылка на русскую
+// карточку — колонкой справа на компьютере и первыми в документе.
+describe('конспект — ширина карточки, факты первыми', () => {
+  it('тур: контейнер карточки (max-w-6xl), колонка фактов до текста', () => {
+    const { container } = render(<ZhTourSummary tour={TOUR} translations={FRESH()} />);
+    const article = container.querySelector('[data-zh-tour-summary]') as HTMLElement;
+    expect(article.className).toContain('max-w-6xl');
+    expect(article.className).not.toContain('max-w-3xl');
+    const aside = container.querySelector('[data-zh-aside]') as HTMLElement;
+    expect(aside.querySelector('[data-zh-mt-note]')).not.toBeNull();
+    expect(aside.querySelector('[data-zh-facts]')).not.toBeNull();
+    const body = container.querySelector('[data-zh-field="description"]') as HTMLElement;
+    expect(aside.compareDocumentPosition(body) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
+    // Текст — в ширине чтения, безопасность — после текста, в той же колонке.
+    const main = body.parentElement as HTMLElement;
+    expect(main.className).toContain('max-w-3xl');
+    expect(main.querySelector('[data-zh-safety]')).not.toBeNull();
+  });
+
+  it('место: тот же контейнер и та же колонка фактов', () => {
+    const { container } = render(<ZhPlaceSummary place={PLACE} zhName={null} translations={new Map()} rule={ZH_PLACES_RULE} />);
+    const article = container.querySelector('[data-zh-place-summary]') as HTMLElement;
+    expect(article.className).toContain('max-w-6xl');
+    const aside = container.querySelector('[data-zh-aside]') as HTMLElement;
+    expect(aside.querySelector('[data-zh-facts]')).not.toBeNull();
+  });
+});

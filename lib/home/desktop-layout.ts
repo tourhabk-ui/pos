@@ -10,7 +10,10 @@
  * Теперь каждая секция десктопного дерева ставит контент в HOME_CONTAINER, а
  * вертикальный ритм — HOME_SECTION. Сторож: tests/unit/home-desktop-grid.test.ts.
  */
-export const HOME_CONTAINER = 'mx-auto w-full max-w-[1280px] px-6 xl:px-8';
+import { PAGE_MAX } from '@/lib/layout/page-width';
+
+/** Ширина витрины (lib/layout/page-width, род showcase); поля главной — свои, шире на телефоне. */
+export const HOME_CONTAINER = `mx-auto w-full ${PAGE_MAX.showcase} px-6 xl:px-8`;
 
 /** Вертикальный отступ секции — один на все, а не py-10/py-20/py-32 вразнобой. */
 export const HOME_SECTION = 'py-12';

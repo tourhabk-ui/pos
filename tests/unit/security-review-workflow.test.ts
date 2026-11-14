@@ -796,7 +796,7 @@ describe('платное ревью — только где ошибка сто�
       'trending', 'trip', 'wishlist', 'fish-species.ts', 'planner-constants.ts',
     ],
     'тексты, страницы, переводы, оформление': [
-      'articles', 'blog', 'calendar', 'chronicle', 'currency', 'dates', 'docs', 'help', 'html', 'http', 'hub', 'i18n',
+      'articles', 'blog', 'calendar', 'chronicle', 'currency', 'dates', 'docs', 'help', 'html', 'http', 'hub', 'i18n', 'layout',
       'partner-sites', 'seo', 'text', 'ui', 'utils', 'zh', 'share.ts', 'text-links.ts', 'theme.ts',
     ],
     'снимки и видео': ['images', 'media'],

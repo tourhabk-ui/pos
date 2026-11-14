@@ -20,6 +20,7 @@
  * направлении.
  */
 
+import { pageContainer, READING_MEASURE } from '@/lib/layout/page-width';
 import { AlertCircle } from 'lucide-react';
 import { Header } from '@/components/layout/Header';
 import BottomNav from '@/components/shared/BottomNav';
@@ -32,11 +33,13 @@ export function TransfersPage({ charter }: { charter: CharterState }) {
   return (
     <div className="ds-page" style={{ paddingBottom: 96 }}>
       <Header />
-      <main className="mx-auto max-w-2xl px-5 pt-6">
+      {/* Витрина (lib/layout/page-width, 14.11): до этого колонка 672 px при
+          карточке перевозчика в 1152. Перевозчики — сеткой, текст — в ширине чтения. */}
+      <main className={`${pageContainer('showcase')} pt-6`}>
         {/* SOS — в общей шапке (Header, §2), своей копии рядом с заголовком нет. */}
         {/* Шапка — по образцу каталога туров (владелец 12.10): заголовок 28px
             на телефоне, одна строка сути, подробности — только с sm. */}
-        <div className="mb-6">
+        <div className={`mb-6 ${READING_MEASURE}`}>
           <p className="ds-label mb-1 sm:mb-2">Перевозчики</p>
           <h1 className="font-playfair text-[28px] sm:text-4xl font-bold text-[var(--text-primary)] leading-tight mb-1 sm:mb-2">Трансферы</h1>
           <p className="text-sm text-[var(--text-secondary)] max-w-md">
@@ -61,7 +64,7 @@ export function TransfersPage({ charter }: { charter: CharterState }) {
             <>
               {/* Правило порядка — словами (§0): по алфавиту, одно для всех. */}
               <p className="text-xs text-[var(--text-muted)] mb-3">{CARRIERS_ORDER_NOTE}</p>
-              <div className="flex flex-col gap-4">
+              <div className="grid gap-4 lg:grid-cols-2 lg:items-start" data-carrier-grid>
                 {charter.carriers.map(c => <CharterCard key={c.partnerId} carrier={c} />)}
               </div>
             </>
@@ -70,7 +73,7 @@ export function TransfersPage({ charter }: { charter: CharterState }) {
           )}
         </section>
 
-        <section aria-labelledby="how-title" className="mb-10">
+        <section aria-labelledby="how-title" className={`mb-10 ${READING_MEASURE}`}>
           <h2 id="how-title" className="ds-h2 mb-3">Как заказать</h2>
           <ol className="space-y-2 text-sm text-[var(--text-secondary)] list-decimal pl-5">
             <li>Нажмите «Заказать» у направления в прайсе или у цены за час и за день — цена за машину целиком, сколько бы вас ни было в пределах мест.</li>
@@ -81,7 +84,7 @@ export function TransfersPage({ charter }: { charter: CharterState }) {
 
         {/* В потоке, после «Как заказать» — там, где плавающая кнопка
             ложилась на текст (скрин владельца 19.10). Не плавает. */}
-        <KuzmichContacts className="mb-10" />
+        <KuzmichContacts className={`mb-10 ${READING_MEASURE}`} />
       </main>
       <BottomNav activePath="/transfers" />
     </div>
