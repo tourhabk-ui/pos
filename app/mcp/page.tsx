@@ -105,8 +105,8 @@ export default function McpLandingPage() {
               <p>Transport: Streamable HTTP (JSON-RPC 2.0) · Auth: не требуется</p>
               <p>
                 Возможности: туры, реальная доступность мест, безопасность маршрутов,
-                погода, жильё, трансферы, планирование поездки и заявки с подтверждением
-                человеком.
+                погода, жильё, трансферы, прокат машин без водителя и снаряжения,
+                планирование поездки и заявки с подтверждением человеком.
               </p>
               <p style={{ color: 'var(--text-secondary)' }}>
                 Манифест: <a className="underline" style={{ color: 'var(--ocean)' }} href="/.well-known/mcp.json">/.well-known/mcp.json</a>
@@ -155,7 +155,7 @@ export default function McpLandingPage() {
               <p style={{ color: 'var(--text-secondary)' }}>
                 Тот же агент по протоколу Agent2Agent (A2A 1.0) — для фреймворков и песочниц без MCP-клиента.
                 Текстом отвечает Кузьмич с теми же инструментами; точный вызов инструмента — DataPart с полями
-                <code> tool </code> и <code> arguments</code>. Заявки те же четыре, подтверждает человек.
+                <code> tool </code> и <code> arguments</code>. Заявки те же, что в MCP, — подтверждает человек.
               </p>
               <p style={{ color: 'var(--text-primary)' }}>
                 Визитка:{' '}
