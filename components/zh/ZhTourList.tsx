@@ -26,7 +26,12 @@ import type { CbrRate } from '@/lib/currency/cbr-rate';
 import { ZH_PAGE } from '@/lib/mcp/zh-layer';
 import { ZH_TOURS_ORDER_NOTE } from '@/lib/operators/order-note';
 
-export function ZhTourList({ tours, cny = null }: { tours: ZhTourRow[] | null; cny?: CbrRate | null }) {
+/**
+ * `layout`: `grid` — на витрине (/zh, /zh/catalog) туры идут сеткой в две-три
+ * колонки (ширина витрины, lib/layout/page-width, 14.11); `list` — в колонке
+ * чтения (/zh/harbin), где три колонки были бы по 240 px.
+ */
+export function ZhTourList({ tours, cny = null, layout = 'list' }: { tours: ZhTourRow[] | null; cny?: CbrRate | null; layout?: 'grid' | 'list' }) {
   return (
     <section className="space-y-3" aria-labelledby="zh-tours-heading">
       <h2 id="zh-tours-heading" className="ds-h2">当前团队游{tours ? `（${tours.length}）` : ''}</h2>
@@ -39,7 +44,7 @@ export function ZhTourList({ tours, cny = null }: { tours: ZhTourRow[] | null; c
       ) : (
         <>
           <p className="text-sm" style={{ color: 'var(--text-secondary)' }} data-zh-order-note>{ZH_TOURS_ORDER_NOTE}</p>
-          <ul className="space-y-2">
+          <ul className={layout === 'grid' ? 'grid gap-3 md:grid-cols-2 xl:grid-cols-3' : 'space-y-2'} data-zh-tour-layout={layout}>
             {tours.map((t) => (
               <li key={t.id} className="ds-card p-4 text-sm" data-zh-tour={t.id}>
                 <Link className="underline font-semibold" style={{ color: 'var(--ocean)' }} href={zhTourPath(t)}>

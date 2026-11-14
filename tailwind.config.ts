@@ -6,6 +6,11 @@ export default {
     './app/**/*.{ts,tsx}',
     './components/**/*.{ts,tsx}',
     './contexts/**/*.{ts,tsx}',
+    // Классы ширины страницы живут в lib (14.11): без этих строк Tailwind их
+    // не видит, и контейнер работал бы только пока те же классы случайно
+    // встречаются в app/ или components/.
+    './lib/layout/page-width.ts',
+    './lib/home/desktop-layout.ts',
   ],
   theme: {
     extend: {

@@ -2,6 +2,7 @@
  * «从哈尔滨飞往堪察加»: рейс, указ и туры на неделю. Факты — из lib/zh/harbin,
  * туры приходят уже отобранными. Брони на странице нет.
  */
+import { pageContainer } from '@/lib/layout/page-width';
 import Link from 'next/link';
 import { ZhTourList } from '@/components/zh/ZhTourList';
 import type { CbrRate } from '@/lib/currency/cbr-rate';
@@ -11,7 +12,7 @@ import type { ZhTourRow } from '@/lib/zh/entry';
 
 export function HarbinFlight({ tours, cny = null }: { tours: ZhTourRow[] | null; cny?: CbrRate | null }) {
   return (
-    <article className="max-w-3xl mx-auto px-4 py-8 space-y-8" data-zh-harbin>
+    <article className={`${pageContainer('reading')} py-8 space-y-8`} data-zh-harbin>
       <header className="space-y-3">
         <h1 className="font-playfair text-3xl sm:text-4xl font-bold" style={{ color: 'var(--text-primary)' }}>
           {HARBIN_PAGE.h1}

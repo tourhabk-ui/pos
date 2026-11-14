@@ -1,4 +1,5 @@
 import type { Metadata } from 'next';
+import { pageContainer } from '@/lib/layout/page-width';
 import Link from 'next/link';
 import { Fish, Calendar, Trophy } from 'lucide-react';
 import { Header } from '@/components/layout/Header';
@@ -29,7 +30,10 @@ export default function FishIndexPage() {
   return (
     <>
       <Header />
-      <main className="ds-page pt-20 pb-16">
+      {/* Витрина (lib/layout/page-width, 14.11): до этого у страницы не было ни
+          ширины, ни полей — сетка видов шла от края до края окна. */}
+      <main className="ds-page pb-16">
+        <div className={`${pageContainer('showcase')} pt-6`}>
 
         {/* Hero */}
         <div className="mb-10">
@@ -53,7 +57,7 @@ export default function FishIndexPage() {
             <Link
               key={species.id}
               href={`/fish/${species.id}`}
-              className="ds-card group flex items-start gap-4 hover:shadow-md transition-all duration-200 hover:border-[var(--accent)]/30"
+              className="ds-card p-4 group flex items-start gap-4 hover:shadow-md transition-all duration-200 hover:border-[var(--accent)]/30"
             >
               {/* Icon */}
               <div
@@ -116,6 +120,7 @@ export default function FishIndexPage() {
           >
             Туры на рыбалку
           </Link>
+        </div>
         </div>
       </main>
     </>

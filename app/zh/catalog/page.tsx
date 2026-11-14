@@ -2,6 +2,7 @@
  * /zh/catalog — китайский каталог, пара русской /catalog.
  * Список — тот же, что на /zh (lib/zh/entry): факты из базы, без среза.
  */
+import { pageContainer, READING_MEASURE } from '@/lib/layout/page-width';
 import type { Metadata } from 'next';
 import { headers } from 'next/headers';
 import Link from 'next/link';
@@ -44,14 +45,14 @@ export default async function ZhCatalogPage() {
     <>
       <Header />
       <main className="ds-page" lang="zh-CN">
-        <div className="max-w-3xl mx-auto px-4 py-8 space-y-8">
-          <header className="space-y-3">
+        <div className={`${pageContainer('showcase')} py-8 space-y-8`}>
+          <header className={`space-y-3 ${READING_MEASURE}`}>
             <h1 className="font-playfair text-3xl sm:text-4xl font-bold" style={{ color: 'var(--text-primary)' }}>
               {ZH_CATALOG.h1}
             </h1>
             <p className="text-sm" style={{ color: 'var(--text-secondary)' }}>{ZH_CATALOG.intro}</p>
           </header>
-          <ZhTourList tours={tours} cny={cny} />
+          <ZhTourList tours={tours} cny={cny} layout="grid" />
           <footer className="text-sm" style={{ color: 'var(--text-secondary)' }}>
             <Link className="underline" href="/catalog">俄文目录</Link>
             {' · '}<Link className="underline" href="/zh/harbin">从哈尔滨飞往堪察加</Link>

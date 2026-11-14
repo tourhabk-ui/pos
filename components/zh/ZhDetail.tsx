@@ -24,6 +24,7 @@
  * Серверные компоненты без хуков: данные приходят готовыми, и сторож судит
  * их рендером (tests/unit/zh-pages.test.tsx).
  */
+import { pageContainer, READING_MEASURE } from '@/lib/layout/page-width';
 import Link from 'next/link';
 import { OperatorNameLink } from '@/components/operators/OperatorNameLink';
 import { tourPath } from '@/lib/tours/tour-url';
@@ -160,6 +161,15 @@ export function tourViews(tour: ZhTourSourceRow, translations: Translations): Re
   return out;
 }
 
+/**
+ * Сетка карточки на компьютере: текст слева в ширине чтения, факты справа и
+ * липнут при прокрутке. На телефоне — одна колонка, факты первыми (порядок в
+ * документе).
+ */
+const DETAIL_GRID = 'grid gap-6 lg:grid-cols-[minmax(0,1fr)_20rem] lg:items-start';
+const DETAIL_ASIDE = 'space-y-4 lg:col-start-2 lg:row-start-1 lg:sticky lg:top-24';
+const DETAIL_MAIN = `space-y-6 lg:col-start-1 lg:row-start-1 ${READING_MEASURE}`;
+
 export function ZhTourSummary({ tour, translations, cny = null }: { tour: ZhTourSourceRow; translations: Translations; cny?: CbrRate | null }) {
   const v = tourViews(tour, translations);
   const zhTitle = v.title.state === 'fresh' ? (v.title.zh as string) : null;
@@ -172,7 +182,7 @@ export function ZhTourSummary({ tour, translations, cny = null }: { tour: ZhTour
   );
 
   return (
-    <article className="max-w-3xl mx-auto px-4 py-8 space-y-6" data-zh-tour-summary={tour.id}>
+    <article className={`${pageContainer('card')} py-8 space-y-6`} data-zh-tour-summary={tour.id}>
       <header className="space-y-2">
         {zhTitle ? (
           <>
@@ -194,18 +204,25 @@ export function ZhTourSummary({ tour, translations, cny = null }: { tour: ZhTour
         )}
       </header>
 
-      <MtNote views={Object.values(v)} href={original} linkText={ZH_DETAIL.originalTour} booking kind="tour" />
+      {/* Карточка (lib/layout/page-width, 14.11): на компьютере факты и ссылка
+          на русскую карточку с бронью — колонкой справа, текст — слева в
+          ширине чтения. Порядок в документе прежний: сначала факты. */}
+      <div className={DETAIL_GRID}>
+        <aside className={DETAIL_ASIDE} data-zh-aside>
+          <MtNote views={Object.values(v)} href={original} linkText={ZH_DETAIL.originalTour} booking kind="tour" />
 
-      <Facts
-        items={[
-          [ZH_DETAIL.facts.price, priceZh(tour, cny)],
-          [ZH_DETAIL.facts.duration, durationZh(tour)],
-          [ZH_DETAIL.facts.group, groupZh(tour.max_participants, tour.group_size_unlimited)],
-          [ZH_DETAIL.facts.season, seasonZh(tour.season_start, tour.season_end)],
-          [ZH_DETAIL.facts.operator, operator],
-        ]}
-      />
+          <Facts
+            items={[
+              [ZH_DETAIL.facts.price, priceZh(tour, cny)],
+              [ZH_DETAIL.facts.duration, durationZh(tour)],
+              [ZH_DETAIL.facts.group, groupZh(tour.max_participants, tour.group_size_unlimited)],
+              [ZH_DETAIL.facts.season, seasonZh(tour.season_start, tour.season_end)],
+              [ZH_DETAIL.facts.operator, operator],
+            ]}
+          />
+        </aside>
 
+        <div className={DETAIL_MAIN}>
       {bodyFields.map((f) => (
         <ZhFieldBlock key={f} field={f} heading={ZH_DETAIL.sections[f]} kind={ZH_TOUR_FIELDS[f]} view={v[f]} showSource={false} />
       ))}
@@ -225,6 +242,9 @@ export function ZhTourSummary({ tour, translations, cny = null }: { tour: ZhTour
           <p>{ZH_PAGE.emergency}</p>
         </div>
       </section>
+
+        </div>
+      </div>
 
       <footer className="text-sm" style={{ color: 'var(--text-secondary)' }}>
         <Link className="underline" href="/zh">{ZH_DETAIL.backToList}</Link>
@@ -255,7 +275,7 @@ export function ZhPlaceSummary({ place, zhName, translations, rule }: {
   const altitude = place.altitude_m != null && Number(place.altitude_m) > 0 ? `${Math.round(Number(place.altitude_m))} 米` : null;
 
   return (
-    <article className="max-w-3xl mx-auto px-4 py-8 space-y-6" data-zh-place-summary={place.id}>
+    <article className={`${pageContainer('card')} py-8 space-y-6`} data-zh-place-summary={place.id}>
       <header className="space-y-2">
         {zhName ? (
           <>
@@ -274,15 +294,19 @@ export function ZhPlaceSummary({ place, zhName, translations, rule }: {
         <p className="text-xs" style={{ color: 'var(--text-secondary)' }} data-zh-places-rule>{rule}</p>
       </header>
 
-      <MtNote views={[description]} href={original} linkText={ZH_DETAIL.originalPlace} booking={false} kind="place" />
+      <div className={DETAIL_GRID}>
+        <aside className={DETAIL_ASIDE} data-zh-aside>
+          <MtNote views={[description]} href={original} linkText={ZH_DETAIL.originalPlace} booking={false} kind="place" />
 
-      <Facts
-        items={[
-          [ZH_DETAIL.facts.coords, lat && lng ? `${lat}, ${lng}` : null],
-          [ZH_DETAIL.facts.altitude, altitude],
-        ]}
-      />
+          <Facts
+            items={[
+              [ZH_DETAIL.facts.coords, lat && lng ? `${lat}, ${lng}` : null],
+              [ZH_DETAIL.facts.altitude, altitude],
+            ]}
+          />
+        </aside>
 
+        <div className={DETAIL_MAIN}>
       <ZhFieldBlock field="description" heading={ZH_DETAIL.sections.description} kind={ZH_PLACE_FIELDS.description} view={description} />
 
       <section className="space-y-2" data-zh-safety>
@@ -299,6 +323,9 @@ export function ZhPlaceSummary({ place, zhName, translations, rule }: {
           <p>{ZH_PAGE.emergency}</p>
         </div>
       </section>
+
+        </div>
+      </div>
 
       <footer className="text-sm" style={{ color: 'var(--text-secondary)' }}>
         <Link className="underline" href="/zh">{ZH_DETAIL.backToList}</Link>
