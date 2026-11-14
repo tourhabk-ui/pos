@@ -1673,6 +1673,10 @@ withPg('кабинет туриста на настоящем PostgreSQL', () =>
     // До 14.11 заявки без адресата с именем и телефоном читал любой вошедший с
     // ролью оператора: роль и карточку партнёра даёт обычная регистрация
     // (is_public = FALSE). Допуск — partners.is_public, его ставит администратор.
+    // Перепись доступа (lib/leads/unowned-access-census) — настоящими запросами:
+    // снимок до посева и после; судим приросты, в базе есть аккаунты соседних сцен.
+    const { runUnownedAccessCensus } = await import('@/lib/leads/unowned-access-census');
+    const censusBefore = await runUnownedAccessCensus();
     const mkUser = async (email: string) => (await pool.query<{ id: string }>(
       `INSERT INTO users (email, name, password_hash, role) VALUES ($1, 'Кабинет', 'x', 'operator') RETURNING id`, [email],
     )).rows[0].id;
@@ -1693,6 +1697,45 @@ withPg('кабинет туриста на настоящем PostgreSQL', () =>
     const ofNewcomer = await mkLead('Пул Новичку', '+79990140002', newcomer);
     const ofShown = await mkLead('Пул Витрине', '+79990140003', shown);
     const mine = [free, ofNewcomer, ofShown];
+    // Вторая карточка не на витрине, без аккаунта, со своей заявкой: счёт заявок
+    // «у карточек не на витрине» не должен совпадать со счётом у карточек на витрине.
+    const silent = (await pool.query<{ id: string }>(
+      `INSERT INTO partners (name, category, contact, is_verified, is_public, slug)
+       VALUES ('pool-silent', 'operator', '{}', FALSE, FALSE, 'pool-silent') RETURNING id`,
+    )).rows[0].id;
+    await mkLead('Пул Молчащей', '+79990140005', silent);
+
+    // Три аккаунта: один на витрине, один с карточкой не на витрине, один без
+    // карточки; одна заявка без адресата и две — у двух карточек не на витрине.
+    const censusAfter = await runUnownedAccessCensus();
+    const grew = (pick: (c: typeof censusAfter) => number) => pick(censusAfter) - pick(censusBefore);
+    expect(grew((c) => c.accounts.accounts_total)).toBe(3);
+    expect(grew((c) => c.accounts.admitted)).toBe(1);
+    expect(grew((c) => c.accounts.own_card_not_shown)).toBe(1);
+    expect(grew((c) => c.accounts.team_card_not_shown)).toBe(0);
+    expect(grew((c) => c.accounts.no_card)).toBe(1);
+    expect(grew((c) => c.accounts.closed_now)).toBe(2);
+    expect(grew((c) => c.accounts.closed_registered_90d)).toBe(2);
+    expect(grew((c) => c.unowned_leads.unowned_total)).toBe(1);
+    expect(grew((c) => c.unowned_leads.unowned_30d)).toBe(1);
+    expect(grew((c) => c.unowned_leads.leads_total)).toBe(4);
+    expect(grew((c) => c.held_by_not_shown_cards.leads)).toBe(2);
+    expect(grew((c) => c.held_by_not_shown_cards.cards)).toBe(2);
+    // На умолчании колонки стоит допуск: два пути создания карточки её не называют.
+    // Миграция, которая сделает умолчанием TRUE, откроет заявки без адресата всем новым карточкам.
+    expect(censusAfter.new_card_default).toEqual({ column_default: 'false', shown_by_default: false });
+    const byDefault = (await pool.query<{ is_public: boolean | null }>(
+      `INSERT INTO partners (name, category, contact, slug) VALUES ('pool-by-default', 'operator', '{}', 'pool-by-default') RETURNING is_public`,
+    )).rows[0];
+    expect(byDefault.is_public).toBe(false);
+    // Менеджер команды карточки не на витрине — своя группа: кабинет ему находит карточка команды.
+    const managerUser = await mkUser('pool-manager@example.com');
+    await pool.query(
+      `INSERT INTO operator_members (partner_id, user_id, status, accepted_at) VALUES ($1, $2, 'active', NOW())`, [newcomer, managerUser],
+    );
+    const censusTeam = await runUnownedAccessCensus();
+    expect(censusTeam.accounts.team_card_not_shown - censusAfter.accounts.team_card_not_shown).toBe(1);
+    expect(censusTeam.accounts.no_card - censusAfter.accounts.no_card).toBe(0);
 
     const { NextRequest } = await import('next/server');
     const as = async <T,>(user: string, fn: () => Promise<T>): Promise<T> => {
@@ -1768,6 +1811,11 @@ withPg('кабинет туриста на настоящем PostgreSQL', () =>
     expect((await listOf(newcomerUser)).ids).toEqual([ofNewcomer]);
     await pool.query(`UPDATE partners SET is_public = NULL WHERE id = $1`, [newcomer]);
     expect((await listOf(newcomerUser)).pool).toBe('closed');
+    // «Не записано» перепись считает так же, как дверь: не на витрине.
+    const censusNull = await runUnownedAccessCensus();
+    expect(censusNull.accounts.admitted).toBe(censusTeam.accounts.admitted);
+    expect(censusNull.accounts.own_card_not_shown).toBe(censusTeam.accounts.own_card_not_shown);
+    expect(censusNull.accounts.team_card_not_shown).toBe(censusTeam.accounts.team_card_not_shown);
 
     // Первое действие допущенного кабинета занимает ничейную — как раньше.
     expect(await patchAs(shownUser, free)).toBe(200);
