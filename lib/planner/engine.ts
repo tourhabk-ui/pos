@@ -12,7 +12,7 @@ import { pool } from '@/lib/db-pool';
 // ни один прежний читатель `@/lib/planner/engine` не был тронут.
 import {
   type ZoneId, type TransportType, type FitnessLevel, type ActivityConstraints, type BudgetTier, type DayType,
-  ZONE_NAMES, ACTIVITY_CONSTRAINTS, ACTIVITY_NAMES, nightZoneOf,
+  ZONE_NAMES, ACTIVITY_CONSTRAINTS, ACTIVITY_NAMES, nightZoneOf, activityDayNotes,
 } from '@/lib/planner/constants';
 import { ZONE_GRAPH, type ZoneEdge } from '@/lib/planner/zone-graph';
 import { zoneLegCost, legFits, legShortfallMessage, type ZoneLegCost } from '@/lib/planner/zone-leg';
@@ -1443,9 +1443,15 @@ async function generateDayPlans(
       const room = tripDays - departureDays - (dayNum - 1);
       const spans = lead.tours.map((t) => tourPlanSpan(t.durationHours, t.multiDayCount) ?? 1);
       if (!spans.some((sp) => sp <= block.activeDays)) {
+        // Растягиваем только под тур, у которого есть выезд в первый день
+        // блока (#3347, 14.11): дни отдаются туру целиком, и он обязан
+        // начаться в этот день. Раньше дату выезда здесь не спрашивали: блок
+        // растягивался под тур, тур в план не вставал, и человек читал рядом
+        // «под него отданы 3 дн.» и «у тура нет выездов».
+        const startDate = planDateOf(dayNum);
         const pick = lead.tours
           .map((t, i) => ({ t, sp: spans[i] }))
-          .filter((x) => x.sp <= room)
+          .filter((x) => x.sp <= room && fitsOn(x.t, startDate))
           .sort((a, b) => a.sp - b.sp)[0];
         if (pick) {
           extendedForTour.push({ title: pick.t.title, span: pick.sp, zone: block.zone, planned: block.activeDays });
@@ -1614,7 +1620,7 @@ async function generateDayPlans(
       // до раскладки (08.10). childOk остаётся признаком дня, а не фильтром.
       const childOk = youngest === null || youngest >= c.minChildAge;
       const dayWarnings: string[] = [];
-      if (c.safetyNotes) dayWarnings.push(...c.safetyNotes);
+      dayWarnings.push(...activityDayNotes(c, month));
       const tourOver = realTour && tourLoads ? firstOverLimit(tourLoads.get(realTour.tourId) ?? [], group) : null;
       if (tourOver) {
         dayWarnings.unshift(`Природоохранный лимит в ваши даты: ${overLimitText(tourOver)}. Уточните у оператора другую дату.`);
@@ -2302,7 +2308,7 @@ export async function recommendTrip(profile: TripProfile, opts: RecommendTripOpt
     warnings.push({
       type: 'season',
       severity: 'important',
-      message: `${names}: по нашему сезонному ориентиру это уже не сезон, но оператор открыл запись на этот месяц. `
+      message: `${upperFirst(names)}: по нашему сезонному ориентиру это уже не сезон, но оператор открыл запись на этот месяц. `
         + 'Взяли по записи оператора — он отвечает за выход; погоду и снаряжение уточните у него отдельно.',
     });
   }
@@ -2316,7 +2322,7 @@ export async function recommendTrip(profile: TripProfile, opts: RecommendTripOpt
     warnings.push({
       type: 'season',
       severity: 'important',
-      message: `${names}: по нашему сезонному ориентиру это уже не сезон. Месяц открывают туры операторов без календаря: `
+      message: `${upperFirst(names)}: по нашему сезонному ориентиру это уже не сезон. Месяц открывают туры операторов без календаря: `
         + 'заявку на любую дату они принимают, а идёт ли тур в эти дни, оператор подтвердит по заявке. '
         + 'Он отвечает за выход; погоду и снаряжение уточните у него отдельно.',
     });
@@ -2371,6 +2377,10 @@ export async function recommendTrip(profile: TripProfile, opts: RecommendTripOpt
         leg.cost,
         leg.daysLeft,
         leg.interests.map((i) => ACTIVITY_NAMES[i] ?? i),
+        // Занятие, у которого день в плане есть — в другой зоне (#3347):
+        // без этих слов «рыбалка — Западная зона в план не вошла» читалось
+        // как «рыбалки в плане нет», хотя рыболовный тур стоял.
+        leg.interests.filter((i) => !unservedInterests.includes(i)).map((i) => ACTIVITY_NAMES[i] ?? i),
       ),
     });
   }
@@ -2480,7 +2490,11 @@ export async function recommendTrip(profile: TripProfile, opts: RecommendTripOpt
   // показать расписание, которое не состоится.
   // Тур без выезда в дни своего занятия в план не встал (волна 3 аудита
   // 07.11, 3.2) — называется с датами выезда, чтобы человек мог передвинуть день.
-  const offDaysLine = offDaysWarning(offDays);
+  const edgeFraming = framingDays(asTripOrigin(profile.tripOrigin));
+  const offDaysLine = offDaysWarning(offDays, {
+    arrival: profile.arrivalDate && edgeFraming.arrival > 0 ? profile.arrivalDate : null,
+    departure: profile.departureDate && edgeFraming.departure > 0 ? profile.departureDate : null,
+  });
   if (offDaysLine) warnings.push({ type: 'tour_dates', severity: 'important', message: offDaysLine });
 
   if (tooLong.length > 0) {

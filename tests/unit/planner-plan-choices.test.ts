@@ -178,7 +178,7 @@ describe('смета: выбранное — пунктом плана вмес�
     // читает — машину заказывают целиком, и цены до заявки нет.
     const legacy = { stays: [], transfers: [{ tripId: 't1', date: '2030-08-03', from: 'Аэропорт Елизово', to: 'Паратунка', seats: 2, pricePerSeat: 1500, carrier: 'Перевозчик' }] } as unknown as PlanChoices;
     for (const e of [estimateGroup(DAYS, PROFILE), estimateGroup(DAYS, PROFILE, legacy)]) {
-      expect(line(e, /Трансферы аэропорта/)).toMatchObject({ basis: '2 500–5 000 ₽ × 2 чел.', total: [5000, 10000], source: 'estimate' });
+      expect(line(e, /Трансферы аэропорта/)).toMatchObject({ basis: '2 500 — 5 000 ₽ × 2 чел.', total: [5000, 10000], source: 'estimate' });
       expect(e.lines.some((l) => /\d мест|за место/.test(l.basis) || l.source === 'offer')).toBe(false);
     }
     expect(estimateGroup(DAYS, PROFILE, legacy).total).toEqual(estimateGroup(DAYS, PROFILE).total);

@@ -472,6 +472,11 @@ function tourLine(day: EstimateDay, days: EstimateDay[], people: number): Estima
   };
 }
 
+/** «1 ночи», «2 ночей», «5 ночей» — после «нет». */
+function nightGenitive(n: number): string {
+  return n % 10 === 1 && n % 100 !== 11 ? 'ночи' : 'ночей';
+}
+
 /**
  * Смета плана на группу построчно.
  *
@@ -505,7 +510,7 @@ export function estimateGroup(days: EstimateDay[], profile: EstimateProfile, cho
     if (d.priceFrom <= 0 && d.priceTo <= 0) continue;
     lines.push({
       kind: 'activity', label: `«${d.title}», день ${d.day}`,
-      basis: `${fmt(d.priceFrom)}–${fmt(d.priceTo)} ₽ × ${peopleWord(people)}`,
+      basis: `${fmt(d.priceFrom)} — ${fmt(d.priceTo)} ₽ × ${peopleWord(people)}`,
       total: times([d.priceFrom, d.priceTo], people), source: 'estimate',
       note: d.type === 'activity' || d.type === 'buffer'
         ? 'Тура на этот день нет — справочная цена вида активности.'
@@ -523,10 +528,16 @@ export function estimateGroup(days: EstimateDay[], profile: EstimateProfile, cho
   };
 
   // Ночи — по зоне, где ночуют, одной строкой на зону.
+  let nightsInToursTotal = 0;
   if (days.length > 1) {
     const lastDayNum = days[days.length - 1]!.day;
     const byZone = new Map<ZoneId, { nights: number; sum: [number, number] }>();
+    // Ночи, которые в строки проживания не вошли, потому что входят в тур
+    // (#3347): «проживание 5 ночей» при шести ночах поездки стояло без
+    // объяснения — пояснение было в данных, а экран его прятал.
+    let nightsInTours = 0;
     for (const [i, day] of days.entries()) {
+      if (day.type !== 'departure' && day.day !== lastDayNum && nightLodgingIncluded(day, days[i + 1]) === true) nightsInTours++;
       const night = nightOf(day, days[i + 1], lastDayNum, origin, bi);
       if (!night || chosenNight(night.zone, day.day)) continue;
       const z = byZone.get(night.zone) ?? { nights: 0, sum: [0, 0] as [number, number] };
@@ -544,6 +555,7 @@ export function estimateGroup(days: EstimateDay[], profile: EstimateProfile, cho
         note: 'Ориентир по зоне и уровню размещения; ночи, включённые в туры, не считаны.',
       });
     }
+    nightsInToursTotal = nightsInTours;
   }
 
   // Выбранное жильё — по цене предложения: правило брони, номера × ночи.
@@ -581,7 +593,7 @@ export function estimateGroup(days: EstimateDay[], profile: EstimateProfile, cho
     }
     lines.push({
       kind: 'transport', label: `${d.title}, день ${d.day}`,
-      basis: `${fmt(d.priceFrom)}–${fmt(d.priceTo)} ₽ × ${peopleWord(people)}`,
+      basis: `${fmt(d.priceFrom)} — ${fmt(d.priceTo)} ₽ × ${peopleWord(people)}`,
       total: times([d.priceFrom, d.priceTo], people), source: 'estimate',
     });
   }
@@ -589,7 +601,7 @@ export function estimateGroup(days: EstimateDay[], profile: EstimateProfile, cho
   if (countsAirportTransfer(origin, profile.needs) && days.length > 0) {
     lines.push({
       kind: 'transport', label: 'Трансферы аэропорта',
-      basis: `${fmt(AIRPORT_TRANSFER[0])}–${fmt(AIRPORT_TRANSFER[1])} ₽ × ${peopleWord(people)}`,
+      basis: `${fmt(AIRPORT_TRANSFER[0])} — ${fmt(AIRPORT_TRANSFER[1])} ₽ × ${peopleWord(people)}`,
       total: times(AIRPORT_TRANSFER, people), source: 'estimate',
     });
   }
@@ -600,6 +612,13 @@ export function estimateGroup(days: EstimateDay[], profile: EstimateProfile, cho
   const total = sum(() => true);
 
   const assumptions: string[] = [];
+  // Ночи, включённые в туры, — фактом и числом (#3347): «проживание 5 ночей»
+  // при шести ночах поездки читалось как ошибка счёта. Пояснение стояло в
+  // `note` строки проживания, а экран `note` у строки-ориентира не показывает.
+  if (nightsInToursTotal > 0) {
+    assumptions.push(`В строках проживания нет ${nightsInToursTotal} ${nightGenitive(nightsInToursTotal)}: `
+      + `${nightsInToursTotal === 1 ? 'она входит' : 'они входят'} в цену тура.`);
+  }
   if (profile.children.length > 0) {
     assumptions.push('Дети посчитаны по цене взрослого: скидок платформа не знает — уточняйте у оператора.');
   }

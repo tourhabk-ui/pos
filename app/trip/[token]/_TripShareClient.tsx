@@ -14,7 +14,7 @@ import { tourPath } from '@/lib/tours/tour-url';
 import { dayPriceLine } from '@/lib/planner/day-price';
 import { ruCalendarDate } from '@/lib/trips/trip-dates';
 import { OfflineSave } from './_OfflineSave';
-import { KUZMICH_MAX_URL } from '@/components/shared/KuzmichActions';
+import { maxShareUrl, telegramShareUrl } from '@/lib/trips/share-links';
 import { PlanKindOffers, PlanTourRule } from '@/components/plans/PlanKindOffers';
 import { dayAvailabilityLine, type TripDayAvailability } from '@/lib/trips/day-availability';
 // Подпись зоны — общим словарём (#3199): свой давал «Мильковская» западной
@@ -168,7 +168,8 @@ export function TripShareClient({ trip, token }: { trip: Trip; token: string }) 
     setTimeout(() => setCopied(false), 2000);
   };
 
-  const tgUrl = `https://t.me/share/url?url=${encodeURIComponent(shareUrl)}&text=${encodeURIComponent(shareText)}`;
+  const tgUrl = telegramShareUrl(shareUrl, shareText);
+  const maxUrl = maxShareUrl(shareUrl, shareText);
   // Календарные дни без перевода в пояс браузера (lib/trips/trip-dates, 07.11).
   const dateRange = trip.arrival_date && trip.departure_date
     ? `${ruCalendarDate(trip.arrival_date)} – ${ruCalendarDate(trip.departure_date)}` : null;
@@ -317,7 +318,7 @@ export function TripShareClient({ trip, token }: { trip: Trip; token: string }) 
               onClick={() => funnelBeacon('plan_sent_to_telegram', token)}>
               <ExternalLink className="w-4 h-4" />Telegram
             </a>
-            <a href={KUZMICH_MAX_URL} target="_blank" rel="noopener noreferrer"
+            <a href={maxUrl} target="_blank" rel="noopener noreferrer"
               className="flex items-center gap-2 px-3 py-2 rounded-md text-sm font-medium"
               style={{ background: 'color-mix(in srgb, var(--accent) 12%, transparent)', color: 'var(--accent)', border: '1px solid color-mix(in srgb, var(--accent) 25%, transparent)' }}>
               <ExternalLink className="w-4 h-4" />MAX

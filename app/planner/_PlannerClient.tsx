@@ -65,7 +65,7 @@ import type {
 } from './planner-types';
 import { SeatRequestForm } from '@/components/planner/SeatRequestForm';
 import { planDayDate, planDayTourHref } from '@/lib/planner/day-tour-link';
-import { KUZMICH_MAX_URL } from '@/components/shared/KuzmichActions';
+import { maxShareUrl, telegramShareUrl } from '@/lib/trips/share-links';
 import { nightLodgingIncluded } from '@/lib/planner/lodging-included';
 
 const LeafletMap = dynamic(() => import('@/components/shared/LeafletMap'), { ssr: false });
@@ -131,7 +131,7 @@ const ACTIVITY_LABEL: Record<string, string> = {
   bears:      'Медведи',
   snowmobile: 'Снегоходы',
   boat_trip:  'Катер',
-  volcano:    'Вулкан',
+  volcano:    'Вулканы',
   hot_spring: 'Термальные',
   geyser:     'Гейзеры',
   sea:        'Побережье',
@@ -155,11 +155,23 @@ const INTEREST_PRICE: Record<string, [number, number]> = {
   river:      [5000,  15000],
 };
 
-const TRANSPORT_OPTIONS: Record<TransportType, { label: string; Icon: React.ElementType; priceAdd: number }> = {
-  walking:    { label: 'Пешком',   Icon: activityIcon('hiking'), priceAdd: 0 },
-  jeep:       { label: 'Джип',     Icon: Truck,      priceAdd: 3000 },
-  boat:       { label: 'Катер',    Icon: activityIcon('boat_trip'), priceAdd: 8000 },
-  helicopter: { label: 'Вертолёт', Icon: activityIcon('helicopter'), priceAdd: 25000 },
+/**
+ * Что человек должен знать о ссылке «Поделиться»: она открытая. Закрывается
+ * кнопкой «Закрыть ссылку» в карточке поездки (components/trips/TripActions).
+ */
+export const SHARE_LINK_NOTE =
+  'По этой ссылке план увидит любой, у кого она есть. В плане — дни, места и даты поездки; '
+  + 'состава группы, рейсов и контактов в нём нет. Закрыть ссылку можно в кабинете, в карточке поездки.';
+
+// Цен у вида транспорта здесь нет намеренно (#3347, 14.11). До этого дня у
+// кнопок стояли подсказки «Джип (+3 000 ₽)», «Катер (+8 000 ₽)», «Вертолёт
+// (+25 000 ₽)»: числа были вписаны в этот файл, источника у них не было, и в
+// смету они не входили. Цену называет оператор.
+const TRANSPORT_OPTIONS: Record<TransportType, { label: string; Icon: React.ElementType }> = {
+  walking:    { label: 'Пешком',   Icon: activityIcon('hiking') },
+  jeep:       { label: 'Джип',     Icon: Truck },
+  boat:       { label: 'Катер',    Icon: activityIcon('boat_trip') },
+  helicopter: { label: 'Вертолёт', Icon: activityIcon('helicopter') },
 };
 
 const ACTIVITY_DEFAULT_TRANSPORT: Record<string, TransportType> = {
@@ -374,20 +386,39 @@ const ZONE_TRANSPORTS: Record<string, TransportType[]> = {
   western:    ['walking', 'jeep', 'boat'],
 };
 
-function TransportSelector({ selected, onChange, zone }: {
-  selected: TransportType; onChange: (t: TransportType) => void; zone?: string;
+/**
+ * Есть ли у дня выбор транспорта. У дня с туром его нет: транспорт — часть
+ * тура, и «вертолёт» у снегоходного тура уходил в заявку бессмыслицей (#3347).
+ */
+export function dayOffersTransportChoice(
+  day: Pick<DayPlan, 'type' | 'realTour' | 'allowedTransports'>,
+  isConfirmed: boolean | undefined,
+): boolean {
+  return day.type === 'activity' && !isConfirmed && !day.realTour && day.allowedTransports.length > 1;
+}
+
+/**
+ * Чем добираться в день без тура. Выбор — из того, что движок разрешил этому
+ * дню (`allowedTransports`: занятие и зона вместе), а не из всего, что бывает
+ * в зоне: иначе у свободного дня в городе предлагался вертолёт (#3347).
+ * Выбирать не из чего — селектора нет.
+ */
+export function TransportSelector({ selected, onChange, allowed }: {
+  selected: TransportType; onChange: (t: TransportType) => void; allowed: readonly TransportType[];
 }) {
-  const allowed = zone ? (ZONE_TRANSPORTS[zone] ?? Object.keys(TRANSPORT_OPTIONS) as TransportType[]) : Object.keys(TRANSPORT_OPTIONS) as TransportType[];
-  // if currently selected transport is not allowed in this zone, use first allowed
+  if (allowed.length < 2) return null;
+  // if currently selected transport is not allowed for this day, use first allowed
   const effective = allowed.includes(selected) ? selected : allowed[0];
   return (
-    <div className="flex gap-1">
+    <div className="flex gap-1" role="group" aria-label="Чем добираться">
       {allowed.map(key => {
-        const { label, Icon, priceAdd } = TRANSPORT_OPTIONS[key];
+        const { label, Icon } = TRANSPORT_OPTIONS[key];
         const active = effective === key;
         return (
           <button key={key} type="button"
-            title={`${label}${priceAdd > 0 ? ` (+${fmt(priceAdd)} ₽)` : ''}`}
+            title={label}
+            aria-label={label}
+            aria-pressed={active}
             onClick={() => onChange(key)}
             className={`flex items-center justify-center w-8 h-8 rounded-md transition-all border text-xs ${
               active
@@ -577,8 +608,9 @@ function DayCard({
         </div>
         {/* Row 2 — transport + actions */}
         <div className="flex items-center gap-2 px-3 pb-2.5 pt-0.5">
-          {day.type === 'activity' && !isConfirmed && (
-            <TransportSelector selected={transport} onChange={t => onTransportChange(day.day, t)} zone={day.zone} />
+          {/* У дня с туром транспорт — часть тура: выбирать нечего (#3347). */}
+          {dayOffersTransportChoice(day, isConfirmed) && (
+            <TransportSelector selected={transport} onChange={t => onTransportChange(day.day, t)} allowed={day.allowedTransports} />
           )}
           {day.description && day.type !== 'activity' && (
             <p className="text-[10px] text-[var(--text-muted)] italic">{day.description}</p>
@@ -1659,6 +1691,9 @@ export function PlannerClient({ initialUserId }: { initialUserId?: string | null
     }
   }, [router, initialUserId, days, arrival, departure, places, activities, transportByDay, flightArrival, flightDeparture, flightArrivalTime, flightDepartureTime, needsAirportTransfer, needsLodging, needsCar, recommendation, tripId, planProfile, planChoices]);
 
+  // Подпись к ссылке плана — одна для Telegram и MAX.
+  const planShareText = `${(recommendation as { title?: string } | null)?.title ?? 'Маршрут'} — ${days.length} ${pluralDaysRu(days.length)} по Камчатке`;
+
   // «Поделиться» сначала сохраняет (аудит 07.11, H10): ссылка — на план,
   // который сейчас на экране, а не на последнюю сохранённую версию. До этого
   // без сохранённой поездки первое нажатие только сохраняло, и ссылки не было.
@@ -2553,7 +2588,7 @@ export function PlannerClient({ initialUserId }: { initialUserId?: string | null
         </div>
         <p className="text-xs text-[var(--text-secondary)]">
           {maxRestDays > 0
-            ? `${restManual ? 'Поставили вы' : `Посчитали по датам: день отдыха на каждые ${REST_EVERY_DAYS} дней поездки`}. До ${maxRestDays} при ${tripDays} ${pluralDaysRu(tripDays ?? 0)}. Резерв на нелётную погоду добавим сами, если он нужен.`
+            ? `${restManual ? 'Поставили вы' : `Посчитали по датам: день отдыха на каждые ${REST_EVERY_DAYS} дней поездки`}. До ${maxRestDays} при поездке на ${tripDays} ${pluralDaysRu(tripDays ?? 0)}. Резерв на нелётную погоду добавим сами, если он нужен.`
             : 'Поездка короткая: место нужно прилёту, вылету и хотя бы одному дню на маршруте.'}
         </p>
         {restManual && maxRestDays > 0 && restDaysToSend !== Math.min(restSuggested, maxRestDays) && (
@@ -2664,7 +2699,9 @@ export function PlannerClient({ initialUserId }: { initialUserId?: string | null
         <button key={r.n} type="button" onClick={() => { setStep(r.n); setFormOpen(true); }}
           className="w-full flex items-center gap-3 px-4 min-h-[44px] py-2 text-left transition-colors duration-200 motion-reduce:transition-none hover:bg-[var(--bg-hover)]">
           <span className="w-24 shrink-0 text-xs text-[var(--text-muted)]">{r.label}</span>
-          <span className="flex-1 min-w-0 text-sm text-[var(--text-primary)] truncate">{r.value}</span>
+          {/* Значение переносится, а не обрезается: на телефоне «15 фе…» и
+              «Снегох…» прятали то, что человек проверяет перед заявкой (#3347). */}
+          <span data-summary-value={r.n} className="flex-1 min-w-0 text-sm leading-snug text-[var(--text-primary)] break-words">{r.value}</span>
           <Pencil className="w-3.5 h-3.5 text-[var(--text-muted)] shrink-0" />
         </button>
       ))}
@@ -2985,7 +3022,7 @@ export function PlannerClient({ initialUserId }: { initialUserId?: string | null
                   {shareCopied ? <Check className="w-3.5 h-3.5" style={{ color: 'var(--success)' }} /> : <Copy className="w-3.5 h-3.5" />}
                   {shareCopied ? 'Скопировано' : 'Копировать ссылку'}
                 </button>
-                <a href={`https://t.me/share/url?url=${encodeURIComponent(withReferral(shareUrl, myReferralCode))}&text=${encodeURIComponent(`${(recommendation as { title?: string } | null)?.title ?? 'Маршрут'} — ${days.length} ${pluralDaysRu(days.length)} по Камчатке`)}`}
+                <a href={telegramShareUrl(withReferral(shareUrl, myReferralCode), planShareText)}
                   target="_blank" rel="noopener noreferrer"
                   className="flex items-center gap-2 px-3 py-2 rounded-md text-xs font-medium"
                   style={{ background: 'color-mix(in srgb, var(--ocean) 15%, transparent)', color: 'var(--ocean)', border: '1px solid color-mix(in srgb, var(--ocean) 30%, transparent)' }}
@@ -2993,13 +3030,19 @@ export function PlannerClient({ initialUserId }: { initialUserId?: string | null
                   onClick={() => funnelBeacon('plan_sent_to_telegram', tripId ?? undefined)}>
                   <ExternalLink className="w-3.5 h-3.5" />Telegram
                 </a>
-                <a href={KUZMICH_MAX_URL} target="_blank" rel="noopener noreferrer"
+                <a href={maxShareUrl(withReferral(shareUrl, myReferralCode), planShareText)} target="_blank" rel="noopener noreferrer"
                   className="flex items-center gap-2 px-3 py-2 rounded-md text-xs font-medium"
                   style={{ background: 'color-mix(in srgb, var(--accent) 12%, transparent)', color: 'var(--accent)', border: '1px solid color-mix(in srgb, var(--accent) 25%, transparent)' }}>
                   <ExternalLink className="w-3.5 h-3.5" />MAX
                 </a>
               </div>
               <p className="text-xs break-all" style={{ color: 'var(--text-muted)' }}>{shareUrl}</p>
+              {/* Ссылка открытая — это сказано словами, а не только видно по
+                  адресу (#3347). Что в плане по ссылке есть и чего нет — как
+                  отдаёт lib/trips/shared-plan. */}
+              <p className="text-xs" style={{ color: 'var(--text-secondary)' }}>
+                {SHARE_LINK_NOTE}
+              </p>
             </div>
           )}
 

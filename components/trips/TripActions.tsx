@@ -12,6 +12,7 @@
  */
 
 import Link from 'next/link';
+import { maxShareUrl, telegramShareUrl } from '@/lib/trips/share-links';
 import { useEffect, useState } from 'react';
 import { ShieldCheck, Share2, Copy, Check, Backpack, Download, ChevronRight, Loader, Send, MessageCircle, ExternalLink, Link2Off } from 'lucide-react';
 import { MCHS_DEADLINE_SHORT, MCHS_ONLINE_FORM_URL } from '@/lib/safety/mchs-registration';
@@ -177,9 +178,7 @@ export function TripActions({ trip }: { trip: TripActionsTrip }) {
     if (w) w.opener = null;
     const url = await ensureShareUrl();
     if (!url) { w?.close(); return; }
-    const target = kind === 'tg'
-      ? `https://t.me/share/url?url=${encodeURIComponent(url)}&text=${encodeURIComponent(shareText)}`
-      : `https://max.ru/:share?text=${encodeURIComponent(`${shareText}\n${url}`)}`;
+    const target = kind === 'tg' ? telegramShareUrl(url, shareText) : maxShareUrl(url, shareText);
     if (w) w.location.href = target; else window.location.href = target;
   }
 

@@ -5,7 +5,7 @@
 import { describe, it, expect } from 'vitest';
 import { readFileSync } from 'node:fs';
 import { join } from 'node:path';
-import { cancellationTermsLine, computeTourRefund } from '@/lib/payments/tour-refund';
+import { TERMS_NOT_RECORDED_NO_PAYMENTS, cancellationTermsForForm, cancellationTermsLine, computeTourRefund } from '@/lib/payments/tour-refund';
 
 const read = (p: string) => readFileSync(join(process.cwd(), p), 'utf-8');
 const TERMS = { freeDays: 3, lateRefundPercent: 50 };
@@ -45,6 +45,33 @@ describe('cancellationTermsLine', () => {
   });
 });
 
+describe('форма заявки: пока оплату платформа не принимает, возврата она не обещает (#3347)', () => {
+  const none = { freeDays: null, lateRefundPercent: null };
+
+  it('условий нет и оплаты через платформу нет — «уточните у оператора», без «вернём»', () => {
+    const line = cancellationTermsForForm(none, '2026-10-10', false);
+    expect(line).toBe(TERMS_NOT_RECORDED_NO_PAYMENTS);
+    expect(line).toContain('уточните их у оператора');
+    expect(line).toContain('Ведар платежи не принимает');
+    expect(line).not.toMatch(/вернём/);
+  });
+
+  it('одно число из двух — тоже «не записал»: недостающее не досчитывается', () => {
+    expect(cancellationTermsForForm({ freeDays: 3, lateRefundPercent: null }, null, false)).toBe(TERMS_NOT_RECORDED_NO_PAYMENTS);
+  });
+
+  it('условия записаны — это условия оператора, строка та же при любой оплате', () => {
+    for (const pays of [true, false]) {
+      expect(cancellationTermsForForm(TERMS, '2026-10-10', pays, kam('2026-10-01'))).toBe(
+        'Бесплатная отмена до 7 октября включительно, позже возвращается 50%.');
+    }
+  });
+
+  it('оплата через платформу включена — прежнее обещание полного возврата на месте', () => {
+    expect(cancellationTermsForForm(none, '2026-10-10', true)).toBe('Условия отмены оператор не записал — при отмене вернём всю сумму.');
+  });
+});
+
 describe('строка доходит до формы', () => {
   it('запрос карточки берёт числа условий', () => {
     const q = read('lib/tours/tour-detail-query.ts');
@@ -52,8 +79,10 @@ describe('строка доходит до формы', () => {
   });
   it('карточка передаёт их в форму, форма рисует строку под итогом', () => {
     expect(read('app/catalog/tours/[id]/_TourDetailClient.tsx')).toContain('cancellationTerms={{');
+    // Что именно форма рисует — рендером: tests/unit/booking-form-p2.test.tsx.
+    // Здесь запрет: мимо правила формы строку возврата форма не зовёт (#3347).
     const form = read('components/marketplace/BookingFormClient.tsx');
-    expect(form).toContain('cancellationTermsLine(cancellationTerms, formData.booking_date || null)');
+    expect(form).not.toMatch(/cancellationTermsLine\(/);
   });
   it('после отправки турист знает, что будет при молчании оператора', () => {
     expect(read('app/booking-success/[id]/_BookingSuccessClient.tsx')).toContain('её увидит администратор платформы');

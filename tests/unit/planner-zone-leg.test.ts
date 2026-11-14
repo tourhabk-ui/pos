@@ -91,8 +91,8 @@ describe('влезает ли связка в остаток дней', () => {
 describe('причина отказа называется числом, а не «не хватило»', () => {
   it('в тексте есть нужное и имеющееся', () => {
     const msg = legShortfallMessage('western', zoneLegCost('avachinsky', 'western'), 2, ['рыбалка']);
-    expect(msg).toContain('рыбалка');
-    expect(msg).toContain('Западная');
+    // С заглавной буквы (#3347): имена занятий в данных строчные.
+    expect(msg).toMatch(/^Рыбалка — Западная/);
     expect(msg).toMatch(/нужно 3/);
     expect(msg).toMatch(/осталось 2/);
     // Совет должен быть исполнимым: добавить дни или выбрать ближе.

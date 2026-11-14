@@ -185,3 +185,30 @@ export function cancellationTermsLine(
     ? `До тура меньше ${freeDays} ${daysGen(freeDays)}: по условиям оператора при отмене возврата нет.`
     : `До тура меньше ${freeDays} ${daysGen(freeDays)}: по условиям оператора при отмене возвращается ${lateRefundPercent}%.`;
 }
+
+/**
+ * Что форма говорит, когда условия отмены не записаны, а оплату платформа не
+ * принимает (#3347, 14.11). «При отмене вернём всю сумму» — обещание платёжного
+ * пути: его даёт тот, кто держит деньги. Пока приём оплаты выключен
+ * (lib/payments/accepting), деньги идут оператору напрямую, и возвращать их
+ * Ведару не из чего. Сравнение туров (lib/tours/compare-render) эту ветку не
+ * зовёт с самого начала; форма заявки показывала её рядом с «Ведар платежи не
+ * принимает».
+ */
+export const TERMS_NOT_RECORDED_NO_PAYMENTS =
+  'Условия отмены оператор не записал — уточните их у оператора: оплату вы вносите ему напрямую, Ведар платежи не принимает.';
+
+/**
+ * Условия отмены для формы заявки. Правило возврата то же
+ * (`cancellationTermsLine`); отличается один случай — условий нет и оплаты
+ * через платформу нет: тогда возврата Ведар не обещает.
+ */
+export function cancellationTermsForForm(
+  terms: TourRefundTerms,
+  tourDate: string | null,
+  acceptsPayments: boolean,
+  now: Date = new Date(),
+): string {
+  if (!acceptsPayments && !refundTermsRecorded(terms)) return TERMS_NOT_RECORDED_NO_PAYMENTS;
+  return cancellationTermsLine(terms, tourDate, now);
+}
