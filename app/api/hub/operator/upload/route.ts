@@ -9,11 +9,15 @@
  * метаданных — места съёмки в файле нет (lib/images/upload-photo.ts).
  * Предел поднят с 5 МБ: обычный снимок с телефона тяжелее, а хранится
  * уже подготовленный.
+ *
+ * Точка кадра портретного снимка считается здесь же и пишется в имя файла
+ * (`<время>.fy55.jpg`, lib/images/upload-focus.ts, 14.11).
  */
 
 import { NextRequest, NextResponse } from 'next/server';
 import { requireOperator } from '@/lib/auth/middleware';
 import { uploadToS3, isS3Configured } from '@/lib/storage/s3';
+import { uploadFocusMark } from '@/lib/images/upload-focus';
 import { preparePhoto, photoRefusal, uploadBodyTooLarge, UPLOAD_PHOTO_MAX_BYTES, PHOTO_TOO_LARGE } from '@/lib/images/upload-photo';
 
 export const dynamic = 'force-dynamic';
@@ -66,7 +70,8 @@ export async function POST(request: NextRequest) {
     return NextResponse.json({ success: false, error: photoRefusal(file.type, file.name) }, { status: 400 });
   }
 
-  const key = `tours/${authOrResponse.userId}/${Date.now()}.${prepared.ext}`;
+  const mark = await uploadFocusMark(prepared.buf, 'hub/operator/upload');
+  const key = `tours/${authOrResponse.userId}/${Date.now()}${mark}.${prepared.ext}`;
 
   try {
     const result = await uploadToS3(key, prepared.buf, prepared.mime);

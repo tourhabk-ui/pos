@@ -35,8 +35,12 @@
  * (`scripts/photo-focus.mjs`, входит в `npm run images`): где в кадре
  * кончается ровное небо и начинаются детали. Файл —
  * `lib/images/photo-focus.json`. Порядок: ручная точка, затем посчитанная,
- * затем верх кадра. Снимок, загруженный оператором в рантайме, станок не
- * видел — он стоит на верхе кадра.
+ * затем верх кадра.
+ *
+ * 14.11 (слово владельца «1 да»): снимок, загруженный оператором через сайт,
+ * станок не видит. Точку ему считает сама загрузка тем же правилом и пишет в
+ * имя файла — `tour_<hash>.fy55.jpg` (lib/images/upload-focus.ts). Порядок:
+ * ручная, посчитанная станком, пометка в имени, верх кадра.
  *
  * Герой карточки тура остаётся на своих `50% 30%` — у него другой кадр.
  */
@@ -95,13 +99,26 @@ function own(table: Readonly<Record<string, number>>, key: string): number | nul
   return Math.min(100, Math.max(0, Math.round(y)));
 }
 
+/** Пометка точки в имени загруженного снимка: `….fy55` в конце ключа. */
+const FOCUS_MARK_RE = /\.fy(\d{1,3})$/;
+
+/** Точка из пометки в имени файла (загрузка оператором, 14.11), иначе `null`. */
+export function focusFromMark(key: string): number | null {
+  const m = FOCUS_MARK_RE.exec(key);
+  if (!m) return null;
+  const y = Number(m[1]);
+  if (!Number.isFinite(y) || y <= 0 || y > 100) return null;
+  return y;
+}
+
 /**
- * Точка снимка: ручная, иначе посчитанная станком, иначе `null` (верх кадра).
+ * Точка снимка: ручная, иначе посчитанная станком, иначе пометка в имени
+ * загруженного файла, иначе `null` (верх кадра).
  */
 export function photoFocusY(src: string | null | undefined): number | null {
   const key = photoFocusKey(src);
   if (!key) return null;
-  return own(PHOTO_FOCUS_Y, key) ?? own(AUTO_PHOTO_FOCUS_Y, key);
+  return own(PHOTO_FOCUS_Y, key) ?? own(AUTO_PHOTO_FOCUS_Y, key) ?? focusFromMark(key);
 }
 
 /**
