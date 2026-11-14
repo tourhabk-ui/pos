@@ -1669,6 +1669,111 @@ withPg('кабинет туриста на настоящем PostgreSQL', () =>
     expect((await pool.query(`SELECT 1 FROM answer_notices WHERE lead_id = ANY($1::uuid[])`, [[foreign, unowned]])).rowCount).toBe(0);
   });
 
+  it('заявка без адресата — только допущенному кабинету (14.11): список, карточка, предложение и смена статуса; допуск читается из базы при каждом входе', async () => {
+    // До 14.11 заявки без адресата с именем и телефоном читал любой вошедший с
+    // ролью оператора: роль и карточку партнёра даёт обычная регистрация
+    // (is_public = FALSE). Допуск — partners.is_public, его ставит администратор.
+    const mkUser = async (email: string) => (await pool.query<{ id: string }>(
+      `INSERT INTO users (email, name, password_hash, role) VALUES ($1, 'Кабинет', 'x', 'operator') RETURNING id`, [email],
+    )).rows[0].id;
+    const mkCard = async (userId_: string, slug: string, isPublic: boolean) => (await pool.query<{ id: string }>(
+      `INSERT INTO partners (name, category, contact, is_verified, is_public, slug, user_id)
+       VALUES ($2, 'operator', '{}', FALSE, $3, $2, $1) RETURNING id`, [userId_, slug, isPublic],
+    )).rows[0].id;
+    const newcomerUser = await mkUser('pool-newcomer@example.com');
+    const newcomer = await mkCard(newcomerUser, 'pool-newcomer', false);
+    const shownUser = await mkUser('pool-shown@example.com');
+    const shown = await mkCard(shownUser, 'pool-shown', true);
+    const noCardUser = await mkUser('pool-nocard@example.com');
+    const mkLead = async (name: string, phone: string, operatorId: string | null) => (await pool.query<{ id: string }>(
+      `INSERT INTO leads (name, phone, comment, status, operator_id) VALUES ($1, $2, 'Подберите тур', 'new', $3) RETURNING id::text AS id`,
+      [name, phone, operatorId],
+    )).rows[0].id;
+    const free = await mkLead('Пул Ничья', '+79990140001', null);
+    const ofNewcomer = await mkLead('Пул Новичку', '+79990140002', newcomer);
+    const ofShown = await mkLead('Пул Витрине', '+79990140003', shown);
+    const mine = [free, ofNewcomer, ofShown];
+
+    const { NextRequest } = await import('next/server');
+    const as = async <T,>(user: string, fn: () => Promise<T>): Promise<T> => {
+      authAs.userId = user;
+      authAs.role = 'operator';
+      try { return await fn(); } finally { authAs.userId = userId; authAs.role = 'tourist'; }
+    };
+    const listOf = (user: string) => as(user, async () => {
+      const { GET } = await import('@/app/api/leads/route');
+      const res = await GET(new NextRequest('http://localhost/api/leads?limit=100') as unknown as NextRequest);
+      const body = await res.json() as { leads: Array<{ id: string; phone: string }>; total: number; unowned_pool: string };
+      expect(res.status, JSON.stringify(body).slice(0, 300)).toBe(200);
+      // В базе сцены есть заявки соседних сцен — судим только свои три.
+      return { ids: body.leads.map((l) => l.id).filter((id) => mine.includes(id)).sort(), pool: body.unowned_pool, phones: body.leads.map((l) => l.phone) };
+    });
+    const cardOf = (user: string, id: string) => as(user, async () => {
+      const { GET } = await import('@/app/api/leads/[id]/route');
+      const res = await GET(new NextRequest(`http://localhost/api/leads/${id}`) as unknown as NextRequest, { params: Promise.resolve({ id }) });
+      return { status: res.status, body: await res.json() as { lead?: { phone?: string } } };
+    });
+    const proposalOf = (user: string, id: string) => as(user, async () => {
+      const { GET } = await import('@/app/api/leads/[id]/proposal/route');
+      const res = await GET(new NextRequest(`http://localhost/api/leads/${id}/proposal`) as unknown as NextRequest, { params: Promise.resolve({ id }) });
+      return { status: res.status, body: await res.json() as { error?: string } };
+    });
+    const patchAs = (user: string, id: string) => as(user, async () => {
+      const { PATCH } = await import('@/app/api/leads/[id]/route');
+      const res = await PATCH(new NextRequest(`http://localhost/api/leads/${id}`, {
+        method: 'PATCH', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ status: 'contacted' }),
+      }) as unknown as NextRequest, { params: Promise.resolve({ id }) });
+      return res.status;
+    });
+    const freeRow = async () => (await pool.query<{ status: string; operator_id: string | null }>(
+      `SELECT status, operator_id::text AS operator_id FROM leads WHERE id = $1`, [free],
+    )).rows[0];
+
+    // Кабинет после регистрации (не на витрине): только адресованная ему заявка.
+    const n1 = await listOf(newcomerUser);
+    expect(n1.ids).toEqual([ofNewcomer]);
+    expect(n1.pool).toBe('closed');
+    expect(n1.phones).not.toContain('+79990140001');
+    expect((await cardOf(newcomerUser, free)).status).toBe(404);
+    expect((await cardOf(newcomerUser, ofNewcomer)).body.lead?.phone).toBe('+79990140002');
+    // «Лид не найден» — а не «предложение ещё не сформировано»: ответ не выдаёт, что заявка есть.
+    expect(await proposalOf(newcomerUser, free)).toMatchObject({ status: 404, body: { error: 'Лид не найден' } });
+    expect(await patchAs(newcomerUser, free)).toBe(404);
+    expect(await freeRow()).toEqual({ status: 'new', operator_id: null });
+
+    // Роль оператора без карточки партнёра: ничего.
+    const c1 = await listOf(noCardUser);
+    expect(c1.ids).toEqual([]);
+    expect(c1.pool).toBe('closed');
+    expect(c1.phones).toEqual([]);
+    expect((await cardOf(noCardUser, free)).status).toBe(404);
+    expect(await patchAs(noCardUser, free)).toBe(404);
+    expect(await freeRow()).toEqual({ status: 'new', operator_id: null });
+
+    // Кабинет на витрине: своя и ничейная, чужой нет; карточка ничейной читается.
+    const s1 = await listOf(shownUser);
+    expect(s1.ids).toEqual([free, ofShown].sort());
+    expect(s1.pool).toBe('open');
+    expect((await cardOf(shownUser, free)).body.lead?.phone).toBe('+79990140001');
+    expect(await proposalOf(shownUser, free)).toMatchObject({ status: 404, body: { error: 'Предложение ещё не сформировано' } });
+    expect((await cardOf(shownUser, ofNewcomer)).status).toBe(404);
+
+    // Допуск читается из базы при каждом входе: администратор поставил карточку
+    // на витрину — список открылся; снял — закрылся.
+    await pool.query(`UPDATE partners SET is_public = TRUE WHERE id = $1`, [newcomer]);
+    const n2 = await listOf(newcomerUser);
+    expect(n2.ids).toEqual([free, ofNewcomer].sort());
+    expect(n2.pool).toBe('open');
+    await pool.query(`UPDATE partners SET is_public = FALSE WHERE id = $1`, [newcomer]);
+    expect((await listOf(newcomerUser)).ids).toEqual([ofNewcomer]);
+    await pool.query(`UPDATE partners SET is_public = NULL WHERE id = $1`, [newcomer]);
+    expect((await listOf(newcomerUser)).pool).toBe('closed');
+
+    // Первое действие допущенного кабинета занимает ничейную — как раньше.
+    expect(await patchAs(shownUser, free)).toBe(200);
+    expect(await freeRow()).toEqual({ status: 'contacted', operator_id: shown });
+  });
+
   it('бронь рукой гида-продавца (#3211): по звонку и из заявки одной транзакцией; чужой тур, чужая и ничейная заявка — 404 и не тронуты; клиент в CRM; заявка уходит из «Входящих»', async () => {
     const guideUser = (await pool.query<{ id: string }>(
       `INSERT INTO users (email, name, password_hash, role) VALUES ('manual-guide@example.com', 'Гид брони', 'x', 'guide') RETURNING id`,

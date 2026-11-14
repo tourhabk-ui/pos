@@ -12,8 +12,9 @@
  *  - продавец (оператор с карточкой, гид) не закрывает заявку «Отказ» без причины;
  *  - причина не из списка, причина с другой отметкой и причина не от продавца
  *    отклоняются словами — молча принять и не записать её нельзя (§4.0);
- *  - администратор и оператор без карточки закрывают как раньше, без причины:
- *    сообщение «оператор отказал» от них было бы неправдой;
+ *  - администратор закрывает как раньше, без причины: сообщение «оператор
+ *    отказал» от него было бы неправдой; вошедший с ролью оператора без
+ *    карточки партнёра — не продавец, и скоуп у него пустой (14.11);
  *  - «туристу сообщено» в ответе двери — по исходу отправки.
  */
 import { describe, it, expect, vi, beforeEach } from 'vitest';
@@ -22,8 +23,18 @@ import { NextRequest } from 'next/server';
 const h = vi.hoisted(() => ({
   change: vi.fn(), deliver: vi.fn(), access: vi.fn(), query: vi.fn(), bookings: vi.fn(),
   user: { userId: '11111111-1111-4111-8111-111111111111', role: 'operator', email: 'op@example.com' },
+  /** Допущена ли карточка оператора к заявкам без адресата (`partners.is_public`). */
+  admitted: true as boolean,
 }));
-vi.mock('@/lib/db-pool', () => ({ pool: { query: (sql: string, params?: unknown[]) => h.query(sql, params ?? []) } }));
+// Вопрос о допуске карточки (lib/leads/ownership, 14.11) отвечается отдельно:
+// `h.query` остаётся счётчиком запросов самой двери.
+vi.mock('@/lib/db-pool', () => ({
+  pool: {
+    query: (sql: string, params?: unknown[]) => (/SELECT is_public FROM partners/.test(sql)
+      ? Promise.resolve({ rows: [{ is_public: h.admitted }] })
+      : h.query(sql, params ?? [])),
+  },
+}));
 vi.mock('@/lib/auth/middleware', () => ({
   requireOperator: async () => h.user,
   requireAdmin: async () => h.user,
@@ -67,6 +78,7 @@ const patch = (handler: typeof operatorPatch, body: unknown) => handler(
 beforeEach(() => {
   for (const f of [h.change, h.deliver, h.access, h.query, h.bookings]) f.mockReset();
   h.user = { userId: OP_USER, role: 'operator', email: 'op@example.com' };
+  h.admitted = true;
   h.access.mockResolvedValue({ kind: 'owner', partnerId: 'p-op' });
   h.change.mockResolvedValue(plainOk('lost'));
   h.deliver.mockResolvedValue({ state: 'delivered', via: 'max', dates: [] });
@@ -191,11 +203,13 @@ describe('кабинет оператора: PATCH /api/leads/[id]', () => {
     expect(h.change).not.toHaveBeenCalled();
   });
 
-  it('оператор без карточки партнёра — не продавец: без причины закрывает, с причиной — отказ', async () => {
+  it('оператор без карточки партнёра — не продавец: скоуп у него пустой, причина от него — отказ', async () => {
     h.access.mockResolvedValue({ kind: 'none', reason: 'no_profile' });
     const closed = await patch(operatorPatch, { status: 'lost' });
+    // Запись здесь подменена и отвечает «готово»; настоящая по пустому скоупу
+    // не находит ни одной заявки (leads-idor, сцена на настоящем PostgreSQL).
     expect(closed.status).toBe(200);
-    expect(h.change.mock.calls[0][0]).toMatchObject({ status: 'lost', scope: { kind: 'unowned_only' } });
+    expect(h.change.mock.calls[0][0]).toMatchObject({ status: 'lost', scope: { kind: 'none' } });
     expect('lost' in h.change.mock.calls[0][0]).toBe(false);
 
     h.change.mockClear();

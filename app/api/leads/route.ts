@@ -15,7 +15,7 @@ import { attachMcpAttribution, MCP_ATTRIBUTION } from '@/lib/mcp/handoff';
 import { buildConsentRecord } from '@/lib/legal/pd-consent';
 import { sendPdAlert } from '@/lib/notifications/pd-alert';
 import { getPublicBaseUrl } from '@/lib/config';
-import { leadOwnershipCond } from '@/lib/leads/ownership';
+import { leadScopeCond, operatorLeadScope, unownedPoolOpen } from '@/lib/leads/ownership';
 import { LEADS_PAGE_MAX } from '@/lib/leads/list-page';
 import { logSwallowedFailure } from '@/lib/observability/swallowed';
 import { LeadIsVehicleOrderError } from '@/lib/leads/vehicle-order';
@@ -73,11 +73,13 @@ export async function GET(req: NextRequest) {
     vals.push(status);
     conditions.push(`status = $${vals.length}`);
   }
-  // Скоуп — единая формула lib/leads/ownership: свои и ничейные, а у
-  // оператора без партнёрской записи — только ничейные. До 25.09 список
-  // считал скоуп сам и при отсутствии записи не ставил фильтра вовсе:
-  // оператор видел ВСЕ лиды платформы с именами и телефонами.
-  const scope = await leadOwnershipCond(user, vals.length + 1);
+  // Скоуп — единая формула lib/leads/ownership: свои, а ничейные — только
+  // оператору, чью карточку допустил на витрину администратор (14.11). До
+  // 25.09 список считал скоуп сам и при отсутствии записи не ставил фильтра
+  // вовсе: оператор видел ВСЕ лиды платформы с именами и телефонами; до 14.11
+  // ничейные видел любой, кто зарегистрировался с ролью оператора.
+  const leadScope = await operatorLeadScope(user);
+  const scope = leadScopeCond(leadScope, vals.length + 1);
   if (scope.cond) {
     conditions.push(scope.cond.replace(/^ AND /, ''));
     vals.push(...scope.vals);
@@ -107,7 +109,13 @@ export async function GET(req: NextRequest) {
   ]);
 
   // Откуда заявка — одной подписью (слово владельца 08.11: человек или ИИ и каким путём).
-  return NextResponse.json({ leads: (rows.rows as LeadOriginRow[]).map(withLeadOrigin), total: cnt.rows[0].total });
+  return NextResponse.json({
+    leads: (rows.rows as LeadOriginRow[]).map(withLeadOrigin),
+    total: cnt.rows[0].total,
+    // Закрыт общий список заявок без адресата — экран говорит об этом, а не
+    // показывает молча пустую доску (§4.0).
+    unowned_pool: unownedPoolOpen(leadScope) ? 'open' : 'closed',
+  });
 }
 
 export async function POST(req: NextRequest) {

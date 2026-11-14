@@ -44,7 +44,9 @@ describe('навыки проекта ссылаются на существую
       // Короткие имена в кавычках (`db-schema-doc`) — сторож, навык или job CI.
       const unresolved = [...text.matchAll(/`([a-z0-9]+(?:-[a-z0-9]+)+)`/g)]
         .map((m) => m[1])
+        // Сторож-рендер живёт в .test.tsx — он такой же сторож, как .test.ts.
         .filter((t) => !existsSync(join(ROOT, 'tests/unit', `${t}.test.ts`))
+          && !existsSync(join(ROOT, 'tests/unit', `${t}.test.tsx`))
           && !existsSync(join(ROOT, '.claude/skills', t))
           && !new RegExp(`^  ${t}:`, 'm').test(CI));
       expect(unresolved, `${name}: имя не найдено ни среди сторожей, ни среди навыков, ни в ci.yml`).toEqual([]);

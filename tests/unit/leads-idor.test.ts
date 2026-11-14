@@ -54,26 +54,58 @@ describe('lib/leads/ownership.ts — единственный источник �
     poolQuery.mockReset();
   });
 
-  it('формула: продавец — свои и (у кабинета оператора) ничейные; гид — только свои; без карточки — только ничейные; админ без скоупа', () => {
+  it('формула: продавец — свои и (у допущенного кабинета оператора) ничейные; гид — только свои; без карточки — ничего; админ без скоупа', () => {
     expect(leadScopeCond({ kind: 'admin' }, 3)).toEqual({ cond: '', vals: [] });
     expect(leadScopeCond({ kind: 'owner', partnerId: 'P', claimUnowned: true }, 3))
       .toEqual({ cond: ' AND (operator_id = $3 OR operator_id IS NULL)', vals: ['P'] });
     expect(leadScopeCond({ kind: 'owner', partnerId: 'P', claimUnowned: false }, 3))
       .toEqual({ cond: ' AND operator_id = $3', vals: ['P'] });
-    expect(leadScopeCond({ kind: 'unowned_only' }, 3)).toEqual({ cond: ' AND operator_id IS NULL', vals: [] });
+    expect(leadScopeCond({ kind: 'none' }, 3)).toEqual({ cond: ' AND FALSE', vals: [] });
   });
 
-  it('кабинет оператора: свой или команды — карточка кабинета; нет карточки — только ничейные; «не смогли проверить» — отказ, а не «только ничейные»', async () => {
+  it('кабинет оператора: ничейные заявки — только карточке, которую допустил на витрину администратор', async () => {
+    const admittedAs = (v: boolean | null | 'no-row') => poolQuery.mockImplementation(async (sql: string) => {
+      expect(String(sql)).toMatch(/SELECT is_public FROM partners WHERE id = \$1::uuid/);
+      return { rows: v === 'no-row' ? [] : [{ is_public: v }] };
+    });
+
     expect(await operatorLeadScope(admin)).toEqual({ kind: 'admin' });
     expect(access.calls).toBe(0);
+    expect(poolQuery).not.toHaveBeenCalled();
+
+    admittedAs(true);
     expect(await operatorLeadScope(operator)).toEqual({ kind: 'owner', partnerId: 'P-OWN', claimUnowned: true });
+    expect(poolQuery.mock.calls.at(-1)![1]).toEqual(['P-OWN']);
     access.result = { kind: 'manager', partnerId: 'P-TEAM', memberId: 'm', perms: {} };
     expect(await operatorLeadScope(operator)).toEqual({ kind: 'owner', partnerId: 'P-TEAM', claimUnowned: true });
+    expect(poolQuery.mock.calls.at(-1)![1]).toEqual(['P-TEAM']);
+
+    // Карточка есть, но на витрину не допущена (так её создаёт регистрация),
+    // признак не записан или строки нет вовсе — ничейные закрыты.
+    access.result = { kind: 'owner', partnerId: 'P-OWN' };
+    for (const v of [false, null, 'no-row'] as const) {
+      admittedAs(v);
+      expect(await operatorLeadScope(operator), String(v)).toEqual({ kind: 'owner', partnerId: 'P-OWN', claimUnowned: false });
+    }
+  });
+
+  it('роль оператора без карточки — не видит ничего; «не смогли проверить» — отказ, а не «допущен»', async () => {
     access.result = { kind: 'none', reason: 'no_profile' };
-    expect(await operatorLeadScope(operator)).toEqual({ kind: 'unowned_only' });
+    expect(await operatorLeadScope(operator)).toEqual({ kind: 'none' });
+    expect(poolQuery).not.toHaveBeenCalled();
+    expect((await leadOwnershipCond(operator, 2)).cond).toBe(' AND FALSE');
+
     access.result = { kind: 'unavailable', reason: 'sqlstate 57P01' };
-    await expect(operatorLeadScope(operator)).rejects.toThrow(/не проверен/);
+    await expect(operatorLeadScope(operator)).rejects.toThrow(/доступ к кабинету не проверен/);
     await expect(leadOwnershipCond(operator, 2)).rejects.toThrow(/не проверен/);
+
+    // Допуск карточки не прочитался — ни «допущена», ни «не допущена».
+    access.result = { kind: 'owner', partnerId: 'P-OWN' };
+    const err = vi.spyOn(console, 'error').mockImplementation(() => {});
+    poolQuery.mockRejectedValue(Object.assign(new Error('boom'), { code: '57P01' }));
+    await expect(operatorLeadScope(operator)).rejects.toThrow(/допуск к заявкам без адресата не проверен: sqlstate 57P01/);
+    expect(err).toHaveBeenCalled();
+    err.mockRestore();
   });
 
   it('смена статуса заявки: скоуп — в условии блокируемой строки; занять ничейную может только скоуп кабинета оператора', async () => {
@@ -97,8 +129,15 @@ describe('lib/leads/ownership.ts — единственный источник �
     expect(op.prevCte).toContain('AND (operator_id = $6 OR operator_id IS NULL)');
     expect(op.params).toEqual([lead, 'contacted', false, null, 'P', 'P', ...noLost]);
 
-    const none = await call({ kind: 'unowned_only' });
-    expect(none.prevCte).toContain('AND operator_id IS NULL');
+    // Карточка не допущена на витрину: ничейную заявку не видит и не занимает.
+    const notAdmitted = await call({ kind: 'owner', partnerId: 'P', claimUnowned: false });
+    expect(notAdmitted.prevCte).toContain('AND operator_id = $6');
+    expect(notAdmitted.prevCte).not.toContain('IS NULL');
+    expect(notAdmitted.params).toEqual([lead, 'contacted', false, null, null, 'P', ...noLost]);
+
+    const none = await call({ kind: 'none' });
+    expect(none.prevCte).toContain('AND FALSE');
+    expect(none.prevCte).not.toContain('IS NULL');
     expect(none.params).toEqual([lead, 'contacted', false, null, null, ...noLost]);
   });
 });
@@ -117,9 +156,11 @@ describe('владение лидом: /api/leads/[id]', () => {
     expect(DETAIL).toMatch(/import \{ leadOwnershipCond, operatorLeadScope \} from '@\/lib\/leads\/ownership'/);
   });
 
-  it('список берёт ту же формулу владения, а не свою копию', () => {
-    expect(LIST).toMatch(/leadOwnershipCond\(user,/);
+  it('список не держит свою копию формулы владения', () => {
+    // Что список отдаёт кабинету только своё, а заявки без адресата — лишь
+    // допущенному, судит вызов двери: tests/unit/leads-unowned-pool.test.tsx.
     expect(LIST).not.toMatch(/SELECT id FROM partners WHERE user_id = \$1/);
+    expect(LIST).not.toMatch(/operator_id IS NULL/);
   });
 
   it('чужой лид неотличим от несуществующего: 404, не 403', () => {
