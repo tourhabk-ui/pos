@@ -1,5 +1,6 @@
 'use client';
 
+import { pageContainer } from '@/lib/layout/page-width';
 import { useState, useEffect, useCallback, useRef } from 'react';
 import Link from 'next/link';
 import Image from 'next/image';
@@ -151,7 +152,7 @@ export default function OperatorsPageClient({
     <div className="min-h-screen bg-[var(--bg-primary)]">
       {/* Header */}
       <div className="bg-[var(--bg-card)] border-b border-[var(--border)]">
-        <div className="max-w-6xl mx-auto px-4 py-10">
+        <div className={`${pageContainer('showcase')} py-10`}>
           <div className="flex items-center gap-2 text-sm text-[var(--text-muted)] mb-3">
             <Link href="/" className="hover:text-[var(--accent)]">Главная</Link>
             <ChevronRight className="w-3.5 h-3.5" />
@@ -167,7 +168,7 @@ export default function OperatorsPageClient({
         </div>
       </div>
 
-      <div className="max-w-6xl mx-auto px-4 py-6">
+      <div className={`${pageContainer('showcase')} py-6`}>
         {/* Search + filter */}
         <div className="flex flex-col sm:flex-row gap-3 mb-8">
           <div className="relative flex-1">

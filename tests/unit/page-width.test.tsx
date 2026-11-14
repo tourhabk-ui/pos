@@ -65,6 +65,14 @@ const MIGRATED = [
   'components/zh/HarbinFlight.tsx',
   'components/transfers/TransfersPage.tsx',
   'app/fish/page.tsx',
+  // Вторая партия (14.11): списки без ширины или уже витрины.
+  'app/routes/_RoutesPageClient.tsx',
+  'app/guides/(list)/page.tsx',
+  'app/articles/page.tsx',
+  'app/operators/_OperatorsClient.tsx',
+  'app/collections/_CollectionsClient.tsx',
+  'app/accommodations/_AccommodationsClient.tsx',
+  'app/gear/_GearClient.tsx',
 ];
 
 describe('запрет: переведённая страница не держит свою ширину', () => {
@@ -75,6 +83,6 @@ describe('запрет: переведённая страница не держ�
   });
 
   it('реестр не сокращается', () => {
-    expect(MIGRATED.length).toBeGreaterThanOrEqual(6);
+    expect(MIGRATED.length).toBeGreaterThanOrEqual(13);
   });
 });

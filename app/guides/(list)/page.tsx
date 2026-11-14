@@ -1,4 +1,5 @@
 import { cache } from 'react';
+import { pageContainer } from '@/lib/layout/page-width';
 import type { Metadata } from 'next';
 import { pool } from '@/lib/db-pool';
 import { Shield, Award, Star } from 'lucide-react';
@@ -125,6 +126,7 @@ export default async function GuidesPage() {
       <script type="application/ld+json" dangerouslySetInnerHTML={{ __html: jsonLdHtml(jsonLd) }} />
 
       <div className="ds-page py-10">
+      <div className={pageContainer('showcase')}>
         {/* Hero */}
         <div className="mb-10">
           <p className="text-xs font-semibold tracking-widest text-[var(--accent)] uppercase mb-3">
@@ -239,6 +241,7 @@ export default async function GuidesPage() {
             Стать гидом на платформе
           </a>
         </div>
+      </div>
       </div>
     </>
   );

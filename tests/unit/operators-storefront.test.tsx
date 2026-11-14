@@ -235,3 +235,13 @@ describe('запреты', () => {
     expect(q).not.toMatch(/category = \$/);
   });
 });
+
+// Ширина страницы (lib/layout/page-width, 14.11): список компаний — витрина
+// в 1280, как каталог, а не 1152 карточки одной вещи.
+describe('/operators: ширина витрины', () => {
+  it('карточки компаний — внутри контейнера витрины', () => {
+    renderPage();
+    const shell = card('Местечко Камчатка').closest('[class*="max-w-"]') as HTMLElement;
+    expect(shell.className).toContain('max-w-[1280px]');
+  });
+});

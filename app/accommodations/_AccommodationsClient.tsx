@@ -1,5 +1,6 @@
 'use client';
 
+import { pageContainer } from '@/lib/layout/page-width';
 import { useState, useEffect, useCallback, useRef } from 'react';
 import { useRouter } from 'next/navigation';
 import { Search, SlidersHorizontal, X, Building2 } from 'lucide-react';
@@ -238,7 +239,7 @@ export function AccommodationsClient({ initial = null }: { initial?: Accommodati
   const hasMore = accommodations.length < total;
 
   return (
-    <div className="max-w-7xl mx-auto px-4 py-5 sm:py-10">
+    <div className={`${pageContainer('showcase')} py-5 sm:py-10`}>
 
       {/* Шапка — по образцу каталога туров (владелец 12.10, снимок с телефона:
           «жильё: верхний блок забирает много места»). На телефоне заголовок

@@ -1,5 +1,6 @@
 'use client';
 
+import { pageContainer } from '@/lib/layout/page-width';
 import { useMemo, useState, useEffect } from 'react';
 import Image from 'next/image';
 import { Backpack, Star, X } from 'lucide-react';
@@ -125,7 +126,7 @@ export default function GearClient() {
     <>
       <Header />
       <div className="ds-page pt-20 pb-16">
-        <div className="max-w-4xl mx-auto">
+        <div className={pageContainer('showcase')}>
           <div className="mb-6">
             <div className="flex items-center gap-2.5 mb-1">
               <Backpack className="w-6 h-6 text-[var(--accent)]" />
