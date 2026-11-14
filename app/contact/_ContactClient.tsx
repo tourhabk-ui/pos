@@ -61,6 +61,7 @@ export default function ContactClient() {
           source_url: typeof window !== 'undefined' ? window.location.href : undefined,
           source_data,
           pd_consent: true,
+          pd_consent_purpose: 'operators',
         }),
       });
 
@@ -228,7 +229,7 @@ export default function ContactClient() {
             <p className="text-sm text-[var(--danger)]">{error}</p>
           )}
 
-          <PdConsentCheckbox checked={pdConsent} onChange={setPdConsent} id="pd-consent-contact" />
+          <PdConsentCheckbox checked={pdConsent} onChange={setPdConsent} id="pd-consent-contact" purpose="operators" />
 
           <button
             type="submit"

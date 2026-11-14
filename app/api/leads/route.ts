@@ -12,7 +12,7 @@ import { createLeadDetailed } from '@/lib/leads/create';
 import { LEAD_FORM_KEY_NAME, issueRequestKey, requestPageLinks } from '@/lib/mcp/request-status';
 import { isSelfVisit } from '@/lib/analytics/self-visit';
 import { attachMcpAttribution, MCP_ATTRIBUTION } from '@/lib/mcp/handoff';
-import { buildConsentRecord } from '@/lib/legal/pd-consent';
+import { buildConsentRecord, LEAD_FORM_CONSENT_PURPOSES } from '@/lib/legal/pd-consent';
 import { sendPdAlert } from '@/lib/notifications/pd-alert';
 import { getPublicBaseUrl } from '@/lib/config';
 import { leadScopeCond, operatorLeadScope, unownedPoolOpen } from '@/lib/leads/ownership';
@@ -42,6 +42,11 @@ const LeadSchema = z.object({
   // галочкой, которая жила только в браузере (замер 23.08 — она приходила
   // на сервер ровно ниоткуда).
   pd_consent: z.literal(true, { message: 'Необходимо согласие на обработку персональных данных' }),
+  // Какой текст стоял рядом с галочкой: «туроператору» (страница и виджет
+  // оператора) или «туроператорам — партнёрам Ведара» (заявка без адресата,
+  // 14.11). В запись идёт версия ПОКАЗАННОГО текста. Не названо — прежний
+  // текст: так шлёт форма, закэшированная у посетителя до этой правки.
+  pd_consent_purpose: z.enum(LEAD_FORM_CONSENT_PURPOSES).optional(),
 });
 
 const ListSchema = z.object({
@@ -143,7 +148,7 @@ export async function POST(req: NextRequest) {
     );
   }
 
-  const { name, phone, comment, route_id, route_title, source_url, source_data, partner_slug } = parse.data;
+  const { name, phone, comment, route_id, route_title, source_url, source_data, partner_slug, pd_consent_purpose } = parse.data;
 
   // Если пришёл partner_slug — резолвим operator_id. Форма виджета до 29.09
   // клала slug только в source_data, и лид вставал без оператора: в пул и в
@@ -197,7 +202,7 @@ export async function POST(req: NextRequest) {
   const isSelf = isSelfVisit(req.headers.get('cookie'));
   const created = await createLeadDetailed({
     name, phone, comment, route_id, route_title, source_url,
-    pd_consent: buildConsentRecord(true, getTrustedClientIp(req.headers), widgetSlug ? 'widget' : 'web-form'),
+    pd_consent: buildConsentRecord(true, getTrustedClientIp(req.headers), widgetSlug ? 'widget' : 'web-form', pd_consent_purpose ?? 'operator'),
     source_data: mcpHandoffId ? { ...(leadSourceData ?? {}), mcp_handoff_id: mcpHandoffId } : leadSourceData,
     operator_id: operatorId,
     // Свой заход (cookie владельца) — лид с пометкой, вне счёта спроса (1145).

@@ -27,6 +27,24 @@ export const PD_CONSENT_TEXT =
   'Согласен на обработку персональных данных и их передачу туроператору для связи по заявке';
 
 /**
+ * Вариант для заявки без адресата (14.11): подбор тура, планер, главная,
+ * «Связаться», сохранённая поездка, окно заявки на маршруте. У такой заявки
+ * получатель не один: её видят в кабинете компании, которые Ведар показывает
+ * на витрине (lib/leads/ownership), и добивка отдаёт её операторам по очереди
+ * (app/api/cron/leads-followup). Текст «туроператору» называл одного — а
+ * согласие, которое молчит о настоящих получателях, их не покрывает (то же
+ * правило, что 08.10). «Партнёрам Ведара» — потому что чужим компаниям заявка
+ * не уходит; «которые могут выполнить заявку» текст не обещает: общий список
+ * показывает заявку каждой компании на витрине.
+ *
+ * Заявки под прежним текстом остаются с прежней версией — задним числом
+ * согласие не переписывается.
+ */
+export const PD_CONSENT_OPERATORS_TEXT =
+  'Согласен на обработку персональных данных и их передачу туроператорам — партнёрам Ведара для связи по заявке';
+export const PD_CONSENT_OPERATORS_VERSION = '2026-11-14-operators';
+
+/**
  * Вариант для жилья (10.10, заявка хозяину через форму карточки, 1206).
  * Телефон туриста там уходит не туроператору, а хозяину гостевого дома, и
  * согласие обязано назвать именно его: формулировка, которая молчит о главной
@@ -82,11 +100,21 @@ export const PD_CONSENT_PARTNER_SIGNER_TEXT =
 export const PD_CONSENT_PARTNER_SIGNER_VERSION = '2026-10-23-partner-signer';
 
 /**
- * Для чего согласие: передача по заявке туроператору (по умолчанию), владельцу
- * жилья, перевозчику, прокату снаряжения или прокату автомобилей — либо учёт
+ * Для чего согласие: передача по заявке туроператору (по умолчанию),
+ * туроператорам — партнёрам Ведара (заявка без адресата), владельцу жилья,
+ * перевозчику, прокату снаряжения или прокату автомобилей — либо учёт
  * подписанта согласия партнёра на материалы.
  */
-export type PdConsentPurpose = 'operator' | 'stay' | 'carrier' | 'gear' | 'rental' | 'partner-signer';
+export type PdConsentPurpose = 'operator' | 'operators' | 'stay' | 'carrier' | 'gear' | 'rental' | 'partner-signer';
+
+/**
+ * Что форма заявки вправе назвать двери `/api/leads` как показанный текст:
+ * один туроператор (страница и виджет оператора) или туроператоры-партнёры
+ * (заявка без адресата). Словарь закрытый: строка от клиента в запись согласия
+ * не попадает.
+ */
+export const LEAD_FORM_CONSENT_PURPOSES = ['operator', 'operators'] as const;
+export type LeadFormConsentPurpose = (typeof LEAD_FORM_CONSENT_PURPOSES)[number];
 
 /** Текст и версия согласия для цели заявки — единственный выбор между ними. */
 export function consentWording(purpose: PdConsentPurpose = 'operator'): { text: string; version: string } {
@@ -94,6 +122,7 @@ export function consentWording(purpose: PdConsentPurpose = 'operator'): { text: 
   // тихий текст «туроператору» с его версией в записи.
   switch (purpose) {
     case 'operator': return { text: PD_CONSENT_TEXT, version: PD_CONSENT_VERSION };
+    case 'operators': return { text: PD_CONSENT_OPERATORS_TEXT, version: PD_CONSENT_OPERATORS_VERSION };
     case 'stay': return { text: PD_CONSENT_STAY_TEXT, version: PD_CONSENT_STAY_VERSION };
     case 'carrier': return { text: PD_CONSENT_CARRIER_TEXT, version: PD_CONSENT_CARRIER_VERSION };
     case 'gear': return { text: PD_CONSENT_GEAR_TEXT, version: PD_CONSENT_GEAR_VERSION };

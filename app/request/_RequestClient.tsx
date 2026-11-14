@@ -75,6 +75,7 @@ export default function RequestClient() {
           source_url: typeof window !== 'undefined' ? window.location.href : '/request',
           source_data: { source: 'request_page' },
           pd_consent: true,
+          pd_consent_purpose: 'operators',
         }),
       });
       setState(res.ok ? 'done' : 'error');
@@ -184,7 +185,7 @@ export default function RequestClient() {
                 {state === 'error' && (
                   <p className="text-xs text-[var(--danger)]">Не удалось отправить. Попробуйте ещё раз.</p>
                 )}
-                <PdConsentCheckbox checked={pdConsent} onChange={setPdConsent} id="pd-consent-request" />
+                <PdConsentCheckbox checked={pdConsent} onChange={setPdConsent} id="pd-consent-request" purpose="operators" />
                 {recontactEligible && (
                   <RecontactConsentCheckbox checked={recontact} onChange={setRecontact} id="recontact-consent-request" />
                 )}

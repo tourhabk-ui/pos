@@ -62,6 +62,9 @@ export default function LeadModal({ open, onClose, routeId, routeTitle, sourceUr
           source_url:  sourceUrl ?? (typeof window !== 'undefined' ? window.location.href : undefined),
           source_data: getSourceData() ?? undefined,
           pd_consent: true,
+          // Заявка с маршрута: адресат один, только если туры по маршруту есть
+          // ровно у одного оператора; иначе она без адресата (lib/leads/create).
+          pd_consent_purpose: 'operators',
         }),
       });
       const json: { success: boolean; error?: string } = await res.json();
@@ -209,7 +212,7 @@ export default function LeadModal({ open, onClose, routeId, routeTitle, sourceUr
                   </p>
                 )}
 
-                <PdConsentCheckbox checked={pdConsent} onChange={setPdConsent} id="pd-consent-lead-modal" />
+                <PdConsentCheckbox checked={pdConsent} onChange={setPdConsent} id="pd-consent-lead-modal" purpose="operators" />
 
                 <button
                   type="submit"

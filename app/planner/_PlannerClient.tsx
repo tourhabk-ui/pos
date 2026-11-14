@@ -2086,6 +2086,7 @@ export function PlannerClient({ initialUserId }: { initialUserId?: string | null
           source_url: typeof window !== 'undefined' ? window.location.href : '/planner',
           source_data: leadSource,
           pd_consent: true,
+          pd_consent_purpose: 'operators',
         }),
       });
       const data = await res.json();
@@ -2185,7 +2186,7 @@ export function PlannerClient({ initialUserId }: { initialUserId?: string | null
             <p className="text-xs text-[var(--danger)]">{contactError}</p>
           </div>
         )}
-        <PdConsentCheckbox checked={pdConsent} onChange={setPdConsent} id="pd-consent-planner" />
+        <PdConsentCheckbox checked={pdConsent} onChange={setPdConsent} id="pd-consent-planner" purpose="operators" />
         <RequestNotBooking acceptsPayments={platformAcceptsPayments()} />
         <button onClick={submitLead} disabled={submitting || !pdConsent}
           className="w-full ds-btn ds-btn-primary py-2.5 font-semibold disabled:opacity-50">
