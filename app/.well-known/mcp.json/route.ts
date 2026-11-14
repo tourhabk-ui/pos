@@ -19,7 +19,7 @@ import { MCP_CONNECT_OPTIONS, MCP_SYSTEM_PROMPT_LINE_EN } from '@/lib/mcp/connec
 import { SERVER_INSTRUCTIONS } from '@/lib/mcp/server-instructions';
 import { getPublicBaseUrl } from '@/lib/config';
 import { AGENT_CARD_PATH, LEGACY_AGENT_CARD_PATH, A2A_JSONRPC_PATH, A2A_REST_PATH } from '@/lib/a2a/agent-card';
-import { A2A_CATALOGS } from '@/lib/a2a/catalogs';
+import { A2A_CATALOGS, publicCatalogEntry } from '@/lib/a2a/catalogs';
 import { SERVER_CARD_PATH, AI_CATALOG_PATH } from '@/lib/mcp/server-card';
 import { OPENAPI_PATH, API_CATALOG_PATH } from '@/lib/api/openapi';
 
@@ -68,9 +68,9 @@ export async function GET(request?: Request) {
         legacyAgentCard: `${base}${LEGACY_AGENT_CARD_PATH}`,
         jsonrpc: `${base}${A2A_JSONRPC_PATH}`,
         rest: `${base}${A2A_REST_PATH}`,
-        // Где визитка числится — проверяется, а не гадается.
-        // Запись a2aregistry ещё на проверке (страница 404) — ссылку не отдаём.
-        catalogs: A2A_CATALOGS.map(({ url: _url, ...c }) => ({ ...c, listing: 'pending_review' })),
+        // Где визитка числится — проверяется, а не гадается: ссылка только у
+        // записи, прочитанной открытой (слово владельца 14.11 «только где проверена»).
+        catalogs: A2A_CATALOGS.map(publicCatalogEntry),
       },
       // Человекочитаемый первоисточник — для людей и поисковых AI-ответов.
       homepage: `${base}/mcp`,
