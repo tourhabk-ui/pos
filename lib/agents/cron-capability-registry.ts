@@ -398,6 +398,8 @@ export const CRON_CAPABILITIES: Record<string, readonly Capability[]> = {
   // придуманных текстах (один вызов на случай), в базу не пишет, людям не шлёт.
   'translation-probe': ['ai'],
   'trip-reminders': ['db_read', 'db_write', 'net_out', 'telegram'],
+  // 14.11: живые туры без календаря, принимающие заявку на любую дату (#3347) — один SELECT.
+  'tour-season-census': ['db_read'],
   // Двойники контроля выхода с формы /register — только счёт (docs/safety/MCHS_PLAN.md, волна 0).
   'trip-watch-twins-census': ['db_read'],
   'verdict-census': ['db_read'],

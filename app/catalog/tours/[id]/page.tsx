@@ -9,7 +9,7 @@ import TourDetailClient from './_TourDetailClient';
 import { buildTourStructuredData } from '@/lib/seo/tour-structured-data';
 import { tourHeroImage } from '@/lib/tours/hero-image';
 import { countTourDates, availabilityFromDates } from '@/lib/tours/open-dates';
-import { requestWindow, seasonWindowView } from '@/lib/tours/request-window';
+import { formSeasonNote, requestWindow, seasonWindowView } from '@/lib/tours/request-window';
 import { kamchatkaToday } from '@/lib/seat-requests/core';
 import { zhTourAlternatePath } from '@/lib/zh/content';
 import { loadPlaceOffersForTour } from '@/lib/places/place-tours';
@@ -103,11 +103,15 @@ export default async function CatalogTourDetailPage({ params }: Props) {
   // Даты без календаря — только по сезону (#2244, #2245): та же граница, что
   // у брони и запроса мест на сервере, — форма не даёт выбрать то, что
   // сервер отвергнет.
-  const seasonWindow = seasonWindowView(requestWindow({
+  const seasonInput = {
     season_start: tour.season_start, season_end: tour.season_end,
     duration_type: tour.duration_type, multi_day_count: tour.multi_day_count,
     duration_hours: tour.duration_hours == null ? null : Number(tour.duration_hours),
-  }, kamchatkaToday()));
+  };
+  const seasonWindow = seasonWindowView(requestWindow(seasonInput, kamchatkaToday()));
+  // Записанный сезон кончился, календаря нет (#3347): дата принимается любая,
+  // и форма говорит, что о следующем сезоне в данных нет ни слова.
+  const seasonNote = formSeasonNote(seasonInput, dates === null ? null : dates.recorded, kamchatkaToday());
 
   const structuredData = buildTourStructuredData(tour, reviews, {
     canonicalUrl: `${SITE}${tourPath(tour)}`,
@@ -133,7 +137,7 @@ export default async function CatalogTourDetailPage({ params }: Props) {
         type="application/ld+json"
         dangerouslySetInnerHTML={{ __html: jsonLdHtml(structuredData) }}
       />
-      <TourDetailClient prefill={prefill} tour={tour} reviews={reviews} askSeatsFirst={askSeatsFirst} seasonWindow={seasonWindow} placeOffers={placeOffers} />
+      <TourDetailClient prefill={prefill} tour={tour} reviews={reviews} askSeatsFirst={askSeatsFirst} seasonWindow={seasonWindow} seasonNote={seasonNote} placeOffers={placeOffers} />
     </>
   );
 }

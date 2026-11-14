@@ -50,6 +50,7 @@ import { capacityWarningFor } from '@/lib/planner/tour-day-reread';
 import { withGroupMinimum } from '@/lib/planner/group-minimum';
 import { lineUpForDate, offDaysWarning, tourFitsDate, type TourDates } from '@/lib/planner/tour-day-fit';
 import { kamchatkaToday } from '@/lib/seat-requests/core';
+import { pastSeasonNote } from '@/lib/tours/request-window';
 import { tourDurationDays } from '@/lib/bookings/duration';
 import { planTourPrice, missingPriceText } from '@/lib/planner/tour-price';
 import { priceFromUnit } from '@/lib/tours/price-label';
@@ -1724,6 +1725,18 @@ async function generateDayPlans(
             // Строка о местах — одним правилом с правкой плана (tour-day-reread).
             capacityWarning = capacityWarningFor(daySlot.remaining, realTour.maxParticipants, groupSize(profile));
           }
+        }
+
+        // Тур без календаря, записанный сезон которого кончился (#3347):
+        // заявку он принимает на любую дату (правило 08.10), и день плана
+        // говорит, что о следующем сезоне в данных нет ни слова.
+        const dateInfo = tourDates.get(realTour.tourId);
+        if (dateInfo?.kind === 'request') {
+          const seasonNote = pastSeasonNote({
+            season_start: dateInfo.seasonStart, season_end: dateInfo.seasonEnd,
+            duration_type: dateInfo.days > 1 ? 'multi_day' : null, multi_day_count: dateInfo.days, duration_hours: null,
+          }, today);
+          if (seasonNote && !dayWarnings.includes(seasonNote)) dayWarnings.push(seasonNote);
         }
 
         // Цена — по правилу брони, для этой группы и на дату этого дня
