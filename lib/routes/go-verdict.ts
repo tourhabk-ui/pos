@@ -244,7 +244,12 @@ export function goVerdict(s: RouteSignals): Verdict {
     };
   }
 
-  const warn = mostSpecific(s.alerts ?? [], 1);
+  // Единица, пришедшая к маршруту только по зоне края, вердикт не поднимает
+  // (#3334, слово владельца 13.11 «не менять оценку»): пост ГИМС о льде на
+  // водоёмах края стоял «Осторожно» у маршрута к Вилючинскому водопаду.
+  // Предупреждение остаётся в списке маршрута; зональная двойка — по-прежнему
+  // «Осторожно» (#2195), признак не пришёл — судится как свой, строже.
+  const warn = mostSpecific((s.alerts ?? []).filter((a) => a.severity >= 2 || a.zonal !== true), 1);
   if (warn) {
     return { status: 'caution', code: 'alert_warning', reason: warn.title, unknown };
   }

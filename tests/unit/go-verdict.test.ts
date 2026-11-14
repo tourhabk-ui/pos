@@ -307,3 +307,34 @@ describe('зональное предупреждение не запрещае�
     expect(v.code).toBe('alert_ban');
   });
 });
+
+// Слово владельца 13.11 (#3334): краевой пост без места оценку дня не меняет.
+describe('зональная единица не поднимает вердикт', () => {
+  const ICE = { title: 'Инспекторы ГИМС МЧС России предупреждают: лед на водоемах Камчатки все еще непрочен и опасен', severity: 1, type: 'weather' };
+
+  it('пост ГИМС о льде по зоне края — «Идти», не «Осторожно»', () => {
+    const v = goVerdict({ ...CLEAR, alerts: [{ ...ICE, zonal: true }] });
+    expect(v.status).toBe('go');
+    expect(v.code).toBe('clear');
+  });
+
+  it('та же единица, привязанная к маршруту, — «Осторожно» с её названием', () => {
+    const v = goVerdict({ ...CLEAR, alerts: [{ ...ICE, zonal: false }] });
+    expect(v.status).toBe('caution');
+    expect(v.reason).toBe(ICE.title);
+  });
+
+  it('признак зоны не пришёл — судится как своя, «Осторожно»', () => {
+    const { zonal: _z, ...noFlag } = { ...ICE, zonal: undefined };
+    expect(goVerdict({ ...CLEAR, alerts: [noFlag] }).status).toBe('caution');
+  });
+
+  it('рядом зональная двойка — «Осторожно» называет её, а не пост о льде', () => {
+    const v = goVerdict({
+      ...CLEAR,
+      alerts: [{ ...ICE, zonal: true }, { title: 'Экстренное предупреждение (сильный ветер)', severity: 2, type: 'weather', zonal: true }],
+    });
+    expect(v.status).toBe('caution');
+    expect(v.reason).toContain('сильный ветер');
+  });
+});
