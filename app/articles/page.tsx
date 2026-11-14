@@ -9,6 +9,7 @@
  * лежали видимыми — то есть предлагались туристу как то, по чему можно пойти.
  * Текст не мусор; мусором его делала неправильная полка.
  */
+import { pageContainer } from '@/lib/layout/page-width';
 import type { Metadata } from 'next';
 import Link from 'next/link';
 import { BookOpen, ArrowRight } from 'lucide-react';
@@ -57,6 +58,7 @@ export default async function ArticlesIndexPage() {
     <>
       <Header />
       <main className="ds-page pt-20 pb-16">
+      <div className={pageContainer('showcase')}>
         <div className="mb-10">
           <p className="text-xs font-semibold text-[var(--accent)] uppercase tracking-widest mb-2">
             Справочник
@@ -107,6 +109,7 @@ export default async function ArticlesIndexPage() {
             ))}
           </div>
         )}
+      </div>
       </main>
     </>
   );

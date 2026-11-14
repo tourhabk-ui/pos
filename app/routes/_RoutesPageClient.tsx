@@ -1,5 +1,6 @@
 'use client';
 
+import { pageContainer } from '@/lib/layout/page-width';
 import { useState, useEffect, useCallback, useRef, useMemo } from 'react';
 import Link from 'next/link';
 import { useRouter, useSearchParams } from 'next/navigation';
@@ -485,7 +486,10 @@ export default function RoutesPageClient({ initialItems, initialMeta, initialErr
         `max-w-*` — правка в утилите удвоила бы поля там и сломала
         полноширинные экраны.
       */}
-      <div className="ds-page pt-20 pb-10 px-4 md:px-6">
+      <div className="ds-page pt-20 pb-10">
+      {/* Витрина (lib/layout/page-width, 14.11): до этого каталог мест и
+          маршрутов шёл во всю ширину монитора. */}
+      <div className={pageContainer('showcase')}>
 
         {/* ── Вкладки «Места» / «Маршруты» — вверху каталога ── */}
         <nav aria-label="Раздел каталога" className="flex gap-1 mb-4 border-b border-[var(--border)]">
@@ -840,6 +844,7 @@ export default function RoutesPageClient({ initialItems, initialMeta, initialErr
           </>
         )}
 
+      </div>
       </div>
     </>
   );

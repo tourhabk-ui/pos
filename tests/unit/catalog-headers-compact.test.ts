@@ -35,7 +35,8 @@ describe('шапки витрин по образцу каталога туро�
     expect(STAYS).toContain('grid grid-cols-2 gap-3 w-full sm:contents');
     expect(STAYS).toContain("plural(total, 'объект', 'объекта', 'объектов')");
     expect(STAYS).not.toMatch(/`\$\{total\} объектов`/);
-    expect(STAYS).toMatch(/className="max-w-7xl mx-auto px-4 py-5 sm:py-10"/);
+    // Ширина — общим правилом витрины (lib/layout/page-width, 14.11), отступы шапки прежние.
+    expect(STAYS).toContain("pageContainer('showcase')} py-5 sm:py-10");
   });
 
   // Трансферы: «на телефоне одна строка сути, подробности с sm» судит рендер —

@@ -1,5 +1,6 @@
 'use client';
 
+import { pageContainer } from '@/lib/layout/page-width';
 import { useState } from 'react';
 import Link from 'next/link';
 import { BookOpen, Mountain, Flame, Leaf, Users } from 'lucide-react';
@@ -67,7 +68,7 @@ export function CollectionsClient({ collections: all, failed }: { collections: C
 
   return (
     <main className="ds-page min-h-screen pb-12">
-      <div className="max-w-6xl mx-auto px-4">
+      <div className={pageContainer('showcase')}>
         <header className="mb-10">
           <p className="text-[var(--accent)] font-semibold text-sm uppercase tracking-widest mb-2">Подборки</p>
           <h1 className="ds-h1 mb-3">Кураторские маршруты Камчатки</h1>
