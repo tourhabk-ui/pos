@@ -31,6 +31,8 @@
  */
 
 import { localizeToolArgs, toolLangNote } from '@/lib/mcp/query-lang';
+import { wantsYuan, withYuan } from '@/lib/mcp/yuan-hint';
+import { loadCnyRate } from '@/lib/currency/cbr-rate';
 import { NextRequest, NextResponse } from 'next/server';
 import { z } from 'zod';
 import { validateToolArgs } from '@/lib/kuzmich/tool-schemas';
@@ -1328,7 +1330,11 @@ async function executeTool(
   });
   // Сбой исполнителя сличается с текстом как есть — пометка к нему не цепляется.
   if (text === TOOL_EXECUTION_FAILED) return text;
-  return text + toolLangNote(name, localized);
+  const noted = text + toolLangNote(name, localized);
+  // Китайскому клиенту — «约 N 元» по курсу ЦБ рядом с рублями (владелец
+  // 14.11; lib/mcp/yuan-hint). Курс не прочитался — рубли и строка об этом.
+  if (!wantsYuan(localized.lang, ctx.userAgent)) return noted;
+  return withYuan(noted, await loadCnyRate().catch(() => null));
 }
 
 /**
