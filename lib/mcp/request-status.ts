@@ -71,7 +71,7 @@
 import { createHash, randomBytes } from 'node:crypto';
 import { pool } from '@/lib/db-pool';
 import { getPublicBaseUrl } from '@/lib/config';
-import type { PdConsentRecord } from '@/lib/legal/pd-consent';
+import type { PdConsentPurpose, PdConsentRecord } from '@/lib/legal/pd-consent';
 import { McpUserError } from '@/lib/mcp/jsonrpc';
 import { maxBot } from '@/lib/partners/channel-link';
 import { notifyLeadHumanConfirmedQuietly } from '@/lib/notifications/lead-human-confirmed';
@@ -182,6 +182,19 @@ export function consentPurposeOfKey(k: { tool_name: string; stay_request_id?: st
   return 'operator';
 }
 
+/**
+ * Каким текстом согласия человек соглашается по заявке (14.11, слово владельца
+ * «как на сайте»). Заявка туроператору без адресата — подбор от ИИ-агента
+ * (`create_lead`), часть поездки менеджеру, заявка из чата — видна каждой
+ * компании на витрине и может уйти нескольким (§23 CLAUDE.md). Текст
+ * «туроператору» называл одного получателя; у такой заявки — «туроператорам —
+ * партнёрам Ведара», как в формах сайта без адресата (#3363). Жильё, машина и
+ * прокат называют своего получателя и не меняются.
+ */
+export function consentWordingOf(purpose: ConsentPurpose, unaddressed: boolean): PdConsentPurpose {
+  return purpose === 'operator' && unaddressed ? 'operators' : purpose;
+}
+
 const KEY_RE = /^[A-Za-z0-9_-]+$/;
 
 function sha256(value: string): string {
@@ -289,6 +302,12 @@ export interface RequestStatusView {
   consent: ConsentBy;
   /** На передачу кому это согласие: туроператору, владельцу жилья, перевозчику. */
   consent_purpose: ConsentPurpose;
+  /**
+   * Каким текстом человек соглашается по этой заявке (14.11): у заявки
+   * туроператору без адресата — «туроператорам — партнёрам Ведара», как в
+   * формах сайта (`consentWordingOf`). Нет поля — текст по `consent_purpose`.
+   */
+  consent_wording?: PdConsentPurpose;
   /** Страница заявки для человека — ключ во фрагменте. */
   page: string;
   /**
@@ -423,6 +442,8 @@ export interface StatusRow {
   lead_declined_reason?: string | null;
   /** Род лида (`source_data.kind`): `charter`, `car_rental` — у ключа из кода между каналами имени инструмента нет. */
   lead_kind?: string | null;
+  /** Ключ ведёт к лиду без адресата (`operator_id IS NULL`) — его видят компании на витрине. */
+  lead_unaddressed?: boolean | null;
   stay_owner_answer?: string | null;
   /**
    * Причина, с которой продавец закрыл заявку «Отказ» в кабинете (12.11, этап
@@ -1006,6 +1027,7 @@ const REQUEST_STATUS_SELECT = `
          l.source_data->>'declined_by' AS lead_declined_by,
          pd.id AS lead_declined_answer_id, pd.answer AS lead_declined_answer, pd.decline_reason AS lead_declined_reason,
          l.source_data->>'kind' AS lead_kind,
+         (k.lead_id IS NOT NULL AND l.operator_id IS NULL) AS lead_unaddressed,
          s.owner_answer AS stay_owner_answer,
          l.lost_reason AS lead_lost_reason, lc.id AS lead_closed_id
     FROM k
@@ -1413,6 +1435,7 @@ export async function readRequestStatus(rawKey: unknown, opts: StatusReader = {}
     // только здесь. Переписка по ключу открыта — partner_replies не null.
     max_link: core.partner_replies !== null && row.chat_guest_on_max !== true ? guestBotLink(maxBot(), key) : null,
     notify: notifyStatusOf(row),
+    consent_wording: consentWordingOf(core.consent_purpose, row.lead_unaddressed === true),
     other_offers,
     other_stays,
     partner_messages,
@@ -1504,22 +1527,24 @@ export async function confirmConsent(rawKey: unknown, record: PdConsentRecord): 
 
 /** Род заявки по ключу без отметки прочтения: какой текст согласия человек подтверждает. */
 export const CONSENT_PURPOSE_SQL = `
-  SELECT k.tool_name, k.stay_request_id::text AS stay_request_id, l.source_data->>'kind' AS lead_kind
+  SELECT k.tool_name, k.stay_request_id::text AS stay_request_id, l.source_data->>'kind' AS lead_kind,
+         (k.lead_id IS NOT NULL AND l.operator_id IS NULL) AS lead_unaddressed
     FROM agent_request_keys k
     LEFT JOIN leads l ON l.id = k.lead_id
    WHERE k.key_hash = $1 AND k.expires_at > NOW()`;
 
 /**
- * На передачу кому согласие по заявке этого ключа — до записи согласия.
- * Страница показывает тот же текст по `consent_purpose` из статуса: оба
- * выводятся из имени инструмента, создавшего заявку. Ключа нет — отказ по
- * входу; база не ответила — исключение с SQLSTATE в логе (§4.0).
+ * Каким текстом согласия человек соглашается по заявке этого ключа — до записи
+ * согласия. Страница показывает тот же текст (`consent_wording` статуса): оба
+ * выводятся одним правилом `consentWordingOf` из рода заявки и её адресата.
+ * Ключа нет — отказ по входу; база не ответила — исключение с SQLSTATE в логе
+ * (§4.0).
  */
-export async function readConsentPurpose(rawKey: unknown): Promise<ConsentPurpose> {
+export async function readConsentPurpose(rawKey: unknown): Promise<PdConsentPurpose> {
   const key = readKey(rawKey);
-  let row: { tool_name: string } | undefined;
+  let row: { tool_name: string; stay_request_id: string | null; lead_kind: string | null; lead_unaddressed: boolean | null } | undefined;
   try {
-    ({ rows: [row] } = await pool.query<{ tool_name: string; stay_request_id: string | null; lead_kind: string | null }>(CONSENT_PURPOSE_SQL, [sha256(key)]));
+    ({ rows: [row] } = await pool.query<{ tool_name: string; stay_request_id: string | null; lead_kind: string | null; lead_unaddressed: boolean | null }>(CONSENT_PURPOSE_SQL, [sha256(key)]));
   } catch (err) {
     const code = (err as { code?: unknown })?.code;
     console.error('[request-status] род заявки не прочитан:', typeof code === 'string' ? `SQLSTATE=${logText(code, 10)}` : '', logText(err instanceof Error ? err.message : err, 200));
@@ -1528,7 +1553,7 @@ export async function readConsentPurpose(rawKey: unknown): Promise<ConsentPurpos
   if (!row) {
     throw new McpUserError(`Ключ не найден или истёк (ключ живёт ${REQUEST_KEY_TTL_DAYS} дней).`, 'key_not_found');
   }
-  return consentPurposeOfKey(row);
+  return consentWordingOf(consentPurposeOfKey(row), row.lead_unaddressed === true);
 }
 
 /** Исполнитель для роута MCP: JSON-строка того же объекта (как у search/fetch). */

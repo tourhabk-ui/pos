@@ -56,7 +56,7 @@ const WRITE_TEST_ENGLISH = { lead: 'true for a dry run: the same checks as a rea
  */
 export const CREATE_LEAD_TOOL = {
   name: 'create_lead',
-  description: 'Оставить заявку на подбор тура по Камчатке: менеджер платформы свяжется по телефону. Обязательны имя, телефон и описание запроса (даты, состав группы, интересы). Заказ машины целиком (вахтовка, микроавтобус) — не сюда, а request_charter. Это только заявка: оплаты через платформу нет. Имя и телефон — персональные данные: спроси у человека согласие на их обработку и передай consent: true, иначе заявка не создаётся.' + NOTIFY_TOOL_PHRASE + WRITE_CONTRACT_PHRASE,
+  description: 'Оставить заявку на подбор тура по Камчатке: менеджер платформы свяжется по телефону. Обязательны имя, телефон и описание запроса (даты, состав группы, интересы). Заказ машины целиком (вахтовка, микроавтобус) — не сюда, а request_charter. Это только заявка: оплаты через платформу нет. Имя и телефон — персональные данные: заявку видят туроператоры — партнёры Ведара, и она может уйти нескольким; спроси у человека согласие на обработку и эту передачу и передай consent: true, иначе заявка не создаётся.' + NOTIFY_TOOL_PHRASE + WRITE_CONTRACT_PHRASE,
   inputSchema: {
     type: 'object',
     properties: {
@@ -67,7 +67,7 @@ export const CREATE_LEAD_TOOL = {
       plan_id: { type: 'string', description: 'Номер плана из make_trip_plan, если заявка — на этот план: менеджер получит план целиком (состав, туры по дням, смету) и не будет переспрашивать.' },
       notify_url: NOTIFY_URL_PROPERTY,
       test: WRITE_TEST_PROPERTY,
-      consent: { type: 'boolean', description: 'Человек согласен на обработку своих персональных данных (имя, телефон) для связи по этой заявке. Спроси прямо и передай true. Без согласия заявка не создаётся.' },
+      consent: { type: 'boolean', description: 'Человек согласен на обработку своих персональных данных (имя, телефон) и их передачу туроператорам — партнёрам Ведара для связи по этой заявке. Спроси прямо и передай true. Без согласия заявка не создаётся.' },
     },
     required: ['name', 'phone', 'comment', 'consent'],
   },
@@ -530,7 +530,7 @@ export const PARAM_ENGLISH: Record<string, Record<string, { lead: string; exampl
     plan_id: { lead: 'Plan ID from make_trip_plan when the request is for that plan: the manager gets the whole plan (group, tours by day, estimate).', example: '1b9d6bcd-bbfd-4b2d-9b5d-ab8dfbbd4bed' },
     notify_url: { lead: NOTIFY_URL_ENGLISH },
     test: WRITE_TEST_ENGLISH,
-    consent: { lead: 'Explicit consent to process name and phone for this request; ask the person and pass true, otherwise the request is not created.', example: true },
+    consent: { lead: "Explicit consent to process name and phone and pass them to Vedar's partner tour operators (the request has no named operator and may reach several); ask the person and pass true, otherwise the request is not created.", example: true },
   },
   create_booking_request: {
     tour: { lead: 'Numeric tour ID or tour title from get_tours / get_tour_availability. A company or guide name, or a partial word match, creates no request: the reply lists tours by ID.' },

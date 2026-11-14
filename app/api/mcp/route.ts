@@ -1091,7 +1091,10 @@ async function executeCreateLead(rawArgs: Record<string, unknown>, ctx: McpCallC
     tripPart ? 'часть поездки менеджеру Ведара (её ведёт менеджер).' : `заявка менеджеру Ведара на подбор${interest ? ` (интерес: ${interest})` : ''}.`,
     null);
   if (trial) return trial + planAttachNote(planAttach);
-  const admitted = await admitWrite(ctx, CREATE_LEAD_TOOL.name, phone, parsed.data.consent);
+  // Заявка без адресата: её видят компании на витрине, и она может уйти
+  // нескольким — согласие «туроператорам — партнёрам Ведара», как на сайте
+  // (слово владельца 14.11 «как на сайте»).
+  const admitted = await admitWrite(ctx, CREATE_LEAD_TOOL.name, phone, parsed.data.consent, 'operators');
   const pd_consent = admitted.consent;
   const leadId = await createLead({
     name,

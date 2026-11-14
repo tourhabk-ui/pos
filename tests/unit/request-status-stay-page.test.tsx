@@ -15,7 +15,7 @@ import { describe, it, expect, vi, beforeAll, beforeEach, afterEach } from 'vite
 import React from 'react';
 import { render, screen, fireEvent, cleanup, waitFor } from '@testing-library/react';
 import { RequestStatusClient } from '@/app/request-status/_RequestStatusClient';
-import { PD_CONSENT_TEXT, PD_CONSENT_STAY_TEXT, PD_CONSENT_CARRIER_TEXT } from '@/lib/legal/pd-consent';
+import { PD_CONSENT_TEXT, PD_CONSENT_STAY_TEXT, PD_CONSENT_CARRIER_TEXT, PD_CONSENT_OPERATORS_TEXT } from '@/lib/legal/pd-consent';
 
 const KEY = 'AbCdEfGhIjKlMnOpQrStUvWxYz012345';
 const CARD = 'https://vedarai.ru/accommodations/3b2551c7-ed5c-47c8-bb93-41ca6a278c1e';
@@ -119,6 +119,25 @@ describe('страница заявки на жильё', () => {
     expect(await screen.findByRole('heading', { name: 'Заявка не дошла до владельца' })).toBeInTheDocument();
     expect(screen.getByText('Позвоните владельцу сами: телефон на карточке объекта.')).toBeInTheDocument();
     expect(screen.queryByText(/Ответ оператора не записался/)).not.toBeInTheDocument();
+  });
+});
+
+describe('заявка туроператору без адресата (14.11)', () => {
+  const LEAD_VIEW = { ...CHARTER_VIEW, consent_purpose: 'operator', human: 'Заявка принята, менеджер свяжется.' };
+
+  it('галочка — «туроператорам — партнёрам Ведара», а не одному туроператору', async () => {
+    serve({ ...LEAD_VIEW, consent_wording: 'operators' });
+    render(<RequestStatusClient />);
+    const box = await screen.findByRole('checkbox');
+    expect(box.closest('label')).toHaveTextContent(PD_CONSENT_OPERATORS_TEXT);
+    expect(box.closest('label')).not.toHaveTextContent(PD_CONSENT_TEXT);
+  });
+
+  it('прежний ответ сервера без поля — текст по роду заявки, как раньше', async () => {
+    serve(LEAD_VIEW);
+    render(<RequestStatusClient />);
+    const box = await screen.findByRole('checkbox');
+    expect(box.closest('label')).toHaveTextContent(PD_CONSENT_TEXT);
   });
 });
 

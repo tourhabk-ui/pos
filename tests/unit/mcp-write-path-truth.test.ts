@@ -48,6 +48,8 @@ vi.mock('@/lib/rental/rental', () => ({
 }));
 
 import { POST, runPublicTool } from '@/app/api/mcp/route';
+import { PD_CONSENT_VERSION, PD_CONSENT_OPERATORS_VERSION, PD_CONSENT_OPERATORS_TEXT } from '@/lib/legal/pd-consent';
+import { CREATE_LEAD_TOOL } from '@/lib/mcp/public-tools';
 import { normalizePhone } from '@/lib/mcp/normalize-phone';
 import { resolveTourByQuery } from '@/lib/kuzmich/tour-availability-tool';
 
@@ -222,6 +224,25 @@ describe('W4: заявка, которую никто не увидит, — о�
     expect(r.isError).toBe(true);
     expect(r.content[0]!.text).toMatch(/слишком неполная/);
     expect(createLeadMock).not.toHaveBeenCalled();
+  });
+
+  /**
+   * Заявка на подбор без адресата (14.11, слово владельца «как на сайте»):
+   * её видят компании на витрине, и она может уйти нескольким. Согласие
+   * пишется версией «туроператорам — партнёрам Ведара», как в формах сайта;
+   * заявка на конкретный тур — по-прежнему «туроператору».
+   */
+  it('согласие у заявки на подбор — «туроператорам — партнёрам Ведара», у заявки на тур — «туроператору»', async () => {
+    await result(await call('create_lead', LEAD));
+    expect(createLeadMock).toHaveBeenCalledTimes(1);
+    expect(createLeadMock.mock.calls[0]![0]).toMatchObject({ pd_consent: { version: PD_CONSENT_OPERATORS_VERSION } });
+    expect(createLeadMock.mock.calls[0]![0]).not.toHaveProperty('operator_id');
+    createLeadMock.mockClear();
+    await result(await call('create_booking_request', BOOKING));
+    expect(createLeadMock.mock.calls[0]![0]).toMatchObject({ operator_id: 'op-uuid-1', pd_consent: { version: PD_CONSENT_VERSION } });
+    // Агент спрашивает согласие на ту же передачу, что записывается.
+    expect(CREATE_LEAD_TOOL.description).toContain('туроператоры — партнёры Ведара');
+    expect(PD_CONSENT_OPERATORS_TEXT).toContain('туроператорам — партнёрам Ведара');
   });
 
   it('обычная заявка проходит, номер заявки не называется', async () => {
