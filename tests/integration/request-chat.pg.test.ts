@@ -3501,14 +3501,19 @@ withPg('переписка по заявке на настоящем PostgreSQL'
       expect(await leadOf(L10)).toMatchObject({ status: 'lost', lost_reason: null });
       expect(await closings(L10)).toHaveLength(0);
       expect(await noticesOf(L10)).toHaveLength(0);
-      // Оператор без карточки: только ничейные, занять нечем.
+      // Вошедший с ролью оператора без карточки (14.11): ни ничейной, ни чужой заявки ему нет.
       const L11 = await mk('Ничья Вторая', '+79995550911', { operator_id: null });
-      const noCard = { kind: 'unowned_only' as const };
+      const noCard = { kind: 'none' as const };
       expect(await changeLeadStatus({ leadId: L11, status: 'lost', actor: { kind: 'partner_user', userId: null }, scope: noCard, via: 'site' }))
-        .toMatchObject({ kind: 'ok', changed: true, lead: { status: 'lost' } });
-      expect(await leadOf(L11)).toMatchObject({ status: 'lost', lost_reason: null, operator_id: null });
+        .toEqual({ kind: 'not_found' });
+      expect(await leadOf(L11)).toMatchObject({ status: 'new', lost_reason: null, operator_id: null });
       expect(await changeLeadStatus({ leadId: L10, status: 'contacted', actor: { kind: 'partner_user', userId: null }, scope: noCard, via: 'site' }))
         .toEqual({ kind: 'not_found' });
+      // Кабинет оператора не на витрине (14.11): ничейную не видит и не занимает — как гид ниже.
+      const notAdmitted = { kind: 'owner' as const, partnerId: opId, claimUnowned: false };
+      expect(await changeLeadStatus({ leadId: L11, status: 'contacted', actor: { kind: 'partner_user', userId: null }, scope: notAdmitted, via: 'site' }))
+        .toEqual({ kind: 'not_found' });
+      expect(await leadOf(L11)).toMatchObject({ status: 'new', operator_id: null });
       // Гид: только адресованные его карточке — отказ с причиной рождает сообщение; ничейную не видит и не занимает.
       const guideScope = { kind: 'owner' as const, partnerId: opId, claimUnowned: false };
       const L12 = await mk('Гид Отказал', '+79995550912');

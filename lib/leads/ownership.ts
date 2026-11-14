@@ -4,8 +4,19 @@ import { operatorAccess } from '@/lib/operators/team-access';
 
 /**
  * Скоуп владения лидом — единая формула для всех эндпоинтов /api/leads/*:
- * админ видит всё; оператор — только свои лиды и ничейные (operator_id IS NULL).
- * Оператор без записи в partners не владеет ничем — ему доступны только ничейные.
+ * админ видит всё; оператор — свои лиды, а ничейные (operator_id IS NULL) —
+ * только если его карточку допустил на витрину администратор (`is_public`).
+ * Вошедший с ролью оператора без карточки партнёра не видит ничего.
+ *
+ * 14.11: до этого дня ничейные заявки с именем, телефоном и почтой видел
+ * ЛЮБОЙ вошедший с ролью оператора. Роль выдаётся обычной регистрацией
+ * (app/api/auth/register), карточка партнёра создаётся там же, — то есть
+ * контакты туристов, оставивших заявку без адресата (планер, главная,
+ * /request, /contact, сохранённая поездка), читал любой, кто зарегистрировался
+ * оператором. Тот же дефект, что закрыт 26.09 у агентов: проверка роли без
+ * проверки допуска — не защита. Допуск — тот же признак, по которому добивка
+ * отдаёт заявку без адресата оператору (app/api/cron/leads-followup):
+ * `partners.is_public`, его ставит только администратор.
  *
  * Раньше жила только внутри app/api/leads/[id]/route.ts (GET/PATCH). Четыре
  * соседних эндпоинта того же ресурса (proposal, proposal/send, proposal/pdf,
@@ -27,8 +38,11 @@ export type LeadScope =
    * действие над ничейным делает его своим (кабинет оператора, 25.09).
    */
   | { kind: 'owner'; partnerId: string; claimUnowned: boolean }
-  /** Оператор без карточки партнёра: только ничейные, занять нечем. */
-  | { kind: 'unowned_only' };
+  /**
+   * Вошедший с ролью оператора без карточки партнёра: своих лидов у него нет,
+   * а ничейные ему закрыты (14.11) — до этого дня он видел их все.
+   */
+  | { kind: 'none' };
 
 /**
  * Скоуп кабинета оператора. Кабинет — свой или команды (CRM 2г, миграция
@@ -42,8 +56,40 @@ export async function operatorLeadScope(user: JWTPayload): Promise<LeadScope> {
   // «Не смогли проверить» — не «партнёра нет»: иначе оператор молча увидел бы
   // только ничейные лиды. Бросаем — роут отвечает ошибкой, как при сбое базы.
   if (access.kind === 'unavailable') throw new Error(`доступ к кабинету не проверен: ${access.reason}`);
-  if (access.kind === 'none') return { kind: 'unowned_only' };
-  return { kind: 'owner', partnerId: access.partnerId, claimUnowned: true };
+  if (access.kind === 'none') return { kind: 'none' };
+  return { kind: 'owner', partnerId: access.partnerId, claimUnowned: await partnerAdmitted(access.partnerId) };
+}
+
+/**
+ * Допущена ли карточка оператора к заявкам без адресата. Признак —
+ * `partners.is_public`: его ставит только администратор
+ * (app/api/admin/content/partners/[id]), регистрация пишет FALSE. Карточки нет
+ * или признак не TRUE — не допущена.
+ *
+ * «Не смогли прочитать» — не «допущена» и не «не допущена»: бросаем, роут
+ * отвечает ошибкой, как при непроверенном доступе к кабинету (§4.0).
+ */
+export async function partnerAdmitted(partnerId: string, db: Pick<typeof pool, 'query'> = pool): Promise<boolean> {
+  try {
+    const { rows } = await db.query<{ is_public: boolean | null }>(
+      `SELECT is_public FROM partners WHERE id = $1::uuid`,
+      [partnerId],
+    );
+    return rows[0]?.is_public === true;
+  } catch (err) {
+    const code = (err as { code?: string } | null)?.code ?? 'нет SQLSTATE';
+    console.error('[leads/ownership] допуск к заявкам без адресата не проверен, SQLSTATE', code);
+    throw new Error(`допуск к заявкам без адресата не проверен: sqlstate ${code}`);
+  }
+}
+
+/**
+ * Открыт ли вошедшему общий список заявок без адресата — для строки на
+ * экране: кабинет, которому он закрыт, говорит об этом словами, а не
+ * показывает пустую доску.
+ */
+export function unownedPoolOpen(scope: LeadScope): boolean {
+  return scope.kind === 'admin' || (scope.kind === 'owner' && scope.claimUnowned);
 }
 
 /**
@@ -54,8 +100,8 @@ export function leadScopeCond(scope: LeadScope, nextIdx: number): { cond: string
   switch (scope.kind) {
     case 'admin':
       return { cond: '', vals: [] };
-    case 'unowned_only':
-      return { cond: ' AND operator_id IS NULL', vals: [] };
+    case 'none':
+      return { cond: ' AND FALSE', vals: [] };
     case 'owner':
       return scope.claimUnowned
         ? { cond: ` AND (operator_id = $${nextIdx} OR operator_id IS NULL)`, vals: [scope.partnerId] }
@@ -73,7 +119,7 @@ export async function leadOwnershipCond(
 
 /**
  * Проверка владения одним лидом — true, если лид доступен этому пользователю
- * (свой/ничейный/админ). Для эндпоинтов, которым не нужен сам SELECT лида,
+ * (свой; ничейный — допущенному кабинету; админ — любой). Для эндпоинтов, которым не нужен сам SELECT лида,
  * только факт доступа (proposal/send, process).
  */
 export async function canAccessLead(user: JWTPayload, leadId: string): Promise<boolean> {

@@ -126,10 +126,12 @@ describe('ручная бронь доходит до Telegram оператор�
 });
 
 describe('лиды: скоуп один, ничейный лид становится своим', () => {
-  it('список берёт общую формулу владения', () => {
+  it('список не считает скоуп сам', () => {
+    // Что список отдаёт кабинету только своё, а заявки без адресата — лишь
+    // допущенному, судит вызов двери: tests/unit/leads-unowned-pool.test.tsx.
     const src = read('app/api/leads/route.ts');
-    expect(src).toMatch(/leadOwnershipCond\(user, vals\.length \+ 1\)/);
     expect(src).not.toMatch(/if \(!isAdmin && operatorId\)/);
+    expect(src).not.toMatch(/operator_id IS NULL/);
   });
 
   // Правило смены статуса заявки с 29.10 — общее с гидом

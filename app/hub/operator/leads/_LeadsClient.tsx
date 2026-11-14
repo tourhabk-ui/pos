@@ -39,7 +39,17 @@ interface Lead {
 interface LeadsResponse {
   leads: Lead[];
   total: number;
+  /** Открыт ли кабинету общий список заявок без адресата (GET /api/leads). */
+  unowned_pool?: 'open' | 'closed';
 }
+
+/**
+ * Что кабинет говорит, когда общий список заявок без адресата ему закрыт
+ * (14.11): такие заявки видят компании, которых Ведар допустил на витрину.
+ */
+export const UNOWNED_POOL_CLOSED_NOTE =
+  'Здесь только заявки, адресованные вашей компании. Заявки без адресата (подбор тура, планер) видят только компании, '
+  + 'которые Ведар показывает на витрине: в таких заявках имя и телефон человека. На витрину компанию ставит администратор Ведара.';
 
 // ── Хелперы ───────────────────────────────────────────────────────────────────
 
@@ -227,6 +237,11 @@ export default function LeadsClient() {
     { refreshInterval: 30000 }
   );
 
+  // Открыт ли кабинету общий список заявок без адресата. Спрашивается отдельно
+  // от списка: доска грузит колонки сама, а строка нужна в обоих видах.
+  const { data: poolState } = useSWR<LeadsResponse>('/api/leads?status=new&limit=1', fetcher);
+  const poolClosed = (data ?? poolState)?.unowned_pool === 'closed';
+
   const handleProcess = useCallback(async (leadId: string) => {
     setProcessingId(leadId);
     setNotification(null);
@@ -313,6 +328,12 @@ export default function LeadsClient() {
             </button>
           </div>
         </div>
+
+        {poolClosed && (
+          <p data-unowned-pool-closed className="mb-4 rounded-lg border border-[var(--border)] bg-[var(--bg-card)] p-3 text-sm leading-relaxed text-[var(--text-secondary)]">
+            {UNOWNED_POOL_CLOSED_NOTE}
+          </p>
+        )}
 
         {/* Доска: перетащите карточку — статус лида меняется (CRM фаза 2). */}
         {view === 'board' && (

@@ -18,6 +18,10 @@ description: >
 - **агентам** отдавались заявки туристов платформы — роль агента выдаётся
   самостоятельной регистрацией, то есть любому (закрыто 26.09,
   `agent-leads-closed`);
+- **операторам** отдавались заявки без адресата (планер, главная, подбор
+  тура) с именем и телефоном — роль оператора и карточку партнёра тоже даёт
+  самостоятельная регистрация; теперь их видит только кабинет, который
+  администратор поставил на витрину (закрыто 14.11, `leads-unowned-pool`);
 - **публичная карточка жилья** отдавала email каждого автора отзыва
   (закрыто 26.09, `stay-review-no-pd`);
 - **инструмент AI** возвращал строку брони целиком — имя, почта и пожелания
@@ -92,7 +96,7 @@ description: >
 ## 8. Сторожа
 
 ```
-npx vitest run tests/unit/agent-leads-closed.test.ts tests/unit/stay-review-no-pd.test.ts \
+npx vitest run tests/unit/agent-leads-closed.test.ts tests/unit/leads-unowned-pool.test.tsx tests/unit/stay-review-no-pd.test.ts \
   tests/unit/sdk-tool-pii.test.ts tests/unit/compliance-pii-flow.test.ts \
   tests/unit/pd-consent-registry.test.ts tests/unit/lead-pd-consent.test.ts \
   tests/unit/group-monitor-pii.test.ts tests/unit/pii-redact.test.ts
