@@ -9,7 +9,7 @@
  */
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
 import { render, screen, waitFor, fireEvent, cleanup } from '@testing-library/react';
-import FunnelWindow from '@/app/hub/admin/traffic/_FunnelWindow';
+import FunnelWindow, { PAYMENTS_OFF_NOTE } from '@/app/hub/admin/traffic/_FunnelWindow';
 
 const baseReport = (over: Record<string, unknown> = {}) => ({
   window: { kind: 'day', label: 'Сегодня, 29.09 (сутки по Камчатке)', date: '2026-09-29', days: null, partial: true, visitor_unit: 'people' },
@@ -101,6 +101,38 @@ describe('воронка за период — экран', () => {
     const line = await screen.findByText(/Оценка воронки:/);
     expect(line.textContent).toContain('это не «всё хорошо». На одних сутках это обычное дело');
     expect(line.textContent).not.toMatch(/Судить рано: /);
+  });
+
+  /**
+   * Приём оплаты выключен (решение владельца 05.10). До 14.11 тот же отчёт
+   * выходил с «Воронка: брони есть, оплат нет. Проверить платёжный путь…» —
+   * совет чинить то, что выключено намеренно. Теперь судья звено оплаты не
+   * судит, а экран говорит, почему оплат нет.
+   */
+  it('оплата выключена: экран говорит почему оплат нет, плитка — что приём выключен', async () => {
+    mockFetch(() => payload(baseReport({
+      counts: { visits: 40, tour_views: 30, booking_starts: 12, leads: 0, bookings: 2, paid: 0 },
+      payments_accepted: false,
+    })));
+    render(<FunnelWindow />);
+    const line = await screen.findByText(/Сломанного звена не видно/);
+    expect(line.textContent).toContain(PAYMENTS_OFF_NOTE);
+    expect(line.textContent).not.toMatch(/Проверить платёжный путь/);
+    const tile = screen.getByText('Оплаты', { selector: 'p' });
+    expect(tile.nextElementSibling?.textContent).toBe('0');
+    expect(tile.nextElementSibling?.nextElementSibling?.textContent).toBe('приём через Ведар выключен');
+  });
+
+  it('оплата включена или прежний ответ без признака — строки о выключенной оплате нет', async () => {
+    for (const over of [{ payments_accepted: true }, {}]) {
+      mockFetch(() => payload(baseReport(over)));
+      render(<FunnelWindow />);
+      const line = await screen.findByText(/Сломанного звена не видно/);
+      expect(line.textContent).not.toContain(PAYMENTS_OFF_NOTE);
+      const tile = screen.getByText('Оплаты', { selector: 'p' });
+      expect(tile.nextElementSibling?.nextElementSibling?.textContent).toBe('оплачено');
+      cleanup();
+    }
   });
 
   it('заявки — статусами CRM по-русски', async () => {

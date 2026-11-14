@@ -20,6 +20,7 @@ import { loadSchemaModel } from '@/lib/agents/evo/schema-model';
 import { scanSourceAgainstSchema, schemaMismatchToIssue } from '@/lib/agents/evo/schema-lens';
 import { findOrphanHubPages, findPostWithoutClientUsage, findUnattributedAffiliateLinks, hubLayoutPaths, navModulePaths } from '@/lib/agents/evo/structural-scan';
 import { paymentAvailability } from '@/lib/payments/availability';
+import { platformAcceptsPayments } from '@/lib/payments/accepting';
 import { scanKuzmichStall } from '@/lib/agents/evo/kuzmich-stall-lens';
 
 export interface GrowthIssue {
@@ -789,8 +790,26 @@ export function funnelSampleShortfall(c: FunnelCounts): string | null {
   return null;
 }
 
+/**
+ * Что знает о платформе судья воронки, помимо счётчиков.
+ *
+ * `paymentsAccepted` — принимает ли Ведар оплату сейчас
+ * (`lib/payments/accepting`). С 05.10 приём выключен решением владельца:
+ * турист платит исполнителю напрямую, и «броней 2, оплат 0» — следствие этого
+ * решения, а не поломка платёжного пути. Звено «бронь → оплата» тогда не
+ * судится вовсе: находка «брони есть, оплат нет» советовала проверять QR и
+ * вебхуки, которые выключены намеренно (перепись воронки 14.11 и страница
+ * «Трафик» админки). Включат оплату — звено снова судится само.
+ */
+export interface FunnelJudgeOptions {
+  paymentsAccepted: boolean;
+}
+
 /** Чистая: самое верхнее сломанное звено воронки → находка (или null). */
-export function pickFunnelFinding(c: FunnelCounts): GrowthIssue | null {
+export function pickFunnelFinding(
+  c: FunnelCounts,
+  opts: FunnelJudgeOptions = { paymentsAccepted: platformAcceptsPayments() },
+): GrowthIssue | null {
   const numbers =
     `За 7 суток: визитов ${c.visits}, просмотров тура ${c.tour_views}, ` +
     `начатых броней ${c.booking_starts}, заявок ${c.leads}, броней ${c.bookings}, оплат ${c.paid}; ` +
@@ -848,7 +867,7 @@ export function pickFunnelFinding(c: FunnelCounts): GrowthIssue | null {
       suggestion: 'Заявки обрабатывает человек: проверить статусы leads (новые / обработанные), срок ответа и доводится ли разговор до брони В СИСТЕМЕ. Бронь, оформленная вне платформы, здесь невидима — тогда её надо заводить рукой, иначе оплата и комиссия невозможны.',
     };
   }
-  if (c.bookings > 0 && c.paid === 0) {
+  if (c.bookings > 0 && c.paid === 0 && opts.paymentsAccepted) {
     return {
       ...base, severity: 'high',
       title: 'Воронка: брони есть, оплат нет',

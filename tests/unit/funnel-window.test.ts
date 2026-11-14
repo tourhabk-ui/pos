@@ -22,13 +22,14 @@
  *
  * Прогон на настоящем PostgreSQL — tests/integration/funnel-window.pg.test.ts.
  */
-import { describe, it, expect } from 'vitest';
+import { describe, it, expect, vi } from 'vitest';
 import { readFileSync } from 'node:fs';
 import { join } from 'node:path';
 import {
   kamchatkaDate, kamchatkaDayStart, shiftDate, isRealDate, ruShort, fmtKamchatka,
 } from '@/lib/analytics/kamchatka-day';
-import { resolveFunnelWindow, windowParams, WINDOW_SQL, FUNNEL_RANGES } from '@/lib/analytics/funnel-window';
+import { resolveFunnelWindow, windowParams, WINDOW_SQL, FUNNEL_RANGES, buildFunnelReport } from '@/lib/analytics/funnel-window';
+import { platformAcceptsPayments } from '@/lib/payments/accepting';
 
 const read = (p: string) => readFileSync(join(process.cwd(), p), 'utf-8');
 const code = (s: string) => s
@@ -215,6 +216,21 @@ describe('границы окна в SQL: сутки не пересекаютс
 
   it('разбивка по суткам — массивами границ, а не поясом сервера', () => {
     expect(LIB).toMatch(/unnest\(\$1::timestamptz\[\], \$2::timestamptz\[\]\) WITH ORDINALITY/);
+  });
+});
+
+describe('отчёт говорит, принимает ли Ведар оплату (14.11)', () => {
+  // Без признака экран не может сказать, почему «оплат 0», — и прежде судья
+  // называл это поломкой платёжного пути при выключенном приёме (решение 05.10).
+  it('признак — из выключателя платформы, и он есть даже при упавших замерах', async () => {
+    const err = vi.spyOn(console, 'error').mockImplementation(() => {});
+    const broken = { query: async () => { throw new Error('relation "leads" does not exist'); } };
+    const r = resolveFunnelWindow({ range: 'today' }, NOW);
+    if (!r.ok) throw new Error(r.error);
+    const rep = await buildFunnelReport(r.window, broken as never);
+    expect(rep.payments_accepted).toBe(platformAcceptsPayments());
+    expect(rep.verdict_state).toBe('unknown');
+    err.mockRestore();
   });
 });
 

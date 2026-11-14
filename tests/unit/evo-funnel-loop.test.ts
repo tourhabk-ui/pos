@@ -25,6 +25,7 @@ import {
 } from '@/lib/agents/evo/growth-agent';
 import { verdictFrom } from '@/app/api/cron/funnel-census/route';
 import { OUTWARD_CATEGORIES } from '@/lib/agents/evo/issue-reporter';
+import { platformAcceptsPayments } from '@/lib/payments/accepting';
 
 const ROOT = process.cwd();
 const GROWTH = readFileSync(join(ROOT, 'lib/agents/evo/growth-agent.ts'), 'utf-8');
@@ -58,10 +59,38 @@ describe('pickFunnelFinding: самое верхнее сломанное зве
       .toBe('Воронка: бронь начинают и бросают');
   });
 
-  it('брони без оплат → платёжный путь', () => {
-    const f = pickFunnelFinding(counts({ visits: 40, tour_views: 30, booking_starts: 12, bookings: 2 }));
+  it('брони без оплат при включённой оплате → платёжный путь', () => {
+    const f = pickFunnelFinding(
+      counts({ visits: 40, tour_views: 30, booking_starts: 12, bookings: 2 }),
+      { paymentsAccepted: true },
+    );
     expect(f?.title).toBe('Воронка: брони есть, оплат нет');
     expect(f?.severity).toBe('high');
+  });
+
+  /**
+   * Приём оплаты выключен решением владельца 05.10: турист платит исполнителю
+   * напрямую. До 14.11 судья всё равно называл «броней 2, оплат 0» поломкой
+   * платёжного пути (high) и советовал проверять QR и вебхуки — так это и
+   * стояло на странице «Трафик» и в переписи воронки.
+   */
+  it('оплата выключена → звено «бронь → оплата» не судится, судья идёт дальше', () => {
+    const noPay = { visits: 40, tour_views: 30, booking_starts: 12, bookings: 2 };
+    expect(pickFunnelFinding(counts(noPay), { paymentsAccepted: false })).toBeNull();
+    // Звено пропущено, а не вся воронка: следующее звено по-прежнему судится.
+    expect(pickFunnelFinding(counts({ ...noPay, plan_views: 25, plan_to_tour: 0 }), { paymentsAccepted: false })?.title)
+      .toBe('Воронка: планы смотрят, в туры не переходят');
+    // Верхние звенья выключатель не трогает.
+    expect(pickFunnelFinding(counts({ visits: 40, tour_views: 30, leads: 2 }), { paymentsAccepted: false })?.title)
+      .toBe('Воронка: заявки есть, броней нет');
+  });
+
+  it('без явного признака судья берёт выключатель платформы', () => {
+    const noPay = counts({ visits: 40, tour_views: 30, booking_starts: 12, bookings: 2 });
+    expect(pickFunnelFinding(noPay)).toEqual(pickFunnelFinding(noPay, { paymentsAccepted: platformAcceptsPayments() }));
+    // Перепись и экран зовут судью без признака: их вывод следует за выключателем.
+    const v = verdictFrom({ visits: 40, tour_views: 30, booking_starts: 12, leads: 0, bookings: 2, paid: 0 }).verdict;
+    expect(v?.title ?? null).toBe(platformAcceptsPayments() ? 'Воронка: брони есть, оплат нет' : null);
   });
 
   it('заявка закрывает звено «карточка не конвертит», но не звено «до брони»', () => {

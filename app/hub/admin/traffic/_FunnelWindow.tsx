@@ -44,6 +44,8 @@ interface Report {
   verdict_state: 'unknown' | 'broken_link' | 'insufficient_sample' | 'no_broken_link';
   unknown_inputs: string[];
   insufficient_sample: string | null;
+  /** Принимает ли Ведар оплату сейчас; нет поля — прежний ответ, о приёме не сказано. */
+  payments_accepted?: boolean;
   failed_measures: Array<{ measure: string; error: string | null }>;
   liveness: {
     views_last_at: string | null; views_rows_total: number | null;
@@ -56,6 +58,14 @@ interface Report {
   leads_by_source?: Array<{ source: string; n: number }> | null;
   bookings_by_status: Array<{ booking_status: string | null; n: number }> | null;
 }
+/**
+ * Почему оплат нет, когда Ведар оплату не принимает (решение владельца 05.10).
+ * Без этой строки «оплат 0» под словами «сломанного звена не видно» читается
+ * как недосмотр, а прежде судья воронки называл его поломкой платёжного пути.
+ */
+export const PAYMENTS_OFF_NOTE =
+  'Оплату Ведар сейчас не принимает (решение владельца 05.10): туристы платят исполнителю напрямую, поэтому оплат здесь нет, и звено «бронь → оплата» не судится.';
+
 interface DayRow extends Counts { date: string; partial: boolean }
 interface Payload {
   generated_at: string;
@@ -142,7 +152,7 @@ export default function FunnelWindow() {
     { key: 'booking_starts', label: 'Начали бронь', hint: 'первое касание формы' },
     { key: 'leads', label: 'Заявки', hint: 'оставили контакт' },
     { key: 'bookings', label: 'Брони', hint: 'создано в системе' },
-    { key: 'paid', label: 'Оплаты', hint: 'оплачено' },
+    { key: 'paid', label: 'Оплаты', hint: r.payments_accepted === false ? 'приём через Ведар выключен' : 'оплачено' },
   ] : [];
 
   return (
@@ -277,7 +287,7 @@ export default function FunnelWindow() {
                   ? `Оценка воронки: ${(r.insufficient_sample ?? 'наблюдений слишком мало, чтобы судить').replace(/[.\s]+$/, '')}.${r.window.kind === 'day' ? ' На одних сутках это обычное дело — смотрите неделю.' : ''}`
                   : r.verdict_state === 'unknown'
                     ? `Не смог оценить воронку: не сосчитано ${r.unknown_inputs.join(', ')}.`
-                    : `Сломанного звена не видно. За окно: заявок ${num(r.counts.leads)}, броней ${num(r.counts.bookings)}, оплат ${num(r.counts.paid)}${(r.counts.bookings ?? 0) === 0 ? ' — до брони в системе поток пока не дошёл' : ''}.`}
+                    : `Сломанного звена не видно. За окно: заявок ${num(r.counts.leads)}, броней ${num(r.counts.bookings)}, оплат ${num(r.counts.paid)}${(r.counts.bookings ?? 0) === 0 ? ' — до брони в системе поток пока не дошёл' : ''}.${r.payments_accepted === false ? ` ${PAYMENTS_OFF_NOTE}` : ''}`}
             </p>
             <p className="text-[11px] text-[var(--text-muted)]">
               ИИ, исполнившие скрипт: {r.visit_aside ? r.visit_aside.ai.toLocaleString('ru-RU') : 'не сосчитано'} (обходчики ИИ скрипт не исполняют, их здесь не видно).{' '}

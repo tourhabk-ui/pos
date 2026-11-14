@@ -41,6 +41,7 @@
 import { pool } from '@/lib/db-pool';
 import { AI_FAMILY_NAMES } from '@/lib/analytics/bot-detect';
 import { pickFunnelFinding, funnelSampleShortfall, type FunnelCounts } from '@/lib/agents/evo/growth-agent';
+import { platformAcceptsPayments } from '@/lib/payments/accepting';
 import {
   DAY_MS, KAMCHATKA_TIMEZONE_LABEL,
   isRealDate, kamchatkaDate, kamchatkaDayStart, ruShort, shiftDate,
@@ -434,6 +435,9 @@ export async function buildFunnelReport(w: FunnelWindow, exec: FunnelExecutor = 
       : (verdict ? 'broken_link' : (insufficient ? 'insufficient_sample' : 'no_broken_link')),
     unknown_inputs: unknown,
     insufficient_sample: insufficient,
+    // Принимает ли Ведар оплату сейчас. Выключена (решение 05.10) — звено
+    // «бронь → оплата» судья не судит, а экран говорит, почему оплат нет.
+    payments_accepted: platformAcceptsPayments(),
     failed_measures: failed.map(([name, m]) => ({ measure: name, error: m.failed })),
     liveness: {
       views_last_at:     viewsAlive.value?.last_at ?? null,
