@@ -4,6 +4,7 @@ import React, { useState, useRef, useCallback } from 'react';
 import Link from 'next/link';
 import { Search, MapPin, ShieldCheck, ChevronLeft, AlertTriangle, AlertCircle, CheckCircle, Navigation, Route } from 'lucide-react';
 import { HazardBadgeStrip } from '@/components/shared/HazardBadgeStrip';
+import { EmergencyCallLine } from '@/components/safety/EmergencyCallLine';
 
 type Mode = 'place' | 'route';
 
@@ -452,6 +453,9 @@ export function SafetyClient() {
                 </div>
               </div>
             )}
+
+            {/* 112 — из единого источника, при любом ответе модели и при её молчании. */}
+            <EmergencyCallLine />
 
             {/* Meta */}
             <div className="flex items-center justify-between text-xs text-[var(--text-muted)] pt-2">
