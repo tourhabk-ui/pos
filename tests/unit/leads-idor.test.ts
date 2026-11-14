@@ -153,7 +153,7 @@ describe('владение лидом: /api/leads/[id]', () => {
   });
 
   it('импортирует общую формулу, а не держит свою копию', () => {
-    expect(DETAIL).toMatch(/import \{ leadOwnershipCond, operatorLeadScope \} from '@\/lib\/leads\/ownership'/);
+    expect(DETAIL).toMatch(/import \{ leadScopeCond, operatorLeadScope \} from '@\/lib\/leads\/ownership'/);
   });
 
   it('список не держит свою копию формулы владения', () => {
@@ -177,31 +177,21 @@ describe('владение лидом: /api/leads/[id]', () => {
 });
 
 describe('владение лидом: четыре роута, где проверка была пропущена (аудит 24.08)', () => {
-  it('GET /api/leads/[id]/proposal — скоуп применён к SELECT', () => {
-    expect(PROPOSAL).toMatch(/import \{ leadOwnershipCond \} from '@\/lib\/leads\/ownership'/);
-    expect(PROPOSAL).toMatch(/FROM leads WHERE id = \$1\$\{scope\.cond\}/);
-  });
-
-  it('POST /api/leads/[id]/proposal/send — проверка ДО вызова sendProposalToClient', () => {
-    expect(PROPOSAL_SEND).toMatch(/import \{ canAccessLead \} from '@\/lib\/leads\/ownership'/);
-    const beforeSend = PROPOSAL_SEND.slice(0, PROPOSAL_SEND.indexOf('sendProposalToClient(id'));
-    expect(beforeSend).toMatch(/canAccessLead\(user, id\)/);
-  });
-
-  it('GET /api/leads/[id]/proposal/pdf — скоуп применён к SELECT', () => {
-    expect(PROPOSAL_PDF).toMatch(/import \{ leadOwnershipCond \} from '@\/lib\/leads\/ownership'/);
-    expect(PROPOSAL_PDF).toMatch(/FROM leads WHERE id = \$1\$\{scope\.cond\}/);
-  });
-
-  it('POST /api/leads/[id]/process — проверка ДО leadProcessor.process', () => {
-    expect(PROCESS_BY_ID).toMatch(/import \{ canAccessLead \} from '@\/lib\/leads\/ownership'/);
-    const beforeProcess = PROCESS_BY_ID.slice(0, PROCESS_BY_ID.indexOf('leadProcessor.process(id)'));
-    expect(beforeProcess).toMatch(/canAccessLead\(user, id\)/);
-  });
-
-  it('POST /api/leads/process (lead_id из body) — проверка ДО leadProcessor.process', () => {
-    expect(PROCESS_BODY).toMatch(/import \{ canAccessLead \} from '@\/lib\/leads\/ownership'/);
-    const beforeProcess = PROCESS_BODY.slice(0, PROCESS_BODY.indexOf('leadProcessor.process(lead_id)'));
-    expect(beforeProcess).toMatch(/canAccessLead\(user, lead_id\)/);
-  });
+  // С 14.11 эти двери спрашивают не только «видна ли заявка», но и «взята ли»:
+  // общая проверка — leadAccess (lib/leads/ownership). Что не взятая заявка без
+  // адресата получает 409, а разбор и отправка не зовутся, держит вызов дверей:
+  // tests/unit/leads-unclaimed-contact.test.ts.
+  for (const [name, src, call] of [
+    ['GET /api/leads/[id]/proposal', PROPOSAL, 'leadProcessor.getProposal('],
+    ['POST /api/leads/[id]/proposal/send', PROPOSAL_SEND, 'sendProposalToClient(id'],
+    ['GET /api/leads/[id]/proposal/pdf', PROPOSAL_PDF, 'leadProcessor.getProposal('],
+    ['POST /api/leads/[id]/process', PROCESS_BY_ID, 'leadProcessor.process(id)'],
+    ['POST /api/leads/process (lead_id из body)', PROCESS_BODY, 'leadProcessor.process(lead_id)'],
+  ] as const) {
+    it(`${name} — проверка владения и взятия ДО действия`, () => {
+      expect(src).toMatch(/import \{[^}]*\bleadAccess\b[^}]*\} from '@\/lib\/leads\/ownership'/);
+      const before = src.slice(0, src.indexOf(call));
+      expect(before).toMatch(/await leadAccess\(user, (id|lead_id)\)/);
+    });
+  }
 });

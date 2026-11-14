@@ -37,7 +37,7 @@ vi.mock('@/lib/auth/middleware', () => ({
 vi.mock('@/lib/auth/guide-helpers', () => ({ getGuidePartnerId: async () => 'p-guide' }));
 vi.mock('@/lib/leads/ownership', async (orig) => ({
   ...(await orig<typeof import('@/lib/leads/ownership')>()),
-  canAccessLead: async () => true,
+  leadAccess: async () => 'own',
   operatorLeadScope: (...a: unknown[]) => h.scope(...a),
 }));
 vi.mock('@/lib/leads/owner-lead-status', async (orig) => ({

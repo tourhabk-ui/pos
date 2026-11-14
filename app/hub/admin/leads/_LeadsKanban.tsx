@@ -133,10 +133,15 @@ function KanbanCard({ lead, columnKey, href }: { lead: Lead; columnKey: LeadStat
       {exactStatus && (
         <span className={`inline-block mt-1 text-[10px] px-1.5 py-0.5 rounded-full font-medium ${exactStatus.color}`}>{exactStatus.label}</span>
       )}
+      {lead.contact_hidden ? (
+        // Заявка без адресата, кабинетом не взята (14.11): контактов в ответе нет.
+        <div data-contact-hidden className="mt-1 text-xs text-[var(--text-secondary)]">Контакты — после взятия заявки</div>
+      ) : (
       <div className="flex items-center gap-1 mt-1 text-xs text-[var(--text-secondary)]">
         <Phone size={11} />
         <Sensitive>{lead.phone}</Sensitive>
       </div>
+      )}
       <LeadOriginLine origin={lead.origin} className="mt-1 text-[11px] text-[var(--text-muted)]" />
       {interests.length > 0 && (
         <div className="flex flex-wrap gap-1 mt-2">

@@ -6,6 +6,7 @@ import Link from 'next/link';
 import { useRouter } from 'next/navigation';
 import { AutoConfirmToggle } from '@/components/operator/AutoConfirmToggle';
 import { formatDateOnly } from '@/lib/dates/date-only';
+import { CLAIM_FIRST_TEXT } from '@/lib/leads/unclaimed-contact';
 import {
   Plus, X, Check, AlertTriangle, Phone, Mail,
   RefreshCw, ChevronLeft, ChevronRight, Users, ExternalLink,
@@ -107,10 +108,18 @@ export default function BookingsManagementClient() {
     fetch(`/api/leads/${leadId}`)
       .then(async (r) => {
         const d = await r.json().catch(() => null) as {
-          lead?: { id: string; name: string; phone: string | null; email: string | null; group_size: number | null };
+          lead?: { id: string; name: string; phone: string | null; email: string | null; group_size: number | null; contact_hidden?: boolean };
         } | null;
         if (!r.ok || !d?.lead) {
           setSaveError('Лид не найден — бронь можно завести и без него.');
+          setShowAdd(true);
+          return;
+        }
+        // Заявка без адресата, которую кабинет ещё не взял (14.11): имени и
+        // телефона в ответе нет — подставлять в бронь нечего, и подпись
+        // «Имя — после взятия заявки» не должна стать именем туриста.
+        if (d.lead.contact_hidden) {
+          setSaveError(CLAIM_FIRST_TEXT);
           setShowAdd(true);
           return;
         }

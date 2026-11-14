@@ -118,15 +118,27 @@ export async function leadOwnershipCond(
 }
 
 /**
- * Проверка владения одним лидом — true, если лид доступен этому пользователю
- * (свой; ничейный — допущенному кабинету; админ — любой). Для эндпоинтов, которым не нужен сам SELECT лида,
- * только факт доступа (proposal/send, process).
+ * Что можно делать с заявкой (14.11, слово владельца «скрывать до взятия»):
+ *   - `own` — своя заявка (или администратор): контакт виден, действия открыты;
+ *   - `unclaimed` — заявка без адресата, видна допущенному кабинету, но им не
+ *     взята: видно, что просят, без имени и контактов; предложение, PDF,
+ *     отправка и разбор — после взятия;
+ *   - `none` — чужая или нет такой: неотличимо от несуществующей (404).
+ * Чтение базы не глушится: отказ бросает, как у `operatorLeadScope`.
  */
-export async function canAccessLead(user: JWTPayload, leadId: string): Promise<boolean> {
-  const scope = await leadOwnershipCond(user, 2);
-  const res = await pool.query<{ id: string }>(
-    `SELECT id FROM leads WHERE id = $1${scope.cond} LIMIT 1`,
-    [leadId, ...scope.vals]
+export type LeadAccess = 'own' | 'unclaimed' | 'none';
+
+/** Ответ двери на не взятую заявку; сам текст — в клиентском модуле, его показывает и форма брони. */
+export { CLAIM_FIRST_TEXT } from '@/lib/leads/unclaimed-contact';
+
+export async function leadAccess(user: JWTPayload, leadId: string): Promise<LeadAccess> {
+  const scope = await operatorLeadScope(user);
+  const cond = leadScopeCond(scope, 2);
+  const res = await pool.query<{ operator_id: string | null }>(
+    `SELECT operator_id FROM leads WHERE id = $1${cond.cond} LIMIT 1`,
+    [leadId, ...cond.vals],
   );
-  return res.rows.length > 0;
+  const row = res.rows[0];
+  if (!row) return 'none';
+  return scope.kind === 'owner' && row.operator_id === null ? 'unclaimed' : 'own';
 }

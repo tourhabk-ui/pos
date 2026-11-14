@@ -1754,7 +1754,7 @@ withPg('кабинет туриста на настоящем PostgreSQL', () =>
     const cardOf = (user: string, id: string) => as(user, async () => {
       const { GET } = await import('@/app/api/leads/[id]/route');
       const res = await GET(new NextRequest(`http://localhost/api/leads/${id}`) as unknown as NextRequest, { params: Promise.resolve({ id }) });
-      return { status: res.status, body: await res.json() as { lead?: { phone?: string } } };
+      return { status: res.status, body: await res.json() as { lead?: { name?: string; phone?: string; contact_hidden?: boolean } } };
     });
     const proposalOf = (user: string, id: string) => as(user, async () => {
       const { GET } = await import('@/app/api/leads/[id]/proposal/route');
@@ -1765,6 +1765,13 @@ withPg('кабинет туриста на настоящем PostgreSQL', () =>
       const { PATCH } = await import('@/app/api/leads/[id]/route');
       const res = await PATCH(new NextRequest(`http://localhost/api/leads/${id}`, {
         method: 'PATCH', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ status: 'contacted' }),
+      }) as unknown as NextRequest, { params: Promise.resolve({ id }) });
+      return res.status;
+    });
+    const claimAs = (user: string, id: string) => as(user, async () => {
+      const { PATCH } = await import('@/app/api/leads/[id]/route');
+      const res = await PATCH(new NextRequest(`http://localhost/api/leads/${id}`, {
+        method: 'PATCH', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ claim: true }),
       }) as unknown as NextRequest, { params: Promise.resolve({ id }) });
       return res.status;
     });
@@ -1793,12 +1800,23 @@ withPg('кабинет туриста на настоящем PostgreSQL', () =>
     expect(await patchAs(noCardUser, free)).toBe(404);
     expect(await freeRow()).toEqual({ status: 'new', operator_id: null });
 
-    // Кабинет на витрине: своя и ничейная, чужой нет; карточка ничейной читается.
+    // Кабинет на витрине: своя и ничейная, чужой нет. Ничейная — без имени и
+    // телефона, пока кабинет её не взял (слово владельца 14.11 «скрывать до взятия»);
+    // предложение по ней не открывается.
+    const { HIDDEN_NAME } = await import('@/lib/leads/unclaimed-contact');
+    const { CLAIM_FIRST_TEXT } = await import('@/lib/leads/ownership');
     const s1 = await listOf(shownUser);
     expect(s1.ids).toEqual([free, ofShown].sort());
     expect(s1.pool).toBe('open');
-    expect((await cardOf(shownUser, free)).body.lead?.phone).toBe('+79990140001');
-    expect(await proposalOf(shownUser, free)).toMatchObject({ status: 404, body: { error: 'Предложение ещё не сформировано' } });
+    expect(s1.phones).not.toContain('+79990140001');
+    expect(s1.phones).toContain('+79990140003');
+    const hiddenCard = await cardOf(shownUser, free);
+    expect(hiddenCard.status).toBe(200);
+    expect(hiddenCard.body.lead).toMatchObject({ name: HIDDEN_NAME, phone: '', contact_hidden: true });
+    expect(JSON.stringify(hiddenCard.body)).not.toContain('Пул Ничья');
+    expect(JSON.stringify(hiddenCard.body)).not.toContain('+79990140001');
+    expect(await proposalOf(shownUser, free)).toMatchObject({ status: 409, body: { error: CLAIM_FIRST_TEXT } });
+    expect((await cardOf(shownUser, ofShown)).body.lead).toMatchObject({ phone: '+79990140003', contact_hidden: false });
     expect((await cardOf(shownUser, ofNewcomer)).status).toBe(404);
 
     // Допуск читается из базы при каждом входе: администратор поставил карточку
@@ -1817,7 +1835,19 @@ withPg('кабинет туриста на настоящем PostgreSQL', () =>
     expect(censusNull.accounts.own_card_not_shown).toBe(censusTeam.accounts.own_card_not_shown);
     expect(censusNull.accounts.team_card_not_shown).toBe(censusTeam.accounts.team_card_not_shown);
 
-    // Первое действие допущенного кабинета занимает ничейную — как раньше.
+    // «Взять заявку»: ничейная уходит кабинету, статус не меняется; имя и
+    // телефон открыты ему, второму кабинету на витрине заявка больше не видна.
+    await pool.query(`UPDATE partners SET is_public = TRUE WHERE id = $1`, [newcomer]);
+    expect(await claimAs(shownUser, free)).toBe(200);
+    expect(await freeRow()).toEqual({ status: 'new', operator_id: shown });
+    expect((await cardOf(shownUser, free)).body.lead).toMatchObject({ name: 'Пул Ничья', phone: '+79990140001', contact_hidden: false });
+    expect(await proposalOf(shownUser, free)).toMatchObject({ status: 404, body: { error: 'Предложение ещё не сформировано' } });
+    expect((await cardOf(newcomerUser, free)).status).toBe(404);
+    expect(await claimAs(newcomerUser, free)).toBe(404);
+    expect((await listOf(newcomerUser)).ids).toEqual([ofNewcomer]);
+    await pool.query(`UPDATE partners SET is_public = FALSE WHERE id = $1`, [newcomer]);
+
+    // Дальше — как раньше: смена статуса взятой заявки.
     expect(await patchAs(shownUser, free)).toBe(200);
     expect(await freeRow()).toEqual({ status: 'contacted', operator_id: shown });
   });

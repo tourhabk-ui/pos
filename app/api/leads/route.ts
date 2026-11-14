@@ -16,6 +16,7 @@ import { buildConsentRecord, LEAD_FORM_CONSENT_PURPOSES } from '@/lib/legal/pd-c
 import { sendPdAlert } from '@/lib/notifications/pd-alert';
 import { getPublicBaseUrl } from '@/lib/config';
 import { leadScopeCond, operatorLeadScope, unownedPoolOpen } from '@/lib/leads/ownership';
+import { hideUnclaimedContact } from '@/lib/leads/unclaimed-contact';
 import { LEADS_PAGE_MAX } from '@/lib/leads/list-page';
 import { logSwallowedFailure } from '@/lib/observability/swallowed';
 import { LeadIsVehicleOrderError } from '@/lib/leads/vehicle-order';
@@ -115,7 +116,8 @@ export async function GET(req: NextRequest) {
 
   // Откуда заявка — одной подписью (слово владельца 08.11: человек или ИИ и каким путём).
   return NextResponse.json({
-    leads: (rows.rows as LeadOriginRow[]).map(withLeadOrigin),
+    // Не взятая заявка без адресата — без имени и контактов (слово владельца 14.11).
+    leads: (rows.rows as LeadOriginRow[]).map(withLeadOrigin).map((r) => hideUnclaimedContact(leadScope, r)),
     total: cnt.rows[0].total,
     // Закрыт общий список заявок без адресата — экран говорит об этом, а не
     // показывает молча пустую доску (§4.0).

@@ -45,6 +45,8 @@ export interface Lead {
   origin?: LeadOriginView | null;
   /** Адресат заявки (партнёр); null — заявку ведёт менеджер Ведара. */
   operator_id?: string | null;
+  /** Кабинет оператора (14.11): заявка без адресата им не взята — имени и контактов в ответе нет. */
+  contact_hidden?: boolean;
   status: LeadStatus;
   notes: string | null;
   ai_score: number | null;

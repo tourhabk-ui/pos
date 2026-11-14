@@ -12,7 +12,7 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { requireOperator } from '@/lib/auth/middleware';
 import { sendProposalToClient } from '@/lib/leads/proposal-delivery';
-import { canAccessLead } from '@/lib/leads/ownership';
+import { CLAIM_FIRST_TEXT, leadAccess } from '@/lib/leads/ownership';
 import type { JWTPayload } from '@/lib/auth/jwt';
 import { z } from 'zod';
 
@@ -49,9 +49,10 @@ export async function POST(
   // документирует) — вызывающий обязан проверить право до вызова. Раньше
   // это не делалось: оператор мог отправить чужому клиенту предложение по
   // чужому лиду, зная только UUID (аудит кабинета оператора).
-  if (!(await canAccessLead(user, id))) {
-    return NextResponse.json({ error: 'Лид не найден' }, { status: 404 });
-  }
+  // Не взятая заявка без адресата (14.11): писать человеку — взявшей её компании.
+  const access = await leadAccess(user, id);
+  if (access === 'none') return NextResponse.json({ error: 'Лид не найден' }, { status: 404 });
+  if (access === 'unclaimed') return NextResponse.json({ error: CLAIM_FIRST_TEXT }, { status: 409 });
 
   let body: unknown;
   try { body = await req.json(); } catch { body = {}; }

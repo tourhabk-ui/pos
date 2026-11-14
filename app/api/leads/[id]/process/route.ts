@@ -9,7 +9,7 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { requireOperator } from '@/lib/auth/middleware';
 import { leadProcessor } from '@/lib/services/operators/lead-processor.service';
-import { canAccessLead } from '@/lib/leads/ownership';
+import { CLAIM_FIRST_TEXT, leadAccess } from '@/lib/leads/ownership';
 import { LeadIsVehicleOrderError } from '@/lib/leads/vehicle-order';
 import { LeadCancelledByClientError } from '@/lib/leads/client-cancelled';
 import type { JWTPayload } from '@/lib/auth/jwt';
@@ -26,9 +26,10 @@ export async function POST(
 
   // Владение: без проверки оператор мог перезапустить AI-обработку чужого
   // лида по угаданному/увиденному UUID (аудит кабинета оператора).
-  if (!(await canAccessLead(user, id))) {
-    return NextResponse.json({ success: false, error: 'Лид не найден' }, { status: 404 });
-  }
+  // Не взятая заявка без адресата (14.11): в ответе разбора имя человека.
+  const access = await leadAccess(user, id);
+  if (access === 'none') return NextResponse.json({ success: false, error: 'Лид не найден' }, { status: 404 });
+  if (access === 'unclaimed') return NextResponse.json({ success: false, error: CLAIM_FIRST_TEXT }, { status: 409 });
 
   try {
     const result = await leadProcessor.process(id);
