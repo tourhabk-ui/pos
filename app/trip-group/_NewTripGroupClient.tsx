@@ -1,5 +1,6 @@
 'use client';
 
+import { pageContainer } from '@/lib/layout/page-width';
 import { useState } from 'react';
 import { useRouter } from 'next/navigation';
 import { Users } from 'lucide-react';
@@ -40,8 +41,8 @@ export function NewTripGroupClient() {
   };
 
   return (
-    <main className="ds-page min-h-screen px-4 py-10">
-      <div className="mx-auto max-w-xl space-y-6">
+    <main className="ds-page min-h-screen py-10">
+      <div className={`${pageContainer('reading')} space-y-6`}>
         <header className="space-y-2">
           <p className="ds-label flex items-center gap-2"><Users className="w-4 h-4" /> Поездка группой</p>
           <h1 className="font-playfair text-4xl font-bold text-[var(--text-primary)]">Один план на всех</h1>

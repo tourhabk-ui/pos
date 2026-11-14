@@ -1,4 +1,5 @@
 import type { Metadata } from 'next';
+import { pageContainer } from '@/lib/layout/page-width';
 import Link from 'next/link';
 import { notFound } from 'next/navigation';
 import { ChevronRight } from 'lucide-react';
@@ -43,7 +44,7 @@ export default async function CarrierReviewPage({ params }: { params: Promise<Pa
   return (
     <div style={{ background: 'var(--bg-primary)' }} className="min-h-screen">
       <Header />
-      <main className="max-w-2xl mx-auto px-4 sm:px-6 pt-6 pb-16">
+      <main className={`${pageContainer('reading')} pt-6 pb-16`}>
         <nav aria-label="Хлебные крошки" className="flex items-center gap-1 text-[13px] text-[var(--text-secondary)] mb-3 -ml-1">
           <Link href="/transfers" className="inline-flex items-center min-h-[44px] px-1 hover:text-[var(--text-primary)]">Трансферы</Link>
           <ChevronRight className="w-3 h-3" aria-hidden />

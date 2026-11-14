@@ -1,4 +1,5 @@
 import type { Metadata } from 'next';
+import { pageContainer } from '@/lib/layout/page-width';
 import Link from 'next/link';
 import { AlertTriangle, Mountain, CloudSnow, Phone } from 'lucide-react';
 import { Header } from '@/components/layout/Header';
@@ -59,7 +60,7 @@ export default async function SvodkaPage() {
     <>
       <Header />
       <main className="ds-page pt-20 pb-24">
-        <div className="max-w-3xl mx-auto flex flex-col gap-8">
+        <div className={`${pageContainer('reading')} flex flex-col gap-8`}>
           <header className="flex flex-col gap-3">
             <p className="ds-label">Для гидов и операторов · {s.dateLabel}</p>
             <h1 className="ds-h1" style={{ fontFamily: 'var(--font-playfair)' }}>Сводка дня</h1>

@@ -12,6 +12,7 @@
  * 500 недопустим.
  */
 
+import { pageContainer } from '@/lib/layout/page-width';
 import type { Metadata } from 'next';
 import Link from 'next/link';
 import { OperatorNameLink } from '@/components/operators/OperatorNameLink';
@@ -177,7 +178,7 @@ export default async function PlanPresetPage({ params }: PageProps) {
       <JsonLd data={jsonLd} />
       <Header />
       <main className="ds-page">
-        <div className="max-w-3xl mx-auto px-4 py-8 space-y-8">
+        <div className={`${pageContainer('reading')} py-8 space-y-8`}>
           <nav className="text-sm" style={{ color: 'var(--text-muted)' }}>
             <Link href="/">Главная</Link> · <Link href="/plans">Готовые планы</Link>
           </nav>

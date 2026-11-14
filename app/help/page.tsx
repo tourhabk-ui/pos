@@ -1,4 +1,5 @@
 import type { Metadata } from 'next';
+import { pageContainer } from '@/lib/layout/page-width';
 import Link from 'next/link';
 import { Map, Package, Compass, ArrowRight } from 'lucide-react';
 import type { LucideIcon } from 'lucide-react';
@@ -21,7 +22,7 @@ export default function HelpPage() {
   return (
     <div className="min-h-screen bg-[var(--bg-primary)]">
       <div className="bg-[var(--bg-card)] border-b border-[var(--border)]">
-        <div className="max-w-3xl mx-auto px-4 py-12 text-center">
+        <div className={`${pageContainer('reading')} py-12 text-center`}>
           <h1 className="text-4xl font-bold text-[var(--text-primary)] mb-3" style={{ fontFamily: 'var(--font-playfair)' }}>
             Центр помощи
           </h1>
@@ -29,7 +30,7 @@ export default function HelpPage() {
         </div>
       </div>
 
-      <div className="max-w-3xl mx-auto px-4 py-12 space-y-8">
+      <div className={`${pageContainer('reading')} py-12 space-y-8`}>
         <div className="grid md:grid-cols-3 gap-4">
           {HELP_ARTICLES.map((a) => {
             const Icon = ICONS[a.slug];

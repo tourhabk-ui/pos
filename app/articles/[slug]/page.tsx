@@ -5,6 +5,7 @@
  * он показывается тем, что он есть: статьёй. Ни карты, ни кнопки «в путь» —
  * идти тут некуда, и предлагать это было бы обманом.
  */
+import { pageContainer } from '@/lib/layout/page-width';
 import type { Metadata } from 'next';
 import Link from 'next/link';
 import { notFound } from 'next/navigation';
@@ -76,6 +77,8 @@ export default async function ArticlePage({ params }: Props) {
     <>
       <Header />
       <main className="ds-page pt-20 pb-16">
+      {/* Чтение (lib/layout/page-width, 14.11): статья стояла у левого края окна без полей. */}
+      <div className={pageContainer('reading')}>
         <Link
           href="/articles"
           className="inline-flex items-center gap-1 text-sm text-[var(--ocean)] mb-6 transition-all duration-200 hover:opacity-80"
@@ -83,7 +86,7 @@ export default async function ArticlePage({ params }: Props) {
           <ArrowLeft className="w-4 h-4" /> Все статьи
         </Link>
 
-        <article className="max-w-2xl">
+        <article>
           {article.topic && (
             <p className="text-xs font-semibold text-[var(--accent)] uppercase tracking-widest mb-2">
               {article.topic}
@@ -124,7 +127,7 @@ export default async function ArticlePage({ params }: Props) {
         </article>
 
         {next.length > 0 && (
-          <nav aria-labelledby="read-next" className="max-w-2xl mt-12">
+          <nav aria-labelledby="read-next" className="mt-12">
             <h2 id="read-next" className="ds-h2 mb-4">Читайте дальше</h2>
             <ul className="grid gap-3 sm:grid-cols-2">
               {next.map((a) => (
@@ -145,6 +148,7 @@ export default async function ArticlePage({ params }: Props) {
             </ul>
           </nav>
         )}
+      </div>
       </main>
     </>
   );

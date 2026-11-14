@@ -73,6 +73,30 @@ const MIGRATED = [
   'app/collections/_CollectionsClient.tsx',
   'app/accommodations/_AccommodationsClient.tsx',
   'app/gear/_GearClient.tsx',
+  // Третья партия (14.11): чтение и формы — 768, погода — карточка 1152.
+  'app/faq/_FaqClient.tsx',
+  'app/help/page.tsx',
+  'app/legal/offer/page.tsx',
+  'app/legal/privacy/page.tsx',
+  'app/legal/terms/page.tsx',
+  'app/mcp/page.tsx',
+  'app/plans/page.tsx',
+  'app/plans/[slug]/page.tsx',
+  'app/svodka/page.tsx',
+  'app/eco/page.tsx',
+  'app/prepare/page.tsx',
+  'app/safety/communication/page.tsx',
+  'app/blog/[slug]/page.tsx',
+  'app/articles/[slug]/page.tsx',
+  'app/letopis/[slug]/page.tsx',
+  'app/menu/page.tsx',
+  'app/contact/_ContactClient.tsx',
+  'app/places/[id]/review/page.tsx',
+  'app/trip-group/_NewTripGroupClient.tsx',
+  'app/transfers/[slug]/review/page.tsx',
+  'app/partner-consent/page.tsx',
+  'app/offline/manage/page.tsx',
+  'components/weather/WeatherView.tsx',
 ];
 
 describe('запрет: переведённая страница не держит свою ширину', () => {
@@ -83,6 +107,6 @@ describe('запрет: переведённая страница не держ�
   });
 
   it('реестр не сокращается', () => {
-    expect(MIGRATED.length).toBeGreaterThanOrEqual(13);
+    expect(MIGRATED.length).toBeGreaterThanOrEqual(36);
   });
 });

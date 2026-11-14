@@ -1,4 +1,5 @@
 import type { Metadata } from 'next';
+import { pageContainer } from '@/lib/layout/page-width';
 import Link from 'next/link';
 import {
   ClipboardCheck, TreePine, Mountain, Radio, ShieldAlert, CloudRain, Phone, Backpack, WifiOff,
@@ -119,7 +120,7 @@ export default function PreparePage() {
       <Header />
       <FAQJsonLd questions={faq} />
       <main className="pb-16">
-        <section className="max-w-3xl mx-auto px-4 pt-12 pb-8">
+        <section className={`${pageContainer('reading')} pt-12 pb-8`}>
           <p className="ds-label">Перед поездкой</p>
           <h1 className="font-playfair font-bold text-4xl md:text-5xl text-[var(--text-primary)] leading-tight mt-2">
             {TITLE}
@@ -130,7 +131,7 @@ export default function PreparePage() {
           </p>
         </section>
 
-        <div className="max-w-3xl mx-auto px-4 space-y-4">
+        <div className={`${pageContainer('reading')} space-y-4`}>
           <Card icon={<ClipboardCheck className="w-5 h-5" />} title="Зарегистрируйте группу в МЧС">
             <p className="font-semibold text-[var(--text-primary)]">{MCHS_DEADLINE_SHORT}.</p>
             <p className="font-semibold text-[var(--text-primary)]">{MCHS_AFTER_RETURN}</p>
@@ -238,7 +239,7 @@ export default function PreparePage() {
           </Card>
         </div>
 
-        <section className="max-w-3xl mx-auto px-4 mt-10">
+        <section className={`${pageContainer('reading')} mt-10`}>
           <p className="text-xs text-[var(--text-muted)] leading-relaxed border-t border-[var(--border)] pt-5">
             Памятка не заменяет инструктаж гида и регистрацию в МЧС. Если сведения ведомства
             расходятся с этой страницей, верно ведомство — напишите нам, и мы обновим справочник.
