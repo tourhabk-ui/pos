@@ -15,6 +15,7 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { requireRole } from '@/lib/auth/middleware';
 import { isS3Configured, uploadToS3 } from '@/lib/storage/s3';
+import { uploadFocusMark } from '@/lib/images/upload-focus';
 import { preparePhoto, photoRefusal, uploadBodyTooLarge, UPLOAD_PHOTO_MAX_BYTES, PHOTO_TOO_LARGE } from '@/lib/images/upload-photo';
 import path from 'path';
 import fs from 'fs/promises';
@@ -79,7 +80,8 @@ export async function POST(request: NextRequest) {
     // Safe filename: hash-based to avoid collisions. Всегда .jpg: после
     // подготовки это JPEG, какой бы файл ни прислали.
     const hash = crypto.createHash('sha256').update(buffer).digest('hex').slice(0, 12);
-    const safeName = `tour_${hash}.jpg`;
+    const mark = await uploadFocusMark(buffer, 'upload/tour-photo');
+    const safeName = `tour_${hash}${mark}.jpg`;
     const s3Key = `images/tours/${safeName}`;
 
     let servePath: string;
