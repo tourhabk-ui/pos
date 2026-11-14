@@ -289,3 +289,30 @@ describe('П2: галочка согласия', () => {
     expect(src).toMatch(/проверка в обработчике submit/);
   });
 });
+
+describe('условия отмены под итогом — рендером (#3347)', () => {
+  beforeEach(() => { fetchMock.mockReset(); mockApi([]); });
+
+  it('условий нет, оплату платформа не принимает — форма не обещает «вернём всю сумму»', async () => {
+    expect(PLATFORM_ACCEPTS_PAYMENTS, 'тест написан под выключенную оплату: включили — перепишите ожидание').toBe(false);
+    const { container } = render(
+      <BookingFormClient tourId={27} basePrice={13000} cancellationTerms={{ freeDays: null, lateRefundPercent: null }} />,
+    );
+    const line = await waitFor(() => {
+      const el = container.querySelector('[data-cancellation-terms]');
+      expect(el).not.toBeNull();
+      return el!;
+    });
+    expect(line.textContent).toContain('Условия отмены оператор не записал — уточните их у оператора');
+    expect(line.textContent).not.toContain('вернём');
+  });
+
+  it('условия записаны — строка называет их, как раньше', async () => {
+    const { container } = render(
+      <BookingFormClient tourId={27} basePrice={13000} cancellationTerms={{ freeDays: 3, lateRefundPercent: 50 }} />,
+    );
+    await waitFor(() => expect(container.querySelector('[data-cancellation-terms]')).not.toBeNull());
+    expect(container.querySelector('[data-cancellation-terms]')!.textContent)
+      .toBe('Бесплатная отмена не позднее чем за 3 дня до тура, позже возвращается 50%.');
+  });
+});

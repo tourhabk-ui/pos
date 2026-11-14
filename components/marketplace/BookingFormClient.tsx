@@ -16,7 +16,7 @@ import { PdConsentCheckbox } from '@/components/legal/PdConsentCheckbox';
 import { normalizePhone } from '@/lib/mcp/normalize-phone';
 import { funnelBeacon } from '@/lib/funnel/beacon';
 import { agentReferralForBooking } from '@/lib/referral/agent-link';
-import { cancellationTermsLine, type TourRefundTerms } from '@/lib/payments/tour-refund';
+import { cancellationTermsForForm, type TourRefundTerms } from '@/lib/payments/tour-refund';
 import { platformAcceptsPayments } from '@/lib/payments/accepting';
 import { BOOKING_FORM_MAX_PARTICIPANTS } from '@/lib/tours/group-size';
 
@@ -750,10 +750,11 @@ export default function BookingFormClient({ tourId, basePrice, maxParticipants =
             </p>
           )}
           {/* Условия отмены до отправки — как у тарифа в модуле отеля. Тем же
-              правилом, что и настоящий возврат (computeTourRefund). */}
+              правилом, что и настоящий возврат (computeTourRefund). Пока
+              оплату платформа не принимает, возврата она не обещает (#3347). */}
           {cancellationTerms && (
             <p className="mt-1.5 text-xs text-[var(--text-secondary)] leading-snug" data-cancellation-terms>
-              {cancellationTermsLine(cancellationTerms, formData.booking_date || null)}
+              {cancellationTermsForForm(cancellationTerms, formData.booking_date || null, platformAcceptsPayments())}
             </p>
           )}
         </div>

@@ -93,7 +93,9 @@ const GAPPED = [
   day(1, 'arrival', 'Прилёт днём'),
   day(2, 'activity', 'Авачинский вулкан', { realTour: tour('t-1'), realPrice: 10000, availableDate: '2030-08-02', slotsRemaining: 6 }),
   day(3, 'activity', 'Мутновский вулкан', { realTour: tour('t-2'), realPrice: 12000, availableDate: '2030-08-03' }),
-  day(4, 'activity', 'Прогулка у океана', { activityType: 'sea' }),
+  // Выбор транспорта есть только у дня, которому движок разрешил больше
+  // одного вида (#3347): экран читает `allowedTransports` дня, а не зону.
+  day(4, 'activity', 'Прогулка у океана', { activityType: 'sea', allowedTransports: ['walking', 'jeep'] }),
   day(6, 'departure', 'Сборы и вылет'),
 ];
 // Без дыр: прилёт 01.08, отъезд 04.08.

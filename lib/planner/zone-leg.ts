@@ -106,18 +106,39 @@ export function legShortfallMessage(
   cost: ZoneLegCost,
   daysLeft: number,
   interestNames: string[],
+  /**
+   * Занятия из `interestNames`, у которых день в плане всё же есть — в другой
+   * зоне (#3347). «Рыбалка — Западная зона в план не вошла» при рыболовном
+   * туре в плане читалось как «рыбалки нет»: теперь сказано, что она есть.
+   */
+  servedNames: string[] = [],
 ): string {
   const zone = ZONE_NAMES[to] ?? to;
   const what = interestNames.length > 0 ? `${interestNames.join(', ')} — ` : '';
   if (!cost.reachable) {
-    return `${what}${zone}: дороги отсюда нет в нашем графе зон, поэтому в план её не поставили. `
-      + 'Спросите оператора: вертолётный заход может существовать вне наших данных.';
+    return capFirst(`${what}${zone}: дороги отсюда нет в нашем графе зон, поэтому в план её не поставили. `
+      + 'Спросите оператора: вертолётный заход может существовать вне наших данных.');
   }
   const parts = [
     cost.travelIn > 0 ? 'день на переезд' : null,
     `${cost.stay} ${cost.stay === 1 ? 'день' : 'дня'} на месте`,
     cost.travelBack > 0 ? 'день на возвращение' : null,
   ].filter(Boolean).join(' + ');
-  return `${what}${zone} в план не вошла: на неё нужно ${cost.total} ${cost.total === 1 ? 'день' : 'дня'} `
-    + `(${parts}), а свободных осталось ${daysLeft}. Добавьте дни к поездке или выберите занятие ближе к городу.`;
+  const shortfall = `${what}${zone} в план не вошла: на неё нужно ${cost.total} ${cost.total === 1 ? 'день' : 'дня'} `
+    + `(${parts}), а свободных осталось ${daysLeft}.`;
+  const served = servedNames.filter((n) => interestNames.includes(n));
+  const unserved = interestNames.filter((n) => !served.includes(n));
+  // Всё, ради чего была зона, в плане уже стоит — совет «выберите занятие
+  // ближе к городу» был бы не к месту: оно выбрано.
+  if (served.length > 0 && unserved.length === 0) {
+    return capFirst(`${shortfall} ${capFirst(served.join(', '))} в плане есть — в другой зоне. `
+      + 'Хотите именно сюда — добавьте дни к поездке.');
+  }
+  const servedNote = served.length > 0 ? ` ${capFirst(served.join(', '))} в плане есть — в другой зоне.` : '';
+  return capFirst(`${shortfall}${servedNote} Добавьте дни к поездке или выберите занятие ближе к городу.`);
+}
+
+/** Предупреждение начинается с заглавной: имена занятий в данных строчные. */
+function capFirst(s: string): string {
+  return s.charAt(0).toUpperCase() + s.slice(1);
 }

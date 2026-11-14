@@ -65,6 +65,10 @@ export async function generateMetadata({ params }: PageProps): Promise<Metadata>
   return {
     title: `${trip.title}${dateRange}`,
     description: `Маршрут по Камчатке на ${Array.isArray(trip.days) ? trip.days.length : 0} дней. Открой и создай свой!`,
+    // Ссылка — для тех, кому её дали (#3347, 14.11): в карточке поездки она
+    // так и названа — «ссылка для близких». В поисковой выдаче плану чужой
+    // поездки с датами не место; превью в мессенджере (openGraph) остаётся.
+    robots: { index: false, follow: false },
     openGraph: {
       title: `${trip.title} — маршрут по Камчатке`,
       description: `${Array.isArray(trip.days) ? trip.days.length : 0} дней · vedarai.ru`,

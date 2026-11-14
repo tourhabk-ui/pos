@@ -118,6 +118,21 @@ describe('смета с машиной напрокат (E7, волна 2.5)', (
   });
 });
 
+describe('сводка анкеты над планом (#3347)', () => {
+  it('значения строк не обрезаются многоточием: даты и интересы видны целиком', async () => {
+    await buildPlan();
+    const when = document.querySelector('[data-summary-value="1"]')!;
+    const what = document.querySelector('[data-summary-value="4"]')!;
+    expect(when.textContent).toMatch(/1 авг.* — 3 авг.*3 дня/);
+    expect(what.textContent).toBe('Вулканы');
+    for (const el of [when, what]) {
+      const cls = el.className.split(/\s+/);
+      expect(cls, 'обрезка одной строкой прячет даты на телефоне').not.toContain('truncate');
+      expect(cls).not.toContain('line-clamp-1');
+    }
+  });
+});
+
 describe('повтор сохранения — та же поездка (H12)', () => {
   it('ответ потерялся — второй POST с тем же ключом; после успеха — правка, а не новая поездка', async () => {
     await buildPlan();
@@ -155,6 +170,20 @@ describe('«Поделиться» сначала сохраняет (H10)', () 
     expect(await screen.findByText('https://vedarai.ru/trip/abc', { exact: false })).toBeTruthy();
     expect(tripPosts()).toHaveLength(1);
     expect(calls((u) => u.endsWith('/share'))).toHaveLength(1);
+  });
+
+  it('панель со ссылкой говорит, что ссылка открытая, и MAX делится самим маршрутом (#3347)', async () => {
+    await buildPlan();
+    fireEvent.click(screen.getByTitle('Поделиться маршрутом'));
+    await screen.findByText('https://vedarai.ru/trip/abc', { exact: false });
+    expect(screen.getByText(/По этой ссылке план увидит любой, у кого она есть/)).toBeTruthy();
+    expect(screen.getByText(/состава группы, рейсов и контактов в нём нет/)).toBeTruthy();
+    const max = screen.getByRole('link', { name: 'MAX' }) as HTMLAnchorElement;
+    const u = new URL(max.href);
+    expect(u.origin + u.pathname).toBe('https://max.ru/:share');
+    expect(u.searchParams.get('text')).toContain('https://vedarai.ru/trip/abc');
+    const tg = screen.getByRole('link', { name: 'Telegram' }) as HTMLAnchorElement;
+    expect(new URL(tg.href).searchParams.get('url')).toContain('https://vedarai.ru/trip/abc');
   });
 
   it('с сохранённой — сначала правка с текущим планом, потом ссылка', async () => {

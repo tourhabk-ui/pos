@@ -139,15 +139,51 @@ export function departureDatesWords(dates: readonly string[]): string {
   return sorted.length > shown.length ? `${head} и ещё ${sorted.length - shown.length}` : head;
 }
 
+/** Дни поездки, куда план туры не ставит: день прилёта и день вылета. */
+export interface TripEdgeDates {
+  arrival: string | null;
+  departure: string | null;
+}
+
+/**
+ * Все ли выезды тура в поездке приходятся на день прилёта или вылета.
+ * `null` — нет: причина другая (или дат нет вовсе).
+ */
+export function edgeOnlyDeparture(dates: readonly string[], edges: TripEdgeDates): 'arrival' | 'departure' | 'both' | null {
+  if (dates.length === 0) return null;
+  const onArrival = dates.filter((d) => edges.arrival !== null && d === edges.arrival).length;
+  const onDeparture = dates.filter((d) => edges.departure !== null && d === edges.departure).length;
+  if (onArrival + onDeparture !== dates.length) return null;
+  return onArrival > 0 && onDeparture > 0 ? 'both' : onArrival > 0 ? 'arrival' : 'departure';
+}
+
+const EDGE_WORDS = { arrival: 'день прилёта', departure: 'день вылета', both: 'дни прилёта и вылета' } as const;
+
 /**
  * Строка «Важно» про туры, которым не нашлось дня с выездом.
  * Пусто — строки нет.
+ *
+ * `edges` — даты прилёта и вылета (#3347, 14.11). Тур, чей единственный выезд
+ * приходится на день прилёта, получал общий совет «переставьте день плана на
+ * дату выезда», а исполнить его нельзя: в день прилёта план туры не ставит.
+ * Теперь причина названа словами.
  */
-export function offDaysWarning(offDays: ReadonlyArray<{ title: string; dates: readonly string[] }>): string | null {
+export function offDaysWarning(
+  offDays: ReadonlyArray<{ title: string; dates: readonly string[] }>,
+  edges: TripEdgeDates = { arrival: null, departure: null },
+): string | null {
   if (offDays.length === 0) return null;
-  const withDates = offDays.filter((t) => t.dates.length > 0);
+  const dated = offDays.filter((t) => t.dates.length > 0);
+  const onEdge = dated.filter((t) => edgeOnlyDeparture(t.dates, edges) !== null);
+  const withDates = dated.filter((t) => edgeOnlyDeparture(t.dates, edges) === null);
   const noDates = offDays.filter((t) => t.dates.length === 0);
   const parts: string[] = [];
+  if (onEdge.length > 0) {
+    parts.push(`Не встали в план — выезд тура приходится на день, куда план туры не ставит: ${onEdge
+      .slice(0, 3)
+      .map((t) => `«${t.title}» (выезд ${departureDatesWords(t.dates)} — ${EDGE_WORDS[edgeOnlyDeparture(t.dates, edges) ?? 'arrival']})`)
+      .join('; ')}${onEdge.length > 3 ? ` и ещё ${onEdge.length - 3}` : ''}. Хотите тур — сдвиньте даты поездки или спросите оператора о другой дате.`);
+  }
   if (withDates.length > 0) {
     parts.push(`Не встали в план — в дни этих занятий у тура нет выезда: ${withDates
       .slice(0, 3)

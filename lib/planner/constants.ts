@@ -84,6 +84,31 @@ export interface ActivityConstraints {
   requiresPermit?: string;
   requiresLicense?: boolean;
   safetyNotes?: string[];
+  /**
+   * Совет по снаряжению, верный только в месяцы `months` (#3347, 14.11).
+   * «Трекинговые ботинки, дождевик» стоял на дне «Вулканы» и в феврале — рядом
+   * с предупреждением, что это не сезон. Вне сезона день говорит
+   * OFF_SEASON_GEAR_NOTE: снаряжение называет оператор.
+   */
+  seasonGearNote?: string;
+}
+
+/** Вместо совета по снаряжению, когда день стоит вне сезона занятия. */
+export const OFF_SEASON_GEAR_NOTE =
+  'Снаряжение на это время года назовёт оператор: наш список — для сезона, а сейчас не сезон.';
+
+/**
+ * Советы дня по занятию. Совет по снаряжению — только в сезон занятия;
+ * вне сезона вместо него сказано, что список называет оператор.
+ */
+export function activityDayNotes(
+  c: Pick<ActivityConstraints, 'months' | 'safetyNotes' | 'seasonGearNote'>,
+  month: number,
+): string[] {
+  const notes: string[] = [];
+  if (c.seasonGearNote) notes.push(c.months.includes(month) ? c.seasonGearNote : OFF_SEASON_GEAR_NOTE);
+  if (c.safetyNotes) notes.push(...c.safetyNotes);
+  return notes;
 }
 
 export const ACTIVITY_CONSTRAINTS: Record<string, ActivityConstraints> = {
@@ -112,8 +137,8 @@ export const ACTIVITY_CONSTRAINTS: Record<string, ActivityConstraints> = {
     months: [7, 8, 9],
     seasonNote: 'Восхождение на Авачинский 8-10 часов, перепад 1500 м',
     pricePerPerson: [5000, 15000],
+    seasonGearNote: 'Обязательны: трекинговые ботинки, дождевик, слои одежды',
     safetyNotes: [
-      'Обязательны: трекинговые ботинки, дождевик, слои одежды',
       'Рекомендуется гид — активная вулканическая зона',
     ],
   },
