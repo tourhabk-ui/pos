@@ -1,8 +1,8 @@
 {
-  "timeout": 60,
+  "timeout": 90,
   "ua": "VedarBot/1.0 (+https://vedarai.ru)",
-  "run": 1027,
-  "note": "14.11: «Анализатор безопасности» (/tools/safety), вторая проба — маршрут. Только чтение, один POST. Номер карточки маршрута взят из ответа поиска маршрутов в пробе 1026 («SUP-маршрут вдоль сопки Никольской»). Ждём kind route с оценкой дня (label, status, reason) и cardId; телефона маршрута и полей прежней своей оценки в ответе быть не должно. Запроса с ожидаемым 404 здесь нет намеренно: проба читает 404 как «сборка ещё не выкатилась» и повторяет его до предела (так встала проба 1026).",
+  "run": 1028,
+  "note": "14.11. ТОЛЬКО ЧТЕНИЕ. #3333: Ксудач и Ходутка зелёные при закрытых маршрутах парка «Южно-Камчатский» — связи «место — парк» записаны по контуру OSM 21624150 (104 326 га), а парк по справочнику 2013 года — 486,9 тыс. га. Перечитываем источники, по которым 14.10 писалась карточка парка (пробы 869–871): разделы сайта парка «Вулканы», «Термальные и минеральные источники», «Памятники природы» и справку kamchatsky-krai.ru; спрашиваем у OSM, есть ли другие контуры охраняемых территорий юга (Overpass, Nominatim); выгружаем места четырёх клеток юга для сверки по именам. Записи нет ни одной.",
   "run1014_result": "kammeteo.ru отвечает раннеру 200 (nginx, UTF-8). На главной — ссылки «Прогноз погоды на ближайшие сутки» prognoz/prognozy1.php, «на 2-3 сутки» prognoz/prognozy2.php, «Обзор погодных условий за прошедшие сутки» prognoz/current.php; новости — декадные обзоры погоды по краю. RSS на главной нет. /forecast — 404, проба остановилась на нём (allowStale не стоял); meteoinfo.ru не дошли.",
   "run1015_result": "kammeteo.ru: prognozy1.php — прогноз на сутки по трём зонам (город, юг, север) с подписью синоптика; prognozy2.php — на 2–3 сутки; current.php — обзор за сутки; meteoinfo.ru 403. Внедрено: ugms_forecasts, /weather, Кузьмич (#2836).",
   "run1016_result": "visitkamchatka.ru отвечает раннеру 200 (Bitrix, Apache). RSS нет: /feed/ и /security/feed/ — 404 (HTML), /news/feed/ — 200, но это HTML-страница поиска, не RSS: прод-кандидаты NEWS_FEED_SOURCES мертвы молча. Серия в /news/: «Еженедельная сводка о доступности туристических объектов» 29.10 и 21.10 (slug …-22-10), «Оперативная сводка…» 10.09, 03.09, 13.08, 07.08, 30.07. Telegram портала — t.me/visitkamchatka41. Статья 20.08: природные парки, вулканы, дороги — построчно.",
@@ -14,34 +14,34 @@
   "run1022_result": "13.11 03:04 UTC, после выката блока о разрешении парка на карточке маршрута (#3317): на двух страницах слова как ожидалось. «Мыс Маячный» — «в базе Ведара не записано», «В парке нужны оба» и условие «если маршрут идёт по природному парку сети»; «Вилючинский водопад» — прежний заголовок и «Нужны оба.».",
   "run1023_result": "13.11 11:26 UTC, после выката отказов заявкам ИИ-агентов (#3327): оба вызова без записи ответили HTTP 200 и isError. get_tour_availability без поля tour — русская строка «нужно указать tour» и английская половина «Arguments failed validation — fix and call again: • tour — required field is missing» (новый ответ появился с 22-й попытки, в 11:26:18). change_request по несуществующему ключу с действием delete и датой 18.07.2027 — «Заявка не изменена» и «Request not changed», названы оба поля: action (allowed values: cancel, change_date) и date (invalid format).",
   "run1024_result": "13.11, 12:49 UTC: tools/list с прода — у get_request_status объявлено partner_messages, сказано о скрытых плейсхолдерами контактах, английская строка «No client name or phone» найдена, «No personal data» не найдена ни у одного инструмента; get_request_status по пробному ключу вернул ту же форму с partner_messages: null и state: test. Слов адресата проба не читала.",
-  "retries": 6,
+  "retries": 1,
   "allowStale": false,
-  "text": false,
-  "bytes": 1800,
+  "text": true,
+  "bytes": 45000,
   "grep": [
-    "\"kind\":\"route\"",
-    "cardId",
-    "\"label\":\"",
-    "\"status\":\"",
-    "\"reason\":\"",
-    "registrationRequired",
-    "mchs_phone",
-    "riskScore",
-    "kuzmichAssessment",
-    "Маршрут не найден"
+    "Ксудач",
+    "Ходутк",
+    "Асач",
+    "Желтовск",
+    "Опал",
+    "Южно-Камчатск",
+    "Ильинск"
   ],
   "count": [],
-  "urls": [],
-  "run1025_result": "14.11 00:37–00:39 UTC: страница коннектора Glama отвечает 200 и читает живой сервер (есть «requests, not bookings», create_trip_request, change_request); записи сервера @tourhabk-ui/vedar-mcp у Glama нет (404), её API без ключа — 401; запись Smithery отстала на два инструмента (нет create_trip_request и change_request, слова «booking requests»); официальный реестр MCP — 2.10.2 и 2.10.1; наш /.well-known/mcp.json — 2.10.2; страницы условий, политики и оферты отвечают 200 (редакции 05.10, 15.10, 05.10).",
-  "until": "\"kind\":\"route\"",
-  "retryDelay": 30,
-  "post": [
-    {
-      "url": "https://vedarai.ru/api/tools/safety",
-      "body": {
-        "routeId": "592c133b-8860-48df-b5db-0e4c251f4972"
-      }
-    }
+  "urls": [
+    "https://vulcanikamchatki.ru/territoriya/klaster_yuzhnokamchatskij/vulkany/",
+    "https://vulcanikamchatki.ru/territoriya/klaster_yuzhnokamchatskij/termalnye_i_mineralnye_istochniki/",
+    "https://vulcanikamchatki.ru/territoriya/klaster_yuzhnokamchatskij/pamyatniki_prirody/",
+    "https://www.kamchatsky-krai.ru/geography/oopt/parks/south-kamchatka.htm",
+    "https://overpass-api.de/api/interpreter?data=%5Bout%3Ajson%5D%5Btimeout%3A60%5D%3B%28relation%5B%22boundary%22~%22protected_area%7Cnational_park%22%5D%2851.2%2C156.3%2C52.9%2C158.9%29%3B%29%3Bout%20tags%20bb%3B",
+    "https://nominatim.openstreetmap.org/search?q=%D0%AE%D0%B6%D0%BD%D0%BE-%D0%9A%D0%B0%D0%BC%D1%87%D0%B0%D1%82%D1%81%D0%BA%D0%B8%D0%B9%20%D0%BF%D1%80%D0%B8%D1%80%D0%BE%D0%B4%D0%BD%D1%8B%D0%B9%20%D0%BF%D0%B0%D1%80%D0%BA&format=jsonv2&limit=20&extratags=1",
+    "https://vedarai.ru/api/cron/places-export?region=cell-51n157e",
+    "https://vedarai.ru/api/cron/places-export?region=cell-52n157e",
+    "https://vedarai.ru/api/cron/places-export?region=cell-51n158e",
+    "https://vedarai.ru/api/cron/places-export?region=cell-52n158e"
   ],
-  "run1026_result": "14.11 04:17–04:18 UTC, новая сборка (подпись страницы найдена с 28-й попытки). Вне края (43.1, 131.9) — kind outside. Точка у Авачинского (53.2557, 158.8322) — kind place, «Вулкан Авачинский», distanceKm 0, пересчёт красный: закрытие маршрутов природных парков на межсезонье; код вулкана зелёный. Океан восточнее полуострова (52.9, 160.9) — kind far: «Мыс Шипунский», 62 км, оценки нет. Центр Петропавловска — kind place, «Краевой художественный музей», зелёный, предупреждений нет. Полей riskScore, kuzmichAssessment, recommendations, emergencyTip нет ни в одном ответе. Несуществующий маршрут ответил 404 — и проба на нём встала: повторяла запрос, пока прогон не снял предел в 70 минут (итог прогона — cancelled). Это ошибка маркера, не сайта."
+  "run1025_result": "14.11 00:37–00:39 UTC: страница коннектора Glama отвечает 200 и читает живой сервер (есть «requests, not bookings», create_trip_request, change_request); записи сервера @tourhabk-ui/vedar-mcp у Glama нет (404), её API без ключа — 401; запись Smithery отстала на два инструмента (нет create_trip_request и change_request, слова «booking requests»); официальный реестр MCP — 2.10.2 и 2.10.1; наш /.well-known/mcp.json — 2.10.2; страницы условий, политики и оферты отвечают 200 (редакции 05.10, 15.10, 05.10).",
+  "retryDelay": 20,
+  "run1026_result": "14.11 04:17–04:18 UTC, новая сборка (подпись страницы найдена с 28-й попытки). Вне края (43.1, 131.9) — kind outside. Точка у Авачинского (53.2557, 158.8322) — kind place, «Вулкан Авачинский», distanceKm 0, пересчёт красный: закрытие маршрутов природных парков на межсезонье; код вулкана зелёный. Океан восточнее полуострова (52.9, 160.9) — kind far: «Мыс Шипунский», 62 км, оценки нет. Центр Петропавловска — kind place, «Краевой художественный музей», зелёный, предупреждений нет. Полей riskScore, kuzmichAssessment, recommendations, emergencyTip нет ни в одном ответе. Несуществующий маршрут ответил 404 — и проба на нём встала: повторяла запрос, пока прогон не снял предел в 70 минут (итог прогона — cancelled). Это ошибка маркера, не сайта.",
+  "run1027_result": "14.11 05:02 UTC, после выката общей оценки в «Анализаторе безопасности» (#3350): маршрут по номеру карточки 592c133b-… — kind route, оценка «Идти», hazards [], registrationRequired true; mchs_phone и riskScore в ответе нет."
 }
