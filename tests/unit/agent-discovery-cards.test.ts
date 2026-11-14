@@ -29,7 +29,7 @@ import {
   SERVER_CARD_SCHEMA, SERVER_CARD_MEDIA_TYPE, AI_CATALOG_MEDIA_TYPE, A2A_CARD_MEDIA_TYPE,
   SERVER_CARD_PATH, AI_CATALOG_PATH, AI_CATALOG_SPEC_VERSION,
 } from '@/lib/mcp/server-card';
-import { A2A_CATALOGS, A2A_REGISTRY_AGENT_ID } from '@/lib/a2a/catalogs';
+import { A2A_CATALOGS, A2A_REGISTRY_AGENT_ID, A2A_DASH_REGISTRY_AGENT_ID, publicCatalogEntry, catalogLine } from '@/lib/a2a/catalogs';
 import { AGENT_CARD_PATH, LEGACY_AGENT_CARD_PATH, A2A_PROTOCOL_VERSION, A2A_LEGACY_PROTOCOL_VERSION } from '@/lib/a2a/agent-card';
 import { AGENT_ENTRY_PATHS } from '@/lib/analytics/agent-entry-paths';
 
@@ -144,16 +144,35 @@ describe('AI Catalog домена', () => {
 describe('реестр A2A', () => {
   it('запись с id, адресом страницы, датой и статусом на момент регистрации', () => {
     expect(A2A_REGISTRY_AGENT_ID).toMatch(/^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/);
-    expect(A2A_CATALOGS).toHaveLength(1);
-    expect(A2A_CATALOGS[0]).toMatchObject({
+    const pending = A2A_CATALOGS.find((c) => c.id === A2A_REGISTRY_AGENT_ID);
+    expect(pending).toMatchObject({
       catalog: expect.stringContaining('a2aregistry.org'),
-      id: A2A_REGISTRY_AGENT_ID,
       url: `https://a2aregistry.org/agents/${A2A_REGISTRY_AGENT_ID}`,
       registered_at: '2026-10-12',
       status_at_registration: 'under_review',
+      listing: 'pending_review',
     });
     // Статус — поле «на момент регистрации», не «сейчас»: сегодняшний знает только реестр.
-    expect(Object.keys(A2A_CATALOGS[0])).not.toContain('status');
+    for (const c of A2A_CATALOGS) expect(Object.keys(c)).not.toContain('status');
+  });
+
+  /**
+   * Слово владельца 14.11 «только где проверена»: называем запись, страницу
+   * которой прочитали открытой, со ссылкой и датой проверки; заявку без
+   * увиденной записи — без ссылки. Каталог с непроверенным владением
+   * (AgentPeering) не называется вовсе.
+   */
+  it('проверенная запись — со ссылкой и датой проверки, заявка — без ссылки', () => {
+    const listed = A2A_CATALOGS.filter((c) => c.listing === 'listed');
+    expect(listed.map((c) => c.url)).toEqual([`https://www.a2a-registry.org/agent/${A2A_DASH_REGISTRY_AGENT_ID}`]);
+    expect(listed[0]!.checked).toMatch(/^2026-11-14: /);
+    expect(publicCatalogEntry(listed[0]!).url).toBe(listed[0]!.url);
+    for (const c of A2A_CATALOGS.filter((x) => x.listing !== 'listed')) {
+      expect(publicCatalogEntry(c)).not.toHaveProperty('url');
+      expect(catalogLine(c)).not.toContain(c.url);
+      expect(catalogLine(c)).toContain('заявка подана');
+    }
+    expect(JSON.stringify(A2A_CATALOGS).toLowerCase()).not.toContain('agentpeering');
   });
 });
 
@@ -163,10 +182,12 @@ describe('поверхности называют карточку, катало
     const json = await (await GET()).json();
     expect(json.serverCard).toMatch(/\/api\/mcp\/server-card$/);
     expect(json.aiCatalog).toMatch(/\/\.well-known\/ai-catalog\.json$/);
-    expect(json.a2a.catalogs).toEqual(
-      A2A_CATALOGS.map(({ url: _url, ...c }) => ({ ...c, listing: 'pending_review' })),
-    );
-    expect(JSON.stringify(json)).not.toContain(A2A_CATALOGS[0].url);
+    expect(json.a2a.catalogs).toEqual(A2A_CATALOGS.map(publicCatalogEntry));
+    const text = JSON.stringify(json);
+    for (const c of A2A_CATALOGS) {
+      if (c.listing === 'listed') expect(text).toContain(c.url);
+      else expect(text).not.toContain(c.url);
+    }
   });
 
   it('llms.txt: карточка, каталог и реестр', async () => {
@@ -174,9 +195,12 @@ describe('поверхности называют карточку, катало
     const text = await (await GET()).text();
     expect(text).toContain(`${BASE}/api/mcp/server-card`);
     expect(text).toContain(`${BASE}/.well-known/ai-catalog.json`);
-    expect(text).toContain(A2A_CATALOGS[0].id);
-    // Пока запись на проверке, страницы реестра нет (404) — ссылку не публикуем.
-    expect(text).not.toContain(A2A_CATALOGS[0].url);
+    for (const c of A2A_CATALOGS) {
+      expect(text).toContain(c.id);
+      // Ссылка — только у записи, прочитанной открытой; у заявки страницы нет (404).
+      if (c.listing === 'listed') expect(text).toContain(c.url);
+      else expect(text).not.toContain(c.url);
+    }
     expect(text).toMatch(/MCP Server Card/);
   });
 

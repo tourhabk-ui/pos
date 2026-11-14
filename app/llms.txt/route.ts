@@ -16,7 +16,7 @@ import { llmsSectionZh } from '@/lib/mcp/zh-layer';
 import { paymentRule, paymentRuleEn } from '@/lib/mcp/payment-rule';
 import { agentRequestRulesRu, agentRequestRulesEn } from '@/lib/mcp/agent-request-rules';
 import { platformAcceptsPayments } from '@/lib/payments/accepting';
-import { A2A_CATALOGS } from '@/lib/a2a/catalogs';
+import { A2A_CATALOGS, catalogLine } from '@/lib/a2a/catalogs';
 import { OPENAPI_PATH, API_CATALOG_PATH } from '@/lib/api/openapi';
 import { NOTIFY_RESPONSE_RULES } from '@/lib/mcp/request-notify-schema';
 import { ANSWER_RELAY_RULE } from '@/lib/mcp/request-status-schema';
@@ -417,8 +417,7 @@ ${parks.length ? parks.map((p) => `- [${p.displayName}](${BASE}/park/${p.slug})`
   ключ подписи — в ответе один раз; состояние без уведомлений — get_request_status
 - English: A2A agent card ${BASE}/.well-known/agent-card.json; JSON-RPC
   ${BASE}/api/a2a, REST ${BASE}/api/a2a/v1; free text or DataPart tool calls; no auth.
-- Реестр A2A: ${A2A_CATALOGS.map((c) => `${c.catalog} — заявка подана ${c.registered_at.split('-').reverse().join('.')}, id ${c.id}`).join('; ')};
-  запись на проверке реестром, публичной страницы пока нет
+- Реестры A2A: ${A2A_CATALOGS.map(catalogLine).join('; ')}
 
 ## Для AI-агентов: REST и OpenAPI (без MCP и A2A)
 
