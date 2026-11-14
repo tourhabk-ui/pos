@@ -257,6 +257,7 @@ export function TripDetailClient({ tripId }: { tripId: string }) {
             ...(trip && tripPlanForLead(trip) ? { plan: tripPlanForLead(trip) } : {}),
           },
           pd_consent: true,
+          pd_consent_purpose: 'operators',
         }),
       });
       const data = await res.json();
@@ -460,7 +461,7 @@ export function TripDetailClient({ tripId }: { tripId: string }) {
                 <p className="text-xs text-[var(--danger)]">{formError}</p>
               </div>
             )}
-            <PdConsentCheckbox checked={pdConsent} onChange={setPdConsent} id="pd-consent-trip" />
+            <PdConsentCheckbox checked={pdConsent} onChange={setPdConsent} id="pd-consent-trip" purpose="operators" />
             <button onClick={submitLead} disabled={submitting || !pdConsent}
               className="w-full ds-btn ds-btn-primary py-2.5 font-semibold disabled:opacity-50 flex items-center justify-center gap-2">
               {submitting ? <><Loader className="w-4 h-4 animate-spin" />Отправляем...</> : <>

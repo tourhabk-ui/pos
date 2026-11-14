@@ -255,6 +255,7 @@ export default function HomeV8Client({ data, weather }: { data: HomeV8Data; weat
           comment: interests.length ? `Интересы: ${interests.join(', ')}` : undefined,
           source_url: typeof window !== 'undefined' ? window.location.pathname : undefined,
           pd_consent: true,
+          pd_consent_purpose: 'operators',
         }),
       });
       if (!res.ok) throw new Error('fail');
@@ -835,7 +836,7 @@ export default function HomeV8Client({ data, weather }: { data: HomeV8Data; weat
               </div>
             </div>
             <div className="fine">
-              <PdConsentCheckbox checked={pdConsent} onChange={setPdConsent} id="pd-consent-home" />
+              <PdConsentCheckbox checked={pdConsent} onChange={setPdConsent} id="pd-consent-home" purpose="operators" />
             </div>
             {err && <div className="err" role="alert">{err}</div>}
             <div className="fine">Данные уходят только операторам по вашему запросу. Без спама.</div>
