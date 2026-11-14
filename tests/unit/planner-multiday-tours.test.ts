@@ -103,7 +103,9 @@ describe('тур занимает свои дни, а платится один 
     expect(at, 'цикла продолжения нет').toBeGreaterThan(0);
     const head = ENGINE.slice(at, at + 200);
     expect(head).toContain('used + extra <= block.activeDays');
-    expect(head).toContain('dayNum <= tripDays - departureDays');
+    // С 14.11 срок — последний день блока: день отъезда и, из дальней зоны,
+    // день возвращения (lastDay).
+    expect(head).toContain('dayNum <= lastDay');
   });
 });
 
@@ -160,9 +162,10 @@ describe('цикл завершается сам', () => {
       // С 07.11 у интереса свой курсор материала (m.cursor, Б1): он двигается
       // вместе с d везде, где материал уже взят. С 08.11 продвижение — и
       // снятый из очереди тур: очередь конечна, а считать такой оборот
-      // бесплодным значило закрывать блок раньше подходящего тура.
+      // бесплодным значило закрывать блок раньше подходящего тура. С 14.11 —
+      // и пропущенный день вне сезона (dayNum++): цикл ограничен lastDay.
       expect(before, `continue без продвижения: ${before.slice(-60)}`)
-        .toMatch(/(?:d\+\+;\s*(?:m\.cursor\+\+;\s*)?barren\+\+;|m\.tours\.splice\(m\.tours\.indexOf\(realTour\), 1\);)\s*$/);
+        .toMatch(/(?:d\+\+;\s*(?:m\.cursor\+\+;\s*)?barren\+\+;|m\.tours\.splice\(m\.tours\.indexOf\(realTour\), 1\);|dayNum\+\+;)\s*$/);
     }
   });
 

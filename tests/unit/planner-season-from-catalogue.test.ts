@@ -33,6 +33,7 @@ import { readFileSync } from 'node:fs';
 import { join } from 'node:path';
 import { ACTIVITY_ALIASES, ACTIVITY_CONSTRAINTS, rawTypesFor, normalizeActivity } from '@/lib/planner/constants';
 import { inSeasonInterests, buildRefusal } from '@/lib/kuzmich/trip-plan-tool';
+import { buildTripSeason, inSeasonIn } from '@/lib/planner/trip-season';
 
 const ROOT = process.cwd();
 const ENGINE = readFileSync(join(ROOT, 'lib/planner/engine.ts'), 'utf8');
@@ -79,28 +80,37 @@ describe('каталог расширяет сезонное окно', () => {
   });
 
   it('таблица остаётся полом: каталог только добавляет', () => {
-    const fn = ENGINE.slice(ENGINE.indexOf('function inSeason('), ENGINE.indexOf('function openedByCatalogueOnly'));
-    expect(fn).toContain('if (c.months.includes(month)) return true;');
-    expect(fn).toMatch(/catalogueOpen\?\.has\(interest\) \?\? false/);
+    // Правило — вызовом (с 14.11 оно в lib/planner/trip-season, по месяцу дня).
+    const empty = buildTripSeason([7, 10], new Map([[7, new Set<string>()], [10, new Set<string>()]]), new Set());
+    expect(inSeasonIn(empty, 'fishing', 7)).toBe(true);
+    expect(inSeasonIn(empty, 'fishing', 10)).toBe(false);
+    const autumn = buildTripSeason([10], new Map([[10, new Set(['fishing'])]]), new Set());
+    expect(inSeasonIn(autumn, 'fishing', 10)).toBe(true);
+    // Каталог не прочитался — действует один пол, а не «всё открыто».
+    const unread = buildTripSeason([7, 10], new Map([[7, null], [10, null]]), null);
+    expect(inSeasonIn(unread, 'fishing', 7)).toBe(true);
+    expect(inSeasonIn(unread, 'fishing', 10)).toBe(false);
   });
 
   it('сезон спрашивается ОДИН раз и кормит все три места, где он решает', () => {
     // Разойдясь, они дали бы план с рыбалкой и отказ про несезонную рыбалку
     // в одном ответе.
-    expect(ENGINE).toMatch(/const scheduledOpen = await fetchActivitiesBookableInMonth\(month, cache\)/);
+    // С 14.11 — по каждому месяцу поездки: записи операторов спрашиваются
+    // одним местом за каждый месяц и собираются в один сезон поездки.
+    expect(ENGINE).toMatch(/for \(const m of months\) scheduled\.set\(m, await fetchActivitiesBookableInMonth\(m, cache\)\)/);
     expect(ENGINE.match(/fetchActivitiesBookableInMonth\(/g)).toHaveLength(1);
-    // Туры без календаря (08.10) подмешиваются в тот же единственный набор,
+    // Туры без календаря (08.10) подмешиваются в тот же единственный сезон,
     // а не становятся вторым свидетелем, которого одно из трёх мест не спросит.
-    expect(ENGINE).toMatch(/const catalogueOpen = scheduledOpen === null \? null : new Set\(\[\.\.\.scheduledOpen, \.\.\.\(onRequest \?\? \[\]\)\]\)/);
+    expect(ENGINE).toMatch(/const season = buildTripSeason\(months, scheduled, onRequest\)/);
     // С 08.10 зоны и дни считаются по профилю без занятий не по возрасту детей
-    // (planProfile) — каталог по-прежнему передаётся тот же.
-    expect(ENGINE).toMatch(/scoreZones\(planProfile, cache, catalogueOpen\)/);
+    // (planProfile) — сезон передаётся тот же.
+    expect(ENGINE).toMatch(/scoreZones\(planProfile, cache, season\)/);
     // Проверяется, что каталог ДОХОДИТ до сбора предупреждений, а не что он
     // стоит последним аргументом: 27.09 к вызову добавились зоны готового плана
     // (предупреждения о разрешениях считались по зонам-кандидатам и требовали
     // погранзону ФСБ для поездки, которой нет). Правило то же, порядок другой.
-    expect(ENGINE).toMatch(/collectWarnings\([^)]*catalogueOpen/);
-    expect(ENGINE).toMatch(/generateDayPlans\(planProfile, zones, tripDays, cache, catalogueOpen, onRequestOnly/);
+    expect(ENGINE).toMatch(/collectWarnings\([^)]*season/);
+    expect(ENGINE).toMatch(/generateDayPlans\(planProfile, zones, tripDays, cache, season/);
     // Ни одна из трёх проверок не судит по голой таблице.
     expect(ENGINE).not.toMatch(/if \(!c\.months\.includes\(month\)\) continue;/);
   });
@@ -119,7 +129,8 @@ describe('расхождение называется, а не разрешае�
 
   it('неудавшийся запрос к каталогу тоже назван', () => {
     // «Не знаем» не равно «в каталоге ничего нет» (§4.0).
-    expect(ENGINE).toMatch(/if \(catalogueOpen === null\)/);
+    // По месяцам поездки: не прочитался хоть один — сказано.
+    expect(ENGINE).toMatch(/if \(months\.some\(\(m\) => scheduled\.get\(m\) === null\)\)/);
     expect(ENGINE).toContain('Не удалось свериться с записью операторов');
   });
 });
