@@ -11,8 +11,11 @@
  * таблицу, с которой соединяют, либо нет.
  */
 import { describe, it, expect } from 'vitest';
+import { readFileSync } from 'node:fs';
+import { join } from 'node:path';
 import { loadSchemaModel } from '@/lib/agents/evo/schema-model';
-import { scanSourceAgainstSchema } from '@/lib/agents/evo/schema-lens';
+import { scanSourceAgainstSchema, schemaMismatchToIssue } from '@/lib/agents/evo/schema-lens';
+import { buildIssueBody } from '@/lib/agents/evo/issue-reporter';
 
 const schema = loadSchemaModel(process.cwd());
 
@@ -134,6 +137,79 @@ describe('колонка без алиаса', () => {
     const bare = scanSourceAgainstSchema('x.ts', src, schema)
       .filter((m) => /transfer_operator_id/.test(m.message));
     expect(bare).toEqual([]);
+  });
+});
+
+describe('колонка без алиаса судится только у цельного запроса к одной таблице', () => {
+  // 14.11: четыре «критические» находки о рабочем коде. Колонка без алиаса
+  // приписывалась единственной таблице литерала, хотя ей не принадлежала.
+  it('имя из списка выборки подзапроса — не колонка таблицы', () => {
+    const src = [
+      'const q = `SELECT COUNT(*) FILTER (WHERE dated > 0 AND after_cutoff = 0)::int AS needed',
+      '  FROM (',
+      '    SELECT guide_id,',
+      '           COUNT(*) FILTER (WHERE issue_date IS NOT NULL) AS dated,',
+      '           COUNT(*) FILTER (WHERE issue_date >= $1::date) AS after_cutoff',
+      '      FROM guide_certifications',
+      '     GROUP BY guide_id',
+      '  ) per_guide`;',
+    ].join('\n');
+    expect(scanSourceAgainstSchema('x.ts', src, schema)).toEqual([]);
+  });
+
+  it('подзапрос в JOIN и LATERAL — тоже производный источник', () => {
+    const join = 'const q = `SELECT id FROM vehicles JOIN (SELECT 1 AS made_up) x ON true WHERE made_up = 1`;';
+    const lateral = 'const q = `SELECT id FROM vehicles, LATERAL (SELECT 1 AS made_up) x WHERE made_up = 1`;';
+    expect(scanSourceAgainstSchema('x.ts', join, schema)).toEqual([]);
+    expect(scanSourceAgainstSchema('x.ts', lateral, schema)).toEqual([]);
+  });
+
+  it('кусок запроса: внешней таблицы в литерале нет — чья колонка, неизвестно', () => {
+    // Условие вставляется в запрос к leads: operator_id — колонка заявки, а
+    // не таблицы из подзапроса EXISTS.
+    const src = [
+      'export const COND = `(',
+      '  operator_id IS NOT NULL',
+      '  AND EXISTS (',
+      '    SELECT 1 FROM partner_incoming_answers a',
+      "     WHERE a.subject_kind = 'lead' AND a.partner_id = leads.operator_id",
+      '  )',
+      ')`;',
+    ].join('\n');
+    expect(scanSourceAgainstSchema('x.ts', src, schema)).toEqual([]);
+  });
+
+  it('в куске запроса колонка ЧЕРЕЗ АЛИАС судится по-прежнему', () => {
+    const src = 'export const COND = `AND EXISTS (SELECT 1 FROM partner_incoming_answers a WHERE a.no_such_column = 1)`;';
+    expect(scanSourceAgainstSchema('x.ts', src, schema).map((m) => m.message))
+      .toEqual(['в таблице partner_incoming_answers нет колонки no_such_column — запрос упадёт']);
+  });
+
+  it('цельные UPDATE и DELETE к одной таблице судятся', () => {
+    const missing = ['в таблице vehicles нет колонки transfer_operator_id — запрос упадёт'];
+    const upd = "const q = `UPDATE vehicles SET status = 'off' WHERE transfer_operator_id = $1`;";
+    const del = 'const q = `DELETE FROM vehicles WHERE transfer_operator_id = $1`;';
+    expect(scanSourceAgainstSchema('x.ts', upd, schema).map((m) => m.message)).toEqual(missing);
+    expect(scanSourceAgainstSchema('x.ts', del, schema).map((m) => m.message)).toEqual(missing);
+  });
+
+  it.each([
+    'app/api/admin/guide-certifications/route.ts',
+    'lib/leads/followup-scope.ts',
+  ])('в %s объектив ничего не находит', (file) => {
+    const src = readFileSync(join(process.cwd(), file), 'utf-8');
+    expect(scanSourceAgainstSchema(file, src, schema)).toEqual([]);
+  });
+});
+
+describe('находка объектива подписана объективом, а не моделью', () => {
+  it('в задаче сказано «детерминированной проверкой», а не «найдена моделью»', () => {
+    const [m] = scanSourceAgainstSchema('lib/x.ts', 'const q = `SELECT u.company_name FROM users u`;', schema);
+    const issue = schemaMismatchToIssue(m);
+    expect(issue.model).toBe('deterministic');
+    const body = buildIssueBody({ id: 'f-1', ...issue });
+    expect(body).toContain('найдена детерминированной проверкой (без модели)');
+    expect(body).not.toContain('найдена моделью');
   });
 });
 

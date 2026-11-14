@@ -77,10 +77,34 @@ const ALIAS_COL = /\b([a-z_][a-z0-9_]*)\.([a-z_][a-z0-9_]*)\b/gi;
  * Берём лишь позиции, где имя заведомо колонка, а не функция и не ключевое
  * слово: после `WHERE`/`AND`/`OR`/`SET`/`ON` и перед сравнением, `IS`, `IN`.
  * Судим ТОЛЬКО когда в запросе ровно одна таблица — иначе непонятно, чья
- * колонка, и «не знаю» молчит (§4.0).
+ * колонка, и «не знаю» молчит (§4.0). И только у цельного запроса без
+ * производных источников — см. `ownsBareColumns`.
  */
 const BARE_COL =
   /\b(?:WHERE|AND|OR|SET|ON)\s+"?([a-z_][a-z0-9_]*)"?\s*(?:=|<>|!=|>=|<=|>|<|\bIS\b|\bIN\b|\bNOT\s+IN\b|\bLIKE\b|\bILIKE\b)/gi;
+
+/** Литерал начинается как запрос, а не как его кусок. */
+const WHOLE_STATEMENT = /^\s*(?:SELECT|WITH|UPDATE|DELETE|INSERT)\b/i;
+
+/** Источник строк — подзапрос: `FROM (SELECT …) x`, `JOIN (…)`, `LATERAL (…)`. */
+const DERIVED_SOURCE = /\b(?:FROM|JOIN|LATERAL)\s*\(/i;
+
+/**
+ * Голая колонка в этом литерале заведомо принадлежит его единственной таблице.
+ *
+ * Два случая, где это не так, 14.11 давали «критические» находки о рабочем
+ * коде:
+ *  - кусок запроса: условие `(… AND operator_id IS NOT NULL AND EXISTS
+ *    (SELECT 1 FROM partner_incoming_answers a …))` вставляется в запрос к
+ *    `leads`, и `operator_id` — колонка заявки, а не таблицы из подзапроса.
+ *    Внешней таблицы в литерале нет — чья колонка, неизвестно;
+ *  - производный источник: `WHERE dated > 0` поверх `FROM (SELECT COUNT(*)
+ *    … AS dated FROM guide_certifications …)` — имя из списка выборки
+ *    подзапроса, а не колонка таблицы.
+ */
+function ownsBareColumns(body: string): boolean {
+  return WHOLE_STATEMENT.test(body) && !DERIVED_SOURCE.test(body);
+}
 
 /** Слова, которые синтаксически стоят там же, но колонками не являются. */
 const NOT_A_COLUMN = new Set([
@@ -215,9 +239,10 @@ export function scanSourceAgainstSchema(
       });
     }
 
-    // 3. Колонка без алиаса — только когда таблица в запросе одна.
+    // 3. Колонка без алиаса — только когда таблица в запросе одна, а сам
+    //    литерал — цельный запрос без подзапроса в источнике.
     const tables = new Set([...aliases.values()]);
-    if (tables.size === 1) {
+    if (tables.size === 1 && ownsBareColumns(lit.body)) {
       const table = [...tables][0];
       const cols = schema.columns.get(table);
       if (cols) {
@@ -257,10 +282,15 @@ export function schemaMismatchToIssue(m: SchemaMismatch): {
   title: string;
   description: string;
   suggestion: string;
+  model: 'deterministic';
 } {
   const isColumn = m.kind === 'unknown_column';
   return {
     category: 'bug',
+    // Находку породил объектив, а не модель. Без этой метки задача в трекере
+    // подписывалась «найдена моделью (не записана…)» — так были подписаны все
+    // три ложные задачи (#2891, #3268, #3343), и читающий искал вину модели.
+    model: 'deterministic',
     severity: isColumn ? 'critical' : 'high',
     file_path: m.file,
     line_number: m.line,
