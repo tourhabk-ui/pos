@@ -18,6 +18,14 @@ import { shownPhotoSql } from '@/lib/images/origin';
 
 export const NEARBY_LIMIT = 6;
 
+/**
+ * Живое место: видимое и не слитое. Одно условие на «рядом» и на «ближайшее»:
+ * ссылка на слитое место — заведомо мёртвая, а скрытая запись — не место для
+ * туриста. Псевдоним таблицы — `p`.
+ */
+const LIVE_PLACE_SQL = `p.is_visible = true
+    AND p.merged_into_id IS NULL`;
+
 /** $1 — широта места, $2 — долгота, $3 — его ark_id (само место в «рядом» не входит). */
 export const NEARBY_PLACES_SQL = `
   SELECT
@@ -45,11 +53,50 @@ export const NEARBY_PLACES_SQL = `
     ) AS km
   ) d
   WHERE p.ark_id != $3
-    AND p.is_visible = true
-    -- «Рядом» со ссылкой на слитое место — заведомо мёртвая ссылка.
-    AND p.merged_into_id IS NULL
+    AND ${LIVE_PLACE_SQL}
     AND p.lat BETWEEN ($1::float - 0.5) AND ($1::float + 0.5)
     AND p.lng BETWEEN ($2::float - 0.8) AND ($2::float + 0.8)
   -- Ровное расстояние — по ark_id: иначе порядок равных менялся бы от запроса к запросу.
   ORDER BY d.km, p.ark_id
   LIMIT ${NEARBY_LIMIT}`;
+
+/**
+ * Ближайшее место к точке человека — для «Анализатора безопасности»
+ * (/tools/safety, кнопка GPS; 14.11).
+ *
+ * До 14.11 инструмент брал ближайшее место по сумме квадратов разниц в
+ * градусах (та же ошибка, что описана выше), без предела расстояния и без
+ * отбора видимых: за сто километров от любого места человек получал оценку
+ * чужого места, расстояние ему не называлось, а ближайшей могла оказаться
+ * скрытая или слитая запись.
+ *
+ * Здесь — настоящее расстояние и только живые места. Рамки нет намеренно:
+ * ближайшее место нужно назвать и тогда, когда оно далеко («ближайшее — в
+ * 140 км»), а мест в базе сотни — сортировка всех недорога.
+ *
+ * $1 — широта точки, $2 — долгота.
+ */
+export const NEAREST_PLACE_SQL = `
+  SELECT
+    p.ark_id::text AS id,
+    p.slug,
+    p.name,
+    p.location_type,
+    d.km::float AS km
+  FROM places p
+  CROSS JOIN LATERAL (
+    SELECT 6371 * acos(
+      LEAST(1.0, cos(radians($1::float)) * cos(radians(p.lat::float)) *
+        cos(radians(p.lng::float) - radians($2::float)) +
+        sin(radians($1::float)) * sin(radians(p.lat::float)))
+    ) AS km
+  ) d
+  WHERE ${LIVE_PLACE_SQL}
+    AND p.lat IS NOT NULL
+    AND p.lng IS NOT NULL
+  ORDER BY d.km, p.ark_id
+  LIMIT 1`;
+
+// Предел «это там, где вы стоите» — в lib/places/nearest-limit: его читает и экран,
+// а этому модулю (SQL, origin снимков) в клиентском коде делать нечего.
+export { NEAREST_PLACE_MAX_KM } from '@/lib/places/nearest-limit';

@@ -166,7 +166,6 @@ const KNOWN_EMPTY_CATCHES: Record<string, number> = {
   'app/sos/page.tsx': 3,
   'app/team/join/[token]/_JoinClient.tsx': 1,
   'app/tools/equipment/_EquipmentClient.tsx': 2,
-  'app/tools/safety/_SafetyClient.tsx': 1,
   'app/trip/[token]/_OfflineSave.tsx': 1,
   'app/trip/[token]/_TripShareClient.tsx': 1,
   'app/watch/WatchClient.tsx': 3,

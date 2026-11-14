@@ -6,9 +6,11 @@
  * заведении (070/0645): TRUE значит «никто не закрыл», а не «проверили —
  * открыто». Карточка каталога рисовала по нему зелёное мигающее «открыто» на
  * каждом месте. «Анализатор безопасности» начинал оценку с единицы, и место,
- * о котором платформа не знает ничего, получало «1/5 · Низкий риск».
+ * о котором платформа не знает ничего, получало «1/5 · Низкий риск»; с 14.11
+ * своего числа у инструмента нет — он показывает обстановку дня карточки
+ * места (tests/unit/tools-safety-result.test.tsx).
  *
- * Судится рендером карточки и вызовом оценки.
+ * Судится рендером карточки.
  */
 import React from 'react';
 import { describe, it, expect, afterEach, vi, beforeAll } from 'vitest';
@@ -25,7 +27,6 @@ vi.mock('@/components/routes/useAnchor', () => ({
 
 import PlaceCard from '@/components/routes/PlaceCard';
 import type { RouteItem } from '@/components/routes/RouteCard';
-import { placeRiskScore } from '@/lib/safety/place-risk-score';
 
 beforeAll(() => {
   class IO { observe() {} unobserve() {} disconnect() {} }
@@ -56,31 +57,6 @@ describe('карточка места в каталоге', () => {
   it('закрыл администратор — «закрыто» видно', () => {
     render(<PlaceCard route={place(false)} />);
     expect(screen.getByText(/закрыто/i)).toBeTruthy();
-  });
-});
-
-describe('оценка риска места (/tools/safety)', () => {
-  it('ничего не записано и предупреждений нет — «не оценён», а не «низкий»', () => {
-    expect(placeRiskScore([], null, null)).toBeNull();
-    expect(placeRiskScore([], 0, null)).toBeNull();
-  });
-
-  it('записанная опасность не даёт «низкий риск» — термальное поле тоже', () => {
-    expect(placeRiskScore(['thermal'], null, null)).toBe(2);
-  });
-
-  it('газ, лавины, сложность 4–5 — не ниже 3', () => {
-    expect(placeRiskScore(['volcanic_gas'], null, null)).toBe(3);
-    expect(placeRiskScore([], null, 4)).toBe(3);
-  });
-
-  it('уровень предупреждения — шкалой 0–3: критичное (2) не ниже 3, чрезвычайное (3) — 4', () => {
-    expect(placeRiskScore([], 2, null)).toBe(3);
-    expect(placeRiskScore([], 3, null)).toBe(4);
-  });
-
-  it('известная лёгкая сложность без опасностей — единица остаётся', () => {
-    expect(placeRiskScore([], null, 2)).toBe(1);
   });
 });
 

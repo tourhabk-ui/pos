@@ -13,8 +13,7 @@ import { OWN_ROUTE_ANCHOR } from '@/components/places/PlaceOwnRoute';
 // безопасности; слова и уровни у обоих видов общие.
 import { HazardPhraseList } from '@/components/shared/HazardBadgeStrip';
 import { hasVolcanoCamera, VOLCANO_CAMERAS_URL, VOLCANO_CAMERAS_SOURCE } from '@/lib/safety/volcano-cameras';
-import { buildPlaceAdvisory } from '@/lib/kuzmich/place-advisory';
-import { placeDayStatus } from '@/lib/safety/place-day-status';
+import { advisoryForPlace } from '@/lib/kuzmich/place-advisory';
 import PlaceCoordSource from '@/components/places/PlaceCoordSource';
 import PlaceHazardsUnknown from '@/components/places/PlaceHazardsUnknown';
 import { distanceToCity } from '@/lib/places/distance-to-city';
@@ -638,17 +637,9 @@ export default function PlaceDetailClient({ id, initialPlace = null }: { id: str
               placeId={place.id}
               placeName={place.name}
               kuzmichReview={place.kuzmichReview}
-              advisory={buildPlaceAdvisory({
-                volcano: place.volcanoStatus
-                  ? { colorCode: place.volcanoStatus.colorCode, observedAt: place.volcanoStatus.observedAt }
-                  : null,
-                // Тот же уровень дня, что у полосы «Сейчас» выше: одна оценка
-                // на экране, а не две (lib/safety/place-day-status).
-                realtime: place.realtime
-                  ? { ...placeDayStatus(place.realtime), activeAlerts: place.realtime.activeAlerts }
-                  : null,
-                hazardTypes: place.safety.hazardTypes,
-              })}
+              // Тот же уровень дня, что у полосы «Сейчас» выше: одна оценка на
+              // экране, а не две. Сборка общая с «Анализатором безопасности».
+              advisory={advisoryForPlace(place)}
             />
           </div>
 

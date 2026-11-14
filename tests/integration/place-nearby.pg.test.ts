@@ -19,7 +19,7 @@
  */
 import { describe, it, expect, beforeAll, afterAll } from 'vitest';
 import { Pool } from 'pg';
-import { NEARBY_LIMIT, NEARBY_PLACES_SQL } from '../../lib/places/nearby';
+import { NEARBY_LIMIT, NEARBY_PLACES_SQL, NEAREST_PLACE_SQL } from '../../lib/places/nearby';
 import { createTestDatabase } from '../helpers/pg-schema';
 
 const PG_URL = process.env.KERNEL_PG_TEST_URL ?? '';
@@ -46,6 +46,19 @@ const PLACES: Array<[string, number, number, boolean, string | null]> = [
   ['Вне рамки', 53.0, 159.5, true, null],              // 0,85° долготы — за рамкой ±0,8°
 ];
 
+/**
+ * Вторая горсть — в двухстах километрах от первой, вне её рамки: «рядом» у
+ * ORIGIN её не видит. По ней судится «ближайшее место» для точки человека
+ * (NEAREST_PLACE_SQL, 14.11). Точка человека — FAR.
+ */
+const FAR = { lat: 55.0, lng: 160.0 };
+const FAR_PLACES: Array<[string, number, number, boolean, string | null]> = [
+  ['Дальний восток 19 км', 55.0, 160.3, true, null],   // 0,30° долготы ≈ 19 км; по градусам «дальше» северного
+  ['Дальний север 22 км', 55.2, 160.0, true, null],    // 0,20° широты ≈ 22 км
+  ['Дальнее скрытое 1 км', 55.01, 160.0, false, null],
+  ['Дальнее слитое 2 км', 55.02, 160.0, true, ORIGIN.ark],
+];
+
 withPg('«Рядом» на карточке места — по настоящему расстоянию', () => {
   let pool: Pool;
   const arkOf = new Map<string, string>();
@@ -66,7 +79,7 @@ withPg('«Рядом» на карточке места — по настоящ�
       `INSERT INTO places (id, ark_id, name, lat, lng, location_type)
        VALUES ('nearby-origin', $1, 'Само место', $2, $3, 'volcano')`,
       [ORIGIN.ark, ORIGIN.lat, ORIGIN.lng]);
-    for (const [name, lat, lng, visible, merged] of PLACES) {
+    for (const [name, lat, lng, visible, merged] of [...PLACES, ...FAR_PLACES]) {
       const r = await pool.query<{ ark_id: string }>(
         `INSERT INTO places (id, ark_id, name, slug, lat, lng, is_visible, merged_into_id, location_type)
          VALUES (gen_random_uuid()::text, gen_random_uuid(), $1::text, $1::text, $2, $3, $4, $5, 'lake')
@@ -120,5 +133,47 @@ withPg('«Рядом» на карточке места — по настоящ�
     const byName = new Map((await nearby()).map((r) => [r.name, r.thumb_url]));
     expect(byName.get('Север 22 км')).toMatch(new RegExp(`^/api/images/route/${arkOf.get('Север 22 км')}\\?v=\\d+$`));
     expect(byName.get('Север 23 км')).toBeNull();
+  });
+
+  // ── «Ближайшее место» для точки человека (/tools/safety, кнопка GPS) ──────
+
+  async function nearest(lat: number, lng: number) {
+    const { rows } = await pool.query<{ id: string; slug: string | null; name: string; location_type: string | null; km: number }>(
+      NEAREST_PLACE_SQL, [lat, lng]);
+    return rows;
+  }
+
+  it('ближайшее — по километрам, а не по градусам: восточное в 19 км раньше северного в 22', async () => {
+    const rows = await nearest(FAR.lat, FAR.lng);
+    expect(rows).toHaveLength(1);
+    expect(rows[0].name).toBe('Дальний восток 19 км');
+    expect(rows[0].km).toBeGreaterThan(18.5);
+    expect(rows[0].km).toBeLessThan(19.8);
+  });
+
+  it('скрытое и слитое место ближайшим не становится, хотя до них километр-два', async () => {
+    const [row] = await nearest(FAR.lat, FAR.lng);
+    expect(['Дальнее скрытое 1 км', 'Дальнее слитое 2 км']).not.toContain(row.name);
+  });
+
+  it('отдаёт номер карточки места (ark_id), адрес-слово и род; расстояние — числом', async () => {
+    const [row] = await nearest(FAR.lat, FAR.lng);
+    expect(row.id).toBe(arkOf.get('Дальний восток 19 км'));
+    expect(row.slug).toBe('Дальний восток 19 км');
+    expect(row.location_type).toBe('lake');
+    expect(typeof row.km).toBe('number');
+  });
+
+  it('рамки нет: далёкое место тоже находится, и расстояние названо', async () => {
+    // Точка в трёхстах с лишним километрах от обеих горстей.
+    const [row] = await nearest(58.0, 162.0);
+    expect(row.name).toBe('Дальний север 22 км');
+    expect(row.km).toBeGreaterThan(300);
+  });
+
+  it('стоя на самом месте — ноль километров, а не отказ', async () => {
+    const [row] = await nearest(ORIGIN.lat, ORIGIN.lng);
+    expect(row.name).toBe('Само место');
+    expect(row.km).toBeLessThan(0.01);
   });
 });

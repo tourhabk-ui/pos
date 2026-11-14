@@ -13,7 +13,7 @@ import { HAZARDS } from '@/lib/safety/hazard-labels';
 import {
   isVolcanoObservationStale, volcanoObservationAgeDays, formatObservationAge,
 } from '@/lib/services/safety/kvert-vona';
-import type { PlaceDay, PlaceDayLevel } from '@/lib/safety/place-day-status';
+import { placeDayStatus, type PlaceDay, type PlaceDayLevel, type PlaceDayInput } from '@/lib/safety/place-day-status';
 import { KURIL_NORTH_NOTE } from '@/lib/safety/kuril-north';
 
 export type AdvisoryTone = 'ok' | 'caution' | 'danger' | 'unknown';
@@ -130,4 +130,31 @@ export function buildPlaceAdvisory(p: AdvisoryInput, now: number = Date.now()): 
     : alerts.length > 0 ? 'Серьёзных предупреждений нет'
     : 'По сводкам спокойно';
   return { tone, headline, lines };
+}
+
+/**
+ * Совет для места из данных его карточки — одна сборка на карточку места и на
+ * «Анализатор безопасности» (/tools/safety, 14.11).
+ *
+ * Уровень дня — тот же `placeDayStatus`, что у полосы «Сейчас»: вторая сборка
+ * в другом экране разошлась бы с первой, и об одном дне одного места стояли бы
+ * два разных совета.
+ */
+export function advisoryForPlace(
+  place: {
+    volcanoStatus: { colorCode: string; observedAt: string | null } | null | undefined;
+    realtime: (PlaceDayInput & { activeAlerts: string[] | null }) | null | undefined;
+    safety: { hazardTypes: string[] };
+  },
+  now: number = Date.now(),
+): PlaceAdvisory {
+  return buildPlaceAdvisory({
+    volcano: place.volcanoStatus
+      ? { colorCode: place.volcanoStatus.colorCode, observedAt: place.volcanoStatus.observedAt }
+      : null,
+    realtime: place.realtime
+      ? { ...placeDayStatus(place.realtime, now), activeAlerts: place.realtime.activeAlerts }
+      : null,
+    hazardTypes: place.safety.hazardTypes,
+  }, now);
 }

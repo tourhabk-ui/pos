@@ -47,7 +47,7 @@ const CATEGORY_LABELS: Record<string, string> = {
 
 const STATIC_TOOLS = [
   { id: 'equipment', title: 'Чек-лист снаряжения', subtitle: 'AI-список вещей по маршруту и дате', href: '/tools/equipment' },
-  { id: 'safety-tool', title: 'Анализатор безопасности', subtitle: 'Оценка рисков для конкретного места', href: '/tools/safety' },
+  { id: 'safety-tool', title: 'Анализатор безопасности', subtitle: 'Обстановка у места или маршрута на сегодня', href: '/tools/safety' },
   { id: 'ai-assistant', title: 'Спросить Кузьмича', subtitle: 'AI-ассистент по Камчатке', href: '/ai-assistant' },
 ];
 
