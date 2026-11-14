@@ -645,7 +645,7 @@
     "type": "function",
     "function": {
       "name": "create_lead",
-      "description": "Tour-selection request for Kamchatka when no tour or date is chosen yet; human-confirmed by a manager, no payment. Needs consent: true, else refused. Whole-vehicle charter: request_charter. Оставить заявку на подбор тура по Камчатке: менеджер платформы свяжется по телефону. Обязательны имя, телефон и описание запроса (даты, состав группы, интересы). Заказ машины целиком (вахтовка, микроавтобус) — не сюда, а request_charter. Это только заявка: оплаты через платформу нет. Имя и телефон — персональные данные: спроси у человека согласие на их обработку и передай consent: true, иначе заявка не создаётся.",
+      "description": "Tour-selection request for Kamchatka when no tour or date is chosen yet; human-confirmed by a manager, no payment. Needs consent: true, else refused. Whole-vehicle charter: request_charter. Оставить заявку на подбор тура по Камчатке: менеджер платформы свяжется по телефону. Обязательны имя, телефон и описание запроса (даты, состав группы, интересы). Заказ машины целиком (вахтовка, микроавтобус) — не сюда, а request_charter. Это только заявка: оплаты через платформу нет. Имя и телефон — персональные данные: заявку видят туроператоры — партнёры Ведара, и она может уйти нескольким; спроси у человека согласие на обработку и эту передачу и передай consent: true, иначе заявка не создаётся.",
       "parameters": {
         "type": "object",
         "properties": {
@@ -674,7 +674,7 @@
           },
           "consent": {
             "type": "boolean",
-            "description": "Explicit consent to process name and phone for this request; ask the person and pass true, otherwise the request is not created. Человек согласен на обработку своих персональных данных (имя, телефон) для связи по этой заявке. Спроси прямо и передай true. Без согласия заявка не создаётся.",
+            "description": "Explicit consent to process name and phone and pass them to Vedar's partner tour operators (the request has no named operator and may reach several); ask the person and pass true, otherwise the request is not created. Человек согласен на обработку своих персональных данных (имя, телефон) и их передачу туроператорам — партнёрам Ведара для связи по этой заявке. Спроси прямо и передай true. Без согласия заявка не создаётся.",
             "examples": [
               true
             ]

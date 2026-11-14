@@ -35,12 +35,14 @@ export async function GET(req: NextRequest) {
   try {
     const {
       state, kind, tour, accommodation, accommodation_url, date, check_out, participants, alt_date, deadline, human, consent, consent_purpose,
-      other_offers, other_stays,
+      consent_wording, other_offers, other_stays,
     } = await readRequestStatus(k, { reader: 'page', seen });
     return NextResponse.json({
       success: true,
       data: {
         state, kind, tour, accommodation, accommodation_url, date, check_out, participants, alt_date, deadline, human, consent, consent_purpose,
+        // Текст галочки согласия (14.11): у заявки без адресата — «туроператорам — партнёрам Ведара».
+        consent_wording: consent_wording ?? consent_purpose,
         // Другие компании к месту на дату (4а) — без слов для агента: с человеком страница говорит своими.
         other_offers: pageOtherOffers(other_offers),
         // Другое жильё на те же ночи после «Занято» (этап 5) — так же, без слов для агента.

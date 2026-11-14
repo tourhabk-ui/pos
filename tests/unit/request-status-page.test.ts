@@ -27,7 +27,7 @@ import { isPublicApiPath } from '@/lib/auth/public-api-routes';
 import { REQUEST_STATUS_PAGE_PATH, HUMAN_CONSENT_SOURCE, AGENT_CONSENT_SOURCE, keyLine, requestStatusPageUrl } from '@/lib/mcp/request-status';
 import { GET_REQUEST_STATUS_TOOL } from '@/lib/mcp/request-status-schema';
 import { CREATE_LEAD_TOOL, STAY_REQUEST_TOOL, REQUEST_CHARTER_TOOL } from '@/lib/mcp/public-tools';
-import { PD_CONSENT_VERSION, PD_CONSENT_STAY_VERSION, PD_CONSENT_CARRIER_VERSION } from '@/lib/legal/pd-consent';
+import { PD_CONSENT_VERSION, PD_CONSENT_STAY_VERSION, PD_CONSENT_CARRIER_VERSION, PD_CONSENT_OPERATORS_VERSION } from '@/lib/legal/pd-consent';
 import { GET as statusGET } from '@/app/api/requests/status/route';
 import { POST as consentPOST } from '@/app/api/requests/consent/route';
 
@@ -110,7 +110,7 @@ describe('роуты', () => {
     expect(res.status).toBe(200);
     const { data } = await res.json() as { data: Record<string, unknown> };
     expect(Object.keys(data).sort()).toEqual([
-      'accommodation', 'accommodation_url', 'alt_date', 'check_out', 'consent', 'consent_purpose', 'date', 'deadline',
+      'accommodation', 'accommodation_url', 'alt_date', 'check_out', 'consent', 'consent_purpose', 'consent_wording', 'date', 'deadline',
       'human', 'kind', 'other_offers', 'other_stays', 'participants', 'state', 'tour',
     ]);
     // Заявка на жильё — не отказ туроператора: о других компаниях речи нет (4а).
@@ -152,15 +152,17 @@ describe('согласие человека', () => {
   it('сервер пишет согласие источником request-page той версией, кому уходят данные заявки', async () => {
     expect(HUMAN_CONSENT_SOURCE).toBe('request-page');
     expect(HUMAN_CONSENT_SOURCE).not.toBe(AGENT_CONSENT_SOURCE);
-    const cases: Array<[string, string]> = [
-      [STAY_REQUEST_TOOL.name, PD_CONSENT_STAY_VERSION],
+    const cases: Array<[string, string, boolean]> = [
+      [STAY_REQUEST_TOOL.name, PD_CONSENT_STAY_VERSION, false],
       // До 14.10 здесь писалась версия «туроператору» и затирала версию перевозчика.
-      [REQUEST_CHARTER_TOOL.name, PD_CONSENT_CARRIER_VERSION],
-      [CREATE_LEAD_TOOL.name, PD_CONSENT_VERSION],
+      [REQUEST_CHARTER_TOOL.name, PD_CONSENT_CARRIER_VERSION, false],
+      [CREATE_LEAD_TOOL.name, PD_CONSENT_VERSION, false],
+      // Заявка без адресата (14.11): её видят компании на витрине — «туроператорам — партнёрам Ведара».
+      [CREATE_LEAD_TOOL.name, PD_CONSENT_OPERATORS_VERSION, true],
     ];
-    for (const [tool, version] of cases) {
+    for (const [tool, version, unaddressed] of cases) {
       query.mockReset()
-        .mockResolvedValueOnce({ rows: [{ tool_name: tool }] })
+        .mockResolvedValueOnce({ rows: [{ tool_name: tool, lead_unaddressed: unaddressed }] })
         .mockResolvedValueOnce({ rows: [{ updated: 1, prior_source: AGENT_CONSENT_SOURCE, target_exists: true }] });
       const res = await postConsent({ key: KEY, pd_consent: true });
       expect(res.status).toBe(200);
@@ -169,6 +171,23 @@ describe('согласие человека', () => {
       // Последний параметр — источник записи агента: поверх неё (или пустоты)
       // согласие человека пишется, поверх согласия человека — нет (1350).
       expect({ tool, written: params.slice(3) }).toEqual({ tool, written: [HUMAN_CONSENT_SOURCE, version, AGENT_CONSENT_SOURCE] });
+    }
+  });
+
+  it('страница получает текст галочки той же правкой, что пишет дверь согласия', async () => {
+    const lead = {
+      ...STAY_ROW, tool_name: CREATE_LEAD_TOOL.name, lead_id: 'L', stay_request_id: null, lead_status: 'new',
+      stay_accommodation_id: null, stay_name: null, stay_check_in: null, stay_check_out: null, stay_guests: null,
+    };
+    for (const [row, wording] of [
+      [{ ...lead, lead_unaddressed: true }, 'operators'],
+      [{ ...lead, lead_unaddressed: false }, 'operator'],
+      [{ ...STAY_ROW, lead_unaddressed: false }, 'stay'],
+    ] as const) {
+      query.mockReset().mockResolvedValue({ rows: [row] });
+      const { data } = await (await getStatus(KEY)).json() as { data: { consent_purpose: string; consent_wording: string } };
+      expect({ tool: row.tool_name, unaddressed: row.lead_unaddressed, wording: data.consent_wording })
+        .toEqual({ tool: row.tool_name, unaddressed: row.lead_unaddressed, wording });
     }
   });
 

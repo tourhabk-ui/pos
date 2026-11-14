@@ -28,7 +28,7 @@ import {
   GET_REQUEST_STATUS_TOOL, REQUEST_STATUS_TOOL_NAME, issueRequestKey, keyLine, readRequestStatus, runRequestStatusTool,
   leadState, seatState, stayDelivery, stayState, REQUEST_KEY_TTL_DAYS, REQUEST_STATUS_SQL,
   consentBy, confirmConsent, CONFIRM_CONSENT_SQL, AGENT_CONSENT_SOURCE, HUMAN_CONSENT_SOURCE, requestStatusPageUrl, REQUEST_STATUS_PAGE_PATH,
-  consentPurposeForTool, readConsentPurpose, CONSENT_PURPOSE_SQL,
+  consentPurposeForTool, consentWordingOf, readConsentPurpose, CONSENT_PURPOSE_SQL,
   bookingState, buildRequestView, catalogTourOf, REQUEST_STATUS_BY_KEY_IDS_SQL, type StatusRow,
 } from '@/lib/mcp/request-status';
 import { BOOKING_STATUSES, LEAD_STATUSES } from '@/lib/types/statuses';
@@ -215,7 +215,7 @@ describe('чтение состояния', () => {
     const text = await runRequestStatusTool({ key: KEY });
     const obj = JSON.parse(text) as Record<string, unknown>;
     expect(Object.keys(obj).sort()).toEqual([
-      'accommodation', 'accommodation_url', 'alt_date', 'check_out', 'consent', 'consent_purpose', 'date', 'deadline',
+      'accommodation', 'accommodation_url', 'alt_date', 'check_out', 'consent', 'consent_purpose', 'consent_wording', 'date', 'deadline',
       'human', 'kind', 'max_link', 'next', 'notify', 'other_offers', 'other_stays', 'page', 'participants', 'partner_last_reply_at', 'partner_messages', 'partner_replies', 'requested_date', 'state', 'tour',
     ]);
     // Вид не из отказа туроператора — о других компаниях речи нет (4а).
@@ -329,6 +329,26 @@ describe('на передачу кому согласие (14.10)', () => {
     // У каждого рода свой текст и своя версия — иначе по записи не понять, на что согласились.
     const versions = CONSENT_PURPOSES.map((p) => consentWording(p).version);
     expect(new Set(versions).size).toBe(CONSENT_PURPOSES.length);
+  });
+
+  it('текст согласия: у заявки туроператору без адресата — «туроператорам», у прочих — по роду', () => {
+    expect(consentWordingOf('operator', true)).toBe('operators');
+    expect(consentWordingOf('operator', false)).toBe('operator');
+    for (const p of ['stay', 'carrier', 'rental'] as const) {
+      expect(consentWordingOf(p, true)).toBe(p);
+      expect(consentWordingOf(p, false)).toBe(p);
+    }
+  });
+
+  it('статус и дверь согласия берут адресат лида из базы, а не из ключа', async () => {
+    expect(CONSENT_PURPOSE_SQL).toMatch(/l\.operator_id IS NULL\) AS lead_unaddressed/);
+    expect(REQUEST_STATUS_SQL).toMatch(/l\.operator_id IS NULL\) AS lead_unaddressed/);
+    query.mockResolvedValue({ rows: [{ tool_name: CREATE_LEAD_TOOL.name, lead_unaddressed: true }] });
+    expect(await readConsentPurpose(KEY)).toBe('operators');
+    query.mockResolvedValue({ rows: [{ tool_name: CREATE_LEAD_TOOL.name, lead_unaddressed: false }] });
+    expect(await readConsentPurpose(KEY)).toBe('operator');
+    query.mockResolvedValue({ rows: [{ ...LEAD_ROW, lead_unaddressed: true }] });
+    expect((await readRequestStatus(KEY)).consent_wording).toBe('operators');
   });
 
   it('статус несёт род согласия: заявка на машину — перевозчику', async () => {

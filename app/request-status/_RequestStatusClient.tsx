@@ -17,14 +17,16 @@
  * тогда страница говорит его ответ; состояние она не переспрашивает.
  * Адресат и витрина — по роду заявки (11.11): у машины — перевозчик и
  * трансферы, у проката — прокатчик и прокат, не «оператор» и каталог туров.
- * Галочка — тем текстом, кому уходят данные (`consent_purpose`): владельцу
- * жилья, перевозчику или туроператору; тот же текст записывает сервер.
+ * Галочка — тем текстом, кому уходят данные (`consent_wording`): владельцу
+ * жилья, перевозчику, туроператору или, у заявки без адресата, туроператорам —
+ * партнёрам Ведара (14.11); тот же текст записывает сервер.
  */
 
 import { useCallback, useEffect, useRef, useState } from 'react';
 import Link from 'next/link';
 import { Loader2, CheckCircle2, XCircle, CalendarClock, Clock, AlertTriangle, ShieldCheck, PhoneCall } from 'lucide-react';
 import { PdConsentCheckbox } from '@/components/legal/PdConsentCheckbox';
+import type { PdConsentPurpose } from '@/lib/legal/pd-consent';
 import { RequestChat } from '@/components/requests/RequestChat';
 import { RequestOtherOffers, type OtherOffersBlock } from '@/components/requests/RequestOtherOffers';
 import { RequestOtherStays, type OtherStaysBlock } from '@/components/requests/RequestOtherStays';
@@ -53,6 +55,8 @@ interface View {
   human: string;
   consent: ConsentBy;
   consent_purpose: ConsentPurpose;
+  /** Текст галочки согласия; нет поля (прежний ответ сервера) — по `consent_purpose`. */
+  consent_wording?: PdConsentPurpose;
   /** Другие компании к месту на дату после отказа туроператора (4а); нет поля — к заявке не относится. */
   other_offers?: OtherOffersBlock | null;
   /** Другое жильё на те же ночи после «Занято» хозяина (этап 5). */
@@ -360,7 +364,7 @@ export function RequestStatusClient() {
                       : 'Согласие на обработку данных по этой заявке не записано. Поставьте его сами.'}
                   </span>
                 </p>
-                <PdConsentCheckbox checked={pdConsent} onChange={setPdConsent} id="request-pd-consent" purpose={view.consent_purpose} />
+                <PdConsentCheckbox checked={pdConsent} onChange={setPdConsent} id="request-pd-consent" purpose={view.consent_wording ?? view.consent_purpose} />
                 <button
                   type="button"
                   className="ds-btn ds-btn-primary w-full"
