@@ -1,4 +1,5 @@
 import type { Metadata } from 'next';
+import { pageContainer } from '@/lib/layout/page-width';
 import { Header } from '@/components/layout/Header';
 import {
   Leaf, Map, Footprints, Trash2, Mountain, Eye, Users, BookOpen,
@@ -111,7 +112,7 @@ export default function EcoPage() {
 
       <main className="pb-20">
         {/* Hero */}
-        <section className="max-w-3xl mx-auto px-4 pt-12 pb-10">
+        <section className={`${pageContainer('reading')} pt-12 pb-10`}>
           <div className="flex items-center gap-2 text-[var(--success)] mb-4">
             <Leaf className="w-4 h-4" />
             <span className="text-xs font-medium uppercase tracking-wider">Экотуризм</span>
@@ -127,7 +128,7 @@ export default function EcoPage() {
         </section>
 
         {/* Принципы */}
-        <section className="max-w-3xl mx-auto px-4 space-y-4">
+        <section className={`${pageContainer('reading')} space-y-4`}>
           {PRINCIPLES.map((p, i) => (
             <article key={i} className="ds-card px-5 py-5 md:px-6">
               <div className="flex items-start gap-4">
@@ -153,7 +154,7 @@ export default function EcoPage() {
         </section>
 
         {/* Завершение */}
-        <section className="max-w-3xl mx-auto px-4 mt-10">
+        <section className={`${pageContainer('reading')} mt-10`}>
           <p className="text-xs text-[var(--text-muted)] leading-relaxed border-t border-[var(--border)] pt-5">
             Камчатка — объект Всемирного природного наследия ЮНЕСКО. Её экосистемы
             складывались миллионы лет — наш визит должен оставлять след только в памяти.

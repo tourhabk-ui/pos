@@ -10,6 +10,7 @@
  * Сторож mobile-two-taps: каждая публичная страница из sitemap достижима
  * с телефона за два касания — таб-бар, шапка или эта страница.
  */
+import { pageContainer } from '@/lib/layout/page-width';
 import type { Metadata } from 'next';
 import Link from 'next/link';
 import { Header } from '@/components/layout/Header';
@@ -28,7 +29,7 @@ export default function MenuPage() {
     <div className="ds-page" style={{ paddingBottom: 96 }}>
       <Header />
 
-      <main className="mx-auto max-w-2xl px-5 pt-6">
+      <main className={`${pageContainer('reading')} pt-6`}>
         {/* SOS — в общей шапке (Header, §2); своей кнопки у экрана нет
             (#887, сторож sos-always-reachable). */}
         <div className="mb-8">

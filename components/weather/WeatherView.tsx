@@ -1,4 +1,5 @@
 import Link from 'next/link';
+import { pageContainer } from '@/lib/layout/page-width';
 import type { ReactNode } from 'react';
 import {
   AlertTriangle, CalendarDays, ChevronDown, Clock, Cloud, CloudSun,
@@ -796,7 +797,7 @@ export function WeatherView({ data }: { data: WeatherPageData }) {
   const selected = data.selected;
   const scene = selected.kind === 'ok' ? weatherScene(selected, data.today) : null;
   return (
-    <div className="mx-auto flex w-full max-w-4xl flex-col gap-4 sm:gap-6">
+    <div className={`${pageContainer('card')} flex flex-col gap-4 sm:gap-6`}>
       {selected.kind === 'ok' ? (
         <div
           className="wx-scene flex flex-col gap-4 px-4 py-5 sm:gap-5 sm:p-6"

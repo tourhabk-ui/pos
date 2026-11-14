@@ -9,6 +9,7 @@
  * PLAN_PRESETS, не из головы (lib/plans/faq.ts).
  */
 
+import { pageContainer } from '@/lib/layout/page-width';
 import type { Metadata } from 'next';
 import Link from 'next/link';
 import { Header } from '@/components/layout/Header';
@@ -71,7 +72,7 @@ export default function PlansHubPage() {
       <JsonLd data={listJsonLd} />
       <Header />
       <main className="ds-page">
-        <div className="max-w-3xl mx-auto px-4 py-8 space-y-8">
+        <div className={`${pageContainer('reading')} py-8 space-y-8`}>
           <header className="space-y-3">
             <h1 className="font-playfair text-3xl sm:text-4xl font-bold" style={{ color: 'var(--text-primary)' }}>
               Туры на Камчатку: готовые планы поездки

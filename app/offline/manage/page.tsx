@@ -1,5 +1,6 @@
 'use client';
 
+import { pageContainer } from '@/lib/layout/page-width';
 import { useEffect, useState } from 'react';
 import dynamic from 'next/dynamic';
 import { REGIONS_LIST } from '@/lib/geo/regions';
@@ -55,7 +56,7 @@ export default function OfflineManagePage() {
     <main className="min-h-screen bg-[var(--bg-primary)] pb-20">
       {/* Header */}
       <div className="border-b border-[var(--border)] bg-[var(--bg-secondary)] sticky top-0 z-10">
-        <div className="max-w-2xl mx-auto px-4 py-4">
+        <div className={`${pageContainer('reading')} py-4`}>
           <div className="flex items-center gap-3">
             <div className="w-9 h-9 rounded-xl bg-[var(--accent)]/15 flex items-center justify-center shrink-0">
               <svg className="w-5 h-5 text-[var(--accent)]" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={1.8}>
@@ -74,7 +75,7 @@ export default function OfflineManagePage() {
         </div>
       </div>
 
-      <div className="max-w-2xl mx-auto px-4 py-6 space-y-6">
+      <div className={`${pageContainer('reading')} py-6 space-y-6`}>
 
         {/* SW warning */}
         {!swSupported && (

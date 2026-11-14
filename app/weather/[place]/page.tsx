@@ -41,7 +41,7 @@ export default async function WeatherPlacePage({ params }: PageProps) {
   return (
     <>
       <Header />
-      <main className="ds-page px-4 pt-20 pb-24">
+      <main className="ds-page pt-20 pb-24">
         <WeatherView data={data} />
       </main>
       <BottomNav activePath="/weather" />

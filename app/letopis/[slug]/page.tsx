@@ -1,4 +1,5 @@
 import type { Metadata } from 'next';
+import { pageContainer } from '@/lib/layout/page-width';
 import { JsonLd } from '@/components/seo/JsonLd';
 import { notFound } from 'next/navigation';
 import Link from 'next/link';
@@ -71,8 +72,8 @@ export default async function ChronicleArticlePage({ params }: Props) {
       <Header />
       {/* px-4: ds-page даёт только отступ сверху, без полей текст на телефоне
           лежал вплотную к краю экрана (снимок 14.10, 390 px). */}
-      <main className="ds-page px-4 pt-20 pb-16">
-        <article className="max-w-2xl mx-auto">
+      <main className="ds-page pt-20 pb-16">
+        <article className={pageContainer('reading')}>
           <Link
             href="/letopis"
             className="inline-flex items-center gap-1.5 text-sm text-[var(--text-secondary)] hover:text-[var(--accent)] mb-6 transition-colors"

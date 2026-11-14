@@ -1,5 +1,6 @@
 'use client';
 
+import { pageContainer } from '@/lib/layout/page-width';
 import React, { useState, useEffect, useCallback } from 'react';
 import { HelpCircle, Search, ChevronDown, ChevronUp, ThumbsUp } from 'lucide-react';
 
@@ -70,7 +71,7 @@ export default function FaqClient({ initialItems = [], initialFailed = false }: 
 
   return (
     <div className="min-h-screen bg-[var(--bg-primary)]">
-      <div className="max-w-3xl mx-auto px-4 pt-20 pb-12">
+      <div className={`${pageContainer('reading')} pt-20 pb-12`}>
         {/* Header */}
         <div className="text-center mb-8">
           <HelpCircle className="w-8 h-8 text-[var(--accent)] mx-auto mb-3" />

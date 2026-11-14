@@ -1,4 +1,5 @@
 import type { Metadata } from 'next';
+import { pageContainer } from '@/lib/layout/page-width';
 import { Header } from '@/components/layout/Header';
 import { Footer } from '@/components/layout/Footer';
 import { PartnerConsentForm } from '@/components/partners/PartnerConsentForm';
@@ -21,7 +22,7 @@ export default function PartnerConsentPage() {
   return (
     <div style={{ background: 'var(--bg-primary)' }} className="min-h-screen">
       <Header />
-      <main className="max-w-2xl mx-auto px-4 sm:px-6 pt-6 pb-16">
+      <main className={`${pageContainer('reading')} pt-6 pb-16`}>
         <p className="text-[12px] font-semibold uppercase tracking-[0.2em] text-[var(--text-muted)] mb-2">Для партнёров Ведара</p>
         <h1 className="font-playfair text-3xl font-bold text-[var(--text-primary)] mb-2">Согласие на использование материалов</h1>
         <p className="text-sm text-[var(--text-secondary)] mb-6">

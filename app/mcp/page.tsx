@@ -10,6 +10,7 @@
  * (lib/mcp/public-tools.ts): страница не может разойтись с сервером.
  */
 
+import { pageContainer } from '@/lib/layout/page-width';
 import type { Metadata } from 'next';
 import Link from 'next/link';
 import { Header } from '@/components/layout/Header';
@@ -89,7 +90,7 @@ export default function McpLandingPage() {
       <JsonLd data={howToLd} />
       <Header />
       <main className="ds-page">
-        <div className="max-w-3xl mx-auto px-4 py-8 space-y-8">
+        <div className={`${pageContainer('reading')} py-8 space-y-8`}>
           {/* Факт — в первых строках страницы, для поисковика и AI-ответов. */}
           <header className="space-y-3">
             <h1 className="font-playfair text-3xl sm:text-4xl font-bold" style={{ color: 'var(--text-primary)' }}>

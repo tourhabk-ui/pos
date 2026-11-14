@@ -1,4 +1,5 @@
 import type { Metadata } from 'next';
+import { pageContainer } from '@/lib/layout/page-width';
 import { notFound } from 'next/navigation';
 import Link from 'next/link';
 import { ArrowLeft, Calendar, Tag } from 'lucide-react';
@@ -90,7 +91,7 @@ export default async function BlogPostPage({ params }: Props) {
       <>
         <Header />
         <main className="bg-[var(--bg-primary)] min-h-screen">
-          <article className="max-w-2xl mx-auto px-6 py-16">
+          <article className={`${pageContainer('reading')} py-16`}>
             <Link
               href="/blog"
               className="inline-flex items-center gap-1.5 text-sm text-[var(--text-muted)] hover:text-[var(--text-primary)] transition-colors mb-10"
@@ -147,7 +148,7 @@ export default async function BlogPostPage({ params }: Props) {
     <>
       <Header />
       <main className="bg-[var(--bg-primary)] min-h-screen">
-        <article className="max-w-2xl mx-auto px-6 py-16">
+        <article className={`${pageContainer('reading')} py-16`}>
           <Link
             href="/blog"
             className="inline-flex items-center gap-1.5 text-sm text-[var(--text-muted)] hover:text-[var(--text-primary)] transition-colors mb-10"

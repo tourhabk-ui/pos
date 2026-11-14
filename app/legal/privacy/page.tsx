@@ -1,4 +1,5 @@
 import Link from 'next/link';
+import { pageContainer } from '@/lib/layout/page-width';
 import { ChevronLeft } from 'lucide-react';
 import PageShell from '@/components/shared/PageShell';
 import { REQUISITES } from '@/lib/legal/requisites';
@@ -13,8 +14,8 @@ export const metadata = {
 export default function PrivacyPage() {
   return (
     <PageShell title="Политика конфиденциальности">
-    <main className="bg-transparent text-[var(--text-primary)] py-12 px-4">
-      <div className="max-w-3xl mx-auto">
+    <main className="bg-transparent text-[var(--text-primary)] py-12">
+      <div className={pageContainer('reading')}>
         <Link href="/" className="inline-flex items-center text-[var(--accent)] hover:text-[var(--accent)]/80 mb-8">
           <ChevronLeft className="w-5 h-5 mr-1" />
           На главную

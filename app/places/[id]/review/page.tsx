@@ -1,5 +1,6 @@
 'use client';
 
+import { pageContainer } from '@/lib/layout/page-width';
 import { useState, use } from 'react';
 import { useRouter } from 'next/navigation';
 import { Star, ArrowLeft, Send, Mountain } from 'lucide-react';
@@ -74,7 +75,7 @@ export default function PlaceReviewPage({ params }: Props) {
     return (
       <>
         <Header />
-        <div className="max-w-lg mx-auto px-4 py-20 text-center space-y-4">
+        <div className={`${pageContainer('reading')} py-20 text-center space-y-4`}>
           <Mountain size={56} className="mx-auto text-[var(--accent)]" />
           <h1 className="text-2xl font-bold text-[var(--text-primary)]" style={{ fontFamily: 'var(--font-playfair)' }}>
             Спасибо за отзыв!
@@ -94,7 +95,7 @@ export default function PlaceReviewPage({ params }: Props) {
   return (
     <>
       <Header />
-      <div className="max-w-lg mx-auto px-4 py-10 space-y-6">
+      <div className={`${pageContainer('reading')} py-10 space-y-6`}>
         <button
           onClick={() => router.push(`/places/${id}`)}
           className="inline-flex items-center gap-1.5 text-sm text-[var(--text-muted)] hover:text-[var(--text-primary)] transition-colors"

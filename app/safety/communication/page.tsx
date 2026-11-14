@@ -1,4 +1,5 @@
 import type { Metadata } from 'next';
+import { pageContainer } from '@/lib/layout/page-width';
 import { Header } from '@/components/layout/Header';
 import { SectionSwipeBar, SAFETY_SECTION_ITEMS } from '@/components/layout/SectionSwipeBar';
 import {
@@ -98,7 +99,7 @@ export default function CommunicationPage() {
       <main className="pb-20">
         <SectionSwipeBar items={SAFETY_SECTION_ITEMS} label="Разделы безопасности" />
         {/* Hero */}
-        <section className="max-w-3xl mx-auto px-4 pt-6 pb-10">
+        <section className={`${pageContainer('reading')} pt-6 pb-10`}>
           <div className="flex items-center gap-2 text-[var(--ocean)] mb-4">
             <Satellite className="w-4 h-4" />
             <span className="text-xs font-medium uppercase tracking-wider">Безопасность</span>
@@ -115,7 +116,7 @@ export default function CommunicationPage() {
         </section>
 
         {/* Рейтинг надёжности */}
-        <section className="max-w-3xl mx-auto px-4">
+        <section className={pageContainer('reading')}>
           <div className="ds-card px-5 py-5 md:px-6">
             <div className="flex items-center gap-3 mb-4">
               <div className="p-2.5 rounded-lg bg-[var(--danger)]/10 text-[var(--danger)]">
@@ -141,7 +142,7 @@ export default function CommunicationPage() {
         </section>
 
         {/* Устройства */}
-        <section className="max-w-3xl mx-auto px-4 mt-6 space-y-4">
+        <section className={`${pageContainer('reading')} mt-6 space-y-4`}>
           {DEVICES.map((d, i) => (
             <article key={i} className="ds-card px-5 py-5 md:px-6">
               <div className="flex items-start gap-4">
@@ -181,7 +182,7 @@ export default function CommunicationPage() {
         </section>
 
         {/* МЧС + офлайн-подготовка */}
-        <section className="max-w-3xl mx-auto px-4 mt-6 space-y-4">
+        <section className={`${pageContainer('reading')} mt-6 space-y-4`}>
           <div className="ds-card px-5 py-5 md:px-6">
             <div className="flex items-start gap-4">
               <div className="shrink-0 p-2.5 rounded-lg bg-[var(--accent)]/12 text-[var(--accent)]">
@@ -242,7 +243,7 @@ export default function CommunicationPage() {
         </section>
 
         {/* Честное завершение */}
-        <section className="max-w-3xl mx-auto px-4 mt-10">
+        <section className={`${pageContainer('reading')} mt-10`}>
           <p className="text-xs text-[var(--text-muted)] leading-relaxed border-t border-[var(--border)] pt-5">
             Мы не продаём и не арендуем устройства связи и не получаем комиссию за их
             упоминание. Этот разбор — часть подготовки к маршруту: смартфон с офлайн-картой
