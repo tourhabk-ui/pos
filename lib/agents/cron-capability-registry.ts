@@ -402,6 +402,8 @@ export const CRON_CAPABILITIES: Record<string, readonly Capability[]> = {
   'tour-season-census': ['db_read'],
   // Двойники контроля выхода с формы /register — только счёт (docs/safety/MCHS_PLAN.md, волна 0).
   'trip-watch-twins-census': ['db_read'],
+  // 14.11: кто проходил к заявкам без адресата до правки — три SELECT со счётом, без имён и id.
+  'unowned-leads-access-census': ['db_read'],
   'verdict-census': ['db_read'],
   'volcano-merge-gate': ['db_read', 'db_write', 'net_out', 'telegram'],
   'watchdog': ['db_read', 'db_write', 'net_out', 'telegram', 'money'],
