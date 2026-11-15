@@ -574,7 +574,7 @@ withPg('витрина /operators: факты о живых турах, кноп
       expect(operatorPagePath({ slug: card!.tour.operator_slug, is_public: card!.tour.operator_public })).toBe('/operators/andrey-zaporozhets');
     });
 
-    it('клипы Курильского (1340, 1399): восемь по порядку у обоих туров Курильского, у прочих туров гида — нет; повтор не затирает', async () => {
+    it('клипы Курильского (1340, 1399) и Горелого (1444): восемь по порядку у обоих туров Курильского, два у Горелого, у прочих туров гида — нет; повтор не затирает', async () => {
       const { parseTourClips } = await import('@/lib/tours/tour-clips');
       const BASE = 'https://s3.example/bucket';
       const clipsOf = async (slug: string) => (await pool.query<{ video_clips: unknown }>(
@@ -596,9 +596,23 @@ withPg('витрина /operators: факты о живых турах, кноп
           label: 'Медведь поймал рыбу',
         });
       }
-      for (const slug of ['zaporozhets-tolbachik-4-dnya', 'zaporozhets-vulkan-gorelyy', 'zaporozhets-kanyon-opasnyy-dachnye']) {
+      for (const slug of ['zaporozhets-tolbachik-4-dnya', 'zaporozhets-kanyon-opasnyy-dachnye']) {
         expect(await clipsOf(slug), slug).toEqual([]);
       }
+      // Горелый (1444, владелец 15.11 «я скачал видео, которое просил Андрей
+      // вставить в Горелый»): два клипа из ролика гида, по порядку.
+      expect(parseTourClips(await clipsOf('zaporozhets-vulkan-gorelyy'), BASE)).toEqual([
+        {
+          url: `${BASE}/videos/zaporozhets/clip-gorely-slope-peaks.mp4`,
+          poster: `${BASE}/videos/zaporozhets/clip-gorely-slope-peaks.poster.jpg`,
+          label: 'Красный шлак, снежник и горы вдали',
+        },
+        {
+          url: `${BASE}/videos/zaporozhets/clip-gorely-crater-lake.mp4`,
+          poster: `${BASE}/videos/zaporozhets/clip-gorely-crater-lake.poster.jpg`,
+          label: 'Бирюзовое озеро со льдом в кратере',
+        },
+      ]);
       // Свой выбор гида миграция не трогает: повтор с непустым списком — без изменений.
       const own = [{ key: 'videos/zaporozhets/own.mp4', poster: 'videos/zaporozhets/own.poster.jpg', label: 'Свой клип' }];
       await pool.query(`UPDATE operator_tours SET video_clips = $1::jsonb WHERE slug = 'zaporozhets-kurilskoe-ozero-3-dnya'`, [JSON.stringify(own)]);
@@ -616,6 +630,14 @@ withPg('витрина /operators: факты о живых турах, кноп
       expect(parseTourClips(await clipsOf('zaporozhets-kurilskoe-ozero-4-dnya'), BASE).map((c) => c.label)).toEqual(LABELS);
       const again = await pool.query(m1399);
       expect(again.rowCount ?? 0).toBe(0);
+      // 1444 повторно: свой клип гида у Горелого остаётся первым, два клипа —
+      // после него; следующий прогон ничего не меняет.
+      await pool.query(`UPDATE operator_tours SET video_clips = $1::jsonb WHERE slug = 'zaporozhets-vulkan-gorelyy'`, [JSON.stringify(own)]);
+      const m1444 = readFileSync(join(process.cwd(), 'migrations/1444_guide_gorely_clips.sql'), 'utf8');
+      await pool.query(m1444);
+      expect(parseTourClips(await clipsOf('zaporozhets-vulkan-gorelyy'), BASE).map((c) => c.label))
+        .toEqual(['Свой клип', 'Красный шлак, снежник и горы вдали', 'Бирюзовое озеро со льдом в кратере']);
+      expect((await pool.query(m1444)).rowCount ?? 0).toBe(0);
     });
 
     it('выезды гида: Толбачик — его даты, Курильское — те же даты (1342), все по 12 мест (1410); Горелый — сезон без ежедневных мест; черновики не видны', async () => {
