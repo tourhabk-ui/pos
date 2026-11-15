@@ -238,6 +238,9 @@ describe('результат: настоящее, пустое, непровер
     expect(car.textContent).toMatch(/Доехать можно трансфером перевозчика/);
     expect(car.querySelector('a')).toBeNull();
     cleanup();
+    // Второй показ — как с нового устройства: черновик анкеты (lib/planner/form-draft)
+    // вернул бы «машину» отмеченной, и щелчок ниже её снял бы.
+    localStorage.clear();
 
     extrasReply = { ok: true, json: { success: true, data: { car: CAR_UNAVAILABLE } } };
     toStep3();

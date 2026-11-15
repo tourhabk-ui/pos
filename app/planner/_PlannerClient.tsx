@@ -35,6 +35,8 @@ import {
   inCalendarOrder, followDays, followDaySet, tripLengthWords, tripDatesProblem, kamchatkaToday,
   type NewNumbers,
 } from '@/lib/planner/calendar-days';
+import { logSwallowedFailure } from '@/lib/observability/swallowed';
+import { FORM_DRAFT_KEY, EMPTY_FORM_DRAFT, linkCarriesForm, parseFormDraft, serializeFormDraft, type PlannerFormDraft } from '@/lib/planner/form-draft';
 import { plannerLoginHref } from '@/lib/planner/login-gate';
 import { tripCalendarDays, dateOfTripDay } from '@/lib/planner/flow-balance';
 import { TRAVEL_STYLES, TRAVEL_STYLE_LABEL, REST_EVERY_DAYS, suggestRestDays, type TravelStyle } from '@/lib/planner/travel-style';
@@ -1303,6 +1305,53 @@ export function PlannerClient({ initialUserId }: { initialUserId?: string | null
   const [restDays, setRestDays] = useState(0);
   // Пока человек не трогал счётчик, дни отдыха считаются от дат (suggestRestDays).
   const [restManual, setRestManual] = useState(false);
+
+  // Черновик анкеты на этом устройстве (#3347; слово владельца 15.11: «Да, без
+  // заметок о здоровье»): возвращается при открытии, если ссылка сама ничего
+  // не назвала, и записывается при каждой правке. Заметок о здоровье и
+  // контактов в черновике нет по построению (lib/planner/form-draft).
+  const [draftReady, setDraftReady] = useState(false);
+  const [draftRestored, setDraftRestored] = useState(false);
+  const applyDraft = useCallback((d: PlannerFormDraft) => {
+    setPlaces(d.places); setActivities(d.activities);
+    setArrival(d.arrival); setDeparture(d.departure);
+    setFlightArrival(d.flightArrival); setFlightDeparture(d.flightDeparture);
+    setFlightArrivalTime(d.flightArrivalTime); setFlightDepartureTime(d.flightDepartureTime);
+    setNeedsAirportTransfer(d.needsAirportTransfer); setNeedsLodging(d.needsLodging); setNeedsCar(d.needsCar);
+    setAdults(d.adults); setChildAges(d.childAges);
+    setFitnessLevel(d.fitnessLevel); setBudgetTier(d.budgetTier); setSeasickness(d.seasickness);
+    setMobilityLevel(d.mobilityLevel); setTravelStyle(d.travelStyle); setTripOrigin(d.tripOrigin);
+    setRestDays(d.restDays); setRestManual(d.restManual);
+  }, []);
+  useEffect(() => {
+    if (!linkCarriesForm(searchParams)) {
+      let raw: string | null = null;
+      try { raw = localStorage.getItem(FORM_DRAFT_KEY); } catch (err) { logSwallowedFailure('planner-form-draft', 'чтение черновика анкеты', err); }
+      const d = parseFormDraft(raw, kamchatkaToday());
+      if (d) { applyDraft(d); setDraftRestored(true); }
+    }
+    setDraftReady(true);
+    // Только при открытии: дальше анкету ведёт человек.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
+  useEffect(() => {
+    if (!draftReady) return;
+    try {
+      localStorage.setItem(FORM_DRAFT_KEY, serializeFormDraft({
+        places, activities, arrival, departure, flightArrival, flightDeparture, flightArrivalTime, flightDepartureTime,
+        needsAirportTransfer, needsLodging, needsCar, adults, childAges, fitnessLevel, budgetTier, seasickness,
+        mobilityLevel, travelStyle, tripOrigin, restDays, restManual,
+      }));
+    } catch (err) { logSwallowedFailure('planner-form-draft', 'запись черновика анкеты', err); }
+  }, [draftReady, places, activities, arrival, departure, flightArrival, flightDeparture, flightArrivalTime, flightDepartureTime,
+    needsAirportTransfer, needsLodging, needsCar, adults, childAges, fitnessLevel, budgetTier, seasickness,
+    mobilityLevel, travelStyle, tripOrigin, restDays, restManual]);
+  const startOver = useCallback(() => {
+    try { localStorage.removeItem(FORM_DRAFT_KEY); } catch (err) { logSwallowedFailure('planner-form-draft', 'стирание черновика анкеты', err); }
+    applyDraft(EMPTY_FORM_DRAFT);
+    setHealthNotes('');
+    setDraftRestored(false);
+  }, [applyDraft]);
 
   // Анкета по шагам
   const [step, setStep] = useState<PlannerStep>(1);
@@ -2864,6 +2913,14 @@ export function PlannerClient({ initialUserId }: { initialUserId?: string | null
       {error && !stepError && (
         <p role="alert" className="mb-2 text-sm text-[var(--danger)] flex items-start gap-2">
           <AlertTriangle className="w-4 h-4 mt-0.5 shrink-0" />{error}
+        </p>
+      )}
+      {draftRestored && (
+        <p className="mb-2 text-xs text-[var(--text-secondary)] flex flex-wrap items-center gap-x-2" data-form-draft="restored">
+          Анкета восстановлена с этого устройства (без заметок о здоровье).
+          <button type="button" onClick={startOver} className="underline text-[var(--ocean)] min-h-[44px]">
+            Начать заново
+          </button>
         </p>
       )}
       <div className="flex items-center gap-2">

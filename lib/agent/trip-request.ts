@@ -12,7 +12,7 @@
 import { randomBytes } from 'node:crypto';
 import { pickHeadcount } from '@/lib/agent/headcount';
 import { getPublicBaseUrl } from '@/lib/config';
-import { textFailed } from '@/lib/agent/request-outcome';
+import { textFailed, textRepeated } from '@/lib/agent/request-outcome';
 import { planAttachNote, type PlanAttach } from '@/lib/leads/plan-from-draft';
 import { OPERATOR_NO_CHANNEL_MARK, OPERATOR_REACH_UNKNOWN_MARK } from '@/lib/mcp/request-confirm-note';
 
@@ -243,8 +243,13 @@ export async function runTripRequest(raw: Record<string, unknown>, deps: TripDep
     : deps.confirmNoteFor && legsText.includes(OPERATOR_REACH_UNKNOWN_MARK) ? deps.confirmNoteFor('unknown')
     : deps.confirmNote;
   const okCount = legs.filter((l) => l.ok).length;
+  // Повтор (#3199, M11): все части уже отправлены раньше — это не отказ, и
+  // «ни одна часть не создана» читалось бы как «ничего не дошло».
+  const allRepeated = legs.length > 0 && legs.every((l) => !l.ok && textRepeated(l.text));
   const head = (deps.test
     ? `Поездка ${tripId} (проба, test: true): проверки прошли у частей ${okCount} из ${legs.length}; ничего не записано и никому не передано.`
+    : allRepeated
+      ? `Поездка ${tripId}: новых частей нет — такие заявки уже отправлены раньше; ответ придёт по ссылкам, выданным в первый раз.`
     : okCount === 0
       ? `Поездка ${tripId}: ни одна часть не создана.`
       : `Поездка ${tripId}: создано частей ${okCount} из ${legs.length}. Каждый партнёр видит в заявке всю поездку (номер ${tripId}).`)
