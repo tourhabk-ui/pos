@@ -52,7 +52,7 @@ describe('наружу — только сводка', () => {
     expect(Object.keys(r.summary).sort()).toEqual(['arrivalDate', 'departureDate', 'expiresAt', 'id', 'maxMembers', 'members', 'profile']);
     const json = JSON.stringify(r.summary);
     // Никаких полей строки участника: ни флагов поштучно, ни возраста кроме сведённого.
-    expect(json).not.toMatch(/no_hard_climbs|noHardClimbs|limited_mobility|youngest_child|youngestChild/);
+    expect(json).not.toMatch(/no_hard_climbs|noHardClimbs|limited_mobility|youngest_child|youngestChild|children_ages|childrenAges/);
   });
 
   it('чтение со строками участников наружу не экспортируется', () => {
@@ -96,7 +96,7 @@ describe('согласие и потолок', () => {
       return { rows: [] };
     });
     const consent = { at: new Date(), ip: '1.1.1.1', source: 'trip-group', version: 'v' };
-    const w = { interests: ['bears'], fitness: 'moderate' as const, noHardClimbs: false, seasickness: false, limitedMobility: false, youngestChild: null, budget: 'comfort' as const };
+    const w = { interests: ['bears'], fitness: 'moderate' as const, noHardClimbs: false, seasickness: false, limitedMobility: false, youngestChild: null, childrenAges: [], budget: 'comfort' as const };
     expect(await addMember(GID, w, consent)).toBe('full');
   });
 });
@@ -117,6 +117,39 @@ describe('план группы', () => {
     const [plan, surface] = save.mock.calls[0];
     expect(surface).toBe('group');
     expect(plan.params).toMatchObject({ fitnessLevel: 'beginner', seasickness: true, mobilityLevel: 'limited' });
+  });
+
+  // Слово владельца 15.11 «да, спрашивай число детей у каждого» (1443): три
+  // участника с детьми 6, 9 и 12 лет — шесть человек, а не четыре.
+  it('все дети всех участников доходят до движка; взрослых — по участникам', async () => {
+    db([
+      { ...MEMBERS[0], youngest_child: 9, children_ages: [12, 9] },
+      { ...MEMBERS[0], youngest_child: 6, children_ages: [6] },
+      { ...MEMBERS[0], youngest_child: null, children_ages: [] },
+    ] as never);
+    recommend.mockResolvedValue({ days: [{ day: 1 }] });
+    save.mockResolvedValue('99999999-2222-3333-4444-555555555555');
+    await buildGroupPlan(GID);
+    expect(recommend.mock.calls[0][0]).toMatchObject({ adults: 3, children: [6, 9, 12] });
+    expect(save.mock.calls[0][0].params).toMatchObject({ adults: 3, children: [6, 9, 12] });
+  });
+
+  it('возраст каждого ребёнка пишется в базу массивом, младший — в прежнюю колонку', async () => {
+    let params: unknown[] = [];
+    query.mockImplementation(async (sql: string, p: unknown[]) => {
+      if (sql.includes('INSERT INTO trip_group_members')) {
+        params = p;
+        expect(sql).toMatch(/children_ages\)/);
+        expect(sql).toMatch(/\$14::smallint\[\]/);
+        return { rows: [{ id: 'm1' }] };
+      }
+      return { rows: [] };
+    });
+    const consent = { at: new Date(), ip: '1.1.1.1', source: 'trip-group', version: 'v' };
+    const w = { interests: ['bears'], fitness: 'moderate' as const, noHardClimbs: false, seasickness: false, limitedMobility: false, youngestChild: 6, childrenAges: [9, 6], budget: 'comfort' as const };
+    expect(await addMember(GID, w, consent)).toBe('added');
+    expect(params[6]).toBe(6);
+    expect(params[13]).toEqual([9, 6]);
   });
 
   it('пустая группа — «empty», а не план по умолчанию', async () => {

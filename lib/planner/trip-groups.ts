@@ -68,7 +68,7 @@ export async function createGroup(arrivalDate: string, departureDate: string): P
 
 interface MemberRow {
   interests: string[]; fitness: MemberWishes['fitness']; no_hard_climbs: boolean; seasickness: boolean;
-  limited_mobility: boolean; youngest_child: number | null; budget: MemberWishes['budget'];
+  limited_mobility: boolean; youngest_child: number | null; children_ages: number[] | null; budget: MemberWishes['budget'];
 }
 
 /** Внутреннее чтение — со строками участников. Наружу не отдавать. */
@@ -83,7 +83,7 @@ async function loadGroup(id: string): Promise<GroupRead> {
     const g = rows[0];
     if (!g) return { kind: 'missing' };
     const { rows: m } = await pool.query<MemberRow>(
-      `SELECT interests, fitness, no_hard_climbs, seasickness, limited_mobility, youngest_child, budget
+      `SELECT interests, fitness, no_hard_climbs, seasickness, limited_mobility, youngest_child, children_ages, budget
          FROM trip_group_members WHERE group_id = $1::uuid ORDER BY created_at`,
       [g.id],
     );
@@ -95,7 +95,7 @@ async function loadGroup(id: string): Promise<GroupRead> {
         members: m.map((r) => ({
           interests: r.interests ?? [], fitness: r.fitness, noHardClimbs: r.no_hard_climbs,
           seasickness: r.seasickness, limitedMobility: r.limited_mobility,
-          youngestChild: r.youngest_child, budget: r.budget,
+          youngestChild: r.youngest_child, childrenAges: r.children_ages ?? null, budget: r.budget,
         })),
       },
     };
@@ -142,15 +142,15 @@ export async function addMember(id: string, w: MemberWishes, consent: PdConsentR
     const { rows } = await pool.query<{ id: string }>(
       `INSERT INTO trip_group_members
          (group_id, interests, fitness, no_hard_climbs, seasickness, limited_mobility, youngest_child, budget,
-          pd_consent_at, pd_consent_ip, pd_consent_source, pd_consent_version)
+          pd_consent_at, pd_consent_ip, pd_consent_source, pd_consent_version, children_ages)
        SELECT g.id, $2::text[], $3::varchar, $4::boolean, $5::boolean, $6::boolean, $7::smallint, $8::varchar,
-              $9::timestamptz, $10::varchar, $11::varchar, $12::varchar
+              $9::timestamptz, $10::varchar, $11::varchar, $12::varchar, $14::smallint[]
          FROM trip_groups g
         WHERE g.id = $1::uuid AND g.expires_at > NOW()
           AND (SELECT COUNT(*) FROM trip_group_members m WHERE m.group_id = g.id) < $13::int
        RETURNING id::text`,
       [id.trim(), w.interests, w.fitness, w.noHardClimbs, w.seasickness, w.limitedMobility, w.youngestChild, w.budget,
-        consent.at.toISOString(), consent.ip, consent.source, consent.version, MAX_GROUP_MEMBERS],
+        consent.at.toISOString(), consent.ip, consent.source, consent.version, MAX_GROUP_MEMBERS, w.childrenAges],
     );
     if (rows[0]) return 'added';
     const exists = await loadGroup(id);
@@ -171,7 +171,7 @@ export type GroupPlanResult =
 
 /**
  * Собрать план группы: сводка → профиль → `recommendTrip` → черновик.
- * Взрослых — по числу участников; детей — младший возраст группы.
+ * Взрослых — по числу участников; детей — все дети всех участников (1443).
  */
 export async function buildGroupPlan(id: string): Promise<GroupPlanResult> {
   const read = await loadGroup(id);

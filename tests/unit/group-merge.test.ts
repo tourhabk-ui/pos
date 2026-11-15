@@ -9,7 +9,7 @@ import { mergeGroupWishes, MAX_GROUP_INTERESTS, type MemberWishes } from '@/lib/
 
 const m = (o: Partial<MemberWishes>): MemberWishes => ({
   interests: [], fitness: 'moderate', noHardClimbs: false, seasickness: false,
-  limitedMobility: false, youngestChild: null, budget: 'comfort', ...o,
+  limitedMobility: false, youngestChild: null, childrenAges: [], budget: 'comfort', ...o,
 });
 
 describe('сведение пожеланий группы', () => {
@@ -59,9 +59,22 @@ describe('сведение пожеланий группы', () => {
     expect(g.conflicts.join(' ')).toContain('ограничена подвижность');
   });
 
-  it('младший ребёнок группы — самый младший из названных', () => {
-    const g = mergeGroupWishes([m({ youngestChild: 9 }), m({ youngestChild: 6 }), m({})])!;
-    expect(g.children).toEqual([6]);
+  // Слово владельца 15.11 «да, спрашивай число детей у каждого» (миграция
+  // 1443): до этого план считал одного — младшего — ребёнка на всю группу.
+  it('дети — все дети всех участников по возрастанию, младший первым', () => {
+    const g = mergeGroupWishes([m({ childrenAges: [12, 9] }), m({ childrenAges: [6] }), m({})])!;
+    expect(g.children).toEqual([6, 9, 12]);
+    expect(g.conflicts.join(' ')).not.toMatch(/только младший/);
+  });
+
+  it('участник до 15.11 (записан только младший) — его младший учтён, и это сказано', () => {
+    const g = mergeGroupWishes([m({ childrenAges: null, youngestChild: 9 }), m({ childrenAges: [6, 4] })])!;
+    expect(g.children).toEqual([4, 6, 9]);
+    expect(g.conflicts).toContain('У одного участника записан только младший ребёнок — других детей в плане нет. Если их больше, пусть отметятся заново.');
+  });
+
+  it('детей нет ни у кого — пусто', () => {
+    expect(mergeGroupWishes([m({}), m({ childrenAges: null })])!.children).toEqual([]);
   });
 
   it('интересов в плане не больше предела, остальные названы', () => {
