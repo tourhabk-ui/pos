@@ -12,6 +12,7 @@
  * пресетные страницы уже публичны и ведут к брони, этого достаточно для MVP.
  */
 
+import { planItemStatus, uncheckedItemsLine, PLAN_ITEM_STATUS, type TourCalendar } from '@/lib/planner/item-status';
 import {
   recommendTrip, parseInterestsFromText, ACTIVITY_CONSTRAINTS, ACTIVITY_NAMES, type DayPlan,
   type BudgetTier, type PriceBreakdown, type ChildBlocked,
@@ -787,6 +788,9 @@ export function tourAvailabilityLine(
   keepsSchedule: boolean | null | undefined,
 ): string | null {
   if (!d.realTour || !d.availability) return null;
+  // Движок пишет «ведёт ли расписание» на сам тур (#3399, п. 7); проверка
+  // Кузьмича — запасной путь для планов, собранных раньше, и правок.
+  const keeps = keepsSchedule ?? (d.realTour.calendar === 'dated' ? true : d.realTour.calendar === 'request' ? false : undefined);
   const id = `Тур ID${d.realTour.tourId}${d.realTour.operatorName ? `, ${d.realTour.operatorName}` : ''}`;
   const at = d.availabilityCheckedAt;
   const stamp = at && Number.isFinite(Date.parse(at)) ? kamchatkaStamp(at) : null;
@@ -803,10 +807,10 @@ export function tourAvailabilityLine(
   if (d.availability === 'unread') {
     return `${id}: занятость сейчас не прочиталась — места не подтверждены, даты не называю, проверьте get_tour_availability по ID`;
   }
-  if (keepsSchedule === false) {
+  if (keeps === false) {
     return `${id}: расписания в системе нет — места не подтверждены, но это не «мест нет»: дату подтверждает оператор по заявке`;
   }
-  if (keepsSchedule === true) {
+  if (keeps === true) {
     return `${id}: в ваши даты свободных мест нет${checked ?? ' (время проверки не записано)'} — другие даты покажет get_tour_availability по ID`;
   }
   return `${id}: свободных дат в ваши даты не нашли, а ведёт ли тур расписание, проверить не смогли — места не подтверждены, не утверждайте, что мест нет`;
@@ -874,6 +878,11 @@ export function planPriceLines(
   return [...priceLines, ...warnings.filter((w) => w.type === 'home_nights').map((w) => w.message)];
 }
 
+/** «Ведёт ли тур расписание» из проверки Кузьмича — в слово метки. */
+function calendarOf(keeps: boolean | null | undefined): TourCalendar | undefined {
+  return keeps === true ? 'dated' : keeps === false ? 'request' : undefined;
+}
+
 /** План по дням → текст для чата (Telegram/MAX/веб). Чистая, под тестом. */
 export function formatTripPlanForChat(
   days: DayPlan[],
@@ -898,10 +907,15 @@ export function formatTripPlanForChat(
     return context?.refusal
       ?? `Не собрал план по этим параметрам. Живой планировщик: ${SITE}/planner`;
   }
+  // Метка каждого пункта — словарь один с сайтом (#3399, п. 7). Пока есть
+  // пункты, про которые не известно, что они состоятся, план — черновик.
+  const statusOf = (d: DayPlan) => planItemStatus(d, calendarOf(d.realTour ? context?.keepsSchedule?.get(d.realTour.tourId) : undefined));
+  const unchecked = uncheckedItemsLine(days.map((d) => ({ day: d.day, status: statusOf(d) })));
+  const what = unchecked ? 'Собрал черновик плана по дням' : 'Собрал план по дням';
   const lines: string[] = [
     context?.plannedFor
-      ? `Собрал план по дням (считаю на ${context.plannedFor} — пересобрать под свои даты можно в планировщике):`
-      : 'Собрал план по дням:',
+      ? `${what} (считаю на ${context.plannedFor} — пересобрать под свои даты можно в планировщике):`
+      : `${what}:`,
     '',
   ];
   let prevDay = 0;
@@ -942,7 +956,12 @@ export function formatTripPlanForChat(
     const otherWarn = dayWarn.filter((w) => !isOfferingNote(w));
     for (const w of [...mchsWarn, ...otherWarn.slice(0, DAY_WARNINGS_SHOWN)]) lines.push(`   ! ${w}`);
     if (otherWarn.length > DAY_WARNINGS_SHOWN) lines.push(`   …и ещё ${otherWarn.length - DAY_WARNINGS_SHOWN} — в планировщике`);
+    // Метка пункта — последней строкой дня: над ней цена, места и
+    // предупреждения, из которых она выведена.
+    const status = statusOf(d);
+    if (status) lines.push(`   Статус: ${PLAN_ITEM_STATUS[status].label}`);
   }
+  if (unchecked) lines.push('', unchecked);
   if (context?.priceLines && context.priceLines.length > 0) {
     lines.push('', ...context.priceLines);
   }

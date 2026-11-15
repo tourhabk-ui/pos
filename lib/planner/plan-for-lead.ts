@@ -26,13 +26,17 @@ import type { BudgetTier, DayType, ZoneId } from '@/lib/planner/constants';
 import { asTripOrigin, type TripOrigin } from '@/lib/planner/trip-origin';
 import { PRICE_UNIT_SHORT } from '@/lib/tours/labels';
 import type { PlanChoices } from '@/lib/planner/plan-choices';
+import { planItemStatus, uncheckedItemsLine, type PlanItemDay, type PlanItemStatus, type TourCalendar } from '@/lib/planner/item-status';
 
 /** День в том объёме, что нужен заявке. День движка и день экрана подходят. */
 export interface PlanLeadInputDay extends EstimateDay {
-  realTour?: EstimateDay['realTour'] & { operatorName?: string };
+  realTour?: EstimateDay['realTour'] & { operatorName?: string; calendar?: TourCalendar };
   availableDate?: string;
   /** Ответ наличия на дату дня (движок): `none` — в этот день мест нет. */
   availability?: 'open' | 'none' | 'unread';
+  availabilityCheckedAt?: string;
+  capacityWarning?: string;
+  activityMode?: PlanItemDay['activityMode'];
 }
 
 export interface PlanLeadDay {
@@ -56,6 +60,11 @@ export interface PlanLeadDay {
   };
   /** День продолжения многодневного тура: цена — в первом дне. */
   continues_tour?: true;
+  /**
+   * Метка пункта (#3399, п. 7) — та, что человек видел на карточке дня. Нет
+   * поля — заявка до 15.11 или день не про занятие.
+   */
+  status?: PlanItemStatus;
 }
 
 export interface PlanForLead {
@@ -135,7 +144,11 @@ export function planForLead(
     departure: profile.departureDate
       ?? dateOf(profile.arrivalDate, days.reduce((m, d) => Math.max(m, d.day), 0)),
     days: days.map((d): PlanLeadDay => {
-      const base: PlanLeadDay = { day: d.day, date: dateOf(profile.arrivalDate, d.day), type: d.type, title: d.title, zone: d.zone };
+      const status = planItemStatus(d);
+      const base: PlanLeadDay = {
+        day: d.day, date: dateOf(profile.arrivalDate, d.day), type: d.type, title: d.title, zone: d.zone,
+        ...(status ? { status } : {}),
+      };
       if (!d.realTour) return base;
       // Продолжение многодневного тура — без второй цены: она в первом дне.
       if (!d.realPrice && !d.priceMissing) return { ...base, continues_tour: true };
@@ -261,6 +274,10 @@ export function planLeadLines(plan: PlanForLead, opts: { withDates?: boolean } =
     // доходил до менеджера одной сметой, без единого дня.
     else if (d.type === 'activity' && !d.continues_tour) lines.push(`${when}: «${d.title}» — без тура`);
   }
+  // Пункты, про которые не известно, что они состоятся, — одной строкой: план
+  // с ними не готов, и заявка говорит это до отправки (#3399, п. 7).
+  const unchecked = uncheckedItemsLine(plan.days.map((d) => ({ day: d.day, status: d.status ?? null })));
+  if (unchecked) lines.push(unchecked);
   for (const l of plan.lodging ?? []) {
     const price = l.total !== undefined && l.rooms !== undefined
       ? `${l.rooms} ${plural(l.rooms, 'номер', 'номера', 'номеров')} «${l.room}», ${rub(l.total)}`

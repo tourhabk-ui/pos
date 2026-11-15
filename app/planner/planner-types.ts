@@ -5,6 +5,7 @@
 import type { StayPrice } from '@/lib/planner/trip-extras';
 import type { PlannerRoute } from '@/lib/planner/bg-routes';
 import type { PriceBreakdown } from '@/lib/planner/estimate';
+import type { TourCalendar } from '@/lib/planner/item-status';
 
 export type TransportType = 'walking' | 'jeep' | 'helicopter' | 'boat';
 export type DayType = 'arrival' | 'activity' | 'travel' | 'rest' | 'buffer' | 'departure';
@@ -67,6 +68,8 @@ export interface DayPlan {
     durationDays?: number;
     /** Почему цена отличается от заголовочной: «−15%, последние места». */
     priceLabel?: string;
+    /** Ведёт ли тур расписание (движок; lib/planner/item-status). */
+    calendar?: TourCalendar;
   };
   /** Цена тура за единицу по правилу брони — у первого дня тура (смета, #2304). */
   realPrice?: number;
@@ -74,6 +77,16 @@ export interface DayPlan {
   priceMissing?: string;
   /** Ближайшая свободная дата тура в окне поездки (от движка). */
   availableDate?: string;
+  /**
+   * Места тура на дату дня, время их проверки и «на группу не хватает» — от
+   * движка и перечитки (lib/planner/tour-day-apply); по ним метка пункта
+   * (lib/planner/item-status). Схема сохранённой поездки их не хранит: места
+   * — данные момента.
+   */
+  availability?: 'open' | 'none' | 'unread';
+  availabilityCheckedAt?: string;
+  capacityWarning?: string;
+  slotsRemaining?: number;
   /**
    * Ключ карточки на экране планировщика — постоянный, в отличие от номера
    * дня, который после перестановки меняется (lib/planner/calendar-days).

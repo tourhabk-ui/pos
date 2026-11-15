@@ -86,6 +86,7 @@ vi.mock('@/lib/db-pool', () => ({
 }));
 
 import { recommendTrip, OUT_OF_SEASON_DAY_NOTE, type TripProfile } from '@/lib/planner/engine';
+import { planItemStatus } from '@/lib/planner/item-status';
 
 const OCTOBER: TripProfile = {
   interests: ['trekking'],
@@ -111,6 +112,11 @@ describe('«С оператором»: тур без календаря — в �
     const rec = await recommendTrip({ ...OCTOBER, travelStyle: 'operator' });
     expect(rec.catalogueOpen).toContain('trekking');
     expect(tourDays(rec.days)).toContain('t-trek');
+    // Тур без календаря несёт это на себе — метка дня скажет «дату подтвердит
+    // оператор», а не «мест нет» (#3399, п. 7).
+    const trek = rec.days.find((d) => d.realTour?.tourId === 't-trek');
+    expect(trek?.realTour?.calendar).toBe('request');
+    expect(trek && planItemStatus(trek)).toBe('on_request');
     const season = rec.warnings.map((w) => w.message).join('\n');
     expect(season).toMatch(/по нашему сезонному ориентиру это уже не сезон\. Месяц открывают туры операторов без календаря/);
     expect(season).toMatch(/оператор подтвердит по заявке/);
@@ -130,6 +136,10 @@ describe('«С оператором»: тур без календаря — в �
     KEEPS = { 't-trek': null };
     const rec = await recommendTrip({ ...OCTOBER, travelStyle: 'operator' });
     expect(tourDays(rec.days)).toContain('t-trek');
+    // Не знаем, ведёт ли тур расписание, — поля нет, метка не «мест нет».
+    const trek = rec.days.find((d) => d.realTour?.tourId === 't-trek');
+    expect(trek?.realTour?.calendar).toBeUndefined();
+    expect(trek && planItemStatus(trek)).not.toBe('full');
   });
 
   it('туры без календаря не прочитались — сказано словами', async () => {

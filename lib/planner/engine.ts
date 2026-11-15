@@ -65,6 +65,7 @@ import {
 import { loadActiveWarnings } from '@/lib/safety/active-warnings';
 import { applyPlanParkStatus } from '@/lib/planner/park-status';
 import { applyPlanOfficialAlerts, officialAlertsPlanWarning, OFFICIAL_ALERTS_UNREAD_NOTE } from '@/lib/planner/official-alerts';
+import type { TourCalendar } from '@/lib/planner/item-status';
 import {
   appendOfferingFlags, appendUnreadSafety, MCHS_UNREAD_NOTE, mchsBeforeTripNote, notesForPlanDay,
   splitWarningsForTrip, warningDigest, type ActiveWarning,
@@ -173,6 +174,13 @@ export interface DayPlan {
      * занял в плане.
      */
     durationDays?: number;
+    /**
+     * Ведёт ли тур расписание (#3399, п. 7): `request` — календаря нет, дату
+     * подтверждает оператор по заявке; `dated` — ведёт. Нет поля — не
+     * проверяли (план собран раньше или занятость не прочиталась). По нему
+     * метка дня отличает «мест нет» от «дату подтвердит оператор».
+     */
+    calendar?: TourCalendar;
     /** Почему цена тура отличается от заголовочной: «−15%, последние места». */
     priceLabel?: string;
     /**
@@ -1854,6 +1862,9 @@ async function generateDayPlans(
         // заявку он принимает на любую дату (правило 08.10), и день плана
         // говорит, что о следующем сезоне в данных нет ни слова.
         const dateInfo = tourDates.get(realTour.tourId);
+        if (dateInfo?.kind === 'request' || dateInfo?.kind === 'dated') {
+          realTourData.calendar = dateInfo.kind;
+        }
         if (dateInfo?.kind === 'request') {
           const seasonNote = pastSeasonNote({
             season_start: dateInfo.seasonStart, season_end: dateInfo.seasonEnd,
