@@ -16,6 +16,8 @@ import { NextRequest } from 'next/server';
 
 const { poolQuery } = vi.hoisted(() => ({ poolQuery: vi.fn() }));
 vi.mock('@/lib/db-pool', () => ({ pool: { query: poolQuery } }));
+// Планер — после входа (#3387): роуты судятся вошедшим.
+vi.mock('@/lib/planner/require-session', () => ({ plannerSession: vi.fn(async () => ({ userId: 'u-planner' })) }));
 
 import { ACTIVITY_CONSTRAINTS, normalizeActivity, rawTypesFor } from '@/lib/planner/constants';
 import { createPlannerCache, fetchRealToursForZone } from '@/lib/planner/data';

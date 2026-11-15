@@ -24,6 +24,8 @@ vi.mock('@/lib/planner/tour-day-reread', () => ({
   },
 }));
 vi.mock('@/lib/db-pool', () => ({ pool: { query: vi.fn() } }));
+// Планер — после входа (#3387): роуты судятся вошедшим.
+vi.mock('@/lib/planner/require-session', () => ({ plannerSession: vi.fn(async () => ({ userId: 'u-planner' })) }));
 
 import { renumberByPosition, TOUR_PRICE_PENDING_TEXT } from '@/lib/planner/calendar-days';
 import { applyTourDayRead, awaitsTourReread, parseTourDayRead } from '@/lib/planner/tour-day-apply';
