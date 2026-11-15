@@ -27,6 +27,8 @@ import {
 } from '@/lib/mcp/catalogs';
 import { GET as manifestGet } from '@/app/.well-known/mcp.json/route';
 import { GET as glamaClaimGet } from '@/app/.well-known/glama.json/route';
+import { GET as appsideGet } from '@/app/.well-known/appside-mcp.txt/route';
+import { GET as agentCardGet } from '@/app/.well-known/agent-card.json/route';
 
 const ROOT = process.cwd();
 const read = (p: string) => readFileSync(join(ROOT, p), 'utf-8');
@@ -97,6 +99,21 @@ describe('/.well-known/glama.json — HTTP challenge владения конне
     expect(body).toEqual({ $schema: GLAMA_CONNECTOR_SCHEMA, claim: GLAMA_CLAIM });
     expect(GLAMA_CONNECTOR_SCHEMA).toBe('https://glama.ai/mcp/schemas/connector.json');
     expect(GLAMA_CLAIM).toMatch(/^glama_claim_[A-Za-z0-9_-]{20,}$/);
+  });
+});
+
+describe('/.well-known/appside-mcp.txt — владение доменом для Appside (#3423)', () => {
+  it('200, text/plain, ровно одна строка токена из задачи', async () => {
+    const res = await appsideGet();
+    expect(res.status).toBe(200);
+    expect(res.headers.get('content-type')).toBe('text/plain; charset=utf-8');
+    expect(await res.text()).toBe('appside-mcp=c6e48c2f9b81644430352e601af213f5e54d42e3753560425b9712d7af3dc494');
+  });
+
+  it('визитка A2A рядом отвечает как раньше', async () => {
+    const res = await agentCardGet(new Request('https://vedarai.ru/.well-known/agent-card.json') as never);
+    expect(res.status).toBe(200);
+    expect((await res.json()).name).toBeTruthy();
   });
 });
 
