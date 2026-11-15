@@ -1,6 +1,7 @@
 'use client';
 
 import { isImeKeyEvent } from '@/lib/ui/ime';
+import { useModalDialog } from '@/hooks/use-modal-dialog';
 import { useState, useMemo, useCallback, useEffect, useRef } from 'react';
 import { useRouter, useSearchParams } from 'next/navigation';
 import { PdConsentCheckbox } from '@/components/legal/PdConsentCheckbox';
@@ -67,6 +68,7 @@ import type {
 import { planStaleReasons, planStaleText, type PlanSnapshot } from '@/lib/planner/plan-stale';
 import { PlanStaleNotice } from '@/components/planner/PlanStaleNotice';
 import { dayFrame } from '@/lib/planner/day-frame';
+import { PlanReturnWarning } from '@/components/planner/PlanReturnWarning';
 import { DayTourChip } from '@/components/planner/DayTourChip';
 import { planTourChip } from '@/lib/planner/day-tour-chip';
 import { mapDayDetails } from '@/lib/planner/map-day';
@@ -530,9 +532,18 @@ function DayCard({
     >
       <div ref={onRef}>
         {/* Row 1 — clickable to toggle edit */}
+        {/* С клавиатуры день тоже открывается (разбор 14.11, экран-14). */}
         <div
+          role="button"
+          tabIndex={0}
+          aria-expanded={isEditing}
+          aria-label={`День ${day.day}: ${day.title} — ${isEditing ? 'закрыть правку' : 'открыть правку'}`}
           className="flex items-center gap-2 px-3 pt-3 pb-1.5 cursor-pointer"
           onClick={() => onToggleEdit(day.day)}
+          onKeyDown={(e) => {
+            if (e.target !== e.currentTarget || isImeKeyEvent(e.nativeEvent)) return;
+            if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); onToggleEdit(day.day); }
+          }}
         >
           {isConfirmed
             ? <CheckCircle className="w-3.5 h-3.5 text-[var(--success)] shrink-0" />
@@ -883,16 +894,21 @@ function PartnersModal({ activityType, onClose }: {
 
   const label = [...ACTIVITIES, ...PLACES].find(a => a.id === activityType)?.label ?? activityType;
 
+  // Окно по общему правилу слоёв (разбор 14.11, экран-14): Escape закрывает
+  // только его, фокус внутри, после закрытия — на кнопке, что его открыла.
+  const dialogRef = useRef<HTMLDivElement>(null);
+  useModalDialog(dialogRef, onClose);
+
   return (
     <div className="fixed inset-0 z-50 flex items-center justify-center p-4">
       <div className="absolute inset-0 bg-black/50" onClick={onClose} />
-      <div className="relative bg-[var(--bg-card)] rounded-lg border border-[var(--border)] w-full max-w-md max-h-[80vh] flex flex-col">
+      <div ref={dialogRef} role="dialog" aria-modal="true" aria-label={`Операторы: ${label}`} className="relative bg-[var(--bg-card)] rounded-lg border border-[var(--border)] w-full max-w-md max-h-[80vh] flex flex-col">
         <div className="flex items-center justify-between px-4 py-3 border-b border-[var(--border)]">
           <div>
             <p className="text-[10px] font-bold uppercase tracking-widest text-[var(--text-muted)]">Операторы</p>
             <p className="text-sm font-semibold text-[var(--text-primary)]">{label}</p>
           </div>
-          <button onClick={onClose}
+          <button type="button" onClick={onClose} aria-label="Закрыть" autoFocus
             className="w-7 h-7 flex items-center justify-center rounded-md text-[var(--text-muted)] hover:text-[var(--text-primary)] hover:bg-[var(--bg-hover)] transition-colors">
             <X className="w-4 h-4" />
           </button>
@@ -2195,11 +2211,15 @@ export function PlannerClient({ initialUserId }: { initialUserId?: string | null
       <div className="space-y-3 pt-1 border-t border-[var(--border)]">
         <RequestSummary lines={requestLines} healthNoted={healthNotes.trim().length > 0} />
         <p className="text-xs font-bold uppercase tracking-widest text-[var(--text-muted)]">Контакты</p>
+        {/* Подпись поля — не только подсказка внутри (разбор 14.11, экран-14). */}
         <input type="text" value={contactName} onChange={e => setContactName(e.target.value)}
+          aria-label="Ваше имя" autoComplete="name"
           placeholder="Ваше имя" className="ds-input w-full text-sm" />
         <input type="tel" value={contactPhone} onChange={e => setContactPhone(e.target.value)}
+          aria-label="Телефон" autoComplete="tel"
           placeholder="+7 900 000-00-00" className="ds-input w-full text-sm" />
         <textarea value={contactComment} onChange={e => setContactComment(e.target.value)}
+          aria-label="Пожелания" 
           placeholder="Пожелания, вопросы, особые требования..."
           rows={3}
           className="ds-input w-full text-sm resize-none" />
@@ -2837,6 +2857,9 @@ export function PlannerClient({ initialUserId }: { initialUserId?: string | null
 
           {/* Зоны — по дням плана, а не балл совпадения (#3338). */}
           <PlanZones days={days} crowd={recommendation.zones} />
+
+          {/* Дня на возвращение из дальней зоны нет — после правки на экране (экран-4). */}
+          <PlanReturnWarning days={days} origin={tripOrigin} shown={recommendation.warnings.map((w) => w.message)} />
 
           {/* Days */}
           {days.length > 0 && (
