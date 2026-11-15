@@ -652,6 +652,14 @@ export function formatPlanPrice(pb: PriceBreakdown, planned: boolean, group?: Gr
     if (group.lines.some((l) => l.total)) {
       lines.push(`Итого на ${group.people === 1 ? 'одного' : `группу из ${group.people} чел.`}: ${range(group.total)} — `
         + `только цены туров операторов${group.fromOffers[1] > 0 ? ' и выбранного жилья на платформе' : ''}.`);
+      // «На человека» — то же число, что на экране /planner: итог на группу,
+      // делённый на людей (разбор планера 14.11, смета-4).
+      if (group.people > 1) {
+        lines.push(`На человека: ${range(group.perPerson)} — итог на группу, делённый на ${group.people} чел., как в планировщике.`);
+      }
+    } else {
+      // Ни у одной строки нет суммы — итога нет, а не «0 ₽» (смета-2).
+      lines.push('Итог не посчитан: ни у одной строки сметы нет цены — суммы назовут операторы, хозяева жилья и перевозчики по заявке.');
     }
     if (group.unpriced.length > 0) {
       // Кто назовёт цену — по роду строки, тем же правилом, что экран

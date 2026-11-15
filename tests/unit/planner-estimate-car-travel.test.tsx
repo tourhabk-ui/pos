@@ -118,9 +118,11 @@ describe('переезд без цены — «цены нет», а не 0', ()
     expect(row.textContent).toContain('цену называет перевозчик');
     expect(row.textContent).toContain('цены нет');
     expect(block.textContent).not.toMatch(/ориентир/i);
-    // Ни одной цены в плане — «Итого» и «0 ₽» нет, сказано, кто называет цены.
+    // Ни одной цены в плане — итог «не посчитано», ни одной суммы, сказано,
+    // кто называет цены.
     expect(block.textContent).toContain(NO_PRICES_YET);
-    expect(block.textContent).not.toMatch(/Итого|0 ₽/);
+    expect(block.textContent).toContain('Итого на группуне посчитано');
+    expect(block.textContent).not.toMatch(/\d\s*₽/);
   });
 
   it('тур с ценой рядом с туром без цены и переездом — без цены названы оба', () => {

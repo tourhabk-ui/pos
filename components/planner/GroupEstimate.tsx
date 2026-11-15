@@ -30,6 +30,8 @@ function sourcesLine(fromTours: [number, number], fromOffers: [number, number]):
 
 export function GroupEstimateBlock({ estimate }: { estimate: GroupEstimate }) {
   const { people, lines, total, perPerson, unpriced, assumptions, fromTours, fromOffers } = estimate;
+  // Ни у одной строки нет суммы — итога нет, а не «0 ₽» (разбор планера 14.11,
+  // смета-2): ноль читался как «бесплатно».
   const priced = lines.some((l) => l.total);
   return (
     <div className="mt-2 pt-2 border-t border-[var(--border)] space-y-1" data-testid="price-estimate">
@@ -54,19 +56,17 @@ export function GroupEstimateBlock({ estimate }: { estimate: GroupEstimate }) {
           </li>
         ))}
       </ul>
+      <div className="flex items-center justify-between px-1 pt-1 border-t border-[var(--border)]">
+        <span className="text-xs font-medium text-[var(--text-secondary)]">Итого на группу</span>
+        <span className="text-sm font-semibold text-[var(--accent)]">{priced ? range(total) : 'не посчитано'}</span>
+      </div>
       {priced ? (
-        <>
-          <div className="flex items-center justify-between px-1 pt-1 border-t border-[var(--border)]">
-            <span className="text-xs font-medium text-[var(--text-secondary)]">Итого на группу</span>
-            <span className="text-sm font-semibold text-[var(--accent)]">{range(total)}</span>
-          </div>
-          <div className="flex items-center justify-between px-1">
-            <span className="text-[10px] text-[var(--text-muted)]">На человека</span>
-            <span className="text-[10px] text-[var(--text-secondary)]">{range(perPerson)}</span>
-          </div>
-        </>
+        <div className="flex items-center justify-between px-1">
+          <span className="text-[10px] text-[var(--text-muted)]">На человека</span>
+          <span className="text-[10px] text-[var(--text-secondary)]">{range(perPerson)}</span>
+        </div>
       ) : (
-        <p className="text-[10px] text-[var(--text-secondary)] px-1 pt-1 border-t border-[var(--border)]">{NO_PRICES_YET}</p>
+        <p className="text-[10px] text-[var(--text-secondary)] px-1">{NO_PRICES_YET}</p>
       )}
       {priced && unpriced.length > 0 && (
         <p className="text-[9px] text-[var(--warning)] px-1">
