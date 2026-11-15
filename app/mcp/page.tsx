@@ -28,6 +28,7 @@ import { MCP_CONNECT_OPTIONS, MCP_SYSTEM_PROMPT_LINE_EN, MCP_SYSTEM_PROMPT_LINE_
 import { SERVER_INSTRUCTIONS } from '@/lib/mcp/server-instructions';
 import { defaultOgImages } from '@/lib/seo/og-image';
 import { CopyButton } from '@/components/mcp/CopyButton';
+import { VEDAR_SKILL_NAME, VEDAR_SKILL_PATH, VEDAR_SKILL_URL, VEDAR_SKILL_INSTALL_CLAUDE_CODE } from '@/lib/agent/vedar-skill';
 
 const REGISTRY_NAME = MCP_CATALOGS.find((c) => c.catalog.startsWith('MCP Registry'))?.name ?? '';
 const SITE = process.env.NEXT_PUBLIC_SITE_URL ?? 'https://vedarai.ru';
@@ -166,6 +167,39 @@ export default function McpLandingPage() {
               </p>
               <p style={{ color: 'var(--text-secondary)' }}>
                 JSON-RPC: <code>{SITE}/api/a2a</code> · REST: <code>{SITE}/api/a2a/v1</code> · версия — заголовок <code>A2A-Version</code>
+              </p>
+            </div>
+          </section>
+
+          {/* Навык Ведара (Agent Skill, #3408): SKILL.md с тем же сервером,
+              порядком работы и правилами заявки (lib/agent/vedar-skill). */}
+          <section className="space-y-3" id="skill">
+            <h2 className="ds-h2">Установить как навык</h2>
+            <div className="ds-card p-4 space-y-2 text-sm">
+              <p style={{ color: 'var(--text-secondary)' }}>
+                Навык (Agent Skill) — файл <code>SKILL.md</code> для Claude Code, Codex и других агентов с поддержкой
+                навыков: как подключить сервер, в каком порядке проверять обстановку, туры и погоду и как
+                отправляется заявка — её отправляет сам человек.
+              </p>
+              <p style={{ color: 'var(--text-primary)' }}>
+                Файл:{' '}
+                <a className="underline break-all" style={{ color: 'var(--ocean)' }} href={VEDAR_SKILL_PATH}>
+                  <code>{VEDAR_SKILL_URL}</code>
+                </a>
+              </p>
+              <div className="flex items-center justify-between gap-2">
+                <p className="font-semibold" style={{ color: 'var(--text-primary)' }}>Claude Code</p>
+                <CopyButton text={VEDAR_SKILL_INSTALL_CLAUDE_CODE} />
+              </div>
+              <pre
+                className="text-xs whitespace-pre-wrap break-all rounded-lg p-3"
+                style={{ background: 'var(--bg-hover)', color: 'var(--text-primary)' }}
+                data-skill-install="claude_code"
+              >
+                {VEDAR_SKILL_INSTALL_CLAUDE_CODE}
+              </pre>
+              <p style={{ color: 'var(--text-secondary)' }}>
+                Другим агентам — положить этот файл в папку навыков <code>{VEDAR_SKILL_NAME}/</code>.
               </p>
             </div>
           </section>

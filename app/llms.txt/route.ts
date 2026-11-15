@@ -22,6 +22,7 @@ import { NOTIFY_RESPONSE_RULES } from '@/lib/mcp/request-notify-schema';
 import { ANSWER_RELAY_RULE } from '@/lib/mcp/request-status-schema';
 import { CHANGE_REQUEST_RULE } from '@/lib/mcp/change-request-schema';
 import { recordAgentEntryHit } from '@/lib/analytics/agent-entry-hits';
+import { VEDAR_SKILL_URL, VEDAR_SKILL_INDEX_PATH } from '@/lib/agent/vedar-skill';
 import { publicAccommodationSql } from '@/lib/stay/moderation';
 import { carrierPagePath } from '@/lib/transfers/charter-format';
 
@@ -396,6 +397,8 @@ ${parks.length ? parks.map((p) => `- [${p.displayName}](${BASE}/park/${p.slug})`
 - Connect: ${MCP_CONNECT_OPTIONS.find((o) => o.id === 'claude_code')?.value ?? '—'}
   (Cursor / VS Code: one-click links on ${BASE}/mcp)
 - System prompt line for hosts: ${MCP_SYSTEM_PROMPT_LINE_EN}
+- Навык для агентов (Agent Skill — Claude Code, Codex и др.): ${VEDAR_SKILL_URL};
+  список навыков: ${BASE}${VEDAR_SKILL_INDEX_PATH}
 
 ## Для AI-агентов: A2A (Agent2Agent 1.0)
 
