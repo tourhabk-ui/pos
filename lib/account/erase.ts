@@ -993,9 +993,8 @@ export async function eraseUser(
         AND subject_id IN (SELECT hb.id::text FROM (${HIS_BOOKINGS}) hb)
         AND NULLIF(btrim(reason), '') IS NOT NULL`],
     // full_name NOT NULL (baseline) — имя-заглушка; отметки согласия и МЧС —
-    // не ПД, а след обработки, они остаются.
+    // не ПД, а след обработки, они остаются. Колонок паспорта нет с 1445.
     ['booking_group_members', `UPDATE booking_group_members SET full_name = '${N}', phone = NULL,
-        passport_number = NULL, passport_encrypted = NULL,
         emergency_contact_name = NULL, emergency_contact_phone = NULL,
         dietary_restrictions = NULL, medical_notes = NULL, medical_encrypted = NULL
       WHERE booking_id IN (${HIS_BOOKINGS})`],
