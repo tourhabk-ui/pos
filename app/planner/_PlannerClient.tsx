@@ -66,6 +66,7 @@ import type {
 import { planStaleReasons, planStaleText, type PlanSnapshot } from '@/lib/planner/plan-stale';
 import { PlanStaleNotice } from '@/components/planner/PlanStaleNotice';
 import { dayFrame } from '@/lib/planner/day-frame';
+import { PlanReturnWarning } from '@/components/planner/PlanReturnWarning';
 import { DayTourChip } from '@/components/planner/DayTourChip';
 import { planTourChip } from '@/lib/planner/day-tour-chip';
 import { mapDayDetails } from '@/lib/planner/map-day';
@@ -2824,6 +2825,9 @@ export function PlannerClient({ initialUserId }: { initialUserId?: string | null
 
           {/* Зоны — по дням плана, а не балл совпадения (#3338). */}
           <PlanZones days={days} crowd={recommendation.zones} />
+
+          {/* Дня на возвращение из дальней зоны нет — после правки на экране (экран-4). */}
+          <PlanReturnWarning days={days} origin={tripOrigin} shown={recommendation.warnings.map((w) => w.message)} />
 
           {/* Days */}
           {days.length > 0 && (
