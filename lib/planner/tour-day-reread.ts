@@ -26,6 +26,7 @@ import { pool } from '@/lib/db-pool';
 import { createPlannerCache, fetchAvailabilityForTour } from './data';
 import { planTourPrice, missingPriceText, PRICE_UNREAD_TEXT } from './tour-price';
 import { publicTourSql } from '@/lib/tours/public-visibility';
+import type { TourDayRead } from './tour-day-apply';
 
 export interface TourDayInput {
   tourId: string;
@@ -37,18 +38,9 @@ export interface TourDayInput {
   participants: number;
 }
 
-/** Поля дня с туром, которые зависят от даты и группы. */
-export interface TourDayRead {
-  availability: 'open' | 'none' | 'unread';
-  availableDate?: string;
-  slotsRemaining?: number;
-  capacityWarning?: string;
-  realPrice?: number;
-  priceLabel?: string;
-  priceMissing?: string;
-  priceFrom: number;
-  priceTo: number;
-}
+// Поля дня с туром, которые зависят от даты и группы: тип живёт в модуле без
+// базы — его читает и экран планировщика (tour-day-apply).
+export type { TourDayRead };
 
 /** Тур сняли с витрины после того, как план собран. */
 export const TOUR_OFF_SALE_TEXT = 'Тура сейчас нет на витрине — цену не называю.';

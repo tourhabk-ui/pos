@@ -23,13 +23,14 @@
  */
 import { honestTourPrice, composeHonestPrice, loadPriceTiers } from '@/lib/tours/honest-price';
 import { PriceTierMissError, PRICE_TIER_MISS_TEXT } from '@/lib/tours/price-tiers';
+import { PRICE_UNREAD_TEXT } from './price-unread';
 
 export type PlanTourPrice =
   | { kind: 'priced'; unitPrice: number; label: string | null }
   | { kind: 'missing'; text: string };
 
-/** Текст, когда цену не удалось проверить: базовую подставлять нельзя. */
-export const PRICE_UNREAD_TEXT = 'Цену тура для вашей группы проверить не удалось — она в карточке тура.';
+// Текст «не удалось проверить» живёт в модуле без базы: его читает и экран.
+export { PRICE_UNREAD_TEXT };
 
 /**
  * Цена посчитана, и она ноль: оператор её не указал (#3199, сценарий 5 аудита,

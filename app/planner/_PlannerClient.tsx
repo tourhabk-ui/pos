@@ -69,6 +69,7 @@ import { planStaleReasons, planStaleText, type PlanSnapshot } from '@/lib/planne
 import { PlanStaleNotice } from '@/components/planner/PlanStaleNotice';
 import { dayFrame } from '@/lib/planner/day-frame';
 import { PlanReturnWarning } from '@/components/planner/PlanReturnWarning';
+import { applyTourDayRead, awaitsTourReread, parseTourDayRead, type TourDayRead } from '@/lib/planner/tour-day-apply';
 import { DayTourChip } from '@/components/planner/DayTourChip';
 import { planTourChip } from '@/lib/planner/day-tour-chip';
 import { mapDayDetails } from '@/lib/planner/map-day';
@@ -1422,6 +1423,8 @@ export function PlannerClient({ initialUserId }: { initialUserId?: string | null
   // отпусканием, и состояние React к нему может ещё не обновиться.
   const daysRef = useRef<DayPlan[]>(days);
   useEffect(() => { daysRef.current = days; }, [days]);
+  /** Номер последней перестановки: ответ о цене прежней не ложится на новую. */
+  const tourRereadSeqRef = useRef(0);
 
   // Day confirmation
   const [confirmedDays, setConfirmedDays] = useState<Set<number>>(new Set());
@@ -1869,6 +1872,43 @@ export function PlannerClient({ initialUserId }: { initialUserId?: string | null
     setDays(next);
     followNewNumbers(newNumbers);
     scheduleValidation(next);
+    rereadMovedTours(next);
+  }
+
+  /**
+   * Тур, сменивший дату, перечитывает места и цену на новую дату (разбор
+   * 14.11, смета-5): цена по правилу брони зависит от дня выезда. Пока ответа
+   * нет — «цену ещё не перечитали», смета её не складывает. Ответ прежней
+   * перестановки не ложится на новую.
+   */
+  function rereadMovedTours(list: DayPlan[]) {
+    const pending = list.filter(awaitsTourReread);
+    const seq = ++tourRereadSeqRef.current;
+    if (pending.length === 0) return;
+    const planArrival = builtFor?.arrival ?? arrival;
+    const people = builtFor ? builtFor.adults + builtFor.children.length : adults + knownChildAges.length;
+    for (const d of pending) {
+      const tour = d.realTour!;
+      const apply = (read: TourDayRead | null) => {
+        if (seq !== tourRereadSeqRef.current) return;
+        setDays((cur) => cur.map((x) => (x.day === d.day ? applyTourDayRead(x, tour.tourId, read) : x)));
+      };
+      const date = planArrival ? dateOfTripDay(planArrival, d.day) : null;
+      if (!date) { apply(null); continue; }
+      const q = new URLSearchParams({ tour_id: tour.tourId, date, participants: String(people) });
+      if (tour.maxParticipants) q.set('max', String(tour.maxParticipants));
+      void fetch(`/api/planner/tours-for-day?${q.toString()}`)
+        .then((r) => r.json())
+        .then((body: unknown) => {
+          const read = parseTourDayRead(body);
+          if (!read) console.error('[planner] цена тура на новую дату не перечитана: ответ без данных');
+          apply(read);
+        })
+        .catch((err: unknown) => {
+          console.error('[planner] цена тура на новую дату не перечитана:', err instanceof Error ? err.message : String(err));
+          apply(null);
+        });
+    }
   }
 
   function scheduleValidation(list: DayPlan[]) {
