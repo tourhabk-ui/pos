@@ -142,7 +142,7 @@ describe('движок и смета: тур вне ступеней не пол
     expect(e.unpriced).toContain(line!.label);
     expect(e.fromTours).toEqual([0, 0]);
 
-    const pb = calculatePriceBreakdown(rec.days, PROFILE);
+    const pb = calculatePriceBreakdown(rec.days);
     expect(pb.activityPricing.unpriced).toBe(1);
     expect(pb.activityPricing.tourPriced).toBe(0);
   });
