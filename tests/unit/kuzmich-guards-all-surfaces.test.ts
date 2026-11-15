@@ -216,17 +216,21 @@ describe('журнал проверок безопасности знает по
   });
 });
 
-describe('стрим: текст, уже ушедший по словам, поправляется хвостом', () => {
-  it('цикл не ответил, запасной ответ ушёл как есть — поправки идут после него, 112 — первым', async () => {
+describe('стрим: запасной ответ проходит тот же выход до того, как уйдёт к человеку (#3412, п. 4)', () => {
+  it('цикл не ответил — запасной ответ не показан по токенам сырым: дефекты вырезаны до отправки, 112 — первым', async () => {
     toolsWaterfall.mockResolvedValue(null);
     const { tokens, final } = await readStream(await streamChat(post('http://localhost/api/ai/chat-stream', { message: QUESTION })));
     expect(tokens.startsWith(SOS_HEAD)).toBe(true);
-    // Сказанное не вырезать — но поправка обязана идти следом за ним.
-    const said = tokens.indexOf('400 км');
-    expect(said).toBeGreaterThan(-1);
-    expect(tokens.indexOf(DISTANCE_HONEST_LINE)).toBeGreaterThan(said);
-    expect(tokens.indexOf('Поправка к сказанному выше: притворяться мёртвым нельзя')).toBeGreaterThan(tokens.indexOf('притворись мёртвым'));
+    // До 15.11 токены запасного стрима шли человеку по одному, и опасное
+    // исправлялось лишь поправкой хвостом — после того как его прочли.
+    expect(tokens).not.toMatch(/400 км/);
+    expect(tokens).toContain(DISTANCE_HONEST_LINE);
+    expect(tokens).not.toMatch(/притворись мёртвым/);
+    expect(tokens).toContain(BANNED_ADVICE_NOTE);
+    expect(tokens).not.toMatch(/Заявка передана оператору/);
     expect(tokens).toContain(DELIVERY_HONEST_LINE);
+    expect(tokens).toContain('Держитесь вместе');
+    expect(tokens).not.toMatch(/Поправка к сказанному выше/);
     expect(final).toBe(tokens);
   });
 });

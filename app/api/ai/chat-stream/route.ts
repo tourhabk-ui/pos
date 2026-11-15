@@ -43,7 +43,7 @@ import {
 import { aiChatAgentLoop, KUZMICH_SYSTEM, kuzmichTurnFacts, kuzmichSystemContent } from '@/lib/kuzmich/core';
 import { checkAnswerPrices } from '@/lib/kuzmich/answer-quality';
 import { resolveCommercialTurn } from '@/lib/kuzmich/commercial-turn';
-import { finishKuzmichAnswer, correctShownAnswer } from '@/lib/kuzmich/answer-guards';
+import { finishKuzmichAnswer } from '@/lib/kuzmich/answer-guards';
 import { recordKuzmichAnswer } from '@/lib/kuzmich/answer-timing';
 import { saveChatSession } from '@/lib/kuzmich/chat-session-save';
 import { newLoopTiming, answerTokens } from '@/lib/kuzmich/answer-ceiling';
@@ -362,63 +362,52 @@ export async function POST(request: NextRequest) {
             flushWords(fullAnswer);
           } else {
             // OpenRouter-стрим открываем ЛЕНИВО — только когда мозг не ответил,
-            // иначе платили бы за две генерации на каждый запрос
+            // иначе платили бы за две генерации на каждый запрос.
+            //
+            // Токены запасного стрима человеку по одному НЕ уходят (#3412, п. 4):
+            // текст собирается целиком, проходит тот же выход ответа
+            // (finishKuzmichAnswer — километраж, «безопасно», «дошло»), и только
+            // потом идёт по словам. До этого запасная ветка показывала
+            // непроверенное и могла лишь дописать поправку хвостом.
             const orStreamResponse = await streamViaOpenRouter(messagesForAI);
             if (orStreamResponse?.body) {
-            const reader = orStreamResponse.body.getReader();
-            const decoder = new TextDecoder();
-            let buffer = '';
-
-            while (true) {
-              const { done, value } = await reader.read();
-              if (done) break;
-
-              buffer += decoder.decode(value, { stream: true });
-              const events = buffer.split('\n\n');
-              buffer = events.pop() ?? '';
-
-              for (const evt of events) {
-                const line = evt
-                  .split('\n')
-                  .find((l) => l.startsWith('data: '));
-                if (!line) continue;
-                const payload = line.slice(6).trim();
-                if (!payload || payload === '[DONE]') continue;
-
-                try {
-                  const parsedChunk = JSON.parse(payload) as {
-                    choices?: Array<{ delta?: { content?: string } }>;
-                  };
-                  const token = parsedChunk.choices?.[0]?.delta?.content ?? '';
-                  if (!token) continue;
-
-                  fullAnswer += token;
-                  controller.enqueue(encoder.encode(
-                    `data: ${JSON.stringify({ type: 'token', content: token })}\n\n`,
-                  ));
-                } catch {
-                  // Skip malformed chunk and continue streaming
+              const reader = orStreamResponse.body.getReader();
+              const decoder = new TextDecoder();
+              let buffer = '';
+              while (true) {
+                const { done, value } = await reader.read();
+                if (done) break;
+                buffer += decoder.decode(value, { stream: true });
+                const events = buffer.split('\n\n');
+                buffer = events.pop() ?? '';
+                for (const evt of events) {
+                  const line = evt.split('\n').find((l) => l.startsWith('data: '));
+                  if (!line) continue;
+                  const payload = line.slice(6).trim();
+                  if (!payload || payload === '[DONE]') continue;
+                  try {
+                    const parsedChunk = JSON.parse(payload) as { choices?: Array<{ delta?: { content?: string } }> };
+                    fullAnswer += parsedChunk.choices?.[0]?.delta?.content ?? '';
+                  } catch (err) {
+                    logSwallowedFailure('ai-chat-stream', 'кусок запасного стрима', err);
+                  }
                 }
               }
-            }
             } else {
               fullAnswer = await callAIWithModelDirect(messagesForAI, getModelForAgent('kuzmich'));
-              flushWords(fullAnswer);
             }
             modelAnswer = fullAnswer;
-            // Запасной стрим шёл без инструментов, и текст уже у человека:
-            // вырезать нечем, поправки (километраж, «безопасно», «дошло»)
-            // уходят хвостом в том же порядке (аудит 15.10, 1.14).
-            const correction = correctShownAnswer({
-              surface: 'web-stream',
-              answer: fullAnswer,
-              question: message.trim(),
-              toolRuns: null,
-              context: turnContext,
-            });
-            if (correction.tail) {
-              flushWords(correction.tail);
-              fullAnswer += correction.tail;
+            if (fullAnswer) {
+              const finished = finishKuzmichAnswer({
+                surface: 'web-stream',
+                answer: fullAnswer,
+                question: message.trim(),
+                toolRuns: null,
+                context: turnContext,
+                sos: false,
+              });
+              fullAnswer = finished.text;
+              flushWords(fullAnswer);
             }
           }
 
