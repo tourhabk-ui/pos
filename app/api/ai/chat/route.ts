@@ -281,7 +281,7 @@ export async function POST(request: NextRequest) {
     const kuzmichParts = turnFacts
       ? kuzmichSystemContent(turnFacts, { lead: [chatPlanContext(chatPlanId)], tail: [geoContext, memContext, agentInsights] })
       : null;
-    const systemPrompt = [basePrompt, mchsBlock, turnFacts?.facts ?? '', geoContext, ragContext, memContext, agentInsights].filter(Boolean).join('\n\n');
+    const systemPrompt = [basePrompt, turnFacts?.modules ?? '', mchsBlock, turnFacts?.facts ?? '', geoContext, ragContext, memContext, agentInsights].filter(Boolean).join('\n\n');
     const messagesForAI = buildMessageHistory(systemPrompt, history, 10);
 
     // Замер ответа Кузьмича туристу (аудит 15.10, A19): от начала ответа до
