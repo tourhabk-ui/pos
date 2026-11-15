@@ -1,5 +1,5 @@
 /**
- * GET /api/cron/voice-probe[?model=<id>&voice=<имя>]
+ * GET /api/cron/voice-probe[?model=<id>&voice=<имя>] · ?provider=deepseek[&voice=stella|tide]
  * Authorization: Bearer <CRON_SECRET>
  *
  * Может ли Кузьмич говорить голосом через наш ключ DashScope (issue #1992).
@@ -35,6 +35,19 @@
  *   no_tts_models          — каталог прочитан, моделей синтеза в нём нет
  *   could_not_check        — ключа нет или до провайдера не дошли (§4.0:
  *                            «не смог» не равно «голоса нет»)
+ *
+ * ── ?provider=deepseek (15.11) ─────────────────────────────────────────────
+ *
+ * Владелец 15.11: «deepseek добавили голос». Синтез речи DeepSeek
+ * (`POST https://api.deepseek.com/v1/tools/tts`, документация
+ * api-docs.deepseek.com/guides/tts) отдаёт WAV в теле ответа, ссылки на файл
+ * нет. В списке языков документации русского НЕТ (zh, yue, en, ja, ko, ms,
+ * ar, id, th, vi), язык определяется по тексту. Поэтому проба синтезирует
+ * ту же русскую фразу и английскую для сравнения и называет по каждой код,
+ * байты и длительность звука: русская фраза, прочитанная целиком, звучит
+ * примерно столько же секунд на знак, сколько английская; пропущенная —
+ * заметно короче или отказ. Слушать всё равно человеку: автомат качество
+ * речи не судит.
  *
  * Только чтение: ни одной записи в БД, ни одного поста наружу.
  */
@@ -180,6 +193,141 @@ export function verdictOf(catalogOk: boolean, ttsCount: number, attempts: Attemp
   return 'could_not_check';
 }
 
+/** Адрес синтеза DeepSeek — из документации, один на пробу. */
+export const DEEPSEEK_TTS_URL = 'https://api.deepseek.com/v1/tools/tts';
+
+/** Английская фраза для сравнения: язык из списка документации DeepSeek. */
+export const DEEPSEEK_CONTROL_PHRASE = 'Voice check. Avachinsky volcano, Kurile Lake, Petropavlovsk-Kamchatsky.';
+
+/** Голоса из документации DeepSeek; иное имя проба не шлёт. */
+export const DEEPSEEK_VOICES = ['stella', 'tide'] as const;
+
+export type DeepSeekAttempt = {
+  phrase: string;
+  lang: 'ru' | 'en';
+  chars: number;
+  http: number | null;
+  outcome: 'audio' | 'no_audio' | 'refused' | 'network';
+  audio_bytes: number | null;
+  audio_content_type: string | null;
+  /** Длительность по заголовку WAV; null — заголовок не прочитан. */
+  audio_seconds: number | null;
+  error: string | null;
+  ms: number;
+};
+
+/**
+ * Секунды звука в WAV по заголовку fmt и числу байт после заголовка. Поле
+ * размера data у потокового WAV бывает заглушкой, поэтому считаем по байтам
+ * файла, а не по нему. Не WAV или заголовок не найден — null.
+ */
+export function wavSeconds(buf: Uint8Array): number | null {
+  if (buf.length < 44) return null;
+  const tag = (o: number) => String.fromCharCode(buf[o]!, buf[o + 1]!, buf[o + 2]!, buf[o + 3]!);
+  if (tag(0) !== 'RIFF' || tag(8) !== 'WAVE') return null;
+  const view = new DataView(buf.buffer, buf.byteOffset, buf.byteLength);
+  let off = 12;
+  let byteRate: number | null = null;
+  while (off + 8 <= buf.length) {
+    const id = tag(off);
+    const size = view.getUint32(off + 4, true);
+    // byteRate — четыре байта с off+16: обрезанный fmt не читается вовсе.
+    if (id === 'fmt ' && off + 20 <= buf.length) byteRate = view.getUint32(off + 16, true);
+    if (id === 'data') {
+      if (!byteRate) return null;
+      const dataBytes = buf.length - (off + 8);
+      return Math.round((dataBytes / byteRate) * 10) / 10;
+    }
+    off += 8 + size + (size % 2);
+  }
+  return null;
+}
+
+async function synthesizeDeepSeek(apiKey: string, phrase: string, lang: 'ru' | 'en', voice: string): Promise<DeepSeekAttempt> {
+  const started = Date.now();
+  const base: Omit<DeepSeekAttempt, 'ms'> = {
+    phrase, lang, chars: phrase.length, http: null, outcome: 'network',
+    audio_bytes: null, audio_content_type: null, audio_seconds: null, error: null,
+  };
+  let res: Response;
+  try {
+    res = await fetch(DEEPSEEK_TTS_URL, {
+      method: 'POST',
+      headers: { Authorization: `Bearer ${apiKey}`, 'Content-Type': 'application/json' },
+      body: JSON.stringify({ text: phrase, voice_id: voice, format: 'wav' }),
+      signal: AbortSignal.timeout(20_000),
+    });
+  } catch (err) {
+    return { ...base, error: errText(err), ms: Date.now() - started };
+  }
+  if (!res.ok) {
+    return { ...base, http: res.status, outcome: 'refused', error: (await res.text()).slice(0, ERROR_HEAD), ms: Date.now() - started };
+  }
+  let buf: Uint8Array;
+  try {
+    buf = new Uint8Array(await res.arrayBuffer());
+  } catch (err) {
+    // Документация: синтез, оборванный после начала звука, обрывает ответ.
+    return { ...base, http: res.status, error: `ответ оборвался: ${errText(err)}`, ms: Date.now() - started };
+  }
+  const ok = buf.length >= MIN_AUDIO_BYTES;
+  return {
+    ...base, http: res.status, outcome: ok ? 'audio' : 'no_audio',
+    audio_bytes: buf.length, audio_content_type: res.headers.get('content-type'),
+    audio_seconds: wavSeconds(buf), error: ok ? null : 'аудио короче порога',
+    ms: Date.now() - started,
+  };
+}
+
+/** Приговор DeepSeek — по русской фразе: Кузьмич отвечает по-русски. */
+export function deepseekVerdictOf(attempts: DeepSeekAttempt[]): VoiceVerdict {
+  const ru = attempts.find((a) => a.lang === 'ru');
+  if (!ru) return 'could_not_check';
+  if (ru.outcome === 'audio') return 'speaks';
+  if (ru.outcome === 'no_audio') return 'answers_without_audio';
+  if (ru.outcome === 'refused') return 'refused';
+  return 'could_not_check';
+}
+
+async function deepseekProbe(params: URLSearchParams): Promise<NextResponse> {
+  const started = Date.now();
+  const apiKey = process.env.DEEPSEEK_API_KEY?.trim();
+  const askedVoice = params.get('voice') ?? 'stella';
+  const voice = (DEEPSEEK_VOICES as readonly string[]).includes(askedVoice) ? askedVoice : 'stella';
+  if (!apiKey) {
+    return NextResponse.json({
+      provider: 'deepseek',
+      verdict: 'could_not_check' satisfies VoiceVerdict,
+      reason: 'DEEPSEEK_API_KEY не задан',
+      run_place: runPlace(),
+      checked_at: new Date().toISOString(),
+    });
+  }
+  const attempts: DeepSeekAttempt[] = [];
+  attempts.push(await synthesizeDeepSeek(apiKey, PROBE_PHRASE, 'ru', voice));
+  if (Date.now() - started <= SECOND_ATTEMPT_DEADLINE_MS) {
+    attempts.push(await synthesizeDeepSeek(apiKey, DEEPSEEK_CONTROL_PHRASE, 'en', voice));
+  }
+  const verdict = deepseekVerdictOf(attempts);
+  if (verdict !== 'speaks') {
+    console.error('[voice-probe] DeepSeek: русского голоса нет:', verdict, attempts.map((a) => `${a.lang}:${a.outcome}:${a.http}`).join(', '));
+  }
+  const rate = (a: DeepSeekAttempt | undefined) =>
+    a && a.audio_seconds != null && a.chars > 0 ? Math.round((a.audio_seconds / a.chars) * 1000) / 1000 : null;
+  return NextResponse.json({
+    provider: 'deepseek',
+    verdict,
+    voice,
+    /** В документации DeepSeek русского нет в списке языков — слушать ушами. */
+    russian_in_docs: false,
+    attempts,
+    seconds_per_char: { ru: rate(attempts.find((a) => a.lang === 'ru')), en: rate(attempts.find((a) => a.lang === 'en')) },
+    run_place: runPlace(),
+    ms: Date.now() - started,
+    checked_at: new Date().toISOString(),
+  });
+}
+
 export async function GET(req: NextRequest) {
   return withSpendAgent('voice-probe', async () => {
   const cronSecret = process.env.CRON_SECRET;
@@ -190,9 +338,11 @@ export async function GET(req: NextRequest) {
     return NextResponse.json({ error: 'Не авторизовано', ...diagnoseCronAuth(req) }, { status: 401 });
   }
 
+  const params = req.nextUrl.searchParams;
+  if (params.get('provider') === 'deepseek') return deepseekProbe(params);
+
   const started = Date.now();
   const { apiKey, base } = getQwenConfig();
-  const params = req.nextUrl.searchParams;
   // Имя голоса — параметром: какие голоса знает модель, каталог не говорит,
   // и провайдер при неверном имени ответит отказом, который попадёт в ответ.
   const voice = (params.get('voice') ?? 'Cherry').slice(0, 40);
