@@ -1042,6 +1042,11 @@ sha, запись и её отказы — исполнением), `tests/unit/
   только с `GET`. Перепись sitemap: 67 og:image отвечали HEAD 401 при GET 200, а
   HEAD — то, чем обходчики и превью проверяют картинку. Сторож — исполнение
   middleware: `tests/unit/edge-images-head.test.ts`
+  Четвёртое исключение — по слову владельца 15.11 («Разрешить админу»):
+  `/api/operator/*` на Edge пускает и администратора. Страница кабинета
+  оператора и сами роуты (`requireOperator`) пускали его и раньше, не пускал
+  только вход — администратор с компанией видел «Forbidden» на «Обзоре
+  оператора». Сторож — исполнение middleware: `tests/unit/edge-operator-admin.test.ts`
 - `lib/auth.ts` — JWT логика
 - `app/api/payments/` — приём оплаты. Живых приёмника **три**: `/api/payments/webhook`
   и `/api/hub/operator/payments/webhook` (CloudPayments), `/api/payments/tochka/webhook`

@@ -124,6 +124,18 @@ function hasRequiredRole(userRole: string | null, requiredRole: AuthRole): boole
     return normalizedUserRole === 'transfer_operator' || normalizedUserRole === 'transfer';
   }
 
+  // Четвёртое исключение §7 — слово владельца 15.11 «Разрешить админу».
+  // Кабинет оператора пускает администратора (app/hub/operator/layout.tsx,
+  // роли operator и admin), и роуты /api/operator/* — тоже (requireOperator:
+  // operator или admin, компанию проверяет requireOperatorTeam). Не пускал
+  // только этот вход: администратор с компанией видел кабинет, а каждый
+  // запрос — 403 «Forbidden» на экране (скрин владельца 15.11, «Обзор
+  // оператора»). Расширено одно правило, а не все: /api/tourist, /api/guide
+  // и прочие по-прежнему только своей роли.
+  if (normalizedRequiredRole === 'operator') {
+    return normalizedUserRole === 'operator' || normalizedUserRole === 'admin';
+  }
+
   return normalizedUserRole === normalizedRequiredRole;
 }
 
