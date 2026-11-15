@@ -242,7 +242,8 @@ export function calculatePriceBreakdown(planDays: EstimateDay[]): PriceBreakdown
     // Цены тура для группы нет — в сумму не идёт.
     if (d.priceMissing) { activityPricing.unpriced++; continue; }
     if (d.realPrice) {
-      if (d.realTour && d.realTour.priceUnit !== 'per_person') { activityPricing.excluded++; continue; }
+      // Без записи о туре единица цены неизвестна — не «за человека» (смета-6).
+      if (d.realTour?.priceUnit !== 'per_person') { activityPricing.excluded++; continue; }
       from += d.realPrice;
       to += d.realPrice;
       activityPricing.tourPriced++;
@@ -368,9 +369,13 @@ export function tourGroupCost(a: {
  */
 function tourLine(day: EstimateDay, days: EstimateDay[], people: number): EstimateLine {
   const price = day.realPrice!;
-  // Без данных о туре цена считается за человека — так же, как в сумме на
-  // человека (`calculatePriceBreakdown`): одна смета, одно правило.
-  const unit = day.realTour ? day.realTour.priceUnit : 'per_person';
+  // Без записи о туре неизвестно, за что цена: ни здесь, ни в сумме на
+  // человека (`calculatePriceBreakdown`) она не считается «за человека» —
+  // так же её подписывает карточка дня (day-price: «за что — не записано»).
+  // Разбор 14.11, смета-6: карточка писала «за что — не записано», а смета
+  // умножала на всю группу. Движок так дни не собирает — это сохранённые и
+  // правленые поездки (схема trip-schema такой день допускает).
+  const unit = day.realTour?.priceUnit ?? '';
   const label = `Тур «${day.title}», день ${day.day}`;
   if (unit !== 'per_person' && unit !== 'per_tour' && unit !== 'per_day_per_person') {
     // Незнакомую единицу смета не толкует как «за человека»: так же молчит о
