@@ -310,3 +310,27 @@ describe('11. без дат — сказано, почему план пусто
     expect(r.warnings.some((w) => w.type === 'dates')).toBe(false);
   });
 });
+
+describe('13. предупреждения — про занятия плана, а не про всю просьбу', () => {
+  it('вулкан не по возрасту — нет строки «нужна подготовка» про вулканы', async () => {
+    const r = await plan({
+      interests: ['volcano', 'hot_spring'], children: [11], fitnessLevel: 'beginner',
+      arrivalDate: `${Y}-07-05`, departureDate: `${Y}-07-11`,
+    } as Partial<TripProfile>);
+    const text = r.warnings.map((w) => w.message);
+    expect(text.some((m) => /Вулканы.*в план не вошло/.test(m))).toBe(true);
+    expect(text.some((m) => /Вулканы.*нужна .* подготовка/.test(m))).toBe(false);
+  });
+
+  it('гейзеры не по возрасту — в строке о вертолёте их нет', async () => {
+    TOURS = { 'northern:geyser': [tour('g1', 'Долина гейзеров', 'northern', 'geyser')] };
+    SLOTS = { g1: 8 };
+    const r = await plan({
+      interests: ['geyser', 'helicopter'], children: [7],
+      arrivalDate: `${Y}-07-05`, departureDate: `${Y}-07-14`,
+    } as Partial<TripProfile>);
+    const heli = r.warnings.find((w) => w.type === 'weather' && /Вертолётные экскурсии/.test(w.message));
+    if (heli) expect(heli.message).not.toMatch(/гейзеры/);
+    expect(r.days.some((d) => d.activityType === 'geyser' && d.type === 'activity')).toBe(false);
+  });
+});

@@ -689,9 +689,17 @@ function collectWarnings(
    * нет (вне сезона, «Сам», не по возрасту) — нет и строки.
    */
   heliDayPlanned: boolean = true,
+  /**
+   * Занятия, у которых в плане есть день (разбор 14.11, движок-13). Строки о
+   * подготовке, вертолёте и медведях — про план, а не про просьбу: рядом с
+   * «Вулканы: в план не вошло» стояло «Вулканы: нужна хорошая подготовка».
+   * Не передано — судится вся просьба, как раньше.
+   */
+  servedInterests?: ReadonlySet<string>,
 ): TripWarning[] {
   const warnings: TripWarning[] = [];
   const youngest = youngestChild(profile);
+  const inPlan = (i: string) => servedInterests === undefined || servedInterests.has(i);
 
   // ── МЧС / safety alerts ───────────────────────────────────────────────────
   for (const alert of alerts) {
@@ -810,7 +818,7 @@ function collectWarnings(
   // Fitness
   for (const interest of profile.interests) {
     const c = ACTIVITY_CONSTRAINTS[interest];
-    if (!c) continue;
+    if (!c || !inPlan(interest)) continue;
     const levels: FitnessLevel[] = ['beginner', 'moderate', 'active'];
     if (levels.indexOf(c.fitnessRequired) > levels.indexOf(profile.fitnessLevel)) {
       warnings.push({
@@ -872,7 +880,7 @@ function collectWarnings(
     // Виды — словами, не ключами движка: в строке стояло «(helicopter)»
     // (независимая проверка 07.11). Сами «вертолётные экскурсии» в скобках
     // не повторяются.
-    const heliWhat = heliActivities.filter((i) => i !== 'helicopter').map((i) => ACTIVITY_NAMES[i] ?? i);
+    const heliWhat = heliActivities.filter((i) => i !== 'helicopter' && inPlan(i)).map((i) => ACTIVITY_NAMES[i] ?? i);
     warnings.push({
       type: 'weather', severity: 'important',
       // «Запасной день добавлен» — только когда он добавлен: резервный день
@@ -896,7 +904,7 @@ function collectWarnings(
   }
 
   // Bear safety
-  if (profile.interests.some(i => ['bears', 'fishing', 'trekking'].includes(i))) {
+  if (profile.interests.some(i => ['bears', 'fishing', 'trekking'].includes(i) && inPlan(i))) {
     warnings.push({
       type: 'safety', severity: 'info',
       message: 'Территория медведей. Гид с фальшфейером обязателен. Перцовый спрей рекомендован.',
@@ -2405,7 +2413,8 @@ export async function recommendTrip(profile: TripProfile, opts: RecommendTripOpt
   const { days, unchecked, spanUnknown, tooLong, extendedForTour, overLimit, preferenceNotes, selfSkipped, selfSafetyUnchecked, skippedLegs, returnLegMissing, offDays, missReasons, skippedNoTour } = await generateDayPlans(planProfile, zones, tripDays, cache, season, mchsTrip.forTrip);
   const plannedZones = new Set<ZoneId>(days.map((d) => d.zone));
   const warnings = collectWarnings(profile, zones, tripDays, alerts, season, plannedZones, days.some((d) => d.type === 'buffer'),
-    days.some((d) => d.type === 'activity' && d.defaultTransport === 'helicopter'));
+    days.some((d) => d.type === 'activity' && d.defaultTransport === 'helicopter'),
+    new Set(days.filter((d) => d.type === 'activity').map((d) => d.activityType)));
   if (alertsRead === null) {
     warnings.push({ type: 'safety', severity: 'important', message: SAFETY_ALERTS_UNREAD_NOTE });
   }
