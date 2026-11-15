@@ -1,6 +1,6 @@
 # Схема базы данных Ведара
 
-> Снято 2026-11-15 с настоящего PostgreSQL 18.7 (Debian 18.7-1.pgdg13+2): baseline прода (`lib/database/baseline/schema-baseline.sql`, снимок 2026-08-15) + миграции новее него, накатанные штатным раннером. Последняя миграция в снимке: `1443_trip_group_children_ages.sql`.
+> Снято 2026-11-15 с настоящего PostgreSQL 18.7 (Debian 18.7-1.pgdg13+2): baseline прода (`lib/database/baseline/schema-baseline.sql`, снимок 2026-08-15) + миграции новее него, накатанные штатным раннером. Последняя миграция в снимке: `1445_group_members_drop_passport.sql`.
 > Файл порождён `scripts/gen-db-schema.ts` (`npm run db:schema-doc`); править руками бессмысленно — следующий прогон перепишет.
 > Что здесь НЕ учтено: дрейф прода после baseline, не отражённый миграциями. Судья дрейфа — `GET /api/cron/schema-drift` на проде (`lib/db/schema-drift.ts`). Значений данных в файле нет — только имена и типы.
 
@@ -8,7 +8,7 @@
 |---|---:|
 | Таблиц | 326 |
 | Представлений (VIEW) | 12 |
-| Колонок | 4264 |
+| Колонок | 4262 |
 | Внешних ключей | 391 |
 | Таблиц без единого FK в обе стороны | 87 |
 
@@ -577,9 +577,9 @@ SOS пишет `sos_events` (`app/api/safety/sos`, §7). Внешние сигн
 
 `id uuid!=` `booking_id bigint!` `amount numeric!` `method text!` `received_on date!` `note text` `recorded_by uuid` `created_at timestamptz!=` `voided_at timestamptz` `voided_by uuid` `void_reason text`
 
-**booking_group_members** · 17 кол. · PK id · booking_id → operator_bookings.id · индексов 2
+**booking_group_members** · 15 кол. · PK id · booking_id → operator_bookings.id · индексов 2
 
-`id integer!=` `booking_id integer!` `full_name text!` `phone text` `passport_number text` `emergency_contact_name text` `emergency_contact_phone text` `dietary_restrictions text` `medical_notes text` `created_at timestamptz=` `passport_encrypted bytea` `medical_encrypted bytea` `consent_given_at timestamptz` `consent_expires_at timestamptz` `delete_after date` `mchs_notified_at timestamptz` `mchs_reference text`
+`id integer!=` `booking_id integer!` `full_name text!` `phone text` `emergency_contact_name text` `emergency_contact_phone text` `dietary_restrictions text` `medical_notes text` `created_at timestamptz=` `medical_encrypted bytea` `consent_given_at timestamptz` `consent_expires_at timestamptz` `delete_after date` `mchs_notified_at timestamptz` `mchs_reference text`
 
 **booking_logs** · 7 кол. · PK id · booking_id → operator_bookings.id, changed_by → users.id · индексов 3
 
