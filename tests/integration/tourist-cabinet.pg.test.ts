@@ -493,10 +493,10 @@ withPg('кабинет туриста на настоящем PostgreSQL', () =>
     );
     const bookingId = b.rows[0].id;
     const member = await pool.query<{ id: number }>(
-      `INSERT INTO booking_group_members (booking_id, full_name, phone, passport_number, passport_encrypted,
+      `INSERT INTO booking_group_members (booking_id, full_name, phone,
          emergency_contact_name, emergency_contact_phone, dietary_restrictions, medical_notes, medical_encrypted,
          consent_given_at, mchs_reference)
-       VALUES ($1, 'Пётр Спутник', '+79990002233', '4510 654321', '\\x01'::bytea,
+       VALUES ($1, 'Пётр Спутник', '+79990002233',
          'Жена Петра', '+79990003344', 'без глютена', 'астма', '\\x02'::bytea, NOW(), 'МЧС-77') RETURNING id`,
       [bookingId],
     );
@@ -567,12 +567,12 @@ withPg('кабинет туриста на настоящем PostgreSQL', () =>
       `SELECT notes, special_requests, pd_consent_ip, booking_status FROM operator_bookings WHERE id = $1`, [bookingId],
     )).rows).toEqual([{ notes: null, special_requests: null, pd_consent_ip: null, booking_status: 'completed' }]);
     const m = await pool.query(
-      `SELECT full_name, phone, passport_number, passport_encrypted, emergency_contact_name, emergency_contact_phone,
+      `SELECT full_name, phone, emergency_contact_name, emergency_contact_phone,
               dietary_restrictions, medical_notes, medical_encrypted, consent_given_at IS NOT NULL AS consent_kept, mchs_reference
          FROM booking_group_members WHERE id = $1`, [member.rows[0].id],
     );
     expect(m.rows[0]).toEqual({
-      full_name: 'Удалённый пользователь', phone: null, passport_number: null, passport_encrypted: null,
+      full_name: 'Удалённый пользователь', phone: null,
       emergency_contact_name: null, emergency_contact_phone: null, dietary_restrictions: null,
       medical_notes: null, medical_encrypted: null, consent_kept: true, mchs_reference: 'МЧС-77',
     });
