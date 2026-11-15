@@ -100,6 +100,7 @@ import { loadRentalCompanies } from '@/lib/rental/rental';
 import { rentalPagePath, type RentalCompany, type RentalOffer } from '@/lib/rental/rental-format';
 import { rentalDays } from '@/lib/rental/rental-request';
 import { askHumanToSend, draftText } from '@/lib/mcp/human-confirmation';
+import { SEAT_REQUEST_DUPLICATE_TEXT } from '@/lib/agent/request-outcome';
 import { createPendingRequest, confirmPageUrl, PENDING_REQUEST_TTL_MIN } from '@/lib/mcp/pending-request';
 import { issueRentalConfirmation, checkRentalConfirmation, RENTAL_CONFIRM_TTL_MIN, type RentalConfirmFields } from '@/lib/mcp/rental-confirmation';
 import { buildRentalLead, checkRentalDates, saveRentalLeadDetailed } from '@/lib/rental/rental-request-service';
@@ -516,7 +517,7 @@ async function requestSeatsFromOperator(a: {
       throw new McpUserError(`${failure.error} Запрос мест по туру "${a.tourTitle}" на ${a.date} не отправлен. Можно оставить заявку через create_lead.`, `seats_${reason}`);
     }
     const failure = reason === 'duplicate'
-      ? { error: 'По этому телефону запрос на этот тур и дату уже есть — повторно не отправляю; ответ придёт по ссылке, выданной в первый раз.' }
+      ? { error: SEAT_REQUEST_DUPLICATE_TEXT }
       : SEAT_REQUEST_FAILURE[reason] ?? SEAT_REQUEST_FAILURE.check_failed!;
     return `${failure.error} Запрос мест по туру "${a.tourTitle}" на ${a.date} не отправлен. Можно оставить заявку через create_lead — менеджер свяжется с оператором сам.`;
   }

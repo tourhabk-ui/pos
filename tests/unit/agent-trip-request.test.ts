@@ -1,6 +1,7 @@
 import { describe, it, expect, vi } from 'vitest';
 import { runTripRequest } from '@/lib/agent/trip-request';
 import { planChatRequest, parseChatContact } from '@/lib/kuzmich/chat-request';
+import { requestOutcome, SEAT_REQUEST_DUPLICATE_TEXT } from '@/lib/agent/request-outcome';
 
 const NOTE = 'Заявка передана, подтвердит человек.';
 function deps() {
@@ -34,6 +35,34 @@ describe('create_trip_request', () => {
     expect(d.createLead).toHaveBeenCalledTimes(1);
     const [, tripPart] = d.createLead.mock.calls[0] as unknown as [Record<string, unknown>, { tripId: string; parts: string[] }];
     expect(tripPart).toEqual({ tripId: r.tripId, parts: ['transfer', 'stay'] });
+  });
+});
+
+describe('повтор поездки (#3199, M11)', () => {
+  const REPEAT = `${SEAT_REQUEST_DUPLICATE_TEXT} Запрос мест по туру "Мутновский вулкан" на 2099-11-09 не отправлен.`;
+  const args = { tour: '36', tour_date: '2099-11-09', name: 'Тест', phone: '+70000000000', consent: true };
+
+  it('все части уже отправлены раньше — шапка говорит «новых частей нет», а не «ни одна часть не создана»', async () => {
+    const d = { ...deps(), bookTour: vi.fn(async () => REPEAT) };
+    const r = await runTripRequest(args, d as never);
+    expect(r.text).toMatch(/^Поездка TRIP-[A-Z0-9]+: новых частей нет — такие заявки уже отправлены раньше/);
+    expect(r.text).not.toMatch(/ни одна часть не создана/);
+    // Чат Кузьмича читает тот же ответ: заявки нет, причина — повтор.
+    const o = requestOutcome(r.text);
+    expect(o.kind).toBe('not_created');
+    expect(o.kind === 'not_created' && o.reason).toMatch(/уже есть — повторно не отправляю/);
+  });
+
+  it('настоящий отказ — по-прежнему «ни одна часть не создана»', async () => {
+    const d = { ...deps(), bookTour: vi.fn(async () => 'На 2099-11-09 у тура "Мутновский вулкан" нет свободных мест — заявка не создана.') };
+    const r = await runTripRequest(args, d as never);
+    expect(r.text).toMatch(/: ни одна часть не создана\./);
+  });
+
+  it('повтор одной части при отказе другой — шапка не говорит «уже отправлены»', async () => {
+    const d = { ...deps(), bookTour: vi.fn(async () => REPEAT), requestStay: vi.fn(async () => 'Жильё по запросу "Кутха" не найдено — заявка не создана.') };
+    const r = await runTripRequest({ ...args, stay: 'Кутха', check_in: '2099-11-09', check_out: '2099-11-11' }, d as never);
+    expect(r.text).toMatch(/: ни одна часть не создана\./);
   });
 });
 
