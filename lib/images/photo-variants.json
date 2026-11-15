@@ -3534,6 +3534,14 @@
     ]
   },
   {
+    "src": "/api/images/s3/photos/zaporozhets/gorely-animal-on-rock.jpg",
+    "widths": [
+      320,
+      640,
+      1280
+    ]
+  },
+  {
     "src": "/api/images/s3/photos/zaporozhets/gorely-blue-lake-snow.jpg",
     "widths": [
       320,
@@ -3550,7 +3558,31 @@
     ]
   },
   {
+    "src": "/api/images/s3/photos/zaporozhets/gorely-cave-ladder.jpg",
+    "widths": [
+      320,
+      640,
+      1280
+    ]
+  },
+  {
+    "src": "/api/images/s3/photos/zaporozhets/gorely-crater-depth.jpg",
+    "widths": [
+      320,
+      640,
+      1280
+    ]
+  },
+  {
     "src": "/api/images/s3/photos/zaporozhets/gorely-crater-lake.jpg",
+    "widths": [
+      320,
+      640,
+      1280
+    ]
+  },
+  {
+    "src": "/api/images/s3/photos/zaporozhets/gorely-crater-lakes-vertical.jpg",
     "widths": [
       320,
       640,
@@ -3566,7 +3598,47 @@
     ]
   },
   {
+    "src": "/api/images/s3/photos/zaporozhets/gorely-crater-turquoise-lakes.jpg",
+    "widths": [
+      320,
+      640,
+      1280
+    ]
+  },
+  {
     "src": "/api/images/s3/photos/zaporozhets/gorely-crater-walls.jpg",
+    "widths": [
+      320,
+      640,
+      1280
+    ]
+  },
+  {
+    "src": "/api/images/s3/photos/zaporozhets/gorely-distant-cone.jpg",
+    "widths": [
+      320,
+      640,
+      1280
+    ]
+  },
+  {
+    "src": "/api/images/s3/photos/zaporozhets/gorely-ice-lake-vertical.jpg",
+    "widths": [
+      320,
+      640,
+      1280
+    ]
+  },
+  {
+    "src": "/api/images/s3/photos/zaporozhets/gorely-lava-cave.jpg",
+    "widths": [
+      320,
+      640,
+      1280
+    ]
+  },
+  {
+    "src": "/api/images/s3/photos/zaporozhets/gorely-rhododendron.jpg",
     "widths": [
       320,
       640,
