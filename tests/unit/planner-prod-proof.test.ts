@@ -405,10 +405,20 @@ describe('что план говорит о себе (аудит планиро�
     const geysers = await recommendTrip({ ...PROOF, interests: ['geyser'], departureDate: `${NEXT_JULY}-07-16` });
     expect(heliNote(geysers)).toMatch(/^Вертолётные экскурсии \(гейзеры\): /);
 
+    // Вертолётный день встал, а на резерв дня не осталось — сказано.
+    const threeDays = await heli(`${NEXT_JULY}-07-12`);
+    expect(threeDays.days.some((d) => d.type === 'activity' && d.defaultTransport === 'helicopter')).toBe(true);
+    expect(threeDays.days.some((d) => d.type === 'buffer')).toBe(false);
+    expect(heliNote(threeDays)).toMatch(/Запасного дня в плане нет/);
+    expect(heliNote(threeDays)).not.toMatch(/добавлен запасной день/);
+
+    // Вертолёта в плане нет вовсе (два дня: прилёт и вылет) — нет ни резерва,
+    // ни строки о нём (разбор 14.11, движок-7): почему вертолёта нет, говорит
+    // строка о невошедшем интересе.
     const twoDays = await heli(`${NEXT_JULY}-07-11`);
     expect(twoDays.days.some((d) => d.type === 'buffer')).toBe(false);
-    expect(heliNote(twoDays)).toMatch(/Запасного дня в плане нет/);
-    expect(heliNote(twoDays)).not.toMatch(/добавлен запасной день/);
+    expect(heliNote(twoDays)).toBeUndefined();
+    expect(twoDays.warnings.some((w) => w.message.includes('«вертолётные экскурсии» в этот план не вошёл'))).toBe(true);
   });
 });
 
