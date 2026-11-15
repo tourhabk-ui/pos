@@ -26,13 +26,11 @@
 
 import { getQwenConfig, logSpeechUsage } from '@/lib/ai/providers';
 import { recordAiLegFailure, httpFailureReason, errorFailureReason } from '@/lib/ai/failure-trace';
-import { plainResponse } from '@/lib/text/plain-response';
+// Текст для голоса — одно правило на сервер и на голос телефона в кнопке.
+export { SPEECH_MAX_CHARS, prepareSpeechText } from '@/lib/ai/speech-text';
 
 /** Голос, на котором путь проверен пробой 24.09. Сменить — env QWEN_TTS_VOICE. */
 const DEFAULT_VOICE = 'Cherry';
-
-/** Потолок озвучиваемого текста. Длиннее — режем по границе предложения. */
-export const SPEECH_MAX_CHARS = 1200;
 
 /** Меньше этого — не речь, а заголовок файла или пустышка. */
 const MIN_AUDIO_BYTES = 1000;
@@ -60,23 +58,6 @@ export function pickSpeechModel(ids: string[]): string | null {
     .filter((id) => !/\d{4}-\d{2}-\d{2}/.test(id))
     .sort((a, b) => a.length - b.length || a.localeCompare(b));
   return plain[0] ?? null;
-}
-
-/**
- * Текст ответа → текст для голоса: без разметки и эмодзи (их нельзя
- * произнести), не длиннее потолка. Режем по концу предложения, чтобы голос не
- * обрывался на полуслове, и сообщаем, что озвучено не всё.
- */
-export function prepareSpeechText(raw: string, max = SPEECH_MAX_CHARS): { text: string; truncated: boolean } {
-  const clean = plainResponse(raw)
-    .replace(/https?:\/\/\S+/g, '')          // адрес вслух — шум, а не смысл
-    .replace(/[ \t]{2,}/g, ' ')
-    .trim();
-  if (clean.length <= max) return { text: clean, truncated: false };
-  const head = clean.slice(0, max);
-  const lastStop = Math.max(head.lastIndexOf('. '), head.lastIndexOf('! '), head.lastIndexOf('? '), head.lastIndexOf('\n'));
-  const cut = lastStop > max * 0.5 ? head.slice(0, lastStop + 1) : head;
-  return { text: cut.trim(), truncated: true };
 }
 
 let catalogCache: { at: number; model: string | null } | null = null;
