@@ -133,6 +133,7 @@ export async function rereadTourDay(input: TourDayInput): Promise<TourDayRead> {
 
   const out: TourDayRead = { availability: 'unread', priceFrom: 0, priceTo: 0 };
   if (slots !== null) {
+    out.checkedAt = new Date().toISOString();
     const slot = slots.find((s) => s.date === input.date);
     out.availability = slot ? 'open' : 'none';
     if (slot) {

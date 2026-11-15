@@ -814,6 +814,10 @@ async function rereadTours(
     // прежнюю строку и ставит новую, если группа всё ещё меньше.
     d.dayWarnings = withGroupMinimum(d.dayWarnings, tour.minParticipants, people);
     d.availability = r.availability;
+    // Время проверки — этого чтения; не прочиталось — прежнего не остаётся
+    // (разбор 14.11, Кузьмич-10: строка дня писала «проверено» временем сборки).
+    delete d.availabilityCheckedAt;
+    if (r.checkedAt !== undefined) d.availabilityCheckedAt = r.checkedAt;
     d.priceFrom = r.priceFrom;
     d.priceTo = r.priceTo;
     delete d.availableDate;

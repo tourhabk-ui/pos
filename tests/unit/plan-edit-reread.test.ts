@@ -174,6 +174,16 @@ describe('свои исходы перечитывания', () => {
     log.mockRestore();
   });
 
+  it('время проверки — у прочитанной занятости, у непрочитанной его нет (Кузьмич-10)', async () => {
+    const ok = await rereadTourDay({ tourId: '49', maxParticipants: 15, date: '2027-07-11', participants: 2 });
+    expect(Math.abs(Date.parse(ok.checkedAt!) - Date.now())).toBeLessThan(60_000);
+    SLOTS_FAIL = true;
+    const log = vi.spyOn(console, 'error').mockImplementation(() => {});
+    const bad = await rereadTourDay({ tourId: '49', maxParticipants: 15, date: '2027-07-11', participants: 2 });
+    expect(bad.checkedAt).toBeUndefined();
+    log.mockRestore();
+  });
+
   it('тур сняли с витрины или его нет — цены нет, и сказано почему; запас цены не выдуман', async () => {
     TOUR_ROW = { ...ROW, on_sale: false };
     const off = await rereadTourDay({ tourId: '49', maxParticipants: 15, date: '2027-07-11', participants: 2 });

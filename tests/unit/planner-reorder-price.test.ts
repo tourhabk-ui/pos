@@ -72,12 +72,12 @@ describe('перестановка снимает цену прежней дат
 describe('ответ о цене — в день', () => {
   const pending = () => renumberByPosition([day(2, { realTour: tour('t-1'), realPrice: 10000 }), day(1)]).days[0]!;
 
-  it('ложится: цена, места, подпись цены', () => {
+  it('ложится: цена, места, подпись цены, время проверки', () => {
     const d = applyTourDayRead(pending(), 't-1', {
-      availability: 'open', availableDate: '2030-08-01', slotsRemaining: 2, capacityWarning: 'мало мест',
+      availability: 'open', checkedAt: '2030-07-01T00:00:00.000Z', availableDate: '2030-08-01', slotsRemaining: 2, capacityWarning: 'мало мест',
       realPrice: 12000, priceFrom: 12000, priceTo: 12000, priceLabel: 'сезон',
     });
-    expect(d).toMatchObject({ realPrice: 12000, slotsRemaining: 2, capacityWarning: 'мало мест', availability: 'open' });
+    expect(d).toMatchObject({ realPrice: 12000, slotsRemaining: 2, capacityWarning: 'мало мест', availability: 'open', availabilityCheckedAt: '2030-07-01T00:00:00.000Z' });
     expect(d.realTour!.priceLabel).toBe('сезон');
     expect(d).not.toHaveProperty('priceMissing');
   });

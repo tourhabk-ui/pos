@@ -17,6 +17,11 @@ import { PRICE_UNREAD_TEXT } from './price-unread';
 /** Поля дня с туром, которые зависят от даты и группы (ответ `rereadTourDay`). */
 export interface TourDayRead {
   availability: 'open' | 'none' | 'unread';
+  /**
+   * Когда прочитана занятость (ISO). Нет — не прочиталась: «проверено …»
+   * прежнего чтения на дне не остаётся (разбор 14.11, Кузьмич-10).
+   */
+  checkedAt?: string;
   availableDate?: string;
   slotsRemaining?: number;
   capacityWarning?: string;
@@ -34,6 +39,7 @@ export interface TourDayLike {
   realPrice?: number;
   priceMissing?: string;
   availability?: 'open' | 'none' | 'unread';
+  availabilityCheckedAt?: string;
   availableDate?: string;
   slotsRemaining?: number;
   capacityWarning?: string;
@@ -55,6 +61,7 @@ export function applyTourDayRead<T extends TourDayLike>(d: T, tourId: string, re
   if (!awaitsTourReread(d) || d.realTour?.tourId !== tourId) return d;
   const next = { ...d, realTour: { ...d.realTour } } as T;
   delete next.availableDate;
+  delete next.availabilityCheckedAt;
   delete next.slotsRemaining;
   delete next.capacityWarning;
   delete next.realPrice;
@@ -66,6 +73,7 @@ export function applyTourDayRead<T extends TourDayLike>(d: T, tourId: string, re
     return next;
   }
   next.availability = read.availability;
+  if (read.checkedAt !== undefined) next.availabilityCheckedAt = read.checkedAt;
   next.priceFrom = read.priceFrom;
   next.priceTo = read.priceTo;
   if (read.availableDate !== undefined) next.availableDate = read.availableDate;
@@ -88,6 +96,7 @@ export function parseTourDayRead(body: unknown): TourDayRead | null {
   if (r.availability !== 'open' && r.availability !== 'none' && r.availability !== 'unread') return null;
   if (typeof r.priceFrom !== 'number' || typeof r.priceTo !== 'number') return null;
   const out: TourDayRead = { availability: r.availability, priceFrom: r.priceFrom, priceTo: r.priceTo };
+  if (typeof r.checkedAt === 'string' && Number.isFinite(Date.parse(r.checkedAt))) out.checkedAt = r.checkedAt;
   if (typeof r.availableDate === 'string') out.availableDate = r.availableDate;
   if (typeof r.slotsRemaining === 'number') out.slotsRemaining = r.slotsRemaining;
   if (typeof r.capacityWarning === 'string') out.capacityWarning = r.capacityWarning;
