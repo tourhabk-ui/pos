@@ -133,6 +133,8 @@ export interface TourPreview {
   base_price: string;
   price_unit: string | null;
   operator_slug: string;
+  /** Тур не из зоны дня: в зоне подходящего нет (разбор планера 14.11). */
+  other_zone?: boolean;
 }
 
 export interface ValidationResult {

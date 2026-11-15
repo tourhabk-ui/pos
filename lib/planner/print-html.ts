@@ -35,6 +35,8 @@ export interface PrintPlanEstimate {
   total: readonly [number, number];
   perPerson: readonly [number, number];
   assumptions: readonly string[];
+  /** Строки без цены — «не вошло в итог» (разбор планера 14.11, смета-7); нет — не передали. */
+  unpriced?: readonly string[];
 }
 
 export interface PrintPlanInput {
@@ -97,8 +99,11 @@ export function buildPlanPrintHtml(input: PrintPlanInput): string {
   const estimateHtml = est ? `<div class="footer">
   <div style="font-size:11px;font-weight:600;margin-bottom:6px">Смета на группу · ${e(est.people)} чел. — цены туров от операторов и выбранных предложений, остальное ориентир по средним ценам</div>
   ${est.lines.map((l) => `<div class="price-row"><span>${e(l.label)} · ${e(l.basis)}${l.source === 'estimate' ? ' · ориентир' : l.source === 'offer' ? ' · выбрано' : ''}</span><span>${l.total ? e(rubRange(l.total)) : 'цена не указана'}</span></div>`).join('')}
-  <div class="price-total"><span>Итого на группу</span><span>${e(rubRange(est.total))}</span></div>
-  <div class="price-row"><span>На человека</span><span>${e(rubRange(est.perPerson))}</span></div>
+  ${est.total[1] > 0
+    ? `<div class="price-total"><span>Итого на группу</span><span>${e(rubRange(est.total))}</span></div>
+  <div class="price-row"><span>На человека</span><span>${e(rubRange(est.perPerson))}</span></div>`
+    : '<div class="price-total"><span>Итого на группу</span><span>не посчитано — ни у одной строки нет цены</span></div>'}
+  ${est.unpriced && est.unpriced.length > 0 ? `<div class="price-row"><span>Не вошло в итог: ${e(est.unpriced.join('; '))}</span><span></span></div>` : ''}
   ${est.assumptions.map((a) => `<div style="font-size:11px;color:#9a9590;margin-top:4px">${e(a)}</div>`).join('')}
   <div style="font-size:11px;color:#9a9590;margin-top:6px">Без авиабилетов Москва — Камчатка</div>
 </div>` : '';

@@ -630,8 +630,16 @@ export function formatPlanPrice(pb: PriceBreakdown, tier: BudgetTier, planned: b
   const parts: string[] = [];
   if (tourPriced > 0) parts.push(`${tourPriced} — по ценам туров операторов`);
   if (estimated > 0) parts.push(`${estimated} — по справочной вилке вида активности, это не цена тура`);
+  // С итогом на группу «на человека» — то же число, что на экране /planner:
+  // итог на группу, делённый на людей (разбор планера 14.11, смета-4). Вилка
+  // движка без туров не за человека оставалась заголовком и расходилась с
+  // экраном — до «0 ₽ на человека» при турах за группу.
+  const groupHasTotal = group !== undefined && group.total[1] > 0;
+  const head = groupHasTotal
+    ? `На человека: ${range(group.perPerson)} — итог на группу, делённый на ${group.people} чел., как в планировщике (уровень «${BUDGET_LABEL[tier]}»). Ориентир на человека без туров не за человека:`
+    : `Ориентир на человека: ${range(pb.perPersonTotal)} (уровень «${BUDGET_LABEL[tier]}»). Из чего сложено:`;
   const lines = [
-    `Ориентир на человека: ${range(pb.perPersonTotal)} (уровень «${BUDGET_LABEL[tier]}»). Из чего сложено:`,
+    head,
     `- активности: ${range(pb.activities)}${parts.length > 0 ? ` (${parts.join('; ')})` : ''}`,
     `- жильё: ${range(pb.accommodation)} — оценка за ночи по зоне и уровню размещения; ночи, включённые в туры, не считаны`,
     `- транспорт: ${range(pb.transport)} — трансферы и переезды по краю, оценка`,
@@ -651,7 +659,10 @@ export function formatPlanPrice(pb: PriceBreakdown, tier: BudgetTier, planned: b
     if (inGroup > 0) {
       lines.push(`В вилку на человека ${plural(inGroup, 'не вошёл', 'не вошли', 'не вошли')} ${inGroup} ${plural(inGroup, 'тур', 'тура', 'туров')} с ценой не за человека (за группу или за день) — в итоге на группу ${inGroup === 1 ? 'он учтён' : 'они учтены'} по своей единице цены.`);
     }
-    lines.push(`Итого на ${group.people === 1 ? 'одного' : `группу из ${group.people} чел.`}: ${range(group.total)} — туры по своей цене (за человека — на каждого, за группу — на группу), жильё, переезды и дни без тура — ориентир на каждого.`);
+    lines.push(groupHasTotal
+      ? `Итого на ${group.people === 1 ? 'одного' : `группу из ${group.people} чел.`}: ${range(group.total)} — туры по своей цене (за человека — на каждого, за группу — на группу), жильё, переезды и дни без тура — ориентир на каждого.`
+      // Ни у одной строки нет суммы — итога нет, а не «0 ₽» (смета-2).
+      : 'Итог не посчитан: ни у одной строки сметы нет цены — суммы назовут оператор и хозяева по заявке.');
     if (group.unpriced.length > 0) {
       // Кто назовёт цену — по роду строки, тем же правилом, что экран
       // /planner: переезд без цены в данных (вертолёт) — перевозчик, а не

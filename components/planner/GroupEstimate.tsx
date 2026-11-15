@@ -32,6 +32,9 @@ function sourcesLine(fromTours: [number, number], fromOffers: [number, number], 
 
 export function GroupEstimateBlock({ estimate }: { estimate: GroupEstimate }) {
   const { people, lines, total, perPerson, unpriced, assumptions, fromTours, fromOffers, fromEstimates } = estimate;
+  // Ни у одной строки нет суммы — итога нет, а не «0 ₽» (разбор планера 14.11,
+  // смета-2): ноль читался как «бесплатно».
+  const noTotal = total[1] <= 0;
   return (
     <div className="mt-2 pt-2 border-t border-[var(--border)] space-y-1" data-testid="price-estimate">
       <p className="text-[10px] font-bold uppercase tracking-widest text-[var(--text-muted)] px-1">
@@ -58,12 +61,18 @@ export function GroupEstimateBlock({ estimate }: { estimate: GroupEstimate }) {
       </ul>
       <div className="flex items-center justify-between px-1 pt-1 border-t border-[var(--border)]">
         <span className="text-xs font-medium text-[var(--text-secondary)]">Итого на группу</span>
-        <span className="text-sm font-semibold text-[var(--accent)]">{range(total)}</span>
+        <span className="text-sm font-semibold text-[var(--accent)]">{noTotal ? 'не посчитано' : range(total)}</span>
       </div>
-      <div className="flex items-center justify-between px-1">
-        <span className="text-[10px] text-[var(--text-muted)]">На человека</span>
-        <span className="text-[10px] text-[var(--text-secondary)]">{range(perPerson)}</span>
-      </div>
+      {noTotal ? (
+        <p className="text-[10px] text-[var(--text-secondary)] px-1">
+          {lines.length > 0 ? 'Ни у одной строки нет цены — суммы назовут оператор и хозяева по заявке.' : 'В плане нет дней с ценой.'}
+        </p>
+      ) : (
+        <div className="flex items-center justify-between px-1">
+          <span className="text-[10px] text-[var(--text-muted)]">На человека</span>
+          <span className="text-[10px] text-[var(--text-secondary)]">{range(perPerson)}</span>
+        </div>
+      )}
       {unpriced.length > 0 && (
         <p className="text-[9px] text-[var(--warning)] px-1">
           Не вошло в итог: {unpriced.join('; ')} — {unpricedTail(lines)}
