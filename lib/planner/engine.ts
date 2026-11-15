@@ -246,8 +246,12 @@ export interface TripWarning {
    * `tour_dates` — тур с выездами не в дни своего занятия: в план не встал и
    * в смету не вошёл, а назван с датами выезда (волна 3 аудита 07.11, 3.2).
    * Заведён вместе с производителем (`offDaysWarning`).
+   *
+   * `dates` — дат поездки нет, и план по дням не собран (разбор 14.11,
+   * движок-11: пустой план приходил без единого слова о причине). Заведён
+   * вместе с производителем в `collectWarnings`.
    */
-  type: 'permit' | 'season' | 'safety' | 'children' | 'fitness' | 'duration' | 'weather' | 'license' | 'seasickness' | 'crowd' | 'mchs' | 'zone_days' | 'home_nights' | 'tour_dates';
+  type: 'permit' | 'season' | 'safety' | 'children' | 'fitness' | 'duration' | 'weather' | 'license' | 'seasickness' | 'crowd' | 'mchs' | 'zone_days' | 'home_nights' | 'tour_dates' | 'dates';
   severity: 'critical' | 'important' | 'info';
   message: string;
 }
@@ -734,6 +738,14 @@ function collectWarnings(
     }
   }
 
+  // Без дат дней нет вовсе: сезон, места туров и переезды считаются по датам.
+  if (tripDays <= 0) {
+    warnings.push({
+      type: 'dates', severity: 'critical',
+      message: 'Даты поездки не указаны — план по дням не собран: сезон занятий и места в турах считаются по датам. Укажите даты прилёта и отъезда.',
+    });
+  }
+
   // Min trip duration
   //
   // Довод про короткую поездку у приезжего и у местного РАЗНЫЙ, а не один с
@@ -761,7 +773,11 @@ function collectWarnings(
     if (!inTripSeason(season, interest)) {
       warnings.push({
         type: 'season', severity: 'critical',
-        message: `${activityLabel(interest)}: недоступно в выбранный период. ${c.seasonNote ?? ''}`.trim(),
+        // Без дат период никто не выбирал: сезон судится по текущему месяцу,
+        // и так и сказано (движок-11).
+        message: (profile.arrivalDate
+          ? `${activityLabel(interest)}: недоступно в выбранный период. ${c.seasonNote ?? ''}`
+          : `${activityLabel(interest)}: в ${monthsInWords(season.months)} не сезон — даты не указаны, сезон считал по текущему месяцу. ${c.seasonNote ?? ''}`).trim(),
       });
       continue;
     }

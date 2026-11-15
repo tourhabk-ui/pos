@@ -295,3 +295,18 @@ describe('5. четыре зоны: четвёртая не отрезается
     }
   });
 });
+
+describe('11. без дат — сказано, почему план пустой', () => {
+  it('дней нет, и строка «Даты поездки не указаны»; сезон не «в выбранный период»', async () => {
+    const r = await plan({ interests: ['volcano', 'snowmobile'] });
+    expect(r.days).toEqual([]);
+    const dates = r.warnings.find((w) => w.type === 'dates');
+    expect(dates?.message).toMatch(/Даты поездки не указаны/);
+    expect(r.warnings.map((w) => w.message).join('\n')).not.toMatch(/в выбранный период/);
+  });
+
+  it('с датами строки о датах нет', async () => {
+    const r = await plan({ interests: ['volcano'], arrivalDate: `${Y}-07-05`, departureDate: `${Y}-07-11` });
+    expect(r.warnings.some((w) => w.type === 'dates')).toBe(false);
+  });
+});
