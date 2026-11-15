@@ -4,6 +4,7 @@
 
 import type { StayPrice } from '@/lib/planner/trip-extras';
 import type { PlannerRoute } from '@/lib/planner/bg-routes';
+import type { PriceBreakdown } from '@/lib/planner/estimate';
 
 export type TransportType = 'walking' | 'jeep' | 'helicopter' | 'boat';
 export type DayType = 'arrival' | 'activity' | 'travel' | 'rest' | 'buffer' | 'departure';
@@ -87,12 +88,13 @@ export interface TripWarning {
   message: string;
 }
 
-export interface PriceBreakdown {
-  activities: [number, number];
-  accommodation: [number, number];
-  transport: [number, number];
-  perPersonTotal: [number, number];
-}
+/**
+ * Разбивка цены плана, как её отдаёт движок: сумма цен туров на человека и из
+ * чего она сложена. Ночей, переездов и трансфера в ней нет — их цену называет
+ * исполнитель (слово владельца 14.11 «5 -1»). Экран смету считает сам
+ * (lib/planner/estimate, `estimateGroup`).
+ */
+export type { PriceBreakdown };
 
 export interface Recommendation {
   zones: Array<{ zone: string; score: number; reason: string; crowdScore?: number | null }>;

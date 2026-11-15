@@ -378,6 +378,8 @@ describe('edit_trip_plan: состав и сдвиг доходят до пра�
   it('set_party только со взрослыми — смета на новый состав, дети прежние', async () => {
     const r = await callTool('edit_trip_plan', { plan_id: PLAN_ID, action: 'set_party', adults: '4' });
     expect(r.content[0].text).toMatch(/^Состав группы: 4 взрослых, без детей \(было: 2 взрослых, без детей\)/);
-    expect(r.content[0].text).toMatch(/Итого на группу из 4 чел\./);
+    // Туров в плане нет — цен нет, и «Итого» не выдумывается (14.11, «5 -1»).
+    expect(r.content[0].text).toContain('Цен туров за человека в плане нет.');
+    expect(r.content[0].text).not.toMatch(/Итого на группу/);
   });
 });

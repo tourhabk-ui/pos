@@ -3,11 +3,11 @@
  *
  * День с карты говорил «Средний · для всех возрастов · 3 000 — 8 000 ₽» о
  * восхождении на Ключевскую: сложность и возраст стояли константами, вилка
- * цен была вписана в экран и расходилась с движком (медведи 15–35 тыс. против
- * 15–45 тыс. в таблице). Теперь — та же таблица видов занятий, что у движка
- * (`ACTIVITY_CONSTRAINTS`): справочные сложность, возраст и вилка вида. Вид
- * занятия у маршрута не записан — ничего не утверждается (`detailsUnknown`),
- * цены нет (§4.0).
+ * цен была вписана в экран. Теперь — та же таблица видов занятий, что у
+ * движка (`ACTIVITY_CONSTRAINTS`): справочные сложность и возраст. Цены у
+ * дня с карты нет, как у любого дня без тура (слово владельца 14.11 «5 -1»):
+ * её называет исполнитель. Вид занятия у маршрута не записан — ничего не
+ * утверждается (`detailsUnknown`, §4.0).
  *
  * Сторож: tests/unit/planner-map-day.test.ts.
  */
@@ -30,8 +30,8 @@ export function mapDayDetails(activityType: string | null | undefined): MapDayDe
     return { priceFrom: 0, priceTo: 0, difficulty: 'moderate', childFriendly: false, minChildAge: 0, detailsUnknown: true };
   }
   return {
-    priceFrom: c.pricePerPerson[0],
-    priceTo: c.pricePerPerson[1],
+    priceFrom: 0,
+    priceTo: 0,
     difficulty: c.difficulty,
     childFriendly: c.minChildAge === 0,
     minChildAge: c.minChildAge,

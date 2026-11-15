@@ -49,7 +49,7 @@ import {
   arrivalDayText, departureDayText, nightIsAtHome, paysAirportTransfers,
   LOCAL_HOME_ZONE, HOME_NIGHTS_ASSUMPTION,
 } from '@/lib/planner/trip-origin';
-import { calculatePriceBreakdown, estimateGroup } from '@/lib/planner/estimate';
+import { estimateGroup } from '@/lib/planner/estimate';
 
 const ROOT = process.cwd();
 const ENGINE = readFileSync(join(ROOT, 'lib/planner/engine.ts'), 'utf-8');
@@ -167,18 +167,16 @@ describe('движок спрашивает правило, а не пишет �
   });
 
   it('трансфер аэропорта в счёте спрашивает правило', () => {
-    // Поведением: и вилка на человека, и смета на группу — приезжему есть,
-    // местному нет.
+    // Поведением: строка трансфера в смете — приезжему есть, местному нет.
+    // Суммы у неё нет ни у кого (14.11, «5 -1»): цену называет перевозчик.
     const days = [
       { day: 1, type: 'arrival' as const, zone: 'avachinsky' as const, title: 'Прилёт', priceFrom: 0, priceTo: 0 },
       { day: 2, type: 'departure' as const, zone: 'avachinsky' as const, title: 'Вылет', priceFrom: 0, priceTo: 0 },
     ];
-    expect(calculatePriceBreakdown(days, { budgetTier: 'comfort', tripOrigin: 'visitor' }).transport).toEqual([2500, 5000]);
-    expect(calculatePriceBreakdown(days, { budgetTier: 'comfort', tripOrigin: 'local' }).transport).toEqual([0, 0]);
     const transfer = (tripOrigin: 'visitor' | 'local') => estimateGroup(days, { adults: 1, children: [], budgetTier: 'comfort', tripOrigin })
-      .lines.some((l) => l.label === 'Трансферы аэропорта');
-    expect(transfer('visitor')).toBe(true);
-    expect(transfer('local')).toBe(false);
+      .lines.find((l) => l.label === 'Трансферы аэропорта');
+    expect(transfer('visitor')).toMatchObject({ basis: 'цену называет перевозчик', total: null });
+    expect(transfer('local')).toBeUndefined();
     expect(ESTIMATE_CODE, 'безусловный трансфер вернулся в счёт').not.toMatch(/priceFrom, 0\) \+ 2500/);
   });
 

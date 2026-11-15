@@ -14,6 +14,7 @@
  * списка. Сторож — исполнение: tests/unit/planner-print-html.test.tsx.
  */
 import { escapeHtml } from '@/lib/text/escape-html';
+import { NO_PRICES_YET } from '@/lib/planner/estimate';
 
 export interface PrintPlanDay {
   /** Номер карточки в списке (1, 2, 3 …), а не ключ дня. */
@@ -96,14 +97,19 @@ export function buildPlanPrintHtml(input: PrintPlanInput): string {
 </div>`).join('\n');
 
   const est = input.estimate;
+  // Сумма — только цены туров и выбранного жилья (слово владельца 14.11
+  // «5 -1»); строка без суммы говорит, кто называет цену. Ни одной суммы —
+  // итога нет: «0 ₽» его бы выдумал.
+  const priced = est ? est.lines.some((l) => l.total) : false;
   const estimateHtml = est ? `<div class="footer">
-  <div style="font-size:11px;font-weight:600;margin-bottom:6px">Смета на группу · ${e(est.people)} чел. — цены туров от операторов и выбранных предложений, остальное ориентир по средним ценам</div>
-  ${est.lines.map((l) => `<div class="price-row"><span>${e(l.label)} · ${e(l.basis)}${l.source === 'estimate' ? ' · ориентир' : l.source === 'offer' ? ' · выбрано' : ''}</span><span>${l.total ? e(rubRange(l.total)) : 'цена не указана'}</span></div>`).join('')}
-  ${est.total[1] > 0
+  <div style="font-size:11px;font-weight:600;margin-bottom:6px">Смета на группу · ${e(est.people)} чел. — цены туров от операторов и выбранного жилья на платформе; остальное называет исполнитель</div>
+  ${est.lines.map((l) => `<div class="price-row"><span>${e(l.label)} · ${e(l.basis)}${l.source === 'offer' ? ' · выбрано' : ''}</span><span>${l.total ? e(rubRange(l.total)) : 'цены нет'}</span></div>`).join('')}
+  ${priced
     ? `<div class="price-total"><span>Итого на группу</span><span>${e(rubRange(est.total))}</span></div>
   <div class="price-row"><span>На человека</span><span>${e(rubRange(est.perPerson))}</span></div>`
-    : '<div class="price-total"><span>Итого на группу</span><span>не посчитано — ни у одной строки нет цены</span></div>'}
-  ${est.unpriced && est.unpriced.length > 0 ? `<div class="price-row"><span>Не вошло в итог: ${e(est.unpriced.join('; '))}</span><span></span></div>` : ''}
+    : `<div class="price-total"><span>Итого на группу</span><span>не посчитано</span></div>
+  <div class="price-row"><span>${e(NO_PRICES_YET)}</span><span></span></div>`}
+  ${priced && est.unpriced && est.unpriced.length > 0 ? `<div class="price-row"><span>Не вошло в итог: ${e(est.unpriced.join('; '))}</span><span></span></div>` : ''}
   ${est.assumptions.map((a) => `<div style="font-size:11px;color:#9a9590;margin-top:4px">${e(a)}</div>`).join('')}
   <div style="font-size:11px;color:#9a9590;margin-top:6px">Без авиабилетов Москва — Камчатка</div>
 </div>` : '';

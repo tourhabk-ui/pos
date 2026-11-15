@@ -115,7 +115,7 @@ describe('E1: многодневный тур не режется на краю 
     const lodging = rec.warnings.find((w) => w.message.startsWith('Состав '));
     const n = placed.size;
     expect(lodging?.message).toContain(n === 1 ? 'Состав одного тура' : `Состав ${n} туров`);
-    expect(lodging?.message).toContain('итог в смете завышен');
+    expect(lodging?.message).toContain('искать его на эти ночи не нужно');
     expect(lodging?.severity).toBe('important');
     // Не вошедший многодневный тур назван словами, а не пропал молча.
     const missing = [ONE, TWO, THREE].filter((t) => !placed.has(t.tourId) && (tourPlanSpan(t.durationHours, null) ?? 1) > 1);
@@ -123,21 +123,19 @@ describe('E1: многодневный тур не режется на краю 
     for (const t of missing) expect(text).toContain(t.title);
   });
 
-  it('вилка активностей — ровно по поставленным турам: цена тура без его дней не считается', async () => {
+  it('цены туров на человека — ровно по поставленным турам: цена тура без его дней не считается', async () => {
     TOURS['avachinsky:volcano'] = [ONE, TWO, THREE];
     const rec = await recommendTrip(profile(7, ['volcano']));
     const placedTours = daysByTour(rec).size;
     // День без тура (с 08.11 блок не закрывается на туре длиннее остатка и
-    // ставит общий день интереса) — по справочной вилке и помечен оценкой.
-    const notTour = rec.days.filter((d) => d.type === 'activity' && ![ONE, TWO, THREE].some((t) => d.title.startsWith(t.title)));
-    const estimated = notTour.reduce((sum, d) => sum + (d.priceFrom ?? 0), 0);
-    expect(rec.priceBreakdown.activityPricing.estimated).toBe(notTour.filter((d) => (d.priceFrom ?? 0) > 0).length);
-    // У каждого тура цена 10 000 ₽ за человека; не поставленный тур в вилку не входит.
-    // Цены дня прилёта, отдыха и отъезда — тоже в сумме (#3338): они стоят на
-    // карточках, и итог без них с карточками не сходился.
-    const dayCosts = rec.days.filter((d) => d.type === 'arrival' || d.type === 'rest' || d.type === 'departure')
-      .reduce((sum, d) => sum + (d.priceFrom ?? 0), 0);
-    expect(rec.priceBreakdown.activities[0]).toBe(placedTours * 10000 + estimated + dayCosts);
+    // ставит общий день интереса) — без цены: её называет исполнитель (14.11,
+    // слово владельца «5 -1»). До этого он шёл в сумму справочной вилкой.
+    const notTour = rec.days.filter((d) => d.type === 'activity' && !d.realTour);
+    expect(rec.priceBreakdown.activityPricing.open).toBe(notTour.length);
+    for (const d of rec.days.filter((x) => !x.realTour)) expect([d.priceFrom, d.priceTo], `день ${d.day}`).toEqual([0, 0]);
+    // У каждого тура цена 10 000 ₽ за человека; не поставленный тур в сумму не
+    // входит; дни прилёта, отдыха и отъезда цены не несут.
+    expect(rec.priceBreakdown.tours).toEqual([placedTours * 10000, placedTours * 10000]);
   });
 });
 
@@ -180,8 +178,8 @@ describe('E8: зима и пустой план (волна 3.6)', () => {
   it('дней нет — смета пустая, а «Важно» называет, что доступно в этом месяце', async () => {
     const rec = await recommendTrip(winter());
     expect(rec.days).toHaveLength(0);
-    expect(rec.priceBreakdown.perPersonTotal).toEqual([0, 0]);
-    expect(rec.priceBreakdown.transport).toEqual([0, 0]);
+    expect(rec.priceBreakdown.tours).toEqual([0, 0]);
+    expect(rec.priceBreakdown.activityPricing).toEqual({ tourPriced: 0, open: 0, excluded: 0, unpriced: 0 });
     const line = rec.warnings.find((w) => w.message.startsWith('В эти даты план не собрался'));
     expect(line?.severity).toBe('important');
     const listed = line!.message.split('доступны: ')[1]!.split(' — ')[0]!.split(', ').sort();
@@ -320,15 +318,15 @@ describe('Сценарии раздела 4 аудита, дописанные 1
     expect(rec.days.map((d) => d.type)).toEqual(['activity']);
     expect(rec.days[0]!.realTour?.tourId).toBe('t-ava');
     const text = rec.warnings.map((w) => w.message).join('\n');
-    // Ночей у плана нет: ни «ночи в счёт не вошли», ни «ночёвку посчитали отдельно».
-    expect(text).not.toMatch(/Ночи в Авачинской зоне в счёт не вошли/);
-    expect(text).not.toMatch(/ночёвку по ним посчитали отдельно/);
+    // Ночей у плана нет: ни «проживания в смете нет», ни слов о ночах тура без состава.
+    expect(text).not.toMatch(/Проживания в Авачинской зоне в смете нет/);
+    expect(text).not.toMatch(/Ночи этих дней стоят в смете/);
   });
 
   it('сценарий 10, проверка от обратного: у приезжего ночь после дня тура есть — и слово о составе тура остаётся', async () => {
     TOURS['avachinsky:volcano'] = [AVACHA];
     const rec = await recommendTrip(profile(3, ['volcano']));
-    expect(rec.warnings.map((w) => w.message).join('\n')).toMatch(/ночёвку по ним посчитали отдельно/);
+    expect(rec.warnings.map((w) => w.message).join('\n')).toMatch(/Ночи этих дней стоят в смете строкой проживания/);
   });
 
   it('сценарий 5: у тура не указана цена — «цену оператор не указал», а не «проверить не удалось»', async () => {

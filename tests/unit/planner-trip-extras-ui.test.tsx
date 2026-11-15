@@ -214,17 +214,17 @@ describe('результат: настоящее, пустое, непровер
     expect(within(car).getByText('Все прокатчики').closest('a')?.getAttribute('href')).toBe('/car-rental');
     expect(car.textContent).not.toMatch(/за место|за человека|пока нет/);
 
-    // Смета на группу (#2304): ориентир подписан ориентиром у каждой строки и
-    // под итогом. Ночь прилёта в Авачинской зоне считается; ночь после
-    // однодневного тура с проживанием — тоже (тур её не покрывает, Б32);
-    // трансферы аэропорта — у прилетающего.
+    // Смета на группу (#2304): ночь прилёта в Авачинской зоне стоит; ночь
+    // после однодневного тура с проживанием — тоже (тур её не покрывает, Б32);
+    // трансферы аэропорта — у прилетающего. Цены у них нет: её называют хозяин
+    // жилья и перевозчик (14.11, «5 -1»); «ориентира по средним ценам» нет.
     const estimate = screen.getByTestId('price-estimate');
     expect(within(estimate).getByText(/Смета на группу · 2 чел\./)).toBeTruthy();
-    expect(within(estimate).getByText('Проживание в Авачинской зоне, уровень «Комфорт»')).toBeTruthy();
-    expect(within(estimate).getByText('Проживание в Западной зоне, уровень «Комфорт»')).toBeTruthy();
-    expect(within(estimate).getAllByText(/1 ночь × 2 чел\. · ориентир/)).toHaveLength(2);
+    expect(within(estimate).getByText('Проживание в Авачинской зоне')).toBeTruthy();
+    expect(within(estimate).getByText('Проживание в Западной зоне')).toBeTruthy();
+    expect(within(estimate).getAllByText(/^1 ночь — цену называет хозяин жилья$/)).toHaveLength(2);
     expect(within(estimate).getByText('Трансферы аэропорта')).toBeTruthy();
-    expect(estimate.textContent).toMatch(/ориентир по средним ценам/);
+    expect(estimate.textContent).not.toMatch(/ориентир/i);
   });
 
   it('машина напрокат: никого с прайсом — честное «пока нет» без ссылок; не смогли проверить — словами', async () => {

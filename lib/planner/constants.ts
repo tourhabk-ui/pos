@@ -43,8 +43,9 @@ export const ZONE_IDS = ['avachinsky', 'western', 'eastern', 'northern'] as cons
 /**
  * Где на самом деле ночуют, когда день плана в зоне, где не ночуют.
  * Северная зона — однодневная экскурсия, ночь в Авачинской. Читают двое:
- * оценка проживания движка (ZONE_ACCOMMODATION) и подбор настоящего жилья
- * на ночи плана (lib/planner/trip-extras) — одно правило, не два.
+ * строки проживания сметы (lib/planner/estimate, nightZoneOf) и подбор
+ * настоящего жилья на ночи плана (lib/planner/trip-extras) — одно правило,
+ * не два.
  */
 export const ZONE_SLEEPS_IN: Partial<Record<ZoneId, ZoneId>> = {
   northern: 'avachinsky',
@@ -79,8 +80,6 @@ export interface ActivityConstraints {
   bestZones: ZoneId[];
   months: number[];                       // when available
   seasonNote?: string;
-  pricePerPerson: [number, number];       // [from, to] RUB
-  priceNote?: string;
   requiresPermit?: string;
   requiresLicense?: boolean;
   safetyNotes?: string[];
@@ -123,7 +122,6 @@ export const ACTIVITY_CONSTRAINTS: Record<string, ActivityConstraints> = {
     bestZones: ['avachinsky', 'eastern'],
     months: [6, 7, 8, 9],
     seasonNote: 'Снег на тропах тает к середине июня',
-    pricePerPerson: [3000, 8000],
   },
   volcano: {
     allowedTransports: ['jeep', 'helicopter'],
@@ -136,7 +134,6 @@ export const ACTIVITY_CONSTRAINTS: Record<string, ActivityConstraints> = {
     bestZones: ['avachinsky'],
     months: [7, 8, 9],
     seasonNote: 'Восхождение на Авачинский 8-10 часов, перепад 1500 м',
-    pricePerPerson: [5000, 15000],
     seasonGearNote: 'Обязательны: трекинговые ботинки, дождевик, слои одежды',
     safetyNotes: [
       'Рекомендуется гид — активная вулканическая зона',
@@ -152,8 +149,6 @@ export const ACTIVITY_CONSTRAINTS: Record<string, ActivityConstraints> = {
     bestZones: ['western', 'avachinsky'],
     months: [6, 7, 8, 9],
     seasonNote: 'Чавыча: июль. Нерка: июль-авг. Кижуч: сентябрь',
-    pricePerPerson: [8000, 25000],
-    priceNote: 'Многодневные пакеты дешевле: 3 дня от 45 000',
     requiresLicense: true,
   },
   bears: {
@@ -166,8 +161,6 @@ export const ACTIVITY_CONSTRAINTS: Record<string, ActivityConstraints> = {
     bestZones: ['eastern', 'avachinsky'],
     months: [7, 8, 9],
     seasonNote: 'Курильское озеро: авг-сен. Речные медведи: июль-сен',
-    pricePerPerson: [15000, 45000],
-    priceNote: 'Вертолёт до Курильского озера ~300 000/рейс (8 мест)',
     requiresPermit: 'Южно-Камчатский федеральный заказник — бронь за 14 дней',
     safetyNotes: [
       'Только с аккредитованным гидом',
@@ -185,8 +178,6 @@ export const ACTIVITY_CONSTRAINTS: Record<string, ActivityConstraints> = {
     bestZones: ['avachinsky', 'northern'],
     months: [5, 6, 7, 8, 9, 10],
     seasonNote: 'Нелётная погода отменяет 30-50% рейсов — нужен запасной день',
-    pricePerPerson: [20000, 60000],
-    priceNote: 'Ми-8: 120 000-350 000 за рейс (8 мест). Цена на человека зависит от группы',
   },
   geyser: {
     allowedTransports: ['helicopter'],
@@ -203,8 +194,6 @@ export const ACTIVITY_CONSTRAINTS: Record<string, ActivityConstraints> = {
     bestZones: ['northern'],
     months: [6, 7, 8, 9, 10],
     seasonNote: 'Только вертолёт. Бронь Кроноцкого заповедника обязательна',
-    pricePerPerson: [30000, 60000],
-    priceNote: 'Вертолёт до Долины гейзеров ~250 000/рейс (8 мест). Вход в заповедник ~4 000/чел',
     requiresPermit: 'Кроноцкий заповедник — бронирование через kronoki.ru за 30 дней',
   },
   hot_spring: {
@@ -216,7 +205,6 @@ export const ACTIVITY_CONSTRAINTS: Record<string, ActivityConstraints> = {
     minDays: 1,
     bestZones: ['avachinsky', 'eastern'],
     months: [1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12],
-    pricePerPerson: [1500, 5000],
   },
   thermal: {
     allowedTransports: ['walking', 'jeep'],
@@ -227,7 +215,6 @@ export const ACTIVITY_CONSTRAINTS: Record<string, ActivityConstraints> = {
     minDays: 1,
     bestZones: ['avachinsky'],
     months: [1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12],
-    pricePerPerson: [1500, 5000],
   },
   boat_trip: {
     allowedTransports: ['boat'],
@@ -240,8 +227,6 @@ export const ACTIVITY_CONSTRAINTS: Record<string, ActivityConstraints> = {
     bestZones: ['avachinsky', 'western', 'eastern'],
     months: [5, 6, 7, 8, 9, 10],
     seasonNote: 'Океанские экскурсии зависят от волнения моря',
-    pricePerPerson: [8000, 25000],
-    priceNote: 'Катер на 8-12 чел: 80 000-200 000/рейс',
   },
   snowmobile: {
     allowedTransports: ['jeep'],
@@ -253,7 +238,6 @@ export const ACTIVITY_CONSTRAINTS: Record<string, ActivityConstraints> = {
     bestZones: ['avachinsky', 'western'],
     months: [12, 1, 2, 3, 4],
     seasonNote: 'Только зимний период. Летом недоступно',
-    pricePerPerson: [8000, 18000],
   },
   sea: {
     allowedTransports: ['boat', 'walking'],
@@ -264,7 +248,6 @@ export const ACTIVITY_CONSTRAINTS: Record<string, ActivityConstraints> = {
     minDays: 1,
     bestZones: ['avachinsky', 'eastern', 'western'],
     months: [5, 6, 7, 8, 9, 10],
-    pricePerPerson: [4000, 15000],
   },
   mountain: {
     allowedTransports: ['walking', 'jeep'],
@@ -276,7 +259,6 @@ export const ACTIVITY_CONSTRAINTS: Record<string, ActivityConstraints> = {
     minDays: 2,
     bestZones: ['avachinsky', 'northern'],
     months: [7, 8, 9],
-    pricePerPerson: [3000, 10000],
     safetyNotes: ['Многодневный треккинг — обязателен опытный гид'],
   },
   river: {
@@ -288,7 +270,6 @@ export const ACTIVITY_CONSTRAINTS: Record<string, ActivityConstraints> = {
     minDays: 1,
     bestZones: ['western', 'avachinsky'],
     months: [6, 7, 8, 9],
-    pricePerPerson: [5000, 18000],
   },
 };
 

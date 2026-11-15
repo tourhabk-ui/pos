@@ -5,7 +5,9 @@
  * Движок недобор не набивает: 1 прилёт, 2–3 занятия, 7 вылет. Экран /planner
  * достраивал свободные дни 4–6 сам, а Кузьмич, MCP и план из черновика — нет,
  * и смета у них давала три ночи вместо шести. Судится то, что видит человек:
- * строка проживания и вилка на человека — одинаковые на всех поверхностях.
+ * строка проживания и цены туров на человека — одинаковые на всех
+ * поверхностях. С 14.11 у строки проживания цены нет (слово владельца «5 -1»),
+ * число ночей — есть.
  */
 import { describe, it, expect } from 'vitest';
 import { calculatePriceBreakdown, estimateGroup, withFreeDays, type EstimateDay, type EstimateProfile } from '@/lib/planner/estimate';
@@ -26,15 +28,16 @@ describe('смета по дням поездки', () => {
   it('план с пропусками: шесть ночей, как на экране после достройки', () => {
     const screen = fillCalendarGaps(GAPPED, null) as EstimateDay[];
     const lodging = (days: EstimateDay[]) => estimateGroup(days, PROFILE).lines.filter((l) => l.kind === 'lodging');
-    expect(lodging(GAPPED).map((l) => l.basis)).toEqual(['6 ночей × 2 чел.']);
+    expect(lodging(GAPPED).map((l) => l.basis)).toEqual(['6 ночей — цену называет хозяин жилья']);
     expect(lodging(GAPPED)).toEqual(lodging(screen));
-    expect(calculatePriceBreakdown(GAPPED, PROFILE)).toEqual(calculatePriceBreakdown(screen, PROFILE));
+    expect(calculatePriceBreakdown(GAPPED)).toEqual(calculatePriceBreakdown(screen));
   });
 
   it('свободные дни строк занятий не дают и цену не прибавляют', () => {
     const lines = estimateGroup(GAPPED, PROFILE).lines.filter((l) => l.kind === 'activity');
     expect(lines.map((l) => l.label)).toEqual(['«Вулканы», день 2', '«Источники», день 3']);
-    expect(calculatePriceBreakdown(GAPPED, PROFILE).activities).toEqual([6500, 20000]);
+    // Дни без тура — без цены (14.11, «5 -1»): вилки дня в сумму не идут.
+    expect(calculatePriceBreakdown(GAPPED)).toEqual({ tours: [0, 0], activityPricing: { tourPriced: 0, open: 2, excluded: 0, unpriced: 0 } });
   });
 
   it('свободный день — в зоне накануне; сбитый порядок не трогается', () => {

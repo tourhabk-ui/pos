@@ -13,8 +13,9 @@
  *
  * ── Что считается ─────────────────────────────────────────────────────────
  *
- * `calculatePriceBreakdown` — прежняя вилка на человека, перенесена без
- * изменений (её читают чат, PDF и сторожа).
+ * `calculatePriceBreakdown` — сумма цен туров на человека (её читают чат,
+ * PDF и сторожа). До 14.11 это была вилка «Ориентир на человека» с жильём,
+ * транспортом и днями без тура по средним ценам из кода.
  *
  * `estimateGroup` — смета на всю группу построчно (разбор конструктора
  * «Лагуны Экспедиции», #2304). Тур считается по своей единице цены:
@@ -23,29 +24,29 @@
  * туры с ценой не за человека из суммы выпадали, а умножения на состав не
  * было нигде.
  *
- * Ориентиры — дни без тура, ночи, переезды — остаются в прежнем смысле
- * «на человека» и умножаются на состав. Чего они не значат, здесь не
- * выдумывается: если ночь на деле считается за номер, а не за человека,
- * смета это не угадывает, а называет ориентиром.
+ * Сумма — только из цен с источником (слово владельца 14.11 «5 -1»): цена
+ * тура оператора и цена выбранного предложения на платформе. До 14.11 дни
+ * без тура, ночи по зоне, переезды и трансфер аэропорта входили в итог
+ * «ориентиром» — вилками, зашитыми в код: ни одного из этих чисел не было в
+ * данных. Теперь у таких строк суммы нет, и сказано, кто называет цену:
+ * исполнитель занятия, хозяин жилья, перевозчик.
  *
- * Чего не знаем — строка «цена не указана», и в итог она не входит (§4.0):
- * ноль вместо неизвестной цены выдал бы смету за точную.
+ * Чего не знаем — строка без суммы, и в итог она не входит (§4.0): ноль
+ * вместо неизвестной цены выдал бы смету за точную.
  *
  * Выбранное жильё (#2304, шаг 3; lib/planner/plan-choices) — пункт плана с
- * ценой предложения на платформе: ночи выбранной стоянки выходят из
- * ориентира по зоне, а стоянка встаёт своей строкой. Трансфер — машина
- * целиком под заказ (13.10): цены до заявки перевозчику нет, и смета держит
- * «Трансферы аэропорта» ориентиром.
+ * ценой предложения на платформе: ночи выбранной стоянки выходят из строки
+ * проживания по зоне, а стоянка встаёт своей строкой. Трансфер — машина
+ * целиком под заказ (13.10): цены до заявки перевозчику нет.
  *
  * Аудит планировщика 07.11, волна 2.5. Машина напрокат (E7): человек за
  * рулём, и трансфер аэропорта не считается, если его не отметили отдельно;
  * цены проката до заявки нет — строка допущений, а не сумма. Ночь дня
- * переезда — в зоне, куда приехали (E11, nightZoneOf). Переезд без цены в
- * данных (вертолёт) — строка «цену называет перевозчик», в итог не входит.
+ * переезда — в зоне, куда приехали (E11, nightZoneOf).
  */
 // Только чистые модули: смету считает браузер, а движок тянет базу и модели
 // (сторож client-no-node-builtins идёт и по импортам типов).
-import { ZONE_SLEEPS_IN, nightZoneOf, type ZoneId, type BudgetTier, type DayType } from '@/lib/planner/constants';
+import { nightZoneOf, type ZoneId, type BudgetTier, type DayType } from '@/lib/planner/constants';
 import { asTripOrigin, nightIsAtHome, paysAirportTransfers, type TripOrigin } from '@/lib/planner/trip-origin';
 import { bookingTotal } from '@/lib/tours/booking-total';
 import { dateOfTripDay } from '@/lib/planner/flow-balance';
@@ -98,55 +99,27 @@ export interface EstimateProfile {
   needs?: { car?: boolean; transfer?: boolean };
 }
 
-// ── Ориентиры ────────────────────────────────────────────────────────────────
+// ── Строки без суммы ─────────────────────────────────────────────────────────
 
-interface AccommodationInfo {
-  types: string[];
-  pricePerNight: [number, number, number]; // [economy, comfort, premium]
-  note: string;
-  /**
-   * Где турист НОЧУЕТ, если в этой зоне не ночуют.
-   *
-   * Заведено 20.09. У северной зоны стояло `pricePerNight: [0, 0, 0]` с
-   * припиской «Однодневная экскурсия, ночёвка в Авачинской зоне» — то есть
-   * факт был записан прозой, а код читал из него только ноль. Ночь,
-   * которую человек проводит в Петропавловске, не считалась НИГДЕ: смета
-   * занижалась ровно на неё.
-   *
-   * Тот же род дефекта, что двойной счёт ночи на базе, только в другую
-   * сторону — и оба от того, что о ночёвке судили не по данным.
-   */
-  sleepsIn?: ZoneId;
-}
+/**
+ * Ни одной строки с суммой — итога нет, и «0 ₽» его бы выдумал. «Туры не
+ * выбраны» здесь сказать нельзя: тур в плане может стоять без цены для этой
+ * группы.
+ */
+export const NO_PRICES_YET =
+  'Цен в плане пока нет: их называют операторы, хозяева жилья и перевозчики.';
 
-const ZONE_ACCOMMODATION: Record<ZoneId, AccommodationInfo> = {
-  avachinsky: {
-    types: ['гостиница', 'апартаменты', 'хостел'],
-    pricePerNight: [3000, 7000, 15000],
-    note: 'Петропавловск / Паратунка — широкий выбор',
-  },
-  western: {
-    types: ['рыболовная база', 'палатка'],
-    pricePerNight: [8000, 20000, 40000],
-    note: 'Удалённые базы, питание включено',
-  },
-  eastern: {
-    types: ['эко-лодж', 'палатка', 'модуль'],
-    pricePerNight: [10000, 25000, 50000],
-    note: 'Ограниченное размещение, бронь заранее',
-  },
-  northern: {
-    types: [],
-    pricePerNight: [0, 0, 0],
-    note: 'Однодневная экскурсия, ночёвка в Авачинской зоне',
-    // Приписка выше теперь не только для чтения: ночь считается по той
-    // зоне, где её реально проводят.
-    sleepsIn: ZONE_SLEEPS_IN.northern,
-  },
-};
-
-/** Трансферы аэропорта, ориентир на человека (только у прилетающего). */
-const AIRPORT_TRANSFER: [number, number] = [2500, 5000];
+/**
+ * Кто называет цену строки без суммы — по её роду. Чисел здесь нет
+ * намеренно (слово владельца 14.11 «5 -1»): до 14.11 на этом месте стояли
+ * ночь по зоне «эконом / комфорт / премиум» и трансфер аэропорта
+ * 2 500–5 000 ₽ на человека — ни одного из них не было в данных.
+ */
+export const OPEN_PRICE_WORDS = {
+  activity: 'тур не выбран — цену называет исполнитель',
+  lodging: 'цену называет хозяин жилья',
+  transport: 'цену называет перевозчик',
+} as const;
 
 /**
  * Считать ли трансфер аэропорта: только у прилетающего и не у того, кто сам
@@ -159,28 +132,22 @@ function countsAirportTransfer(origin: TripOrigin, needs: EstimateProfile['needs
 }
 
 /*
- * Множителей сметы нет (решение владельца 11.11, #3199, E12). Прежде у тура
- * был верх вилки ×1,2 («цена может вырасти»), у ночи — ×0,8–×1,2 вокруг
- * ориентира зоны. Ни одного из этих чисел не было в данных: цену тура
- * называет оператор, ночь — ориентир по зоне. Смета показывает их как есть.
+ * Множителей сметы нет (решение владельца 11.11, #3199, E12), и вилок по
+ * средним ценам тоже нет (14.11): цену тура называет оператор, цену
+ * выбранного жилья — его предложение на платформе, остальное — исполнитель.
  */
 
 /**
- * Дни, чья цена на карточке входит в итог сметы (#3338). Прогон 13.11:
- * карточки дня прилёта («0 — 3 000»), дня отдыха у источников («1 500 —
- * 5 000») и дня отъезда («0 — 2 500 ₽ на человека») показывали цену, а итог
- * считал только дни занятий — сумма карточек и итог расходились. Переезд —
- * отдельной строкой транспорта, свободный день цены не несёт (0–0).
+ * Дни, на которых может стоять тур оператора: его цена входит в итог.
+ * Переезд — отдельной строкой транспорта.
  */
 export function countsAsActivityCost(type: DayType): boolean {
   return type === 'activity' || type === 'buffer' || type === 'arrival' || type === 'rest' || type === 'departure';
 }
 
-/** Уровень жилья словами — как на кнопках шага 3 планера. */
-const TIER_WORDS: Record<BudgetTier, string> = { economy: 'Эконом', comfort: 'Комфорт', premium: 'Премиум' };
-
-function budgetIndex(tier: BudgetTier): 0 | 1 | 2 {
-  return tier === 'economy' ? 0 : tier === 'comfort' ? 1 : 2;
+/** Дни занятий: без тура на них цену называет исполнитель (строка без суммы). */
+function isActivityDay(type: DayType): boolean {
+  return type === 'activity' || type === 'buffer';
 }
 
 const ZONE_GENITIVE: Record<ZoneId, string> = {
@@ -191,12 +158,13 @@ const ZONE_GENITIVE: Record<ZoneId, string> = {
 };
 
 /**
- * Ночь этого дня: в какой зоне и по какой вилке на человека; null — ночи нет.
- * `next` — следующий день плана: ночь дня переезда — в зоне, куда приехали.
+ * Ночь этого дня: в какой зоне её проводят; null — ночи, оплачиваемой
+ * отдельно, нет. `next` — следующий день плана: ночь дня переезда — в зоне,
+ * куда приехали.
  */
 function nightOf(
-  day: EstimateDay, next: EstimateDay | undefined, lastDayNum: number, origin: TripOrigin, bi: 0 | 1 | 2,
-): { zone: ZoneId; price: [number, number] } | null {
+  day: EstimateDay, next: EstimateDay | undefined, lastDayNum: number, origin: TripOrigin,
+): { zone: ZoneId } | null {
   if (day.type === 'departure' || day.day === lastDayNum) return null;
   // Ночь после последнего дня тура тур не покрывает (Б32).
   if (nightLodgingIncluded(day, next) === true) return null;
@@ -204,26 +172,29 @@ function nightOf(
   // переезда — там, куда приехали (nightZoneOf, аудит 07.11, E11).
   const sleepZone = nightZoneOf(day, next);
   if (nightIsAtHome(origin, sleepZone)) return null;
-  const acc = ZONE_ACCOMMODATION[sleepZone];
-  const nightPrice = acc.pricePerNight[bi] || acc.pricePerNight[0];
-  return { zone: sleepZone, price: [nightPrice, nightPrice] };
+  return { zone: sleepZone };
 }
 
-// ── Вилка на человека ────────────────────────────────────────────────────────
+// ── Цены туров на человека ───────────────────────────────────────────────────
 
 export interface PriceBreakdown {
-  activities: [number, number];
-  accommodation: [number, number];
-  transport: [number, number];
-  perPersonTotal: [number, number];
   /**
-   * Из чего сложены активности (#2223): сколько дней по цене тура оператора,
-   * сколько по ориентиру вида активности (тура нет — цена не тура, а
-   * справочная вилка), и сколько туров в сумму НЕ вошли, потому что их цена
-   * не за человека. Без этого одна цифра выдавала бы оценку за цену.
+   * Сумма цен туров операторов на человека — только туры с ценой за человека.
+   * Ночи, переезды, трансфер и дни без тура сюда не входят: их цену называет
+   * исполнитель (слово владельца 14.11 «5 -1»).
+   */
+  tours: [number, number];
+  /**
+   * Из чего сложено (#2223): сколько дней по цене тура оператора, сколько
+   * дней занятий без тура (цену называет исполнитель), сколько туров в сумму
+   * НЕ вошли, потому что их цена не за человека, и сколько без цены для этой
+   * группы.
    */
   activityPricing: {
-    tourPriced: number; estimated: number; excluded: number;
+    tourPriced: number;
+    /** Дни занятий без тура: цену называет исполнитель. */
+    open: number;
+    excluded: number;
     /**
      * Туры без цены для этой группы (#2304): группа вне ступеней цены
      * оператора или цену не удалось проверить. В сумму не идут.
@@ -256,95 +227,31 @@ export function withFreeDays<T extends EstimateDay>(days: readonly T[]): Array<T
   return out;
 }
 
-export function calculatePriceBreakdown(planDays: EstimateDay[], profile: Pick<EstimateProfile, 'budgetTier' | 'tripOrigin'>): PriceBreakdown {
+export function calculatePriceBreakdown(planDays: EstimateDay[]): PriceBreakdown {
+  // Пропуски в номерах дней — свободные дни (разбор планера 14.11, смета-1).
   const days = withFreeDays(planDays);
-  // Плана нет — сметы нет (аудит 07.11, E8): до 07.11 пустой зимний план
-  // показывал «на человека 2 500–5 000 ₽» — трансфер аэропорта к поездке, в
-  // которой нет ни одного дня.
-  if (days.length === 0) {
-    return {
-      activities: [0, 0], accommodation: [0, 0], transport: [0, 0], perPersonTotal: [0, 0],
-      activityPricing: { tourPriced: 0, estimated: 0, excluded: 0, unpriced: 0 },
-    };
-  }
-  const bi = budgetIndex(profile.budgetTier);
-  const nightCount = Math.max(0, days.length - 1);
-
-  // Активности. Цена тура оператора — только если она за человека: цену
-  // группы или дня сложить как цену человека значило бы соврать в итоге
-  // (#2223); такой тур в сумму не идёт и называется отдельно. День без тура —
-  // справочная вилка вида активности: это ориентир, и он тоже назван отдельно.
-  // Продолжение многодневного тура (цена 0, учтена в первом дне) не считается.
-  let actFrom = 0;
-  let actTo = 0;
-  const activityPricing = { tourPriced: 0, estimated: 0, excluded: 0, unpriced: 0 };
+  // Цена тура оператора — только если она за человека: цену группы или дня
+  // сложить как цену человека значило бы соврать в итоге (#2223); такой тур
+  // в сумму не идёт и называется отдельно. Продолжение многодневного тура
+  // (цена учтена в первом дне) не считается. Плана нет — суммы нет.
+  let from = 0;
+  let to = 0;
+  const activityPricing = { tourPriced: 0, open: 0, excluded: 0, unpriced: 0 };
   for (const d of days) {
     if (!countsAsActivityCost(d.type)) continue;
-    // Цены тура для группы нет — ни цена, ни ориентир: справочная вилка вида
-    // активности на месте тура выдала бы себя за его цену.
+    // Цены тура для группы нет — в сумму не идёт.
     if (d.priceMissing) { activityPricing.unpriced++; continue; }
     if (d.realPrice) {
       if (d.realTour && d.realTour.priceUnit !== 'per_person') { activityPricing.excluded++; continue; }
-      actFrom += d.realPrice;
-      actTo += d.realPrice;
+      from += d.realPrice;
+      to += d.realPrice;
       activityPricing.tourPriced++;
       continue;
     }
-    // «По справочной вилке вида активности» — только дни занятий; цена дня
-    // прилёта, отдыха и отъезда входит в сумму, но видом активности не
-    // называется.
-    if ((d.type === 'activity' || d.type === 'buffer') && (d.priceFrom > 0 || d.priceTo > 0)) activityPricing.estimated++;
-    actFrom += d.priceFrom;
-    actTo += d.priceTo;
+    if (d.realTour) continue;
+    if (isActivityDay(d.type)) activityPricing.open++;
   }
-
-  // Ночёвки. Оценка по зоне — только за те ночи, которые турист ДЕЙСТВИТЕЛЬНО
-  // оплачивает отдельно.
-  //
-  // Замер 20.09: у тура ID9 «Камчатской рыбалки» в составе прямым текстом
-  // «Проживание на базе 5 ночей» при цене 140 000 ₽, а этот цикл прибавлял
-  // ночь за каждый не-отъездный день безусловно. Западная зона при comfort —
-  // 20 000 ₽/ночь: семидневный план показывал ещё 96 000–160 000 ₽
-  // «проживания», которого турист не платит.
-  //
-  // `null` (не разобрали состав) считается как «платит»: занижать счёт на
-  // догадке хуже, чем завысить и сказать об этом вслух — предупреждение
-  // ставит `recommendTrip`.
-  //
-  // У местного ночь в своей зоне не считается вовсе (lib/planner/trip-origin):
-  // он ночует у себя. Допущение о доме названо словами в предупреждениях —
-  // молча занижать счёт на догадке об адресе нельзя.
-  //
-  // У ПОСЛЕДНЕГО дня поездки ночи нет — человек либо улетает, либо едет
-  // домой. Правило одно на оба случая: раньше пропускался только день с
-  // типом `departure`, и у местного (у которого такого дня нет вовсе) ночей
-  // выходило на одну больше, чем он проводит вне дома.
-  const origin = asTripOrigin(profile.tripOrigin);
-  const lastDayNum = days.length > 0 ? days[days.length - 1]!.day : 0;
-  let accFrom = 0;
-  let accTo = 0;
-  for (const [i, day] of days.entries()) {
-    const night = nightOf(day, days[i + 1], lastDayNum, origin, bi);
-    if (!night) continue;
-    accFrom += night.price[0];
-    accTo += night.price[1];
-  }
-  if (nightCount === 0) { accFrom = 0; accTo = 0; }
-
-  // Transport — travel days + transfers
-  // Трансферы аэропорта — только у прилетающего: местный туда не едет.
-  const travelDays = days.filter(d => d.type === 'travel');
-  const [transferFrom, transferTo] = paysAirportTransfers(origin) ? AIRPORT_TRANSFER : [0, 0];
-  const transFrom = travelDays.reduce((s, d) => s + d.priceFrom, 0) + transferFrom;
-  const transTo   = travelDays.reduce((s, d) => s + d.priceTo, 0) + transferTo;
-
-  return {
-    activities: [actFrom, actTo],
-    accommodation: [accFrom, accTo],
-    transport: [transFrom, transTo],
-    perPersonTotal: [actFrom + accFrom + transFrom, actTo + accTo + transTo],
-    activityPricing,
-  };
+  return { tours: [from, to], activityPricing };
 }
 
 // ── Смета на группу ──────────────────────────────────────────────────────────
@@ -358,10 +265,11 @@ export interface EstimateLine {
   /** Сумма строки на всю группу; null — цену не знаем, в итог не входит. */
   total: [number, number] | null;
   /**
-   * Цена оператора тура, цена выбранного предложения на платформе (жильё,
-   * перевозчик) или ориентир по средним ценам.
+   * Цена оператора тура, цена выбранного предложения на платформе (жильё)
+   * или `open` — цены в данных нет, её называет исполнитель; у такой строки
+   * суммы нет никогда (слово владельца 14.11 «5 -1»).
    */
-  source: 'tour' | 'offer' | 'estimate';
+  source: 'tour' | 'offer' | 'open';
   /** Пояснение, если в строке есть допущение. */
   note?: string;
 }
@@ -372,14 +280,13 @@ export interface GroupEstimate {
   lines: EstimateLine[];
   /** Сумма строк с ценой. */
   total: [number, number];
-  /** Итог, делённый на состав, — для сравнения с вилкой на человека. */
+  /** Итог, делённый на состав, — для сравнения с ценами туров на человека. */
   perPerson: [number, number];
   /** Подписи строк без цены: в итог не вошли. */
   unpriced: string[];
-  /** Сколько итога — цены туров операторов, выбранных предложений и ориентир. */
+  /** Сколько итога — цены туров операторов и цены выбранных предложений. */
   fromTours: [number, number];
   fromOffers: [number, number];
-  fromEstimates: [number, number];
   /** Допущения сметы словами: показываются рядом с итогом. */
   assumptions: string[];
 }
@@ -387,15 +294,16 @@ export interface GroupEstimate {
 /**
  * Кто назовёт цену строк сметы без суммы — по их роду. Одно правило для
  * экрана /planner и ответа Кузьмича (аудит планировщика 07.11, волна 2.5):
- * выбранное жильё — оператор или хозяин жилья, тур — карточка тура, переезд
- * без цены в данных (вертолёт) — перевозчик, а не карточка тура.
+ * тур — карточка тура, занятие без тура — исполнитель, жильё — хозяин,
+ * переезд и трансфер — перевозчик.
  */
 export function unpricedTail(lines: readonly EstimateLine[]): string {
   const open = lines.filter((l) => !l.total);
   const parts: string[] = [];
-  if (open.some((l) => l.source === 'offer')) parts.push('цену назовут оператор или хозяин жилья');
-  else if (open.some((l) => l.kind === 'tour')) parts.push('сумму смотрите в карточке тура');
-  if (open.some((l) => l.kind === 'transport')) parts.push('цену переезда назовёт перевозчик');
+  if (open.some((l) => l.kind === 'tour')) parts.push('сумму тура смотрите в его карточке');
+  if (open.some((l) => l.kind === 'activity')) parts.push('цену занятий без тура назовёт исполнитель');
+  if (open.some((l) => l.kind === 'lodging')) parts.push('цену жилья назовёт хозяин');
+  if (open.some((l) => l.kind === 'transport')) parts.push('цену переездов и трансфера назовёт перевозчик');
   return `${parts.join(', ')}.`;
 }
 
@@ -404,7 +312,6 @@ const peopleWord = (n: number) => `${n} чел.`;
 const dayWord = (n: number) => (n % 10 === 1 && n % 100 !== 11 ? 'день' : n % 10 >= 2 && n % 10 <= 4 && (n % 100 < 10 || n % 100 >= 20) ? 'дня' : 'дней');
 const nightWord = (n: number) => (n % 10 === 1 && n % 100 !== 11 ? 'ночь' : n % 10 >= 2 && n % 10 <= 4 && (n % 100 < 10 || n % 100 >= 20) ? 'ночи' : 'ночей');
 
-const times = ([a, b]: [number, number], k: number): [number, number] => [a * k, b * k];
 const roomWord = (n: number) => (n % 10 === 1 && n % 100 !== 11 ? 'номер' : n % 10 >= 2 && n % 10 <= 4 && (n % 100 < 10 || n % 100 >= 20) ? 'номера' : 'номеров');
 const ddmm = (iso: string) => `${iso.slice(8, 10)}.${iso.slice(5, 7)}`;
 
@@ -461,7 +368,7 @@ export function tourGroupCost(a: {
  */
 function tourLine(day: EstimateDay, days: EstimateDay[], people: number): EstimateLine {
   const price = day.realPrice!;
-  // Без данных о туре цена считается за человека — так же, как в вилке на
+  // Без данных о туре цена считается за человека — так же, как в сумме на
   // человека (`calculatePriceBreakdown`): одна смета, одно правило.
   const unit = day.realTour ? day.realTour.priceUnit : 'per_person';
   const label = `Тур «${day.title}», день ${day.day}`;
@@ -513,11 +420,12 @@ function nightGenitive(n: number): string {
 export function estimateGroup(planDays: EstimateDay[], profile: EstimateProfile, choices?: PlanChoices): GroupEstimate {
   const days = withFreeDays(planDays);
   const people = Math.max(1, profile.adults + profile.children.length);
-  const bi = budgetIndex(profile.budgetTier);
   const origin = asTripOrigin(profile.tripOrigin);
   const lines: EstimateLine[] = [];
 
-  // Активности: туры по своей единице цены, дни без тура — ориентир.
+  // Активности: туры по своей единице цены; день занятий без тура — строка
+  // без суммы, цену называет исполнитель. Дни прилёта, отдыха и отъезда без
+  // тура строки не дают: покупать на них нечего.
   for (const d of days) {
     if (!countsAsActivityCost(d.type)) continue;
     // Цены тура для этой группы нет: строка есть, в итог не входит (§4.0).
@@ -534,19 +442,15 @@ export function estimateGroup(planDays: EstimateDay[], profile: EstimateProfile,
     }
     // Продолжение многодневного тура: цена учтена в первом дне.
     if (d.realTour) continue;
-    if (d.priceFrom <= 0 && d.priceTo <= 0) continue;
+    if (!isActivityDay(d.type)) continue;
     lines.push({
       kind: 'activity', label: `«${d.title}», день ${d.day}`,
-      basis: `${fmt(d.priceFrom)} — ${fmt(d.priceTo)} ₽ × ${peopleWord(people)}`,
-      total: times([d.priceFrom, d.priceTo], people), source: 'estimate',
-      note: d.type === 'activity' || d.type === 'buffer'
-        ? 'Тура на этот день нет — справочная цена вида активности.'
-        : 'Справочная цена дня: то, что стоит на его карточке.',
+      basis: OPEN_PRICE_WORDS.activity, total: null, source: 'open',
     });
   }
 
-  // Ночь, на которую выбрано жильё: ориентир её больше не считает. Без даты
-  // прилёта ночи плана с датами стоянки не сличить — выбранное жильё тогда
+  // Ночь, на которую выбрано жильё: строка проживания по зоне её больше не
+  // считает. Без даты прилёта ночи плана с датами стоянки не сличить — выбранное жильё тогда
   // не ставится вовсе, иначе ночь посчиталась бы дважды.
   const stays = profile.arrivalDate ? choices?.stays ?? [] : [];
   const chosenNight = (zone: ZoneId, dayNum: number): boolean => {
@@ -554,32 +458,28 @@ export function estimateGroup(planDays: EstimateDay[], profile: EstimateProfile,
     return date !== null && stays.some((s) => s.zone === zone && s.checkIn <= date && date < s.checkOut);
   };
 
-  // Ночи — по зоне, где ночуют, одной строкой на зону.
+  // Ночи — по зоне, где ночуют, одной строкой на зону; суммы у строки нет.
   let nightsInToursTotal = 0;
   if (days.length > 1) {
     const lastDayNum = days[days.length - 1]!.day;
-    const byZone = new Map<ZoneId, { nights: number; sum: [number, number] }>();
+    const byZone = new Map<ZoneId, { nights: number }>();
     // Ночи, которые в строки проживания не вошли, потому что входят в тур
     // (#3347): «проживание 5 ночей» при шести ночах поездки стояло без
     // объяснения — пояснение было в данных, а экран его прятал.
     let nightsInTours = 0;
     for (const [i, day] of days.entries()) {
       if (day.type !== 'departure' && day.day !== lastDayNum && nightLodgingIncluded(day, days[i + 1]) === true) nightsInTours++;
-      const night = nightOf(day, days[i + 1], lastDayNum, origin, bi);
+      const night = nightOf(day, days[i + 1], lastDayNum, origin);
       if (!night || chosenNight(night.zone, day.day)) continue;
-      const z = byZone.get(night.zone) ?? { nights: 0, sum: [0, 0] as [number, number] };
+      const z = byZone.get(night.zone) ?? { nights: 0 };
       z.nights++;
-      z.sum = [z.sum[0] + night.price[0], z.sum[1] + night.price[1]];
       byZone.set(night.zone, z);
     }
     for (const [zone, z] of byZone) {
       lines.push({
-        // Уровень жилья — в подписи строки (#3338): он меняет сумму, а строка
-        // его не называла.
-        kind: 'lodging', label: `Проживание в ${ZONE_GENITIVE[zone]}, уровень «${TIER_WORDS[profile.budgetTier] ?? profile.budgetTier}»`,
-        basis: `${z.nights} ${nightWord(z.nights)} × ${peopleWord(people)}`,
-        total: times(z.sum, people), source: 'estimate',
-        note: 'Ориентир по зоне и уровню размещения; ночи, включённые в туры, не считаны.',
+        kind: 'lodging', label: `Проживание в ${ZONE_GENITIVE[zone]}`,
+        basis: `${z.nights} ${nightWord(z.nights)} — ${OPEN_PRICE_WORDS.lodging}`,
+        total: null, source: 'open',
       });
     }
     nightsInToursTotal = nightsInTours;
@@ -605,31 +505,21 @@ export function estimateGroup(planDays: EstimateDay[], profile: EstimateProfile,
     }
   }
 
-  // Переезды и трансферы аэропорта.
+  // Переезды и трансферы аэропорта: цены в данных нет — строка без суммы
+  // (§4.0): до аудита 07.11 переезд без цены молча выпадал из сметы, как
+  // бесплатный.
   for (const d of days) {
     if (d.type !== 'travel') continue;
-    // Цены переезда в данных нет — вертолётные рёбра зон стоят с [0, 0]
-    // (lib/planner/zone-graph). Строка есть, в итог не входит (§4.0, аудит
-    // 07.11): до этого такой день молча выпадал из сметы, как бесплатный.
-    if (d.priceFrom <= 0 && d.priceTo <= 0) {
-      lines.push({
-        kind: 'transport', label: `${d.title}, день ${d.day}`, basis: 'цену называет перевозчик',
-        total: null, source: 'estimate', note: 'Цены этого переезда в данных нет — в итог он не вошёл.',
-      });
-      continue;
-    }
     lines.push({
-      kind: 'transport', label: `${d.title}, день ${d.day}`,
-      basis: `${fmt(d.priceFrom)} — ${fmt(d.priceTo)} ₽ × ${peopleWord(people)}`,
-      total: times([d.priceFrom, d.priceTo], people), source: 'estimate',
+      kind: 'transport', label: `${d.title}, день ${d.day}`, basis: OPEN_PRICE_WORDS.transport,
+      total: null, source: 'open',
     });
   }
-  // Ориентир — на дорогу туда и обратно; за рулём своей машины — не нужен.
+  // На дорогу туда и обратно; за рулём своей машины — не нужен.
   if (countsAirportTransfer(origin, profile.needs) && days.length > 0) {
     lines.push({
-      kind: 'transport', label: 'Трансферы аэропорта',
-      basis: `${fmt(AIRPORT_TRANSFER[0])} — ${fmt(AIRPORT_TRANSFER[1])} ₽ × ${peopleWord(people)}`,
-      total: times(AIRPORT_TRANSFER, people), source: 'estimate',
+      kind: 'transport', label: 'Трансферы аэропорта', basis: OPEN_PRICE_WORDS.transport,
+      total: null, source: 'open',
     });
   }
 
@@ -640,8 +530,7 @@ export function estimateGroup(planDays: EstimateDay[], profile: EstimateProfile,
 
   const assumptions: string[] = [];
   // Ночи, включённые в туры, — фактом и числом (#3347): «проживание 5 ночей»
-  // при шести ночах поездки читалось как ошибка счёта. Пояснение стояло в
-  // `note` строки проживания, а экран `note` у строки-ориентира не показывает.
+  // при шести ночах поездки читалось как ошибка счёта.
   if (nightsInToursTotal > 0) {
     assumptions.push(`В строках проживания нет ${nightsInToursTotal} ${nightGenitive(nightsInToursTotal)}: `
       + `${nightsInToursTotal === 1 ? 'она входит' : 'они входят'} в цену тура.`);
@@ -665,7 +554,6 @@ export function estimateGroup(planDays: EstimateDay[], profile: EstimateProfile,
     unpriced: lines.filter((l) => !l.total).map((l) => l.label),
     fromTours: sum((l) => l.source === 'tour'),
     fromOffers: sum((l) => l.source === 'offer'),
-    fromEstimates: sum((l) => l.source === 'estimate'),
     assumptions,
   };
 }

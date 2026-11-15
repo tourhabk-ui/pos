@@ -8,7 +8,8 @@
  *
  * Сторож держит поведением, на настоящем `recommendTrip` с подменённым
  * хранилищем: дети меняют план и его цену; тур с ценой «за группу» не идёт в
- * сумму «на человека» и называется; бюджет меняет оценку жилья. И словами:
+ * сумму «на человека» и называется; уровень жилья — пожелание исполнителю, цены
+ * жилья в плане нет (слово владельца 14.11 «5 -1»). И словами:
  * названное пересказывается как названное, допущение — как допущение; схема
  * MCP и схема Кузьмича — одна правда.
  */
@@ -111,8 +112,8 @@ describe('движок: состав, бюджет и цена', () => {
     expect(perPerson.priceBreakdown.activityPricing.excluded).toBe(0);
     expect(perGroup.priceBreakdown.activityPricing.excluded).toBe(1);
     expect(perGroup.priceBreakdown.activityPricing.tourPriced).toBe(perPerson.priceBreakdown.activityPricing.tourPriced - 1);
-    // 10 000 тура на вулкан ушли из нижней границы целиком.
-    expect(perPerson.priceBreakdown.activities[0] - perGroup.priceBreakdown.activities[0]).toBe(10000);
+    // 10 000 тура на вулкан ушли из суммы туров на человека целиком.
+    expect(perPerson.priceBreakdown.tours[0] - perGroup.priceBreakdown.tours[0]).toBe(10000);
   });
 
   it('тур за группу входит в итог на группу — один раз на группу (#2304)', async () => {
@@ -122,17 +123,30 @@ describe('движок: состав, бюджет и цена', () => {
     const perGroup = e.lines.filter((l) => l.kind === 'tour' && l.basis.includes('за группу'));
     // Вместимость 10, вас двое — одна группа: 10 000 тура, без множителей (решение владельца 11.11, #3199 E12).
     expect(perGroup.map((l) => l.total)).toEqual([[10000, 10000]]);
-    // Всё остальное — ровно вилка на человека, умноженная на состав.
+    // Всё остальное — ровно цены туров на человека, умноженные на состав:
+    // жилья, переездов и трансфера в сумме нет (слово владельца 14.11 «5 -1»).
     expect(e.total).toEqual([
-      rec.priceBreakdown.perPersonTotal[0] * 2 + 10000,
-      rec.priceBreakdown.perPersonTotal[1] * 2 + 10000,
+      rec.priceBreakdown.tours[0] * 2 + 10000,
+      rec.priceBreakdown.tours[1] * 2 + 10000,
     ]);
   });
 
-  it('уровень бюджета меняет оценку жилья', async () => {
+  it('уровень жилья цену плана не меняет: цены жилья без выбранного объекта нет (14.11, «5 -1»)', async () => {
+    // До 14.11 уровень двигал вилку жилья из констант движка — числа без
+    // источника. Теперь он пожелание исполнителю, а сумма плана — цены туров.
     const eco = await recommendTrip({ ...BASE, budgetTier: 'economy' }, { itinerary: 'plain' });
     const prem = await recommendTrip({ ...BASE, budgetTier: 'premium' }, { itinerary: 'plain' });
-    expect(eco.priceBreakdown.accommodation[0]).toBeLessThan(prem.priceBreakdown.accommodation[0]);
+    expect(eco.priceBreakdown).toEqual(prem.priceBreakdown);
+    const people = { adults: 2, children: [] as number[] };
+    const eEco = estimateGroup(eco.days, { ...people, budgetTier: 'economy' });
+    const ePrem = estimateGroup(prem.days, { ...people, budgetTier: 'premium' });
+    expect(eEco.total).toEqual(ePrem.total);
+    const lodging = eEco.lines.filter((l) => l.kind === 'lodging');
+    expect(lodging.length).toBeGreaterThan(0);
+    for (const l of lodging) {
+      expect(l.total).toBeNull();
+      expect(l.basis).toMatch(/цену называет хозяин жилья/);
+    }
   });
 });
 
@@ -330,45 +344,66 @@ describe('разбор слов: состав и бюджет', () => {
 
 describe('цена плана словами', () => {
   const pb = (over: Partial<PriceBreakdown> = {}): PriceBreakdown => ({
-    activities: [30000, 36000], accommodation: [16000, 24000], transport: [2500, 5000],
-    perPersonTotal: [48500, 65000],
-    activityPricing: { tourPriced: 2, estimated: 1, excluded: 0 },
+    tours: [30000, 30000],
+    activityPricing: { tourPriced: 2, open: 1, excluded: 0, unpriced: 0 },
     ...over,
   });
 
-  it('вилка на человека и из чего сложена', () => {
-    const lines = formatPlanPrice(pb(), 'comfort', true);
-    expect(lines[0]).toMatch(/^Ориентир на человека: 48\s500 ₽–65\s000 ₽ \(уровень «комфорт»\)/);
-    expect(lines.join('\n')).toMatch(/2 — по ценам туров операторов; 1 — по справочной вилке вида активности, это не цена тура/);
-    expect(lines.join('\n')).toMatch(/жильё: 16\s000 ₽–24\s000 ₽/);
-    expect(lines.join('\n')).toMatch(/Перелёт до Камчатки в сумму не входит/);
-    expect(lines.join('\n')).not.toMatch(/Без учёта/);
+  it('цены туров на человека и дни без тура — без вилки из констант (14.11, «5 -1»)', () => {
+    const lines = formatPlanPrice(pb(), true);
+    const text = lines.join('\n');
+    expect(lines[0]).toMatch(/^Цены туров операторов на человека: 30\s000 ₽ \(2 тура с ценой за человека\)\.$/);
+    expect(text).toMatch(/Дней занятий без тура: 1 — цену называет исполнитель, в сумму они не вошли\./);
+    expect(text).toMatch(/Жильё, переезды и трансфер аэропорта — без цены: её называют хозяева жилья и перевозчики\./);
+    expect(text).toMatch(/Перелёт до Камчатки в сумму не входит/);
+    expect(text).not.toMatch(/Ориентир|уровень «|справочн|оценка/);
+    expect(text).not.toMatch(/Без учёта/);
+  });
+
+  it('туров с ценой нет — так и сказано, числа не выдумываются', () => {
+    const lines = formatPlanPrice(pb({ tours: [0, 0], activityPricing: { tourPriced: 0, open: 3, excluded: 0, unpriced: 0 } }), true);
+    expect(lines[0]).toBe('Цен туров за человека в плане нет.');
+    expect(lines.join('\n')).not.toMatch(/\d\s?\d{3} ₽/);
   });
 
   it('туры с ценой не за человека названы, а не спрятаны в сумме', () => {
-    const lines = formatPlanPrice(pb({ activityPricing: { tourPriced: 1, estimated: 0, excluded: 2 } }), 'economy', true);
+    const lines = formatPlanPrice(pb({ activityPricing: { tourPriced: 1, open: 0, excluded: 2, unpriced: 0 } }), true);
     expect(lines.join('\n')).toMatch(/Без учёта 2 туров: цена у них не за человека/);
   });
 
   it('плана нет — цены нет', () => {
-    expect(formatPlanPrice(pb(), 'comfort', false)).toEqual([]);
+    expect(formatPlanPrice(pb(), false)).toEqual([]);
   });
 
   const group = (over: Partial<GroupEstimate> = {}): GroupEstimate => ({
-    people: 3, lines: [], total: [150000, 200000], perPerson: [50000, 66667], unpriced: [],
-    fromTours: [90000, 108000], fromOffers: [0, 0], fromEstimates: [60000, 92000], assumptions: [], ...over,
+    people: 3, lines: [{ kind: 'tour', label: 'Тур «Вулкан», день 2', basis: '30 000 ₽ × 3 чел.', total: [90000, 90000], source: 'tour' }],
+    total: [90000, 90000], perPerson: [30000, 30000], unpriced: [],
+    fromTours: [90000, 90000], fromOffers: [0, 0], assumptions: [], ...over,
   });
 
-  it('итог на группу — после вилки на человека, перелёт по-прежнему вне суммы (#2304)', () => {
-    const lines = formatPlanPrice(pb(), 'comfort', true, group());
+  it('итог на группу — только цены туров, перелёт по-прежнему вне суммы (#2304)', () => {
+    const lines = formatPlanPrice(pb(), true, group());
     const text = lines.join('\n');
-    expect(text).toMatch(/Итого на группу из 3 чел\.: 150\s000 ₽–200\s000 ₽ — туры по своей цене/);
+    expect(text).toMatch(/Итого на группу из 3 чел\.: 90\s000 ₽ — только цены туров операторов\./);
     expect(lines.findIndex((l) => l.startsWith('Итого на группу'))).toBeGreaterThan(0);
     expect(lines[lines.length - 1]).toBe('Перелёт до Камчатки в сумму не входит.');
   });
 
+  it('в смете нет ни одной цены — строки «Итого» нет', () => {
+    const open = { kind: 'lodging', label: 'Проживание в Петропавловске', basis: '4 ночи — цену называет хозяин жилья', total: null, source: 'open' } as const;
+    const text = formatPlanPrice(pb({ tours: [0, 0], activityPricing: { tourPriced: 0, open: 0, excluded: 0, unpriced: 0 } }), true,
+      group({ lines: [open], total: [0, 0], perPerson: [0, 0], unpriced: [open.label], fromTours: [0, 0] })).join('\n');
+    expect(text).not.toMatch(/Итого/);
+    expect(text).toContain(`Без цены, в сумму не вошло: ${open.label}. Цену жилья назовёт хозяин.`);
+  });
+
+  it('выбранное жильё на платформе — в итоге, и это сказано', () => {
+    const text = formatPlanPrice(pb(), true, group({ fromOffers: [24000, 24000], total: [114000, 114000] })).join('\n');
+    expect(text).toMatch(/— только цены туров операторов и выбранного жилья на платформе\./);
+  });
+
   it('тур за группу не «без учёта», а учтён в итоге на группу; нераспознанный — назван', () => {
-    const lines = formatPlanPrice(pb({ activityPricing: { tourPriced: 1, estimated: 0, excluded: 2 } }), 'comfort', true, group({
+    const lines = formatPlanPrice(pb({ activityPricing: { tourPriced: 1, open: 0, excluded: 2, unpriced: 0 } }), true, group({
       lines: [
         { kind: 'tour', label: 'Тур «Сплав», день 2', basis: '30 000 ₽ за группу', total: [30000, 36000], source: 'tour' },
         { kind: 'tour', label: 'Тур «Вертолёт», день 3', basis: '400 000 ₽', total: null, source: 'tour' },
@@ -377,12 +412,12 @@ describe('цена плана словами', () => {
     }));
     const text = lines.join('\n');
     expect(text).not.toMatch(/Без учёта/);
-    expect(text).toMatch(/В вилку на человека не вошёл 1 тур с ценой не за человека .* в итоге на группу он учтён/);
-    expect(text).toMatch(/Не вошло ни в одну сумму .*: Тур «Вертолёт», день 3\./);
+    expect(text).toMatch(/В сумму на человека не вошёл 1 тур с ценой не за человека .* в итоге на группу он учтён/);
+    expect(text).toMatch(/Без цены, в сумму не вошло: Тур «Вертолёт», день 3\./);
   });
 
   it('один человек — «итого на одного»; допущения сметы — строками', () => {
-    const text = formatPlanPrice(pb(), 'comfort', true, group({
+    const text = formatPlanPrice(pb(), true, group({
       people: 1, assumptions: ['Дети посчитаны по цене взрослого: скидок платформа не знает — уточняйте у оператора.'],
     })).join('\n');
     expect(text).toMatch(/Итого на одного: /);
@@ -393,13 +428,13 @@ describe('цена плана словами', () => {
   // — дело перевозчика, а не карточки тура. Правило одно с экраном /planner
   // (unpricedTail, рендер — tests/unit/planner-estimate-car-travel.test.tsx).
   it('кто назовёт цену строк без суммы — по роду строки, как на экране', () => {
-    const heli = { kind: 'transport', label: 'Переезд: Западная зона → Восточная зона, день 3', basis: 'цену называет перевозчик', total: null, source: 'estimate' } as const;
+    const heli = { kind: 'transport', label: 'Переезд: Западная зона → Восточная зона, день 3', basis: 'цену называет перевозчик', total: null, source: 'open' } as const;
     const tour = { kind: 'tour', label: 'Тур «Вертолёт», день 4', basis: '400 000 ₽', total: null, source: 'tour' } as const;
-    const onlyHeli = formatPlanPrice(pb(), 'comfort', true, group({ lines: [heli], unpriced: [heli.label] })).join('\n');
-    expect(onlyHeli).toContain(`Не вошло ни в одну сумму — цены нет: ${heli.label}. Цену переезда назовёт перевозчик.`);
+    const onlyHeli = formatPlanPrice(pb(), true, group({ lines: [heli], unpriced: [heli.label] })).join('\n');
+    expect(onlyHeli).toContain(`Без цены, в сумму не вошло: ${heli.label}. Цену переездов и трансфера назовёт перевозчик.`);
     expect(onlyHeli).not.toMatch(/карточке тура/);
-    const both = formatPlanPrice(pb(), 'comfort', true, group({ lines: [tour, heli], unpriced: [tour.label, heli.label] })).join('\n');
-    expect(both).toContain(`цены нет: ${tour.label}; ${heli.label}. Сумму смотрите в карточке тура, цену переезда назовёт перевозчик.`);
+    const both = formatPlanPrice(pb(), true, group({ lines: [tour, heli], unpriced: [tour.label, heli.label] })).join('\n');
+    expect(both).toContain(`в сумму не вошло: ${tour.label}; ${heli.label}. Сумму тура смотрите в его карточке, цену переездов и трансфера назовёт перевозчик.`);
   });
 });
 
@@ -454,8 +489,8 @@ describe('схема: одна правда для MCP и Кузьмича', () 
     // Итог на группу — тем же составом и уровнем, что ушли в движок (#2304).
     // С 07.11 смета идёт через planPriceLines: под ней — допущение счёта у
     // местного (аудит планировщика, K4); состав и уровень — те же.
-    expect(tool).toMatch(/priceLines: planPriceLines\(\s*formatPlanPrice\(rec\.priceBreakdown, budget\.tier, rec\.days\.length > 0,\s*estimateGroup\(rec\.days, \{ adults: group\.adults, children: kids\.children, budgetTier: budget\.tier \}\)\),\s*rec\.warnings,\s*\)/);
-    expect(tool).toMatch(/formatPlanPrice\(planPrice\(plan\), plan\.params\.budgetTier, plan\.days\.length > 0, planEstimate\(plan\)\)/);
+    expect(tool).toMatch(/priceLines: planPriceLines\(\s*formatPlanPrice\(rec\.priceBreakdown, rec\.days\.length > 0,\s*estimateGroup\(rec\.days, \{ adults: group\.adults, children: kids\.children, budgetTier: budget\.tier \}\)\),\s*rec\.warnings,\s*\)/);
+    expect(tool).toMatch(/formatPlanPrice\(planPrice\(plan\), plan\.days\.length > 0, planEstimate\(plan\)\)/);
     expect(core).toMatch(/adults: args\.adults, children: args\.children, budget_tier: args\.budget_tier,/);
   });
 

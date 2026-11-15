@@ -288,7 +288,7 @@ describe('д) ночи, включённые в тур, названы числ�
     ]);
     // Ночей в поездке пять; две из них — внутри тура (N дней — N−1 ночей).
     const lodging = est.lines.filter((l) => l.kind === 'lodging');
-    expect(lodging.map((l) => l.basis)).toEqual(['3 ночи × 2 чел.']);
+    expect(lodging.map((l) => l.basis)).toEqual(['3 ночи — цену называет хозяин жилья']);
     expect(est.assumptions).toContain('В строках проживания нет 2 ночей: они входят в цену тура.');
   });
 
@@ -346,7 +346,7 @@ describe('е) выбор транспорта дня: без цен из код�
 describe('мелочи экрана из того же прогона', () => {
   const read = (p: string) => readFileSync(join(process.cwd(), p), 'utf-8');
 
-  it('вилка цены в строке сметы — тем же тире, что в её сумме и на карточке дня', () => {
+  it('день без тура — без вилки: старая «4 000 — 12 000 ₽» в строку сметы не идёт (14.11, «5 -1»)', () => {
     const est = estimateGroup(
       [
         { day: 1, type: 'arrival', zone: 'avachinsky', title: 'Прилёт', priceFrom: 0, priceTo: 0 },
@@ -356,8 +356,7 @@ describe('мелочи экрана из того же прогона', () => {
       { adults: 2, children: [], budgetTier: 'comfort', tripOrigin: 'visitor' },
     );
     const line = est.lines.find((l) => l.kind === 'activity');
-    // Разряды в числе — неразрывным пробелом: сверяем по виду, не по байту.
-    expect(line?.basis).toMatch(/^4\s000 — 12\s000 ₽ × 2 чел\.$/);
+    expect(line).toMatchObject({ basis: 'тур не выбран — цену называет исполнитель', total: null });
   });
 
   it('«Поделиться» в MAX несёт ссылку на маршрут, как и в Telegram', async () => {

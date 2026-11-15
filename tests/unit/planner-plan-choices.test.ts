@@ -142,27 +142,29 @@ const line = (e: ReturnType<typeof estimateGroup>, label: RegExp) => {
   return l && { ...l, basis: l.basis.replace(/\s/g, ' ') };
 };
 
-describe('смета: выбранное — пунктом плана вместо ориентира', () => {
-  it('ночи выбранной стоянки выходят из ориентира, стоянка — строкой с ценой предложения', () => {
+describe('смета: выбранное — пунктом плана с ценой предложения', () => {
+  it('ночи выбранной стоянки выходят из строки проживания, стоянка — строкой с ценой предложения', () => {
     const before = estimateGroup(DAYS, PROFILE);
-    // comfort, Авачинская: 7 000 ₽ на человека за ночь, без множителей (решение владельца 11.11, #3199 E12); 3 ночи × 2 чел.
-    expect(line(before, /Проживание в Авачинской/)?.total).toEqual([42000, 42000]);
+    // Цены ночи по зоне нет (14.11, «5 -1»): строка называет ночи и кто назовёт цену.
+    expect(line(before, /Проживание в Авачинской/)).toMatchObject({ basis: '3 ночи — цену называет хозяин жилья', total: null });
 
     const e = estimateGroup(DAYS, PROFILE, choices({ stays: [STAY] }));
-    expect(line(e, /Проживание в Авачинской/)).toMatchObject({ basis: '1 ночь × 2 чел.', total: [14000, 14000] });
+    expect(line(e, /Проживание в Авачинской/)).toMatchObject({ basis: '1 ночь — цену называет хозяин жилья', total: null });
     expect(line(e, /Жильё «Гостиница»/)).toMatchObject({
       label: 'Жильё «Гостиница», 03.08–05.08', basis: '2 ночи × 1 номер «Стандарт»', total: [20000, 20000], source: 'offer',
     });
     expect(e.fromOffers).toEqual([20000, 20000]);
-    expect([e.fromTours[0] + e.fromOffers[0] + e.fromEstimates[0], e.fromTours[1] + e.fromOffers[1] + e.fromEstimates[1]]).toEqual(e.total);
+    // Итог — только цены с источником: туров здесь нет, стоянка — 20 000 ₽.
+    expect([e.fromTours[0] + e.fromOffers[0], e.fromTours[1] + e.fromOffers[1]]).toEqual(e.total);
+    expect(e.total).toEqual([20000, 20000]);
   });
 
   it('стоянка в другой зоне чужих ночей не вынимает; без даты прилёта выбранное не ставится вовсе', () => {
     const western = estimateGroup(DAYS, PROFILE, choices({ stays: [{ ...STAY, zone: 'western' }] }));
-    expect(line(western, /Проживание в Авачинской/)?.total).toEqual([42000, 42000]);
+    expect(line(western, /Проживание в Авачинской/)?.basis).toBe('3 ночи — цену называет хозяин жилья');
     const noDate = estimateGroup(DAYS, { ...PROFILE, arrivalDate: null }, choices({ stays: [STAY] }));
     expect(line(noDate, /Жильё/)).toBeUndefined();
-    expect(line(noDate, /Проживание в Авачинской/)?.total).toEqual([42000, 42000]);
+    expect(line(noDate, /Проживание в Авачинской/)?.basis).toBe('3 ночи — цену называет хозяин жилья');
   });
 
   it('группа не помещается или цены нет — строка без суммы, в итог не входит, причина названа', () => {
@@ -173,12 +175,12 @@ describe('смета: выбранное — пунктом плана вмес�
     expect(line(unknown, /Жильё/)?.note).toMatch(/не посчитали/);
   });
 
-  it('трансфер — ориентир аэропорта на группу; мест «× цена места» в смете нет', () => {
+  it('трансфер аэропорта — строкой без суммы; мест «× цена места» в смете нет', () => {
     // Снимок, сохранённый до 13.10, ещё несёт поездку с местами: смета её не
     // читает — машину заказывают целиком, и цены до заявки нет.
     const legacy = { stays: [], transfers: [{ tripId: 't1', date: '2030-08-03', from: 'Аэропорт Елизово', to: 'Паратунка', seats: 2, pricePerSeat: 1500, carrier: 'Перевозчик' }] } as unknown as PlanChoices;
     for (const e of [estimateGroup(DAYS, PROFILE), estimateGroup(DAYS, PROFILE, legacy)]) {
-      expect(line(e, /Трансферы аэропорта/)).toMatchObject({ basis: '2 500 — 5 000 ₽ × 2 чел.', total: [5000, 10000], source: 'estimate' });
+      expect(line(e, /Трансферы аэропорта/)).toMatchObject({ basis: 'цену называет перевозчик', total: null, source: 'open' });
       expect(e.lines.some((l) => /\d мест|за место/.test(l.basis) || l.source === 'offer')).toBe(false);
     }
     expect(estimateGroup(DAYS, PROFILE, legacy).total).toEqual(estimateGroup(DAYS, PROFILE).total);

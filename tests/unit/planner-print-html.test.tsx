@@ -103,13 +103,17 @@ describe('экран: «Скачать PDF» не пишет чужую разм
     priceFrom: 0, priceTo: 0, coords: PKC, defaultTransport: 'walking', allowedTransports: ['walking'],
     difficulty: 'easy', childFriendly: true, minChildAge: 0, dayWarnings: [], ...extra,
   });
-  const PRICES = { activities: [0, 0], accommodation: [0, 0], transport: [0, 0], perPersonTotal: [0, 0] };
+  const PRICES = { tours: [13000, 13000], activityPricing: { tourPriced: 1, open: 0, excluded: 0, unpriced: 0 } };
   const recommendation = {
     zones: [], itinerary: '', priceBreakdown: PRICES,
     warnings: [{ type: 'mchs', severity: 'important', message: HOSTILE_WARN }],
     days: [
       day(1, 'arrival', { title: 'Прилёт' }),
-      day(2, 'activity', { title: HOSTILE_TITLE, description: HOSTILE_DESC, dayWarnings: [HOSTILE_WARN], priceFrom: 13000, priceTo: 15000 }),
+      // Цена дня — только у тура оператора (14.11, «5 -1»).
+      day(2, 'activity', {
+        title: HOSTILE_TITLE, description: HOSTILE_DESC, dayWarnings: [HOSTILE_WARN], realPrice: 13000,
+        realTour: { tourId: 't-h', title: HOSTILE_TITLE, priceUnit: 'per_person', lodgingIncluded: null },
+      }),
       day(3, 'departure', { title: 'Вылет' }),
     ],
   };
@@ -138,7 +142,7 @@ describe('экран: «Скачать PDF» не пишет чужую разм
     await screen.findByText(/кликните день для редактирования/);
     // Цена дня в документе — та же подпись, что у карточки и страницы плана
     // (lib/planner/day-price, planner-day-price.test.ts).
-    const priceLine = dayPriceLine({ priceFrom: 13000, priceTo: 15000 });
+    const priceLine = dayPriceLine({ realPrice: 13000, realTour: { priceUnit: 'per_person' } });
     expect(priceLine).not.toBe('');
 
     const written: string[] = [];

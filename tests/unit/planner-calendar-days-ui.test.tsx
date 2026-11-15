@@ -197,8 +197,9 @@ describe('собрать → удалить день 3 → переставит�
     const link = await vi.waitFor(() => within(card('Авачинский вулкан').el).getByTitle('Открыть тур и оставить заявку'));
     expect(link.getAttribute('href')).toContain(`date=${dateOf(3)}`);
 
-    // Смета: ночей пять — по ночи на каждый день, кроме дня отъезда.
-    expect((estimate.textContent ?? '').replace(/ /g, ' ')).toContain('5 ночей × 2 чел.');
+    // Смета: ночей пять — по ночи на каждый день, кроме дня отъезда; цену
+    // жилья называет хозяин (14.11, «5 -1»).
+    expect((estimate.textContent ?? '').replace(/ /g, ' ')).toContain('5 ночей — цену называет хозяин жилья');
 
     // Сохранить: номера подряд, порядок экрана; у переехавшего тура нет мест прежней даты.
     fireEvent.click(screen.getByRole('button', { name: /Сохранить/ }));

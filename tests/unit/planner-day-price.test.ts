@@ -15,7 +15,7 @@ import { dayPrice, dayPriceLine } from '@/lib/planner/day-price';
 import { formatTripPlanForChat } from '@/lib/kuzmich/trip-plan-tool';
 import type { DayPlan } from '@/lib/planner/engine';
 
-const base = { priceFrom: 0, priceTo: 0 };
+const base = {};
 const read = (f: string) => readFileSync(join(process.cwd(), f), 'utf-8');
 
 describe('подпись цены дня', () => {
@@ -40,9 +40,9 @@ describe('подпись цены дня', () => {
   });
 
   it('цены для группы нет — так и сказано, без числа', () => {
-    const p = dayPrice({ priceFrom: 0, priceTo: 0, priceMissing: 'Для группы из 2 чел. цену называет оператор', realTour: { priceUnit: 'per_person' } });
+    const p = dayPrice({ priceMissing: 'Для группы из 2 чел. цену называет оператор', realTour: { priceUnit: 'per_person' } });
     expect(p.kind).toBe('missing');
-    expect(dayPriceLine({ priceFrom: 0, priceTo: 0, priceMissing: 'x' })).toBe('Цену для вашей группы называет оператор');
+    expect(dayPriceLine({ priceMissing: 'x' })).toBe('Цену для вашей группы называет оператор');
   });
 
   it('день продолжения многодневного тура — без цены: она в первом дне', () => {
@@ -50,8 +50,12 @@ describe('подпись цены дня', () => {
     expect(dayPriceLine({ ...base, realTour: { priceUnit: 'per_tour' } })).toBe('');
   });
 
-  it('день без тура — ориентир на человека, и слово «ориентир» рядом', () => {
-    expect(dayPriceLine({ priceFrom: 1500, priceTo: 5000 })).toBe('1 500 — 5 000 ₽ на человека, ориентир');
+  it('день без тура — без цены, даже если в дне старого плана стоит вилка (слово владельца 14.11 «5 -1»)', () => {
+    // Так выглядит день плана, сохранённого до 14.11: движок клал в него
+    // вилку вида активности, зашитую в код.
+    const savedBefore = { priceFrom: 1500, priceTo: 5000 };
+    expect(dayPrice(savedBefore)).toEqual({ kind: 'none' });
+    expect(dayPriceLine(savedBefore)).toBe('');
   });
 });
 

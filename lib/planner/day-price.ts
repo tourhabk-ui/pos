@@ -9,16 +9,16 @@
  *
  * Здесь одна подпись на все три поверхности:
  *   — тур: цена оператора для этой группы с единицей, как в каталоге;
- *   — цены для группы нет (вне ступеней оператора) — так и сказано, без
- *     справочной вилки на её месте;
- *   — день без тура: ориентир на человека, и слово «ориентир» рядом;
+ *   — цены для группы нет (вне ступеней оператора) — так и сказано;
+ *   — день без тура — без цены: справочной вилки «ориентир» больше нет
+ *     (слово владельца 14.11 «5 -1»: в плане только цены туров), её числа
+ *     были зашиты в код. Старые сохранённые планы несут эти числа в днях —
+ *     они больше не показываются;
  *   — день продолжения многодневного тура — без цены: она в первом дне.
  */
 import { PRICE_UNIT_LABELS } from '@/lib/tours/labels';
 
 export interface DayPriceInput {
-  priceFrom: number;
-  priceTo: number;
   realPrice?: number;
   priceMissing?: string;
   realTour?: { priceUnit?: string; priceLabel?: string };
@@ -28,7 +28,6 @@ export type DayPrice =
   /** `main` — сумма, `unit` — за что она; `label` — почему цена не заголовочная. */
   | { kind: 'tour'; main: string; unit: string; label: string | null }
   | { kind: 'missing'; main: string; reason: string }
-  | { kind: 'estimate'; main: string; unit: string }
   | { kind: 'none' };
 
 const fmt = (n: number) => Math.round(n).toLocaleString('ru-RU');
@@ -42,14 +41,6 @@ export function dayPrice(d: DayPriceInput): DayPrice {
       // Незнакомая единица не превращается в «за человека» (priceFromUnit).
       unit: (unit && PRICE_UNIT_LABELS[unit]) || 'за что — не записано',
       label: d.realTour?.priceLabel ?? null,
-    };
-  }
-  if (d.realTour) return { kind: 'none' };
-  if (d.priceFrom > 0 || d.priceTo > 0) {
-    return {
-      kind: 'estimate',
-      main: d.priceFrom === d.priceTo ? `${fmt(d.priceFrom)} ₽` : `${fmt(d.priceFrom)} — ${fmt(d.priceTo)} ₽`,
-      unit: 'на человека, ориентир',
     };
   }
   return { kind: 'none' };
