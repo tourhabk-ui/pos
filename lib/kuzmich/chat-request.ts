@@ -266,6 +266,10 @@ export interface SummaryTour {
  * люди, цена из базы и какие данные получит адресат. Собирает код, не
  * модель; отправка — только следующим «да» (lib/kuzmich/pending-request).
  * Адресат назван так же, как в записываемом согласии (lib/legal/pd-consent).
+ *
+ * Самих имени и телефона в сводке нет: ответ ложится в историю чата репликой
+ * ассистента, а её redactUserTurns не чистит — следующий ход унёс бы их в
+ * зарубежную модель (ревью безопасности #3407).
  */
 export function chatRequestSummary(plan: ChatRequestPlan, tour: SummaryTour | null): string {
   const a = plan.args;
@@ -282,7 +286,7 @@ export function chatRequestSummary(plan: ChatRequestPlan, tour: SummaryTour | nu
   if (plan.tool === 'create_booking_request') {
     if (tour) lines.push(tourLine(tour));
     lines.push(`Дата: ${s(a.date)}. Человек: ${people}.`);
-    lines.push(`Оператору тура уйдут ваше имя (${s(a.name)}) и телефон (${s(a.phone)}).`);
+    lines.push('Оператору тура уйдут имя и телефон из вашего сообщения.');
   } else if (plan.tool === 'create_trip_request') {
     if (tour && a.tour) lines.push(tourLine(tour));
     const parts: string[] = [];
@@ -291,10 +295,10 @@ export function chatRequestSummary(plan: ChatRequestPlan, tour: SummaryTour | nu
     if (a.transfer_date) parts.push(`машина на ${s(a.transfer_date)}`);
     lines.push(`В заявке: ${parts.join(', ')}. Человек: ${people}.`);
     const who = [a.tour ? 'оператору тура' : null, a.stay_wanted || a.transfer_date ? 'менеджеру Ведара (жильё и машину он подберёт и передаст хозяину жилья и перевозчику)' : null].filter(Boolean);
-    lines.push(`Имя (${s(a.name)}) и телефон (${s(a.phone)}) уйдут: ${who.join('; ')}.`);
+    lines.push(`Имя и телефон из вашего сообщения уйдут: ${who.join('; ')}.`);
   } else {
     lines.push('Тур не выбран однозначно — заявку на подбор получит менеджер Ведара.');
-    lines.push(`Имя (${s(a.name)}) и телефон (${s(a.phone)}) увидят туроператоры — партнёры Ведара.`);
+    lines.push('Имя и телефон из вашего сообщения увидят туроператоры — партнёры Ведара.');
   }
   lines.push('Отправить? Ответьте «да» — отправлю, «нет» — не отправлю.');
   lines.push('EN: Not sent yet — reply «yes» to send it to the operator, «no» to cancel. ZH: 尚未发送——回复“yes”发送，回复“no”取消。');

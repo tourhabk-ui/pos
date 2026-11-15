@@ -153,7 +153,11 @@ describe('POST /api/ai/chat — исход заявки человеку', () =>
     expect(summary).toContain('Тур: «Мутновский вулкан»');
     expect(summary).toContain('цена в каталоге 9');
     expect(summary).toContain('Дата: 2099-11-09. Человек: 2.');
-    expect(summary).toContain('Оператору тура уйдут ваше имя (Иван) и телефон (+79991234567).');
+    expect(summary).toContain('Оператору тура уйдут имя и телефон из вашего сообщения.');
+    // Самих ПД в сводке нет: она ложится в историю репликой ассистента и
+    // уходит в модель следующим ходом (ревью безопасности #3407).
+    expect(summary).not.toContain('Иван');
+    expect(summary).not.toContain('1234567');
     expect(runPublicToolMock).not.toHaveBeenCalled();
   });
 
