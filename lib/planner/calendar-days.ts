@@ -242,15 +242,30 @@ export function tripLengthWords(days: number): string {
 }
 
 /**
+ * Самая длинная поездка, которую планер собирает: столько дней вмещает
+ * сохранённая поездка (lib/trips/trip-write, `days max(60)`). Длиннее —
+ * сохранение отказывало «Ошибкой» без причины (разбор планера 14.11, экран-7).
+ */
+export const MAX_TRIP_DAYS = 60;
+
+/**
  * Что не так с датами формы; null — годятся. Житель края может уложиться в
  * один день: выехал утром, вернулся вечером (H4). У прилетающего прилёт и
  * отъезд в один день — не поездка.
+ *
+ * С 14.11 (экран-7) — и начало в прошлом по Камчатке, и поездка длиннее
+ * `MAX_TRIP_DAYS`: 01–05.01.2020 и 92 дня проходили анкету и сервер.
  */
-export function tripDatesProblem(arrival: string, departure: string, local: boolean): string | null {
+export function tripDatesProblem(arrival: string, departure: string, local: boolean, today: string = kamchatkaToday()): string | null {
+  if (arrival < today) return 'Начало поездки уже прошло — выберите дату не раньше сегодняшней.';
   if (local) {
-    return departure < arrival ? 'Последний день поездки не может быть раньше первого.' : null;
+    if (departure < arrival) return 'Последний день поездки не может быть раньше первого.';
+  } else if (departure <= arrival) {
+    return 'Дата отъезда должна быть позже даты прилёта.';
   }
-  return departure <= arrival ? 'Дата отъезда должна быть позже даты прилёта.' : null;
+  const days = Math.round((Date.parse(`${departure}T00:00:00Z`) - Date.parse(`${arrival}T00:00:00Z`)) / 86_400_000) + 1;
+  if (days > MAX_TRIP_DAYS) return `Поездка длиннее ${MAX_TRIP_DAYS} дней — планер столько не собирает. Сократите даты или разбейте на две поездки.`;
+  return null;
 }
 
 /** Сегодня по Камчатке, YYYY-MM-DD: даты поездки — местные (H5). */

@@ -219,6 +219,14 @@ describe('даты формы', () => {
     expect(tripDatesProblem('2030-08-03', '2030-08-04', false)).toBeNull();
   });
 
+  // Разбор планера 14.11 (экран-7): 01–05.01.2020 и 92 дня проходили анкету.
+  it('начало в прошлом и поездка длиннее 60 дней — причина словами', () => {
+    expect(tripDatesProblem('2020-01-01', '2020-01-05', false, '2026-11-15')).toMatch(/уже прошло/);
+    expect(tripDatesProblem('2026-11-15', '2026-11-15', true, '2026-11-15')).toBeNull();
+    expect(tripDatesProblem('2027-06-01', '2027-07-30', false, '2026-11-15')).toBeNull(); // 60 дней
+    expect(tripDatesProblem('2027-06-01', '2027-07-31', false, '2026-11-15')).toMatch(/длиннее 60 дней/);
+  });
+
   it('«сегодня» — по Камчатке: в 20:30 UTC там уже завтра', () => {
     expect(kamchatkaToday(new Date('2027-07-10T20:30:00Z'))).toBe('2027-07-11');
     expect(kamchatkaToday(new Date('2027-07-10T11:59:00Z'))).toBe('2027-07-10');
