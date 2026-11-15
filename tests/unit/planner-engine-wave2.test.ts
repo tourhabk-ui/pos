@@ -155,7 +155,7 @@ vi.mock('@/lib/db-pool', () => ({
 
 import { recommendTrip, OUT_OF_SEASON_DAY_NOTE, type TripProfile } from '@/lib/planner/engine';
 import { assessHealthCompatibility } from '@/lib/planner/intelligence';
-import { ACTIVITY_CONSTRAINTS } from '@/lib/planner/constants';
+import { ACTIVITY_CONSTRAINTS, ACTIVITY_NAMES } from '@/lib/planner/constants';
 
 const Y = new Date().getUTCFullYear() + 1;
 const BASE: TripProfile = {
@@ -249,5 +249,88 @@ describe('14–15. слова человеку', () => {
     expect(w).toContain('термальные источники');
     const heart = assessHealthCompatibility('volcano', false, 'гипертония, сердце', undefined).warnings.join(' ');
     expect(heart).not.toMatch(/\bvolcano\b/);
+  });
+});
+
+describe('5. четыре зоны: четвёртая не отрезается молча', () => {
+  const window = (days: number) => ({
+    arrivalDate: `${Y}-07-05`,
+    departureDate: new Date(Date.parse(`${Y}-07-05T00:00:00Z`) + (days - 1) * 86_400_000).toISOString().slice(0, 10),
+  });
+  beforeEach(() => {
+    TOURS = {
+      'northern:geyser': [tour('g1', 'Долина гейзеров', 'northern', 'geyser')],
+      'western:fishing': [tour('f1', 'Опала', 'western', 'fishing')],
+      'eastern:bears': [tour('b1', 'Медведи на Курильском', 'eastern', 'bears')],
+      'avachinsky:volcano': [tour('v1', 'Авачинский', 'avachinsky', 'volcano')],
+    };
+    SLOTS = { g1: 8, f1: 8, b1: 8, v1: 8 };
+  });
+
+  // Пруф разбора: 21 день, «Долина гейзеров» с местами на каждый день, а
+  // Северной зоны в плане не было, пять дней пустые и в «Важно» — «тура не
+  // нашли».
+  it('21 день, вулканы, медведи, рыбалка, гейзеры: в плане все четыре зоны и тур к гейзерам', async () => {
+    for (const interests of [['volcano', 'bears', 'fishing', 'geyser'], ['geyser', 'volcano', 'bears', 'fishing']]) {
+      const r = await plan({ interests, ...window(21) });
+      expect(new Set(r.zones.map((z) => z.zone)), interests.join()).toEqual(new Set(['avachinsky', 'eastern', 'western', 'northern']));
+      const tours = r.days.map((d) => d.realTour?.tourId).filter(Boolean);
+      expect(tours, interests.join()).toEqual(expect.arrayContaining(['g1', 'f1', 'b1']));
+      expect(r.warnings.map((w) => w.message).join('\n')).not.toMatch(/подходящего тура или маршрута в ваши даты не нашли/);
+    }
+  });
+
+  it('дней мало — выпавшее занятие названо причиной про дни, а не «тура не нашли»', async () => {
+    const r = await plan({ interests: ['volcano', 'bears', 'fishing', 'geyser'], ...window(7) });
+    const text = r.warnings.map((w) => w.message).join('\n');
+    expect(text).not.toMatch(/подходящего тура или маршрута в ваши даты не нашли/);
+    // Каждое занятие без дня названо по-русски — и причиной про дни.
+    const unserved = ['geyser', 'fishing', 'bears'].filter((i) => !r.days.some((d) => d.activityType === i && d.type === 'activity'));
+    expect(unserved.length).toBeGreaterThan(0);
+    for (const i of unserved) {
+      const line = r.warnings.map((w) => w.message)
+        .find((m) => m.toLowerCase().includes(ACTIVITY_NAMES[i]!) && /не вош(ёл|ла|ло)/.test(m));
+      expect(line, i).toBeDefined();
+      expect(line, i).toMatch(/дн(я|ей)/);
+    }
+  });
+});
+
+describe('11. без дат — сказано, почему план пустой', () => {
+  it('дней нет, и строка «Даты поездки не указаны»; сезон не «в выбранный период»', async () => {
+    const r = await plan({ interests: ['volcano', 'snowmobile'] });
+    expect(r.days).toEqual([]);
+    const dates = r.warnings.find((w) => w.type === 'dates');
+    expect(dates?.message).toMatch(/Даты поездки не указаны/);
+    expect(r.warnings.map((w) => w.message).join('\n')).not.toMatch(/в выбранный период/);
+  });
+
+  it('с датами строки о датах нет', async () => {
+    const r = await plan({ interests: ['volcano'], arrivalDate: `${Y}-07-05`, departureDate: `${Y}-07-11` });
+    expect(r.warnings.some((w) => w.type === 'dates')).toBe(false);
+  });
+});
+
+describe('13. предупреждения — про занятия плана, а не про всю просьбу', () => {
+  it('вулкан не по возрасту — нет строки «нужна подготовка» про вулканы', async () => {
+    const r = await plan({
+      interests: ['volcano', 'hot_spring'], children: [11], fitnessLevel: 'beginner',
+      arrivalDate: `${Y}-07-05`, departureDate: `${Y}-07-11`,
+    } as Partial<TripProfile>);
+    const text = r.warnings.map((w) => w.message);
+    expect(text.some((m) => /Вулканы.*в план не вошло/.test(m))).toBe(true);
+    expect(text.some((m) => /Вулканы.*нужна .* подготовка/.test(m))).toBe(false);
+  });
+
+  it('гейзеры не по возрасту — в строке о вертолёте их нет', async () => {
+    TOURS = { 'northern:geyser': [tour('g1', 'Долина гейзеров', 'northern', 'geyser')] };
+    SLOTS = { g1: 8 };
+    const r = await plan({
+      interests: ['geyser', 'helicopter'], children: [7],
+      arrivalDate: `${Y}-07-05`, departureDate: `${Y}-07-14`,
+    } as Partial<TripProfile>);
+    const heli = r.warnings.find((w) => w.type === 'weather' && /Вертолётные экскурсии/.test(w.message));
+    if (heli) expect(heli.message).not.toMatch(/гейзеры/);
+    expect(r.days.some((d) => d.activityType === 'geyser' && d.type === 'activity')).toBe(false);
   });
 });

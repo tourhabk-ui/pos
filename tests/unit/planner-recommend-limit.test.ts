@@ -98,6 +98,13 @@ describe('/api/planner/recommend — границы дат', () => {
     expect((await res.json()).error).toMatch(/длиннее 60 дней/);
   });
 
+  it('один день у приезжего — 400, как в анкете (движок-16)', async () => {
+    const res = await ask({ interests: ['volcano'], arrivalDate: '2030-08-03', departureDate: '2030-08-03' }, '10.55.0.4');
+    expect(res.status).toBe(400);
+    expect((await res.json()).error).toMatch(/позже даты прилёта/);
+    expect(recommendTrip).not.toHaveBeenCalled();
+  });
+
   it('один день у жителя края — допустим', async () => {
     const res = await ask({ interests: ['volcano'], arrivalDate: '2030-08-03', departureDate: '2030-08-03', tripOrigin: 'local' }, '10.55.0.3');
     expect(res.status).toBe(200);

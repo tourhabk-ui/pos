@@ -127,9 +127,10 @@ export async function POST(req: NextRequest) {
     }
     // Те же границы, что у анкеты (разбор планера 14.11, экран-7): начало не в
     // прошлом по Камчатке и не длиннее MAX_TRIP_DAYS. Правило одно —
-    // tripDatesProblem; равные даты здесь допустимы (житель края, один день).
+    // tripDatesProblem. Один день — только у жителя края: у приезжего план
+    // из одного «Прилёта» без вылета (разбор 14.11, движок-16), как и в анкете.
     if (parsed.arrivalDate && parsed.departureDate) {
-      const problem = tripDatesProblem(parsed.arrivalDate, parsed.departureDate, true);
+      const problem = tripDatesProblem(parsed.arrivalDate, parsed.departureDate, parsed.tripOrigin === 'local');
       if (problem) return NextResponse.json({ success: false, error: problem }, { status: 400 });
     }
 

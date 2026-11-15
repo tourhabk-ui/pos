@@ -364,3 +364,132 @@ describe('перестановка: цена тура перечитываетс
     err.mockRestore();
   });
 });
+
+describe('экран после сборки: мелкие отказы и лишнее (разбор 14.11, экран-15 и экран-19)', () => {
+  const wrapFetch = (over: (u: string) => unknown | undefined) => {
+    const base = vi.mocked(fetch).getMockImplementation()!;
+    vi.mocked(fetch).mockImplementation(async (url, init) => {
+      const r = over(String(url));
+      return r === undefined ? base(url, init) : ({ ok: true, json: async () => r } as Response);
+    });
+  };
+
+  it('заявка ушла — планер на месте, вместо формы строка «Заявка отправлена»', async () => {
+    PLAN_DAYS = FULL;
+    await buildPlan('2030-08-04');
+    wrapFetch((u) => (u === '/api/leads' ? { success: true } : undefined));
+    fireEvent.click(screen.getAllByRole('button', { name: /Запросить подробное предложение/ })[0]!);
+    fireEvent.change(screen.getByPlaceholderText('Ваше имя'), { target: { value: 'Тест' } });
+    fireEvent.change(screen.getByPlaceholderText('+7 900 000-00-00'), { target: { value: '+70000000000' } });
+    fireEvent.click(document.getElementById('pd-consent-planner')!);
+    fireEvent.click(screen.getByRole('button', { name: 'Отправить заявку' }));
+    await vi.waitFor(() => expect(screen.getAllByText(/Заявка отправлена/).length).toBeGreaterThan(0));
+    expect(cards().length).toBe(4);
+    // План по-прежнему можно отправить: кнопка «Поделиться» на месте.
+    expect(screen.getByTitle('Поделиться маршрутом')).toBeTruthy();
+    expect(screen.queryByText('Готово!')).toBeNull();
+  });
+
+  it('буфер обмена отказал — сказано, ссылка видна целиком', async () => {
+    PLAN_DAYS = FULL;
+    await buildPlan('2030-08-04');
+    const err = vi.spyOn(console, 'error').mockImplementation(() => undefined);
+    wrapFetch((u) => (/\/api\/trips\/[^/]+\/share$/.test(u) ? { success: true, shareUrl: 'https://vedarai.ru/trip/abc' } : undefined));
+    Object.defineProperty(navigator, 'clipboard', { configurable: true, value: { writeText: vi.fn(async () => { throw new Error('denied'); }) } });
+    fireEvent.click(screen.getByTitle('Поделиться маршрутом'));
+    const copy = await screen.findByRole('button', { name: /Копировать ссылку/ });
+    await act(async () => { fireEvent.click(copy); });
+    expect(screen.getByText(/Не скопировалось/).textContent).toContain('https://vedarai.ru/trip/abc');
+    expect(err.mock.calls.some((c) => String(c[0]).includes('ссылка не скопировалась'))).toBe(true);
+    err.mockRestore();
+  });
+
+  it('тур дня не загрузился — следующая правка плана спрашивает снова, а не считает «тура нет»', async () => {
+    PLAN_DAYS = FULL;
+    const err = vi.spyOn(console, 'error').mockImplementation(() => undefined);
+    let fail = true;
+    const base = vi.mocked(fetch).getMockImplementation()!;
+    vi.mocked(fetch).mockImplementation(async (url, init) => {
+      const u = String(url);
+      if (fail && u.startsWith('/api/planner/tours-for-day') && u.includes('activity_type=sea')) {
+        return { ok: false, status: 500, json: async () => ({ success: false, error: 'сбой' }) } as Response;
+      }
+      return base(url, init);
+    });
+    await buildPlan('2030-08-04');
+    const asked = () => vi.mocked(fetch).mock.calls.filter(([u]) => String(u).includes('activity_type=sea')).length;
+    await vi.waitFor(() => expect(asked()).toBe(1));
+    fail = false;
+    // Правка, которая дату дня с морем не меняет: удалить другой день. Тот
+    // же день на ту же дату спрашивается снова — сбой не записан в «тура нет».
+    fireEvent.click(within(card('Авачинский вулкан').el).getByTitle('Удалить день'));
+    await vi.waitFor(() => expect(asked()).toBe(2));
+    err.mockRestore();
+  });
+});
+
+describe('житель края: рейсов нет (разбор 14.11, экран-19)', () => {
+  it('«Номера рейсов» не показываются, введённое раньше не уходит в заявку', async () => {
+    render(<PlannerClient initialUserId="u-1" />);
+    fireEvent.change(screen.getByLabelText('Время прилёта'), { target: { value: '10:30' } });
+    expect(screen.getByText('Номера рейсов')).toBeTruthy();
+    fireEvent.change(screen.getByLabelText('Рейс прилёта'), { target: { value: 'su1700' } });
+    fireEvent.click(screen.getByRole('radio', { name: /Живу на Камчатке/ }));
+    expect(screen.queryByText('Номера рейсов')).toBeNull();
+    // Обратно приезжим: поля пустые — прежний рейс сброшен, а не спрятан.
+    fireEvent.click(screen.getByRole('radio', { name: /Прилетаю|Приезжаю|Приезж|Гость/ }));
+    expect((screen.getByLabelText('Рейс прилёта') as HTMLInputElement).value).toBe('');
+    expect((screen.getByLabelText('Время прилёта') as HTMLInputElement).value).toBe('');
+  });
+});
+
+describe('отметка дня — не подтверждение (разбор 14.11, экран-13)', () => {
+  it('слова отметки не обещают ни брони, ни готового маршрута', async () => {
+    PLAN_DAYS = FULL;
+    await buildPlan('2030-08-04');
+    expect(screen.queryByText(/Подтвердить день|День подтверждён|Маршрут готов/)).toBeNull();
+    const first = card('Авачинский вулкан');
+    fireEvent.click(within(first.el).getByTitle('Подробнее'));
+    fireEvent.click(within(first.el).getByRole('button', { name: /Отметить день как просмотренный/ }));
+    expect(within(first.el).getByText('Отмечен вами — это не бронь')).toBeTruthy();
+    expect(screen.queryByText(/Маршрут готов/)).toBeNull();
+  });
+});
+
+describe('две сборки подряд: на экране — последняя (разбор 14.11, экран-15)', () => {
+  it('ответ первой сборки, пришедший позже, не ложится поверх второй', async () => {
+    const base = vi.mocked(fetch).getMockImplementation()!;
+    let releaseFirst: () => void = () => undefined;
+    const firstHeld = new Promise<void>((r) => { releaseFirst = r; });
+    let calls = 0;
+    const answer = (days: unknown[]) => ({ success: true, data: { zones: [], warnings: [], itinerary: '', days,
+      priceBreakdown: { activities: [0, 0], accommodation: [0, 0], transport: [0, 0], perPersonTotal: [0, 0] } } });
+    vi.mocked(fetch).mockImplementation(async (url, init) => {
+      const u = String(url);
+      if (u.startsWith('/api/planner/recommend')) {
+        calls += 1;
+        if (calls === 1) { await firstHeld; return { ok: true, json: async () => answer(GAPPED) } as Response; }
+        return { ok: true, json: async () => answer(FULL) } as Response;
+      }
+      if (u === '/api/planner/chat') {
+        return { ok: true, json: async () => ({ success: true, places: ['volcano'], activities: [], arrival: ARRIVAL, departure: '2030-08-04', auto_recommend: true }) } as Response;
+      }
+      return base(url, init);
+    });
+    render(<PlannerClient initialUserId="u-1" />);
+    fireEvent.change(screen.getByLabelText('Дата прилёта'), { target: { value: ARRIVAL } });
+    fireEvent.change(screen.getByLabelText('Дата отъезда'), { target: { value: '2030-08-06' } });
+    next(); next(); next();
+    fireEvent.click(screen.getByRole('button', { name: /Вулканы/ }));
+    fireEvent.click(screen.getByRole('button', { name: /Собрать маршрут/ }));
+    // Первая сборка висит. Назад к фразе — вторая сборка.
+    for (let i = 0; i < 3; i++) fireEvent.click(screen.getByRole('button', { name: /Назад/ }));
+    fireEvent.change(screen.getByLabelText(/Опишите поездку одной фразой/), { target: { value: 'вулканы 1-4 августа' } });
+    fireEvent.keyDown(screen.getByLabelText(/Опишите поездку одной фразой/), { key: 'Enter' });
+    await screen.findByTestId('price-estimate');
+    await vi.waitFor(() => expect(shown()).toEqual(['1:Прилёт днём', '2:Авачинский вулкан', '3:Прогулка у океана', '4:Сборы и вылет']));
+    await act(async () => { releaseFirst(); await new Promise((r) => setTimeout(r, 20)); });
+    expect(shown()).toEqual(['1:Прилёт днём', '2:Авачинский вулкан', '3:Прогулка у океана', '4:Сборы и вылет']);
+    expect(calls).toBe(2);
+  });
+});

@@ -246,8 +246,12 @@ export interface TripWarning {
    * `tour_dates` — тур с выездами не в дни своего занятия: в план не встал и
    * в смету не вошёл, а назван с датами выезда (волна 3 аудита 07.11, 3.2).
    * Заведён вместе с производителем (`offDaysWarning`).
+   *
+   * `dates` — дат поездки нет, и план по дням не собран (разбор 14.11,
+   * движок-11: пустой план приходил без единого слова о причине). Заведён
+   * вместе с производителем в `collectWarnings`.
    */
-  type: 'permit' | 'season' | 'safety' | 'children' | 'fitness' | 'duration' | 'weather' | 'license' | 'seasickness' | 'crowd' | 'mchs' | 'zone_days' | 'home_nights' | 'tour_dates';
+  type: 'permit' | 'season' | 'safety' | 'children' | 'fitness' | 'duration' | 'weather' | 'license' | 'seasickness' | 'crowd' | 'mchs' | 'zone_days' | 'home_nights' | 'tour_dates' | 'dates';
   severity: 'critical' | 'important' | 'info';
   message: string;
 }
@@ -685,9 +689,17 @@ function collectWarnings(
    * нет (вне сезона, «Сам», не по возрасту) — нет и строки.
    */
   heliDayPlanned: boolean = true,
+  /**
+   * Занятия, у которых в плане есть день (разбор 14.11, движок-13). Строки о
+   * подготовке, вертолёте и медведях — про план, а не про просьбу: рядом с
+   * «Вулканы: в план не вошло» стояло «Вулканы: нужна хорошая подготовка».
+   * Не передано — судится вся просьба, как раньше.
+   */
+  servedInterests?: ReadonlySet<string>,
 ): TripWarning[] {
   const warnings: TripWarning[] = [];
   const youngest = youngestChild(profile);
+  const inPlan = (i: string) => servedInterests === undefined || servedInterests.has(i);
 
   // ── МЧС / safety alerts ───────────────────────────────────────────────────
   for (const alert of alerts) {
@@ -734,6 +746,14 @@ function collectWarnings(
     }
   }
 
+  // Без дат дней нет вовсе: сезон, места туров и переезды считаются по датам.
+  if (tripDays <= 0) {
+    warnings.push({
+      type: 'dates', severity: 'critical',
+      message: 'Даты поездки не указаны — план по дням не собран: сезон занятий и места в турах считаются по датам. Укажите даты прилёта и отъезда.',
+    });
+  }
+
   // Min trip duration
   //
   // Довод про короткую поездку у приезжего и у местного РАЗНЫЙ, а не один с
@@ -761,7 +781,11 @@ function collectWarnings(
     if (!inTripSeason(season, interest)) {
       warnings.push({
         type: 'season', severity: 'critical',
-        message: `${activityLabel(interest)}: недоступно в выбранный период. ${c.seasonNote ?? ''}`.trim(),
+        // Без дат период никто не выбирал: сезон судится по текущему месяцу,
+        // и так и сказано (движок-11).
+        message: (profile.arrivalDate
+          ? `${activityLabel(interest)}: недоступно в выбранный период. ${c.seasonNote ?? ''}`
+          : `${activityLabel(interest)}: в ${monthsInWords(season.months)} не сезон — даты не указаны, сезон считал по текущему месяцу. ${c.seasonNote ?? ''}`).trim(),
       });
       continue;
     }
@@ -794,7 +818,7 @@ function collectWarnings(
   // Fitness
   for (const interest of profile.interests) {
     const c = ACTIVITY_CONSTRAINTS[interest];
-    if (!c) continue;
+    if (!c || !inPlan(interest)) continue;
     const levels: FitnessLevel[] = ['beginner', 'moderate', 'active'];
     if (levels.indexOf(c.fitnessRequired) > levels.indexOf(profile.fitnessLevel)) {
       warnings.push({
@@ -856,7 +880,7 @@ function collectWarnings(
     // Виды — словами, не ключами движка: в строке стояло «(helicopter)»
     // (независимая проверка 07.11). Сами «вертолётные экскурсии» в скобках
     // не повторяются.
-    const heliWhat = heliActivities.filter((i) => i !== 'helicopter').map((i) => ACTIVITY_NAMES[i] ?? i);
+    const heliWhat = heliActivities.filter((i) => i !== 'helicopter' && inPlan(i)).map((i) => ACTIVITY_NAMES[i] ?? i);
     warnings.push({
       type: 'weather', severity: 'important',
       // «Запасной день добавлен» — только когда он добавлен: резервный день
@@ -880,7 +904,7 @@ function collectWarnings(
   }
 
   // Bear safety
-  if (profile.interests.some(i => ['bears', 'fishing', 'trekking'].includes(i))) {
+  if (profile.interests.some(i => ['bears', 'fishing', 'trekking'].includes(i) && inPlan(i))) {
     warnings.push({
       type: 'safety', severity: 'info',
       message: 'Территория медведей. Гид с фальшфейером обязателен. Перцовый спрей рекомендован.',
@@ -992,10 +1016,14 @@ async function scoreZones(
     }
   }
 
+  // Все зоны с баллом, без потолка (разбор 14.11, движок-5): `.slice(0, 3)`
+  // молча отрезал четвёртую — 21 день, гейзеры с туром на каждый день, а
+  // Северной зоны в плане нет, пять свободных дней и в «Важно» ложное «тура
+  // не нашли». Хватит ли дней на зону, решает раскладка ниже — и говорит,
+  // если не хватило (zone-leg, «зона не вошла: нужно N дней»).
   return Object.entries(scores)
     .filter(([, s]) => s > 0)
     .sort(([, a], [, b]) => b - a)
-    .slice(0, 3)
     .map(([zone, score]) => ({
       zone: zone as ZoneId,
       score: Math.min(100, score),
@@ -1217,7 +1245,15 @@ async function generateDayPlans(
   while (totalAllocated > activityBudget && zoneBlocks.length > 1) {
     const last = zoneBlocks[zoneBlocks.length - 1];
     if (last.activeDays > 1) { last.activeDays--; totalAllocated--; }
-    else { zoneBlocks.pop(); totalAllocated--; }
+    else {
+      zoneBlocks.pop();
+      totalAllocated--;
+      // Зона ушла из раскладки по нехватке дней — это и есть причина, а не
+      // «тура не нашли» (разбор 14.11, движок-5).
+      for (const i of last.interests) {
+        if (!zoneBlocks.some((b) => b.interests.includes(i))) missFor(i, `дней не хватило — ${ZONE_NAMES[last.zone]} не вошла в раскладку поездки`);
+      }
+    }
   }
   while (totalAllocated < activityBudget && zoneBlocks[0]) {
     zoneBlocks[0].activeDays++;
@@ -2377,7 +2413,8 @@ export async function recommendTrip(profile: TripProfile, opts: RecommendTripOpt
   const { days, unchecked, spanUnknown, tooLong, extendedForTour, overLimit, preferenceNotes, selfSkipped, selfSafetyUnchecked, skippedLegs, returnLegMissing, offDays, missReasons, skippedNoTour } = await generateDayPlans(planProfile, zones, tripDays, cache, season, mchsTrip.forTrip);
   const plannedZones = new Set<ZoneId>(days.map((d) => d.zone));
   const warnings = collectWarnings(profile, zones, tripDays, alerts, season, plannedZones, days.some((d) => d.type === 'buffer'),
-    days.some((d) => d.type === 'activity' && d.defaultTransport === 'helicopter'));
+    days.some((d) => d.type === 'activity' && d.defaultTransport === 'helicopter'),
+    new Set(days.filter((d) => d.type === 'activity').map((d) => d.activityType)));
   if (alertsRead === null) {
     warnings.push({ type: 'safety', severity: 'important', message: SAFETY_ALERTS_UNREAD_NOTE });
   }
