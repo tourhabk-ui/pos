@@ -13,6 +13,7 @@ import { readFileSync } from 'node:fs';
 import { join } from 'node:path';
 import { NextRequest } from 'next/server';
 import { MANUAL_ENDPOINTS } from '@/lib/agents/cron-schedulers';
+import { LLM_EGRESS_FILES } from '@/lib/agents/compliance/provider-registry';
 
 const { getQwenConfig } = vi.hoisted(() => ({ getQwenConfig: vi.fn() }));
 vi.mock('@/lib/ai/providers', () => ({ getQwenConfig }));
@@ -289,5 +290,23 @@ describe('длительность WAV', () => {
   it('не WAV и обрывок — null, а не ноль секунд', () => {
     expect(wavSeconds(new Uint8Array(100))).toBeNull();
     expect(wavSeconds(wav(1).slice(0, 30))).toBeNull();
+  });
+  it('fmt обрезан посреди byteRate — null, а не исключение (находка ревью на #3410)', () => {
+    // RIFF/WAVE, блок JUNK, затем fmt у самого конца файла: до байта byteRate
+    // (смещение fmt + 16) файл доходит, а самих четырёх байт в нём уже нет.
+    const buf = new Uint8Array(48);
+    const v = new DataView(buf.buffer);
+    const put = (o: number, t: string) => { for (let i = 0; i < 4; i += 1) buf[o + i] = t.charCodeAt(i); };
+    put(0, 'RIFF'); v.setUint32(4, 40, true); put(8, 'WAVE');
+    put(12, 'JUNK'); v.setUint32(16, 12, true);
+    put(32, 'fmt '); v.setUint32(36, 16, true);
+    expect(() => wavSeconds(buf)).not.toThrow();
+    expect(wavSeconds(buf)).toBeNull();
+  });
+});
+
+describe('егресс к зарубежной модели — под сторожем 152-ФЗ', () => {
+  it('файл пробы в списке точек егресса D2: литеральный хост DeepSeek проверяется реестром', () => {
+    expect(LLM_EGRESS_FILES).toContain('app/api/cron/voice-probe/route.ts');
   });
 });

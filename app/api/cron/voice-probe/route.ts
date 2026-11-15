@@ -231,7 +231,8 @@ export function wavSeconds(buf: Uint8Array): number | null {
   while (off + 8 <= buf.length) {
     const id = tag(off);
     const size = view.getUint32(off + 4, true);
-    if (id === 'fmt ' && off + 16 <= buf.length) byteRate = view.getUint32(off + 16, true);
+    // byteRate — четыре байта с off+16: обрезанный fmt не читается вовсе.
+    if (id === 'fmt ' && off + 20 <= buf.length) byteRate = view.getUint32(off + 16, true);
     if (id === 'data') {
       if (!byteRate) return null;
       const dataBytes = buf.length - (off + 8);
