@@ -28,7 +28,9 @@ import { isPublicApiPath } from '@/lib/auth/public-api-routes';
 const ROOT = process.cwd();
 const SKIP_DIRS = new Set(['node_modules', '.next', '.git', 'api']);
 /** Разделы за входом: их клиенты законно зовут защищённые API. */
-const PROTECTED_PREFIXES = ['app/hub', 'app/profile', 'app/operator'].map(p => join(ROOT, p));
+// Планер — за входом с 14.11 (слово владельца «6-3»): страница /planner без
+// входа показывает экран входа, и его клиент законно зовёт закрытые API.
+const PROTECTED_PREFIXES = ['app/hub', 'app/profile', 'app/operator', 'app/planner'].map(p => join(ROOT, p));
 /**
  * Компоненты, монтируемые ТОЛЬКО на страницах за входом. Каталог components/
  * не знает, где его используют, поэтому принадлежность фиксируется здесь
@@ -59,8 +61,6 @@ const KNOWN_PERSONAL_CALLS = new Set([
   'POST /api/guide/own/bookings',   // кабинет гида «Свои туры»: бронь рукой (#3211) — под входом гида (11.11)
   'POST /api/upload/tour-photo',    // кабинет гида «Свои туры»: фото тура — под входом гида (05.11)
   'GET /api/trips/active',          // главная: блок «активная поездка», гостю тихо не показывается
-  'PATCH /api/trips/X',             // планер: сохранение поездки — под входом
-  'POST /api/trips',                // планер: создание поездки
   'POST /api/trips/X/share',        // планер: ссылка на поездку
   'DELETE /api/trips/X/share',      // кабинет поездки: «Закрыть ссылку» — под входом владельца, отказ словами (H15, 07.11)
   'GET /api/tourist/wishlist',      // избранное

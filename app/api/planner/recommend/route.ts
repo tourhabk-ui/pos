@@ -8,7 +8,7 @@ import { NextRequest, NextResponse } from 'next/server';
 import { z } from 'zod';
 import { INTERESTS_MAX, describeRecommendError } from '@/lib/planner/recommend-errors';
 import { recommendTrip } from '@/lib/planner/engine';
-import { verifyAuth } from '@/lib/auth';
+import { plannerSession } from '@/lib/planner/require-session';
 import { agentMemory } from '@/lib/agents/memory/agent-memory';
 import { MAX_REST_DAYS } from '@/lib/planner/travel-style';
 import { createRateLimiter, getTrustedClientIp } from '@/lib/rate-limit';
@@ -73,15 +73,12 @@ export async function POST(req: NextRequest) {
     );
   }
 
-  // Вход необязателен: план собирается и без него. Аноним verifyAuth не
-  // бросает — бросок значит сбой проверки сессии, он называется в логе.
-  let userId: string | null = null;
-  try {
-    const auth = await verifyAuth(req);
-    userId = auth.userId ?? null;
-  } catch (err) {
-    logSwallowedFailure('planner-recommend', 'проверка входа', err);
-  }
+  // Только после входа (слово владельца 14.11 «6-3»: без входа планер не
+  // работает). До 14.11 вход был необязателен и читался для сохранённых
+  // предпочтений. lib/planner/require-session.
+  const session = await plannerSession(req);
+  if (session instanceof NextResponse) return session;
+  const userId = session.userId;
 
   try {
     const rawBody = await req.json() as unknown;

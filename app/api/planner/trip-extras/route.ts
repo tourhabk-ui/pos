@@ -20,6 +20,7 @@
  */
 
 import { NextRequest, NextResponse } from 'next/server';
+import { plannerSession } from '@/lib/planner/require-session';
 import { z } from 'zod';
 import { createRateLimiter, getClientIp } from '@/lib/rate-limit';
 import { ZONE_IDS, ZONE_NAMES } from '@/lib/planner/constants';
@@ -58,6 +59,9 @@ const TripExtrasSchema = z.object({
 });
 
 export async function POST(req: NextRequest) {
+  // Только после входа (слово владельца 14.11 «6-3»): lib/planner/require-session.
+  const session = await plannerSession(req);
+  if (session instanceof NextResponse) return session;
   if (!extrasLimiter.check(getClientIp(req.headers))) {
     return NextResponse.json({ success: false, error: 'Слишком много запросов' }, { status: 429 });
   }

@@ -3,6 +3,10 @@
  * повтор сохранения — та же поездка; «Поделиться» сначала сохраняет (аудит
  * планировщика 07.11, волна 2.3–2.4: H6, H7, H10, H12). Сервер этих полей —
  * tests/unit/trip-write.test.ts, дубль заявки — lead-plan-fingerprint.test.ts.
+ *
+ * С 14.11 (слово владельца «6 хранить в лк») собранный план сохраняется в
+ * личный кабинет сам — первый POST /api/trips уходит без нажатия; кнопка
+ * дальше правит ту же поездку.
  */
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
 import { render, screen, fireEvent, cleanup, waitFor } from '@testing-library/react';
@@ -50,7 +54,7 @@ beforeEach(() => {
     }
     const json = u.startsWith('/api/planner/recommend')
       ? { success: true, data: { zones: [], warnings: WARNINGS, itinerary: '', days: DAYS,
-        priceBreakdown: { activities: [0, 0], accommodation: [0, 0], transport: [0, 0], perPersonTotal: [0, 0] } } }
+        priceBreakdown: { tours: [0, 0], activityPricing: { tourPriced: 0, open: 1, excluded: 0, unpriced: 0 } } } }
       : { success: true, data: [], tours: [] };
     return { ok: true, json: async () => json } as Response;
   }));
@@ -79,10 +83,24 @@ async function buildPlan() {
   await screen.findByTestId('price-estimate');
 }
 
+describe('собранный план сам ложится в личный кабинет (14.11, «6 хранить в лк»)', () => {
+  it('один POST без нажатия, строка «План лежит в личном кабинете», кнопка — «Обновить маршрут»', async () => {
+    await buildPlan();
+    await waitFor(() => expect(tripPosts()).toHaveLength(1));
+    expect(await screen.findByTestId('plan-stored-note')).toBeTruthy();
+    expect(screen.getByTestId('plan-stored-note').textContent).toMatch(/План лежит в личном кабинете, в «Моих маршрутах»/);
+    await waitFor(() => expect(screen.getByRole('button', { name: /Обновить маршрут/ })).toBeTruthy(), { timeout: 4000 });
+    expect(screen.getByTitle('Открыть сохранённый маршрут').getAttribute('href')).toBe('/hub/tourist/trips/00000000-0000-4000-8000-000000000001');
+    // Повторной записи без нового плана нет: правки дней — кнопкой.
+    fireEvent.click(screen.getAllByTitle('Удалить день')[0]!);
+    expect(tripPosts()).toHaveLength(1);
+    expect(calls((u, i) => i?.method === 'PATCH')).toHaveLength(0);
+  }, 10000);
+});
+
 describe('сохранение помнит просьбы и предупреждения (H6, H7)', () => {
   it('галочки, предупреждения плана и предупреждения дней уходят в поездку', async () => {
     await buildPlan();
-    fireEvent.click(screen.getByRole('button', { name: /Сохранить маршрут/ }));
     await waitFor(() => expect(tripPosts()).toHaveLength(1));
     const body = tripPosts()[0]!;
     expect(body).toMatchObject({ needsLodging: true, needsCar: true, needsAirportTransfer: false, warnings: WARNINGS });
@@ -135,9 +153,9 @@ describe('сводка анкеты над планом (#3347)', () => {
 
 describe('повтор сохранения — та же поездка (H12)', () => {
   it('ответ потерялся — второй POST с тем же ключом; после успеха — правка, а не новая поездка', async () => {
-    await buildPlan();
+    // Первый POST — само сохранение собранного плана; его ответ теряется.
     tripPostReplies = ['lost', 'ok'];
-    fireEvent.click(screen.getByRole('button', { name: /Сохранить маршрут/ }));
+    await buildPlan();
     await waitFor(() => expect(tripPosts()).toHaveLength(1));
     await screen.findByRole('button', { name: /Ошибка/ });
     await waitFor(() => expect(screen.queryByRole('button', { name: /Ошибка/ })).toBeNull(), { timeout: 4000 });
@@ -154,9 +172,8 @@ describe('повтор сохранения — та же поездка (H12)',
   }, 15000);
 
   it('браузер без криптографии — сохраняет без ключа, а не падает', async () => {
-    await buildPlan();
     vi.stubGlobal('crypto', undefined);
-    fireEvent.click(screen.getByRole('button', { name: /Сохранить маршрут/ }));
+    await buildPlan();
     await waitFor(() => expect(tripPosts()).toHaveLength(1));
     expect(tripPosts()[0]).not.toHaveProperty('saveKey');
     expect(await screen.findByRole('button', { name: /Сохранено|Обновить маршрут/ })).toBeTruthy();
@@ -165,10 +182,14 @@ describe('повтор сохранения — та же поездка (H12)',
 
 describe('«Поделиться» сначала сохраняет (H10)', () => {
   it('без сохранённой поездки — сохраняет и сразу даёт ссылку', async () => {
+    // Само сохранение после сборки не дошло — поездки нет.
+    tripPostReplies = ['lost'];
     await buildPlan();
+    await waitFor(() => expect(tripPosts()).toHaveLength(1));
+    await screen.findByRole('button', { name: /Ошибка/ });
     fireEvent.click(screen.getByTitle('Поделиться маршрутом'));
     expect(await screen.findByText('https://vedarai.ru/trip/abc', { exact: false })).toBeTruthy();
-    expect(tripPosts()).toHaveLength(1);
+    expect(tripPosts()).toHaveLength(2);
     expect(calls((u) => u.endsWith('/share'))).toHaveLength(1);
   });
 
@@ -188,8 +209,8 @@ describe('«Поделиться» сначала сохраняет (H10)', () 
 
   it('с сохранённой — сначала правка с текущим планом, потом ссылка', async () => {
     await buildPlan();
-    fireEvent.click(screen.getByRole('button', { name: /Сохранить маршрут/ }));
     await waitFor(() => expect(tripPosts()).toHaveLength(1));
+    await screen.findByTitle('Открыть сохранённый маршрут');
     // Правка после сохранения: удалили день 2 — в ссылку уйдёт он свободным.
     fireEvent.click(screen.getAllByTitle('Удалить день')[0]!);
     fireEvent.click(screen.getByTitle('Поделиться маршрутом'));

@@ -408,15 +408,16 @@ describe('экран согласия и возврат после входа', 
 
   it('каждый путь входа уважает возврат, и только через проверенные пути', () => {
     const src = read('app/auth/login/_AuthPageClient.tsx');
-    // Экран согласия OAuth или страница приглашения в команду (CRM 2г) — и только они.
-    expect(src).toMatch(/const next = search\.get\('next'\);\s*setReturnTo\(safePartnerOAuthReturn\(next\) \?\? safeTeamJoinReturn\(next\)\)/);
+    // Экран согласия OAuth, страница приглашения в команду (CRM 2г) или
+    // планер (с 14.11 — только после входа, «6-3») — и только они.
+    expect(src).toMatch(/const next = search\.get\('next'\);\s*setReturnTo\(safePartnerOAuthReturn\(next\) \?\? safeTeamJoinReturn\(next\) \?\? safePlannerReturn\(next\)\)/);
     expect(src.match(/setReturnTo\(/g)?.length).toBe(1);
     // Пароль, MFA — router.push; Telegram, MAX — полной загрузкой через goToCabinet (04.11).
     expect(src.match(/router\.push\(returnTo \?\? /g)?.length).toBe(2);
     expect(src).toMatch(/window\.location\.assign\(returnTo \?\? /);
-    // После регистрации — только на приглашение в команду, экран согласия OAuth не трогается.
+    // После регистрации — на приглашение в команду или в планер (14.11), экран согласия OAuth не трогается.
     // Полной загрузкой: router.push оставлял AuthContext гостем и страж кабинета уводил на вход (20.10).
-    expect(src).toMatch(/window\.location\.assign\(safeTeamJoinReturn\(returnTo\) \?\? ROLE_HUB\[primaryRole\]/);
+    expect(src).toMatch(/window\.location\.assign\(safeTeamJoinReturn\(returnTo\) \?\? safePlannerReturn\(returnTo\) \?\? ROLE_HUB\[primaryRole\]/);
   });
 
   it('экран — вне /hub, вход проверяется с живой сессией, отказ — ссылкой, запись по умолчанию выключена, адрес кода показан', () => {

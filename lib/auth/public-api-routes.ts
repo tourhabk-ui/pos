@@ -82,13 +82,12 @@ export const PUBLIC_API_ROUTES: Record<string, PublicApiMethods> = {
   '/api/operators': ['GET'],        // публичный каталог партнёров
   '/api/assistant': ['GET', 'POST'],  // «АI-помощник Камчатки» — история + чат
   '/api/loyalty/levels': ['GET'],   // уровни программы лояльности (публичный каталог)
-  '/api/planner/recommend':      ['POST'], // AI trip recommender
-  '/api/planner/partners':       ['GET'],  // операторы для дня маршрута
-  '/api/planner/chat':           ['POST'], // NL → plan fill
-  '/api/planner/tours-for-day':  ['GET'],  // marketplace tours per activity
-  '/api/planner/validate':       ['POST'], // AI route sequence validation
-  '/api/planner/companion':      ['POST'], // AI trip companion chat
-  '/api/planner/trip-extras':    ['POST'], // жильё/трансфер/машина к плану (лимитер внутри)
+  // Планер — только после входа (слово владельца 14.11 «6-3»: без входа
+  // планер не работает). Шесть его адресов из реестра сняты: recommend,
+  // partners, chat, tours-for-day, validate, trip-extras. Спутник остаётся:
+  // человек в ЧП получает телефоны и без входа, ответ модели — только
+  // вошедшему (проверка в обработчике, lib/planner/require-session).
+  '/api/planner/companion':      ['POST'], // спутник планера: без входа — только SOS-блок
   '/api/routing/path':           ['GET'],  // роутер по OSM-дорогам — гость планирует подъезд
   '/api/support/knowledge-base': ['GET'], // База знаний (публичная)
   '/api/faq': ['GET'],              // FAQ (публичная)

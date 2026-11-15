@@ -183,13 +183,20 @@ describe('серверные страницы сверяют строку сес
     return renderToStaticMarkup(createElement('div', null, await page()));
   }
 
-  it('планер: живая сессия — пользователь, отозванная и упавшая проверка — гость', async () => {
+  it('планер: живая сессия — планер; отозванная — экран входа; упавшая проверка — «не смогли проверить»', async () => {
+    // С 14.11 планер только после входа (слово владельца «6-3»): отозванная
+    // сессия — не «гость в планере», а экран входа; упавшая проверка — не
+    // «вы не вошли» (§4.0).
     cookieToken = await createToken(USER);
     expect(await render(PlannerPage)).toContain(`data-user="${USER.userId}"`);
     sessionRow = 'revoked';
-    expect(await render(PlannerPage)).toContain('data-user="guest"');
+    const revoked = await render(PlannerPage);
+    expect(revoked).not.toContain('data-user=');
+    expect(revoked).toContain('Планер поездки — после входа');
     sessionRow = 'db-down';
-    expect(await render(PlannerPage)).toContain('data-user="guest"');
+    const down = await render(PlannerPage);
+    expect(down).not.toContain('data-user=');
+    expect(down).toContain('Не смогли проверить вход');
   });
 
   it('/hub/admin/safety: живой админ проходит, отозванный — на вход', async () => {

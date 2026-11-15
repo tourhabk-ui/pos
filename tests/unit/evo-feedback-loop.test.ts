@@ -433,8 +433,9 @@ export async function POST(req: NextRequest) {
 
   it('публичный на Edge и совсем без рубежа — находка', () => {
     const naked = `export async function POST() { return NextResponse.json({}); }`;
-    // /api/planner/validate объявлен публичным — значит рубеж обязан быть в файле
-    const found = checkRouteAuthGate('app/api/planner/validate/route.ts', naked);
+    // /api/planner/companion объявлен публичным — значит рубеж обязан быть в
+    // файле (validate с 14.11 закрыт Edge: планер только после входа)
+    const found = checkRouteAuthGate('app/api/planner/companion/route.ts', naked);
     expect(found).toHaveLength(1);
     expect(found[0].severity).toBe('critical');
   });

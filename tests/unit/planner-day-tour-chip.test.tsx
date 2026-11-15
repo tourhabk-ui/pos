@@ -11,6 +11,9 @@ import { NextRequest } from 'next/server';
 
 const { poolQuery } = vi.hoisted(() => ({ poolQuery: vi.fn() }));
 vi.mock('@/lib/db-pool', () => ({ pool: { query: poolQuery } }));
+// Планер — только после входа (14.11, «6-3»): здесь проверяется сам роут,
+// вход держит tests/unit/planner-api-login.test.ts.
+vi.mock('@/lib/planner/require-session', () => ({ plannerSession: vi.fn(async () => ({ userId: 'u-planner' })) }));
 
 import { DayTourChip } from '@/components/planner/DayTourChip';
 import { planTourChip, dayTourPriceText } from '@/lib/planner/day-tour-chip';

@@ -33,6 +33,7 @@ import {
   inCalendarOrder, followDays, followDaySet, tripLengthWords, tripDatesProblem, kamchatkaToday,
   type NewNumbers,
 } from '@/lib/planner/calendar-days';
+import { plannerLoginHref } from '@/lib/planner/login-gate';
 import { tripCalendarDays, dateOfTripDay } from '@/lib/planner/flow-balance';
 import { TRAVEL_STYLES, TRAVEL_STYLE_LABEL, REST_EVERY_DAYS, suggestRestDays, type TravelStyle } from '@/lib/planner/travel-style';
 import { TRIP_ORIGINS, TRIP_ORIGIN_LABEL, activeBudget, type TripOrigin } from '@/lib/planner/trip-origin';
@@ -1596,7 +1597,7 @@ export function PlannerClient({ initialUserId }: { initialUserId?: string | null
   // ждёт «Поделиться»: ссылка — на то, что сейчас на экране (H10).
   const saveTrip = useCallback(async (): Promise<string | null> => {
     if (!initialUserId) {
-      router.push(`/auth/login?from=/planner`);
+      router.push(plannerLoginHref());
       return null;
     }
     if (days.length === 0) return null;
@@ -1668,6 +1669,18 @@ export function PlannerClient({ initialUserId }: { initialUserId?: string | null
     }
   }, [router, initialUserId, days, arrival, departure, places, activities, transportByDay, flightArrival, flightDeparture, flightArrivalTime, flightDepartureTime, needsAirportTransfer, needsLodging, needsCar, recommendation, tripId, planProfile, planChoices]);
 
+  // План хранится в личном кабинете (слово владельца 14.11: «6 хранить в
+  // лк»): собранный план сохраняется сам, сразу после сборки. Правки дней
+  // сохраняет кнопка «Обновить маршрут» — тихая запись на каждое
+  // перетаскивание переписала бы поездку незаметно для человека.
+  const autosavedFor = useRef<unknown>(null);
+  useEffect(() => {
+    if (!initialUserId || !recommendation || days.length === 0) return;
+    if (autosavedFor.current === recommendation) return;
+    autosavedFor.current = recommendation;
+    void saveTrip();
+  }, [initialUserId, recommendation, days.length, saveTrip]);
+
   // Подпись к ссылке плана — одна для Telegram и MAX.
   const planShareText = `${(recommendation as { title?: string } | null)?.title ?? 'Маршрут'} — ${days.length} ${pluralDaysRu(days.length)} по Камчатке`;
 
@@ -1675,7 +1688,7 @@ export function PlannerClient({ initialUserId }: { initialUserId?: string | null
   // который сейчас на экране, а не на последнюю сохранённую версию. До этого
   // без сохранённой поездки первое нажатие только сохраняло, и ссылки не было.
   const shareTrip = useCallback(async () => {
-    if (!initialUserId) { router.push(`/auth/login?from=/planner`); return; }
+    if (!initialUserId) { router.push(plannerLoginHref()); return; }
     setShareStatus('loading');
     const savedId = await saveTrip();
     if (!savedId) {
@@ -3016,6 +3029,12 @@ export function PlannerClient({ initialUserId }: { initialUserId?: string | null
                 </a>
               )}
             </div>
+          )}
+          {/* Где лежит план — словами (слово владельца 14.11 «6 хранить в лк»). */}
+          {days.length > 0 && tripId && (
+            <p className="text-xs text-[var(--text-secondary)]" data-testid="plan-stored-note">
+              План лежит в личном кабинете, в «Моих маршрутах». Правки дней сохраняет кнопка «Обновить маршрут».
+            </p>
           )}
 
           {shareStatus === 'done' && shareUrl && (
