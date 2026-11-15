@@ -454,3 +454,41 @@ describe('отметка дня — не подтверждение (разбо�
     expect(screen.queryByText(/Маршрут готов/)).toBeNull();
   });
 });
+
+describe('две сборки подряд: на экране — последняя (разбор 14.11, экран-15)', () => {
+  it('ответ первой сборки, пришедший позже, не ложится поверх второй', async () => {
+    const base = vi.mocked(fetch).getMockImplementation()!;
+    let releaseFirst: () => void = () => undefined;
+    const firstHeld = new Promise<void>((r) => { releaseFirst = r; });
+    let calls = 0;
+    const answer = (days: unknown[]) => ({ success: true, data: { zones: [], warnings: [], itinerary: '', days,
+      priceBreakdown: { activities: [0, 0], accommodation: [0, 0], transport: [0, 0], perPersonTotal: [0, 0] } } });
+    vi.mocked(fetch).mockImplementation(async (url, init) => {
+      const u = String(url);
+      if (u.startsWith('/api/planner/recommend')) {
+        calls += 1;
+        if (calls === 1) { await firstHeld; return { ok: true, json: async () => answer(GAPPED) } as Response; }
+        return { ok: true, json: async () => answer(FULL) } as Response;
+      }
+      if (u === '/api/planner/chat') {
+        return { ok: true, json: async () => ({ success: true, places: ['volcano'], activities: [], arrival: ARRIVAL, departure: '2030-08-04', auto_recommend: true }) } as Response;
+      }
+      return base(url, init);
+    });
+    render(<PlannerClient initialUserId="u-1" />);
+    fireEvent.change(screen.getByLabelText('Дата прилёта'), { target: { value: ARRIVAL } });
+    fireEvent.change(screen.getByLabelText('Дата отъезда'), { target: { value: '2030-08-06' } });
+    next(); next(); next();
+    fireEvent.click(screen.getByRole('button', { name: /Вулканы/ }));
+    fireEvent.click(screen.getByRole('button', { name: /Собрать маршрут/ }));
+    // Первая сборка висит. Назад к фразе — вторая сборка.
+    for (let i = 0; i < 3; i++) fireEvent.click(screen.getByRole('button', { name: /Назад/ }));
+    fireEvent.change(screen.getByLabelText(/Опишите поездку одной фразой/), { target: { value: 'вулканы 1-4 августа' } });
+    fireEvent.keyDown(screen.getByLabelText(/Опишите поездку одной фразой/), { key: 'Enter' });
+    await screen.findByTestId('price-estimate');
+    await vi.waitFor(() => expect(shown()).toEqual(['1:Прилёт днём', '2:Авачинский вулкан', '3:Прогулка у океана', '4:Сборы и вылет']));
+    await act(async () => { releaseFirst(); await new Promise((r) => setTimeout(r, 20)); });
+    expect(shown()).toEqual(['1:Прилёт днём', '2:Авачинский вулкан', '3:Прогулка у океана', '4:Сборы и вылет']);
+    expect(calls).toBe(2);
+  });
+});

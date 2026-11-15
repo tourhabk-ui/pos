@@ -1426,6 +1426,8 @@ export function PlannerClient({ initialUserId }: { initialUserId?: string | null
   useEffect(() => { daysRef.current = days; }, [days]);
   /** Номер последней перестановки: ответ о цене прежней не ложится на новую. */
   const tourRereadSeqRef = useRef(0);
+  /** Номер последней сборки плана: ответ прежней не ложится на новую. */
+  const recommendSeqRef = useRef(0);
 
   // Day confirmation
   const [confirmedDays, setConfirmedDays] = useState<Set<number>>(new Set());
@@ -2117,6 +2119,10 @@ export function PlannerClient({ initialUserId }: { initialUserId?: string | null
     if (childAgeMissing) { setError(CHILD_AGE_MISSING); return; }
     setError('');
     setLoading(true);
+    // Номер сборки: ответ прежней сборки не ложится поверх новой (разбор
+    // 14.11, экран-15: вторая быстрая фраза во время сборки запускала
+    // параллельную, и на экране оставался тот ответ, что пришёл последним).
+    const seq = ++recommendSeqRef.current;
     try {
       const res = await fetch('/api/planner/recommend', {
         method: 'POST',
@@ -2140,6 +2146,7 @@ export function PlannerClient({ initialUserId }: { initialUserId?: string | null
         }),
       });
       const data = await res.json();
+      if (seq !== recommendSeqRef.current) return;
       if (data.success) {
         setFormOpen(false);
         setStepError('');
@@ -2163,8 +2170,13 @@ export function PlannerClient({ initialUserId }: { initialUserId?: string | null
       } else {
         setError(data.error || 'Ошибка при получении рекомендации');
       }
-    } catch { setError('Нет соединения. Попробуйте снова.'); }
-    finally { setLoading(false); }
+    } catch (err) {
+      if (seq !== recommendSeqRef.current) return;
+      console.error('[planner] сборка плана не выполнилась:', err instanceof Error ? err.message : String(err));
+      setError('Нет соединения. Попробуйте снова.');
+    } finally {
+      if (seq === recommendSeqRef.current) setLoading(false);
+    }
   }
 
   async function submitLead() {
