@@ -28,7 +28,7 @@ import { kamchatkaDate, shiftDate } from '@/lib/analytics/kamchatka-day';
 const DAY_MS = 86_400_000;
 
 /** День месяца для «хочу в июле»: середина, а не край с его погодой. */
-const MONTH_ANCHOR_DAY = 10;
+const DEFAULT_ANCHOR = 10;
 
 /** «Не сказано» и «уже прошло» — через столько камчатских суток от сегодня. */
 const DEFAULT_START_IN_DAYS = 30;
@@ -46,11 +46,18 @@ export type PlanStart =
  * Слово месяца. Формы — основами, у мая — с границей слова: «маяк» и
  * «майские» — не май. Родительный падеж («15 мая») — тоже май.
  */
-const MONTH_TOKEN = '(январ[а-яё]*|феврал[а-яё]*|март[а-яё]*|апрел[а-яё]*|ма[йяею](?![а-яё])|июн[а-яё]*|июл[а-яё]*|август[а-яё]*|сентябр[а-яё]*|октябр[а-яё]*|ноябр[а-яё]*|декабр[а-яё]*)';
+const MONTH_TOKEN = '(январ[а-яё]*|феврал[а-яё]*|март[а-яё]*|апрел[а-яё]*|ма[йяею](?![а-яё])|июн[а-яё]*|июл[а-яё]*|август[а-яё]*|сентябр[а-яё]*|октябр[а-яё]*|ноябр[а-яё]*|декабр[а-яё]*'
+  // Английские названия месяцев — полностью (разбор 14.11, Кузьмич-13: «July
+  // 2027» от внешнего агента получал отказ). Сокращения не берутся: «may»,
+  // «mar» — и обычные слова.
+  + '|(?:january|february|march|april|may|june|july|august|september|october|november|december)(?![a-z]))';
 const MONTH_STEMS = ['январ', 'феврал', 'март', 'апрел', 'ма', 'июн', 'июл', 'август', 'сентябр', 'октябр', 'ноябр', 'декабр'];
+const MONTH_EN = ['january', 'february', 'march', 'april', 'may', 'june', 'july', 'august', 'september', 'october', 'november', 'december'];
 
 function monthOf(token: string): number {
   const t = token.toLowerCase();
+  const en = MONTH_EN.indexOf(t);
+  if (en >= 0) return en;
   for (let m = MONTH_STEMS.length - 1; m >= 0; m--) {
     // «ма» — начало и «марта»; поэтому май сверяется формой целиком.
     if (m === 4 ? /^ма[йяею]$/.test(t) : t.startsWith(MONTH_STEMS[m])) return m;
@@ -69,17 +76,24 @@ const DAY_MONTH_RE = new RegExp(DAY_MONTH, 'iu');
 /** «между 10 и 17 июля» — тот же диапазон, что «10–17 июля». */
 const BETWEEN_RE = new RegExp(`между\\s+(\\d{1,2}(?:-?го)?(?:\\s+${MONTH_TOKEN}(?:\\s+\\d{4})?)?)\\s+и\\s+(?=\\d)`, 'iu');
 /** Месяц без числа, необязательно с годом: «в июле», «июль 2027». Граница слева — «маяк» не май. */
-const MONTH_ONLY_RE = new RegExp(`(?:^|[^а-яё])${MONTH_TOKEN}(?:\\s+(\\d{4}))?`, 'iu');
+const MONTH_ONLY_RE = new RegExp(`(?:^|[^а-яёa-z])${MONTH_TOKEN}(?:\\s+(\\d{4}))?`, 'iu');
+/** «в начале / середине / конце июля» — число месяца для этой части. */
+const MONTH_PART_RE = new RegExp(`(начал[а-яё]*|середин[а-яё]*|конц[а-яё]*|early|mid|late)\\s+${MONTH_TOKEN}`, 'iu');
+const MONTH_PART_DAY: Array<[RegExp, number]> = [[/^(начал|early)/i, 1], [/^(середин|mid)/i, 15], [/^(конц|late)/i, 25]];
 /**
  * Числами: «15.07», «15.07.2027», «15.07.27», диапазоны «10–17.07» и
  * «10.07–17.07.2027». Месяц — двумя цифрами: «1.5 месяца» — не 1 мая.
  */
 const NUMERIC_RANGE_RE = /(?<![\d.])(\d{1,2})(?:\.(\d{2})(?:\.(\d{4}|\d{2}))?)?\s*[–—-]\s*(\d{1,2})\.(\d{2})(?:\.(\d{4}|\d{2}))?(?!\d)/;
 const NUMERIC_RE = /(?<![\d.])(\d{1,2})\.(\d{2})(?:\.(\d{4}|\d{2}))?(?!\d)/;
+/** Месяц одной цифрой — только с годом: «15.7.2027» (Кузьмич-13), но «1.5 месяца» — не дата. */
+const NUMERIC_SHORT_MONTH_RE = /(?<![\d.])(\d{1,2})\.(\d)\.(\d{4})(?!\d)/;
 const ISO_RE = /(?<!\d)(\d{4})-(\d{2})-(\d{2})(?!\d)/g;
 /** Слова-дни: считаются от камчатского сегодня. */
 const RELATIVE_RE = /(?:^|[^а-яё])(сегодня|послезавтра|завтра)(?![а-яё])/u;
 const RELATIVE_SHIFT: Record<string, number> = { сегодня: 0, завтра: 1, послезавтра: 2 };
+/** «через неделю», «через 2 недели», «через 10 дней» — от камчатского сегодня. */
+const IN_PERIOD_RE = /(?:^|[^а-яё])через\s+(неделю|(\d{1,3})\s+(дн[а-яё]*|день|недел[а-яё]*))(?![а-яё])/u;
 
 /** Число, месяц (0–11) и год — настоящая дата? Движок дат переносит лишнее, поэтому сверка. */
 function realDate(year: number, month: number, day: number): Date | null {
@@ -145,6 +159,8 @@ function namedDates(text: string): Mention[] | null {
       { day: Number(nr[4]), month: endMonth, year: endYear },
     ];
   }
+  const short = NUMERIC_SHORT_MONTH_RE.exec(text);
+  if (short) return [{ day: Number(short[1]), month: Number(short[2]) - 1, year: Number(short[3]) }];
   const num = NUMERIC_RE.exec(text);
   if (num) return [{ day: Number(num[1]), month: Number(num[2]) - 1, year: fullYear(num[3]) }];
   return null;
@@ -200,22 +216,34 @@ export function parsePlanStart(raw: string | undefined, now: number): PlanStart 
   const rel = RELATIVE_RE.exec(text);
   if (rel) return { kind: 'parsed', date: utcMidnight(shiftDate(today, RELATIVE_SHIFT[rel[1]])) };
 
+  const inPeriod = IN_PERIOD_RE.exec(text);
+  if (inPeriod) {
+    const n = inPeriod[2] ? Number(inPeriod[2]) : 1;
+    const days = inPeriod[1] === 'неделю' || /^недел/.test(inPeriod[3] ?? '') ? n * 7 : n;
+    // Дальше полугода «через …» — не дата поездки, а оговорка: не угадываем.
+    if (days > 0 && days <= 183) return { kind: 'parsed', date: utcMidnight(shiftDate(today, days)) };
+  }
+
   const monthMatch = MONTH_ONLY_RE.exec(text);
   if (monthMatch) {
     const m = monthOf(monthMatch[1]);
     const year = fullYear(monthMatch[2]);
+    // «в конце июля» — 25-е, «в начале» — 1-е, «в середине» — 15-е; просто
+    // месяц — 10-е (Кузьмич-13: «в конце июля» давало 10 июля).
+    const part = MONTH_PART_RE.exec(text);
+    const anchorDay = part ? (MONTH_PART_DAY.find(([re]) => re.test(part[1]))?.[1] ?? DEFAULT_ANCHOR) : DEFAULT_ANCHOR;
     if (year === null) {
       let y = Number(today.slice(0, 4));
-      if (iso(new Date(Date.UTC(y, m, MONTH_ANCHOR_DAY))) < today) {
+      if (iso(new Date(Date.UTC(y, m, anchorDay))) < today) {
         // Месяц ещё идёт — с сегодняшнего числа, как «в ноябре 2026» ниже
         // (разбор планера 14.11): «в ноябре», сказанное 14 ноября, давало
         // план на ноябрь следующего года, а с годом — на этот.
         if (iso(new Date(Date.UTC(y, m + 1, 0))) >= today) return { kind: 'parsed', date: utcMidnight(today) };
         y += 1;
       }
-      return { kind: 'parsed', date: new Date(Date.UTC(y, m, MONTH_ANCHOR_DAY)) };
+      return { kind: 'parsed', date: new Date(Date.UTC(y, m, anchorDay)) };
     }
-    const anchor = new Date(Date.UTC(year, m, MONTH_ANCHOR_DAY));
+    const anchor = new Date(Date.UTC(year, m, anchorDay));
     if (iso(anchor) >= today) return { kind: 'parsed', date: anchor };
     // «В ноябре 2026» 15 ноября: месяц ещё идёт — с сегодняшнего числа.
     const lastDay = new Date(Date.UTC(year, m + 1, 0));
