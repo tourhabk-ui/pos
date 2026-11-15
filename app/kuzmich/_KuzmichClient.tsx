@@ -24,7 +24,8 @@ import { KUZMICH_TELEGRAM_URL } from '@/components/shared/KuzmichActions';
 import { platformAcceptsPayments } from '@/lib/payments/accepting';
 import { ASK_PARAM, sanitizeAsk } from '@/lib/kuzmich/ask-link';
 import { TURN_STOPPED_TEXT, isAbortError } from '@/lib/kuzmich/turn-control';
-import { StopTurnButton, RetryTurnButton } from '@/components/kuzmich/TurnControls';
+import { StopTurnButton, RetryTurnButton, TurnSteps } from '@/components/kuzmich/TurnControls';
+import { readChatAnswer } from '@/lib/kuzmich/turn-steps';
 
 // ── Типы ──────────────────────────────────────────────────────────
 
@@ -395,6 +396,8 @@ export default function KuzmichClient() {
   // «Остановить» (#3412, п. 3): обрывает ожидание ответа этого хода.
   const abortRef = useRef<AbortController | null>(null);
   const [asking, setAsking] = useState('');
+  // Шаги хода (#3412, п. 4): вызовы инструментов словами, по мере работы.
+  const [steps, setSteps] = useState<string[]>([]);
   useEffect(() => {
     if (!busyRef.current) messagesRef.current = messages;
   }, [messages]);
@@ -465,13 +468,14 @@ export default function KuzmichClient() {
     const controller = new AbortController();
     abortRef.current = controller;
     setAsking(text.trim());
+    setSteps([]);
     let stopped = false;
 
     try {
       const res = await fetch('/api/ai/chat', {
         method: 'POST',
         signal: controller.signal,
-        headers: { 'Content-Type': 'application/json' },
+        headers: { 'Content-Type': 'application/json', Accept: 'text/event-stream' },
         body: JSON.stringify({
           message: text.trim() || 'Что на этом фото?',
           sessionId,
@@ -481,7 +485,7 @@ export default function KuzmichClient() {
           ...utmRef.current,
         }),
       });
-      const data = await res.json() as {
+      const data = (await readChatAnswer(res, (label) => setSteps((prev) => [...prev, label]))).body as {
         data?: {
           answer?: string;
           tours?: TourCard[];
@@ -670,6 +674,7 @@ export default function KuzmichClient() {
                   <div className="bg-[var(--bg-hover)] rounded-xl rounded-bl-sm px-3.5 sm:px-4 py-3 text-sm text-[var(--text-muted)] flex items-center gap-2">
                     <ThinkingText />
                   </div>
+                  <TurnSteps steps={steps} />
                   <StopTurnButton question={asking} onStop={() => abortRef.current?.abort()} />
                 </div>
               </div>

@@ -5,6 +5,7 @@
  * Encrypted interest collection from user messages.
  */
 
+import { observedToolRuns, sseEvent, type ChatStreamEvent } from '@/lib/kuzmich/turn-steps';
 import { parseChatBookingPrefill } from '@/lib/kuzmich/booking-prefill';
 import { latestChatPlanId, planIdOfTurn, chatPlanContext } from '@/lib/kuzmich/plan-id';
 import { planChatRequest, parseChatContact, chatToolReply, chatRequestUnconfirmed, chatPastDateAsk, chatRequestSummary, type ChatRequestPlan } from '@/lib/kuzmich/chat-request';
@@ -147,7 +148,45 @@ const AiChatSchema = z.object({
   utmCampaign:    z.string().max(100).optional(),
 });
 
+/**
+ * Поток шагов (#3412, п. 4): клиент с Accept: text/event-stream получает
+ * шаги хода (вызовы инструментов словами, lib/kuzmich/turn-steps) по мере
+ * работы цикла, а итог — тем же JSON, что без потока, последним событием.
+ * Текст ответа потоком не идёт: он уходит только после проверок.
+ */
 export async function POST(request: NextRequest) {
+  if (!(request.headers.get('accept') ?? '').includes('text/event-stream')) return handleChat(request);
+  const encoder = new TextEncoder();
+  // Человек нажал «Остановить» — поток закрыт, но ход доделывается и пишется
+  // в историю: запись шага в закрытый поток не должна уронить цикл Кузьмича.
+  let closed = false;
+  const stream = new ReadableStream({
+    async start(controller) {
+      const send = (e: ChatStreamEvent) => {
+        if (closed) return;
+        try { controller.enqueue(encoder.encode(sseEvent(e))); } catch (err) { closed = true; logSwallowedFailure('ai-chat', 'запись в поток шагов', err); }
+      };
+      try {
+        const res = await handleChat(request, (label) => send({ type: 'step', label }));
+        send({ type: 'final', status: res.status, body: await res.json() });
+      } catch (err) {
+        logSwallowedFailure('ai-chat', 'поток шагов', err);
+        send({ type: 'final', status: 500, body: { success: false, error: 'Внутренняя ошибка сервера' } });
+      } finally {
+        if (!closed) {
+          closed = true;
+          try { controller.close(); } catch (err) { logSwallowedFailure('ai-chat', 'закрытие потока шагов', err); }
+        }
+      }
+    },
+    cancel() { closed = true; },
+  });
+  return new Response(stream, {
+    headers: { 'Content-Type': 'text/event-stream', 'Cache-Control': 'no-cache', 'X-Accel-Buffering': 'no' },
+  });
+}
+
+async function handleChat(request: NextRequest, onStep?: (label: string) => void): Promise<Response> {
   const ip = getClientIp(request.headers);
   if (!chatRateLimiter.check(ip)) {
     return NextResponse.json(
@@ -454,7 +493,7 @@ export async function POST(request: NextRequest) {
     // read-only — безопасны без авторизации. До этого анонимы (основной
     // трафик) получали one-shot LLM без каких-либо safety-инструментов.
     // Журнал инструментов хода — для сверки утверждений о безопасности (#2300).
-    const webToolRuns: ToolRun[] = [];
+    const webToolRuns: ToolRun[] = onStep ? observedToolRuns<ToolRun>(onStep) : [];
     const webProvenance: { provider?: string } = {};
     const webTiming = newLoopTiming();
     let loopAnswered = false;

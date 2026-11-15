@@ -1,7 +1,8 @@
 'use client';
 
 import { TURN_STOPPED_TEXT, isAbortError } from '@/lib/kuzmich/turn-control';
-import { StopTurnButton, RetryTurnButton } from '@/components/kuzmich/TurnControls';
+import { StopTurnButton, RetryTurnButton, TurnSteps } from '@/components/kuzmich/TurnControls';
+import { readChatAnswer } from '@/lib/kuzmich/turn-steps';
 import { isImeKeyEvent } from '@/lib/ui/ime';
 import ChatText from '@/components/kuzmich/ChatText';
 import React, { useState, useRef, useEffect, useCallback, useId } from 'react';
@@ -225,6 +226,8 @@ export default function KuzmichWidget() {
   // «Остановить» (#3412, п. 3): обрывает ожидание ответа этого хода.
   const abortRef = useRef<AbortController | null>(null);
   const [asking, setAsking] = useState('');
+  // Шаги хода (#3412, п. 4): вызовы инструментов словами, по мере работы.
+  const [steps, setSteps] = useState<string[]>([]);
   const inputRef = useRef<HTMLInputElement>(null);
   const fileRef = useRef<HTMLInputElement>(null);
 
@@ -298,6 +301,7 @@ export default function KuzmichWidget() {
     const controller = new AbortController();
     abortRef.current = controller;
     setAsking(text.trim());
+    setSteps([]);
 
     // Only send location if permission granted AND user is on-site (on Kamchatka)
     const geoPayload = (permissionState === 'granted' && location && mode === 'on-site')
@@ -308,7 +312,7 @@ export default function KuzmichWidget() {
       const res = await fetch('/api/ai/chat', {
         method: 'POST',
         signal: controller.signal,
-        headers: { 'Content-Type': 'application/json' },
+        headers: { 'Content-Type': 'application/json', Accept: 'text/event-stream' },
         body: JSON.stringify({
           message: text.trim() || 'Что на этом фото?',
           sessionId,
@@ -319,7 +323,7 @@ export default function KuzmichWidget() {
           ...utmRef.current,
         }),
       });
-      const data = await res.json() as {
+      const data = (await readChatAnswer(res, (label) => setSteps((prev) => [...prev, label]))).body as {
         data?: {
           answer?: string;
           tours?: Message['tours'];
@@ -533,6 +537,7 @@ export default function KuzmichWidget() {
                   <div className="bg-[var(--bg-hover)] rounded-xl rounded-bl-sm px-3 py-2 text-xs text-[var(--text-muted)] flex items-center gap-1.5">
                     <ThinkingText />
                   </div>
+                  <TurnSteps compact steps={steps} />
                   <StopTurnButton compact question={asking} onStop={() => abortRef.current?.abort()} />
                 </div>
               </div>

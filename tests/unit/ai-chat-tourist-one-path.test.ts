@@ -150,3 +150,34 @@ describe('запрет: зашитого id модели нет', () => {
     expect(route).not.toMatch(/agents\/sdk\/tourist-tools/);
   });
 });
+
+describe('поток шагов (#3412, п. 4)', () => {
+  it('Accept: text/event-stream — шаги цикла словами по мере работы, итог тем же JSON; текста модели в шагах нет', async () => {
+    user.mockResolvedValue({ userId: 'u-1', role: 'tourist' });
+    loop.mockImplementation(async (
+      _text: string, _sys: string, _hist: unknown[], _extra: unknown[],
+      runs: Array<{ name: string; producedData: boolean; output?: string }>,
+    ) => {
+      runs.push({ name: 'get_guardian_context', producedData: true, output: 'Горелый: ЗЕЛЁНЫЙ' });
+      runs.push({ name: 'get_weather', producedData: true, output: 'ветер 5 м/с' });
+      runs.push({ name: 'get_weather', producedData: true, output: 'ветер 6 м/с' });
+      return 'На Горелом ветер 5 м/с.';
+    });
+    const { readChatAnswer } = await import('@/lib/kuzmich/turn-steps');
+    const res = await POST(new Request('http://localhost/api/ai/chat', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json', Accept: 'text/event-stream' },
+      body: JSON.stringify({ message: 'Какая погода на Горелом?' }),
+    }) as unknown as NextRequest);
+    expect(res.headers.get('content-type')).toContain('text/event-stream');
+    const raw = await res.clone().text();
+    const steps: string[] = [];
+    const out = await readChatAnswer(res, (s) => steps.push(s));
+    expect(steps).toEqual(['Проверяю обстановку и безопасность места', 'Смотрю погоду']);
+    expect(out.status).toBe(200);
+    expect((out.body as { data: { answer: string } }).data.answer).toContain('ветер 5 м/с');
+    // Шаги — только слова о действии: ни вывода инструментов, ни текста модели.
+    const stepEvents = raw.split('\n\n').filter((e) => e.includes('"type":"step"')).join('\n');
+    expect(stepEvents).not.toMatch(/ветер|ЗЕЛЁНЫЙ|Горел/);
+  });
+});
