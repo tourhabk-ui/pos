@@ -82,8 +82,13 @@ export async function POST(req: NextRequest) {
   if (session instanceof NextResponse) return session;
   const userId = session.userId;
 
+  // Битый JSON — ошибка запроса, а не сбой сборки (разбор 14.11, экран-15).
+  let rawBody: unknown;
+  try { rawBody = await req.json(); } catch {
+    return NextResponse.json({ success: false, error: 'Некорректный JSON' }, { status: 400 });
+  }
+
   try {
-    const rawBody = await req.json() as unknown;
 
     // If authenticated, merge saved preferences (request body wins)
     let mergedBody: unknown = rawBody;

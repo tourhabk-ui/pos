@@ -7,12 +7,14 @@ import { NextRequest, NextResponse } from 'next/server';
 import { z } from 'zod';
 import { requireAuth } from '@/lib/auth/middleware';
 import { agentMemory } from '@/lib/agents/memory/agent-memory';
+import { logSwallowedFailure } from '@/lib/observability/swallowed';
+import { MAX_ADULTS } from '@/lib/planner/party-limits';
 
 const PreferencesSchema = z.object({
   interests:    z.array(z.string()).min(1).max(20),
   fitnessLevel: z.string().min(1).max(50),
   budgetTier:   z.string().min(1).max(50),
-  adults:       z.number().int().min(1).max(20),
+  adults:       z.number().int().min(1).max(MAX_ADULTS),
 });
 
 export async function POST(req: NextRequest) {
@@ -21,8 +23,12 @@ export async function POST(req: NextRequest) {
 
   const userId = authResult.userId;
 
+  let body: unknown;
+  try { body = await req.json(); } catch {
+    return NextResponse.json({ success: false, error: 'Некорректный JSON' }, { status: 400 });
+  }
+
   try {
-    const body = await req.json() as unknown;
     const parsed = PreferencesSchema.parse(body);
 
     const value = {
@@ -50,8 +56,10 @@ export async function POST(req: NextRequest) {
         { status: 400 },
       );
     }
-    const msg = err instanceof Error ? err.message : 'Ошибка сохранения предпочтений';
-    return NextResponse.json({ success: false, error: msg }, { status: 500 });
+    // Текст исключения наружу не уходит (разбор 14.11, экран-17): у базы он
+    // называет таблицы и колонки. Причина — в лог.
+    logSwallowedFailure('planner-preferences', 'сохранение предпочтений', err);
+    return NextResponse.json({ success: false, error: 'Предпочтения не сохранились — попробуйте позже' }, { status: 500 });
   }
 }
 
@@ -70,7 +78,7 @@ export async function GET(req: NextRequest) {
 
     return NextResponse.json({ success: true, data: entry.value });
   } catch (err) {
-    const msg = err instanceof Error ? err.message : 'Ошибка получения предпочтений';
-    return NextResponse.json({ success: false, error: msg }, { status: 500 });
+    logSwallowedFailure('planner-preferences', 'чтение предпочтений', err);
+    return NextResponse.json({ success: false, error: 'Предпочтения не прочитались — попробуйте позже' }, { status: 500 });
   }
 }

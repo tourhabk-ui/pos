@@ -123,3 +123,14 @@ describe('/api/planner/recommend — взрослых до 30, как в чат�
     expect(recommendTrip).not.toHaveBeenCalled();
   });
 });
+
+describe('/api/planner/recommend — битый JSON (разбор 14.11, экран-15)', () => {
+  it('400 «Некорректный JSON», движок не зовётся, не 500', async () => {
+    const res = await POST(new NextRequest('http://localhost/api/planner/recommend', {
+      method: 'POST', body: '{"interests": [', headers: { 'content-type': 'application/json', 'x-real-ip': '10.57.0.1', 'x-forwarded-for': '10.57.0.1' },
+    }));
+    expect(res.status).toBe(400);
+    expect((await res.json()).error).toBe('Некорректный JSON');
+    expect(recommendTrip).not.toHaveBeenCalled();
+  });
+});
