@@ -39,6 +39,8 @@
 import { describe, it, expect } from 'vitest';
 import { readFileSync } from 'node:fs';
 import { join } from 'node:path';
+import { KUZMICH_SYSTEM } from '@/lib/kuzmich/core';
+import { travelFactsBlock } from '@/lib/kuzmich/travel-facts';
 
 const SRC = readFileSync(join(process.cwd(), 'lib/kuzmich/core.ts'), 'utf8');
 
@@ -55,6 +57,26 @@ describe('промпт не требует того, чего нет в данн
 
   it('структура ответа тоже не требует факта из ниоткуда', () => {
     expect(SRC).toMatch(/один факт ИЗ ДАННЫХ \(нет такого — пропусти\)/);
+  });
+});
+
+// Слово владельца 15.11 «ответ 1» (#3382): промпт разрешал о реальных местах
+// «используй свои знания», и модель называла по памяти «25–30 км до
+// Паратунки» и сезон медведей, которых в данных не было. Рядом стояли четыре
+// расстояния без источника. Теперь о месте можно сказать, что это за место, а
+// расстояния, сезоны, цены и опасности — только из данных; числа дороги живут
+// в блоке с источником (lib/kuzmich/travel-facts).
+describe('о местах — факты из данных, не по памяти', () => {
+  it('промпт не разрешает отвечать о местах своими знаниями', () => {
+    expect(KUZMICH_SYSTEM).not.toMatch(/используй свои знания/i);
+    expect(KUZMICH_SYSTEM).not.toMatch(/Можешь рассказывать о .* и любых других/i);
+  });
+
+  it('в промпте нет расстояний: числа дороги приходят блоком с источником', () => {
+    expect(KUZMICH_SYSTEM).not.toMatch(/\d[\d\s.,–-]*\s*(?:км|километр)/i);
+    const block = travelFactsBlock('Сколько ехать до Паратунки?');
+    expect(block).toContain('- Паратунка: расстояние: 60 км по автодороге');
+    expect(block).toMatch(/\(источник: https:\/\/[^)]+\)/);
   });
 });
 
