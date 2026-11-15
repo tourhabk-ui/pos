@@ -103,7 +103,8 @@ describe('недобор назван словами', () => {
     expect(block).toContain('вне сезона');
     // Список «вне сезона» строится из сезонных окон и переводится тем же
     // словарём — ключей движка турист видеть не должен и здесь.
-    expect(block).toMatch(/months\.includes\(month\)/);
+    // С 14.11 — по каждому месяцу поездки, а не по месяцу прилёта.
+    expect(block).toMatch(/months\.every\(\(m\) => ACTIVITY_CONSTRAINTS\[i\]\.months\.includes\(m\)\)/);
     expect(block).toContain('ACTIVITY_NAMES');
   });
 });
