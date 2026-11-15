@@ -513,7 +513,8 @@ withPg('витрина /operators: факты о живых турах, кноп
            FROM partners WHERE slug = $1`, [SLUG],
       );
       expect(rows).toHaveLength(1);
-      expect(rows[0]).toMatchObject({ name: 'Андрей Запорожец', category: 'guide', profile_status: 'approved', is_verified: true, status: 'active', credits: 24, phone: null });
+      // 24 подписи завела 1338, ещё девять — снимки альбома Горелого (1446).
+      expect(rows[0]).toMatchObject({ name: 'Андрей Запорожец', category: 'guide', profile_status: 'approved', is_verified: true, status: 'active', credits: 33, phone: null });
       expect(JSON.stringify([rows[0].contact, rows[0].contacts])).not.toMatch(/\d{6,}|phone/);
       expect(await guideTours(rows[0].id)).toEqual(ALL_SLUGS);
     });
@@ -574,7 +575,7 @@ withPg('витрина /operators: факты о живых турах, кноп
       expect(operatorPagePath({ slug: card!.tour.operator_slug, is_public: card!.tour.operator_public })).toBe('/operators/andrey-zaporozhets');
     });
 
-    it('клипы Курильского (1340, 1399) и Горелого (1444): восемь по порядку у обоих туров Курильского, два у Горелого, у прочих туров гида — нет; повтор не затирает', async () => {
+    it('клипы Курильского (1340, 1399) и Горелого (1444, 1446): восемь по порядку у обоих туров Курильского, пять у Горелого, у прочих туров гида — нет; повтор не затирает', async () => {
       const { parseTourClips } = await import('@/lib/tours/tour-clips');
       const BASE = 'https://s3.example/bucket';
       const clipsOf = async (slug: string) => (await pool.query<{ video_clips: unknown }>(
@@ -600,8 +601,10 @@ withPg('витрина /operators: факты о живых турах, кноп
         expect(await clipsOf(slug), slug).toEqual([]);
       }
       // Горелый (1444, владелец 15.11 «я скачал видео, которое просил Андрей
-      // вставить в Горелый»): два клипа из ролика гида, по порядку.
-      expect(parseTourClips(await clipsOf('zaporozhets-vulkan-gorelyy'), BASE)).toEqual([
+      // вставить в Горелый»): два клипа из первого ролика гида; 1446 («адаптируй
+      // все его фото и видео») — три из второго, после них.
+      const gorelyClips = parseTourClips(await clipsOf('zaporozhets-vulkan-gorelyy'), BASE);
+      expect(gorelyClips.slice(0, 2)).toEqual([
         {
           url: `${BASE}/videos/zaporozhets/clip-gorely-slope-peaks.mp4`,
           poster: `${BASE}/videos/zaporozhets/clip-gorely-slope-peaks.poster.jpg`,
@@ -612,6 +615,11 @@ withPg('витрина /operators: факты о живых турах, кноп
           poster: `${BASE}/videos/zaporozhets/clip-gorely-crater-lake.poster.jpg`,
           label: 'Бирюзовое озеро со льдом в кратере',
         },
+      ]);
+      expect(gorelyClips.slice(2).map((c) => [c.url.slice(BASE.length), c.label])).toEqual([
+        ['/videos/zaporozhets/clip-gorely-sulfur-pit.mp4', 'Тёмный провал и сера на дне кратера'],
+        ['/videos/zaporozhets/clip-gorely-fumarole-steam.mp4', 'Пар над фумаролами в кратере'],
+        ['/videos/zaporozhets/clip-gorely-layered-walls.mp4', 'Слоистые стены кратера'],
       ]);
       // Свой выбор гида миграция не трогает: повтор с непустым списком — без изменений.
       const own = [{ key: 'videos/zaporozhets/own.mp4', poster: 'videos/zaporozhets/own.poster.jpg', label: 'Свой клип' }];
@@ -638,6 +646,58 @@ withPg('витрина /operators: факты о живых турах, кноп
       expect(parseTourClips(await clipsOf('zaporozhets-vulkan-gorelyy'), BASE).map((c) => c.label))
         .toEqual(['Свой клип', 'Красный шлак, снежник и горы вдали', 'Бирюзовое озеро со льдом в кратере']);
       expect((await pool.query(m1444)).rowCount ?? 0).toBe(0);
+      // 1446 повторно поверх: три клипа второго ролика — после первых трёх.
+      const m1446 = readFileSync(join(process.cwd(), 'migrations/1446_guide_gorely_album.sql'), 'utf8');
+      await pool.query(m1446);
+      expect(parseTourClips(await clipsOf('zaporozhets-vulkan-gorelyy'), BASE).map((c) => c.label)).toEqual([
+        'Свой клип', 'Красный шлак, снежник и горы вдали', 'Бирюзовое озеро со льдом в кратере',
+        'Тёмный провал и сера на дне кратера', 'Пар над фумаролами в кратере', 'Слоистые стены кратера',
+      ]);
+    });
+
+    it('альбом Горелого (1446): девять снимков после шести прежних, подпись автора — как у первого снимка, без неё новой нет; повтор ничего не меняет', async () => {
+      const { readFileSync } = await import('node:fs');
+      const { join } = await import('node:path');
+      const { tourPhotoCaptions } = await import('@/lib/tours/photo-credits');
+      const m1446 = readFileSync(join(process.cwd(), 'migrations/1446_guide_gorely_album.sql'), 'utf8');
+      const S3 = '/api/images/s3/photos/zaporozhets/';
+      const NEW = [
+        'gorely-crater-turquoise-lakes', 'gorely-crater-lakes-vertical', 'gorely-crater-depth', 'gorely-ice-lake-vertical',
+        'gorely-lava-cave', 'gorely-cave-ladder', 'gorely-distant-cone', 'gorely-rhododendron', 'gorely-animal-on-rock',
+      ].map((n) => `${S3}${n}.jpg`);
+      // Шесть снимков тура с 1338: пять Горелого и розовый рододендрон.
+      const OLD = ['gorely-crater-lake', 'gorely-crater-summer', 'gorely-crater-walls', 'gorely-caldera', 'gorely-blue-lake-snow', 'vilyuchinsky-rhododendron']
+        .map((n) => `${S3}${n}.jpg`);
+      const state = async () => (await pool.query<{ photos: string[]; credits: Record<string, string> | null }>(
+        `SELECT t.photos, p.gallery_credits AS credits
+           FROM operator_tours t JOIN partners p ON p.id = t.operator_id
+          WHERE t.slug = 'zaporozhets-vulkan-gorelyy'`,
+      )).rows[0]!;
+
+      const s = await state();
+      expect(s.photos).toEqual([...OLD, ...NEW]);
+      // Подпись к каждому новому снимку — та же, что у первого: на карточке тура
+      // у всех пятнадцати строка «Фото: …» одного автора.
+      const captions = tourPhotoCaptions(s.photos, s.credits);
+      expect(captions.every((c) => c !== null && c === captions[0])).toBe(true);
+
+      // Повтор: ни снимков, ни подписей, ни клипов не прибавилось.
+      const again = await pool.query(m1446) as unknown as Array<{ rowCount: number | null }>;
+      expect(again.map((r) => r.rowCount ?? 0)).toEqual([0, 0, 0]);
+      expect((await state()).photos).toEqual([...OLD, ...NEW]);
+
+      // Свой снимок гида первым и без подписи: новые снимки дописываются после
+      // него, а подпись автора миграция не придумывает.
+      const own = '/api/images/s3/photos/zaporozhets/own-gorely.jpg';
+      await pool.query(`UPDATE operator_tours SET photos = ARRAY[$1]::text[] WHERE slug = 'zaporozhets-vulkan-gorelyy'`, [own]);
+      await pool.query(
+        `UPDATE partners p SET gallery_credits = COALESCE(p.gallery_credits, '{}'::jsonb) - $1::text[]
+           FROM operator_tours t WHERE t.slug = 'zaporozhets-vulkan-gorelyy' AND p.id = t.operator_id`, [NEW],
+      );
+      await pool.query(m1446);
+      const after = await state();
+      expect(after.photos).toEqual([own, ...NEW]);
+      expect(NEW.filter((u) => Object.prototype.hasOwnProperty.call(after.credits ?? {}, u))).toEqual([]);
     });
 
     it('выезды гида: Толбачик — его даты, Курильское — те же даты (1342), все по 12 мест (1410); Горелый — сезон без ежедневных мест; черновики не видны', async () => {
