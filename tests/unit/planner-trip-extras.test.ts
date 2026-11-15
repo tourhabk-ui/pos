@@ -22,6 +22,9 @@
  *               снимает её на модерации.
  */
 import { describe, it, expect, vi, beforeEach } from 'vitest';
+// Планер — только после входа (14.11, «6-3»): здесь проверяется сам роут,
+// вход держит tests/unit/planner-login-gate.test.tsx.
+vi.mock('@/lib/planner/require-session', () => ({ plannerSession: vi.fn(async () => ({ userId: 'u-planner' })) }));
 import { readFileSync } from 'node:fs';
 import { join } from 'node:path';
 import type { NextRequest } from 'next/server';
@@ -65,6 +68,7 @@ import { publicAccommodationSql } from '@/lib/stay/moderation';
 import { ZONE_IDS, sleepZoneOf } from '@/lib/planner/constants';
 import { POST as extrasRoute } from '@/app/api/planner/trip-extras/route';
 import { POST as createAccommodation } from '@/app/api/stay/accommodations/route';
+import { isPublicApiPath } from '@/lib/auth/public-api-routes';
 import { PATCH as adminDecide } from '@/app/api/admin/accommodations/[id]/route';
 import { PATCH as ownerPatch } from '@/app/api/accommodations/[id]/route';
 
@@ -356,8 +360,8 @@ describe('POST /api/planner/trip-extras', () => {
     expect((await extras({ needs: { lodging: true }, days: [{ day: 1, type: 'arrival', zone: 'southern' }] })).status).toBe(400);
   });
 
-  it('публичный на Edge — и потому с лимитером', () => {
-    expect(read('lib/auth/public-api-routes.ts')).toMatch(/'\/api\/planner\/trip-extras':\s+\['POST'\]/);
+  it('закрыт на Edge — планер только после входа (14.11, «6-3»); лимитер остаётся', () => {
+    expect(isPublicApiPath('/api/planner/trip-extras', 'POST')).toBe(false);
     expect(read('app/api/planner/trip-extras/route.ts')).toMatch(/createRateLimiter/);
   });
 });

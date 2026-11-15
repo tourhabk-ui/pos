@@ -25,6 +25,7 @@ import { createRateLimiter, getTrustedClientIp } from '@/lib/rate-limit';
 import { redactPII } from '@/lib/security/pii-redact';
 import { logSwallowedFailure } from '@/lib/observability/swallowed';
 import { withSosBlock, buildSosBlock, detectEmergency } from '@/lib/safety/sos-detector';
+import { plannerSession } from '@/lib/planner/require-session';
 
 export const dynamic = 'force-dynamic';
 
@@ -64,6 +65,19 @@ export async function POST(req: NextRequest) {
   }
 
   const { message, context } = parsed.data;
+
+  // Ответ модели — только после входа (слово владельца 14.11 «6-3»). Но
+  // человек в ЧП получает телефоны и без входа, и с истёкшей сессией: признак
+  // беды проверяется раньше входа, модель при этом не зовётся. Поэтому адрес
+  // остаётся в реестре публичных (lib/auth/public-api-routes).
+  const session = await plannerSession(req);
+  if (session instanceof NextResponse) {
+    const detection = detectEmergency(message);
+    if (detection.detected) {
+      return NextResponse.json({ success: true, reply: buildSosBlock(detection.categories), emergency: true });
+    }
+    return session;
+  }
 
   // В модель — только очищенный текст: телефон или почта, вписанные в
   // вопрос или пришедшие в контексте, за рубеж не уходят.

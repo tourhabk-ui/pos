@@ -19,6 +19,9 @@
  * номер уходил модели дословно. Случаи ниже — с числами вокруг номера.
  */
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
+// Планер — только после входа (14.11, «6-3»): здесь проверяется сам роут,
+// вход держит tests/unit/planner-login-gate.test.tsx.
+vi.mock('@/lib/planner/require-session', () => ({ plannerSession: vi.fn(async () => ({ userId: 'u-planner' })) }));
 import { NextRequest } from 'next/server';
 
 type Msg = { role: string; content: string };

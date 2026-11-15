@@ -6,6 +6,7 @@
  */
 
 import { NextRequest, NextResponse } from 'next/server';
+import { plannerSession } from '@/lib/planner/require-session';
 import { z } from 'zod';
 import {
   ZONE_GRAPH,
@@ -71,6 +72,9 @@ function isActive(d: z.infer<typeof DaySchema>): boolean {
 }
 
 export async function POST(req: NextRequest) {
+  // Только после входа (слово владельца 14.11 «6-3»): lib/planner/require-session.
+  const session = await plannerSession(req);
+  if (session instanceof NextResponse) return session;
   if (!validateLimiter.check(getClientIp(req.headers))) {
     return NextResponse.json({ success: false, error: 'Слишком много запросов' }, { status: 429 });
   }

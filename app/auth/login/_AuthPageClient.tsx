@@ -12,6 +12,7 @@ import MaxLoginButton from './_MaxLoginButton';
 import { loadReferral, forgetReferral } from '@/lib/referral/link';
 import { safePartnerOAuthReturn } from '@/lib/crm/partner-oauth-public';
 import { safeTeamJoinReturn } from '@/lib/operators/team-join-path';
+import { safePlannerReturn } from '@/lib/planner/login-gate';
 import { validatePassword, PASSWORD_RULE_HINT } from '@/lib/auth/password-rule';
 import { agentRoleOpen } from '@/lib/auth/agent-role';
 
@@ -36,9 +37,9 @@ export default function AuthPageClient() {
 
   const [mode, setMode] = useState<Mode>('login');
   // Куда вернуть после входа. Узко: экран согласия OAuth MCP партнёра
-  // (подключение Claude к CRM) и страница приглашения в команду оператора
-  // (CRM 2г) — открытого перенаправления быть не может, всё прочее ведёт в
-  // кабинет, как раньше.
+  // (подключение Claude к CRM), страница приглашения в команду оператора
+  // (CRM 2г) и планер (с 14.11 он открывается только после входа) —
+  // открытого перенаправления быть не может, всё прочее ведёт в кабинет.
   const [returnTo, setReturnTo] = useState<string | null>(null);
   // /auth/login?mode=register — прямая дорога к регистрации аккаунта (с
   // /register, где регистрируют маршрут в МЧС, #1780). Читается после
@@ -47,7 +48,7 @@ export default function AuthPageClient() {
     const search = new URLSearchParams(window.location.search);
     if (search.get('mode') === 'register') setMode('register');
     const next = search.get('next');
-    setReturnTo(safePartnerOAuthReturn(next) ?? safeTeamJoinReturn(next));
+    setReturnTo(safePartnerOAuthReturn(next) ?? safeTeamJoinReturn(next) ?? safePlannerReturn(next));
   }, []);
   const [userType, setUserType] = useState<UserType>('tourist');
   const [loading, setLoading] = useState(false);
@@ -236,7 +237,7 @@ export default function AuthPageClient() {
       // Полная загрузка, а не router.push: AuthContext держит user=null и
       // закэшированное «гость» — клиентский переход приводил в кабинет, и
       // его страж тут же отправлял на /auth/login?from=… (20.10, прод).
-      window.location.assign(safeTeamJoinReturn(returnTo) ?? ROLE_HUB[primaryRole] ?? '/hub/tourist');
+      window.location.assign(safeTeamJoinReturn(returnTo) ?? safePlannerReturn(returnTo) ?? ROLE_HUB[primaryRole] ?? '/hub/tourist');
     } catch (err) {
       showRegisterError(
         err instanceof TypeError

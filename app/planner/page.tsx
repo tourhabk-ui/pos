@@ -4,29 +4,39 @@ import { cookies } from 'next/headers';
 import { verifySessionToken } from '@/lib/auth/jwt';
 import { Header } from '@/components/layout/Header';
 import { PlannerClient } from './_PlannerClient';
+import { PlannerLoginGate } from '@/components/planner/PlannerLoginGate';
 
 export const metadata: Metadata = {
   alternates: { canonical: '/planner' },
   title: 'Конструктор маршрута — Камчатка',
-  description: 'Постройте идеальный маршрут по Камчатке: выберите активности, получите AI-рекомендацию и настройте каждый день поездки.',
+  description: 'Постройте маршрут по Камчатке: выберите активности, получите план по дням и настройте каждый день поездки. План хранится в личном кабинете.',
+  // С 14.11 планер открывается только после входа (слово владельца «6-3»):
+  // поисковику страница показывает экран входа — индексировать нечего.
+  robots: { index: false, follow: true },
 };
 
 export default async function PlannerPage() {
   const cookieStore = await cookies();
   const token = cookieStore.get('auth_token')?.value ?? null;
   // Подпись И живая строка сессии (аудит 15.10, P3-01): по одной подписи
-  // вышедший ещё до 7 дней видел планер «вошедшим». Не смогли сверить —
-  // планер открывается гостем (это персонализация, не гейт: сохранение плана
-  // идёт через API с проверкой сессии), причина уже в логе checkSession.
+  // вышедший ещё до 7 дней видел планер «вошедшим».
+  //
+  // С 14.11 это гейт, а не персонализация (слово владельца «6-3»: без входа
+  // планер не работает; «6 хранить в лк»): план хранится в личном кабинете.
+  // Не смогли сверить сессию — планер не открывается, и сказано «не смогли
+  // проверить», а не «вы не вошли» (§4.0); причина уже в логе checkSession.
   const session = token ? await verifySessionToken(token) : null;
-  const initialUserId = session?.status === 'valid' ? session.payload.userId : null;
 
   return (
     <>
       <Header />
-      <Suspense>
-        <PlannerClient initialUserId={initialUserId} />
-      </Suspense>
+      {session?.status === 'valid' ? (
+        <Suspense>
+          <PlannerClient initialUserId={session.payload.userId} />
+        </Suspense>
+      ) : (
+        <PlannerLoginGate gate={session?.status === 'unchecked' ? 'unchecked' : 'sign_in'} />
+      )}
     </>
   );
 }

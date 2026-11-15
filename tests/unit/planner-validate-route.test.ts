@@ -5,7 +5,10 @@
  *
  * Судится ответ настоящего обработчика (CLAUDE.md §4).
  */
-import { describe, it, expect } from 'vitest';
+import { describe, it, expect, vi } from 'vitest';
+// Планер — только после входа (14.11, «6-3»): здесь проверяется сам роут,
+// вход держит tests/unit/planner-api-login.test.ts.
+vi.mock('@/lib/planner/require-session', () => ({ plannerSession: vi.fn(async () => ({ userId: 'u-planner' })) }));
 import { NextRequest } from 'next/server';
 import { POST } from '@/app/api/planner/validate/route';
 

@@ -8,6 +8,7 @@
  */
 
 import { NextRequest, NextResponse } from 'next/server';
+import { plannerSession } from '@/lib/planner/require-session';
 import { z } from 'zod';
 import { pool } from '@/lib/db-pool';
 import { publicTourSql } from '@/lib/tours/public-visibility';
@@ -40,6 +41,9 @@ interface PartnerRow {
 }
 
 export async function GET(req: NextRequest) {
+  // Только после входа (слово владельца 14.11 «6-3»): lib/planner/require-session.
+  const session = await plannerSession(req);
+  if (session instanceof NextResponse) return session;
   try {
     const { searchParams } = new URL(req.url);
     const parsed = QuerySchema.safeParse({ activity_type: searchParams.get('activity_type') ?? undefined });

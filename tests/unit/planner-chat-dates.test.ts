@@ -14,6 +14,9 @@ vi.mock('@/lib/ai/providers', () => ({
 vi.mock('@/lib/ai/agent-models', () => ({ getModelForAgent: () => null }));
 vi.mock('@/lib/ai/tourist-demand-aggregator', () => ({ recordTouristDemand: vi.fn() }));
 vi.mock('@/lib/db-pool', () => ({ pool: { query: vi.fn(async () => ({ rows: [] })) } }));
+// Планер — только после входа (14.11, «6-3»): здесь проверяется сам роут,
+// вход держит tests/unit/planner-api-login.test.ts.
+vi.mock('@/lib/planner/require-session', () => ({ plannerSession: vi.fn(async () => ({ userId: 'u-planner' })) }));
 
 import { POST } from '@/app/api/planner/chat/route';
 

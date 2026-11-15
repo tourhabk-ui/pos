@@ -12,6 +12,9 @@
  *    в Авачинской.
  */
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
+// Планер — только после входа (14.11, «6-3»): здесь проверяется сам роут,
+// вход держит tests/unit/planner-login-gate.test.tsx.
+vi.mock('@/lib/planner/require-session', () => ({ plannerSession: vi.fn(async () => ({ userId: 'u-planner' })) }));
 import React from 'react';
 import { render, screen, cleanup, within } from '@testing-library/react';
 import { NextRequest } from 'next/server';

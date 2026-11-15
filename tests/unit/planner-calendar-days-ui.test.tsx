@@ -160,6 +160,19 @@ const posted = (url: string) => {
   if (!call) throw new Error(`запроса ${url} не было`);
   return JSON.parse(String(call[1]!.body));
 };
+/**
+ * С 14.11 собранный план сам сохраняется в личный кабинет (POST /api/trips,
+ * слово владельца «6 хранить в лк»), и правки дней уходят кнопкой «Обновить
+ * маршрут» — PATCH той же поездки. Это и есть «сохранить» после правок.
+ */
+const TRIP_URL = '/api/trips/00000000-0000-4000-8000-000000000001';
+async function saveEdits(): Promise<Record<string, unknown>> {
+  await vi.waitFor(() => posted('/api/trips'));
+  const button = await screen.findByRole('button', { name: /Сохранено|Обновить маршрут/ });
+  fireEvent.click(button);
+  await vi.waitFor(() => posted(TRIP_URL));
+  return posted(TRIP_URL) as Record<string, unknown>;
+}
 const dateOf = (n: number) => new Date(Date.parse(`${ARRIVAL}T00:00:00Z`) + (n - 1) * 86_400_000).toISOString().slice(0, 10);
 
 describe('собрать → удалить день 3 → переставить → сохранить: одна дата у дня везде', () => {
@@ -202,14 +215,12 @@ describe('собрать → удалить день 3 → переставит�
     expect((estimate.textContent ?? '').replace(/ /g, ' ')).toContain('5 ночей — цену называет хозяин жилья');
 
     // Сохранить: номера подряд, порядок экрана; у переехавшего тура нет мест прежней даты.
-    fireEvent.click(screen.getByRole('button', { name: /Сохранить/ }));
-    await vi.waitFor(() => posted('/api/trips'));
-    const trip = posted('/api/trips') as { days: Array<{ day: number; title: string; availableDate?: string }>; arrivalDate: string; departureDate: string };
+    const trip = await saveEdits() as { days: Array<{ day: number; title: string; availableDate?: string }>; arrivalDate: string; departureDate: string; transportByDay: unknown };
     expect(trip.arrivalDate).toBe(ARRIVAL);
     expect(trip.departureDate).toBe('2030-08-06');
     expect(trip.days.map((d) => `${d.day}:${d.title}`)).toEqual(shown());
     expect(trip.days.find((d) => d.title === 'Авачинский вулкан')).not.toHaveProperty('availableDate');
-    expect(posted('/api/trips').transportByDay).toEqual({ 2: 'jeep' });
+    expect(trip.transportByDay).toEqual({ 2: 'jeep' });
     saved.days = trip.days;
 
     // Заявка оператору: дни календарные, дата дня — прилёт + номер − 1.
@@ -264,9 +275,7 @@ describe('добавить день', () => {
     fireEvent.click(screen.getByRole('button', { name: /Добавить день/ }));
     expect(shown()).toEqual(['1:Прилёт днём', '2:Авачинский вулкан', '3:Прогулка у океана', '4:Свободный день', '5:Сборы и вылет']);
     expect(screen.getByText(/Поездка стала на день длиннее: новый день 4, отъезд — 5 авг/)).toBeTruthy();
-    fireEvent.click(screen.getByRole('button', { name: /Сохранить/ }));
-    await vi.waitFor(() => posted('/api/trips'));
-    expect(posted('/api/trips').departureDate).toBe('2030-08-05');
+    expect((await saveEdits()).departureDate).toBe('2030-08-05');
   });
 });
 
