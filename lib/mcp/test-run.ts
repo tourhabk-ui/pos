@@ -167,12 +167,12 @@ export const WRITE_OUTPUT_SCHEMA = {
     },
     confirmation: {
       type: 'object',
-      description: 'Первый вызов заявки (#3399, lib/mcp/human-confirmation): заявка не создана, это черновик. Покажите его человеку; после его «да» повторите вызов с теми же полями, consent: true и confirmation: code',
+      description: 'Заявка не создана, это черновик (#3399): отдайте человеку url — на странице Ведара он сам нажмёт «Отправить»',
       properties: {
-        code: { type: 'string', description: 'Код подтверждения для второго вызова' },
-        expires_in_min: { type: 'integer', description: 'Сколько минут действует код' },
+        url: { type: 'string', description: 'Страница, где человек отправляет заявку; не открывайте её за человека' },
+        expires_in_min: { type: 'integer', description: 'Сколько минут действует ссылка' },
       },
-      required: ['code', 'expires_in_min'],
+      required: ['url', 'expires_in_min'],
     },
   },
   required: ['test', 'accepted', 'requests'],

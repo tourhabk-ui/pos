@@ -50,11 +50,14 @@ vi.mock('@/lib/db-pool', () => {
   return { pool: { query: q, connect: async () => ({ query: q, release: () => {} }) } };
 });
 
+// Отложенные заявки агента — в памяти: отправку «нажимает» тест за человека.
+vi.mock('@/lib/mcp/pending-request', async (orig) => (await import('../helpers/mcp-two-step')).memoryPendingModule(await orig()));
+
 import { POST } from '@/app/api/mcp/route';
 import { humanChatConfirm } from '@/lib/kuzmich/chat-request';
 import { runTripRequest } from '@/lib/agent/trip-request';
 import { requestConfirmNote, OPERATOR_NO_CHANNEL_MARK } from '@/lib/mcp/request-confirm-note';
-import { confirmationCodeOf, isDraft } from '../helpers/mcp-two-step';
+import { isDraft, sendAsHuman } from '../helpers/mcp-two-step';
 
 const DATE = new Date(Date.now() + 12 * 3_600_000 + 5 * 86_400_000).toISOString().slice(0, 10);
 const args = { tour: 'Мутновский', date: DATE, participants: 2, name: 'Тест', phone: '+79001234567', consent: true };
@@ -70,13 +73,18 @@ const textOf = async (a: Record<string, unknown>) => {
   return String(j.result?.content?.[0]?.text ?? j.error?.message ?? '');
 };
 /**
- * Заявка внешнего агента — в два вызова (lib/mcp/human-confirmation): первый —
- * черновик с кодом, второй с кодом — запись; итог передачи — в ответе второго.
+ * Заявку внешнего агента отправляет человек на /confirm (lib/mcp/pending-request):
+ * вызов агента — черновик со ссылкой, запись — нажатие человека; итог
+ * передачи — в исходе его отправки.
  */
+let pageIp = 0;
 const toolText = async () => {
   const draft = await textOf(args);
   expect(isDraft(draft), draft).toBe(true);
-  return textOf({ ...args, confirmation: confirmationCodeOf(draft) });
+  pageIp += 1;
+  const out = await sendAsHuman(draft, `10.0.4.${pageIp}`);
+  expect(out.kind).toBe('ok');
+  return out.kind === 'ok' ? out.text : '';
 };
 const RU = (t: string) => /RU: ([^]*?) EN:/.exec(t)?.[1] ?? '';
 

@@ -41,11 +41,11 @@ export function namesAllThree(answer: string): boolean {
 
 export const REQUEST_NEEDS_NOTE = {
   ru: 'Для заявки заранее спросите у человека три вещи: имя, телефон и согласие на обработку и передачу персональных данных. '
-    + 'Заявку вы создаёте сами, в два вызова: первый вернёт черновик и код — покажите его человеку; после его согласия повторите вызов с consent: true и confirmation. Без согласия заявка не создаётся.',
+    + 'Вызов инструмента заявку не отправляет: он вернёт черновик и ссылку — дайте ссылку человеку, на странице Ведара он сам отметит согласие и нажмёт «Отправить». Без этого заявки нет.',
   en: 'Before placing a request, ask the person for three things: their name, their phone number and their consent to the processing and transfer of personal data. '
-    + 'You create the request yourself in two calls: the first returns a draft and a code — show it to the person; after they agree, repeat the call with consent: true and confirmation. Without consent the request is not created.',
+    + 'The tool call does not send the request: it returns a draft and a link — give the link to the person; on the Vedar page they tick consent and press Send themselves. Without that there is no request.',
   zh: '提交申请前，请先向当事人确认三项：姓名、电话，以及是否同意处理和传输其个人数据。'
-    + '申请由您自行调用工具创建，分两次调用：第一次返回草稿和确认码——请给当事人看；对方同意后，带 consent: true 和 confirmation 再次调用。未经同意，申请不会被创建。',
+    + '调用工具不会发送申请：它返回草稿和链接——请把链接交给当事人，由其在 Vedar 页面上勾选同意并点击“发送”。否则申请不会被创建。',
 } as const;
 
 type Lang = keyof typeof REQUEST_NEEDS_NOTE;

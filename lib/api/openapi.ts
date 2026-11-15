@@ -527,7 +527,7 @@ export function buildOpenApiDocument(base: string): Json {
       properties: { kind: { const: 'data' }, data: ref('ToolCallData') },
     },
     ToolCallData: {
-      description: 'Один из публичных инструментов с его аргументами. Записывающие (create_lead, create_booking_request, create_stay_request, request_charter, create_car_rental_request) — заявки, которые подтверждает человек; в два вызова: черновик с кодом, затем consent: true и confirmation.',
+      description: 'Один из публичных инструментов с его аргументами. Записывающие (create_lead, create_booking_request, create_stay_request, request_charter, create_car_rental_request) — заявки, которые подтверждает человек; вызов даёт черновик и ссылку, отправляет человек на странице Ведара.',
       oneOf: toolNames.map((n) => ref(`ToolCall_${n}`)),
     },
     ...toolCalls,

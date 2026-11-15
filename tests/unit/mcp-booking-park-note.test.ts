@@ -54,9 +54,11 @@ vi.mock('@/lib/db-pool', () => {
     /COUNT\(\*\)/.test(sql) ? { rows: [{ a: '0', b: '0', c: '0' }] } : { rows: [] };
   return { pool: { query: q, connect: async () => ({ query: q, release: () => {} }) } };
 });
+// Отложенные заявки агента — в памяти: отправку «нажимает» тест за человека.
+vi.mock('@/lib/mcp/pending-request', async (orig) => (await import('../helpers/mcp-two-step')).memoryPendingModule(await orig()));
 
 import { POST } from '@/app/api/mcp/route';
-import { confirmationCodeOf, isDraft } from '../helpers/mcp-two-step';
+import { isDraft, sendAsHuman } from '../helpers/mcp-two-step';
 
 /** Дата через n дней по Камчатке (UTC+12). */
 const dayIso = (n: number) => new Date(Date.now() + 12 * 3_600_000 + n * 86_400_000).toISOString().slice(0, 10);
@@ -83,17 +85,21 @@ const text = async (r: Response) => {
 };
 
 /**
- * Заявка внешнего агента — в два вызова (lib/mcp/human-confirmation): первый
- * дошёл до записи — черновик, ничего не записано; второй с кодом — запись.
- * Возвращается ответ второго (или первого, если до записи он не дошёл).
+ * Заявку внешнего агента отправляет человек на /confirm (lib/mcp/pending-request):
+ * вызов агента дошёл до записи — черновик, ничего не записано; запись —
+ * нажатие человека. Возвращается исход его отправки (или ответ агенту, если
+ * до записи вызов не дошёл).
  */
+let sendIp = 0;
 async function send(a: Record<string, unknown>) {
   const before = [createLeadMock.mock.calls.length, createSeatMock.mock.calls.length];
   const first = await text(await POST(call(a)));
   if (!isDraft(first.text)) return first;
   expect(first.isError).toBe(false);
   expect([createLeadMock.mock.calls.length, createSeatMock.mock.calls.length]).toEqual(before);
-  return text(await POST(call({ ...a, consent: true, confirmation: confirmationCodeOf(first.text) })));
+  sendIp += 1;
+  const out = await sendAsHuman(first.text, `10.0.2.${sendIp}`);
+  return { isError: out.kind !== 'ok', text: out.kind === 'unknown_tool' ? out.message : out.text };
 }
 
 beforeEach(() => {

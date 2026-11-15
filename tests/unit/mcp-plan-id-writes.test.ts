@@ -60,15 +60,20 @@ vi.mock('@/lib/db-pool', () => ({
   pool: { query: (...a: unknown[]) => query(...a), connect: async () => ({ query: (...a: unknown[]) => query(...a), release: () => {} }) },
 }));
 
+// Отложенные заявки агента — в памяти: отправку «нажимает» тест за человека.
+vi.mock('@/lib/mcp/pending-request', async (orig) => (await import('../helpers/mcp-two-step')).memoryPendingModule(await orig()));
+
 import { POST } from '@/app/api/mcp/route';
-import { confirmationCodeOf, isDraft } from '../helpers/mcp-two-step';
+import { sendPendingRequest } from '@/lib/mcp/pending-confirm';
+import { confirmTokenOf, isDraft, sendAsHuman } from '../helpers/mcp-two-step';
 
 let ip = 0;
 /**
- * Заявка внешнего агента — в два вызова (lib/mcp/human-confirmation). Первый
- * вызов дошёл до записи — черновик: ничего не записано и не передано; тогда
- * второй вызов с кодом и согласием, и возвращается его ответ. Ответ до записи
- * (отказ по входу) кода не несёт и возвращается как есть.
+ * Заявку внешнего агента отправляет человек на /confirm (lib/mcp/pending-request,
+ * pending-confirm). Вызов агента дошёл до записи — черновик: ничего не
+ * записано и не передано; тогда «нажимает» человек, и возвращается исход его
+ * отправки. Ответ до записи (отказ по входу, свой код проката) ссылки не несёт
+ * и возвращается как есть.
  */
 async function call(name: string, args: Record<string, unknown>) {
   const written = () => [h.submitStay.mock.calls.length, h.createLead.mock.calls.length];
@@ -77,7 +82,9 @@ async function call(name: string, args: Record<string, unknown>) {
   if (!isDraft(first.text)) return first;
   expect(first.isError).toBe(false);
   expect(written()).toEqual(before);
-  return send(name, { ...args, consent: true, confirmation: confirmationCodeOf(first.text) });
+  ip += 1;
+  const out = await sendAsHuman(first.text, `10.32.${Math.floor(ip / 250)}.${ip % 250}`);
+  return { isError: out.kind !== 'ok', text: out.kind === 'unknown_tool' ? out.message : out.text };
 }
 async function send(name: string, args: Record<string, unknown>) {
   ip += 1;
@@ -115,16 +122,32 @@ beforeEach(() => {
   });
 });
 
-describe('план правили между черновиком и записью (ревью безопасности #3414)', () => {
-  it('ревизия плана сменилась — код не подходит, заявки нет, новый черновик', async () => {
+describe('план правили между черновиком и отправкой (ревью безопасности #3414)', () => {
+  const from = { ip: '10.33.0.1', userAgent: 'test-confirm-page' };
+
+  it('ревизия плана сменилась — отправки нет (plan_changed), заявки нет', async () => {
     const first = await send('create_stay_request', { ...PERSON, accommodation: 'Кутха', plan_id: PLAN });
     expect(isDraft(first.text)).toBe(true);
-    // edit_trip_plan между вызовами: тот же id, ревизия +1, другие даты.
-    h.loadDraft.mockResolvedValue({ kind: 'found', draft: { ...DRAFT, revision: 2 } });
-    const second = await send('create_stay_request', { ...PERSON, accommodation: 'Кутха', plan_id: PLAN, confirmation: confirmationCodeOf(first.text) });
-    expect(second.text).toMatch(/Код подтверждения не подходит к этим данным \(поля или план изменились\) — заявка не создана/);
-    expect(isDraft(second.text)).toBe(true);
     expect(h.submitStay).not.toHaveBeenCalled();
+    // edit_trip_plan между черновиком и нажатием: тот же id, ревизия +1, другие даты.
+    h.loadDraft.mockResolvedValue({ kind: 'found', draft: { ...DRAFT, revision: 2 } });
+    const sent = await sendPendingRequest(confirmTokenOf(first.text), from);
+    expect(sent).toEqual({ kind: 'plan_changed' });
+    expect(h.submitStay).not.toHaveBeenCalled();
+    expect(h.createLead).not.toHaveBeenCalled();
+  });
+
+  it('ревизия та же — заявка уходит с датами плана; второе нажатие той же ссылки ничего не пишет', async () => {
+    const first = await send('create_stay_request', { ...PERSON, accommodation: 'Кутха', plan_id: PLAN });
+    expect(isDraft(first.text)).toBe(true);
+    const sent = await sendPendingRequest(confirmTokenOf(first.text), from);
+    expect(sent).toMatchObject({ kind: 'sent', created: true });
+    expect(h.submitStay).toHaveBeenCalledTimes(1);
+    expect(h.submitStay.mock.calls[0]?.[0]).toMatchObject({ checkIn: '2027-07-10', checkOut: '2027-07-16', guests: 3 });
+    // Согласие — человека на странице, с его адресом, а не заявление агента.
+    expect((h.submitStay.mock.calls[0]?.[0] as { consent: Record<string, unknown> }).consent).toMatchObject({ source: 'request-page', ip: from.ip });
+    expect(await sendPendingRequest(confirmTokenOf(first.text), from)).toEqual({ kind: 'gone' });
+    expect(h.submitStay).toHaveBeenCalledTimes(1);
   });
 });
 

@@ -62,12 +62,14 @@ const CARRIER: CharterCarrier = {
   phone: '+79001112233', telegramHref: null, whatsappHref: null,
 } as unknown as CharterCarrier;
 vi.mock('@/lib/transfers/charter', () => ({ loadCharterCarriers: async () => [CARRIER] }));
+// Отложенные заявки агента — в памяти: отправку «нажимает» тест за человека.
+vi.mock('@/lib/mcp/pending-request', async (orig) => (await import('../helpers/mcp-two-step')).memoryPendingModule(await orig()));
 
 import { POST } from '@/app/api/mcp/route';
 import { implausiblePhone, normalizePhone } from '@/lib/mcp/normalize-phone';
 import { isTestKey, issueTestKey, WRITE_OUTPUT_SCHEMA } from '@/lib/mcp/test-run';
 import { PUBLIC_MCP_TOOLS, WRITE_TOOL_NAMES } from '@/lib/mcp/public-tools';
-import { confirmationCodeOf, isDraft } from '../helpers/mcp-two-step';
+import { confirmTokenOf, isDraft, sendAsHuman } from '../helpers/mcp-two-step';
 
 const TOUR = { id: 27, title: 'Сплав по реке Быстрая', operator_id: 'op-uuid-1', base_price: 13000, price_unit: 'person', nearest_free_date: null };
 const STAY_ID = '3b2551c7-ed5c-47c8-bb93-41ca6a278c1e';
@@ -85,7 +87,7 @@ async function call(name: string, args: Record<string, unknown>) {
     isError?: boolean; content: Array<{ text: string }>;
     structuredContent?: {
       test: boolean; accepted: number; requests: Array<{ tool: string; outcome: string; status_key: string | null; status_page: string | null; notify: unknown }>;
-      confirmation?: { code: string; expires_in_min: number };
+      confirmation?: { url: string; expires_in_min: number };
     };
   };
 }
@@ -200,50 +202,72 @@ describe('test: true — проверки как у заявки, ничего �
   });
 });
 
-describe('первый вызов без кода — черновик: ничего не записано и не отправлено (lib/mcp/human-confirmation)', () => {
+/** Отложенные заявки памяти-хранилища (tests/helpers/mcp-two-step). */
+async function pendingRows(): Promise<Map<string, { tool: string; args: Record<string, unknown>; via: string }>> {
+  const mod = await import('@/lib/mcp/pending-request') as unknown as { __rows: Map<string, { tool: string; args: Record<string, unknown>; via: string }> };
+  return mod.__rows;
+}
+
+describe('вызов агента — черновик и ссылка человеку: ничего не записано и не отправлено (lib/mcp/pending-request)', () => {
   for (const tool of Object.keys(ARGS)) {
-    it(`${tool}: черновик с кодом, ни записи, ни сообщения; код — тот же, что в тексте`, async () => {
+    it(`${tool}: черновик со ссылкой, ни записи, ни сообщения; ссылка — та же, что в тексте`, async () => {
       const r = await call(tool, { ...ARGS[tool], consent: false });
       expect(r.isError, r.content[0]?.text).toBeUndefined();
       const text = r.content[0]!.text;
       expect(isDraft(text), text).toBe(true);
       expect(r.structuredContent).toMatchObject({ test: false, accepted: 0, requests: [] });
-      expect(r.structuredContent?.confirmation?.code).toBe(confirmationCodeOf(text));
+      expect(r.structuredContent?.confirmation).toEqual({ url: `https://vedarai.ru/confirm#${confirmTokenOf(text)}`, expires_in_min: 60 });
       // Имя и телефон в черновик (он идёт в модель) не попадают.
       expect(text).not.toMatch(/Иван|Петров|9001234567/);
       nothingSent();
+      // Отложена заявка этого инструмента со входом mcp; согласие агента в
+      // неё не попадает — его даст человек на странице.
+      const row = (await pendingRows()).get(confirmTokenOf(text))!;
+      expect(row).toMatchObject({ tool, via: 'mcp' });
+      expect(row.args).not.toHaveProperty('consent');
     });
   }
+
+  it('прежний код подтверждения не принимается: вызов с confirmation — снова черновик, ничего не записано', async () => {
+    const r = await call('create_booking_request', { ...ARGS.create_booking_request, confirmation: 'abc.12345678.abcdefghijklmnopqrstuv' });
+    expect(r.isError, r.content[0]?.text).toBeUndefined();
+    expect(isDraft(r.content[0]!.text)).toBe(true);
+    expect(r.structuredContent).toMatchObject({ accepted: 0, requests: [] });
+    nothingSent();
+    // Код и в отложенную заявку не попадает: схемы заявок его не знают.
+    expect((await pendingRows()).get(confirmTokenOf(r.content[0]!.text))!.args).not.toHaveProperty('confirmation');
+  });
 });
 
 describe('настоящая заявка: ключ, страница и подписка — структурно', () => {
   it('create_booking_request: accepted 1, ключ и страница с ключом, подписки нет — null', async () => {
-    // Заявка в два вызова: черновик ничего не пишет, запись — второй, с кодом.
+    // Черновик агента ничего не пишет, запись — нажатие человека на /confirm.
     const draft = await call('create_booking_request', ARGS.create_booking_request);
     expect(draft.structuredContent).toMatchObject({ test: false, accepted: 0, requests: [] });
     nothingSent();
-    const code = confirmationCodeOf(draft.content[0]!.text);
-    const r = await call('create_booking_request', { ...ARGS.create_booking_request, confirmation: code });
-    expect(r.isError, r.content[0]?.text).toBeUndefined();
-    const s = r.structuredContent!;
+    const r = await sendAsHuman(draft.content[0]!.text, '10.8.250.1');
+    expect(r.kind, 'text' in r ? r.text : '').toBe('ok');
+    if (r.kind !== 'ok') return;
+    const s = r.structured as NonNullable<Awaited<ReturnType<typeof call>>['structuredContent']>;
     expect(s).toMatchObject({ test: false, accepted: 1 });
+    // У отправленной заявки ссылки на подтверждение нет: отправлять больше нечего.
+    expect(s).not.toHaveProperty('confirmation');
     const q = s.requests[0]!;
     expect(q).toMatchObject({ tool: 'create_booking_request', outcome: 'accepted', notify: null });
     expect(q.status_key).toMatch(/^[A-Za-z0-9_-]{32}$/);
     expect(q.status_page).toBe(`https://vedarai.ru/request-status#${q.status_key}`);
     // Тот же ключ — в тексте: структура не расходится с ответом.
-    expect(r.content[0]!.text).toContain(q.status_key!);
+    expect(r.text).toContain(q.status_key!);
     expect(createLeadMock).toHaveBeenCalledTimes(1);
+    // Согласие — человека на странице, с её адресом (#3399, п. 4).
+    expect(createLeadMock.mock.calls[0]![0].pd_consent).toMatchObject({ source: 'request-page', ip: '10.8.250.1' });
   });
 
-  it('код одноразовый: второй вызов с тем же кодом — не запись, а новый черновик (ревью #3414)', async () => {
+  it('ссылка одноразовая: второе «Отправить» той же ссылкой ничего не пишет (ревью #3414)', async () => {
     const draft = await call('create_booking_request', ARGS.create_booking_request);
-    const code = confirmationCodeOf(draft.content[0]!.text);
-    await call('create_booking_request', { ...ARGS.create_booking_request, confirmation: code });
+    await sendAsHuman(draft.content[0]!.text, '10.8.250.2');
     expect(createLeadMock).toHaveBeenCalledTimes(1);
-    const again = await call('create_booking_request', { ...ARGS.create_booking_request, confirmation: code });
-    expect(again.content[0]!.text).toMatch(/Код подтверждения уже использован — заявка не создана/);
-    expect(again.structuredContent).toMatchObject({ accepted: 0, requests: [] });
+    await expect(sendAsHuman(draft.content[0]!.text, '10.8.250.3')).rejects.toThrow('Отложенная заявка не забрана: gone');
     expect(createLeadMock).toHaveBeenCalledTimes(1);
   });
 

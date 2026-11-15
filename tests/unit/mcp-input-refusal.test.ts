@@ -70,6 +70,8 @@ const CARRIER = {
   phone: '+79001112233', telegramHref: null, whatsappHref: null,
 } as unknown as CharterCarrier;
 vi.mock('@/lib/transfers/charter', () => ({ loadCharterCarriers: async () => [CARRIER] }));
+// Отложенные заявки агента — в памяти: отправку «нажимает» тест за человека.
+vi.mock('@/lib/mcp/pending-request', async (orig) => (await import('../helpers/mcp-two-step')).memoryPendingModule(await orig()));
 
 import { POST } from '@/app/api/mcp/route';
 import {
@@ -78,7 +80,7 @@ import {
 } from '@/lib/mcp/input-refusal';
 import { NO_CONSENT_MESSAGE } from '@/lib/mcp/write-guard';
 import { validateToolArgs } from '@/lib/kuzmich/tool-schemas';
-import { confirmationCodeOf, isDraft } from '../helpers/mcp-two-step';
+import { isDraft, sendAsHuman } from '../helpers/mcp-two-step';
 
 const TOUR = { id: 27, title: 'Сплав по реке Быстрая', operator_id: 'op-uuid-1', base_price: 13000, price_unit: 'person', nearest_free_date: null };
 const STAY_ID = '3b2551c7-ed5c-47c8-bb93-41ca6a278c1e';
@@ -97,22 +99,36 @@ async function call(name: string, args: Record<string, unknown>) {
 }
 
 /**
- * Заявка внешнего агента — в два вызова (lib/mcp/human-confirmation): первый
- * дошёл до записи — черновик без ошибки и с кодом; ничего не записано.
+ * Заявку внешнего агента отправляет человек на /confirm (lib/mcp/pending-request,
+ * pending-confirm): вызов агента дошёл до записи — черновик без ошибки и со
+ * ссылкой; ничего не записано. Возвращает текст черновика.
  */
-async function draftCode(name: string, args: Record<string, unknown>): Promise<string> {
+async function draft(name: string, args: Record<string, unknown>): Promise<string> {
   const r = await call(name, args);
   expect(r.isError, r.text).toBe(false);
   expect(isDraft(r.text), r.text).toBe(true);
   expect(r.text).not.toContain('Request not created');
   nothingSent();
-  return confirmationCodeOf(r.text);
+  return r.text;
 }
-/** Второй вызов с кодом из черновика; `consent` — как передан. */
-async function confirmed(name: string, args: Record<string, unknown>, consent: unknown = true) {
-  const code = await draftCode(name, args);
-  return call(name, { ...args, consent, confirmation: code });
+/** «Отправить» человеком на странице: исход в форме ответа агенту. */
+async function humanSends(draftText: string) {
+  ip += 1;
+  const out = await sendAsHuman(draftText, `10.10.${Math.floor(ip / 250)}.${ip % 250}`);
+  return { isError: out.kind !== 'ok', text: out.kind === 'unknown_tool' ? out.message : out.text };
 }
+/** Черновик агента и отправка человеком. */
+async function confirmed(name: string, args: Record<string, unknown>) {
+  return humanSends(await draft(name, args));
+}
+/**
+ * Источник согласия у записанной заявки: у лида (заявка на тур, подбор,
+ * машина) — pd_consent, у заявки на жильё — колонка строки.
+ */
+const writtenConsentSources = () => [
+  ...createLeadMock.mock.calls.map(([p]) => (p.pd_consent as { source?: unknown } | null | undefined)?.source),
+  ...query.mock.calls.filter(([sql]) => /INSERT INTO stay_requests/.test(String(sql))).map(([, params]) => (params as unknown[])[9]),
+];
 
 const PERSON = { name: 'Иван Петров', phone: '+79001234567', consent: true };
 const DATE = inDays(30);
@@ -166,6 +182,10 @@ beforeEach(() => {
     if (/COUNT\(\*\)/.test(sql)) return { rows: [{ a: '0', b: '0', c: '0' }] };
     if (/FROM operator_tours/.test(sql)) return { rows: [TOUR] };
     if (/AS has_site/.test(sql)) return { rows: [{ id: STAY_ID, name: 'Кутха', has_site: false, has_rooms: false, has_phone: true }] };
+    // Отправка заявки на жильё человеком доходит до записи: объект принимает
+    // заявки, строка вставляется.
+    if (/price_per_night_from AS price_from/.test(sql)) return { rows: [{ name: 'Кутха', price_from: null, price_to: null, max_chat_id: null, telegram_chat_id: null }] };
+    if (/INSERT INTO stay_requests/.test(sql)) return { rows: [{ id: 'stay-req-1' }] };
     return { rows: [] };
   });
 });
@@ -314,16 +334,16 @@ describe('отказ называет всё разом и на двух язы�
       nothingSent();
     });
 
-    it(`${tool}: только consent: false — отказ с именем поля на двух языках, в журнале no_consent`, async () => {
-      // Первый вызов — черновик и при consent: false (согласие человек даёт,
-      // увидев черновик); второй, с кодом, но без согласия, — отказ.
-      const r = await confirmed(tool, { ...ARGS[tool], consent: false }, false);
-      expect(r.isError).toBe(true);
-      expect(r.text).toBe(NO_CONSENT_MESSAGE);
-      // До 13.11 отказ согласия ложился в журнал под общим write_guard —
-      // неотличимо от лимита заявок с адреса.
-      expect(await journalCode()).toBe('no_consent');
-      nothingSent();
+    it(`${tool}: только consent: false у агента — черновик, а не отказ; согласие даёт человек на странице`, async () => {
+      // Согласие агента ничего не решает (#3399, п. 4): вызов агента — черновик
+      // при любом consent, ничего не записано и никому не передано.
+      const text = await draft(tool, { ...ARGS[tool], consent: false });
+      expect(text).not.toBe(NO_CONSENT_MESSAGE);
+      expect(text).not.toContain('нет согласия на обработку персональных данных');
+      expect(writtenConsentSources()).toEqual([]);
+      // Запись — только «Отправить» человеком, и согласие записано как его.
+      await humanSends(text);
+      expect(writtenConsentSources()).toEqual(['request-page']);
     });
 
     it(`${tool}: годный номер и согласие — отказа нет`, async () => {
@@ -381,33 +401,44 @@ describe('отказ называет всё разом и на двух язы�
     nothingSent();
   });
 
-  it('«нет мест» на первом шаге — ответ без кода и без приписки о согласии: без согласия шаг и задуман', async () => {
+  it('«нет мест» у вызова агента — ответ без ссылки и без приписки о согласии: согласие даёт человек на странице', async () => {
     avail.remaining = 0;
     // «Нет мест» — ответ, а не отказ: заявка не создана, но это не ошибка входа.
     const r = await call('create_booking_request', { ...ARGS.create_booking_request, consent: false });
     expect(r.text).toMatch(/нет свободных мест — заявка не создана/);
     expect(isDraft(r.text)).toBe(false);
-    expect(r.text).not.toMatch(/confirmation: "/);
+    expect(r.text).not.toMatch(/\/confirm#/);
     expect(r.text).not.toContain('Also: no consent');
     expect(r.text).not.toContain('И ещё: нет согласия');
     nothingSent();
   });
 
-  it('«нет мест» на втором шаге при consent: false называет и согласие — второго отказа не будет', async () => {
-    // Черновик был (места были), к подтверждению места кончились.
-    const code = await draftCode('create_booking_request', { ...ARGS.create_booking_request, consent: false });
+  it('«нет мест» у пробы при consent: false называет и согласие — второго отказа не будет', async () => {
+    // Приписка — у ответа, который не черновик: проба без согласия, где дело
+    // кончилось до записи. Агент исправит дату и не упрётся вторым отказом.
     avail.remaining = 0;
-    const r = await call('create_booking_request', { ...ARGS.create_booking_request, consent: false, confirmation: code });
+    const r = await call('create_booking_request', { ...ARGS.create_booking_request, consent: false, test: true });
     expect(r.text).toMatch(/нет свободных мест — заявка не создана/);
     expect(r.text.endsWith(CONSENT_ALSO_NOTE)).toBe(true);
     // С согласием приписки нет.
-    const withConsent = await call('create_booking_request', { ...ARGS.create_booking_request, confirmation: code });
+    const withConsent = await call('create_booking_request', { ...ARGS.create_booking_request, test: true });
     expect(withConsent.text).toMatch(/нет свободных мест — заявка не создана/);
     expect(withConsent.text).not.toContain('Also: no consent');
     nothingSent();
   });
 
-  it('отказ по делу (тур не найден) на первом шаге — без кода и без приписки о согласии', async () => {
+  it('места кончились между черновиком и «Отправить» — «нет мест», заявки нет, приписки о согласии нет', async () => {
+    // Черновик был (места были), к отправке человеком места кончились:
+    // согласие человек дал на странице — о нём не говорится.
+    const text = await draft('create_booking_request', { ...ARGS.create_booking_request, consent: false });
+    avail.remaining = 0;
+    const r = await humanSends(text);
+    expect(r.text).toMatch(/нет свободных мест — заявка не создана/);
+    expect(r.text).not.toContain('Also: no consent');
+    nothingSent();
+  });
+
+  it('отказ по делу (тур не найден) у вызова агента — без ссылки и без приписки о согласии', async () => {
     query.mockImplementation(async (sql: string) => (/COUNT\(\*\)/.test(sql) ? { rows: [{ a: '0', b: '0', c: '0' }] } : { rows: [] }));
     const r = await call('create_booking_request', { ...ARGS.create_booking_request, tour: 'несуществующий тур', consent: false });
     expect(r.text).not.toContain('Request not created');
@@ -416,16 +447,25 @@ describe('отказ называет всё разом и на двух язы�
     nothingSent();
   });
 
-  it('отказ по делу (тур не найден) на втором шаге при consent: false называет и согласие', async () => {
-    const args = { ...ARGS.create_booking_request, tour: 'несуществующий тур' };
-    // Черновик был (тур нашёлся), к подтверждению тура не стало.
-    const code = await draftCode('create_booking_request', { ...args, consent: false });
+  it('отказ по делу (тур не найден) у пробы при consent: false называет и согласие', async () => {
+    const args = { ...ARGS.create_booking_request, tour: 'несуществующий тур', test: true };
     query.mockImplementation(async (sql: string) => (/COUNT\(\*\)/.test(sql) ? { rows: [{ a: '0', b: '0', c: '0' }] } : { rows: [] }));
-    const r = await call('create_booking_request', { ...args, consent: false, confirmation: code });
+    const r = await call('create_booking_request', { ...args, consent: false });
     expect(r.text).not.toContain('Request not created');
     expect(r.text.endsWith(CONSENT_ALSO_NOTE)).toBe(true);
-    const withConsent = await call('create_booking_request', { ...args, confirmation: code });
+    const withConsent = await call('create_booking_request', args);
     expect(withConsent.text).not.toContain('Also: no consent');
+    nothingSent();
+  });
+
+  it('тура не стало между черновиком и «Отправить» — заявки нет, приписки о согласии нет', async () => {
+    const args = { ...ARGS.create_booking_request, tour: 'несуществующий тур' };
+    // Черновик был (тур нашёлся), к отправке человеком тура не стало.
+    const text = await draft('create_booking_request', { ...args, consent: false });
+    query.mockImplementation(async (sql: string) => (/COUNT\(\*\)/.test(sql) ? { rows: [{ a: '0', b: '0', c: '0' }] } : { rows: [] }));
+    const r = await humanSends(text);
+    expect(r.text).not.toContain('Request not created');
+    expect(r.text).not.toContain('Also: no consent');
     nothingSent();
   });
 
@@ -434,6 +474,7 @@ describe('отказ называет всё разом и на двух язы�
     expect(r.isError, r.text).toBe(false);
     expect(r.text).not.toContain('Also: no consent');
     expect(createLeadMock).toHaveBeenCalledTimes(1);
+    expect(writtenConsentSources()).toEqual(['request-page']);
   });
 });
 

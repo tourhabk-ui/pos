@@ -83,11 +83,13 @@ describe('правило: когда приписка нужна', () => {
     expect(namesAllThree('需要姓名、电话和当事人的同意。')).toBe(true);
   });
 
-  it('каждая приписка называет все три вещи и consent: true', () => {
+  it('каждая приписка называет все три вещи и что заявку отправляет сам человек по ссылке (#3399, п. 4)', () => {
     for (const text of Object.values(REQUEST_NEEDS_NOTE)) {
       expect(namesAllThree(text)).toBe(true);
-      expect(text).toContain('consent: true');
     }
+    expect(REQUEST_NEEDS_NOTE.ru).toMatch(/ссылк[^.]*сам[^.]*«Отправить»/);
+    expect(REQUEST_NEEDS_NOTE.en).toMatch(/link[^.]*press Send themselves/);
+    expect(REQUEST_NEEDS_NOTE.zh).toContain('链接');
   });
 });
 

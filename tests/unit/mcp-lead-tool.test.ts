@@ -60,9 +60,12 @@ vi.mock('@/lib/db-pool', () => {
   return { pool: { query: q, connect: async () => ({ query: q, release: () => {} }) } };
 });
 
+// Отложенные заявки агента — в памяти: отправку «нажимает» тест за человека.
+vi.mock('@/lib/mcp/pending-request', async (orig) => (await import('../helpers/mcp-two-step')).memoryPendingModule(await orig()));
+
 import { NextRequest } from 'next/server';
 import { POST, GET } from '@/app/api/mcp/route';
-import { confirmationCodeOf, isDraft } from '../helpers/mcp-two-step';
+import { isDraft, sendAsHuman } from '../helpers/mcp-two-step';
 
 function rpc(method: string, params?: Record<string, unknown>) {
   return new Request('http://localhost/api/mcp', {
@@ -76,17 +79,21 @@ function rpc(method: string, params?: Record<string, unknown>) {
 type Rpc = (method: string, params: Record<string, unknown>) => Parameters<typeof POST>[0];
 
 /**
- * Заявка внешнего агента — в два вызова (lib/mcp/human-confirmation): первый —
- * черновик, createLead не зовётся; второй — с кодом из черновика. Возвращает
- * ответ второго вызова; `consent` второго — как передан (по умолчанию true).
+ * Заявку внешнего агента отправляет человек на /confirm (lib/mcp/pending-request,
+ * pending-confirm): вызов агента — черновик, createLead не зовётся; запись —
+ * только нажатием человека. Возвращает исход отправки человеком (адрес
+ * страницы — свой на отправку: лимит записи считает заявки по адресу).
  */
-async function twoStep(name: string, args: Record<string, unknown>, send: Rpc = rpc, consent: unknown = true) {
+let sendIpSeq = 0;
+const lastSendIp = () => `10.202.0.${sendIpSeq}`;
+async function twoStep(name: string, args: Record<string, unknown>, send: Rpc = rpc) {
   const first = await (await POST(send('tools/call', { name, arguments: args }))).json();
   const draft = first.result.content[0].text as string;
   expect(first.result.isError).toBeFalsy();
   expect(isDraft(draft)).toBe(true);
   expect(createLeadMock).not.toHaveBeenCalled();
-  return POST(send('tools/call', { name, arguments: { ...args, consent, confirmation: confirmationCodeOf(draft) } }));
+  sendIpSeq += 1;
+  return sendAsHuman(draft, lastSendIp());
 }
 
 beforeEach(() => {
@@ -119,18 +126,23 @@ describe('MCP create_lead', () => {
     expect(createLeadMock).not.toHaveBeenCalled();
   });
 
-  it('consent: false — отказ говорит про СОГЛАСИЕ, а не про схему', async () => {
-    // Два разных отказа намеренно различимы: «перечитай схему» и «спроси
-    // человека» — разные починки, и агент, которому сказали не то, будет
-    // повторять запрос, который не пройдёт никогда.
-    // Первый вызов — черновик и при consent: false (согласие даёт человек,
-    // увидев черновик); отказ — на втором, с кодом, но без согласия.
-    const res = await twoStep('create_lead', { ...withoutConsent, consent: false }, rpc, false);
-    const json = await res.json();
-    expect(json.result.isError).toBe(true);
-    expect(json.result.content[0].text).toContain('нет согласия на обработку персональных данных');
-    expect(json.result.content[0].text).not.toContain('нет поля consent');
+  it('consent: false у агента — черновик, а не отказ по схеме; согласие даёт человек на странице', async () => {
+    // Согласие заявлял агент (флагом, потом кодом) — теперь его даёт сам
+    // человек на /confirm (#3399, п. 4). Вызов агента — черновик при любом
+    // consent, и это не отказ «перечитай схему»: поле есть, схема в порядке.
+    const first = await (await POST(rpc('tools/call', { name: 'create_lead', arguments: { ...withoutConsent, consent: false } }))).json();
+    const draft = first.result.content[0].text as string;
+    expect(first.result.isError).toBeFalsy();
+    expect(isDraft(draft)).toBe(true);
+    expect(draft).not.toContain('нет поля consent');
     expect(createLeadMock).not.toHaveBeenCalled();
+    // Запись — только отправкой человека, и согласие записано как его.
+    sendIpSeq += 1;
+    const out = await sendAsHuman(draft, lastSendIp());
+    expect(out.kind).toBe('ok');
+    expect(createLeadMock).toHaveBeenCalledTimes(1);
+    const arg = createLeadMock.mock.calls[0][0] as { pd_consent: Record<string, unknown> };
+    expect(arg.pd_consent).toMatchObject({ source: 'request-page', ip: lastSendIp() });
   });
 
   it('валидная заявка уходит в общий createLead с source mcp', async () => {
@@ -142,16 +154,17 @@ describe('MCP create_lead', () => {
       // policy v3 (07.09): без согласия на обработку ПД заявка не создаётся.
       consent: true,
     });
-    const json = await res.json();
-    expect(json.result.isError).toBeUndefined();
-    expect(json.result.content[0].text).toContain('Заявка принята');
+    expect(res.kind).toBe('ok');
+    expect((res as { text: string }).text).toContain('Заявка принята');
     expect(createLeadMock).toHaveBeenCalledTimes(1);
     const arg = createLeadMock.mock.calls[0][0] as Record<string, unknown>;
     // Аудит 08.08: телефон нормализуется к +7XXXXXXXXXX до создания лида.
     expect(arg.phone).toBe('+79000000000');
     expect(arg.comment).toContain('Толбачик');
     expect(arg.source_url).toBe('mcp://vedar');
+    // Вход заявки — mcp (откуда пришла), согласие — человека на странице.
     expect((arg.source_data as Record<string, unknown>).source).toBe('mcp');
+    expect(arg.pd_consent).toMatchObject({ source: 'request-page', ip: lastSendIp() });
   });
 
   it('без телефона — isError, createLead не вызывается', async () => {
@@ -196,8 +209,7 @@ describe('create_trip_request: часть менеджеру — часть по
       name: 'Иван', phone: '+7 900 000-00-00', consent: true, participants: '2',
       lodging: 'на подбор', check_in: '2027-07-10', check_out: '2027-07-14',
     }, rpcFrom);
-    const json = await res.json();
-    expect(json.result.isError).toBeFalsy();
+    expect(res.kind).toBe('ok');
     expect(createLeadMock).toHaveBeenCalledTimes(1);
     const arg = createLeadMock.mock.calls[0][0] as { source_data: Record<string, unknown>; skip_ai_processing: boolean };
     expect(arg.source_data).toMatchObject({ source: 'mcp', kind: 'trip_manager', trip_parts: ['stay'] });
@@ -214,8 +226,7 @@ describe('create_trip_request: часть менеджеру — часть по
 
   it('заказ машины через create_lead уходит менеджеру без подбора туров моделью', async () => {
     const res = await twoStep('create_lead', { name: 'Иван', phone: '+7 900 000-00-02', comment: 'Нужны две вахтовки на Горелый 12.07, нас шестеро', consent: true }, rpcFrom);
-    const json = await res.json();
-    expect(json.result.isError).toBeFalsy();
+    expect(res.kind).toBe('ok');
     const arg = createLeadMock.mock.calls[0][0] as { source_data: Record<string, unknown>; skip_ai_processing: boolean };
     expect(arg.skip_ai_processing).toBe(true);
     expect(arg.source_data.kind).toBeUndefined();

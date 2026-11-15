@@ -43,11 +43,14 @@ vi.mock('@/lib/notifications/lead-notify', async (orig) => ({
   notifyPartnerNewLeadPersonally: vi.fn(async () => ({ state: 'no_channel' })),
 }));
 
+// Отложенные заявки агента — в памяти: отправку «нажимает» тест за человека.
+vi.mock('@/lib/mcp/pending-request', async (orig) => (await import('../helpers/mcp-two-step')).memoryPendingModule(await orig()));
+
 import { POST } from '@/app/api/mcp/route';
 import { PUBLIC_MCP_TOOLS } from '@/lib/mcp/public-tools';
 import { GUARDIAN_OUTPUT_SCHEMA } from '@/lib/mcp/place-status-schema';
 import { WRITE_OUTPUT_SCHEMA } from '@/lib/mcp/test-run';
-import { confirmationCodeOf, isDraft } from '../helpers/mcp-two-step';
+import { isDraft, sendAsHuman } from '../helpers/mcp-two-step';
 import { placeStatusFields } from '@/lib/safety/place-day-status';
 import { TOUR_PLACE_NOT_READ_NOTE } from '@/lib/safety/tour-place-status';
 import { getGuardianContextDetailed } from '@/lib/kuzmich/guardian-context';
@@ -307,21 +310,22 @@ describe('create_booking_request: статус места строкой и по
 
   it('настоящая заявка к закрытому месту: принята, и закрытие названо', async () => {
     tourPlace = tp({ tp_is_open: false, tp_status: 'yellow' });
-    // Заявка внешнего агента — в два вызова (lib/mcp/human-confirmation):
-    // черновик ничего не пишет, запись — второй вызов с кодом.
+    // Заявку внешнего агента отправляет человек на /confirm
+    // (lib/mcp/pending-request): черновик ничего не пишет, запись — его нажатие.
     const draft = await call('create_booking_request', ARGS);
     expect(draft.isError, draft.content[0]?.text).toBeUndefined();
     expect(isDraft(draft.content[0]!.text)).toBe(true);
     expect(createLeadMock).not.toHaveBeenCalled();
     expect(draft.structuredContent?.accepted).toBe(0);
     expect(validWrite(draft.structuredContent), JSON.stringify(validWrite.errors)).toBe(true);
-    const r = await call('create_booking_request', { ...ARGS, confirmation: confirmationCodeOf(draft.content[0]!.text) });
-    expect(r.isError, r.content[0]?.text).toBeUndefined();
+    const r = await sendAsHuman(draft.content[0]!.text, '10.9.250.1');
+    expect(r.kind, 'text' in r ? r.text : '').toBe('ok');
+    if (r.kind !== 'ok') return;
     expect(createLeadMock).toHaveBeenCalledTimes(1);
-    expect(r.content[0]!.text).toMatch(/Заявка оператору принята/);
-    expect(r.content[0]!.text).toMatch(/сегодня отмечено ЗАКРЫТЫМ \(статус для выхода ЖЁЛТЫЙ\)/);
-    expect(r.structuredContent?.accepted).toBe(1);
-    expect(validWrite(r.structuredContent), JSON.stringify(validWrite.errors)).toBe(true);
+    expect(r.text).toMatch(/Заявка оператору принята/);
+    expect(r.text).toMatch(/сегодня отмечено ЗАКРЫТЫМ \(статус для выхода ЖЁЛТЫЙ\)/);
+    expect(r.structured?.accepted).toBe(1);
+    expect(validWrite(r.structured), JSON.stringify(validWrite.errors)).toBe(true);
   });
 
   it('тур без расписания (запрос мест): строка о месте тоже доходит', async () => {

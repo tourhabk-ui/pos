@@ -62,9 +62,12 @@ const CARRIER: CharterCarrier = {
   phone: '+79001112233', telegramHref: null, whatsappHref: null,
 } as unknown as CharterCarrier;
 vi.mock('@/lib/transfers/charter', () => ({ loadCharterCarriers: async () => [CARRIER] }));
+// Отложенные заявки агента — в памяти: отправку «нажимает» тест за человека.
+vi.mock('@/lib/mcp/pending-request', async (orig) => (await import('../helpers/mcp-two-step')).memoryPendingModule(await orig()));
 import { POST } from '@/app/api/mcp/route';
 import { WRITE_OUTPUT_SCHEMA } from '@/lib/mcp/test-run';
-import { confirmationCodeOf, isDraft } from '../helpers/mcp-two-step';
+import type { PublicToolOutcome } from '@/lib/mcp/tool-outcome';
+import { isDraft, sendAsHuman } from '../helpers/mcp-two-step';
 import { BOOKING_OFFERS_TIMEOUT_MS } from '@/lib/mcp/booking-closed-date';
 import { DATE_CLOSED_BY_PLATFORM_SQL } from '@/lib/tours/date-closure';
 
@@ -74,11 +77,16 @@ const DATE = inDays(40);
 
 let ip = 0;
 type Result = { isError?: boolean; content: Array<{ text: string }>; structuredContent?: Record<string, unknown> };
+/** Исход отправки человеком — в форме результата tools/call (как переводит POST). */
+function asResult(out: PublicToolOutcome): Result {
+  if (out.kind === 'ok') return { content: [{ text: out.text }], ...(out.structured ? { structuredContent: out.structured } : {}) };
+  return { isError: true, content: [{ text: out.kind === 'unknown_tool' ? out.message : out.text }] };
+}
 /**
- * Заявка внешнего агента — в два вызова (lib/mcp/human-confirmation). Первый
- * вызов дошёл до записи — черновик: ничего не записано, к нему код; тогда
- * второй вызов с кодом и согласием, и возвращается его ответ. Ответ до записи
- * (отказ, проба) кода не несёт и возвращается как есть.
+ * Заявку внешнего агента отправляет человек на /confirm (lib/mcp/pending-request,
+ * pending-confirm). Вызов агента дошёл до записи — черновик: ничего не
+ * записано, к нему ссылка; тогда «нажимает» человек, и возвращается исход его
+ * отправки. Ответ до записи (отказ, проба) ссылки не несёт и возвращается как есть.
  */
 async function call(args: Record<string, unknown>): Promise<Result> {
   const written = () => [createLeadMock.mock.calls.length, seatRequestMock.mock.calls.length];
@@ -90,7 +98,8 @@ async function call(args: Record<string, unknown>): Promise<Result> {
   expect(first.structuredContent).toMatchObject({ test: false, accepted: 0, requests: [] });
   expect(new Ajv({ strict: false }).validate(WRITE_OUTPUT_SCHEMA, first.structuredContent)).toBe(true);
   expect(written()).toEqual(before);
-  return send({ ...args, consent: true, confirmation: confirmationCodeOf(text) });
+  ip += 1;
+  return asResult(await sendAsHuman(text, `10.13.${Math.floor(ip / 250)}.${ip % 250}`));
 }
 async function send(args: Record<string, unknown>): Promise<Result> {
   ip += 1;
