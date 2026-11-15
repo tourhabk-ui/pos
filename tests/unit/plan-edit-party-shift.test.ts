@@ -264,6 +264,18 @@ describe('сдвиг дат и строки безопасности дня', ()
     expect(r.plan.days[1].dayWarnings).toEqual([offeringSentence(ended)]);
     expect(r.warnings).toContain(MCHS_UNREAD_NOTE);
   });
+
+  // Разбор планера 14.11 (Кузьмич/MCP-2): сводка МЧС — в ответе каждой правки,
+  // а не только сдвигающей начало поездки.
+  it('правка без сдвига дат (удалить день) — сводка МЧС в ответе и строка на дне', async () => {
+    const fresh: ActiveWarning = { kind: 'volcano', place: 'Авачинский', stems: ['авачин'], period: 'до 30.08', sourceUrl: null, relevantUntil: '2027-08-30' };
+    mchs = [fresh];
+    const r = await applyPlanEdit(plan(), { kind: 'remove_day', day: 5 }, deps());
+    if (!r.ok) throw new Error(r.reason);
+    expect(r.warnings?.some((w) => w.startsWith('МЧС: не приближаться к вулканам Авачинский'))).toBe(true);
+    const ava = r.plan.days.find((d) => d.title === 'Авачинский вулкан');
+    expect(ava?.dayWarnings).toContain(offeringSentence(fresh));
+  });
 });
 
 describe('replace_day — замена дня', () => {

@@ -119,7 +119,23 @@ describe('MCP: план по plan_id', () => {
     expect(a.kind === 'attached' && a.facts).toEqual({
       arrivalDate: '2027-08-02', departureDate: '2027-08-06', people: 3,
       tourDates: { '11': '2027-08-03', '41': '2027-08-05' },
+      tourDateNotes: {}, tourNoFree: {},
     });
+  });
+
+  // Разбор планера 14.11 (Кузьмич/MCP-1): дата заявки — не день плана, где у
+  // тура мест нет, а его ближайшая свободная дата; нет её — дата не берётся.
+  it('факты плана: в день плана мест нет — ближайшая свободная дата или ничего', async () => {
+    const days = DAYS.map((d) => d.realTour?.tourId === '11' ? { ...d, availability: 'none' as const, availableDate: '2027-08-04' }
+      : d.realTour?.tourId === '41' ? { ...d, availability: 'none' as const } : d);
+    DRAFT = { kind: 'found', draft: { id: ID, revision: 1, days, params: {
+      interests: ['fishing'], arrivalDate: '2027-08-02', departureDate: '2027-08-06', adults: 2, children: [6], budgetTier: 'comfort',
+    } } };
+    const a = await planFromDraft(ID);
+    if (a.kind !== 'attached') throw new Error(a.kind);
+    expect(a.facts.tourDates).toEqual({ '11': '2027-08-04' });
+    expect(a.facts.tourDateNotes['11']).toBe('дата тура — 2027-08-04: в день плана 2027-08-03 мест нет, взята ближайшая свободная');
+    expect(a.facts.tourNoFree).toEqual({ '41': '2027-08-05' });
   });
 
   it('плана нет — заявка без плана, и агент это слышит', async () => {

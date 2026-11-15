@@ -35,6 +35,7 @@ import { parsePlanStart, rangeDays, planStartRefusal, type PlanStart } from '@/l
 import { planOfferLines } from '@/lib/kuzmich/plan-offers';
 import { nightLodgingIncluded } from '@/lib/planner/lodging-included';
 import { EDIT_NOT_RECHECKED_NOTE, planWideAfterEdit } from '@/lib/planner/plan-edit-warnings';
+import { isOfferingNote } from '@/lib/safety/mchs-bulletin';
 
 /**
  * Как ехать — из слова модели. Принимаются и коды (self/operator/mixed), и
@@ -885,9 +886,14 @@ export function formatTripPlanForChat(
     if (live) lines.push(`   ${live}`);
     // Предупреждения дня — «Только с гидом», лимит парка, детям до N лет —
     // стоят на самом дне; до 29.09 до ответа не доходило ни одно.
+    // Строки сводки МЧС потолком не режутся и идут первыми (разбор 14.11,
+    // Кузьмич/MCP-2): движок кладёт их на день последними, и у дня «медведи»
+    // без тура три строки до МЧС съедали её — у агента MCP планировщика нет.
     const dayWarn = (d.dayWarnings ?? []).filter(Boolean);
-    for (const w of dayWarn.slice(0, DAY_WARNINGS_SHOWN)) lines.push(`   ! ${w}`);
-    if (dayWarn.length > DAY_WARNINGS_SHOWN) lines.push(`   …и ещё ${dayWarn.length - DAY_WARNINGS_SHOWN} — в планировщике`);
+    const mchsWarn = dayWarn.filter((w) => isOfferingNote(w));
+    const otherWarn = dayWarn.filter((w) => !isOfferingNote(w));
+    for (const w of [...mchsWarn, ...otherWarn.slice(0, DAY_WARNINGS_SHOWN)]) lines.push(`   ! ${w}`);
+    if (otherWarn.length > DAY_WARNINGS_SHOWN) lines.push(`   …и ещё ${otherWarn.length - DAY_WARNINGS_SHOWN} — в планировщике`);
   }
   if (context?.priceLines && context.priceLines.length > 0) {
     lines.push('', ...context.priceLines);
