@@ -63,6 +63,8 @@ import type {
   SelectItem, DayPlan, TripWarning, Recommendation,
   RoutePoint, Partner, TourPreview, ValidationResult, MobileTab, TripExtrasData,
 } from './planner-types';
+import { planStaleReasons, planStaleText, type PlanSnapshot } from '@/lib/planner/plan-stale';
+import { PlanStaleNotice } from '@/components/planner/PlanStaleNotice';
 import { dayFrame } from '@/lib/planner/day-frame';
 import { DayTourChip } from '@/components/planner/DayTourChip';
 import { planTourChip } from '@/lib/planner/day-tour-chip';
@@ -1329,6 +1331,8 @@ export function PlannerClient({ initialUserId }: { initialUserId?: string | null
    * смета прежнего состава.
    */
   const [planProfile, setPlanProfile] = useState<EstimateProfile | null>(null);
+  /** На что собран план (lib/planner/plan-stale): анкету поправили — план устарел. */
+  const [builtFor, setBuiltFor] = useState<PlanSnapshot | null>(null);
   const [days, setDays]   = useState<DayPlan[]>([]);
   const [loading, setLoading] = useState(false);
   const [error, setError]   = useState('');
@@ -1408,6 +1412,10 @@ export function PlannerClient({ initialUserId }: { initialUserId?: string | null
   const [confirmedDays, setConfirmedDays] = useState<Set<number>>(new Set());
 
   const allInterests = [...new Set([...places, ...activities])];
+  // Анкета и план расходятся — сказано и заявка не уходит (разбор 14.11, экран-1).
+  const staleReasons = builtFor && recommendation
+    ? planStaleReasons(builtFor, { arrival, departure, adults, children: knownChildAges, tripOrigin, interests: allInterests, budgetTier })
+    : [];
 
   // «Что ещё нужно» — настоящие варианты к ТЕКУЩЕМУ плану. Отдельный запрос
   // после плана, а не поле recommend: дни на экране переставляют и удаляют,
@@ -2049,6 +2057,7 @@ export function PlannerClient({ initialUserId }: { initialUserId?: string | null
         setStepError('');
         setRecommendation(data.data);
         setPlanProfile({ adults, children: knownChildAges, budgetTier, tripOrigin });
+        setBuiltFor({ arrival: arr, departure: dep, adults, children: knownChildAges, tripOrigin, interests, budgetTier });
         // Номер дня — календарный (lib/planner/calendar-days): недобор движка
         // — свободными днями, а не дырой в номерах, по которой день отъезда
         // съезжал на дату раньше рейса. Конец поездки прилетающего — день
@@ -2072,6 +2081,7 @@ export function PlannerClient({ initialUserId }: { initialUserId?: string | null
 
   async function submitLead() {
     setContactError('');
+    if (staleReasons.length > 0) { setContactError(planStaleText(staleReasons)); return; }
     const name  = contactName.trim();
     const phone = contactPhone.trim();
     if (name.length < 2)   { setContactError('Введите имя'); return; }
@@ -2806,6 +2816,8 @@ export function PlannerClient({ initialUserId }: { initialUserId?: string | null
               ))}
             </div>
           )}
+
+          <PlanStaleNotice reasons={staleReasons} onRebuild={() => { void getRecommendation(); }} busy={loading} />
 
           {/* Зоны — по дням плана, а не балл совпадения (#3338). */}
           <PlanZones days={days} crowd={recommendation.zones} />
