@@ -41,7 +41,8 @@ export interface PlanFacts {
 
 export type PlanAttach =
   | { kind: 'none' }
-  | { kind: 'attached'; planId: string; plan: PlanForLead; facts: PlanFacts }
+  /** `wishes` — слова туриста к плану (уже после redactPII); нет — null. */
+  | { kind: 'attached'; planId: string; plan: PlanForLead; facts: PlanFacts; wishes?: string | null }
   | { kind: 'missing'; planId: string }
   | { kind: 'failed'; planId: string };
 
@@ -61,6 +62,7 @@ export async function planFromDraft(planId: string | undefined): Promise<PlanAtt
       departureDate: p.departureDate,
     }),
     facts: planFacts(read.draft),
+    wishes: read.draft.wishes ?? null,
   };
 }
 
@@ -122,7 +124,13 @@ export function planWindowNote(a: PlanAttach, from: string, to?: string | null):
 
 /** Поля для source_data заявки: план — если приложен, номер — если не прочитался. */
 export function planSourceFields(a: PlanAttach): Record<string, unknown> {
-  if (a.kind === 'attached') return { plan_id: a.planId, plan: a.plan };
+  if (a.kind === 'attached') {
+    // Слова туриста к плану — менеджеру в карточке лида (слово владельца
+    // 15.11). Только в карточку: в Telegram-заглушку и партнёрам по крону
+    // добивки они не идут — это свободный текст, в нём бывает имя.
+    const wishes = typeof a.wishes === 'string' ? a.wishes.trim().slice(0, 500) : '';
+    return { plan_id: a.planId, plan: a.plan, ...(wishes ? { plan_wishes: wishes } : {}) };
+  }
   if (a.kind === 'failed') return { plan_id: a.planId };
   return {};
 }

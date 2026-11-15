@@ -31,6 +31,12 @@ export interface PlanDraft extends EditablePlan {
    * бы обещанием, которое база через 7 дней нарушит молча.
    */
   expiresAt?: string;
+  /**
+   * Слова туриста, по которым собран план (после redactPII). Читатель —
+   * заявка из плана: менеджер видит их в карточке лида (слово владельца
+   * 15.11 «показывать менеджеру»). До этого их писали, но не читал никто.
+   */
+  wishes?: string | null;
 }
 
 export type DraftRead =
@@ -74,8 +80,8 @@ export async function saveDraft(plan: EditablePlan, surface: DraftSurface, wishe
 export async function loadDraft(id: string): Promise<DraftRead> {
   if (!isDraftId(id)) return { kind: 'missing' };
   try {
-    const { rows } = await pool.query<{ id: string; params: PlanParams; days: DayPlan[]; revision: number; expires_at: Date | string }>(
-      `SELECT id::text, params, days, revision, expires_at
+    const { rows } = await pool.query<{ id: string; params: PlanParams; days: DayPlan[]; revision: number; expires_at: Date | string; wishes: string | null }>(
+      `SELECT id::text, params, days, revision, expires_at, wishes
          FROM trip_plan_drafts
         WHERE id = $1::uuid AND expires_at > NOW()`,
       [id.trim()],
@@ -83,7 +89,7 @@ export async function loadDraft(id: string): Promise<DraftRead> {
     const r = rows[0];
     if (!r) return { kind: 'missing' };
     const expiresAt = r.expires_at instanceof Date ? r.expires_at.toISOString() : String(r.expires_at);
-    return { kind: 'found', draft: { id: r.id, params: r.params, days: r.days, revision: r.revision, expiresAt } };
+    return { kind: 'found', draft: { id: r.id, params: r.params, days: r.days, revision: r.revision, expiresAt, wishes: r.wishes ?? null } };
   } catch (err) {
     logFail('черновик не прочитан', err);
     return { kind: 'failed' };

@@ -31,6 +31,8 @@ interface LeadSourceData {
   escalated_to_admin?: boolean;
   /** План поездки целиком — из /planner и MCP по plan_id (#2304, шаг 2). */
   plan?: unknown;
+  /** Слова туриста, по которым Кузьмич собрал план (после redactPII). */
+  plan_wishes?: unknown;
 }
 
 export interface Lead {
@@ -182,6 +184,9 @@ function SourceDataBlock({ sd }: { sd: LeadSourceData }) {
   // Состав без плана и пожелания из анкеты (07.11) — теми же словами, что в уведомлении.
   const facts     = tripFactsOf(sd);
   const wishes    = wishesWords(facts.wishes);
+  // Слова туриста к плану Кузьмича (слово владельца 15.11): то, что не легло
+  // в ключи занятий, — «с детьми», «без долгих переходов».
+  const planWishes = typeof sd.plan_wishes === 'string' && sd.plan_wishes.trim() ? sd.plan_wishes.trim() : null;
 
   return (
     <div className="space-y-2 text-sm">
@@ -237,6 +242,11 @@ function SourceDataBlock({ sd }: { sd: LeadSourceData }) {
             <p key={line} className="text-xs text-[var(--text-secondary)]">{line}</p>
           ))}
         </div>
+      )}
+      {planWishes && (
+        <p className="text-xs text-[var(--text-secondary)]" data-testid="lead-plan-wishes">
+          Слова туриста к плану: «{planWishes}»
+        </p>
       )}
 
       {/* UTM */}
