@@ -73,13 +73,16 @@ describe('файлы и заливка', () => {
     for (const it of marker.items) expect(typeof checkItem(it, ROOT), it.file).toBe('object');
   }, 60_000);
 
+  // Срок задан явно по той же причине: проверка читает каждый MP4 маркера
+  // целиком — на 15.11 их 56 на 69,6 МБ. Под нагрузкой полного прогона
+  // 6,4 с при сроке по умолчанию 5 с — красный без единого дефекта.
   it('клипы без звука: в MP4 есть дорожка видео и нет дорожки звука', () => {
     for (const it of marker.items.filter((i) => i.file.endsWith('.mp4'))) {
       const bytes = readFileSync(join(ROOT, it.file)).toString('latin1');
       expect(bytes, it.file).toMatch(/hdlr\0{8}vide/);
       expect(bytes, it.file).not.toMatch(/hdlr\0{8}soun/);
     }
-  });
+  }, 60_000);
 
   it('проверка заливки отказывает вне media/s3/ и вне videos/', () => {
     expect(checkItem({ file: 'public/video/shatun/clip-ferry-rope.mp4', key: 'videos/x.mp4' }, ROOT)).toMatch(/только из media\/s3/);
