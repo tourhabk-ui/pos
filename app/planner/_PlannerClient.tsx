@@ -1333,7 +1333,8 @@ export function PlannerClient({ initialUserId }: { initialUserId?: string | null
   const [saveStatus, setSaveStatus] = useState<'idle' | 'saving' | 'saved' | 'error'>('idle');
   const [shareUrl, setShareUrl]     = useState<string | null>(null);
   const [shareStatus, setShareStatus] = useState<'idle' | 'loading' | 'done' | 'error'>('idle');
-  const [shareCopied, setShareCopied] = useState(false);
+  /** `failed` — буфер обмена отказал (нет разрешения, не https): ссылка видна, её выделяют руками. */
+  const [shareCopied, setShareCopied] = useState<false | true | 'failed'>(false);
   // «Отправь группе свой план» (стратегия 14.08): ссылка залогиненного несёт
   // его реферальную метку. Код спрашивается заранее — к нажатию ссылка готова.
   const myReferralCode = useMyReferralCode(!!initialUserId);
@@ -1599,13 +1600,22 @@ export function PlannerClient({ initialUserId }: { initialUserId?: string | null
         const date = dayDateFrom(arrival, day);
         if (date) params.set('date', date);
         const res = await fetch(`/api/planner/tours-for-day?${params.toString()}`);
-        const data: { success: boolean; tours?: TourPreview[] } = await res.json();
-        if (data.success && data.tours && data.tours.length > 0) {
+        const data: { success: boolean; tours?: TourPreview[]; error?: string } = await res.json();
+        if (!data.success) {
+          // Отказ — не «тура нет» (разбор 14.11, экран-15): ключ снят, и
+          // следующая правка плана спросит снова.
+          loadedDayToursRef.current.delete(key);
+          console.error('[planner] тур дня не загрузился', data.error ?? `HTTP ${res.status}`);
+          return;
+        }
+        if (data.tours && data.tours.length > 0) {
           const first = data.tours[0]!;
           setToursPerDay(prev => ({ ...prev, [key]: first }));
         }
       } catch (err) {
-        // Ссылка на тур необязательна: без неё день остаётся, отказ — в консоль.
+        // Ссылка на тур необязательна: без неё день остаётся, отказ — в консоль,
+        // ключ снят — следующая правка плана спросит снова.
+        loadedDayToursRef.current.delete(key);
         console.error('[planner] тур дня не загрузился', err instanceof Error ? err.message : String(err));
       }
     }));
@@ -1735,11 +1745,19 @@ export function PlannerClient({ initialUserId }: { initialUserId?: string | null
     }
   }, [router, initialUserId, saveTrip]);
 
+  // Отказ буфера обмена — не молчание (разбор 14.11, экран-15): человек
+  // нажимал «Копировать», ничего не происходило, а в консоли висело
+  // необработанное отклонение.
   const handleShareCopy = useCallback(async () => {
     if (!shareUrl) return;
-    await navigator.clipboard.writeText(shareUrl);
-    setShareCopied(true);
-    setTimeout(() => setShareCopied(false), 2000);
+    try {
+      await navigator.clipboard.writeText(shareUrl);
+      setShareCopied(true);
+    } catch (err) {
+      console.error('[planner] ссылка не скопировалась:', err instanceof Error ? err.message : String(err));
+      setShareCopied('failed');
+    }
+    setTimeout(() => setShareCopied(false), 4000);
   }, [shareUrl]);
 
   // Карта: фоновые точки цветом своей зоны, дни плана — кружками с номером,
@@ -2242,7 +2260,17 @@ export function PlannerClient({ initialUserId }: { initialUserId?: string | null
   // которая рисовалась только под готовым маршрутом, то есть нигде).
   const contactBlock = (
     <>
-    {!showContact ? (
+    {done ? (
+      // Заявка ушла — план остаётся на экране (разбор 14.11, экран-19): раньше
+      // «Готово!» заменяло весь планер, и сохранить или отправить план было
+      // уже нельзя.
+      <div role="status" className="flex items-start gap-2 rounded-lg p-3 border border-[var(--border)] bg-[var(--bg-card)]">
+        <Check className="w-4 h-4 mt-0.5 text-[var(--success)] shrink-0" />
+        <p className="text-sm text-[var(--text-primary)]">
+          Заявка отправлена — менеджер свяжется с вами. План остаётся здесь: его можно сохранить или отправить.
+        </p>
+      </div>
+    ) : !showContact ? (
       <button onClick={() => setShowContact(true)} className="w-full ds-btn ds-btn-primary py-2.5 font-semibold">
         Запросить подробное предложение
       </button>
@@ -2425,7 +2453,12 @@ export function PlannerClient({ initialUserId }: { initialUserId?: string | null
             const active = tripOrigin === o;
             return (
               <button key={o} type="button" role="radio" aria-checked={active}
-                onClick={() => setTripOrigin(o)}
+                onClick={() => {
+                  setTripOrigin(o);
+                  // У жителя края рейсов нет: введённые раньше номер и время не
+                  // уходят в заявку и не подписывают день (разбор 14.11, экран-19).
+                  if (o === 'local') { setFlightArrival(''); setFlightDeparture(''); setFlightArrivalTime(''); setFlightDepartureTime(''); }
+                }}
                 className={`text-left rounded-lg border px-4 py-3 min-h-[44px] transition-colors duration-200 motion-reduce:transition-none ${
                   active
                     ? 'border-[var(--accent)] bg-[var(--accent-muted)]'
@@ -2488,6 +2521,7 @@ export function PlannerClient({ initialUserId }: { initialUserId?: string | null
         )}
       </p>
 
+      {!isLocal && (
       <details className="group rounded-lg border border-[var(--border)] bg-[var(--bg-card)]">
         <summary className="flex items-center justify-between gap-2 px-4 min-h-[44px] cursor-pointer text-sm text-[var(--text-secondary)] list-none">
           Номера рейсов
@@ -2506,6 +2540,7 @@ export function PlannerClient({ initialUserId }: { initialUserId?: string | null
           </div>
         </div>
       </details>
+      )}
     </div>
   );
 
@@ -3113,9 +3148,14 @@ export function PlannerClient({ initialUserId }: { initialUserId?: string | null
                 <button onClick={handleShareCopy}
                   className="flex items-center gap-2 px-3 py-2 rounded-md text-xs font-medium transition-all"
                   style={{ background: 'var(--bg-hover)', color: 'var(--text-primary)', border: '1px solid var(--border)' }}>
-                  {shareCopied ? <Check className="w-3.5 h-3.5" style={{ color: 'var(--success)' }} /> : <Copy className="w-3.5 h-3.5" />}
-                  {shareCopied ? 'Скопировано' : 'Копировать ссылку'}
+                  {shareCopied === true ? <Check className="w-3.5 h-3.5" style={{ color: 'var(--success)' }} /> : <Copy className="w-3.5 h-3.5" />}
+                  {shareCopied === true ? 'Скопировано' : 'Копировать ссылку'}
                 </button>
+                {shareCopied === 'failed' && (
+                  <p role="status" className="w-full text-xs" style={{ color: 'var(--warning)' }}>
+                    Не скопировалось — выделите ссылку и скопируйте вручную: <span className="break-all select-all" style={{ color: 'var(--text-primary)' }}>{shareUrl}</span>
+                  </p>
+                )}
                 <a href={telegramShareUrl(withReferral(shareUrl, myReferralCode), planShareText)}
                   target="_blank" rel="noopener noreferrer"
                   className="flex items-center gap-2 px-3 py-2 rounded-md text-xs font-medium"
@@ -3225,20 +3265,6 @@ export function PlannerClient({ initialUserId }: { initialUserId?: string | null
   );
 
   // ── Layout ──────────────────────────────────────────────────────────────────
-
-  if (done) {
-    return (
-      <div className="flex items-center justify-center" style={{ minHeight: '100dvh', paddingTop: PLANNER_HEADER_OFFSET, boxSizing: 'border-box' }}>
-        <div className="bg-[var(--bg-card)] border border-[var(--border)] rounded-lg p-10 md:p-16 text-center max-w-md mx-4">
-          <div className="w-12 h-12 rounded-full bg-[var(--success)]/15 flex items-center justify-center mx-auto mb-4">
-            <Check className="w-6 h-6 text-[var(--success)]" />
-          </div>
-          <h2 className="font-playfair text-2xl font-bold text-[var(--text-primary)] mb-2">Готово!</h2>
-          <p className="text-sm text-[var(--text-secondary)]">Ваши предпочтения отправлены. Скоро свяжемся с вами.</p>
-        </div>
-      </div>
-    );
-  }
 
   return (
     // Корень экрана начинается ПОД фиксированной шапкой сайта (planner-layout):
