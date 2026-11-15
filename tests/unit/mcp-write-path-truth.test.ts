@@ -52,6 +52,7 @@ import { PD_CONSENT_VERSION, PD_CONSENT_OPERATORS_VERSION, PD_CONSENT_OPERATORS_
 import { CREATE_LEAD_TOOL } from '@/lib/mcp/public-tools';
 import { normalizePhone } from '@/lib/mcp/normalize-phone';
 import { resolveTourByQuery } from '@/lib/kuzmich/tour-availability-tool';
+import { confirmationCodeOf, isDraft } from '../helpers/mcp-two-step';
 
 const TOUR = { id: 27, title: 'Сплав по реке Быстрая', operator_id: 'op-uuid-1', base_price: 13000, price_unit: 'person' };
 
@@ -65,6 +66,29 @@ function call(name: string, args: Record<string, unknown>, sameIp?: string) {
   }));
 }
 const result = async (res: Response) => (await res.json()).result as { isError?: boolean; content: Array<{ text: string }> };
+
+/** Всё, чем заявка остаётся в базе: лид, ключ, подписка, попытка записи, согласие. */
+const WRITE_SQL = /INSERT INTO (leads|tour_seat_requests|stay_requests|agent_request_keys|agent_request_notify|mcp_write_attempts|pd_consents)|UPDATE (leads|mcp_write_attempts)/;
+/**
+ * Заявка внешнего агента — в два вызова (lib/mcp/human-confirmation). Первый
+ * вызов дошёл до записи — черновик: ни лида, ни вопроса «был ли повтор», ни
+ * строки в базе; тогда второй вызов с кодом и согласием, и возвращается его
+ * ответ. Ответ до записи (отказ по входу, выбор тура) кода не несёт и
+ * возвращается как есть.
+ */
+async function send(name: string, args: Record<string, unknown>, sameIp?: string) {
+  const written = () => [
+    createLeadMock.mock.calls.length, recentLeadMock.mock.calls.length,
+    query.mock.calls.filter((c) => WRITE_SQL.test(String(c[0]))).length,
+  ];
+  const before = written();
+  const first = await result(await call(name, args, sameIp));
+  const text = first.content[0]?.text ?? '';
+  if (!isDraft(text)) return first;
+  expect(first.isError).toBeUndefined();
+  expect(written()).toEqual(before);
+  return result(await call(name, { ...args, consent: true, confirmation: confirmationCodeOf(text) }, sameIp));
+}
 
 const BOOKING = { tour: 'Сплав', date: '2027-07-10', participants: 2, name: 'Иван Петров', phone: '+79001234567', consent: true };
 const LEAD = { name: 'Иван Петров', phone: '+79001234567', comment: 'Хотим на вулкан в августе, 4 человека, бюджет 200000 руб', consent: true };
@@ -82,7 +106,7 @@ beforeEach(() => {
 
 describe('W1: заявка на бронь ложится оператору тура', () => {
   it('createLead получает operator_id тура', async () => {
-    const r = await result(await call('create_booking_request', BOOKING));
+    const r = await send('create_booking_request', BOOKING);
     expect(r.isError).toBeUndefined();
     expect(createLeadMock).toHaveBeenCalledWith(expect.objectContaining({ operator_id: 'op-uuid-1' }));
   });
@@ -99,7 +123,7 @@ describe('туры разных компаний по одному назван�
       if (/FROM operator_tours/.test(sql)) return { rows: [tourRow(61, 'op-a', 'Местечко Камчатка'), tourRow(72, 'op-b', 'Лагуна Экспедиция')] };
       return { rows: [] };
     });
-    const r = await result(await call('create_booking_request', { ...BOOKING, tour: 'Горелый' }));
+    const r = await send('create_booking_request', { ...BOOKING, tour: 'Горелый' });
     const text = r.content[0]!.text;
     expect(text).toContain('заявка не создана');
     expect(text).toContain('ID61');
@@ -116,7 +140,7 @@ describe('туры разных компаний по одному назван�
       if (/FROM operator_tours/.test(sql)) return { rows: [tourRow(61, 'op-a', 'Местечко Камчатка')] };
       return { rows: [] };
     });
-    const r = await result(await call('create_booking_request', { ...BOOKING, tour: '61' }));
+    const r = await send('create_booking_request', { ...BOOKING, tour: '61' });
     expect(r.isError).toBeUndefined();
     expect(createLeadMock).toHaveBeenCalledWith(expect.objectContaining({ operator_id: 'op-a' }));
   });
@@ -159,7 +183,7 @@ describe('имя продавца или часть слов — заявки н
 
   it('в поле tour — имя компании: заявка не создана, её туры с номерами и страница', async () => {
     base([]);
-    const r = await result(await call('create_booking_request', { ...BOOKING, tour: 'Тихая Заимка' }));
+    const r = await send('create_booking_request', { ...BOOKING, tour: 'Тихая Заимка' });
     const text = r.content[0]!.text;
     expect(text).toContain('найден продавец, а не тур — заявка не создана');
     expect(text).toContain('ID201');
@@ -170,7 +194,7 @@ describe('имя продавца или часть слов — заявки н
 
   it('совпала часть слов у туров ОДНОЙ компании — заявка не создана, а не ушла этой компании', async () => {
     base([tourRow(101, 'Перевал Ольховый', 'op-g', { stem_hits: [true, false] })]);
-    const r = await result(await call('create_booking_request', { ...BOOKING, tour: 'Ольховый Несуществующий' }));
+    const r = await send('create_booking_request', { ...BOOKING, tour: 'Ольховый Несуществующий' });
     const text = r.content[0]!.text;
     expect(text).toContain('нет тура со всеми словами — заявка не создана');
     expect(text).toContain('совпали только слова «Ольховый»; «Несуществующий» — нет ни в одном из туров, найденных по другим словам');
@@ -186,7 +210,7 @@ describe('имя продавца или часть слов — заявки н
       tourRow(201, 'Бухта Тюленья', 'op-z', { rank: 1 }),
       tourRow(203, 'Бухта Каменная', 'op-z', { rank: 1 }),
     ]);
-    const r = await result(await call('create_booking_request', { ...BOOKING, tour: 'Тихая Заимка бухта' }));
+    const r = await send('create_booking_request', { ...BOOKING, tour: 'Тихая Заимка бухта' });
     const text = r.content[0]!.text;
     expect(text).toContain('у продавца по этим словам несколько туров — заявка не создана');
     expect(text).toContain('ID201');
@@ -196,7 +220,7 @@ describe('имя продавца или часть слов — заявки н
 
   it('часть имени и слово одного её тура — заявка не создана: запрос может быть и не о продавце', async () => {
     base([], [tourRow(201, 'Бухта Тюленья', 'op-z', { rank: 1 })]);
-    const r = await result(await call('create_booking_request', { ...BOOKING, tour: 'Бухта у Заимки' }));
+    const r = await send('create_booking_request', { ...BOOKING, tour: 'Бухта у Заимки' });
     const text = r.content[0]!.text;
     expect(text).toContain('совпала только часть имени продавца');
     expect(text).toContain('ID201');
@@ -205,7 +229,7 @@ describe('имя продавца или часть слов — заявки н
 
   it('все слова у одного тура — заявка уходит этому туру, как раньше', async () => {
     base([tourRow(101, 'Перевал Ольховый', 'op-g', { stem_hits: [true, true] })]);
-    const r = await result(await call('create_booking_request', { ...BOOKING, tour: 'Ольховый перевал' }));
+    const r = await send('create_booking_request', { ...BOOKING, tour: 'Ольховый перевал' });
     expect(r.isError).toBeUndefined();
     expect(createLeadMock).toHaveBeenCalledWith(expect.objectContaining({ operator_id: 'op-g' }));
   });
@@ -220,7 +244,7 @@ describe('W2: десять цифр без кода страны — росси�
 
 describe('W4: заявка, которую никто не увидит, — отказ до записи', () => {
   it('имя из двух букв — «слишком неполная», createLead не зовётся', async () => {
-    const r = await result(await call('create_lead', { ...LEAD, name: 'Ян' }));
+    const r = await send('create_lead', { ...LEAD, name: 'Ян' });
     expect(r.isError).toBe(true);
     expect(r.content[0]!.text).toMatch(/слишком неполная/);
     expect(createLeadMock).not.toHaveBeenCalled();
@@ -233,12 +257,12 @@ describe('W4: заявка, которую никто не увидит, — о�
    * заявка на конкретный тур — по-прежнему «туроператору».
    */
   it('согласие у заявки на подбор — «туроператорам — партнёрам Ведара», у заявки на тур — «туроператору»', async () => {
-    await result(await call('create_lead', LEAD));
+    await send('create_lead', LEAD);
     expect(createLeadMock).toHaveBeenCalledTimes(1);
     expect(createLeadMock.mock.calls[0]![0]).toMatchObject({ pd_consent: { version: PD_CONSENT_OPERATORS_VERSION } });
     expect(createLeadMock.mock.calls[0]![0]).not.toHaveProperty('operator_id');
     createLeadMock.mockClear();
-    await result(await call('create_booking_request', BOOKING));
+    await send('create_booking_request', BOOKING);
     expect(createLeadMock.mock.calls[0]![0]).toMatchObject({ operator_id: 'op-uuid-1', pd_consent: { version: PD_CONSENT_VERSION } });
     // Агент спрашивает согласие на ту же передачу, что записывается.
     expect(CREATE_LEAD_TOOL.description).toContain('туроператоры — партнёры Ведара');
@@ -246,7 +270,7 @@ describe('W4: заявка, которую никто не увидит, — о�
   });
 
   it('обычная заявка проходит, номер заявки не называется', async () => {
-    const r = await result(await call('create_lead', LEAD));
+    const r = await send('create_lead', LEAD);
     expect(r.isError).toBeUndefined();
     expect(r.content[0]!.text).toMatch(/Заявка принята/);
     expect(r.content[0]!.text).not.toMatch(/lead-1|номер/);
@@ -263,26 +287,26 @@ describe('W5: номер тура не проваливается в поиск 
 
 describe('W8/W12/W14: отказы — внятные и по-русски', () => {
   it('несуществующая дата — «нет в календаре»', async () => {
-    const r = await result(await call('create_booking_request', { ...BOOKING, date: '2027-02-30' }));
+    const r = await send('create_booking_request', { ...BOOKING, date: '2027-02-30' });
     expect(r.isError).toBe(true);
     expect(r.content[0]!.text).toMatch(/нет в календаре/);
   });
 
   it('перевод строки в имени не проходит', async () => {
-    const r = await result(await call('create_lead', { ...LEAD, name: 'Иван\nТел: +79990000000' }));
+    const r = await send('create_lead', { ...LEAD, name: 'Иван\nТел: +79990000000' });
     expect(r.isError).toBe(true);
     expect(r.content[0]!.text).toMatch(/одной строкой/);
     expect(createLeadMock).not.toHaveBeenCalled();
   });
 
   it('consent строкой — свой текст, не «поля нет»', async () => {
-    const r = await result(await call('create_lead', { ...LEAD, consent: 'true' }));
+    const r = await send('create_lead', { ...LEAD, consent: 'true' });
     expect(r.content[0]!.text).toMatch(/логическим значением/);
     expect(r.content[0]!.text).not.toMatch(/нет поля consent/);
   });
 
   it('участники словом — русское сообщение', async () => {
-    const r = await result(await call('create_booking_request', { ...BOOKING, participants: 'два' }));
+    const r = await send('create_booking_request', { ...BOOKING, participants: 'два' });
     expect(r.isError).toBe(true);
     expect(r.content[0]!.text).toMatch(/Число участников/);
   });
@@ -292,9 +316,21 @@ describe('W9: лимит записи называет своё окно', () =>
   // Окно — час (решение владельца 01.10: 5 заявок в час с адреса).
   it('шестая заявка с адреса — «подождите час»', async () => {
     let last: { isError?: boolean; content: Array<{ text: string }> } | null = null;
-    for (let i = 0; i < 6; i++) last = await result(await call('create_lead', LEAD, '10.66.66.66'));
+    for (let i = 0; i < 6; i++) last = await send('create_lead', LEAD, '10.66.66.66');
     expect(last!.isError).toBe(true);
     expect(last!.content[0]!.text).toMatch(/подождите час/);
+  });
+
+  it('черновик лимит записи не тратит: после шести черновиков с адреса заявка проходит', async () => {
+    for (let i = 0; i < 6; i++) {
+      const draft = await result(await call('create_lead', LEAD, '10.66.66.67'));
+      expect(isDraft(draft.content[0]!.text), draft.content[0]!.text).toBe(true);
+    }
+    expect(createLeadMock).not.toHaveBeenCalled();
+    const r = await send('create_lead', LEAD, '10.66.66.67');
+    expect(r.isError, r.content[0]!.text).toBeUndefined();
+    expect(r.content[0]!.text).toMatch(/Заявка принята/);
+    expect(createLeadMock).toHaveBeenCalledTimes(1);
   });
 });
 
@@ -319,7 +355,7 @@ describe('notify_url — адрес приёмника уведомлений (2
     ['request_charter', CHARTER],
     ['create_car_rental_request', RENTAL],
   ])('%s: неверный адрес — заявки нет, отказ называет поле', async (tool, args) => {
-    const r = await result(await call(tool, { ...args, notify_url: BAD }));
+    const r = await send(tool, { ...args, notify_url: BAD });
     expect(r.isError).toBe(true);
     expect(r.content[0]!.text).toMatch(/^• notify_url — \S/m);
     expect(r.content[0]!.text).toMatch(/Заявка не создана/);
@@ -332,7 +368,7 @@ describe('notify_url — адрес приёмника уведомлений (2
     // создавалась, а подписка падала в базе с 22001 — «сбой на стороне Ведара».
     const longHost = `https://${Array(5).fill('b'.repeat(60)).join('.')}.ru/in`;
     for (const url of ['https://[::ffff:7f00:1]/x', 'https://pospkam-pospktry-c1f3.twc1.net/api/mcp', longHost]) {
-      const r = await result(await call('create_lead', { ...LEAD, notify_url: url }));
+      const r = await send('create_lead', { ...LEAD, notify_url: url });
       expect(r.isError, url).toBe(true);
       expect(r.content[0]!.text).toMatch(/^• notify_url — \S/m);
     }
@@ -340,7 +376,7 @@ describe('notify_url — адрес приёмника уведомлений (2
   });
 
   it('пустая строка — «не передан»: заявка как обычно, подписки нет', async () => {
-    const r = await result(await call('create_lead', { ...LEAD, notify_url: '' }));
+    const r = await send('create_lead', { ...LEAD, notify_url: '' });
     expect(r.isError).toBeUndefined();
     expect(createLeadMock).toHaveBeenCalled();
     expect(notifyInserts()).toHaveLength(0);
@@ -352,7 +388,7 @@ describe('notify_url — адрес приёмника уведомлений (2
       keyAndNotify();
       for (const tool of ['create_lead', 'create_booking_request'] as const) {
         query.mockClear();
-        const r = await result(await call(tool, { ...(tool === 'create_lead' ? LEAD : BOOKING), notify_url: GOOD }));
+        const r = await send(tool, { ...(tool === 'create_lead' ? LEAD : BOOKING), notify_url: GOOD });
         expect(r.isError, tool).toBeUndefined();
         const text = r.content[0]!.text;
         expect(text).toMatch(/Ключ статуса заявки: [A-Za-z0-9_-]{20,}/);
@@ -369,7 +405,7 @@ describe('notify_url — адрес приёмника уведомлений (2
   it('нет ENCRYPTION_KEY — заявка и ключ статуса есть, агенту «уведомления не заведены», записи подписки нет', async () => {
     delete process.env.ENCRYPTION_KEY;
     keyAndNotify();
-    const r = await result(await call('create_lead', { ...LEAD, notify_url: GOOD }));
+    const r = await send('create_lead', { ...LEAD, notify_url: GOOD });
     expect(r.isError).toBeUndefined();
     expect(createLeadMock).toHaveBeenCalled();
     expect(r.content[0]!.text).toMatch(/Ключ статуса заявки: /);
@@ -387,7 +423,7 @@ describe('notify_url — адрес приёмника уведомлений (2
         if (/INSERT INTO agent_request_notify/.test(sql)) throw Object.assign(new Error('violates check'), { code: '23514' });
         return { rows: [] };
       });
-      const r = await result(await call('create_lead', { ...LEAD, notify_url: GOOD }));
+      const r = await send('create_lead', { ...LEAD, notify_url: GOOD });
       expect(r.isError).toBeUndefined();
       expect(r.content[0]!.text).toMatch(/Ключ статуса заявки: /);
       expect(r.content[0]!.text).toMatch(/не заведены/);
@@ -402,7 +438,7 @@ describe('notify_url — адрес приёмника уведомлений (2
     process.env.ENCRYPTION_KEY = 'c'.repeat(64);
     try {
       keyAndNotify();
-      const r = await result(await call('create_car_rental_request', { ...RENTAL, notify_url: GOOD }));
+      const r = await send('create_car_rental_request', { ...RENTAL, notify_url: GOOD });
       expect(r.isError).toBeUndefined();
       expect(r.content[0]!.text).toMatch(/Черновик, заявка ещё НЕ создана/);
       expect(notifyInserts()).toHaveLength(0);
@@ -449,7 +485,14 @@ describe('канал согласия: чат Кузьмича — не аген
   });
 
   it('внешний агент без канала чата — по-прежнему mcp', async () => {
-    await runPublicTool({ toolName: 'create_lead', rawArguments: LEAD, ip: '10.9.0.8', userAgent: 'some-agent', self: false });
+    // Внешний агент — в два вызова: черновик, затем запись с кодом.
+    const call1 = { toolName: 'create_lead', rawArguments: LEAD, ip: '10.9.0.8', userAgent: 'some-agent', self: false };
+    const draft = await runPublicTool(call1);
+    expect(draft.kind).toBe('ok');
+    const draftText = draft.kind === 'ok' ? draft.text : '';
+    expect(isDraft(draftText)).toBe(true);
+    expect(createLeadMock).not.toHaveBeenCalled();
+    await runPublicTool({ ...call1, rawArguments: { ...LEAD, confirmation: confirmationCodeOf(draftText) } });
     expect(consentOf()?.source).toBe('mcp');
   });
 });
@@ -474,7 +517,7 @@ describe('M5/M6: заявка на бронь — тур и дата, повто
 
   it('второй тур того же номера за сутки — заявка принята, а не «уже есть такая заявка»', async () => {
     guard('1', '0');
-    const r = await result(await call('create_booking_request', { ...BOOKING, date: '2027-07-12' }));
+    const r = await send('create_booking_request', { ...BOOKING, date: '2027-07-12' });
     expect(r.isError).toBeUndefined();
     expect(r.content[0]!.text).toContain('Заявка оператору принята');
     expect(r.content[0]!.text).not.toMatch(/по первой/);
@@ -488,7 +531,7 @@ describe('M5/M6: заявка на бронь — тур и дата, повто
   it('повтор того же тура и даты — тот же ответ, второго лида нет', async () => {
     guard('1', '1');
     recentLeadMock.mockResolvedValue('lead-0');
-    const r = await result(await call('create_booking_request', BOOKING));
+    const r = await send('create_booking_request', BOOKING);
     expect(r.isError).toBeUndefined();
     expect(r.content[0]!.text).toContain('Заявка оператору принята');
     expect(createLeadMock).not.toHaveBeenCalled();
@@ -498,7 +541,7 @@ describe('M5/M6: заявка на бронь — тур и дата, повто
   it('сбой сохранения — отказ, и слот номера освобождён', async () => {
     guard('0', '0');
     createLeadMock.mockResolvedValueOnce(null);
-    const r = await result(await call('create_booking_request', BOOKING));
+    const r = await send('create_booking_request', BOOKING);
     expect(r.isError).toBe(true);
     expect(r.content[0]!.text).toContain('Не удалось сохранить заявку');
     const release = query.mock.calls.find((c) => /UPDATE mcp_write_attempts SET outcome = 'save_failed'/.test(String(c[0])));
@@ -507,7 +550,7 @@ describe('M5/M6: заявка на бронь — тур и дата, повто
 
   it('сохранилось — слот не трогается', async () => {
     guard('0', '0');
-    await call('create_booking_request', BOOKING);
+    await send('create_booking_request', BOOKING);
     expect(query.mock.calls.some((c) => /save_failed/.test(String(c[0])))).toBe(false);
   });
 });

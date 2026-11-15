@@ -57,6 +57,7 @@ vi.mock('@/lib/db-pool', () => {
 import { readFileSync } from 'node:fs';
 import { join } from 'node:path';
 import { POST } from '@/app/api/mcp/route';
+import { confirmationCodeOf, isDraft } from '../helpers/mcp-two-step';
 
 function call(args: Record<string, unknown>) {
   return new Request('http://localhost/api/mcp', {
@@ -71,6 +72,23 @@ const text = async (r: Response) => {
   const j = await r.json();
   return { isError: Boolean(j.result?.isError), text: String(j.result?.content?.[0]?.text ?? j.error?.message ?? '') };
 };
+
+/**
+ * Заявка внешнего агента — в два вызова (lib/mcp/human-confirmation). Первый
+ * вызов дошёл до записи — черновик: ни запроса мест, ни лида; тогда второй
+ * вызов с кодом и `consent` (по умолчанию true), и возвращается его ответ.
+ * Ответ до записи (вне сезона, нет мест, не смог проверить) кода не несёт и
+ * возвращается как есть.
+ */
+async function send(a: Record<string, unknown>, consent: unknown = true) {
+  const written = () => [createLeadMock.mock.calls.length, createSeatMock.mock.calls.length];
+  const before = written();
+  const first = await text(await POST(call(a)));
+  if (!isDraft(first.text)) return first;
+  expect(first.isError).toBe(false);
+  expect(written()).toEqual(before);
+  return text(await POST(call({ ...a, consent, confirmation: confirmationCodeOf(first.text) })));
+}
 
 beforeEach(() => {
   process.env.MCP_HASH_SALT = 'соль-для-теста';
@@ -90,7 +108,7 @@ describe('тур без расписания — только по сезону 
     tourMock.value = SEASONAL;
     keepsScheduleMock.mockResolvedValue(false);
     // 8-дневный тур должен закончиться к 1 октября: последний выезд — 24.09.
-    const r = await text(await POST(call({ ...args, date: '2099-09-25' })));
+    const r = await send({ ...args, date: '2099-09-25' });
     expect(r.isError).toBe(false);
     expect(r.text).toContain('только по сезону');
     expect(r.text).toContain('выезд с 1 мая 2099 по 24 сентября 2099');
@@ -103,7 +121,7 @@ describe('тур без расписания — только по сезону 
     tourMock.value = SEASONAL;
     keepsScheduleMock.mockResolvedValue(false);
     createSeatMock.mockResolvedValue({ ok: true, requestId: 'r1', statusToken: 'TOK', deadlineAt: new Date('2099-01-01T05:00:00Z'), operatorDelivery: 'max' });
-    await POST(call({ ...args, date: '2099-09-24' }));
+    await send({ ...args, date: '2099-09-24' });
     expect(createSeatMock).toHaveBeenCalledTimes(1);
   });
 });
@@ -112,7 +130,7 @@ describe('тур без расписания', () => {
   it('вместо «нет мест» — запрос оператору и ссылка на статус; лид менеджеру не создаётся', async () => {
     keepsScheduleMock.mockResolvedValue(false);
     createSeatMock.mockResolvedValue({ ok: true, requestId: 'r1', statusToken: 'TOK', deadlineAt: new Date('2099-01-01T05:00:00Z'), operatorDelivery: 'max' });
-    const r = await text(await POST(call({ ...args, comment: 'нужен трансфер' })));
+    const r = await send({ ...args, comment: 'нужен трансфер' });
     expect(r.isError).toBe(false);
     expect(createSeatMock).toHaveBeenCalledTimes(1);
     expect(createSeatMock.mock.calls[0]![0]).toMatchObject({
@@ -134,7 +152,7 @@ describe('тур без расписания', () => {
     keepsScheduleMock.mockResolvedValue(false);
     for (const reason of ['duplicate', 'operator_unreachable', 'too_many']) {
       createSeatMock.mockResolvedValueOnce({ ok: false, reason });
-      const r = await text(await POST(call(args)));
+      const r = await send(args);
       expect(r.isError, reason).toBe(false);
       expect(r.text, reason).toMatch(/не отправлен/);
       expect(r.text, reason).toMatch(/create_lead/);
@@ -147,7 +165,7 @@ describe('тур без расписания', () => {
     keepsScheduleMock.mockResolvedValue(false);
     for (const reason of ['check_failed', 'delivery_failed']) {
       createSeatMock.mockResolvedValueOnce({ ok: false, reason });
-      const r = await text(await POST(call(args)));
+      const r = await send(args);
       expect(r.isError, reason).toBe(true);
       expect(r.text, reason).toMatch(/не отправлен/);
       expect(r.text, reason).toMatch(/create_lead/);
@@ -159,17 +177,19 @@ describe('тур без расписания', () => {
   it('«уже есть бронь» звучит так же, как «запрос уже отправлен»', async () => {
     keepsScheduleMock.mockResolvedValue(false);
     createSeatMock.mockResolvedValueOnce({ ok: false, reason: 'duplicate' });
-    const dup = await text(await POST(call(args)));
+    const dup = await send(args);
     createSeatMock.mockResolvedValueOnce({ ok: false, reason: 'already_confirmed' });
-    const confirmed = await text(await POST(call(args)));
+    const confirmed = await send(args);
     expect(confirmed.text).toBe(dup.text);
     expect(confirmed.text).not.toMatch(/подтверждённая бронь/);
   });
 
   it('без согласия на ПД запрос не отправляется', async () => {
     keepsScheduleMock.mockResolvedValue(false);
-    const r = await text(await POST(call({ ...args, consent: false })));
+    // Первый вызов — черновик и при consent: false; отказ — на втором, с кодом.
+    const r = await send({ ...args, consent: false }, false);
     expect(r.isError).toBe(true);
+    expect(r.text).toContain('нет согласия на обработку персональных данных');
     expect(createSeatMock).not.toHaveBeenCalled();
   });
 });
@@ -177,7 +197,7 @@ describe('тур без расписания', () => {
 describe('расписание есть или не проверено', () => {
   it('расписание есть, мест на дату нет — прежний честный отказ; оператору не пишем', async () => {
     keepsScheduleMock.mockResolvedValue(true);
-    const r = await text(await POST(call(args)));
+    const r = await send(args);
     expect(r.text).toMatch(/нет свободных мест/);
     expect(r.text).toMatch(/заявка не создана/);
     expect(createSeatMock).not.toHaveBeenCalled();
@@ -186,7 +206,7 @@ describe('расписание есть или не проверено', () => {
 
   it('расписание не удалось проверить — ошибка «не смог», а не «нет мест» и не запрос', async () => {
     keepsScheduleMock.mockResolvedValue(null);
-    const r = await text(await POST(call(args)));
+    const r = await send(args);
     expect(r.isError).toBe(true);
     expect(r.text).toMatch(/Не удалось проверить расписание/);
     expect(createSeatMock).not.toHaveBeenCalled();
@@ -194,7 +214,7 @@ describe('расписание есть или не проверено', () => {
 
   it('места есть — обычная заявка менеджеру, расписание не спрашивается', async () => {
     slotsMock.mockResolvedValue([{ date: '2099-07-10', remaining: 5 }]);
-    const r = await text(await POST(call(args)));
+    const r = await send(args);
     expect(r.text).toMatch(/Заявка оператору принята/);
     expect(keepsScheduleMock).not.toHaveBeenCalled();
     expect(createSeatMock).not.toHaveBeenCalled();

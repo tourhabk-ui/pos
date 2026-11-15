@@ -61,9 +61,25 @@ vi.mock('@/lib/db-pool', () => ({
 }));
 
 import { POST } from '@/app/api/mcp/route';
+import { confirmationCodeOf, isDraft } from '../helpers/mcp-two-step';
 
 let ip = 0;
+/**
+ * Заявка внешнего агента — в два вызова (lib/mcp/human-confirmation). Первый
+ * вызов дошёл до записи — черновик: ничего не записано и не передано; тогда
+ * второй вызов с кодом и согласием, и возвращается его ответ. Ответ до записи
+ * (отказ по входу) кода не несёт и возвращается как есть.
+ */
 async function call(name: string, args: Record<string, unknown>) {
+  const written = () => [h.submitStay.mock.calls.length, h.createLead.mock.calls.length];
+  const before = written();
+  const first = await send(name, args);
+  if (!isDraft(first.text)) return first;
+  expect(first.isError).toBe(false);
+  expect(written()).toEqual(before);
+  return send(name, { ...args, consent: true, confirmation: confirmationCodeOf(first.text) });
+}
+async function send(name: string, args: Record<string, unknown>) {
   ip += 1;
   const res = await POST(new NextRequest('http://localhost/api/mcp', {
     method: 'POST',

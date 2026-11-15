@@ -41,11 +41,11 @@ export function namesAllThree(answer: string): boolean {
 
 export const REQUEST_NEEDS_NOTE = {
   ru: 'Для заявки заранее спросите у человека три вещи: имя, телефон и согласие на обработку и передачу персональных данных. '
-    + 'Заявку вы создаёте сами — вызовом инструмента с этими полями и consent: true; без согласия заявка не создаётся.',
+    + 'Заявку вы создаёте сами, в два вызова: первый вернёт черновик и код — покажите его человеку; после его согласия повторите вызов с consent: true и confirmation. Без согласия заявка не создаётся.',
   en: 'Before placing a request, ask the person for three things: their name, their phone number and their consent to the processing and transfer of personal data. '
-    + 'You create the request yourself — by calling the tool with these fields and consent: true; without consent the request is not created.',
+    + 'You create the request yourself in two calls: the first returns a draft and a code — show it to the person; after they agree, repeat the call with consent: true and confirmation. Without consent the request is not created.',
   zh: '提交申请前，请先向当事人确认三项：姓名、电话，以及是否同意处理和传输其个人数据。'
-    + '申请由您自行调用工具创建——传入这些字段并设置 consent: true；未经同意，申请不会被创建。',
+    + '申请由您自行调用工具创建，分两次调用：第一次返回草稿和确认码——请给当事人看；对方同意后，带 consent: true 和 confirmation 再次调用。未经同意，申请不会被创建。',
 } as const;
 
 type Lang = keyof typeof REQUEST_NEEDS_NOTE;

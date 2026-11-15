@@ -39,7 +39,8 @@ vi.mock('@/lib/db-pool', () => ({
   pool: { query, connect: async () => ({ query, release: () => {} }) },
 }));
 
-import { POST, runPublicTool } from '@/app/api/mcp/route';
+import { POST, runPublicTool, type PublicToolCall } from '@/app/api/mcp/route';
+import { confirmationCodeOf, isDraft } from '../helpers/mcp-two-step';
 
 // Телефон правдоподобный: заявка MCP с +70000000000 отвергается до записи (#3155).
 const TOUR = { id: 27, title: 'Сплав по реке Быстрая', operator_id: 'op-uuid-1', base_price: 13000, price_unit: 'person' };
@@ -48,6 +49,29 @@ const BOOKING = { tour: '27', date: '2027-07-10', participants: 2, name: 'Тес
 
 let ip = 0;
 const nextIp = () => { ip += 1; return `10.8.${Math.floor(ip / 250)}.${ip % 250}`; };
+
+/**
+ * Заявка внешнего агента (MCP и A2A) — в два вызова (lib/mcp/human-confirmation):
+ * черновик ничего не записывает и входа не ставит, запись — второй вызов с кодом.
+ */
+async function confirmedCall(call: PublicToolCall) {
+  const before = seen.length;
+  const draft = await runPublicTool(call);
+  expect(draft.kind).toBe('ok');
+  const text = (draft as { text: string }).text;
+  expect(isDraft(text)).toBe(true);
+  expect(seen).toHaveLength(before);
+  const args = call.rawArguments as Record<string, unknown>;
+  return runPublicTool({ ...call, rawArguments: { ...args, consent: true, confirmation: confirmationCodeOf(text) } });
+}
+
+function mcpPost(args: Record<string, unknown>) {
+  return POST(new NextRequest('http://localhost/api/mcp', {
+    method: 'POST',
+    headers: { 'content-type': 'application/json', 'x-real-ip': nextIp() },
+    body: JSON.stringify({ jsonrpc: '2.0', id: 1, method: 'tools/call', params: { name: 'create_lead', arguments: args } }),
+  }));
+}
 
 beforeEach(() => {
   process.env.MCP_HASH_SALT = 'соль-для-теста';
@@ -62,17 +86,16 @@ beforeEach(() => {
 
 describe('вход заявки в момент записи', () => {
   it('POST /api/mcp — вход mcp и имя инструмента', async () => {
-    const res = await POST(new NextRequest('http://localhost/api/mcp', {
-      method: 'POST',
-      headers: { 'content-type': 'application/json', 'x-real-ip': nextIp() },
-      body: JSON.stringify({ jsonrpc: '2.0', id: 1, method: 'tools/call', params: { name: 'create_lead', arguments: LEAD } }),
-    }));
+    const draft = await (await mcpPost(LEAD)).json() as { result: { content: Array<{ text: string }> } };
+    const code = confirmationCodeOf(draft.result.content[0].text);
+    expect(seen).toEqual([]);
+    const res = await mcpPost({ ...LEAD, confirmation: code });
     expect(res.status).toBe(200);
     expect(seen).toEqual([{ entry: 'mcp', tool: 'create_lead' }]);
   });
 
   it('A2A (via) — вход a2a', async () => {
-    const out = await runPublicTool({ toolName: 'create_lead', rawArguments: LEAD, ip: nextIp(), userAgent: 'test', self: false, via: 'a2a' });
+    const out = await confirmedCall({ toolName: 'create_lead', rawArguments: LEAD, ip: nextIp(), userAgent: 'test', self: false, via: 'a2a' });
     expect(out.kind).toBe('ok');
     expect(seen).toEqual([{ entry: 'a2a', tool: 'create_lead' }]);
   });
@@ -92,12 +115,12 @@ describe('вход заявки в момент записи', () => {
     });
     await vi.waitFor(() => expect(partnerOrigins).toEqual(['Человек · Кузьмич в Telegram · заявка на тур']));
     partnerOrigins.length = 0;
-    await runPublicTool({ toolName: 'create_booking_request', rawArguments: BOOKING, ip: nextIp(), userAgent: 'test', self: false, via: 'a2a' });
+    await confirmedCall({ toolName: 'create_booking_request', rawArguments: BOOKING, ip: nextIp(), userAgent: 'test', self: false, via: 'a2a' });
     await vi.waitFor(() => expect(partnerOrigins).toEqual(['ИИ-агент · A2A · заявка на тур']));
   });
 
   it('после вызова входа нет: следующая запись вне инструмента его не наследует', async () => {
-    await runPublicTool({ toolName: 'create_lead', rawArguments: LEAD, ip: nextIp(), userAgent: 'test', self: false, via: 'a2a' });
+    await confirmedCall({ toolName: 'create_lead', rawArguments: LEAD, ip: nextIp(), userAgent: 'test', self: false, via: 'a2a' });
     expect(currentLeadEntry()).toBeNull();
   });
 });

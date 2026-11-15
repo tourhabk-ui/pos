@@ -165,6 +165,15 @@ export const WRITE_OUTPUT_SCHEMA = {
       },
       required: ['code', 'tour_id', 'seats_on_date', 'tour_max', 'participants'],
     },
+    confirmation: {
+      type: 'object',
+      description: 'Первый вызов заявки (#3399, lib/mcp/human-confirmation): заявка не создана, это черновик. Покажите его человеку; после его «да» повторите вызов с теми же полями, consent: true и confirmation: code',
+      properties: {
+        code: { type: 'string', description: 'Код подтверждения для второго вызова' },
+        expires_in_min: { type: 'integer', description: 'Сколько минут действует код' },
+      },
+      required: ['code', 'expires_in_min'],
+    },
   },
   required: ['test', 'accepted', 'requests'],
 } as const;

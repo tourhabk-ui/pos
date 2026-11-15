@@ -252,7 +252,8 @@ describe('notify_url модели не отдаётся (29.10)', () => {
     expect(built).not.toMatch(/notify_url/);
     // Фраза о согласии на ПД не отрезана обрезкой в 1024 знака.
     const booking = (JSON.parse(built) as Array<{ function: { name: string; description: string } }>).find((t) => t.function.name === 'create_booking_request');
-    expect(booking?.function.description).toMatch(/согласие на их обработку и передай consent: true\.$/);
+    // С 15.11 последним стоит правило двух вызовов (#3399, п. 4): черновик, потом согласие человека.
+    expect(booking?.function.description).toMatch(/тот же вызов с consent: true и confirmation\.$/);
     // Отмена и перенос: описание помещается целиком (последняя фраза — о том, что передать человеку),
     // а поле пробы модели не показано — мост говорит с живым человеком.
     const change = (JSON.parse(built) as Array<{ function: { name: string; description: string; parameters: { properties: Record<string, unknown> } } }>).find((t) => t.function.name === 'change_request');

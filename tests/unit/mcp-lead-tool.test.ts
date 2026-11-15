@@ -62,6 +62,7 @@ vi.mock('@/lib/db-pool', () => {
 
 import { NextRequest } from 'next/server';
 import { POST, GET } from '@/app/api/mcp/route';
+import { confirmationCodeOf, isDraft } from '../helpers/mcp-two-step';
 
 function rpc(method: string, params?: Record<string, unknown>) {
   return new Request('http://localhost/api/mcp', {
@@ -70,6 +71,22 @@ function rpc(method: string, params?: Record<string, unknown>) {
     body: JSON.stringify({ jsonrpc: '2.0', id: 1, method, params }),
     // NextRequest-совместимо: роут читает только .json()
   }) as unknown as Parameters<typeof POST>[0];
+}
+
+type Rpc = (method: string, params: Record<string, unknown>) => Parameters<typeof POST>[0];
+
+/**
+ * Заявка внешнего агента — в два вызова (lib/mcp/human-confirmation): первый —
+ * черновик, createLead не зовётся; второй — с кодом из черновика. Возвращает
+ * ответ второго вызова; `consent` второго — как передан (по умолчанию true).
+ */
+async function twoStep(name: string, args: Record<string, unknown>, send: Rpc = rpc, consent: unknown = true) {
+  const first = await (await POST(send('tools/call', { name, arguments: args }))).json();
+  const draft = first.result.content[0].text as string;
+  expect(first.result.isError).toBeFalsy();
+  expect(isDraft(draft)).toBe(true);
+  expect(createLeadMock).not.toHaveBeenCalled();
+  return POST(send('tools/call', { name, arguments: { ...args, consent, confirmation: confirmationCodeOf(draft) } }));
 }
 
 beforeEach(() => {
@@ -106,10 +123,9 @@ describe('MCP create_lead', () => {
     // Два разных отказа намеренно различимы: «перечитай схему» и «спроси
     // человека» — разные починки, и агент, которому сказали не то, будет
     // повторять запрос, который не пройдёт никогда.
-    const res = await POST(rpc('tools/call', {
-      name: 'create_lead',
-      arguments: { ...withoutConsent, consent: false },
-    }));
+    // Первый вызов — черновик и при consent: false (согласие даёт человек,
+    // увидев черновик); отказ — на втором, с кодом, но без согласия.
+    const res = await twoStep('create_lead', { ...withoutConsent, consent: false }, rpc, false);
     const json = await res.json();
     expect(json.result.isError).toBe(true);
     expect(json.result.content[0].text).toContain('нет согласия на обработку персональных данных');
@@ -118,17 +134,14 @@ describe('MCP create_lead', () => {
   });
 
   it('валидная заявка уходит в общий createLead с source mcp', async () => {
-    const res = await POST(rpc('tools/call', {
-      name: 'create_lead',
-      arguments: {
-        name: 'Иван',
-        phone: '+7 900 000-00-00',
-        comment: 'Хотим на Толбачик в августе, двое взрослых',
-        interest: 'Толбачик',
-        // policy v3 (07.09): без согласия на обработку ПД заявка не создаётся.
-        consent: true,
-      },
-    }));
+    const res = await twoStep('create_lead', {
+      name: 'Иван',
+      phone: '+7 900 000-00-00',
+      comment: 'Хотим на Толбачик в августе, двое взрослых',
+      interest: 'Толбачик',
+      // policy v3 (07.09): без согласия на обработку ПД заявка не создаётся.
+      consent: true,
+    });
     const json = await res.json();
     expect(json.result.isError).toBeUndefined();
     expect(json.result.content[0].text).toContain('Заявка принята');
@@ -179,13 +192,10 @@ describe('create_trip_request: часть менеджеру — часть по
     body: JSON.stringify({ jsonrpc: '2.0', id: 1, method, params }),
   }) as unknown as Parameters<typeof POST>[0];
   it('лид получает род trip_manager, номер поездки и состав; подбор туров моделью к нему не идёт', async () => {
-    const res = await POST(rpcFrom('tools/call', {
-      name: 'create_trip_request',
-      arguments: {
-        name: 'Иван', phone: '+7 900 000-00-00', consent: true, participants: '2',
-        lodging: 'на подбор', check_in: '2027-07-10', check_out: '2027-07-14',
-      },
-    }));
+    const res = await twoStep('create_trip_request', {
+      name: 'Иван', phone: '+7 900 000-00-00', consent: true, participants: '2',
+      lodging: 'на подбор', check_in: '2027-07-10', check_out: '2027-07-14',
+    }, rpcFrom);
     const json = await res.json();
     expect(json.result.isError).toBeFalsy();
     expect(createLeadMock).toHaveBeenCalledTimes(1);
@@ -196,20 +206,14 @@ describe('create_trip_request: часть менеджеру — часть по
   });
 
   it('отдельный create_lead — подбор тура, рода у него нет', async () => {
-    await POST(rpcFrom('tools/call', {
-      name: 'create_lead',
-      arguments: { name: 'Иван', phone: '+7 900 000-00-01', comment: 'Хотим на Толбачик в августе, двое взрослых', consent: true },
-    }));
+    await twoStep('create_lead', { name: 'Иван', phone: '+7 900 000-00-01', comment: 'Хотим на Толбачик в августе, двое взрослых', consent: true }, rpcFrom);
     const arg = createLeadMock.mock.calls[0][0] as { source_data: Record<string, unknown>; skip_ai_processing: boolean };
     expect(arg.source_data.kind).toBeUndefined();
     expect(arg.skip_ai_processing).toBe(false);
   });
 
   it('заказ машины через create_lead уходит менеджеру без подбора туров моделью', async () => {
-    const res = await POST(rpcFrom('tools/call', {
-      name: 'create_lead',
-      arguments: { name: 'Иван', phone: '+7 900 000-00-02', comment: 'Нужны две вахтовки на Горелый 12.07, нас шестеро', consent: true },
-    }));
+    const res = await twoStep('create_lead', { name: 'Иван', phone: '+7 900 000-00-02', comment: 'Нужны две вахтовки на Горелый 12.07, нас шестеро', consent: true }, rpcFrom);
     const json = await res.json();
     expect(json.result.isError).toBeFalsy();
     const arg = createLeadMock.mock.calls[0][0] as { source_data: Record<string, unknown>; skip_ai_processing: boolean };

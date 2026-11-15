@@ -31,6 +31,7 @@ vi.mock('@/lib/db-pool', () => {
 });
 
 import { POST } from '@/app/api/mcp/route';
+import { confirmationCodeOf, isDraft } from '../helpers/mcp-two-step';
 
 function rpc(method: string, params?: Record<string, unknown>) {
   return new Request('http://localhost/api/mcp', {
@@ -38,6 +39,18 @@ function rpc(method: string, params?: Record<string, unknown>) {
     headers: { 'Content-Type': 'application/json' },
     body: JSON.stringify({ jsonrpc: '2.0', id: 1, method, params }),
   }) as unknown as Parameters<typeof POST>[0];
+}
+
+/**
+ * Заявка внешнего агента — в два вызова (lib/mcp/human-confirmation): первый —
+ * черновик без записи, второй с кодом — запись. Возвращает ответ второго.
+ */
+async function createLead(args: Record<string, unknown>) {
+  const first = await (await POST(rpc('tools/call', { name: 'create_lead', arguments: args }))).json();
+  const draft = first.result.content[0].text as string;
+  expect(isDraft(draft)).toBe(true);
+  expect(createLeadMock).not.toHaveBeenCalled();
+  return POST(rpc('tools/call', { name: 'create_lead', arguments: { ...args, consent: true, confirmation: confirmationCodeOf(draft) } }));
 }
 
 const ID = '1b9d6bcd-bbfd-4b2d-9b5d-ab8dfbbd4bed';
@@ -63,7 +76,7 @@ describe('MCP create_lead с plan_id', () => {
         realTour: { tourId: '5', priceUnit: 'per_day_per_person', durationDays: 1, lodgingIncluded: true, operatorName: 'Камчатская рыбалка' } },
       { day: 3, type: 'departure', zone: 'avachinsky', title: 'Вылет', priceFrom: 0, priceTo: 0 },
     ] } };
-    const res = await POST(rpc('tools/call', { name: 'create_lead', arguments: { ...LEAD, plan_id: ID } }));
+    const res = await createLead({ ...LEAD, plan_id: ID });
     const json = await res.json();
     expect(json.result.isError).toBeUndefined();
     // Хвост с ключом статуса (ступень 1 контура, 12.10) случайный на вызов — сравнивается только сам ответ.
@@ -80,7 +93,7 @@ describe('MCP create_lead с plan_id', () => {
 
   it('плана нет — заявка всё равно создаётся, и агент слышит, что без плана', async () => {
     DRAFT = { kind: 'missing' };
-    const res = await POST(rpc('tools/call', { name: 'create_lead', arguments: { ...LEAD, plan_id: ID } }));
+    const res = await createLead({ ...LEAD, plan_id: ID });
     const json = await res.json();
     expect(json.result.isError).toBeUndefined();
     expect(json.result.content[0].text).toMatch(/Заявка принята\..* не найден .* заявка принята без плана/);

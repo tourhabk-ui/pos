@@ -645,7 +645,7 @@
     "type": "function",
     "function": {
       "name": "create_lead",
-      "description": "Tour-selection request for Kamchatka when no tour or date is chosen yet; human-confirmed by a manager, no payment. Needs consent: true, else refused. Whole-vehicle charter: request_charter. Оставить заявку на подбор тура по Камчатке: менеджер платформы свяжется по телефону. Обязательны имя, телефон и описание запроса (даты, состав группы, интересы). Заказ машины целиком (вахтовка, микроавтобус) — не сюда, а request_charter. Это только заявка: оплаты через платформу нет. Имя и телефон — персональные данные: заявку видят туроператоры — партнёры Ведара, и она может уйти нескольким; спроси у человека согласие на обработку и эту передачу и передай consent: true, иначе заявка не создаётся.",
+      "description": "Tour-selection request for Kamchatka when no tour or date is chosen yet; human-confirmed, no payment. Two calls: draft with code, then confirmation. Whole-vehicle charter: request_charter. Оставить заявку на подбор тура по Камчатке: менеджер платформы свяжется по телефону. Обязательны имя, телефон и описание запроса (даты, состав группы, интересы). Заказ машины целиком (вахтовка, микроавтобус) — не сюда, а request_charter. Это только заявка: оплаты через платформу нет. Заявку видят туроператоры — партнёры Ведара, и она может уйти нескольким. Имя и телефон — персональные данные. Два вызова: первый — черновик и код без отправки; после «да» человека — тот же вызов с consent: true и confirmation.",
       "parameters": {
         "type": "object",
         "properties": {
@@ -674,10 +674,14 @@
           },
           "consent": {
             "type": "boolean",
-            "description": "Explicit consent to process name and phone and pass them to Vedar's partner tour operators (the request has no named operator and may reach several); ask the person and pass true, otherwise the request is not created. Человек согласен на обработку своих персональных данных (имя, телефон) и их передачу туроператорам — партнёрам Ведара для связи по этой заявке. Спроси прямо и передай true. Без согласия заявка не создаётся.",
+            "description": "Explicit consent to process name and phone and pass them to Vedar's partner tour operators (the request has no named operator and may reach several); ask the person and pass true, otherwise the request is not created. Человек согласен на обработку своих персональных данных (имя, телефон) и их передачу туроператорам — партнёрам Ведара для связи по этой заявке. true — только когда человек сам ответил «да» на черновик. Без согласия заявка не создаётся.",
             "examples": [
               true
             ]
+          },
+          "confirmation": {
+            "type": "string",
+            "description": "Confirmation code from the first call. Send it only after the person explicitly said yes to the draft; without it a draft is returned and nothing is created. Код подтверждения из ответа первого вызова. Передавай только после явного «да» самого человека на черновик; без кода заявка не создаётся — возвращается черновик."
           }
         },
         "required": [
@@ -693,7 +697,7 @@
     "type": "function",
     "function": {
       "name": "create_booking_request",
-      "description": "Use when the user wants to book a Kamchatka tour on a date: live availability checked first, human-confirmed by the operator, no payment. Needs consent: true. No tour yet — use create_lead. Заявка оператору на конкретный тур и дату. Сначала проверь даты через get_tour_availability. Заявку подтверждает оператор по телефону; мгновенной брони нет, оплаты через платформу нет. Подходят туры разных компаний, в tour имя компании или гида либо совпала часть слов — заявки нет: в ответе туры с номерами и компаниями; спроси человека и повтори вызов с номером тура. Нет мест на дату — заявки нет, в ответе ближайшие свободные даты. Запрос оператору вместо отказа, без закрепления мест: у тура нет расписания — ссылку на страницу статуса из ответа передай человеку; группа больше, чем тур берёт на выезд, или группа у тура не ограничена — запрос на всю группу; дату закрыл Ведар, не оператор, — вопрос, ходит ли он в этот день. Имя и телефон — персональные данные: спроси согласие на их обработку и передай consent: true.",
+      "description": "Use when the user wants to book a Kamchatka tour on a date: live availability checked first, human-confirmed, no payment. Two calls: draft with code, then confirmation. No tour yet — use create_lead. Заявка оператору на конкретный тур и дату. Сначала проверь даты через get_tour_availability. Подтверждает оператор по телефону; мгновенной брони и оплаты через платформу нет. Неоднозначный tour (туры разных компаний, имя компании или гида, совпала часть слов) — заявки нет: в ответе туры с номерами; спроси человека и повтори с номером тура. Нет мест — заявки нет, в ответе ближайшие свободные даты. Запрос оператору вместо отказа, места не закрепляются: нет расписания — ссылку на статус из ответа передай человеку; группа больше, чем берёт тур, или не ограничена — запрос на всю группу; дату закрыл Ведар, не оператор, — вопрос, ходит ли он в этот день. Имя и телефон — персональные данные. Два вызова: первый — черновик и код без отправки; после «да» человека — тот же вызов с consent: true и confirmation.",
       "parameters": {
         "type": "object",
         "properties": {
@@ -736,10 +740,14 @@
           },
           "consent": {
             "type": "boolean",
-            "description": "Explicit consent to process name and phone for this request; ask the person and pass true, otherwise the request is not created. Человек согласен на обработку своих персональных данных (имя, телефон) для связи по этой заявке. Спроси прямо и передай true. Без согласия заявка не создаётся.",
+            "description": "Explicit consent to process name and phone for this request; ask the person and pass true, otherwise the request is not created. Человек согласен на обработку своих персональных данных (имя, телефон) для связи по этой заявке. true — только когда человек сам ответил «да» на черновик. Без согласия заявка не создаётся.",
             "examples": [
               true
             ]
+          },
+          "confirmation": {
+            "type": "string",
+            "description": "Confirmation code from the first call. Send it only after the person explicitly said yes to the draft; without it a draft is returned and nothing is created. Код подтверждения из ответа первого вызова. Передавай только после явного «да» самого человека на черновик; без кода заявка не создаётся — возвращается черновик."
           }
         },
         "required": [
@@ -756,7 +764,7 @@
     "type": "function",
     "function": {
       "name": "create_stay_request",
-      "description": "Kamchatka stay request: dates and guests go to the owner, human-confirmed by the owner, no payment. Needs consent: true, otherwise refused. For tours use create_booking_request. Заявка владельцу жилья на даты: заезд, выезд, сколько гостей, имя и телефон. Объект — из search_accommodations (название или ID из ссылки на карточку). Заявка уходит владельцу в мессенджер, он перезванивает сам и подтверждает даты и цену; это не бронь и не оплата, через платформу жильё не оплачивается. Принимают её только объекты без своих номеров на платформе и без сайта брони — для остальных ответ скажет, где бронировать. Имя и телефон — персональные данные, они передаются владельцу жилья: спроси согласие на это и передай consent: true.",
+      "description": "Kamchatka stay request: dates and guests go to the owner, human-confirmed by the owner, no payment. Two calls: draft with code, then confirmation. For tours use create_booking_request. Заявка владельцу жилья на даты: заезд, выезд, сколько гостей, имя и телефон. Объект — из search_accommodations (название или ID из ссылки на карточку). Заявка уходит владельцу в мессенджер, он перезванивает сам и подтверждает даты и цену; это не бронь и не оплата, через платформу жильё не оплачивается. Принимают её только объекты без своих номеров на платформе и без сайта брони — для остальных ответ скажет, где бронировать. Имя и телефон уйдут владельцу жилья. Имя и телефон — персональные данные. Два вызова: первый — черновик и код без отправки; после «да» человека — тот же вызов с consent: true и confirmation.",
       "parameters": {
         "type": "object",
         "properties": {
@@ -806,10 +814,14 @@
           },
           "consent": {
             "type": "boolean",
-            "description": "Explicit consent to process name and phone and pass them to the stay's owner; ask the person and pass true, otherwise the request is not created. Человек согласен на обработку своих персональных данных (имя, телефон) и их передачу владельцу жилья для связи по заявке. Спроси прямо и передай true. Без согласия заявка не создаётся.",
+            "description": "Explicit consent to process name and phone and pass them to the stay's owner; ask the person and pass true, otherwise the request is not created. Человек согласен на обработку своих персональных данных (имя, телефон) и их передачу владельцу жилья для связи по заявке. true — только когда человек сам ответил «да» на черновик. Без согласия заявка не создаётся.",
             "examples": [
               true
             ]
+          },
+          "confirmation": {
+            "type": "string",
+            "description": "Confirmation code from the first call. Send it only after the person explicitly said yes to the draft; without it a draft is returned and nothing is created. Код подтверждения из ответа первого вызова. Передавай только после явного «да» самого человека на черновик; без кода заявка не создаётся — возвращается черновик."
           }
         },
         "required": [
@@ -825,7 +837,7 @@
     "type": "function",
     "function": {
       "name": "request_charter",
-      "description": "Whole-vehicle (vakhtovka, minibus) request to a Kamchatka charter carrier: destination, dates, group size; human-confirmed by a manager, no payment. Needs consent: true. Prices: search_transfers. Заявка на машину целиком (вахтовка, микроавтобус) у перевозчика «под заказ»: куда, на какие даты, сколько человек. Прайс и перевозчиков смотри через search_transfers (раздел «под заказ»). Календаря у таких перевозчиков нет, поэтому заявка не проверяет занятость машин: менеджер Ведара свяжется по телефону, согласует поездку с перевозчиком и подтвердит. Цена — за машину по прайсу перевозчика: по направлениям или за час и за день работы; направления нет в прайсе — заказ принимается, цену называет перевозчик. Оплаты через платформу нет, расчёт напрямую. Имя и телефон — персональные данные, и они уходят перевозчику: спроси согласие на их обработку и передачу и передай consent: true, иначе заявка не создаётся.",
+      "description": "Whole-vehicle (vakhtovka, minibus) request to a Kamchatka charter carrier: destination, dates, group size; human-confirmed, no payment. Two calls: draft with code, then confirmation. Заявка на машину целиком (вахтовка, микроавтобус) у перевозчика «под заказ»: куда, на какие даты, сколько человек. Прайс и перевозчиков смотри через search_transfers (раздел «под заказ»). Календаря у таких перевозчиков нет, поэтому заявка не проверяет занятость машин: менеджер Ведара свяжется по телефону, согласует поездку с перевозчиком и подтвердит. Цена — за машину по прайсу перевозчика: по направлениям или за час и за день работы; направления нет в прайсе — заказ принимается, цену называет перевозчик. Оплаты через платформу нет, расчёт напрямую. Имя и телефон уйдут перевозчику. Имя и телефон — персональные данные. Два вызова: первый — черновик и код без отправки; после «да» человека — тот же вызов с consent: true и confirmation.",
       "parameters": {
         "type": "object",
         "properties": {
@@ -885,10 +897,14 @@
           },
           "consent": {
             "type": "boolean",
-            "description": "Explicit consent to process name and phone for this request; ask the person and pass true, otherwise the request is not created. Человек согласен на обработку своих персональных данных (имя, телефон) и их передачу перевозчику для связи по заявке. Спроси прямо и передай true. Без согласия заявка не создаётся.",
+            "description": "Explicit consent to process name and phone for this request; ask the person and pass true, otherwise the request is not created. Человек согласен на обработку своих персональных данных (имя, телефон) и их передачу перевозчику для связи по заявке. true — только когда человек сам ответил «да» на черновик. Без согласия заявка не создаётся.",
             "examples": [
               true
             ]
+          },
+          "confirmation": {
+            "type": "string",
+            "description": "Confirmation code from the first call. Send it only after the person explicitly said yes to the draft; without it a draft is returned and nothing is created. Код подтверждения из ответа первого вызова. Передавай только после явного «да» самого человека на черновик; без кода заявка не создаётся — возвращается черновик."
           }
         },
         "required": [
@@ -988,7 +1004,7 @@
     "type": "function",
     "function": {
       "name": "create_trip_request",
-      "description": "Whole Kamchatka trip in one request: tour + stay + charter vehicle under one trip id; each partner sees the rest. Human-confirmed, no payment. Needs consent: true. Одна заявка на поездку целиком: тур на дату и/или жильё на даты и/или машина под заказ (трансфер) — одним вызовом, под общим номером поездки. Передай хотя бы одну часть: tour+tour_date, stay+check_in+check_out, transfer_destination+transfer_date. Каждая часть уходит своему партнёру (оператор тура, владелец жилья, менеджер с перевозчиком), и каждый видит, что ещё заказано в поездке. Перевозчик не назван — машину подберёт менеджер Ведара. Это заявка, не бронь: даты, места и цену подтверждает человек, оплаты через платформу нет. Имя и телефон — персональные данные: спроси согласие и передай consent: true, иначе заявка не создаётся.",
+      "description": "Whole Kamchatka trip in one request: tour + stay + charter vehicle under one trip id; each partner sees the rest. Human-confirmed, no payment. Two calls: draft with code, then confirmation. Одна заявка на поездку целиком: тур на дату и/или жильё на даты и/или машина под заказ (трансфер) — одним вызовом, под общим номером поездки. Передай хотя бы одну часть: tour+tour_date, stay+check_in+check_out, transfer_destination+transfer_date. Каждая часть уходит своему партнёру (оператор тура, владелец жилья, менеджер с перевозчиком), и каждый видит, что ещё заказано в поездке. Перевозчик не назван — машину подберёт менеджер Ведара. Это заявка, не бронь: даты, места и цену подтверждает человек, оплаты через платформу нет. Имя и телефон — персональные данные. Два вызова: первый — черновик и код без отправки; после «да» человека — тот же вызов с consent: true и confirmation.",
       "parameters": {
         "type": "object",
         "properties": {
@@ -1071,10 +1087,14 @@
           },
           "consent": {
             "type": "boolean",
-            "description": "Explicit consent to process name and phone and pass them to every partner of the trip; pass true, otherwise refused. Человек согласен на обработку имени и телефона и их передачу партнёрам поездки (оператор, владелец жилья, перевозчик). Спроси прямо и передай true.",
+            "description": "Explicit consent to process name and phone and pass them to every partner of the trip; pass true, otherwise refused. Человек согласен на обработку имени и телефона и их передачу партнёрам поездки (оператор, владелец жилья, перевозчик). true — только когда человек сам ответил «да» на черновик.",
             "examples": [
               true
             ]
+          },
+          "confirmation": {
+            "type": "string",
+            "description": "Confirmation code from the first call. Send it only after the person explicitly said yes to the draft; without it a draft is returned and nothing is created. Код подтверждения из ответа первого вызова. Передавай только после явного «да» самого человека на черновик; без кода заявка не создаётся — возвращается черновик."
           }
         },
         "required": [

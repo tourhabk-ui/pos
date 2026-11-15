@@ -47,6 +47,7 @@ import { POST } from '@/app/api/mcp/route';
 import { PUBLIC_MCP_TOOLS } from '@/lib/mcp/public-tools';
 import { GUARDIAN_OUTPUT_SCHEMA } from '@/lib/mcp/place-status-schema';
 import { WRITE_OUTPUT_SCHEMA } from '@/lib/mcp/test-run';
+import { confirmationCodeOf, isDraft } from '../helpers/mcp-two-step';
 import { placeStatusFields } from '@/lib/safety/place-day-status';
 import { TOUR_PLACE_NOT_READ_NOTE } from '@/lib/safety/tour-place-status';
 import { getGuardianContextDetailed } from '@/lib/kuzmich/guardian-context';
@@ -306,7 +307,15 @@ describe('create_booking_request: статус места строкой и по
 
   it('настоящая заявка к закрытому месту: принята, и закрытие названо', async () => {
     tourPlace = tp({ tp_is_open: false, tp_status: 'yellow' });
-    const r = await call('create_booking_request', ARGS);
+    // Заявка внешнего агента — в два вызова (lib/mcp/human-confirmation):
+    // черновик ничего не пишет, запись — второй вызов с кодом.
+    const draft = await call('create_booking_request', ARGS);
+    expect(draft.isError, draft.content[0]?.text).toBeUndefined();
+    expect(isDraft(draft.content[0]!.text)).toBe(true);
+    expect(createLeadMock).not.toHaveBeenCalled();
+    expect(draft.structuredContent?.accepted).toBe(0);
+    expect(validWrite(draft.structuredContent), JSON.stringify(validWrite.errors)).toBe(true);
+    const r = await call('create_booking_request', { ...ARGS, confirmation: confirmationCodeOf(draft.content[0]!.text) });
     expect(r.isError, r.content[0]?.text).toBeUndefined();
     expect(createLeadMock).toHaveBeenCalledTimes(1);
     expect(r.content[0]!.text).toMatch(/Заявка оператору принята/);

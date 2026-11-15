@@ -54,19 +54,29 @@ import { POST } from '@/app/api/mcp/route';
 import { humanChatConfirm } from '@/lib/kuzmich/chat-request';
 import { runTripRequest } from '@/lib/agent/trip-request';
 import { requestConfirmNote, OPERATOR_NO_CHANNEL_MARK } from '@/lib/mcp/request-confirm-note';
+import { confirmationCodeOf, isDraft } from '../helpers/mcp-two-step';
 
 const DATE = new Date(Date.now() + 12 * 3_600_000 + 5 * 86_400_000).toISOString().slice(0, 10);
 const args = { tour: 'Мутновский', date: DATE, participants: 2, name: 'Тест', phone: '+79001234567', consent: true };
-function call() {
+function call(a: Record<string, unknown>) {
   return new Request('http://localhost/api/mcp', {
     method: 'POST',
     headers: { 'Content-Type': 'application/json', 'x-forwarded-for': `10.0.2.${Math.floor(Math.random() * 250)}` },
-    body: JSON.stringify({ jsonrpc: '2.0', id: 1, method: 'tools/call', params: { name: 'create_booking_request', arguments: args } }),
+    body: JSON.stringify({ jsonrpc: '2.0', id: 1, method: 'tools/call', params: { name: 'create_booking_request', arguments: a } }),
   }) as unknown as Parameters<typeof POST>[0];
 }
-const toolText = async () => {
-  const j = await (await POST(call())).json();
+const textOf = async (a: Record<string, unknown>) => {
+  const j = await (await POST(call(a))).json();
   return String(j.result?.content?.[0]?.text ?? j.error?.message ?? '');
+};
+/**
+ * Заявка внешнего агента — в два вызова (lib/mcp/human-confirmation): первый —
+ * черновик с кодом, второй с кодом — запись; итог передачи — в ответе второго.
+ */
+const toolText = async () => {
+  const draft = await textOf(args);
+  expect(isDraft(draft), draft).toBe(true);
+  return textOf({ ...args, confirmation: confirmationCodeOf(draft) });
 };
 const RU = (t: string) => /RU: ([^]*?) EN:/.exec(t)?.[1] ?? '';
 
