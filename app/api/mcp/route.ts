@@ -38,7 +38,8 @@ import { z } from 'zod';
 import { validateToolArgs } from '@/lib/kuzmich/tool-schemas';
 import { PUBLIC_MCP_TOOLS, PUBLIC_MCP_TOOL_NAMES, WRITE_TOOL_NAMES, KEY_ARG_TOOL_NAMES, CREATE_LEAD_TOOL, BOOKING_REQUEST_TOOL, REQUEST_CHARTER_TOOL, STAY_REQUEST_TOOL, CAR_RENTAL_REQUEST_TOOL, TRIP_REQUEST_TOOL, MCP_SERVER_INFO, MCP_READ_PER_MINUTE } from '@/lib/mcp/public-tools';
 import { SERVER_INSTRUCTIONS } from '@/lib/mcp/server-instructions';
-import { requestConfirmNote } from '@/lib/mcp/request-confirm-note';
+import { requestConfirmNote, operatorReachLine, type OperatorReach } from '@/lib/mcp/request-confirm-note';
+import { reachForPartner } from '@/lib/partners/reach';
 import { negotiateProtocolVersion, isSupportedProtocolVersion, isModernProtocolVersion, SUPPORTED_PROTOCOL_VERSIONS, LEGACY_PROTOCOL_VERSIONS } from '@/lib/mcp/protocol-version';
 import { hasModernMeta, checkModernRequest, META_SERVER_INFO } from '@/lib/mcp/modern-request';
 import { classifyMessage, jsonrpcSuccess, jsonrpcError, McpUserError, MCP_INTERNAL_ERROR_TEXT, type JsonRpcId } from '@/lib/mcp/jsonrpc';
@@ -507,6 +508,18 @@ async function requestSeatsFromOperator(a: {
  * Повтор за 24 ч и свой заход владельца оператора не будят: заявка уже
  * доставлена первым вызовом, а self-лид — проверка, не спрос.
  */
+/**
+ * Есть ли у оператора тура свой мессенджер (MAX или Telegram). Нет оператора
+ * у тура — заявка ложится менеджеру, «оператор свяжется» не обещается.
+ * Адреса не прочитались — третий исход, а не «есть» (§4.0).
+ */
+async function operatorReachOf(operatorId: string | null): Promise<OperatorReach> {
+  if (!operatorId) return 'none';
+  const reach = await reachForPartner(operatorId);
+  if (reach === null) return 'unknown';
+  return reach.maxChatId || reach.telegramChatId ? 'channel' : 'none';
+}
+
 function notifyPartnerPersonallyAboutMcpLead(params: {
   operatorId: string;
   leadId: string;
@@ -716,6 +729,10 @@ async function executeCreateBookingRequest(rawArgs: Record<string, unknown>, ctx
   // оператор позвонит. Номер заявки человеку ни для чего не нужен — звонят ему.
   // Состав группы в ответе не повторяется: на дубле он взят бы из НОВОГО
   // вызова, а в заявке остался прежний (скептик проверки 29.09).
+  // Дойдёт ли заявка до оператора его мессенджером (разбор промпта 15.11,
+  // п. 3): от этого зависит, обещать ли «оператор свяжется». Исход зависит
+  // только от тура, не от телефона — ответ повтора и новой заявки одинаков.
+  const operatorReach = await operatorReachOf(tour.operator_id ?? null);
   const accepted = (group
     ? `Заявка оператору отправлена запросом на всю группу: "${tour.title}", ${date} — ${groupOverSeatsLine(group)} `
       + 'Места не закреплены: оператор скажет, возьмёт ли всю группу (ещё машины, несколько выездов). '
@@ -728,7 +745,8 @@ async function executeCreateBookingRequest(rawArgs: Record<string, unknown>, ctx
     + parkNote
     + placeNote
     + planAttachNote(planAttach)
-    + requestConfirmNote();
+    + (operatorReach === 'channel' ? '' : ` ${operatorReachLine(operatorReach)}`)
+    + requestConfirmNote(undefined, operatorReach);
   // Префикс один у MCP и у формы сайта (вопрос о дате, закрытой Ведаром): повтор узнаётся между дверями.
   const bookingPrefix = tourRequestPrefix(tour.title, tour.id, date);
   const existing = await findRecentLeadByCommentPrefix(phone, bookingPrefix);
@@ -1298,6 +1316,7 @@ async function executeTool(
       requestCharter: (a) => executeRequestCharter(a, ctx),
       createLead: (a, tripPart) => executeCreateLead(a, ctx, tripPart),
       confirmNote: requestConfirmNote(),
+      confirmNoteFor: (reach) => requestConfirmNote(undefined, reach),
       test: ctx.test === true,
       readPlan: planFromDraft,
     });
