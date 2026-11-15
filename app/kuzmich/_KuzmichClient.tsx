@@ -23,6 +23,8 @@ import { tourPath } from '@/lib/tours/tour-url';
 import { KUZMICH_TELEGRAM_URL } from '@/components/shared/KuzmichActions';
 import { platformAcceptsPayments } from '@/lib/payments/accepting';
 import { ASK_PARAM, sanitizeAsk } from '@/lib/kuzmich/ask-link';
+import { TURN_STOPPED_TEXT, isAbortError } from '@/lib/kuzmich/turn-control';
+import { StopTurnButton, RetryTurnButton } from '@/components/kuzmich/TurnControls';
 
 // ── Типы ──────────────────────────────────────────────────────────
 
@@ -390,6 +392,9 @@ export default function KuzmichClient() {
   const imageFileRef = useRef<File | null>(null);
   const imagePreviewRef = useRef<string | null>(null);
   const sendRef = useRef<(text: string) => Promise<void>>(async () => {});
+  // «Остановить» (#3412, п. 3): обрывает ожидание ответа этого хода.
+  const abortRef = useRef<AbortController | null>(null);
+  const [asking, setAsking] = useState('');
   useEffect(() => {
     if (!busyRef.current) messagesRef.current = messages;
   }, [messages]);
@@ -457,10 +462,15 @@ export default function KuzmichClient() {
     setInput('');
     clearImage();
     setLoading(true);
+    const controller = new AbortController();
+    abortRef.current = controller;
+    setAsking(text.trim());
+    let stopped = false;
 
     try {
       const res = await fetch('/api/ai/chat', {
         method: 'POST',
+        signal: controller.signal,
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
           message: text.trim() || 'Что на этом фото?',
@@ -487,18 +497,24 @@ export default function KuzmichClient() {
       };
       messagesRef.current = [...messagesRef.current, assistantMsg];
       setMessages(prev => [...prev, assistantMsg]);
-    } catch {
-      const fail: Message = { role: 'assistant', content: 'Нет связи. Попробуйте позже.' };
+    } catch (err) {
+      // Остановил сам человек — не «нет связи». Ждавшие в очереди строки
+      // возвращаются в поле ввода, а не уходят сами: он мог передумать.
+      stopped = isAbortError(err);
+      const fail: Message = { role: 'assistant', content: stopped ? TURN_STOPPED_TEXT : 'Нет связи. Попробуйте позже.' };
       messagesRef.current = [...messagesRef.current, fail];
       setMessages(prev => [...prev, fail]);
     } finally {
       busyRef.current = false;
+      abortRef.current = null;
       setLoading(false);
       inputRef.current?.focus();
       const next = queuedRef.current;
       queuedRef.current = [];
       setQueued([]);
-      if (next.length > 0) void sendRef.current(next.join('\n'));
+      if (stopped) {
+        if (next.length > 0) setInput(next.join('\n'));
+      } else if (next.length > 0) void sendRef.current(next.join('\n'));
     }
   }, [sessionId]);
   useEffect(() => {
@@ -650,9 +666,17 @@ export default function KuzmichClient() {
                 <div className="hidden sm:flex w-7 h-7 rounded-lg bg-[var(--accent)]/10 items-center justify-center shrink-0">
                   <Sparkles className="w-3.5 h-3.5 text-[var(--accent)]" />
                 </div>
-                <div className="bg-[var(--bg-hover)] rounded-xl rounded-bl-sm px-3.5 sm:px-4 py-3 text-sm text-[var(--text-muted)] flex items-center gap-2">
-                  <ThinkingText />
+                <div className="flex flex-col gap-1">
+                  <div className="bg-[var(--bg-hover)] rounded-xl rounded-bl-sm px-3.5 sm:px-4 py-3 text-sm text-[var(--text-muted)] flex items-center gap-2">
+                    <ThinkingText />
+                  </div>
+                  <StopTurnButton question={asking} onStop={() => abortRef.current?.abort()} />
                 </div>
+              </div>
+            )}
+            {!loading && (
+              <div className="sm:pl-10">
+                <RetryTurnButton messages={messages} onRetry={(q) => void send(q)} />
               </div>
             )}
             <div ref={messagesEndRef} />
