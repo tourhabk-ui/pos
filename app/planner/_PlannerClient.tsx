@@ -139,22 +139,6 @@ const ACTIVITY_LABEL: Record<string, string> = {
   river:      'Реки',
 };
 
-const INTEREST_PRICE: Record<string, [number, number]> = {
-  trekking:   [3000,  8000],
-  fishing:    [8000,  20000],
-  bears:      [15000, 35000],
-  helicopter: [25000, 60000],
-  thermal:    [2000,  6000],
-  hot_spring: [2000,  5000],
-  boat_trip:  [5000,  15000],
-  snowmobile: [8000,  18000],
-  volcano:    [5000,  12000],
-  geyser:     [8000,  20000],
-  mountain:   [3000,  9000],
-  sea:        [4000,  12000],
-  river:      [5000,  15000],
-};
-
 /**
  * Что человек должен знать о ссылке «Поделиться»: она открытая. Закрывается
  * кнопкой «Закрыть ссылку» в карточке поездки (components/trips/TripActions).
@@ -180,8 +164,6 @@ const ACTIVITY_DEFAULT_TRANSPORT: Record<string, TransportType> = {
   boat_trip: 'boat', snowmobile: 'jeep', volcano: 'jeep',
   geyser: 'helicopter', mountain: 'walking', sea: 'boat', river: 'boat',
 };
-
-const DEFAULT_PRICE: [number, number] = [3000, 10000];
 
 // ─── Helpers ──────────────────────────────────────────────────────────────────
 
@@ -266,7 +248,6 @@ function shownZone(day: Pick<DayPlan, 'zone' | 'zoneShown'>): string | null {
 
 function routeToDayPlan(route: RoutePoint, dayNum: number): DayPlan {
   const activity = route.activity_type ?? 'trekking';
-  const [priceFrom, priceTo] = INTEREST_PRICE[activity] ?? DEFAULT_PRICE;
   const transport = ACTIVITY_DEFAULT_TRANSPORT[activity] ?? 'walking';
   // Зона дня для логистики — записанная в базе; нет её среди четырёх —
   // угадывается по расстоянию. Догадка нужна транспорту, человеку же
@@ -280,7 +261,10 @@ function routeToDayPlan(route: RoutePoint, dayNum: number): DayPlan {
     title: route.title,
     description: '',
     activityType: activity,
-    priceFrom, priceTo,
+    // Цены у дня без тура нет (слово владельца 14.11 «5 -1»): до 14.11 здесь
+    // стояла вилка вида активности, вписанная в этот файл без источника. Цену
+    // называет исполнитель; тур, поставленный на день, приносит свою.
+    priceFrom: 0, priceTo: 0,
     coords: [route.lat, route.lng],
     ...(route.plannerZone ? {} : { zoneShown: route.zone }),
     defaultTransport: transport,
@@ -2601,8 +2585,10 @@ export function PlannerClient({ initialUserId }: { initialUserId?: string | null
       </div>
 
       <div className="space-y-2">
-        {/* Уровень меняет только жильё в смете, туры от него не зависят
-            (#3199, раздел 4): подпись «Бюджет» обещала дешевле туры. */}
+        {/* Уровень — пожелание исполнителю: уходит с заявкой из плана. До
+            14.11 он менял вилку жилья в смете, теперь цены жилья без
+            выбранного объекта в плане нет (слово владельца «5 -1»). Подпись
+            «Бюджет» обещала дешевле туры (#3199, раздел 4). */}
         <p className="text-sm font-medium text-[var(--text-primary)] flex items-center gap-2">
           <Wallet className="w-4 h-4 text-[var(--ocean)]" />Жильё
         </p>
@@ -2616,6 +2602,9 @@ export function PlannerClient({ initialUserId }: { initialUserId?: string | null
             { value: 'premium', label: 'Премиум' },
           ]}
         />
+        <p className="text-xs text-[var(--text-muted)]">
+          Пожелание к жилью — уйдёт исполнителю с заявкой. Цену жилья называет хозяин.
+        </p>
       </div>
 
       {/* Что ещё нужно (решение владельца 26.09): в результате — настоящие

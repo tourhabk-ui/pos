@@ -6,11 +6,14 @@
  *   (E11, nightZoneOf);
  * - переезд без цены в данных (вертолётное ребро зон) — строка «цену
  *   называет перевозчик», а не молчаливый ноль.
+ *
+ * С 14.11 (слово владельца «5 -1») суммы нет ни у одного переезда, ночи и
+ * трансфера: в итоге только цены туров и выбранного жилья.
  */
 import { describe, it, expect, afterEach } from 'vitest';
 import { render, screen, cleanup, within } from '@testing-library/react';
 import React from 'react';
-import { estimateGroup, calculatePriceBreakdown, type EstimateDay, type EstimateProfile } from '@/lib/planner/estimate';
+import { estimateGroup, NO_PRICES_YET, type EstimateDay, type EstimateProfile } from '@/lib/planner/estimate';
 import { lodgingStays } from '@/lib/planner/trip-extras';
 import { planForLead } from '@/lib/planner/plan-for-lead';
 import { GroupEstimateBlock } from '@/components/planner/GroupEstimate';
@@ -21,7 +24,7 @@ const d = (day: number, type: EstimateDay['type'], zone: EstimateDay['zone'], ex
   day, type, zone, title: `День ${day}`, priceFrom: 0, priceTo: 0, ...extra,
 });
 const PROFILE: EstimateProfile = { adults: 2, children: [], budgetTier: 'comfort', tripOrigin: 'visitor' };
-/** Прилёт и вылет: одна ночь в Авачинской зоне, 7 000 ₽ на человека. */
+/** Прилёт и вылет: одна ночь в Авачинской зоне. */
 const SHORT = [d(1, 'arrival', 'avachinsky'), d(2, 'departure', 'avachinsky')];
 const hasTransfer = (days: EstimateDay[], profile: EstimateProfile) =>
   estimateGroup(days, profile).lines.some((l) => l.label === 'Трансферы аэропорта');
@@ -30,9 +33,11 @@ describe('машина напрокат вместо трансфера (E7)', (
   it('машина — трансфера нет, итог без него, прокат назван словами', () => {
     const withCar = estimateGroup(SHORT, { ...PROFILE, needs: { car: true } });
     expect(withCar.lines.some((l) => l.label === 'Трансферы аэропорта')).toBe(false);
-    expect(withCar.total).toEqual([14000, 14000]);
+    expect(withCar.unpriced).toEqual(['Проживание в Авачинской зоне']);
     expect(withCar.assumptions).toContain('Трансфер аэропорта не посчитан: в плане машина напрокат. Прокат в смету не входит — цену подтверждает прокатчик.');
-    expect(estimateGroup(SHORT, PROFILE).total).toEqual([19000, 24000]);
+    // Без машины трансфер — строкой без суммы; сумм нет ни там, ни там.
+    expect(estimateGroup(SHORT, PROFILE).unpriced).toEqual(['Проживание в Авачинской зоне', 'Трансферы аэропорта']);
+    expect(withCar.total).toEqual([0, 0]);
   });
 
   it('машина и трансфер отмечены оба — трансфер остаётся', () => {
@@ -56,7 +61,7 @@ describe('машина напрокат вместо трансфера (E7)', (
   it('заявка считает так же, как экран', () => {
     const needs = { lodging: false, transfer: false, car: true };
     const plan = planForLead(SHORT, { ...PROFILE, arrivalDate: '2030-08-01' }, undefined, needs);
-    expect(plan.estimate.total).toEqual([14000, 14000]);
+    expect(plan.estimate.unpriced).toEqual(estimateGroup(SHORT, { ...PROFILE, needs: { car: true, transfer: false } }).unpriced);
     expect(plan.estimate.lines.map((l) => l.label)).not.toContain('Трансферы аэропорта');
   });
 });
@@ -71,14 +76,12 @@ describe('ночь дня переезда — в зоне, куда приех�
     d(5, 'departure', 'avachinsky'),
   ];
 
-  it('смета: ночь после переезда — по цене Западной зоны', () => {
+  it('смета: ночь после переезда — в Западной зоне', () => {
     const lodging = estimateGroup(TRIP, PROFILE).lines.filter((l) => l.kind === 'lodging');
-    expect(lodging.map((l) => [l.label, l.basis])).toEqual([
-      ['Проживание в Авачинской зоне, уровень «Комфорт»', '2 ночи × 2 чел.'],
-      ['Проживание в Западной зоне, уровень «Комфорт»', '2 ночи × 2 чел.'],
+    expect(lodging.map((l) => [l.label, l.basis, l.total])).toEqual([
+      ['Проживание в Авачинской зоне', '2 ночи — цену называет хозяин жилья', null],
+      ['Проживание в Западной зоне', '2 ночи — цену называет хозяин жилья', null],
     ]);
-    // Вилка на человека — то же правило: 2 ночи по 7 000 и 2 по 20 000, без множителей.
-    expect(calculatePriceBreakdown(TRIP, PROFILE).accommodation).toEqual([2 * 7000 + 2 * 20000, 2 * 7000 + 2 * 20000]);
   });
 
   it('подбор жилья: ночь переезда входит в стоянку зоны назначения', () => {
@@ -108,20 +111,30 @@ describe('переезд без цены — «цены нет», а не 0', ()
     expect(e.total[0]).toBe(priced);
   });
 
-  it('экран: «цена не указана», без «ориентир», и кто назовёт цену', () => {
+  it('экран: «цены нет», без «ориентир», и кто назовёт цену', () => {
     render(<GroupEstimateBlock estimate={estimateGroup(TRIP, PROFILE)} />);
     const block = screen.getByTestId('price-estimate');
     const row = within(block).getByText(LABEL).closest('li')!;
-    expect(row.textContent).toContain('цена не указана');
-    expect(row.textContent).toContain('Цены этого переезда в данных нет — в итог он не вошёл.');
-    expect(row.textContent).not.toContain('ориентир');
-    expect(block.textContent).toContain(`Не вошло в итог: ${LABEL} — цену переезда назовёт перевозчик.`);
+    expect(row.textContent).toContain('цену называет перевозчик');
+    expect(row.textContent).toContain('цены нет');
+    expect(block.textContent).not.toMatch(/ориентир/i);
+    // Ни одной цены в плане — «Итого» и «0 ₽» нет, сказано, кто называет цены.
+    expect(block.textContent).toContain(NO_PRICES_YET);
+    expect(block.textContent).not.toMatch(/Итого|0 ₽/);
   });
 
-  it('тур без цены и переезд без цены — оба названы', () => {
-    const days = [...TRIP.slice(0, 3), d(4, 'activity', 'eastern', { title: 'Долина', priceMissing: 'Группа больше ступеней цены оператора', realTour: { tourId: 't', priceUnit: 'per_person', lodgingIncluded: null } }), TRIP[4]!];
+  it('тур с ценой рядом с туром без цены и переездом — без цены названы оба', () => {
+    const days = [
+      d(1, 'arrival', 'avachinsky'),
+      d(2, 'activity', 'western', { title: 'Река', realPrice: 15000, realTour: { tourId: 'r', priceUnit: 'per_person', lodgingIncluded: null } }),
+      TRIP[2]!,
+      d(4, 'activity', 'eastern', { title: 'Долина', priceMissing: 'Группа больше ступеней цены оператора', realTour: { tourId: 't', priceUnit: 'per_person', lodgingIncluded: null } }),
+      TRIP[4]!,
+    ];
     render(<GroupEstimateBlock estimate={estimateGroup(days, PROFILE)} />);
-    expect(screen.getByTestId('price-estimate').textContent)
-      .toContain('— сумму смотрите в карточке тура, цену переезда назовёт перевозчик.');
+    const text = screen.getByTestId('price-estimate').textContent!;
+    expect(text).toMatch(/Итого на группу30\s000 ₽/);
+    expect(text).toContain('сумму тура смотрите в его карточке');
+    expect(text).toContain('цену переездов и трансфера назовёт перевозчик.');
   });
 });

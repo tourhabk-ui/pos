@@ -6,17 +6,19 @@
  * с ценой за группу из неё выпадал. Здесь держится сама арифметика, без базы
  * и экрана:
  *
- *   — одна формула: когда все туры за человека, итог группы — это ровно вилка
- *     на человека, умноженная на состав (calculatePriceBreakdown);
+ *   — одна формула: когда все туры за человека, итог группы — это ровно сумма
+ *     цен туров на человека, умноженная на состав (calculatePriceBreakdown);
  *   — тур считается по своей единице цены: за человека — на каждого, за
  *     группу — на каждую группу по вместимости, за день — на каждый день тура;
- *   — чего не знаем, то «цена не указана», а не ноль, и в итог не входит;
+ *   — в сумме только цены с источником (слово владельца 14.11 «5 -1»): дни
+ *     без тура, ночи, переезды и трансфер — строки без суммы, кто называет
+ *     цену — сказано; числа, оставшиеся в днях старых планов, не считаются;
  *   — ночи — по зоне, где ночуют, без последней ночи, ночей дома и ночей,
  *     включённых в тур.
  */
 import { describe, it, expect } from 'vitest';
 import {
-  estimateGroup, calculatePriceBreakdown,
+  estimateGroup, calculatePriceBreakdown, OPEN_PRICE_WORDS,
   type EstimateDay, type EstimateProfile, type GroupEstimate,
 } from '@/lib/planner/estimate';
 import { bookingTotal } from '@/lib/tours/booking-total';
@@ -40,7 +42,9 @@ const lodging = (e: GroupEstimate) => e.lines.filter((l) => l.kind === 'lodging'
 const plain = (s: string) => s.replace(/ /g, ' ');
 
 // Прилетающая семья: день прилёта, тур, день без тура, переезд, тур на западе,
-// резервный день, вылет. Все туры — за человека.
+// резервный день, вылет. Все туры — за человека. У дней без тура стоят числа,
+// какие движок ставил до 14.11: так выглядят дни сохранённых тогда планов, и
+// в сумму они идти не должны.
 const VISITOR_PLAN: EstimateDay[] = [
   day(1, 'arrival'),
   day(2, 'activity', { title: 'Авачинский', realPrice: 10000, realTour: tour('t-1', 'per_person', 10) }),
@@ -58,20 +62,30 @@ describe('одна формула с вилкой на человека', () => 
     profile({ tripOrigin: 'local', adults: 4, budgetTier: 'premium' }),
   ]) {
     const people = p.adults + p.children.length;
-    it(`все туры за человека: итог группы = вилка на человека × ${people} (${p.tripOrigin}, ${p.budgetTier})`, () => {
-      const pb = calculatePriceBreakdown(VISITOR_PLAN, p);
+    it(`все туры за человека: итог группы = цены туров на человека × ${people} (${p.tripOrigin}, ${p.budgetTier})`, () => {
+      const pb = calculatePriceBreakdown(VISITOR_PLAN);
       const e = estimateGroup(VISITOR_PLAN, p);
       expect(e.people).toBe(people);
-      expect(e.total).toEqual([pb.perPersonTotal[0] * people, pb.perPersonTotal[1] * people]);
-      expect(e.perPerson).toEqual(pb.perPersonTotal);
-      expect(e.unpriced).toEqual([]);
+      expect(pb.tours).toEqual([30000, 30000]);
+      expect(e.total).toEqual([pb.tours[0] * people, pb.tours[1] * people]);
+      expect(e.perPerson).toEqual(pb.tours);
+      // Без суммы — ровно строки без источника цены, и каждая названа.
+      expect(e.unpriced).toEqual(e.lines.filter((l) => !l.total).map((l) => l.label));
+      for (const l of e.lines.filter((x) => x.source === 'open')) expect(l.total, l.label).toBeNull();
     });
   }
 
-  it('итог — это сумма цен туров и ориентиров, без остатка', () => {
+  it('итог — это только цены туров и выбранных предложений, без остатка', () => {
     const e = estimateGroup(VISITOR_PLAN, profile({ tripOrigin: 'visitor' }));
-    expect([e.fromTours[0] + e.fromEstimates[0], e.fromTours[1] + e.fromEstimates[1]]).toEqual(e.total);
+    expect([e.fromTours[0] + e.fromOffers[0], e.fromTours[1] + e.fromOffers[1]]).toEqual(e.total);
     expect(e.fromTours).toEqual([(10000 + 20000) * 2, (10000 + 20000) * 2]);
+  });
+
+  it('числа в днях без тура (старые планы) в сумму не идут ни строкой, ни итогом', () => {
+    const e = estimateGroup(VISITOR_PLAN, profile({ tripOrigin: 'visitor', budgetTier: 'premium' }));
+    expect(e.total).toEqual([60000, 60000]);
+    const text = e.lines.map((l) => `${l.basis} ${l.note ?? ''}`).join(' ');
+    for (const n of ['3 000', '6 000', '5 000', '8 000', '2 500']) expect(plain(text)).not.toContain(n);
   });
 
   it('удалили день — итог уменьшился ровно на строку этого дня', () => {
@@ -79,10 +93,7 @@ describe('одна формула с вилкой на человека', () => 
     const before = estimateGroup(VISITOR_PLAN, p);
     const removed = tourLines(before).find((l) => l.label.includes('Рыбалка'))!;
     const after = estimateGroup(VISITOR_PLAN.filter((d) => d.title !== 'Рыбалка'), p);
-    // У местного ночи на западе остаются от дня переезда, а ночь дня рыбалки уходит вместе с ним.
-    const nightOfFishingDay = (lodging(before).find((l) => l.label.includes('Западной'))?.total ?? [0, 0])[0]
-      - (lodging(after).find((l) => l.label.includes('Западной'))?.total ?? [0, 0])[0];
-    expect(before.total[0] - after.total[0]).toBe(removed.total![0] + nightOfFishingDay);
+    expect(before.total[0] - after.total[0]).toBe(removed.total![0]);
     expect(tourLines(after).some((l) => l.label.includes('Рыбалка'))).toBe(false);
   });
 });
@@ -159,11 +170,11 @@ describe('тур — по своей единице цены', () => {
     expect(e.total).toEqual([0, 0]);
   });
 
-  it('цена без данных о туре — за человека, как в вилке на человека', () => {
+  it('цена без данных о туре — за человека, как в сумме на человека', () => {
     const days = [day(1, 'activity', { realPrice: 8000 })];
     const e = estimateGroup(days, profile({ adults: 3 }));
     expect(e.total).toEqual([8000 * 3, 8000 * 3]);
-    expect(e.perPerson).toEqual(calculatePriceBreakdown(days, profile()).perPersonTotal);
+    expect(e.perPerson).toEqual(calculatePriceBreakdown(days).tours);
   });
 });
 
@@ -171,10 +182,10 @@ describe('ночи — по зоне, где ночуют', () => {
   it('у последнего дня ночи нет: три дня — две ночи', () => {
     const e = estimateGroup([day(1, 'arrival'), day(2, 'activity'), day(3, 'departure')], profile({ tripOrigin: 'visitor' }));
     const [l] = lodging(e);
-    expect(l!.label).toBe('Проживание в Авачинской зоне, уровень «Комфорт»');
-    expect(plain(l!.basis)).toBe('2 ночи × 2 чел.');
-    // комфорт, Авачинская: 7 000 за ночь на человека, без множителей (решение владельца 11.11, #3199 E12).
-    expect(l!.total).toEqual([2 * 7000 * 2, 2 * 7000 * 2]);
+    expect(l!.label).toBe('Проживание в Авачинской зоне');
+    expect(l!.basis).toBe(`2 ночи — ${OPEN_PRICE_WORDS.lodging}`);
+    // Суммы нет: ночь по зоне была числом, зашитым в код (слово владельца 14.11 «5 -1»).
+    expect(l!.total).toBeNull();
   });
 
   it('у местного ночи дома не считаются, ночи на выезде — считаются', () => {
@@ -183,8 +194,8 @@ describe('ночи — по зоне, где ночуют', () => {
       day(2, 'activity', { zone: 'western' }),
       day(3, 'activity', { zone: 'western' }),
     ], profile({ tripOrigin: 'local' }));
-    expect(lodging(e).map((l) => l.label)).toEqual(['Проживание в Западной зоне, уровень «Комфорт»']);
-    expect(plain(lodging(e)[0]!.basis)).toBe('1 ночь × 2 чел.');
+    expect(lodging(e).map((l) => l.label)).toEqual(['Проживание в Западной зоне']);
+    expect(lodging(e)[0]!.basis).toBe(`1 ночь — ${OPEN_PRICE_WORDS.lodging}`);
   });
 
   it('ночь, включённая в тур, не считается отдельно; ночь после последнего дня тура — считается (Б32)', () => {
@@ -195,21 +206,25 @@ describe('ночи — по зоне, где ночуют', () => {
       day(2, 'activity', { zone: 'western', realTour: tour('base', 'per_person', 8, true) }),
       day(3, 'activity', { zone: 'western' }),
     ], profile({ tripOrigin: 'visitor' }));
-    expect(lodging(e).map((l) => l.basis)).toEqual(['1 ночь × 2 чел.']);
+    expect(lodging(e).map((l) => l.basis)).toEqual([`1 ночь — ${OPEN_PRICE_WORDS.lodging}`]);
   });
 
   it('в Северной зоне не ночуют — ночь считается в Авачинской', () => {
     const e = estimateGroup([day(1, 'activity', { zone: 'northern' }), day(2, 'activity')], profile({ tripOrigin: 'visitor' }));
-    expect(lodging(e).map((l) => l.label)).toEqual(['Проживание в Авачинской зоне, уровень «Комфорт»']);
+    expect(lodging(e).map((l) => l.label)).toEqual(['Проживание в Авачинской зоне']);
   });
 
   it('однодневный план — без строк проживания', () => {
     expect(lodging(estimateGroup([day(1, 'activity')], profile({ tripOrigin: 'visitor' })))).toEqual([]);
   });
 
-  it('строка проживания — ориентир, а не цена', () => {
-    const e = estimateGroup([day(1, 'arrival'), day(2, 'departure')], profile({ tripOrigin: 'visitor' }));
-    expect(lodging(e)[0]!.source).toBe('estimate');
+  it('строка проживания — без суммы, цену называет хозяин жилья; уровень жилья сумму не меняет', () => {
+    for (const budgetTier of ['economy', 'comfort', 'premium'] as const) {
+      const e = estimateGroup([day(1, 'arrival'), day(2, 'departure')], profile({ tripOrigin: 'visitor', budgetTier }));
+      expect(lodging(e)[0]!.source).toBe('open');
+      expect(lodging(e)[0]!.total).toBeNull();
+      expect(e.unpriced).toContain('Проживание в Авачинской зоне');
+    }
   });
 });
 
@@ -224,19 +239,30 @@ describe('состав, трансферы, допущения', () => {
     expect(estimateGroup(VISITOR_PLAN, profile()).assumptions).toEqual([]);
   });
 
-  it('трансферы аэропорта — у прилетающего, на каждого; у местного их нет', () => {
+  it('трансферы аэропорта — у прилетающего строка без суммы, цену называет перевозчик; у местного строки нет', () => {
     const visitor = estimateGroup(VISITOR_PLAN, profile({ tripOrigin: 'visitor', adults: 3 }));
     const transfer = visitor.lines.find((l) => l.label === 'Трансферы аэропорта')!;
-    expect(transfer.total).toEqual([7500, 15000]);
+    expect(transfer.total).toBeNull();
+    expect(transfer.basis).toBe(OPEN_PRICE_WORDS.transport);
     expect(estimateGroup(VISITOR_PLAN, profile({ tripOrigin: 'local' })).lines.some((l) => l.label === 'Трансферы аэропорта')).toBe(false);
   });
 
-  it('день без тура — ориентир вида активности на каждого', () => {
+  it('переезд — строка без суммы, цену называет перевозчик', () => {
+    const e = estimateGroup(VISITOR_PLAN, profile());
+    const travel = e.lines.find((l) => l.label.includes('Переезд на запад'))!;
+    expect(travel.kind).toBe('transport');
+    expect(travel.total).toBeNull();
+    expect(travel.basis).toBe(OPEN_PRICE_WORDS.transport);
+  });
+
+  it('день занятий без тура — строка без суммы, цену называет исполнитель; прилёт и отъезд строк не дают', () => {
     const e = estimateGroup(VISITOR_PLAN, profile());
     const walk = e.lines.find((l) => l.label.includes('Прогулка'))!;
     expect(walk.kind).toBe('activity');
-    expect(walk.source).toBe('estimate');
-    expect(walk.total).toEqual([6000, 12000]);
+    expect(walk.source).toBe('open');
+    expect(walk.total).toBeNull();
+    expect(walk.basis).toBe(OPEN_PRICE_WORDS.activity);
+    expect(e.lines.some((l) => l.label.includes('День 1') || l.label.includes('День 7'))).toBe(false);
   });
 
   it('пустой состав не делит на ноль', () => {
@@ -297,12 +323,13 @@ describe('тур — по правилу брони (#2304, шаг 1б)', () => 
     expect(e.total).toEqual([20000, 20000]);
   });
 
-  it('вилка на человека: тур без цены для группы — не ориентир и не цена, а «без цены»', () => {
+  it('сумма на человека: тур без цены для группы — не цена, а «без цены»; день без тура — «открыт»', () => {
     const pb = calculatePriceBreakdown([
       day(1, 'activity', { realTour: tour('krai', 'per_person', 15), priceMissing: 'нет цены', priceFrom: 0, priceTo: 0 }),
       day(2, 'activity', { realPrice: 10000, realTour: tour('v', 'per_person', 10) }),
-    ], profile());
-    expect(pb.activityPricing).toEqual({ tourPriced: 1, estimated: 0, excluded: 0, unpriced: 1 });
-    expect(pb.activities).toEqual([10000, 10000]);
+      day(3, 'activity', { title: 'Прогулка', priceFrom: 3000, priceTo: 6000 }),
+    ]);
+    expect(pb.activityPricing).toEqual({ tourPriced: 1, open: 1, excluded: 0, unpriced: 1 });
+    expect(pb.tours).toEqual([10000, 10000]);
   });
 });

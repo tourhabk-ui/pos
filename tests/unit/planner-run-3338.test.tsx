@@ -168,24 +168,26 @@ describe('3. смета сходится с карточками дней', () =
     d(5, 'departure', 0, 2500, 'Вылет'),
   ];
 
-  it('дни прилёта, отдыха и отъезда — строками сметы, в итоге', () => {
+  // С 14.11 (слово владельца «5 -1») у дня без тура цены нет ни на карточке,
+  // ни в смете: вилки дня («5 000 — 15 000 ₽» по виду занятия) были из кода.
+  // Карточка и смета сходятся по-прежнему — обе молчат о цене.
+  it('дни занятий без тура — строками без суммы; прилёт, отдых и отъезд строк не дают', () => {
     const est = estimateGroup(TRIP, PROFILE);
-    const labels = est.lines.filter((l) => l.kind === 'activity').map((l) => l.label);
-    expect(labels).toEqual(['«Прилёт», день 1', '«Вулканы — Авачинская зона», день 2', '«День отдыха. Термальные источники», день 3', '«Вулканы — Авачинская зона», день 4', '«Вылет», день 5']);
-    const activity = est.lines.filter((l) => l.kind === 'activity').reduce((s, l) => [s[0] + l.total![0], s[1] + l.total![1]], [0, 0]);
-    expect(activity).toEqual([2 * (0 + 5000 + 1500 + 5000 + 0), 2 * (3000 + 15000 + 5000 + 15000 + 2500)]);
+    const activity = est.lines.filter((l) => l.kind === 'activity');
+    expect(activity.map((l) => l.label)).toEqual(['«Вулканы — Авачинская зона», день 2', '«Вулканы — Авачинская зона», день 4']);
+    for (const l of activity) expect(l).toMatchObject({ basis: 'тур не выбран — цену называет исполнитель', total: null, source: 'open' });
+    // Вилки, сохранённые в днях старого плана, в итог не идут.
+    expect(est.total).toEqual([0, 0]);
   });
 
-  it('вилка на человека считает те же дни', () => {
-    expect(calculatePriceBreakdown(TRIP, PROFILE).activities).toEqual([11500, 40500]);
+  it('цены туров на человека тех же дней — ноль туров, два дня без тура', () => {
+    expect(calculatePriceBreakdown(TRIP)).toEqual({ tours: [0, 0], activityPricing: { tourPriced: 0, open: 2, excluded: 0, unpriced: 0 } });
   });
 
-  it('строка проживания называет выбранный уровень жилья', () => {
+  it('строка проживания уровня жилья не называет: цены по уровню больше нет', () => {
     const label = (tier: EstimateProfile['budgetTier']) =>
       estimateGroup(TRIP, { ...PROFILE, budgetTier: tier }).lines.find((l) => l.kind === 'lodging')?.label;
-    expect(label('economy')).toBe('Проживание в Авачинской зоне, уровень «Эконом»');
-    expect(label('comfort')).toBe('Проживание в Авачинской зоне, уровень «Комфорт»');
-    expect(label('premium')).toBe('Проживание в Авачинской зоне, уровень «Премиум»');
+    for (const tier of ['economy', 'comfort', 'premium'] as const) expect(label(tier)).toBe('Проживание в Авачинской зоне');
   });
 
   it('свободный день (0–0) строки не даёт', () => {

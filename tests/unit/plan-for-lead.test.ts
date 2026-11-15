@@ -77,7 +77,10 @@ describe('сводка плана для заявки', () => {
   it('словами: состав, смета и туры по дням', () => {
     const lines = planLeadLines(plan).map(plain);
     expect(lines[0]).toBe('Группа: 2 взр., ребёнок 6 лет · уровень «комфорт»');
-    expect(lines[1]).toMatch(/^Смета: [\d ]+ ₽–[\d ]+ ₽ на группу \([\d ]+ ₽–[\d ]+ ₽ на человека\) · без цены: 1$/);
+    // Только цены туров (14.11, «5 -1»): тур за группу 196 000 ₽; тур без
+    // цены, ночи и трансфер — без цены.
+    expect(lines[1]).toMatch(/^Цены туров в плане: 196 000 ₽ на группу · без цены: \d+$/);
+    expect(Number(/без цены: (\d+)$/.exec(lines[1]!)?.[1])).toBe(plan.estimate.unpriced.length);
     expect(lines).toContain('День 2 (03.08): «Недельный рыболовный тур» (ID11), Камчатская рыбалка, 196 000 ₽/группа, свободно с 03.08');
     expect(lines).toContain('День 4 (05.08): «Вулкан Плоский Толбачик» (ID41), Край Вулканов, цену называет оператор');
     expect(lines.some((l) => l.includes('день 2 из 7'))).toBe(false);
@@ -168,7 +171,7 @@ describe('уведомление в Телеграм несёт план', () =>
     });
     const body = plain(fetchMock.mock.calls.map((c) => String((c[1] as RequestInit | undefined)?.body ?? '')).join('\n'));
     expect(body).toContain('Группа: 2 взр., ребёнок 6 лет');
-    expect(body).toMatch(/Смета: [\d ]+ ₽/);
+    expect(body).toMatch(/Цены туров в плане: [\d ]+ ₽ на группу/);
     expect(body).toContain('цену называет оператор');
     expect(body).not.toContain('<b>опасный</b>');
   });
@@ -199,5 +202,25 @@ describe('связка: производители и потребители с�
       expect((tool?.inputSchema as { properties?: Record<string, unknown> } | undefined)?.properties, name).toHaveProperty('plan_id');
     }
     expect(WRITE_TOOL_NAMES.size).toBe(6);
+  });
+});
+
+describe('заявка, сохранённая до 14.11 (слово владельца «5 -1»)', () => {
+  it('итог с прежними вилками не показывается: только цены туров', () => {
+    // Сводка того времени: итог 260 000 — 360 000 ₽ складывал тур 196 000 ₽
+    // с ночами, трансфером и днями «по средним ценам» из кода.
+    const old = {
+      v: 1 as const, party: { adults: 2, children: [] }, budget_tier: 'comfort' as const, trip_origin: 'visitor' as const,
+      arrival: '2027-08-02', days: [],
+      estimate: { people: 2, total: [260000, 360000] as [number, number], per_person: [130000, 180000] as [number, number], from_tours: [196000, 196000] as [number, number], lines: [], unpriced: [] },
+    };
+    const lines = planLeadLines(old).map(plain);
+    expect(lines[1]).toBe('Цены туров в плане: 196 000 ₽ на группу');
+    expect(lines.join('\n')).not.toMatch(/260 000|360 000|130 000/);
+  });
+
+  it('без строк и итога туров — «цен туров нет», а не сбой', () => {
+    const bare = { v: 1, party: { adults: 2, children: [] }, budget_tier: 'comfort', days: [], estimate: { total: [1, 2], per_person: [1, 1], unpriced: [] } };
+    expect(planLeadLines(bare as unknown as Parameters<typeof planLeadLines>[0]).map(plain)[1]).toBe('Цен туров в плане нет');
   });
 });

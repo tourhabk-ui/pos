@@ -208,7 +208,7 @@ export function planProfile(params: PlanParams): TripProfile {
 }
 
 export function planPrice(plan: EditablePlan): PriceBreakdown {
-  return calculatePriceBreakdown(plan.days, planProfile(plan.params));
+  return calculatePriceBreakdown(plan.days);
 }
 
 /** Смета плана на группу (#2304) — та же формула, что у экрана /planner. */
@@ -501,7 +501,10 @@ function setLodging(plan: EditablePlan, tier: BudgetTier): Applied {
   }
   const next = clone(plan);
   next.params.budgetTier = tier;
-  return { ok: true, plan: next, moved: [], note: `Уровень жилья — «${LODGING_LABEL[tier]}». Дни не менялись, пересчитана оценка жилья.` };
+  // До 14.11 уровень менял оценку жилья в смете — вилку из констант. Теперь
+  // цены жилья без выбранного объекта в плане нет (слово владельца «5 -1»):
+  // уровень — пожелание, оно уходит исполнителю с заявкой из плана.
+  return { ok: true, plan: next, moved: [], note: `Уровень жилья — «${LODGING_LABEL[tier]}». Дни не менялись. Цены жилья в плане нет — уровень уйдёт исполнителю пожеланием вместе с заявкой.` };
 }
 
 /** «до года», «1 год», «6 лет». */

@@ -210,6 +210,12 @@ export function needsWords(needs: PlanForLead['needs']): string | null {
   return asked.length > 0 ? `ещё нужно: ${asked.join(', ')}` : null;
 }
 
+/** Цены туров в плане на группу; нет — так и сказано. */
+function toursLine(est: PlanForLead['estimate']): string {
+  const t = est.from_tours;
+  return Array.isArray(t) && t[1] > 0 ? `Цены туров в плане: ${range(t)} на группу` : 'Цен туров в плане нет';
+}
+
 /** Строки для человека: состав, смета, туры по дням. */
 export function planLeadLines(plan: PlanForLead): string[] {
   // Что ещё нужно — в строке группы, а не отдельной: уведомление в Телеграм
@@ -217,8 +223,12 @@ export function planLeadLines(plan: PlanForLead): string[] {
   const needs = needsWords(plan.needs);
   const lines = [
     `Группа: ${partyWords(plan.party)} · уровень «${BUDGET_WORD[plan.budget_tier] ?? plan.budget_tier}»${needs ? ` · ${needs}` : ''}`,
-    `Смета: ${range(plan.estimate.total)} на группу (${range(plan.estimate.per_person)} на человека)`
-      + (plan.estimate.unpriced.length > 0 ? ` · без цены: ${plan.estimate.unpriced.length}` : ''),
+    // Только цены туров (слово владельца 14.11 «5 -1»); выбранное жильё —
+    // своими строками ниже, со своей ценой. Итог `total` здесь не читается:
+    // в заявках до 14.11 он нёс вилки «ориентир», зашитые в код, и оператор
+    // читал их как смету.
+    toursLine(plan.estimate)
+      + (Array.isArray(plan.estimate.unpriced) && plan.estimate.unpriced.length > 0 ? ` · без цены: ${plan.estimate.unpriced.length}` : ''),
   ];
   for (const d of plan.days) {
     const t = tourWords(d);

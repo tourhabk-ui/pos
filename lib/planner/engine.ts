@@ -1071,7 +1071,7 @@ function requestedRestDay(day: number, zone: ZoneId): DayPlan {
     title: 'День отдыха',
     description: 'Вы просили день без активностей: выспаться, горячие источники, прогулка рядом с жильём.',
     activityType: 'hot_spring',
-    priceFrom: 0, priceTo: 5000,
+    priceFrom: 0, priceTo: 0,
     coords: zone === 'avachinsky' ? PKC_COORDS : ZONE_COORDS[zone],
     defaultTransport: 'walking', allowedTransports: ['walking'],
     difficulty: 'easy', childFriendly: true, minChildAge: 0, dayWarnings: [],
@@ -1129,7 +1129,7 @@ async function generateDayPlans(
       day: dayNum++, type: 'arrival', zone: 'avachinsky',
       title: arrivalDay.title,
       description: arrivalDay.description,
-      activityType: 'hot_spring', priceFrom: 0, priceTo: 3000,
+      activityType: 'hot_spring', priceFrom: 0, priceTo: 0,
       coords: PKC_COORDS, defaultTransport: 'walking',
       allowedTransports: ['walking'], difficulty: 'easy',
       childFriendly: true, minChildAge: 0, dayWarnings: [],
@@ -1414,7 +1414,7 @@ async function generateDayPlans(
           day: dayNum++, type: 'travel', zone: prevZone,
           title: `Переезд: ${ZONE_NAMES[prevZone]} → ${ZONE_NAMES[block.zone]}`,
           description: transportLabel,
-          activityType: 'travel', priceFrom: edge.costPerPerson[0], priceTo: edge.costPerPerson[1],
+          activityType: 'travel', priceFrom: 0, priceTo: 0,
           coords: ZONE_COORDS[block.zone], defaultTransport: edge.transports[0],
           allowedTransports: edge.transports, difficulty: 'easy',
           childFriendly: true, minChildAge: 0,
@@ -1786,10 +1786,11 @@ async function generateDayPlans(
         title: dayTitle,
         description: realTour?.shortDescription ?? c.seasonNote ?? '',
         activityType: interest,
-        // Цены для группы нет — нет у дня и ориентира: справочная вилка вида
-        // активности рядом с туром читалась бы как его цена.
-        priceFrom: realPrice ?? (priceMissing ? 0 : c.pricePerPerson[0]),
-        priceTo: realPrice ? realPrice : (priceMissing ? 0 : c.pricePerPerson[1]),
+        // Цена дня — только цена тура оператора (слово владельца 14.11
+        // «5 -1»): справочной вилки вида активности больше нет, её числа были
+        // зашиты в код. Тура нет — цену называет исполнитель (смета).
+        priceFrom: realPrice ?? 0,
+        priceTo: realPrice ?? 0,
         coords,
         defaultTransport: transport,
         allowedTransports: allowed.length > 0 ? allowed : [transport],
@@ -1854,7 +1855,7 @@ async function generateDayPlans(
           title: 'День отдыха. Термальные источники',
           description: 'Восстановление после сложной активности. Горячие источники, прогулки.',
           activityType: 'hot_spring',
-          priceFrom: 1500, priceTo: 5000,
+          priceFrom: 0, priceTo: 0,
           coords: block.zone === 'avachinsky' ? PKC_COORDS : ZONE_COORDS[block.zone],
           defaultTransport: 'walking', allowedTransports: ['walking'],
           difficulty: 'easy', childFriendly: true, minChildAge: 0, dayWarnings: [],
@@ -1889,7 +1890,7 @@ async function generateDayPlans(
       title: 'Резервный день (нелётная погода)',
       description: 'Если все вертолётные экскурсии состоялись — свободный день: термальные источники, город, сувениры.',
       activityType: 'hot_spring',
-      priceFrom: 0, priceTo: 5000,
+      priceFrom: 0, priceTo: 0,
       coords: PKC_COORDS, defaultTransport: 'walking',
       allowedTransports: ['walking', 'jeep'], difficulty: 'easy',
       childFriendly: true, minChildAge: 0,
@@ -1921,7 +1922,7 @@ async function generateDayPlans(
         description: backEdge.transports.includes('jeep')
           ? `Переезд ~${backEdge.travelHours ?? '?'}ч`
           : 'Перелёт на вертолёте',
-        activityType: 'travel', priceFrom: backEdge.costPerPerson[0], priceTo: backEdge.costPerPerson[1],
+        activityType: 'travel', priceFrom: 0, priceTo: 0,
         coords: PKC_COORDS, defaultTransport: backEdge.transports[0],
         allowedTransports: backEdge.transports, difficulty: 'easy',
         childFriendly: true, minChildAge: 0,
@@ -1958,7 +1959,7 @@ async function generateDayPlans(
       day: dayNum++, type: 'activity', zone: 'avachinsky',
       title: 'Свободный день. Город, сувениры, рыбный рынок',
       description: 'Прогулка по Петропавловску, смотровые площадки, кафе.',
-      activityType: 'hot_spring', priceFrom: 0, priceTo: 5000,
+      activityType: 'hot_spring', priceFrom: 0, priceTo: 0,
       coords: PKC_COORDS, defaultTransport: 'walking',
       allowedTransports: ['walking', 'jeep'], difficulty: 'easy',
       childFriendly: true, minChildAge: 0,
@@ -1987,7 +1988,7 @@ async function generateDayPlans(
       day: tripDays, type: 'departure', zone: 'avachinsky',
       title: departureDay.title,
       description: departureDay.description,
-      activityType: 'departure', priceFrom: 0, priceTo: 2500,
+      activityType: 'departure', priceFrom: 0, priceTo: 0,
       coords: PKC_COORDS, defaultTransport: 'walking',
       allowedTransports: ['walking'], difficulty: 'easy',
       childFriendly: true, minChildAge: 0, dayWarnings: [],
@@ -2212,10 +2213,7 @@ export async function recommendTrip(profile: TripProfile, opts: RecommendTripOpt
   if (!profile.interests || profile.interests.length === 0) {
     return {
       zones: [], days: [], warnings: [],
-      priceBreakdown: {
-        activities: [0, 0], accommodation: [0, 0], transport: [0, 0], perPersonTotal: [0, 0],
-        activityPricing: { tourPriced: 0, estimated: 0, excluded: 0, unpriced: 0 },
-      },
+      priceBreakdown: { tours: [0, 0], activityPricing: { tourPriced: 0, open: 0, excluded: 0, unpriced: 0 } },
       itinerary: 'Выберите интересы для рекомендации.',
       // Каталог не спрашивали вовсе — это «не знаем», а не «пусто».
       catalogueOpen: null,
@@ -2433,7 +2431,7 @@ export async function recommendTrip(profile: TripProfile, opts: RecommendTripOpt
   // Условие узкое намеренно: если план вообще не ночует в Авачинской зоне,
   // допущение ни на что не повлияло, и говорить о нём нечего.
   // Без единой ночи (однодневный выход) допущению не на что влиять (#3199,
-  // сценарий 10 аудита): «ночи в счёт не вошли» у плана без ночей — неправда.
+  // сценарий 10 аудита): «проживания в смете нет» у плана без ночей — лишнее слово.
   const lastPlanDay = Math.max(0, ...days.map((d) => d.day));
   const hasNight = (d: { day: number; type: string }) => d.type !== 'departure' && d.day < lastPlanDay;
   if (asTripOrigin(profile.tripOrigin) === 'local' && plannedZones.has(LOCAL_HOME_ZONE) && days.some(hasNight)) {
@@ -2552,16 +2550,18 @@ export async function recommendTrip(profile: TripProfile, opts: RecommendTripOpt
     });
   }
 
-  // Состав тура не разобрался — ночь посчитана, и об этом говорится.
+  // Состав тура не разобрался — ночь стоит в смете строкой проживания, и об
+  // этом говорится.
   //
-  // Молчать нельзя именно потому, что ошибка идёт В СТОРОНУ ЗАВЫШЕНИЯ: смета
-  // выглядит точной, а турист платит меньше. «Дороже, чем на самом деле» —
-  // не безобидная осторожность, по такой смете отказываются от поездки.
+  // До 14.11 ночь считалась ценой из констант, и ошибка шла В СТОРОНУ
+  // ЗАВЫШЕНИЯ: по такой смете отказываются от поездки. Цены ночи в смете
+  // больше нет (слово владельца «5 -1»), но строка «проживание, N ночей»
+  // по-прежнему зовёт искать жильё, которое, может быть, уже в туре.
   // Туры, а не дни: дни продолжения многодневного тура несут тот же тур, и
   // двухдневный тур считался бы двумя (аудит 07.11, рядом с E1).
-  // Только туры, у дней которых смета считает ночь: у тура в последний день
-  // и у местного дома ночёвку не считали вовсе, и «посчитали отдельно, итог
-  // завышен» было бы неправдой (#3199, сценарий 10 аудита).
+  // Только туры, у дней которых смета ставит ночь: у тура в последний день
+  // и у местного дома ночёвки в смете нет вовсе, и слова о ней были бы
+  // неправдой (#3199, сценарий 10 аудита).
   const origin = asTripOrigin(profile.tripOrigin);
   const countedNight = (d: DayPlan, i: number) => hasNight(d) && !nightIsAtHome(origin, nightZoneOf(d, days[i + 1]));
   const unknownLodging = new Set(days.filter((d, i) => d.realTour && d.realTour.lodgingIncluded === null && countedNight(d, i)).map(d => String(d.realTour!.tourId)));
@@ -2569,9 +2569,9 @@ export async function recommendTrip(profile: TripProfile, opts: RecommendTripOpt
     warnings.push({
       type: 'duration',
       severity: 'important',
-      message: `Состав ${unknownLodging.size === 1 ? 'одного тура' : `${unknownLodging.size} туров`} в плане не заполнен, `
-        + 'поэтому ночёвку по ним посчитали отдельно. Если проживание уже входит в тур, '
-        + 'итог в смете завышен — уточните у оператора.',
+      message: `Состав ${unknownLodging.size === 1 ? 'одного тура' : `${unknownLodging.size} туров`} в плане не заполнен: `
+        + `входит ли в ${unknownLodging.size === 1 ? 'него' : 'них'} проживание, неизвестно. Ночи этих дней стоят в смете `
+        + 'строкой проживания — если жильё уже в туре, искать его на эти ночи не нужно; уточните у оператора.',
     });
   }
 
@@ -2660,7 +2660,7 @@ export async function recommendTrip(profile: TripProfile, opts: RecommendTripOpt
     }
   }
 
-  const priceBreakdown = calculatePriceBreakdown(days, profile);
+  const priceBreakdown = calculatePriceBreakdown(days);
 
   // AI itinerary — include seasickness context
   let itinerary = `Маршрут на ${tripDays} дней по Камчатке: ${zones.map(z => ZONE_NAMES[z.zone]).join(', ')}.`;
@@ -2721,7 +2721,7 @@ async function generateDayReasoning(days: DayPlan[], profile: TripProfile): Prom
     },
     {
       role: 'user',
-      content: `Турист: интересы — ${interestStr}, уровень — ${profile.fitnessLevel}, бюджет — ${profile.budgetTier}, ${childAges}.\n\nМаршрут:\n${days.map((d, i) => `${i + 1}. День ${d.day}: ${d.title} (${d.type}, ${d.difficulty}, ${d.priceFrom}-${d.priceTo} руб)`).join('\n')}\n\nФормат: 1: <объяснение>\n2: <объяснение>...`,
+      content: `Турист: интересы — ${interestStr}, уровень — ${profile.fitnessLevel}, бюджет — ${profile.budgetTier}, ${childAges}.\n\nМаршрут:\n${days.map((d, i) => `${i + 1}. День ${d.day}: ${d.title} (${d.type}, ${d.difficulty})`).join('\n')}\n\nФормат: 1: <объяснение>\n2: <объяснение>...`,
     },
   ];
 

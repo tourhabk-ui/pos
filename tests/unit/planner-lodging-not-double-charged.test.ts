@@ -16,6 +16,11 @@
  * Ошибка шла В СТОРОНУ ЗАВЫШЕНИЯ, и это не безобидная осторожность: по
  * завышенной смете отказываются от поездки, а выглядит она точной.
  *
+ * С 14.11 (слово владельца «5 -1») цены ночи по зоне в смете нет вовсе:
+ * строка проживания называет число ночей и «цену называет хозяин жилья».
+ * Правило ночей осталось: лишняя ночь в строке зовёт искать жильё, которое
+ * уже в туре. Сторож считает ночи строк, а не суммы.
+ *
  * ── Почему три исхода ────────────────────────────────────────────────────
  *
  * Состав тура — текст, написанный человеком. «Не разобрали» обязано
@@ -28,16 +33,19 @@ import { describe, it, expect } from 'vitest';
 import { readFileSync } from 'node:fs';
 import { join } from 'node:path';
 import { lodgingIncluded, nightLodgingIncluded } from '@/lib/planner/lodging-included';
-import { calculatePriceBreakdown, estimateGroup, type EstimateDay } from '@/lib/planner/estimate';
+import { estimateGroup, type EstimateDay } from '@/lib/planner/estimate';
+import { nightZoneOf } from '@/lib/planner/constants';
 
 /** День плана для сметы: переезд несёт зону, откуда едут, — как у движка. */
 const planDay = (day: number, type: EstimateDay['type'], zone: EstimateDay['zone'], extra: Partial<EstimateDay> = {}): EstimateDay => ({
   day, type, zone, title: `День ${day}`, priceFrom: 0, priceTo: 0, ...extra,
 });
-const lodgingSum = (days: EstimateDay[], people: number): [number, number] =>
+const lodgingLines = (days: EstimateDay[], people = 1) =>
   estimateGroup(days, { adults: people, children: [], budgetTier: 'comfort', tripOrigin: 'visitor' }).lines
-    .filter((l) => l.kind === 'lodging' && l.total)
-    .reduce<[number, number]>((acc, l) => [acc[0] + l.total![0], acc[1] + l.total![1]], [0, 0]);
+    .filter((l) => l.kind === 'lodging');
+/** Ночи в строках проживания по зоне — число из «N ночей — …». */
+const lodgingNights = (days: EstimateDay[], people = 1): number =>
+  lodgingLines(days, people).reduce((n, l) => n + Number(/^(\d+) ноч/.exec(l.basis)?.[1] ?? NaN), 0);
 
 const ROOT = process.cwd();
 const ENGINE = readFileSync(join(ROOT, 'lib/planner/engine.ts'), 'utf8');
@@ -56,10 +64,9 @@ const DATA = readFileSync(join(ROOT, 'lib/planner/data.ts'), 'utf8');
  * байтах.
  */
 function lodgingBlock(): string {
-  // С 09.10 правило ночи — одна функция `nightOf` в смете (#2304): её зовут и
-  // вилка на человека, и смета на группу.
+  // С 09.10 правило ночи — одна функция `nightOf` в смете (#2304).
   const from = ESTIMATE.indexOf('function nightOf(');
-  const to = ESTIMATE.indexOf('// ── Вилка на человека');
+  const to = ESTIMATE.indexOf('// ── Цены туров на человека');
   if (from < 0 || to <= from) throw new Error('правило ночи не найдено в смете');
   return ESTIMATE.slice(from, to);
 }
@@ -127,10 +134,11 @@ describe('смета не платит за ночь дважды', () => {
       planDay(6, 'departure', 'western'),
     ];
     // Ночи после дней 1, 4, 5 — три; после 2 и 3 — тур.
-    expect(lodgingSum(days, 1)[0]).toBe(lodgingSum([
+    expect(lodgingNights(days)).toBe(3);
+    expect(lodgingNights([
       planDay(1, 'arrival', 'western'), planDay(2, 'rest', 'western'), planDay(3, 'rest', 'western'),
       planDay(4, 'departure', 'western'),
-    ], 1)[0]);
+    ])).toBe(3);
     // Флаг ночи: внутри тура — true, последний день тура — false, без тура — как есть.
     expect(nightLodgingIncluded(days[1]!, days[2])).toBe(true);
     expect(nightLodgingIncluded(days[3]!, days[4])).toBe(false);
@@ -147,9 +155,11 @@ describe('смета не платит за ночь дважды', () => {
     expect(block).not.toMatch(/if \(day\.realTour\?\.lodgingIncluded\) (continue|return null);/);
   });
 
-  it('правило ночи одно: вилка на человека и смета на группу считают одни ночи', () => {
-    // Переезд, северный день, тур с ночлегом и тур без разбора состава — все
-    // ветки правила ночи разом. Вилка на человека × состав = ночи сметы.
+  it('все ветки правила ночи разом: ночи — по зоне, где ночуют, суммы у строки нет', () => {
+    // Переезд, северный день, тур с ночлегом и тур без разбора состава.
+    // Северный день ночует в Авачинской зоне, переезд — там, куда приехали,
+    // последняя ночь тура с ночлегом — уже не его (Б32), тур без разбора
+    // состава — ночь стоит.
     const days = [
       planDay(1, 'arrival', 'avachinsky'),
       planDay(2, 'activity', 'northern'),
@@ -158,9 +168,10 @@ describe('смета не платит за ночь дважды', () => {
       planDay(5, 'activity', 'western', { realPrice: 9000, realTour: { tourId: 'u', priceUnit: 'per_person', lodgingIncluded: null } }),
       planDay(6, 'departure', 'avachinsky'),
     ];
-    const perPerson = calculatePriceBreakdown(days, { budgetTier: 'comfort', tripOrigin: 'visitor' }).accommodation;
-    expect(perPerson[0]).toBeGreaterThan(0);
-    expect(lodgingSum(days, 3)).toEqual([perPerson[0] * 3, perPerson[1] * 3]);
+    expect(lodgingLines(days, 3).map((l) => [l.label, l.basis, l.total])).toEqual([
+      ['Проживание в Авачинской зоне', '2 ночи — цену называет хозяин жилья', null],
+      ['Проживание в Западной зоне', '3 ночи — цену называет хозяин жилья', null],
+    ]);
   });
 
   it('признак доезжает до дня плана', () => {
@@ -176,47 +187,45 @@ describe('ночь считается там, где её проводят', () 
     // человек проводит в Петропавловске, не считалась НИГДЕ. Ошибка в
     // обратную сторону от двойного счёта, причина та же: о ночёвке судили
     // не по данным.
-    const at = ESTIMATE.indexOf("note: 'Однодневная экскурсия, ночёвка в Авачинской зоне'");
-    expect(at, 'северная зона не нашлась').toBeGreaterThan(0);
     // С 26.09 правило «где ночуют» живёт одной картой в constants
     // (ZONE_SLEEPS_IN): его же читает подбор настоящего жилья планера
     // (lib/planner/trip-extras). Две копии правила разошлись бы.
-    expect(ESTIMATE.slice(at, at + 260)).toMatch(/sleepsIn: ZONE_SLEEPS_IN\.northern/);
+    expect(nightZoneOf({ type: 'activity', zone: 'northern' }, undefined)).toBe('avachinsky');
     expect(CONSTANTS).toMatch(/ZONE_SLEEPS_IN[^=]*=\s*\{\s*northern: 'avachinsky'/);
   });
 
   it('смета читает это поле, а не только приписку', () => {
     // Поле без потребителя — то же объявление в никуда, что и приписка
     // (§10.09): выглядело бы починкой, не будучи ею. Ночь северного дня —
-    // по цене Авачинской зоны, а не ноль Северной.
+    // в Авачинской зоне, а не нигде.
     const days = [planDay(1, 'arrival', 'avachinsky'), planDay(2, 'activity', 'northern'), planDay(3, 'departure', 'avachinsky')];
     const lines = estimateGroup(days, { adults: 1, children: [], budgetTier: 'comfort', tripOrigin: 'visitor' }).lines;
-    expect(lines.find((l) => l.label === 'Проживание в Авачинской зоне, уровень «Комфорт»')).toMatchObject({ basis: '2 ночи × 1 чел.', total: [14000, 14000] });
+    expect(lines.find((l) => l.label === 'Проживание в Авачинской зоне')).toMatchObject({ basis: '2 ночи — цену называет хозяин жилья', total: null });
     expect(lines.some((l) => /Северной зоне/.test(l.label))).toBe(false);
   });
 
-  it('зона, где ночуют, платит по своей цене', () => {
-    // Иначе правка свелась бы к «взять ноль из другого места».
-    const block = lodgingBlock();
-    expect(block).not.toMatch(/ZONE_ACCOMMODATION\[day\.zone\]\.pricePerNight/);
+  it('цены ночи по зоне в смете нет: таблицы средних цен больше нет (14.11, «5 -1»)', () => {
+    // До 14.11 ночь стоила «по зоне и уровню» из констант — числа без
+    // источника. Возврат таблицы краснеет здесь и в planner-no-unsourced-prices.
+    expect(ESTIMATE).not.toMatch(/ZONE_ACCOMMODATION|pricePerNight/);
   });
 });
 
-describe('завышение не остаётся молчаливым', () => {
+describe('лишняя ночь в смете не остаётся молчаливой', () => {
   it('неразобранный состав даёт предупреждение', () => {
     // Что предупреждение есть, считает туры, а не их дни, и стоит в «Важно», —
     // сценарий на настоящем движке, tests/unit/planner-scenarios.test.ts.
-    const at = ENGINE.indexOf('итог в смете завышен');
-    expect(at, 'о завышении не сказано').toBeGreaterThan(0);
+    const at = ENGINE.indexOf('искать его на эти ночи не нужно');
+    expect(at, 'о ночах тура без состава не сказано').toBeGreaterThan(0);
     const block = ENGINE.slice(at - 500, at + 200);
     // Не «инфо»: Кузьмич показывает предупреждения severity !== 'info'.
     expect(block).toContain("severity: 'important'");
   });
 
-  it('предупреждение называет направление ошибки, а не просто «уточните»', () => {
-    // «Могут быть неточности» ничего не говорит; «итог завышен» говорит,
-    // в какую сторону и что с этим делать.
-    const at = ENGINE.indexOf('итог в смете завышен');
+  it('предупреждение говорит, что делать, а не просто «уточните»', () => {
+    // «Могут быть неточности» ничего не говорит; «если жильё уже в туре,
+    // искать его не нужно» говорит, в какую сторону ошибка и что с ней делать.
+    const at = ENGINE.indexOf('искать его на эти ночи не нужно');
     expect(ENGINE.slice(at - 300, at + 120)).toContain('уточните у оператора');
   });
 });

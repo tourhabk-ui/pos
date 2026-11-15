@@ -101,10 +101,11 @@ describe('сценарий из задачи: план → добавь день
     expect(r3.ok).toBe(true);
     if (!r3.ok) return;
     const p3 = r3.plan;
-    // Дни те же целиком, поменялась только оценка жилья.
+    // Дни те же целиком, цена плана та же: уровень жилья — пожелание
+    // исполнителю, цены жилья без выбранного объекта в плане нет (14.11, «5 -1»).
     expect(p3.days).toEqual(p2.days);
-    expect(planPrice(p3).accommodation[0]).toBeLessThan(planPrice(p2).accommodation[0]);
-    expect(planPrice(p3).activities).toEqual(planPrice(p2).activities);
+    expect(planPrice(p3)).toEqual(planPrice(p2));
+    expect(r3.note).toMatch(/Цены жилья в плане нет — уровень уйдёт исполнителю пожеланием/);
     // Правка не мутирует прежний план.
     expect(p2.params.budgetTier).toBe('comfort');
   });

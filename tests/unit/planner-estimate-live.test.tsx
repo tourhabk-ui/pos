@@ -88,8 +88,8 @@ describe('смета на группу в /planner', () => {
     expect(within(estimate).getByText('30 000 ₽ за группу')).toBeTruthy();
     // 10 000 × 2 + 30 000 = 50 000; множителей нет (решение владельца 11.11, #3199 E12) — одна сумма.
     expect(text(estimate)).toContain('Итого на группу50 000 ₽');
-    // Ориентиров в этом плане нет — подпись не выдаёт пустую вилку «(0 ₽)».
-    expect(text(estimate)).toContain('Все суммы — цены туров от операторов.');
+    // Итог — только цены туров: подпись не выдаёт пустую вилку «(0 ₽)».
+    expect(text(estimate)).toContain('Итог — цены туров от операторов.');
     expect(text(estimate)).not.toContain('(0 ₽)');
   });
 
