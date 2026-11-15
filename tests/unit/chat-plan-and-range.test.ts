@@ -232,6 +232,9 @@ describe('веб-чат помнит план разговора', () => {
     expect(String(loop.mock.calls[0]![1])).toContain(`ID плана: ${PLAN}`);
 
     await chat(`Мутновский с 5 по 12 июля, нас трое, ${CONTACT}`);
+    // Сводка без записи, заявка — следующим «да» (#3399, п. 4).
+    expect(runPublicTool).not.toHaveBeenCalled();
+    await chat('да');
     expect(runPublicTool).toHaveBeenCalledTimes(1);
     // Год — по сегодняшнему дню роута; сам разбор диапазона проверен выше.
     const start = parseChatBookingPrefill('с 5 по 12 июля').date;
@@ -246,6 +249,7 @@ describe('веб-чат помнит план разговора', () => {
     await chat('Что взять в поход на вулкан?');
     expect(String(loop.mock.calls[0]![1])).not.toContain('ID плана');
     await chat(`Мутновский 15 июля, нас трое, ${CONTACT}`);
+    await chat('да');
     expect(runPublicTool.mock.calls[0]![0].rawArguments).not.toHaveProperty('plan_id');
   });
 });

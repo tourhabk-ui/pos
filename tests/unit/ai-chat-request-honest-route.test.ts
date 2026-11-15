@@ -84,6 +84,16 @@ async function answerOf(message: string): Promise<string> {
   const json = await res.json() as { data?: { answer?: string } };
   return json.data?.answer ?? '';
 }
+/**
+ * Заявка с 15.11 уходит в два хода (#3399, п. 4): реплика с данными — сводка
+ * без записи, «да» на неё — запись. Здесь судится исход записи после «да».
+ */
+async function confirmed(message: string): Promise<string> {
+  const summary = await answerOf(message);
+  expect(summary).toMatch(/^Проверьте заявку — она ещё не отправлена/);
+  expect(runPublicToolMock).not.toHaveBeenCalled();
+  return answerOf('да');
+}
 
 const NO_SEATS = 'На 2099-11-09 у тура "Мутновский вулкан" нет свободных мест — заявка не создана. Ближайшие даты с местами: 2099-11-12 (4 мест).';
 const BOOKED = 'Заявка оператору принята: "Мутновский вулкан", 2099-11-09. Это заявка, не оплата. Ключ статуса заявки: k1 — по нему get_request_status покажет. Человеку дайте ссылку https://vedarai.ru/request-status#k1. Ключ и ссылку не публикуйте.';
@@ -98,7 +108,7 @@ beforeEach(() => {
 describe('POST /api/ai/chat — исход заявки человеку', () => {
   it('быстрый путь: отказ текстом — «Заявка не создана: …», второй заявки нет', async () => {
     runPublicToolMock.mockResolvedValue({ kind: 'ok', text: NO_SEATS, handoffUrl: null });
-    const a = await answerOf(FULL);
+    const a = await confirmed(FULL);
     expect(a).toMatch(/^Заявка не создана: На 2099-11-09 у тура "Мутновский вулкан" нет свободных мест/);
     expect(a).not.toMatch(/Заявка создана|Оператор свяжется/);
     expect(runPublicToolMock).toHaveBeenCalledTimes(1);
@@ -106,7 +116,7 @@ describe('POST /api/ai/chat — исход заявки человеку', () =>
 
   it('быстрый путь: успех — «Заявка создана» и тур назван', async () => {
     runPublicToolMock.mockResolvedValue({ kind: 'ok', text: BOOKED, handoffUrl: null });
-    const a = await answerOf(FULL);
+    const a = await confirmed(FULL);
     expect(a).toMatch(/^Заявка создана\./);
     expect(a).toContain('Тур в заявке: «Мутновский вулкан»');
     expect(runPublicToolMock).toHaveBeenCalledTimes(1);
@@ -117,7 +127,7 @@ describe('POST /api/ai/chat — исход заявки человеку', () =>
 
   it('быстрый путь: исполнитель упал после начала записи — «не могу подтвердить», без повтора', async () => {
     runPublicToolMock.mockImplementation(async () => { throw new Error('pool'); });
-    const a = await answerOf(FULL);
+    const a = await confirmed(FULL);
     expect(a).toMatch(/^Не могу подтвердить, что заявка записалась/);
     expect(runPublicToolMock).toHaveBeenCalledTimes(1);
   });
@@ -125,7 +135,7 @@ describe('POST /api/ai/chat — исход заявки человеку', () =>
   it('второй путь (выбор тура в быстром упал до записи): отказ — «не создана»', async () => {
     pickMock.mockRejectedValueOnce(new Error('tours down'));
     runPublicToolMock.mockResolvedValue({ kind: 'ok', text: NO_SEATS, handoffUrl: null });
-    const a = await answerOf(`Оформи: ${FULL}`);
+    const a = await confirmed(`Оформи: ${FULL}`);
     expect(a).toMatch(/^Заявка не создана: На 2099-11-09/);
     expect(a).not.toMatch(/Заявка создана/);
     expect(runPublicToolMock).toHaveBeenCalledTimes(1);
@@ -134,8 +144,44 @@ describe('POST /api/ai/chat — исход заявки человеку', () =>
   it('второй путь: refused — «не создана» с причиной', async () => {
     pickMock.mockRejectedValueOnce(new Error('tours down'));
     runPublicToolMock.mockResolvedValue({ kind: 'refused', text: 'Телефон не похож на номер (нужно 10–15 цифр, например +79001234567) — заявка не создана.' });
-    const a = await answerOf(`Оформи: ${FULL}`);
+    const a = await confirmed(`Оформи: ${FULL}`);
     expect(a).toMatch(/^Заявка не создана: Телефон не похож на номер/);
+  });
+
+  it('сводка до отправки: тур, цена из базы и какие данные уйдут оператору', async () => {
+    const summary = await answerOf(FULL);
+    expect(summary).toContain('Тур: «Мутновский вулкан»');
+    expect(summary).toContain('цена в каталоге 9');
+    expect(summary).toContain('Дата: 2099-11-09. Человек: 2.');
+    expect(summary).toContain('Оператору тура уйдут имя и телефон из вашего сообщения.');
+    // Самих ПД в сводке нет: она ложится в историю репликой ассистента и
+    // уходит в модель следующим ходом (ревью безопасности #3407).
+    expect(summary).not.toContain('Иван');
+    expect(summary).not.toContain('1234567');
+    expect(runPublicToolMock).not.toHaveBeenCalled();
+  });
+
+  it('«нет» на сводку — заявка не уходит, и следующее «да» её не воскрешает', async () => {
+    runPublicToolMock.mockResolvedValue({ kind: 'ok', text: BOOKED, handoffUrl: null });
+    await answerOf(FULL);
+    expect(await answerOf('нет')).toMatch(/^Не отправил/);
+    await answerOf('да');
+    expect(runPublicToolMock).not.toHaveBeenCalled();
+  });
+
+  it('одно «да» — одна отправка', async () => {
+    runPublicToolMock.mockResolvedValue({ kind: 'ok', text: BOOKED, handoffUrl: null });
+    await confirmed(FULL);
+    await answerOf('да');
+    expect(runPublicToolMock).toHaveBeenCalledTimes(1);
+  });
+
+  it('вопрос вместо ответа снимает сводку: «да» после него не отправляет', async () => {
+    runPublicToolMock.mockResolvedValue({ kind: 'ok', text: BOOKED, handoffUrl: null });
+    await answerOf(FULL);
+    await answerOf('да, а сколько стоит?');
+    await answerOf('да');
+    expect(runPublicToolMock).not.toHaveBeenCalled();
   });
 
   it('«не согласен» — записи нет ни одним путём', async () => {

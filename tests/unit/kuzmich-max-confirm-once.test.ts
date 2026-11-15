@@ -52,6 +52,13 @@ vi.mock('@/lib/agents/managed/kuzmich-outcomes', async (importOriginal) => ({
 }));
 
 vi.mock('@/lib/kuzmich/chat-request-submit', () => ({ submitChatRequest: (...a: unknown[]) => submit(...a) }));
+vi.mock('@/lib/ai/chat-booking-tour', async (importOriginal) => ({
+  ...(await importOriginal<typeof import('@/lib/ai/chat-booking-tour')>()),
+  pickChatBookingTour: vi.fn().mockResolvedValue({
+    tour: { id: 36, slug: null, title: 'Мутновский вулкан', base_price: 9000, price_unit: 'per_person', operator_name: 'Тест-Оператор' },
+    candidates: [],
+  }),
+}));
 
 import { processMessage, bookingSummaryText, bookingConsentLine, type PendingBooking } from '@/lib/kuzmich/core';
 
@@ -145,5 +152,30 @@ describe('одно «Да» — одна отправка', () => {
     await processMessage({ ...base, chatId: 77, text: 'да', pending });
     expect(submit).not.toHaveBeenCalled();
     expect(said()).toContain('Оператор: <b>Тест-Оператор</b>');
+  });
+});
+
+describe('быстрый путь MAX: данные в одной реплике — сводка, заявка следующим «да» (#3399, п. 4)', () => {
+  const FULL = 'Хочу на Мутновский 09.11.2099, нас 2 человека, меня зовут Тест, +70000000000, согласен';
+
+  it('реплика с данными — сводка без отправки, «да» — одна отправка', async () => {
+    const pending = new Map<number, PendingBooking>();
+    await processMessage({ ...base, chatId: 91, text: FULL, pending });
+    expect(submit).not.toHaveBeenCalled();
+    expect(said()).toContain('Проверьте заявку — она ещё не отправлена');
+    expect(said()).toContain('оператор «Тест-Оператор»');
+    await processMessage({ ...base, chatId: 91, text: 'да', pending });
+    expect(submit).toHaveBeenCalledTimes(1);
+    expect(submit.mock.calls[0]![0]).toMatchObject({ tool: 'create_booking_request', args: { participants: 2, date: '2099-11-09' } });
+    await processMessage({ ...base, chatId: 91, text: 'да', pending });
+    expect(submit).toHaveBeenCalledTimes(1);
+  });
+
+  it('«нет» на сводку — заявка не уходит', async () => {
+    const pending = new Map<number, PendingBooking>();
+    await processMessage({ ...base, chatId: 92, text: FULL, pending });
+    await processMessage({ ...base, chatId: 92, text: 'нет', pending });
+    expect(submit).not.toHaveBeenCalled();
+    expect(said()).toContain('Не отправил');
   });
 });

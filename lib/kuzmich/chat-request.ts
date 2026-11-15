@@ -7,6 +7,7 @@
  */
 import { requestOutcome, humanReason, LEG_WORD } from '@/lib/agent/request-outcome';
 import { OPERATOR_NO_CHANNEL_MARK, OPERATOR_REACH_UNKNOWN_MARK, operatorReachLine } from '@/lib/mcp/request-confirm-note';
+import { PRICE_UNIT_SHORT } from '@/lib/tours/labels';
 
 export interface ChatContact { name?: string; phone?: string; consent: boolean; phones?: number }
 
@@ -250,4 +251,56 @@ export function chatToolReply(
 export function chatPastDateAsk(isoDate: string): string {
   const [y, m, d] = isoDate.split('-');
   return `Дата ${d}.${m}.${y} уже прошла — заявку на неё не отправляю. Напишите дату поездки, и я оформлю заявку.`;
+}
+
+/** Тур в сводке: что знает о нём чат в этом ходе. */
+export interface SummaryTour {
+  title: string;
+  operator_name?: string | null;
+  base_price?: number | null;
+  price_unit?: string | null;
+}
+
+/**
+ * Сводка заявки до отправки (#3399, п. 4): кому уйдёт, какой тур, дата,
+ * люди, цена из базы и какие данные получит адресат. Собирает код, не
+ * модель; отправка — только следующим «да» (lib/kuzmich/pending-request).
+ * Адресат назван так же, как в записываемом согласии (lib/legal/pd-consent).
+ *
+ * Самих имени и телефона в сводке нет: ответ ложится в историю чата репликой
+ * ассистента, а её redactUserTurns не чистит — следующий ход унёс бы их в
+ * зарубежную модель (ревью безопасности #3407).
+ */
+export function chatRequestSummary(plan: ChatRequestPlan, tour: SummaryTour | null): string {
+  const a = plan.args;
+  const s = (v: unknown) => (typeof v === 'string' ? v : typeof v === 'number' ? String(v) : '');
+  const people = typeof a.participants === 'number' ? `${a.participants}` : 'не названо';
+  const lines: string[] = ['Проверьте заявку — она ещё не отправлена:'];
+  const tourLine = (t: SummaryTour) => {
+    const op = t.operator_name?.trim();
+    const price = t.base_price && t.base_price > 0
+      ? `, цена в каталоге ${Math.round(t.base_price).toLocaleString('ru-RU')} ₽${(t.price_unit && PRICE_UNIT_SHORT[t.price_unit]) || ''}`
+      : ', цену назовёт оператор';
+    return `Тур: «${t.title}»${op ? `, оператор «${op}»` : ''}${price}.`;
+  };
+  if (plan.tool === 'create_booking_request') {
+    if (tour) lines.push(tourLine(tour));
+    lines.push(`Дата: ${s(a.date)}. Человек: ${people}.`);
+    lines.push('Оператору тура уйдут имя и телефон из вашего сообщения.');
+  } else if (plan.tool === 'create_trip_request') {
+    if (tour && a.tour) lines.push(tourLine(tour));
+    const parts: string[] = [];
+    if (a.tour) parts.push(`тур на ${s(a.tour_date)}`);
+    if (a.stay_wanted) parts.push(`жильё с ${s(a.check_in)}${a.check_out ? ` по ${s(a.check_out)}` : ''}`);
+    if (a.transfer_date) parts.push(`машина на ${s(a.transfer_date)}`);
+    lines.push(`В заявке: ${parts.join(', ')}. Человек: ${people}.`);
+    const who = [a.tour ? 'оператору тура' : null, a.stay_wanted || a.transfer_date ? 'менеджеру Ведара (жильё и машину он подберёт и передаст хозяину жилья и перевозчику)' : null].filter(Boolean);
+    lines.push(`Имя и телефон из вашего сообщения уйдут: ${who.join('; ')}.`);
+  } else {
+    lines.push('Тур не выбран однозначно — заявку на подбор получит менеджер Ведара.');
+    lines.push('Имя и телефон из вашего сообщения увидят туроператоры — партнёры Ведара.');
+  }
+  lines.push('Отправить? Ответьте «да» — отправлю, «нет» — не отправлю.');
+  lines.push('EN: Not sent yet — reply «yes» to send it to the operator, «no» to cancel. ZH: 尚未发送——回复“yes”发送，回复“no”取消。');
+  return lines.join('\n');
 }
