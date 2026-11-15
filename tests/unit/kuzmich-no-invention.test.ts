@@ -39,6 +39,9 @@
 import { describe, it, expect } from 'vitest';
 import { readFileSync } from 'node:fs';
 import { join } from 'node:path';
+import { KUZMICH_SYSTEM } from '@/lib/kuzmich/core';
+import { travelFactsBlock } from '@/lib/kuzmich/travel-facts';
+import { getSystemPrompt, KUZMICH_PROMPT } from '@/lib/ai/prompts';
 
 const SRC = readFileSync(join(process.cwd(), 'lib/kuzmich/core.ts'), 'utf8');
 
@@ -55,6 +58,52 @@ describe('промпт не требует того, чего нет в данн
 
   it('структура ответа тоже не требует факта из ниоткуда', () => {
     expect(SRC).toMatch(/один факт ИЗ ДАННЫХ \(нет такого — пропусти\)/);
+  });
+});
+
+// Слово владельца 15.11 «ответ 1» (#3382): промпт разрешал о реальных местах
+// «используй свои знания», и модель называла по памяти «25–30 км до
+// Паратунки» и сезон медведей, которых в данных не было. Рядом стояли четыре
+// расстояния без источника. Теперь о месте можно сказать, что это за место, а
+// расстояния, сезоны, цены и опасности — только из данных; числа дороги живут
+// в блоке с источником (lib/kuzmich/travel-facts).
+describe('о местах — факты из данных, не по памяти', () => {
+  it('промпт не разрешает отвечать о местах своими знаниями', () => {
+    expect(KUZMICH_SYSTEM).not.toMatch(/используй свои знания/i);
+    expect(KUZMICH_SYSTEM).not.toMatch(/Можешь рассказывать о .* и любых других/i);
+  });
+
+  it('и не разрешает «последние известные данные» об объекте', () => {
+    // Ревью безопасности #3393: строка «ИНТЕРНЕТ» разрешала отдать режим
+    // работы и общие сведения об объекте «последними известными» — то есть
+    // по памяти, в споре с правилом выше.
+    expect(KUZMICH_SYSTEM).not.toMatch(/последние известные данные/i);
+  });
+
+  it('в промпте нет расстояний: числа дороги приходят блоком с источником', () => {
+    expect(KUZMICH_SYSTEM).not.toMatch(/\d[\d\s.,–-]*\s*(?:км|километр)/i);
+    const block = travelFactsBlock('Сколько ехать до Паратунки?');
+    expect(block).toContain('- Паратунка: расстояние: 60 км по автодороге');
+    expect(block).toMatch(/\(источник: https:\/\/[^)]+\)/);
+  });
+});
+
+// Ревью безопасности #3393: когда цикл Кузьмича не ответил, веб-чат и стрим
+// отвечают одиночным вызовом с промптом роли (lib/ai/prompts, getSystemPrompt)
+// — без KUZMICH_SYSTEM и без блоков данных. Правило о фактах места обязано
+// стоять и там, а высот, расстояний и месяцев без источника там быть не должно.
+describe('запасной ответ веб-чата — то же правило о фактах места', () => {
+  const MONTHS = /(?:январ|феврал|март|апрел|ма[йя]|июн|июл|август|сентябр|октябр|ноябр|декабр)/i;
+  const prompts = { tourist: getSystemPrompt('tourist'), kuzmichTelegram: KUZMICH_PROMPT, operator: getSystemPrompt('operator'), guide: getSystemPrompt('guide') };
+
+  it.each(Object.entries(prompts))('%s: факты о месте — только из данных ответа', (_name, prompt) => {
+    expect(prompt).toMatch(/Факты о нём — расстояния, время дороги, высоты, сезоны, цены, опасности, открыто ли — только из данных этого ответа/);
+  });
+
+  it.each(Object.entries(prompts))('%s: нет высот, расстояний и месяцев без источника', (_name, prompt) => {
+    expect(prompt).not.toMatch(/\d{3,4}\s*м\b/);
+    expect(prompt).not.toMatch(/\d[\d\s.,–-]*\s*(?:км|километр)/i);
+    expect(prompt).not.toMatch(MONTHS);
   });
 });
 
