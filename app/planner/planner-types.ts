@@ -37,6 +37,12 @@ export interface DayPlan {
    * поездки (lib/trips/trip-schema) это поле не хранит.
    */
   zoneShown?: string | null;
+  /**
+   * День с карты, у маршрута которого вид занятия не записан: сложность,
+   * возраст и цена-ориентир неизвестны, и экран так и говорит (разбор
+   * планера 14.11, экран-3). Только на экране планировщика.
+   */
+  detailsUnknown?: true;
   defaultTransport: TransportType;
   allowedTransports: TransportType[];
   difficulty: 'easy' | 'moderate' | 'hard';
