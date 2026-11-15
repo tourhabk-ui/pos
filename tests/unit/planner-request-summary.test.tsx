@@ -95,6 +95,9 @@ describe('строки заявки', () => {
     };
     const lines = tripRequestLines(tripFactsOf(plannerLeadSource({ ...INPUT, plan })));
     expect(lines.filter((l) => l.startsWith('Группа:'))).toEqual(['Группа: 2 взр. · уровень «комфорт»']);
+    // Даты анкеты — своей строкой; в строке группы их нет (разбор 14.11).
+    const withDates = tripRequestLines(tripFactsOf(plannerLeadSource({ ...INPUT, plan: { ...plan, departure: '2027-07-16' } })));
+    expect(withDates.filter((l) => l.startsWith('Группа:'))).toEqual(['Группа: 2 взр. · уровень «комфорт»']);
     expect(lines).toContain('Пожелания из анкеты: укачивает на воде — без катеров, где можно');
   });
 

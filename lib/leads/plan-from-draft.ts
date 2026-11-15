@@ -58,6 +58,7 @@ export async function planFromDraft(planId: string | undefined): Promise<PlanAtt
     planId: id,
     plan: planForLead(read.draft.days, {
       adults: p.adults, children: p.children, budgetTier: p.budgetTier, arrivalDate: p.arrivalDate,
+      departureDate: p.departureDate,
     }),
     facts: planFacts(read.draft),
   };

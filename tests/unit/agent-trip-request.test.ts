@@ -174,6 +174,22 @@ describe('create_trip_request по плану', () => {
     expect(r.text).toContain('стоит на 2027-07-11, но мест в этот день нет');
   });
 
+  // Разбор планера 14.11 (Кузьмич/MCP-8): «создано частей 2 из 2» читалось
+  // как заказ всего плана, а оператор второго тура заявки не получал.
+  it('в плане два тура, заявка на один — второй назван, заявки по нему нет', async () => {
+    const two = { ...attached, facts: { ...attached.facts, tourDates: { '27': '2027-07-12', '15': '2027-07-14' } } };
+    const d = { ...deps(), readPlan: vi.fn(async () => two) };
+    const r = await runTripRequest({ ...base, tour: '27' }, d as never);
+    expect(d.bookTour).toHaveBeenCalledTimes(1);
+    expect(r.text).toContain('В плане есть и другие туры (ID15) — по ним заявки нет');
+  });
+
+  it('в плане один тур, он и заказан — строки о других турах нет', async () => {
+    const d = { ...deps(), readPlan: vi.fn(async () => attached) };
+    const r = await runTripRequest({ ...base, tour: '27' }, d as never);
+    expect(r.text).not.toContain('другие туры');
+  });
+
   it('без plan_id план не читается', async () => {
     const d = { ...deps(), readPlan: vi.fn(async () => attached) };
     await runTripRequest({ name: 'Тест', phone: '+79990000000', consent: true, tour: '27', tour_date: '2027-07-12' }, d as never);

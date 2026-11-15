@@ -1774,7 +1774,7 @@ export async function notifyAdminNewLead(lead: {
       const [group, estimate, ...tours] = planText;
       planLines.push(`<b>План:</b> ${esc(group!)}`, esc(estimate!));
       for (const t of tours.slice(0, 8)) planLines.push(esc(t));
-      if (tours.length > 8) planLines.push(`…и ещё ${tours.length - 8} дн. с турами — в карточке лида`);
+      if (tours.length > 8) planLines.push(`…и ещё ${tours.length - 8} дн. — в карточке лида`);
     }
   }
   lines.push(...planLines);

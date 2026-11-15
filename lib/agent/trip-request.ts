@@ -217,6 +217,15 @@ export async function runTripRequest(raw: Record<string, unknown>, deps: TripDep
     });
   }
 
+  // Другие туры плана (разбор планера 14.11, Кузьмич/MCP-8): заявка берёт
+  // один тур, и «создано частей 2 из 2» читалось как «заказан весь план»,
+  // хотя операторы остальных туров заявки не получали.
+  const planTours = facts ? [...new Set([...Object.keys(facts.tourDates), ...Object.keys(facts.tourNoFree)])] : [];
+  const others = planTours.filter((id) => id !== tour);
+  const otherPlanTours = others.length > 0 && !deps.test
+    ? ` В плане есть и другие туры (${others.map((id) => `ID${id}`).join(', ')}) — по ним заявки нет: каждый тур — своя заявка (create_booking_request с его ID), если человек их хочет.`
+    : '';
+
   const LABEL: Record<LegKind, string> = { tour: 'Тур', stay: 'Жильё', transfer: 'Машина' };
   const strip = (t: string) => (deps.confirmNote ? t.split(deps.confirmNote).join('') : t).trim();
   const okCount = legs.filter((l) => l.ok).length;
@@ -226,7 +235,8 @@ export async function runTripRequest(raw: Record<string, unknown>, deps: TripDep
       ? `Поездка ${tripId}: ни одна часть не создана.`
       : `Поездка ${tripId}: создано частей ${okCount} из ${legs.length}. Каждый партнёр видит в заявке всю поездку (номер ${tripId}).`)
     + (fromPlan.length ? ` Из плана взято: ${fromPlan.join('; ')}.` : '')
-    + planAttachNote(plan);
+    + planAttachNote(plan)
+    + otherPlanTours;
   const keys = [...new Set(legs.flatMap((l) => [...l.text.matchAll(/Ключ статуса заявки: ([\w-]{16,64})/g)].map((m) => m[1])))];
   const tripUrl = okCount > 0 && keys.length ? tripPageUrl(tripId, keys) : null;
   const tripNote = tripUrl ? `\nВся поездка одной ссылкой для человека: ${tripUrl} (части, статус каждой, согласие). Ссылку не публикуйте.` : '';
