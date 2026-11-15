@@ -64,7 +64,7 @@ export const ZH_TO_RU: Readonly<Record<string, string>> = {
   // что ищет турист
   '火山': 'вулкан', '观熊': 'медведи', '棕熊': 'медведи', '熊': 'медведи', '钓鱼': 'рыбалка', '海钓': 'рыбалка',
   '温泉': 'термальные источники', '热泉': 'термальные источники', '间歇泉': 'гейзер',
-  '直升机': 'вертолёт', '漂流': 'сплав', '徒步': 'трекинг', '登山': 'восхождение', '登顶': 'восхождение',
+  '出海': 'море', '直升机': 'вертолёт', '漂流': 'сплав', '徒步': 'трекинг', '登山': 'восхождение', '登顶': 'восхождение',
   '雪地摩托': 'снегоход', '滑雪': 'лыжи', '海滩': 'пляж', '海上游': 'морская прогулка', '游船': 'морская прогулка',
   '鲸': 'киты', '湖': 'озеро', '河': 'река', '湾': 'бухта', '机场': 'аэропорт',
   '住宿': 'жильё', '酒店': 'гостиница', '宾馆': 'гостиница', '民宿': 'гостевой дом', '接送': 'трансфер',
@@ -98,6 +98,7 @@ export const EN_TO_RU_NAMES: Readonly<Record<string, string>> = {
   'bear watching': 'медведи', 'bear viewing': 'медведи', 'bears': 'медведи', 'bear': 'медведи',
   'volcanoes': 'вулканы', 'volcano': 'вулкан', 'fishing': 'рыбалка', 'helicopter': 'вертолёт',
   'rafting': 'сплав', 'hiking': 'трекинг', 'trekking': 'трекинг', 'ascent': 'восхождение', 'climb': 'восхождение',
+  'boat trip': 'море', 'sea': 'море', 'ocean': 'океан',
   'snowmobile': 'снегоход', 'whales': 'киты', 'geysers': 'гейзеры', 'beach': 'пляж', 'airport': 'аэропорт',
   'sleeping bag': 'спальник', 'tent': 'палатка', 'hotel': 'гостиница', 'guesthouse': 'гостевой дом',
 };
@@ -148,6 +149,9 @@ export function localizeQuery(raw: string): Localized {
 /** Поля читающих инструментов, в которых человек называет место, тур или интерес. */
 export const LOCALIZABLE_FIELDS: readonly string[] = [
   'query', 'name', 'place', 'zone', 'activity_type', 'volcano', 'tour', 'interests', 'tours',
+  // Занятие правки плана (edit_trip_plan add_day/replace_day): «fishing»
+  // давало «не разобрал» (разбор планера 14.11).
+  'interest',
   // Синонимы tours у compare_tours (схема сводит их к tours уже после
   // перевода): без них английское название под tour_list дошло бы до
   // резолвера как есть и стало «не найден среди активных» (ревью 29.10).
@@ -162,6 +166,8 @@ export const LOCALIZABLE_TOOLS: ReadonlySet<string> = new Set([
   'search', 'get_tours', 'get_tour_details', 'get_place_info', 'get_guardian_context', 'get_weather',
   'get_volcano_status', 'search_accommodations', 'search_transfers', 'search_car_rental', 'search_gear', 'make_trip_plan',
   'get_tour_availability', 'compare_tours',
+  // Правка плана — тоже: имени и телефона человека в ней нет.
+  'edit_trip_plan',
 ]);
 
 export interface LocalizedArgs {

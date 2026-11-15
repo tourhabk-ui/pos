@@ -206,7 +206,13 @@ export function parsePlanStart(raw: string | undefined, now: number): PlanStart 
     const year = fullYear(monthMatch[2]);
     if (year === null) {
       let y = Number(today.slice(0, 4));
-      if (iso(new Date(Date.UTC(y, m, MONTH_ANCHOR_DAY))) < today) y += 1;
+      if (iso(new Date(Date.UTC(y, m, MONTH_ANCHOR_DAY))) < today) {
+        // Месяц ещё идёт — с сегодняшнего числа, как «в ноябре 2026» ниже
+        // (разбор планера 14.11): «в ноябре», сказанное 14 ноября, давало
+        // план на ноябрь следующего года, а с годом — на этот.
+        if (iso(new Date(Date.UTC(y, m + 1, 0))) >= today) return { kind: 'parsed', date: utcMidnight(today) };
+        y += 1;
+      }
       return { kind: 'parsed', date: new Date(Date.UTC(y, m, MONTH_ANCHOR_DAY)) };
     }
     const anchor = new Date(Date.UTC(year, m, MONTH_ANCHOR_DAY));

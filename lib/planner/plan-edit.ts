@@ -842,10 +842,12 @@ export async function applyPlanEdit(plan: EditablePlan, edit: PlanEdit, deps: Ed
   const rereadDays = regroup ? next.days.map((d) => d.day) : moved;
   const reread = rereadDays.length > 0 ? await rereadTours(next, rereadDays, deps.reread ?? rereadTourDay) : [];
 
-  const startChanged = next.params.arrivalDate !== plan.params.arrivalDate;
-  const safety = moved.length > 0 || startChanged
-    ? await refreshDatedSafety(next.days, next.params.arrivalDate, moved, startChanged, deps.safety ?? DEFAULT_SAFETY_DEPS)
-    : { warnings: [] };
+  // Сводка МЧС — в ответе КАЖДОЙ правки (разбор планера 14.11, Кузьмич/MCP-2):
+  // до этого она перечитывалась только со сменой даты начала, и ответ на
+  // «убери день» или «поставь жильё» шёл агенту без строки о вулкане, к
+  // которому не приближаться, а новый день (add_day, replace_day) оставался
+  // без строки сводки на самом дне.
+  const safety = await refreshDatedSafety(next.days, next.params.arrivalDate, moved, true, deps.safety ?? DEFAULT_SAFETY_DEPS);
 
   const warnings = [...safety.warnings, ...(done.warnings ?? [])];
   return {

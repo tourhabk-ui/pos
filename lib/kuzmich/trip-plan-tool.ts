@@ -29,12 +29,14 @@ import {
 import { estimateGroup, unpricedTail, type GroupEstimate } from '@/lib/planner/estimate';
 import { priceFromUnit } from '@/lib/tours/price-label';
 import { kamchatkaStamp } from '@/lib/safety/place-day-status';
+import { kamchatkaDate } from '@/lib/analytics/kamchatka-day';
 import { saveDraft, loadDraft, updateDraft, isDraftId, type DraftSurface } from '@/lib/planner/plan-drafts';
 import { McpUserError } from '@/lib/mcp/jsonrpc';
 import { parsePlanStart, rangeDays, planStartRefusal, type PlanStart } from '@/lib/kuzmich/plan-start';
 import { planOfferLines } from '@/lib/kuzmich/plan-offers';
 import { nightLodgingIncluded } from '@/lib/planner/lodging-included';
 import { EDIT_NOT_RECHECKED_NOTE, planWideAfterEdit } from '@/lib/planner/plan-edit-warnings';
+import { isOfferingNote } from '@/lib/safety/mchs-bulletin';
 
 /**
  * Как ехать — из слова модели. Принимаются и коды (self/operator/mixed), и
@@ -50,9 +52,10 @@ export function readTravelStyle(raw: string | undefined): TravelStyle | undefine
 
 /** Дни отдыха: целое 0..MAX_REST_DAYS, иначе поля нет. */
 export function readRestDays(raw: string | undefined): number | undefined {
-  const t = (raw ?? '').trim();
-  if (!/^\d{1,2}$/.test(t)) return undefined;
-  const n = Number(t);
+  // «1», «1 день», «2 дня», «2 days» (разбор планера 14.11: «1 день» не разбирался).
+  const m = /^(\d{1,2})(?:\s*(?:дн\S*|день|days?))?$/i.exec((raw ?? '').trim());
+  if (!m) return undefined;
+  const n = Number(m[1]);
   return n <= MAX_REST_DAYS ? n : undefined;
 }
 
@@ -205,19 +208,43 @@ export function parseChatInterestsDetailed(raw: string): { interests: string[]; 
  * 29.09). Вне 3–21 — ближайшая граница, и это говорится вслух.
  */
 export function readPlanDays(raw: string | undefined): { days: number; note: string | null } {
-  const m = /\d+/.exec(raw ?? '');
-  if (!m) {
-    return { days: 7, note: raw?.trim() ? `Длительность «${raw.trim()}» не разобрал — считаю 7 дней.` : null };
+  const text = (raw ?? '').trim();
+  const lower = text.toLowerCase();
+  const nums = [...lower.matchAll(/\d+/g)].map((x) => Number(x[0]));
+  // Недели (разбор планера 14.11): «2 недели», «2 weeks», «неделя» давали
+  // первое число как дни — план на 3 дня вместо 14.
+  const weeks = /недел|week/.test(lower);
+  const wordCount = /(?:^|\s)(?:две|два|two)\s/.test(` ${lower} `) ? 2
+    : /(?:^|\s)(?:три|three)\s/.test(` ${lower} `) ? 3 : 1;
+  if (nums.length === 0 && !weeks) {
+    return { days: 7, note: text ? `Длительность «${text}» не разобрал — считаю 7 дней.` : null };
   }
-  const n = Number(m[0]);
+  const first = nums[0] ?? wordCount;
+  const n = weeks ? first * 7 : first;
+  // Диапазон «5–7 дней» — первое число, и это сказано (раньше — молча).
+  const range = nums.length >= 2 && /\d\s*[-–—]\s*\d/.test(lower)
+    ? `Названо «${text}» — считаю ${n} ${n % 10 === 1 && n % 100 !== 11 ? 'день' : n % 10 >= 2 && n % 10 <= 4 && (n % 100 < 10 || n % 100 >= 20) ? 'дня' : 'дней'}.`
+    : null;
   if (n < 3) return { days: 3, note: `План собираю от 3 дней — считаю 3, а не ${n}.` };
   if (n > 21) return { days: 21, note: `План собираю до 21 дня — считаю 21, а не ${n}.` };
-  return { days: n, note: null };
+  return { days: n, note: range };
 }
 
 /** «10 июля» без пояса процесса: даты плана — полночь UTC, подпись — те же сутки. */
 function ruDayMonth(date: Date): string {
   return date.toLocaleDateString('ru-RU', { day: 'numeric', month: 'long', timeZone: 'UTC' });
+}
+
+/**
+ * Дата, на которую считан план: с годом, если он не текущий по Камчатке
+ * (разбор планера 14.11, Кузьмич/MCP-3). «В ноябре», сказанное в ноябре,
+ * давало план на ноябрь следующего года, а ответ говорил «считаю на 10
+ * ноября» — без года, как будто на этот.
+ */
+export function plannedForLabel(date: Date, now: number = Date.now()): string {
+  const thisYear = Number(kamchatkaDate(new Date(now)).slice(0, 4));
+  const y = date.getUTCFullYear();
+  return y === thisYear ? ruDayMonth(date) : `${ruDayMonth(date)} ${y} года`;
 }
 
 /**
@@ -885,9 +912,14 @@ export function formatTripPlanForChat(
     if (live) lines.push(`   ${live}`);
     // Предупреждения дня — «Только с гидом», лимит парка, детям до N лет —
     // стоят на самом дне; до 29.09 до ответа не доходило ни одно.
+    // Строки сводки МЧС потолком не режутся и идут первыми (разбор 14.11,
+    // Кузьмич/MCP-2): движок кладёт их на день последними, и у дня «медведи»
+    // без тура три строки до МЧС съедали её — у агента MCP планировщика нет.
     const dayWarn = (d.dayWarnings ?? []).filter(Boolean);
-    for (const w of dayWarn.slice(0, DAY_WARNINGS_SHOWN)) lines.push(`   ! ${w}`);
-    if (dayWarn.length > DAY_WARNINGS_SHOWN) lines.push(`   …и ещё ${dayWarn.length - DAY_WARNINGS_SHOWN} — в планировщике`);
+    const mchsWarn = dayWarn.filter((w) => isOfferingNote(w));
+    const otherWarn = dayWarn.filter((w) => !isOfferingNote(w));
+    for (const w of [...mchsWarn, ...otherWarn.slice(0, DAY_WARNINGS_SHOWN)]) lines.push(`   ! ${w}`);
+    if (otherWarn.length > DAY_WARNINGS_SHOWN) lines.push(`   …и ещё ${otherWarn.length - DAY_WARNINGS_SHOWN} — в планировщике`);
   }
   if (context?.priceLines && context.priceLines.length > 0) {
     lines.push('', ...context.priceLines);
@@ -991,7 +1023,7 @@ export async function makeTripPlanForKuzmich(
   const keepsSchedule = await scheduleMap(rec.days);
 
   const month = arrival.getUTCMonth() + 1;
-  const plannedFor = ruDayMonth(arrival);
+  const plannedFor = plannedForLabel(arrival);
 
   const text = formatTripPlanForChat(
     rec.days,
@@ -1258,7 +1290,7 @@ export async function editTripPlanForKuzmich(args: {
 
   const plan = result.plan;
   const arrival = new Date(`${plan.params.arrivalDate}T00:00:00Z`);
-  const plannedFor = ruDayMonth(arrival);
+  const plannedFor = plannedForLabel(arrival, opts.now ?? Date.now());
   // Общие строки плана после правки (#3199, M10): из дней выводится
   // самопроверка возвращения; чего не вывести — названо одной строкой, а не
   // пропадает молча. Черновик плана — для прилетающих (поля «откуда едут» у

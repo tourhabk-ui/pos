@@ -99,8 +99,10 @@ export async function runTripRequest(raw: Record<string, unknown>, deps: TripDep
   // Дата тура — по номеру тура в плане: название тура с планом не сличается.
   if (!tourDate && tour && facts?.tourDates[tour]) {
     tourDate = facts.tourDates[tour];
-    fromPlan.push(`дата тура — ${tourDate}`);
+    fromPlan.push(facts.tourDateNotes[tour] ?? `дата тура — ${tourDate}`);
   }
+  /** В день плана мест нет, свободной даты план не знает — дату называет человек. */
+  const noFreeDay = !tourDate && tour ? facts?.tourNoFree[tour] : undefined;
   const stay = str(raw.stay) || str(raw.accommodation);
   let checkIn = str(raw.check_in);
   let checkOut = str(raw.check_out);
@@ -129,7 +131,10 @@ export async function runTripRequest(raw: Record<string, unknown>, deps: TripDep
   if (wantStayMatch && !checkIn) missing.push('check_in');
   if (wantTransfer && !tDate) missing.push('transfer_date');
   if (missing.length) {
-    return { tripId: null, legs: [], text: `Не хватает дат: ${missing.join(', ')} — заявка не создана.` };
+    const why = noFreeDay
+      ? ` В плане тур «${tour}» стоит на ${noFreeDay}, но мест в этот день нет, а свободной даты план не знает — спросите у человека другую дату.`
+      : '';
+    return { tripId: null, legs: [], text: `Не хватает дат: ${missing.join(', ')} — заявка не создана.${why}` };
   }
 
   const tripId = (deps.newTripId ?? newTripId)();

@@ -33,7 +33,11 @@ export const INTEREST_WORDS: Record<string, string> = {
   'медвед': 'bears',
   'вертолет': 'helicopter', 'вертолёт': 'helicopter',
   'термал': 'thermal', 'источник': 'thermal',
-  'треккинг': 'trekking', 'поход': 'trekking',
+  // «трекинг» с одной «к» (разбор планера 14.11): так пишут люди, и так
+  // переводит MCP hiking, trekking и 徒步 — словарь его не знал, и план
+  // уходил в классику. «Сплав» и «рафтинг» — сплав по реке (river).
+  'треккинг': 'trekking', 'трекинг': 'trekking', 'поход': 'trekking',
+  'сплав': 'river', 'рафтинг': 'river',
   'море': 'boat_trip', 'морск': 'boat_trip', 'океан': 'boat_trip', 'катер': 'boat_trip',
   'гейзер': 'geyser',
   'снегоход': 'snowmobile',
