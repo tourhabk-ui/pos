@@ -20,11 +20,8 @@
 
 import { agentOffTopic, offTopicReply } from '@/lib/kuzmich/agent-off-topic';
 import { agentHandshake, handshakeReply } from '@/lib/kuzmich/agent-handshake';
-import { aiChatAgentLoop, KUZMICH_SYSTEM, isAIErrorResponse } from '@/lib/kuzmich/core';
-import { kamchatkaDateContext } from '@/lib/kuzmich/date-context';
-import { buildRAGContext } from '@/lib/ai/rag-context';
+import { aiChatAgentLoop, KUZMICH_SYSTEM, isAIErrorResponse, kuzmichTurnFacts, kuzmichSystemContent } from '@/lib/kuzmich/core';
 import { finishKuzmichAnswer } from '@/lib/kuzmich/answer-guards';
-import { mchsPromptBlock } from '@/lib/safety/active-warnings';
 import { recordKuzmichAnswer } from '@/lib/kuzmich/answer-timing';
 import { newLoopTiming, answerTokens } from '@/lib/kuzmich/answer-ceiling';
 import { answerStall } from '@/lib/kuzmich/loop-stall';
@@ -73,15 +70,11 @@ export async function answerAgentMessage(
   // без времени и источника. Визитка называет входы MCP/A2A/OpenAPI,
   // ограничения и одно проверяемое действие (lib/kuzmich/agent-handshake).
   if (agentHandshake(text)) return { ok: true, text: handshakeReply(text) };
-  // RAG тот же, что у веб-чата (роль «турист» — туры и места). Его отказ не
-  // отменяет ответ: цикл инструментов добудет данные сам, а отказ виден в логе.
-  const [rag, mchsBlock] = await Promise.all([
-    buildRAGContext(text, 'tourist').catch((err: unknown) => {
-      console.error('[a2a] RAG-контекст не собран:', logText(err instanceof Error ? err.message : err, 200));
-      return '';
-    }),
-    mchsPromptBlock(),
-  ]);
+  // Данные хода — те же, что у Кузьмича на сайте, в Telegram и MAX
+  // (kuzmichTurnFacts, слово владельца 15.11 «на сайте и в тг разные
+  // ответы»). Отказ одного источника не отменяет ответ: цикл инструментов
+  // добудет данные сам, а отказ назван в логе.
+  const { system, guardContext } = kuzmichSystemContent(await kuzmichTurnFacts(text), { base: KUZMICH_SYSTEM + A2A_AGENT_NOTE });
 
   const toolRuns: ToolRun[] = [];
   const provenance: { provider?: string } = {};
@@ -94,7 +87,7 @@ export async function answerAgentMessage(
     // про то, что видел в подсказке (пробы 764–766, журнал общения A2A).
     answer = await aiChatAgentLoop(
       text,
-      [KUZMICH_SYSTEM + A2A_AGENT_NOTE, kamchatkaDateContext(), mchsBlock, rag].filter(Boolean).join('\n\n'),
+      system,
       history.map((t) => ({ role: t.role, content: t.content })),
       [{ role: 'user', content: text }],
       toolRuns,
@@ -115,7 +108,7 @@ export async function answerAgentMessage(
     answer,
     question: text,
     toolRuns,
-    context: [mchsBlock, rag].filter(Boolean).join('\n\n'),
+    context: guardContext,
   });
 
   void recordKuzmichAnswer({

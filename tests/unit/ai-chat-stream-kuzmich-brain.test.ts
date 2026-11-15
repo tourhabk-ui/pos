@@ -48,7 +48,9 @@ vi.mock('@/lib/ai/user-memory', () => ({
 }));
 
 const aiChatAgentLoopMock = vi.fn();
-vi.mock('@/lib/kuzmich/core', () => ({
+vi.mock('@/lib/kuzmich/core', async () => ({
+  // Сборка данных хода — заглушкой: настоящую держит kuzmich-same-facts-all-surfaces.
+  ...(await import('../helpers/kuzmich-turn-stub')).kuzmichTurnStub('KUZMICH_PERSONA'),
   aiChatAgentLoop: (...a: unknown[]) => aiChatAgentLoopMock(...a),
   KUZMICH_SYSTEM: 'KUZMICH_PERSONA',
 }));

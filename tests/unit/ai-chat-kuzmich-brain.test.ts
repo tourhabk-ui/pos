@@ -59,7 +59,9 @@ vi.mock('@/lib/agents/sdk/tourist-tools', () => ({ getTouristTools: vi.fn() }));
 vi.mock('@/lib/agents/sdk/operator-tools', () => ({ getOperatorTools: vi.fn() }));
 
 const aiChatAgentLoopMock = vi.fn();
-vi.mock('@/lib/kuzmich/core', () => ({
+vi.mock('@/lib/kuzmich/core', async () => ({
+  // Сборка данных хода — заглушкой: настоящую держит kuzmich-same-facts-all-surfaces.
+  ...(await import('../helpers/kuzmich-turn-stub')).kuzmichTurnStub('KUZMICH_PERSONA'),
   aiChatAgentLoop: (...a: unknown[]) => aiChatAgentLoopMock(...a),
   KUZMICH_SYSTEM: 'KUZMICH_PERSONA',
   isAIErrorResponse: (text: string) => text.startsWith('Извините, сервис временно недоступен'),
@@ -99,7 +101,10 @@ describe('POST /api/ai/chat — мозг Кузьмича для туристо�
     const [userText, systemContent, history] = aiChatAgentLoopMock.mock.calls[0] as [string, string, Array<{ role: string; content: string }>];
     expect(userText).toBe('Расскажи про Мутновский');
     expect(systemContent.startsWith('KUZMICH_PERSONA')).toBe(true);
-    expect(systemContent).toContain('RAG_CTX');
+    // Свой поиск маршрутов с турами туристу больше не подмешивается (15.11,
+    // «на сайте и в тг разные ответы»): данные хода — общей сборкой, как в
+    // Telegram и MAX (tests/unit/kuzmich-same-facts-all-surfaces.test.ts).
+    expect(systemContent).not.toContain('RAG_CTX');
     // Юзер-сообщение уже в истории — loop строит [system, ...history]
     expect(history[history.length - 1]).toMatchObject({ role: 'user', content: 'Расскажи про Мутновский' });
     expect(callAIWithModelDirectMock).not.toHaveBeenCalled();

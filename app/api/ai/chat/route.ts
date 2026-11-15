@@ -11,7 +11,6 @@ import { planChatRequest, parseChatContact, chatToolReply, chatRequestUnconfirme
 import { runPublicTool } from '@/app/api/mcp/route';
 import { journaledWrite, sessionRefFrom } from '@/lib/kuzmich/write-journal';
 import { finishKuzmichAnswer } from '@/lib/kuzmich/answer-guards';
-import { mchsPromptBlock } from '@/lib/safety/active-warnings';
 import type { ToolRun } from '@/lib/agents/eval/grounding';
 import { safeMsg } from '@/lib/errors/sanitize';
 import { NextRequest, NextResponse } from 'next/server';
@@ -43,10 +42,9 @@ import { runSDKAgent } from '@/lib/agents/sdk/sdk-runner';
 import { getOperatorTools } from '@/lib/agents/sdk/operator-tools';
 import { partnerContextFor } from '@/lib/crm/partner-context';
 import { pickChatBookingTour } from '@/lib/ai/chat-booking-tour';
-import { aiChatAgentLoop, KUZMICH_SYSTEM, isAIErrorResponse } from '@/lib/kuzmich/core';
+import { aiChatAgentLoop, KUZMICH_SYSTEM, isAIErrorResponse, kuzmichTurnFacts, kuzmichSystemContent } from '@/lib/kuzmich/core';
 import { checkAnswerPrices } from '@/lib/kuzmich/answer-quality';
 import { resolveCommercialTurn } from '@/lib/kuzmich/commercial-turn';
-import { kamchatkaDateContext } from '@/lib/kuzmich/date-context';
 import type { CatalogTour } from '@/lib/telegram/tourist-tours';
 import { detectEmergency } from '@/lib/safety/sos-detector';
 import { logSwallowedFailure } from '@/lib/observability/swallowed';
@@ -262,12 +260,26 @@ export async function POST(request: NextRequest) {
 
     const geoContext = geo ? await buildGeoContext(geo).catch(() => '') : '';
 
-    const [ragContext, agentInsights, mchsBlock] = await Promise.all([
-      buildRAGContext(message.trim(), safeRole, geo),
+    // Туристу — те же данные хода, что Кузьмичу в Telegram и MAX
+    // (kuzmichTurnFacts): каталог, места, дорога, сезоны, маршруты, наличие,
+    // погода зоны, законы и сводка МЧС. Слово владельца 15.11 «на сайте и в тг
+    // разные ответы»: сайт собирал свой поиск маршрутов с тремя турами и
+    // ценами, без справок дороги и сезонов, и на «сколько ехать до Паратунки»
+    // отвечал «примерно в 70 км» и списком туров, а Telegram — «60 км по
+    // автодороге» по справке с источником. Свой поиск остался ролям, у
+    // которых нет цикла Кузьмича.
+    const [ragContext, agentInsights, turnFacts] = await Promise.all([
+      safeRole === 'tourist' ? Promise.resolve('') : buildRAGContext(message.trim(), safeRole, geo),
       safeRole === 'tourist' ? buildAgentInsightsForTourist() : Promise.resolve(''),
-      safeRole === 'tourist' ? mchsPromptBlock() : Promise.resolve(''),
+      safeRole === 'tourist' ? kuzmichTurnFacts(rawMessage) : Promise.resolve(null),
     ]);
-    const systemPrompt = [basePrompt, mchsBlock, geoContext, ragContext, memContext, agentInsights].filter(Boolean).join('\n\n');
+    const mchsBlock = turnFacts?.mchsBlock ?? '';
+    // Поверхность добавляет своё: место человека (сайт знает его по
+    // геолокации), память вошедшего, предупреждения агентов платформы.
+    const kuzmichParts = turnFacts
+      ? kuzmichSystemContent(turnFacts, { lead: [chatPlanContext(chatPlanId)], tail: [geoContext, memContext, agentInsights] })
+      : null;
+    const systemPrompt = [basePrompt, mchsBlock, turnFacts?.facts ?? '', geoContext, ragContext, memContext, agentInsights].filter(Boolean).join('\n\n');
     const messagesForAI = buildMessageHistory(systemPrompt, history, 10);
 
     // Замер ответа Кузьмича туристу (аудит 15.10, A19): от начала ответа до
@@ -422,10 +434,9 @@ export async function POST(request: NextRequest) {
     const webProvenance: { provider?: string } = {};
     const webTiming = newLoopTiming();
     let loopAnswered = false;
-    if (!answer && safeRole === 'tourist') {
+    if (!answer && safeRole === 'tourist' && kuzmichParts) {
       try {
-        const kuzmichSystem = [KUZMICH_SYSTEM, kamchatkaDateContext(), chatPlanContext(chatPlanId), geoContext, ragContext, memContext, agentInsights].filter(Boolean).join('\n\n');
-        answer = await aiChatAgentLoop(messageWithVision, kuzmichSystem, history.slice(-10), [], webToolRuns, webProvenance, webTiming);
+        answer = await aiChatAgentLoop(messageWithVision, kuzmichParts.system, history.slice(-10), [], webToolRuns, webProvenance, webTiming);
         loopAnswered = Boolean(answer?.trim());
       } catch (err) {
         logSwallowedFailure('ai-chat', 'цикл инструментов Кузьмича', err);
@@ -528,7 +539,8 @@ export async function POST(request: NextRequest) {
       answer,
       question: rawMessage,
       toolRuns: loopAnswered ? webToolRuns : null,
-      context: [mchsBlock, geoContext, ragContext, memContext, agentInsights].filter(Boolean).join('\n\n'),
+      context: kuzmichParts?.guardContext
+        ?? [mchsBlock, geoContext, ragContext, memContext, agentInsights].filter(Boolean).join('\n\n'),
     });
     answer = finished.text;
     // Заявка создана — ответом становится её итог: текст модели до заявки

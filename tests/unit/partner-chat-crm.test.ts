@@ -333,3 +333,35 @@ describe('гид со своими турами (29.10): помощник зна
     }
   });
 });
+
+// Слово владельца 15.11 «на сайте и в тг разные ответы»: в своём чате MAX на
+// «сколько ехать до Паратунки и открыты ли там источники?» помощник кабинета
+// сказал «справочной информации у меня нет» и тут же назвал «25–30 км, 30–40
+// минут» по памяти. Такой вопрос теперь уходит Кузьмичу туриста
+// (bound-chat-route), а дошедший сюда получает правило и ту же справку дороги.
+describe('помощник кабинета: факты о местах — только из справки', () => {
+  const guide = { partnerId: 'p-1', partnerName: 'Гид Иван', category: 'guide', crmCategory: 'guide' as const, userId: 'u-1' };
+  const systemOf = () => (callToolsWaterfall.mock.calls[0]![0] as Array<{ role: string; content: string }>)
+    .filter((m) => m.role === 'system').map((m) => m.content).join('\n');
+
+  it('правило о фактах места — в промпте каждой роли', () => {
+    for (const category of ['operator', 'guide', 'transfer', 'stay'] as const) {
+      expect(chat.partnerSystemPrompt({ ...guide, category, crmCategory: category }, NOW, true)).toContain(chat.PARTNER_PLACE_FACTS_LINE);
+    }
+  });
+
+  it('вопрос о дороге — справка с источником в промпте модели', async () => {
+    callToolsWaterfall.mockResolvedValueOnce({ content: 'По справке: 60 км.', tool_calls: null });
+    await chat.processPartnerMessage({ chatId: 9, text: 'сколько ехать до Паратунки?', fromName: null, partner: guide, reply: vi.fn(async () => undefined), nowMs: NOW });
+    const system = systemOf();
+    expect(system).toContain('- Паратунка: расстояние: 60 км по автодороге');
+    expect(system).toMatch(/\(источник: https:\/\/[^)]+\)/);
+    expect(system).toContain(chat.PARTNER_PLACE_FACTS_LINE);
+  });
+
+  it('дело кабинета без места — справки дороги в промпте нет', async () => {
+    callToolsWaterfall.mockResolvedValueOnce({ content: 'Никто не ждёт.', tool_calls: null });
+    await chat.processPartnerMessage({ chatId: 9, text: 'кто ждёт ответа?', fromName: null, partner: guide, reply: vi.fn(async () => undefined), nowMs: NOW });
+    expect(systemOf()).not.toContain('ДОРОГА ИЗ ПЕТРОПАВЛОВСКА');
+  });
+});

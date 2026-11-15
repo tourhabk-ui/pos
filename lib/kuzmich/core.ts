@@ -3098,6 +3098,76 @@ export async function aiChatAgentLoop(
   return finish(null, false); // max turns exceeded
 }
 
+// ── Данные хода: одни на все поверхности ─────────────────────────────────────
+
+/**
+ * Что Кузьмич знает о вопросе этого хода — одно на Telegram, MAX, сайт, стрим,
+ * A2A и проверку Кузьмича.
+ *
+ * Слово владельца 15.11 «на сайте и в тг разные ответы»: на «сколько ехать до
+ * Паратунки и открыты ли там источники?» Telegram ответил «60 км по
+ * автодороге» по справке с источником, а сайт — «примерно в 70 км (из данных
+ * маршрута)» и список туров с ценами. Каждая поверхность собирала данные сама:
+ * у Telegram — каталог, места, маршруты, наличие, погода зоны, законы, сводка
+ * МЧС и справки дороги и сезонов; у сайта, стрима и A2A — свой поиск маршрутов
+ * с тремя турами и ценами, без справок; у проверки Кузьмича сводка МЧС шла
+ * судье, а не модели. Пока «Паратунка 60 км» стояла прямо в KUZMICH_SYSTEM,
+ * расхождение было не видно; #3393 убрал числа без источника из промпта.
+ */
+export interface KuzmichTurnFacts {
+  /** Дата и каталог туров: одинаковы для всех вопросов, у мессенджеров кешируются. */
+  tourContext: string;
+  /** Сводка МЧС: три исхода — предупреждения, «нет», «ни одна лента не ответила». */
+  mchsBlock: string;
+  /** По вопросу: места, дорога, сезоны, маршруты, наличие, погода зоны, законы. */
+  facts: string;
+}
+
+export async function kuzmichTurnFacts(question: string): Promise<KuzmichTurnFacts> {
+  // Отказ одного источника не роняет ответ, но называется в логе (§4.0).
+  // Сводка МЧС свой отказ говорит сама — «СВОДКА НЕДОСТУПНА» в тексте блока.
+  const soft = (name: string, read: Promise<string>): Promise<string> =>
+    read.catch((err: unknown) => { logSwallowedFailure('kuzmich', `данные хода: ${name}`, err); return ''; });
+  const [tourContext, placeCtx, routeCtx, availCtx, zoneWeather, legalCtx, mchsBlock] = await Promise.all([
+    soft('каталог', buildTourContext()),
+    soft('места', searchPlaceKnowledge(question)),
+    soft('маршруты', searchRoutes(question)),
+    soft('наличие', searchOperatorAvailability(question)),
+    soft('погода зоны', getZoneWeatherForText(question)),
+    soft('законы', searchLegislation(question)),
+    mchsPromptBlock(),
+  ]);
+  return {
+    tourContext: tourContext || '',
+    mchsBlock: mchsBlock || '',
+    facts: [placeCtx, travelFactsBlock(question), seasonFactsBlock(question), routeCtx, availCtx, zoneWeather, legalCtx]
+      .filter(Boolean).join('\n\n'),
+  };
+}
+
+/**
+ * Системный промпт цикла из данных хода: выше маркера кеша — промпт и каталог,
+ * ниже — сводка МЧС и данные по вопросу. `lead` идёт перед данными (факты хода
+ * этой поверхности: даты и цены каталога, план разговора), `tail` — после
+ * (память, место человека, сжатая история). `guardContext` — тем же текстом,
+ * которым обоснован ответ: им сторожа сверяют километраж.
+ */
+export function kuzmichSystemContent(
+  turn: KuzmichTurnFacts,
+  opts: { base?: string; lead?: string[]; tail?: string[] } = {},
+): { system: string; dynamic: string; guardContext: string } {
+  const cacheable = [opts.base ?? KUZMICH_SYSTEM, turn.tourContext].filter(Boolean).join('\n\n');
+  const dynamic = fitTextToTokenBudget(
+    [...(opts.lead ?? []), turn.facts, ...(opts.tail ?? [])].filter(Boolean).join('\n\n'),
+  );
+  const below = [turn.mchsBlock, dynamic].filter(Boolean).join('\n\n');
+  return {
+    system: below ? `${cacheable}\n\n${CACHE_BREAK_MARKER}\n\n${below}` : cacheable,
+    dynamic,
+    guardContext: [turn.mchsBlock, dynamic, turn.tourContext].filter(Boolean).join('\n\n'),
+  };
+}
+
 export async function aiChat(opts: {
   chatId: number;
   text: string;
@@ -3142,18 +3212,13 @@ export async function aiChat(opts: {
     : text;
   if (persist) await saveMsg(chatId, mode, 'user', userContent, userId, userName);
 
-  const [historyResult, tourContext, botMemory, placeCtx, routeCtx, availCtx, zoneWeather, userSituation, legalCtx, mchsBlock] = await Promise.all([
+  const [historyResult, botMemory, userSituation, turn] = await Promise.all([
     getHistoryWithCompactionSummary(chatId, mode),
-    buildTourContext(),
     platform ? loadBotMemory(chatId, platform) : Promise.resolve(null),
-    searchPlaceKnowledge(text),
-    searchRoutes(text),
-    searchOperatorAvailability(text),
-    getZoneWeatherForText(text),
     loadUserSituation(chatId),
-    searchLegislation(text),
-    mchsPromptBlock(),
+    kuzmichTurnFacts(text),
   ]);
+  const { mchsBlock } = turn;
   // Записанный вопрос история уже содержит; незаписанный добавляется здесь
   // же, в памяти: запасной путь ниже берёт вопрос только из истории.
   const history: ChatMessage[] = persist
@@ -3207,21 +3272,18 @@ export async function aiChat(opts: {
   // — выше маркера: статика (KUZMICH_SYSTEM + tourContext) — кешируется (TTL 5 мин)
   // — ниже маркера: динамика (placeCtx, routeCtx меняются по запросу, memCtx по юзеру) — без кеша
   const memCtx = botMemory ? buildBotMemoryContext(botMemory) : '';
-  const cacheable = [KUZMICH_SYSTEM, tourContext || ''].filter(Boolean).join('\n\n');
   // Компакция (Roitman §18, Eq 18.4): то, что не влезло в токен-бюджет истории
   // (splitHistoryForCompaction), не пропадает молча — сжато в 1-2 предложения.
   const historySummaryBlock = historySummary
     ? `[РАНЕЕ В РАЗГОВОРЕ, за пределами недавней истории]\n${historySummary}`
     : '';
-  // Pre-flight: бюджетируем динамический контекст, чтобы он не выдавил остальное
-  // из окна модели (Silent Truncation). Важные блоки (place/route) идут первыми.
-  const dynamic = fitTextToTokenBudget(
-    [contextNote || '', placeCtx || '', travelFactsBlock(text), seasonFactsBlock(text), routeCtx || '', availCtx || '', memCtx || '', zoneWeather || '', userSituation || '', legalCtx || '', historySummaryBlock].filter(Boolean).join('\n\n'),
-  );
-  const belowCache = [mchsBlock, dynamic].filter(Boolean).join('\n\n');
-  const systemContent = belowCache
-    ? `${cacheable}\n\n${CACHE_BREAK_MARKER}\n\n${belowCache}`
-    : cacheable;
+  // Данные хода — та же сборка, что у сайта, стрима и A2A (kuzmichTurnFacts).
+  // Бюджет динамики — внутри: факты хода и данные по вопросу идут первыми,
+  // память и сжатая история — после.
+  const { system: systemContent, guardContext } = kuzmichSystemContent(turn, {
+    lead: [contextNote || ''],
+    tail: [memCtx, userSituation || '', historySummaryBlock],
+  });
 
   // Если есть описание фото — прокидываем его первым сообщением
   const extraUserMsg: ChatMessage[] = visionDescription
@@ -3309,7 +3371,7 @@ export async function aiChat(opts: {
     answer,
     question: userContent,
     toolRuns: claimRuns,
-    context: [mchsBlock, dynamic, tourContext || ''].filter(Boolean).join('\n\n'),
+    context: guardContext,
   });
   const finalAnswer = finished.text;
 
@@ -3374,24 +3436,16 @@ export async function aiChat(opts: {
 // иначе регрессия проверяла бы не тот пайплайн, который видит турист.
 // Сигнатура/поведение aiChat не меняются — это отдельная функция.
 export async function askKuzmichForEval(question: string): Promise<{ answer: string; context: string } | null> {
-  const [tourContext, placeCtx, routeCtx, legalCtx, mchsBlock] = await Promise.all([
-    buildTourContext(),
-    searchPlaceKnowledge(question),
-    searchRoutes(question),
-    searchLegislation(question),
-    mchsPromptBlock(),
-  ]);
+  // Те же данные хода, что у живого Кузьмича (kuzmichTurnFacts): до 15.11
+  // проверка не получала наличия и погоды зоны, а сводку МЧС видел только
+  // судья, не модель — мерился не тот ответ, что видит турист.
+  const turn = await kuzmichTurnFacts(question);
+  const { mchsBlock, tourContext } = turn;
   // Журнал вызовов инструментов — вторая половина контекста, и без неё оценка
   // судила против пустоты (см. ниже).
   const toolRuns: ToolRun[] = [];
 
-  const cacheable = [KUZMICH_SYSTEM, tourContext || ''].filter(Boolean).join('\n\n');
-  const dynamic = fitTextToTokenBudget(
-    [placeCtx || '', travelFactsBlock(question), seasonFactsBlock(question), routeCtx || '', legalCtx || ''].filter(Boolean).join('\n\n'),
-  );
-  const systemContent = dynamic
-    ? `${cacheable}\n\n${CACHE_BREAK_MARKER}\n\n${dynamic}`
-    : cacheable;
+  const { system: systemContent, dynamic } = kuzmichSystemContent(turn);
 
   const raw = await aiChatAgentLoop(question, systemContent, [], [{ role: 'user', content: question }], toolRuns)
     .catch(() => null);

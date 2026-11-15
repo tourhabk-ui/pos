@@ -735,7 +735,10 @@ describe('один сборщик на сайт, Telegram и MAX', () => {
     const core = readFileSync('lib/kuzmich/core.ts', 'utf8');
     const max = readFileSync('app/api/max/kuzmich/route.ts', 'utf8');
     expect(web).toContain('resolveCommercialTurn');
-    expect(web).toContain('kamchatkaDateContext');
+    // Дата и прочие данные хода — общей сборкой (15.11, «на сайте и в тг
+    // разные ответы»); что модель на деле их получает, проверяет вызовом
+    // tests/unit/kuzmich-same-facts-all-surfaces.test.ts.
+    expect(web).toContain('kuzmichTurnFacts');
     expect(core).toContain('resolveCommercialTurn');
     expect(max).toContain('processMessage');
   });
