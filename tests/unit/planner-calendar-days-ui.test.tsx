@@ -385,7 +385,8 @@ describe('экран после сборки: мелкие отказы и ли�
     fireEvent.click(screen.getByRole('button', { name: 'Отправить заявку' }));
     await vi.waitFor(() => expect(screen.getAllByText(/Заявка отправлена/).length).toBeGreaterThan(0));
     expect(cards().length).toBe(4);
-    expect(screen.getByRole('button', { name: /Сохранить/ })).toBeTruthy();
+    // План по-прежнему можно отправить: кнопка «Поделиться» на месте.
+    expect(screen.getByTitle('Поделиться маршрутом')).toBeTruthy();
     expect(screen.queryByText('Готово!')).toBeNull();
   });
 
