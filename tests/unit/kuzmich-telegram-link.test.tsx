@@ -18,7 +18,7 @@ afterEach(() => {
 
 describe('/kuzmich', () => {
   it('показывает ссылку на Telegram-бота', async () => {
-    vi.stubGlobal('fetch', vi.fn(async () => ({ ok: true, json: async () => ({ data: { messages: [] } }) }) as Response));
+    vi.stubGlobal('fetch', vi.fn(async () => new Response(JSON.stringify({ data: { messages: [] } }))));
     Element.prototype.scrollIntoView = () => {};
     render(<KuzmichClient />);
     const link = await screen.findByRole('link', { name: 'Кузьмич в Telegram' });
@@ -36,9 +36,9 @@ describe('/kuzmich', () => {
         calls.push(body);
         if (calls.length === 1) await gate;
         const answer = calls.length === 1 ? 'Туры на вулканы.' : '180 000 ₽';
-        return { ok: true, json: async () => ({ data: { answer } }) } as Response;
+        return new Response(JSON.stringify({ data: { answer } }));
       }
-      return { ok: true, json: async () => ({ data: { messages: [] } }) } as Response;
+      return new Response(JSON.stringify({ data: { messages: [] } }));
     }));
     Element.prototype.scrollIntoView = () => {};
     render(<KuzmichClient />);
@@ -66,9 +66,9 @@ describe('/kuzmich', () => {
         calls.push(body);
         if (calls.length === 1) await gate;
         const answer = calls.length === 1 ? 'Туры на вулканы.' : 'В июле 190 000 ₽';
-        return { ok: true, json: async () => ({ data: { answer } }) } as Response;
+        return new Response(JSON.stringify({ data: { answer } }));
       }
-      return { ok: true, json: async () => ({ data: { messages: [] } }) } as Response;
+      return new Response(JSON.stringify({ data: { messages: [] } }));
     }));
     Element.prototype.scrollIntoView = () => {};
     render(<KuzmichClient />);

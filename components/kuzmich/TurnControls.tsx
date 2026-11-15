@@ -30,3 +30,19 @@ export function RetryTurnButton({ messages, onRetry, compact = false }: { messag
     </button>
   );
 }
+
+/**
+ * Шаги хода (#3412, п. 4): что Кузьмич делает прямо сейчас — вызовы его
+ * инструментов словами (lib/kuzmich/turn-steps). Текста ответа здесь нет.
+ */
+export function TurnSteps({ steps, compact = false }: { steps: readonly string[]; compact?: boolean }) {
+  if (steps.length === 0) return null;
+  return (
+    <ul aria-live="polite" aria-label="Что делает Кузьмич" data-turn="steps"
+      className={`flex flex-col gap-0.5 ${compact ? 'text-[11px]' : 'text-xs'} text-[var(--text-muted)]`}>
+      {steps.map((s, i) => (
+        <li key={i} className={i === steps.length - 1 ? 'text-[var(--text-secondary)]' : ''}>{s}</li>
+      ))}
+    </ul>
+  );
+}
