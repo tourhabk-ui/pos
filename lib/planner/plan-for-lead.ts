@@ -31,6 +31,8 @@ import type { PlanChoices } from '@/lib/planner/plan-choices';
 export interface PlanLeadInputDay extends EstimateDay {
   realTour?: EstimateDay['realTour'] & { operatorName?: string };
   availableDate?: string;
+  /** Ответ наличия на дату дня (движок): `none` — в этот день мест нет. */
+  availability?: 'open' | 'none' | 'unread';
 }
 
 export interface PlanLeadDay {
@@ -49,6 +51,8 @@ export interface PlanLeadDay {
     price_missing?: string;
     /** Ближайшая свободная дата тура в окне поездки. */
     available_date?: string;
+    /** В день плана у тура мест нет (разбор планера 14.11: строка терялась). */
+    no_seats?: true;
   };
   /** День продолжения многодневного тура: цена — в первом дне. */
   continues_tour?: true;
@@ -60,6 +64,11 @@ export interface PlanForLead {
   budget_tier: BudgetTier;
   trip_origin: TripOrigin;
   arrival: string | null;
+  /**
+   * Последний день поездки, `YYYY-MM-DD` (разбор планера 14.11): менеджер и
+   * Телеграм не видели дат поездки вовсе. Нет поля — план до 14.11.
+   */
+  departure?: string | null;
   days: PlanLeadDay[];
   estimate: {
     people: number;
@@ -108,7 +117,7 @@ function dateOf(arrival: string | null | undefined, day: number): string | null 
 
 export function planForLead(
   days: PlanLeadInputDay[],
-  profile: EstimateProfile & { arrivalDate?: string | null },
+  profile: EstimateProfile & { arrivalDate?: string | null; departureDate?: string | null },
   choices?: PlanChoices,
   needs?: PlanNeeds,
 ): PlanForLead {
@@ -122,6 +131,9 @@ export function planForLead(
     budget_tier: profile.budgetTier,
     trip_origin: asTripOrigin(profile.tripOrigin),
     arrival: profile.arrivalDate ?? null,
+    // Последний день — названный отъезд, иначе дата последнего дня плана.
+    departure: profile.departureDate
+      ?? dateOf(profile.arrivalDate, days.reduce((m, d) => Math.max(m, d.day), 0)),
     days: days.map((d): PlanLeadDay => {
       const base: PlanLeadDay = { day: d.day, date: dateOf(profile.arrivalDate, d.day), type: d.type, title: d.title, zone: d.zone };
       if (!d.realTour) return base;
@@ -136,6 +148,7 @@ export function planForLead(
           ...(d.realTour.priceUnit ? { unit: d.realTour.priceUnit } : {}),
           ...(d.priceMissing ? { price_missing: d.priceMissing } : {}),
           ...(d.availableDate ? { available_date: d.availableDate } : {}),
+          ...(d.availability === 'none' ? { no_seats: true as const } : {}),
         },
       };
     }),
@@ -195,7 +208,9 @@ export function tourWords(d: PlanLeadDay): string | null {
     `«${d.title}» (ID${d.tour.id})`,
     d.tour.operator,
     price,
-    d.tour.available_date ? `свободно с ${ddmm(d.tour.available_date)}` : null,
+    d.tour.no_seats
+      ? (d.tour.available_date ? `в этот день мест нет, ближайшая свободная — ${ddmm(d.tour.available_date)}` : 'в этот день мест нет')
+      : d.tour.available_date ? `свободно с ${ddmm(d.tour.available_date)}` : null,
   ].filter(Boolean).join(', ');
 }
 
@@ -210,19 +225,31 @@ export function needsWords(needs: PlanForLead['needs']): string | null {
   return asked.length > 0 ? `ещё нужно: ${asked.join(', ')}` : null;
 }
 
-/** Строки для человека: состав, смета, туры по дням. */
-export function planLeadLines(plan: PlanForLead): string[] {
+/**
+ * Строки для человека: состав, смета, туры по дням. `withDates: false` — даты
+ * поездки уже стоят своей строкой выше (заявка из анкеты планировщика).
+ */
+export function planLeadLines(plan: PlanForLead, opts: { withDates?: boolean } = {}): string[] {
   // Что ещё нужно — в строке группы, а не отдельной: уведомление в Телеграм
   // берёт первые две строки как группу и смету, остальное — как дни.
   const needs = needsWords(plan.needs);
+  // Даты поездки — в строке группы (разбор планера 14.11): у заявки из MCP с
+  // планом даты лежат только в плане, и менеджер их не видел.
+  const dates = plan.arrival && opts.withDates !== false
+    ? ` · ${ddmm(plan.arrival)}${plan.departure && plan.departure !== plan.arrival ? `–${ddmm(plan.departure)}` : ''}`
+    : '';
   const lines = [
-    `Группа: ${partyWords(plan.party)} · уровень «${BUDGET_WORD[plan.budget_tier] ?? plan.budget_tier}»${needs ? ` · ${needs}` : ''}`,
+    `Группа: ${partyWords(plan.party)}${dates} · уровень «${BUDGET_WORD[plan.budget_tier] ?? plan.budget_tier}»${needs ? ` · ${needs}` : ''}`,
     `Смета: ${range(plan.estimate.total)} на группу (${range(plan.estimate.per_person)} на человека)`
       + (plan.estimate.unpriced.length > 0 ? ` · без цены: ${plan.estimate.unpriced.length}` : ''),
   ];
   for (const d of plan.days) {
     const t = tourWords(d);
-    if (t) lines.push(`День ${d.day}${d.date ? ` (${ddmm(d.date)})` : ''}: ${t}`);
+    const when = `День ${d.day}${d.date ? ` (${ddmm(d.date)})` : ''}`;
+    if (t) lines.push(`${when}: ${t}`);
+    // Занятие без тура — тоже строка (разбор планера 14.11): план без туров
+    // доходил до менеджера одной сметой, без единого дня.
+    else if (d.type === 'activity' && !d.continues_tour) lines.push(`${when}: «${d.title}» — без тура`);
   }
   for (const l of plan.lodging ?? []) {
     const price = l.total !== undefined && l.rooms !== undefined

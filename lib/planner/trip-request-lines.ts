@@ -131,7 +131,8 @@ export const PLAN_UNREADABLE = 'План: не прочитался — смот
  */
 export function tripRequestLines(f: TripRequestFacts): string[] {
   const lines: string[] = [];
-  if (f.arrival || f.departure) {
+  const datesLine = Boolean(f.arrival || f.departure);
+  if (datesLine) {
     const from = f.arrival ? ddmmyyyy(f.arrival) : '?';
     const to = f.departure ? ddmmyyyy(f.departure) : '?';
     lines.push(`Даты: ${from} — ${to}${f.trip_days ? ` (${f.trip_days} дн.)` : ''}`);
@@ -145,7 +146,7 @@ export function tripRequestLines(f: TripRequestFacts): string[] {
     // печатает строки: крон напоминаний прервался бы на этой заявке, и
     // напоминания о прочих перестали бы уходить (ревью PR #3133).
     try {
-      lines.push(...planLeadLines(f.plan));
+      lines.push(...planLeadLines(f.plan, { withDates: !datesLine }));
     } catch (err) {
       console.error('[trip-request-lines] план заявки не прочитался:', err instanceof Error ? err.message : String(err));
       lines.push(PLAN_UNREADABLE);

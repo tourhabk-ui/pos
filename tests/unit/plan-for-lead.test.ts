@@ -76,11 +76,41 @@ describe('сводка плана для заявки', () => {
 
   it('словами: состав, смета и туры по дням', () => {
     const lines = planLeadLines(plan).map(plain);
-    expect(lines[0]).toBe('Группа: 2 взр., ребёнок 6 лет · уровень «комфорт»');
+    expect(lines[0]).toBe('Группа: 2 взр., ребёнок 6 лет · 02.08–06.08 · уровень «комфорт»');
     expect(lines[1]).toMatch(/^Смета: [\d ]+ ₽–[\d ]+ ₽ на группу \([\d ]+ ₽–[\d ]+ ₽ на человека\) · без цены: 1$/);
     expect(lines).toContain('День 2 (03.08): «Недельный рыболовный тур» (ID11), Камчатская рыбалка, 196 000 ₽/группа, свободно с 03.08');
     expect(lines).toContain('День 4 (05.08): «Вулкан Плоский Толбачик» (ID41), Край Вулканов, цену называет оператор');
     expect(lines.some((l) => l.includes('день 2 из 7'))).toBe(false);
+  });
+
+  // Разбор планера 14.11 (Кузьмич/MCP-7): план без туров доходил до
+  // менеджера и в Телеграм одной сметой — без дат поездки и без дней; строка
+  // «мест нет в ваши даты» терялась.
+  it('даты поездки, дни без тура и «в этот день мест нет» — словами', () => {
+    const noTours = planForLead([
+      day(1, 'arrival', { zone: 'avachinsky', title: 'Прилёт' }),
+      day(2, 'activity', { zone: 'avachinsky', title: 'Вулканы — Авачинская зона', priceFrom: 5000, priceTo: 15000 }),
+      day(3, 'rest', { zone: 'avachinsky', title: 'День отдыха' }),
+      day(4, 'activity', {
+        zone: 'avachinsky', title: 'Горелый', realPrice: 15000, availability: 'none', availableDate: '2027-07-15',
+        realTour: { tourId: '12', priceUnit: 'per_person', lodgingIncluded: false },
+      }),
+      day(5, 'activity', {
+        zone: 'avachinsky', title: 'Мутновский', realPrice: 9000, availability: 'none',
+        realTour: { tourId: '13', priceUnit: 'per_person', lodgingIncluded: false },
+      }),
+      day(7, 'departure', { zone: 'avachinsky', title: 'Вылет' }),
+    ], { ...PROFILE, arrivalDate: '2027-07-10', departureDate: '2027-07-16' });
+    const lines = planLeadLines(noTours).map(plain);
+    expect(lines[0]).toBe('Группа: 2 взр., ребёнок 6 лет · 10.07–16.07 · уровень «комфорт»');
+    expect(lines).toContain('День 2 (11.07): «Вулканы — Авачинская зона» — без тура');
+    expect(lines.some((l) => l.startsWith('День 3'))).toBe(false);
+    expect(lines.find((l) => l.startsWith('День 4'))).toMatch(/в этот день мест нет, ближайшая свободная — 15\.07$/);
+    expect(lines.find((l) => l.startsWith('День 5'))).toMatch(/в этот день мест нет$/);
+  });
+
+  it('отъезд не назван — последний день плана', () => {
+    expect(plan.departure).toBe('2027-08-06');
   });
 
   it('чужую форму не принимает за план', () => {

@@ -147,7 +147,7 @@ describe('дубль заявки', () => {
 describe('что ещё нужно — в заявке словами (H6)', () => {
   it('отмеченное — в строке группы; ничего не отмечено или не записано — строки нет', () => {
     expect(planLeadLines(plan(DAYS, PROFILE, { lodging: true, transfer: false, car: true }))[0])
-      .toBe('Группа: 2 взр., дети 10, 6 лет · уровень «комфорт» · ещё нужно: жильё, машина напрокат');
+      .toBe('Группа: 2 взр., дети 10, 6 лет · 01.08–03.08 · уровень «комфорт» · ещё нужно: жильё, машина напрокат');
     expect(planLeadLines(plan(DAYS, PROFILE, { lodging: false, transfer: false, car: false }))[0]).not.toMatch(/ещё нужно/);
     expect(planLeadLines(plan())[0]).not.toMatch(/ещё нужно/);
   });
