@@ -124,6 +124,13 @@ export interface PendingBooking {
   date?: string; // YYYY-MM-DD
   step: 'tour' | 'name' | 'date' | 'participants' | 'phone' | 'confirm';
   started_at: number;
+  /**
+   * Сводка «Проверьте заявку» показана, и «Да» ещё не было (#3399, п. 4).
+   * Согласие — на ту сводку, которую человек видел: «Да» без неё (черновик
+   * после отказа отправки, черновик до этого поля) снова её показывает, а не
+   * отправляет.
+   */
+  summary_shown?: boolean;
 }
 
 // ── Системный промпт ──────────────────────────────────────────────────────────
@@ -2242,6 +2249,7 @@ export async function handleBookingStep(
     }
     b.name = t;
     b.step = nextBookingStep(b);
+    b.summary_shown = b.step === 'confirm';
     await saveBookingFlow(chatId, mode, b, pending);
     await askNextBookingStep(chatId, b, reply);
     return true;
@@ -2260,6 +2268,7 @@ export async function handleBookingStep(
     }
     b.date = date;
     b.step = nextBookingStep(b);
+    b.summary_shown = b.step === 'confirm';
     await saveBookingFlow(chatId, mode, b, pending);
     await askNextBookingStep(chatId, b, reply);
     return true;
@@ -2273,6 +2282,7 @@ export async function handleBookingStep(
     }
     b.participants = n;
     b.step = nextBookingStep(b);
+    b.summary_shown = b.step === 'confirm';
     await saveBookingFlow(chatId, mode, b, pending);
     await askNextBookingStep(chatId, b, reply);
     return true;
@@ -2288,6 +2298,7 @@ export async function handleBookingStep(
     }
     b.phone = phone;
     b.step = nextBookingStep(b);
+    b.summary_shown = b.step === 'confirm';
     await saveBookingFlow(chatId, mode, b, pending);
     await askNextBookingStep(chatId, b, reply);
     return true;
@@ -2307,10 +2318,23 @@ export async function handleBookingStep(
       await reply(chatId, `Тур тот же: <b>${escapeHtml(b.tour!.title)}</b>. Если нужен другой — нажмите «Отмена» и напишите название.\n\nКак вас зовут?`, CANCEL_BUTTONS);
       return true;
     }
+    // «Да» засчитывается только на показанную сводку и без вопроса в том же
+    // сообщении (#3399, п. 4): «да, а сколько стоит?» — вопрос, а не согласие;
+    // черновик, чья отправка не удалась, второй раз молча не уходит.
+    if (isYes(t) && (!b.summary_shown || t.includes('?'))) {
+      b.summary_shown = true;
+      await saveBookingFlow(chatId, mode, b, pending);
+      await reply(chatId, `${t.includes('?') ? 'В сообщении вопрос — заявку не отправил. ' : 'Заявку ещё не отправил. '}${bookingSummaryText(b)}`, CONFIRM_BUTTONS);
+      return true;
+    }
     if (!isYes(t)) {
       await reply(chatId, 'Отправить заявку оператору?', CONFIRM_BUTTONS);
       return true;
     }
+    // Согласие израсходовано на эту отправку: если она не удастся, следующее
+    // «да» снова покажет сводку.
+    b.summary_shown = false;
+    await saveBookingFlow(chatId, mode, b, pending);
 
     // Та же заявка, что у веб-чата и MCP (02.11): create_booking_request
     // через общий исполнитель — места проверяются там по базе в момент
@@ -2399,8 +2423,19 @@ export function nextBookingStep(b: PendingBooking): PendingBooking['step'] {
   return 'confirm';
 }
 
-export const BOOKING_CONSENT_LINE =
-  `Отвечая «Да», вы соглашаетесь на обработку персональных данных для этой заявки: ${getPublicBaseUrl()}/legal/privacy`;
+/**
+ * Строка согласия под сводкой (#3399, п. 4). Записывается согласие версии
+ * `operator` (lib/legal/pd-consent): «…и их передачу туроператору для связи по
+ * заявке». До 15.11 строка молчала о передаче — человек соглашался на одно, а
+ * записывалось другое. Теперь она называет получателя, если он известен.
+ */
+export function bookingConsentLine(operatorName?: string | null): string {
+  const op = operatorName?.trim() ? ` «${escapeHtml(operatorName.trim())}»` : '';
+  return `Отвечая «Да», вы соглашаетесь на обработку персональных данных и их передачу туроператору${op} для связи по этой заявке: ${getPublicBaseUrl()}/legal/privacy`;
+}
+
+/** Строка согласия без имени оператора — для проверок норм канала. */
+export const BOOKING_CONSENT_LINE = bookingConsentLine(null);
 
 /**
  * Ссылка на форму тура с датой и людьми (prefill #2907/#2909). В Telegram
@@ -2448,16 +2483,27 @@ async function askNextBookingStep(chatId: number, b: PendingBooking, reply: Repl
   if (b.step === 'date') { await reply(chatId, 'На какую дату? Например: <b>15 июля</b>', CANCEL_BUTTONS); return; }
   if (b.step === 'participants') { await reply(chatId, 'Сколько человек едет?', GUEST_BUTTONS); return; }
   if (b.step === 'phone') { await reply(chatId, 'Телефон для связи с оператором? Например: <b>+7 900 000-00-00</b>', CANCEL_BUTTONS); return; }
+  await reply(chatId, bookingSummaryText(b), CONFIRM_BUTTONS);
+}
+
+/**
+ * Сводка перед «Да» (#3399, п. 4): оператор, тур, дата, люди, цена из базы,
+ * какие данные уйдут оператору и строка согласия с его именем. Собирает код,
+ * не модель.
+ */
+export function bookingSummaryText(b: PendingBooking): string {
   const dateStr = new Date(b.date!).toLocaleDateString('ru-RU', { day: 'numeric', month: 'long', year: 'numeric' });
-  await reply(chatId, [
+  const op = b.tour!.operator_name?.trim();
+  return [
     '<b>Проверьте заявку:</b>',
     `Тур: <b>${escapeHtml(b.tour!.title)}</b>`,
+    op ? `Оператор: <b>${escapeHtml(op)}</b>` : 'Оператор: не записан — заявку получит менеджер Ведара',
     `Дата: <b>${dateStr}</b> · Человек: <b>${b.participants}</b>`,
     bookingSumLine(b.tour!, b.participants!),
-    `Контакт: <b>${escapeHtml(b.name!)}</b>, <b>${escapeHtml(b.phone!)}</b>`,
+    `Оператору уйдут: имя <b>${escapeHtml(b.name!)}</b> и телефон <b>${escapeHtml(b.phone!)}</b>`,
     '',
-    BOOKING_CONSENT_LINE,
-  ].join('\n'), CONFIRM_BUTTONS);
+    bookingConsentLine(op),
+  ].join('\n');
 }
 
 // ── Web search fallback (Tavily → Brave) ────────────────────────────────────
