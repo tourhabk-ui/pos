@@ -255,7 +255,8 @@ describe('результат: настоящее, пустое, непровер
     fireEvent.click(need('lodging'));
     build();
     const section = await screen.findByTestId('trip-extras');
-    await waitFor(() => expect(section.textContent).toMatch(/Не смогли проверить жильё и трансферы/));
+    // Что отмечено, секция не знает — «отмеченное», а не «жильё и трансферы» (14.11).
+    await waitFor(() => expect(section.textContent).toMatch(/Не смогли проверить отмеченное/));
     expect(section.textContent).not.toMatch(/на платформе нет/);
   });
 });

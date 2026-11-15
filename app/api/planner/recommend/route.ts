@@ -13,6 +13,7 @@ import { agentMemory } from '@/lib/agents/memory/agent-memory';
 import { MAX_REST_DAYS } from '@/lib/planner/travel-style';
 import { createRateLimiter, getTrustedClientIp } from '@/lib/rate-limit';
 import { logSwallowedFailure } from '@/lib/observability/swallowed';
+import { tripDatesProblem } from '@/lib/planner/calendar-days';
 
 /** Потолок заметки о здоровье: коротко, «колено, астма», а не история болезни. */
 const HEALTH_NOTES_MAX = 300;
@@ -117,6 +118,13 @@ export async function POST(req: NextRequest) {
         { success: false, error: 'Дата окончания должна быть позже даты начала' },
         { status: 400 },
       );
+    }
+    // Те же границы, что у анкеты (разбор планера 14.11, экран-7): начало не в
+    // прошлом по Камчатке и не длиннее MAX_TRIP_DAYS. Правило одно —
+    // tripDatesProblem; равные даты здесь допустимы (житель края, один день).
+    if (parsed.arrivalDate && parsed.departureDate) {
+      const problem = tripDatesProblem(parsed.arrivalDate, parsed.departureDate, true);
+      if (problem) return NextResponse.json({ success: false, error: problem }, { status: 400 });
     }
 
     const recommendation = await recommendTrip(parsed);

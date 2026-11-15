@@ -95,19 +95,26 @@ function parseDuration(text: string): number | null {
   return null;
 }
 
-function addDays(dateStr: string, n: number): string {
-  const d = new Date(dateStr);
-  d.setDate(d.getDate() + n);
-  return d.toISOString().slice(0, 10);
+/**
+ * Последний день поездки из N дней, считая день прилёта (разбор планера 14.11,
+ * экран-9): «7 дней» давало прилёт + 7, то есть 8 дней по счёту движка.
+ * Арифметика — в UTC от строки даты: местное время сервера сдвигало сутки.
+ */
+function lastDayOf(arrival: string, days: number): string {
+  const t = Date.parse(`${arrival.slice(0, 10)}T00:00:00Z`);
+  return new Date(t + (Math.max(1, Math.round(days)) - 1) * 86_400_000).toISOString().slice(0, 10);
 }
 
 function defaultDates(durationDays: number): { arrival: string; departure: string } {
   const d = new Date();
-  d.setMonth(d.getMonth() + 1);
-  d.setDate(1);
-  const arrival   = d.toISOString().slice(0, 10);
-  const departure = addDays(arrival, durationDays);
-  return { arrival, departure };
+  const arrival = new Date(Date.UTC(d.getUTCFullYear(), d.getUTCMonth() + 1, 1)).toISOString().slice(0, 10);
+  return { arrival, departure: lastDayOf(arrival, durationDays) };
+}
+
+/** Дата модели — только ISO: «10.07.2027» дальше не идёт (экран-9). */
+const ISO_DATE = /^\d{4}-\d{2}-\d{2}$/;
+function isoOrNull(v: string | null): string | null {
+  return v && ISO_DATE.test(v) && !Number.isNaN(Date.parse(`${v}T00:00:00Z`)) ? v : null;
 }
 
 /**
@@ -139,7 +146,7 @@ function keywordParse(message: string) {
     const duration = parseDuration(message);
     if (duration) {
       if (arrival) {
-        departure = addDays(arrival, duration);
+        departure = lastDayOf(arrival, duration);
       } else {
         const d = defaultDates(duration);
         arrival   = d.arrival;
@@ -201,13 +208,13 @@ export async function POST(req: NextRequest) {
         // Filter to only valid values
         places = ai.places.filter(p => PLANNER_PLACES.includes(p));
         activities = ai.activities.filter(a => PLANNER_ACTIVITIES.includes(a));
-        arrival = ai.arrival;
-        departure = ai.departure;
+        arrival = isoOrNull(ai.arrival);
+        departure = isoOrNull(ai.departure);
 
         // If AI gave duration but not dates, compute them
         if ((!arrival || !departure) && ai.duration_days) {
           if (arrival) {
-            departure = addDays(arrival, ai.duration_days);
+            departure = lastDayOf(arrival, ai.duration_days);
           } else {
             const d = defaultDates(ai.duration_days);
             arrival = d.arrival;
@@ -216,8 +223,11 @@ export async function POST(req: NextRequest) {
         }
       }
     }
-  } catch {
-    // AI failed — fall through to keyword fallback
+  } catch (err) {
+    // Модель не ответила или ответила не JSON — дальше запасной разбор по
+    // словам. Отказ — в лог (без текста человека): молча он выглядел бы как
+    // «модель разобрала и ничего не нашла» (§4.0).
+    console.error('[planner/chat] разбор моделью не выполнился:', err instanceof Error ? err.message : String(err));
   }
 
   // 2. Fallback to keyword parsing if AI yielded nothing

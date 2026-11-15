@@ -9,6 +9,8 @@
  * Спутник планера — исключение: человек в ЧП получает телефоны и без входа.
  */
 import { describe, it, expect, vi, beforeEach } from 'vitest';
+import { readdirSync } from 'node:fs';
+import { join } from 'node:path';
 import { NextRequest } from 'next/server';
 
 const { verifyMock, aiMock, queryMock } = vi.hoisted(() => ({ verifyMock: vi.fn(), aiMock: vi.fn(), queryMock: vi.fn() }));
@@ -71,6 +73,19 @@ describe('шесть адресов планера — только после �
 
   it.each(DOORS)('$method $path: Edge не пускает анонима', ({ path, method }) => {
     expect(isPublicApiPath(path, method)).toBe(false);
+  });
+
+  it('каждый адрес каталога планера — в этом списке или исключение с причиной', () => {
+    // Новый адрес планера без решения о входе — красный: иначе он остался бы
+    // открытым молча, хотя «без входа планер не работает».
+    const EXCEPTIONS: Record<string, string> = {
+      companion: 'признак беды проверяется раньше входа: 112 — без входа, ответ модели — только вошедшему',
+      preferences: 'вход проверяет своим путём (requireAuth): это настройки аккаунта',
+    };
+    const dirs = readdirSync(join(process.cwd(), 'app/api/planner'), { withFileTypes: true })
+      .filter((d) => d.isDirectory()).map((d) => d.name).sort();
+    const covered = [...DOORS.map((d) => d.path.replace('/api/planner/', '')), ...Object.keys(EXCEPTIONS)].sort();
+    expect(dirs).toEqual(covered);
   });
 });
 

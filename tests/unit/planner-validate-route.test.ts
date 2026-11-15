@@ -75,6 +75,16 @@ describe('сезон — по дате дня', () => {
   });
 });
 
+describe('номер дня', () => {
+  it('огромный или дробный номер — 400 с причиной, а не 500', async () => {
+    for (const day of [1e308, 2.5, 0]) {
+      const { status, body } = await validate({ days: [d(1, 'activity', 'avachinsky', 'hot_spring', 'А'), d(day, 'activity', 'avachinsky', 'hot_spring', 'Б')], arrivalDate: '2027-07-01' });
+      expect(status).toBe(400);
+      expect(body.success).toBe(false);
+    }
+  });
+});
+
 describe('длина плана', () => {
   it('план на 30 дней проверяется, а не отвечает 400', async () => {
     const days = Array.from({ length: 30 }, (_, i) => d(i + 1, 'activity', 'avachinsky', 'hot_spring', `День ${i + 1}`));
