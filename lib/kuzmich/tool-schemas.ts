@@ -171,7 +171,9 @@ const getFlightBoardSchema = z.object({
 // План поездки по дням («Мой план 2.0», A-2). Оба поля необязательны:
 // без days — неделя, без interests — классика первой поездки.
 const makeTripPlanSchema = z.object({
-  days: looseString(4).optional(),
+  // 40, а не 4 (разбор планера 14.11): «2 недели» резалось до «2 не» и
+  // давало план на 3 дня, «1 день» отдыха — до «1 де» и «не разобрал».
+  days: looseString(40).optional(),
   interests: looseString(300).optional(),
   // Когда ехать. Без него старт был зашит как «через месяц», и спросить план
   // на июль было нельзя ничем (19.09).
@@ -180,7 +182,7 @@ const makeTripPlanSchema = z.object({
   // Слово свободное: «сам», «с гидом», «вперемешку» или self/operator/mixed —
   // разбирает trip-plan-tool; не понял — «вперемешку», как без поля.
   travel_style: looseString(40).optional(),
-  rest_days: looseString(4).optional(),
+  rest_days: looseString(40).optional(),
   // Состав группы и уровень бюджета (#2223). Не названы — двое взрослых и
   // «комфорт», но допущение называется в ответе словами. Дети — возрасты
   // строкой «6, 10» или массивом [6, 10]; массив доходит до разборщика

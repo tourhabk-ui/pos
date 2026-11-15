@@ -18,8 +18,9 @@ import {
   parseChatInterests, matchPreset, formatTripPlanForChat,
   buildRefusal, inSeasonInterests, parsePlanStart, startNote,
   readPlanDays, readPlanDaysFor, parseChatInterestsDetailed, planWarningLines,
-  rangeDays, planStartRefusal, type PlanStart,
+  rangeDays, planStartRefusal, readRestDays, plannedForLabel, type PlanStart,
 } from '@/lib/kuzmich/trip-plan-tool';
+import { localizeToolArgs } from '@/lib/mcp/query-lang';
 import { KUZMICH_TOOLS, validateToolArgs } from '@/lib/kuzmich/tool-schemas';
 import { PLAN_PRESETS, type PlanPreset } from '@/lib/plans/presets';
 import { ACTIVITY_NAMES, type DayPlan } from '@/lib/planner';
@@ -597,8 +598,26 @@ describe('план говорит то, что знает движок', () => {
 
   it('длительность из слов модели и границы — вслух', () => {
     expect(readPlanDays('10 days')).toEqual({ days: 10, note: null });
-    expect(readPlanDays('две недели').note).toMatch(/не разобрал — считаю 7/);
     expect(readPlanDays('30')).toEqual({ days: 21, note: expect.stringMatching(/считаю 21, а не 30/) });
+    expect(readPlanDays('пару дней').note).toMatch(/не разобрал — считаю 7/);
+  });
+
+  // Разбор планера 14.11 (Кузьмич/MCP-6): «2 недели» резалось до «2 не» и
+  // давало 3 дня; диапазон брал первое число молча.
+  it('недели и диапазоны', () => {
+    expect(readPlanDays('2 недели')).toEqual({ days: 14, note: null });
+    expect(readPlanDays('2 weeks')).toEqual({ days: 14, note: null });
+    expect(readPlanDays('две недели')).toEqual({ days: 14, note: null });
+    expect(readPlanDays('неделя')).toEqual({ days: 7, note: null });
+    expect(readPlanDays('7–10 дней')).toEqual({ days: 7, note: 'Названо «7–10 дней» — считаю 7 дней.' });
+    expect(readRestDays('1 день')).toBe(1);
+    expect(readRestDays('2 дня')).toBe(2);
+    expect(readRestDays('пару')).toBeUndefined();
+  });
+
+  it('схема make_trip_plan не режет «2 недели» и «1 день»', () => {
+    const v = validateToolArgs('make_trip_plan', { days: '2 недели', rest_days: '1 день' });
+    expect(v.ok && v.args).toMatchObject({ days: '2 недели', rest_days: '1 день' });
   });
 
   it('инструмент оставляет safety-предупреждения уровня info и называет допущения', () => {
@@ -650,5 +669,32 @@ describe('ссылка на образец — не «страница этог�
     expect(text).toContain('это не ваш план');
     expect(text).toMatch(/\/plans\/volcanoes-7/);
     expect(text).not.toContain('Готовая страница этого формата');
+  });
+});
+
+// Разбор планера 14.11 (Кузьмич/MCP-3, -5).
+describe('год в дате плана и слова занятий', () => {
+  const NOW = Date.parse('2026-11-14T02:00:00Z');
+
+  it('«в ноябре», сказанное в ноябре, — с сегодняшнего дня, как «в ноябре 2026»', () => {
+    const a = parsePlanStart('в ноябре', NOW);
+    const b = parsePlanStart('в ноябре 2026', NOW);
+    expect(a.kind === 'parsed' && a.date.toISOString().slice(0, 10)).toBe('2026-11-14');
+    expect(a).toEqual(b);
+  });
+
+  it('план не на этот год — год назван', () => {
+    expect(plannedForLabel(new Date('2027-11-13T00:00:00Z'), NOW)).toBe('13 ноября 2027 года');
+    expect(plannedForLabel(new Date('2026-12-10T00:00:00Z'), NOW)).toBe('10 декабря');
+  });
+
+  it('сплав и трекинг — из русского, английского и китайского; правка плана переводится', () => {
+    expect(parseChatInterests('сплав по Быстрой')).toEqual(['river']);
+    expect(parseChatInterests('трекинг')).toEqual(['trekking']);
+    for (const q of ['hiking and rafting', '徒步 漂流']) {
+      const text = String(localizeToolArgs('make_trip_plan', { interests: q }).args.interests);
+      expect(parseChatInterests(text).sort()).toEqual(['river', 'trekking']);
+    }
+    expect(localizeToolArgs('edit_trip_plan', { interest: 'fishing' }).args.interest).toBe('рыбалка');
   });
 });
