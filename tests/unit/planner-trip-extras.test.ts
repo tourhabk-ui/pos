@@ -269,6 +269,18 @@ describe('трансфер: машина целиком под заказ (вл�
 // ── Роут ────────────────────────────────────────────────────────────────────
 
 describe('POST /api/planner/trip-extras', () => {
+  // Разбор планера 14.11 (экран-11): однодневная поездка местного получала 400,
+  // и «Что ещё нужно» всегда говорило «не смогли проверить».
+  it('поездка в один день — не отказ; отъезд раньше приезда — отказ', async () => {
+    rentalMock.mockResolvedValue([]);
+    const sameDay = await extras({ needs: { car: true }, arrivalDate: '2027-08-03', departureDate: '2027-08-03', tripOrigin: 'local' });
+    expect(sameDay.status).toBe(200);
+    expect(sameDay.json.success).toBe(true);
+    const reversed = await extras({ needs: { car: true }, arrivalDate: '2027-08-03', departureDate: '2027-08-02' });
+    expect(reversed.status).toBe(400);
+    expect(reversed.json.error).toBe('Дата отъезда раньше даты приезда');
+  });
+
   it('машина — три исхода: прокатчики с прайсом / честное «пока нет» без ссылок наружу / не смогли проверить', async () => {
     const offer = (over: Record<string, unknown> = {}) => ({
       id: 'o-1', title: 'Prado', bodyKind: 'suv', seats: 5, transmission: null, drive: null, engineHp: null,

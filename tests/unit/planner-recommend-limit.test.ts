@@ -75,3 +75,28 @@ describe('/api/planner/recommend — отказ движка', () => {
     spy.mockRestore();
   });
 });
+
+// Разбор планера 14.11 (экран-7): сервер принимал 2020 год и два года подряд.
+describe('/api/planner/recommend — границы дат', () => {
+  const ask = (body: Record<string, unknown>, ip: string) => POST(new NextRequest('http://localhost/api/planner/recommend', {
+    method: 'POST', body: JSON.stringify(body), headers: { 'content-type': 'application/json', 'x-real-ip': ip, 'x-forwarded-for': ip },
+  }));
+
+  it('начало в прошлом — 400 с причиной, движок не зовётся', async () => {
+    const res = await ask({ interests: ['volcano'], arrivalDate: '2020-01-01', departureDate: '2020-01-05' }, '10.55.0.1');
+    expect(res.status).toBe(400);
+    expect((await res.json()).error).toMatch(/уже прошло/);
+    expect(recommendTrip).not.toHaveBeenCalled();
+  });
+
+  it('поездка длиннее 60 дней — 400 с причиной', async () => {
+    const res = await ask({ interests: ['volcano'], arrivalDate: '2030-01-01', departureDate: '2030-12-31' }, '10.55.0.2');
+    expect(res.status).toBe(400);
+    expect((await res.json()).error).toMatch(/длиннее 60 дней/);
+  });
+
+  it('один день у жителя края — допустим', async () => {
+    const res = await ask({ interests: ['volcano'], arrivalDate: '2030-08-03', departureDate: '2030-08-03', tripOrigin: 'local' }, '10.55.0.3');
+    expect(res.status).toBe(200);
+  });
+});

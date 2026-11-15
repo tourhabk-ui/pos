@@ -220,7 +220,9 @@ export function TripExtrasSection({ load, ...choice }: {
       )}
 
       {load.status === 'error' && (
-        <Unavailable what="жильё и трансферы" />
+        // Что именно отмечено, секция не знает: называть «жильё и трансферы»
+        // при отмеченной одной машине было бы неправдой (экран-11).
+        <Unavailable what="отмеченное" />
       )}
 
       {load.status === 'ready' && (
