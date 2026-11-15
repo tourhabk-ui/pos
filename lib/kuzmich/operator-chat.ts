@@ -22,6 +22,8 @@
 import { pool } from '@/lib/db-pool';
 import { callAIWaterfallOrNull, callToolsWaterfall } from '@/lib/ai/providers';
 import { getHistory, saveMsg } from '@/lib/kuzmich/core';
+import { travelFactsBlock } from '@/lib/kuzmich/travel-facts';
+import { seasonFactsBlock } from '@/lib/kuzmich/season-facts';
 import { runTurnTools, wrapToolOutput } from '@/lib/kuzmich/tool-loop';
 import type { ChatMessage } from '@/lib/ai/prompts';
 import { crmCategoryFor, type PartnerCategory } from '@/lib/crm/partner-context';
@@ -310,6 +312,11 @@ const GUIDE_CREATE_LINE = 'Туры ты сам не создаёшь и не п
   + 'и кнопка «Создать черновик»; создаёт только она. Черновик туристы не видят: на сайт гид выводит тур кнопкой «Опубликовать» '
   + 'у тура в «Моих турах», снимает — «Снять с сайта».';
 
+/** Факты о местах — только из данных: у помощника кабинета их нет, кроме справок дороги и сезонов. */
+export const PARTNER_PLACE_FACTS_LINE = 'О местах края — расстояниях, времени дороги, сезонах, режиме работы, открыто ли, опасностях — '
+  + 'у тебя данных нет, кроме справок «дорога» и «сезон» ниже, если они есть. Чего в них нет — скажи «проверенных данных об этом у меня нет», '
+  + 'по памяти не называй и не прикидывай.';
+
 export function partnerSystemPrompt(partner: PartnerChatContext, nowMs: number, tools: boolean): string {
   const lines = [
     `Ты помощник партнёра туристической платформы Ведар (Камчатка). Партнёр: ${partner.partnerName}, роль — ${partnerCategoryLabel(partner.category)}.`,
@@ -326,6 +333,11 @@ export function partnerSystemPrompt(partner: PartnerChatContext, nowMs: number, 
     + 'Никогда не пиши их от себя и не выдавай сочинённое за текст тура из базы. '
     + 'На просьбу показать или прислать текст тура ответь, где он лежит: фраза «текст тура Название» в этом чате пришлёт его из базы, в кабинете на сайте — кнопка «Править» у тура, '
     + 'в чате — «Мои туры» и тур; если просят помочь написать текст — прямо назови его своим предложением, а не текстом из базы.',
+    // 15.11, владелец в своём чате MAX: на «сколько ехать до Паратунки и
+    // открыты ли там источники?» помощник сказал «справочной информации у меня
+    // нет» и тут же назвал «25–30 км, 30–40 минут» по памяти (по справке с
+    // источником — 60 км). То же правило, что у Кузьмича туриста (#3393).
+    PARTNER_PLACE_FACTS_LINE,
   ];
   // «Открой даты словами» (22.10): даты открывает поток с кнопкой
   // подтверждения (lib/operators/chat-dates), а не модель. Без этой строки
@@ -545,7 +557,11 @@ export async function processPartnerMessage(opts: {
     getHistory(chatId, 'operator_tg'),
     sellsOwnTours(partner) ? buildOperatorContext(partner.partnerId) : Promise.resolve(''),
   ]);
-  const withContext = (system: string) => (bizContext ? `${system}\n\n${bizContext}` : system);
+  // Справки дороги и сезонов — те же, что у Кузьмича туриста: вопрос о месте
+  // уходит ему (boundChatLane), а дошедший сюда получает проверенные числа,
+  // а не память модели.
+  const placeFacts = [travelFactsBlock(text), seasonFactsBlock(text)].filter(Boolean).join('\n\n');
+  const withContext = (system: string) => [system, bizContext, placeFacts].filter(Boolean).join('\n\n');
   // Строки, записанные до очистки (до 25.10), чистятся на входе модели —
   // все роли: в старой реплике помощника мог остаться номер из описания.
   const history = storedHistory.map((m) => ({ ...m, content: clean(m.content) }));

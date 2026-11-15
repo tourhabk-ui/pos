@@ -47,7 +47,9 @@ vi.mock('@/lib/agents/sdk/sdk-runner', () => ({ runSDKAgent: vi.fn().mockResolve
 vi.mock('@/lib/agents/sdk/tourist-tools', () => ({ getTouristTools: vi.fn(() => []) }));
 vi.mock('@/lib/agents/sdk/operator-tools', () => ({ getOperatorTools: vi.fn() }));
 vi.mock('@/lib/kuzmich/safety-review-log', () => ({ recordSafetyReview: vi.fn() }));
-vi.mock('@/lib/kuzmich/core', () => ({
+vi.mock('@/lib/kuzmich/core', async () => ({
+  // Сборка данных хода — заглушкой: настоящую держит kuzmich-same-facts-all-surfaces.
+  ...(await import('../helpers/kuzmich-turn-stub')).kuzmichTurnStub('KUZMICH_PERSONA'),
   aiChatAgentLoop: vi.fn().mockResolvedValue('MODEL_ANSWER: оставить заявку?'),
   KUZMICH_SYSTEM: 'KUZMICH_PERSONA',
   isAIErrorResponse: () => false,

@@ -40,12 +40,10 @@ import {
   upsertUserMemory,
   synthesizeUserNotes,
 } from '@/lib/ai/user-memory';
-import { aiChatAgentLoop, KUZMICH_SYSTEM } from '@/lib/kuzmich/core';
+import { aiChatAgentLoop, KUZMICH_SYSTEM, kuzmichTurnFacts, kuzmichSystemContent } from '@/lib/kuzmich/core';
 import { checkAnswerPrices } from '@/lib/kuzmich/answer-quality';
 import { resolveCommercialTurn } from '@/lib/kuzmich/commercial-turn';
-import { kamchatkaDateContext } from '@/lib/kuzmich/date-context';
 import { finishKuzmichAnswer, correctShownAnswer } from '@/lib/kuzmich/answer-guards';
-import { mchsPromptBlock } from '@/lib/safety/active-warnings';
 import { recordKuzmichAnswer } from '@/lib/kuzmich/answer-timing';
 import { saveChatSession } from '@/lib/kuzmich/chat-session-save';
 import { newLoopTiming, answerTokens } from '@/lib/kuzmich/answer-ceiling';
@@ -231,16 +229,22 @@ export async function POST(request: NextRequest) {
 
     const geoContext = geo ? await buildGeoContext(geo).catch(() => '') : '';
 
-    const [ragContext, agentInsights, mchsBlock] = await Promise.all([
-      buildRAGContext(message.trim(), safeRole, geo),
+    // Туристу — те же данные хода, что Кузьмичу на сайте, в Telegram и MAX
+    // (kuzmichTurnFacts, слово владельца 15.11 «на сайте и в тг разные
+    // ответы»). Свой поиск маршрутов остался ролям без цикла Кузьмича.
+    const [ragContext, agentInsights, turnFacts] = await Promise.all([
+      safeRole === 'tourist' ? Promise.resolve('') : buildRAGContext(message.trim(), safeRole, geo),
       safeRole === 'tourist' ? buildAgentInsightsForTourist() : Promise.resolve(''),
-      safeRole === 'tourist' ? mchsPromptBlock() : Promise.resolve(''),
+      safeRole === 'tourist' ? kuzmichTurnFacts(message.trim()) : Promise.resolve(null),
     ]);
-    const systemPrompt = [basePrompt, mchsBlock, geoContext, ragContext, memContext, agentInsights].filter(Boolean).join('\n\n');
+    const mchsBlock = turnFacts?.mchsBlock ?? '';
+    const systemPrompt = [basePrompt, mchsBlock, turnFacts?.facts ?? '', geoContext, ragContext, memContext, agentInsights].filter(Boolean).join('\n\n');
     const messagesForAI = buildMessageHistory(systemPrompt, history, 10);
     // Мозг Кузьмича для туристов — та же связка, что в /api/ai/chat:
-    // KUZMICH_SYSTEM (обязательный get_guardian_context) + живые контексты
-    const kuzmichSystem = [KUZMICH_SYSTEM, kamchatkaDateContext(), mchsBlock, geoContext, ragContext, memContext, agentInsights].filter(Boolean).join('\n\n');
+    // KUZMICH_SYSTEM (обязательный get_guardian_context) + данные хода; место
+    // человека, память и предупреждения агентов — своё у этой поверхности.
+    const kuzmichParts = turnFacts ? kuzmichSystemContent(turnFacts, { tail: [geoContext, memContext, agentInsights] }) : null;
+    const kuzmichSystem = kuzmichParts?.system ?? '';
 
     // Серверная SOS-страховка (как в /api/ai/chat): признаки ЧП известны из
     // вопроса ДО генерации — блок 112/МЧС уходит первыми токенами стрима,
@@ -339,7 +343,8 @@ export async function POST(request: NextRequest) {
           // Ответ модели до сторожей — его оценивает грейдер, как на сайте.
           let modelAnswer = fullAnswer;
           // Данные хода, которыми обосновывается километраж.
-          const turnContext = [mchsBlock, geoContext, ragContext, memContext, agentInsights].filter(Boolean).join('\n\n');
+          const turnContext = kuzmichParts?.guardContext
+            ?? [mchsBlock, geoContext, ragContext, memContext, agentInsights].filter(Boolean).join('\n\n');
 
           if (fullAnswer) {
             // Один выход ответа (аудит 15.10, 1.14) ДО отправки по словам:
