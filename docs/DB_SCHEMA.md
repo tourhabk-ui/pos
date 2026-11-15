@@ -1,6 +1,6 @@
 # Схема базы данных Ведара
 
-> Снято 2026-11-13 с настоящего PostgreSQL 18.7 (Debian 18.7-1.pgdg13+2): baseline прода (`lib/database/baseline/schema-baseline.sql`, снимок 2026-08-15) + миграции новее него, накатанные штатным раннером. Последняя миграция в снимке: `1440_request_messages_translation.sql`.
+> Снято 2026-11-15 с настоящего PostgreSQL 18.7 (Debian 18.7-1.pgdg13+2): baseline прода (`lib/database/baseline/schema-baseline.sql`, снимок 2026-08-15) + миграции новее него, накатанные штатным раннером. Последняя миграция в снимке: `1443_trip_group_children_ages.sql`.
 > Файл порождён `scripts/gen-db-schema.ts` (`npm run db:schema-doc`); править руками бессмысленно — следующий прогон перепишет.
 > Что здесь НЕ учтено: дрейф прода после baseline, не отражённый миграциями. Судья дрейфа — `GET /api/cron/schema-drift` на проде (`lib/db/schema-drift.ts`). Значений данных в файле нет — только имена и типы.
 
@@ -8,7 +8,7 @@
 |---|---:|
 | Таблиц | 326 |
 | Представлений (VIEW) | 12 |
-| Колонок | 4263 |
+| Колонок | 4264 |
 | Внешних ключей | 391 |
 | Таблиц без единого FK в обе стороны | 87 |
 
@@ -1609,9 +1609,9 @@ B2B-агенты, продающие туры за комиссию. Не пут
 
 `id uuid!=` `registration_id uuid!` `token text!` `label text` `vendor text` `created_at timestamptz!=` `created_by uuid` `revoked_at timestamptz` `points_total integer!=` `last_point_at timestamptz` `last_error text` `last_error_at timestamptz`
 
-**trip_group_members** · 14 кол. · PK id · group_id → trip_groups.id · индексов 2
+**trip_group_members** · 15 кол. · PK id · group_id → trip_groups.id · индексов 2
 
-`id uuid!=` `group_id uuid!` `interests text[]!=` `fitness varchar!` `no_hard_climbs boolean!=` `seasickness boolean!=` `limited_mobility boolean!=` `youngest_child smallint` `budget varchar!` `pd_consent_at timestamptz!` `pd_consent_ip varchar` `pd_consent_source varchar` `pd_consent_version varchar` `created_at timestamptz!=`
+`id uuid!=` `group_id uuid!` `interests text[]!=` `fitness varchar!` `no_hard_climbs boolean!=` `seasickness boolean!=` `limited_mobility boolean!=` `youngest_child smallint` `budget varchar!` `pd_consent_at timestamptz!` `pd_consent_ip varchar` `pd_consent_source varchar` `pd_consent_version varchar` `created_at timestamptz!=` `children_ages int2[]`
 
 **trip_groups** · 5 кол. · PK id · на неё ссылаются: trip_group_members · индексов 2
 
