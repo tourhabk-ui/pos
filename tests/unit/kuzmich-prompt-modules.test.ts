@@ -14,6 +14,7 @@ import {
   kuzmichModulesFor, kuzmichSystemContent,
 } from '@/lib/kuzmich/core';
 import { analyzePrompt } from '@/lib/agents/eval/prompt-bloat';
+import { groupSystemContent } from '@/lib/kuzmich/group-prompt';
 
 describe('какие части нужны ходу', () => {
   it('разговор о заявке — часть «заявка»', () => {
@@ -41,11 +42,18 @@ describe('какие части нужны ходу', () => {
 
 describe('где стоят части', () => {
   it('ниже маркера кеша: ядро и каталог кешируются как прежде', () => {
-    const { system, dynamic } = kuzmichSystemContent({ tourContext: 'КАТАЛОГ', modules: KUZMICH_MODULE_REQUEST, mchsBlock: '', facts: 'ФАКТЫ' });
+    const { system } = kuzmichSystemContent({ tourContext: 'КАТАЛОГ', modules: KUZMICH_MODULE_REQUEST, mchsBlock: '', facts: 'ФАКТЫ' });
     const cut = system.indexOf(KUZMICH_MODULE_REQUEST);
     expect(system.startsWith(`${KUZMICH_SYSTEM}\n\nКАТАЛОГ`)).toBe(true);
     expect(cut).toBeGreaterThan(system.indexOf('КАТАЛОГ'));
-    expect(dynamic.indexOf(KUZMICH_MODULE_REQUEST)).toBe(0);
+  });
+
+  it('части — не данные хода: ни судье выдумок (dynamic), ни сверке (guardContext) (ревью #3416)', () => {
+    const { system, dynamic, guardContext } = kuzmichSystemContent({ tourContext: 'КАТАЛОГ', modules: KUZMICH_MODULE_ADJACENT, mchsBlock: 'МЧС', facts: 'ФАКТЫ' });
+    expect(system).toContain(KUZMICH_MODULE_ADJACENT);
+    expect(dynamic).not.toContain('Дачные источники');
+    expect(guardContext).not.toContain('Дачные источники');
+    expect(dynamic).toContain('ФАКТЫ');
   });
 });
 
@@ -63,5 +71,15 @@ describe('ядро', () => {
 
   it('заявку подтверждает оператор — в ядре, а не только в части «заявка»', () => {
     expect(KUZMICH_SYSTEM).toContain('оператор подтверждает');
+  });
+});
+
+describe('групповой чат Telegram (ревью #3416)', () => {
+  it('получает ту же часть «заявка», что и личный чат; без неё правила о сроке ответа оператора у группы не было бы', () => {
+    const sys = groupSystemContent('хочу записаться на тур', 'КАТАЛОГ');
+    expect(sys.startsWith(KUZMICH_SYSTEM)).toBe(true);
+    expect(sys).toContain(KUZMICH_MODULE_REQUEST);
+    expect(sys).toContain('КАТАЛОГ');
+    expect(groupSystemContent('какая погода', 'КАТАЛОГ')).not.toContain(KUZMICH_MODULE_REQUEST);
   });
 });

@@ -94,7 +94,9 @@ import { answerAgentMessage } from '@/lib/a2a/chat';
 import { aiChat, askKuzmichForEval, kuzmichTurnFacts } from '@/lib/kuzmich/core';
 import { DISTANCE_HONEST_LINE, TRAVEL_TIME_HONEST_LINE } from '@/lib/kuzmich/distance-guard';
 
-const QUESTION = 'Сколько ехать до Паратунки и открыты ли там источники?';
+// «на 3 дня» — чтобы ход получил часть промпта по ситуации (#3399, п. 5) и
+// сторож судил и её, а не только данные.
+const QUESTION = 'Сколько ехать до Паратунки, мы на 3 дня, и открыты ли там источники?';
 const ROAD_LINE = '- Паратунка: расстояние: 60 км по автодороге';
 
 function post(url: string, body: unknown): NextRequest {
@@ -167,6 +169,9 @@ describe('данные хода: модель получает одно и то 
     expect(system).toContain(turn.facts);
     expect(system).toContain(MCHS_PROBE);
     expect(system).toContain(turn.tourContext);
+    // Части промпта по ситуации — те же, что выбрал kuzmichTurnFacts (ревью #3416).
+    expect(turn.modules).toBeTruthy();
+    expect(system).toContain(turn.modules);
   });
 
   it.each(Object.keys(SURFACES))('%s: свой поиск маршрутов с турами в инструкцию туриста не подмешан', async (surface) => {

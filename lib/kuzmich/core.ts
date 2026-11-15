@@ -3236,9 +3236,14 @@ export function kuzmichSystemContent(
 ): { system: string; dynamic: string; guardContext: string } {
   const cacheable = [opts.base ?? KUZMICH_SYSTEM, turn.tourContext].filter(Boolean).join('\n\n');
   const dynamic = fitTextToTokenBudget(
-    [turn.modules ?? '', ...(opts.lead ?? []), turn.facts, ...(opts.tail ?? [])].filter(Boolean).join('\n\n'),
+    [...(opts.lead ?? []), turn.facts, ...(opts.tail ?? [])].filter(Boolean).join('\n\n'),
   );
-  const below = [turn.mchsBlock, dynamic].filter(Boolean).join('\n\n');
+  // Части промпта по ситуации (#3399, п. 5) — инструкция, а не данные хода:
+  // ниже маркера кеша, но вне `dynamic` и `guardContext`. `dynamic` уходит
+  // судье выдумок как «приложенный контекст» (askKuzmichForEval), и фраза
+  // части «упомяни Дачные источники рядом» засчитывалась бы ответу как
+  // доказательство (ревью безопасности #3416).
+  const below = [turn.modules ?? '', turn.mchsBlock, dynamic].filter(Boolean).join('\n\n');
   return {
     system: below ? `${cacheable}\n\n${CACHE_BREAK_MARKER}\n\n${below}` : cacheable,
     dynamic,
