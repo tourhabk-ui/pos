@@ -24,6 +24,9 @@ CREATE TABLE IF NOT EXISTS mcp_pending_requests (
   tool          TEXT NOT NULL,
   args          JSONB NOT NULL,
   draft_text    TEXT NOT NULL,
+  -- Чьи тексты согласия покажет страница — те же, что запишет отправка
+  -- (проход исполнителя в черновике, ревью безопасности #3418).
+  consent_purposes TEXT[] NOT NULL DEFAULT '{}',
   plan_revision TEXT,
   via           TEXT NOT NULL DEFAULT 'mcp' CHECK (via IN ('mcp', 'a2a')),
   created_at    TIMESTAMPTZ NOT NULL DEFAULT NOW(),
@@ -32,6 +35,7 @@ CREATE TABLE IF NOT EXISTS mcp_pending_requests (
 );
 
 CREATE INDEX IF NOT EXISTS mcp_pending_requests_expires_idx ON mcp_pending_requests (expires_at);
+CREATE INDEX IF NOT EXISTS mcp_pending_requests_sent_idx ON mcp_pending_requests (sent_at) WHERE sent_at IS NOT NULL;
 
 COMMENT ON TABLE mcp_pending_requests IS
   'Заявка внешнего агента (MCP/A2A) до нажатия «Отправить» человеком на /confirm (#3399, п. 4). args — с ПД, стираются при отправке; просроченные строки удаляются.';

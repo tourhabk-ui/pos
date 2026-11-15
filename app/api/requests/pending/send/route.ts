@@ -6,12 +6,14 @@
  * галочка человека на странице (источник request-page), а не флаг агента.
  * Второе нажатие ничего не отправит: заявка забирается один раз.
  *
- * AUTH: публичный (префикс /api/requests в реестре); доступ — по токену.
+ * AUTH: публичный (префикс /api/requests в реестре); доступ — по токену и
+ * только из браузера со страницы Ведара (fromVedarPage, ревью #3418).
  * Третий исход (§4.0): база не ответила — 503 и «заявка ещё ждёт».
  */
 import { NextRequest, NextResponse } from 'next/server';
 import { z } from 'zod';
-import { createRateLimiter, getTrustedClientIp } from '@/lib/rate-limit';
+import { createRateLimiter, getTrustedClientIp, getTrustedClientIpOrNull } from '@/lib/rate-limit';
+import { fromVedarPage } from '@/lib/mcp/pending-request';
 import { sendPendingRequest, PENDING_GONE_TEXT, PENDING_PLAN_CHANGED_TEXT, PENDING_FAILED_TEXT } from '@/lib/mcp/pending-confirm';
 
 export const dynamic = 'force-dynamic';
@@ -23,6 +25,9 @@ const Schema = z.object({
 });
 
 export async function POST(req: NextRequest) {
+  if (!fromVedarPage(req.headers)) {
+    return NextResponse.json({ success: false, error: 'Открыть и отправить заявку можно только на странице Ведара по ссылке из сообщения помощника.' }, { status: 403 });
+  }
   const ip = getTrustedClientIp(req.headers);
   if (!limiter.check(ip)) {
     return NextResponse.json({ success: false, error: 'Слишком много запросов. Попробуйте через минуту.' }, { status: 429 });
@@ -39,7 +44,7 @@ export async function POST(req: NextRequest) {
   if (parsed.data.pd_consent !== true) {
     return NextResponse.json({ success: false, error: 'Нужно согласие на обработку и передачу персональных данных' }, { status: 400 });
   }
-  const out = await sendPendingRequest(parsed.data.token, { ip, userAgent: req.headers.get('user-agent') ?? '' });
+  const out = await sendPendingRequest(parsed.data.token, { ip, consentIp: getTrustedClientIpOrNull(req.headers), userAgent: req.headers.get('user-agent') ?? '' });
   if (out.kind === 'failed') return NextResponse.json({ success: false, error: PENDING_FAILED_TEXT }, { status: 503 });
   if (out.kind === 'gone') return NextResponse.json({ success: false, error: PENDING_GONE_TEXT }, { status: 410 });
   if (out.kind === 'plan_changed') return NextResponse.json({ success: false, error: PENDING_PLAN_CHANGED_TEXT }, { status: 409 });

@@ -121,6 +121,12 @@ const readLimiter = createRateLimiter({ windowMs: 60_000, max: MCP_READ_PER_MINU
 // Окно — то же, что у стража в базе (lib/mcp/write-guard, решение владельца
 // 01.10: 5 заявок в час); этот счётчик — первый, дешёвый рубеж до базы.
 const writeLimiter = createRateLimiter({ windowMs: CLIENT_WINDOW_MINUTES * 60_000, max: CLIENT_MAX_PER_WINDOW });
+// Черновик заявки агента (#3399, п. 4) ничего не пишет адресату, но кладёт
+// строку с именем и телефоном в отложенные (lib/mcp/pending-request): свой
+// лимит в час, щедрее записи — человек может передумать и пересобрать
+// заявку, — но не чтения в минуту (ревью безопасности #3418).
+const DRAFTS_PER_HOUR = 30;
+const draftLimiter = createRateLimiter({ windowMs: 60 * 60_000, max: DRAFTS_PER_HOUR });
 // Какие инструменты пишущие, знает аннотация (`readOnlyHint: false`) — один
 // источник и для лимита, и для подсказки хосту. Свой список здесь разошёлся бы.
 const WRITE_TOOLS = WRITE_TOOL_NAMES;
@@ -176,8 +182,14 @@ interface McpCallContext {
   draft?: boolean;
   /** Исполнитель дошёл до записи, то есть черновик есть — заявка откладывается до человека. */
   draftReached?: boolean;
+  /**
+   * Кому уйдут ПД по черновику — тем же проходом исполнителя, что запишет
+   * заявку (ревью #3418): страница показывает ровно те тексты согласия,
+   * которые запишутся, а не догадку по аргументам.
+   */
+  draftPurposes?: PdConsentPurpose[];
   /** Заявку отправил человек на /confirm: согласие — его, с адресом страницы. */
-  sentByHuman?: { ip: string };
+  sentByHuman?: { ip: string | null };
 }
 
 /**
@@ -289,10 +301,18 @@ async function issueStayKey(ctx: McpCallContext, stayRequestId: string): Promise
 function stopForTest(
   ctx: McpCallContext, tool: string, kind: RequestKind, purpose: ConsentPurpose,
   consent: boolean | undefined, would: string, recipient: string | null,
+  // Чей текст согласия запишет допуск к записи этого исполнителя (admitWrite);
+  // у заявки на подбор он свой — 'operators', ключ статуса при этом 'operator'.
+  pdPurpose: PdConsentPurpose = purpose,
 ): string | null {
   if (!ctx.test) return null;
   // Черновик первого шага: согласия ещё нет — его даст человек, увидев черновик.
-  if (ctx.draft) { ctx.draftReached = true; return draftText(would, recipient); }
+  if (ctx.draft) {
+    ctx.draftReached = true;
+    if (!ctx.draftPurposes) ctx.draftPurposes = [];
+    if (!ctx.draftPurposes.includes(pdPurpose)) ctx.draftPurposes.push(pdPurpose);
+    return draftText(would, recipient);
+  }
   if (consent !== true) throw new McpUserError(NO_CONSENT_MESSAGE, 'no_consent');
   const key = issueTestKey(kind, purpose);
   ctx.issued?.push({ tool, outcome: 'test', status_key: key, status_page: null, notify: null });
@@ -1123,7 +1143,7 @@ async function executeCreateLead(rawArgs: Record<string, unknown>, ctx: McpCallC
   refuseSilentLead(name, phone, leadComment, leadSource);
   const trial = stopForTest(ctx, CREATE_LEAD_TOOL.name, 'lead', 'operator', parsed.data.consent,
     tripPart ? 'часть поездки менеджеру Ведара (её ведёт менеджер).' : `заявка менеджеру Ведара на подбор${interest ? ` (интерес: ${interest})` : ''}.`,
-    null);
+    null, 'operators');
   if (trial) return trial + planAttachNote(planAttach);
   // Заявка без адресата: её видят компании на витрине, и она может уйти
   // нескольким — согласие «туроператорам — партнёрам Ведара», как на сайте
@@ -1566,7 +1586,7 @@ export interface PublicToolCall {
    * lib/mcp/pending-confirm): согласие пишется как его, с адресом страницы.
    * Вход заявки остаётся mcp или a2a — откуда она пришла.
    */
-  sentByHuman?: { ip: string };
+  sentByHuman?: { ip: string | null };
 }
 
 /**
@@ -1634,7 +1654,8 @@ async function runPublicToolCore(call: PublicToolCall): Promise<PublicToolOutcom
   // Только имя аргумента — у заявок (там ПД) и у инструментов с ключом заявки
   // (статус, отмена и перенос).
   const arg = primaryArg(toolArgs, isWrite || KEY_ARG_TOOL_NAMES.has(toolName));
-  if (!limiter.check(`${isWrite && !draftStep ? 'w' : 'r'}:${ip}`)) {
+  const draftsLeft = !draftStep || draftLimiter.check(`d:${ip}`);
+  if (!draftsLeft || !limiter.check(`${isWrite && !draftStep ? 'w' : 'r'}:${ip}`)) {
     if (rateLimitedLogGate.check(ip)) {
       logMcpToolCall({ tool: toolName, ok: false, errorKind: 'rate_limited', errorCode: 'rate_limited', argKey: arg.key, ip, userAgent, self });
     }
@@ -1644,7 +1665,9 @@ async function runPublicToolCore(call: PublicToolCall): Promise<PublicToolOutcom
       kind: 'rate_limited',
       text: isWrite && !draftStep
         ? 'Слишком много заявок с этого адреса — подождите час и повторите.'
-        : 'Слишком много запросов — подождите минуту и повторите.',
+        : !draftsLeft
+          ? 'Слишком много черновиков заявок с этого адреса — подождите час и повторите.'
+          : 'Слишком много запросов — подождите минуту и повторите.',
     };
   }
 
@@ -1701,6 +1724,7 @@ async function runPublicToolCore(call: PublicToolCall): Promise<PublicToolOutcom
         tool: toolName,
         args: keep,
         draftText: text,
+        consentPurposes: ctx.draftPurposes ?? [],
         planRevision: planId ? await planRevisionOf(planId) : null,
         via: call.via === 'a2a' ? 'a2a' : 'mcp',
       });

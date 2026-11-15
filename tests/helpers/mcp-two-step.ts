@@ -21,7 +21,7 @@ export function isDraft(text: string): boolean {
   return /Черновик: заявка ещё НЕ создана/.test(text);
 }
 
-interface Row { tool: string; args: Record<string, unknown>; draftText: string; planRevision: string | null; via: 'mcp' | 'a2a'; sent: boolean }
+interface Row { tool: string; args: Record<string, unknown>; draftText: string; consentPurposes: string[]; planRevision: string | null; via: 'mcp' | 'a2a'; sent: boolean }
 
 /**
  * Замена lib/mcp/pending-request в памяти для vi.mock:
@@ -33,7 +33,7 @@ export function memoryPendingModule(original: Record<string, unknown>) {
   return {
     ...original,
     __rows: rows,
-    createPendingRequest: async (p: { tool: string; args: Record<string, unknown>; draftText: string; planRevision: string | null; via: 'mcp' | 'a2a' }) => {
+    createPendingRequest: async (p: { tool: string; args: Record<string, unknown>; draftText: string; consentPurposes: string[]; planRevision: string | null; via: 'mcp' | 'a2a' }) => {
       const token = randomBytes(24).toString('base64url');
       rows.set(token, { ...p, args: { ...p.args }, sent: false });
       return token;
@@ -45,6 +45,7 @@ export function memoryPendingModule(original: Record<string, unknown>) {
       const str = (v: unknown) => (typeof v === 'string' ? v : '');
       return {
         kind: 'found' as const, tool: r.tool, draftText: r.draftText, name: str(r.args.name), phone: str(r.args.phone),
+        comment: str(r.args.comment), consentPurposes: r.consentPurposes,
         expiresAt: new Date(Date.now() + 3600_000).toISOString(),
         parts: { tour: Boolean(r.args.tour), stay: Boolean(r.args.stay), transfer: Boolean(r.args.transfer_destination || r.args.stay_wanted), carrier: Boolean(r.args.carrier) },
       };
@@ -65,6 +66,14 @@ export function memoryPendingModule(original: Record<string, unknown>) {
       return { kind: 'claimed' as const, tool: r.tool, args, planRevision: r.planRevision, via: r.via };
     },
   };
+}
+
+/** Чьи тексты согласия покажет страница по этой ссылке — записанные проходом исполнителя. */
+export async function pendingPurposesOf(text: string): Promise<string[]> {
+  const mod = await import('@/lib/mcp/pending-request') as unknown as { __rows?: Map<string, Row> };
+  const row = mod.__rows?.get(confirmTokenOf(text));
+  if (!row) throw new Error('Отложенной заявки нет: хранилище не в памяти (memoryPendingModule)?');
+  return row.consentPurposes;
 }
 
 /**

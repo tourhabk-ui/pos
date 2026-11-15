@@ -123,7 +123,7 @@ beforeEach(() => {
 });
 
 describe('план правили между черновиком и отправкой (ревью безопасности #3414)', () => {
-  const from = { ip: '10.33.0.1', userAgent: 'test-confirm-page' };
+  const from = { ip: '10.33.0.1', consentIp: '10.33.0.1', userAgent: 'test-confirm-page' };
 
   it('ревизия плана сменилась — отправки нет (plan_changed), заявки нет', async () => {
     const first = await send('create_stay_request', { ...PERSON, accommodation: 'Кутха', plan_id: PLAN });

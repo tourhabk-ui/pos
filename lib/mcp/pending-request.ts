@@ -19,6 +19,10 @@
 import { createHash, randomBytes } from 'node:crypto';
 import { pool } from '@/lib/db-pool';
 import { getPublicBaseUrl } from '@/lib/config';
+import type { PdConsentPurpose } from '@/lib/legal/pd-consent';
+
+const PD_PURPOSES: readonly PdConsentPurpose[] = ['operator', 'operators', 'stay', 'carrier', 'gear', 'rental', 'partner-signer'];
+const isPurpose = (v: unknown): v is PdConsentPurpose => typeof v === 'string' && (PD_PURPOSES as readonly string[]).includes(v);
 
 /** Сколько ждёт отложенная заявка. */
 export const PENDING_REQUEST_TTL_MIN = 60;
@@ -50,6 +54,8 @@ export async function createPendingRequest(p: {
   tool: string;
   args: Record<string, unknown>;
   draftText: string;
+  /** Чьи тексты согласия запишет отправка — из прохода исполнителя (ctx.draftPurposes). */
+  consentPurposes: PdConsentPurpose[];
   planRevision: string | null;
   via: PendingVia;
 }): Promise<string | null> {
@@ -58,9 +64,9 @@ export async function createPendingRequest(p: {
     // Просроченные заявки уносят с собой имя и телефон: удаляются здесь же.
     await pool.query(`DELETE FROM mcp_pending_requests WHERE expires_at < NOW() OR sent_at < NOW() - INTERVAL '1 day'`);
     await pool.query(
-      `INSERT INTO mcp_pending_requests (token_hash, tool, args, draft_text, plan_revision, via, expires_at)
-       VALUES ($1, $2, $3::jsonb, $4, $5, $6, NOW() + make_interval(mins => $7::int))`,
-      [hashToken(token), p.tool, JSON.stringify(p.args), p.draftText, p.planRevision, p.via, PENDING_REQUEST_TTL_MIN],
+      `INSERT INTO mcp_pending_requests (token_hash, tool, args, draft_text, consent_purposes, plan_revision, via, expires_at)
+       VALUES ($1, $2, $3::jsonb, $4, $5::text[], $6, $7, NOW() + make_interval(mins => $8::int))`,
+      [hashToken(token), p.tool, JSON.stringify(p.args), p.draftText, p.consentPurposes, p.planRevision, p.via, PENDING_REQUEST_TTL_MIN],
     );
     return token;
   } catch (err) {
@@ -70,7 +76,7 @@ export async function createPendingRequest(p: {
 }
 
 export type PendingRead =
-  | { kind: 'found'; tool: string; draftText: string; name: string; phone: string; expiresAt: string; parts: { tour: boolean; stay: boolean; transfer: boolean; carrier: boolean } }
+  | { kind: 'found'; tool: string; draftText: string; name: string; phone: string; comment: string; consentPurposes: PdConsentPurpose[]; expiresAt: string; parts: { tour: boolean; stay: boolean; transfer: boolean; carrier: boolean } }
   | { kind: 'sent' }
   | { kind: 'expired' }
   | { kind: 'missing' }
@@ -79,8 +85,8 @@ export type PendingRead =
 /** Что показать человеку на странице. Отправленная — без данных: они стёрты. */
 export async function readPendingRequest(token: string): Promise<PendingRead> {
   try {
-    const { rows } = await pool.query<{ tool: string; args: Record<string, unknown>; draft_text: string; expires_at: Date | string; sent_at: Date | string | null; expired: boolean }>(
-      `SELECT tool, args, draft_text, expires_at, sent_at, expires_at < NOW() AS expired
+    const { rows } = await pool.query<{ tool: string; args: Record<string, unknown>; draft_text: string; consent_purposes: string[] | null; expires_at: Date | string; sent_at: Date | string | null; expired: boolean }>(
+      `SELECT tool, args, draft_text, consent_purposes, expires_at, sent_at, expires_at < NOW() AS expired
          FROM mcp_pending_requests WHERE token_hash = $1`,
       [hashToken(token)],
     );
@@ -95,6 +101,9 @@ export async function readPendingRequest(token: string): Promise<PendingRead> {
       draftText: r.draft_text,
       name: str(r.args.name),
       phone: str(r.args.phone),
+      // Комментарий уходит адресату вместе с заявкой — человек должен его видеть.
+      comment: str(r.args.comment),
+      consentPurposes: (r.consent_purposes ?? []).filter(isPurpose),
       expiresAt: new Date(r.expires_at).toISOString(),
       parts: { tour: Boolean(r.args.tour), stay: Boolean(r.args.stay), transfer: Boolean(r.args.transfer_destination || r.args.stay_wanted), carrier: Boolean(r.args.carrier) },
     };
@@ -154,6 +163,28 @@ export async function releasePendingRequest(token: string, args: Record<string, 
     return (rowCount ?? 0) > 0;
   } catch (err) {
     console.error('[mcp-pending] заявка не возвращена в ожидание, SQLSTATE', sqlState(err));
+    return false;
+  }
+}
+
+/**
+ * Запрос пришёл со страницы Ведара в браузере (ревью безопасности #3418):
+ * Origin — этот сайт, и браузер не назвал его чужим (Sec-Fetch-Site). Ссылку
+ * получает и сам агент; отправка серверным запросом агента так отсекается.
+ * Агент, который сам ведёт браузер, этим не отсекается — доказательство
+ * человека дал бы только код на его телефон (решение владельца).
+ */
+export function fromVedarPage(headers: Headers): boolean {
+  const site = headers.get('sec-fetch-site');
+  if (site !== null && site !== 'same-origin') return false;
+  const origin = headers.get('origin');
+  if (!origin) return false;
+  try {
+    const host = new URL(origin).host;
+    return host === new URL(getPublicBaseUrl()).host
+      || host === headers.get('x-forwarded-host')
+      || host === headers.get('host');
+  } catch {
     return false;
   }
 }

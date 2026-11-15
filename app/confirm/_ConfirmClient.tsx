@@ -22,7 +22,7 @@ type Loaded =
   | { state: 'bad_link' }
   | { state: 'error'; message: string }
   | { state: 'sent' | 'expired' | 'missing' }
-  | { state: 'pending'; draft: string; name: string; phone: string; purposes: PdConsentPurpose[]; expiresAt: string };
+  | { state: 'pending'; draft: string; name: string; phone: string; comment: string; purposes: PdConsentPurpose[]; expiresAt: string };
 
 const GONE_WORDS: Record<'sent' | 'expired' | 'missing', string> = {
   sent: 'Эта заявка уже отправлена. Её состояние — по ссылке, которую страница показала после отправки.',
@@ -48,6 +48,8 @@ export function ConfirmClient() {
   const [consent, setConsent] = useState(false);
   const [sending, setSending] = useState(false);
   const [result, setResult] = useState<{ ok: boolean; text: string } | null>(null);
+  // Временный отказ (лимит, база не ответила): заявка ещё ждёт — форма остаётся.
+  const [sendError, setSendError] = useState<string | null>(null);
 
   useEffect(() => {
     const t = window.location.hash.replace(/^#/, '').trim();
@@ -60,7 +62,7 @@ export function ConfirmClient() {
         const d = j.data;
         if (d.state === 'pending') {
           setLoaded({
-            state: 'pending', draft: String(d.draft ?? ''), name: String(d.name ?? ''), phone: String(d.phone ?? ''),
+            state: 'pending', draft: String(d.draft ?? ''), name: String(d.name ?? ''), phone: String(d.phone ?? ''), comment: String(d.comment ?? ''),
             purposes: (Array.isArray(d.consent_purposes) ? d.consent_purposes : ['operator']) as PdConsentPurpose[],
             expiresAt: String(d.expires_at ?? ''),
           });
@@ -73,6 +75,7 @@ export function ConfirmClient() {
   async function send() {
     if (!token || !consent || sending) return;
     setSending(true);
+    setSendError(null);
     try {
       const r = await fetch('/api/requests/pending/send', {
         method: 'POST', headers: { 'Content-Type': 'application/json' },
@@ -80,9 +83,10 @@ export function ConfirmClient() {
       });
       const j = await r.json().catch(() => null) as { success?: boolean; error?: string; data?: { created?: boolean; text?: string } } | null;
       if (r.ok && j?.success && j.data?.text) setResult({ ok: j.data.created === true, text: j.data.text });
+      else if (r.status === 503) setSendError(j?.error ?? 'Не удалось отправить заявку — она ещё ждёт. Нажмите «Отправить» через минуту.');
       else setResult({ ok: false, text: j?.error ?? 'Не удалось отправить заявку, попробуйте через минуту.' });
     } catch {
-      setResult({ ok: false, text: 'Нет связи с Ведаром — заявка не отправлена. Проверьте интернет и нажмите ещё раз.' });
+      setSendError('Нет связи с Ведаром — заявка не отправлена. Проверьте интернет и нажмите ещё раз.');
     } finally {
       setSending(false);
     }
@@ -117,9 +121,13 @@ export function ConfirmClient() {
             <dl className="grid grid-cols-[auto_1fr] gap-x-3 gap-y-1 text-sm">
               <dt className="text-[var(--text-secondary)]">Имя</dt><dd className="text-[var(--text-primary)]">{loaded.name || 'не указано'}</dd>
               <dt className="text-[var(--text-secondary)]">Телефон</dt><dd className="text-[var(--text-primary)]">{loaded.phone}</dd>
+              {loaded.comment && (<>
+                <dt className="text-[var(--text-secondary)]">Комментарий</dt>
+                <dd className="text-[var(--text-primary)] whitespace-pre-line break-words">{loaded.comment}</dd>
+              </>)}
             </dl>
             <p className="text-xs text-[var(--text-secondary)]">
-              Имя или телефон не ваши — не отправляйте: попросите помощника собрать заявку заново.
+              Имя, телефон или комментарий не ваши — не отправляйте: попросите помощника собрать заявку заново.
             </p>
             <label htmlFor="confirm-consent" className="flex items-start gap-3 min-h-[44px] py-2 cursor-pointer text-xs leading-relaxed text-[var(--text-secondary)]">
               <input id="confirm-consent" type="checkbox" checked={consent} onChange={(e) => setConsent(e.target.checked)}
@@ -134,6 +142,7 @@ export function ConfirmClient() {
               {sending ? <Loader2 className="w-4 h-4 animate-spin" aria-hidden /> : <Send className="w-4 h-4" aria-hidden />}
               {sending ? 'Отправляю…' : 'Отправить'}
             </button>
+            {sendError && <p className="text-sm text-[var(--text-primary)]" role="alert">{sendError}</p>}
             <p className="text-xs text-[var(--text-secondary)]">
               Это заявка, не бронь: её подтверждает человек на стороне исполнителя, мгновенной брони нет. Оплаты через платформу нет.
             </p>

@@ -65,7 +65,7 @@ vi.mock('@/lib/mcp/pending-request', async (orig) => (await import('../helpers/m
 
 import { NextRequest } from 'next/server';
 import { POST, GET } from '@/app/api/mcp/route';
-import { isDraft, sendAsHuman } from '../helpers/mcp-two-step';
+import { isDraft, sendAsHuman, pendingPurposesOf } from '../helpers/mcp-two-step';
 
 function rpc(method: string, params?: Record<string, unknown>) {
   return new Request('http://localhost/api/mcp', {
@@ -86,12 +86,14 @@ type Rpc = (method: string, params: Record<string, unknown>) => Parameters<typeo
  */
 let sendIpSeq = 0;
 const lastSendIp = () => `10.202.0.${sendIpSeq}`;
+let lastPurposes: string[] = [];
 async function twoStep(name: string, args: Record<string, unknown>, send: Rpc = rpc) {
   const first = await (await POST(send('tools/call', { name, arguments: args }))).json();
   const draft = first.result.content[0].text as string;
   expect(first.result.isError).toBeFalsy();
   expect(isDraft(draft)).toBe(true);
   expect(createLeadMock).not.toHaveBeenCalled();
+  lastPurposes = await pendingPurposesOf(draft);
   sendIpSeq += 1;
   return sendAsHuman(draft, lastSendIp());
 }
@@ -211,6 +213,12 @@ describe('create_trip_request: часть менеджеру — часть по
     }, rpcFrom);
     expect(res.kind).toBe('ok');
     expect(createLeadMock).toHaveBeenCalledTimes(1);
+    // Страница покажет текст согласия той двери, что запишет заявку (жильё на
+    // подбор — менеджеру и партнёрам), хотя жильё названо алиасом lodging.
+    expect(lastPurposes).toEqual(['operators']);
+    const { consentWording } = await import('@/lib/legal/pd-consent');
+    expect((createLeadMock.mock.calls[0][0] as { pd_consent?: { version?: string } }).pd_consent?.version)
+      .toBe(consentWording('operators').version);
     const arg = createLeadMock.mock.calls[0][0] as { source_data: Record<string, unknown>; skip_ai_processing: boolean };
     expect(arg.source_data).toMatchObject({ source: 'mcp', kind: 'trip_manager', trip_parts: ['stay'] });
     expect(String(arg.source_data.trip_id)).toMatch(/^TRIP-/);
@@ -219,6 +227,8 @@ describe('create_trip_request: часть менеджеру — часть по
 
   it('отдельный create_lead — подбор тура, рода у него нет', async () => {
     await twoStep('create_lead', { name: 'Иван', phone: '+7 900 000-00-01', comment: 'Хотим на Толбачик в августе, двое взрослых', consent: true }, rpcFrom);
+    // Ключ статуса у подбора — 'operator', а текст согласия — 'operators': страница берёт второй.
+    expect(lastPurposes).toEqual(['operators']);
     const arg = createLeadMock.mock.calls[0][0] as { source_data: Record<string, unknown>; skip_ai_processing: boolean };
     expect(arg.source_data.kind).toBeUndefined();
     expect(arg.skip_ai_processing).toBe(false);

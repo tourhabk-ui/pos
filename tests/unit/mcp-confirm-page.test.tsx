@@ -22,7 +22,7 @@ vi.mock('@/app/api/mcp/route', () => ({
   planRevisionOf: (...a: unknown[]) => h.planRevisionOf(...a),
 }));
 
-import { createPendingRequest, readPendingRequest, claimPendingRequest, maskedPhone, confirmPageUrl } from '@/lib/mcp/pending-request';
+import { createPendingRequest, readPendingRequest, claimPendingRequest, maskedPhone, confirmPageUrl, fromVedarPage } from '@/lib/mcp/pending-request';
 import { sendPendingRequest, consentPurposesForTool } from '@/lib/mcp/pending-confirm';
 import { POST as readRoute } from '@/app/api/requests/pending/route';
 import { POST as sendRoute } from '@/app/api/requests/pending/send/route';
@@ -42,11 +42,13 @@ afterEach(() => { cleanup(); vi.restoreAllMocks(); });
 describe('хранилище отложенных заявок', () => {
   it('в базу — sha256 токена, не сам токен; ссылка — с токеном во фрагменте', async () => {
     h.query.mockResolvedValue({ rows: [] });
-    const token = await createPendingRequest({ tool: 'create_lead', args: { name: 'Тест', phone: '+70000000000' }, draftText: 'черновик', planRevision: null, via: 'mcp' });
+    const token = await createPendingRequest({ tool: 'create_lead', args: { name: 'Тест', phone: '+70000000000' }, draftText: 'черновик', consentPurposes: ['stay', 'operators'], planRevision: null, via: 'mcp' });
     expect(token).toMatch(/^[A-Za-z0-9_-]{32}$/);
     const insert = h.query.mock.calls.find((c) => /INSERT INTO mcp_pending_requests/.test(String(c[0])))!;
     expect(insert[1][0]).toBe(createHash('sha256').update(token!).digest('hex'));
     expect(JSON.stringify(insert[1])).not.toContain(token);
+    // Тексты согласия — те, что дал проход исполнителя, хранятся при заявке.
+    expect(insert[1]).toContainEqual(['stay', 'operators']);
     // Просроченные заявки уносят ПД с собой — удаляются перед записью новой.
     expect(String(h.query.mock.calls[0]![0])).toMatch(/DELETE FROM mcp_pending_requests WHERE expires_at < NOW\(\)/);
     expect(confirmPageUrl(token!)).toBe(`https://vedarai.ru/confirm#${token}`);
@@ -54,7 +56,7 @@ describe('хранилище отложенных заявок', () => {
 
   it('база не ответила — токена нет (вызывающий не скажет «готово»)', async () => {
     h.query.mockRejectedValue(Object.assign(new Error('down'), { code: '57P01' }));
-    expect(await createPendingRequest({ tool: 'create_lead', args: {}, draftText: 'ч', planRevision: null, via: 'mcp' })).toBeNull();
+    expect(await createPendingRequest({ tool: 'create_lead', args: {}, draftText: 'ч', consentPurposes: [], planRevision: null, via: 'mcp' })).toBeNull();
   });
 
   it('забрать — один запрос, который отмечает отправку и стирает аргументы', async () => {
@@ -90,7 +92,7 @@ describe('отправка человеком', () => {
   it('уходит тем же исполнителем с согласием человека, не агента; вход заявки — откуда пришла', async () => {
     claimed({ tour: '36', date: '2099-11-09', participants: 2, name: 'Тест', phone: '+70000000000' }, null, 'a2a');
     h.runPublicTool.mockResolvedValue({ kind: 'ok', text: BOOKED, handoffUrl: null });
-    const out = await sendPendingRequest(TOKEN, { ip: '10.1.1.1', userAgent: 'Mozilla' });
+    const out = await sendPendingRequest(TOKEN, { ip: '10.1.1.1', consentIp: '10.1.1.1', userAgent: 'Mozilla' });
     expect(out).toMatchObject({ kind: 'sent', created: true });
     expect(h.runPublicTool).toHaveBeenCalledWith(expect.objectContaining({
       toolName: 'create_booking_request',
@@ -103,25 +105,40 @@ describe('отправка человеком', () => {
   it('план поправили после черновика — отправки нет', async () => {
     claimed({ tour: '36', plan_id: 'p-1', name: 'Тест', phone: '+70000000000' }, 'r1');
     h.planRevisionOf.mockResolvedValue('r2');
-    expect(await sendPendingRequest(TOKEN, { ip: '10.1.1.1', userAgent: '' })).toEqual({ kind: 'plan_changed' });
+    expect(await sendPendingRequest(TOKEN, { ip: '10.1.1.1', consentIp: '10.1.1.1', userAgent: '' })).toEqual({ kind: 'plan_changed' });
     expect(h.runPublicTool).not.toHaveBeenCalled();
   });
 
-  it('лимит заявок с адреса или сбой исполнителя до записи — заявка возвращается в ожидание, человек нажмёт позже', async () => {
+  it('лимит заявок с адреса — заявка возвращается в ожидание, человек нажмёт позже', async () => {
     claimed({ tour: '36', name: 'Тест', phone: '+70000000000' });
     h.runPublicTool.mockResolvedValue({ kind: 'rate_limited', text: 'Слишком много заявок' });
     h.query.mockResolvedValueOnce({ rowCount: 1, rows: [] });
-    const out = await sendPendingRequest(TOKEN, { ip: '10.1.1.1', userAgent: '' });
+    const out = await sendPendingRequest(TOKEN, { ip: '10.1.1.1', consentIp: '10.1.1.1', userAgent: '' });
     expect(out).toMatchObject({ kind: 'retry' });
     const release = h.query.mock.calls.at(-1)!;
     expect(String(release[0])).toMatch(/SET sent_at = NULL, args = \$2::jsonb/);
     expect(JSON.parse(String(release[1][1]))).toMatchObject({ tour: '36', phone: '+70000000000' });
   });
 
+  it('сбой исполнителя — заявка в ожидание НЕ возвращается: дошла ли запись, неизвестно', async () => {
+    claimed({ tour: '36', name: 'Тест', phone: '+70000000000' });
+    h.runPublicTool.mockResolvedValue({ kind: 'failed', text: 'Инструмент сейчас не смог получить данные' });
+    const out = await sendPendingRequest(TOKEN, { ip: '10.1.1.1', consentIp: '10.1.1.1', userAgent: '' });
+    expect(out).toMatchObject({ kind: 'sent', created: false });
+    expect(h.query.mock.calls.some((c) => /SET sent_at = NULL/.test(String(c[0])))).toBe(false);
+  });
+
+  it('адрес согласия — какой прислал прокси; не прислал — null, без выдуманного 127.0.0.1', async () => {
+    claimed({ tour: '36', name: 'Тест', phone: '+70000000000' });
+    h.runPublicTool.mockResolvedValue({ kind: 'ok', text: BOOKED, handoffUrl: null });
+    await sendPendingRequest(TOKEN, { ip: '127.0.0.1', consentIp: null, userAgent: '' });
+    expect(h.runPublicTool).toHaveBeenCalledWith(expect.objectContaining({ sentByHuman: { ip: null } }));
+  });
+
   it('исполнитель упал после того, как заявка забрана, — «не могу подтвердить», а не «отправлено»', async () => {
     claimed({ tour: '36', name: 'Тест', phone: '+70000000000' });
     h.runPublicTool.mockRejectedValue(new Error('pool'));
-    const out = await sendPendingRequest(TOKEN, { ip: '10.1.1.1', userAgent: '' });
+    const out = await sendPendingRequest(TOKEN, { ip: '10.1.1.1', consentIp: '10.1.1.1', userAgent: '' });
     expect(out).toMatchObject({ kind: 'sent', created: false });
     expect(out.kind === 'sent' && out.text).toMatch(/Не могу подтвердить/);
   });
@@ -137,17 +154,47 @@ describe('тексты согласия — тех адресатов, кому 
   });
 });
 
-const post = (body: unknown) => new NextRequest('http://localhost/api/requests/pending', {
-  method: 'POST', headers: { 'content-type': 'application/json', 'x-real-ip': '10.2.2.2' }, body: JSON.stringify(body),
+const PAGE = { origin: 'https://vedarai.ru', 'sec-fetch-site': 'same-origin' };
+const post = (body: unknown, from: Record<string, string> = PAGE) => new NextRequest('http://localhost/api/requests/pending', {
+  method: 'POST', headers: { 'content-type': 'application/json', 'x-real-ip': '10.2.2.2', ...from }, body: JSON.stringify(body),
+});
+
+describe('открыть и отправить — только из браузера со страницы Ведара', () => {
+  it('Origin сайта и same-origin — да; без Origin, чужой сайт, cross-site — нет', () => {
+    const hd = (o: Record<string, string>) => new Headers(o);
+    expect(fromVedarPage(hd(PAGE))).toBe(true);
+    // Старый браузер без Sec-Fetch-Site: судит Origin.
+    expect(fromVedarPage(hd({ origin: 'https://vedarai.ru' }))).toBe(true);
+    expect(fromVedarPage(hd({ origin: 'https://www.vedarai.ru.evil.example', host: 'vedarai.ru' }))).toBe(false);
+    expect(fromVedarPage(hd({}))).toBe(false);
+    expect(fromVedarPage(hd({ origin: 'https://evil.example', 'sec-fetch-site': 'cross-site' }))).toBe(false);
+    expect(fromVedarPage(hd({ origin: 'https://vedarai.ru', 'sec-fetch-site': 'cross-site' }))).toBe(false);
+    expect(fromVedarPage(hd({ origin: 'null' }))).toBe(false);
+  });
+
+  it('серверный запрос агента без Origin — 403 на обоих роутах, база не тронута', async () => {
+    expect((await readRoute(post({ token: TOKEN }, {}))).status).toBe(403);
+    expect((await sendRoute(post({ token: TOKEN, pd_consent: true }, {}))).status).toBe(403);
+    expect((await sendRoute(post({ token: TOKEN, pd_consent: true }, { origin: 'https://evil.example' }))).status).toBe(403);
+    expect(h.query).not.toHaveBeenCalled();
+    expect(h.runPublicTool).not.toHaveBeenCalled();
+  });
 });
 
 describe('роуты страницы', () => {
-  it('прочитать: телефон замаскирован, целиком в ответе его нет', async () => {
-    h.query.mockResolvedValueOnce({ rows: [{ tool: 'create_booking_request', args: { tour: '36', name: 'Тест', phone: '+79001234567' }, draft_text: 'Черновик заявки', expires_at: new Date(), sent_at: null, expired: false }] });
+  it('прочитать: телефон замаскирован, целиком в ответе его нет; комментарий — как уйдёт', async () => {
+    h.query.mockResolvedValueOnce({ rows: [{ tool: 'create_booking_request', args: { tour: '36', name: 'Тест', phone: '+79001234567', comment: 'с ребёнком 7 лет' }, draft_text: 'Черновик заявки', consent_purposes: [], expires_at: new Date(), sent_at: null, expired: false }] });
     const res = await readRoute(post({ token: TOKEN }));
     const j = await res.json();
-    expect(j.data).toMatchObject({ state: 'pending', draft: 'Черновик заявки', name: 'Тест', phone: '+7 *** ***-45-67', consent_purposes: ['operator'] });
+    expect(j.data).toMatchObject({ state: 'pending', draft: 'Черновик заявки', name: 'Тест', phone: '+7 *** ***-45-67', comment: 'с ребёнком 7 лет', consent_purposes: ['operator'] });
     expect(JSON.stringify(j)).not.toContain('9001234567');
+  });
+
+  it('прочитать: тексты согласия — записанные при черновике, а не догадка по аргументам', async () => {
+    // Жильё названо алиасом (accommodation): догадка по аргументам его не видит, проход исполнителя — видел.
+    h.query.mockResolvedValueOnce({ rows: [{ tool: 'create_trip_request', args: { tour: '36', accommodation: 'Кутха', name: 'Тест', phone: '+79001234567' }, draft_text: 'ч', consent_purposes: ['operator', 'stay', 'bogus'], expires_at: new Date(), sent_at: null, expired: false }] });
+    const j = await (await readRoute(post({ token: TOKEN }))).json();
+    expect(j.data.consent_purposes).toEqual(['operator', 'stay']);
   });
 
   it('прочитать: база не ответила — 503, а не «ссылка недействительна»', async () => {
@@ -190,6 +237,30 @@ describe('страница /confirm', () => {
     await waitFor(() => expect(screen.getByText('Заявка отправлена')).toBeTruthy());
     const sent = fetchMock.mock.calls.find((c) => c[0] === '/api/requests/pending/send')!;
     expect(JSON.parse(String((sent[1] as RequestInit).body))).toEqual({ token: TOKEN, pd_consent: true });
+    vi.unstubAllGlobals();
+  });
+
+  it('комментарий виден; временный отказ — форма остаётся, нажать можно снова', async () => {
+    window.location.hash = `#${TOKEN}`;
+    let sends = 0;
+    const fetchMock = vi.fn(async (url: string) => {
+      if (url === '/api/requests/pending') {
+        return new Response(JSON.stringify({ success: true, data: { state: 'pending', draft: 'Черновик', name: 'Тест', phone: '+7 *** ***-45-67', comment: 'с ребёнком 7 лет', consent_purposes: ['operator'], expires_at: new Date().toISOString() } }));
+      }
+      sends += 1;
+      return sends === 1
+        ? new Response(JSON.stringify({ success: false, error: 'Слишком много заявок с этого адреса за час — эта заявка не отправлена, но ещё ждёт.' }), { status: 503 })
+        : new Response(JSON.stringify({ success: true, data: { created: true, text: 'Заявка создана.' } }));
+    });
+    vi.stubGlobal('fetch', fetchMock);
+    render(<ConfirmClient />);
+    await screen.findByText('с ребёнком 7 лет');
+    fireEvent.click(screen.getByRole('checkbox'));
+    fireEvent.click(screen.getByRole('button', { name: /Отправить/ }));
+    await screen.findByText(/ещё ждёт/);
+    expect(screen.queryByText('Заявка не отправлена')).toBeNull();
+    fireEvent.click(screen.getByRole('button', { name: /Отправить/ }));
+    await waitFor(() => expect(screen.getByText('Заявка отправлена')).toBeTruthy());
     vi.unstubAllGlobals();
   });
 

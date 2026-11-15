@@ -7,13 +7,14 @@
  * строке запроса и журналах прокси. В ответе: черновик (без ПД), имя и
  * телефон с замаскированными цифрами, чьи тексты согласия показать и срок ссылки.
  *
- * AUTH: публичный (префикс /api/requests в реестре); доступ — по токену.
+ * AUTH: публичный (префикс /api/requests в реестре); доступ — по токену и
+ * только из браузера со страницы Ведара (fromVedarPage, ревью #3418).
  * Третий исход (§4.0): база не ответила — 503, а не «ссылка недействительна».
  */
 import { NextRequest, NextResponse } from 'next/server';
 import { z } from 'zod';
 import { createRateLimiter, getTrustedClientIp } from '@/lib/rate-limit';
-import { readPendingRequest, maskedPhone } from '@/lib/mcp/pending-request';
+import { readPendingRequest, maskedPhone, fromVedarPage } from '@/lib/mcp/pending-request';
 import { consentPurposesForTool } from '@/lib/mcp/pending-confirm';
 
 export const dynamic = 'force-dynamic';
@@ -22,6 +23,9 @@ const limiter = createRateLimiter({ windowMs: 60_000, max: 30 });
 const Schema = z.object({ token: z.string().trim().regex(/^[A-Za-z0-9_-]{32}$/) });
 
 export async function POST(req: NextRequest) {
+  if (!fromVedarPage(req.headers)) {
+    return NextResponse.json({ success: false, error: 'Открыть и отправить заявку можно только на странице Ведара по ссылке из сообщения помощника.' }, { status: 403 });
+  }
   const ip = getTrustedClientIp(req.headers);
   if (!limiter.check(ip)) {
     return NextResponse.json({ success: false, error: 'Слишком много запросов. Попробуйте через минуту.' }, { status: 429 });
@@ -48,7 +52,10 @@ export async function POST(req: NextRequest) {
       draft: read.draftText,
       name: read.name,
       phone: maskedPhone(read.phone),
-      consent_purposes: consentPurposesForTool(read.tool, {
+      comment: read.comment,
+      // Те же тексты, что запишет отправка (проход исполнителя в черновике);
+      // догадка по аргументам — только у строки, где их не записали.
+      consent_purposes: read.consentPurposes.length > 0 ? read.consentPurposes : consentPurposesForTool(read.tool, {
         tour: read.parts.tour, stay: read.parts.stay, transfer_destination: read.parts.transfer, carrier: read.parts.carrier,
       }),
       expires_at: read.expiresAt,

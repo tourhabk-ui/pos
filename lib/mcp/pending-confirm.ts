@@ -31,7 +31,12 @@ export const PENDING_RATE_LIMITED_TEXT =
 export const PENDING_FAILED_TEXT =
   'Не удалось отправить заявку: база Ведара не ответила. Попробуйте через минуту — заявка ещё ждёт.';
 
-export async function sendPendingRequest(token: string, from: { ip: string; userAgent: string }): Promise<PendingSendOutcome> {
+/**
+ * `ip` — ключ лимита записи (всегда строка); `consentIp` — адрес, который
+ * ляжет в запись согласия: null, если прокси его не прислал (без выдуманного
+ * 127.0.0.1, ревью #3418).
+ */
+export async function sendPendingRequest(token: string, from: { ip: string; consentIp: string | null; userAgent: string }): Promise<PendingSendOutcome> {
   const claim = await claimPendingRequest(token);
   if (claim.kind === 'gone') return { kind: 'gone' };
   if (claim.kind === 'failed') return { kind: 'failed' };
@@ -46,14 +51,15 @@ export async function sendPendingRequest(token: string, from: { ip: string; user
       ip: from.ip,
       userAgent: from.userAgent.slice(0, 200),
       self: false,
-      sentByHuman: { ip: from.ip },
+      sentByHuman: { ip: from.consentIp },
       ...(claim.via === 'a2a' ? { via: 'a2a' as const } : {}),
     });
-    // Лимит и «наш код не смог» — временные: заявка возвращается в ожидание,
-    // запись при этом не начиналась (исполнитель отказал до записи или упал).
-    if (out.kind === 'rate_limited' || out.kind === 'failed') {
+    // Лимит — временный и наступает до исполнителя, то есть до записи: заявка
+    // возвращается в ожидание. Сбой исполнителя ('failed') — нет: дошла ли
+    // запись, неизвестно, и повтор мог бы её задвоить (ревью #3418).
+    if (out.kind === 'rate_limited') {
       const back = await releasePendingRequest(token, claim.args);
-      if (back) return { kind: 'retry', text: out.kind === 'rate_limited' ? PENDING_RATE_LIMITED_TEXT : PENDING_FAILED_TEXT };
+      if (back) return { kind: 'retry', text: PENDING_RATE_LIMITED_TEXT };
     }
     const reply = chatToolReply(out);
     return { kind: 'sent', created: reply.created, text: reply.text };
