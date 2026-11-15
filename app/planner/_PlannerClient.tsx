@@ -63,6 +63,8 @@ import type {
   SelectItem, DayPlan, TripWarning, Recommendation,
   RoutePoint, Partner, TourPreview, ValidationResult, MobileTab, TripExtrasData,
 } from './planner-types';
+import { DayTourChip } from '@/components/planner/DayTourChip';
+import { planTourChip } from '@/lib/planner/day-tour-chip';
 import { SeatRequestForm } from '@/components/planner/SeatRequestForm';
 import { planDayDate, planDayTourHref } from '@/lib/planner/day-tour-link';
 import { maxShareUrl, telegramShareUrl } from '@/lib/trips/share-links';
@@ -649,21 +651,7 @@ function DayCard({
             отличие от 84 планировщиков TAAFT, которые только планируют
             (разведка 08.08). Оператор виден на самой карточке. */}
         {topTour && day.type === 'activity' && (
-          <a
-            href={planDayTourHref(topTour, requestArrival ?? '', day.day - 1, requestGuests ?? 0)}
-            target="_blank"
-            rel="noopener noreferrer"
-            title="Открыть тур и оставить заявку"
-            className="flex items-center justify-between gap-2 mx-3 mb-2.5 px-2.5 py-1.5 rounded-md bg-[var(--bg-hover)] border border-[var(--border)] hover:border-[var(--ocean)] transition-colors"
-          >
-            <div className="flex items-center gap-1.5 min-w-0">
-              <Star className="w-3 h-3 text-[var(--warning)] shrink-0" />
-              <span className="text-[10px] text-[var(--text-secondary)] truncate">{topTour.title}</span>
-            </div>
-            <span className="text-[10px] font-semibold text-[var(--ocean)] whitespace-nowrap">
-              от {Number(topTour.base_price).toLocaleString('ru-RU')} ₽ · оставить заявку
-            </span>
-          </a>
+          <DayTourChip chip={topTour} href={planDayTourHref(topTour, requestArrival ?? '', day.day - 1, requestGuests ?? 0)} />
         )}
         {/* Свободные места — спросить у оператора (29.09): расписание в базе
             ведут не все, а оператор отвечает одним нажатием в мессенджере. */}
@@ -1582,8 +1570,10 @@ export function PlannerClient({ initialUserId }: { initialUserId?: string | null
   // звала на Горелый с сезоном 15.07–15.10 — тур брался один на вид занятия,
   // без даты. Теперь запрос несёт дату дня, и подходящего нет — ссылки нет.
   useEffect(() => {
+    // День с туром плана ссылку не ищет: его тур — тот, что стоит в плане
+    // (разбор планера 14.11, lib/planner/day-tour-chip).
     const wanted = days
-      .filter((d) => d.type === 'activity')
+      .filter((d) => d.type === 'activity' && !d.realTour)
       .map((d) => ({ key: dayTourKey(d, arrival), day: d }))
       .filter(({ key }) => !loadedDayToursRef.current.has(key));
     if (wanted.length === 0) return;
@@ -1597,7 +1587,8 @@ export function PlannerClient({ initialUserId }: { initialUserId?: string | null
         const res = await fetch(`/api/planner/tours-for-day?${params.toString()}`);
         const data: { success: boolean; tours?: TourPreview[] } = await res.json();
         if (data.success && data.tours && data.tours.length > 0) {
-          setToursPerDay(prev => ({ ...prev, [key]: data.tours![0] }));
+          const first = data.tours[0]!;
+          setToursPerDay(prev => ({ ...prev, [key]: first }));
         }
       } catch (err) {
         // Ссылка на тур необязательна: без неё день остаётся, отказ — в консоль.
@@ -2847,7 +2838,8 @@ export function PlannerClient({ initialUserId }: { initialUserId?: string | null
                     isEditing={day.day === editingDayId}
                     isConfirmed={confirmedDays.has(day.day)}
                     transport={getTransport(day)}
-                    topTour={day.type === 'activity' ? toursPerDay[dayTourKey(day, arrival)] : undefined}
+                    topTour={day.type !== 'activity' ? undefined
+                      : day.realTour ? planTourChip(day) ?? undefined : toursPerDay[dayTourKey(day, arrival)]}
                     requestArrival={arrival}
                     requestGuests={(planProfile?.adults ?? adults) + (planProfile?.children ?? childAges).length}
                     flightBadge={

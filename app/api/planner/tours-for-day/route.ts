@@ -151,7 +151,10 @@ export async function GET(req: NextRequest) {
         AND ${publicTourSql('ot')}
     `, date ? [activity_type, date] : [activity_type]);
 
-    return NextResponse.json({ success: true, tours: firstByRule(rows, limit, date) });
+    // Зона была названа, а в ней подходящего нет — тур из другой зоны
+    // помечается (разбор планера 14.11): раньше он вставал молча.
+    const tours = firstByRule(rows, limit, date).map((t) => (zone ? { ...t, other_zone: true } : t));
+    return NextResponse.json({ success: true, tours });
   } catch (err) {
     // Отказ не выдаётся за «туров нет» (§4.0): 500 и SQLSTATE в лог.
     const e = err as { code?: string; message?: string } | undefined;
