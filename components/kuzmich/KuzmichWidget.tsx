@@ -1,5 +1,7 @@
 'use client';
 
+import { TURN_STOPPED_TEXT, isAbortError } from '@/lib/kuzmich/turn-control';
+import { StopTurnButton, RetryTurnButton } from '@/components/kuzmich/TurnControls';
 import { isImeKeyEvent } from '@/lib/ui/ime';
 import ChatText from '@/components/kuzmich/ChatText';
 import React, { useState, useRef, useEffect, useCallback, useId } from 'react';
@@ -220,6 +222,9 @@ export default function KuzmichWidget() {
   const [historyLoaded, setHistoryLoaded] = useState(false);
 
   const endRef = useRef<HTMLDivElement>(null);
+  // «Остановить» (#3412, п. 3): обрывает ожидание ответа этого хода.
+  const abortRef = useRef<AbortController | null>(null);
+  const [asking, setAsking] = useState('');
   const inputRef = useRef<HTMLInputElement>(null);
   const fileRef = useRef<HTMLInputElement>(null);
 
@@ -290,6 +295,9 @@ export default function KuzmichWidget() {
     setInput('');
     clearImage();
     setLoading(true);
+    const controller = new AbortController();
+    abortRef.current = controller;
+    setAsking(text.trim());
 
     // Only send location if permission granted AND user is on-site (on Kamchatka)
     const geoPayload = (permissionState === 'granted' && location && mode === 'on-site')
@@ -299,6 +307,7 @@ export default function KuzmichWidget() {
     try {
       const res = await fetch('/api/ai/chat', {
         method: 'POST',
+        signal: controller.signal,
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
           message: text.trim() || 'Что на этом фото?',
@@ -333,9 +342,11 @@ export default function KuzmichWidget() {
         ...(data.data?.tours?.length ? { tours: data.data.tours } : {}),
         ...(data.data?.bookingForm ? { bookingForm: data.data.bookingForm } : {}),
       }]);
-    } catch {
-      setMessages(prev => [...prev, { role: 'assistant', content: 'Нет связи. Попробуйте позже.' }]);
+    } catch (err) {
+      // Остановил сам человек — не «нет связи».
+      setMessages(prev => [...prev, { role: 'assistant', content: isAbortError(err) ? TURN_STOPPED_TEXT : 'Нет связи. Попробуйте позже.' }]);
     } finally {
+      abortRef.current = null;
       setLoading(false);
       setTimeout(() => inputRef.current?.focus(), 50);
     }
@@ -518,9 +529,17 @@ export default function KuzmichWidget() {
                 <div className="w-6 h-6 rounded-md bg-[var(--accent)]/10 flex items-center justify-center shrink-0">
                   <Sparkles className="w-3 h-3 text-[var(--accent)]" />
                 </div>
-                <div className="bg-[var(--bg-hover)] rounded-xl rounded-bl-sm px-3 py-2 text-xs text-[var(--text-muted)] flex items-center gap-1.5">
-                  <ThinkingText />
+                <div className="flex flex-col gap-0.5">
+                  <div className="bg-[var(--bg-hover)] rounded-xl rounded-bl-sm px-3 py-2 text-xs text-[var(--text-muted)] flex items-center gap-1.5">
+                    <ThinkingText />
+                  </div>
+                  <StopTurnButton compact question={asking} onStop={() => abortRef.current?.abort()} />
                 </div>
+              </div>
+            )}
+            {!loading && (
+              <div className="pl-8">
+                <RetryTurnButton compact messages={messages} onRetry={(q) => void send(q)} />
               </div>
             )}
             <div ref={endRef} />
