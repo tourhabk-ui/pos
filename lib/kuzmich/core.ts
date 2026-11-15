@@ -63,7 +63,9 @@ import {
 import { escapeHtml } from '@/lib/text/escape-html';
 import { getPublicBaseUrl } from '@/lib/config';
 import { parseChatBookingPrefill } from '@/lib/kuzmich/booking-prefill';
-import { planFromBookingFlow, planChatRequest, parseChatContact, chatPastDateAsk } from '@/lib/kuzmich/chat-request';
+import { planFromBookingFlow, planChatRequest, parseChatContact, chatPastDateAsk, chatRequestSummary } from '@/lib/kuzmich/chat-request';
+import { isYes, isNo } from '@/lib/kuzmich/yes-no';
+import { holdChatRequest, hasPendingChatRequest, takeChatRequest, dropChatRequest, answerToSummary, PENDING_REQUEST_CANCELLED, PENDING_REQUEST_STALE } from '@/lib/kuzmich/pending-request';
 import { submitChatRequest } from '@/lib/kuzmich/chat-request-submit';
 import { type QuickReplies, tourPickButtons, parseTourPick, GUEST_BUTTONS, CONFIRM_BUTTONS, CANCEL_BUTTONS, isCorrection } from '@/lib/kuzmich/quick-replies';
 import { tourBookingFormPath, tourPath } from '@/lib/tours/tour-url';
@@ -1377,19 +1379,9 @@ export function isBookingTrigger(text: string): boolean {
   return BOOKING_TRIGGERS.some(tr => t.includes(tr));
 }
 
-const YES = ['да', 'yes', 'верно', 'подтверждаю', 'всё верно', 'ок', 'окей', 'ok', 'го', 'давай', 'подтвердить'];
-const NO = ['нет', 'no', 'не верно', 'отмена', 'cancel', 'стоп', 'stop', 'отменить', 'назад'];
-
-// Слово целиком, не подстрока (проверка качества 24.10): на шаге «Всё верно?»
-// «У нас беда», «вода прибывает», «когда нас найдут?» несли в себе «да» и
-// отправляли заявку оператору вместе с ПД; «интернет» нёс «нет».
-const wholeWord = (words: readonly string[]) =>
-  new RegExp(`(?<![\\p{L}\\p{N}])(?:${words.join('|')})(?![\\p{L}\\p{N}])`, 'u');
-const YES_RE = wholeWord(YES);
-const NO_RE = wholeWord(NO);
-
-export function isYes(t: string) { return YES_RE.test(t.toLowerCase()); }
-export function isNo(t: string)  { return NO_RE.test(t.toLowerCase()); }
+// «Да» и «нет» — словом целиком (lib/kuzmich/yes-no): один словарь у шагов
+// брони и у отложенной заявки чата (#3399, п. 4).
+export { isYes, isNo } from '@/lib/kuzmich/yes-no';
 
 // ── DB helpers ────────────────────────────────────────────────────────────────
 
@@ -3761,10 +3753,25 @@ export async function processMessage(opts: {
     }
   }
 
-  // MAX: тур, дата, имя, телефон и явное согласие в одной реплике — заявка
-  // сразу, тем же планом и исполнителем, что быстрый путь веб-чата. Нет
-  // даты или согласия — заявки нет, идём шагами (дату и цену не выдумываем).
+  // MAX: тур, дата, имя, телефон и явное согласие в одной реплике — сводка,
+  // а заявка уходит следующим «да» на неё (#3399, п. 4), тем же планом и
+  // исполнителем, что веб-чат. Нет даты или согласия — заявки нет, идём
+  // шагами (дату и цену не выдумываем).
   if (platform === 'max' && !maxUnverified && !emergencyNow && !isMediaMessage) {
+    // Заявка ждёт «да» на сводку (#3399, п. 4) — как в веб-чате.
+    const pendKey = `max:${chatId}`;
+    if (hasPendingChatRequest(pendKey)) {
+      const ans = answerToSummary(text, { isYes, isNo });
+      if (ans === 'no') { dropChatRequest(pendKey); await replyFn(chatId, PENDING_REQUEST_CANCELLED); return; }
+      if (ans === 'yes') {
+        const held = takeChatRequest(pendKey);
+        if (!held) { await replyFn(chatId, PENDING_REQUEST_STALE); return; }
+        const sent = await submitChatRequest(held.plan, { ip: `max:${chatId}`, userAgent: 'kuzmich-max-confirmed', tourTitle: held.tourTitle ?? undefined });
+        await replyFn(chatId, escapeHtml(sent.text));
+        return;
+      }
+      dropChatRequest(pendKey);
+    }
     const contact = parseChatContact(text);
     const pre = parseChatBookingPrefill(text);
     if (contact.name && contact.phone && contact.consent && !pre.date && pre.pastDate) {
@@ -3776,8 +3783,9 @@ export async function processMessage(opts: {
       const pick = await pickChatBookingTour(text, []);
       const plan = planChatRequest(text, pick.tour, pre);
       if (plan) {
-        const sent = await submitChatRequest(plan, { ip: `max:${chatId}`, userAgent: 'kuzmich-max-fast', tourTitle: pick.tour?.title });
-        await replyFn(chatId, escapeHtml(sent.text));
+        // Сводка, а не отправка: заявка уходит следующим «да» (#3399, п. 4).
+        holdChatRequest(pendKey, plan, pick.tour?.title ?? null);
+        await replyFn(chatId, escapeHtml(chatRequestSummary(plan, pick.tour)));
         return;
       }
     }

@@ -7,7 +7,8 @@
 
 import { parseChatBookingPrefill } from '@/lib/kuzmich/booking-prefill';
 import { latestChatPlanId, planIdOfTurn, chatPlanContext } from '@/lib/kuzmich/plan-id';
-import { planChatRequest, parseChatContact, chatToolReply, chatRequestUnconfirmed, chatPastDateAsk } from '@/lib/kuzmich/chat-request';
+import { planChatRequest, parseChatContact, chatToolReply, chatRequestUnconfirmed, chatPastDateAsk, chatRequestSummary, type ChatRequestPlan } from '@/lib/kuzmich/chat-request';
+import { holdChatRequest, hasPendingChatRequest, takeChatRequest, dropChatRequest, answerToSummary, PENDING_REQUEST_CANCELLED, PENDING_REQUEST_STALE, PENDING_REQUEST_NO_SESSION } from '@/lib/kuzmich/pending-request';
 import { runPublicTool } from '@/app/api/mcp/route';
 import { journaledWrite, sessionRefFrom } from '@/lib/kuzmich/write-journal';
 import { finishKuzmichAnswer } from '@/lib/kuzmich/answer-guards';
@@ -43,6 +44,7 @@ import { getOperatorTools } from '@/lib/agents/sdk/operator-tools';
 import { partnerContextFor } from '@/lib/crm/partner-context';
 import { pickChatBookingTour } from '@/lib/ai/chat-booking-tour';
 import { aiChatAgentLoop, KUZMICH_SYSTEM, isAIErrorResponse, kuzmichTurnFacts, kuzmichSystemContent } from '@/lib/kuzmich/core';
+import { isYes, isNo } from '@/lib/kuzmich/yes-no';
 import { checkAnswerPrices } from '@/lib/kuzmich/answer-quality';
 import { resolveCommercialTurn } from '@/lib/kuzmich/commercial-turn';
 import type { CatalogTour } from '@/lib/telegram/tourist-tours';
@@ -301,30 +303,52 @@ export async function POST(request: NextRequest) {
         if (code) fastRequestText = await handoffReply(code, 'web', ip);
       }
     }
+    // Заявка ждёт «да» на сводку (#3399, п. 4): уходит только этим ответом,
+    // «нет» её снимает, любой другой ответ — тоже (согласие — на ту сводку,
+    // что стояла прямо перед ним).
+    const pendKey = storableSessionId ? `web:${storableSessionId}` : null;
+    if (!fastRequestText && pendKey && safeRole === 'tourist' && !emergencyNow && hasPendingChatRequest(pendKey)) {
+      const ans = answerToSummary(rawMessage, { isYes, isNo });
+      if (ans === 'no') {
+        dropChatRequest(pendKey);
+        fastRequestText = PENDING_REQUEST_CANCELLED;
+      } else if (ans === 'yes') {
+        const held = takeChatRequest(pendKey);
+        if (!held) fastRequestText = PENDING_REQUEST_STALE;
+        else {
+          try {
+            const out = await journaledWrite({ channel: 'web', sessionRef: sessionRefFrom(storableSessionId, ip), tool: held.plan.tool, args: held.plan.args },
+              () => runPublicTool({ toolName: held.plan.tool, rawArguments: held.plan.args, ip, userAgent: 'kuzmich-web-chat-confirmed', self: false, consentFrom: { source: 'kuzmich-web', ip } }));
+            fastRequestText = chatToolReply(out, held.tourTitle).text;
+          } catch (e) {
+            console.warn('[kuzmich-chat] заявка после «да»: исполнитель упал после начала записи', safeMsg(e));
+            fastRequestText = chatRequestUnconfirmed();
+          }
+        }
+      } else dropChatRequest(pendKey);
+    }
+    /** Сводка вместо отправки: заявка ждёт «да» в этом чате. */
+    const summarizeRequest = (plan: ChatRequestPlan, tour: TourSuggestion | null): string => {
+      if (!pendKey) return PENDING_REQUEST_NO_SESSION;
+      holdChatRequest(pendKey, plan, tour?.title ?? null);
+      return chatRequestSummary(plan, tour);
+    };
     if (!fastRequestText && safeRole === 'tourist' && !emergencyNow && !imageBase64) {
       const contact = parseChatContact(rawMessage);
       const pre = parseChatBookingPrefill(rawMessage);
       if (contact.name && contact.phone && contact.consent && !pre.date && pre.pastDate) {
         fastRequestText = chatPastDateAsk(pre.pastDate);
       } else if (contact.name && contact.phone && contact.consent && pre.date) {
-        // Запись начата — исход называется человеку при любом ответе
-        // исполнителя, и второй путь заявку не повторяет (#2967): отказ
-        // быстрого пути раньше превращался во вторую заявку менеджеру.
-        let writeStarted = false;
+        // Данные заявки в реплике — сводка и «да» следующим ходом (#3399,
+        // п. 4); записи в этом ходе нет, второй путь её тоже не делает.
         try {
           const intent = detectTourIntent(rawMessage);
           const found = intent.detected ? await findRelevantTours(intent.activityType, intent.rawWords) : [];
           const pick = await pickChatBookingTour(rawMessage, found);
           const plan = planChatRequest(rawMessage, pick.tour, pre, { planId: chatPlanId });
-          if (plan) {
-            writeStarted = true;
-            const out = await journaledWrite({ channel: 'web', sessionRef: sessionRefFrom(storableSessionId, ip), tool: plan.tool, args: plan.args },
-              () => runPublicTool({ toolName: plan.tool, rawArguments: plan.args, ip, userAgent: 'kuzmich-web-chat-fast', self: false, consentFrom: { source: 'kuzmich-web', ip } }));
-            fastRequestText = chatToolReply(out, pick.tour?.title).text;
-          }
+          if (plan) fastRequestText = summarizeRequest(plan, pick.tour);
         } catch (e) {
-          console.warn('[kuzmich-chat] быстрый путь не сработал', writeStarted ? 'после начала записи' : 'до записи, обычный ответ', safeMsg(e));
-          if (writeStarted) fastRequestText = chatRequestUnconfirmed();
+          console.warn('[kuzmich-chat] быстрый путь не сработал до сводки, обычный ответ', safeMsg(e));
         }
       }
     }
@@ -507,17 +531,8 @@ export async function POST(request: NextRequest) {
     if (fastRequestText) chatRequestText = fastRequestText;
     else if (safeRole === 'tourist' && !emergencyNow && (bookingTriggered || parseChatContact(rawMessage).consent)) {
       const plan = planChatRequest(rawMessage, bookingFormTour, bookingFormTour ? bookingPrefill : parseChatBookingPrefill(rawMessage), { planId: chatPlanId });
-      if (plan) {
-        try {
-          const out = await journaledWrite({ channel: 'web', sessionRef: sessionRefFrom(storableSessionId, ip), tool: plan.tool, args: plan.args },
-              () => runPublicTool({ toolName: plan.tool, rawArguments: plan.args, ip, userAgent: 'kuzmich-web-chat', self: false, consentFrom: { source: 'kuzmich-web', ip } }));
-          // Отказ текстом — тоже ответ человеку: «Заявка не создана: …» (#2967).
-          chatRequestText = chatToolReply(out, bookingFormTour?.title).text;
-        } catch (e) {
-          console.warn('[kuzmich-chat] заявка из чата: исполнитель упал после начала записи', safeMsg(e));
-          chatRequestText = chatRequestUnconfirmed();
-        }
-      }
+      // Сводка и «да» следующим ходом (#3399, п. 4), как у быстрого пути.
+      if (plan) chatRequestText = summarizeRequest(plan, bookingFormTour);
     }
 
     // Фолбэк-ошибки конвейера («Извините, сервис временно недоступен») не
