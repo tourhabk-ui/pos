@@ -238,7 +238,7 @@ export async function POST(request: NextRequest) {
       safeRole === 'tourist' ? kuzmichTurnFacts(message.trim()) : Promise.resolve(null),
     ]);
     const mchsBlock = turnFacts?.mchsBlock ?? '';
-    const systemPrompt = [basePrompt, mchsBlock, turnFacts?.facts ?? '', geoContext, ragContext, memContext, agentInsights].filter(Boolean).join('\n\n');
+    const systemPrompt = [basePrompt, turnFacts?.modules ?? '', mchsBlock, turnFacts?.facts ?? '', geoContext, ragContext, memContext, agentInsights].filter(Boolean).join('\n\n');
     const messagesForAI = buildMessageHistory(systemPrompt, history, 10);
     // Мозг Кузьмича для туристов — та же связка, что в /api/ai/chat:
     // KUZMICH_SYSTEM (обязательный get_guardian_context) + данные хода; место

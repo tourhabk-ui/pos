@@ -359,11 +359,13 @@ async function processGroupMessage(opts: {
   if (!hasTouristIntent(text)) return; // молчим
 
   // Краткий AI-ответ в группе
-  const { buildTourContext, KUZMICH_SYSTEM } = await import('@/lib/kuzmich/core');
+  const { buildTourContext } = await import('@/lib/kuzmich/core');
+  const { groupSystemContent } = await import('@/lib/kuzmich/group-prompt');
   const { callAIWaterfall } = await import('@/lib/ai/providers');
 
   const tourCtx = await buildTourContext();
-  const systemContent = `${KUZMICH_SYSTEM}\n\n${tourCtx}\n\nТы в групповом чате. Отвечай коротко (2-3 строки). Чтобы оставить заявку оператору, приглашай писать в личку боту.`;
+  // Ядро и части по ситуации — как на остальных поверхностях (#3416).
+  const systemContent = groupSystemContent(text, tourCtx);
 
   const messages = [
     { role: 'system' as const, content: systemContent },
