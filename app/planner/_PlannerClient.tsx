@@ -65,6 +65,7 @@ import type {
 } from './planner-types';
 import { DayTourChip } from '@/components/planner/DayTourChip';
 import { planTourChip } from '@/lib/planner/day-tour-chip';
+import { mapDayDetails } from '@/lib/planner/map-day';
 import { SeatRequestForm } from '@/components/planner/SeatRequestForm';
 import { planDayDate, planDayTourHref } from '@/lib/planner/day-tour-link';
 import { maxShareUrl, telegramShareUrl } from '@/lib/trips/share-links';
@@ -248,7 +249,9 @@ function shownZone(day: Pick<DayPlan, 'zone' | 'zoneShown'>): string | null {
   return day.zoneShown !== undefined ? day.zoneShown : day.zone;
 }
 
+/** День, поставленный с карты; что о нём известно — lib/planner/map-day. */
 function routeToDayPlan(route: RoutePoint, dayNum: number): DayPlan {
+  const details = mapDayDetails(route.activity_type);
   const activity = route.activity_type ?? 'trekking';
   const transport = ACTIVITY_DEFAULT_TRANSPORT[activity] ?? 'walking';
   // Зона дня для логистики — записанная в базе; нет её среди четырёх —
@@ -263,17 +266,11 @@ function routeToDayPlan(route: RoutePoint, dayNum: number): DayPlan {
     title: route.title,
     description: '',
     activityType: activity,
-    // Цены у дня без тура нет (слово владельца 14.11 «5 -1»): до 14.11 здесь
-    // стояла вилка вида активности, вписанная в этот файл без источника. Цену
-    // называет исполнитель; тур, поставленный на день, приносит свою.
-    priceFrom: 0, priceTo: 0,
     coords: [route.lat, route.lng],
     ...(route.plannerZone ? {} : { zoneShown: route.zone }),
     defaultTransport: transport,
     allowedTransports: zoneTransports.filter(t => t === transport || ['walking', 'jeep'].includes(t)) as TransportType[],
-    difficulty: 'moderate',
-    childFriendly: true,
-    minChildAge: 0,
+    ...details,
     dayWarnings: [],
   };
 }
@@ -617,7 +614,9 @@ function DayCard({
               <MapIcon className="w-3.5 h-3.5" />
             </button>
           )}
-          {!free && (
+          {/* У переезда и отъезда операторов вида занятия нет — кнопка отвечала
+              «Некорректный тип активности» (разбор 14.11, экран-10). */}
+          {!free && day.type !== 'travel' && day.type !== 'departure' && (
             <button type="button" title="Операторы" onClick={() => onShowPartners(day.activityType)}
               className="w-7 h-7 flex items-center justify-center rounded-md border border-[var(--border)] text-[var(--text-muted)] hover:text-[var(--ocean)] hover:border-[var(--ocean)] transition-colors bg-[var(--bg-hover)]">
               <Users className="w-3.5 h-3.5" />
@@ -673,16 +672,16 @@ function DayCard({
               {day.type === 'activity' && (
                 <div className="flex items-center gap-1.5 text-[10px] text-[var(--text-muted)]">
                   <Dumbbell className="w-3 h-3" />
-                  <span>{DIFFICULTY_LABEL[day.difficulty] ?? day.difficulty}</span>
+                  <span>{day.detailsUnknown ? 'сложность и возраст не записаны' : DIFFICULTY_LABEL[day.difficulty] ?? day.difficulty}</span>
                 </div>
               )}
-              {day.minChildAge > 0 && (
+              {!day.detailsUnknown && day.minChildAge > 0 && (
                 <div className="flex items-center gap-1.5 text-[10px] text-[var(--text-muted)]">
                   <Baby className="w-3 h-3" />
                   <span>от {day.minChildAge} лет</span>
                 </div>
               )}
-              {day.childFriendly && day.minChildAge === 0 && (
+              {!day.detailsUnknown && day.childFriendly && day.minChildAge === 0 && (
                 <div className="flex items-center gap-1.5 text-[10px] text-[var(--success)]">
                   <Baby className="w-3 h-3" />
                   <span>для всех возрастов</span>
@@ -918,7 +917,8 @@ function PartnersModal({ activityType, onClose }: {
               <div key={p.id} className="bg-[var(--bg-hover)] border border-[var(--border)] rounded-lg p-3 space-y-1.5">
                 <div className="flex items-start justify-between gap-2">
                   <p className="text-sm font-semibold text-[var(--text-primary)]"><OperatorNameLink name={p.name} slug={p.slug} isPublic={p.is_public} /></p>
-                  {Number(p.rating) > 0 && (
+                  {/* Нет отзывов — нет рейтинга (§0, разбор 14.11, экран-16). */}
+                  {Number(p.rating) > 0 && Number(p.review_count) > 0 && (
                     <div className="flex items-center gap-1 shrink-0">
                       <Star className="w-3 h-3 text-[var(--warning)] fill-current" />
                       <span className="text-xs font-medium text-[var(--text-primary)]">{Number(p.rating).toFixed(1)}</span>
@@ -1394,6 +1394,8 @@ export function PlannerClient({ initialUserId }: { initialUserId?: string | null
   // TripBuilder v2: AI route validation after DnD
   const [validation, setValidation] = useState<ValidationResult | null>(null);
   const validationTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  /** Номер последнего запроса проверки: ответ прежнего не затирает новый. */
+  const validationSeqRef = useRef(0);
   // Последний порядок дней, который видел onReorder: перетаскивание кончается
   // отпусканием, и состояние React к нему может ещё не обновиться.
   const daysRef = useRef<DayPlan[]>(days);
@@ -1834,6 +1836,8 @@ export function PlannerClient({ initialUserId }: { initialUserId?: string | null
   function scheduleValidation(list: DayPlan[]) {
     if (validationTimerRef.current) clearTimeout(validationTimerRef.current);
     if (list.length < 2) return;
+    // Ответ прежнего запроса не затирает новый (разбор 14.11, экран-6).
+    const seq = ++validationSeqRef.current;
     validationTimerRef.current = setTimeout(() => {
       void fetch('/api/planner/validate', {
         method: 'POST',
@@ -1841,6 +1845,7 @@ export function PlannerClient({ initialUserId }: { initialUserId?: string | null
         body: JSON.stringify({
           days: list.map(d => ({
             day: d.day,
+            type: d.type,
             zone: d.zone,
             title: d.title,
             activityType: d.activityType,
@@ -1851,16 +1856,34 @@ export function PlannerClient({ initialUserId }: { initialUserId?: string | null
           seasickness,
           children: knownChildAges.length > 0 ? knownChildAges : undefined,
         }),
-      }).then(r => r.json()).then((data: { success: boolean; valid?: boolean; message?: string; issues?: Array<{ type: string; severity: string; message: string; day?: number }> }) => {
+      }).then(r => r.json()).then((data: { success: boolean; valid?: boolean; message?: string; error?: string; issues?: Array<{ type: string; severity: string; message: string; day?: number }> }) => {
+        if (seq !== validationSeqRef.current) return;
         if (data.success && data.message) {
           const issueText = data.issues && data.issues.length > 0
             ? `${data.message}\n${data.issues.map(i => `- ${i.message}`).join('\n')}`
             : data.message;
           setValidation({ valid: data.valid ?? true, message: issueText });
+        } else {
+          // Проверка не выполнилась — прежний вердикт о другом плане не висит.
+          console.error('[planner] проверка плана отказала:', data.error ?? 'нет ответа');
+          setValidation(null);
         }
-      }).catch(() => { /* silent */ });
+      }).catch((err: unknown) => {
+        if (seq !== validationSeqRef.current) return;
+        console.error('[planner] проверка плана не выполнилась:', err instanceof Error ? err.message : String(err));
+        setValidation(null);
+      });
     }, 800);
   }
+
+  // Вердикт проверки — о текущих днях: после удаления, замены и добавления
+  // дня он перечитывается, а не висит от прошлой перестановки (разбор 14.11,
+  // экран-6). Проверки ещё не было — её и не начинаем.
+  const validationShown = validation !== null;
+  useEffect(() => {
+    if (validationShown) scheduleValidation(days);
+    // eslint-disable-next-line react-hooks/exhaustive-deps -- только по смене дней
+  }, [days]);
 
   /**
    * Поездка стала на день длиннее: дата отъезда — на день позже, и это
@@ -1871,7 +1894,8 @@ export function PlannerClient({ initialUserId }: { initialUserId?: string | null
     const nextDeparture = departure ? dateOfTripDay(departure, 2) : null;
     if (nextDeparture) setDeparture(nextDeparture);
     setEditNote(nextDeparture
-      ? `Поездка стала на день длиннее: новый день ${added}, отъезд — ${shortDate(nextDeparture)}.`
+      // «6 авг.» уже с точкой — второй не ставим (разбор 14.11, экран-18).
+      ? `Поездка стала на день длиннее: новый день ${added}, отъезд — ${shortDate(nextDeparture).replace(/\.?$/, '.')}`
       : `Поездка стала на день длиннее: новый день ${added}.`);
   }
 
@@ -1902,7 +1926,7 @@ export function PlannerClient({ initialUserId }: { initialUserId?: string | null
           : d.activityMode ? ACTIVITY_MODE_LABEL[d.activityMode].label : null,
         priceLine: dayPriceLine(d),
         description: d.description ?? '',
-        meta: `${zoneName(shownZone(d))}${d.type === 'activity' ? ` | ${DIFFICULTY_LABEL[d.difficulty] ?? d.difficulty}` : ''}`,
+        meta: `${zoneName(shownZone(d))}${d.type === 'activity' ? ` | ${d.detailsUnknown ? 'сложность не записана' : DIFFICULTY_LABEL[d.difficulty] ?? d.difficulty}` : ''}`,
         warnings: d.dayWarnings ?? [],
       })),
       estimate: estimate ?? null,
