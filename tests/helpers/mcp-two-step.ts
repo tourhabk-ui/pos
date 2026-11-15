@@ -4,7 +4,7 @@
  * исход записи, нужен код из черновика.
  */
 export function confirmationCodeOf(text: string): string {
-  const m = /confirmation: "([0-9a-z]{1,10}\.[A-Za-z0-9_-]{22})"/.exec(text);
+  const m = /confirmation: "([0-9a-z]{1,10}\.[A-Za-z0-9_-]{8}\.[A-Za-z0-9_-]{22})"/.exec(text);
   if (!m) throw new Error(`В ответе нет кода подтверждения: ${text.slice(0, 300)}`);
   return m[1];
 }

@@ -99,7 +99,7 @@ import { buildCharterLead, checkCharterDates, saveCharterLeadDetailed } from '@/
 import { loadRentalCompanies } from '@/lib/rental/rental';
 import { rentalPagePath, type RentalCompany, type RentalOffer } from '@/lib/rental/rental-format';
 import { rentalDays } from '@/lib/rental/rental-request';
-import { issueHumanConfirmation, checkHumanConfirmation, askHumanLine, draftText, HUMAN_CONFIRM_TTL_MIN } from '@/lib/mcp/human-confirmation';
+import { issueHumanConfirmation, checkHumanConfirmation, spendHumanConfirmation, askHumanLine, draftText, HUMAN_CONFIRM_TTL_MIN } from '@/lib/mcp/human-confirmation';
 import { issueRentalConfirmation, checkRentalConfirmation, RENTAL_CONFIRM_TTL_MIN, type RentalConfirmFields } from '@/lib/mcp/rental-confirmation';
 import { buildRentalLead, checkRentalDates, saveRentalLeadDetailed } from '@/lib/rental/rental-request-service';
 import { matchOffers } from '@/lib/kuzmich/car-rental-search';
@@ -1559,6 +1559,25 @@ export interface PublicToolCall {
 }
 
 /**
+ * Ревизия плана для кода подтверждения: правка плана меняет код. План не
+ * найден — 'missing' (исполнитель и так откажет); база не ответила —
+ * 'unread:<время>' (код на втором шаге не сойдётся: не знаем — не пускаем).
+ */
+async function planRevisionForCode(planId: string): Promise<string> {
+  try {
+    const { loadDraft } = await import('@/lib/planner/plan-drafts');
+    const read = await loadDraft(planId);
+    if (read.kind === 'found') return `r${read.draft.revision}`;
+    if (read.kind === 'missing') return 'missing';
+    console.error('[mcp] ревизия плана для кода не прочитана: база не ответила');
+    return `unread:${Date.now()}`;
+  } catch (err) {
+    console.error('[mcp] ревизия плана для кода не прочитана:', logText(err instanceof Error ? err.message : err, 200));
+    return `unread:${Date.now()}`;
+  }
+}
+
+/**
  * Вызов инструмента со входом заявки (08.11, владелец: «откуда лиды — человек
  * или ИИ и через какой инструмент»): MCP, A2A или чат Кузьмича. Вход и
  * инструмент доходят до записи заявки (lib/leads/entry-context), исполнители
@@ -1649,13 +1668,20 @@ async function runPublicToolCore(call: PublicToolCall): Promise<PublicToolOutcom
   // Второй шаг с кодом: код сверяется с полями до записи; не подошёл —
   // запись не идёт, вызов становится новым черновиком.
   let codeRefusal: string | null = null;
+  // Даты и состав из плана берутся внутри исполнителя, после сверки кода, а
+  // план между вызовами правится (edit_trip_plan): в код входит ревизия плана,
+  // иначе черновик показал бы одни даты, а записались бы другие (ревью #3414).
+  const codeArgs = humanGate && typeof toolArgs.plan_id === 'string' && toolArgs.plan_id.trim()
+    ? { ...toolArgs, plan_revision: await planRevisionForCode(toolArgs.plan_id.trim()) }
+    : toolArgs;
   if (humanGate && confirmation) {
-    const check = checkHumanConfirmation(confirmation, toolName, toolArgs);
+    const check = checkHumanConfirmation(confirmation, toolName, codeArgs);
     if (check === 'unavailable') {
       logMcpToolCall({ tool: toolName, ok: false, errorKind: 'refused', errorCode: 'confirm_unavailable', argKey: arg.key, ip, userAgent, self });
       return { kind: 'refused', text: CONFIRM_UNAVAILABLE_TEXT, code: 'confirm_unavailable' };
     }
-    if (check !== 'ok') codeRefusal = `Код подтверждения ${check === 'expired' ? 'истёк' : 'не подходит к этим данным (поля изменились)'} — заявка не создана.`;
+    if (check === 'ok') spendHumanConfirmation(confirmation);
+    else codeRefusal = `Код подтверждения ${check === 'expired' ? 'истёк' : check === 'used' ? 'уже использован' : 'не подходит к этим данным (поля или план изменились)'} — заявка не создана.`;
   }
   const asDraft = draftStep || codeRefusal !== null;
   const ctx: McpCallContext = { ip, userAgent, self, consentFrom, test: testRun || asDraft, draft: asDraft, issued: [], places: [] };
@@ -1675,7 +1701,7 @@ async function runPublicToolCore(call: PublicToolCall): Promise<PublicToolOutcom
     let draftCode: string | null = null;
     let shown = text;
     if (asDraft && ctx.draftReached) {
-      draftCode = issueHumanConfirmation(toolName, toolArgs);
+      draftCode = issueHumanConfirmation(toolName, codeArgs);
       if (!draftCode) {
         logMcpToolCall({ tool: toolName, ok: false, errorKind: 'refused', errorCode: 'confirm_unavailable', argKey: arg.key, ip, userAgent, self });
         return { kind: 'refused', text: CONFIRM_UNAVAILABLE_TEXT, code: 'confirm_unavailable' };

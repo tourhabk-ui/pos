@@ -2,10 +2,10 @@
  * lib/mcp/human-confirmation.ts — заявка внешнего агента в два вызова
  * (#3399, п. 4; карт-бланш владельца 15.11).
  *
- * До этого согласие человека на передачу имени и телефона было флагом
- * `consent: true`, который ставит сам агент: сервер не знал, видел ли человек,
- * кому и что уйдёт. У проката так было с 24.10 (lib/mcp/rental-confirmation),
- * теперь — у всех заявок MCP и A2A:
+ * До этого заявку можно было отправить одним вызовом: агент ставил
+ * `consent: true` и в том же вызове передавал имя и телефон, не показав
+ * человеку, кому и что уйдёт. У проката два шага с 24.10
+ * (lib/mcp/rental-confirmation), теперь — у всех заявок MCP и A2A:
  *
  * - первый вызов без `confirmation` проходит все проверки заявки, но ничего
  *   не записывает и никому не передаёт: агент получает черновик для человека
@@ -17,10 +17,22 @@
  * новый черновик. Хранилища нет: код — HMAC на секрете сервера. Секрета нет —
  * отказ, заявку без первого шага не пускаем.
  *
+ * Чего код НЕ доказывает (ревью безопасности #3414): что «да» сказал человек.
+ * Код получает тот же агент и может погасить его сам. Код делает черновик
+ * обязательным шагом перед записью и связывает запись с полями, которые в
+ * черновике стояли; согласие по-прежнему заявлено агентом, и запись согласия
+ * так и помечена (источник `mcp`). Согласие человека подтверждает он сам —
+ * на странице статуса заявки или в чате Кузьмича.
+ *
+ * Код одноразовый: погашенный второй раз не пускает (у жилья повторы заявок
+ * не склеиваются, и один код иначе дал бы несколько заявок). Учёт погашенных —
+ * в памяти процесса до конца срока кода: потеря при перезапуске оставляет код
+ * годным до его 30 минут, не дольше.
+ *
  * Чат Кузьмича этого шага не проходит: там человек сам видит сводку и
  * отвечает «да» (lib/kuzmich/pending-request), а согласие пишется каналом чата.
  */
-import { createHmac, timingSafeEqual } from 'node:crypto';
+import { createHmac, randomBytes, timingSafeEqual } from 'node:crypto';
 
 export const HUMAN_CONFIRM_TTL_MIN = 30;
 
@@ -42,30 +54,50 @@ export function confirmationCanon(tool: string, args: Record<string, unknown>): 
   return JSON.stringify([tool, fields.map((k) => [k, norm(args[k])])]);
 }
 
-function mac(s: string, expMin: number, canon: string): string {
-  return createHmac('sha256', s).update(`human-confirm:${expMin}:${canon}`).digest('base64url').slice(0, 22);
+function mac(s: string, expMin: number, nonce: string, canon: string): string {
+  return createHmac('sha256', s).update(`human-confirm:${expMin}:${nonce}:${canon}`).digest('base64url').slice(0, 22);
 }
 
-/** Код подтверждения или null, если секрета нет. */
+/**
+ * Код подтверждения или null, если секрета нет. Случайная часть делает каждый
+ * черновик своим кодом: без неё новый черновик на те же поля в ту же минуту
+ * получил бы уже погашенный код.
+ */
 export function issueHumanConfirmation(tool: string, args: Record<string, unknown>, now = Date.now()): string | null {
   const s = secret();
   if (!s) return null;
   const expMin = Math.floor(now / 60000) + HUMAN_CONFIRM_TTL_MIN;
-  return `${expMin.toString(36)}.${mac(s, expMin, confirmationCanon(tool, args))}`;
+  const nonce = randomBytes(6).toString('base64url');
+  return `${expMin.toString(36)}.${nonce}.${mac(s, expMin, nonce, confirmationCanon(tool, args))}`;
 }
 
-export type HumanConfirmCheck = 'ok' | 'expired' | 'mismatch' | 'unavailable';
+export type HumanConfirmCheck = 'ok' | 'expired' | 'mismatch' | 'used' | 'unavailable';
+
+/** Погашенные коды → минута, после которой код истёк бы сам. */
+const spent = new Map<string, number>();
+
+/**
+ * Погасить код после успешной сверки: второй раз он не пустит. Вызывать
+ * только для кода со сверкой 'ok', перед записью.
+ */
+export function spendHumanConfirmation(code: string, now = Date.now()): void {
+  const nowMin = Math.floor(now / 60000);
+  for (const [c, exp] of spent) if (exp < nowMin) spent.delete(c);
+  const exp = parseInt(code.split('.')[0] ?? '', 36);
+  spent.set(code.trim(), Number.isFinite(exp) ? exp : nowMin + HUMAN_CONFIRM_TTL_MIN);
+}
 
 export function checkHumanConfirmation(code: string, tool: string, args: Record<string, unknown>, now = Date.now()): HumanConfirmCheck {
   const s = secret();
   if (!s) return 'unavailable';
-  const m = /^([0-9a-z]{1,10})\.([A-Za-z0-9_-]{22})$/.exec(code.trim());
+  const m = /^([0-9a-z]{1,10})\.([A-Za-z0-9_-]{8})\.([A-Za-z0-9_-]{22})$/.exec(code.trim());
   if (!m) return 'mismatch';
   const expMin = parseInt(m[1], 36);
-  const want = Buffer.from(mac(s, expMin, confirmationCanon(tool, args)));
-  const got = Buffer.from(m[2]);
+  const want = Buffer.from(mac(s, expMin, m[2], confirmationCanon(tool, args)));
+  const got = Buffer.from(m[3]);
   if (want.length !== got.length || !timingSafeEqual(want, got)) return 'mismatch';
-  return Math.floor(now / 60000) > expMin ? 'expired' : 'ok';
+  if (Math.floor(now / 60000) > expMin) return 'expired';
+  return spent.has(code.trim()) ? 'used' : 'ok';
 }
 
 /** Что агент делает с черновиком: показать человеку и спросить прямо. */

@@ -236,6 +236,17 @@ describe('настоящая заявка: ключ, страница и под�
     expect(createLeadMock).toHaveBeenCalledTimes(1);
   });
 
+  it('код одноразовый: второй вызов с тем же кодом — не запись, а новый черновик (ревью #3414)', async () => {
+    const draft = await call('create_booking_request', ARGS.create_booking_request);
+    const code = confirmationCodeOf(draft.content[0]!.text);
+    await call('create_booking_request', { ...ARGS.create_booking_request, confirmation: code });
+    expect(createLeadMock).toHaveBeenCalledTimes(1);
+    const again = await call('create_booking_request', { ...ARGS.create_booking_request, confirmation: code });
+    expect(again.content[0]!.text).toMatch(/Код подтверждения уже использован — заявка не создана/);
+    expect(again.structuredContent).toMatchObject({ accepted: 0, requests: [] });
+    expect(createLeadMock).toHaveBeenCalledTimes(1);
+  });
+
   it('заявка не создана (тура нет) — accepted 0, список пуст', async () => {
     query.mockImplementation(async (sql: string) => (/COUNT\(\*\)/.test(sql) ? { rows: [{ a: '0', b: '0', c: '0' }] } : { rows: [] }));
     const r = await call('create_booking_request', { ...ARGS.create_booking_request, tour: 'Несуществующий тур' });

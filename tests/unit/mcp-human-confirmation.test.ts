@@ -44,11 +44,12 @@ describe('код подтверждения заявки', () => {
 
   it('подделка и мусор — не подходят', () => {
     const code = issueHumanConfirmation('create_booking_request', ARGS, NOW)!;
-    const [exp] = code.split('.');
-    expect(checkHumanConfirmation(`${exp}.${'A'.repeat(22)}`, 'create_booking_request', ARGS, NOW)).toBe('mismatch');
-    // Срок продлить нельзя: он под подписью.
+    const [exp, nonce, sig] = code.split('.');
+    expect(checkHumanConfirmation(`${exp}.${nonce}.${'A'.repeat(22)}`, 'create_booking_request', ARGS, NOW)).toBe('mismatch');
+    // Срок и случайную часть подменить нельзя: они под подписью.
     const later = (parseInt(exp, 36) + 600).toString(36);
-    expect(checkHumanConfirmation(`${later}.${code.split('.')[1]}`, 'create_booking_request', ARGS, NOW)).toBe('mismatch');
+    expect(checkHumanConfirmation(`${later}.${nonce}.${sig}`, 'create_booking_request', ARGS, NOW)).toBe('mismatch');
+    expect(checkHumanConfirmation(`${exp}.AAAAAAAA.${sig}`, 'create_booking_request', ARGS, NOW)).toBe('mismatch');
     expect(checkHumanConfirmation('да', 'create_booking_request', ARGS, NOW)).toBe('mismatch');
   });
 
@@ -64,5 +65,26 @@ describe('код подтверждения заявки', () => {
     delete process.env.CRON_SECRET;
     expect(issueHumanConfirmation('create_booking_request', ARGS, NOW)).toBeNull();
     expect(checkHumanConfirmation(code, 'create_booking_request', ARGS, NOW)).toBe('unavailable');
+  });
+});
+
+describe('код одноразовый (ревью безопасности #3414)', () => {
+  it('погашенный код второй раз не пускает', async () => {
+    const { spendHumanConfirmation } = await import('@/lib/mcp/human-confirmation');
+    const code = issueHumanConfirmation('create_stay_request', ARGS, NOW)!;
+    expect(checkHumanConfirmation(code, 'create_stay_request', ARGS, NOW)).toBe('ok');
+    spendHumanConfirmation(code, NOW);
+    expect(checkHumanConfirmation(code, 'create_stay_request', ARGS, NOW)).toBe('used');
+    // Новый черновик на те же поля в ту же минуту — свой код, годный.
+    const next = issueHumanConfirmation('create_stay_request', ARGS, NOW)!;
+    expect(next).not.toBe(code);
+    expect(checkHumanConfirmation(next, 'create_stay_request', ARGS, NOW)).toBe('ok');
+  });
+
+  it('ревизия плана входит в код: правка плана между вызовами — код не подходит', () => {
+    const withPlan = { ...ARGS, plan_id: 'p1', plan_revision: 'r1' };
+    const code = issueHumanConfirmation('create_stay_request', withPlan, NOW)!;
+    expect(checkHumanConfirmation(code, 'create_stay_request', { ...withPlan, plan_revision: 'r2' }, NOW)).toBe('mismatch');
+    expect(checkHumanConfirmation(code, 'create_stay_request', withPlan, NOW)).toBe('ok');
   });
 });

@@ -115,6 +115,19 @@ beforeEach(() => {
   });
 });
 
+describe('план правили между черновиком и записью (ревью безопасности #3414)', () => {
+  it('ревизия плана сменилась — код не подходит, заявки нет, новый черновик', async () => {
+    const first = await send('create_stay_request', { ...PERSON, accommodation: 'Кутха', plan_id: PLAN });
+    expect(isDraft(first.text)).toBe(true);
+    // edit_trip_plan между вызовами: тот же id, ревизия +1, другие даты.
+    h.loadDraft.mockResolvedValue({ kind: 'found', draft: { ...DRAFT, revision: 2 } });
+    const second = await send('create_stay_request', { ...PERSON, accommodation: 'Кутха', plan_id: PLAN, confirmation: confirmationCodeOf(first.text) });
+    expect(second.text).toMatch(/Код подтверждения не подходит к этим данным \(поля или план изменились\) — заявка не создана/);
+    expect(isDraft(second.text)).toBe(true);
+    expect(h.submitStay).not.toHaveBeenCalled();
+  });
+});
+
 describe('create_stay_request по плану', () => {
   it('даты и гости не названы — из плана; владелец видит план строкой; агенту сказано', async () => {
     const r = await call('create_stay_request', { ...PERSON, accommodation: 'Кутха', plan_id: PLAN });
