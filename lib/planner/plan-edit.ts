@@ -296,12 +296,19 @@ function removeDay(plan: EditablePlan, num: number): Applied {
   const what = group.length > 1
     ? `Убрал дни ${sorted.join(', ')} — это один многодневный тур, по частям его не убирают.`
     : `Убрал день ${num}.`;
+  // «У их туров новые даты» — только если туры среди сдвинутых дней есть
+  // (разбор 14.11, Кузьмич-11: фраза стояла и при днях без туров).
+  const movedTours = next.days.some((d) => moved.includes(d.day) && d.realTour);
   const after = moved.length > 0
-    ? ` Дни после него встали на ${removed.size === 1 ? 'день' : `${removed.size} ${dayWordFor(removed.size)}`} раньше — у их туров новые даты.`
+    ? ` Дни после него встали на ${removed.size === 1 ? 'день' : `${removed.size} ${dayWordFor(removed.size)}`} раньше${movedTours ? ' — у их туров новые даты' : ''}.`
+    : '';
+  // Резерв на нелётную погоду — запас безопасности: убран — сказано, как у replace_day.
+  const reserveGone = target.type === 'buffer' && !next.days.some((d) => d.type === 'buffer')
+    ? ' Резерва на нелётную погоду в плане больше нет.'
     : '';
   return {
     ok: true, plan: next, moved,
-    note: `${what} Поездка стала на ${removed.size} ${dayWordFor(removed.size)} короче.${after}`,
+    note: `${what} Поездка стала на ${removed.size} ${dayWordFor(removed.size)} короче.${after}${reserveGone}`,
     toursTouched: [
       ...toursOf(group, 'dropped'),
       ...toursOf(next.days.filter((d) => moved.includes(d.day)), 'shifted'),
@@ -814,6 +821,10 @@ async function rereadTours(
     // прежнюю строку и ставит новую, если группа всё ещё меньше.
     d.dayWarnings = withGroupMinimum(d.dayWarnings, tour.minParticipants, people);
     d.availability = r.availability;
+    // Время проверки — этого чтения; не прочиталось — прежнего не остаётся
+    // (разбор 14.11, Кузьмич-10: строка дня писала «проверено» временем сборки).
+    delete d.availabilityCheckedAt;
+    if (r.checkedAt !== undefined) d.availabilityCheckedAt = r.checkedAt;
     d.priceFrom = r.priceFrom;
     d.priceTo = r.priceTo;
     delete d.availableDate;

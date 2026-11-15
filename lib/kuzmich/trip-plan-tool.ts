@@ -37,6 +37,7 @@ import { planOfferLines } from '@/lib/kuzmich/plan-offers';
 import { nightLodgingIncluded } from '@/lib/planner/lodging-included';
 import { EDIT_NOT_RECHECKED_NOTE, planWideAfterEdit } from '@/lib/planner/plan-edit-warnings';
 import { isOfferingNote } from '@/lib/safety/mchs-bulletin';
+import { MAX_ADULTS } from '@/lib/planner/party-limits';
 
 /**
  * Как ехать — из слова модели. Принимаются и коды (self/operator/mixed), и
@@ -284,8 +285,8 @@ function dayWord(n: number): string {
   return 'дней';
 }
 
-/** Потолок группы — тот же, что у заявки на бронь (1–30 человек). */
-const MAX_GROUP = 30;
+/** Потолок группы — тот же, что у заявки на бронь и у сайта (lib/planner/party-limits). */
+const MAX_GROUP = MAX_ADULTS;
 
 /** Взрослые: целое 1..30. Не дано — двое; не разобрали — двое и сказано вслух. */
 export function readAdults(raw: string | undefined): { adults: number; given: boolean; note: string | null } {
@@ -350,11 +351,19 @@ export type ChildrenRead =
 /** «Детей нет» словами — однозначно, на любой поверхности. */
 const NO_CHILDREN = /^(нет|-|—|без детей|детей нет|нет детей|0 детей|none|no|no children|0 children)$/i;
 /** Единица возраста после числа: «6 лет», «2 года», «1 год», «10 years», «5 yo». */
-const AGE_UNIT = /^(лет|год|года|годик|годика|г\.?|years?|yrs?|yo|y\.o\.?|y\/o)$/i;
+const AGE_UNIT = /^(лет|год|года|годик|годика|г\.?|years?|yrs?|yo|y\.o\.?|y\/o|岁)$/i;
 /** То же слитно: «6лет», «2года», «10y». */
-const AGE_WITH_UNIT = /^(\d{1,2})(лет|год|года|г\.?|y|yo|years?)$/i;
+const AGE_WITH_UNIT = /^(\d{1,2})(лет|год|года|г\.?|y|yo|years?|岁)$/i;
 /** Связки между возрастами: «6 и 10», «6 and 10». */
-const AGE_JOINER = /^(и|and|&|\+)$/i;
+const AGE_JOINER = /^(и|and|&|\+|和)$/i;
+/**
+ * «5 years old», «6岁和10岁» — как пишут внешние агенты (разбор 14.11,
+ * Кузьмич-13: оба получали отказ). «old» после единицы ничего не меняет,
+ * китайские связки и запятые — разделители.
+ */
+function normalizeAgeText(t: string): string {
+  return t.replace(/\b(years?|yrs?)\s+old\b/gi, '$1').replace(/岁(?=\s*\d|\s*和)/g, '岁 ').replace(/[，、]/g, ',').replace(/和/g, ' 和 ');
+}
 /**
  * Дробный возраст с единицей: «1,5 года», «7,5 лет», «1,5года», «2.5 years».
  * Одна цифра после разделителя и без пробела — «6,10 лет» остаётся списком.
@@ -414,7 +423,7 @@ function readAgeList(inner: string, surface: DraftSurface): ChildrenRead {
 }
 
 export function readChildren(raw: string | undefined, surface: DraftSurface = 'chat'): ChildrenRead {
-  const t = (raw ?? '').trim();
+  const t = normalizeAgeText((raw ?? '').trim()).trim();
   if (!t || NO_CHILDREN.test(t)) return { kind: 'none', children: [] };
   if (t === '0' && surface === 'chat') return { kind: 'none', children: [] };
 
@@ -490,9 +499,11 @@ export function readChildren(raw: string | undefined, surface: DraftSurface = 'c
 // премиум. С 14.11 уровень цену плана не меняет — это пожелание исполнителю
 // (слово владельца «5 -1»).
 const BUDGET_WORDS: Array<[RegExp, BudgetTier]> = [
-  [/^(economy|эконом|бюджет|дешев|недорог|подешевле|минимал|баз|хостел|палат)/i, 'economy'],
-  [/^(comfort|комфорт|средн|стандарт|гостиниц|отел|апартамент)/i, 'comfort'],
-  [/^(premium|премиум|люкс|дорог|максимал|vip|лодж|эко-лодж)/i, 'premium'],
+  // Английские слова — как их передают внешние агенты (Кузьмич-13: «budget»
+  // и «luxury» давали «не разобрал, считаю комфорт»).
+  [/^(economy|budget|cheap|hostel|camping|эконом|бюджет|дешев|недорог|подешевле|минимал|баз|хостел|палат)/i, 'economy'],
+  [/^(comfort|standard|mid|hotel|комфорт|средн|стандарт|гостиниц|отел|апартамент)/i, 'comfort'],
+  [/^(premium|luxury|lux|deluxe|премиум|люкс|дорог|максимал|vip|лодж|эко-лодж)/i, 'premium'],
 ];
 
 export const BUDGET_LABEL: Record<BudgetTier, string> = { economy: 'эконом', comfort: 'комфорт', premium: 'премиум' };
@@ -501,7 +512,7 @@ export const BUDGET_LABEL: Record<BudgetTier, string> = { economy: 'эконом
 const TIER_NEXT_TO_SUM: Array<[RegExp, BudgetTier]> = [
   [/^(economy|эконом|хостел|палат)/i, 'economy'],
   [/^(comfort|комфорт|гостиниц|отел|апартамент)/i, 'comfort'],
-  [/^(premium|премиум|люкс|vip|лодж|эко-лодж)/i, 'premium'],
+  [/^(premium|luxury|премиум|люкс|vip|лодж|эко-лодж)/i, 'premium'],
 ];
 
 /** Уровень, названный рядом с суммой; два разных уровня — не выбираем. */

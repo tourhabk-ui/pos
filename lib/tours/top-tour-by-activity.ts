@@ -18,6 +18,8 @@
 import { pool } from '@/lib/db-pool';
 import { nearestFreeDateSql } from '@/lib/tours/nearest-free-date';
 import { offerOrderDay, orderOffersBy } from '@/lib/tours/offer-order';
+// Занятие дня плана → слова операторов (`hot_spring` → и `thermal`): одно правило с движком.
+import { rawTypesFor } from '@/lib/planner/constants';
 
 export interface TopTour {
   id: string;
@@ -61,9 +63,9 @@ export async function topToursByActivity(
           ${nearestFreeDateSql('ot')} AS nearest_free_date
         FROM operator_tours ot
         JOIN partners p ON p.id = ot.operator_id
-        WHERE ot.activity_type = $1
+        WHERE ot.activity_type = ANY($1::text[])
           AND ot.is_active = true AND ot.is_published = true AND ot.deleted_at IS NULL
-      `, [activity]);
+      `, [rawTypesFor(activity)]);
       const [first] = orderOffersBy(rows, (r) => ({ id: String(r.id), nearestFreeDate: r.nearest_free_date ?? null }), { day });
       if (first) {
         const { nearest_free_date: _date, ...tour } = first;

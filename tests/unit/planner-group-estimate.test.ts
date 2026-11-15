@@ -16,6 +16,7 @@
  *   — ночи — по зоне, где ночуют, без последней ночи, ночей дома и ночей,
  *     включённых в тур.
  */
+import { dayPriceLine } from '@/lib/planner/day-price';
 import { describe, it, expect } from 'vitest';
 import {
   estimateGroup, calculatePriceBreakdown, OPEN_PRICE_WORDS,
@@ -170,11 +171,19 @@ describe('тур — по своей единице цены', () => {
     expect(e.total).toEqual([0, 0]);
   });
 
-  it('цена без данных о туре — за человека, как в сумме на человека', () => {
+  // Разбор 14.11, смета-6: карточка дня писала «за что — не записано», а смета
+  // умножала ту же цену на всю группу. Единицы нет — суммы нет, нигде.
+  it('цена без данных о туре — не «за человека»: в итог не входит, как и на карточке', () => {
     const days = [day(1, 'activity', { realPrice: 8000 })];
     const e = estimateGroup(days, profile({ adults: 3 }));
-    expect(e.total).toEqual([8000 * 3, 8000 * 3]);
-    expect(e.perPerson).toEqual(calculatePriceBreakdown(days).tours);
+    const [line] = tourLines(e);
+    expect(line!.total).toBeNull();
+    expect(line!.note).toMatch(/Не указано, за что цена тура/);
+    expect(e.total).not.toEqual([8000 * 3, 8000 * 3]);
+    const pp = calculatePriceBreakdown(days);
+    expect(pp.tours).toEqual([0, 0]);
+    expect(pp.activityPricing.excluded).toBe(1);
+    expect(dayPriceLine(days[0]!).replace(/[\u00a0\u202f]/g, ' ')).toBe('8 000 ₽ за что — не записано');
   });
 });
 

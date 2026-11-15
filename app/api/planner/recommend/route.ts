@@ -14,6 +14,7 @@ import { MAX_REST_DAYS } from '@/lib/planner/travel-style';
 import { createRateLimiter, getTrustedClientIp } from '@/lib/rate-limit';
 import { logSwallowedFailure } from '@/lib/observability/swallowed';
 import { tripDatesProblem } from '@/lib/planner/calendar-days';
+import { MAX_ADULTS } from '@/lib/planner/party-limits';
 
 /** Потолок заметки о здоровье: коротко, «колено, астма», а не история болезни. */
 const HEALTH_NOTES_MAX = 300;
@@ -48,7 +49,7 @@ const RecommendSchema = z.object({
   departureDate: z.string().date().optional(),
   flightArrivalTime: z.string().max(5).optional(),
   flightDepartureTime: z.string().max(5).optional(),
-  adults: z.number().int().min(1).max(20).default(2),
+  adults: z.number().int().min(1).max(MAX_ADULTS).default(2),
   children: z.array(z.number().int().min(0).max(17)).max(10).default([]),
   fitnessLevel: z.enum(['beginner', 'moderate', 'active']).default('moderate'),
   budgetTier: z.enum(['economy', 'comfort', 'premium']).default('comfort'),
@@ -81,8 +82,13 @@ export async function POST(req: NextRequest) {
   if (session instanceof NextResponse) return session;
   const userId = session.userId;
 
+  // Битый JSON — ошибка запроса, а не сбой сборки (разбор 14.11, экран-15).
+  let rawBody: unknown;
+  try { rawBody = await req.json(); } catch {
+    return NextResponse.json({ success: false, error: 'Некорректный JSON' }, { status: 400 });
+  }
+
   try {
-    const rawBody = await req.json() as unknown;
 
     // If authenticated, merge saved preferences (request body wins)
     let mergedBody: unknown = rawBody;

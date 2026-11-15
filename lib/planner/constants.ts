@@ -206,6 +206,11 @@ export const ACTIVITY_CONSTRAINTS: Record<string, ActivityConstraints> = {
     bestZones: ['avachinsky', 'eastern'],
     months: [1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12],
   },
+  // `thermal` (слово чата и Кузьмича, «термальные») и `hot_spring` (плитка
+  // сайта) — одно занятие: правила одни, иначе сайт и чат по одним словам
+  // строили разные планы (разбор 14.11, Кузьмич-9: у чата не было восточной
+  // зоны). Туры оператора с типом `thermal` идут под ключом `hot_spring`
+  // (ACTIVITY_ALIASES ниже), а под ключом `thermal` — своим словом.
   thermal: {
     allowedTransports: ['walking', 'jeep'],
     defaultTransport: 'walking',
@@ -213,7 +218,7 @@ export const ACTIVITY_CONSTRAINTS: Record<string, ActivityConstraints> = {
     minChildAge: 0,
     fitnessRequired: 'beginner',
     minDays: 1,
-    bestZones: ['avachinsky'],
+    bestZones: ['avachinsky', 'eastern'],
     months: [1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12],
   },
   boat_trip: {
@@ -321,6 +326,13 @@ export const ACTIVITY_NAMES: Record<string, string> = {
  */
 export const ACTIVITY_ALIASES: Record<string, string> = {
   rafting: 'river',
+  // Разбор 14.11 (Кузьмич-9) и замер с прода через MCP `get_tours`: пять
+  // живых туров к источникам (Зеленовские озерки, Малки, Дачные, «термальный
+  // маршрут») записаны операторами как `thermal`, а планировщик сайта
+  // спрашивает движок плиткой `hot_spring` («Горячие источники»). Отбор по
+  // точному равенству не видел их ни одного: сайт не ставил в план ни одного
+  // тура к источникам.
+  thermal: 'hot_spring',
 };
 
 /**

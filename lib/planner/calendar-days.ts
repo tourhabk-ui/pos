@@ -119,9 +119,27 @@ const DATE_BOUND = [
   'availableDate', 'slotsRemaining', 'availability', 'availabilityCheckedAt', 'capacityWarning', 'weatherForecast',
 ] as const;
 
+/**
+ * Цена тура тоже на дату: правило брони считает её по дню выезда (сезон,
+ * раннее бронирование, заполненность — `planTourPrice`). Разбор 14.11,
+ * смета-5: после перестановки карточка и смета держали цену прежней даты.
+ * Цену несёт только первый день тура (у продолжения многодневного её нет) —
+ * снимается и помечается только там; экран перечитывает её
+ * (lib/planner/tour-day-apply), пока не перечитал — «не посчитано».
+ */
+export const TOUR_PRICE_PENDING_TEXT = 'Цену тура на новую дату ещё не перечитали.';
+
 function movedToAnotherDate<T extends { day: number }>(d: T, day: number): T {
   const copy = { ...d } as T & Record<string, unknown>;
   for (const k of DATE_BOUND) delete copy[k];
+  const rec: Record<string, unknown> = copy;
+  const tour = rec.realTour as Record<string, unknown> | undefined;
+  if (tour && ('realPrice' in rec || 'priceMissing' in rec)) {
+    delete rec.realPrice;
+    rec.priceMissing = TOUR_PRICE_PENDING_TEXT;
+    const { priceLabel: _label, ...rest } = tour;
+    rec.realTour = rest;
+  }
   copy.day = day;
   return copy;
 }

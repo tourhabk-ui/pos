@@ -16,6 +16,7 @@
  * а не плана.
  */
 import { z } from 'zod';
+import { MAX_ADULTS } from '@/lib/planner/party-limits';
 
 const TRANSPORT = z.enum(['walking', 'jeep', 'helicopter', 'boat']);
 const ZONE_ENUM = z.enum(['avachinsky', 'western', 'eastern', 'northern']);
@@ -66,7 +67,7 @@ export const TripWarningSchema = z.object({
 
 /** Состав и уровень, на которые собран план. Нет — поездка сохранена до 09.10. */
 export const TripPartySchema = z.object({
-  adults: z.number().int().min(1).max(30),
+  adults: z.number().int().min(1).max(MAX_ADULTS),
   children: z.array(z.number().int().min(0).max(17)).max(10),
   budgetTier: z.enum(['economy', 'comfort', 'premium']),
   tripOrigin: z.enum(['visitor', 'local']).optional(),

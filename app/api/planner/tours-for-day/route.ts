@@ -20,6 +20,12 @@
  * С датой правило то же, что у движка: тур с календарём — только если в этот
  * день у него есть свободные места, без календаря — день в сезоне выездов.
  * Подходящего нет — пустой список, и карточка дня тура не предлагает.
+ *
+ * `tour_id` + `date` + `participants` — другой вопрос к тому же дню: места и
+ * цена ОДНОГО тура плана на эту дату и группу (разбор 14.11, смета-5). Экран
+ * зовёт его, когда перестановка дней сменила дню дату: цена по правилу брони
+ * зависит от даты. Отвечает `rereadTourDay` — тот же, что у правки плана через
+ * Кузьмича; отказ чтения внутри — свой исход («не прочитали»), не «хорошо».
  */
 
 import { NextRequest, NextResponse } from 'next/server';
@@ -33,6 +39,8 @@ import { catalogRowFitsDay } from '@/lib/planner/tour-day-fit';
 import { kamchatkaToday } from '@/lib/planner/calendar-days';
 import { orderOffersBy } from '@/lib/tours/offer-order';
 import { zoneMatchSql } from '@/lib/planner/zone-match';
+import { rawTypesFor } from '@/lib/planner/constants';
+import { rereadTourDay } from '@/lib/planner/tour-day-reread';
 
 export const dynamic = 'force-dynamic';
 
@@ -43,6 +51,38 @@ const QuerySchema = z.object({
   /** Дата дня плана 'YYYY-MM-DD': туры только с выездом в этот день. */
   date:          z.string().regex(/^\d{4}-\d{2}-\d{2}$/).optional(),
 });
+
+const TourDaySchema = z.object({
+  tour_id:      z.string().uuid(),
+  date:         z.string().regex(/^\d{4}-\d{2}-\d{2}$/),
+  participants: z.coerce.number().int().min(1).max(60),
+  /** Потолок группы тура из плана — только для строки о местах. */
+  max:          z.coerce.number().int().min(1).max(1000).optional(),
+});
+
+async function tourDay(searchParams: URLSearchParams) {
+  const parsed = TourDaySchema.safeParse({
+    tour_id:      searchParams.get('tour_id'),
+    date:         searchParams.get('date'),
+    participants: searchParams.get('participants'),
+    max:          searchParams.get('max') || undefined,
+  });
+  if (!parsed.success) {
+    return NextResponse.json(
+      { success: false, error: 'Нужны тур, дата дня и число участников' },
+      { status: 400 },
+    );
+  }
+  const { tour_id, date, participants, max } = parsed.data;
+  try {
+    const read = await rereadTourDay({ tourId: tour_id, date, participants, maxParticipants: max ?? null });
+    return NextResponse.json({ success: true, read });
+  } catch (err) {
+    const e = err as { code?: string; message?: string } | undefined;
+    console.error('[planner/tours-for-day] тур дня не перечитан', { sqlstate: e?.code, message: e?.message });
+    return NextResponse.json({ success: false, error: 'Цену тура на эту дату проверить не удалось' }, { status: 500 });
+  }
+}
 
 interface TourRow {
   id:                string;
@@ -113,6 +153,7 @@ export async function GET(req: NextRequest) {
   const session = await plannerSession(req);
   if (session instanceof NextResponse) return session;
   const { searchParams } = req.nextUrl;
+  if (searchParams.has('tour_id')) return tourDay(searchParams);
   const parsed = QuerySchema.safeParse({
     activity_type: searchParams.get('activity_type'),
     zone:          searchParams.get('zone') || undefined,
@@ -129,17 +170,20 @@ export async function GET(req: NextRequest) {
   }
 
   const { activity_type, zone, limit, date } = parsed.data;
+  // Слова оператора, которые движок считает этим занятием (`thermal` у
+  // туров — `hot_spring` у плитки сайта): тот же список, что у отбора движка.
+  const types = rawTypesFor(activity_type);
 
   try {
     // If zone is specified, try filtered query first
     if (zone) {
       const { rows } = await pool.query<TourRow>(`${SELECT_HEAD}${date ? dayColumns('$3') : ''}${SELECT_FROM}
         LEFT JOIN agent_route_knowledge ark ON ark.id = ot.agent_route_id
-        WHERE ot.activity_type = $1
+        WHERE ot.activity_type = ANY($1::text[])
           AND ${publicTourSql('ot')}
           -- Тот же предикат зоны, что у движка (E4): тур без зоны — городской.
           AND ${zoneMatchSql('ark', '$2')}
-      `, date ? [activity_type, zone, date] : [activity_type, zone]);
+      `, date ? [types, zone, date] : [types, zone]);
 
       // Есть подходящие в зоне — они; нет — общий запрос, как раньше.
       const inZone = firstByRule(rows, limit, date);
@@ -151,9 +195,9 @@ export async function GET(req: NextRequest) {
 
     // Global query (no zone filter)
     const { rows } = await pool.query<TourRow>(`${SELECT_HEAD}${date ? dayColumns('$2') : ''}${SELECT_FROM}
-      WHERE ot.activity_type = $1
+      WHERE ot.activity_type = ANY($1::text[])
         AND ${publicTourSql('ot')}
-    `, date ? [activity_type, date] : [activity_type]);
+    `, date ? [types, date] : [types]);
 
     // Зона была названа, а в ней подходящего нет — тур из другой зоны
     // помечается (разбор планера 14.11): раньше он вставал молча.

@@ -103,3 +103,34 @@ describe('/api/planner/recommend — границы дат', () => {
     expect(res.status).toBe(200);
   });
 });
+
+// Разбор 14.11, Кузьмич-9: потолок взрослых один на сайт, чат и сохранённую
+// поездку (lib/planner/party-limits). Было 20 у роута при 30 у чата.
+describe('/api/planner/recommend — взрослых до 30, как в чате', () => {
+  const ask = (adults: number, ip: string) => POST(new NextRequest('http://localhost/api/planner/recommend', {
+    method: 'POST', body: JSON.stringify({ ...BODY, adults }),
+    headers: { 'content-type': 'application/json', 'x-real-ip': ip, 'x-forwarded-for': ip },
+  }));
+
+  it('25 взрослых — план собирается на 25', async () => {
+    const res = await ask(25, '10.56.0.1');
+    expect(res.status).toBe(200);
+    expect(recommendTrip.mock.calls[0]![0]).toMatchObject({ adults: 25 });
+  });
+
+  it('31 — отказ, движок не зовётся', async () => {
+    expect((await ask(31, '10.56.0.2')).status).toBe(400);
+    expect(recommendTrip).not.toHaveBeenCalled();
+  });
+});
+
+describe('/api/planner/recommend — битый JSON (разбор 14.11, экран-15)', () => {
+  it('400 «Некорректный JSON», движок не зовётся, не 500', async () => {
+    const res = await POST(new NextRequest('http://localhost/api/planner/recommend', {
+      method: 'POST', body: '{"interests": [', headers: { 'content-type': 'application/json', 'x-real-ip': '10.57.0.1', 'x-forwarded-for': '10.57.0.1' },
+    }));
+    expect(res.status).toBe(400);
+    expect((await res.json()).error).toBe('Некорректный JSON');
+    expect(recommendTrip).not.toHaveBeenCalled();
+  });
+});

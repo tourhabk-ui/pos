@@ -305,3 +305,62 @@ describe('форма: дни по календарю (H3), однодневна�
     expect(screen.getByText('Дата отъезда должна быть позже даты прилёта.')).toBeTruthy();
   });
 });
+
+describe('перестановка: цена тура перечитывается на новую дату (разбор 14.11, смета-5)', () => {
+  /** Ответ роута о туре дня держим, пока тест не отпустит. */
+  function holdTourDay() {
+    const base = vi.mocked(fetch).getMockImplementation()!;
+    let release: (body: unknown) => void = () => undefined;
+    const answer = new Promise<unknown>((r) => { release = r; });
+    vi.mocked(fetch).mockImplementation(async (url, init) => {
+      if (String(url).includes('tour_id=')) return { ok: true, json: async () => answer } as Response;
+      return base(url, init);
+    });
+    return (body: unknown) => act(async () => { release(body); await answer; });
+  }
+  const priceOf = (title: string) =>
+    (within(card(title).el).queryByTestId('day-price')?.textContent ?? '').replace(/[  ]/g, ' ');
+
+  it('тур переехал на другой день — цена прежней даты снята, новая встаёт из ответа', async () => {
+    PLAN_DAYS = FULL;
+    const estimate = await buildPlan('2030-08-04');
+    const release = holdTourDay();
+    expect(priceOf('Авачинский вулкан')).toContain('10 000 ₽');
+
+    const v = dnd.values!;
+    act(() => dnd.onReorder!([v[0], v[2], v[1], v[3]]));
+    act(() => dnd.onDragEnd!());
+    expect(shown()).toEqual(['1:Прилёт днём', '2:Прогулка у океана', '3:Авачинский вулкан', '4:Сборы и вылет']);
+
+    // Ответа ещё нет: цены прежней даты на карточке и в смете нет.
+    expect(priceOf('Авачинский вулкан')).not.toContain('10 000');
+    expect((estimate.textContent ?? '').replace(/[  ]/g, ' ')).not.toContain('10 000');
+
+    // Спросили тур этого дня на его новую дату и всю группу.
+    const asked = vi.mocked(fetch).mock.calls.map(([u]) => String(u)).find((u) => u.includes('tour_id='))!;
+    const q = new URL(asked, 'http://localhost').searchParams;
+    expect(q.get('tour_id')).toBe('t-1');
+    expect(q.get('date')).toBe('2030-08-03');
+    expect(q.get('participants')).toBe('2');
+    expect(q.get('max')).toBe('10');
+
+    await release({ success: true, read: { availability: 'open', availableDate: '2030-08-03', slotsRemaining: 4, realPrice: 11500, priceFrom: 11500, priceTo: 11500, priceLabel: 'сезонная цена' } });
+    await vi.waitFor(() => expect(priceOf('Авачинский вулкан')).toContain('11 500 ₽'));
+    expect(priceOf('Авачинский вулкан')).toContain('сезонная цена');
+  });
+
+  it('роут не ответил данными — цена «проверить не удалось», а не прежняя', async () => {
+    PLAN_DAYS = FULL;
+    await buildPlan('2030-08-04');
+    const release = holdTourDay();
+    const err = vi.spyOn(console, 'error').mockImplementation(() => undefined);
+    const v = dnd.values!;
+    act(() => dnd.onReorder!([v[0], v[2], v[1], v[3]]));
+    act(() => dnd.onDragEnd!());
+    await release({ success: false, error: 'сбой' });
+    await vi.waitFor(() => expect(priceOf('Авачинский вулкан')).toContain('цену называет оператор'));
+    expect(priceOf('Авачинский вулкан')).not.toContain('10 000');
+    expect(err.mock.calls.some((c) => String(c[0]).includes('цена тура на новую дату не перечитана'))).toBe(true);
+    err.mockRestore();
+  });
+});

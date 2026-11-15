@@ -124,6 +124,23 @@ describe('set_party — состав группы', () => {
     expect(before.days[1].realPrice).toBe(9000);
   });
 
+  // Разбор 14.11, Кузьмич-10: после перечитки строка дня писала «проверено»
+  // временем сборки плана — время проверки было не того чтения.
+  it('время проверки мест — этого чтения; не прочиталось — прежнего нет', async () => {
+    const before = plan();
+    before.days[1].availabilityCheckedAt = '2027-07-01T00:00:00.000Z';
+    before.days[2].availabilityCheckedAt = '2027-07-01T00:00:00.000Z';
+    fakeRead.mockImplementationOnce(async (input) => ({
+      availability: 'open', availableDate: input.date, slotsRemaining: 5, checkedAt: '2027-07-05T03:00:00.000Z',
+      realPrice: 9000, priceFrom: 9000, priceTo: 9000,
+    }));
+    fakeRead.mockImplementationOnce(async () => ({ availability: 'unread', priceFrom: 0, priceTo: 0, realPrice: 30000 }));
+    const r = await applyPlanEdit(before, { kind: 'set_party', adults: 3 }, deps());
+    if (!r.ok) throw new Error(r.reason);
+    expect(r.plan.days[1].availabilityCheckedAt).toBe('2027-07-05T03:00:00.000Z');
+    expect(r.plan.days[2].availabilityCheckedAt).toBeUndefined();
+  });
+
   it('ребёнок младше допуска занятия — отказ с днями, план прежний', async () => {
     const r = await applyPlanEdit(plan(), { kind: 'set_party', children: [6] }, deps());
     expect(r.ok).toBe(false);
@@ -319,6 +336,22 @@ describe('replace_day — замена дня', () => {
     expect(r.warnings).toContain('Нужна путёвка на рыбалку.');
     expect(r.note).toContain('Заменил день 6 (15 июля): было «Авачинский вулкан», стало «Рыбалка на Авче»');
     expect(fakeRead).not.toHaveBeenCalled();
+  });
+
+  // Разбор 14.11, Кузьмич-11: remove_day резерва молчал о нём, а «у их туров
+  // новые даты» стояло и там, где после убранного дня туров нет.
+  it('убран резерв на нелётную погоду — сказано; дни без туров — без «новых дат туров»', async () => {
+    const p = plan();
+    p.days[4] = day(5, 'buffer', 'Резерв на погоду');
+    const r = await applyPlanEdit(p, { kind: 'remove_day', day: 5 }, deps());
+    if (!r.ok) throw new Error(r.reason);
+    expect(r.note).toContain('Резерва на нелётную погоду в плане больше нет.');
+    // После дня 5 — Авачинский без тура и отъезд: туров среди сдвинутых нет.
+    expect(r.note).toContain('встали на день раньше.');
+    expect(r.note).not.toContain('у их туров');
+    const rest = await applyPlanEdit(plan(), { kind: 'remove_day', day: 5 }, deps());
+    if (!rest.ok) throw new Error(rest.reason);
+    expect(rest.note).not.toContain('Резерва');
   });
 
   it('занят резерв на нелётную погоду — ответ говорит, что резерва больше нет', async () => {
