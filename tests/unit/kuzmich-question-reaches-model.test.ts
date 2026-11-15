@@ -16,7 +16,7 @@
  *  3. вопрос, уже лежащий в истории (веб-чат, Telegram), не дублируется —
  *     в том числе когда за ним идёт описание фото.
  */
-import { describe, it, expect, vi, beforeEach } from 'vitest';
+import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
 
 const { waterfall } = vi.hoisted(() => ({ waterfall: vi.fn() }));
 vi.mock('@/lib/ai/providers', async (importOriginal) => {
@@ -43,6 +43,13 @@ const userTexts = (msgs: Msg[]) => msgs.filter((m) => m.role === 'user').map((m)
 beforeEach(() => {
   waterfall.mockReset();
   waterfall.mockResolvedValue({ content: 'Авачинский спокоен: зелёный по обеим шкалам.', provider: 'test' });
+  // Сеть закрыта: общая сборка данных хода (kuzmichTurnFacts) на вопрос об
+  // Авачинском идёт за погодой зоны, и на раннере GitHub настоящий запрос
+  // висел дольше срока теста (#3398).
+  vi.stubGlobal('fetch', vi.fn().mockRejectedValue(new Error('сеть в тесте закрыта')));
+});
+afterEach(() => {
+  vi.unstubAllGlobals();
 });
 
 describe('вопрос доходит до модели', () => {

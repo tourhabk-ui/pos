@@ -11,7 +11,7 @@
  * Сторож — поведением: правило вызовом и настоящий answerAgentMessage с
  * подменённым провайдером (что ушло агенту).
  */
-import { describe, it, expect, vi, beforeEach } from 'vitest';
+import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
 
 const { waterfall } = vi.hoisted(() => ({ waterfall: vi.fn() }));
 vi.mock('@/lib/ai/providers', async (importOriginal) => {
@@ -27,6 +27,13 @@ import { asksHowToRequest, namesAllThree, noteLanguage, requestNeedsNote, REQUES
 
 beforeEach(() => {
   waterfall.mockReset();
+  // Сеть закрыта: общая сборка данных хода (kuzmichTurnFacts) на вопрос об
+  // Авачинском идёт за погодой зоны, и на раннере GitHub настоящий запрос
+  // висел дольше срока теста (#3398).
+  vi.stubGlobal('fetch', vi.fn().mockRejectedValue(new Error('сеть в тесте закрыта')));
+});
+afterEach(() => {
+  vi.unstubAllGlobals();
 });
 
 describe('правило: когда приписка нужна', () => {
