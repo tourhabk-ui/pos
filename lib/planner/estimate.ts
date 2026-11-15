@@ -51,6 +51,7 @@ import { bookingTotal } from '@/lib/tours/booking-total';
 import { dateOfTripDay } from '@/lib/planner/flow-balance';
 import type { PlanChoices } from '@/lib/planner/plan-choices';
 import { nightLodgingIncluded } from '@/lib/planner/lodging-included';
+import { freeDay } from '@/lib/planner/calendar-days';
 
 // ── Входные данные ───────────────────────────────────────────────────────────
 
@@ -231,7 +232,32 @@ export interface PriceBreakdown {
   };
 }
 
-export function calculatePriceBreakdown(days: EstimateDay[], profile: Pick<EstimateProfile, 'budgetTier' | 'tripOrigin'>): PriceBreakdown {
+/**
+ * Дни плана подряд: незаполненный день внутри поездки — свободный день там
+ * же, где человек был накануне (разбор планера 14.11, смета-1).
+ *
+ * Движок недобор не набивает («остальные дни не придумываем»), и номера дней
+ * идут с пропусками: 1 прилёт, 2–3 занятия, 7 вылет. Ночь при этом проходит
+ * каждая — человек где-то ночует и 4-го, и 5-го. Смета считала ночи по
+ * записанным дням и давала три ночи вместо шести там, где дни не достроил
+ * экран (Кузьмич, MCP, план из черновика, правка плана). Экран /planner
+ * достраивал их сам (`fillCalendarGaps`) — теперь смета считает одинаково на
+ * всех поверхностях. Порядок дней сбит (повтор номера) — дни как есть: номер
+ * по месту здесь не назначается, к нему привязан выбор жилья.
+ */
+export function withFreeDays<T extends EstimateDay>(days: readonly T[]): Array<T | EstimateDay> {
+  const out: Array<T | EstimateDay> = [];
+  for (const d of days) {
+    const prev = out[out.length - 1];
+    if (prev && d.day <= prev.day) return [...days];
+    if (prev) for (let n = prev.day + 1; n < d.day; n++) out.push(freeDay(n, prev));
+    out.push(d);
+  }
+  return out;
+}
+
+export function calculatePriceBreakdown(planDays: EstimateDay[], profile: Pick<EstimateProfile, 'budgetTier' | 'tripOrigin'>): PriceBreakdown {
+  const days = withFreeDays(planDays);
   // Плана нет — сметы нет (аудит 07.11, E8): до 07.11 пустой зимний план
   // показывал «на человека 2 500–5 000 ₽» — трансфер аэропорта к поездке, в
   // которой нет ни одного дня.
@@ -484,7 +510,8 @@ function nightGenitive(n: number): string {
  * платформа не знает, и смета так и говорит (строка «Дети» не заводится —
  * это допущение, а не цена).
  */
-export function estimateGroup(days: EstimateDay[], profile: EstimateProfile, choices?: PlanChoices): GroupEstimate {
+export function estimateGroup(planDays: EstimateDay[], profile: EstimateProfile, choices?: PlanChoices): GroupEstimate {
+  const days = withFreeDays(planDays);
   const people = Math.max(1, profile.adults + profile.children.length);
   const bi = budgetIndex(profile.budgetTier);
   const origin = asTripOrigin(profile.tripOrigin);
