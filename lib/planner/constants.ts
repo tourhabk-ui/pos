@@ -194,7 +194,10 @@ export const ACTIVITY_CONSTRAINTS: Record<string, ActivityConstraints> = {
     defaultTransport: 'helicopter',
     difficulty: 'easy',
     minChildAge: 8,
-    childAlternative: 'Малые гейзеры и кальдера Узон — от 8 лет',
+    // До 14.11 здесь стояло «Малые гейзеры и кальдера Узон — от 8 лет» —
+    // альтернатива ребёнку младше 8 лет с тем же порогом 8 лет (разбор
+    // планера, движок-14). Возраст — по нашей же таблице `helicopter`.
+    childAlternative: 'Обзорная вертолётная экскурсия без высадки у гейзеров — от 3 лет',
     fitnessRequired: 'beginner',
     minDays: 1,
     bestZones: ['northern'],

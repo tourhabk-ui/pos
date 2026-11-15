@@ -714,7 +714,9 @@ function collectWarnings(
     if (boatRequired.length > 0) {
       warnings.push({
         type: 'seasickness', severity: 'critical',
-        message: `Морская болезнь: "${boatRequired.join(', ')}" требует катера. Прибрежные прогулки и наблюдение с берега заменят морские выходы. Уточните с оператором.`,
+        // Занятие словами, а не ключом движка («"boat_trip" требует катера»,
+        // разбор планера 14.11, движок-15).
+        message: `Морская болезнь: ${boatRequired.map((i) => `«${ACTIVITY_NAMES[i] ?? i}»`).join(', ')} — выход на катере. Прибрежные прогулки и наблюдение с берега заменят морские выходы. Уточните с оператором.`,
       });
     }
     if (boatOptional.length > 0) {
@@ -1196,7 +1198,8 @@ async function generateDayPlans(
 
   // Determine zone allocation
   /** `tail` — блок просьбы, которой не досталось дня (см. перед циклом блоков). */
-  const zoneBlocks: Array<{ zone: ZoneId; interests: string[]; activeDays: number; tail?: boolean; onlyTour?: RealTour }> = [];
+  /** `startDay` — день, с которого блок начинается (тур ждёт своей даты выезда). */
+  const zoneBlocks: Array<{ zone: ZoneId; interests: string[]; activeDays: number; tail?: boolean; onlyTour?: RealTour; startDay?: number }> = [];
   const totalScore = zones.reduce((s, z) => s + z.score, 0) || 1;
 
   for (const z of zones) {
@@ -1284,17 +1287,24 @@ async function generateDayPlans(
     // если его выезд — в следующий свободный день поездки в той же зоне
     // (волна 3 аудита 07.11, 3.2). Пруф с прода: Горелый с выездами 15–16.07
     // стоял днём 2 (11.07) с «мест нет», а день 6 (15.07) оставался свободным.
+    //
+    // Выезд не обязан прийтись на следующий день (разбор 14.11): тур ждёт
+    // своей даты, дни до неё остаются свободными. Пруф: Горелый с выездом
+    // 15.07, а следующий свободный день — 14.07; до правки тур не вставал
+    // вовсе, если 14.07 не занимал отдых.
     let at = dayNum + out.length;
+    const lastTail = at + room - 1;
     const lined = new Set<string>();
     for (const w of waitingTours) {
-      if (room <= 0) break;
+      if (at > lastTail) break;
       if (placedTours.has(w.tour.tourId) || lined.has(w.tour.tourId) || w.zone !== prevZone) continue;
       const need = tourPlanSpan(w.tour.durationHours, w.tour.multiDayCount) ?? 1;
-      if (need > room || !fitsOn(w.tour, planDateOf(at))) continue;
-      out.push({ zone: prevZone, interests: [w.interest], activeDays: need, tail: true, onlyTour: w.tour });
+      let start = at;
+      while (start + need - 1 <= lastTail && !fitsOn(w.tour, planDateOf(start))) start++;
+      if (start + need - 1 > lastTail) continue;
+      out.push({ zone: prevZone, interests: [w.interest], activeDays: need, tail: true, onlyTour: w.tour, startDay: start });
       lined.add(w.tour.tourId);
-      room -= need;
-      at += need;
+      at = start + need;
     }
     return out;
   };
@@ -1310,6 +1320,7 @@ async function generateDayPlans(
     const block = zoneBlocks[bi];
     // Блок ждавшего тура: его выезд должен прийтись ровно на этот день
     // (дни хвоста могли сдвинуться), и тур ещё не стоит в плане.
+    if (block.startDay !== undefined && block.startDay > dayNum) dayNum = block.startDay;
     if (block.onlyTour && (placedTours.has(block.onlyTour.tourId) || !fitsOn(block.onlyTour, planDateOf(dayNum)))) continue;
 
     // «Сам»: активности, куда без гида нельзя по нашим же данным, из блока
@@ -1704,7 +1715,10 @@ async function generateDayPlans(
       if (style === 'mixed' && !realTour && !route) {
         const guideOnly = activitySelfBlocker(interest);
         if (guideOnly) dayWarnings.unshift(`Только с гидом: ${guideOnly}. Ищите тур оператора.`);
-        else if (requestOnlyToday) dayWarnings.unshift(OUT_OF_SEASON_DAY_NOTE);
+        // Вне сезона по ориентиру — говорится и у занятия «только с гидом»
+        // (разбор 14.11, движок-10): в феврале у вулкана стояло одно «Только с
+        // гидом», и общий день читался как обычный сезонный выход.
+        if (requestOnlyToday) dayWarnings.unshift(OUT_OF_SEASON_DAY_NOTE);
       }
 
       // Health compatibility check
@@ -1734,7 +1748,10 @@ async function generateDayPlans(
 
       // Seasickness alternative for boat_required activities
       let dayTitle = title;
-      if (profile.seasickness && c.requiredTransport === 'boat' && interest === 'boat_trip') {
+      // Только день без тура (разбор 14.11, движок-6): у тура на катере
+      // название тура, его цена и выход на воду — «береговой маршрут» над
+      // ним выдавал катер за берег человеку, которого укачивает.
+      if (profile.seasickness && c.requiredTransport === 'boat' && interest === 'boat_trip' && !realTour) {
         dayTitle = 'Прогулка вдоль Авачинской бухты (береговой маршрут)';
       }
       for (const note of notesForPlanDay(
@@ -1918,7 +1935,10 @@ async function generateDayPlans(
       activeSinceRest += span;
 
       // Insert rest day after hard activities (if budget allows)
-      if (c.difficulty === 'hard' && used < block.activeDays && dayNum <= lastDay - 1) {
+      // Только после настоящего тяжёлого дня — тура или маршрута (разбор
+      // 14.11, движок-8): общий день «Вулканы — на выбор» восхождением не
+      // является, а отдых за ним занимал дату единственного выезда тура.
+      if (c.difficulty === 'hard' && (realTour || route) && used < block.activeDays && dayNum <= lastDay - 1) {
         days.push({
           day: dayNum++, type: 'rest', zone: block.zone,
           title: 'День отдыха. Термальные источники',
@@ -2175,10 +2195,19 @@ function describePreferences(input: {
         message: `С оператором — ${withTour} ${pluralDays(withTour)} из ${active.length}. На остальные тура в ваши даты нет — это отмечено на самих днях.`,
       });
     } else {
-      notes.push({
-        topic: 'travel_style', status: 'honoured',
-        message: `Все активные дни — туры операторов со свободными местами на ваши даты.`,
-      });
+      // «Со свободными местами» — только когда группа и правда входит (разбор
+      // 14.11, движок-9): у тура с потолком 10 при группе 12 день говорил
+      // «вся группа не войдёт», а сводка — «со свободными местами».
+      const crowded = active.filter((d) => d.activityMode === 'operator' && d.capacityWarning).length;
+      notes.push(crowded > 0
+        ? {
+          topic: 'travel_style', status: 'partial',
+          message: `Все активные дни — туры операторов, но вся группа войдёт не везде: таких дней ${crowded}. Это отмечено на самих днях.`,
+        }
+        : {
+          topic: 'travel_style', status: 'honoured',
+          message: `Все активные дни — туры операторов со свободными местами на ваши даты.`,
+        });
     }
   }
 
