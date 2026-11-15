@@ -5,6 +5,7 @@
  * 30.10): before, «no payment through the portal» was unconditional.
  */
 import { platformAcceptsPayments } from '@/lib/payments/accepting';
+import { VEDAR_SKILL_PATH } from '@/lib/agent/vedar-skill';
 import { paymentRuleEn } from '@/lib/mcp/payment-rule';
 
 export const MCP_TITLE_EN_FILE = 'Vedar Kamchatka — Kamchatka travel information portal';
@@ -15,7 +16,7 @@ export function llmsEnFile(base: string, acceptsPayments: boolean = platformAcce
     '',
     `> Vedar Kamchatka (vedarai.ru, Russian name: Ведар Камчатка) is a Kamchatka travel information portal and AI guide. It is not a travel agency and not a tour operator. It lists tours by local operators, accommodation, transfers and vehicle charters, self-drive car rental, gear rental, volcano and safety status, weather and trip planning. It is free for tourists. Booking requests are confirmed by a human partner; there is no instant booking. ${paymentRuleEn(acceptsPayments)}`,
     '',
-    `MCP server for AI assistants: ${base}/api/mcp (Streamable HTTP, JSON-RPC 2.0, no auth required). Docs: ${base}/mcp. Manifest: ${base}/.well-known/mcp.json. A2A agent card: ${base}/.well-known/agent-card.json.`,
+    `MCP server for AI assistants: ${base}/api/mcp (Streamable HTTP, JSON-RPC 2.0, no auth required). Docs: ${base}/mcp. Manifest: ${base}/.well-known/mcp.json. A2A agent card: ${base}/.well-known/agent-card.json. Agent skill: ${base}${VEDAR_SKILL_PATH}.`,
     '',
     'Keywords: Kamchatka tours, Kamchatka volcanoes, Kamchatka bear watching, Kamchatka hotels, Petropavlovsk-Kamchatsky, Valley of Geysers, Kuril Lake, Klyuchevskaya Sopka.',
     '',

@@ -416,8 +416,11 @@ const nextConfig = {
       // роутах и тоже исключены: иначе прод отвечал бы no-store, а код обещал
       // кэш (та же болезнь, что у sitemap 29.09). Личных данных в них нет.
       // Сторож: tests/unit/openapi-agents.test.ts.
+      //
+      // Навык Ведара для агентов (#3408) — SKILL.md и список навыков в
+      // /.well-known/skills/index.json — тоже ставят «час кэша» сами.
       {
-        source: '/((?!_next/static|_next/image|icons|images|favicon|sitemap\\.xml$|robots\\.txt$|llms(?:-zh)?\\.txt$|api/channels/(?:avito|yandex)/feed$|openapi\\.json$|\\.well-known/(?:mcp\\.json|mcp/server-card\\.json|agent-card\\.json|agent\\.json|ai-catalog\\.json|api-catalog)$|api/mcp/server-card$).*)',
+        source: '/((?!_next/static|_next/image|icons|images|favicon|sitemap\\.xml$|robots\\.txt$|llms(?:-zh)?\\.txt$|api/channels/(?:avito|yandex)/feed$|openapi\\.json$|\\.well-known/(?:mcp\\.json|mcp/server-card\\.json|agent-card\\.json|agent\\.json|ai-catalog\\.json|api-catalog|skills/index\\.json)$|api/mcp/server-card$|skills/vedar-kamchatka/SKILL\\.md$).*)',
         headers: [
           { key: 'Cache-Control', value: 'no-store, no-cache, must-revalidate, proxy-revalidate' },
           { key: 'Surrogate-Control', value: 'no-store' },
