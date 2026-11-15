@@ -140,11 +140,16 @@ describe('readSharedPlan: опубликованная поездка, черн�
     expect(await readSharedPlan(ID)).toEqual({ kind: 'failed' });
   });
 
-  it('пожелания туриста из черновика не читаются вовсе', () => {
-    const drafts = readFileSync(join(process.cwd(), 'lib/planner/plan-drafts.ts'), 'utf-8');
-    const loadSql = drafts.slice(drafts.indexOf('export async function loadDraft'), drafts.indexOf('export type DraftWrite'));
-    expect(loadSql).toMatch(/SELECT id::text, params, days, revision, expires_at/);
-    expect(loadSql).not.toMatch(/wishes/);
+  // С 15.11 черновик читается со словами туриста — их видит менеджер в
+  // карточке лида (слово владельца «показывать менеджеру»,
+  // tests/unit/lead-plan-wishes.test.tsx). На странице плана по ссылке —
+  // она открыта всякому, у кого ссылка, — их нет.
+  it('слова туриста из черновика на страницу плана не попадают', async () => {
+    db({ draft: { ...DRAFT_ROW, wishes: 'с детьми, без долгих переходов' } });
+    const r = await readSharedPlan(ID);
+    expect(r.kind).toBe('found');
+    expect(JSON.stringify(r)).not.toContain('долгих переходов');
+    expect(JSON.stringify(r)).not.toMatch(/wishes/);
   });
 });
 
