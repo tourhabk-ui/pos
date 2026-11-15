@@ -1,7 +1,5 @@
 /**
- * Голос Кузьмича — синтез речи (issue #1992). С 15.11 первым идёт DeepSeek
- * (слово владельца «1б», ниже у DEEPSEEK_TTS_URL), Qwen — вторым. Ниже — о
- * пути через DashScope.
+ * Голос Кузьмича — синтез речи через DashScope (issue #1992).
  *
  * Путь проверен с прода до того, как на нём построили кнопку: проба
  * `/api/cron/voice-probe` 24.09 получила от `qwen3-tts-flash` 349 КБ WAV за
@@ -26,8 +24,7 @@
  * который просто не включился.
  */
 
-import { getQwenConfig, logProviderPricedUsage, logSpeechUsage } from '@/lib/ai/providers';
-import { getDeepSeekKey } from '@/lib/ai/provider-config';
+import { getQwenConfig, logSpeechUsage } from '@/lib/ai/providers';
 import { recordAiLegFailure, httpFailureReason, errorFailureReason } from '@/lib/ai/failure-trace';
 // Текст для голоса — одно правило на сервер и на голос телефона в кнопке.
 export { SPEECH_MAX_CHARS, prepareSpeechText } from '@/lib/ai/speech-text';
@@ -91,83 +88,8 @@ export type SpeechResult =
   | { status: 'refused'; reason: string }
   | { status: 'unavailable'; reason: string };
 
-/**
- * Голос Ведара — DeepSeek, с 15.11 (слово владельца «1б» после образцов
- * «stella» и «tide» в Telegram). Проверка прода 189 в тот день: голос Qwen
- * отвечал 403 AllocationQuota.FreeTierOnly, DeepSeek на русскую фразу отдал
- * 12,9 с звука. Русского нет в списке языков документации DeepSeek — решение
- * принято на слух владельцем, а не по документации.
- */
-export const DEEPSEEK_TTS_URL = 'https://api.deepseek.com/v1/tools/tts';
-
-/** Голоса DeepSeek, которые владелец слушал. Сменить — env DEEPSEEK_TTS_VOICE. */
-export const DEEPSEEK_TTS_VOICES = ['stella', 'tide'] as const;
-const DEFAULT_DEEPSEEK_VOICE = 'stella';
-
-/**
- * Цена — прайс DeepSeek из документации: $0.45 за 10 000 знаков. Это не счёт
- * из ответа: ответ отдаёт только звук. Акционная цена ниже прайса, так что
- * запись в книгах расход не занижает.
- */
-export const DEEPSEEK_TTS_USD_PER_CHAR = 0.45 / 10_000;
-
-/** Длинный ответ синтезируется дольше: проба 189 — 2,9 с на 88 знаков. */
-const DEEPSEEK_TTS_TIMEOUT_MS = 40_000;
-
-function deepseekVoice(): string {
-  const asked = process.env.DEEPSEEK_TTS_VOICE?.trim();
-  return asked && (DEEPSEEK_TTS_VOICES as readonly string[]).includes(asked) ? asked : DEFAULT_DEEPSEEK_VOICE;
-}
-
-async function synthesizeDeepSeekSpeech(text: string): Promise<SpeechResult> {
-  const apiKey = getDeepSeekKey()?.trim();
-  if (!apiKey) {
-    recordAiLegFailure('deepseek-tts', 'no_key');
-    return { status: 'unavailable', reason: 'DEEPSEEK_API_KEY не задан' };
-  }
-  const voice = deepseekVoice();
-  const model = `deepseek-tts:${voice}`;
-  try {
-    const res = await fetch(DEEPSEEK_TTS_URL, {
-      method: 'POST',
-      headers: { Authorization: `Bearer ${apiKey}`, 'Content-Type': 'application/json' },
-      body: JSON.stringify({ text, voice_id: voice, format: 'wav' }),
-      signal: AbortSignal.timeout(DEEPSEEK_TTS_TIMEOUT_MS),
-    });
-    if (!res.ok) {
-      const raw = await res.text();
-      recordAiLegFailure('deepseek-tts', httpFailureReason(res.status, raw));
-      return { status: 'refused', reason: `HTTP ${res.status}: ${raw.slice(0, 300)}` };
-    }
-    const bytes = await res.arrayBuffer();
-    if (bytes.byteLength < MIN_AUDIO_BYTES) {
-      recordAiLegFailure('deepseek-tts', 'empty');
-      return { status: 'refused', reason: 'аудио короче порога' };
-    }
-    // Расход — в книги (llm_usage_log): знаки текста и цена по прайсу.
-    await logProviderPricedUsage(model, text.length, 0, text.length * DEEPSEEK_TTS_USD_PER_CHAR);
-    return { status: 'ok', audio: bytes, contentType: 'audio/wav', model };
-  } catch (e) {
-    recordAiLegFailure('deepseek-tts', errorFailureReason(e));
-    return { status: 'unavailable', reason: e instanceof Error ? e.message : String(e) };
-  }
-}
-
-/**
- * Синтезирует уже подготовленный текст: голос DeepSeek, при его отказе —
- * Qwen. Не бросает. Оба не ответили — «refused», если хоть один отказал
- * словами, иначе «unavailable»; причина называет обоих.
- */
+/** Синтезирует уже подготовленный текст. Не бросает. */
 export async function synthesizeSpeech(text: string): Promise<SpeechResult> {
-  const deepseek = await synthesizeDeepSeekSpeech(text);
-  if (deepseek.status === 'ok') return deepseek;
-  const qwen = await synthesizeQwenSpeech(text);
-  if (qwen.status === 'ok') return qwen;
-  const status = deepseek.status === 'refused' || qwen.status === 'refused' ? 'refused' : 'unavailable';
-  return { status, reason: `DeepSeek: ${deepseek.reason}; Qwen: ${qwen.reason}` };
-}
-
-async function synthesizeQwenSpeech(text: string): Promise<SpeechResult> {
   const { apiKey, base } = getQwenConfig();
   if (!apiKey) {
     recordAiLegFailure('qwen-tts', 'no_key');
