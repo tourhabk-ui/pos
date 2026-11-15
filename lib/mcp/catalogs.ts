@@ -71,6 +71,16 @@ export const MCP_SILENCE_ALERT_UNTIL_DAYS = 14;
 export const GLAMA_CLAIM = 'glama_claim_YRnou3wLSt5J5_X3_jmhltmIzO1thMoZ';
 export const GLAMA_CONNECTOR_SCHEMA = 'https://glama.ai/mcp/schemas/connector.json';
 
+/**
+ * Подтверждение владения доменом для Appside MCP Directory (#3423): каталог
+ * сам нашёл сервер и завёл карточку «Vedar (Kamchatka travel)», но открывает
+ * её поисковикам только после подтверждения. Строка отдаётся файлом
+ * /.well-known/appside-mcp.txt. Публичный проверочный токен, не секрет:
+ * доказательство — сам факт, что его отдаёт наш домен. Файл можно оставить и
+ * после подтверждения. Значение — из задачи #3423, слово в слово.
+ */
+export const APPSIDE_MCP_VERIFICATION = 'appside-mcp=c6e48c2f9b81644430352e601af213f5e54d42e3753560425b9712d7af3dc494';
+
 export const MCP_CATALOGS: readonly McpCatalogEntry[] = [
   {
     catalog: 'MCP Registry (registry.modelcontextprotocol.io)',
