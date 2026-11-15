@@ -26,7 +26,9 @@ export const dynamic = 'force-dynamic';
 const validateLimiter = createRateLimiter({ windowMs: 60_000, max: 20 });
 
 const DaySchema = z.object({
-  day:              z.number(),
+  // Номер дня — целый, в пределах года: огромное число роняло проверку в 500
+  // на дате дня (ревью безопасности #3383).
+  day:              z.number().int().min(1).max(366),
   /** Тип дня (arrival, activity, travel, rest, buffer, departure); старый клиент его не шлёт. */
   type:             z.string().max(20).optional(),
   zone:             z.enum(['avachinsky', 'western', 'eastern', 'northern']),
