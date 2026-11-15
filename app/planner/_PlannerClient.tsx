@@ -22,11 +22,12 @@ import {
   Send, ShieldAlert, Info, Baby, Dumbbell, Wallet,
   ArrowLeftRight, Coffee, CloudOff, Home,
   CheckCircle, Download, MessageCircle, Eye,
-  Share2, Copy, UserCheck, Compass,
+  Share2, Copy, Compass,
   ArrowLeft, Minus, CalendarDays, Accessibility, HeartPulse,
   BedDouble, Bus, Car,
 } from 'lucide-react';
-import { ACTIVITY_MODE_LABEL } from '@/lib/planner/day-mode';
+import { planItemStatus, PLAN_ITEM_STATUS } from '@/lib/planner/item-status';
+import { PlanItemBadge } from '@/components/planner/PlanItemBadge';
 import { activityIcon, locationIcon } from '@/lib/tours/activity-icons';
 import { frameReason, tourGroup, orderProblem, replaceRefusal, replaceRefusalShort } from '@/lib/planner/plan-ops';
 import {
@@ -508,14 +509,6 @@ function DayCard({
     activity:  { label: '',          Icon: Sparkles,       color: 'var(--accent)' },
   };
   const typeConf = dayTypeConfig[day.type] ?? dayTypeConfig.activity;
-  // Род активного дня (владелец 25.09: «сегодня сам, завтра с оператором,
-  // потом отдых»). Производит движок; нет поля — метки нет, не угадываем.
-  const modeConfig = {
-    operator: { Icon: UserCheck, color: 'var(--accent)' },
-    self:     { Icon: activityIcon('hiking'), color: 'var(--success)' },
-    open:     { Icon: Compass, color: 'var(--text-muted)' },
-  } as const;
-  const mode = day.type === 'activity' && day.activityMode ? day.activityMode : null;
 
   return (
     <Reorder.Item
@@ -576,19 +569,9 @@ function DayCard({
                   {typeConf.label}
                 </span>
               )}
-              {mode && (() => {
-                const m = modeConfig[mode];
-                return (
-                  <span
-                    title={ACTIVITY_MODE_LABEL[mode].hint}
-                    className="flex items-center gap-0.5 px-1.5 py-0.5 rounded text-[9px] font-bold shrink-0 whitespace-nowrap"
-                    style={{ background: `color-mix(in srgb, ${m.color} 15%, transparent)`, color: m.color }}
-                  >
-                    <m.Icon className="w-2.5 h-2.5" aria-hidden />
-                    {ACTIVITY_MODE_LABEL[mode].label}
-                  </span>
-                );
-              })()}
+              {/* Метка пункта (#3399, п. 7): что за пункт и проверено ли, что он
+                  состоится — словарь один с печатью, Кузьмичом и MCP. */}
+              <PlanItemBadge day={day} />
               {flightBadge && !isSpecialDay && (
                 <span className="flex items-center gap-0.5 px-1.5 py-0.5 rounded bg-[var(--ocean)]/15 text-[var(--ocean)] text-[9px] font-bold shrink-0 whitespace-nowrap">
                   <FlightIcon className="w-2.5 h-2.5" />
@@ -2021,7 +2004,7 @@ export function PlannerClient({ initialUserId }: { initialUserId?: string | null
         title: d.title,
         badge: d.type !== 'activity'
           ? (dayTypeLabels[d.type] ?? d.type)
-          : d.activityMode ? ACTIVITY_MODE_LABEL[d.activityMode].label : null,
+          : (() => { const st = planItemStatus(d); return st ? PLAN_ITEM_STATUS[st].label : null; })(),
         priceLine: dayPriceLine(d),
         description: d.description ?? '',
         meta: `${zoneName(shownZone(d))}${d.type === 'activity' ? ` | ${d.detailsUnknown ? 'сложность не записана' : DIFFICULTY_LABEL[d.difficulty] ?? d.difficulty}` : ''}`,

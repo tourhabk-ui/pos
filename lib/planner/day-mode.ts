@@ -26,9 +26,5 @@ export function activityMode(material: { realTour: unknown; route: unknown }): A
   return 'open';
 }
 
-/** Подпись и подсказка метки — одни для карточки дня и для PDF. */
-export const ACTIVITY_MODE_LABEL: Record<ActivityMode, { label: string; hint: string }> = {
-  operator: { label: 'С оператором', hint: 'Тур оператора: ведёт гид, цена и бронь — на карточке тура' },
-  self: { label: 'Сам', hint: 'Самостоятельный выход по месту или маршруту из базы' },
-  open: { label: 'На выбор', hint: 'Готового тура или маршрута под этот день в базе нет — выберите сами или спросите Кузьмича' },
-};
+// Подпись дня на карточке и в PDF — метка пункта (lib/planner/item-status,
+// #3399 п. 7): род дня входит в неё вместе с тем, проверены ли места.

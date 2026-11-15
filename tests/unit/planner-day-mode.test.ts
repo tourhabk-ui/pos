@@ -14,7 +14,8 @@
 import { describe, it, expect } from 'vitest';
 import { readFileSync } from 'node:fs';
 import { join } from 'node:path';
-import { activityMode, ACTIVITY_MODE_LABEL } from '@/lib/planner/day-mode';
+import { activityMode } from '@/lib/planner/day-mode';
+import { planItemStatus, PLAN_ITEM_STATUS } from '@/lib/planner/item-status';
 
 const ROOT = process.cwd();
 const read = (p: string) => readFileSync(join(ROOT, p), 'utf-8');
@@ -33,7 +34,9 @@ describe('правило рода', () => {
   it('ни тура, ни маршрута — «на выбор», а не «сам»', () => {
     // «Сам» пообещал бы маршрут, которого в базе нет (§4.0).
     expect(activityMode({ realTour: null, route: null })).toBe('open');
-    expect(ACTIVITY_MODE_LABEL.open.label).toBe('На выбор');
+    // На карточке такой день — «идея», а не «сам» (метка пункта, #3399 п. 7).
+    expect(planItemStatus({ type: 'activity', activityMode: 'open' })).toBe('idea');
+    expect(PLAN_ITEM_STATUS.idea.label).toBe('Идея · тура нет');
   });
 });
 
@@ -52,13 +55,11 @@ describe('движок ставит род на каждый активный д
 });
 
 describe('потребители', () => {
-  it('карточка дня рисует метку только у активного дня и только из поля движка', () => {
-    expect(CLIENT).toContain("day.type === 'activity' && day.activityMode ? day.activityMode : null");
-    expect(CLIENT).toContain('ACTIVITY_MODE_LABEL[mode].label');
-  });
-
-  it('PDF подписывает активный день родом', () => {
-    expect(CLIENT).toContain('ACTIVITY_MODE_LABEL[d.activityMode].label');
+  // С 15.11 род дня входит в метку пункта (lib/planner/item-status): её
+  // правило и рендер держит plan-item-status.test.tsx.
+  it('карточка дня и PDF подписывают день меткой пункта', () => {
+    expect(CLIENT).toContain('PlanItemBadge day={day}');
+    expect(CLIENT).toContain('PLAN_ITEM_STATUS[st].label');
   });
 
   it('вход на главной обещает ровно то, что собирает движок', () => {
