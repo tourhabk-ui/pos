@@ -441,3 +441,16 @@ describe('житель края: рейсов нет (разбор 14.11, экр
     expect((screen.getByLabelText('Время прилёта') as HTMLInputElement).value).toBe('');
   });
 });
+
+describe('отметка дня — не подтверждение (разбор 14.11, экран-13)', () => {
+  it('слова отметки не обещают ни брони, ни готового маршрута', async () => {
+    PLAN_DAYS = FULL;
+    await buildPlan('2030-08-04');
+    expect(screen.queryByText(/Подтвердить день|День подтверждён|Маршрут готов/)).toBeNull();
+    const first = card('Авачинский вулкан');
+    fireEvent.click(within(first.el).getByTitle('Подробнее'));
+    fireEvent.click(within(first.el).getByRole('button', { name: /Отметить день как просмотренный/ }));
+    expect(within(first.el).getByText('Отмечен вами — это не бронь')).toBeTruthy();
+    expect(screen.queryByText(/Маршрут готов/)).toBeNull();
+  });
+});

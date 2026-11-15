@@ -722,18 +722,19 @@ function DayCard({
                 {day.coords[0].toFixed(4)}, {day.coords[1].toFixed(4)}
               </div>
             )}
-            {/* Confirm day button */}
+            {/* Личная отметка «этот день посмотрел» (разбор 14.11, экран-13): не
+                подтверждение — ни брони, ни мест, в заявку не уходит. */}
             {!isConfirmed && (
               <button type="button" onClick={(e) => { e.stopPropagation(); onConfirm(day.day); }}
                 className="w-full flex items-center justify-center gap-1.5 py-2 rounded-lg bg-[var(--success)]/10 border border-[var(--success)]/30 text-[var(--success)] text-xs font-medium hover:bg-[var(--success)]/20 transition-colors">
                 <CheckCircle className="w-3.5 h-3.5" />
-                Подтвердить день
+                Отметить день как просмотренный
               </button>
             )}
             {isConfirmed && (
               <div className="flex items-center gap-1.5 py-1.5 text-xs text-[var(--success)] font-medium">
                 <CheckCircle className="w-3.5 h-3.5" />
-                День подтверждён
+                Отмечен вами — это не бронь
               </div>
             )}
           </div>
@@ -2066,6 +2067,8 @@ export function PlannerClient({ initialUserId }: { initialUserId?: string | null
     setEditNote(null);
     setDays(prev => withUiKeys(prev.map(d => d.day === dayNum ? routeToDayPlan(route, dayNum) : d)));
     setTransportByDay(prev => { const n = { ...prev }; delete n[dayNum]; return n; });
+    // Отметка была о прежнем дне: новый день её не наследует (экран-13).
+    setConfirmedDays(prev => { if (!prev.has(dayNum)) return prev; const n = new Set(prev); n.delete(dayNum); return n; });
     setSelectedRoute(null);
     setEditingDayId(null);
   }
@@ -2081,6 +2084,7 @@ export function PlannerClient({ initialUserId }: { initialUserId?: string | null
     if (free) {
       setDays(prev => withUiKeys(prev.map(d => (d.day === free.day ? routeToDayPlan(route, free.day) : d))));
       setTransportByDay(prev => { const n = { ...prev }; delete n[free.day]; return n; });
+      setConfirmedDays(prev => { if (!prev.has(free.day)) return prev; const n = new Set(prev); n.delete(free.day); return n; });
       setEditNote(`Маршрут встал в свободный день ${free.day}.`);
     } else {
       const { days: next, added, newNumbers } = extendTrip(days, (num) => routeToDayPlan(route, num));
@@ -3079,7 +3083,7 @@ export function PlannerClient({ initialUserId }: { initialUserId?: string | null
               {confirmedDays.size === days.length && days.length > 0 && (
                 <div className="flex items-center gap-2 px-3 py-2 rounded-lg bg-[var(--success)]/10 border border-[var(--success)]/20">
                   <CheckCircle className="w-4 h-4 text-[var(--success)] shrink-0" />
-                  <span className="text-xs font-medium text-[var(--success)]">Все дни подтверждены. Маршрут готов!</span>
+                  <span className="text-xs font-medium text-[var(--success)]">Все дни отмечены вами. Отметки видны только здесь: места и даты подтверждает оператор по заявке.</span>
                 </div>
               )}
               <button type="button" onClick={exportPDF}
