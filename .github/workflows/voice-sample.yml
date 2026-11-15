@@ -1,0 +1,40 @@
+name: Образец голоса DeepSeek — владельцу в Telegram
+
+# ── Зачем ────────────────────────────────────────────────────────────
+#
+# Слово владельца 15.11: «голос не работает», «deepseek добавили голос».
+# Проверка прода 189: голос Qwen — 403 (кончилась бесплатная квота), DeepSeek
+# на русскую фразу отдал звук. Русского в документации DeepSeek нет, и
+# годится ли речь туристу, решает человек на слух. Скрипт
+# scripts/voice-sample.sh синтезирует вшитую фразу двумя голосами и шлёт
+# владельцу голосовыми сообщениями. Кнопка «Озвучить» от этого не меняется.
+#
+# Запуск — правка .github/triggers/voice-sample.json в main.
+
+on:
+  workflow_dispatch:
+  push:
+    branches: [main]
+    paths:
+      - '.github/triggers/voice-sample.json'
+
+permissions:
+  contents: read
+
+jobs:
+  sample:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v7
+
+      - name: ffmpeg для голосового сообщения
+        run: command -v ffmpeg || (sudo apt-get update -qq && sudo apt-get install -y -qq ffmpeg)
+
+      - name: Синтез и отправка
+        env:
+          DEEPSEEK_API_KEY: ${{ secrets.DEEPSEEK_API_KEY }}
+          TELEGRAM_BOT_TOKEN: ${{ secrets.TELEGRAM_BOT_TOKEN }}
+          TELEGRAM_OWNER_ID: ${{ secrets.TELEGRAM_OWNER_ID }}
+          OUT_DIR: ${{ runner.temp }}/voice-sample
+        run: bash scripts/voice-sample.sh
