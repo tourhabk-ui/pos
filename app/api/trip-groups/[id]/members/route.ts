@@ -23,6 +23,10 @@ const Schema = z.object({
   no_hard_climbs:   z.boolean().default(false),
   seasickness:      z.boolean().default(false),
   limited_mobility: z.boolean().default(false),
+  // Возраст каждого ребёнка, который едет с участником (слово владельца 15.11,
+  // миграция 1443). Старый клиент шлёт только младшего — он и берётся.
+  children_ages:    z.array(z.number().int().min(0, 'Возраст ребёнка — от 0').max(17, 'Возраст ребёнка — до 17'))
+    .max(10, 'Детей — не больше 10').optional(),
   youngest_child:   z.number().int().min(0, 'Возраст ребёнка — от 0').max(17, 'Возраст ребёнка — до 17').nullable().default(null),
   budget:           z.enum(['economy', 'comfort', 'premium'], { message: 'Выберите бюджет' }),
   pd_consent:       z.literal(true, { message: 'Нужно согласие на обработку персональных данных' }),
@@ -50,9 +54,12 @@ export async function POST(req: NextRequest, { params }: { params: Promise<{ id:
   if (!consent) return NextResponse.json({ success: false, error: 'Нужно согласие на обработку персональных данных' }, { status: 400 });
 
   const { id } = await params;
+  const childrenAges = d.children_ages ?? (d.youngest_child !== null ? [d.youngest_child] : []);
   const result = await addMember(id, {
     interests: d.interests, fitness: d.fitness, noHardClimbs: d.no_hard_climbs, seasickness: d.seasickness,
-    limitedMobility: d.limited_mobility, youngestChild: d.youngest_child, budget: d.budget,
+    limitedMobility: d.limited_mobility,
+    youngestChild: childrenAges.length > 0 ? Math.min(...childrenAges) : null,
+    childrenAges, budget: d.budget,
   }, consent);
   if (result === 'missing') return NextResponse.json({ success: false, error: 'Группа не найдена или её срок истёк.' }, { status: 404 });
   if (result === 'full') return NextResponse.json({ success: false, error: `В группе уже ${MAX_GROUP_MEMBERS} участников — больше не принимаем.` }, { status: 409 });

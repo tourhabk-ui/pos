@@ -29,6 +29,9 @@ const ru = (iso: string) =>
  * видно никому, в том числе организатору. Своё участник отмечает флагами без
  * диагнозов и с согласием на обработку данных (решение владельца 08.10).
  */
+/** Детей с одним участником в анкете — не больше (как и в схеме API — 10). */
+const MAX_KIDS = 6;
+
 export function TripGroupClient({ summary }: { summary: GroupSummaryView }) {
   const router = useRouter();
   const [interests, setInterests] = useState<string[]>([]);
@@ -36,7 +39,8 @@ export function TripGroupClient({ summary }: { summary: GroupSummaryView }) {
   const [noHardClimbs, setNoHardClimbs] = useState(false);
   const [seasickness, setSeasickness] = useState(false);
   const [limitedMobility, setLimitedMobility] = useState(false);
-  const [child, setChild] = useState('');
+  // Сколько детей едет с участником и возраст каждого (слово владельца 15.11).
+  const [kidAges, setKidAges] = useState<string[]>([]);
   const [budget, setBudget] = useState<GroupBudget>('comfort');
   const [pdConsent, setPdConsent] = useState(false);
   const [error, setError] = useState<string | null>(null);
@@ -64,6 +68,10 @@ export function TripGroupClient({ summary }: { summary: GroupSummaryView }) {
     e.preventDefault();
     setError(null);
     if (interests.length === 0) { setError('Отметьте хотя бы одно занятие.'); return; }
+    if (kidAges.some((a) => a.trim() === '' || !Number.isInteger(Number(a)) || Number(a) < 0 || Number(a) > 17)) {
+      setError('Укажите возраст каждого ребёнка — от 0 до 17.');
+      return;
+    }
     setBusy('wish');
     try {
       const res = await fetch(`/api/trip-groups/${summary.id}/members`, {
@@ -71,7 +79,7 @@ export function TripGroupClient({ summary }: { summary: GroupSummaryView }) {
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
           interests, fitness, no_hard_climbs: noHardClimbs, seasickness, limited_mobility: limitedMobility,
-          youngest_child: child.trim() === '' ? null : Number(child), budget, pd_consent: pdConsent,
+          children_ages: kidAges.map((a) => Number(a)), budget, pd_consent: pdConsent,
         }),
       });
       const json = await res.json().catch(() => null) as { success?: boolean; error?: string } | null;
@@ -130,7 +138,7 @@ export function TripGroupClient({ summary }: { summary: GroupSummaryView }) {
               </p>
               <p className="text-[var(--text-secondary)]">
                 Темп — {FITNESS_LABEL[p.fitness]}, жильё — {BUDGET_LABEL[p.budget]}
-                {p.children.length > 0 ? `, младшему ребёнку ${p.children[0]}` : ''}.
+                {p.children.length > 0 ? `, детей ${p.children.length} (младшему ${p.children[0]})` : ''}.
               </p>
               {p.conflicts.length > 0 && (
                 <ul className="space-y-1 text-sm text-[var(--text-secondary)] list-disc pl-5">
@@ -198,8 +206,17 @@ export function TripGroupClient({ summary }: { summary: GroupSummaryView }) {
 
             <div className="grid grid-cols-2 gap-3">
               <label className="block">
-                <span className="ds-label">Возраст младшего ребёнка</span>
-                <input type="number" inputMode="numeric" min={0} max={17} placeholder="нет детей" value={child} onChange={(e) => setChild(e.target.value)} className="ds-input w-full" />
+                <span className="ds-label">Сколько детей едет с вами</span>
+                <select
+                  value={kidAges.length}
+                  onChange={(e) => {
+                    const n = Number(e.target.value);
+                    setKidAges((a) => (n <= a.length ? a.slice(0, n) : [...a, ...Array<string>(n - a.length).fill('')]));
+                  }}
+                  className="ds-input w-full"
+                >
+                  {Array.from({ length: MAX_KIDS + 1 }, (_, n) => <option key={n} value={n}>{n === 0 ? 'нет детей' : n}</option>)}
+                </select>
               </label>
               <label className="block">
                 <span className="ds-label">Бюджет на жильё</span>
@@ -208,6 +225,22 @@ export function TripGroupClient({ summary }: { summary: GroupSummaryView }) {
                 </select>
               </label>
             </div>
+            {kidAges.length > 0 && (
+              <fieldset className="grid grid-cols-3 gap-3" data-testid="group-kid-ages">
+                <legend className="ds-label col-span-3">Возраст каждого ребёнка</legend>
+                {kidAges.map((age, i) => (
+                  <label key={i} className="block">
+                    <input
+                      type="number" inputMode="numeric" min={0} max={17} required
+                      aria-label={`Возраст ребёнка ${i + 1}`} placeholder={`${i + 1}-й, лет`}
+                      value={age}
+                      onChange={(e) => setKidAges((a) => a.map((x, j) => (j === i ? e.target.value : x)))}
+                      className="ds-input w-full"
+                    />
+                  </label>
+                ))}
+              </fieldset>
+            )}
 
             <PdConsentCheckbox checked={pdConsent} onChange={setPdConsent} id="trip-group-consent" />
             {error && <p role="alert" className="text-sm text-[var(--danger)]">{error}</p>}

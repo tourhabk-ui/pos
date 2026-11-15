@@ -9,8 +9,9 @@
  * Правило:
  *   - интересы — объединение с весом по числу голосов; занятие, которое
  *     ограничение кого-то из группы исключает, не ставится, и это сказано;
- *   - ограничения — пересечение: подготовка и бюджет по самому слабому,
- *     младший ребёнок — самый младший; «укачивает» и «ограничена подвижность»
+ *   - ограничения — пересечение: подготовка и бюджет по самому слабому;
+ *     дети — все дети всех участников (с 15.11, миграция 1443), возрастные
+ *     ограничения движок судит по самому младшему; «укачивает» и «ограничена подвижность»
  *     у одного — правило для всех (безопасность и сложность по самому слабому);
  *   - конфликт называется словами, а не прячется.
  *
@@ -35,6 +36,11 @@ export interface MemberWishes {
   limitedMobility: boolean;
   /** Возраст младшего ребёнка, который едет с участником; нет детей — null. */
   youngestChild: number | null;
+  /**
+   * Возраст каждого ребёнка участника (1443); пустой — детей нет. `null` —
+   * участник отметился до 15.11, и записан только младший (`youngestChild`).
+   */
+  childrenAges: number[] | null;
   budget: GroupBudget;
 }
 
@@ -64,7 +70,7 @@ export interface GroupProfile {
   budget: GroupBudget;
   seasickness: boolean;
   limitedMobility: boolean;
-  /** Возраст самого младшего ребёнка группы; детей нет — пусто. */
+  /** Возраст каждого ребёнка группы по возрастанию; детей нет — пусто. */
   children: number[];
   /** Расхождения и что с ними сделано — словами. */
   conflicts: string[];
@@ -112,8 +118,24 @@ export function mergeGroupWishes(members: readonly MemberWishes[]): GroupProfile
     conflicts.push(`Бюджет у участников разный — жильё по самому скромному: ${BUDGET_LABEL[budget]}.`);
   }
 
-  const ages = members.map((m) => m.youngestChild).filter((a): a is number => a !== null && Number.isFinite(a));
-  const children = ages.length > 0 ? [Math.min(...ages)] : [];
+  // Все дети всех участников (слово владельца 15.11): до этого план считал
+  // одного — самого младшего — на всю группу, и группа из трёх участников с
+  // детьми выходила четырьмя людьми вместо шести (разбор планера 14.11).
+  const children: number[] = [];
+  let onlyYoungest = 0;
+  for (const m of members) {
+    if (m.childrenAges) {
+      children.push(...m.childrenAges.filter((a) => Number.isFinite(a)));
+    } else if (m.youngestChild !== null && Number.isFinite(m.youngestChild)) {
+      // Отметился до 15.11: известен только младший — его и считаем, и это сказано.
+      children.push(m.youngestChild);
+      onlyYoungest++;
+    }
+  }
+  children.sort((a, b) => a - b);
+  if (onlyYoungest > 0) {
+    conflicts.push(`${onlyYoungest === 1 ? 'У одного участника' : `У ${onlyYoungest} участников`} записан только младший ребёнок — других детей в плане нет. Если их больше, пусть отметятся заново.`);
+  }
 
   // Голоса за интересы.
   const count = new Map<string, number>();
