@@ -63,6 +63,7 @@ import type {
   SelectItem, DayPlan, TripWarning, Recommendation,
   RoutePoint, Partner, TourPreview, ValidationResult, MobileTab, TripExtrasData,
 } from './planner-types';
+import { dayFrame } from '@/lib/planner/day-frame';
 import { DayTourChip } from '@/components/planner/DayTourChip';
 import { planTourChip } from '@/lib/planner/day-tour-chip';
 import { mapDayDetails } from '@/lib/planner/map-day';
@@ -488,7 +489,7 @@ function DayCard({
   const free = isFreeDay(day);
   const dragControls = useDragControls();
   const { Icon: TransIcon } = TRANSPORT_OPTIONS[transport];
-  const FlightIcon = idx === 0 ? PlaneLanding : PlaneTakeoff;
+  const FlightIcon = day.type === 'arrival' ? PlaneLanding : PlaneTakeoff;
   const [showDetail, setShowDetail] = useState(false);
 
   // Day type styling
@@ -2852,14 +2853,8 @@ export function PlannerClient({ initialUserId }: { initialUserId?: string | null
                       : day.realTour ? planTourChip(day) ?? undefined : toursPerDay[dayTourKey(day, arrival)]}
                     requestArrival={arrival}
                     requestGuests={(planProfile?.adults ?? adults) + (planProfile?.children ?? childAges).length}
-                    flightBadge={
-                      days.length >= 3 && idx === 0
-                        ? (flightArrival || 'Прилёт')
-                        : days.length >= 3 && idx === days.length - 1
-                          ? (flightDeparture || 'Вылет')
-                          : undefined
-                    }
-                    isLocked={days.length >= 3 && (idx === 0 || idx === days.length - 1)}
+                    flightBadge={dayFrame(day, { arrival: flightArrival, departure: flightDeparture }).badge}
+                    isLocked={dayFrame(day).locked}
                     onToggleEdit={toggleEditDay}
                     onTransportChange={setTransport}
                     onShowPartners={(at) => setPartnersModal({ activityType: at })}

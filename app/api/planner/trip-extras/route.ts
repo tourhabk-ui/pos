@@ -71,9 +71,13 @@ export async function POST(req: NextRequest) {
     return NextResponse.json({ success: false, error: 'Некорректные параметры' }, { status: 400 });
   }
   const { needs, arrivalDate, departureDate, adults, children, days, tripOrigin } = parsed.data;
-  if (arrivalDate && departureDate && departureDate <= arrivalDate) {
+  // Однодневная поездка (отъезд в день приезда) — законная: анкета и
+  // /api/planner/recommend её принимают у местного, а здесь она получала 400,
+  // и «Что ещё нужно» всегда говорило «не смогли проверить» (разбор 14.11,
+  // экран-11). Отказ — только когда отъезд раньше приезда.
+  if (arrivalDate && departureDate && departureDate < arrivalDate) {
     return NextResponse.json(
-      { success: false, error: 'Дата отъезда должна быть позже даты прилёта' },
+      { success: false, error: 'Дата отъезда раньше даты приезда' },
       { status: 400 },
     );
   }

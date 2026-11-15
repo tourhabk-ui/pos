@@ -59,11 +59,14 @@ const text = (el: Element) => (el.textContent ?? '').replace(/\u00a0/g, ' ');
 
 /** Кнопка «Удалить день» в карточке дня с этим заголовком. */
 function deleteButtonOf(title: string): HTMLElement {
+  // Карточка дня — ближайший предок кнопки с этим заголовком и без заголовков
+  // других дней. С 14.11 первый и последний день местного тоже удаляются
+  // (экран-8): «единственная кнопка» больше не признак нужного дня.
+  const others = RECOMMENDATION.days.map((d) => d.title).filter((t) => t !== title);
   for (const btn of screen.getAllByTitle('Удалить день')) {
     let el: HTMLElement | null = btn;
     while (el && !(el.textContent ?? '').includes(title)) el = el.parentElement;
-    if (el && (el.textContent ?? '').split('Удалить').length <= 2) return btn;
-    if (el && !(el.textContent ?? '').includes('Авачинский вулкан')) return btn;
+    if (el && !others.some((o) => (el!.textContent ?? '').includes(o))) return btn;
   }
   throw new Error(`кнопка удаления дня «${title}» не найдена`);
 }
