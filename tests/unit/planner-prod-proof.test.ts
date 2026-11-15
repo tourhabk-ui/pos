@@ -201,7 +201,12 @@ describe('просьба получает день: рыбалка не тоне
     const rec = await recommendTrip(PROOF);
     const fishing = activity(rec).filter((d) => d.activityType === 'fishing');
     expect(fishing.map((d) => d.realTour?.tourId)).toEqual(['t-fish-ava']);
-    expect(rec.days.some((d) => d.title.startsWith('Свободный день'))).toBe(false);
+    // Свободный день — не вместо рыбалки: рыбалка стоит раньше него. С 14.11
+    // за общим днём вулканов отдыха нет (это не восхождение, разбор планера,
+    // движок-8), и освободившийся день — свободный.
+    const free = rec.days.findIndex((d) => d.title.startsWith('Свободный день'));
+    const fish = rec.days.findIndex((d) => d.activityType === 'fishing');
+    expect(free === -1 || free > fish).toBe(true);
     expect(rec.warnings.some((w) => w.type === 'license')).toBe(true);
     // Западная зона не влезла, но рыбалка в плане есть — это справка, не просьба без ответа.
     const western = rec.warnings.find((w) => w.type === 'zone_days' && w.message.includes('Западная'));

@@ -4,6 +4,7 @@
  */
 
 import { SEA_ACTIVITIES, HARD_ACTIVITIES } from '@/lib/planner-constants';
+import { ACTIVITY_NAMES } from '@/lib/planner/constants';
 import { logSwallowedFailure } from '@/lib/observability/swallowed';
 import { loadLastGood, saveLastGood } from '@/lib/weather/last-good-store';
 import { buildDayParts, type DayPart, type HourlySeries } from '@/lib/weather/day-parts';
@@ -673,23 +674,27 @@ export function assessHealthCompatibility(
   const warnings: string[] = [];
   const alternatives: string[] = [];
   let compatible = true;
+  // Занятие — словами, а не ключом движка: на дне стояло «boat_trip: морская
+  // болезнь…» (разбор планера 14.11, движок-15).
+  const name = ACTIVITY_NAMES[activityType] ?? activityType;
+  const activity = name.charAt(0).toUpperCase() + name.slice(1);
 
   // Seasickness check
   const hasSeasickness = seasickness || (healthNotes ? matchesKeywords(healthNotes, SEASICKNESS_KEYWORDS) : false);
   if (hasSeasickness && SEA_ACTIVITIES.has(activityType)) {
-    warnings.push(`${activityType}: морская болезнь — морские экскурсии, рыбалка с катера и прибрежные туры могут вызвать дискомфорт. Рассмотрите террасные источники или треккинг.`);
+    warnings.push(`${activity}: морская болезнь — морские экскурсии, рыбалка с катера и прибрежные туры могут вызвать дискомфорт. Рассмотрите термальные источники или треккинг.`);
     alternatives.push('hot_spring', 'trekking');
   }
 
   // Injury/mobility keywords
   if (healthNotes && matchesKeywords(healthNotes, INJURY_KEYWORDS) && HARD_ACTIVITIES.has(activityType)) {
-    warnings.push(`${activityType}: при травмах опорно-двигательного аппарата сложные маршруты (5-10 часов ходьбы, набор высоты 800+ м) могут быть некомфортны. Рассмотрите облегчённые варианты.`);
+    warnings.push(`${activity}: при травмах опорно-двигательного аппарата сложные маршруты (5-10 часов ходьбы, набор высоты 800+ м) могут быть некомфортны. Рассмотрите облегчённые варианты.`);
     alternatives.push('hot_spring', 'helicopter');
   }
 
   // Heart/pressure keywords
   if (healthNotes && matchesKeywords(healthNotes, HEART_KEYWORDS) && HARD_ACTIVITIES.has(activityType)) {
-    warnings.push(`${activityType}: при сердечно-сосудистых заболеваниях набор высоты может быть опасен. Обязательно проконсультируйтесь с врачом перед поездкой.`);
+    warnings.push(`${activity}: при сердечно-сосудистых заболеваниях набор высоты может быть опасен. Обязательно проконсультируйтесь с врачом перед поездкой.`);
     compatible = false;
     alternatives.push('hot_spring', 'helicopter');
   }
@@ -697,13 +702,13 @@ export function assessHealthCompatibility(
   // Mobility level
   if (mobilityLevel === 'wheelchair') {
     if (activityType !== 'hot_spring' && activityType !== 'helicopter') {
-      warnings.push(`${activityType}: безбарьерная инфраструктура на Камчатке крайне ограничена. Доступные варианты: термальные источники Паратунки (есть пандусы), обзорные вертолётные экскурсии.`);
+      warnings.push(`${activity}: безбарьерная инфраструктура на Камчатке крайне ограничена. Доступные варианты: термальные источники Паратунки (есть пандусы), обзорные вертолётные экскурсии.`);
       compatible = false;
       alternatives.push('hot_spring', 'helicopter');
     }
   } else if (mobilityLevel === 'limited') {
     if (HARD_ACTIVITIES.has(activityType)) {
-      warnings.push(`${activityType}: ограниченная подвижность — выбраны облегчённые маршруты, исключены многочасовые переходы и крутые подъёмы.`);
+      warnings.push(`${activity}: ограниченная подвижность — выбраны облегчённые маршруты, исключены многочасовые переходы и крутые подъёмы.`);
       alternatives.push('hot_spring', 'bears');
     }
   }
