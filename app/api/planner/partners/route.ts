@@ -13,6 +13,7 @@ import { z } from 'zod';
 import { pool } from '@/lib/db-pool';
 import { publicTourSql } from '@/lib/tours/public-visibility';
 import { logSwallowedFailure } from '@/lib/observability/swallowed';
+import { rawTypesFor } from '@/lib/planner/constants';
 
 export const dynamic = 'force-dynamic';
 
@@ -75,17 +76,17 @@ export async function GET(req: NextRequest) {
         COALESCE(p.short_description, p.description, '') AS short_description,
         p.contacts,
         COALESCE(tm.activity_types, '{}') AS activity_types,
-        ($1 = ANY(COALESCE(tm.activity_types, '{}'))) AS has_matching_tours
+        (COALESCE(tm.activity_types, '{}')::text[] && $1::text[]) AS has_matching_tours
       FROM partners p
       LEFT JOIN tour_match tm ON tm.operator_id = p.id
       WHERE p.is_public = TRUE
         AND p.status = 'active'
         AND p.category = 'operator'
       ORDER BY
-        ($1 = ANY(COALESCE(tm.activity_types, '{}'))) DESC,
+        (COALESCE(tm.activity_types, '{}')::text[] && $1::text[]) DESC,
         lower(p.name), p.id
       LIMIT 6
-    `, [activityType]);
+    `, [rawTypesFor(activityType)]);
 
     return NextResponse.json({ success: true, data: rows });
   } catch (err) {

@@ -72,7 +72,7 @@ describe('1. тур в карточке дня — только с выездо�
     expect(Object.keys(body.tours[0]!)).not.toContain('season_start');
     expect(Object.keys(body.tours[0]!)).not.toContain('keeps_schedule');
     const [text, params] = poolQuery.mock.calls[0]! as [string, unknown[]];
-    expect(params).toEqual(['volcano', 'avachinsky', '2026-11-21']);
+    expect(params).toEqual([['volcano'], 'avachinsky', '2026-11-21']);
     expect(text).toMatch(/AS free_on_date/);
   });
 
@@ -84,7 +84,7 @@ describe('1. тур в карточке дня — только с выездо�
     const body = await res.json() as { success: boolean; tours: unknown[] };
     expect(body.tours).toEqual([]);
     expect(poolQuery).toHaveBeenCalledTimes(2);
-    expect((poolQuery.mock.calls[1]! as [string, unknown[]])[1]).toEqual(['volcano', '2026-11-21']);
+    expect((poolQuery.mock.calls[1]! as [string, unknown[]])[1]).toEqual([['volcano'], '2026-11-21']);
   });
 
   it('без даты — как раньше: проверки дня нет', async () => {
@@ -92,7 +92,7 @@ describe('1. тур в карточке дня — только с выездо�
     const res = await toursForDay(new NextRequest('http://localhost/api/planner/tours-for-day?activity_type=volcano&zone=avachinsky'));
     const body = await res.json() as { tours: Array<{ title: string }> };
     expect(body.tours.map((t) => t.title)).toEqual([GORELY.title]);
-    expect((poolQuery.mock.calls[0]! as [string, unknown[]])[1]).toEqual(['volcano', 'avachinsky']);
+    expect((poolQuery.mock.calls[0]! as [string, unknown[]])[1]).toEqual([['volcano'], 'avachinsky']);
   });
 });
 

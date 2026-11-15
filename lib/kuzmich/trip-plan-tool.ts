@@ -37,6 +37,7 @@ import { planOfferLines } from '@/lib/kuzmich/plan-offers';
 import { nightLodgingIncluded } from '@/lib/planner/lodging-included';
 import { EDIT_NOT_RECHECKED_NOTE, planWideAfterEdit } from '@/lib/planner/plan-edit-warnings';
 import { isOfferingNote } from '@/lib/safety/mchs-bulletin';
+import { MAX_ADULTS } from '@/lib/planner/party-limits';
 
 /**
  * Как ехать — из слова модели. Принимаются и коды (self/operator/mixed), и
@@ -284,8 +285,8 @@ function dayWord(n: number): string {
   return 'дней';
 }
 
-/** Потолок группы — тот же, что у заявки на бронь (1–30 человек). */
-const MAX_GROUP = 30;
+/** Потолок группы — тот же, что у заявки на бронь и у сайта (lib/planner/party-limits). */
+const MAX_GROUP = MAX_ADULTS;
 
 /** Взрослые: целое 1..30. Не дано — двое; не разобрали — двое и сказано вслух. */
 export function readAdults(raw: string | undefined): { adults: number; given: boolean; note: string | null } {

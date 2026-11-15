@@ -150,6 +150,12 @@ describe('планер читает то, что положила страниц
     cleanup();
     recommendBodies = [];
     // Частично годный список детей не принимается кусками.
-    expect(await buildPlan('adults=9&children=4,40&hint=volcano&from=2030-08-01&days=5')).toMatchObject({ adults: 2, children: [] });
+    expect(await buildPlan('adults=31&children=4,40&hint=volcano&from=2030-08-01&days=5')).toMatchObject({ adults: 2, children: [] });
+  });
+
+  // Разбор 14.11, Кузьмич-9: план чата на 25 человек сохранялся, а «Собрать
+  // заново» открывало планер на двоих — ссылку с adults=25 экран отбрасывал.
+  it('большая группа из сохранённой поездки доходит до сборки как есть', async () => {
+    expect(await buildPlan('adults=25&hint=volcano&from=2030-08-01&days=5')).toMatchObject({ adults: 25 });
   });
 });

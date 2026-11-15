@@ -77,6 +77,7 @@ import { SeatRequestForm } from '@/components/planner/SeatRequestForm';
 import { planDayDate, planDayTourHref } from '@/lib/planner/day-tour-link';
 import { maxShareUrl, telegramShareUrl } from '@/lib/trips/share-links';
 import { nightLodgingIncluded } from '@/lib/planner/lodging-included';
+import { adultsFromParam, MAX_ADULTS } from '@/lib/planner/party-limits';
 
 const LeafletMap = dynamic(() => import('@/components/shared/LeafletMap'), { ssr: false });
 
@@ -1281,12 +1282,10 @@ export function PlannerClient({ initialUserId }: { initialUserId?: string | null
   const [needsCar, setNeedsCar] = useState(false);
 
   // Group profile
-  // Состав из ссылки «Собрать заново» (H17): взрослых 1–8, как в списке шага
-  // «Кто едет»; битое значение не принимается — остаётся обычное «двое».
-  const [adults, setAdults] = useState(() => {
-    const raw = searchParams.get('adults');
-    return raw && /^[1-8]$/.test(raw) ? Number(raw) : 2;
-  });
+  // Состав из ссылки «Собрать заново» (H17): взрослых 1–MAX_ADULTS, как в
+  // списке шага «Кто едет», в чате и в сохранённой поездке (разбор 14.11,
+  // Кузьмич-9); битое значение не принимается — остаётся обычное «двое».
+  const [adults, setAdults] = useState(() => adultsFromParam(searchParams.get('adults')) ?? 2);
   // Возраст ребёнка не подставляется: пока он не выбран — null, и плана нет
   // (независимая проверка 07.11, Б4). До этого новый ребёнок молча получал
   // 10 лет, и с четырёхлетним, не поправившим цифру, план давал треккинг,
@@ -2518,7 +2517,7 @@ export function PlannerClient({ initialUserId }: { initialUserId?: string | null
             <Users className="w-4 h-4 text-[var(--ocean)]" />Взрослых
           </span>
           <select value={adults} onChange={e => setAdults(Number(e.target.value))} className="ds-input w-full text-sm">
-            {[1,2,3,4,5,6,7,8].map(n => <option key={n} value={n}>{n}</option>)}
+            {Array.from({ length: MAX_ADULTS }, (_, i) => i + 1).map(n => <option key={n} value={n}>{n}</option>)}
           </select>
         </label>
         <label className="space-y-1.5">

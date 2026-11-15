@@ -63,7 +63,7 @@ describe('topToursByActivity — правило 1в', () => {
   it('отказ подбора — в лог, без тура; соседний вид не падает', async () => {
     const err = vi.spyOn(console, 'error').mockImplementation(() => {});
     poolQuery.mockImplementation(async (_sql: string, params: unknown[]) => {
-      if (params[0] === 'rafting') throw Object.assign(new Error('boom'), { code: '57014' });
+      if ((params[0] as string[]).includes('rafting')) throw Object.assign(new Error('boom'), { code: '57014' });
       return { rows: [row(5)] };
     });
     const r = await topToursByActivity(['rafting', 'fishing'], { day: '2026-10-29' });

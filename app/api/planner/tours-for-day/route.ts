@@ -39,6 +39,7 @@ import { catalogRowFitsDay } from '@/lib/planner/tour-day-fit';
 import { kamchatkaToday } from '@/lib/planner/calendar-days';
 import { orderOffersBy } from '@/lib/tours/offer-order';
 import { zoneMatchSql } from '@/lib/planner/zone-match';
+import { rawTypesFor } from '@/lib/planner/constants';
 import { rereadTourDay } from '@/lib/planner/tour-day-reread';
 
 export const dynamic = 'force-dynamic';
@@ -169,17 +170,20 @@ export async function GET(req: NextRequest) {
   }
 
   const { activity_type, zone, limit, date } = parsed.data;
+  // Слова оператора, которые движок считает этим занятием (`thermal` у
+  // туров — `hot_spring` у плитки сайта): тот же список, что у отбора движка.
+  const types = rawTypesFor(activity_type);
 
   try {
     // If zone is specified, try filtered query first
     if (zone) {
       const { rows } = await pool.query<TourRow>(`${SELECT_HEAD}${date ? dayColumns('$3') : ''}${SELECT_FROM}
         LEFT JOIN agent_route_knowledge ark ON ark.id = ot.agent_route_id
-        WHERE ot.activity_type = $1
+        WHERE ot.activity_type = ANY($1::text[])
           AND ${publicTourSql('ot')}
           -- Тот же предикат зоны, что у движка (E4): тур без зоны — городской.
           AND ${zoneMatchSql('ark', '$2')}
-      `, date ? [activity_type, zone, date] : [activity_type, zone]);
+      `, date ? [types, zone, date] : [types, zone]);
 
       // Есть подходящие в зоне — они; нет — общий запрос, как раньше.
       const inZone = firstByRule(rows, limit, date);
@@ -191,9 +195,9 @@ export async function GET(req: NextRequest) {
 
     // Global query (no zone filter)
     const { rows } = await pool.query<TourRow>(`${SELECT_HEAD}${date ? dayColumns('$2') : ''}${SELECT_FROM}
-      WHERE ot.activity_type = $1
+      WHERE ot.activity_type = ANY($1::text[])
         AND ${publicTourSql('ot')}
-    `, date ? [activity_type, date] : [activity_type]);
+    `, date ? [types, date] : [types]);
 
     // Зона была названа, а в ней подходящего нет — тур из другой зоны
     // помечается (разбор планера 14.11): раньше он вставал молча.

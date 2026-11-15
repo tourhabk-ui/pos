@@ -49,6 +49,6 @@ describe('список туров дня в планировщике — тот 
     await toursForDay(new NextRequest('http://localhost/api/planner/tours-for-day?activity_type=volcano&zone=avachinsky'));
     const [text, params] = poolQuery.mock.calls[0]! as [string, unknown[]];
     expect(text).toContain(zoneMatchSql('ark', '$2'));
-    expect(params).toEqual(['volcano', 'avachinsky']);
+    expect(params).toEqual([['volcano'], 'avachinsky']);
   });
 });
