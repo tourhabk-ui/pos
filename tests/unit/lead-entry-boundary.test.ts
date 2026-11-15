@@ -38,9 +38,11 @@ vi.mock('@/lib/planner', () => ({
 vi.mock('@/lib/db-pool', () => ({
   pool: { query, connect: async () => ({ query, release: () => {} }) },
 }));
+// Отложенные заявки агента — в памяти: отправку «нажимает» тест за человека.
+vi.mock('@/lib/mcp/pending-request', async (orig) => (await import('../helpers/mcp-two-step')).memoryPendingModule(await orig()));
 
 import { POST, runPublicTool, type PublicToolCall } from '@/app/api/mcp/route';
-import { confirmationCodeOf, isDraft } from '../helpers/mcp-two-step';
+import { isDraft, sendAsHuman } from '../helpers/mcp-two-step';
 
 // Телефон правдоподобный: заявка MCP с +70000000000 отвергается до записи (#3155).
 const TOUR = { id: 27, title: 'Сплав по реке Быстрая', operator_id: 'op-uuid-1', base_price: 13000, price_unit: 'person' };
@@ -51,8 +53,10 @@ let ip = 0;
 const nextIp = () => { ip += 1; return `10.8.${Math.floor(ip / 250)}.${ip % 250}`; };
 
 /**
- * Заявка внешнего агента (MCP и A2A) — в два вызова (lib/mcp/human-confirmation):
- * черновик ничего не записывает и входа не ставит, запись — второй вызов с кодом.
+ * Заявку внешнего агента (MCP и A2A) отправляет человек на /confirm
+ * (lib/mcp/pending-request, pending-confirm): вызов агента — черновик, ничего
+ * не записывает и входа не ставит; запись — нажатие человека, а вход остаётся
+ * тем, откуда пришла заявка.
  */
 async function confirmedCall(call: PublicToolCall) {
   const before = seen.length;
@@ -61,8 +65,8 @@ async function confirmedCall(call: PublicToolCall) {
   const text = (draft as { text: string }).text;
   expect(isDraft(text)).toBe(true);
   expect(seen).toHaveLength(before);
-  const args = call.rawArguments as Record<string, unknown>;
-  return runPublicTool({ ...call, rawArguments: { ...args, consent: true, confirmation: confirmationCodeOf(text) } });
+  expect(partnerOrigins).toEqual([]);
+  return sendAsHuman(text, nextIp());
 }
 
 function mcpPost(args: Record<string, unknown>) {
@@ -86,11 +90,13 @@ beforeEach(() => {
 
 describe('вход заявки в момент записи', () => {
   it('POST /api/mcp — вход mcp и имя инструмента', async () => {
-    const draft = await (await mcpPost(LEAD)).json() as { result: { content: Array<{ text: string }> } };
-    const code = confirmationCodeOf(draft.result.content[0].text);
-    expect(seen).toEqual([]);
-    const res = await mcpPost({ ...LEAD, confirmation: code });
+    const res = await mcpPost(LEAD);
     expect(res.status).toBe(200);
+    const draft = await res.json() as { result: { content: Array<{ text: string }> } };
+    expect(isDraft(draft.result.content[0].text)).toBe(true);
+    expect(seen).toEqual([]);
+    const out = await sendAsHuman(draft.result.content[0].text, nextIp());
+    expect(out.kind).toBe('ok');
     expect(seen).toEqual([{ entry: 'mcp', tool: 'create_lead' }]);
   });
 

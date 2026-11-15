@@ -51,11 +51,14 @@ vi.mock('@/lib/db-pool', () => {
   return { pool: { query: q, connect: async () => ({ query: q, release: () => {} }) } };
 });
 
+// Отложенные заявки агента — в памяти: отправку «нажимает» тест за человека.
+vi.mock('@/lib/mcp/pending-request', async (orig) => (await import('../helpers/mcp-two-step')).memoryPendingModule(await orig()));
+
 import { POST } from '@/app/api/mcp/route';
 import { matchDestinations, vehiclesNeeded, fleetCapacity, type CharterCarrier } from '@/lib/transfers/charter-format';
 import { pickCarrier, planCharterRequest } from '@/lib/transfers/charter-request';
 import { PD_CONSENT_CARRIER_VERSION } from '@/lib/legal/pd-consent';
-import { confirmationCodeOf, isDraft } from '../helpers/mcp-two-step';
+import { isDraft, sendAsHuman } from '../helpers/mcp-two-step';
 
 const ROOT = process.cwd();
 const ROUTE = readFileSync(join(ROOT, 'app/api/mcp/route.ts'), 'utf-8');
@@ -101,24 +104,30 @@ const text = async (r: Response) => {
   return { isError: Boolean(j.result?.isError), text: String(j.result?.content?.[0]?.text ?? j.error?.message ?? '') };
 };
 
+const written = () => [
+  createLeadMock.mock.calls.length, recentLeadMock.mock.calls.length,
+  guardState.calls.filter(([sql]) => /mcp_write_attempts/.test(sql)).length,
+];
+/** «Отправить» человеком на странице: исход в форме ответа агенту. */
+async function humanSends(draftText: string) {
+  ipCounter += 1;
+  const out = await sendAsHuman(draftText, `10.21.${Math.floor(ipCounter / 250)}.${ipCounter % 250}`);
+  return { isError: out.kind !== 'ok', text: out.kind === 'unknown_tool' ? out.message : out.text };
+}
 /**
- * Заявка внешнего агента — в два вызова (lib/mcp/human-confirmation). Первый
- * вызов дошёл до записи — черновик: ни лида, ни вопроса «был ли повтор», ни
- * попытки записи; тогда второй вызов с кодом и `consent` (по умолчанию true),
- * и возвращается его ответ. Ответ до записи (отказ, вопрос) кода не несёт и
- * возвращается как есть.
+ * Заявку внешнего агента отправляет человек на /confirm (lib/mcp/pending-request,
+ * pending-confirm). Вызов агента дошёл до записи — черновик: ни лида, ни
+ * вопроса «был ли повтор», ни попытки записи; тогда «нажимает» человек, и
+ * возвращается исход его отправки. Ответ до записи (отказ, вопрос) ссылки не
+ * несёт и возвращается как есть.
  */
-async function send(args: Record<string, unknown>, consent: unknown = true) {
-  const written = () => [
-    createLeadMock.mock.calls.length, recentLeadMock.mock.calls.length,
-    guardState.calls.filter(([sql]) => /mcp_write_attempts/.test(sql)).length,
-  ];
+async function send(args: Record<string, unknown>) {
   const before = written();
   const first = await text(await POST(call(args)));
   if (!isDraft(first.text)) return first;
   expect(first.isError).toBe(false);
   expect(written()).toEqual(before);
-  return text(await POST(call({ ...args, consent, confirmation: confirmationCodeOf(first.text) })));
+  return humanSends(first.text);
 }
 
 const base = () => ({
@@ -241,6 +250,8 @@ describe('request_charter через MCP: заявка принята', () => {
     expect(lead.pd_consent).toBeTruthy();
     // Телефон уходит перевозчику — и согласие записано текстом, который называет перевозчика.
     expect((lead.pd_consent as { version: string }).version).toBe(PD_CONSENT_CARRIER_VERSION);
+    // Согласие дал человек на странице отправки, а не агент вызовом (#3399, п. 4).
+    expect((lead.pd_consent as { source: string }).source).toBe('request-page');
     expect(lead.source_data).toMatchObject({ source: 'mcp', tool: 'request_charter', kind: 'charter' });
     // Не подбор тура: AI-конвейер лидов (квалификация, туры, PDF) ему не нужен.
     expect(lead.skip_ai_processing).toBe(true);
@@ -302,13 +313,21 @@ describe('request_charter через MCP: заявка принята', () => {
 describe('request_charter: заявка НЕ создаётся', () => {
   const noLead = () => expect(createLeadMock).not.toHaveBeenCalled();
 
-  it('без согласия — отказ, ничего не записано и повтор не спрашивался (не оракул без допуска)', async () => {
-    // Первый вызов — черновик и при consent: false; отказ — на втором, с кодом.
-    const r = await send({ ...base(), consent: false }, false);
-    expect(r.isError).toBe(true);
-    expect(r.text).toContain('нет согласия на обработку персональных данных');
+  it('consent: false у агента — черновик: ничего не записано и повтор не спрашивался (не оракул без допуска)', async () => {
+    // Согласие агента ничего не решает: вызов агента — черновик при любом
+    // consent, согласие даёт человек на странице отправки.
+    const r = await text(await POST(call({ ...base(), consent: false })));
+    expect(r.isError).toBe(false);
+    expect(isDraft(r.text)).toBe(true);
     noLead();
     expect(recentLeadMock).not.toHaveBeenCalled();
+    expect(written()).toEqual([0, 0, 0]);
+    // Запись — только нажатием человека, и согласие в ней — его.
+    const sent = await humanSends(r.text);
+    expect(sent.isError, sent.text).toBe(false);
+    expect(createLeadMock).toHaveBeenCalledTimes(1);
+    const lead = (createLeadMock.mock.calls[0] as unknown as [Record<string, unknown>])[0];
+    expect(lead.pd_consent).toMatchObject({ source: 'request-page', version: PD_CONSENT_CARRIER_VERSION });
   });
 
   it('в аргументах нет согласия — отказ про поле, а не про отказ человека', async () => {

@@ -75,6 +75,7 @@ export const METRIKA_EXCLUDED_PREFIXES: ReadonlyArray<{ prefix: string; reason: 
   { prefix: '/team', reason: 'приглашение в команду оператора: в адресе одноразовый ключ, по которому входят в кабинет' },
   { prefix: '/partner-consent', reason: 'согласие партнёра на материалы: в адресе одноразовый ключ, по которому подписывают, и поля имени и должности подписанта' },
   { prefix: '/request-status', reason: 'страница заявки: в адресе ключ статуса, по которому читают и пишут переписку с адресатом заявки (1350), а на экране — сами сообщения людей' },
+  { prefix: '/confirm', reason: 'отправка заявки, подготовленной ИИ-агентом (#3399): в адресе токен, по которому заявку отправляют, на экране — имя, телефон и черновик заявки' },
 ];
 
 export function shouldTrackPath(pathname: string | null | undefined): boolean {

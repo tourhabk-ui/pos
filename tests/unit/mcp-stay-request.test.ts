@@ -34,10 +34,14 @@ vi.mock('@/lib/notifications/pd-alert', () => ({
   sendPdAlert: (p: unknown) => sendPdAlertMock(p),
 }));
 
+// Отложенные заявки агента — в памяти: отправку «нажимает» тест за человека.
+vi.mock('@/lib/mcp/pending-request', async (orig) => (await import('../helpers/mcp-two-step')).memoryPendingModule(await orig()));
+
 import { POST } from '@/app/api/mcp/route';
+import type { PublicToolOutcome } from '@/lib/mcp/tool-outcome';
 import { STAY_REQUEST_TOOL, WRITE_TOOL_NAMES, PUBLIC_MCP_TOOL_NAMES } from '@/lib/mcp/public-tools';
 import { PD_CONSENT_STAY_VERSION } from '@/lib/legal/pd-consent';
-import { confirmationCodeOf, isDraft } from '../helpers/mcp-two-step';
+import { isDraft, sendAsHuman } from '../helpers/mcp-two-step';
 
 const KUTHA_ID = '3b2551c7-ed5c-47c8-bb93-41ca6a278c1e';
 
@@ -63,25 +67,37 @@ const ARGS = {
 
 const inserts = () => query.mock.calls.filter(([sql]) => /INSERT INTO stay_requests/.test(String(sql)));
 
+const written = () => [
+  query.mock.calls.filter(([sql]) => /INSERT INTO (stay_requests|agent_request_keys|agent_request_notify)|UPDATE stay_requests/.test(String(sql))).length,
+  sendPdAlertMock.mock.calls.length,
+];
+/** Исход отправки человеком — в форме результата tools/call (как переводит POST). */
+function asResult(out: PublicToolOutcome): { isError?: boolean; content: Array<{ text: string }> } {
+  if (out.kind === 'ok') return { content: [{ text: out.text }] };
+  return { isError: true, content: [{ text: out.kind === 'unknown_tool' ? out.message : out.text }] };
+}
+let sendIp = 0;
+const lastSendIp = () => `10.9.251.${sendIp}`;
+/** «Отправить» человеком на странице. */
+async function humanSends(draftText: string) {
+  sendIp += 1;
+  return asResult(await sendAsHuman(draftText, lastSendIp()));
+}
 /**
- * Заявка внешнего агента — в два вызова (lib/mcp/human-confirmation). Первый
- * вызов дошёл до записи — черновик: ни строки заявки, ни ключа, ни сообщения
- * хозяину; тогда второй вызов с кодом и `consent` (по умолчанию true), и
- * возвращается его ответ. Ответ до записи (отказ, объект не принимает заявку)
- * кода не несёт и возвращается как есть.
+ * Заявку внешнего агента отправляет человек на /confirm (lib/mcp/pending-request,
+ * pending-confirm). Вызов агента дошёл до записи — черновик: ни строки
+ * заявки, ни ключа, ни сообщения хозяину; тогда «нажимает» человек, и
+ * возвращается исход его отправки. Ответ до записи (отказ, объект не
+ * принимает заявку) ссылки не несёт и возвращается как есть.
  */
-async function send(args: Record<string, unknown>, consent: unknown = true) {
-  const written = () => [
-    query.mock.calls.filter(([sql]) => /INSERT INTO (stay_requests|agent_request_keys|agent_request_notify)|UPDATE stay_requests/.test(String(sql))).length,
-    sendPdAlertMock.mock.calls.length,
-  ];
+async function send(args: Record<string, unknown>) {
   const before = written();
   const first = await result(await call(args));
   const text = first.content[0]?.text ?? '';
   if (!isDraft(text)) return first;
   expect(first.isError).toBeUndefined();
   expect(written()).toEqual(before);
-  return result(await call({ ...args, consent, confirmation: confirmationCodeOf(text) }));
+  return humanSends(text);
 }
 
 beforeEach(() => {
@@ -118,7 +134,7 @@ describe('инструмент объявлен как заявка', () => {
 });
 
 describe('путь формы: запись, согласие, доставка', () => {
-  it('хозяин подключён: строка с согласием «жильё» от mcp, хозяину в его адрес и оператору', async () => {
+  it('хозяин подключён: строка с согласием «жильё» человека со страницы, дверь mcp, хозяину в его адрес и оператору', async () => {
     const r = await send(ARGS);
     expect(r.isError).toBeUndefined();
     expect(r.content[0].text).toMatch(/Заявка передана владельцу в мессенджер: "Кутха", заезд 2027-07-10, выезд 2027-07-12 \(ночей: 2\), гостей 9/);
@@ -128,7 +144,10 @@ describe('путь формы: запись, согласие, доставка'
     const params = inserts()[0][1] as unknown[];
     expect(params[0]).toBe(KUTHA_ID);
     expect(params.slice(1, 7)).toEqual(['2027-07-10', '2027-07-12', 9, 'Иван Петров', '+79001234567', 'Баня вечером']);
-    expect(params[9]).toBe('mcp');
+    // Согласие дал человек на странице отправки (#3399, п. 4) — с адресом
+    // страницы, а не заявление агента с адресом вызова.
+    expect(params[8]).toBe(lastSendIp());
+    expect(params[9]).toBe('request-page');
     expect(params[10]).toBe(PD_CONSENT_STAY_VERSION);
     // Дверь (1213) — в той же вставке.
     expect(params[11]).toBe('mcp');
@@ -176,13 +195,20 @@ describe('путь формы: запись, согласие, доставка'
 });
 
 describe('без согласия — ничего', () => {
-  it('consent: false — не пишется и не отправляется', async () => {
-    // Первый вызов — черновик и при consent: false; отказ — на втором, с кодом.
-    const r = await send({ ...ARGS, consent: false }, false);
-    expect(r.isError).toBe(true);
-    expect(r.content[0].text).toMatch(/нет согласия/);
+  it('consent: false у агента — не пишется и не отправляется: черновик, согласие даёт человек', async () => {
+    // Согласие агента ничего не решает (#3399, п. 4): вызов агента — черновик
+    // при любом consent.
+    const r = await result(await call({ ...ARGS, consent: false }));
+    expect(r.isError).toBeUndefined();
+    expect(isDraft(r.content[0].text)).toBe(true);
     expect(inserts()).toHaveLength(0);
+    expect(written()).toEqual([0, 0]);
     expect(sendPdAlertMock).not.toHaveBeenCalled();
+    // Строка и сообщения — только нажатием человека, с его согласием.
+    const sent = await humanSends(r.content[0].text);
+    expect(sent.isError, sent.content[0].text).toBeUndefined();
+    expect(inserts()).toHaveLength(1);
+    expect((inserts()[0][1] as unknown[])[9]).toBe('request-page');
   });
 
   it('поля consent нет — отказ «поля нет»', async () => {

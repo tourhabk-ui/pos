@@ -29,9 +29,11 @@ vi.mock('@/lib/db-pool', () => {
     /COUNT\(\*\)/.test(sql) ? { rows: [{ a: '0', b: '0', c: '0' }] } : { rows: [] };
   return { pool: { query: q, connect: async () => ({ query: q, release: () => {} }) } };
 });
+// Отложенные заявки агента — в памяти: отправку «нажимает» тест за человека.
+vi.mock('@/lib/mcp/pending-request', async (orig) => (await import('../helpers/mcp-two-step')).memoryPendingModule(await orig()));
 
 import { POST } from '@/app/api/mcp/route';
-import { confirmationCodeOf, isDraft } from '../helpers/mcp-two-step';
+import { isDraft, sendAsHuman } from '../helpers/mcp-two-step';
 
 function rpc(method: string, params?: Record<string, unknown>) {
   return new Request('http://localhost/api/mcp', {
@@ -42,15 +44,17 @@ function rpc(method: string, params?: Record<string, unknown>) {
 }
 
 /**
- * Заявка внешнего агента — в два вызова (lib/mcp/human-confirmation): первый —
- * черновик без записи, второй с кодом — запись. Возвращает ответ второго.
+ * Заявку внешнего агента отправляет человек на /confirm (lib/mcp/pending-request):
+ * вызов агента — черновик без записи, запись — нажатие человека. Возвращает
+ * исход отправки человеком.
  */
+let sendIp = 0;
 async function createLead(args: Record<string, unknown>) {
   const first = await (await POST(rpc('tools/call', { name: 'create_lead', arguments: args }))).json();
   const draft = first.result.content[0].text as string;
   expect(isDraft(draft)).toBe(true);
   expect(createLeadMock).not.toHaveBeenCalled();
-  return POST(rpc('tools/call', { name: 'create_lead', arguments: { ...args, consent: true, confirmation: confirmationCodeOf(draft) } }));
+  return sendAsHuman(draft, `10.201.0.${(sendIp += 1)}`);
 }
 
 const ID = '1b9d6bcd-bbfd-4b2d-9b5d-ab8dfbbd4bed';
@@ -76,11 +80,10 @@ describe('MCP create_lead с plan_id', () => {
         realTour: { tourId: '5', priceUnit: 'per_day_per_person', durationDays: 1, lodgingIncluded: true, operatorName: 'Камчатская рыбалка' } },
       { day: 3, type: 'departure', zone: 'avachinsky', title: 'Вылет', priceFrom: 0, priceTo: 0 },
     ] } };
-    const res = await createLead({ ...LEAD, plan_id: ID });
-    const json = await res.json();
-    expect(json.result.isError).toBeUndefined();
+    const out = await createLead({ ...LEAD, plan_id: ID });
+    expect(out.kind).toBe('ok');
     // Хвост с ключом статуса (ступень 1 контура, 12.10) случайный на вызов — сравнивается только сам ответ.
-    expect(json.result.content[0].text).toMatch(/^Заявка принята\. Менеджер Ведара свяжется по указанному телефону\.( Ключ статуса заявки: [A-Za-z0-9_-]+ — |$)/);
+    expect((out as { text: string }).text).toMatch(/^Заявка принята\. Менеджер Ведара свяжется по указанному телефону\.( Ключ статуса заявки: [A-Za-z0-9_-]+ — |$)/);
     const sd = (createLeadMock.mock.calls[0]![0] as unknown as { source_data: Record<string, unknown> }).source_data;
     expect(sd.source).toBe('mcp');
     expect(sd.plan_id).toBe(ID);
@@ -93,10 +96,9 @@ describe('MCP create_lead с plan_id', () => {
 
   it('плана нет — заявка всё равно создаётся, и агент слышит, что без плана', async () => {
     DRAFT = { kind: 'missing' };
-    const res = await createLead({ ...LEAD, plan_id: ID });
-    const json = await res.json();
-    expect(json.result.isError).toBeUndefined();
-    expect(json.result.content[0].text).toMatch(/Заявка принята\..* не найден .* заявка принята без плана/);
+    const out = await createLead({ ...LEAD, plan_id: ID });
+    expect(out.kind).toBe('ok');
+    expect((out as { text: string }).text).toMatch(/Заявка принята\..* не найден .* заявка принята без плана/);
     const sd = (createLeadMock.mock.calls[0]![0] as unknown as { source_data: Record<string, unknown> }).source_data;
     expect(sd.plan).toBeUndefined();
   });

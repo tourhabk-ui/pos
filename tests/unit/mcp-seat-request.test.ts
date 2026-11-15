@@ -54,10 +54,13 @@ vi.mock('@/lib/db-pool', () => {
   return { pool: { query: q, connect: async () => ({ query: q, release: () => {} }) } };
 });
 
+// Отложенные заявки агента — в памяти: отправку «нажимает» тест за человека.
+vi.mock('@/lib/mcp/pending-request', async (orig) => (await import('../helpers/mcp-two-step')).memoryPendingModule(await orig()));
+
 import { readFileSync } from 'node:fs';
 import { join } from 'node:path';
 import { POST } from '@/app/api/mcp/route';
-import { confirmationCodeOf, isDraft } from '../helpers/mcp-two-step';
+import { isDraft, sendAsHuman } from '../helpers/mcp-two-step';
 
 function call(args: Record<string, unknown>) {
   return new Request('http://localhost/api/mcp', {
@@ -73,21 +76,28 @@ const text = async (r: Response) => {
   return { isError: Boolean(j.result?.isError), text: String(j.result?.content?.[0]?.text ?? j.error?.message ?? '') };
 };
 
+let sendIp = 0;
+/** «Отправить» человеком на странице: исход в форме ответа агенту. */
+async function humanSends(draftText: string) {
+  sendIp += 1;
+  const out = await sendAsHuman(draftText, `10.0.3.${sendIp}`);
+  return { isError: out.kind !== 'ok', text: out.kind === 'unknown_tool' ? out.message : out.text };
+}
 /**
- * Заявка внешнего агента — в два вызова (lib/mcp/human-confirmation). Первый
- * вызов дошёл до записи — черновик: ни запроса мест, ни лида; тогда второй
- * вызов с кодом и `consent` (по умолчанию true), и возвращается его ответ.
- * Ответ до записи (вне сезона, нет мест, не смог проверить) кода не несёт и
+ * Заявку внешнего агента отправляет человек на /confirm (lib/mcp/pending-request,
+ * pending-confirm). Вызов агента дошёл до записи — черновик: ни запроса мест,
+ * ни лида; тогда «нажимает» человек, и возвращается исход его отправки. Ответ
+ * до записи (вне сезона, нет мест, не смог проверить) ссылки не несёт и
  * возвращается как есть.
  */
-async function send(a: Record<string, unknown>, consent: unknown = true) {
+async function send(a: Record<string, unknown>) {
   const written = () => [createLeadMock.mock.calls.length, createSeatMock.mock.calls.length];
   const before = written();
   const first = await text(await POST(call(a)));
   if (!isDraft(first.text)) return first;
   expect(first.isError).toBe(false);
   expect(written()).toEqual(before);
-  return text(await POST(call({ ...a, consent, confirmation: confirmationCodeOf(first.text) })));
+  return humanSends(first.text);
 }
 
 beforeEach(() => {
@@ -136,7 +146,9 @@ describe('тур без расписания', () => {
     expect(createSeatMock.mock.calls[0]![0]).toMatchObject({
       tourId: 7, date: '2099-07-10', participants: 2, touristName: 'Иван', touristPhone: '+79001234567',
       replyChannel: 'phone', source: 'mcp',
-      pdConsent: { source: 'mcp' },
+      // Вход — mcp (откуда пришла заявка), согласие — человека на странице
+      // отправки (#3399, п. 4), а не заявление агента.
+      pdConsent: { source: 'request-page', ip: `10.0.3.${sendIp}` },
     });
     expect(createLeadMock).not.toHaveBeenCalled();
     // Агенту сказано: не бронь, ссылка человеку, «не ответил» не значит «мест нет».
@@ -184,13 +196,19 @@ describe('тур без расписания', () => {
     expect(confirmed.text).not.toMatch(/подтверждённая бронь/);
   });
 
-  it('без согласия на ПД запрос не отправляется', async () => {
+  it('consent: false у агента — запрос не отправляется: черновик, согласие даёт человек на странице', async () => {
     keepsScheduleMock.mockResolvedValue(false);
-    // Первый вызов — черновик и при consent: false; отказ — на втором, с кодом.
-    const r = await send({ ...args, consent: false }, false);
-    expect(r.isError).toBe(true);
-    expect(r.text).toContain('нет согласия на обработку персональных данных');
+    createSeatMock.mockResolvedValue({ ok: true, requestId: 'r1', statusToken: 'TOK', deadlineAt: new Date('2099-01-01T05:00:00Z'), operatorDelivery: 'max' });
+    const r = await text(await POST(call({ ...args, consent: false })));
+    expect(r.isError).toBe(false);
+    expect(isDraft(r.text)).toBe(true);
     expect(createSeatMock).not.toHaveBeenCalled();
+    expect(createLeadMock).not.toHaveBeenCalled();
+    // Оператору запрос уходит только нажатием человека — с его согласием.
+    const sent = await humanSends(r.text);
+    expect(sent.isError, sent.text).toBe(false);
+    expect(createSeatMock).toHaveBeenCalledTimes(1);
+    expect(createSeatMock.mock.calls[0]![0]).toMatchObject({ pdConsent: { source: 'request-page' } });
   });
 });
 

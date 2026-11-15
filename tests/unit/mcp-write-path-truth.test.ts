@@ -47,12 +47,16 @@ vi.mock('@/lib/rental/rental', () => ({
   }],
 }));
 
+// Отложенные заявки агента — в памяти: отправку «нажимает» тест за человека.
+vi.mock('@/lib/mcp/pending-request', async (orig) => (await import('../helpers/mcp-two-step')).memoryPendingModule(await orig()));
+
 import { POST, runPublicTool } from '@/app/api/mcp/route';
+import type { PublicToolOutcome } from '@/lib/mcp/tool-outcome';
 import { PD_CONSENT_VERSION, PD_CONSENT_OPERATORS_VERSION, PD_CONSENT_OPERATORS_TEXT } from '@/lib/legal/pd-consent';
 import { CREATE_LEAD_TOOL } from '@/lib/mcp/public-tools';
 import { normalizePhone } from '@/lib/mcp/normalize-phone';
 import { resolveTourByQuery } from '@/lib/kuzmich/tour-availability-tool';
-import { confirmationCodeOf, isDraft } from '../helpers/mcp-two-step';
+import { isDraft, sendAsHuman } from '../helpers/mcp-two-step';
 
 const TOUR = { id: 27, title: 'Сплав по реке Быстрая', operator_id: 'op-uuid-1', base_price: 13000, price_unit: 'person' };
 
@@ -69,25 +73,33 @@ const result = async (res: Response) => (await res.json()).result as { isError?:
 
 /** Всё, чем заявка остаётся в базе: лид, ключ, подписка, попытка записи, согласие. */
 const WRITE_SQL = /INSERT INTO (leads|tour_seat_requests|stay_requests|agent_request_keys|agent_request_notify|mcp_write_attempts|pd_consents)|UPDATE (leads|mcp_write_attempts)/;
+/** Исход отправки человеком — в форме результата tools/call (как переводит POST). */
+function asResult(out: PublicToolOutcome): { isError?: boolean; content: Array<{ text: string }> } {
+  if (out.kind === 'ok') return { content: [{ text: out.text }] };
+  return { isError: true, content: [{ text: out.kind === 'unknown_tool' ? out.message : out.text }] };
+}
+let pageIp = 0;
 /**
- * Заявка внешнего агента — в два вызова (lib/mcp/human-confirmation). Первый
- * вызов дошёл до записи — черновик: ни лида, ни вопроса «был ли повтор», ни
- * строки в базе; тогда второй вызов с кодом и согласием, и возвращается его
- * ответ. Ответ до записи (отказ по входу, выбор тура) кода не несёт и
- * возвращается как есть.
+ * Заявку внешнего агента отправляет человек на /confirm (lib/mcp/pending-request,
+ * pending-confirm). Вызов агента дошёл до записи — черновик: ни лида, ни
+ * вопроса «был ли повтор», ни строки в базе; тогда «нажимает» человек (с
+ * адреса страницы `sendIp`, по умолчанию — свой на каждую отправку), и
+ * возвращается исход его отправки. Ответ до записи (отказ по входу, выбор
+ * тура) ссылки не несёт и возвращается как есть.
  */
-async function send(name: string, args: Record<string, unknown>, sameIp?: string) {
+async function send(name: string, args: Record<string, unknown>, sendIp?: string) {
   const written = () => [
     createLeadMock.mock.calls.length, recentLeadMock.mock.calls.length,
     query.mock.calls.filter((c) => WRITE_SQL.test(String(c[0]))).length,
   ];
   const before = written();
-  const first = await result(await call(name, args, sameIp));
+  const first = await result(await call(name, args));
   const text = first.content[0]?.text ?? '';
   if (!isDraft(text)) return first;
   expect(first.isError).toBeUndefined();
   expect(written()).toEqual(before);
-  return result(await call(name, { ...args, consent: true, confirmation: confirmationCodeOf(text) }, sameIp));
+  pageIp += 1;
+  return asResult(await sendAsHuman(text, sendIp ?? `10.70.${Math.floor(pageIp / 250)}.${pageIp % 250}`));
 }
 
 const BOOKING = { tour: 'Сплав', date: '2027-07-10', participants: 2, name: 'Иван Петров', phone: '+79001234567', consent: true };
@@ -313,21 +325,32 @@ describe('W8/W12/W14: отказы — внятные и по-русски', () 
 });
 
 describe('W9: лимит записи называет своё окно', () => {
-  // Окно — час (решение владельца 01.10: 5 заявок в час с адреса).
-  it('шестая заявка с адреса — «подождите час»', async () => {
+  // Окно — час (решение владельца 01.10: 5 заявок в час с адреса). Пишет
+  // заявку отправка человеком на /confirm — лимит записи считает её по адресу
+  // страницы, с которой нажато «Отправить».
+  it('шестая отправка с адреса страницы — «подождите час», заявок пять', async () => {
     let last: { isError?: boolean; content: Array<{ text: string }> } | null = null;
     for (let i = 0; i < 6; i++) last = await send('create_lead', LEAD, '10.66.66.66');
     expect(last!.isError).toBe(true);
     expect(last!.content[0]!.text).toMatch(/подождите час/);
+    expect(createLeadMock).toHaveBeenCalledTimes(5);
+    // Другой адрес страницы — свой счёт: отправка проходит.
+    const other = await send('create_lead', LEAD, '10.66.66.65');
+    expect(other.isError, other.content[0]!.text).toBeUndefined();
+    expect(createLeadMock).toHaveBeenCalledTimes(6);
   });
 
-  it('черновик лимит записи не тратит: после шести черновиков с адреса заявка проходит', async () => {
+  it('черновик лимит записи не тратит: после шести черновиков с адреса агента заявка проходит', async () => {
     for (let i = 0; i < 6; i++) {
       const draft = await result(await call('create_lead', LEAD, '10.66.66.67'));
       expect(isDraft(draft.content[0]!.text), draft.content[0]!.text).toBe(true);
     }
     expect(createLeadMock).not.toHaveBeenCalled();
-    const r = await send('create_lead', LEAD, '10.66.66.67');
+    // Седьмой черновик с того же адреса агента, и человек отправляет его с
+    // того же адреса: лимит записи черновиками не потрачен.
+    const draft = await result(await call('create_lead', LEAD, '10.66.66.67'));
+    expect(isDraft(draft.content[0]!.text)).toBe(true);
+    const r = asResult(await sendAsHuman(draft.content[0]!.text, '10.66.66.67'));
     expect(r.isError, r.content[0]!.text).toBeUndefined();
     expect(r.content[0]!.text).toMatch(/Заявка принята/);
     expect(createLeadMock).toHaveBeenCalledTimes(1);
@@ -460,7 +483,8 @@ describe('notify_url — адрес приёмника уведомлений (2
  * (ревью правки ПД, 06.11). Заявка из чата идёт тем же runPublicTool, и до
  * 06.11 согласие записывалось как 'mcp' («утверждение агента»: менеджер
  * получал «согласие подтвердил только агент»), а в поле адреса ложился id
- * чата в мессенджере. Внешний агент по-прежнему пишет 'mcp'.
+ * чата в мессенджере. Заявку внешнего агента с 15.11 отправляет человек на
+ * /confirm — согласие 'request-page' с адресом страницы (#3399, п. 4).
  */
 describe('канал согласия: чат Кузьмича — не агент', () => {
   const consentOf = () => (createLeadMock.mock.calls.at(-1)?.[0] as { pd_consent?: { source: string; ip: string } }).pd_consent;
@@ -484,16 +508,21 @@ describe('канал согласия: чат Кузьмича — не аген
     expect(consentOf()).toMatchObject({ source: 'kuzmich-web', ip: '10.9.0.7' });
   });
 
-  it('внешний агент без канала чата — по-прежнему mcp', async () => {
-    // Внешний агент — в два вызова: черновик, затем запись с кодом.
+  it('внешний агент без канала чата — согласие не его: человека на странице отправки (request-page)', async () => {
+    // Внешний агент: черновик ничего не пишет; запись — нажатие человека на
+    // /confirm, и согласие записано как данное там, с адресом страницы, а не
+    // как заявление агента ('mcp') с адресом агента (#3399, п. 4).
     const call1 = { toolName: 'create_lead', rawArguments: LEAD, ip: '10.9.0.8', userAgent: 'some-agent', self: false };
     const draft = await runPublicTool(call1);
     expect(draft.kind).toBe('ok');
     const draftText = draft.kind === 'ok' ? draft.text : '';
     expect(isDraft(draftText)).toBe(true);
     expect(createLeadMock).not.toHaveBeenCalled();
-    await runPublicTool({ ...call1, rawArguments: { ...LEAD, confirmation: confirmationCodeOf(draftText) } });
-    expect(consentOf()?.source).toBe('mcp');
+    const out = await sendAsHuman(draftText, '10.9.0.9');
+    expect(out.kind).toBe('ok');
+    expect(consentOf()).toMatchObject({ source: 'request-page', ip: '10.9.0.9' });
+    // Вход заявки — по-прежнему mcp: откуда она пришла.
+    expect((createLeadMock.mock.calls.at(-1)?.[0] as { source_data: Record<string, unknown> }).source_data.source).toBe('mcp');
   });
 });
 
