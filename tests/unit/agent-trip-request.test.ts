@@ -117,7 +117,7 @@ describe('create_trip_request по плану', () => {
   const PLAN = '1b9d6bcd-bbfd-4b2d-9b5d-ab8dfbbd4bed';
   const attached = {
     kind: 'attached' as const, planId: PLAN, plan: { v: 1 } as never,
-    facts: { arrivalDate: '2027-07-10', departureDate: '2027-07-16', people: 3, tourDates: { '27': '2027-07-12' } },
+    facts: { arrivalDate: '2027-07-10', departureDate: '2027-07-16', people: 3, tourDates: { '27': '2027-07-12' }, tourDateNotes: {}, tourNoFree: {} },
   };
   const base = { name: 'Тест', phone: '+79990000000', consent: true, plan_id: PLAN };
   const argsOf = (fn: ReturnType<typeof vi.fn>) => (fn.mock.calls[0] as unknown as [Record<string, unknown>])[0];
@@ -152,6 +152,42 @@ describe('create_trip_request по плану', () => {
     expect(argsOf(d.bookTour)).not.toHaveProperty('plan_id');
     expect(argsOf(d.requestStay)).not.toHaveProperty('plan_id');
     expect(r.text.match(/не найден \(неверный ID или плану больше 7 дней\)/g)).toHaveLength(1);
+  });
+
+  // Разбор планера 14.11 (Кузьмич/MCP-1): в день плана у тура мест нет — заявка
+  // не на этот день (бронь отказала бы «нет свободных мест»), а на ближайшую
+  // свободную дату из плана, и это сказано; свободной даты нет — спросить.
+  it('в день плана мест нет — дата тура — ближайшая свободная, сказано почему', async () => {
+    const shifted = { ...attached, facts: { ...attached.facts, tourDates: { '27': '2027-07-13' }, tourDateNotes: { '27': 'дата тура — 2027-07-13: в день плана 2027-07-11 мест нет, взята ближайшая свободная' } } };
+    const d = { ...deps(), readPlan: vi.fn(async () => shifted) };
+    const r = await runTripRequest({ ...base, tour: '27' }, d as never);
+    expect(argsOf(d.bookTour)).toMatchObject({ tour: '27', date: '2027-07-13' });
+    expect(r.text).toContain('дата тура — 2027-07-13: в день плана 2027-07-11 мест нет, взята ближайшая свободная');
+  });
+
+  it('в день плана мест нет и свободной даты нет — заявки нет, агенту сказано спросить дату', async () => {
+    const none = { ...attached, facts: { ...attached.facts, tourDates: {}, tourNoFree: { '27': '2027-07-11' } } };
+    const d = { ...deps(), readPlan: vi.fn(async () => none) };
+    const r = await runTripRequest({ ...base, tour: '27' }, d as never);
+    expect(d.bookTour).not.toHaveBeenCalled();
+    expect(r.text).toContain('Не хватает дат: tour_date');
+    expect(r.text).toContain('стоит на 2027-07-11, но мест в этот день нет');
+  });
+
+  // Разбор планера 14.11 (Кузьмич/MCP-8): «создано частей 2 из 2» читалось
+  // как заказ всего плана, а оператор второго тура заявки не получал.
+  it('в плане два тура, заявка на один — второй назван, заявки по нему нет', async () => {
+    const two = { ...attached, facts: { ...attached.facts, tourDates: { '27': '2027-07-12', '15': '2027-07-14' } } };
+    const d = { ...deps(), readPlan: vi.fn(async () => two) };
+    const r = await runTripRequest({ ...base, tour: '27' }, d as never);
+    expect(d.bookTour).toHaveBeenCalledTimes(1);
+    expect(r.text).toContain('В плане есть и другие туры (ID15) — по ним заявки нет');
+  });
+
+  it('в плане один тур, он и заказан — строки о других турах нет', async () => {
+    const d = { ...deps(), readPlan: vi.fn(async () => attached) };
+    const r = await runTripRequest({ ...base, tour: '27' }, d as never);
+    expect(r.text).not.toContain('другие туры');
   });
 
   it('без plan_id план не читается', async () => {

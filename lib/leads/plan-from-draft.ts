@@ -27,8 +27,16 @@ export interface PlanFacts {
   departureDate: string;
   /** Взрослых и детей вместе. */
   people: number;
-  /** Тур плана → дата его первого дня. */
+  /**
+   * Тур плана → дата заявки на него: дата первого дня тура в плане, а если в
+   * этот день у тура мест нет — его ближайшая свободная дата из плана
+   * (разбор планера 14.11, Кузьмич/MCP-1).
+   */
   tourDates: Record<string, string>;
+  /** Как дата получена, если не прямо днём плана — словами для ответа агенту. */
+  tourDateNotes: Record<string, string>;
+  /** Тур, у которого в день плана мест нет и свободной даты план не знает → дата дня плана. */
+  tourNoFree: Record<string, string>;
 }
 
 export type PlanAttach =
@@ -50,6 +58,7 @@ export async function planFromDraft(planId: string | undefined): Promise<PlanAtt
     planId: id,
     plan: planForLead(read.draft.days, {
       adults: p.adults, children: p.children, budgetTier: p.budgetTier, arrivalDate: p.arrivalDate,
+      departureDate: p.departureDate,
     }),
     facts: planFacts(read.draft),
   };
@@ -58,16 +67,34 @@ export async function planFromDraft(planId: string | undefined): Promise<PlanAtt
 function planFacts(draft: Pick<PlanDraft, 'params' | 'days'>): PlanFacts {
   const p = draft.params;
   const tourDates: Record<string, string> = {};
+  const tourDateNotes: Record<string, string> = {};
+  const tourNoFree: Record<string, string> = {};
   for (const d of draft.days) {
     const id = d.realTour?.tourId;
     // Первый день тура — его дата; дни продолжения многодневного тура позже.
-    if (id && !(id in tourDates)) tourDates[id] = shiftDate(p.arrivalDate, d.day - 1);
+    if (!id || id in tourDates || id in tourNoFree) continue;
+    const planDate = shiftDate(p.arrivalDate, d.day - 1);
+    // В день плана мест нет (план сам это говорит: «ближайшая свободная дата —
+    // 13.07 — это не 11.07»). Дата дня плана в заявке давала отказ брони «нет
+    // свободных мест» — по умолчанию, взятому из самого плана.
+    if (d.availability === 'none') {
+      if (d.availableDate) {
+        tourDates[id] = d.availableDate;
+        tourDateNotes[id] = `дата тура — ${d.availableDate}: в день плана ${planDate} мест нет, взята ближайшая свободная`;
+      } else {
+        tourNoFree[id] = planDate;
+      }
+      continue;
+    }
+    tourDates[id] = planDate;
   }
   return {
     arrivalDate: p.arrivalDate,
     departureDate: p.departureDate,
     people: p.adults + p.children.length,
     tourDates,
+    tourDateNotes,
+    tourNoFree,
   };
 }
 

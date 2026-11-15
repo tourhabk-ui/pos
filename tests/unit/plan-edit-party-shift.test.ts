@@ -190,13 +190,37 @@ describe('shift_dates — сдвиг всей поездки', () => {
     expect(r.ok).toBe(false);
     if (!r.ok) {
       // Вулкан и медведи — июль–сентябрь: дни 2–3 (29–30 сентября) в сезоне,
-      // день 4 (1 октября) и день 6 (3 октября) — нет.
-      expect(r.reason).toMatch(/день 4 — [^;]+, 1 октября, а сезон в июле–сентябре/);
+      // день 6 (3 октября) — нет. День 4 (1 октября) — тур медведей: его дату
+      // судит перечитка мест, а не таблица сезона (разбор планера 14.11).
       expect(r.reason).toMatch(/день 6 — [^;]+, 3 октября, а сезон в июле–сентябре/);
-      expect(r.reason).not.toMatch(/день [23] —/);
+      expect(r.reason).not.toMatch(/день [234] —/);
       expect(r.reason).toContain('replace_day');
     }
     expect(fakeRead).not.toHaveBeenCalled();
+  });
+
+  // Разбор планера 14.11 (Кузьмич/MCP-4).
+  it('день с туром вне таблицы сезона — не отказ: октябрьская рыбалка по туру сдвигается', async () => {
+    const p = plan();
+    p.params.arrivalDate = '2027-10-05';
+    p.params.departureDate = '2027-10-11';
+    p.days = [
+      day(1, 'arrival', 'Прилёт'),
+      day(2, 'activity', 'Осенняя рыбалка', { activityType: 'fishing', realTour: tour('t-fish', 'Рыбалка'), availability: 'open', availableDate: '2027-10-06', realPrice: 7000 }),
+      day(3, 'departure', 'Отъезд'),
+    ];
+    p.params.departureDate = '2027-10-07';
+    const r = await applyPlanEdit(p, { kind: 'shift_dates', days: 1 }, deps());
+    expect(r.ok).toBe(true);
+  });
+
+  it('задержка рейса с переносом обратного билета судит сезон, как shift_dates', async () => {
+    const p = plan();
+    p.params.arrivalDate = '2027-09-25';
+    p.params.departureDate = '2027-10-01';
+    const r = await applyPlanEdit(p, { kind: 'flight_delay', days: 3, keepReturn: false }, deps());
+    expect(r.ok).toBe(false);
+    if (!r.ok) expect(r.reason).toMatch(/В новые даты не сезон: день 6 — [^;]+, 3 октября/);
   });
 });
 
@@ -263,6 +287,18 @@ describe('сдвиг дат и строки безопасности дня', ()
     if (!r.ok) throw new Error(r.reason);
     expect(r.plan.days[1].dayWarnings).toEqual([offeringSentence(ended)]);
     expect(r.warnings).toContain(MCHS_UNREAD_NOTE);
+  });
+
+  // Разбор планера 14.11 (Кузьмич/MCP-2): сводка МЧС — в ответе каждой правки,
+  // а не только сдвигающей начало поездки.
+  it('правка без сдвига дат (удалить день) — сводка МЧС в ответе и строка на дне', async () => {
+    const fresh: ActiveWarning = { kind: 'volcano', place: 'Авачинский', stems: ['авачин'], period: 'до 30.08', sourceUrl: null, relevantUntil: '2027-08-30' };
+    mchs = [fresh];
+    const r = await applyPlanEdit(plan(), { kind: 'remove_day', day: 5 }, deps());
+    if (!r.ok) throw new Error(r.reason);
+    expect(r.warnings?.some((w) => w.startsWith('МЧС: не приближаться к вулканам Авачинский'))).toBe(true);
+    const ava = r.plan.days.find((d) => d.title === 'Авачинский вулкан');
+    expect(ava?.dayWarnings).toContain(offeringSentence(fresh));
   });
 });
 

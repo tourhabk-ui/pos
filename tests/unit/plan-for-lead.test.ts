@@ -76,7 +76,7 @@ describe('сводка плана для заявки', () => {
 
   it('словами: состав, смета и туры по дням', () => {
     const lines = planLeadLines(plan).map(plain);
-    expect(lines[0]).toBe('Группа: 2 взр., ребёнок 6 лет · уровень «комфорт»');
+    expect(lines[0]).toBe('Группа: 2 взр., ребёнок 6 лет · 02.08–06.08 · уровень «комфорт»');
     // Только цены туров (14.11, «5 -1»): тур за группу 196 000 ₽; тур без
     // цены, ночи и трансфер — без цены.
     expect(lines[1]).toMatch(/^Цены туров в плане: 196 000 ₽ на группу · без цены: \d+$/);
@@ -84,6 +84,36 @@ describe('сводка плана для заявки', () => {
     expect(lines).toContain('День 2 (03.08): «Недельный рыболовный тур» (ID11), Камчатская рыбалка, 196 000 ₽/группа, свободно с 03.08');
     expect(lines).toContain('День 4 (05.08): «Вулкан Плоский Толбачик» (ID41), Край Вулканов, цену называет оператор');
     expect(lines.some((l) => l.includes('день 2 из 7'))).toBe(false);
+  });
+
+  // Разбор планера 14.11 (Кузьмич/MCP-7): план без туров доходил до
+  // менеджера и в Телеграм одной сметой — без дат поездки и без дней; строка
+  // «мест нет в ваши даты» терялась.
+  it('даты поездки, дни без тура и «в этот день мест нет» — словами', () => {
+    const noTours = planForLead([
+      day(1, 'arrival', { zone: 'avachinsky', title: 'Прилёт' }),
+      day(2, 'activity', { zone: 'avachinsky', title: 'Вулканы — Авачинская зона', priceFrom: 5000, priceTo: 15000 }),
+      day(3, 'rest', { zone: 'avachinsky', title: 'День отдыха' }),
+      day(4, 'activity', {
+        zone: 'avachinsky', title: 'Горелый', realPrice: 15000, availability: 'none', availableDate: '2027-07-15',
+        realTour: { tourId: '12', priceUnit: 'per_person', lodgingIncluded: false },
+      }),
+      day(5, 'activity', {
+        zone: 'avachinsky', title: 'Мутновский', realPrice: 9000, availability: 'none',
+        realTour: { tourId: '13', priceUnit: 'per_person', lodgingIncluded: false },
+      }),
+      day(7, 'departure', { zone: 'avachinsky', title: 'Вылет' }),
+    ], { ...PROFILE, arrivalDate: '2027-07-10', departureDate: '2027-07-16' });
+    const lines = planLeadLines(noTours).map(plain);
+    expect(lines[0]).toBe('Группа: 2 взр., ребёнок 6 лет · 10.07–16.07 · уровень «комфорт»');
+    expect(lines).toContain('День 2 (11.07): «Вулканы — Авачинская зона» — без тура');
+    expect(lines.some((l) => l.startsWith('День 3'))).toBe(false);
+    expect(lines.find((l) => l.startsWith('День 4'))).toMatch(/в этот день мест нет, ближайшая свободная — 15\.07$/);
+    expect(lines.find((l) => l.startsWith('День 5'))).toMatch(/в этот день мест нет$/);
+  });
+
+  it('отъезд не назван — последний день плана', () => {
+    expect(plan.departure).toBe('2027-08-06');
   });
 
   it('чужую форму не принимает за план', () => {
@@ -122,7 +152,23 @@ describe('MCP: план по plan_id', () => {
     expect(a.kind === 'attached' && a.facts).toEqual({
       arrivalDate: '2027-08-02', departureDate: '2027-08-06', people: 3,
       tourDates: { '11': '2027-08-03', '41': '2027-08-05' },
+      tourDateNotes: {}, tourNoFree: {},
     });
+  });
+
+  // Разбор планера 14.11 (Кузьмич/MCP-1): дата заявки — не день плана, где у
+  // тура мест нет, а его ближайшая свободная дата; нет её — дата не берётся.
+  it('факты плана: в день плана мест нет — ближайшая свободная дата или ничего', async () => {
+    const days = DAYS.map((d) => d.realTour?.tourId === '11' ? { ...d, availability: 'none' as const, availableDate: '2027-08-04' }
+      : d.realTour?.tourId === '41' ? { ...d, availability: 'none' as const } : d);
+    DRAFT = { kind: 'found', draft: { id: ID, revision: 1, days, params: {
+      interests: ['fishing'], arrivalDate: '2027-08-02', departureDate: '2027-08-06', adults: 2, children: [6], budgetTier: 'comfort',
+    } } };
+    const a = await planFromDraft(ID);
+    if (a.kind !== 'attached') throw new Error(a.kind);
+    expect(a.facts.tourDates).toEqual({ '11': '2027-08-04' });
+    expect(a.facts.tourDateNotes['11']).toBe('дата тура — 2027-08-04: в день плана 2027-08-03 мест нет, взята ближайшая свободная');
+    expect(a.facts.tourNoFree).toEqual({ '41': '2027-08-05' });
   });
 
   it('плана нет — заявка без плана, и агент это слышит', async () => {

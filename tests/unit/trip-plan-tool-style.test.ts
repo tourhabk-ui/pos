@@ -99,12 +99,12 @@ describe('поля объявлены везде, где их читают', () 
 
 describe('названное и не разобранное — вслух или отказ (#3199, M11)', () => {
   it('стиль и дни отдыха не разобраны — план без них, и это сказано', async () => {
-    const text = await makeTripPlanForKuzmich({ days: '7', interests: 'треккинг', when: '2027-07-10', travel_style: 'как получится', rest_days: '2 дня' });
+    const text = await makeTripPlanForKuzmich({ days: '7', interests: 'треккинг', when: '2027-07-10', travel_style: 'как получится', rest_days: 'пару' });
     const profile = recommendMock.mock.calls[0][0] as Record<string, unknown>;
     expect(profile.travelStyle).toBeUndefined();
     expect(profile.restDays).toBeUndefined();
     expect(text).toContain('Как ехать «как получится» не разобрал — собрал вперемешку.');
-    expect(text).toContain('Дни отдыха «2 дня» не разобрал (нужно число от 0 до 14)');
+    expect(text).toContain('Дни отдыха «пару» не разобрал (нужно число от 0 до 14)');
   });
 
   it('разобрано или не названо — заметок нет', async () => {

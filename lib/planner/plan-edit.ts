@@ -588,6 +588,32 @@ function monthsWords(months: readonly number[]): string {
 }
 
 /**
+ * Дни плана вне своего сезона на новых датах — отказ словами; всё в сезоне — null.
+ *
+ * Судится только день без тура (разбор планера 14.11, Кузьмич/MCP-4): тур
+ * оператора открывает месяц сам (движок, `inSeasonIn`), и его выезд на новую
+ * дату проверяет перечитка мест. Таблица сезона отказывала «рыбалка, 7
+ * октября, а сезон в июне–сентябре» октябрьскому плану, который движок сам
+ * собрал по туру «Осенняя рыбалка». И тот же сдвиг через задержку рейса
+ * сезона не проверял вовсе.
+ */
+function offSeasonRefusal(days: readonly DayPlan[], arrival: string): { ok: false; reason: string } | null {
+  const offSeason: string[] = [];
+  for (const d of days) {
+    if (d.type !== 'activity' || d.realTour) continue;
+    const c = ACTIVITY_CONSTRAINTS[d.activityType];
+    const iso = shiftIso(arrival, d.day - 1);
+    if (!c || c.months.includes(Number(iso.slice(5, 7)))) continue;
+    offSeason.push(`день ${d.day} — ${ACTIVITY_NAMES[d.activityType] ?? d.activityType}, ${dateWords(iso)}, а сезон ${monthsWords(c.months)}`);
+  }
+  if (offSeason.length === 0) return null;
+  return {
+    ok: false,
+    reason: `В новые даты не сезон: ${offSeason.join('; ')}. Замени эти дни (replace_day) или убери их (remove_day) и сдвигай потом — или собери план заново на новые даты.`,
+  };
+}
+
+/**
  * Сдвиг всей поездки (M4). Дни те же и в том же порядке. Нельзя:
  *  - в прошлое (по Камчатке) — поездку туда не перенести;
  *  - дальше года — это другая поездка, собирается заново;
@@ -613,20 +639,8 @@ function shiftDates(plan: EditablePlan, edit: Extract<PlanEdit, { kind: 'shift_d
   if (arrival < todayIso) {
     return { ok: false, reason: `${dateWords(arrival)} по Камчатке уже прошло — поездку туда не перенести. Назови дату не раньше сегодняшней.` };
   }
-  const offSeason: string[] = [];
-  for (const d of plan.days) {
-    if (d.type !== 'activity') continue;
-    const c = ACTIVITY_CONSTRAINTS[d.activityType];
-    const iso = shiftIso(arrival, d.day - 1);
-    if (!c || c.months.includes(Number(iso.slice(5, 7)))) continue;
-    offSeason.push(`день ${d.day} — ${ACTIVITY_NAMES[d.activityType] ?? d.activityType}, ${dateWords(iso)}, а сезон ${monthsWords(c.months)}`);
-  }
-  if (offSeason.length > 0) {
-    return {
-      ok: false,
-      reason: `В новые даты не сезон: ${offSeason.join('; ')}. Замени эти дни (replace_day) или убери их (remove_day) и сдвигай потом — или собери план заново на новые даты.`,
-    };
-  }
+  const offSeason = offSeasonRefusal(plan.days, arrival);
+  if (offSeason) return offSeason;
   const next = clone(plan);
   next.params.arrivalDate = arrival;
   next.params.departureDate = departure;
@@ -666,6 +680,9 @@ function flightDelay(plan: EditablePlan, days: number, keepReturn: boolean): App
   const dayWord = dayWordFor(days);
 
   if (!keepReturn) {
+    // Тот же сдвиг всей поездки — то же правило сезона, что у shift_dates.
+    const offSeason = offSeasonRefusal(plan.days, shiftIso(plan.params.arrivalDate, days));
+    if (offSeason) return offSeason;
     const next = clone(plan);
     next.params.arrivalDate = shiftIso(plan.params.arrivalDate, days);
     next.params.departureDate = shiftIso(plan.params.departureDate, days);
@@ -845,10 +862,12 @@ export async function applyPlanEdit(plan: EditablePlan, edit: PlanEdit, deps: Ed
   const rereadDays = regroup ? next.days.map((d) => d.day) : moved;
   const reread = rereadDays.length > 0 ? await rereadTours(next, rereadDays, deps.reread ?? rereadTourDay) : [];
 
-  const startChanged = next.params.arrivalDate !== plan.params.arrivalDate;
-  const safety = moved.length > 0 || startChanged
-    ? await refreshDatedSafety(next.days, next.params.arrivalDate, moved, startChanged, deps.safety ?? DEFAULT_SAFETY_DEPS)
-    : { warnings: [] };
+  // Сводка МЧС — в ответе КАЖДОЙ правки (разбор планера 14.11, Кузьмич/MCP-2):
+  // до этого она перечитывалась только со сменой даты начала, и ответ на
+  // «убери день» или «поставь жильё» шёл агенту без строки о вулкане, к
+  // которому не приближаться, а новый день (add_day, replace_day) оставался
+  // без строки сводки на самом дне.
+  const safety = await refreshDatedSafety(next.days, next.params.arrivalDate, moved, true, deps.safety ?? DEFAULT_SAFETY_DEPS);
 
   const warnings = [...safety.warnings, ...(done.warnings ?? [])];
   return {
