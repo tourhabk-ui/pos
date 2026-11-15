@@ -19,6 +19,9 @@ ALTER TABLE trip_group_members DROP CONSTRAINT IF EXISTS trip_group_members_chil
 ALTER TABLE trip_group_members ADD CONSTRAINT trip_group_members_children_ages_check CHECK (
   children_ages IS NULL OR (
     cardinality(children_ages) <= 10
+    -- NULL внутри массива проверку «0 <= ALL» прошёл бы (сравнение даёт NULL,
+    -- а CHECK считает NULL выполненным) — запрещён отдельно (ревью #3384).
+    AND array_position(children_ages, NULL) IS NULL
     AND 0 <= ALL (children_ages)
     AND 17 >= ALL (children_ages)
   )
