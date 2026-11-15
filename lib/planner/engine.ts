@@ -992,10 +992,14 @@ async function scoreZones(
     }
   }
 
+  // Все зоны с баллом, без потолка (разбор 14.11, движок-5): `.slice(0, 3)`
+  // молча отрезал четвёртую — 21 день, гейзеры с туром на каждый день, а
+  // Северной зоны в плане нет, пять свободных дней и в «Важно» ложное «тура
+  // не нашли». Хватит ли дней на зону, решает раскладка ниже — и говорит,
+  // если не хватило (zone-leg, «зона не вошла: нужно N дней»).
   return Object.entries(scores)
     .filter(([, s]) => s > 0)
     .sort(([, a], [, b]) => b - a)
-    .slice(0, 3)
     .map(([zone, score]) => ({
       zone: zone as ZoneId,
       score: Math.min(100, score),
@@ -1217,7 +1221,15 @@ async function generateDayPlans(
   while (totalAllocated > activityBudget && zoneBlocks.length > 1) {
     const last = zoneBlocks[zoneBlocks.length - 1];
     if (last.activeDays > 1) { last.activeDays--; totalAllocated--; }
-    else { zoneBlocks.pop(); totalAllocated--; }
+    else {
+      zoneBlocks.pop();
+      totalAllocated--;
+      // Зона ушла из раскладки по нехватке дней — это и есть причина, а не
+      // «тура не нашли» (разбор 14.11, движок-5).
+      for (const i of last.interests) {
+        if (!zoneBlocks.some((b) => b.interests.includes(i))) missFor(i, `дней не хватило — ${ZONE_NAMES[last.zone]} не вошла в раскладку поездки`);
+      }
+    }
   }
   while (totalAllocated < activityBudget && zoneBlocks[0]) {
     zoneBlocks[0].activeDays++;
