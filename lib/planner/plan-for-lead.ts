@@ -240,7 +240,10 @@ export function planLeadLines(plan: PlanForLead, opts: { withDates?: boolean } =
     : '';
   const lines = [
     `Группа: ${partyWords(plan.party)}${dates} · уровень «${BUDGET_WORD[plan.budget_tier] ?? plan.budget_tier}»${needs ? ` · ${needs}` : ''}`,
-    `Смета: ${range(plan.estimate.total)} на группу (${range(plan.estimate.per_person)} на человека)`
+    // Ни у одной строки нет суммы — итога нет, а не «0 ₽» (разбор 14.11, смета-2).
+    (plan.estimate.total[1] > 0
+      ? `Смета: ${range(plan.estimate.total)} на группу (${range(plan.estimate.per_person)} на человека)`
+      : 'Смета: итога нет — цены не названы')
       + (plan.estimate.unpriced.length > 0 ? ` · без цены: ${plan.estimate.unpriced.length}` : ''),
   ];
   for (const d of plan.days) {
