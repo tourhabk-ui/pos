@@ -14,6 +14,7 @@ import { pickHeadcount } from '@/lib/agent/headcount';
 import { getPublicBaseUrl } from '@/lib/config';
 import { textFailed } from '@/lib/agent/request-outcome';
 import { planAttachNote, type PlanAttach } from '@/lib/leads/plan-from-draft';
+import { OPERATOR_NO_CHANNEL_MARK, OPERATOR_REACH_UNKNOWN_MARK } from '@/lib/mcp/request-confirm-note';
 
 export type LegKind = 'tour' | 'stay' | 'transfer';
 
@@ -41,6 +42,12 @@ export interface TripDeps {
   createLead(args: Record<string, unknown>, tripPart?: TripManagerPart): Promise<string>;
   /** Штатная фраза RU/EN/ZH (requestConfirmNote) — вырезается из частей и ставится один раз. */
   confirmNote: string;
+  /**
+   * Та же фраза для части, оператор которой мессенджер не подключил (разбор
+   * промпта 15.11, п. 3): «оператор свяжется» в конце сводки не обещается,
+   * если хоть одна часть уйдёт ему через команду Ведара.
+   */
+  confirmNoteFor?: (reach: 'none' | 'unknown') => string;
   /** Пробный прогон (`test: true`, lib/mcp/test-run): части проверяются, ничего не записано — сводка так и говорит. */
   test?: boolean;
   newTripId?: () => string;
@@ -227,7 +234,14 @@ export async function runTripRequest(raw: Record<string, unknown>, deps: TripDep
     : '';
 
   const LABEL: Record<LegKind, string> = { tour: 'Тур', stay: 'Жильё', transfer: 'Машина' };
-  const strip = (t: string) => (deps.confirmNote ? t.split(deps.confirmNote).join('') : t).trim();
+  // Фраза у части может быть своим вариантом (оператор без мессенджера) —
+  // вырезается любой, а строка о передаче остаётся в тексте части.
+  const strip = (t: string) => (deps.confirmNote ? t.split(deps.confirmNote).join('') : t)
+    .replace(/\n\nСкажи человеку его языком:[\s\S]*?из-за ограничений\./g, '').trim();
+  const legsText = legs.map((l) => l.text).join('\n');
+  const finalNote = deps.confirmNoteFor && legsText.includes(OPERATOR_NO_CHANNEL_MARK) ? deps.confirmNoteFor('none')
+    : deps.confirmNoteFor && legsText.includes(OPERATOR_REACH_UNKNOWN_MARK) ? deps.confirmNoteFor('unknown')
+    : deps.confirmNote;
   const okCount = legs.filter((l) => l.ok).length;
   const head = (deps.test
     ? `Поездка ${tripId} (проба, test: true): проверки прошли у частей ${okCount} из ${legs.length}; ничего не записано и никому не передано.`
@@ -242,5 +256,5 @@ export async function runTripRequest(raw: Record<string, unknown>, deps: TripDep
   const tripNote = tripUrl ? `\nВся поездка одной ссылкой для человека: ${tripUrl} (части, статус каждой, согласие). Ссылку не публикуйте.` : '';
   const done = deps.test ? 'проверено' : 'создано';
   const body = legs.map((l) => `— ${LABEL[l.kind]}: ${l.ok ? done : 'НЕ создано'}. ${strip(l.text)}`).join('\n');
-  return { tripId, legs, tripUrl, text: `${head}\n${body}${tripNote}${okCount > 0 && !deps.test ? deps.confirmNote : ''}` };
+  return { tripId, legs, tripUrl, text: `${head}\n${body}${tripNote}${okCount > 0 && !deps.test ? finalNote : ''}` };
 }

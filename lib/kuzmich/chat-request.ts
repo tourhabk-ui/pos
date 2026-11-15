@@ -6,6 +6,7 @@
  * → одна заявка-поездка create_trip_request.
  */
 import { requestOutcome, humanReason, LEG_WORD } from '@/lib/agent/request-outcome';
+import { OPERATOR_NO_CHANNEL_MARK, OPERATOR_REACH_UNKNOWN_MARK, operatorReachLine } from '@/lib/mcp/request-confirm-note';
 
 export interface ChatContact { name?: string; phone?: string; consent: boolean; phones?: number }
 
@@ -160,10 +161,19 @@ export function humanChatConfirm(toolText: string, tourTitle?: string | null): s
   // Какой тур в заявке — словами, чтобы человек сразу увидел ошибку выбора.
   const tt = tourTitle?.replace(/\s+/g, ' ').trim().slice(0, 120);
   if (tt && tourCreated) parts.push(`Тур в заявке: «${tt}». Если не тот — напишите название тура, поправим. EN: Tour in the request: «${tt}». ZH: 申请中的线路：«${tt}»。`);
-  parts.push('Оператор свяжется с вами по указанному телефону для подтверждения. Мгновенного бронирования нет — подтверждает человек, оплата не через платформу.');
+  // Обещание звонка — по исходу передачи оператору из ответа инструмента
+  // (разбор промпта 15.11, п. 3): «оператор свяжется» — только когда заявка
+  // уходит ему в мессенджер; нет — говорим, кто передаст.
+  const reach = toolText.includes(OPERATOR_NO_CHANNEL_MARK) ? 'none' : toolText.includes(OPERATOR_REACH_UNKNOWN_MARK) ? 'unknown' : 'channel';
+  const contact = reach === 'channel'
+    ? 'Оператор свяжется с вами по указанному телефону для подтверждения.'
+    : `${operatorReachLine(reach)} Звонок будет на указанный телефон.`;
+  parts.push(`${contact} Мгновенного бронирования нет — подтверждает человек, оплата не через платформу.`);
   if (tripUrl) parts.push(`Вся поездка, статус каждой части и согласие на обработку данных: ${tripUrl}`);
   else if (links.length) parts.push(`Статус заявки и согласие на обработку данных: ${links.join(' , ')}`);
-  parts.push('EN: Request created — the operator will contact you to confirm; no instant booking, no payment through the platform. ZH: 请求已提交，运营方会联系您确认；无即时预订，平台不收款。');
+  parts.push(reach === 'channel'
+    ? 'EN: Request created — the operator will contact you to confirm; no instant booking, no payment through the platform. ZH: 请求已提交，运营方会联系您确认；无即时预订，平台不收款。'
+    : 'EN: Request created — the Vedar team will pass it to the operator, who will then contact you; no instant booking, no payment through the platform. ZH: 请求已提交，Vedar 团队会转交运营方，之后运营方会联系您；无即时预订，平台不收款。');
   return parts.join('\n\n');
 }
 

@@ -8,6 +8,7 @@
 
 import { pool } from '@/lib/db-pool';
 import { agentMemory } from '@/lib/agents/memory/agent-memory';
+import { wrapUntrusted } from '@/lib/ai/untrusted';
 
 export interface UserMemory {
   user_id:              string;
@@ -296,8 +297,11 @@ export function buildMemoryContext(mem: UserMemory, trips?: TripRecord[]): strin
     parts.push('Активно планирует маршрут.');
   }
 
+  // Заметки пишет модель по словам туриста (synthesizeUserNotes) — это его
+  // слова, а не наш текст: в обёртке данных (разбор промпта 15.11, п. 2), как
+  // память бота в Telegram и MAX (lib/kuzmich/core.ts, buildBotMemoryContext).
   if (mem.ai_notes) {
-    parts.push(mem.ai_notes);
+    parts.push(wrapUntrusted('tourist-memory', `Со слов туриста: ${mem.ai_notes}`));
   }
 
   // История поездок
