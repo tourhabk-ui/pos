@@ -99,6 +99,7 @@ import { buildCharterLead, checkCharterDates, saveCharterLeadDetailed } from '@/
 import { loadRentalCompanies } from '@/lib/rental/rental';
 import { rentalPagePath, type RentalCompany, type RentalOffer } from '@/lib/rental/rental-format';
 import { rentalDays } from '@/lib/rental/rental-request';
+import { issueHumanConfirmation, checkHumanConfirmation, spendHumanConfirmation, askHumanLine, draftText, HUMAN_CONFIRM_TTL_MIN } from '@/lib/mcp/human-confirmation';
 import { issueRentalConfirmation, checkRentalConfirmation, RENTAL_CONFIRM_TTL_MIN, type RentalConfirmFields } from '@/lib/mcp/rental-confirmation';
 import { buildRentalLead, checkRentalDates, saveRentalLeadDetailed } from '@/lib/rental/rental-request-service';
 import { matchOffers } from '@/lib/kuzmich/car-rental-search';
@@ -122,6 +123,7 @@ const writeLimiter = createRateLimiter({ windowMs: CLIENT_WINDOW_MINUTES * 60_00
 // Какие инструменты пишущие, знает аннотация (`readOnlyHint: false`) — один
 // источник и для лимита, и для подсказки хосту. Свой список здесь разошёлся бы.
 const WRITE_TOOLS = WRITE_TOOL_NAMES;
+const CONFIRM_UNAVAILABLE_TEXT = 'Заявку не удалось передать на подтверждение человеку — она не создана. Повторите через несколько минут.';
 // Инструменты, где согласие нужно с первого вызова. У проката `consent: false`
 // на первом шаге — черновик с кодом подтверждения, а не отказ.
 const CONSENT_UPFRONT_TOOLS = new Set([...WRITE_TOOL_NAMES].filter((n) => n !== CAR_RENTAL_REQUEST_TOOL.name));
@@ -166,6 +168,13 @@ interface McpCallContext {
   structured?: Record<string, unknown>;
   /** Заявка на группу сверх мест — запросом оператору (lib/mcp/booking-capacity, 08.11). */
   group?: GroupOverSeats;
+  /**
+   * Первый шаг заявки внешнего агента (#3399, п. 4, lib/mcp/human-confirmation):
+   * проверки — как у заявки, вместо записи — черновик для человека.
+   */
+  draft?: boolean;
+  /** Исполнитель дошёл до записи, то есть черновик есть — к нему выдаётся код. */
+  draftReached?: boolean;
 }
 
 /**
@@ -279,6 +288,8 @@ function stopForTest(
   consent: boolean | undefined, would: string, recipient: string | null,
 ): string | null {
   if (!ctx.test) return null;
+  // Черновик первого шага: согласия ещё нет — его даст человек, увидев черновик.
+  if (ctx.draft) { ctx.draftReached = true; return draftText(would, recipient); }
   if (consent !== true) throw new McpUserError(NO_CONSENT_MESSAGE, 'no_consent');
   const key = issueTestKey(kind, purpose);
   ctx.issued?.push({ tool, outcome: 'test', status_key: key, status_page: null, notify: null });
@@ -1548,6 +1559,25 @@ export interface PublicToolCall {
 }
 
 /**
+ * Ревизия плана для кода подтверждения: правка плана меняет код. План не
+ * найден — 'missing' (исполнитель и так откажет); база не ответила —
+ * 'unread:<время>' (код на втором шаге не сойдётся: не знаем — не пускаем).
+ */
+async function planRevisionForCode(planId: string): Promise<string> {
+  try {
+    const { loadDraft } = await import('@/lib/planner/plan-drafts');
+    const read = await loadDraft(planId);
+    if (read.kind === 'found') return `r${read.draft.revision}`;
+    if (read.kind === 'missing') return 'missing';
+    console.error('[mcp] ревизия плана для кода не прочитана: база не ответила');
+    return `unread:${Date.now()}`;
+  } catch (err) {
+    console.error('[mcp] ревизия плана для кода не прочитана:', logText(err instanceof Error ? err.message : err, 200));
+    return `unread:${Date.now()}`;
+  }
+}
+
+/**
  * Вызов инструмента со входом заявки (08.11, владелец: «откуда лиды — человек
  * или ИИ и через какой инструмент»): MCP, A2A или чат Кузьмича. Вход и
  * инструмент доходят до записи заявки (lib/leads/entry-context), исполнители
@@ -1578,13 +1608,22 @@ async function runPublicToolCore(call: PublicToolCall): Promise<PublicToolOutcom
   // клиенты реагируют хуже). Запись о клиенте — ПОСЛЕ лимита: раньше каждый
   // запрос флуда писал строку в mcp_clients мимо тормоза.
   const isWrite = WRITE_TOOLS.has(toolName);
-  const limiter = isWrite ? writeLimiter : readLimiter;
+  // Заявка внешнего агента — в два вызова (#3399, п. 4): без кода
+  // подтверждения — черновик для человека, с кодом — запись. Чат Кузьмича
+  // (consentFrom) и проба (test) шагом не идут; у проката свой код.
+  const testFlag = isWrite && (toolArgs.test === true || toolArgs.test === 'true');
+  const humanGate = isWrite && !consentFrom && !testFlag && toolName !== CAR_RENTAL_REQUEST_TOOL.name;
+  const confirmation = typeof toolArgs.confirmation === 'string' ? toolArgs.confirmation.trim() : '';
+  const draftStep = humanGate && !confirmation;
+  // Черновик ничего не пишет — лимит записи он не тратит: иначе два вызова на
+  // заявку вдвое сократили бы число заявок в час.
+  const limiter = isWrite && !draftStep ? writeLimiter : readLimiter;
   // Главный аргумент для журнала: имя всегда, значение — только у читающих
   // инструментов и не похожее на телефон (lib/mcp/call-reason, 1143).
   // Только имя аргумента — у заявок (там ПД) и у инструментов с ключом заявки
   // (статус, отмена и перенос).
   const arg = primaryArg(toolArgs, isWrite || KEY_ARG_TOOL_NAMES.has(toolName));
-  if (!limiter.check(`${isWrite ? 'w' : 'r'}:${ip}`)) {
+  if (!limiter.check(`${isWrite && !draftStep ? 'w' : 'r'}:${ip}`)) {
     if (rateLimitedLogGate.check(ip)) {
       logMcpToolCall({ tool: toolName, ok: false, errorKind: 'rate_limited', errorCode: 'rate_limited', argKey: arg.key, ip, userAgent, self });
     }
@@ -1592,7 +1631,7 @@ async function runPublicToolCore(call: PublicToolCall): Promise<PublicToolOutcom
     // минуту» на записи обещал неправду (проверка MCP 29.09).
     return {
       kind: 'rate_limited',
-      text: isWrite
+      text: isWrite && !draftStep
         ? 'Слишком много заявок с этого адреса — подождите час и повторите.'
         : 'Слишком много запросов — подождите минуту и повторите.',
     };
@@ -1620,11 +1659,32 @@ async function runPublicToolCore(call: PublicToolCall): Promise<PublicToolOutcom
   // останавливается перед записью (lib/mcp/test-run). Строку "true" модели
   // шлют не реже булева — читается так же. Из аргументов флаг убирается:
   // схемы заявок его не знают и знать не должны.
-  const testRun = isWrite && (toolArgs.test === true || toolArgs.test === 'true');
-  const execRead: ReadArguments = isWrite && 'test' in toolArgs
-    ? { ...read, args: Object.fromEntries(Object.entries(toolArgs).filter(([k]) => k !== 'test')) }
+  // Код подтверждения тоже убирается: схемы заявок его не знают (кроме проката).
+  const testRun = testFlag;
+  const stripped = humanGate ? ['test', 'confirmation'] : ['test'];
+  const execRead: ReadArguments = isWrite && stripped.some((k) => k in toolArgs)
+    ? { ...read, args: Object.fromEntries(Object.entries(toolArgs).filter(([k]) => !stripped.includes(k))) }
     : read;
-  const ctx: McpCallContext = { ip, userAgent, self, consentFrom, test: testRun, issued: [], places: [] };
+  // Второй шаг с кодом: код сверяется с полями до записи; не подошёл —
+  // запись не идёт, вызов становится новым черновиком.
+  let codeRefusal: string | null = null;
+  // Даты и состав из плана берутся внутри исполнителя, после сверки кода, а
+  // план между вызовами правится (edit_trip_plan): в код входит ревизия плана,
+  // иначе черновик показал бы одни даты, а записались бы другие (ревью #3414).
+  const codeArgs = humanGate && typeof toolArgs.plan_id === 'string' && toolArgs.plan_id.trim()
+    ? { ...toolArgs, plan_revision: await planRevisionForCode(toolArgs.plan_id.trim()) }
+    : toolArgs;
+  if (humanGate && confirmation) {
+    const check = checkHumanConfirmation(confirmation, toolName, codeArgs);
+    if (check === 'unavailable') {
+      logMcpToolCall({ tool: toolName, ok: false, errorKind: 'refused', errorCode: 'confirm_unavailable', argKey: arg.key, ip, userAgent, self });
+      return { kind: 'refused', text: CONFIRM_UNAVAILABLE_TEXT, code: 'confirm_unavailable' };
+    }
+    if (check === 'ok') spendHumanConfirmation(confirmation);
+    else codeRefusal = `Код подтверждения ${check === 'expired' ? 'истёк' : check === 'used' ? 'уже использован' : 'не подходит к этим данным (поля или план изменились)'} — заявка не создана.`;
+  }
+  const asDraft = draftStep || codeRefusal !== null;
+  const ctx: McpCallContext = { ip, userAgent, self, consentFrom, test: testRun || asDraft, draft: asDraft, issued: [], places: [] };
   try {
     const text = await executeTool(toolName, execRead, ctx);
 
@@ -1636,13 +1696,27 @@ async function runPublicToolCore(call: PublicToolCall): Promise<PublicToolOutcom
       logMcpToolCall({ tool: toolName, ok: false, errorKind: 'execution', errorCode: 'tool_failed', durationMs: Date.now() - startedAt, argKey: arg.key, argValue: arg.value, ip, userAgent, self });
       return { kind: 'failed', text: 'Инструмент сейчас не смог получить данные — это сбой на стороне Ведара, а не ответ «ничего нет». Повторите позже.' };
     }
+    // Черновик дошёл до записи — к нему код; не дошёл (тура нет, мест нет) —
+    // это ответ как есть, кода нет: подтверждать нечего.
+    let draftCode: string | null = null;
+    let shown = text;
+    if (asDraft && ctx.draftReached) {
+      draftCode = issueHumanConfirmation(toolName, codeArgs);
+      if (!draftCode) {
+        logMcpToolCall({ tool: toolName, ok: false, errorKind: 'refused', errorCode: 'confirm_unavailable', argKey: arg.key, ip, userAgent, self });
+        return { kind: 'refused', text: CONFIRM_UNAVAILABLE_TEXT, code: 'confirm_unavailable' };
+      }
+      shown = `${codeRefusal ? `${codeRefusal} Новый черновик.\n\n` : ''}${text}\n\n${askHumanLine(draftCode)}`;
+    } else if (asDraft && codeRefusal) {
+      shown = `${codeRefusal}\n\n${text}`;
+    }
     logMcpToolCall({ tool: toolName, ok: true, durationMs: Date.now() - startedAt, argKey: arg.key, argValue: arg.value, ip, userAgent, self });
 
     // Мост «ответ агента → действие человека»: отдельная проверяемая
     // ссылка с непрозрачным токеном. Сбой выпуска не ломает ответ, но
     // называется в логе (§4.0).
     // У пробы заявки нет — продолжать в Ведаре нечего.
-    const target = testRun ? null : await handoffTargetForTool(toolName, toolArgs, text).catch((err: unknown) => {
+    const target = testRun || asDraft ? null : await handoffTargetForTool(toolName, toolArgs, text).catch((err: unknown) => {
       console.error('[mcp] цель ссылки не определена:', logText(toolName), logText(err instanceof Error ? err.message : err, 300));
       return null;
     });
@@ -1657,7 +1731,10 @@ async function runPublicToolCore(call: PublicToolCall): Promise<PublicToolOutcom
     // Читающие инструменты со статусом места (get_guardian_context, 08.11)
     // кладут поля в ctx.structured — текст ответа от этого не меняется.
     const structured = isWrite
-      ? { ...writeStructured(testRun, ctx.issued ?? [], { places: ctx.places ?? [], group: ctx.group }) }
+      ? {
+        ...writeStructured(testRun, asDraft ? [] : ctx.issued ?? [], { places: ctx.places ?? [], group: ctx.group }),
+        ...(draftCode ? { confirmation: { code: draftCode, expires_in_min: HUMAN_CONFIRM_TTL_MIN } } : {}),
+      }
       : ctx.structured
         ?? (CONNECTOR_TOOL_NAMES.has(toolName) || toolName === REQUEST_STATUS_TOOL_NAME || toolName === CHANGE_REQUEST_TOOL_NAME
           ? parseStructured(text)
@@ -1665,7 +1742,7 @@ async function runPublicToolCore(call: PublicToolCall): Promise<PublicToolOutcom
     // «Заявка не создана» ответом, а не отказом (нет мест, дата вне сезона) при
     // `consent: false`: согласие названо тут же. Заявки при этом нет по
     // построению — без согласия допуск к записи не пройти.
-    const said = (ctx.issued ?? []).length === 0 ? withConsentNote(toolName, toolArgs, text) : text;
+    const said = (ctx.issued ?? []).length === 0 && !asDraft ? withConsentNote(toolName, toolArgs, shown) : shown;
     return { kind: 'ok', text: said, handoffUrl: handoff ? handoff.url : null, ...(structured ? { structured } : {}) };
   } catch (toolErr) {
     // Наружу — только текст, написанный для агента. Отказ пула или чужое

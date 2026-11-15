@@ -56,6 +56,7 @@ vi.mock('@/lib/db-pool', () => {
 });
 
 import { POST } from '@/app/api/mcp/route';
+import { confirmationCodeOf, isDraft } from '../helpers/mcp-two-step';
 
 /** Дата через n дней по Камчатке (UTC+12). */
 const dayIso = (n: number) => new Date(Date.now() + 12 * 3_600_000 + n * 86_400_000).toISOString().slice(0, 10);
@@ -81,6 +82,20 @@ const text = async (r: Response) => {
   return { isError: Boolean(j.result?.isError), text: String(j.result?.content?.[0]?.text ?? j.error?.message ?? '') };
 };
 
+/**
+ * Заявка внешнего агента — в два вызова (lib/mcp/human-confirmation): первый
+ * дошёл до записи — черновик, ничего не записано; второй с кодом — запись.
+ * Возвращается ответ второго (или первого, если до записи он не дошёл).
+ */
+async function send(a: Record<string, unknown>) {
+  const before = [createLeadMock.mock.calls.length, createSeatMock.mock.calls.length];
+  const first = await text(await POST(call(a)));
+  if (!isDraft(first.text)) return first;
+  expect(first.isError).toBe(false);
+  expect([createLeadMock.mock.calls.length, createSeatMock.mock.calls.length]).toEqual(before);
+  return text(await POST(call({ ...a, consent: true, confirmation: confirmationCodeOf(first.text) })));
+}
+
 beforeEach(() => {
   process.env.MCP_HASH_SALT = 'соль-для-теста';
   for (const m of [createLeadMock, createSeatMock, keepsScheduleMock, slotsMock, parkAlertsMock]) m.mockReset();
@@ -92,7 +107,7 @@ describe('create_booking_request: закрытие парка тура на да
   it('тур с местами: заявка принята, и закрытие парка названо со сводкой и датой', async () => {
     slotsMock.mockResolvedValue([{ date: DATE, remaining: 5 }]);
     parkAlertsMock.mockResolvedValue([CLOSURE]);
-    const r = await text(await POST(call(args)));
+    const r = await send(args);
     expect(r.isError).toBe(false);
     expect(createLeadMock).toHaveBeenCalledTimes(1);
     expect(r.text).toContain('Заявка оператору принята');
@@ -109,7 +124,7 @@ describe('create_booking_request: закрытие парка тура на да
     keepsScheduleMock.mockResolvedValue(false);
     createSeatMock.mockResolvedValue({ ok: true, requestId: 'r1', statusToken: 'TOK', deadlineAt: new Date(Date.now() + 7_200_000), operatorDelivery: 'max' });
     parkAlertsMock.mockResolvedValue([CLOSURE]);
-    const r = await text(await POST(call(args)));
+    const r = await send(args);
     expect(createSeatMock).toHaveBeenCalledTimes(1);
     expect(r.text).toContain(`По парку этого тура на ${DATE}: закрытие парка по сводке`);
     expect(r.text.indexOf('По парку этого тура')).toBeGreaterThan(r.text.indexOf('не значит, что мест нет'));
@@ -117,7 +132,7 @@ describe('create_booking_request: закрытие парка тура на да
 
   it('тревог по парку тура нет — строки о парке нет', async () => {
     slotsMock.mockResolvedValue([{ date: DATE, remaining: 5 }]);
-    const r = await text(await POST(call(args)));
+    const r = await send(args);
     expect(r.text).toContain('Заявка оператору принята');
     expect(r.text).not.toContain('По парку этого тура');
     expect(r.text).not.toContain('закрытия парка');
@@ -126,7 +141,7 @@ describe('create_booking_request: закрытие парка тура на да
   it('закрытие кончилось до даты заявки, а закрыто без даты открытия — «статус не известен», не «закрыт»', async () => {
     slotsMock.mockResolvedValue([{ date: dayIso(10), remaining: 5 }]);
     parkAlertsMock.mockResolvedValue([{ ...CLOSURE, expires_iso: new Date(Date.now() + 3 * 86_400_000).toISOString() }]);
-    const r = await text(await POST(call({ ...args, date: dayIso(10) })));
+    const r = await send({ ...args, date: dayIso(10) });
     expect(r.text).toContain(`По парку этого тура на ${dayIso(10)}: статус парка на этот день не известен`);
     expect(r.text).not.toContain('закрытие парка по сводке');
   });
@@ -135,7 +150,7 @@ describe('create_booking_request: закрытие парка тура на да
     slotsMock.mockResolvedValue([{ date: DATE, remaining: 5 }]);
     parkAlertsMock.mockRejectedValue(Object.assign(new Error('сбой базы'), { code: '57014' }));
     const err = vi.spyOn(console, 'error').mockImplementation(() => {});
-    const r = await text(await POST(call(args)));
+    const r = await send(args);
     expect(createLeadMock).toHaveBeenCalledTimes(1);
     expect(r.text).toContain('Проверить, нет ли на эту дату закрытия парка по маршруту тура, не удалось');
     expect(err.mock.calls.some((c) => String(c[0]).includes('закрытие парка для заявки на тур не проверено'))).toBe(true);

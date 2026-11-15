@@ -67,6 +67,7 @@ import { POST } from '@/app/api/mcp/route';
 import { implausiblePhone, normalizePhone } from '@/lib/mcp/normalize-phone';
 import { isTestKey, issueTestKey, WRITE_OUTPUT_SCHEMA } from '@/lib/mcp/test-run';
 import { PUBLIC_MCP_TOOLS, WRITE_TOOL_NAMES } from '@/lib/mcp/public-tools';
+import { confirmationCodeOf, isDraft } from '../helpers/mcp-two-step';
 
 const TOUR = { id: 27, title: 'Сплав по реке Быстрая', operator_id: 'op-uuid-1', base_price: 13000, price_unit: 'person', nearest_free_date: null };
 const STAY_ID = '3b2551c7-ed5c-47c8-bb93-41ca6a278c1e';
@@ -82,7 +83,10 @@ async function call(name: string, args: Record<string, unknown>) {
   }));
   return (await res.json()).result as {
     isError?: boolean; content: Array<{ text: string }>;
-    structuredContent?: { test: boolean; accepted: number; requests: Array<{ tool: string; outcome: string; status_key: string | null; status_page: string | null; notify: unknown }> };
+    structuredContent?: {
+      test: boolean; accepted: number; requests: Array<{ tool: string; outcome: string; status_key: string | null; status_page: string | null; notify: unknown }>;
+      confirmation?: { code: string; expires_in_min: number };
+    };
   };
 }
 
@@ -196,9 +200,30 @@ describe('test: true — проверки как у заявки, ничего �
   });
 });
 
+describe('первый вызов без кода — черновик: ничего не записано и не отправлено (lib/mcp/human-confirmation)', () => {
+  for (const tool of Object.keys(ARGS)) {
+    it(`${tool}: черновик с кодом, ни записи, ни сообщения; код — тот же, что в тексте`, async () => {
+      const r = await call(tool, { ...ARGS[tool], consent: false });
+      expect(r.isError, r.content[0]?.text).toBeUndefined();
+      const text = r.content[0]!.text;
+      expect(isDraft(text), text).toBe(true);
+      expect(r.structuredContent).toMatchObject({ test: false, accepted: 0, requests: [] });
+      expect(r.structuredContent?.confirmation?.code).toBe(confirmationCodeOf(text));
+      // Имя и телефон в черновик (он идёт в модель) не попадают.
+      expect(text).not.toMatch(/Иван|Петров|9001234567/);
+      nothingSent();
+    });
+  }
+});
+
 describe('настоящая заявка: ключ, страница и подписка — структурно', () => {
   it('create_booking_request: accepted 1, ключ и страница с ключом, подписки нет — null', async () => {
-    const r = await call('create_booking_request', ARGS.create_booking_request);
+    // Заявка в два вызова: черновик ничего не пишет, запись — второй, с кодом.
+    const draft = await call('create_booking_request', ARGS.create_booking_request);
+    expect(draft.structuredContent).toMatchObject({ test: false, accepted: 0, requests: [] });
+    nothingSent();
+    const code = confirmationCodeOf(draft.content[0]!.text);
+    const r = await call('create_booking_request', { ...ARGS.create_booking_request, confirmation: code });
     expect(r.isError, r.content[0]?.text).toBeUndefined();
     const s = r.structuredContent!;
     expect(s).toMatchObject({ test: false, accepted: 1 });
@@ -208,6 +233,17 @@ describe('настоящая заявка: ключ, страница и под�
     expect(q.status_page).toBe(`https://vedarai.ru/request-status#${q.status_key}`);
     // Тот же ключ — в тексте: структура не расходится с ответом.
     expect(r.content[0]!.text).toContain(q.status_key!);
+    expect(createLeadMock).toHaveBeenCalledTimes(1);
+  });
+
+  it('код одноразовый: второй вызов с тем же кодом — не запись, а новый черновик (ревью #3414)', async () => {
+    const draft = await call('create_booking_request', ARGS.create_booking_request);
+    const code = confirmationCodeOf(draft.content[0]!.text);
+    await call('create_booking_request', { ...ARGS.create_booking_request, confirmation: code });
+    expect(createLeadMock).toHaveBeenCalledTimes(1);
+    const again = await call('create_booking_request', { ...ARGS.create_booking_request, confirmation: code });
+    expect(again.content[0]!.text).toMatch(/Код подтверждения уже использован — заявка не создана/);
+    expect(again.structuredContent).toMatchObject({ accepted: 0, requests: [] });
     expect(createLeadMock).toHaveBeenCalledTimes(1);
   });
 

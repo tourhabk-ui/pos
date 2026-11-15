@@ -64,6 +64,7 @@ const CARRIER: CharterCarrier = {
 vi.mock('@/lib/transfers/charter', () => ({ loadCharterCarriers: async () => [CARRIER] }));
 import { POST } from '@/app/api/mcp/route';
 import { WRITE_OUTPUT_SCHEMA } from '@/lib/mcp/test-run';
+import { confirmationCodeOf, isDraft } from '../helpers/mcp-two-step';
 import { BOOKING_OFFERS_TIMEOUT_MS } from '@/lib/mcp/booking-closed-date';
 import { DATE_CLOSED_BY_PLATFORM_SQL } from '@/lib/tours/date-closure';
 
@@ -72,14 +73,33 @@ const inDays = (n: number) => new Date(Date.now() + n * 86_400_000).toISOString(
 const DATE = inDays(40);
 
 let ip = 0;
-async function call(args: Record<string, unknown>) {
+type Result = { isError?: boolean; content: Array<{ text: string }>; structuredContent?: Record<string, unknown> };
+/**
+ * Заявка внешнего агента — в два вызова (lib/mcp/human-confirmation). Первый
+ * вызов дошёл до записи — черновик: ничего не записано, к нему код; тогда
+ * второй вызов с кодом и согласием, и возвращается его ответ. Ответ до записи
+ * (отказ, проба) кода не несёт и возвращается как есть.
+ */
+async function call(args: Record<string, unknown>): Promise<Result> {
+  const written = () => [createLeadMock.mock.calls.length, seatRequestMock.mock.calls.length];
+  const before = written();
+  const first = await send(args);
+  const text = first.content[0]?.text ?? '';
+  if (!isDraft(text)) return first;
+  expect(first.isError).toBeUndefined();
+  expect(first.structuredContent).toMatchObject({ test: false, accepted: 0, requests: [] });
+  expect(new Ajv({ strict: false }).validate(WRITE_OUTPUT_SCHEMA, first.structuredContent)).toBe(true);
+  expect(written()).toEqual(before);
+  return send({ ...args, consent: true, confirmation: confirmationCodeOf(text) });
+}
+async function send(args: Record<string, unknown>): Promise<Result> {
   ip += 1;
   const res = await POST(new NextRequest('http://localhost/api/mcp', {
     method: 'POST',
     headers: { 'content-type': 'application/json', 'x-real-ip': `10.12.${Math.floor(ip / 250)}.${ip % 250}` },
     body: JSON.stringify({ jsonrpc: '2.0', id: 1, method: 'tools/call', params: { name: 'create_booking_request', arguments: args } }),
   }));
-  return (await res.json()).result as { isError?: boolean; content: Array<{ text: string }>; structuredContent?: Record<string, unknown> };
+  return (await res.json()).result as Result;
 }
 const BASE = { name: 'Иван Петров', phone: '+79001234567', consent: true, tour: '70', date: DATE, participants: 2 };
 
@@ -250,7 +270,7 @@ describe('описание create_booking_request называет заявку-
   it('третий случай запроса вместо отказа назван, и фраза о согласии в копии для моста не обрезана', async () => {
     const { BOOKING_REQUEST_TOOL } = await import('@/lib/mcp/public-tools');
     expect(BOOKING_REQUEST_TOOL.description)
-      .toMatch(/Запрос оператору вместо отказа, без закрепления мест:[^.]*дату закрыл Ведар, не оператор, — вопрос, ходит ли он в этот день\./);
+      .toMatch(/Запрос оператору вместо отказа, места не закрепляются:[^.]*дату закрыл Ведар, не оператор, — вопрос, ходит ли он в этот день\./);
     expect(BOOKING_REQUEST_TOOL.description).not.toMatch(/в двух случаях/);
   });
 });

@@ -37,6 +37,7 @@ vi.mock('@/lib/notifications/pd-alert', () => ({
 import { POST } from '@/app/api/mcp/route';
 import { STAY_REQUEST_TOOL, WRITE_TOOL_NAMES, PUBLIC_MCP_TOOL_NAMES } from '@/lib/mcp/public-tools';
 import { PD_CONSENT_STAY_VERSION } from '@/lib/legal/pd-consent';
+import { confirmationCodeOf, isDraft } from '../helpers/mcp-two-step';
 
 const KUTHA_ID = '3b2551c7-ed5c-47c8-bb93-41ca6a278c1e';
 
@@ -61,6 +62,27 @@ const ARGS = {
 };
 
 const inserts = () => query.mock.calls.filter(([sql]) => /INSERT INTO stay_requests/.test(String(sql)));
+
+/**
+ * Заявка внешнего агента — в два вызова (lib/mcp/human-confirmation). Первый
+ * вызов дошёл до записи — черновик: ни строки заявки, ни ключа, ни сообщения
+ * хозяину; тогда второй вызов с кодом и `consent` (по умолчанию true), и
+ * возвращается его ответ. Ответ до записи (отказ, объект не принимает заявку)
+ * кода не несёт и возвращается как есть.
+ */
+async function send(args: Record<string, unknown>, consent: unknown = true) {
+  const written = () => [
+    query.mock.calls.filter(([sql]) => /INSERT INTO (stay_requests|agent_request_keys|agent_request_notify)|UPDATE stay_requests/.test(String(sql))).length,
+    sendPdAlertMock.mock.calls.length,
+  ];
+  const before = written();
+  const first = await result(await call(args));
+  const text = first.content[0]?.text ?? '';
+  if (!isDraft(text)) return first;
+  expect(first.isError).toBeUndefined();
+  expect(written()).toEqual(before);
+  return result(await call({ ...args, consent, confirmation: confirmationCodeOf(text) }));
+}
 
 beforeEach(() => {
   process.env.MCP_HASH_SALT = 'соль-для-теста';
@@ -97,7 +119,7 @@ describe('инструмент объявлен как заявка', () => {
 
 describe('путь формы: запись, согласие, доставка', () => {
   it('хозяин подключён: строка с согласием «жильё» от mcp, хозяину в его адрес и оператору', async () => {
-    const r = await result(await call(ARGS));
+    const r = await send(ARGS);
     expect(r.isError).toBeUndefined();
     expect(r.content[0].text).toMatch(/Заявка передана владельцу в мессенджер: "Кутха", заезд 2027-07-10, выезд 2027-07-12 \(ночей: 2\), гостей 9/);
     expect(r.content[0].text).toMatch(/не бронь и не оплата/);
@@ -125,13 +147,17 @@ describe('путь формы: запись, согласие, доставка'
   });
 
   it('телефон человека в ответ модели не уходит', async () => {
-    const r = await result(await call(ARGS));
+    // Ни в черновике первого вызова, ни в ответе на запись.
+    const draft = await result(await call(ARGS));
+    expect(isDraft(draft.content[0].text)).toBe(true);
+    expect(JSON.stringify(draft)).not.toMatch(/9001234567|123-45-67/);
+    const r = await send(ARGS);
     expect(JSON.stringify(r)).not.toMatch(/9001234567|123-45-67/);
   });
 
   it('хозяин не подключён: только оператору, и агент слышит это', async () => {
     owner = { max_chat_id: null, telegram_chat_id: null };
-    const r = await result(await call(ARGS));
+    const r = await send(ARGS);
     expect(r.isError).toBeUndefined();
     expect(r.content[0].text).toMatch(/Заявка передана оператору Ведара/);
     expect(sendPdAlertMock).toHaveBeenCalledTimes(1);
@@ -142,7 +168,7 @@ describe('путь формы: запись, согласие, доставка'
 
   it('не дошло никому — отказ, а не «владелец перезвонит»', async () => {
     sendPdAlertMock.mockResolvedValue({ delivered: false, channel: 'max', reason: 'сбой' });
-    const r = await result(await call(ARGS));
+    const r = await send(ARGS);
     expect(r.isError).toBe(true);
     expect(r.content[0].text).toMatch(/передать её владельцу сейчас не удалось/);
     expect(r.content[0].text).not.toMatch(/Владелец перезвонит/);
@@ -151,7 +177,8 @@ describe('путь формы: запись, согласие, доставка'
 
 describe('без согласия — ничего', () => {
   it('consent: false — не пишется и не отправляется', async () => {
-    const r = await result(await call({ ...ARGS, consent: false }));
+    // Первый вызов — черновик и при consent: false; отказ — на втором, с кодом.
+    const r = await send({ ...ARGS, consent: false }, false);
     expect(r.isError).toBe(true);
     expect(r.content[0].text).toMatch(/нет согласия/);
     expect(inserts()).toHaveLength(0);
@@ -160,7 +187,7 @@ describe('без согласия — ничего', () => {
 
   it('поля consent нет — отказ «поля нет»', async () => {
     const { consent: _drop, ...noConsent } = ARGS;
-    const r = await result(await call(noConsent));
+    const r = await send(noConsent);
     expect(r.isError).toBe(true);
     expect(r.content[0].text).toMatch(/нет поля consent/);
   });
@@ -169,32 +196,32 @@ describe('без согласия — ничего', () => {
 describe('какой объект принимает заявку', () => {
   it('объект с сайтом брони — путь назван, заявки нет', async () => {
     lookup = [{ id: KUTHA_ID, name: 'Гостиница', has_site: true, has_rooms: false, has_phone: true }];
-    const r = await result(await call(ARGS));
+    const r = await send(ARGS);
     expect(r.content[0].text).toMatch(/не принимает: бронь и свободные даты — на сайте объекта/);
     expect(inserts()).toHaveLength(0);
   });
 
   it('объект со своими номерами — бронь номера на карточке', async () => {
     lookup = [{ id: KUTHA_ID, name: 'База', has_site: false, has_rooms: true, has_phone: true }];
-    const r = await result(await call(ARGS));
+    const r = await send(ARGS);
     expect(r.content[0].text).toMatch(/свои номера на платформе/);
     expect(inserts()).toHaveLength(0);
   });
 
   it('не найдено и несколько подходящих — разные ответы', async () => {
     lookup = [];
-    expect((await result(await call(ARGS))).content[0].text).toMatch(/не найдено среди опубликованных/);
+    expect((await send(ARGS)).content[0].text).toMatch(/не найдено среди опубликованных/);
     lookup = [
       { id: KUTHA_ID, name: 'Кутха у реки', has_site: false, has_rooms: false, has_phone: true },
       { id: 'b', name: 'Кутха на горе', has_site: false, has_rooms: false, has_phone: true },
     ];
-    expect((await result(await call(ARGS))).content[0].text).toMatch(/подходит несколько объектов: Кутха у реки; Кутха на горе/);
+    expect((await send(ARGS)).content[0].text).toMatch(/подходит несколько объектов: Кутха у реки; Кутха на горе/);
     expect(inserts()).toHaveLength(0);
   });
 
   it('база не ответила — отказ проверки, а не «не найдено»', async () => {
     lookup = Object.assign(new Error('connection refused'), { code: '08006' });
-    const r = await result(await call(ARGS));
+    const r = await send(ARGS);
     expect(r.isError).toBe(true);
     expect(r.content[0].text).toMatch(/Не удалось проверить объект/);
     expect(r.content[0].text).not.toMatch(/не найдено/);
@@ -208,7 +235,7 @@ describe('даты проверяются до записи', () => {
     [{ check_in: '2020-01-01', check_out: '2020-01-03' }, /Дата заезда уже прошла/],
     [{ check_in: '2027-02-30', check_out: '2027-03-02' }, /нет в календаре/],
   ])('%o — отказ', async (patch, text) => {
-    const r = await result(await call({ ...ARGS, ...patch }));
+    const r = await send({ ...ARGS, ...patch });
     expect(r.isError).toBe(true);
     expect(r.content[0].text).toMatch(text);
     expect(inserts()).toHaveLength(0);
@@ -219,7 +246,7 @@ describe('ключ статуса заявки на жильё (14.10, мигр�
   const keyInserts = () => query.mock.calls.filter(([sql]) => /INSERT INTO agent_request_keys/.test(String(sql)));
 
   it('ключ — на строку заявки; в ответе ключ и страница заявки, а в базе только его хеш', async () => {
-    const r = await result(await call(ARGS));
+    const r = await send(ARGS);
     expect(r.isError).toBeUndefined();
     const text = r.content[0].text;
     expect(keyInserts()).toHaveLength(1);
@@ -237,7 +264,7 @@ describe('ключ статуса заявки на жильё (14.10, мигр�
 
   it('не дошло никому — отказ, и ключа нет', async () => {
     sendPdAlertMock.mockResolvedValue({ delivered: false, channel: 'none', reason: 'сбой' });
-    const r = await result(await call(ARGS));
+    const r = await send(ARGS);
     expect(r.isError).toBe(true);
     expect(keyInserts()).toHaveLength(0);
   });
@@ -249,7 +276,7 @@ describe('ключ статуса заявки на жильё (14.10, мигр�
       if (/INSERT INTO agent_request_keys/.test(sql)) throw Object.assign(new Error('relation missing'), { code: '42P01' });
       return base!(sql, params);
     });
-    const r = await result(await call(ARGS));
+    const r = await send(ARGS);
     expect(r.isError).toBeUndefined();
     expect(r.content[0].text).toMatch(/Заявка передана владельцу/);
     expect(r.content[0].text).toMatch(/Ключ статуса заявки не выдан/);
@@ -260,7 +287,7 @@ describe('ключ статуса заявки на жильё (14.10, мигр�
 
 describe('notify_url у заявки на жильё (29.10)', () => {
   it('подписки нет — состояние после передачи не меняется; агенту это сказано, ключ статуса выдан', async () => {
-    const r = await result(await call({ ...ARGS, notify_url: 'https://hooks.agent-example.ru/in' }));
+    const r = await send({ ...ARGS, notify_url: 'https://hooks.agent-example.ru/in' });
     expect(r.isError).toBeUndefined();
     const text = r.content[0]!.text;
     expect(text).toMatch(/notify_url для заявки на жильё не заводится/);
@@ -269,7 +296,7 @@ describe('notify_url у заявки на жильё (29.10)', () => {
   });
 
   it('без notify_url — фразы нет', async () => {
-    const r = await result(await call(ARGS));
+    const r = await send(ARGS);
     expect(r.content[0]!.text).not.toMatch(/notify_url/);
   });
 });

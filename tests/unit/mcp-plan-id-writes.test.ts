@@ -61,9 +61,25 @@ vi.mock('@/lib/db-pool', () => ({
 }));
 
 import { POST } from '@/app/api/mcp/route';
+import { confirmationCodeOf, isDraft } from '../helpers/mcp-two-step';
 
 let ip = 0;
+/**
+ * Заявка внешнего агента — в два вызова (lib/mcp/human-confirmation). Первый
+ * вызов дошёл до записи — черновик: ничего не записано и не передано; тогда
+ * второй вызов с кодом и согласием, и возвращается его ответ. Ответ до записи
+ * (отказ по входу) кода не несёт и возвращается как есть.
+ */
 async function call(name: string, args: Record<string, unknown>) {
+  const written = () => [h.submitStay.mock.calls.length, h.createLead.mock.calls.length];
+  const before = written();
+  const first = await send(name, args);
+  if (!isDraft(first.text)) return first;
+  expect(first.isError).toBe(false);
+  expect(written()).toEqual(before);
+  return send(name, { ...args, consent: true, confirmation: confirmationCodeOf(first.text) });
+}
+async function send(name: string, args: Record<string, unknown>) {
   ip += 1;
   const res = await POST(new NextRequest('http://localhost/api/mcp', {
     method: 'POST',
@@ -96,6 +112,19 @@ beforeEach(() => {
     if (/COUNT\(\*\)/.test(sql)) return { rows: [{ a: '0', b: '0', c: '0', d: '0', e: '0' }] };
     if (/INSERT INTO mcp_write_attempts/.test(sql)) return { rows: [{ id: '5' }] };
     return { rows: [] };
+  });
+});
+
+describe('план правили между черновиком и записью (ревью безопасности #3414)', () => {
+  it('ревизия плана сменилась — код не подходит, заявки нет, новый черновик', async () => {
+    const first = await send('create_stay_request', { ...PERSON, accommodation: 'Кутха', plan_id: PLAN });
+    expect(isDraft(first.text)).toBe(true);
+    // edit_trip_plan между вызовами: тот же id, ревизия +1, другие даты.
+    h.loadDraft.mockResolvedValue({ kind: 'found', draft: { ...DRAFT, revision: 2 } });
+    const second = await send('create_stay_request', { ...PERSON, accommodation: 'Кутха', plan_id: PLAN, confirmation: confirmationCodeOf(first.text) });
+    expect(second.text).toMatch(/Код подтверждения не подходит к этим данным \(поля или план изменились\) — заявка не создана/);
+    expect(isDraft(second.text)).toBe(true);
+    expect(h.submitStay).not.toHaveBeenCalled();
   });
 });
 

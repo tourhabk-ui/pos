@@ -55,6 +55,7 @@ import { POST } from '@/app/api/mcp/route';
 import { matchDestinations, vehiclesNeeded, fleetCapacity, type CharterCarrier } from '@/lib/transfers/charter-format';
 import { pickCarrier, planCharterRequest } from '@/lib/transfers/charter-request';
 import { PD_CONSENT_CARRIER_VERSION } from '@/lib/legal/pd-consent';
+import { confirmationCodeOf, isDraft } from '../helpers/mcp-two-step';
 
 const ROOT = process.cwd();
 const ROUTE = readFileSync(join(ROOT, 'app/api/mcp/route.ts'), 'utf-8');
@@ -99,6 +100,26 @@ const text = async (r: Response) => {
   const j = await r.json();
   return { isError: Boolean(j.result?.isError), text: String(j.result?.content?.[0]?.text ?? j.error?.message ?? '') };
 };
+
+/**
+ * Заявка внешнего агента — в два вызова (lib/mcp/human-confirmation). Первый
+ * вызов дошёл до записи — черновик: ни лида, ни вопроса «был ли повтор», ни
+ * попытки записи; тогда второй вызов с кодом и `consent` (по умолчанию true),
+ * и возвращается его ответ. Ответ до записи (отказ, вопрос) кода не несёт и
+ * возвращается как есть.
+ */
+async function send(args: Record<string, unknown>, consent: unknown = true) {
+  const written = () => [
+    createLeadMock.mock.calls.length, recentLeadMock.mock.calls.length,
+    guardState.calls.filter(([sql]) => /mcp_write_attempts/.test(sql)).length,
+  ];
+  const before = written();
+  const first = await text(await POST(call(args)));
+  if (!isDraft(first.text)) return first;
+  expect(first.isError).toBe(false);
+  expect(written()).toEqual(before);
+  return text(await POST(call({ ...args, consent, confirmation: confirmationCodeOf(first.text) })));
+}
 
 const base = () => ({
   destination: 'Горелый', date_from: inDays(30), passengers: 8,
@@ -194,7 +215,7 @@ describe('план заявки: порядок проверок', () => {
 
 describe('request_charter через MCP: заявка принята', () => {
   it('направление из прайса: цена за машину строкой прайса, лид менеджеру с operator_id перевозчика', async () => {
-    const r = await text(await POST(call(base())));
+    const r = await send(base());
     expect(r.isError).toBe(false);
     expect(r.text).toContain('Заявка на машину принята');
     expect(r.text).toContain('«Шатун»');
@@ -234,7 +255,7 @@ describe('request_charter через MCP: заявка принята', () => {
   });
 
   it('направления нет в прайсе — заказ принимается без цены, прайс показан целиком', async () => {
-    const r = await text(await POST(call({ ...base(), destination: 'аэропорт Елизово' })));
+    const r = await send({ ...base(), destination: 'аэропорт Елизово' });
     expect(r.isError).toBe(false);
     expect(r.text).toContain('в прайсе нет — это заказ вне прайса, цену называет перевозчик');
     expect(r.text).toContain('Вулкан Авачинский 65000 руб за машину');
@@ -245,24 +266,24 @@ describe('request_charter через MCP: заявка принята', () => {
   });
 
   it('группа больше одной машины — сказано, сколько машин нужно по местам, цена не умножается', async () => {
-    const r = await text(await POST(call({ ...base(), passengers: 30 })));
+    const r = await send({ ...base(), passengers: 30 });
     expect(r.text).toContain('не меньше 2 машин');
     expect(r.text).toContain('цена в прайсе — за одну машину');
     expect(r.text).not.toContain('150 000');
   });
 
   it('даты возвращения нет — так и сказано, а не выдумана', async () => {
-    const r = await text(await POST(call(base())));
+    const r = await send(base());
     expect(r.text).toContain('дата возвращения не указана');
-    const withTo = await text(await POST(call({ ...base(), date_to: inDays(32) })));
+    const withTo = await send({ ...base(), date_to: inDays(32) });
     expect(withTo.text).toContain(`по ${inDays(32)}`);
   });
 
   it('повтор заявки: ответ тот же, кроме ключа статуса — он у каждого вызова свой; второго лида нет', async () => {
-    const first = await text(await POST(call(base())));
+    const first = await send(base());
     recentLeadMock.mockResolvedValue('lead-1');
     createLeadMock.mockClear();
-    const again = await text(await POST(call(base())));
+    const again = await send(base());
     // Ключ статуса (ступень 1 контура, 12.10) случайный на каждый вызов и
     // одинаков по форме у новой и повторной заявки: по нему не отличить,
     // что заявка уже была (анти-оракул 29.09). Сам ответ — тот же.
@@ -282,8 +303,10 @@ describe('request_charter: заявка НЕ создаётся', () => {
   const noLead = () => expect(createLeadMock).not.toHaveBeenCalled();
 
   it('без согласия — отказ, ничего не записано и повтор не спрашивался (не оракул без допуска)', async () => {
-    const r = await text(await POST(call({ ...base(), consent: false })));
+    // Первый вызов — черновик и при consent: false; отказ — на втором, с кодом.
+    const r = await send({ ...base(), consent: false }, false);
     expect(r.isError).toBe(true);
+    expect(r.text).toContain('нет согласия на обработку персональных данных');
     noLead();
     expect(recentLeadMock).not.toHaveBeenCalled();
   });
@@ -291,43 +314,43 @@ describe('request_charter: заявка НЕ создаётся', () => {
   it('в аргументах нет согласия — отказ про поле, а не про отказ человека', async () => {
     const { consent: _c, ...rest } = base();
     void _c;
-    const r = await text(await POST(call(rest)));
+    const r = await send(rest);
     expect(r.isError).toBe(true);
     expect(r.text).toContain('нет поля consent');
     noLead();
   });
 
   it('больше людей, чем мест во всех машинах — отказ с цифрой парка', async () => {
-    const r = await text(await POST(call({ ...base(), passengers: 60 })));
+    const r = await send({ ...base(), passengers: 60 });
     expect(r.isError).toBe(false);
     expect(r.text).toContain('всего 52 мест, а нужно 60');
     noLead();
   });
 
   it('неоднозначное направление — вопрос со списком, заявки нет', async () => {
-    const r = await text(await POST(call({ ...base(), destination: 'Вулкан' })));
+    const r = await send({ ...base(), destination: 'Вулкан' });
     expect(r.text).toContain('Вулкан Авачинский; Вулкан Горелый');
     noLead();
   });
 
   it('даты: прошедшая, слишком далёкая, возвращение раньше выезда, несуществующая', async () => {
-    expect((await text(await POST(call({ ...base(), date_from: inDays(-3) })))).text).toContain('уже прошла');
-    expect((await text(await POST(call({ ...base(), date_from: inDays(900) })))).text).toContain('слишком далека');
-    expect((await text(await POST(call({ ...base(), date_to: inDays(20) })))).text).toContain('не может быть раньше выезда');
-    expect((await text(await POST(call({ ...base(), date_from: '2099-02-30' })))).isError).toBe(true);
+    expect((await send({ ...base(), date_from: inDays(-3) })).text).toContain('уже прошла');
+    expect((await send({ ...base(), date_from: inDays(900) })).text).toContain('слишком далека');
+    expect((await send({ ...base(), date_to: inDays(20) })).text).toContain('не может быть раньше выезда');
+    expect((await send({ ...base(), date_from: '2099-02-30' })).isError).toBe(true);
     noLead();
   });
 
   it('телефон-мусор и пустое направление — отказ по-русски', async () => {
-    expect((await text(await POST(call({ ...base(), phone: 'привет' })))).text).toContain('phone — не похож на номер');
-    expect((await text(await POST(call({ ...base(), destination: '' })))).isError).toBe(true);
+    expect((await send({ ...base(), phone: 'привет' })).text).toContain('phone — не похож на номер');
+    expect((await send({ ...base(), destination: '' })).isError).toBe(true);
     noLead();
   });
 
   it('отказ чтения перевозчиков — «не смог проверить», а не «перевозчиков нет»', async () => {
     const err = vi.spyOn(console, 'error').mockImplementation(() => {});
     carriersMock.mockRejectedValue(Object.assign(new Error('connection terminated'), { code: '57P01' }));
-    const r = await text(await POST(call(base())));
+    const r = await send(base());
     expect(r.isError).toBe(true);
     expect(r.text).toContain('Не удалось проверить перевозчиков');
     expect(r.text).not.toMatch(/нет в системе/);
@@ -338,7 +361,7 @@ describe('request_charter: заявка НЕ создаётся', () => {
 
   it('перевозчиков с прайсом нет вовсе — честный ответ, путь через create_lead', async () => {
     carriersMock.mockResolvedValue([]);
-    const r = await text(await POST(call(base())));
+    const r = await send(base());
     expect(r.isError).toBe(false);
     expect(r.text).toContain('нет в системе');
     expect(r.text).toContain('create_lead');
@@ -347,17 +370,17 @@ describe('request_charter: заявка НЕ создаётся', () => {
 
   it('перевозчиков несколько и ни один не назван — вопрос; названный чужой — отказ', async () => {
     carriersMock.mockResolvedValue([carrier(), carrier({ partnerId: 'partner-2', slug: 'kamaz-tur', name: 'КамАЗ-Тур' })]);
-    expect((await text(await POST(call(base())))).text).toContain('укажите, кому адресовать заявку');
-    expect((await text(await POST(call({ ...base(), carrier: 'вездеходы' })))).text).toContain('не найден среди тех, у кого есть прайс');
+    expect((await send(base())).text).toContain('укажите, кому адресовать заявку');
+    expect((await send({ ...base(), carrier: 'вездеходы' })).text).toContain('не найден среди тех, у кого есть прайс');
     noLead();
-    const ok = await text(await POST(call({ ...base(), carrier: 'kamaz-tur' })));
+    const ok = await send({ ...base(), carrier: 'kamaz-tur' });
     expect(ok.text).toContain('«КамАЗ-Тур»');
     expect((createLeadMock.mock.calls[0] as unknown as [Record<string, unknown>])[0].operator_id).toBe('partner-2');
   });
 
   it('createLead не сохранил — отказ, а не «принята»', async () => {
     createLeadMock.mockResolvedValue(null as unknown as string);
-    const r = await text(await POST(call(base())));
+    const r = await send(base());
     expect(r.isError).toBe(true);
     expect(r.text).toContain('Не удалось сохранить заявку');
   });
@@ -390,7 +413,7 @@ describe('request_charter: предмет заявки, повтор и сбой
 
   it('вторая машина того же номера на другой день — заявка принята', async () => {
     guardState.c = '1';
-    const r = await text(await POST(call({ ...base(), date_from: inDays(32) })));
+    const r = await send({ ...base(), date_from: inDays(32) });
     expect(r.isError).toBe(false);
     expect(r.text).not.toMatch(/уже есть такая заявка|по первой/);
     expect(createLeadMock).toHaveBeenCalledTimes(1);
@@ -402,7 +425,7 @@ describe('request_charter: предмет заявки, повтор и сбой
     guardState.c = '1';
     guardState.e = '1';
     recentLeadMock.mockResolvedValue('lead-0');
-    const r = await text(await POST(call(base())));
+    const r = await send(base());
     expect(r.isError).toBe(false);
     expect(createLeadMock).not.toHaveBeenCalled();
     expect(attempts()[0]?.[3]).toBe('repeat');
@@ -410,7 +433,7 @@ describe('request_charter: предмет заявки, повтор и сбой
 
   it('сбой сохранения — отказ, слот освобождён', async () => {
     createLeadMock.mockResolvedValueOnce(null as unknown as string);
-    const r = await text(await POST(call(base())));
+    const r = await send(base());
     expect(r.isError).toBe(true);
     const release = guardState.calls.find(([sql]) => /UPDATE mcp_write_attempts SET outcome = 'save_failed'/.test(sql));
     expect(release?.[1]).toEqual(['88']);
