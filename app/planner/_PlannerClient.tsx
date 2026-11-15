@@ -1,6 +1,7 @@
 'use client';
 
 import { isImeKeyEvent } from '@/lib/ui/ime';
+import { useModalDialog } from '@/hooks/use-modal-dialog';
 import { useState, useMemo, useCallback, useEffect, useRef } from 'react';
 import { useRouter, useSearchParams } from 'next/navigation';
 import { PdConsentCheckbox } from '@/components/legal/PdConsentCheckbox';
@@ -539,7 +540,7 @@ function DayCard({
           className="flex items-center gap-2 px-3 pt-3 pb-1.5 cursor-pointer"
           onClick={() => onToggleEdit(day.day)}
           onKeyDown={(e) => {
-            if (e.target !== e.currentTarget) return;
+            if (e.target !== e.currentTarget || isImeKeyEvent(e.nativeEvent)) return;
             if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); onToggleEdit(day.day); }
           }}
         >
@@ -892,17 +893,15 @@ function PartnersModal({ activityType, onClose }: {
 
   const label = [...ACTIVITIES, ...PLACES].find(a => a.id === activityType)?.label ?? activityType;
 
-  // Escape закрывает окно (разбор 14.11, экран-14).
-  useEffect(() => {
-    const onKey = (e: KeyboardEvent) => { if (e.key === 'Escape') onClose(); };
-    window.addEventListener('keydown', onKey);
-    return () => window.removeEventListener('keydown', onKey);
-  }, [onClose]);
+  // Окно по общему правилу слоёв (разбор 14.11, экран-14): Escape закрывает
+  // только его, фокус внутри, после закрытия — на кнопке, что его открыла.
+  const dialogRef = useRef<HTMLDivElement>(null);
+  useModalDialog(dialogRef, onClose);
 
   return (
     <div className="fixed inset-0 z-50 flex items-center justify-center p-4">
       <div className="absolute inset-0 bg-black/50" onClick={onClose} />
-      <div role="dialog" aria-modal="true" aria-label={`Операторы: ${label}`} className="relative bg-[var(--bg-card)] rounded-lg border border-[var(--border)] w-full max-w-md max-h-[80vh] flex flex-col">
+      <div ref={dialogRef} role="dialog" aria-modal="true" aria-label={`Операторы: ${label}`} className="relative bg-[var(--bg-card)] rounded-lg border border-[var(--border)] w-full max-w-md max-h-[80vh] flex flex-col">
         <div className="flex items-center justify-between px-4 py-3 border-b border-[var(--border)]">
           <div>
             <p className="text-[10px] font-bold uppercase tracking-widest text-[var(--text-muted)]">Операторы</p>
