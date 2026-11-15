@@ -13,6 +13,9 @@ import {
   ZONE_ALLOWED_TRANSPORT,
 } from '@/lib/planner/engine';
 import type { ZoneId } from '@/lib/planner/engine';
+import { ACTIVITY_NAMES, ZONE_NAMES } from '@/lib/planner/constants';
+import { dateOfTripDay } from '@/lib/planner/flow-balance';
+import { monthOfIsoDate, MONTH_IN } from '@/lib/planner/trip-season';
 import { SEASON_BLOCKED } from '@/lib/planner/interests';
 import { createRateLimiter, getClientIp } from '@/lib/rate-limit';
 
@@ -24,6 +27,8 @@ const validateLimiter = createRateLimiter({ windowMs: 60_000, max: 20 });
 
 const DaySchema = z.object({
   day:              z.number(),
+  /** Тип дня (arrival, activity, travel, rest, buffer, departure); старый клиент его не шлёт. */
+  type:             z.string().max(20).optional(),
   zone:             z.enum(['avachinsky', 'western', 'eastern', 'northern']),
   title:            z.string(),
   activityType:     z.string(),
@@ -31,7 +36,8 @@ const DaySchema = z.object({
 });
 
 const BodySchema = z.object({
-  days:         z.array(DaySchema).min(2).max(21),
+  // 60, как у сохранённой поездки: план длиннее 21 дня молча не проверялся (400).
+  days:         z.array(DaySchema).min(2).max(60),
   arrivalDate:  z.string().date().optional(),
   fitnessLevel: z.enum(['beginner', 'moderate', 'active']).optional(),
   seasickness:  z.boolean().optional(),
@@ -48,6 +54,19 @@ interface ValidationIssue {
 const FITNESS_ORDER: Record<string, number> = {
   beginner: 0, moderate: 1, active: 2,
 };
+
+// Слова человеку — по-русски (разбор планера 14.11, экран-5): ответ писал
+// «активность "bears"», «avachinsky -> eastern», «уровень "active"».
+const FITNESS_WORDS: Record<string, string> = { beginner: 'начальная', moderate: 'средняя', active: 'хорошая' };
+const TRANSPORT_WORDS: Record<string, string> = { walking: 'пешком', jeep: 'внедорожник', helicopter: 'вертолёт', boat: 'катер' };
+const activityWord = (a: string) => ACTIVITY_NAMES[a] ?? a;
+const zoneWord = (z: string) => ZONE_NAMES[z as ZoneId] ?? z;
+
+/** Не занятие: прилёт, переезд, отдых, резерв, отъезд — по типу дня, а без него по виду. */
+function isActive(d: z.infer<typeof DaySchema>): boolean {
+  if (d.type) return d.type === 'activity';
+  return Boolean(d.activityType) && !['rest', 'travel', 'departure'].includes(d.activityType);
+}
 
 export async function POST(req: NextRequest) {
   if (!validateLimiter.check(getClientIp(req.headers))) {
@@ -71,7 +90,7 @@ export async function POST(req: NextRequest) {
   const issues: ValidationIssue[] = [];
 
   // 1. Must have at least one activity
-  const hasActivities = days.some(d => d.activityType && d.activityType !== 'rest');
+  const hasActivities = days.some(isActive);
   if (!hasActivities) {
     issues.push({
       type: 'no_activities',
@@ -88,14 +107,14 @@ export async function POST(req: NextRequest) {
       const edge = ZONE_GRAPH[prev.zone as ZoneId]?.[curr.zone as ZoneId];
       if (edge?.needsTravelDay) {
         // Check if there's a travel/rest day between these activity days
-        const prevIsActive = prev.activityType && prev.activityType !== 'rest';
-        const currIsActive = curr.activityType && curr.activityType !== 'rest';
-        if (prevIsActive && currIsActive) {
+        // День переезда сам и есть переезд: до 14.11 он считался занятием, и
+        // план движка «переезд → медведи» получал «нужен переезд».
+        if (isActive(prev) && isActive(curr)) {
           const hours = edge.travelHours ? `${edge.travelHours} ч` : 'вертолёт';
           issues.push({
             type: 'missing_travel_day',
             severity: 'important',
-            message: `Между днями ${prev.day} и ${curr.day} нужен переезд (${prev.zone} -> ${curr.zone}, ${edge.distanceKm} км, ${hours}). Добавьте день переезда.`,
+            message: `Между днями ${prev.day} и ${curr.day} нужен переезд (${zoneWord(prev.zone)} → ${zoneWord(curr.zone)}, ${edge.distanceKm} км, ${hours}). Добавьте день переезда.`,
             day: curr.day,
           });
         }
@@ -105,9 +124,11 @@ export async function POST(req: NextRequest) {
 
   // 3. Seasonal checks
   if (arrivalDate) {
-    const arrMonth = new Date(arrivalDate).getMonth() + 1; // 1-12
     for (const d of days) {
-      if (!d.activityType || d.activityType === 'rest') continue;
+      if (!isActive(d)) continue;
+      // Месяц ЭТОГО дня, а не прилёта, и без часового пояса (разбор 14.11).
+      const arrMonth = monthOfIsoDate(dateOfTripDay(arrivalDate, d.day));
+      if (arrMonth === null) continue;
 
       // Check SEASON_BLOCKED
       const blocked = SEASON_BLOCKED[arrMonth] ?? [];
@@ -115,7 +136,7 @@ export async function POST(req: NextRequest) {
         issues.push({
           type: 'seasonal_block',
           severity: 'critical',
-          message: `${d.title} (день ${d.day}) недоступна в этом месяце.`,
+          message: `${d.title} (день ${d.day}): в ${MONTH_IN[arrMonth - 1]} недоступно.`,
           day: d.day,
         });
       }
@@ -131,7 +152,7 @@ export async function POST(req: NextRequest) {
           issues.push({
             type: 'out_of_season',
             severity: 'critical',
-            message: `${d.title} (день ${d.day}): активность "${d.activityType}" рекомендована в другие месяцы.`,
+            message: `${d.title} (день ${d.day}): ${activityWord(d.activityType)} — по нашему сезонному ориентиру не в ${MONTH_IN[arrMonth - 1]}.`,
             day: d.day,
           });
         }
@@ -141,13 +162,13 @@ export async function POST(req: NextRequest) {
 
   // 4. Activity-zone compatibility
   for (const d of days) {
-    if (!d.activityType || d.activityType === 'rest') continue;
+    if (!isActive(d)) continue;
     const constraint = ACTIVITY_CONSTRAINTS[d.activityType];
     if (constraint?.bestZones && !constraint.bestZones.includes(d.zone as ZoneId)) {
       issues.push({
         type: 'zone_mismatch',
         severity: 'info',
-        message: `${d.title} (день ${d.day}): "${d.activityType}" лучше подходит для других зон.`,
+        message: `${d.title} (день ${d.day}): ${activityWord(d.activityType)} — обычно в зонах: ${constraint.bestZones.map(zoneWord).join(', ')}.`,
         day: d.day,
       });
     }
@@ -155,13 +176,13 @@ export async function POST(req: NextRequest) {
 
   // 5. Transport feasibility
   for (const d of days) {
-    if (!d.defaultTransport || d.activityType === 'rest') continue;
+    if (!d.defaultTransport || !isActive(d)) continue;
     const allowed = ZONE_ALLOWED_TRANSPORT[d.zone as ZoneId];
     if (allowed && !allowed.includes(d.defaultTransport as 'walking' | 'jeep' | 'helicopter' | 'boat')) {
       issues.push({
         type: 'invalid_transport',
         severity: 'important',
-        message: `День ${d.day}: транспорт "${d.defaultTransport}" недоступен в зоне "${d.zone}".`,
+        message: `День ${d.day}: ${TRANSPORT_WORDS[d.defaultTransport] ?? d.defaultTransport} недоступен в зоне «${zoneWord(d.zone)}».`,
         day: d.day,
       });
     }
@@ -171,13 +192,13 @@ export async function POST(req: NextRequest) {
   if (children && children.length > 0) {
     const minChildAge = Math.min(...children);
     for (const d of days) {
-      if (!d.activityType || d.activityType === 'rest') continue;
+      if (!isActive(d)) continue;
       const constraint = ACTIVITY_CONSTRAINTS[d.activityType];
       if (constraint?.minChildAge && minChildAge < constraint.minChildAge) {
         issues.push({
           type: 'child_age',
           severity: 'important',
-          message: `День ${d.day}: "${d.activityType}" рекомендуется детям от ${constraint.minChildAge} лет (ваш младший: ${minChildAge}).`,
+          message: `День ${d.day}: ${activityWord(d.activityType)} — детям от ${constraint.minChildAge} лет (младшему ${minChildAge}).`,
           day: d.day,
         });
       }
@@ -188,7 +209,7 @@ export async function POST(req: NextRequest) {
   if (fitnessLevel) {
     const userFitness = FITNESS_ORDER[fitnessLevel] ?? 0;
     for (const d of days) {
-      if (!d.activityType || d.activityType === 'rest') continue;
+      if (!isActive(d)) continue;
       const constraint = ACTIVITY_CONSTRAINTS[d.activityType];
       if (constraint?.fitnessRequired) {
         const reqFitness = FITNESS_ORDER[constraint.fitnessRequired] ?? 0;
@@ -196,7 +217,7 @@ export async function POST(req: NextRequest) {
           issues.push({
             type: 'fitness_mismatch',
             severity: 'info',
-            message: `День ${d.day}: "${d.activityType}" требует уровень "${constraint.fitnessRequired}", ваш: "${fitnessLevel}".`,
+            message: `День ${d.day}: ${activityWord(d.activityType)} — нужна ${FITNESS_WORDS[constraint.fitnessRequired] ?? constraint.fitnessRequired} подготовка, у вас ${FITNESS_WORDS[fitnessLevel] ?? fitnessLevel}.`,
             day: d.day,
           });
         }
@@ -208,11 +229,11 @@ export async function POST(req: NextRequest) {
   if (seasickness) {
     const seaActivities = new Set(['boat_trip', 'sea', 'fishing']);
     for (const d of days) {
-      if (seaActivities.has(d.activityType)) {
+      if (isActive(d) && seaActivities.has(d.activityType)) {
         issues.push({
           type: 'seasickness',
           severity: 'info',
-          message: `День ${d.day}: "${d.activityType}" связана с морем. При укачивании возьмите препараты.`,
+          message: `День ${d.day}: ${activityWord(d.activityType)} — выход на воду. При укачивании возьмите препараты.`,
           day: d.day,
         });
       }
@@ -225,11 +246,12 @@ export async function POST(req: NextRequest) {
   let message: string;
   if (!valid) {
     const critCount = issues.filter(i => i.severity === 'critical').length;
-    message = `Обнаружены проблемы (${critCount} критических). Исправьте их перед бронированием.`;
+    // Брони через план нет — есть заявка (разбор 14.11, экран-5).
+    message = `Обнаружены проблемы (${critCount} критических). Исправьте их перед заявкой.`;
   } else if (issues.length > 0) {
-    message = `Маршрут готов (${issues.length} рекомендаций). Выбирайте туры на каждый день.`;
+    message = `Критичных замечаний нет, рекомендаций: ${issues.length}.`;
   } else {
-    message = 'Маршрут готов. Выбирайте туры на каждый день.';
+    message = 'Критичных замечаний нет.';
   }
 
   return NextResponse.json({ success: true, valid, message, issues });
