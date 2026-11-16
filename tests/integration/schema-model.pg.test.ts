@@ -22,12 +22,20 @@
  *  - модель знает, базы нет — объектив промолчит о запросе, который упадёт.
  * Чинится в `lib/agents/evo/schema-model.ts` (научить разбор этой записи), а
  * не списком исключений здесь.
+ *
+ * Тем же судьёй проверяется перепись сроков хранения (#3388, п. 2,
+ * `lib/legal/retention-census`): её список таблиц и колонок составлен чтением
+ * схемы, мок ответил бы на любое имя. Здесь каждая строка списка выполняется
+ * на той же базе: опечатка — «нет таблицы» или «не смог», и тест краснеет.
+ * Своим файлом это не заведено: число pg-файлов держит размен «последовательно
+ * вместо изоляции» (`tests/unit/pg-tests-run-in-ci.test.ts`).
  */
 import { describe, it, expect, beforeAll, afterAll } from 'vitest';
 import { readFileSync } from 'node:fs';
 import { join } from 'node:path';
 import { Pool } from 'pg';
 import { loadSchemaModel, type SchemaModel } from '@/lib/agents/evo/schema-model';
+import { RETENTION_TARGETS, runRetentionCensus } from '@/lib/legal/retention-census';
 import { createTestDatabase } from '../helpers/pg-schema';
 
 const PG_URL = process.env.KERNEL_PG_TEST_URL ?? '';
@@ -240,6 +248,25 @@ withPg('объектив схемы на настоящем PostgreSQL', () => {
       const before = await statuses();
       await pool.query(SQL);
       expect(await statuses()).toEqual(before);
+    });
+  });
+
+  describe('перепись сроков хранения на той же базе', () => {
+    it('каждая таблица и колонка списка есть в схеме: ни «нет таблицы», ни «не смог»', async () => {
+      const out = await runRetentionCensus((sql, params) => pool.query(sql, params));
+      const bad = out.rows.filter((r) => r.state !== 'ok').map((r) => `${r.table}.${r.column}: ${r.state}`);
+      expect(bad).toEqual([]);
+      expect(out.rows).toHaveLength(RETENTION_TARGETS.length);
+    });
+
+    it('журнал: старше 90 дней — за сроком, свежее — нет', async () => {
+      await pool.query(`INSERT INTO page_views (path, visitor_hash, created_at) VALUES
+        ('/a', 'h1', NOW() - INTERVAL '120 days'), ('/b', 'h2', NOW() - INTERVAL '10 days')`);
+      const out = await runRetentionCensus(
+        (sql, params) => pool.query(sql, params),
+        RETENTION_TARGETS.filter((t) => t.table === 'page_views'),
+      );
+      expect(out.rows[0]).toMatchObject({ state: 'ok', total: 2, over_term: 1 });
     });
   });
 });
