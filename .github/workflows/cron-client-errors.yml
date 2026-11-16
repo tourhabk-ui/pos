@@ -19,10 +19,10 @@ name: Ошибки в браузере — суточная перепись и 
 # эволюции и GitHub Issue — сутки спустя и не ему.
 #
 # Третьим шагом — уборка технических журналов старше срока хранения (#3388,
-# п. 2; политика обещает 90 дней). Тем же файлом по той же причине. Пока
-# шаг зовёт сухой прогон: в сводку уходит счёт, сколько строк попало бы под
-# удаление или обезличивание, и ничего не пишется. Включение уборки —
-# отдельной правкой этого шага (`?apply=1`), когда сухой прогон прочитан.
+# п. 2; политика обещает 90 дней). Тем же файлом по той же причине. Уборка
+# включена 16.11 (`?apply=1`) после сухого прогона на проде (проверка прода
+# 191: 18 журналов, 9432 строки, отказов 0). Каждое действие пишется в журнал
+# retention_purge_log; сухой прогон по-прежнему — адрес без `apply`.
 
 on:
   schedule:
@@ -119,11 +119,13 @@ jobs:
             exit 1
           fi
 
-      # Сроки хранения (#3388, п. 2): журналы старше 90 дней. Сухой прогон —
-      # только счёт по таблицам; в сводку — таблица, действие и число строк,
-      # без значений. Красный — когда уборка не ответила или таблица не
-      # посчиталась: «не смог» не выдаётся за «за сроком ничего нет».
-      - name: Сроки хранения — журналы старше 90 дней (сухой прогон)
+      # Сроки хранения (#3388, п. 2): журналы старше 90 дней удаляются или
+      # обезличиваются (lib/legal/retention-purge.ts). В сводку — таблица,
+      # действие и число строк, без значений. Красный — когда уборка не
+      # ответила или таблица не убралась: «не смог» не выдаётся за «за сроком
+      # ничего нет». Остаток сверх потолка пачек (`more`) — предупреждение:
+      # его уберёт следующий прогон.
+      - name: Сроки хранения — уборка журналов старше 90 дней
         if: ${{ !cancelled() }}
         env:
           CRON_SECRET: ${{ secrets.CRON_SECRET }}
@@ -135,24 +137,33 @@ jobs:
           fi
           CODE=$(curl -s -o /tmp/purge.json -w '%{http_code}' --max-time 150 \
             -H "Authorization: Bearer $CRON_SECRET" \
-            "https://vedarai.ru/api/cron/retention-purge")
+            "https://vedarai.ru/api/cron/retention-purge?apply=1")
           echo "HTTP $CODE"
           jq '{apply, total, failed, rows}' /tmp/purge.json || cat /tmp/purge.json
           {
             echo "## Сроки хранения: журналы старше 90 дней"
             echo ""
-            jq -r '"\(if .apply then "убрано" else "сухой прогон, попало бы" end): \(.total // "?") строк; не посчиталось таблиц: \(.failed // "?")"' /tmp/purge.json || echo "ответ не JSON"
+            jq -r '"\(if .apply then "убрано" else "сухой прогон, попало бы" end): \(.total // "?") строк; не убралось таблиц: \(.failed // "?")"' /tmp/purge.json || echo "ответ не JSON"
             echo ""
             echo '```json'
             jq '[.rows[]? | {table, action, state, rows, more}]' /tmp/purge.json || true
             echo '```'
           } >> "$GITHUB_STEP_SUMMARY"
           if [ "$CODE" != "200" ]; then
-            echo "::error::Уборка не ответила (HTTP $CODE) — это «не спросили», а не «за сроком ничего нет»."
+            echo "::error::Уборка не ответила (HTTP $CODE) — это «не убрали», а не «за сроком ничего нет»."
             exit 1
           fi
           FAILED=$(jq -r '.failed // 1' /tmp/purge.json)
           if [ "$FAILED" != "0" ]; then
-            echo "::error::Не посчиталось таблиц: $FAILED — $(jq -c '[.rows[]? | select(.state == "failed") | {table, reason}]' /tmp/purge.json)"
+            echo "::error::Не убралось таблиц: $FAILED — $(jq -c '[.rows[]? | select(.state == "failed") | {table, reason}]' /tmp/purge.json)"
             exit 1
+          fi
+          APPLIED=$(jq -r '.apply // false' /tmp/purge.json)
+          if [ "$APPLIED" != "true" ]; then
+            echo "::error::Уборка ответила сухим прогоном — строки за сроком остались."
+            exit 1
+          fi
+          MORE=$(jq -r '[.rows[]? | select(.more == true) | .table] | join(", ")' /tmp/purge.json)
+          if [ -n "$MORE" ]; then
+            echo "::warning::Не уложилось в один прогон, остаток уберёт следующий: $MORE"
           fi
