@@ -306,6 +306,8 @@ export const CRON_CAPABILITIES: Record<string, readonly Capability[]> = {
   'repo-scan': ['db_read', 'db_write', 'net_out'],
   'referral-census': ['db_read'],
   'rescue': ['db_read', 'db_write', 'net_out', 'telegram', 'ai'],
+  // Перепись сроков хранения (16.11, #3388 п.2): только счёт строк по сроку.
+  'retention-census': ['db_read'],
   'retrieval-probe': ['db_read', 'db_write', 'net_out', 'telegram', 'ai'],
   // Снимки приказов к дорожным закрытиям (10.10): зрение читает фото документа.
   'road-basis': ['db_read', 'db_write', 'net_out', 'ai'],
