@@ -419,8 +419,10 @@ const nextConfig = {
       //
       // Навык Ведара для агентов (#3408) — SKILL.md и список навыков в
       // /.well-known/skills/index.json — тоже ставят «час кэша» сами.
+      // Документ Poppy 1.0 для личных агентов (#3459) — /.well-known/poppy.json,
+      // час кэша в роуте.
       {
-        source: '/((?!_next/static|_next/image|icons|images|favicon|sitemap\\.xml$|robots\\.txt$|llms(?:-zh)?\\.txt$|api/channels/(?:avito|yandex)/feed$|openapi\\.json$|\\.well-known/(?:mcp\\.json|mcp/server-card\\.json|agent-card\\.json|agent\\.json|ai-catalog\\.json|api-catalog|skills/index\\.json)$|api/mcp/server-card$|skills/vedar-kamchatka/SKILL\\.md$).*)',
+        source: '/((?!_next/static|_next/image|icons|images|favicon|sitemap\\.xml$|robots\\.txt$|llms(?:-zh)?\\.txt$|api/channels/(?:avito|yandex)/feed$|openapi\\.json$|\\.well-known/(?:mcp\\.json|mcp/server-card\\.json|agent-card\\.json|agent\\.json|ai-catalog\\.json|api-catalog|poppy\\.json|skills/index\\.json)$|api/mcp/server-card$|skills/vedar-kamchatka/SKILL\\.md$).*)',
         headers: [
           { key: 'Cache-Control', value: 'no-store, no-cache, must-revalidate, proxy-revalidate' },
           { key: 'Surrogate-Control', value: 'no-store' },

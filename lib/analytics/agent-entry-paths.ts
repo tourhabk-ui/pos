@@ -30,6 +30,8 @@ export const AGENT_ENTRY_PATHS = [
   // API по RFC 9727 (lib/api/openapi).
   '/openapi.json',
   '/.well-known/api-catalog',
+  // 16.11 (#3459): документ обнаружения Poppy 1.0 для личных агентов.
+  '/.well-known/poppy.json',
   // 15.10 (аудит, CN-quick): карта сайта — то, с чего обходчик поисковика
   // узнаёт о /zh, и сама китайская страница.
   '/sitemap.xml',
