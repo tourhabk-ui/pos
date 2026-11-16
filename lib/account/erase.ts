@@ -1124,6 +1124,20 @@ export async function eraseUser(
       WHERE user_id = $1`],
     ['operator_signups', `UPDATE operator_signups SET telegram_handle = NULL WHERE user_id = $1`],
     ['audit_logs', `UPDATE audit_logs SET ip_address = NULL, user_agent = NULL WHERE user_id = $1`],
+    // Журнал прав (audit_log, без ссылки на аккаунт колонкой — перепись его
+    // не видит): запись регистрации его карточки партнёра несёт почту и ИНН,
+    // записи о нём самом (смена и переключение роли) — IP и браузер. Слово
+    // владельца 16.11 «1»: стирать сразу при удалении, а не ждать 90 дней
+    // уборки (lib/legal/retention-purge — то же правило для всех). Остаётся
+    // доказательство, кто и когда выдал права: роль, from, to, changedBy —
+    // их читает перепись admin-owners-census. Карточка партнёра и её
+    // реквизиты не трогаются (ERASE_KEEP, partners.*).
+    ['audit_log', `UPDATE audit_log SET ip_address = NULL, user_agent = NULL,
+        data = CASE WHEN entity_type = 'partner' AND action = 'register'
+                    THEN data - 'email' - 'inn' ELSE data END
+      WHERE (entity_type = 'user' AND entity_id = $1::uuid)
+         OR (entity_type = 'partner' AND action = 'register'
+             AND entity_id IN (SELECT id FROM partners WHERE user_id = $1))`],
     ['user_ai_memory', `DELETE FROM user_ai_memory WHERE user_id = $1`],
     ['request_drafts', `DELETE FROM request_drafts WHERE user_id = $1`],
     // Оценка ответа Кузьмича: автор — в metadata.author_user_id, свой

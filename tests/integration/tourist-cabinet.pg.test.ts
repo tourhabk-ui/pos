@@ -1132,6 +1132,46 @@ withPg('кабинет туриста на настоящем PostgreSQL', () =>
     expect(ok.json.kept?.map((k) => k.category)).toContain(ERASE_STEP_LEAVES['partners.channels'].category);
   });
 
+  it('удаление: запись регистрации его карточки партнёра в audit_log теряет почту, ИНН и IP сразу; роль и согласия остаются; чужие записи не тронуты (слово владельца 16.11 «1»)', async () => {
+    const uid = await freshTourist('auditreg');
+    const mine = await pool.query<{ id: string }>(
+      `INSERT INTO partners (name, category, contact, is_verified, is_public, slug, user_id)
+       VALUES ('Скрытая карточка аудита', 'operator', '{}', FALSE, FALSE, 'erase-audit-reg', $1) RETURNING id`,
+      [uid],
+    );
+    const theirs = await pool.query<{ id: string }>(
+      `INSERT INTO partners (name, category, contact, is_verified, is_public, slug)
+       VALUES ('Чужая карточка аудита', 'operator', '{}', FALSE, FALSE, 'erase-audit-other') RETURNING id`,
+    );
+    const reg = (email: string, inn: string) =>
+      JSON.stringify({ email, inn, roles: ['operator'], consents: { pd: true } });
+    const rows = await pool.query<{ id: string }>(
+      `INSERT INTO audit_log (entity_type, entity_id, action, data, ip_address, user_agent, created_at) VALUES
+         ('partner', $1, 'register', $3::jsonb, '203.0.113.5', 'UA-reg', NOW()),
+         ('partner', $2, 'register', $4::jsonb, '203.0.113.7', 'UA-other', NOW()),
+         ('user', $5, 'role_switch', '{"from":"tourist","to":"operator"}'::jsonb, '203.0.113.6', 'UA-sw', NOW()),
+         ('user', $6, 'role_switch', '{"from":"tourist","to":"guide"}'::jsonb, '203.0.113.8', 'UA-sw2', NOW())
+       RETURNING id`,
+      [mine.rows[0].id, theirs.rows[0].id, reg('erase-auditreg@example.com', '410101010101'),
+        reg('other-partner@example.com', '410202020202'), uid, otherUserId],
+    );
+    const ok = await callDelete(uid, { confirm: true, phrase: 'УДАЛИТЬ' });
+    expect(ok.status, JSON.stringify(ok.json)).toBe(200);
+
+    const after = await pool.query<{ id: string; data: Record<string, unknown>; ip: string | null; ua: string | null }>(
+      `SELECT id::text AS id, data, ip_address AS ip, user_agent AS ua FROM audit_log WHERE id = ANY($1::uuid[])`,
+      [rows.rows.map((r) => r.id)],
+    );
+    const byId = new Map(after.rows.map((r) => [r.id, r]));
+    const [myReg, otherReg, mySwitch, otherSwitch] = rows.rows.map((r) => byId.get(r.id));
+    expect(myReg).toMatchObject({ data: { roles: ['operator'], consents: { pd: true } }, ip: null, ua: null });
+    expect(myReg?.data).not.toHaveProperty('email');
+    expect(myReg?.data).not.toHaveProperty('inn');
+    expect(otherReg).toMatchObject({ data: { email: 'other-partner@example.com', inn: '410202020202' }, ip: '203.0.113.7', ua: 'UA-other' });
+    expect(mySwitch).toMatchObject({ data: { from: 'tourist', to: 'operator' }, ip: null, ua: null });
+    expect(otherSwitch).toMatchObject({ ip: '203.0.113.8', ua: 'UA-sw2' });
+  });
+
   it('удаление: карточка CRM из брони Telegram до привязки — его: имя и телефон стираются; две карточки у одного партнёра не роняют удаление (#2327, четвёртый круг)', async () => {
     // Ревью: бронь из Telegram стиралась, а карточка клиента, которую из неё
     // завела CRM (user_id пуст, имя и телефон из брони), оставалась целой —
