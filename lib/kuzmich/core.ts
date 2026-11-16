@@ -754,7 +754,7 @@ export async function loadTourCatalogEntries(): Promise<TourCatalog | null> {
       const slots = window?.kind === 'season' && r.any_day_open === true
         ? ` | ${anyDayLine(window)} (create_booking_request с датой сезона)`
         : window?.kind === 'season'
-        ? ` | Расписания в системе нет — предварительная бронь только по сезону (${windowLabel(window)}): заявка оператору на дату сезона (create_booking_request; места подтверждает он)`
+        ? ` | Расписания в системе нет — только заявка оператору на дату сезона (${windowLabel(window)}), это не бронь: create_booking_request; места подтверждает он`
         : r.has_schedule === false
         ? ' | Расписания в системе нет — все даты свободны для заявки оператору (create_booking_request с датой отправит ему запрос; места подтверждает он)'
         : r.available_slots != null

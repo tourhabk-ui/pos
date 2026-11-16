@@ -6,6 +6,8 @@
  * Судит вызов роута /llms.txt (база подложена пустой).
  */
 import { describe, it, expect, vi } from 'vitest';
+import { readFileSync } from 'node:fs';
+import { resolve } from 'node:path';
 
 vi.mock('@/lib/db-pool', () => ({ pool: { query: vi.fn(async () => ({ rows: [] })) } }));
 
@@ -33,5 +35,27 @@ describe('/llms.txt: три правила заявки для агента', ()
     expect(en).toMatch(/never by the agent/);
     expect(en).toMatch(/Vedar is not the seller/);
     expect(en).toMatch(/created: true/);
+  });
+});
+
+describe('/llms.txt и /llms-en.txt: вызов заявки не отправляет её — ссылка на /confirm (16.11)', () => {
+  it('русский файл в разделе MCP и английский файл говорят порядок /confirm', async () => {
+    const { agentSendRuleRu, agentSendRuleEn } = await import('@/lib/mcp/human-confirmation');
+    const { llmsEnFile } = await import('@/lib/mcp/en-layer');
+    const ru = await (await GET()).text();
+    expect(ru).toContain(agentSendRuleRu('https://vedarai.ru'));
+    expect(agentSendRuleRu('https://vedarai.ru')).toMatch(/НЕ отправляет.*https:\/\/vedarai\.ru\/confirm.*сам нажимает «Отправить»/s);
+    const en = llmsEnFile('https://vedarai.ru', false);
+    expect(en).toContain(agentSendRuleEn('https://vedarai.ru'));
+    expect(agentSendRuleEn('https://vedarai.ru')).toMatch(/does NOT send.*https:\/\/vedarai\.ru\/confirm.*themselves/s);
+    // Прежняя строка велела сказать «Request created» сразу после вызова.
+    expect(en).not.toMatch(/After a successful request, tell the person: "Request created/);
+  });
+
+  it('исключение «прокат — черновик и код» названо, пока прокат и правда идёт мимо /confirm', () => {
+    const route = readFileSync(resolve(process.cwd(), 'app/api/mcp/route.ts'), 'utf8');
+    const rentalBypasses = /const humanGate = [^;]*toolName !== CAR_RENTAL_REQUEST_TOOL\.name/.test(route);
+    expect(rentalBypasses).toBe(true);
+    // Прокат ушёл на /confirm — текст обязан потерять исключение (и этот тест — поменяться).
   });
 });

@@ -1132,7 +1132,7 @@ async function onRequestWindow(
   const head = window.kind === 'season' && scheduleKindOf(tour.schedule_kind) === 'any_day'
     ? `Тур "${tour.title}" (ID${tour.id}): ${anyDayLine(window)}:`
     : window.kind === 'season'
-    ? `Тур "${tour.title}" (ID${tour.id}): расписания в системе нет — предварительная бронь только по сезону (${windowLabel(window)}); даты сезона свободны для заявки, оператор собирает группу под запрос:`
+    ? `Тур "${tour.title}" (ID${tour.id}): расписания в системе нет — только заявка оператору на дату сезона (${windowLabel(window)}), это не бронь; даты сезона свободны для заявки, оператор собирает группу под запрос:`
     : `Тур "${tour.title}" (ID${tour.id}): расписания в системе нет — все даты свободны для заявки, оператор собирает группу под запрос:`;
   return [
     head,

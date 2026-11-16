@@ -23,6 +23,7 @@ import { NOTIFY_RESPONSE_RULES } from '@/lib/mcp/request-notify-schema';
 import { ANSWER_RELAY_RULE } from '@/lib/mcp/request-status-schema';
 import { CHANGE_REQUEST_RULE } from '@/lib/mcp/change-request-schema';
 import { recordAgentEntryHit } from '@/lib/analytics/agent-entry-hits';
+import { agentSendRuleRu } from '@/lib/mcp/human-confirmation';
 import { VEDAR_SKILL_URL, VEDAR_SKILL_INDEX_PATH } from '@/lib/agent/vedar-skill';
 import { publicAccommodationSql } from '@/lib/stay/moderation';
 import { carrierPagePath } from '@/lib/transfers/charter-format';
@@ -372,6 +373,7 @@ ${parks.length ? parks.map((p) => `- [${p.displayName}](${BASE}/park/${p.slug})`
   create_trip_request (ОДНА заявка на поездку целиком: тур + жильё + машина/трансфер
   одним вызовом под общим номером TRIP-…; каждый партнёр видит, что ещё
   заказано в поездке; перевозчик не назван — машину подберёт менеджер)
+- ${agentSendRuleRu(BASE)}
 - Кроме заявок, make_trip_plan и edit_trip_plan сохраняют черновик плана:
   анонимно, на 7 дней, без имени и телефона, до человека он не доходит
 - ${CHANGE_REQUEST_RULE}
