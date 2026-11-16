@@ -64,8 +64,8 @@ describe('buildTourContext: обогащение не роняет катало�
     expect(CORE).toMatch(/Promise\.allSettled\(\[\s*\n\s*pool\.query<\{ name: string; category/);
   });
 
-  it('live-контекст с собственным catch', () => {
-    expect(CORE).toMatch(/loadLiveContext\(\)\.catch\(\(\) => ''\)/);
+  it('live-контекст с собственным catch, и отказ назван в логе (#3199, K9)', () => {
+    expect(CORE).toMatch(/loadLiveContext\(\)\.catch\(\(err: unknown\) => \{\s*logSwallowedFailure\(/);
   });
 
   it('ошибка каталога больше не глушится молча', () => {
