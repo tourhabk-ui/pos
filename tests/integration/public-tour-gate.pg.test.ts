@@ -405,6 +405,40 @@ withPg('витрина туров: снятый тур не в плане и н�
       .rejects.toMatchObject({ code: '23514' });
   });
 
+  it('«в любой день сезона» не ведёт календарь (#3476 шаг 2): строка-исключение не делает тур «только по датам»', async () => {
+    const op = '00000000-0000-4000-8000-0000000c4756';
+    await pool.query(
+      `INSERT INTO partners (id, name, category, contact, slug, is_public, is_verified, status)
+       VALUES ($1, 'Календарь любого дня', 'operator', '{}'::jsonb, 'w2pt-any-day-keeps', TRUE, TRUE, 'active')`, [op],
+    );
+    const mk = async (kind: string | null) => (await pool.query<{ id: string }>(
+      `INSERT INTO operator_tours (operator_id, title, slug, activity_type, base_price, price_unit,
+                                   min_participants, max_participants, duration_hours, schedule_kind, is_active, is_published)
+       VALUES ($1, $2, $3, 'keeps_probe', 1000, 'per_person', 1, 4, 8, $4, TRUE, TRUE) RETURNING id::text`,
+      [op, `W2PT keeps ${kind ?? 'null'}`, `w2pt-keeps-${kind ?? 'null'}`, kind],
+    )).rows[0].id;
+    const anyDay = await mk('any_day');
+    const departures = await mk('departures');
+    const unknown = await mk(null);
+    for (const t of [anyDay, departures, unknown]) {
+      await pool.query(
+        `INSERT INTO tour_availability (operator_tour_id, date, available_slots)
+         VALUES ($1, (NOW() AT TIME ZONE 'Asia/Kamchatka')::date + 5, 4)`, [t],
+      );
+    }
+    const { keepsScheduleSql } = await import('@/lib/tours/schedule');
+    const keeps = async (id: string) => (await pool.query<{ has: boolean }>(`SELECT ${keepsScheduleSql('$1')} AS has`, [id])).rows[0].has;
+    expect(await keeps(anyDay)).toBe(false);
+    expect(await keeps(departures)).toBe(true);
+    expect(await keeps(unknown)).toBe(true);
+    // По колонке тура в запросе витрины — то же.
+    const rows = (await pool.query<{ id: string; has: boolean }>(
+      `SELECT ot.id::text AS id, ${keepsScheduleSql('ot.id')} AS has FROM operator_tours ot WHERE ot.id = ANY($1::bigint[])`,
+      [[anyDay, departures]],
+    )).rows;
+    expect(Object.fromEntries(rows.map((r) => [r.id, r.has]))).toEqual({ [anyDay]: false, [departures]: true });
+  });
+
   it('ближайшая свободная дата: вчера по Камчатке, отменённая, удалённая, занятая и за год — не даты', async () => {
     const other = '00000000-0000-4000-8000-0000000c4741';
     await pool.query(

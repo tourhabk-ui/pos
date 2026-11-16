@@ -23,11 +23,18 @@ export function keepsScheduleSql(tourIdExpr: string): string {
   if (!/^(\$\d+|[a-z_][a-z0-9_]*\.[a-z_][a-z0-9_]*)$/i.test(tourIdExpr)) {
     throw new Error(`keepsScheduleSql: недопустимое выражение «${tourIdExpr}»`);
   }
-  return `EXISTS (
+  // Тур «в любой день сезона» (#3476, миграция 1457) календаря не ведёт:
+  // его строки — исключения (закрыть день, ограничить места), а не
+  // единственные даты. Иначе первая же строка-исключение превратила бы его в
+  // тур «только по датам календаря» на всех дверях.
+  return `(EXISTS (
          SELECT 1 FROM tour_availability ta_sched
           WHERE ta_sched.operator_tour_id = ${tourIdExpr}
             AND ta_sched.date >= (NOW() AT TIME ZONE 'Asia/Kamchatka')::date
             AND ta_sched.is_cancelled = FALSE
             AND ta_sched.deleted_at IS NULL
-       )`;
+       ) AND NOT EXISTS (
+         SELECT 1 FROM operator_tours ot_sk
+          WHERE ot_sk.id = ${tourIdExpr} AND ot_sk.schedule_kind = 'any_day'
+       ))`;
 }
