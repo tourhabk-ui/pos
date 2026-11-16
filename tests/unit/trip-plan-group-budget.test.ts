@@ -307,6 +307,9 @@ describe('разбор слов: состав и бюджет', () => {
   it('бюджет: коды и русские слова, непонятное — «комфорт» и вслух', () => {
     expect(readBudgetTier('economy').tier).toBe('economy');
     expect(readBudgetTier('подешевле').tier).toBe('economy');
+    // «ё» пишут не все и не всегда (#3394, п. 1): «дёшево» уходило в «не разобрал».
+    expect(readBudgetTier('дёшево')).toEqual({ tier: 'economy', given: true, note: null });
+    expect(readBudgetTier('Дешёвое жильё').tier).toBe('economy');
     expect(readBudgetTier('премиум').tier).toBe('premium');
     expect(readBudgetTier(undefined)).toEqual({ tier: 'comfort', given: false, note: null });
     const odd = readBudgetTier('как получится');

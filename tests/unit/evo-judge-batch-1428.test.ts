@@ -15,6 +15,10 @@
  * 3.   Пустой `if (!this.apiKey) {}` в конструкторе SMS — §4.0 в чистом виде:
  *      состояние «ключа нет» распознано и не названо.
  * 4.   Ключ SMS-провайдера в строке запроса без кодирования.
+ *      Пункты 3 и 4 сперва чинились в модуле, а 16.11 (#1428, слово владельца
+ *      «карт-бланш») модуль `lib/notifications/sms.ts` удалён: его не
+ *      импортировал никто, а судья продолжал находить в нём ключ в адресе
+ *      GET-запроса и запросы без срока. Долг снят так же, как у 1-2.
  * 5.   `SMTP_USER/SMTP_PASS || ''` — транспорт создавался с пустыми
  *      учётными данными, и «не настроено» приходило как «не смогли отправить».
  * 6.   `%` и `_` из аргумента инструмента Кузьмича расширяли шаблон ILIKE.
@@ -23,7 +27,7 @@
  * который можно случайно вернуть, и поведение, которое можно проверить.
  */
 import { describe, it, expect } from 'vitest';
-import { existsSync, readFileSync } from 'node:fs';
+import { existsSync, readFileSync, readdirSync, statSync } from 'node:fs';
 import { join } from 'node:path';
 import { escapeLike, containsPattern } from '@/lib/db/like';
 
@@ -49,40 +53,31 @@ describe('1-2. Сирота денежного пути удалена, а не 
   });
 });
 
-describe('3. SMS: «ключа нет» произносится вслух', () => {
-  const src = read('lib/notifications/sms.ts');
-
-  it('в конструкторе нет ветки с пустым телом', () => {
-    // Именно `if (!this.apiKey) {\n}` стоял здесь и не делал ничего.
-    expect(src, 'пустая ветка вернулась — отказ снова молчит').not.toMatch(
-      /if\s*\(!this\.apiKey\)\s*\{\s*\}/,
-    );
+describe('3-4. Сирота SMS удалена, а не «починена»', () => {
+  it('lib/notifications/sms.ts не существует', () => {
+    expect(
+      existsSync(join(ROOT, 'lib/notifications/sms.ts')),
+      'модуль SMS вернулся: ключ в адресе запроса и запросы без срока вместе с ним',
+    ).toBe(false);
   });
 
-  it('отказ уходит в лог с именем переменной', () => {
-    expect(src).toContain('logSwallowedFailure');
-    expect(src).toContain('SMS_RU_API_KEY');
-  });
-
-  it('в лог идёт ИМЯ переменной, а не её значение', () => {
-    // `${this.apiKey}` в тексте сообщения — это ключ в логе.
-    expect(src).not.toMatch(/logSwallowedFailure\([\s\S]{0,300}\$\{this\.apiKey\}/);
-  });
-});
-
-describe('4. SMS: ключ и id не склеиваются в URL руками', () => {
-  const src = read('lib/notifications/sms.ts');
-
-  it('нет интерполяции ключа прямо в адрес', () => {
-    expect(src, 'ключ снова подставляется в строку запроса без кодирования').not.toMatch(
-      /https:\/\/sms\.ru\/[^\n`]*\$\{this\.apiKey\}/,
-    );
-  });
-
-  it('адрес собирается через URL/searchParams — кодирование делает платформа', () => {
-    expect(src).toContain("new URL('https://sms.ru/sms/status')");
-    expect(src).toContain("new URL('https://sms.ru/my/balance')");
-    expect(src).toContain('searchParams.set');
+  it('его никто не импортирует', () => {
+    // Импорт удалённого модуля не собрался бы, поэтому здесь ищется именно
+    // путь: строка в коде, указывающая на модуль, которого нет.
+    const hits: string[] = [];
+    const walk = (dir: string) => {
+      for (const name of readdirSync(join(ROOT, dir))) {
+        if (name === 'node_modules' || name.startsWith('.')) continue;
+        const rel = `${dir}/${name}`;
+        if (statSync(join(ROOT, rel)).isDirectory()) { walk(rel); continue; }
+        if (!/\.(ts|tsx|js|mjs)$/.test(name)) continue;
+        if (read(rel).includes('notifications/sms')) hits.push(rel);
+      }
+    };
+    for (const d of ['app', 'lib', 'components', 'hooks', 'scripts']) {
+      if (existsSync(join(ROOT, d))) walk(d);
+    }
+    expect(hits, 'код ссылается на удалённый модуль SMS').toEqual([]);
   });
 });
 

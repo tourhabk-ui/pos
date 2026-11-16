@@ -62,7 +62,7 @@ const ROOTS = ['app', 'lib', 'components', 'hooks', 'scripts', 'instrumentation.
 const KNOWN_UNCONSUMED: Record<string, string> = {
   files: 'Загрузка файлов идёт через свои роуты со своими проверками; FILE_UPLOAD_PATH и CDN_URL не читает никто, кроме tests/setup.ts. Единой двери нет — заводить её надо сразу для всех, а не сносить эту вслепую.',
   payments: 'Денежный путь под §7 (app/api/payments не трогать). Вдобавок блок описывает ЮKassa и Stripe, а живых приёмника три и другие: CloudPayments (два) и СБП Точка.',
-  notifications: 'SMTP, SMS и Telegram настраиваются в своих модулях (lib/notifications/*, lib/telegram/*) и читают process.env напрямую. Этот блок — копия, разошедшаяся с ними: sms.ts до 11.09 импортировал config и не обращался к нему ни разу.',
+  notifications: 'SMTP и Telegram настраиваются в своих модулях (lib/notifications/*, lib/telegram/*) и читают process.env напрямую. Этот блок — копия, разошедшаяся с ними: sms.ts до 11.09 импортировал config и не обращался к нему ни разу (сам модуль SMS удалён 16.11 — его не вызывал никто).',
   cache: 'Redis в платформе не поднят: упоминания есть только в middleware.ts (§7) и lib/sales/bot-ceo.ts, и оба идут мимо конфига. Блок описывает инфраструктуру, которой нет.',
   monitoring: 'Prometheus не поднят вовсе — ни одного упоминания в коде вне этого блока. Чистое объявление без источника, снимается вместе с решением, нужен ли он.',
   security: 'CORS, rate-limit и CSP живут в middleware.ts и next.config, а middleware под §7. Снимать блок отсюда можно только вместе со сверкой с реальным Edge-слоем, иначе рискуем счесть мёртвым то, что просто объявлено в другом месте.',

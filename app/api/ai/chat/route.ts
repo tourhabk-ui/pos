@@ -300,7 +300,10 @@ async function handleChat(request: NextRequest, onStep?: (label: string) => void
       ? { lat: userLocation.lat, lng: userLocation.lng, accuracy: userLocation.accuracy ?? 0, timestamp: userLocation.timestamp ?? Date.now() }
       : undefined;
 
-    const geoContext = geo ? await buildGeoContext(geo).catch(() => '') : '';
+    const geoContext = geo ? await buildGeoContext(geo).catch((err: unknown) => {
+      logSwallowedFailure('ai-chat', 'контекст места человека', err);
+      return '';
+    }) : '';
 
     // Туристу — те же данные хода, что Кузьмичу в Telegram и MAX
     // (kuzmichTurnFacts): каталог, места, дорога, сезоны, маршруты, наличие,
