@@ -38,6 +38,7 @@ import { pool } from '@/lib/db-pool';
 import { telegramService } from '@/lib/notifications/telegram';
 import { verifyWebhookSecret, refuseUnconfiguredWebhook } from '@/lib/telegram/webhook-secret';
 import { isRepeatedTelegramUpdate } from '@/lib/telegram/update-dedup';
+import { isRepeatedInbound } from '@/lib/chat/inbound-seen';
 import { enqueueTelegramChat, telegramChatKey, webhookAwaitsHandler } from '@/lib/telegram/update-lane';
 import { emphasizeTripDays, sanitizeForTelegram } from '@/lib/telegram/kuzmich-format';
 import { matchTouristButton, touristReplyMarkup, touristRentalText, TOURIST_ASK_TEXT, type TouristButton } from '@/lib/telegram/tourist-keyboard';
@@ -910,7 +911,8 @@ export async function POST(request: NextRequest) {
   }
 
   // Повтор того же апдейта (Bot API не дождался ответа) — не отвечать дважды.
-  if (isRepeatedTelegramUpdate(update.update_id)) {
+  // Память процесса, затем база: повтор после перезапуска тоже узнаётся (#3433).
+  if (await isRepeatedInbound('telegram', String(update.update_id), () => isRepeatedTelegramUpdate(update.update_id))) {
     return NextResponse.json({ ok: true });
   }
 

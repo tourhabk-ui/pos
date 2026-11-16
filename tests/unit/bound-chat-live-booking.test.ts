@@ -489,6 +489,28 @@ describe('MAX: повтор того же сообщения (тот же mid) �
     expect(maxSent().filter((t) => t.includes(CABINET_ANSWER))).toHaveLength(1);
   });
 
+  it('повтор после перезапуска процесса (#3433) — база помнит mid, второго хода нет', async () => {
+    m.partner = OPERATOR;
+    const seenInDb = new Map<string, number>();
+    const base = m.pool.getMockImplementation();
+    m.pool.mockImplementation(async (sql: unknown, params?: unknown[]) => {
+      if (String(sql).includes('INSERT INTO chat_inbound_seen')) {
+        const key = `${String(params?.[0])}:${String(params?.[1])}`;
+        const hits = (seenInDb.get(key) ?? 0) + 1;
+        seenInDb.set(key, hits);
+        return { rows: [{ hits }] };
+      }
+      return base ? base(sql, params) : { rows: [] };
+    });
+    const mid = `restart-${MAX_CHAT}`;
+    await maxPost('запиши звонок Анне, договорились на 15-е', { mid });
+    clearMaxMessageDedup(); // процесс перезапустился, память пуста
+    await maxPost('запиши звонок Анне, договорились на 15-е', { mid });
+
+    expect(crmLoops()).toBe(1);
+    expect(seenInDb.get(`max_message:${mid}`)).toBe(2);
+  });
+
   it('разные сообщения подряд — оба доходят до помощника', async () => {
     m.partner = OPERATOR;
     await maxPost('запиши звонок Анне');

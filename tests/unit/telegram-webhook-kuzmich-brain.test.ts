@@ -998,3 +998,47 @@ describe('меню роли на живом вебхуке', () => {
     expect(lastRow()).toEqual(['rm:ad:dt', 'rm:ad:bk', 'rm:ad:ld', 'rm:ad:sm', 'rm:ad:hl', 'rm:ad:hp']);
   });
 });
+
+describe('повтор апдейта после перезапуска (#3433)', () => {
+  /** chat_inbound_seen: (источник, ключ) → число доставок. */
+  const seenInDb = new Map<string, number>();
+  const withInboundTable = (fail: boolean) => {
+    const base = m.pool.getMockImplementation();
+    m.pool.mockImplementation(async (sql: unknown, params?: unknown[]) => {
+      const q = String(sql);
+      if (q.includes('INSERT INTO chat_inbound_seen')) {
+        if (fail) throw Object.assign(new Error('connection refused'), { code: 'ECONNREFUSED' });
+        const key = `${String(params?.[0])}:${String(params?.[1])}`;
+        const hits = (seenInDb.get(key) ?? 0) + 1;
+        seenInDb.set(key, hits);
+        return { rows: [{ hits }] };
+      }
+      return base ? base(sql, params) : { rows: [] };
+    });
+  };
+
+  it('Telegram прислал тот же update_id после перезапуска — второго ответа нет, база помнит', async () => {
+    withInboundTable(false);
+    const { clearTelegramUpdateDedup } = await import('@/lib/telegram/update-dedup');
+    await post('как добраться до Халактырского пляжа', { updateId: 990001 });
+    expect(sent()).toHaveLength(1);
+    expect(seenInDb.get('telegram:990001')).toBe(1);
+
+    clearTelegramUpdateDedup(); // процесс перезапустился, память пуста
+    await post('как добраться до Халактырского пляжа', { updateId: 990001 });
+    expect(sent()).toHaveLength(1);
+    expect(m.tools).toHaveBeenCalledTimes(1);
+    expect(seenInDb.get('telegram:990001')).toBe(2);
+  });
+
+  it('база не ответила — повтор отсекает память процесса, отказ в логе без текста сообщения', async () => {
+    withInboundTable(true);
+    await post('где сейчас извергается вулкан', { updateId: 990002 });
+    await post('где сейчас извергается вулкан', { updateId: 990002 });
+    expect(sent()).toHaveLength(1);
+    const logged = (console.error as unknown as { mock: { calls: unknown[][] } }).mock.calls.map((c) => String(c[0]));
+    const line = logged.find((l) => l.includes('[chat/inbound-seen]'));
+    expect(line).toMatch(/ECONNREFUSED/);
+    expect(line).not.toContain('вулкан');
+  });
+});
