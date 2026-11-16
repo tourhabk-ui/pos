@@ -27,7 +27,6 @@ const read = (p: string) => readFileSync(join(process.cwd(), p), 'utf-8');
 const DELIVERY = read('lib/leads/proposal-delivery.ts');
 const SEND_ROUTE = read('app/api/leads/[id]/proposal/send/route.ts');
 const NOTIFY = read('lib/notifications/lead-notify.ts');
-const BOT = read('app/api/telegram/kuzmich/route.ts');
 const MAX_BOT = read('app/api/max/kuzmich/route.ts');
 
 describe('одна реализация доставки', () => {
@@ -35,11 +34,6 @@ describe('одна реализация доставки', () => {
     expect(SEND_ROUTE).toMatch(/sendProposalToClient/);
     expect(SEND_ROUTE).not.toMatch(/sendMessage/);
     expect(SEND_ROUTE).not.toMatch(/UPDATE leads/);
-  });
-
-  it('кнопка в Telegram зовёт тот же модуль', () => {
-    expect(BOT).toMatch(/import\('@\/lib\/leads\/proposal-delivery'\)/);
-    expect(BOT).toMatch(/sendProposalToClient\(leadId\)/);
   });
 
   it('кнопка в MAX зовёт тот же модуль', () => {
@@ -86,29 +80,7 @@ describe('кнопки под уведомлениями', () => {
   });
 });
 
-describe('право нажатия', () => {
-  // В MAX право нажатия — заверенный апдейт и рабочий чат из сообщения с
-  // кнопкой, не user_id: держит вызов вебхука в
-  // tests/unit/max-verified-press.test.ts.
-
-  it('гейт по чату сообщения, а не по from.id', () => {
-    const block = BOT.slice(BOT.indexOf("cq.data.startsWith('lead_send:')"));
-    expect(block).toMatch(/TELEGRAM_CHAT_ID/);
-    expect(block).toMatch(/String\(chatId\) !== adminChat/);
-  });
-
-  it('идентификатор лида проверяется до похода в БД', () => {
-    const fn = BOT.slice(BOT.indexOf('async function handleLeadAction'));
-    expect(fn).toMatch(/\[0-9a-f-\]\{36\}/);
-  });
-
-  it('на каждое нажатие отвечаем — кнопка не виснет', () => {
-    const fn = BOT.slice(
-      BOT.indexOf('async function handleLeadAction'),
-      BOT.indexOf('// ── /start с клавиатурой'),
-    );
-    // Успех, отказ, неизвестное действие и ошибка — все ветки отвечают.
-    expect((fn.match(/tgAnswerCallback/g) ?? []).length).toBeGreaterThanOrEqual(5);
-    expect(fn).toMatch(/catch \(err\)[\s\S]*tgAnswerCallback/);
-  });
-});
+// Право нажатия: кнопки действий под заявкой уходят только в MAX (заглушка
+// Telegram несёт одни ссылки, lib/notifications/pd-alert). В MAX право —
+// заверенный апдейт и рабочий чат из сообщения с кнопкой, не user_id: держит
+// вызов вебхука в tests/unit/max-verified-press.test.ts.

@@ -114,7 +114,7 @@ LLM-петля готовит изменения draft-PR'ом, мержит ч�
 |-------|----------|--------|
 | Веб (полная страница) | `/kuzmich` | Работает |
 | Виджет (все страницы) | `components/kuzmich/KuzmichWidget.tsx` в `layout.tsx` | Работает |
-| Telegram | `/api/telegram/webhook` — живой вход бота (`/api/telegram/kuzmich` к боту не подключён) | Работает |
+| Telegram | `/api/telegram/webhook` — единственный вход бота (`/api/telegram/kuzmich` удалён 16.11, #3433) | Работает |
 | MAX (VK) | `/api/max/kuzmich` | Работает |
 | WhatsApp | `/api/whatsapp/kuzmich` | Код готов |
 

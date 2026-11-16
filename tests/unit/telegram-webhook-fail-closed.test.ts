@@ -105,7 +105,6 @@ vi.mock('@/lib/config', () => ({ isTechnicalHost: () => false }));
 vi.mock('@/lib/notifications/pd-alert', () => ({ sendPdAlert: vi.fn() }));
 
 const webhook = await import('@/app/api/telegram/webhook/route');
-const kuzmich = await import('@/app/api/telegram/kuzmich/route');
 const admin = await import('@/app/api/telegram/admin/route');
 const { checkAndRestoreWebhook } = await import('@/lib/telegram/operator-availability');
 
@@ -137,11 +136,6 @@ const ROUTES: RouteCase[] = [
     // Главный: админ-ветка верит from.id из тела, /diag отдаёт начала ключей.
     name: 'telegram/webhook', env: 'TELEGRAM_WEBHOOK_SECRET', post: (r) => webhook.POST(r),
     forbidden: 403, text: '/diag', processed: sentToTelegram,
-  },
-  {
-    // Публичный бот: ссылка менеджера от обычного человека в личке.
-    name: 'telegram/kuzmich', env: 'TELEGRAM_KUZMICH_WEBHOOK_SECRET', post: (r) => kuzmich.POST(r),
-    forbidden: 401, text: '/start om_tok', processed: () => m.memberStart.mock.calls.length > 0, from: 4242,
   },
   {
     name: 'telegram/admin', env: 'TELEGRAM_ADMIN_WEBHOOK_SECRET', post: (r) => admin.POST(r),

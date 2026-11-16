@@ -14,7 +14,6 @@ import {
   kuzmichModulesFor, kuzmichSystemContent,
 } from '@/lib/kuzmich/core';
 import { analyzePrompt } from '@/lib/agents/eval/prompt-bloat';
-import { groupSystemContent } from '@/lib/kuzmich/group-prompt';
 
 describe('какие части нужны ходу', () => {
   it('разговор о заявке — часть «заявка»', () => {
@@ -71,15 +70,5 @@ describe('ядро', () => {
 
   it('заявку подтверждает оператор — в ядре, а не только в части «заявка»', () => {
     expect(KUZMICH_SYSTEM).toContain('оператор подтверждает');
-  });
-});
-
-describe('групповой чат Telegram (ревью #3416)', () => {
-  it('получает ту же часть «заявка», что и личный чат; без неё правила о сроке ответа оператора у группы не было бы', () => {
-    const sys = groupSystemContent('хочу записаться на тур', 'КАТАЛОГ');
-    expect(sys.startsWith(KUZMICH_SYSTEM)).toBe(true);
-    expect(sys).toContain(KUZMICH_MODULE_REQUEST);
-    expect(sys).toContain('КАТАЛОГ');
-    expect(groupSystemContent('какая погода', 'КАТАЛОГ')).not.toContain(KUZMICH_MODULE_REQUEST);
   });
 });

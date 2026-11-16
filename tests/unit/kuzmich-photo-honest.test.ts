@@ -137,7 +137,6 @@ describe('describeKuzmichPhoto', () => {
 describe('все каналы Кузьмича — через одно правило', () => {
   const CHANNELS = [
     'app/api/ai/chat/route.ts',
-    'app/api/telegram/kuzmich/route.ts',
     'app/api/max/kuzmich/route.ts',
     'app/api/whatsapp/kuzmich/route.ts',
   ];
@@ -150,7 +149,7 @@ describe('все каналы Кузьмича — через одно прав�
   }
 
   it('отказ разбора фото в Telegram и MAX не глушится', () => {
-    for (const file of ['app/api/telegram/kuzmich/route.ts', 'app/api/max/kuzmich/route.ts']) {
+    for (const file of ['app/api/max/kuzmich/route.ts']) {
       const src = read(file);
       const around = src.slice(src.indexOf('describeKuzmichPhoto('), src.indexOf('describeKuzmichPhoto(') + 400);
       expect(around).toMatch(/console\.error\('\[(telegram|max)\/kuzmich\] фото не разобрано'/);

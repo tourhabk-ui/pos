@@ -122,7 +122,6 @@ vi.mock('@/lib/telegram/admin-link', async (importOriginal) => ({
 }));
 
 const telegram = await import('@/app/api/telegram/webhook/route');
-const kuzmichTg = await import('@/app/api/telegram/kuzmich/route');
 const max = await import('@/app/api/max/kuzmich/route');
 const { isRepeatedMaxMessage, clearMaxMessageDedup } = await import('@/lib/max/update-dedup');
 
@@ -132,7 +131,6 @@ const TOURIST_ANSWER = 'ОТВЕТ МОЗГА КУЗЬМИЧА';
 const NAME_TAKEN = 'На какую дату?';
 const NOT_UNDERSTOOD = 'Не понял команду';
 /** callback_data кнопки «Хочу оставить заявку» (sendBookingInlineButton). */
-const BOOKING_BUTTON = 'book_now';
 
 // Черновик живёт и в памяти роута (pending): у каждого теста свой чат, иначе
 // шаг, сдвинутый одним тестом, отвечал бы в следующем.
@@ -152,16 +150,6 @@ const LAGUNA = {
 const TOUR = { id: 5, title: 'Рыбалка на Быстрой', base_price: 15000, operator_id: 'op-1' };
 
 let nextUpdateId = 26_100;
-
-function kuzmichPost(text: string, chat: number = TG_CHAT): Promise<Response> {
-  return kuzmichTg.POST(new NextRequest('http://localhost/api/telegram/kuzmich', {
-    method: 'POST',
-    body: JSON.stringify({
-      update_id: nextUpdateId++,
-      message: { message_id: 1, from: { id: chat, first_name: 'Иван' }, chat: { id: chat, type: 'private' }, text },
-    }),
-  }));
-}
 
 /** Живой вход Telegram (/api/telegram/webhook). */
 function tgPost(text: string): Promise<Response> {
@@ -194,15 +182,6 @@ function maxPost(text: string, opts: { mid?: string } = {}): Promise<Response> {
 }
 
 /** Тела sendMessage к Bot API со второго входа Telegram. */
-function kuzmichSent(): Array<{ text: string; markup: string }> {
-  return m.fetch.mock.calls
-    .filter(([url]) => String(url).includes('/sendMessage'))
-    .map(([, init]) => {
-      const b = JSON.parse(String((init as RequestInit).body)) as { text?: string; reply_markup?: unknown };
-      return { text: String(b.text ?? ''), markup: JSON.stringify(b.reply_markup ?? null) };
-    });
-}
-
 function maxSent(): string[] {
   return m.maxSend.mock.calls.filter((c) => c[0] === MAX_CHAT).map((c) => String(c[1]));
 }
@@ -289,56 +268,6 @@ beforeEach(() => {
   m.fallback.mockResolvedValue({ text: 'ЗАПАСНОЙ ОТВЕТ', provider: 'fallback', tier: 1, failed: false });
 });
 afterEach(() => { vi.restoreAllMocks(); vi.unstubAllEnvs(); vi.unstubAllGlobals(); });
-
-describe('Telegram /api/telegram/kuzmich: живая заявка доводится Кузьмичом туриста', () => {
-  it('привязанный оператор: «Иван Петров» на шаге «имя» — бот спрашивает дату, помощник CRM не зовётся', async () => {
-    m.partner = OPERATOR;
-    seedNameStep(TG_CHAT, 'tourist');
-    await kuzmichPost('Иван Петров');
-
-    const out = kuzmichSent().map((s) => s.text);
-    expect(out).toHaveLength(1);
-    expect(out[0]).toContain(NAME_TAKEN);
-    expect(toolNames().some((n) => n.startsWith('crm_'))).toBe(false);
-    expect(flowStep(TG_CHAT, 'tourist')).toBe('date');
-  });
-
-  it('без черновика «Иван Петров» у оператора — по-прежнему кабинет', async () => {
-    m.partner = OPERATOR;
-    await kuzmichPost('Иван Петров');
-
-    const out = kuzmichSent().map((s) => s.text);
-    expect(out).toHaveLength(1);
-    expect(out[0]).toContain(CABINET_ANSWER);
-  });
-
-  it('привязанный администратор: «Иван Петров» на шаге «имя» — шаг заявки, а не «Не понял команду»', async () => {
-    m.findTelegramAdmin.mockResolvedValue({ outcome: 'admin', userId: 'u-admin', name: 'Админ' });
-    seedNameStep(TG_CHAT, 'tourist');
-    await kuzmichPost('Иван Петров');
-
-    const out = kuzmichSent().map((s) => s.text);
-    expect(out).toHaveLength(1);
-    expect(out[0]).toContain(NAME_TAKEN);
-    expect(out[0]).not.toContain(NOT_UNDERSTOOD);
-  });
-
-  it('администратор без черновика — консоль, как раньше', async () => {
-    m.findTelegramAdmin.mockResolvedValue({ outcome: 'admin', userId: 'u-admin', name: 'Админ' });
-    await kuzmichPost('Иван Петров');
-
-    const out = kuzmichSent().map((s) => s.text);
-    expect(out).toHaveLength(1);
-    expect(out[0]).toContain(NOT_UNDERSTOOD);
-  });
-
-  it('туристу без привязки черновик не спрашивается дважды до мозга: консоль администратора базу брони не трогает', async () => {
-    await kuzmichPost('Какая погода на Авачинском?');
-    // Черновик читает только processMessage — один раз; консоль его не спрашивает.
-    const reads = m.pool.mock.calls.filter((c) => String(c[0]).includes('FROM tg_booking_flow')).length;
-    expect(reads).toBe(1);
-  });
-});
 
 describe('MAX: живая заявка доводится Кузьмичом туриста', () => {
   it('администратор: «Иван Петров» на шаге «имя» — шаг заявки, а не «Не понял команду»', async () => {
@@ -451,16 +380,6 @@ describe('чат администратора и партнёра: консол�
 
     expect(maxSent().join('\n')).toContain(NOT_UNDERSTOOD);
   });
-
-  it('Telegram, второй вход: «кто ждёт ответа?» — кабинет партнёра, а не «Не понял команду»', async () => {
-    m.findTelegramAdmin.mockResolvedValue({ outcome: 'admin', userId: 'u-admin', name: 'Админ' });
-    m.partner = OPERATOR;
-    await kuzmichPost('кто ждёт ответа?');
-
-    const out = kuzmichSent().map((x) => x.text).join('\n');
-    expect(out).not.toContain(NOT_UNDERSTOOD);
-    expect(toolNames().some((n) => n.startsWith('crm_'))).toBe(true);
-  });
 });
 
 describe('живой Telegram: «/partner почта» — ответ, как подключиться, а не молчание', () => {
@@ -560,15 +479,6 @@ describe('прокатчик о своих машинах — кабинет', (
     expect(out).not.toContain(TOURIST_ANSWER);
   });
 
-  it('Telegram, «Лагуна»: «какой джип свободен 30 октября» — не Кузьмич туриста', async () => {
-    m.partner = LAGUNA;
-    await kuzmichPost('какой джип свободен 30 октября');
-
-    const out = kuzmichSent().map((s) => s.text).join('\n');
-    expect(out).not.toContain(TOURIST_ANSWER);
-    expect(toolNames()).not.toContain('search_car_rental');
-  });
-
   it('MAX, «Лагуна»: «какие машины свободны на выходные» — не Кузьмич туриста', async () => {
     m.partner = LAGUNA;
     await maxPost('какие машины свободны на выходные');
@@ -577,27 +487,3 @@ describe('прокатчик о своих машинах — кабинет', (
   });
 });
 
-describe('кнопка заявки под ответом с блоком 112', () => {
-  // Цены нет: её снял бы страж цен без источника, и кнопку судить было бы не по чему.
-  const TOUR_ANSWER = 'Маршрут к вулкану Горелый: подъём около 6 часов, 12 км в одну сторону. '
-    + 'Восхождение несложное, но погода меняется быстро, берите тёплое и воду, выходите рано утром.';
-
-  it('беда в вопросе — под ответом нет кнопки «Оформить заявку»', async () => {
-    m.tools.mockResolvedValue({ content: TOUR_ANSWER, tool_calls: null, provider: 'test' });
-    await kuzmichPost('Помогите, мы заблудились у Горелого');
-
-    const sent = kuzmichSent();
-    expect(sent.some((s) => s.text.includes('Маршрут к вулкану Горелый'))).toBe(true);
-    expect(sent.some((s) => s.text.includes('112'))).toBe(true);
-    expect(sent.some((s) => s.markup.includes(BOOKING_BUTTON))).toBe(false);
-  });
-
-  it('без беды тот же ответ получает кнопку, как раньше', async () => {
-    m.tools.mockResolvedValue({ content: TOUR_ANSWER, tool_calls: null, provider: 'test' });
-    await kuzmichPost('Что взять с собой на Горелый в октябре?');
-
-    const sent = kuzmichSent();
-    expect(sent.some((s) => s.text.includes('Маршрут к вулкану Горелый'))).toBe(true);
-    expect(sent.some((s) => s.markup.includes(BOOKING_BUTTON))).toBe(true);
-  });
-});

@@ -5,8 +5,7 @@
  * но команда кабинета своей формой («календарь Jimny …», «покажи брони …») и
  * дело CRM («запиши: …») остаются кабинету. Тогда 112 ставит отправитель
  * ответа кабинета: в Telegram — кабинет проката (cabinet-telegram) и меню роли
- * (role-telegram), на втором входе /api/telegram/kuzmich — его `say`, в MAX —
- * обёртка ветки партнёра в роуте. Здесь судятся именно те ответы, которые
+ * (role-telegram), в MAX — обёртка ветки партнёра в роуте. Здесь судятся именно те ответы, которые
  * идут мимо помощника CRM (календарь, «даты — в MAX», поток дат): у помощника
  * своя обёртка (operator-chat), и она прятала бы пропажу внешней.
  *
@@ -115,7 +114,6 @@ vi.mock('@/lib/max/admin-link', async (importOriginal) => ({
 }));
 
 const telegram = await import('@/app/api/telegram/webhook/route');
-const kuzmichTg = await import('@/app/api/telegram/kuzmich/route');
 const max = await import('@/app/api/max/kuzmich/route');
 
 /** Строка блока 112 (lib/safety/sos-detector, SOS_HEAD.ru). */
@@ -184,16 +182,6 @@ function tgPhoto(caption: string | undefined, chat: number): Promise<Response> {
   }));
 }
 
-function kuzmichPost(text: string, chat: number): Promise<Response> {
-  return kuzmichTg.POST(new NextRequest('http://localhost/api/telegram/kuzmich', {
-    method: 'POST',
-    body: JSON.stringify({
-      update_id: nextUpdateId++,
-      message: { message_id: 1, from: { id: chat, first_name: 'Анна' }, chat: { id: chat, type: 'private' }, text },
-    }),
-  }));
-}
-
 function maxPost(text: string): Promise<Response> {
   return max.POST(new NextRequest(`http://localhost/api/max/kuzmich?s=${MAX_KEY}`, {
     method: 'POST',
@@ -215,12 +203,6 @@ function tgSent(): string[] {
 }
 
 /** Что получил человек со второго входа: тела sendMessage к Bot API. */
-function kuzmichSent(): string[] {
-  return m.fetch.mock.calls
-    .filter(([url]) => String(url).includes('/sendMessage'))
-    .map(([, init]) => String((JSON.parse(String((init as RequestInit).body)) as { text?: string }).text ?? ''));
-}
-
 /** Что получил человек в MAX. */
 function maxSent(): string[] {
   return m.maxSend.mock.calls.filter((c) => c[0] === MAX_CHAT).map((c) => String(c[1]));
@@ -362,52 +344,6 @@ describe('Telegram, живой вход: команда кабинета с бе
     expect(out[0]).toContain('Черновик записан: «Toyota Hilux»');
     expect(out[0]).not.toContain('112');
     expect(m.tools).not.toHaveBeenCalled();
-  });
-});
-
-describe('Telegram, второй вход /api/telegram/kuzmich: беда со словом CRM — ответ кабинета с 112', () => {
-  it(`туроператор: «${CRM_DATES_SOS}» — «даты — в MAX» с «${CALL_112}»`, async () => {
-    m.partner = OPERATOR;
-    const res = await kuzmichPost(CRM_DATES_SOS, TG_PARTNER_CHAT);
-    expect(await res.json()).toEqual({ ok: true });
-
-    const out = kuzmichSent();
-    expect(out).toHaveLength(1);
-    expect(out[0]).toContain(DATES_IN_MAX);
-    expect(out[0]).toContain(CALL_112);
-    expect(m.tools).not.toHaveBeenCalled();
-  });
-
-  it('гид: «Запиши: турист сломал ногу на Горелом» — ответ помощника кабинета с 112', async () => {
-    m.partner = GUIDE;
-    await kuzmichPost('Запиши: турист сломал ногу на Горелом', TG_PARTNER_CHAT);
-
-    expect(toolNames().some((n) => n.startsWith('crm_'))).toBe(true);
-    const out = kuzmichSent();
-    expect(out).toHaveLength(1);
-    expect(out[0]).toContain(CABINET_ANSWER);
-    expect(out[0]).toContain(CALL_112);
-  });
-
-  it(`прокат «Лагуна»: «${CALENDAR_SOS}» — ответ календаря с «${CALL_112}»`, async () => {
-    m.partner = LAGUNA;
-    await kuzmichPost(CALENDAR_SOS, TG_PARTNER_CHAT);
-
-    const out = kuzmichSent();
-    expect(out).toHaveLength(1);
-    expect(out[0]).toContain('В прайсе нет машины');
-    expect(out[0]).toContain(CALL_112);
-    expect(m.tools).not.toHaveBeenCalled();
-  });
-
-  it('гид: дело CRM без беды — ответ помощника без 112', async () => {
-    m.partner = GUIDE;
-    await kuzmichPost('Запиши, что звонил', TG_PARTNER_CHAT);
-
-    const out = kuzmichSent();
-    expect(out).toHaveLength(1);
-    expect(out[0]).toContain(CABINET_ANSWER);
-    expect(out[0]).not.toContain('112');
   });
 });
 

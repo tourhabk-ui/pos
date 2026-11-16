@@ -52,7 +52,6 @@ const UNCHECKED_CALLERS: readonly string[] = [
   'app/api/ai/route.ts',
   'app/api/operator/tours/auto-fill-ai/route.ts',
   'app/api/telegram/admin/route.ts',
-  'app/api/telegram/kuzmich/route.ts',
   'app/api/tools/equipment/route.ts',
   'lib/agents/execution/handlers/code-change-executor.ts',
   'lib/import/passport-enrich-runner.ts',
