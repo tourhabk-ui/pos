@@ -451,7 +451,7 @@ function EditModal({ tour, onClose, onSave }: {
                       <button
                         type="button"
                         onClick={() => setPhotos(p => p.filter((_, i) => i !== idx))}
-                        className="p-1 bg-[var(--danger)] rounded text-white hover:bg-[var(--danger)]/80"
+                        className="p-1 bg-[var(--danger)] rounded text-[var(--on-danger)] hover:bg-[var(--danger)]/80"
                         title="Удалить фото"
                       >
                         <X className="w-3.5 h-3.5" />

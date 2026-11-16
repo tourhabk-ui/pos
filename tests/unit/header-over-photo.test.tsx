@@ -66,18 +66,20 @@ describe('цвет шапки', () => {
 
   // Приёмка П6 (24.09): SOS карточки тура переехала из героя в шапку и поверх
   // фото стала красным текстом на 8%-подкраске — §2 требует непрозрачную SOS.
-  it('поверх фото SOS — сплошная --danger с белым текстом', () => {
+  it('поверх фото SOS — сплошная --danger с текстом --on-danger', () => {
+    // Текст на красном — токен (аудит 09.11, п. 9в): белый в светлой теме,
+    // тёмный в тёмной, где белый на светлом красном давал 3.35:1.
     const { header } = parts(true);
     const sos = header.querySelector('[data-emergency-action]') as HTMLElement;
     expect(sos.style.background, 'SOS поверх фото полупрозрачная').toBe('var(--danger)');
-    expect(sos.style.color).toMatch(/^(#fff|rgb\(255,\s*255,\s*255\))$/);
+    expect(sos.style.color).toBe('var(--on-danger)');
   });
 
   it('без фото SOS тоже сплошная: контурная красная на синей шапке не читается', () => {
     const { header } = parts();
     const sos = header.querySelector('[data-emergency-action]') as HTMLElement;
     expect(sos.style.background).toBe('var(--danger)');
-    expect(sos.style.color).toMatch(/^(#fff|rgb\(255,\s*255,\s*255\))$/);
+    expect(sos.style.color).toBe('var(--on-danger)');
   });
 
   it('поверх фото логотип белый, без фото — токеном', () => {

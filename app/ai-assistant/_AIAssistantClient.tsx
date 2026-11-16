@@ -576,7 +576,7 @@ function AIAssistantContent({ initialQuery }: { initialQuery: string | null }) {
               disabled={loading || limitReached || isOffline}
               className={`min-h-[44px] min-w-[44px] rounded-lg flex items-center justify-center transition-colors ${
                 listening
-                  ? 'bg-[var(--danger)] text-white'
+                  ? 'bg-[var(--danger)] text-[var(--on-danger)]'
                   : 'bg-[var(--bg-card)] border border-[var(--border)] text-[var(--text-secondary)] hover:text-[var(--accent)] hover:border-[var(--accent)]'
               }`}
               aria-label={listening ? 'Остановить запись' : 'Голосовой ввод'}

@@ -481,7 +481,7 @@ export default function EditTourClient() {
                   <div className="absolute inset-0 bg-black/50 opacity-100 md:opacity-0 md:group-hover:opacity-100 transition-opacity rounded-lg flex items-center justify-center gap-1.5">
                     <button type="button"
                       onClick={() => setPhotos(p => p.filter((_, i) => i !== idx))}
-                      className="p-1.5 bg-[var(--danger)] rounded-lg text-white hover:bg-[var(--danger)]/80">
+                      className="p-1.5 bg-[var(--danger)] rounded-lg text-[var(--on-danger)] hover:bg-[var(--danger)]/80">
                       <X className="w-3.5 h-3.5" />
                     </button>
                     {idx > 0 && (

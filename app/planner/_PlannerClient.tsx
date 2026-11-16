@@ -3156,7 +3156,7 @@ export function PlannerClient({ initialUserId }: { initialUserId?: string | null
                   saveStatus === 'saved'
                     ? 'bg-[var(--success)] border-[var(--success)] text-white'
                     : saveStatus === 'error'
-                    ? 'bg-[var(--danger)] border-[var(--danger)] text-white'
+                    ? 'bg-[var(--danger)] border-[var(--danger)] text-[var(--on-danger)]'
                     : 'ds-btn-secondary'
                 }`}
               >

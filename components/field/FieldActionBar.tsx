@@ -73,7 +73,7 @@ export function FieldActionBar({ actions, error, compact }: FieldActionBarProps)
               className="absolute -top-1 -right-1 flex items-center justify-center rounded-full text-[11px] font-bold tabular-nums"
               style={{
                 minWidth: 20, height: 20, padding: '0 5px',
-                background: 'var(--danger)', color: '#FFFFFF',
+                background: 'var(--danger)', color: 'var(--on-danger)',
               }}
             >
               {a.badge}

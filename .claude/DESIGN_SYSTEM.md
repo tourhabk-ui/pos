@@ -57,7 +57,7 @@
 | `ds-btn` | база кнопки: flex, min-height 44px, radius-md, scale на :active | все кнопки (+ модификатор) |
 | `ds-btn-primary` | accent-фон, текст `--on-accent` (тёмный в тёмной теме, белый в светлой) | главный CTA |
 | `ds-btn-secondary` | прозрачная, border-strong | вторичное действие |
-| `ds-btn-danger` | danger-фон, белый текст | SOS, удаление |
+| `ds-btn-danger` | danger-фон, текст `--on-danger` (тёмный в тёмной теме, белый в светлой) | SOS, удаление |
 | `ds-badge` | пилюля-статус (radius 9999px, 0.75rem) | бейджи статусов |
 | `ds-h1` | Playfair 2.25rem/700, balance | главный заголовок |
 | `ds-h2` | Playfair 1.5rem/600 | подзаголовок |

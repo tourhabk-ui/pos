@@ -220,7 +220,7 @@ export default function SosRelayPage() {
 
         <a
           href={`tel:112`}
-          className="flex items-center justify-center gap-2 w-full py-3 bg-[var(--danger)] text-white text-sm font-bold rounded-lg"
+          className="flex items-center justify-center gap-2 w-full py-3 bg-[var(--danger)] text-[var(--on-danger)] text-sm font-bold rounded-lg"
         >
           <Phone className="w-4 h-4" />
           Позвонить 112 {coordsText ? '— назвать координаты' : ''}

@@ -133,7 +133,7 @@ export const AccommodationCard: React.FC<AccommodationCardProps> = ({
               absolute top-4 right-4 p-2 rounded-full
               transition-all duration-200
               ${isFavorite
-                ? 'bg-[var(--danger)]/90 text-white'
+                ? 'bg-[var(--danger)]/90 text-[var(--on-danger)]'
                 : 'bg-[rgba(0,0,0,0.3)] text-[var(--text-muted)] hover:bg-[rgba(0,0,0,0.5)] hover:text-[var(--text-primary)]'}
             `}
             aria-label={isFavorite ? "Убрать из избранного" : "Добавить в избранное"}

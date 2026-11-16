@@ -5342,7 +5342,7 @@ function OnTrailTab({ mapPackBaseUrl, topInset }: { mapPackBaseUrl: string | nul
             )}
             <EmergencyAction
               className="flex items-center justify-center gap-2 px-3 py-3 rounded-xl text-sm font-bold"
-              style={{ background: 'var(--danger)', color: '#fff' }}>
+              style={{ background: 'var(--danger)', color: 'var(--on-danger)' }}>
               <Phone className="w-4 h-4" /> 112 — экстренный вызов
             </EmergencyAction>
             <p className="text-xs mt-2" style={{ color: 'var(--text-muted)' }}>
@@ -5943,7 +5943,7 @@ function PlanningTab({ onStartTrail }: { onStartTrail?: (routeId: string) => voi
           <p className="text-xs text-[var(--text-secondary)]">Единый номер экстренных служб</p>
         </div>
         <EmergencyAction
-          className="text-sm font-bold px-3 py-1.5 rounded-lg text-white"
+          className="text-sm font-bold px-3 py-1.5 rounded-lg text-[var(--on-danger)]"
           style={{ background: 'var(--danger)' }}
           label="112"
         />

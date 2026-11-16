@@ -56,7 +56,7 @@ export default function OfflinePage() {
         <a
           href={telHref(PRIMARY.phone)}
           aria-label={`Позвонить ${PRIMARY.phone} — ${PRIMARY.name}`}
-          className="group flex items-center gap-4 rounded-2xl px-6 py-5 text-white shadow-sm transition-transform active:scale-[0.99]"
+          className="group flex items-center gap-4 rounded-2xl px-6 py-5 text-[var(--on-danger)] shadow-sm transition-transform active:scale-[0.99]"
           style={{ background: 'var(--danger)' }}
         >
           <span className="flex h-14 w-14 shrink-0 items-center justify-center rounded-full bg-white/15">
@@ -64,9 +64,9 @@ export default function OfflinePage() {
           </span>
           <span className="flex flex-col leading-none">
             <span className="font-playfair text-5xl font-bold tabular-nums">{PRIMARY.phone}</span>
-            <span className="mt-1.5 text-sm text-white/85">{PRIMARY.name}</span>
+            <span className="mt-1.5 text-sm opacity-90">{PRIMARY.name}</span>
           </span>
-          <PhoneCall className="ml-auto h-5 w-5 text-white/60 transition-transform group-active:translate-x-0.5 sm:block hidden" aria-hidden="true" />
+          <PhoneCall className="ml-auto h-5 w-5 opacity-60 transition-transform group-active:translate-x-0.5 sm:block hidden" aria-hidden="true" />
         </a>
 
         {/* Спасатели Камчатки — один проверенный номер сразу под 112 */}

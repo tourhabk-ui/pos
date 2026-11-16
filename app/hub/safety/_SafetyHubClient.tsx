@@ -445,7 +445,7 @@ export default function SafetyHubClient() {
               Координаты · Отправка сигнала · Меш-сеть · Офлайн
             </p>
             <span
-              className="inline-flex items-center gap-2 px-6 py-3 rounded-lg text-sm font-bold text-white"
+              className="inline-flex items-center gap-2 px-6 py-3 rounded-lg text-sm font-bold text-[var(--on-danger)]"
               style={{ background: 'var(--danger)' }}
             >
               Открыть SOS
@@ -514,7 +514,7 @@ export default function SafetyHubClient() {
                     className="max-w-[80%] px-4 py-3 rounded-lg text-sm leading-relaxed whitespace-pre-wrap"
                     style={msg.role === 'assistant'
                       ? { background: 'var(--bg-hover)', color: 'var(--text-primary)', borderRadius: '4px 16px 16px 16px' }
-                      : { background: 'var(--danger)', color: '#fff', borderRadius: '16px 4px 16px 16px' }
+                      : { background: 'var(--danger)', color: 'var(--on-danger)', borderRadius: '16px 4px 16px 16px' }
                     }
                   >
                     {msg.role === 'assistant' ? plainResponse(msg.content) : msg.content}
@@ -557,7 +557,7 @@ export default function SafetyHubClient() {
                   style={{ background: 'var(--danger)' }}
                   aria-label="Отправить"
                 >
-                  <Send className="w-4 h-4 text-white" />
+                  <Send className="w-4 h-4 text-[var(--on-danger)]" />
                 </button>
               </div>
 

@@ -44,6 +44,10 @@
   --success: #3FB950;      /* moss -- успех, эко */
   --warning: #D29922;
   --danger: #F85149;       /* ash-red -- SOS, опасность */
+  /* Текст на заливке --danger (аудит 09.11, п. 9в): белый на светлом красном
+     тёмной темы — 3.35:1, ниже AA; тёмный — 5.65:1. В светлой теме белый на
+     #B91C1C — 6.47:1. Как --on-accent: тёмный в тёмной теме, белый в светлой. */
+  --on-danger: #0D1117;
   --purple: #A855F7;       /* violet -- западная зона, акцент */
 
   --border: rgba(255,255,255,0.08);
@@ -87,6 +91,7 @@
   --success: #008234;
   --warning: #876316;
   --danger: #B91C1C;
+  --on-danger: #FFFFFF;
   --purple: #7C3AED;       /* violet -- западная зона, акцент */
 
   --border: rgba(0,0,0,0.07);
@@ -124,6 +129,7 @@
   --success: #008234;
   --warning: #876316;
   --danger: #B91C1C;
+  --on-danger: #FFFFFF;
   --purple: #7C3AED;       /* violet -- западная зона, акцент */
   --border: rgba(0,0,0,0.07);
   --border-strong: rgba(0,0,0,0.12);
@@ -437,7 +443,7 @@ a:focus-visible {
   }
   .ds-btn-danger {
     background: var(--danger);
-    color: white;
+    color: var(--on-danger);
   }
   .ds-btn-danger:hover {
     opacity: 0.9;
