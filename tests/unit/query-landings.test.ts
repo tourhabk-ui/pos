@@ -245,3 +245,17 @@ describe('данные', () => {
     expect(list.itemListElement[1].item).not.toHaveProperty('offers');
   });
 });
+
+describe('английская страница туров не обещает бронь (#3394, п. 5)', () => {
+  // Ведар не бронирует: человек отправляет заявку, оператор подтверждает.
+  // Заголовок и H1 — то, что человек видит в выдаче первым, — не говорят
+  // «booking». Описание и FAQ отвечают на запрос честно: «not an instant booking».
+  it('в title и h1 нет «book»; описание называет заявку и что это не бронь', () => {
+    const l = landingByKey('en-booking');
+    expect(l.title).not.toMatch(/\bbook/i);
+    expect(l.h1).not.toMatch(/\bbook/i);
+    expect(l.description).toMatch(/request/i);
+    expect(l.description).toMatch(/not an instant booking/i);
+    expect(l.faq[0]!.a).toMatch(/^Vedar does not book tours itself/);
+  });
+});
