@@ -178,20 +178,8 @@ export class AgentMemory {
     }
   }
 
-  /**
-   * Delete expired memories. Returns count of deleted rows.
-   */
-  async cleanup(): Promise<number> {
-    try {
-      const result = await pool.query(
-        `DELETE FROM agent_memory WHERE expires_at IS NOT NULL AND expires_at < NOW()`
-      );
-      return result.rowCount ?? 0;
-    } catch (err) {
-      console.error('[agent-memory] cleanup() failed:', err instanceof Error ? err.message : err);
-      return 0;
-    }
-  }
+  // Истёкшее удаляет ежедневная уборка сроков (lib/legal/retention-purge.ts,
+  // шаг agent_memory). Прежний cleanup() здесь не звал никто (#3433, 16.11).
 
   /**
    * Count total memories (for diagnostics).

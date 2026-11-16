@@ -55,6 +55,15 @@ interface MonitoredGroup {
 
 // ── Константы ─────────────────────────────────────────────────────────────────
 
+/**
+ * Контекст «горячего сигнала» для agent_memory: последние пять сообщений
+ * группы без телефонов и почт — в подписи и в тексте (#3433, 16.11). Прежде
+ * запись хранила их как есть, хотя образцы рядом уже чистились.
+ */
+export function hotSignalContext(messages: readonly Pick<GroupMessage, 'from' | 'text'>[]): string {
+  return messages.slice(-5).map((m) => `${redactPII(m.from)}: ${redactPII(m.text)}`).join('\n');
+}
+
 const BATCH_SIZE      = 20;    // сообщений до анализа
 const BATCH_INTERVAL  = 15 * 60 * 1000; // 15 минут
 
@@ -192,7 +201,9 @@ class GroupMonitorService {
             source:      'telegram_group_hot',
             group_title: chatTitle,
             signals:     intel.hot_signals,
-            context:     messages.slice(-5).map(m => `${m.from}: ${m.text}`).join('\n'),
+            // Подписи и текст — как у образцов выше: запись видит админская
+            // лента разведки, телефонам и именам людей в ней не место (#3433).
+            context:     hotSignalContext(messages),
             timestamp:   new Date().toISOString(),
           },
           confidence: 0.95,
@@ -325,7 +336,9 @@ class GroupMonitorService {
               routes:        intel.routes_mentioned,
               conditions:    intel.conditions,
               tips:          intel.traveler_tips,
-              sample:        messages.slice(-3).map(m => `${m.from}: ${m.text.slice(0, 100)}`),
+              // Образца сообщений здесь больше нет (#3433, ревью #3460): он
+              // хранил подписи и телефоны людей из группы как есть, а читателя
+              // у metadata.sample не было. Уже записанные сняла миграция 1454.
               collected_at:  new Date().toISOString(),
             }),
           ]

@@ -187,6 +187,23 @@ withPg('объектив схемы на настоящем PostgreSQL', () => {
     });
   });
 
+  it('миграция 1454: образец сообщений Telegram-группы снят из советов туристов, остальное на месте (ревью #3460)', async () => {
+    const SQL = readFileSync(join(process.cwd(), 'migrations/1454_group_tips_sample_withdrawn.sql'), 'utf-8');
+    await pool.query(`INSERT INTO kamchatka_routes (dedupe_key, slug, title, category, metadata, is_visible) VALUES
+      ('tg_tip_1454_a', 'tg-tip-1454-a', 'Тест — советы туристов', 'tourist_tip',
+       '{"source":"telegram_group","group_id":"-1","tips":["брать бахилы"],"sample":["Тест: звоните +70000000000"]}', false),
+      ('tg_tip_1454_b', 'tg-tip-1454-b', 'Тест — чужой источник', 'tourist_tip',
+       '{"source":"other","sample":["не наш ключ"]}', false)`);
+    await pool.query(SQL);
+    await pool.query(SQL); // повтор без вреда
+    const { rows } = await pool.query<{ dedupe_key: string; metadata: Record<string, unknown> }>(
+      `SELECT dedupe_key, metadata FROM kamchatka_routes WHERE dedupe_key LIKE 'tg_tip_1454_%' ORDER BY dedupe_key`);
+    expect(rows).toEqual([
+      { dedupe_key: 'tg_tip_1454_a', metadata: { source: 'telegram_group', group_id: '-1', tips: ['брать бахилы'] } },
+      { dedupe_key: 'tg_tip_1454_b', metadata: { source: 'other', sample: ['не наш ключ'] } },
+    ]);
+  });
+
   /**
    * Миграция 1441: находки объектива, записанные до его починки, уходят из
    * очереди — и только они. Шаблон базы миграцию уже накатил (на пустой
@@ -338,10 +355,22 @@ withPg('объектив схемы на настоящем PostgreSQL', () => {
         ('partner', gen_random_uuid(), 'register', '{"email":"old@example.org","inn":"410100000000","roles":["operator"],"consents":{"pd":true}}', ${OLD}),
         ('partner', gen_random_uuid(), 'register', '{"email":"new@example.org","inn":"410100000001","roles":["guide"]}', ${NEW})`);
       await pool.query(`INSERT INTO mcp_clients (caller_hash, day) VALUES ('old-client', (${OLD})::date), ('new-client', CURRENT_DATE)`);
+      // Память агентов (#3433): истёкшая — с журналом правок, живая и бессрочная.
+      const { rows: [expired] } = await pool.query<{ id: string }>(`INSERT INTO agent_memory (agent_id, memory_type, key, value, expires_at)
+        VALUES ('evo', 'intelligence', 'purge-expired', '{"context":"старое"}', NOW() - INTERVAL '1 hour') RETURNING id::text`);
+      await pool.query(`INSERT INTO agent_memory_edits (memory_id, agent_id, old_value, new_value, edited_by)
+        VALUES ($1, 'evo', '{}', '{"context":"старое"}', 'evo')`, [expired.id]);
+      await pool.query(`INSERT INTO agent_memory (agent_id, memory_type, key, value, expires_at) VALUES
+        ('evo', 'intelligence', 'purge-live', '{}', NOW() + INTERVAL '1 day'),
+        ('evo', 'intelligence', 'purge-forever', '{}', NULL)`);
 
       const query = (sql: string, params: unknown[]) => pool.query(sql, params);
       const run = await runRetentionPurge(query, { apply: true });
       expect(run.failed).toBe(0);
+      const mem = await pool.query<{ key: string }>(`SELECT key FROM agent_memory WHERE key LIKE 'purge-%' ORDER BY key`);
+      expect(mem.rows.map((r) => r.key)).toEqual(['purge-forever', 'purge-live']);
+      expect((await pool.query('SELECT 1 FROM agent_memory_edits WHERE memory_id = $1::uuid', [expired.id])).rowCount).toBe(0);
+      expect(run.rows.find((r) => r.table === 'agent_memory')).toMatchObject({ state: 'ok', rows: 1 });
 
       const rag = await pool.query<{ query: string }>('SELECT query FROM rag_quality_log ORDER BY created_at');
       expect(rag.rows.map((r) => r.query)).toEqual(['свежий вопрос']);
