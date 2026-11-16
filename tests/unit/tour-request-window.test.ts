@@ -108,6 +108,19 @@ describe('get_tour_availability по сезону', () => {
     expect(text).toMatch(/- 26\.09–28\.09(\.2099)?: свободно для заявки/);
   });
 
+  it('«в любой день сезона» (#3476): слово оператора вместо «расписания в системе нет»', async () => {
+    query.mockImplementation(async (sql: string) => {
+      if (/FROM operator_tours/.test(sql) && /(WHERE|AND) (ot\.)?id = \$1/.test(sql)) return { rows: [{ ...TOUR, schedule_kind: 'any_day' }] };
+      if (/SELECT \(?EXISTS/.test(sql)) return { rows: [{ has: false }] };
+      return { rows: [] };
+    });
+    const text = await getTourAvailabilityForKuzmich({ tour: '50', date_from: '2099-06-01', days: '3' });
+    expect(text).toContain('Тур "Плоский Толбачик" (ID50): Оператор выезжает в любой день сезона (сезон 1 мая 2099 — 1 октября 2099');
+    expect(text).toContain('место и группу подтверждает он');
+    expect(text).toMatch(/- 01\.06–03\.06(\.2099)?: свободно для заявки/);
+    expect(text).not.toContain('расписания в системе нет');
+  });
+
   it('окно целиком после сезона — «не записан», без дат', async () => {
     const text = await getTourAvailabilityForKuzmich({ tour: '50', date_from: '2099-10-05', days: '7' });
     expect(text).toContain('Следующий сезон в системе не записан');

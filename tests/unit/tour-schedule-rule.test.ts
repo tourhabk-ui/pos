@@ -17,7 +17,9 @@ const read = (p: string) => readFileSync(join(process.cwd(), p), 'utf8');
 describe('keepsScheduleSql', () => {
   it('будущая неотменённая неудалённая дата, «сегодня» — по Камчатке', () => {
     const sql = keepsScheduleSql('ot.id');
-    expect(sql).toMatch(/^EXISTS \(/);
+    expect(sql).toMatch(/^\(EXISTS \(/);
+    // Тур «в любой день сезона» календаря не ведёт: его строки — исключения (#3476).
+    expect(sql).toMatch(/AND NOT EXISTS \(\s*SELECT 1 FROM operator_tours ot_sk\s+WHERE ot_sk\.id = ot\.id AND ot_sk\.schedule_kind = 'any_day'/);
     expect(sql).toMatch(/FROM tour_availability ta_sched/);
     expect(sql).toMatch(/operator_tour_id = ot\.id/);
     expect(sql).toMatch(/date >= \(NOW\(\) AT TIME ZONE 'Asia\/Kamchatka'\)::date/);

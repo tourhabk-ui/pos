@@ -25,7 +25,7 @@ import { resolveCommercialTurn } from '@/lib/kuzmich/commercial-turn';
 import { detectEmergency } from '@/lib/safety/sos-detector';
 import { requestWindow, windowLabel } from '@/lib/tours/request-window';
 import { nearestFreeDateSql } from '@/lib/tours/nearest-free-date';
-import { anyDayOpenSql } from '@/lib/tours/schedule-kind';
+import { anyDayOpenSql, anyDayLine } from '@/lib/tours/schedule-kind';
 import { OFFER_ORDER_NOTE_AGENT, offerOrderDay, orderOffersBy } from '@/lib/tours/offer-order';
 import { kamchatkaToday } from '@/lib/seat-requests/core';
 import { kamchatkaDateContext } from '@/lib/kuzmich/date-context';
@@ -750,7 +750,10 @@ export async function loadTourCatalogEntries(): Promise<TourCatalog | null> {
             duration_hours: r.duration_hours ?? null,
           }, today)
         : null;
-      const slots = window?.kind === 'season'
+      // «В любой день сезона» (#3476): слово оператора, а не пробел в данных.
+      const slots = window?.kind === 'season' && r.any_day_open === true
+        ? ` | ${anyDayLine(window)} (create_booking_request с датой сезона)`
+        : window?.kind === 'season'
         ? ` | Расписания в системе нет — предварительная бронь только по сезону (${windowLabel(window)}): заявка оператору на дату сезона (create_booking_request; места подтверждает он)`
         : r.has_schedule === false
         ? ' | Расписания в системе нет — все даты свободны для заявки оператору (create_booking_request с датой отправит ему запрос; места подтверждает он)'

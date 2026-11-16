@@ -59,6 +59,8 @@ const tourRow = (id: number, over: Record<string, unknown>) => ({
 const CATALOG_ROWS = [
   tourRow(1, { title: 'Восхождение', has_schedule: true, available_slots: 4, next_available_date: '2027-07-19' }),
   tourRow(2, { title: 'Сплав', activity_type: 'rafting', has_schedule: false }),
+  // «В любой день сезона» (#3476): слово оператора, сезон идёт.
+  tourRow(3, { title: 'Горелый', has_schedule: false, any_day_open: true, season_start: '2099-06-01', season_end: '2099-09-30' }),
 ];
 
 /**
@@ -128,6 +130,10 @@ const PRODUCERS: Record<string, Producer> = {
   'Расписания в системе нет': {
     who: 'get_tours на MCP, строка тура без календаря',
     produce: async () => lineOf(await getToursMcp(), 2),
+  },
+  'любой день сезона': {
+    who: 'get_tours на MCP, строка тура «в любой день сезона» (#3476)',
+    produce: async () => lineOf(await getToursMcp(), 3),
   },
   'свободных мест с … по … нет': {
     who: 'get_tour_availability, пустое окно',

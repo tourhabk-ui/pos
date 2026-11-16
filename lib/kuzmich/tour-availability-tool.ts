@@ -22,7 +22,7 @@ import { PriceTierMissError } from '@/lib/tours/price-tiers';
 import { honestTourPrice, loadPricingContext, composeHonestPrice } from '@/lib/tours/honest-price';
 import { requestWindow, windowLabel, type RequestWindow } from '@/lib/tours/request-window';
 import { nearestFreeDateSql } from '@/lib/tours/nearest-free-date';
-import { anyDayOpenSql } from '@/lib/tours/schedule-kind';
+import { anyDayOpenSql, anyDayLine, scheduleKindOf } from '@/lib/tours/schedule-kind';
 import { orderOffersBy } from '@/lib/tours/offer-order';
 import { loadPlaceOffersForTour } from '@/lib/places/place-tours';
 import { ruPlacePath } from '@/lib/zh/pages';
@@ -52,6 +52,8 @@ export interface ResolvedTour {
   duration_type?: string | null;
   season_start?: string | null;
   season_end?: string | null;
+  /** Как тур выезжает (`schedule_kind`, 1457): `any_day` — любой день сезона. */
+  schedule_kind?: string | null;
 }
 
 /**
@@ -155,6 +157,7 @@ const TITLE_RANK_SQL = `(CASE WHEN lower(${yo('ot.title')}) = lower($2) THEN 0 W
 const CANDIDATE_COLUMNS = `ot.id, ot.title, ot.operator_id, ot.base_price, ot.price_unit, ot.slug,
        ot.multi_day_count, ot.duration_hours, ot.duration_type,
        ot.season_start::text AS season_start, ot.season_end::text AS season_end,
+       ot.schedule_kind,
        ot.main_place_id,
        p.name AS operator_name,
        pl.name AS place_name, pl.slug AS place_slug, pl.ark_id::text AS place_ark_id,
@@ -389,6 +392,7 @@ interface CandidateRow {
   duration_type: string | null;
   season_start: string | null;
   season_end: string | null;
+  schedule_kind?: string | null;
   main_place_id: string | null;
   operator_name: string | null;
   place_name: string | null;
@@ -418,6 +422,7 @@ function toCandidate(r: CandidateRow): TourCandidate {
     duration_type: r.duration_type ?? null,
     season_start: r.season_start ?? null,
     season_end: r.season_end ?? null,
+    schedule_kind: r.schedule_kind ?? null,
     operator_name: r.operator_name ?? null,
     main_place_id: placeId,
     place: placeId && r.place_name
@@ -1107,7 +1112,9 @@ async function onRequestWindow(
     labels = dates.map(() => price || 'цену называет оператор');
   }
   const runs = collapseRuns(dates.map((date, i) => ({ date, label: labels[i] })));
-  const head = window.kind === 'season'
+  const head = window.kind === 'season' && scheduleKindOf(tour.schedule_kind) === 'any_day'
+    ? `Тур "${tour.title}" (ID${tour.id}): ${anyDayLine(window)}:`
+    : window.kind === 'season'
     ? `Тур "${tour.title}" (ID${tour.id}): расписания в системе нет — предварительная бронь только по сезону (${windowLabel(window)}); даты сезона свободны для заявки, оператор собирает группу под запрос:`
     : `Тур "${tour.title}" (ID${tour.id}): расписания в системе нет — все даты свободны для заявки, оператор собирает группу под запрос:`;
   return [
