@@ -19,6 +19,7 @@
 
 import { PUBLIC_MCP_TOOLS, PUBLIC_MCP_TOOL_NAMES, WRITE_TOOL_NAMES, TOOL_ENGLISH, MCP_SERVER_INFO } from '@/lib/mcp/public-tools';
 import { A2A_DESCRIPTION_ZH, A2A_CHAT_EXAMPLE_ZH } from '@/lib/mcp/zh-layer';
+import { REQUEST_STATUS_TOOL_NAME, ANSWER_RELAY_RULE } from '@/lib/mcp/request-status-schema';
 
 export const A2A_PROTOCOL_VERSION = '1.0';
 export const A2A_LEGACY_PROTOCOL_VERSION = '0.3.0';
@@ -47,29 +48,28 @@ export const CHAT_SKILL_ID = 'kuzmich-chat';
 
 // Английский абзац первым (17.10): каталоги и реестры агентов (a2aregistry,
 // awesome-a2a) показывают начало описания, а читают его англоязычные агенты.
-// Русский текст — следом, без сокращений; китайский хвост — последним.
+// Русский — следом, китайский хвост — последним.
+//
+// Ужато 16.11 (аудит, #3463 п. 2; слово владельца «сделай как лучше»): было
+// 2 858 знаков, и карточка с навыками весила ~62 КБ — это контекст каждого
+// роутера агентов, который её читает. Здесь — что это, чего нет и как звать;
+// правила каждого инструмента — в его описании (tools/list на /api/mcp) и в
+// /llms.txt. Обещания, которые держит сторож (заявки названы поимённо и по
+// числу, черновик плана на 7 дней, нет брони и оплаты, задача хранится час,
+// notify_url), остаются здесь.
 export const A2A_DESCRIPTION =
-  'Vedar Kamchatka is a Kamchatka travel information portal and AI guide (Russia). It is not a travel agency and not a tour operator. '
-  + 'Live tours from local operators and their availability, safety alerts and conditions, '
-  + 'places, weather, volcano status, stays, gear, transfers, self-drive car rental and trip plans. Free-text questions (Russian or English) '
-  + 'or exact tool calls via DataPart {"tool", "arguments"} using the schemas from tools/list at /api/mcp; '
-  + 'six human-confirmed requests (create_trip_request, create_lead, create_booking_request, create_stay_request, request_charter, create_car_rental_request, '
-  + 'the call returns a draft and a link, and the person sends the request on a Vedar page), no instant booking, no payment through the guide, no auth. '
-  + 'Besides requests, make_trip_plan and edit_trip_plan save an anonymous plan draft for 7 days: no name or phone, no human receives it. '
-  + 'change_request cancels a tour request or moves it to another date by its status key, only when the person asks: done at once before the operator answers, sent to the operator as a request after. '
-  + 'Change notifications: optional notify_url in the arguments of a request tool (not for stays) gets a signed POST (Standard Webhooks) when the request changes; task push notifications are not used, a task completes in the reply. '
-  + 'Русский: информационный портал «Ведар Камчатка» и ИИ-проводник, не турагентство и не туроператор. '
-  + 'Туры местных операторов с живой занятостью, безопасность мест и обстановка в крае, '
-  + 'жильё, снаряжение, трансферы, прокат машин без водителя, погода, план поездки. Понимает свободный текст (по-русски или по-английски): '
-  + 'отвечает Кузьмич, хранитель Камчатки, с теми же инструментами, что у MCP-сервера. Точный вызов инструмента — '
-  + 'DataPart {"tool": "<имя>", "arguments": {...}} по схемам из tools/list на /api/mcp. Заявок шесть, и все их '
-  + 'подтверждает человек: create_trip_request, create_lead, create_booking_request, create_stay_request, request_charter, create_car_rental_request '
-  + '(вызов даёт черновик и ссылку, отправляет заявку сам человек на странице Ведара). Кроме заявок, make_trip_plan и edit_trip_plan '
-  + 'сохраняют черновик плана: анонимно, на 7 дней, без имени и телефона, до человека он не доходит. '
-  + 'change_request отменяет заявку на тур или переносит её на другую дату по ключу заявки и только по просьбе человека: пока оператор не ответил — сразу, после его ответа — просьбой ему. '
-  + 'Брони и оплаты через агента нет. '
-  + 'Анонимно, лимиты по адресу; задача завершается в ответе на SendMessage и хранится час. '
-  + 'Об изменении самой заявки — необязательный notify_url в аргументах пишущего инструмента (кроме жилья): подписанный POST по Standard Webhooks; push-уведомлений задач нет. '
+  'Vedar Kamchatka is a Kamchatka travel information portal and AI guide (Russia), not a travel agency and not a tour operator. '
+  + 'Live tours and seat availability, safety alerts, places, weather, volcanoes, stays, gear, transfers, self-drive car rental, trip plans. '
+  + 'Ask in free text (Russian or English) or call a tool via DataPart {"tool", "arguments"} with schemas from tools/list at /api/mcp. '
+  + 'Requests: six human-confirmed requests (create_trip_request, create_lead, create_booking_request, create_stay_request, request_charter, create_car_rental_request); '
+  + 'the call returns a draft and a link, the person sends it on a Vedar page; no instant booking, no payment, no auth. '
+  + 'make_trip_plan and edit_trip_plan save an anonymous plan draft for 7 days; change_request cancels or moves a tour request by its status key when the person asks. '
+  + 'Optional notify_url in a request tool gets a signed POST (Standard Webhooks). Details: /llms.txt. '
+  + 'Русский: «Ведар Камчатка» — информационный портал и ИИ-проводник: туры с живой занятостью, безопасность, жильё, трансферы, погода, план поездки. '
+  + 'Заявок шесть, все подтверждает человек: create_trip_request, create_lead, create_booking_request, create_stay_request, request_charter, '
+  + 'create_car_rental_request — заявку отправляет сам человек на странице Ведара. make_trip_plan и edit_trip_plan сохраняют черновик плана: '
+  + 'анонимно, на 7 дней; change_request отменяет или переносит заявку на тур по её ключу. Брони и оплаты через агента нет. '
+  + 'Задача завершается в ответе и хранится час. '
   // Китайский хвост (12.10) — текст в lib/mcp/zh-layer, один на все поверхности.
   + A2A_DESCRIPTION_ZH;
 
@@ -161,6 +161,13 @@ export interface AgentSkill {
   outputModes: string[];
 }
 
+/** Первое предложение описания инструмента — суть навыка для карточки. */
+export function firstSentence(text: string): string {
+  const flat = text.replace(/\s+/g, ' ').trim();
+  const m = /^(.+?[.!?])(?:\s|$)/.exec(flat);
+  return m ? m[1] : flat;
+}
+
 function dataPartExample(tool: string): string {
   return JSON.stringify({ tool, arguments: ARG_EXAMPLES[tool] ?? {} });
 }
@@ -187,12 +194,19 @@ export function buildSkills(): AgentSkill[] {
     return {
       id: t.name,
       name: `${title} (${t.name})`,
+      // Суть навыка — первое предложение описания инструмента, а не всё
+      // описание (аудит 16.11, #3463 п. 2): полный текст и схема — в
+      // tools/list, туда и ведёт строка вызова. Своего текста у навыка нет —
+      // разойтись с инструментом ему нечем.
       description:
-        `${t.description} Вызов: DataPart ${dataPartExample(t.name)} — аргументы по схеме инструмента ${t.name} `
-        + `(tools/list на ${A2A_JSONRPC_PATH.replace('/a2a', '/mcp')}). Ответ: Task в состоянии completed с текстом инструмента`
+        `${firstSentence(t.description)} Call: DataPart ${dataPartExample(t.name)}; `
+        + `argument schema in tools/list at ${A2A_JSONRPC_PATH.replace('/a2a', '/mcp')}. Result: a completed Task with the tool text`
         + (write
-          ? '; отказ по входу (нет согласия, нет мест, лимит) — состояние rejected с объяснением; сбой на стороне Ведара — failed.'
-          : '; отказ по входу (неверные аргументы, неизвестный ключ, лимит) — состояние rejected с объяснением; сбой на стороне Ведара — failed.'),
+          ? '; bad input (no consent, no seats, limit) — rejected with the reason; failure on Vedar\'s side — failed.'
+          : '; bad input (wrong arguments, unknown key, limit) — rejected with the reason; failure on Vedar\'s side — failed.')
+        // Правило доставки ответа оператора — то, что агент обязан делать, а
+        // не пересказ: оно остаётся в навыке целиком.
+        + (t.name === REQUEST_STATUS_TOOL_NAME ? ` ${ANSWER_RELAY_RULE}` : ''),
       tags: SKILL_TAGS[t.name] ?? ['kamchatka'],
       examples: [dataPartExample(t.name), ...(TEXT_EXAMPLES[t.name] ?? [])],
       inputModes: ['application/json'],

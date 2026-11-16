@@ -236,8 +236,9 @@ describe('визитка обещает те исходы задачи, кото
     expect(tools.length).toBeGreaterThan(0);
     for (const sk of tools) {
       for (const word of ['completed', 'rejected', 'failed']) expect(sk.description, `${sk.id}: ${word}`).toContain(word);
-      if (WRITE_TOOL_NAMES.has(sk.id)) expect(sk.description, sk.id).toContain('нет согласия');
-      else expect(sk.description, sk.id).not.toContain('нет согласия');
+      // Строка вызова навыка — по-английски с 16.11 (#3463 п. 2): карточку читают агенты.
+      if (WRITE_TOOL_NAMES.has(sk.id)) expect(sk.description, sk.id).toContain('no consent');
+      else expect(sk.description, sk.id).not.toContain('no consent');
     }
   });
 });
