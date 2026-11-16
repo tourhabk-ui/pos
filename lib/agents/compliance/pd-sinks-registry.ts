@@ -79,11 +79,12 @@ export const DEVICE_STORAGE: readonly DeviceStorageEntry[] = [
   { file: 'app/operators/join/_JoinClient.tsx', personal: 'account', keys: ['user'], holds: 'пользователь после регистрации оператора' },
   { file: 'app/team/join/[token]/_JoinClient.tsx', personal: 'account', keys: ['user'], holds: 'пользователь после входа в команду' },
 
-  // --- известные пробелы: при выходе не стираются
   {
-    file: 'app/planner/_PlannerClient.tsx', personal: 'gap', keys: ['vedar_planner_form_v1'], fixInFlight: 'PR 3452',
-    holds: 'анкета планера: состав группы, возраст детей, подвижность, рейсы — без имени и телефона',
+    file: 'app/planner/_PlannerClient.tsx', personal: 'account', keys: ['vedar_planner_form_v1'],
+    holds: 'анкета планера своего аккаунта: состав группы, возраст детей, подвижность, рейсы — без имени и телефона (PR 3452)',
   },
+
+  // --- известные пробелы: при выходе не стираются
   {
     file: 'app/ai-assistant/_AIAssistantClient.tsx', personal: 'gap', keys: ['th_ai_chat_history'],
     holds: 'переписка с ассистентом: человек мог написать в ней имя и телефон',
@@ -121,6 +122,7 @@ export const DEVICE_STORAGE: readonly DeviceStorageEntry[] = [
 
   // --- о человеке ничего
   { file: 'app/_home/_HomeV8Client.tsx', personal: 'none', holds: 'тема оформления' },
+  { file: 'lib/planner/form-draft.ts', personal: 'none', holds: 'метка «из аккаунта вышли» (время и номер выхода) — другие вкладки по ней перестают писать черновик' },
   { file: 'app/field-check/_FieldCheckClient.tsx', personal: 'none', holds: 'отметки проверки на местности и метка выезда' },
   { file: 'app/hub/admin/artem/_ArtemWorkspaceClient.tsx', personal: 'none', holds: 'чек-лист рабочего места' },
   { file: 'app/hub/admin/leads/_LeadsClient.tsx', personal: 'none', holds: 'вид списка заявок' },
