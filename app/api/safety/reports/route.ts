@@ -15,6 +15,7 @@ import { createRateLimiter, getClientIp } from '@/lib/rate-limit';
 import { containsProfanity } from '@/lib/services/profanity-filter';
 import { withinKamchatka } from '@/lib/services/routes/geocode';
 import { escapeHtml } from '@/lib/text/escape-html';
+import { logSwallowedFailure } from '@/lib/observability/swallowed';
 
 export const dynamic = 'force-dynamic';
 
@@ -64,7 +65,11 @@ function notifyOwnerAsync(id: string, type: string, text: string, lat?: number, 
     headers: { 'Content-Type': 'application/json' },
     body: JSON.stringify({ chat_id: chatId, text: msg, parse_mode: 'HTML' }),
     signal: AbortSignal.timeout(8_000),
-  }).catch(() => {});
+  }).then((res) => {
+    // Telegram отвечает 400 на битую разметку, не бросая: без проверки кода
+    // наблюдение ждало бы модерации, о которой владелец не узнал.
+    if (!res.ok) logSwallowedFailure('safety/reports', 'уведомление владельцу о наблюдении', new Error(`HTTP ${res.status}`));
+  }).catch((err: unknown) => logSwallowedFailure('safety/reports', 'уведомление владельцу о наблюдении', err));
 }
 
 export async function GET() {

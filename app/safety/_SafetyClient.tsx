@@ -356,6 +356,13 @@ export default function SafetyClient({ live }: { live: SafetyLiveData | null }) 
   const [volcanic, setVolcanic] = useState<VolcanicEvent[]>([]);
   const [volcanoCodes, setVolcanoCodes] = useState<VolcanoStatusRow[]>([]);
   const [weather, setWeather] = useState<WeatherData | null>(null);
+  // Как у зон: «событий нет» и «источник не ответил» — разные сообщения. До
+  // 16.11 отказ сейсмики и вулканов глотался пустым catch, и экран
+  // безопасности писал «Нет событий» и «Предупреждений нет» — сбой читался
+  // как «всё спокойно» (§4.0).
+  const [seismicKnown, setSeismicKnown] = useState(true);
+  const [volcanicKnown, setVolcanicKnown] = useState(true);
+  const [weatherKnown, setWeatherKnown] = useState(true);
   const [loading, setLoading] = useState(true);
 
   const [seismicOpen, setSeismicOpen] = useState(false);
@@ -399,6 +406,12 @@ export default function SafetyClient({ live }: { live: SafetyLiveData | null }) 
     const q = fresh ? '1' : '0';
     let any = false;
     const ok = <T,>(p: Promise<T>) => p.then((v) => { any = true; return v; });
+    // Ответ не 2xx — отказ, а не пустой список: тело ошибки без `events`
+    // иначе превращалось в «событий нет».
+    const body = (r: Response) => {
+      if (!r.ok) throw new Error(`HTTP ${r.status}`);
+      return r.json();
+    };
     await Promise.all([
       ok(fetch(`/api/public/danger-summary?fresh=${q}`).then(r => r.json()))
         .then((d: { ok?: boolean; zones?: ZoneData[] }) => {
@@ -407,26 +420,36 @@ export default function SafetyClient({ live }: { live: SafetyLiveData | null }) 
           setZonesKnown(d.ok !== false);
         })
         .catch(() => setZonesKnown(false)),
-      ok(fetch(`/api/safety/seismic?fresh=${q}`).then(r => r.json()))
+      ok(fetch(`/api/safety/seismic?fresh=${q}`).then(body))
         .then((d: { events?: SeismicEvent[]; source?: string; checkedAt?: string | null }) => {
           setSeismic(d.events ?? []);
           setSeismicSource(d.source ?? '');
+          setSeismicKnown(Array.isArray(d.events));
           if (d.checkedAt) setCheckedAt((prev) => Math.max(prev ?? 0, new Date(d.checkedAt as string).getTime()));
-        }).catch(() => {}),
-      ok(fetch(`/api/safety/volcanic?fresh=${q}`).then(r => r.json()))
-        .then((d: { events?: VolcanicEvent[]; statuses?: { elevated?: VolcanoStatusRow[] } }) => {
-          setVolcanic(d.events ?? []);
+        }).catch(() => setSeismicKnown(false)),
+      ok(fetch(`/api/safety/volcanic?fresh=${q}`).then(body))
+        .then((d: { events?: VolcanicEvent[]; error?: string; statuses?: { elevated?: VolcanoStatusRow[]; total?: number | null } }) => {
+          // Роут отвечает 200 и при отказе, чтобы отказ одной ленты не гасил
+          // вторую: новости МЧС не прочитались — `error` и пустой `events`,
+          // коды KVERT не прочитались — `statuses.total: null`. Пустой список
+          // тогда значит «не знаем», а не «тихо»: прежний не затираем, и
+          // «предупреждений нет» не пишем (ревью #3461).
+          const newsOk = Array.isArray(d.events) && !d.error;
+          const codesOk = typeof d.statuses?.total === 'number';
+          if (newsOk) setVolcanic(d.events ?? []);
           // КВЕРТ отдельно от новостей МЧС (см. комментарий у VolcanoStatusRow) —
           // без этого секция ниже видела только новости и звала оранжевый код
           // «предупреждений нет».
-          setVolcanoCodes(d.statuses?.elevated ?? []);
-        }).catch(() => {}),
+          if (codesOk) setVolcanoCodes(d.statuses?.elevated ?? []);
+          setVolcanicKnown(newsOk && codesOk);
+        }).catch(() => setVolcanicKnown(false)),
       // Прогноз, а не опрос источника: кнопка «обновить» к Open-Meteo не ходит,
       // у прогноза свой кэш на три часа (lib/weather/safety-widget).
-      ok(fetch('/api/safety/weather').then(r => r.json()))
+      ok(fetch('/api/safety/weather').then(body))
         .then((d: Partial<WeatherData>) => {
           setWeather(d.today ? d as WeatherData : null);
-        }).catch(() => {}),
+          setWeatherKnown(Boolean(d.today));
+        }).catch(() => setWeatherKnown(false)),
     ]);
     return any;
   }, []);
@@ -856,13 +879,21 @@ export default function SafetyClient({ live }: { live: SafetyLiveData | null }) 
                 {seismic.length} {plural(seismic.length, 'событие', 'события', 'событий')} ({seismicSource === 'kbgsras' ? 'КБГС РАН' : 'USGS'})
               </span>
             )}
+            {!seismicKnown && <span style={{ fontSize: 11, color: 'var(--warning)' }}>не загрузилась</span>}
           </div>
           {seismicOpen ? <ChevronUp size={15} color="var(--text-secondary)" /> : <ChevronDown size={15} color="var(--text-secondary)" />}
         </button>
         {seismicOpen && (
           <div style={{ borderTop: '1px solid var(--border)' }}>
+            {!seismicKnown && (
+              <p style={{ padding: '12px 16px', margin: 0, color: 'var(--warning)', fontSize: 13 }}>
+                {seismic.length === 0
+                  ? 'Сейсмика не загрузилась. Это не значит, что толчков не было — обновите позже.'
+                  : 'Обновить сейсмику не удалось — ниже прежний список.'}
+              </p>
+            )}
             {seismic.length === 0 ? (
-              <p style={{ padding: '12px 16px', color: 'var(--text-secondary)', fontSize: 13 }}>Нет событий M2.5+ за последние сутки.</p>
+              seismicKnown && <p style={{ padding: '12px 16px', color: 'var(--text-secondary)', fontSize: 13 }}>Нет событий M2.5+ за последние сутки.</p>
             ) : (
               seismic.map(ev => (
                 <div key={ev.id} style={{ padding: '10px 16px', borderBottom: '1px solid var(--border)', display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', gap: 8 }}>
@@ -893,13 +924,21 @@ export default function SafetyClient({ live }: { live: SafetyLiveData | null }) 
             {volcanicActive > 0 && (
               <span style={{ fontSize: 11, background: 'color-mix(in srgb, var(--accent) 15%, transparent)', color: 'var(--accent)', padding: '2px 6px', borderRadius: 10 }}>{volcanicActive}</span>
             )}
+            {!volcanicKnown && <span style={{ fontSize: 11, color: 'var(--warning)' }}>не загрузились</span>}
           </div>
           {volcanicOpen ? <ChevronUp size={15} color="var(--text-secondary)" /> : <ChevronDown size={15} color="var(--text-secondary)" />}
         </button>
         {volcanicOpen && (
           <div style={{ borderTop: '1px solid var(--border)' }}>
+            {!volcanicKnown && (
+              <p style={{ padding: '12px 16px', margin: 0, color: 'var(--warning)', fontSize: 13 }}>
+                {volcanic.length === 0 && volcanoCodes.length === 0
+                  ? 'Данные о вулканах не загрузились. Это не значит, что предупреждений нет — обновите позже.'
+                  : 'Часть данных о вулканах не загрузилась — список ниже может быть неполным или прежним.'}
+              </p>
+            )}
             {volcanic.length === 0 && volcanoCodes.length === 0 ? (
-              <p style={{ padding: '12px 16px', color: 'var(--text-secondary)', fontSize: 13 }}>Активных вулканических предупреждений нет.</p>
+              volcanicKnown && <p style={{ padding: '12px 16px', color: 'var(--text-secondary)', fontSize: 13 }}>Активных вулканических предупреждений нет.</p>
             ) : (
               <>
                 {/* Коды KVERT — «сейчас», выше новостей МЧС («что случилось»):
@@ -958,6 +997,13 @@ export default function SafetyClient({ live }: { live: SafetyLiveData | null }) 
 
       {/* Погода — тот же прогноз, что у Кузьмича и на /weather (08.10). «Сейчас»
           — прогноз текущей части дня, так и подписано: это не замер. */}
+      {!weather && !weatherKnown && !loading && (
+        <div className="ds-card" style={{ padding: '14px 16px', marginBottom: 12, display: 'flex', alignItems: 'center', gap: 8 }}>
+          <Thermometer size={16} color="var(--ocean)" />
+          <span style={{ color: 'var(--warning)', fontSize: 13 }}>Прогноз погоды не загрузился.</span>
+          <Link href="/weather" style={{ fontSize: 12, fontWeight: 600, color: 'var(--ocean)' }}>Открыть прогноз →</Link>
+        </div>
+      )}
       {weather && (
         <div className="ds-card" style={{ padding: '14px 16px', marginBottom: 12, display: 'flex', flexDirection: 'column', gap: 6 }}>
           <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>

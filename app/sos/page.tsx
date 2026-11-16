@@ -13,6 +13,7 @@ import { EMERGENCY_PRIMARY } from '@/lib/safety/emergency-numbers';
 import { PushSafetyOffer } from '@/components/PWA/PushSafetyOffer';
 import RescueChat from '@/components/safety/RescueChat';
 import { geolocationOnce } from '@/lib/geo/current-position';
+import { reportClientError } from '@/lib/client-errors/report';
 
 type SendStatus = 'idle' | 'locating' | 'sending' | 'sent' | 'queued' | 'error';
 
@@ -257,7 +258,11 @@ export default function SosPage() {
         qr.addData(qrKey);
         qr.make();
         setQrState({ key: qrKey, svg: qr.createSvgTag({ cellSize: 4, margin: 0 }) });
-      } catch { /* QR не рисуем — координаты текстом уже на экране */ }
+      } catch (err) {
+        // QR не рисуем — координаты текстом уже на экране. Но сбой рисования
+        // уходит в ловушку ошибок: иначе QR пропал бы у всех, и никто не узнал.
+        reportClientError('error', err);
+      }
     });
     return () => { cancelled = true; };
   }, [qrKey]);
@@ -323,7 +328,11 @@ export default function SosPage() {
     const fallbackToMesh = () => {
       try {
         meshSendSOS(sosPayload);
-      } catch { /* меш не должен решать, что сказать человеку */ }
+      } catch (err) {
+        // Меш не решает, что сказать человеку, — статус ниже ставится как
+        // прежде. Но отказ меша уходит в ловушку ошибок, а не глотается.
+        reportClientError('error', err);
+      }
       setSendStatus(queued.kind === 'queued' ? 'queued' : 'error');
     };
 

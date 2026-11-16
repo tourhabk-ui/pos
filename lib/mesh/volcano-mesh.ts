@@ -3,6 +3,7 @@
 import type { MeshMessage, MeshMessageType, MeshPeer, MeshStatus, SosBroadcastPayload } from './types';
 import { roomOf } from './rooms';
 import { queueSOS, registerSOSSync } from '@/lib/offline/pending-queue';
+import { reportClientError } from '@/lib/client-errors/report';
 
 // STUN пробивает обычные NAT; за CGNAT мобильных операторов (типичный
 // случай в поле) соединение без TURN не собирается вовсе — обе стороны
@@ -394,13 +395,9 @@ export class VolcanoMesh {
       const sosId = p.sos_id
         ?? (typeof msg.timestamp === 'number' ? `${msg.from}-${msg.timestamp}` : crypto.randomUUID());
 
-      if (typeof navigator !== 'undefined' && !navigator.onLine) {
-        // Я сам офлайн. Раньше сигнал соседа здесь МОЛЧА выбрасывался —
-        // ретранслятор без сети был дырой в эстафете. Теперь store-and-forward:
-        // чужой SOS ложится в мою офлайн-очередь и уходит через
-        // /api/mesh/sos-relay (дедуп по sos_id), когда Я доберусь до связи.
-        // Типовой сценарий: сосед по лагерю ловил край соты, у меня пусто,
-        // но вниз к покрытию иду я.
+      // Store-and-forward: чужой SOS ложится в мою офлайн-очередь и уходит
+      // через /api/mesh/sos-relay (дедуп по sos_id), когда Я доберусь до связи.
+      const queueForLater = () => {
         void queueSOS({
           lat: (sos.lat as number | null) ?? null,
           lng: (sos.lng as number | null) ?? null,
@@ -409,18 +406,33 @@ export class VolcanoMesh {
           tourist_phone: (('tourist_phone' in sos ? sos.tourist_phone : null) as string | null) ?? null,
           message: (('message' in sos ? sos.message : null) as string | null) ?? null,
           relay: { sos_id: sosId, relayed_by: this.deviceId, origin_device: msg.from },
-        }).then(() => registerSOSSync()).catch(() => {
-          // Очередь недоступна (приватный режим, квота) — сигнал хотя бы
-          // виден в UI через onMessage ниже; молча его уже не теряем.
+        }).then(() => registerSOSSync()).catch((err: unknown) => {
+          // Очередь недоступна (приватный режим, квота): сигнал виден в UI
+          // через onMessage ниже, а сам отказ уходит в ловушку ошибок —
+          // иначе о потерянной ретрансляции не узнал бы никто.
+          reportClientError('error', err);
         });
+      };
+
+      if (typeof navigator !== 'undefined' && !navigator.onLine) {
+        // Я сам офлайн. Раньше сигнал соседа здесь МОЛЧА выбрасывался —
+        // ретранслятор без сети был дырой в эстафете. Типовой сценарий:
+        // сосед по лагерю ловил край соты, у меня пусто, но вниз к покрытию
+        // иду я.
+        queueForLater();
       } else {
         // Я онлайн — ретранслирую SOS соседа на сервер. Дедуп копий от
         // нескольких ретрансляторов — на /api/mesh/sos-relay (по sos_id).
+        // Не дошёл и прямой путь (слабая сота, портал Wi-Fi: флаг браузера
+        // «онлайн», а запросы не проходят) — в ту же очередь, что и офлайн.
+        // До 16.11 здесь стоял пустой catch, и SOS соседа терялся молча.
         const relayDirect = () => fetch('/api/safety/sos', {
           method: 'POST',
           headers: { 'Content-Type': 'application/json' },
           body: JSON.stringify({ ...sos, relayed_by: this.deviceId, source: 'mesh_relay' }),
-        }).catch(() => {});
+        }).then((res) => {
+          if (res.status >= 500) queueForLater();
+        }).catch(() => queueForLater());
         void fetch('/api/mesh/sos-relay', {
           method: 'POST',
           headers: { 'Content-Type': 'application/json' },
