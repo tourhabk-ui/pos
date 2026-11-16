@@ -26,6 +26,8 @@ import { ASK_PARAM, sanitizeAsk } from '@/lib/kuzmich/ask-link';
 import { TURN_STOPPED_TEXT, isAbortError } from '@/lib/kuzmich/turn-control';
 import { StopTurnButton, RetryTurnButton, TurnSteps } from '@/components/kuzmich/TurnControls';
 import { readChatAnswer } from '@/lib/kuzmich/turn-steps';
+import AnswerSources from '@/components/kuzmich/AnswerSources';
+import type { AnswerSource } from '@/lib/kuzmich/answer-sources';
 
 // ── Типы ──────────────────────────────────────────────────────────
 
@@ -62,6 +64,7 @@ interface Message {
   imagePreview?: string;       // превью фото пользователя
   tours?: TourCard[];          // карточки туров от Кузьмича
   bookingForm?: BookingFormData; // inline-форма бронирования
+  sources?: AnswerSource[];      // источники ответа (#3412, п. 1)
   bookingConfirmed?: { id: number; tour: string; accessToken: string };
 }
 
@@ -489,6 +492,7 @@ export default function KuzmichClient() {
         data?: {
           answer?: string;
           tours?: TourCard[];
+          sources?: AnswerSource[];
           bookingForm?: BookingFormData;
         };
       };
@@ -498,6 +502,7 @@ export default function KuzmichClient() {
         content: data.data?.answer ?? 'Попробуйте ещё раз.',
         ...(data.data?.tours?.length ? { tours: data.data.tours } : {}),
         ...(data.data?.bookingForm ? { bookingForm: data.data.bookingForm } : {}),
+        ...(data.data?.sources?.length ? { sources: data.data.sources } : {}),
       };
       messagesRef.current = [...messagesRef.current, assistantMsg];
       setMessages(prev => [...prev, assistantMsg]);
@@ -624,6 +629,7 @@ export default function KuzmichClient() {
                       {msg.role === 'assistant' ? <ChatText text={msg.content} /> : msg.content}
                     </div>
                   )}
+                  {msg.role === 'assistant' && <AnswerSources sources={msg.sources} />}
                   {msg.role === 'assistant' && msg.content && <SpeakButton text={msg.content} />}
 
                   {/* Карточки туров */}

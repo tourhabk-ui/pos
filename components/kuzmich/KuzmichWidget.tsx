@@ -3,6 +3,8 @@
 import { TURN_STOPPED_TEXT, isAbortError } from '@/lib/kuzmich/turn-control';
 import { StopTurnButton, RetryTurnButton, TurnSteps } from '@/components/kuzmich/TurnControls';
 import { readChatAnswer } from '@/lib/kuzmich/turn-steps';
+import AnswerSources from '@/components/kuzmich/AnswerSources';
+import type { AnswerSource } from '@/lib/kuzmich/answer-sources';
 import { isImeKeyEvent } from '@/lib/ui/ime';
 import ChatText from '@/components/kuzmich/ChatText';
 import React, { useState, useRef, useEffect, useCallback, useId } from 'react';
@@ -36,6 +38,7 @@ interface Message {
   tours?: { id: number; slug?: string | null; title: string; base_price: number; tour_image: string | null; operator_name: string }[];
   bookingForm?: BookingFormData;
   bookingConfirmed?: { id: number };
+  sources?: AnswerSource[];     // источники ответа (#3412, п. 1)
 }
 
 // ── Компактная форма бронирования для виджета ──────────────────────────────────
@@ -327,6 +330,7 @@ export default function KuzmichWidget() {
         data?: {
           answer?: string;
           tours?: Message['tours'];
+          sources?: AnswerSource[];
           limitReached?: boolean;
           bookingForm?: BookingFormData;
         }
@@ -345,6 +349,7 @@ export default function KuzmichWidget() {
         content: data.data?.answer ?? 'Попробуйте ещё раз.',
         ...(data.data?.tours?.length ? { tours: data.data.tours } : {}),
         ...(data.data?.bookingForm ? { bookingForm: data.data.bookingForm } : {}),
+        ...(data.data?.sources?.length ? { sources: data.data.sources } : {}),
       }]);
     } catch (err) {
       // Остановил сам человек — не «нет связи».
@@ -490,6 +495,7 @@ export default function KuzmichWidget() {
                       {msg.role === 'assistant' ? <ChatText text={msg.content} /> : msg.content}
                     </div>
                   )}
+                  {msg.role === 'assistant' && <AnswerSources compact sources={msg.sources} />}
                   {msg.role === 'assistant' && msg.content && <SpeakButton text={msg.content} />}
                   {/* Форма бронирования */}
                   {msg.bookingForm && !msg.bookingConfirmed && (

@@ -6,6 +6,7 @@
  */
 
 import { observedToolRuns, sseEvent, type ChatStreamEvent } from '@/lib/kuzmich/turn-steps';
+import { answerSources } from '@/lib/kuzmich/answer-sources';
 import { parseChatBookingPrefill } from '@/lib/kuzmich/booking-prefill';
 import { latestChatPlanId, planIdOfTurn, chatPlanContext } from '@/lib/kuzmich/plan-id';
 import { planChatRequest, parseChatContact, chatToolReply, chatRequestUnconfirmed, chatPastDateAsk, chatRequestSummary, type ChatRequestPlan } from '@/lib/kuzmich/chat-request';
@@ -684,6 +685,10 @@ async function handleChat(request: NextRequest, onStep?: (label: string) => void
     }
 
     const remaining = isAuthenticated ? null : Math.max(0, FREE_MESSAGE_LIMIT - newCount);
+    // Источники под ответом (#3412, п. 1): инструменты хода, принёсшие данные,
+    // со страницей Ведара из их вывода (lib/kuzmich/answer-sources). Ответ не
+    // из цикла инструментов — без источников: проверять его было не по чему.
+    const sources = loopAnswered ? answerSources(webToolRuns.filter((r) => r.producedData).map((r) => r.source)) : [];
 
     return NextResponse.json({
       success: true,
@@ -695,6 +700,7 @@ async function handleChat(request: NextRequest, onStep?: (label: string) => void
         remainingFree: remaining,
         isAuthenticated,
         ...(tourSuggestions.length > 0 ? { tours: tourSuggestions } : {}),
+        ...(sources.length > 0 ? { sources } : {}),
         ...(finished.emergency ? { emergency: true } : {}),
         ...(visionDescription ? { visionDescription } : {}),
         ...(bookingFormTour ? { bookingForm: { tourId: bookingFormTour.id, tourTitle: bookingFormTour.title, tourPrice: bookingFormTour.base_price, priceUnit: bookingFormTour.price_unit, duration: { multi_day_count: bookingFormTour.multi_day_count, duration_hours: bookingFormTour.duration_hours }, tourImage: bookingFormTour.tour_image, operatorName: bookingFormTour.operator_name, prefillDate: bookingPrefill.date ?? null, prefillGuests: bookingPrefill.guests ?? null } } : {}),

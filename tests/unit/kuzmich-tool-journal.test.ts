@@ -135,3 +135,13 @@ describe('страница каталога туров в журнале цел�
     expect(dropUnsourcedPrices(answer, journalToolOutput('get_tours', page)).dropped).toBe(false);
   });
 });
+
+describe('источник под ответом в журнале хода (#3412, п. 1)', () => {
+  it('вызов, принёсший данные, несёт источник с главной страницей из настоящего вывода инструмента', async () => {
+    const runs = await journalOfOneTurn();
+    const guardian = runs.find((r) => r.name === 'get_guardian_context');
+    expect(guardian?.producedData).toBe(true);
+    expect(guardian?.source?.title).toMatch(/^Обстановка и безопасность места/);
+    expect(guardian?.source?.href).toBe(`/places/${avacha.id}`);
+  });
+});

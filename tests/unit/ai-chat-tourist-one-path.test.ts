@@ -181,3 +181,35 @@ describe('поток шагов (#3412, п. 4)', () => {
     expect(stepEvents).not.toMatch(/ветер|ЗЕЛЁНЫЙ|Горел/);
   });
 });
+
+describe('источники под ответом (#3412, п. 1)', () => {
+  it('ответ цикла несёт источники принёсших данные инструментов; пустой вызов — не источник', async () => {
+    user.mockResolvedValue({ userId: 'u-1', role: 'tourist' });
+    loop.mockImplementation(async (
+      _text: string, _sys: string, _hist: unknown[], _extra: unknown[],
+      runs: Array<{ name: string; producedData: boolean; output?: string; source?: unknown }>,
+    ) => {
+      runs.push({ name: 'get_place_info', producedData: true, output: '…', source: { title: 'Карточка места: Вулкан Горелый', href: '/places/gorely' } });
+      runs.push({ name: 'get_tours', producedData: false, output: 'Туров не найдено.', source: null });
+      runs.push({ name: 'get_weather', producedData: true, output: 'ветер 5 м/с', source: { title: 'Погода', href: null } });
+      return 'На Горелом ветер 5 м/с.';
+    });
+    const res = await POST(new Request('http://localhost/api/ai/chat', {
+      method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ message: 'Погода на Горелом?' }),
+    }) as unknown as NextRequest);
+    const json = await res.json() as { data: { sources?: unknown } };
+    expect(json.data.sources).toEqual([
+      { title: 'Карточка места: Вулкан Горелый', href: '/places/gorely' },
+      { title: 'Погода', href: null },
+    ]);
+  });
+
+  it('ответ не из цикла (витрина) — без источников', async () => {
+    commercial.mockResolvedValue({ visible: 'ВИТРИНА: туры на вулкан', tours: [] });
+    const res = await POST(new Request('http://localhost/api/ai/chat', {
+      method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ message: ASK }),
+    }) as unknown as NextRequest);
+    const json = await res.json() as { data: { sources?: unknown } };
+    expect(json.data.sources).toBeUndefined();
+  });
+});
