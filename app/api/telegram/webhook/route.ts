@@ -58,7 +58,7 @@ import { collapseRepeatedReply, requestButton, telegramOfferLinks } from '@/lib/
 import { KUZMICH_SYSTEM, aiChat, getHistory, type ReplyFn } from '@/lib/kuzmich/core';
 import { detectEmergency, withSosBlock } from '@/lib/safety/sos-detector';
 import { stripTags } from '@/lib/html/text';
-import { logSwallowedFailure } from '@/lib/observability/swallowed';
+import { logSwallowedFailure, logUndelivered } from '@/lib/observability/swallowed';
 import { parseInterestsFromText, findRoutesByInterests } from '@/lib/planner/interests';
 import {
   postRouteToChannel,
@@ -705,19 +705,34 @@ interface OperatorRow2 {
   telegram_chat_id: string | null;
 }
 
+/**
+ * Заявка не записалась — турист слышит это, а не «оператор свяжется» (§4.0).
+ * До 16.11 отказ записи глотался пустым catch, и бот всё равно отвечал
+ * «Спасибо! Оператор свяжется с вами в ближайшее время»: человек ждал звонка
+ * по заявке, которой нет.
+ */
+const LEAD_NOT_SAVED_TEXT =
+  'Заявку записать не удалось — сбой на нашей стороне. Напишите сюда ещё раз через несколько минут или оставьте заявку на сайте: https://vedarai.ru/contact';
+
+/**
+ * Заявка из телефона в чате бота. Возвращает, записана ли она: «оператор
+ * свяжется» говорится только по записанной. Отказ после записи (автоответ,
+ * письма операторам) заявку не отменяет — он назван в логе.
+ */
 async function createLeadFromBot(
   chatId: string,
   phoneText: string,
   interests: ExtractedInterests
-): Promise<void> {
-  try {
-    const phone = phoneText;
-    const interestList = interests.interests ?? [];
-    const comment = interestList.length > 0
-      ? `Интересы: ${interestList.join(', ')}${interests.dateFrom ? ` · Даты: ${interests.dateFrom} - ${interests.dateTo}` : ''}`
-      : 'Заявка с Telegram бота';
+): Promise<boolean> {
+  const phone = phoneText;
+  const interestList = interests.interests ?? [];
+  const comment = interestList.length > 0
+    ? `Интересы: ${interestList.join(', ')}${interests.dateFrom ? ` · Даты: ${interests.dateFrom} - ${interests.dateTo}` : ''}`
+    : 'Заявка с Telegram бота';
 
-    const leadId = await createLead({
+  let leadId: string | null;
+  try {
+    leadId = await createLead({
       name: 'Турист',
       phone,
       comment,
@@ -732,7 +747,14 @@ async function createLeadFromBot(
       },
       telegram_chat_id: chatId,
     });
+  } catch (err) {
+    logSwallowedFailure('telegram/webhook', 'запись заявки из телефона в чате бота', err);
+    return false;
+  }
+  // null — createLead сам назвал причину в логе.
+  if (!leadId) return false;
 
+  try {
     // ── 1. Автоответ туристу ───────────────────────────────────────────────
     const routes = interestList.length > 0
       ? await findRoutesByInterests(interestList, 2)
@@ -755,11 +777,11 @@ async function createLeadFromBot(
 
     touristLines.push('', 'Если вопросы — пишите прямо здесь, помогу 🙌');
 
-    await telegramService.sendMessage({
+    await logUndelivered('telegram/webhook', `ответ туристу о заявке ${leadId}`, telegramService.sendMessage({
       chatId,
       text: touristLines.join('\n'),
       parseMode: 'HTML',
-    }).catch(() => {});
+    }));
 
     // ── 2. Уведомление нужному оператору ──────────────────────────────────
     if (interestList.length > 0) {
@@ -811,9 +833,10 @@ async function createLeadFromBot(
     }
 
     // Уведомление админу отправлено автоматически через createLead()
-
   } catch (err) {
+    logSwallowedFailure('telegram/webhook', `уведомления по заявке ${leadId} из чата бота`, err);
   }
+  return true;
 }
 
 // ── Создание лида из Telegram /start lead flow ────────────────────────────────
@@ -823,9 +846,12 @@ async function createLeadFromTelegramFlow(
   telegramUserId: number,
   telegramUsername: string | null,
   message: string,
+  /** Блок 112 к ответу, если сообщение — о беде (тот же, что у Кузьмича). */
+  withSos: (reply: string) => string,
 ): Promise<void> {
+  let leadId: string | null;
   try {
-    const leadId = await createLead({
+    leadId = await createLead({
       name: firstName,
       phone: telegramUsername ? `@${telegramUsername}` : `tg:${telegramUserId}`,
       comment: message,
@@ -838,36 +864,52 @@ async function createLeadFromTelegramFlow(
       },
       telegram_chat_id: chatId,
     });
-    if (!leadId) return;
+  } catch (err) {
+    logSwallowedFailure('telegram/webhook', 'запись заявки после /start lead', err);
+    leadId = null;
+  }
+  // «Заявка принята» — только по записанной. До 16.11 это сообщение уходило
+  // до записи, а отказ записи глотался: человек ждал подборку «через 1–2
+  // минуты», которой не было, и заявки тоже.
+  if (!leadId) {
+    await sendHTML(chatId, withSos(LEAD_NOT_SAVED_TEXT));
+    return;
+  }
+  await sendHTML(chatId, withSos([
+    '✅ <b>Заявка принята!</b>',
+    '',
+    'Анализирую запрос, подбираю туры.',
+    'Пришлю предложение прямо сюда через 1–2 минуты.',
+  ].join('\n')));
 
-    // AI обработка — после завершения отвечаем туристу в ТГ
-    try {
-      const proposal = await leadProcessor.process(leadId);
-      const lines = [
-        `<b>${esc(proposal.headline)}</b>`,
-        '',
-        proposal.intent.activity_types.length > 0
-          ? `Направление: ${proposal.intent.activity_types.join(', ')}`
-          : '',
-        (proposal.intent.group_size ?? 0) > 1 ? `Группа: ${proposal.intent.group_size} чел.` : '',
-        proposal.intent.budget_rub ? `Бюджет: ~${(proposal.intent.budget_rub / 1000).toFixed(0)}к руб` : '',
-        proposal.intent.desired_dates ? `Даты: ${esc(proposal.intent.desired_dates)}` : '',
-        '',
-        proposal.primary_tour
-          ? `<b>Рекомендую:</b> ${esc(proposal.primary_tour.title)} — от ${proposal.primary_tour.price.toLocaleString('ru-RU')} руб/чел`
-          : '',
-        '',
-        `<i>${esc(proposal.intent.qualification_notes)}</i>`,
-        '',
-        'Менеджер свяжется с вами в ближайшее время для уточнения деталей.',
-      ].filter(Boolean).join('\n');
+  // AI обработка — после завершения отвечаем туристу в ТГ
+  try {
+    const proposal = await leadProcessor.process(leadId);
+    const lines = [
+      `<b>${esc(proposal.headline)}</b>`,
+      '',
+      proposal.intent.activity_types.length > 0
+        ? `Направление: ${proposal.intent.activity_types.join(', ')}`
+        : '',
+      (proposal.intent.group_size ?? 0) > 1 ? `Группа: ${proposal.intent.group_size} чел.` : '',
+      proposal.intent.budget_rub ? `Бюджет: ~${(proposal.intent.budget_rub / 1000).toFixed(0)}к руб` : '',
+      proposal.intent.desired_dates ? `Даты: ${esc(proposal.intent.desired_dates)}` : '',
+      '',
+      proposal.primary_tour
+        ? `<b>Рекомендую:</b> ${esc(proposal.primary_tour.title)} — от ${proposal.primary_tour.price.toLocaleString('ru-RU')} руб/чел`
+        : '',
+      '',
+      `<i>${esc(proposal.intent.qualification_notes)}</i>`,
+      '',
+      'Менеджер свяжется с вами в ближайшее время для уточнения деталей.',
+    ].filter(Boolean).join('\n');
 
-      await sendHTML(chatId, lines);
-    } catch {
-      // AI не отработал — уже отправили "принято", достаточно
-    }
-  } catch {
-    // Тихая ошибка
+    await logUndelivered('telegram/webhook', `подборка туристу по заявке ${leadId}`, telegramService.sendMessage({ chatId, text: lines, parseMode: 'HTML' }));
+  } catch (err) {
+    // Подборку обещали «через 1–2 минуты» — молчание читалось бы как
+    // «ещё жду». Заявка при этом записана, и админ о ней уже знает.
+    logSwallowedFailure('telegram/webhook', `подборка по заявке ${leadId}`, err);
+    await sendHTML(chatId, 'Подборку собрать не удалось. Заявка записана — её видит менеджер Ведара.');
   }
 }
 
@@ -1756,16 +1798,11 @@ async function deliverTelegramUpdate(update: TelegramUpdate): Promise<void> {
       const pendingLead = pendingLeadFlow.get(chatId);
       if (pendingLead) {
         pendingLeadFlow.delete(chatId);
-        await sendHTML(chatId, withSos([
-          '✅ <b>Заявка принята!</b>',
-          '',
-          'Анализирую запрос, подбираю туры.',
-          'Пришлю предложение прямо сюда через 1–2 минуты.',
-        ].join('\n')));
+        // «Заявка принята» отправляет сама запись — только по записанной.
         void createLeadFromTelegramFlow(
           chatId, pendingLead.firstName, fromId,
-          update.message?.from?.username ?? null, text
-        ).catch((err) => console.error('[tg webhook] createLeadFromTelegramFlow failed:', err));
+          update.message?.from?.username ?? null, text, withSos,
+        ).catch((err) => logSwallowedFailure('telegram/webhook', 'заявка после /start lead', err));
         return;
       }
 
@@ -1783,8 +1820,10 @@ async function deliverTelegramUpdate(update: TelegramUpdate): Promise<void> {
 
         if (lastIntests.interests && lastIntests.interests.length > 0) {
           // User responded with phone after seeing tours
-          await createLeadFromBot(chatId, phoneText, lastIntests);
-          await sendHTML(chatId, '✅ Спасибо! Оператор свяжется с вами в ближайшее время.');
+          const saved = await createLeadFromBot(chatId, phoneText, lastIntests);
+          await sendHTML(chatId, saved
+            ? '✅ Спасибо! Оператор свяжется с вами в ближайшее время.'
+            : LEAD_NOT_SAVED_TEXT);
           return;
         }
       }

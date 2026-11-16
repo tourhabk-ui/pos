@@ -8,6 +8,7 @@ import { requireAdmin } from '@/lib/auth/middleware';
 import { getSetting, setSetting } from '@/lib/platform-settings';
 import { z } from 'zod';
 import { canonicalWebhookUrl, setCanonicalWebhook } from '@/lib/telegram/operator-availability';
+import { logSwallowedFailure } from '@/lib/observability/swallowed';
 
 const TelegramSetupSchema = z.object({
   token: z.string().max(100).optional(),
@@ -55,7 +56,10 @@ export async function GET(request: NextRequest) {
   try {
     const data = await tgCall<{ url: string; pending_update_count: number; last_error_message?: string }>(token, 'getWebhookInfo');
     if (data.ok) webhook = data.result ?? null;
-  } catch { /* сервер не достучался до Telegram */ }
+  } catch (err) {
+    // webhook остаётся null: экран скажет «не зарегистрирован», а причина — в логе.
+    logSwallowedFailure('admin/telegram', 'чтение состояния вебхука', err);
+  }
 
   return NextResponse.json({ configured: true, token_source: source, token_tail: token.slice(-6), webhook, expected_url: canonicalWebhookUrl() });
 }
@@ -94,7 +98,9 @@ export async function POST(request: NextRequest) {
 
   // Сохраняем токен в БД если передан явно (не из env)
   if (body.token?.trim()) {
-    try { await setSetting('telegram_bot_token', token); } catch { /* не критично */ }
+    try { await setSetting('telegram_bot_token', token); } catch (err) {
+      logSwallowedFailure('admin/telegram', 'сохранение токена бота', err);
+    }
   }
 
   return NextResponse.json({ success: true, bot: me, webhook_url: webhookUrl });

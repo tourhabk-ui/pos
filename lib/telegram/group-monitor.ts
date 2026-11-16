@@ -16,6 +16,7 @@ import { agentMemory } from '@/lib/agents/memory/agent-memory';
 import { callAIFast } from '@/lib/ai/providers';
 import { redactPII } from '@/lib/security/pii-redact';
 import type { ChatMessage } from '@/lib/ai/prompts';
+import { logSwallowedFailure } from '@/lib/observability/swallowed';
 
 // ── Типы ──────────────────────────────────────────────────────────────────────
 
@@ -221,7 +222,8 @@ class GroupMonitorService {
       await this.updateGroupStats(chatId, chatTitle, messages.length);
 
     } catch (err) {
-      // Тихая ошибка — мониторинг не должен ронять webhook
+      // Мониторинг не должен ронять webhook, но отказ назван (§4.0).
+      logSwallowedFailure('telegram/group-monitor', 'разбор сообщений группы', err);
     }
   }
 
@@ -343,7 +345,7 @@ class GroupMonitorService {
             }),
           ]
         );
-      } catch { /* конфликт или ошибка схемы — продолжаем */ }
+      } catch (err) { logSwallowedFailure('telegram/group-monitor', 'запись знаний группы', err); }
     }
   }
 
@@ -369,7 +371,7 @@ class GroupMonitorService {
           expires_at:  new Date(Date.now() + 365 * 24 * 60 * 60 * 1000), // 1 год
         });
       }
-    } catch { /* тихая ошибка */ }
+    } catch (err) { logSwallowedFailure('telegram/group-monitor', 'реестр групп', err); }
   }
 
   private async updateGroupStats(chatId: string, chatTitle: string, newMessages: number): Promise<void> {
@@ -390,7 +392,7 @@ class GroupMonitorService {
           expires_at:  new Date(Date.now() + 365 * 24 * 60 * 60 * 1000),
         });
       }
-    } catch { /* тихая ошибка */ }
+    } catch (err) { logSwallowedFailure('telegram/group-monitor', 'счётчик группы', err); }
   }
 
   private flushStale(): void {

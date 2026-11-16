@@ -38,6 +38,7 @@ import { PlatformAgent } from '@/lib/agents';
 import { verifyWebhookSecret, refuseUnconfiguredWebhook } from '@/lib/telegram/webhook-secret';
 import { MCHS_DEADLINE_SHORT } from '@/lib/safety/mchs-registration';
 import { WIDGET_CHAT_PSEUDO_LEAD_SQL } from '@/lib/leads/widget-chat-pseudo';
+import { logSwallowedFailure } from '@/lib/observability/swallowed';
 
 const adminGetLimiter = createRateLimiter({ windowMs: 60_000, max: 5 });
 
@@ -69,7 +70,9 @@ async function saveAdminMessage(
       `INSERT INTO tg_conversations (chat_id, mode, role, content) VALUES ($1, 'admin', $2, $3)`,
       [chatId, role, content],
     );
-  } catch { /* таблица ещё не создана — не блокируем */ }
+  } catch (err) {
+    logSwallowedFailure('telegram/admin', 'запись истории админ-бота', err);
+  }
 }
 
 export const dynamic = 'force-dynamic';
@@ -79,11 +82,17 @@ export const dynamic = 'force-dynamic';
 async function reply(chatId: number, text: string): Promise<void> {
   const token = process.env.TELEGRAM_BOT_TOKEN;
   if (!token) return;
-  await fetch(`${process.env.TELEGRAM_API_BASE||'https://api.telegram.org'}/bot${token}/sendMessage`, {
-    method: 'POST',
-    headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify({ chat_id: chatId, text, parse_mode: 'HTML', disable_web_page_preview: true }),
-  }).catch(() => {});
+  try {
+    const res = await fetch(`${process.env.TELEGRAM_API_BASE||'https://api.telegram.org'}/bot${token}/sendMessage`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ chat_id: chatId, text, parse_mode: 'HTML', disable_web_page_preview: true }),
+    });
+    // Telegram отвечает 400 (битая разметка), не бросая: ответ владельцу пропал бы молча.
+    if (!res.ok) logSwallowedFailure('telegram/admin', 'ответ владельцу в админ-боте', new Error(`HTTP ${res.status}`));
+  } catch (err) {
+    logSwallowedFailure('telegram/admin', 'ответ владельцу в админ-боте', err);
+  }
 }
 
 // ── Platform stats ────────────────────────────────────────────────────────────
@@ -721,7 +730,11 @@ export async function POST(request: NextRequest): Promise<NextResponse> {
     } else {
       await handleFreeText(text, ownerId);
     }
-  } catch { /* silent */ }
+  } catch (err) {
+    // Telegram повторяет апдейт при не-200, поэтому ответ — 200, но отказ
+    // назван: до 16.11 команда владельца без ответа не оставляла следа.
+    logSwallowedFailure('telegram/admin', 'команда владельца в админ-боте', err);
+  }
 
   return NextResponse.json({ ok: true });
 }

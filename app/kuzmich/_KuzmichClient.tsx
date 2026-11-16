@@ -1,6 +1,7 @@
 'use client';
 
 import { isImeKeyEvent } from '@/lib/ui/ime';
+import { reportClientError } from '@/lib/client-errors/report';
 import { PdConsentCheckbox } from '@/components/legal/PdConsentCheckbox';
 import ChatText from '@/components/kuzmich/ChatText';
 import { useState, useRef, useEffect, useCallback, useId } from 'react';
@@ -346,7 +347,9 @@ export default function KuzmichClient() {
         const visible = msgs.filter(m => m.role === 'user' || m.role === 'assistant');
         if (visible.length > 0) setMessages(visible as Message[]);
       })
-      .catch(() => {});
+      // История не загрузилась — чат начинается с чистого листа, а отказ уходит
+      // в ловушку ошибок, а не глотается (§4.0).
+      .catch((err: unknown) => reportClientError('error', err));
   }, []);
 
   useEffect(() => {

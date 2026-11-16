@@ -19,6 +19,7 @@ import {
   META_APP_SECRET_ENV, META_SIGNATURE_HEADER, metaHandshakeOk, verifyMetaSignature,
 } from '@/lib/meta/webhook-signature';
 import { refuseUnconfiguredWebhook } from '@/lib/telegram/webhook-secret';
+import { logSwallowedFailure } from '@/lib/observability/swallowed';
 
 export const dynamic = 'force-dynamic';
 
@@ -38,19 +39,26 @@ async function sendWhatsApp(to: string, text: string): Promise<void> {
   const token   = process.env.WHATSAPP_ACCESS_TOKEN;
   if (!phoneId || !token) return;
 
-  await fetch(`https://graph.facebook.com/v19.0/${phoneId}/messages`, {
-    method: 'POST',
-    headers: {
-      'Content-Type': 'application/json',
-      Authorization: `Bearer ${token}`,
-    },
-    body: JSON.stringify({
-      messaging_product: 'whatsapp',
-      to,
-      type: 'text',
-      text: { body: text.slice(0, 4096) },
-    }),
-  }).catch(() => { /* не блокируем */ });
+  // Номер получателя в лог не идёт: это телефон человека.
+  try {
+    const res = await fetch(`https://graph.facebook.com/v19.0/${phoneId}/messages`, {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+        Authorization: `Bearer ${token}`,
+      },
+      body: JSON.stringify({
+        messaging_product: 'whatsapp',
+        to,
+        type: 'text',
+        text: { body: text.slice(0, 4096) },
+      }),
+    });
+    // Graph API отвечает 4xx (истёк токен, закрылось окно 24 часов), не бросая.
+    if (!res.ok) logSwallowedFailure('whatsapp/kuzmich', 'ответ человеку в WhatsApp', new Error(`HTTP ${res.status}`));
+  } catch (err) {
+    logSwallowedFailure('whatsapp/kuzmich', 'ответ человеку в WhatsApp', err);
+  }
 }
 
 async function downloadWhatsAppMedia(mediaId: string): Promise<{ base64: string; mimeType: string } | null> {

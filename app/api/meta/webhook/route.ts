@@ -23,6 +23,7 @@ import {
   META_APP_SECRET_ENV, META_SIGNATURE_HEADER, metaHandshakeOk, verifyMetaSignature,
 } from '@/lib/meta/webhook-signature';
 import { refuseUnconfiguredWebhook } from '@/lib/telegram/webhook-secret';
+import { logSwallowedFailure } from '@/lib/observability/swallowed';
 
 export const dynamic = 'force-dynamic';
 
@@ -35,16 +36,22 @@ async function sendMetaMessage(recipientId: string, text: string): Promise<void>
   const token = process.env.META_PAGE_ACCESS_TOKEN;
   if (!token) return;
 
-  await fetch('https://graph.facebook.com/v19.0/me/messages', {
-    method: 'POST',
-    headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify({
-      recipient: { id: recipientId },
-      message: { text: text.slice(0, 2000) },
-      access_token: token,
-    }),
-    signal: AbortSignal.timeout(10_000),
-  }).catch(() => { /* не блокируем ответ */ });
+  try {
+    const res = await fetch('https://graph.facebook.com/v19.0/me/messages', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        recipient: { id: recipientId },
+        message: { text: text.slice(0, 2000) },
+        access_token: token,
+      }),
+      signal: AbortSignal.timeout(10_000),
+    });
+    // Graph API отвечает 4xx (истёк токен страницы), не бросая.
+    if (!res.ok) logSwallowedFailure('meta/webhook', 'ответ человеку в Messenger', new Error(`HTTP ${res.status}`));
+  } catch (err) {
+    logSwallowedFailure('meta/webhook', 'ответ человеку в Messenger', err);
+  }
 }
 
 // ── GET: webhook verification ─────────────────────────────────────────

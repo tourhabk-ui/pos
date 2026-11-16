@@ -3,6 +3,8 @@
 // Kamchatour Hub - Telegram Notification Service
 // =============================================
 
+import { logSwallowedFailure } from '@/lib/observability/swallowed';
+
 interface TelegramMessage {
   chatId: string;
   text: string;
@@ -319,7 +321,7 @@ ${trip.feedback ? `  <b>Отзыв:</b> ${trip.feedback}` : ''}
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({ callback_query_id: callbackQueryId, text: text ?? '' }),
-    }).catch(() => { /* не прерываем при ошибке */ });
+    }).catch((err: unknown) => logSwallowedFailure('notify/telegram', 'ответ на нажатие кнопки', err));
   }
 
   // Получение информации о боте
