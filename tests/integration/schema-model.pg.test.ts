@@ -187,6 +187,23 @@ withPg('объектив схемы на настоящем PostgreSQL', () => {
     });
   });
 
+  it('миграция 1454: образец сообщений Telegram-группы снят из советов туристов, остальное на месте (ревью #3460)', async () => {
+    const SQL = readFileSync(join(process.cwd(), 'migrations/1454_group_tips_sample_withdrawn.sql'), 'utf-8');
+    await pool.query(`INSERT INTO kamchatka_routes (dedupe_key, slug, title, category, metadata, is_visible) VALUES
+      ('tg_tip_1454_a', 'tg-tip-1454-a', 'Тест — советы туристов', 'tourist_tip',
+       '{"source":"telegram_group","group_id":"-1","tips":["брать бахилы"],"sample":["Тест: звоните +70000000000"]}', false),
+      ('tg_tip_1454_b', 'tg-tip-1454-b', 'Тест — чужой источник', 'tourist_tip',
+       '{"source":"other","sample":["не наш ключ"]}', false)`);
+    await pool.query(SQL);
+    await pool.query(SQL); // повтор без вреда
+    const { rows } = await pool.query<{ dedupe_key: string; metadata: Record<string, unknown> }>(
+      `SELECT dedupe_key, metadata FROM kamchatka_routes WHERE dedupe_key LIKE 'tg_tip_1454_%' ORDER BY dedupe_key`);
+    expect(rows).toEqual([
+      { dedupe_key: 'tg_tip_1454_a', metadata: { source: 'telegram_group', group_id: '-1', tips: ['брать бахилы'] } },
+      { dedupe_key: 'tg_tip_1454_b', metadata: { source: 'other', sample: ['не наш ключ'] } },
+    ]);
+  });
+
   /**
    * Миграция 1441: находки объектива, записанные до его починки, уходят из
    * очереди — и только они. Шаблон базы миграцию уже накатил (на пустой

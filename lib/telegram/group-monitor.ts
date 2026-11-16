@@ -336,7 +336,9 @@ class GroupMonitorService {
               routes:        intel.routes_mentioned,
               conditions:    intel.conditions,
               tips:          intel.traveler_tips,
-              sample:        messages.slice(-3).map(m => `${m.from}: ${m.text.slice(0, 100)}`),
+              // Образца сообщений здесь больше нет (#3433, ревью #3460): он
+              // хранил подписи и телефоны людей из группы как есть, а читателя
+              // у metadata.sample не было. Уже записанные сняла миграция 1454.
               collected_at:  new Date().toISOString(),
             }),
           ]

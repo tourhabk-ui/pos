@@ -69,7 +69,14 @@ describe('контекст горячего сигнала в agent_memory — �
 
   it('запись горячего сигнала собирает context этой функцией, а не сырым шаблоном', () => {
     expect(CODE).toMatch(/context:\s*hotSignalContext\(messages\)/);
-    expect(CODE).not.toMatch(/\$\{m\.from\}:\s*\$\{m\.text\}/);
+  });
+
+  it('ни одна интерполяция подписи или текста сообщения не идёт мимо redactPII (ревью #3460)', () => {
+    // Запрет, а не образец: `${m.from`, `${m.text…` в любом виде — с .slice,
+    // в квадратных скобках, в metadata маршрута. Чистая форма —
+    // `${redactPII(m.text)}`, под это правило она не попадает.
+    expect(CODE).not.toMatch(/\$\{\s*m\.(?:from|text)\b/);
+    expect(CODE).not.toMatch(/sample:\s*messages/);
   });
 });
 
