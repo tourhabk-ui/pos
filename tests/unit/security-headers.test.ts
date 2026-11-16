@@ -74,9 +74,41 @@ describe('CSP без лишних чужих источников скрипто
   // unpkg.com стоял в script-src и style-src с давних времён, хотя ни один
   // скрипт и стиль сайта с него не грузится (аудит 09.11, снят 16.11 словом
   // владельца «карт-бланш»). Лишний источник в script-src — лишняя дверь для
-  // чужого кода. Регулярка здесь только запрещает.
-  it('unpkg.com нет ни в next.config.js, ни в middleware.ts', () => {
-    expect(config).not.toMatch(/https:\/\/unpkg\.com/);
-    expect(mw).not.toMatch(/https:\/\/unpkg\.com/);
+  // чужого кода.
+  //
+  // Судится не текст файла, а сами источники политики: значения CSP из
+  // next.config.js и строки директив из middleware.ts разбираются на токены.
+  // Хост в CSP сравнивается без учёта регистра, схема необязательна, бывает
+  // `*.` и порт — поэтому `unpkg.com`, `*.unpkg.com`, `HTTPS://unpkg.com` и
+  // `unpkg.com:443` запрещены так же, как `https://unpkg.com` (находка ревью
+  // безопасности к #3438: первая редакция ловила только последний).
+  const UNPKG = /^(?:[a-z][a-z0-9+.-]*:)?(?:\/\/)?(?:\*\.)?unpkg\.com(?::\d+)?(?:\/\S*)?$/i;
+
+  /** Источники всех директив CSP: из next.config.js и из middleware.ts. */
+  function cspTokens(): string[] {
+    const values = [...config.matchAll(/key: 'Content-Security-Policy', value: `([^`]+)`/g)].map((m) => m[1]!);
+    const mwDirectives = [...mw.matchAll(/const \w+Src = "([^"]+)";/g)].map((m) => m[1]!);
+    return [...values, ...mwDirectives]
+      .flatMap((v) => v.split(/[;\s]+/))
+      .filter(Boolean);
+  }
+
+  it('источники найдены в обоих местах — сторож не пустой', () => {
+    const tokens = cspTokens();
+    expect(tokens).toContain("'self'");
+    expect(tokens.filter((t) => t === 'https://mc.yandex.ru').length, 'Метрика есть и в next.config.js, и в middleware.ts').toBeGreaterThanOrEqual(2);
+  });
+
+  it('распознаватель ловит все формы хоста', () => {
+    for (const t of ['https://unpkg.com', 'unpkg.com', '*.unpkg.com', 'https://*.unpkg.com', 'HTTPS://UNPKG.COM', 'http://unpkg.com', 'unpkg.com:443', 'https://unpkg.com/leaflet@1.9.4/']) {
+      expect(UNPKG.test(t), t).toBe(true);
+    }
+    for (const t of ['https://mc.yandex.ru', "'self'", 'https:', 'blob:', 'https://notunpkg.com']) {
+      expect(UNPKG.test(t), t).toBe(false);
+    }
+  });
+
+  it('unpkg.com нет ни в одной директиве CSP', () => {
+    expect(cspTokens().filter((t) => UNPKG.test(t))).toEqual([]);
   });
 });
