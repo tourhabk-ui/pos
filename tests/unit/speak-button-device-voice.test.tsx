@@ -1,23 +1,24 @@
 // @vitest-environment jsdom
 /**
- * «Озвучить»: голос Ведара не ответил — читает голос телефона, и это сказано
- * (слово владельца 15.11 «голос не работает»).
+ * «Озвучить»: читает голос телефона — первым, без запроса на сервер.
  *
- * Проверка прода 189 в тот день: обе модели голоса Qwen — 403
- * `AllocationQuota.FreeTierOnly`, сервер отвечал кнопке 502, и человек слышал
- * тишину со строкой «Не удалось озвучить ответ».
+ * Слово владельца 15.11, утром — «голос не работает»: обе модели голоса Qwen
+ * отвечали 403 `AllocationQuota.FreeTierOnly`, и голос телефона стал запасным.
+ * Вечером того же дня, послушав голос DeepSeek, — «голос лучше телефона,
+ * диипсиик кринж»: голос телефона стал первым, DeepSeek снят.
  *
  * Сторож — рендером кнопки с подменой сети и синтеза речи телефона:
- *  - 502/503/429 и сеть не дошла — читает русский голос телефона, строка
- *    называет его; «Остановить» и конец фразы возвращают кнопку;
- *  - 400 — голос телефона не берётся: сервер текст не принял;
- *  - русского голоса нет, а без сети — только сетевой: честное «не удалось»;
- *  - голос Ведара ответил — голос телефона не говорит.
+ *  - есть русский голос — он читает, сервер не зовётся, слов о «недоступном
+ *    голосе Ведара» нет; «Остановить» и конец фразы возвращают кнопку;
+ *  - без сети читает локальный русский голос;
+ *  - русского голоса нет — голос просится у сервера; сервер отказал — его
+ *    слова видны, а не тишина;
+ *  - русского голоса нет и сети нет — «нет сети», сервер не зовётся.
  */
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
 import React from 'react';
 import { render, screen, cleanup, fireEvent, waitFor, act } from '@testing-library/react';
-import SpeakButton, { DEVICE_VOICE_NOTE, SPEAK_FAILED_NOTE, TRUNCATED_NOTE } from '@/components/kuzmich/SpeakButton';
+import SpeakButton, { SPEAK_FAILED_NOTE, TRUNCATED_NOTE } from '@/components/kuzmich/SpeakButton';
 import { pickRussianVoice } from '@/lib/kuzmich/device-voice';
 import { SPEECH_MAX_CHARS } from '@/lib/ai/speech-text';
 
@@ -74,35 +75,46 @@ afterEach(() => {
   Reflect.deleteProperty(window, 'speechSynthesis');
 });
 
-describe('голос Ведара не ответил — читает голос телефона', () => {
-  it.each([502, 503, 429])('сервер %i: русский голос телефона читает ответ без разметки и адресов, строка называет голос', async (status) => {
-    serverAnswers(status, 'Не удалось озвучить ответ. Текст остаётся на экране.');
-    render(<SpeakButton text={ANSWER} />);
-    fireEvent.click(screen.getByRole('button', { name: 'Озвучить ответ' }));
+function serverAudio() {
+  vi.stubGlobal('fetch', vi.fn().mockResolvedValue(
+    new Response(new Uint8Array(2000), { status: 200, headers: { 'content-type': 'audio/wav', 'X-Speech-Truncated': '0' } }),
+  ));
+  vi.stubGlobal('URL', Object.assign(URL, { createObjectURL: vi.fn(() => 'blob:x'), revokeObjectURL: vi.fn() }));
+}
 
-    await screen.findByText(DEVICE_VOICE_NOTE);
+function press() {
+  fireEvent.click(screen.getByRole('button', { name: 'Озвучить ответ' }));
+}
+
+describe('голос телефона читает первым', () => {
+  it('русский голос телефона читает ответ без разметки и адресов, сервер не зовётся', async () => {
+    serverAudio();
+    render(<SpeakButton text={ANSWER} />);
+    press();
+
+    await screen.findByRole('button', { name: 'Остановить озвучку ответа' });
     const [u] = spoken();
     expect(spoken()).toHaveLength(1);
     expect(u!.text).toBe('Авачинский вулкан открыт. Экстренный вызов — 112. Подробнее:');
     expect(u!.voice).toBe(RU_LOCAL);
     expect(u!.lang).toBe('ru-RU');
-    expect(screen.getByRole('button', { name: 'Остановить озвучку ответа' })).toBeTruthy();
+    expect(fetch).not.toHaveBeenCalled();
+    // Голос телефона — основной: слов о «недоступном голосе» нет.
+    expect(screen.queryByRole('status')).toBeNull();
   });
 
   it('конец фразы возвращает кнопку «Озвучить»', async () => {
-    serverAnswers(502);
     render(<SpeakButton text={ANSWER} />);
-    fireEvent.click(screen.getByRole('button', { name: 'Озвучить ответ' }));
-    await screen.findByText(DEVICE_VOICE_NOTE);
+    press();
+    await screen.findByRole('button', { name: 'Остановить озвучку ответа' });
     act(() => { spoken()[0]!.onend?.(); });
     expect(screen.getByRole('button', { name: 'Озвучить ответ' })).toBeTruthy();
   });
 
   it('«Остановить» глушит голос телефона', async () => {
-    serverAnswers(502);
     render(<SpeakButton text={ANSWER} />);
-    fireEvent.click(screen.getByRole('button', { name: 'Озвучить ответ' }));
-    await screen.findByText(DEVICE_VOICE_NOTE);
+    press();
+    await screen.findByRole('button', { name: 'Остановить озвучку ответа' });
     synth.cancel.mockClear();
     fireEvent.click(screen.getByRole('button', { name: 'Остановить озвучку ответа' }));
     expect(synth.cancel).toHaveBeenCalled();
@@ -112,66 +124,84 @@ describe('голос Ведара не ответил — читает голо�
     expect(screen.queryByText(SPEAK_FAILED_NOTE)).toBeNull();
   });
 
-  it('сеть не дошла — читает локальный русский голос', async () => {
-    vi.stubGlobal('fetch', vi.fn().mockRejectedValue(new TypeError('Failed to fetch')));
-    online = false;
+  it('поломка голоса телефона посреди фразы — «не удалось», а не тишина', async () => {
     render(<SpeakButton text={ANSWER} />);
-    fireEvent.click(screen.getByRole('button', { name: 'Озвучить ответ' }));
-    await screen.findByText(DEVICE_VOICE_NOTE);
+    press();
+    await screen.findByRole('button', { name: 'Остановить озвучку ответа' });
+    act(() => { spoken()[0]!.onerror?.({ error: 'synthesis-failed' }); });
+    expect(screen.getByText(SPEAK_FAILED_NOTE)).toBeTruthy();
+  });
+
+  it('без сети читает локальный русский голос', async () => {
+    serverAudio();
+    online = false;
+    voices = [RU_NETWORK, RU_LOCAL];
+    render(<SpeakButton text={ANSWER} />);
+    press();
+    await screen.findByRole('button', { name: 'Остановить озвучку ответа' });
     expect(spoken()[0]!.voice).toBe(RU_LOCAL);
+    expect(fetch).not.toHaveBeenCalled();
   });
 
   it('длинный ответ: читается начало, и это признано', async () => {
-    serverAnswers(503);
     const long = Array.from({ length: 80 }, (_, i) => `Предложение номер ${i + 1} про маршрут.`).join(' ');
     render(<SpeakButton text={long} />);
-    fireEvent.click(screen.getByRole('button', { name: 'Озвучить ответ' }));
-    await screen.findByText(`${DEVICE_VOICE_NOTE} ${TRUNCATED_NOTE}`);
+    press();
+    await screen.findByText(TRUNCATED_NOTE);
     expect(spoken()[0]!.text.length).toBeLessThanOrEqual(SPEECH_MAX_CHARS);
   });
 });
 
-describe('когда голос телефона не берётся', () => {
-  it('сервер 400 — запрос неверен, телефон не читает', async () => {
-    serverAnswers(400, 'Нечего озвучивать');
-    render(<SpeakButton text={ANSWER} />);
-    fireEvent.click(screen.getByRole('button', { name: 'Озвучить ответ' }));
-    await screen.findByText('Нечего озвучивать');
-    expect(spoken()).toHaveLength(0);
-  });
-
-  it('русского голоса на телефоне нет — честное «не удалось»', async () => {
+describe('русского голоса на телефоне нет — голос у сервера', () => {
+  it('сервер ответил звуком — играет он', async () => {
     voices = [EN_LOCAL];
-    serverAnswers(502);
-    render(<SpeakButton text={ANSWER} />);
-    fireEvent.click(screen.getByRole('button', { name: 'Озвучить ответ' }));
-    await screen.findByText(SPEAK_FAILED_NOTE);
-    expect(spoken()).toHaveLength(0);
-  });
-
-  it('без сети только сетевой русский голос — он молчал бы, не берётся', async () => {
-    voices = [RU_NETWORK];
-    online = false;
-    vi.stubGlobal('fetch', vi.fn().mockRejectedValue(new TypeError('Failed to fetch')));
-    render(<SpeakButton text={ANSWER} />);
-    fireEvent.click(screen.getByRole('button', { name: 'Озвучить ответ' }));
-    await screen.findByText('Нет сети — озвучка недоступна, текст на экране.');
-    expect(spoken()).toHaveLength(0);
-  });
-
-  it('голос Ведара ответил — телефон не говорит', async () => {
-    vi.stubGlobal('fetch', vi.fn().mockResolvedValue(
-      new Response(new Uint8Array(2000), { status: 200, headers: { 'content-type': 'audio/wav', 'X-Speech-Truncated': '0' } }),
-    ));
-    vi.stubGlobal('URL', Object.assign(URL, { createObjectURL: vi.fn(() => 'blob:x'), revokeObjectURL: vi.fn() }));
+    serverAudio();
     const play = vi.spyOn(window.HTMLMediaElement.prototype, 'play').mockResolvedValue(undefined);
     render(<SpeakButton text={ANSWER} />);
-    fireEvent.click(screen.getByRole('button', { name: 'Озвучить ответ' }));
+    press();
     await waitFor(() => expect(play).toHaveBeenCalled());
     await screen.findByRole('button', { name: 'Остановить озвучку ответа' });
+    expect(fetch).toHaveBeenCalledWith('/api/ai/speak', expect.objectContaining({ method: 'POST' }));
     expect(spoken()).toHaveLength(0);
-    expect(screen.queryByText(DEVICE_VOICE_NOTE)).toBeNull();
     play.mockRestore();
+  });
+
+  it('синтеза речи в браузере нет вовсе — тоже сервер', async () => {
+    Reflect.deleteProperty(window, 'speechSynthesis');
+    serverAudio();
+    const play = vi.spyOn(window.HTMLMediaElement.prototype, 'play').mockResolvedValue(undefined);
+    render(<SpeakButton text={ANSWER} />);
+    press();
+    await waitFor(() => expect(play).toHaveBeenCalled());
+    play.mockRestore();
+  });
+
+  it.each([502, 503, 429])('сервер %i — его слова видны', async (status) => {
+    voices = [EN_LOCAL];
+    serverAnswers(status, 'Голос сейчас недоступен. Текст остаётся на экране.');
+    render(<SpeakButton text={ANSWER} />);
+    press();
+    await screen.findByText('Голос сейчас недоступен. Текст остаётся на экране.');
+    expect(spoken()).toHaveLength(0);
+  });
+
+  it('сеть не дошла — честное «не удалось»', async () => {
+    voices = [EN_LOCAL];
+    vi.stubGlobal('fetch', vi.fn().mockRejectedValue(new TypeError('Failed to fetch')));
+    render(<SpeakButton text={ANSWER} />);
+    press();
+    await screen.findByText(SPEAK_FAILED_NOTE);
+  });
+
+  it('без сети только сетевой русский голос — он молчал бы; сервер не зовётся', async () => {
+    voices = [RU_NETWORK];
+    online = false;
+    serverAudio();
+    render(<SpeakButton text={ANSWER} />);
+    press();
+    await screen.findByText('Нет сети — озвучка недоступна, текст на экране.');
+    expect(spoken()).toHaveLength(0);
+    expect(fetch).not.toHaveBeenCalled();
   });
 });
 

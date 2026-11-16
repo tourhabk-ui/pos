@@ -16,16 +16,14 @@ import { readFileSync } from 'node:fs';
 import { join } from 'node:path';
 import { NextRequest } from 'next/server';
 
-const { getQwenConfig, logSpeechUsage, logProviderPricedUsage } = vi.hoisted(() => ({
+const { getQwenConfig, logSpeechUsage } = vi.hoisted(() => ({
   getQwenConfig: vi.fn(),
   logSpeechUsage: vi.fn(),
-  logProviderPricedUsage: vi.fn(),
 }));
-vi.mock('@/lib/ai/providers', () => ({ getQwenConfig, logSpeechUsage, logProviderPricedUsage }));
+vi.mock('@/lib/ai/providers', () => ({ getQwenConfig, logSpeechUsage }));
 
 import {
   pickSpeechModel, prepareSpeechText, synthesizeSpeech, resetSpeechCatalogCache, SPEECH_MAX_CHARS,
-  DEEPSEEK_TTS_URL, DEEPSEEK_TTS_USD_PER_CHAR,
 } from '@/lib/ai/tts';
 import { POST, resetSpeakDailyCounter, DEFAULT_DAILY_MAX } from '@/app/api/ai/speak/route';
 import { PUBLIC_API_ROUTES } from '@/lib/auth/public-api-routes';
@@ -78,11 +76,7 @@ const speakReq = (text: unknown, ip = `10.0.0.${++ipSeq}`) => new NextRequest('h
 beforeEach(() => {
   fetchMock.mockReset();
   logSpeechUsage.mockReset().mockResolvedValue(true);
-  logProviderPricedUsage.mockReset().mockResolvedValue(undefined);
   vi.stubGlobal('fetch', fetchMock);
-  // Без ключа DeepSeek синтез идёт сразу к Qwen — так устроены тесты Qwen ниже.
-  vi.stubEnv('DEEPSEEK_API_KEY', '');
-  vi.stubEnv('DEEPSEEK_TTS_VOICE', '');
   getQwenConfig.mockReturnValue({ apiKey: 'sk-test', base: COMPAT, model: 'qwen-plus' });
   resetSpeechCatalogCache();
   resetSpeakDailyCounter();
@@ -183,89 +177,6 @@ describe('синтез: три исхода', () => {
     happyProvider(48_000, undefined);
     await synthesizeSpeech('Проверка');
     expect(console.error).toHaveBeenCalledWith(expect.stringContaining('расход не записан'), 'qwen3-tts-flash');
-  });
-});
-
-describe('голос DeepSeek первым, Qwen — запасным (слово владельца 15.11 «1б»)', () => {
-  const dsCalls = () => fetchMock.mock.calls.filter(([u]) => String(u) === DEEPSEEK_TTS_URL);
-  const dsBody = (i = 0) => JSON.parse(String(dsCalls()[i]?.[1]?.body)) as { text: string; voice_id: string; format: string };
-  /** DeepSeek отвечает так, как задано; Qwen — счастливый путь. */
-  function deepseek(answer: () => Response) {
-    route((url) => {
-      if (url === DEEPSEEK_TTS_URL) return answer();
-      if (url.endsWith('/models')) return json({ data: PROD_TTS_CATALOG.map((id) => ({ id })) });
-      if (url.includes('multimodal-generation')) return json({ output: { audio: { url: 'http://oss.example/a.wav' } }, usage: { input_tokens: 3, output_tokens: 40 } });
-      if (url === 'http://oss.example/a.wav') return wav(30_000);
-      throw new Error(`непредусмотренный адрес ${url}`);
-    });
-  }
-  beforeEach(() => { vi.stubEnv('DEEPSEEK_API_KEY', 'sk-deepseek-test'); });
-
-  it('ключ есть — звук от DeepSeek голосом stella, Qwen не зовётся, расход по прайсу в книгах', async () => {
-    deepseek(() => wav(60_000));
-    const text = 'Авачинский вулкан открыт. Экстренный вызов — 112.';
-    const r = await synthesizeSpeech(text);
-    expect(r).toMatchObject({ status: 'ok', model: 'deepseek-tts:stella', contentType: 'audio/wav' });
-    if (r.status === 'ok') expect(r.audio.byteLength).toBe(60_000);
-    expect(dsBody()).toEqual({ text, voice_id: 'stella', format: 'wav' });
-    expect(String(dsCalls()[0]?.[1]?.headers && JSON.stringify(dsCalls()[0]?.[1]?.headers))).toContain('Bearer sk-deepseek-test');
-    expect(synthCalls()).toHaveLength(0);
-    expect(logProviderPricedUsage).toHaveBeenCalledWith('deepseek-tts:stella', text.length, 0, text.length * DEEPSEEK_TTS_USD_PER_CHAR);
-  });
-
-  it('голос задаётся env из двух прослушанных; чужое имя — stella', async () => {
-    deepseek(() => wav(60_000));
-    vi.stubEnv('DEEPSEEK_TTS_VOICE', 'tide');
-    await synthesizeSpeech('Проверка');
-    expect(dsBody(0).voice_id).toBe('tide');
-    vi.stubEnv('DEEPSEEK_TTS_VOICE', 'robot');
-    await synthesizeSpeech('Проверка');
-    expect(dsBody(1).voice_id).toBe('stella');
-  });
-
-  it('DeepSeek отказал — звук от Qwen, расход DeepSeek не записан', async () => {
-    deepseek(() => new Response('{"error":"rate limited"}', { status: 429 }));
-    const r = await synthesizeSpeech('Проверка');
-    expect(r).toMatchObject({ status: 'ok', model: 'qwen3-tts-flash' });
-    expect(dsCalls()).toHaveLength(1);
-    expect(synthCalls()).toHaveLength(1);
-    expect(logProviderPricedUsage).not.toHaveBeenCalled();
-  });
-
-  it('DeepSeek отдал пустышку — не голос, дальше Qwen', async () => {
-    deepseek(() => wav(40));
-    expect(await synthesizeSpeech('Проверка')).toMatchObject({ status: 'ok', model: 'qwen3-tts-flash' });
-  });
-
-  it('оба отказали — refused, причина называет обоих', async () => {
-    route((url) => {
-      if (url === DEEPSEEK_TTS_URL) return new Response('{"error":"bad voice"}', { status: 400 });
-      if (url.endsWith('/models')) return json({ data: PROD_TTS_CATALOG.map((id) => ({ id })) });
-      return new Response('{"code":"AllocationQuota.FreeTierOnly"}', { status: 403 });
-    });
-    const r = await synthesizeSpeech('Проверка');
-    expect(r.status).toBe('refused');
-    if (r.status !== 'ok') {
-      expect(r.reason).toContain('DeepSeek: HTTP 400');
-      expect(r.reason).toContain('Qwen: HTTP 403');
-    }
-  });
-
-  it('сеть к DeepSeek не дошла, у Qwen нет ключа — unavailable, а не refused', async () => {
-    getQwenConfig.mockReturnValue({ apiKey: null, base: COMPAT, model: 'qwen-plus' });
-    route(() => { throw new TypeError('fetch failed'); });
-    const r = await synthesizeSpeech('Проверка');
-    expect(r.status).toBe('unavailable');
-    if (r.status !== 'ok') expect(r.reason).toMatch(/DeepSeek: fetch failed; Qwen: DASHSCOPE_API_KEY не задан/);
-  });
-
-  it('роут /api/ai/speak отдаёт звук DeepSeek', async () => {
-    deepseek(() => wav(60_000));
-    const res = await POST(speakReq('Авачинский вулкан открыт.'));
-    expect(res.status).toBe(200);
-    expect(res.headers.get('content-type')).toBe('audio/wav');
-    expect((await res.arrayBuffer()).byteLength).toBe(60_000);
-    expect(synthCalls()).toHaveLength(0);
   });
 });
 

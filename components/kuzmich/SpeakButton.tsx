@@ -10,9 +10,11 @@
  *
  * Одновременно звучит один ответ: новая озвучка останавливает прежнюю.
  *
- * Голос Ведара не ответил (отказ провайдера, нет сети, потолок озвучек) —
- * читает голос телефона, и кнопка говорит об этом словами
- * (`lib/kuzmich/device-voice.ts`, слово владельца 15.11 «голос не работает»).
+ * Читает голос телефона — первым, без запроса на сервер (слово владельца
+ * 15.11: «голос лучше телефона», голос DeepSeek — «кринж»). Он бесплатный,
+ * отвечает сразу, а локальный голос работает и без сети
+ * (`lib/kuzmich/device-voice.ts`). Русского голоса на устройстве нет —
+ * просим голос у сервера (`/api/ai/speak`); не ответил и он — «не удалось».
  */
 
 import { useEffect, useRef, useState } from 'react';
@@ -22,17 +24,8 @@ import { loadDeviceVoices, pickRussianVoice } from '@/lib/kuzmich/device-voice';
 
 type SpeakState = 'idle' | 'loading' | 'playing' | 'error';
 
-/** Голос телефона читает вместо голоса Ведара — так и сказано. */
-export const DEVICE_VOICE_NOTE = 'Голос Ведара сейчас недоступен — читает голос вашего телефона.';
 export const TRUNCATED_NOTE = 'Озвучено начало ответа — полностью он на экране.';
 export const SPEAK_FAILED_NOTE = 'Не удалось озвучить ответ. Текст остаётся на экране.';
-
-/**
- * Ответы сервера, после которых пробуем голос телефона: потолок озвучек (429),
- * отказ провайдера (502), голоса нет (503). На 400 — нет: запрос неверен, и
- * голос телефона прочёл бы то, что сервер читать не стал.
- */
-const DEVICE_FALLBACK_STATUSES = new Set([429, 502, 503]);
 
 function deviceSynth(): SpeechSynthesis | null {
   if (typeof window === 'undefined' || !('speechSynthesis' in window)) return null;
@@ -72,8 +65,8 @@ export default function SpeakButton({ text }: { text: string }) {
   }, []);
 
   /**
-   * Голос телефона вместо голоса Ведара. false — его нет (нет синтеза, нет
-   * русского голоса, без сети только сетевой голос) или нажали «Остановить».
+   * Голос телефона. false — его нет (нет синтеза, нет русского голоса, без
+   * сети только сетевой голос), нечего читать или нажали «Остановить».
    */
   async function speakOnDevice(signal: AbortSignal): Promise<boolean> {
     const synth = deviceSynth();
@@ -100,7 +93,7 @@ export default function SpeakButton({ text }: { text: string }) {
     synth.cancel();
     deviceRef.current = true;
     synth.speak(utterance);
-    setNote(truncated ? `${DEVICE_VOICE_NOTE} ${TRUNCATED_NOTE}` : DEVICE_VOICE_NOTE);
+    if (truncated) setNote(TRUNCATED_NOTE);
     setState('playing');
     return true;
   }
@@ -115,13 +108,22 @@ export default function SpeakButton({ text }: { text: string }) {
     current = self.current;
 
     // iOS даёт голосу телефона заговорить только из нажатия: пустая фраза в
-    // момент нажатия открывает его на случай, если голос Ведара не ответит.
+    // момент нажатия открывает его, пока ждём список голосов.
     deviceSynth()?.speak(new SpeechSynthesisUtterance(''));
 
     setState('loading');
     setNote(null);
     const ctrl = new AbortController();
     abortRef.current = ctrl;
+    if (await speakOnDevice(ctrl.signal)) return;
+    if (ctrl.signal.aborted) return;
+
+    // Русского голоса на устройстве нет. Без сети просить сервер бесполезно.
+    if (!navigator.onLine) {
+      setNote('Нет сети — озвучка недоступна, текст на экране.');
+      setState('error');
+      return;
+    }
     try {
       const res = await fetch('/api/ai/speak', {
         method: 'POST',
@@ -131,7 +133,6 @@ export default function SpeakButton({ text }: { text: string }) {
       });
       if (!res.ok) {
         const body = (await res.json().catch(() => null)) as { error?: string } | null;
-        if (DEVICE_FALLBACK_STATUSES.has(res.status) && await speakOnDevice(ctrl.signal)) return;
         if (ctrl.signal.aborted) return;
         setNote(body?.error ?? SPEAK_FAILED_NOTE);
         setState('error');
@@ -153,11 +154,6 @@ export default function SpeakButton({ text }: { text: string }) {
       // Safari на iOS может не дать включить звук, пришедший после сетевого
       // ожидания: это не поломка голоса, и сказать надо именно это.
       const blocked = e instanceof DOMException && e.name === 'NotAllowedError';
-      // Сеть не дошла или звук не проигрался — пробуем голос телефона.
-      const ctrlNow = new AbortController();
-      abortRef.current = ctrlNow;
-      if (!blocked && await speakOnDevice(ctrlNow.signal)) return;
-      if (ctrlNow.signal.aborted) return;
       setNote(
         blocked ? 'Браузер не дал включить звук — нажмите ещё раз.'
         : navigator.onLine ? SPEAK_FAILED_NOTE

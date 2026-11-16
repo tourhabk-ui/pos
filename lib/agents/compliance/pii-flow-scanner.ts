@@ -101,10 +101,6 @@ export const EGRESS_DOORS: Readonly<Record<string, { doors: readonly string[]; o
     doors: [], others: ['parseDeepSeekBalance', 'collectProviderBalances'],
     why: 'остаток счёта провайдера: запрос без текста вызывающего',
   },
-  'lib/ai/tts.ts': {
-    doors: ['synthesizeSpeech'], others: ['nativeBase', 'pickSpeechModel', 'resetSpeechCatalogCache'],
-    why: 'голос Кузьмича: текст ответа уходит в DeepSeek, затем в Qwen; прочие строят адрес, выбирают модель и чистят кэш — текста не шлют',
-  },
   'lib/config.ts': {
     doors: [], others: ['isTechnicalHost', 'getPublicBaseUrl', 'validateConfig'],
     why: 'хост — адрес по умолчанию в конфиге, запроса нет',
