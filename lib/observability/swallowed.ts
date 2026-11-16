@@ -23,3 +23,27 @@ export function logSwallowedFailure(scope: string, source: string, err: unknown)
     message: redactPII(err instanceof Error ? err.message : String(err)),
   });
 }
+
+/**
+ * Отправка, которая сообщает исход полем, а не исключением: Telegram
+ * (`telegramService.sendMessage`) и почта (`emailService`) отвечают
+ * `{ success: false, error }` и не бросают. `.catch` такой отказ не видит —
+ * в уведомлениях о брони он так и прятался после первой правки (16.11).
+ * Помощник называет оба исхода: и исключение, и `success: false`.
+ * Возвращает, ушло ли сообщение.
+ */
+export async function logUndelivered(
+  scope: string,
+  source: string,
+  send: Promise<{ success: boolean; error?: string }>,
+): Promise<boolean> {
+  try {
+    const r = await send;
+    if (r.success) return true;
+    logSwallowedFailure(scope, source, new Error(r.error ?? 'отказ без причины'));
+    return false;
+  } catch (err) {
+    logSwallowedFailure(scope, source, err);
+    return false;
+  }
+}

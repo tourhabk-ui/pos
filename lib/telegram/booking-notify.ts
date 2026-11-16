@@ -11,7 +11,7 @@
 
 import { telegramService } from '@/lib/notifications/telegram';
 import { query } from '@/lib/database';
-import { logSwallowedFailure } from '@/lib/observability/swallowed';
+import { logSwallowedFailure, logUndelivered } from '@/lib/observability/swallowed';
 import { platformAcceptsPayments } from '@/lib/payments/accepting';
 
 function esc(s: string): string {
@@ -30,7 +30,11 @@ async function getTouristTelegramId(userId: string): Promise<string | null> {
       [userId]
     );
     return res.rows[0]?.telegram_id ?? null;
-  } catch { return null; }
+  } catch (err) {
+    // «Не прочитали» — не «Telegram не привязан»: отказ назван.
+    logSwallowedFailure('notify/booking-telegram', 'чтение Telegram туриста', err);
+    return null;
+  }
 }
 
 /**
@@ -68,7 +72,7 @@ export function notifyTouristBookingCreated(
         ? `<a href="https://vedarai.ru/booking-success/${booking.id}?t=${encodeURIComponent(booking.accessToken)}">${platformAcceptsPayments() ? 'Перейти к оплате' : 'Открыть заявку'} →</a>`
         : null;
 
-      await telegramService.sendMessage({
+      await logUndelivered('notify/booking-telegram', `сообщение туристу о новой заявке ${booking.id}`, telegramService.sendMessage({
         chatId,
         text: [
           '<b>Заявка отправлена оператору</b>',
@@ -85,7 +89,7 @@ export function notifyTouristBookingCreated(
           `<a href="https://vedarai.ru/hub/tourist/bookings">Мои заявки →</a>`,
         ].join('\n'),
         parseMode: 'HTML',
-      });
+      }));
     } catch (err) {
       // Туристу сообщение не ушло — бронь от этого не ломается, но отказ назван.
       logSwallowedFailure('notify/booking-telegram', `сообщение туристу о новой заявке ${booking.id}`, err);
@@ -116,7 +120,7 @@ export function notifyTouristBookingConfirmed(
         day: 'numeric', month: 'long', year: 'numeric',
       });
 
-      await telegramService.sendMessage({
+      await logUndelivered('notify/booking-telegram', `сообщение туристу о подтверждении ${booking.id}`, telegramService.sendMessage({
         chatId,
         text: [
           '<b>Оператор подтвердил заявку</b>',
@@ -134,7 +138,7 @@ export function notifyTouristBookingConfirmed(
           `<a href="${escAttr(booking.url ?? 'https://vedarai.ru/hub/tourist/bookings')}">Детали заявки →</a>`,
         ].join('\n'),
         parseMode: 'HTML',
-      });
+      }));
     } catch (err) {
       // Туристу сообщение не ушло — бронь от этого не ломается, но отказ назван.
       logSwallowedFailure('notify/booking-telegram', `сообщение туристу о подтверждении ${booking.id}`, err);
@@ -171,7 +175,7 @@ export function notifyTouristBookingCancelled(
         ? `\n<b>Возврат:</b> ${booking.refundAmount.toLocaleString('ru-RU')} ₽ (${booking.refundPercent}%)`
         : booking.refundReason ? `\n<b>Возврат:</b> ${esc(booking.refundReason)}` : '';
 
-      await telegramService.sendMessage({
+      await logUndelivered('notify/booking-telegram', `сообщение туристу об отмене ${booking.id}`, telegramService.sendMessage({
         chatId,
         text: [
           `<b>${byLabel}</b>`,
@@ -183,7 +187,7 @@ export function notifyTouristBookingCancelled(
           'Если есть вопросы — напиши прямо здесь или обратись в поддержку.',
         ].filter(s => s !== '').join('\n'),
         parseMode: 'HTML',
-      });
+      }));
     } catch (err) {
       // Туристу сообщение не ушло — бронь от этого не ломается, но отказ назван.
       logSwallowedFailure('notify/booking-telegram', `сообщение туристу об отмене ${booking.id}`, err);
