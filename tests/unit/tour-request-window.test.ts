@@ -97,7 +97,10 @@ describe('get_tour_availability по сезону', () => {
   it('окно целиком до сезона — показано начало сезона, а не «дат нет»', async () => {
     const text = await getTourAvailabilityForKuzmich({ tour: '50', date_from: '2099-01-10', days: '3' });
     expect(text).toContain('показываю с начала сезона');
-    expect(text).toContain('предварительная бронь только по сезону');
+    expect(text).toContain('только заявка оператору на дату сезона');
+    // Заявка — не бронь (правило 0 и инструкция MCP): слова «бронь» как обещания нет.
+    expect(text).toContain('это не бронь');
+    expect(text).not.toMatch(/предварительн\S* брон/i);
     expect(text).toMatch(/- 01\.05–03\.05(\.2099)?: свободно для заявки/);
     expect(text).not.toContain('10.01');
   });
@@ -145,7 +148,7 @@ describe('одно правило на всех дверях', () => {
   });
 
   it('get_tours и карточка тура читают то же окно', () => {
-    expect(read('lib/kuzmich/core.ts')).toMatch(/предварительная бронь только по сезону \(\$\{windowLabel\(window\)\}\)/);
+    expect(read('lib/kuzmich/core.ts')).toMatch(/только заявка оператору на дату сезона \(\$\{windowLabel\(window\)\}\)/);
     const page = read('app/catalog/tours/[id]/page.tsx');
     expect(page).toMatch(/seasonWindowView\(requestWindow\(/);
     expect(read('components/marketplace/TourDateField.tsx')).toMatch(/max=\{seasonWindow\?\.to\}/);
