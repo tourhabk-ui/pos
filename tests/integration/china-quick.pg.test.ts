@@ -338,7 +338,13 @@ withPg('китайский контур на схеме прода (CN-quick)', 
 
     const placeRow = { id: ZH.placeOn, slug: 'test-zh-place-on', description: 'Место у тропы, 2 км от стоянки.' };
     expect(await zhPlaceAlternatePath(placeRow)).toBe('/zh/places/test-zh-place-on');
-    const detail = (await loadZhDetailEntries()).map((d) => d.path);
+    const entries = await loadZhDetailEntries();
+    const detail = entries.map((d) => d.path);
+    // У каждого китайского тура есть дата для lastmod — и у непереведённого
+    // (аудит 16.11, #3463): дата правки или создания тура из базы.
+    const zhTourDates = entries.filter((d) => d.path.startsWith('/zh/tours/')).map((d) => d.lastModified);
+    expect(zhTourDates.length).toBeGreaterThan(0);
+    expect(zhTourDates.every((d) => d instanceof Date && !Number.isNaN(d.getTime()))).toBe(true);
     expect(detail).toContain('/zh/places/test-zh-place-on');
     // Крон перевёл только limit=2, а в sitemap — все живые: страница фактов
     // не ждёт прозы. Удалённый и снятый не входят.
