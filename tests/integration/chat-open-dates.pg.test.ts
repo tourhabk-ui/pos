@@ -73,7 +73,15 @@ const { sent, partnerMessage } = vi.hoisted(() => ({
 // перезапуска пуста, и тогда копии держит только база: здесь проверяется она.
 vi.mock('@/lib/max/update-dedup', () => ({
   isRepeatedMaxMessage: () => false,
+  isRepeatedMaxCallback: () => false,
   clearMaxMessageDedup: () => undefined,
+}));
+// Учёт входящих в базе (lib/chat/inbound-seen, #3433) — первая линия; здесь
+// судится вторая: колонки потока дат (seats_source_mid, source_mid) и
+// повторное нажатие, дошедшие до потока. Учёт проверен в
+// tests/unit/chat-inbound-seen.test.ts и на вебхуках.
+vi.mock('@/lib/chat/inbound-seen', () => ({
+  isRepeatedInbound: async () => false,
 }));
 vi.mock('@/lib/max/max-fetch', () => ({
   maxBot: () => ({

@@ -76,7 +76,8 @@ import { chatDatesIntent } from '@/lib/operators/chat-dates/parse';
 import { FLOW_TEXT as DATES_TEXT } from '@/lib/operators/chat-dates/texts';
 import type { DatesSend } from '@/lib/operators/chat-dates/flow';
 import { scrubErrorText } from '@/lib/client-errors/scrub';
-import { isRepeatedMaxMessage } from '@/lib/max/update-dedup';
+import { isRepeatedMaxMessage, isRepeatedMaxCallback } from '@/lib/max/update-dedup';
+import { isRepeatedInbound } from '@/lib/chat/inbound-seen';
 import { armChatWait, bindGuestChat, captureChatText, pressDraft, type ChatReply } from '@/lib/requests/request-chat-service';
 import { guestKeyFromStart, parseChatPress, parseDraftPress } from '@/lib/requests/request-chat';
 import { captureConvText, isConvPayload, pressConv } from '@/lib/chat/conversation-reply';
@@ -1275,8 +1276,15 @@ async function handleUpdate(update: MaxUpdate, opts?: { verifiedOrigin?: boolean
     if (chatId < 0) return;
     // Повтор того же сообщения (MAX доставил апдейт второй раз, пока шёл цикл
     // модели) не отвечается и не пишется в CRM второй раз (25.10).
-    if (typeof msg.body.mid === 'string' && msg.body.mid !== ''
-      && isRepeatedMaxMessage(msg.body.mid, opts?.verifiedOrigin === true)) return;
+    // Заверенное — ещё и по базе: повтор после перезапуска тоже узнаётся (#3433).
+    if (typeof msg.body.mid === 'string' && msg.body.mid !== '') {
+      const mid = msg.body.mid;
+      const verified = opts?.verifiedOrigin === true;
+      const repeated = verified
+        ? await isRepeatedInbound('max_message', mid, () => isRepeatedMaxMessage(mid, true))
+        : isRepeatedMaxMessage(mid, false);
+      if (repeated) return;
+    }
 
     const text = msg.body.text?.trim() ?? '';
     const attachments = msg.body.attachments ?? [];
@@ -1851,6 +1859,12 @@ async function handleUpdate(update: MaxUpdate, opts?: { verifiedOrigin?: boolean
   if (update.update_type === 'message_callback' && update.callback) {
     const api = getApi();
     if (!api) return;
+    // Повтор того же нажатия (MAX доставил апдейт второй раз) не исполняется
+    // второй раз (#3433). Только заверенное: незаверенный запрос с чужим
+    // callback_id не должен отсечь настоящее нажатие.
+    const callbackId = update.callback.callback_id;
+    if (opts?.verifiedOrigin === true && typeof callbackId === 'string' && callbackId !== ''
+      && await isRepeatedInbound('max_callback', callbackId, () => isRepeatedMaxCallback(callbackId))) return;
 
     // Подпись и срок кнопок-записей (lib/chat-cabinet/signed-payload).
     const press = unwrapPress(update.callback.payload ?? '');

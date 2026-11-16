@@ -63,6 +63,11 @@ const m = vi.hoisted(() => ({
 vi.mock('@/lib/max/max-fetch', () => ({
   maxBot: () => ({ api: { sendMessageToChat: m.maxSend, sendMessageToUser: m.maxSendUser, answerOnCallback: m.answerCb } }),
 }));
+// Учёт входящих (#3433) — своя таблица, проверен в chat-inbound-seen.test.ts;
+// здесь считаются только записи действий, поэтому повтор решает память процесса.
+vi.mock('@/lib/chat/inbound-seen', () => ({
+  isRepeatedInbound: async (_source: string, _key: string, memoryRepeat: () => boolean) => memoryRepeat(),
+}));
 vi.mock('@/lib/db-pool', () => ({ pool: { query: m.pool } }));
 vi.mock('@/lib/kuzmich/core', () => ({ hasLiveBookingFlow: vi.fn(async () => false), processMessage: m.processMessage, cleanupPending: vi.fn() }));
 vi.mock('@/lib/kuzmich/operator-chat', () => ({
@@ -121,10 +126,12 @@ const post = (url: string, body: unknown, headers?: Record<string, string>) =>
 /** Ключа подписки нет: заверенным не бывает ничего, вопросы — из любого источника. */
 const keyless = (): void => { vi.stubEnv('MAX_WEBHOOK_SECRET', ''); };
 
+/** У каждого нажатия MAX свой callback_id; повтор того же номера отсекается (#3433). */
+let callbackSeq = 0;
 const press = (payload: string, chatId: number | null = OPERATOR_CHAT, userId = OPERATOR_CHAT) => ({
   update_type: 'message_callback',
   timestamp: 1,
-  callback: { timestamp: 1, callback_id: 'cb-1', payload, user: { user_id: userId, name: 'Оператор' } },
+  callback: { timestamp: 1, callback_id: `cb-${++callbackSeq}`, payload, user: { user_id: userId, name: 'Оператор' } },
   ...(chatId === null ? {} : { message: { recipient: { chat_id: chatId, chat_type: 'chat' }, body: { mid: 'm', seq: 1, text: 'x' } } }),
 });
 
@@ -311,6 +318,25 @@ describe('кнопки-действия: только из заверенног�
 });
 
 // ── Запрос без ключа при заданном ключе ─────────────────────────────────────
+
+describe('повтор нажатия (#3433): тот же callback_id исполняется один раз', () => {
+  const PAYLOAD = `oc:y:${OWNER_ACTION}`;
+  const same = (body: ReturnType<typeof press>) => ({ ...body, callback: { ...body.callback, callback_id: 'cb-repeat' } });
+
+  it('заверенное нажатие, доставленное дважды, — одно действие', async () => {
+    await post(VERIFIED, same(press(PAYLOAD)));
+    await post(VERIFIED, same(press(PAYLOAD)));
+    expect(m.ownerPress).toHaveBeenCalledTimes(1);
+  });
+
+  it('незаверенный запрос с тем же callback_id не отсекает настоящее нажатие', async () => {
+    keyless();
+    await post(UNVERIFIED[0], { ...press(PAYLOAD), callback: { ...press(PAYLOAD).callback, callback_id: 'cb-forged' } });
+    vi.stubEnv('MAX_WEBHOOK_SECRET', KEY);
+    await post(VERIFIED, { ...press(PAYLOAD), callback: { ...press(PAYLOAD).callback, callback_id: 'cb-forged' } });
+    expect(m.ownerPress).toHaveBeenCalledTimes(1);
+  });
+});
 
 describe('ключ задан: запрос без него не обрабатывается вовсе', () => {
   const ALL_KINDS: Array<[string, unknown]> = [

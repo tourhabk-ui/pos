@@ -55,6 +55,11 @@ const m = vi.hoisted(() => ({
 vi.mock('@/lib/max/max-fetch', () => ({
   maxBot: () => ({ api: { sendMessageToChat: m.maxSend, sendMessageToUser: m.maxSendUser, answerOnCallback: m.answerCb } }),
 }));
+// Учёт входящих (#3433) — своя таблица, проверен в chat-inbound-seen.test.ts;
+// здесь считаются только записи действий, поэтому повтор решает память процесса.
+vi.mock('@/lib/chat/inbound-seen', () => ({
+  isRepeatedInbound: async (_source: string, _key: string, memoryRepeat: () => boolean) => memoryRepeat(),
+}));
 vi.mock('@/lib/db-pool', () => ({
   pool: {
     query: m.pool,
@@ -147,10 +152,12 @@ const expectGuideLinks = (texts: string[]): void => {
 const post = (url: string, body: unknown) => max.POST(new NextRequest(url, { method: 'POST', body: JSON.stringify(body) }));
 const keyless = (): void => { vi.stubEnv('MAX_WEBHOOK_SECRET', ''); };
 
+/** У каждого нажатия MAX свой callback_id; повтор того же номера отсекается (#3433). */
+let callbackSeq = 0;
 const press = (payload: string, opts: { chatId?: number | null; chatType?: string } = {}) => ({
   update_type: 'message_callback',
   timestamp: 1,
-  callback: { timestamp: 1, callback_id: 'cb-1', payload, user: { user_id: CHAT, name: 'Оператор' } },
+  callback: { timestamp: 1, callback_id: `cb-${++callbackSeq}`, payload, user: { user_id: CHAT, name: 'Оператор' } },
   ...(opts.chatId === null ? {} : {
     message: { recipient: { chat_id: opts.chatId ?? CHAT, chat_type: opts.chatType ?? 'dialog' }, body: { mid: 'm', seq: 1, text: null } },
   }),
