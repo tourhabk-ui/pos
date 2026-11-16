@@ -1137,7 +1137,7 @@ export async function eraseUser(
                     THEN data - 'email' - 'inn' ELSE data END
       WHERE (entity_type = 'user' AND entity_id = $1::uuid)
          OR (entity_type = 'partner' AND action = 'register'
-             AND entity_id IN (SELECT id FROM partners WHERE user_id = $1))`],
+             AND EXISTS (SELECT 1 FROM partners p WHERE p.id = audit_log.entity_id AND p.user_id = $1))`],
     ['user_ai_memory', `DELETE FROM user_ai_memory WHERE user_id = $1`],
     ['request_drafts', `DELETE FROM request_drafts WHERE user_id = $1`],
     // Оценка ответа Кузьмича: автор — в metadata.author_user_id, свой
