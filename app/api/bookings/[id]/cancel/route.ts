@@ -67,12 +67,8 @@ export async function POST(
 
     const { id: bookingId } = await params;
 
-    let rawBody: unknown = {};
-    try {
-      rawBody = await request.json();
-    } catch {
-      // Тело необязательно: пустое или не-JSON тело — отмена без причины.
-    }
+    // Тело необязательно: пустое или не-JSON тело — отмена без причины.
+    const rawBody: unknown = await request.json().catch(() => ({}));
     const parsedBody = CancelBodySchema.safeParse(rawBody ?? {});
     if (!parsedBody.success) {
       return NextResponse.json(

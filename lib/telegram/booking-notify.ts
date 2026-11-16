@@ -11,6 +11,7 @@
 
 import { telegramService } from '@/lib/notifications/telegram';
 import { query } from '@/lib/database';
+import { logSwallowedFailure } from '@/lib/observability/swallowed';
 import { platformAcceptsPayments } from '@/lib/payments/accepting';
 
 function esc(s: string): string {
@@ -85,7 +86,10 @@ export function notifyTouristBookingCreated(
         ].join('\n'),
         parseMode: 'HTML',
       });
-    } catch {}
+    } catch (err) {
+      // Туристу сообщение не ушло — бронь от этого не ломается, но отказ назван.
+      logSwallowedFailure('notify/booking-telegram', `сообщение туристу о новой заявке ${booking.id}`, err);
+    }
   })();
 }
 
@@ -131,7 +135,10 @@ export function notifyTouristBookingConfirmed(
         ].join('\n'),
         parseMode: 'HTML',
       });
-    } catch {}
+    } catch (err) {
+      // Туристу сообщение не ушло — бронь от этого не ломается, но отказ назван.
+      logSwallowedFailure('notify/booking-telegram', `сообщение туристу о подтверждении ${booking.id}`, err);
+    }
   })();
 }
 
@@ -177,7 +184,10 @@ export function notifyTouristBookingCancelled(
         ].filter(s => s !== '').join('\n'),
         parseMode: 'HTML',
       });
-    } catch {}
+    } catch (err) {
+      // Туристу сообщение не ушло — бронь от этого не ломается, но отказ назван.
+      logSwallowedFailure('notify/booking-telegram', `сообщение туристу об отмене ${booking.id}`, err);
+    }
   })();
 }
 

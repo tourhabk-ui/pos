@@ -12,6 +12,7 @@
 import { telegramService } from './telegram';
 import { emailService } from './email-service';
 import { pool } from '@/lib/db-pool';
+import { logSwallowedFailure } from '@/lib/observability/swallowed';
 
 interface TouristContact {
   name: string;
@@ -80,7 +81,7 @@ export async function notifyBookingConfirmed(
         `<a href="https://vedarai.ru/hub/tourist/bookings">Детали заявки →</a>`,
       ].join('\n'),
       parseMode: 'HTML',
-    }).catch(() => {});
+    }).catch((err: unknown) => logSwallowedFailure('notify/booking', `Telegram о подтверждении брони ${booking.id}`, err));
   }
 
   // Email
@@ -93,7 +94,7 @@ export async function notifyBookingConfirmed(
       date: new Date(booking.date + 'T00:00:00'),
       participants: booking.participants,
       totalAmount: booking.totalPrice,
-    }).catch(() => {});
+    }).catch((err: unknown) => logSwallowedFailure('notify/booking', `письмо о подтверждении брони ${booking.id}`, err));
   }
 }
 
@@ -137,7 +138,7 @@ export async function notifyBookingCancelled(
       chatId: contact.telegramId,
       text: lines.filter(Boolean).join('\n'),
       parseMode: 'HTML',
-    }).catch(() => {});
+    }).catch((err: unknown) => logSwallowedFailure('notify/booking', `Telegram об отмене брони ${booking.id}`, err));
   }
 
   // Email
@@ -150,6 +151,6 @@ export async function notifyBookingCancelled(
       refundAmount: booking.refundAmount ?? 0,
       refundPercent: booking.refundPercent ?? 0,
       refundReason: booking.refundReason,
-    }).catch(() => {});
+    }).catch((err: unknown) => logSwallowedFailure('notify/booking', `письмо об отмене брони ${booking.id}`, err));
   }
 }

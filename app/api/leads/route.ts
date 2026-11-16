@@ -391,6 +391,10 @@ async function scheduleFollowups(
        VALUES ($1, $2, $3, $4)
        ON CONFLICT DO NOTHING`,
       [leadId, types[i], scheduledAt.toISOString(), messages[i]]
-    ).catch(() => {});
+    ).catch((err: unknown) => {
+      // Заявка записана, а напоминание по ней — нет: без строки в логе такая
+      // заявка просто выпадала из добивки.
+      logSwallowedFailure('leads/followups', `напоминание ${types[i]} по заявке ${leadId}`, err);
+    });
   }
 }
