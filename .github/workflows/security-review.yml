@@ -181,7 +181,13 @@ jobs:
         run: |
           # Вне раннера GitHub (симуляция шагов в tests/unit) — не ставим ничего.
           [ "${GITHUB_ACTIONS:-}" = "true" ] || exit 0
-          command -v bwrap >/dev/null || { sudo apt-get update -qq && sudo apt-get install -y --no-install-recommends bubblewrap socat; }
+          # Оба, а не один bwrap: с 15.11 образ раннера несёт bwrap без socat, и
+          # песочница Claude Code не стартовала («socat not installed»), а установка
+          # пропускалась по одному bwrap.
+          if ! command -v bwrap >/dev/null || ! command -v socat >/dev/null; then
+            sudo apt-get update -qq && sudo apt-get install -y --no-install-recommends bubblewrap socat
+          fi
+          for t in bwrap socat; do command -v "$t" >/dev/null || { echo "::error::Нет $t после установки — песочница Claude Code не стартует."; exit 1; }; done
           if [ -f /proc/sys/kernel/apparmor_restrict_unprivileged_userns ]; then
             sudo sysctl -w kernel.apparmor_restrict_unprivileged_userns=0
           fi
@@ -456,6 +462,15 @@ jobs:
             WHY=$(printf '%s' "$RESULT" | jq -r '[(.subtype // empty | tostring | select(test("^[a-z_]{1,40}$"))), (.num_turns | numbers | "ходов \(.)")] | join(", ")')
             echo "::error::Ревью безопасности не состоялось: ${MSG:-итог без текста}${WHY:+ ($WHY)}"
             echo "### Ревью безопасности ($MODEL) — не состоялось${WHY:+: $WHY}. Это не «находок нет»." >> "$GITHUB_STEP_SUMMARY"
+            exit 1
+          fi
+          # Ноль ходов — ревьюер не прочитал ни строки диффа. Так с 15.11 по 16.11
+          # песочница не стартовала («socat not installed»), а текст ошибки уходил
+          # в PR итогом ревью с is_error=false и зелёной проверкой.
+          if [ "$TURNS" = "0" ]; then
+            MSG=$(tr '\r\n' '  ' < "$OUT/report.md" | head -c 300)
+            echo "::error::Ревью безопасности не состоялось: ревьюер не сделал ни одного хода${MSG:+ ($MSG)}"
+            echo "### Ревью безопасности ($MODEL) — не состоялось: ни одного хода. Это не «находок нет»." >> "$GITHUB_STEP_SUMMARY"
             exit 1
           fi
           # claude не завершился сам (упал, снят сигналом) — итогу верить нельзя,
