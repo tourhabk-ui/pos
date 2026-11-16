@@ -81,9 +81,11 @@ const start = (nonce: string, userId: number) => bot({
   user: { user_id: userId, name: 'Анна' }, payload: `login-${nonce}`,
 });
 
+/** У каждого нажатия MAX свой callback_id: повтор того же номера отсекается (#3433). */
+let pressSeq = 0;
 const press = (payload: string, userId: number) => bot({
   update_type: 'message_callback', timestamp: Date.now(),
-  callback: { timestamp: Date.now(), callback_id: `cb-${userId}-${payload.length}`, payload, user: { user_id: userId, name: 'X' } },
+  callback: { timestamp: Date.now(), callback_id: `cb-${userId}-${++pressSeq}`, payload, user: { user_id: userId, name: 'X' } },
   message: { recipient: { chat_id: userId, chat_type: 'dialog' }, body: { mid: 'm', seq: 1, text: null } },
 });
 
@@ -619,7 +621,7 @@ withPg('вход через MAX подтверждается вопросом в
       const pressAs = (payload: string, userId = ADMIN_MAX, chatType = 'dialog') => bot({
         update_type: 'message_callback', timestamp: Date.now(),
         callback: {
-          timestamp: Date.now(), callback_id: `cb-${userId}-${payload}`, payload, user: { user_id: userId, name: 'Админ' },
+          timestamp: Date.now(), callback_id: `cb-${userId}-${payload}-${++pressSeq}`, payload, user: { user_id: userId, name: 'Админ' },
         },
         message: { recipient: { chat_id: userId + 5, chat_type: chatType }, body: { mid: `m-${payload}`, seq: 1, text: null } },
       });
