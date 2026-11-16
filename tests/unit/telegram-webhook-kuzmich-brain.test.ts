@@ -13,6 +13,7 @@
  */
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
 import { NextRequest } from 'next/server';
+import { createInboundTable } from '../helpers/inbound-table';
 import { RENTAL_SITE_PAUSE } from '@/lib/rental/site-pause';
 
 const m = vi.hoisted(() => ({
@@ -999,40 +1000,68 @@ describe('меню роли на живом вебхуке', () => {
   });
 });
 
-describe('повтор апдейта после перезапуска (#3433)', () => {
-  /** chat_inbound_seen: (источник, ключ) → число доставок. */
-  const seenInDb = new Map<string, number>();
-  const withInboundTable = (fail: boolean) => {
+describe('повтор и подбор после перезапуска (#3433)', () => {
+  const db = createInboundTable();
+  const withInboundTable = () => {
+    db.clear();
     const base = m.pool.getMockImplementation();
-    m.pool.mockImplementation(async (sql: unknown, params?: unknown[]) => {
-      const q = String(sql);
-      if (q.includes('INSERT INTO chat_inbound_seen')) {
-        if (fail) throw Object.assign(new Error('connection refused'), { code: 'ECONNREFUSED' });
-        const key = `${String(params?.[0])}:${String(params?.[1])}`;
-        const hits = (seenInDb.get(key) ?? 0) + 1;
-        seenInDb.set(key, hits);
-        return { rows: [{ hits }] };
-      }
-      return base ? base(sql, params) : { rows: [] };
-    });
+    m.pool.mockImplementation(async (sql: unknown, params?: unknown[]) =>
+      db.handle(sql, params) ?? (base ? base(sql, params) : { rows: [] }));
   };
+  const recover = (secret?: string) => telegram.GET(new NextRequest('http://localhost/api/telegram/webhook', {
+    headers: secret ? { authorization: `Bearer ${secret}` } : {},
+  }));
 
   it('Telegram прислал тот же update_id после перезапуска — второго ответа нет, база помнит', async () => {
-    withInboundTable(false);
+    withInboundTable();
     const { clearTelegramUpdateDedup } = await import('@/lib/telegram/update-dedup');
     await post('как добраться до Халактырского пляжа', { updateId: 990001 });
     expect(sent()).toHaveLength(1);
-    expect(seenInDb.get('telegram:990001')).toBe(1);
+    // Ответ ушёл — строка отмечена, текст человека из неё стёрт.
+    expect(db.get('telegram', '990001')).toMatchObject({ hits: 1, processed: true, payload: null });
 
     clearTelegramUpdateDedup(); // процесс перезапустился, память пуста
     await post('как добраться до Халактырского пляжа', { updateId: 990001 });
     expect(sent()).toHaveLength(1);
     expect(m.tools).toHaveBeenCalledTimes(1);
-    expect(seenInDb.get('telegram:990001')).toBe(2);
+    expect(db.get('telegram', '990001')?.hits).toBe(2);
+  });
+
+  it('процесс упал посередине ответа — новый запуск подбирает сообщение и отвечает один раз', async () => {
+    withInboundTable();
+    vi.stubEnv('CRON_SECRET', 'test-cron-secret');
+    const update = {
+      update_id: 990003,
+      message: { message_id: 1, from: { id: 5001, first_name: 'Иван' }, chat: { id: 5001, type: 'private' }, text: 'что взять на Мутновский' },
+    };
+    db.leftBy('dead-boot', 'telegram', '990003', { payload: update });
+
+    expect((await recover()).status).toBe(403);
+    expect((await recover('wrong')).status).toBe(403);
+    expect(m.tools).not.toHaveBeenCalled();
+
+    const res = await recover('test-cron-secret');
+    expect(await res.json()).toEqual({ ok: true, recovered: 1 });
+    expect(sent()).toHaveLength(1);
+    expect(modelInput()).toContain('что взять на Мутновский');
+    expect(db.get('telegram', '990003')).toMatchObject({ processed: true, payload: null, attempts: 1 });
+
+    // Второй подбор — нечего; повтор того же апдейта — повтор.
+    expect(await (await recover('test-cron-secret')).json()).toEqual({ ok: true, recovered: 0 });
+    await post('что взять на Мутновский', { updateId: 990003 });
+    expect(sent()).toHaveLength(1);
+  });
+
+  it('подбор: база не ответила — 503, а не «нечего подбирать»', async () => {
+    withInboundTable();
+    vi.stubEnv('CRON_SECRET', 'test-cron-secret');
+    db.fail(Object.assign(new Error('connection refused'), { code: 'ECONNREFUSED' }));
+    expect((await recover('test-cron-secret')).status).toBe(503);
   });
 
   it('база не ответила — повтор отсекает память процесса, отказ в логе без текста сообщения', async () => {
-    withInboundTable(true);
+    withInboundTable();
+    db.fail(Object.assign(new Error('connection refused'), { code: 'ECONNREFUSED' }));
     await post('где сейчас извергается вулкан', { updateId: 990002 });
     await post('где сейчас извергается вулкан', { updateId: 990002 });
     expect(sent()).toHaveLength(1);

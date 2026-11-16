@@ -1,36 +1,36 @@
 /**
  * Учёт входящих апдейтов Telegram и MAX в базе (#3433 п. 1, слово владельца
- * 16.11 «Оба шага»): повтор узнаётся и после перезапуска процесса, а база,
- * не ответившая вовремя, — «не смог», и решает память процесса.
- * Вызовом lib/chat/inbound-seen; вебхуки — в telegram-webhook-kuzmich-brain и
- * max-verified-press.
+ * 16.11 «Оба шага»): повтор узнаётся и после перезапуска; апдейт, брошенный
+ * упавшим запуском, подхватывается один раз; сообщение Telegram лежит в строке
+ * до отметки «обработано». База, не ответившая вовремя, — «не смог», и решает
+ * память процесса. Вызовом lib/chat/inbound-seen; таблица — в памяти теста,
+ * SQL проверен на PostgreSQL 16 (PR). Вебхуки — в telegram-webhook-kuzmich-brain,
+ * bound-chat-live-booking и max-verified-press.
  */
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
+import { createInboundTable } from '../helpers/inbound-table';
 
 const m = vi.hoisted(() => ({ query: vi.fn() }));
 vi.mock('@/lib/db-pool', () => ({ pool: { query: (...a: unknown[]) => m.query(...a) } }));
 
-const { recordInboundInDb, isRepeatedInbound } = await import('@/lib/chat/inbound-seen');
+const {
+  recordInboundInDb, isRepeatedInbound, admitInbound, markInboundDone, claimStaleTelegram, inboundBootId,
+} = await import('@/lib/chat/inbound-seen');
 
-/** Таблица chat_inbound_seen в памяти теста. */
-const table = new Map<string, number>();
-const realTable = async (sql: unknown, params?: unknown[]) => {
-  const q = String(sql);
-  if (q.startsWith('INSERT INTO chat_inbound_seen')) {
-    const key = `${String(params?.[0])}:${String(params?.[1])}`;
-    const hits = (table.get(key) ?? 0) + 1;
-    table.set(key, hits);
-    return { rows: [{ hits }] };
-  }
-  if (q.startsWith('DELETE FROM chat_inbound_seen')) return { rows: [], rowCount: 0 };
-  throw new Error(`неожиданный запрос: ${q}`);
+const db = createInboundTable();
+const table = db.rows;
+const leftBy = db.leftBy;
+const fakeTable = async (sql: unknown, p: unknown[] = []) => {
+  const res = db.handle(sql, p);
+  if (res) return res;
+  throw new Error(`неожиданный запрос: ${String(sql)}`);
 };
 
 let errorLog: ReturnType<typeof vi.spyOn>;
 beforeEach(() => {
-  table.clear();
+  db.clear();
   m.query.mockReset();
-  m.query.mockImplementation(realTable);
+  m.query.mockImplementation(fakeTable);
   errorLog = vi.spyOn(console, 'error').mockImplementation(() => undefined);
 });
 afterEach(() => {
@@ -38,7 +38,9 @@ afterEach(() => {
   errorLog.mockRestore();
 });
 
-describe('recordInboundInDb: три исхода', () => {
+const ME = inboundBootId();
+
+describe('recordInboundInDb: новый, повтор, не смог', () => {
   it('первая доставка — new, вторая — repeat; источники не смешиваются', async () => {
     expect(await recordInboundInDb('telegram', '101')).toBe('new');
     expect(await recordInboundInDb('telegram', '101')).toBe('repeat');
@@ -46,9 +48,17 @@ describe('recordInboundInDb: три исхода', () => {
     expect(await recordInboundInDb('max_callback', '101')).toBe('new');
   });
 
-  it('в базу уходит только источник и номер апдейта', async () => {
+  it('запуск — один на процесс, и строка помечена им', async () => {
+    expect(inboundBootId()).toBe(ME);
     await recordInboundInDb('max_message', 'mid.abc');
-    expect(m.query.mock.calls[0][1]).toEqual(['max_message', 'mid.abc']);
+    expect(m.query.mock.calls[0][1]).toEqual(['max_message', 'mid.abc', ME, null, 15]);
+  });
+
+  it('сообщение кладётся в строку, только когда его передали', async () => {
+    await recordInboundInDb('telegram', '5', { payload: { update_id: 5, message: { text: 'привет' } } });
+    expect(table.get('telegram:5')?.payload).toEqual({ update_id: 5, message: { text: 'привет' } });
+    await recordInboundInDb('max_callback', 'cb');
+    expect(table.get('max_callback:cb')?.payload).toBeNull();
   });
 
   it('отказ базы — unknown, в логе код отказа', async () => {
@@ -78,17 +88,67 @@ describe('recordInboundInDb: три исхода', () => {
     expect(m.query).not.toHaveBeenCalled();
   });
 
-  it('строки старше суток удаляются по ходу записи', async () => {
+  it('по ходу записи: строки старше суток удаляются, неподобранные сообщения стираются', async () => {
     for (let i = 0; i < 100; i++) await recordInboundInDb('telegram', `c${i}`);
-    const deletes = m.query.mock.calls.filter((c) => String(c[0]).startsWith('DELETE'));
-    expect(deletes).toHaveLength(1);
-    expect(String(deletes[0][0])).toContain("interval '1 day'");
+    const sqls = m.query.mock.calls.map((c) => String(c[0]));
+    expect(sqls.filter((s) => s.startsWith('DELETE')).join()).toContain("interval '1 day'");
+    expect(sqls.some((s) => /SET payload = NULL/.test(s) && !/processed_at = now\(\)/.test(s))).toBe(true);
   });
 });
 
-describe('isRepeatedInbound: память процесса, затем база', () => {
+describe('апдейт, брошенный упавшим запуском', () => {
+  it('повтор MAX после падения — подхватывается один раз; третья доставка — повтор', async () => {
+    leftBy('dead-boot', 'max_message', 'mid-1');
+    expect(await recordInboundInDb('max_message', 'mid-1')).toBe('new');
+    expect(table.get('max_message:mid-1')).toMatchObject({ boot_id: ME, attempts: 1 });
+    expect(await recordInboundInDb('max_message', 'mid-1')).toBe('repeat');
+  });
+
+  it('обработанный, свой незаконченный, старше 15 минут, уже подхваченный — повтор', async () => {
+    leftBy('dead-boot', 'max_message', 'done', { processed: true });
+    leftBy(ME, 'max_message', 'running');
+    leftBy('dead-boot', 'max_message', 'old', { ageMin: 20 });
+    leftBy('dead-boot', 'max_message', 'poison', { attempts: 1 });
+    for (const key of ['done', 'running', 'old', 'poison']) {
+      expect(await recordInboundInDb('max_message', key), key).toBe('repeat');
+    }
+  });
+
+  it('отметка «обработано» — только своей строки; сообщение стирается', async () => {
+    await recordInboundInDb('telegram', '11', { payload: { update_id: 11, message: { text: 'x' } } });
+    await markInboundDone('telegram', '11');
+    expect(table.get('telegram:11')).toMatchObject({ processed: true, payload: null });
+
+    leftBy('other-boot', 'telegram', '12', { payload: { update_id: 12 } });
+    await markInboundDone('telegram', '12');
+    expect(table.get('telegram:12')).toMatchObject({ processed: false, payload: { update_id: 12 } });
+  });
+
+  it('подбор Telegram: только чужие незаконченные с сообщением, от 2 до 15 минут, один раз', async () => {
+    leftBy('dead-boot', 'telegram', '21', { payload: { update_id: 21 } });
+    leftBy('dead-boot', 'telegram', '22', { payload: { update_id: 22 }, ageMin: 20 });
+    leftBy('dead-boot', 'telegram', '23', { payload: null });
+    leftBy(ME, 'telegram', '24', { payload: { update_id: 24 } });
+    // Моложе двух минут: при выкате старый процесс ещё отвечает на него.
+    leftBy('old-boot-still-running', 'telegram', '26', { payload: { update_id: 26 }, ageMin: 1 });
+    leftBy('dead-boot', 'max_message', '25', { payload: { x: 1 } });
+
+    const first = await claimStaleTelegram();
+    expect(first).toEqual({ ok: true, items: [{ key: '21', payload: { update_id: 21 } }] });
+    expect(table.get('telegram:22')?.payload).toBeNull(); // поздно подбирать — стёрто
+    expect(await claimStaleTelegram()).toEqual({ ok: true, items: [] });
+  });
+
+  it('подбор: база не ответила — ok:false, а не «нечего подбирать»', async () => {
+    m.query.mockRejectedValue(new Error('down'));
+    expect(await claimStaleTelegram()).toEqual({ ok: false });
+  });
+});
+
+describe('память процесса, затем база', () => {
   it('память видела — повтор без похода в базу', async () => {
     expect(await isRepeatedInbound('telegram', '1', () => true)).toBe(true);
+    expect(await admitInbound('telegram', '1', () => true)).toBe('repeat');
     expect(m.query).not.toHaveBeenCalled();
   });
 
@@ -97,8 +157,9 @@ describe('isRepeatedInbound: память процесса, затем база'
     expect(await isRepeatedInbound('telegram', '2', () => false)).toBe(true);
   });
 
-  it('база не ответила — решает память: не видела — новый', async () => {
+  it('база не ответила — решает память: не видела — не повтор', async () => {
     m.query.mockRejectedValue(new Error('down'));
+    expect(await admitInbound('telegram', '3', () => false)).toBe('unknown');
     expect(await isRepeatedInbound('telegram', '3', () => false)).toBe(false);
   });
 });

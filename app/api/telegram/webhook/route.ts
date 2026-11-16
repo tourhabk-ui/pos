@@ -38,7 +38,8 @@ import { pool } from '@/lib/db-pool';
 import { telegramService } from '@/lib/notifications/telegram';
 import { verifyWebhookSecret, refuseUnconfiguredWebhook } from '@/lib/telegram/webhook-secret';
 import { isRepeatedTelegramUpdate } from '@/lib/telegram/update-dedup';
-import { isRepeatedInbound } from '@/lib/chat/inbound-seen';
+import { admitInbound, markInboundDone, claimStaleTelegram } from '@/lib/chat/inbound-seen';
+import { verifyCronSecret } from '@/lib/auth/cron';
 import { enqueueTelegramChat, telegramChatKey, webhookAwaitsHandler } from '@/lib/telegram/update-lane';
 import { emphasizeTripDays, sanitizeForTelegram } from '@/lib/telegram/kuzmich-format';
 import { matchTouristButton, touristReplyMarkup, touristRentalText, TOURIST_ASK_TEXT, type TouristButton } from '@/lib/telegram/tourist-keyboard';
@@ -912,21 +913,85 @@ export async function POST(request: NextRequest) {
 
   // Повтор того же апдейта (Bot API не дождался ответа) — не отвечать дважды.
   // Память процесса, затем база: повтор после перезапуска тоже узнаётся (#3433).
-  if (await isRepeatedInbound('telegram', String(update.update_id), () => isRepeatedTelegramUpdate(update.update_id))) {
+  // Сообщение лежит в строке до конца обработки: упадёт процесс — новый запуск
+  // подберёт его сам (GET ниже). Нажатия не хранятся: заново не исполняются.
+  const updateKey = String(update.update_id);
+  const admitted = await admitInbound('telegram', updateKey, () => isRepeatedTelegramUpdate(update.update_id),
+    update.message ? { payload: recoverablePayload(update) } : {});
+  if (admitted === 'repeat') {
     return NextResponse.json({ ok: true });
   }
 
   // 200 сразу, ход — в очереди чата. Иначе Bot API присылает следующий
   // апдейт, пока модель ещё отвечает на предыдущий.
-  const work = enqueueTelegramChat(telegramChatKey(update), async () => {
-    try {
-      await deliverTelegramUpdate(update);
-    } catch (err) {
-      console.error('[telegram/webhook] апдейт не обработан', err instanceof Error ? err.message : err);
-    }
-  });
+  const work = enqueueTelegramChat(telegramChatKey(update), () => deliverAndMark(update, updateKey, admitted === 'new'));
   if (webhookAwaitsHandler()) await work;
   return NextResponse.json({ ok: true });
+}
+
+/**
+ * Что лежит в строке до конца обработки: номер, чат, отправитель по id и текст.
+ * Имени и ника нет — подобранное после перезапуска сообщение отвечается без
+ * обращения по имени, но имя туриста в базе не хранится (как и в истории).
+ */
+function recoverablePayload(update: TelegramUpdate): TelegramUpdate {
+  // Схема допускает сообщение без from и chat (служебные апдейты) — тип строже схемы.
+  const msg = update.message as Partial<NonNullable<TelegramUpdate['message']>>;
+  return {
+    update_id: update.update_id,
+    message: {
+      message_id: msg.message_id,
+      ...(msg.from ? { from: { id: msg.from.id } } : {}),
+      ...(msg.chat ? { chat: { id: msg.chat.id, type: msg.chat.type } } : {}),
+      ...(msg.text !== undefined ? { text: msg.text } : {}),
+    } as NonNullable<TelegramUpdate['message']>,
+  };
+}
+
+/**
+ * Обработать апдейт и отметить «обработано» — успехом или ошибкой: заново не
+ * исполняется то, что могло исполниться наполовину (#3433).
+ */
+async function deliverAndMark(update: TelegramUpdate, updateKey: string, takenHere: boolean): Promise<void> {
+  try {
+    await deliverTelegramUpdate(update);
+  } catch (err) {
+    console.error('[telegram/webhook] апдейт не обработан', err instanceof Error ? err.message : err);
+  } finally {
+    if (takenHere) await markInboundDone('telegram', updateKey);
+  }
+}
+
+/**
+ * GET (CRON_SECRET): подобрать сообщения, брошенные прежним запуском (#3433).
+ * Telegram получил 200 до обработки и сам не повторит; упал процесс — без
+ * этого подбора человек остался бы без ответа. Зовёт instrumentation при
+ * старте (lib/chat/recover-on-start). Берётся только старше двух минут (при
+ * выкате старый процесс ещё отвечает на своё), не старше 15 и один раз; три исхода: подобрано N / нечего / база не ответила (503).
+ */
+export async function GET(request: NextRequest): Promise<NextResponse> {
+  if (!verifyCronSecret(request)) {
+    return NextResponse.json({ ok: false }, { status: 403 });
+  }
+  const claim = await claimStaleTelegram();
+  if (!claim.ok) {
+    return NextResponse.json({ ok: false, error: 'Не смог прочитать брошенные сообщения' }, { status: 503 });
+  }
+  let recovered = 0;
+  for (const item of claim.items) {
+    const parsed = TelegramUpdateSchema.safeParse(item.payload);
+    if (!parsed.success) {
+      console.error('[telegram/webhook] брошенное сообщение не той формы — снято без ответа');
+      await markInboundDone('telegram', item.key);
+      continue;
+    }
+    const update = parsed.data as TelegramUpdate;
+    recovered += 1;
+    const work = enqueueTelegramChat(telegramChatKey(update), () => deliverAndMark(update, item.key, true));
+    if (webhookAwaitsHandler()) await work;
+  }
+  if (recovered > 0) console.error(`[telegram/webhook] подобрано сообщений после перезапуска: ${recovered}`);
+  return NextResponse.json({ ok: true, recovered });
 }
 
 /**

@@ -59,6 +59,8 @@ vi.mock('@/lib/max/max-fetch', () => ({
 // здесь считаются только записи действий, поэтому повтор решает память процесса.
 vi.mock('@/lib/chat/inbound-seen', () => ({
   isRepeatedInbound: async (_source: string, _key: string, memoryRepeat: () => boolean) => memoryRepeat(),
+  admitInbound: async (_source: string, _key: string, memoryRepeat: () => boolean) => (memoryRepeat() ? 'repeat' : 'unknown'),
+  markInboundDone: async () => undefined,
 }));
 vi.mock('@/lib/db-pool', () => ({
   pool: {

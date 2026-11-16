@@ -77,7 +77,7 @@ import { FLOW_TEXT as DATES_TEXT } from '@/lib/operators/chat-dates/texts';
 import type { DatesSend } from '@/lib/operators/chat-dates/flow';
 import { scrubErrorText } from '@/lib/client-errors/scrub';
 import { isRepeatedMaxMessage, isRepeatedMaxCallback } from '@/lib/max/update-dedup';
-import { isRepeatedInbound } from '@/lib/chat/inbound-seen';
+import { admitInbound, markInboundDone, type InboundSource } from '@/lib/chat/inbound-seen';
 import { armChatWait, bindGuestChat, captureChatText, pressDraft, type ChatReply } from '@/lib/requests/request-chat-service';
 import { guestKeyFromStart, parseChatPress, parseDraftPress } from '@/lib/requests/request-chat';
 import { captureConvText, isConvPayload, pressConv } from '@/lib/chat/conversation-reply';
@@ -1086,7 +1086,24 @@ async function editAnsweredRequest(chatId: number, mid: string, originalText: st
 
 // ── Обработка одного апдейта ──────────────────────────────────────────────────
 
-async function handleUpdate(update: MaxUpdate, opts?: { verifiedOrigin?: boolean }): Promise<void> {
+/**
+ * Апдейт, взятый этим запуском по базе (#3433): по окончании обработки —
+ * отметка «обработано». Без отметки повтор MAX после падения процесса
+ * подхватывается новым запуском (lib/chat/inbound-seen).
+ */
+interface InboundTake { source?: InboundSource; key?: string }
+
+/** Обработать апдейт и отметить «обработано» — успехом или ошибкой. */
+async function handleUpdateTracked(update: MaxUpdate, opts: { verifiedOrigin?: boolean }): Promise<void> {
+  const take: InboundTake = {};
+  try {
+    await handleUpdate(update, { ...opts, take });
+  } finally {
+    if (take.source && take.key) await markInboundDone(take.source, take.key);
+  }
+}
+
+async function handleUpdate(update: MaxUpdate, opts?: { verifiedOrigin?: boolean; take?: InboundTake }): Promise<void> {
   // ── ВХОД ЧЕРЕЗ MAX ─────────────────────────────────────────────────────────
   // Решение о подтверждении входа принимается ТОЛЬКО по verifiedOrigin —
   // это серверный флаг (секрет в URL вебхука / long-polling), НЕ поле из тела
@@ -1280,10 +1297,13 @@ async function handleUpdate(update: MaxUpdate, opts?: { verifiedOrigin?: boolean
     if (typeof msg.body.mid === 'string' && msg.body.mid !== '') {
       const mid = msg.body.mid;
       const verified = opts?.verifiedOrigin === true;
-      const repeated = verified
-        ? await isRepeatedInbound('max_message', mid, () => isRepeatedMaxMessage(mid, true))
-        : isRepeatedMaxMessage(mid, false);
-      if (repeated) return;
+      if (verified) {
+        const admitted = await admitInbound('max_message', mid, () => isRepeatedMaxMessage(mid, true));
+        if (admitted === 'repeat') return;
+        if (admitted === 'new' && opts?.take) Object.assign(opts.take, { source: 'max_message', key: mid });
+      } else if (isRepeatedMaxMessage(mid, false)) {
+        return;
+      }
     }
 
     const text = msg.body.text?.trim() ?? '';
@@ -1863,8 +1883,11 @@ async function handleUpdate(update: MaxUpdate, opts?: { verifiedOrigin?: boolean
     // второй раз (#3433). Только заверенное: незаверенный запрос с чужим
     // callback_id не должен отсечь настоящее нажатие.
     const callbackId = update.callback.callback_id;
-    if (opts?.verifiedOrigin === true && typeof callbackId === 'string' && callbackId !== ''
-      && await isRepeatedInbound('max_callback', callbackId, () => isRepeatedMaxCallback(callbackId))) return;
+    if (opts?.verifiedOrigin === true && typeof callbackId === 'string' && callbackId !== '') {
+      const admitted = await admitInbound('max_callback', callbackId, () => isRepeatedMaxCallback(callbackId));
+      if (admitted === 'repeat') return;
+      if (admitted === 'new' && opts.take) Object.assign(opts.take, { source: 'max_callback', key: callbackId });
+    }
 
     // Подпись и срок кнопок-записей (lib/chat-cabinet/signed-payload).
     const press = unwrapPress(update.callback.payload ?? '');
@@ -2200,7 +2223,7 @@ export async function POST(request: NextRequest): Promise<NextResponse> {
   // Каждый апдейт — в своей обёртке: сбой одного не съедает остальные.
   for (const update of updates) {
     try {
-      await handleUpdate(update, { verifiedOrigin });
+      await handleUpdateTracked(update, { verifiedOrigin });
     } catch (err) {
       logFailure(`обработка апдейта ${updateKind(update)}`, err);
     }
@@ -2232,7 +2255,7 @@ export async function GET(): Promise<NextResponse> {
     for (const update of response.updates) {
       // Long-polling заверен по построению: апдейты забрали мы сами у MAX
       // по токену бота — форжить тут нечего.
-      await handleUpdate(update as unknown as MaxUpdate, { verifiedOrigin: true });
+      await handleUpdateTracked(update as unknown as MaxUpdate, { verifiedOrigin: true });
       processed++;
     }
 
