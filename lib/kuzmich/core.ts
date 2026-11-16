@@ -782,7 +782,10 @@ async function buildEnrichment(): Promise<string> {
   const knowledgeLines = knowledgeResult.rows.map(k => `${k.title}: ${k.compiled_truth}`);
 
   // Live-контекст (погода/новости/МЧС) — тоже обогащение, не роняет каталог.
-  const liveBlock = await loadLiveContext().catch(() => '');
+  const liveBlock = await loadLiveContext().catch((err: unknown) => {
+    logSwallowedFailure('kuzmich', 'live-контекст (погода, новости, МЧС)', err);
+    return '';
+  });
 
   _enrichmentCache = [
     placesLines.length ? 'МЕСТА И ДОСТОПРИМЕЧАТЕЛЬНОСТИ КАМЧАТКИ (из базы платформы):' : '',
@@ -803,7 +806,10 @@ export async function buildTourContext(): Promise<string> {
   const catalog = await buildTourCatalog();
   // Дата нужна и без каталога: раньше пустой каталог убирал и «СЕГОДНЯ».
   if (!catalog) return kamchatkaDateContext();
-  const enrichment = await buildEnrichment().catch(() => '');
+  const enrichment = await buildEnrichment().catch((err: unknown) => {
+    logSwallowedFailure('kuzmich', 'обогащение контекста (места, база знаний)', err);
+    return '';
+  });
   // В подсказку — первые туры и сказано, сколько всего: остальные Кузьмич
   // берёт get_tours (lib/kuzmich/tour-filter, capTourCatalog).
   const { capTourCatalog } = await import('@/lib/kuzmich/tour-filter');
@@ -2830,7 +2836,10 @@ async function executeTool(name: string, args: Record<string, string>, opts: Too
       // Экзамен 22.10: на «джип-тур на Халактырский пляж» модель звала только
       // прайс машин и отвечала «тура нет», хотя tour:53 есть. Туры с этим
       // местом едут рядом с прайсом — из того же каталога, что get_tours.
-      const tours = await toursMentioningPlace(args.place).catch(() => '');
+      const tours = await toursMentioningPlace(args.place).catch((err: unknown) => {
+        logSwallowedFailure('kuzmich', 'туры к месту рядом с прайсом машин', err);
+        return '';
+      });
       return tours ? `${charter}\n\n${tours}` : charter;
     }
     if (name === 'search_car_rental') {

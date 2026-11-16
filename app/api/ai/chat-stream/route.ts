@@ -227,7 +227,10 @@ export async function POST(request: NextRequest) {
       ? { lat: userLocation.lat, lng: userLocation.lng, accuracy: userLocation.accuracy ?? 0, timestamp: userLocation.timestamp ?? Date.now() }
       : undefined;
 
-    const geoContext = geo ? await buildGeoContext(geo).catch(() => '') : '';
+    const geoContext = geo ? await buildGeoContext(geo).catch((err: unknown) => {
+      logSwallowedFailure('ai-chat-stream', 'контекст места человека', err);
+      return '';
+    }) : '';
 
     // Туристу — те же данные хода, что Кузьмичу на сайте, в Telegram и MAX
     // (kuzmichTurnFacts, слово владельца 15.11 «на сайте и в тг разные

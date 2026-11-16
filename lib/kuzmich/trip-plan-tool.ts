@@ -543,7 +543,9 @@ export function readBudgetTier(raw: string | undefined): { tier: BudgetTier; giv
       ? { tier: named, given: true, note: `${sum} Жильё — «${BUDGET_LABEL[named]}», как названо.` }
       : { tier: 'comfort', given: false, note: `${sum} Жильё считаю на уровне «комфорт»; можно: эконом, комфорт, премиум.` };
   }
-  const word = t.replace(/^(на|в)\s+/i, '');
+  // «ё» и «е» — одно слово: «дёшево» и «дешёвое» не должны уходить в «не разобрал»
+  // (#3394, п. 1). Образцы списка пишутся через «е».
+  const word = t.replace(/^(на|в)\s+/i, '').replace(/ё/gi, 'е');
   for (const [re, tier] of BUDGET_WORDS) if (re.test(word)) return { tier, given: true, note: null };
   return { tier: 'comfort', given: false, note: `Уровень бюджета «${t}» не разобрал — считаю «комфорт». Можно: эконом, комфорт, премиум.` };
 }

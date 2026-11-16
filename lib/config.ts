@@ -206,12 +206,6 @@ export const config = {
       },
       from: process.env.EMAIL_FROM || 'noreply@tourhab.ru',
     },
-    sms: {
-      smsRu: {
-        apiId: process.env.SMS_RU_API_KEY || '',
-        baseUrl: 'https://sms.ru/sms/send',
-      },
-    },
     telegram: {
       botToken: process.env.TELEGRAM_BOT_TOKEN || '',
       chatId: process.env.TELEGRAM_CHAT_ID || '',
