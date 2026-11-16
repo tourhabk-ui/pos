@@ -12,9 +12,15 @@
  * Это удобство одного зрителя, а не состояние платформы: без localStorage
  * планер работает как раньше. Срок — 30 дней; прошедшие даты не
  * восстанавливаются.
+ *
+ * Ключ один на браузер, а не на аккаунт, поэтому «Выйти» черновик стирает
+ * (`clearFormDraft`, зовёт signOut в AuthContext; слово владельца 16.11
+ * «Сделай правку»): на общем устройстве следующий вошедший не увидит чужую
+ * подвижность, морскую болезнь, возраст детей и рейсы.
  */
 
 import { MAX_ADULTS } from '@/lib/planner/party-limits';
+import { logSwallowedFailure } from '@/lib/observability/swallowed';
 
 export const FORM_DRAFT_KEY = 'vedar_planner_form_v1';
 export const FORM_DRAFT_TTL_DAYS = 30;
@@ -122,6 +128,17 @@ export function parseFormDraft(raw: string | null, today: string, now: Date = ne
     restDays,
     restManual: flag(d.restManual),
   };
+}
+
+/**
+ * Стереть черновик с этого устройства. Отказ хранилища не роняет вызывающего
+ * (выход из аккаунта не должен ломаться из-за черновика), но и не молчит.
+ */
+export function clearFormDraft(): void {
+  if (typeof localStorage === 'undefined') return;
+  try { localStorage.removeItem(FORM_DRAFT_KEY); } catch (err) {
+    logSwallowedFailure('planner-form-draft', 'стирание черновика анкеты при выходе', err);
+  }
 }
 
 /** Пустая анкета — как при первом открытии: «Начать заново». */
