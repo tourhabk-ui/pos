@@ -36,7 +36,7 @@ import {
   type NewNumbers,
 } from '@/lib/planner/calendar-days';
 import { logSwallowedFailure } from '@/lib/observability/swallowed';
-import { FORM_DRAFT_KEY, EMPTY_FORM_DRAFT, linkCarriesForm, parseFormDraft, serializeFormDraft, type PlannerFormDraft } from '@/lib/planner/form-draft';
+import { FORM_DRAFT_KEY, DRAFT_SIGNOUT_KEY, EMPTY_FORM_DRAFT, draftSignOutGeneration, linkCarriesForm, parseFormDraft, serializeFormDraft, type PlannerFormDraft } from '@/lib/planner/form-draft';
 import { plannerLoginHref } from '@/lib/planner/login-gate';
 import { tripCalendarDays, dateOfTripDay } from '@/lib/planner/flow-balance';
 import { TRAVEL_STYLES, TRAVEL_STYLE_LABEL, REST_EVERY_DAYS, suggestRestDays, type TravelStyle } from '@/lib/planner/travel-style';
@@ -1323,27 +1323,41 @@ export function PlannerClient({ initialUserId }: { initialUserId?: string | null
     setMobilityLevel(d.mobilityLevel); setTravelStyle(d.travelStyle); setTripOrigin(d.tripOrigin);
     setRestDays(d.restDays); setRestManual(d.restManual);
   }, []);
+  // Черновик принадлежит вошедшему (initialUserId): чужой на общем устройстве
+  // не возвращается, а без известного вошедшего не пишется и не читается.
   useEffect(() => {
-    if (!linkCarriesForm(searchParams)) {
+    if (initialUserId && !linkCarriesForm(searchParams)) {
       let raw: string | null = null;
       try { raw = localStorage.getItem(FORM_DRAFT_KEY); } catch (err) { logSwallowedFailure('planner-form-draft', 'чтение черновика анкеты', err); }
-      const d = parseFormDraft(raw, kamchatkaToday());
+      const d = parseFormDraft(raw, kamchatkaToday(), initialUserId);
       if (d) { applyDraft(d); setDraftRestored(true); }
     }
     setDraftReady(true);
     // Только при открытии: дальше анкету ведёт человек.
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
+  // После «Выйти» — в этой вкладке или в другой — открытый планер черновик не
+  // пишет: проп initialUserId остаётся от старого входа до перезагрузки.
+  const signOutGenAtOpen = useRef(draftSignOutGeneration());
+  const [draftStopped, setDraftStopped] = useState(false);
   useEffect(() => {
-    if (!draftReady) return;
+    const onStorage = (e: StorageEvent) => {
+      if (e.key === DRAFT_SIGNOUT_KEY) setDraftStopped(true);
+    };
+    window.addEventListener('storage', onStorage);
+    return () => window.removeEventListener('storage', onStorage);
+  }, []);
+  useEffect(() => {
+    if (!draftReady || !initialUserId || draftStopped) return;
+    if (draftSignOutGeneration() !== signOutGenAtOpen.current) return;
     try {
       localStorage.setItem(FORM_DRAFT_KEY, serializeFormDraft({
         places, activities, arrival, departure, flightArrival, flightDeparture, flightArrivalTime, flightDepartureTime,
         needsAirportTransfer, needsLodging, needsCar, adults, childAges, fitnessLevel, budgetTier, seasickness,
         mobilityLevel, travelStyle, tripOrigin, restDays, restManual,
-      }));
+      }, initialUserId));
     } catch (err) { logSwallowedFailure('planner-form-draft', 'запись черновика анкеты', err); }
-  }, [draftReady, places, activities, arrival, departure, flightArrival, flightDeparture, flightArrivalTime, flightDepartureTime,
+  }, [draftReady, initialUserId, draftStopped, places, activities, arrival, departure, flightArrival, flightDeparture, flightArrivalTime, flightDepartureTime,
     needsAirportTransfer, needsLodging, needsCar, adults, childAges, fitnessLevel, budgetTier, seasickness,
     mobilityLevel, travelStyle, tripOrigin, restDays, restManual]);
   const startOver = useCallback(() => {

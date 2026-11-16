@@ -2,6 +2,7 @@
 
 import React, { createContext, useContext, useState, useEffect } from 'react';
 import { sessionState, resetSessionState } from '@/lib/auth/session-state';
+import { clearFormDraft } from '@/lib/planner/form-draft';
 
 export interface User {
   id: string;
@@ -312,6 +313,9 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
   };
 
   const signOut = async () => {
+    // Черновик анкеты планера — до запроса: даже если выход не дошёл до
+    // сервера, чужие ответы анкеты на общем устройстве не остаются.
+    clearFormDraft();
     try {
       setIsLoading(true);
       await fetch('/api/auth/signout', { method: 'POST' });
