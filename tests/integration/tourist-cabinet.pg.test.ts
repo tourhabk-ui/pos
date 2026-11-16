@@ -634,6 +634,23 @@ withPg('кабинет туриста на настоящем PostgreSQL', () =>
        VALUES ($1, 'authenticated', $2, 'Иван', 'ivan_max', NOW() + interval '1 hour')`,
       [`erase-${uid}`, maxUser],
     );
+    // Память Кузьмича о его чатах (#3433 п. 5): заметки «со слов туриста».
+    // Его Telegram и его диалог MAX — стираются; чужой чат — нет.
+    const { botMemKey } = await import('@/lib/kuzmich/core');
+    const memKeys = [botMemKey(tg, 'tg'), botMemKey(maxChat, 'max'), botMemKey(tg + 1, 'tg')];
+    for (const key of memKeys) {
+      const { rows: [mem] } = await pool.query<{ id: string }>(
+        `INSERT INTO agent_memory (agent_id, memory_type, key, value, memory_tier, tags)
+         VALUES ('kuzmich', 'user_pref', $1, '{"ai_notes":"едем 12 июля, группа 4"}'::jsonb, 1, ARRAY['bot_memory'])
+         RETURNING id::text AS id`,
+        [key],
+      );
+      await pool.query(
+        `INSERT INTO agent_memory_edits (memory_id, agent_id, old_value, new_value, edited_by)
+         VALUES ($1, 'kuzmich', '{}'::jsonb, '{"ai_notes":"едем 12 июля"}'::jsonb, 'kuzmich')`,
+        [mem.id],
+      );
+    }
 
     const ok = await callDelete(uid, { confirm: true, phrase: 'УДАЛИТЬ' });
     expect(ok.status, JSON.stringify(ok.json)).toBe(200);
@@ -643,10 +660,40 @@ withPg('кабинет туриста на настоящем PostgreSQL', () =>
       [tg, maxChat, tg + 1, maxChat + 1],
     );
     expect(left.rows.map((r) => r.content)).toEqual(['чужой в MAX', 'чужой вопрос']);
+    expect((await pool.query(
+      `SELECT key FROM agent_memory WHERE agent_id = 'kuzmich' AND key = ANY($1)`, [memKeys],
+    )).rows.map((r) => r.key)).toEqual([memKeys[2]]);
+    expect((await pool.query(
+      `SELECT COUNT(*)::int AS n FROM agent_memory_edits e JOIN agent_memory m ON m.id = e.memory_id WHERE m.key = ANY($1)`, [memKeys],
+    )).rows[0].n).toBe(1);
     expect((await pool.query(`SELECT 1 FROM max_login_sessions WHERE nonce = $1`, [`erase-${uid}`])).rows).toHaveLength(0);
     expect((await pool.query(
       `SELECT telegram_id, telegram_chat_id, max_user_id FROM users WHERE id = $1`, [uid],
     )).rows).toEqual([{ telegram_id: null, telegram_chat_id: null, max_user_id: null }]);
+  });
+
+  it('память Кузьмича о чате: старше 180 дней в ответ не идёт и удаляется, свежая — на месте (#3433 п. 5)', async () => {
+    // Слово владельца 16.11 «180 дней»: заметки с датами прошлогодней поездки
+    // читались в каждом ответе. Срок — по updated_at.
+    const { botMemKey, loadBotMemory, pruneStaleBotMemory, BOT_MEMORY_DAYS } = await import('@/lib/kuzmich/core');
+    expect(BOT_MEMORY_DAYS).toBe(180);
+    const fresh = 990000 + Math.floor(Math.random() * 9999);
+    const stale = fresh + 1;
+    for (const [chat, days] of [[fresh, 179], [stale, 181]] as const) {
+      await pool.query(
+        `INSERT INTO agent_memory (agent_id, memory_type, key, value, memory_tier, tags, updated_at)
+         VALUES ('kuzmich', 'user_pref', $1, $2::jsonb, 1, ARRAY['bot_memory'], NOW() - make_interval(days => $3))`,
+        [botMemKey(chat, 'tg'), JSON.stringify({ activities: [], locations: [], travel_style: null, budget_level: null, ai_notes: `чат ${chat}`, messages_count: 3 }), days],
+      );
+    }
+    expect((await loadBotMemory(fresh, 'tg'))?.ai_notes).toBe(`чат ${fresh}`);
+    expect(await loadBotMemory(stale, 'tg')).toBeNull();
+
+    expect(await pruneStaleBotMemory()).toBeGreaterThanOrEqual(1);
+    const keys = (await pool.query<{ key: string }>(
+      `SELECT key FROM agent_memory WHERE key = ANY($1)`, [[botMemKey(fresh, 'tg'), botMemKey(stale, 'tg')]],
+    )).rows.map((r) => r.key);
+    expect(keys).toEqual([botMemKey(fresh, 'tg')]);
   });
 
   it('удаление: веб-чат и Telegram в chat_sessions, спутники и точка регистрации, текст обращений и SOS стираются; чужое — нет (#2327, третий круг)', async () => {
