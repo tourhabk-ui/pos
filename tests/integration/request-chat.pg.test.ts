@@ -1721,6 +1721,8 @@ withPg('переписка по заявке на настоящем PostgreSQL'
       const aiStatus = async () => (await statusOf(again.id)).status;
       expect((await pool.query(ai.LEAD_AI_START_SQL, [again.id, 'cancelled'])).rowCount).toBe(1);
       expect(await aiStatus()).toBe('ai_processing');
+      // Второй захват той же заявки не проходит: разбор уже идёт (#3433 п. 3).
+      expect((await pool.query(ai.LEAD_AI_START_SQL, [again.id, 'cancelled'])).rowCount).toBe(0);
       await pool.query(ai.LEAD_AI_ROLLBACK_SQL, [again.id]);
       expect(await aiStatus()).toBe('new');
       // …итог разбора переводит «в обработке» в «разобрана»…
@@ -1734,6 +1736,8 @@ withPg('переписка по заявке на настоящем PostgreSQL'
       expect((await pool.query(`SELECT status, ai_score FROM leads WHERE id = $1`, [again.id])).rows[0]).toEqual({ status: 'contacted', ai_score: 60 });
       expect((await pool.query(ai.LEAD_PROPOSAL_SENT_SQL, [again.id, 'cancelled'])).rowCount).toBe(1);
       expect(await aiStatus()).toBe('proposal_sent');
+      // С предложением — тоже не берётся заново.
+      expect((await pool.query(ai.LEAD_AI_START_SQL, [again.id, 'cancelled'])).rowCount).toBe(0);
 
       // Двери мимо кабинета отменённую тоже не возвращают.
       // Кнопка статуса в рабочем чате: свой исход, статус на месте; у живой заявки и у несуществующей — прежние.

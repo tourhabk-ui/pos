@@ -32,8 +32,23 @@ import { compareTourOffers, offerOrderDay } from '@/lib/tours/offer-order';
  * не затирает статус, поставленный за время разбора клиентом (отмена, 1427)
  * или оператором.
  */
-/** «В обработке». `$1` — лид, `$2` — статус «отменена клиентом»: такую не трогаем (нет строки — заявка отменена). */
-export const LEAD_AI_START_SQL = `UPDATE leads SET status = 'ai_processing', updated_at = NOW() WHERE id = $1 AND status <> $2`;
+/**
+ * Статусы, при которых разбор не начинается: уже идёт или уже есть предложение.
+ * Проверяется в самой записи (LEAD_AI_START_SQL), а не до неё (#3433 п. 3).
+ */
+export const LEAD_AI_BUSY_STATUSES = ['ai_processing', 'proposal_sent', 'converted'] as const;
+
+/**
+ * «В обработке» — захват заявки. `$1` — лид, `$2` — статус «отменена клиентом».
+ * Условие на статус стоит в самой записи: разбор зовут шесть мест (крон, кнопка
+ * «Обработать AI» в MAX и Telegram, создание заявки, два роута), и проверка
+ * «уже обрабатывается» ДО записи пропускала оба одновременных вызова — два
+ * хода модели и два предложения на одну заявку (#3433 п. 3). Нет строки —
+ * заявку взял другой вызов, у неё уже есть предложение или её отменил клиент.
+ */
+export const LEAD_AI_START_SQL = `UPDATE leads SET status = 'ai_processing', updated_at = NOW()
+  WHERE id = $1 AND status <> $2
+    AND status NOT IN (${LEAD_AI_BUSY_STATUSES.map((st) => `'${st}'`).join(', ')})`;
 /** Итог разбора: поля пишутся всегда, статус — только если он всё ещё «в обработке». */
 export const LEAD_AI_DONE_SQL = `UPDATE leads
          SET status = CASE WHEN status = 'ai_processing' THEN 'ai_qualified' ELSE status END,
@@ -241,7 +256,14 @@ export class LeadProcessorService {
     // не трогает — ни прочитанную такой, ни отменённую между чтением и записью:
     // условие стоит в самой записи, и по ней подбирать и писать предложение некому.
     const started = await pool.query(LEAD_AI_START_SQL, [leadId, LEAD_CLIENT_CANCELLED]);
-    if (started.rowCount === 0) throw new LeadCancelledByClientError();
+    if (started.rowCount === 0) {
+      // Захват не прошёл — почему, говорит статус на сейчас: отменённую клиентом
+      // вызывающие считают отдельно, остальное — «уже взята другим вызовом».
+      const now = await pool.query<{ status: string | null }>(`SELECT status FROM leads WHERE id = $1`, [leadId]);
+      const status = now.rows[0]?.status ?? null;
+      if (status === LEAD_CLIENT_CANCELLED) throw new LeadCancelledByClientError();
+      throw new Error(status === 'ai_processing' ? 'Лид уже обрабатывается' : 'Лид уже имеет предложение');
+    }
     await this.logActivity(leadId, 'ai', 'processing_started', {});
 
     try {
