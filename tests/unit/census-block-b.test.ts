@@ -25,24 +25,14 @@ const migrations = () => fs.readdirSync(path.join(ROOT, 'migrations'))
   .join('\n');
 
 describe('удержание мест трансфера не возвращается', () => {
-  it('функций удержания нет', () => {
-    const src = code('lib/transfers/booking.ts');
-    expect(src).not.toMatch(/\bholdSeats\b/);
-    expect(src).not.toMatch(/\breleaseHold\b/);
-    expect(src).not.toMatch(/\bcleanupExpiredHolds\b/);
+  // lib/transfers/booking.ts удалён 16.11 вместе с последним вызывающим —
+  // приёмником CloudPayments трансферов (#3433 п. 2, находка 10; слово
+  // владельца «мы оплату не берем», «тестовый аккаунт Cloud»). Его таблиц
+  // нет на проде, трансфер — машина целиком по заявке (§14).
+  it('модуля брони мест трансфера нет', () => {
+    expect(fs.existsSync(path.join(ROOT, 'lib/transfers/booking.ts'))).toBe(false);
+    expect(fs.existsSync(path.join(ROOT, 'app/api/webhooks/cloudpayments/route.ts'))).toBe(false);
   });
-
-  it('гонку за место по-прежнему закрывает блокировка строки', () => {
-    // Это и есть причина, по которой удержание не нужно.
-    const src = code('lib/transfers/booking.ts');
-    expect(src).toMatch(/createBookingWithLock/);
-    expect(src).toMatch(/FOR UPDATE NOWAIT/);
-  });
-
-  // Проверка порядка «бронь до платежа» держалась на app/api/transfers/book,
-  // удалённом 01.09 вместе с мёртвым модулем: роут читал таблицы, которых на
-  // проде нет. Порядок вызовов стеречь стало негде — сам createBookingWithLock
-  // жив и остаётся под двумя проверками выше, до платёжного шага.
 });
 
 describe('схема гидов сведена к одной таблице', () => {

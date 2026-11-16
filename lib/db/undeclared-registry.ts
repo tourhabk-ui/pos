@@ -66,14 +66,13 @@ export const UNDECLARED_TABLES = [
   // Модуль трансферов: описан в lib/database/transfer_schema.sql, который НЕ
   // применяется ничем — это не миграция, а файл рядом.
   //
-  // Шесть имён ниже пережили заход удаления 01.09 НЕ по недосмотру: их держит
-  // платёжный контур — app/api/payments/*, app/api/webhooks/cloudpayments и
-  // lib/payments/*, — вынесенный из захода до слова владельца (§7 «Не
-  // трогать»). Вместе с ним остаётся lib/transfers/booking.ts: приёмник
-  // CloudPayments динамически импортирует из него cancelBooking, и удалить
-  // модуль, не тронув приёмник, нельзя. Уйдут вместе с платёжным шагом.
-  'transfer_bookings', 'transfer_schedules', 'transfer_vehicles',
-  'transfer_notifications', 'transfer_payments',
+  // Имя ниже пережило заход удаления 01.09 НЕ по недосмотру: его держит
+  // app/api/payments/create (зона §7 «Не трогать»). Приёмник CloudPayments
+  // трансферов и lib/transfers/booking.ts удалены 16.11 (#3433 п. 2, слово
+  // владельца «мы оплату не берем», «тестовый аккаунт Cloud») — с ними ушли
+  // transfer_schedules, transfer_vehicles, transfer_notifications и
+  // transfer_payments.
+  'transfer_bookings',
   // ── Выбыли по разрешению, а не потерялись ───────────────────────────────
   //
   // seat_holds — 22.08.2026, вместе с кодом удержания мест: таблицы не

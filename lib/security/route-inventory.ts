@@ -24,8 +24,9 @@
  *   - `/api/bookings/[id]` зовёт `verifyAuth` и сверяет владение через
  *     `getBookingForUser(id, auth.userId)` — сигнала не было в списке;
  *   - `/api/admin/auth/issue-token` сверяет ключ через `timingSafeEqual`;
- *   - `/api/webhooks/cloudpayments` проверяет HMAC внутри
- *     `processCloudPaymentsWebhook`, то есть в соседнем модуле.
+ *   - приёмник CloudPayments трансферов (`/api/webhooks/cloudpayments`,
+ *     удалён 16.11) проверял HMAC внутри `processCloudPaymentsWebhook`, то
+ *     есть в соседнем модуле.
  *
  * Поэтому проверка идёт на ОДИН ПЕРЕХОД вглубь: роут плюс те `@/lib/*`,
  * которые он импортирует. Дальше не идём сознательно — двухходовка начнёт

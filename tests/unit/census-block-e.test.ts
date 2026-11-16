@@ -109,7 +109,6 @@ describe('удалённое не возвращается', () => {
     ['lib/config.ts', 'getClientConfig'],
     ['lib/auth.ts', 'getUserFromToken'],
     ['lib/auth/tourist-helpers.ts', 'getTouristRecommendations'],
-    ['lib/transfers/booking.ts', 'checkAvailability'],
     ['lib/wishlist/client.ts', 'fetchWishlistedIds'],
   ];
 

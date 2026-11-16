@@ -57,7 +57,6 @@ const BASELINE = new Set<string>([
   'lib/services/operators/support.service.ts',
   'lib/services/rag.service.ts',
   'lib/services/tours/tour.service.ts',
-  'lib/transfers/booking.ts',
   // 'lib/transfers/matching.ts' снят 12.09: файла нет с #1496 («Заход
   // удаления, шаг 2: мёртвый модуль трансферов»). Запись пережила свой файл
   // на месяц и всё это время описывала несуществующий долг — её нашла не
