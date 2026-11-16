@@ -351,19 +351,52 @@ export interface BotMemory {
   messages_count: number;
 }
 
-function botMemKey(chatId: number, platform: 'tg' | 'max'): string {
+export function botMemKey(chatId: number, platform: 'tg' | 'max'): string {
   return `kuzmich_mem_${platform}_${chatId}`;
 }
+
+/**
+ * Срок памяти чата (#3433 п. 5, слово владельца 16.11 «180 дней»). Память, не
+ * обновлённая дольше, в ответ не идёт: заметки «со слов туриста» с датами
+ * прошлогодней поездки читались в каждом ответе. Следующая запись начинает
+ * память заново, а не дописывает старую; строки старше срока удаляет
+ * saveBotMemory по ходу записи (pruneStaleBotMemory).
+ */
+export const BOT_MEMORY_DAYS = 180;
+const BOT_MEMORY_PRUNE_EVERY = 100;
+let botMemoryWrites = 0;
 
 export async function loadBotMemory(chatId: number, platform: 'tg' | 'max'): Promise<BotMemory | null> {
   try {
     const { rows } = await pool.query<{ value: BotMemory }>(
       `SELECT value FROM agent_memory
-       WHERE agent_id = 'kuzmich' AND memory_type = 'user_pref' AND key = $1 LIMIT 1`,
-      [botMemKey(chatId, platform)],
+       WHERE agent_id = 'kuzmich' AND memory_type = 'user_pref' AND key = $1
+         AND updated_at > NOW() - make_interval(days => $2)
+       LIMIT 1`,
+      [botMemKey(chatId, platform), BOT_MEMORY_DAYS],
     );
     return rows[0]?.value ?? null;
-  } catch { return null; }
+  } catch (err) {
+    // Отказ базы — не «памяти нет»: ответ идёт без неё, но это видно в логе (§4.0).
+    logSwallowed('память чата', err);
+    return null;
+  }
+}
+
+/** Удалить память чатов, не обновлённую дольше срока. */
+export async function pruneStaleBotMemory(): Promise<number | null> {
+  try {
+    const res = await pool.query(
+      `DELETE FROM agent_memory
+        WHERE agent_id = 'kuzmich' AND memory_type = 'user_pref'
+          AND updated_at < NOW() - make_interval(days => $1)`,
+      [BOT_MEMORY_DAYS],
+    );
+    return res.rowCount ?? 0;
+  } catch (err) {
+    logSwallowed('чистка памяти чатов старше срока', err);
+    return null;
+  }
 }
 
 export async function saveBotMemory(
@@ -392,6 +425,8 @@ export async function saveBotMemory(
              edit_count = agent_memory.edit_count + 1`,
       [botMemKey(chatId, platform), JSON.stringify(next)],
     );
+    botMemoryWrites += 1;
+    if (botMemoryWrites % BOT_MEMORY_PRUNE_EVERY === 0) void pruneStaleBotMemory();
   } catch (err) { console.error('[saveMsg]', err instanceof Error ? err.message : err); }
 }
 
@@ -548,7 +583,10 @@ async function synthesizeBotNotes(
     }]);
     if (!result || /^нет\.?$/i.test(result.trim())) return;
     await saveBotMemory(chatId, platform, { ai_notes: result.trim().slice(0, 800) });
-  } catch { /* fire-and-forget */ }
+  } catch (err) {
+    // Фоновая работа: ответ уже ушёл, но отказ называется (§4.0).
+    logSwallowed('заметки памяти чата', err);
+  }
 }
 
 /**
@@ -1438,7 +1476,12 @@ async function getHistoryWithCompactionSummary(
     const { kept, dropped } = splitHistoryForCompaction(rows.reverse() as ChatMessage[]);
     const summary = dropped.length ? await summarizeDroppedTurns(dropped) : '';
     return { history: kept, summary };
-  } catch { return { history: [], summary: '' }; }
+  } catch (err) {
+    // Отказ базы — не «истории нет»: Кузьмич ответит как в первый раз, и это
+    // должно быть видно в логе (§4.0).
+    logSwallowed('история чата', err);
+    return { history: [], summary: '' };
+  }
 }
 
 export async function saveMsg(
