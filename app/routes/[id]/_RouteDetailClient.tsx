@@ -899,7 +899,7 @@ export default function RouteDetailClient({ id, mapPackBaseUrl, summary = null, 
               showLabel={false}
             />
           ) : (
-            <Image src={heroImage!} alt={route.title} fill className="object-contain" priority sizes="100vw" />
+            <Image src={heroImage!} alt={route.title} fill className="object-contain" priority fetchPriority="high" sizes="100vw" />
           )}
         </div>
 
