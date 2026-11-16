@@ -3479,10 +3479,19 @@ withPg('кабинет туриста на настоящем PostgreSQL', () =>
     await pool.query(`UPDATE tour_payments SET refund_due = 0 WHERE id = $1`, [payment]);
     expect(await findEraseBlockers(pool, uid)).toEqual([]);
     // Бронь не отменена — платёж уйдёт оператору, возврата нет, не держит.
-    await pool.query(`UPDATE tour_payments SET refund_due = 2500 WHERE id = $1`, [payment]);
-    await pool.query(`UPDATE operator_bookings SET booking_status = 'completed', booking_date = CURRENT_DATE - 5 WHERE id = $1`, [booking]);
+    // Своя бронь: отменённую в работу не вернуть (триггер 1458).
+    const kept = (await pool.query<{ id: string }>(
+      `INSERT INTO operator_bookings (operator_tour_id, booking_date, participants, user_id, tourist_name, tourist_phone,
+         tourist_email, booking_status, payment_status, paid_at)
+       VALUES ($1, CURRENT_DATE - 5, 1, $2, 'Иван', '+79990009999', 'refund@example.com', 'completed', 'paid', NOW() - interval '9 days')
+       RETURNING id`, [tourId, uid],
+    )).rows[0].id;
+    await pool.query(
+      `INSERT INTO tour_payments (booking_id, operator_id, retail_amount, net_amount, commission_amount, commission_rate, status, refund_due)
+       VALUES ($1, $2, 5000, 4500, 500, 10, 'HELD', 2500)`, [kept, operatorId],
+    );
     expect(await findEraseBlockers(pool, uid)).toEqual([]);
-    await pool.query(`UPDATE operator_bookings SET booking_status = 'cancelled' WHERE id = $1`, [booking]);
+    await pool.query(`UPDATE tour_payments SET refund_due = 2500 WHERE id = $1`, [payment]);
     expect(await findEraseBlockers(pool, uid)).toEqual(['refund_pending']);
 
     // Администратор отметил возврат (POST /api/admin/finance/refunds) — удаление проходит.

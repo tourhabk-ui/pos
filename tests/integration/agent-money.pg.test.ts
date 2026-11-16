@@ -191,7 +191,16 @@ withPg('деньги агента на настоящем PostgreSQL', () => {
   });
 
   it('освобождённую бронь можно запросить снова; выплата и флаг отмены после неё', async () => {
-    await pool.query(`UPDATE operator_bookings SET booking_status = 'confirmed' WHERE id = $1::bigint`, [ids.b1]);
+    // Позиция освобождается отказом в выплате; почему отказали, путю выплаты
+    // всё равно. Сцена берёт ту же бронь b1 и делает её снова живой — в жизни
+    // отменённая бронь в работу не возвращается (триггер миграции 1458),
+    // поэтому здесь, в своей базе сцены, триггер выключен на одну правку.
+    await pool.query(`ALTER TABLE operator_bookings DISABLE TRIGGER trg_operator_bookings_cancelled_is_final`);
+    try {
+      await pool.query(`UPDATE operator_bookings SET booking_status = 'confirmed' WHERE id = $1::bigint`, [ids.b1]);
+    } finally {
+      await pool.query(`ALTER TABLE operator_bookings ENABLE TRIGGER trg_operator_bookings_cancelled_is_final`);
+    }
     const m = await loadAgentMoney(pool, ids.agentA);
     const items = payableForRequest(m.sales);
     expect(items.map((i) => [i.bookingId, i.amount])).toEqual([[ids.b1, 2000]]);
