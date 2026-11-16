@@ -291,6 +291,10 @@ withPg('объектив схемы на настоящем PostgreSQL', () => {
         ('jsonrpc', 'message/send', '0.3', TRUE, 'bot', 'bot', 'new-caller', 'new-ctx', ${NEW})`);
       await pool.query(`INSERT INTO audit_log (entity_type, entity_id, action, ip_address, user_agent, created_at) VALUES
         ('user', gen_random_uuid(), 'role_switch', '10.0.0.1', 'UA', ${OLD})`);
+      // Регистрация партнёра пишет в data почту и ИНН рядом с ролями и согласиями.
+      await pool.query(`INSERT INTO audit_log (entity_type, entity_id, action, data, created_at) VALUES
+        ('partner', gen_random_uuid(), 'register', '{"email":"old@example.org","inn":"410100000000","roles":["operator"],"consents":{"pd":true}}', ${OLD}),
+        ('partner', gen_random_uuid(), 'register', '{"email":"new@example.org","inn":"410100000001","roles":["guide"]}', ${NEW})`);
       await pool.query(`INSERT INTO mcp_clients (caller_hash, day) VALUES ('old-client', (${OLD})::date), ('new-client', CURRENT_DATE)`);
 
       const query = (sql: string, params: unknown[]) => pool.query(sql, params);
@@ -305,6 +309,12 @@ withPg('объектив схемы на настоящем PostgreSQL', () => {
       // Строка аудита осталась — доказательство выдачи прав; IP и браузер стёрты.
       const audit = await pool.query("SELECT action, ip_address, user_agent FROM audit_log WHERE action = 'role_switch'");
       expect(audit.rows).toEqual([{ action: 'role_switch', ip_address: null, user_agent: null }]);
+      const reg = await pool.query<{ data: Record<string, unknown> }>(
+        "SELECT data FROM audit_log WHERE action = 'register' ORDER BY created_at");
+      expect(reg.rows.map((r) => r.data)).toEqual([
+        { roles: ['operator'], consents: { pd: true } },
+        { email: 'new@example.org', inn: '410100000001', roles: ['guide'] },
+      ]);
       const clients = await pool.query<{ caller_hash: string }>('SELECT caller_hash FROM mcp_clients ORDER BY day');
       expect(clients.rows.map((r) => r.caller_hash)).toEqual(['new-client']);
 
@@ -314,7 +324,7 @@ withPg('объектив схемы на настоящем PostgreSQL', () => {
       expect(log.rows).toEqual([
         { table_name: 'a2a_requests', action: 'anonymize', rows_affected: 1, state: 'ok' },
         { table_name: 'mcp_clients', action: 'delete', rows_affected: 1, state: 'ok' },
-        { table_name: 'audit_log', action: 'anonymize', rows_affected: 1, state: 'ok' },
+        { table_name: 'audit_log', action: 'anonymize', rows_affected: 2, state: 'ok' },
         { table_name: 'rag_quality_log', action: 'delete', rows_affected: 1, state: 'ok' },
       ]);
 

@@ -38,10 +38,19 @@ export const ERASED_MARK = 'erased';
 export const PURGE_BATCH = 5000;
 export const PURGE_MAX_BATCHES = 20;
 
+/** Ключи JSON-колонки, которые стираются, а остальные ключи строки остаются. */
+export interface JsonDrop {
+  column: string;
+  keys: readonly string[];
+}
+
 export type PurgeAction =
   | { kind: 'delete' }
-  /** `nullable` — обнулить; `notNull` — колонка без NULL, ставится `ERASED_MARK`. */
-  | { kind: 'anonymize'; nullable: readonly string[]; notNull?: readonly string[] };
+  /**
+   * `nullable` — обнулить; `notNull` — колонка без NULL, ставится `ERASED_MARK`;
+   * `jsonDrop` — убрать ключи о человеке из JSON, оставив те, что читают отчёты.
+   */
+  | { kind: 'anonymize'; nullable: readonly string[]; notNull?: readonly string[]; jsonDrop?: JsonDrop };
 
 export interface PurgeStep {
   table: string;
@@ -56,8 +65,11 @@ export interface PurgeStep {
 const del = (table: string, why: string, column = 'created_at'): PurgeStep =>
   ({ table, column, days: TECH_LOG_DAYS, action: { kind: 'delete' }, why });
 
-const anon = (table: string, nullable: readonly string[], why: string, notNull: readonly string[] = []): PurgeStep =>
-  ({ table, column: 'created_at', days: TECH_LOG_DAYS, action: { kind: 'anonymize', nullable, notNull }, why });
+const anon = (
+  table: string, nullable: readonly string[], why: string,
+  notNull: readonly string[] = [], jsonDrop?: JsonDrop,
+): PurgeStep =>
+  ({ table, column: 'created_at', days: TECH_LOG_DAYS, action: { kind: 'anonymize', nullable, notNull, ...(jsonDrop ? { jsonDrop } : {}) }, why });
 
 /**
  * Разметка по чтению кода 16.11: кто пишет таблицу, какие колонки о человеке,
@@ -70,7 +82,11 @@ export const PURGE_STEPS: readonly PurgeStep[] = [
   del('mcp_clients', 'имя программы и хэш вызывающего по дням; читатели берут не больше 90 дней', 'day'),
   anon('page_views', ['visitor_hash', 'session_id', 'ip_hash', 'referrer'], 'история посещаемости по страницам остаётся; стираются хэши посетителя, сессии, IP и адрес, откуда пришёл'),
   del('client_errors', 'текст ошибки из браузера мог содержать слова человека; перепись и так чистит старше 30 дней'),
-  anon('audit_log', ['ip_address', 'user_agent'], 'строка — доказательство, кто и когда выдал права (admin-owners-census); стирается только IP и браузер'),
+  anon(
+    'audit_log', ['ip_address', 'user_agent'],
+    'строка — доказательство, кто и когда выдал права (admin-owners-census читает из data роль, from, to и changedBy); стираются IP, браузер, почта и ИНН из записи регистрации партнёра',
+    [], { column: 'data', keys: ['email', 'inn'] },
+  ),
   anon('audit_logs', ['ip_address', 'user_agent'], 'журнал действий администратора читается без окна; стирается только IP и браузер'),
   anon('llm_usage_log', ['user_id'], 'расход ИИ смотрят по произвольному диапазону дат; стирается только ссылка на пользователя'),
   del('ai_actions_log', 'в metadata бывает отзыв туриста словами; читатели берут не больше 30 дней'),
@@ -97,19 +113,27 @@ export const PURGE_SKIPPED: Record<string, string> = {
 const NAME = /^[a-z_][a-z0-9_]*$/;
 
 function checkNames(step: PurgeStep): void {
-  const cols = step.action.kind === 'anonymize' ? [...step.action.nullable, ...(step.action.notNull ?? [])] : [];
+  const a = step.action;
+  const cols = a.kind === 'anonymize'
+    ? [...a.nullable, ...(a.notNull ?? []), ...(a.jsonDrop ? [a.jsonDrop.column, ...a.jsonDrop.keys] : [])]
+    : [];
   for (const n of [step.table, step.column, ...cols]) {
     if (!NAME.test(n)) throw new Error(`retention-purge: недопустимое имя ${n}`);
   }
 }
 
+/** `ARRAY['email','inn']` — ключи уже проверены `checkNames`. */
+const keyArray = (keys: readonly string[]): string => `ARRAY[${keys.map((k) => `'${k}'`).join(',')}]`;
+
 /** Условие «за сроком и ещё не убрано». $1 — дни. */
 function staleWhere(step: PurgeStep): string {
   const age = `${step.column} < NOW() - make_interval(days => $1::int)`;
   if (step.action.kind === 'delete') return age;
+  const j = step.action.jsonDrop;
   const left = [
     ...step.action.nullable.map((c) => `${c} IS NOT NULL`),
     ...(step.action.notNull ?? []).map((c) => `${c} <> '${ERASED_MARK}'`),
+    ...(j ? [`${j.column} ?| ${keyArray(j.keys)}`] : []),
   ];
   return `${age} AND (${left.join(' OR ')})`;
 }
@@ -125,9 +149,11 @@ export function purgeBatchSql(step: PurgeStep): string {
   checkNames(step);
   const pick = `ctid = ANY(ARRAY(SELECT ctid FROM ${step.table} WHERE ${staleWhere(step)} LIMIT $2::int))`;
   if (step.action.kind === 'delete') return `DELETE FROM ${step.table} WHERE ${pick}`;
+  const j = step.action.jsonDrop;
   const sets = [
     ...step.action.nullable.map((c) => `${c} = NULL`),
     ...(step.action.notNull ?? []).map((c) => `${c} = '${ERASED_MARK}'`),
+    ...(j ? [`${j.column} = ${j.column} - ${keyArray(j.keys)}::text[]`] : []),
   ];
   return `UPDATE ${step.table} SET ${sets.join(', ')} WHERE ${pick}`;
 }

@@ -70,7 +70,16 @@ describe('SQL', () => {
     const sql = purgeBatchSql(step('a2a_requests'));
     expect(sql).toContain(`UPDATE a2a_requests SET context_key = NULL, caller_hash = '${ERASED_MARK}' WHERE`);
     expect(sql).toContain(`AND (context_key IS NOT NULL OR caller_hash <> '${ERASED_MARK}')`);
-    expect(purgeBatchSql(step('audit_log'))).toContain('SET ip_address = NULL, user_agent = NULL WHERE');
+    expect(purgeBatchSql(step('audit_log'))).toContain("SET ip_address = NULL, user_agent = NULL, data = data - ARRAY['email','inn']::text[] WHERE");
+  });
+
+  it('журнал аудита: из data уходят почта и ИНН, а ключи, которые читает перепись владельцев, остаются', () => {
+    const a = step('audit_log').action;
+    if (a.kind !== 'anonymize') throw new Error('audit_log должен обезличиваться');
+    expect(a.jsonDrop).toEqual({ column: 'data', keys: ['email', 'inn'] });
+    // admin-owners-census судит по role, from, to и changedBy.
+    for (const k of ['role', 'from', 'to', 'changedBy']) expect(a.jsonDrop?.keys).not.toContain(k);
+    expect(purgeCountSql(step('audit_log'))).toContain("OR data ?| ARRAY['email','inn'])");
   });
 
   it('mcp_clients — по дню записи, а не по created_at', () => {
@@ -82,6 +91,8 @@ describe('SQL', () => {
     expect(() => purgeBatchSql(bad)).toThrow(/недопустимое имя/);
     const badCol: PurgeStep = { ...step('audit_log'), action: { kind: 'anonymize', nullable: ['ip_address = 1, x'] } };
     expect(() => purgeCountSql(badCol)).toThrow(/недопустимое имя/);
+    const badKey: PurgeStep = { ...step('audit_log'), action: { kind: 'anonymize', nullable: [], jsonDrop: { column: 'data', keys: ["email'] OR TRUE --"] } } };
+    expect(() => purgeBatchSql(badKey)).toThrow(/недопустимое имя/);
   });
 });
 
