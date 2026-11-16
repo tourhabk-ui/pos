@@ -17,6 +17,7 @@ import { pool } from '@/lib/db-pool';
 import { publicTourSql } from '@/lib/tours/public-visibility';
 import { logSwallowedFailure } from '@/lib/observability/swallowed';
 import { badQueryParam, calendarMonth, queryInput, queryText } from '@/lib/api/public-query';
+import { activitySpellings, canonicalActivity, knownActivityLabel } from '@/lib/tours/labels';
 
 export const dynamic = 'force-dynamic';
 
@@ -43,6 +44,22 @@ const PARAM_TEXT: Record<keyof z.input<typeof MonthQuery>, string> = {
   month: 'Месяц (month) — в формате ГГГГ-ММ, например 2027-07',
   activity: 'Вид активности (activity) содержит недопустимый символ',
 };
+
+/**
+ * Виды туров месяца для кнопок: канонический ключ без повторов, подпись из
+ * общего словаря. Вид без подписи кнопки не получает — служебное слово
+ * («horseback») человеку не показывается; тур виден под «Все типы».
+ */
+function monthActivities(types: readonly (string | null)[]): { value: string; label: string }[] {
+  const seen = new Map<string, string>();
+  for (const t of types) {
+    if (!t) continue;
+    const key = canonicalActivity(t);
+    const label = knownActivityLabel(key, true);
+    if (label && !seen.has(key)) seen.set(key, label);
+  }
+  return [...seen].map(([value, label]) => ({ value, label })).sort((a, b) => a.label.localeCompare(b.label, 'ru'));
+}
 
 export async function GET(request: NextRequest) {
   const { searchParams } = new URL(request.url);
@@ -75,19 +92,13 @@ export async function GET(request: NextRequest) {
   const params: unknown[] = [effectiveFrom, dateTo];
   let activityFilter = '';
   if (activity) {
-    params.push(activity);
-    activityFilter = `AND t.activity_type = $${params.length}`;
+    // Все написания вида: кнопка «Джип-сафари» находит и `jeep`, и `jeep_safari`.
+    params.push(activitySpellings(activity));
+    activityFilter = `AND t.activity_type = ANY($${params.length}::text[])`;
   }
 
-  try {
-    const { rows } = await pool.query<DayRow>(
-      `SELECT
-         ta.date::text,
-         COUNT(DISTINCT ta.operator_tour_id)::text             AS tour_count,
-         SUM(ta.available_slots - occ.taken)::text             AS free_slots,
-         MIN(COALESCE(ta.base_price_override, t.base_price))::text AS price_from,
-         ARRAY_AGG(DISTINCT t.activity_type)                   AS activities,
-         COUNT(DISTINCT t.operator_id)::text                   AS operators
+  // Общая часть запросов: даты месяца со свободными местами у туров витрины.
+  const monthFrom = `
        FROM tour_availability ta
        JOIN operator_tours t ON ta.operator_tour_id = t.id
        CROSS JOIN LATERAL (
@@ -102,12 +113,31 @@ export async function GET(request: NextRequest) {
          AND ta.deleted_at IS NULL
          AND (ta.available_slots - occ.taken) > 0
          -- тур — шлюзом витрины (#2642): копия без deleted_at отдавала даты удалённого тура
-         AND ${publicTourSql('t')}
+         AND ${publicTourSql('t')}`;
+
+  try {
+    // Кнопки видов — только из живых туров месяца (CLAUDE.md §0), без
+    // фильтра по виду: иначе выбранная кнопка прятала бы остальные.
+    const [{ rows }, kinds] = await Promise.all([
+      pool.query<DayRow>(
+        `SELECT
+           ta.date::text,
+           COUNT(DISTINCT ta.operator_tour_id)::text             AS tour_count,
+           SUM(ta.available_slots - occ.taken)::text             AS free_slots,
+           MIN(COALESCE(ta.base_price_override, t.base_price))::text AS price_from,
+           ARRAY_AGG(DISTINCT t.activity_type)                   AS activities,
+           COUNT(DISTINCT t.operator_id)::text                   AS operators
+         ${monthFrom}
          ${activityFilter}
-       GROUP BY ta.date
-       ORDER BY ta.date ASC`,
-      params
-    );
+         GROUP BY ta.date
+         ORDER BY ta.date ASC`,
+        params,
+      ),
+      pool.query<{ activity_type: string | null }>(
+        `SELECT DISTINCT t.activity_type ${monthFrom}`,
+        [effectiveFrom, dateTo],
+      ),
+    ]);
 
     const days = rows.map(r => ({
       date:       r.date,
@@ -122,6 +152,7 @@ export async function GET(request: NextRequest) {
       success: true,
       month:   `${year}-${String(month).padStart(2, '0')}`,
       days,
+      activities: monthActivities(kinds.rows.map((r) => r.activity_type)),
     });
   } catch (err) {
     // Текст исключения анониму не отдаётся: у PostgreSQL он называет таблицы,
