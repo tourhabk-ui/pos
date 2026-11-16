@@ -19,6 +19,7 @@ import { pool } from '@/lib/db-pool';
 import { requireAgent } from '@/lib/auth/middleware';
 import { normalizePriceUnit } from '@/lib/tours/booking-total';
 import { nearestFreeDateSql } from '@/lib/tours/nearest-free-date';
+import { anyDayOpenSql } from '@/lib/tours/schedule-kind';
 import { orderOffersBy } from '@/lib/tours/offer-order';
 
 export const dynamic = 'force-dynamic';
@@ -37,6 +38,8 @@ interface TourRow {
   season_end: string | null;
   operator_name: string | null;
   nearest_free_date: string | null;
+  /** Тур «в любой день сезона» открыт сейчас (`anyDayOpenSql`). */
+  any_day_open: boolean | null;
 }
 
 export async function GET(request: NextRequest) {
@@ -50,13 +53,13 @@ export async function GET(request: NextRequest) {
               t.base_price::text AS base_price, t.price_unit, t.max_participants,
               t.season_start::text AS season_start, t.season_end::text AS season_end,
               COALESCE(p.company_name, p.name) AS operator_name,
-              ${nearestFreeDateSql('t')} AS nearest_free_date
+              ${nearestFreeDateSql('t')} AS nearest_free_date, ${anyDayOpenSql('t')} AS any_day_open
          FROM operator_tours t
          JOIN partners p ON t.operator_id = p.id
         WHERE t.is_published = true AND t.is_active = true AND t.deleted_at IS NULL`,
     );
 
-    const ordered = orderOffersBy(rows, (r) => ({ id: r.id, nearestFreeDate: r.nearest_free_date ?? null }));
+    const ordered = orderOffersBy(rows, (r) => ({ id: r.id, nearestFreeDate: r.nearest_free_date ?? null, anyDayOpen: r.any_day_open ?? null }));
     const tours = ordered.map(row => ({
       id:            row.id,
       name:          row.title,
@@ -71,6 +74,7 @@ export async function GET(request: NextRequest) {
       seasonEnd:     row.season_end,
       operatorName:  row.operator_name,
       nearestFreeDate: row.nearest_free_date ?? null,
+      anyDayOpen:    row.any_day_open ?? null,
       // Ставку назначает владелец платформы — здесь её нет, и выдумывать нельзя.
       commission:    null,
     }));

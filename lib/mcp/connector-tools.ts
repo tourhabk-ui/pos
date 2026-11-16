@@ -48,6 +48,7 @@
 import { pool } from '@/lib/db-pool';
 import { publicTourSql } from '@/lib/tours/public-visibility';
 import { nearestFreeDateSql } from '@/lib/tours/nearest-free-date';
+import { anyDayOpenSql } from '@/lib/tours/schedule-kind';
 import { offerOrderDay, orderOffersBy } from '@/lib/tours/offer-order';
 import { loadPlaceTours, offerLinesForAgent } from '@/lib/places/place-tours';
 import { publicAccommodationSql } from '@/lib/stay/moderation';
@@ -128,6 +129,8 @@ interface HitRow {
   hits: number | string | null;
   /** Только у туров: ближайшая свободная дата (правило 1в). */
   nearest_free_date?: string | null;
+  /** Только у туров: тур «в любой день сезона» открыт сейчас (правило 1в). */
+  any_day_open?: boolean | null;
 }
 
 const UUID_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
@@ -180,7 +183,7 @@ export function searchSql(terms: number): Record<DocKind, string> {
     // между турами разных компаний не решают, кто выше. LIMIT нет — срез
     // по неизвестному порядку отрезал бы туры до правила.
     tour: `SELECT ot.id::text AS key, ot.title, similarity(ot.title, $1) AS score, ${tour.hits} AS hits,
-              ${nearestFreeDateSql('ot')} AS nearest_free_date
+              ${nearestFreeDateSql('ot')} AS nearest_free_date, ${anyDayOpenSql('ot')} AS any_day_open
        FROM operator_tours ot
       WHERE ${publicTourSql('ot')}
         AND (${tour.where})
@@ -229,7 +232,7 @@ export function orderTourHits<T extends HitRow>(rows: readonly T[], day: string)
     .sort((a, b) => b[0] - a[0])
     .flatMap(([, g]) => {
       const best = Math.max(...g.map((r) => Number(r.score ?? 0)));
-      return orderOffersBy(g, (r) => ({ id: r.key, nearestFreeDate: r.nearest_free_date ?? null }), { day })
+      return orderOffersBy(g, (r) => ({ id: r.key, nearestFreeDate: r.nearest_free_date ?? null, anyDayOpen: r.any_day_open ?? null }), { day })
         .map((r) => ({ ...r, score: best }));
     });
 }

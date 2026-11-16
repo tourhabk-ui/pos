@@ -29,6 +29,7 @@ import { priceFromUnit } from '@/lib/tours/price-label';
 import { unlimitedGroupSentence } from '@/lib/tours/group-size';
 import { publicTourSql } from '@/lib/tours/public-visibility';
 import { nearestFreeDateSql } from '@/lib/tours/nearest-free-date';
+import { anyDayOpenSql } from '@/lib/tours/schedule-kind';
 import { OFFER_ORDER_NOTE_AGENT, orderOffersBy } from '@/lib/tours/offer-order';
 
 /**
@@ -150,7 +151,7 @@ const searchTours: SDKTool = {
              -- поиск туров у Кузьмича не работал никогда.
              t.rating AS avg_rating,
              t.review_count AS review_count,
-             ${nearestFreeDateSql('t')} AS nearest_free_date
+             ${nearestFreeDateSql('t')} AS nearest_free_date, ${anyDayOpenSql('t')} AS any_day_open
       FROM operator_tours t
       JOIN partners p ON p.id = t.operator_id
       WHERE ${conditions.join(' AND ')}
@@ -166,6 +167,7 @@ const searchTours: SDKTool = {
       const ordered = orderOffersBy(result.rows as Record<string, unknown>[], (r) => ({
         id: String(r.id),
         nearestFreeDate: typeof r.nearest_free_date === 'string' ? r.nearest_free_date : null,
+        anyDayOpen: typeof r.any_day_open === 'boolean' ? r.any_day_open : null,
       }));
       return JSON.stringify({
         found: ordered.length,

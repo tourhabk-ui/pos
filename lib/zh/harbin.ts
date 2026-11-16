@@ -12,6 +12,7 @@
 import { pool } from '@/lib/db-pool';
 import { publicTourSql } from '@/lib/tours/public-visibility';
 import { nearestFreeDateSql } from '@/lib/tours/nearest-free-date';
+import { anyDayOpenSql } from '@/lib/tours/schedule-kind';
 import { logText } from '@/lib/log/log-text';
 import { orderZhTours, withZhTitles, type ZhTourRow } from '@/lib/zh/entry';
 
@@ -91,7 +92,7 @@ export async function loadSaturdayWeekTours(): Promise<ZhTourRow[] | null> {
       `SELECT ot.id::text AS id, ot.slug, ot.title, ot.base_price::text AS base_price, ot.price_unit,
               ot.duration_hours::text AS duration_hours, ot.duration_type, ot.multi_day_count,
               p.name AS operator_name, p.slug AS operator_slug, p.is_public AS operator_public,
-              ${nearestFreeDateSql('ot')} AS nearest_free_date
+              ${nearestFreeDateSql('ot')} AS nearest_free_date, ${anyDayOpenSql('ot')} AS any_day_open
          FROM operator_tours ot
          JOIN partners p ON ot.operator_id = p.id
         WHERE ${publicTourSql('ot')}`,

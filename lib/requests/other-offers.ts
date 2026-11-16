@@ -206,7 +206,8 @@ export function pickOtherOffers(args: {
     .filter((o) => !declined.has(o.partnerId))
     // Закрытая дата не называется никогда; «Беру» сильнее пустого календаря и сезона.
     .filter((o) => !args.closed.has(o.id) && (saidTake(o) || (o.keepsSchedule ? args.free.has(o.id) : inSeason(o, args.date))))
-    // Ключ правила 1в: «ближайшая свободная дата» здесь — дата заявки, если календарь её подтверждает.
+    // Ключ правила 1в: «ближайшая свободная дата» здесь — дата заявки, если календарь её подтверждает;
+    // «в любой день сезона» (anyDayOpen) — как прочитал загрузчик места (lib/places/place-tours).
     .map((o) => ({ ...o, nearestFreeDate: inCalendar(o) ? args.date : null }));
   const companies = groupOffersByCompany(able, { day: args.day });
   // Предел списка ответившую «Беру» не срезает: её ответ человек обязан увидеть. Порядок прежний.

@@ -10,6 +10,7 @@
  */
 
 import { nearestFreeDateSql } from '@/lib/tours/nearest-free-date';
+import { anyDayOpenSql } from '@/lib/tours/schedule-kind';
 import { compareTourOffers, offerOrderDay, pinnedOfferDay } from '@/lib/tours/offer-order';
 import { z } from 'zod';
 import { unstable_cache } from 'next/cache';
@@ -78,6 +79,8 @@ export interface MarketplaceTourRow {
   has_availability: boolean;
   /** Ближайшая дата со свободными местами ('YYYY-MM-DD'); нет — null. Ключ правила 1в. */
   nearest_free_date: string | null;
+  /** Тур «в любой день сезона» открыт сейчас (`anyDayOpenSql`). Ключ правила 1в. */
+  any_day_open: boolean | null;
 }
 
 export interface MarketplaceToursResult {
@@ -147,7 +150,7 @@ export async function queryMarketplaceTours(filters: MarketplaceToursFilters): P
       COUNT(ob.id)::INT as bookings_count,
       -- Ключ порядка (правило 1в) и «есть даты» — одно условие,
       -- lib/tours/nearest-free-date: has_availability выводится из него в TS.
-      ${nearestFreeDateSql('ot')} AS nearest_free_date`;
+      ${nearestFreeDateSql('ot')} AS nearest_free_date, ${anyDayOpenSql('ot')} AS any_day_open`;
 
   const from = `
     FROM operator_tours ot
@@ -231,15 +234,15 @@ export async function queryMarketplaceTours(filters: MarketplaceToursFilters): P
  * цены идут тем же правилом, а не по названию. Цена без записи (null) — в
  * конце при любом направлении: «не знаем» не дешевле и не дороже.
  */
-export function orderMarketplaceTours<T extends { id: number | string; base_price: number | string | null; nearest_free_date: string | null }>(
+export function orderMarketplaceTours<T extends { id: number | string; base_price: number | string | null; nearest_free_date: string | null; any_day_open?: boolean | null }>(
   rows: readonly T[],
   sort: MarketplaceToursFilters['sort'],
   day: string,
 ): T[] {
   const rule = compareTourOffers(day);
   const byRule = (a: T, b: T) => rule(
-    { id: a.id, nearestFreeDate: a.nearest_free_date },
-    { id: b.id, nearestFreeDate: b.nearest_free_date },
+    { id: a.id, nearestFreeDate: a.nearest_free_date, anyDayOpen: a.any_day_open ?? null },
+    { id: b.id, nearestFreeDate: b.nearest_free_date, anyDayOpen: b.any_day_open ?? null },
   );
   const price = (r: T): number | null => {
     if (r.base_price == null) return null;
@@ -272,7 +275,8 @@ export async function queryMarketplaceToursForPage(filters: MarketplaceToursFilt
     // строки — смена ключа, иначе кэш 600с отдаёт карточке строки без поля.
     // v4 — правило 1в (29.10): строка несёт nearest_free_date, а в ключе стоит
     // день Камчатки — иначе после полуночи до 10 минут стоял бы вчерашний жребий.
-    ['marketplace-tours-query-v4', offerOrderDay(), JSON.stringify(filters)],
+    // v5 — строка несёт any_day_open (#3476, тур «в любой день сезона»).
+    ['marketplace-tours-query-v5', offerOrderDay(), JSON.stringify(filters)],
     { revalidate: 600 }
   )();
 }

@@ -283,3 +283,49 @@ describe('offerDatesPhrase — пять исходов', () => {
     expect(offerDatesPhrase({ ...base, keepsSchedule: true }, DAY, 'ok')).toBe('на открытые даты мест нет');
   });
 });
+
+describe('«в любой день сезона» — вторая ступень (слово владельца 16.11 «Выезды первыми», #3476)', () => {
+  const key = (id: string, nearestFreeDate: string | null, anyDayOpen: boolean | null) => ({ id, nearestFreeDate, anyDayOpen });
+
+  it('выезды по дате → «любой день» → остальные; в любой день жребия', () => {
+    for (let d = 0; d < 30; d++) {
+      const day = shiftDay(DAY, d);
+      const ids = orderOffers([
+        key('rest-1', null, false), key('any-1', null, true), key('dep-late', '2026-12-01', false),
+        key('rest-2', null, null), key('any-2', null, true), key('dep-soon', '2026-11-05', null),
+      ], { day }).map((t) => t.id);
+      expect(ids.slice(0, 2), day).toEqual(['dep-soon', 'dep-late']);
+      expect(ids.slice(2, 4).sort(), day).toEqual(['any-1', 'any-2']);
+      expect(ids.slice(4).sort(), day).toEqual(['rest-1', 'rest-2']);
+    }
+  });
+
+  it('тур с выездом в календаре — ступень выезда, даже если он и «любой день»', () => {
+    const ids = orderOffers([key('any', null, true), key('both', '2027-01-10', true)], { day: DAY }).map((t) => t.id);
+    expect(ids).toEqual(['both', 'any']);
+  });
+
+  it('«не знаю» (null) — не «любой день»: ступень остальных', () => {
+    const ids = orderOffers([key('unknown', null, null), key('any', null, true)], { day: DAY }).map((t) => t.id);
+    expect(ids).toEqual(['any', 'unknown']);
+  });
+
+  it('компании: с выездом → с «любым днём» → остальные', () => {
+    const rows = [
+      { ...key('r', null, false), partnerId: 'p-rest', partnerName: 'Остальные' },
+      { ...key('a', null, true), partnerId: 'p-any', partnerName: 'Любой день' },
+      { ...key('d', '2026-11-20', false), partnerId: 'p-dep', partnerName: 'Выезд' },
+    ];
+    for (let d = 0; d < 10; d++) {
+      expect(groupOffersByCompany(rows, { day: shiftDay(DAY, d) }).map((g) => g.partnerId)).toEqual(['p-dep', 'p-any', 'p-rest']);
+    }
+  });
+
+  it('подписи называют ступень словами и кончаются «Место в списке не продаётся.»', () => {
+    for (const note of [OFFER_ORDER_NOTE.ru, OFFER_ORDER_NOTE_GROUPED_RU, OFFER_ORDER_NOTE_AGENT, OFFER_ORDER_NOTE_ON_DATE_RU]) {
+      expect(note).toMatch(/в любой день сезона/);
+      expect(note.endsWith('Место в списке не продаётся.')).toBe(true);
+    }
+    expect(OFFER_ORDER_NOTE.en).toMatch(/any day of the season/);
+  });
+});

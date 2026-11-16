@@ -586,6 +586,7 @@ export function toPlaceTour(t: PlaceTourOffer): PlaceTour {
     seasonStart: t.seasonStart,
     seasonEnd: t.seasonEnd,
     nearestFreeDate: t.nearestFreeDate,
+    anyDayOpen: t.anyDayOpen,
     keepsSchedule: t.keepsSchedule,
     partnerId: t.partnerId,
     operatorName: t.partnerName,

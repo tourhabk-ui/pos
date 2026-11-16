@@ -9,6 +9,7 @@ import { pool } from '@/lib/db-pool';
 import { namedVolcanoes, pickToursForMessage, volcanoNamePatterns } from '@/lib/ai/tour-place-relevance';
 import { publicTourSql } from '@/lib/tours/public-visibility';
 import { nearestFreeDateSql } from '@/lib/tours/nearest-free-date';
+import { anyDayOpenSql } from '@/lib/tours/schedule-kind';
 import { compareTourOffers, offerOrderDay } from '@/lib/tours/offer-order';
 import { namesVehicle } from '@/lib/ai/vehicle-words';
 
@@ -33,6 +34,8 @@ export interface TourSuggestion {
   operator_public: boolean | null;
   /** Ближайшая дата со свободными местами; ключ порядка (правило 1в). */
   nearest_free_date?: string | null;
+  /** Тур «в любой день сезона» открыт сейчас (`anyDayOpenSql`); ключ порядка. */
+  any_day_open?: boolean | null;
   /** Совпало ли с местом, названным в вопросе (релевантность). */
   place_hit?: boolean | null;
 }
@@ -193,14 +196,17 @@ export function detectTourIntent(text: string): {
  * новизна (до 29.10 — `created_at DESC`, «три самых новых»). Совпадение с
  * названным в вопросе местом — релевантность и идёт первым ключом.
  */
-export function suggestionOrder<T extends { id: number | string; nearest_free_date?: string | null; place_hit?: boolean | null }>(
+export function suggestionOrder<T extends { id: number | string; nearest_free_date?: string | null; any_day_open?: boolean | null; place_hit?: boolean | null }>(
   rows: readonly T[],
   opts?: { day?: string },
 ): T[] {
   const rule = compareTourOffers(opts?.day ?? offerOrderDay());
   return [...rows].sort((a, b) =>
     (b.place_hit === true ? 1 : 0) - (a.place_hit === true ? 1 : 0)
-    || rule({ id: a.id, nearestFreeDate: a.nearest_free_date ?? null }, { id: b.id, nearestFreeDate: b.nearest_free_date ?? null }));
+    || rule(
+      { id: a.id, nearestFreeDate: a.nearest_free_date ?? null, anyDayOpen: a.any_day_open ?? null },
+      { id: b.id, nearestFreeDate: b.nearest_free_date ?? null, anyDayOpen: b.any_day_open ?? null },
+    ));
 }
 
 // ── Fetch relevant tours from DB ──────────────────────────────────
@@ -290,7 +296,7 @@ async function findRelevantToursUncached(
          p.name AS operator_name,
          p.slug AS operator_slug, p.is_public AS operator_public,
          ${placeHit} AS place_hit,
-         ${nearestFreeDateSql('ot')} AS nearest_free_date
+         ${nearestFreeDateSql('ot')} AS nearest_free_date, ${anyDayOpenSql('ot')} AS any_day_open
        FROM operator_tours ot
        JOIN partners p ON ot.operator_id = p.id
        WHERE ${where.join(' AND ')}`,
@@ -308,7 +314,7 @@ async function findRelevantToursUncached(
            ot.location_type, ot.location_name AS location, ot.tour_image,
            p.name AS operator_name,
            p.slug AS operator_slug, p.is_public AS operator_public,
-           ${nearestFreeDateSql('ot')} AS nearest_free_date
+           ${nearestFreeDateSql('ot')} AS nearest_free_date, ${anyDayOpenSql('ot')} AS any_day_open
          FROM operator_tours ot
          JOIN partners p ON ot.operator_id = p.id
          WHERE ${publicTourSql('ot')}

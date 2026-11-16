@@ -26,6 +26,7 @@
 import { pool } from '@/lib/db-pool';
 import { publicTourSql } from '@/lib/tours/public-visibility';
 import { nearestFreeDateSql } from '@/lib/tours/nearest-free-date';
+import { anyDayOpenSql } from '@/lib/tours/schedule-kind';
 import { orderOffersBy, type OfferOrderOptions } from '@/lib/tours/offer-order';
 import { logText } from '@/lib/log/log-text';
 import { ZH_TOUR_FIELDS, readField } from '@/lib/zh/fields';
@@ -48,6 +49,8 @@ export interface ZhTourRow {
   title_zh?: string | null;
   /** Ближайшая свободная дата (lib/tours/nearest-free-date) — ключ порядка 1в. */
   nearest_free_date?: string | null;
+  /** Тур «в любой день сезона» открыт сейчас (lib/tours/schedule-kind) — ключ порядка 1в. */
+  any_day_open?: boolean | null;
 }
 
 /** Единицы цены — те же три, что считает lib/tours/booking-total. */
@@ -63,11 +66,11 @@ export const PRICE_UNIT_ZH: Record<string, string> = {
  * дня. Ни дата правки, ни цена, ни закрепление, ни алфавит в порядок не
  * входят. Новый массив, вход не меняется.
  */
-export function orderZhTours<T extends Pick<ZhTourRow, 'id' | 'nearest_free_date'>>(
+export function orderZhTours<T extends Pick<ZhTourRow, 'id' | 'nearest_free_date' | 'any_day_open'>>(
   rows: readonly T[],
   opts?: OfferOrderOptions,
 ): T[] {
-  return orderOffersBy(rows, (r) => ({ id: r.id, nearestFreeDate: r.nearest_free_date ?? null }), opts);
+  return orderOffersBy(rows, (r) => ({ id: r.id, nearestFreeDate: r.nearest_free_date ?? null, anyDayOpen: r.any_day_open ?? null }), opts);
 }
 
 export async function loadZhTours(): Promise<ZhTourRow[] | null> {
@@ -76,7 +79,7 @@ export async function loadZhTours(): Promise<ZhTourRow[] | null> {
       `SELECT ot.id::text AS id, ot.slug, ot.title, ot.base_price::text AS base_price, ot.price_unit,
               ot.duration_hours::text AS duration_hours,
               p.name AS operator_name, p.slug AS operator_slug, p.is_public AS operator_public,
-              ${nearestFreeDateSql('ot')} AS nearest_free_date
+              ${nearestFreeDateSql('ot')} AS nearest_free_date, ${anyDayOpenSql('ot')} AS any_day_open
          FROM operator_tours ot
          JOIN partners p ON ot.operator_id = p.id
         WHERE ${publicTourSql('ot')}`,

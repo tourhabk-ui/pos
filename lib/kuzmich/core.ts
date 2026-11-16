@@ -25,6 +25,7 @@ import { resolveCommercialTurn } from '@/lib/kuzmich/commercial-turn';
 import { detectEmergency } from '@/lib/safety/sos-detector';
 import { requestWindow, windowLabel } from '@/lib/tours/request-window';
 import { nearestFreeDateSql } from '@/lib/tours/nearest-free-date';
+import { anyDayOpenSql } from '@/lib/tours/schedule-kind';
 import { OFFER_ORDER_NOTE_AGENT, offerOrderDay, orderOffersBy } from '@/lib/tours/offer-order';
 import { kamchatkaToday } from '@/lib/seat-requests/core';
 import { kamchatkaDateContext } from '@/lib/kuzmich/date-context';
@@ -293,6 +294,8 @@ interface TourContextRow {
   operator_name: string | null;
   available_slots: number | null;
   next_available_date: string | null;
+  /** Тур «в любой день сезона» открыт сейчас (`anyDayOpenSql`); ключ порядка. */
+  any_day_open?: boolean | null;
   /** Есть ли у тура будущие даты в календаре; нет — места спрашивают оператора. */
   has_schedule?: boolean;
   short_description: string | null;
@@ -649,6 +652,9 @@ export async function loadTourCatalogEntries(): Promise<TourCatalog | null> {
                -- без даты (свежесть — требование MCP-оценки 15.08).
                COALESCE(live.free_slots, 0) AS available_slots,
                nf.next_date AS next_available_date,
+               -- Тур «в любой день сезона» открыт сейчас — вторая ступень
+               -- правила 1в (lib/tours/schedule-kind).
+               ${anyDayOpenSql('ot')} AS any_day_open,
                ot.short_description,
                -- «Расписания нет» ≠ «мест нет»: оператор берёт туристов без
                -- календаря, и честный ответ — спросить его (tourKeepsSchedule,
@@ -716,7 +722,7 @@ export async function loadTourCatalogEntries(): Promise<TourCatalog | null> {
     // Правило 1в (слово владельца 29.10): со свободной датой — по ближайшему
     // выезду, остальные — жребий дня. Не цена: «первые по цене» поднимали
     // дешёвое и прятали остальное за 40-й строкой подсказки.
-    const rows = orderOffersBy(toursResult.rows, (r) => ({ id: r.id, nearestFreeDate: r.next_available_date ?? null }), { day });
+    const rows = orderOffersBy(toursResult.rows, (r) => ({ id: r.id, nearestFreeDate: r.next_available_date ?? null, anyDayOpen: r.any_day_open ?? null }), { day });
 
     const today = kamchatkaToday();
     const entries = new Map<string, CatalogTourEntry>();

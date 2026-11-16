@@ -24,6 +24,7 @@ import { LeadCancelledByClientError } from '@/lib/leads/client-cancelled';
 import { LEAD_CLIENT_CANCELLED } from '@/lib/types/statuses';
 import { publicTourSql } from '@/lib/tours/public-visibility';
 import { nearestFreeDateSql } from '@/lib/tours/nearest-free-date';
+import { anyDayOpenSql } from '@/lib/tours/schedule-kind';
 import { compareTourOffers, offerOrderDay } from '@/lib/tours/offer-order';
 
 /**
@@ -166,6 +167,8 @@ interface TourRow {
   description: string | null;
   /** Ближайшая дата со свободными местами; читается только подбором (правило 1в). */
   nearest_free_date?: string | null;
+  /** Тур «в любой день сезона» открыт сейчас; читается только подбором (правило 1в). */
+  any_day_open?: boolean | null;
 }
 
 /** Колонки длительности тура — для tourDays(), правила каталога и брони. */
@@ -498,7 +501,7 @@ export class LeadProcessorService {
       `SELECT ot.id::text AS id, title, ROUND(base_price)::int AS price,
               ${TOUR_DURATION_COLUMNS},
               activity_type, description,
-              ${nearestFreeDateSql('ot')} AS nearest_free_date
+              ${nearestFreeDateSql('ot')} AS nearest_free_date, ${anyDayOpenSql('ot')} AS any_day_open
        FROM operator_tours ot
        WHERE ${publicTourSql('ot')}
          ${filters.join('\n         ')}`,
@@ -526,8 +529,8 @@ export class LeadProcessorService {
       // Балл совпадения — релевантность заявке; ничья — правило 1в, а не
       // номер тура (новый тур не выигрывает ничью только потому, что новый).
       .sort((a, b) => b.score - a.score || tie(
-        { id: a.id, nearestFreeDate: a.nearest_free_date ?? null },
-        { id: b.id, nearestFreeDate: b.nearest_free_date ?? null },
+        { id: a.id, nearestFreeDate: a.nearest_free_date ?? null, anyDayOpen: a.any_day_open ?? null },
+        { id: b.id, nearestFreeDate: b.nearest_free_date ?? null, anyDayOpen: b.any_day_open ?? null },
       ))
       .map(t => ({
         id:            t.id,

@@ -10,6 +10,7 @@ import { rawTypesFor, normalizeActivity } from '@/lib/planner/constants';
 import { keepsScheduleSql } from '@/lib/tours/schedule';
 import { publicTourSql } from '@/lib/tours/public-visibility';
 import { nearestFreeDateSql, nearestFreeDateInWindowSql } from '@/lib/tours/nearest-free-date';
+import { anyDayOpenSql } from '@/lib/tours/schedule-kind';
 import { orderOffersBy } from '@/lib/tours/offer-order';
 import { zoneMatchSql } from '@/lib/planner/zone-match';
 import type { SelfSafetyRow } from '@/lib/planner/travel-style';
@@ -160,6 +161,7 @@ export async function fetchRealToursForZone(
         title: string;
         short_description: string | null;
         nearest_free_date: string | null;
+        any_day_open: boolean | null;
         base_price: string;
         price_unit: string;
         max_participants: number | null;
@@ -201,7 +203,8 @@ export async function fetchRealToursForZone(
           COALESCE(p.rating, 0) AS operator_rating,
           COALESCE(p.review_count, 0) AS operator_review_count,
           COALESCE(p.is_verified, false) AS operator_verified,
-          ${inWindow ? nearestFreeDateInWindowSql('ot', '$3', '$4') : nearestFreeDateSql('ot')} AS nearest_free_date
+          ${inWindow ? nearestFreeDateInWindowSql('ot', '$3', '$4') : nearestFreeDateSql('ot')} AS nearest_free_date,
+          ${anyDayOpenSql('ot')} AS any_day_open
         FROM operator_tours ot
         JOIN partners p ON p.id = ot.operator_id
         LEFT JOIN agent_route_knowledge ark ON ark.id = ot.agent_route_id
@@ -212,7 +215,7 @@ export async function fetchRealToursForZone(
         inWindow ? [zone, rawTypesFor(activityType), inWindow.from, inWindow.to] : [zone, rawTypesFor(activityType)]
       );
 
-      const ordered = orderOffersBy(rows, r => ({ id: String(r.tour_id), nearestFreeDate: r.nearest_free_date ?? null }))
+      const ordered = orderOffersBy(rows, r => ({ id: String(r.tour_id), nearestFreeDate: r.nearest_free_date ?? null, anyDayOpen: r.any_day_open ?? null }))
         .slice(0, Math.max(0, limit));
 
       return ordered.map(r => ({
