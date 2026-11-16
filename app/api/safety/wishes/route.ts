@@ -2,6 +2,8 @@ import { NextRequest, NextResponse } from 'next/server';
 import { requireAdmin } from '@/lib/auth/middleware';
 import { pool } from '@/lib/db-pool';
 import { z } from 'zod';
+import { escapeHtml } from '@/lib/text/escape-html';
+import { logSwallowedFailure } from '@/lib/observability/swallowed';
 
 async function notifyArtemWish(message: string, category: string, priority: string): Promise<void> {
   const token  = process.env.TELEGRAM_BOT_TOKEN;
@@ -15,17 +17,23 @@ async function notifyArtemWish(message: string, category: string, priority: stri
     `<b>МЧС / Артём — новая рекомендация</b>`,
     ``,
     `${PRIORITY_EMOJI[priority] ?? '⚪'} <b>${CATEGORY_LABEL[category] ?? category}</b>`,
-    `${message.slice(0, 400)}${message.length > 400 ? '...' : ''}`,
+    // Текст пожелания — в HTML-сообщение только экранированным: «<» в нём
+    // ронял отправку (Telegram отвечает 400 на битую разметку).
+    `${escapeHtml(message.slice(0, 400))}${message.length > 400 ? '...' : ''}`,
     ``,
     `<a href="https://vedarai.ru/hub/admin/safety">Открыть дашборд</a>`,
   ].join('\n');
   try {
-    await fetch(`${process.env.TELEGRAM_API_BASE||'https://api.telegram.org'}/bot${token}/sendMessage`, {
+    const res = await fetch(`${process.env.TELEGRAM_API_BASE||'https://api.telegram.org'}/bot${token}/sendMessage`, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({ chat_id: chatId, text, parse_mode: 'HTML', disable_web_page_preview: true }),
     });
-  } catch { /* silent fail */ }
+    if (!res.ok) logSwallowedFailure('safety/wishes', 'уведомление о рекомендации', new Error(`HTTP ${res.status}`));
+  } catch (err) {
+    // Сохранение пожелания от уведомления не зависит, но отказ назван.
+    logSwallowedFailure('safety/wishes', 'уведомление о рекомендации', err);
+  }
 }
 
 export const dynamic = 'force-dynamic';

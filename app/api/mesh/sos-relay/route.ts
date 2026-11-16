@@ -24,6 +24,7 @@ import { NextRequest, NextResponse } from 'next/server';
 import { z } from 'zod';
 import { createRateLimiter, getClientIp } from '@/lib/rate-limit';
 import { syntheticVictimIp } from '@/lib/mesh/victim-ip';
+import { logSwallowedFailure } from '@/lib/observability/swallowed';
 
 export const dynamic = 'force-dynamic';
 
@@ -121,8 +122,11 @@ export async function POST(request: NextRequest) {
         // 429 канона теперь означает «эта жертва уже доставлена <10 мин назад»
         // (ключ per-жертва) — это успех дедупа, не сбой.
         if (r.ok || r.status === 429) return r;
-      } catch {
-        // сетевой сбой — ретраим
+        logSwallowedFailure('mesh/sos-relay', `пересылка SOS в канон, попытка ${i + 1}`, new Error(`HTTP ${r.status}`));
+      } catch (err) {
+        // Сетевой сбой — ретраим, но попытка названа в логе: три немых
+        // отказа подряд выглядели бы как «ретранслятор молчит».
+        logSwallowedFailure('mesh/sos-relay', `пересылка SOS в канон, попытка ${i + 1}`, err);
       }
       if (i < 2) await new Promise((resolve) => setTimeout(resolve, 300 * (i + 1)));
     }
