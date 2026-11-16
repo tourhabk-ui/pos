@@ -27,7 +27,7 @@ import { query } from '@/lib/database';
 import { publicTourSql } from '@/lib/tours/public-visibility';
 import { sqlState } from '@/lib/guides/db-failure';
 import type { OperatorListRow } from '@/lib/types/db-rows';
-import { ACTIVITY_ALIASES, canonicalActivity } from '@/lib/tours/labels';
+import { activitySpellings, canonicalActivity } from '@/lib/tours/labels';
 import {
   sortActivityCounts,
   summarizeOperatorTourRows,
@@ -103,12 +103,6 @@ const LIVE = publicTourSql('ot');
  * на возможную выдумку (§4.0).
  */
 export { OPERATORS_ORDER_NOTE } from '@/lib/operators/order-note';
-
-/** Все написания вида в базе: канонический ключ и его синонимы (lib/tours/labels). */
-function activitySpellings(activity: string): string[] {
-  const canon = canonicalActivity(activity);
-  return [canon, ...Object.keys(ACTIVITY_ALIASES).filter((k) => ACTIVITY_ALIASES[k] === canon)];
-}
 
 /** Отказ вспомогательного запроса называется вслух (§4.0): имя и SQLSTATE. */
 function logListFailure(name: string, err: unknown): void {

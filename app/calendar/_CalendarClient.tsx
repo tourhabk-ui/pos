@@ -6,10 +6,12 @@ import { OperatorNameLink } from '@/components/operators/OperatorNameLink';
 import {
   ChevronLeft, ChevronRight, Users, Clock, Star,
   CheckCircle, X, SlidersHorizontal, CalendarDays,
-  CloudLightning, TrendingDown, Zap,
+  CloudLightning, TrendingDown, Zap, AlertTriangle,
 } from 'lucide-react';
 import { Header } from '@/components/layout/Header';
 import TourPaymentModal from '@/components/booking/TourPaymentModal';
+import { OFFER_ORDER_NOTE_DAY_RU } from '@/lib/tours/offer-order';
+import { reportClientError } from '@/lib/client-errors/report';
 
 // ─── Types ────────────────────────────────────────────────────────────────────
 
@@ -42,7 +44,9 @@ interface Tour {
     id: string;
     name: string;
     verified: boolean;
+    /** Оценка — только при отзывах (publicRating); нет отзывов — null. */
     rating: number | null;
+    reviewCount?: number | null;
     /** Страница оператора (partners.slug / is_public); нет — имя текстом (13.10). */
     slug?: string | null;
     isPublic?: boolean | null;
@@ -57,22 +61,27 @@ const MONTHS_RU  = [
   'Июль','Август','Сентябрь','Октябрь','Ноябрь','Декабрь',
 ];
 
-const ACTIVITIES = [
-  { value: '', label: 'Все типы' },
-  { value: 'trekking',      label: 'Треккинг'      },
-  { value: 'fishing',       label: 'Рыбалка'       },
-  { value: 'bear_watching', label: 'Медведи'       },
-  { value: 'helicopter',    label: 'Вертолёт'      },
-  { value: 'thermal',       label: 'Термальные'    },
-  { value: 'boat_trip',     label: 'Морская прогулка'},
-  { value: 'snowmobile',    label: 'Снегоход'      },
-  { value: 'jeep',          label: 'Джип-тур'      },
-  { value: 'eco',           label: 'Эко-тур'       },
-];
+/** Кнопка вида: только из живых туров месяца (ответ /api/availability). */
+interface ActivityChip { value: string; label: string }
 
 // ─── Helpers ──────────────────────────────────────────────────────────────────
 
 const RUB = (v: number) => v.toLocaleString('ru-RU') + ' ₽';
+
+function plural(n: number, one: string, few: string, many: string): string {
+  const m10 = n % 10, m100 = n % 100;
+  if (m10 === 1 && m100 !== 11) return one;
+  if (m10 >= 2 && m10 <= 4 && (m100 < 12 || m100 > 14)) return few;
+  return many;
+}
+
+function reviewsWord(n: number): string {
+  return `${n} ${plural(n, 'отзыв', 'отзыва', 'отзывов')}`;
+}
+
+function toursWord(n: number): string {
+  return `${n} ${plural(n, 'тур', 'тура', 'туров')}`;
+}
 
 function toISO(y: number, m: number, d: number) {
   return `${y}-${String(m).padStart(2,'0')}-${String(d).padStart(2,'0')}`;
@@ -90,10 +99,9 @@ function formatDuration(hours: number | null, type: string | null): string {
 function dayBg(tourCount: number, selected: boolean): string {
   if (selected) return 'var(--accent)';
   if (tourCount === 0) return 'transparent';
-  if (tourCount === 1) return 'rgba(37,104,176,0.12)';
-  if (tourCount <= 3)  return 'rgba(37,104,176,0.22)';
-  if (tourCount <= 6)  return 'rgba(212,74,12,0.18)';
-  return 'rgba(212,74,12,0.30)';
+  if (tourCount <= 3)  return 'color-mix(in srgb, var(--ocean) 18%, transparent)';
+  if (tourCount <= 6)  return 'color-mix(in srgb, var(--accent) 18%, transparent)';
+  return 'color-mix(in srgb, var(--accent) 30%, transparent)';
 }
 
 function slotsBadge(free: number, total: number) {
@@ -174,11 +182,16 @@ function TourCard({
           {tour.operator.verified && (
             <CheckCircle className="w-3 h-3" style={{ color: 'var(--success)' }} />
           )}
-          {tour.operator.rating !== null && (
+          {/* Оценка — только с отзывами и с их числом рядом (§4.0): «★ 0.0» без
+              единого отзыва стоял здесь до 16.11. */}
+          {tour.operator.rating !== null && (tour.operator.reviewCount ?? 0) > 0 && (
             <div className="flex items-center gap-0.5">
               <Star className="w-3 h-3 fill-[var(--warning)] text-[var(--warning)]" />
               <span className="text-xs font-semibold" style={{ color: 'var(--text-primary)' }}>
                 {tour.operator.rating.toFixed(1)}
+              </span>
+              <span className="text-[10px]" style={{ color: 'var(--text-muted)' }}>
+                · {reviewsWord(tour.operator.reviewCount ?? 0)}
               </span>
             </div>
           )}
@@ -193,7 +206,7 @@ function TourCard({
       <button
         onClick={() => onBook(tour)}
         className="w-full py-2.5 rounded-lg text-sm font-semibold transition-colors"
-        style={{ background: 'var(--accent)', color: 'var(--text-primary)' }}
+        style={{ background: 'var(--accent)', color: 'var(--on-accent)' }}
       >
         Заявка на {new Date(selectedDate + 'T12:00:00').toLocaleDateString('ru-RU', {
           day: 'numeric', month: 'long',
@@ -213,10 +226,19 @@ export default function CalendarClient() {
 
   const [monthData, setMonthData] = useState<DayAvail[]>([]);
   const [loadingMonth, setLoadingMonth] = useState(true);
+  // Отказ загрузки — своё состояние (§4.0): «в этом месяце нет туров» по
+  // сбою было бы неправдой.
+  const [monthFailed, setMonthFailed] = useState(false);
+  /** Кнопки видов из живых туров месяца; подписи запоминаются, чтобы выбранная не пропала. */
+  const [chips, setChips] = useState<ActivityChip[]>([]);
 
   const [selectedDate, setSelectedDate] = useState<string | null>(null);
   const [dayTours, setDayTours]   = useState<Tour[]>([]);
   const [loadingDay, setLoadingDay] = useState(false);
+  const [dayFailed, setDayFailed] = useState(false);
+  // Прокрутка к панели — только на нажатие человека: ближайший день,
+  // выбранный при открытии, страницу не двигает.
+  const scrollOnSelect = useRef(false);
 
   const [bookingTour, setBookingTour] = useState<Tour | null>(null);
 
@@ -227,7 +249,8 @@ export default function CalendarClient() {
   // нажатие на день выглядело бы как «ничего не произошло». Рядом с сеткой
   // (десктоп) панель и так видна — прокручивать нечего.
   useEffect(() => {
-    if (!selectedDate) return;
+    if (!selectedDate || !scrollOnSelect.current) return;
+    scrollOnSelect.current = false;
     const grid = gridRef.current, panel = panelRef.current;
     if (!grid || !panel) return;
     if (panel.getBoundingClientRect().top >= grid.getBoundingClientRect().bottom) {
@@ -235,38 +258,71 @@ export default function CalendarClient() {
     }
   }, [selectedDate]);
 
-  // ── Загрузка месяца ─────────────────────────────────────────────────────────
-  const loadMonth = useCallback(async () => {
-    setLoadingMonth(true);
-    setSelectedDate(null);
-    setDayTours([]);
-    try {
-      const m   = `${year}-${String(month).padStart(2,'0')}`;
-      const q   = activity ? `&activity=${activity}` : '';
-      const res = await fetch(`/api/availability?month=${m}${q}`);
-      const json: { success: boolean; days: DayAvail[] } = await res.json();
-      if (json.success) setMonthData(json.days);
-    } finally {
-      setLoadingMonth(false);
-    }
-  }, [year, month, activity]);
-
-  useEffect(() => { void loadMonth(); }, [loadMonth]);
-
   // ── Загрузка дня ────────────────────────────────────────────────────────────
-  async function selectDay(iso: string) {
-    if (selectedDate === iso) { setSelectedDate(null); setDayTours([]); return; }
+  const loadDay = useCallback(async (iso: string, kind: string) => {
     setSelectedDate(iso);
     setDayTours([]);
+    setDayFailed(false);
     setLoadingDay(true);
     try {
-      const q   = activity ? `&activity=${activity}` : '';
+      const q   = kind ? `&activity=${encodeURIComponent(kind)}` : '';
       const res = await fetch(`/api/availability/day?date=${iso}${q}`);
-      const json: { success: boolean; tours: Tour[] } = await res.json();
-      if (json.success) setDayTours(json.tours);
+      const json: { success: boolean; tours?: Tour[] } = await res.json();
+      if (res.ok && json.success && Array.isArray(json.tours)) setDayTours(json.tours);
+      else setDayFailed(true);
+    } catch (err) {
+      reportClientError('error', err);
+      setDayFailed(true);
     } finally {
       setLoadingDay(false);
     }
+  }, []);
+
+  // ── Загрузка месяца ─────────────────────────────────────────────────────────
+  const loadMonth = useCallback(async () => {
+    setLoadingMonth(true);
+    setMonthFailed(false);
+    setSelectedDate(null);
+    setDayTours([]);
+    setDayFailed(false);
+    try {
+      const m   = `${year}-${String(month).padStart(2,'0')}`;
+      const q   = activity ? `&activity=${encodeURIComponent(activity)}` : '';
+      const res = await fetch(`/api/availability?month=${m}${q}`);
+      const json: { success: boolean; days?: DayAvail[]; activities?: ActivityChip[] } = await res.json();
+      if (!res.ok || !json.success || !Array.isArray(json.days)) {
+        setMonthData([]);
+        setMonthFailed(true);
+        return;
+      }
+      setMonthData(json.days);
+      if (Array.isArray(json.activities)) {
+        const live = json.activities;
+        setChips((prev) => {
+          // Выбранный вид остаётся кнопкой, даже если в этом месяце его туров нет.
+          const kept = prev.filter((c) => c.value === activity && !live.some((l) => l.value === c.value));
+          return [...live, ...kept];
+        });
+      }
+      // Как у календаря конкурента (сравнение 16.11): при открытии уже выбран
+      // ближайший день с турами, его туры видны сразу.
+      const first = json.days.find((d) => d.tourCount > 0);
+      if (first) void loadDay(first.date, activity);
+    } catch (err) {
+      reportClientError('error', err);
+      setMonthData([]);
+      setMonthFailed(true);
+    } finally {
+      setLoadingMonth(false);
+    }
+  }, [year, month, activity, loadDay]);
+
+  useEffect(() => { void loadMonth(); }, [loadMonth]);
+
+  function selectDay(iso: string) {
+    if (selectedDate === iso) { setSelectedDate(null); setDayTours([]); setDayFailed(false); return; }
+    scrollOnSelect.current = true;
+    void loadDay(iso, activity);
   }
 
   function prevMonth() {
@@ -292,7 +348,6 @@ export default function CalendarClient() {
   const dayMap   = new Map(monthData.map(d => [d.date, d]));
 
   // Статистика месяца
-  const totalTours  = monthData.reduce((s, d) => s + d.tourCount, 0);
   const daysWithAvail = monthData.filter(d => d.tourCount > 0).length;
   const minPrice    = monthData.reduce<number | null>((min, d) =>
     d.priceFrom !== null ? (min === null ? d.priceFrom : Math.min(min, d.priceFrom)) : min, null);
@@ -320,14 +375,14 @@ export default function CalendarClient() {
           <div className="flex flex-wrap items-center justify-between gap-3 mb-5">
             <div className="flex items-center gap-2 flex-wrap">
               <SlidersHorizontal className="w-4 h-4" style={{ color: 'var(--text-muted)' }} />
-              {ACTIVITIES.map(a => (
+              {[{ value: '', label: 'Все типы' }, ...chips].map(a => (
                 <button key={a.value}
                   onClick={() => setActivity(a.value)}
                   className="text-xs px-3 py-1.5 rounded-full border transition-all"
                   style={{
                     borderColor: activity === a.value ? 'var(--accent)' : 'var(--border)',
                     background:  activity === a.value ? 'var(--accent)' : 'transparent',
-                    color:       activity === a.value ? '#fff' : 'var(--text-secondary)',
+                    color:       activity === a.value ? 'var(--on-accent)' : 'var(--text-secondary)',
                   }}>
                   {a.label}
                 </button>
@@ -336,9 +391,9 @@ export default function CalendarClient() {
             {!loadingMonth && daysWithAvail > 0 && (
               <div className="text-xs" style={{ color: 'var(--text-muted)' }}>
                 <span className="font-semibold" style={{ color: 'var(--text-primary)' }}>
-                  {daysWithAvail} дней
+                  {daysWithAvail} {plural(daysWithAvail, 'день', 'дня', 'дней')}
                 </span>
-                {' '}с турами · {totalTours} слотов
+                {' '}с турами
                 {minPrice !== null && (
                   <> · от <span className="font-semibold" style={{ color: 'var(--accent)' }}>
                     {RUB(minPrice)}
@@ -380,7 +435,16 @@ export default function CalendarClient() {
                 </div>
 
                 {/* Ячейки */}
-                {loadingMonth ? (
+                {monthFailed ? (
+                  <div role="alert" className="py-10 px-4 text-center text-sm flex flex-col items-center gap-2"
+                    style={{ color: 'var(--text-secondary)' }}>
+                    <AlertTriangle className="w-6 h-6" style={{ color: 'var(--warning)' }} />
+                    Календарь не загрузился — это сбой у нас, а не «туров нет».
+                    <button onClick={() => void loadMonth()} className="ds-btn ds-btn-secondary mt-1">
+                      Повторить
+                    </button>
+                  </div>
+                ) : loadingMonth ? (
                   <div className="grid grid-cols-7 gap-1.5">
                     {Array.from({ length: 35 }).map((_, i) => (
                       <div key={i} className="aspect-square rounded-lg animate-pulse"
@@ -401,31 +465,31 @@ export default function CalendarClient() {
                       return (
                         <button
                           key={iso}
-                          onClick={() => { if (!isPast) void selectDay(iso); }}
+                          onClick={() => { if (!isPast) selectDay(iso); }}
                           disabled={isPast}
                           title={count > 0 ? `${count} туров` : undefined}
                           className={[
                             'relative aspect-square rounded-lg flex flex-col items-center justify-center transition-all text-sm font-semibold',
                             !isPast && count > 0 ? 'cursor-pointer hover:scale-105 hover:shadow-md' : '',
                             isPast ? 'opacity-25 cursor-default' : '',
-                            isSel  ? 'ring-2 ring-white shadow-lg scale-105' : '',
+                            isSel  ? 'ring-2 ring-[var(--on-accent)] shadow-lg scale-105' : '',
                             isToday && !isSel ? 'ring-2 ring-[var(--ocean)]/50' : '',
                           ].filter(Boolean).join(' ')}
                           style={{
                             background: dayBg(count, isSel),
-                            color:      isSel ? '#fff' : count > 0 ? 'var(--text-primary)' : 'var(--text-muted)',
+                            color:      isSel ? 'var(--on-accent)' : count > 0 ? 'var(--text-primary)' : 'var(--text-muted)',
                           }}
                         >
                           <span>{day}</span>
                           {count > 0 && !isSel && (
                             <span className="text-[8px] font-bold leading-none mt-0.5"
                               style={{ color: count >= 4 ? 'var(--accent)' : 'var(--ocean)' }}>
-                              {count} тур{count === 1 ? '' : count <= 4 ? 'а' : 'ов'}
+                              {toursWord(count)}
                             </span>
                           )}
                           {isSel && count > 0 && (
-                            <span className="text-[8px] font-bold leading-none mt-0.5 text-white/80">
-                              {count} тур{count === 1 ? '' : count <= 4 ? 'а' : 'ов'}
+                            <span className="text-[8px] font-bold leading-none mt-0.5" style={{ color: 'var(--on-accent)' }}>
+                              {toursWord(count)}
                             </span>
                           )}
                         </button>
@@ -435,22 +499,22 @@ export default function CalendarClient() {
                 )}
 
                 {/* Легенда */}
-                {!loadingMonth && (
+                {!loadingMonth && !monthFailed && (
                   <div className="flex flex-wrap gap-3 mt-4 pt-3 border-t text-[10px]"
                     style={{ borderColor: 'var(--border)', color: 'var(--text-muted)' }}>
                     <span className="flex items-center gap-1">
                       <span className="w-3 h-3 rounded"
-                        style={{ background: 'rgba(37,104,176,0.22)' }} />
+                        style={{ background: dayBg(2, false) }} />
                       1–3 тура
                     </span>
                     <span className="flex items-center gap-1">
                       <span className="w-3 h-3 rounded"
-                        style={{ background: 'rgba(212,74,12,0.22)' }} />
+                        style={{ background: dayBg(5, false) }} />
                       4–6 туров
                     </span>
                     <span className="flex items-center gap-1">
                       <span className="w-3 h-3 rounded"
-                        style={{ background: 'rgba(212,74,12,0.30)' }} />
+                        style={{ background: dayBg(7, false) }} />
                       7+ туров
                     </span>
                   </div>
@@ -474,14 +538,14 @@ export default function CalendarClient() {
                       </div>
                       {selDayData && (
                         <div className="text-xs mt-0.5" style={{ color: 'var(--text-muted)' }}>
-                          {selDayData.tourCount} тур{selDayData.tourCount === 1 ? '' : selDayData.tourCount <= 4 ? 'а' : 'ов'} · {selDayData.freeSlots} мест
+                          {toursWord(selDayData.tourCount)} · {selDayData.freeSlots} мест
                           {selDayData.priceFrom !== null && (
                             <> · от {RUB(selDayData.priceFrom)}</>
                           )}
                         </div>
                       )}
                     </div>
-                    <button onClick={() => { setSelectedDate(null); setDayTours([]); }}>
+                    <button aria-label="Закрыть день" onClick={() => { setSelectedDate(null); setDayTours([]); setDayFailed(false); }}>
                       <X className="w-4 h-4" style={{ color: 'var(--text-muted)' }} />
                     </button>
                   </div>
@@ -497,6 +561,16 @@ export default function CalendarClient() {
                         </div>
                       ))}
                     </div>
+                  ) : dayFailed ? (
+                    <div role="alert" className="ds-card p-6 text-center">
+                      <AlertTriangle className="w-7 h-7 mx-auto mb-2" style={{ color: 'var(--warning)' }} />
+                      <p className="text-sm" style={{ color: 'var(--text-secondary)' }}>
+                        Туры на этот день не загрузились — это сбой у нас, а не «туров нет».
+                      </p>
+                      <button onClick={() => void loadDay(selectedDate, activity)} className="ds-btn ds-btn-secondary mt-3">
+                        Повторить
+                      </button>
+                    </div>
                   ) : dayTours.length === 0 ? (
                     <div className="ds-card p-6 text-center">
                       <TrendingDown className="w-7 h-7 mx-auto mb-2" style={{ color: 'var(--text-muted)' }} />
@@ -509,6 +583,10 @@ export default function CalendarClient() {
                     </div>
                   ) : (
                     <div className="space-y-3 max-h-[70vh] overflow-y-auto pr-1">
+                      {/* Правило порядка — словами на самой странице (CLAUDE.md §0, правило 1в). */}
+                      <p className="text-[11px] leading-snug" style={{ color: 'var(--text-muted)' }}>
+                        {OFFER_ORDER_NOTE_DAY_RU}
+                      </p>
                       {dayTours.map(tour => (
                         <TourCard
                           key={tour.tourId}
@@ -524,7 +602,7 @@ export default function CalendarClient() {
                 /* Подсказка */
                 <div className="ds-card p-6 text-center flex flex-col items-center gap-3">
                   <div className="w-12 h-12 rounded-full flex items-center justify-center"
-                    style={{ background: 'var(--accent)/10' }}>
+                    style={{ background: 'color-mix(in srgb, var(--accent) 10%, transparent)' }}>
                     <CalendarDays className="w-6 h-6" style={{ color: 'var(--accent)' }} />
                   </div>
                   <div>
@@ -535,7 +613,7 @@ export default function CalendarClient() {
                       Нажмите на цветной день — увидите все доступные туры
                     </p>
                   </div>
-                  {!loadingMonth && daysWithAvail === 0 && (
+                  {!loadingMonth && !monthFailed && daysWithAvail === 0 && (
                     <div className="w-full pt-2 border-t text-xs text-center"
                       style={{ borderColor: 'var(--border)', color: 'var(--text-muted)' }}>
                       В этом месяце нет открытых туров
@@ -545,7 +623,7 @@ export default function CalendarClient() {
                     <div className="flex items-center gap-1.5 text-xs"
                       style={{ color: 'var(--success)' }}>
                       <Zap className="w-3.5 h-3.5" />
-                      {daysWithAvail} дней с доступными турами
+                      {daysWithAvail} {plural(daysWithAvail, 'день', 'дня', 'дней')} с доступными турами
                     </div>
                   )}
                 </div>

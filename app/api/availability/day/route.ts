@@ -12,6 +12,9 @@ import { pool } from '@/lib/db-pool';
 import { publicTourSql } from '@/lib/tours/public-visibility';
 import { logSwallowedFailure } from '@/lib/observability/swallowed';
 import { badQueryParam, calendarDay, queryInput, queryText } from '@/lib/api/public-query';
+import { activitySpellings, knownActivityLabel } from '@/lib/tours/labels';
+import { publicRating } from '@/lib/reviews/public-rating';
+import { offerOrderDay, orderOffersBy } from '@/lib/tours/offer-order';
 
 export const dynamic = 'force-dynamic';
 
@@ -39,16 +42,9 @@ interface TourRow {
   operator_slug: string | null;
   operator_public: boolean | null;
   operator_rating: string | null;
+  operator_review_count: number | null;
   tags: string[] | null;
 }
-
-const ACTIVITY_RU: Record<string, string> = {
-  trekking: 'Треккинг', fishing: 'Рыбалка', bear_watching: 'Медведи',
-  helicopter: 'Вертолёт', thermal: 'Термальные', boat_trip: 'Морская прогулка',
-  snowmobile: 'Снегоход', jeep: 'Джип-тур', eco: 'Эко-тур',
-  diving: 'Дайвинг', ski: 'Фрирайд', cultural: 'Культура',
-  photo: 'Фототур', camping: 'Кемпинг', other: 'Активный отдых',
-};
 
 /**
  * Вход — проверяется ДО базы (ревью #2642, третий круг). Одной регулярки
@@ -88,8 +84,9 @@ export async function GET(request: NextRequest) {
   const params: unknown[] = [date];
   let activityFilter = '';
   if (activity) {
-    params.push(activity);
-    activityFilter = `AND t.activity_type = $${params.length}`;
+    // Все написания вида: кнопка «Джип-сафари» находит и `jeep`, и `jeep_safari`.
+    params.push(activitySpellings(activity));
+    activityFilter = `AND t.activity_type = ANY($${params.length}::text[])`;
   }
 
   try {
@@ -118,6 +115,7 @@ export async function GET(request: NextRequest) {
          p.slug                                                              AS operator_slug,
          p.is_public                                                         AS operator_public,
          p.rating::text                                                      AS operator_rating,
+         p.review_count                                                      AS operator_review_count,
          -- Теги — из operator_tour_tags (их пишет кабинет): колонки tags у
          -- operator_tours нет, и прежнее t.tags роняло роут на 42703 при любом
          -- запросе — панель дня в /calendar не открывалась (найдено pg-тестом
@@ -138,9 +136,7 @@ export async function GET(request: NextRequest) {
          -- тур — шлюзом витрины (#2642): копия без deleted_at отдавала даты удалённого тура
          AND ${publicTourSql('t')}
          ${activityFilter}
-       ORDER BY
-         COALESCE(ta.base_price_override, t.base_price) ASC,
-         (ta.available_slots - occ.taken) DESC`,
+       ORDER BY t.id`,
       params
     );
 
@@ -149,7 +145,7 @@ export async function GET(request: NextRequest) {
       title:          r.title,
       description:    r.description?.slice(0, 200) ?? null,
       activityType:   r.activity_type,
-      activityLabel:  r.activity_type ? (ACTIVITY_RU[r.activity_type] ?? r.activity_type) : null,
+      activityLabel:  knownActivityLabel(r.activity_type),
       locationName:   r.location_name,
       price:          r.price_override !== null ? Number(r.price_override) : Number(r.base_price),
       priceUnit:      r.price_unit,
@@ -168,12 +164,20 @@ export async function GET(request: NextRequest) {
         verified: r.operator_verified ?? false,
         slug:     r.operator_slug,
         isPublic: r.operator_public,
-        rating:   r.operator_rating !== null ? Number(r.operator_rating) : null,
+        // Оценка — только с отзывами (§4.0): «★ 0.0» без единого отзыва стоял
+        // у оператора в панели дня (сравнение 16.11).
+        rating:   publicRating(r.operator_rating, r.operator_review_count),
+        reviewCount: publicRating(r.operator_rating, r.operator_review_count) === null
+          ? null : Number(r.operator_review_count),
       },
       tags: r.tags ?? [],
     }));
 
-    return NextResponse.json({ success: true, date, tours });
+    // Порядок — правило 1в (lib/tours/offer-order): у всех туров дня есть места
+    // на этот день, поэтому их различает жребий дня. До 16.11 стояла сортировка
+    // по цене без подписи — общая витрина туров так упорядочиваться не может.
+    const ordered = orderOffersBy(tours, (t) => ({ id: t.tourId, nearestFreeDate: date }), { day: offerOrderDay() });
+    return NextResponse.json({ success: true, date, tours: ordered });
   } catch (err) {
     // Текст исключения анониму не отдаётся: у PostgreSQL он называет таблицы,
     // колонки и statement timeout. В лог — имя проверки и SQLSTATE (§4.0).

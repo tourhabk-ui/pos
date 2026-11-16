@@ -986,7 +986,8 @@ describe('отборы ревью #2642 — поведением: в отпра�
 
       poolQueryMock.mockClear();
       expect((await day('date=2099-02-28&activity=fishing')).status).toBe(200);
-      expect(poolQueryMock.mock.calls[0][1]).toEqual(['2099-02-28', 'fishing']);
+      // Вид — всеми написаниями (lib/tours/labels → activitySpellings, 16.11).
+      expect(poolQueryMock.mock.calls[0][1]).toEqual(['2099-02-28', ['fishing']]);
       poolQueryMock.mockClear();
       expect((await month('month=2099-02')).status).toBe(200);
       expect(poolQueryMock.mock.calls[0][1]).toEqual(['2099-02-01', '2099-02-28']);

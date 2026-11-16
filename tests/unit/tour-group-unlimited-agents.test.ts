@@ -252,8 +252,11 @@ describe('/api/availability/day — модалка брони /calendar полу
     };
     query.mockResolvedValueOnce({ rows: [{ ...row, group_size_unlimited: true }, { ...row, tour_id: '79', group_size_unlimited: null }] });
     const res = await availabilityDay(new Request('http://localhost/api/availability/day?date=2099-07-19') as never);
-    const body = await res.json() as { tours: Array<{ groupSizeUnlimited: boolean }> };
+    const body = await res.json() as { tours: Array<{ tourId: number; groupSizeUnlimited: boolean }> };
     expect(String(query.mock.calls[0][0])).toContain('t.group_size_unlimited');
-    expect(body.tours.map((t) => t.groupSizeUnlimited)).toEqual([true, false]);
+    // Порядок туров дня — жребий дня (правило 1в, 16.11), поэтому по id, а не по месту.
+    const byId = new Map(body.tours.map((t) => [t.tourId, t.groupSizeUnlimited]));
+    expect(byId.get(77)).toBe(true);
+    expect(byId.get(79)).toBe(false);
   });
 });

@@ -69,6 +69,28 @@ export function canonicalActivity(type: string): string {
 }
 
 /**
+ * Все написания вида в базе: канонический ключ и его синонимы. Фильтр по
+ * виду сравнивает `activity_type` со всеми ими: кнопка «Джип-сафари»
+ * (`jeep_safari`) находит и туры, записанные как `jeep` (календарь, 16.11:
+ * кнопка «Джип-тур» искала `jeep`, а туры записаны `jeep_safari`).
+ */
+export function activitySpellings(activity: string): string[] {
+  const canon = canonicalActivity(activity);
+  return [canon, ...Object.keys(ACTIVITY_ALIASES).filter((k) => ACTIVITY_ALIASES[k] === canon)];
+}
+
+/**
+ * Подпись вида, только если вид есть в словаре; неизвестный ключ — null, а
+ * не служебное слово («horseback» стояло сырым в календаре, 16.11).
+ */
+export function knownActivityLabel(type: string | null | undefined, short = false): string | null {
+  if (!type) return null;
+  const key = canonicalActivity(type);
+  if (!(key in ACTIVITY_LABELS)) return null;
+  return short ? (ACTIVITY_SHORT[key] ?? ACTIVITY_LABELS[key]) : ACTIVITY_LABELS[key];
+}
+
+/**
  * Короткие подписи — для чипов на плитке каталога, где длинная не помещается.
  * Это ВТОРОЙ РЕГИСТР одного словаря, а не вторая правда: смысл совпадает с
  * полной подписью. Нет короткой — берём полную.

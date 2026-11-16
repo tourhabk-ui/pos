@@ -24,9 +24,15 @@ vi.mock('@/components/booking/TourPaymentModal', () => ({ default: () => null })
 
 import CalendarClient from '@/app/calendar/_CalendarClient';
 
+// Два дня с турами: ближайший (20-е) выбирается сам при открытии (16.11),
+// нажимает человек на второй (22-е).
 const MONTH = {
   success: true,
-  days: [{ date: '2026-10-20', tourCount: 2, freeSlots: 5, priceFrom: 12000, activities: ['trekking'], operators: 1 }],
+  days: [
+    { date: '2026-10-20', tourCount: 2, freeSlots: 5, priceFrom: 12000, activities: ['trekking'], operators: 1 },
+    { date: '2026-10-22', tourCount: 1, freeSlots: 3, priceFrom: 9000, activities: ['trekking'], operators: 1 },
+  ],
+  activities: [{ value: 'trekking', label: 'Треккинг' }],
 };
 
 const originalRect = Element.prototype.getBoundingClientRect;
@@ -56,13 +62,15 @@ afterEach(() => {
 const classes = (el: Element) => el.className.split(/\s+/).filter(Boolean);
 const day = (n: number) => screen.queryAllByRole('button').find((b) => b.querySelector('span')?.textContent === String(n));
 
-/** Ряд «сетка + панель дня»: общий родитель карточки месяца и панели «Выберите дату». */
+/** Ряд «сетка + панель дня»: общий родитель карточки месяца и панели дня. */
 async function layout() {
   render(<CalendarClient />);
   await waitFor(() => expect(day(20)).toBeTruthy());
+  // Ближайший день с турами выбран сам, панель показывает его.
+  await screen.findByText('Нет доступных туров на этот день');
   const grid = screen.getByRole('heading', { name: 'Октябрь 2026' }).closest('.ds-card')!.parentElement!;
   const row = grid.parentElement!;
-  const panel = [...row.children].find((c) => c !== grid && c.textContent?.includes('Выберите дату'))!;
+  const panel = [...row.children].find((c) => c !== grid)!;
   expect(panel).toBeTruthy();
   return { grid, row, panel };
 }
@@ -89,14 +97,19 @@ describe('календарь туров: на телефоне сетка не �
   it('панель дня под сеткой: выбрали день — панель прокручена в вид', async () => {
     const { grid, panel } = await layout();
     placeAt(grid, panel, 640, 660);
-    fireEvent.click(day(20)!);
+    fireEvent.click(day(22)!);
     await waitFor(() => expect(scrolled).toEqual([panel]));
+  });
+
+  it('ближайший день, выбранный при открытии, страницу не двигает', async () => {
+    await layout();
+    expect(scrolled).toEqual([]);
   });
 
   it('панель рядом с сеткой (десктоп): выбрали день — страница на месте', async () => {
     const { grid, panel } = await layout();
     placeAt(grid, panel, 835, 231);
-    fireEvent.click(day(20)!);
+    fireEvent.click(day(22)!);
     await screen.findByText('Нет доступных туров на этот день');
     expect(scrolled).toEqual([]);
   });
