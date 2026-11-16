@@ -635,9 +635,17 @@ withPg('кабинет туриста на настоящем PostgreSQL', () =>
       [`erase-${uid}`, maxUser],
     );
     // Память Кузьмича о его чатах (#3433 п. 5): заметки «со слов туриста».
-    // Его Telegram и его диалог MAX — стираются; чужой чат — нет.
+    // Его Telegram, его диалог MAX и группа, где он упоминал бота (ревью
+    // #3454), — стираются; чужой чат и группа, где он не писал, — нет.
+    const group = -(1_000_000_000_000 + Math.floor(Math.random() * 999_999));
+    await pool.query(
+      `INSERT INTO tg_conversations (chat_id, mode, role, content, user_id, user_name, platform) VALUES
+         ($1, 'tourist', 'user', 'едем 12 июля, нас четверо', $2, 'Иван', 'telegram'),
+         ($3, 'tourist', 'user', 'другая группа', $4, 'Пётр', 'telegram')`,
+      [group, tg, group - 1, tg + 1],
+    );
     const { botMemKey } = await import('@/lib/kuzmich/core');
-    const memKeys = [botMemKey(tg, 'tg'), botMemKey(maxChat, 'max'), botMemKey(tg + 1, 'tg')];
+    const memKeys = [botMemKey(tg, 'tg'), botMemKey(maxChat, 'max'), botMemKey(group, 'tg'), botMemKey(tg + 1, 'tg'), botMemKey(group - 1, 'tg')];
     for (const key of memKeys) {
       const { rows: [mem] } = await pool.query<{ id: string }>(
         `INSERT INTO agent_memory (agent_id, memory_type, key, value, memory_tier, tags)
@@ -662,10 +670,10 @@ withPg('кабинет туриста на настоящем PostgreSQL', () =>
     expect(left.rows.map((r) => r.content)).toEqual(['чужой в MAX', 'чужой вопрос']);
     expect((await pool.query(
       `SELECT key FROM agent_memory WHERE agent_id = 'kuzmich' AND key = ANY($1)`, [memKeys],
-    )).rows.map((r) => r.key)).toEqual([memKeys[2]]);
+    )).rows.map((r) => r.key).sort()).toEqual([memKeys[3], memKeys[4]].sort());
     expect((await pool.query(
       `SELECT COUNT(*)::int AS n FROM agent_memory_edits e JOIN agent_memory m ON m.id = e.memory_id WHERE m.key = ANY($1)`, [memKeys],
-    )).rows[0].n).toBe(1);
+    )).rows[0].n).toBe(2);
     expect((await pool.query(`SELECT 1 FROM max_login_sessions WHERE nonce = $1`, [`erase-${uid}`])).rows).toHaveLength(0);
     expect((await pool.query(
       `SELECT telegram_id, telegram_chat_id, max_user_id FROM users WHERE id = $1`, [uid],

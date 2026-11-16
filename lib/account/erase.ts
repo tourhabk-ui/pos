@@ -814,10 +814,21 @@ const HIS_MESSENGER_IDS = `SELECT
               SELECT t.chat_id::bigint FROM tg_conversations t JOIN users u ON u.id = $1
                WHERE t.platform = 'max' AND t.user_id = u.max_user_id) AS mx,
         ARRAY(SELECT u.telegram_id::bigint FROM users u WHERE u.id = $1 AND u.telegram_id IS NOT NULL) AS tu,
-        ARRAY(SELECT u.max_user_id::bigint FROM users u WHERE u.id = $1 AND u.max_user_id IS NOT NULL) AS mu`;
-/** Память Кузьмича о его чате (lib/kuzmich/core, botMemKey): его Telegram или его диалог MAX. */
+        ARRAY(SELECT u.max_user_id::bigint FROM users u WHERE u.id = $1 AND u.max_user_id IS NOT NULL) AS mu,
+        -- Чаты Telegram, где он писал Кузьмичу, — и группы (ревью #3454): только
+        -- для памяти Кузьмича о чате, не для каналов карточки (tg выше).
+        ARRAY(SELECT DISTINCT t.chat_id::bigint FROM tg_conversations t JOIN users u ON u.id = $1
+               WHERE COALESCE(t.platform, 'telegram') = 'telegram' AND t.user_id = u.telegram_id) AS tc`;
+/**
+ * Память Кузьмича о чате (lib/kuzmich/core, botMemKey): его Telegram, его
+ * диалог MAX и чаты, где он писал Кузьмичу, — группа тоже: заметки о группе
+ * собраны и с его слов (ревью #3454). Стирается вся заметка группы, а не его
+ * доля: разобрать, чьи слова в ней, нечем.
+ */
 const KUZMICH_MEMORY_OF = (p: string) => `${p}.agent_id = 'kuzmich' AND ${p}.memory_type = 'user_pref'
         AND ${p}.key = ANY(ARRAY(SELECT 'kuzmich_mem_tg_' || x FROM unnest(his.tg) AS x
+                                 UNION ALL
+                                 SELECT 'kuzmich_mem_tg_' || x FROM unnest(his.tc) AS x
                                  UNION ALL
                                  SELECT 'kuzmich_mem_max_' || x FROM unnest(his.mx) AS x))`;
 const OWN_TG = (p: string) => `${p}.telegram_chat_id::bigint = ANY(his.tg)`;
