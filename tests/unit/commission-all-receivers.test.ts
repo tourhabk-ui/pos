@@ -151,7 +151,11 @@ describe('СБП-вебхук не теряет оплату молча', () => 
     const end = rest.indexOf('\nasync function ');
     const body = end === -1 ? rest : rest.slice(0, end);
     expect(body).not.toMatch(/retryLater\(|NextResponse/);
-    expect(body).toMatch(/recordCommissionFromBooking\(/);
+    // Комиссия — не здесь, а в транзакции оплаты (#3433 п. 2): после коммита
+    // её терял упавший процесс. Вызов приёмника — payment-receivers-always-on.
+    expect(body).not.toMatch(/recordCommissionFromBooking\(/);
+    const tx = src.slice(src.indexOf('await transaction(async (client)'), start);
+    expect(tx).toMatch(/recordCommissionFromBooking\([^)]*client\)/);
   });
 
   it('расхождение суммы не проходит молча', () => {

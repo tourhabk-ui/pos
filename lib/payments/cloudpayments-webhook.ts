@@ -12,6 +12,7 @@
  */
 
 import crypto from 'crypto';
+import { parseCloudPaymentsBody } from '@/lib/payments/cloudpayments-body';
 
 /**
  * CloudPayments Webhook Data Interface
@@ -135,29 +136,6 @@ export function validateWebhookData(data: unknown): {
 }
 
 /**
- * Проверка на replay attack
- * CloudPayments может отправить webhook несколько раз
- */
-export async function checkWebhookDuplicate(
-  transactionId: number
-): Promise<boolean> {
-  const { query } = await import('@/lib/database');
-  
-  try {
-    const result = await query(
-      `SELECT id FROM transfer_payments 
-       WHERE transaction_id = $1 
-       LIMIT 1`,
-      [transactionId.toString()]
-    );
-    
-    return result.rows.length > 0;
-  } catch (error) {
-    return false;
-  }
-}
-
-/**
  * Обработка CloudPayments webhook с полной валидацией
  */
 export async function processCloudPaymentsWebhook(
@@ -194,20 +172,19 @@ export async function processCloudPaymentsWebhook(
     };
   }
   
-  // 2. Парсинг данных
-  let webhookData: CloudPaymentsWebhook;
-  try {
-    const body = typeof requestBody === 'string' 
-      ? requestBody 
-      : requestBody.toString('utf8');
-    webhookData = JSON.parse(body);
-  } catch (error) {
+  // 2. Разбор: форма или JSON — как выбрано в кабинете (#3433 п. 2). Раньше
+  // только JSON: при форме каждая оплата отвечала 400 и не записывалась.
+  const parsed = parseCloudPaymentsBody(
+    typeof requestBody === 'string' ? requestBody : requestBody.toString('utf8'),
+  );
+  if (!parsed) {
     return {
       success: false,
-      error: 'Invalid JSON in webhook body',
-      errorCode: 'INVALID_JSON'
+      error: 'Webhook body is neither JSON nor form',
+      errorCode: 'INVALID_BODY'
     };
   }
+  const webhookData = parsed as unknown as CloudPaymentsWebhook;
   
   // 3. Валидация данных
   const dataValidation = validateWebhookData(webhookData);
@@ -219,18 +196,11 @@ export async function processCloudPaymentsWebhook(
     };
   }
   
-  // 4. Проверка на дубликат
-  const isDuplicate = await checkWebhookDuplicate(webhookData.TransactionId);
-  if (isDuplicate) {
-    // Это не ошибка, просто возвращаем success
-    // CloudPayments может отправить webhook несколько раз
-    return {
-      success: true,
-      data: webhookData
-    };
-  }
-  
-  // 5. Все проверки пройдены
+  // Повтор уведомления приёмники узнают сами, под блокировкой брони. Здесь
+  // стояла «проверка дубля» по transfer_payments — чужой таблице, с пустым
+  // catch и без последствий: результат не читал никто (#3433 п. 2).
+
+  // 4. Все проверки пройдены
   return {
     success: true,
     data: webhookData

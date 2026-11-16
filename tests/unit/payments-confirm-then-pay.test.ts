@@ -145,11 +145,11 @@ describe('срок выплаты оператору — от конца тур�
 describe('CloudPayments-приёмник: порядок и сумма', () => {
   const src = code('app/api/payments/webhook/route.ts');
 
-  it('туры разбираются ДО таблицы payments, которой на проде нет', () => {
-    const tour = src.indexOf('await handleHubBookingPayment(invoice');
-    const legacy = src.indexOf('UPDATE payments');
-    expect(tour).toBeGreaterThan(-1);
-    expect(legacy).toBeGreaterThan(tour);
+  it('таблицы payments, которой на проде нет, приёмник не спрашивает вовсе (#3433 п. 2)', () => {
+    // Раньше туры разбирались ДО неё, а отказ и «ожидание» шли только в неё:
+    // каждый отказ по карте — 500 и сутки повторов CloudPayments.
+    expect(src.indexOf('await handleHubBookingPayment(invoice')).toBeGreaterThan(-1);
+    expect(src).not.toMatch(/\b(?:UPDATE|FROM|INTO)\s+payments\b/);
   });
 
   it('сумма сверяется с бронью и с платежом', () => {

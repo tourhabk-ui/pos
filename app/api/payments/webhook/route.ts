@@ -4,13 +4,12 @@ import { query, transaction } from '@/lib/database';
 import { processCloudPaymentsWebhook, CloudPaymentsWebhook } from '@/lib/payments/cloudpayments-webhook';
 import { emailService } from '@/lib/notifications/email-service';
 import { escapeHtml } from '@/lib/text/escape-html';
-import { PaymentWebhookReturnRow, PaymentRow, EmailRow } from '@/lib/types/db-rows';
 import { addBookingContribution } from '@/lib/compute-fund';
 import { recordCommissionFromBooking } from '@/lib/payments/commission';
 import { holdTourPayment, RELEASE_AFTER_SQL } from '@/lib/payments/hold-tour-payment';
 import { canOfferPayment } from '@/lib/bookings/success-view';
 import { reportPaidUnconfirmed } from '@/lib/payments/paid-unconfirmed-alert';
-import { logSwallowedFailure } from '@/lib/observability/swallowed';
+import { reportPaymentAnomaly } from '@/lib/payments/payment-anomaly-alert';
 
 export const dynamic = 'force-dynamic';
 
@@ -77,12 +76,9 @@ async function handleSuccessfulPayment(webhook: CloudPaymentsWebhook) {
   const paymentId = webhook.InvoiceId;
   const transactionId = webhook.TransactionId;
 
-  // Сначала — туры. Раньше первым шёл `UPDATE payments`, а таблицы `payments`
-  // в базе прода нет (baseline 15.08): каждая успешная оплата отвечала 500,
-  // CloudPayments повторял её сутки, и до туровой ветки дело не доходило.
   // Номер брони (страница /booking-success платит invoiceId = id брони) —
   // целое; tour_payments.id — UUID. Сравнивать строку не того вида с
-  // колонкой — это 22P02 и та же петля повторов.
+  // колонкой — это 22P02 и петля повторов.
   const invoice = String(paymentId);
   if (/^\d+$/.test(invoice)) {
     await handleHubBookingPayment(invoice, transactionId.toString(), webhook);
@@ -92,188 +88,12 @@ async function handleSuccessfulPayment(webhook: CloudPaymentsWebhook) {
     return;
   }
 
-    // Обновляем статус платежа
-    const updatePaymentQuery = `
-      UPDATE payments
-      SET 
-        status = 'completed',
-        transaction_id = $1,
-        payment_data = $2,
-        completed_at = NOW(),
-        updated_at = NOW()
-      WHERE id = $3
-      RETURNING booking_id, booking_type, user_id
-    `;
-
-    const paymentResult = await query<PaymentWebhookReturnRow>(updatePaymentQuery, [
-      transactionId.toString(),
-      JSON.stringify(webhook),
-      paymentId
-    ]);
-
-    if (paymentResult.rows.length === 0) {
-      console.error('[payments/webhook] оплата не сопоставлена ни с одной записью (номер счёта не найден ни в tour_payments, ни в payments)');
-      return;
-    }
-
-    const payment = paymentResult.rows[0];
-
-    // Обновляем статус бронирования
-    let updateBookingQuery = '';
-    switch (payment.booking_type) {
-      case 'tour':
-        updateBookingQuery = `
-          UPDATE operator_bookings
-          SET payment_status = 'paid',
-              booking_status = CASE WHEN booking_status IN ('confirmed', 'pending_payment')
-                                    THEN 'confirmed' ELSE booking_status END,
-              updated_at = NOW()
-          WHERE id = $1
-        `;
-        break;
-      case 'accommodation':
-        // Жильё с 26.09 оплачивается на месте, новых платежей по нему
-        // платформа не создаёт (book-роут и /api/payments/create). Ветка
-        // оставлена для старых счетов и сделана безопасной:
-        // - оплата НЕ подтверждает бронь: подтверждает владелец, а платёж
-        //   не равен согласию владельца (прежде здесь стояло
-        //   status = 'confirmed');
-        // - поздний вебхук не трогает отменённую/завершённую бронь —
-        //   без условия на статус он «оплачивал» отменённую.
-        updateBookingQuery = `
-          UPDATE accommodation_bookings
-          SET payment_status = 'paid', updated_at = NOW()
-          WHERE id = $1 AND status IN ('pending', 'confirmed')
-        `;
-        break;
-      case 'transfer':
-        updateBookingQuery = `
-          UPDATE transfer_bookings
-          SET payment_status = 'paid', status = 'confirmed', updated_at = NOW()
-          WHERE id = $1
-        `;
-        break;
-    }
-
-    if (updateBookingQuery) {
-      await query(updateBookingQuery, [payment.booking_id]);
-    }
-
-    // 1% от суммы → фонд AI-вычислений (fire-and-forget, не блокирует платёж)
-    void addBookingContribution(
-      // Жильё писалось в журнал как booking_tour — метка по типу брони.
-      payment.booking_type === 'transfer' ? 'booking_transfer'
-        : payment.booking_type === 'accommodation' ? 'booking_stay'
-        : 'booking_tour',
-      String(payment.booking_id),
-      webhook.Amount,
-      `${payment.booking_type} confirmed`,
-    );
-
-    // Отправляем email уведомление о подтверждении оплаты
-    try {
-      // Получаем детали бронирования для email
-      let bookingDetails: Record<string, unknown> | null = null;
-      let emailSubject = '';
-      let emailContent = '';
-
-      switch (payment.booking_type) {
-        case 'tour':
-          const tourBooking = await query(`
-            SELECT b.*, t.title as tour_name, p.name as operator_name
-            FROM operator_bookings b
-            JOIN operator_tours t ON b.operator_tour_id = t.id
-            JOIN partners p ON t.operator_id = p.id
-            WHERE b.id = $1
-          `, [payment.booking_id]);
-          if (tourBooking.rows.length > 0) {
-            bookingDetails = tourBooking.rows[0];
-            emailSubject = `Оплата подтверждена: ${bookingDetails.tour_name}`;
-            emailContent = `
-              <h2>Ваша оплата подтверждена!</h2>
-              <p><strong>Тур:</strong> ${bookingDetails.tour_name}</p>
-              <p><strong>Оператор:</strong> ${bookingDetails.operator_name}</p>
-              <p><strong>Дата:</strong> ${bookingDetails.start_date}</p>
-              <p><strong>Участники:</strong> ${bookingDetails.guests_count}</p>
-              <p><strong>Сумма оплаты:</strong> ${webhook.Amount.toLocaleString('ru-RU')} ₽</p>
-              <p><strong>ID транзакции:</strong> ${transactionId}</p>
-              <p>Бронирование подтверждено. Детали тура будут отправлены дополнительно.</p>
-            `;
-          }
-          break;
-
-        case 'accommodation':
-          const accommodationBooking = await query(`
-            SELECT ab.*, a.name as accommodation_name, r.name as room_name
-            FROM accommodation_bookings ab
-            JOIN accommodation_rooms r ON ab.room_id = r.id
-            JOIN accommodations a ON ab.accommodation_id = a.id
-            WHERE ab.id = $1
-          `, [payment.booking_id]);
-          if (accommodationBooking.rows.length > 0) {
-            bookingDetails = accommodationBooking.rows[0];
-            emailSubject = `Оплата подтверждена: ${bookingDetails.accommodation_name}`;
-            emailContent = `
-              <h2>Ваша оплата подтверждена!</h2>
-              <p><strong>Размещение:</strong> ${bookingDetails.accommodation_name}</p>
-              <p><strong>Номер:</strong> ${bookingDetails.room_name}</p>
-              <p><strong>Заезд:</strong> ${bookingDetails.check_in_date}</p>
-              <p><strong>Выезд:</strong> ${bookingDetails.check_out_date}</p>
-              <p><strong>Гости:</strong> ${bookingDetails.adults} взрослых, ${bookingDetails.children} детей</p>
-              <p><strong>Сумма оплаты:</strong> ${webhook.Amount.toLocaleString('ru-RU')} ₽</p>
-              <p><strong>ID транзакции:</strong> ${transactionId}</p>
-              <p>Оплата получена. Бронь подтверждает владелец объекта — о его решении сообщим отдельно.</p>
-            `;
-          }
-          break;
-
-        case 'transfer':
-          const transferBooking = await query(`
-            SELECT tb.*, ts.from_location, ts.to_location, d.name as driver_name
-            FROM transfer_bookings tb
-            JOIN transfer_schedules ts ON tb.schedule_id = ts.id
-            LEFT JOIN transfer_drivers d ON tb.driver_id = d.id
-            WHERE tb.id = $1
-          `, [payment.booking_id]);
-          if (transferBooking.rows.length > 0) {
-            bookingDetails = transferBooking.rows[0];
-            emailSubject = `Оплата подтверждена: Трансфер ${transferBooking.rows[0].from_location} → ${transferBooking.rows[0].to_location}`;
-            emailContent = `
-              <h2>Ваша оплата подтверждена!</h2>
-              <p><strong>Маршрут:</strong> ${transferBooking.rows[0].from_location} → ${transferBooking.rows[0].to_location}</p>
-              <p><strong>Дата и время:</strong> ${transferBooking.rows[0].departure_time}</p>
-              <p><strong>Водитель:</strong> ${transferBooking.rows[0].driver_name || 'Будет назначен'}</p>
-              <p><strong>Пассажиры:</strong> ${transferBooking.rows[0].passengers_count}</p>
-              <p><strong>Сумма оплаты:</strong> ${webhook.Amount.toLocaleString('ru-RU')} ₽</p>
-              <p><strong>ID транзакции:</strong> ${transactionId}</p>
-              <p>Бронирование подтверждено. Детали трансфера будут отправлены за 24 часа.</p>
-            `;
-          }
-          break;
-      }
-
-      if (bookingDetails) {
-        const userEmailResult = await query<EmailRow>(
-          'SELECT email FROM users WHERE id = $1',
-          [payment.user_id]
-        );
-        const userEmail = userEmailResult.rows[0]?.email ?? '';
-        if (userEmail) {
-          await emailService.sendEmail({
-            to: userEmail,
-            subject: emailSubject,
-            html: emailContent
-          });
-        }
-      }
-    } catch (err) {
-      // Не прерываем обработку: оплата уже записана. Здесь ловится отказ базы при
-      // подготовке письма — он называется областью и SQLSTATE, без адреса и
-      // тела (аудит 15.10, W2-3). Отказ SMTP сюда не попадает: sendEmail его
-      // не бросает, а возвращает { success: false } — это долг общего
-      // почтового сервиса, а не приёмника.
-      logSwallowedFailure('payments/webhook', 'письмо об оплате (путь payments)', err);
-    }
+  // Номер счёта не нашёлся ни в бронях, ни в платежах туров. Здесь стоял путь
+  // через таблицу `payments` (жильё, трансферы), а её на проде нет (baseline
+  // 15.08): каждая такая оплата отвечала 500, и CloudPayments повторял её
+  // сутки. Деньги при этом у банка — молчать нельзя: тревога человеку, банку —
+  // «принято», повтор ничего не изменит (#3433 п. 2).
+  await reportPaymentAnomaly('payments/webhook', { kind: 'unmatched', provider: 'CloudPayments', paid: webhook.Amount });
 }
 
 // В лог — только то, что взято из нашей базы, и числа: сырые строки из тела
@@ -298,18 +118,24 @@ function amountMatches(expected: string | number, paid: number): boolean {
  */
 async function handleTourPaymentSuccess(invoiceId: string, transactionId: string, webhook: CloudPaymentsWebhook): Promise<boolean> {
   const outcome = await transaction(async (client) => {
-    const locked = await client.query<{ booking_id: string; status: string; retail_amount: string }>(
-      `SELECT booking_id::text AS booking_id, status, retail_amount
+    const locked = await client.query<{
+      booking_id: string; status: string; retail_amount: string; cp_transaction_id: string | null;
+    }>(
+      `SELECT booking_id::text AS booking_id, status, retail_amount, cp_transaction_id
          FROM tour_payments WHERE id = $1 FOR UPDATE`,
       [invoiceId],
     );
     const tp = locked.rows[0];
     if (!tp) return { kind: 'not_found' as const };
-    if (tp.status !== 'PENDING' && tp.status !== 'FAILED') return { kind: 'duplicate' as const, bookingId: tp.booking_id };
+    if (tp.status !== 'PENDING' && tp.status !== 'FAILED') {
+      // Повтор того же уведомления — no-op. Другая операция по уже оплаченному
+      // счёту — деньги взяты дважды (#3433 п. 2).
+      return tp.cp_transaction_id === transactionId
+        ? { kind: 'duplicate' as const, bookingId: tp.booking_id }
+        : { kind: 'second_payment' as const, bookingId: tp.booking_id, expected: Number(tp.retail_amount) };
+    }
     if (!amountMatches(tp.retail_amount, webhook.Amount)) {
-      console.error('[payments/webhook] сумма не совпала с платежом тура — не подтверждаем:',
-        `booking=${tp.booking_id}`, `expected=${tp.retail_amount}`, `paid=${Number(webhook.Amount).toFixed(2)}`);
-      return { kind: 'mismatch' as const, bookingId: tp.booking_id };
+      return { kind: 'mismatch' as const, bookingId: tp.booking_id, expected: Number(tp.retail_amount) };
     }
 
     // Срок выплаты оператору — конец тура + 36 часов, как у всех приёмников
@@ -330,17 +156,27 @@ async function handleTourPaymentSuccess(invoiceId: string, transactionId: string
       [transactionId, invoiceId, webhook.CardType ?? 'card', invoiceId],
     );
     const before = await markBookingPaid(client, tp.booking_id, invoiceId);
+    // Комиссия — в той же транзакции, что оплата (#3433 п. 2): после коммита
+    // её терял упавший процесс, а повтор уведомления видел «уже оплачено».
+    // С неподтверждённой брони комиссия не берётся — решает человек.
+    if (canOfferPayment(before)) await recordCommissionFromBooking(tp.booking_id, invoiceId, client);
     return { kind: 'held' as const, bookingId: tp.booking_id, before };
   });
 
   if (outcome.kind === 'not_found') return false;
+  if (outcome.kind === 'mismatch' || outcome.kind === 'second_payment') {
+    await reportPaymentAnomaly('payments/webhook', {
+      kind: outcome.kind === 'mismatch' ? 'amount_mismatch' : 'second_payment',
+      provider: 'CloudPayments', bookingId: outcome.bookingId, expected: outcome.expected, paid: webhook.Amount,
+    });
+    return true;
+  }
   if (outcome.kind === 'held' && !canOfferPayment(outcome.before)) {
     await reportPaidUnconfirmed('payments/webhook', outcome.bookingId, outcome.before, webhook.Amount);
     return true;
   }
   if (outcome.kind === 'held') {
     void addBookingContribution('booking_operator', outcome.bookingId, webhook.Amount, 'operator booking confirmed');
-    await createCommissionRecord(outcome.bookingId, invoiceId);
   }
   return true;
 }
@@ -385,25 +221,26 @@ async function markBookingPaid(client: Pick<PoolClient, 'query'>, bookingId: str
 async function handleHubBookingPayment(invoiceId: string, transactionId: string, webhook: CloudPaymentsWebhook) {
   const outcome = await transaction(async (client) => {
     const locked = await client.query<{
-      id: string; final_price: string; payment_status: string | null;
-      tourist_email: string | null; tourist_name: string;
+      id: string; final_price: string; payment_status: string | null; payment_id: string | null;
+      paid_at: Date | null; tourist_email: string | null; tourist_name: string;
     }>(
-      `SELECT id::text AS id, final_price, payment_status, tourist_email, tourist_name
+      `SELECT id::text AS id, final_price, payment_status, payment_id, paid_at, tourist_email, tourist_name
          FROM operator_bookings
         WHERE id = $1::bigint AND deleted_at IS NULL
         FOR UPDATE`,
       [invoiceId],
     );
     const b = locked.rows[0];
-    if (!b) {
-      console.error('[payments/webhook] оплата на несуществующую бронь:', `booking=${Number(invoiceId)}`);
-      return null;
+    if (!b) return { kind: 'unmatched' as const };
+    if (b.payment_status === 'paid' || b.paid_at) {
+      // Повтор того же уведомления — no-op. Другая операция (вторая попытка
+      // картой, карта после QR) — деньги взяты дважды (#3433 п. 2).
+      return b.payment_id === transactionId
+        ? { kind: 'duplicate' as const }
+        : { kind: 'second_payment' as const, bookingId: b.id, expected: Number(b.final_price) };
     }
-    if (b.payment_status === 'paid') return null;
     if (!amountMatches(b.final_price, webhook.Amount)) {
-      console.error('[payments/webhook] сумма не совпала с бронью — не подтверждаем:',
-        `booking=${b.id}`, `expected=${b.final_price}`, `paid=${Number(webhook.Amount).toFixed(2)}`);
-      return null;
+      return { kind: 'amount_mismatch' as const, bookingId: b.id, expected: Number(b.final_price) };
     }
     const before = await markBookingPaid(client, b.id, transactionId);
     await holdTourPayment(client, b.id, {
@@ -411,10 +248,22 @@ async function handleHubBookingPayment(invoiceId: string, transactionId: string,
       invoiceId,
       method: webhook.CardType ?? 'card',
     });
-    return { ...b, before };
+    // Комиссия — в той же транзакции, что оплата (#3433 п. 2).
+    if (canOfferPayment(before)) await recordCommissionFromBooking(b.id, invoiceId, client);
+    return { kind: 'paid' as const, ...b, before };
   });
 
-  if (!outcome) return;
+  if (outcome.kind === 'duplicate') return;
+  if (outcome.kind === 'unmatched') {
+    await reportPaymentAnomaly('payments/webhook', { kind: 'unmatched', provider: 'CloudPayments', paid: webhook.Amount });
+    return;
+  }
+  if (outcome.kind !== 'paid') {
+    await reportPaymentAnomaly('payments/webhook', {
+      kind: outcome.kind, provider: 'CloudPayments', bookingId: outcome.bookingId, expected: outcome.expected, paid: webhook.Amount,
+    });
+    return;
+  }
   const b = outcome;
   if (!canOfferPayment(b.before)) {
     await reportPaidUnconfirmed('payments/webhook', b.id, b.before, webhook.Amount);
@@ -422,7 +271,6 @@ async function handleHubBookingPayment(invoiceId: string, transactionId: string,
   }
 
   void addBookingContribution('booking_operator', b.id, webhook.Amount, 'hub booking confirmed');
-  await createCommissionRecord(b.id, invoiceId);
 
   if (b.tourist_email) {
     try {
@@ -445,117 +293,55 @@ async function handleHubBookingPayment(invoiceId: string, transactionId: string,
 }
 
 /**
- * Создаёт запись комиссии платформы при успешной оплате.
- * Idempotent: повторный вызов с тем же invoice_id игнорируется.
- *
- * Вся логика — в `lib/payments/commission`, общей с hub-вебхуком (там комиссия
- * раньше не начислялась вовсе). Раньше здесь считались захардкоженные 12%, из-за
- * чего одна бронь получала разную комиссию в `operator_commissions` и
- * `tour_payments`. Теперь ставка одна и берётся из базы —
- * `partners.commission_current`, приведён к 10% миграцией 811 по решению
- * владельца.
- */
-async function createCommissionRecord(
-  bookingId: string,
-  invoiceId: string,
-): Promise<void> {
-  await recordCommissionFromBooking(bookingId, invoiceId);
-}
-
-/**
- * Обработка неуспешного платежа
+ * Отказ или отмена платежа (#3433 п. 2). Раньше шли в таблицу `payments`,
+ * которой на проде нет: каждый отказ по карте отвечал 500, и CloudPayments
+ * повторял его сутки. Теперь — по броне или платежу тура, и только пока оплаты
+ * нет: отказ повторной попытки не трогает оплаченную бронь, а статус брони
+ * отказ не меняет вовсе — турист может заплатить ещё раз. Отказ или отмена по
+ * уже оплаченной брони — тревога человеку: не вернули ли деньги.
  */
 async function handleFailedPayment(webhook: CloudPaymentsWebhook) {
-  const paymentId = webhook.InvoiceId;
-
-    // Обновляем статус платежа
-    const updateQuery = `
-      UPDATE payments
-      SET 
-        status = 'failed',
-        transaction_id = $1,
-        payment_data = $2,
-        failure_reason = $3,
-        updated_at = NOW()
-      WHERE id = $4
-    `;
-
-    await query(updateQuery, [
-      webhook.TransactionId.toString(),
-      JSON.stringify(webhook),
-      webhook.Reason || 'Payment declined',
-      paymentId
-    ]);
-
-    // Отправляем email о неуспешном платеже
-    try {
-      // Получаем детали платежа для email.
-      //
-      // Здесь стояло `SELECT p.*, b.booking_type` с тремя LEFT JOIN на брони
-      // тура, жилья и трансфера. Колонки booking_type у operator_bookings нет
-      // — она у самого платежа, и `p.*` её уже отдаёт. То есть запрос падал
-      // на «column b.booking_type does not exist», и письмо о неудачной оплате
-      // не уходило никогда. Джойны при этом ничего не выбирали.
-      const paymentDetails = await query<PaymentRow>(`
-        SELECT p.*
-        FROM payments p
-        WHERE p.id = $1
-      `, [paymentId]);
-
-      if (paymentDetails.rows.length > 0) {
-        const payment = paymentDetails.rows[0];
-        const failureReason = webhook.Reason || 'Платёж был отклонён';
-
-        const userEmailResult = await query<EmailRow>(
-          'SELECT email FROM users WHERE id = $1',
-          [payment.user_id]
-        );
-        const userEmail = userEmailResult.rows[0]?.email ?? '';
-        if (userEmail) {
-          await emailService.sendEmail({
-            to: userEmail,
-            subject: `Платёж не прошёл - ID ${paymentId.substring(0, 8)}`,
-            html: `
-              <h2>К сожалению, платёж не прошёл</h2>
-              <p><strong>ID платежа:</strong> ${paymentId}</p>
-              <p><strong>Сумма:</strong> ${parseFloat(payment.amount).toLocaleString('ru-RU')} ₽</p>
-              <p><strong>Причина:</strong> ${failureReason}</p>
-              <p>Попробуйте оплатить снова или свяжитесь с поддержкой.</p>
-              <p><strong>Служба поддержки:</strong> info@vedarai.ru</p>
-            `
-          });
-        }
-      }
-    } catch (err) {
-      // Не прерываем обработку: отказ уже записан. Здесь ловится отказ базы при
-      // подготовке письма — он называется областью и SQLSTATE, без адреса и
-      // тела (аудит 15.10, W2-3). Отказ SMTP сюда не попадает: sendEmail его
-      // не бросает, а возвращает { success: false } — это долг общего
-      // почтового сервиса, а не приёмника.
-      logSwallowedFailure('payments/webhook', 'письмо о неудачной оплате', err);
+  const invoice = String(webhook.InvoiceId);
+  if (/^\d+$/.test(invoice)) {
+    const res = await query<{ paid: boolean }>(
+      `WITH b AS (
+         SELECT id, (paid_at IS NOT NULL OR payment_status = 'paid') AS paid
+           FROM operator_bookings WHERE id = $1::bigint AND deleted_at IS NULL
+       ), upd AS (
+         UPDATE operator_bookings ob SET payment_status = 'failed', updated_at = NOW()
+           FROM b WHERE ob.id = b.id AND NOT b.paid
+       )
+       SELECT paid FROM b`,
+      [invoice],
+    );
+    if (res.rows[0]?.paid && webhook.Status === 'Cancelled') {
+      await reportPaymentAnomaly('payments/webhook', {
+        kind: 'refused_after_paid', provider: 'CloudPayments', bookingId: invoice, paid: webhook.Amount,
+      });
     }
+    return;
+  }
+  if (UUID_RE.test(invoice)) {
+    await query(
+      `UPDATE tour_payments SET status = 'FAILED', updated_at = NOW() WHERE id = $1::uuid AND status = 'PENDING'`,
+      [invoice],
+    );
+    return;
+  }
+  console.error('[payments/webhook] отказ по счёту, которого нет ни в бронях, ни в платежах туров — не записан');
 }
 
 /**
- * Обработка платежа в ожидании
+ * Платёж в ожидании — только пока оплаты нет: поздний Pending не переписывает
+ * «оплачено» (порядок уведомлений банк не гарантирует).
  */
 async function handlePendingPayment(webhook: CloudPaymentsWebhook) {
-  const paymentId = webhook.InvoiceId;
-
-    // Обновляем статус
-    const updateQuery = `
-      UPDATE payments
-      SET 
-        status = 'processing',
-        transaction_id = $1,
-        payment_data = $2,
-        updated_at = NOW()
-      WHERE id = $3
-    `;
-
-    await query(updateQuery, [
-      webhook.TransactionId.toString(),
-      JSON.stringify(webhook),
-      paymentId
-    ]);
+  const invoice = String(webhook.InvoiceId);
+  if (!/^\d+$/.test(invoice)) return;
+  await query(
+    `UPDATE operator_bookings SET payment_status = 'pending', updated_at = NOW()
+      WHERE id = $1::bigint AND deleted_at IS NULL AND paid_at IS NULL
+        AND payment_status IS DISTINCT FROM 'paid'`,
+    [invoice],
+  );
 }

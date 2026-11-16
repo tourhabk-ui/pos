@@ -30,6 +30,8 @@ import { recordCommissionFromBooking } from '@/lib/payments/commission';
 import { settleSeatPaymentByQr } from '@/lib/transfers/seat-payment';
 import { getPublicBaseUrl } from '@/lib/config';
 import { logSwallowedFailure } from '@/lib/observability/swallowed';
+import { sendPdAlert } from '@/lib/notifications/pd-alert';
+import { escapeHtml } from '@/lib/text/escape-html';
 
 export const dynamic = 'force-dynamic';
 
@@ -149,6 +151,10 @@ export async function POST(req: NextRequest) {
       );
       if (res.rowCount) {
         await holdTourPayment(client, booking.id, { transactionId: `tochka:${qrId}`, invoiceId: qrId, method: 'sbp' });
+        // Комиссия — в той же транзакции, что оплата (#3433 п. 2): после
+        // коммита её терял упавший процесс, а повтор вебхука видел paid_at и
+        // уходил в 200. Ключ — сам QR, уникальный на оплату.
+        await recordCommissionFromBooking(booking.id, `tochka:${qrId}`, client);
       }
       return res;
     });
@@ -254,11 +260,8 @@ async function handleLostRace(bookingId: number, paidAt: Date, paidAmount: numbe
  * платёж уже записан, а повтор вебхука сюда всё равно не дойдёт.
  */
 async function afterConfirmed(bookingId: number, touristName: string, paidAmount: number, qrId: string) {
-  // Комиссия платформы. До 04.08 СБП-оплата шла мимо учёта вовсе: комиссию
-  // писали только два вебхука CloudPayments, а Точка — третий живой приёмник
-  // (QR выдаётся из чата Кузьмича). Ставка договорная, из базы; вставка
-  // идемпотентна по invoice_id, поэтому ключ — сам QR, уникальный на оплату.
-  await recordCommissionFromBooking(bookingId, `tochka:${qrId}`);
+  // Комиссия начислена в транзакции оплаты (выше). До 04.08 СБП-оплата шла
+  // мимо учёта вовсе: комиссию писали только два вебхука CloudPayments.
 
   // Счётчик занятости в календаре оператора (доступность считается из реальных
   // броней, но счётчик показывается оператору и без этого разъезжается).
@@ -280,9 +283,9 @@ async function afterConfirmed(bookingId: number, touristName: string, paidAmount
     [JSON.stringify({ bookingId, amount: paidAmount, qrId })],
   ).catch((err: unknown) => logSwallowedFailure(LOG_SCOPE, 'запись ai_actions_log', err));
 
-  // Уведомление оператору через Telegram (fire-and-forget)
-  notifyOperator(bookingId, touristName, paidAmount)
-    .catch((err: unknown) => logSwallowedFailure(LOG_SCOPE, 'уведомление оператору об оплате', err));
+  // Уведомление в рабочий чат платформы (fire-and-forget)
+  notifyPaid(bookingId, touristName, paidAmount)
+    .catch((err: unknown) => logSwallowedFailure(LOG_SCOPE, 'уведомление об оплате', err));
 }
 
 async function sendTelegram(text: string) {
@@ -297,16 +300,21 @@ async function sendTelegram(text: string) {
   });
 }
 
-async function notifyOperator(bookingId: number, touristName: string, amount: number) {
-  await sendTelegram([
-    'Оплата получена через СБП',
-    '',
-    `Бронирование: #${bookingId}`,
-    `Турист: ${touristName}`,
-    `Сумма: ${amount.toLocaleString('ru-RU')} р.`,
-    '',
-    `${getPublicBaseUrl()}/hub/operator/bookings`,
-  ].join('\n'));
+/**
+ * Оплата получена — в рабочий чат платформы. Имя туриста — ПД: уходит только
+ * в MAX (lib/notifications/pd-alert), в Telegram — заглушка без него
+ * (#3433 п. 2). Раньше имя уходило в Telegram владельцу, а функция
+ * называлась «оператору».
+ */
+async function notifyPaid(bookingId: number, touristName: string, amount: number) {
+  const head = ['Оплата получена через СБП', '', `Бронирование: #${bookingId}`];
+  const tail = [`Сумма: ${amount.toLocaleString('ru-RU')} р.`, '', `${getPublicBaseUrl()}/hub/operator/bookings`];
+  const out = await sendPdAlert({
+    text: [...head, `Турист: ${escapeHtml(touristName)}`, ...tail].join('\n'),
+    stub: [...head, ...tail].join('\n'),
+  });
+  // Не ушло ни в MAX, ни заглушкой — отказ называется вызывающим (catch выше).
+  if (!out.delivered && out.channel === 'none') throw new Error(out.reason ?? 'причина не названа');
 }
 
 async function notifyOwnerPaidAfterExit(bookingId: number, status: string, amount: number) {

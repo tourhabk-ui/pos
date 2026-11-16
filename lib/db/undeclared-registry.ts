@@ -73,7 +73,7 @@ export const UNDECLARED_TABLES = [
   // CloudPayments динамически импортирует из него cancelBooking, и удалить
   // модуль, не тронув приёмник, нельзя. Уйдут вместе с платёжным шагом.
   'transfer_bookings', 'transfer_schedules', 'transfer_vehicles',
-  'transfer_drivers', 'transfer_notifications', 'transfer_payments',
+  'transfer_notifications', 'transfer_payments',
   // ── Выбыли по разрешению, а не потерялись ───────────────────────────────
   //
   // seat_holds — 22.08.2026, вместе с кодом удержания мест: таблицы не

@@ -143,13 +143,13 @@ describe('платёжные двери закрыты для жилья', () =>
     expect(src).toContain('status: 409');
   });
 
-  it('вебхук: оплата жилья не подтверждает бронь и не трогает отменённую', () => {
+  it('вебхук: оплата жилья броню жилья не трогает вовсе', () => {
+    // Ветка жилья шла через таблицу `payments`, которой на проде нет, — то
+    // есть не исполнялась никогда; убрана вместе с ней (#3433 п. 2). Счёт не
+    // брони тура — тревога человеку, а не подтверждение брони жилья.
     const src = code('app/api/payments/webhook/route.ts');
-    const branch = src.slice(src.indexOf("case 'accommodation':"), src.indexOf("case 'transfer':"));
-    expect(branch).toContain("SET payment_status = 'paid', updated_at = NOW()");
-    expect(branch).toContain("WHERE id = $1 AND status IN ('pending', 'confirmed')");
-    expect(branch).not.toMatch(/status = 'confirmed'/);
-    expect(src).toContain("payment.booking_type === 'accommodation' ? 'booking_stay'");
+    expect(src).not.toMatch(/accommodation_bookings/);
+    expect(src).not.toMatch(/\bUPDATE\s+payments\b/);
   });
 
   it('форма брони гостя: ни виджета оплаты, ни кнопки «Оплатить»', () => {
