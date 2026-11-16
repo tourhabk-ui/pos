@@ -22,6 +22,7 @@ import { describe, it, expect } from 'vitest';
 import { readFileSync } from 'fs';
 import { join } from 'path';
 import { redactPII, hasPII } from '@/lib/security/pii-redact';
+import { hotSignalContext } from '@/lib/telegram/group-monitor';
 
 const ROOT = process.cwd();
 const SRC = readFileSync(join(ROOT, 'lib/telegram/group-monitor.ts'), 'utf-8');
@@ -52,6 +53,23 @@ describe('монитор каналов чистит ПД перед модел�
   it('сырой шаблон `[${m.from}]: ${m.text}` в файле отсутствует', () => {
     // Точная форма, которая была до правки. Вернётся — упадём.
     expect(CODE).not.toMatch(/\[\$\{m\.from\}\]:\s*\$\{m\.text\}/);
+  });
+});
+
+describe('контекст горячего сигнала в agent_memory — без телефонов и почт (#3433)', () => {
+  it('и подпись, и текст очищены; последние пять сообщений', () => {
+    const msgs = Array.from({ length: 7 }, (_, i) => ({ from: `Гид +7914781711${i}`, text: `сход лавины, звоните +7 924 790-19-1${i} или guide${i}@example.com` }));
+    const ctx = hotSignalContext(msgs);
+    expect(hasPII(ctx)).toBe(false);
+    expect(ctx).not.toMatch(/79147817/);
+    expect(ctx).not.toContain('@example.com');
+    expect(ctx.split('\n')).toHaveLength(5);
+    expect(ctx).toContain('сход лавины');
+  });
+
+  it('запись горячего сигнала собирает context этой функцией, а не сырым шаблоном', () => {
+    expect(CODE).toMatch(/context:\s*hotSignalContext\(messages\)/);
+    expect(CODE).not.toMatch(/\$\{m\.from\}:\s*\$\{m\.text\}/);
   });
 });
 

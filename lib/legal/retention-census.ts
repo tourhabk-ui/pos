@@ -26,7 +26,11 @@
  */
 
 /** Какой срок политики проверяется. */
-export type RetentionTerm = 'tech_logs_90d' | 'leads_3y' | 'bookings_5y' | 'chat_3y' | 'profile_3y';
+/**
+ * `own_expiry` — срок записи назначает её писатель (`expires_at`): память
+ * агентов. Политика сроков сверх этого не обещает; удаляется в день истечения.
+ */
+export type RetentionTerm = 'tech_logs_90d' | 'leads_3y' | 'bookings_5y' | 'chat_3y' | 'profile_3y' | 'own_expiry';
 
 export interface RetentionTarget {
   table: string;
@@ -82,6 +86,9 @@ export const RETENTION_TARGETS: readonly RetentionTarget[] = [
   { table: 'accommodation_bookings', column: 'check_out_date', term: 'bookings_5y', days: BOOKING_DAYS, pruned: null },
   { table: 'chat_sessions', column: 'updated_at', term: 'chat_3y', days: CHAT_DAYS, pruned: null },
   { table: 'v_user_last_activity', column: 'last_activity_at', term: 'profile_3y', days: PROFILE_DAYS, pruned: null },
+  // Память агентов: срок ставит писатель, запись без срока бессрочна (NULL в
+  // сравнении не участвует). До 16.11 истёкшее только пряталось при чтении.
+  { table: 'agent_memory', column: 'expires_at', term: 'own_expiry', days: 0, pruned: 'в день истечения, уборкой сроков (lib/legal/retention-purge.ts)' },
 ];
 
 /**
@@ -138,7 +145,7 @@ export async function runRetentionCensus(query: Query, targets: readonly Retenti
       rows.push({ ...base, state: 'failed', reason: `SQLSTATE ${code}` });
     }
   }
-  const over: Record<RetentionTerm, number> = { tech_logs_90d: 0, leads_3y: 0, bookings_5y: 0, chat_3y: 0, profile_3y: 0 };
+  const over: Record<RetentionTerm, number> = { tech_logs_90d: 0, leads_3y: 0, bookings_5y: 0, chat_3y: 0, profile_3y: 0, own_expiry: 0 };
   for (const r of rows) if (r.state === 'ok' && r.over_term > 0) over[r.term]++;
   return {
     rows,

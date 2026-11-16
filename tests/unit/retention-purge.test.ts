@@ -34,7 +34,7 @@ beforeEach(() => { poolQuery.mockReset(); });
 
 describe('список уборки', () => {
   it('каждый журнал переписи с 90-дневным сроком — либо убирается, либо пропущен с причиной; не то и другое сразу', () => {
-    const logs = RETENTION_TARGETS.filter((t) => t.term === 'tech_logs_90d').map((t) => t.table);
+    const logs = RETENTION_TARGETS.filter((t) => t.term === 'tech_logs_90d' || t.term === 'own_expiry').map((t) => t.table);
     const purged = PURGE_STEPS.map((s) => s.table);
     const skipped = Object.keys(PURGE_SKIPPED);
     expect(logs.filter((t) => !purged.includes(t) && !skipped.includes(t))).toEqual([]);
@@ -44,11 +44,22 @@ describe('список уборки', () => {
     for (const [t, why] of Object.entries(PURGE_SKIPPED)) expect(why.length, t).toBeGreaterThan(10);
   });
 
-  it('у каждого шага срок 90 дней и причина словами', () => {
+  it('у каждого шага срок переписи (журналы — 90 дней) и причина словами', () => {
     for (const s of PURGE_STEPS) {
-      expect(s.days, s.table).toBe(90);
+      const target = RETENTION_TARGETS.find((t) => t.table === s.table);
+      expect(s.days, s.table).toBe(target?.days);
+      expect(s.column, s.table).toBe(target?.column);
       expect(s.why.length, s.table).toBeGreaterThan(20);
     }
+    expect(PURGE_STEPS.filter((s) => s.table !== 'agent_memory').every((s) => s.days === 90)).toBe(true);
+  });
+
+  it('память агентов: удаляется истёкшее по её собственному сроку, бессрочное не трогается (#3433)', () => {
+    expect(step('agent_memory')).toMatchObject({ column: 'expires_at', days: 0, action: { kind: 'delete' } });
+    // NULL в «expires_at < …» не проходит: запись без срока под условие не попадает.
+    expect(purgeBatchSql(step('agent_memory'))).toMatch(
+      /^DELETE FROM agent_memory WHERE ctid = ANY\(ARRAY\(SELECT ctid FROM agent_memory WHERE expires_at < NOW\(\) - make_interval\(days => \$1::int\) LIMIT \$2::int\)\)$/,
+    );
   });
 
   it('строки, которые читают без окна, не удаляются, а обезличиваются', () => {

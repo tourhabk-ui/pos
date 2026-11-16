@@ -338,10 +338,22 @@ withPg('объектив схемы на настоящем PostgreSQL', () => {
         ('partner', gen_random_uuid(), 'register', '{"email":"old@example.org","inn":"410100000000","roles":["operator"],"consents":{"pd":true}}', ${OLD}),
         ('partner', gen_random_uuid(), 'register', '{"email":"new@example.org","inn":"410100000001","roles":["guide"]}', ${NEW})`);
       await pool.query(`INSERT INTO mcp_clients (caller_hash, day) VALUES ('old-client', (${OLD})::date), ('new-client', CURRENT_DATE)`);
+      // Память агентов (#3433): истёкшая — с журналом правок, живая и бессрочная.
+      const { rows: [expired] } = await pool.query<{ id: string }>(`INSERT INTO agent_memory (agent_id, memory_type, key, value, expires_at)
+        VALUES ('evo', 'intelligence', 'purge-expired', '{"context":"старое"}', NOW() - INTERVAL '1 hour') RETURNING id::text`);
+      await pool.query(`INSERT INTO agent_memory_edits (memory_id, agent_id, old_value, new_value, edited_by)
+        VALUES ($1, 'evo', '{}', '{"context":"старое"}', 'evo')`, [expired.id]);
+      await pool.query(`INSERT INTO agent_memory (agent_id, memory_type, key, value, expires_at) VALUES
+        ('evo', 'intelligence', 'purge-live', '{}', NOW() + INTERVAL '1 day'),
+        ('evo', 'intelligence', 'purge-forever', '{}', NULL)`);
 
       const query = (sql: string, params: unknown[]) => pool.query(sql, params);
       const run = await runRetentionPurge(query, { apply: true });
       expect(run.failed).toBe(0);
+      const mem = await pool.query<{ key: string }>(`SELECT key FROM agent_memory WHERE key LIKE 'purge-%' ORDER BY key`);
+      expect(mem.rows.map((r) => r.key)).toEqual(['purge-forever', 'purge-live']);
+      expect((await pool.query('SELECT 1 FROM agent_memory_edits WHERE memory_id = $1::uuid', [expired.id])).rowCount).toBe(0);
+      expect(run.rows.find((r) => r.table === 'agent_memory')).toMatchObject({ state: 'ok', rows: 1 });
 
       const rag = await pool.query<{ query: string }>('SELECT query FROM rag_quality_log ORDER BY created_at');
       expect(rag.rows.map((r) => r.query)).toEqual(['свежий вопрос']);
