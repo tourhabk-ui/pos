@@ -330,7 +330,7 @@ export default function BookingsManagementClient() {
                   setConfirmAction(null);
                   void updateStatus(booking.id, status);
                 }}
-                className="flex-1 min-h-[44px] rounded-lg text-sm font-semibold text-white bg-[var(--danger)] hover:opacity-90 transition-opacity disabled:opacity-50">
+                className="flex-1 min-h-[44px] rounded-lg text-sm font-semibold text-[var(--on-danger)] bg-[var(--danger)] hover:opacity-90 transition-opacity disabled:opacity-50">
                 {confirmAction.status === 'cancelled' ? 'Отменить бронь' : 'Отметить'}
               </button>
             </div>

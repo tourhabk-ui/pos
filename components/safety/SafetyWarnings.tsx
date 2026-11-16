@@ -65,7 +65,7 @@ const LEVEL_STYLES: Record<string, { bg: string; border: string; text: string; b
     bg: '[background-color:color-mix(in_srgb,var(--danger)_10%,transparent)]',
     border: '[border-color:color-mix(in_srgb,var(--danger)_30%,transparent)]',
     text: 'text-[var(--danger)]',
-    badge: 'bg-[var(--danger)] text-white',
+    badge: 'bg-[var(--danger)] text-[var(--on-danger)]',
   },
   danger: {
     bg: '[background-color:color-mix(in_srgb,var(--danger)_8%,transparent)]',

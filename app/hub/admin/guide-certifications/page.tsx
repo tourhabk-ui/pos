@@ -271,7 +271,7 @@ export default function AdminGuideCertifications() {
                             <button
                               onClick={() => void decide(cert.id, false, rejecting.comment)}
                               disabled={acting === cert.id}
-                              className="px-2 py-1 text-[10px] rounded-md bg-[var(--danger)] text-white disabled:opacity-50"
+                              className="px-2 py-1 text-[10px] rounded-md bg-[var(--danger)] text-[var(--on-danger)] disabled:opacity-50"
                             >
                               Отклонить
                             </button>

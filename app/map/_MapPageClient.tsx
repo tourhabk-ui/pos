@@ -672,7 +672,7 @@ export default function MapPageClient({ mapPackBaseUrl = null }: MapPageClientPr
                     ? 'bg-[var(--success)] text-white'
                     : sosSending === 'error'
                     ? 'bg-[var(--warning)] text-white'
-                    : 'bg-[var(--danger)] text-white hover:opacity-90 active:opacity-80'
+                    : 'bg-[var(--danger)] text-[var(--on-danger)] hover:opacity-90 active:opacity-80'
                 }`}
               >
                 {sosSending === 'sending' && <Loader2 className="w-4 h-4 animate-spin" />}

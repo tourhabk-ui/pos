@@ -242,7 +242,7 @@ export function PayoutsManager() {
                 <button
                   onClick={() => handleRefund(r)}
                   disabled={processing === r.id}
-                  className="flex items-center gap-1.5 px-3 py-1.5 bg-[var(--danger)] hover:bg-[var(--danger)]/90 text-white rounded text-[10px] font-medium transition-colors disabled:opacity-50 shrink-0 ml-3"
+                  className="flex items-center gap-1.5 px-3 py-1.5 bg-[var(--danger)] hover:bg-[var(--danger)]/90 text-[var(--on-danger)] rounded text-[10px] font-medium transition-colors disabled:opacity-50 shrink-0 ml-3"
                 >
                   <Undo2 className="w-3 h-3" />
                   {processing === r.id ? 'Обработка...' : 'Отметить возврат'}

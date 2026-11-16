@@ -640,7 +640,7 @@ export default function PartnersManagement() {
                           type="button"
                           onClick={() => handleDeleteImage('hero')}
                           disabled={uploadingType !== null || editId === NEW_PARTNER}
-                          className="flex items-center gap-1.5 px-3 py-1.5 bg-[var(--danger)]/90 rounded-lg text-xs text-white font-medium hover:bg-[var(--danger)] transition-colors"
+                          className="flex items-center gap-1.5 px-3 py-1.5 bg-[var(--danger)]/90 rounded-lg text-xs text-[var(--on-danger)] font-medium hover:bg-[var(--danger)] transition-colors"
                         >
                           <Trash2 className="w-3 h-3" />
                           Удалить

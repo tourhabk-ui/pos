@@ -111,7 +111,7 @@ export default function DeleteAccount() {
           <div className="flex flex-wrap gap-3">
             <button type="button" onClick={() => { void submit(); }}
               disabled={busy || phrase.trim().toUpperCase() !== ERASE_PHRASE}
-              className="ds-btn min-h-[44px] px-5 bg-[var(--danger)] text-white disabled:opacity-50 flex items-center gap-2">
+              className="ds-btn min-h-[44px] px-5 bg-[var(--danger)] text-[var(--on-danger)] disabled:opacity-50 flex items-center gap-2">
               {busy && <Loader2 className="w-4 h-4 animate-spin" />}
               Удалить навсегда
             </button>

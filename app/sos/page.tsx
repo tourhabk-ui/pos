@@ -375,6 +375,7 @@ export default function SosPage() {
             width: '36px', height: '36px',
             borderRadius: '50%',
             background: 'var(--danger)',
+            color: 'var(--on-danger)',
             display: 'flex', alignItems: 'center', justifyContent: 'center',
             fontSize: '11px', fontWeight: 800, letterSpacing: '0.05em',
           }}>
@@ -404,7 +405,7 @@ export default function SosPage() {
             padding: '18px 16px',
             borderRadius: '14px',
             background: 'var(--danger)',
-            color: 'white',
+            color: 'var(--on-danger)',
             textDecoration: 'none',
             minHeight: '72px',
           }}
