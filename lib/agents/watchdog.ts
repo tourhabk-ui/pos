@@ -42,6 +42,7 @@ import { computeLiveness, livenessWatch } from '@/lib/agents/cron-liveness';
 import { blameSilentCrons, describeBlame, type CronWitness, type CronBlame, witnessEligibleAgentIds } from '@/lib/agents/cron-blame';
 import { tgSend as tgSendShared, type TgSendOutcome } from '@/lib/notifications/tg-send';
 import { sendPartnerNotice, type NoticeChannel, type NoticeTarget } from '@/lib/partners/notice';
+import { nudgePartnerOncePerDay, nudgeSummary, type NudgeOutcome } from '@/lib/partners/daily-nudge';
 import { ownerBookingsListUrl } from '@/lib/partners/cabinet-links';
 import { escapeHtml } from '@/lib/text/escape-html';
 import { findIdleCrons, formatIdleCrons, IDLE_RUNS_THRESHOLD, type CronRunRow } from '@/lib/agents/cron-idle';
@@ -405,14 +406,16 @@ async function checkOperatorNoResponse(): Promise<CheckResult> {
       }).then(() => knowledgeBase.appendTimeline(slug, entry)).catch(() => {});
 
       const reach = reachFrom(row);
-      if (row.partner_name) {
-        notifyOperatorDirectly(
+      const partnerName = row.partner_name;
+      if (partnerName) {
+        // Раз в сутки и не ночью (#3433 п. 6): прежде — при каждом прогоне.
+        await nudgePartnerOncePerDay(row.operator_id, 'operator_booking', () => notifyOperatorDirectly(
           { maxChatId: reach.maxChatId, telegramChatId: reach.telegramChatId },
-          row.partner_name,
+          partnerName,
           parseInt(row.count, 10),
           row.oldest,
           row.partner_category,
-        ).catch(() => null);
+        ));
       }
     }
 
@@ -494,20 +497,26 @@ async function checkUnconfirmedStayBookings(): Promise<CheckResult> {
     if (rows.length === 0) return null;
 
     let total = 0;
-    let notified = 0;
+    const nudges: NudgeOutcome[] = [];
     for (const row of rows) {
       total += parseInt(row.count, 10) || 0;
       const reach = reachFrom(row);
-      if (reach.reachable && row.owner_name) {
-        const channel = await notifyStayOwnerDirectly(reach, row.owner_name, parseInt(row.count, 10), row.oldest);
-        if (channel) notified += 1;
+      const ownerName = row.owner_name;
+      if (reach.reachable && ownerName) {
+        const nudge = await nudgePartnerOncePerDay(row.partner_id, 'stay_booking',
+          () => notifyStayOwnerDirectly(reach, ownerName, parseInt(row.count, 10), row.oldest));
+        nudges.push(nudge);
       }
     }
 
     return {
       type: 'unconfirmed_stay_booking',
       count: total,
-      details: `${total} бронь(и) жилья без подтверждения > 24ч у ${rows.length} владельц(ев).${notified > 0 ? ` Уведомлено напрямую: ${notified}.` : ' Напрямую не доставлено никому: нет ни MAX, ни Telegram, или доставка отказала (причина — в логе).'}`,
+      details: `${total} бронь(и) жилья без подтверждения > 24ч у ${rows.length} владельц(ев).${nudgeSummary(nudges)}`,
+      // Исход напоминаний меняется от прогона к прогону («уведомлено» →
+      // «уже напоминали сегодня»); дебаунс тревоги владельцу — по самому
+      // условию, иначе он вышел бы чаще прежнего.
+      debounceOn: `${total} бронь(и) жилья без подтверждения > 24ч у ${rows.length} владельц(ев).`,
     };
   } catch (err) {
     // §4.0: «не смог проверить» — не «всё хорошо». Сторож, чей запрос
@@ -542,11 +551,13 @@ async function checkPendingGearRentals(): Promise<CheckResult> {
     // проката > 24ч. До этого gear был слепым пятном сторожа — заявка могла
     // висеть в pending неделями, и никто об этом не узнавал.
     const { rows } = await pool.query<{
+      partner_id: string | null;
       partner_name: string | null;
       count: string;
       oldest: string;
     } & PartnerReachRow>(
-      `SELECT COALESCE(p.company_name, p.name) AS partner_name,
+      `SELECT p.id::text AS partner_id,
+              COALESCE(p.company_name, p.name) AS partner_name,
               p.telegram_chat_id,
               u_reach.telegram_id AS user_telegram_id,
               p.max_chat_id,
@@ -558,25 +569,31 @@ async function checkPendingGearRentals(): Promise<CheckResult> {
        LEFT JOIN users u_reach ON u_reach.id = p.user_id
        WHERE gr.status = 'pending'
          AND gr.created_at < NOW() - INTERVAL '24 hours'
-       GROUP BY p.company_name, p.name, p.telegram_chat_id, u_reach.telegram_id, p.max_chat_id`,
+       GROUP BY p.id, p.company_name, p.name, p.telegram_chat_id, u_reach.telegram_id, p.max_chat_id`,
     );
     if (rows.length === 0) return null;
 
     let total = 0;
-    let notified = 0;
+    const nudges: NudgeOutcome[] = [];
     for (const row of rows) {
       total += parseInt(row.count, 10) || 0;
       const reach = reachFrom(row);
-      if (reach.reachable && row.partner_name) {
-        const channel = await notifyGearPartnerDirectly(reach, row.partner_name, parseInt(row.count, 10), row.oldest);
-        if (channel) notified += 1;
+      const partnerName = row.partner_name;
+      if (reach.reachable && partnerName) {
+        const nudge = await nudgePartnerOncePerDay(row.partner_id, 'gear_rental',
+          () => notifyGearPartnerDirectly(reach, partnerName, parseInt(row.count, 10), row.oldest));
+        nudges.push(nudge);
       }
     }
 
     return {
       type: 'pending_gear_rental',
       count: total,
-      details: `${total} заявк(и) на аренду снаряжения без подтверждения > 24ч у ${rows.length} прокат(ов).${notified > 0 ? ` Уведомлено напрямую: ${notified}.` : ' Напрямую не доставлено никому: нет ни MAX, ни Telegram, или доставка отказала (причина — в логе).'}`,
+      details: `${total} заявк(и) на аренду снаряжения без подтверждения > 24ч у ${rows.length} прокат(ов).${nudgeSummary(nudges)}`,
+      // Исход напоминаний меняется от прогона к прогону («уведомлено» →
+      // «уже напоминали сегодня»); дебаунс тревоги владельцу — по самому
+      // условию, иначе он вышел бы чаще прежнего.
+      debounceOn: `${total} заявк(и) на аренду снаряжения без подтверждения > 24ч у ${rows.length} прокат(ов).`,
     };
   } catch (err) {
     // §4.0: «не смог проверить» — не «всё хорошо». Сторож, чей запрос
@@ -726,11 +743,13 @@ async function checkPendingTransferBookings(): Promise<CheckResult> {
     // LATERAL было нужно лишь потому, что `operators` жила отдельно от
     // `partners`; сущности больше нет — нет и склейки по совпадению почты.
     const { rows } = await pool.query<{
+      partner_id: string;
       operator_name: string | null;
       count: string;
       oldest: string;
     } & PartnerReachRow>(
-      `SELECT p.name AS operator_name,
+      `SELECT p.id::text AS partner_id,
+              p.name AS operator_name,
               p.telegram_chat_id,
               u_reach.telegram_id AS user_telegram_id,
               p.max_chat_id,
@@ -743,25 +762,31 @@ async function checkPendingTransferBookings(): Promise<CheckResult> {
        LEFT JOIN users u_reach ON u_reach.id = p.user_id
        WHERE sb.status = 'requested'
          AND sb.created_at < NOW() - INTERVAL '24 hours'
-       GROUP BY p.name, p.telegram_chat_id, u_reach.telegram_id, p.max_chat_id`,
+       GROUP BY p.id, p.name, p.telegram_chat_id, u_reach.telegram_id, p.max_chat_id`,
     );
     if (rows.length === 0) return null;
 
     let total = 0;
-    let notified = 0;
+    const nudges: NudgeOutcome[] = [];
     for (const row of rows) {
       total += parseInt(row.count, 10) || 0;
       const reach = reachFrom(row);
-      if (reach.reachable && row.operator_name) {
-        const channel = await notifyTransferOperatorDirectly(reach, row.operator_name, parseInt(row.count, 10), row.oldest);
-        if (channel) notified += 1;
+      const operatorName = row.operator_name;
+      if (reach.reachable && operatorName) {
+        const nudge = await nudgePartnerOncePerDay(row.partner_id, 'transfer_seat',
+          () => notifyTransferOperatorDirectly(reach, operatorName, parseInt(row.count, 10), row.oldest));
+        nudges.push(nudge);
       }
     }
 
     return {
       type: 'pending_transfer_booking',
       count: total,
-      details: `${total} запрос(ов) мест в трансфере без ответа > 24ч у ${rows.length} перевозчик(ов).${notified > 0 ? ` Уведомлено напрямую: ${notified}.` : ' Напрямую не доставлено никому: нет ни MAX, ни Telegram, или доставка отказала (причина — в логе).'}`,
+      details: `${total} запрос(ов) мест в трансфере без ответа > 24ч у ${rows.length} перевозчик(ов).${nudgeSummary(nudges)}`,
+      // Исход напоминаний меняется от прогона к прогону («уведомлено» →
+      // «уже напоминали сегодня»); дебаунс тревоги владельцу — по самому
+      // условию, иначе он вышел бы чаще прежнего.
+      debounceOn: `${total} запрос(ов) мест в трансфере без ответа > 24ч у ${rows.length} перевозчик(ов).`,
     };
   } catch (err) {
     // §4.0: «не смог проверить» — не «всё хорошо». Сторож, чей запрос

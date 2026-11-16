@@ -17,6 +17,9 @@
  *  - утренняя сводка: кандидаты по камчатской дате, кабинет чата — старшая
  *    карточка, замок `sending` — один на сутки, снятие возвращает в очередь;
  *  - миграция 1351 повторяется без вреда, а ожидание не из MAX база не примет;
+ *  - напоминание Watchdog партнёру (1452, #3433 п. 6): замок раз в
+ *    камчатские сутки, два прогона одновременно — одно сообщение,
+ *    недоставка снимает замок, старые строки чистятся;
  *  - «Мои туры» гида (1357, 30.10): фраза «Горелый: цена 16000» — черновик и
  *    «было → станет», в тур не пишет ничего; «Сохранить» пишет общей функцией
  *    сайта, повтор — «уже сохранена»; тур поменяли после предпросмотра — не
@@ -120,6 +123,49 @@ withPg('кабинет в чате на настоящем PostgreSQL', () => {
     )).rejects.toMatchObject({ code: '23514' });
     await expect(pool.query(
       `INSERT INTO chat_cabinet_waits (channel, chat_id, partner_id, status, expires_at) VALUES ('max', 1, $1, 'used', NOW())`, [partnerId],
+    )).rejects.toMatchObject({ code: '23514' });
+  });
+
+  it('напоминание Watchdog партнёру (1452, #3433 п. 6): замок раз в сутки, недоставка снимает, чистка по сроку', async () => {
+    const sql = readFileSync(join(process.cwd(), 'migrations', '1452_partner_nudges.sql'), 'utf8');
+    await pool.query(sql); // повтор миграции без вреда
+    const nudge = await import('@/lib/partners/daily-nudge');
+    const DAY = new Date('2026-11-16T02:00:00Z'); // 14:00 по Камчатке
+    await pool.query(`DELETE FROM partner_nudges`);
+
+    const send = vi.fn(async () => 'max' as const);
+    expect(await nudge.nudgePartnerOncePerDay(partnerId, 'operator_booking', send, DAY)).toEqual({ status: 'sent', channel: 'max' });
+    // Два прогона сторожа одновременно — одно сообщение.
+    const both = await Promise.all([
+      nudge.nudgePartnerOncePerDay(otherId, 'stay_booking', send, DAY),
+      nudge.nudgePartnerOncePerDay(otherId, 'stay_booking', send, DAY),
+    ]);
+    expect(both.map((o) => o.status).sort()).toEqual(['already_today', 'sent']);
+    expect(await nudge.nudgePartnerOncePerDay(partnerId, 'operator_booking', send, DAY)).toEqual({ status: 'already_today' });
+    expect(send).toHaveBeenCalledTimes(2);
+    const rows = (await pool.query(
+      `SELECT partner_id::text AS p, kind, day::text AS day, status, sent_at IS NOT NULL AS sent FROM partner_nudges ORDER BY kind`,
+    )).rows;
+    expect(rows).toEqual([
+      { p: partnerId, kind: 'operator_booking', day: '2026-11-16', status: 'max', sent: true },
+      { p: otherId, kind: 'stay_booking', day: '2026-11-16', status: 'max', sent: true },
+    ]);
+
+    // Недоставка — строки нет, следующий прогон пробует снова.
+    expect(await nudge.nudgePartnerOncePerDay(partnerId, 'gear_rental', async () => null, DAY)).toEqual({ status: 'undelivered' });
+    expect((await pool.query(`SELECT 1 FROM partner_nudges WHERE kind = 'gear_rental'`)).rowCount).toBe(0);
+
+    // Строки старше срока чистит следующая отправка; свежие остаются.
+    await pool.query(`INSERT INTO partner_nudges (partner_id, kind, day, status, sent_at) VALUES ($1, 'transfer_seat', '2026-10-01', 'max', NOW())`, [partnerId]);
+    await nudge.nudgePartnerOncePerDay(partnerId, 'transfer_seat', send, DAY);
+    expect((await pool.query(`SELECT day::text AS day FROM partner_nudges WHERE kind = 'transfer_seat'`)).rows).toEqual([{ day: '2026-11-16' }]);
+
+    // Чужой вид и «отправлено» без времени база не примет.
+    await expect(pool.query(
+      `INSERT INTO partner_nudges (partner_id, kind, day) VALUES ($1, 'tour_booking', '2026-11-17')`, [partnerId],
+    )).rejects.toMatchObject({ code: '23514' });
+    await expect(pool.query(
+      `INSERT INTO partner_nudges (partner_id, kind, day, status) VALUES ($1, 'stay_booking', '2026-11-17', 'max')`, [partnerId],
     )).rejects.toMatchObject({ code: '23514' });
   });
 

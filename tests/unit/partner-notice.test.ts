@@ -113,7 +113,7 @@ describe('все партнёрские уведомления без ПД — �
 
   it('Watchdog: проверки жилья, проката и перевозчика шлют по reach.reachable, а не только по Telegram', () => {
     expect(WATCHDOG).not.toMatch(/if \(reach\.telegramChatId && row\./);
-    expect(WATCHDOG.match(/if \(reach\.reachable && row\.(owner_name|partner_name|operator_name)\)/g) ?? []).toHaveLength(3);
+    expect(WATCHDOG.match(/if \(reach\.reachable && (ownerName|partnerName|operatorName)\)/g) ?? []).toHaveLength(3);
   });
 
   it('перевозчика ведут в его кабинет, а не в общий /hub', () => {

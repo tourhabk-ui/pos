@@ -8,7 +8,7 @@
  *
  * Поведением на моках пула — тем же приёмом, что watchdog-stay.test.ts.
  */
-import { describe, it, expect, vi, beforeEach } from 'vitest';
+import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
 
 const { poolQueryMock, noticeMock } = vi.hoisted(() => ({
   poolQueryMock: vi.fn<(sql: string, params?: unknown[]) => Promise<{ rows: unknown[] }>>(),
@@ -46,6 +46,8 @@ const row = (over: Record<string, unknown>) => ({
 function route(rows: unknown[]) {
   poolQueryMock.mockImplementation((sql: string) => {
     if (sql.includes(NO_RESPONSE)) return Promise.resolve({ rows });
+    // Замок «раз в сутки» (#3433 п. 6): сегодня ещё не напоминали.
+    if (sql.includes('INSERT INTO partner_nudges')) return Promise.resolve({ rows: [{ id: 'n1' }] });
     if (sql.includes('FROM mcp_tool_calls')) return Promise.resolve({ rows: [{ calls: '5', callers: '2' }] });
     if (sql.includes('agent_run_history')) return Promise.resolve({ rows: [{ last_seen: new Date().toISOString() }] });
     return Promise.resolve({ rows: [] });
@@ -53,6 +55,9 @@ function route(rows: unknown[]) {
 }
 
 beforeEach(() => {
+  // День по Камчатке (14:00): ночью напоминание партнёру не уходит.
+  vi.useFakeTimers({ toFake: ['Date'] });
+  vi.setSystemTime(new Date('2026-11-16T02:00:00Z'));
   poolQueryMock.mockReset();
   noticeMock.mockReset();
   noticeMock.mockResolvedValue('max');
@@ -60,6 +65,8 @@ beforeEach(() => {
   delete process.env.TELEGRAM_CHAT_ID;
   vi.spyOn(console, 'error').mockImplementation(() => undefined);
 });
+
+afterEach(() => { vi.useRealTimers(); });
 
 describe('Watchdog: напоминание о брони без ответа', () => {
   it('категория продавца спрашивается у базы и входит в группировку', async () => {
