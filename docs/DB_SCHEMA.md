@@ -1,6 +1,6 @@
 # Схема базы данных Ведара
 
-> Снято 2026-11-16 с настоящего PostgreSQL 18.7 (Debian 18.7-1.pgdg13+2): baseline прода (`lib/database/baseline/schema-baseline.sql`, снимок 2026-08-15) + миграции новее него, накатанные штатным раннером. Последняя миграция в снимке: `1448_chat_inbound_seen.sql`.
+> Снято 2026-11-16 с настоящего PostgreSQL 18.7 (Debian 18.7-1.pgdg13+2): baseline прода (`lib/database/baseline/schema-baseline.sql`, снимок 2026-08-15) + миграции новее него, накатанные штатным раннером. Последняя миграция в снимке: `1449_chat_inbound_recovery.sql`.
 > Файл порождён `scripts/gen-db-schema.ts` (`npm run db:schema-doc`); править руками бессмысленно — следующий прогон перепишет.
 > Что здесь НЕ учтено: дрейф прода после baseline, не отражённый миграциями. Судья дрейфа — `GET /api/cron/schema-drift` на проде (`lib/db/schema-drift.ts`). Значений данных в файле нет — только имена и типы.
 
@@ -8,7 +8,7 @@
 |---|---:|
 | Таблиц | 328 |
 | Представлений (VIEW) | 12 |
-| Колонок | 4277 |
+| Колонок | 4281 |
 | Внешних ключей | 391 |
 | Таблиц без единого FK в обе стороны | 89 |
 
@@ -1089,9 +1089,9 @@ B2B-агенты, продающие туры за комиссию. Не пут
 
 `id uuid!=` `channel text!` `chat_id bigint!` `partner_id uuid!` `purpose text!=` `status text!=` `created_at timestamptz!=` `expires_at timestamptz!` `used_at timestamptz`
 
-**chat_inbound_seen** · 4 кол. · PK source, update_key · индексов 2
+**chat_inbound_seen** · 8 кол. · PK source, update_key · индексов 3
 
-`source text!` `update_key text!` `hits integer!=` `received_at timestamptz!=`
+`source text!` `update_key text!` `hits integer!=` `received_at timestamptz!=` `boot_id text` `processed_at timestamptz` `attempts integer!=` `payload jsonb`
 
 **chat_messages** · 6 кол. · PK id · session_id → chat_sessions.id · индексов 3
 
