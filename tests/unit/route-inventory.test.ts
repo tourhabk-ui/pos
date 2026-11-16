@@ -155,11 +155,5 @@ describe('заморожено «не нашли», а не «открыто»',
     // getBookingForUser — первая редакция переписи считала его неохраняемым.
     const booking = records.find((r) => r.url === '/api/bookings/[id]');
     expect(booking?.protection).toBe('guarded');
-
-    // Приём CloudPayments проверяет HMAC внутри processCloudPaymentsWebhook,
-    // то есть на импорт дальше самого роута.
-    const cp = records.find((r) => r.url === '/api/webhooks/cloudpayments');
-    expect(cp && ['guarded', 'signature']).toBeTruthy();
-    expect(cp?.protection).not.toBe('needs_review');
   });
 });

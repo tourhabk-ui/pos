@@ -66,9 +66,13 @@ const SCRIPT = join(process.cwd(), 'scripts', 'export-census.ts');
  *   ставки в TS обязан звать её, а не писать свой запас. Причина записана и
  *   рядом с функцией.
  *
+ * 16.11 (−1, до 7): удалён lib/transfers/booking.ts вместе с приёмником
+ *   CloudPayments трансферов (#3433 п. 2) — с ним ушла сирота
+ *   createBookingWithLock (пятая выше).
+ *
  * Потолок — не цель: уменьшать можно и нужно.
  */
-const ORPHAN_CEILING = 8;
+const ORPHAN_CEILING = 7;
 
 describe('перепись экспортов: число сирот заморожено', () => {
   it(`сирот не больше ${ORPHAN_CEILING}`, () => {
