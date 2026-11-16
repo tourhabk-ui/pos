@@ -30,9 +30,10 @@
 import { ZONE_NAMES } from '@/lib/planner/constants';
 import { dateOfTripDay } from '@/lib/planner/flow-balance';
 import {
-  lodgingStays, groupSeats, CAR_RENTAL_ANSWER, carRentalPausedAnswer,
-  type ExtrasDay, type LodgingStay,
+  lodgingStays, groupSeats, lodgingOrderFor, CAR_RENTAL_ANSWER, carRentalPausedAnswer, PLAN_LODGING_ORDER_NOTE_RU,
+  type ExtrasDay, type LodgingStay, type LodgingOrder,
 } from '@/lib/planner/trip-extras';
+import type { BudgetTier } from '@/lib/planner/constants';
 import {
   findLodgingForStay, findRequestLodgingForStay, countUnzonedPublicLodging, findCharterOffers, findCarRentalOffers,
   type CheckOutcome, type LodgingOption, type RequestLodgingOption, type CharterOffer, type RentalOfferSummary,
@@ -61,6 +62,8 @@ export interface PlanOffers {
    * вызовы и тесты), а не «нет».
    */
   stays: Array<{ stay: LodgingStay; result: CheckOutcome<LodgingOption>; byRequest?: CheckOutcome<RequestLodgingOption> }>;
+  /** Порядок жилья (#3394 п.1). Нет поля — прежний порядок (`default`). */
+  order?: LodgingOrder;
   /** Объектов витрины без разметки зоны: планер их не предлагает. null — не посчитали. */
   unzonedCount?: number | null;
   /** Стоянок сверх показанных. */
@@ -80,6 +83,8 @@ export interface PlanOffersInput {
   adults: number;
   children: readonly number[];
   surface: DraftSurface;
+  /** Уровень плана: «эконом» — жильё сначала дешевле на группу. Нет — прежний порядок. */
+  budgetTier?: BudgetTier;
 }
 
 /** Ночи до отъезда, у которых нет дня плана (разрыв нумерации, 19.09). */
@@ -100,9 +105,10 @@ export async function loadPlanOffers(input: PlanOffersInput): Promise<PlanOffers
   const { stays, nightsInTours } = lodgingStays(input.days, input.arrivalIso, input.departureIso);
   const shown = stays.slice(0, PLAN_OFFER_STAYS_SHOWN);
   const people = groupSeats(input.adults, input.children);
+  const order = lodgingOrderFor(input.budgetTier);
   const [results, byRequest, unzonedCount, charter, rental] = await Promise.all([
-    Promise.all(shown.map((s) => findLodgingForStay(s, people))),
-    Promise.all(shown.map((s) => findRequestLodgingForStay(s))),
+    Promise.all(shown.map((s) => findLodgingForStay(s, people, order))),
+    Promise.all(shown.map((s) => findRequestLodgingForStay(s, order))),
     stays.length > 0 ? countUnzonedPublicLodging() : Promise.resolve(null),
     findCharterOffers(),
     findCarRentalOffers({ agents: input.surface === 'mcp' }),
@@ -113,6 +119,7 @@ export async function loadPlanOffers(input: PlanOffersInput): Promise<PlanOffers
       result: results[i] ?? { state: 'unavailable' },
       byRequest: byRequest[i] ?? { state: 'unavailable' },
     })),
+    order,
     unzonedCount,
     moreStays: stays.length - shown.length,
     nightsInTours,
@@ -178,6 +185,10 @@ export function formatPlanOffers(
   // ── Жильё ──────────────────────────────────────────────────────────────
   // «Не нужно» — только когда искать было нечего: ночи незаполненных дней
   // жилья требуют, хотя зоны у них нет, и «ночей нет» было бы неправдой.
+  // Правило порядка — словами (§0), когда есть что упорядочивать.
+  if (o.stays.some((s) => s.result.state === 'ok' || s.byRequest?.state === 'ok')) {
+    lines.push(PLAN_LODGING_ORDER_NOTE_RU[o.order ?? 'default']);
+  }
   if (o.stays.length === 0 && o.gapNights === 0) {
     lines.push(o.nightsInTours > 0
       ? 'Жильё: все ночи плана — в турах с проживанием, отдельное жильё не нужно.'

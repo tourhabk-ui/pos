@@ -538,7 +538,16 @@ withPg('переписка по заявке на настоящем PostgreSQL'
          VALUES ($1, 'Дом целиком', 'family', 10, 1, 28000, TRUE) RETURNING id`, [accId],
       );
       expect(ours(await findRequestLodgingForStay(at('2099-08-01', '2099-08-03')))).toEqual([]);
+      // «Эконом» (#3394 п.1): подбор кандидатов по цене выполняется на настоящей
+      // схеме, цена на группу — по правилу брони: две ночи × 28 000.
+      const cheap = await findLodgingForStay(at('2099-08-01', '2099-08-03'), 2, 'cheapest');
+      expect(cheap.state).toBe('ok');
+      expect(cheap.state === 'ok' ? cheap.items.find((i) => i.id === accId)?.stay : null)
+        .toMatchObject({ kind: 'priced', total: 56000, rooms: 1 });
       await pool.query(`DELETE FROM accommodation_rooms WHERE id = $1`, [room.rows[0].id]);
+      // По заявке хозяину при «эконом» — свой запрос, тот же отбор.
+      expect(ours(await findRequestLodgingForStay(at('2099-08-01', '2099-08-03'), 'cheapest')))
+        .toEqual([expect.objectContaining({ id: accId, name: 'Кутха' })]);
       await pool.query(`UPDATE accommodations SET planner_zone = NULL WHERE id = $1`, [accId]);
     });
 

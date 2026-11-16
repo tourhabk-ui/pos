@@ -2,7 +2,7 @@
  * Planner types — shared between PlannerClient and extracted components.
  */
 
-import type { StayPrice } from '@/lib/planner/trip-extras';
+import type { StayPrice, LodgingOrder } from '@/lib/planner/trip-extras';
 import type { PlannerRoute } from '@/lib/planner/bg-routes';
 import type { PriceBreakdown } from '@/lib/planner/estimate';
 import type { TourCalendar } from '@/lib/planner/item-status';
@@ -214,7 +214,11 @@ export interface CharterOfferView {
 export interface TripExtrasData {
   lodging?:
     | { state: 'no_dates' }
-    | { state: 'checked'; stays: LodgingStayView[]; nightsInTours: number; unzonedCount: number | null };
+    | {
+      state: 'checked'; stays: LodgingStayView[]; nightsInTours: number; unzonedCount: number | null;
+      /** Порядок вариантов (#3394 п.1). Нет поля — ответ сервера старше экрана: прежний порядок. */
+      order?: LodgingOrder;
+    };
   transfer?: ExtrasOutcome<CharterOfferView>;
   car?:
     | { state: 'ok'; items: RentalOfferSummaryView[] }

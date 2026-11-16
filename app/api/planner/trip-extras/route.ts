@@ -24,7 +24,7 @@ import { plannerSession } from '@/lib/planner/require-session';
 import { z } from 'zod';
 import { createRateLimiter, getClientIp } from '@/lib/rate-limit';
 import { ZONE_IDS, ZONE_NAMES } from '@/lib/planner/constants';
-import { lodgingStays, groupSeats, CAR_RENTAL_ANSWER, CAR_RENTAL_UNAVAILABLE, carRentalPausedAnswer } from '@/lib/planner/trip-extras';
+import { lodgingStays, groupSeats, lodgingOrderFor, CAR_RENTAL_ANSWER, CAR_RENTAL_UNAVAILABLE, carRentalPausedAnswer } from '@/lib/planner/trip-extras';
 import {
   findLodgingForStay, countUnzonedPublicLodging, findCharterOffers, findCarRentalOffers,
 } from '@/lib/planner/trip-extras-data';
@@ -56,6 +56,8 @@ const TripExtrasSchema = z.object({
   days: z.array(DaySchema).max(60).default([]),
   /** Местный ночует дома в Авачинской зоне — жильё ему там не подбирается. */
   tripOrigin: z.enum(['visitor', 'local']).optional(),
+  /** Уровень плана: при «эконом» жильё — сначала дешевле на группу (#3394 п.1). */
+  budgetTier: z.enum(['economy', 'comfort', 'premium']).optional(),
 });
 
 export async function POST(req: NextRequest) {
@@ -74,7 +76,7 @@ export async function POST(req: NextRequest) {
   if (!parsed.success) {
     return NextResponse.json({ success: false, error: 'Некорректные параметры' }, { status: 400 });
   }
-  const { needs, arrivalDate, departureDate, adults, children, days, tripOrigin } = parsed.data;
+  const { needs, arrivalDate, departureDate, adults, children, days, tripOrigin, budgetTier } = parsed.data;
   // Однодневная поездка (отъезд в день приезда) — законная: анкета и
   // /api/planner/recommend её принимают у местного, а здесь она получала 400,
   // и «Что ещё нужно» всегда говорило «не смогли проверить» (разбор 14.11,
@@ -96,12 +98,14 @@ export async function POST(req: NextRequest) {
       const { stays, nightsInTours } = lodgingStays(days, arrivalDate, departureDate, tripOrigin);
       const shown = stays.slice(0, MAX_STAYS);
       const people = groupSeats(adults, children);
+      const order = lodgingOrderFor(budgetTier);
       const [results, unzonedCount] = await Promise.all([
-        Promise.all(shown.map((s) => findLodgingForStay(s, people))),
+        Promise.all(shown.map((s) => findLodgingForStay(s, people, order))),
         countUnzonedPublicLodging(),
       ]);
       data.lodging = {
         state: 'checked',
+        order,
         stays: shown.map((s, i) => ({ ...s, zoneName: ZONE_NAMES[s.zone], result: results[i] })),
         nightsInTours,
         unzonedCount,
