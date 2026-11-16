@@ -41,7 +41,7 @@ import { KuzmichActions } from '@/components/shared/KuzmichActions';
 import { Footer } from '@/components/layout/Footer';
 import DescriptionWithFishLinks from '@/components/shared/DescriptionWithFishLinks';
 import FishSeasonCalendar from '@/components/tours/FishSeasonCalendar';
-import { detectFishSpecies } from '@/lib/fish-species';
+import { detectFishSpecies, seasonMonthsBetween } from '@/lib/fish-species';
 import { plural } from '@/lib/home/data-freshness';
 import { UNKNOWN_ORIGIN_TEXT } from '@/lib/safety/alert-origin';
 
@@ -841,7 +841,10 @@ export default function TourDetailClient({ tour, reviews = [], askSeatsFirst = f
               <section>
                 <Eyebrow>Рыбалка по сезонам</Eyebrow>
                 <SectionTitle>Когда какая рыба клюёт?</SectionTitle>
-                <FishSeasonCalendar species={fishSpecies} />
+                <FishSeasonCalendar
+                  species={fishSpecies}
+                  tourMonths={seasonMonthsBetween(tour.season_start, tour.season_end)}
+                />
               </section>
             )}
 
