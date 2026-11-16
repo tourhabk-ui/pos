@@ -1,11 +1,11 @@
 {
   "note": "Маркер запуска site-audit.yml — аудит сайта с раннера, ТОЛЬКО ЧТЕНИЕ (GET/HEAD). host — домен без схемы; maxPages — потолок обхода; linkChecks — сколько внутренних ссылок проверить HEAD; lighthouse — гонять ли Lighthouse на главной и двух самых ссылаемых страницах; census — пройти до N адресов sitemap (свой check-run «site-audit-census»); ua — default|googlebot|yandex, заголовок бота только для vedarai.ru. Итог — в сводке и в check-run «site-audit».",
-  "host": "fishingkam.ru",
-  "maxPages": 30,
-  "linkChecks": 60,
+  "host": "vedarai.ru",
+  "maxPages": 60,
+  "linkChecks": 80,
   "lighthouse": true,
   "census": 0,
-  "ua": "default",
-  "run": 18,
-  "reason": "Слово владельца 22.10: «http://fishingkam.ru/ теперь под нашим управлением», сайт передан платформе целиком; первым делом — «разбор и план». Прогон 18 — что на сайте «Камчатской рыбалки» сейчас: вход, robots и sitemap, страницы, битые ссылки, Lighthouse главной. Только чтение."
+  "ua": "googlebot",
+  "run": 19,
+  "reason": "Карт-бланш владельца 16.11 на вопросы аудита интерфейса, п.4 «карта: сначала замер». Прогон 19 — Lighthouse медианой трёх прогонов на главной и двух самых ссылаемых страницах (в прогонах 9–17 среди них была /map) после выката #3438 (главное фото — fetchpriority=high, unpkg снят из CSP). Сверить с прогоном 17 (14.10): CLS /map, LCP, TBT. Только чтение."
 }
