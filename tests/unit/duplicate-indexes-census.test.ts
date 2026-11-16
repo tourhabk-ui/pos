@@ -2,7 +2,7 @@
  * Дубли индексов (#3388 п.4, шаг 1): правило «какой из пары снимать» —
  * вызовом на граничных данных, роут переписи — вызовом с подменённой базой.
  * Сам запрос к каталогу судит настоящий PostgreSQL
- * (tests/integration/duplicate-indexes.pg.test.ts).
+ * (блок дублей индексов в tests/integration/schema-model.pg.test.ts).
  */
 import { describe, it, expect, vi, beforeEach } from 'vitest';
 import { NextRequest } from 'next/server';
