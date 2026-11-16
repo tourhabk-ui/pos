@@ -33,7 +33,7 @@ vi.mock('@/lib/notifications/email-service', () => ({
 
 import { logSwallowedFailure } from '@/lib/observability/swallowed';
 import { notifyBookingConfirmed, notifyBookingCancelled } from '@/lib/notifications/booking-notifications';
-import { notifyTouristBookingCreated } from '@/lib/telegram/booking-notify';
+import { notifyTouristBookingCreated, notifyTouristDocumentExpiring } from '@/lib/telegram/booking-notify';
 import { LeadsClient } from '@/app/hub/admin/leads/_LeadsClient';
 
 let errorSpy: ReturnType<typeof vi.spyOn>;
@@ -111,6 +111,22 @@ describe('сообщения туристу о брони', () => {
     notifyTouristBookingCreated('u-1', { id: 'b-43', tourTitle: 'Вулкан Горелый', date: new Date('2027-07-20T00:00:00Z'), participants: 2, totalAmount: 15000 });
     for (let i = 0; i < 5; i++) await flush();
     expect(logged().join('\n')).toContain('сообщение туристу о новой заявке b-43');
+  });
+
+  it('чтение контактов туриста упало — названо, а не «контактов нет» (ревью #3464)', async () => {
+    poolQuery.mockRejectedValue(Object.assign(new Error('connection terminated'), { code: '57P01' }));
+    await notifyBookingConfirmed('u-1', booking);
+    await flush();
+    expect(logged().join('\n')).toContain('чтение контактов туриста');
+    expect(sendMessage).not.toHaveBeenCalled();
+  });
+
+  it('напоминание о сроке документа не ушло (success: false) — названо (ревью #3464)', async () => {
+    dbQuery.mockResolvedValue({ rows: [{ telegram_id: '777' }] });
+    sendMessage.mockResolvedValue({ success: false, error: 'Forbidden: bot was blocked by the user' });
+    notifyTouristDocumentExpiring('u-1', { documentType: 'passport', expiryDate: '2027-01-10', daysLeft: 20 });
+    for (let i = 0; i < 5; i++) await flush();
+    expect(logged().join('\n')).toContain('напоминание туристу о сроке документа');
   });
 
   it('чтение Telegram туриста упало — названо, а не «не привязан»', async () => {

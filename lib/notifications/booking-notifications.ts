@@ -12,7 +12,7 @@
 import { telegramService } from './telegram';
 import { emailService } from './email-service';
 import { pool } from '@/lib/db-pool';
-import { logUndelivered } from '@/lib/observability/swallowed';
+import { logSwallowedFailure, logUndelivered } from '@/lib/observability/swallowed';
 
 interface TouristContact {
   name: string;
@@ -43,7 +43,10 @@ async function getTouristContact(userId: string): Promise<TouristContact | null>
       email: res.rows[0].email,
       telegramId: res.rows[0].telegram_id,
     };
-  } catch {
+  } catch (err) {
+    // «Не прочитали» — не «у туриста нет контактов»: сообщение не уйдёт, и
+    // причина обязана остаться в логе (ревью #3464).
+    logSwallowedFailure('notify/booking', 'чтение контактов туриста', err);
     return null;
   }
 }

@@ -217,7 +217,7 @@ export function notifyTouristDocumentExpiring(
       const when = doc.daysLeft <= 0
         ? 'срок уже истёк'
         : `осталось дней: ${doc.daysLeft}`;
-      await telegramService.sendMessage({
+      await logUndelivered('notify/booking-telegram', 'напоминание туристу о сроке документа', telegramService.sendMessage({
         chatId,
         text: [
           '<b>Документ скоро станет недействителен</b>',
@@ -226,11 +226,11 @@ export function notifyTouristDocumentExpiring(
           '',
           'Проверьте перед поездкой: без действующего документа не пустят на маршрут и не оформят страховку.',
         ].join('\n'),
-      });
+      }));
     } catch (err) {
       // Молчать нельзя: непришедшее напоминание неотличимо от «напоминать было не о чем».
-      console.error('[booking-notify] напоминание о документе не ушло:',
-        err instanceof Error ? err.message : err);
+      // Текст ошибки — через маску ПД общего помощника (ревью #3464).
+      logSwallowedFailure('notify/booking-telegram', 'напоминание туристу о сроке документа', err);
     }
   })();
 }
