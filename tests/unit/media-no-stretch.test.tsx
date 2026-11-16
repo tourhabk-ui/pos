@@ -79,6 +79,11 @@ describe('герой: резкий кадр не шире колонки, пол
     // На телефоне фона не видно — и снимок не качается; появляется там же, где вписывание.
     expect(backdrop.className.split(/\s+/)).toEqual(expect.arrayContaining(['hidden', 'lg:block', 'blur-2xl']));
     expect(backdrop.getAttribute('loading')).toBe('lazy');
+    // Главный кадр грузится первым (аудит 09.11, п. 5): `priority` в Next 15
+    // даёт preload и eager, но `fetchpriority` ставит только явный проп.
+    // Фон — нет: он не главный и грузится лениво.
+    expect(sharp.getAttribute('fetchpriority')).toBe('high');
+    expect(backdrop.getAttribute('fetchpriority')).toBeNull();
   });
 
   it('страница перевозчика: герой через HeroPhoto, кадрирование 50% 40%; снимок открывается', () => {

@@ -52,6 +52,7 @@ export function HeroPhoto({ src, alt, objectPosition, filter }: {
           alt={alt}
           fill
           priority
+          fetchPriority="high"
           sizes="(min-width: 1152px) 1152px, 100vw"
           className="object-cover lg:object-contain"
           style={{ objectPosition, filter }}

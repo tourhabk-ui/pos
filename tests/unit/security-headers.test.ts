@@ -69,3 +69,14 @@ describe('ALLOWALL / frame-ancestors * — только для виджета', 
     expect(mw).toMatch(/X-Frame-Options', 'DENY'/);
   });
 });
+
+describe('CSP без лишних чужих источников скриптов и стилей', () => {
+  // unpkg.com стоял в script-src и style-src с давних времён, хотя ни один
+  // скрипт и стиль сайта с него не грузится (аудит 09.11, снят 16.11 словом
+  // владельца «карт-бланш»). Лишний источник в script-src — лишняя дверь для
+  // чужого кода. Регулярка здесь только запрещает.
+  it('unpkg.com нет ни в next.config.js, ни в middleware.ts', () => {
+    expect(config).not.toMatch(/https:\/\/unpkg\.com/);
+    expect(mw).not.toMatch(/https:\/\/unpkg\.com/);
+  });
+});

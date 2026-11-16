@@ -166,8 +166,11 @@ function applySecurityHeaders(response: NextResponse, pathname?: string): NextRe
 
   // Content Security Policy (базовый)
   if (process.env.NODE_ENV === 'production') {
-    const scriptSrc = "'self' 'unsafe-inline' https://api-maps.yandex.ru https://*.yandex.ru https://mc.yandex.ru https://unpkg.com";
-    const styleSrc = "'self' 'unsafe-inline' https://*.yandex.ru https://unpkg.com";
+    // unpkg.com снят 16.11 (аудит 09.11, слово владельца «карт-бланш»): ни один
+    // скрипт и ни один стиль сайта с него не грузится, а лишний источник в
+    // script-src — лишняя дверь для чужого кода.
+    const scriptSrc = "'self' 'unsafe-inline' https://api-maps.yandex.ru https://*.yandex.ru https://mc.yandex.ru";
+    const styleSrc = "'self' 'unsafe-inline' https://*.yandex.ru";
     const imgSrc = "'self' data: https: blob:";
     const connectSrc = "'self' https://*.yandex.ru https://*.yandex.net https://mc.yandex.ru https://mc.yandex.md wss://mc.yandex.ru https://tile.openstreetmap.org https://*.tile.openstreetmap.org https://s3.twcstorage.ru https://web.telegram.org https://oauth.telegram.org";
     // Виджет входа и страница бота. Без frame-src iframe падает под default-src 'self'.

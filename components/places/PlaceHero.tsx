@@ -102,12 +102,12 @@ export default function PlaceHero({ placeId, name, locationType, lat, lng, photo
         >
           {gallery.map((src, i) => (
             <div key={i} className="flex-shrink-0 w-full snap-start relative h-full">
-              <Image src={src} alt={`${name} ${i + 1}`} fill className="object-cover" priority={i === 0} sizes="100vw" onError={() => markBroken(src)} />
+              <Image src={src} alt={`${name} ${i + 1}`} fill className="object-cover" priority={i === 0} fetchPriority={i === 0 ? 'high' : undefined} sizes="100vw" onError={() => markBroken(src)} />
             </div>
           ))}
         </div>
       ) : gallery.length === 1 ? (
-        <Image src={gallery[0]} alt={name} fill className="object-cover" priority sizes="100vw" onError={() => markBroken(gallery[0])} />
+        <Image src={gallery[0]} alt={name} fill className="object-cover" priority fetchPriority="high" sizes="100vw" onError={() => markBroken(gallery[0])} />
       ) : (
         <RouteGradientPlaceholder title={name} locationType={locationType} className="w-full h-full" showLabel={false} />
       )}
