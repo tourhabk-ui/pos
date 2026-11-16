@@ -116,7 +116,41 @@ export type ReserveErrorCode =
   | 'MAX_EXCEEDED'   // запрошено больше, чем вмещает тур или дата
   | 'NO_SLOTS'       // мест на дату не осталось
   | 'OUT_OF_SEASON'  // даты нет в календаре, и она вне записанного сезона тура
-  | 'PRICE_UNKNOWN'; // размер группы вне ступеней цены: суммы нет, её называет оператор
+  | 'PRICE_UNKNOWN'  // размер группы вне ступеней цены: суммы нет, её называет оператор
+  | 'DUPLICATE';     // у этого аккаунта уже есть живая бронь на этот тур и эту дату (слово владельца 16.11)
+
+/**
+ * Слова отказа повторной брони. Своего аккаунта человеку и так видно всё, что
+ * здесь сказано: номер брони, имя и телефон в ней не называются — их он
+ * найдёт в «Моих заявках».
+ */
+export const DUPLICATE_BOOKING_TEXT =
+  'У вас уже есть заявка на этот тур на эту дату — она в личном кабинете, в разделе «Мои заявки». '
+  + 'Вторую на тот же день мы не заводим, чтобы оператор не держал места дважды. '
+  + 'Если едет больше людей или нужна другая дата, напишите оператору.';
+
+/**
+ * Живая бронь того же аккаунта на тот же тур и ту же дату.
+ *
+ * Аккаунт ищется там же, где его ищет личный кабинет (lib/tourist/cabinet):
+ * в колонке `user_id` и в `metadata->>'user_id'` — у старых броней заполнено
+ * одно из двух. «Живая» — тем же предикатом, что занятость в `readTourDays`:
+ * отменённая и отклонённая место не держат, снятая (`deleted_at`) — тоже.
+ *
+ * Запрет — по аккаунту, а не по почте или телефону: аноним с чужим контактом
+ * узнал бы из отказа, что у того человека есть бронь. И не уникальным
+ * индексом в базе: ручная бронь оператора и перепродавцы через OCTO законно
+ * пишут один контакт на две группы, а аккаунта у них нет.
+ */
+export const OWN_LIVE_BOOKING_SQL = `
+  SELECT id
+    FROM operator_bookings
+   WHERE operator_tour_id = $1
+     AND booking_date = $2::date
+     AND deleted_at IS NULL
+     AND booking_status NOT IN ('cancelled', 'rejected')
+     AND (user_id = $3::uuid OR metadata->>'user_id' = $4::text)
+   LIMIT 1`;
 
 export class ReserveError extends Error {
   constructor(public readonly code: ReserveErrorCode, message: string) {
@@ -557,6 +591,18 @@ async function reserveBookingInner(input: ReserveInput): Promise<Reserved> {
       throw new ReserveError('NOT_FOUND', 'Тур не найден или больше не доступен.');
     }
     const tour = tourResult.rows[0]!;
+
+    // Повторная бронь того же человека на тот же тур и ту же дату (слово
+    // владельца 16.11 «да»). Под `FOR UPDATE` строки тура: две одновременные
+    // отправки одной формы встают в очередь, и вторая видит первую. Без
+    // аккаунта (гость, агент за клиента, запрос мест) проверять не по чему —
+    // см. OWN_LIVE_BOOKING_SQL.
+    if (input.userId) {
+      const own = await client.query(OWN_LIVE_BOOKING_SQL, [input.tourId, input.date, input.userId, input.userId]);
+      if (own.rows.length > 0) {
+        throw new ReserveError('DUPLICATE', DUPLICATE_BOOKING_TEXT);
+      }
+    }
 
     // Многодневный тур занимает ВСЕ свои дни, а не только день выезда. До
     // 14.09 этот модуль о многодневности не знал вовсе: `end_date` оставался

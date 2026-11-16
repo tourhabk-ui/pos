@@ -692,9 +692,11 @@ withPg('общая вставка и гейт брони на настоящем
 
     it('каждое слово словаря проходит и вставкой, и сменой статуса', async () => {
       const { BOOKING_STATUSES } = await import('@/lib/types/statuses');
-      const id = await insertWithStatus('new');
       for (const status of BOOKING_STATUSES) {
         expect(await sqlstateOf(() => insertWithStatus(status)), `вставка ${status}`).toBeNull();
+        // Смена — со свежей брони «new»: из «cancelled» дороги назад нет
+        // (триггер 1458), и общая бронь на весь цикл застряла бы на отмене.
+        const id = await insertWithStatus('new');
         expect(await sqlstateOf(() => pool.query(
           `UPDATE operator_bookings SET booking_status = $2 WHERE id = $1::bigint`, [id, status],
         )), `смена на ${status}`).toBeNull();
@@ -730,6 +732,93 @@ withPg('общая вставка и гейт брони на настоящем
         [CONSTRAINT],
       );
       expect(r.rows[0]!.n).toBe(1);
+    });
+  });
+
+  describe('правила целостности броней и заявок в базе (#3388 п.3, миграция 1458)', () => {
+    type PgErr = { code?: string; constraint?: string; message?: string };
+    async function fails(run: () => Promise<unknown>): Promise<PgErr | null> {
+      try { await run(); return null; } catch (e) { return e as PgErr; }
+    }
+    async function insert(cols: Record<string, unknown>): Promise<string> {
+      const row = { operator_tour_id: tourId, booking_date: '2099-12-05', participants: 3, booking_status: 'new', ...cols };
+      const keys = Object.keys(row);
+      const r = await pool.query<{ id: string }>(
+        `INSERT INTO operator_bookings (${keys.join(', ')})
+         VALUES (${keys.map((_, i) => `$${i + 1}`).join(', ')}) RETURNING id::text AS id`,
+        Object.values(row),
+      );
+      return r.rows[0]!.id;
+    }
+
+    it('четыре ограничения стоят и проверены, триггер на месте', async () => {
+      const c = await pool.query<{ conname: string; convalidated: boolean }>(
+        `SELECT conname, convalidated FROM pg_constraint
+          WHERE conname IN ('operator_bookings_parts_not_negative', 'operator_bookings_parts_sum',
+                            'operator_bookings_end_not_before_start', 'leads_group_size_positive')
+          ORDER BY conname`,
+      );
+      expect(c.rows).toEqual([
+        { conname: 'leads_group_size_positive', convalidated: true },
+        { conname: 'operator_bookings_end_not_before_start', convalidated: true },
+        { conname: 'operator_bookings_parts_not_negative', convalidated: true },
+        { conname: 'operator_bookings_parts_sum', convalidated: true },
+      ]);
+      const t = await pool.query(`SELECT 1 FROM pg_trigger WHERE tgname = 'trg_operator_bookings_cancelled_is_final'`);
+      expect(t.rowCount).toBe(1);
+    });
+
+    it('взрослые и дети: не меньше нуля и в сумме — число людей; одно число не записано — правило молчит', async () => {
+      expect(await fails(() => insert({ adult_count: -1, child_count: 4 }))).toMatchObject({ code: '23514', constraint: 'operator_bookings_parts_not_negative' });
+      expect(await fails(() => insert({ adult_count: 2, child_count: 2 }))).toMatchObject({ code: '23514', constraint: 'operator_bookings_parts_sum' });
+      expect(await fails(() => insert({ adult_count: 2, child_count: 1 }))).toBeNull();
+      expect(await fails(() => insert({ adult_count: 2 }))).toBeNull();
+    });
+
+    it('дата окончания не раньше начала', async () => {
+      expect(await fails(() => insert({ booking_date: '2099-12-10', end_date: '2099-12-08' })))
+        .toMatchObject({ code: '23514', constraint: 'operator_bookings_end_not_before_start' });
+      expect(await fails(() => insert({ booking_date: '2099-12-10', end_date: '2099-12-10' }))).toBeNull();
+    });
+
+    it('отменённая бронь не возвращается в работу; отмена, заметка и повтор отмены проходят', async () => {
+      const id = await insert({});
+      expect(await fails(() => pool.query(`UPDATE operator_bookings SET booking_status = 'cancelled', cancelled_at = NOW() WHERE id = $1::bigint`, [id]))).toBeNull();
+      for (const status of ['new', 'confirmed', 'completed', 'pending_payment', 'no_show']) {
+        const e = await fails(() => pool.query(`UPDATE operator_bookings SET booking_status = $2 WHERE id = $1::bigint`, [id, status]));
+        expect(e, status).toMatchObject({ code: '23514' });
+        expect(e?.message).toContain('не возвращается в работу');
+      }
+      expect(await fails(() => pool.query(`UPDATE operator_bookings SET booking_status = 'cancelled' WHERE id = $1::bigint`, [id]))).toBeNull();
+      expect(await fails(() => pool.query(`UPDATE operator_bookings SET special_requests = 'заметка' WHERE id = $1::bigint`, [id]))).toBeNull();
+      const left = await pool.query<{ booking_status: string }>(`SELECT booking_status FROM operator_bookings WHERE id = $1::bigint`, [id]);
+      expect(left.rows[0]!.booking_status).toBe('cancelled');
+    });
+
+    it('размер группы в заявке больше нуля, если записан', async () => {
+      expect(await fails(() => pool.query(`INSERT INTO leads (name, phone, status, group_size) VALUES ('Т', '+79140000009', 'new', 0)`)))
+        .toMatchObject({ code: '23514', constraint: 'leads_group_size_positive' });
+      expect(await fails(() => pool.query(`INSERT INTO leads (name, phone, status, group_size) VALUES ('Т', '+79140000009', 'new', NULL)`))).toBeNull();
+    });
+
+    it('перенос с другим числом людей стирает разбивку, с тем же — сохраняет', async () => {
+      // Тур трёхдневный на четверых: даты сцены разнесены, чтобы брони не делили дни.
+      const admin = await pool.query<{ id: string }>(
+        `INSERT INTO users (email, name, password_hash, role)
+         VALUES ('integrity-admin@test.local', 'Админ', 'x', 'admin') RETURNING id::text AS id`,
+      );
+      const { rescheduleBooking } = await import('@/lib/bookings/booking.service');
+      const same = await insert({ booking_date: '2099-10-02', adult_count: 2, child_count: 1 });
+      await rescheduleBooking(same, admin.rows[0]!.id, 'admin', { targetTourId: tourId, targetDate: '2099-10-06' });
+      const more = await insert({ booking_date: '2099-10-20', adult_count: 2, child_count: 1 });
+      await rescheduleBooking(more, admin.rows[0]!.id, 'admin', { targetTourId: tourId, targetDate: '2099-10-24', participants: 4 });
+      const rows = await pool.query<{ id: string; participants: number; adult_count: number | null; child_count: number | null }>(
+        `SELECT id::text AS id, participants, adult_count, child_count FROM operator_bookings WHERE id = ANY($1::bigint[]) ORDER BY id`,
+        [[same, more]],
+      );
+      const byId = new Map(rows.rows.map((r) => [r.id, r]));
+      expect(byId.get(same)).toMatchObject({ participants: 3, adult_count: 2, child_count: 1 });
+      expect(byId.get(more)).toMatchObject({ participants: 4, adult_count: null, child_count: null });
     });
   });
 
@@ -790,6 +879,78 @@ withPg('общая вставка и гейт брони на настоящем
       expect(s.funnel_booking_rejected).toBeGreaterThanOrEqual(1);
       expect(s.funnel_top_reject_reason).toBe('MAX_EXCEEDED');
       expect(s.funnel_top_reject_count).toBeGreaterThanOrEqual(1);
+    });
+  });
+
+  describe('повторная бронь того же аккаунта на тот же тур и день (слово владельца 16.11)', () => {
+    const base = {
+      touristName: 'Анна', touristPhone: '+79140001133', touristEmail: 'dup@example.com',
+      specialRequests: null, createdVia: 'website', pdConsent: null, referralCode: null, participants: 1,
+    };
+    async function account(email: string): Promise<string> {
+      const r = await pool.query<{ id: string }>(
+        `INSERT INTO users (email, name, password_hash, role) VALUES ($1, 'Турист', 'x', 'tourist') RETURNING id::text AS id`,
+        [email],
+      );
+      return r.rows[0]!.id;
+    }
+    async function attempt(run: () => Promise<unknown>): Promise<string> {
+      try { await run(); return 'ok'; } catch (e) { return (e as { code?: string }).code ?? String(e); }
+    }
+
+    it('второй раз — отказ DUPLICATE словами о «Моих заявках»; другой день, другой человек и гость проходят; после отмены — снова можно', async () => {
+      const { reserveBooking, DUPLICATE_BOOKING_TEXT } = await import('@/lib/bookings/reserve');
+      const anna = await account('dup-anna@test.local');
+      const boris = await account('dup-boris@test.local');
+      const tid = Number(tourId);
+
+      const first = await reserveBooking({ ...base, tourId: tid, date: '2098-08-01', userId: anna });
+      let refused: { code?: string; message?: string } | null = null;
+      try { await reserveBooking({ ...base, tourId: tid, date: '2098-08-01', userId: anna, participants: 2 }); }
+      catch (e) { refused = e as { code?: string; message?: string }; }
+      expect(refused).toMatchObject({ code: 'DUPLICATE', message: DUPLICATE_BOOKING_TEXT });
+      expect(refused?.message).toContain('«Мои заявки»');
+
+      // Другой день того же человека, другой человек и гость в тот же день — не повтор.
+      expect(await attempt(() => reserveBooking({ ...base, tourId: tid, date: '2098-08-10', userId: anna }))).toBe('ok');
+      expect(await attempt(() => reserveBooking({ ...base, tourId: tid, date: '2098-08-01', userId: boris }))).toBe('ok');
+      expect(await attempt(() => reserveBooking({ ...base, tourId: tid, date: '2098-08-01', userId: null }))).toBe('ok');
+
+      // Отменённая бронь места не держит — и повтором не считается.
+      await pool.query(`UPDATE operator_bookings SET booking_status = 'cancelled', cancelled_at = NOW() WHERE id = $1`, [first.bookingId]);
+      expect(await attempt(() => reserveBooking({ ...base, tourId: tid, date: '2098-08-01', userId: anna }))).toBe('ok');
+
+      const rows = await pool.query<{ n: number }>(
+        `SELECT COUNT(*)::int AS n FROM operator_bookings
+          WHERE operator_tour_id = $1 AND booking_date = '2098-08-01' AND user_id = $2::uuid AND booking_status <> 'cancelled'`,
+        [tourId, anna],
+      );
+      expect(rows.rows[0]!.n).toBe(1);
+
+      const funnel = await pool.query<{ n: number }>(
+        `SELECT COUNT(*)::int AS n FROM funnel_events WHERE step = 'booking_rejected' AND reason = 'DUPLICATE' AND entity_id = $1`,
+        [tourId],
+      );
+      expect(funnel.rows[0]!.n).toBe(1);
+    });
+
+    it('бронь, привязанная к аккаунту только в metadata (старая), тоже повтор', async () => {
+      const { reserveBooking } = await import('@/lib/bookings/reserve');
+      const vera = await account('dup-vera@test.local');
+      await pool.query(
+        `INSERT INTO operator_bookings (operator_tour_id, booking_date, participants, booking_status, metadata)
+         VALUES ($1, '2098-09-01', 1, 'confirmed', jsonb_build_object('user_id', $2::text))`,
+        [tourId, vera],
+      );
+      expect(await attempt(() => reserveBooking({ ...base, tourId: Number(tourId), date: '2098-09-01', userId: vera }))).toBe('DUPLICATE');
+    });
+
+    it('две одновременные отправки одной формы — одна бронь, вторая видит первую под блокировкой тура', async () => {
+      const { reserveBooking } = await import('@/lib/bookings/reserve');
+      const gleb = await account('dup-gleb@test.local');
+      const both = await Promise.all([1, 2].map(() =>
+        attempt(() => reserveBooking({ ...base, tourId: Number(tourId), date: '2098-10-01', userId: gleb }))));
+      expect(both.sort()).toEqual(['DUPLICATE', 'ok']);
     });
   });
 });
@@ -870,9 +1031,21 @@ withPg('перепись целостности броней на настоящ
     const guards = r.existing_guards.operator_bookings?.map((g) => g.name) ?? [];
     expect(guards).toContain('operator_bookings_booking_status_check');
     expect(guards).toContain('participants_valid');
+    // Правила 1458 перепись видит в самой базе.
+    expect(guards).toEqual(expect.arrayContaining([
+      'operator_bookings_parts_not_negative', 'operator_bookings_parts_sum',
+      'operator_bookings_end_not_before_start', 'trg_operator_bookings_cancelled_is_final',
+    ]));
+    expect(r.existing_guards.leads?.map((g) => g.name)).toContain('leads_group_size_positive');
   });
 
   it('каждое нарушение названо своим числом, а две группы на одну дату — не повтор', async () => {
+    // Перепись считает и старые данные, записанные до правил 1458. Чтобы
+    // положить такие строки, правила снимаются — только в базе этой сцены.
+    await pool.query(`ALTER TABLE operator_bookings
+      DROP CONSTRAINT operator_bookings_parts_sum,
+      DROP CONSTRAINT operator_bookings_end_not_before_start`);
+    await pool.query(`ALTER TABLE leads DROP CONSTRAINT leads_group_size_positive`);
     // Повтор: тот же человек (одна почта в разном регистре), тот же тур и дата, обе действующие.
     await booking({ tourist_email: 'anna@example.org', tourist_phone: '+7 914 000-00-01' });
     await booking({ tourist_email: 'Anna@Example.org ', tourist_phone: '+7 914 000-00-01', booking_status: 'confirmed' });

@@ -51,7 +51,7 @@ vi.mock('@/lib/db-pool', () => ({
 }));
 
 import { createBooking } from '@/lib/kuzmich/core';
-import { NEW_BOOKING_STATUS, BOOKING_ROW_COLUMNS, insertBookingRow, reserveBooking } from '@/lib/bookings/reserve';
+import { NEW_BOOKING_STATUS, BOOKING_ROW_COLUMNS, OWN_LIVE_BOOKING_SQL, insertBookingRow, reserveBooking } from '@/lib/bookings/reserve';
 
 const TOUR = { id: 7, title: 'Вулкан Горелый', base_price: 9000, multi_day_count: null };
 
@@ -117,6 +117,9 @@ function mockDb(opts: { calendar?: Array<{ available_slots: number; is_cancelled
     // Ступени цены по размеру группы (миграция 1173): у тестового тура их нет.
     if (s.includes('FROM tour_price_tiers')) return Promise.resolve({ rows: [] });
     if (s.includes('v_tour_daily_occupancy')) return Promise.resolve({ rows: [] });
+    // Повторная бронь того же аккаунта (слово владельца 16.11): у этих сцен
+    // живой брони того же человека на тот же день нет.
+    if (s === OWN_LIVE_BOOKING_SQL) return Promise.resolve({ rows: [] });
     throw new Error('unexpected SQL: ' + s);
   });
   poolQueryMock.mockImplementation((sql: string) => {

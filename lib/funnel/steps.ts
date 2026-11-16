@@ -78,7 +78,7 @@ export const ALL_FUNNEL_STEPS = [...FUNNEL_STEPS, ...SERVER_FUNNEL_STEPS] as con
 export type AnyFunnelStep = (typeof ALL_FUNNEL_STEPS)[number];
 
 /**
- * Причины отказа в брони — коды, не текст. Семь первых — коды
+ * Причины отказа в брони — коды, не текст. Восемь первых — коды
  * `ReserveError` (lib/bookings/reserve): новый код отказа там не соберётся,
  * пока не назван здесь (reason у booking_rejected типизирован этим словарём).
  * Остальные — отказы двери сайта до общего модуля и сбой сервера.
@@ -91,7 +91,8 @@ export const BOOKING_REJECT_REASONS = [
   'NO_SLOTS',             // мест на дату не осталось
   'OUT_OF_SEASON',        // даты нет в календаре, и она вне сезона тура
   'PRICE_UNKNOWN',        // размер группы вне ступеней цены
-  'DATE_PAST',            // дата в прошлом (проверка формы сайта)
+  'DUPLICATE',            // у аккаунта уже есть живая бронь на этот тур и дату
+  'DATE_PAST',           // дата в прошлом (проверка формы сайта)
   'GUEST_EMAIL_REQUIRED', // гость без e-mail (форма сайта)
   'INVALID_FORM',         // форма не прошла проверку схемы
   'SERVER_ERROR',         // сбой сервера при заведении брони
@@ -107,6 +108,7 @@ export const BOOKING_REJECT_REASON_RU: Record<BookingRejectReason, string> = {
   NO_SLOTS: 'мест на дату нет',
   OUT_OF_SEASON: 'дата вне сезона',
   PRICE_UNKNOWN: 'цена для группы не названа',
+  DUPLICATE: 'повторная бронь того же аккаунта на тот же день',
   DATE_PAST: 'дата в прошлом',
   GUEST_EMAIL_REQUIRED: 'гость без e-mail',
   INVALID_FORM: 'форма не прошла проверку',
