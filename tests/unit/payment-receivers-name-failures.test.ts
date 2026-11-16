@@ -225,7 +225,7 @@ function cloudPaymentsRequest(status: 'Completed' | 'Declined') {
     Currency: 'RUB',
     PaymentAmount: 12000,
     PaymentCurrency: 'RUB',
-    // Не число и не UUID — счёт старого пути через таблицу `payments`.
+    // Не число и не UUID — счёт, которого нет ни в бронях, ни в платежах туров.
     InvoiceId: 'inv-legacy-1',
     AccountId: EMAIL,
     Email: EMAIL,
@@ -247,39 +247,27 @@ function cloudPaymentsRequest(status: 'Completed' | 'Declined') {
   });
 }
 
-/**
- * База приёмника CloudPayments: старый путь `payments` проходит запись, а
- * чтение для письма туристу отказывает своим SQLSTATE.
- */
-function cloudPaymentsDb() {
-  dbMock.mockImplementation((sql: unknown) => {
-    const q = String(sql);
-    if (q.includes('UPDATE payments') && q.includes('RETURNING')) {
-      return Promise.resolve({ rows: [{ booking_id: '5', booking_type: 'tour', user_id: 'u-1' }], rowCount: 1 });
-    }
-    if (q.includes('UPDATE payments')) return Promise.resolve({ rows: [], rowCount: 1 });
-    if (q.includes('t.title as tour_name')) return Promise.reject(pgError('42703', 'column b.start_date does not exist'));
-    if (q.includes('FROM payments p')) return Promise.reject(pgError('42P01', 'relation "payments" does not exist'));
-    return Promise.resolve({ rows: [], rowCount: 0 });
-  });
-}
-
-describe('CloudPayments: отказ письма туристу назван, ответ прежний', () => {
-  it('оплата прошла, письмо не собралось — ответ code 0, отказ с SQLSTATE в логе', async () => {
-    cloudPaymentsDb();
+// До #3433 п. 2 такой счёт шёл в таблицу `payments`, которой на проде нет, и
+// каждый отказ по карте отвечал 500 — сутки повторов. Теперь — «принято», а
+// оплата без брони — тревога человеку; её отказ назван в логе.
+describe('CloudPayments: счёт без брони — «принято», тревога человеку, ПД нет', () => {
+  it('оплата без брони — ответ code 0, тревога не ушла — это в логе, таблицу payments не спрашивает', async () => {
+    dbMock.mockResolvedValue({ rows: [], rowCount: 0 });
     const res = await cloudPaymentsPOST(cloudPaymentsRequest('Completed'));
     expect(res.status).toBe(200);
     expect(await res.json()).toEqual({ code: 0 });
-    expect(namedFailures(CP)).toEqual(['42703']);
+    expect(everythingLogged()).toContain(`[${CP}] оплата не сопоставлена ни с одной бронью`);
+    expect(everythingLogged()).toContain(`[${CP}] тревога владельцу не ушла`);
+    expect(dbMock.mock.calls.some(([q]) => /\bpayments\b/.test(String(q).replace(/tour_payments/g, '')))).toBe(false);
     expectNoPD();
   });
 
-  it('платёж отклонён, письмо не собралось — ответ code 0, отказ с SQLSTATE в логе', async () => {
-    cloudPaymentsDb();
+  it('платёж отклонён по счёту без брони — ответ code 0, в базу ничего, ПД нет', async () => {
+    dbMock.mockResolvedValue({ rows: [], rowCount: 0 });
     const res = await cloudPaymentsPOST(cloudPaymentsRequest('Declined'));
     expect(res.status).toBe(200);
     expect(await res.json()).toEqual({ code: 0 });
-    expect(namedFailures(CP)).toEqual(['42P01']);
+    expect(dbMock).not.toHaveBeenCalled();
     expectNoPD();
   });
 });

@@ -64,12 +64,18 @@ describe('оплата атомарна и защищена от гонки', ()
     expect(untilReturn).toMatch(/UPDATE tour_availability/);
   });
 
-  it('комиссия и уведомление — ПОСЛЕ коммита и не повторяются на дубле', () => {
-    // Комиссия намеренно fail-soft; внутри транзакции её проглоченная ошибка
-    // оставила бы транзакцию в aborted. Дубль (inserted=false) до них не идёт.
-    const guardPos = body.indexOf('if (!inserted) return');
-    const commissionPos = body.indexOf('recordCommissionFromBooking');
-    expect(guardPos).toBeGreaterThan(-1);
-    expect(commissionPos).toBeGreaterThan(guardPos);
+  it('комиссия — в транзакции оплаты, уведомление — после коммита; дубль до них не доходит', () => {
+    // Комиссия — в той же транзакции, на её клиенте (#3433 п. 2): после
+    // коммита её терял упавший процесс. Свой отказ она откатывает до точки
+    // сохранения (lib/payments/commission), транзакция оплаты не «aborted» —
+    // это судит вызовом payment-receivers-always-on.
+    const txEnd = body.indexOf("return { kind: 'paid'");
+    const commissionPos = body.indexOf('recordCommissionFromBooking(bookingId, webhook.InvoiceId, client)');
+    expect(commissionPos).toBeGreaterThan(-1);
+    expect(commissionPos).toBeLessThan(txEnd);
+    const duplicatePos = body.indexOf("{ kind: 'duplicate'");
+    expect(duplicatePos).toBeGreaterThan(-1);
+    expect(duplicatePos).toBeLessThan(commissionPos);
+    expect(body.indexOf('notifyBookingPaid(')).toBeGreaterThan(body.indexOf("if (inserted.kind === 'duplicate') return"));
   });
 });

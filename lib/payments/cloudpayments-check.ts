@@ -19,6 +19,7 @@
  * неверная сумма, 13 — платёж не может быть принят.
  */
 import { canOfferPayment } from '@/lib/bookings/success-view';
+import { parseCloudPaymentsBody } from '@/lib/payments/cloudpayments-body';
 
 export type CloudPaymentsCheckCode = 0 | 10 | 12 | 13;
 
@@ -50,27 +51,13 @@ export function decideCloudPaymentsCheck(
 }
 
 /**
- * Тело уведомления: CloudPayments шлёт его формой (по умолчанию) или JSON
- * (если так настроено в кабинете). Подпись считается по сырому телу, поэтому
- * разбор — после проверки подписи и не меняет байты.
+ * Тело уведомления: форма или JSON — один разбор с Pay (lib/payments/cloudpayments-body).
  */
 export function parseCheckBody(raw: string): { invoiceId: string; amount: number } | null {
-  let invoice: unknown;
-  let amount: unknown;
-  const trimmed = raw.trim();
-  if (trimmed.startsWith('{')) {
-    try {
-      const j = JSON.parse(trimmed) as Record<string, unknown>;
-      invoice = j.InvoiceId;
-      amount = j.Amount;
-    } catch {
-      return null;
-    }
-  } else {
-    const p = new URLSearchParams(trimmed);
-    invoice = p.get('InvoiceId');
-    amount = p.get('Amount');
-  }
+  const fields = parseCloudPaymentsBody(raw);
+  if (!fields) return null;
+  const invoice = fields.InvoiceId;
+  const amount = fields.Amount;
   const invoiceId = typeof invoice === 'number' ? String(invoice) : typeof invoice === 'string' ? invoice.trim() : '';
   const sum = typeof amount === 'number' ? amount : Number(amount);
   if (!invoiceId || !Number.isFinite(sum)) return null;

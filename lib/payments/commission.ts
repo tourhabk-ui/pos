@@ -14,6 +14,7 @@
  * нельзя — это меняло бы суммы (см. `LEGACY_PLATFORM_RATE`).
  */
 
+import type { PoolClient } from 'pg';
 import { query } from '@/lib/database';
 
 /**
@@ -91,17 +92,27 @@ export function effectiveCommissionPercent(raw: unknown): number {
  * Ошибки проглатываются осознанно: платёж уже прошёл, и падение на записи
  * комиссии не должно приводить к повтору всего вебхука.
  *
+ * `client` — транзакция оплаты (#3433 п. 2, слово владельца 16.11). Комиссия
+ * писалась ПОСЛЕ коммита оплаты: упал процесс между ними — комиссии нет, а
+ * повтор уведомления видит «уже оплачено» и до неё не доходит. В транзакции
+ * вставка идёт под точкой сохранения: её отказ откатывается до точки и
+ * называется в логе, а оплата коммитится — как и было, деньги важнее записи.
+ *
  * `commission_current` хранится в ПРОЦЕНТАХ (10), а `operator_commissions.rate`
  * — в ДОЛЯХ (0.10), отсюда деление на 100.
  */
 export async function recordCommissionFromBooking(
   bookingId: string | number | bigint,
   invoiceId: string,
+  client?: Pick<PoolClient, 'query'>,
 ): Promise<void> {
+  if (!invoiceId) return;
+  if (client) await client.query('SAVEPOINT commission_record');
   try {
-    if (!invoiceId) return;
-
-    await query(
+    const run = client
+      ? (sql: string, params: unknown[]) => client.query(sql, params)
+      : (sql: string, params: unknown[]) => query(sql, params);
+    await run(
       `INSERT INTO operator_commissions
          (operator_id, booking_id, invoice_id, amount, rate, status, created_at)
        SELECT
@@ -118,9 +129,13 @@ export async function recordCommissionFromBooking(
        WHERE ob.id = $1
          AND ob.final_price > 0
        ON CONFLICT (invoice_id) DO NOTHING`,
-      [bookingId, invoiceId, PLATFORM_COMMISSION_PERCENT],
+      [typeof bookingId === 'bigint' ? bookingId.toString() : bookingId, invoiceId, PLATFORM_COMMISSION_PERCENT],
     );
+    if (client) await client.query('RELEASE SAVEPOINT commission_record');
   } catch (err) {
+    // В транзакции оплаты — откат до точки: иначе транзакция в состоянии
+    // «aborted», и коммит оплаты не прошёл бы.
+    if (client) await client.query('ROLLBACK TO SAVEPOINT commission_record');
     // Платёжный поток не прерываем — деньги важнее записи о комиссии. Но
     // молчать нельзя (§4.0): именно тишина здесь стоила всех начислений.
     //

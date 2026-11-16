@@ -12,6 +12,8 @@ import { holdTourPayment } from '@/lib/payments/hold-tour-payment';
 import { query, transaction } from '@/lib/database';
 import { canOfferPayment } from '@/lib/bookings/success-view';
 import { reportPaidUnconfirmed } from '@/lib/payments/paid-unconfirmed-alert';
+import { reportPaymentAnomaly } from '@/lib/payments/payment-anomaly-alert';
+import { logSwallowedFailure } from '@/lib/observability/swallowed';
 
 export const dynamic = 'force-dynamic';
 
@@ -28,6 +30,15 @@ export async function POST(request: NextRequest) {
     }
 
     webhookData = validation.data as CloudPaymentsWebhook;
+    // Счёт этого приёмника — номер брони. Чужой вид номера повтором не
+    // исправится: строка в лог, банку — «принято».
+    if (!/^\d+$/.test(String(webhookData.InvoiceId))) {
+      console.error('[operator-payments-webhook] номер счёта — не номер брони, уведомление не записано:', `status=${webhookData.Status}`);
+      if (webhookData.Status === 'Completed') {
+        await reportPaymentAnomaly('operator-payments-webhook', { kind: 'unmatched', provider: 'CloudPayments', paid: webhookData.Amount });
+      }
+      return NextResponse.json({ code: 0 });
+    }
     const bookingId = BigInt(webhookData.InvoiceId);
 
     switch (webhookData.Status) {
@@ -46,21 +57,22 @@ export async function POST(request: NextRequest) {
     // CloudPayments requires code: 0 on success
     return NextResponse.json({ code: 0 });
   } catch (error) {
-    // code: 0 умышленно, а не отказ: CloudPayments повторяет любой не-200
-    // до суток, заваливая логи дублями одного и того же сбоя. Но раньше это
-    // был пустой catch — реальный сбой (amount mismatch, не найдена бронь,
-    // отказ БД под FOR UPDATE) уходил вместе с 200 без единой строки в лог,
-    // и деньги терялись бесследно (аудит кабинета оператора, находка №1).
-    // Здесь код тот же, но причина теперь видна.
+    // Сюда доходит только то, что повтор может исправить: отказ базы,
+    // блокировка, сеть. Отвечаем 500 — CloudPayments повторит, а повтор
+    // идемпотентен (бронь читается под FOR UPDATE). Раньше здесь был
+    // `code: 0` на всё: отказ базы терял оплату — деньги взяты, бронь не
+    // помечена, повтора не будет (#3433 п. 2, как у основного приёмника).
+    // Бронь не найдена и не та сумма — не исключения, а свои исходы с
+    // тревогой человеку (handlePaid).
     const e = error as { code?: string; message?: string };
     console.error(
-      '[operator-payments-webhook] отказ обработки:',
+      '[operator-payments-webhook] отказ обработки, CloudPayments повторит:',
       `invoice=${webhookData?.InvoiceId ?? 'нет'}`,
       `status=${webhookData?.Status ?? 'нет'}`,
       `sqlstate=${e?.code ?? 'нет'}`,
       e?.message ?? String(error),
     );
-    return NextResponse.json({ code: 0 });
+    return NextResponse.json({ code: 13, message: 'Internal error' }, { status: 500 });
   }
 }
 
@@ -78,24 +90,34 @@ async function handlePaid(bookingId: bigint, webhook: CloudPaymentsWebhook) {
   // как правильный исход дубля — no-op, а не сбой.
   const inserted = await transaction(async (client) => {
     const locked = await client.query(
-      `SELECT final_price, payment_status, booking_status
+      `SELECT final_price, payment_status, booking_status, payment_id, paid_at
          FROM operator_bookings
         WHERE id = $1 AND deleted_at IS NULL
         FOR UPDATE`,
       [bookingId],
     );
-    if (locked.rows.length === 0) throw new Error(`Booking ${bookingId} not found`);
-    const booking = locked.rows[0] as { final_price: string; payment_status: string; booking_status: string | null };
+    // Брони нет — повтор не поможет: тревога человеку ниже, банку — «принято».
+    if (locked.rows.length === 0) return { kind: 'unmatched' as const };
+    const booking = locked.rows[0] as {
+      final_price: string; payment_status: string; booking_status: string | null;
+      payment_id: string | null; paid_at: Date | null;
+    };
 
     // Идемпотентность под блокировкой: решение читается уже после того, как
     // строка закреплена за нами, поэтому «уже оплачено» — окончательный факт,
-    // а не гонка.
-    if (booking.payment_status === 'paid') return null;
+    // а не гонка. Повтор той же операции — no-op; другая операция по
+    // оплаченной брони — деньги взяты дважды (#3433 п. 2).
+    if (booking.payment_status === 'paid' || booking.paid_at) {
+      return booking.payment_id === webhook.TransactionId.toString()
+        ? { kind: 'duplicate' as const }
+        : { kind: 'second_payment' as const, expected: parseFloat(booking.final_price) };
+    }
 
-    // Защита от подмены суммы в вебхуке — на закреплённой строке.
+    // Защита от подмены суммы в вебхуке — на закреплённой строке. Раньше —
+    // исключение и `code: 0`: деньги взяты, человек не знал.
     const expectedAmount = parseFloat(booking.final_price);
     if (Math.abs(expectedAmount - webhook.Amount) > 1) {
-      throw new Error(`Amount mismatch: expected ${expectedAmount}, got ${webhook.Amount}`);
+      return { kind: 'amount_mismatch' as const, expected: expectedAmount };
     }
 
     await client.query(
@@ -135,12 +157,28 @@ async function handlePaid(bookingId: bigint, webhook: CloudPaymentsWebhook) {
       [bookingId],
     );
 
-    return { before: booking.booking_status };
+    // Комиссия — в той же транзакции, что оплата (#3433 п. 2): после коммита
+    // её терял упавший процесс, а повтор уведомления видел «уже оплачено».
+    // С неподтверждённой брони не берётся — решает человек.
+    if (canOfferPayment(booking.booking_status)) {
+      await recordCommissionFromBooking(bookingId, webhook.InvoiceId, client);
+    }
+
+    return { kind: 'paid' as const, before: booking.booking_status };
   });
 
-  // Дубль или уже оплачено — дальше идти незачем: комиссия и уведомление уже
-  // были при первой обработке (оба идемпотентны, но лишний Telegram — шум).
-  if (!inserted) return;
+  // Дубль — дальше идти незачем: комиссия и уведомление уже были.
+  if (inserted.kind === 'duplicate') return;
+  if (inserted.kind !== 'paid') {
+    await reportPaymentAnomaly('operator-payments-webhook', {
+      kind: inserted.kind,
+      provider: 'CloudPayments',
+      bookingId: inserted.kind === 'unmatched' ? null : bookingId,
+      expected: inserted.kind === 'unmatched' ? null : inserted.expected,
+      paid: webhook.Amount,
+    });
+    return;
+  }
 
   // Деньги пришли на бронь, которую нельзя было платить (обычно её отклоняет
   // Check до списания, /api/payments/check). Факт оплаты записан выше; бронь
@@ -150,12 +188,9 @@ async function handlePaid(bookingId: bigint, webhook: CloudPaymentsWebhook) {
     return;
   }
 
-  // Комиссия платформы. Раньше этот вебхук её НЕ начислял вовсе: попадёт ли
-  // оплата в учёт комиссий, зависело от того, какой из двух URL прописан в
-  // кабинете CloudPayments (аудит дублей 03.08). Ставка — договорная
-  // (ставка партнёра), та же, по которой строкой выше заполнен
-  // tour_payments. Идемпотентно по invoice_id; сбой учёта не роняет платёж.
-  await recordCommissionFromBooking(bookingId, webhook.InvoiceId);
+  // Комиссия начислена выше, в транзакции оплаты. Раньше этот вебхук её НЕ
+  // начислял вовсе: попадёт ли оплата в учёт комиссий, зависело от того, какой
+  // из двух URL прописан в кабинете CloudPayments (аудит дублей 03.08).
 
   // Уведомление оператора и админа.
   //
@@ -191,28 +226,47 @@ async function handlePaid(bookingId: bigint, webhook: CloudPaymentsWebhook) {
       row.tourist_phone as string | undefined,
       // Имя и телефон туриста уходят в MAX; в Telegram — заглушка без них.
       row.max_chat_id as string | null | undefined,
-    ).catch(() => undefined);
+    ).catch((err: unknown) => logSwallowedFailure('operator-payments-webhook', 'уведомление об оплате', err));
   }
 }
 
+/**
+ * Отказ или отмена платежа (#3433 п. 2). Раньше отменяли БРОНЬ без условия:
+ * турист ошибся картой — подтверждённая бронь оператора отменена; отклонённая
+ * повторная попытка после успешной оплаты отменяла ОПЛАЧЕННУЮ бронь, деньги
+ * оставались HELD. Теперь отказ меняет только отметку платежа и только пока
+ * оплаты нет: статус брони — дело оператора, турист может заплатить снова.
+ * Отмена по уже оплаченной брони — тревога человеку: не вернули ли деньги.
+ */
 async function handleFailed(bookingId: bigint, webhook: CloudPaymentsWebhook) {
-  await query(
-    `UPDATE operator_bookings
-     SET payment_status = 'failed',
-         booking_status = 'cancelled',
-         cancellation_reason = $2,
-         cancelled_at = NOW(),
-         updated_at = NOW()
-     WHERE id = $1 AND deleted_at IS NULL`,
-    [bookingId, webhook.Reason || 'Payment declined']
+  const res = await query<{ paid: boolean }>(
+    `WITH b AS (
+       SELECT id, (paid_at IS NOT NULL OR payment_status = 'paid') AS paid
+         FROM operator_bookings WHERE id = $1 AND deleted_at IS NULL
+     ), upd AS (
+       UPDATE operator_bookings ob SET payment_status = 'failed', updated_at = NOW()
+         FROM b WHERE ob.id = b.id AND NOT b.paid
+     )
+     SELECT paid FROM b`,
+    [bookingId.toString()],
   );
+  if (res.rows[0]?.paid && webhook.Status === 'Cancelled') {
+    await reportPaymentAnomaly('operator-payments-webhook', {
+      kind: 'refused_after_paid', provider: 'CloudPayments', bookingId, paid: webhook.Amount,
+    });
+  }
 }
 
+/**
+ * Платёж в ожидании — только пока оплаты нет: поздний Pending не переписывает
+ * «оплачено» (порядок уведомлений банк не гарантирует).
+ */
 async function handlePending(bookingId: bigint, _webhook: CloudPaymentsWebhook) {
   await query(
     `UPDATE operator_bookings
      SET payment_status = 'pending', updated_at = NOW()
-     WHERE id = $1 AND deleted_at IS NULL`,
-    [bookingId]
+     WHERE id = $1 AND deleted_at IS NULL AND paid_at IS NULL
+       AND payment_status IS DISTINCT FROM 'paid'`,
+    [bookingId.toString()],
   );
 }
