@@ -36,7 +36,7 @@ import { loadRentalCompanies, minRentalPrice } from '@/lib/rental/rental';
 import { RENTAL_SITE_PAUSE, rentalOnSite } from '@/lib/rental/site-pause';
 import { sqlState } from '@/lib/guides/db-failure';
 import {
-  LODGING_OPTIONS_PER_STAY, stayPriceForGroup, type LodgingStay, type StayPrice,
+  LODGING_OPTIONS_PER_STAY, stayPriceForGroup, cheapestFirst, type LodgingStay, type LodgingOrder, type StayPrice,
 } from '@/lib/planner/trip-extras';
 import type { ZoneId } from '@/lib/planner/constants';
 
@@ -103,7 +103,8 @@ function logExtrasFailure(check: string, err: unknown): void {
  * на самую занятую ночь и суммой цен ночей. Экспортируется ради сторожа и
  * проверки на базе.
  */
-export const LODGING_FOR_STAY_SQL = `
+function lodgingForStaySql(orderBy: string): string {
+  return `
   SELECT a.id, a.name, a.type,
          a.price_per_night_from::text AS price_from,
          a.rating::text AS rating,
@@ -128,8 +129,27 @@ export const LODGING_FOR_STAY_SQL = `
    WHERE ${publicAccommodationSql('a')}
      AND a.planner_zone = $1::varchar
      AND jsonb_array_length(fit.rooms) > 0
-   ORDER BY a.is_verified DESC, a.rating DESC NULLS LAST, a.price_per_night_from ASC NULLS LAST, a.name
+   ORDER BY ${orderBy}
    LIMIT $4`;
+}
+
+export const LODGING_FOR_STAY_SQL = lodgingForStaySql(
+  'a.is_verified DESC, a.rating DESC NULLS LAST, a.price_per_night_from ASC NULLS LAST, a.name',
+);
+
+/**
+ * Кандидаты для порядка «дешевле на группу» (`cheapest`, уровень «эконом»):
+ * тот же отбор, но цену на группу считает stayPriceForGroup уже в коде,
+ * поэтому кандидатов берётся с запасом (`LODGING_CHEAPEST_POOL`) по цене
+ * за ночь «от». Упёрлись в запас — это пишется в лог: дальше порядок мог
+ * пропустить более дешёвый на группу объект.
+ */
+export const LODGING_CHEAPEST_CANDIDATES_SQL = lodgingForStaySql(
+  'a.price_per_night_from ASC NULLS LAST, a.is_verified DESC, a.name',
+);
+
+/** Запас кандидатов для порядка `cheapest`; объектов в одной зоне меньше. */
+export const LODGING_CHEAPEST_POOL = 60;
 
 /**
  * Жильё по заявке хозяину на одну стоянку (вопрос владельца 08.11: «тур
@@ -143,7 +163,8 @@ export const LODGING_FOR_STAY_SQL = `
  * делает: даты и цену подтверждает хозяин, и строка так и говорит.
  * $1 — зона, $2 — заезд, $3 — выезд, $4 — сколько вариантов.
  */
-export const REQUEST_LODGING_FOR_STAY_SQL = `
+function requestLodgingForStaySql(orderBy: string): string {
+  return `
   SELECT a.id, a.name, a.type,
          a.price_per_night_from::text AS price_from,
          COALESCE(a.is_verified, false) AS is_verified
@@ -152,8 +173,18 @@ export const REQUEST_LODGING_FOR_STAY_SQL = `
      AND a.planner_zone = $1::varchar
      AND NOT ${hasActiveRoomsSql('a.id')}
      AND NOT EXISTS (${objectBusyNightsSql('a.id', '$2::date', '$3::date')})
-   ORDER BY COALESCE(a.is_verified, false) DESC, a.price_per_night_from ASC NULLS LAST, a.name
+   ORDER BY ${orderBy}
    LIMIT $4`;
+}
+
+export const REQUEST_LODGING_FOR_STAY_SQL = requestLodgingForStaySql(
+  'COALESCE(a.is_verified, false) DESC, a.price_per_night_from ASC NULLS LAST, a.name',
+);
+
+/** Тот же отбор по заявке хозяину для уровня «эконом»: цена за ночь — первым ключом. */
+export const REQUEST_LODGING_CHEAPEST_SQL = requestLodgingForStaySql(
+  'a.price_per_night_from ASC NULLS LAST, COALESCE(a.is_verified, false) DESC, a.name',
+);
 
 /** Объект по заявке хозяину: цены стоянки на группу нет — её называет хозяин. */
 export interface RequestLodgingOption {
@@ -165,10 +196,13 @@ export interface RequestLodgingOption {
   isVerified: boolean;
 }
 
-export async function findRequestLodgingForStay(stay: LodgingStay): Promise<CheckOutcome<RequestLodgingOption>> {
+export async function findRequestLodgingForStay(
+  stay: LodgingStay,
+  order: LodgingOrder = 'default',
+): Promise<CheckOutcome<RequestLodgingOption>> {
   try {
     const { rows } = await pool.query<{ id: string; name: string; type: string; price_from: string | null; is_verified: boolean }>(
-      REQUEST_LODGING_FOR_STAY_SQL,
+      order === 'cheapest' ? REQUEST_LODGING_CHEAPEST_SQL : REQUEST_LODGING_FOR_STAY_SQL,
       [stay.zone satisfies ZoneId, stay.checkIn, stay.checkOut, LODGING_OPTIONS_PER_STAY],
     );
     if (rows.length === 0) return { state: 'empty' };
@@ -204,32 +238,39 @@ interface LodgingRow {
   rooms: Array<{ room_id: string; name: string; max_guests: number; min_free: number; stay_sum: number | string }>;
 }
 
-export async function findLodgingForStay(stay: LodgingStay, people: number): Promise<CheckOutcome<LodgingOption>> {
+export async function findLodgingForStay(
+  stay: LodgingStay,
+  people: number,
+  order: LodgingOrder = 'default',
+): Promise<CheckOutcome<LodgingOption>> {
   try {
-    const { rows } = await pool.query<LodgingRow>(LODGING_FOR_STAY_SQL, [
-      stay.zone satisfies ZoneId, stay.checkIn, stay.checkOut, LODGING_OPTIONS_PER_STAY,
+    const cheapest = order === 'cheapest';
+    const { rows } = await pool.query<LodgingRow>(cheapest ? LODGING_CHEAPEST_CANDIDATES_SQL : LODGING_FOR_STAY_SQL, [
+      stay.zone satisfies ZoneId, stay.checkIn, stay.checkOut, cheapest ? LODGING_CHEAPEST_POOL : LODGING_OPTIONS_PER_STAY,
     ]);
     if (rows.length === 0) return { state: 'empty' };
-    return {
-      state: 'ok',
-      items: rows.map((r) => ({
-        id: r.id,
-        name: r.name,
-        type: r.type,
-        priceFrom: r.price_from === null ? null : Number(r.price_from),
-        // Оценка без отзывов — не оценка (DEFAULT 0 в старых строках).
-        rating: r.rating === null || Number(r.review_count) === 0 ? null : Number(r.rating),
-        reviewCount: Number(r.review_count),
-        isVerified: r.is_verified,
-        stay: stayPriceForGroup(
-          (r.rooms ?? []).map((m) => ({
-            roomId: m.room_id, name: m.name, maxGuests: Number(m.max_guests),
-            minFree: Number(m.min_free), staySum: Number(m.stay_sum),
-          })),
-          people,
-        ),
-      })),
-    };
+    if (cheapest && rows.length >= LODGING_CHEAPEST_POOL) {
+      // Не молча: порядок «дешевле на группу» видел только часть кандидатов.
+      console.warn(`[planner/trip-extras] порядок «дешевле на группу»: кандидатов не меньше запаса ${LODGING_CHEAPEST_POOL} — дальше не смотрели`);
+    }
+    const items: LodgingOption[] = rows.map((r) => ({
+      id: r.id,
+      name: r.name,
+      type: r.type,
+      priceFrom: r.price_from === null ? null : Number(r.price_from),
+      // Оценка без отзывов — не оценка (DEFAULT 0 в старых строках).
+      rating: r.rating === null || Number(r.review_count) === 0 ? null : Number(r.rating),
+      reviewCount: Number(r.review_count),
+      isVerified: r.is_verified,
+      stay: stayPriceForGroup(
+        (r.rooms ?? []).map((m) => ({
+          roomId: m.room_id, name: m.name, maxGuests: Number(m.max_guests),
+          minFree: Number(m.min_free), staySum: Number(m.stay_sum),
+        })),
+        people,
+      ),
+    }));
+    return { state: 'ok', items: cheapest ? cheapestFirst(items).slice(0, LODGING_OPTIONS_PER_STAY) : items };
   } catch (err) {
     logExtrasFailure('подбор жилья на стоянку', err);
     return { state: 'unavailable' };

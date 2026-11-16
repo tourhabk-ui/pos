@@ -1060,6 +1060,7 @@ export async function makeTripPlanForKuzmich(
       arrivalIso: arrival.toISOString().slice(0, 10),
       departureIso: departure.toISOString().slice(0, 10),
       adults: group.adults, children: kids.children, surface: opts.surface ?? 'chat',
+      budgetTier: budget.tier,
     }, SITE)
     : Promise.resolve([]);
 

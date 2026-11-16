@@ -27,6 +27,7 @@ import { stayLink } from '@/lib/stay/stay-link';
 import { carrierPagePath } from '@/lib/transfers/charter-format';
 import { rentalPagePath } from '@/lib/rental/rental-format';
 import { stayKey, type ChoiceSelection } from '@/lib/planner/plan-choices';
+import { LODGING_ORDER_NOTE_RU } from '@/lib/planner/trip-extras';
 import {
   fmtRub, nightsRu, stayRoomsLine, charterOfferPrice, rentalOfferLine,
 } from '@/lib/planner/trip-extras-words';
@@ -242,6 +243,12 @@ export function TripExtrasSection({ load, ...choice }: {
                       {load.data.lodging.nightsInTours > 0
                         ? 'Все ночи плана — в турах с проживанием, отдельное жильё не нужно.'
                         : 'В плане нет ночей — жильё не нужно.'}
+                    </p>
+                  )}
+                  {load.data.lodging.stays.some((s) => s.result.state === 'ok') && (
+                    // Правило порядка — словами на самой странице (§0).
+                    <p className="text-xs text-[var(--text-muted)]" data-testid="lodging-order-note">
+                      {LODGING_ORDER_NOTE_RU[load.data.lodging.order ?? 'default']}
                     </p>
                   )}
                   {load.data.lodging.stays.map((s) => <StayBlock key={stayKey(s)} stay={s} choice={choice} />)}

@@ -50,6 +50,51 @@ export type TripNeeds = Partial<Record<TripNeed, boolean>>;
 /** Сколько вариантов жилья показывать на одну стоянку. */
 export const LODGING_OPTIONS_PER_STAY = 3;
 
+/**
+ * Порядок жилья в подборе к плану (#3394 п.1, карт-бланш владельца 16.11).
+ *
+ *  - `default` — как было: проверенные Ведаром, затем оценка гостей и цена
+ *    за ночь;
+ *  - `cheapest` — уровень «эконом»: сначала дешевле на группу за все ночи.
+ *
+ * Классов жилья в базе нет, поэтому «эконом» значит только порядок по цене:
+ * объект «эконом-жильём» не называется, его цена стоит рядом. Порядок
+ * говорится человеку словами (§0): `LODGING_ORDER_NOTE_RU`.
+ */
+export type LodgingOrder = 'default' | 'cheapest';
+
+export function lodgingOrderFor(tier: 'economy' | 'comfort' | 'premium' | null | undefined): LodgingOrder {
+  return tier === 'economy' ? 'cheapest' : 'default';
+}
+
+/** Порядок списка словами — экран планера (там только номера по календарю). */
+export const LODGING_ORDER_NOTE_RU: Record<LodgingOrder, string> = {
+  default: 'Порядок: сначала проверенные Ведаром, затем по оценке гостей и цене за ночь. Место в списке не продаётся.',
+  cheapest: 'Порядок по уровню «эконом»: сначала дешевле на вашу группу за все ночи; где цену на группу не посчитать — после, по цене за ночь. Место в списке не продаётся.',
+};
+
+/** Порядок словами для ответа Кузьмича и ИИ-агента: там и жильё по заявке хозяину. */
+export const PLAN_LODGING_ORDER_NOTE_RU: Record<LodgingOrder, string> = {
+  default: 'Порядок жилья: сначала номера по календарю — проверенные Ведаром, затем по оценке гостей и цене за ночь; затем жильё по заявке хозяину — проверенные, затем по цене за ночь. Место в списке не продаётся.',
+  cheapest: 'Порядок жилья по уровню «эконом»: сначала номера по календарю — дешевле на группу за все ночи (где цену на группу не посчитать — после, по цене за ночь); затем жильё по заявке хозяину — по цене за ночь. Место в списке не продаётся.',
+};
+
+/**
+ * Дешевле на группу — раньше. Цена на группу считается тем же правилом, что
+ * бронь (stayPriceForGroup); где группа не помещается или цены нет — после,
+ * по цене за ночь «от»; цены нет вовсе — в конце. Ничья — по имени, чтобы
+ * порядок не зависел от того, как база отдала строки.
+ */
+export function cheapestFirst<T extends { name: string; priceFrom: number | null; stay: StayPrice }>(items: readonly T[]): T[] {
+  const groupTotal = (x: T) => (x.stay.kind === 'priced' ? x.stay.total : null);
+  const cmpNullLast = (a: number | null, b: number | null) =>
+    a === b ? 0 : a === null ? 1 : b === null ? -1 : a - b;
+  return [...items].sort((a, b) =>
+    cmpNullLast(groupTotal(a), groupTotal(b))
+    || cmpNullLast(a.priceFrom, b.priceFrom)
+    || a.name.localeCompare(b.name, 'ru'));
+}
+
 /** Минимум, который нужен от дня плана, чтобы посчитать ночи. */
 export interface ExtrasDay {
   day: number;

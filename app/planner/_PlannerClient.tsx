@@ -1485,13 +1485,15 @@ export function PlannerClient({ initialUserId }: { initialUserId?: string | null
       adults: planProfile?.adults ?? adults,
       children: planProfile?.children ?? knownChildAges,
       tripOrigin: planProfile?.tripOrigin ?? tripOrigin,
+      // «Эконом» — жильё сначала дешевле на группу (#3394 п.1); уровень — плана.
+      budgetTier: planProfile?.budgetTier ?? budgetTier,
       // Флаг — про ночь ПОСЛЕ дня: последний день тура её не покрывает (Б32).
       days: days.map((d, i) => ({
         day: d.day, type: d.type, zone: d.zone,
         lodgingIncluded: nightLodgingIncluded(d, days[i + 1]),
       })),
     });
-  }, [recommendation, needsLodging, needsAirportTransfer, needsCar, arrival, departure, adults, knownChildAges, tripOrigin, planProfile, days]);
+  }, [recommendation, needsLodging, needsAirportTransfer, needsCar, arrival, departure, adults, knownChildAges, tripOrigin, budgetTier, planProfile, days]);
   // Ответ привязан к телу запроса: пока ответа на ТЕКУЩЕЕ тело нет — «ищем»,
   // без синхронного setState в эффекте.
   const [extrasResult, setExtrasResult] = useState<{ key: string; load: ExtrasLoad } | null>(null);

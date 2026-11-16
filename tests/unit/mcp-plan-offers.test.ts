@@ -168,6 +168,19 @@ describe('make_trip_plan по MCP: жильё и машина к плану', ()
     expect(x.lodging.mock.calls.map((c) => c[1])).toEqual([5, 5]);
   });
 
+  // #3394 п.1 (карт-бланш 16.11): «эконом» — жильё сначала дешевле на группу.
+  it('уровень «эконом» доходит до подбора жилья и порядок назван; без уровня — прежний порядок', async () => {
+    const { PLAN_LODGING_ORDER_NOTE_RU } = await import('@/lib/planner/trip-extras');
+    const eco = plain(offersBlock(await mcpPlan({ ...PLAN_ARGS, budget_tier: 'эконом' })));
+    expect(x.lodging.mock.calls.map((c) => c[2])).toEqual(['cheapest', 'cheapest']);
+    expect(x.byRequest.mock.calls.map((c) => c[1])).toEqual(['cheapest', 'cheapest']);
+    expect(eco).toContain(plain(PLAN_LODGING_ORDER_NOTE_RU.cheapest));
+    x.lodging.mockClear(); x.byRequest.mockClear();
+    const usual = plain(offersBlock(await mcpPlan(PLAN_ARGS)));
+    expect(x.lodging.mock.calls.map((c) => c[2])).toEqual(['default', 'default']);
+    expect(usual).toContain(plain(PLAN_LODGING_ORDER_NOTE_RU.default));
+  });
+
   it('номер — ссылкой на карточку с датами стоянки, гостями и номером; цена на группу; create_stay_request не предлагается', async () => {
     const block = plain(offersBlock(await mcpPlan(PLAN_ARGS)));
     expect(block).toContain('Жильё — Авачинская зона, 10.07 — 12.07 (2 ночи):');
