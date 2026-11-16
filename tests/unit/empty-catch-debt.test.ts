@@ -102,7 +102,6 @@ const KNOWN_EMPTY_CATCHES: Record<string, number> = {
   'app/api/safety/reports/route.ts': 1,
   'app/api/safety/wishes/route.ts': 1,
   'app/api/telegram/admin/route.ts': 3,
-  'app/api/telegram/kuzmich/route.ts': 6,
   'app/api/telegram/setup-webhook/route.ts': 1,
   'app/api/telegram/webhook/route.ts': 4,
   'app/api/tours/route.ts': 1,

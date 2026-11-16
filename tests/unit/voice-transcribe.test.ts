@@ -47,7 +47,7 @@ describe('распознавание речи: два разных отказа'
   });
 
   it('оба канала говорят человеку разные фразы', () => {
-    for (const file of ['app/api/telegram/kuzmich/route.ts', 'app/api/max/kuzmich/route.ts']) {
+    for (const file of ['app/api/max/kuzmich/route.ts']) {
       const src = read(file);
       expect(src, `${file}: исход отказа не различается`).toMatch(/voiceFailure === 'unintelligible'/);
       expect(src, `${file}: про недоступность распознавания человеку не сказано`)

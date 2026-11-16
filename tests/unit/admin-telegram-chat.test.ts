@@ -78,7 +78,6 @@ vi.mock('@/lib/auth/middleware', () => ({ requireAdmin: (...a: unknown[]) => m.r
 vi.mock('@/lib/agents', () => ({ PlatformAgent: class {} }));
 
 const webhook = await import('@/app/api/telegram/webhook/route');
-const kuzmich = await import('@/app/api/telegram/kuzmich/route');
 const linkRoute = await import('@/app/api/admin/telegram-link/route');
 
 let updateId = 81_000;
@@ -114,13 +113,6 @@ function webhookPress(data: string, from: number, type = 'private') {
         data,
       },
     }),
-  }));
-}
-
-function kuzmichPost(body: unknown) {
-  return kuzmich.POST(new NextRequest('http://localhost/api/telegram/kuzmich', {
-    method: 'POST',
-    body: JSON.stringify(body),
   }));
 }
 
@@ -396,73 +388,6 @@ describe('вебхук: кабинет администратора', () => {
     await webhookPress('rm:ad:bk', ADMIN_TG, 'group');
     expect(queries.some((q) => q.includes('admin_tg_'))).toBe(false);
     expect(sentWebhook().join('\n')).toContain('личном диалоге');
-  });
-});
-
-describe('вторая дверь Кузьмича понимает ту же привязку', () => {
-  it('«Покажи брони» — без телефона, с меню', async () => {
-    queryMode = 'admin';
-    const res = await kuzmichPost({
-      update_id: updateId++,
-      message: {
-        message_id: 1,
-        from: { id: ADMIN_TG, first_name: 'Анна' },
-        chat: { id: ADMIN_TG, type: 'private' },
-        text: 'Покажи брони',
-      },
-    });
-    expect(res.status).toBe(200);
-    const text = sentKuzmich().join('\n');
-    expect(text).toContain('Контакты туристов в этом списке есть только в MAX');
-    expect(text).not.toContain('+70000000001');
-    expect(m.processMessage).not.toHaveBeenCalled();
-    const init = m.fetch.mock.calls.find(([url]) => String(url).includes('/sendMessage'))?.[1] as RequestInit | undefined;
-    const body = JSON.parse(String(init?.body)) as { reply_markup: { inline_keyboard: Array<Array<{ callback_data: string }>> } };
-    expect(body.reply_markup.inline_keyboard[0]?.map((b) => b.callback_data)).toContain('rm:ad:bk');
-  });
-
-  it('фото привязанного — не модель и не заявка', async () => {
-    queryMode = 'admin';
-    await kuzmichPost({
-      update_id: updateId++,
-      message: {
-        message_id: 1,
-        from: { id: ADMIN_TG, first_name: 'Анна' },
-        chat: { id: ADMIN_TG, type: 'private' },
-        photo: [{ file_id: 'ph', width: 10, height: 10 }],
-      },
-    });
-    expect(sentKuzmich().join('\n')).toContain('только текст');
-    expect(m.processMessage).not.toHaveBeenCalled();
-  });
-
-  it('роль не проверена — обычный ответ туриста, не «вы не администратор»', async () => {
-    queryMode = 'throw';
-    await kuzmichPost({
-      update_id: updateId++,
-      message: {
-        message_id: 1,
-        from: { id: ADMIN_TG, first_name: 'Анна' },
-        chat: { id: ADMIN_TG, type: 'private' },
-        text: 'когда сезон на Авачинский',
-      },
-    });
-    expect(m.processMessage).toHaveBeenCalled();
-    expect(sentKuzmich().join('\n')).not.toContain('не администратор');
-  });
-
-  it('группа не спрашивает привязку', async () => {
-    queryMode = 'throw';
-    await kuzmichPost({
-      update_id: updateId++,
-      message: {
-        message_id: 1,
-        from: { id: ADMIN_TG, first_name: 'Анна' },
-        chat: { id: -200, type: 'group', title: 'Группа' },
-        text: 'ок',
-      },
-    });
-    expect(queries.some((q) => q.includes('admin_tg_'))).toBe(false);
   });
 });
 

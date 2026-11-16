@@ -117,7 +117,7 @@ describe('адрес партнёра в мессенджере назначае
     expect(chat).not.toMatch(/registerOperator(Max)?ChatId/);
     expect(chat).not.toMatch(/UPDATE\s+partners/);
     expect(chat).toMatch(/export const PARTNER_EMAIL_BIND_CLOSED/);
-    for (const bot of ['app/api/telegram/kuzmich/route.ts', 'app/api/max/kuzmich/route.ts']) {
+    for (const bot of ['app/api/max/kuzmich/route.ts']) {
       expect(read(bot), bot).toMatch(/PARTNER_EMAIL_BIND_CLOSED/);
       expect(read(bot), bot).not.toMatch(/registerOperator(Max)?ChatId/);
     }

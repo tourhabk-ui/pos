@@ -82,45 +82,27 @@ describe('POST админ-бота: ответ уходит владельцу, 
   // Держится вызовом обработчиков, а не текстом: tests/unit/telegram-webhook-fail-closed.test.ts.
 });
 
-describe('вторая дверь: тот же дефект в Кузьмиче', () => {
-  // Ветка «владелец в личке» открывает PlatformAgent с role:'admin' и
-  // публикацию в канал по тому же условию `fromId === ownerId` из тела.
-  // Починить одну дверь из двух — не починить: сама находка #1158
-  // предупреждала, что дыра просто переезжает на второй роут.
-  const KUZMICH = readFileSync(join(process.cwd(), 'app/api/telegram/kuzmich/route.ts'), 'utf-8');
-
-  it('admin-ветка отвечает владельцу, а не в чат из тела', () => {
-    expect(KUZMICH).toMatch(/handleApproval\(cmd,\s*ownerId\)/);
-    expect(KUZMICH).toMatch(/handleOwnerCommand\(cmd,\s*text,\s*ownerId\)/);
-  });
-
-  it('обычные ветки по-прежнему отвечают в chat.id', () => {
-    // Кузьмич — ПУБЛИЧНЫЙ бот. Заставить его отвечать только владельцу
-    // значило бы сломать его для всех туристов: это была бы не защита,
-    // а отказ сервиса под видом защиты.
-    expect(KUZMICH).toMatch(/const chatId\s*=\s*msg\.chat\.id/);
-  });
-
-  it('секрет проверяется, и он свой, не общий с админ-ботом', () => {
-    // Один секрет на двух ботов означает, что компрометация одного
-    // открывает второго.
-    expect(KUZMICH).toMatch(/TELEGRAM_KUZMICH_WEBHOOK_SECRET/);
-    expect(KUZMICH).not.toMatch(/TELEGRAM_ADMIN_WEBHOOK_SECRET/);
-  });
-});
-
 describe('правило сверки секрета — одно на все webhook-и', () => {
   it('ни один роут не сверяет секрет своим кодом', () => {
     // В webhook/route.ts стояла своя копия с обычным `!==` — то же правило
     // в третьем месте и без защиты от тайминга. Копии правил в этом
     // репозитории расходятся: за один сегодняшний день это случилось со
     // списком глаголов, со стилем линии и с типом ключа.
-    for (const p of ['admin', 'kuzmich', 'webhook']) {
+    for (const p of ['admin', 'webhook']) {
       const s = readFileSync(join(process.cwd(), `app/api/telegram/${p}/route.ts`), 'utf-8');
       expect(s, `${p}: сверка секрета мимо общей функции`)
         .not.toMatch(/secret\s*!==\s*expectedSecret/);
       expect(s, `${p}: не зовёт verifyWebhookSecret`).toMatch(/verifyWebhookSecret\(/);
     }
+  });
+});
+
+describe('второй вход бота удалён (#3433, слово владельца 16.11 «Удалить, если не подключён»)', () => {
+  it('роута /api/telegram/kuzmich больше нет: у бота один вход, /api/telegram/webhook', () => {
+    // Вебхуком он не был подключён (сторож вебхука держит канонический адрес,
+    // lib/telegram/operator-availability), а правки в нём живого бота не
+    // меняли — его тесты зеленели, бот оставался прежним (#2752, #2756).
+    expect(existsSync(join(process.cwd(), 'app/api/telegram/kuzmich/route.ts'))).toBe(false);
   });
 });
 

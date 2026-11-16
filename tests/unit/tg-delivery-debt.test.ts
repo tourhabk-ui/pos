@@ -52,8 +52,6 @@ const ALLOWED_DIRECT: Readonly<Record<string, string>> = {
     'развилка ПД MAX/Telegram: заглушка с кнопками, которых у tgSend нет; читает res.ok и возвращает delivered',
   'app/api/telegram/admin/route.ts':
     'вебхук админ-бота: ответ человеку в чате, который он сам открыл, — не тревога, недоставку он видит сам',
-  'app/api/telegram/kuzmich/route.ts':
-    'вебхук Кузьмича: ответ человеку в чате, который он сам открыл, — не тревога, недоставку он видит сам',
   'app/api/admin/telegram/test/route.ts':
     'служебная диагностика самого канала: ответ Telegram отдаётся администратору как есть',
 };

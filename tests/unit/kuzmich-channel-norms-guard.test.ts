@@ -8,7 +8,7 @@ import { messengerNormIssues, proseWords, questionCount } from '@/lib/kuzmich/ch
 import { CANCEL_IDLE_REPLY, STALE_CONFIRM_REPLY, statusReplyText } from '@/lib/kuzmich/code-first';
 import { KUZMICH_SYSTEM, BOOKING_CONSENT_LINE } from '@/lib/kuzmich/core';
 
-const FILES = ['lib/kuzmich/core.ts', 'app/api/max/kuzmich/route.ts', 'app/api/telegram/kuzmich/route.ts', 'lib/kuzmich/code-first.ts'];
+const FILES = ['lib/kuzmich/core.ts', 'app/api/max/kuzmich/route.ts', 'lib/kuzmich/code-first.ts'];
 
 function replyLiterals(src: string): string[] {
   const out: string[] = [];
