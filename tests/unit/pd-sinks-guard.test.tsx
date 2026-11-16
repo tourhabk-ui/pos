@@ -17,9 +17,10 @@ import React from 'react';
 import { join } from 'node:path';
 import { describe, it, expect, vi, beforeEach } from 'vitest';
 import { render, screen, fireEvent, waitFor } from '@testing-library/react';
+import { existsSync } from 'node:fs';
 import { scanSinks, deviceWrites, pdKindOf } from '@/lib/agents/compliance/pd-sinks';
 import {
-  DEVICE_STORAGE, ALLOWED_FINDINGS, sinkCensus, sinkCensusOfRepo, findingKey,
+  DEVICE_STORAGE, ALLOWED_FINDINGS, THIRD_PARTY, sinkCensus, sinkCensusOfRepo, findingKey,
 } from '@/lib/agents/compliance/pd-sinks-registry';
 import { AuthProvider, useAuth } from '@/contexts/AuthContext';
 import { resetSessionState } from '@/lib/auth/session-state';
@@ -141,6 +142,88 @@ describe('прежние случаи ловятся', () => {
       [{ file: 'lib/gone.ts', sink: 'console.log', expr: 'x.phone', reason: 'файла больше нет' }]);
     expect(c.staleDevice.map((e) => e.file)).toEqual(['app/gone.tsx']);
     expect(c.staleAllowed.map(findingKey)).toEqual(['lib/gone.ts|console.log|x.phone']);
+  });
+});
+
+describe('ревью безопасности 16.11: обходы сторожа закрыты', () => {
+  const exprs = (file: string, src: string) => scanSinks(file, src).map((f) => `${f.sink}|${f.expr}`);
+
+  it('запись через подставленное хранилище, алиас и ?. — видна переписи', () => {
+    const src = [
+      'export function writeLastFix(storage: Pick<Storage, "setItem">, fix: LastFix) { storage.setItem(KEY, s(fix)); }',
+      "globalThis.localStorage?.setItem(SUBMIT_KEY, fresh);",
+      "storeFor(plaque).setItem(`${base}.${plaque}`, '1');",
+      'input.storage.setItem(KEY, JSON.stringify(x));',
+    ].join('\n');
+    expect(deviceWrites(src).map((w) => `${w.line}:${w.api}`)).toEqual(['1:Storage', '2:localStorage', '3:Storage', '4:Storage']);
+    const c = sinkCensus([], [{ rel: 'lib/offline/new-fix.ts', src }], [], []);
+    expect(c.unregistered.map((u) => u.file)).toEqual(['lib/offline/new-fix.ts']);
+  });
+
+  it('ПД через подставленное хранилище в файле рода none — нарушение', () => {
+    const src = "const s = window.localStorage; s.setItem('p', JSON.stringify({ phone: lead.phone }));";
+    const c = sinkCensus([{ rel: 'lib/x.ts', src }], [{ rel: 'lib/x.ts', src }], [{ file: 'lib/x.ts', personal: 'none', holds: 'будто бы ничего' }], []);
+    expect(c.violations.map((f) => `${f.sink}|${f.expr}`)).toEqual(['Storage.setItem|lead.phone']);
+  });
+
+  it('Telegram через telegramService и через свой метод клиента, текст собран в переменной', () => {
+    expect(exprs('app/x.ts', 'await telegramService.sendMessage({ chatId, text: booking.passengerPhone });'))
+      .toEqual(['telegramService.sendMessage|booking.passengerPhone']);
+    const client = [
+      "class C { private get baseUrl() { return `${process.env.TELEGRAM_API_BASE||'https://api.telegram.org'}/bot${t}`; }",
+      '  async notify(chatId: string, booking: B) {',
+      '    const text = `Имя: ${booking.passengerName}`;',
+      '    return this.sendMessage({ chatId, text });',
+      '  }',
+      '  async sendMessage(m: M) { return fetch(`${this.baseUrl}/sendMessage`, { body: JSON.stringify({ chat_id: m.chatId, text: m.text }) }); }',
+      '}',
+    ].join('\n');
+    expect(exprs('lib/notifications/x.ts', client)).toEqual(['this.sendMessage|text ← booking.passengerName']);
+    // Без хоста Telegram в файле `this.sendMessage` — чужой сервис (чат платформы).
+    expect(exprs('lib/chat/x.ts', 'const text = lead.phone; this.sendMessage({ text });')).toEqual([]);
+  });
+
+  it('переменная: один шаг до объявления, и только объявления до стока', () => {
+    expect(exprs('lib/x.ts', 'const msg = `Лид ${lead.name}`;\nconsole.log(msg);')).toEqual(['console.log|msg ← lead.name']);
+    expect(exprs('lib/x.ts', 'console.log(msg);\nconst msg = `Лид ${lead.name}`;')).toEqual([]);
+    expect(exprs('lib/x.ts', 'const ok = !!lead.phone;\nconsole.log(ok);')).toEqual([]);
+  });
+
+  it('метод после поля ПД и доступ по индексу — значение, а не вызов', () => {
+    const src = [
+      'console.log(lead.phone.trim());',
+      'console.log(touristPhone.trim());',
+      'console.log(lead.name.toUpperCase());',
+      "console.log(lead['phone']);",
+      "logger.info(lead?.['email']);",
+    ].join('\n');
+    expect(exprs('lib/x.ts', src)).toEqual([
+      'console.log|lead.phone', 'console.log|touristPhone', 'console.log|lead.name', 'console.log|lead.phone', 'logger.info|lead?.email',
+    ]);
+    const quiet = [
+      "console.log(lead.phone.includes('+7'), getPhone(lead), utils.formatPhone(x), lead.getPhone());",
+      "const keys = ['phone']; console.log(keys);",
+    ].join('\n');
+    expect(exprs('lib/x.ts', quiet)).toEqual([]);
+  });
+
+  it('public: браузерный код без сборки в переписи, чужие библиотеки — нет', () => {
+    const c = sinkCensus([], [{ rel: 'public/widget/new.js', src: "caches.open('x');" }], [], []);
+    expect(c.unregistered.map((u) => u.file)).toEqual(['public/widget/new.js']);
+    expect(DEVICE_STORAGE.some((e) => e.file === 'public/sw.js')).toBe(true);
+    for (const t of THIRD_PARTY) expect(existsSync(join(REPO, t)), t).toBe(true);
+  });
+
+  it('незакрытые утечки названы, и запись о каждой говорит, что течёт', () => {
+    const leaks = ALLOWED_FINDINGS.filter((a) => a.leak).map(findingKey);
+    expect(leaks).toEqual([
+      'lib/notifications/telegram.ts|this.sendMessage|text ← booking.passengerName',
+      'lib/notifications/telegram.ts|this.sendMessage|text ← booking.passengerPhone',
+      'lib/notifications/telegram.ts|this.sendMessage|replyMarkup ← booking.passengerPhone',
+      'app/api/auth/register-operator/route.ts|fetch api.telegram.org|text ← contactName',
+      'app/api/auth/register-operator/route.ts|fetch api.telegram.org|text ← phone',
+      'app/api/auth/register-operator/route.ts|fetch api.telegram.org|text ← email',
+    ]);
   });
 });
 

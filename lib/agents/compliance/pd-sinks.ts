@@ -101,6 +101,16 @@ export function pdKindOf(id: string): 'contact' | 'name' | null {
 
 const IDENT = /[A-Za-z_$][\w$]*/y;
 
+/**
+ * `lead['phone']` и `lead?.['phone']` → `lead.phone`: маска затирает строку в
+ * скобках, и без приведения поле ПД не видно (D1 разбирает ту же форму).
+ * Только доступ к члену — после имени, `)` или `]`; литерал массива
+ * `= ['phone']` не трогается. Переводы строк не меняются: номера строк те же.
+ */
+export function normalizeBrackets(src: string): string {
+  return src.replace(/(?<=[\w$)\]])\s*(\?\.)?\[\s*(['"])([A-Za-z_$][\w$]*)\2\s*\]/g, (_m, opt: string | undefined, _q: string, name: string) => `${opt ? '?.' : '.'}${name}`);
+}
+
 /** Конец скобки, открытой на `open` (по маске кода: строки затёрты). */
 export function closeOf(code: string, open: number): number {
   let depth = 0;
@@ -176,10 +186,27 @@ function chainEnd(code: string, at: number): number {
  * (`touristPhone`) или имя владельца (`lead.name`). Чистки, проверки наличия
  * и ключи объектов пропускаются. Позиции — в `code`.
  */
+/**
+ * Методы, которые возвращают «есть/где/сколько», а не значение:
+ * `phone.includes('+7')` в логе — не номер.
+ */
+const NON_VALUE_METHODS: ReadonlySet<string> = new Set([
+  'includes', 'startsWith', 'endsWith', 'indexOf', 'lastIndexOf', 'search', 'localeCompare', 'hasOwnProperty', 'test',
+]);
+
+export type PdRef = { at: number; expr: string; pd: 'contact' | 'name' };
+
+/**
+ * ПД в отрезке кода [from, to). `resolve` — один шаг по локальной переменной:
+ * голое имя без ПД в названии (`text`) разбирается по своему объявлению
+ * (`const text = \`…${booking.passengerPhone}\``). Дальше одного шага сторож
+ * не идёт: глубокий поток — работа D1 для своего стока.
+ */
 export function pdRefsIn(
   code: string, from: number, to: number, skip?: RegExp,
-): Array<{ at: number; expr: string; pd: 'contact' | 'name' }> {
-  const out: Array<{ at: number; expr: string; pd: 'contact' | 'name' }> = [];
+  resolve?: (name: string, at: number) => PdRef[],
+): PdRef[] {
+  const out: PdRef[] = [];
   const clean = sanitizedRanges(code, from, to);
   const inside = (at: number) => clean.some(([a, b]) => at > a && at < b);
   const seen = new Set<number>();
@@ -192,13 +219,19 @@ export function pdRefsIn(
     if (prev === '.' && code[backWs(code, head) - 2] !== '.') continue;
     if (inside(head)) continue;
     const end = Math.min(chainEnd(code, head), to);
-    const chain = code.slice(head, end).replace(/\s+/g, '');
+    let chain = code.slice(head, end).replace(/\s+/g, '');
     re.lastIndex = end;
-    // Вызов (`getPhone(…)`) — это функция, а не значение: её результат не виден.
-    if (code[skipWs(code, end)] === '(') continue;
-    if (objectKey(code, head, end)) continue;
-    if (presenceOnly(code, head, end)) continue;
-    const parts = chain.split(/\?\.|\./);
+    let parts = chain.split(/\?\.|\./);
+    if (code[skipWs(code, end)] === '(') {
+      // Вызов (`getPhone(…)`) — это функция, а не значение: её результат не
+      // виден. Но метод ПОСЛЕ поля (`lead.phone.trim()`) отдаёт само значение.
+      if (parts.length < 2 || NON_VALUE_METHODS.has(parts[parts.length - 1])) continue;
+      parts = parts.slice(0, -1);
+      chain = parts.join('.');
+    } else {
+      if (objectKey(code, head, end)) continue;
+      if (presenceOnly(code, head, end)) continue;
+    }
     if (skip && skip.test(snakeId(parts[parts.length - 1]))) continue;
     // `phone.length` — сколько, а не что.
     if (parts.length > 1 && parts[parts.length - 1] === 'length') continue;
@@ -209,7 +242,26 @@ export function pdRefsIn(
       const last = parts.slice(-2).join('.');
       if (new RegExp(`^(?:${PERSONAL_OWNER_NAME.source.replace(/^\\b|\\b$/g, '')})$`, 'i').test(last)) pd = 'name';
     }
-    if (pd && !seen.has(head)) { seen.add(head); out.push({ at: head, expr: chain, pd }); }
+    if (pd && !seen.has(head)) { seen.add(head); out.push({ at: head, expr: chain, pd }); continue; }
+    if (!pd && resolve && parts.length === 1 && !seen.has(head)) {
+      for (const r of resolve(parts[0], head)) { seen.add(head); out.push(r); }
+    }
+  }
+  return out;
+}
+
+/**
+ * Объявления локальных переменных файла: имя → отрезки инициализаторов.
+ * Деструктуризация не нужна: её имена сами названы полями (`{ phone }`).
+ */
+function localInits(code: string): Map<string, Array<{ at: number; from: number; to: number }>> {
+  const out = new Map<string, Array<{ at: number; from: number; to: number }>>();
+  const re = /(?<![\w$.])(?:const|let|var)\s+([A-Za-z_$][\w$]*)\s*(?::[^=;]+)?=(?![=>])/g;
+  for (let m = re.exec(code); m; m = re.exec(code)) {
+    const from = m.index + m[0].length;
+    const list = out.get(m[1]) ?? [];
+    list.push({ at: m.index, from, to: valueEnd(code, from) });
+    out.set(m[1], list);
   }
   return out;
 }
@@ -224,11 +276,25 @@ const TG_RECIPIENT = /^(?:[a-z0-9$]+_)*(?:telegram_id|telegram_chat_id|chat_id|t
 interface SinkSpan { kind: SinkKind; sink: string; from: number; to: number }
 
 const LOG_CALL = /(?<![\w$.])(?:(console)\s*\.\s*(log|info|warn|error|debug|trace)|(logger)\s*\.\s*([a-z]+)|(process)\s*\.\s*(stdout|stderr)\s*\.\s*write|(log[A-Z][\w$]*(?:Failure|Error)|logSwallowedFailure))\s*\(/g;
-const STORAGE_CALL = /(?<![\w$])(?:window\s*\.\s*)?(localStorage|sessionStorage)\s*\.\s*setItem\s*\(/g;
-const STORAGE_ASSIGN = /(?<![\w$])(?:window\s*\.\s*)?(localStorage|sessionStorage)\s*(?:\[[^\]\n]*\]|\.\s*(?!setItem|getItem|removeItem|clear|key|length)[A-Za-z_$][\w$]*)\s*=(?!=)/g;
+/**
+ * Запись в Web Storage — любой `.setItem(`: через `localStorage`, через
+ * `globalThis.localStorage?.`, через переданный объект (`storage.setItem`,
+ * `storeFor(x).setItem`). Метод с этим именем в коде платформы есть только у
+ * Storage; подставленное хранилище — тот же localStorage (`last-fix.ts`).
+ */
+const STORAGE_CALL = /\??\.\s*setItem\s*\(/g;
+const STORAGE_NAMED = /(localStorage|sessionStorage)\s*\??$/;
+const STORAGE_ASSIGN = /(?<![\w$])(?:(?:window|globalThis|self)\s*\??\.\s*)?(localStorage|sessionStorage)\s*(?:\[[^\]\n]*\]|\??\.\s*(?!setItem|getItem|removeItem|clear|key|length)[A-Za-z_$][\w$]*)\s*=(?!=)/g;
+/** Хранилище, которым пишет `.setItem(` на позиции `at`: имя или «Storage». */
+const storageApi = (code: string, at: number): 'localStorage' | 'sessionStorage' | 'Storage' =>
+  (STORAGE_NAMED.exec(code.slice(Math.max(0, at - 20), at).trimEnd())?.[1] as 'localStorage' | 'sessionStorage' | undefined) ?? 'Storage';
 const COOKIE_ASSIGN = /(?<![\w$])document\s*\.\s*cookie\s*=(?!=)/g;
 const IDB_WRITE = /\.\s*(put|add)\s*\(/g;
-const TG_CALL = /(?<![\w$.])(tgSend|sendTelegramMessage|sendTelegram|telegramSend)\s*\(/g;
+const TG_CALL = /(?<![\w$.])(tgSend|sendTelegramMessage|sendTelegram|telegramSend|telegramService\s*\.\s*(?:sendMessage|editMessageText|sendPhoto|sendDocument))\s*\(/g;
+/** Внутри клиента Telegram (файл знает его хост) — свой метод отправки. */
+const TG_SELF_CALL = /(?<![\w$.])this\s*\.\s*(sendMessage|editMessageText|sendPhoto|sendDocument)\s*\(/g;
+/** Файл ходит на api.telegram.org — хост в литерале, геттере или переменной. */
+const talksToTelegram = (src: string): boolean => /api\.telegram\.org|TELEGRAM_API_BASE/.test(src);
 const PD_ALERT_CALL = /(?<![\w$.])sendPdAlert\s*\(/g;
 
 /** Конец значения присваивания или свойства: до `;`, `,` или закрывающей скобки нулевой вложенности. */
@@ -259,8 +325,9 @@ function sinkSpans(src: string, code: string): SinkSpan[] {
     }
   };
   call(LOG_CALL, 'log', (m) => m[1] ? `console.${m[2]}` : m[3] ? `logger.${m[4]}` : m[5] ? `process.${m[6]}.write` : m[7]);
-  call(STORAGE_CALL, 'storage', (m) => `${m[1]}.setItem`);
-  call(TG_CALL, 'telegram', (m) => m[1]);
+  call(STORAGE_CALL, 'storage', (m) => `${storageApi(code, m.index)}.setItem`);
+  call(TG_CALL, 'telegram', (m) => m[1].replace(/\s+/g, ''));
+  if (talksToTelegram(src)) call(TG_SELF_CALL, 'telegram', (m) => `this.${m[1]}`);
   for (const re of [STORAGE_ASSIGN, COOKIE_ASSIGN]) {
     re.lastIndex = 0;
     for (let m = re.exec(code); m; m = re.exec(code)) {
@@ -281,12 +348,14 @@ function sinkSpans(src: string, code: string): SinkSpan[] {
       out.push({ kind: 'telegram', sink: 'sendPdAlert stub', from, to: valueEnd(code, from) });
     }
   }
-  // Прямой запрос к api.telegram.org: аргументы fetch — текст для Telegram.
-  const fetchRe = /(?<![\w$.])fetch\s*\(/g;
-  for (let m = fetchRe.exec(code); m; m = fetchRe.exec(code)) {
-    const open = m.index + m[0].length - 1;
-    const close = closeOf(code, open);
-    if (/api\.telegram\.org/.test(src.slice(open, close))) out.push({ kind: 'telegram', sink: 'fetch api.telegram.org', from: open + 1, to: close });
+  // Запрос к api.telegram.org: в файле, который знает этот хост (литералом,
+  // геттером `baseUrl` или переменной), аргументы fetch — текст для Telegram.
+  if (talksToTelegram(src)) {
+    const fetchRe = /(?<![\w$.])fetch\s*\(/g;
+    for (let m = fetchRe.exec(code); m; m = fetchRe.exec(code)) {
+      const open = m.index + m[0].length - 1;
+      out.push({ kind: 'telegram', sink: 'fetch api.telegram.org', from: open + 1, to: closeOf(code, open) });
+    }
   }
   return out;
 }
@@ -321,15 +390,24 @@ function urlFindings(file: string, src: string, code: string, lineOf: (at: numbe
 }
 
 /** Находки одного исходника. Чистая функция. */
-export function scanSinks(file: string, src: string): SinkFinding[] {
+export function scanSinks(file: string, raw: string): SinkFinding[] {
+  const src = normalizeBrackets(raw);
   const code = maskCode(src);
+  const inits = localInits(code);
+  /** Один шаг по переменной: последнее объявление до стока, без вложенного шага. */
+  const resolveFor = (skip?: RegExp) => (name: string, at: number): PdRef[] => {
+    const decl = (inits.get(name) ?? []).filter((d) => d.at < at).pop();
+    if (!decl || (at >= decl.from && at <= decl.to)) return [];
+    return pdRefsIn(code, decl.from, decl.to, skip).map((r) => ({ ...r, expr: `${name} ← ${r.expr}` }));
+  };
   const lineStarts: number[] = [0];
   for (let i = 0; i < src.length; i++) if (src[i] === '\n') lineStarts.push(i + 1);
   const lineOf = (at: number) => { let lo = 0, hi = lineStarts.length - 1; while (lo < hi) { const mid = (lo + hi + 1) >> 1; if (lineStarts[mid] <= at) lo = mid; else hi = mid - 1; } return lo + 1; };
   const out: SinkFinding[] = [];
   const seen = new Set<string>();
   for (const s of sinkSpans(src, code)) {
-    for (const r of pdRefsIn(code, s.from, s.to, s.kind === 'telegram' ? TG_RECIPIENT : undefined)) {
+    const skip = s.kind === 'telegram' ? TG_RECIPIENT : undefined;
+    for (const r of pdRefsIn(code, s.from, s.to, skip, resolveFor(skip))) {
       const id = `${s.kind}:${r.at}`;
       if (seen.has(id)) continue;
       seen.add(id);
@@ -341,20 +419,24 @@ export function scanSinks(file: string, src: string): SinkFinding[] {
 }
 
 /** Где файл пишет в хранилище устройства: API и ключ, если он виден. */
-export interface DeviceWrite { line: number; api: 'localStorage' | 'sessionStorage' | 'IndexedDB' | 'Cache API' | 'cookie' }
+export interface DeviceWrite { line: number; api: 'localStorage' | 'sessionStorage' | 'Storage' | 'IndexedDB' | 'Cache API' | 'cookie' }
 
 /**
  * Все записи файла в хранилище устройства — для реестра: файл, который пишет
  * на устройство человека, обязан сказать, что там лежит.
  */
-export function deviceWrites(src: string): DeviceWrite[] {
+export function deviceWrites(raw: string): DeviceWrite[] {
+  const src = normalizeBrackets(raw);
   const code = maskCode(src);
   const out: DeviceWrite[] = [];
   const lineOf = (at: number) => src.slice(0, at).split('\n').length;
-  for (const re of [STORAGE_CALL, STORAGE_ASSIGN]) {
-    re.lastIndex = 0;
-    for (let m = re.exec(code); m; m = re.exec(code)) out.push({ line: lineOf(m.index), api: m[1] as 'localStorage' | 'sessionStorage' });
+  STORAGE_CALL.lastIndex = 0;
+  for (let m = STORAGE_CALL.exec(code); m; m = STORAGE_CALL.exec(code)) {
+    if (/\bfunction\s*$/.test(code.slice(Math.max(0, m.index - 12), m.index))) continue;
+    out.push({ line: lineOf(m.index), api: storageApi(code, m.index) });
   }
+  STORAGE_ASSIGN.lastIndex = 0;
+  for (let m = STORAGE_ASSIGN.exec(code); m; m = STORAGE_ASSIGN.exec(code)) out.push({ line: lineOf(m.index), api: m[1] as 'localStorage' | 'sessionStorage' });
   COOKIE_ASSIGN.lastIndex = 0;
   for (let m = COOKIE_ASSIGN.exec(code); m; m = COOKIE_ASSIGN.exec(code)) out.push({ line: lineOf(m.index), api: 'cookie' });
   for (const m of code.matchAll(/(?<![\w$.])(?:openDB\s*(?:<[^>()]*>)?|indexedDB\s*\.\s*open)\s*\(/g)) out.push({ line: lineOf(m.index ?? 0), api: 'IndexedDB' });

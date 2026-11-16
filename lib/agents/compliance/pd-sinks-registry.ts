@@ -26,10 +26,25 @@ import { readdirSync, readFileSync, statSync } from 'fs';
 import { join, relative } from 'path';
 import { scanSinks, deviceWrites, type SinkFinding, type DeviceWrite } from './pd-sinks';
 
-/** Где ищутся стоки. `scripts` — с ними: их печать уходит в лог Actions (#3203). */
-export const SINK_ROOTS = ['app', 'lib', 'components', 'hooks', 'contexts', 'scripts'] as const;
+/**
+ * Где ищутся стоки. `scripts` — с ними: их печать уходит в лог Actions (#3203).
+ * `public` — браузерный код без сборки: service worker, SOS-экраны, виджет.
+ */
+export const SINK_ROOTS = ['app', 'lib', 'components', 'hooks', 'contexts', 'scripts', 'public'] as const;
 /** Где ищутся записи на устройство человека: код, который идёт в браузер. */
-export const DEVICE_ROOTS = ['app', 'lib', 'components', 'hooks', 'contexts'] as const;
+export const DEVICE_ROOTS = ['app', 'lib', 'components', 'hooks', 'contexts', 'public'] as const;
+
+/**
+ * Чужой код в `public`, вендоренный без изменений: его не пишем и не правим,
+ * а его запись в хранилище — не наша запись. Путь, которого нет, краснеет
+ * (сторож проверяет), чтобы список не пережил свои файлы.
+ */
+export const THIRD_PARTY: readonly string[] = [
+  'public/vendor/', // maplibre-gl 6.11.2
+  'public/leaflet/', // leaflet.min.js
+  'public/safety/qrcode.js', // qrcode-generator@2.0.4
+  'public/safety/jsqr.js', // jsqr@1.4.0
+];
 
 /**
  * Чьё и что лежит на устройстве:
@@ -94,6 +109,14 @@ export const DEVICE_STORAGE: readonly DeviceStorageEntry[] = [
   { file: 'components/tracking/LastPositionTracker.tsx', personal: 'own-device', holds: 'последняя координата устройства в сети', why: 'SOS без сети называет последнюю точку' },
   { file: 'hooks/useOfflineGPS.ts', personal: 'own-device', holds: 'последняя координата устройства', why: 'SOS и карта без сети' },
   { file: 'contexts/GeoContext.tsx', personal: 'own-device', holds: 'место устройства и режим геолокации', why: 'погода и обстановка рядом без повторного вопроса' },
+  { file: 'lib/offline/last-fix.ts', personal: 'own-device', holds: 'точная последняя координата устройства на 30 суток', why: 'экран поля и SOS без сети показывают, где человек был последний раз' },
+  { file: 'lib/on-route/wp-progress.ts', personal: 'own-device', holds: 'номер пройденной точки маршрута', why: 'прогресс на маршруте без сети' },
+  { file: 'lib/safety/register-submit.ts', personal: 'own-device', holds: 'случайный ключ повтора формы контроля возвращения', why: 'повтор той же формы узнаёт свою запись, а не создаёт вторую (§10)' },
+  {
+    file: 'public/sw.js', personal: 'own-device',
+    holds: 'копии страниц, снимков, данных карточек мест и плана поездки по ссылке; очередь SOS только читает и удаляет (пишет её lib/offline/pending-queue.ts)',
+    why: 'карта, карточки и SOS работают без сети',
+  },
   { file: 'components/planner/SeatRequestForm.tsx', personal: 'own-device', holds: 'ссылки на свои запросы мест с ключом', why: 'запрос делается без входа; ссылка — единственный путь к нему' },
 
   // --- о человеке ничего
@@ -128,13 +151,26 @@ export const DEVICE_STORAGE: readonly DeviceStorageEntry[] = [
   { file: 'hooks/useInterestTracker.ts', personal: 'none', holds: 'интересы по просмотренным страницам, без имени' },
   { file: 'hooks/usePlaceProximity.ts', personal: 'none', holds: 'места, о которых уже напомнили' },
   { file: 'hooks/useSourceTracker.ts', personal: 'none', holds: 'метки источника визита' },
+  { file: 'lib/client-errors/chunk-load.ts', personal: 'none', holds: 'адрес страницы и время перезагрузки после сбоя загрузки' },
+  { file: 'lib/hub/plaque-dismiss.ts', personal: 'none', holds: 'плашка кабинета скрыта' },
+  { file: 'lib/routes/catalog-return.ts', personal: 'none', holds: 'адрес каталога и прокрутка для возврата' },
+  { file: 'lib/safety/new-alerts.ts', personal: 'none', holds: 'ключи уже показанных тревог' },
   { file: 'contexts/AdventureModeContext.tsx', personal: 'none', holds: 'режим экрана' },
   { file: 'contexts/CartContext.tsx', personal: 'none', holds: 'туры в корзине' },
   { file: 'contexts/ThemeContext.tsx', personal: 'none', holds: 'тема оформления' },
 ];
 
-/** Разобранная находка: ключ — файл, сток, выражение. */
-export interface AllowedFinding { file: string; sink: string; expr: string; reason: string }
+/**
+ * Разобранная находка: ключ — файл, сток, выражение.
+ *
+ * `leak` — ПД на деле уходят туда, куда не должны, и это ещё не исправлено:
+ * запись называет утечку вслух, чтобы она не пряталась среди разрешённых, и
+ * краснеет, когда правка её уберёт. Новая утечка сюда не вносится — её чинят.
+ */
+export interface AllowedFinding { file: string; sink: string; expr: string; reason: string; leak?: true }
+
+/** Человеку в его же чат — его же имя или номер: получатель и есть хозяин данных. */
+const OWN_CHAT = 'своё имя или номер — самому человеку в его же чат Telegram';
 
 export const ALLOWED_FINDINGS: readonly AllowedFinding[] = [
   {
@@ -149,6 +185,29 @@ export const ALLOWED_FINDINGS: readonly AllowedFinding[] = [
     file: 'scripts/review-pii-scrub.mjs', sink: 'process.stdout.write', expr: 't.emails',
     reason: 'число найденных почт, не адреса',
   },
+  { file: 'lib/requests/request-chat-service.ts', sink: 'sendPdAlert stub', expr: 'tr ← r.guestName', reason: 'имя идёт в перевод списком для маски, а не в текст' },
+  { file: 'app/api/cron/tour-review-request/route.ts', sink: 'sendTelegramMessage', expr: 'text ← b.tourist_name', reason: OWN_CHAT },
+  { file: 'app/api/hub/admin/support/tickets/[id]/route.ts', sink: 'telegramService.sendMessage', expr: 'userName', reason: OWN_CHAT },
+  { file: 'app/api/telegram/webhook/route.ts', sink: 'telegramService.sendMessage', expr: 'touristLines ← phone', reason: OWN_CHAT },
+  { file: 'lib/leads/proposal-delivery.ts', sink: 'tgSend', expr: 'text ← lead.name', reason: OWN_CHAT },
+  { file: 'lib/notifications/booking-notifications.ts', sink: 'telegramService.sendMessage', expr: 'firstName', reason: OWN_CHAT },
+  { file: 'lib/notifications/booking-notifications.ts', sink: 'telegramService.sendMessage', expr: 'lines ← firstName', reason: OWN_CHAT },
+  {
+    file: 'lib/agents/execution/handlers/operator-outreach-executor.ts', sink: 'fetch api.telegram.org', expr: 'tgText ← op.email',
+    reason: 'почта компании-оператора с её открытого сайта, не человека',
+  },
+  {
+    file: 'scripts/scrape-operators-visitkamchatka.js', sink: 'console.log', expr: 'phoneMark ← op.phone',
+    reason: 'телефон компании с открытого сайта — в терминал того, кто запустил скрипт; ни один workflow скрипт не зовёт',
+  },
+  ...['text ← booking.passengerName', 'text ← booking.passengerPhone', 'replyMarkup ← booking.passengerPhone'].map((expr) => ({
+    file: 'lib/notifications/telegram.ts', sink: 'this.sendMessage', expr, leak: true as const,
+    reason: 'sendDriverNotification шлёт водителю в Telegram имя и телефон пассажира — записанный остаток (шапка telegram.ts): вызывающих нет, чинится адресами водителей в MAX',
+  })),
+  ...['text ← contactName', 'text ← phone', 'text ← email'].map((expr) => ({
+    file: 'app/api/auth/register-operator/route.ts', sink: 'fetch api.telegram.org', expr, leak: true as const,
+    reason: 'уведомление администратору о регистрации партнёра несёт имя, телефон и почту контактного лица в Telegram, а ПД ходят только в MAX (23.08); не исправлено',
+  })),
   ...['g.name', 'g.phone', 'g.email'].map((expr) => ({
     file: 'scripts/scrape-guides-visitkamchatka.js', sink: 'console.log', expr,
     reason: 'сухой прогон печатает контакты гидов с открытого сайта в терминал того, кто его запустил; ни один workflow скрипт не зовёт',
@@ -179,9 +238,11 @@ export function readRoots(repoRoot: string, roots: readonly string[]): Array<{ r
     const files: string[] = [];
     walk(join(repoRoot, r), files);
     for (const abs of files) {
+      const rel = relative(repoRoot, abs).split('\\').join('/');
+      if (THIRD_PARTY.some((t) => rel === t || (t.endsWith('/') && rel.startsWith(t)))) continue;
       let src: string;
       try { src = readFileSync(abs, 'utf8'); } catch { continue; }
-      out.push({ rel: relative(repoRoot, abs).split('\\').join('/'), src });
+      out.push({ rel, src });
     }
   }
   return out;
