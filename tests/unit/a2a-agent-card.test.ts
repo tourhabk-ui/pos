@@ -14,7 +14,7 @@
  */
 import { describe, it, expect } from 'vitest';
 import {
-  buildAgentCard, buildLegacyAgentCard, buildSkills, skillToolNames, SKILL_TAGS, CHAT_SKILL_ID, A2A_DESCRIPTION,
+  buildAgentCard, buildLegacyAgentCard, buildSkills, skillToolNames, SKILL_TAGS, CHAT_SKILL_ID, A2A_DESCRIPTION, firstSentence,
   AGENT_CARD_PATH, LEGACY_AGENT_CARD_PATH, A2A_JSONRPC_PATH, A2A_REST_PATH, A2A_PROTOCOL_VERSION, A2A_LEGACY_PROTOCOL_VERSION,
 } from '@/lib/a2a/agent-card';
 import { PUBLIC_MCP_TOOL_NAMES, PUBLIC_MCP_TOOLS, WRITE_TOOL_NAMES, MCP_SERVER_INFO } from '@/lib/mcp/public-tools';
@@ -133,6 +133,22 @@ describe('навыки — из реестра инструментов', () => 
       expect(parsed.ok, s.id).toBe(true);
       if (parsed.ok) expect(Object.keys(parsed.args).sort(), `${s.id}: схема отбросила часть примера`).toEqual([...keys].sort());
     }
+  });
+
+  it('карточка не разрастается: до 32 КБ, навык — суть инструмента, а не всё его описание (аудит 16.11, #3463)', () => {
+    // Было ~62 КБ: каждый навык нёс полное описание инструмента. Карточку
+    // целиком читает роутер агентов — это его контекст, а полный текст
+    // инструмента есть в tools/list.
+    expect(Buffer.byteLength(JSON.stringify(card))).toBeLessThan(32_000);
+    expect((card.description as string).length).toBeLessThan(2_000);
+    const byName = new Map(PUBLIC_MCP_TOOLS.map((t) => [t.name, t.description]));
+    for (const s of skills.slice(1)) {
+      expect(s.description.length, s.id).toBeLessThan(700);
+      // Суть — первое предложение самого инструмента: своего текста у навыка нет.
+      expect(s.description.startsWith(firstSentence(byName.get(s.id) ?? '')), s.id).toBe(true);
+    }
+    expect(firstSentence('Первое. Второе.')).toBe('Первое.');
+    expect(firstSentence('Без точки')).toBe('Без точки');
   });
 
   it('разговорный навык честно говорит, что заявок не оформляет', () => {
