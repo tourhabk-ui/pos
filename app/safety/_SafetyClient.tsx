@@ -428,13 +428,20 @@ export default function SafetyClient({ live }: { live: SafetyLiveData | null }) 
           if (d.checkedAt) setCheckedAt((prev) => Math.max(prev ?? 0, new Date(d.checkedAt as string).getTime()));
         }).catch(() => setSeismicKnown(false)),
       ok(fetch(`/api/safety/volcanic?fresh=${q}`).then(body))
-        .then((d: { events?: VolcanicEvent[]; statuses?: { elevated?: VolcanoStatusRow[] } }) => {
-          setVolcanic(d.events ?? []);
+        .then((d: { events?: VolcanicEvent[]; error?: string; statuses?: { elevated?: VolcanoStatusRow[]; total?: number | null } }) => {
+          // Роут отвечает 200 и при отказе, чтобы отказ одной ленты не гасил
+          // вторую: новости МЧС не прочитались — `error` и пустой `events`,
+          // коды KVERT не прочитались — `statuses.total: null`. Пустой список
+          // тогда значит «не знаем», а не «тихо»: прежний не затираем, и
+          // «предупреждений нет» не пишем (ревью #3461).
+          const newsOk = Array.isArray(d.events) && !d.error;
+          const codesOk = typeof d.statuses?.total === 'number';
+          if (newsOk) setVolcanic(d.events ?? []);
           // КВЕРТ отдельно от новостей МЧС (см. комментарий у VolcanoStatusRow) —
           // без этого секция ниже видела только новости и звала оранжевый код
           // «предупреждений нет».
-          setVolcanoCodes(d.statuses?.elevated ?? []);
-          setVolcanicKnown(Array.isArray(d.events));
+          if (codesOk) setVolcanoCodes(d.statuses?.elevated ?? []);
+          setVolcanicKnown(newsOk && codesOk);
         }).catch(() => setVolcanicKnown(false)),
       // Прогноз, а не опрос источника: кнопка «обновить» к Open-Meteo не ходит,
       // у прогноза свой кэш на три часа (lib/weather/safety-widget).
@@ -927,7 +934,7 @@ export default function SafetyClient({ live }: { live: SafetyLiveData | null }) 
               <p style={{ padding: '12px 16px', margin: 0, color: 'var(--warning)', fontSize: 13 }}>
                 {volcanic.length === 0 && volcanoCodes.length === 0
                   ? 'Данные о вулканах не загрузились. Это не значит, что предупреждений нет — обновите позже.'
-                  : 'Обновить данные о вулканах не удалось — ниже прежний список.'}
+                  : 'Часть данных о вулканах не загрузилась — список ниже может быть неполным или прежним.'}
               </p>
             )}
             {volcanic.length === 0 && volcanoCodes.length === 0 ? (

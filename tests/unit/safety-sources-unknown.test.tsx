@@ -77,11 +77,39 @@ describe('/safety: отказ источника', () => {
     expect(text).not.toContain('Активных вулканических предупреждений нет');
   });
 
+  it('роут вулканов ответил 200, но новости не прочитались (error, total: null) — «не загрузились»', async () => {
+    // Настоящая форма отказа /api/safety/volcanic: 200, пустой events, error,
+    // коды KVERT с total: null (ревью безопасности #3461).
+    stubFetch({
+      '/api/public/danger-summary': ZONES_OK,
+      '/api/safety/seismic': { status: 200, body: { events: [], source: 'kbgsras' } },
+      '/api/safety/volcanic': { status: 200, body: { events: [], checked_at: null, statuses: { elevated: [], total: null, green: null, updated_at: null }, error: 'relation does not exist' } },
+      '/api/safety/weather': { status: 200, body: { today: { temp: '+2°', precip: 'без осадков', wind: 'ветер 3 м/с', sky: null } } },
+    });
+    const { container } = render(<SafetyClient live={null} />);
+    await openSections();
+    await waitFor(() => expect(container.textContent).toContain('Данные о вулканах не загрузились. Это не значит, что предупреждений нет'));
+    expect(container.textContent).not.toContain('Активных вулканических предупреждений нет');
+  });
+
+  it('новости прочитались пустыми, а коды KVERT нет (total: null) — тоже не «предупреждений нет»', async () => {
+    stubFetch({
+      '/api/public/danger-summary': ZONES_OK,
+      '/api/safety/seismic': { status: 200, body: { events: [], source: 'kbgsras' } },
+      '/api/safety/volcanic': { status: 200, body: { events: [], checked_at: '2026-11-16T07:00:00Z', statuses: { elevated: [], total: null, green: null, updated_at: null } } },
+      '/api/safety/weather': { status: 200, body: { today: { temp: '+2°', precip: 'без осадков', wind: 'ветер 3 м/с', sky: null } } },
+    });
+    const { container } = render(<SafetyClient live={null} />);
+    await openSections();
+    await waitFor(() => expect(container.textContent).toContain('не загрузились'));
+    expect(container.textContent).not.toContain('Активных вулканических предупреждений нет');
+  });
+
   it('источник ответил пустым списком — «нет событий», без строки об отказе', async () => {
     stubFetch({
       '/api/public/danger-summary': ZONES_OK,
       '/api/safety/seismic': { status: 200, body: { events: [], source: 'kbgsras', checkedAt: '2026-11-16T07:00:00Z' } },
-      '/api/safety/volcanic': { status: 200, body: { events: [], statuses: { elevated: [] } } },
+      '/api/safety/volcanic': { status: 200, body: { events: [], checked_at: '2026-11-16T07:00:00Z', statuses: { elevated: [], total: 30, green: 30, updated_at: '2026-11-16T07:00:00Z' } } },
       '/api/safety/weather': { status: 200, body: { today: { temp: '+2°', precip: 'без осадков', wind: 'ветер 3 м/с', sky: null } } },
     });
     const { container } = render(<SafetyClient live={null} />);
