@@ -554,6 +554,18 @@ describe('Ревью состоялось: «не смог» — красный 
     expect(r.out.split('\n').some((l) => l.startsWith('Stdout:'))).toBe(false);
   });
 
+  it('ни одного хода (песочница не стартовала), а итог не ошибка — красный, текст ошибки в PR не уходит', () => {
+    // Дословно 16.11, PR #3431: образ раннера без socat, итог с is_error=false и num_turns=0.
+    transcript([{ type: 'result', subtype: 'success', is_error: false, num_turns: 0, result: '[Error] Sandbox is required but failed to initialize: Sandbox dependencies not available: socat not installed' }]);
+    const r = runStep(step, verdictCtx());
+    expect(r.code).toBe(1);
+    const line = r.out.split('\n').find((l) => l.startsWith('::error::'));
+    expect(line).toContain('Ревью безопасности не состоялось: ревьюер не сделал ни одного хода');
+    expect(line).toContain('socat not installed');
+    expect(readFileSync(join(dir, 'step-summary'), 'utf-8')).toMatch(/не состоялось: ни одного хода\. Это не «находок нет»/);
+    expect(r.out).not.toMatch(/^Ревью состоялось/m);
+  });
+
   it('прогон оборвался по пределу ходов, а последним итогом стал ответ фоновой подзадаче — красный, причина названа', () => {
     // Дословно 07.11, PR #3104: основной итог — ошибка, следом — итоги на уведомления подзадач.
     transcript([

@@ -16,7 +16,9 @@
  * Workflow судится по смыслу шагов (CLAUDE.md §4, 13.10), а не по форме строки.
  */
 import { describe, it, expect } from 'vitest';
-import { readdirSync, readFileSync } from 'node:fs';
+import { chmodSync, existsSync, mkdtempSync, readdirSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
+import { spawnSync } from 'node:child_process';
+import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { load } from 'js-yaml';
 
@@ -90,5 +92,73 @@ describe('чистка окружения подпроцессов — с bubble
     expect(runsClaude({ uses: 'anthropics/claude-code-action@115e0b2c49222c831de6748ccdf365bb8d3ea9a3' })).toBe(true);
     expect(scrubOnByEnv({ [SCRUB]: '1' })).toBe(true);
     expect(scrubOnByEnv({ [SCRUB]: '0' })).toBe(false);
+  });
+});
+
+/**
+ * Установка судится исполнением (15.11): новый образ раннера принёс bwrap без
+ * socat, шаг пропускал установку по одному bwrap, и песочница Claude Code не
+ * стартовала — «socat not installed». Ревью безопасности сутки уходило в PR
+ * текстом ошибки. Шаг исполняется настоящим bash с подложенными sudo, apt-get
+ * и sysctl; PATH — только подложенный каталог, системные bwrap и socat не видны.
+ */
+describe('шаг установки ставит и bwrap, и socat — исполнением', () => {
+  const steps: { where: string; run: string }[] = [];
+  for (const file of readdirSync(DIR).filter((f) => /\.ya?ml$/.test(f)).sort()) {
+    const wf = load(readFileSync(join(DIR, file), 'utf-8')) as { jobs?: Record<string, Job> } | null;
+    for (const [jobId, job] of Object.entries(wf?.jobs ?? {})) {
+      for (const s of job.steps ?? []) if (installsBwrap(s)) steps.push({ where: `${file}/${jobId}`, run: s.run ?? '' });
+    }
+  }
+
+  function exec(run: string, have: string[], aptGives: string[]) {
+    const dir = mkdtempSync(join(tmpdir(), 'bwrap-step-'));
+    const bin = join(dir, 'bin');
+    const log = join(dir, 'log');
+    try {
+      spawnSync('/bin/mkdir', [bin]);
+      const put = (name: string, body: string) => { writeFileSync(join(bin, name), `#!/bin/bash\n${body}\n`); chmodSync(join(bin, name), 0o755); };
+      for (const t of have) put(t, 'exit 0');
+      put('sudo', '"$@"');
+      put('sysctl', `echo "sysctl $*" >> ${log}`);
+      put('apt-get', [
+        `echo "apt-get $*" >> ${log}`,
+        'if [ "$1" = install ]; then',
+        ...aptGives.map((t) => `  printf '#!/bin/bash\\nexit 0\\n' > ${bin}/${t}; /bin/chmod +x ${bin}/${t}`),
+        'fi',
+      ].join('\n'));
+      const r = spawnSync('/bin/bash', ['-e', '-c', run], { env: { PATH: bin, GITHUB_ACTIONS: 'true' }, encoding: 'utf-8' });
+      return { code: r.status, out: `${r.stdout}${r.stderr}`, log: existsSync(log) ? readFileSync(log, 'utf-8') : '' };
+    } finally {
+      rmSync(dir, { recursive: true, force: true });
+    }
+  }
+
+  it('шаги найдены (ноль — отказ сканера)', () => {
+    expect(steps.map((s) => s.where)).toEqual(expect.arrayContaining(['security-review.yml/review', 'reviewer-model-probe.yml/review']));
+  });
+
+  it('bwrap есть, socat нет (образ 15.11) — ставит оба', () => {
+    for (const s of steps) {
+      const r = exec(s.run, ['bwrap'], ['bwrap', 'socat']);
+      expect(r.code, `${s.where}: ${r.out}`).toBe(0);
+      expect(r.log, s.where).toMatch(/apt-get install [^\n]*\bbubblewrap\b[^\n]*\bsocat\b/);
+    }
+  });
+
+  it('оба есть — apt не зовётся', () => {
+    for (const s of steps) {
+      const r = exec(s.run, ['bwrap', 'socat'], []);
+      expect(r.code, `${s.where}: ${r.out}`).toBe(0);
+      expect(r.log, s.where).not.toMatch(/apt-get/);
+    }
+  });
+
+  it('после установки socat всё ещё нет — красный с именем, а не тихий пропуск', () => {
+    for (const s of steps) {
+      const r = exec(s.run, [], ['bwrap']);
+      expect(r.code, s.where).not.toBe(0);
+      expect(r.out, s.where).toMatch(/::error::Нет socat после установки/);
+    }
   });
 });
