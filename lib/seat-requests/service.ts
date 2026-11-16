@@ -54,6 +54,8 @@ import {
 } from '@/lib/seat-requests/core';
 import { notifyTeam } from '@/lib/operators/team-notify';
 import { recordJournalEventQuietly, type ActorKind, type EventKind } from '@/lib/crm/events';
+import { tourDays } from '@/lib/tours/catalog-availability';
+import { loadClosedDays, tripEnd, tripHitsClosed } from '@/lib/tours/closed-days';
 
 const SEAT_STATUS_WORD: Record<SeatRequestStatus, string> = {
   pending: 'ждёт ответа', confirmed: 'места есть', declined: 'мест нет',
@@ -160,7 +162,7 @@ export interface CreateSeatRequestInput {
 export type CreateSeatRequestFailure =
   | 'date_past' | 'bad_date' | 'bad_phone' | 'tour_not_found' | 'operator_unreachable'
   | 'duplicate' | 'already_confirmed' | 'too_many' | 'check_failed' | 'delivery_failed' | 'price_unknown'
-  | 'out_of_season' | 'group_too_large';
+  | 'out_of_season' | 'group_too_large' | 'day_closed';
 
 // Ключ страницы статуса при отказе НЕ возвращается никогда: телефон — не
 // секрет, и «дубль → ссылка на чужой запрос» отдавало бы страницу статуса, а с
@@ -232,6 +234,14 @@ export async function createSeatRequest(input: CreateSeatRequestInput): Promise<
   if (!dateInWindow(requestWindow(tour, kamchatkaToday()), input.date)) {
     return { ok: false, reason: 'out_of_season' };
   }
+
+  // День, который оператор закрыл в календаре (#3476 шаг 3), до него не
+  // доходит: бронь после его «Есть места» всё равно упёрлась бы в
+  // DATE_BLOCKED. Многодневная поездка не должна задевать закрытый день.
+  const tripDays = tourDays(tour);
+  const closed = await loadClosedDays(input.tourId, input.date, tripEnd(input.date, tripDays));
+  if (closed === null) return { ok: false, reason: 'check_failed' };
+  if (tripHitsClosed(input.date, tripDays, closed)) return { ok: false, reason: 'day_closed' };
 
   // Цена по размеру группы (#2246): если ступени есть, а группа в них не
   // входит, запрос до оператора не доходит. Иначе он ответил бы «есть места», а

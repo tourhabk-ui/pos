@@ -439,6 +439,31 @@ withPg('витрина туров: снятый тур не в плане и н�
     expect(Object.fromEntries(rows.map((r) => [r.id, r.has]))).toEqual({ [anyDay]: false, [departures]: true });
   });
 
+  it('закрытые оператором дни (#3476 шаг 3): только is_cancelled, не удалённые, в окне дат', async () => {
+    const op = '00000000-0000-4000-8000-0000000c4757';
+    await pool.query(
+      `INSERT INTO partners (id, name, category, contact, slug, is_public, is_verified, status)
+       VALUES ($1, 'Закрытые дни', 'operator', '{}'::jsonb, 'w2pt-closed-days', TRUE, TRUE, 'active')`, [op],
+    );
+    const tour = (await pool.query<{ id: string }>(
+      `INSERT INTO operator_tours (operator_id, title, slug, activity_type, base_price, price_unit,
+                                   min_participants, max_participants, duration_hours, schedule_kind, is_active, is_published)
+       VALUES ($1, 'W2PT закрытые дни', 'w2pt-closed-days-tour', 'closed_probe', 1000, 'per_person', 1, 4, 8, 'any_day', TRUE, TRUE)
+       RETURNING id::text`, [op],
+    )).rows[0].id;
+    const row = (date: string, cancelled: boolean, deleted = false) => pool.query(
+      `INSERT INTO tour_availability (operator_tour_id, date, available_slots, is_cancelled, deleted_at)
+       VALUES ($1, $2::date, 4, $3, CASE WHEN $4 THEN NOW() ELSE NULL END)`, [tour, date, cancelled, deleted],
+    );
+    await row('2099-08-02', true);          // закрыт
+    await row('2099-08-03', false);         // открыт — не закрытый день
+    await row('2099-08-04', true, true);    // закрыт, но строка удалена
+    await row('2099-08-20', true);          // закрыт, вне окна
+    const { loadClosedDays } = await import('@/lib/tours/closed-days');
+    expect([...(await loadClosedDays(tour, '2099-08-01', '2099-08-10'))!]).toEqual(['2099-08-02']);
+    expect([...(await loadClosedDays(tour, '2099-08-01', '2099-08-31'))!]).toEqual(['2099-08-02', '2099-08-20']);
+  });
+
   it('ближайшая свободная дата: вчера по Камчатке, отменённая, удалённая, занятая и за год — не даты', async () => {
     const other = '00000000-0000-4000-8000-0000000c4741';
     await pool.query(
