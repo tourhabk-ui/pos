@@ -132,7 +132,7 @@ const RU_SNOWMOBILE_FAQ: LandingFaq[] = [
 ];
 
 const EN_BOOKING_FAQ: LandingFaq[] = [
-  { q: 'How do I book a Kamchatka tour on Vedar?', a: 'Pick a tour on this page, open its card and send a booking request with date, group size and contact. The request goes to the tour operator and is confirmed by a person.' },
+  { q: 'How do I book a Kamchatka tour on Vedar?', a: 'Vedar does not book tours itself. Pick a tour on this page, open its card and send a request with date, group size and contact. The request goes to the tour operator, who confirms the date and the price; until then no seat is reserved.' },
   { q: 'Do I pay online?', a: 'No. Vedar takes no online payment; you pay the operator directly after confirmation.' },
   { q: 'Are the prices final?', a: 'Prices are the "from" prices operators entered on the platform. The final price is confirmed by the operator.' },
   { q: 'Can an AI assistant query these tours?', a: 'Yes. Vedar runs an open MCP server at https://vedarai.ru/api/mcp (no auth) that Claude, ChatGPT and other clients can connect to; see /mcp.' },
@@ -289,9 +289,13 @@ export const QUERY_LANDINGS: readonly QueryLanding[] = [
   },
   {
     key: 'en-booking', path: '/en/kamchatka-tours', lang: 'en', topic: 'all', query: 'Kamchatka tours booking', pair: 'booking',
-    title: 'Kamchatka Tours Booking: Local Operators, Prices From, Dates | Vedar',
-    description: 'Book Kamchatka tours from local operators on Vedar: live tours, "from" prices, open dates. Confirmed by a person, no online payment.',
-    h1: 'Kamchatka tours booking',
+    // «Booking» снят из заголовка и H1 (#3394, п. 5; слово владельца 16.11
+    // «карт-бланш»): Ведар не бронирует — человек отправляет заявку, оператор
+    // подтверждает. Запрос «Kamchatka tours booking» страница по-прежнему
+    // ловит — описание и FAQ отвечают на него честно, словом «не бронь».
+    title: 'Kamchatka Tours from Local Operators: Requests, Prices From, Dates | Vedar',
+    description: 'Kamchatka tours from local operators: "from" prices, open dates. You send a request, the operator confirms it. Not an instant booking, no online payment.',
+    h1: 'Kamchatka tours from local operators',
     intro: 'Tours below are currently published on Vedar by local operators. Prices and dates come from their data; tour names are shown as the operator wrote them (in Russian).',
     faq: EN_BOOKING_FAQ,
   },
