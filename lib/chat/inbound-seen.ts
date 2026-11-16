@@ -180,9 +180,17 @@ export type StaleClaim =
   | { ok: false };
 
 /**
- * Взять сообщения Telegram, брошенные прежним запуском: не обработаны, не
- * старше 15 минут, ещё не подхватывались. Берутся один раз (attempts), и два
- * подборщика не возьмут одно (SKIP LOCKED).
+ * Моложе этого сообщение не подбирается: при выкате старый процесс может ещё
+ * отвечать на него (ход Кузьмича — до минуты с запасным водопадом), и подбор
+ * дал бы человеку второй ответ (ревью #3437). Подбор при старте идёт позже
+ * этого порога (lib/chat/recover-on-start).
+ */
+export const INBOUND_CLAIM_MIN_AGE_SECONDS = 120;
+
+/**
+ * Взять сообщения Telegram, брошенные прежним запуском: не обработаны, старше
+ * двух минут и не старше 15, ещё не подхватывались. Берутся один раз
+ * (attempts), и два подборщика не возьмут одно (SKIP LOCKED).
  */
 export async function claimStaleTelegram(limit = 20): Promise<StaleClaim> {
   try {
@@ -200,10 +208,11 @@ export async function claimStaleTelegram(limit = 20): Promise<StaleClaim> {
          WHERE source = 'telegram' AND processed_at IS NULL AND payload IS NOT NULL
            AND boot_id IS DISTINCT FROM $1 AND attempts < 1
            AND received_at > now() - make_interval(mins => $3)
+           AND received_at < now() - make_interval(secs => $4)
          ORDER BY received_at LIMIT $2
          FOR UPDATE SKIP LOCKED)
        RETURNING c.update_key, c.payload`,
-      [inboundBootId(), limit, INBOUND_STALE_MINUTES],
+      [inboundBootId(), limit, INBOUND_STALE_MINUTES, INBOUND_CLAIM_MIN_AGE_SECONDS],
     ), 'подбор');
     if (res === 'timeout' || !Array.isArray(res?.rows)) return { ok: false };
     return { ok: true, items: res.rows.map((r) => ({ key: String(r.update_key), payload: r.payload })) };

@@ -966,8 +966,8 @@ async function deliverAndMark(update: TelegramUpdate, updateKey: string, takenHe
  * GET (CRON_SECRET): подобрать сообщения, брошенные прежним запуском (#3433).
  * Telegram получил 200 до обработки и сам не повторит; упал процесс — без
  * этого подбора человек остался бы без ответа. Зовёт instrumentation при
- * старте (lib/chat/recover-on-start). Берётся только не старше 15 минут и один
- * раз; три исхода: подобрано N / нечего / база не ответила (503).
+ * старте (lib/chat/recover-on-start). Берётся только старше двух минут (при
+ * выкате старый процесс ещё отвечает на своё), не старше 15 и один раз; три исхода: подобрано N / нечего / база не ответила (503).
  */
 export async function GET(request: NextRequest): Promise<NextResponse> {
   if (!verifyCronSecret(request)) {

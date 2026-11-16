@@ -124,11 +124,13 @@ describe('апдейт, брошенный упавшим запуском', () 
     expect(table.get('telegram:12')).toMatchObject({ processed: false, payload: { update_id: 12 } });
   });
 
-  it('подбор Telegram: только чужие незаконченные с сообщением, свежие, один раз', async () => {
+  it('подбор Telegram: только чужие незаконченные с сообщением, от 2 до 15 минут, один раз', async () => {
     leftBy('dead-boot', 'telegram', '21', { payload: { update_id: 21 } });
     leftBy('dead-boot', 'telegram', '22', { payload: { update_id: 22 }, ageMin: 20 });
     leftBy('dead-boot', 'telegram', '23', { payload: null });
     leftBy(ME, 'telegram', '24', { payload: { update_id: 24 } });
+    // Моложе двух минут: при выкате старый процесс ещё отвечает на него.
+    leftBy('old-boot-still-running', 'telegram', '26', { payload: { update_id: 26 }, ageMin: 1 });
     leftBy('dead-boot', 'max_message', '25', { payload: { x: 1 } });
 
     const first = await claimStaleTelegram();

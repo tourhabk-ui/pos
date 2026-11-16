@@ -9,6 +9,7 @@ import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
 import { EventEmitter } from 'node:events';
 import type http from 'node:http';
 import { scheduleTelegramRecovery, RECOVER_AFTER_MS, RECOVER_PATH } from '@/lib/chat/recover-on-start';
+import { INBOUND_CLAIM_MIN_AGE_SECONDS } from '@/lib/chat/inbound-seen';
 
 let errorLog: ReturnType<typeof vi.spyOn>;
 beforeEach(() => { errorLog = vi.spyOn(console, 'error').mockImplementation(() => undefined); });
@@ -37,7 +38,7 @@ function fakeRequest(status: number, body: string) {
 const logged = () => errorLog.mock.calls.map((c) => String(c[0])).join('\n');
 
 describe('scheduleTelegramRecovery', () => {
-  it('через 30 с зовёт свой сервер: GET вебхука с CRON_SECRET, Host 127.0.0.1', () => {
+  it('через 150 с зовёт свой сервер: GET вебхука с CRON_SECRET, Host 127.0.0.1', () => {
     const { calls, request } = fakeRequest(200, '{"ok":true,"recovered":2}');
     const timers: Array<[() => void, number]> = [];
     const out = scheduleTelegramRecovery({
@@ -47,6 +48,8 @@ describe('scheduleTelegramRecovery', () => {
     expect(out).toBe('scheduled');
     expect(timers).toHaveLength(1);
     expect(timers[0][1]).toBe(RECOVER_AFTER_MS);
+    // Позже порога возраста подбора: брошенное перед падением к этому времени старше двух минут.
+    expect(RECOVER_AFTER_MS / 1000).toBeGreaterThan(INBOUND_CLAIM_MIN_AGE_SECONDS);
     expect(calls).toHaveLength(0); // до таймера — ничего
 
     timers[0][0]();

@@ -47,7 +47,7 @@ export function createInboundTable() {
         const cut = rowId.indexOf(':');
         const source = rowId.slice(0, cut);
         if (source !== 'telegram' || r.processed || r.payload === null || r.boot_id === p[0]
-          || r.attempts >= 1 || r.ageMin >= Number(p[2])) continue;
+          || r.attempts >= 1 || r.ageMin >= Number(p[2]) || r.ageMin * 60 <= Number(p[3])) continue;
         if (out.length >= Number(p[1])) break;
         r.boot_id = String(p[0]); r.attempts += 1;
         out.push({ update_key: rowId.slice(cut + 1), payload: r.payload });
@@ -62,9 +62,9 @@ export function createInboundTable() {
     rows,
     handle,
     get: (source: string, key: string) => rows.get(id(source, key)),
-    /** Строка, оставленная другим запуском (тот упал, не закончив). */
+    /** Строка, оставленная другим запуском (тот упал, не закончив); по умолчанию ей 5 минут. */
     leftBy(boot: string, source: string, key: string, over: Partial<InboundRow> = {}) {
-      rows.set(id(source, key), { hits: 1, boot_id: boot, processed: false, attempts: 0, payload: null, ageMin: 1, ...over });
+      rows.set(id(source, key), { hits: 1, boot_id: boot, processed: false, attempts: 0, payload: null, ageMin: 5, ...over });
     },
     fail(err: Error | null) { failing = err; },
     clear() { rows.clear(); failing = null; },
