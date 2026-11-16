@@ -82,6 +82,8 @@ vi.mock('@/lib/max/update-dedup', () => ({
 // tests/unit/chat-inbound-seen.test.ts и на вебхуках.
 vi.mock('@/lib/chat/inbound-seen', () => ({
   isRepeatedInbound: async () => false,
+  admitInbound: async () => 'unknown',
+  markInboundDone: async () => undefined,
 }));
 vi.mock('@/lib/max/max-fetch', () => ({
   maxBot: () => ({

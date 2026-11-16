@@ -18,6 +18,7 @@
  */
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
 import { NextRequest } from 'next/server';
+import { createInboundTable } from '../helpers/inbound-table';
 import { clearBoundChatEmergencies } from '@/lib/kuzmich/bound-chat-route';
 
 const m = vi.hoisted(() => ({
@@ -408,26 +409,38 @@ describe('MAX: повтор того же сообщения (тот же mid) �
     expect(maxSent().filter((t) => t.includes(CABINET_ANSWER))).toHaveLength(1);
   });
 
-  it('повтор после перезапуска процесса (#3433) — база помнит mid, второго хода нет', async () => {
-    m.partner = OPERATOR;
-    const seenInDb = new Map<string, number>();
+  const inboundDb = createInboundTable();
+  const withInboundTable = () => {
+    inboundDb.clear();
     const base = m.pool.getMockImplementation();
-    m.pool.mockImplementation(async (sql: unknown, params?: unknown[]) => {
-      if (String(sql).includes('INSERT INTO chat_inbound_seen')) {
-        const key = `${String(params?.[0])}:${String(params?.[1])}`;
-        const hits = (seenInDb.get(key) ?? 0) + 1;
-        seenInDb.set(key, hits);
-        return { rows: [{ hits }] };
-      }
-      return base ? base(sql, params) : { rows: [] };
-    });
+    m.pool.mockImplementation(async (sql: unknown, params?: unknown[]) =>
+      inboundDb.handle(sql, params) ?? (base ? base(sql, params) : { rows: [] }));
+  };
+
+  it('повтор после перезапуска процесса (#3433) — база помнит обработанный mid, второго хода нет', async () => {
+    m.partner = OPERATOR;
+    withInboundTable();
     const mid = `restart-${MAX_CHAT}`;
     await maxPost('запиши звонок Анне, договорились на 15-е', { mid });
+    expect(inboundDb.get('max_message', mid)).toMatchObject({ processed: true });
     clearMaxMessageDedup(); // процесс перезапустился, память пуста
     await maxPost('запиши звонок Анне, договорились на 15-е', { mid });
 
     expect(crmLoops()).toBe(1);
-    expect(seenInDb.get(`max_message:${mid}`)).toBe(2);
+    expect(inboundDb.get('max_message', mid)?.hits).toBe(2);
+  });
+
+  it('процесс упал посередине (#3433) — повтор MAX подхватывается и отвечается один раз', async () => {
+    m.partner = OPERATOR;
+    withInboundTable();
+    const mid = `crashed-${MAX_CHAT}`;
+    inboundDb.leftBy('dead-boot', 'max_message', mid);
+    await maxPost('запиши звонок Анне, договорились на 15-е', { mid });
+    clearMaxMessageDedup();
+    await maxPost('запиши звонок Анне, договорились на 15-е', { mid });
+
+    expect(crmLoops()).toBe(1);
+    expect(inboundDb.get('max_message', mid)).toMatchObject({ processed: true, attempts: 1 });
   });
 
   it('разные сообщения подряд — оба доходят до помощника', async () => {

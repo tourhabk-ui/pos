@@ -155,6 +155,14 @@ export async function register(): Promise<void> {
     // себя; NODE_ENV отсекает лишь next dev (почему и чего проверка не
     // держит — в шапке lib/max/startup-subscription, там же проверка).
     // Не ждём: старт сервера не стоит в очереди за сетью MAX.
+    // Сообщения Telegram, брошенные прежним запуском (упал посередине ответа),
+    // — подобрать: Telegram их не повторит (#3433, lib/chat/recover-on-start).
+    void import('@/lib/chat/recover-on-start')
+      .then(({ scheduleTelegramRecovery }) => { scheduleTelegramRecovery(); })
+      .catch((err: unknown) => {
+        console.error('[chat/recover] подбор не запланирован:', err instanceof Error ? err.message : String(err));
+      });
+
     if (process.env.MAX_BOT_TOKEN) {
       void import('@/lib/max/startup-subscription')
         .then(({ subscribeMaxOnStart }) => subscribeMaxOnStart())
