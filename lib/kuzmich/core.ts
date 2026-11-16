@@ -9,6 +9,7 @@
  */
 
 import { travelFactsBlock } from '@/lib/kuzmich/travel-facts';
+import { toolSource } from '@/lib/kuzmich/answer-sources';
 import { seasonFactsBlock } from '@/lib/kuzmich/season-facts';
 import { completeTourList, completionSources, questionQueries, type ToursCall } from '@/lib/kuzmich/tour-list-complete';
 import { sellerRequisitesLine } from '@/lib/tours/seller-requisites';
@@ -3124,10 +3125,13 @@ export async function aiChatAgentLoop(
       // контекст судьи, а не в диалог. Целиком инструмент может вернуть
       // десятки килобайт (каталог туров), и это вытеснило бы остальное.
       if (o.executed) {
+        const producedData = toolOutputHasData(o.content);
         toolRuns?.push({
           name: o.name,
-          producedData: toolOutputHasData(o.content),
+          producedData,
           output: journalToolOutput(o.name, o.content),
+          // Источник — из сырого вывода, до обрезки (#3412, п. 1).
+          source: producedData ? toolSource(o.name, o.content) : null,
         });
       }
       // В диалог — обёрнутый untrusted-вывод (анти-prompt-injection); наш
