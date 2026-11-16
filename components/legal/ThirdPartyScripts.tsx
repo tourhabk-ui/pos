@@ -29,7 +29,7 @@ import Script from 'next/script';
 import { ShieldCheck } from 'lucide-react';
 import Link from 'next/link';
 import { THIRD_PARTIES, loadDecision } from '@/lib/legal/third-party-registry';
-import { CONSENT_BUTTONS, readConsent, writeConsent, type ConsentChoice } from '@/lib/legal/consent';
+import { CONSENT_BANNER_ZH, CONSENT_BUTTONS, isZhPath, readConsent, writeConsent, type ConsentChoice } from '@/lib/legal/consent';
 import { isForeignSurface } from '@/lib/embed/widget-frame';
 import { metrikaHit, metrikaInitScript, muteWebvisorFields, shouldTrackPath } from '@/lib/analytics/metrika';
 
@@ -64,6 +64,8 @@ export default function ThirdPartyScripts() {
   if (isForeignSurface(pathname)) return null;
 
   const allowed = THIRD_PARTIES.filter((tp) => loadDecision(tp, choice).load);
+  // На китайских страницах полоса говорит по-китайски (аудит 09.11, п. 6).
+  const zh = isZhPath(pathname);
 
   return (
     <>
@@ -111,13 +113,17 @@ export default function ThirdPartyScripts() {
             по ссылке. Что обязано остаться и остаётся: трансграничная
             передача названа, отказ — кнопка того же размера, что согласие.
           */}
-          <div className="pointer-events-auto mx-auto flex max-h-[15vh] max-w-3xl flex-col gap-1.5 overflow-y-auto sm:flex-row sm:items-center rounded-lg border border-[var(--border)] bg-[var(--bg-card)] px-3 py-2 shadow-lg sm:gap-3 sm:px-4">
+          <div lang={zh ? 'zh-CN' : undefined} className="pointer-events-auto mx-auto flex max-h-[15vh] max-w-3xl flex-col gap-1.5 overflow-y-auto sm:flex-row sm:items-center rounded-lg border border-[var(--border)] bg-[var(--bg-card)] px-3 py-2 shadow-lg sm:gap-3 sm:px-4">
             <ShieldCheck className="hidden h-5 w-5 shrink-0 text-[var(--ocean)] sm:block" aria-hidden />
             <p id="consent-title" className="min-w-0 flex-1 text-xs leading-snug text-[var(--text-secondary)] sm:text-sm">
-              Аналитика и сервисы партнёров, часть передаёт данные за пределы России.
-              Без согласия не грузятся.{' '}
+              {zh ? CONSENT_BANNER_ZH.text : (
+                <>
+                  Аналитика и сервисы партнёров, часть передаёт данные за пределы России.
+                  Без согласия не грузятся.
+                </>
+              )}{' '}
               <Link href="/legal/privacy" className="text-[var(--ocean)] underline">
-                Подробнее
+                {zh ? CONSENT_BANNER_ZH.more : 'Подробнее'}
               </Link>
             </p>
             <div className="flex shrink-0 gap-2">
@@ -126,14 +132,14 @@ export default function ThirdPartyScripts() {
                 onClick={() => decide({ analytics: true, advertising: true })}
                 className="ds-btn ds-btn-primary min-h-[44px] flex-1 px-3 text-sm sm:flex-none"
               >
-                {CONSENT_BUTTONS.accept}
+                {zh ? CONSENT_BANNER_ZH.accept : CONSENT_BUTTONS.accept}
               </button>
               <button
                 type="button"
                 onClick={() => decide(ALL_DENIED)}
                 className="ds-btn ds-btn-secondary min-h-[44px] flex-1 px-3 text-sm sm:flex-none"
               >
-                {CONSENT_BUTTONS.decline}
+                {zh ? CONSENT_BANNER_ZH.decline : CONSENT_BUTTONS.decline}
               </button>
             </div>
           </div>

@@ -59,6 +59,28 @@ export const CONSENT_VERSION = 1;
  */
 export const CONSENT_BUTTONS = { accept: 'Разрешить', decline: 'Только необходимое' } as const;
 
+/**
+ * Тот же баннер на китайских страницах `/zh` (аудит 09.11, п. 6; слово
+ * владельца 16.11 «карт-бланш»). До этого китайский посетитель читал
+ * русскую полосу и не мог понять, на что соглашается, — согласие, которого
+ * человек не понял, согласием не является.
+ *
+ * Смысл тот же, что у русской строки: аналитика и сервисы партнёров, часть
+ * передаёт данные за пределы России, без согласия не грузятся. Политика
+ * конфиденциальности есть только по-русски, и ссылка говорит об этом прямо.
+ */
+export const CONSENT_BANNER_ZH = {
+  text: '网站分析与合作方服务，其中部分会将数据传输到俄罗斯境外。未经您同意，这些服务不会加载。',
+  more: '详情（俄文）',
+  accept: '允许',
+  decline: '仅限必要',
+} as const;
+
+/** Китайская ли это страница — баннер говорит на её языке. */
+export function isZhPath(pathname: string | null | undefined): boolean {
+  return pathname === '/zh' || (pathname ?? '').startsWith('/zh/');
+}
+
 export function readConsent(): { state: ConsentState; choice: ConsentChoice } {
   const denied: ConsentChoice = { analytics: false, advertising: false };
   try {
