@@ -17,6 +17,7 @@
 
 import { pool } from '@/lib/db-pool';
 import { nearestFreeDateSql } from '@/lib/tours/nearest-free-date';
+import { anyDayOpenSql } from '@/lib/tours/schedule-kind';
 import { offerOrderDay, orderOffersBy } from '@/lib/tours/offer-order';
 // Занятие дня плана → слова операторов (`hot_spring` → и `thermal`): одно правило с движком.
 import { rawTypesFor } from '@/lib/planner/constants';
@@ -54,22 +55,23 @@ export async function topToursByActivity(
   await Promise.all(unique.map(async (activity) => {
     try {
       // Без ORDER BY и LIMIT: порядок — правило 1в в TypeScript, после SQL.
-      const { rows } = await pool.query<TopTour & { nearest_free_date: string | null }>(`
+      const { rows } = await pool.query<TopTour & { nearest_free_date: string | null; any_day_open: boolean | null }>(`
         SELECT
           ot.id, ot.slug, ot.title, ot.base_price::text,
           COALESCE(ot.weather_dependent, FALSE) AS weather_dependent,
           p.name AS operator_name,
           p.slug AS operator_slug, p.is_public AS operator_public,
-          ${nearestFreeDateSql('ot')} AS nearest_free_date
+          ${nearestFreeDateSql('ot')} AS nearest_free_date, ${anyDayOpenSql('ot')} AS any_day_open
         FROM operator_tours ot
         JOIN partners p ON p.id = ot.operator_id
         WHERE ot.activity_type = ANY($1::text[])
           AND ot.is_active = true AND ot.is_published = true AND ot.deleted_at IS NULL
       `, [rawTypesFor(activity)]);
-      const [first] = orderOffersBy(rows, (r) => ({ id: String(r.id), nearestFreeDate: r.nearest_free_date ?? null }), { day });
+      const [first] = orderOffersBy(rows, (r) => ({ id: String(r.id), nearestFreeDate: r.nearest_free_date ?? null, anyDayOpen: r.any_day_open ?? null }), { day });
       if (first) {
-        const { nearest_free_date: _date, ...tour } = first;
+        const { nearest_free_date: _date, any_day_open: _open, ...tour } = first;
         void _date;
+        void _open;
         result[activity] = { ...tour, offers_of_kind: rows.length };
       }
     } catch (e) {

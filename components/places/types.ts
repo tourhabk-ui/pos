@@ -116,6 +116,8 @@ export interface PlaceTour {
   seasonEnd: string | null;
   /** Ближайшая дата со свободными местами, 'YYYY-MM-DD'; нет — null (lib/tours/nearest-free-date). */
   nearestFreeDate: string | null;
+  /** Тур «в любой день сезона» открыт сейчас (lib/tours/schedule-kind); null — не прочитано. */
+  anyDayOpen: boolean | null;
   /** Ведёт ли тур календарь; false — «даты по заявке». */
   keepsSchedule: boolean;
   /** partners.id — ключ группы «компания» на карточке места. */

@@ -14,6 +14,7 @@ import {
 } from '../_helpers';
 import { publicTourSql } from '@/lib/tours/public-visibility';
 import { nearestFreeDateSql } from '@/lib/tours/nearest-free-date';
+import { anyDayOpenSql } from '@/lib/tours/schedule-kind';
 import { compareTourOffers, offerOrderDay } from '@/lib/tours/offer-order';
 
 /**
@@ -119,7 +120,7 @@ export const tourService = {
       `SELECT
          t.*,
          p.name AS operator_name,
-         ${nearestFreeDateSql('t')} AS nearest_free_date
+         ${nearestFreeDateSql('t')} AS nearest_free_date, ${anyDayOpenSql('t')} AS any_day_open
        FROM operator_tours t
        LEFT JOIN partners p ON t.operator_id = p.id
        ${whereClause}`,
@@ -127,8 +128,8 @@ export const tourService = {
     );
     const rule = compareTourOffers(offerOrderDay());
     const byRule = (a: Record<string, unknown>, b: Record<string, unknown>) => rule(
-      { id: String(a.id), nearestFreeDate: toStringOrNull(a.nearest_free_date) },
-      { id: String(b.id), nearestFreeDate: toStringOrNull(b.nearest_free_date) },
+      { id: String(a.id), nearestFreeDate: toStringOrNull(a.nearest_free_date), anyDayOpen: typeof a.any_day_open === 'boolean' ? a.any_day_open : null },
+      { id: String(b.id), nearestFreeDate: toStringOrNull(b.nearest_free_date), anyDayOpen: typeof b.any_day_open === 'boolean' ? b.any_day_open : null },
     );
     const field = CHOSEN_SORT[sortBy];
     const dir = sortOrder === 'ASC' ? 1 : -1;

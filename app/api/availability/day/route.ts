@@ -176,7 +176,9 @@ export async function GET(request: NextRequest) {
     // Порядок — правило 1в (lib/tours/offer-order): у всех туров дня есть места
     // на этот день, поэтому их различает жребий дня. До 16.11 стояла сортировка
     // по цене без подписи — общая витрина туров так упорядочиваться не может.
-    const ordered = orderOffersBy(tours, (t) => ({ id: t.tourId, nearestFreeDate: date }), { day: offerOrderDay() });
+    // Признак «любой день сезона» (#3476) порядок здесь не меняет: у каждого
+    // тура дня есть свободный выезд — первая ступень правила у всех.
+    const ordered = orderOffersBy(tours, (t) => ({ id: t.tourId, nearestFreeDate: date, anyDayOpen: null }), { day: offerOrderDay() });
     return NextResponse.json({ success: true, date, tours: ordered });
   } catch (err) {
     // Текст исключения анониму не отдаётся: у PostgreSQL он называет таблицы,

@@ -15,6 +15,7 @@ import { escapeHtml } from '@/lib/text/escape-html';
 import { priceFromUnit, priceFromUnitOrSay } from '@/lib/tours/price-label';
 import { publicTourSql } from '@/lib/tours/public-visibility';
 import { nearestFreeDateSql } from '@/lib/tours/nearest-free-date';
+import { anyDayOpenSql } from '@/lib/tours/schedule-kind';
 import { orderOffersBy, OFFER_ORDER_NOTE_SHORT_RU } from '@/lib/tours/offer-order';
 import { tourPath } from '@/lib/tours/tour-url';
 
@@ -71,6 +72,8 @@ export interface CatalogTour {
   operator_name?: string | null;
   /** Ближайшая свободная дата (lib/tours/nearest-free-date) — ключ правила 1в. */
   nearest_free_date?: string | null;
+  /** Тур «в любой день сезона» открыт сейчас (lib/tours/schedule-kind) — ключ правила 1в. */
+  any_day_open?: boolean | null;
   /** operator_tours.main_place_id — записанное главное место тура. */
   main_place_id?: string | null;
   /** Адрес карточки главного места (slug, ark_id или id), если оно видимо. */
@@ -505,7 +508,7 @@ const SHOWCASE_SELECT = `SELECT ot.id, ot.slug, ot.title, ot.base_price, ot.pric
               concat_ws(' ', ot.title, ot.location_name, coalesce(ot.description, '')) AS match_text,
               ot.season_start::text AS season_start, ot.season_end::text AS season_end,
               p.slug AS operator_slug, p.name AS operator_name,
-              ${nearestFreeDateSql('ot')} AS nearest_free_date,
+              ${nearestFreeDateSql('ot')} AS nearest_free_date, ${anyDayOpenSql('ot')} AS any_day_open,
               ot.main_place_id,
               (SELECT COALESCE(NULLIF(pl.slug, ''), pl.ark_id::text, pl.id)
                  FROM places pl
@@ -544,7 +547,7 @@ export async function loadShowcaseTours(question = ''): Promise<{ ok: true; tour
     const { sql, params } = showcaseQuery(question);
     const { rows } = await pool.query<CatalogTour>(sql, params);
     // Среза нет — список полный всегда; порядок — правило 1в.
-    const tours = orderOffersBy(rows, (t) => ({ id: t.id, nearestFreeDate: t.nearest_free_date ?? null }));
+    const tours = orderOffersBy(rows, (t) => ({ id: t.id, nearestFreeDate: t.nearest_free_date ?? null, anyDayOpen: t.any_day_open ?? null }));
     return { ok: true, tours, complete: true };
   } catch (err) {
     const code = (err as { code?: string } | null)?.code;

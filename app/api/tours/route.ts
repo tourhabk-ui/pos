@@ -3,6 +3,7 @@ import { query } from '@/lib/database';
 import { ApiResponse } from '@/types';
 import { publicTourSql } from '@/lib/tours/public-visibility';
 import { nearestFreeDateSql } from '@/lib/tours/nearest-free-date';
+import { anyDayOpenSql } from '@/lib/tours/schedule-kind';
 import { orderOffersBy } from '@/lib/tours/offer-order';
 import { publicRating } from '@/lib/reviews/public-rating';
 import { BEAR_FALLBACK } from '@/lib/media/wildlife-photos';
@@ -147,7 +148,7 @@ export async function GET(request: NextRequest) {
         t.updated_at,
         p.name as operator_name,
         p.hero_image as partner_hero_image,
-        ${nearestFreeDateSql('t')} AS nearest_free_date
+        ${nearestFreeDateSql('t')} AS nearest_free_date, ${anyDayOpenSql('t')} AS any_day_open
       FROM operator_tours t
       LEFT JOIN partners p ON t.operator_id = p.id
       ${whereClause}
@@ -160,6 +161,7 @@ export async function GET(request: NextRequest) {
     const ordered = orderOffersBy(result.rows, (r) => ({
       id: String(r.id),
       nearestFreeDate: typeof r.nearest_free_date === 'string' ? r.nearest_free_date : null,
+      anyDayOpen: typeof r.any_day_open === 'boolean' ? r.any_day_open : null,
     }));
     const total = ordered.length;
 

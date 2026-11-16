@@ -2,7 +2,10 @@
  * Правило 1в — порядок предложений туров на ОБЩИХ витринах (слово владельца
  * 29.10, «1в 2б 3 да»).
  *
- * Сначала туры со свободной датой — по ближайшему выезду. Остальные (и ничьи
+ * Сначала туры со свободной датой — по ближайшему выезду. Затем туры «в
+ * любой день сезона», открытые сейчас (слово владельца 16.11 «Выезды
+ * первыми», #3476): у них формально свободен любой день, но это не выезд в
+ * календаре, и обгонять настоящие выезды они не должны. Остальные (и ничьи
  * по дате) — «жребий дня»: порядок меняется раз в сутки, по календарной дате
  * Камчатки. Жребий воспроизводим: FNV-1a 32 от строки «дата:id» и
  * финальное перемешивание fmix32 (murmur3), а не Math.random и не RANDOM()
@@ -41,7 +44,7 @@ import { kamchatkaDate } from '@/lib/analytics/kamchatka-day';
 import { plural } from '@/lib/home/data-freshness';
 import { longDay, requestWindow, windowLabel } from '@/lib/tours/request-window';
 
-export const OFFER_ORDER_VERSION = '1v-2026-10-29-fmix';
+export const OFFER_ORDER_VERSION = '1v-2026-11-16-any-day';
 
 const encoder = new TextEncoder();
 
@@ -105,6 +108,13 @@ export interface OfferKeyInput {
   id: string | number;
   /** Ближайшая дата со свободными местами, 'YYYY-MM-DD'; нет — null. */
   nearestFreeDate: string | null;
+  /**
+   * Тур «в любой день сезона» открыт сейчас (`anyDayOpenSql`,
+   * lib/tours/schedule-kind). Обязателен: витрина, которая его не спросила,
+   * молча поставила бы такой тур в жребий — передать `null` можно только
+   * осознанно, и это «не знаю», а не «нет».
+   */
+  anyDayOpen: boolean | null;
 }
 
 const ISO_DAY = /^\d{4}-\d{2}-\d{2}/;
@@ -123,12 +133,20 @@ function compareIds(a: string | number, b: string | number): number {
   return sa < sb ? -1 : sa > sb ? 1 : 0;
 }
 
-/** Компаратор тура: есть дата → дата раньше → жребий дня → id числом. */
+/** Ступень тура: 0 — есть свободный выезд, 1 — открыт «в любой день сезона», 2 — остальные. */
+export function offerTier(k: OfferKeyInput): 0 | 1 | 2 {
+  if (dayKey(k.nearestFreeDate) !== null) return 0;
+  return k.anyDayOpen === true ? 1 : 2;
+}
+
+/** Компаратор тура: ступень → дата раньше (у выездов) → жребий дня → id числом. */
 export function compareTourOffers(day: string): (a: OfferKeyInput, b: OfferKeyInput) => number {
   return (a, b) => {
+    const ta = offerTier(a);
+    const tb = offerTier(b);
+    if (ta !== tb) return ta - tb;
     const da = dayKey(a.nearestFreeDate);
     const db = dayKey(b.nearestFreeDate);
-    if ((da === null) !== (db === null)) return da === null ? 1 : -1;
     if (da !== null && db !== null && da !== db) return da < db ? -1 : 1;
     const la = tourLot(day, a.id);
     const lb = tourLot(day, b.id);
@@ -193,10 +211,11 @@ export function groupOffersByCompany<T extends OfferKeyInput & { partnerId: stri
   const cmpTour = compareTourOffers(day);
   const groups = [...byPartner.values()].map((g) => {
     const tours = [...g.tours].sort(cmpTour);
-    return { group: { ...g, tours }, first: dayKey(tours[0]?.nearestFreeDate) };
+    const head = tours[0];
+    return { group: { ...g, tours }, tier: head ? offerTier(head) : 2, first: dayKey(head?.nearestFreeDate) };
   });
   groups.sort((a, b) => {
-    if ((a.first === null) !== (b.first === null)) return a.first === null ? 1 : -1;
+    if (a.tier !== b.tier) return a.tier - b.tier;
     if (a.first !== null && b.first !== null && a.first !== b.first) return a.first < b.first ? -1 : 1;
     const la = companyLot(day, a.group.partnerId);
     const lb = companyLot(day, b.group.partnerId);
@@ -219,9 +238,9 @@ export function roundRobinByCompany<T>(groups: readonly CompanyGroup<T>[]): T[] 
 // ── Подписи ──────────────────────────────────────────────────────────────
 
 export const OFFER_ORDER_NOTE = {
-  ru: 'Порядок: сначала туры со свободными местами — по ближайшему выезду; остальные раз в сутки меняются местами по жребию. Место в списке не продаётся.',
-  en: 'Order: tours with open seats first, by the nearest departure; the rest are reshuffled by lot once a day. Positions are not for sale.',
-  zh: '排序：有空位的团队游在前，按最近出发日期排列；其余每天抽签调换一次顺序。排名不出售。',
+  ru: 'Порядок: сначала туры со свободными местами — по ближайшему выезду; затем туры в любой день сезона; остальные раз в сутки меняются местами по жребию. Место в списке не продаётся.',
+  en: 'Order: tours with open seats first, by the nearest departure; then tours running any day of the season; the rest are reshuffled by lot once a day. Positions are not for sale.',
+  zh: '排序：有空位的团队游在前，按最近出发日期排列；其次是旺季内每天均可出发的团队游；其余每天抽签调换一次顺序。排名不出售。',
 } as const;
 
 /**
@@ -229,7 +248,7 @@ export const OFFER_ORDER_NOTE = {
  * длинная не помещается в ответ, но правило называется и там (§0).
  */
 export const OFFER_ORDER_NOTE_SHORT_RU =
-  'Порядок: сначала туры со свободными местами, остальные — по жребию дня. Место в списке не продаётся.';
+  'Порядок: сначала туры со свободными местами, затем в любой день сезона, остальные — по жребию дня. Место в списке не продаётся.';
 
 /**
  * Список «другие компании на вашу дату» после отказа (этап 4а): порядок
@@ -237,7 +256,7 @@ export const OFFER_ORDER_NOTE_SHORT_RU =
  * выезд вообще.
  */
 export const OFFER_ORDER_NOTE_ON_DATE_RU =
-  'Компании идут так: сначала те, у кого в календаре есть места на эту дату, затем остальные; внутри каждой группы — жребий дня. Место в списке не продаётся.';
+  'Компании идут так: сначала те, у кого в календаре есть места на эту дату, затем те, кто выезжает в любой день сезона, затем остальные; внутри каждой группы — жребий дня. Место в списке не продаётся.';
 
 /**
  * Календарь туров (/calendar), панель одного дня: у всех туров в ней есть
@@ -249,7 +268,7 @@ export const OFFER_ORDER_NOTE_DAY_RU =
 
 /** Карточка места: порядок КОМПАНИЙ. */
 export const OFFER_ORDER_NOTE_GROUPED_RU =
-  'Компании идут так: сначала те, у кого есть свободные места, — по ближайшему выезду; остальные раз в сутки меняются местами по жребию. Место в списке не продаётся.';
+  'Компании идут так: сначала те, у кого есть свободные места, — по ближайшему выезду; затем те, кто выезжает в любой день сезона; остальные раз в сутки меняются местами по жребию. Место в списке не продаётся.';
 
 /** Под кнопками сортировки (каталог, карточка маршрута). */
 export const SORT_CHOICE_NOTE_RU =
@@ -257,7 +276,7 @@ export const SORT_CHOICE_NOTE_RU =
 
 /** Для агента (каталог Кузьмича, get_tours, get_place_info): та же суть одной строкой. */
 export const OFFER_ORDER_NOTE_AGENT =
-  'Порядок туров — правило платформы: сначала со свободными местами по ближайшей дате, остальные раз в сутки по жребию; не «лучшие» и не «рекомендуемые». Место в списке не продаётся.';
+  'Порядок туров — правило платформы: сначала со свободными местами по ближайшей дате, затем туры в любой день сезона, остальные раз в сутки по жребию; не «лучшие» и не «рекомендуемые». Место в списке не продаётся.';
 
 /** «2 предложения от 2 компаний», «1 предложение от 1 компании», «21 предложение от 21 компании». */
 export function offersSummary(tours: number, companies: number): string {

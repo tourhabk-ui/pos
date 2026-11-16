@@ -97,6 +97,8 @@ export interface PlateOrderInput {
   operatorName?: string | null;
   /** Ближайшая дата со свободными местами ('YYYY-MM-DD'); нет — null. */
   nearestFreeDate?: string | null;
+  /** Тур «в любой день сезона» открыт сейчас (`anyDayOpenSql`). */
+  anyDayOpen?: boolean | null;
 }
 
 /**
@@ -126,6 +128,7 @@ export function orderPlates<T extends PlateOrderInput>(plates: readonly T[], opt
       plate: p,
       id: p.id,
       nearestFreeDate: p.nearestFreeDate ?? null,
+      anyDayOpen: p.anyDayOpen ?? null,
       partnerId: p.partnerId?.trim() ? p.partnerId.trim() : `tour:${p.id}`,
       partnerName: p.operatorName ?? '',
     })),

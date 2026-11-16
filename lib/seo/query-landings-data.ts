@@ -13,6 +13,7 @@
 import { pool } from '@/lib/db-pool';
 import { publicTourSql } from '@/lib/tours/public-visibility';
 import { nearestFreeDateSql } from '@/lib/tours/nearest-free-date';
+import { anyDayOpenSql } from '@/lib/tours/schedule-kind';
 import { orderOffersBy } from '@/lib/tours/offer-order';
 import { logText } from '@/lib/log/log-text';
 import { withZhTitles, type ZhTourRow } from '@/lib/zh/entry';
@@ -23,6 +24,8 @@ export interface LandingTourRow extends ZhTourRow {
   season_end: string | null;
   /** Ближайшая дата со свободными местами, 'YYYY-MM-DD'; нет — null (по запросу). */
   next_open_date: string | null;
+  /** Тур «в любой день сезона» открыт сейчас (lib/tours/schedule-kind). */
+  any_day_open: boolean | null;
   activity_type?: string | null;
   location_name?: string | null;
 }
@@ -109,7 +112,7 @@ export function landingToursSql(): string {
               ot.duration_hours::text AS duration_hours,
               ot.season_start::text AS season_start, ot.activity_type, ot.location_name, ot.season_end::text AS season_end,
               p.name AS operator_name, p.slug AS operator_slug, p.is_public AS operator_public,
-              ${nearestFreeDateSql('ot')} AS next_open_date
+              ${nearestFreeDateSql('ot')} AS next_open_date, ${anyDayOpenSql('ot')} AS any_day_open
          FROM operator_tours ot
          JOIN partners p ON ot.operator_id = p.id
         WHERE ${publicTourSql('ot')}`;
@@ -120,7 +123,7 @@ export async function loadLandingTours(topic: LandingTopic, withZh: boolean): Pr
   try {
     const { rows } = await pool.query<LandingTourRow>(landingToursSql());
     const picked = rows.filter((r) => matchesTopic({ activity_type: r.activity_type ?? null, title: r.title, location_name: r.location_name ?? null }, topic));
-    const ordered = orderOffersBy(picked, (r) => ({ id: r.id, nearestFreeDate: r.next_open_date ?? null }));
+    const ordered = orderOffersBy(picked, (r) => ({ id: r.id, nearestFreeDate: r.next_open_date ?? null, anyDayOpen: r.any_day_open ?? null }));
     return withZh ? await withZhTitles(ordered) : ordered;
   } catch (err) {
     const code = (err as { code?: unknown })?.code;

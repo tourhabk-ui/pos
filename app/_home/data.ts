@@ -34,6 +34,7 @@ import { STAY_PHOTO_ORDER_SQL } from '@/lib/stay/photo-order';
 import { loadCharterCarriers } from '@/lib/transfers/charter';
 import { catalogAvailability, type CatalogAvailability } from '@/lib/tours/catalog-availability';
 import { nearestFreeDateSql } from '@/lib/tours/nearest-free-date';
+import { anyDayOpenSql } from '@/lib/tours/schedule-kind';
 import { publicTourSql } from '@/lib/tours/public-visibility';
 import { tourHeroImageSql } from '@/lib/tours/hero-image';
 import { HOME_ALERTS_LIMIT } from '@/lib/home/radar-summary';
@@ -122,6 +123,8 @@ export interface Plate {
   partnerId?: string | null;
   /** Ближайшая дата со свободными местами ('YYYY-MM-DD'); нет — null. Ключ правила 1в. */
   nearestFreeDate?: string | null;
+  /** Тур «в любой день сезона» открыт сейчас (`anyDayOpenSql`). Ключ правила 1в. */
+  anyDayOpen?: boolean | null;
 }
 /**
  * Место для «Исследовать» — направление «сам» (решение владельца 25.09:
@@ -393,6 +396,7 @@ export async function fetchPlates(): Promise<Plate[]> {
       duration_hours: string | null; duration_type: string | null; multi_day_count: number | null;
       season_start: string | null; season_end: string | null;
       cancellation_policy: string | null; partner_id: string; nearest_free_date: string | null;
+      any_day_open: boolean | null;
     }>(`
       SELECT ot.id::text, ot.slug, ot.title,
              COALESCE(NULLIF(ot.short_description, ''), LEFT(ot.description, 140)) AS description,
@@ -406,7 +410,8 @@ export async function fetchPlates(): Promise<Plate[]> {
              ot.season_start::text, ot.season_end::text,
              NULLIF(btrim(ot.cancellation_policy), '') AS cancellation_policy,
              p.id::text AS partner_id,
-             ${nearestFreeDateSql('ot')} AS nearest_free_date
+             ${nearestFreeDateSql('ot')} AS nearest_free_date,
+             ${anyDayOpenSql('ot')} AS any_day_open
         FROM operator_tours ot
         JOIN partners p ON ot.operator_id = p.id
        WHERE ${publicTourSql('ot')}
@@ -436,6 +441,7 @@ export async function fetchPlates(): Promise<Plate[]> {
         cancellationPolicy: r.cancellation_policy,
         partnerId: r.partner_id,
         nearestFreeDate: r.nearest_free_date,
+        anyDayOpen: r.any_day_open ?? null,
         availability: catalogAvailability({
           has_availability: r.nearest_free_date != null,
           season_start: r.season_start,

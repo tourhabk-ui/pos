@@ -22,6 +22,7 @@ import { PriceTierMissError } from '@/lib/tours/price-tiers';
 import { honestTourPrice, loadPricingContext, composeHonestPrice } from '@/lib/tours/honest-price';
 import { requestWindow, windowLabel, type RequestWindow } from '@/lib/tours/request-window';
 import { nearestFreeDateSql } from '@/lib/tours/nearest-free-date';
+import { anyDayOpenSql } from '@/lib/tours/schedule-kind';
 import { orderOffersBy } from '@/lib/tours/offer-order';
 import { loadPlaceOffersForTour } from '@/lib/places/place-tours';
 import { ruPlacePath } from '@/lib/zh/pages';
@@ -157,7 +158,7 @@ const CANDIDATE_COLUMNS = `ot.id, ot.title, ot.operator_id, ot.base_price, ot.pr
        ot.main_place_id,
        p.name AS operator_name,
        pl.name AS place_name, pl.slug AS place_slug, pl.ark_id::text AS place_ark_id,
-       ${nearestFreeDateSql('ot')} AS nearest_free_date`;
+       ${nearestFreeDateSql('ot')} AS nearest_free_date, ${anyDayOpenSql('ot')} AS any_day_open`;
 
 /** Откуда и шлюз витрины — одной строкой: запрос кандидатов без шлюза не собрать. */
 const CANDIDATE_FROM = `FROM operator_tours ot
@@ -322,6 +323,8 @@ export interface TourCandidate extends ResolvedTour {
   place: CandidatePlace | null;
   /** Ближайшая дата со свободными местами (lib/tours/nearest-free-date). */
   nearest_free_date: string | null;
+  /** Тур «в любой день сезона» открыт сейчас (lib/tours/schedule-kind). */
+  any_day_open: boolean | null;
 }
 
 /** Продавец, найденный по имени: для подписи и ссылки на его страницу. */
@@ -392,6 +395,7 @@ interface CandidateRow {
   place_slug: string | null;
   place_ark_id: string | null;
   nearest_free_date: string | null;
+  any_day_open: boolean | null;
   /** Ранг: меньше — лучше. */
   rank?: number | string | null;
   /** Запасной путь: есть ли каждая основа запроса в названии, месте, описании или виде (по порядку основ). */
@@ -420,6 +424,7 @@ function toCandidate(r: CandidateRow): TourCandidate {
       ? { id: placeId, name: r.place_name, slug: r.place_slug ?? null, ark_id: r.place_ark_id ?? null }
       : null,
     nearest_free_date: r.nearest_free_date ?? null,
+    any_day_open: typeof r.any_day_open === 'boolean' ? r.any_day_open : null,
   };
 }
 
@@ -428,7 +433,7 @@ function companyKey(t: TourCandidate): string {
   return t.operator_id ?? `tour:${t.id}`;
 }
 
-const byOfferOrder = (t: TourCandidate) => ({ id: t.id, nearestFreeDate: t.nearest_free_date });
+const byOfferOrder = (t: TourCandidate) => ({ id: t.id, nearestFreeDate: t.nearest_free_date, anyDayOpen: t.any_day_open ?? null });
 
 /** Кандидаты лучшего ранга — по правилу 1в: тот же порядок, что у витрин. */
 function bestCandidates(rows: CandidateRow[], rankOf: (r: CandidateRow) => number): TourCandidate[] {

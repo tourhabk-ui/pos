@@ -36,6 +36,7 @@ import { WAYPOINT_PHOTOS_SQL, toWaypointPhotos, type WaypointPhotos } from '@/li
 import { payloadText, payloadStrings } from '@/lib/routes/payload-text';
 import { UTC_WALL_NOW_SQL } from '@/lib/db/timestamp-iso';
 import { loadNearestFreeDates } from '@/lib/tours/nearest-free-date';
+import { anyDayOpenSql } from '@/lib/tours/schedule-kind';
 import { orderOffersBy, offerOrderDay } from '@/lib/tours/offer-order';
 
 /**
@@ -210,7 +211,9 @@ export async function loadRouteDetail(id: string, opts: RouteDetailOptions) {
          v.operator_hero_image,
          p.is_public AS operator_public,
          -- Признака группы во вьюхе нет (1342): читается из самого тура.
-         ot.group_size_unlimited
+         ot.group_size_unlimited,
+         -- «В любой день сезона» — тоже из тура: вторая ступень правила 1в.
+         ${anyDayOpenSql('ot')} AS any_day_open
        FROM v_route_marketplace v
        -- Открыта ли карточка оператора — из partners, а не «по построению»
        -- WHERE вьюхи: ссылке на его страницу (13.10) нужен источник.
@@ -227,7 +230,11 @@ export async function loadRouteDetail(id: string, opts: RouteDetailOptions) {
       nearest.state === 'ok' ? nearest.seatsById.get(String(id)) ?? null : null;
     const ordered = orderOffersBy(
       offersResult.rows,
-      o => ({ id: String(o.tour_id), nearestFreeDate: nearestOf(o.tour_id) }),
+      o => ({
+        id: String(o.tour_id),
+        nearestFreeDate: nearestOf(o.tour_id),
+        anyDayOpen: typeof o.any_day_open === 'boolean' ? o.any_day_open : null,
+      }),
       { day: offerOrderDay() },
     );
 

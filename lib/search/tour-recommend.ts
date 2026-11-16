@@ -25,6 +25,7 @@ import { query } from '@/lib/database';
 import { publicTourSql } from '@/lib/tours/public-visibility';
 import { loadNearestFreeDates } from '@/lib/tours/nearest-free-date';
 import { compareTourOffers, offerOrderDay } from '@/lib/tours/offer-order';
+import { anyDayOpenSql } from '@/lib/tours/schedule-kind';
 
 // ── Типы ──────────────────────────────────────────────────────
 export type RecommendationStrategy =
@@ -50,14 +51,20 @@ export interface RecommendedTour {
   strategyLabel: string;
 }
 
-/** Кандидат стратегии: балл совпадения — релевантность, больше — выше. */
-type Candidate = Omit<RecommendedTour, 'strategy' | 'strategyLabel'> & { match_score?: number | string | null };
+/**
+ * Кандидат стратегии: балл совпадения — релевантность, больше — выше;
+ * `any_day_open` — тур «в любой день сезона» открыт сейчас (ключ правила 1в).
+ */
+type Candidate = Omit<RecommendedTour, 'strategy' | 'strategyLabel'> & {
+  match_score?: number | string | null;
+  any_day_open?: boolean | null;
+};
 
 /**
  * Балл совпадения DESC, ничья — правило 1в. Чистая функция, со сторожем
  * (tests/unit/tour-recommend-order.test.ts).
  */
-export function orderByScoreThenRule<T extends { id: string | number; match_score?: number | string | null }>(
+export function orderByScoreThenRule<T extends { id: string | number; match_score?: number | string | null; any_day_open?: boolean | null }>(
   rows: readonly T[],
   dates: ReadonlyMap<string, string | null>,
   day: string,
@@ -68,8 +75,8 @@ export function orderByScoreThenRule<T extends { id: string | number; match_scor
     return Number.isFinite(n) ? n : 0;
   };
   return [...rows].sort((a, b) => score(b) - score(a) || rule(
-    { id: a.id, nearestFreeDate: dates.get(String(a.id)) ?? null },
-    { id: b.id, nearestFreeDate: dates.get(String(b.id)) ?? null },
+    { id: a.id, nearestFreeDate: dates.get(String(a.id)) ?? null, anyDayOpen: a.any_day_open ?? null },
+    { id: b.id, nearestFreeDate: dates.get(String(b.id)) ?? null, anyDayOpen: b.any_day_open ?? null },
   ));
 }
 
@@ -102,6 +109,7 @@ async function getSimilarUsersRecommendations(
          t.location_name               AS location,
          t.rating,
          t.photos AS images,
+         ${anyDayOpenSql('t')} AS any_day_open,
          COUNT(DISTINCT b2.user_id)::int AS match_score
        FROM operator_bookings b1
        JOIN operator_bookings b2 ON b2.operator_tour_id = b1.operator_tour_id
@@ -183,6 +191,7 @@ async function getContentBasedRecommendations(
          location_name   AS location,
          rating,
          photos AS images,
+         ${anyDayOpenSql('operator_tours')} AS any_day_open,
          (CASE WHEN activity_type = $2 THEN 3 ELSE 0 END +
           CASE WHEN difficulty = $3 THEN 2 ELSE 0 END +
           CASE WHEN base_price BETWEEN $4 AND $5 THEN 1 ELSE 0 END) AS match_score
@@ -245,6 +254,7 @@ async function getEcoOptimizedRecommendations(
          location_name   AS location,
          rating,
          photos AS images, eco_points_reward,
+         ${anyDayOpenSql('operator_tours')} AS any_day_open,
          eco_points_reward AS match_score
        FROM operator_tours
        WHERE id != ALL($1::bigint[])
@@ -305,7 +315,7 @@ export async function getRecommendations(
   const nearest = await loadNearestFreeDates([...similarAll, ...contentAll, ...ecoAll].map((r) => String(r.id)));
   const dates: ReadonlyMap<string, string | null> = nearest.state === 'ok' ? nearest.byId : new Map();
   const top = (rows: Candidate[], strategy: RecommendationStrategy): RecommendedTour[] =>
-    orderByScoreThenRule(rows, dates, day).slice(0, perStrategy).map(({ match_score: _score, ...r }) => ({
+    orderByScoreThenRule(rows, dates, day).slice(0, perStrategy).map(({ match_score: _score, any_day_open: _open, ...r }) => ({
       ...r,
       strategy,
       strategyLabel: STRATEGY_LABELS[strategy],
@@ -335,7 +345,8 @@ export async function getRecommendations(
               duration_hours AS duration,
               activity_type  AS category,
               location_name  AS location,
-              rating, photos AS images
+              rating, photos AS images,
+              ${anyDayOpenSql('operator_tours')} AS any_day_open
        FROM operator_tours
        WHERE ${publicTourSql('')}
          AND ($1::text IS NULL OR activity_type = $1)`,
@@ -344,7 +355,7 @@ export async function getRecommendations(
     const fbDates = await loadNearestFreeDates(fallback.rows.map((r) => String(r.id)));
     return orderByScoreThenRule(fallback.rows, fbDates.state === 'ok' ? fbDates.byId : new Map(), day)
       .slice(0, limit)
-      .map(({ match_score: _score, ...r }) => ({
+      .map(({ match_score: _score, any_day_open: _open, ...r }) => ({
         ...r,
         strategy: 'TOUR_CONTENT' as const,
         strategyLabel: 'Туры платформы: сначала со свободными местами',

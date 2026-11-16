@@ -346,6 +346,65 @@ withPg('витрина туров: снятый тур не в плане и н�
   // Одно условие на все витрины (lib/tours/nearest-free-date). По нему строится
   // порядок, поэтому каждая граница судится здесь, на схеме прода.
 
+  it('«в любой день сезона» (1457, #3476): SQL-правило и его двойник в TypeScript отвечают одинаково; CHECK держит признак', async () => {
+    const op = '00000000-0000-4000-8000-0000000c4755';
+    await pool.query(
+      `INSERT INTO partners (id, name, category, contact, slug, is_public, is_verified, status)
+       VALUES ($1, 'Любой день', 'operator', '{}'::jsonb, 'w2pt-any-day', TRUE, TRUE, 'active')`, [op],
+    );
+    // [метка, schedule_kind, сезон от, сезон до (смещения от сегодня по Камчатке), тип длительности, дней, часов]
+    const cases: Array<[string, string | null, number | null, number | null, string | null, number | null, number]> = [
+      ['идёт сезон', 'any_day', -10, 30, null, null, 8],
+      ['сезон впереди', 'any_day', 60, 120, null, null, 8],
+      ['последний день сезона сегодня', 'any_day', -10, 0, null, null, 8],
+      ['сезон кончился', 'any_day', -60, -1, null, null, 8],
+      ['многодневный не успевает', 'any_day', -10, 2, 'multi_day', 4, 8],
+      ['многодневный успевает', 'any_day', -10, 3, 'multi_day', 4, 8],
+      ['длиннее суток не успевает', 'any_day', -10, 1, null, null, 50],
+      ['сезон короче тура', 'any_day', 10, 11, 'multi_day', 5, 8],
+      ['сезон не записан', 'any_day', null, null, null, null, 8],
+      ['свои даты', 'departures', -10, 30, null, null, 8],
+      ['не указано', null, -10, 30, null, null, 8],
+    ];
+    const ids: string[] = [];
+    for (const [label, kind, from, to, durType, days, hours] of cases) {
+      ids.push((await pool.query<{ id: string }>(
+        `INSERT INTO operator_tours (operator_id, title, slug, activity_type, base_price, price_unit,
+                                     min_participants, max_participants, duration_hours, duration_type, multi_day_count,
+                                     season_start, season_end, schedule_kind, is_active, is_published)
+         VALUES ($1, $2, $3, 'any_day_probe', 1000, 'per_person', 1, 4, $4, $5, $6,
+                 CASE WHEN $7::int IS NULL THEN NULL ELSE (NOW() AT TIME ZONE 'Asia/Kamchatka')::date + $7::int END,
+                 CASE WHEN $8::int IS NULL THEN NULL ELSE (NOW() AT TIME ZONE 'Asia/Kamchatka')::date + $8::int END,
+                 $9, TRUE, TRUE) RETURNING id::text`,
+        [op, `W2PT ${label}`, `w2pt-any-day-${ids.length}`, hours, durType, days, from, to, kind],
+      )).rows[0].id);
+    }
+    const { anyDayOpenSql, anyDayOpen } = await import('@/lib/tours/schedule-kind');
+    const today = (await pool.query<{ d: string }>(`SELECT ((NOW() AT TIME ZONE 'Asia/Kamchatka')::date)::text AS d`)).rows[0].d;
+    const rows = (await pool.query<{
+      id: string; open: boolean; schedule_kind: string | null; season_start: string | null; season_end: string | null;
+      duration_type: string | null; multi_day_count: number | null; duration_hours: string | null;
+    }>(
+      `SELECT ot.id::text AS id, ${anyDayOpenSql('ot')} AS open, ot.schedule_kind,
+              ot.season_start::text AS season_start, ot.season_end::text AS season_end,
+              ot.duration_type, ot.multi_day_count, ot.duration_hours::text AS duration_hours
+         FROM operator_tours ot WHERE ot.id = ANY($1::bigint[])`, [ids],
+    )).rows;
+    const byId = new Map(rows.map((r) => [r.id, r]));
+    const got = cases.map(([label], i) => {
+      const r = byId.get(ids[i])!;
+      const ts = anyDayOpen({ ...r, duration_hours: r.duration_hours == null ? null : Number(r.duration_hours) }, today);
+      return [label, r.open === true, ts];
+    });
+    // SQL и TypeScript согласны на каждом случае.
+    for (const [label, sql, ts] of got) expect(ts, String(label)).toBe(sql);
+    expect(got.filter(([, sql]) => sql).map(([label]) => label)).toEqual([
+      'идёт сезон', 'сезон впереди', 'последний день сезона сегодня', 'многодневный успевает',
+    ]);
+    await expect(pool.query(`UPDATE operator_tours SET schedule_kind = 'weekly' WHERE id = $1`, [ids[0]]))
+      .rejects.toMatchObject({ code: '23514' });
+  });
+
   it('ближайшая свободная дата: вчера по Камчатке, отменённая, удалённая, занятая и за год — не даты', async () => {
     const other = '00000000-0000-4000-8000-0000000c4741';
     await pool.query(

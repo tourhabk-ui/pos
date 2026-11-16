@@ -34,6 +34,7 @@ import { z } from 'zod';
 import { pool } from '@/lib/db-pool';
 import { publicTourSql } from '@/lib/tours/public-visibility';
 import { nearestFreeDateInWindowSql, nearestFreeDateSql } from '@/lib/tours/nearest-free-date';
+import { anyDayOpenSql } from '@/lib/tours/schedule-kind';
 import { keepsScheduleSql } from '@/lib/tours/schedule';
 import { catalogRowFitsDay } from '@/lib/planner/tour-day-fit';
 import { kamchatkaToday } from '@/lib/planner/calendar-days';
@@ -96,6 +97,8 @@ interface TourRow {
   operator_slug:     string;
   /** Ближайшая дата со свободными местами ('YYYY-MM-DD'); нет — null. */
   nearest_free_date: string | null;
+  /** Тур «в любой день сезона» открыт сейчас (`anyDayOpenSql`). */
+  any_day_open:      boolean | null;
   /** Только с `date`: сезон, длительность, ведёт ли тур календарь, места в этот день. */
   season_start?:     string | null;
   season_end?:       string | null;
@@ -128,7 +131,7 @@ const SELECT_HEAD = `
         ot.tour_image,
         p.name  AS operator_name,
         p.slug  AS operator_slug,
-        ${nearestFreeDateSql('ot')} AS nearest_free_date`;
+        ${nearestFreeDateSql('ot')} AS nearest_free_date, ${anyDayOpenSql('ot')} AS any_day_open`;
 const SELECT_FROM = `
       FROM operator_tours ot
       JOIN partners p ON p.id = ot.operator_id`;
@@ -143,7 +146,7 @@ function preview(r: TourRow) {
 function firstByRule(rows: readonly TourRow[], limit: number, date: string | undefined) {
   const today = kamchatkaToday();
   const fit = date ? rows.filter((r) => catalogRowFitsDay(r, date, today)) : rows;
-  return orderOffersBy(fit, (r) => ({ id: String(r.id), nearestFreeDate: r.nearest_free_date ?? null }))
+  return orderOffersBy(fit, (r) => ({ id: String(r.id), nearestFreeDate: r.nearest_free_date ?? null, anyDayOpen: r.any_day_open ?? null }))
     .slice(0, limit)
     .map(preview);
 }

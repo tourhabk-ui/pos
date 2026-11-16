@@ -11,6 +11,7 @@ import { MCP_CATALOGS, MCP_TITLE_EN, MCP_DESCRIPTION_EN } from '@/lib/mcp/catalo
 import { MCP_CONNECT_OPTIONS, MCP_SYSTEM_PROMPT_LINE_EN } from '@/lib/mcp/connect';
 import { publicTourSql } from '@/lib/tours/public-visibility';
 import { nearestFreeDateSql } from '@/lib/tours/nearest-free-date';
+import { anyDayOpenSql } from '@/lib/tours/schedule-kind';
 import { OFFER_ORDER_NOTE, orderOffersBy } from '@/lib/tours/offer-order';
 import { llmsSectionZh } from '@/lib/mcp/zh-layer';
 import { paymentRule, paymentRuleEn } from '@/lib/mcp/payment-rule';
@@ -62,17 +63,17 @@ export async function GET(request?: Request) {
   // Камчатки», а не витрину продаж. Витринные флаги — как у sitemap и MCP.
   // Весь каталог и порядок правила 1в (слово владельца 29.10): прежние
   // «первые 40 по цене» поднимали дешёвое и молча прятали остальное.
-  let tours: { id: string; slug: string | null; title: string; base_price: string; activity_type: string | null; operator_name: string | null; operator_verified: boolean | null; nearest_free_date: string | null }[] = [];
+  let tours: { id: string; slug: string | null; title: string; base_price: string; activity_type: string | null; operator_name: string | null; operator_verified: boolean | null; nearest_free_date: string | null; any_day_open: boolean | null }[] = [];
   try {
     const { rows } = await pool.query<typeof tours[number]>(`
       SELECT ot.id, ot.slug, ot.title, ot.base_price, ot.activity_type, p.name AS operator_name,
              p.is_verified AS operator_verified,
-             ${nearestFreeDateSql('ot')} AS nearest_free_date
+             ${nearestFreeDateSql('ot')} AS nearest_free_date, ${anyDayOpenSql('ot')} AS any_day_open
       FROM operator_tours ot
       JOIN partners p ON p.id = ot.operator_id
       WHERE ${publicTourSql('ot')}
     `);
-    tours = orderOffersBy(rows, (t) => ({ id: t.id, nearestFreeDate: t.nearest_free_date ?? null }));
+    tours = orderOffersBy(rows, (t) => ({ id: t.id, nearestFreeDate: t.nearest_free_date ?? null, anyDayOpen: t.any_day_open ?? null }));
   } catch (e) {
     // Секция туров не печатается, но отказ не глушится (§4.0).
     degraded.push('туры');

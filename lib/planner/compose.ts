@@ -25,6 +25,7 @@ import { planTourPrice } from '@/lib/planner/tour-price';
 import { priceFromUnit } from '@/lib/tours/price-label';
 import { publicTourSql } from '@/lib/tours/public-visibility';
 import { nearestFreeDateSql } from '@/lib/tours/nearest-free-date';
+import { anyDayOpenSql } from '@/lib/tours/schedule-kind';
 import { orderOffersBy, offerOrderDay } from '@/lib/tours/offer-order';
 
 
@@ -88,6 +89,8 @@ interface TourRow {
   tour_image: string | null;
   /** Ближайшая дата со свободными местами ('YYYY-MM-DD'); нет — null. Ключ правила 1в. */
   nearest_free_date: string | null;
+  /** Тур «в любой день сезона» открыт сейчас (`anyDayOpenSql`). Ключ правила 1в. */
+  any_day_open: boolean | null;
 }
 
 /**
@@ -95,7 +98,7 @@ interface TourRow {
  * внутри вида — правило 1в. Чистая функция, со сторожем
  * (tests/unit/planner-offer-order.test.ts).
  */
-export function orderComposeCandidates<T extends { row: { id: number | string; activity_type: string | null; nearest_free_date: string | null } }>(
+export function orderComposeCandidates<T extends { row: { id: number | string; activity_type: string | null; nearest_free_date: string | null; any_day_open?: boolean | null } }>(
   items: readonly T[],
   day: string,
 ): T[] {
@@ -107,7 +110,7 @@ export function orderComposeCandidates<T extends { row: { id: number | string; a
     else groups.set(key, [it]);
   }
   return [...groups.values()].flatMap((g) =>
-    orderOffersBy(g, (it) => ({ id: String(it.row.id), nearestFreeDate: it.row.nearest_free_date ?? null }), { day }),
+    orderOffersBy(g, (it) => ({ id: String(it.row.id), nearestFreeDate: it.row.nearest_free_date ?? null, anyDayOpen: it.row.any_day_open ?? null }), { day }),
   );
 }
 
@@ -193,7 +196,7 @@ export async function composeTrip(params: ComposeTripParams): Promise<ComposedTr
            t.multi_day_count, t.duration_hours,
            COALESCE(p.company_name, p.name) AS operator_name,
            t.location_name AS location, t.difficulty, t.tour_image,
-           ${nearestFreeDateSql('t')} AS nearest_free_date
+           ${nearestFreeDateSql('t')} AS nearest_free_date, ${anyDayOpenSql('t')} AS any_day_open
     FROM operator_tours t
     JOIN partners p ON p.id = t.operator_id
     WHERE ${publicTourSql('t')}

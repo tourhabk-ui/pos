@@ -7,6 +7,7 @@ import { z } from 'zod';
 import { searchService } from '@/lib/services';
 import { publicTourSql } from '@/lib/tours/public-visibility';
 import { nearestFreeDateSql } from '@/lib/tours/nearest-free-date';
+import { anyDayOpenSql } from '@/lib/tours/schedule-kind';
 import { orderOffersBy } from '@/lib/tours/offer-order';
 import { logSwallowedFailure } from '@/lib/observability/swallowed';
 import {
@@ -121,17 +122,17 @@ export async function GET(request: NextRequest) {
       const tagResult = await dbQuery<{
         id: string; title: string; description: string; price: number;
         category: string; difficulty: string; ai_tags: Record<string, unknown>;
-        nearest_free_date: string | null;
+        nearest_free_date: string | null; any_day_open: boolean | null;
       }>(
         `SELECT ot.id, title, description, base_price AS price, activity_type AS category, difficulty, ai_tags,
-                ${nearestFreeDateSql('ot')} AS nearest_free_date
+                ${nearestFreeDateSql('ot')} AS nearest_free_date, ${anyDayOpenSql('ot')} AS any_day_open
          FROM operator_tours ot
          WHERE ${conditions.join(' AND ')}`,
         sqlParams
       );
       // Порядок — правило 1в, а не рейтинг (до 29.10 — `rating DESC`);
       // страница режется после порядка.
-      const tagOrdered = orderOffersBy(tagResult.rows, (r) => ({ id: String(r.id), nearestFreeDate: r.nearest_free_date ?? null }));
+      const tagOrdered = orderOffersBy(tagResult.rows, (r) => ({ id: String(r.id), nearestFreeDate: r.nearest_free_date ?? null, anyDayOpen: r.any_day_open ?? null }));
       const tagPage = tagOrdered.slice(offset, offset + limit).map((r) => ({
         id: r.id, title: r.title, description: r.description, price: r.price,
         category: r.category, difficulty: r.difficulty, ai_tags: r.ai_tags,

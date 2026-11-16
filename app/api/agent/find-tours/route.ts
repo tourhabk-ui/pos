@@ -26,6 +26,7 @@ import { z } from 'zod';
 import { query } from '@/lib/database';
 import { requireAgent } from '@/lib/auth/middleware';
 import { orderOffersBy } from '@/lib/tours/offer-order';
+import { anyDayOpenSql } from '@/lib/tours/schedule-kind';
 
 export const dynamic = 'force-dynamic';
 
@@ -90,7 +91,8 @@ export async function GET(req: NextRequest) {
       GREATEST(0, LEAST(a.available_slots, COALESCE(t.max_participants, a.available_slots)) - occ.taken) AS available_spots,
       COALESCE(a.base_price_override, t.base_price)::numeric          AS price,
       t.price_unit,
-      t.multi_day_count
+      t.multi_day_count,
+      ${anyDayOpenSql('t')}                                            AS any_day_open
     FROM operator_tours t
     JOIN partners p ON t.operator_id = p.id
     JOIN tour_availability a
@@ -125,6 +127,7 @@ export async function GET(req: NextRequest) {
   const data = orderOffersBy(rows.rows, (r) => ({
     id: String(r.tour_id),
     nearestFreeDate: typeof r.available_date === 'string' ? r.available_date : null,
+    anyDayOpen: typeof r.any_day_open === 'boolean' ? r.any_day_open : null,
   })).slice(0, limit);
 
   return NextResponse.json({

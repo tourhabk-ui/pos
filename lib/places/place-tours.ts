@@ -36,6 +36,7 @@
 import { pool } from '@/lib/db-pool';
 import { publicTourSql } from '@/lib/tours/public-visibility';
 import { nearestFreeDateSql } from '@/lib/tours/nearest-free-date';
+import { anyDayOpenSql } from '@/lib/tours/schedule-kind';
 import { keepsScheduleSql } from '@/lib/tours/schedule';
 import {
   OFFER_ORDER_NOTE_AGENT, groupOffersByCompany, offerDatesPhrase, offerOrderDay, offersSummary, orderOffers,
@@ -67,6 +68,8 @@ export interface PlaceTourOffer {
   seasonEnd: string | null;
   /** Ближайшая дата со свободными местами, 'YYYY-MM-DD'; нет — null. */
   nearestFreeDate: string | null;
+  /** Тур «в любой день сезона» открыт сейчас (`anyDayOpenSql`); null — не прочитано. */
+  anyDayOpen: boolean | null;
   /** Ведёт ли тур календарь (keepsScheduleSql). */
   keepsSchedule: boolean;
   /** = !keepsSchedule: даты по заявке. Производное, для агента. */
@@ -92,7 +95,7 @@ export const PLACE_TOURS_SQL = `
          ot.season_start::text AS season_start, ot.season_end::text AS season_end,
          p.id::text AS partner_id, p.name AS partner_name, p.slug AS partner_slug,
          p.is_public AS partner_public, p.is_verified AS partner_verified,
-         ${nearestFreeDateSql('ot')} AS nearest_free_date,
+         ${nearestFreeDateSql('ot')} AS nearest_free_date, ${anyDayOpenSql('ot')} AS any_day_open,
          ${keepsScheduleSql('ot.id')} AS keeps_schedule,
          link.link_kind
     FROM (
@@ -153,6 +156,7 @@ export function toPlaceTourOffer(r: Record<string, unknown>): PlaceTourOffer {
     seasonStart: str(r.season_start),
     seasonEnd: str(r.season_end),
     nearestFreeDate: str(r.nearest_free_date),
+    anyDayOpen: typeof r.any_day_open === 'boolean' ? r.any_day_open : null,
     keepsSchedule: keeps,
     hasDatesByRequest: !keeps,
     linkKind: linkKindOf(r.link_kind),
