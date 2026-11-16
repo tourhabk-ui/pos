@@ -11,10 +11,14 @@
  * бронь — от даты тура, диалог — от последнего обмена репликами. Так данные
  * никогда не удаляются раньше обещанного.
  *
- * У профиля пользователя поля последней активности нет (ни `last_login_at`,
- * ни `last_seen` в схеме), и срок «3 года после последней активности»
- * посчитать нечем. Перепись так и говорит, а не берёт `updated_at` за
- * активность (§4.0).
+ * Профиль — «3 года после последней активности». До миграции 1452 поля
+ * активности не было, и перепись называла срок «посчитать нечем», а не брала
+ * `updated_at` за активность (§4.0). Теперь вход отмечается
+ * (`user_last_login`, триггер на вставку сессии), и срок считается по
+ * `v_user_last_activity`: позднее из регистрации и последнего входа. Это
+ * нижняя граница — работа только в чате кабинета входом не отмечается, а
+ * входы до 16.11 известны лишь по сохранившимся сессиям; так и сказано в
+ * ответе.
  *
  * Таблица, которой нет в базе прода (42P01), — отдельный исход «нет
  * таблицы», а не ноль и не сбой: часть журналов baseline на проде могла не
@@ -22,7 +26,7 @@
  */
 
 /** Какой срок политики проверяется. */
-export type RetentionTerm = 'tech_logs_90d' | 'leads_3y' | 'bookings_5y' | 'chat_3y';
+export type RetentionTerm = 'tech_logs_90d' | 'leads_3y' | 'bookings_5y' | 'chat_3y' | 'profile_3y';
 
 export interface RetentionTarget {
   table: string;
@@ -38,6 +42,7 @@ export const TECH_LOG_DAYS = 90;
 export const LEAD_DAYS = 3 * 365;
 export const BOOKING_DAYS = 5 * 365;
 export const CHAT_DAYS = 3 * 365;
+export const PROFILE_DAYS = 3 * 365;
 
 const log = (table: string, column = 'created_at', pruned: string | null = null): RetentionTarget =>
   ({ table, column, term: 'tech_logs_90d', days: TECH_LOG_DAYS, pruned });
@@ -76,6 +81,7 @@ export const RETENTION_TARGETS: readonly RetentionTarget[] = [
   { table: 'operator_bookings', column: 'booking_date', term: 'bookings_5y', days: BOOKING_DAYS, pruned: null },
   { table: 'accommodation_bookings', column: 'check_out_date', term: 'bookings_5y', days: BOOKING_DAYS, pruned: null },
   { table: 'chat_sessions', column: 'updated_at', term: 'chat_3y', days: CHAT_DAYS, pruned: null },
+  { table: 'v_user_last_activity', column: 'last_activity_at', term: 'profile_3y', days: PROFILE_DAYS, pruned: null },
 ];
 
 /**
@@ -132,12 +138,12 @@ export async function runRetentionCensus(query: Query, targets: readonly Retenti
       rows.push({ ...base, state: 'failed', reason: `SQLSTATE ${code}` });
     }
   }
-  const over: Record<RetentionTerm, number> = { tech_logs_90d: 0, leads_3y: 0, bookings_5y: 0, chat_3y: 0 };
+  const over: Record<RetentionTerm, number> = { tech_logs_90d: 0, leads_3y: 0, bookings_5y: 0, chat_3y: 0, profile_3y: 0 };
   for (const r of rows) if (r.state === 'ok' && r.over_term > 0) over[r.term]++;
   return {
     rows,
     unmeasurable: [
-      'Профиль: «3 года после последней активности» посчитать нечем — поля последней активности (вход, визит) в таблице users нет. updated_at меняется при любой правке строки и активностью не является.',
+      'Профиль: активность — это вход на сайт (отметка с миграции 1452) или регистрация. Работа только в чате кабинета (MAX, Telegram) входом не отмечается, а входы до 16.11.2026 известны лишь по сохранившимся сессиям — поэтому «за сроком» здесь верхняя оценка, а не приговор.',
     ],
     over_term_tables: over,
     failed: rows.filter((r) => r.state === 'failed').length,
