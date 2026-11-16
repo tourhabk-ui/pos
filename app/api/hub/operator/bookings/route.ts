@@ -35,7 +35,25 @@ const CreateBookingSchema = z.object({
   created_via: z.enum(['website', 'direct_contact', 'api']).default('direct_contact'),
   /** Лид, из которого оператор заводит бронь (CRM фаза 2, миграция 1214). */
   lead_id: z.string().uuid().optional(),
+}).superRefine((v, ctx) => {
+  // Взрослые и дети вместе — столько, сколько людей в брони (#3388 п.3,
+  // CHECK operator_bookings_parts_sum, миграция 1458). Без этой сверки база
+  // отвергла бы бронь, а человек увидел бы «ошибку сервера».
+  if (v.adult_count !== undefined && v.child_count !== undefined
+      && v.adult_count + v.child_count !== v.participants) {
+    ctx.addIssue({
+      code: 'custom',
+      path: ['adult_count'],
+      message: `Взрослых и детей вместе ${v.adult_count + v.child_count}, а участников ${v.participants} — числа должны совпадать`,
+    });
+  }
 });
+
+/** Ошибки разбора — словами, по полю; «ошибки сервера» на неверный ввод нет. */
+function invalidInput(error: z.ZodError): NextResponse {
+  const text = error.issues.map((i) => i.message).join('; ');
+  return NextResponse.json({ error: text || 'Неверные данные брони', fields: error.issues.map((i) => i.path.join('.')) }, { status: 422 });
+}
 
 /**
  * Кабинет вошедшего — свой или команды (CRM 2г): менеджер ведёт брони своего
@@ -170,7 +188,11 @@ export async function POST(request: NextRequest) {
     const max_chat_id = operator.max_chat_id as string | null | undefined;
 
     const body = await request.json();
-    const input = CreateBookingSchema.parse(body);
+    const parsedInput = CreateBookingSchema.safeParse(body);
+    // До 16.11 здесь стоял parse(): неверный ввод бросал ZodError, catch его
+    // не узнавал и отвечал 500 «Failed to create booking».
+    if (!parsedInput.success) return invalidInput(parsedInput.error);
+    const input = parsedInput.data;
 
     /**
      * Ручная бронь — общим правилом продавца тура (lib/bookings/manual-booking,

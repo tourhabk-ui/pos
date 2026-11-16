@@ -290,9 +290,11 @@ export async function POST(req: NextRequest) {
       // Код отказа — рядом со словами: по нему форма узнаёт дату, закрытую
       // Ведаром, и предлагает спросить оператора (этап 6б). Слова по-прежнему
       // главные: код их не заменяет.
+      // Повторная бронь того же аккаунта — 409: заявка уже есть, и это её
+      // состояние, а не ошибка ввода.
       return NextResponse.json(
         { created: false, error: err.message, code: err.code },
-        { status: err.code === 'NOT_FOUND' ? 404 : 422 },
+        { status: err.code === 'NOT_FOUND' ? 404 : err.code === 'DUPLICATE' ? 409 : 422 },
       );
     }
     console.error(

@@ -487,6 +487,11 @@ export async function rescheduleBooking(
            end_date = $8,
            duration_days = $9,
            participants = $3,
+           -- Разбивка на взрослых и детей — только при том же числе людей:
+           -- кто добавился или ушёл, перенос не знает (#3388 п.3, CHECK
+           -- operator_bookings_parts_sum). Справа в SET — прежние значения.
+           adult_count = CASE WHEN participants = $3 THEN adult_count END,
+           child_count = CASE WHEN participants = $3 THEN child_count END,
            base_total_price = $4,
            final_price = $4,
            payment_status = $5,

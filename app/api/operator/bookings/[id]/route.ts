@@ -119,6 +119,11 @@ export async function PUT(
     // «Бронирование не найдено» у существующей брони. Одна выдуманная
     // причина вместо другой; блокировка даёт настоящую (§4.0).
     let prevStatus: string | null = null;
+    // Отменённая бронь в работу не возвращается (#3388 п.3): её место уже
+    // освобождено и могло уйти другому. Так говорит и словарь переходов
+    // (ALLOWED_TRANSITIONS: у cancelled пусто), и триггер базы (миграция
+    // 1458); эта дверь была единственной, что пропускала возврат.
+    let refusedRevive = false;
     const result = await transaction(async (client) => {
       const locked = await client.query<{ booking_status: string }>(
         `SELECT ob.booking_status
@@ -130,6 +135,10 @@ export async function PUT(
       );
       if (locked.rows.length === 0) return { rows: [] as Record<string, unknown>[] };
       prevStatus = locked.rows[0].booking_status;
+      if (prevStatus === 'cancelled' && status && status !== 'cancelled') {
+        refusedRevive = true;
+        return { rows: [] as Record<string, unknown>[] };
+      }
 
       const upd = await client.query(
         `UPDATE operator_bookings
@@ -151,6 +160,13 @@ export async function PUT(
       }
       return upd;
     });
+
+    if (refusedRevive) {
+      return NextResponse.json({
+        success: false,
+        error: 'Отменённую бронь вернуть в работу нельзя: её место освобождено и могло уйти другому туристу. Заведите новую бронь.',
+      } as ApiResponse<null>, { status: 409 });
+    }
 
     if (result.rows.length === 0) {
       return NextResponse.json({

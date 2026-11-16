@@ -258,3 +258,32 @@ describe('брони лида на карточке', () => {
   });
 });
 
+
+describe('POST ручной брони: неверный ввод — 422 словами, а не «ошибка сервера» (#3388 п.3)', () => {
+  beforeEach(() => authMock.mockResolvedValue({ userId: '00000000-0000-4000-8000-0000000000a1', role: 'operator' }));
+
+  const inserted = () => queryMock.mock.calls.some(([sql]) => /INSERT INTO operator_bookings/.test(String(sql)));
+
+  it('взрослых и детей вместе не столько, сколько участников — 422, бронь не пишется', async () => {
+    routeDb(false);
+    const res = await POST(postReq({ ...BASE, participants: 3, adult_count: 2, child_count: 2 }));
+    expect(res.status).toBe(422);
+    expect((await res.json()).error).toBe('Взрослых и детей вместе 4, а участников 3 — числа должны совпадать');
+    expect(inserted()).toBe(false);
+  });
+
+  it('сумма сходится — бронь заводится', async () => {
+    routeDb(false);
+    const res = await POST(postReq({ ...BASE, participants: 3, adult_count: 2, child_count: 1 }));
+    expect(res.status).toBe(201);
+    expect(inserted()).toBe(true);
+  });
+
+  it('ввод не той формы — 422 с полем, а не 500', async () => {
+    routeDb(false);
+    const res = await POST(postReq({ ...BASE, participants: 'двое' }));
+    expect(res.status).toBe(422);
+    expect((await res.json()).fields).toContain('participants');
+    expect(inserted()).toBe(false);
+  });
+});

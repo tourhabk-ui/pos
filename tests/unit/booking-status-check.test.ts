@@ -242,3 +242,28 @@ describe('PUT /api/operator/bookings/[id] пишет только слова с�
     expect(clientQuery).not.toHaveBeenCalled();
   });
 });
+
+describe('PUT /api/operator/bookings/[id]: отменённая бронь не возвращается в работу (#3388 п.3)', () => {
+  beforeEach(() => {
+    clientQuery.mockReset();
+    clientQuery.mockImplementation(async (sql: string) => {
+      if (/FOR UPDATE/.test(sql)) return { rows: [{ booking_status: 'cancelled' }] };
+      return { rows: [{ id: '7', user_id: 'tourist-1' }] };
+    });
+    plainQuery.mockReset();
+    plainQuery.mockResolvedValue({ rows: [] });
+  });
+
+  it.each(['new', 'pending', 'confirmed', 'completed'])('«cancelled» → «%s» — 409 словами, UPDATE не уходит', async (status) => {
+    const res = await put({ status });
+    expect(res.status).toBe(409);
+    expect((await res.json()).error).toMatch(/^Отменённую бронь вернуть в работу нельзя/);
+    expect(writtenStatus()).toBeUndefined();
+    expect(clientQuery.mock.calls.some(([sql]) => /^\s*UPDATE/.test(String(sql)))).toBe(false);
+  });
+
+  it('повтор отмены и заметка к отменённой брони проходят', async () => {
+    expect((await put({ status: 'cancelled' })).status).toBe(200);
+    expect((await put({ notes: 'клиент перезвонит' })).status).toBe(200);
+  });
+});

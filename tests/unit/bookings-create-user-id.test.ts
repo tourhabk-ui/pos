@@ -47,6 +47,7 @@ vi.mock('@/lib/auth/jwt', () => ({
 }));
 
 import { POST } from '@/app/api/hub/bookings/create/route';
+import { OWN_LIVE_BOOKING_SQL } from '@/lib/bookings/reserve';
 
 const TOUR_ROW = {
   operator_id: 'op-1',
@@ -73,6 +74,9 @@ function mockHappyPathQueries() {
     // Ступени цены по размеру группы (миграция 1173): у тестового тура их нет.
     if (sql.includes('FROM tour_price_tiers')) return Promise.resolve({ rows: [] });
     if (sql.includes('v_tour_daily_occupancy')) return Promise.resolve({ rows: [] });
+    // Повторная бронь того же аккаунта (слово владельца 16.11): живой брони
+    // этого человека на тот же тур и день в сцене нет.
+    if (sql === OWN_LIVE_BOOKING_SQL) return Promise.resolve({ rows: [] });
     throw new Error('unexpected SQL: ' + sql);
   });
   poolQueryMock.mockResolvedValue({ rows: [{ name: 'Operator', telegram_chat_id: null, max_chat_id: null, uon_api_key: null }] });

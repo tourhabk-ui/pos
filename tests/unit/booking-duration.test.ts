@@ -104,8 +104,16 @@ describe('гейт занятости в reserveBooking', () => {
   it('занятость берётся интервалом, а не равенством дат', () => {
     // `booking_date = $2` не видит чужую многодневную бронь, накрывающую
     // запрошенный день серединой. Слепота была двусторонней.
-    expect(RESERVE).toMatch(/BETWEEN b\.booking_date[\s\S]{0,80}COALESCE\(b\.end_date, b\.booking_date\)/);
-    expect(RESERVE, 'вернулось равенство дат').not.toMatch(/AND booking_date = \$2/);
+    // Судится счёт занятости — тело readTourDays. Равенство дат выезда в
+    // OWN_LIVE_BOOKING_SQL (повторная бронь того же аккаунта, 16.11) — не
+    // занятость: там спрашивается тот же выезд, а не «кто занимает этот день».
+    const occupancy = RESERVE.slice(
+      RESERVE.indexOf('export async function readTourDays'),
+      RESERVE.indexOf('export function assertDaysOpen'),
+    );
+    expect(occupancy.length).toBeGreaterThan(200);
+    expect(occupancy).toMatch(/BETWEEN b\.booking_date[\s\S]{0,80}COALESCE\(b\.end_date, b\.booking_date\)/);
+    expect(occupancy, 'вернулось равенство дат').not.toMatch(/booking_date = \$2/);
   });
 
   it('спрашиваются все дни диапазона', () => {

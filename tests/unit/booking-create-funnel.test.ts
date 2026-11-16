@@ -94,6 +94,16 @@ describe('отказы по существу и заявку пишет общи
     expect(recordMock).not.toHaveBeenCalled();
   });
 
+  it('повторная бронь того же аккаунта — 409 с кодом DUPLICATE и словами общего модуля (слово владельца 16.11)', async () => {
+    const { ReserveError, DUPLICATE_BOOKING_TEXT } = await import('@/lib/bookings/reserve');
+    reserveMock.mockRejectedValue(new ReserveError('DUPLICATE', DUPLICATE_BOOKING_TEXT));
+    const { POST } = await import('@/app/api/hub/bookings/create/route');
+    const res = await POST(post(valid));
+    expect(res.status).toBe(409);
+    expect(await res.json()).toEqual({ created: false, error: DUPLICATE_BOOKING_TEXT, code: 'DUPLICATE' });
+    expect(recordMock).not.toHaveBeenCalled();
+  });
+
   it('заявка заведена — 200, роут событий не пишет, а заголовки посетителя дошли до reserveBooking', async () => {
     reserveMock.mockResolvedValue({
       bookingId: 5, accessToken: 'tok', totalPrice: 60000, operatorId: 'op', tourTitle: 'Толбачик', agentUserId: null, referralLinkId: null,
