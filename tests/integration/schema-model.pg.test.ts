@@ -36,6 +36,7 @@ import { join } from 'node:path';
 import { Pool } from 'pg';
 import { loadSchemaModel, type SchemaModel } from '@/lib/agents/evo/schema-model';
 import { RETENTION_TARGETS, runRetentionCensus } from '@/lib/legal/retention-census';
+import { PURGE_STEPS, ERASED_MARK, runRetentionPurge } from '@/lib/legal/retention-purge';
 import { createTestDatabase } from '../helpers/pg-schema';
 
 const PG_URL = process.env.KERNEL_PG_TEST_URL ?? '';
@@ -267,6 +268,58 @@ withPg('объектив схемы на настоящем PostgreSQL', () => {
         RETENTION_TARGETS.filter((t) => t.table === 'page_views'),
       );
       expect(out.rows[0]).toMatchObject({ state: 'ok', total: 2, over_term: 1 });
+    });
+  });
+
+  describe('уборка сроков хранения на той же базе', () => {
+    const OLD = "NOW() - INTERVAL '120 days'";
+    const NEW = "NOW() - INTERVAL '5 days'";
+
+    it('сухой прогон: каждый шаг выполняется на схеме, ничего не пишется', async () => {
+      const before = await pool.query<{ n: number }>('SELECT COUNT(*)::int AS n FROM retention_purge_log');
+      const run = await runRetentionPurge((sql, params) => pool.query(sql, params), { apply: false });
+      expect(run.rows.filter((r) => r.state !== 'ok').map((r) => `${r.table}: ${r.state}`)).toEqual([]);
+      expect(run.rows).toHaveLength(PURGE_STEPS.length);
+      const after = await pool.query<{ n: number }>('SELECT COUNT(*)::int AS n FROM retention_purge_log');
+      expect(after.rows[0].n).toBe(before.rows[0].n);
+    });
+
+    it('с apply: старое удалено или обезличено, свежее не тронуто, журнал записан; повтор — ноль', async () => {
+      await pool.query(`INSERT INTO rag_quality_log (query, answer, created_at) VALUES ('старый вопрос', 'ответ', ${OLD}), ('свежий вопрос', 'ответ', ${NEW})`);
+      await pool.query(`INSERT INTO a2a_requests (binding, op, version, ok, agent, ua_family, caller_hash, context_key, created_at) VALUES
+        ('jsonrpc', 'message/send', '0.3', TRUE, 'bot', 'bot', 'old-caller', 'old-ctx', ${OLD}),
+        ('jsonrpc', 'message/send', '0.3', TRUE, 'bot', 'bot', 'new-caller', 'new-ctx', ${NEW})`);
+      await pool.query(`INSERT INTO audit_log (entity_type, entity_id, action, ip_address, user_agent, created_at) VALUES
+        ('user', gen_random_uuid(), 'role_switch', '10.0.0.1', 'UA', ${OLD})`);
+      await pool.query(`INSERT INTO mcp_clients (caller_hash, day) VALUES ('old-client', (${OLD})::date), ('new-client', CURRENT_DATE)`);
+
+      const query = (sql: string, params: unknown[]) => pool.query(sql, params);
+      const run = await runRetentionPurge(query, { apply: true });
+      expect(run.failed).toBe(0);
+
+      const rag = await pool.query<{ query: string }>('SELECT query FROM rag_quality_log ORDER BY created_at');
+      expect(rag.rows.map((r) => r.query)).toEqual(['свежий вопрос']);
+      const a2a = await pool.query<{ caller_hash: string; context_key: string | null }>(
+        'SELECT caller_hash, context_key FROM a2a_requests ORDER BY created_at');
+      expect(a2a.rows).toEqual([{ caller_hash: ERASED_MARK, context_key: null }, { caller_hash: 'new-caller', context_key: 'new-ctx' }]);
+      // Строка аудита осталась — доказательство выдачи прав; IP и браузер стёрты.
+      const audit = await pool.query("SELECT action, ip_address, user_agent FROM audit_log WHERE action = 'role_switch'");
+      expect(audit.rows).toEqual([{ action: 'role_switch', ip_address: null, user_agent: null }]);
+      const clients = await pool.query<{ caller_hash: string }>('SELECT caller_hash FROM mcp_clients ORDER BY day');
+      expect(clients.rows.map((r) => r.caller_hash)).toEqual(['new-client']);
+
+      const log = await pool.query<{ table_name: string; action: string; rows_affected: number; state: string }>(
+        `SELECT table_name, action, rows_affected, state FROM retention_purge_log
+          WHERE table_name IN ('rag_quality_log', 'a2a_requests', 'audit_log', 'mcp_clients') ORDER BY id`);
+      expect(log.rows).toEqual([
+        { table_name: 'a2a_requests', action: 'anonymize', rows_affected: 1, state: 'ok' },
+        { table_name: 'mcp_clients', action: 'delete', rows_affected: 1, state: 'ok' },
+        { table_name: 'audit_log', action: 'anonymize', rows_affected: 1, state: 'ok' },
+        { table_name: 'rag_quality_log', action: 'delete', rows_affected: 1, state: 'ok' },
+      ]);
+
+      const again = await runRetentionPurge(query, { apply: true });
+      expect(again.total).toBe(0);
     });
   });
 });

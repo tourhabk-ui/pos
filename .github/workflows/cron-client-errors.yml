@@ -17,6 +17,12 @@ name: Ошибки в браузере — суточная перепись и 
 # GitHub душит очередь числом scheduled-файлов (CLAUDE.md §8, 20.09). До
 # этого серверные ошибки доходили до владельца только через суточный объектив
 # эволюции и GitHub Issue — сутки спустя и не ему.
+#
+# Третьим шагом — уборка технических журналов старше срока хранения (#3388,
+# п. 2; политика обещает 90 дней). Тем же файлом по той же причине. Пока
+# шаг зовёт сухой прогон: в сводку уходит счёт, сколько строк попало бы под
+# удаление или обезличивание, и ничего не пишется. Включение уборки —
+# отдельной правкой этого шага (`?apply=1`), когда сухой прогон прочитан.
 
 on:
   schedule:
@@ -110,5 +116,43 @@ jobs:
           if [ "$CODE" != "200" ]; then
             REASON=$(jq -r '.notify.reason // .error // "причина не названа"' /tmp/prod-errors.json 2>/dev/null || echo "ответ не JSON")
             echo "::error::Дайджест серверных ошибок: HTTP $CODE — $REASON. Это «не сказали владельцу», а не «ошибок нет»."
+            exit 1
+          fi
+
+      # Сроки хранения (#3388, п. 2): журналы старше 90 дней. Сухой прогон —
+      # только счёт по таблицам; в сводку — таблица, действие и число строк,
+      # без значений. Красный — когда уборка не ответила или таблица не
+      # посчиталась: «не смог» не выдаётся за «за сроком ничего нет».
+      - name: Сроки хранения — журналы старше 90 дней (сухой прогон)
+        if: ${{ !cancelled() }}
+        env:
+          CRON_SECRET: ${{ secrets.CRON_SECRET }}
+        run: |
+          set -euo pipefail
+          if [ -z "${CRON_SECRET:-}" ]; then
+            echo "::error::Секрет CRON_SECRET не задан — прод не ответит."
+            exit 1
+          fi
+          CODE=$(curl -s -o /tmp/purge.json -w '%{http_code}' --max-time 150 \
+            -H "Authorization: Bearer $CRON_SECRET" \
+            "https://vedarai.ru/api/cron/retention-purge")
+          echo "HTTP $CODE"
+          jq '{apply, total, failed, rows}' /tmp/purge.json || cat /tmp/purge.json
+          {
+            echo "## Сроки хранения: журналы старше 90 дней"
+            echo ""
+            jq -r '"\(if .apply then "убрано" else "сухой прогон, попало бы" end): \(.total // "?") строк; не посчиталось таблиц: \(.failed // "?")"' /tmp/purge.json || echo "ответ не JSON"
+            echo ""
+            echo '```json'
+            jq '[.rows[]? | {table, action, state, rows, more}]' /tmp/purge.json || true
+            echo '```'
+          } >> "$GITHUB_STEP_SUMMARY"
+          if [ "$CODE" != "200" ]; then
+            echo "::error::Уборка не ответила (HTTP $CODE) — это «не спросили», а не «за сроком ничего нет»."
+            exit 1
+          fi
+          FAILED=$(jq -r '.failed // 1' /tmp/purge.json)
+          if [ "$FAILED" != "0" ]; then
+            echo "::error::Не посчиталось таблиц: $FAILED — $(jq -c '[.rows[]? | select(.state == "failed") | {table, reason}]' /tmp/purge.json)"
             exit 1
           fi
