@@ -4,7 +4,7 @@
  * восстановление и «Начать заново» — рендером страницы.
  */
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
-import { render, screen, fireEvent, cleanup, waitFor } from '@testing-library/react';
+import { render, screen, fireEvent, cleanup, waitFor, act } from '@testing-library/react';
 import React from 'react';
 
 let params = new URLSearchParams('');
@@ -19,7 +19,8 @@ vi.mock('@/lib/funnel/beacon', () => ({ funnelBeacon: vi.fn() }));
 
 import { PlannerClient } from '@/app/planner/_PlannerClient';
 import {
-  FORM_DRAFT_KEY, EMPTY_FORM_DRAFT, parseFormDraft, serializeFormDraft, type PlannerFormDraft,
+  FORM_DRAFT_KEY, DRAFT_SIGNOUT_KEY, EMPTY_FORM_DRAFT, clearFormDraft, parseFormDraft, serializeFormDraft,
+  type PlannerFormDraft,
 } from '@/lib/planner/form-draft';
 
 const TODAY = '2026-11-15';
@@ -107,5 +108,50 @@ describe('страница /planner', () => {
     await screen.findAllByRole('button');
     expect(screen.queryByText(/Анкета восстановлена/)).toBeNull();
     expect(localStorage.getItem(FORM_DRAFT_KEY)).toBe(before);
+  });
+
+  // Ревью безопасности PR 3452: открытая вкладка держит старый вход до
+  // перезагрузки и без остановки записала бы черновик обратно после «Выйти».
+  async function openedWithDraft() {
+    localStorage.setItem(FORM_DRAFT_KEY, serializeFormDraft({ ...DRAFT, seasickness: true }, OWNER));
+    render(<PlannerClient initialUserId={OWNER} />);
+    await screen.findByText(/Анкета восстановлена/);
+  }
+  // «Начать заново» меняет анкету — без остановки эффект записал бы её.
+  async function editAndSettle() {
+    fireEvent.click(await screen.findByRole('button', { name: 'Начать заново' }));
+    await waitFor(() => expect(screen.queryByText(/Анкета восстановлена/)).toBeNull());
+    await act(async () => { await new Promise((r) => setTimeout(r, 20)); });
+  }
+
+  it('«Выйти» в другой вкладке: открытый планер черновик больше не пишет', async () => {
+    await openedWithDraft();
+    act(() => {
+      localStorage.removeItem(FORM_DRAFT_KEY);
+      localStorage.setItem(DRAFT_SIGNOUT_KEY, '1');
+      window.dispatchEvent(new StorageEvent('storage', { key: DRAFT_SIGNOUT_KEY, newValue: '1' }));
+    });
+    await editAndSettle();
+    expect(localStorage.getItem(FORM_DRAFT_KEY)).toBeNull();
+  });
+
+  it('«Выйти» в этой же вкладке: планер черновик больше не пишет', async () => {
+    await openedWithDraft();
+    act(() => { clearFormDraft(); });
+    await editAndSettle();
+    expect(localStorage.getItem(FORM_DRAFT_KEY)).toBeNull();
+  });
+
+  it('событие чужого ключа хранилища запись не останавливает', async () => {
+    await openedWithDraft();
+    act(() => { window.dispatchEvent(new StorageEvent('storage', { key: 'other', newValue: '1' })); });
+    await editAndSettle();
+    expect(stored()).toMatchObject({ adults: 2, places: [] });
+  });
+
+  it('планер, открытый после выхода (новый вход), черновик пишет', async () => {
+    clearFormDraft();
+    render(<PlannerClient initialUserId={OWNER} />);
+    await waitFor(() => expect(stored()).toMatchObject({ adults: 2, places: [] }));
   });
 });

@@ -21,13 +21,26 @@
  *   Это закрывает и сессию, истёкшую без «Выйти», и вход другим аккаунтом
  *   поверх чужой сессии;
  * - «Выйти» черновик стирает (`clearFormDraft` из signOut в AuthContext),
- *   чтобы он не лежал на устройстве после ухода хозяина.
+ *   чтобы он не лежал на устройстве после ухода хозяина;
+ * - уже открытый планер после «Выйти» черновик больше не пишет: в этой вкладке
+ *   его останавливает счётчик выходов (`draftSignOutGeneration`), в других —
+ *   событие хранилища по ключу `DRAFT_SIGNOUT_KEY` (ревью безопасности PR 3452:
+ *   вкладка со старым входом иначе записала бы черновик обратно при первой
+ *   правке анкеты).
  */
 
 import { MAX_ADULTS } from '@/lib/planner/party-limits';
 import { logSwallowedFailure } from '@/lib/observability/swallowed';
 
 export const FORM_DRAFT_KEY = 'vedar_planner_form_v1';
+/** Метка «из аккаунта вышли»: её запись другие вкладки получают событием storage. */
+export const DRAFT_SIGNOUT_KEY = 'vedar_planner_signout';
+
+let signOutGeneration = 0;
+/** Сколько раз в этой вкладке выходили из аккаунта: планер сверяет с числом при открытии. */
+export function draftSignOutGeneration(): number {
+  return signOutGeneration;
+}
 export const FORM_DRAFT_TTL_DAYS = 30;
 
 export type DraftFitness = 'beginner' | 'moderate' | 'active';
@@ -144,9 +157,14 @@ export function parseFormDraft(
  * (выход из аккаунта не должен ломаться из-за черновика), но и не молчит.
  */
 export function clearFormDraft(): void {
+  signOutGeneration += 1;
   if (typeof localStorage === 'undefined') return;
   try { localStorage.removeItem(FORM_DRAFT_KEY); } catch (err) {
     logSwallowedFailure('planner-form-draft', 'стирание черновика анкеты при выходе', err);
+  }
+  // Новое значение каждый раз: одинаковая запись события storage не даёт.
+  try { localStorage.setItem(DRAFT_SIGNOUT_KEY, `${Date.now()}-${signOutGeneration}`); } catch (err) {
+    logSwallowedFailure('planner-form-draft', 'метка выхода для других вкладок', err);
   }
 }
 
