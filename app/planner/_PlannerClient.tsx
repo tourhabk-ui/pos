@@ -1323,11 +1323,13 @@ export function PlannerClient({ initialUserId }: { initialUserId?: string | null
     setMobilityLevel(d.mobilityLevel); setTravelStyle(d.travelStyle); setTripOrigin(d.tripOrigin);
     setRestDays(d.restDays); setRestManual(d.restManual);
   }, []);
+  // Черновик принадлежит вошедшему (initialUserId): чужой на общем устройстве
+  // не возвращается, а без известного вошедшего не пишется и не читается.
   useEffect(() => {
-    if (!linkCarriesForm(searchParams)) {
+    if (initialUserId && !linkCarriesForm(searchParams)) {
       let raw: string | null = null;
       try { raw = localStorage.getItem(FORM_DRAFT_KEY); } catch (err) { logSwallowedFailure('planner-form-draft', 'чтение черновика анкеты', err); }
-      const d = parseFormDraft(raw, kamchatkaToday());
+      const d = parseFormDraft(raw, kamchatkaToday(), initialUserId);
       if (d) { applyDraft(d); setDraftRestored(true); }
     }
     setDraftReady(true);
@@ -1335,15 +1337,15 @@ export function PlannerClient({ initialUserId }: { initialUserId?: string | null
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
   useEffect(() => {
-    if (!draftReady) return;
+    if (!draftReady || !initialUserId) return;
     try {
       localStorage.setItem(FORM_DRAFT_KEY, serializeFormDraft({
         places, activities, arrival, departure, flightArrival, flightDeparture, flightArrivalTime, flightDepartureTime,
         needsAirportTransfer, needsLodging, needsCar, adults, childAges, fitnessLevel, budgetTier, seasickness,
         mobilityLevel, travelStyle, tripOrigin, restDays, restManual,
-      }));
+      }, initialUserId));
     } catch (err) { logSwallowedFailure('planner-form-draft', 'запись черновика анкеты', err); }
-  }, [draftReady, places, activities, arrival, departure, flightArrival, flightDeparture, flightArrivalTime, flightDepartureTime,
+  }, [draftReady, initialUserId, places, activities, arrival, departure, flightArrival, flightDeparture, flightArrivalTime, flightDepartureTime,
     needsAirportTransfer, needsLodging, needsCar, adults, childAges, fitnessLevel, budgetTier, seasickness,
     mobilityLevel, travelStyle, tripOrigin, restDays, restManual]);
   const startOver = useCallback(() => {

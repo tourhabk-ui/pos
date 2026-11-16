@@ -2,9 +2,9 @@
  * «Выйти» стирает черновик анкеты планера (слово владельца 16.11 «Сделай
  * правку», по ручному ревью PR 3425).
  *
- * Черновик лежит в localStorage одним ключом на браузер, а в нём подвижность,
- * морская болезнь, возраст детей и номера рейсов. Без стирания на общем
- * устройстве следующий вошедший видел анкету предыдущего на /planner.
+ * В черновике подвижность, морская болезнь, возраст детей и номера рейсов.
+ * Чужому вошедшему он не отдаётся (владелец в записи, planner-form-draft), а
+ * «Выйти» его стирает, чтобы он не лежал на общем устройстве.
  *
  * Проверка — исполнением: настоящий AuthProvider, нажатие «Выйти» через
  * signOut(), что осталось в хранилище.
@@ -29,7 +29,7 @@ const NOW = new Date();
 const DRAFT = serializeFormDraft({
   ...EMPTY_FORM_DRAFT, places: ['volcano'], seasickness: true, mobilityLevel: 'wheelchair',
   childAges: [6], flightArrival: 'SU1730',
-}, NOW);
+}, 'u-1', NOW);
 
 function Probe() {
   const { user, isLoading, signOut } = useAuth();
@@ -55,7 +55,7 @@ async function signedIn() {
   render(<AuthProvider><Probe /></AuthProvider>);
   await waitFor(() => expect(screen.getByText('user:Тест')).toBeInTheDocument());
   // Черновик до выхода на месте и читается — иначе проверка ниже ничего не доказала бы.
-  expect(parseFormDraft(localStorage.getItem(FORM_DRAFT_KEY), '2000-01-01', NOW)).not.toBeNull();
+  expect(parseFormDraft(localStorage.getItem(FORM_DRAFT_KEY), '2000-01-01', 'u-1', NOW)).not.toBeNull();
 }
 
 describe('«Выйти» стирает черновик анкеты планера', () => {
