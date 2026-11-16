@@ -1,16 +1,16 @@
 # Схема базы данных Ведара
 
-> Снято 2026-11-15 с настоящего PostgreSQL 18.7 (Debian 18.7-1.pgdg13+2): baseline прода (`lib/database/baseline/schema-baseline.sql`, снимок 2026-08-15) + миграции новее него, накатанные штатным раннером. Последняя миграция в снимке: `1447_mcp_pending_requests.sql`.
+> Снято 2026-11-16 с настоящего PostgreSQL 18.7 (Debian 18.7-1.pgdg13+2): baseline прода (`lib/database/baseline/schema-baseline.sql`, снимок 2026-08-15) + миграции новее него, накатанные штатным раннером. Последняя миграция в снимке: `1448_chat_inbound_seen.sql`.
 > Файл порождён `scripts/gen-db-schema.ts` (`npm run db:schema-doc`); править руками бессмысленно — следующий прогон перепишет.
 > Что здесь НЕ учтено: дрейф прода после baseline, не отражённый миграциями. Судья дрейфа — `GET /api/cron/schema-drift` на проде (`lib/db/schema-drift.ts`). Значений данных в файле нет — только имена и типы.
 
 | Что | Сколько |
 |---|---:|
-| Таблиц | 327 |
+| Таблиц | 328 |
 | Представлений (VIEW) | 12 |
-| Колонок | 4273 |
+| Колонок | 4277 |
 | Внешних ключей | 391 |
-| Таблиц без единого FK в обе стороны | 88 |
+| Таблиц без единого FK в обе стороны | 89 |
 
 Обозначения в списках колонок: `!` — NOT NULL, `=` — есть DEFAULT, `PK` — первичный ключ, `→` — внешний ключ.
 
@@ -27,7 +27,7 @@
 | [Жильё, снаряжение, трансферы](#жильё-снаряжение-трансферы) | 23 | `accommodation_assets` `accommodation_availability` `accommodation_bookings` `accommodation_reviews` `accommodation_rooms` `accommodations` `driver_documents` `driver_schedules` `drivers` `gear_availability` `gear_items` `gear_rentals` `stay_requests` `transfer_charter_price_edits` `transfer_charter_prices` `transfer_fleet_vehicles` `transfer_reviews` `transfer_routes` `transfer_seat_bookings` `transfer_trips` `transfers` `vehicle_documents` `vehicles` |
 | [Турагенты (роль agent)](#турагенты-роль-agent) | 4 | `agent_bookings` `agent_clients` `agent_referral_events` `agent_referral_links` |
 | [Лиды и продажи](#лиды-и-продажи) | 15 | `client_communications` `crm_chat_digests` `crm_contact_links` `crm_contacts` `crm_events` `crm_inbox_reminders` `crm_tasks` `funnel_events` `lead_activity_log` `lead_followups` `lead_proposals` `leads` `outreach_queue` `sales_campaigns` `sales_outreach_log` |
-| [Кузьмич, чат, RAG](#кузьмич-чат-rag) | 30 | `chat_cabinet_settings` `chat_cabinet_usage` `chat_cabinet_waits` `chat_messages` `chat_request_links` `chat_sessions` `conversation_messages` `conversation_participants` `conversation_reply_waits` `conversations` `knowledge_base_articles` `kuzmich_engagement_signals` `kuzmich_safety_reviews` `kuzmich_write_journal` `llm_usage_log` `mcp_clients` `mcp_handoff_events` `mcp_handoffs` `mcp_pending_requests` `mcp_tool_calls` `mcp_write_attempts` `message_templates` `query_expansion_log` `rag_feedback` `rag_quality_log` `tg_booking_flow` `tg_conversations` `tg_operator_groups` `tg_ratings` `user_ai_memory` |
+| [Кузьмич, чат, RAG](#кузьмич-чат-rag) | 31 | `chat_cabinet_settings` `chat_cabinet_usage` `chat_cabinet_waits` `chat_inbound_seen` `chat_messages` `chat_request_links` `chat_sessions` `conversation_messages` `conversation_participants` `conversation_reply_waits` `conversations` `knowledge_base_articles` `kuzmich_engagement_signals` `kuzmich_safety_reviews` `kuzmich_write_journal` `llm_usage_log` `mcp_clients` `mcp_handoff_events` `mcp_handoffs` `mcp_pending_requests` `mcp_tool_calls` `mcp_write_attempts` `message_templates` `query_expansion_log` `rag_feedback` `rag_quality_log` `tg_booking_flow` `tg_conversations` `tg_operator_groups` `tg_ratings` `user_ai_memory` |
 | [AI-агенты, эволюция, ядро](#ai-агенты-эволюция-ядро) | 31 | `agent_actions` `agent_approvals` `agent_effects` `agent_entry_hits` `agent_events` `agent_experiments` `agent_knowledge` `agent_knowledge_links` `agent_memory` `agent_memory_edits` `agent_payout_items` `agent_request_keys` `agent_request_notify` `agent_run_history` `agent_sdk_sessions` `agent_tasks` `agent_tools` `ai_actions_log` `approval_execution_log` `board_meeting_sessions` `cron_leases` `evo_agent_state` `evo_evolution_log` `evo_feedback` `evo_growth_issues` `evo_growth_scans` `evo_review_ledger` `external_tools` `intelligence_sources` `legislation_docs` `stakeholder_wishes` |
 | [Эко и лояльность](#эко-и-лояльность) | 10 | `eco_achievements` `eco_balances` `eco_compensation_claims` `eco_ledger` `eco_points` `loyalty_levels` `loyalty_transactions` `user_achievements` `user_eco_activities` `user_eco_points` |
 | [Контент, уведомления, поездки туриста](#контент-уведомления-поездки-туриста) | 21 | `articles` `assets` `email_templates` `faqs` `notification_log` `notification_preferences` `notifications` `page_views` `platform_settings` `push_subscriptions` `pwa_installs` `review_assets` `reviews` `smart_notifications_log` `support_tickets` `system_settings` `trip_preparation_events` `trip_preparation_items` `trip_preparation_plans` `trip_preparation_shares` `user_trips` |
@@ -1088,6 +1088,10 @@ B2B-агенты, продающие туры за комиссию. Не пут
 **chat_cabinet_waits** · 9 кол. · PK id · partner_id → partners.id · индексов 2
 
 `id uuid!=` `channel text!` `chat_id bigint!` `partner_id uuid!` `purpose text!=` `status text!=` `created_at timestamptz!=` `expires_at timestamptz!` `used_at timestamptz`
+
+**chat_inbound_seen** · 4 кол. · PK source, update_key · индексов 2
+
+`source text!` `update_key text!` `hits integer!=` `received_at timestamptz!=`
 
 **chat_messages** · 6 кол. · PK id · session_id → chat_sessions.id · индексов 3
 
