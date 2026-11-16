@@ -814,7 +814,23 @@ const HIS_MESSENGER_IDS = `SELECT
               SELECT t.chat_id::bigint FROM tg_conversations t JOIN users u ON u.id = $1
                WHERE t.platform = 'max' AND t.user_id = u.max_user_id) AS mx,
         ARRAY(SELECT u.telegram_id::bigint FROM users u WHERE u.id = $1 AND u.telegram_id IS NOT NULL) AS tu,
-        ARRAY(SELECT u.max_user_id::bigint FROM users u WHERE u.id = $1 AND u.max_user_id IS NOT NULL) AS mu`;
+        ARRAY(SELECT u.max_user_id::bigint FROM users u WHERE u.id = $1 AND u.max_user_id IS NOT NULL) AS mu,
+        -- Чаты Telegram, где он писал Кузьмичу, — и группы (ревью #3454): только
+        -- для памяти Кузьмича о чате, не для каналов карточки (tg выше).
+        ARRAY(SELECT DISTINCT t.chat_id::bigint FROM tg_conversations t JOIN users u ON u.id = $1
+               WHERE COALESCE(t.platform, 'telegram') = 'telegram' AND t.user_id = u.telegram_id) AS tc`;
+/**
+ * Память Кузьмича о чате (lib/kuzmich/core, botMemKey): его Telegram, его
+ * диалог MAX и чаты, где он писал Кузьмичу, — группа тоже: заметки о группе
+ * собраны и с его слов (ревью #3454). Стирается вся заметка группы, а не его
+ * доля: разобрать, чьи слова в ней, нечем.
+ */
+const KUZMICH_MEMORY_OF = (p: string) => `${p}.agent_id = 'kuzmich' AND ${p}.memory_type = 'user_pref'
+        AND ${p}.key = ANY(ARRAY(SELECT 'kuzmich_mem_tg_' || x FROM unnest(his.tg) AS x
+                                 UNION ALL
+                                 SELECT 'kuzmich_mem_tg_' || x FROM unnest(his.tc) AS x
+                                 UNION ALL
+                                 SELECT 'kuzmich_mem_max_' || x FROM unnest(his.mx) AS x))`;
 const OWN_TG = (p: string) => `${p}.telegram_chat_id::bigint = ANY(his.tg)`;
 const OWN_MAX = (p: string) => `${p}.max_chat_id::bigint = ANY(his.mx)`;
 /** Владелец ссылки подключения (1336) — его id человека (tu, mu), не id чата. */
@@ -1247,6 +1263,20 @@ export async function eraseUser(
     ['messenger_bind_codes', `DELETE FROM messenger_bind_codes b
       USING (${HIS_MESSENGER_IDS}) his
       WHERE b.telegram_chat_id = ANY(his.tg) OR b.max_chat_id = ANY(his.mx)`],
+    // Память Кузьмича о человеке в чате (lib/kuzmich/core, ключ
+    // kuzmich_mem_{tg|max}_{чат}): интересы и заметки «со слов туриста» —
+    // даты поездки, группа, пожелания. До 16.11 удаление аккаунта стирало
+    // переписку, а память оставляло (#3433 п. 5). Ключ — его Telegram или его
+    // диалог MAX; ДО шага tg_conversations — диалоги MAX доказаны перепиской.
+    // Журнал правок той же памяти (старое и новое значение) — первым: внешний
+    // ключ его удалил бы каскадом, но шаг держит это явно, а не по схеме.
+    ['agent_memory_edits', `DELETE FROM agent_memory_edits e
+      USING agent_memory m, (${HIS_MESSENGER_IDS}) his
+      WHERE e.memory_id = m.id
+        AND ${KUZMICH_MEMORY_OF('m')}`],
+    ['agent_memory', `DELETE FROM agent_memory m
+      USING (${HIS_MESSENGER_IDS}) his
+      WHERE ${KUZMICH_MEMORY_OF('m')}`],
     // Переписка с Кузьмичом — ДО шага users: ключ к ней (id в мессенджере)
     // живёт только в users и обнуляется там. Telegram пишет chat_id чата и
     // user_id отправителя (в личке они равны), MAX — chat_id диалога (в users
