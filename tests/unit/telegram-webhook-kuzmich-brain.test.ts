@@ -24,6 +24,7 @@ const m = vi.hoisted(() => ({
   direct: vi.fn(),
   tgSend: vi.fn(),
   createLead: vi.fn(),
+  leadProcess: vi.fn(),
   createTicket: vi.fn(),
   openTickets: vi.fn(),
   addTicketMessage: vi.fn(),
@@ -78,6 +79,9 @@ vi.mock('@/lib/planner/interests', async (importOriginal) => ({
   findRoutesByInterests: vi.fn().mockResolvedValue([]),
 }));
 vi.mock('@/lib/leads/create', () => ({ createLead: (...a: unknown[]) => m.createLead(...a) }));
+vi.mock('@/lib/services/operators/lead-processor.service', () => ({
+  leadProcessor: { process: (...a: unknown[]) => m.leadProcess(...a) },
+}));
 vi.mock('@/lib/support/ticket.service', () => ({
   createTicket: (...a: unknown[]) => m.createTicket(...a),
   getUserOpenTickets: (...a: unknown[]) => m.openTickets(...a),
@@ -342,6 +346,72 @@ describe('личка: свободный текст идёт в мозг Куз�
     expect(m.createLead).toHaveBeenCalledTimes(1);
     expect(m.tools).not.toHaveBeenCalled();
     expect(sent().some((t) => t.includes('Оператор свяжется'))).toBe(true);
+  });
+
+  // Пустые catch, часть 3 (слово владельца 16.11): до правки отказ записи
+  // глотался, а бот всё равно отвечал «Оператор свяжется» — по заявке,
+  // которой нет.
+  for (const [name, fail] of [
+    ['createLead вернул null', () => m.createLead.mockResolvedValue(null)],
+    ['createLead упал исключением', () => m.createLead.mockRejectedValue(new Error('pool exhausted'))],
+  ] as const) {
+    it(`номер после разговора о рыбалке, ${name} — «записать не удалось», а не «Оператор свяжется»`, async () => {
+      m.history = [
+        { role: 'user', content: 'хочу на рыбалку в июле' },
+        { role: 'assistant', content: 'Есть туры на рыбалку.' },
+      ];
+      fail();
+      await post(PHONE);
+
+      const out = sent();
+      expect(out).toHaveLength(1);
+      expect(out[0]).toContain('Заявку записать не удалось');
+      expect(out.join('\n')).not.toContain('Оператор свяжется');
+      expect(out.join('\n')).not.toContain('Заявка принята');
+    });
+  }
+});
+
+describe('/start lead: «Заявка принята» — только по записанной заявке', () => {
+  const flush = () => new Promise((r) => setTimeout(r, 0));
+
+  async function leadFlow(): Promise<void> {
+    await post('/start lead');
+    m.tgSend.mockClear();
+    await post('Хотим на вулкан в августе, двое');
+    for (let i = 0; i < 10; i++) await flush();
+  }
+
+  it('заявка записана — «принята», затем подборка', async () => {
+    m.leadProcess.mockResolvedValue({
+      headline: 'Подборка готова',
+      intent: { activity_types: [], group_size: 2, budget_rub: null, desired_dates: null, qualification_notes: '' },
+      primary_tour: null,
+    });
+    await leadFlow();
+    const out = sent();
+    expect(out[0]).toContain('Заявка принята');
+    expect(out.join('\n')).toContain('Подборка готова');
+  });
+
+  it('заявка не записалась — «записать не удалось», без «принята» и без обещания подборки', async () => {
+    m.createLead.mockResolvedValue(null);
+    await leadFlow();
+    const out = sent();
+    expect(out).toHaveLength(1);
+    expect(out[0]).toContain('Заявку записать не удалось');
+    expect(out[0]).not.toContain('Заявка принята');
+    expect(m.leadProcess).not.toHaveBeenCalled();
+  });
+
+  it('подборка не собралась — сказано словами, а не тишина после «через 1–2 минуты»', async () => {
+    m.leadProcess.mockRejectedValue(new Error('модели не ответили'));
+    await leadFlow();
+    const out = sent();
+    expect(out[0]).toContain('Заявка принята');
+    expect(out.join('\n')).toContain('Подборку собрать не удалось. Заявка записана');
+    const logged = vi.mocked(console.error).mock.calls.map((c) => String(c[0]));
+    expect(logged.some((l) => l.includes('[telegram/webhook] подборка по заявке lead-1'))).toBe(true);
   });
 });
 

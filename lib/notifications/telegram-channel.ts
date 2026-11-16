@@ -9,6 +9,7 @@
 import { maxFetch } from '@/lib/max/max-fetch';
 import { channelHeadline, channelKicker, channelFacts, channelPost, escHtml } from '@/lib/notifications/channel-style';
 import { query } from '@/lib/database';
+import { logSwallowedFailure } from '@/lib/observability/swallowed';
 import { withAiChannelFooter } from '@/lib/notifications/ai-channel-footer';
 import { ruThousands } from '@/lib/text/digest-polish';
 import { callAIWithModelDirect, callAIQuality } from '@/lib/ai/providers';
@@ -143,7 +144,7 @@ function logPhotoFallback(photoUrl: string, error: string | undefined, outcome: 
   query(
     `INSERT INTO ai_actions_log (action_type, metadata) VALUES ($1, $2)`,
     ['channel_photo_fallback', JSON.stringify({ photo_url: photoUrl, error: error ?? 'unknown', outcome })],
-  ).catch(() => { /* лог не должен ронять пост */ });
+  ).catch((err: unknown) => logSwallowedFailure('channel/journal', 'запись channel_photo_fallback', err));
 }
 
 /**
@@ -209,7 +210,7 @@ export async function tgPostMediaGroup(
     query(
       `INSERT INTO ai_actions_log (action_type, metadata) VALUES ($1, $2)`,
       ['channel_media_group_fallback', JSON.stringify({ count: photos.length, error: data.description ?? 'unknown' })],
-    ).catch(() => { /* лог не должен ронять пост */ });
+    ).catch((err: unknown) => logSwallowedFailure('channel/journal', 'запись channel_media_group_fallback', err));
   }
 
   const single = await tgPostPhoto(chatId, photos[0], caption, token);
@@ -310,7 +311,7 @@ async function recordMaxFailure(error: string, text: string): Promise<void> {
       `INSERT INTO ai_actions_log (action_type, metadata) VALUES ($1, $2)`,
       ['max_post_failed', JSON.stringify({ error: error.slice(0, 300), text_preview: text.slice(0, 120) })],
     );
-  } catch { /* лог недоступен — хотя бы console остался */ }
+  } catch (err) { logSwallowedFailure('channel/journal', 'запись max_post_failed', err); }
 }
 
 export async function maxChannelPost(
@@ -972,7 +973,7 @@ export async function postKuzmichRoute(): Promise<{ ok: boolean; routeId?: strin
               : 'пост обещает маршрут или трек, а у карточки трека нет'],
           })],
         );
-      } catch { /* не блокируем перевыбор */ }
+      } catch (err) { logSwallowedFailure('channel/journal', 'запись kuzmich_post_rejected', err); }
       continue;
     }
 
@@ -984,7 +985,7 @@ export async function postKuzmichRoute(): Promise<{ ok: boolean; routeId?: strin
           `INSERT INTO ai_actions_log (action_type, metadata) VALUES ($1, $2)`,
           ['kuzmich_post_rejected', JSON.stringify({ route_id: r.id, route_title: r.title, errors: validation.errors })]
         );
-      } catch { /* не блокируем перевыбор */ }
+      } catch (err) { logSwallowedFailure('channel/journal', 'запись kuzmich_post_rejected', err); }
       continue;
     }
 
@@ -1007,7 +1008,7 @@ export async function postKuzmichRoute(): Promise<{ ok: boolean; routeId?: strin
           // текстом, без чтения канала глазами.
           ['kuzmich_post', JSON.stringify({ route_id: r.id, route_title: r.title, photo: result.photo, photo_error: result.photoError ?? null })]
         );
-      } catch { /* таблица ещё не создана — не блокируем пост */ }
+      } catch (err) { logSwallowedFailure('channel/journal', 'запись kuzmich_post', err); }
     }
 
     return { ...result, routeId: r.id };
@@ -1143,7 +1144,7 @@ ${KUZMICH_CHANNEL_VOICE}`;
         `INSERT INTO ai_actions_log (action_type, metadata) VALUES ($1, $2)`,
         ['kuzmich_tip', JSON.stringify({ topic, photo: picked.photo })]
       );
-    } catch { /* таблица ещё не создана */ }
+    } catch (err) { logSwallowedFailure('channel/journal', 'запись kuzmich_tip', err); }
   }
 
   return result;
@@ -1266,7 +1267,7 @@ export async function postKuzmichTour(): Promise<{ ok: boolean; tourId?: number;
         // текстом, без чтения канала глазами.
         ['kuzmich_tour_post', JSON.stringify({ tour_id: t.id, tour_title: t.title, text_hash: tourPostHash(text), photo: result.photo, photo_error: result.photoError ?? null, season: verdict?.reason ?? null })]
       );
-    } catch { /* таблица ещё не создана — не блокируем пост */ }
+    } catch (err) { logSwallowedFailure('channel/journal', 'запись kuzmich_tour_post', err); }
   }
 
   return { ...result, tourId: Number(t.id), season: verdict?.reason, skipped };
@@ -1466,7 +1467,7 @@ ${signalCtx}
           signals_count: finding.signals.length,
         })],
       );
-    } catch { /* not critical */ }
+    } catch (err) { logSwallowedFailure('channel/journal', 'запись ai_news_post', err); }
   }
 
   return result;
@@ -1553,7 +1554,7 @@ ${signalCtx}
           signals_count: finding.signals.length,
         })],
       );
-    } catch { /* not critical */ }
+    } catch (err) { logSwallowedFailure('channel/journal', 'запись travel_news_post', err); }
   }
 
   return result;
@@ -1596,7 +1597,7 @@ export async function postSafetyToChannel(topic?: string): Promise<{ ok: boolean
       const xml = await res.text();
       newsItems = parseRssItems(xml, 15);
     }
-  } catch { /* feed unavailable */ }
+  } catch (err) { logSwallowedFailure('channel/safety-post', 'лента новостей aif.ru', err); }
 
   // Filter for safety/tourism relevant news
   const safetyKeywords = ['турист', 'безопасн', 'спасат', 'мчс', 'погиб', 'пострад', 'поиск', 'эвакуац', 'вулкан', 'извержен', 'медвед', 'шторм', 'лавин'];
@@ -1646,7 +1647,7 @@ ${KUZMICH_CHANNEL_VOICE}`;
         `INSERT INTO ai_actions_log (action_type, metadata) VALUES ($1, $2)`,
         ['kuzmich_safety_post', JSON.stringify({ topic: topic ?? 'auto', news_count: relevantNews.length })]
       );
-    } catch { /* not critical */ }
+    } catch (err) { logSwallowedFailure('channel/journal', 'запись kuzmich_safety_post', err); }
   }
 
   return result;
@@ -1828,7 +1829,7 @@ export async function notifyAdminNewLead(lead: {
         actor: from.actor ?? 'unknown',
       }),
     ],
-  ).catch(() => {});
+  ).catch((err: unknown) => logSwallowedFailure('channel/journal', 'запись lead_notification', err));
 
   if (!res.delivered) {
     console.error(`[notifyAdminNewLead] ПД не доставлены: ${res.channel} — ${res.reason}`);

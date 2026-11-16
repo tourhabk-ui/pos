@@ -16,6 +16,7 @@ import { publicTourSql } from '@/lib/tours/public-visibility';
 import { telegramService } from '@/lib/notifications/telegram';
 import { getPublicBaseUrl } from '@/lib/config';
 import { tourPath } from '@/lib/tours/tour-url';
+import { logSwallowedFailure } from '@/lib/observability/swallowed';
 
 // ── Записать сигнал интереса ──────────────────────────────────────
 
@@ -41,8 +42,9 @@ export async function recordEngagementSignal(
        VALUES ($1, $2, $3, $4)`,
       [userId, tourId, sessionId, signalType],
     );
-  } catch {
-    // non-critical, не блокируем
+  } catch (err) {
+    // Сигнал не критичен и разговор не блокирует, но отказ назван (§4.0).
+    logSwallowedFailure('kuzmich/engagement', `сигнал ${signalType}`, err);
   }
 }
 
@@ -132,8 +134,9 @@ export async function sendEngagementPushes(): Promise<{ sent: number; skipped: n
         skipped++;
       }
     }
-  } catch {
-    // Не прерываем cron
+  } catch (err) {
+    // Крон не прерываем, но отказ назван: иначе прогон читался бы как «некому писать».
+    logSwallowedFailure('kuzmich/engagement', 'отбор туристов для напоминаний', err);
   }
 
   return { sent, skipped };

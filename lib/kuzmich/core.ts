@@ -2007,7 +2007,10 @@ async function recordBookingPatternInBrain(
     // Добавляем запись о конкретном бронировании
     const entry = `booking #${bookingId}: ${b.participants} чел, ${dateStr}, ${total.toLocaleString('ru-RU')} ₽, канал=${platform ?? 'web'}`;
     await knowledgeBase.appendTimeline(slug, entry);
-  } catch { /* fire-and-forget, не блокируем бронирование */ }
+  } catch (err) {
+    // Бронирование не блокируем, но отказ назван (§4.0).
+    logSwallowedFailure('kuzmich/brain', `запись брони ${bookingId} в базу знаний`, err);
+  }
 }
 
 async function notifyOperatorNewBooking(
@@ -2606,8 +2609,13 @@ async function searchWeb(query: string): Promise<string> {
         const data = await res.json() as { results?: Array<{ title: string; content: string }> };
         const snippets = (data.results ?? []).map(r => `${r.title}: ${r.content.slice(0, 300)}`);
         if (snippets.length > 0) return snippets.join('\n\n');
+      } else {
+        logSwallowedFailure('kuzmich/web-search', 'поиск Tavily', new Error(`HTTP ${res.status}`));
       }
-    } catch { /* fallback to brave */ }
+    } catch (err) {
+      // Дальше — Brave. Отказ назван: пустой поиск и сломанный — разное (§4.0).
+      logSwallowedFailure('kuzmich/web-search', 'поиск Tavily', err);
+    }
   }
 
   const braveKey = process.env.BRAVE_SEARCH_API_KEY;
@@ -2622,8 +2630,12 @@ async function searchWeb(query: string): Promise<string> {
         const data = await res.json() as { web?: { results?: Array<{ title: string; description: string }> } };
         const snippets = (data.web?.results ?? []).map(r => `${r.title}: ${r.description}`);
         if (snippets.length > 0) return snippets.join('\n\n');
+      } else {
+        logSwallowedFailure('kuzmich/web-search', 'поиск Brave', new Error(`HTTP ${res.status}`));
       }
-    } catch { /* no search available */ }
+    } catch (err) {
+      logSwallowedFailure('kuzmich/web-search', 'поиск Brave', err);
+    }
   }
 
   return '';

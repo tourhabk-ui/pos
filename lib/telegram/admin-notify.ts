@@ -12,6 +12,7 @@ import type { SupportTicket } from '@/lib/support/ticket.service';
 import { sendPdAlert } from '@/lib/notifications/pd-alert';
 import { getPublicBaseUrl } from '@/lib/config';
 import { tgSend, type TgSendOutcome } from '@/lib/notifications/tg-send';
+import { logSwallowedFailure } from '@/lib/observability/swallowed';
 
 const CATEGORY_LABELS: Record<string, string> = {
   billing:  'Оплата',
@@ -76,7 +77,7 @@ export function notifyAdminNewTicket(ticket: SupportTicket): void {
       if (!res.delivered) {
         console.error(`[notifyAdminNewTicket] ПД не доставлены (${res.channel}) — ${res.reason}`);
       }
-    } catch { /* silent */ }
+    } catch (err) { logSwallowedFailure('telegram/admin-notify', 'сообщение админу о новом обращении', err); }
   })();
 }
 
@@ -121,6 +122,6 @@ export function notifyAdminEscalated(ticket: SupportTicket, reason: string): voi
         '',
         `<a href="${site}/hub/admin/support">Открыть в панели →</a>`,
       ].join('\n'));
-    } catch { /* silent */ }
+    } catch (err) { logSwallowedFailure('telegram/admin-notify', 'сообщение админу об эскалации обращения', err); }
   })();
 }

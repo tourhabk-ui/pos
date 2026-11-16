@@ -13,6 +13,7 @@
 
 import { untrustedField, neutralizeDelimiters } from '@/lib/ai/untrusted';
 import type { ToolCall } from '@/lib/ai/providers';
+import { logSwallowedFailure } from '@/lib/observability/swallowed';
 
 export interface ToolRunOutcome {
   id: string;
@@ -74,7 +75,10 @@ export async function runTurnTools(
       try {
         args = JSON.parse(tc.function.arguments) as Record<string, string>;
       } catch {
-        /* пустые/битые аргументы — отдаём {} */
+        // Пустые или битые аргументы — инструмент получает {}. Отказ модели
+        // назван, но без текста ошибки: JSON.parse цитирует вход, а в
+        // аргументах бывает телефон туриста.
+        logSwallowedFailure('kuzmich/tool-loop', `разбор аргументов инструмента ${tc.function.name}`, new Error('аргументы не JSON'));
       }
 
       const sig = toolSignature(tc);
