@@ -308,6 +308,9 @@ export const CRON_CAPABILITIES: Record<string, readonly Capability[]> = {
   'rescue': ['db_read', 'db_write', 'net_out', 'telegram', 'ai'],
   // Перепись сроков хранения (16.11, #3388 п.2): только счёт строк по сроку.
   'retention-census': ['db_read'],
+  // Уборка журналов старше срока хранения (16.11, #3388 п.2): сухой прогон
+  // читает, ?apply=1 удаляет или обезличивает строки и пишет журнал уборки.
+  'retention-purge': ['db_read', 'db_write'],
   'retrieval-probe': ['db_read', 'db_write', 'net_out', 'telegram', 'ai'],
   // Снимки приказов к дорожным закрытиям (10.10): зрение читает фото документа.
   'road-basis': ['db_read', 'db_write', 'net_out', 'ai'],

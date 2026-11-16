@@ -51,6 +51,7 @@ export const RETENTION_TARGETS: readonly RetentionTarget[] = [
   log('a2a_dialogs', 'created_at', '90 дней при записи (lib/a2a/dialog-log.ts)'),
   log('a2a_requests'),
   log('mcp_tool_calls'),
+  log('mcp_clients', 'day'),
   log('mcp_write_attempts', 'created_at', '30 дней, при 2% записей (lib/mcp/write-guard.ts)'),
   log('mcp_handoff_events'),
   log('kuzmich_write_journal'),
