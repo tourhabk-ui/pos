@@ -199,7 +199,7 @@ export type PdRef = { at: number; expr: string; pd: 'contact' | 'name' };
 /**
  * ПД в отрезке кода [from, to). `resolve` — один шаг по локальной переменной:
  * голое имя без ПД в названии (`text`) разбирается по своему объявлению
- * (`const text = \`…${booking.passengerPhone}\``). Дальше одного шага сторож
+ * (`const text = …booking.passengerPhone…`). Дальше одного шага сторож
  * не идёт: глубокий поток — работа D1 для своего стока.
  */
 export function pdRefsIn(
