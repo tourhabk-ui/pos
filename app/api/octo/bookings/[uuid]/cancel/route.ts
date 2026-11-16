@@ -26,12 +26,8 @@ export async function POST(
     return applyOctoRateLimitHeaders(response, authResult);
   }
 
-  let body: unknown = {};
-  try {
-    body = await request.json();
-  } catch {
-    // Body is optional for cancel
-  }
+  // Тело у отмены необязательно: пустое или не-JSON — отмена без причины.
+  const body: unknown = await request.json().catch(() => ({}));
 
   const parsed = BookingCancelSchema.safeParse(body);
   const reason = parsed.success ? parsed.data.reason : undefined;

@@ -12,6 +12,7 @@
 import { telegramService } from './telegram';
 import { emailService } from './email-service';
 import { pool } from '@/lib/db-pool';
+import { logSwallowedFailure, logUndelivered } from '@/lib/observability/swallowed';
 
 interface TouristContact {
   name: string;
@@ -42,7 +43,10 @@ async function getTouristContact(userId: string): Promise<TouristContact | null>
       email: res.rows[0].email,
       telegramId: res.rows[0].telegram_id,
     };
-  } catch {
+  } catch (err) {
+    // «Не прочитали» — не «у туриста нет контактов»: сообщение не уйдёт, и
+    // причина обязана остаться в логе (ревью #3464).
+    logSwallowedFailure('notify/booking', 'чтение контактов туриста', err);
     return null;
   }
 }
@@ -67,7 +71,7 @@ export async function notifyBookingConfirmed(
 
   // Telegram
   if (contact.telegramId) {
-    void telegramService.sendMessage({
+    void logUndelivered('notify/booking', `Telegram о подтверждении брони ${booking.id}`, telegramService.sendMessage({
       chatId: contact.telegramId,
       text: [
         `<b>${firstName}, оператор подтвердил заявку</b>`,
@@ -80,12 +84,12 @@ export async function notifyBookingConfirmed(
         `<a href="https://vedarai.ru/hub/tourist/bookings">Детали заявки →</a>`,
       ].join('\n'),
       parseMode: 'HTML',
-    }).catch(() => {});
+    }));
   }
 
   // Email
   if (contact.email) {
-    void emailService.sendBookingConfirmation({
+    void logUndelivered('notify/booking', `письмо о подтверждении брони ${booking.id}`, emailService.sendBookingConfirmation({
       bookingId: booking.id,
       touristName: contact.name,
       touristEmail: contact.email,
@@ -93,7 +97,7 @@ export async function notifyBookingConfirmed(
       date: new Date(booking.date + 'T00:00:00'),
       participants: booking.participants,
       totalAmount: booking.totalPrice,
-    }).catch(() => {});
+    }));
   }
 }
 
@@ -133,16 +137,16 @@ export async function notifyBookingCancelled(
     }
     lines.push('', `<a href="https://vedarai.ru/hub/tourist/bookings">История заявок →</a>`);
 
-    void telegramService.sendMessage({
+    void logUndelivered('notify/booking', `Telegram об отмене брони ${booking.id}`, telegramService.sendMessage({
       chatId: contact.telegramId,
       text: lines.filter(Boolean).join('\n'),
       parseMode: 'HTML',
-    }).catch(() => {});
+    }));
   }
 
   // Email
   if (contact.email) {
-    void emailService.sendBookingCancellation({
+    void logUndelivered('notify/booking', `письмо об отмене брони ${booking.id}`, emailService.sendBookingCancellation({
       bookingId: booking.id,
       touristName: contact.name,
       touristEmail: contact.email,
@@ -150,6 +154,6 @@ export async function notifyBookingCancelled(
       refundAmount: booking.refundAmount ?? 0,
       refundPercent: booking.refundPercent ?? 0,
       refundReason: booking.refundReason,
-    }).catch(() => {});
+    }));
   }
 }

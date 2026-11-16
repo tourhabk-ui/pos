@@ -164,12 +164,17 @@ export default function BookingSuccessClient() {
    * тот для другой цели (продиктовать номер оператору по телефону).
    */
   const [linkCopied, setLinkCopied] = useState(false);
+  // «Скопировано» — только когда буфер правда принял ссылку: до 16.11 надпись
+  // ставилась сразу, и отказ буфера читался как успех. Буфера нет — ссылка
+  // всё равно видна в адресной строке.
   const handleCopyLink = () => {
-    try {
-      void navigator.clipboard.writeText(window.location.href);
-      setLinkCopied(true);
-      setTimeout(() => setLinkCopied(false), 2000);
-    } catch { /* буфер обмена недоступен — ссылка всё равно видна в адресной строке */ }
+    if (!navigator.clipboard) return;
+    navigator.clipboard.writeText(window.location.href)
+      .then(() => {
+        setLinkCopied(true);
+        setTimeout(() => setLinkCopied(false), 2000);
+      })
+      .catch(() => setLinkCopied(false));
   };
 
   const handlePay = useCallback(() => {

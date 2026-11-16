@@ -473,7 +473,8 @@ export function LeadsClient() {
   const [total, setTotal]           = useState(0);
   const [loading, setLoading]       = useState(true);
   const [loadingMore, setLoadingMore] = useState(false);
-  const [counts, setCounts]         = useState<Record<string, number>>({});
+  // null — счёт по статусу не прочитался: это «не знаем», а не ноль заявок.
+  const [counts, setCounts]         = useState<Record<string, number | null>>({});
   const [search, setSearch]         = useState('');
   const [loadError, setLoadError]   = useState<string | null>(null);
   // Migration button removed — use `npm run migrate` on the server instead
@@ -515,20 +516,19 @@ export function LeadsClient() {
 
   const loadCounts = useCallback(async () => {
     const statuses: LeadStatus[] = ['new', 'contacted', 'qualified', 'converted', 'lost'];
-    try {
-      const results = await Promise.all(
-        statuses.map(s =>
-          fetch(`/api/leads?status=${s}&limit=1`)
-            .then(r => r.ok ? r.json() as Promise<{ total: number }> : Promise.resolve({ total: 0 }))
-            .catch(() => ({ total: 0 }))
-        )
-      );
-      const c: Record<string, number> = {};
-      statuses.forEach((s, i) => { c[s] = results[i].total; });
-      setCounts(c);
-    } catch {
-      // counts are not critical
-    }
+    // Отказ счёта по статусу — null («?» на вкладке), а не 0: до 16.11 сбой
+    // показывал «новых заявок нет».
+    const results = await Promise.all(
+      statuses.map(s =>
+        fetch(`/api/leads?status=${s}&limit=1`)
+          .then(r => (r.ok ? (r.json() as Promise<{ total?: unknown }>) : null))
+          .then(d => (d && typeof d.total === 'number' ? d.total : null))
+          .catch(() => null)
+      )
+    );
+    const c: Record<string, number | null> = {};
+    statuses.forEach((s, i) => { c[s] = results[i]; });
+    setCounts(c);
   }, []);
 
   // Migration endpoint removed — see AGENTS.md for the new process
@@ -565,6 +565,7 @@ export function LeadsClient() {
     : leads;
 
   const newCount = counts['new'] ?? 0;
+  const newCountUnknown = counts['new'] === null;
 
   return (
     <div className={`p-6 mx-auto ${view === 'kanban' ? 'max-w-full' : 'max-w-3xl'}`}>
@@ -572,6 +573,9 @@ export function LeadsClient() {
       <div className="flex items-center justify-between mb-6 flex-wrap gap-3">
         <div>
           <h1 className="ds-h1">CRM — Лиды</h1>
+          {newCountUnknown && (
+            <p className="text-sm text-[var(--warning)] mt-1">Сколько новых заявок — не загрузилось</p>
+          )}
           {newCount > 0 && (
             <p className="text-sm text-[var(--accent)] font-medium mt-1">{newCount} новых заявок</p>
           )}
@@ -657,7 +661,9 @@ export function LeadsClient() {
           {/* Tabs */}
           <div className="flex flex-wrap gap-1 mb-4">
             {TABS.map(t => {
-              const cnt = t.key !== 'all' ? (counts[t.key] ?? 0) : total;
+              const raw = t.key !== 'all' ? counts[t.key] : total;
+              const cnt = raw ?? 0;
+              const unknown = raw === null;
               return (
                 <button
                   key={t.key}
@@ -669,9 +675,12 @@ export function LeadsClient() {
                   }`}
                 >
                   {t.label}
-                  {cnt > 0 && (
-                    <span className={`ml-1.5 text-xs ${tab === t.key ? 'opacity-80' : 'text-[var(--text-muted)]'}`}>
-                      {cnt}
+                  {(cnt > 0 || unknown) && (
+                    <span
+                      className={`ml-1.5 text-xs ${tab === t.key ? 'opacity-80' : 'text-[var(--text-muted)]'}`}
+                      title={unknown ? 'Счёт не загрузился' : undefined}
+                    >
+                      {unknown ? '?' : cnt}
                     </span>
                   )}
                 </button>

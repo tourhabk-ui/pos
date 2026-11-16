@@ -11,6 +11,7 @@
  */
 
 import { sendPdAlert } from '@/lib/notifications/pd-alert';
+import { logSwallowedFailure } from '@/lib/observability/swallowed';
 import { notifyTeam } from '@/lib/operators/team-notify';
 import { getPublicBaseUrl } from '@/lib/config';
 import { ownerBookingsUrl } from '@/lib/partners/cabinet-links';
@@ -20,13 +21,16 @@ async function tgSend(chatId: string, text: string): Promise<void> {
   const token = process.env.TELEGRAM_BOT_TOKEN;
   if (!token || !chatId) return;
   try {
-    await fetch(`${process.env.TELEGRAM_API_BASE||'https://api.telegram.org'}/bot${token}/sendMessage`, {
+    const res = await fetch(`${process.env.TELEGRAM_API_BASE||'https://api.telegram.org'}/bot${token}/sendMessage`, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({ chat_id: chatId, text, parse_mode: 'HTML' }),
     });
-  } catch {
-    // Non-fatal: telegram failure must not break booking flow
+    // Telegram отвечает 400/403 (битая разметка, бот заблокирован), не бросая.
+    if (!res.ok) logSwallowedFailure('notify/operator-booking', 'сообщение в Telegram', new Error(`HTTP ${res.status}`));
+  } catch (err) {
+    // Бронь от отказа Telegram не ломается, но отказ назван.
+    logSwallowedFailure('notify/operator-booking', 'сообщение в Telegram', err);
   }
 }
 

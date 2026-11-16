@@ -184,15 +184,10 @@ export async function DELETE(
       );
     }
 
-    let reason = 'Отменено пользователем';
-    try {
-      const body = await request.json();
-      if (typeof body.reason === 'string') {
-        reason = body.reason;
-      }
-    } catch {
-      // Тело необязательно для DELETE
-    }
+    // Тело необязательно для DELETE: пустое или не-JSON — причина по умолчанию.
+    const body: unknown = await request.json().catch(() => ({}));
+    const given = typeof body === 'object' && body !== null ? (body as { reason?: unknown }).reason : undefined;
+    const reason = typeof given === 'string' ? given : 'Отменено пользователем';
 
     const { booking, refund } = await cancelBooking(id, auth.userId, 'tourist', reason);
 
