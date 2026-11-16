@@ -12,11 +12,35 @@
  * Это удобство одного зрителя, а не состояние платформы: без localStorage
  * планер работает как раньше. Срок — 30 дней; прошедшие даты не
  * восстанавливаются.
+ *
+ * Черновик принадлежит аккаунту, а не браузеру (слово владельца 16.11
+ * «Сделай правку»): в нём подвижность, морская болезнь, возраст детей и рейсы,
+ * а устройство бывает общим. Поэтому:
+ * - запись несёт id вошедшего (`owner`), и чтение отдаёт черновик только ему
+ *   же — чужой, без владельца или при неизвестном вошедшем не возвращается.
+ *   Это закрывает и сессию, истёкшую без «Выйти», и вход другим аккаунтом
+ *   поверх чужой сессии;
+ * - «Выйти» черновик стирает (`clearFormDraft` из signOut в AuthContext),
+ *   чтобы он не лежал на устройстве после ухода хозяина;
+ * - уже открытый планер после «Выйти» черновик больше не пишет: в этой вкладке
+ *   его останавливает счётчик выходов (`draftSignOutGeneration`), в других —
+ *   событие хранилища по ключу `DRAFT_SIGNOUT_KEY` (ревью безопасности PR 3452:
+ *   вкладка со старым входом иначе записала бы черновик обратно при первой
+ *   правке анкеты).
  */
 
 import { MAX_ADULTS } from '@/lib/planner/party-limits';
+import { logSwallowedFailure } from '@/lib/observability/swallowed';
 
 export const FORM_DRAFT_KEY = 'vedar_planner_form_v1';
+/** Метка «из аккаунта вышли»: её запись другие вкладки получают событием storage. */
+export const DRAFT_SIGNOUT_KEY = 'vedar_planner_signout';
+
+let signOutGeneration = 0;
+/** Сколько раз в этой вкладке выходили из аккаунта: планер сверяет с числом при открытии. */
+export function draftSignOutGeneration(): number {
+  return signOutGeneration;
+}
 export const FORM_DRAFT_TTL_DAYS = 30;
 
 export type DraftFitness = 'beginner' | 'moderate' | 'active';
@@ -59,8 +83,8 @@ const strList = (v: unknown): string[] =>
 const short = (v: unknown, max: number): string => (typeof v === 'string' ? v.slice(0, max) : '');
 const flag = (v: unknown): boolean => v === true;
 
-/** Записать черновик: поля поимённо, с отметкой времени. */
-export function serializeFormDraft(d: PlannerFormDraft, now: Date = new Date()): string {
+/** Записать черновик: поля поимённо, с отметкой времени и id владельца. */
+export function serializeFormDraft(d: PlannerFormDraft, owner: string, now: Date = new Date()): string {
   const picked: PlannerFormDraft = {
     places: d.places, activities: d.activities,
     arrival: d.arrival, departure: d.departure,
@@ -72,21 +96,25 @@ export function serializeFormDraft(d: PlannerFormDraft, now: Date = new Date()):
     mobilityLevel: d.mobilityLevel, travelStyle: d.travelStyle, tripOrigin: d.tripOrigin,
     restDays: d.restDays, restManual: d.restManual,
   };
-  return JSON.stringify({ savedAt: now.toISOString(), draft: picked });
+  return JSON.stringify({ savedAt: now.toISOString(), owner, draft: picked });
 }
 
 /**
- * Прочитать черновик. Битый, чужой формы или старше срока — null. Даты в
+ * Прочитать черновик. Битый, чужой формы, старше срока или другого владельца
+ * — null. Пустой `owner` (вошедший неизвестен) черновика не открывает. Даты в
  * прошлом (`today` — по Камчатке, YYYY-MM-DD) не восстанавливаются: план на
  * прошедшее число был бы ловушкой.
  */
-export function parseFormDraft(raw: string | null, today: string, now: Date = new Date()): PlannerFormDraft | null {
-  if (!raw) return null;
+export function parseFormDraft(
+  raw: string | null, today: string, owner: string | null | undefined, now: Date = new Date(),
+): PlannerFormDraft | null {
+  if (!raw || !owner) return null;
   let parsed: unknown;
   try { parsed = JSON.parse(raw); } catch { return null; }
   if (!parsed || typeof parsed !== 'object') return null;
-  const { savedAt, draft } = parsed as { savedAt?: unknown; draft?: unknown };
+  const { savedAt, draft, owner: savedOwner } = parsed as { savedAt?: unknown; draft?: unknown; owner?: unknown };
   if (typeof savedAt !== 'string' || !draft || typeof draft !== 'object') return null;
+  if (savedOwner !== owner) return null;
   const saved = Date.parse(savedAt);
   if (Number.isNaN(saved) || now.getTime() - saved > FORM_DRAFT_TTL_DAYS * 86400000) return null;
   const d = draft as Record<string, unknown>;
@@ -122,6 +150,22 @@ export function parseFormDraft(raw: string | null, today: string, now: Date = ne
     restDays,
     restManual: flag(d.restManual),
   };
+}
+
+/**
+ * Стереть черновик с этого устройства. Отказ хранилища не роняет вызывающего
+ * (выход из аккаунта не должен ломаться из-за черновика), но и не молчит.
+ */
+export function clearFormDraft(): void {
+  signOutGeneration += 1;
+  if (typeof localStorage === 'undefined') return;
+  try { localStorage.removeItem(FORM_DRAFT_KEY); } catch (err) {
+    logSwallowedFailure('planner-form-draft', 'стирание черновика анкеты при выходе', err);
+  }
+  // Новое значение каждый раз: одинаковая запись события storage не даёт.
+  try { localStorage.setItem(DRAFT_SIGNOUT_KEY, `${Date.now()}-${signOutGeneration}`); } catch (err) {
+    logSwallowedFailure('planner-form-draft', 'метка выхода для других вкладок', err);
+  }
 }
 
 /** Пустая анкета — как при первом открытии: «Начать заново». */

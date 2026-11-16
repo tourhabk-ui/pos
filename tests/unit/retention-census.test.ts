@@ -4,8 +4,9 @@
  * Что держится:
  *  - срок уходит параметром через make_interval, имя таблицы — только из списка;
  *  - три исхода у каждой таблицы: число, «нет таблицы» (42P01), «не смог»;
- *  - профиль без поля последней активности назван «посчитать нечем», а не
- *    подменён updated_at;
+ *  - профиль судится по последней активности (регистрация или вход,
+ *    v_user_last_activity), а не по updated_at, и ответ называет, чего эта
+ *    отметка не видит;
  *  - в ответе нет ничего, кроме чисел и дат;
  *  - роут закрыт CRON_SECRET.
  * На настоящем PostgreSQL каждая таблица и колонка списка проверяется в
@@ -41,6 +42,7 @@ describe('правило переписи', () => {
     expect(by('operator_bookings')).toMatchObject({ column: 'booking_date', term: 'bookings_5y' });
     expect(by('chat_sessions')).toMatchObject({ column: 'updated_at', term: 'chat_3y' });
     expect(RETENTION_TARGETS.find((x) => x.table === 'users'), 'профиль не судится по updated_at').toBeUndefined();
+    expect(by('v_user_last_activity')).toMatchObject({ column: 'last_activity_at', term: 'profile_3y', days: 3 * 365 });
   });
 });
 
@@ -64,7 +66,9 @@ describe('три исхода', () => {
     expect(query.mock.calls.map((c) => c[1])).toEqual([[90], [90], [1095]]);
     expect(out.over_term_tables.tech_logs_90d).toBe(1);
     expect(out.failed).toBe(1);
-    expect(out.unmeasurable.join(' ')).toMatch(/поля последней активности/);
+    // Чего отметка входа не видит — сказано словами, а не спрятано.
+    expect(out.unmeasurable.join(' ')).toMatch(/в чате кабинета.*входом не отмечается/);
+    expect(out.over_term_tables.profile_3y).toBe(0);
   });
 });
 

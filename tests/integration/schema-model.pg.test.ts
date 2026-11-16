@@ -269,6 +269,48 @@ withPg('объектив схемы на настоящем PostgreSQL', () => {
       );
       expect(out.rows[0]).toMatchObject({ state: 'ok', total: 2, over_term: 1 });
     });
+
+    it('профиль (1452): вход отмечается сам, отметка не идёт назад, активность — позднее из регистрации и входа', async () => {
+      const { rows: [u] } = await pool.query<{ id: string }>(`INSERT INTO users (email, name, password_hash, role, created_at)
+        VALUES ('retention-1452@example.org', 'Проверка', 'x', 'tourist', NOW() - INTERVAL '4 years') RETURNING id::text`);
+      const { rows: [quiet] } = await pool.query<{ id: string }>(`INSERT INTO users (email, name, password_hash, role, created_at)
+        VALUES ('retention-1452-quiet@example.org', 'Проверка', 'x', 'tourist', NOW() - INTERVAL '4 years') RETURNING id::text`);
+      const mark = async (id: string) => (await pool.query<{ at: Date | null }>(
+        'SELECT last_login_at AS at FROM user_last_login WHERE user_id = $1::uuid', [id])).rows[0]?.at ?? null;
+
+      // Ни одна дверь входа не знает об отметке: её пишет вставка сессии.
+      await pool.query(`INSERT INTO user_sessions (user_id, token, expires_at, created_at)
+        VALUES ($1::uuid, 'tok-1452-a', NOW() + INTERVAL '7 days', NOW() - INTERVAL '2 days')`, [u.id]);
+      const first = await mark(u.id);
+      expect(first).not.toBeNull();
+      // Сессия с более ранней датой (часы, перенос) отметку назад не двигает.
+      await pool.query(`INSERT INTO user_sessions (user_id, token, expires_at, created_at)
+        VALUES ($1::uuid, 'tok-1452-b', NOW() + INTERVAL '7 days', NOW() - INTERVAL '30 days')`, [u.id]);
+      expect(await mark(u.id)).toEqual(first);
+      // Выход стирает сессию — отметка остаётся.
+      await pool.query('DELETE FROM user_sessions WHERE user_id = $1::uuid', [u.id]);
+      expect(await mark(u.id)).toEqual(first);
+      // Аккаунт удалён — отметка уходит с ним (внешний ключ с каскадом).
+      const { rows: [gone] } = await pool.query<{ id: string }>(`INSERT INTO users (email, name, password_hash, role)
+        VALUES ('retention-1452-gone@example.org', 'Проверка', 'x', 'tourist') RETURNING id::text`);
+      await pool.query(`INSERT INTO user_sessions (user_id, token, expires_at) VALUES ($1::uuid, 'tok-1452-c', NOW() + INTERVAL '7 days')`, [gone.id]);
+      expect(await mark(gone.id)).not.toBeNull();
+      await pool.query('DELETE FROM user_sessions WHERE user_id = $1::uuid', [gone.id]);
+      await pool.query('DELETE FROM users WHERE id = $1::uuid', [gone.id]);
+      expect(await mark(gone.id)).toBeNull();
+
+      const act = await pool.query<{ user_id: string; recent: boolean }>(
+        `SELECT user_id::text, last_activity_at > NOW() - INTERVAL '1 year' AS recent
+           FROM v_user_last_activity WHERE user_id = ANY($1::uuid[]) ORDER BY recent DESC`, [[u.id, quiet.id]]);
+      expect(act.rows).toEqual([{ user_id: u.id, recent: true }, { user_id: quiet.id, recent: false }]);
+
+      const out = await runRetentionCensus(
+        (sql, params) => pool.query(sql, params),
+        RETENTION_TARGETS.filter((t) => t.term === 'profile_3y'),
+      );
+      // Вошедший недавно — в сроке; молчавший четыре года — за сроком.
+      expect(out.rows[0]).toMatchObject({ state: 'ok', over_term: 1 });
+    });
   });
 
   describe('уборка сроков хранения на той же базе', () => {
