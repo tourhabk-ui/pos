@@ -104,7 +104,11 @@ export async function POST(request: NextRequest) {
         JSON.stringify({ role, level: level || null, changedBy: adminOrResponse.userId }),
         getClientIp(request.headers),
       ]
-    ).catch(() => {});
+    ).catch((err: unknown) => {
+      // Роль уже сменена — ответ не роняем, но «записи нет» обязано быть
+      // видно (§4.0): по этим строкам admin-owners-census судит, кто выдал права.
+      console.error('[roles] аудит смены роли не записан, SQLSTATE', (err as { code?: string })?.code ?? 'нет SQLSTATE');
+    });
 
     const updated = updateResult.rows[0];
     return NextResponse.json({

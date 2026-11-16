@@ -247,7 +247,11 @@ export async function POST(request: NextRequest) {
         JSON.stringify({ email: emailLower, inn: data.inn, roles: data.roles, consents }),
         ip,
       ]
-    ).catch(() => {});
+    ).catch((err: unknown) => {
+      // Партнёр уже заведён — ответ не роняем, но «записи нет» обязано быть
+      // видно (§4.0): по этой строке видно, кто и когда зарегистрировался.
+      console.error('[partners/register] запись регистрации в audit_log не сделана, SQLSTATE', (err as { code?: string })?.code ?? 'нет SQLSTATE');
+    });
 
     // JWT cookie — партнёр сразу залогинен в свой кабинет
     const token = await new SignJWT({ userId: user.id, email: user.email, role: primaryRole, roles: data.roles })
