@@ -38,6 +38,7 @@ import { loadSchemaModel, type SchemaModel } from '@/lib/agents/evo/schema-model
 import { RETENTION_TARGETS, runRetentionCensus } from '@/lib/legal/retention-census';
 import { PURGE_STEPS, ERASED_MARK, runRetentionPurge } from '@/lib/legal/retention-purge';
 import { createTestDatabase } from '../helpers/pg-schema';
+import { DUPLICATE_INDEXES_SQL, planDuplicateDrops, type DuplicateGroup } from '@/lib/db/duplicate-indexes';
 
 const PG_URL = process.env.KERNEL_PG_TEST_URL ?? '';
 const withPg = PG_URL ? describe : describe.skip;
@@ -402,5 +403,58 @@ withPg('объектив схемы на настоящем PostgreSQL', () => {
       const again = await runRetentionPurge(query, { apply: true });
       expect(again.total).toBe(0);
     });
+  });
+});
+
+/**
+ * Точные дубли индексов (#3388 п.4, шаг 1) — запрос к каталогу на модели
+ * схемы прода (baseline + все миграции) и сцена с известными индексами. Что
+ * считается точным дублем, решает сервер: порядок сортировки, условие
+ * частичного индекса и выражение различают индексы. Своя база: сцена
+ * добавляет индексы и не должна менять схему соседних сцен.
+ */
+withPg('дубли индексов на настоящем PostgreSQL', () => {
+  let pool: import('pg').Pool;
+
+  beforeAll(async () => {
+    const { Pool } = await import('pg');
+    const dbUrl = await createTestDatabase(PG_URL, 'duplicate_indexes_test');
+    pool = new Pool({ connectionString: dbUrl, max: 2 });
+  }, 300_000);
+
+  afterAll(async () => { await pool?.end().catch(() => undefined); });
+
+  const groups = async () => (await pool.query<DuplicateGroup>(DUPLICATE_INDEXES_SQL)).rows;
+
+  it('модель схемы прода: пары с другим порядком сортировки — не дубли, под ограничением ничего не снимается', async () => {
+    const g = await groups();
+    const tables = g.map((x) => x.table_name);
+    expect(tables).not.toContain('conversation_messages');
+    expect(tables).not.toContain('cancellation_policies');
+    const plan = planDuplicateDrops(g);
+    const byName = new Map(g.flatMap((x) => x.indexes).map((i) => [i.name, i]));
+    for (const d of plan.drops) {
+      for (const name of d.drop) {
+        const i = byName.get(name)!;
+        expect(i.primary || i.backs_constraint, `${name} держит ограничение`).toBe(false);
+      }
+    }
+    // Сколько групп на модели — называет сам прогон; на 16.11 их 28.
+    expect(g.length).toBeGreaterThan(0);
+  });
+
+  it('сцена: точный дубль найден, порядок сортировки, предикат и выражение различают', async () => {
+    // Индексы сцены — на настоящей таблице схемы (своих таблиц файл на шаблоне не пишет).
+    await pool.query(`CREATE INDEX idx_scene_pb ON operator_bookings (participants, booking_date)`);
+    await pool.query(`CREATE INDEX idx_scene_pb_twin ON operator_bookings (participants, booking_date)`);
+    await pool.query(`CREATE INDEX idx_scene_pb_desc ON operator_bookings (participants, booking_date DESC)`);
+    await pool.query(`CREATE INDEX idx_scene_p_partial ON operator_bookings (participants) WHERE booking_date IS NOT NULL`);
+    await pool.query(`CREATE INDEX idx_scene_notes_lower ON operator_bookings (lower(admin_notes))`);
+    await pool.query(`CREATE INDEX idx_scene_notes ON operator_bookings (admin_notes)`);
+    const mine = (await groups()).filter((x) => x.indexes.some((i) => i.name.startsWith('idx_scene_')));
+    expect(mine.map((x) => x.indexes.map((i) => i.name))).toEqual([['idx_scene_pb', 'idx_scene_pb_twin']]);
+    expect(planDuplicateDrops(mine).drops).toEqual([
+      { table: 'operator_bookings', keep: 'idx_scene_pb_twin', drop: ['idx_scene_pb'] },
+    ]);
   });
 });
