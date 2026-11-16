@@ -3,8 +3,9 @@
  * 15.10, CN-pages).
  *
  * В sitemap идут все живые /zh/tours/* (китайские факты из базы) и
- * /zh/places/* только со свежим переводом описания. lastmod тура — дата
- * перевода, если он есть. Отказ чтения переводов — туры остаются, места нет,
+ * /zh/places/* только со свежим переводом описания. lastmod тура — позднее
+ * из правки тура и перевода; у тура без перевода — дата правки (аудит 16.11,
+ * #3463: такие туры уходили без lastmod). Отказ чтения переводов — туры остаются, места нет,
  * секция названа в degraded. Отказ чтения самих туров — секция пустая.
  */
 import { describe, it, expect, vi, beforeEach } from 'vitest';
@@ -23,6 +24,8 @@ const tour = (id: string, slug: string | null, title: string, description: strin
   what_to_bring: null, base_price: '1000', price_unit: 'per_person', duration_hours: '8',
   max_participants: 10, season_start: null, season_end: null, safety_notes: null,
   operator_name: 'Тест', operator_slug: null, operator_public: null,
+  // Правка тура (аудит 16.11, #3463): у тура без перевода — единственная дата.
+  updated_at: '2026-10-01T00:00:00Z',
 });
 
 const TOURS = [
@@ -87,6 +90,33 @@ describe('sitemap: китайские туры — все живые, места
     expect(entries.some((e) => e.url.endsWith('/zh/places/bez-opisaniya'))).toBe(false);
   });
 
+  it('у каждого китайского тура есть lastmod: без перевода — правка тура, свежая правка тура — позднее перевода (#3463)', async () => {
+    const { entries } = await collectSitemapEntriesWithStatus();
+    const zhTours = entries.filter((e) => e.url.includes('/zh/tours/'));
+    expect(zhTours.every((e) => e.lastModified instanceof Date)).toBe(true);
+    const plain = zhTours.find((e) => e.url.endsWith('/bez-perevoda'));
+    expect((plain?.lastModified as Date).toISOString()).toBe('2026-10-01T00:00:00.000Z');
+
+    TOURS[0] = { ...tour('51', 'dolina-geyzerov', 'Долина гейзеров', 'Вылет утром.'), updated_at: '2026-11-01T00:00:00Z' };
+    try {
+      const again = await collectSitemapEntriesWithStatus();
+      const geyser = again.entries.find((e) => e.url.endsWith('/zh/tours/dolina-geyzerov'));
+      expect((geyser?.lastModified as Date).toISOString()).toBe('2026-11-01T00:00:00.000Z');
+    } finally {
+      TOURS[0] = tour('51', 'dolina-geyzerov', 'Долина гейзеров', 'Вылет утром.');
+    }
+  });
+
+  it('тур без даты вовсе — lastmod нет, а не выдуманная дата', async () => {
+    TOURS[2] = { ...tour('53', 'bez-perevoda', 'Без перевода', 'Описание.'), updated_at: null };
+    try {
+      const { entries } = await collectSitemapEntriesWithStatus();
+      expect(entries.find((e) => e.url.endsWith('/zh/tours/bez-perevoda'))?.lastModified).toBeUndefined();
+    } finally {
+      TOURS[2] = tour('53', 'bez-perevoda', 'Без перевода', 'Описание.');
+    }
+  });
+
   it('исходник правили — тур остаётся: страница фактов не зависит от свежести прозы', async () => {
     TOURS[0] = tour('51', 'dolina-geyzerov', 'Долина гейзеров', 'Вылет вечером.');
     try {
@@ -103,6 +133,8 @@ describe('sitemap: китайские туры — все живые, места
     const { entries, degraded } = await collectSitemapEntriesWithStatus();
     expect(degraded).toContain('переводы китайских мест');
     expect(entries.filter((e) => e.url.includes('/zh/tours/'))).toHaveLength(TOURS.length);
+    // И без переводов дата правки тура на месте.
+    expect(entries.filter((e) => e.url.includes('/zh/tours/')).every((e) => e.lastModified instanceof Date)).toBe(true);
     expect(entries.some((e) => e.url.includes('/zh/places/'))).toBe(false);
     expect(entries.some((e) => e.url === `${BASE}/zh`)).toBe(true);
     err.mockRestore();

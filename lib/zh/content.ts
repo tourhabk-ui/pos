@@ -145,6 +145,13 @@ export interface ZhTourSourceRow {
   operator_name: string;
   operator_slug: string | null;
   operator_public: boolean | null;
+  /**
+   * Последняя правка тура (у тура без неё — создание) — как её отдаёт драйвер,
+   * тем же путём, что даты других секций sitemap. Страница
+   * фактов меняется вместе с туром, поэтому её lastmod в sitemap — позднее из
+   * этой даты и перевода (аудит 16.11, #3463: тур без перевода уходил без даты).
+   */
+  updated_at?: Date | string | null;
 }
 
 const TOUR_SELECT = `
@@ -153,6 +160,7 @@ const TOUR_SELECT = `
          ot.base_price::text AS base_price, ot.price_unit, ot.duration_hours::text AS duration_hours,
          ot.max_participants, ot.group_size_unlimited, ot.season_start::text AS season_start, ot.season_end::text AS season_end,
          ot.safety_notes,
+         COALESCE(ot.updated_at, ot.created_at) AS updated_at,
          p.name AS operator_name, p.slug AS operator_slug, p.is_public AS operator_public
     FROM operator_tours ot
     JOIN partners p ON ot.operator_id = p.id
@@ -333,6 +341,20 @@ function latest(rows: ReadonlyMap<string, ZhStoredTranslation> | undefined): Dat
   return max === null ? null : new Date(max);
 }
 
+/** Дата правки тура для lastmod; нет или не читается — null. */
+function tourChanged(t: Pick<ZhTourSourceRow, 'updated_at'>): Date | null {
+  if (!t.updated_at) return null;
+  const d = new Date(t.updated_at);
+  return Number.isNaN(d.getTime()) ? null : d;
+}
+
+/** Позднее из двух дат; обе пусты — null. */
+export function laterOf(a: Date | null, b: Date | null): Date | null {
+  if (!a) return b;
+  if (!b) return a;
+  return a.getTime() >= b.getTime() ? a : b;
+}
+
 /**
  * Переводы для sitemap не прочитались. Туры уже известны (их страницы —
  * факты, перевод не нужен) и лежат в `tours`. Мест в списке нет: без таблицы
@@ -364,12 +386,12 @@ export async function loadZhDetailEntries(): Promise<ZhDetailEntry[]> {
     ]);
   } catch (err) {
     logZhFailure('переводы для sitemap', err);
-    throw new ZhTranslationsUnread(tours.map((t) => ({ path: zhTourPath(t), lastModified: null })));
+    throw new ZhTranslationsUnread(tours.map((t) => ({ path: zhTourPath(t), lastModified: tourChanged(t) })));
   }
   const out: ZhDetailEntry[] = [];
   for (const t of tours) {
     const rows = tourTr.get(t.id) ?? new Map();
-    if (zhTourIndexable(t, rows)) out.push({ path: zhTourPath(t), lastModified: latest(rows) });
+    if (zhTourIndexable(t, rows)) out.push({ path: zhTourPath(t), lastModified: laterOf(tourChanged(t), latest(rows)) });
   }
   for (const p of places) {
     const rows = placeTr.get(p.id) ?? new Map();

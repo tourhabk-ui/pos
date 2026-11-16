@@ -6,6 +6,22 @@
 // не ослабляется ни на символ.
 const DEV_EVAL = process.env.NODE_ENV === 'development' ? " 'unsafe-eval'" : '';
 
+// Permissions-Policy (аудит 16.11, #3463): что странице и встроенным в неё
+// фреймам позволено просить у устройства. Своему сайту — только то, чем он
+// пользуется: камера (сканер QR на SOS, снимок наблюдения), микрофон (голосовой
+// ввод ИИ-помощника — черновик аудита `microphone=()` его бы сломал),
+// геолокация (карта, SOS, «на маршруте»), датчики ориентации (компас на
+// /planning: deviceorientation в Chrome закрыт accelerometer/gyroscope/
+// magnetometer). Чужим фреймам (вход Telegram, карты) — ничего из этого.
+// Железо, которым сайт не пользуется, закрыто всем. Оплату (payment) не
+// трогаем: приём выключен, а возврат виджета оплаты не должен упереться в
+// забытый запрет. Сторож: tests/unit/permissions-policy.test.ts.
+const PERMISSIONS_POLICY = [
+  'camera=(self)', 'microphone=(self)', 'geolocation=(self)',
+  'accelerometer=(self)', 'gyroscope=(self)', 'magnetometer=(self)',
+  'usb=()', 'serial=()', 'bluetooth=()', 'hid=()', 'midi=()',
+].join(', ');
+
 /**
  * Штампа сборки здесь НЕТ — и это результат замера, а не забывчивость.
  *
@@ -468,6 +484,7 @@ const nextConfig = {
         headers: [
           { key: 'X-Frame-Options', value: 'ALLOWALL' },
           { key: 'X-Content-Type-Options', value: 'nosniff' },
+          { key: 'Permissions-Policy', value: PERMISSIONS_POLICY },
           { key: 'Referrer-Policy', value: 'strict-origin-when-cross-origin' },
           { key: 'Content-Security-Policy', value: `default-src 'self'; script-src 'self' 'unsafe-inline'${DEV_EVAL}; style-src 'self' 'unsafe-inline'; img-src 'self' data: https:; connect-src 'self' https://*.yandex.ru; font-src 'self' data:; frame-ancestors *;` },
         ],
@@ -477,6 +494,7 @@ const nextConfig = {
         headers: [
           { key: 'X-Frame-Options', value: 'DENY' },
           { key: 'X-Content-Type-Options', value: 'nosniff' },
+          { key: 'Permissions-Policy', value: PERMISSIONS_POLICY },
           { key: 'Referrer-Policy', value: 'strict-origin-when-cross-origin' },
           // ЗАФИКСИРОВАННЫЙ КОМПРОМИСС (аудит 11.07, P2): 'unsafe-inline' в
           // script-src/style-src оставлен сознательно. Next.js App Router
