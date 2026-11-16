@@ -69,7 +69,7 @@ export function plateFacts(p: PlateFactsInput): PlateFacts {
 export const PLATES_LIMIT = 8;
 
 /** Порядок витрины по сезону: открытые (даты есть или по запросу) → сезон кончился (в конец). */
-export const AVAILABILITY_RANK: Record<CatalogAvailability, number> = { dates: 0, on_request: 1, season_over: 2 };
+export const AVAILABILITY_RANK: Record<CatalogAvailability, number> = { dates: 0, any_day: 0, on_request: 1, season_over: 2 };
 
 /**
  * Подпись порядка блока туров главной (правило 1в, слово владельца 29.10):
@@ -78,7 +78,7 @@ export const AVAILABILITY_RANK: Record<CatalogAvailability, number> = { dates: 0
  * обе видны на телефоне и на десктопе, текст не повторяется.
  */
 export const HOME_PLATES_ORDER_NOTE =
-  'Порядок: сначала туры со свободными местами — по ближайшему выезду, компании по очереди; остальные раз в сутки меняются местами по жребию, туры с закончившимся сезоном — в конце. Место в списке не продаётся.';
+  'Порядок: сначала туры с выездами, где есть свободные места, — по ближайшему выезду, компании по очереди; затем туры, которые выезжают в любой день сезона; остальные раз в сутки меняются местами по жребию, туры с закончившимся сезоном — в конце. Место в списке не продаётся.';
 
 /**
  * Подпись допуска витрины главной (29.10, #2832, слово владельца «фото не
@@ -126,6 +126,9 @@ export function orderPlates<T extends PlateOrderInput>(plates: readonly T[], opt
       plate: p,
       id: p.id,
       nearestFreeDate: p.nearestFreeDate ?? null,
+      // «Любой день сезона» — вторая группа правила 1в (#3476): признак уже
+      // прочитан правилом каталога, своей копии здесь нет.
+      anyDay: p.availability === 'any_day',
       partnerId: p.partnerId?.trim() ? p.partnerId.trim() : `tour:${p.id}`,
       partnerName: p.operatorName ?? '',
     })),

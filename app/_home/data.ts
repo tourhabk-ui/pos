@@ -393,6 +393,7 @@ export async function fetchPlates(): Promise<Plate[]> {
       duration_hours: string | null; duration_type: string | null; multi_day_count: number | null;
       season_start: string | null; season_end: string | null;
       cancellation_policy: string | null; partner_id: string; nearest_free_date: string | null;
+      schedule_kind: string | null;
     }>(`
       SELECT ot.id::text, ot.slug, ot.title,
              COALESCE(NULLIF(ot.short_description, ''), LEFT(ot.description, 140)) AS description,
@@ -406,6 +407,7 @@ export async function fetchPlates(): Promise<Plate[]> {
              ot.season_start::text, ot.season_end::text,
              NULLIF(btrim(ot.cancellation_policy), '') AS cancellation_policy,
              p.id::text AS partner_id,
+             ot.schedule_kind,
              ${nearestFreeDateSql('ot')} AS nearest_free_date
         FROM operator_tours ot
         JOIN partners p ON ot.operator_id = p.id
@@ -443,6 +445,7 @@ export async function fetchPlates(): Promise<Plate[]> {
           duration_type: r.duration_type,
           multi_day_count: multi,
           duration_hours: hours,
+          schedule_kind: r.schedule_kind,
         }),
       };
     });

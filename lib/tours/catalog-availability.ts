@@ -14,11 +14,19 @@
  *                     (поле не пришло, сезон не записан). Незнание не
  *                     выдаётся за «есть даты».
  *
+ *   - `any_day`     — оператор выезжает в любой день сезона
+ *                     (`schedule_kind = 'any_day'`, #3476), и сезон идёт
+ *                     или впереди. Сильнее `dates`: строка календаря у
+ *                     такого тура — исключение, а не выезд.
+ *
  * «Сезон 2027» и прочие обещания будущего здесь не сочиняются: дат следующего
  * сезона в данных нет.
  */
 
-export type CatalogAvailability = 'dates' | 'on_request' | 'season_over';
+import { kamchatkaDate } from '@/lib/analytics/kamchatka-day';
+import { isAnyDayOpen } from '@/lib/tours/schedule-kind';
+
+export type CatalogAvailability = 'dates' | 'any_day' | 'on_request' | 'season_over';
 
 export interface AvailabilityInput {
   has_availability?: boolean | null;
@@ -27,6 +35,8 @@ export interface AvailabilityInput {
   duration_type: string | null;
   multi_day_count: number | null;
   duration_hours: number | null;
+  /** operator_tours.schedule_kind как прочитан; не передан — «не указано». */
+  schedule_kind?: unknown;
 }
 
 const DAY_MS = 24 * 60 * 60 * 1000;
@@ -48,6 +58,7 @@ function seasonEndMs(seasonEnd: string): number | null {
 }
 
 export function catalogAvailability(t: AvailabilityInput, now: Date = new Date()): CatalogAvailability {
+  if (t.schedule_kind != null && isAnyDayOpen(t, kamchatkaDate(now))) return 'any_day';
   if (t.has_availability === true) return 'dates';
   if (t.season_end) {
     const end = seasonEndMs(t.season_end);
@@ -59,6 +70,7 @@ export function catalogAvailability(t: AvailabilityInput, now: Date = new Date()
 
 export const AVAILABILITY_LABEL: Record<CatalogAvailability, string> = {
   dates: 'Есть даты',
+  any_day: 'Любой день сезона',
   on_request: 'Даты по запросу',
   season_over: 'Сезон завершён, даты по запросу',
 };

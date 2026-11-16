@@ -90,12 +90,26 @@ describe('три исхода дат на карточке (§4.0)', () => {
     expect(catalogAvailability({ ...base, has_availability: undefined }, now)).toBe('on_request');
     expect(catalogAvailability({ ...base, has_availability: null, season_end: null }, now)).toBe('on_request');
   });
-  it('подписи — ровно три, и будущий сезон не сочиняется', () => {
+  it('подписи — ровно четыре, и будущий сезон не сочиняется', () => {
     expect(AVAILABILITY_LABEL).toEqual({
       dates: 'Есть даты',
+      any_day: 'Любой день сезона',
       on_request: 'Даты по запросу',
       season_over: 'Сезон завершён, даты по запросу',
     });
+  });
+  it('любой день сезона (#3476): сильнее строки календаря, но только пока сезон вмещает поездку', () => {
+    expect(catalogAvailability({ ...base, has_availability: false, schedule_kind: 'any_day' }, now)).toBe('any_day');
+    // Строка календаря у такого тура — исключение, а не выезд.
+    expect(catalogAvailability({ ...base, has_availability: true, schedule_kind: 'any_day' }, now)).toBe('any_day');
+    // Сезон кончился — прежние слова о сезоне, «любой день» не обещается.
+    expect(catalogAvailability({ ...base, has_availability: false, schedule_kind: 'any_day', season_end: '2026-08-15T00:00:00.000Z' }, now)).toBe('season_over');
+    // Сезон не записан — «не указано», как раньше.
+    expect(catalogAvailability({ ...base, has_availability: false, schedule_kind: 'any_day', season_start: null, season_end: null }, now)).toBe('on_request');
+    // departures и мусор — прежние исходы.
+    expect(catalogAvailability({ ...base, has_availability: false, schedule_kind: 'departures' }, now)).toBe('on_request');
+    expect(catalogAvailability({ ...base, has_availability: true, schedule_kind: 'departures' }, now)).toBe('dates');
+    expect(catalogAvailability({ ...base, has_availability: false, schedule_kind: 'ANY' }, now)).toBe('on_request');
   });
   it('сезон идёт — включая последний день сезона целиком', () => {
     expect(isInSeason(base, now)).toBe(true);
@@ -155,6 +169,20 @@ describe('карточка говорит только то, что знает (
     // Поле не пришло — «не знаю», а не «Есть даты».
     expect(within(card('Тур без поля дат')).getByText('Даты по запросу')).toBeInTheDocument();
     expect(screen.queryByText(/Сезон 20\d\d/)).toBeNull();
+  });
+
+  it('любой день сезона (#3476) — своей меткой; «Даты по запросу» у тура без признака остаётся', () => {
+    storefront([
+      tour({ id: 5, slug: 'e', title: 'Тур в любой день', schedule_kind: 'any_day' }),
+      tour({ id: 6, slug: 'f', title: 'Тур без признака' }),
+      tour({ id: 7, slug: 'g', title: 'Любой день, сезон прошёл', schedule_kind: 'any_day', season_start: iso(-120), season_end: iso(-10) }),
+    ]);
+    expect(within(card('Тур в любой день')).getByText('Любой день сезона')).toBeInTheDocument();
+    expect(within(card('Тур в любой день')).queryByText('Даты по запросу')).toBeNull();
+    // Место подтверждает оператор: «Отправить заявку» (на открытую дату) не обещается.
+    expect(within(card('Тур в любой день')).getByRole('link', { name: /Оставить заявку/ })).toBeInTheDocument();
+    expect(within(card('Тур без признака')).getByText('Даты по запросу')).toBeInTheDocument();
+    expect(within(card('Любой день, сезон прошёл')).getByText('Сезон завершён, даты по запросу')).toBeInTheDocument();
   });
 
   it('кнопка честная: с датами — «Отправить заявку», без — «Оставить заявку»; обе — на #booking канонического адреса', () => {
@@ -631,6 +659,25 @@ describe('витрина называет правило и показывает
     await flush();
     expect(screen.getByRole('alert')).toHaveTextContent('Следующие туры не загрузились');
     expect(screen.getByText(/Показано 50 из 75 туров/)).toBeInTheDocument();
+  });
+
+  it('порядок каталога — «Выезды первыми» (#3476): выезд, затем любой день сезона, затем остальные', () => {
+    type Row = Tour & { nearest_free_date: string | null };
+    const D = '2026-11-16';
+    const row = (o: Partial<Row>): Row => ({ ...tour({}), nearest_free_date: null, ...o } as Row);
+    const rows: Row[] = [
+      row({ id: 11, title: 'Без дат' }),
+      row({ id: 12, title: 'Любой день', schedule_kind: 'any_day', season_start: '2027-05-01', season_end: '2027-10-01' }),
+      row({ id: 13, title: 'Выезд', nearest_free_date: '2027-06-10' }),
+      // Строка календаря у тура «любой день» — исключение: в первую группу не поднимает.
+      row({ id: 14, title: 'Любой день с исключением', schedule_kind: 'any_day', season_start: '2027-05-01', season_end: '2027-10-01', nearest_free_date: '2026-11-20' }),
+      // Сезон «любого дня» прошёл — к остальным.
+      row({ id: 15, title: 'Любой день, сезон прошёл', schedule_kind: 'any_day', season_start: '2026-05-01', season_end: '2026-10-01' }),
+    ];
+    const ids = orderMarketplaceTours(rows, 'recommended', D).map((r) => r.id);
+    expect(ids[0]).toBe(13);
+    expect(new Set(ids.slice(1, 3))).toEqual(new Set([12, 14]));
+    expect(new Set(ids.slice(3))).toEqual(new Set([11, 15]));
   });
 
   // Ревью 29.10: страница 2 считалась по свежему дню и свежим датам, а

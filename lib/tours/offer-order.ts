@@ -2,8 +2,12 @@
  * Правило 1в — порядок предложений туров на ОБЩИХ витринах (слово владельца
  * 29.10, «1в 2б 3 да»).
  *
- * Сначала туры со свободной датой — по ближайшему выезду. Остальные (и ничьи
- * по дате) — «жребий дня»: порядок меняется раз в сутки, по календарной дате
+ * Сначала туры с настоящими выездами — свободная дата календаря, по
+ * ближайшему выезду. Затем туры «в любой день сезона» (`schedule_kind =
+ * 'any_day'`, сезон идёт или впереди; слово владельца 16.11 «Выезды
+ * первыми», #3476) — между собой жребием дня. Строка календаря у такого тура
+ * — исключение, а не выезд, и в первую группу его не поднимает. Остальные (и
+ * ничьи внутри группы) — «жребий дня»: порядок меняется раз в сутки, по календарной дате
  * Камчатки. Жребий воспроизводим: FNV-1a 32 от строки «дата:id» и
  * финальное перемешивание fmix32 (murmur3), а не Math.random и не RANDOM()
  * в SQL. Любой, у кого есть дата и id, повторит порядок сам — значит, его
@@ -40,8 +44,9 @@
 import { kamchatkaDate } from '@/lib/analytics/kamchatka-day';
 import { plural } from '@/lib/home/data-freshness';
 import { longDay, requestWindow, windowLabel } from '@/lib/tours/request-window';
+import { anyDayPhrase, anyDayWindow } from '@/lib/tours/schedule-kind';
 
-export const OFFER_ORDER_VERSION = '1v-2026-10-29-fmix';
+export const OFFER_ORDER_VERSION = '1v-2026-11-16-anyday';
 
 const encoder = new TextEncoder();
 
@@ -105,6 +110,25 @@ export interface OfferKeyInput {
   id: string | number;
   /** Ближайшая дата со свободными местами, 'YYYY-MM-DD'; нет — null. */
   nearestFreeDate: string | null;
+  /**
+   * Тур выезжает в любой день сезона, и сезон идёт или впереди
+   * (`isAnyDayOpen`, lib/tours/schedule-kind). Не передан — false: так
+   * ведут себя все туры, пока признак не записан.
+   */
+  anyDay?: boolean;
+}
+
+/** Группа правила: 0 — настоящий выезд с местами, 1 — любой день сезона, 2 — остальные. */
+export type OfferTier = 0 | 1 | 2;
+
+export function offerTier(k: OfferKeyInput): OfferTier {
+  if (k.anyDay === true) return 1;
+  return dayKey(k.nearestFreeDate) !== null ? 0 : 2;
+}
+
+/** Дата как ключ внутри группы: только у настоящих выездов. */
+function tierDay(k: OfferKeyInput): string | null {
+  return offerTier(k) === 0 ? dayKey(k.nearestFreeDate) : null;
 }
 
 const ISO_DAY = /^\d{4}-\d{2}-\d{2}/;
@@ -123,12 +147,14 @@ function compareIds(a: string | number, b: string | number): number {
   return sa < sb ? -1 : sa > sb ? 1 : 0;
 }
 
-/** Компаратор тура: есть дата → дата раньше → жребий дня → id числом. */
+/** Компаратор тура: группа → дата выезда раньше → жребий дня → id числом. */
 export function compareTourOffers(day: string): (a: OfferKeyInput, b: OfferKeyInput) => number {
   return (a, b) => {
-    const da = dayKey(a.nearestFreeDate);
-    const db = dayKey(b.nearestFreeDate);
-    if ((da === null) !== (db === null)) return da === null ? 1 : -1;
+    const ta = offerTier(a);
+    const tb = offerTier(b);
+    if (ta !== tb) return ta - tb;
+    const da = tierDay(a);
+    const db = tierDay(b);
     if (da !== null && db !== null && da !== db) return da < db ? -1 : 1;
     const la = tourLot(day, a.id);
     const lb = tourLot(day, b.id);
@@ -175,8 +201,9 @@ export interface CompanyGroup<T> {
 }
 
 /**
- * Группы по компаниям (карточка места, главная). Компания с датой — выше
- * компании без дат, раньше дата — выше; ничья — жребий дня КОМПАНИИ: у
+ * Группы по компаниям (карточка места, главная). Группа компании — по её
+ * лучшему туру: с выездом выше «любого дня сезона», тот выше остальных;
+ * раньше дата — выше; ничья — жребий дня КОМПАНИИ: у
  * компании с четырьмя турами один билет, а не четыре. Внутри — порядок тура.
  */
 export function groupOffersByCompany<T extends OfferKeyInput & { partnerId: string; partnerName: string }>(
@@ -193,10 +220,11 @@ export function groupOffersByCompany<T extends OfferKeyInput & { partnerId: stri
   const cmpTour = compareTourOffers(day);
   const groups = [...byPartner.values()].map((g) => {
     const tours = [...g.tours].sort(cmpTour);
-    return { group: { ...g, tours }, first: dayKey(tours[0]?.nearestFreeDate) };
+    const head = tours[0];
+    return { group: { ...g, tours }, tier: head ? offerTier(head) : 2, first: head ? tierDay(head) : null };
   });
   groups.sort((a, b) => {
-    if ((a.first === null) !== (b.first === null)) return a.first === null ? 1 : -1;
+    if (a.tier !== b.tier) return a.tier - b.tier;
     if (a.first !== null && b.first !== null && a.first !== b.first) return a.first < b.first ? -1 : 1;
     const la = companyLot(day, a.group.partnerId);
     const lb = companyLot(day, b.group.partnerId);
@@ -219,9 +247,9 @@ export function roundRobinByCompany<T>(groups: readonly CompanyGroup<T>[]): T[] 
 // ── Подписи ──────────────────────────────────────────────────────────────
 
 export const OFFER_ORDER_NOTE = {
-  ru: 'Порядок: сначала туры со свободными местами — по ближайшему выезду; остальные раз в сутки меняются местами по жребию. Место в списке не продаётся.',
-  en: 'Order: tours with open seats first, by the nearest departure; the rest are reshuffled by lot once a day. Positions are not for sale.',
-  zh: '排序：有空位的团队游在前，按最近出发日期排列；其余每天抽签调换一次顺序。排名不出售。',
+  ru: 'Порядок: сначала туры с выездами, где есть свободные места, — по ближайшему выезду; затем туры, которые выезжают в любой день сезона; остальные раз в сутки меняются местами по жребию. Место в списке не продаётся.',
+  en: 'Order: tours with scheduled departures and open seats first, by the nearest departure; then tours that run on any day of the season; the rest are reshuffled by lot once a day. Positions are not for sale.',
+  zh: '排序：有空位的定期出发团队游在前，按最近出发日期排列；其次是旺季内任意一天均可出发的团队游；其余每天抽签调换一次顺序。排名不出售。',
 } as const;
 
 /**
@@ -229,7 +257,7 @@ export const OFFER_ORDER_NOTE = {
  * длинная не помещается в ответ, но правило называется и там (§0).
  */
 export const OFFER_ORDER_NOTE_SHORT_RU =
-  'Порядок: сначала туры со свободными местами, остальные — по жребию дня. Место в списке не продаётся.';
+  'Порядок: сначала выезды со свободными местами, затем туры в любой день сезона, остальные — по жребию дня. Место в списке не продаётся.';
 
 /**
  * Список «другие компании на вашу дату» после отказа (этап 4а): порядок
@@ -241,7 +269,7 @@ export const OFFER_ORDER_NOTE_ON_DATE_RU =
 
 /** Карточка места: порядок КОМПАНИЙ. */
 export const OFFER_ORDER_NOTE_GROUPED_RU =
-  'Компании идут так: сначала те, у кого есть свободные места, — по ближайшему выезду; остальные раз в сутки меняются местами по жребию. Место в списке не продаётся.';
+  'Компании идут так: сначала те, у кого есть выезды со свободными местами, — по ближайшему выезду; затем те, кто выезжает в любой день сезона; остальные раз в сутки меняются местами по жребию. Место в списке не продаётся.';
 
 /** Под кнопками сортировки (каталог, карточка маршрута). */
 export const SORT_CHOICE_NOTE_RU =
@@ -249,7 +277,7 @@ export const SORT_CHOICE_NOTE_RU =
 
 /** Для агента (каталог Кузьмича, get_tours, get_place_info): та же суть одной строкой. */
 export const OFFER_ORDER_NOTE_AGENT =
-  'Порядок туров — правило платформы: сначала со свободными местами по ближайшей дате, остальные раз в сутки по жребию; не «лучшие» и не «рекомендуемые». Место в списке не продаётся.';
+  'Порядок туров — правило платформы: сначала выезды со свободными местами по ближайшей дате, затем туры в любой день сезона, остальные раз в сутки по жребию; не «лучшие» и не «рекомендуемые». Место в списке не продаётся.';
 
 /** «2 предложения от 2 компаний», «1 предложение от 1 компании», «21 предложение от 21 компании». */
 export function offersSummary(tours: number, companies: number): string {
@@ -267,16 +295,21 @@ export interface DatesPhraseInput {
   duration_type: string | null;
   multi_day_count: number | null;
   duration_hours: number | null;
+  /** operator_tours.schedule_kind как прочитан; не передан — «не указано». */
+  schedule_kind?: unknown;
 }
 
 /**
- * Одна строка о датах тура для списков. Пять исходов: даты не загрузились;
+ * Одна строка о датах тура для списков. Шесть исходов: даты не загрузились;
  * есть свободная дата; даты по заявке в сезон; даты по заявке без сезона;
  * календарь есть, но на открытые даты мест нет (§4.0: это не «даты не
- * записаны»).
+ * записаны»); любой день сезона (`schedule_kind = 'any_day'`, #3476) —
+ * сильнее строки календаря: она у такого тура исключение, а не выезд.
  */
 export function offerDatesPhrase(t: DatesPhraseInput, today: string, datesState: 'ok' | 'failed'): string {
   if (datesState === 'failed') return 'даты не загрузились';
+  const anyDay = anyDayWindow(t, today);
+  if (anyDay) return anyDayPhrase(anyDay);
   const d = dayKey(t.nearestFreeDate);
   if (d) return `ближайшая дата со свободными местами — ${longDay(d)}`;
   if (t.keepsSchedule === false) {

@@ -55,6 +55,8 @@ interface Tour {
    * значит «не знаем», и карточка говорит «Даты по запросу», а не «Есть даты».
    */
   has_availability?: boolean | null;
+  /** operator_tours.schedule_kind (1455, #3476): any_day — «Любой день сезона». */
+  schedule_kind?: string | null;
 }
 
 /* ─── Constants ─── */
@@ -285,9 +287,10 @@ function deriveFeatures(tour: Tour): { Icon: React.ElementType; label: string }[
   return out.slice(0, 4);
 }
 
-/** Точка статуса дат: зелёная — есть даты, приглушённая — по запросу. */
+/** Точка статуса дат: зелёная — есть даты или любой день сезона, приглушённая — по запросу. */
 const AVAILABILITY_DOT: Record<CatalogAvailability, string> = {
   dates: 'var(--success)',
+  any_day: 'var(--success)',
   on_request: 'var(--warning)',
   season_over: 'var(--text-muted)',
 };
