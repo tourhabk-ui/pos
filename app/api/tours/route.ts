@@ -70,6 +70,8 @@ const CATEGORY_ALIAS: Record<string, string> = {
   eco: 'eko', combo: 'kombo', adventure: 'trekking',
 };
 
+const TOURS_LIST_CACHE_CONTROL = 'public, max-age=60';
+
 // GET /api/tours — Каталог туров (из таблицы tours)
 // Источник: tours таблица + информация об операторе из partners
 export async function GET(request: NextRequest) {
@@ -237,7 +239,11 @@ export async function GET(request: NextRequest) {
           hasMore: offset + limit < total,
         },
       },
-    } as ApiResponse<{ tours: TourResponse[]; pagination: { total: number; limit: number; offset: number; hasMore: boolean } }>);
+    } as ApiResponse<{ tours: TourResponse[]; pagination: { total: number; limit: number; offset: number; hasMore: boolean } }>,
+    // Внешний аудит 16.11 (#3463): минута кэша у списка туров. Порядок —
+    // жребий дня, свободная дата меняется бронями; минута устаревания здесь
+    // дешевле повторного запроса. Отказ (ниже) не кэшируется вовсе.
+    { headers: { 'Cache-Control': TOURS_LIST_CACHE_CONTROL } });
 
   } catch (error) {
     // Деградация была немой: причина глоталась, и «tours: []» на проде месяцами
@@ -262,7 +268,8 @@ export async function GET(request: NextRequest) {
         },
       },
       degraded: true,
-    } as ApiResponse<{ tours: TourResponse[]; pagination: { total: number; limit: number; offset: number; hasMore: boolean } }>, { status: 200 });
+    } as ApiResponse<{ tours: TourResponse[]; pagination: { total: number; limit: number; offset: number; hasMore: boolean } }>,
+    { status: 200, headers: { 'Cache-Control': 'no-store' } });
   }
 }
 

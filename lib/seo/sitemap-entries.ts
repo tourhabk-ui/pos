@@ -315,10 +315,13 @@ export async function collectSitemapEntriesWithStatus(): Promise<{ entries: Meta
     // sitemap 12 туров, на /about 11; тур без строки партнёра карточкой
     // не открывается, и в sitemap ему не место.
     const { rows } = await pool.query<{ id: string; slug: string | null; updated_at: Date }>(
-      `SELECT ot.id, ot.slug, ot.updated_at FROM operator_tours ot
+      // lastmod — updated_at, а где он пуст — дата создания (аудит 16.11,
+      // #3463: у туров гида из миграции 1338 адрес шёл без даты).
+      `SELECT ot.id, ot.slug, COALESCE(ot.updated_at, ot.created_at) AS updated_at
+         FROM operator_tours ot
        JOIN partners p ON ot.operator_id = p.id
        WHERE ${publicTourSql('ot')}
-       ORDER BY ot.updated_at DESC LIMIT 500`
+       ORDER BY COALESCE(ot.updated_at, ot.created_at) DESC NULLS LAST LIMIT 500`
     );
     marketplacePages = rows.map(row => ({
       url: `${BASE}${tourPath(row)}`,

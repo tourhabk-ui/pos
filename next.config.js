@@ -6,6 +6,28 @@
 // не ослабляется ни на символ.
 const DEV_EVAL = process.env.NODE_ENV === 'development' ? " 'unsafe-eval'" : '';
 
+// Permissions-Policy (внешний аудит 16.11, #3463). Датчики и устройства —
+// только своему сайту, чужим фреймам — нет. Запрещать их совсем нельзя:
+//  - камера — сканер QR на SOS (components/safety/SosQrScanner);
+//  - микрофон — голосовой ввод ИИ-помощника (app/ai-assistant);
+//  - геолокация — SOS и «на маршруте» (lib/geo/current-position);
+//  - акселерометр, гироскоп, магнитометр — компас /planning (deviceorientation).
+// USB, serial, Bluetooth, HID и MIDI платформа не использует — запрещены всем.
+// Сторож — сопоставлением путей матчером Next: tests/unit/permissions-policy.test.ts.
+const PERMISSIONS_POLICY = [
+  'camera=(self)',
+  'microphone=(self)',
+  'geolocation=(self)',
+  'accelerometer=(self)',
+  'gyroscope=(self)',
+  'magnetometer=(self)',
+  'usb=()',
+  'serial=()',
+  'bluetooth=()',
+  'hid=()',
+  'midi=()',
+].join(', ');
+
 /**
  * Штампа сборки здесь НЕТ — и это результат замера, а не забывчивость.
  *
@@ -466,6 +488,7 @@ const nextConfig = {
         headers: [
           { key: 'X-Frame-Options', value: 'ALLOWALL' },
           { key: 'X-Content-Type-Options', value: 'nosniff' },
+          { key: 'Permissions-Policy', value: PERMISSIONS_POLICY },
           { key: 'Referrer-Policy', value: 'strict-origin-when-cross-origin' },
           { key: 'Content-Security-Policy', value: `default-src 'self'; script-src 'self' 'unsafe-inline'${DEV_EVAL}; style-src 'self' 'unsafe-inline'; img-src 'self' data: https:; connect-src 'self' https://*.yandex.ru; font-src 'self' data:; frame-ancestors *;` },
         ],
@@ -475,6 +498,7 @@ const nextConfig = {
         headers: [
           { key: 'X-Frame-Options', value: 'DENY' },
           { key: 'X-Content-Type-Options', value: 'nosniff' },
+          { key: 'Permissions-Policy', value: PERMISSIONS_POLICY },
           { key: 'Referrer-Policy', value: 'strict-origin-when-cross-origin' },
           // ЗАФИКСИРОВАННЫЙ КОМПРОМИСС (аудит 11.07, P2): 'unsafe-inline' в
           // script-src/style-src оставлен сознательно. Next.js App Router

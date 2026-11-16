@@ -14,6 +14,10 @@
  *    пустая для поиска, а гидов-карточек в базе больше сотни;
  *  - никогда — тестовый стенд (`lib/seat-requests/test-stand`): его адрес
  *    раздавался поисковикам и отвечал 404.
+ *
+ * Дата `lastmod` — `updated_at`, а где он пуст — дата создания (аудит 16.11,
+ * #3463): у карточек, вставленных миграцией без `updated_at`, sitemap отдавал
+ * адрес без даты. Дата создания — правда о странице; выдуманной даты нет.
  */
 import type { Pool, PoolClient } from 'pg';
 import { pool } from '@/lib/db-pool';
@@ -21,7 +25,7 @@ import { publicTourSql } from '@/lib/tours/public-visibility';
 import { TEST_STAND_PARTNER_IDS } from '@/lib/seat-requests/test-stand';
 
 export const PARTNER_PAGES_SQL = `
-  SELECT p.slug, p.updated_at
+  SELECT p.slug, COALESCE(p.updated_at, p.created_at) AS updated_at
     FROM partners p
    WHERE p.slug IS NOT NULL
      AND p.is_public = TRUE
@@ -32,7 +36,7 @@ export const PARTNER_PAGES_SQL = `
              SELECT 1 FROM operator_tours ot
               WHERE ot.operator_id = p.id AND ${publicTourSql('ot')}))
      )
-   ORDER BY p.updated_at DESC
+   ORDER BY COALESCE(p.updated_at, p.created_at) DESC NULLS LAST
    LIMIT 200`;
 
 export async function partnerSitemapRows(
