@@ -54,7 +54,7 @@ import {
 } from '@/lib/seat-requests/core';
 import { notifyTeam } from '@/lib/operators/team-notify';
 import { recordJournalEventQuietly, type ActorKind, type EventKind } from '@/lib/crm/events';
-import { tourDays } from '@/lib/tours/catalog-availability';
+import { tourDurationDays } from '@/lib/bookings/duration';
 import { loadClosedDays, tripEnd, tripHitsClosed } from '@/lib/tours/closed-days';
 
 const SEAT_STATUS_WORD: Record<SeatRequestStatus, string> = {
@@ -238,7 +238,13 @@ export async function createSeatRequest(input: CreateSeatRequestInput): Promise<
   // День, который оператор закрыл в календаре (#3476 шаг 3), до него не
   // доходит: бронь после его «Есть места» всё равно упёрлась бы в
   // DATE_BLOCKED. Многодневная поездка не должна задевать закрытый день.
-  const tripDays = tourDays(tour);
+  // Длина поездки — правилом брони (lib/bookings/duration), а не каталога:
+  // иначе запрос и бронь разошлись бы на туре с multi_day_count без типа
+  // «многодневный» (ревью #3484).
+  const tripDays = tourDurationDays({
+    multi_day_count: tour.multi_day_count == null ? null : Number(tour.multi_day_count),
+    duration_hours: tour.duration_hours == null ? null : Number(tour.duration_hours),
+  });
   const closed = await loadClosedDays(input.tourId, input.date, tripEnd(input.date, tripDays));
   if (closed === null) return { ok: false, reason: 'check_failed' };
   if (tripHitsClosed(input.date, tripDays, closed)) return { ok: false, reason: 'day_closed' };

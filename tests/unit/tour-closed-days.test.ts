@@ -53,6 +53,17 @@ describe('запрос мест на закрытый день', () => {
     expect(SEAT_REQUEST_FAILURE.day_closed.error).toMatch(/закрыл эту дату/);
   });
 
+  it('длина поездки — правилом брони: тип «day» с multi_day_count 5 — пять дней, закрытый третий день задевает (ревью #3484)', async () => {
+    const asked: unknown[][] = [];
+    q.query.mockImplementation(async (sql: string, params: unknown[]) => {
+      if (/FROM operator_tours/.test(sql)) return { rows: [{ ...TOUR, duration_type: 'day', multi_day_count: 5, duration_hours: null }] };
+      if (sql === CLOSED_DAYS_SQL) { asked.push(params); return { rows: [{ d: '2099-08-07' }] }; }
+      throw new Error(`неожиданный запрос: ${sql.slice(0, 60)}`);
+    });
+    expect(await createSeatRequest(input)).toEqual({ ok: false, reason: 'day_closed' });
+    expect(asked[0]).toEqual([60, '2099-08-05', '2099-08-09']);
+  });
+
   it('закрытые дни не прочитались — «не смог», а не «закрытых нет»', async () => {
     q.query.mockImplementation(async (sql: string) => {
       if (/FROM operator_tours/.test(sql)) return { rows: [TOUR] };

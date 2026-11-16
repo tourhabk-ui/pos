@@ -33,7 +33,7 @@ import { typeMatches } from '@/lib/kuzmich/tour-filter';
 import { stemRu } from '@/lib/search/query-words';
 import { GROUP_TOTAL_EXCLUDES_SENTENCE, groupTotalLabel, type GroupTotal } from '@/lib/tours/group-total';
 import { datesClosedByPlatform } from '@/lib/tours/date-closure';
-import { tourDays } from '@/lib/tours/catalog-availability';
+import { tourDurationDays } from '@/lib/bookings/duration';
 import { loadClosedDays, tripEnd, tripHitsClosed } from '@/lib/tours/closed-days';
 
 export { groupTotalLabel, type GroupTotal } from '@/lib/tours/group-total';
@@ -1087,9 +1087,10 @@ async function onRequestWindow(
   // Дни, которые оператор закрыл в календаре (#3476 шаг 3), — не «свободно
   // для заявки»: заявка на них до него не дойдёт. Не прочитались — даты
   // остаются, а оговорка говорит, что закрытые дни не проверены (§4.0).
-  const tripDays = tourDays({
-    duration_type: tour.duration_type ?? null, multi_day_count: tour.multi_day_count ?? null,
-    duration_hours: tour.duration_hours ?? null,
+  // Длина поездки — правилом брони (lib/bookings/duration): закрытый день
+  // судит та же длина, что DATE_BLOCKED в брони (ревью #3484).
+  const tripDays = tourDurationDays({
+    multi_day_count: tour.multi_day_count ?? null, duration_hours: tour.duration_hours ?? null,
   });
   const closed = await loadClosedDays(tour.id, from, tripEnd(to, tripDays));
   const allDates = datesBetween(from, to);
