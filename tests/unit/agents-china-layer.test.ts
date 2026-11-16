@@ -295,6 +295,8 @@ describe('перепись входов для агентов', () => {
       '/api/mcp/server-card', '/.well-known/ai-catalog.json',
       // Ступень 3 (12.10): OpenAPI для агентов без MCP и A2A и каталог API RFC 9727.
       '/openapi.json', '/.well-known/api-catalog',
+      // 16.11 (#3459): документ обнаружения Poppy 1.0 для личных агентов.
+      '/.well-known/poppy.json',
       // Аудит 15.10 (CN-quick): карта сайта, китайский вход и метка его раздела.
       '/sitemap.xml', '/zh', '/zh/*',
     ]);
@@ -340,6 +342,8 @@ describe('перепись входов для агентов', () => {
       // OpenAPI и каталог API зовут счётчик константами из lib/api/openapi.
       '/openapi.json': ['app/openapi.json/route.ts', 'recordAgentEntryHit(OPENAPI_PATH'],
       '/.well-known/api-catalog': ['app/.well-known/api-catalog/route.ts', 'recordAgentEntryHit(API_CATALOG_PATH'],
+      // Poppy (#3459): поведение — вызовом в poppy-discovery.test.ts.
+      '/.well-known/poppy.json': ['app/.well-known/poppy.json/route.ts', 'recordAgentEntryHit(POPPY_PATH'],
       // Аудит 15.10 (CN-quick): поведение этих двух — вызовом и рендером в
       // china-quick.test.ts и zh-quick.test.tsx; здесь — что вход назван.
       '/sitemap.xml': ['app/sitemap.xml/route.ts', "recordAgentEntryHit('/sitemap.xml'"],
