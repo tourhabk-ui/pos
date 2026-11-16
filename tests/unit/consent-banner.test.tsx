@@ -17,8 +17,9 @@ import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
 import { cleanup, fireEvent, render, screen, within } from '@testing-library/react';
 import type { ReactNode } from 'react';
 
+let path = '/';
 vi.mock('next/navigation', () => ({
-  usePathname: () => '/',
+  usePathname: () => path,
   useSearchParams: () => new URLSearchParams(),
 }));
 vi.mock('next/script', () => ({ default: () => null }));
@@ -27,9 +28,9 @@ vi.mock('next/link', () => ({
 }));
 
 import ThirdPartyScripts from '@/components/legal/ThirdPartyScripts';
-import { CONSENT_BUTTONS, CONSENT_STORAGE_KEY, CONSENT_VERSION, readConsent } from '@/lib/legal/consent';
+import { CONSENT_BANNER_ZH, CONSENT_BUTTONS, CONSENT_STORAGE_KEY, CONSENT_VERSION, readConsent } from '@/lib/legal/consent';
 
-beforeEach(() => window.localStorage.clear());
+beforeEach(() => { window.localStorage.clear(); path = '/'; });
 afterEach(() => cleanup());
 
 const banner = () => screen.queryByRole('dialog');
@@ -87,5 +88,37 @@ describe('баннер согласия: ответ', () => {
     window.localStorage.setItem(CONSENT_STORAGE_KEY, JSON.stringify({ analytics: true, advertising: true, at: '2026-01-01T00:00:00.000Z', v: CONSENT_VERSION - 1 }));
     render(<ThirdPartyScripts />);
     expect(banner()).not.toBeNull();
+  });
+});
+
+describe('баннер согласия на китайских страницах (аудит 09.11, п. 6)', () => {
+  it('на /zh полоса и кнопки — по-китайски, передача за пределы России названа', () => {
+    path = '/zh/tours/avachinsky';
+    render(<ThirdPartyScripts />);
+    const dialog = banner()!;
+    expect(dialog.textContent).toContain('俄罗斯境外');
+    expect(dialog.textContent).not.toMatch(/[А-Яа-яЁё]/);
+    const names = within(dialog).getAllByRole('button').map((b) => b.textContent);
+    expect(names).toEqual([CONSENT_BANNER_ZH.accept, CONSENT_BANNER_ZH.decline]);
+    // Политика есть только по-русски — ссылка говорит об этом.
+    const link = within(dialog).getByRole('link');
+    expect(link.getAttribute('href')).toBe('/legal/privacy');
+    expect(link.textContent).toBe(CONSENT_BANNER_ZH.more);
+    expect(dialog.querySelector('[lang="zh-CN"]')).not.toBeNull();
+  });
+
+  it('отказ на китайском записывается так же, как на русском', () => {
+    path = '/zh';
+    render(<ThirdPartyScripts />);
+    fireEvent.click(screen.getByRole('button', { name: CONSENT_BANNER_ZH.decline }));
+    expect(readConsent()).toEqual({ state: 'denied', choice: { analytics: false, advertising: false } });
+    expect(banner()).toBeNull();
+  });
+
+  it('страница, начинающаяся на «/zh», но не китайская, — по-русски', () => {
+    path = '/zhivopisnye-mesta';
+    render(<ThirdPartyScripts />);
+    const names = within(banner()!).getAllByRole('button').map((b) => b.textContent);
+    expect(names).toEqual([CONSENT_BUTTONS.accept, CONSENT_BUTTONS.decline]);
   });
 });
