@@ -315,6 +315,32 @@ export function sinkCensus(
   };
 }
 
+/**
+ * Исходники в корне репозитория (ревью #3499): `instrumentation.ts` и
+ * `middleware.ts` исполняются на сервере, `start.js` запускает его, и любой
+ * из них может писать в базу и в лог. Обход каталогов их не видит, поэтому
+ * корень читается отдельно и без спуска вглубь: подкаталоги — `SINK_ROOTS`.
+ */
+export function readRootFiles(repoRoot: string): Array<{ rel: string; src: string }> {
+  let names: string[];
+  try { names = readdirSync(repoRoot); } catch { return []; }
+  const out: Array<{ rel: string; src: string }> = [];
+  for (const name of names.sort()) {
+    if (!SOURCE.test(name) || /\.(?:test|spec)\.|\.d\.ts$/.test(name)) continue;
+    const abs = join(repoRoot, name);
+    try {
+      if (!statSync(abs).isFile()) continue;
+      out.push({ rel: name, src: readFileSync(abs, 'utf8') });
+    } catch { continue; }
+  }
+  return out;
+}
+
+/** Всё, что перепись стоков читает: каталоги `SINK_ROOTS` и файлы корня. */
+export function sinkSourcesOfRepo(repoRoot: string): Array<{ rel: string; src: string }> {
+  return [...readRootFiles(repoRoot), ...readRoots(repoRoot, SINK_ROOTS)];
+}
+
 export function sinkCensusOfRepo(repoRoot: string): SinkCensus {
-  return sinkCensus(readRoots(repoRoot, SINK_ROOTS), readRoots(repoRoot, DEVICE_ROOTS));
+  return sinkCensus(sinkSourcesOfRepo(repoRoot), readRoots(repoRoot, DEVICE_ROOTS));
 }

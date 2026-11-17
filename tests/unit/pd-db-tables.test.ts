@@ -13,7 +13,9 @@
 import { join } from 'node:path';
 import { describe, it, expect, beforeAll } from 'vitest';
 import { scanSinks, sqlWrites, pdKindOf, exportedSqlConsts, SQL_UNPARSED } from '@/lib/agents/compliance/pd-sinks';
-import { sinkCensusOfRepo, sinkCensus } from '@/lib/agents/compliance/pd-sinks-registry';
+import { sinkCensusOfRepo, sinkCensus, sinkSourcesOfRepo } from '@/lib/agents/compliance/pd-sinks-registry';
+import { mkdtempSync, mkdirSync, writeFileSync, rmSync } from 'node:fs';
+import { tmpdir } from 'node:os';
 import {
   PD_TABLES, PUBLIC_CONTENT_TABLES, dbCensus, keptOf, type RetentionMechanisms,
 } from '@/lib/agents/compliance/pd-db-tables';
@@ -166,6 +168,30 @@ describe('текст запроса из соседнего модуля (рев
 
   it('обёртка с параметрами без имён ПД — не находка', () => {
     expect(scanSinks('lib/db.ts', 'export async function run(sql: string, params: unknown[]) { return pool.query(sql, params); }')).toEqual([]);
+  });
+});
+
+describe('файлы корня репозитория (ревью #3499)', () => {
+  it('серверные файлы корня читаются переписью', () => {
+    const rels = new Set(sinkSourcesOfRepo(REPO).map((s) => s.rel));
+    for (const f of ['instrumentation.ts', 'middleware.ts', 'start.js']) expect(rels.has(f)).toBe(true);
+  });
+
+  it('запись ПД в базу из файла корня — находка, подкаталог корня не читается дважды', () => {
+    const dir = mkdtempSync(join(tmpdir(), 'pd-root-'));
+    try {
+      writeFileSync(join(dir, 'instrumentation.ts'), "await pool.query('INSERT INTO ai_actions_log (metadata) VALUES ($1)', [user.email]);");
+      writeFileSync(join(dir, 'next.config.d.ts'), "await pool.query('INSERT INTO t (a) VALUES ($1)', [user.email]);");
+      mkdirSync(join(dir, 'lib'));
+      writeFileSync(join(dir, 'lib', 'x.ts'), "await pool.query('INSERT INTO stay_requests (phone) VALUES ($1)', [b.phone]);");
+      const c = sinkCensusOfRepo(dir);
+      expect(c.dbFindings.map((f) => [f.file, f.tables])).toEqual([
+        ['instrumentation.ts', ['ai_actions_log']],
+        ['lib/x.ts', ['stay_requests']],
+      ]);
+    } finally {
+      rmSync(dir, { recursive: true, force: true });
+    }
   });
 });
 
