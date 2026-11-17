@@ -231,6 +231,7 @@ withPg('витрина туров: снятый тур не в плане и н�
     );
     const { publicTourSql } = await import('@/lib/tours/public-visibility');
     const { nearestFreeDateSql } = await import('@/lib/tours/nearest-free-date');
+    const { anyDayOpenSql } = await import('@/lib/tours/schedule-kind');
     // Один дорогой тур ведёт календарь со свободной датой: по цене он был бы
     // последним, по правилу 1в (29.10) — первым.
     const pricey = (await pool.query<{ id: string }>(
@@ -241,8 +242,10 @@ withPg('витрина туров: снятый тур не в плане и н�
        VALUES ($1, (NOW() AT TIME ZONE 'Asia/Kamchatka')::date + 3, 6, FALSE)`,
       [pricey],
     );
-    const storefront = (await pool.query<{ id: string; d: string | null }>(
-      `SELECT ot.id::text AS id, ${nearestFreeDateSql('ot')} AS d FROM operator_tours ot WHERE ${publicTourSql('ot')}`,
+    const storefront = (await pool.query<{ id: string; d: string | null; any: boolean | null; op: string | null }>(
+      `SELECT ot.id::text AS id, ${nearestFreeDateSql('ot')} AS d, ${anyDayOpenSql('ot')} AS any,
+              ot.operator_id::text AS op
+         FROM operator_tours ot WHERE ${publicTourSql('ot')}`,
     )).rows;
     const expected = storefront.map((r) => r.id).sort();
     expect(expected.length).toBeGreaterThan(40);
@@ -257,18 +260,24 @@ withPg('витрина туров: снятый тур не в плане и н�
     const quiet = [vi.spyOn(console, 'warn').mockImplementation(() => {}), vi.spyOn(console, 'error').mockImplementation(() => {})];
     try {
       const { loadTourCatalog, buildTourContext } = await import('@/lib/kuzmich/core');
-      const { orderOffersBy, offerOrderDay, OFFER_ORDER_NOTE_AGENT } = await import('@/lib/tours/offer-order');
+      const { orderOffersByCompanyTurns, offerOrderDay, OFFER_ORDER_NOTE_AGENT_TURNS } = await import('@/lib/tours/offer-order');
       const catalog = await loadTourCatalog();
       const inOrder = [...(catalog ?? '').matchAll(/^ID(\d+):/gm)].map((m) => m[1]);
       const ids = [...inOrder].sort();
       expect(ids).toEqual(expected);
       // Порядок — правило 1в: тур с датой первым, остальные — жребий дня; не цена.
       // (Туры миграций со своими календарями тоже стоят впереди — по своим датам.)
+      // Внутри каждой ступени — круг компаний, по одному туру от компании (17.11).
+      // 41 дорогой тур одной компании иначе занял бы весь хвост каталога подряд.
       const undated = new Set(storefront.filter((r) => r.d == null).map((r) => r.id));
       expect(undated.has(pricey)).toBe(false);
       expect(inOrder.indexOf(pricey)).toBeLessThan(Math.min(...inOrder.filter((x) => undated.has(x)).map((x) => inOrder.indexOf(x))));
-      expect(inOrder).toEqual(orderOffersBy(storefront, (r) => ({ id: r.id, nearestFreeDate: r.d }), { day: offerOrderDay() }).map((r) => r.id));
-      expect(catalog).toContain(OFFER_ORDER_NOTE_AGENT);
+      expect(inOrder).toEqual(orderOffersByCompanyTurns(
+        storefront,
+        (r) => ({ id: r.id, nearestFreeDate: r.d, anyDayOpen: r.any, partnerId: r.op }),
+        { day: offerOrderDay() },
+      ).map((r) => r.id));
+      expect(catalog).toContain(OFFER_ORDER_NOTE_AGENT_TURNS);
       // Черновик/удалённый/выключенный не попали.
       expect(catalog).toContain('"W2PT дорогой 40"');
       for (const h of hidden()) expect(ids).not.toContain(h);
