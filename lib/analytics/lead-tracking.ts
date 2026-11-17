@@ -3,7 +3,7 @@
  * Отслеживание событий для конверсионной воронки
  */
 
-import { metrikaGoal } from '@/lib/analytics/metrika';
+import { metrikaGoal, shouldTrackPath } from '@/lib/analytics/metrika';
 
 declare global {
   interface Window {
@@ -87,3 +87,25 @@ export const LEAD_EVENTS = {
   // Клик на affiliate link
   CLICK_AFFILIATE_LINK: { event_name: 'click_affiliate', event_category: 'monetization' },
 } as const;
+
+/** Откуда пришла успешная заявка — параметр цели `lead_success`. */
+export type LeadSuccessSource = 'request_page' | 'booking_form' | 'kuzmich_widget';
+
+/**
+ * Цель «Заявка отправлена» (`lead_success`) — только после ответа сервера
+ * «заявка записана». В параметрах — источник и номер тура, и ничего о
+ * человеке: имя, телефон, почта и номер брони в Метрику не уходят.
+ *
+ * Путь проверяется ещё раз: `ym` остаётся в окне после перехода внутри
+ * приложения, и без проверки цель ушла бы и с экранов, которые счётчик
+ * видеть не должен (`METRIKA_EXCLUDED_PREFIXES`, например /hub).
+ */
+export function trackLeadSuccess(source: LeadSuccessSource, tourId?: string | number | null): void {
+  if (typeof window === 'undefined') return;
+  if (!shouldTrackPath(window.location.pathname)) return;
+  trackLeadEvent({
+    ...LEAD_EVENTS.LEAD_SUCCESS,
+    source,
+    route_id: tourId === null || tourId === undefined || tourId === '' ? undefined : String(tourId),
+  });
+}

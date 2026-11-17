@@ -122,3 +122,16 @@ describe('сезон из базы не роняет страницу', () => {
     }
   });
 });
+
+describe('url у Product и TouristTrip', () => {
+  it('оба узла несут канонический адрес страницы', () => {
+    const g = nodes(buildTourStructuredData(base, [], opts));
+    expect(g.find(n => n['@type'] === 'Product')!.url).toBe(opts.canonicalUrl);
+    expect(g.find(n => n['@type'] === 'TouristTrip')!.url).toBe(opts.canonicalUrl);
+  });
+
+  it('availability не выдумывается, когда дат нет', () => {
+    const product = nodes(buildTourStructuredData(base, [], opts)).find(n => n['@type'] === 'Product')!;
+    expect((product.offers as Record<string, unknown>).availability).toBeUndefined();
+  });
+});

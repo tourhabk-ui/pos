@@ -32,7 +32,7 @@ export function Footer() {
             </p>
 <div className="flex flex-col gap-2 mt-3">
               <a
-                href="https://t.me/kamchatourhub"
+                href="https://t.me/kamchatka_real"
                 target="_blank"
                 rel="noopener noreferrer"
                 className="inline-flex items-center gap-1.5 text-xs text-[var(--ocean)] hover:underline transition-colors"

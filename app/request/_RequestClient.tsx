@@ -6,6 +6,7 @@ import { Phone, User, Send, CheckCircle, MessageCircle, ArrowLeft, Bot, Sparkles
 import { PdConsentCheckbox } from '@/components/legal/PdConsentCheckbox';
 import { RecontactConsentCheckbox } from '@/components/legal/RecontactConsentCheckbox';
 import { logSwallowedFailure } from '@/lib/observability/swallowed';
+import { trackLeadSuccess } from '@/lib/analytics/lead-tracking';
 
 const RESUME_STORAGE_KEY = 'vedar-request-resume';
 
@@ -79,6 +80,7 @@ export default function RequestClient() {
         }),
       });
       setState(res.ok ? 'done' : 'error');
+      if (res.ok) trackLeadSuccess('request_page');
       if (res.ok && draftToken.current) {
         void fetch('/api/request-drafts', {
           method: 'POST', credentials: 'same-origin', headers: { 'Content-Type': 'application/json' },
