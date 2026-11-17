@@ -40,7 +40,7 @@ import {
   orderDestinationFromQuery, rateKey, rateOnScreenOf,
 } from '@/lib/transfers/charter-format';
 import { photoSrc } from '@/lib/images/variant';
-import { carrierInstrument, includedUnknowns, minCharterPrice } from '@/lib/transfers/carrier-view';
+import { carrierInstrument, includedUnknowns, minCharterPrice, vehicleTerms } from '@/lib/transfers/carrier-view';
 import { rentalPagePath } from '@/lib/rental/rental-format';
 import { materialsConsentLine } from '@/lib/legal/partner-materials-consent';
 import type { CarrierPageData } from '@/lib/transfers/carrier-page';
@@ -64,6 +64,7 @@ export function CarrierPage({ data, orderTo }: { data: CarrierPageData; orderTo?
   const minPrice = minCharterPrice(c);
   const phoneLabel = formatContactPhone(c.phone);
   const linked = c.destinations.filter((d) => d.place);
+  const terms = vehicleTerms(c);
   const fleet = describeFleet(c.vehicles, c.seatClasses);
   const destinations = c.destinations.map((d) => d.to);
   const preselected = orderDestinationFromQuery(destinations, orderTo);
@@ -140,10 +141,27 @@ export function CarrierPage({ data, orderTo }: { data: CarrierPageData; orderTo?
 
             <section aria-labelledby="carrier-included">
               <H2 id="carrier-included">Что входит в цену</H2>
-              <p className="text-sm text-[var(--text-secondary)]">
-                Перевозчик этого не записал: {includedUnknowns(c)} — уточняется у перевозчика при заказе. Оплата —
-                напрямую ему: через Ведар машина не оплачивается.
-              </p>
+              {terms.some((t) => t.recorded) ? (
+                <>
+                  <ul className="space-y-2 text-sm text-[var(--text-secondary)]" aria-label="Условия по машинам">
+                    {terms.map((t) => (
+                      <li key={t.label}>
+                        <span className="font-medium text-[var(--text-primary)]">{t.label}:</span>{' '}
+                        {t.recorded ? `${t.recorded}.` : 'о том, что входит в цену, не записано.'}
+                        {t.unknown.length > 0 && <> Не записано: {t.unknown.join(', ')} — уточняется у перевозчика при заказе.</>}
+                      </li>
+                    ))}
+                  </ul>
+                  <p className="mt-2 text-sm text-[var(--text-secondary)]">
+                    Оплата — напрямую перевозчику: через Ведар машина не оплачивается.
+                  </p>
+                </>
+              ) : (
+                <p className="text-sm text-[var(--text-secondary)]">
+                  Перевозчик этого не записал: {includedUnknowns(c)} — уточняется у перевозчика при заказе. Оплата —
+                  напрямую ему: через Ведар машина не оплачивается.
+                </p>
+              )}
             </section>
 
             <section aria-labelledby="carrier-safety">
