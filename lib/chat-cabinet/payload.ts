@@ -140,6 +140,8 @@ export type CabinetPress =
   | { kind: 'tour'; tourId: string }
   | { kind: 'tour_dates'; tourId: string; page: number }
   | { kind: 'date_open' | 'date_close'; tourId: string; date: string }
+  /** «Как вы выезжаете» (#3476 шаг 4): в любой день сезона или только в свои даты. */
+  | { kind: 'schedule_kind'; tourId: string; scheduleKind: 'any_day' | 'departures' }
   | { kind: 'tour_hint'; tourId: string }
   | { kind: 'edit_save' | 'edit_cancel'; draftId: string }
   | { kind: 'edit_tour'; draftId: string; index: number }
@@ -261,6 +263,7 @@ const FORMS: ReadonlyArray<[RegExp, (m: RegExpExecArray) => CabinetPress | null]
     const date = `${d.slice(0, 4)}-${d.slice(4, 6)}-${d.slice(6, 8)}`;
     return { kind: m[1] === 'o' ? 'date_open' : 'date_close', tourId: m[2]!, date };
   }],
+  [new RegExp(`^cb:w:k:([ad]):(${TOUR})$`), (m) => ({ kind: 'schedule_kind', tourId: m[2]!, scheduleKind: m[1] === 'a' ? 'any_day' : 'departures' })],
   [new RegExp(`^cb:h:(${TOUR})$`), (m) => ({ kind: 'tour_hint', tourId: m[1]! })],
   [new RegExp(`^cb:e:([sx]):(${UUID})$`), (m) => ({ kind: m[1] === 's' ? 'edit_save' : 'edit_cancel', draftId: m[2]! })],
   [new RegExp(`^cb:e:t:(${UUID}):([0-7])$`), (m) => ({ kind: 'edit_tour', draftId: m[1]!, index: Number(m[2]) })],
@@ -350,6 +353,7 @@ export const cabinetPayload = {
   tourDates: (tourId: string, page = 0): string => (page > 0 ? `cb:w:${tourId}:${page}` : `cb:w:${tourId}`),
   dateOpen: (tourId: string, date: string): string => signPayload(`cb:w:o:${tourId}:${date.replace(/-/g, '')}`),
   dateClose: (tourId: string, date: string): string => signPayload(`cb:w:c:${tourId}:${date.replace(/-/g, '')}`),
+  scheduleKind: (tourId: string, kind: 'any_day' | 'departures'): string => signPayload(`cb:w:k:${kind === 'any_day' ? 'a' : 'd'}:${tourId}`),
   tourHint: (tourId: string): string => `cb:h:${tourId}`,
   editSave: (draftId: string): string => signPayload(`cb:e:s:${draftId.toLowerCase()}`),
   editCancel: (draftId: string): string => `cb:e:x:${draftId.toLowerCase()}`,

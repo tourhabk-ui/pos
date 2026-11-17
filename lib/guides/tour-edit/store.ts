@@ -20,6 +20,7 @@ import { pool } from '@/lib/db-pool';
 import { pingTourChanged } from '@/lib/seo/indexnow';
 import { writeTourPatch, type TourPatchInput } from '@/lib/tours/tour-write';
 import { occupiedOnDaySql } from '@/lib/bookings/occupancy';
+import { scheduleKindOf, type ScheduleKind } from '@/lib/tours/schedule-kind';
 import { EDIT_FIELDS, type EditField, type EditTour, type EditValue } from './parse';
 
 export type EditChannel = 'max' | 'telegram';
@@ -44,6 +45,10 @@ export interface ChatTour extends EditTour {
   basePrice: number | null;
   priceUnit: string | null;
   maxParticipants: number | null;
+  /** Как тур выезжает (#3476, 1457): null — не указано. */
+  scheduleKind: ScheduleKind | null;
+  seasonStart: string | null;
+  seasonEnd: string | null;
   /** Текущие значения полей правки — для «было». */
   fields: Record<EditField, unknown>;
 }
@@ -51,11 +56,13 @@ export interface ChatTour extends EditTour {
 const TOUR_COLUMNS = `t.id::text AS id, t.title, NULLIF(btrim(t.slug), '') AS slug,
        COALESCE(t.is_active, FALSE) AS is_active, COALESCE(t.is_published, FALSE) AS is_published,
        t.base_price, t.price_unit, t.max_participants,
+       t.schedule_kind, t.season_start::text AS season_start, t.season_end::text AS season_end,
        t.short_description, t.description, t.program, t.included, t.not_included, t.what_to_bring, t.safety_notes`;
 
 interface TourRowDb {
   id: string; title: string; slug: string | null; is_active: boolean; is_published: boolean;
   base_price: string | number | null; price_unit: string | null; max_participants: number | null;
+  schedule_kind: string | null; season_start: string | null; season_end: string | null;
   short_description: string | null; description: string | null; program: unknown;
   included: unknown; not_included: unknown; what_to_bring: unknown; safety_notes: unknown;
 }
@@ -72,6 +79,9 @@ function toTour(r: TourRowDb): ChatTour {
     basePrice: r.base_price === null ? null : Number(r.base_price),
     priceUnit: r.price_unit,
     maxParticipants: r.max_participants,
+    scheduleKind: scheduleKindOf(r.schedule_kind),
+    seasonStart: r.season_start ? r.season_start.slice(0, 10) : null,
+    seasonEnd: r.season_end ? r.season_end.slice(0, 10) : null,
     fields,
   };
 }
@@ -430,6 +440,28 @@ export async function cancelDraft(who: Who): Promise<CancelDraft> {
 }
 
 // ── Даты тура ───────────────────────────────────────────────────────────────
+
+/**
+ * «Как вы выезжаете» кнопкой из чата (#3476 шаг 4, слово владельца 17.11
+ * «Сайт и чат»): та же запись, что карточка тура на сайте (`writeTourPatch`
+ * с владельцем — чужой тур не тронется). Исход назван: записано, тура нет
+ * (не свой или удалён), база не ответила.
+ */
+export async function setTourScheduleKind(
+  partnerId: string,
+  tourId: string,
+  kind: ScheduleKind,
+): Promise<{ outcome: 'written'; title: string } | { outcome: 'not_found' } | { outcome: 'db_error' }> {
+  try {
+    const w = await writeTourPatch(pool, { tourId, ownerId: partnerId, input: { schedule_kind: kind }, current: {} });
+    if (w.outcome !== 'written') return { outcome: 'not_found' };
+    pingTourChanged(tourId);
+    return { outcome: 'written', title: w.row.title };
+  } catch (err) {
+    logFail('как тур выезжает', err);
+    return { outcome: 'db_error' };
+  }
+}
 
 export interface TourDay {
   date: string;

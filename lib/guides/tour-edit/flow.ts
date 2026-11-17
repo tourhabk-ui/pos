@@ -47,7 +47,7 @@ import {
 } from './create-store';
 import { CREATE_TEXT, createdScreen, createIncompleteScreen, createPreviewScreen } from './create-screens';
 import {
-  cancelDraft, chooseDraftTour, createDraft, readEditTour, readEditTours, readTourDays, sameValue, saveDraft,
+  cancelDraft, chooseDraftTour, createDraft, readEditTour, readEditTours, readTourDays, sameValue, saveDraft, setTourScheduleKind,
   type ChatTour, type DraftBlocked, type EditChannel,
 } from './store';
 import {
@@ -203,17 +203,17 @@ function blockedText(b: DraftBlocked): string {
 }
 
 type TourPress = Extract<CabinetPress, {
-  kind: 'my_tours' | 'calendar' | 'tour' | 'tour_dates' | 'date_open' | 'date_close' | 'tour_hint' | 'edit_save' | 'edit_cancel' | 'edit_tour'
+  kind: 'my_tours' | 'calendar' | 'tour' | 'tour_dates' | 'date_open' | 'date_close' | 'schedule_kind' | 'tour_hint' | 'edit_save' | 'edit_cancel' | 'edit_tour'
     | 'tour_new' | 'create_save' | 'create_cancel' | 'tour_publish' | 'tour_unpublish';
 }>;
 
 export const GUIDE_TOUR_PRESS_KINDS: ReadonlySet<CabinetPress['kind']> = new Set([
-  'my_tours', 'calendar', 'tour', 'tour_dates', 'date_open', 'date_close', 'tour_hint', 'edit_save', 'edit_cancel', 'edit_tour',
+  'my_tours', 'calendar', 'tour', 'tour_dates', 'date_open', 'date_close', 'schedule_kind', 'tour_hint', 'edit_save', 'edit_cancel', 'edit_tour',
   'tour_new', 'create_save', 'create_cancel', 'tour_publish', 'tour_unpublish',
 ]);
 
 /** Кнопки календаря оператора: туры и их даты. */
-const OPERATOR_CALENDAR_KINDS: ReadonlySet<CabinetPress['kind']> = new Set(['calendar', 'tour_dates', 'date_open', 'date_close']);
+const OPERATOR_CALENDAR_KINDS: ReadonlySet<CabinetPress['kind']> = new Set(['calendar', 'tour_dates', 'date_open', 'date_close', 'schedule_kind']);
 /** Кнопки правки фразой (09.11): выбор тура, «Сохранить», «Отмена» — больше ничего. */
 const OPERATOR_EDIT_KINDS: ReadonlySet<CabinetPress['kind']> = new Set(['edit_tour', 'edit_save', 'edit_cancel']);
 
@@ -307,6 +307,8 @@ export async function guideTourPress(press: TourPress, who: {
     case 'date_open':
     case 'date_close':
       return dateToggle(partner.partnerId, press, today, back);
+    case 'schedule_kind':
+      return scheduleKindPress(partner.partnerId, press, today, back);
     case 'edit_cancel': {
       const r = await cancelDraft({ partnerId: partner.partnerId, channel: who.channel, chatId: who.chatId, draftId: press.draftId });
       return noticeScreen(r.kind === 'cancelled' ? EDIT_TEXT.cancelled : blockedText(r));
@@ -405,6 +407,26 @@ async function datesPage(partnerId: string, tourId: string, page: number, today:
 function pageOf(date: string, today: string): number {
   const days = Math.round((Date.parse(`${date}T00:00:00Z`) - Date.parse(`${today}T00:00:00Z`)) / 86_400_000);
   return Math.max(0, Math.floor(days / DAYS_PER_PAGE));
+}
+
+/**
+ * «Выезжаю в любой день сезона» / «Только мои даты» (#3476 шаг 4): запись
+ * та же, что у карточки тура на сайте (`setTourScheduleKind` → writeTourPatch
+ * с владельцем). Исход — строкой над датами.
+ */
+async function scheduleKindPress(
+  partnerId: string,
+  press: Extract<CabinetPress, { kind: 'schedule_kind' }>,
+  today: string,
+  back: DatesBack,
+): Promise<CabinetScreen> {
+  const r = await setTourScheduleKind(partnerId, press.tourId, press.scheduleKind);
+  if (r.outcome === 'db_error') return failedScreen('Не записалось — база не ответила. Ничего не изменено.');
+  if (r.outcome === 'not_found') return back === 'calendar' ? noticeScreen(EDIT_TEXT.tourNotFound) : toursWithNotice(partnerId, EDIT_TEXT.tourNotFound);
+  const said = press.scheduleKind === 'any_day'
+    ? 'Записал: выезжаете в любой день сезона. Туристы оставляют заявку на любой день сезона; закрытые вами дни им не предлагаются.'
+    : 'Записал: только в свои даты. Туристы выбирают из открытых дат.';
+  return datesPage(partnerId, press.tourId, 0, today, said, back);
 }
 
 const OPEN_WORDS: Readonly<Record<string, string>> = {
