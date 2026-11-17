@@ -148,6 +148,7 @@ describe('тексты согласия — тех адресатов, кому 
   it('у поездки целиком — по части', () => {
     expect(consentPurposesForTool('create_booking_request', {})).toEqual(['operator']);
     expect(consentPurposesForTool('create_lead', {})).toEqual(['operators']);
+    expect(consentPurposesForTool('create_car_rental_request', {})).toEqual(['rental']);
     expect(consentPurposesForTool('create_trip_request', { tour: '36', stay: 'Кутха', transfer_destination: 'аэропорт', carrier: 'Шатун' }))
       .toEqual(['operator', 'stay', 'carrier']);
     expect(consentPurposesForTool('create_trip_request', { stay_wanted: true })).toEqual(['operators']);

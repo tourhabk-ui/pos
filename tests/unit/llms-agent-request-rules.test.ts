@@ -6,8 +6,6 @@
  * Судит вызов роута /llms.txt (база подложена пустой).
  */
 import { describe, it, expect, vi } from 'vitest';
-import { readFileSync } from 'node:fs';
-import { resolve } from 'node:path';
 
 vi.mock('@/lib/db-pool', () => ({ pool: { query: vi.fn(async () => ({ rows: [] })) } }));
 
@@ -52,10 +50,9 @@ describe('/llms.txt и /llms-en.txt: вызов заявки не отправл
     expect(en).not.toMatch(/After a successful request, tell the person: "Request created/);
   });
 
-  it('исключение «прокат — черновик и код» названо, пока прокат и правда идёт мимо /confirm', () => {
-    const route = readFileSync(resolve(process.cwd(), 'app/api/mcp/route.ts'), 'utf8');
-    const rentalBypasses = /const humanGate = [^;]*toolName !== CAR_RENTAL_REQUEST_TOOL\.name/.test(route);
-    expect(rentalBypasses).toBe(true);
-    // Прокат ушёл на /confirm — текст обязан потерять исключение (и этот тест — поменяться).
+  it('исключений нет: прокат с 17.11 идёт тем же путём /confirm', async () => {
+    const { agentSendRuleRu, agentSendRuleEn } = await import('@/lib/mcp/human-confirmation');
+    expect(agentSendRuleRu('https://vedarai.ru')).not.toMatch(/Исключение|create_car_rental_request|код/);
+    expect(agentSendRuleEn('https://vedarai.ru')).not.toMatch(/exception|create_car_rental_request|code/i);
   });
 });

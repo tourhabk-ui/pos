@@ -905,7 +905,7 @@
     "type": "function",
     "function": {
       "name": "create_car_rental_request",
-      "description": "Two-step Kamchatka self-drive car rental request: step 1 returns a draft and confirmation code; step 2 only after the person explicitly agrees. Never set consent yourself. Заявка прокатчику на машину без водителя: какая машина, с какого по какое число, где забрать. Машины и прокатчики — search_car_rental; машину называй так, как в прайсе. Это заявка, не бронь: менеджер Ведара свяжется по телефону и подтвердит с прокатчиком; занятость машин платформа не ведёт, оплаты через платформу нет — расчёт напрямую с прокатчиком. Сначала спроси у человека имя и телефон — не придумывай и не подставляй их. Шаг 1: вызов без confirmation (consent: false) — заявка проверяется, но НЕ создаётся; в ответе черновик и код. Покажи черновик человеку и прямо спроси, согласен ли он на обработку имени и телефона, их передачу прокатчику и отправку заявки. Шаг 2 — только после явного «да» самого человека: тот же вызов с теми же полями, confirmation из ответа и consent: true. Никогда не ставь consent: true сам, без ответа человека.",
+      "description": "Kamchatka self-drive car rental request: car from the price list, dates, pickup; human-confirmed, no payment. Sent by the person from a Vedar link. Заявка прокатчику на машину без водителя: какая машина, с какого по какое число, где забрать. Машины и прокатчики — search_car_rental; машину называй так, как в прайсе. Это заявка, не бронь: менеджер Ведара свяжется по телефону и подтвердит с прокатчиком; занятость машин платформа не ведёт, оплаты через платформу нет — расчёт напрямую с прокатчиком. Сначала спроси у человека имя и телефон — не придумывай и не подставляй их. Имя и телефон уйдут прокатчику. Имя и телефон — персональные данные. Вызов не отправляет заявку: в ответе черновик и ссылка — дай её человеку, на странице Ведара он сам нажмёт «Отправить».",
       "parameters": {
         "type": "object",
         "properties": {
@@ -956,10 +956,6 @@
             "type": "string",
             "description": "Wishes: child seat, drop-off elsewhere, etc. Пожелания: детское кресло, возврат в другом месте и т.п."
           },
-          "confirmation": {
-            "type": "string",
-            "description": "Code from the step 1 reply; send it only after the person explicitly agreed. Without it a draft is returned and nothing is created. Код из ответа шага 1. Передавай только после явного согласия человека; без кода заявка не создаётся, а возвращается черновик"
-          },
           "plan_id": {
             "type": "string",
             "description": "Plan ID from make_trip_plan when the request belongs to that plan: the manager and the rental company see the whole trip; omitted dates are taken from the plan, and a mismatch with the plan is named in the reply. Номер плана из make_trip_plan, если заявка — по этому плану: менеджер и прокатчик увидит, частью какой поездки она стоит; даты, если не названы, берутся из плана, а расхождение с планом ответ назовёт.",
@@ -969,9 +965,9 @@
           },
           "consent": {
             "type": "boolean",
-            "description": "false on step 1. true only after the person themselves said yes to passing name and phone to the rental company; never set it on their behalf. Человек согласен на обработку своих персональных данных (имя, телефон) и их передачу прокатчику для связи по заявке. На шаге 1 — false. true — только когда человек сам ответил «да» на вопрос о согласии; агент не ставит true за человека.",
+            "description": "Explicit consent to process name and phone and pass them to the rental company; ask the person and pass true, otherwise the request is not created. Человек согласен на обработку своих персональных данных (имя, телефон) и их передачу прокатчику для связи по заявке. Спроси человека; отправляет заявку он сам по ссылке из ответа. Без согласия заявка не создаётся.",
             "examples": [
-              false
+              true
             ]
           }
         },

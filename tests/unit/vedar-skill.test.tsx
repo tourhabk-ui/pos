@@ -52,12 +52,14 @@ describe('SKILL.md', () => {
     expect(md).toContain('https://vedarai.ru/llms-en.txt');
   });
 
-  it('заявку отправляет сам человек по ссылке; у проката — код; согласие за человека не даётся', () => {
+  it('заявку отправляет сам человек по ссылке, прокат тоже; согласие за человека не даётся', () => {
     const md = vedarSkillMarkdown(false);
     expect(md).toMatch(/does not send anything\. It returns a draft and a link/);
     expect(md).toMatch(/press "Send" themselves/);
     expect(md).toMatch(/Do not open the link or press the button for the person/);
-    expect(md).toMatch(/car rental[^.]*confirmation code/i);
+    // Прокат с 17.11 — тот же путь /confirm, кода подтверждения нет.
+    expect(md).toMatch(/all six requests, self-drive car rental included/);
+    expect(md).not.toMatch(/confirmation code/i);
     // Прежний путь «агент ставит флаг согласия» навык не учит.
     expect(md).not.toMatch(/consent flag/i);
   });
