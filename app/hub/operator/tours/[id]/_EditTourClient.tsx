@@ -12,6 +12,9 @@ import {
 import { readApiResponse } from '@/lib/http/api-response';
 import MainPlacePicker, { asMainPlaceSource, type MainPlaceValue } from '@/components/operator/Tours/MainPlacePicker';
 import TourDateAdd from '@/components/operator/Tours/TourDateAdd';
+import TourScheduleKind, { type ScheduleKindValue } from '@/components/operator/Tours/TourScheduleKind';
+import TourClosedDays from '@/components/operator/Tours/TourClosedDays';
+import { scheduleKindOf } from '@/lib/tours/schedule-kind';
 import {
   TourProgramSection, TourSafetySection, TourVideosSection, PhotoCreditField, TouristViewLink,
   operatorExtrasOf, operatorExtrasBody, operatorExtrasGaps, photoCaption, type OperatorTourExtras,
@@ -40,6 +43,7 @@ interface TourData {
   season_start: string | null;
   season_end: string | null;
   seasonal_only: boolean;
+  schedule_kind?: string | null;
   difficulty: string | null;
   weather_dependent: boolean;
   is_active: boolean;
@@ -121,6 +125,7 @@ export default function EditTourClient() {
     season_start: '',
     season_end: '',
     seasonal_only: false,
+    schedule_kind: '' as ScheduleKindValue,
     difficulty: '',
     weather_dependent: true,
     is_active: true,
@@ -147,15 +152,25 @@ export default function EditTourClient() {
   // Availability
   interface AvailSlot { id: string; date: string; available_slots: number; booked_slots: number; base_price_override: number | null }
   const [avail, setAvail] = useState<AvailSlot[]>([]);
+  // Закрытые оператором дни; null — не прочитались (§4.0).
+  const [closedDays, setClosedDays] = useState<string[] | null>([]);
   const [availLoading, setAvailLoading] = useState(false);
 
   const loadAvail = useCallback(async () => {
     setAvailLoading(true);
     try {
       const res = await fetch(`/api/hub/operator/tours/${tourId}/availability?from=${new Date().toISOString().slice(0,10)}&to=${new Date(Date.now()+365*86400000).toISOString().slice(0,10)}`);
-      const json = await res.json() as { success: boolean; data: AvailSlot[] };
-      if (json.success) setAvail(json.data);
-    } catch { /* ignore */ }
+      const json = await res.json() as { success: boolean; data: AvailSlot[]; closed_days?: string[] | null };
+      if (json.success) {
+        setAvail(json.data);
+        setClosedDays(Array.isArray(json.closed_days) ? json.closed_days : null);
+      } else {
+        setClosedDays(null);
+      }
+    } catch (e) {
+      console.error('[operator/tour-edit] расписание не загрузилось:', e instanceof Error ? e.message : String(e));
+      setClosedDays(null);
+    }
     finally { setAvailLoading(false); }
   }, [tourId]);
 
@@ -218,6 +233,7 @@ export default function EditTourClient() {
           season_start: t.season_start?.slice(0, 10) || '',
           season_end: t.season_end?.slice(0, 10) || '',
           seasonal_only: t.seasonal_only,
+          schedule_kind: scheduleKindOf(t.schedule_kind) ?? '',
           difficulty: t.difficulty || '',
           weather_dependent: t.weather_dependent,
           is_active: t.is_active,
@@ -287,6 +303,7 @@ export default function EditTourClient() {
         season_start: form.season_start || null,
         season_end: form.season_end || null,
         seasonal_only: form.seasonal_only,
+        schedule_kind: form.schedule_kind || null,
         difficulty: form.difficulty || null,
         weather_dependent: form.weather_dependent,
         is_active: form.is_active,
@@ -766,8 +783,19 @@ export default function EditTourClient() {
           </button>
         </div>
 
+        {/* Как тур выезжает (#3476): сохраняется общей кнопкой карточки */}
+        <TourScheduleKind
+          value={form.schedule_kind}
+          onChange={(v) => setF('schedule_kind', v)}
+          seasonStart={form.season_start}
+          seasonEnd={form.season_end}
+        />
+
         {/* Добавить дату — исход «записано, но туристам не видно» назван (TourDateAdd) */}
         <TourDateAdd tourId={String(tourId)} onAdded={loadAvail} onError={setError} />
+
+        {/* Закрыть день — исключение календаря (#3476 шаг 4) */}
+        <TourClosedDays tourId={String(tourId)} closed={closedDays} onChanged={loadAvail} onError={setError} />
 
         {/* Existing slots */}
         {availLoading ? (

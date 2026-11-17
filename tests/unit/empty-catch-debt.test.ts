@@ -125,7 +125,6 @@ const KNOWN_EMPTY_CATCHES: Record<string, number> = {
   'app/hub/guide/_GuideDashboardClient.tsx': 2,
   'app/hub/operator/integrations/_IntegrationsPageClient.tsx': 1,
   'app/hub/operator/leads/_LeadsClient.tsx': 1,
-  'app/hub/operator/tours/[id]/_EditTourClient.tsx': 1,
   'app/hub/operator/tours/_ToursManagementClient.tsx': 1,
   'app/hub/safety/_SafetyHubClient.tsx': 1,
   'app/hub/tourist/_TouristDashboardClient.tsx': 1,

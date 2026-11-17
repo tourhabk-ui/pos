@@ -15,6 +15,7 @@ import { getOperatorPartnerId } from '@/lib/auth/operator-helpers';
 import { managerMay, permissionDenied, requireOperatorTeam } from '@/lib/operators/team-access';
 import { formatDateOnly } from '@/lib/dates/date-only';
 import { tourHiddenText } from '@/lib/tours/availability-open';
+import { loadClosedDays } from '@/lib/tours/closed-days';
 import { ZodError } from 'zod';
 
 export const dynamic = 'force-dynamic';
@@ -128,10 +129,15 @@ export async function GET(
     }
 
     const rows = await getAvailability(tourId, from, to);
+    // Закрытые оператором дни (#3476 шаг 4): у тура «в любой день сезона»
+    // календарь — исключения, и закрытый день кабинет показывает отдельно,
+    // с кнопкой «Открыть». Не прочитались — null: «не смог», а не «нет».
+    const closed = await loadClosedDays(tourId.toString(), from, to);
 
     return NextResponse.json({
       success: true,
       data: rows,
+      closed_days: closed ? [...closed].sort() : null,
       date_range: { from, to },
       count: rows.length,
     });
