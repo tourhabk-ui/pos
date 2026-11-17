@@ -24,7 +24,7 @@
  */
 import { readdirSync, readFileSync, statSync } from 'fs';
 import { join, relative } from 'path';
-import { scanSinks, deviceWrites, type SinkFinding, type DeviceWrite } from './pd-sinks';
+import { scanSinks, deviceWrites, exportedSqlConsts, mergeSqlConsts, type SinkFinding, type DeviceWrite } from './pd-sinks';
 
 /**
  * Где ищутся стоки. `scripts` — с ними: их печать уходит в лог Actions (#3203).
@@ -286,8 +286,10 @@ export function sinkCensus(
   const used = new Set<string>();
   const violations: SinkFinding[] = [];
   const dbFindings: SinkFinding[] = [];
+  // Текст запроса из соседнего модуля: экспортированные константы всех файлов.
+  const sqlConsts = mergeSqlConsts(sinkSources.map(({ src }) => exportedSqlConsts(src)));
   for (const { rel, src } of sinkSources) {
-    for (const f of scanSinks(rel, src)) {
+    for (const f of scanSinks(rel, src, sqlConsts)) {
       const key = findingKey(f);
       if (allowedKeys.has(key)) { used.add(key); continue; }
       if (f.kind === 'db') { dbFindings.push(f); continue; }

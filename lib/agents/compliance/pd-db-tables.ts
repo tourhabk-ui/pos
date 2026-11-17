@@ -33,9 +33,16 @@
  *     узнать (их держит перепись удаления аккаунта по роду колонки);
  *   - параметров, собранных через `push` в массив, и потока дальше одного шага;
  *   - тегированных шаблонов `sql\`…\`` и записи через ORM-обёртки без `query(`;
+ *   - текста запроса, собранного вызовом (`const sql = build()`) или
+ *     импортированного под другим именем. Константа, экспортированная другим
+ *     модулем под тем же именем, подставляется (`exportedSqlConsts`, ревью
+ *     #3499); текст не нашёлся вовсе, а в параметрах ПД — находка с таблицей
+ *     «не разобран» (`unparsed`), а не тишина;
  *   - поля сообщения, которому значение дал не этот файл: `m.from` ловится,
  *     только если сам файл положил в `from` имя (`{ from: fromName }`).
  */
+
+import { SQL_UNPARSED } from './pd-sinks';
 
 /** Как строки таблицы уходят. Сверяется с механизмами, не объявляется. */
 export type PdTableKept = 'purge' | 'measured' | 'erase' | 'gap';
@@ -133,6 +140,8 @@ export interface DbFinding { file: string; line: number; sink: string; expr: str
 export interface DbCensus {
   /** ПД в публичный контент — нарушение без исключений. */
   publicContent: DbFinding[];
+  /** Запрос с ПД в параметрах, чей текст сторож не нашёл: таблица неизвестна. */
+  unparsed: DbFinding[];
   /** Таблицы с ПД без записи в `PD_TABLES` — с первой находкой. */
   unregistered: Array<{ table: string; first: DbFinding; count: number }>;
   /** Записи, в чью таблицу ПД больше не пишет никто. */
@@ -150,10 +159,12 @@ export function dbCensus(
   const publicSet = new Set(PUBLIC_CONTENT_TABLES);
   const known = new Map(registry.map((e) => [e.table, e]));
   const publicContent: DbFinding[] = [];
+  const unparsed: DbFinding[] = [];
   const byTable = new Map<string, { first: DbFinding; count: number }>();
   for (const f of findings) {
     for (const t of f.tables ?? []) {
       if (publicSet.has(t)) { publicContent.push(f); continue; }
+      if (t === SQL_UNPARSED) { unparsed.push(f); continue; }
       const seen = byTable.get(t);
       if (seen) seen.count++;
       else byTable.set(t, { first: f, count: 1 });
@@ -161,6 +172,7 @@ export function dbCensus(
   }
   return {
     publicContent,
+    unparsed,
     unregistered: [...byTable].filter(([t]) => !known.has(t)).map(([table, v]) => ({ table, ...v })),
     stale: registry.filter((e) => !byTable.has(e.table)),
     wrongKept: registry

@@ -328,6 +328,39 @@ const DB_CALL = /(?<![\w$])(?:[A-Za-z_$][\w$]*\s*\??\.\s*)?query\s*(?:<[^()]*?>)
 const SQL_INSERT = /\bINSERT\s+INTO\s+(?:ONLY\s+)?("?[A-Za-z_][\w.]*"?|\$\{)/gi;
 const SQL_UPDATE = /(?<!\bDO\s+)\bUPDATE\s+(?:ONLY\s+)?("?[A-Za-z_][\w.]*"?|\$\{)(?:\s+(?:AS\s+)?[A-Za-z_]\w*)?\s+SET\b/gi;
 
+/** Таблица запроса, чей текст сторож не нашёл: импорт под другим именем, сборка вызовом. */
+export const SQL_UNPARSED = '(текст запроса не разобран)';
+
+const LOOKS_LIKE_SQL = /\b(?:SELECT|INSERT|UPDATE|DELETE|WITH|CREATE|ALTER|DROP|TRUNCATE|BEGIN|COMMIT|SET)\b/;
+
+/**
+ * Экспортированные константы файла, чей текст похож на SQL: имя → текст.
+ * Запрос часто лежит в соседнем модуле (`export const X_SQL = \`INSERT …\``),
+ * а исполняется в роуте — перепись собирает их по всему репозиторию и
+ * подставляет, когда имени нет среди переменных файла. Одно имя в двух файлах —
+ * оба текста: записи обоих запросов, а не угаданный один.
+ */
+export function exportedSqlConsts(raw: string): Map<string, string> {
+  const src = normalizeBrackets(raw);
+  const code = maskCode(src);
+  const out = new Map<string, string>();
+  for (const [name, decls] of localInits(code)) {
+    for (const d of decls) {
+      if (!/\bexport\s+$/.test(code.slice(Math.max(0, d.at - 16), d.at))) continue;
+      const text = src.slice(d.from, d.to);
+      if (LOOKS_LIKE_SQL.test(text)) out.set(name, text);
+    }
+  }
+  return out;
+}
+
+/** Слить константы многих файлов: одно имя — все тексты через разделитель. */
+export function mergeSqlConsts(maps: Iterable<ReadonlyMap<string, string>>): Map<string, string> {
+  const out = new Map<string, string>();
+  for (const m of maps) for (const [k, v] of m) out.set(k, out.has(k) ? `${out.get(k)}\n;\n${v}` : v);
+  return out;
+}
+
 /** Записи текста запроса: `public.leads` → `leads`, `${t}` → `(имя в переменной)`. */
 export function sqlWrites(sql: string): Array<{ op: 'INSERT INTO' | 'UPDATE'; table: string }> {
   const out: Array<{ op: 'INSERT INTO' | 'UPDATE'; table: string }> = [];
@@ -348,7 +381,7 @@ export function sqlWrites(sql: string): Array<{ op: 'INSERT INTO' | 'UPDATE'; ta
 const usesIdb = (src: string): boolean => /from\s+['"]idb(?:-keyval)?['"]|\bindexedDB\s*\./.test(src);
 
 /** Отрезки стоков файла по маске кода. */
-function sinkSpans(src: string, code: string, inits: ReturnType<typeof localInits>): SinkSpan[] {
+function sinkSpans(src: string, code: string, inits: ReturnType<typeof localInits>, sqlConsts?: ReadonlyMap<string, string>): SinkSpan[] {
   const out: SinkSpan[] = [];
   const call = (re: RegExp, kind: SinkKind, name: (m: RegExpExecArray) => string) => {
     re.lastIndex = 0;
@@ -382,7 +415,16 @@ function sinkSpans(src: string, code: string, inits: ReturnType<typeof localInit
     const ref = /^\s*([A-Za-z_$][\w$]*)\s*$/.exec(sql);
     if (ref) {
       const decl = (inits.get(ref[1]) ?? []).filter((d) => d.at < m!.index).pop() ?? (inits.get(ref[1]) ?? [])[0];
-      sql = decl ? src.slice(decl.from, decl.to) : '';
+      const shared = sqlConsts?.get(ref[1]);
+      if (!decl && shared === undefined) {
+        // Текст запроса не найден ни в файле, ни среди экспортов репозитория:
+        // запрос с ПД в параметрах всё равно находка, с таблицей «не разобран»,
+        // а не тишина (ревью #3499). Параметр обёртки (`query(sql, params)`)
+        // ПД по имени не несёт и находкой не становится.
+        out.push({ kind: 'db', sink: `query(${ref[1]})`, from: firstEnd, to: closeOf(code, open), tables: [SQL_UNPARSED] });
+        continue;
+      }
+      sql = decl ? src.slice(decl.from, decl.to) : (shared ?? '');
     }
     const writes = sqlWrites(sql);
     if (writes.length === 0) continue;
@@ -482,7 +524,7 @@ function fieldRefsIn(code: string, from: number, to: number, fields: Map<string,
 }
 
 /** Находки одного исходника. Чистая функция. */
-export function scanSinks(file: string, raw: string): SinkFinding[] {
+export function scanSinks(file: string, raw: string, sqlConsts?: ReadonlyMap<string, string>): SinkFinding[] {
   const src = normalizeBrackets(raw);
   const code = maskCode(src);
   const inits = localInits(code);
@@ -497,7 +539,7 @@ export function scanSinks(file: string, raw: string): SinkFinding[] {
   const lineOf = (at: number) => { let lo = 0, hi = lineStarts.length - 1; while (lo < hi) { const mid = (lo + hi + 1) >> 1; if (lineStarts[mid] <= at) lo = mid; else hi = mid - 1; } return lo + 1; };
   const out: SinkFinding[] = [];
   const seen = new Set<string>();
-  const spans = sinkSpans(src, code, inits);
+  const spans = sinkSpans(src, code, inits, sqlConsts);
   const fields = spans.some((s) => s.kind === 'db') ? pdFields(code) : new Map<string, string>();
   for (const s of spans) {
     const skip = s.kind === 'telegram' ? TG_RECIPIENT : undefined;

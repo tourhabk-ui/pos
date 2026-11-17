@@ -12,8 +12,8 @@
  */
 import { join } from 'node:path';
 import { describe, it, expect, beforeAll } from 'vitest';
-import { scanSinks, sqlWrites, pdKindOf } from '@/lib/agents/compliance/pd-sinks';
-import { sinkCensusOfRepo } from '@/lib/agents/compliance/pd-sinks-registry';
+import { scanSinks, sqlWrites, pdKindOf, exportedSqlConsts, SQL_UNPARSED } from '@/lib/agents/compliance/pd-sinks';
+import { sinkCensusOfRepo, sinkCensus } from '@/lib/agents/compliance/pd-sinks-registry';
 import {
   PD_TABLES, PUBLIC_CONTENT_TABLES, dbCensus, keptOf, type RetentionMechanisms,
 } from '@/lib/agents/compliance/pd-db-tables';
@@ -45,6 +45,11 @@ describe('перепись репозитория: запись ПД в базу
   it('ПД не пишутся в публичный контент: каталог маршрутов, места, их снимки и переводы', () => {
     const c = dbCensus(census.dbFindings, mechanisms);
     expect(c.publicContent, `ПД в публичной таблице. Уберите поле или пропустите его через маску (PD_SANITIZERS):\n${show(c.publicContent)}`).toEqual([]);
+  });
+
+  it('у каждого запроса с ПД найден текст: таблица известна', () => {
+    const c = dbCensus(census.dbFindings, mechanisms);
+    expect(c.unparsed, `Запрос пишет ПД, а текст запроса сторож не нашёл (импорт под другим именем, сборка вызовом). Вынесите текст в константу с тем же именем:\n${show(c.unparsed)}`).toEqual([]);
   });
 
   it('каждая таблица с ПД записана в PD_TABLES', () => {
@@ -134,6 +139,33 @@ describe('что считается записью', () => {
   it('проверка наличия и счёт — не значение', () => {
     const src = 'await pool.query(`UPDATE leads SET has_phone = $1, n = $2 WHERE id = $3`, [!!lead.phone, lead.phone.length, id]);';
     expect(scanSinks('lib/x.ts', src)).toEqual([]);
+  });
+});
+
+describe('текст запроса из соседнего модуля (ревью #3499)', () => {
+  const lib = 'export const UPDATE_STAY_SQL = `UPDATE accommodation_bookings SET guest_phone = $1 WHERE id = $2`;\nexport const LIMIT = 10;';
+  const route = "import { UPDATE_STAY_SQL } from '@/lib/stay/sql';\nawait client.query(UPDATE_STAY_SQL, [b.guestPhone, id]);";
+
+  it('экспортированная константа подставляется, и таблица названа', () => {
+    expect([...exportedSqlConsts(lib).keys()]).toEqual(['UPDATE_STAY_SQL']);
+    const c = sinkCensus([{ rel: 'lib/stay/sql.ts', src: lib }, { rel: 'app/api/stay/route.ts', src: route }], []);
+    expect(c.dbFindings.map((f) => [f.file, f.sink, f.expr, f.tables])).toEqual([
+      ['app/api/stay/route.ts', 'UPDATE accommodation_bookings', 'b.guestPhone', ['accommodation_bookings']],
+    ]);
+    expect(c.violations).toEqual([]);
+  });
+
+  it('текст не нашёлся — находка «не разобран», а не тишина', () => {
+    const f = scanSinks('app/api/stay/route.ts', route);
+    expect(f.map((x) => [x.sink, x.expr, x.tables])).toEqual([['query(UPDATE_STAY_SQL)', 'b.guestPhone', [SQL_UNPARSED]]]);
+    const none: RetentionMechanisms = { purge: new Set(), measured: new Set(), erase: new Set() };
+    const c = dbCensus(f, none, []);
+    expect(c.unparsed).toHaveLength(1);
+    expect(c.unregistered).toEqual([]);
+  });
+
+  it('обёртка с параметрами без имён ПД — не находка', () => {
+    expect(scanSinks('lib/db.ts', 'export async function run(sql: string, params: unknown[]) { return pool.query(sql, params); }')).toEqual([]);
   });
 });
 
