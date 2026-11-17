@@ -312,6 +312,38 @@ export function queryRemainder(query: string, used: readonly number[]): string |
   return e > s ? rest.slice(s, e).map((w) => w.raw).join(' ') : null;
 }
 
+/** Слова продавца в единственном числе: «компании X», «оператора X». Множественное («операторы») — общий вопрос. */
+const SELLER_MARKERS = new Set([
+  'компания', 'компании', 'компанию', 'компанией', 'оператор', 'оператора', 'оператору', 'оператором',
+  'туроператор', 'туроператора', 'туроператору', 'туроператором', 'фирма', 'фирмы', 'фирму', 'фирмой',
+  'агентство', 'агентства', 'агентству', 'агентством',
+]);
+
+/**
+ * Названо ли имя продавца ЯВНО: в кавычках, где кроме имени ничего нет
+ * («Покажи туры «Края Вулканов»»), или сразу после слова продавца в
+ * единственном числе («туры компании Край Вулканов»). Имя из общих слов без
+ * таких примет — то ли продавец, то ли «Камчатка — край вулканов» (§0, ревью
+ * 29.10), и явным не считается.
+ */
+export function namesSellerExplicitly(text: string, name: string | null | undefined): boolean {
+  if (typeof name !== 'string' || !text) return false;
+  for (const m of text.matchAll(/[«"„“]([^«»"„“”]{1,80})[»"“”]/g)) {
+    const seg = m[1];
+    const hit = matchSellerName(seg, name);
+    if (hit?.coverage === 'full' && queryRemainder(seg, hit.used) === null) return true;
+  }
+  const words = wordsOf(text);
+  const nameLen = wordsOf(name).filter((w) => w.norm.length >= 4 && !FILLER_WORDS.has(w.norm)).length;
+  if (nameLen === 0) return false;
+  for (let i = 0; i < words.length - 1; i++) {
+    if (!SELLER_MARKERS.has(words[i].norm)) continue;
+    const after = words.slice(i + 1, i + 1 + nameLen).map((w) => w.raw).join(' ');
+    if (matchSellerName(after, name)?.coverage === 'full') return true;
+  }
+  return false;
+}
+
 /** Главное место тура, если оно записано и видимо. */
 export interface CandidatePlace {
   id: string;
@@ -376,6 +408,12 @@ export type TourChoice =
       others: { tours: TourCandidate[]; partial: boolean } | null;
       /** words: тура со всеми словами нет — как слова разошлись; иначе null. */
       words: WordsSplit | null;
+      /**
+       * own: имя продавца из одних общих слов, но названо явно — в кавычках
+       * или после «компании», «оператора» (namesSellerExplicitly). Туры — его,
+       * а ответ говорит, что имя общее и где туры всех компаний по этим словам.
+       */
+      generalName?: boolean;
     }
   | { kind: 'none' };
 
@@ -648,7 +686,7 @@ const usedWords = (named: readonly NamedSeller[]) => [...new Set(named.flatMap((
  * в счёт идёт только отличительное имя. null — продавца в запросе нет, поиск
  * идёт как без него.
  */
-async function sellerChoice(q: string, phrase: CandidateRow[]): Promise<TourChoice | null> {
+async function sellerChoice(q: string, phrase: CandidateRow[], context?: string): Promise<TourChoice | null> {
   if (!wordsOf(q).some((w) => w.norm.length >= 4 && !FILLER_WORDS.has(w.norm))) return null;
   const { rows } = await pool.query<SellerRow>(
     `SELECT p.id::text AS seller_id, p.name AS seller_name, p.category AS seller_category,
@@ -668,16 +706,25 @@ async function sellerChoice(q: string, phrase: CandidateRow[]): Promise<TourChoi
   if (named.length > 0) return ownSellerChoice(q, named);
   // Отличительного слова нет ни у кого. Фраза стоит в названии тура — ответ
   // по названию: имя из общих слов его не меняет и строкой о себе не звучит.
+  const full = matched.filter(({ m }) => m.coverage === 'full');
+  // Имя из общих слов, названное ЯВНО — в кавычках или после «компании»,
+  // «оператора»: человек спрашивает о продавце, а не о вулканах вообще.
+  // Ответ — его туры по его номеру (слово владельца 17.11 «го»: ночной эвал,
+  // «Покажи туры «Края Вулканов»» давал двенадцать туров других компаний по
+  // слову «вулканов»). Явность судится по запросу и по вопросу человека
+  // (context): модель передаёт в инструмент имя без кавычек.
+  const explicit = full.filter(({ row }) => namesSellerExplicitly(q, row.seller_name)
+    || (context !== undefined && namesSellerExplicitly(context, row.seller_name)));
+  if (explicit.length > 0) return ownSellerChoice(q, explicit, { generalName: true });
   if (phrase.some((r) => phraseRank(r) <= 2)) return null;
   // Продавец с именем из общих слов звучит, только если запрос — его имя
   // целиком и ничего больше; иначе поиск идёт как без него (§0, ревью 29.10).
-  const full = matched.filter(({ m }) => m.coverage === 'full');
   if (full.length === 0 || queryRemainder(q, usedWords(full)) !== null) return null;
   return wordsSellerChoice(q, full, phrase);
 }
 
 /** Отличительное имя: туры продавца, остаток запроса — среди них (шапка выше). */
-async function ownSellerChoice(q: string, named: readonly NamedSeller[]): Promise<TourChoice | null> {
+async function ownSellerChoice(q: string, named: readonly NamedSeller[], opts: { generalName?: boolean } = {}): Promise<TourChoice | null> {
   const ids = named.map(({ row }) => row.seller_id);
   const { rows: tourRows } = await pool.query<CandidateRow>(
     `SELECT ${CANDIDATE_COLUMNS} ${CANDIDATE_FROM}
@@ -691,6 +738,7 @@ async function ownSellerChoice(q: string, named: readonly NamedSeller[]): Promis
   const base: SellerChoice = {
     kind: 'seller', basis: 'own', sellers: sellerMatches(named), tours: all,
     partialName, rest: null, others: null, words: null,
+    ...(opts.generalName ? { generalName: true } : {}),
   };
   const rest = queryRemainder(q, usedWords(named));
   if (!rest) return base;
@@ -728,7 +776,12 @@ async function wordsSellerChoice(q: string, named: readonly NamedSeller[], phras
   };
 }
 
-export async function resolveTourChoice(query: string): Promise<TourChoice> {
+/**
+ * context — вопрос человека этого хода (чат Кузьмича): по нему видно, назвал
+ * ли он продавца явно, когда модель передала в инструмент имя без кавычек.
+ * Тур по контексту не ищется — только явность имени, уже совпавшего с запросом.
+ */
+export async function resolveTourChoice(query: string, opts: { context?: string } = {}): Promise<TourChoice> {
   const q = query.trim();
   if (!q) return { kind: 'none' };
   try {
@@ -747,7 +800,7 @@ export async function resolveTourChoice(query: string): Promise<TourChoice> {
     const phrase = await phraseRows(q, null);
     // Точное название тура — самое сильное совпадение: имя продавца его не перебивает.
     if (phrase.some((r) => phraseRank(r) === 0)) return choose(phrase, phraseRank);
-    const seller = await sellerChoice(q, phrase);
+    const seller = await sellerChoice(q, phrase, opts.context);
     if (seller) return seller;
     if (phrase.length > 0) return choose(phrase, phraseRank);
     return (await wordsSearch(q, null))?.choice ?? { kind: 'none' };
@@ -862,6 +915,12 @@ function ownSellerLines(query: string, c: SellerChoice): string[] {
     ? `По запросу «${query}» совпала часть имени ${one ? 'продавца' : 'продавцов'} — ${who}. `
       + `Запрос может быть и не о ${one ? 'нём' : 'них'}: не выбирай компанию за человека.`
     : `По запросу «${query}» найден ${one ? 'продавец' : 'не один продавец'} — ${who}. Это имя продавца, а не название тура.`];
+  // Имя из общих слов, названное явно: туры — его, но слова имени есть и в
+  // турах других компаний. Где те туры — сказано, сами они не подмешиваются.
+  if (c.generalName) {
+    lines.push('Имя продавца состоит из общих слов, и человек назвал его явно (в кавычках или словом «компания»). '
+      + 'Ниже — только туры этого продавца. Если человек спрашивал не о нём, а о самих словах, туры всех компаний — get_tours по этим словам.');
+  }
   for (const s of c.sellers) {
     const url = sellerPageUrl(s);
     const of = one ? 'продавца' : sellerGenitive(s);
@@ -1314,13 +1373,14 @@ async function shortGroupLines(
   return [`${head} Ближайшую дату, где хватит мест на ${people} чел., после этого окна проверить не смог — не говори, что её нет.`];
 }
 
-type AvailabilityArgs = { tour?: string; date_from?: string; days?: string; people?: string };
+/** context — вопрос человека этого хода (resolveTourChoice): явное имя продавца. */
+type AvailabilityArgs = { tour?: string; date_from?: string; days?: string; people?: string; context?: string };
 
 export async function getTourAvailabilityForKuzmich(args: AvailabilityArgs): Promise<string> {
   const tourQuery = (args.tour ?? '').trim();
   if (!tourQuery) return 'Укажи тур: название, ключевое слово или ID.';
 
-  const choice = await resolveTourChoice(tourQuery);
+  const choice = await resolveTourChoice(tourQuery, { context: args.context });
   if (choice.kind === 'none') {
     return `Тур по запросу "${tourQuery}" не найден среди активных. Не выдумывай даты — предложи выбрать тур через get_tours.`;
   }

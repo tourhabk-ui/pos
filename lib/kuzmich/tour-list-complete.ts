@@ -13,7 +13,7 @@ import { detectEmergency } from '@/lib/safety/sos-detector';
 import { asksTripPlan } from '@/lib/kuzmich/answer-quality';
 import { asksTourComparison } from '@/lib/kuzmich/tour-ask';
 import {
-  mentionsOperator, namedTours, parseTourLines, questionNumbers, referenceTours,
+  deniesTours, mentionsOperator, namedTours, parseTourLines, questionNumbers, referenceTours,
   UNIT_CAVEAT_RE, type TourLine,
 } from '@/lib/agents/eval/commercial-checks';
 
@@ -57,9 +57,14 @@ function line(t: TourLine): string {
   return `- «${t.title}»${t.operator ? ` — ${t.operator}` : ''}${priceWords(t)}`;
 }
 
-/** Бюджет с человека из вопроса: «до 50 000», «50к». Нет — null. */
+/**
+ * Бюджет с человека из вопроса: «до 50 000», «дешевле 70 000», «50к». Нет — null.
+ * «Дешевле» добавлено 17.11 (ночной эвал, budget-tolbachik-70k): вопрос «тур
+ * на Толбачик дешевле 70 000» бюджета не давал, и тур за 60 000 не попадал в
+ * поправку к «дешевле 70 000 нет».
+ */
 export function budgetOf(question: string): number | null {
-  if (!/(?:^|[^а-яё])до |бюджет|не дороже|в пределах|уложиться/i.test(question)) return null;
+  if (!/(?:^|[^а-яё])до |бюджет|не дороже|дешевле|не больше|не более|не выше|в пределах|уложиться/i.test(question)) return null;
   const nums = questionNumbers(question).filter((n) => n >= 1000);
   return nums.length > 0 ? Math.max(...nums) : null;
 }
@@ -119,12 +124,28 @@ export function questionQueries(question: string, catalogText: string, max = 4):
   return out;
 }
 
+/** Запрос вызова — из слов вопроса (questionQueries): эти туры — ответ на вопрос, а не соседи. */
+function askedQuery(query: string, asked: readonly string[]): boolean {
+  const q = norm(query.trim());
+  return asked.some((a) => a === q);
+}
+
+export interface CompleteOptions {
+  /**
+   * Вопрос о продавце (resolveSellerInText): список туров — его, дописка не
+   * прибавляет туров других компаний и не приписывает названные туры другим
+   * по совпадению названия (ночной эвал 17.11: «Горный массив Вачкажец» гида
+   * ушёл в «Кто проводит» как тур другой компании). Бюджет — как обычно.
+   */
+  seller?: boolean;
+}
+
 /**
  * calls — вызовы get_tours хода (и дозапросы по словам вопроса); catalogText —
  * весь каталог (БД): по нему компания к турам, названным по заголовку, даже
  * если модель брала их из get_tour_details или из каталога без фильтра.
  */
-export function completeTourList(answer: string, question: string, calls: readonly ToursCall[], catalogText = ''): string {
+export function completeTourList(answer: string, question: string, calls: readonly ToursCall[], catalogText = '', opts: CompleteOptions = {}): string {
   // SOS (разбор 03.11, п.6): к экстренному ответу список туров не дописывается.
   if (detectEmergency(question).detected) return answer;
   // Просьба о плане (аудит планировщика 07.11, K1): ответ — сам план, туры в
@@ -149,17 +170,46 @@ export function completeTourList(answer: string, question: string, calls: readon
   for (const c of calls) for (const t of parseTourLines(c.output)) if (!uni.has(t.id)) uni.set(t.id, t);
   const catalogNamed = namedTours(answer, parseTourLines(catalogText).filter((t) => !uni.has(t.id)).map((t) => ({ ...t, price: null })));
   const namedAll = [...namedTours(answer, [...uni.values()]), ...catalogNamed.map((t) => uni.get(t.id) ?? parseTourLines(catalogText).find((x) => x.id === t.id) ?? t)];
-  // Ответ не о турах (отказ, безопасность, вопрос) — не трогаем.
-  if (namedAll.length === 0) return answer;
-  const named = ref.length > 0 ? namedTours(answer, ref) : [];
   const budget = budgetOf(question);
   const fits = (t: TourLine) => budget === null || (t.unit === 'per_person' && t.price !== null && t.price <= budget);
   const namedIds = new Set(namedAll.map((t) => t.id));
-  const missing = named.length > 0 || ref.length > 0 ? ref.filter((t) => !namedIds.has(t.id) && fits(t)) : [];
+  // «Туров нет», а по словам вопроса туры есть (ночной эвал 17.11: «Налычево
+  // — туров нет» при пяти, «дешевле 70 000 нет» при туре за 60 000). Модель
+  // ответила неправду о витрине — поправка тем же ответом, только туры по
+  // словам самого вопроса и в бюджет. Вопрос о продавце — не здесь: «у него
+  // нет» правда, даже если у других компаний такие туры есть.
+  const asked = questionQueries(question, catalogText);
+  const answerRef = new Map<string, TourLine>();
+  for (const c of calls) {
+    if (!c.query.trim() || !askedQuery(c.query, asked)) continue;
+    const r = referenceTours(c.output);
+    if (r.length > COMPLETE_LIST_MAX) continue;
+    for (const t of r) if (!answerRef.has(t.id)) answerRef.set(t.id, t);
+  }
+  const denied = !opts.seller && deniesTours(answer)
+    ? [...answerRef.values()].filter((t) => !namedIds.has(t.id) && fits(t))
+    : [];
+  // Ответ не о турах (отказ, безопасность, вопрос) — не трогаем, кроме ложного «туров нет».
+  if (namedAll.length === 0 && denied.length === 0) return answer;
+  const named = ref.length > 0 ? namedTours(answer, ref) : [];
+  const deniedIds = new Set(denied.map((t) => t.id));
+  // Ответ без единого названного тура дополняется только поправкой: соседние
+  // списки к отказу или к ответу о безопасности не приклеиваются.
+  const missing = opts.seller || namedAll.length === 0 || (named.length === 0 && ref.length === 0)
+    ? []
+    : ref.filter((t) => !namedIds.has(t.id) && !deniedIds.has(t.id) && fits(t));
   const seen = new Set<string>();
-  const noCompany = namedAll.filter((t) => t.operator && !mentionsOperator(answer, t.operator) && !seen.has(t.id) && seen.add(t.id));
+  const noCompany = opts.seller
+    ? []
+    : namedAll.filter((t) => t.operator && !mentionsOperator(answer, t.operator) && !seen.has(t.id) && seen.add(t.id));
   const over = budget === null ? [] : namedAll.filter((t) => t.unit === 'per_person' && t.price !== null && t.price > budget);
   const parts: string[] = [];
+  if (denied.length > 0) {
+    const head = budget === null
+      ? 'Поправка: по запросу на платформе туры есть:'
+      : `Поправка: в бюджет ${fmt(budget)} ₽ на платформе есть:`;
+    parts.push(`${head}\n${denied.map(line).join('\n')}`);
+  }
   if (missing.length > 0) parts.push(`Ещё по запросу на платформе:\n${missing.map(line).join('\n')}`);
   if (noCompany.length > 0) parts.push(`Кто проводит:\n${noCompany.map((t) => `- «${t.title}» — ${t.operator}`).join('\n')}`);
   if (over.length > 0 && !OVER_BUDGET_RE.test(answer)) {

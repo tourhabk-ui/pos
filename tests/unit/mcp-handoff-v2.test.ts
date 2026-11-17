@@ -93,7 +93,8 @@ describe('цели v2: резолв — той же функцией, что у 
       CORE.indexOf('export async function getTourDetails'),
       CORE.indexOf('export async function getTourDetails') + 1500,
     );
-    expect(fn).toMatch(/resolveTourChoice\(q\)/);
+    // Вторым аргументом может идти вопрос человека (явное имя продавца, 17.11).
+    expect(fn).toMatch(/resolveTourChoice\(q[,)]/);
     expect(fn).not.toMatch(/ILIKE/);
   });
 
