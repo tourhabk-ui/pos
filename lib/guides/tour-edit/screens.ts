@@ -354,11 +354,39 @@ export function calendarScreen(tours: readonly ChatTour[]): CabinetScreen {
   return screen(lines, rows);
 }
 
+/**
+ * «Как вы выезжаете» на экране дат (#3476 шаг 4, слово владельца 17.11
+ * «Сайт и чат»): строка о режиме тура и кнопка смены. Тот же выбор, что в
+ * карточке тура на сайте (components/operator/Tours/TourScheduleKind).
+ */
+export function scheduleKindLine(t: Pick<ChatTour, 'scheduleKind' | 'seasonStart' | 'seasonEnd'>): string {
+  if (t.scheduleKind === 'any_day') {
+    if (!t.seasonStart || !t.seasonEnd) {
+      return 'Как вы выезжаете: в любой день сезона — но сезон у тура не записан, и туристы этого не увидят. Начало и конец сезона — в карточке тура на сайте.';
+    }
+    return `Как вы выезжаете: в любой день сезона (${ruShort(t.seasonStart)}–${ruShort(t.seasonEnd)}). Даты ниже — исключения: закрыть день, ограничить места.`;
+  }
+  if (t.scheduleKind === 'departures') return 'Как вы выезжаете: только в свои даты — туристы выбирают из открытых ниже.';
+  return 'Как вы выезжаете: не указано — туристы видят «даты по запросу».';
+}
+
+function scheduleKindButtons(t: Pick<ChatTour, 'id' | 'scheduleKind'>): CabinetButton[] {
+  const out: CabinetButton[] = [];
+  if (t.scheduleKind !== 'any_day') out.push({ text: 'Выезжаю в любой день сезона', payload: cabinetPayload.scheduleKind(t.id, 'any_day') });
+  if (t.scheduleKind !== 'departures') out.push({ text: 'Только мои даты', payload: cabinetPayload.scheduleKind(t.id, 'departures') });
+  return out;
+}
+
+function inSeason(t: Pick<ChatTour, 'seasonStart' | 'seasonEnd'>, date: string): boolean {
+  return Boolean(t.seasonStart && t.seasonEnd && date >= t.seasonStart && date <= t.seasonEnd);
+}
+
 export function datesScreen(args: { tour: ChatTour; days: readonly TourDay[]; page: number; notice?: string | null; back?: DatesBack }): CabinetScreen {
   const { tour, days, page } = args;
   const lines: string[] = [];
   if (args.notice) lines.push(args.notice);
-  lines.push(`<b>${escapeHtml(tour.title)}</b> — даты`);
+  lines.push(`<b>${escapeHtml(tour.title)}</b> — даты`, scheduleKindLine(tour));
+  const anyDay = tour.scheduleKind === 'any_day';
   const buttons: CabinetButton[] = [];
   for (const d of days) {
     const day = `${ruShort(d.date)} ${weekday(d.date)}`;
@@ -366,9 +394,12 @@ export function datesScreen(args: { tour: ChatTour; days: readonly TourDay[]; pa
     let state: string;
     if (open) state = `открыта: мест ${d.slots}${d.taken > 0 ? `, записано ${d.taken}` : ''}`;
     else if (d.closed) state = `закрыта${d.taken > 0 ? `, записано ${d.taken}` : ''}`;
+    // В любой день сезона день без строки календаря свободен для заявки (lib/tours/request-window).
+    else if (anyDay && d.slots === null) state = inSeason(tour, d.date) ? 'свободна для заявки' : 'вне сезона';
     else state = 'не открыта';
     lines.push(`• ${day} — ${state}`);
-    if (open) buttons.push({ text: `Закрыть ${ruShort(d.date)}`, payload: cabinetPayload.dateClose(tour.id, d.date) });
+    const requestDay = anyDay && d.slots === null && !d.closed && inSeason(tour, d.date);
+    if (open || requestDay) buttons.push({ text: `Закрыть ${ruShort(d.date)}`, payload: cabinetPayload.dateClose(tour.id, d.date) });
     else if (tour.maxParticipants !== null && tour.maxParticipants > 0) {
       buttons.push({ text: `Открыть ${ruShort(d.date)}`, payload: cabinetPayload.dateOpen(tour.id, d.date) });
     }
@@ -381,6 +412,7 @@ export function datesScreen(args: { tour: ChatTour; days: readonly TourDay[]; pa
   lines.push('Закрытие снимает дату с продажи; брони на неё не отменяются.');
   const rows: CabinetButton[][] = [];
   for (let i = 0; i < buttons.length; i += 2) rows.push(buttons.slice(i, i + 2));
+  rows.push(scheduleKindButtons(tour));
   const nav: CabinetButton[] = [];
   if (page > 0) nav.push({ text: '‹ Раньше', payload: cabinetPayload.tourDates(tour.id, page - 1) });
   if (page < TOUR_DATES_MAX_PAGE) nav.push({ text: 'Позже ›', payload: cabinetPayload.tourDates(tour.id, page + 1) });

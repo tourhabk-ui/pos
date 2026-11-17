@@ -970,6 +970,7 @@ export async function handleCabinetPress(input: {
     case 'tour_dates':
     case 'date_open':
     case 'date_close':
+    case 'schedule_kind':
     case 'tour_hint':
     case 'edit_save':
     case 'edit_cancel':
