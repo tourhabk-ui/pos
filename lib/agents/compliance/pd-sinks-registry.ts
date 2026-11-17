@@ -210,6 +210,10 @@ export const ALLOWED_FINDINGS: readonly AllowedFinding[] = [
     file: 'app/api/auth/register-operator/route.ts', sink: 'fetch api.telegram.org', expr, leak: true as const,
     reason: 'уведомление администратору о регистрации партнёра несёт имя, телефон и почту контактного лица в Telegram, а ПД ходят только в MAX (23.08); не исправлено',
   })),
+  {
+    file: 'lib/agents/evo/growth-agent.ts', sink: 'INSERT INTO evo_growth_scans', expr: 'censusLine ← l.name',
+    reason: '`l` здесь — объектив сканера (lens), а не лид: в строку сводки идут имена объективов',
+  },
   ...['g.name', 'g.phone', 'g.email'].map((expr) => ({
     file: 'scripts/scrape-guides-visitkamchatka.js', sink: 'console.log', expr,
     reason: 'сухой прогон печатает контакты гидов с открытого сайта в терминал того, кто его запустил; ни один workflow скрипт не зовёт',
@@ -259,6 +263,11 @@ export interface SinkCensus {
   unregistered: Array<{ file: string; writes: DeviceWrite[] }>;
   /** Записи реестра, чей файл больше на устройство не пишет. */
   staleDevice: DeviceStorageEntry[];
+  /**
+   * Запись ПД в базу (`kind: 'db'`): не нарушение сама по себе — заявка обязана
+   * хранить телефон. Сверяется с реестром таблиц (`pd-db-tables.ts`).
+   */
+  dbFindings: SinkFinding[];
 }
 
 /**
@@ -276,10 +285,12 @@ export function sinkCensus(
   const allowedKeys = new Map(allowed.map((a) => [findingKey(a), a]));
   const used = new Set<string>();
   const violations: SinkFinding[] = [];
+  const dbFindings: SinkFinding[] = [];
   for (const { rel, src } of sinkSources) {
     for (const f of scanSinks(rel, src)) {
       const key = findingKey(f);
       if (allowedKeys.has(key)) { used.add(key); continue; }
+      if (f.kind === 'db') { dbFindings.push(f); continue; }
       const entry = byFile.get(f.file);
       if (f.kind === 'storage' && entry && entry.personal !== 'none') continue;
       violations.push(f);
@@ -298,6 +309,7 @@ export function sinkCensus(
     staleAllowed: allowed.filter((a) => !used.has(findingKey(a))),
     unregistered,
     staleDevice: registry.filter((e) => !writing.has(e.file)),
+    dbFindings,
   };
 }
 
