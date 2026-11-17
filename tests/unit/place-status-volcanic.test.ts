@@ -50,12 +50,11 @@ describe('recommender_status поднимается вулканическими
   });
 });
 
-describe('дата наблюдения KVERT у Кузьмича — по Камчатке, как в get_volcano_status', () => {
-  it('guardian-context печатает дату с timeZone Asia/Kamchatka', () => {
-    const g = read('lib/kuzmich/guardian-context.ts');
-    expect(g).toMatch(/volcano_observed_at\)\.toLocaleDateString\('ru-RU', \{ timeZone: 'Asia\/Kamchatka' \}\)/);
-  });
-});
+// Дата наблюдения KVERT у Кузьмича — по Камчатке, как в get_volcano_status и
+// на карточке места. До 17.11 здесь сверялся текст исходника guardian-context;
+// с #3487 день считает один хелпер (volcanoObservationDate), а поведение —
+// вывод guardian, get_volcano_status и рендер бейджа на дате около полуночи —
+// держит tests/unit/volcano-observation-day.test.tsx.
 
 /**
  * Места у вулкана — поимённая привязка (миграция 1029, «да» владельца 26.09).
