@@ -212,6 +212,9 @@ export async function loadRouteDetail(id: string, opts: RouteDetailOptions) {
          p.is_public AS operator_public,
          -- Признака группы во вьюхе нет (1342): читается из самого тура.
          ot.group_size_unlimited,
+         -- Адрес тура в разметке цены маршрута (lib/seo/route-offers):
+         -- по номеру карточка тура переадресует на slug.
+         ot.slug AS tour_slug,
          -- «В любой день сезона» — тоже из тура: вторая ступень правила 1в.
          ${anyDayOpenSql('ot')} AS any_day_open
        FROM v_route_marketplace v
@@ -240,6 +243,7 @@ export async function loadRouteDetail(id: string, opts: RouteDetailOptions) {
 
     offers = ordered.map(o => ({
       tourId:           Number(o.tour_id),
+      tourSlug:         (o.tour_slug as string | null) ?? null,
       tourName:         o.tour_name as string,
       shortDesc:        (o.tour_short_desc as string | null) ?? null,
       priceBase:        o.tour_price_base != null ? Number(o.tour_price_base) : null,
