@@ -478,10 +478,10 @@ describe('отказ называет всё разом и на двух язы�
   });
 });
 
-describe('прокат: consent: false на первом шаге — черновик, а не отказ', () => {
+describe('прокат: те же правила, что у остальных заявок (с 17.11 — черновик и ссылка на /confirm)', () => {
   const base = { ...PERSON, car: 'Suzuki Jimny', date_from: DATE, date_to: inDays(33) };
 
-  it('шаг 1 с consent: false проходит и отдаёт код; про согласие как про ошибку не сказано', async () => {
+  it('вызов с consent: false — черновик (согласие даст человек на /confirm); про согласие как про ошибку не сказано', async () => {
     const r = await call('create_car_rental_request', { ...base, consent: false });
     expect(r.isError, r.text).toBe(false);
     expect(r.text).not.toContain('Request not created');
@@ -489,17 +489,17 @@ describe('прокат: consent: false на первом шаге — черно
     nothingSent();
   });
 
-  it('негодный телефон на шаге 1 — в отказе один телефон, согласия в списке нет', async () => {
+  it('негодный телефон при consent: false — в отказе оба поля, как у остальных заявок', async () => {
     for (const phone of ['привет', '+70000000000']) {
       const r = await call('create_car_rental_request', { ...base, phone, consent: false });
       expect(r.isError, phone).toBe(true);
-      expect(bullets(halves(r.text).ru)).toEqual(['phone']);
-      expect(bullets(halves(r.text).en)).toEqual(['phone']);
+      expect(bullets(halves(r.text).ru)).toEqual(['phone', 'consent']);
+      expect(bullets(halves(r.text).en)).toEqual(['phone', 'consent']);
     }
     nothingSent();
   });
 
-  it('ответ по делу на шаге 1 (дата уже прошла) согласие не приписывает: без него шаг и задуман', async () => {
+  it('ответ по делу в черновике (дата уже прошла) согласие не приписывает: без него шаг и задуман', async () => {
     const r = await call('create_car_rental_request', { ...base, date_from: inDays(-3), consent: false });
     expect(r.text).toMatch(/уже прошла — заявка не создана/);
     expect(r.text).not.toContain('Also: no consent');
@@ -518,7 +518,7 @@ describe('прокат: consent: false на первом шаге — черно
     const { car: _car, ...rest } = base;
     const r = await call('create_car_rental_request', { ...rest, consent: false, vehicle: 'Suzuki Jimny' });
     expect(r.isError).toBe(true);
-    expect(bullets(halves(r.text).ru)).toEqual(['car']);
+    expect(bullets(halves(r.text).ru)).toEqual(['car', 'consent']);
     expect(r.text).toContain('Unknown fields in the request: vehicle');
   });
 });

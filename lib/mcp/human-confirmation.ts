@@ -38,21 +38,16 @@ export function draftText(would: string, recipient: string | null): string {
  * Тот же порядок словами для /llms.txt и /llms-en.txt (16.11): файлы для
  * агентов описывали заявку по-старому — «после успешного вызова скажи
  * „заявка создана“», хотя вызов с 15.11 даёт только черновик и ссылку.
- * Прокат пока идёт своим путём — черновик и код (`app/api/mcp/route.ts`,
- * humanGate), и это сказано, а не спрятано.
+ * С 17.11 тем же путём идёт и прокат (слово владельца «Да, на /confirm»).
  */
 export function agentSendRuleRu(base: string): string {
   return `Вызов заявки её НЕ отправляет: ответ — черновик и ссылка на страницу Ведара ${base}/confirm `
     + `(действует ${PENDING_REQUEST_TTL_MIN} мин). Дай ссылку человеку: там он видит, что и кому уйдёт, отмечает согласие `
-    + 'на обработку данных и сам нажимает «Отправить» — только тогда заявка записана. Ссылку не открывай и не нажимай за человека. '
-    + 'Исключение пока одно — прокат (create_car_rental_request): ответ — черновик и код; повтори вызов с кодом и consent: true '
-    + 'только после явного «да» самого человека.';
+    + 'на обработку данных и сам нажимает «Отправить» — только тогда заявка записана. Ссылку не открывай и не нажимай за человека.';
 }
 
 export function agentSendRuleEn(base: string): string {
   return `A request call does NOT send the request: it returns a draft and a link to a Vedar page, ${base}/confirm `
     + `(valid ${PENDING_REQUEST_TTL_MIN} min). Give the link to the person: there they see what goes to whom, tick consent `
-    + 'to personal-data processing and press «Отправить» (Send) themselves — only then is the request recorded. Never open the link or press Send for them. '
-    + 'One exception for now — self-drive car rental (create_car_rental_request): the reply is a draft and a code; repeat the call with the code and consent: true '
-    + 'only after the person explicitly says yes.';
+    + 'to personal-data processing and press «Отправить» (Send) themselves — only then is the request recorded. Never open the link or press Send for them.';
 }

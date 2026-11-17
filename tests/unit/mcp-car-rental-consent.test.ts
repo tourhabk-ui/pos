@@ -1,51 +1,26 @@
 /**
- * create_car_rental_request в два шага: согласие даёт человек, не агент.
- * Шаг 1 без кода — черновик, заявка не создаётся; шаг 2 — код к тем же полям.
+ * create_car_rental_request: заявку отправляет человек на /confirm, как
+ * остальные пять (слово владельца 17.11 «Да, на /confirm»). До этого был код
+ * подтверждения на втором вызове — его гасил тот же агент (ревью безопасности
+ * #3414), и доказательством «да» человека он не был.
+ *
+ * Поведение вызова (черновик, ссылка, ничего не записано) судит общий список
+ * шести заявок — tests/unit/mcp-write-contract.test.ts; здесь — что видит
+ * агент в описании инструмента.
  */
-import { describe, it, expect, beforeEach, afterEach } from 'vitest';
-import { readFileSync } from 'node:fs';
+import { describe, it, expect } from 'vitest';
 import { CAR_RENTAL_REQUEST_TOOL } from '@/lib/mcp/public-tools';
-import { issueRentalConfirmation, checkRentalConfirmation, RENTAL_CONFIRM_TTL_MIN } from '@/lib/mcp/rental-confirmation';
 
-const ROUTE = readFileSync('app/api/mcp/route.ts', 'utf-8');
-const F = { company: 'laguna', car: 'Suzuki Jimny', dateFrom: '2026-11-10', dateTo: '2026-11-14', name: 'Иван', phone: '+79001234567', pickup: '', comment: '', test: false };
-
-describe('create_car_rental_request: два шага', () => {
-  const saved = process.env.MCP_HASH_SALT;
-  beforeEach(() => { process.env.MCP_HASH_SALT = 'test-salt'; });
-  afterEach(() => { process.env.MCP_HASH_SALT = saved; });
-
-  it('описание велит спросить человека и не ставить consent самому', () => {
+describe('create_car_rental_request: описание — тот же путь /confirm', () => {
+  it('велит спросить имя и телефон и отдать человеку ссылку', () => {
     expect(CAR_RENTAL_REQUEST_TOOL.description).toMatch(/спроси у человека имя и телефон/);
-    expect(CAR_RENTAL_REQUEST_TOOL.description).toMatch(/Никогда не ставь consent: true сам/);
-    expect(CAR_RENTAL_REQUEST_TOOL.inputSchema.properties).toHaveProperty('confirmation');
+    expect(CAR_RENTAL_REQUEST_TOOL.description).toMatch(/Вызов не отправляет заявку: в ответе черновик и ссылка/);
+    expect(CAR_RENTAL_REQUEST_TOOL.description).toMatch(/сам нажмёт «Отправить»/);
   });
 
-  it('код подходит к тем же полям и не подходит к изменённым', () => {
-    const code = issueRentalConfirmation(F)!;
-    expect(checkRentalConfirmation(code, F)).toBe('ok');
-    expect(checkRentalConfirmation(code, { ...F, phone: '+79001234568' })).toBe('mismatch');
-    expect(checkRentalConfirmation(code, { ...F, test: true })).toBe('mismatch');
-    expect(checkRentalConfirmation('garbage', F)).toBe('mismatch');
-  });
-
-  it('код истекает', () => {
-    const now = Date.now();
-    const code = issueRentalConfirmation(F, now)!;
-    expect(checkRentalConfirmation(code, F, now + (RENTAL_CONFIRM_TTL_MIN + 2) * 60000)).toBe('expired');
-  });
-
-  it('без секрета — отказ, а не пропуск', () => {
-    delete process.env.MCP_HASH_SALT; const c = process.env.CRON_SECRET; delete process.env.CRON_SECRET;
-    expect(issueRentalConfirmation(F)).toBeNull();
-    expect(checkRentalConfirmation('x.y', F)).toBe('unavailable');
-    if (c !== undefined) process.env.CRON_SECRET = c;
-  });
-
-  it('без кода заявка не пишется: черновик возвращается до admitWrite и saveRentalLead', () => {
-    const draft = ROUTE.indexOf('if (!parsed.data.confirmation)');
-    expect(draft).toBeGreaterThan(0);
-    expect(draft).toBeLessThan(ROUTE.indexOf("admitWrite(ctx, CAR_RENTAL_REQUEST_TOOL.name"));
-    expect(ROUTE).toMatch(/заявка ещё НЕ создана/);
+  it('кода подтверждения нет ни в описании, ни в схеме', () => {
+    expect(CAR_RENTAL_REQUEST_TOOL.inputSchema.properties).not.toHaveProperty('confirmation');
+    expect(CAR_RENTAL_REQUEST_TOOL.description).not.toMatch(/confirmation|Шаг 2|код/i);
+    expect(CAR_RENTAL_REQUEST_TOOL.inputSchema.properties.consent.description).not.toMatch(/шаг/i);
   });
 });

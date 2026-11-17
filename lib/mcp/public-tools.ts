@@ -153,11 +153,12 @@ export const STAY_REQUEST_TOOL = {
  * rental-request-service): лид менеджеру Ведара и прокатчику, повтор за
  * сутки — прежняя заявка. Это не бронь: занятость машин платформа не ведёт,
  * оплаты нет. test: true — пробный прогон, общий у шести заявок
- * (withWriteContract ниже, lib/mcp/test-run).
+ * (withWriteContract ниже, lib/mcp/test-run). Отправляет заявку человек на
+ * /confirm, как остальные пять (слово владельца 17.11 «Да, на /confirm»).
  */
 export const CAR_RENTAL_REQUEST_TOOL = {
   name: 'create_car_rental_request',
-  description: 'Заявка прокатчику на машину без водителя: какая машина, с какого по какое число, где забрать. Машины и прокатчики — search_car_rental; машину называй так, как в прайсе. Это заявка, не бронь: менеджер Ведара свяжется по телефону и подтвердит с прокатчиком; занятость машин платформа не ведёт, оплаты через платформу нет — расчёт напрямую с прокатчиком. Сначала спроси у человека имя и телефон — не придумывай и не подставляй их. Шаг 1: вызов без confirmation (consent: false) — заявка проверяется, но НЕ создаётся; в ответе черновик и код. Покажи черновик человеку и прямо спроси, согласен ли он на обработку имени и телефона, их передачу прокатчику и отправку заявки. Шаг 2 — только после явного «да» самого человека: тот же вызов с теми же полями, confirmation из ответа и consent: true. Никогда не ставь consent: true сам, без ответа человека. Проба (test: true) проходит те же два шага.' + NOTIFY_TOOL_PHRASE + WRITE_CONTRACT_PHRASE,
+  description: 'Заявка прокатчику на машину без водителя: какая машина, с какого по какое число, где забрать. Машины и прокатчики — search_car_rental; машину называй так, как в прайсе. Это заявка, не бронь: менеджер Ведара свяжется по телефону и подтвердит с прокатчиком; занятость машин платформа не ведёт, оплаты через платформу нет — расчёт напрямую с прокатчиком. Сначала спроси у человека имя и телефон — не придумывай и не подставляй их. Имя и телефон уйдут прокатчику.' + NOTIFY_TOOL_PHRASE + WRITE_CONTRACT_PHRASE + HUMAN_SENDS_PHRASE,
   inputSchema: {
     type: 'object',
     properties: {
@@ -169,11 +170,10 @@ export const CAR_RENTAL_REQUEST_TOOL = {
       name: { type: 'string', description: 'Имя арендатора' },
       phone: { type: 'string', description: 'Телефон для связи (обязателен)' },
       comment: { type: 'string', description: 'Пожелания: детское кресло, возврат в другом месте и т.п.' },
-      confirmation: { type: 'string', description: 'Код из ответа шага 1. Передавай только после явного согласия человека; без кода заявка не создаётся, а возвращается черновик' },
       plan_id: { type: 'string', description: 'Номер плана из make_trip_plan, если заявка — по этому плану: менеджер и прокатчик увидит, частью какой поездки она стоит; даты, если не названы, берутся из плана, а расхождение с планом ответ назовёт.' },
       notify_url: NOTIFY_URL_PROPERTY,
       test: WRITE_TEST_PROPERTY,
-      consent: { type: 'boolean', description: 'Человек согласен на обработку своих персональных данных (имя, телефон) и их передачу прокатчику для связи по заявке. На шаге 1 — false. true — только когда человек сам ответил «да» на вопрос о согласии; агент не ставит true за человека.' },
+      consent: { type: 'boolean', description: 'Человек согласен на обработку своих персональных данных (имя, телефон) и их передачу прокатчику для связи по заявке. Спроси человека; отправляет заявку он сам по ссылке из ответа. Без согласия заявка не создаётся.' },
     },
     required: ['car', 'name', 'phone', 'consent'],
   },
@@ -414,7 +414,7 @@ export const TOOL_ENGLISH: Record<string, { title: string; lead: string }> = {
   create_lead:           { title: 'Tour request',          lead: 'Tour-selection request for Kamchatka when no tour or date is chosen yet; human-confirmed, no payment. Sent by the person from a Vedar link. Whole-vehicle charter: request_charter.' },
   create_booking_request: { title: 'Booking request',      lead: 'Use when the user wants to book a Kamchatka tour on a date: live availability checked first, human-confirmed, no payment. Sent by the person from a Vedar link. No tour yet — use create_lead.' },
   create_stay_request:   { title: 'Stay request',          lead: 'Kamchatka stay request: dates and guests go to the owner, human-confirmed by the owner, no payment. Sent by the person from a Vedar link. For tours use create_booking_request.' },
-  create_car_rental_request: { title: 'Car rental request', lead: 'Two-step Kamchatka self-drive car rental request: step 1 returns a draft and confirmation code; step 2 only after the person explicitly agrees. Never set consent yourself.' },
+  create_car_rental_request: { title: 'Car rental request', lead: 'Kamchatka self-drive car rental request: car from the price list, dates, pickup; human-confirmed, no payment. Sent by the person from a Vedar link.' },
   request_charter:       { title: 'Charter request',       lead: 'Whole-vehicle (vakhtovka, minibus) request to a Kamchatka charter carrier: destination, dates, group size; human-confirmed, no payment. Sent by the person from a Vedar link.' },
   // Имена «search» и «fetch» — требование коннекторов ChatGPT (deep research
   // зовёт только их); форма ответа — по документации OpenAI.
@@ -591,11 +591,10 @@ export const PARAM_ENGLISH: Record<string, Record<string, { lead: string; exampl
     name: { lead: "Renter's name." },
     phone: { lead: 'Contact phone, required.' },
     comment: { lead: 'Wishes: child seat, drop-off elsewhere, etc.' },
-    confirmation: { lead: 'Code from the step 1 reply; send it only after the person explicitly agreed. Without it a draft is returned and nothing is created.' },
     plan_id: { lead: 'Plan ID from make_trip_plan when the request belongs to that plan: the manager and the rental company see the whole trip; omitted dates are taken from the plan, and a mismatch with the plan is named in the reply.', example: '1b9d6bcd-bbfd-4b2d-9b5d-ab8dfbbd4bed' },
     notify_url: { lead: NOTIFY_URL_ENGLISH },
     test: WRITE_TEST_ENGLISH,
-    consent: { lead: 'false on step 1. true only after the person themselves said yes to passing name and phone to the rental company; never set it on their behalf.', example: false },
+    consent: { lead: 'Explicit consent to process name and phone and pass them to the rental company; ask the person and pass true, otherwise the request is not created.', example: true },
   },
   request_charter: {
     destination: { lead: 'Where to go: a word from the carrier price list or your own destination.', example: 'Горелый' },

@@ -457,14 +457,22 @@ describe('notify_url — адрес приёмника уведомлений (2
     }
   });
 
-  it('прокат, шаг 1: адрес проверен, черновик выдан, заявки и подписки нет', async () => {
+  it('прокат: в черновике адрес проверен, подписки нет; отправил человек — заявка и подписка', async () => {
     process.env.ENCRYPTION_KEY = 'c'.repeat(64);
     try {
       keyAndNotify();
-      const r = await send('create_car_rental_request', { ...RENTAL, notify_url: GOOD });
-      expect(r.isError).toBeUndefined();
-      expect(r.content[0]!.text).toMatch(/Черновик, заявка ещё НЕ создана/);
+      // Вызов агента — черновик: адрес проверен сразу, подписки ещё нет.
+      const draft = await result(await call('create_car_rental_request', { ...RENTAL, notify_url: GOOD }));
+      expect(draft.isError).toBeUndefined();
+      expect(isDraft(draft.content[0]!.text), draft.content[0]!.text).toBe(true);
+      expect(draft.content[0]!.text).toMatch(/\/confirm#/);
       expect(notifyInserts()).toHaveLength(0);
+      expect(createLeadMock).not.toHaveBeenCalled();
+      // Человек нажал «Отправить» — заявка и подписка появляются вместе с ключом.
+      const sent = asResult(await sendAsHuman(draft.content[0]!.text, '10.70.9.9'));
+      expect(sent.isError, sent.content[0]?.text).toBeUndefined();
+      expect(sent.content[0]!.text).toMatch(/Заявка принята: Suzuki Jimny/);
+      expect(notifyInserts()).toHaveLength(1);
     } finally {
       delete process.env.ENCRYPTION_KEY;
     }

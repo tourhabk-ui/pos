@@ -102,7 +102,6 @@ import { rentalDays } from '@/lib/rental/rental-request';
 import { askHumanToSend, draftText } from '@/lib/mcp/human-confirmation';
 import { SEAT_REQUEST_DUPLICATE_TEXT } from '@/lib/agent/request-outcome';
 import { createPendingRequest, confirmPageUrl, PENDING_REQUEST_TTL_MIN } from '@/lib/mcp/pending-request';
-import { issueRentalConfirmation, checkRentalConfirmation, RENTAL_CONFIRM_TTL_MIN, type RentalConfirmFields } from '@/lib/mcp/rental-confirmation';
 import { buildRentalLead, checkRentalDates, saveRentalLeadDetailed } from '@/lib/rental/rental-request-service';
 import { matchOffers } from '@/lib/kuzmich/car-rental-search';
 import { recordSourceEventQuietly } from '@/lib/crm/events';
@@ -132,9 +131,9 @@ const draftLimiter = createRateLimiter({ windowMs: 60 * 60_000, max: DRAFTS_PER_
 // источник и для лимита, и для подсказки хосту. Свой список здесь разошёлся бы.
 const WRITE_TOOLS = WRITE_TOOL_NAMES;
 const CONFIRM_UNAVAILABLE_TEXT = 'Заявку не удалось передать на подтверждение человеку — она не создана. Повторите через несколько минут.';
-// Инструменты, где согласие нужно с первого вызова. У проката `consent: false`
-// на первом шаге — черновик с кодом подтверждения, а не отказ.
-const CONSENT_UPFRONT_TOOLS = new Set([...WRITE_TOOL_NAMES].filter((n) => n !== CAR_RENTAL_REQUEST_TOOL.name));
+// Инструменты, где согласие нужно с первого вызова: все шесть заявок. Прокат
+// до 17.11 шёл кодом подтверждения, и `consent: false` был у него черновиком.
+const CONSENT_UPFRONT_TOOLS = WRITE_TOOL_NAMES;
 
 // IP — из заголовка, который ставит прокси (x-real-ip), а не из первого
 // элемента X-Forwarded-For: тот пишет сам клиент. От этого адреса зависят
@@ -223,8 +222,7 @@ function phoneCase(raw: string): PhoneCase | null {
  * Телефон заявки: формат и правдоподобие (ревью MCP 08.11: +70000000000 ушёл
  * менеджеру). Отказ называет всё разом (13.11): если при негодном номере нет
  * ещё и согласия, агент слышит про оба — иначе он исправит номер и получит
- * второй отказ. `consent` — как прислано; у проката согласие на первом шаге
- * не требуется (черновик), поэтому туда оно не передаётся.
+ * второй отказ. `consent` — как прислано.
  */
 function phoneOrRefuse(raw: string, consent?: unknown): string {
   const kind = phoneCase(raw);
@@ -246,14 +244,11 @@ function phoneOrRefuse(raw: string, consent?: unknown): string {
  *
  * Кроме ошибок схемы сюда входят телефон и согласие, которые схема не судит:
  * негодный номер и `consent: false` видны уже по сырому запросу.
- * `consentUpfront: false` — у проката: там `consent: false` на первом шаге —
- * черновик, а не отказ.
  */
 function refuseInput(
   schema: { shape: Record<string, unknown> },
   rawArgs: Record<string, unknown>,
   issues: ReadonlyArray<SchemaIssue>,
-  consentUpfront = true,
 ): never {
   const problems = problemsFromIssues(issues, rawArgs);
   const has = (field: string) => problems.some((x) => x.field === field);
@@ -261,7 +256,7 @@ function refuseInput(
     const kind = phoneCase(rawArgs.phone);
     if (kind) problems.push(phoneProblem(kind));
   }
-  if (consentUpfront && !has('consent') && rawArgs.consent === false) problems.push(consentProblem('refused'));
+  if (!has('consent') && rawArgs.consent === false) problems.push(consentProblem('refused'));
   // Лишние поля называются рядом с пропавшим обязательным: скорее всего это
   // оно же под другим именем (tour_id вместо tour).
   const missing = issues.some((x) => x.code === 'invalid_type' && rawArgs[String(x.path[0] ?? '')] === undefined);
@@ -958,9 +953,10 @@ async function executeRequestCharter(rawArgs: Record<string, unknown>, ctx: McpC
 // странице прокатчика (lib/rental/rental-request-service): даты, лид, повтор,
 // личная доставка прокатчику (в Telegram — без ПД, заглушкой). Машина — строка
 // прайса этого прокатчика: чужой текст машиной не становится. test: true —
-// пробный прогон, как у остальных пяти заявок (lib/mcp/test-run, 08.11): оба
-// шага проходят, но заявка не записывается и никому не уходит. До 08.11 проба
-// проката записывала лид «своей пробой», и менеджер его видел.
+// пробный прогон, как у остальных пяти заявок (lib/mcp/test-run, 08.11):
+// заявка не записывается и никому не уходит. Вызов агента — черновик и ссылка
+// на /confirm, как у остальных (17.11); до этого был код подтверждения,
+// который гасил тот же агент.
 const carRentalRequestArgsSchema = z.object({
   company: z.string().trim().max(100, 'Название прокатчика длиннее 100 символов').optional(),
   car: z.string().trim().min(1, 'Укажите машину из прайса search_car_rental').max(120, 'Название машины длиннее 120 символов'),
@@ -971,10 +967,9 @@ const carRentalRequestArgsSchema = z.object({
   name: personName,
   phone: z.string().trim().min(5, 'Телефон обязателен — заявку подтверждают по нему').max(50, 'Телефон длиннее 50 символов'),
   comment: z.string().trim().max(1000, 'Комментарий длиннее 1000 символов').optional(),
-  confirmation: z.string().trim().max(64, 'Код подтверждения длиннее 64 символов').optional(),
   plan_id: planIdField,
-  // Проверяется уже на шаге 1 (черновик): ошибка видна сразу. Подписка — только
-  // на шаге 2, вместе с ключом. В код подтверждения адрес не входит.
+  // Проверяется уже в черновике: ошибка видна сразу. Подписка — когда человек
+  // отправил заявку на /confirm, вместе с ключом.
   notify_url: notifyUrlField,
   consent: consentField,
 });
@@ -1003,11 +998,12 @@ function pickRentalOffer(offers: RentalOffer[], want: string): RentalOffer | Ren
 
 async function executeCarRentalRequest(rawArgs: Record<string, unknown>, ctx: McpCallContext): Promise<string> {
   const parsed = carRentalRequestArgsSchema.safeParse(rawArgs);
-  if (!parsed.success) refuseInput(carRentalRequestArgsSchema, rawArgs, parsed.error.issues, false);
+  if (!parsed.success) refuseInput(carRentalRequestArgsSchema, rawArgs, parsed.error.issues);
   const { name } = parsed.data;
   // План (аудит 07.11, M7): даты, которых агент не назвал, — первый и
-  // последний день плана. Одинаково на обоих шагах: код подтверждения
-  // привязан к датам, и второй шаг без дат даёт те же, что первый.
+  // последний день плана. Черновик хранит аргументы без дат, и отправка с
+  // /confirm берёт их из плана тем же правилом (план поменялся — отказ,
+  // lib/mcp/pending-confirm).
   const planAttach = await planFromDraft(parsed.data.plan_id);
   const planFacts = planAttach.kind === 'attached' ? planAttach.facts : null;
   const dateFrom = parsed.data.date_from ?? planFacts?.arrivalDate;
@@ -1015,9 +1011,7 @@ async function executeCarRentalRequest(rawArgs: Record<string, unknown>, ctx: Mc
   if (!dateFrom) throw new McpUserError('Дата начала аренды в формате YYYY-MM-DD (или plan_id плана, из которого её взять) — заявка не создана.', 'invalid_args:date_from');
   if (!dateTo) throw new McpUserError('Дата возврата в формате YYYY-MM-DD (или plan_id плана, из которого её взять) — заявка не создана.', 'invalid_args:date_to');
   const datesFromPlan = !parsed.data.date_from || !parsed.data.date_to;
-  // Проба — флаг вызова (ctx.test), а не поле схемы: так он один у шести заявок.
-  const isTest = ctx.test === true;
-  const phone = phoneOrRefuse(parsed.data.phone);
+  const phone = phoneOrRefuse(parsed.data.phone, parsed.data.consent);
 
   const dates = checkRentalDates(dateFrom, dateTo, kamchatkaToday());
   if (!dates.ok) {
@@ -1059,34 +1053,10 @@ async function executeCarRentalRequest(rawArgs: Record<string, unknown>, ctx: Mc
   Object.assign(lead.sourceData, planSourceFields(planAttach));
   refuseSilentLead(name, phone, lead.comment, lead.sourceData);
 
-  // Два шага: без кода — черновик человеку, заявка не создаётся. Согласие
-  // ставит человек, а не агент; код привязан к полям заявки.
-  const confirmFields: RentalConfirmFields = {
-    company: company.slug, car: offer.title, dateFrom, dateTo, name, phone,
-    pickup: parsed.data.pickup ?? '', comment: parsed.data.comment ?? '', test: isTest,
-  };
-  const draft = `${isTest ? 'Пробная заявка (test: true — не будет записана и никому не уйдёт)' : 'Заявка'}: ${offer.title} у «${company.name}», с ${dateFrom} по ${dateTo} (${facts.days} сут.${datesFromPlan ? ', даты — из плана' : ''})`
-    + `${parsed.data.pickup ? `, где забрать: ${parsed.data.pickup}` : ''}; имя: ${name}, телефон: ${phone}.`;
-  const askHuman = 'Покажи это человеку и прямо спроси: «Согласны ли вы на обработку имени и телефона и их передачу прокатчику и отправить заявку?» '
-    + 'Только после явного «да» самого человека повтори вызов с теми же полями, consent: true и confirmation';
-  if (!parsed.data.confirmation) {
-    const code = issueRentalConfirmation(confirmFields);
-    if (!code) throw new McpUserError('Заявку не удалось передать на подтверждение человеку — она не создана. Повторите через несколько минут.', 'confirm_unavailable');
-    return `Черновик, заявка ещё НЕ создана. ${draft} ${askHuman}: "${code}" (код действует ${RENTAL_CONFIRM_TTL_MIN} мин). Не ставь consent: true сам и не придумывай имя и телефон.`;
-  }
-  const check = checkRentalConfirmation(parsed.data.confirmation, confirmFields);
-  if (check === 'unavailable') throw new McpUserError('Заявку не удалось передать на подтверждение человеку — она не создана. Повторите через несколько минут.', 'confirm_unavailable');
-  if (check !== 'ok') {
-    const code = issueRentalConfirmation(confirmFields);
-    return `Код подтверждения ${check === 'expired' ? 'истёк' : 'не подходит к этим данным (поля изменились)'} — заявка не создана. Новый черновик: ${draft} ${askHuman}: "${code}".`;
-  }
-  if (parsed.data.consent !== true) {
-    return `Без согласия человека заявка не создаётся. ${draft} ${askHuman}: "${parsed.data.confirmation}".`;
-  }
-
   const price = `${offer.priceIsFrom ? 'от ' : ''}${offer.priceRubPerDay} руб за сутки`;
   const trial = stopForTest(ctx, CAR_RENTAL_REQUEST_TOOL.name, 'lead', 'rental', parsed.data.consent,
-    `заявка прокатчику «${company.name}»: ${offer.title}, с ${dateFrom} по ${dateTo} (${facts.days} сут.), по прайсу ${price}.`,
+    `заявка прокатчику «${company.name}»: ${offer.title}, с ${dateFrom} по ${dateTo} (${facts.days} сут.${datesFromPlan ? ', даты — из плана' : ''})`
+      + `${parsed.data.pickup ? `, где забрать: ${parsed.data.pickup}` : ''}, по прайсу ${price}.`,
     'прокатчику');
   if (trial) return trial;
 
@@ -1643,9 +1613,11 @@ async function runPublicToolCore(call: PublicToolCall): Promise<PublicToolOutcom
   // Заявку внешнего агента отправляет сам человек (#3399, п. 4, слово
   // владельца 15.11 «Делай»): вызов агента — черновик и ссылка на /confirm,
   // запись — только нажатием человека там (sentByHuman). Чат Кузьмича
-  // (consentFrom) и проба (test) этим путём не идут; у проката свой код.
+  // (consentFrom) и проба (test) этим путём не идут. Прокат — тем же путём
+  // (слово владельца 17.11 «Да, на /confirm»): его код подтверждения гасил тот
+  // же агент, что и звал (ревью безопасности #3414).
   const testFlag = isWrite && (toolArgs.test === true || toolArgs.test === 'true');
-  const humanGate = isWrite && !consentFrom && !sentByHuman && !testFlag && toolName !== CAR_RENTAL_REQUEST_TOOL.name;
+  const humanGate = isWrite && !consentFrom && !sentByHuman && !testFlag;
   const draftStep = humanGate;
   // Черновик ничего не пишет — лимит записи он не тратит: иначе два вызова на
   // заявку вдвое сократили бы число заявок в час.
@@ -1697,7 +1669,9 @@ async function runPublicToolCore(call: PublicToolCall): Promise<PublicToolOutcom
   // Прежний код подтверждения (до 15.11) больше не принимается и в схемы не
   // попадает: заявку отправляет человек.
   const testRun = testFlag;
-  const stripped = humanGate ? ['test', 'confirmation'] : ['test'];
+  // Код подтверждения проката (до 17.11) больше не принимается: старый агент,
+  // приславший его, получает тот же черновик и ссылку.
+  const stripped = ['test', 'confirmation'];
   const execRead: ReadArguments = isWrite && stripped.some((k) => k in toolArgs)
     ? { ...read, args: Object.fromEntries(Object.entries(toolArgs).filter(([k]) => !stripped.includes(k))) }
     : read;
@@ -1804,7 +1778,6 @@ async function runPublicToolCore(call: PublicToolCall): Promise<PublicToolOutcom
  * Ответ о несозданной заявке при `consent: false` называет и согласие (13.11):
  * иначе агент исправит дело (другая дата, другой тур) и получит второй отказ —
  * уже про согласие. Ответ, который о согласии уже говорит, не трогается. У
- * проката `consent: false` на первом шаге — черновик, там приписки нет.
  */
 function withConsentNote(toolName: string, args: Record<string, unknown>, text: string): string {
   const silent = CONSENT_UPFRONT_TOOLS.has(toolName) && args.consent === false && !/consent/.test(text);

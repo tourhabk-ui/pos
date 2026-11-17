@@ -72,7 +72,7 @@ let ip = 0;
  * Заявку внешнего агента отправляет человек на /confirm (lib/mcp/pending-request,
  * pending-confirm). Вызов агента дошёл до записи — черновик: ничего не
  * записано и не передано; тогда «нажимает» человек, и возвращается исход его
- * отправки. Ответ до записи (отказ по входу, свой код проката) ссылки не несёт
+ * отправки. Ответ до записи (отказ по входу) ссылки не несёт
  * и возвращается как есть.
  */
 async function call(name: string, args: Record<string, unknown>) {
@@ -218,12 +218,16 @@ describe('request_charter по плану', () => {
 });
 
 describe('create_car_rental_request по плану', () => {
-  it('даты не названы — из плана, и черновик это говорит', async () => {
-    const r = await call('create_car_rental_request', { ...PERSON, consent: false, car: 'Suzuki Jimny', plan_id: PLAN });
-    expect(r.isError).toBe(false);
-    expect(r.text).toContain('с 2027-07-10 по 2027-07-16');
-    expect(r.text).toContain('даты — из плана');
-    expect(r.text).toMatch(/заявка ещё НЕ создана/);
+  it('даты не названы — из плана: черновик это говорит, отправка с /confirm берёт те же даты', async () => {
+    const draft = await send('create_car_rental_request', { ...PERSON, consent: false, car: 'Suzuki Jimny', plan_id: PLAN });
+    expect(draft.isError).toBe(false);
+    expect(isDraft(draft.text), draft.text).toBe(true);
+    expect(draft.text).toContain('с 2027-07-10 по 2027-07-16');
+    expect(draft.text).toContain('даты — из плана');
+    expect(h.createLead).not.toHaveBeenCalled();
+    const sent = await call('create_car_rental_request', { ...PERSON, consent: false, car: 'Suzuki Jimny', plan_id: PLAN });
+    expect(sent.isError, sent.text).toBe(false);
+    expect(sent.text).toMatch(/Заявка принята: Suzuki Jimny .* с 2027-07-10 по 2027-07-16/);
   });
 
   it('без плана даты обязательны: отказ называет поле', async () => {

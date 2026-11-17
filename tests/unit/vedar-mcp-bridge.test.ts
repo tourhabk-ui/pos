@@ -269,10 +269,11 @@ describe('notify_url модели не отдаётся (29.10)', () => {
     expect(status?.function.description.length).toBeLessThan(1024);
     expect(status?.function.description).toMatch(/бронь перенесена или заведена на другую дату\.$/);
     // Заявка на прокат (12.11): описание кончалось обрывом «Никогда не с» —
-    // ровно 1024 знака посреди правила о согласии. Теперь помещается целиком.
+    // ровно 1024 знака посреди правила о согласии. С 17.11 прокат идёт тем же
+    // путём /confirm, и последним стоит то же правило, что у брони.
     const rental = (JSON.parse(built) as Array<{ function: { name: string; description: string } }>).find((t) => t.function.name === 'create_car_rental_request');
     expect(rental?.function.description.length).toBeLessThan(1024);
-    expect(rental?.function.description).toMatch(/Никогда не ставь consent: true сам, без ответа человека\.$/);
+    expect(rental?.function.description).toMatch(/на странице Ведара он сам нажмёт «Отправить»\.$/);
   });
 
   it('ни одно описание в снимке не кончается обрывом фразы', () => {

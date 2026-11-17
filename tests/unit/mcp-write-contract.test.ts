@@ -100,6 +100,8 @@ const ARGS: Record<string, Record<string, unknown>> = {
   create_stay_request: { ...PERSON, accommodation: STAY_ID, check_in: DATE, check_out: inDays(32), guests: 2 },
   request_charter: { ...PERSON, destination: 'Вулкан Авачинский', date_from: DATE, passengers: 4 },
   create_trip_request: { ...PERSON, tour: '27', tour_date: DATE },
+  // Прокат с 17.11 — тем же путём /confirm (слово владельца «Да, на /confirm»).
+  create_car_rental_request: { ...PERSON, car: 'Suzuki Jimny', date_from: DATE, date_to: inDays(33) },
 };
 
 /** Всё, чем заявка доходит до человека или остаётся в базе. */
@@ -160,15 +162,11 @@ describe('test: true — проверки как у заявки, ничего �
     nothingSent();
   });
 
-  it('прокат: оба шага проходят, второй — проба, лид не пишется (до 08.11 менеджер его видел)', async () => {
-    const base = { ...PERSON, car: 'Suzuki Jimny', date_from: DATE, date_to: inDays(33), test: true };
-    const step1 = await call('create_car_rental_request', { ...base, consent: false });
-    const code = /"([A-Za-z0-9_.-]{8,})"/.exec(step1.content[0]!.text)?.[1];
-    expect(code, step1.content[0]!.text).toBeTruthy();
-    const step2 = await call('create_car_rental_request', { ...base, confirmation: code });
-    expect(step2.isError, step2.content[0]?.text).toBeUndefined();
-    expect(step2.content[0]!.text).toMatch(/Пробная заявка \(test: true\)/);
-    expect(step2.structuredContent?.requests[0]?.outcome).toBe('test');
+  it('прокат: проба с первого вызова, без кода подтверждения; лид не пишется (до 08.11 менеджер его видел)', async () => {
+    const r = await call('create_car_rental_request', { ...ARGS.create_car_rental_request, test: true });
+    expect(r.isError, r.content[0]?.text).toBeUndefined();
+    expect(r.content[0]!.text).not.toMatch(/код подтверждения|confirmation/i);
+    expect(r.structuredContent?.requests[0]?.outcome).toBe('test');
     nothingSent();
   });
 
@@ -228,8 +226,8 @@ describe('вызов агента — черновик и ссылка чело�
     });
   }
 
-  it('прежний код подтверждения не принимается: вызов с confirmation — снова черновик, ничего не записано', async () => {
-    const r = await call('create_booking_request', { ...ARGS.create_booking_request, confirmation: 'abc.12345678.abcdefghijklmnopqrstuv' });
+  it.each(['create_booking_request', 'create_car_rental_request'])('прежний код подтверждения не принимается (%s): вызов с confirmation — снова черновик, ничего не записано', async (tool) => {
+    const r = await call(tool, { ...ARGS[tool], confirmation: 'abc.12345678.abcdefghijklmnopqrstuv' });
     expect(r.isError, r.content[0]?.text).toBeUndefined();
     expect(isDraft(r.content[0]!.text)).toBe(true);
     expect(r.structuredContent).toMatchObject({ accepted: 0, requests: [] });

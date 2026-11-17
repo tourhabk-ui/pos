@@ -85,7 +85,7 @@ Vedar creates requests, not bookings. Each request is confirmed by a human partn
 - Ask the person for their name and phone. Do not invent them.
 - A request call does not send anything. It returns a draft and a link to a page on vedarai.ru. Give the person the link. On that page they see what will be sent and to whom, give consent to personal-data processing and press "Send" themselves.
 - Do not open the link or press the button for the person. Never claim consent on their behalf.
-- Self-drive car rental works differently: the first call returns a draft with a confirmation code; after the person explicitly agrees, repeat the same call with consent and that code.
+- This holds for all six requests, self-drive car rental included.
 - A request is created only when the response says so. Then tell the person: the operator will contact them to confirm; there is no instant booking — a human confirms.
 - The status key from the response lets you check the request status, and cancel or move a tour request, only when the person asks. Do not publish the key.
 

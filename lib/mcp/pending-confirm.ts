@@ -82,6 +82,7 @@ export function consentPurposesForTool(tool: string, args: { tour?: unknown; sta
     case 'create_lead': return ['operators'];
     case 'create_stay_request': return ['stay'];
     case 'request_charter': return ['carrier'];
+    case 'create_car_rental_request': return ['rental'];
     case 'create_trip_request': {
       const out: PdConsentPurpose[] = [];
       if (args.tour) out.push('operator');
