@@ -71,6 +71,9 @@ const ONE_PAGE = '66666666-6666-4666-8666-666666666666';
 const DRAFT_ONLY = '77777777-7777-4777-8777-777777777777';
 // Сайт ведём мы (1312): туров нет, отметки «проверен» нет — читается всё равно.
 const MANAGED = '88888888-8888-4888-8888-888888888888';
+// Тестовая компания с сайтом самого Ведара (отчёт 17.11, «Admin»): проверена и с живым туром,
+// а под наблюдение не идёт — это не сайт партнёра.
+const OWN_SITE = 'aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa';
 
 const page = (title: string, price: string) =>
   `<html><body><h1>${title}</h1><p>Цена: ${price} ₽</p><p>Программа на 5 дней</p><script>t=${Math.random()}</script></body></html>`;
@@ -103,6 +106,7 @@ withPg('сайты партнёров: изменения против прош�
     await partner(DRAFT_ONLY, 'Только черновик Тест', { website: 'https://draft-only-test.ru' });
     await partner(MANAGED, 'Наш сайт Тест', { website: 'https://managed-test.ru' });
     await pool.query('UPDATE partners SET site_managed_by_platform = TRUE WHERE id = $1', [MANAGED]);
+    await partner(OWN_SITE, 'Admin', { website: 'https://www.vedarai.ru/', verified: true });
 
     let n = 0;
     const tour = async (op: string, title: string, url: string | null, state: 'live' | 'inactive' | 'deleted' | 'draft' = 'live') => {
@@ -124,6 +128,7 @@ withPg('сайты партнёров: изменения против прош�
     await tour(ARRAY_CONTACTS, 'Тур без сайта', null);
     await tour(ONE_PAGE, 'Зимняя рыбалка', null);
     await tour(DRAFT_ONLY, 'Ещё не выложен', 'https://draft-only-test.ru/t/', 'draft');
+    await tour(OWN_SITE, 'Тестовый тур', 'https://vedarai.ru/catalog/tours/test');
   }, 120_000);
 
   afterAll(async () => {
@@ -147,6 +152,7 @@ withPg('сайты партнёров: изменения против прош�
       'https://verified-test.ru',
       'https://www.krai-test.ru',
     ]);
+    expect(pages.some((p) => p.partnerId === OWN_SITE || p.url.includes('vedarai.ru'))).toBe(false);
     const a = pages.find((p) => p.url === 'https://krai-test.ru/tours/a/');
     expect(a).toMatchObject({ partnerName: 'Край Тест', tours: ['Восхождение на Ключевскую'], partnerId: KRAI });
     expect(pages.find((p) => p.url === 'https://verified-test.ru')?.tours).toEqual([]);

@@ -19,6 +19,15 @@ import { htmlToText } from '@/lib/html/text';
 import { decodeHtmlEntities } from '@/lib/html/entities';
 import { escapeHtml } from '@/lib/text/escape-html';
 
+/**
+ * Домены самого Ведара. Карточка партнёра с таким сайтом (тестовая компания
+ * «Admin» записана с сайтом vedarai.ru) — не сайт партнёра: сверять наши
+ * карточки с нашим же сайтом нечего, а чтение собственного адреса с прода не
+ * проходит (отчёт 17.11: «Admin — главная страница сайта не открывается второй
+ * день» при работающем сайте). Такие сайты под наблюдение не берутся.
+ */
+export const OWN_SITE_HOSTS: readonly string[] = ['vedarai.ru'];
+
 /** Имя, под которым мы читаем чужой сайт. Своё, а не браузер и не поисковик. */
 export const WATCH_USER_AGENT = 'VedarSiteWatch/1.0 (+https://vedarai.ru)';
 
