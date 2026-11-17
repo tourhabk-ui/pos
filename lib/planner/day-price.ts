@@ -38,7 +38,7 @@ export function dayPrice(d: DayPriceInput): DayPrice {
     const unit = d.realTour?.priceUnit;
     return {
       kind: 'tour', main: `${fmt(d.realPrice)} ₽`,
-      // Незнакомая единица не превращается в «за человека» (priceFromUnit).
+      // Незнакомая единица не превращается в «за человека» (priceWithUnitWords).
       unit: (unit && PRICE_UNIT_LABELS[unit]) || 'за что — не записано',
       label: d.realTour?.priceLabel ?? null,
     };

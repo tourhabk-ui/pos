@@ -23,7 +23,7 @@
 import { z } from 'zod';
 import type { AliceRequest, AliceResponse, AliceButton, AliceEntity } from './types';
 import type { MarketplaceTourRow, MarketplaceToursFilters, MarketplaceToursResult } from '@/lib/search/tour-search';
-import { priceFromOrSay } from '@/lib/tours/price-label';
+import { priceWithUnitWordsOrSay } from '@/lib/tours/price-label';
 import { OFFER_ORDER_NOTE_SHORT_RU } from '@/lib/tours/offer-order';
 
 export type FetchTours = (
@@ -148,7 +148,7 @@ function detectIntent(req: AliceRequest, hasState: boolean): Intent {
  * него нельзя.
  */
 function formatPrice(row: MarketplaceTourRow): string {
-  return priceFromOrSay(row.base_price, 'цена не указана', '₽');
+  return priceWithUnitWordsOrSay(row.base_price, row.price_unit);
 }
 
 /**

@@ -17,7 +17,7 @@ import { rentalPauseForTourist } from '@/lib/rental/site-pause';
 import { touristRentalText } from '@/lib/telegram/tourist-keyboard';
 import { pickToursForAnswer, type CatalogTour } from '@/lib/telegram/tourist-tours';
 import { escapeHtml } from '@/lib/text/escape-html';
-import { priceFromUnit } from '@/lib/tours/price-label';
+import { priceWithUnitWords } from '@/lib/tours/price-label';
 import { tourPath } from '@/lib/tours/tour-url';
 import { OFFER_ORDER_NOTE_SHORT_RU } from '@/lib/tours/offer-order';
 import {
@@ -264,7 +264,7 @@ function todayLine(now: Date): string {
 }
 
 function touristPrice(tour: CatalogTour): string {
-  const labeled = priceFromUnit(tour.base_price, tour.price_unit);
+  const labeled = priceWithUnitWords(tour.base_price, tour.price_unit);
   if (!labeled) return 'цена не указана';
   return labeled.replace(
     ' (за что назначена цена — не записано, не называй её ценой с человека)',

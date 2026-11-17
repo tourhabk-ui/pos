@@ -16,13 +16,14 @@ const base = {
 describe('строка фактов карточки', () => {
   it('цена с единицей, длительность и имя оператора', () => {
     const f = plateFacts(base);
-    expect(f.price).toBe('от 13 000 ₽ /чел.');
+    // Цена тура — без «от» и словами каталога (#3487).
+    expect(f.price?.replace(/\u00a0/g, ' ')).toBe('13 000 ₽ за человека');
     expect(f.duration).toBe('10 ч');
     expect(f.operator).toBe('Камчатка Семейный Рафтинг');
   });
 
   it('единица цены — та же, что в каталоге, а не всегда «за человека»', () => {
-    expect(plateFacts({ ...base, priceUnit: 'per_tour' }).price).toBe('от 13 000 ₽ /группа');
+    expect(plateFacts({ ...base, priceUnit: 'per_tour' }).price?.replace(/\u00a0/g, ' ')).toBe('13 000 ₽ за группу');
   });
 
   it('нет цены — null, а не «от 0 ₽»', () => {

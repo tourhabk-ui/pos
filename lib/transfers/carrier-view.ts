@@ -9,7 +9,8 @@
  */
 
 import {
-  carrierPagePath, fleetCapacity, formatRub, rateLabelOf, rateOnScreen, vehicleKindWord, type CharterCarrier,
+  carrierPagePath, fleetCapacity, formatRub, rateLabelOf, rateOnScreen, sortRates, vehicleKindWord,
+  type CharterCarrier, type CharterRate,
 } from '@/lib/transfers/charter-format';
 import { absolutePhotoUrls } from '@/lib/notifications/photo-urls';
 
@@ -29,19 +30,89 @@ export function minCharterPrice(c: Pick<CharterCarrier, 'destinations'>): number
 }
 
 /**
+ * О чём говорит блок «Что входит в цену» у цены за час и за день: тема и
+ * основа слова, по которой видно, что перевозчик (или миграция с его сайта)
+ * эту тему уже назвал в условиях строки. Названная тема в «не записано» не
+ * идёт: строка «топливо — за счёт арендатора» и рядом «входит ли топливо —
+ * уточняется» спорили бы (#3487, п.27). Что именно сказано — печатаются сами
+ * условия, без пересказа.
+ */
+const RATE_TOPICS = {
+  minimum: { stem: 'минимальн', ask: 'есть ли минимальный заказ' },
+  hours: { stem: 'час', ask: 'сколько часов в полном дне' },
+  fuel: { stem: 'топлив', ask: 'входит ли топливо' },
+  delivery: { stem: 'подач', ask: 'входит ли подача машины' },
+} as const;
+
+function mentions(conditions: string | null, stem: string): boolean {
+  return !!conditions && conditions.toLowerCase().includes(stem);
+}
+
+/** Чего не записано у тарифов одного вида машины — в том порядке, что и раньше. */
+function rateUnknowns(rates: readonly CharterRate[], conditions: string | null): string[] {
+  const parts: string[] = [];
+  if (rates.some((r) => r.unit === 'hour') && !mentions(conditions, RATE_TOPICS.minimum.stem)) parts.push(RATE_TOPICS.minimum.ask);
+  if (rates.some((r) => r.unit === 'day') && !mentions(conditions, RATE_TOPICS.hours.stem)) parts.push(RATE_TOPICS.hours.ask);
+  const fuel = !mentions(conditions, RATE_TOPICS.fuel.stem);
+  const delivery = !mentions(conditions, RATE_TOPICS.delivery.stem);
+  if (fuel && delivery) parts.push('входят ли топливо и подача машины');
+  else if (fuel) parts.push(RATE_TOPICS.fuel.ask);
+  else if (delivery) parts.push(RATE_TOPICS.delivery.ask);
+  return parts;
+}
+
+/**
+ * Условия по одной машине (или одному виду машин) для блока «Что входит в
+ * цену». recorded — условия строк прайса этого вида дословно (те же, что в
+ * сноске прайса), null — о том, что входит в цену, в них ничего нет;
+ * unknown — темы, которых условия не называют.
+ */
+export interface VehicleTerms {
+  /** Машина словами: названия машин этого вида из парка, иначе вид машины. */
+  label: string;
+  recorded: string | null;
+  unknown: string[];
+}
+
+/** Говорят ли условия о том, что входит в цену: водитель, топливо, подача, часы, минимальный заказ. */
+function speaksOfPrice(conditions: string): boolean {
+  return ['водител', ...Object.values(RATE_TOPICS).map((t) => t.stem)].some((stem) => mentions(conditions, stem));
+}
+
+/**
+ * Условия тарифов за час и за день ПО МАШИНЕ — одно правило на блок «Что
+ * входит в цену» (#3487, п.26). У «Лагуна Прокат» (1318) водитель Ford
+ * Transit входит в стоимость по сайту, а про «Урал» сайт этого не говорит:
+ * сложить два условия в одну фразу для всего парка — значит дать одному
+ * чужое. Вид машины один — одна запись без подписи. Прайс по направлениям
+ * или прайса нет — пусто: там правило прежнее (includedUnknowns).
+ */
+export function vehicleTerms(c: Pick<CharterCarrier, 'destinations' | 'rates' | 'vehicles'>): VehicleTerms[] {
+  if (c.destinations.length > 0 || c.rates.length === 0) return [];
+  const kinds = [...new Set(sortRates(c.rates).map((r) => r.vehicleKind))];
+  return kinds.map((kind) => {
+    const rates = c.rates.filter((r) => r.vehicleKind === kind);
+    const conds = [...new Set(rates.map((r) => r.conditions).filter((x): x is string => !!x && speaksOfPrice(x)))];
+    const recorded = conds.length > 0 ? conds.join('; ') : null;
+    const titles = c.vehicles.filter((v) => v.kind === kind).map((v) => v.title);
+    const word = vehicleKindWord(kind);
+    const label = titles.length > 0 ? titles.join(', ') : word.charAt(0).toUpperCase() + word.slice(1);
+    return { label, recorded, unknown: rateUnknowns(rates, recorded) };
+  });
+}
+
+/**
  * Что перевозчик не записал о цене — для блока «Что входит в цену». У прайса
  * по направлениям — дни, водитель и топливо; у цены за час и за день (1292) —
- * минимальный заказ, часы в полном дне, топливо и подача машины. Догадки нет.
+ * минимальный заказ, часы в полном дне, топливо и подача машины, кроме тем,
+ * которые условия строк уже называют (#3487). Догадки нет.
  */
 export function includedUnknowns(c: Pick<CharterCarrier, 'destinations' | 'rates'>): string {
   if (c.destinations.length > 0 || c.rates.length === 0) {
     return 'сколько дней входит в цену, есть ли водитель на месте и топливо';
   }
-  const parts: string[] = [];
-  if (c.rates.some((r) => r.unit === 'hour')) parts.push('есть ли минимальный заказ');
-  if (c.rates.some((r) => r.unit === 'day')) parts.push('сколько часов в полном дне');
-  parts.push('входят ли топливо и подача машины');
-  return parts.join(', ');
+  const conds = [...new Set(c.rates.map((r) => r.conditions).filter((x): x is string => !!x && speaksOfPrice(x)))];
+  return rateUnknowns(c.rates, conds.length > 0 ? conds.join('; ') : null).join(', ');
 }
 
 /**

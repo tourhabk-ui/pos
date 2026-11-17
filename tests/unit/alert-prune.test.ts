@@ -75,7 +75,7 @@ describe('чистка хранилища', () => {
     // прошедший прогноз) — так же нулями, а не отсутствием.
     expect(r.by_genre).toEqual({
       daily_bulletin: 1, rescue_report: 1, service_statistics: 0,
-      service_duties: 0, retrospective: 0, warning_ended: 0, past_forecast: 0,
+      service_duties: 0, public_outreach: 0, retrospective: 0, warning_ended: 0, past_forecast: 0,
     });
 
     const del = calls.find((c) => /DELETE FROM external_alerts/i.test(c.sql));

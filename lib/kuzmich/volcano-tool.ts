@@ -21,7 +21,7 @@
  * — разные ответы. «Все спокойны» говорится только когда обе шкалы свежие.
  */
 import { pool } from '@/lib/db-pool';
-import { ACC_META, isVolcanoObservationStale, VOLCANO_STALE_DAYS, type AccColor } from '@/lib/services/safety/kvert-vona';
+import { ACC_META, isVolcanoObservationStale, volcanoObservationDate, VOLCANO_STALE_DAYS, type AccColor } from '@/lib/services/safety/kvert-vona';
 import { kfegsIsFresh, kfegsPhrase, type KfegsReading, type ScaleColor } from '@/lib/services/safety/volcano-scales';
 import { volcanoStem } from '@/lib/services/safety/volcano-match';
 import { normalizeVolcanoName } from '@/lib/services/safety/kvert-vona';
@@ -80,9 +80,9 @@ function accColor(acc: string): AccColor {
   return acc === 'green' || acc === 'yellow' || acc === 'orange' || acc === 'red' ? acc : 'unassigned';
 }
 
+/** День наблюдения по Камчатке — то же правило, что у карточки места (#3487). */
 function ruDate(iso: string): string {
-  const d = new Date(iso);
-  return Number.isNaN(d.getTime()) ? iso : d.toLocaleDateString('ru-RU', { timeZone: 'Asia/Kamchatka' });
+  return volcanoObservationDate(iso) ?? iso;
 }
 
 /** ДД.ММ ЧЧ:ММ по Камчатке — момент опроса, а не сутки. */

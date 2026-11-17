@@ -13,7 +13,7 @@
  * подставляются никогда.
  *
  * Каждую клетку пишет та функция, которая уже называет это поле на карточке
- * тура или в ответах агента (§11): цена — priceFromUnit, итог за группу —
+ * тура или в ответах агента (§11): цена — priceWithUnitWords, итог за группу —
  * groupTotalLabel (тот же расчёт, что get_tour_availability с people),
  * длительность — plateDuration, сложность — difficultyLabel, сезон —
  * requestWindow/windowLabel, даты — offerDatesPhrase, программа — programSteps,
@@ -26,7 +26,7 @@
 
 import { CRITERION_HEADING, type Criterion, type UnknownCriterion } from '@/lib/tours/compare-input';
 import { GROUP_TOTAL_EXCLUDES, groupTotalLabel, type GroupTotal } from '@/lib/tours/group-total';
-import { priceFromUnit } from '@/lib/tours/price-label';
+import { priceWithUnitWords } from '@/lib/tours/price-label';
 import { PRICE_UNIT_LABELS, difficultyLabel } from '@/lib/tours/labels';
 import { plateDuration } from '@/lib/home/plate-facts';
 import { bookingRequestCeiling, isGroupSizeUnlimited, unlimitedGroupSentence } from '@/lib/tours/group-size';
@@ -147,7 +147,7 @@ function cleanList(items: readonly unknown[] | null | undefined): string[] {
  * (§4.0), и отметка говорит «не сравнить», а не «за разное» (ревью 29.10).
  */
 function basePriceCell(f: CompareTourFacts): Cell {
-  const text = priceFromUnit(f.base_price, f.price_unit);
+  const text = priceWithUnitWords(f.base_price, f.price_unit);
   if (!text) return { text: 'цена не указана — называет оператор, не называй числа', key: null, gap: 'цена не указана' };
   if (!f.price_unit || !PRICE_UNIT_LABELS[f.price_unit]) return { text, key: null, gap: 'не записано, за что назначена цена' };
   return { text, key: `${Number(f.base_price)}|${f.price_unit}` };
@@ -156,7 +156,7 @@ function basePriceCell(f: CompareTourFacts): Cell {
 function groupPriceCell(row: CompareRow, people: number): Cell {
   const f = row.facts;
   const g = row.groupPrice;
-  const base = priceFromUnit(f.base_price, f.price_unit);
+  const base = priceWithUnitWords(f.base_price, f.price_unit);
   const tail = base ? `; цена тура — ${base}` : '';
   if (!g || g.kind === 'no_price' || !base) {
     return { text: 'цена не указана — итог назовёт оператор, не называй числа', key: null, gap: 'цена не указана' };

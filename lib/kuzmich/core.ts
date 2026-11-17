@@ -31,7 +31,12 @@ import { kamchatkaToday } from '@/lib/seat-requests/core';
 import { kamchatkaDateContext } from '@/lib/kuzmich/date-context';
 import { reachForTour } from '@/lib/partners/reach';
 import { notifyTeamOfTour } from '@/lib/operators/team-notify';
-import { groupPriceNote, groupSizeNote, priceFromUnit, priceFromUnitOrSay, priceWithUnitWords } from '@/lib/tours/price-label';
+import { groupPriceNote, groupSizeNote, priceForAgent, priceForAgentOrSay, priceWithUnitWords } from '@/lib/tours/price-label';
+import { groupClaimConflictLine, groupClaimConflicts } from '@/lib/tours/description-conflicts';
+import { cardDuration } from '@/lib/tours/card-facts';
+import { calendarRangeOf, tourSeasonWords } from '@/lib/tours/season-words';
+import { tourCancellation, SAFETY_NOTES_CANCELLATION_HEAD, CANCELLATION_REST_WITH_OPERATOR } from '@/lib/tours/cancellation-words';
+import { calendarDatesWhereSql } from '@/lib/tours/open-dates';
 import { callAIWaterfallDetailed, callToolsWaterfall, CACHE_BREAK_MARKER, isWaterfallErrorResponse } from '@/lib/ai/providers';
 import { getZoneWeatherForText } from '@/lib/services/safety/zone-weather';
 import type { ChatMessage } from '@/lib/ai/prompts';
@@ -745,13 +750,16 @@ export async function loadTourCatalogEntries(): Promise<TourCatalog | null> {
     const today = kamchatkaToday();
     const entries = new Map<string, CatalogTourEntry>();
     const lines = rows.map(r => {
-      const dur   = r.multi_day_count ? `${r.multi_day_count} дн.` : '';
+      // Длительность — тем же форматом, что карточка тура (#3487): «3 дня»,
+      // «6 ч», «1 день». До 17.11 каталог писал «3 дн.» только у
+      // многодневных, а однодневный тур шёл без длительности вовсе.
+      const dur   = cardDuration(r) ?? '';
       // Цены может не быть вовсе, и тогда так и говорим: `Number(null)` — это
       // 0, и каталог печатал «от 0 р/чел», то есть «бесплатно» (18.09,
       // тур 34). Правило одно на все поверхности — lib/tours/price-label.
       const groupNote = groupPriceNote(r.base_price, r.price_unit, r.max_participants, r.group_size_unlimited)
         ?? groupSizeNote(r.price_unit, r.max_participants, r.group_size_unlimited, r.min_participants);
-      const price = priceFromUnitOrSay(r.base_price, r.price_unit) + (groupNote ? ` (${groupNote})` : '');
+      const price = priceForAgentOrSay(r.base_price, r.price_unit) + (groupNote ? ` (${groupNote})` : '');
       const cat   = r.activity_type ? ` тип:${r.activity_type}` : '';
       // Название, место, имя компании и краткое описание пишет оператор сам,
       // а строка идёт в system-промпт Кузьмича и в ответ get_tours агентам
@@ -1652,7 +1660,7 @@ interface BookingSection {
 
 /** Строка тура в списке: номер, название, компания, цена. */
 function bookingChoiceLine(c: TourCandidate): string {
-  // Для человека — единица словами; пометка «для модели» из priceFromUnit
+  // Для человека — единица словами; пометка «для модели» из priceWithUnitWords
   // сюда не попадает (ревью 29.10).
   const price = priceWithUnitWords(c.base_price, c.price_unit);
   return `<b>${c.id}</b> — ${escapeHtml(c.title)} — ${escapeHtml(c.operator_name ?? 'компания не записана')}${price ? ` — ${escapeHtml(price)}` : ''}`;
@@ -1795,6 +1803,13 @@ export async function getTourDetails(query: string, opts: { context?: string } =
       max_participants: number | null;
       min_participants: number | null;
       group_size_unlimited: boolean | null;
+      duration_type: string | null;
+      duration_hours: string | number | null;
+      multi_day_count: number | null;
+      season_start: string | null;
+      season_end: string | null;
+      cal_first: string | null;
+      cal_last: string | null;
       operator_name: string | null;
       operator_legal_name: string | null;
       operator_inn: string | null;
@@ -1806,6 +1821,9 @@ export async function getTourDetails(query: string, opts: { context?: string } =
       `SELECT id, title, base_price, price_unit, short_description, description, meeting_point,
               included, not_included, what_to_bring, cancellation_policy, location_name, activity_type,
               program, safety_notes, pickup_type, pickup_details, max_participants, min_participants, group_size_unlimited, slug,
+              duration_type, duration_hours, multi_day_count, season_start::text AS season_start, season_end::text AS season_end,
+              (SELECT MIN(ta.date)::text FROM tour_availability ta WHERE ${calendarDatesWhereSql('ta', 'operator_tours.id')}) AS cal_first,
+              (SELECT MAX(ta.date)::text FROM tour_availability ta WHERE ${calendarDatesWhereSql('ta', 'operator_tours.id')}) AS cal_last,
               (SELECT p.name FROM partners p WHERE p.id = operator_tours.operator_id) AS operator_name,
               (SELECT NULLIF(btrim(p.legal_info->>'companyName'), '') FROM partners p WHERE p.id = operator_tours.operator_id) AS operator_legal_name,
               (SELECT NULLIF(btrim(p.legal_info->>'inn'), '') FROM partners p WHERE p.id = operator_tours.operator_id) AS operator_inn,
@@ -1837,11 +1855,15 @@ export async function getTourDetails(query: string, opts: { context?: string } =
     parts.push(tourPlaceStatusLine(tourPlaceStatus(t)));
     // Здесь проверка на null уже была, но формат теперь общий с каталогом:
     // два написания одной цены разъезжаются так же, как два предиката.
-    const priceLine = priceFromUnit(t.base_price, t.price_unit);
+    const priceLine = priceForAgent(t.base_price, t.price_unit);
     const groupNote = groupPriceNote(t.base_price, t.price_unit, t.max_participants, t.group_size_unlimited)
       ?? groupSizeNote(t.price_unit, t.max_participants, t.group_size_unlimited, t.min_participants);
     if (priceLine) parts.push(`Цена: ${priceLine}${groupNote ? ` (${groupNote})` : ''}`);
     else parts.push('Цена: не указана — уточняется у оператора, не называй числа.');
+    // Длительность и сезон — теми же функциями, что карточка тура (#3487):
+    // одно поле — одна строка на карточке и здесь.
+    parts.push(`Длительность: ${cardDuration(t) ?? 'не записана — уточняется у оператора'}`);
+    parts.push(`Сезон: ${tourSeasonWords(t, calendarRangeOf(t.cal_first, t.cal_last))}`);
     // Группа — общим правилом с карточкой (lib/tours/group-size, 1342): у тура
     // без предела агент слышит «не ограничена» и потолок ОДНОЙ заявки, а не
     // «до 12» как предел гида (слово владельца 29.10). У прочих — молчание,
@@ -1849,6 +1871,12 @@ export async function getTourDetails(query: string, opts: { context?: string } =
     // и «Группа до 15» стала бы для агента фактом о туре (§4.0).
     const group = groupSentenceIfUnlimited(t);
     if (group) parts.push(group);
+    // Описание спорит с записью о размере группы (#3487): число не
+    // выбираем за оператора, а называем расхождение.
+    const groupConflict = t.group_size_unlimited === true ? null : groupClaimConflictLine(
+      groupClaimConflicts(`${t.short_description ?? ''}\n${t.description ?? ''}`, t.min_participants, t.max_participants),
+    );
+    if (groupConflict) parts.push(groupConflict);
     if (t.short_description) parts.push(`Кратко: ${t.short_description}`);
     if (t.description) {
       // Обрезка называется: агент принимал обрывок за полный текст (проверка MCP 29.09).
@@ -1878,9 +1906,15 @@ export async function getTourDetails(query: string, opts: { context?: string } =
     if (t.what_to_bring?.length) parts.push(`Взять с собой:\n- ${t.what_to_bring.join('\n- ')}`);
     // Третье состояние (§4.0): «не записано» — не «без условий». Модель обязана
     // сказать, что условий у неё нет, а не сочинить «обычно возвращают».
-    parts.push(t.cancellation_policy?.trim()
-      ? `Условия отмены и возврата (бери ТОЛЬКО отсюда, не выдумывай):\n${t.cancellation_policy.trim()}`
-      : 'Условия отмены и возврата у этого тура НЕ ЗАПИСАНЫ. Не называй сроков и процентов — скажи, что условия уточняются у оператора.');
+    // Текста условий нет, а в правилах безопасности оператор пишет о возврате
+    // денег — это и есть ответ, словами оператора (#3487): «НЕ ЗАПИСАНЫ» рядом
+    // с той же фразой в правилах спорило бы с карточкой и формой заявки.
+    const cancel = tourCancellation(t);
+    parts.push(cancel.kind === 'policy'
+      ? `Условия отмены и возврата (бери ТОЛЬКО отсюда, не выдумывай):\n${cancel.lines.join('\n')}`
+      : cancel.kind === 'safety_notes'
+        ? `Условия отмены и возврата: ${SAFETY_NOTES_CANCELLATION_HEAD} (бери ТОЛЬКО отсюда):\n- ${cancel.lines.join('\n- ')}\n${CANCELLATION_REST_WITH_OPERATOR} Не называй сроков и процентов сверх этих слов.`
+        : 'Условия отмены и возврата у этого тура НЕ ЗАПИСАНЫ. Не называй сроков и процентов — скажи, что условия уточняются у оператора.');
     // Кто продаёт (03.10, разбор UCP: ассистент, бронирующий за человека,
     // обязан назвать продавца до подтверждения). Тот же источник и та же
     // строка, что «Исполнитель:» на карточке тура (lib/tours/seller-requisites).

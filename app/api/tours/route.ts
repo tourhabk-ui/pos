@@ -7,6 +7,7 @@ import { anyDayOpenSql } from '@/lib/tours/schedule-kind';
 import { orderOffersBy } from '@/lib/tours/offer-order';
 import { publicRating } from '@/lib/reviews/public-rating';
 import { BEAR_FALLBACK } from '@/lib/media/wildlife-photos';
+import { groupSizeOf } from '@/lib/tours/card-facts';
 
 export const dynamic = 'force-dynamic';
 
@@ -35,8 +36,9 @@ interface TourResponse {
   requirements: string[];
   included: string[];
   notIncluded: string[];
-  maxGroupSize: number;
-  minGroupSize: number;
+  /** Из `max_participants`; не записано — null, без умолчания 20 (#3487). */
+  maxGroupSize: number | null;
+  minGroupSize: number | null;
   /**
    * `null` — тур никто не оценивал. Тип обязан допускать отсутствие (§4.0):
    * объявленный `number` принуждал бы выдумать число, а ноль читается экраном
@@ -200,8 +202,11 @@ export async function GET(request: NextRequest) {
         requirements: [],
         included,
         notIncluded,
-        maxGroupSize: typeof row.max_participants === 'number' ? row.max_participants : 20,
-        minGroupSize: typeof row.min_participants === 'number' ? row.min_participants : 1,
+        // Число группы — из колонки, без умолчания (#3487): прежде строка из
+        // драйвера («8») не проходила `typeof === 'number'`, и тур «до 8»
+        // отдавался как «до 20».
+        maxGroupSize: groupSizeOf(row.max_participants),
+        minGroupSize: groupSizeOf(row.min_participants),
         // «Не оценивали» — null, а не ноль (§4.0). Правило одно на все выдачи
         // (lib/reviews/public-rating): оценка отдаётся, только когда её
         // подтверждает непустой счёт отзывов — колонка rating у туров стоит

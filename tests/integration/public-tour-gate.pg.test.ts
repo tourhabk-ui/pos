@@ -603,10 +603,13 @@ withPg('витрина туров: снятый тур не в плане и н�
       expect(farB).not.toMatch(/вовсе/);
       expect(farB).not.toContain(fmt(await day(400)));
 
-      // C без календаря — прежний ответ «по заявке», числа мест нет.
+      // C без календаря и без записанного сезона — «по заявке», числа мест
+      // нет, и дни окна не названы свободными датами сезона (#3487, п.6).
       const onRequest = await getTourAvailabilityForKuzmich({ tour: c });
       expect(onRequest).toContain('расписания в системе нет');
-      expect(onRequest).toContain('оператор собирает группу под запрос');
+      expect(onRequest).toContain('Это не свободные даты сезона');
+      expect(onRequest).toContain('можно отправить заявку оператору');
+      expect(onRequest).not.toContain('оператор собирает группу под запрос');
       expect(onRequest).not.toMatch(/свободно \d/);
     } finally {
       spy.mockRestore();

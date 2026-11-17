@@ -56,8 +56,18 @@ describe('карточка тура: сезон', () => {
     expect(stripSeason(container)).toBe('1 июн — 15 сен 2026');
   });
 
-  it('сезона нет — строки «Сезон» нет, ничего не выдумано', () => {
+  // До #3487 (17.11) строки не было вовсе, и человек не знал, идёт ли тур в
+  // его месяц. Теперь сказано, что сезон не записан, и названо, кто ответит;
+  // конец сезона не выдумывается.
+  it('сезона нет — строка говорит «не записан», ничего не выдумано', () => {
     const { container } = render(<TourDetailClient tour={TOUR} reviews={[]} />);
-    expect(stripSeason(container)).toBeNull();
+    expect(stripSeason(container)).toBe('не записан — дату подтверждает оператор');
+  });
+
+  it('сезона нет, а календарь есть — названы даты календаря оператора', () => {
+    const { container } = render(
+      <TourDetailClient tour={TOUR} reviews={[]} calendarRange={{ first: '2026-12-05', last: '2027-03-20' }} />,
+    );
+    expect(stripSeason(container)).toBe('не записан; даты в календаре оператора: 5 дек 2026 — 20 мар 2027');
   });
 });
