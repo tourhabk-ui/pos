@@ -26,7 +26,7 @@
  * сверить» не выдавалось за «совпало». Разбор, который не смог ничего
  * извлечь из непустого ответа, — отказ (`failed`), а не пустой снимок.
  */
-import { PRICE_UNIT_SHORT } from '@/lib/tours/labels';
+import { PRICE_UNIT_LABELS, PRICE_UNIT_SHORT } from '@/lib/tours/labels';
 
 // ── Общее ───────────────────────────────────────────────────────────────────
 
@@ -95,18 +95,28 @@ export function emptyTour(id: number): TourFacts {
   };
 }
 
-/** Обратная карта подписей: `/группа` → `per_tour`. Словарь один — `PRICE_UNIT_SHORT`. */
-function unitFromShort(short: string): string | null {
-  for (const [code, label] of Object.entries(PRICE_UNIT_SHORT)) if (label === short) return code;
+/**
+ * Обратная карта подписей: `/группа` и `за группу` → `per_tour`. Словари —
+ * те, которыми печатает цену `lib/tours/price-label` (`PRICE_UNIT_LABELS`,
+ * с #3487 — словами и без «от») и прежние короткие (`PRICE_UNIT_SHORT`).
+ */
+function unitFromShort(label: string): string | null {
+  const said = label.trim();
+  for (const [code, short] of Object.entries(PRICE_UNIT_SHORT)) if (short === said) return code;
+  for (const [code, words] of Object.entries(PRICE_UNIT_LABELS)) if (words === said) return code;
   return null;
 }
 
 // Единицу искать от самой длинной подписи к короткой: «/чел. в день» раньше «/чел.».
-const UNIT_ALTERNATION = Object.values(PRICE_UNIT_SHORT)
+const UNIT_ALTERNATION = [
+  ...Object.values(PRICE_UNIT_SHORT),
+  ...Object.values(PRICE_UNIT_LABELS).map((w) => ` ${w}`),
+]
   .sort((a, b) => b.length - a.length)
   .map((s) => s.replace(/[.*+?^${}()|[\]\\/]/g, '\\$&'))
   .join('|');
-const PRICE_RE = new RegExp(`от\\s+([\\d\\s\\u00a0\\u202f]+?)\\s*₽(${UNIT_ALTERNATION})?`);
+// «От» — необязательно: с #3487 цена тура печатается без него.
+const PRICE_RE = new RegExp(`(?:от\\s+)?(\\d[\\d\\s\\u00a0\\u202f]*?)\\s*₽(${UNIT_ALTERNATION})?`);
 
 /**
  * Каталог туров `get_tours` → факты по id. Строка каталога:
@@ -128,7 +138,7 @@ export function parseToursText(text: string, today: string): Map<number, TourFac
 
     const type = /тип:(\S+)/.exec(rest);
     if (type) t.activity_type = type[1];
-    const dur = /(\d+)\s+дн\./.exec(rest);
+    const dur = /(\d+)\s+(?:дн\.|день|дня|дней)(?![а-яё])/.exec(rest);
     if (dur) t.duration_days = Number(dur[1]);
     const price = PRICE_RE.exec(rest);
     if (price) {

@@ -2,7 +2,7 @@
  * Подписи и разметка посадочных страниц — чистые функции над строками базы,
  * чтобы сторож проверял их без рендера и без базы.
  */
-import { priceFromUnit } from '@/lib/tours/price-label';
+import { priceWithUnitWords } from '@/lib/tours/price-label';
 import { priceZh, durationZh, seasonZh } from '@/lib/zh/entry';
 import { tourPath } from '@/lib/tours/tour-url';
 import type { LandingTourRow } from '@/lib/seo/query-landings-data';
@@ -21,7 +21,7 @@ function month(v: string | null): number | null {
 
 export function landingPrice(t: LandingTourRow, lang: LandingLang): string | null {
   if (lang === 'zh-CN') return priceZh(t);
-  if (lang === 'ru') return priceFromUnit(t.base_price, t.price_unit);
+  if (lang === 'ru') return priceWithUnitWords(t.base_price, t.price_unit);
   const n = Number(t.base_price);
   if (!Number.isFinite(n) || n <= 0) return null;
   const unit = EN_UNIT[t.price_unit ?? ''];

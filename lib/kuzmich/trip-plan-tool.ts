@@ -28,7 +28,7 @@ import {
   applyPlanEdit, planPrice, planEstimate, type PlanEdit, type PlanParams, type RereadTour, type TouchedTour,
 } from '@/lib/planner/plan-edit';
 import { estimateGroup, unpricedTail, type GroupEstimate } from '@/lib/planner/estimate';
-import { priceFromUnit } from '@/lib/tours/price-label';
+import { priceWithUnitWords } from '@/lib/tours/price-label';
 import { kamchatkaStamp } from '@/lib/safety/place-day-status';
 import { kamchatkaDate } from '@/lib/analytics/kamchatka-day';
 import { saveDraft, loadDraft, updateDraft, isDraftId, type DraftSurface } from '@/lib/planner/plan-drafts';
@@ -937,10 +937,10 @@ export function formatTripPlanForChat(
     // вилкой из констант движка («вулканы от 5 000 ₽» при нуле туров на
     // вулканы); с 14.11 вилок нет вовсе (слово владельца «5 -1»), а дни
     // планов, сохранённых раньше, их ещё несут — поэтому realPrice.
-    // Единица — из тура (priceFromUnit, #2304): «от 196 000 ₽» у тура за
+    // Единица — из тура (priceWithUnitWords, #2304): «от 196 000 ₽» у тура за
     // группу агент читал как цену с человека. Цены для группы нет (вне ступеней
     // оператора) — так и сказано строкой ниже, без числа.
-    const price = d.realPrice != null && d.realPrice > 0 ? ` — ${priceFromUnit(d.realPrice, d.realTour?.priceUnit)}` : '';
+    const price = d.realPrice != null && d.realPrice > 0 ? ` — ${priceWithUnitWords(d.realPrice, d.realTour?.priceUnit)}` : '';
     lines.push(`День ${d.day}. ${capitalize(d.title)}${price}`);
     if (d.priceMissing) lines.push(`   ${d.priceMissing}`);
     const planDayIso = context?.arrivalIso

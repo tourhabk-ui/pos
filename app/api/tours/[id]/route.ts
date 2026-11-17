@@ -4,6 +4,11 @@ import { publicTourSql } from '@/lib/tours/public-visibility';
 import { publicRating } from '@/lib/reviews/public-rating';
 import { isUuid } from '@/lib/text/slugify';
 import { BEAR_FALLBACK } from '@/lib/media/wildlife-photos';
+import { cardDuration, groupSizeOf } from '@/lib/tours/card-facts';
+import { priceWithUnitWords } from '@/lib/tours/price-label';
+import { calendarRangeOf, tourSeasonWords } from '@/lib/tours/season-words';
+import { cancellationOperatorWords } from '@/lib/tours/cancellation-words';
+import { calendarDatesWhereSql } from '@/lib/tours/open-dates';
 
 export const dynamic = 'force-dynamic';
 
@@ -62,7 +67,11 @@ export async function GET(
         p.id           AS partner_id_val,
         p.name         AS partner_name,
         p.rating       AS partner_rating,
-        p.review_count AS partner_review_count
+        p.review_count AS partner_review_count,
+        t.season_start::text AS season_start_day,
+        t.season_end::text   AS season_end_day,
+        (SELECT MIN(ta.date)::text FROM tour_availability ta WHERE ${calendarDatesWhereSql('ta', 't.id')}) AS cal_first,
+        (SELECT MAX(ta.date)::text FROM tour_availability ta WHERE ${calendarDatesWhereSql('ta', 't.id')}) AS cal_last
        FROM operator_tours t
        LEFT JOIN kamchatka_routes kr ON t.route_id = kr.id
        LEFT JOIN partners p ON t.operator_id = p.id
@@ -123,14 +132,37 @@ export async function GET(
       difficulty:       (row.difficulty || 'medium') as 'easy' | 'medium' | 'hard',
       duration:         parseInt(String(row.minDuration || row.duration || 0)),
       price:            parseFloat(String(row.base_price ?? row.pricePerDay ?? row.price ?? 0)),
+      // Цена, длительность, сезон и условия отмены словами — теми же
+      // функциями, что карточка тура и MCP (#3487): одно поле — одна строка.
+      priceUnit:        typeof row.price_unit === 'string' ? row.price_unit : null,
+      priceText:        priceWithUnitWords(row.base_price as string | number | null, row.price_unit as string | null),
+      durationText:     cardDuration({
+        duration_type:   row.duration_type as string | null,
+        multi_day_count: row.multi_day_count == null ? null : Number(row.multi_day_count),
+        duration_hours:  row.duration_hours as string | number | null,
+      }),
       currency:         (row.currency || 'RUB') as string,
-      season:           parseJsonField(row.season),
+      // Сезон — парой дат, как у списка `/api/tours`; до #3487 здесь читалась
+      // несуществующая колонка `season`, и каждый тур отдавал [].
+      season:           [row.season_start_day, row.season_end_day].filter((d): d is string => typeof d === 'string' && d.length > 0),
+      seasonText:       tourSeasonWords(
+        { season_start: row.season_start_day as string | null, season_end: row.season_end_day as string | null },
+        calendarRangeOf(row.cal_first, row.cal_last),
+      ),
+      cancellationText: cancellationOperatorWords({
+        cancellation_policy: row.cancellation_policy as string | null,
+        safety_notes: Array.isArray(row.safety_notes) ? (row.safety_notes as unknown[]) : null,
+      }),
       coordinates:      parseJsonField(row.coordinates),
       requirements:     parseJsonField(row.requirements),
       included:         parseJsonField(row.included) as string[],
       notIncluded:      parseJsonField(row.notIncluded || row.not_included) as string[],
-      maxGroupSize:     parseInt(String(row.maxGroupSize || row.max_group_size || 20)),
-      minGroupSize:     parseInt(String(row.minGroupSize || row.min_group_size || 1)),
+      // Колонки `max_group_size` у operator_tours нет — есть max_participants.
+      // До #3487 здесь читалось чужое имя с умолчанием 20/1: тур «до 8» API
+      // отдавал как «до 20». Не записано — null.
+      maxGroupSize:     groupSizeOf(row.max_participants),
+      minGroupSize:     groupSizeOf(row.min_participants),
+      groupSizeUnlimited: row.group_size_unlimited === true,
       // Оценки нет — null. `row.rating || 0` превращал «никто не оценивал» в
       // «нуль звёзд» (§4.0); каноническое чтение карточки держит
       // `rating: string | null` (lib/tours/tour-detail-query.ts). Правило одно

@@ -12,7 +12,7 @@ import { pool } from '@/lib/db-pool';
 import { calendarDay, coversDay, lastDay, overlapsWindow, parseIsoDate, seasonAccusative, windowForMonths, ymd, type DateWindow } from '@/lib/kuzmich/season-window';
 import { rentalHiddenOnSite } from '@/lib/rental/site-pause';
 import { escapeHtml } from '@/lib/text/escape-html';
-import { priceFromUnit, priceFromUnitOrSay } from '@/lib/tours/price-label';
+import { priceForAgentOrSay, priceWithUnitWords } from '@/lib/tours/price-label';
 import { publicTourSql } from '@/lib/tours/public-visibility';
 import { nearestFreeDateSql } from '@/lib/tours/nearest-free-date';
 import { anyDayOpenSql } from '@/lib/tours/schedule-kind';
@@ -243,12 +243,7 @@ function humanWindow(outside: number[]): string {
  * остаётся в записке модели, в сообщение его не кладём.
  */
 function touristPrice(tour: CatalogTour): string {
-  const labeled = priceFromUnit(tour.base_price, tour.price_unit);
-  if (!labeled) return 'цена не указана';
-  return labeled.replace(
-    ' (за что назначена цена — не записано, не называй её ценой с человека)',
-    ' (за что назначена цена — не записано)',
-  );
+  return priceWithUnitWords(tour.base_price, tour.price_unit) ?? 'цена не указана';
 }
 
 /**
@@ -476,7 +471,7 @@ export function catalogFacts(
     : 'Месяц в вопросе не назван. Называю только туры, чей сезон идёт сегодня.';
   const rows = show.map((tour) => {
     const windowNote = modelWindow(missedMonths(tour, months, window));
-    return `«${tour.title}»${tour.operator_name ? ` (${tour.operator_name})` : ''}: ${daysPhrase(tour)}, ${seasonPhrase(tour)}, ${endSentence(priceFromUnitOrSay(tour.base_price, tour.price_unit))} Карточка: ${tourUrl(tour)}.${windowNote}`;
+    return `«${tour.title}»${tour.operator_name ? ` (${tour.operator_name})` : ''}: ${daysPhrase(tour)}, ${seasonPhrase(tour)}, ${endSentence(priceForAgentOrSay(tour.base_price, tour.price_unit))} Карточка: ${tourUrl(tour)}.${windowNote}`;
   });
   const more = picked.unnamedMore > 0
     ? `Ещё ${picked.unnamedMore} на эти даты в каталоге. Названия и цены здесь не повторяю.`

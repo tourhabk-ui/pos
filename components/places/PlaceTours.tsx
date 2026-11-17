@@ -7,6 +7,7 @@ import type { PlaceTour, PlaceToursState } from './types';
 import { tourPath } from '@/lib/tours/tour-url';
 import { OperatorNameLink } from '@/components/operators/OperatorNameLink';
 import { priceWithUnitWords } from '@/lib/tours/price-label';
+import { cardDuration } from '@/lib/tours/card-facts';
 import {
   groupOffersByCompany,
   offerDatesPhrase,
@@ -144,13 +145,13 @@ function CompanyBlock({ group, day }: { group: CompanyGroup<Row>; day: string })
   );
 }
 
-/** Длительность словами из записанного: дни многодневного, часы, полдня/день. */
+/**
+ * Длительность — тем же правилом, что карточка тура и MCP (`cardDuration`,
+ * #3487): до 17.11 здесь была своя копия с другим порядком, и тур с типом
+ * «день» и тремя часами звучал «3 ч» здесь и «1 день» на карточке.
+ */
 function durationWords(t: PlaceTour): string | null {
-  if (t.durationType === 'multi_day' && t.multiDayCount && t.multiDayCount > 0) return `${t.multiDayCount} дн.`;
-  if (t.durationHours != null && t.durationHours > 0) return `${t.durationHours} ч`;
-  if (t.durationType === 'half_day') return 'полдня';
-  if (t.durationType === 'day') return '1 день';
-  return null;
+  return cardDuration({ duration_type: t.durationType, multi_day_count: t.multiDayCount, duration_hours: t.durationHours });
 }
 
 function TourRow({ t, day }: { t: PlaceTour; day: string }) {

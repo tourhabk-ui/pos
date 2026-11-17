@@ -2,7 +2,7 @@
  * lib/home/plate-facts.ts
  *
  * Строка фактов карточки тура на мобильной главной:
- * «от 13 000 ₽ /чел. · 10 ч · Камчатка Семейный Рафтинг».
+ * «13 000 ₽ за человека · 10 ч · Камчатка Семейный Рафтинг».
  *
  * Аудит 24.09 (#39/#122): карточки главной писали «от 13 000 ₽ · тур
  * оператора» — без единицы цены, без длительности и без имени оператора, хотя
@@ -12,13 +12,13 @@
  * Правило §4.0: факт, которого нет в данных, из строки выпадает, а не
  * подменяется. Нет цены — `price: null`, и вызывающий говорит словами
  * «Цена по запросу». Единица цены и длительность считаются теми же правилами,
- * что в каталоге (`priceUnitLabel`, форма длительности MarketplaceClient),
- * чтобы один тур не назывался на двух экранах по-разному.
+ * что на карточке тура (`priceWithUnitWords`, `cardDuration`), чтобы один тур
+ * не назывался на двух экранах по-разному. «От» перед ценой одного тура с
+ * 17.11 не пишется (#3487): в базе одно число, и «от» было словом форматтера.
  */
 
-import { priceFrom } from '@/lib/tours/price-label';
-import { priceUnitLabel } from '@/lib/tours/labels';
-import { plural } from '@/lib/home/data-freshness';
+import { priceWithUnitWords } from '@/lib/tours/price-label';
+import { cardDuration } from '@/lib/tours/card-facts';
 import type { CatalogAvailability } from '@/lib/tours/catalog-availability';
 import {
   groupOffersByCompany, offerOrderDay, roundRobinByCompany, type OfferOrderOptions,
@@ -34,32 +34,22 @@ export interface PlateFactsInput {
 }
 
 export interface PlateFacts {
-  /** «от 13 000 ₽ /чел.» либо null — цены нет. */
+  /** «13 000 ₽ за человека» либо null — цены нет. */
   price: string | null;
   /** «10 ч», «2 дня», «Полдня» либо null — длительность не записана. */
   duration: string | null;
   operator: string | null;
 }
 
-/** Та же форма, что у карточки каталога (MarketplaceClient.formatDuration). */
+/** Длительность — тем же правилом, что карточка тура (`cardDuration`). */
 export function plateDuration(t: Pick<PlateFactsInput, 'durationType' | 'multiDayCount' | 'durationHours'>): string | null {
-  if (t.durationType === 'multi_day' && t.multiDayCount && t.multiDayCount > 0) {
-    const d = t.multiDayCount;
-    return `${d} ${plural(d, 'день', 'дня', 'дней')}`;
-  }
-  if (t.durationType === 'half_day') return 'Полдня';
-  if (t.durationType === 'day') return '1 день';
-  const h = t.durationHours == null ? NaN : Number(t.durationHours);
-  if (!Number.isFinite(h) || h <= 0) return null;
-  if (h < 24) return `${Number.isInteger(h) ? h : Math.round(h * 10) / 10} ч`;
-  const d = Math.round(h / 24);
-  return `${d} ${plural(d, 'день', 'дня', 'дней')}`;
+  return cardDuration({ duration_type: t.durationType, multi_day_count: t.multiDayCount, duration_hours: t.durationHours });
 }
 
 export function plateFacts(p: PlateFactsInput): PlateFacts {
   const operator = p.operatorName?.trim() ? p.operatorName.trim() : null;
   return {
-    price: priceFrom(p.priceFrom, `₽ ${priceUnitLabel(p.priceUnit, true)}`),
+    price: priceWithUnitWords(p.priceFrom, p.priceUnit),
     duration: plateDuration(p),
     operator,
   };
