@@ -23,13 +23,11 @@ export interface RouteItem {
   lng: number | null;
   sourceUrl?: string | null;
   sourceName?: string | null;
-  priceFrom: number | null;
   difficulty: string | null;
   durationDays: number | null;
   bestMonths?: number[] | null;
   offerCount?: number;
   topOperatorName?: string;
-  minOfferPrice?: number | null;
   /** Живой статус точки (location_real_time_status); null/undefined — данных нет */
   isOpen?: boolean | null;
 }
@@ -79,7 +77,11 @@ export default function RouteCard({ route }: { route: RouteItem }) {
 function LegacyCard({ route }: { route: RouteItem }) {
   const meta = CATEGORY_META[route.category] ?? { label: route.category, icon: MapPin, accent: 'var(--accent)' };
   const Icon = meta.icon;
-  const displayPrice = route.minOfferPrice ?? route.priceFrom;
+  // Цены у маршрута и места нет (слово владельца 17.11 «1 да»): прежде здесь
+  // стояло «от N ₽» из payload.price_from — числа, скачанного со статьи-
+  // источника. Ни одного тура за ним не было, и источник не записан (§0, §24).
+  // Цена — у тура, на его карточке. То же правило карточка маршрута держит
+  // с 18.07 (_RouteDetailClient, «Рыболовная база»).
   const hasOffers = (route.offerCount ?? 0) > 0;
   const isTourOrRoute = route.kind === 'tour' || route.kind === 'route';
 
@@ -139,12 +141,6 @@ function LegacyCard({ route }: { route: RouteItem }) {
           <p className="text-xs text-[var(--text-secondary)] line-clamp-2 leading-relaxed">
             {route.description}
           </p>
-        )}
-
-        {displayPrice != null && displayPrice > 0 && (
-          <span className="inline-flex text-xs font-semibold text-[var(--text-primary)] bg-[var(--bg-hover)] px-2 py-1 rounded">
-            от {displayPrice.toLocaleString('ru-RU')} ₽
-          </span>
         )}
 
         <div className="flex items-center justify-between">

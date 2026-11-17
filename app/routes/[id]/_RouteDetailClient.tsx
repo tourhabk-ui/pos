@@ -216,7 +216,7 @@ export interface RouteDetail {
   descriptionWithdrawn?: boolean;
   lat: number | null; lng: number | null;
   sourceUrl: string | null; sourceName: string | null;
-  priceFrom: number | null; season: string | null; difficulty: string | null;
+  season: string | null; difficulty: string | null;
   durationDays: number | null; bestMonths: number[] | null;
   altitude: number | null; groupSizeMax: number | null; dangerLevel: string | null;
   equipment: string[] | null; kuzmichReview: string | null;

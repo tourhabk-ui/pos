@@ -132,7 +132,6 @@ export default async function PlacesPage({ searchParams }: PageProps) {
     page,
     sort: 'recommended',
     difficulty,
-    priceRange: '',
     radius: '',
   });
 

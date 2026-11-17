@@ -115,10 +115,17 @@ export const CatalogQuerySchema = z.object({
   // (снятый трек → набросок → линия не проверена → линии нет), и лишь внутри
   // рода — полнота карточки. Заведена 19.09 по жалобе владельца, см.
   // LINE_RANK в lib/map/line-standard.ts.
-  sort:          z.enum(['title', 'recent', 'price_asc', 'price_desc', 'recommended', 'navigable']).default('title'),
+  //
+  // Сортировки и фильтра «по цене» нет (слово владельца 17.11 «1 да»): цены у
+  // маршрута и места нет — было только payload.price_from, число со статьи-
+  // источника без тура за ним (§0, §24). Старая ссылка с `price_asc` /
+  // `price_desc` получает порядок по умолчанию, а не 400; `price_min` /
+  // `price_max` схема больше не знает и не применяет.
+  sort:          z.preprocess(
+    (v) => (v === 'price_asc' || v === 'price_desc' ? undefined : v),
+    z.enum(['title', 'recent', 'recommended', 'navigable']).default('title'),
+  ),
   difficulty:    z.enum(['easy', 'medium', 'hard']).optional(),
-  price_min:     z.coerce.number().min(0).optional(),
-  price_max:     z.coerce.number().min(0).optional(),
   // Фильтр «Рядом»: точки в радиусе от якоря (позиция туриста или ПК)
   near_lat:      z.coerce.number().min(-90).max(90).optional(),
   near_lng:      z.coerce.number().min(-180).max(180).optional(),
@@ -153,7 +160,6 @@ export interface CatalogItem {
   lng: number | null;
   sourceUrl: string | null;
   sourceName: string | null;
-  priceFrom: number | null;
   season: string | null;
   difficulty: string | null;
   durationDays: number | null;
@@ -214,7 +220,7 @@ function stripGeometryStyle(v: unknown): CatalogItem['geometry'] {
 }
 
 export async function queryCatalog(filters: CatalogFilters): Promise<CatalogResult> {
-  const { q, kind, category, location_type, activity_type, page, limit, hasCoords, sort, difficulty, price_min, price_max, near_lat, near_lng, radius_km, has_waypoints, place_type } = filters;
+  const { q, kind, category, location_type, activity_type, page, limit, hasCoords, sort, difficulty, near_lat, near_lng, radius_km, has_waypoints, place_type } = filters;
   const offset = (page - 1) * limit;
 
   const conditions: string[] = ['ark.is_visible = TRUE'];
@@ -252,16 +258,6 @@ export async function queryCatalog(filters: CatalogFilters): Promise<CatalogResu
   if (difficulty) {
     conditions.push(`ark.payload->>'difficulty' = $${idx}`);
     params.push(difficulty);
-    idx++;
-  }
-  if (price_min != null) {
-    conditions.push(`(ark.payload->>'price_from')::numeric >= $${idx}`);
-    params.push(price_min);
-    idx++;
-  }
-  if (price_max != null) {
-    conditions.push(`(ark.payload->>'price_from')::numeric <= $${idx}`);
-    params.push(price_max);
     idx++;
   }
   if (has_waypoints === 'true') {
@@ -338,8 +334,10 @@ export async function queryCatalog(filters: CatalogFilters): Promise<CatalogResu
    */
   // Полнота карточки: тот же счёт, что в `recommended`. Вынесен, потому что
   // `navigable` использует его как ВТОРОЙ ключ — после рода линии.
+  // Скачанная цена (payload.price_from) в полноту не входит (17.11): числа нет
+  // на карточке, и ставить выше запись за то, что её статья-источник назвала
+  // цену, — порядок по чужому тексту, а не по данным карточки.
   const cardRichness = `(
-      CASE WHEN ark.payload->>'price_from'    IS NOT NULL THEN 1 ELSE 0 END +
       CASE WHEN ark.payload->>'difficulty'    IS NOT NULL THEN 1 ELSE 0 END +
       CASE WHEN ark.payload->>'duration_days' IS NOT NULL THEN 1 ELSE 0 END +
       CASE WHEN ark.payload->>'best_months'   IS NOT NULL THEN 1 ELSE 0 END
@@ -347,8 +345,6 @@ export async function queryCatalog(filters: CatalogFilters): Promise<CatalogResu
 
   const orderBy =
     sort === 'recent'      ? 'ark.created_at DESC' :
-    sort === 'price_asc'   ? 'COALESCE((ark.payload->>\'price_from\')::numeric, 999999999) ASC, ark.title ASC' :
-    sort === 'price_desc'  ? 'COALESCE((ark.payload->>\'price_from\')::numeric, 0) DESC, ark.title ASC' :
     sort === 'recommended' ? `
     -- МЕСТО БЕЗ СНИМКА — В САМЫЙ КОНЕЦ (решение владельца 20.09).
     --
@@ -374,7 +370,6 @@ export async function queryCatalog(filters: CatalogFilters): Promise<CatalogResu
               AND NOT (ari.route_id IS NOT NULL AND ${shownPhotoSql('ari.model')})
          THEN 1 ELSE 0 END ASC,
     (
-      CASE WHEN ark.payload->>'price_from'    IS NOT NULL THEN 1 ELSE 0 END +
       CASE WHEN ark.payload->>'difficulty'    IS NOT NULL THEN 1 ELSE 0 END +
       CASE WHEN ark.payload->>'duration_days' IS NOT NULL THEN 1 ELSE 0 END +
       CASE WHEN ark.payload->>'best_months'   IS NOT NULL THEN 1 ELSE 0 END
@@ -429,7 +424,6 @@ export async function queryCatalog(filters: CatalogFilters): Promise<CatalogResu
          ark.source_url,
          ark.source_name,
          ark.payload,
-         ark.payload->'price_from'      AS price_from,
          ark.payload->'season'          AS season,
          ark.payload->'difficulty'      AS difficulty,
          ark.payload->'duration_days'   AS duration_days,
@@ -524,7 +518,6 @@ export async function queryCatalog(filters: CatalogFilters): Promise<CatalogResu
       lng:          r.lng != null ? parseFloat(r.lng as string) : null,
       sourceUrl:    (r.source_url as string | null) ?? null,
       sourceName:   (r.source_name as string | null) ?? null,
-      priceFrom:    r.price_from != null ? Number(r.price_from) : null,
       season:       (r.season as string | null) ?? null,
       difficulty:   (r.difficulty as string | null) ?? null,
       durationDays: r.duration_days != null ? Number(r.duration_days) : null,

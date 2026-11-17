@@ -770,8 +770,7 @@ async function createLeadFromBot(
     if (routes.length > 0) {
       touristLines.push('', '<b>Пока посмотрите подходящие маршруты:</b>');
       routes.forEach((r, i) => {
-        const price = r.priceFrom ? ` — от ${Math.round(r.priceFrom / 1000)}к₽` : '';
-        touristLines.push(`${i + 1}. <a href="https://vedarai.ru/routes/${r.id}">${esc(r.title)}</a>${price}`);
+        touristLines.push(`${i + 1}. <a href="https://vedarai.ru/routes/${r.id}">${esc(r.title)}</a>`);
       });
     }
 

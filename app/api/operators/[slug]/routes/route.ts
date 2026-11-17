@@ -28,7 +28,6 @@ export async function GET(
         ark.description,
         ark.lat,
         ark.lng,
-        ark.payload->>'price_from' AS price_from,
         ark.payload->>'difficulty' AS difficulty,
         ark.payload->>'duration_days' AS duration_days,
         vm.effective_price,
@@ -59,7 +58,9 @@ export async function GET(
       description: (r.description ?? '').slice(0, 200),
       lat: r.lat ? Number(r.lat) : null,
       lng: r.lng ? Number(r.lng) : null,
-      priceFrom: r.effective_price ? Number(r.effective_price) : r.price_from ? Number(r.price_from) : null,
+      // Цена — тура оператора; запаса к цене из записи маршрута нет (17.11):
+      // то число скачано со статьи-источника и к этому туру не относится.
+      priceFrom: r.effective_price ? Number(r.effective_price) : r.tour_price_base ? Number(r.tour_price_base) : null,
       priceOld: r.price_old ? Number(r.price_old) : null,
       priceUnit: (r.price_unit as string | null) ?? null,
       difficulty: r.difficulty,

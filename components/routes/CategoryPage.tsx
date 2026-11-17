@@ -33,13 +33,12 @@ export default async function CategoryPage({ category, zone }: { category: strin
   const [routeResult, countResult, zonesResult, parksResult, categoriesResult] = await Promise.all([
     pool.query<{
       id: string; title: string; description: string; category: string;
-      lat: unknown; lng: unknown; price_from: unknown; difficulty: string | null;
+      lat: unknown; lng: unknown; difficulty: string | null;
       duration_days: unknown; source_name: string | null;
       kind: string | null; url_slug: string | null;
     }>(
       `SELECT id, title, description, category, lat, lng, kind,
               ${arkUrlSlugSql('agent_route_knowledge')} AS url_slug,
-              NULLIF(payload->>'price_from', '')::numeric AS price_from,
               payload->>'difficulty' AS difficulty,
               NULLIF(payload->>'duration_days', '')::numeric::int AS duration_days,
               source_name
@@ -107,7 +106,6 @@ export default async function CategoryPage({ category, zone }: { category: strin
     description: clipAtWord(stripFillerLead(r.description), CARD_DESCRIPTION_MAX),
     lat: r.lat != null ? Number(r.lat) : null,
     lng: r.lng != null ? Number(r.lng) : null,
-    priceFrom: r.price_from != null ? Number(r.price_from) : null,
     difficulty: r.difficulty,
     durationDays: r.duration_days != null ? Number(r.duration_days) : null,
     sourceName: r.source_name,

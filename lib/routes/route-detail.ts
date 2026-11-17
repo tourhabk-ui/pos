@@ -516,7 +516,6 @@ export async function loadRouteDetail(id: string, opts: RouteDetailOptions) {
       lng:         r.lng != null ? parseFloat(r.lng as string) : null,
       sourceUrl:   (r.source_url as string | null) ?? null,
       sourceName:  (r.source_name as string | null) ?? null,
-      priceFrom:   payload.price_from != null ? Number(payload.price_from) : null,
       // payload — JSONB: season бывает массивом (перепись 13.10) — тип проверяется.
       season:      payloadText(payload.season),
       difficulty:  payloadText(payload.difficulty),
