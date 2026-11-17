@@ -60,6 +60,8 @@ import { telegramContactHref } from '@/lib/operators/profile-parse';
 import { sessionState } from '@/lib/auth/session-state';
 import { platformAcceptsPayments } from '@/lib/payments/accepting';
 import { TOUR_REVIEWS_ANCHOR } from '@/lib/tours/tour-anchors';
+import type { TourPromotionView } from '@/lib/tours/tour-promotion';
+import { TourPromotions } from '@/components/tours/TourPromotions';
 import { groupStripValue, isGroupSizeUnlimited, unlimitedGroupSentence } from '@/lib/tours/group-size';
 
 /* Шрифты платформы: Playfair — дисплей (голос края), JetBrains Mono — метки. */
@@ -391,7 +393,7 @@ function SectionTitle({ children, icon: Icon, iconColor }: {
 
 /* ─── Main Component ─── */
 
-export default function TourDetailClient({ tour, reviews = [], askSeatsFirst = false, seasonWindow = null, seasonNote = null, placeOffers = null, prefill = {} }: { prefill?: { date?: string; guests?: number }; tour: TourFull; reviews?: TourReview[]; askSeatsFirst?: boolean; seasonWindow?: SeasonWindowView | null; seasonNote?: string | null; placeOffers?: PlaceOffersView | null }) {
+export default function TourDetailClient({ tour, reviews = [], askSeatsFirst = false, seasonWindow = null, seasonNote = null, placeOffers = null, promotions = [], prefill = {} }: { prefill?: { date?: string; guests?: number }; tour: TourFull; reviews?: TourReview[]; askSeatsFirst?: boolean; seasonWindow?: SeasonWindowView | null; seasonNote?: string | null; placeOffers?: PlaceOffersView | null; promotions?: TourPromotionView[] }) {
   const router = useRouter();
   const dayStatus = useDayStatus();
   const [wishlisted, setWishlisted] = useState(false);
@@ -833,6 +835,10 @@ export default function TourDetailClient({ tour, reviews = [], askSeatsFirst = f
                 )}
               </div>
             </section>
+
+            {/* Акция оператора — его слово о своём туре, со сроком и источником
+                (слово владельца 17.11 «покажи»). Цену не меняет. */}
+            <TourPromotions promotions={promotions} />
 
             {/* Рыбалка по сезонам — только для туров, где упомянуты виды рыб
                 (решение владельца 06.08). Вопросный заголовок — цитируемый

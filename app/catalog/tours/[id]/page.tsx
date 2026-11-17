@@ -14,6 +14,7 @@ import { kamchatkaToday } from '@/lib/seat-requests/core';
 import { zhTourAlternatePath } from '@/lib/zh/content';
 import { loadPlaceOffersForTour } from '@/lib/places/place-tours';
 import { splitPrefillId } from '@/lib/booking/request-prefill';
+import { loadActiveTourPromotions, promotionView } from '@/lib/tours/tour-promotion';
 
 export const revalidate = 3600;
 
@@ -92,10 +93,14 @@ export default async function CatalogTourDetailPage({ params }: Props) {
   if (loaded.byId && tour.slug) permanentRedirect(tourPath(tour));
   // «К месту ещё N предложений» (слово владельца 29.10, «3 да») — по записанной
   // связи тура с местом; отказ загрузчик пишет в лог, строки тогда нет.
-  const [reviews, dates, reach, placeOffers] = await Promise.all([
+  // Акция оператора (слово владельца 17.11 «покажи») — пока идёт срок
+  // бронирования по Камчатке; не прочиталась — блока нет, отказ в логе.
+  const [reviews, dates, reach, placeOffers, promoRead] = await Promise.all([
     getReviews(tour.id), countTourDates(tour.id), reachForTour(tour.id),
     loadPlaceOffersForTour({ id: tour.id, main_place_id: tour.main_place_id }),
+    loadActiveTourPromotions(tour.id),
   ]);
+  const promotions = promoRead.state === 'ok' ? promoRead.items.map(promotionView) : [];
   // Расписания нет, а оператору есть куда написать — первым путём на карточке
   // идёт запрос мест (04.10). «Не смог прочитать» (null) — не повод менять
   // путь: остаётся обычная заявка.
@@ -137,7 +142,7 @@ export default async function CatalogTourDetailPage({ params }: Props) {
         type="application/ld+json"
         dangerouslySetInnerHTML={{ __html: jsonLdHtml(structuredData) }}
       />
-      <TourDetailClient prefill={prefill} tour={tour} reviews={reviews} askSeatsFirst={askSeatsFirst} seasonWindow={seasonWindow} seasonNote={seasonNote} placeOffers={placeOffers} />
+      <TourDetailClient prefill={prefill} tour={tour} reviews={reviews} askSeatsFirst={askSeatsFirst} seasonWindow={seasonWindow} seasonNote={seasonNote} placeOffers={placeOffers} promotions={promotions} />
     </>
   );
 }
