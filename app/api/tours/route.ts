@@ -10,6 +10,16 @@ import { BEAR_FALLBACK } from '@/lib/media/wildlife-photos';
 
 export const dynamic = 'force-dynamic';
 
+/**
+ * Кэш списка (аудит 16.11, #3463 п. 3): минута при успехе — список туров
+ * меняется не чаще, а обходчики и агенты зовут его пачками. Отказ базы
+ * (`degraded`) не кэшируется: пустой список не должен застревать на минуту.
+ * Обстановку и вулканы так не кэшируем — устаревшая тревога хуже лишнего
+ * запроса. Общее правило no-store в next.config.js этот адрес исключает.
+ */
+const TOURS_CACHE_CONTROL = 'public, max-age=60';
+const TOURS_DEGRADED_CACHE_CONTROL = 'no-store';
+
 interface TourResponse {
   id: string;
   name: string;
@@ -239,7 +249,8 @@ export async function GET(request: NextRequest) {
           hasMore: offset + limit < total,
         },
       },
-    } as ApiResponse<{ tours: TourResponse[]; pagination: { total: number; limit: number; offset: number; hasMore: boolean } }>);
+    } as ApiResponse<{ tours: TourResponse[]; pagination: { total: number; limit: number; offset: number; hasMore: boolean } }>,
+    { headers: { 'Cache-Control': TOURS_CACHE_CONTROL } });
 
   } catch (error) {
     // Деградация была немой: причина глоталась, и «tours: []» на проде месяцами
@@ -264,7 +275,8 @@ export async function GET(request: NextRequest) {
         },
       },
       degraded: true,
-    } as ApiResponse<{ tours: TourResponse[]; pagination: { total: number; limit: number; offset: number; hasMore: boolean } }>, { status: 200 });
+    } as ApiResponse<{ tours: TourResponse[]; pagination: { total: number; limit: number; offset: number; hasMore: boolean } }>,
+    { status: 200, headers: { 'Cache-Control': TOURS_DEGRADED_CACHE_CONTROL } });
   }
 }
 
