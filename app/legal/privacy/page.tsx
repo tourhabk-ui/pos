@@ -3,10 +3,13 @@ import { pageContainer } from '@/lib/layout/page-width';
 import { ChevronLeft } from 'lucide-react';
 import PageShell from '@/components/shared/PageShell';
 import { REQUISITES } from '@/lib/legal/requisites';
+import LegalLangSwitch from '@/components/legal/LegalLangSwitch';
+import { legalAlternates } from '@/lib/legal/legal-i18n';
 import { THIRD_PARTIES, crossBorderRecipients } from '@/lib/legal/third-party-registry';
 
 export const metadata = {
-  alternates: { canonical: '/legal/privacy' },
+  // Пара ru/en для hreflang — из одной таблицы с переключателем (lib/legal/legal-i18n).
+  alternates: legalAlternates('privacy', 'ru'),
   title: 'Политика конфиденциальности',
   description: 'Политика обработки персональных данных Ведара: какие данные обрабатываются, цели и основания, хранение и защита, передача третьим лицам, права субъекта.',
 };
@@ -20,6 +23,8 @@ export default function PrivacyPage() {
           <ChevronLeft className="w-5 h-5 mr-1" />
           На главную
         </Link>
+
+        <LegalLangSwitch doc="privacy" current="ru" />
 
         <h1 className="text-3xl font-bold mb-8">Политика конфиденциальности</h1>
 

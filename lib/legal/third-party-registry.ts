@@ -53,6 +53,12 @@ export interface ThirdParty {
   /** Зачем — словами для человека, не «для улучшения сервиса». */
   purpose: string;
   /**
+   * Те же поля по-английски — для перевода политики (/en/legal/privacy).
+   * Перевод, а не отдельное объявление: смысл обязан совпадать с русским,
+   * и сторож legal-en-pages требует их у каждой записи.
+   */
+  en: { title: string; entity: string | null; purpose: string };
+  /**
    * Является ли размещение РЕКЛАМОЙ по 38-ФЗ. Если да — нужен erid, и без
    * него грузить нельзя: токен выдаёт ОРД, выдумать его невозможно.
    */
@@ -80,6 +86,11 @@ export const THIRD_PARTIES: ThirdParty[] = [
     host: 'mc.yandex.ru',
     jurisdiction: 'RU',
     purpose: 'веб-аналитика: какие страницы открывают и откуда пришли; Вебвизор — запись действий на странице (клики, прокрутка, движение курсора) без содержимого полей с телефоном, почтой и именем',
+    en: {
+      title: 'Yandex Metrica',
+      entity: 'Yandex LLC (ООО «Яндекс»), INN 7736207543',
+      purpose: 'web analytics: which pages are opened and where visitors came from; Webvisor — recording of on-page actions (clicks, scrolling, cursor movement) without the contents of the phone, email and name fields',
+    },
     isAdvertising: false,
     erid: null,
     consentCategory: 'analytics',
