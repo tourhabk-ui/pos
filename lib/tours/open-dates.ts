@@ -40,6 +40,11 @@ export interface DatesCount {
  */
 export function calendarDatesWhereSql(ta: string, tourIdExpr: string): string {
   if (!/^[a-z_][a-z0-9_]*$/.test(ta)) throw new Error(`calendarDatesWhereSql: недопустимый алиас «${ta}»`);
+  // Id тура — только параметр запроса ($n) или колонка alias.column: строка
+  // встаёт в текст SQL, и значение снаружи сюда попасть не должно.
+  if (!/^(\$[1-9][0-9]*|[a-z_][a-z0-9_]*\.[a-z_][a-z0-9_]*)$/.test(tourIdExpr)) {
+    throw new Error(`calendarDatesWhereSql: недопустимое выражение id тура «${tourIdExpr}»`);
+  }
   return `${ta}.operator_tour_id = ${tourIdExpr}
          AND ${ta}.date >= CURRENT_DATE
          AND ${ta}.is_cancelled = false
