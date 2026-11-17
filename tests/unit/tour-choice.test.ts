@@ -28,17 +28,25 @@
  */
 import { describe, it, expect, vi, beforeEach } from 'vitest';
 
-const { query } = vi.hoisted(() => ({ query: vi.fn() }));
+const { query, waterfall } = vi.hoisted(() => ({ query: vi.fn(), waterfall: vi.fn() }));
 vi.mock('@/lib/db-pool', () => ({
   pool: { query: (...a: unknown[]) => query(...a) },
   transaction: vi.fn(),
 }));
+// Провайдер цикла инструментов — подменён только для сцены «вопрос человека
+// доходит до резолвера» (ниже); остальные сцены его не зовут.
+vi.mock('@/lib/ai/providers', async (importOriginal) => {
+  const orig = await importOriginal<typeof import('@/lib/ai/providers')>();
+  return { ...orig, callToolsWaterfall: (...a: unknown[]) => waterfall(...a) };
+});
+vi.mock('@/lib/ai/rag-context', () => ({ buildRAGContext: vi.fn().mockResolvedValue('') }));
+vi.mock('@/lib/kuzmich/safety-review-log', () => ({ recordSafetyReview: vi.fn() }));
 
 import {
-  resolveTourChoice, resolveTourByQuery, candidateLines, matchSellerName, sameWord, queryRemainder,
+  resolveTourChoice, resolveTourByQuery, candidateLines, matchSellerName, sameWord, queryRemainder, namesSellerExplicitly,
   getTourAvailabilityForKuzmich,
 } from '@/lib/kuzmich/tour-availability-tool';
-import { handleBookingStep, startBooking, bookingSumLine, getTourDetails, type PendingBooking } from '@/lib/kuzmich/core';
+import { handleBookingStep, startBooking, bookingSumLine, getTourDetails, aiChatAgentLoop, executeKuzmichTool, completeAnswerTours, type PendingBooking } from '@/lib/kuzmich/core';
 import { orderOffersBy } from '@/lib/tours/offer-order';
 
 type Row = Record<string, unknown>;
@@ -610,6 +618,96 @@ describe('резолвер: продавец по имени и частично
     expect(await startBooking(4248, 'бронирую', 'tg', [{ role: 'user', content: 'Тихая Заимка рыбалка' }], own, reply3)).toBe(true);
     expect(own.get(4248)?.step).toBe('name');
     expect(own.get(4248)?.tour?.id).toBe(202);
+  });
+});
+
+/**
+ * Ночной эвал 17.11 (слово владельца «го»): «Покажи туры «Края Вулканов»» —
+ * двенадцать туров других компаний по слову «вулканов», ни одного тура самой
+ * компании. Имя из общих слов, названное ЯВНО — в кавычках или словом
+ * «компания», — это вопрос о продавце: его туры по его номеру. Без таких
+ * примет — как было (§0, ревью 29.10).
+ */
+describe('резолвер: имя из общих слов, названное явно', () => {
+  beforeEach(() => { query.mockImplementation(fakeDb(TOURS, SELLERS)); });
+
+  it('в кавычках — туры этого продавца, а не туры всех компаний по словам', async () => {
+    const choice = await resolveTourChoice('«Северная Рыбалка»');
+    expect(choice.kind).toBe('seller');
+    if (choice.kind !== 'seller') return;
+    expect(choice.basis).toBe('own');
+    expect(choice.generalName).toBe(true);
+    expect(choice.tours.map((t) => t.id)).toEqual([301]);
+  });
+
+  it('модель передала имя без кавычек, а человек назвал его в кавычках — тоже его туры', async () => {
+    const text = await getTourDetails('Северная Рыбалка', { context: 'Покажи туры «Северной Рыбалки».' });
+    expect(text).toContain('ID301');
+    expect(text).not.toContain('ID202');
+    expect(text).toContain('Имя продавца состоит из общих слов');
+    // Даты — той же мерой, что детали.
+    const dates = await getTourAvailabilityForKuzmich({ tour: 'Северная Рыбалка', context: 'Покажи туры «Северной Рыбалки».' });
+    expect(dates).toContain('ID301');
+    expect(dates).not.toContain('ID202');
+  });
+
+  it('после слова «компании» — его туры; остаток ищется среди них', async () => {
+    const choice = await resolveTourChoice('туры компании Северная Рыбалка');
+    expect(choice.kind === 'seller' && choice.basis).toBe('own');
+    const narrowed = await resolveTourChoice('сплав компании Северная Рыбалка');
+    expect(narrowed.kind === 'one' && narrowed.tour.id).toBe(301);
+  });
+
+  it('без кавычек и без «компании» — по-прежнему туры всех компаний по словам (§0)', async () => {
+    const plain = await resolveTourChoice('Северная Рыбалка', { context: 'северная рыбалка — где лучше?' });
+    expect(plain.kind === 'seller' && plain.basis).toBe('words');
+    // «операторы» — общий вопрос, не имя продавца.
+    expect(namesSellerExplicitly('какие операторы возят на северную рыбалку', 'Северная Рыбалка')).toBe(false);
+    // В кавычках не только имя — это не имя, а название или фраза.
+    expect(namesSellerExplicitly('тур «Северная рыбалка у устья»', 'Северная Рыбалка')).toBe(false);
+    expect(namesSellerExplicitly('Покажи туры «Северной Рыбалки».', 'Северная Рыбалка')).toBe(true);
+    expect(namesSellerExplicitly('туры оператора Северная Рыбалка', 'Северная Рыбалка')).toBe(true);
+  });
+
+  it('исполнитель инструментов передаёт вопрос резолверу', async () => {
+    const asked = await executeKuzmichTool('get_tour_details', { name: 'Северная Рыбалка' }, { question: 'Покажи туры «Северной Рыбалки».' });
+    expect(asked).toContain('ID301');
+    const plain = await executeKuzmichTool('get_tour_details', { name: 'Северная Рыбалка' }, {});
+    expect(plain).not.toContain('ID301');
+    // Даты — той же мерой, что детали.
+    const dates = await executeKuzmichTool('get_tour_availability', { tour: 'Северная Рыбалка' }, { question: 'Когда туры «Северной Рыбалки»?' });
+    expect(dates).toContain('ID301');
+  });
+
+  it('дописка к ответу о продавце не прибавляет туров других компаний (ночной эвал 17.11)', async () => {
+    const calls = [{
+      query: 'бухта',
+      output: [
+        'ID201: "Бухта Тюленья" — Бухта  тип:boat  от 15 000 ₽/чел. | Оп: Тихая Заимка',
+        'ID990: "Бухта Светлая на катере" — Бухта  тип:boat  от 12 000 ₽/чел. | Оп: Савва Кедровец',
+      ].join('\n'),
+    }];
+    const answer = 'У «Тихой Заимки» по бухтам: «Бухта Тюленья» — 15 000 ₽.';
+    const seller = await completeAnswerTours(answer, 'Какие морские туры у Тихой Заимки?', calls);
+    expect(seller.text).toBe(answer);
+    // Тот же ответ на вопрос без продавца — дописка как раньше.
+    const general = await completeAnswerTours(answer, 'Какие туры в бухты?', calls);
+    expect(general.text).toContain('Ещё по запросу на платформе:');
+    expect(general.text).toContain('«Бухта Светлая на катере» — Савва Кедровец');
+  });
+
+  it('цикл Кузьмича: модель зовёт инструмент с именем без кавычек — вопрос человека доходит до резолвера', async () => {
+    waterfall.mockReset();
+    waterfall
+      .mockResolvedValueOnce({
+        content: null, provider: 'test',
+        tool_calls: [{ id: 'c1', type: 'function', function: { name: 'get_tour_details', arguments: JSON.stringify({ name: 'Северная Рыбалка' }) } }],
+      })
+      .mockResolvedValueOnce({ content: 'Вот туры.', provider: 'test' });
+    await aiChatAgentLoop('Покажи туры «Северной Рыбалки».', 'система', [], []);
+    const toolMsg = (waterfall.mock.calls[1]![0] as Array<{ role: string; content: string }>).find((m) => m.role === 'tool');
+    expect(toolMsg?.content).toContain('ID301');
+    expect(toolMsg?.content).not.toContain('ID202');
   });
 });
 

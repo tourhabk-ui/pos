@@ -66,6 +66,7 @@
 import { z } from 'zod';
 import { TOOL_EXECUTION_FAILED } from '@/lib/kuzmich/tool-failure';
 import { CATALOG_AS_SUBSTITUTE, FAR_BLOCK_MARK } from '@/lib/kuzmich/tour-filter';
+import { hasSafetyRanking } from '@/lib/kuzmich/banned-advice';
 
 // ── Критерии фикстуры ────────────────────────────────────────────────────────
 
@@ -95,6 +96,12 @@ export const CommercialCheckSchema = z.discriminatedUnion('kind', [
   z.object({ kind: z.literal('only_operator'), operator: z.string().min(3), narrowed: z.boolean().optional() }),
   /** Тур дороже бюджета назван — значит, сказано, что он дороже. */
   z.object({ kind: z.literal('over_budget_flagged'), max_price: z.number().int().positive() }),
+  /**
+   * Нет выдуманной оценки безопасности способа или тура («единственный
+   * безопасный способ увидеть …», ночной эвал 17.11). Судится в КАЖДОМ
+   * вопросе, даже без записи в фикстуре: запрет — на всех поверхностях.
+   */
+  z.object({ kind: z.literal('no_safety_ranking') }),
 ]);
 export type CommercialCheck = z.infer<typeof CommercialCheckSchema>;
 export type CommercialCheckKind = CommercialCheck['kind'];
@@ -415,6 +422,25 @@ export interface CommercialInput {
 const list = (ts: readonly TourLine[]) => ts.map((t) => `ID${t.id}`).join(', ');
 
 /**
+ * Ответ говорит, что туров нет: «туров … нет», «нет туров», «такого тура нет».
+ * Не отказ: «у тура нет расписания», «мест нет», «отзывов нет» — между словами
+ * не стоит то, чего нет на самом деле (мест, дат, расписания, цены, отзывов).
+ * Не отказ и «туров зимой нет», «в июле нет»: о сезоне строка каталога не
+ * говорит, судить такое «нет» не по чему.
+ */
+const DENIES_TOURS_RE = /(?<![а-яё])(?:туров|(?:такого|подходящего|нужного|ни одного|отдельного|отдельных)\s+тур(?:а|ов))(?![а-яё])(?:(?!мест|дат|расписан|отзыв|цен|сезон|летом|зимой|зим[аеуы]|осенью|весной|январ|феврал|марте|апрел|мае|июн|июл|август|сентябр|октябр|ноябр|декабр)[^.!?\n]){0,90}(?<![а-яё])нет(?![а-яё])|(?<![а-яё])нет\s+(?:ни одного\s+|подходящих\s+|таких\s+|отдельных\s+)?тур(?:а|ов)(?![а-яё])/i;
+
+export function deniesTours(answer: string): boolean {
+  return DENIES_TOURS_RE.test(answer);
+}
+
+/**
+ * Поправка дописки (lib/kuzmich/tour-list-complete) к ложному «туров нет»:
+ * её заголовок. Ответ с ней правду о витрине уже сказал.
+ */
+export const TOURS_EXIST_CORRECTION_RE = /^Поправка: (?:по запросу на платформе туры есть|в бюджет [\d\s]+ ₽ на платформе есть):$/m;
+
+/**
  * Названа ли компания: каждое слово имени от четырёх букв — началом слова
  * ответа по основе («Лагуна Экспедиция» находит и «Лагуны Экспедиции»,
  * «Край Вулканов» — «Края Вулканов»).
@@ -439,8 +465,12 @@ export function judgeCommercial(input: CommercialInput): CommercialVerdict {
   for (const t of [...catalogTours, ...referenceLines, ...parseTourLines(context)]) if (!universeById.has(t.id)) universeById.set(t.id, t);
   const universe = [...universeById.values()];
   const named = namedTours(answer, universe);
+  // Запрет выдуманной оценки безопасности — в каждом вопросе (схема выше).
+  const all: readonly CommercialCheck[] = checks.some((c) => c.kind === 'no_safety_ranking')
+    ? checks
+    : [...checks, { kind: 'no_safety_ranking' }];
 
-  const verdicts = checks.map((c): CheckVerdict => {
+  const verdicts = all.map((c): CheckVerdict => {
     switch (c.kind) {
       case 'names_all_tours': {
         const ref = references.get(referenceKey(c.query));
@@ -468,9 +498,14 @@ export function judgeCommercial(input: CommercialInput): CommercialVerdict {
         }
         const namedIds = new Set(named.map((t) => t.id));
         const missing = want.filter((t) => !namedIds.has(t.id));
-        return missing.length === 0
-          ? { kind: c.kind, outcome: 'pass', reason: `названы все ${want.length}: ${list(want)}` }
-          : { kind: c.kind, outcome: 'fail', reason: `названо ${want.length - missing.length} из ${want.length}; нет ${list(missing)}` };
+        if (missing.length > 0) {
+          return { kind: c.kind, outcome: 'fail', reason: `названо ${want.length - missing.length} из ${want.length}; нет ${list(missing)}` };
+        }
+        // Все названы, а ответ говорит «туров нет» и не поправлен (эвал 17.11,
+        // budget-tolbachik-70k: «дешевле 70 000 нет», а ниже тур за 60 000).
+        return deniesTours(answer) && !TOURS_EXIST_CORRECTION_RE.test(answer)
+          ? { kind: c.kind, outcome: 'fail', reason: `названы все ${want.length}: ${list(want)}, но ответ говорит, что туров нет` }
+          : { kind: c.kind, outcome: 'pass', reason: `названы все ${want.length}: ${list(want)}` };
       }
       case 'names_some_tour': {
         const ref = references.get(referenceKey(c.query));
@@ -550,6 +585,10 @@ export function judgeCommercial(input: CommercialInput): CommercialVerdict {
           ? { kind: c.kind, outcome: 'pass', reason: `названо ${named.length} туров «${c.operator}», чужих нет` }
           : { kind: c.kind, outcome: 'fail', reason: `чужие туры выданы за туры «${c.operator}»: ${foreign.map((t) => `ID${t.id} (${t.operator ?? 'компания не записана'})`).join(', ')}` };
       }
+      case 'no_safety_ranking':
+        return hasSafetyRanking(answer)
+          ? { kind: c.kind, outcome: 'fail', reason: 'выдуманная оценка безопасности способа или тура («самый / единственный безопасный …»)' }
+          : { kind: c.kind, outcome: 'pass', reason: 'оценки безопасности способа или тура нет' };
       case 'over_budget_flagged': {
         // Только цены за человека: «140 000 ₽/группа» — не «дороже бюджета с человека».
         const over = named.filter((t) => t.price !== null && t.unit === 'per_person' && t.price > c.max_price);

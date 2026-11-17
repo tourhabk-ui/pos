@@ -55,6 +55,7 @@ import {
 import { recordKuzmichAnswer } from '@/lib/kuzmich/answer-timing';
 import { tallyTurnStall, answerStall } from '@/lib/kuzmich/loop-stall';
 import { stripUngroundedDistanceClaims } from '@/lib/kuzmich/distance-guard';
+import { stripBannedAdvice } from '@/lib/kuzmich/banned-advice';
 import { KUZMICH_TOOLS, validateToolArgs } from '@/lib/kuzmich/tool-schemas';
 import { guardPlaceArgs } from '@/lib/kuzmich/place-arg-guard';
 import { searchOperatorAvailability } from '@/lib/telegram/operator-availability';
@@ -1736,7 +1737,7 @@ function bookingTourLines(tour: TourRow): string[] {
 /** Сколько описания отдаётся агенту; длиннее — с пометкой об обрезке. */
 const TOUR_DESCRIPTION_MAX = 1200;
 
-export async function getTourDetails(query: string): Promise<string> {
+export async function getTourDetails(query: string, opts: { context?: string } = {}): Promise<string> {
   const q = query.trim();
   if (!q) return '';
   try {
@@ -1745,7 +1746,7 @@ export async function getTourDetails(query: string): Promise<string> {
     // иначе «детали» и «даты» могут ответить про разные туры.
     // Туры нескольких компаний (слово владельца 29.10): детали — о первом по
     // правилу 1в, первой строкой названы все, выбирает человек.
-    const choice = await resolveTourChoice(q);
+    const choice = await resolveTourChoice(q, { context: opts.context });
     if (choice.kind === 'none') return noTourFound(q);
     // Имя продавца или часть слов (ловушка 29.10, name-search): список туров
     // и страница продавца, а не детали первого — тур не выбран. До 29.10
@@ -2776,6 +2777,15 @@ export function toolOutputHasData(content: string): boolean {
 export interface ToolSurface {
   surface?: 'chat' | 'mcp';
   /**
+   * Вопрос человека этого хода (чат Кузьмича). Резолвер тура читает по нему
+   * одно: назвал ли человек продавца явно — в кавычках или словом «компания»
+   * (namesSellerExplicitly, слово владельца 17.11 «го»). Модель передаёт в
+   * инструмент имя без кавычек, и «туры «Края Вулканов»» без вопроса читались
+   * как слово «вулканов». MCP и A2A вопроса не передают: там явность — в
+   * аргументе самого агента.
+   */
+  question?: string;
+  /**
    * Свободный вопрос внешнего агента по A2A (lib/a2a/chat). Поверхность та же,
    * что у чата, но то, что спрятано от людей на сайте (пауза проката,
    * lib/rental/site-pause), агенту отдаётся, как MCP.
@@ -2826,7 +2836,7 @@ async function executeTool(name: string, args: Record<string, string>, opts: Too
     }
     if (name === 'get_tour_details') {
       const q = args.name ?? args.query ?? '';
-      const details = await getTourDetails(q);
+      const details = await getTourDetails(q, { context: opts.question });
       return details || 'Не удалось получить детали тура.';
     }
     if (name === 'get_place_info') {
@@ -2947,7 +2957,7 @@ async function executeTool(name: string, args: Record<string, string>, opts: Too
     }
     if (name === 'get_tour_availability') {
       const { getTourAvailabilityForKuzmich } = await import('@/lib/kuzmich/tour-availability-tool');
-      return await getTourAvailabilityForKuzmich({ tour: args.tour, date_from: args.date_from, days: args.days, people: args.people });
+      return await getTourAvailabilityForKuzmich({ tour: args.tour, date_from: args.date_from, days: args.days, people: args.people, context: opts.question });
     }
     if (name === 'compare_tours') {
       // 2–4 тура рядом по тому, что важно человеку (слово владельца 29.10) —
@@ -2977,6 +2987,35 @@ async function executeTool(name: string, args: Record<string, string>, opts: Too
 // Публичный MCP-сервер (/api/mcp) делегирует сюда: один мозг — два протокола.
 // Внешний агент через MCP видит те же данные, что турист через Кузьмича.
 export { executeTool as executeKuzmichTool };
+
+/**
+ * Дописка списка туров к готовому ответу (lib/kuzmich/tour-list-complete):
+ * дозапросы get_tours по словам вопроса и строки их источника для журнала.
+ *
+ * Вопрос о продавце («туры «Края Вулканов»», «у Местечка Камчатка»): список —
+ * его, и дописка не прибавляет туров других компаний по словам вопроса
+ * (ночной эвал 17.11: шесть провалов only_operator — все от «Ещё по
+ * запросу»). Часть имени — запрос может быть и не о нём: дописка как обычно.
+ * Отказ чтения — исключение: вызывающий оставляет ответ без дописки, а не с
+ * чужими турами.
+ */
+export async function completeAnswerTours(
+  answer: string,
+  question: string,
+  toursCalls: readonly ToursCall[],
+  surface: ToolSurface = {},
+): Promise<{ text: string; source: string }> {
+  const seller = await resolveSellerInText(question);
+  const sellerNamed = seller?.kind === 'seller' && !seller.partialName;
+  const catalog = await executeTool('get_tours', {}, surface);
+  const extra: ToursCall[] = [];
+  for (const q of sellerNamed ? [] : questionQueries(question, catalog)) {
+    if (toursCalls.some((c) => c.query.toLowerCase() === q)) continue;
+    extra.push({ query: q, output: await executeTool('get_tours', { activity_type: q }, surface) });
+  }
+  const text = completeTourList(answer, question, [...toursCalls, ...extra], catalog, { seller: sellerNamed });
+  return { text, source: completionSources(answer, text, [...extra.map((c) => c.output), catalog]) };
+}
 
 /**
  * Сколько символов вывода инструмента сохраняется в журнале вызовов.
@@ -3116,11 +3155,13 @@ export async function aiChatAgentLoop(
       console.warn(`[kuzmich-place-guard] ${name}: вулкан не из разговора, названо несколько — вызов не исполнен`);
       return d.message;
     }
+    // Вопрос человека — резолверу тура: явное имя продавца (ToolSurface.question).
+    const surface: ToolSurface = { ...toolSurface, question: userText };
     if (d.kind === 'rebind') {
       console.warn(`[kuzmich-place-guard] ${name}: «${d.from}» заменён на названный в разговоре «${d.to}»`);
-      return executeTool(name, d.args, toolSurface);
+      return executeTool(name, d.args, surface);
     }
-    return executeTool(name, args, toolSurface);
+    return executeTool(name, args, surface);
   };
 
   for (let turn = 0; turn < 4; turn++) {
@@ -3161,18 +3202,11 @@ export async function aiChatAgentLoop(
       let final = result.content;
       if (final && !detectEmergency(userText).detected && !asksTripPlan(userText) && !asksTourComparison(userText)) {
         try {
-          const catalog = await executeTool('get_tours', {}, toolSurface);
-          const extra: ToursCall[] = [];
-          for (const q of questionQueries(userText, catalog)) {
-            if (toursCalls.some((c) => c.query.toLowerCase() === q)) continue;
-            extra.push({ query: q, output: await executeTool('get_tours', { activity_type: q }, toolSurface) });
-          }
-          const before = final;
-          final = completeTourList(final, userText, [...toursCalls, ...extra], catalog);
+          const done = await completeAnswerTours(final, userText, toursCalls, toolSurface);
+          final = done.text;
           // Дописанные туры — в журнал хода: судья эвала должен видеть их
           // источник, иначе честные строки из БД он считает выдумкой.
-          const src = completionSources(before, final, [...extra.map((c) => c.output), catalog]);
-          if (src) toolRuns?.push({ name: 'get_tours', producedData: true, output: src });
+          if (done.source) toolRuns?.push({ name: 'get_tours', producedData: true, output: done.source });
         } catch (e) {
           console.warn('[kuzmich-complete] дописка не удалась:', e);
         }
@@ -3643,7 +3677,9 @@ export async function askKuzmichForEval(question: string): Promise<{ answer: str
 
   // Тот же guard (#1883), что в живом aiChat — иначе pass_rate евала мерил
   // бы пайплайн, которого турист уже не видит.
-  const cleanedAnswer = cleanAIResponse(raw.trim());
+  // Запреты всех поверхностей (притворись мёртвым, выдуманная оценка
+  // безопасности тура) — тоже: турист вырезанного не видит (эвал 17.11).
+  const cleanedAnswer = stripBannedAdvice(cleanAIResponse(raw.trim())).text;
   const distanceGuard = stripUngroundedDistanceClaims(cleanedAnswer, context);
 
   // Строка безопасности под ответом о маршруте — турист её видит, значит и

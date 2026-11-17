@@ -75,7 +75,8 @@ describe('продавец в get_tour_details', () => {
     expect(core).toMatch(/legal_info->>'inn'/);
   });
   it('people прокинут от исполнителя до инструмента и описан в схемах', () => {
-    expect(core).toMatch(/people: args\.people \}\)/);
+    // Вторым идёт вопрос человека — явное имя продавца (17.11).
+    expect(core).toMatch(/people: args\.people(?:, context: opts\.question)? \}\)/);
     expect(readFileSync('lib/kuzmich/tool-schemas.ts', 'utf8')).toMatch(/people: \{ type: 'string'/);
     expect(readFileSync('lib/mcp/public-tools.ts', 'utf8')).toMatch(/people: \{ lead: 'Number of travellers/);
   });

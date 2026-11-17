@@ -169,7 +169,8 @@ describe('судья видит хвост ответа и источник до
     expect(f).toMatch(/JUDGE_ANSWER_LIMIT = 4_000/);
     expect(f).toContain('answer.slice(0, JUDGE_ANSWER_LIMIT)');
     const c = fs.readFileSync('lib/kuzmich/core.ts', 'utf8');
-    expect(c).toMatch(/completionSources\(before, final/);
-    expect(c).toMatch(/if \(src\) toolRuns\?\.push\(\{ name: 'get_tours', producedData: true, output: src \}\)/);
+    // Дописка вынесена в completeAnswerTours (17.11): источник считает она, журнал пишет цикл.
+    expect(c).toMatch(/completionSources\(answer, text/);
+    expect(c).toMatch(/if \(done\.source\) toolRuns\?\.push\(\{ name: 'get_tours', producedData: true, output: done\.source \}\)/);
   });
 });

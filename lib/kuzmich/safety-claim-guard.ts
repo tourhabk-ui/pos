@@ -140,6 +140,9 @@ export function guardSafetyClaims(rawAnswer: string, toolRuns: readonly ToolRun[
   if (banned.removed.length > 0) {
     console.error('[kuzmich-banned-advice] вырезан опасный совет', { count: banned.removed.length });
   }
+  if (banned.ranking.length > 0) {
+    console.error('[kuzmich-banned-advice] вырезана выдуманная оценка безопасности способа или тура', { count: banned.ranking.length });
+  }
   const answer = banned.text;
   const claims = findSafetyClaims(answer);
   if (claims.length === 0) return { text: answer, verdict: 'none', claims, flagged: [] };

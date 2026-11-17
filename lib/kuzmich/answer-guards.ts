@@ -142,6 +142,15 @@ export function finishKuzmichAnswer(input: FinishInput): FinishedAnswer {
 export const SHOWN_BANNED_ADVICE_CORRECTION =
   `Поправка к сказанному выше: притворяться мёртвым нельзя. Не беги, не поворачивайся спиной, медленно отходи. ${BANNED_ADVICE_NOTE}`;
 
+/**
+ * Поправка к выдуманной оценке безопасности, которую человек уже прочитал
+ * («единственный безопасный способ увидеть …», ночной эвал 17.11): сравнивать
+ * туры по безопасности Ведару не по чему.
+ */
+export const SHOWN_SAFETY_RANKING_CORRECTION =
+  'Поправка к сказанному выше: какой способ или тур безопаснее, в данных Ведара не сказано — это была не проверенная оценка. '
+  + 'Обстановку на день выезда уточни у оператора и в сводках; экстренно — 112.';
+
 export interface ShownCorrection {
   /** Что дописать к уже отданному тексту; пусто — поправок нет. */
   tail: string;
@@ -168,6 +177,7 @@ export function correctShownAnswer(input: Omit<FinishInput, 'sos' | 'lang'>): Sh
   const notes: string[] = [];
   if (distance.removed.length > 0) notes.push(DISTANCE_HONEST_LINE);
   if (banned.removed.length > 0) notes.push(SHOWN_BANNED_ADVICE_CORRECTION);
+  if (banned.ranking.length > 0) notes.push(SHOWN_SAFETY_RANKING_CORRECTION);
   if (safety.text.startsWith(banned.text) && safety.text.length > banned.text.length) {
     notes.push(safety.text.slice(banned.text.length).trim());
   }
