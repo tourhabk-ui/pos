@@ -14,7 +14,7 @@ vi.mock('@/lib/db-pool', () => ({ pool: { query: vi.fn() } }));
 vi.mock('@/lib/planner', () => ({}));
 
 import { pool } from '@/lib/db-pool';
-import { orderOffersBy } from '@/lib/tours/offer-order';
+import { orderOffersByCompanyTurns } from '@/lib/tours/offer-order';
 
 const q = pool.query as unknown as ReturnType<typeof vi.fn>;
 
@@ -26,7 +26,8 @@ const rows = Array.from({ length: 12 }, (_, i) => ({
 }));
 
 const idsOf = (catalog: string | null) => [...(catalog ?? '').matchAll(/^ID(\d+):/gm)].map((m) => Number(m[1]));
-const rule = (day: string) => orderOffersBy(rows, (r) => ({ id: r.id, nearestFreeDate: null }), { day }).map((r) => r.id);
+// Правило каталога — круг по компаниям (17.11): у строк нет компании, и каждый тур — сам себе очередь.
+const rule = (day: string) => orderOffersByCompanyTurns(rows, (r) => ({ id: r.id, nearestFreeDate: null, anyDayOpen: null, partnerId: null }), { day }).map((r) => r.id);
 
 afterEach(() => { vi.useRealTimers(); q.mockReset(); });
 

@@ -235,6 +235,41 @@ export function roundRobinByCompany<T>(groups: readonly CompanyGroup<T>[]): T[] 
   return out;
 }
 
+/**
+ * Правило 1в по кругу компаний — для списков, которые читают целиком сверху
+ * вниз по страницам (get_tours, каталог Кузьмича). Ступени правила 1в те же
+ * и идут друг за другом: выезды, затем «в любой день сезона», затем
+ * остальные. Внутри ступени — круг: по одному туру от компании, компании в
+ * порядке `groupOffersByCompany` (ближайшая дата компании, ничья — жребий дня
+ * компании, один билет на компанию), затем второй тур каждой и так далее.
+ *
+ * Зачем (бриф 17.11, слово владельца «го»): тур за туром первая страница
+ * get_tours по «вулканам» — три тура из четырёх одного гида. Его жребий
+ * выпадал раньше, потому что туров у него больше: билет у каждого тура свой.
+ * Круг даёт компании одно место за раз, сколько бы туров у неё ни было.
+ *
+ * Тур без компании — сам себе очередь (`tour:<id>`). Новый массив.
+ */
+export function orderOffersByCompanyTurns<T>(
+  rows: readonly T[],
+  key: (row: T) => OfferKeyInput & { partnerId: string | null | undefined },
+  opts?: OfferOrderOptions,
+): T[] {
+  const day = resolveDay(opts);
+  const items = rows.map((row) => {
+    const k = key(row);
+    const pid = typeof k.partnerId === 'string' && k.partnerId.trim() !== '' ? k.partnerId.trim() : `tour:${String(k.id)}`;
+    return { row, id: k.id, nearestFreeDate: k.nearestFreeDate, anyDayOpen: k.anyDayOpen, partnerId: pid, partnerName: '' };
+  });
+  const out: T[] = [];
+  for (const tier of [0, 1, 2] as const) {
+    const part = items.filter((x) => offerTier(x) === tier);
+    if (part.length === 0) continue;
+    out.push(...roundRobinByCompany(groupOffersByCompany(part, { day })).map((x) => x.row));
+  }
+  return out;
+}
+
 // ── Подписи ──────────────────────────────────────────────────────────────
 
 export const OFFER_ORDER_NOTE = {
@@ -277,6 +312,15 @@ export const SORT_CHOICE_NOTE_RU =
 /** Для агента (каталог Кузьмича, get_tours, get_place_info): та же суть одной строкой. */
 export const OFFER_ORDER_NOTE_AGENT =
   'Порядок туров — правило платформы: сначала со свободными местами по ближайшей дате, затем туры в любой день сезона, остальные раз в сутки по жребию; не «лучшие» и не «рекомендуемые». Место в списке не продаётся.';
+
+/**
+ * Для агента, когда список идёт кругом компаний (`orderOffersByCompanyTurns`:
+ * get_tours и каталог Кузьмича). Та же суть, что OFFER_ORDER_NOTE_AGENT, и
+ * круг назван: агент, видящий подряд туры разных компаний, не должен читать
+ * это как «лучшие».
+ */
+export const OFFER_ORDER_NOTE_AGENT_TURNS =
+  'Порядок туров — правило платформы: сначала со свободными местами по ближайшей дате, затем туры в любой день сезона, остальные раз в сутки по жребию; внутри каждой части по одному туру от компании за круг; не «лучшие» и не «рекомендуемые». Место в списке не продаётся.';
 
 /** «2 предложения от 2 компаний», «1 предложение от 1 компании», «21 предложение от 21 компании». */
 export function offersSummary(tours: number, companies: number): string {

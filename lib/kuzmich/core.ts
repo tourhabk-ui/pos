@@ -26,7 +26,7 @@ import { detectEmergency } from '@/lib/safety/sos-detector';
 import { requestWindow, windowLabel } from '@/lib/tours/request-window';
 import { nearestFreeDateSql } from '@/lib/tours/nearest-free-date';
 import { anyDayOpenSql, anyDayLine } from '@/lib/tours/schedule-kind';
-import { OFFER_ORDER_NOTE_AGENT, offerOrderDay, orderOffersBy } from '@/lib/tours/offer-order';
+import { OFFER_ORDER_NOTE_AGENT, OFFER_ORDER_NOTE_AGENT_TURNS, offerOrderDay, orderOffersByCompanyTurns, type OfferKeyInput } from '@/lib/tours/offer-order';
 import { kamchatkaToday } from '@/lib/seat-requests/core';
 import { kamchatkaDateContext } from '@/lib/kuzmich/date-context';
 import { reachForTour } from '@/lib/partners/reach';
@@ -292,6 +292,8 @@ interface TourContextRow {
   activity_type: string | null;
   location_name: string | null;
   operator_name: string | null;
+  /** Компания тура — ключ круга по компаниям (orderOffersByCompanyTurns). */
+  operator_id?: string | null;
   available_slots: number | null;
   next_available_date: string | null;
   /** Тур «в любой день сезона» открыт сейчас (`anyDayOpenSql`); ключ порядка. */
@@ -319,6 +321,8 @@ interface TourContextRow {
 /** Тур каталога: строка, как её видят агент и модель, и указатель слов его полей. */
 export interface CatalogTourEntry extends TourMatchEntry {
   line: string;
+  /** Ключи порядка тура: правило 1в и компания для круга (get_tours). */
+  order: OfferKeyInput & { partnerId: string | null };
 }
 
 /**
@@ -329,6 +333,8 @@ export interface CatalogTourEntry extends TourMatchEntry {
 export interface TourCatalog {
   text: string;
   entries: ReadonlyMap<string, CatalogTourEntry>;
+  /** День правила 1в, по которому собран порядок: им же упорядочен отбор get_tours. */
+  day: string;
 }
 
 // Раздельные кэши (перф-аудит 08.08, п.5): слоты и цены туров протухают
@@ -619,7 +625,7 @@ export async function loadTourCatalog(): Promise<string | null> {
   return catalog === null ? null : catalog.text;
 }
 
-const EMPTY_CATALOG: TourCatalog = { text: '', entries: new Map() };
+const EMPTY_CATALOG: TourCatalog = { text: '', entries: new Map(), day: '' };
 
 /**
  * Что срезает String.prototype.trim() (ECMAScript: WhiteSpace и
@@ -664,6 +670,7 @@ export async function loadTourCatalogEntries(): Promise<TourCatalog | null> {
                (ot.description IS NOT NULL OR ot.meeting_point IS NOT NULL
                 OR ot.included IS NOT NULL OR ot.what_to_bring IS NOT NULL) AS has_details,
                p.name AS operator_name,
+               ot.operator_id::text AS operator_id,
                -- Указатель фильтра get_tours (ловушка MCP 29.10): полное
                -- описание, программа и главное место. В строку не печатаются.
                ot.description,
@@ -722,7 +729,17 @@ export async function loadTourCatalogEntries(): Promise<TourCatalog | null> {
     // Правило 1в (слово владельца 29.10): со свободной датой — по ближайшему
     // выезду, остальные — жребий дня. Не цена: «первые по цене» поднимали
     // дешёвое и прятали остальное за 40-й строкой подсказки.
-    const rows = orderOffersBy(toursResult.rows, (r) => ({ id: r.id, nearestFreeDate: r.next_available_date ?? null, anyDayOpen: r.any_day_open ?? null }), { day });
+    // Круг по компаниям (бриф 17.11, слово владельца «го»): тур за туром
+    // первая страница get_tours по «вулканам» — три тура из четырёх одного
+    // гида, потому что билет жребия у каждого тура свой. Внутри каждой
+    // ступени правила — по одному туру от компании за круг.
+    const orderKey = (r: TourContextRow) => ({
+      id: r.id,
+      nearestFreeDate: r.next_available_date ?? null,
+      anyDayOpen: r.any_day_open ?? null,
+      partnerId: r.operator_id ?? null,
+    });
+    const rows = orderOffersByCompanyTurns(toursResult.rows, orderKey, { day });
 
     const today = kamchatkaToday();
     const entries = new Map<string, CatalogTourEntry>();
@@ -768,19 +785,20 @@ export async function loadTourCatalogEntries(): Promise<TourCatalog | null> {
       const line = `ID${r.id}: "${untrustedField(r.title, TITLE_MAX)}"${loc} ${cat} ${dur} ${price}${op}${slots}${nextDate}${brief}${details}`;
       // Указатель — из полей той же строки базы, не из напечатанной строки:
       // в ней имя компании и служебный текст (lib/search/tour-match).
-      entries.set(String(r.id), { line, ...tourMatchEntry(r) });
+      entries.set(String(r.id), { line, ...tourMatchEntry(r), order: orderKey(r) });
       return line;
     });
 
     _tourCatalogCache = {
       text: [
         'РЕАЛЬНЫЕ ТУРЫ НА ПЛАТФОРМЕ (актуальные цены, называй по имени):',
-        OFFER_ORDER_NOTE_AGENT,
+        OFFER_ORDER_NOTE_AGENT_TURNS,
         ...lines,
         '',
         'Когда турист спрашивает о конкретном туре — дай факты. Не предлагай оставить заявку первым.',
       ].join('\n'),
       entries,
+      day,
     };
     _tourCatalogAt = Date.now();
     _tourCatalogDay = day;
@@ -2819,7 +2837,16 @@ async function executeTool(name: string, args: Record<string, string>, opts: Too
         const { activityLabel } = await import('@/lib/tours/labels');
         // Целиком в чат идёт и блок «только в описании или программе»: его
         // режет FAR_CHAT_CAP строкой «ещё M», страницы отдают все.
-        text = filterTourCatalog(ctx, want, { activityLabel, entries: catalog.entries, farCap: wholeInChat ? FAR_CHAT_CAP : undefined });
+        // Отбор — заново кругом компаний: круг по всему каталогу после
+        // фильтра рассыпается (у компании первый тур — рыбалка, а вулканы —
+        // пятым, и её вулканы встают кучей в конце).
+        const orderLines = (ls: readonly string[]): string[] => orderOffersByCompanyTurns(
+          ls,
+          (l) => catalog.entries.get(l.match(/^ID(\d+):/)?.[1] ?? '')?.order
+            ?? { id: l, nearestFreeDate: null, anyDayOpen: null, partnerId: null },
+          { day: catalog.day || undefined },
+        );
+        text = filterTourCatalog(ctx, want, { activityLabel, entries: catalog.entries, farCap: wholeInChat ? FAR_CHAT_CAP : undefined, orderLines });
       }
       if (wholeInChat) return text;
       return paginateTourText(text, askedPage ? page : 1);
