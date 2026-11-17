@@ -2,6 +2,7 @@
 
 import Link from 'next/link';
 import { platformAcceptsPayments } from '@/lib/payments/accepting';
+import { SUPPORT } from '@/lib/help/content';
 import {
   Package, Calendar, DollarSign, BarChart3, Globe, Bell,
   TrendingUp, Users, ExternalLink, CheckCircle, AlertTriangle,
@@ -305,7 +306,8 @@ export default function OperatorHelpClient() {
               info@vedarai.ru
             </a>
             {' · '}
-            Telegram: <span className="text-[var(--ocean)]">@kamchatourhub</span>
+            Telegram:{' '}
+            <a href={`https://t.me/${SUPPORT.telegram}`} target="_blank" rel="noopener noreferrer" className="text-[var(--ocean)] hover:underline">@{SUPPORT.telegram}</a>
             {' · '}
             Ответ в течение 4 часов в рабочее время (UTC+12)
           </p>

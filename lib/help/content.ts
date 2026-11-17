@@ -43,7 +43,10 @@ export interface HelpArticle {
  */
 export const SUPPORT = {
   email: 'info@vedarai.ru',
-  telegram: 'kamchatourhub',
+  // Бот Кузьмича — в него можно написать (решение владельца 17.11). Прежде
+  // здесь стоял @kamchatourhub — канал старого имени, куда написать нельзя.
+  // Канал новостей — t.me/kamchatka_real, но это не контакт поддержки.
+  telegram: 'kuzmichai_bot',
 } as const;
 
 export const TOURISTS: HelpArticle = {
