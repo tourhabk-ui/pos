@@ -120,6 +120,9 @@ export const PLATFORM_SECTIONS: PlatformSection[] = [
       { label: 'Пользовательское соглашение',  href: '/legal/terms',           icon: FileText },
       { label: 'Политика конфиденциальности',  href: '/legal/privacy',         icon: ScrollText },
       { label: 'Публичная оферта',             href: '/legal/offer',           icon: Receipt },
+      // Переводы для иностранных туристов и ревьюеров каталогов ИИ (17.11); оригинал — русский.
+      { label: 'Terms of Use (English)',       href: '/en/legal/terms',        icon: FileText },
+      { label: 'Privacy Policy (English)',     href: '/en/legal/privacy',      icon: ScrollText },
     ],
   },
 ];

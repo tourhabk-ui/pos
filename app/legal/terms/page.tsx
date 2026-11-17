@@ -3,9 +3,12 @@ import { pageContainer } from '@/lib/layout/page-width';
 import { ChevronLeft } from 'lucide-react';
 import PageShell from '@/components/shared/PageShell';
 import { REQUISITES } from '@/lib/legal/requisites';
+import LegalLangSwitch from '@/components/legal/LegalLangSwitch';
+import { legalAlternates } from '@/lib/legal/legal-i18n';
 
 export const metadata = {
-  alternates: { canonical: '/legal/terms' },
+  // Пара ru/en для hreflang — из одной таблицы с переключателем (lib/legal/legal-i18n).
+  alternates: legalAlternates('terms', 'ru'),
   title: 'Пользовательское соглашение',
   description: 'Пользовательское соглашение Ведар: заявки на туры, оплата напрямую Партнёру, правила использования, ответственность сторон и реквизиты.',
 };
@@ -19,6 +22,8 @@ export default function TermsPage() {
           <ChevronLeft className="w-5 h-5 mr-1" />
           На главную
         </Link>
+
+        <LegalLangSwitch doc="terms" current="ru" />
 
         <h1 className="text-3xl font-bold mb-8">Пользовательское соглашение</h1>
 
