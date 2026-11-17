@@ -5,6 +5,7 @@
 
 import { TOUR_DESCRIPTION_MAX } from '@/lib/tours/text-limits';
 import { z } from 'zod';
+import { SCHEDULE_KINDS } from '@/lib/tours/schedule-kind';
 import { query, transaction } from '@/lib/database';
 import { assertLiveMainPlace } from '@/lib/tours/main-place';
 import { getColumnTypes, valueForColumn } from '@/lib/db/column-types';
@@ -129,6 +130,9 @@ export const UpdateTourSchema = TourFieldsSchema.partial().extend({
   cancellation_policy: z.string().trim().max(2000).nullable().optional(),
   pickup_type:         z.enum(['hotel_pickup', 'meeting_point', 'self_drive']).nullable().optional(),
   pickup_details:      z.string().trim().max(1000).nullable().optional(),
+  // Как тур выезжает (#3476, миграция 1457): только в даты календаря, в любой
+  // день сезона или не указано (NULL — «даты по запросу», как до 16.11).
+  schedule_kind:       z.enum(SCHEDULE_KINDS).nullable().optional(),
   /** Закрепить наверху страницы оператора (1267): true — закрепить, false — снять. */
   pinned:              z.boolean().optional(),
   /**
