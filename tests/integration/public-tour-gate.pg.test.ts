@@ -362,6 +362,11 @@ withPg('витрина туров: снятый тур не в плане и н�
       ['многодневный успевает', 'any_day', -10, 3, 'multi_day', 4, 8],
       ['длиннее суток не успевает', 'any_day', -10, 1, null, null, 50],
       ['сезон короче тура', 'any_day', 10, 11, 'multi_day', 5, 8],
+      // Длина — правилом брони (tourDurationDays), ревью #3498: дни считаются
+      // при любом типе, часы — от суток.
+      ['тип day с пятью днями не успевает', 'any_day', -10, 3, 'day', 5, 8],
+      ['тип day с пятью днями успевает', 'any_day', -10, 4, 'day', 5, 8],
+      ['многодневный в один день по 30 часам не успевает', 'any_day', -10, 0, 'multi_day', 1, 30],
       ['сезон не записан', 'any_day', null, null, null, null, 8],
       ['свои даты', 'departures', -10, 30, null, null, 8],
       ['не указано', null, -10, 30, null, null, 8],
@@ -400,6 +405,7 @@ withPg('витрина туров: снятый тур не в плане и н�
     for (const [label, sql, ts] of got) expect(ts, String(label)).toBe(sql);
     expect(got.filter(([, sql]) => sql).map(([label]) => label)).toEqual([
       'идёт сезон', 'сезон впереди', 'последний день сезона сегодня', 'многодневный успевает',
+      'тип day с пятью днями успевает',
     ]);
     await expect(pool.query(`UPDATE operator_tours SET schedule_kind = 'weekly' WHERE id = $1`, [ids[0]]))
       .rejects.toMatchObject({ code: '23514' });
