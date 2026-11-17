@@ -24,6 +24,7 @@ import { loadRouteDetail } from '@/lib/routes/route-detail';
 import { orderOffers, OFFER_ORDER_NOTE, SORT_CHOICE_NOTE_RU } from '@/lib/tours/offer-order';
 import { sortRouteOffers } from '@/lib/routes/route-offer-sort';
 import { RouteOfferSortBar } from '@/components/routes/RouteOfferSortBar';
+import { routeAggregateOffer, type RouteOfferInput } from '@/lib/seo/route-offers';
 
 const ROUTE_ROW = {
   id: 'r-1', route_dedupe_key: 'r', route_id: null, category: 'route', location_type: null,
@@ -167,5 +168,19 @@ describe('клиент: выбор туриста и подпись правил
     expect(screen.getByText(SORT_CHOICE_NOTE_RU)).toBeInTheDocument();
     fireEvent.click(buttons[1]!);
     expect(onChange).toHaveBeenCalledWith('price');
+  });
+});
+
+describe('разметка цены маршрута — из туров, которые отдаёт загрузчик карточки (17.11)', () => {
+  it('адрес тура — со slug, иначе по номеру; цена и продавец — из той же строки', async () => {
+    mockDb([offer(1, { tour_slug: 'gorely-za-den' }), offer(2)]);
+    const r = (await loadRouteDetail('r-1', { explain: false, countView: false })) as unknown as { data: { offers: RouteOfferInput[] } };
+    const agg = routeAggregateOffer(r.data.offers, 'https://vedarai.ru')!;
+    const byUrl = new Map((agg.offers as Array<Record<string, unknown>>).map((o) => [o.url, o]));
+    expect(byUrl.get('https://vedarai.ru/catalog/tours/gorely-za-den')?.price).toBe(10001);
+    expect(byUrl.get('https://vedarai.ru/catalog/tours/gorely-za-den')?.seller).toEqual({ '@type': 'Organization', name: 'Компания 1' });
+    expect(byUrl.get('https://vedarai.ru/catalog/tours/2')?.price).toBe(10002);
+    expect(agg.lowPrice).toBe(10001);
+    expect(agg.highPrice).toBe(10002);
   });
 });

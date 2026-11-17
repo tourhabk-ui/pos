@@ -12,6 +12,7 @@ import { stripSourceAttribution } from '@/lib/text/source-attribution';
 import { stripFillerLead } from '@/lib/text/filler-lead';
 import { isUuid } from '@/lib/text/slugify';
 import { JsonLd } from '@/components/seo/JsonLd';
+import { routeAggregateOffer } from '@/lib/seo/route-offers';
 import { stripTags } from '@/lib/html/text';
 import { routeDescription } from '@/lib/seo/place-meta';
 import { defaultOgImages } from '@/lib/seo/og-image';
@@ -193,7 +194,6 @@ async function getRouteRaw(idOrSlug: string) {
       lat: r.lat != null ? parseFloat(r.lat as string) : null,
       lng: r.lng != null ? parseFloat(r.lng as string) : null,
       sourceUrl: (r.source_url as string | null) ?? null,
-      priceFrom: payload.price_from != null ? Number(payload.price_from) : null,
       durationDays: payload.duration_days != null ? Number(payload.duration_days)
         : r.kr_duration_days != null ? Number(r.kr_duration_days) : null,
       // Тип проверяется, а не обещается: у двух маршрутов season — массив, и
@@ -509,19 +509,9 @@ export default async function RouteOrCategoryPage({ params }: Props) {
         },
       },
     } : {}),
-    // Pricing
-    ...(route.priceFrom != null ? {
-      offers: {
-        '@type': 'Offer',
-        price: route.priceFrom,
-        priceCurrency: 'RUB',
-        // availability не объявляется: цена «от» маршрута — не предложение с
-        // датами; честный ответ по датам — на карточке тура (аудит 01.10).
-        url: `https://vedarai.ru/routes/${id}`,
-        // Продавца нет (15.10, §0): Ведар маршрут не продаёт, туры по нему
-        // продают операторы — их имена на карточках туров.
-      },
-    } : {}),
+    // Цена — не здесь: AggregateOffer из туров карточки собирается ниже,
+    // когда туры прочитаны (lib/seo/route-offers, 17.11). Прежде здесь стояла
+    // цена из записи маршрута: числа нет на странице, источник не записан.
     // Difficulty level
     ...(route.difficulty ? {
       accessibilityFeature: route.difficulty === 'easy'
@@ -567,6 +557,11 @@ export default async function RouteOrCategoryPage({ params }: Props) {
     logQueryFailure('route_detail_ssr', err, route.id);
   }
 
+  // Цена маршрута в разметке — из туров, которые карточка показывает (17.11).
+  // Туры не прочитались — цены в разметке нет: «не знаем» не равно «от 0».
+  const aggregateOffer = initialRoute ? routeAggregateOffer(initialRoute.offers ?? [], 'https://vedarai.ru') : null;
+  const tripLd = aggregateOffer ? { ...jsonLd, offers: aggregateOffer } : jsonLd;
+
   // «Похожие маршруты» — с сервера, соседи по кольцу (lib/routes/related):
   // до 13.10 блок собирался в браузере, и карточки маршрутов в первом HTML
   // не ссылались друг на друга вовсе. Не собрались — блок спросит браузер,
@@ -582,7 +577,7 @@ export default async function RouteOrCategoryPage({ params }: Props) {
 
   return (
     <>
-      <JsonLd data={jsonLd} />
+      <JsonLd data={tripLd} />
       <JsonLd data={breadcrumbLd} />
       <RouteDetailClient
         id={route.id}

@@ -11,12 +11,20 @@ import { stripHtmlTags } from '@/lib/text/strip-html';
 import type { OfferAvailability } from '@/lib/tours/open-dates';
 import { seasonAhead, seasonDates } from '@/lib/tours/season';
 import { kamchatkaToday } from '@/lib/planner/calendar-days';
+import { PRICE_UNIT_LABELS } from '@/lib/tours/labels';
 
 export interface TourSeoInput {
   id: string | number;
   title: string;
   description?: string | null;
   base_price: string | number;
+  /**
+   * За что цена (`operator_tours.price_unit`): за человека, за группу, за
+   * человека в день. Идёт в Offer.priceSpecification.unitText — иначе цена
+   * рыбалки «за группу» читалась бы в выдаче ценой с человека. Не записано —
+   * единицы в разметке нет, и она не выдумывается.
+   */
+  price_unit?: string | null;
   rating?: string | number | null;
   review_count?: number | null;
   operator_name: string;
@@ -240,10 +248,17 @@ export function buildTourStructuredData(
   // знаем.
   const season = seasonDates(tour.season_start, tour.season_end);
   const today = opts.today ?? kamchatkaToday();
+  // Только известная единица: чужая строка из базы подписью не становится.
+  const unitText = tour.price_unit && Object.prototype.hasOwnProperty.call(PRICE_UNIT_LABELS, tour.price_unit)
+    ? PRICE_UNIT_LABELS[tour.price_unit]
+    : undefined;
   const offer = {
     '@type': 'Offer',
     price,
     priceCurrency: 'RUB',
+    ...(unitText
+      ? { priceSpecification: { '@type': 'UnitPriceSpecification', price, priceCurrency: 'RUB', unitText } }
+      : {}),
     ...(availability ? { availability } : {}),
     url: canonicalUrl,
     seller: operator,

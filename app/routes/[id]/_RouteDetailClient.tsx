@@ -146,7 +146,7 @@ function priceUnitLabel(unit: string | null): string {
 }
 
 interface Offer {
-  tourId: number; tourName: string; shortDesc: string | null;
+  tourId: number; tourSlug?: string | null; tourName: string; shortDesc: string | null;
   priceBase: number | null; priceOld: number | null; priceUnit: string | null;
   effectivePrice: number | null;
   durationHours: number | null; durationType: string | null; multiDayCount: number | null;
