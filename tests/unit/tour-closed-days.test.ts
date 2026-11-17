@@ -15,10 +15,36 @@ import { tripEnd, tripHitsClosed, CLOSED_DAYS_SQL } from '@/lib/tours/closed-day
 import { createSeatRequest } from '@/lib/seat-requests/service';
 import { SEAT_REQUEST_FAILURE } from '@/lib/seat-requests/core';
 import { getTourAvailabilityForKuzmich } from '@/lib/kuzmich/tour-availability-tool';
+import { tourDays } from '@/lib/tours/catalog-availability';
+import { tourDurationDays } from '@/lib/bookings/duration';
+import { requestWindow } from '@/lib/tours/request-window';
 
 let spy: ReturnType<typeof vi.spyOn>;
 beforeEach(() => { spy = vi.spyOn(console, 'error').mockImplementation(() => {}); q.query.mockReset(); });
 afterEach(() => { spy.mockRestore(); });
+
+describe('длина поездки — одно правило брони на каталог, окно сезона и запрос', () => {
+  const cases = [
+    { duration_type: 'day', multi_day_count: 5, duration_hours: null },
+    { duration_type: null, multi_day_count: 3, duration_hours: 12 },
+    { duration_type: 'multi_day', multi_day_count: 1, duration_hours: 30 },
+    { duration_type: 'multi_day', multi_day_count: 5, duration_hours: null },
+    { duration_type: 'single_day', multi_day_count: null, duration_hours: 24 },
+    { duration_type: null, multi_day_count: null, duration_hours: 72 },
+    { duration_type: null, multi_day_count: null, duration_hours: null },
+  ];
+  it.each(cases)('tourDays = tourDurationDays: %o', (t) => {
+    expect(tourDays(t)).toBe(tourDurationDays({ multi_day_count: t.multi_day_count, duration_hours: t.duration_hours }));
+  });
+  it('числа строкой из базы считаются так же', () => {
+    expect(tourDays({ duration_type: 'day', multi_day_count: '5' as unknown as number, duration_hours: null })).toBe(5);
+    expect(tourDays({ duration_type: null, multi_day_count: null, duration_hours: '30' as unknown as number })).toBe(2);
+  });
+  it('окно сезона у тура «day» с пятью днями кончается за четыре дня до конца сезона', () => {
+    const w = requestWindow({ season_start: '2099-07-15', season_end: '2099-10-15', duration_type: 'day', multi_day_count: 5, duration_hours: null }, '2099-07-01');
+    expect(w).toMatchObject({ kind: 'season', to: '2099-10-11' });
+  });
+});
 
 describe('правило: поездка задевает закрытый день', () => {
   const closed = new Set(['2099-08-05']);
@@ -62,6 +88,26 @@ describe('запрос мест на закрытый день', () => {
     });
     expect(await createSeatRequest(input)).toEqual({ ok: false, reason: 'day_closed' });
     expect(asked[0]).toEqual([60, '2099-08-05', '2099-08-09']);
+  });
+
+  it('тип «многодневный» с одним днём и 30 часами — два дня по правилу брони, закрытый второй день задевает', async () => {
+    const asked: unknown[][] = [];
+    q.query.mockImplementation(async (sql: string, params: unknown[]) => {
+      if (/FROM operator_tours/.test(sql)) return { rows: [{ ...TOUR, duration_type: 'multi_day', multi_day_count: 1, duration_hours: '30' }] };
+      if (sql === CLOSED_DAYS_SQL) { asked.push(params); return { rows: [{ d: '2099-08-06' }] }; }
+      throw new Error(`неожиданный запрос: ${sql.slice(0, 60)}`);
+    });
+    expect(await createSeatRequest(input)).toEqual({ ok: false, reason: 'day_closed' });
+    expect(asked[0]).toEqual([60, '2099-08-05', '2099-08-06']);
+  });
+
+  it('пятидневный тур с типом «day»: выезд, при котором поездка выходит за сезон, — вне сезона, как у брони', async () => {
+    q.query.mockImplementation(async (sql: string) => {
+      if (/FROM operator_tours/.test(sql)) return { rows: [{ ...TOUR, duration_type: 'day', multi_day_count: 5, duration_hours: null }] };
+      throw new Error(`до закрытых дней идти не должен: ${sql.slice(0, 60)}`);
+    });
+    // Сезон до 15.10: последний выезд — 11.10 (11–15.10), выезд 13.10 кончился бы 17.10.
+    expect(await createSeatRequest({ ...input, date: '2099-10-13' } as typeof input)).toEqual({ ok: false, reason: 'out_of_season' });
   });
 
   it('закрытые дни не прочитались — «не смог», а не «закрытых нет»', async () => {
