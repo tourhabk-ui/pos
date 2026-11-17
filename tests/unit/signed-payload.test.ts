@@ -47,6 +47,21 @@ describe('signed write buttons', () => {
     expect(unwrapPress('cb:i', LEGACY_UNSIGNED_UNTIL_MS + 1)).toEqual({ ok: true, payload: 'cb:i' });
   });
 
+  it('write in another letter case is still a write: no unsigned pass-through (review #3497)', () => {
+    vi.stubEnv('CALLBACK_LEGACY_UNTIL_MS', '');
+    const after = LEGACY_UNSIGNED_UNTIL_MS + 1;
+    for (const raw of ['cb:W:k:a:77', 'cb:w:K:a:77', 'CB:W:O:77:20261231', `IA:A:L:${UUID.toUpperCase()}`]) {
+      expect(isWritePayload(raw), raw).toBe(true);
+      expect(unwrapPress(raw, after), raw).toEqual({ ok: false, reason: 'expired' });
+    }
+    // Подписанная кнопка в другом регистре с подписью не сходится.
+    const signed = signPayload('cb:w:k:a:77');
+    const [body, exp, sig] = signed.split('~') as [string, string, string];
+    expect(unwrapPress(`${body.toUpperCase()}~${exp}~${sig}`).ok).toBe(false);
+    // Чтение в любом регистре остаётся чтением.
+    expect(unwrapPress('CB:I', after)).toEqual({ ok: true, payload: 'CB:I' });
+  });
+
   it('every write builder is signed and within 64 bytes', () => {
     const all = [
       ...chatAnswerButtons(null, 'stay_booking', UUID).map((b) => b.payload),
@@ -55,6 +70,7 @@ describe('signed write buttons', () => {
       cabinetPayload.editTour(UUID, 9), cabinetPayload.docSaveField(UUID, 12), cabinetPayload.docTour(UUID, 9),
       cabinetPayload.inviteAccept(UUID), cabinetPayload.vehicleActive(UUID, true),
       cabinetPayload.dateClose('123456', '2026-12-31'), cabinetPayload.teamLeaveYes(),
+      cabinetPayload.scheduleKind('999999999999999999', 'any_day'), cabinetPayload.scheduleKind('999999999999999999', 'departures'),
       adminLeadPayload('contacted', UUID), adminLeadPayload('lost', UUID),
       adminAnswerPayload(true, UUID), adminAnswerPayload(false, UUID), adminTourPayload(UUID, 7),
       adminBookingConfirmPayload('9223372036854775807'),

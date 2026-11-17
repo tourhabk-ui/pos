@@ -72,8 +72,20 @@ const WRITE_PATTERNS: readonly RegExp[] = [
 /** «Освободить» жилья не помещается в лимит с хвостом — см. шапку. */
 const UNSIGNABLE: readonly RegExp[] = [/^cb:b:r:/];
 
+/**
+ * Запись ли это. Сравнение — без учёта регистра (ревью #3497): разбор
+ * кабинета приводит payload к нижнему регистру (`parseCabinetPress`), и
+ * `cb:W:k:a:77` без хвоста иначе прошёл бы мимо подписи и срока, а разобрался
+ * бы записью. Подписанный payload в другом регистре не совпадёт с подписью.
+ */
 export function isWritePayload(payload: string): boolean {
-  return WRITE_PATTERNS.some((re) => re.test(payload));
+  const p = payload.toLowerCase();
+  return WRITE_PATTERNS.some((re) => re.test(p));
+}
+
+function unsignable(payload: string): boolean {
+  const p = payload.toLowerCase();
+  return UNSIGNABLE.some((re) => re.test(p));
 }
 
 function signingKey(): string | null {
@@ -88,7 +100,7 @@ function mac(key: string, body: string): string {
 
 /** Подписать кнопку-запись. Чтение, ключа нет или не влезает — как было. */
 export function signPayload(payload: string, nowMs: number = Date.now()): string {
-  if (!isWritePayload(payload) || UNSIGNABLE.some((re) => re.test(payload))) return payload;
+  if (!isWritePayload(payload) || unsignable(payload)) return payload;
   if (payload.includes(SEP)) return payload;
   const key = signingKey();
   if (!key) return payload;
@@ -110,7 +122,7 @@ export function unwrapPress(raw: string, nowMs: number = Date.now()): PressVerdi
   const parts = raw.split(SEP);
   const key = signingKey();
   if (parts.length === 1) {
-    if (!key || !isWritePayload(raw) || UNSIGNABLE.some((re) => re.test(raw))) return { ok: true, payload: raw };
+    if (!key || !isWritePayload(raw) || unsignable(raw)) return { ok: true, payload: raw };
     return nowMs <= legacyUntilMs() ? { ok: true, payload: raw } : { ok: false, reason: 'expired' };
   }
   if (parts.length !== 3 || !key) return { ok: false, reason: 'forged' };
