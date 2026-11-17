@@ -38,15 +38,19 @@ const ALIAS = /^[a-z_][a-z0-9_]*$/;
 
 /**
  * Сколько календарных дней занимает тур — SQL-двойник `tourDays`
- * (lib/tours/catalog-availability): многодневный — число дней, длиннее суток —
- * округление вверх, иначе один день.
+ * (lib/tours/catalog-availability), а значит правила брони `tourDurationDays`
+ * (lib/bookings/duration): `multi_day_count` больше одного — число дней при
+ * любом `duration_type`, от суток — часы округлением вверх, иначе один день.
+ * До 17.11 здесь стояло прежнее правило каталога (дни только у типа
+ * «многодневный», часы строго больше суток), и витрины ставили тур «в любой
+ * день сезона», который бронь в остаток сезона не помещала (ревью #3498).
  */
 export function tourDaysSql(tourAlias: string): string {
   if (!ALIAS.test(tourAlias)) throw new Error(`tourDaysSql: недопустимый алиас «${tourAlias}»`);
   const a = tourAlias;
   return `(CASE
-      WHEN ${a}.duration_type = 'multi_day' AND COALESCE(${a}.multi_day_count, 0) > 0 THEN ${a}.multi_day_count
-      WHEN ${a}.duration_hours IS NOT NULL AND ${a}.duration_hours > 24 THEN CEIL(${a}.duration_hours / 24.0)::int
+      WHEN COALESCE(${a}.multi_day_count, 0) > 1 THEN ${a}.multi_day_count
+      WHEN ${a}.duration_hours IS NOT NULL AND ${a}.duration_hours >= 24 THEN CEIL(${a}.duration_hours / 24.0)::int
       ELSE 1
     END)`;
 }

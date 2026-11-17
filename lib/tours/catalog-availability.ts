@@ -18,6 +18,8 @@
  * сезона в данных нет.
  */
 
+import { tourDurationDays } from '@/lib/bookings/duration';
+
 export type CatalogAvailability = 'dates' | 'on_request' | 'season_over';
 
 export interface AvailabilityInput {
@@ -31,12 +33,28 @@ export interface AvailabilityInput {
 
 const DAY_MS = 24 * 60 * 60 * 1000;
 
-/** Сколько календарных дней занимает тур; неизвестно — 1 (минимум поездки). */
+/**
+ * Сколько календарных дней занимает тур; неизвестно — 1 (минимум поездки).
+ *
+ * Правило одно — брони (`tourDurationDays`, lib/bookings/duration). До 17.11
+ * здесь жило своё: `multi_day_count` считался только при типе «многодневный».
+ * Тур с типом «day» и пятью днями каталог, окно сезона заявки и планер
+ * считали однодневным, а бронь — пятидневным: окно пускало выезд за четыре
+ * дня до конца сезона, поездку бронь вела за его край (ревью #3484).
+ * `duration_type` принимается ради прежних вызовов и на длину не влияет.
+ * Числа из базы могут прийти строкой (NUMERIC) — приводятся здесь.
+ */
 export function tourDays(t: Pick<AvailabilityInput, 'duration_type' | 'multi_day_count' | 'duration_hours'>): number {
-  if (t.duration_type === 'multi_day' && t.multi_day_count && t.multi_day_count > 0) return t.multi_day_count;
-  const h = t.duration_hours == null ? NaN : Number(t.duration_hours);
-  if (Number.isFinite(h) && h > 24) return Math.ceil(h / 24);
-  return 1;
+  return tourDurationDays({
+    multi_day_count: finiteOrNull(t.multi_day_count),
+    duration_hours: finiteOrNull(t.duration_hours),
+  });
+}
+
+function finiteOrNull(v: unknown): number | null {
+  if (v == null || v === '') return null;
+  const n = Number(v);
+  return Number.isFinite(n) ? n : null;
 }
 
 /** Конец дня `season_end` по UTC — дата сезона записана днём, а не моментом. */
