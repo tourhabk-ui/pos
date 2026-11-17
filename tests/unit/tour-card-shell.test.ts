@@ -78,7 +78,7 @@ describe('липкая колонка брони (десктоп)', () => {
   // выше щита и формы; только lg (на телефоне — карточка решения).
   it('на lg под ценой есть переход к форме — выше щита и календаря', () => {
     const aside = CARD.slice(CARD.indexOf('<aside'), CARD.indexOf('</aside>'));
-    const price = aside.indexOf('formatPrice(price)');
+    const price = aside.indexOf('{priceText}');
     const cta = aside.search(/<a href="#booking" data-testid="aside-cta" className="hidden lg:flex ds-btn ds-btn-primary/);
     const shield = aside.indexOf('Оплата — только после того');
     const form = aside.indexOf('<BookingFormClient');
@@ -106,8 +106,8 @@ describe('липкая колонка брони (десктоп)', () => {
 
   it('цены — с выровненными цифрами', () => {
     expect(CARD).toMatch(/fontVariantNumeric: 'lining-nums tabular-nums'/);
-    expect(CARD.match(/formatPrice\(price\)/g)?.length ?? 0).toBeGreaterThanOrEqual(3);
-    expect(CARD.match(/\.\.\.NUMS \}\}>\{formatPrice\(price\)\}/g)?.length ?? 0).toBe(3);
+    expect(CARD.match(/\{priceText\}/g)?.length ?? 0).toBeGreaterThanOrEqual(3);
+    expect(CARD.match(/\.\.\.NUMS \}\}>\{priceText\}/g)?.length ?? 0).toBe(3);
   });
 });
 

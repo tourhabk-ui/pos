@@ -12,7 +12,7 @@ import {
 import { describeForAgent } from '@/lib/places/description-voice';
 import { containsPattern } from '@/lib/db/like';
 import { KUZMICH_KNOWLEDGE_SCOPE_SQL } from '@/lib/kuzmich/knowledge-scope';
-import { isVolcanoObservationStale, VOLCANO_STALE_DAYS } from '@/lib/services/safety/kvert-vona';
+import { isVolcanoObservationStale, volcanoObservationDate, VOLCANO_STALE_DAYS } from '@/lib/services/safety/kvert-vona';
 import { alertOrigin, UNKNOWN_ORIGIN_TEXT } from '@/lib/safety/alert-origin';
 import { alertLineForPlace } from '@/lib/kuzmich/alert-mention';
 import { loadVolcanoInput, volcanoLinesForName } from '@/lib/kuzmich/volcano-tool';
@@ -87,7 +87,7 @@ function accLine(color: AccColor, p: GuardianPlaceRow): string {
     // По Камчатке, как в get_volcano_status: по часам сервера (UTC)
     // наблюдение утра 25.09 читалось как 24.09 — два инструмента называли
     // одному агенту разные даты одного снимка (сверка 26.09).
-    ? ` (наблюдение ${new Date(p.volcano_observed_at).toLocaleDateString('ru-RU', { timeZone: 'Asia/Kamchatka' })})`
+    ? ` (наблюдение ${volcanoObservationDate(p.volcano_observed_at) ?? p.volcano_observed_at})`
     : '';
   // Старое наблюдение называется старым — так же, как в get_volcano_status
   // (kvertPhrase): до 29.09 guardian печатал «ЗЕЛЁНЫЙ — спокоен» по снимку

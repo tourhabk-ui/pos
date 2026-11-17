@@ -35,19 +35,19 @@
  * глаголов пополняется в одном месте, и хранилище догоняет само.
  */
 
-import { isDailyBulletin, isRescueOperationReport, isServiceStatistics, isServiceDuties, isRetrospectivePost } from '@/lib/services/safety/seismic-parser';
+import { isDailyBulletin, isRescueOperationReport, isServiceStatistics, isServiceDuties, isRetrospectivePost, isPublicOutreachPost } from '@/lib/services/safety/seismic-parser';
 import { isPastForecast, isWarningEnded } from '@/lib/safety/resolution-notice';
 import { UTC_WALL_NOW_SQL } from '@/lib/db/timestamp-iso';
 
 export type RejectedGenre =
   | 'daily_bulletin' | 'rescue_report' | 'service_statistics'
-  | 'service_duties' | 'retrospective' | 'warning_ended' | 'past_forecast';
+  | 'service_duties' | 'public_outreach' | 'retrospective' | 'warning_ended' | 'past_forecast';
 
 /** Пустой счёт по всем жанрам — один, чтобы новый жанр не забыть в отчёте. */
 export function emptyGenreCounts(): Record<RejectedGenre, number> {
   return {
     daily_bulletin: 0, rescue_report: 0, service_statistics: 0,
-    service_duties: 0, retrospective: 0, warning_ended: 0, past_forecast: 0,
+    service_duties: 0, public_outreach: 0, retrospective: 0, warning_ended: 0, past_forecast: 0,
   };
 }
 
@@ -67,6 +67,10 @@ function genreOf(text: string): RejectedGenre | null {
   // 04.10: описание профессии из очерка МЧС («Спасатели участвуют в
   // противопаводковых мероприятиях…») висело паводком на главной.
   if (isServiceDuties(text)) return 'service_duties';
+  // 17.11 (#3487): «второклассники познакомились с работой кинологов» стояло
+  // предупреждением на 168 карточках мест. Страж на приёме такую новость уже
+  // не пропустит, а лежащую строку снимает этот проход — без миграции.
+  if (isPublicOutreachPost(text)) return 'public_outreach';
   return null;
 }
 

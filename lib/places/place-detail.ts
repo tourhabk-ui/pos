@@ -10,7 +10,7 @@
 
 import { query } from '@/lib/database';
 import { chronicleForPlace } from '@/lib/chronicle/articles';
-import { PLACE_ROUTES_SQL } from '@/lib/places/place-routes';
+import { PLACE_ROUTES_SQL, toPlaceRouteRow, type PlaceRouteLineFields, type PlaceRouteRow } from '@/lib/places/place-routes';
 import { NEARBY_PLACES_SQL } from '@/lib/places/nearby';
 import { pool } from '@/lib/db-pool';
 import { stripSourceAttribution } from '@/lib/text/source-attribution';
@@ -512,18 +512,25 @@ export async function loadPlaceDetail(id: string, opts: { countView: boolean }):
           outsideKraiSources: isOutsideKraiSources(r.zone as string | null),
         } : null,
 
-        routes: routesResult.rows.map(rt => ({
-          id: rt.id as string,
-          slug: (rt.slug as string | null) ?? null,
-          title: rt.title as string,
-          activityType: rt.activity_type as string | null,
-          difficulty: rt.difficulty as string | null,
-          distanceKm: rt.distance_km != null ? Number(rt.distance_km) : null,
-          durationHours: rt.duration_hours != null ? Number(rt.duration_hours) : null,
-          // Род связи — до экрана (03.10): без него «рядом, в 15 км от центра
-          // маршрута» печаталось как «через место проходят 3 маршрута».
-          linkKind: (rt.link_kind as 'waypoint' | 'nearby' | 'unknown' | null) ?? null,
-        })),
+        routes: routesResult.rows.map(raw => {
+          // Сырые поля линии — только судье подъезда; наружу не уходят (#3487).
+          const rt = toPlaceRouteRow(raw as unknown as PlaceRouteRow & PlaceRouteLineFields);
+          return {
+            id: rt.id,
+            slug: (rt.slug as string | null) ?? null,
+            title: rt.title,
+            activityType: rt.activity_type ?? null,
+            difficulty: rt.difficulty ?? null,
+            distanceKm: rt.distance_km != null ? Number(rt.distance_km) : null,
+            // Длина линии, в которую влит подъезд, — не длина маршрута: экран
+            // говорит «вместе с подъездом», а не «длина» (#3487).
+            distanceWithApproachKm: rt.distance_with_approach_km ?? null,
+            durationHours: rt.duration_hours != null ? Number(rt.duration_hours) : null,
+            // Род связи — до экрана (03.10): без него «рядом, в 15 км от центра
+            // маршрута» печаталось как «через место проходят 3 маршрута».
+            linkKind: (rt.link_kind as 'waypoint' | 'nearby' | 'unknown' | null) ?? null,
+          };
+        }),
 
         tours: toursResult.state === 'ok' ? toursResult.offers.map(toPlaceTour) : [],
         // Три исхода чтения туров (§4.0): «туров нет» и «не загрузились» —

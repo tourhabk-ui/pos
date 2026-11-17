@@ -205,12 +205,12 @@ describe('даты тура против месяца в вопросе', () => 
       multi_day_count: 1, season_start: '2026-06-01', season_end: '2026-12-31',
     };
     const label = catalogFacts('подобрать тур', { ok: true, tours: [raft] }, now).inline?.inline_keyboard[0]?.[0]?.text ?? '';
-    expect(label).toMatch(/^Сплав по Быстрой · от 9\s000 ₽, за что — не записано$/u);
+    expect(label).toMatch(/^Сплав по Быстрой · 9\s000 ₽ — за что назначена цена, не записано$/u);
     const longTitle = 'Сплав по реке Быстрая с ночёвкой у костра и рыбалкой на хариуса';
     const long = catalogFacts('подобрать тур', { ok: true, tours: [{ ...raft, title: longTitle }] }, now)
       .inline?.inline_keyboard[0]?.[0]?.text ?? '';
     expect(long.length).toBeLessThanOrEqual(64);
-    expect(long).toMatch(/^Сплав по реке.*… · от 9\s000 ₽, за что — не записано$/u);
+    expect(long).toMatch(/^Сплав.*… · 9\s000 ₽ — за что назначена цена, не записано$/u);
     for (const text of [label, long]) {
       expect(text).not.toContain('не называй');
       expect(text).not.toMatch(/не зап…$/);

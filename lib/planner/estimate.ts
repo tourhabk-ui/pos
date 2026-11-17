@@ -379,7 +379,7 @@ function tourLine(day: EstimateDay, days: EstimateDay[], people: number): Estima
   const label = `Тур «${day.title}», день ${day.day}`;
   if (unit !== 'per_person' && unit !== 'per_tour' && unit !== 'per_day_per_person') {
     // Незнакомую единицу смета не толкует как «за человека»: так же молчит о
-    // ней и витрина (lib/tours/price-label, priceFromUnit).
+    // ней и витрина (lib/tours/price-label, priceWithUnitWords).
     return {
       kind: 'tour', label, basis: `${fmt(price)} ₽`, total: null, source: 'tour',
       note: unit ? `Единица цены «${unit}» не распознана — сумму смотрите в карточке тура.` : 'Не указано, за что цена тура, — сумму смотрите в карточке тура.',

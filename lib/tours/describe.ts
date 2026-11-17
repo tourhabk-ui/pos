@@ -110,11 +110,19 @@ export function durationPhrase(f: TourFacts): string | null {
 
 interface ProgramStep { title?: unknown; text?: unknown }
 
-/** Шаги программы, у которых есть заголовок. Чужая форма — пустой список. */
+/**
+ * Шаги программы, у которых есть заголовок. Чужая форма — пустой список.
+ * Один разбор на карточку тура и MCP (#3487): шаг-строка — заголовок без
+ * текста (так программу понимала карточка), объект — `{title, text}`.
+ */
 export function programSteps(program: unknown): Array<{ title: string; text: string }> {
   if (!Array.isArray(program)) return [];
   const out: Array<{ title: string; text: string }> = [];
   for (const raw of program) {
+    if (typeof raw === 'string') {
+      if (raw.trim()) out.push({ title: raw.trim(), text: '' });
+      continue;
+    }
     if (!raw || typeof raw !== 'object') continue;
     const s = raw as ProgramStep;
     const title = typeof s.title === 'string' ? s.title.trim() : '';

@@ -74,7 +74,7 @@ describe('чат Кузьмича: цена дня с единицей', () => {
 
   it('тур за группу — «₽/группа»', () => {
     const text = formatTripPlanForChat([day({ realPrice: 196000, realTour: tourOf('per_tour') })], [], null);
-    expect(text.replace(/ /g, ' ')).toContain('День 1. Недельный рыболовный тур — от 196 000 ₽/группа');
+    expect(text.replace(/\u00a0/g, ' ')).toContain('День 1. Недельный рыболовный тур — 196 000 ₽ за группу');
   });
 
   it('цены для группы нет — строка с причиной, без числа', () => {

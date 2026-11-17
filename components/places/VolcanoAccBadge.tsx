@@ -1,7 +1,7 @@
 'use client';
 
 import { Mountain, ExternalLink, AlertTriangle, Clock } from 'lucide-react';
-import { ACC_META, type AccColor, volcanoObservationAgeDays, isVolcanoObservationStale, formatObservationAge } from '@/lib/services/safety/kvert-vona';
+import { ACC_META, type AccColor, volcanoObservationAgeDays, isVolcanoObservationStale, formatObservationAge, volcanoObservationDate } from '@/lib/services/safety/kvert-vona';
 import type { VolcanoAccStatus } from '@/components/places/types';
 import { ASHFALL_RULES, shouldShowAshfallGuidance } from '@/lib/safety/ashfall-guidance';
 
@@ -17,9 +17,9 @@ export default function VolcanoAccBadge({ status }: { status: VolcanoAccStatus }
     : 'unassigned') as AccColor;
   const meta = ACC_META[color];
 
-  const observed = status.observedAt
-    ? new Date(status.observedAt).toLocaleDateString('ru-RU', { day: 'numeric', month: 'long', year: 'numeric' })
-    : null;
+  // День — по Камчатке, как в ответах агентам (#3487): иначе карточка и MCP
+  // называли разные сутки одного наблюдения.
+  const observed = volcanoObservationDate(status.observedAt, 'long');
 
   const ageDays = volcanoObservationAgeDays(status.observedAt);
   const stale = isVolcanoObservationStale(status.observedAt);

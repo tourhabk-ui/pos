@@ -69,9 +69,12 @@ describe('подтверждение туроператора', () => {
 
   it('цена без единицы не называется ценой с человека', () => {
     const labeled = tourPriceLabel(4500, null);
-    expect(labeled).toMatch(/^от /);
+    // Цена тура одна, «от» перед ней выдумано (#3487).
+    expect(labeled).not.toMatch(/^от /);
     expect(labeled).toContain('₽');
-    expect(labeled).not.toContain('не записано');
+    expect(labeled).not.toMatch(/за человека/);
+    // Человеку — слова, а не указание модели.
+    expect(labeled).not.toContain('не называй');
     expect(tourPriceLabel(null, 'person')).toBeNull();
   });
 });

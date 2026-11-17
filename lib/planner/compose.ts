@@ -22,7 +22,7 @@ import { tourPath } from '@/lib/tours/tour-url';
 import { tourDurationDays } from '@/lib/bookings/duration';
 import { tourGroupCost } from '@/lib/planner/estimate';
 import { planTourPrice } from '@/lib/planner/tour-price';
-import { priceFromUnit } from '@/lib/tours/price-label';
+import { priceWithUnitWords } from '@/lib/tours/price-label';
 import { publicTourSql } from '@/lib/tours/public-visibility';
 import { nearestFreeDateSql } from '@/lib/tours/nearest-free-date';
 import { anyDayOpenSql } from '@/lib/tours/schedule-kind';
@@ -399,7 +399,7 @@ async function generateTourReasoning(
       content: `Контекст туриста: ${context}
 
 Туры:
-${tours.map((t, i) => `${i + 1}. "${t.title}" — ${t.activity_type}, ${t.duration_days} дн., ${priceFromUnit(t.base_price, t.price_unit) ?? 'цена не указана'} (на эту группу ${t.group_cost.toLocaleString('ru-RU')} руб.), ${t.location ?? 'Камчатка'}, сложность: ${t.difficulty_level ?? '?'}, оператор: ${t.operator_name}`).join('\n')}
+${tours.map((t, i) => `${i + 1}. "${t.title}" — ${t.activity_type}, ${t.duration_days} дн., ${priceWithUnitWords(t.base_price, t.price_unit) ?? 'цена не указана'} (на эту группу ${t.group_cost.toLocaleString('ru-RU')} руб.), ${t.location ?? 'Камчатка'}, сложность: ${t.difficulty_level ?? '?'}, оператор: ${t.operator_name}`).join('\n')}
 
 Для каждого тура напиши короткое объяснение (1-2 предложения) почему он подходит. Формат ответа:
 1: <объяснение>

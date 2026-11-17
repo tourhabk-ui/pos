@@ -467,10 +467,16 @@ export interface TourBookCheckRow {
 export interface TourCheckRow {
   id: string;
   name: string;
-  max_group_size: number;
-  min_group_size: number;
+  /** max_participants; драйвер может отдать строкой, не записано — null */
+  max_group_size: number | string | null;
+  min_group_size: number | string | null;
   price: string;
   is_active: boolean;
+  season_start?: string | null;
+  season_end?: string | null;
+  duration_type?: string | null;
+  duration_hours?: string | number | null;
+  multi_day_count?: number | string | null;
 }
 
 /** Date-series availability row from CTE query */

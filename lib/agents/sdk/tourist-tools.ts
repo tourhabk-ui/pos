@@ -25,7 +25,7 @@ import { resolvePlaceCoords } from '@/lib/kuzmich/weather-tool';
 import { logSwallowedFailure } from '@/lib/observability/swallowed';
 import { containsPattern } from '@/lib/db/like';
 import { tourPath } from '@/lib/tours/tour-url';
-import { priceFromUnit } from '@/lib/tours/price-label';
+import { priceWithUnitWords } from '@/lib/tours/price-label';
 import { unlimitedGroupSentence } from '@/lib/tours/group-size';
 import { publicTourSql } from '@/lib/tours/public-visibility';
 import { nearestFreeDateSql } from '@/lib/tours/nearest-free-date';
@@ -640,7 +640,7 @@ const composeTripTool: SDKTool = {
           duration: `${t.duration_days} дн.`,
           // Цена — с единицей, как в каталоге: «за группу» под ключом
           // price_per_person модель пересказывала как цену с человека.
-          price: priceFromUnit(t.base_price, t.price_unit) ?? 'цена не указана',
+          price: priceWithUnitWords(t.base_price, t.price_unit) ?? 'цена не указана',
           for_group: `${t.group_cost.toLocaleString('ru-RU')} руб. на группу из ${trip.group_size} чел.`,
           operator: t.operator_name,
           location: t.location,

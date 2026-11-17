@@ -45,6 +45,31 @@ export function volcanoObservationAgeDays(observedAt: string | null | undefined,
   return Math.max(0, Math.floor((now - t) / 86_400_000));
 }
 
+/**
+ * День наблюдения KVERT — сутки Камчатки, одно правило на карточку и на ответы
+ * агентам (#3487, пункт 18).
+ *
+ * `volcano_status.observed_at` — момент (timestamptz). Бейдж на карточке места
+ * печатал его без зоны, то есть сутками браузера или сервера, а MCP — сутками
+ * Камчатки: наблюдение 12.11 в 13:30 UTC — уже 13.11 по Камчатке — карточка
+ * называла 12.11, а MCP 13.11. Теперь зона одна у всех.
+ *
+ * `numeric` — «13.11.2026» (так пишут ответы агентам, и так их читает сверка
+ * каналов), `long` — «13 ноября 2026 г.» (карточка). Нет даты или она не
+ * разбирается — null: дня наблюдения не выдумываем.
+ */
+export function volcanoObservationDate(
+  observedAt: string | null | undefined,
+  style: 'numeric' | 'long' = 'numeric',
+): string | null {
+  if (!observedAt) return null;
+  const d = new Date(observedAt);
+  if (Number.isNaN(d.getTime())) return null;
+  return d.toLocaleDateString('ru-RU', style === 'long'
+    ? { timeZone: 'Asia/Kamchatka', day: 'numeric', month: 'long', year: 'numeric' }
+    : { timeZone: 'Asia/Kamchatka' });
+}
+
 /** Устарело ли наблюдение (старше порога). null-возраст → не считаем устаревшим. */
 export function isVolcanoObservationStale(observedAt: string | null | undefined, now: number = Date.now()): boolean {
   const age = volcanoObservationAgeDays(observedAt, now);

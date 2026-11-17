@@ -53,7 +53,7 @@ import { kamchatkaToday } from '@/lib/seat-requests/core';
 import { pastSeasonNote } from '@/lib/tours/request-window';
 import { tourDurationDays } from '@/lib/bookings/duration';
 import { planTourPrice, missingPriceText } from '@/lib/planner/tour-price';
-import { priceFromUnit } from '@/lib/tours/price-label';
+import { priceWithUnitWords } from '@/lib/tours/price-label';
 import { activityMode, type ActivityMode } from '@/lib/planner/day-mode';
 import { rankByLoad, firstOverLimit, overLimitText, dateOfTripDay, slotOnTripDay, tripCalendarDays, type PlaceLoad } from '@/lib/planner/flow-balance';
 import { fetchCandidateLoads, fetchTourLoads } from '@/lib/planner/place-load';
@@ -2309,7 +2309,7 @@ function buildAIPrompt(profile: TripProfile, zones: ZoneRecommendation[], days: 
     // Цена — с единицей тура: «за группу» без подписи модель пересказала бы
     // как цену с человека (#2304).
     if (d.realPrice) {
-      line += ` — ${priceFromUnit(d.realPrice, d.realTour?.priceUnit)}`;
+      line += ` — ${priceWithUnitWords(d.realPrice, d.realTour?.priceUnit)}`;
     } else if (d.priceMissing) {
       line += ' — цену для этой группы называет оператор';
     }

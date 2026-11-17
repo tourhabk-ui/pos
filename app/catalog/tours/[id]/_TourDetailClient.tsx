@@ -53,7 +53,7 @@ import { UNKNOWN_ORIGIN_TEXT } from '@/lib/safety/alert-origin';
  * (аудит 03.08 — `boat_trip` был подписан пятью способами, два из них «Сплав»).
  */
 import {
-  activityLabel, locationLabel, priceUnitLabel, difficultyLabel,
+  activityLabel, locationLabel, difficultyLabel,
   DIFFICULTY_LABELS as DIFFICULTY_MAP,
 } from '@/lib/tours/labels';
 import { telegramContactHref } from '@/lib/operators/profile-parse';
@@ -62,7 +62,14 @@ import { platformAcceptsPayments } from '@/lib/payments/accepting';
 import { TOUR_REVIEWS_ANCHOR } from '@/lib/tours/tour-anchors';
 import type { TourPromotionView } from '@/lib/tours/tour-promotion';
 import { TourPromotions } from '@/components/tours/TourPromotions';
-import { groupStripValue, isGroupSizeUnlimited, unlimitedGroupSentence } from '@/lib/tours/group-size';
+import { groupRangeShort, groupStripValue, isGroupSizeUnlimited, unlimitedGroupSentence } from '@/lib/tours/group-size';
+// Цена, длительность, сезон, программа и отмена — теми же функциями, что MCP
+// и /api/tours (#3487): одно поле — одна строка на всех поверхностях.
+import { priceSum, priceUnitWords } from '@/lib/tours/price-label';
+import { cardDuration } from '@/lib/tours/card-facts';
+import { tourSeasonWords, type CalendarRange } from '@/lib/tours/season-words';
+import { programSteps } from '@/lib/tours/describe';
+import { tourCancellation, SAFETY_NOTES_CANCELLATION_HEAD, CANCELLATION_REST_WITH_OPERATOR } from '@/lib/tours/cancellation-words';
 
 /* Шрифты платформы: Playfair — дисплей (голос края), JetBrains Mono — метки. */
 const FD = 'var(--font-playfair)';
@@ -77,8 +84,6 @@ const NUMS: React.CSSProperties = { fontVariantNumeric: 'lining-nums tabular-num
 const CRUMB = 'pointer-events-auto inline-flex items-center min-h-[44px] px-1 text-white/85 hover:text-white visited:text-white/85 hover:no-underline transition-colors';
 
 /* ─── Types ─── */
-
-interface ProgramStep { title: string; text: string }
 
 interface TourFull {
   id: number;
@@ -174,23 +179,6 @@ interface TourReview {
 }
 
 /* ─── Helpers ─── */
-
-/** Программа приходит из JSONB — форму не гарантирует никто, разбираем защитно. */
-function toProgram(v: unknown): ProgramStep[] {
-  if (!Array.isArray(v)) return [];
-  const out: ProgramStep[] = [];
-  for (const item of v) {
-    if (typeof item === 'string' && item.trim()) {
-      out.push({ title: item.trim(), text: '' });
-    } else if (item && typeof item === 'object') {
-      const o = item as Record<string, unknown>;
-      const title = typeof o.title === 'string' ? o.title.trim() : '';
-      const text = typeof o.text === 'string' ? o.text.trim() : '';
-      if (title) out.push({ title, text });
-    }
-  }
-  return out;
-}
 
 interface OperatorContact { label: string; href: string; icon: 'phone' | 'telegram' | 'video' | 'site' | 'whatsapp' | 'max' }
 
@@ -297,22 +285,6 @@ function splitOperatorContacts(contacts: OperatorContact[]): { primary: Operator
   return { primary, more: contacts.filter(c => !primary.includes(c)) };
 }
 
-function formatDuration(tour: TourFull): string | null {
-  if (tour.duration_type === 'multi_day' && tour.multi_day_count) {
-    const d = tour.multi_day_count;
-    return `${d} ${d === 1 ? 'день' : d < 5 ? 'дня' : 'дней'}`;
-  }
-  if (tour.duration_type === 'half_day') return 'Полдня';
-  if (tour.duration_type === 'day') return '1 день';
-  if (tour.duration_hours) {
-    const h = Number(tour.duration_hours);
-    if (h < 24) return `${h} ч`;
-    const d = Math.round(h / 24);
-    return `${d} ${d === 1 ? 'день' : d < 5 ? 'дня' : 'дней'}`;
-  }
-  return null;
-}
-
 /** Принимает и строку, и `Date` из БД; на мусоре молча возвращает null. */
 function formatPrice(p: number): string {
   return new Intl.NumberFormat('ru-RU').format(p) + ' ₽';
@@ -393,7 +365,7 @@ function SectionTitle({ children, icon: Icon, iconColor }: {
 
 /* ─── Main Component ─── */
 
-export default function TourDetailClient({ tour, reviews = [], askSeatsFirst = false, seasonWindow = null, seasonNote = null, placeOffers = null, promotions = [], prefill = {} }: { prefill?: { date?: string; guests?: number }; tour: TourFull; reviews?: TourReview[]; askSeatsFirst?: boolean; seasonWindow?: SeasonWindowView | null; seasonNote?: string | null; placeOffers?: PlaceOffersView | null; promotions?: TourPromotionView[] }) {
+export default function TourDetailClient({ tour, reviews = [], askSeatsFirst = false, seasonWindow = null, seasonNote = null, placeOffers = null, calendarRange = null, promotions = [], prefill = {} }: { prefill?: { date?: string; guests?: number }; tour: TourFull; reviews?: TourReview[]; askSeatsFirst?: boolean; seasonWindow?: SeasonWindowView | null; seasonNote?: string | null; placeOffers?: PlaceOffersView | null; /** Первая и последняя дата календаря — подпись сезона, когда он не записан (#3487). */ calendarRange?: CalendarRange | null; promotions?: TourPromotionView[] }) {
   const router = useRouter();
   const dayStatus = useDayStatus();
   const [wishlisted, setWishlisted] = useState(false);
@@ -427,7 +399,6 @@ export default function TourDetailClient({ tour, reviews = [], askSeatsFirst = f
   );
   const [lightbox, setLightbox] = useState<number | null>(null);
   const [contactsOpen, setContactsOpen] = useState(false);
-  const [openStep, setOpenStep] = useState<number | null>(0);
   const [packed, setPacked] = useState<Set<number>>(new Set());
 
   /**
@@ -532,15 +503,22 @@ export default function TourDetailClient({ tour, reviews = [], askSeatsFirst = f
   }, []);
 
   const price = parseFloat(tour.base_price);
+  // Цена одной строкой — та же, что в MCP и /api/tours (priceWithUnitWords):
+  // сумма и «за что». Без выдуманного «от» и без «за человека» по умолчанию.
+  const priceText = priceSum(tour.base_price) ?? 'Цена по запросу';
+  const priceLabel = priceSum(tour.base_price) ? priceUnitWords(tour.price_unit) : '';
   const priceOld = tour.price_old ? parseFloat(tour.price_old) : null;
   const activity = activityLabel(tour.activity_type);
   const location = locationLabel(tour.location_type);
-  const durationLabel = formatDuration(tour);
+  const durationLabel = cardDuration(tour);
   const diffBadge = tour.difficulty ? DIFFICULTY_MAP[tour.difficulty] : null;
-  const priceLabel = priceUnitLabel(tour.price_unit);
   // Сезон с днями и годом (lib/tours/season, 08.11): «Июл — Сен» без года
   // делал прошедший сезон 2026 неотличимым от будущего.
   const seasonLabel = formatSeasonLabel(tour.season_start, tour.season_end);
+  // Полоса фактов: сезон не записан — так и сказано, а если в календаре есть
+  // даты — названы они (lib/tours/season-words, #3487). Чип «О туре» — только
+  // у записанного сезона.
+  const seasonStrip = tourSeasonWords(tour, calendarRange);
   const rating = tour.rating ? Number(tour.rating) : 0;
 
   const allPhotos = tour.photos?.length ? tour.photos : (tour.tour_image ? [tour.tour_image] : []);
@@ -555,7 +533,8 @@ export default function TourDetailClient({ tour, reviews = [], askSeatsFirst = f
   const whatToBring = Array.isArray(tour.what_to_bring) ? tour.what_to_bring : [];
   const safetyNotes = Array.isArray(tour.safety_notes) ? tour.safety_notes : [];
 
-  const program = useMemo(() => toProgram(tour.program), [tour.program]);
+  const program = useMemo(() => programSteps(tour.program), [tour.program]);
+  const cancellation = useMemo(() => tourCancellation(tour), [tour]);
   const contacts = useMemo(() => toContacts(tour.operator_contacts), [tour.operator_contacts]);
   const { primary: primaryContacts, more: moreContacts } = useMemo(() => splitOperatorContacts(contacts), [contacts]);
   // Часы звонков (contacts.phone_hours, миграция 840) — строка из БД как есть.
@@ -581,7 +560,7 @@ export default function TourDetailClient({ tour, reviews = [], askSeatsFirst = f
   // Значение сложности берём КОРОТКОЕ: под меткой «Сложность» полная форма
   // давала заикание «СЛОЖНОСТЬ · Средняя сложность».
   const instrument: { k: string; v: string }[] = [];
-  if (seasonLabel) instrument.push({ k: 'Сезон', v: seasonLabel });
+  instrument.push({ k: 'Сезон', v: seasonStrip });
   if (durationLabel) instrument.push({ k: 'Длится', v: durationLabel });
   // «до N» — только когда группа тура ограничена: у тура с признаком
   // group_size_unlimited число N — потолок одной заявки, а не предел гида.
@@ -780,7 +759,7 @@ export default function TourDetailClient({ tour, reviews = [], askSeatsFirst = f
               <div ref={decisionRef} className="lg:hidden ds-card p-5">
                 <div className="flex items-baseline gap-2">
                   {priceOld && priceOld > price && <span className="text-sm text-[var(--text-muted)] line-through">{formatPrice(priceOld)}</span>}
-                  <span className="text-[var(--accent)]" style={{ fontFamily: FD, fontWeight: 700, fontSize: 26, letterSpacing: '-0.02em', ...NUMS }}>{formatPrice(price)}</span>
+                  <span className="text-[var(--accent)]" style={{ fontFamily: FD, fontWeight: 700, fontSize: 26, letterSpacing: '-0.02em', ...NUMS }}>{priceText}</span>
                   <span className="text-sm text-[var(--text-secondary)]">{priceLabel}</span>
                 </div>
                 <p className="mt-1.5 text-xs leading-relaxed text-[var(--text-secondary)]">
@@ -851,59 +830,59 @@ export default function TourDetailClient({ tour, reviews = [], askSeatsFirst = f
               </section>
             )}
 
-            {/* Программа дня — только если оператор её прислал */}
+            {/* Программа дня — только если оператор её прислал. Текст шага виден
+                сразу, без клика (#3487): до 17.11 он прятался в аккордеон, и
+                «перелёт (10 минут)» у Узона был в MCP, а на карточке — нет.
+                Разбор программы тот же, что у MCP (programSteps). */}
             {program.length > 0 && (
               <section>
                 <Eyebrow>Как проходит день</Eyebrow>
                 <SectionTitle>Программа</SectionTitle>
-                <div className="ds-card overflow-hidden p-0">
-                  {program.map((step, i) => {
-                    const open = openStep === i;
-                    return (
-                      <div key={`${step.title}-${i}`} className={i > 0 ? 'border-t border-[var(--border)]' : ''}>
-                        <button
-                          type="button"
-                          aria-expanded={open}
-                          onClick={() => setOpenStep(open ? null : i)}
-                          className="relative flex w-full items-center gap-3 p-4 text-left transition-colors hover:bg-[var(--bg-hover)]"
-                          style={{ minHeight: 44 }}
-                        >
-                          {open && <span className="absolute left-0 top-2 bottom-2 w-[3px] rounded-full bg-[var(--accent)]" />}
-                          <span
-                            className="grid h-9 w-9 shrink-0 place-items-center rounded-lg text-sm font-bold"
-                            style={{ background: 'color-mix(in srgb, var(--accent) 14%, transparent)', color: 'var(--accent)', fontFamily: FM }}
-                          >
-                            {i + 1}
-                          </span>
-                          <span className="flex-1 text-sm font-semibold text-[var(--text-primary)]">{step.title}</span>
-                          <ChevronDown
-                            className={`w-4 h-4 shrink-0 transition-transform duration-200 ${open ? 'rotate-180 text-[var(--accent)]' : 'text-[var(--text-muted)]'}`}
-                            aria-hidden
-                          />
-                        </button>
-                        {open && step.text && (
-                          <p className="px-4 pb-4 pl-[64px] text-sm leading-relaxed text-[var(--text-secondary)]">{step.text}</p>
+                <ol className="ds-card overflow-hidden p-0">
+                  {program.map((step, i) => (
+                    <li key={`${step.title}-${i}`} className={`flex items-start gap-3 p-4 ${i > 0 ? 'border-t border-[var(--border)]' : ''}`}>
+                      <span
+                        className="grid h-9 w-9 shrink-0 place-items-center rounded-lg text-sm font-bold"
+                        style={{ background: 'color-mix(in srgb, var(--accent) 14%, transparent)', color: 'var(--accent)', fontFamily: FM }}
+                        aria-hidden
+                      >
+                        {i + 1}
+                      </span>
+                      <div className="flex-1 min-w-0 pt-1.5">
+                        <p className="text-sm font-semibold text-[var(--text-primary)]">{step.title}</p>
+                        {step.text && (
+                          <p className="mt-1 text-sm leading-relaxed text-[var(--text-secondary)]">{step.text}</p>
                         )}
                       </div>
-                    );
-                  })}
-                </div>
+                    </li>
+                  ))}
+                </ol>
               </section>
             )}
 
-            {/* Что включено / не входит */}
-            {(included.length > 0 || notIncluded.length > 0) && (
+            {/* Что входит и что не входит — две секции со своими заголовками
+                (#3487): под одним «Что включено» пункт «не входит» читался как
+                входящий в цену. */}
+            {included.length > 0 && (
               <section>
                 <Eyebrow>Снаряжение и сборы</Eyebrow>
-                <SectionTitle>Что включено</SectionTitle>
-                <div className="grid grid-cols-1 sm:grid-cols-2 gap-x-8 gap-y-3">
+                <SectionTitle>Входит в стоимость</SectionTitle>
+                <ul className="grid grid-cols-1 sm:grid-cols-2 gap-x-8 gap-y-3">
                   {included.map(item => (
-                    <div key={item} className="flex items-start gap-2.5"><CheckCircle2 className="w-5 h-5 text-[var(--success)] shrink-0 mt-0.5" /><span className="text-sm text-[var(--text-primary)]">{item}</span></div>
+                    <li key={item} className="flex items-start gap-2.5"><CheckCircle2 className="w-5 h-5 text-[var(--success)] shrink-0 mt-0.5" aria-hidden /><span className="text-sm text-[var(--text-primary)]">{item}</span></li>
                   ))}
+                </ul>
+              </section>
+            )}
+            {notIncluded.length > 0 && (
+              <section>
+                {included.length === 0 && <Eyebrow>Снаряжение и сборы</Eyebrow>}
+                <SectionTitle>Не входит в стоимость</SectionTitle>
+                <ul className="grid grid-cols-1 sm:grid-cols-2 gap-x-8 gap-y-3">
                   {notIncluded.map(item => (
-                    <div key={item} className="flex items-start gap-2.5"><XCircle className="w-5 h-5 text-[var(--text-secondary)] shrink-0 mt-0.5" /><span className="text-sm text-[var(--text-secondary)]">{item}</span></div>
+                    <li key={item} className="flex items-start gap-2.5"><XCircle className="w-5 h-5 text-[var(--text-secondary)] shrink-0 mt-0.5" aria-hidden /><span className="text-sm text-[var(--text-secondary)]">{item}</span></li>
                   ))}
-                </div>
+                </ul>
               </section>
             )}
 
@@ -981,9 +960,12 @@ export default function TourDetailClient({ tour, reviews = [], askSeatsFirst = f
                 {[
                   'Условия и детали подтверждаются оператором до оплаты',
                   ...(tour.route_id ? ['Маршрут проходит через контур безопасности платформы'] : []),
-                  isGroupSizeUnlimited(tour)
-                    ? unlimitedGroupSentence(tour.max_participants).replace(/\.$/, '')
-                    : `Группа: ${tour.min_participants ?? 1}–${tour.max_participants} чел.`,
+                  // Диапазон группы — общим правилом (lib/tours/group-size):
+                  // до #3487 здесь стояло `min ?? 1` — минимум, которого
+                  // оператор не записывал, и «1–null чел.» у тура без числа.
+                  ...(isGroupSizeUnlimited(tour)
+                    ? [unlimitedGroupSentence(tour.max_participants).replace(/\.$/, '')]
+                    : groupRangeShort(tour) ? [`Группа: ${groupRangeShort(tour)} чел.`] : []),
                 ].map(t => (
                   <div key={t} className="flex items-start gap-2.5"><CheckCircle2 className="w-5 h-5 text-[var(--success)] shrink-0 mt-0.5" /><span className="text-sm text-[var(--text-secondary)]">{t}</span></div>
                 ))}
@@ -1029,16 +1011,27 @@ export default function TourDetailClient({ tour, reviews = [], askSeatsFirst = f
               </section>
             )}
 
-            {/* Отмена и возврат — только слова оператора (931). Нет записи —
-                нет блока: типовых условий за оператора карточка не сочиняет. */}
-            {tour.cancellation_policy && (
+            {/* Отмена и возврат — только слова оператора (931). Текста условий
+                нет, а в правилах безопасности оператор пишет о возврате денег —
+                показываются эти слова с подписью, откуда они (#3487): тем же
+                правилом, что форма заявки и MCP (lib/tours/cancellation-words).
+                Нет ни того, ни другого — нет блока: типовых условий за
+                оператора карточка не сочиняет. */}
+            {cancellation.kind !== 'none' && (
               <section>
                 <SectionTitle icon={RotateCcw}>Отмена и возврат</SectionTitle>
-                <div className="ds-card p-5 space-y-2.5">
-                  {tour.cancellation_policy.split('\n').filter(l => l.trim()).map((line, i) => (
+                <div className="ds-card p-5 space-y-2.5" data-tour-cancellation={cancellation.kind}>
+                  {cancellation.kind === 'safety_notes' && (
+                    <p className="text-xs text-[var(--text-muted)]">{SAFETY_NOTES_CANCELLATION_HEAD}:</p>
+                  )}
+                  {cancellation.lines.map((line, i) => (
                     <p key={i} className="text-sm text-[var(--text-secondary)]">{line}</p>
                   ))}
-                  <p className="text-xs text-[var(--text-muted)] pt-1">Условия оператора. Спорные случаи решаются с ним напрямую.</p>
+                  <p className="text-xs text-[var(--text-muted)] pt-1">
+                    {cancellation.kind === 'safety_notes'
+                      ? `${CANCELLATION_REST_WITH_OPERATOR} Спорные случаи решаются с ним напрямую.`
+                      : 'Условия оператора. Спорные случаи решаются с ним напрямую.'}
+                  </p>
                 </div>
               </section>
             )}
@@ -1242,7 +1235,7 @@ export default function TourDetailClient({ tour, reviews = [], askSeatsFirst = f
               <div className="ds-card p-6">
                 <div className="flex items-baseline gap-2 mb-1">
                   {priceOld && priceOld > price && <span className="text-base text-[var(--text-muted)] line-through">{formatPrice(priceOld)}</span>}
-                  <span className="text-[var(--accent)]" style={{ fontFamily: FD, fontWeight: 700, fontSize: 30, letterSpacing: '-0.02em', ...NUMS }}>{formatPrice(price)}</span>
+                  <span className="text-[var(--accent)]" style={{ fontFamily: FD, fontWeight: 700, fontSize: 30, letterSpacing: '-0.02em', ...NUMS }}>{priceText}</span>
                 </div>
                 <p className="text-sm text-[var(--text-secondary)] mb-4">{priceLabel}</p>
 
@@ -1280,6 +1273,7 @@ export default function TourDetailClient({ tour, reviews = [], askSeatsFirst = f
                       freeDays: tour.cancellation_free_days ?? null,
                       lateRefundPercent: tour.cancellation_late_refund_percent ?? null,
                     }}
+                    cancellationFacts={{ cancellation_policy: tour.cancellation_policy, safety_notes: tour.safety_notes ?? null }}
                     duration={{ multi_day_count: tour.multi_day_count, duration_hours: tour.duration_hours == null ? null : Number(tour.duration_hours) }} />
                 </div>
               </div>
@@ -1331,7 +1325,7 @@ export default function TourDetailClient({ tour, reviews = [], askSeatsFirst = f
         <div className="flex items-center gap-3 px-4 py-2.5">
           <div className="flex-1 min-w-0">
             <div className="flex items-baseline gap-1.5">
-              <span className="text-[var(--accent)] whitespace-nowrap" style={{ fontFamily: FD, fontWeight: 700, fontSize: 19, letterSpacing: '-0.02em', ...NUMS }}>{formatPrice(price)}</span>
+              <span className="text-[var(--accent)] whitespace-nowrap" style={{ fontFamily: FD, fontWeight: 700, fontSize: 19, letterSpacing: '-0.02em', ...NUMS }}>{priceText}</span>
               <span className="text-xs text-[var(--text-secondary)] truncate">{priceLabel}</span>
             </div>
           </div>

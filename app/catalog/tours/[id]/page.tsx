@@ -10,6 +10,7 @@ import { buildTourStructuredData } from '@/lib/seo/tour-structured-data';
 import { tourHeroImage } from '@/lib/tours/hero-image';
 import { countTourDates, availabilityFromDates } from '@/lib/tours/open-dates';
 import { formSeasonNote, requestWindow, seasonWindowView } from '@/lib/tours/request-window';
+import { calendarRangeOf } from '@/lib/tours/season-words';
 import { kamchatkaToday } from '@/lib/seat-requests/core';
 import { zhTourAlternatePath } from '@/lib/zh/content';
 import { loadPlaceOffersForTour } from '@/lib/places/place-tours';
@@ -142,7 +143,7 @@ export default async function CatalogTourDetailPage({ params }: Props) {
         type="application/ld+json"
         dangerouslySetInnerHTML={{ __html: jsonLdHtml(structuredData) }}
       />
-      <TourDetailClient prefill={prefill} tour={tour} reviews={reviews} askSeatsFirst={askSeatsFirst} seasonWindow={seasonWindow} seasonNote={seasonNote} placeOffers={placeOffers} promotions={promotions} />
+      <TourDetailClient prefill={prefill} tour={tour} reviews={reviews} askSeatsFirst={askSeatsFirst} seasonWindow={seasonWindow} seasonNote={seasonNote} placeOffers={placeOffers} calendarRange={calendarRangeOf(dates?.first, dates?.last)} promotions={promotions} />
     </>
   );
 }

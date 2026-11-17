@@ -55,7 +55,7 @@ describe('get_tours → факты (тексты делает настоящий
   it('единица цены читается из подписи и совпадает с кодом колонки', async () => {
     q.mockResolvedValueOnce({ rows: [
       tourRow({ id: 27, price_unit: 'per_person' }),
-      tourRow({ id: 9, base_price: 140000, price_unit: 'per_tour', multi_day_count: 5, activity_type: 'trekking' }),
+      tourRow({ id: 9, base_price: 140000, price_unit: 'per_tour', duration_type: 'multi_day', multi_day_count: 5, activity_type: 'trekking' }),
       tourRow({ id: 6, base_price: 28000, price_unit: 'per_day_per_person' }),
     ] });
     // Кэш каталога — в процессе: сбрасываем модуль, чтобы не читать чужое.

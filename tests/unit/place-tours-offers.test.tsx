@@ -95,7 +95,7 @@ describe('PlaceTours: предложения к месту по компания
     expect(all).toContain('даты по заявке, сезон 15 июля 2027 — 15 октября 2027');
     expect(all).toContain('даты не записаны — оператор подтвердит дату по заявке');
     expect(all).toContain('на открытые даты мест нет');
-    expect(all).toContain('4 дн.');
+    expect(all).toContain('4 дня');
   });
 
   it('«не загрузились» — сбой словами, не «туров нет»; якорь #tours есть', () => {

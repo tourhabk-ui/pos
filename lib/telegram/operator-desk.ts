@@ -6,7 +6,7 @@
 
 import { pool } from '@/lib/db-pool';
 import { escapeHtml } from '@/lib/text/escape-html';
-import { priceFromUnit } from '@/lib/tours/price-label';
+import { priceWithUnitWords } from '@/lib/tours/price-label';
 import { publicTourSql } from '@/lib/tours/public-visibility';
 import { tourPath } from '@/lib/tours/tour-url';
 import { getPublicBaseUrl } from '@/lib/config';
@@ -135,13 +135,13 @@ export function operatorToursText(tours: ReadonlyArray<{ title: string; price: s
   return lines.join('\n');
 }
 
+/**
+ * Цена тура в кабинете оператора — тем же форматом, что каталог и карточка
+ * (#3487): сумма с единицей, без «от». Единица не записана — так и сказано:
+ * оператору это подсказка заполнить её, а не указание модели.
+ */
 export function tourPriceLabel(price: number | string | null, unit: string | null): string | null {
-  const n = typeof price === 'number' ? price : price ? Number(price) : null;
-  if (!n || !Number.isFinite(n) || n <= 0) return null;
-  const labeled = priceFromUnit(n, unit);
-  return labeled
-    ? labeled.replace(' (за что назначена цена — не записано, не называй её ценой с человека)', '')
-    : null;
+  return priceWithUnitWords(price, unit);
 }
 
 export type OperatorTourLine = { title: string; price: string | null; url: string };
