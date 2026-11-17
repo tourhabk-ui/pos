@@ -270,6 +270,8 @@ export function buildTourStructuredData(
   const product: Record<string, unknown> = {
     '@type': 'Product',
     '@id': `${canonicalUrl}#product`,
+    // Адрес страницы — тот же канонический URL, что в @id и offers.url.
+    url: canonicalUrl,
     name: tour.title,
     ...(tour.description
       ? { description: stripHtmlTags(tour.description).slice(0, 400) }
@@ -286,6 +288,7 @@ export function buildTourStructuredData(
   const touristTrip: Record<string, unknown> = {
     '@type': 'TouristTrip',
     '@id': `${canonicalUrl}#trip`,
+    url: canonicalUrl,
     name: tour.title,
     // Чистый текст до 500 символов: сырой HTML в разметке — мусор для
     // поисковиков, а сверхдлинное описание модели всё равно режут.

@@ -15,6 +15,7 @@ import { SeatRequestForm } from '@/components/planner/SeatRequestForm';
 import { PdConsentCheckbox } from '@/components/legal/PdConsentCheckbox';
 import { normalizePhone } from '@/lib/mcp/normalize-phone';
 import { funnelBeacon } from '@/lib/funnel/beacon';
+import { trackLeadSuccess } from '@/lib/analytics/lead-tracking';
 import { agentReferralForBooking } from '@/lib/referral/agent-link';
 import { cancellationTermsForForm, type TourRefundTerms } from '@/lib/payments/tour-refund';
 import { platformAcceptsPayments } from '@/lib/payments/accepting';
@@ -368,6 +369,7 @@ export default function BookingFormClient({ tourId, basePrice, maxParticipants =
         ? String((data as Record<string, unknown>).access_token)
         : '';
       setSentOk(true);
+      trackLeadSuccess('booking_form', tourId);
       await waitDoneBeat();
       router.push(`/booking-success/${id}?t=${encodeURIComponent(token)}`);
     } catch (err) {

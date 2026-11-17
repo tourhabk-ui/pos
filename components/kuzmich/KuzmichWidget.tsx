@@ -19,6 +19,7 @@ import SpeakButton from '@/components/kuzmich/SpeakButton';
 import { tourPath } from '@/lib/tours/tour-url';
 import { platformAcceptsPayments } from '@/lib/payments/accepting';
 import { PdConsentCheckbox } from '@/components/legal/PdConsentCheckbox';
+import { trackLeadSuccess } from '@/lib/analytics/lead-tracking';
 
 // Страницы где виджет не нужен
 const HIDDEN_PATHS = ['/', '/kuzmich', '/hub/admin', '/hub/operator', '/planning', '/ai-assistant', '/sos', '/register', '/safety/offline'];
@@ -91,6 +92,7 @@ export function BookingWidget({ data, onDone }: { data: BookingFormData; onDone:
       const json = await res.json() as { id?: number; access_token?: string; error?: string };
       if (!res.ok) throw new Error(json.error ?? 'Ошибка сервера');
       const id = json.id!;
+      trackLeadSuccess('kuzmich_widget', data.tourId);
       setDone(true);
       setBookingId(id);
       setAccessToken(json.access_token ?? '');
