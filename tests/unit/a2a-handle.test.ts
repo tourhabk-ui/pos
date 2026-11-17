@@ -15,7 +15,7 @@ import { describe, it, expect, vi } from 'vitest';
 import { handleA2A, readText, readToolCall, type A2AExecutors } from '@/lib/a2a/handle';
 import { memoryTaskStore, type A2ATaskStore } from '@/lib/a2a/task-store';
 import type { PublicToolOutcome } from '@/lib/mcp/tool-outcome';
-import { buildSkills } from '@/lib/a2a/agent-card';
+import { buildSkills, buildAgentCard } from '@/lib/a2a/agent-card';
 import { WRITE_TOOL_NAMES } from '@/lib/mcp/public-tools';
 
 function deps(toolOutcome: PublicToolOutcome, chat: Awaited<ReturnType<A2AExecutors['chat']>> = { ok: true, text: 'Кузьмич отвечает' }) {
@@ -219,7 +219,11 @@ describe('визитка обещает те исходы задачи, кото
     [{ kind: 'failed', text: 'Сбой на стороне Ведара' }, 'TASK_STATE_FAILED', 'failed'],
   ];
 
-  it.each(['get_request_status', 'create_booking_request'])('%s: каждый исход исполнителя — состояние, названное в навыке', async (tool) => {
+  // С 17.11 исходы задачи названы один раз в описании карточки — правило для
+  // всех навыков-инструментов, а не повтор в каждом из 25.
+  const cardText = buildAgentCard('https://vedarai.ru').description as string;
+
+  it.each(['get_request_status', 'create_booking_request'])('%s: каждый исход исполнителя — состояние, названное в карточке', async (tool) => {
     // До этой правки читающий навык обещал только completed, а неизвестный
     // ключ статуса и лимит отдают rejected, сбой — failed.
     const skill = buildSkills().find((x) => x.id === tool);
@@ -227,18 +231,19 @@ describe('визитка обещает те исходы задачи, кото
     for (const [outcome, wire, word] of OUTCOMES) {
       const out = await handleA2A('SendMessage', dataMsg(tool, {}), ctx(), deps(outcome));
       expect(out.ok && (out.result.task as { status: { state: string } }).status.state, outcome.kind).toBe(wire);
-      expect(skill?.description, `${tool}: ${word}`).toContain(word);
+      expect(cardText, `${tool}: ${word}`).toContain(word);
     }
   });
 
-  it('каждый навык-инструмент называет все три состояния; пишущий и читающий — свои причины отказа', () => {
+  it('карточка называет все три состояния; пишущий навык — свою причину отказа, читающий о согласии молчит', () => {
+    for (const word of ['completed', 'rejected', 'failed']) expect(cardText, word).toContain(word);
     const tools = buildSkills().slice(1);
     expect(tools.length).toBeGreaterThan(0);
     for (const sk of tools) {
-      for (const word of ['completed', 'rejected', 'failed']) expect(sk.description, `${sk.id}: ${word}`).toContain(word);
-      // Строка вызова навыка — по-английски с 16.11 (#3463 п. 2): карточку читают агенты.
-      if (WRITE_TOOL_NAMES.has(sk.id)) expect(sk.description, sk.id).toContain('no consent');
-      else expect(sk.description, sk.id).not.toContain('no consent');
+      if (WRITE_TOOL_NAMES.has(sk.id)) {
+        expect(sk.description, sk.id).toContain('no consent');
+        expect(sk.description, sk.id).toContain('rejected');
+      } else expect(sk.description, sk.id).not.toContain('no consent');
     }
   });
 });
