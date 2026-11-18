@@ -13,6 +13,7 @@
  */
 import { pool } from '@/lib/db-pool';
 import { getPublicBaseUrl } from '@/lib/config';
+import { lineOwnership } from '@/lib/routes/line-ownership';
 
 /**
  * $1 — places.id места. id маршрута — в пространстве VIEW
@@ -25,7 +26,12 @@ export const PLACE_ROUTES_SQL = `
          -- Факты §10 — для Кузьмича (lib/kuzmich/guardian-context, 14.10):
          -- без них он знал о маршрутах места только название и длину.
          kr.elevation_gain_m, kr.season, kr.hazards, kr.equipment,
-         kr.mchs_registration_required, kr.mchs_phone, kr.park_name
+         kr.mchs_registration_required, kr.mchs_phone, kr.park_name,
+         -- Точка записи и вершины линии — только для судьи подъезда
+         -- (lineWithApproach ниже); наружу их не отдаёт ни карточка, ни
+         -- Кузьмич.
+         kr.lat AS route_lat, kr.lng AS route_lng,
+         kr.geometry->'coordinates' AS line_coords
     FROM route_waypoints rw
     JOIN kamchatka_routes kr ON kr.id = rw.route_id
    WHERE rw.place_id = $1
@@ -55,6 +61,56 @@ export interface PlaceRouteRow {
   mchs_registration_required?: boolean | null;
   mchs_phone?: string | null;
   park_name?: string | null;
+  /**
+   * Длина линии, в которую влит подъезд (#3487): число из distance_km, когда
+   * судья принадлежности сказал own_with_approach. Тогда distance_km — null:
+   * длиной тропы это число не является. Заполняет placeRoutesFor.
+   */
+  distance_with_approach_km?: number | null;
+}
+
+/** Сырые поля строки, нужные только судье подъезда. */
+export interface PlaceRouteLineFields {
+  route_lat?: string | number | null;
+  route_lng?: string | number | null;
+  line_coords?: unknown;
+}
+
+/**
+ * Влит ли в линию маршрута подъезд (#3487, маршрут «Ксудач и Ходутка»:
+ * 242,5 км с дорогой, дальний конец в 112 км от места).
+ *
+ * Тот же судья и те же входы, что у подписи на карточке маршрута
+ * (lib/routes/line-ownership, app/routes/[id]): точка записи маршрута и
+ * вершины линии. Длина такой линии — не длина тропы, и карточка места не
+ * должна называть её так. Судить нечем (нет точки, нет линии) — false:
+ * подписи нет, как и на карточке маршрута.
+ */
+export function lineWithApproach(row: PlaceRouteLineFields): boolean {
+  const lat = row.route_lat == null ? NaN : Number(row.route_lat);
+  const lng = row.route_lng == null ? NaN : Number(row.route_lng);
+  const coords = Array.isArray(row.line_coords) ? (row.line_coords as number[][]) : null;
+  if (!coords) return false;
+  return lineOwnership({
+    routePoint: Number.isFinite(lat) && Number.isFinite(lng) ? { lat, lng } : null,
+    coords,
+  }).verdict === 'own_with_approach';
+}
+
+/**
+ * Строка базы → строка маршрута места: без сырых полей линии, а длина линии с
+ * подъездом — отдельным полем, не длиной маршрута.
+ */
+export function toPlaceRouteRow(raw: PlaceRouteRow & PlaceRouteLineFields): PlaceRouteRow {
+  const row: PlaceRouteRow & PlaceRouteLineFields = { ...raw };
+  delete row.route_lat;
+  delete row.route_lng;
+  delete row.line_coords;
+  const km = row.distance_km != null && Number.isFinite(Number(row.distance_km)) ? Number(row.distance_km) : null;
+  if (km !== null && lineWithApproach(raw)) {
+    return { ...row, distance_km: null, distance_with_approach_km: km };
+  }
+  return { ...row, distance_with_approach_km: null };
 }
 
 /** Адрес карточки маршрута — тот же, что у ссылки на карточке места. */
@@ -75,7 +131,11 @@ export function placeRoutesLines(routes: PlaceRouteRow[]): string[] {
   // Три Брата“»: «, 1.5 км» стояло после имени маршрута в строке «Рядом
   // проходят», и модель прочла ДЛИНУ маршрута как РАССТОЯНИЕ до него.
   const fmt = (r: PlaceRouteRow) => {
-    const km = r.distance_km != null && Number.isFinite(Number(r.distance_km)) ? `, длина маршрута ${Number(r.distance_km)} км` : '';
+    // Длина линии с подъездом — не длина маршрута (#3487): сказано прямо,
+    // иначе 242,5 км дороги звучали бы как тропа к вулкану.
+    const km = r.distance_with_approach_km != null
+      ? `, длина линии ${r.distance_with_approach_km} км вместе с подъездом — это не длина тропы`
+      : r.distance_km != null && Number.isFinite(Number(r.distance_km)) ? `, длина маршрута ${Number(r.distance_km)} км` : '';
     return `«${r.title}»${km} — ${routePageUrl(r)}`;
   };
   const lines: string[] = [];
@@ -94,7 +154,8 @@ export function placeRoutesLines(routes: PlaceRouteRow[]): string[] {
 export async function placeRoutesFor(placeId: string): Promise<PlaceRouteRow[] | null> {
   try {
     const { rows } = await pool.query<PlaceRouteRow>(PLACE_ROUTES_SQL, [placeId]);
-    return rows;
+    // Строки несут и сырые поля линии (PlaceRouteLineFields) — судье подъезда.
+    return rows.map((r) => toPlaceRouteRow(r as PlaceRouteRow & PlaceRouteLineFields));
   } catch (err) {
     console.error('[place-routes] маршруты места не прочитаны:', placeId, err instanceof Error ? err.message : err);
     return null;

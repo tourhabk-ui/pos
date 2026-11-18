@@ -24,7 +24,7 @@
  */
 import { readdirSync, readFileSync, statSync } from 'fs';
 import { join, relative } from 'path';
-import { scanSinks, deviceWrites, type SinkFinding, type DeviceWrite } from './pd-sinks';
+import { scanSinks, deviceWrites, exportedSqlConsts, mergeSqlConsts, type SinkFinding, type DeviceWrite } from './pd-sinks';
 
 /**
  * Где ищутся стоки. `scripts` — с ними: их печать уходит в лог Actions (#3203).
@@ -210,6 +210,10 @@ export const ALLOWED_FINDINGS: readonly AllowedFinding[] = [
     file: 'app/api/auth/register-operator/route.ts', sink: 'fetch api.telegram.org', expr, leak: true as const,
     reason: 'уведомление администратору о регистрации партнёра несёт имя, телефон и почту контактного лица в Telegram, а ПД ходят только в MAX (23.08); не исправлено',
   })),
+  {
+    file: 'lib/agents/evo/growth-agent.ts', sink: 'INSERT INTO evo_growth_scans', expr: 'censusLine ← l.name',
+    reason: '`l` здесь — объектив сканера (lens), а не лид: в строку сводки идут имена объективов',
+  },
   ...['g.name', 'g.phone', 'g.email'].map((expr) => ({
     file: 'scripts/scrape-guides-visitkamchatka.js', sink: 'console.log', expr,
     reason: 'сухой прогон печатает контакты гидов с открытого сайта в терминал того, кто его запустил; ни один workflow скрипт не зовёт',
@@ -259,6 +263,11 @@ export interface SinkCensus {
   unregistered: Array<{ file: string; writes: DeviceWrite[] }>;
   /** Записи реестра, чей файл больше на устройство не пишет. */
   staleDevice: DeviceStorageEntry[];
+  /**
+   * Запись ПД в базу (`kind: 'db'`): не нарушение сама по себе — заявка обязана
+   * хранить телефон. Сверяется с реестром таблиц (`pd-db-tables.ts`).
+   */
+  dbFindings: SinkFinding[];
 }
 
 /**
@@ -276,10 +285,14 @@ export function sinkCensus(
   const allowedKeys = new Map(allowed.map((a) => [findingKey(a), a]));
   const used = new Set<string>();
   const violations: SinkFinding[] = [];
+  const dbFindings: SinkFinding[] = [];
+  // Текст запроса из соседнего модуля: экспортированные константы всех файлов.
+  const sqlConsts = mergeSqlConsts(sinkSources.map(({ src }) => exportedSqlConsts(src)));
   for (const { rel, src } of sinkSources) {
-    for (const f of scanSinks(rel, src)) {
+    for (const f of scanSinks(rel, src, sqlConsts)) {
       const key = findingKey(f);
       if (allowedKeys.has(key)) { used.add(key); continue; }
+      if (f.kind === 'db') { dbFindings.push(f); continue; }
       const entry = byFile.get(f.file);
       if (f.kind === 'storage' && entry && entry.personal !== 'none') continue;
       violations.push(f);
@@ -298,9 +311,36 @@ export function sinkCensus(
     staleAllowed: allowed.filter((a) => !used.has(findingKey(a))),
     unregistered,
     staleDevice: registry.filter((e) => !writing.has(e.file)),
+    dbFindings,
   };
 }
 
+/**
+ * Исходники в корне репозитория (ревью #3499): `instrumentation.ts` и
+ * `middleware.ts` исполняются на сервере, `start.js` запускает его, и любой
+ * из них может писать в базу и в лог. Обход каталогов их не видит, поэтому
+ * корень читается отдельно и без спуска вглубь: подкаталоги — `SINK_ROOTS`.
+ */
+export function readRootFiles(repoRoot: string): Array<{ rel: string; src: string }> {
+  let names: string[];
+  try { names = readdirSync(repoRoot); } catch { return []; }
+  const out: Array<{ rel: string; src: string }> = [];
+  for (const name of names.sort()) {
+    if (!SOURCE.test(name) || /\.(?:test|spec)\.|\.d\.ts$/.test(name)) continue;
+    const abs = join(repoRoot, name);
+    try {
+      if (!statSync(abs).isFile()) continue;
+      out.push({ rel: name, src: readFileSync(abs, 'utf8') });
+    } catch { continue; }
+  }
+  return out;
+}
+
+/** Всё, что перепись стоков читает: каталоги `SINK_ROOTS` и файлы корня. */
+export function sinkSourcesOfRepo(repoRoot: string): Array<{ rel: string; src: string }> {
+  return [...readRootFiles(repoRoot), ...readRoots(repoRoot, SINK_ROOTS)];
+}
+
 export function sinkCensusOfRepo(repoRoot: string): SinkCensus {
-  return sinkCensus(readRoots(repoRoot, SINK_ROOTS), readRoots(repoRoot, DEVICE_ROOTS));
+  return sinkCensus(sinkSourcesOfRepo(repoRoot), readRoots(repoRoot, DEVICE_ROOTS));
 }

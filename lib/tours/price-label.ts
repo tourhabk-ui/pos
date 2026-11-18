@@ -32,104 +32,106 @@
  * цены нет, а не подставлять её. Складывать «не знаю» с нулём запрещено.
  */
 
-import { PRICE_UNIT_LABELS, PRICE_UNIT_SHORT } from '@/lib/tours/labels';
+import { PRICE_UNIT_LABELS } from '@/lib/tours/labels';
+
+/*
+ * ── Почему «от» здесь больше нет (#3487, 17.11) ───────────────────────────
+ *
+ * До 17.11 у цены тура было два формата: карточка и JSON-LD печатали
+ * «97 000 ₽ за человека», а MCP, Кузьмич, сравнение и плитки главной —
+ * «от 97 000 ₽/чел.» (`priceFrom`/`priceFromUnit`). Признака «цена от» у тура
+ * нет: в `operator_tours.base_price` одно число, и «от» дописывал форматтер, а
+ * не оператор. Агент пересказывал «от» человеку как слово оператора, хотя на
+ * карточке того же тура его не было.
+ *
+ * Правило: цена ОДНОГО тура — одна строка на все поверхности,
+ * `priceWithUnitWords`. «От» — только там, где оно правда само по себе:
+ * наименьшая из нескольких цен (планер, перевозчик по прайсу), и такие места
+ * пишут его сами, а не через этот модуль. Появится у оператора настоящая
+ * «цена от» — она заводится признаком записи и печатается и на карточке, и в
+ * MCP, а не префиксом форматтера.
+ *
+ * Сторож: tests/unit/tour-surfaces-agree.test.ts.
+ */
+
+/** Слова единицы, когда она не записана или незнакома: не «за человека» (§4.0). */
+export const PRICE_UNIT_NOT_RECORDED = 'за что назначена цена, не записано';
 
 /**
- * «от 13 000 ₽/чел.» либо `null`, если цена не записана.
- *
- * `unit` — чтобы одно и то же число называлось одинаково на всех
- * поверхностях; второго формата цены заводить не нужно. Для цены ТУРА единицу
- * берёт не вызывающий, а `priceFromUnit` — из `operator_tours.price_unit`.
+ * Сумма цены тура: «97 000 ₽». Цены нет (null, пусто, ноль, не число) — `null`:
+ * ноль невозможен по CHECK колонки, и пришедший ноль — поломка чтения, а не
+ * бесплатный тур. Вызывающий говорит «цена не указана» сам.
  */
-export function priceFrom(
-  basePrice: string | number | null | undefined,
-  // Без умолчания намеренно: «р/чел» по умолчанию и был дефектом 29.09 — см.
-  // `priceFromUnit` ниже. Вызывающий обязан назвать единицу сам.
-  unit: string,
-): string | null {
-  if (basePrice == null) return null;
+export function priceSum(basePrice: string | number | null | undefined): string | null {
+  if (basePrice == null || basePrice === '') return null;
   const n = Number(basePrice);
-  // NaN и ноль — не цена. Ноль вдобавок невозможен по CHECK-ограничению
-  // колонки: если он всё же пришёл, это поломка чтения, а не бесплатный тур.
   if (!Number.isFinite(n) || n <= 0) return null;
-  return `от ${n.toLocaleString('ru-RU')} ${unit}`;
+  return `${n.toLocaleString('ru-RU')} ₽`;
 }
 
 /**
- * То же, но для мест, где строка обязана быть непустой: цены нет — так и
- * говорим. Слова разные у разных поверхностей, поэтому текст задаёт
- * вызывающий, а умолчание нейтральное.
+ * За что назначена цена — словами из словаря каталога (`PRICE_UNIT_LABELS`):
+ * «за человека», «за группу». Не записано или незнакомо — так и сказано.
  */
-export function priceFromOrSay(
-  basePrice: string | number | null | undefined,
-  absent: string,
-  unit: string,
-): string {
-  return priceFrom(basePrice, unit) ?? absent;
+export function priceUnitWords(priceUnit: string | null | undefined): string {
+  const words = priceUnit ? PRICE_UNIT_LABELS[priceUnit] : undefined;
+  return words ?? PRICE_UNIT_NOT_RECORDED;
+}
+
+/** Единица записана и знакома словарю. */
+export function priceUnitKnown(priceUnit: string | null | undefined): boolean {
+  return Boolean(priceUnit && PRICE_UNIT_LABELS[priceUnit]);
 }
 
 /**
- * Цена тура вместе с ТЕМ, за что она назначена.
- *
- * ── Что нашлось 29.09 (сверка каналов MCP и каталога) ─────────────────────
- *
- * Каталог сайта печатает единицу из `operator_tours.price_unit`:
- *
- *   Сплав ID27          13 000 ₽/чел.
- *   Кижуч ID6           28 000 ₽/чел. в день
- *   5 дней ID9         140 000 ₽/группа
- *   7 дней ID11        196 000 ₽/группа
- *
- * MCP `get_tours`, `get_tour_details` и `get_tour_availability` печатали ту
- * же цифру с зашитым «р/чел». Агент в чужом ассистенте читал «140 000 р/чел» и
- * называл человеку цену с человека — в 4-6 раз выше карточки. Колонка при
- * этом существует с миграции 056 и в MCP-запросы просто не выбиралась: единица
- * была не «неизвестна», а ОТБРОШЕНА, и на её месте стояла выдумка.
- *
- * ── Правило ───────────────────────────────────────────────────────────────
- *
- * Единица берётся из тех же подписей, что рисует каталог (`PRICE_UNIT_SHORT`
- * — второго словаря нет, §12). Единицы нет или она незнакома — цифра всё
- * равно печатается, а единица называется НЕИЗВЕСТНОЙ: «за человека» здесь
- * было бы тем самым выдуманным числом (§4.0), только словами.
- */
-export function priceFromUnit(
-  basePrice: string | number | null | undefined,
-  priceUnit: string | null | undefined,
-): string | null {
-  const short = priceUnit ? PRICE_UNIT_SHORT[priceUnit] : undefined;
-  if (short) return priceFrom(basePrice, `₽${short}`);
-  const bare = priceFrom(basePrice, '₽');
-  return bare ? `${bare} (за что назначена цена — не записано, не называй её ценой с человека)` : null;
-}
-
-/** То же, но строка непуста: цены нет — так и говорим. */
-export function priceFromUnitOrSay(
-  basePrice: string | number | null | undefined,
-  priceUnit: string | null | undefined,
-  absent = 'цена не указана',
-): string {
-  return priceFromUnit(basePrice, priceUnit) ?? absent;
-}
-
-/**
- * Цена тура в списке предложений, где цена — факт строки, а не призыв
- * (карточка места, §9: «название, оператор, цена» без «от … ₽» как CTA):
- * «15 000 ₽ за человека», «48 000 ₽ за группу». Единица — словами из того же
- * словаря, что каталог (`PRICE_UNIT_LABELS`); незнакомая — названа
- * незаписанной, а не «за человека» (§4.0). Цены нет — `null`: вызывающий
- * говорит «цена не указана» сам.
+ * Цена тура одной строкой — на карточке, в блоке туров места, в MCP, у
+ * Кузьмича, в сравнении и на плитках главной: «15 000 ₽ за человека»,
+ * «48 000 ₽ за группу». Единица незнакома — «… ₽ — за что назначена цена, не
+ * записано». Цены нет — `null`.
  */
 export function priceWithUnitWords(
   basePrice: string | number | null | undefined,
   priceUnit: string | null | undefined,
 ): string | null {
-  if (basePrice == null) return null;
-  const n = Number(basePrice);
-  if (!Number.isFinite(n) || n <= 0) return null;
-  const sum = `${n.toLocaleString('ru-RU')} ₽`;
-  const words = priceUnit ? PRICE_UNIT_LABELS[priceUnit] : undefined;
-  return words ? `${sum} ${words}` : `${sum} — за что назначена цена, не записано`;
+  const sum = priceSum(basePrice);
+  if (!sum) return null;
+  return priceUnitKnown(priceUnit) ? `${sum} ${priceUnitWords(priceUnit)}` : `${sum} — ${PRICE_UNIT_NOT_RECORDED}`;
+}
+
+/** То же, но строка непуста: цены нет — так и говорим. */
+export function priceWithUnitWordsOrSay(
+  basePrice: string | number | null | undefined,
+  priceUnit: string | null | undefined,
+  absent = 'цена не указана',
+): string {
+  return priceWithUnitWords(basePrice, priceUnit) ?? absent;
+}
+
+/** Указание модели, когда единица не записана: человеку его не показывают. */
+export const PRICE_UNIT_AGENT_NOTE = 'не называй её ценой с человека';
+
+/**
+ * Та же строка для текста модели (MCP, Кузьмич): цифра и слова те же, что у
+ * человека, а при незаписанной единице добавлено указание модели в скобках —
+ * иначе агент по привычке назовёт сумму ценой с человека (сверка каналов
+ * 29.09). Человеку — `priceWithUnitWords`, без указания.
+ */
+export function priceForAgent(
+  basePrice: string | number | null | undefined,
+  priceUnit: string | null | undefined,
+): string | null {
+  const said = priceWithUnitWords(basePrice, priceUnit);
+  if (!said) return null;
+  return priceUnitKnown(priceUnit) ? said : `${said} (${PRICE_UNIT_AGENT_NOTE})`;
+}
+
+/** То же, но строка непуста: цены нет — так и говорим. */
+export function priceForAgentOrSay(
+  basePrice: string | number | null | undefined,
+  priceUnit: string | null | undefined,
+  absent = 'цена не указана',
+): string {
+  return priceForAgent(basePrice, priceUnit) ?? absent;
 }
 
 /**

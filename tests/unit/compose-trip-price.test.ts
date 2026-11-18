@@ -124,7 +124,7 @@ describe('ответ инструмента называет единицу це
     const src = readFileSync(join(process.cwd(), 'lib/agents/sdk/tourist-tools.ts'), 'utf-8');
     const block = src.slice(src.indexOf("name: 'compose_trip'"), src.indexOf('// ── Export full toolkit'));
     expect(block).not.toMatch(/price_per_person: `\$\{t\.base_price/);
-    expect(block).toMatch(/price: priceFromUnit\(t\.base_price, t\.price_unit\)/);
+    expect(block).toMatch(/price: priceWithUnitWords\(t\.base_price, t\.price_unit\)/);
     expect(block).toMatch(/for_group:/);
     expect(block).toMatch(/unpriced_for_group/);
   });

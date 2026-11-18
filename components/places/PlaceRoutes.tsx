@@ -76,6 +76,9 @@ function RouteList({ title, note, routes }: { title: string; note?: string; rout
                   </span>
                 )}
                 {r.distanceKm != null && <span>длина {r.distanceKm} км</span>}
+                {r.distanceKm == null && r.distanceWithApproachKm != null && (
+                  <span>{r.distanceWithApproachKm} км вместе с подъездом — не длина тропы</span>
+                )}
                 {r.durationHours != null && <span>{r.durationHours} ч</span>}
               </div>
             </div>

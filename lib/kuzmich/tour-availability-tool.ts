@@ -15,12 +15,13 @@ import { tourKeepsSchedule } from '@/lib/seat-requests/service';
 import { getPublicBaseUrl } from '@/lib/config';
 import { tourPath } from '@/lib/tours/tour-url';
 import { createPlannerCache, fetchAvailabilityForTour } from '@/lib/planner';
-import { priceFromUnit, priceWithUnitWords } from '@/lib/tours/price-label';
+import { priceForAgent, priceWithUnitWords } from '@/lib/tours/price-label';
 import { containsPattern, escapeLike } from '@/lib/db/like';
 import { kamchatkaToday } from '@/lib/seat-requests/core';
 import { PriceTierMissError } from '@/lib/tours/price-tiers';
 import { honestTourPrice, loadPricingContext, composeHonestPrice } from '@/lib/tours/honest-price';
 import { requestWindow, windowLabel, type RequestWindow } from '@/lib/tours/request-window';
+import { SEASON_NOT_RECORDED } from '@/lib/tours/season-words';
 import { nearestFreeDateSql } from '@/lib/tours/nearest-free-date';
 import { anyDayOpenSql, anyDayLine, scheduleKindOf } from '@/lib/tours/schedule-kind';
 import { orderOffersBy } from '@/lib/tours/offer-order';
@@ -1184,19 +1185,30 @@ async function onRequestWindow(
       labels = dates.map(() => groupTotalLabel({ kind: 'failed' }, people));
     }
   } else {
-    const price = priceFromUnit(tour.base_price, tour.price_unit);
+    const price = priceForAgent(tour.base_price, tour.price_unit);
     labels = dates.map(() => price || 'цену называет оператор');
   }
   const runs = collapseRuns(dates.map((date, i) => ({ date, label: labels[i] })));
+  // Сезон не записан и расписания нет (#3487, тур ID67): дни ниже — не
+  // «свободные даты сезона». В какие месяцы тур выезжает, в данных нет ни
+  // слова; называть ноябрь свободным для вертолётного тура к нересту нерки
+  // значило бы выдать окно правила за слово оператора. Слова о сезоне — те же,
+  // что на карточке (lib/tours/season-words).
+  const seasonUnknown = window.kind === 'unbounded' && window.why === 'not_recorded';
   const head = window.kind === 'season' && scheduleKindOf(tour.schedule_kind) === 'any_day'
     ? `Тур "${tour.title}" (ID${tour.id}): ${anyDayLine(window)}:`
     : window.kind === 'season'
     ? `Тур "${tour.title}" (ID${tour.id}): расписания в системе нет — только заявка оператору на дату сезона (${windowLabel(window)}), это не бронь; даты сезона свободны для заявки, оператор собирает группу под запрос:`
+    : seasonUnknown
+    ? `Тур "${tour.title}" (ID${tour.id}): сезон ${SEASON_NOT_RECORDED}; расписания в системе нет. `
+      + 'Это не свободные даты сезона: в какие месяцы тур выезжает, не записано, и выезд в эти дни не подтверждён. '
+      + 'Ниже — дни, на которые можно отправить заявку оператору (это не бронь); подтвердит ли он дату, скажет он сам:'
     : `Тур "${tour.title}" (ID${tour.id}): расписания в системе нет — все даты свободны для заявки, оператор собирает группу под запрос:`;
+  const runWord = seasonUnknown ? 'можно отправить заявку оператору' : 'свободно для заявки';
   return [
     head,
     ...runs.map((r) => `- ${r.from === r.to ? dayIn(r.from, today)
-      : `${r.from.slice(0, 4) === r.to.slice(0, 4) ? shortDate(r.from) : dayIn(r.from, today)}–${dayIn(r.to, today)}`}: свободно для заявки, ${r.label}`),
+      : `${r.from.slice(0, 4) === r.to.slice(0, 4) ? shortDate(r.from) : dayIn(r.from, today)}–${dayIn(r.to, today)}`}: ${runWord}, ${r.label}`),
     'Числа мест у тура без календаря нет — дату и группу подтверждает оператор. '
       + 'create_booking_request с датой отправит ему заявку в мессенджер, ответ — до 2 часов. Не обещай, что место закреплено, до его ответа.',
     ...(people !== null && tour.base_price != null
@@ -1501,7 +1513,7 @@ async function availabilityForTour(tour: ResolvedTour, args: AvailabilityArgs): 
       // Единица — из тура, а не «р/чел»: у многодневок цена за группу, и
       // агент, прочитавший «140 000 р/чел», называл цену с человека (29.09).
       // Цена на дату может быть переопределена, но единица у неё та же.
-      const price = priceFromUnit(s.priceOverride ?? tour.base_price, tour.price_unit);
+      const price = priceForAgent(s.priceOverride ?? tour.base_price, tour.price_unit);
       const t = totals?.[i];
       const total = people !== null && short(s)
         ? `; на ${people} чел. мест не хватит`

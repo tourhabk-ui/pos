@@ -364,9 +364,11 @@ describe('роуты /openapi.json и /.well-known/api-catalog', () => {
       expect(file, p).not.toBeNull();
       expect(readFileSync(file!, 'utf-8'), p).toMatch(/'Cache-Control': 'public, max-age=3600'/);
     }
-    for (const p of ['/', '/mcp', '/openapi.json.bak', '/.well-known/api-catalogue', '/.well-known/openai-apps-challenge', '/api/mcp', `${A2A_REST_PATH}/message:send`, '/api/tours']) {
+    for (const p of ['/', '/mcp', '/openapi.json.bak', '/.well-known/api-catalogue', '/.well-known/openai-apps-challenge', '/api/mcp', `${A2A_REST_PATH}/message:send`, '/api/tours/123', '/api/toursx']) {
       expect(await effective(p, 'Cache-Control'), p).toMatch(/no-store/);
     }
+    // Список туров кэш ставит сам (аудит 16.11, #3463 п. 3): общий no-store его не перебивает.
+    expect(await effective('/api/tours', 'Cache-Control')).toBeNull();
   });
 
   it('главная несёт Link rel="api-catalog" на каталог (RFC 9727)', async () => {

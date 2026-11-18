@@ -158,12 +158,18 @@ export interface TourFilterOptions {
    * на страницы. Без числа — все (MCP и запрос страницы: там режут страницы).
    */
   farCap?: number;
+  /**
+   * Порядок строк внутри каждого блока отбора (get_tours: круг по компаниям,
+   * lib/tours/offer-order `orderOffersByCompanyTurns`). Без функции — порядок
+   * каталога как есть.
+   */
+  orderLines?: (lines: readonly string[]) => string[];
 }
 
 const tourId = (line: string) => line.match(/^ID(\d+):/)?.[1] ?? '';
 
 export function filterTourCatalog(ctx: string, want: string, opts: TourFilterOptions): string {
-  const { activityLabel, entries, farCap } = opts;
+  const { activityLabel, entries, farCap, orderLines } = opts;
   const knownTypes = opts.knownTypes ?? Object.keys(ACTIVITY_LABELS);
   const lines = ctx.split('\n');
   const isTourLine = (l: string) => /^ID\d+:/.test(l);
@@ -194,6 +200,10 @@ export function filterTourCatalog(ctx: string, want: string, opts: TourFilterOpt
     const m = matchTour(entry, query);
     if (m === 'near') near.push(l);
     else if (m === 'far') far.push(l);
+  }
+
+  if (orderLines) {
+    for (const block of [byType, near, far]) block.splice(0, block.length, ...orderLines(block));
   }
 
   // Чего не искали — сказано словами (§4.0): «не искал» не равно «нет».

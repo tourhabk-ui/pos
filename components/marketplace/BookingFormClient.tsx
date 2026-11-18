@@ -17,7 +17,8 @@ import { normalizePhone } from '@/lib/mcp/normalize-phone';
 import { funnelBeacon } from '@/lib/funnel/beacon';
 import { trackLeadSuccess } from '@/lib/analytics/lead-tracking';
 import { agentReferralForBooking } from '@/lib/referral/agent-link';
-import { cancellationTermsForForm, type TourRefundTerms } from '@/lib/payments/tour-refund';
+import { type TourRefundTerms } from '@/lib/payments/tour-refund';
+import { cancellationLineForForm, type CancellationFacts } from '@/lib/tours/cancellation-words';
 import { platformAcceptsPayments } from '@/lib/payments/accepting';
 import { BOOKING_FORM_MAX_PARTICIPANTS } from '@/lib/tours/group-size';
 
@@ -49,6 +50,12 @@ interface BookingFormProps {
    * «не записаны», и строка честно говорит о полном возврате.
    */
   cancellationTerms?: TourRefundTerms | null;
+  /**
+   * Текст условий и правила безопасности тура (#3487): пока оплату Ведар не
+   * принимает и числа условий не записаны, строка говорит словами оператора,
+   * а не «оператор не записал» (lib/tours/cancellation-words).
+   */
+  cancellationFacts?: CancellationFacts | null;
   /**
    * У тура нет расписания, а у оператора есть мессенджер (решает страница
    * тура, 04.10). Тогда первый путь — спросить места: оператор отвечает
@@ -106,7 +113,7 @@ const DATE_CLOSED_BY_PLATFORM = 'DATE_CLOSED_BY_PLATFORM';
 /** Вопрос оператору отправлен: слова сервера и ссылки на страницу заявки и MAX (могут не выдаться). */
 interface AskedState { message: string; page: string | null; maxLink: string | null }
 
-export default function BookingFormClient({ tourId, basePrice, maxParticipants = 10, groupSizeUnlimited = false, tourTitle, priceUnit, duration, initialDate, initialGuests, cancellationTerms, askSeatsFirst = false, seasonWindow = null, seasonNote = null }: BookingFormProps) {
+export default function BookingFormClient({ tourId, basePrice, maxParticipants = 10, groupSizeUnlimited = false, tourTitle, priceUnit, duration, initialDate, initialGuests, cancellationTerms, cancellationFacts = null, askSeatsFirst = false, seasonWindow = null, seasonNote = null }: BookingFormProps) {
   const router = useRouter();
   const [plainBooking, setPlainBooking] = useState(!askSeatsFirst || Boolean(initialDate || initialGuests));
   const [seatsOpen, setSeatsOpen] = useState(false);
@@ -771,7 +778,7 @@ export default function BookingFormClient({ tourId, basePrice, maxParticipants =
               оплату платформа не принимает, возврата она не обещает (#3347). */}
           {cancellationTerms && (
             <p className="mt-1.5 text-xs text-[var(--text-secondary)] leading-snug" data-cancellation-terms>
-              {cancellationTermsForForm(cancellationTerms, formData.booking_date || null, platformAcceptsPayments())}
+              {cancellationLineForForm(cancellationTerms, cancellationFacts, formData.booking_date || null, platformAcceptsPayments())}
             </p>
           )}
         </div>

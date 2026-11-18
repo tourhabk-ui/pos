@@ -220,7 +220,7 @@ describe('данные', () => {
     expect(landingByKey('ru-snowmobile').related?.map((r) => r.href)).toEqual(['/places/avachinskij-pereval', '/places/mys-mayachnyj']);
   });
   it('цены из базы; нет цены — null, а не 0', () => {
-    expect(landingPrice(row(), 'ru')).toMatch(/^от 45\s000 ₽\/чел\.$/);
+    expect(landingPrice(row(), 'ru')).toMatch(/^45\s000 ₽ за человека$/);
     expect(landingPrice(row(), 'en')).toBe('from 45,000 RUB per person');
     expect(landingPrice(row(), 'zh-CN')).toContain('45,000 卢布');
     expect(landingPrice(row({ base_price: null }), 'en')).toBeNull();

@@ -90,15 +90,26 @@ describe('навыки — из реестра инструментов', () => 
     }
   });
 
-  it('навык инструмента показывает форму DataPart с его именем; пишущие говорят про согласие и rejected', () => {
+  it('навык инструмента показывает форму DataPart с его именем первым примером; пишущие говорят про согласие и rejected', () => {
+    // Форма вызова и исходы задачи с 17.11 сказаны один раз в описании
+    // карточки, а не в каждом навыке: навык несёт форму первым примером.
+    expect(card.description).toMatch(/DataPart \{"tool", "arguments"\}/);
+    expect(card.description).toMatch(/first example/);
+    expect(card.description).toMatch(/completed Task/);
+    expect(card.description).toMatch(/rejected with the reason/);
+    expect(card.description).toMatch(/is failed/);
     for (const s of skills.slice(1)) {
       const example = JSON.parse(s.examples[0]) as { tool: string; arguments: unknown };
       expect(example.tool, s.id).toBe(s.id);
-      expect(s.description, s.id).toContain(`"tool":"${s.id}"`);
+      expect(s.examples[0], s.id).toContain(`"tool":"${s.id}"`);
       if (WRITE_TOOL_NAMES.has(s.id)) {
         expect(s.tags, s.id).toContain('human-confirmed');
         expect(s.tags, s.id).toContain('consent');
+        expect(s.description, s.id).toMatch(/consent/);
         expect(s.description, s.id).toMatch(/rejected/);
+      } else {
+        // Чтение не просит согласия — и не говорит о нём.
+        expect(s.description, s.id).not.toMatch(/consent/);
       }
     }
   });
@@ -135,15 +146,17 @@ describe('навыки — из реестра инструментов', () => 
     }
   });
 
-  it('карточка не разрастается: до 32 КБ, навык — суть инструмента, а не всё его описание (аудит 16.11, #3463)', () => {
-    // Было ~62 КБ: каждый навык нёс полное описание инструмента. Карточку
+  it('карточка не разрастается: до 20 КБ, навык — суть инструмента, а не всё его описание (аудит 16.11, #3463)', () => {
+    // Было ~62 КБ: каждый навык нёс полное описание инструмента. 16.11 — 24 КБ,
+    // 17.11 — без повтора формы вызова и исходов в каждом навыке. Карточку
     // целиком читает роутер агентов — это его контекст, а полный текст
     // инструмента есть в tools/list.
-    expect(Buffer.byteLength(JSON.stringify(card))).toBeLessThan(32_000);
+    expect(Buffer.byteLength(JSON.stringify(card))).toBeLessThan(20_000);
+    expect(Buffer.byteLength(JSON.stringify(legacy))).toBeLessThan(20_000);
     expect((card.description as string).length).toBeLessThan(2_000);
     const byName = new Map(PUBLIC_MCP_TOOLS.map((t) => [t.name, t.description]));
     for (const s of skills.slice(1)) {
-      expect(s.description.length, s.id).toBeLessThan(700);
+      expect(s.description.length, s.id).toBeLessThan(500);
       // Суть — первое предложение самого инструмента: своего текста у навыка нет.
       expect(s.description.startsWith(firstSentence(byName.get(s.id) ?? '')), s.id).toBe(true);
     }

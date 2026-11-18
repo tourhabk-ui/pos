@@ -162,7 +162,8 @@ describe('formatTripPlanForChat', () => {
       { slug: 'kamchatka-za-7-dney-vulkany', title: 'x' },
     );
     // Разделитель тысяч в ru-RU — неразрывный пробел, не привязываемся к нему.
-    expect(text).toMatch(/День 1\. Авачинский вулкан — от 8.500.₽/);
+    // Цена выбранного тура — одна, без «от» (#3487).
+    expect(text).toMatch(/День 1\. Авачинский вулкан — 8.500.₽/);
     expect(text).toContain('День 2. Паратунка');
     expect(text).toContain('Важно:\n- Сентябрь');
     expect(text).toContain('/plans/kamchatka-za-7-dney-vulkany');

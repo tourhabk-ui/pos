@@ -34,9 +34,11 @@ describe('колонка и чтение', () => {
 describe('карточка тура', () => {
   const card = read('app/catalog/tours/[id]/_TourDetailClient.tsx');
 
-  it('блок «Отмена и возврат» только при записи оператора', () => {
-    expect(card).toMatch(/\{tour\.cancellation_policy && \(/);
+  // Сам блок судится рендером в tests/unit/tour-surfaces-agree.test.tsx
+  // (#3487): условия оператора, его фраза из правил безопасности или блока нет.
+  it('блок «Отмена и возврат» есть и строится общим правилом', () => {
     expect(card).toMatch(/Отмена и возврат/);
+    expect(card).toMatch(/tourCancellation\(tour\)/);
   });
 
   it('никаких условий по умолчанию — карточка не пишет «обычно возвращают»', () => {

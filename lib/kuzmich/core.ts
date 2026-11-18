@@ -26,12 +26,17 @@ import { detectEmergency } from '@/lib/safety/sos-detector';
 import { requestWindow, windowLabel } from '@/lib/tours/request-window';
 import { nearestFreeDateSql } from '@/lib/tours/nearest-free-date';
 import { anyDayOpenSql, anyDayLine } from '@/lib/tours/schedule-kind';
-import { OFFER_ORDER_NOTE_AGENT, offerOrderDay, orderOffersBy } from '@/lib/tours/offer-order';
+import { OFFER_ORDER_NOTE_AGENT, OFFER_ORDER_NOTE_AGENT_TURNS, offerOrderDay, orderOffersByCompanyTurns, type OfferKeyInput } from '@/lib/tours/offer-order';
 import { kamchatkaToday } from '@/lib/seat-requests/core';
 import { kamchatkaDateContext } from '@/lib/kuzmich/date-context';
 import { reachForTour } from '@/lib/partners/reach';
 import { notifyTeamOfTour } from '@/lib/operators/team-notify';
-import { groupPriceNote, groupSizeNote, priceFromUnit, priceFromUnitOrSay, priceWithUnitWords } from '@/lib/tours/price-label';
+import { groupPriceNote, groupSizeNote, priceForAgent, priceForAgentOrSay, priceWithUnitWords } from '@/lib/tours/price-label';
+import { groupClaimConflictLine, groupClaimConflicts } from '@/lib/tours/description-conflicts';
+import { cardDuration } from '@/lib/tours/card-facts';
+import { calendarRangeOf, tourSeasonWords } from '@/lib/tours/season-words';
+import { tourCancellation, SAFETY_NOTES_CANCELLATION_HEAD, CANCELLATION_REST_WITH_OPERATOR } from '@/lib/tours/cancellation-words';
+import { calendarDatesWhereSql } from '@/lib/tours/open-dates';
 import { callAIWaterfallDetailed, callToolsWaterfall, CACHE_BREAK_MARKER, isWaterfallErrorResponse } from '@/lib/ai/providers';
 import { getZoneWeatherForText } from '@/lib/services/safety/zone-weather';
 import type { ChatMessage } from '@/lib/ai/prompts';
@@ -293,6 +298,8 @@ interface TourContextRow {
   activity_type: string | null;
   location_name: string | null;
   operator_name: string | null;
+  /** Компания тура — ключ круга по компаниям (orderOffersByCompanyTurns). */
+  operator_id?: string | null;
   available_slots: number | null;
   next_available_date: string | null;
   /** Тур «в любой день сезона» открыт сейчас (`anyDayOpenSql`); ключ порядка. */
@@ -320,6 +327,8 @@ interface TourContextRow {
 /** Тур каталога: строка, как её видят агент и модель, и указатель слов его полей. */
 export interface CatalogTourEntry extends TourMatchEntry {
   line: string;
+  /** Ключи порядка тура: правило 1в и компания для круга (get_tours). */
+  order: OfferKeyInput & { partnerId: string | null };
 }
 
 /**
@@ -330,6 +339,8 @@ export interface CatalogTourEntry extends TourMatchEntry {
 export interface TourCatalog {
   text: string;
   entries: ReadonlyMap<string, CatalogTourEntry>;
+  /** День правила 1в, по которому собран порядок: им же упорядочен отбор get_tours. */
+  day: string;
 }
 
 // Раздельные кэши (перф-аудит 08.08, п.5): слоты и цены туров протухают
@@ -620,7 +631,7 @@ export async function loadTourCatalog(): Promise<string | null> {
   return catalog === null ? null : catalog.text;
 }
 
-const EMPTY_CATALOG: TourCatalog = { text: '', entries: new Map() };
+const EMPTY_CATALOG: TourCatalog = { text: '', entries: new Map(), day: '' };
 
 /**
  * Что срезает String.prototype.trim() (ECMAScript: WhiteSpace и
@@ -665,6 +676,7 @@ export async function loadTourCatalogEntries(): Promise<TourCatalog | null> {
                (ot.description IS NOT NULL OR ot.meeting_point IS NOT NULL
                 OR ot.included IS NOT NULL OR ot.what_to_bring IS NOT NULL) AS has_details,
                p.name AS operator_name,
+               ot.operator_id::text AS operator_id,
                -- Указатель фильтра get_tours (ловушка MCP 29.10): полное
                -- описание, программа и главное место. В строку не печатаются.
                ot.description,
@@ -723,18 +735,31 @@ export async function loadTourCatalogEntries(): Promise<TourCatalog | null> {
     // Правило 1в (слово владельца 29.10): со свободной датой — по ближайшему
     // выезду, остальные — жребий дня. Не цена: «первые по цене» поднимали
     // дешёвое и прятали остальное за 40-й строкой подсказки.
-    const rows = orderOffersBy(toursResult.rows, (r) => ({ id: r.id, nearestFreeDate: r.next_available_date ?? null, anyDayOpen: r.any_day_open ?? null }), { day });
+    // Круг по компаниям (бриф 17.11, слово владельца «го»): тур за туром
+    // первая страница get_tours по «вулканам» — три тура из четырёх одного
+    // гида, потому что билет жребия у каждого тура свой. Внутри каждой
+    // ступени правила — по одному туру от компании за круг.
+    const orderKey = (r: TourContextRow) => ({
+      id: r.id,
+      nearestFreeDate: r.next_available_date ?? null,
+      anyDayOpen: r.any_day_open ?? null,
+      partnerId: r.operator_id ?? null,
+    });
+    const rows = orderOffersByCompanyTurns(toursResult.rows, orderKey, { day });
 
     const today = kamchatkaToday();
     const entries = new Map<string, CatalogTourEntry>();
     const lines = rows.map(r => {
-      const dur   = r.multi_day_count ? `${r.multi_day_count} дн.` : '';
+      // Длительность — тем же форматом, что карточка тура (#3487): «3 дня»,
+      // «6 ч», «1 день». До 17.11 каталог писал «3 дн.» только у
+      // многодневных, а однодневный тур шёл без длительности вовсе.
+      const dur   = cardDuration(r) ?? '';
       // Цены может не быть вовсе, и тогда так и говорим: `Number(null)` — это
       // 0, и каталог печатал «от 0 р/чел», то есть «бесплатно» (18.09,
       // тур 34). Правило одно на все поверхности — lib/tours/price-label.
       const groupNote = groupPriceNote(r.base_price, r.price_unit, r.max_participants, r.group_size_unlimited)
         ?? groupSizeNote(r.price_unit, r.max_participants, r.group_size_unlimited, r.min_participants);
-      const price = priceFromUnitOrSay(r.base_price, r.price_unit) + (groupNote ? ` (${groupNote})` : '');
+      const price = priceForAgentOrSay(r.base_price, r.price_unit) + (groupNote ? ` (${groupNote})` : '');
       const cat   = r.activity_type ? ` тип:${r.activity_type}` : '';
       // Название, место, имя компании и краткое описание пишет оператор сам,
       // а строка идёт в system-промпт Кузьмича и в ответ get_tours агентам
@@ -769,19 +794,20 @@ export async function loadTourCatalogEntries(): Promise<TourCatalog | null> {
       const line = `ID${r.id}: "${untrustedField(r.title, TITLE_MAX)}"${loc} ${cat} ${dur} ${price}${op}${slots}${nextDate}${brief}${details}`;
       // Указатель — из полей той же строки базы, не из напечатанной строки:
       // в ней имя компании и служебный текст (lib/search/tour-match).
-      entries.set(String(r.id), { line, ...tourMatchEntry(r) });
+      entries.set(String(r.id), { line, ...tourMatchEntry(r), order: orderKey(r) });
       return line;
     });
 
     _tourCatalogCache = {
       text: [
         'РЕАЛЬНЫЕ ТУРЫ НА ПЛАТФОРМЕ (актуальные цены, называй по имени):',
-        OFFER_ORDER_NOTE_AGENT,
+        OFFER_ORDER_NOTE_AGENT_TURNS,
         ...lines,
         '',
         'Когда турист спрашивает о конкретном туре — дай факты. Не предлагай оставить заявку первым.',
       ].join('\n'),
       entries,
+      day,
     };
     _tourCatalogAt = Date.now();
     _tourCatalogDay = day;
@@ -1634,7 +1660,7 @@ interface BookingSection {
 
 /** Строка тура в списке: номер, название, компания, цена. */
 function bookingChoiceLine(c: TourCandidate): string {
-  // Для человека — единица словами; пометка «для модели» из priceFromUnit
+  // Для человека — единица словами; пометка «для модели» из priceWithUnitWords
   // сюда не попадает (ревью 29.10).
   const price = priceWithUnitWords(c.base_price, c.price_unit);
   return `<b>${c.id}</b> — ${escapeHtml(c.title)} — ${escapeHtml(c.operator_name ?? 'компания не записана')}${price ? ` — ${escapeHtml(price)}` : ''}`;
@@ -1777,6 +1803,13 @@ export async function getTourDetails(query: string, opts: { context?: string } =
       max_participants: number | null;
       min_participants: number | null;
       group_size_unlimited: boolean | null;
+      duration_type: string | null;
+      duration_hours: string | number | null;
+      multi_day_count: number | null;
+      season_start: string | null;
+      season_end: string | null;
+      cal_first: string | null;
+      cal_last: string | null;
       operator_name: string | null;
       operator_legal_name: string | null;
       operator_inn: string | null;
@@ -1788,6 +1821,9 @@ export async function getTourDetails(query: string, opts: { context?: string } =
       `SELECT id, title, base_price, price_unit, short_description, description, meeting_point,
               included, not_included, what_to_bring, cancellation_policy, location_name, activity_type,
               program, safety_notes, pickup_type, pickup_details, max_participants, min_participants, group_size_unlimited, slug,
+              duration_type, duration_hours, multi_day_count, season_start::text AS season_start, season_end::text AS season_end,
+              (SELECT MIN(ta.date)::text FROM tour_availability ta WHERE ${calendarDatesWhereSql('ta', 'operator_tours.id')}) AS cal_first,
+              (SELECT MAX(ta.date)::text FROM tour_availability ta WHERE ${calendarDatesWhereSql('ta', 'operator_tours.id')}) AS cal_last,
               (SELECT p.name FROM partners p WHERE p.id = operator_tours.operator_id) AS operator_name,
               (SELECT NULLIF(btrim(p.legal_info->>'companyName'), '') FROM partners p WHERE p.id = operator_tours.operator_id) AS operator_legal_name,
               (SELECT NULLIF(btrim(p.legal_info->>'inn'), '') FROM partners p WHERE p.id = operator_tours.operator_id) AS operator_inn,
@@ -1819,11 +1855,15 @@ export async function getTourDetails(query: string, opts: { context?: string } =
     parts.push(tourPlaceStatusLine(tourPlaceStatus(t)));
     // Здесь проверка на null уже была, но формат теперь общий с каталогом:
     // два написания одной цены разъезжаются так же, как два предиката.
-    const priceLine = priceFromUnit(t.base_price, t.price_unit);
+    const priceLine = priceForAgent(t.base_price, t.price_unit);
     const groupNote = groupPriceNote(t.base_price, t.price_unit, t.max_participants, t.group_size_unlimited)
       ?? groupSizeNote(t.price_unit, t.max_participants, t.group_size_unlimited, t.min_participants);
     if (priceLine) parts.push(`Цена: ${priceLine}${groupNote ? ` (${groupNote})` : ''}`);
     else parts.push('Цена: не указана — уточняется у оператора, не называй числа.');
+    // Длительность и сезон — теми же функциями, что карточка тура (#3487):
+    // одно поле — одна строка на карточке и здесь.
+    parts.push(`Длительность: ${cardDuration(t) ?? 'не записана — уточняется у оператора'}`);
+    parts.push(`Сезон: ${tourSeasonWords(t, calendarRangeOf(t.cal_first, t.cal_last))}`);
     // Группа — общим правилом с карточкой (lib/tours/group-size, 1342): у тура
     // без предела агент слышит «не ограничена» и потолок ОДНОЙ заявки, а не
     // «до 12» как предел гида (слово владельца 29.10). У прочих — молчание,
@@ -1831,6 +1871,12 @@ export async function getTourDetails(query: string, opts: { context?: string } =
     // и «Группа до 15» стала бы для агента фактом о туре (§4.0).
     const group = groupSentenceIfUnlimited(t);
     if (group) parts.push(group);
+    // Описание спорит с записью о размере группы (#3487): число не
+    // выбираем за оператора, а называем расхождение.
+    const groupConflict = t.group_size_unlimited === true ? null : groupClaimConflictLine(
+      groupClaimConflicts(`${t.short_description ?? ''}\n${t.description ?? ''}`, t.min_participants, t.max_participants),
+    );
+    if (groupConflict) parts.push(groupConflict);
     if (t.short_description) parts.push(`Кратко: ${t.short_description}`);
     if (t.description) {
       // Обрезка называется: агент принимал обрывок за полный текст (проверка MCP 29.09).
@@ -1860,9 +1906,15 @@ export async function getTourDetails(query: string, opts: { context?: string } =
     if (t.what_to_bring?.length) parts.push(`Взять с собой:\n- ${t.what_to_bring.join('\n- ')}`);
     // Третье состояние (§4.0): «не записано» — не «без условий». Модель обязана
     // сказать, что условий у неё нет, а не сочинить «обычно возвращают».
-    parts.push(t.cancellation_policy?.trim()
-      ? `Условия отмены и возврата (бери ТОЛЬКО отсюда, не выдумывай):\n${t.cancellation_policy.trim()}`
-      : 'Условия отмены и возврата у этого тура НЕ ЗАПИСАНЫ. Не называй сроков и процентов — скажи, что условия уточняются у оператора.');
+    // Текста условий нет, а в правилах безопасности оператор пишет о возврате
+    // денег — это и есть ответ, словами оператора (#3487): «НЕ ЗАПИСАНЫ» рядом
+    // с той же фразой в правилах спорило бы с карточкой и формой заявки.
+    const cancel = tourCancellation(t);
+    parts.push(cancel.kind === 'policy'
+      ? `Условия отмены и возврата (бери ТОЛЬКО отсюда, не выдумывай):\n${cancel.lines.join('\n')}`
+      : cancel.kind === 'safety_notes'
+        ? `Условия отмены и возврата: ${SAFETY_NOTES_CANCELLATION_HEAD} (бери ТОЛЬКО отсюда):\n- ${cancel.lines.join('\n- ')}\n${CANCELLATION_REST_WITH_OPERATOR} Не называй сроков и процентов сверх этих слов.`
+        : 'Условия отмены и возврата у этого тура НЕ ЗАПИСАНЫ. Не называй сроков и процентов — скажи, что условия уточняются у оператора.');
     // Кто продаёт (03.10, разбор UCP: ассистент, бронирующий за человека,
     // обязан назвать продавца до подтверждения). Тот же источник и та же
     // строка, что «Исполнитель:» на карточке тура (lib/tours/seller-requisites).
@@ -2829,7 +2881,16 @@ async function executeTool(name: string, args: Record<string, string>, opts: Too
         const { activityLabel } = await import('@/lib/tours/labels');
         // Целиком в чат идёт и блок «только в описании или программе»: его
         // режет FAR_CHAT_CAP строкой «ещё M», страницы отдают все.
-        text = filterTourCatalog(ctx, want, { activityLabel, entries: catalog.entries, farCap: wholeInChat ? FAR_CHAT_CAP : undefined });
+        // Отбор — заново кругом компаний: круг по всему каталогу после
+        // фильтра рассыпается (у компании первый тур — рыбалка, а вулканы —
+        // пятым, и её вулканы встают кучей в конце).
+        const orderLines = (ls: readonly string[]): string[] => orderOffersByCompanyTurns(
+          ls,
+          (l) => catalog.entries.get(l.match(/^ID(\d+):/)?.[1] ?? '')?.order
+            ?? { id: l, nearestFreeDate: null, anyDayOpen: null, partnerId: null },
+          { day: catalog.day || undefined },
+        );
+        text = filterTourCatalog(ctx, want, { activityLabel, entries: catalog.entries, farCap: wholeInChat ? FAR_CHAT_CAP : undefined, orderLines });
       }
       if (wholeInChat) return text;
       return paginateTourText(text, askedPage ? page : 1);

@@ -34,7 +34,7 @@
 
 import { maskCode, snakeId, REDACTABLE_WORD, IDENT_WORD, PERSONAL_NAME_FIELD, PERSONAL_OWNER_NAME } from './pii-flow-scanner';
 
-export type SinkKind = 'storage' | 'log' | 'telegram' | 'url';
+export type SinkKind = 'storage' | 'log' | 'telegram' | 'url' | 'db';
 
 export interface SinkFinding {
   file: string;
@@ -45,6 +45,8 @@ export interface SinkFinding {
   /** Что ушло: `lead.phone`, `touristName`. */
   expr: string;
   pd: 'contact' | 'name';
+  /** Сток `db`: таблицы, в которые пишет запрос (`INSERT INTO`, `UPDATE … SET`). */
+  tables?: string[];
 }
 
 /**
@@ -88,6 +90,13 @@ const IP_ADDRESS = /^(?:[a-z0-9$]+_)*ip_address$/i;
  */
 const SERVICE_CONTACT = /^(?:mchs|support|platform|admin|service|sender|from|reply_to|smtp|noreply|bot|owner_alert)_(?:phone|email|tel)$/i;
 
+/**
+ * Подпись автора сообщения: `fromName`, `author_name`, `sender_name`. В словаре
+ * D1 их нет, а разведка по группам Telegram (#3460) хранила именно их — имя
+ * человека из группы рядом с его словами.
+ */
+const AUTHOR_NAME = /^(?:[a-z0-9$]+_)*(?:from|author|sender|reviewer|commenter)_name$/;
+
 /** Род ПД идентификатора или поля — или null. */
 export function pdKindOf(id: string): 'contact' | 'name' | null {
   const s = snakeId(id);
@@ -95,7 +104,7 @@ export function pdKindOf(id: string): 'contact' | 'name' | null {
   if (IP_ADDRESS.test(s)) return 'contact';
   if (NOT_PD_HERE.test(s)) return null;
   if (REDACTABLE_NAMED.test(s) || IDENT_NAMED.test(s)) return 'contact';
-  if (PERSON_NAME.test(s)) return 'name';
+  if (PERSON_NAME.test(s) || AUTHOR_NAME.test(s)) return 'name';
   return null;
 }
 
@@ -273,7 +282,7 @@ function localInits(code: string): Map<string, Array<{ at: number; from: number;
  */
 const TG_RECIPIENT = /^(?:[a-z0-9$]+_)*(?:telegram_id|telegram_chat_id|chat_id|tg_id)$/;
 
-interface SinkSpan { kind: SinkKind; sink: string; from: number; to: number }
+interface SinkSpan { kind: SinkKind; sink: string; from: number; to: number; tables?: string[] }
 
 const LOG_CALL = /(?<![\w$.])(?:(console)\s*\.\s*(log|info|warn|error|debug|trace)|(logger)\s*\.\s*([a-z]+)|(process)\s*\.\s*(stdout|stderr)\s*\.\s*write|(log[A-Z][\w$]*(?:Failure|Error)|logSwallowedFailure))\s*\(/g;
 /**
@@ -309,11 +318,70 @@ function valueEnd(code: string, from: number): number {
   return code.length;
 }
 
+/**
+ * Запрос к базе: `pool.query(`, `client.query(`, `db.query(`, `query<Row>(` и
+ * голый `query(` из `lib/database`. Сток — только запрос, который ПИШЕТ
+ * (`INSERT INTO`, `UPDATE … SET`): чтение ПД из базы не кладёт их никуда.
+ * Тегированный шаблон (`sql\`…\``) не разбирается — он назван ограничением.
+ */
+const DB_CALL = /(?<![\w$])(?:[A-Za-z_$][\w$]*\s*\??\.\s*)?query\s*(?:<[^()]*?>)?\s*\(/g;
+const SQL_INSERT = /\bINSERT\s+INTO\s+(?:ONLY\s+)?("?[A-Za-z_][\w.]*"?|\$\{)/gi;
+const SQL_UPDATE = /(?<!\bDO\s+)\bUPDATE\s+(?:ONLY\s+)?("?[A-Za-z_][\w.]*"?|\$\{)(?:\s+(?:AS\s+)?[A-Za-z_]\w*)?\s+SET\b/gi;
+
+/** Таблица запроса, чей текст сторож не нашёл: импорт под другим именем, сборка вызовом. */
+export const SQL_UNPARSED = '(текст запроса не разобран)';
+
+const LOOKS_LIKE_SQL = /\b(?:SELECT|INSERT|UPDATE|DELETE|WITH|CREATE|ALTER|DROP|TRUNCATE|BEGIN|COMMIT|SET)\b/;
+
+/**
+ * Экспортированные константы файла, чей текст похож на SQL: имя → текст.
+ * Запрос часто лежит в соседнем модуле (`export const X_SQL = \`INSERT …\``),
+ * а исполняется в роуте — перепись собирает их по всему репозиторию и
+ * подставляет, когда имени нет среди переменных файла. Одно имя в двух файлах —
+ * оба текста: записи обоих запросов, а не угаданный один.
+ */
+export function exportedSqlConsts(raw: string): Map<string, string> {
+  const src = normalizeBrackets(raw);
+  const code = maskCode(src);
+  const out = new Map<string, string>();
+  for (const [name, decls] of localInits(code)) {
+    for (const d of decls) {
+      if (!/\bexport\s+$/.test(code.slice(Math.max(0, d.at - 16), d.at))) continue;
+      const text = src.slice(d.from, d.to);
+      if (LOOKS_LIKE_SQL.test(text)) out.set(name, text);
+    }
+  }
+  return out;
+}
+
+/** Слить константы многих файлов: одно имя — все тексты через разделитель. */
+export function mergeSqlConsts(maps: Iterable<ReadonlyMap<string, string>>): Map<string, string> {
+  const out = new Map<string, string>();
+  for (const m of maps) for (const [k, v] of m) out.set(k, out.has(k) ? `${out.get(k)}\n;\n${v}` : v);
+  return out;
+}
+
+/** Записи текста запроса: `public.leads` → `leads`, `${t}` → `(имя в переменной)`. */
+export function sqlWrites(sql: string): Array<{ op: 'INSERT INTO' | 'UPDATE'; table: string }> {
+  const out: Array<{ op: 'INSERT INTO' | 'UPDATE'; table: string }> = [];
+  const seen = new Set<string>();
+  for (const [op, re] of [['INSERT INTO', SQL_INSERT], ['UPDATE', SQL_UPDATE]] as const) {
+    re.lastIndex = 0;
+    for (let m = re.exec(sql); m; m = re.exec(sql)) {
+      const table = m[1] === '${' ? '(имя в переменной)' : m[1].replace(/"/g, '').replace(/^public\./i, '').toLowerCase();
+      if (table === 'set' || seen.has(`${op} ${table}`)) continue;
+      seen.add(`${op} ${table}`);
+      out.push({ op, table });
+    }
+  }
+  return out;
+}
+
 /** Файл пишет в IndexedDB: импорт `idb` или прямой `indexedDB`. */
 const usesIdb = (src: string): boolean => /from\s+['"]idb(?:-keyval)?['"]|\bindexedDB\s*\./.test(src);
 
 /** Отрезки стоков файла по маске кода. */
-function sinkSpans(src: string, code: string): SinkSpan[] {
+function sinkSpans(src: string, code: string, inits: ReturnType<typeof localInits>, sqlConsts?: ReadonlyMap<string, string>): SinkSpan[] {
   const out: SinkSpan[] = [];
   const call = (re: RegExp, kind: SinkKind, name: (m: RegExpExecArray) => string) => {
     re.lastIndex = 0;
@@ -336,6 +404,34 @@ function sinkSpans(src: string, code: string): SinkSpan[] {
     }
   }
   if (usesIdb(src)) call(IDB_WRITE, 'storage', (m) => `IndexedDB .${m[1]}`);
+  // Запись в базу: текст запроса — первый аргумент, литералом или константой
+  // (один шаг, как у переменных стока); ПД ищутся во всём вызове.
+  DB_CALL.lastIndex = 0;
+  for (let m = DB_CALL.exec(code); m; m = DB_CALL.exec(code)) {
+    if (/\bfunction\s*$/.test(code.slice(Math.max(0, m.index - 12), m.index))) continue;
+    const open = m.index + m[0].length - 1;
+    const firstEnd = valueEnd(code, open + 1);
+    let sql = src.slice(open + 1, firstEnd);
+    const ref = /^\s*([A-Za-z_$][\w$]*)\s*$/.exec(sql);
+    if (ref) {
+      const decl = (inits.get(ref[1]) ?? []).filter((d) => d.at < m!.index).pop() ?? (inits.get(ref[1]) ?? [])[0];
+      const shared = sqlConsts?.get(ref[1]);
+      if (!decl && shared === undefined) {
+        // Текст запроса не найден ни в файле, ни среди экспортов репозитория:
+        // запрос с ПД в параметрах всё равно находка, с таблицей «не разобран»,
+        // а не тишина (ревью #3499). Параметр обёртки (`query(sql, params)`)
+        // ПД по имени не несёт и находкой не становится.
+        out.push({ kind: 'db', sink: `query(${ref[1]})`, from: firstEnd, to: closeOf(code, open), tables: [SQL_UNPARSED] });
+        continue;
+      }
+      sql = decl ? src.slice(decl.from, decl.to) : (shared ?? '');
+    }
+    const writes = sqlWrites(sql);
+    if (writes.length === 0) continue;
+    const tables = [...new Set(writes.map((w) => w.table))];
+    const sink = writes.map((w) => `${w.op} ${w.table}`).join(' / ');
+    out.push({ kind: 'db', sink, from: open + 1, to: closeOf(code, open), tables });
+  }
   // Заглушка sendPdAlert идёт в Telegram: ПД в ней быть не может по договору двери.
   PD_ALERT_CALL.lastIndex = 0;
   for (let m = PD_ALERT_CALL.exec(code); m; m = PD_ALERT_CALL.exec(code)) {
@@ -389,8 +485,46 @@ function urlFindings(file: string, src: string, code: string, lineOf: (at: numbe
   return out;
 }
 
+/**
+ * Поля файла, которым он сам дал значение с ПД: `{ from: fromName }` делает
+ * `m.from` в этом файле именем человека. Один шаг: поле, значение которому
+ * дала другая переменная без ПД в названии, не прослеживается. Только для
+ * записи в базу — там значение лежит годами.
+ */
+function pdFields(code: string): Map<string, string> {
+  const out = new Map<string, string>();
+  const re = /(?<=[{,]\s*)([A-Za-z_$][\w$]*)\s*:(?![:=])/g;
+  for (let m = re.exec(code); m; m = re.exec(code)) {
+    if (pdKindOf(m[1])) continue;
+    const from = m.index + m[0].length;
+    const refs = pdRefsIn(code, from, valueEnd(code, from));
+    if (refs.length > 0 && !out.has(m[1])) out.set(m[1], `${m[1]}: ${refs[0].expr}`);
+  }
+  return out;
+}
+
+/** Обращения к полям `fields` в [from, to): `m.from`, `x?.from`. */
+function fieldRefsIn(code: string, from: number, to: number, fields: Map<string, string>): PdRef[] {
+  if (fields.size === 0) return [];
+  const out: PdRef[] = [];
+  const clean = sanitizedRanges(code, from, to);
+  const re = /([A-Za-z_$][\w$]*)\s*\??\.\s*([A-Za-z_$][\w$]*)/g;
+  re.lastIndex = from;
+  for (let m = re.exec(code); m && m.index < to; m = re.exec(code)) {
+    const field = m[2];
+    const how = fields.get(field);
+    if (!how) { re.lastIndex = m.index + m[1].length; continue; }
+    const at = m.index;
+    const end = at + m[0].length;
+    if (clean.some(([a, b]) => at > a && at < b)) continue;
+    if (code[skipWs(code, end)] === '(' || presenceOnly(code, at, end)) continue;
+    out.push({ at, expr: `${m[1]}.${field} ← ${how}`, pd: 'name' });
+  }
+  return out;
+}
+
 /** Находки одного исходника. Чистая функция. */
-export function scanSinks(file: string, raw: string): SinkFinding[] {
+export function scanSinks(file: string, raw: string, sqlConsts?: ReadonlyMap<string, string>): SinkFinding[] {
   const src = normalizeBrackets(raw);
   const code = maskCode(src);
   const inits = localInits(code);
@@ -405,13 +539,17 @@ export function scanSinks(file: string, raw: string): SinkFinding[] {
   const lineOf = (at: number) => { let lo = 0, hi = lineStarts.length - 1; while (lo < hi) { const mid = (lo + hi + 1) >> 1; if (lineStarts[mid] <= at) lo = mid; else hi = mid - 1; } return lo + 1; };
   const out: SinkFinding[] = [];
   const seen = new Set<string>();
-  for (const s of sinkSpans(src, code)) {
+  const spans = sinkSpans(src, code, inits, sqlConsts);
+  const fields = spans.some((s) => s.kind === 'db') ? pdFields(code) : new Map<string, string>();
+  for (const s of spans) {
     const skip = s.kind === 'telegram' ? TG_RECIPIENT : undefined;
-    for (const r of pdRefsIn(code, s.from, s.to, skip, resolveFor(skip))) {
+    const refs = pdRefsIn(code, s.from, s.to, skip, resolveFor(skip));
+    if (s.kind === 'db') refs.push(...fieldRefsIn(code, s.from, s.to, fields));
+    for (const r of refs) {
       const id = `${s.kind}:${r.at}`;
       if (seen.has(id)) continue;
       seen.add(id);
-      out.push({ file, line: lineOf(r.at), kind: s.kind, sink: s.sink, expr: r.expr, pd: r.pd });
+      out.push({ file, line: lineOf(r.at), kind: s.kind, sink: s.sink, expr: r.expr, pd: r.pd, ...(s.tables ? { tables: s.tables } : {}) });
     }
   }
   out.push(...urlFindings(file, src, code, lineOf));

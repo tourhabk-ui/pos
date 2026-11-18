@@ -60,7 +60,9 @@ export const CHAT_SKILL_ID = 'kuzmich-chat';
 export const A2A_DESCRIPTION =
   'Vedar Kamchatka is a Kamchatka travel information portal and AI guide (Russia), not a travel agency and not a tour operator. '
   + 'Live tours and seat availability, safety alerts, places, weather, volcanoes, stays, gear, transfers, self-drive car rental, trip plans. '
-  + 'Ask in free text (Russian or English) or call a tool via DataPart {"tool", "arguments"} with schemas from tools/list at /api/mcp. '
+  + 'Ask in free text (Russian or English) or call a tool via DataPart {"tool", "arguments"} with schemas from tools/list at /api/mcp; '
+  + 'each tool skill shows the call in its first example. A call ends as a completed Task with the tool text; bad input is rejected with the reason; '
+  + 'a failure on Vedar\'s side is failed. '
   + 'Requests: six human-confirmed requests (create_trip_request, create_lead, create_booking_request, create_stay_request, request_charter, create_car_rental_request); '
   + 'the call returns a draft and a link, the person sends it on a Vedar page; no instant booking, no payment, no auth. '
   + 'make_trip_plan and edit_trip_plan save an anonymous plan draft for 7 days; change_request cancels or moves a tour request by its status key when the person asks. '
@@ -196,14 +198,14 @@ export function buildSkills(): AgentSkill[] {
       name: `${title} (${t.name})`,
       // Суть навыка — первое предложение описания инструмента, а не всё
       // описание (аудит 16.11, #3463 п. 2): полный текст и схема — в
-      // tools/list, туда и ведёт строка вызова. Своего текста у навыка нет —
-      // разойтись с инструментом ему нечем.
+      // tools/list. Своего текста у навыка нет — разойтись с инструментом
+      // ему нечем. Форма вызова — первый пример навыка (DataPart с его
+      // именем), правило исходов задачи — один раз в описании карточки:
+      // до 17.11 оба повторялись в каждом из 25 навыков, ~7 КБ из 24.
+      // У заявок остаётся своё: согласие человека и причина отказа.
       description:
-        `${firstSentence(t.description)} Call: DataPart ${dataPartExample(t.name)}; `
-        + `argument schema in tools/list at ${A2A_JSONRPC_PATH.replace('/a2a', '/mcp')}. Result: a completed Task with the tool text`
-        + (write
-          ? '; bad input (no consent, no seats, limit) — rejected with the reason; failure on Vedar\'s side — failed.'
-          : '; bad input (wrong arguments, unknown key, limit) — rejected with the reason; failure on Vedar\'s side — failed.')
+        firstSentence(t.description)
+        + (write ? ' Needs the person\'s consent; returns a draft and a link; no consent, no seats or a limit — rejected with the reason.' : '')
         // Правило доставки ответа оператора — то, что агент обязан делать, а
         // не пересказ: оно остаётся в навыке целиком.
         + (t.name === REQUEST_STATUS_TOOL_NAME ? ` ${ANSWER_RELAY_RULE}` : ''),

@@ -15,6 +15,7 @@ import { describe, it, expect } from 'vitest';
 import { readFileSync } from 'node:fs';
 import { join } from 'node:path';
 import { publicTourSql } from '@/lib/tours/public-visibility';
+import { programSteps } from '@/lib/tours/describe';
 
 const CARD = join(process.cwd(), 'app/catalog/tours/[id]/_TourDetailClient.tsx');
 const src = readFileSync(CARD, 'utf-8');
@@ -145,8 +146,17 @@ describe('стандарт карточки тура — честность да
   });
 
   it('программа разбирается защитно (JSONB форму никто не гарантирует)', () => {
-    expect(src).toContain('function toProgram');
-    expect(src).toMatch(/Array\.isArray\(v\)/);
+    // Разбор один на карточку и MCP (#3487) — lib/tours/describe.programSteps.
+    expect(programSteps(null)).toEqual([]);
+    expect(programSteps('строка')).toEqual([]);
+    expect(programSteps({ title: 'не массив' })).toEqual([]);
+    expect(programSteps([null, 5, {}, { title: 7 }, '  ', { text: 'без заголовка' }])).toEqual([]);
+    expect(programSteps(['Выезд', { title: ' Подъём ', text: ' 6 часов ' }])).toEqual([
+      { title: 'Выезд', text: '' },
+      { title: 'Подъём', text: '6 часов' },
+    ]);
+    // Своей копии разбора в карточке нет.
+    expect(src).not.toContain('function toProgram');
   });
 
   it('статус дня fail-soft: нет данных — блока нет', () => {

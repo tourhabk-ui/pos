@@ -4,6 +4,10 @@ import { query } from '@/lib/database';
 import { publicTourSql } from '@/lib/tours/public-visibility';
 import { ApiResponse } from '@/types';
 import { TourCheckRow, AvailabilityDateRow } from '@/lib/types/db-rows';
+import { dateInWindow, outOfSeasonText, requestWindow, windowLabel } from '@/lib/tours/request-window';
+import { kamchatkaToday } from '@/lib/seat-requests/core';
+import { groupSizeOf } from '@/lib/tours/card-facts';
+import { tourSeasonWords } from '@/lib/tours/season-words';
 
 export const dynamic = 'force-dynamic';
 
@@ -46,7 +50,9 @@ export async function GET(
     // календарь доступности (миграции 807/808/837).
     const tourQuery = `
       SELECT id, title AS name, max_participants AS max_group_size,
-             min_participants AS min_group_size, base_price AS price, is_active
+             min_participants AS min_group_size, base_price AS price, is_active,
+             season_start::text AS season_start, season_end::text AS season_end,
+             duration_type, duration_hours, multi_day_count
       FROM operator_tours
       WHERE id = $1 AND ${publicTourSql('')}
     `;
@@ -64,6 +70,29 @@ export async function GET(
     // Два разных ответа на одно состояние («тура для туриста нет») учили
     // различать то, что различать не нужно.
     const tour = tourResult.rows[0];
+    const maxGroupSize = groupSizeOf(tour.max_group_size);
+
+    // Дата без строки календаря — только по сезону (#3487), тем же правилом,
+    // что заявка MCP и бронь (lib/tours/request-window). До 17.11 роут сезона
+    // не знал вовсе: у тура с сезоном 2027 года ноябрь 2026 стоял свободным.
+    // Строка календаря сильнее сезона: дату, открытую оператором, правило не
+    // трогает; закрытую — не открывает.
+    const window = requestWindow({
+      season_start: tour.season_start ?? null,
+      season_end: tour.season_end ?? null,
+      duration_type: tour.duration_type ?? null,
+      multi_day_count: tour.multi_day_count == null ? null : Number(tour.multi_day_count),
+      duration_hours: tour.duration_hours == null ? null : Number(tour.duration_hours),
+    }, kamchatkaToday());
+    const calendar = await query<{ d: string; closed: boolean }>(
+      `SELECT ta.date::text AS d, ta.is_cancelled AS closed
+         FROM tour_availability ta
+        WHERE ta.operator_tour_id = $1
+          AND ta.deleted_at IS NULL
+          AND ta.date BETWEEN $2::date AND $3::date`,
+      [id, startDate, endDate],
+    );
+    const calendarDay = new Map(calendar.rows.map((r) => [r.d, r.closed === true]));
 
     // Генерируем даты в диапазоне
     const availabilityQuery = `
@@ -107,16 +136,22 @@ export async function GET(
       startDate,
       endDate,
       id,
-      tour.max_group_size
+      maxGroupSize
     ]);
 
     const availability: AvailabilityDate[] = availResult.rows.map(row => {
-      const available = row.status === 'available';
+      const closed = calendarDay.get(row.date) === true;
+      const outOfSeason = !calendarDay.has(row.date) && !dateInWindow(window, row.date);
+      const available = row.status === 'available' && !closed && !outOfSeason;
       const spotsLeft = parseInt(row.spots_left);
-      
+
       let reason: string | undefined;
       if (row.status === 'past') {
         reason = 'Дата в прошлом';
+      } else if (closed) {
+        reason = 'Дата закрыта в календаре тура';
+      } else if (outOfSeason && window.kind === 'season') {
+        reason = outOfSeasonText(window, row.date);
       } else if (row.status === 'full') {
         reason = 'Все места заняты';
       }
@@ -136,8 +171,10 @@ export async function GET(
         tourId: id,
         tourName: tour.name,
         availability,
-        maxGroupSize: tour.max_group_size,
-        minGroupSize: tour.min_group_size
+        maxGroupSize,
+        minGroupSize: groupSizeOf(tour.min_group_size),
+        // Сезон словами — той же строкой, что карточка и MCP.
+        season: window.kind === 'season' ? windowLabel(window) : tourSeasonWords(tour),
       }
     } as ApiResponse<unknown>);
 

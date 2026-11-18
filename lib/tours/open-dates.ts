@@ -25,6 +25,36 @@ export type OfferAvailability = 'https://schema.org/InStock' | 'https://schema.o
 export interface DatesCount {
   recorded: number;
   open: number;
+  /**
+   * Первая и последняя записанная дата календаря в том же окне (#3487): у тура
+   * без записанного сезона карточка называет их вместо молчания. Нет дат —
+   * null.
+   */
+  first?: string | null;
+  last?: string | null;
+}
+
+/**
+ * Отбор записанных дат календаря — один на счёт карточки и на MCP
+ * (`get_tour_details`): год вперёд, не отменённые, не удалённые.
+ */
+export function calendarDatesWhereSql(ta: string, tourIdExpr: string): string {
+  if (!/^[a-z_][a-z0-9_]*$/.test(ta)) throw new Error(`calendarDatesWhereSql: недопустимый алиас «${ta}»`);
+  // Id тура — только параметр запроса ($n) или колонка alias.column: строка
+  // встаёт в текст SQL, и значение снаружи сюда попасть не должно.
+  if (!/^(\$[1-9][0-9]*|[a-z_][a-z0-9_]*\.[a-z_][a-z0-9_]*)$/.test(tourIdExpr)) {
+    throw new Error(`calendarDatesWhereSql: недопустимое выражение id тура «${tourIdExpr}»`);
+  }
+  return `${ta}.operator_tour_id = ${tourIdExpr}
+         AND ${ta}.date >= CURRENT_DATE
+         AND ${ta}.is_cancelled = false
+         AND ${ta}.deleted_at IS NULL
+         AND ${ta}.date <= CURRENT_DATE + INTERVAL '1 year'`;
+}
+
+/** День из ответа базы (`::text`); прочее — null. */
+function dayOrNull(v: unknown): string | null {
+  return typeof v === 'string' && /^\d{4}-\d{2}-\d{2}$/.test(v) ? v : null;
 }
 
 /** Ответ разметки по счёту дат. */
@@ -35,9 +65,11 @@ export function availabilityFromDates(c: DatesCount | null): OfferAvailability |
 
 export async function countTourDates(tourId: number): Promise<DatesCount | null> {
   try {
-    const { rows } = await pool.query<{ recorded: string; open: string }>(
+    const { rows } = await pool.query<{ recorded: string; open: string; first_date?: string | null; last_date?: string | null }>(
       `SELECT
          COUNT(*)::text AS recorded,
+         MIN(ta.date)::text AS first_date,
+         MAX(ta.date)::text AS last_date,
          COUNT(*) FILTER (
            WHERE ${freeSlotsSql('ta', 'ot', 'occ.taken')} > 0
          )::text AS open
@@ -46,15 +78,14 @@ export async function countTourDates(tourId: number): Promise<DatesCount | null>
        CROSS JOIN LATERAL (
          ${occupiedOnDaySql({ booking: 'ob', day: 'ta.date', tourId: 'ta.operator_tour_id' })}
        ) occ
-       WHERE ta.operator_tour_id = $1
-         AND ta.date >= CURRENT_DATE
-         AND ta.is_cancelled = false
-         AND ta.deleted_at IS NULL
-         AND ta.date <= CURRENT_DATE + INTERVAL '1 year'`,
+       WHERE ${calendarDatesWhereSql('ta', '$1')}`,
       [tourId],
     );
     const r = rows[0];
-    return { recorded: Number(r?.recorded ?? 0), open: Number(r?.open ?? 0) };
+    return {
+      recorded: Number(r?.recorded ?? 0), open: Number(r?.open ?? 0),
+      first: dayOrNull(r?.first_date), last: dayOrNull(r?.last_date),
+    };
   } catch (err) {
     const e = err as { code?: string; message?: string };
     console.error('[open-dates] даты тура не сосчитаны', { tourId, sqlstate: e?.code, message: e?.message });

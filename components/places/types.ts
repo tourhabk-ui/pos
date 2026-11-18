@@ -72,6 +72,11 @@ export interface PlaceRoute {
   activityType: string | null;
   difficulty: string | null;
   distanceKm: number | null;
+  /**
+   * Длина линии, в которую влит подъезд (#3487): тогда distanceKm — null, а
+   * число здесь, и экран называет его «вместе с подъездом». Нет поля — как null.
+   */
+  distanceWithApproachKm?: number | null;
   durationHours: number | null;
   /**
    * Род связи (миграция 874, §4.1): `nearby` — «в 15 км от центра маршрута»
