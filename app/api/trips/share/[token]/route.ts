@@ -1,15 +1,8 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { topToursByActivity, toursByIds, type TopTour } from '@/lib/tours/top-tour-by-activity';
 import { readSharedPlan } from '@/lib/trips/shared-plan';
-import { tourKeepsSchedule } from '@/lib/seat-requests/service';
 import type { TripDayAvailability } from '@/lib/trips/day-availability';
-
-/** Окно поиска ближайшей свободной даты тура без мест на дату дня. */
-const NEXT_FREE_WINDOW_DAYS = 60;
-
-function addDaysIso(dateIso: string, days: number): string {
-  return new Date(Date.parse(`${dateIso}T00:00:00Z`) + days * 86_400_000).toISOString().slice(0, 10);
-}
+import { readDayAvailability, readDayForecast, type TripDayForecast } from '@/lib/trips/day-fresh';
 
 export const dynamic = 'force-dynamic';
 
@@ -78,11 +71,13 @@ export async function GET(
     //  - short — места есть, но меньше, чем людей в группе (H14): до 07.11
     //    одно место на двоих было «места есть». `next` — ближайшая дата,
     //    где хватит на всех.
+    // Правило мест и прогноза на дату дня — lib/trips/day-fresh, одно с
+    // перепроверкой поездки в личном кабинете (#3394).
     const availability: Record<string, TripDayAvailability> = {};
     const arrivalRaw = plan.arrival_date;
     const arrivalMs = arrivalRaw ? new Date(arrivalRaw).getTime() : NaN;
     if (Number.isFinite(arrivalMs)) {
-      const { createPlannerCache, fetchAvailabilityForTour } = await import('@/lib/planner');
+      const { createPlannerCache } = await import('@/lib/planner');
       const cache = createPlannerCache();
       const today = new Date().toISOString().slice(0, 10);
       await Promise.all(activityDays.map(async (d) => {
@@ -90,38 +85,7 @@ export async function GET(
         if (!tour || typeof d.day !== 'number') return;
         const date = new Date(arrivalMs + (d.day - 1) * 86400000).toISOString().slice(0, 10);
         if (date < today) return;
-        try {
-          const slots = await fetchAvailabilityForTour(tour.id, date, date, cache);
-          // Время чтения — страница называет его у ответа (принцип 2, 07.11).
-          const checkedAt = new Date().toISOString();
-          const remaining = slots[0]?.remaining ?? 0;
-          if (remaining >= need) {
-            availability[String(d.day)] = { date, remaining, state: 'open', checkedAt };
-            return;
-          }
-          const nextForGroup = async () => (await fetchAvailabilityForTour(tour.id, addDaysIso(date, 1), addDaysIso(date, NEXT_FREE_WINDOW_DAYS), cache))
-            .find((s) => s.remaining >= need)?.date;
-          if (remaining > 0) {
-            const next = await nextForGroup();
-            availability[String(d.day)] = { date, remaining, state: 'short', ...(next ? { next } : {}), checkedAt };
-            return;
-          }
-          const keeps = await tourKeepsSchedule(Number(tour.id));
-          if (keeps === false) {
-            availability[String(d.day)] = { date, remaining: 0, state: 'on_request' };
-            return;
-          }
-          if (keeps === null) {
-            availability[String(d.day)] = { date, remaining: 0, state: 'unread' };
-            return;
-          }
-          const next = await nextForGroup();
-          availability[String(d.day)] = { date, remaining: 0, state: 'none', ...(next ? { next } : {}), checkedAt };
-        } catch (err) {
-          const code = (err as { code?: string } | null)?.code ?? 'нет SQLSTATE';
-          console.error('[trips/share] занятость тура на дату дня не прочиталась, SQLSTATE', code);
-          availability[String(d.day)] = { date, remaining: 0, state: 'unread' };
-        }
+        availability[String(d.day)] = await readDayAvailability(tour.id, date, need, cache, 'trips/share');
       }));
     }
 
@@ -130,45 +94,29 @@ export async function GET(
     // сочинение модели: запасные туры заводят операторы в contingency_rules,
     // показываем их, когда тур дня погодозависим и прогноз плохой
     // (детерминированные пороги: ветер ≥ 40 км/ч или осадки ≥ 10 мм).
-    // Любой сбой — блок просто не показывается.
-    const weather: Record<string, { date: string; tempMin: number; tempMax: number; windKmh: number; precipMm: number; description: string; bad: boolean }> = {};
+    // Сбой — блок не показывается, причина в логе.
+    const weather: Record<string, TripDayForecast> = {};
     const planB: Record<string, Array<{ tour_id: string; slug: string | null; title: string }>> = {};
     if (Number.isFinite(arrivalMs)) {
-      try {
-        const { createPlannerCache, fetchForecastDays, fetchContingencyAlternatives } = await import('@/lib/planner');
-        const cache = createPlannerCache();
-        const todayMs = Date.parse(new Date().toISOString().slice(0, 10));
-        const horizonMs = todayMs + 16 * 86400000;
-        await Promise.all(activityDays.map(async (d) => {
-          if (typeof d.day !== 'number' || !Array.isArray(d.coords) || d.coords.length !== 2) return;
-          const dateMs = arrivalMs + (d.day - 1) * 86400000;
-          if (dateMs < todayMs || dateMs >= horizonMs) return;
-          const date = new Date(dateMs).toISOString().slice(0, 10);
-          try {
-            const daysAhead = Math.ceil((dateMs - todayMs) / 86400000) + 1;
-            const forecast = await fetchForecastDays(d.coords[0], d.coords[1], Math.min(16, daysAhead));
-            if (!forecast.ok) return;
-            const f = forecast.days.find((x) => x.date === date);
-            // Неполный день не показывается: ноль вместо пропуска рисовал
-            // туристу штиль и «0 °C» там, где данных не было (§4.0).
-            if (!f || f.tempMin === null || f.tempMax === null || f.windKmh === null
-              || f.precipMm === null || f.description === null) return;
-            const bad = f.windKmh >= 40 || f.precipMm >= 10;
-            weather[String(d.day)] = {
-              date, tempMin: Math.round(f.tempMin), tempMax: Math.round(f.tempMax),
-              windKmh: Math.round(f.windKmh), precipMm: Math.round(f.precipMm),
-              description: f.description, bad,
-            };
-            const tour = tourFor(d);
-            if (bad && tour?.weather_dependent) {
-              const alts = await fetchContingencyAlternatives(tour.id, cache);
-              if (alts.length > 0) {
-                planB[String(d.day)] = alts.slice(0, 2).map((a) => ({ tour_id: a.tourId, slug: a.slug ?? null, title: a.title }));
-              }
-            }
-          } catch { /* погода и план Б необязательны */ }
-        }));
-      } catch { /* движок недоступен — план живёт без погоды */ }
+      const today = new Date().toISOString().slice(0, 10);
+      await Promise.all(activityDays.map(async (d) => {
+        if (typeof d.day !== 'number' || !Array.isArray(d.coords) || d.coords.length !== 2) return;
+        const date = new Date(arrivalMs + (d.day - 1) * 86400000).toISOString().slice(0, 10);
+        const forecast = await readDayForecast([d.coords[0], d.coords[1]], date, today, 'trips/share');
+        if (!forecast) return;
+        weather[String(d.day)] = forecast;
+        const tour = tourFor(d);
+        if (!forecast.bad || !tour?.weather_dependent) return;
+        try {
+          const { createPlannerCache, fetchContingencyAlternatives } = await import('@/lib/planner');
+          const alts = await fetchContingencyAlternatives(tour.id, createPlannerCache());
+          if (alts.length > 0) {
+            planB[String(d.day)] = alts.slice(0, 2).map((a) => ({ tour_id: a.tourId, slug: a.slug ?? null, title: a.title }));
+          }
+        } catch (err) {
+          console.error('[trips/share] план Б на день не прочитан, SQLSTATE', (err as { code?: string } | null)?.code ?? 'нет SQLSTATE');
+        }
+      }));
     }
 
     return NextResponse.json({
