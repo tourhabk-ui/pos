@@ -20,7 +20,13 @@ import { redactPII } from '@/lib/security/pii-redact';
 import type { DayPlan } from './engine';
 import type { EditablePlan, PlanParams } from './plan-edit';
 
-export type DraftSurface = 'chat' | 'mcp' | 'group';
+/**
+ * Откуда черновик: чат Кузьмича, MCP, план группы или личный кабинет — замена
+ * дня сохранённой поездки (#3394, миграция 1465). По ней страница черновика
+ * говорит, откуда план и где его менять.
+ */
+export type DraftSurface = 'chat' | 'mcp' | 'group' | 'cabinet';
+const DRAFT_SURFACES: ReadonlySet<string> = new Set<DraftSurface>(['chat', 'mcp', 'group', 'cabinet']);
 
 export interface PlanDraft extends EditablePlan {
   id: string;
@@ -37,6 +43,8 @@ export interface PlanDraft extends EditablePlan {
    * 15.11 «показывать менеджеру»). До этого их писали, но не читал никто.
    */
   wishes?: string | null;
+  /** Откуда черновик; не прочиталось или незнакомое значение — нет поля. */
+  surface?: DraftSurface;
 }
 
 export type DraftRead =
@@ -80,8 +88,8 @@ export async function saveDraft(plan: EditablePlan, surface: DraftSurface, wishe
 export async function loadDraft(id: string): Promise<DraftRead> {
   if (!isDraftId(id)) return { kind: 'missing' };
   try {
-    const { rows } = await pool.query<{ id: string; params: PlanParams; days: DayPlan[]; revision: number; expires_at: Date | string; wishes: string | null }>(
-      `SELECT id::text, params, days, revision, expires_at, wishes
+    const { rows } = await pool.query<{ id: string; params: PlanParams; days: DayPlan[]; revision: number; expires_at: Date | string; wishes: string | null; surface: string | null }>(
+      `SELECT id::text, params, days, revision, expires_at, wishes, surface
          FROM trip_plan_drafts
         WHERE id = $1::uuid AND expires_at > NOW()`,
       [id.trim()],
@@ -89,7 +97,8 @@ export async function loadDraft(id: string): Promise<DraftRead> {
     const r = rows[0];
     if (!r) return { kind: 'missing' };
     const expiresAt = r.expires_at instanceof Date ? r.expires_at.toISOString() : String(r.expires_at);
-    return { kind: 'found', draft: { id: r.id, params: r.params, days: r.days, revision: r.revision, expiresAt, wishes: r.wishes ?? null } };
+    const surface = r.surface && DRAFT_SURFACES.has(r.surface) ? { surface: r.surface as DraftSurface } : {};
+    return { kind: 'found', draft: { id: r.id, params: r.params, days: r.days, revision: r.revision, expiresAt, wishes: r.wishes ?? null, ...surface } };
   } catch (err) {
     logFail('черновик не прочитан', err);
     return { kind: 'failed' };
