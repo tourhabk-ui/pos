@@ -4,12 +4,12 @@
  * разметке нет ничего, чего человек не видит на странице. Вопросов нет —
  * блока и разметки нет.
  *
- * Ответы собирает модуль своей сущности (`lib/tours/tour-faq`), а не этот
- * компонент: он только рисует.
+ * Ответы собирает модуль своей сущности (`lib/tours/tour-faq`,
+ * `lib/places/place-faq`), а не этот компонент: он только рисует.
  */
 import React from 'react';
 import { FAQJsonLd } from '@/components/seo/JsonLd';
-import type { FaqItem } from '@/lib/tours/tour-faq';
+import type { FaqItem } from '@/lib/seo/faq';
 
 export default function FaqSection({ items, heading }: { items: readonly FaqItem[]; heading: React.ReactNode }) {
   if (items.length === 0) return null;
