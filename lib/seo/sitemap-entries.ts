@@ -124,6 +124,9 @@ export async function collectSitemapEntriesWithStatus(): Promise<{ entries: Meta
     // lib/plans/presets — единственный источник, sitemap не разъезжается с роутом.
     // Дата — ревизия текста плана (кластер или общая PLANS_TEXT_REVISION), а не
     // STABLE: константа июня говорила поисковику «не менялось четыре месяца».
+    // Две страницы, посчитанные из базы (разбор видимости в ответах ИИ, 19.11).
+    { url: `${BASE}/skolko-stoit-poezdka-na-kamchatku`, lastModified: new Date(), changeFrequency: 'daily', priority: 0.8 },
+    { url: `${BASE}/kogda-ehat-na-kamchatku`, lastModified: new Date(), changeFrequency: 'daily', priority: 0.8 },
     { url: `${BASE}/plans`,                lastModified: plansHubLastModified(), changeFrequency: 'weekly', priority: 0.85 },
     ...PLAN_PRESETS.map((p) => ({
       url: `${BASE}/plans/${p.slug}`, lastModified: planLastModified(p), changeFrequency: 'weekly' as const, priority: 0.8,
