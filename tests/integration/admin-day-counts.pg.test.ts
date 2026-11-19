@@ -14,7 +14,10 @@
  *  - Кузьмич: ответы по поверхностям, чужие записи журнала мимо;
  *  - отказ одного запроса — «не загрузилось» у одного числа, прочие стоят;
  *  - расшифровка MCP: программа, разных вызывающих, инструменты, темы,
- *    род вызова, исход, пропуск суток, хвост тем числом.
+ *    род вызова, исход, пропуск суток, хвост тем числом;
+ *  - журнал ошибок прода: обрыв соединения узнаётся одинаково в SQL и в
+ *    коде, в перепись ошибок, объектив эволюции и счёт сорванных броней не
+ *    идёт (слово владельца 19.11 «1»).
  *
  * Своя база `admin_day_counts_test`. Запуск ТРЕБУЕТ базы:
  * KERNEL_PG_TEST_URL=postgresql://user:pass@host/db. Без неё файл честно
@@ -477,5 +480,95 @@ withPg('числа суток в админке', () => {
       expect(recent.filter((r) => r.state === 'rejected').map((r) => r.reject_label)).toEqual(['нет согласия человека на обработку данных', 'нет согласия человека на обработку данных']);
       expect(recent.find((r) => r.state === 'completed')?.reject_label).toBeNull();
     });
+  });
+  // Слово владельца 19.11 «1»: обрыв соединения в журнале ошибок прода — не
+  // «Прод 500». Правило в SQL и в коде одно (lib/server-errors/connection-abort),
+  // и здесь оба судят одни и те же строки на настоящей базе.
+  describe('обрыв соединения в журнале ошибок', () => {
+    const MSG = 'controller[kState].transformAlgorithm is not a function';
+    const FRAME2 = 'at node:internal/webstreams/transformstream:568:16';
+    // Строка журнала прода 19.11 слово в слово (проверка прода, прогон 195).
+    const STACK =
+      'at transformStreamDefaultControllerPerformTransform (node:internal/webstreams/transformstream:527:37) | ' +
+      `${FRAME2} | at process.processTicksAndRejections (node:internal/process/task_queues:103:5)`;
+    const log = (route: string, message: string, stack: string | null) => pool.query(
+      `INSERT INTO ai_actions_log (action_type, metadata, created_at)
+       VALUES ('server_error', $1::jsonb, NOW() - INTERVAL '1 hour')`,
+      [JSON.stringify({ route, message, stack, method: 'GET', kind: 'render' })],
+    );
+    const saved = process.env.CRON_SECRET;
+
+    beforeAll(async () => {
+      process.env.CRON_SECRET = 'cron-pg-test';
+      await pool.query(`DELETE FROM ai_actions_log WHERE action_type = 'server_error'`);
+      await log('/map', MSG, STACK);
+      await log('/map', MSG, `  ${STACK}`);
+      await log('/catalog', MSG, STACK);
+      await log('/map', 'Cannot read properties of undefined (reading x)', 'at Page (/app/.next/server/app/map/page.js:1:2)');
+      await log('/routes/[id]', MSG, STACK.replace(FRAME2, 'at renderPage (/app/.next/server/chunks/1.js:1:2)'));
+      await log('/places/[id]', MSG, STACK.replace(FRAME2, 'at /app/.next/server/app/places/page.js:1:1'));
+      await log('/tours', MSG, null);
+      await log('/weather', MSG, STACK.replace(FRAME2, 'at node:internal/x (/app/lib/stream.js:1:1)'));
+      await log('/api/hub/bookings/create', MSG, STACK);
+      await log('/api/hub/bookings/create', 'duplicate key', 'at create (/app/.next/server/app/api/hub/bookings/create/route.js:1:1)');
+    });
+    afterAll(() => {
+      if (saved === undefined) delete process.env.CRON_SECRET; else process.env.CRON_SECRET = saved;
+    });
+
+    it('правило SQL совпадает с правилом кода на каждой строке', async () => {
+      const { CONNECTION_ABORT_SQL, isConnectionAbort } = await import('@/lib/server-errors/connection-abort');
+      const { rows } = await pool.query<{ route: string; m: string | null; s: string | null; a: boolean }>(
+        `SELECT metadata->>'route' AS route, metadata->>'message' AS m, metadata->>'stack' AS s,
+                ${CONNECTION_ABORT_SQL} AS a
+           FROM ai_actions_log WHERE action_type = 'server_error'`,
+      );
+      expect(rows).toHaveLength(10);
+      for (const r of rows) expect(r.a, `${r.route}: ${r.s}`).toBe(isConnectionAbort(r.m, r.s));
+      expect(rows.filter((r) => r.a).map((r) => r.route).sort())
+        .toEqual(['/api/hub/bookings/create', '/catalog', '/map', '/map']);
+    });
+
+    it('перепись: обрывы своим списком, в счёт ошибок не входят', async () => {
+      const { GET } = await import('@/app/api/cron/prod-errors/route');
+      const { NextRequest } = await import('next/server');
+      const body = await (await GET(new NextRequest('http://localhost/api/cron/prod-errors?hours=25', {
+        headers: { Authorization: 'Bearer cron-pg-test' },
+      }))).json() as {
+        ok: boolean; total: number; errors: Array<{ route: string; n: number }>;
+        connection_aborts: Array<{ route: string; n: number }>; connection_aborts_total: number;
+      };
+      expect(body.ok).toBe(true);
+      const byRoute = (list: Array<{ route: string; n: number }>) =>
+        Object.fromEntries(list.map((r) => [r.route, r.n]));
+      expect(byRoute(body.errors)).toEqual({
+        '/map': 1, '/routes/[id]': 1, '/places/[id]': 1, '/tours': 1, '/weather': 1, '/api/hub/bookings/create': 1,
+      });
+      expect(byRoute(body.connection_aborts)).toEqual({ '/map': 2, '/catalog': 1, '/api/hub/bookings/create': 1 });
+      expect(body.total).toBe(6);
+      expect(body.connection_aborts_total).toBe(4);
+    });
+
+    it('объектив эволюции: находки «Прод 500» из обрывов нет', async () => {
+      const { scanProdErrors } = await import('@/lib/agents/evo/growth-agent');
+      const found = await scanProdErrors();
+      const titles = Object.fromEntries(found.map((f) => [f.title, f.description]));
+      expect(Object.keys(titles).sort()).toEqual([
+        'Прод 500: /api/hub/bookings/create', 'Прод 500: /map', 'Прод 500: /places/[id]',
+        'Прод 500: /routes/[id]', 'Прод 500: /tours', 'Прод 500: /weather',
+      ]);
+      expect(titles['Прод 500: /map']).toContain('За сутки 1 серверных ошибок');
+      // Модуль объектива большой: первый импорт на холодном раннере дольше 5 с.
+    }, 60_000);
+
+    it('перепись попыток брони: обрыв — не сорванная попытка', async () => {
+      const { GET } = await import('@/app/api/cron/booking-attempts/route');
+      const { NextRequest } = await import('next/server');
+      const body = await (await GET(new NextRequest('http://localhost/api/cron/booking-attempts?days=7', {
+        headers: { Authorization: 'Bearer cron-pg-test' },
+      }))).json() as { failed_500_total: number | null; failed_with_500: Array<{ route: string; n: number }> | null };
+      expect(body.failed_500_total).toBe(1);
+      expect(body.failed_with_500).toEqual([expect.objectContaining({ route: '/api/hub/bookings/create', n: 1 })]);
+    }, 30_000);
   });
 });

@@ -100,13 +100,13 @@ jobs:
             -H "Authorization: Bearer $CRON_SECRET" \
             "https://vedarai.ru/api/cron/prod-errors?hours=25&notify=1")
           echo "HTTP $CODE"
-          SHORT='{ok, hours, routes, total, total_is_lower_bound, truncated, note, notify, error, top: [.errors[]? | {route, kind, method, n}]}'
+          SHORT='{ok, hours, routes, total, total_is_lower_bound, truncated, note, notify, error, connection_aborts_total, top: [.errors[]? | {route, kind, method, n}]}'
           jq "$SHORT" /tmp/prod-errors.json || echo "ответ не JSON"
 
           {
             echo "## Ошибки сервера за 25 ч"
             echo ""
-            jq -r '"не меньше \(.total // "?") на \(.routes // "?") маршрутах (нижняя граница: \(.note // "—")); дайджест: \(.notify.reason // "—")"' /tmp/prod-errors.json || echo "ответ не JSON"
+            jq -r '"не меньше \(.total // "?") на \(.routes // "?") маршрутах (нижняя граница: \(.note // "—")); обрывов соединения, не ошибок: \(.connection_aborts_total // "?"); дайджест: \(.notify.reason // "—")"' /tmp/prod-errors.json || echo "ответ не JSON"
             echo ""
             echo '```json'
             jq "$SHORT" /tmp/prod-errors.json || true

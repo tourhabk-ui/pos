@@ -51,8 +51,10 @@ describe('запрос защищён и ограничен', () => {
   it('параметры уходят значениями, а не в текст запроса', () => {
     expect(SRC).toMatch(/make_interval\(hours\s*=>\s*\$1\)/);
     expect(SRC).toMatch(/\$2::text IS NULL/);
-    // Интерполяции в SQL-литерале быть не должно ни одной.
+    // Интерполяции в SQL-литерале быть не должно ни одной, кроме признака
+    // обрыва соединения: это постоянный текст SQL из lib/server-errors
+    // (слово владельца 19.11 «1»), значений запроса в нём нет.
     const sql = SRC.slice(SRC.indexOf('`SELECT'), SRC.indexOf('LIMIT 50'));
-    expect(sql).not.toMatch(/\$\{/);
+    expect(sql.replace(/\$\{CONNECTION_ABORT_SQL\}/g, '')).not.toMatch(/\$\{/);
   });
 });
