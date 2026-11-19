@@ -12,13 +12,21 @@
  */
 
 import Link from 'next/link';
-import { MONTH_SHORT, type FishSpecies } from '@/lib/fish-species';
+import { MONTH_SHORT, speciesOutsideMonths, type FishSpecies } from '@/lib/fish-species';
 
 interface Props {
   species: FishSpecies[];
+  /** Месяцы сезона тура (seasonMonthsBetween); null — сезон не записан. */
+  tourMonths?: number[] | null;
 }
 
-export default function FishSeasonCalendar({ species }: Props) {
+/** «хариус и кунжа», «хариус, кунжа и голец» — имена в нижнем регистре. */
+function joinNames(list: FishSpecies[]): string {
+  const names = list.map(sp => sp.name.toLowerCase());
+  return names.length <= 1 ? names.join('') : `${names.slice(0, -1).join(', ')} и ${names[names.length - 1]}`;
+}
+
+export default function FishSeasonCalendar({ species, tourMonths = null }: Props) {
   if (species.length === 0) return null;
 
   const now = new Date().getMonth() + 1;
@@ -26,6 +34,9 @@ export default function FishSeasonCalendar({ species }: Props) {
     (a, b) => a.seasonMonths[0] - b.seasonMonths[0] || a.name.localeCompare(b.name, 'ru'),
   );
   const inSeason = rows.filter(sp => sp.seasonMonths.includes(now));
+  // #3467: вид назван в тексте тура, а календарь не даёт ему ни одного месяца
+  // сезона тура. Кто прав, Ведар не знает — говорим о расхождении словами.
+  const outside = speciesOutsideMonths(rows, tourMonths);
 
   return (
     <div>
@@ -122,6 +133,14 @@ export default function FishSeasonCalendar({ species }: Props) {
           ))}
         </div>
       </div>
+
+      {outside.length > 0 && tourMonths && (
+        <p className="mt-3 text-sm text-[var(--text-secondary)] leading-relaxed">
+          {`В описании тура названы ${joinNames(outside)}, а календарь в сезон тура (${tourMonths
+            .map(m => MONTH_SHORT[m - 1])
+            .join(', ')}) ${outside.length === 1 ? 'этот вид' : 'эти виды'} не показывает. Календарь — общий справочник Ведара по сезонам клёва на Камчатке; что ловится в этом туре, говорит оператор — уточняйте у него.`}
+        </p>
+      )}
     </div>
   );
 }
