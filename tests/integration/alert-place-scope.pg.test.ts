@@ -2025,6 +2025,71 @@ withPg('кого накрывает предупреждение', () => {
         await pool.query(`DELETE FROM parks WHERE slug = ANY($1::text[])`, [PARKS.map((p) => p.slug)]);
       }
     }, 30_000);
+    // Слово владельца 19.11 «Да, вариант 2»: строка сводки Минтура «„Налычево“
+    // и „Южно-Камчатский“, „Быстринский“ — маршруты закрыты» не называет ни
+    // сезона, ни причины. Межсезонной её делает живое межсезонное закрытие
+    // КАЖДОГО названного парка; иначе — красный, как было.
+    it('закрытие без причины при живом межсезонном тех же парков — жёлтый; без покрытия, с половинным покрытием и «временно» — красный', async () => {
+      const PARKS = [
+        { slug: 'a2-b-cover1', name: 'Природный парк «Покровный»', term: 'Покровный' },
+        { slug: 'a2-b-cover2', name: 'Природный парк «Укрытый»', term: 'Укрытый' },
+        { slug: 'a2-b-alone', name: 'Природный парк «Одинокий»', term: 'Одинокий' },
+        { slug: 'a2-b-half', name: 'Природный парк «Половинный»', term: 'Половинный' },
+        { slug: 'a2-b-sudden', name: 'Природный парк «Внезапный»', term: 'Внезапный' },
+      ];
+      const placeOf = (term: string, i: number) => ({
+        id: `Природный парк ${term} (тест)`, ark: `c0000000-0000-4000-8000-0000000000c${i}`, lat: 53.3 + i / 100, lng: 158.2,
+      });
+      const P = Object.fromEntries(PARKS.map((p, i) => [p.slug, placeOf(p.term, i + 1)]));
+      for (const p of PARKS) {
+        await pool.query(`INSERT INTO parks (slug, display_name, search_term) VALUES ($1, $2, $3) ON CONFLICT (slug) DO NOTHING`, [p.slug, p.name, p.term]);
+        const pl = P[p.slug];
+        await pool.query(
+          `INSERT INTO places (id, name, lat, lng, ark_id, location_type, zone, is_visible) VALUES ($1, $1, $2, $3, $4, 'lake', 'avachinsky', TRUE)`,
+          [pl.id, pl.lat, pl.lng, pl.ark],
+        );
+        await pool.query(`INSERT INTO location_real_time_status (agent_route_id) VALUES ($1)`, [pl.ark]);
+      }
+      try {
+        // Межсезонное закрытие дирекции: три парка с местами и один без места.
+        const season = await alertRow({ type: 'park_closure', externalId: feedId('b1'), parks: ['a2-b-cover1', 'a2-b-cover2', 'a2-b-cover3', 'a2-b-sudden'], ageHours: 48,
+          title: 'Маршруты природных парков «Покровный», «Укрытый», «Внезапный» закрыты на период межсезонья' });
+        // Строки сводки Минтура: без сезона и без причины, с периодом и источником.
+        const CITE = 'Период сводки: 09:00 12.11–09:00 19.11. Источник: https://kamgov.example/mintur/1';
+        const bare = async (tag: string, parks: string[], title: string) => {
+          const id = await alertRow({ type: 'park_closure', externalId: feedId(tag), parks, ageHours: 24, title });
+          await pool.query(`UPDATE external_alerts SET description = $2 WHERE id::text = $1`, [id, `${title} ${CITE}`]);
+          return id;
+        };
+        // Имена в тексте — настоящие парки сети: правило текста их и ждёт.
+        // Привязка к местам сцены — по affected_parks, а не по тексту.
+        await bare('b2', ['a2-b-cover1', 'a2-b-cover2'], 'Природный парк «Налычево» и «Быстринский» — маршруты закрыты');
+        await bare('b3', ['a2-b-alone'], 'Природный парк «Ключевской» — маршруты закрыты');
+        // Один из двух парков межсезонным закрытием не покрыт.
+        await bare('b4', ['a2-b-cover3', 'a2-b-half'], 'Природный парк «Южно-Камчатский» и «Вилючинский» — маршруты закрыты');
+        // «Временно» — признак внезапного закрытия: покрытие не помогает.
+        await bare('b5', ['a2-b-sudden'], 'Природный парк «Налычево» — маршруты временно закрыты');
+
+        await recomputeStatus();
+        const c1 = await statusOf(P['a2-b-cover1'].ark);
+        expect(c1).toMatchObject({ status: 'yellow', reason: 'park_season', sev: 2 });
+        expect(c1.alerts).toContain('Природный парк «Налычево» и «Быстринский» — маршруты закрыты');
+        expect(await statusOf(P['a2-b-cover2'].ark)).toMatchObject({ status: 'yellow', reason: 'park_season' });
+        expect(await statusOf(P['a2-b-alone'].ark)).toMatchObject({ status: 'red', reason: null });
+        expect(await statusOf(P['a2-b-half'].ark)).toMatchObject({ status: 'red', reason: null });
+        expect(await statusOf(P['a2-b-sudden'].ark)).toMatchObject({ status: 'red', reason: null });
+
+        // Межсезонное закрытие снято — голая строка снова красит красным.
+        await pool.query(`UPDATE external_alerts SET expires_at = (NOW() AT TIME ZONE 'UTC') - INTERVAL '1 second' WHERE id::text = $1`, [season]);
+        await recomputeStatus();
+        expect(await statusOf(P['a2-b-cover1'].ark)).toMatchObject({ status: 'red', reason: null });
+      } finally {
+        const arks = Object.values(P).map((x) => x.ark);
+        await pool.query(`DELETE FROM location_real_time_status WHERE agent_route_id = ANY($1::uuid[])`, [arks]);
+        await pool.query(`DELETE FROM places WHERE id = ANY($1::text[])`, [Object.values(P).map((x) => x.id)]);
+        await pool.query(`DELETE FROM parks WHERE slug = ANY($1::text[])`, [PARKS.map((p) => p.slug)]);
+      }
+    }, 30_000);
   });
 
   describe('планер видит закрытие парка на днях плана (разбор 06.11)', () => {
