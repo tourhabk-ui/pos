@@ -114,8 +114,11 @@ export async function collectSitemapEntriesWithStatus(): Promise<{ entries: Meta
       url, lastModified: new Date(ZH_STATIC_REVISION), changeFrequency: 'monthly' as const, priority: 0.7,
     })),
     // Посадочные под запросы туристов (17.10); китайские — выше, через zhPageUrls.
+    // Дата посадочной — дата её туров (ниже, после чтения секций), а не
+    // «сейчас»: `new Date()` говорил поисковику «изменено» на каждом запросе
+    // карты (задача индексации, 19.11).
     ...QUERY_LANDINGS.filter((l) => l.lang !== 'zh-CN').map((l) => ({
-      url: `${BASE}${l.path}`, lastModified: new Date(), changeFrequency: 'daily' as const, priority: 0.8,
+      url: `${BASE}${l.path}`, changeFrequency: 'daily' as const, priority: 0.8,
     })),
     // Программатик-страницы готовых планов («Мой план 2.0», A-1): пресеты из
     // lib/plans/presets — единственный источник, sitemap не разъезжается с роутом.
@@ -482,11 +485,20 @@ export async function collectSitemapEntriesWithStatus(): Promise<{ entries: Meta
     [`${BASE}/accommodations`, accommodationPages],
     [`${BASE}/collections`, collectionPages],
     [`${BASE}/operators`, operatorPages],
+    [`${BASE}/articles`, articlePages],
   ];
   for (const [url, section] of listOf) {
     const at = latestModified(section);
     const page = staticLive.find((e) => e.url === url);
     if (at && page) page.lastModified = at;
+  }
+  // Посадочные под запросы — списки туров (и одна — перевозчиков). Дата — самое
+  // позднее изменение туров и перевозчиков; не прочиталось ничего — даты нет
+  // вовсе: «не знаю» честнее, чем «изменено сейчас» (§4.0).
+  const landingAt = latestModified([...marketplacePages, ...carrierPages]);
+  if (landingAt) {
+    const landingUrls = new Set(QUERY_LANDINGS.map((l) => `${BASE}${l.path}`));
+    for (const page of staticLive) if (landingUrls.has(page.url)) page.lastModified = landingAt;
   }
 
   const entries: MetadataRoute.Sitemap = [
