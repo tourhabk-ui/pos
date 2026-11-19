@@ -50,6 +50,9 @@ describe('travel-facts: только с источником', () => {
     const b = travelFactsBlock('Как далеко Малкинские источники от города?');
     expect(b).toContain('130 км');
     expect(b).not.toContain('200 км');
+    // «По прямой 120 км» снято (#3514): по координатам места около 81 км.
+    expect(b).not.toContain('по прямой');
+    expect(b).not.toContain('120 км');
   });
   it('нет времени — сказано, что подтвердит оператор', () => {
     expect(travelFactsBlock('Паратунка')).toContain('подтвердит оператор/перевозчик');
