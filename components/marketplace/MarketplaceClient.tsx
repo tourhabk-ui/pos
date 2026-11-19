@@ -55,6 +55,11 @@ interface Tour {
    * значит «не знаем», и карточка говорит «Даты по запросу», а не «Есть даты».
    */
   has_availability?: boolean | null;
+  /**
+   * Оператор выезжает «в любой день сезона», и сезон открыт (`anyDayOpenSql`,
+   * #3476). Не пришло — не знаем, строка прежняя.
+   */
+  any_day_open?: boolean | null;
 }
 
 /* ─── Constants ─── */
@@ -81,6 +86,7 @@ import { detectFishSpecies } from '@/lib/fish-species';
 import { tourPhotoPosition } from '@/lib/tours/photo-focus';
 import { tourPath } from '@/lib/tours/tour-url';
 import { onRequestLine } from '@/lib/tours/request-window';
+import { anyDayCatalogLine } from '@/lib/tours/schedule-kind';
 import { kamchatkaDate } from '@/lib/analytics/kamchatka-day';
 import { cardDuration, cardPrice } from '@/lib/tours/card-facts';
 import { OperatorNameLink } from '@/components/operators/OperatorNameLink';
@@ -342,9 +348,15 @@ function TourCard({
   const showSeason = availability === 'dates' && isInSeason(tour);
   // Без календаря с записанным сезоном — одна строка «Сезон …, даты — по
   // запросу у оператора» (#3473), а не голое «Даты по запросу».
-  const availabilityText = availability === 'on_request'
-    ? onRequestLine(tour, kamchatkaDate(new Date()))
-    : AVAILABILITY_LABEL[availability];
+  // Оператор выезжает в любой день сезона (#3476): так он записал сам, и
+  // карточка говорит его словом, а не «даты по запросу».
+  const anyDay = availability !== 'dates' && tour.any_day_open === true
+    ? anyDayCatalogLine(tour, kamchatkaDate(new Date()))
+    : null;
+  const availabilityText = anyDay
+    ?? (availability === 'on_request'
+      ? onRequestLine(tour, kamchatkaDate(new Date()))
+      : AVAILABILITY_LABEL[availability]);
   const priceOld = tour.price_old ? Number(tour.price_old) : null;
   const basePrice = cardPrice(tour);
   const features = deriveFeatures(tour);
