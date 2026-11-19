@@ -21,7 +21,16 @@
  * значения. Любая зависимость отсюда вернёт переписи чужие умения.
  */
 
-export type ZoneId = 'avachinsky' | 'western' | 'eastern' | 'northern';
+/**
+ * Зоны планера. `southern` — Курильское озеро и юг края (слово владельца 19.11
+ * «1 отдельная зона», #3394 п.3): до этого день «Медведи» вставал в Авачинской
+ * зоне с разрешением Южно-Камчатского заказника, а все туры к медведям на
+ * платформе — на Курильское озеро. Зона планера — не зона места в базе:
+ * `places.zone` Курильского озера — `western` по району (тревоги МЧС приходят
+ * по районам), и её не трогаем; южную зону планер выводит из широты
+ * (`SOUTHERN_ZONE_MAX_LAT`, lib/planner/zone-match).
+ */
+export type ZoneId = 'avachinsky' | 'western' | 'eastern' | 'northern' | 'southern';
 export type TransportType = 'walking' | 'jeep' | 'helicopter' | 'boat';
 export type FitnessLevel = 'beginner' | 'moderate' | 'active';
 export type BudgetTier = 'economy' | 'comfort' | 'premium';
@@ -32,6 +41,7 @@ export const ZONE_NAMES: Record<ZoneId, string> = {
   western:    'Западная зона',
   eastern:    'Восточная зона',
   northern:   'Северная зона',
+  southern:   'Южная зона (Курильское озеро)',
 };
 
 /**
@@ -39,6 +49,31 @@ export const ZONE_NAMES: Record<ZoneId, string> = {
  * жилья, миграция 1031: тот же набор держит CHECK в базе).
  */
 export const ZONE_IDS = ['avachinsky', 'western', 'eastern', 'northern'] as const satisfies readonly ZoneId[];
+
+/**
+ * Все зоны планера, с южной (#3394 п.3). Жилья в южной зоне план не ищет —
+ * ночь там в Авачинской (`ZONE_SLEEPS_IN`), поэтому список зон жилья (`ZONE_IDS`,
+ * CHECK миграции 1031) прежний, а день плана и его проверки знают и южную.
+ */
+export const PLANNER_ZONE_IDS = [...ZONE_IDS, 'southern'] as const satisfies readonly ZoneId[];
+
+/**
+ * Южнее этой широты — южная зона планера: Курильское озеро (51,46), Паужетка
+ * (51,47), Кошелев, Камбальный. Ходутка (52,06) и Асача (52,36) — севернее,
+ * они в Авачинской зоне, куда и ходят от Паратунки.
+ */
+export const SOUTHERN_ZONE_MAX_LAT = 51.75;
+
+/**
+ * Зоны тревог дня плана. Тревоги МЧС и метео адресуются зонами места по
+ * району (`places.zone`), а Курильское озеро там — `western`
+ * (Усть-Большерецкий район, миграция 1294). День южной зоны получает и
+ * тревоги Западной: иначе предупреждение о Курильском озере не дошло бы до
+ * дня у Курильского озера.
+ */
+export function alertZonesOf(zone: ZoneId): ZoneId[] {
+  return zone === 'southern' ? ['southern', 'western'] : [zone];
+}
 
 /**
  * Где на самом деле ночуют, когда день плана в зоне, где не ночуют.
@@ -49,6 +84,9 @@ export const ZONE_IDS = ['avachinsky', 'western', 'eastern', 'northern'] as cons
  */
 export const ZONE_SLEEPS_IN: Partial<Record<ZoneId, ZoneId>> = {
   northern: 'avachinsky',
+  // Южная зона: день вертолётом или многодневный тур со своим ночлегом —
+  // жильё план ищет в Авачинской (#3394 п.3).
+  southern: 'avachinsky',
 };
 
 /** Зона, в которой ночуют, если день плана проходит в `zone`. */
@@ -158,7 +196,9 @@ export const ACTIVITY_CONSTRAINTS: Record<string, ActivityConstraints> = {
     minChildAge: 6,
     fitnessRequired: 'beginner',
     minDays: 1,
-    bestZones: ['eastern', 'avachinsky'],
+    // Все туры к медведям на платформе — на Курильское озеро (сверка 19.11):
+    // день «Медведи» в Авачинской зоне был без тура и с чужим разрешением.
+    bestZones: ['southern'],
     months: [7, 8, 9],
     seasonNote: 'Курильское озеро: авг-сен. Речные медведи: июль-сен',
     requiresPermit: 'Южно-Камчатский федеральный заказник — бронь за 14 дней',

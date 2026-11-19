@@ -25,7 +25,7 @@ import {
   buildPlannerMarkers, plannerLegend, parseDayPinId, nextDayOnPin, dayPinLabel, sameZoneCount,
   type PlannerMapRoute, type PlannerMapDay,
 } from '@/lib/planner/map-markers';
-import { ZONE_PIN, NO_ZONE_PIN, PLAN_DAY_PIN, zoneName, ZONE_NOT_RECORDED, ZONE_OUTSIDE } from '@/lib/planner/zone-style';
+import { ZONE_PIN, NO_ZONE_PIN, PLAN_DAY_PIN, zoneName, ZONE_NOT_RECORDED, ZONE_OUTSIDE, plannerZoneOf } from '@/lib/planner/zone-style';
 import { resolveMarkerColor, MARKER_HEX } from '@/lib/map/marker-colors';
 import { labelPinHtml, labelPinSize, labelPinBox, PLAIN_PIN_DIAMETER } from '@/lib/map/label-pin';
 import { fitDecision, fitPaddingTop, cornerRefitTop, PIN_REACH } from '@/lib/map/fit-when-sized';
@@ -34,7 +34,9 @@ import { ZONE_IDS } from '@/lib/planner/constants';
 const ROUTES: PlannerMapRoute[] = [
   { id: 'r-ava', title: 'Вулкан Авачинский', lat: 53.25, lng: 158.83, zone: 'avachinsky' },
   { id: 'r-ava2', title: 'Вулкан Мутновский', lat: 52.45, lng: 158.19, zone: 'avachinsky' },
-  { id: 'r-west', title: 'Курильское озеро', lat: 51.45, lng: 157.1, zone: 'western' },
+  { id: 'r-west', title: 'Река Быстрая у Эссо', lat: 55.93, lng: 158.7, zone: 'western' },
+  // Курильское озеро: в базе — western (по району), на карте планера — южная зона (#3394 п.3).
+  { id: 'r-south', title: 'Курильское озеро', lat: 51.45, lng: 157.1, zone: 'western' },
   { id: 'r-east', title: 'Долина гейзеров', lat: 54.43, lng: 160.14, zone: 'eastern' },
   { id: 'r-north', title: 'Вулкан Толбачик', lat: 55.83, lng: 160.33, zone: 'northern' },
   { id: 'r-none', title: 'Без зоны', lat: 53.1, lng: 158.4, zone: null },
@@ -281,8 +283,8 @@ describe('замена дня, которого не заменяют, и зон
 describe('легенда — только нарисованные зоны, тем же цветом, что пин', () => {
   it('порядок зон движка, серая строка в конце, числа сходятся', () => {
     const legend = plannerLegend(ROUTES);
-    expect(legend.map(e => e.name)).toEqual(['Авачинская', 'Западная', 'Восточная', 'Северная', ZONE_NOT_RECORDED]);
-    expect(legend.map(e => e.count)).toEqual([2, 1, 1, 1, 1]);
+    expect(legend.map(e => e.name)).toEqual(['Авачинская', 'Западная', 'Восточная', 'Северная', 'Южная (Курильское озеро)', ZONE_NOT_RECORDED]);
+    expect(legend.map(e => e.count)).toEqual([2, 1, 1, 1, 1, 1]);
     expect(legend.reduce((a, e) => a + e.count, 0)).toBe(ROUTES.length);
   });
 
@@ -291,7 +293,9 @@ describe('легенда — только нарисованные зоны, т�
     const markers = buildPlannerMarkers({ routes: ROUTES, days: [], editingDayId: null });
     for (const r of ROUTES) {
       const marker = markers.find(m => m.id === r.id);
-      const entry = legend.find(e => e.zone === (r.zone ?? null));
+      // Зона строки легенды — зона планера точки: Курильское озеро с записанной
+      // western — в южной (#3394 п.3).
+      const entry = legend.find(e => e.zone === (plannerZoneOf(r.zone, r.lat) ?? r.zone ?? null));
       expect(entry, r.id).toBeDefined();
       expect(pinHex(marker?.color), r.id).toBe(entry?.hex);
     }
@@ -305,9 +309,19 @@ describe('легенда — только нарисованные зоны, т�
   it('район вне четырёх зон назван так, а не «не записана»', () => {
     const far: PlannerMapRoute = { id: 'far', title: 'Зимник Анавгай — Тигиль', lat: 57.8, lng: 158.7, zone: 'krai_koryak' };
     expect(plannerLegend([far]).map(e => e.name)).toEqual([ZONE_OUTSIDE]);
-    expect(plannerLegend([far, ROUTES[5]])[0].name).toMatch(/Вне четырёх зон или не записана/);
+    expect(plannerLegend([far, ROUTES.find(r => r.id === 'r-none')!])[0].name).toMatch(/Вне зон планера или не записана/);
     expect(zoneName('krai_koryak')).toBe(ZONE_OUTSIDE);
     expect(zoneName(null)).toBe(ZONE_NOT_RECORDED);
+  });
+
+  it('Курильское озеро (в базе western по району) — южная зона планера своим цветом; Ходутка севернее порога — нет (#3394 п.3)', () => {
+    const markers = buildPlannerMarkers({ routes: ROUTES, days: [], editingDayId: null });
+    expect(markers.find(m => m.id === 'r-south')?.color).toBe(ZONE_PIN.southern);
+    expect(markers.find(m => m.id === 'r-west')?.color).toBe(ZONE_PIN.western);
+    expect(plannerZoneOf('western', 51.45)).toBe('southern');
+    expect(plannerZoneOf('avachinsky', 52.06)).toBe('avachinsky');
+    expect(plannerZoneOf(null, null)).toBeNull();
+    expect(zoneName('southern')).toBe('Южная зона (Курильское озеро)');
   });
 
   it('пусто — пустая легенда', () => {

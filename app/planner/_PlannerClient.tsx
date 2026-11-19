@@ -378,6 +378,7 @@ const ZONE_TRANSPORTS: Record<string, TransportType[]> = {
   northern:   ['walking', 'jeep', 'helicopter'],
   eastern:    ['walking', 'jeep', 'helicopter', 'boat'],
   western:    ['walking', 'jeep', 'boat'],
+  southern:   ['jeep', 'helicopter'],
 };
 
 /**

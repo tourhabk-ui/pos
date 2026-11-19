@@ -103,7 +103,7 @@ import { NO_ZONE_PIN, ZONE_PIN } from '@/lib/planner/zone-style';
 /** Каталог: по маршруту в каждой из четырёх зон и один без зоны. */
 const CATALOG = [
   { id: 'r1', title: 'Вулкан Авачинский', description: '', lat: 53.25, lng: 158.83, activityType: 'trekking', locationType: 'volcano', zone: 'avachinsky' },
-  { id: 'r2', title: 'Курильское озеро', description: '', lat: 51.45, lng: 157.1, activityType: 'trekking', locationType: 'lake', zone: 'western' },
+  { id: 'r2', title: 'Река Быстрая у Эссо', description: '', lat: 55.93, lng: 158.7, activityType: 'trekking', locationType: 'river', zone: 'western' },
   { id: 'r3', title: 'Долина гейзеров', description: '', lat: 54.43, lng: 160.14, activityType: 'trekking', locationType: 'geyser', zone: 'eastern' },
   { id: 'r4', title: 'Вулкан Толбачик', description: '', lat: 55.83, lng: 160.33, activityType: 'trekking', locationType: 'volcano', zone: 'northern' },
   { id: 'r5', title: 'Маршрут без зоны', description: '', lat: 53.1, lng: 158.4, activityType: 'trekking', locationType: null, zone: null },
@@ -121,7 +121,7 @@ const RECOMMENDATION = {
   zones: [], warnings: [], itinerary: '',
   days: [
     day(1, 'avachinsky', 'Авачинский вулкан', [53.25, 158.83]),
-    day(2, 'western', 'Курильское озеро', [51.45, 157.1]),
+    day(2, 'western', 'Река Быстрая у Эссо', [55.93, 158.7]),
   ],
   priceBreakdown: PRICES,
 };
@@ -132,7 +132,7 @@ const FRAMED = {
   zones: [], warnings: [], itinerary: '',
   days: [
     { ...day(1, 'avachinsky', 'Прилёт', PKC), type: 'arrival' },
-    day(2, 'western', 'Курильское озеро', [51.45, 157.1]),
+    day(2, 'western', 'Река Быстрая у Эссо', [55.93, 158.7]),
     { ...day(3, 'avachinsky', 'Вылет', PKC), type: 'departure' },
   ],
   priceBreakdown: PRICES,
@@ -633,7 +633,7 @@ describe('на настоящем экране планировщика', () => 
     await buildPlan();
     tap('r1');
     const select = await screen.findByRole('combobox', { name: 'Какой день заменить' });
-    expect(within(select).getAllByRole('option').map(o => o.textContent)).toEqual(['День 2: Курильское озеро']);
+    expect(within(select).getAllByRole('option').map(o => o.textContent)).toEqual(['День 2: Река Быстрая у Эссо']);
   });
 
   /** Заголовки дней на карте в порядке плана: «1. Прилёт» … */

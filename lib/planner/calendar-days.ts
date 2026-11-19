@@ -57,6 +57,7 @@ export const FREE_DAY_POINT: Readonly<Record<ZoneId, readonly [number, number]>>
   western: [52.50, 156.50],
   eastern: [54.80, 160.50],
   northern: [54.50, 160.27],
+  southern: [51.46, 157.10],
 };
 
 export interface FreeDay {

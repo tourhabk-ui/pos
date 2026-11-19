@@ -79,7 +79,7 @@ const dates: Record<number, string> = { 1: '2026-10-24', 2: '2026-10-25', 3: '20
 const dateOf = (n: number) => dates[n] ?? null;
 
 describe('строки дней по официальным предупреждениям', () => {
-  const day = (n: number, over: Partial<{ type: string; zone: 'avachinsky' | 'eastern' | 'western' | 'northern'; title: string; activityType: string }> = {}) => ({
+  const day = (n: number, over: Partial<{ type: string; zone: 'avachinsky' | 'eastern' | 'western' | 'northern' | 'southern'; title: string; activityType: string }> = {}) => ({
     day: n, type: 'activity', zone: 'avachinsky' as const, title: `День ${n}`, ...over,
   });
 
@@ -100,6 +100,13 @@ describe('строки дней по официальным предупрежд
     expect(officialNotesByDay([day(1, { zone: 'western' })], dateOf, [STORM]).size).toBe(0);
     expect(officialNotesByDay([day(1)], dateOf, [WEAK]).size).toBe(0);
     expect(officialNotesByDay([day(1)], () => null, [STORM]).size).toBe(0);
+  });
+
+  it('день у Курильского озера (южная зона) получает предупреждение Западной: озеро там по району (#3394 п.3)', () => {
+    const west: PlanOfficialAlert = { ...STORM, id: 9, affected_zones: ['western'], title: 'Шторм на западном побережье' };
+    expect(officialNotesByDay([day(1, { zone: 'southern' })], dateOf, [west]).get(1)).toEqual([officialAlertNote(west, false)]);
+    // Авачинская тревога до юга не доходит, а южный день — до Авачинской.
+    expect(officialNotesByDay([day(1, { zone: 'southern' })], dateOf, [{ ...STORM, affected_zones: ['avachinsky'] }]).size).toBe(0);
   });
 
   it('паводок без зоны — только день на воде, с оговоркой «место не установлено»', () => {

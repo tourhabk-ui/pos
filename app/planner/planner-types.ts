@@ -22,7 +22,7 @@ export interface SelectItem {
 export interface DayPlan {
   day: number;
   type: DayType;
-  zone: 'avachinsky' | 'western' | 'eastern' | 'northern';
+  zone: 'avachinsky' | 'western' | 'eastern' | 'northern' | 'southern';
   title: string;
   description: string;
   activityType: string;

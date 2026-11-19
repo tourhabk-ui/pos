@@ -47,7 +47,7 @@ export const dynamic = 'force-dynamic';
 
 const QuerySchema = z.object({
   activity_type: z.string().min(1).max(50),
-  zone:          z.enum(['avachinsky', 'western', 'eastern', 'northern']).optional(),
+  zone:          z.enum(['avachinsky', 'western', 'eastern', 'northern', 'southern']).optional(),
   limit:         z.coerce.number().min(1).max(6).default(3),
   /** Дата дня плана 'YYYY-MM-DD': туры только с выездом в этот день. */
   date:          z.string().regex(/^\d{4}-\d{2}-\d{2}$/).optional(),
