@@ -65,7 +65,9 @@ const dayIso = (n: number) => new Date(Date.now() + 12 * 3_600_000 + n * 86_400_
 const DATE = dayIso(5);
 const CLOSURE = {
   ref_kind: 'tour', ref_id: '7', alert_id: 'a1', alert_type: 'park_closure',
-  title: 'Закрытие маршрутов «Вулканы Камчатки» сообщают о закрытии туристических маршрутов на всех территориях природных парков на период межсезонья',
+  // Закрытие от циклона: межсезонье с 19.11 — не опасность дня, у него своя
+  // строка (lib/planner/park-status, tests/unit/planner-park-status.test.ts).
+  title: 'Закрытие маршрутов «Вулканы Камчатки» сообщают о закрытии туристических маршрутов на всех территориях природных парков из-за циклона',
   description: null,
   published_iso: new Date(Date.now() - 2 * 86_400_000).toISOString(),
   expires_iso: new Date(Date.now() + 19 * 86_400_000).toISOString(),
@@ -146,9 +148,19 @@ describe('create_booking_request: закрытие парка тура на да
 
   it('закрытие кончилось до даты заявки, а закрыто без даты открытия — «статус не известен», не «закрыт»', async () => {
     slotsMock.mockResolvedValue([{ date: dayIso(10), remaining: 5 }]);
-    parkAlertsMock.mockResolvedValue([{ ...CLOSURE, expires_iso: new Date(Date.now() + 3 * 86_400_000).toISOString() }]);
+    const seasonal = { ...CLOSURE, title: 'Закрытие маршрутов «Вулканы Камчатки» сообщают о закрытии туристических маршрутов на всех территориях природных парков на период межсезонья' };
+    parkAlertsMock.mockResolvedValue([{ ...seasonal, expires_iso: new Date(Date.now() + 3 * 86_400_000).toISOString() }]);
     const r = await send({ ...args, date: dayIso(10) });
     expect(r.text).toContain(`По парку этого тура на ${dayIso(10)}: статус парка на этот день не известен`);
+    expect(r.text).not.toContain('закрытие парка по сводке');
+  });
+
+  it('межсезонье на дату заявки — не «закрытие», а расписание троп парка; туры идут по календарю оператора (#3487)', async () => {
+    slotsMock.mockResolvedValue([{ date: DATE, remaining: 5 }]);
+    parkAlertsMock.mockResolvedValue([{ ...CLOSURE, title: 'Закрытие маршрутов «Вулканы Камчатки» сообщают о закрытии туристических маршрутов на всех территориях природных парков на период межсезонья' }]);
+    const r = await send(args);
+    expect(r.text).toContain(`По парку этого тура на ${DATE}: по сводке от`);
+    expect(r.text).toContain('тропы парка закрыты на межсезонье по решению парка');
     expect(r.text).not.toContain('закрытие парка по сводке');
   });
 
