@@ -34,10 +34,18 @@ const TOTALS = [
   { answer_path: 'tools', provider: 'qwen', outcomes: 1, refusals: 1, graded: 0, avg_score: null, low_scores: 0, ungrounded: 0, prompts: 1 },
 ];
 
+const ATTEMPTS = [
+  { day: '2026-11-19', attempts: 12, saved: 2, good_not_saved: 7, judge_no_answer: 2, failed: 1, not_recorded: 0 },
+  { day: '2026-11-12', attempts: 9, saved: 0, good_not_saved: 0, judge_no_answer: 0, failed: 0, not_recorded: 9 },
+];
+
 beforeEach(() => {
   process.env.CRON_SECRET = SECRET;
   query.mockReset();
-  query.mockImplementation((sql: string) => Promise.resolve({ rows: /AS day/.test(sql) ? [{ day: '2026-10-13', ...TOTALS[1] }] : TOTALS }));
+  query.mockImplementation((sql: string) => Promise.resolve({
+    rows: /kuzmich_grade/.test(sql) ? ATTEMPTS
+      : /AS day/.test(sql) ? [{ day: '2026-10-13', ...TOTALS[1] }] : TOTALS,
+  }));
 });
 afterEach(() => { vi.restoreAllMocks(); });
 
@@ -67,12 +75,31 @@ describe('kuzmich-quality-census', () => {
     expect(String(query.mock.calls[0]![0])).toContain("AT TIME ZONE 'Asia/Kamchatka'");
   });
 
-  it('ноль записей — словами, доля не выдумывается', async () => {
+  it('ноль записей и ноль попыток — «оценивать было нечего», доля не выдумывается', async () => {
     query.mockImplementation(() => Promise.resolve({ rows: [] }));
     const json = await (await GET(req())).json();
     expect(json.outcomes_total).toBe(0);
     expect(json.waterfall_share).toBeNull();
-    expect(json.empty_reason).toMatch(/ни одной записи оценки/);
+    expect(json.attempts_total).toBe(0);
+    expect(json.empty_reason).toMatch(/ни одной записи оценки и ни одной попытки/);
+  });
+
+  it('попытки оценки по дням — из журнала места под оценку, с исходами (#3179)', async () => {
+    const json = await (await GET(req('?days=14'))).json();
+    expect(json.attempts_total).toBe(21);
+    expect(json.attempts_by_day).toEqual(ATTEMPTS);
+    expect(json.caveats.join(' ')).toMatch(/«не записан»/);
+    const sql = String(query.mock.calls.find(([q]) => /kuzmich_grade/.test(String(q)))![0]);
+    expect(sql).toMatch(/FROM ai_actions_log/);
+    expect(sql).toMatch(/action_type = 'kuzmich_grade'/);
+    expect(sql).toContain("AT TIME ZONE 'Asia/Kamchatka'");
+  });
+
+  it('записей нет, а попытки были — так и сказано, с числом попыток', async () => {
+    query.mockImplementation((sql: string) => Promise.resolve({ rows: /kuzmich_grade/.test(sql) ? ATTEMPTS : [] }));
+    const json = await (await GET(req())).json();
+    expect(json.outcomes_total).toBe(0);
+    expect(json.empty_reason).toBe('за окно ни одной записи оценки при 21 попытках: исходы попыток — в attempts_by_day');
   });
 
   it('отказ базы — 502 с SQLSTATE, не пустой свод', async () => {
@@ -88,6 +115,13 @@ describe('kuzmich-quality-census', () => {
     expect(CODE).not.toMatch(/INSERT|UPDATE|DELETE/);
     expect(CODE).not.toMatch(/compiled_truth|chat_id/);
     expect(CODE).toMatch(/type = 'outcome' AND agent_id = 'kuzmich'/);
+  });
+
+  it('исходы попыток в переписи — те же, что пишет оценщик', async () => {
+    const { GRADE_RESULTS } = await import('@/lib/agents/managed/kuzmich-outcomes');
+    const { ATTEMPTS_BY_DAY_SQL } = await import('@/app/api/cron/kuzmich-quality-census/route');
+    // Каждый исход оценщика где-то считается; новый исход без столбца краснеет.
+    for (const r of GRADE_RESULTS) expect(ATTEMPTS_BY_DAY_SQL, r).toContain(`'${r}'`);
   });
 
   it('объявлен ручной непишущей переписью', () => {
