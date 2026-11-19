@@ -2053,7 +2053,7 @@ COPY --from=builder /app/start.js ./start.js
 (`KUZMICH_KNOWLEDGE_SOURCED_SQL`, `lib/kuzmich/knowledge-scope.ts`). Двадцать
 «традиционных знаний» 669 и восемь записей 141 (цены, автобусы, телефон) лежат в
 базе и не отдаются; новая заметка — миграцией с адресом источника (образец —
-1462). Сторож — `tests/integration/kuzmich-retrieval.pg.test.ts`.
+1462). Сторож — `tests/integration/mcp-failure-refusal.pg.test.ts` (вторая часть).
 
 ### Что НЕ ДОЛЖНО быть на карточке точки
 
