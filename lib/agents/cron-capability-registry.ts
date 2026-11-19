@@ -225,6 +225,9 @@ export const CRON_CAPABILITIES: Record<string, readonly Capability[]> = {
   'kuzmich-eval': ['db_read', 'db_write', 'net_out', 'telegram', 'ai'],
   'kuzmich-load-census': ['db_read'],
   'kuzmich-quality-census': ['db_read'],
+  // 19.11: диалоги веб-чата и A2A для оценки вместо судьи (слово владельца «у судьи баланса нет»);
+  // pd_direct — маска redactChatPD до шифра, тексты наружу только шифром ключом проверяющего.
+  'kuzmich-review-batch': ['db_read', 'pd_direct'],
   'kuzmich-bad-outcomes': ['db_read'],
   'kuzmich-places': ['db_read', 'db_write', 'net_out', 'ai'],
   // 14.10: что заметки Кузьмича о местах утверждают сверх данных места — только чтение

@@ -639,4 +639,54 @@ withPg('числа суток в админке', () => {
       expect(today.day).toBe(kam.d);
     }, 30_000);
   });
+
+  // Слово владельца 19.11 «у судьи баланса нет возьми на себя его работу пока»:
+  // выгрузка диалогов для оценки вместо судьи. Запросы — из исходника роута,
+  // на схеме из миграций; тексты наружу — только шифром.
+  describe('диалоги Кузьмича для оценки вместо судьи', () => {
+    const saved = process.env.CRON_SECRET;
+    beforeAll(() => { process.env.CRON_SECRET = 'cron-pg-test'; });
+    afterAll(() => {
+      if (saved === undefined) delete process.env.CRON_SECRET; else process.env.CRON_SECRET = saved;
+    });
+
+    it('веб-чат без виджета и завершённый A2A за окно; старое, виджет и сбой — мимо', async () => {
+      await pool.query('DELETE FROM chat_sessions');
+      await pool.query('DELETE FROM a2a_dialogs');
+      const msgs = (q: string, a: string) => JSON.stringify([{ role: 'user', content: q }, { role: 'assistant', content: a }]);
+      await pool.query(
+        `INSERT INTO chat_sessions (session_id, role, messages, updated_at, widget_origin) VALUES
+           ('rv-web', 'tourist', $1::jsonb, NOW() - INTERVAL '1 day', NULL),
+           ('rv-old', 'tourist', $2::jsonb, NOW() - INTERVAL '20 days', NULL),
+           ('rv-widget', 'tourist', $3::jsonb, NOW() - INTERVAL '1 day', '{"host":"example.org"}'::jsonb)`,
+        [msgs('Можно ли завтра на Горелый?', 'Завтра там ветер.'), msgs('старое', 'старый ответ'), msgs('виджет', 'ответ виджета')],
+      );
+      await pool.query(
+        `INSERT INTO a2a_dialogs (agent, ua_family, caller_hash, context_key, turn, question, answer, state, created_at) VALUES
+           ('TestAgent', 'other', 'h1', NULL, 1, 'volcano tours?', 'Туров к вулканам три.', 'completed', NOW() - INTERVAL '2 days'),
+           ('TestAgent', 'other', 'h1', NULL, 2, 'second?', 'сбой', 'failed', NOW() - INTERVAL '2 days')`,
+      );
+      const { REVIEW_WEB_SQL, REVIEW_A2A_SQL } = await import('@/app/api/cron/kuzmich-review-batch/route');
+      const web = await pool.query<{ day: string; role: string; messages: unknown }>(REVIEW_WEB_SQL, [7, 40]);
+      expect(web.rows).toHaveLength(1);
+      expect(web.rows[0]!.role).toBe('tourist');
+      expect(Array.isArray(web.rows[0]!.messages)).toBe(true);
+      expect(web.rows[0]!.day).toMatch(/^\d{4}-\d{2}-\d{2}$/);
+      const a2a = await pool.query<{ agent: string; is_self: boolean; question: string }>(REVIEW_A2A_SQL, [7, 40]);
+      expect(a2a.rows).toEqual([expect.objectContaining({ agent: 'TestAgent', is_self: false, question: 'volcano tours?' })]);
+      // Предел — параметром.
+      expect((await pool.query(REVIEW_WEB_SQL, [30, 1])).rows).toHaveLength(1);
+
+      const { GET } = await import('@/app/api/cron/kuzmich-review-batch/route');
+      const { NextRequest } = await import('next/server');
+      const res = await GET(new NextRequest('http://localhost/api/cron/kuzmich-review-batch?days=7', {
+        headers: { Authorization: 'Bearer cron-pg-test' },
+      }));
+      expect(res.status).toBe(200);
+      const raw = await res.text();
+      expect(raw).not.toContain('Горелый');
+      expect(raw).not.toContain('Туров к вулканам');
+      expect(JSON.parse(raw)).toMatchObject({ ok: true, web_sessions_read: 1, web_pairs: 1, a2a_read: 1, a2a_dialogs: 1 });
+    }, 30_000);
+  });
 });
