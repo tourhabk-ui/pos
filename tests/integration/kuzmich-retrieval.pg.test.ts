@@ -265,14 +265,15 @@ withPg('заметки Кузьмича — только с источником
     expect(await scoped()).toEqual([]);
   });
 
-  it('пометка «seed_indigenous» и адрес без схемы источником не считаются', async () => {
+  it('пометка «seed_indigenous» и адрес без схемы источником не считаются; роды из разговоров не проходят и с адресом', async () => {
     await pool.query(
       `INSERT INTO agent_knowledge (slug, type, title, compiled_truth, agent_id, metadata) VALUES
          ('t-no-scheme', 'place', 'Тест без схемы', 'текст', 'kuzmich', '{"source_url":"paratunka-sp.ru"}'),
          ('t-blank', 'place', 'Тест пустой', 'текст', 'kuzmich', '{"source_url":"   "}'),
          ('t-with-space', 'place', 'Тест пробел', 'текст', 'kuzmich', '{"source_url":"https://a.ru/ b"}'),
          ('t-ok-other-agent', 'place', 'Тест чужой агент', 'текст', 'scout', '{"source_url":"https://a.ru/x"}'),
-         ('t-ok-search', 'search_result', 'Тест поиск', 'текст', 'kuzmich', '{"source_url":"https://a.ru/x"}')`,
+         ('t-ok-search', 'search_result', 'Тест поиск', 'текст', 'kuzmich', '{"source_url":"https://a.ru/x"}'),
+         ('t-ok-outcome', 'outcome', 'Тест оценка', 'Вопрос: реплика человека', 'kuzmich', '{"source_url":"https://a.ru/x"}')`,
     );
     expect(await scoped()).toEqual([]);
     await pool.query(`DELETE FROM agent_knowledge WHERE slug LIKE 't-%'`);

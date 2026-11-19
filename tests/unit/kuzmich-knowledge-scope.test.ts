@@ -58,15 +58,25 @@ describe('разрешённый список родов знания Кузьм
 
   it('SQL-область строится из списка и называет только его', () => {
     expect(KUZMICH_KNOWLEDGE_SCOPE_SQL).toMatch(/^agent_id = 'kuzmich' AND type IN \(/);
-    const inList = KUZMICH_KNOWLEDGE_SCOPE_SQL.match(/type IN \(([^)]*)\)/)?.[1] ?? '';
-    const listed = [...inList.matchAll(/'([a-z_]+)'/g)].map((m) => m[1]);
+    // Вся строка, кроме условия источника: любой лишний литерал вне списка
+    // (`OR type = 'outcome'`) — красный (ревью безопасности на #3518).
+    const rest = KUZMICH_KNOWLEDGE_SCOPE_SQL.replace(KUZMICH_KNOWLEDGE_SOURCED_SQL, '');
+    const listed = [...rest.matchAll(/'([a-z_]+)'/g)].map((m) => m[1]).slice(1);
     expect(listed).toEqual([...KUZMICH_KNOWLEDGE_TYPES]);
+  });
+
+  it('в области нет OR: условия только сужают выборку', () => {
+    // `a AND b OR c` в SQL — `(a AND b) OR c`: одно OR открыло бы всё, что
+    // под c, мимо рода и источника.
+    expect(KUZMICH_KNOWLEDGE_SCOPE_SQL).not.toMatch(/\bOR\b/i);
   });
 
   it('сверх рода — источник (#3514): область требует адрес источника записи', () => {
     // Что условие пропускает и что нет — решает база: сцены на настоящем
     // PostgreSQL в tests/integration/kuzmich-retrieval.pg.test.ts.
-    expect(KUZMICH_KNOWLEDGE_SCOPE_SQL).toContain(` AND ${KUZMICH_KNOWLEDGE_SOURCED_SQL}`);
+    expect(KUZMICH_KNOWLEDGE_SCOPE_SQL.endsWith(` AND ${KUZMICH_KNOWLEDGE_SOURCED_SQL}`)).toBe(true);
+    expect([...KUZMICH_KNOWLEDGE_SOURCED_SQL.matchAll(/'([^']*)'/g)].map((m) => m[1]))
+      .toEqual(['source_url', '^https?://[^[:space:]]+$']);
   });
 
   it('все выборки из agent_knowledge на путях Кузьмича и MCP идут через область', () => {
