@@ -164,6 +164,26 @@ describe('checkTripNow — что изменилось с дня сохране�
   });
 });
 
+describe('какой день можно заменить черновиком (#3394, срез 2)', () => {
+  it('занятие и отдых — можно; прилёт и день многодневного тура — нет; занятие дня названо', async () => {
+    const days = [
+      { day: 1, type: 'arrival', zone: 'avachinsky', title: 'Прилёт', dayWarnings: [] },
+      { day: 2, type: 'activity', zone: 'avachinsky', title: 'Вулкан', activityType: 'volcano', realTour: { tourId: '45' }, dayWarnings: [] },
+      { day: 3, type: 'activity', zone: 'eastern', title: 'Медведи', activityType: 'bears', realTour: { tourId: '77' }, dayWarnings: [] },
+      { day: 4, type: 'activity', zone: 'eastern', title: 'Медведи — день 2', activityType: 'bears', realTour: { tourId: '77' }, dayWarnings: [] },
+      { day: 5, type: 'rest', zone: 'avachinsky', title: 'Отдых', dayWarnings: [] },
+      { day: 6, zone: 'avachinsky', title: 'День без рода', dayWarnings: [] },
+    ];
+    const r = await checkTripNow(trip({ days }), deps());
+    if (r.state !== 'checked') throw new Error(r.state);
+    const by = (n: number) => r.days.find((d) => d.day === n)!;
+    expect([1, 2, 3, 4, 5, 6].map((n) => by(n).replaceable)).toEqual([false, true, false, false, true, true]);
+    expect(by(2).activity).toBe('volcano');
+    expect(by(5).activity).toBeNull();
+    expect(by(6).activity).toBeNull();
+  });
+});
+
 describe('мелкие правила', () => {
   it('группа: не записана — один человек; дети считаются', () => {
     expect(groupSize(null)).toBe(1);

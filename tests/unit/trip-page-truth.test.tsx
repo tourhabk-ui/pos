@@ -197,3 +197,39 @@ describe('страница плана по ссылке: подписи зон �
     expect(document.body.textContent).not.toMatch(/Мильковская|Карагинская|Тигильская|krai_koryak/);
   });
 });
+
+describe('страница черновика говорит, откуда он (#3394, срез 2)', () => {
+  // Черновик замены дня собран кнопкой в кабинете, а не в чате: прежний текст
+  // «изменить — попросите в том же чате» был бы неправдой.
+  beforeEach(() => {
+    Element.prototype.scrollIntoView = vi.fn();
+    vi.stubGlobal('fetch', vi.fn(async () => ({ ok: false, json: async () => null } as Response)));
+  });
+  afterEach(() => { cleanup(); vi.unstubAllGlobals(); });
+
+  const draft = (surface?: Trip['draft_surface']): Trip => ({
+    source: 'draft', id: TOKEN, title: 'План', arrival_date: ARRIVAL, departure_date: isoIn(206),
+    places: [], activities: [], transport_by_day: {}, expires_at: '2026-11-26T10:00:00.000Z',
+    ...(surface ? { draft_surface: surface } : {}),
+    days: [day(2, { title: 'Паратунка' }) as Trip['days'][number]],
+    day_tours: {}, availability: {},
+  });
+
+  it('из кабинета — «из вашей сохранённой поездки», поездка не изменилась, это не бронь; про чат ни слова', () => {
+    render(<TripShareClient trip={draft('cabinet')} token={TOKEN} />);
+    const origin = screen.getByTestId('draft-origin').textContent ?? '';
+    expect(origin).toContain('Черновик собран из вашей сохранённой поездки: один день заменён');
+    expect(origin).toContain('Сама поездка в «Моих маршрутах» не изменилась');
+    expect(origin).toContain('Это не бронь');
+    expect(origin).toContain('Ссылка открывается до 26 ноября');
+    expect(origin).not.toMatch(/чат/);
+  });
+
+  it('из чата и без записанной поверхности — прежние слова про чат', () => {
+    const { unmount } = render(<TripShareClient trip={draft('chat')} token={TOKEN} />);
+    expect(screen.getByTestId('draft-origin').textContent).toContain('План собран в чате с Кузьмичом или ассистентом');
+    unmount();
+    render(<TripShareClient trip={draft()} token={TOKEN} />);
+    expect(screen.getByTestId('draft-origin').textContent).toContain('попросите в том же чате');
+  });
+});

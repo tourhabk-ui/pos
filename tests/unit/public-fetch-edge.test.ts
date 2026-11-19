@@ -64,6 +64,7 @@ const KNOWN_PERSONAL_CALLS = new Set([
   'POST /api/trips/X/share',        // планер: ссылка на поездку
   'DELETE /api/trips/X/share',      // кабинет поездки: «Закрыть ссылку» — под входом владельца, отказ словами (H15, 07.11)
   'GET /api/trips/X/now',           // кабинет поездки: «Сейчас на ваши даты» — под входом владельца, отказ словами «не получилось» (#3394, 19.11)
+  'POST /api/trips/X/replace-day',  // кабинет поездки: «Подобрать замену» дня — под входом владельца, отказ словами (#3394, срез 2, 19.11)
   'GET /api/tourist/wishlist',      // избранное
   'POST /api/tourist/wishlist',
   'DELETE /api/tourist/wishlist',

@@ -4439,4 +4439,29 @@ withPg('кабинет туриста на настоящем PostgreSQL', () =>
     const pr = await getTouristProfile(uid);
     expect(pr).toMatchObject({ emergency_contact_name: 'Мама', emergency_contact_phone: '+79990001122', emergency_contact_relation: 'мать' });
   });
+
+  // #3394, срез 2: замена дня сохранённой поездки ложится черновиком с
+  // поверхностью 'cabinet' (миграция 1465) — настоящая запись и чтение.
+  it('черновик «из кабинета»: 1465 принимает поверхность, чтение её возвращает, незнакомую база не пускает', async () => {
+    const { saveDraft, loadDraft } = await import('@/lib/planner/plan-drafts');
+    const plan = {
+      params: { interests: ['thermal'], arrivalDate: '2026-12-01', departureDate: '2026-12-03', adults: 2, children: [8], budgetTier: 'comfort' as const },
+      days: [{ day: 1, type: 'arrival', zone: 'avachinsky', title: 'Прилёт', dayWarnings: [] }] as never,
+    };
+    const id = await saveDraft(plan, 'cabinet', undefined);
+    expect(id).toMatch(/^[0-9a-f-]{36}$/);
+    const read = await loadDraft(id!);
+    expect(read.kind).toBe('found');
+    if (read.kind === 'found') {
+      expect(read.draft.surface).toBe('cabinet');
+      expect(read.draft.params).toMatchObject({ adults: 2, children: [8] });
+      expect(read.draft.wishes).toBeNull();
+    }
+    await expect(pool.query(
+      `INSERT INTO trip_plan_drafts (params, days, surface) VALUES ('{}'::jsonb, '[]'::jsonb, 'site')`,
+    )).rejects.toMatchObject({ code: '23514' });
+    // Повтор миграции ничего не ломает.
+    await pool.query(readFileSync(join(process.cwd(), 'migrations/1465_trip_plan_drafts_cabinet.sql'), 'utf-8'));
+    expect((await loadDraft(id!)).kind).toBe('found');
+  });
 });
