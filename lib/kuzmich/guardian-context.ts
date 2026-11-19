@@ -21,7 +21,7 @@ import { getPublicBaseUrl } from '@/lib/config';
 import { placeRoutesFor, placeRoutesLines, routePageUrl, type PlaceRouteRow } from '@/lib/places/place-routes';
 import { routeFacts } from '@/lib/ai/route-knowledge';
 import { garbageSignature } from '@/lib/agents/evo/content-sanitizer';
-import { PLACE_COLOR_WORD, kamchatkaStamp, placeStatusFields } from '@/lib/safety/place-day-status';
+import { PLACE_COLOR_WORD, PARK_SEASON_ANSWER, PARK_SEASON_NOTE, kamchatkaStamp, placeStatusFields } from '@/lib/safety/place-day-status';
 import type { GuardianPlaceStatus, GuardianRouteStatus, GuardianStructured } from '@/lib/mcp/place-status-schema';
 import { namedRouteAlerts, routeToday, routeTodayLines, ROUTE_TODAY_MARK, type RouteToday } from '@/lib/routes/route-today';
 import { permitLinesForRoutes, routePermitCasesFor } from '@/lib/parks/route-permit';
@@ -70,6 +70,8 @@ interface GuardianPlaceRow {
   linked_volcanoes: string | null;
   /** Когда статус места пересчитан. null — не записано. */
   status_updated_at?: string | null;
+  /** Причина цвета от пересчёта (1461): park_season — тропы парка закрыты на межсезонье. */
+  status_reason?: string | null;
   /** Псевдонимы места (place_aliases) — разговорные имена того же объекта. */
   aliases?: string[] | null;
 }
@@ -744,6 +746,7 @@ export async function getGuardianContextDetailed(placeNameRaw: string, opts: Gua
          lrs.is_open, lrs.current_crowds, lrs.active_alerts,
          lrs.recommender_status, lrs.alert_message, lrs.alert_severity,
          ${isoUtcSql('lrs.updated_at')} AS status_updated_at,
+         lrs.status_reason,
          lrs.tourists_today,
          vs.aviation_color_code AS volcano_acc,
          vs.ash_height_m        AS volcano_ash_height_m,
@@ -937,6 +940,7 @@ export async function getGuardianContextDetailed(placeNameRaw: string, opts: Gua
       status: p.recommender_status,
       updatedAt: p.status_updated_at ?? null,
       outsideKraiSources: isOutsideKraiSources(p.zone),
+      reason: p.status_reason ?? null,
     });
     const fields = hiddenRecord && computed.color === 'green'
       ? { ...computed, color: null, level: computed.closed ? 'closed' as const : 'unknown' as const }
@@ -972,6 +976,10 @@ export async function getGuardianContextDetailed(placeNameRaw: string, opts: Gua
       parts.push(`Статус места не пересчитывался с ${kamchatkaStamp(p.status_updated_at!)} (по Камчатке) — цвет не показываю: он может быть уже не про сегодня.`);
     } else if (outsideGreen) {
       parts.push(KURIL_NORTH_NOTE);
+    } else if (fields.reason === 'park_season') {
+      // Жёлтый от межсезонного закрытия троп парка (#3487, 19.11): не опасность
+      // дня и не разрешение — слова те же, что на карточке места.
+      parts.push(`${PARK_SEASON_ANSWER}. ${PARK_SEASON_NOTE}`);
     } else if (p.recommender_status === 'green') {
       const when = Number.isFinite(updatedMs) ? `, пересчёт ${kamchatkaStamp(p.status_updated_at!)} по Камчатке` : '';
       // Зелёный — не «предупреждений нет»: safety-ingest оставляет место

@@ -118,6 +118,9 @@ export async function loadPlaceDetail(id: string, opts: { countView: boolean }):
          -- Вердикт пересчёта сводок — тот же, что печатает Кузьмич в чате
          -- (lib/safety/place-day-status.ts, 15.10).
          rs.recommender_status,
+         -- Причина цвета от пересчёта (1461): park_season — тропы парка
+         -- закрыты на межсезонье (#3487).
+         rs.status_reason,
          -- Колонка без пояса, NOW() пишет в неё стенное время пояса сессии
          -- (+03 на проде): без перевода «пересчитано» уезжало на три часа, и
          -- свежесть судить было бы не по чему.
@@ -507,6 +510,7 @@ export async function loadPlaceDetail(id: string, opts: { countView: boolean }):
           touristsToday: r.tourists_today != null ? Number(r.tourists_today) : null,
           touristsHour: r.tourists_hour != null ? Number(r.tourists_hour) : null,
           status: (r.recommender_status as string | null) ?? null,
+          reason: (r.status_reason as string | null) ?? null,
           linkedVolcanoes: (r.linked_volcanoes as string | null) ?? null,
           updatedAt: r.realtime_updated_at as string | null,
           outsideKraiSources: isOutsideKraiSources(r.zone as string | null),

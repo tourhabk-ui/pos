@@ -48,6 +48,8 @@ import { VOLCANO_STALE_DAYS } from '@/lib/services/safety/kvert-vona';
 import { KFEGS_MAX_AGE_DAYS } from '@/lib/services/safety/volcano-scales';
 import { sameParksParam, sameParksSql } from '@/lib/services/safety/push-same-kind';
 import { PARK_CLOSURE_HOLD_HOURS } from '@/lib/safety/park-closure';
+import { seasonalParkClosureIds } from '@/lib/services/safety/park-season';
+import { PARK_SEASON_ANSWER, PARK_SEASON_NOTE } from '@/lib/safety/place-day-status';
 import { createTestDatabase } from '../helpers/pg-schema';
 import { applyPlanParkStatus, loadPlanParkAlerts, PARK_STATUS_UNREAD_NOTE } from '@/lib/planner/park-status';
 import { getGuardianContextDetailed, routesNamedBy, routesSimilarTo } from '@/lib/kuzmich/guardian-context';
@@ -1632,10 +1634,11 @@ withPg('кого накрывает предупреждение', () => {
         if (!(name in subs)) throw new Error(`в запросе пересчёта новая подстановка \${${name}} — добавь её в тест`);
         return subs[name];
       });
-      await pool.query(sql, [VOLCANO_STALE_DAYS, KFEGS_MAX_AGE_DAYS + 1]);
+      // Межсезонные закрытия — тем же чтением, что крон перед пересчётом (#3487).
+      await pool.query(sql, [VOLCANO_STALE_DAYS, KFEGS_MAX_AGE_DAYS + 1, await seasonalParkClosureIds(q)]);
     }
-    const statusOf = async (ark: string) => (await pool.query<{ status: string; alerts: string[]; sev: number }>(
-      `SELECT recommender_status AS status, active_alerts AS alerts, alert_severity::int AS sev
+    const statusOf = async (ark: string) => (await pool.query<{ status: string; alerts: string[]; sev: number; reason: string | null }>(
+      `SELECT recommender_status AS status, active_alerts AS alerts, alert_severity::int AS sev, status_reason AS reason
          FROM location_real_time_status WHERE agent_route_id = $1`, [ark],
     )).rows[0];
 
@@ -1948,6 +1951,79 @@ withPg('кого накрывает предупреждение', () => {
         `SELECT expires_at > (NOW() AT TIME ZONE 'UTC') AS live FROM external_alerts WHERE external_id = 'park-unknown/a2-u-race'`,
       )).rows[0];
       expect(live?.live).toBe(true);
+    }, 30_000);
+    // Слово владельца 19.11 «go» (#3487): закрытие троп парка на межсезонье —
+    // жёлтый с причиной, а не «Сегодня там опасно»; закрытие с названной
+    // опасностью — красный, как было. Тот же SQL крона и то же чтение
+    // межсезонных закрытий, что перед ним.
+    it('межсезонное закрытие парка — жёлтый с причиной park_season; циклон, повтор с опасностью и обрезанный текст — красный (#3487)', async () => {
+      const PARKS = [
+        { slug: 'a2-s-winter', name: 'Природный парк «Зимовье»', term: 'Зимовье' },
+        { slug: 'a2-s-storm', name: 'Природный парк «Буревой»', term: 'Буревой' },
+        { slug: 'a2-s-mixed', name: 'Природный парк «Двоякий»', term: 'Двоякий' },
+        { slug: 'a2-s-clip', name: 'Природный парк «Обрезной»', term: 'Обрезной' },
+        { slug: 'a2-s-crowd', name: 'Природный парк «Людный»', term: 'Людный' },
+      ];
+      const placeOf = (term: string, i: number) => ({
+        id: `Природный парк ${term} (тест)`, ark: `c0000000-0000-4000-8000-0000000000b${i}`, lat: 53.1 + i / 100, lng: 158.1,
+      });
+      const P = Object.fromEntries(PARKS.map((p, i) => [p.slug, placeOf(p.term, i + 1)]));
+      for (const p of PARKS) {
+        await pool.query(`INSERT INTO parks (slug, display_name, search_term) VALUES ($1, $2, $3) ON CONFLICT (slug) DO NOTHING`, [p.slug, p.name, p.term]);
+        const pl = P[p.slug];
+        await pool.query(
+          `INSERT INTO places (id, name, lat, lng, ark_id, location_type, zone, is_visible) VALUES ($1, $1, $2, $3, $4, 'lake', 'avachinsky', TRUE)`,
+          [pl.id, pl.lat, pl.lng, pl.ark],
+        );
+        await pool.query(`INSERT INTO location_real_time_status (agent_route_id) VALUES ($1)`, [pl.ark]);
+      }
+      try {
+        const winter = await alertRow({ type: 'park_closure', externalId: feedId('s1'), parks: ['a2-s-winter'], ageHours: 24,
+          title: 'Маршруты природного парка «Зимовье» закрыты на период межсезонья' });
+        await alertRow({ type: 'park_closure', externalId: feedId('s2'), parks: ['a2-s-storm'], ageHours: 24,
+          title: 'Из-за циклона приостановлено посещение маршрутов природного парка «Буревой» на период межсезонья' });
+        // Два поста с одним заголовком: у второго в описании названа опасность.
+        const MIXED = 'Маршруты природного парка «Двоякий» закрыты на период межсезонья';
+        await alertRow({ type: 'park_closure', externalId: feedId('s3'), parks: ['a2-s-mixed'], ageHours: 24, title: MIXED });
+        const mixedStorm = await alertRow({ type: 'park_closure', externalId: feedId('s4'), parks: ['a2-s-mixed'], ageHours: 12, title: MIXED });
+        await pool.query(`UPDATE external_alerts SET description = 'Порывы ветра до 30 м/с' WHERE id::text = $1`, [mixedStorm]);
+        // Заголовок обрезан при записи: слово опасности могло остаться за обрезом.
+        const clipped = ('Маршруты природного парка «Обрезной» закрыты на период межсезонья. ' + 'Подробности в сводке. '.repeat(10)).slice(0, 200);
+        await alertRow({ type: 'park_closure', externalId: feedId('s5'), parks: ['a2-s-clip'], ageHours: 24, title: clipped });
+        // Жёлтый раньше межсезонья решила заполненность — причина не пишется.
+        await alertRow({ type: 'park_closure', externalId: feedId('s6'), parks: ['a2-s-crowd'], ageHours: 24,
+          title: 'Маршруты природного парка «Людный» закрыты на период межсезонья' });
+        await pool.query(`UPDATE location_real_time_status SET tourists_today = 40 WHERE agent_route_id = $1`, [P['a2-s-crowd'].ark]);
+
+        await recomputeStatus();
+        const w = await statusOf(P['a2-s-winter'].ark);
+        expect(w).toMatchObject({ status: 'yellow', reason: 'park_season', sev: 2 });
+        expect(w.alerts).toContain('Маршруты природного парка «Зимовье» закрыты на период межсезонья');
+        expect(await statusOf(P['a2-s-storm'].ark)).toMatchObject({ status: 'red', reason: null });
+        expect(await statusOf(P['a2-s-mixed'].ark)).toMatchObject({ status: 'red', reason: null });
+        expect(await statusOf(P['a2-s-clip'].ark)).toMatchObject({ status: 'red', reason: null });
+        expect(await statusOf(P['a2-s-crowd'].ark)).toMatchObject({ status: 'yellow', reason: null });
+
+        // Кузьмич и MCP читают ту же строку: причина — полем и словами карточки.
+        const d = await getGuardianContextDetailed('Природный парк Зимовье (тест)');
+        const st = d.places.find((x) => x.name === P['a2-s-winter'].id);
+        expect(st).toMatchObject({ level: 'yellow', color: 'yellow', reason: 'park_season' });
+        expect(d.text).toContain(`${PARK_SEASON_ANSWER}. ${PARK_SEASON_NOTE}`);
+
+        // Закрытие снято — причины нет, место зелёное.
+        await pool.query(`UPDATE external_alerts SET expires_at = (NOW() AT TIME ZONE 'UTC') - INTERVAL '1 second' WHERE id::text = $1`, [winter]);
+        await recomputeStatus();
+        expect(await statusOf(P['a2-s-winter'].ark)).toMatchObject({ status: 'green', reason: null });
+
+        // Словарь причины держит база.
+        await expect(pool.query(`UPDATE location_real_time_status SET status_reason = 'other' WHERE agent_route_id = $1`, [P['a2-s-winter'].ark]))
+          .rejects.toMatchObject({ code: '23514' });
+      } finally {
+        const arks = Object.values(P).map((x) => x.ark);
+        await pool.query(`DELETE FROM location_real_time_status WHERE agent_route_id = ANY($1::uuid[])`, [arks]);
+        await pool.query(`DELETE FROM places WHERE id = ANY($1::text[])`, [Object.values(P).map((x) => x.id)]);
+        await pool.query(`DELETE FROM parks WHERE slug = ANY($1::text[])`, [PARKS.map((p) => p.slug)]);
+      }
     }, 30_000);
   });
 

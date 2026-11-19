@@ -56,6 +56,8 @@ export interface PlaceDayInput {
   updatedAt: string | null;
   /** Место вне сводок края — Северные Курилы (lib/safety/kuril-north.ts). */
   outsideKraiSources?: boolean;
+  /** `location_real_time_status.status_reason` (1461): причина цвета от пересчёта. */
+  reason?: string | null;
 }
 
 export interface PlaceDay {
@@ -67,7 +69,24 @@ export interface PlaceDay {
    * значило бы «камчатских сводок о нём нет». Цвет не показываем (16.10).
    */
   outsideSources?: boolean;
+  /**
+   * Жёлтый дало межсезонное закрытие троп парка, и ничто другое (#3487,
+   * 19.11): «тропы закрыты», а не «опасно». Только при жёлтом и свежем.
+   */
+  parkSeason?: boolean;
 }
+
+/**
+ * Межсезонное закрытие троп парка — слова одни на карточку, чат, MCP и строку
+ * места в ответе о туре (слово владельца 19.11 «go», #3487).
+ *
+ * Самостоятельно по тропам закрытого парка не ходят — это правда закрытия.
+ * Выезд оператора в его сезон закрытием не отменяется, но и не разрешается:
+ * согласован ли он с дирекцией парка, знает оператор, а не Ведар.
+ */
+export const PARK_SEASON_ANSWER = 'Тропы парка закрыты на межсезонье';
+export const PARK_SEASON_NOTE =
+  'Самостоятельно по маршрутам парка сейчас не ходят. Выезды операторов идут по их календарю: согласован ли выезд с дирекцией парка, спросите у оператора.';
 
 export function placeDayStatus(rt: PlaceDayInput, now: number = Date.now()): PlaceDay {
   // Закрытие ставит человек, и оно не протухает вместе с пересчётом сводок.
@@ -80,6 +99,9 @@ export function placeDayStatus(rt: PlaceDayInput, now: number = Date.now()): Pla
   // сводок у нас нет, и «предупреждений нет» было бы неправдой (16.10).
   if (rt.status === 'green' && rt.outsideKraiSources) {
     return { level: 'unknown', stale: false, outsideSources: true };
+  }
+  if (rt.status === 'yellow' && rt.reason === 'park_season') {
+    return { level: 'yellow', stale: false, parkSeason: true };
   }
   if (rt.status === 'red' || rt.status === 'yellow' || rt.status === 'green') {
     return { level: rt.status, stale: false };
@@ -109,6 +131,11 @@ export interface PlaceStatusFields {
   closed: boolean;
   stale: boolean;
   outside_sources: boolean;
+  /**
+   * Почему цвет такой, если пересчёт это записал: `park_season` — жёлтый от
+   * межсезонного закрытия троп парка (#3487). null — причина не записана.
+   */
+  reason: 'park_season' | null;
   status_updated_at: string | null;
 }
 
@@ -122,6 +149,7 @@ export function placeStatusFields(rt: PlaceDayInput, now: number = Date.now()): 
     closed: rt.isOpen === false,
     stale: colour.stale,
     outside_sources: colour.outsideSources === true,
+    reason: colour.parkSeason ? 'park_season' : null,
     status_updated_at: rt.updatedAt,
   };
 }

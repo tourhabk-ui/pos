@@ -13,6 +13,7 @@ import { sourceReport, TRIGGER_LABEL, type IngestTrigger, ingestRunStatus, inges
 import { pruneRejectedGenres, type PruneResult } from '@/lib/services/safety/alert-prune';
 import { capDatedWarnings, type DatedCapResult } from '@/lib/services/safety/dated-warning-cap';
 import { holdParkClosures, type ParkHoldResult } from '@/lib/services/safety/park-closure-hold';
+import { seasonalParkClosureIds } from '@/lib/services/safety/park-season';
 import { applyParkReopenings, markParkStatusUnknown, type ParkReopeningResult, type ParkStatusUnknownResult } from '@/lib/services/safety/park-reopening';
 import { sameParksParam, sameParksSql } from '@/lib/services/safety/push-same-kind';
 import { ingestFirmsWildfires } from '@/lib/services/safety/wildfire-firms';
@@ -355,6 +356,9 @@ export const RT_STATUS_LOCK_TIMEOUT_MS = 10_000;
 
 async function updateRealTimeStatus(): Promise<{ updated: number; error?: string }> {
   try {
+    // Межсезонные закрытия парков (#3487, 19.11) — до транзакции: отказ чтения
+    // даёт пустой список (все закрытия красные), а не обрыв пересчёта.
+    const seasonal = await seasonalParkClosureIds(query);
     const r = await transaction(async (client) => {
     await client.query(`SET LOCAL statement_timeout = ${RT_STATUS_STATEMENT_TIMEOUT_MS}`);
     await client.query(`SET LOCAL lock_timeout = ${RT_STATUS_LOCK_TIMEOUT_MS}`);
@@ -375,7 +379,10 @@ async function updateRealTimeStatus(): Promise<{ updated: number; error?: string
           COALESCE(${ALERT_ZONAL_ONLY_SQL} AND NOT ${TOURIST_BAN_SQL}, false) AS zonal,
           -- «Статус парка не известен» (06.11): закрытие на межсезонье истекло,
           -- сводки об открытии не было. Жёлтый — своим правилом ниже.
-          COALESCE(${PARK_STATUS_UNKNOWN_SQL}, false) AS park_unknown
+          COALESCE(${PARK_STATUS_UNKNOWN_SQL}, false) AS park_unknown,
+          -- Закрытие парка на межсезонье (#3487, 19.11): тропы закрыты до
+          -- сезона, опасности дня оно не называет. Жёлтый своим правилом ниже.
+          COALESCE(ea.id::text = ANY($3::text[]), false) AS park_season
         FROM location_real_time_status lrs
         LEFT JOIN agent_route_knowledge ark ON ark.id = lrs.agent_route_id
         LEFT JOIN external_alerts ea
@@ -388,9 +395,11 @@ async function updateRealTimeStatus(): Promise<{ updated: number; error?: string
         -- Теперь дедуп отдельным шагом, чтобы ниже осталась ВОЗМОЖНОСТЬ
         -- отсортировать: у array_agg(DISTINCT ...) порядок задать нечем,
         -- кроме самого title.
-        SELECT DISTINCT ON (lrs_id, title) lrs_id, title, severity, zonal, park_unknown
+        SELECT DISTINCT ON (lrs_id, title) lrs_id, title, severity, zonal, park_unknown, park_season
         FROM matched
-        ORDER BY lrs_id, title, severity DESC, zonal
+        -- Из повторов одного заголовка остаётся не межсезонный: сомнение — в
+        -- сторону красного.
+        ORDER BY lrs_id, title, severity DESC, zonal, park_season
       ),
       agg AS (
         -- ПОРЯДОК ПО ОПАСНОСТИ, а не по алфавиту (правка 15.09).
@@ -415,9 +424,11 @@ async function updateRealTimeStatus(): Promise<{ updated: number; error?: string
           COALESCE(MAX(severity), 0) AS max_severity,
           -- Уровень по алертам, привязанным к САМОМУ месту, и по зональным —
           -- раздельно: красный от зоны только при уровне 3 (цунами).
-          COALESCE(MAX(severity) FILTER (WHERE NOT zonal), 0) AS place_severity,
+          -- Межсезонное закрытие парка красного уровня места не даёт.
+          COALESCE(MAX(severity) FILTER (WHERE NOT zonal AND NOT park_season), 0) AS place_severity,
           COALESCE(MAX(severity) FILTER (WHERE zonal), 0) AS zonal_severity,
-          COALESCE(bool_or(park_unknown), false) AS park_unknown
+          COALESCE(bool_or(park_unknown), false) AS park_unknown,
+          COALESCE(bool_or(park_season), false) AS park_season
         FROM dedup
         GROUP BY lrs_id
       ),
@@ -472,36 +483,54 @@ async function updateRealTimeStatus(): Promise<{ updated: number; error?: string
           )) AS level
         FROM volc_arks va
         GROUP BY va.lrs_id
+      ),
+      decided AS (
+        -- Цвет и причина — ОДНИМ CASE: ветка межсезонья отдаёт
+        -- 'yellow:park_season', и при записи это делится на цвет и причину.
+        -- Причина пишется ровно той ветке, что решила цвет, и разойтись с
+        -- ним не может.
+        SELECT
+          agg.lrs_id,
+          agg.alerts,
+          agg.max_severity,
+          CASE
+            WHEN agg.place_severity >= 2 THEN 'red'
+            WHEN agg.zonal_severity >= 3 THEN 'red'
+            WHEN volc.level >= 2 THEN 'red'
+            WHEN lrs.tourists_today >= COALESCE(
+              (SELECT capacity_per_day FROM location_safety_profile WHERE agent_route_id = lrs.agent_route_id),
+              50
+            ) THEN 'red'
+            WHEN lrs.tourists_today >= COALESCE(
+              (SELECT ROUND(capacity_per_day * 0.7) FROM location_safety_profile WHERE agent_route_id = lrs.agent_route_id),
+              35
+            ) THEN 'yellow'
+            WHEN volc.level >= 1 THEN 'yellow'
+            WHEN agg.zonal_severity >= 2 THEN 'yellow'
+            -- Тропы парка закрыты на межсезонье (#3487, 19.11) — жёлтый с
+            -- причиной: карточка скажет «тропы закрыты», а не «опасно». После
+            -- прочих жёлтых: при вулкане или зональной тревоге ответ общий.
+            WHEN agg.park_season THEN 'yellow:park_season'
+            -- Статус парка не известен — жёлтый, а не зелёный: уровень 1 прочих
+            -- родов места жёлтого не даёт, а «не знаю» о закрытом парке — даёт.
+            -- После красных веток: живое закрытие того же парка красное.
+            WHEN agg.park_unknown THEN 'yellow'
+            ELSE 'green'
+          END AS verdict
+        FROM agg
+        JOIN volc ON volc.lrs_id = agg.lrs_id
+        JOIN location_real_time_status lrs ON lrs.id = agg.lrs_id
       )
       UPDATE location_real_time_status lrs
       SET
-        active_alerts = agg.alerts,
-        alert_severity = agg.max_severity,
-        recommender_status = CASE
-          WHEN agg.place_severity >= 2 THEN 'red'
-          WHEN agg.zonal_severity >= 3 THEN 'red'
-          WHEN volc.level >= 2 THEN 'red'
-          WHEN lrs.tourists_today >= COALESCE(
-            (SELECT capacity_per_day FROM location_safety_profile WHERE agent_route_id = lrs.agent_route_id),
-            50
-          ) THEN 'red'
-          WHEN lrs.tourists_today >= COALESCE(
-            (SELECT ROUND(capacity_per_day * 0.7) FROM location_safety_profile WHERE agent_route_id = lrs.agent_route_id),
-            35
-          ) THEN 'yellow'
-          WHEN volc.level >= 1 THEN 'yellow'
-          WHEN agg.zonal_severity >= 2 THEN 'yellow'
-          -- Статус парка не известен — жёлтый, а не зелёный: уровень 1 прочих
-          -- родов места жёлтого не даёт, а «не знаю» о закрытом парке — даёт.
-          -- После красных веток: живое закрытие того же парка красное.
-          WHEN agg.park_unknown THEN 'yellow'
-          ELSE 'green'
-        END,
+        active_alerts = decided.alerts,
+        alert_severity = decided.max_severity,
+        recommender_status = split_part(decided.verdict, ':', 1),
+        status_reason = NULLIF(split_part(decided.verdict, ':', 2), ''),
         updated_at = NOW()
-      FROM agg
-      JOIN volc ON volc.lrs_id = agg.lrs_id
-      WHERE agg.lrs_id = lrs.id
-    `, [VOLCANO_STALE_DAYS, KFEGS_MAX_AGE_DAYS + 1]);
+      FROM decided
+      WHERE decided.lrs_id = lrs.id
+    `, [VOLCANO_STALE_DAYS, KFEGS_MAX_AGE_DAYS + 1, seasonal]);
     });
     // Safety Decision Ledger (925): одно событие на прогон, не на алерт — сам
     // SQL агрегатный (array_agg/MAX(severity) по CTE), per-alert разбивка

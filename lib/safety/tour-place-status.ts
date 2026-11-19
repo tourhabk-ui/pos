@@ -20,7 +20,7 @@ import { pool } from '@/lib/db-pool';
 import { isoUtcSql } from '@/lib/db/timestamp-iso';
 import { isOutsideKraiSources } from '@/lib/safety/kuril-north';
 import {
-  PLACE_COLOR_WORD, kamchatkaStamp, placeStatusFields, type PlaceStatusFields,
+  PARK_SEASON_ANSWER, PLACE_COLOR_WORD, kamchatkaStamp, placeStatusFields, type PlaceStatusFields,
 } from '@/lib/safety/place-day-status';
 
 /** Колонки, которые `tourPlaceStatusJoinSql` добавляет к строке тура. */
@@ -31,6 +31,8 @@ export interface TourPlaceRow {
   tp_is_open: boolean | null;
   tp_status: string | null;
   tp_status_at: string | null;
+  /** Причина цвета от пересчёта (1461). */
+  tp_status_reason?: string | null;
 }
 
 /**
@@ -45,7 +47,8 @@ export function tourPlaceStatusJoinSql(tourRef: string): string {
   return `LEFT JOIN LATERAL (
          SELECT mp.id::text AS tp_place_id, mp.name AS tp_place_name, mp.zone AS tp_place_zone,
                 lrs.is_open AS tp_is_open, lrs.recommender_status AS tp_status,
-                ${isoUtcSql('lrs.updated_at')} AS tp_status_at
+                ${isoUtcSql('lrs.updated_at')} AS tp_status_at,
+                lrs.status_reason AS tp_status_reason
            FROM places mp
            LEFT JOIN location_real_time_status lrs ON lrs.agent_route_id = mp.ark_id
           WHERE mp.id = ${tourRef}.main_place_id AND mp.is_visible = TRUE AND mp.merged_into_id IS NULL
@@ -68,6 +71,7 @@ export function tourPlaceStatus(row: Partial<TourPlaceRow>, now: number = Date.n
       status: row.tp_status ?? null,
       updatedAt: row.tp_status_at ?? null,
       outsideKraiSources: isOutsideKraiSources(row.tp_place_zone ?? null),
+      reason: row.tp_status_reason ?? null,
     }, now),
   };
 }
@@ -82,7 +86,10 @@ function statePhrase(s: TourPlaceStatus): string {
   }
   if (s.color) {
     const when = s.status_updated_at ? ` (пересчёт ${kamchatkaStamp(s.status_updated_at)} по Камчатке)` : '';
-    return `статус для выхода сегодня ${PLACE_COLOR_WORD[s.color]}${when}.`;
+    // Жёлтый от межсезонного закрытия троп парка (#3487): назвать причину —
+    // иначе «жёлтый» у зимнего тура читается как опасность дня.
+    const why = s.reason === 'park_season' ? `: ${PARK_SEASON_ANSWER.toLowerCase()}` : '';
+    return `статус для выхода сегодня ${PLACE_COLOR_WORD[s.color]}${when}${why}.`;
   }
   if (s.stale && s.status_updated_at) {
     return `статус не пересчитывался с ${kamchatkaStamp(s.status_updated_at)} по Камчатке — цвета нет, и это не значит, что там безопасно.`;

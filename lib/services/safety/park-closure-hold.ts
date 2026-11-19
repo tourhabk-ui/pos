@@ -58,8 +58,8 @@ interface Row {
 }
 
 /** Длины, до которых saveEvent обрезает текст (seismic-parser, classifyMchsItem). */
-const TITLE_CLIP = 200;
-const DESCRIPTION_CLIP = 800;
+export const TITLE_CLIP = 200;
+export const DESCRIPTION_CLIP = 800;
 
 /** Форма external_id, которую пишет классификатор лент. */
 const FEED_ID_RE = /^[a-z][a-z0-9_.]*(?:\/\d{4}-\d{2}-\d{2})?\/t[0-9a-z]+$/;
