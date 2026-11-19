@@ -3,7 +3,7 @@
  * 17.11 «покажи»: акция «Лагуны Экспедиции» «Для жителей Дальнего Востока»).
  *
  * Судится то, что решает база, а мок ответил бы на любой SQL:
- *  - миграция 1460 кладёт акцию ровно четырём турам «Лагуны» по их адресам,
+ *  - миграция 1466 кладёт акцию ровно четырём турам «Лагуны» по их адресам,
  *    другим турам — нет; повтор миграции второй строки не даёт;
  *  - акция видна, пока сегодня по Камчатке (UTC+12) лежит в сроке
  *    бронирования 18.11–01.12.2026 включительно, и пропадает сама: 17.11 по
@@ -35,7 +35,7 @@ const PROMO_SLUGS = [
   'lagexp-vulkany-kamchatki-5-dnej',
   'lagexp-kamchatka-na-maksimum-zimnij-marshrut',
 ];
-const MIGRATION = readFileSync(join(process.cwd(), 'migrations', '1460_tour_promotions.sql'), 'utf-8');
+const MIGRATION = readFileSync(join(process.cwd(), 'migrations', '1466_tour_promotions.sql'), 'utf-8');
 
 /** Момент по Камчатке → миллисекунды UTC. */
 const atKamchatka = (local: string) => Date.parse(`${local}+12:00`);

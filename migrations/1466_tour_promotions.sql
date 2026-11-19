@@ -1,4 +1,4 @@
--- Migration 1460: акция оператора на карточке тура — со сроком и источником
+-- Migration 1466: акция оператора на карточке тура — со сроком и источником
 -- Created: 2026-11-17
 --
 -- Наблюдение за сайтами партнёров 17.11 нашло у «Лагуны Экспедиции» новую
@@ -40,8 +40,8 @@ CREATE INDEX IF NOT EXISTS tour_promotions_tour_until_idx
 COMMENT ON TABLE tour_promotions IS
   'Акция оператора по туру: что даёт, кому, срок бронирования, источник и день сверки. Показ — пока сегодня по Камчатке в сроке (lib/tours/tour-promotion.ts). Цену не меняет.';
 
-CREATE TEMP TABLE _promo1460 (slug text, offer text) ON COMMIT DROP;
-INSERT INTO _promo1460 (slug, offer) VALUES
+CREATE TEMP TABLE _promo1466 (slug text, offer text) ON COMMIT DROP;
+INSERT INTO _promo1466 (slug, offer) VALUES
   ('lagexp-kamchatka-termalnyj-marshrut',
    'Скидка 15 000 ₽ с человека при бронировании на основных местах. Продление проживания по тарифу «Всё включено» (с алкогольными напитками на обед и ужин) — 10 000 ₽ за номер до двух человек, в категориях «Голубое озеро», гостевые дома «Стандарт», «Лесной (Форест)» и «Глазастик».'),
   ('lagexp-vulkany-kamchatki-4-dnya', 'Ужин по тарифу «Всё включено» в подарок.'),
@@ -56,10 +56,10 @@ BEGIN
   SELECT COUNT(DISTINCT t.id) INTO v_tours
     FROM operator_tours t
     JOIN partners p ON p.id::text = t.operator_id::text AND p.slug = 'laguna-expedition'
-    JOIN _promo1460 l ON l.slug = t.slug
+    JOIN _promo1466 l ON l.slug = t.slug
    WHERE t.deleted_at IS NULL;
   IF v_tours <> 4 THEN
-    RAISE WARNING '[1460] туров «Лагуны Экспедиции» найдено %, ожидалось 4', v_tours;
+    RAISE WARNING '[1466] туров «Лагуны Экспедиции» найдено %, ожидалось 4', v_tours;
   END IF;
 
   INSERT INTO tour_promotions
@@ -73,12 +73,12 @@ BEGIN
          DATE '2026-11-17'
     FROM operator_tours t
     JOIN partners p ON p.id::text = t.operator_id::text AND p.slug = 'laguna-expedition'
-    JOIN _promo1460 l ON l.slug = t.slug
+    JOIN _promo1466 l ON l.slug = t.slug
    WHERE t.deleted_at IS NULL
   ON CONFLICT ON CONSTRAINT tour_promotions_one_per_source DO NOTHING;
   GET DIAGNOSTICS v_added = ROW_COUNT;
 
-  RAISE NOTICE '[1460] туров: %, записано акций: %', v_tours, v_added;
+  RAISE NOTICE '[1466] туров: %, записано акций: %', v_tours, v_added;
 END $$;
 
 COMMIT;
