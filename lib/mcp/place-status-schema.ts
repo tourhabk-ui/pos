@@ -25,10 +25,15 @@ export const PLACE_STATUS_PROPERTIES = {
   closed: { type: 'boolean', description: 'Место отмечено закрытым' },
   stale: { type: 'boolean', description: 'Пересчёт старше 3 часов: цвет уже может быть не про сегодня и не показывается' },
   outside_sources: { type: 'boolean', description: 'Место вне сводок края (Северные Курилы): зелёного там не бывает, «предупреждений нет» сказать нельзя' },
+  reason: {
+    type: ['string', 'null'],
+    enum: ['park_season', null],
+    description: 'Почему цвет такой, если это записано. park_season — жёлтый от закрытия троп парка на межсезонье: самостоятельно по маршрутам парка не ходят, а выезд оператора идёт по его календарю, и согласован ли он с дирекцией парка, подтверждает оператор. null — причина не записана',
+  },
   status_updated_at: { type: ['string', 'null'], description: 'Когда статус пересчитан, ISO 8601 UTC; null — не записано' },
 } as const;
 
-const PLACE_STATUS_REQUIRED = ['level', 'color', 'closed', 'stale', 'outside_sources', 'status_updated_at'] as const;
+const PLACE_STATUS_REQUIRED = ['level', 'color', 'closed', 'stale', 'outside_sources', 'reason', 'status_updated_at'] as const;
 
 /** Место в ответе get_guardian_context. */
 export interface GuardianPlaceStatus {
@@ -42,6 +47,7 @@ export interface GuardianPlaceStatus {
   closed: boolean;
   stale: boolean;
   outside_sources: boolean;
+  reason: TourPlaceStatus['reason'];
   status_updated_at: string | null;
   alerts: string[];
 }

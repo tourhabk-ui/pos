@@ -4,7 +4,7 @@ import { useEffect, useRef, useState } from 'react';
 import { AlertTriangle, CheckCircle, XCircle, AlertOctagon, HelpCircle, Users } from 'lucide-react';
 import type { PlaceRealtime } from './types';
 import { crowdsOnScale } from '@/lib/safety/profile-source';
-import { kamchatkaStamp, placeDayStatus, type PlaceDayLevel } from '@/lib/safety/place-day-status';
+import { kamchatkaStamp, placeDayStatus, PARK_SEASON_ANSWER, PARK_SEASON_NOTE, type PlaceDayLevel } from '@/lib/safety/place-day-status';
 import { KURIL_NORTH_NOTE } from '@/lib/safety/kuril-north';
 
 interface Props {
@@ -96,7 +96,7 @@ function raisedWithoutAlerts(rt: PlaceRealtime, isVolcano: boolean, volcanoColor
 }
 
 export default function PlaceRealtimeStatus({ realtime, isVolcano = false, volcanoColor, now }: Props) {
-  const { level, stale, outsideSources } = placeDayStatus(realtime, now);
+  const { level, stale, outsideSources, parkSeason } = placeDayStatus(realtime, now);
   const cfg = LEVEL_CONFIG[level];
   const { Icon } = cfg;
   const isSticky = level === 'red' || level === 'closed';
@@ -119,7 +119,11 @@ export default function PlaceRealtimeStatus({ realtime, isVolcano = false, volca
 
   // Зелёный при действующих предупреждениях слабее уровня места — не
   // «предупреждений нет»: они есть, просто не поднимают уровень.
-  const answer = level === 'green' && alerts.length > 0 ? 'Серьёзных предупреждений нет' : cfg.answer;
+  // Жёлтый от межсезонного закрытия троп парка (#3487, 19.11) — ответ
+  // называет закрытие, а не общее «есть предупреждение».
+  const answer = level === 'green' && alerts.length > 0 ? 'Серьёзных предупреждений нет'
+    : parkSeason ? PARK_SEASON_ANSWER
+    : cfg.answer;
 
   // Строки под ответом. Своего текста вместо причины не выдумываем.
   const lines: string[] = [];
@@ -145,6 +149,7 @@ export default function PlaceRealtimeStatus({ realtime, isVolcano = false, volca
     } else if (level !== 'green' && !note) {
       lines.push(raisedWithoutAlerts(realtime, isVolcano, volcanoColor));
     }
+    if (parkSeason) lines.push(PARK_SEASON_NOTE);
     if (level === 'green') {
       lines.push('Это пересчёт по лентам предупреждений, а не проверка самого места: погоду и тропу проверьте перед выходом.');
     }

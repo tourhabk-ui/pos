@@ -15,7 +15,11 @@ import { describe, it, expect, afterEach } from 'vitest';
 import { render, screen, cleanup, fireEvent } from '@testing-library/react';
 import PlaceRealtimeStatus from '@/components/places/PlaceRealtimeStatus';
 import type { PlaceRealtime } from '@/components/places/types';
-import { placeDayStatus, PLACE_STATUS_FRESH_MS, kamchatkaStamp } from '@/lib/safety/place-day-status';
+import {
+  placeDayStatus, placeStatusFields, PLACE_STATUS_FRESH_MS, kamchatkaStamp, PARK_SEASON_ANSWER, PARK_SEASON_NOTE,
+} from '@/lib/safety/place-day-status';
+import { tourPlaceStatus, tourPlaceStatusLine } from '@/lib/safety/tour-place-status';
+import { isSeasonalClosure } from '@/lib/safety/park-closure';
 import { buildPlaceAdvisory } from '@/lib/kuzmich/place-advisory';
 
 afterEach(cleanup);
@@ -195,5 +199,125 @@ describe('совет Кузьмича на карточке говорит то 
 
   it('красный пересчёта — «нет», как у полосы', () => {
     expect(advise(rt({ status: 'red', activeAlerts: ['Сход селя'] })).tone).toBe('danger');
+  });
+});
+
+/**
+ * Закрытие троп парка на межсезонье (слово владельца 19.11 «go», #3487).
+ *
+ * Карточка Авачинского перевала 17.11 писала «Сегодня там опасно»: место
+ * красило закрытие маршрутов природных парков на межсезонье, а зимние туры
+ * туда идут по календарю оператора. Теперь пересчёт пишет такому месту жёлтый
+ * с причиной `park_season` (pg: alert-place-scope.pg.test.ts), и все
+ * поверхности называют закрытие, а не опасность.
+ */
+describe('межсезонное закрытие троп парка (#3487)', () => {
+  const CLOSURE = 'Закрытие туристических маршрутов природных парков на межсезонье';
+
+  it('правило текста: межсезонье без названной опасности — сезонное; циклон, медведи, «до особого распоряжения» — нет', () => {
+    for (const t of [
+      'Закрытие маршрутов «Вулканы Камчатки» сообщают о закрытии туристических маршрутов на всех территориях природных парков на период межсезонья',
+      'Маршруты природного парка «Ключевской» закрыты на зимний сезон',
+      'Маршруты природного парка «Налычево» закрыты на межсезонье. С 1 декабря откроются зимние маршруты.',
+      'В целях безопасности туристов маршруты природного парка «Налычево» закрыты на период межсезонья',
+    ]) expect(isSeasonalClosure(t), t).toBe(true);
+    for (const t of [
+      'Из-за циклона приостановлено посещение маршрутов в природном парке «Налычево» на период межсезонья',
+      'Маршруты природного парка «Налычево» закрыты на межсезонье: у тропы держатся медведи',
+      'Посещение природного парка «Ключевской» приостановлено до особого распоряжения',
+      'В связи с угрозой схода лавин маршруты парка «Налычево» закрыты на межсезонье',
+      'Маршруты природного парка «Налычево» закрыты на период межсезонья. Опасность извержения сохраняется',
+      // Сезон назван в другом предложении — не решение о сезоне.
+      'Из-за ветра приостановлено посещение маршрутов в природном парке «Налычево». В межсезонье будьте осторожны.',
+      'Маршруты природного парка «Налычево» закрыты до 1 октября',
+      'Маршруты природного парка «Налычево» закрыты до 1 октября. В межсезонье будьте внимательны.',
+    ]) expect(isSeasonalClosure(t), t).toBe(false);
+  });
+
+  // Ревью безопасности #3517: опасность словом вне прежнего списка проходила
+  // за межсезонье. Теперь её ловит расширенный список, а опасность, которой в
+  // списке нет вовсе, — правило причины: «из-за …» не про сезон — не сезонное.
+  it('правило текста: камнепад, сели, оползень, обвал, гололёд, подтопление, «небезопасно» и любая причина, кроме сезона, — не межсезонье', () => {
+    const P = 'Маршруты природного парка «Ключевской» закрыты на межсезонье';
+    for (const t of [
+      `${P} из-за камнепада`,
+      `${P} из-за схода селей`,
+      `${P} из-за оползня`,
+      `${P} из-за обвала на тропе`,
+      `${P} из-за гололёда`,
+      `${P} из-за подтопления`,
+      `${P}: на тропах небезопасно`,
+      // Слова нет ни в каком списке — держит правило причины.
+      `${P} из-за пурги`,
+      `${P} из‑за размыва берега`,
+      `${P} в связи с ремонтом моста`,
+      `${P} ввиду закрытия кордона`,
+      `${P}, так как река вышла из берегов`,
+      // Причина с сезоном где-то дальше — всё равно не сезон.
+      `${P} из-за размыва тропы в межсезонье`,
+      // Опасность без слова причины — держит список.
+      `${P}. На склонах камнепады`,
+      `${P}. Сходят сели`,
+      `${P}. Оползни на подходе`,
+      `${P}. На реках подтопления`,
+    ]) expect(isSeasonalClosure(t), t).toBe(false);
+    for (const t of [
+      'Маршруты природного парка «Налычево» закрыты в связи с межсезоньем',
+      'В связи с окончанием летнего туристического сезона маршруты парка «Налычево» закрыты на межсезонье',
+      'Маршруты парка «Ключевской» закрыты на зимний сезон ввиду наступления межсезонья',
+    ]) expect(isSeasonalClosure(t), t).toBe(true);
+  });
+
+  it('правило дня: жёлтый с причиной — «тропы закрыты»; причина без жёлтого или при устаревшем пересчёте не читается', () => {
+    expect(placeDayStatus({ isOpen: true, status: 'yellow', updatedAt: FRESH, reason: 'park_season' }, NOW))
+      .toEqual({ level: 'yellow', stale: false, parkSeason: true });
+    expect(placeDayStatus({ isOpen: true, status: 'red', updatedAt: FRESH, reason: 'park_season' }, NOW).parkSeason).toBeUndefined();
+    expect(placeDayStatus({ isOpen: true, status: 'yellow', updatedAt: STALE, reason: 'park_season' }, NOW).parkSeason).toBeUndefined();
+    expect(placeDayStatus({ isOpen: false, status: 'yellow', updatedAt: FRESH, reason: 'park_season' }, NOW).level).toBe('closed');
+    expect(placeStatusFields({ isOpen: true, status: 'yellow', updatedAt: FRESH, reason: 'park_season' }, NOW).reason).toBe('park_season');
+    expect(placeStatusFields({ isOpen: true, status: 'yellow', updatedAt: FRESH, reason: null }, NOW).reason).toBeNull();
+    expect(placeStatusFields({ isOpen: true, status: 'red', updatedAt: FRESH, reason: 'park_season' }, NOW).reason).toBeNull();
+  });
+
+  it('полоса «Сейчас»: «Тропы парка закрыты на межсезонье», закрытие и что оно значит; не «опасно»', () => {
+    const text = strip(rt({ status: 'yellow', reason: 'park_season', alertSeverity: 2, activeAlerts: [CLOSURE] }));
+    expect(text).toContain(PARK_SEASON_ANSWER);
+    expect(text).toContain(CLOSURE);
+    expect(text).toContain(PARK_SEASON_NOTE);
+    expect(text).not.toContain('Сегодня там опасно');
+    expect(text).not.toContain('Есть предупреждение');
+  });
+
+  it('полоса: жёлтый без причины — общий ответ; красный с той же причиной — «опасно», без слов о межсезонье', () => {
+    cleanup();
+    const plain = strip(rt({ status: 'yellow', activeAlerts: [CLOSURE] }));
+    expect(plain).toContain('Есть предупреждение');
+    expect(plain).not.toContain(PARK_SEASON_NOTE);
+    cleanup();
+    const red = strip(rt({ status: 'red', reason: 'park_season', activeAlerts: [CLOSURE] }));
+    expect(red).toContain('Сегодня там опасно');
+    expect(red).not.toContain(PARK_SEASON_ANSWER);
+    expect(red).not.toContain(PARK_SEASON_NOTE);
+  });
+
+  it('совет Кузьмича на карточке: осторожность и те же слова о закрытии', () => {
+    const a = buildPlaceAdvisory({
+      volcano: null,
+      realtime: { ...placeDayStatus(rt({ status: 'yellow', reason: 'park_season' }), NOW), activeAlerts: [CLOSURE] },
+      hazardTypes: [],
+    }, NOW);
+    expect(a.tone).toBe('caution');
+    expect(a.headline).not.toBe('Сегодня сюда — нет');
+    expect(a.lines).toContain(PARK_SEASON_NOTE);
+  });
+
+  it('место тура в ответе агенту: жёлтый с названной причиной', () => {
+    const s = tourPlaceStatus({
+      tp_place_id: 'p1', tp_place_name: 'Авачинский перевал', tp_place_zone: 'avachinsky',
+      tp_is_open: true, tp_status: 'yellow', tp_status_at: FRESH, tp_status_reason: 'park_season',
+    }, NOW);
+    expect(s).toMatchObject({ level: 'yellow', reason: 'park_season' });
+    expect(tourPlaceStatusLine(s!)).toContain(`ЖЁЛТЫЙ`);
+    expect(tourPlaceStatusLine(s!)).toContain(PARK_SEASON_ANSWER.toLowerCase());
   });
 });
