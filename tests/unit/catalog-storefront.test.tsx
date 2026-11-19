@@ -148,12 +148,14 @@ describe('карточка говорит только то, что знает (
     storefront();
     expect(within(card('Тур с датами')).getByText('Есть даты')).toBeInTheDocument();
     expect(within(card('Тур с датами')).getByText('Сезон')).toBeInTheDocument();
-    expect(within(card('Тур по запросу')).getByText('Даты по запросу')).toBeInTheDocument();
+    // Сезон записан, календаря нет — месяцы сезона и «даты у оператора» (#3473).
+    expect(within(card('Тур по запросу')).getByText(/^Сезон [а-я]+( — [а-я]+)?( \d{4})?( — [а-я]+)? \d{4}, даты — по запросу у оператора$/)).toBeInTheDocument();
     expect(within(card('Тур по запросу')).queryByText('Сезон')).toBeNull();
     expect(within(card('Тур вне сезона')).getByText('Сезон завершён, даты по запросу')).toBeInTheDocument();
     expect(within(card('Тур вне сезона')).queryByText('Сезон')).toBeNull();
     // Поле не пришло — «не знаю», а не «Есть даты».
-    expect(within(card('Тур без поля дат')).getByText('Даты по запросу')).toBeInTheDocument();
+    expect(within(card('Тур без поля дат')).getByText(/даты — по запросу у оператора$/)).toBeInTheDocument();
+    expect(within(card('Тур без поля дат')).queryByText('Есть даты')).toBeNull();
     expect(screen.queryByText(/Сезон 20\d\d/)).toBeNull();
   });
 

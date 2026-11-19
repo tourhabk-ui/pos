@@ -416,3 +416,88 @@ withPg('поиск маршрута по виду места пути', () => {
     expect(r.total).toBe(direct.rows[0].n);
   });
 });
+
+/**
+ * Миграция 1460 (#3473, решения владельца 16.11) на настоящем PostgreSQL:
+ * у «Кальдеры вулкана Узон» уходят ровно две связи скрейпа 656, своя точка
+ * маршрута и чужие связи остаются; у Костакана суть получает 752,2 м вместо
+ * 752 м с записью журнала происхождения, а суть, переписанная человеком,
+ * не трогается. Повторный прогон ничего не меняет.
+ */
+withPg('миграция 1460: Костакан и связи «Кальдеры вулкана Узон»', () => {
+  let pool: Pool;
+  const ROUTE = 'bea2638c-1537-4281-ab7c-daa3617d8457';
+  const SEMYACHIK = '775aa3de-d278-4398-ac95-40e9ed616957';
+  const SPRINGS = '56ffac2b-3ad5-46a2-904e-5c29f3229b12';
+  const UZON = '5694d055-0000-4000-8000-000000000001';
+  const KOSTAKAN = '1d427c44-9f54-47da-99ff-12231705746b';
+  const run1460 = async () => {
+    const { readFileSync } = await import('node:fs');
+    const { join } = await import('node:path');
+    await pool.query(readFileSync(join(process.cwd(), 'migrations', '1460_place_cards_3473.sql'), 'utf-8'));
+  };
+
+  beforeAll(async () => {
+    const { Pool: PgPool } = await import('pg');
+    pool = new PgPool({ connectionString: await createTestDatabase(PG_URL, 'migration_1460_test'), max: 2 });
+    await pool.query('TRUNCATE route_waypoints, kamchatka_routes, places, description_provenance CASCADE');
+    for (const [id, name] of [[SEMYACHIK, 'Вулкан Большой Семячик'], [SPRINGS, 'Нижне-Семячикские термальные источники'], [UZON, 'Узон']]) {
+      await pool.query(
+        `INSERT INTO places (id, ark_id, name, lat, lng, location_type) VALUES ($1::text, gen_random_uuid(), $2::text, 54.5, 160.0, 'volcano')`,
+        [id, name],
+      );
+    }
+    await pool.query(
+      `INSERT INTO places (id, ark_id, name, lat, lng, location_type, essence)
+       VALUES ($1::text, gen_random_uuid(), 'Озеро Костакан', 53.8, 158.0, 'lake',
+               'Озеро у южного подножия вулкана Бакенинг, в верховьях Средней Авачи, на высоте 752 метра; памятник природы регионального значения.')`,
+      [KOSTAKAN],
+    );
+    await pool.query(
+      `INSERT INTO kamchatka_routes (id, category, title, slug, is_visible) VALUES ($1::uuid, 'hiking', 'Кальдера вулкана Узон', 'kaldera-uzon', TRUE)`,
+      [ROUTE],
+    );
+    // Другой маршрут с той же точкой — его связь не трогается.
+    const other = await pool.query<{ id: string }>(
+      `INSERT INTO kamchatka_routes (category, title, slug, is_visible) VALUES ('hiking', 'Вулкан Большой Семячик', 'semyachik', TRUE) RETURNING id::text`,
+    );
+    for (const [route, place, pos] of [[ROUTE, UZON, 0], [ROUTE, SPRINGS, 7], [ROUTE, SEMYACHIK, 8], [other.rows[0].id, SEMYACHIK, 0]] as const) {
+      await pool.query(
+        `INSERT INTO route_waypoints (route_id, place_id, position, link_kind) VALUES ($1::uuid, $2, $3, 'waypoint')`,
+        [route, place, pos],
+      );
+    }
+    await run1460();
+  });
+
+  afterAll(async () => { await pool?.end(); });
+
+  it('у маршрута остаётся своя точка «Узон»; связь Семячика с его собственным маршрутом цела', async () => {
+    const { rows } = await pool.query<{ route_id: string; place_id: string }>(
+      'SELECT route_id::text, place_id FROM route_waypoints ORDER BY route_id, position',
+    );
+    const ofUzon = rows.filter((r) => r.route_id === ROUTE).map((r) => r.place_id);
+    expect(ofUzon).toEqual([UZON]);
+    expect(rows.filter((r) => r.place_id === SEMYACHIK && r.route_id !== ROUTE)).toHaveLength(1);
+  });
+
+  it('Костакан: 752,2 м в сути и запись журнала; повтор ничего не меняет', async () => {
+    const read = async () => (await pool.query<{ essence: string }>('SELECT essence FROM places WHERE id = $1', [KOSTAKAN])).rows[0].essence;
+    expect(await read()).toContain('на высоте 752,2 метра');
+    expect(await read()).not.toMatch(/752 метра/);
+    const prov = await pool.query<{ written_by: string }>(
+      `SELECT written_by FROM description_provenance WHERE entity_kind = 'place' AND entity_title = 'Озеро Костакан'`,
+    );
+    expect(prov.rows.map((r) => r.written_by)).toEqual(['owner-decision']);
+    await run1460();
+    expect(await read()).toContain('на высоте 752,2 метра');
+    expect((await pool.query('SELECT 1 FROM description_provenance')).rowCount).toBe(1);
+  });
+
+  it('суть, переписанная человеком, не трогается', async () => {
+    await pool.query(`UPDATE places SET essence = 'Озеро у вулкана Бакенинг.' WHERE id = $1`, [KOSTAKAN]);
+    await run1460();
+    expect((await pool.query<{ essence: string }>('SELECT essence FROM places WHERE id = $1', [KOSTAKAN])).rows[0].essence)
+      .toBe('Озеро у вулкана Бакенинг.');
+  });
+});

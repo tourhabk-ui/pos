@@ -17,7 +17,7 @@ vi.mock('@/lib/db-pool', () => ({
   pool: { query, connect: vi.fn(async () => ({ query, release: vi.fn() })) },
 }));
 
-import { requestWindow, dateInWindow, isoDay, windowLabel, outOfSeasonText, seasonWindowView } from '@/lib/tours/request-window';
+import { requestWindow, dateInWindow, isoDay, windowLabel, outOfSeasonText, seasonWindowView, monthSpan, onRequestLine } from '@/lib/tours/request-window';
 import { getTourAvailabilityForKuzmich } from '@/lib/kuzmich/tour-availability-tool';
 
 const read = (p: string) => readFileSync(join(process.cwd(), p), 'utf8');
@@ -180,5 +180,20 @@ describe('миграция 1183 — данные решений 08.10', () => {
     expect(sql).toMatch(/SET is_cancelled = TRUE/);
     expect(sql).toMatch(/NOT EXISTS \(\s+SELECT 1 FROM operator_bookings b/);
     expect(sql).toMatch(/booking_status NOT IN \('cancelled', 'rejected'\)/);
+  });
+});
+
+describe('строка каталога для тура без календаря (#3473)', () => {
+  const one = { duration_type: 'single_day', multi_day_count: null, duration_hours: 8 } as const;
+  it('месяцы сезона: один год, один месяц, через год', () => {
+    expect(monthSpan('2027-07-01', '2027-10-15')).toBe('июль — октябрь 2027');
+    expect(monthSpan('2027-07-01', '2027-07-30')).toBe('июль 2027');
+    expect(monthSpan('2026-12-01', '2027-03-31')).toBe('декабрь 2026 — март 2027');
+  });
+  it('сезон записан и идёт — месяцы и «даты у оператора»; нет сезона или прошёл — «Даты по запросу»', () => {
+    expect(onRequestLine({ ...one, season_start: '2027-07-01', season_end: '2027-10-15' }, '2027-05-01'))
+      .toBe('Сезон июль — октябрь 2027, даты — по запросу у оператора');
+    expect(onRequestLine({ ...one, season_start: null, season_end: null }, '2027-05-01')).toBe('Даты по запросу');
+    expect(onRequestLine({ ...one, season_start: '2026-07-01', season_end: '2026-10-15' }, '2027-05-01')).toBe('Даты по запросу');
   });
 });
