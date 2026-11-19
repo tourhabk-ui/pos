@@ -62,7 +62,10 @@ function rub(n: number, lang: 'ru' | 'en'): string {
 
 interface Range { min: number; max: number; n: number }
 
-function priceRange(tours: readonly LandingTourRow[], unit: string): Range | null {
+type PriceRow = Pick<LandingTourRow, 'base_price' | 'price_unit'>;
+type SeasonRow = Pick<LandingTourRow, 'season_start' | 'season_end'>;
+
+function priceRange(tours: readonly PriceRow[], unit: string): Range | null {
   const ps = tours
     .filter((t) => t.price_unit === unit)
     .map((t) => Number(t.base_price))
@@ -76,6 +79,43 @@ function rangeWords(r: Range, unitWords: string, lang: 'ru' | 'en'): string {
     : lang === 'ru' ? `от ${rub(r.min, 'ru')} до ${rub(r.max, 'ru')}` : `${rub(r.min, 'en')} to ${rub(r.max, 'en')}`;
   const count = lang === 'ru' ? `${r.n} ${plural(r.n, 'тур', 'тура', 'туров')}` : `${r.n} ${r.n === 1 ? 'tour' : 'tours'}`;
   return `${span} ${unitWords} (${count})`;
+}
+
+/**
+ * Цены туров словами: «от 45 000 ₽ до 120 000 ₽ за человека (2 тура); 300 000 ₽
+ * за группу (1 тур)». Единицы не смешиваются; нет ни одной цены с понятной
+ * единицей — null. `rest` — сколько туров с ценой иначе или без неё.
+ */
+export function priceRangesWords(tours: readonly PriceRow[], lang: 'ru' | 'en'): { text: string; rest: number } | null {
+  const ru = lang === 'ru';
+  const person = priceRange(tours, 'per_person');
+  const group = priceRange(tours, 'per_tour');
+  const parts = [
+    person && rangeWords(person, ru ? 'за человека' : 'per person', lang),
+    group && rangeWords(group, ru ? 'за группу' : 'per group', lang),
+  ].filter((x): x is string => Boolean(x));
+  if (!parts.length) return null;
+  return { text: parts.join('; '), rest: tours.length - (person?.n ?? 0) - (group?.n ?? 0) };
+}
+
+/** Месяцы сезонов туров и сколько туров без записанного сезона. */
+export function seasonCover(tours: readonly SeasonRow[]): { months: Map<number, number>; unknown: number } {
+  const months = new Map<number, number>();
+  let unknown = 0;
+  for (const t of tours) {
+    const ms = seasonMonths(t);
+    if (ms) ms.forEach((m) => months.set(m, (months.get(m) ?? 0) + 1)); else unknown += 1;
+  }
+  return { months, unknown };
+}
+
+const RU_MONTH_NAMES = RU_MONTHS;
+/** Месяц(ы) с наибольшим числом туров: «август (12 туров)»; нет сезонов — null. */
+export function busiestMonthsWords(months: ReadonlyMap<number, number>): string | null {
+  if (!months.size) return null;
+  const top = Math.max(...months.values());
+  const names = [...months.entries()].filter(([, n]) => n === top).map(([m]) => m).sort((a, b) => a - b).map((m) => RU_MONTH_NAMES[m - 1]!);
+  return `${names.join(', ')} (${top} ${plural(top, 'тур', 'тура', 'туров')})`;
 }
 
 function priceFaq(l: QueryLanding, tours: readonly LandingTourRow[]): LandingFaq {
