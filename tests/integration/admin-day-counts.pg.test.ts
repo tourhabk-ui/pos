@@ -558,7 +558,8 @@ withPg('числа суток в админке', () => {
         'Прод 500: /routes/[id]', 'Прод 500: /tours', 'Прод 500: /weather',
       ]);
       expect(titles['Прод 500: /map']).toContain('За сутки 1 серверных ошибок');
-    });
+      // Модуль объектива большой: первый импорт на холодном раннере дольше 5 с.
+    }, 60_000);
 
     it('перепись попыток брони: обрыв — не сорванная попытка', async () => {
       const { GET } = await import('@/app/api/cron/booking-attempts/route');
@@ -568,6 +569,6 @@ withPg('числа суток в админке', () => {
       }))).json() as { failed_500_total: number | null; failed_with_500: Array<{ route: string; n: number }> | null };
       expect(body.failed_500_total).toBe(1);
       expect(body.failed_with_500).toEqual([expect.objectContaining({ route: '/api/hub/bookings/create', n: 1 })]);
-    });
+    }, 30_000);
   });
 });
