@@ -13,6 +13,7 @@ import { toolSource } from '@/lib/kuzmich/answer-sources';
 import { seasonFactsBlock } from '@/lib/kuzmich/season-facts';
 import { completeTourList, completionSources, questionQueries, type ToursCall } from '@/lib/kuzmich/tour-list-complete';
 import { sellerRequisitesLine } from '@/lib/tours/seller-requisites';
+import { loadActiveTourPromotions, promotionsForAgent } from '@/lib/tours/tour-promotion';
 import { pool } from '@/lib/db-pool';
 import { freeSlotsSql, occupiedOnDaySql } from '@/lib/bookings/occupancy';
 import { reserveBooking, ReserveError, type ReserveErrorCode } from '@/lib/bookings/reserve';
@@ -1916,6 +1917,10 @@ export async function getTourDetails(query: string, opts: { context?: string } =
       : cancel.kind === 'safety_notes'
         ? `Условия отмены и возврата: ${SAFETY_NOTES_CANCELLATION_HEAD} (бери ТОЛЬКО отсюда):\n- ${cancel.lines.join('\n- ')}\n${CANCELLATION_REST_WITH_OPERATOR} Не называй сроков и процентов сверх этих слов.`
         : 'Условия отмены и возврата у этого тура НЕ ЗАПИСАНЫ. Не называй сроков и процентов — скажи, что условия уточняются у оператора.');
+    // Акция оператора (слово владельца 17.11 «покажи») — тем же запросом и
+    // теми же словами, что блок на карточке тура (lib/tours/tour-promotion).
+    const promo = promotionsForAgent(await loadActiveTourPromotions(t.id));
+    if (promo) parts.push(promo);
     // Кто продаёт (03.10, разбор UCP: ассистент, бронирующий за человека,
     // обязан назвать продавца до подтверждения). Тот же источник и та же
     // строка, что «Исполнитель:» на карточке тура (lib/tours/seller-requisites).

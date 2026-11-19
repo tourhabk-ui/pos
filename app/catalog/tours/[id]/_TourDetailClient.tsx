@@ -61,6 +61,8 @@ import { telegramContactHref } from '@/lib/operators/profile-parse';
 import { sessionState } from '@/lib/auth/session-state';
 import { platformAcceptsPayments } from '@/lib/payments/accepting';
 import { TOUR_REVIEWS_ANCHOR } from '@/lib/tours/tour-anchors';
+import type { TourPromotionView } from '@/lib/tours/tour-promotion';
+import { TourPromotions } from '@/components/tours/TourPromotions';
 import { groupRangeShort, groupStripValue, isGroupSizeUnlimited, unlimitedGroupSentence } from '@/lib/tours/group-size';
 // Цена, длительность, сезон, программа и отмена — теми же функциями, что MCP
 // и /api/tours (#3487): одно поле — одна строка на всех поверхностях.
@@ -366,7 +368,7 @@ function SectionTitle({ children, icon: Icon, iconColor }: {
 
 /* ─── Main Component ─── */
 
-export default function TourDetailClient({ tour, reviews = [], askSeatsFirst = false, seasonWindow = null, seasonNote = null, placeOffers = null, calendarRange = null, prefill = {} }: { prefill?: { date?: string; guests?: number }; tour: TourFull; reviews?: TourReview[]; askSeatsFirst?: boolean; seasonWindow?: SeasonWindowView | null; seasonNote?: string | null; placeOffers?: PlaceOffersView | null; /** Первая и последняя дата календаря — подпись сезона, когда он не записан (#3487). */ calendarRange?: CalendarRange | null }) {
+export default function TourDetailClient({ tour, reviews = [], askSeatsFirst = false, seasonWindow = null, seasonNote = null, placeOffers = null, calendarRange = null, promotions = [], prefill = {} }: { prefill?: { date?: string; guests?: number }; tour: TourFull; reviews?: TourReview[]; askSeatsFirst?: boolean; seasonWindow?: SeasonWindowView | null; seasonNote?: string | null; placeOffers?: PlaceOffersView | null; /** Первая и последняя дата календаря — подпись сезона, когда он не записан (#3487). */ calendarRange?: CalendarRange | null; promotions?: TourPromotionView[] }) {
   const router = useRouter();
   const dayStatus = useDayStatus();
   const [wishlisted, setWishlisted] = useState(false);
@@ -817,6 +819,10 @@ export default function TourDetailClient({ tour, reviews = [], askSeatsFirst = f
                 )}
               </div>
             </section>
+
+            {/* Акция оператора — его слово о своём туре, со сроком и источником
+                (слово владельца 17.11 «покажи»). Цену не меняет. */}
+            <TourPromotions promotions={promotions} />
 
             {/* Рыбалка по сезонам — только для туров, где упомянуты виды рыб
                 (решение владельца 06.08). Вопросный заголовок — цитируемый

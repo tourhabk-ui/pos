@@ -31,7 +31,7 @@ import { notifyOwnerPartnerSites } from '@/lib/telegram/admin-notify';
 import { kamchatkaToday } from '@/lib/planner/calendar-days';
 import type { TgSendOutcome } from '@/lib/notifications/tg-send';
 import {
-  TEXT_CAP, WATCH_BODY_LIMIT, WATCH_USER_AGENT, baselineMessage, cutSnapshotDiff, fullPageText, legacyReadWasCut, meaningfulDiff,
+  OWN_SITE_HOSTS, TEXT_CAP, WATCH_BODY_LIMIT, WATCH_USER_AGENT, baselineMessage, cutSnapshotDiff, fullPageText, legacyReadWasCut, meaningfulDiff,
   ownerMessages, robotsDisallows, textHash, watchEvent,
   type PageOutcome, type PageReport, type Snapshot, type TextDiff, type WatchedPage,
 } from '@/lib/partners/site-watch';
@@ -61,13 +61,16 @@ export async function watchedPages(limit = PAGES_PER_RUN): Promise<WatchedRow[]>
        SELECT t.operator_id, t.title::text AS title, btrim(t.source_url) AS url
          FROM operator_tours t
         WHERE ${publicTourSql('t')}
-     ), watched AS (
+     ), watched_all AS (
        SELECT s.id, s.name, s.managed,
               CASE WHEN s.website ~* '^https?://' THEN s.website ELSE 'https://' || s.website END AS home,
               lower(regexp_replace(substring(s.website from '^(?:[a-zA-Z]+://)?([^/:?#]+)'), '^www\\.', '')) AS host
          FROM site s
         WHERE s.website IS NOT NULL
           AND (s.verified OR s.managed OR EXISTS (SELECT 1 FROM live l WHERE l.operator_id = s.id))
+     ), watched AS (
+       -- Сайт Ведара — не сайт партнёра (OWN_SITE_HOSTS).
+       SELECT * FROM watched_all WHERE host IS NULL OR host <> ALL($1::text[])
      ), pages AS (
        SELECT w.id AS partner_id, w.name AS partner_name, w.managed, l.url, array_agg(DISTINCT l.title) AS tours
          FROM watched w
@@ -81,6 +84,7 @@ export async function watchedPages(limit = PAGES_PER_RUN): Promise<WatchedRow[]>
      SELECT DISTINCT ON (pg.url) pg.partner_id::text AS partner_id, pg.partner_name, pg.url, pg.tours, pg.managed
        FROM pages pg
       ORDER BY pg.url, cardinality(pg.tours) DESC`,
+    [[...OWN_SITE_HOSTS]],
   );
   const last = await pool.query<{ url: string; at: string }>(
     `SELECT url, MAX(checked_at)::text AS at FROM partner_page_snapshots GROUP BY url`,
