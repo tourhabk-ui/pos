@@ -536,3 +536,42 @@ withPg('зона планера: южная по широте, записанн�
     expect(await match('avachinsky')).toEqual(['city', 'khodutka']);
   });
 });
+
+/**
+ * Миграция 1463 (#3467) на настоящем PostgreSQL: у тура «Зеленовские озерки»
+ * уходят «радоновая вода» и медицинское обещание, строка «не входит» — без
+ * имени комплекса, примечание к цене — одно; повтор ничего не меняет.
+ */
+withPg('миграция 1463: противоречия в карточке тура «Зеленовские озерки»', () => {
+  let pool: Pool;
+  beforeAll(async () => {
+    const { Pool: PgPool } = await import('pg');
+    pool = new PgPool({ connectionString: await createTestDatabase(PG_URL, 'migration_1463_test'), max: 1 });
+  });
+  afterAll(async () => { await pool?.end(); });
+
+  it('радон и обещание сняты, примечание одно; повтор — без изменений', async () => {
+    // Тур заводит сама 1339 (шаблон базы собран из всех миграций): прежний
+    // текст оператора возвращается в строку, и миграция судится на нём.
+    const seeded = await pool.query(
+      `UPDATE operator_tours SET description = $1, not_included = $2, price_note = NULL
+        WHERE slug = 'lagexp-zelenovskie-ozerki'`,
+      ['Поездка до термальных источников с радоновой водой, где можно отдохнуть.\nВода в этих источниках богата микроэлементами, помогает снять усталость и напряжение, улучшить кровообращение, укрепить иммунитет и повысить общий тонус организма.\nОбед.',
+        ['входные билеты в санатории «Раздолье Камчатки» (бассейны с радоновой водой)']],
+    );
+    expect(seeded.rowCount, 'тур 1339 есть в базе').toBe(1);
+    const { readFileSync } = await import('node:fs');
+    const { join } = await import('node:path');
+    const sql = readFileSync(join(process.cwd(), 'migrations', '1463_content_contradictions_3467.sql'), 'utf8');
+    const read = async () => (await pool.query<{ description: string; not_included: string[]; price_note: string | null }>(
+      `SELECT description, not_included, price_note FROM operator_tours WHERE slug = 'lagexp-zelenovskie-ozerki'`,
+    )).rows[0]!;
+    await pool.query(sql);
+    const once = await read();
+    expect(once.description).toBe('Поездка до термальных источников, где можно отдохнуть.\nОбед.');
+    expect(once.not_included).toEqual(['входные билеты в бассейны — оплачиваются на месте']);
+    expect(once.price_note).toMatch(/^Куда именно везут, на сайте оператора сказано по-разному/);
+    await pool.query(sql);
+    expect(await read()).toEqual(once);
+  });
+});

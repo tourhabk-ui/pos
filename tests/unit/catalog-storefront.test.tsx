@@ -159,6 +159,18 @@ describe('карточка говорит только то, что знает (
     expect(screen.queryByText(/Сезон 20\d\d/)).toBeNull();
   });
 
+  it('оператор выезжает в любой день сезона — его словом, с месяцами сезона; признак без сезона — прежняя строка (#3476)', () => {
+    storefront([
+      tour({ id: 11, slug: 'any', title: 'Тур в любой день', any_day_open: true }),
+      tour({ id: 12, slug: 'any-dates', title: 'Тур в любой день с датами', any_day_open: true, has_availability: true }),
+      tour({ id: 13, slug: 'any-noseason', title: 'Признак без сезона', any_day_open: true, season_start: null, season_end: null }),
+    ]);
+    expect(within(card('Тур в любой день')).getByText(/^Любой день сезона \([а-я]+( — [а-я]+)?( \d{4})?( — [а-я]+)? \d{4}\) — дату подтверждает оператор$/)).toBeInTheDocument();
+    // Есть даты календаря — карточка говорит о них, как прежде.
+    expect(within(card('Тур в любой день с датами')).getByText('Есть даты')).toBeInTheDocument();
+    expect(within(card('Признак без сезона')).getByText('Даты по запросу')).toBeInTheDocument();
+  });
+
   it('кнопка честная: с датами — «Отправить заявку», без — «Оставить заявку»; обе — на #booking канонического адреса', () => {
     const { container } = storefront();
     expect(within(card('Тур с датами')).getByRole('link', { name: /Отправить заявку/ }).getAttribute('href')).toBe('/catalog/tours/a#booking');

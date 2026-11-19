@@ -346,3 +346,43 @@ export function detectFishSpecies(text: string): FishSpecies[] {
   const specific = found.filter(sp => sp.id !== 'losos');
   return specific.length > 0 ? specific : found;
 }
+
+/**
+ * Месяцы сезона тура (1-12) по его датам начала и конца — для сверки с
+ * календарём клёва (#3467). Сезон через Новый год («ноябрь — январь»)
+ * переходит через декабрь; сезон в год и дольше — все двенадцать месяцев.
+ * Дата не записана или не читается — null: сезона мы не знаем, и сверять
+ * не с чем (§4.0), а не «сезон пуст».
+ */
+export function seasonMonthsBetween(
+  start: string | Date | null | undefined,
+  end: string | Date | null | undefined,
+): number[] | null {
+  const ym = (d: string | Date | null | undefined): { y: number; m: number } | null => {
+    if (d instanceof Date) return Number.isNaN(d.getTime()) ? null : { y: d.getFullYear(), m: d.getMonth() + 1 };
+    if (typeof d !== 'string') return null;
+    const hit = /^(\d{4})-(\d{2})/.exec(d.trim());
+    if (!hit) return null;
+    const m = Number(hit[2]);
+    return m >= 1 && m <= 12 ? { y: Number(hit[1]), m } : null;
+  };
+  const s = ym(start);
+  const e = ym(end);
+  if (!s || !e) return null;
+  const span = (e.y - s.y) * 12 + (e.m - s.m);
+  if (span < 0) return null;
+  if (span >= 11) return [1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12];
+  return Array.from({ length: span + 1 }, (_, i) => ((s.m - 1 + i) % 12) + 1);
+}
+
+/**
+ * Виды из текста тура, которых календарь справочника не показывает ни в один
+ * месяц сезона тура. Случай #3467: зимняя подлёдная рыбалка называет хариуса
+ * и кунжу, а календарь даёт им июнь–сентябрь и июль–сентябрь. Кто прав, Ведар
+ * не знает: календарь — общий справочник клёва, а что ловится в туре, говорит
+ * оператор. Поэтому расхождение не прячется, а называется словами.
+ */
+export function speciesOutsideMonths(species: FishSpecies[], months: number[] | null): FishSpecies[] {
+  if (!months || months.length === 0) return [];
+  return species.filter(sp => !sp.seasonMonths.some(m => months.includes(m)));
+}
