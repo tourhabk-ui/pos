@@ -1,0 +1,6 @@
+{
+  "endpoint": "https://vedarai.ru/api/mcp",
+  "buildSteps": ["npm install -g mcp-remote@0.15.2"],
+  "cmdArguments": ["mcp-remote", "https://vedarai.ru/api/mcp", "--transport", "http-only"],
+  "mcpProxyVersion": "6.9.0"
+}
