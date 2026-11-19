@@ -53,6 +53,12 @@ export interface ServerErrorRow {
   paths: string[] | null;
   last_digest: string | null;
   last_stack: string | null;
+  /**
+   * Строки этой группы — обрыв соединения, а не ошибка страницы
+   * (`lib/server-errors/connection-abort.ts`). Перепись группирует по
+   * маршруту И этому признаку, поэтому у одного маршрута бывает две строки.
+   */
+  connection_abort?: boolean;
 }
 
 /** Маршрут без query и фрагмента: без шаблона (`routePath`) туда попадал сырой адрес. */
@@ -69,6 +75,7 @@ export function scrubServerErrorRow(r: ServerErrorRow): ServerErrorRow {
   return {
     ...r,
     n: Number(r.n),
+    connection_abort: r.connection_abort === true,
     route: r.route === null ? null : routeOnly(r.route),
     last_message: r.last_message === null ? null : scrubErrorText(r.last_message, 300),
     last_stack: r.last_stack === null ? null : (scrubErrorText(r.last_stack, 400) || null),
@@ -80,9 +87,15 @@ export function scrubServerErrorRow(r: ServerErrorRow): ServerErrorRow {
  * Текст дайджеста для Telegram (HTML). Пустой список сюда не передаётся:
  * «ошибок нет» решает вызывающий и не шлёт ничего.
  *
+ * Обрывы соединения в счёт ошибок не входят: о них одна строка в конце —
+ * сколько и на каких маршрутах, со словами, что страница не падала.
+ *
  * @param truncated перепись упёрлась в `ROUTE_LIMIT` — маршрутов могло быть больше
+ * @param aborts строки переписи с признаком `connection_abort`
  */
-export function serverErrorsDigestText(hours: number, rows: ServerErrorRow[], truncated: boolean): string {
+export function serverErrorsDigestText(
+  hours: number, rows: ServerErrorRow[], truncated: boolean, aborts: ServerErrorRow[] = [],
+): string {
   const total = rows.reduce((s, r) => s + Number(r.n), 0);
   const routes = truncated ? `не меньше ${rows.length}` : String(rows.length);
   const lines: string[] = [];
@@ -100,6 +113,22 @@ export function serverErrorsDigestText(hours: number, rows: ServerErrorRow[], tr
   if (rows.length > DIGEST_TOP) {
     lines.push(`Остальные маршруты: ${truncated ? 'не меньше ' : ''}${rows.length - DIGEST_TOP}.`);
   }
+  const abortLine = connectionAbortsLine(aborts);
+  if (abortLine) lines.push(escapeHtml(abortLine));
   lines.push('Стеки и адреса здесь не показываются — они в переписи /api/cron/prod-errors.');
   return lines.join('\n').slice(0, 3500);
+}
+
+/**
+ * Одна строка об обрывах соединения — для дайджеста и для ответа переписи.
+ * Обрывов нет — `null`: строки нет, а не «0 обрывов».
+ */
+export function connectionAbortsLine(aborts: readonly ServerErrorRow[]): string | null {
+  if (aborts.length === 0) return null;
+  const n = aborts.reduce((s, r) => s + Number(r.n), 0);
+  const routes = [...new Set(aborts.map((r) => routeOnly(r.route ?? 'unknown')))];
+  const shown = routes.slice(0, DIGEST_TOP).join(', ');
+  const more = routes.length > DIGEST_TOP ? ` и ещё ${routes.length - DIGEST_TOP}` : '';
+  return `Обрывы соединения: не меньше ${n} (${shown}${more}). ` +
+    'Посетитель ушёл или связь оборвалась, пока сервер дописывал ответ; страница не падала, в счёт ошибок не входят.';
 }

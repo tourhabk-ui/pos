@@ -22,6 +22,7 @@ import { findOrphanHubPages, findPostWithoutClientUsage, findUnattributedAffilia
 import { paymentAvailability } from '@/lib/payments/availability';
 import { platformAcceptsPayments } from '@/lib/payments/accepting';
 import { scanKuzmichStall } from '@/lib/agents/evo/kuzmich-stall-lens';
+import { CONNECTION_ABORT_SQL } from '@/lib/server-errors/connection-abort';
 
 export interface GrowthIssue {
   // 'compliance' — требования закона (маркировка рекламы, 152-ФЗ): не баг и не
@@ -654,13 +655,17 @@ const MAX_MOCK_FILES = 20;
  * Объектив агрегирует их за сутки и рождает детерминированные находки.
  * Заголовок СТАБИЛЕН (без счётчиков): дедуп находок идёт по file_path+title,
  * и «Прод 500: /api/x (17 за сутки)» плодил бы новую находку каждый день.
+ *
+ * Обрыв соединения (посетитель ушёл посреди ответа, стек целиком во
+ * внутренностях Node.js) находкой не становится: страница не падала, чинить
+ * нечего (слово владельца 19.11 «1», `lib/server-errors/connection-abort.ts`).
  */
 export function prodRouteToFile(route: string): string | undefined {
   if (!route.startsWith('/api/')) return undefined;
   return `app${route}/route.ts`;
 }
 
-async function scanProdErrors(): Promise<GrowthIssue[]> {
+export async function scanProdErrors(): Promise<GrowthIssue[]> {
   const { rows } = await pool.query<{ route: string | null; n: number; last_message: string | null; methods: string | null }>(
     `SELECT metadata->>'route' AS route,
             COUNT(*)::int AS n,
@@ -668,6 +673,7 @@ async function scanProdErrors(): Promise<GrowthIssue[]> {
             STRING_AGG(DISTINCT metadata->>'method', '/') AS methods
      FROM ai_actions_log
      WHERE action_type = 'server_error' AND created_at > NOW() - INTERVAL '25 hours'
+       AND NOT ${CONNECTION_ABORT_SQL}
      GROUP BY 1 ORDER BY n DESC LIMIT 20`,
   );
   return rows

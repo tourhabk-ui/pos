@@ -33,6 +33,7 @@ import { NextRequest, NextResponse } from 'next/server';
 import { pool } from '@/lib/db-pool';
 import { timingSafeCompare } from '@/lib/security/timing-safe';
 import { getCronSecret } from '@/lib/auth/cron';
+import { CONNECTION_ABORT_SQL } from '@/lib/server-errors/connection-abort';
 
 export const dynamic     = 'force-dynamic';
 export const maxDuration = 60;
@@ -111,6 +112,8 @@ export async function GET(req: NextRequest) {
     )).rows),
 
     // Сорванные попытки: 500 на маршрутах брони. Журнал onRequestError.
+    // Обрыв соединения посреди ответа (посетитель ушёл, сервер не падал) —
+    // не сорванная попытка: `lib/server-errors/connection-abort.ts`.
     measure('server_errors', async () => (await pool.query<{
       route: string | null; n: number; last_message: string | null; last_at: string | null;
     }>(
@@ -122,6 +125,7 @@ export async function GET(req: NextRequest) {
         WHERE action_type = 'server_error'
           AND created_at > ${W}
           AND metadata->>'route' = ANY($2::text[])
+          AND NOT ${CONNECTION_ABORT_SQL}
         GROUP BY 1
         ORDER BY n DESC`,
       [days, BOOKING_ROUTES as unknown as string[]],
@@ -163,7 +167,7 @@ export async function GET(req: NextRequest) {
     // Сорванные попытки — но только те, что упали пятисоткой.
     failed_with_500: errors.value,
     failed_500_total: errors.value ? errors.value.reduce((s, r) => s + r.n, 0) : null,
-    not_counted_as_failure: 'отказ валидации (400), закрытая вкладка, передумал — следа не оставляют',
+    not_counted_as_failure: 'отказ валидации (400), закрытая вкладка, передумал — следа не оставляют; обрыв соединения посреди ответа в журнале есть, но сорванной попыткой не считается',
 
     leads_by_status: leads.value,
 
