@@ -73,6 +73,9 @@ export const PLATFORM_SECTIONS: PlatformSection[] = [
       { label: 'Популярное',              href: '/trending',       icon: Flame },
       { label: 'Подборки маршрутов',      href: '/collections',    icon: Layers },
       { label: 'Готовые планы поездок',   href: '/plans',          icon: ListChecks },
+      // Посчитаны из базы (разбор видимости в ответах ИИ, 19.11).
+      { label: 'Сколько стоит поездка',   href: '/skolko-stoit-poezdka-na-kamchatku', icon: Ticket },
+      { label: 'Когда ехать на Камчатку', href: '/kogda-ehat-na-kamchatku', icon: CalendarDays },
       { label: 'Конструктор маршрута',    href: '/planner',        icon: Route },
       { label: 'Жильё',                   href: '/accommodations', icon: BedDouble },
       { label: 'Избранное',               href: '/wishlist',       icon: Heart },
