@@ -10,7 +10,7 @@
  * в дверь своей поездки.
  */
 import { describe, it, expect, vi, afterEach } from 'vitest';
-import { render, screen, cleanup, waitFor } from '@testing-library/react';
+import { render, screen, cleanup, waitFor, fireEvent, within } from '@testing-library/react';
 import React from 'react';
 import { TripNowCheck, TripNowView } from '@/components/trips/TripNowCheck';
 import type { TripNow, TripNowDay } from '@/lib/trips/trip-now-types';
@@ -22,7 +22,7 @@ const REBUILD = '/planner?arrival=2026-10-24&days=3';
 function day(over: Partial<TripNowDay> = {}): TripNowDay {
   return {
     day: 1, date: '2026-10-24', added: [], gone: [], availability: null,
-    weather: null, weather_state: 'not_checked', ...over,
+    weather: null, weather_state: 'not_checked', replaceable: true, activity: 'volcano', ...over,
   };
 }
 function checked(days: TripNowDay[], over: Partial<Extract<TripNow, { state: 'checked' }>> = {}): TripNow {
@@ -149,5 +149,87 @@ describe('TripNowCheck — запрос своей поездки', () => {
     vi.stubGlobal('fetch', vi.fn(async () => ({ json: async () => ({ success: true, data: { id: 'trip-1', days: [] } }) })));
     render(<TripNowCheck tripId="t-4" savedAt="2026-10-01" rebuildHref={REBUILD} />);
     await waitFor(() => expect(screen.getByTestId('trip-now-failed')).toBeTruthy());
+  });
+});
+
+describe('замена дня новым черновиком (#3394, срез 2)', () => {
+  const DRAFT = '22222222-3333-4444-8555-666666666666';
+  const withTrip = (now: TripNow) =>
+    render(<TripNowView now={now} savedAt="2026-10-01T03:00:00.000Z" rebuildHref={REBUILD} tripId="t-9" />);
+
+  it('кнопка — только у дня с новым предупреждением, который можно заменить; без id поездки кнопки нет', () => {
+    const now = checked([
+      day({ day: 1, added: ['Шторм'] }),
+      day({ day: 2, date: '2026-10-25', gone: ['Старое'] }),
+      day({ day: 3, date: '2026-10-26', added: ['Закрыт парк'], replaceable: false }),
+    ]);
+    const { unmount } = withTrip(now);
+    expect(screen.getByTestId('trip-now-replace-1')).toBeTruthy();
+    expect(screen.queryByTestId('trip-now-replace-2')).toBeNull();
+    expect(screen.queryByTestId('trip-now-replace-3')).toBeNull();
+    unmount();
+    view(now);
+    expect(screen.queryByTestId('trip-now-replace-1')).toBeNull();
+  });
+
+  it('в списке нет занятия, которое уже стоит в дне', () => {
+    withTrip(checked([day({ added: ['Шторм'], activity: 'volcano' })]));
+    const select = screen.getByLabelText('Заменить день 1 на') as HTMLSelectElement;
+    const values = Array.from(select.options).map((o) => o.value);
+    expect(values).not.toContain('volcano');
+    expect(values).toContain('thermal');
+  });
+
+  it('подобрано — новый черновик со словами правила, строками нового дня и ссылкой; поездка не изменилась', async () => {
+    const fetchMock = vi.fn(async () => ({ json: async () => ({ success: true, data: {
+      state: 'drafted', draft_id: DRAFT,
+      note: 'Заменил день 1 (24 октября): было «Авачинский вулкан», стало «Паратунка». Остальные дни не менялись.',
+      day: { day: 1, date: '2026-10-24', title: 'Паратунка', zone: 'avachinsky', warnings: ['Шторм в Авачинской зоне'] },
+      plan_warnings: ['Сводка МЧС не прочитана'],
+    } }) }));
+    vi.stubGlobal('fetch', fetchMock);
+    withTrip(checked([day({ added: ['Шторм'] })]));
+    fireEvent.change(screen.getByLabelText('Заменить день 1 на'), { target: { value: 'thermal' } });
+    fireEvent.click(screen.getByRole('button', { name: /Подобрать замену/ }));
+    const box = await screen.findByTestId('trip-now-draft-1');
+    expect(fetchMock).toHaveBeenCalledWith('/api/trips/t-9/replace-day', expect.objectContaining({ method: 'POST' }));
+    const [, init] = fetchMock.mock.calls[0] as unknown as [string, { body: string }];
+    expect(JSON.parse(init.body)).toEqual({ day: 1, interest: 'thermal' });
+    expect(box.textContent).toContain('было «Авачинский вулкан», стало «Паратунка»');
+    // Замена не обещает, что предупреждение снято: строка нового дня — как есть.
+    expect(box.textContent).toContain('Шторм в Авачинской зоне');
+    expect(box.textContent).toContain('Сводка МЧС не прочитана');
+    expect(box.textContent).toContain('Ваша поездка не изменилась');
+    expect(within(box).getByRole('link', { name: 'Открыть черновик' }).getAttribute('href')).toBe(`/trip/${DRAFT}`);
+  });
+
+  it('у нового дня строк нет — так и сказано', async () => {
+    vi.stubGlobal('fetch', vi.fn(async () => ({ json: async () => ({ success: true, data: {
+      state: 'drafted', draft_id: DRAFT, note: 'Заменил день 1.', plan_warnings: [],
+      day: { day: 1, date: '2026-10-24', title: 'Паратунка', zone: 'avachinsky', warnings: [] },
+    } }) })));
+    withTrip(checked([day({ added: ['Шторм'] })]));
+    fireEvent.click(screen.getByRole('button', { name: /Подобрать замену/ }));
+    expect((await screen.findByTestId('trip-now-draft-1')).textContent).toContain('У нового дня предупреждений нет.');
+  });
+
+  it('отказ правила — его причина; сбой сети и чужая форма ответа — «не получилось»', async () => {
+    vi.stubGlobal('fetch', vi.fn(async () => ({ json: async () => ({ success: true, data: { state: 'refused', reason: 'День 1 — день прилёта, его не заменяют.' } }) })));
+    const { unmount } = withTrip(checked([day({ added: ['Шторм'] })]));
+    fireEvent.click(screen.getByRole('button', { name: /Подобрать замену/ }));
+    expect((await screen.findByRole('status')).textContent).toBe('День 1 — день прилёта, его не заменяют.');
+    unmount();
+
+    vi.stubGlobal('fetch', vi.fn(async () => { throw new Error('offline'); }));
+    const second = withTrip(checked([day({ added: ['Шторм'] })]));
+    fireEvent.click(screen.getByRole('button', { name: /Подобрать замену/ }));
+    expect((await screen.findByRole('status')).textContent).toContain('Подобрать замену не получилось');
+    second.unmount();
+
+    vi.stubGlobal('fetch', vi.fn(async () => ({ json: async () => ({ success: true, data: { state: 'drafted', draft_id: 'x' } }) })));
+    withTrip(checked([day({ added: ['Шторм'] })]));
+    fireEvent.click(screen.getByRole('button', { name: /Подобрать замену/ }));
+    expect((await screen.findByRole('status')).textContent).toContain('Подобрать замену не получилось');
+    expect(screen.queryByTestId('trip-now-draft-1')).toBeNull();
   });
 });

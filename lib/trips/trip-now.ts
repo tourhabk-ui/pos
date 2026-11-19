@@ -26,6 +26,7 @@ import type { DayPlan } from '@/lib/planner/engine';
 import { DEFAULT_SAFETY_DEPS, refreshDatedSafety, type SafetyRefreshDeps } from '@/lib/planner/plan-safety-refresh';
 import { dateOfTripDay } from '@/lib/planner/flow-balance';
 import { kamchatkaToday } from '@/lib/planner/calendar-days';
+import { MOVABLE_TYPES, tourGroup } from '@/lib/planner/plan-ops';
 import { createPlannerCache } from '@/lib/planner';
 import type { TripDayAvailability } from './day-availability';
 import { FORECAST_HORIZON_DAYS, readDayAvailability, readDayForecast, type TripDayForecast } from './day-fresh';
@@ -39,6 +40,7 @@ export interface SavedTripDay {
   zone: string;
   title: string;
   type?: string;
+  activityType?: string;
   coords?: readonly [number, number] | readonly number[];
   realTour?: { tourId: string } | null;
   availableDate?: string;
@@ -131,7 +133,10 @@ export async function checkTripNow(trip: SavedTripForNow, deps: TripNowDeps = de
     const weather_state: TripNowDay['weather_state'] = coords === null ? 'not_checked'
       : !askWeather ? 'later'
       : weather ? 'ok' : 'unavailable';
-    return { day: d.day, date, added, gone, availability, weather, weather_state };
+    const type = d.type ?? 'activity';
+    const replaceable = MOVABLE_TYPES.has(type) && tourGroup(trip.days, d).length <= 1;
+    const activity = type === 'activity' && typeof d.activityType === 'string' && d.activityType !== '' ? d.activityType : null;
+    return { day: d.day, date, added, gone, availability, weather, weather_state, replaceable, activity };
   }));
 
   return {

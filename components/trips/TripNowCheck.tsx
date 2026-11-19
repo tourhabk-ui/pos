@@ -8,11 +8,17 @@
  * изменилось с дня сохранения: появившиеся и снятые предупреждения дней, места
  * туров на их даты, прогноз в пределах 16 суток. Чего не проверили — так и
  * сказано: «не проверено» не выдаётся за «всё хорошо» (§4.0).
+ *
+ * Срез 2 (слово владельца 19.11 «3394 срез 2 делай»): у дня, где появилось
+ * новое предупреждение, — «Подобрать замену». Человек выбирает занятие, сервер
+ * подбирает день правилом плана и кладёт результат новым черновиком
+ * (POST /api/trips/[id]/replace-day). Поездка не меняется.
  */
 import Link from 'next/link';
 import { useEffect, useState } from 'react';
-import { AlertTriangle, CheckCircle2, CloudSun, Info, Users } from 'lucide-react';
-import type { TripNow, TripNowDay } from '@/lib/trips/trip-now-types';
+import { AlertTriangle, CheckCircle2, CloudSun, Info, Repeat, Users } from 'lucide-react';
+import { isReplaceDayOutcome, type ReplaceDayOutcome, type TripNow, type TripNowDay } from '@/lib/trips/trip-now-types';
+import { ACTIVITY_NAMES } from '@/lib/planner/constants';
 import { dayAvailabilityLine, ddmmOf } from '@/lib/trips/day-availability';
 import { kamchatkaStamp } from '@/lib/safety/place-day-status';
 import { formatKamchatkaDate } from '@/lib/admin/kamchatka-date';
@@ -23,8 +29,89 @@ function dayLabel(d: TripNowDay): string {
   return `День ${d.day}, ${ddmmOf(d.date)}`;
 }
 
+type ReplaceState = 'idle' | 'busy' | 'failed' | ReplaceDayOutcome;
+
+/**
+ * Замена дня новым черновиком. Занятие выбирает человек; что вышло — словами
+ * правила плана, со строками нового дня как есть: замена не обещает, что
+ * предупреждение снимется (штормовое по зоне останется и на новом дне).
+ */
+export function ReplaceDay({ tripId, day, current }: { tripId: string; day: number; current: string | null }) {
+  const options = Object.entries(ACTIVITY_NAMES).filter(([key]) => key !== current);
+  const [interest, setInterest] = useState(options[0]?.[0] ?? '');
+  const [state, setState] = useState<ReplaceState>('idle');
+
+  const submit = () => {
+    setState('busy');
+    fetch(`/api/trips/${tripId}/replace-day`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ day, interest }),
+    })
+      .then((r) => r.json() as Promise<{ success?: boolean; data?: unknown }>)
+      // 503 «черновик не записался» приходит с success и state 'failed' —
+      // его слова показываются как есть.
+      .then((d) => setState(d.success && isReplaceDayOutcome(d.data) ? d.data : 'failed'))
+      .catch(() => setState('failed'));
+  };
+
+  return (
+    <div className="mt-2 space-y-2" data-testid={`trip-now-replace-${day}`}>
+      <div className="flex flex-wrap items-center gap-2">
+        <label className="text-xs text-[var(--text-secondary)]" htmlFor={`replace-${day}`}>Заменить день {day} на</label>
+        <select id={`replace-${day}`} className="ds-input text-base sm:text-sm py-1 w-auto"
+          value={interest} onChange={(e) => setInterest(e.target.value)} disabled={state === 'busy'}>
+          {options.map(([key, name]) => <option key={key} value={key}>{name}</option>)}
+        </select>
+        <button type="button" className="ds-btn ds-btn-secondary text-sm" onClick={submit}
+          disabled={state === 'busy' || interest === ''}>
+          <Repeat className="w-3.5 h-3.5" aria-hidden />
+          {state === 'busy' ? 'Подбираю…' : 'Подобрать замену'}
+        </button>
+      </div>
+      {state === 'failed' && (
+        <p className="text-xs text-[var(--text-secondary)]" role="status">
+          Подобрать замену не получилось — попробуйте ещё раз.
+        </p>
+      )}
+      {typeof state === 'object' && state.state !== 'drafted' && (
+        <p className="text-xs text-[var(--text-secondary)]" role="status">{state.reason}</p>
+      )}
+      {typeof state === 'object' && state.state === 'drafted' && (
+        <div className="text-xs space-y-1" role="status" data-testid={`trip-now-draft-${day}`}>
+          <p className="text-[var(--text-primary)]">Новый черновик: {state.note}</p>
+          {state.day.warnings.length > 0
+            ? (
+              <ul className="space-y-1">
+                {state.day.warnings.map((w, i) => (
+                  <li key={i} className="flex items-start gap-1.5 text-[var(--warning)]">
+                    <AlertTriangle className="w-3 h-3 shrink-0 mt-0.5" aria-hidden /><span>{w}</span>
+                  </li>
+                ))}
+              </ul>
+            )
+            : <p className="text-[var(--text-secondary)]">У нового дня предупреждений нет.</p>}
+          {state.plan_warnings.length > 0 && (
+            <ul className="space-y-1">
+              {state.plan_warnings.map((w, i) => (
+                <li key={i} className="flex items-start gap-1.5 text-[var(--text-secondary)]">
+                  <Info className="w-3 h-3 shrink-0 mt-0.5" aria-hidden /><span>{w}</span>
+                </li>
+              ))}
+            </ul>
+          )}
+          <p className="text-[var(--text-secondary)]">
+            <Link href={`/trip/${state.draft_id}`} className="text-[var(--ocean)] hover:underline">Открыть черновик</Link>
+            {' '}— карта, места и погода на новые дни. Ваша поездка не изменилась; черновик открывается 7 дней.
+          </p>
+        </div>
+      )}
+    </div>
+  );
+}
+
 /** Что изменилось в строках безопасности. Нет изменений — так и сказано. */
-function SafetyChanges({ days }: { days: TripNowDay[] }) {
+function SafetyChanges({ days, tripId }: { days: TripNowDay[]; tripId?: string }) {
   const changed = days.filter((d) => d.added.length > 0 || d.gone.length > 0);
   if (changed.length === 0) {
     return (
@@ -51,6 +138,9 @@ function SafetyChanges({ days }: { days: TripNowDay[] }) {
               <span><span className="font-semibold">Больше не действует:</span> {t}</span>
             </p>
           ))}
+          {tripId && d.added.length > 0 && d.replaceable && (
+            <ReplaceDay tripId={tripId} day={d.day} current={d.activity} />
+          )}
         </li>
       ))}
     </ul>
@@ -110,10 +200,12 @@ function Weather({ days }: { days: TripNowDay[] }) {
 }
 
 /** Вид блока — чистый, под тестом рендером. */
-export function TripNowView({ now, savedAt, rebuildHref }: {
+export function TripNowView({ now, savedAt, rebuildHref, tripId }: {
   now: TripNow | 'loading' | 'failed';
   savedAt: string;
   rebuildHref: string;
+  /** Есть — у дня с новым предупреждением кнопка «Подобрать замену». */
+  tripId?: string;
 }) {
   let body: React.ReactNode;
   if (now === 'loading') {
@@ -144,7 +236,7 @@ export function TripNowView({ now, savedAt, rebuildHref }: {
         <p className="text-xs text-[var(--text-muted)]">
           Проверено {kamchatkaStamp(now.checked_at)} по Камчатке; план сохранён {formatKamchatkaDate(savedAt)}.
         </p>
-        <SafetyChanges days={now.days} />
+        <SafetyChanges days={now.days} tripId={tripId} />
         {now.plan_warnings.length > 0 && (
           <ul className="space-y-1" data-testid="trip-now-plan-warnings">
             {now.plan_warnings.map((w, i) => (
@@ -199,5 +291,5 @@ export function TripNowCheck({ tripId, savedAt, rebuildHref }: { tripId: string;
       .catch(() => { if (alive) setNow('failed'); });
     return () => { alive = false; };
   }, [tripId]);
-  return <TripNowView now={now} savedAt={savedAt} rebuildHref={rebuildHref} />;
+  return <TripNowView now={now} savedAt={savedAt} rebuildHref={rebuildHref} tripId={tripId} />;
 }
