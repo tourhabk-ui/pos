@@ -27,6 +27,7 @@
 import { MCP_CONNECT_OPTIONS, MCP_ENDPOINT, MCP_SERVER_KEY, type McpConnectOption } from '@/lib/mcp/connect';
 import { platformAcceptsPayments } from '@/lib/payments/accepting';
 import { paymentRuleZh } from '@/lib/mcp/payment-rule';
+import { ZH_PLACE_NAMES, ZH_WRONG_NAMES } from '@/lib/zh/place-names';
 
 /** Заголовок: латинское имя и «Камчатка» иероглифами — так бренд ищут, без голого vedarai. */
 export const MCP_TITLE_ZH = 'Vedar 堪察加 — 堪察加旅游信息门户';
@@ -383,6 +384,13 @@ export function llmsZhFile(base: string, acceptsPayments: boolean = platformAcce
     '- 租车（无司机，按天计价）：search_car_rental 查询；create_car_rental_request 提交租车申请（或在租车公司页面提交），由人工确认。',
     '',
     llmsSectionZh(base, acceptsPayments),
+    '',
+    // Как писать места по-китайски (#3382): тот же список, что подсказка MCP
+    // и поправка ответа Кузьмича (lib/zh/place-names).
+    '## 地名的中文写法',
+    '',
+    ...ZH_PLACE_NAMES.map((p) => `- ${p.zh}（${p.ru}）`),
+    ...ZH_WRONG_NAMES.map((w) => `- 注意：不要写“${w.wrong}”，应为“${w.right}”。`),
     '',
     '## 页面',
     '',

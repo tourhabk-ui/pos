@@ -31,6 +31,7 @@
  */
 
 import { localizeToolArgs, toolLangNote } from '@/lib/mcp/query-lang';
+import { zhPlaceNamesNote } from '@/lib/zh/place-names';
 import { wantsYuan, withYuan } from '@/lib/mcp/yuan-hint';
 import { loadCnyRate } from '@/lib/currency/cbr-rate';
 import { NextRequest, NextResponse } from 'next/server';
@@ -1359,7 +1360,9 @@ async function executeTool(
   });
   // Сбой исполнителя сличается с текстом как есть — пометка к нему не цепляется.
   if (text === TOOL_EXECUTION_FAILED) return text;
-  const noted = text + toolLangNote(name, localized);
+  // Китайский вопрос — и как писать по-китайски места из ответа (#3382:
+  // модели писали Курильское озеро «库页湖», то есть Сахалин).
+  const noted = text + toolLangNote(name, localized) + (localized.lang === 'zh' ? zhPlaceNamesNote(text) : '');
   // Китайскому клиенту — «约 N 元» по курсу ЦБ рядом с рублями (владелец
   // 14.11; lib/mcp/yuan-hint). Курс не прочитался — рубли и строка об этом.
   if (!wantsYuan(localized.lang, ctx.userAgent)) return noted;
