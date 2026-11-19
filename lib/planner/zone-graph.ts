@@ -18,26 +18,42 @@ export interface ZoneEdge {
   needsTravelDay: boolean;
 }
 
+/**
+ * Южная зона (#3394 п.3) — по образцу Северной: вертолётный день из Авачинской
+ * зоны туда и обратно (тур «Курильское озеро (вертолёт)» — 5 часов), а
+ * многодневные туры на внедорожнике везут и ночуют сами. Расстояния южной зоны —
+ * по прямой между точками зон (`ZONE_COORDS`), дорогой они длиннее.
+ */
 export const ZONE_GRAPH: Record<ZoneId, Partial<Record<ZoneId, ZoneEdge>>> = {
   avachinsky: {
     western:  { distanceKm: 300, travelHours: 7,    transports: ['jeep'],       needsTravelDay: true },
     eastern:  { distanceKm: 250, travelHours: 5,    transports: ['jeep', 'helicopter'], needsTravelDay: true },
     northern: { distanceKm: 400, travelHours: null,  transports: ['helicopter'], needsTravelDay: false },
+    southern: { distanceKm: 200, travelHours: null,  transports: ['helicopter', 'jeep'], needsTravelDay: false },
   },
   western: {
     avachinsky: { distanceKm: 300, travelHours: 7,   transports: ['jeep'],       needsTravelDay: true },
     eastern:    { distanceKm: 500, travelHours: null, transports: ['helicopter'], needsTravelDay: true },
     northern:   { distanceKm: 600, travelHours: null, transports: ['helicopter'], needsTravelDay: true },
+    southern:   { distanceKm: 120, travelHours: null, transports: ['helicopter'], needsTravelDay: true },
   },
   eastern: {
     avachinsky: { distanceKm: 250, travelHours: 5,   transports: ['jeep', 'helicopter'], needsTravelDay: true },
     western:    { distanceKm: 500, travelHours: null, transports: ['helicopter'],         needsTravelDay: true },
     northern:   { distanceKm: 200, travelHours: null, transports: ['helicopter'],         needsTravelDay: false },
+    southern:   { distanceKm: 430, travelHours: null, transports: ['helicopter'],         needsTravelDay: true },
   },
   northern: {
     avachinsky: { distanceKm: 400, travelHours: null, transports: ['helicopter'], needsTravelDay: false },
     eastern:    { distanceKm: 200, travelHours: null, transports: ['helicopter'], needsTravelDay: false },
     western:    { distanceKm: 600, travelHours: null, transports: ['helicopter'], needsTravelDay: true },
+    southern:   { distanceKm: 400, travelHours: null, transports: ['helicopter'], needsTravelDay: true },
+  },
+  southern: {
+    avachinsky: { distanceKm: 200, travelHours: null, transports: ['helicopter', 'jeep'], needsTravelDay: false },
+    western:    { distanceKm: 120, travelHours: null, transports: ['helicopter'], needsTravelDay: true },
+    eastern:    { distanceKm: 430, travelHours: null, transports: ['helicopter'], needsTravelDay: true },
+    northern:   { distanceKm: 400, travelHours: null, transports: ['helicopter'], needsTravelDay: true },
   },
 };
 

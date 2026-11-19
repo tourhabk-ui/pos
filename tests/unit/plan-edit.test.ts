@@ -136,9 +136,14 @@ describe('убрать и переставить', () => {
 
   it('переставить день внутри зоны: меняется только отрезок между местами', async () => {
     const p = await freshPlan();
+    // Отрезок внутри одной зоны: день «Медведи» с 19.11 — в южной зоне
+    // (#3394 п.3), и перенос через него — переезд, которого в плане нет.
     const movable = p.days.filter((d) => d.type === 'activity' || d.type === 'rest');
     expect(movable.length).toBeGreaterThanOrEqual(2);
-    const [a, b] = [movable[0], movable[movable.length - 1]];
+    const firstOther = p.days.findIndex((d) => d.day > movable[0].day && d.zone !== movable[0].zone);
+    const sameZone = movable.filter((d) => d.zone === movable[0].zone && (firstOther < 0 || d.day < p.days[firstOther].day));
+    expect(sameZone.length).toBeGreaterThanOrEqual(2);
+    const [a, b] = [sameZone[0], sameZone[sameZone.length - 1]];
     const r = await applyPlanEdit(p, { kind: 'move_day', day: b.day, to: a.day });
     expect(r.ok).toBe(true);
     if (!r.ok) return;

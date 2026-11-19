@@ -501,3 +501,38 @@ withPg('миграция 1460: Костакан и связи «Кальдеры
       .toBe('Озеро у вулкана Бакенинг.');
   });
 });
+
+
+/**
+ * Зона планера на настоящем PostgreSQL (#3394 п.3, слово владельца 19.11
+ * «отдельная зона»): Курильское озеро в базе — `western` по району, а день
+ * планера у него — южная зона. Предикат исполняется на строках с широтой и
+ * записанной зоной, без таблиц: судится сам CASE, как его разберёт сервер.
+ */
+withPg('зона планера: южная по широте, записанная — иначе', () => {
+  let pool: Pool;
+  beforeAll(async () => {
+    const { Pool: PgPool } = await import('pg');
+    pool = new PgPool({ connectionString: PG_URL, max: 1 });
+  });
+  afterAll(async () => { await pool?.end(); });
+
+  it('Курильское озеро — южной, не западной; Ходутка и город — своей; тур без зоны — только Авачинской', async () => {
+    const { zoneMatchSql, plannerZoneSql } = await import('@/lib/planner/zone-match');
+    const rows = `(VALUES ('kurile', 51.455::float8, 'western'::text), ('khodutka', 52.06, 'avachinsky'),
+                          ('esso', 55.93, 'western'), ('city', 53.01, NULL), ('nolat', NULL, 'western')) AS ark(id, lat, zone)`;
+    const zoneOf = async () => (await pool.query<{ id: string; z: string | null }>(
+      `SELECT id, ${plannerZoneSql('ark')} AS z FROM ${rows} ORDER BY id`,
+    )).rows;
+    expect(await zoneOf()).toEqual([
+      { id: 'city', z: null }, { id: 'esso', z: 'western' }, { id: 'khodutka', z: 'avachinsky' },
+      { id: 'kurile', z: 'southern' }, { id: 'nolat', z: 'western' },
+    ]);
+    const match = async (zone: string) => (await pool.query<{ id: string }>(
+      `SELECT id FROM ${rows} WHERE ${zoneMatchSql('ark', '$1')} ORDER BY id`, [zone],
+    )).rows.map((r) => r.id);
+    expect(await match('southern')).toEqual(['kurile']);
+    expect(await match('western')).toEqual(['esso', 'nolat']);
+    expect(await match('avachinsky')).toEqual(['city', 'khodutka']);
+  });
+});

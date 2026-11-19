@@ -261,7 +261,8 @@ describe('5. четыре зоны: четвёртая не отрезается
     TOURS = {
       'northern:geyser': [tour('g1', 'Долина гейзеров', 'northern', 'geyser')],
       'western:fishing': [tour('f1', 'Опала', 'western', 'fishing')],
-      'eastern:bears': [tour('b1', 'Медведи на Курильском', 'eastern', 'bears')],
+      // Курильское озеро — южная зона (#3394 п.3).
+      'southern:bears': [tour('b1', 'Медведи на Курильском', 'southern', 'bears')],
       'avachinsky:volcano': [tour('v1', 'Авачинский', 'avachinsky', 'volcano')],
     };
     SLOTS = { g1: 8, f1: 8, b1: 8, v1: 8 };
@@ -270,10 +271,10 @@ describe('5. четыре зоны: четвёртая не отрезается
   // Пруф разбора: 21 день, «Долина гейзеров» с местами на каждый день, а
   // Северной зоны в плане не было, пять дней пустые и в «Важно» — «тура не
   // нашли».
-  it('21 день, вулканы, медведи, рыбалка, гейзеры: в плане все четыре зоны и тур к гейзерам', async () => {
+  it('21 день, вулканы, медведи, рыбалка, гейзеры: в плане четыре зоны (медведи — южная) и тур к гейзерам', async () => {
     for (const interests of [['volcano', 'bears', 'fishing', 'geyser'], ['geyser', 'volcano', 'bears', 'fishing']]) {
       const r = await plan({ interests, ...window(21) });
-      expect(new Set(r.zones.map((z) => z.zone)), interests.join()).toEqual(new Set(['avachinsky', 'eastern', 'western', 'northern']));
+      expect(new Set(r.zones.map((z) => z.zone)), interests.join()).toEqual(new Set(['avachinsky', 'southern', 'western', 'northern']));
       const tours = r.days.map((d) => d.realTour?.tourId).filter(Boolean);
       expect(tours, interests.join()).toEqual(expect.arrayContaining(['g1', 'f1', 'b1']));
       expect(r.warnings.map((w) => w.message).join('\n')).not.toMatch(/подходящего тура или маршрута в ваши даты не нашли/);

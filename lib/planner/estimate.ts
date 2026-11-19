@@ -155,6 +155,7 @@ const ZONE_GENITIVE: Record<ZoneId, string> = {
   western: 'Западной зоне',
   eastern: 'Восточной зоне',
   northern: 'Северной зоне',
+  southern: 'Южной зоне (у Курильского озера)',
 };
 
 /**
