@@ -9,6 +9,7 @@ import { tourPath } from '@/lib/tours/tour-url';
 import { zhTourPath } from '@/lib/zh/pages';
 import { zhFactHeading } from '@/lib/zh/entry';
 import { siblingLandings, type LandingLang, type QueryLanding } from '@/lib/seo/query-landings';
+import { TRIP_GUIDES } from '@/lib/seo/trip-guides';
 import type { LandingTourRow } from '@/lib/seo/query-landings-data';
 import { chronicleForTopic } from '@/lib/seo/query-landings-chronicle';
 import { CHRONICLE_ARTICLES } from '@/lib/chronicle/articles';
@@ -213,6 +214,7 @@ export function QueryLandingView({ landing, tours, parks = [], charter = null, s
         <footer className="text-sm space-x-3" style={{ color: 'var(--text-secondary)' }}>
           <span>{ui.more}:</span>
           {siblingLandings(landing).map((s) => <Link key={s.key} className="underline" href={s.path}>{s.h1}</Link>)}
+          {landing.lang === 'ru' && TRIP_GUIDES.map((g) => <Link key={g.path} className="underline" href={g.path}>{g.h1}</Link>)}
           <Link className="underline" href={zh ? '/zh' : '/catalog'}>{zh ? 'Vedar 中文首页' : landing.lang === 'ru' ? 'Каталог туров' : 'Full catalog (Russian)'}</Link>
         </footer>
       </div>

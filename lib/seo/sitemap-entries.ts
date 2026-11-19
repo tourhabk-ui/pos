@@ -26,6 +26,7 @@ import { CHRONICLE_ARTICLES } from '@/lib/chronicle/articles';
 import { DEFAULT_WEATHER_SLUG, WEATHER_PLACES, weatherPlaceHref } from '@/lib/weather/places';
 import { ZH_STATIC_REVISION, zhPageUrls } from '@/lib/zh/pages';
 import { QUERY_LANDINGS } from '@/lib/seo/query-landings';
+import { TRIP_GUIDES } from '@/lib/seo/trip-guides';
 import { loadZhDetailEntries, ZhTranslationsUnread } from '@/lib/zh/content';
 
 const BASE = process.env.NEXT_PUBLIC_SITE_URL ?? 'https://vedarai.ru';
@@ -119,6 +120,11 @@ export async function collectSitemapEntriesWithStatus(): Promise<{ entries: Meta
     // карты (задача индексации, 19.11).
     ...QUERY_LANDINGS.filter((l) => l.lang !== 'zh-CN').map((l) => ({
       url: `${BASE}${l.path}`, changeFrequency: 'daily' as const, priority: 0.8,
+    })),
+    // Страницы-ответы «Сколько стоит поездка» и «Когда ехать» (19.11) — считаются
+    // из тех же туров, что посадочные; дата — та же дата туров (ниже).
+    ...TRIP_GUIDES.map((g) => ({
+      url: `${BASE}${g.path}`, changeFrequency: 'daily' as const, priority: 0.8,
     })),
     // Программатик-страницы готовых планов («Мой план 2.0», A-1): пресеты из
     // lib/plans/presets — единственный источник, sitemap не разъезжается с роутом.
@@ -497,7 +503,7 @@ export async function collectSitemapEntriesWithStatus(): Promise<{ entries: Meta
   // вовсе: «не знаю» честнее, чем «изменено сейчас» (§4.0).
   const landingAt = latestModified([...marketplacePages, ...carrierPages]);
   if (landingAt) {
-    const landingUrls = new Set(QUERY_LANDINGS.map((l) => `${BASE}${l.path}`));
+    const landingUrls = new Set([...QUERY_LANDINGS, ...TRIP_GUIDES].map((l) => `${BASE}${l.path}`));
     for (const page of staticLive) if (landingUrls.has(page.url)) page.lastModified = landingAt;
   }
 

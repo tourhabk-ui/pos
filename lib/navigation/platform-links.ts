@@ -55,6 +55,8 @@ export const PLATFORM_SECTIONS: PlatformSection[] = [
     title: 'Поездка',
     links: [
       { label: 'Туры',                    href: '/catalog',        icon: Ticket },
+      { label: 'Сколько стоит поездка',   href: '/skolko-stoit-poezdka-na-kamchatku', icon: Receipt },
+      { label: 'Когда ехать на Камчатку', href: '/kogda-ehat-na-kamchatku', icon: CalendarDays },
       { label: 'Как забронировать тур',   href: '/bronirovanie-turov-kamchatka', icon: Ticket },
       { label: 'Туры к медведям',         href: '/tury-medvedi-kamchatka', icon: Ticket },
       { label: 'Восхождение на Авачинский', href: '/voshozhdenie-na-avachinskij-vulkan', icon: Ticket },
