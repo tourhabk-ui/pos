@@ -70,8 +70,8 @@ describe('каталог /catalog: год в заголовке — из сво�
     expect((m.openGraph as { title?: string }).title).toBe(m.title);
     expect((m.twitter as { title?: string }).title).toBe(m.title);
     expect(m.keywords).toEqual(expect.arrayContaining(['туры Камчатка 2026', 'туры Камчатка 2027']));
-    // Каталог спрашивает все виды туров.
-    expect(poolQuery.mock.calls[0]?.[1]).toEqual([null]);
+    // Каталог спрашивает все виды и все туры.
+    expect(poolQuery.mock.calls[0]?.[1]).toEqual([null, null]);
   });
 
   it('свободные даты только в 2027 — «2027», без 2026', async () => {
@@ -103,7 +103,7 @@ describe('рыбалка /hub/fishing: годы — свободных дат р
   it('спрашивает только рыбалку; годы — в заголовке и описании', async () => {
     yearsAnswer([{ y: 2026 }, { y: 2027 }]);
     const m = await fishingMeta();
-    expect(poolQuery.mock.calls[0]?.[1]).toEqual(['fishing']);
+    expect(poolQuery.mock.calls[0]?.[1]).toEqual(['fishing', null]);
     expect(m.title).toBe('Рыбалка на Камчатке 2026–2027 — туры, цены, сезоны');
     expect(m.description).toMatch(/^Рыболовные туры на Камчатке 2026–2027:/);
     expect((m.openGraph as { title?: string }).title).toBe(m.title);

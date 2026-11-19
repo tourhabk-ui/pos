@@ -2052,6 +2052,17 @@ withPg('витрина туров: снятый тур не в плане и н�
       expect(await loadOpenDateYears({ activityType: 'oy_edge' })).toEqual([rows[0].y]);
     });
 
+    it('только туры страницы (tourIds, посадочные 19.11): чужой тур со свободной датой год не даёт', async () => {
+      const { loadOpenDateYears } = await import('@/lib/tours/nearest-free-date');
+      const mine = await tour('oy_ids');
+      const other = await tour('oy_ids_other');
+      const d = await slot(mine, 4);
+      const far = await slot(other, 300);
+      expect(await loadOpenDateYears({ tourIds: [mine] })).toEqual([yearOf(d)]);
+      expect(await loadOpenDateYears({ tourIds: [mine, other] })).toEqual([...new Set([yearOf(d), yearOf(far)])].sort((a, b) => a - b));
+      expect(await loadOpenDateYears({ tourIds: [] })).toEqual([]);
+    });
+
     it('без вида — весь каталог: наши годы среди прочих, запрос не падает', async () => {
       const { loadOpenDateYears } = await import('@/lib/tours/nearest-free-date');
       expect(await loadOpenDateYears()).not.toBeNull();

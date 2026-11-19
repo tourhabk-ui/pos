@@ -152,11 +152,12 @@ export async function loadNearestFreeDates(tourIds: readonly (string | number)[]
  * который уже кончился. Тур без календаря («даты по заявке») года не даёт:
  * сезон оператора — не дата.
  *
- * `activityType` — только туры этого вида (посадочная «Рыбалка»).
+ * `activityType` — только туры этого вида (посадочная «Рыбалка»); `tourIds` —
+ * только эти туры (посадочные по теме, 19.11: годы — у её же списка туров).
  * Отказ базы — null и строка в логе с SQLSTATE: заголовок тогда без года,
  * а не с выдуманным (§4.0).
  */
-export async function loadOpenDateYears(opts: { activityType?: string } = {}): Promise<number[] | null> {
+export async function loadOpenDateYears(opts: { activityType?: string; tourIds?: readonly string[] } = {}): Promise<number[] | null> {
   try {
     const { rows } = await pool.query<{ y: number | string }>(
       `WITH today AS (SELECT (NOW() AT TIME ZONE 'Asia/Kamchatka')::date AS d)
@@ -170,13 +171,14 @@ export async function loadOpenDateYears(opts: { activityType?: string } = {}): P
             CROSS JOIN LATERAL (${occupiedOnDaySql({ booking: 'ob_y', day: 'ta_y.date', tourId: 'ta_y.operator_tour_id' })}) occ_y
            WHERE ${publicTourSql('ot')}
              AND ($1::text IS NULL OR ot.activity_type::text = $1::text)
+             AND ($2::text[] IS NULL OR ot.id::text = ANY($2::text[]))
              AND ta_y.date >= GREATEST(today.d, make_date(yr.y, 1, 1))
              AND ta_y.date <= LEAST((today.d + INTERVAL '1 year')::date, make_date(yr.y, 12, 31))
              AND COALESCE(ta_y.is_cancelled, false) = false
              AND ta_y.deleted_at IS NULL
              AND ${freeSlotsSql('ta_y', 'ot', 'occ_y.taken')} > 0)
         ORDER BY yr.y`,
-      [opts.activityType ?? null],
+      [opts.activityType ?? null, opts.tourIds ? [...opts.tourIds] : null],
     );
     return rows.map((r) => Number(r.y)).filter((y) => Number.isInteger(y));
   } catch (err) {
