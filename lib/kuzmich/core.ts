@@ -840,6 +840,7 @@ async function buildEnrichment(): Promise<string> {
         -- Разрешённый список родов (lib/kuzmich/knowledge-scope): пятьдесят
         -- свежих записей идут в промпт КАЖДОГО чата, и запрет одного outcome
         -- пропускал сюда search_result с сообщениями туристов дословно.
+        -- С 19.11 (#3514) — только записи с источником.
         WHERE ${KUZMICH_KNOWLEDGE_SCOPE_SQL}
         ORDER BY updated_at DESC
         LIMIT 50
@@ -865,7 +866,7 @@ async function buildEnrichment(): Promise<string> {
     placesLines.length ? 'МЕСТА И ДОСТОПРИМЕЧАТЕЛЬНОСТИ КАМЧАТКИ (из базы платформы):' : '',
     ...placesLines,
     '',
-    knowledgeLines.length ? 'БАЗА ЗНАНИЙ КУЗЬМИЧА (санатории, трансфер, FAQ):' : '',
+    knowledgeLines.length ? 'ЗАМЕТКИ КУЗЬМИЧА С ИСТОЧНИКОМ (источник назван в тексте):' : '',
     ...knowledgeLines,
     liveBlock,
   ].filter(Boolean).join('\n');

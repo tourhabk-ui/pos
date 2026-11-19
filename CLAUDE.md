@@ -2046,6 +2046,15 @@ COPY --from=builder /app/start.js ./start.js
 пересчитывается из файлов миграций), перепись —
 `GET /api/cron/description-writers-census` (`no_journal_without_source` = 0).
 
+**Заметки Кузьмича — тоже только с источником** (слово владельца 19.11 «1
+поменять ответ из источников», #3514). Записи `agent_knowledge` (141, 669)
+читают промпт чата, `get_place_info` и `get_guardian_context`; наружу идёт
+только запись с адресом страницы в `metadata.source_url`
+(`KUZMICH_KNOWLEDGE_SOURCED_SQL`, `lib/kuzmich/knowledge-scope.ts`). Двадцать
+«традиционных знаний» 669 и восемь записей 141 (цены, автобусы, телефон) лежат в
+базе и не отдаются; новая заметка — миграцией с адресом источника (образец —
+1462). Сторож — `tests/integration/mcp-failure-refusal.pg.test.ts` (вторая часть).
+
 ### Что НЕ ДОЛЖНО быть на карточке точки
 
 - Цена / "от ... ₽" — это про тур
