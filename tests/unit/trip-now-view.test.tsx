@@ -13,7 +13,7 @@ import { describe, it, expect, vi, afterEach } from 'vitest';
 import { render, screen, cleanup, waitFor } from '@testing-library/react';
 import React from 'react';
 import { TripNowCheck, TripNowView } from '@/components/trips/TripNowCheck';
-import type { TripNow, TripNowDay } from '@/lib/trips/trip-now';
+import type { TripNow, TripNowDay } from '@/lib/trips/trip-now-types';
 
 afterEach(() => { cleanup(); vi.unstubAllGlobals(); });
 
@@ -141,5 +141,13 @@ describe('TripNowCheck — запрос своей поездки', () => {
     render(<TripNowCheck tripId="t-3" savedAt="2026-10-01" rebuildHref={REBUILD} />);
     await waitFor(() => expect(screen.getByTestId('trip-now-failed')).toBeTruthy());
     expect(screen.queryByTestId('trip-now-safety-same')).toBeNull();
+  });
+
+  it('ответ чужой формы — «не получилось», страница не падает', async () => {
+    // Так отвечала подставная дверь соседнего теста страницы поездки: под
+    // любым /api/trips/… — сама поездка. Блок рухнул и унёс всю страницу.
+    vi.stubGlobal('fetch', vi.fn(async () => ({ json: async () => ({ success: true, data: { id: 'trip-1', days: [] } }) })));
+    render(<TripNowCheck tripId="t-4" savedAt="2026-10-01" rebuildHref={REBUILD} />);
+    await waitFor(() => expect(screen.getByTestId('trip-now-failed')).toBeTruthy());
   });
 });

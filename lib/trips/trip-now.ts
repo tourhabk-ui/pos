@@ -29,6 +29,9 @@ import { kamchatkaToday } from '@/lib/planner/calendar-days';
 import { createPlannerCache } from '@/lib/planner';
 import type { TripDayAvailability } from './day-availability';
 import { FORECAST_HORIZON_DAYS, readDayAvailability, readDayForecast, type TripDayForecast } from './day-fresh';
+import type { TripNow, TripNowDay } from './trip-now-types';
+
+export type { TripNow, TripNowDay } from './trip-now-types';
 
 /** День сохранённого плана — поля, которые нужны перепроверке. */
 export interface SavedTripDay {
@@ -47,40 +50,6 @@ export interface SavedTripForNow {
   days: readonly SavedTripDay[];
   party?: { adults?: number; children?: readonly unknown[] } | null;
 }
-
-/** Что изменилось у одного дня. */
-export interface TripNowDay {
-  day: number;
-  date: string;
-  /** Строки безопасности, которых в сохранённом дне не было. */
-  added: string[];
-  /** Сохранённые строки безопасности, которые больше не действуют. */
-  gone: string[];
-  /** Места тура дня на его дату; null — у дня нет тура. */
-  availability: TripDayAvailability | null;
-  /** Прогноз на дату; есть только при `weather_state: 'ok'`. */
-  weather: TripDayForecast | null;
-  /**
-   * Почему прогноз есть или его нет: `ok`; `later` — дата дальше горизонта
-   * прогноза (16 суток), спрашивать рано; `unavailable` — в горизонте, но
-   * прогноз не получен или день в нём неполный; `not_checked` — день без
-   * занятия или без координат.
-   */
-  weather_state: 'ok' | 'later' | 'unavailable' | 'not_checked';
-}
-
-export type TripNow =
-  | { state: 'no_dates' }
-  | { state: 'past'; last_day: string }
-  | {
-      state: 'checked';
-      checked_at: string;
-      days: TripNowDay[];
-      /** Предупреждения плана сейчас: закрытия парков, сводка МЧС, «не смогли проверить». */
-      plan_warnings: string[];
-      /** Строки безопасности хоть у одного дня изменились. */
-      safety_changed: boolean;
-    };
 
 export interface TripNowDeps {
   safety: SafetyRefreshDeps;

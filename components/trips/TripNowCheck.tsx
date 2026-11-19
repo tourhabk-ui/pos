@@ -12,7 +12,7 @@
 import Link from 'next/link';
 import { useEffect, useState } from 'react';
 import { AlertTriangle, CheckCircle2, CloudSun, Info, Users } from 'lucide-react';
-import type { TripNow, TripNowDay } from '@/lib/trips/trip-now';
+import type { TripNow, TripNowDay } from '@/lib/trips/trip-now-types';
 import { dayAvailabilityLine, ddmmOf } from '@/lib/trips/day-availability';
 import { kamchatkaStamp } from '@/lib/safety/place-day-status';
 import { formatKamchatkaDate } from '@/lib/admin/kamchatka-date';
@@ -174,14 +174,28 @@ export function TripNowView({ now, savedAt, rebuildHref }: {
   );
 }
 
+/**
+ * Ответ двери похож на перепроверку. Чужая форма — «не получилось», а не
+ * падение всей страницы поездки: блок вспомогательный, план под ним важнее.
+ */
+function isTripNow(v: unknown): v is TripNow {
+  if (!v || typeof v !== 'object') return false;
+  const s = (v as { state?: unknown }).state;
+  if (s === 'no_dates') return true;
+  if (s === 'past') return typeof (v as { last_day?: unknown }).last_day === 'string';
+  if (s !== 'checked') return false;
+  const c = v as { days?: unknown; plan_warnings?: unknown; checked_at?: unknown };
+  return Array.isArray(c.days) && Array.isArray(c.plan_warnings) && typeof c.checked_at === 'string';
+}
+
 /** Блок со своим запросом: перепроверка идёт при открытии страницы поездки. */
 export function TripNowCheck({ tripId, savedAt, rebuildHref }: { tripId: string; savedAt: string; rebuildHref: string }) {
   const [now, setNow] = useState<TripNow | 'loading' | 'failed'>('loading');
   useEffect(() => {
     let alive = true;
     fetch(`/api/trips/${tripId}/now`)
-      .then((r) => r.json() as Promise<{ success?: boolean; data?: TripNow }>)
-      .then((d) => { if (alive) setNow(d.success && d.data ? d.data : 'failed'); })
+      .then((r) => r.json() as Promise<{ success?: boolean; data?: unknown }>)
+      .then((d) => { if (alive) setNow(d.success && isTripNow(d.data) ? d.data : 'failed'); })
       .catch(() => { if (alive) setNow('failed'); });
     return () => { alive = false; };
   }, [tripId]);

@@ -17,23 +17,14 @@
 import { tourKeepsSchedule } from '@/lib/seat-requests/service';
 import { fetchAvailabilityForTour, fetchForecastDays, type PlannerCache } from '@/lib/planner';
 import type { TripDayAvailability } from './day-availability';
+import type { TripDayForecast } from './trip-now-types';
 
 /** Окно поиска ближайшей свободной даты тура без мест на дату дня. */
 export const NEXT_FREE_WINDOW_DAYS = 60;
 /** Горизонт прогноза Open-Meteo, суток. */
 export const FORECAST_HORIZON_DAYS = 16;
 
-/** Прогноз на дату дня — то, что видит человек. */
-export interface TripDayForecast {
-  date: string;
-  tempMin: number;
-  tempMax: number;
-  windKmh: number;
-  precipMm: number;
-  description: string;
-  /** Плохая погода: ветер от 40 км/ч или осадки от 10 мм. */
-  bad: boolean;
-}
+export type { TripDayForecast } from './trip-now-types';
 
 function addDaysIso(dateIso: string, days: number): string {
   return new Date(Date.parse(`${dateIso}T00:00:00Z`) + days * 86_400_000).toISOString().slice(0, 10);
