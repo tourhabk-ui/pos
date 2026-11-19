@@ -10,6 +10,15 @@ import { zhTourPath } from '@/lib/zh/pages';
 import { zhFactHeading } from '@/lib/zh/entry';
 import { siblingLandings, type LandingLang, type QueryLanding } from '@/lib/seo/query-landings';
 import type { LandingTourRow } from '@/lib/seo/query-landings-data';
+
+/**
+ * Страницы-ответы о цене и сезоне (#3539): русская посадочная ведёт на них
+ * из подвала, чтобы обход и человек доходили до них не только из меню.
+ */
+export const TRIP_GUIDE_LINKS = [
+  { path: '/skolko-stoit-poezdka-na-kamchatku', label: 'Сколько стоит поездка на Камчатку' },
+  { path: '/kogda-ehat-na-kamchatku', label: 'Когда ехать на Камчатку' },
+] as const;
 import { chronicleForTopic } from '@/lib/seo/query-landings-chronicle';
 import { CHRONICLE_ARTICLES } from '@/lib/chronicle/articles';
 import type { ParkListItem } from '@/lib/parks/list';
@@ -213,6 +222,7 @@ export function QueryLandingView({ landing, tours, parks = [], charter = null, s
         <footer className="text-sm space-x-3" style={{ color: 'var(--text-secondary)' }}>
           <span>{ui.more}:</span>
           {siblingLandings(landing).map((s) => <Link key={s.key} className="underline" href={s.path}>{s.h1}</Link>)}
+          {landing.lang === 'ru' && TRIP_GUIDE_LINKS.map((g) => <Link key={g.path} className="underline" href={g.path}>{g.label}</Link>)}
           <Link className="underline" href={zh ? '/zh' : '/catalog'}>{zh ? 'Vedar 中文首页' : landing.lang === 'ru' ? 'Каталог туров' : 'Full catalog (Russian)'}</Link>
         </footer>
       </div>
