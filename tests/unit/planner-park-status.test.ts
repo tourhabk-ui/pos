@@ -13,6 +13,7 @@ import { planWarningLines } from '@/lib/kuzmich/trip-plan-tool';
 import { PARK_UNKNOWN_MAX_DAYS } from '@/lib/safety/park-closure-terms';
 
 const SEASONAL = 'Маршруты природного парка «Налычево» закрыты на период межсезонья';
+const CYCLONE = 'Приостановлено посещение маршрутов в природном парке «Налычево» из-за циклона';
 const closure = (over: Partial<PlanParkAlert> = {}): PlanParkAlert => ({
   ref_kind: 'route', ref_id: 'r-1', alert_id: 'a-1', alert_type: 'park_closure',
   title: SEASONAL, description: '',
@@ -24,13 +25,27 @@ const TODAY = '2026-11-06';
 
 describe('что тревога парка говорит о дне на его дату', () => {
   it('закрытие накрывает день до своего срока включительно — по дню Камчатки', () => {
-    expect(parkNoteForDay(closure(), '2026-11-10', TODAY)).toEqual({
+    const cyclone = closure({ title: CYCLONE });
+    expect(parkNoteForDay(cyclone, '2026-11-10', TODAY)).toEqual({
       severity: 'critical',
-      text: `Закрытие парка по сводке от 02.11: «${SEASONAL}». Перед выходом уточните у дирекции парка.`,
+      text: `Закрытие парка по сводке от 02.11: «${CYCLONE}». Перед выходом уточните у дирекции парка.`,
     });
-    expect(parkNoteForDay(closure(), '2026-11-23', TODAY)?.severity).toBe('critical');
+    expect(parkNoteForDay(cyclone, '2026-11-23', TODAY)?.severity).toBe('critical');
     // 23.11 15:00 UTC — уже 24.11 на Камчатке: срок по местному дню.
-    expect(parkNoteForDay(closure({ expires_iso: '2026-11-23T15:00:00.000Z' }), '2026-11-24', TODAY)?.severity).toBe('critical');
+    expect(parkNoteForDay(closure({ title: CYCLONE, expires_iso: '2026-11-23T15:00:00.000Z' }), '2026-11-24', TODAY)?.severity).toBe('critical');
+  });
+
+  it('межсезонье у дня с туром — не опасность дня: «важно», тропы закрыты по решению парка, туры идут по календарю оператора (#3487)', () => {
+    const tour = (over: Partial<PlanParkAlert> = {}) => closure({ ref_kind: 'tour', ref_id: '7', ...over });
+    expect(parkNoteForDay(tour(), '2026-11-10', TODAY)).toEqual({
+      severity: 'important',
+      text: 'По сводке от 02.11 тропы парка закрыты на межсезонье по решению парка — это расписание троп, а не опасность дня; '
+        + 'туры операторов идут по своему календарю, дату подтверждает оператор. Самостоятельный выход на тропы парка уточните у дирекции.',
+    });
+    expect(parkNoteForDay(tour(), '2026-11-23', TODAY)?.severity).toBe('important');
+    // Самостоятельный день по тропе того же парка — закрытие, «критично»: тропа закрыта.
+    expect(parkNoteForDay(closure(), '2026-11-10', TODAY)?.severity).toBe('critical');
+    expect(parkNoteForDay(closure(), '2026-11-10', TODAY)?.text).toMatch(/^Закрытие парка по сводке от 02\.11/);
   });
 
   it('после срока сезонное закрытие без даты — «статус на этот день не известен», не дольше предела от сводки', () => {
@@ -60,7 +75,7 @@ describe('что тревога парка говорит о дне на его 
       text: 'Статус парка «Налычево» не известен: последняя сезонная сводка от 02.11. Уточните у дирекции парка, открыты ли маршруты, до выхода.',
     });
     expect(parkNoteForDay(unknown, '2027-07-15', TODAY)).toBeNull();
-    expect(parkNoteForDay(closure(), null, TODAY)?.severity).toBe('critical');
+    expect(parkNoteForDay(closure({ title: CYCLONE }), null, TODAY)?.severity).toBe('critical');
   });
 
   it('длинный заголовок сводки укорачивается по слову', () => {
@@ -77,10 +92,10 @@ describe('что тревога парка говорит о дне на его 
 describe('раскладка по дням и предупреждения плана', () => {
   it('тревога — к своим дням по маршруту и туру; одна строка плана на тревогу с номерами дней; закрытие — первым', () => {
     const alerts: PlanParkAlert[] = [
-      closure({ ref_kind: 'route', ref_id: 'r-1' }),
-      closure({ ref_kind: 'tour', ref_id: '7' }),
+      closure({ ref_kind: 'route', ref_id: 'r-1', title: CYCLONE }),
+      closure({ ref_kind: 'tour', ref_id: '7', title: CYCLONE }),
       // Тот же тур через главное место — та же тревога, строка одна.
-      closure({ ref_kind: 'tour', ref_id: '7' }),
+      closure({ ref_kind: 'tour', ref_id: '7', title: CYCLONE }),
       closure({
         ref_kind: 'tour', ref_id: '9', alert_id: 'u-1', alert_type: 'park_status_unknown',
         title: 'Статус парка «Быстринский» не известен: последняя сезонная сводка от 20.10',
@@ -99,14 +114,26 @@ describe('раскладка по дням и предупреждения пл�
     expect(warnings[1]!.message).toMatch(/^День 4: Статус парка «Быстринский» не известен/);
   });
 
+  it('одна тревога с разными словами о разных днях — две строки плана, у каждой свои слова (19.11)', () => {
+    const tourAlert = closure({ ref_kind: 'tour', ref_id: '7' });
+    const { warnings } = parkVerdicts([
+      { day: 1, title: 'Тур', dayIso: '2026-11-10', tourId: '7' },
+      { day: 2, title: 'Тур', dayIso: '2026-12-10', tourId: '7' },
+    ], [tourAlert], TODAY);
+    expect(warnings).toHaveLength(2);
+    expect(warnings.map((w) => w.severity)).toEqual(['important', 'important']);
+    expect(warnings[0]!.message).toMatch(/^День 1: По сводке от 02\.11 тропы парка закрыты на межсезонье/);
+    expect(warnings[1]!.message).toMatch(/^День 2: Статус парка на этот день не известен/);
+  });
+
   it('строки дня встают ПЕРВЫМИ: агент видит три строки дня, и закрытие не уступает совету про снаряжение', async () => {
     const days = [{ day: 1, title: 'Тропа', dayWarnings: ['Треккинговые палки.', 'Вода.', 'Дождевик.'], routeId: 'r-1' }];
-    const res = await applyPlanParkStatus(days, () => '2026-11-10', async <T,>() => ({ rows: [closure()] as unknown as T[] }), new Date('2026-11-06T00:00:00Z'));
+    const res = await applyPlanParkStatus(days, () => '2026-11-10', async <T,>() => ({ rows: [closure({ title: CYCLONE })] as unknown as T[] }), new Date('2026-11-06T00:00:00Z'));
     expect(days[0]!.dayWarnings[0]).toMatch(/^Закрытие парка/);
     expect(days[0]!.dayWarnings).toHaveLength(4);
     expect(res.warnings[0]!.severity).toBe('critical');
     // Повтор прохода строку не дублирует.
-    await applyPlanParkStatus(days, () => '2026-11-10', async <T,>() => ({ rows: [closure()] as unknown as T[] }), new Date('2026-11-06T00:00:00Z'));
+    await applyPlanParkStatus(days, () => '2026-11-10', async <T,>() => ({ rows: [closure({ title: CYCLONE })] as unknown as T[] }), new Date('2026-11-06T00:00:00Z'));
     expect(days[0]!.dayWarnings.filter((w) => w.startsWith('Закрытие парка'))).toHaveLength(1);
   });
 
