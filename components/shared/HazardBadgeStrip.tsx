@@ -1,7 +1,7 @@
 'use client';
 
 import { AlertTriangle, Wind, Mountain, Thermometer, Flame, Waves, Eye, CloudLightning, Signal, Users } from 'lucide-react';
-import { MCHS_ONLINE_FORM_URL, MCHS_DEADLINE_SHORT } from '@/lib/safety/mchs-registration';
+import { MCHS_ONLINE_FORM_URL, MCHS_DEADLINE_SHORT, MCHS_REQUIRED_PHRASE } from '@/lib/safety/mchs-registration';
 // Названия опасностей — один список на платформу (lib/safety/hazard-labels).
 // Здесь лежала своя копия, и она уже разошлась с остальными пятью.
 import { hazardLabel, hazardPhrase } from '@/lib/safety/hazard-labels';
@@ -86,7 +86,7 @@ export function HazardPhraseList({ hazards, mchsRequired, className = '' }: Prop
             <Users className="w-3 h-3 flex-shrink-0" />
           </span>
           <span className="text-[15px] leading-snug text-[var(--text-primary)]">
-            Отметиться в МЧС обязательно.{' '}
+            {MCHS_REQUIRED_PHRASE}{' '}
             <a
               href={MCHS_ONLINE_FORM_URL}
               title={MCHS_DEADLINE_SHORT}

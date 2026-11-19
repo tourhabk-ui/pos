@@ -38,11 +38,9 @@ import {
   type CancellationFacts,
 } from '@/lib/tours/cancellation-words';
 import { pickupForCard } from '@/lib/tours/pickup';
+import type { FaqItem } from '@/lib/seo/faq';
 
-export interface FaqItem {
-  question: string;
-  answer: string;
-}
+export type { FaqItem } from '@/lib/seo/faq';
 
 /**
  * Кто подтверждает и как платить — одна строка на карточку (под ценой) и на

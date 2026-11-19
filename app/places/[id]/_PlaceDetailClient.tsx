@@ -22,6 +22,8 @@ import { composeAccessText } from '@/lib/places/access-text';
 import { PLACE_PHOTO_UPLOAD_ANCHOR } from '@/components/places/AddPhotoLink';
 import PhotoCredit, { creditFor } from '@/components/places/PhotoCredit';
 import { offerOrderDay } from '@/lib/tours/offer-order';
+import { placeFaq } from '@/lib/places/place-faq';
+import FaqSection from '@/components/faq/FaqSection';
 
 // Герой, описание, факты и ссылки на маршруты/туры/соседей рендерятся на
 // сервере (initialPlace): это то, что читает поисковик. До 29.09 вся карточка
@@ -316,6 +318,9 @@ export default function PlaceDetailClient({ id, initialPlace = null }: { id: str
   const toursState = place.toursState ?? (place.tours.length > 0 ? 'ok' : 'empty');
   const showTours = toursState === 'failed' || place.tours.length > 0;
   const hasNext = place.routes.length > 0 || showTours || place.nearby.length > 0;
+  // Вопросы и ответы (слово владельца 17.11 «2 да но аккуратно») — словами
+  // разделов этой же карточки, без туров и обстановки дня (lib/places/place-faq).
+  const faqItems = placeFaq(place);
 
   return (
     <>
@@ -626,6 +631,15 @@ export default function PlaceDetailClient({ id, initialPlace = null }: { id: str
                 />
               )}
               {place.nearby.length > 0 && <PlaceNearby nearby={place.nearby} placeId={place.id} />}
+            </Section>
+          )}
+
+          {/* ВОПРОСЫ И ОТВЕТЫ — для ИИ-поиска: те же факты, что выше, ответом на
+              вопрос. Рисуется на сервере (не dynamic): блок обязан быть в
+              первом HTML вместе с разметкой FAQPage. */}
+          {faqItems.length > 0 && (
+            <Section title="Вопросы и ответы">
+              <FaqSection items={faqItems} heading={null} />
             </Section>
           )}
 

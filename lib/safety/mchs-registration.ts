@@ -253,6 +253,12 @@ export function registrationVerdict(startsAt: Date, now: Date): MchsVerdictResul
   };
 }
 
+/**
+ * Требование регистрации одной фразой: строка «Сейчас» карточки места
+ * (`HazardPhraseList`) и ответ блока вопросов (`lib/places/place-faq`).
+ */
+export const MCHS_REQUIRED_PHRASE = 'Отметиться в МЧС обязательно.';
+
 /** Короткая формулировка срока для мест, где места на блок нет. */
 export const MCHS_DEADLINE_SHORT =
   `Заявка подаётся за ${MCHS_LEAD_WORKING_DAYS} рабочих дней до начала маршрута`;
