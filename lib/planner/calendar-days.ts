@@ -118,6 +118,7 @@ export function inCalendarOrder(days: readonly Pick<CalendarDayLike, 'day'>[]): 
  */
 const DATE_BOUND = [
   'availableDate', 'slotsRemaining', 'availability', 'availabilityCheckedAt', 'capacityWarning', 'weatherForecast',
+  'weatherKit',
 ] as const;
 
 /**
