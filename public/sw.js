@@ -143,6 +143,58 @@ const FIELD_URLS = [
   '/offline',
 ];
 
+// ─── Фоновые закачки — не больше трёх разом (19.11) ──────────────────────────
+//
+// Жалоба владельца 19.11: «на планшете не догружает главную и открывает только
+// SOS без связи». Перепись ошибок браузера за трое суток — восемь «Loading
+// chunk … failed (timeout)», все не с телефона и в одну минуту: файлы самой
+// страницы не дождались сети.
+//
+// Причина — прекэш. После каждой выкатки, через 4 с после загрузки, воркер
+// перекладывал ~15 страниц вместе с их файлами, и всё это — разом: страницы
+// через Promise.all, файлы каждой — тоже, и общий чанк качался столько раз,
+// сколько страниц на него ссылаются (проверка «уже лежит» шла до того, как
+// хоть одна закачка кончалась). Сотни запросов занимали соединения, а чанки
+// открытой страницы стояли за ними в очереди до таймаута webpack.
+//
+// Теперь фоновая закачка берёт место в очереди (не больше трёх разом), идёт с
+// низким приоритетом, а один адрес качается один раз — второй желающий ждёт
+// первого и берёт копию из памяти. Запросы самой страницы через эту очередь
+// не идут никогда.
+const BACKGROUND_FETCH_LIMIT = 3;
+let backgroundActive = 0;
+const backgroundWaiting = [];
+
+function backgroundAcquire() {
+  if (backgroundActive < BACKGROUND_FETCH_LIMIT) {
+    backgroundActive += 1;
+    return Promise.resolve();
+  }
+  return new Promise((resolve) => backgroundWaiting.push(resolve));
+}
+
+function backgroundRelease() {
+  const next = backgroundWaiting.shift();
+  // Место передаётся следующему из рук в руки: счётчик не опускается, и
+  // новый желающий не проскочит мимо очереди.
+  if (next) next(); else backgroundActive -= 1;
+}
+
+/** Фоновая работа с сетью в очереди; место освобождается и при отказе. */
+async function inBackgroundSlot(work) {
+  await backgroundAcquire();
+  try {
+    return await work();
+  } finally {
+    backgroundRelease();
+  }
+}
+
+/** Фоновый запрос: свежая копия, не из HTTP-кэша, и уступает странице. */
+function backgroundFetch(url) {
+  return fetch(url, { cache: 'reload', priority: 'low' });
+}
+
 // Кэширует один URL, не бросая наверх. Для критичных — с повторами.
 // Причина переписывания (07.2026, фидбэк с Халактырского пляжа): раньше был
 // один cache.addAll(PRECACHE_URLS) — АТОМАРНЫЙ: один упавший URL (редирект,
@@ -151,16 +203,47 @@ const FIELD_URLS = [
 async function cacheOne(cache, url, retries) {
   for (let attempt = 0; attempt <= retries; attempt++) {
     try {
-      // cache: 'reload' — не брать из HTTP-кэша, чтобы положить свежую версию
-      const res = await fetch(url, { cache: 'reload' });
-      if (res && res.ok) {
+      // Запрос и запись тела — в одном месте очереди: тело качается, пока
+      // идёт cache.put, и освобождать место до него — снова лавина.
+      const ok = await inBackgroundSlot(async () => {
+        const res = await backgroundFetch(url);
+        if (!res || !res.ok) return false;
         await cache.put(url, res.clone());
         return true;
-      }
+      });
+      if (ok) return true;
     } catch { /* сеть моргнула — повторим */ }
     if (attempt < retries) await new Promise((r) => setTimeout(r, 400 * (attempt + 1)));
   }
   return false;
+}
+
+/**
+ * Один файл — одна закачка. Файл, который уже качается для другой страницы,
+ * не запрашивается второй раз: дождавшись первой закачки, его копируют из
+ * памяти. Проверка и запись «качается» идут без единого await между ними —
+ * иначе два желающих успели бы разойтись по сети, как было.
+ */
+const assetsInFlight = new Map();
+
+function cacheAsset(cache, u, retries) {
+  const pending = assetsInFlight.get(u);
+  if (pending) {
+    return pending.then(async () => {
+      if (await cache.match(u)) return true;
+      const landed = await caches.match(u);
+      if (landed) { await cache.put(u, landed); return true; }
+      return false;
+    });
+  }
+  const job = (async () => {
+    if (await cache.match(u)) return true;
+    const elsewhere = await caches.match(u);
+    if (elsewhere) { await cache.put(u, elsewhere); return true; }
+    return cacheOne(cache, u, retries);
+  })().finally(() => assetsInFlight.delete(u));
+  assetsInFlight.set(u, job);
+  return job;
 }
 
 // Установка: критичные страницы (с ретраем) + опциональные (best-effort) +
@@ -239,12 +322,7 @@ function isHtml(response) {
  */
 async function cachePageAssets(cache, html, retries) {
   const urls = pageAssetUrls(html);
-  const results = await Promise.allSettled(urls.map(async (u) => {
-    if (await cache.match(u)) return true;
-    const elsewhere = await caches.match(u);
-    if (elsewhere) { await cache.put(u, elsewhere); return true; }
-    return cacheOne(cache, u, retries);
-  }));
+  const results = await Promise.allSettled(urls.map((u) => cacheAsset(cache, u, retries)));
   return results.filter((r) => r.status !== 'fulfilled' || r.value !== true).length;
 }
 
@@ -257,14 +335,20 @@ async function cachePageAssets(cache, html, retries) {
 async function cacheShellPage(url, retries) {
   for (let attempt = 0; attempt <= retries; attempt++) {
     try {
-      const res = await fetch(url, { cache: 'reload' });
-      if (res && res.ok) {
+      // Документ — в очереди фоновых закачек; его файлы ниже встают в неё
+      // каждый сам, уже после того, как место документа освободилось.
+      const got = await inBackgroundSlot(async () => {
+        const r = await backgroundFetch(url);
+        if (!r || !r.ok) return null;
+        return { res: r, html: isHtml(r) ? await r.clone().text() : null };
+      });
+      if (got) {
+        const { res, html } = got;
         const [main, shell] = await Promise.all([caches.open(CACHE_NAME), caches.open(SHELL_CACHE_NAME)]);
-        if (!isHtml(res)) {
+        if (html === null) {
           await main.put(url, res.clone());
           return true;
         }
-        const html = await res.clone().text();
         const missed = await cachePageAssets(shell, html, retries);
         if (missed > 0) {
           // Есть прежняя копия — оставляем её: она хотя бы целая.

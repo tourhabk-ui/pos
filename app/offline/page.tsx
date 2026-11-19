@@ -103,6 +103,17 @@ export default function OfflinePage() {
           </div>
         </details>
 
+        {/* Третий исход (жалоба 19.11): этот экран воркер отдаёт и тогда,
+            когда сеть на устройстве есть, а страница не успела прийти, —
+            человек видел «Связи нет» при живом Wi-Fi и не понимал, что это.
+            Форма без action просит тот же адрес заново — без JS. */}
+        <form method="get" className="rounded-lg border border-[var(--border)] bg-[var(--bg-card)] px-4 py-3" data-offline-retry>
+          <p className="text-sm text-[var(--text-secondary)]">
+            Если интернет на устройстве есть, страница могла просто не успеть загрузиться.
+          </p>
+          <button type="submit" className="ds-btn ds-btn-secondary mt-2">Обновить страницу</button>
+        </form>
+
         {/* Что доступно без сети — тихая опора: приложение не умерло */}
         <div className="border-t border-[var(--border)] pt-6">
           <p className="mb-3 text-xs font-semibold uppercase tracking-wider text-[var(--text-muted)]">

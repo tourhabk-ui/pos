@@ -45,9 +45,28 @@ interface World {
   now?: number;
   /** Снимки: отвечать непрозрачно, как переадресация на хранилище. */
   opaquePhotos?: boolean;
+  /** Сеть отвечает не сразу: сколько запросов идёт одновременно (19.11). */
+  slowMs?: number;
+  active?: number;
+  maxActive?: number;
 }
 
 function net(world: World) {
+  const answer = answerOf(world);
+  return async (key: Key) => {
+    if (!world.slowMs) return answer(key);
+    world.active = (world.active ?? 0) + 1;
+    world.maxActive = Math.max(world.maxActive ?? 0, world.active);
+    try {
+      await new Promise((r) => setTimeout(r, world.slowMs));
+      return await answer(key);
+    } finally {
+      world.active -= 1;
+    }
+  };
+}
+
+function answerOf(world: World) {
   return async (key: Key) => {
     const url = keyUrl(key);
     world.fetched.push(url);
@@ -217,6 +236,48 @@ describe('прекэш кладёт страницу вместе с её фай
     const html = await doc!.text();
     expect(html, 'в памяти осталась целая страница сборки b1').toContain('page-b1.js');
     expect((await sw.request('/_next/static/chunks/app/sos/page-b1.js'))?.status).toBe(200);
+  });
+});
+
+describe('прекэш не отнимает сеть у открытой страницы (жалоба 19.11)', () => {
+  // Восемь «Loading chunk … failed (timeout)» за трое суток, все не с
+  // телефона: после выкатки прекэш качал сотни файлов разом, и чанки
+  // открытой страницы не дожидались сети.
+  const shared = ['/_next/static/css/app-b2.css', '/_next/static/media/font-b2.woff2', '/_next/static/chunks/webpack-b2.js', '/_next/static/chunks/lazy-b2.js'];
+
+  it('установка: не больше трёх запросов разом, общий файл качается один раз', async () => {
+    const world: World = { online: true, build: 'b2', broken: new Set(), fetched: [], slowMs: 2 };
+    const sw = loadWorker(world);
+    await sw.install();
+    expect(world.maxActive, 'одновременно в сети').toBeLessThanOrEqual(3);
+    expect(world.maxActive, 'очередь не выродилась в одну закачку').toBeGreaterThan(1);
+    for (const f of shared) expect(world.fetched.filter((u) => u === abs(f)).length, f).toBe(1);
+    // Ничего не потеряно: все страницы и их файлы на месте.
+    for (const name of ['sos', 'offline']) {
+      expect(sw.has('kh-shell-v1', `/_next/static/chunks/app/${name}/page-b2.js`), name).toBe(true);
+    }
+    for (const f of shared) expect(sw.has('kh-shell-v1', f), f).toBe(true);
+  });
+
+  it('обновление после выкатки — та же очередь; запрос самой страницы её не ждёт', async () => {
+    const world: World = { online: true, build: 'b1', broken: new Set(), fetched: [] };
+    const sw = loadWorker(world);
+    await sw.install();
+    await sw.activate();
+    world.build = 'b2';
+    world.slowMs = 2;
+    world.fetched.length = 0;
+    const refreshing = sw.refresh('/_next/static/chunks/webpack-b2.js');
+    // Чанк открытой страницы просится, пока прекэш перекладывается.
+    const own = await sw.request('/_next/static/chunks/own-page-b2.js');
+    expect(own?.status).toBe(200);
+    const ownAt = world.fetched.indexOf(abs('/_next/static/chunks/own-page-b2.js'));
+    expect(ownAt, 'запрос страницы ушёл в сеть, не дожидаясь прекэша').toBeGreaterThanOrEqual(0);
+    expect(ownAt, 'и не стоял за сотней фоновых').toBeLessThan(6);
+    await refreshing;
+    expect(sw.posted).toContainEqual({ type: 'SHELL_REFRESHED', status: 'refreshed' });
+    expect(world.maxActive).toBeLessThanOrEqual(4);
+    for (const f of shared) expect(world.fetched.filter((u) => u === abs(f)).length, f).toBe(1);
   });
 });
 
