@@ -6,7 +6,7 @@ import { priceWithUnitWords } from '@/lib/tours/price-label';
 import { priceZh, durationZh, seasonZh } from '@/lib/zh/entry';
 import { tourPath } from '@/lib/tours/tour-url';
 import type { LandingTourRow } from '@/lib/seo/query-landings-data';
-import type { LandingLang, QueryLanding } from '@/lib/seo/query-landings';
+import type { LandingFaq, LandingLang, QueryLanding } from '@/lib/seo/query-landings';
 import { carrierPagePath, type CharterCarrier } from '@/lib/transfers/charter-format';
 import { openYearsLabel } from '@/lib/tours/nearest-free-date';
 import { plural } from '@/lib/home/data-freshness';
@@ -63,11 +63,13 @@ export function landingDates(t: LandingTourRow, lang: LandingLang): string {
  */
 export function landingJsonLd(
   l: QueryLanding, tours: LandingTourRow[] | null, site: string, carriers: Pick<CharterCarrier, 'slug' | 'name'>[] | null = null,
+  /** Вопросы, показанные на странице (landingFaq); нет — постоянные `l.faq`. */
+  faq: readonly LandingFaq[] = l.faq,
 ): Record<string, unknown> {
   const graph: Record<string, unknown>[] = [{
     '@type': 'FAQPage',
     inLanguage: l.lang,
-    mainEntity: l.faq.map((f) => ({ '@type': 'Question', name: f.q, acceptedAnswer: { '@type': 'Answer', text: f.a } })),
+    mainEntity: faq.map((f) => ({ '@type': 'Question', name: f.q, acceptedAnswer: { '@type': 'Answer', text: f.a } })),
   }];
   if (tours && tours.length > 0) {
     graph.push({

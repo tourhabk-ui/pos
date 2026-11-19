@@ -14,6 +14,7 @@ import { chronicleForTopic } from '@/lib/seo/query-landings-chronicle';
 import { CHRONICLE_ARTICLES } from '@/lib/chronicle/articles';
 import type { ParkListItem } from '@/lib/parks/list';
 import { OFFER_ORDER_NOTE } from '@/lib/tours/offer-order';
+import { landingFaq } from '@/lib/seo/query-landing-faq';
 import { landingDates, landingDuration, landingJsonLd, landingLead, landingPrice, landingSeason, type LandingSummary } from '@/lib/seo/query-landing-view';
 import { CharterPriceList } from '@/components/transfers/CharterPriceList';
 import { carrierPagePath, charterOrderPath, type CharterState } from '@/lib/transfers/charter-format';
@@ -52,6 +53,11 @@ const UI: Record<LandingLang, {
  * машину (CLAUDE.md §14). Прайс — та же вёрстка, что на /transfers и странице
  * перевозчика (CharterPriceList); отказ базы — «не загрузился», не «пусто».
  */
+/** У трансфера туров нет: вопросы с ответом из туров ему не нужны. */
+function transferOrTours(l: QueryLanding, tours: LandingTourRow[] | null): LandingTourRow[] | null {
+  return l.topic === 'transfer' ? null : tours;
+}
+
 function CarriersSection({ charter }: { charter: CharterState | null }) {
   const carriers = charter && charter.state === 'ok' ? charter.carriers : null;
   return (
@@ -83,6 +89,8 @@ export function QueryLandingView({ landing, tours, parks = [], charter = null, s
   summary?: LandingSummary | null;
 }) {
   const lead = landingLead(landing, summary);
+  // Вопросы с ответом из туров страницы — и на экране, и в разметке одни.
+  const faq = landingFaq(landing, transferOrTours(landing, tours), summary?.nearest ?? null);
   const ui = UI[landing.lang];
   const zh = landing.lang === 'zh-CN';
   const transfer = landing.topic === 'transfer';
@@ -90,7 +98,7 @@ export function QueryLandingView({ landing, tours, parks = [], charter = null, s
   const carriers = charter && charter.state === 'ok' ? charter.carriers : null;
   return (
     <main className="ds-page" lang={landing.lang} data-landing={landing.key}>
-      <JsonLd data={landingJsonLd(landing, transfer ? null : tours, SITE, carriers)} />
+      <JsonLd data={landingJsonLd(landing, transfer ? null : tours, SITE, carriers, faq)} />
       <div className="max-w-3xl mx-auto px-4 py-8 space-y-8">
         <header className="space-y-3">
           <h1 className="font-playfair text-3xl sm:text-4xl font-bold" style={{ color: 'var(--text-primary)' }}>{landing.h1}</h1>
@@ -193,7 +201,7 @@ export function QueryLandingView({ landing, tours, parks = [], charter = null, s
         <section className="space-y-3">
           <h2 className="ds-h2">{ui.faq}</h2>
           <dl className="space-y-3">
-            {landing.faq.map((f) => (
+            {faq.map((f) => (
               <div key={f.q} className="ds-card p-4 text-sm">
                 <dt className="font-semibold" style={{ color: 'var(--text-primary)' }}>{f.q}</dt>
                 <dd style={{ color: 'var(--text-secondary)' }}>{f.a}</dd>
