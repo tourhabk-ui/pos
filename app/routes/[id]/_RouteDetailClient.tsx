@@ -65,6 +65,7 @@ import BottomNav from '@/components/shared/BottomNav';
 import { useCatalogReturnHref } from '@/hooks/use-catalog-return';
 import { KUZMICH_MAX_URL } from '@/components/shared/KuzmichActions';
 import { groupRangeShort } from '@/lib/tours/group-size';
+import { offerShownPrice } from '@/lib/routes/route-tour-price';
 
 const LeafletMap = dynamic(() => import('@/components/shared/LeafletMap'), { ssr: false });
 // Подъезд к старту — своим рассчитанным автопутём (владелец 08.09: «на
@@ -148,7 +149,6 @@ function priceUnitLabel(unit: string | null): string {
 interface Offer {
   tourId: number; tourSlug?: string | null; tourName: string; shortDesc: string | null;
   priceBase: number | null; priceOld: number | null; priceUnit: string | null;
-  effectivePrice: number | null;
   durationHours: number | null; durationType: string | null; multiDayCount: number | null;
   difficulty: string | null;
   maxGroupSize: number | null; minGroupSize: number | null;
@@ -216,7 +216,7 @@ export interface RouteDetail {
   descriptionWithdrawn?: boolean;
   lat: number | null; lng: number | null;
   sourceUrl: string | null; sourceName: string | null;
-  priceFrom: number | null; season: string | null; difficulty: string | null;
+  season: string | null; difficulty: string | null;
   durationDays: number | null; bestMonths: number[] | null;
   altitude: number | null; groupSizeMax: number | null; dangerLevel: string | null;
   equipment: string[] | null; kuzmichReview: string | null;
@@ -315,7 +315,10 @@ function OperatorProfileLink({ offers }: { offers: Offer[] }) {
 function OfferCard({ offer, activityType, onBook }: {
   offer: Offer; activityType: string | null; onBook: () => void;
 }) {
-  const price = offer.effectivePrice ?? offer.priceBase;
+  // Цена тура — та, что на его карточке (§11): base_price. До 18.11 здесь
+  // стояла effective_price вьюхи — COALESCE(price_old, base_price), то есть
+  // зачёркнутая старая цена выдавалась за действующую.
+  const price = offerShownPrice(offer);
   const nextDate = offer.nextDeparture
     ? new Date(offer.nextDeparture).toLocaleDateString('ru-RU', { day: 'numeric', month: 'short', timeZone: 'UTC' })
     : null;
@@ -848,7 +851,7 @@ export default function RouteDetailClient({ id, mapPackBaseUrl, summary = null, 
   const allOffers = route.offers ?? [];
   const filteredOffers = sortRouteOffers(allOffers
     .filter(o => {
-      const price = o.effectivePrice ?? o.priceBase ?? 0;
+      const price = offerShownPrice(o) ?? 0;
       if (price < priceRange[0] || price > priceRange[1]) return false;
       if (filterDifficulty && o.difficulty !== filterDifficulty) return false;
       if (filterDurationType && o.durationType !== filterDurationType) return false;
@@ -857,7 +860,7 @@ export default function RouteDetailClient({ id, mapPackBaseUrl, summary = null, 
 
   const offers = filteredOffers;
   const maxPrice = allOffers.length > 0
-    ? Math.max(...allOffers.map(o => o.effectivePrice ?? o.priceBase ?? 0).filter(p => p > 0))
+    ? Math.max(...allOffers.map(o => offerShownPrice(o) ?? 0).filter(p => p > 0))
     : 500000;
   // Hero: реальные фото → реальное фото из хранилища (wikimedia) → честный
   // градиент по типу места. AI-картинки чужих пейзажей больше не показываем.
@@ -875,7 +878,7 @@ export default function RouteDetailClient({ id, mapPackBaseUrl, summary = null, 
   // («Рыболовная база» показывала «от 18 000 ₽» без единого оффера —
   // скрин владельца 2026-07-18).
   const minPrice = allOffers.length > 0
-    ? Math.min(...allOffers.map(o => o.effectivePrice ?? o.priceBase ?? 0).filter(p => p > 0))
+    ? Math.min(...allOffers.map(o => offerShownPrice(o) ?? 0).filter(p => p > 0))
     : 0;
   const uniqueOperators = new Set(allOffers.map(o => o.operator.id)).size;
   const descParagraphs = route.description?.split('\n').filter(p => p.trim()) ?? [];

@@ -15,21 +15,20 @@
  * Чистый модуль. Сторож: tests/unit/route-offers-order.test.tsx.
  */
 
+import { offerShownPrice } from '@/lib/routes/route-tour-price';
+
 export type RouteOfferSort = 'order' | 'price' | 'date' | 'slots';
 
 export const ROUTE_OFFER_SORTS: readonly RouteOfferSort[] = ['order', 'price', 'date', 'slots'];
 
 export interface RouteOfferSortable {
-  effectivePrice: number | null;
   priceBase: number | null;
   nextDeparture: string | null;
   nextSlots: number | null;
 }
 
-function priceOf(o: RouteOfferSortable): number | null {
-  const p = o.effectivePrice ?? o.priceBase;
-  return p != null && Number.isFinite(p) ? p : null;
-}
+/** Цена тура — та, что на его карточке (lib/routes/route-tour-price). */
+const priceOf = (o: RouteOfferSortable): number | null => offerShownPrice(o);
 
 function dateOf(o: RouteOfferSortable): number | null {
   if (!o.nextDeparture) return null;

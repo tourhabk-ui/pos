@@ -21,6 +21,7 @@ import dynamic from 'next/dynamic';
 import { Header } from '@/components/layout/Header';
 import { MarkerType } from '@/components/shared/leaflet-types';
 import { geolocationOnce } from '@/lib/geo/current-position';
+import { ROUTE_PRICE_NOTE_RU } from '@/lib/routes/route-tour-price';
 
 const LeafletMap = dynamic(() => import('@/components/shared/LeafletMap'), { ssr: false });
 
@@ -92,10 +93,14 @@ const LOCATION_COLORS: Record<string, string> = {
 const SORT_OPTIONS = [
   { value: 'recommended', label: 'Рекомендуемые' },
   { value: 'title',       label: 'А — Я' },
-  { value: 'price_asc',   label: 'Цена: дешёвые' },
-  { value: 'price_desc',  label: 'Цена: дорогие' },
+  { value: 'price_asc',   label: 'Цена тура: дешевле' },
+  { value: 'price_desc',  label: 'Цена тура: дороже' },
   { value: 'recent',      label: 'Новые' },
 ];
+// Цена маршрута — самая низкая цена его тура за человека (слово владельца
+// 18.11 «1», lib/routes/route-tour-price). До 17.11 и сортировка, и фильтр
+// брали число со статьи-источника без тура за ним. Цена — только кнопка
+// туриста с подписью (правило 1в): подпись — ROUTE_PRICE_NOTE_RU.
 
 const NEAR_PK = { lat: 53.0195, lng: 158.6505 };
 const NEAR_OPTIONS = [
@@ -595,7 +600,7 @@ export default function RoutesPageClient({ initialItems, initialMeta, initialErr
             {/* Цена — только для маршрутов */}
             {kind === 'route' && (
               <div>
-                <p className="ds-label mb-2">Цена</p>
+                <p className="ds-label mb-2">Цена тура за человека</p>
                 <div className="flex flex-wrap gap-2">
                   {PRICE_RANGES.map(r => (
                     <button
@@ -773,11 +778,18 @@ export default function RoutesPageClient({ initialItems, initialMeta, initialErr
                 </button>
               </div>
             ) : (
-              <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-4 gap-3" onClickCapture={rememberBeforeCard}>
-                {routes.map(route => (
-                  <RouteCard key={route.id} route={route} />
-                ))}
-              </div>
+              <>
+                {kind === 'route' && (priceRange || sort === 'price_asc' || sort === 'price_desc') && (
+                  <p className="text-xs text-[var(--text-muted)] mb-3" data-testid="route-price-note">
+                    {ROUTE_PRICE_NOTE_RU}
+                  </p>
+                )}
+                <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-4 gap-3" onClickCapture={rememberBeforeCard}>
+                  {routes.map(route => (
+                    <RouteCard key={route.id} route={route} />
+                  ))}
+                </div>
+              </>
             )}
 
             {/* ── Pagination (ссылки, не кнопки — SEO-обход) ── */}

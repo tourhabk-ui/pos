@@ -105,7 +105,7 @@ describe('сервер: туры маршрута — правилом 1в, бе
 });
 
 describe('сервер: дата и места на карточке — из того же источника, что порядок (ревью 29.10)', () => {
-  type LoadedOffer = { tourId: number; nextDeparture: string | null; nextSlots: number | null; datesState?: string; effectivePrice: number | null; priceBase: number | null };
+  type LoadedOffer = { tourId: number; nextDeparture: string | null; nextSlots: number | null; datesState?: string; priceBase: number | null };
   async function loaded(): Promise<LoadedOffer[]> {
     const r = (await loadRouteDetail('r-1', { explain: false, countView: false })) as unknown as Loaded;
     const data = (r as { data?: Loaded }).data ?? r;
@@ -140,7 +140,7 @@ describe('сервер: дата и места на карточке — из т
 
 describe('клиент: выбор туриста и подпись правила', () => {
   const o = (tourId: number, price: number | null, date: string | null, slots: number | null) =>
-    ({ tourId, effectivePrice: price, priceBase: price, nextDeparture: date, nextSlots: slots });
+    ({ tourId, priceBase: price, nextDeparture: date, nextSlots: slots });
   const server = [o(1, 30000, '2026-11-03', 2), o(2, 9000, null, null), o(3, 9000, '2026-12-01', 6), o(4, null, null, null)];
 
   it('по умолчанию — порядок сервера как есть', () => {

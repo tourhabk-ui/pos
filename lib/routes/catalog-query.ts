@@ -26,6 +26,12 @@ import { placeOnLiveRouteSql } from '@/lib/places/on-route';
 import { stripFillerLead } from '@/lib/text/filler-lead';
 import { arkUrlSlugSql } from '@/lib/routes/url-slug';
 import { PLACE_TYPE_PARAM } from '@/lib/routes/place-type-param';
+import {
+  routeTourPriceFromSql,
+  routeTourPriceLateralSql,
+  routeTourPriceOf,
+  type RouteTourPrice,
+} from '@/lib/routes/route-tour-price';
 
 
 /** Определение опасностей на основе данных точки/маршрута. */
@@ -115,6 +121,12 @@ export const CatalogQuerySchema = z.object({
   // (снятый трек → набросок → линия не проверена → линии нет), и лишь внутри
   // рода — полнота карточки. Заведена 19.09 по жалобе владельца, см.
   // LINE_RANK в lib/map/line-standard.ts.
+  //
+  // Цена маршрута — самая низкая цена его тура за человека (слово владельца
+  // 18.11 «1», lib/routes/route-tour-price). До 17.11 сортировка и фильтр
+  // брали payload.price_from — число со статьи-источника без тура за ним.
+  // Маршрут без тура с ценой в сортировке по цене — в конце, фильтр по цене
+  // его не пропускает. У места цены нет вовсе (§9).
   sort:          z.enum(['title', 'recent', 'price_asc', 'price_desc', 'recommended', 'navigable']).default('title'),
   difficulty:    z.enum(['easy', 'medium', 'hard']).optional(),
   price_min:     z.coerce.number().min(0).optional(),
@@ -153,7 +165,12 @@ export interface CatalogItem {
   lng: number | null;
   sourceUrl: string | null;
   sourceName: string | null;
-  priceFrom: number | null;
+  /**
+   * Цена маршрута — самая низкая цена его тура за человека и число таких
+   * туров (lib/routes/route-tour-price). null — тура с такой ценой нет или
+   * это место.
+   */
+  tourPrice: RouteTourPrice | null;
   season: string | null;
   difficulty: string | null;
   durationDays: number | null;
@@ -254,13 +271,17 @@ export async function queryCatalog(filters: CatalogFilters): Promise<CatalogResu
     params.push(difficulty);
     idx++;
   }
+  // Фильтр по цене — по цене туров маршрута (lib/routes/route-tour-price).
+  // Скалярным выражением: то же условие стоит в запросе счёта, где соединений
+  // нет. Маршрут без тура с ценой за человека и место дают NULL — фильтр их
+  // не пропускает: «не знаем» не «до 5 000 ₽».
   if (price_min != null) {
-    conditions.push(`(ark.payload->>'price_from')::numeric >= $${idx}`);
+    conditions.push(`${routeTourPriceFromSql('ark')} >= $${idx}`);
     params.push(price_min);
     idx++;
   }
   if (price_max != null) {
-    conditions.push(`(ark.payload->>'price_from')::numeric <= $${idx}`);
+    conditions.push(`${routeTourPriceFromSql('ark')} <= $${idx}`);
     params.push(price_max);
     idx++;
   }
@@ -338,17 +359,21 @@ export async function queryCatalog(filters: CatalogFilters): Promise<CatalogResu
    */
   // Полнота карточки: тот же счёт, что в `recommended`. Вынесен, потому что
   // `navigable` использует его как ВТОРОЙ ключ — после рода линии.
+  // Скачанная цена (payload.price_from) в полноту не входит (17.11): числа нет
+  // на карточке, и ставить выше запись за то, что её статья-источник назвала
+  // цену, — порядок по чужому тексту, а не по данным карточки.
   const cardRichness = `(
-      CASE WHEN ark.payload->>'price_from'    IS NOT NULL THEN 1 ELSE 0 END +
       CASE WHEN ark.payload->>'difficulty'    IS NOT NULL THEN 1 ELSE 0 END +
       CASE WHEN ark.payload->>'duration_days' IS NOT NULL THEN 1 ELSE 0 END +
       CASE WHEN ark.payload->>'best_months'   IS NOT NULL THEN 1 ELSE 0 END
     ) DESC`;
 
+  // Цена — только кнопка туриста с подписью (правило 1в): в `recommended` и
+  // `navigable` она не входит. Цены нет — в конце при любом направлении.
   const orderBy =
     sort === 'recent'      ? 'ark.created_at DESC' :
-    sort === 'price_asc'   ? 'COALESCE((ark.payload->>\'price_from\')::numeric, 999999999) ASC, ark.title ASC' :
-    sort === 'price_desc'  ? 'COALESCE((ark.payload->>\'price_from\')::numeric, 0) DESC, ark.title ASC' :
+    sort === 'price_asc'   ? 'tp.price_from ASC NULLS LAST, ark.title ASC' :
+    sort === 'price_desc'  ? 'tp.price_from DESC NULLS LAST, ark.title ASC' :
     sort === 'recommended' ? `
     -- МЕСТО БЕЗ СНИМКА — В САМЫЙ КОНЕЦ (решение владельца 20.09).
     --
@@ -374,7 +399,6 @@ export async function queryCatalog(filters: CatalogFilters): Promise<CatalogResu
               AND NOT (ari.route_id IS NOT NULL AND ${shownPhotoSql('ari.model')})
          THEN 1 ELSE 0 END ASC,
     (
-      CASE WHEN ark.payload->>'price_from'    IS NOT NULL THEN 1 ELSE 0 END +
       CASE WHEN ark.payload->>'difficulty'    IS NOT NULL THEN 1 ELSE 0 END +
       CASE WHEN ark.payload->>'duration_days' IS NOT NULL THEN 1 ELSE 0 END +
       CASE WHEN ark.payload->>'best_months'   IS NOT NULL THEN 1 ELSE 0 END
@@ -429,7 +453,9 @@ export async function queryCatalog(filters: CatalogFilters): Promise<CatalogResu
          ark.source_url,
          ark.source_name,
          ark.payload,
-         ark.payload->'price_from'      AS price_from,
+         -- Цена маршрута — из его туров (lib/routes/route-tour-price).
+         tp.price_from                  AS tour_price_from,
+         tp.tours                       AS priced_tours,
          ark.payload->'season'          AS season,
          ark.payload->'difficulty'      AS difficulty,
          ark.payload->'duration_days'   AS duration_days,
@@ -480,6 +506,7 @@ export async function queryCatalog(filters: CatalogFilters): Promise<CatalogResu
           ORDER BY similarity(ark.title, p.name) DESC, rw.position DESC
           LIMIT 1
        ) wp ON TRUE
+       ${routeTourPriceLateralSql('ark', 'tp')}
        ${where}
        ORDER BY ${orderBy}
        LIMIT $${idx} OFFSET $${idx + 1}`,
@@ -524,7 +551,7 @@ export async function queryCatalog(filters: CatalogFilters): Promise<CatalogResu
       lng:          r.lng != null ? parseFloat(r.lng as string) : null,
       sourceUrl:    (r.source_url as string | null) ?? null,
       sourceName:   (r.source_name as string | null) ?? null,
-      priceFrom:    r.price_from != null ? Number(r.price_from) : null,
+      tourPrice:    routeTourPriceOf(r.tour_price_from, r.priced_tours),
       season:       (r.season as string | null) ?? null,
       difficulty:   (r.difficulty as string | null) ?? null,
       durationDays: r.duration_days != null ? Number(r.duration_days) : null,
