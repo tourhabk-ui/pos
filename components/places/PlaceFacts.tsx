@@ -104,9 +104,12 @@ export default function PlaceFacts({ locationType, zone, safety, terrainType }: 
     value: LOCATION_TYPE_LABELS[locationType ?? 'other'] ?? 'Место',
   });
 
-  // Код без подписи туристу не показываем: «Район: xyz» — служебная строка,
-  // а не факт о месте.
-  if (placeZoneLabel(zone)) facts.push({ label: 'Район', value: placeZoneLabel(zone)! });
+  // Код без подписи туристу не показываем: «Зона: xyz» — служебная строка,
+  // а не факт о месте. Подпись — «Зона», а не «Район» (#3473, слово владельца
+  // 16.11): это часть края в планере Ведара («Корякский округ»,
+  // «Авачинский»), а не административный район — у Костакана в описании
+  // «Елизовский район», а строкой стояло «Район: Авачинский».
+  if (placeZoneLabel(zone)) facts.push({ label: 'Зона', value: placeZoneLabel(zone)! });
   if (terrainType && TERRAIN_LABELS[terrainType]) facts.push({ label: 'Рельеф', value: TERRAIN_LABELS[terrainType] });
 
   if (safety.altitudeM != null) {

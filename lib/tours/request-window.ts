@@ -92,6 +92,30 @@ export function windowLabel(w: Extract<RequestWindow, { kind: 'season' }>): stri
     : `${season}, выезд с ${longDay(w.from)} по ${longDay(w.to)}`;
 }
 
+const MONTHS_NOMINATIVE = ['январь', 'февраль', 'март', 'апрель', 'май', 'июнь', 'июль', 'август', 'сентябрь', 'октябрь', 'ноябрь', 'декабрь'];
+
+/** «июль — октябрь 2027», «июль 2027», «декабрь 2026 — март 2027». */
+export function monthSpan(fromDay: string, toDay: string): string {
+  const [fy, fm] = [Number(fromDay.slice(0, 4)), Number(fromDay.slice(5, 7)) - 1];
+  const [ty, tm] = [Number(toDay.slice(0, 4)), Number(toDay.slice(5, 7)) - 1];
+  if (fy === ty && fm === tm) return `${MONTHS_NOMINATIVE[fm]} ${fy}`;
+  if (fy === ty) return `${MONTHS_NOMINATIVE[fm]} — ${MONTHS_NOMINATIVE[tm]} ${fy}`;
+  return `${MONTHS_NOMINATIVE[fm]} ${fy} — ${MONTHS_NOMINATIVE[tm]} ${ty}`;
+}
+
+/**
+ * Одна строка о датах у тура без календаря (#3473, слово владельца 16.11:
+ * «Сезон июль — октябрь 2027, даты — по запросу у оператора»). До этого
+ * каталог писал «Даты по запросу», а карточка — сезон, и это читалось как
+ * две разные версии. Сезон записан и ещё не прошёл — строка называет его;
+ * иначе — прежнее «Даты по запросу».
+ */
+export function onRequestLine(t: WindowInput, today: string): string {
+  const w = requestWindow(t, today);
+  if (w.kind !== 'season') return 'Даты по запросу';
+  return `Сезон ${monthSpan(w.seasonStart, w.seasonEnd)}, даты — по запросу у оператора`;
+}
+
 /** Отказ словами: дата вне окна. Одна формулировка на все двери. */
 export function outOfSeasonText(w: Extract<RequestWindow, { kind: 'season' }>, date: string): string {
   return `Тур принимает заявки только по сезону (${windowLabel(w)}). Дата ${longDay(date)} вне сезона.`;
