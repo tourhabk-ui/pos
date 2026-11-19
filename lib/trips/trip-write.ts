@@ -143,6 +143,10 @@ export const TRIP_SELECT = `id, user_id, title, arrival_date, departure_date, pl
   flight_departure_time, needs_airport_transfer, needs_lodging, needs_car, party, choices, warnings,
   is_public, created_at, updated_at, deleted_at`;
 
+/** Живая поездка человека: $1 — id поездки, $2 — id владельца. Чужая и удалённая — нет строки. */
+export const OWNED_TRIP_SQL = `SELECT ${TRIP_SELECT}
+     FROM user_trips WHERE id = $1 AND user_id = $2 AND deleted_at IS NULL`;
+
 /**
  * Создание: INSERT, а с ключом повтора — upsert по уникальному индексу живых
  * поездок человека (1397): повторный POST после потерянного ответа обновляет

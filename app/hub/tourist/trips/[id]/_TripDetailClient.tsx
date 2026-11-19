@@ -14,6 +14,7 @@ import type { PlanNeeds } from '@/lib/planner/plan-for-lead';
 import { formatKamchatkaDate } from '@/lib/admin/kamchatka-date';
 import { stayLink } from '@/lib/stay/stay-link';
 import { TripActions } from '@/components/trips/TripActions';
+import { TripNowCheck } from '@/components/trips/TripNowCheck';
 import { ruCalendarDate } from '@/lib/trips/trip-dates';
 import { plannerRebuildHref } from '@/lib/trips/rebuild-link';
 import {
@@ -170,8 +171,8 @@ function PlanWarnings({ warnings, savedAt }: { warnings: TripWarning[]; savedAt:
     <section className="ds-card p-5 space-y-2" data-testid="trip-plan-warnings">
       <h2 className="text-sm font-semibold text-[var(--text-primary)]">Важно</h2>
       <p className="text-xs text-[var(--text-secondary)]">
-        Так план предупреждал на день сохранения, {formatKamchatkaDate(savedAt)}. Обстановка с тех пор могла
-        измениться — свежая на странице <Link href="/safety" className="text-[var(--ocean)] hover:underline">«Обстановка»</Link>.
+        Так план предупреждал на день сохранения, {formatKamchatkaDate(savedAt)}. Что изменилось с тех пор — в блоке
+        «Сейчас на ваши даты» выше; обстановка по краю — на странице <Link href="/safety" className="text-[var(--ocean)] hover:underline">«Обстановка»</Link>.
       </p>
       <ul className="space-y-1.5">
         {sorted.map((w, i) => {
@@ -356,6 +357,9 @@ export function TripDetailClient({ tripId }: { tripId: string }) {
         </div>
 
         <TripActions trip={trip} />
+
+        {/* Тот же план, перепроверенный сейчас: что изменилось с дня сохранения (#3394). */}
+        <TripNowCheck tripId={trip.id} savedAt={trip.updated_at} rebuildHref={plannerRebuildHref(trip)} />
 
         {trip.warnings && trip.warnings.length > 0 && <PlanWarnings warnings={trip.warnings} savedAt={trip.updated_at} />}
 
