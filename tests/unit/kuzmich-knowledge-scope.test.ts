@@ -18,7 +18,7 @@
 import { describe, it, expect } from 'vitest';
 import { readFileSync, readdirSync } from 'node:fs';
 import { join } from 'node:path';
-import { KUZMICH_KNOWLEDGE_TYPES, KUZMICH_KNOWLEDGE_SCOPE_SQL } from '@/lib/kuzmich/knowledge-scope';
+import { KUZMICH_KNOWLEDGE_TYPES, KUZMICH_KNOWLEDGE_SCOPE_SQL, KUZMICH_KNOWLEDGE_SOURCED_SQL } from '@/lib/kuzmich/knowledge-scope';
 
 const ROOT = process.cwd();
 const read = (p: string) => readFileSync(join(ROOT, p), 'utf-8');
@@ -58,8 +58,15 @@ describe('разрешённый список родов знания Кузьм
 
   it('SQL-область строится из списка и называет только его', () => {
     expect(KUZMICH_KNOWLEDGE_SCOPE_SQL).toMatch(/^agent_id = 'kuzmich' AND type IN \(/);
-    const listed = [...KUZMICH_KNOWLEDGE_SCOPE_SQL.matchAll(/'([a-z_]+)'/g)].map((m) => m[1]).slice(1);
+    const inList = KUZMICH_KNOWLEDGE_SCOPE_SQL.match(/type IN \(([^)]*)\)/)?.[1] ?? '';
+    const listed = [...inList.matchAll(/'([a-z_]+)'/g)].map((m) => m[1]);
     expect(listed).toEqual([...KUZMICH_KNOWLEDGE_TYPES]);
+  });
+
+  it('сверх рода — источник (#3514): область требует адрес источника записи', () => {
+    // Что условие пропускает и что нет — решает база: сцены на настоящем
+    // PostgreSQL в tests/integration/kuzmich-knowledge-sourced.pg.test.ts.
+    expect(KUZMICH_KNOWLEDGE_SCOPE_SQL).toContain(` AND ${KUZMICH_KNOWLEDGE_SOURCED_SQL}`);
   });
 
   it('все выборки из agent_knowledge на путях Кузьмича и MCP идут через область', () => {
