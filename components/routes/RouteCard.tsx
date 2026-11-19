@@ -3,6 +3,8 @@
 import Link from 'next/link';
 import { catalogHref } from '@/lib/routes/url-slug';
 import { useWishlist, wishlistLabel, WISHLIST_LOCAL_ONLY_HINT } from '@/hooks/use-wishlist';
+import type { RouteTourPrice } from '@/lib/routes/route-tour-price';
+import RouteTourPriceLine from './RouteTourPriceLine';
 import { Heart, Flame, Thermometer, Anchor, Mountain, Leaf, Fish, Snowflake, Plane, Car, Wind, Footprints, PawPrint, MapPin, Waves, Droplets, Landmark, TreePine, Globe } from 'lucide-react';
 
 export interface RouteItem {
@@ -23,6 +25,11 @@ export interface RouteItem {
   lng: number | null;
   sourceUrl?: string | null;
   sourceName?: string | null;
+  /**
+   * Цена маршрута — самая низкая цена его тура за человека (слово владельца
+   * 18.11 «1», lib/routes/route-tour-price); нет — цены нет.
+   */
+  tourPrice?: RouteTourPrice | null;
   difficulty: string | null;
   durationDays: number | null;
   bestMonths?: number[] | null;
@@ -77,11 +84,9 @@ export default function RouteCard({ route }: { route: RouteItem }) {
 function LegacyCard({ route }: { route: RouteItem }) {
   const meta = CATEGORY_META[route.category] ?? { label: route.category, icon: MapPin, accent: 'var(--accent)' };
   const Icon = meta.icon;
-  // Цены у маршрута и места нет (слово владельца 17.11 «1 да»): прежде здесь
-  // стояло «от N ₽» из payload.price_from — числа, скачанного со статьи-
-  // источника. Ни одного тура за ним не было, и источник не записан (§0, §24).
-  // Цена — у тура, на его карточке. То же правило карточка маршрута держит
-  // с 18.07 (_RouteDetailClient, «Рыболовная база»).
+  // Своей цены у маршрута нет (17.11): прежде здесь стояло «от N ₽» из
+  // payload.price_from — числа, скачанного со статьи-источника, без тура за
+  // ним (§0, §24). Цена маршрута — из его туров (18.11 «1»), строкой ниже.
   const hasOffers = (route.offerCount ?? 0) > 0;
   const isTourOrRoute = route.kind === 'tour' || route.kind === 'route';
 
@@ -142,6 +147,8 @@ function LegacyCard({ route }: { route: RouteItem }) {
             {route.description}
           </p>
         )}
+
+        <RouteTourPriceLine price={route.tourPrice} />
 
         <div className="flex items-center justify-between">
           {isTourOrRoute ? (

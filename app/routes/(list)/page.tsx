@@ -76,8 +76,7 @@ export async function generateMetadata({ searchParams }: PageProps): Promise<Met
   const sp = await searchParams;
   const page = parsePage(first(sp.page));
   const isPlaces = first(sp.kind) === 'place';
-  // `price` не фильтр (17.11): цены у маршрута нет, адрес с ним — тот же список.
-  const hasFilters = ['q', 'activity_type', 'location_type', 'difficulty', 'radius', 'sort'].some(k => first(sp[k]) !== '');
+  const hasFilters = ['q', 'activity_type', 'location_type', 'difficulty', 'price', 'radius', 'sort'].some(k => first(sp[k]) !== '');
   const canonical = catalogCanonical(SITE, isPlaces ? '/places' : '/routes', page, hasFilters);
   if (page <= 1 || hasFilters) return { ...BASE_METADATA, alternates: { canonical } };
   const title = `Маршруты по Камчатке — страница ${page}`;
@@ -115,7 +114,7 @@ export default async function RoutesPage({ searchParams }: PageProps) {
   const requestedPage = parsePage(first(sp.page));
   let page = requestedPage;
 
-  // Зеркало initial-состояния клиента: sort в URL по-прежнему не живёт.
+  // Зеркало initial-состояния клиента: sort и цена в URL по-прежнему не живут.
   const filters: CatalogFilters = {
     ...(q ? { q } : {}),
     kind,
@@ -201,6 +200,7 @@ export default async function RoutesPage({ searchParams }: PageProps) {
     page,
     sort: 'recommended',
     difficulty,
+    priceRange: '',
     radius: '',
   });
 

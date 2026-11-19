@@ -30,7 +30,6 @@ export async function GET(
         ark.lng,
         ark.payload->>'difficulty' AS difficulty,
         ark.payload->>'duration_days' AS duration_days,
-        vm.effective_price,
         vm.tour_name,
         vm.tour_price_base,
         vm.price_old,
@@ -58,9 +57,11 @@ export async function GET(
       description: (r.description ?? '').slice(0, 200),
       lat: r.lat ? Number(r.lat) : null,
       lng: r.lng ? Number(r.lng) : null,
-      // Цена — тура оператора; запаса к цене из записи маршрута нет (17.11):
-      // то число скачано со статьи-источника и к этому туру не относится.
-      priceFrom: r.effective_price ? Number(r.effective_price) : r.tour_price_base ? Number(r.tour_price_base) : null,
+      // Цена — тура оператора, та же, что на его карточке (§11): base_price.
+      // Запаса к цене из записи маршрута нет (17.11): то число скачано со
+      // статьи-источника. effective_price вьюхи не берётся (18.11): это
+      // COALESCE(price_old, base_price), а price_old — зачёркнутая старая цена.
+      priceFrom: r.tour_price_base ? Number(r.tour_price_base) : null,
       priceOld: r.price_old ? Number(r.price_old) : null,
       priceUnit: (r.price_unit as string | null) ?? null,
       difficulty: r.difficulty,

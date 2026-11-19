@@ -21,6 +21,7 @@ import dynamic from 'next/dynamic';
 import { Header } from '@/components/layout/Header';
 import { MarkerType } from '@/components/shared/leaflet-types';
 import { geolocationOnce } from '@/lib/geo/current-position';
+import { ROUTE_PRICE_NOTE_RU } from '@/lib/routes/route-tour-price';
 
 const LeafletMap = dynamic(() => import('@/components/shared/LeafletMap'), { ssr: false });
 
@@ -92,12 +93,14 @@ const LOCATION_COLORS: Record<string, string> = {
 const SORT_OPTIONS = [
   { value: 'recommended', label: 'Рекомендуемые' },
   { value: 'title',       label: 'А — Я' },
+  { value: 'price_asc',   label: 'Цена тура: дешевле' },
+  { value: 'price_desc',  label: 'Цена тура: дороже' },
   { value: 'recent',      label: 'Новые' },
 ];
-// Сортировки и фильтра «по цене» нет (слово владельца 17.11 «1 да»): у маршрута
-// и места цены нет — было только число, скачанное со статьи-источника, без тура
-// за ним. Цены — у туров, в каталоге туров. Старая ссылка с ?sort=price_asc или
-// ?price= открывает список по умолчанию: неизвестное значение — умолчание.
+// Цена маршрута — самая низкая цена его тура за человека (слово владельца
+// 18.11 «1», lib/routes/route-tour-price). До 17.11 и сортировка, и фильтр
+// брали число со статьи-источника без тура за ним. Цена — только кнопка
+// туриста с подписью (правило 1в): подпись — ROUTE_PRICE_NOTE_RU.
 
 const NEAR_PK = { lat: 53.0195, lng: 158.6505 };
 const NEAR_OPTIONS = [
@@ -112,6 +115,14 @@ const DIFFICULTY_OPTIONS = [
   { value: 'easy',   label: 'Лёгкая' },
   { value: 'medium', label: 'Средняя' },
   { value: 'hard',   label: 'Сложная' },
+];
+
+const PRICE_RANGES = [
+  { value: '',             label: 'Любая',              min: undefined, max: undefined },
+  { value: '0-5000',       label: 'до 5 000 ₽',         min: 0,         max: 5000 },
+  { value: '5000-25000',   label: '5 000 — 25 000 ₽',   min: 5000,      max: 25000 },
+  { value: '25000-100000', label: '25 000 — 100 000 ₽', min: 25000,     max: 100000 },
+  { value: '100000',       label: 'от 100 000 ₽',       min: 100000,    max: undefined },
 ];
 
 const LIMIT = 24;
@@ -130,7 +141,7 @@ interface MapRoute {
   lng: number;
 }
 
-type SortValue      = 'title' | 'recent' | 'recommended';
+type SortValue      = 'title' | 'recent' | 'price_asc' | 'price_desc' | 'recommended';
 type DifficultyValue = '' | 'easy' | 'medium' | 'hard';
 type KindValue      = 'place' | 'route';
 
@@ -186,7 +197,7 @@ export default function RoutesPageClient({ initialItems, initialMeta, initialErr
   const [query,        setQuery]        = useState(searchParams.get('q') ?? '');
   const [activityType, setActivityType] = useState(searchParams.get('activity_type') ?? '');
   const [locationType, setLocationType] = useState(searchParams.get('location_type') ?? '');
-  // Сортировка и радиус — тоже из адреса (возврат из карточки 01.10):
+  // Сортировка, цена и радиус — тоже из адреса (возврат из карточки 01.10):
   // пока они жили только в состоянии, кнопка «назад» их теряла, и турист
   // возвращался в другой список. Неизвестное значение — умолчание.
   const [sort,         setSort]         = useState<SortValue>(() => {
@@ -200,6 +211,10 @@ export default function RoutesPageClient({ initialItems, initialMeta, initialErr
   const [difficulty,   setDifficulty]   = useState<DifficultyValue>(() => {
     const d = searchParams.get('difficulty');
     return (d === 'easy' || d === 'medium' || d === 'hard') ? d : '';
+  });
+  const [priceRange,   setPriceRange]   = useState(() => {
+    const v = searchParams.get('price') ?? '';
+    return PRICE_RANGES.some(r => r.value === v) ? v : '';
   });
   // Фильтр «Рядом»: радиус от якоря. Якорь — позиция туриста (геолокация по
   // явному выбору радиуса), при отказе — честно Петропавловск.
@@ -231,7 +246,15 @@ export default function RoutesPageClient({ initialItems, initialMeta, initialErr
   // (данные уже отрендерены сервером; иначе мигание и лишний запрос на вход).
   const initialKeyRef = useRef<string | null>(initialError ? null : initialKey);
 
-  const activeFiltersCount = [difficulty, nearRadius].filter(Boolean).length;
+  // For routes: difficulty + price filters; for places: only difficulty
+  const activeFiltersCount = kind === 'place'
+    ? [difficulty, nearRadius].filter(Boolean).length
+    : [difficulty, priceRange, nearRadius].filter(Boolean).length;
+
+  const getPriceParams = useCallback(() => {
+    const range = PRICE_RANGES.find(r => r.value === priceRange);
+    return { price_min: range?.min, price_max: range?.max };
+  }, [priceRange]);
 
   // Выбор радиуса «Рядом» — явное действие туриста, здесь можно спросить
   // геолокацию (один раз). Отказ/ошибка — молча остаёмся на Петропавловске.
@@ -255,7 +278,7 @@ export default function RoutesPageClient({ initialItems, initialMeta, initialErr
   // ── Fetch grid ───────────────────────────────────────────────
   const fetchRoutes = useCallback(async (
     q: string, act: string, locType: string, pg: number, srt: string,
-    diff: string, k: KindValue,
+    diff: string, k: KindValue, price_min?: number, price_max?: number,
     near?: { lat: number; lng: number; radiusKm: number },
   ) => {
     setLoading(true);
@@ -264,6 +287,10 @@ export default function RoutesPageClient({ initialItems, initialMeta, initialErr
     if (k === 'route' && act) params.set('activity_type', act);
     if (k === 'place' && locType) params.set('location_type', locType);
     if (diff)                params.set('difficulty', diff);
+    if (k === 'route') {
+      if (price_min != null) params.set('price_min', String(price_min));
+      if (price_max != null) params.set('price_max', String(price_max));
+    }
     if (near) {
       params.set('near_lat', String(near.lat));
       params.set('near_lng', String(near.lng));
@@ -333,20 +360,22 @@ export default function RoutesPageClient({ initialItems, initialMeta, initialErr
         page,
         sort,
         difficulty,
+        priceRange,
         radius: nearRadius,
       });
       const matched = initialKeyRef.current === currentKey;
       initialKeyRef.current = null;
       if (matched) return;
     }
+    const { price_min, price_max } = getPriceParams();
     const near = nearRadius
       ? { lat: nearAnchor.lat, lng: nearAnchor.lng, radiusKm: Number(nearRadius) }
       : undefined;
     clearTimeout(debounceRef.current);
     debounceRef.current = setTimeout(() => {
-      fetchRoutes(query, activityType, locationType, page, sort, difficulty, kind, near);
+      fetchRoutes(query, activityType, locationType, page, sort, difficulty, kind, price_min, price_max, near);
     }, query ? 300 : 0);
-  }, [query, activityType, locationType, page, sort, difficulty, kind, nearRadius, nearAnchor, fetchRoutes]);
+  }, [query, activityType, locationType, page, sort, difficulty, priceRange, kind, nearRadius, nearAnchor, fetchRoutes, getPriceParams]);
 
   useEffect(() => {
     if (view === 'map') fetchMapRoutes();
@@ -367,11 +396,12 @@ export default function RoutesPageClient({ initialItems, initialMeta, initialErr
     if (kind === 'route' && activityType) p.set('activity_type', activityType);
     if (kind === 'place' && locationType) p.set('location_type', locationType);
     if (difficulty)        p.set('difficulty', difficulty);
+    if (kind === 'route' && priceRange) p.set('price', priceRange);
     if (nearRadius)        p.set('radius', nearRadius);
     if (sort !== 'recommended') p.set('sort', sort);
     if (pg > 1)            p.set('page', String(pg));
     return `${basePath}${p.size ? '?' + p : ''}`;
-  }, [lockedKind, kind, query, activityType, locationType, difficulty, nearRadius, sort, basePath]);
+  }, [lockedKind, kind, query, activityType, locationType, difficulty, priceRange, nearRadius, sort, basePath]);
 
   useEffect(() => {
     router.replace(listUrl(page), { scroll: false });
@@ -402,10 +432,11 @@ export default function RoutesPageClient({ initialItems, initialMeta, initialErr
     rememberCatalogReturn(listUrl(page), window.scrollY);
   }, [listUrl, page]);
 
-  const resetFilters = () => { setDifficulty(''); setNearRadius(''); setPage(1); };
+  const resetFilters = () => { setDifficulty(''); setPriceRange(''); setNearRadius(''); setPage(1); };
 
   const retryFetch = () => {
-    fetchRoutes(query, activityType, locationType, page, sort, difficulty, kind);
+    const { price_min, price_max } = getPriceParams();
+    fetchRoutes(query, activityType, locationType, page, sort, difficulty, kind, price_min, price_max);
   };
 
   // Href страницы пагинации — зеркало URL-sync выше. Реальные ссылки нужны
@@ -524,7 +555,9 @@ export default function RoutesPageClient({ initialItems, initialMeta, initialErr
             onChange={e => { setSort(e.target.value as SortValue); setPage(1); }}
             className="ds-input flex-1 sm:flex-none w-auto min-w-0 sm:min-w-[12rem] h-9 py-1.5 pr-7 text-sm"
           >
-            {SORT_OPTIONS.map(o => <option key={o.value} value={o.value}>{o.label}</option>)}
+            {SORT_OPTIONS
+              .filter(o => kind === 'place' ? !o.value.startsWith('price') : true)
+              .map(o => <option key={o.value} value={o.value}>{o.label}</option>)}
           </select>
 
           <button
@@ -564,6 +597,28 @@ export default function RoutesPageClient({ initialItems, initialMeta, initialErr
         {/* ── Filter panel ──────────────────────────────────── */}
         {showFilters && (
           <div className="bg-[var(--bg-card)] border border-[var(--border)] rounded-lg p-4 mb-4 grid grid-cols-1 sm:grid-cols-2 gap-4">
+            {/* Цена — только для маршрутов */}
+            {kind === 'route' && (
+              <div>
+                <p className="ds-label mb-2">Цена тура за человека</p>
+                <div className="flex flex-wrap gap-2">
+                  {PRICE_RANGES.map(r => (
+                    <button
+                      key={r.value}
+                      onClick={() => { setPriceRange(r.value); setPage(1); }}
+                      className={`px-3 py-1.5 rounded-full text-sm border transition-all duration-150 ${
+                        priceRange === r.value
+                          ? 'bg-[var(--accent)] border-[var(--accent)] text-white'
+                          : 'border-[var(--border)] text-[var(--text-secondary)] hover:border-[var(--accent)]/40 bg-[var(--bg-card)]'
+                      }`}
+                    >
+                      {r.label}
+                    </button>
+                  ))}
+                </div>
+              </div>
+            )}
+
             <div>
               <p className="ds-label mb-2">
                 Рядом
@@ -723,11 +778,18 @@ export default function RoutesPageClient({ initialItems, initialMeta, initialErr
                 </button>
               </div>
             ) : (
-              <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-4 gap-3" onClickCapture={rememberBeforeCard}>
-                {routes.map(route => (
-                  <RouteCard key={route.id} route={route} />
-                ))}
-              </div>
+              <>
+                {kind === 'route' && (priceRange || sort === 'price_asc' || sort === 'price_desc') && (
+                  <p className="text-xs text-[var(--text-muted)] mb-3" data-testid="route-price-note">
+                    {ROUTE_PRICE_NOTE_RU}
+                  </p>
+                )}
+                <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-4 gap-3" onClickCapture={rememberBeforeCard}>
+                  {routes.map(route => (
+                    <RouteCard key={route.id} route={route} />
+                  ))}
+                </div>
+              </>
             )}
 
             {/* ── Pagination (ссылки, не кнопки — SEO-обход) ── */}

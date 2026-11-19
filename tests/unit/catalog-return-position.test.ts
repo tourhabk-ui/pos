@@ -104,15 +104,13 @@ describe('номер страницы, которой больше нет', () =
 describe('связка в коде каталога', () => {
   const client = read('app/routes/_RoutesPageClient.tsx');
 
-  it('адрес списка собирается одним сборщиком и несёт фильтры: сложность, радиус, сортировку', () => {
+  it('адрес списка собирается одним сборщиком и несёт фильтры: сложность, цену, радиус, сортировку', () => {
     const builder = /const listUrl = useCallback\(\(pg: number\) => \{([\s\S]*?)\}, \[/.exec(client);
     expect(builder, 'listUrl — единый сборщик адреса').not.toBeNull();
     const body = builder![1];
-    for (const key of ['difficulty', 'radius', 'sort', 'page']) {
+    for (const key of ['difficulty', 'price', 'radius', 'sort', 'page']) {
       expect(body, `в адресе списка нет ${key}`).toContain(`p.set('${key}'`);
     }
-    // Цены у маршрута нет (17.11): фильтра по ней нет и в адресе.
-    expect(body).not.toContain("p.set('price'");
     // Строка браузера и ссылки пагинации — из того же сборщика.
     expect(client).toContain('router.replace(listUrl(page)');
     expect(client).toContain('const pageHref = listUrl;');
@@ -125,9 +123,9 @@ describe('связка в коде каталога', () => {
     expect(builder).toContain("return `${basePath}${p.size ? '?' + p : ''}`");
   });
 
-  it('сортировка и радиус читаются из адреса при старте; цены там нет', () => {
+  it('сортировка, цена и радиус читаются из адреса при старте', () => {
     expect(client).toContain("searchParams.get('sort')");
-    expect(client).not.toContain("searchParams.get('price')");
+    expect(client).toContain("searchParams.get('price')");
     expect(client).toContain("searchParams.get('radius')");
     expect(client).toContain("searchParams.get('difficulty')");
   });

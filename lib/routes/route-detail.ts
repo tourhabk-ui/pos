@@ -38,6 +38,7 @@ import { UTC_WALL_NOW_SQL } from '@/lib/db/timestamp-iso';
 import { loadNearestFreeDates } from '@/lib/tours/nearest-free-date';
 import { anyDayOpenSql } from '@/lib/tours/schedule-kind';
 import { orderOffersBy, offerOrderDay } from '@/lib/tours/offer-order';
+import { routeToursKeySql } from '@/lib/routes/route-tour-price';
 
 /**
  * Сбой запроса — в лог, с тем, чем его чинят.
@@ -189,7 +190,6 @@ export async function loadRouteDetail(id: string, opts: RouteDetailOptions) {
          v.tour_price_base,
          v.price_old,
          v.price_unit,
-         v.effective_price,
          v.tour_duration_hours,
          v.duration_type,
          v.multi_day_count,
@@ -222,8 +222,12 @@ export async function loadRouteDetail(id: string, opts: RouteDetailOptions) {
        -- WHERE вьюхи: ссылке на его страницу (13.10) нужен источник.
        JOIN partners p ON p.id = v.operator_id
        JOIN operator_tours ot ON ot.id = v.tour_id
-       WHERE v.route_id = $1`,
-      [routeDbId]
+       -- Туры маршрута — по обоим его номерам (lib/routes/route-tour-price):
+       -- до 18.11 только по kamchatka_routes.id, и маршрут, чей номер карточки
+       -- (ark_id) с ним расходится, терял туры, привязанные по номеру карточки.
+       -- То же правило считает цену маршрута в каталоге.
+       WHERE ${routeToursKeySql('v', '$1')}`,
+      [id]
     );
 
     const nearest = await loadNearestFreeDates(offersResult.rows.map(o => String(o.tour_id)));
@@ -249,7 +253,9 @@ export async function loadRouteDetail(id: string, opts: RouteDetailOptions) {
       priceBase:        o.tour_price_base != null ? Number(o.tour_price_base) : null,
       priceOld:         o.price_old != null ? Number(o.price_old) : null,
       priceUnit:        (o.price_unit as string | null) ?? null,
-      effectivePrice:   o.effective_price != null ? Number(o.effective_price) : null,
+      // Цена тура — base_price, как на его карточке (§11). effective_price
+      // вьюхи — COALESCE(price_old, base_price), а price_old — зачёркнутая
+      // старая цена: показывать её действующей нельзя (18.11).
       durationHours:    o.tour_duration_hours != null ? Number(o.tour_duration_hours) : null,
       durationType:     (o.duration_type as string | null) ?? null,
       multiDayCount:    o.multi_day_count != null ? Number(o.multi_day_count) : null,

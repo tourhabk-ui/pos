@@ -230,8 +230,7 @@ describe('документ OpenAPI 3.1', () => {
     const op = doc.paths['/api/routes'].get as Operation;
     const documented = (op.parameters ?? []).filter((p) => p.in === 'query').map((p) => p.name).sort();
     const declared = Object.keys(CatalogQuerySchema.shape);
-    // 15 с 17.11: price_min и price_max сняты — цены у маршрута нет.
-    expect(declared.length).toBeGreaterThanOrEqual(15);
+    expect(declared.length).toBeGreaterThanOrEqual(16);
     expect(documented).toEqual([...declared, 'brief'].sort());
     expect(code('app/api/routes/route.ts')).toMatch(/searchParams\.get\('brief'\) === '1'/);
   });

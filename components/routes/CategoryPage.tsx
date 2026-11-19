@@ -5,6 +5,7 @@ import { ZONE_PAGES, MIN_ITEMS_FOR_PAGE, catalogZoneSql } from '@/lib/routes/zon
 import { Header } from '@/components/layout/Header';
 import RouteCard, { RouteItem } from './RouteCard';
 import { arkUrlSlugSql, catalogHref } from '@/lib/routes/url-slug';
+import { routeTourPriceLateralSql, routeTourPriceOf } from '@/lib/routes/route-tour-price';
 import { stripFillerLead } from '@/lib/text/filler-lead';
 import { clipAtWord } from '@/lib/text/clip-at-word';
 import Link from 'next/link';
@@ -36,13 +37,19 @@ export default async function CategoryPage({ category, zone }: { category: strin
       lat: unknown; lng: unknown; difficulty: string | null;
       duration_days: unknown; source_name: string | null;
       kind: string | null; url_slug: string | null;
+      tour_price_from: unknown; priced_tours: unknown;
     }>(
       `SELECT id, title, description, category, lat, lng, kind,
               ${arkUrlSlugSql('agent_route_knowledge')} AS url_slug,
               payload->>'difficulty' AS difficulty,
               NULLIF(payload->>'duration_days', '')::numeric::int AS duration_days,
-              source_name
+              source_name,
+              -- Цена маршрута — из его туров (18.11 «1»), то же правило, что
+              -- в каталоге (lib/routes/route-tour-price). Своей цены у записи нет.
+              tp.price_from AS tour_price_from,
+              tp.tours      AS priced_tours
        FROM agent_route_knowledge
+       ${routeTourPriceLateralSql('agent_route_knowledge', 'tp')}
        WHERE category = $1 AND is_visible = TRUE
          AND ($2::text IS NULL OR ${catalogZoneSql('zone')} = $2)
        -- Порядок по НАПОЛНЕННОСТИ карточки, а не по тому, с чьего сайта она
@@ -109,6 +116,7 @@ export default async function CategoryPage({ category, zone }: { category: strin
     difficulty: r.difficulty,
     durationDays: r.duration_days != null ? Number(r.duration_days) : null,
     sourceName: r.source_name,
+    tourPrice: routeTourPriceOf(r.tour_price_from, r.priced_tours),
   }));
 
   const liveCategories = new Set(
