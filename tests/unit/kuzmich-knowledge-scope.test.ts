@@ -65,7 +65,7 @@ describe('разрешённый список родов знания Кузьм
 
   it('сверх рода — источник (#3514): область требует адрес источника записи', () => {
     // Что условие пропускает и что нет — решает база: сцены на настоящем
-    // PostgreSQL в tests/integration/kuzmich-knowledge-sourced.pg.test.ts.
+    // PostgreSQL в tests/integration/kuzmich-retrieval.pg.test.ts.
     expect(KUZMICH_KNOWLEDGE_SCOPE_SQL).toContain(` AND ${KUZMICH_KNOWLEDGE_SOURCED_SQL}`);
   });
 
