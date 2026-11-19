@@ -19,7 +19,8 @@ import {
   placeDayStatus, placeStatusFields, PLACE_STATUS_FRESH_MS, kamchatkaStamp, PARK_SEASON_ANSWER, PARK_SEASON_NOTE,
 } from '@/lib/safety/place-day-status';
 import { tourPlaceStatus, tourPlaceStatusLine } from '@/lib/safety/tour-place-status';
-import { isSeasonalClosure } from '@/lib/safety/park-closure';
+import { isBareParkClosure, isSeasonalClosure } from '@/lib/safety/park-closure';
+import { seasonalClosureIdsOf } from '@/lib/services/safety/park-season';
 import { buildPlaceAdvisory } from '@/lib/kuzmich/place-advisory';
 
 afterEach(cleanup);
@@ -319,5 +320,73 @@ describe('межсезонное закрытие троп парка (#3487)', 
     expect(s).toMatchObject({ level: 'yellow', reason: 'park_season' });
     expect(tourPlaceStatusLine(s!)).toContain(`ЖЁЛТЫЙ`);
     expect(tourPlaceStatusLine(s!)).toContain(PARK_SEASON_ANSWER.toLowerCase());
+  });
+});
+
+/**
+ * Закрытие без причины при живом межсезонном тех же парков (слово владельца
+ * 19.11 «Да, вариант 2»). Строка сводки Минтура «„Налычево“ и
+ * „Южно-Камчатский“, „Быстринский“ — маршруты закрыты» держала Авачинский
+ * перевал красным после #3517: сезона в ней нет. Межсезонной её делает только
+ * межсезонное закрытие КАЖДОГО названного парка (pg: alert-place-scope).
+ */
+describe('закрытие парка без причины (#3487, вариант 2)', () => {
+  const MINTUR = 'Природный парк «Налычево» и «Южно-Камчатский», «Быстринский» — маршруты закрыты';
+  const CITE = ' Период сводки: 09:00 12.11–09:00 19.11. Источник: https://kamgov.example/mintur/1';
+
+  it('правило текста: голое закрытие — да; опасность, причина, «временно», «до особого распоряжения» — нет', () => {
+    for (const t of [
+      MINTUR,
+      MINTUR + CITE,
+      'Маршруты природного парка «Налычево» закрыты',
+      'Посещение природного парка «Быстринский» приостановлено',
+    ]) expect(isBareParkClosure(t), t).toBe(true);
+    for (const t of [
+      // Не закрытие парка.
+      'Природный парк «Вилючинский» — маршруты открыты для посещения',
+      'Дорога на Мутновский закрыта',
+      // Парк не назван в предложении закрытия.
+      'Туристические маршруты на Мутновский закрыты',
+      // Опасность названа.
+      `${MINTUR}: камнепад на тропе`,
+      `${MINTUR}. На перевале метель`,
+      `${MINTUR}, медведи у кордона`,
+      // Причина названа — любая, даже сезон (такой текст судит isSeasonalClosure).
+      `${MINTUR} из-за размыва тропы`,
+      `${MINTUR} в связи с ремонтом моста`,
+      `${MINTUR} в связи с межсезоньем`,
+      // Признак внезапного закрытия.
+      'Природный парк «Налычево» — маршруты временно закрыты',
+      'Маршруты природного парка «Налычево» экстренно закрыты',
+      'Маршруты природного парка «Налычево» внепланово закрыты',
+      'Маршруты природного парка «Налычево» срочно закрыты',
+      'Маршруты природного парка «Налычево» закрыты до особого распоряжения',
+      'Маршруты природного парка «Налычево» закрыты до дальнейшего уведомления',
+    ]) expect(isBareParkClosure(t), t).toBe(false);
+  });
+
+  const SEASON = 'Закрытие маршрутов «Вулканы Камчатки» сообщают о закрытии туристических маршрутов на всех территориях природных парков на период межсезонья';
+  const ALL = ['nalychevo', 'yuzhno-kamchatsky', 'bystrinskiy', 'klyuchevskoy', 'vilyuchinsky'];
+  const row = (id: string, title: string, parks: string[] | null, description = '') => ({ id, title, description, affected_parks: parks });
+
+  it('покрытие: голое закрытие межсезонное, только если каждый его парк закрыт межсезонным закрытием', () => {
+    const mintur = row('m', MINTUR, ['nalychevo', 'yuzhno-kamchatsky', 'bystrinskiy'], MINTUR + CITE);
+    expect(seasonalClosureIdsOf([row('s', SEASON, ALL), mintur]).sort()).toEqual(['m', 's']);
+    // Межсезонного закрытия нет — голая строка остаётся красной.
+    expect(seasonalClosureIdsOf([mintur])).toEqual([]);
+    // Один парк не покрыт — строка красная целиком.
+    expect(seasonalClosureIdsOf([row('s', 'Маршруты природного парка «Налычево» закрыты на период межсезонья', ['nalychevo', 'yuzhno-kamchatsky']), mintur]))
+      .toEqual(['s']);
+    // Парки не названы — покрывать нечего.
+    expect(seasonalClosureIdsOf([row('s', SEASON, ALL), row('n', MINTUR, null), row('e', MINTUR, [])])).toEqual(['s']);
+    // Одно голое закрытие другое не покрывает.
+    expect(seasonalClosureIdsOf([row('a', MINTUR, ['nalychevo']), row('b', MINTUR, ['nalychevo'])])).toEqual([]);
+    // Покрытие от закрытия с опасностью не считается.
+    expect(seasonalClosureIdsOf([row('c', `${SEASON}. Из-за циклона`, ALL), mintur])).toEqual([]);
+    // «Временно» — признак внезапного закрытия: покрытие не помогает.
+    expect(seasonalClosureIdsOf([row('s', SEASON, ALL), row('t', 'Природный парк «Налычево» — маршруты временно закрыты', ['nalychevo'])]))
+      .toEqual(['s']);
+    // Обрезанный при записи текст — слово опасности могло остаться за обрезом.
+    expect(seasonalClosureIdsOf([row('s', SEASON, ALL), row('x', MINTUR, ['nalychevo'], 'а'.repeat(800))])).toEqual(['s']);
   });
 });

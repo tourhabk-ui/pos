@@ -392,13 +392,12 @@ const SEASONAL_PARTS = [
   'до\\s+установлени[а-яё]*\\s+(?:[а-яё]+\\s+)?снежн[а-яё]*\\s+покров',
 ];
 const SEASONAL_RE = new RegExp(SEASONAL_PARTS.join('|'));
-const INDEFINITE_RE = new RegExp(
-  [
-    ...SEASONAL_PARTS,
-    'до\\s+особого\\s+распоряжени',
-    'до\\s+(?:дальнейш|отдельн)[а-яё]*\\s+(?:уведомлени|распоряжени|решени)',
-  ].join('|'),
-);
+/** Обороты без даты конца, которые сезона не называют: так закрывают и при извержении. */
+const NO_END_NOT_SEASON_PARTS = [
+  'до\\s+особого\\s+распоряжени',
+  'до\\s+(?:дальнейш|отдельн)[а-яё]*\\s+(?:уведомлени|распоряжени|решени)',
+];
+const INDEFINITE_RE = new RegExp([...SEASONAL_PARTS, ...NO_END_NOT_SEASON_PARTS].join('|'));
 
 /** Закрытие без даты конца: оборот стоит в предложении с глаголом закрытия и парком. */
 export function isIndefiniteClosure(text: string): boolean {
@@ -471,6 +470,43 @@ export function isSeasonalClosure(text: string): boolean {
   if (!causesAreSeason(lower)) return false;
   return sentencesOf(lower)
     .some((s) => /парк|заповедник/.test(s) && CLOSURE_RE.test(s) && SEASONAL_RE.test(s));
+}
+
+/** Любая названная причина закрытия — та же граница, что у `causesAreSeason`. */
+const ANY_CAUSE_RE = new RegExp(CAUSE_MARKER_RE.source);
+/**
+ * Признаки внезапного закрытия: «временно», «внепланово», «экстренно»,
+ * «срочно», и срок без конца, не названный сезоном.
+ */
+const SUDDEN_CLOSURE_RE = new RegExp([
+  'временн', 'внепланов', 'экстренн', 'срочн', 'немедленн', ...NO_END_NOT_SEASON_PARTS,
+].join('|'));
+
+/**
+ * Закрытие парка, которое не сказало ничего, кроме самого закрытия (слово
+ * владельца 19.11 «Да, вариант 2»).
+ *
+ * Еженедельная сводка Минтура пишет строкой раздела «Природные парки»:
+ * «„Налычево“ и „Южно-Камчатский“, „Быстринский“ — маршруты закрыты». Ни
+ * сезона, ни опасности, ни причины в ней нет, и по одному тексту она
+ * межсезонной не считается: Авачинский перевал после #3517 остался красным,
+ * хотя дирекция тех же парков закрыла маршруты «на период межсезонья».
+ *
+ * Сама по себе такая строка ничего не решает: межсезонной её делает только
+ * живое межсезонное закрытие КАЖДОГО названного в ней парка
+ * (`seasonalParkClosureIds`, lib/services/safety/park-season.ts). Здесь —
+ * только правило текста. Голым закрытие не считается, если в тексте есть
+ * слово опасности, любая названная причина (даже сезон: такой текст судит
+ * `isSeasonalClosure`), признак внезапности («временно», «внепланово»,
+ * «экстренно», «срочно») или срок без конца, не названный сезоном («до
+ * особого распоряжения»).
+ */
+export function isBareParkClosure(text: string): boolean {
+  const lower = text.toLowerCase().replace(/[‐-―−]/g, '-');
+  if (CLOSURE_HAZARD_RE.test(lower)) return false;
+  if (ANY_CAUSE_RE.test(lower)) return false;
+  if (SUDDEN_CLOSURE_RE.test(lower)) return false;
+  return sentencesOf(lower).some((s) => /парк|заповедник/.test(s) && CLOSURE_RE.test(s));
 }
 
 /** Полдень UTC названного дня = конец этого дня по Камчатке (UTC+12). */
