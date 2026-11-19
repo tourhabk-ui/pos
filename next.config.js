@@ -524,7 +524,11 @@ const nextConfig = {
           // (lib/media/video-manifest). Без явного media-src браузер берёт
           // default-src 'self' и не играет ролик с чужого хоста — тихо,
           // чёрным кадром. Обложки — картинки, им хватает img-src https:.
-          { key: 'Strict-Transport-Security', value: 'max-age=63072000; includeSubDomains; preload' },
+          // Без «preload» (#3463, слово владельца 19.11 «убрать слово»): домен в
+          // список предзагрузки браузеров не подан, и заголовок не должен
+          // обещать того, чего нет. Подать — отдельное решение: выход из
+          // списка занимает месяцы.
+          { key: 'Strict-Transport-Security', value: 'max-age=63072000; includeSubDomains' },
         ],
       },
       // Контентные фото меняются только новым файлом (нарезка — коммитом),
