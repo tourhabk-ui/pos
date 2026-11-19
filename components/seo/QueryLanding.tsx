@@ -14,7 +14,7 @@ import { chronicleForTopic } from '@/lib/seo/query-landings-chronicle';
 import { CHRONICLE_ARTICLES } from '@/lib/chronicle/articles';
 import type { ParkListItem } from '@/lib/parks/list';
 import { OFFER_ORDER_NOTE } from '@/lib/tours/offer-order';
-import { landingDates, landingDuration, landingJsonLd, landingPrice, landingSeason } from '@/lib/seo/query-landing-view';
+import { landingDates, landingDuration, landingJsonLd, landingLead, landingPrice, landingSeason, type LandingSummary } from '@/lib/seo/query-landing-view';
 import { CharterPriceList } from '@/components/transfers/CharterPriceList';
 import { carrierPagePath, charterOrderPath, type CharterState } from '@/lib/transfers/charter-format';
 
@@ -77,9 +77,12 @@ function CarriersSection({ charter }: { charter: CharterState | null }) {
   );
 }
 
-export function QueryLandingView({ landing, tours, parks = [], charter = null }: {
+export function QueryLandingView({ landing, tours, parks = [], charter = null, summary = null }: {
   landing: QueryLanding; tours: LandingTourRow[] | null; parks?: ParkListItem[] | null; charter?: CharterState | null;
+  /** Числа страницы из её туров (landingSummary); нет — первой строки из базы нет. */
+  summary?: LandingSummary | null;
 }) {
+  const lead = landingLead(landing, summary);
   const ui = UI[landing.lang];
   const zh = landing.lang === 'zh-CN';
   const transfer = landing.topic === 'transfer';
@@ -91,6 +94,7 @@ export function QueryLandingView({ landing, tours, parks = [], charter = null }:
       <div className="max-w-3xl mx-auto px-4 py-8 space-y-8">
         <header className="space-y-3">
           <h1 className="font-playfair text-3xl sm:text-4xl font-bold" style={{ color: 'var(--text-primary)' }}>{landing.h1}</h1>
+          {lead && <p className="text-base" style={{ color: 'var(--text-primary)' }} data-landing-lead>{lead}</p>}
           <p className="text-sm" style={{ color: 'var(--text-secondary)' }}>{landing.intro}</p>
         </header>
 

@@ -43,6 +43,13 @@ export interface QueryLanding {
   title: string;
   description: string;
   h1: string;
+  /**
+   * О чём туры страницы — для первой строки из базы: «7 туров в Долину
+   * гейзеров от 3 компаний…» (разбор видимости в ответах ИИ 19.11: у всех
+   * посадочных была одна и та же первая фраза и ни одного числа). Нет — первой
+   * строки из базы нет (трансфер, китайские страницы).
+   */
+  subject?: string;
   intro: string;
   faq: LandingFaq[];
   /** Страницы Ведара по теме (место, маршруты, справочник); нет — пусто. */
@@ -160,6 +167,7 @@ export const QUERY_LANDINGS: readonly QueryLanding[] = [
     title: 'Где забронировать тур на Камчатку: туры 2027, цены от, даты',
     description: 'Как забронировать тур на Камчатку у местных операторов через Ведар: живые туры, цены «от», открытые даты 2027. Подтверждает человек, оплата оператору.',
     h1: 'Где забронировать тур на Камчатку',
+    subject: 'на Камчатку',
     intro: 'Ниже — туры, которые операторы сейчас публикуют на Ведаре: цена «от» и даты — из их данных. Заявка уходит оператору напрямую.',
     faq: RU_BOOKING_FAQ,
   },
@@ -168,6 +176,7 @@ export const QUERY_LANDINGS: readonly QueryLanding[] = [
     title: 'Туры к медведям на Камчатке: наблюдение, цены от, даты',
     description: 'Туры на Камчатке с наблюдением медведей от местных операторов: цены «от», сезон и открытые даты из базы Ведара, заявка оператору.',
     h1: 'Туры к медведям на Камчатке',
+    subject: 'с наблюдением медведей',
     intro: 'В списке — опубликованные туры, у которых вид «наблюдение за медведями» или медведи названы в названии и описании.',
     faq: RU_BOOKING_FAQ.filter((f) => !f.q.includes('2027')),
   },
@@ -176,6 +185,7 @@ export const QUERY_LANDINGS: readonly QueryLanding[] = [
     title: 'Восхождение на Авачинский вулкан: туры, цены от, даты',
     description: 'Восхождение на Авачинский вулкан с местными операторами: туры, цены «от» и открытые даты из базы Ведара, карточка вулкана и маршруты.',
     h1: 'Восхождение на Авачинский вулкан',
+    subject: 'на Авачинский вулкан',
     intro: 'В списке — опубликованные туры, у которых Авачинский назван в названии или месте назначения. Маршруты подъёма, опасности и требования к регистрации — на карточке вулкана.',
     faq: RU_AVACHA_FAQ,
     related: [
@@ -188,6 +198,7 @@ export const QUERY_LANDINGS: readonly QueryLanding[] = [
     title: 'Экскурсия в Долину гейзеров: туры, цены от, даты',
     description: 'Экскурсии в Долину гейзеров от местных операторов Камчатки: туры, цены «от» и открытые даты из базы Ведара, карточка места и маршруты.',
     h1: 'Экскурсия в Долину гейзеров',
+    subject: 'в Долину гейзеров',
     intro: 'В списке — опубликованные туры, у которых Долина гейзеров названа в названии или месте назначения. Что известно о месте и какие маршруты через него идут — на карточке Долины гейзеров.',
     faq: RU_GEYSERS_FAQ,
     related: [
@@ -199,6 +210,7 @@ export const QUERY_LANDINGS: readonly QueryLanding[] = [
     title: 'Рыбалка на Камчатке: туры, цены от, сезон, даты',
     description: 'Рыболовные туры на Камчатке от местных операторов: цены «от», сезон и открытые даты из базы Ведара, сезоны клёва по видам рыб.',
     h1: 'Рыбалка на Камчатке: туры',
+    subject: 'на рыбалку',
     intro: 'В списке — опубликованные туры с видом «рыбалка» или со словом «рыбалка» в названии и месте назначения. Когда какая рыба идёт — в справочнике рыб Камчатки.',
     faq: RU_FISHING_FAQ,
     related: [
@@ -221,6 +233,7 @@ export const QUERY_LANDINGS: readonly QueryLanding[] = [
     title: 'Курильское озеро: туры к медведям, цены от, даты',
     description: 'Туры на Курильское озеро от местных операторов Камчатки: на внедорожнике и вертолёте, цены «от» и открытые даты из базы Ведара, карточка озера.',
     h1: 'Туры на Курильское озеро',
+    subject: 'на Курильское озеро',
     intro: 'В списке — опубликованные туры, у которых Курильское озеро названо в названии или месте назначения. Что известно об озере и его опасностях — на карточке Курильского озера.',
     faq: RU_KURILE_FAQ,
     related: [
@@ -233,6 +246,7 @@ export const QUERY_LANDINGS: readonly QueryLanding[] = [
     title: 'Мутновский вулкан: туры, облёты, цены от, даты',
     description: 'Туры к Мутновскому вулкану от местных операторов Камчатки: джип-туры к подножию и облёты, цены «от» и открытые даты из базы Ведара.',
     h1: 'Туры к Мутновскому вулкану',
+    subject: 'к Мутновскому вулкану',
     intro: 'В списке — опубликованные туры, у которых Мутновский назван в названии или месте назначения. Опасности вулкана и маршруты к нему — на его карточке.',
     faq: RU_MUTNOVSKY_FAQ,
     related: [
@@ -245,6 +259,7 @@ export const QUERY_LANDINGS: readonly QueryLanding[] = [
     title: 'Халактырский пляж: экскурсии, цены от, как добраться',
     description: 'Экскурсии на Халактырский пляж от местных операторов Камчатки: туры, цены «от» и даты из базы Ведара, карточка пляжа и как добраться.',
     h1: 'Экскурсии на Халактырский пляж',
+    subject: 'на Халактырский пляж',
     intro: 'В списке — опубликованные туры, у которых Халактырский пляж назван в названии или месте назначения. Как добраться самостоятельно — на карточке пляжа.',
     faq: RU_KHALAKTYR_FAQ,
     related: [
@@ -256,6 +271,7 @@ export const QUERY_LANDINGS: readonly QueryLanding[] = [
     title: 'Толбачик: туры к вулкану, цены от, даты',
     description: 'Туры к Толбачику от местных операторов Камчатки: на внедорожнике, пешком и на вертолёте, цены «от» и открытые даты из базы Ведара, карточка вулкана.',
     h1: 'Туры к Толбачику',
+    subject: 'к Толбачику',
     intro: 'В списке — опубликованные туры, у которых Толбачик назван в названии или месте назначения. Опасности вулкана и место на карте — на его карточке.',
     faq: RU_TOLBACHIK_FAQ,
     related: [
@@ -268,6 +284,7 @@ export const QUERY_LANDINGS: readonly QueryLanding[] = [
     title: 'Вертолётные экскурсии на Камчатке: цены от, даты',
     description: 'Вертолётные экскурсии на Камчатке от местных операторов: Долина гейзеров, Курильское озеро, облёты вулканов. Цены «от» и даты из базы Ведара.',
     h1: 'Вертолётные экскурсии на Камчатке',
+    subject: 'на вертолёте',
     intro: 'В списке — опубликованные туры, которые оператор записал как вертолётные или назвал вертолётными в названии и месте назначения.',
     faq: RU_HELICOPTER_FAQ,
     related: [
@@ -280,6 +297,7 @@ export const QUERY_LANDINGS: readonly QueryLanding[] = [
     title: 'Снегоходные туры на Камчатке: цены от, даты',
     description: 'Снегоходные туры и экскурсии на Камчатке от местных операторов: Авачинский перевал, мыс Маячный. Цены «от» и даты из базы Ведара.',
     h1: 'Снегоходные туры на Камчатке',
+    subject: 'на снегоходах',
     intro: 'В списке — опубликованные туры, которые оператор записал как снегоходные или назвал так в названии и месте назначения.',
     faq: RU_SNOWMOBILE_FAQ,
     related: [
@@ -296,6 +314,7 @@ export const QUERY_LANDINGS: readonly QueryLanding[] = [
     title: 'Kamchatka Tours from Local Operators: Requests, Prices From, Dates | Vedar',
     description: 'Kamchatka tours from local operators: "from" prices, open dates. You send a request, the operator confirms it. Not an instant booking, no online payment.',
     h1: 'Kamchatka tours from local operators',
+    subject: 'in Kamchatka',
     intro: 'Tours below are currently published on Vedar by local operators. Prices and dates come from their data; tour names are shown as the operator wrote them (in Russian).',
     faq: EN_BOOKING_FAQ,
   },
@@ -304,6 +323,7 @@ export const QUERY_LANDINGS: readonly QueryLanding[] = [
     title: 'Kamchatka Bear Watching Tours: Prices From, Season, Dates | Vedar',
     description: 'Kamchatka bear watching tours from local operators: "from" prices, season and open dates from the Vedar database. Send a request to the operator.',
     h1: 'Kamchatka bear watching tours',
+    subject: 'with bear watching',
     intro: 'Listed are published tours whose type is bear watching or whose name or summary mentions bears. Names are shown as the operator wrote them (in Russian).',
     faq: EN_BOOKING_FAQ,
   },

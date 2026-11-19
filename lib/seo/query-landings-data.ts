@@ -10,14 +10,15 @@
  * — null и SQLSTATE в лог: страница говорит «не загрузилось», а не
  * показывает пустой список (§4.0).
  */
+import { cache } from 'react';
 import { pool } from '@/lib/db-pool';
 import { publicTourSql } from '@/lib/tours/public-visibility';
-import { nearestFreeDateSql } from '@/lib/tours/nearest-free-date';
+import { nearestFreeDateSql, loadOpenDateYears } from '@/lib/tours/nearest-free-date';
 import { anyDayOpenSql } from '@/lib/tours/schedule-kind';
 import { orderOffersBy } from '@/lib/tours/offer-order';
 import { logText } from '@/lib/log/log-text';
 import { withZhTitles, type ZhTourRow } from '@/lib/zh/entry';
-import type { LandingTopic } from '@/lib/seo/query-landings';
+import type { LandingTopic, QueryLanding } from '@/lib/seo/query-landings';
 
 export interface LandingTourRow extends ZhTourRow {
   season_start: string | null;
@@ -131,3 +132,23 @@ export async function loadLandingTours(topic: LandingTopic, withZh: boolean): Pr
     return null;
   }
 }
+
+export interface LandingPageData {
+  /** Туры страницы; null — база не ответила. */
+  tours: LandingTourRow[] | null;
+  /** Годы свободных дат этих туров; null — не прочитались или туров нет. */
+  openYears: number[] | null;
+}
+
+/**
+ * Туры страницы и годы их свободных дат — один раз на запрос: их читают и
+ * метаданные (заголовок с числами), и сама страница (первая строка и список).
+ * `cache` React держит результат в пределах одного запроса, так что заголовок
+ * и список не могут разойтись.
+ */
+export const loadLandingPage = cache(async (landing: QueryLanding): Promise<LandingPageData> => {
+  const tours = await loadLandingTours(landing.topic, landing.lang === 'zh-CN');
+  if (!tours || tours.length === 0 || !landing.subject) return { tours, openYears: null };
+  const openYears = await loadOpenDateYears({ tourIds: tours.map((t) => t.id) });
+  return { tours, openYears };
+});
