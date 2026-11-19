@@ -19,7 +19,7 @@ import { z } from 'zod';
 import { MAX_ADULTS } from '@/lib/planner/party-limits';
 
 const TRANSPORT = z.enum(['walking', 'jeep', 'helicopter', 'boat']);
-const ZONE_ENUM = z.enum(['avachinsky', 'western', 'eastern', 'northern']);
+const ZONE_ENUM = z.enum(['avachinsky', 'western', 'eastern', 'northern', 'southern']);
 
 export const TripRealTourSchema = z.object({
   tourId: z.string().min(1).max(64),

@@ -32,7 +32,7 @@ const DaySchema = z.object({
   day:              z.number().int().min(1).max(366),
   /** Тип дня (arrival, activity, travel, rest, buffer, departure); старый клиент его не шлёт. */
   type:             z.string().max(20).optional(),
-  zone:             z.enum(['avachinsky', 'western', 'eastern', 'northern']),
+  zone:             z.enum(['avachinsky', 'western', 'eastern', 'northern', 'southern']),
   title:            z.string(),
   activityType:     z.string(),
   defaultTransport: z.string(),

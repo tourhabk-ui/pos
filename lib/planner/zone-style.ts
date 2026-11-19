@@ -26,7 +26,7 @@
  * Чего не знаем — так и говорим (§4.0): зона не записана — серый пин и
  * «Зона не записана», а не угаданная по расстоянию до центра зоны.
  */
-import { ZONE_IDS, ZONE_NAMES, type ZoneId } from '@/lib/planner/constants';
+import { PLANNER_ZONE_IDS, SOUTHERN_ZONE_MAX_LAT, ZONE_NAMES, type ZoneId } from '@/lib/planner/constants';
 import { markerHex, type MarkerColorName } from '@/lib/map/marker-colors';
 
 /** Цвет пина зоны. Без синего (день плана) и красного (опасность). */
@@ -35,6 +35,7 @@ export const ZONE_PIN: Record<ZoneId, MarkerColorName> = {
   western:    'purple',
   eastern:    'darkCyan',
   northern:   'darkGreen',
+  southern:   'brown',
 };
 
 /** Серый — нет зоны планировщика (не записана или район вне четырёх зон) и «другая зона» при замене дня. */
@@ -44,21 +45,32 @@ export const NO_ZONE_PIN: MarkerColorName = 'gray';
 export const PLAN_DAY_PIN: MarkerColorName = 'darkBlue';
 
 export const ZONE_NOT_RECORDED = 'Зона не записана';
-export const ZONE_OUTSIDE = 'Вне четырёх зон';
+export const ZONE_OUTSIDE = 'Вне зон планера';
 
-/** Строка из базы → одна из четырёх зон планировщика, иначе null. */
+/** Строка → одна из зон планировщика, иначе null. */
 export function asPlannerZone(zone: unknown): ZoneId | null {
-  return typeof zone === 'string' && (ZONE_IDS as readonly string[]).includes(zone) ? zone as ZoneId : null;
+  return typeof zone === 'string' && (PLANNER_ZONE_IDS as readonly string[]).includes(zone) ? zone as ZoneId : null;
+}
+
+/**
+ * Зона планера записи каталога по записанной зоне и широте — то же правило,
+ * что `plannerZoneSql` (lib/planner/zone-match): южнее порога — южная зона
+ * (Курильское озеро, #3394 п.3), иначе записанная.
+ */
+export function plannerZoneOf(zone: unknown, lat: number | null | undefined): ZoneId | null {
+  if (typeof lat === 'number' && Number.isFinite(lat) && lat < SOUTHERN_ZONE_MAX_LAT) return 'southern';
+  return asPlannerZone(zone);
 }
 
 /** Короткое имя для легенды: «Авачинская» (полное — «Авачинская зона»). */
 export function zoneShortName(zone: ZoneId): string {
-  return ZONE_NAMES[zone].replace(/\s+зона$/, '');
+  // «Южная зона (Курильское озеро)» → «Южная (Курильское озеро)».
+  return ZONE_NAMES[zone].replace(/\s+зона(?=$|\s+\()/, '');
 }
 
 /**
  * Имя зоны словами. Три исхода: зона планировщика — её имя; записан другой
- * район (Корякский округ, Северные Курилы) — «Вне четырёх зон»; ничего —
+ * район (Корякский округ, Северные Курилы) — «Вне зон планера»; ничего —
  * «Зона не записана».
  */
 export function zoneName(zone: string | null | undefined): string {
