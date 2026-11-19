@@ -138,6 +138,14 @@ jobs:
           ANTHROPIC_BASE_URL: ${{ vars.AGENTS_PROVIDER == 'anthropic' && 'https://api.anthropic.com' || 'https://openrouter.ai/api' }}
           ANTHROPIC_DEFAULT_HAIKU_MODEL: ${{ vars.AGENTS_PROVIDER != 'anthropic' && 'anthropic/claude-haiku-5.5' || '' }}
           CLAUDE_CODE_SUBPROCESS_ENV_SCRUB: '1'
+          # Предел ответа модели за один ход (слово владельца 19.11 «go»).
+          # Разбор пишет короткий JSON, а без предела Claude Code просит
+          # 128 000 токенов на ход. OpenRouter заранее сверяет этот запрос с
+          # остатком на счёте и при нехватке отказывает 402 ещё до работы:
+          # 18.11 и 19.11 разбор упал так, хотя ему хватило бы 59 тыс.
+          # Предел не заменяет пополнения: деньги кончатся и при нём.
+          # Сторож: tests/unit/triage-output-cap.test.ts.
+          CLAUDE_CODE_MAX_OUTPUT_TOKENS: '16000'
         with:
           # Ключ Console из репозиторного секрета — решение владельца 13.10:
           # «я пополню лучше баланс», после того как выпуск токена подписки
