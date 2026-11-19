@@ -237,6 +237,36 @@ withPg('заметки Кузьмича — только с источником
     expect(again.rows[0].metadata.withdrawn_truth).toBe(was.get('paratunka-thermal'));
   });
 
+  it('1464 снимает «по прямой 120 км» с заметки о Малки и больше ничего не трогает', async () => {
+    const read = async () => new Map((await pool.query<{ slug: string; compiled_truth: string; metadata: Record<string, unknown> }>(
+      `SELECT slug, compiled_truth, metadata FROM agent_knowledge ORDER BY slug`,
+    )).rows.map((r) => [r.slug, r]));
+    const before = await read();
+    expect(before.get('malkinskie-springs')?.compiled_truth).toContain('по прямой — 120 км');
+
+    await pool.query(migrationFile('1464_kuzmich_malki_no_straight_line.sql'));
+    const after = await read();
+    const malki = after.get('malkinskie-springs');
+    expect(malki?.compiled_truth).toBe(
+      'Малкинские горячие источники — у посёлка Малки, около 130 км от Петропавловска-Камчатского '
+      + 'по трассе на Мильково, источники в 4 км от трассы (источники: topkam.ru, kamchatskiytour.ru, '
+      + 'nextroute.ru, Википедия «Малки (Камчатский край)»).',
+    );
+    // Прежний текст 141 по-прежнему восстановим, источник на месте.
+    expect(malki?.metadata.withdrawn_truth).toBe(before.get('malkinskie-springs')?.metadata.withdrawn_truth);
+    expect(malki?.metadata.source_url).toBe(before.get('malkinskie-springs')?.metadata.source_url);
+    for (const [slug, r] of after) {
+      if (slug === 'malkinskie-springs') continue;
+      expect(r.compiled_truth, slug).toBe(before.get(slug)?.compiled_truth);
+      expect(r.metadata, slug).toEqual(before.get(slug)?.metadata);
+    }
+    expect(await scoped()).toEqual(['malkinskie-springs', 'paratunka-thermal']);
+
+    // Повтор ничего не меняет.
+    await pool.query(migrationFile('1464_kuzmich_malki_no_straight_line.sql'));
+    expect((await read()).get('malkinskie-springs')?.compiled_truth).toBe(malki?.compiled_truth);
+  });
+
   it('get_place_info: о Курильском озере — ни «Камбальным», ни цены вертолёта; о Паратунке — заметка с источником', async () => {
     const kuril = await placeInfoForKuzmich('Курильское озеро');
     expect(kuril ?? '').not.toContain('Камбальным');
@@ -258,5 +288,6 @@ withPg('заметки Кузьмича — только с источником
     expect(malki.text).toContain('130 км');
     expect(malki.text).toContain('topkam.ru');
     expect(malki.text).not.toContain('3000');
+    expect(malki.text).not.toContain('120 км');
   });
 });
