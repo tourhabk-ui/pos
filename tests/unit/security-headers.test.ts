@@ -27,10 +27,14 @@ describe('next.config.js — заголовки основных страниц'
     expect(blockEnd).toBeGreaterThan(blockStart);
   });
 
-  it('HSTS с preload присутствует', () => {
-    expect(nonWidgetBlock).toMatch(/Strict-Transport-Security/);
-    expect(nonWidgetBlock).toMatch(/max-age=\d{7,}/);
-    expect(nonWidgetBlock).toMatch(/preload/);
+  it('HSTS: от двух лет, с поддоменами, без «preload» — домен в список предзагрузки не подан (#3463)', async () => {
+    const { createRequire } = await import('node:module');
+    const cfg = createRequire(import.meta.url)(`${process.cwd()}/next.config.js`) as { headers: () => Promise<Array<{ source: string; headers: Array<{ key: string; value: string }> }>> };
+    const block = (await cfg.headers()).find((b) => b.source === '/:path((?!widget/).*)');
+    const hsts = block?.headers.find((h) => h.key === 'Strict-Transport-Security')?.value ?? '';
+    expect(Number(/max-age=(\d+)/.exec(hsts)?.[1] ?? 0)).toBeGreaterThanOrEqual(63072000);
+    expect(hsts).toMatch(/includeSubDomains/);
+    expect(hsts).not.toMatch(/preload/);
   });
 
   it('X-Frame-Options: DENY (не ALLOWALL) на основных страницах', () => {

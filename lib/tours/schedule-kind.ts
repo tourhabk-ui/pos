@@ -24,7 +24,7 @@
  * Сторожа: tests/unit/tour-schedule-kind.test.ts (правило и витрины);
  * SQL против TypeScript на PostgreSQL — tests/integration/public-tour-gate.pg.test.ts.
  */
-import { requestWindow, windowLabel, type RequestWindow, type WindowInput } from '@/lib/tours/request-window';
+import { monthSpan, requestWindow, windowLabel, type RequestWindow, type WindowInput } from '@/lib/tours/request-window';
 
 export const SCHEDULE_KINDS = ['departures', 'any_day'] as const;
 export type ScheduleKind = (typeof SCHEDULE_KINDS)[number];
@@ -81,4 +81,15 @@ export function anyDayOpen(t: WindowInput & { schedule_kind?: unknown }, today: 
 export function anyDayLine(w: Extract<RequestWindow, { kind: 'season' }>): string {
   return `Оператор выезжает в любой день сезона (${windowLabel(w)}) — так он записал сам; `
     + 'любая дата сезона свободна для заявки, место и группу подтверждает он';
+}
+
+/**
+ * Строка карточки каталога для тура, открытого «в любой день сезона» (#3476,
+ * метка из закрытого дубля #3477): слово оператора, месяцы сезона и кто
+ * подтверждает дату. Окна сезона нет — null, карточка говорит прежнее.
+ */
+export function anyDayCatalogLine(t: WindowInput, today: string): string | null {
+  const w = requestWindow(t, today);
+  if (w.kind !== 'season') return null;
+  return `Любой день сезона (${monthSpan(w.seasonStart, w.seasonEnd)}) — дату подтверждает оператор`;
 }
