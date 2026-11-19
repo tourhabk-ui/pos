@@ -182,6 +182,40 @@ export function parseChatInterests(raw: string): string[] {
   return parseChatInterestsDetailed(raw).interests;
 }
 
+/** Строка плана о не узнанных интересах; пусто — узнано всё. */
+export function unparsedInterestsNote(parts: readonly string[]): string | null {
+  if (parts.length === 0) return null;
+  const list = parts.slice(0, 5).map((p) => `«${p}»`).join(', ');
+  return `Не разобрал и в план не взял: ${list} — такого занятия в планировщике нет. `
+    + `Назовите иначе или поищите тур в каталоге: ${SITE}/catalog.`;
+}
+
+/**
+ * Куски текста интересов, в которых ни один словарь не узнал занятия (#3394,
+ * п.2). Сравнение с лидерами 15.11: «собачьи упряжки и термальные источники»
+ * давали план с одними источниками, а упряжки пропадали молча — словарь
+ * узнал «источники», и до «не разобрал» дело не доходило: оно звучало, только
+ * когда не узнано НИЧЕГО. Теперь каждый кусок, разделённый запятой, «и» или
+ * «;», судится отдельно, и не узнанный называется вслух.
+ */
+export function unparsedInterestParts(raw: string): string[] {
+  const parts = (raw || '')
+    .split(/[,;/\n、，；]|\s+(?:и|а также|and)\s+/iu)
+    .map((p) => p.trim().replace(/[.!?…]+$/u, ''))
+    .filter((p) => /\p{L}{3,}/u.test(p));
+  return parts.filter((part) => {
+    const lower = part.toLowerCase();
+    if (parseInterestWords(lower).length > 0) return false;
+    try {
+      return (parseInterestsFromText(withoutInterestWords(lower)).interests ?? []).length === 0;
+    } catch (err) {
+      // Второй словарь не ответил — «не разобрал» было бы неправдой о куске.
+      console.error('[trip-plan] второй словарь интересов не разобрал кусок:', err instanceof Error ? err.message : String(err));
+      return false;
+    }
+  });
+}
+
 /** То же, и признак «ничего не разобрано — подставлена классика». */
 export function parseChatInterestsDetailed(raw: string): { interests: string[]; defaulted: boolean } {
   const text = (raw || '').toLowerCase();
@@ -958,6 +992,8 @@ export function formatTripPlanForChat(
     const otherWarn = dayWarn.filter((w) => !isOfferingNote(w));
     for (const w of [...mchsWarn, ...otherWarn.slice(0, DAY_WARNINGS_SHOWN)]) lines.push(`   ! ${w}`);
     if (otherWarn.length > DAY_WARNINGS_SHOWN) lines.push(`   …и ещё ${otherWarn.length - DAY_WARNINGS_SHOWN} — в планировщике`);
+    // Что взять по прогнозу — только в пределах прогноза (#3394, п.6).
+    if (d.weatherKit) lines.push(`   ${d.weatherKit}`);
     // Метка пункта — последней строкой дня: над ней цена, места и
     // предупреждения, из которых она выведена.
     const status = statusOf(d);
@@ -1005,7 +1041,7 @@ export async function makeTripPlanForKuzmich(
     ? (args.interests?.trim()
       ? `Интересы «${args.interests.trim()}» не разобрал — взял классику первой поездки: вулканы, медведи, термальные источники.`
       : 'Интересы не названы — взял классику первой поездки: вулканы, медведи, термальные источники.')
-    : null;
+    : unparsedInterestsNote(unparsedInterestParts(args.interests ?? ''));
 
   const group = readAdults(args.adults);
   // Число взрослых названо, но не годится (0, 50, «много») — плана нет и

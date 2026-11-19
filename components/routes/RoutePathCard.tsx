@@ -5,6 +5,7 @@ import { catalogHref } from '@/lib/routes/url-slug';
 import { useWishlist, wishlistLabel, WISHLIST_LOCAL_ONLY_HINT } from '@/hooks/use-wishlist';
 import { Heart, Clock, Footprints, ChevronUp, ChevronsUp, AlertTriangle, MapPin } from 'lucide-react';
 import type { RouteItem } from './RouteCard';
+import RouteTourPriceLine from './RouteTourPriceLine';
 
 const DIFFICULTY_CONFIG = {
   easy:   { label: 'Лёгкий',  color: 'var(--success)', Icon: ChevronUp },
@@ -101,6 +102,8 @@ export default function RoutePathCard({ route }: { route: RouteItem }) {
         <p className="text-xs text-[var(--text-secondary)] line-clamp-2 leading-relaxed">
           {route.description}
         </p>
+        {/* Цена маршрута — из его туров (18.11 «1», lib/routes/route-tour-price). */}
+        <RouteTourPriceLine price={route.tourPrice} />
         <div className="flex items-center gap-2 flex-wrap pt-0.5">
           <span
             className="inline-flex items-center gap-1 text-xs font-semibold px-2 py-0.5 rounded-full"

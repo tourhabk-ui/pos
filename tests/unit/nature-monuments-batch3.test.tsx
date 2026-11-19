@@ -180,12 +180,12 @@ describe('Арка Стеллера: имя объекта и Командоры
     expect(aliases).toMatch(/ON CONFLICT \(place_id, LOWER\(TRIM\(alias\)\)\) DO NOTHING/);
   });
 
-  it('«Район» — Командорские острова, а не «Авачинский»; меняется только прежнее значение', () => {
+  it('«Зона» — Командорские острова, а не «Авачинский»; меняется только прежнее значение', () => {
     const s = updatesOf(ARKA).find((x) => /SET zone = /.test(x))!;
     expect(setValues(s).zone).toBe('commander');
     expect(s).toMatch(/AND zone = 'avachinsky'/);
     render(<PlaceFacts locationType="rock" zone="commander" safety={SAFETY_EMPTY} terrainType={null} />);
-    expect(document.body.textContent).toMatch(/РайонКомандорские о-ва/);
+    expect(document.body.textContent).toMatch(/ЗонаКомандорские о-ва/);
     expect(document.body.textContent).not.toMatch(/Авачинск/);
   });
 });

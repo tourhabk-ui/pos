@@ -8,7 +8,7 @@ import { NextRequest, NextResponse } from 'next/server';
 import { pool } from '@/lib/db-pool';
 import { requireAuth } from '@/lib/auth/middleware';
 import type { UserTripRow } from '@/lib/types/db-rows';
-import { TRIP_SELECT, UpdateTripSchema, buildTripUpdate } from '@/lib/trips/trip-write';
+import { OWNED_TRIP_SQL, TRIP_SELECT, UpdateTripSchema, buildTripUpdate } from '@/lib/trips/trip-write';
 import { withCalendarDates } from '@/lib/trips/trip-dates';
 
 export const dynamic = 'force-dynamic';
@@ -18,11 +18,7 @@ type RouteContext = { params: Promise<{ id: string }> };
 const UUID_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
 
 async function getTripOwned(tripId: string, userId: string): Promise<UserTripRow | null> {
-  const { rows } = await pool.query<UserTripRow>(
-    `SELECT ${TRIP_SELECT}
-     FROM user_trips WHERE id = $1 AND user_id = $2 AND deleted_at IS NULL`,
-    [tripId, userId]
-  );
+  const { rows } = await pool.query<UserTripRow>(OWNED_TRIP_SQL, [tripId, userId]);
   return rows[0] ?? null;
 }
 

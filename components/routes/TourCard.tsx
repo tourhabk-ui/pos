@@ -33,7 +33,6 @@ function daysLabel(n: number) {
 export default function TourCard({ route }: { route: RouteItem }) {
   const meta    = CATEGORY_META[route.category] ?? { label: 'Тур', icon: Anchor, color: 'var(--accent)' };
   const Icon    = meta.icon;
-  const price   = route.minOfferPrice ?? route.priceFrom;
 
   const currentMonth = new Date().getMonth() + 1;
   const isInSeason   = route.bestMonths?.includes(currentMonth) ?? false;
@@ -92,12 +91,6 @@ export default function TourCard({ route }: { route: RouteItem }) {
               <span>{route.difficulty === 'easy' ? 'Легко' : route.difficulty === 'medium' ? 'Средне' : 'Сложно'}</span>
             )}
           </div>
-        )}
-
-        {price != null && price > 0 && (
-          <span className="inline-flex text-xs font-semibold text-[var(--on-badge)] bg-[var(--badge)] px-2 py-1 rounded">
-            от {price.toLocaleString('ru-RU')} ₽
-          </span>
         )}
 
         {/* CTA */}

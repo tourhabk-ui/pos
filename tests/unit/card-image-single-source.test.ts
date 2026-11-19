@@ -223,7 +223,9 @@ describe('места без снимка уходят в хвост правил
 
   it('первым ключом идёт «место без снимка — вниз»', () => {
     const key = recommended.indexOf("ark.kind = 'place'");
-    const richness = recommended.indexOf("payload->>'price_from'");
+    // Сумма полноты карточки — по её первому слагаемому (скачанная цена
+    // из неё снята 17.11).
+    const richness = recommended.indexOf("payload->>'difficulty'");
     expect(key, 'ключа про место без снимка нет вовсе').toBeGreaterThan(-1);
     expect(key, 'ключ стоит ПОСЛЕ суммы полноты — порядок снова зависит от payload')
       .toBeLessThan(richness);

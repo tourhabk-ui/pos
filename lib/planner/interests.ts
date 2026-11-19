@@ -164,7 +164,6 @@ export interface RouteResult {
   activityType?: string;
   description?: string;
   durationDays?: number;
-  priceFrom?: number;
   sourceUrl?: string;
 }
 
@@ -258,7 +257,6 @@ export async function findRoutesByInterests(
         activityType?: string;
         description?: string;
         durationDays?: number;
-        priceFrom?: number;
         sourceUrl?: string;
       }>;
     };
@@ -280,14 +278,13 @@ export function formatRoutesForTelegram(routes: RouteResult[]): string {
 
   routes.forEach((route, idx) => {
     const duration = route.durationDays ? ` — ${route.durationDays}д` : '';
-    const price = route.priceFrom ? ` | ~${Math.round(route.priceFrom / 1000)}к₽` : '';
     const url = `https://vedarai.ru/routes/${route.id}`;
 
     lines.push(`${idx + 1}️⃣ <b>${escapeHtml(route.title)}</b>${duration}`);
     if (route.description) {
       lines.push(`   ${escapeHtml(route.description.slice(0, 60))}...`);
     }
-    lines.push(`   <a href="${url}">Подробнее →</a>${price}`);
+    lines.push(`   <a href="${url}">Подробнее →</a>`);
     lines.push('');
   });
 

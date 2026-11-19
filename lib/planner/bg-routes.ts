@@ -51,7 +51,7 @@
  *   • `meta.total` читается: показано 30 из 52 — карта говорит это словами
  *     (`truncated`), а не выдаёт тридцать за все.
  */
-import { asPlannerZone } from '@/lib/planner/zone-style';
+import { plannerZoneOf } from '@/lib/planner/zone-style';
 import { BG_ROUTES_PER_TYPE, PLACE_TILE_LOCATION_TYPES, bgRoutesUrl } from '@/lib/planner/bg-routes-url';
 import type { ZoneId } from '@/lib/planner/constants';
 
@@ -68,7 +68,7 @@ export interface PlannerRoute {
   location_type: string | null;
   /** Зона из базы как записана (в том числе район вне четырёх зон); null — не записана. */
   zone: string | null;
-  /** Та же зона, если это одна из четырёх зон планировщика. */
+  /** Зона планировщика: записанная или южная по широте (Курильское озеро, #3394 п.3). */
   plannerZone: ZoneId | null;
 }
 
@@ -135,7 +135,7 @@ export function toPlannerRoute(item: unknown): PlannerRoute | null {
     activity_type: str(o.activityType),
     location_type: str(o.locationType),
     zone,
-    plannerZone: asPlannerZone(zone),
+    plannerZone: plannerZoneOf(zone, lat),
   };
 }
 

@@ -36,7 +36,15 @@ for (const name of LOOPS) {
 
     it('в env шага агента нет токена, а scrub включён', () => {
       const env = hand.env ?? {};
-      for (const k of Object.keys(env)) expect(k).not.toMatch(/TOKEN|SECRET/);
+      for (const k of Object.keys(env)) {
+        // Предел ответа модели (issue-triage, 19.11) — счётчик, а не учётка:
+        // имя названо поимённо, и значение обязано быть числом.
+        if (k === 'CLAUDE_CODE_MAX_OUTPUT_TOKENS') {
+          expect(String(env[k])).toMatch(/^\d+$/);
+          continue;
+        }
+        expect(k).not.toMatch(/TOKEN|SECRET/);
+      }
       expect(Object.values(env).join(' ')).not.toMatch(/github\.token|secrets\./);
       expect(String(env.CLAUDE_CODE_SUBPROCESS_ENV_SCRUB)).toBe('1');
     });

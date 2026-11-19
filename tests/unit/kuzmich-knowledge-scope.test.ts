@@ -18,7 +18,7 @@
 import { describe, it, expect } from 'vitest';
 import { readFileSync, readdirSync } from 'node:fs';
 import { join } from 'node:path';
-import { KUZMICH_KNOWLEDGE_TYPES, KUZMICH_KNOWLEDGE_SCOPE_SQL } from '@/lib/kuzmich/knowledge-scope';
+import { KUZMICH_KNOWLEDGE_TYPES, KUZMICH_KNOWLEDGE_SCOPE_SQL, KUZMICH_KNOWLEDGE_SOURCED_SQL } from '@/lib/kuzmich/knowledge-scope';
 
 const ROOT = process.cwd();
 const read = (p: string) => readFileSync(join(ROOT, p), 'utf-8');
@@ -58,8 +58,25 @@ describe('разрешённый список родов знания Кузьм
 
   it('SQL-область строится из списка и называет только его', () => {
     expect(KUZMICH_KNOWLEDGE_SCOPE_SQL).toMatch(/^agent_id = 'kuzmich' AND type IN \(/);
-    const listed = [...KUZMICH_KNOWLEDGE_SCOPE_SQL.matchAll(/'([a-z_]+)'/g)].map((m) => m[1]).slice(1);
+    // Вся строка, кроме условия источника: любой лишний литерал вне списка
+    // (`OR type = 'outcome'`) — красный (ревью безопасности на #3518).
+    const rest = KUZMICH_KNOWLEDGE_SCOPE_SQL.replace(KUZMICH_KNOWLEDGE_SOURCED_SQL, '');
+    const listed = [...rest.matchAll(/'([a-z_]+)'/g)].map((m) => m[1]).slice(1);
     expect(listed).toEqual([...KUZMICH_KNOWLEDGE_TYPES]);
+  });
+
+  it('в области нет OR: условия только сужают выборку', () => {
+    // `a AND b OR c` в SQL — `(a AND b) OR c`: одно OR открыло бы всё, что
+    // под c, мимо рода и источника.
+    expect(KUZMICH_KNOWLEDGE_SCOPE_SQL).not.toMatch(/\bOR\b/i);
+  });
+
+  it('сверх рода — источник (#3514): область требует адрес источника записи', () => {
+    // Что условие пропускает и что нет — решает база: сцены на настоящем
+    // PostgreSQL во второй части tests/integration/mcp-failure-refusal.pg.test.ts.
+    expect(KUZMICH_KNOWLEDGE_SCOPE_SQL.endsWith(` AND ${KUZMICH_KNOWLEDGE_SOURCED_SQL}`)).toBe(true);
+    expect([...KUZMICH_KNOWLEDGE_SOURCED_SQL.matchAll(/'([^']*)'/g)].map((m) => m[1]))
+      .toEqual(['source_url', '^https?://[^[:space:]]+$']);
   });
 
   it('все выборки из agent_knowledge на путях Кузьмича и MCP идут через область', () => {

@@ -1,0 +1,87 @@
+name: IndexNow — вся карта сайта (после выката)
+
+# Зачем workflow, а не curl с телефона: закрытый роут требует CRON_SECRET,
+# а прод не отовсюду достижим. В Actions секрет и сеть уже есть.
+#
+# Роут подаёт в IndexNow ВСЮ карту сайта — те же адреса, что /sitemap.xml.
+# До 19.11 так сделать можно было только под admin-JWT (/api/admin/indexnow/
+# bulk), а раннер его позвать не может: https-хост в Вебмастере Яндекса не загружен, в
+# выдаче четыре адреса. Итог отправки — в ai_actions_log (source
+# indexnow-sitemap); ручной curl мимо роута туда не попал бы.
+#
+# Пинг имеет смысл только ПОСЛЕ того, как новая версия страниц поднялась на
+# проде: иначе Яндекс переобойдёт старый текст и уснёт на неделю. Поэтому
+# шаг ждёт СВОЮ сборку (scripts/wait-for-deploy.sh, сторож
+# marker-waits-for-deploy), и идёт только из main — прод собирается только
+# оттуда.
+#
+# Три исхода: секрета нет — красный до запроса, с именем секрета; IndexNow
+# принял — зелёный с числом адресов; отверг, не ответил или карта неполна —
+# красный словами из тела ответа.
+#
+# Ручной вход и файл-триггер — как у остальных: интеграция Claude не имеет
+# права на workflow_dispatch (403, проверено 02.09).
+
+on:
+  workflow_dispatch:
+  push:
+    branches: [main]
+    paths:
+      - '.github/triggers/indexnow-sitemap.json'
+
+permissions:
+  contents: read
+  deployments: read   # запись выката для scripts/wait-for-deploy.sh
+
+concurrency:
+  group: indexnow-sitemap
+  cancel-in-progress: false
+
+jobs:
+  ping:
+    runs-on: ubuntu-latest
+    # Ожидание сборки — до 70 минут (140 x 30 с) плюс запрос; таймаут обязан
+    # быть больше суммы (tests/unit/workflow-timeout-fits-wait.test.ts).
+    timeout-minutes: 80
+    steps:
+      - uses: actions/checkout@v7
+
+      - name: Секрет на месте
+        run: |
+          if [ -z "${{ secrets.CRON_SECRET }}" ]; then
+            echo "::error::секрет CRON_SECRET не задан — позвать роут нечем"
+            exit 1
+          fi
+
+      - name: Дождаться своей сборки на проде
+        env:
+          BASE: https://vedarai.ru
+          WANT_SHA: ${{ github.sha }}
+          # Запись выката (deploy.yml) читается с токеном — без него ждём по built_at.
+          GH_TOKEN: ${{ github.token }}
+          NEED_AFTER: ${{ github.event.head_commit.timestamp }}
+        run: bash scripts/wait-for-deploy.sh
+
+      - name: Пинг IndexNow всей картой сайта
+        env:
+          CRON_SECRET: ${{ secrets.CRON_SECRET }}
+        run: |
+          set -euo pipefail
+          HTTP=$(curl -sS -o /tmp/indexnow-sitemap.json -w "%{http_code}" --max-time 60 \
+            -H "Authorization: Bearer $CRON_SECRET" \
+            "https://vedarai.ru/api/cron/indexnow-sitemap") || HTTP="000"
+          echo "HTTP $HTTP"
+          python3 -m json.tool /tmp/indexnow-sitemap.json || cat /tmp/indexnow-sitemap.json || true
+          {
+            echo '## IndexNow — вся карта сайта'
+            echo ''
+            echo "HTTP $HTTP"
+            echo ''
+            echo '```json'
+            python3 -m json.tool /tmp/indexnow-sitemap.json || cat /tmp/indexnow-sitemap.json || true
+            echo '```'
+          } >> "$GITHUB_STEP_SUMMARY"
+          if [ "$HTTP" != "200" ]; then
+            echo "::error::IndexNow не принял карту сайта или она неполна (HTTP $HTTP) — см. тело ответа выше"
+            exit 1
+          fi

@@ -18,7 +18,7 @@ import { NextRequest } from 'next/server';
 const { poolQuery } = vi.hoisted(() => ({ poolQuery: vi.fn() }));
 vi.mock('@/lib/db-pool', () => ({ pool: { query: poolQuery } }));
 
-import { zoneMatchSql } from '@/lib/planner/zone-match';
+import { zoneMatchSql, plannerZoneSql } from '@/lib/planner/zone-match';
 import { GET as toursForDay } from '@/app/api/planner/tours-for-day/route';
 
 beforeEach(() => { poolQuery.mockReset(); });
@@ -26,8 +26,9 @@ beforeEach(() => { poolQuery.mockReset(); });
 describe('предикат зоны', () => {
   const sql = zoneMatchSql('ark', '$1');
 
-  it('зона тура совпала с зоной дня', () => {
-    expect(sql).toMatch(/\bark\.zone = \$1\b/);
+  it('зона тура совпала с зоной дня — зона планера: южная по широте, иначе записанная (#3394 п.3)', () => {
+    expect(sql).toContain(`${plannerZoneSql('ark')} = $1`);
+    // Исполнение на настоящем PostgreSQL — tests/integration/catalog-place-type.pg.test.ts.
   });
 
   it('тур без зоны — только Авачинской зоне, а не любой тур — Авачинской', () => {
@@ -39,7 +40,8 @@ describe('предикат зоны', () => {
   it('псевдоним и параметр — только имя и $N: зона в SQL строкой не попадает', () => {
     expect(() => zoneMatchSql('ark', "'western'")).toThrow();
     expect(() => zoneMatchSql('ark; DROP', '$1')).toThrow();
-    expect(zoneMatchSql('r', '$2')).toBe("(r.zone = $2 OR (r.zone IS NULL AND $2 = 'avachinsky'))");
+    expect(() => plannerZoneSql('r; DROP')).toThrow();
+    expect(zoneMatchSql('r', '$2')).toBe(`(${plannerZoneSql('r')} = $2 OR (r.zone IS NULL AND $2 = 'avachinsky'))`);
   });
 });
 

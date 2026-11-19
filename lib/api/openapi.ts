@@ -828,8 +828,10 @@ export function buildOpenApiDocument(base: string): Json {
           query('hasCoords', { type: 'string', enum: ['true', 'false'] }, 'Только с координатами (действует только true)'),
           query('sort', { type: 'string', enum: ['title', 'recent', 'price_asc', 'price_desc', 'recommended', 'navigable'], default: 'title' }, 'Порядок'),
           query('difficulty', { type: 'string', enum: ['easy', 'medium', 'hard'] }, 'Сложность'),
-          query('price_min', { type: 'number', minimum: 0 }, 'Цена от'),
-          query('price_max', { type: 'number', minimum: 0 }, 'Цена до'),
+          // Цена маршрута — самая низкая цена его тура за человека (18.11),
+          // не число записи маршрута. Без такого тура фильтр не пропускает.
+          query('price_min', { type: 'number', minimum: 0 }, 'Цена тура маршрута за человека, от (₽)'),
+          query('price_max', { type: 'number', minimum: 0 }, 'Цена тура маршрута за человека, до (₽)'),
           query('near_lat', { type: 'number', minimum: -90, maximum: 90 }, 'Центр радиуса'),
           query('near_lng', { type: 'number', minimum: -180, maximum: 180 }, 'Центр радиуса'),
           query('radius_km', { type: 'number', minimum: 1, maximum: 1000 }, 'Радиус'),

@@ -12,9 +12,11 @@ import { pool } from '@/lib/db-pool';
 // ни один прежний читатель `@/lib/planner/engine` не был тронут.
 import {
   type ZoneId, type TransportType, type FitnessLevel, type ActivityConstraints, type BudgetTier, type DayType,
-  ZONE_NAMES, ACTIVITY_CONSTRAINTS, ACTIVITY_NAMES, nightZoneOf, activityDayNotes,
+  ZONE_NAMES, ACTIVITY_CONSTRAINTS, ACTIVITY_NAMES, nightZoneOf, activityDayNotes, alertZonesOf,
 } from '@/lib/planner/constants';
 import { ZONE_GRAPH, type ZoneEdge } from '@/lib/planner/zone-graph';
+import { weatherKitLine } from '@/lib/planner/weather-kit';
+import { plannerZoneSql } from '@/lib/planner/zone-match';
 import { zoneLegCost, legFits, legShortfallMessage, type ZoneLegCost } from '@/lib/planner/zone-leg';
 import {
   asTripOrigin, framingDays, activeBudget as framedActiveBudget,
@@ -229,6 +231,11 @@ export interface DayPlan {
     code: number;
     description: string;
   };
+  /**
+   * Что взять по прогнозу (#3394, п.6) — строка дня, только в пределах
+   * прогноза (lib/planner/weather-kit). Нет прогноза — нет строки.
+   */
+  weatherKit?: string;
   alternatives?: Array<{
     tourId: string;
     title: string;
@@ -325,6 +332,8 @@ export const ZONE_COORDS: Record<ZoneId, [number, number]> = {
   eastern:    [54.80, 160.50],
   northern:   [54.50, 160.27],
   western:    [52.50, 156.50],
+  // Курильское озеро (places, 51,4550 / 157,0983).
+  southern:   [51.46, 157.10],
 };
 
 const ZONE_BEST_MONTHS: Record<ZoneId, number[]> = {
@@ -332,6 +341,8 @@ const ZONE_BEST_MONTHS: Record<ZoneId, number[]> = {
   western:    [5, 6, 7, 8, 9],
   eastern:    [7, 8, 9],
   northern:   [6, 7, 8, 9, 10],
+  // Медведи на Курильском озере — июль–сентябрь (ACTIVITY_CONSTRAINTS.bears).
+  southern:   [7, 8, 9],
 };
 
 // ── Zone transport constraints ──────────────────────────────────────────────
@@ -341,6 +352,7 @@ export const ZONE_ALLOWED_TRANSPORT: Record<ZoneId, TransportType[]> = {
   western:    ['jeep', 'boat', 'helicopter'],
   eastern:    ['jeep', 'helicopter', 'boat'],
   northern:   ['helicopter'],
+  southern:   ['helicopter', 'jeep'],
 };
 
 // ── Activity constraints ─────────────────────────────────────────────────────
@@ -351,7 +363,7 @@ export const ZONE_ALLOWED_TRANSPORT: Record<ZoneId, TransportType[]> = {
 const INTEREST_TO_ZONES: Record<string, ZoneId[]> = {
   volcano:    ['avachinsky'],
   fishing:    ['western', 'avachinsky'],
-  bears:      ['eastern'],
+  bears:      ['southern'],
   helicopter: ['avachinsky', 'northern'],
   thermal:    ['avachinsky'],
   trekking:   ['avachinsky', 'eastern'],
@@ -384,9 +396,13 @@ const ZONE_PERMITS: Partial<Record<ZoneId, PermitInfo[]>> = {
     { type: 'reserve', name: 'Кроноцкий государственный заповедник', advanceDays: 30,
       note: 'Бронирование через kronoki.ru — Долина гейзеров, кальдера Узон' },
   ],
-  eastern: [
+  // Курильское озеро — в южной зоне (#3394 п.3); до 19.11 эта строка стояла
+  // у Восточной, где озера нет.
+  southern: [
     { type: 'reserve', name: 'Южно-Камчатский федеральный заказник', advanceDays: 14,
       note: 'Для посещения Курильского озера' },
+  ],
+  eastern: [
     { type: 'border', name: 'Пограничная зона ФСБ', advanceDays: 30,
       note: 'Мыс Лопатка и части восточного побережья — заявка через Госуслуги или ФСБ' },
   ],
@@ -411,9 +427,9 @@ interface RouteFromDB {
 async function fetchRoutesForZone(zone: ZoneId, activityType: string, limit: number = 5): Promise<RouteFromDB[] | null> {
   try {
     const { rows } = await pool.query<RouteFromDB>(
-      `SELECT id, title, lat, lng, zone, activity_type, location_type
+      `SELECT id, title, lat, lng, ${plannerZoneSql('agent_route_knowledge')} AS zone, activity_type, location_type
        FROM agent_route_knowledge
-       WHERE zone = $1 AND activity_type = $2 AND is_visible = TRUE
+       WHERE ${plannerZoneSql('agent_route_knowledge')} = $1 AND activity_type = $2 AND is_visible = TRUE
          AND lat IS NOT NULL AND lng IS NOT NULL
        ORDER BY RANDOM() LIMIT $3`,
       [zone, activityType, limit]
@@ -713,7 +729,8 @@ function collectWarnings(
   for (const alert of alerts) {
     // Тревога — про зоны, куда план пошёл, а не про зоны-кандидаты (аудит
     // 07.11, S4): тревога о зоне, которой в плане нет, — шум в «Важно».
-    const zoneMatch = alert.zone === 'all' || plannedZones.has(alert.zone as ZoneId);
+    // Южная зона плана получает и тревоги Западной (alertZonesOf, #3394 п.3).
+    const zoneMatch = alert.zone === 'all' || [...plannedZones].some((z) => alertZonesOf(z).includes(alert.zone as ZoneId));
     if (zoneMatch) {
       warnings.push({
         type: 'mchs',
@@ -2787,30 +2804,32 @@ export async function recommendTrip(profile: TripProfile, opts: RecommendTripOpt
   // брался от сегодня и раскладывался по номеру дня: при приезде через неделю
   // первый день плана получал сегодняшнюю погоду, и она же уходила в промпт.
   // Поездка за горизонтом прогноза или неполный день — погоды у дня нет.
+  // Прогноз — по зоне САМОГО дня, а не первой зоны поездки (#3394, п.6):
+  // день на Курильском озере не должен получать погоду Петропавловска.
   if (profile.arrivalDate && days.length > 0) {
-    const primaryZone = zones[0]?.zone ?? 'avachinsky';
     const window = tripForecastWindow(profile.arrivalDate, Math.max(...days.map((d) => d.day)));
     if (window) {
-      const forecast = await fetchForecastDays(
-        ZONE_COORDS[primaryZone][0],
-        ZONE_COORDS[primaryZone][1],
-        window.horizon,
-      );
-      if (forecast.ok) {
-        for (const day of days) {
-          const date = window.dates[day.day - 1];
-          const fc = date ? forecast.days.find((f) => f.date === date) : undefined;
-          if (!fc || fc.tempMax === null || fc.tempMin === null || fc.precipMm === null
-            || fc.windKmh === null || fc.weatherCode === null || fc.description === null) continue;
-          day.weatherForecast = {
-            tempMax: fc.tempMax,
-            tempMin: fc.tempMin,
-            precipMm: fc.precipMm,
-            windKmh: fc.windKmh,
-            code: fc.weatherCode,
-            description: fc.description,
-          };
-        }
+      const byZone = new Map<ZoneId, Awaited<ReturnType<typeof fetchForecastDays>>>();
+      for (const zone of new Set(days.map((d) => d.zone))) {
+        byZone.set(zone, await fetchForecastDays(ZONE_COORDS[zone][0], ZONE_COORDS[zone][1], window.horizon));
+      }
+      for (const day of days) {
+        const forecast = byZone.get(day.zone);
+        if (!forecast?.ok) continue;
+        const date = window.dates[day.day - 1];
+        const fc = date ? forecast.days.find((f) => f.date === date) : undefined;
+        if (!fc || fc.tempMax === null || fc.tempMin === null || fc.precipMm === null
+          || fc.windKmh === null || fc.weatherCode === null || fc.description === null) continue;
+        day.weatherForecast = {
+          tempMax: fc.tempMax,
+          tempMin: fc.tempMin,
+          precipMm: fc.precipMm,
+          windKmh: fc.windKmh,
+          code: fc.weatherCode,
+          description: fc.description,
+        };
+        const kit = weatherKitLine(day.weatherForecast, day.type === 'activity' ? day.activityType : null);
+        if (kit) day.weatherKit = kit;
       }
     }
   }

@@ -23,6 +23,16 @@
  * ответа, аудит 1.14) — стрим сайта и A2A; виджет партнёра оценке не
  * отдаётся. Это сказано в ответе словами, разрез — by_surface.
  *
+ * ── Попытки оценки (#3179, слово владельца 19.11 «1 да») ───────────────────
+ *
+ * Свод выше видит только сохранённые оценки. Неделя 10–16.11 прошла без
+ * единой записи, и по своду нельзя было сказать, звали ли оценщика вообще.
+ * Место под оценку (kuzmich-outcomes, takeGradeSlot) пишет строку
+ * ai_actions_log ('kuzmich_grade') ДО вызова судьи, а с 19.11 — и исход
+ * попытки. `attempts_by_day` считает эти строки: сколько раз звали, сколько
+ * сохранено, сколько хороших не попало в выборку, сколько раз судья ответил
+ * не тем и сколько упало. У строк до 19.11 исход «не записан».
+ *
  * Сторож: tests/unit/kuzmich-quality-census-route.test.ts.
  */
 
@@ -76,6 +86,34 @@ const BASE = `
        AND created_at > NOW() - ($1::int * INTERVAL '1 day')
   )`;
 
+/** Попытки оценки за день по Камчатке — строки журнала места под оценку. */
+export interface AttemptRow {
+  day: string;
+  attempts: number;
+  saved: number;
+  good_not_saved: number;
+  /** Судья ответил не тем: пусто, без JSON или без балла. */
+  judge_no_answer: number;
+  failed: number;
+  /** Исход не записан: строки до 19.11 или отказ записи исхода. */
+  not_recorded: number;
+}
+
+/** Исходы попыток — из того же журнала, что держит потолок оценок. */
+export const ATTEMPTS_BY_DAY_SQL = `
+  SELECT to_char((created_at AT TIME ZONE 'Asia/Kamchatka')::date, 'YYYY-MM-DD') AS day,
+         COUNT(*)::int                                                               AS attempts,
+         COUNT(*) FILTER (WHERE metadata->>'result' = 'saved')::int                 AS saved,
+         COUNT(*) FILTER (WHERE metadata->>'result' = 'good_not_saved')::int        AS good_not_saved,
+         COUNT(*) FILTER (WHERE metadata->>'result' IN ('judge_empty', 'judge_no_json', 'judge_no_score'))::int AS judge_no_answer,
+         COUNT(*) FILTER (WHERE metadata->>'result' = 'failed')::int                AS failed,
+         COUNT(*) FILTER (WHERE metadata->>'result' IS NULL)::int                   AS not_recorded
+    FROM ai_actions_log
+   WHERE action_type = 'kuzmich_grade'
+     AND created_at > NOW() - ($1::int * INTERVAL '1 day')
+   GROUP BY 1
+   ORDER BY 1 DESC`;
+
 const AGG = `
          COUNT(*)::int                                                  AS outcomes,
          COUNT(*) FILTER (WHERE outcome_kind = 'refusal')::int          AS refusals,
@@ -98,7 +136,7 @@ export async function GET(request: NextRequest) {
 
   try {
     // Интервал — параметром с приведением, не конкатенацией (sql-interval-not-concatenated).
-    const [byDay, totals, bySurface] = await Promise.all([
+    const [byDay, totals, bySurface, attempts] = await Promise.all([
       pool.query<QualityRow>(
         `${BASE}
          SELECT to_char((created_at AT TIME ZONE 'Asia/Kamchatka')::date, 'YYYY-MM-DD') AS day,
@@ -127,16 +165,23 @@ export async function GET(request: NextRequest) {
           ORDER BY outcomes DESC`,
         [days],
       ),
+      pool.query<AttemptRow>(ATTEMPTS_BY_DAY_SQL, [days]),
     ]);
     const total = totals.rows.reduce((s, r) => s + r.outcomes, 0);
     const waterfall = totals.rows.filter((r) => r.answer_path === 'waterfall').reduce((s, r) => s + r.outcomes, 0);
+    const attemptsTotal = attempts.rows.reduce((s, r) => s + r.attempts, 0);
     return NextResponse.json({
       ok: true,
       days,
       outcomes_total: total,
-      // Ноль записей за окно — не «Кузьмич хорош», а «оценивать было нечего»
-      // (§4.0): словами, а не нулями в таблице.
-      empty_reason: total === 0 ? 'за окно ни одной записи оценки: оцениваемых вопросов не было, потолок оценок исчерпан или оценщик не отвечал' : null,
+      // Ноль записей за окно — не «Кузьмич хорош» (§4.0): словами, а не нулями
+      // в таблице. Попытки говорят, звали ли оценщика вообще.
+      empty_reason: total > 0 ? null
+        : attemptsTotal === 0
+          ? 'за окно ни одной записи оценки и ни одной попытки: оцениваемых ответов не было'
+          : `за окно ни одной записи оценки при ${attemptsTotal} попытках: исходы попыток — в attempts_by_day`,
+      attempts_total: attemptsTotal,
+      attempts_by_day: attempts.rows,
       waterfall_share: total > 0 ? Math.round((waterfall / total) * 1000) / 1000 : null,
       totals: totals.rows,
       by_surface: bySurface.rows,
@@ -145,6 +190,7 @@ export async function GET(request: NextRequest) {
         'Пишут Telegram, MAX и сайт, а с 22.10 — стрим сайта и A2A; виджет партнёра оценке не отдаётся. Поверхность — в by_surface; записи до 16.10 её не несут.',
         'Сохраняется не всё: оценка ниже 7, незаземлённый ответ или каждый десятый хороший — абсолютный средний балл занижен, сравнимы доли между днями и путями.',
         'answer_path: tools — цикл с инструментами; waterfall — запасной путь без инструментов (гонка водопада).',
+        'attempts_by_day — каждый вызов судьи (потолок 300 в сутки по Камчатке): сохранено, хороший не попал в выборку, судья ответил не тем, упало. Исход пишется с 19.11; у прежних строк он «не записан» (not_recorded).',
       ],
     });
   } catch (err) {

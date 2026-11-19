@@ -76,6 +76,14 @@ describe('сборка документа экранирует каждое зн
     expect(html).toContain('class="warning warning-important">Медведи</div>');
   });
 
+  it('что взять по прогнозу — строкой дня, текстом; нет прогноза — нет строки (#3394, п.6)', () => {
+    const kit = 'Прогноз для зоны дня: Дождь, +1…+7 °C, осадки 6 мм, ветер до 15 м/с. Возьмите дождевик <b>';
+    const day = { num: 1, confirmed: false, title: 'Авачинский', badge: null, priceLine: '', description: '', meta: 'Авачинская зона', warnings: [] };
+    const html = buildPlanPrintHtml({ ...base, days: [{ ...day, weatherKit: kit }] });
+    expect(html).toContain('<div class="day-meta">Прогноз для зоны дня: Дождь, +1…+7 °C, осадки 6 мм, ветер до 15 м/с. Возьмите дождевик &lt;b&gt;</div>');
+    expect(buildPlanPrintHtml({ ...base, days: [day] })).not.toContain('Прогноз для зоны дня');
+  });
+
   it('смета без вилки — одна сумма, а не «X — X ₽» (#3199, E12)', () => {
     const html = buildPlanPrintHtml({
       ...base,

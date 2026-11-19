@@ -1963,6 +1963,41 @@ withPg('витрина туров: снятый тур не в плане и н�
    * в год. В базе есть туры миграций со своими календарями, поэтому каждая
    * проверка спрашивает свой вид активности, а оператор у сцены свой.
    */
+  /**
+   * Страницы «Сколько стоит поездка» и «Когда ехать» (lib/seo/trip-cost-data,
+   * 19.11): тот же предикат витрины — снятый с витрины тур в счёт не попадает,
+   * запрос жилья с витринным предикатом выполняется.
+   */
+  describe('цены и сезоны для страниц «Сколько стоит» и «Когда ехать»', () => {
+    const TC_OPERATOR = 'c4100000-0000-4000-8000-000000000001';
+    beforeAll(async () => {
+      await pool.query(
+        `INSERT INTO partners (id, name, category, contact, slug, is_public, is_verified, status)
+         VALUES ($1, 'Тест Цены', 'operator', '{}'::jsonb, 'test-trip-cost', TRUE, TRUE, 'active')`, [TC_OPERATOR]);
+      for (const [slug, live] of [['test-cost-live', true], ['test-cost-hidden', false]] as const) {
+        await pool.query(
+          `INSERT INTO operator_tours (operator_id, title, slug, activity_type, base_price, price_unit, min_participants, max_participants,
+                                       duration_hours, difficulty, is_active, is_published, season_start, season_end)
+           VALUES ($1, $2, $2, 'fishing', 77777, 'per_person', 1, 10, 8, 'easy', TRUE, $3, '2026-06-01', '2026-09-30')`,
+          [TC_OPERATOR, slug, live]);
+      }
+    });
+
+    it('туры: витринный предикат исполняется, снятый тур в счёт не попадает', async () => {
+      const { TRIP_COST_TOURS_SQL } = await import('@/lib/seo/trip-cost-data');
+      const { rows } = await pool.query<{ base_price: string; price_unit: string; activity_type: string; season_start: string; season_end: string }>(TRIP_COST_TOURS_SQL);
+      const mine = rows.filter((r) => r.base_price.startsWith('77777'));
+      expect(mine).toHaveLength(1);
+      expect(mine[0]).toMatchObject({ price_unit: 'per_person', activity_type: 'fishing', season_start: '2026-06-01', season_end: '2026-09-30' });
+    });
+
+    it('жильё: запрос с витринным предикатом выполняется', async () => {
+      const { TRIP_COST_STAYS_SQL } = await import('@/lib/seo/trip-cost-data');
+      const { rows } = await pool.query<{ price_per_night_from: string | null }>(TRIP_COST_STAYS_SQL);
+      expect(Array.isArray(rows)).toBe(true);
+    });
+  });
+
   describe('годы свободных дат: тот же отбор, что у ближайшей свободной даты', () => {
     const OY_OPERATOR = 'c3100000-0000-4000-8000-000000000001';
     /** Сегодня по Камчатке — как его считает сам запрос. */
@@ -2050,6 +2085,17 @@ withPg('витрина туров: снятый тур не в плане и н�
       );
       await slot(await tour('oy_edge'), rows[0].days);
       expect(await loadOpenDateYears({ activityType: 'oy_edge' })).toEqual([rows[0].y]);
+    });
+
+    it('только туры страницы (tourIds, посадочные 19.11): чужой тур со свободной датой год не даёт', async () => {
+      const { loadOpenDateYears } = await import('@/lib/tours/nearest-free-date');
+      const mine = await tour('oy_ids');
+      const other = await tour('oy_ids_other');
+      const d = await slot(mine, 4);
+      const far = await slot(other, 300);
+      expect(await loadOpenDateYears({ tourIds: [mine] })).toEqual([yearOf(d)]);
+      expect(await loadOpenDateYears({ tourIds: [mine, other] })).toEqual([...new Set([yearOf(d), yearOf(far)])].sort((a, b) => a - b));
+      expect(await loadOpenDateYears({ tourIds: [] })).toEqual([]);
     });
 
     it('без вида — весь каталог: наши годы среди прочих, запрос не падает', async () => {

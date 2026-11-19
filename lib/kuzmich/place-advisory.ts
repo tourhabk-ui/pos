@@ -13,7 +13,7 @@ import { HAZARDS } from '@/lib/safety/hazard-labels';
 import {
   isVolcanoObservationStale, volcanoObservationAgeDays, formatObservationAge,
 } from '@/lib/services/safety/kvert-vona';
-import { placeDayStatus, type PlaceDay, type PlaceDayLevel, type PlaceDayInput } from '@/lib/safety/place-day-status';
+import { placeDayStatus, PARK_SEASON_NOTE, type PlaceDay, type PlaceDayLevel, type PlaceDayInput } from '@/lib/safety/place-day-status';
 import { KURIL_NORTH_NOTE } from '@/lib/safety/kuril-north';
 
 export type AdvisoryTone = 'ok' | 'caution' | 'danger' | 'unknown';
@@ -94,6 +94,9 @@ export function buildPlaceAdvisory(p: AdvisoryInput, now: number = Date.now()): 
       // поднимают его — «активным» его не называем.
       lines.push(level === 'green' ? `В сводках: ${alerts[0]}` : `Активное предупреждение: ${alerts[0]}`);
     }
+    // Жёлтый от межсезонного закрытия троп парка (#3487): что оно значит —
+    // теми же словами, что полоса «Сейчас».
+    if (p.realtime.parkSeason) lines.push(PARK_SEASON_NOTE);
   }
 
   // 3. Опасности места — краткое напоминание (не тревога).

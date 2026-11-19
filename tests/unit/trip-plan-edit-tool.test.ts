@@ -66,6 +66,19 @@ describe('черновик: ПД и три исхода', () => {
     expect(await loadDraft(ID)).toEqual({ kind: 'failed' });
   });
 
+  it('чтение несёт поверхность черновика; незнакомая — не выдумывается (#3394, срез 2)', async () => {
+    const row = (surface: string | null) => ({
+      id: ID, params: PARAMS, days: DAYS, revision: 1, expires_at: '2026-11-26T10:00:00.000Z', wishes: null, surface,
+    });
+    poolReply = () => ({ rows: [row('cabinet')] });
+    const cab = await loadDraft(ID);
+    expect(cab.kind === 'found' && cab.draft.surface).toBe('cabinet');
+    expect(queries.at(-1)?.sql).toMatch(/SELECT id::text, params, days, revision, expires_at, wishes, surface/);
+    poolReply = () => ({ rows: [row('telegram-bot')] });
+    const odd = await loadDraft(ID);
+    expect(odd.kind === 'found' && 'surface' in odd.draft).toBe(false);
+  });
+
   it('запись правки сверяет ревизию: устаревшая — conflict, не молчаливая перезапись', async () => {
     const r = await updateDraft({ id: ID, revision: 3, params: PARAMS as never, days: DAYS }, { params: PARAMS as never, days: DAYS });
     expect(r).toEqual({ kind: 'conflict' });

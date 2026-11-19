@@ -55,6 +55,11 @@ interface Tour {
    * значит «не знаем», и карточка говорит «Даты по запросу», а не «Есть даты».
    */
   has_availability?: boolean | null;
+  /**
+   * Оператор выезжает «в любой день сезона», и сезон открыт (`anyDayOpenSql`,
+   * #3476). Не пришло — не знаем, строка прежняя.
+   */
+  any_day_open?: boolean | null;
 }
 
 /* ─── Constants ─── */
@@ -80,6 +85,9 @@ import { plural } from '@/lib/home/data-freshness';
 import { detectFishSpecies } from '@/lib/fish-species';
 import { tourPhotoPosition } from '@/lib/tours/photo-focus';
 import { tourPath } from '@/lib/tours/tour-url';
+import { onRequestLine } from '@/lib/tours/request-window';
+import { anyDayCatalogLine } from '@/lib/tours/schedule-kind';
+import { kamchatkaDate } from '@/lib/analytics/kamchatka-day';
 import { cardDuration, cardPrice } from '@/lib/tours/card-facts';
 import { OperatorNameLink } from '@/components/operators/OperatorNameLink';
 import { sessionState } from '@/lib/auth/session-state';
@@ -338,6 +346,17 @@ function TourCard({
   // «● Сезон» — только когда есть даты: иначе зелёная точка обещала то,
   // чего нет (тур 7 без дат и тур 5 с сезоном до 15.08 несли её, #51).
   const showSeason = availability === 'dates' && isInSeason(tour);
+  // Без календаря с записанным сезоном — одна строка «Сезон …, даты — по
+  // запросу у оператора» (#3473), а не голое «Даты по запросу».
+  // Оператор выезжает в любой день сезона (#3476): так он записал сам, и
+  // карточка говорит его словом, а не «даты по запросу».
+  const anyDay = availability !== 'dates' && tour.any_day_open === true
+    ? anyDayCatalogLine(tour, kamchatkaDate(new Date()))
+    : null;
+  const availabilityText = anyDay
+    ?? (availability === 'on_request'
+      ? onRequestLine(tour, kamchatkaDate(new Date()))
+      : AVAILABILITY_LABEL[availability]);
   const priceOld = tour.price_old ? Number(tour.price_old) : null;
   const basePrice = cardPrice(tour);
   const features = deriveFeatures(tour);
@@ -426,7 +445,7 @@ function TourCard({
           {diffBadge && <span className="px-2 py-0.5 rounded-full border" style={chipStyle}>{diffBadge.label}</span>}
           <span className="inline-flex items-center gap-1">
             <span className="w-1.5 h-1.5 rounded-full shrink-0" style={{ background: AVAILABILITY_DOT[availability] }} />
-            <span className={availability === 'dates' ? '' : 'font-medium'}>{AVAILABILITY_LABEL[availability]}</span>
+            <span className={availability === 'dates' ? '' : 'font-medium'}>{availabilityText}</span>
           </span>
           {showSeason && (
             <span className="inline-flex items-center gap-1">

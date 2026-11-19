@@ -54,4 +54,18 @@ describe('черновик Кузьмича или MCP', () => {
     const read = await readSharedPlan(TOKEN);
     expect(read.kind === 'found' && read.plan).toMatchObject({ source: 'draft', day_tour_ids: { 1: '9' }, people: 3 });
   });
+
+  it('черновик из кабинета называет свою поверхность странице; у черновика без неё поля нет (#3394, срез 2)', async () => {
+    m.query.mockResolvedValue({ rows: [] });
+    const draft = (surface?: string) => ({ kind: 'found', draft: {
+      id: TOKEN, params: { arrivalDate: '2030-08-01', departureDate: '2030-08-02', adults: 2, children: [], interests: [] },
+      days: [day(1)], ...(surface ? { surface } : {}),
+    } });
+    m.loadDraft.mockResolvedValue(draft('cabinet'));
+    const cab = await readSharedPlan(TOKEN);
+    expect(cab.kind === 'found' && cab.plan.draft_surface).toBe('cabinet');
+    m.loadDraft.mockResolvedValue(draft());
+    const plain = await readSharedPlan(TOKEN);
+    expect(plain.kind === 'found' && 'draft_surface' in plain.plan).toBe(false);
+  });
 });

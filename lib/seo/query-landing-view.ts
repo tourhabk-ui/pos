@@ -6,8 +6,11 @@ import { priceWithUnitWords } from '@/lib/tours/price-label';
 import { priceZh, durationZh, seasonZh } from '@/lib/zh/entry';
 import { tourPath } from '@/lib/tours/tour-url';
 import type { LandingTourRow } from '@/lib/seo/query-landings-data';
-import type { LandingLang, QueryLanding } from '@/lib/seo/query-landings';
+import type { LandingFaq, LandingLang, QueryLanding } from '@/lib/seo/query-landings';
 import { carrierPagePath, type CharterCarrier } from '@/lib/transfers/charter-format';
+import { openYearsLabel } from '@/lib/tours/nearest-free-date';
+import { plural } from '@/lib/home/data-freshness';
+import { TITLE_LIMIT } from '@/lib/seo/title-fit';
 
 const EN_UNIT: Record<string, string> = { per_person: 'per person', per_tour: 'per group', per_day_per_person: 'per person per day' };
 const RU_MONTHS = ['янв', 'фев', 'мар', 'апр', 'май', 'июн', 'июл', 'авг', 'сен', 'окт', 'ноя', 'дек'];
@@ -60,11 +63,13 @@ export function landingDates(t: LandingTourRow, lang: LandingLang): string {
  */
 export function landingJsonLd(
   l: QueryLanding, tours: LandingTourRow[] | null, site: string, carriers: Pick<CharterCarrier, 'slug' | 'name'>[] | null = null,
+  /** Вопросы, показанные на странице (landingFaq); нет — постоянные `l.faq`. */
+  faq: readonly LandingFaq[] = l.faq,
 ): Record<string, unknown> {
   const graph: Record<string, unknown>[] = [{
     '@type': 'FAQPage',
     inLanguage: l.lang,
-    mainEntity: l.faq.map((f) => ({ '@type': 'Question', name: f.q, acceptedAnswer: { '@type': 'Answer', text: f.a } })),
+    mainEntity: faq.map((f) => ({ '@type': 'Question', name: f.q, acceptedAnswer: { '@type': 'Answer', text: f.a } })),
   }];
   if (tours && tours.length > 0) {
     graph.push({
@@ -102,4 +107,116 @@ export function landingJsonLd(
     });
   }
   return { '@context': 'https://schema.org', '@graph': graph };
+}
+
+// ── Числа страницы из её же туров (разбор видимости в ответах ИИ, 19.11) ────
+//
+// Ответы ИИ цитируют страницы, у которых число туров и цена «от» стоят в
+// заголовке и первой строке. У посадочных Ведара заголовок был статичным
+// («…: туры, цены от, даты» — без единого числа), а первая фраза одна на все.
+// Числа берутся из тех же туров, что показаны списком ниже, — других
+// источников у них нет, и разойтись со списком они не могут.
+
+/** Цена «от» по туру с единицей; единицы не смешиваются. */
+export interface LandingCheapest { price: number; unit: 'per_person' | 'per_tour' }
+
+export interface LandingSummary {
+  count: number;
+  /** Сколько разных компаний ведут эти туры. */
+  operators: number;
+  /**
+   * Самая низкая цена среди туров с ценой за человека; таких нет — среди
+   * туров с ценой за группу; нет и их — null. «За человека» и «за группу» не
+   * сравниваются: 30 000 за группу не дешевле 20 000 за человека.
+   */
+  cheapest: LandingCheapest | null;
+  /** Ближайшая свободная дата среди туров, 'YYYY-MM-DD'; нет — null. */
+  nearest: string | null;
+  /** Годы свободных дат туров страницы словами («2026–2027»); дат нет или не прочитались — ''. */
+  years: string;
+}
+
+function cheapestOf(tours: readonly LandingTourRow[], unit: LandingCheapest['unit']): LandingCheapest | null {
+  let best: number | null = null;
+  for (const t of tours) {
+    if (t.price_unit !== unit) continue;
+    const n = Number(t.base_price);
+    if (!Number.isFinite(n) || n <= 0) continue;
+    if (best === null || n < best) best = n;
+  }
+  return best === null ? null : { price: best, unit };
+}
+
+/**
+ * Сводка по турам страницы; не прочитались (null) или пусто — null.
+ * `openYears` — годы, на которые у этих туров есть свободная дата
+ * (`loadOpenDateYears`); null — не прочитались, и года в сводке нет.
+ */
+export function landingSummary(tours: readonly LandingTourRow[] | null, openYears: readonly number[] | null): LandingSummary | null {
+  if (!tours || tours.length === 0) return null;
+  const operators = new Set(tours.map((t) => t.operator_slug ?? t.operator_name)).size;
+  const dates = tours
+    .map((t) => (t.next_open_date && /^\d{4}-\d{2}-\d{2}/.test(t.next_open_date) ? t.next_open_date.slice(0, 10) : null))
+    .filter((d): d is string => d !== null)
+    .sort();
+  return {
+    count: tours.length,
+    operators,
+    cheapest: cheapestOf(tours, 'per_person') ?? cheapestOf(tours, 'per_tour'),
+    nearest: dates[0] ?? null,
+    years: openYearsLabel(openYears),
+  };
+}
+
+function rub(n: number, lang: 'ru' | 'en'): string {
+  return lang === 'ru' ? `${n.toLocaleString('ru-RU')} ₽` : `${n.toLocaleString('en-US')} RUB`;
+}
+
+function cheapestWords(c: LandingCheapest, lang: 'ru' | 'en'): string {
+  if (lang === 'ru') return `от ${rub(c.price, 'ru')} ${c.unit === 'per_person' ? 'за человека' : 'за группу'}`;
+  return `from ${rub(c.price, 'en')} ${c.unit === 'per_person' ? 'per person' : 'per group'}`;
+}
+
+function toursWord(n: number, lang: 'ru' | 'en'): string {
+  return lang === 'ru' ? plural(n, 'тур', 'тура', 'туров') : (n === 1 ? 'tour' : 'tours');
+}
+
+/**
+ * Заголовок страницы с числами: «Экскурсия в Долину гейзеров: 7 туров от
+ * 45 000 ₽, 2026–2027». Туров нет или не прочитались — прежний заголовок без
+ * чисел: число, которого нет, не пишется. Китайские страницы — без изменений.
+ * Не помещается в TITLE_LIMIT — сперва без годов, потом без цены: число туров
+ * остаётся всегда, обрезанный выдачей хвост хуже короткого целого.
+ */
+export function landingTitle(l: QueryLanding, s: LandingSummary | null): string {
+  if (!s || !l.subject || l.lang === 'zh-CN') return l.title;
+  const lang = l.lang;
+  const price = s.cheapest ? ` ${lang === 'ru' ? 'от' : 'from'} ${rub(s.cheapest.price, lang)}` : '';
+  const years = s.years ? `, ${s.years}` : '';
+  const suffix = lang === 'en' ? ' | Vedar' : '';
+  const count = `${l.h1}: ${s.count} ${toursWord(s.count, lang)}`;
+  const variants = [`${count}${price}${years}`, `${count}${price}`, count].map((v) => `${v}${suffix}`);
+  return variants.find((v) => v.length <= TITLE_LIMIT) ?? variants[variants.length - 1]!;
+}
+
+/**
+ * Первая строка страницы — самостоятельное предложение с числами, которое
+ * можно процитировать целиком: «Сейчас на Ведаре 7 туров в Долину гейзеров от
+ * 3 компаний, цены от 45 000 ₽ за человека, ближайшая свободная дата —
+ * 12.12.2026.» Без туров или без темы — null: первой строки из базы нет.
+ */
+export function landingLead(l: QueryLanding, s: LandingSummary | null): string | null {
+  if (!s || !l.subject || l.lang === 'zh-CN') return null;
+  if (l.lang === 'ru') {
+    const parts = [`Сейчас на Ведаре ${s.count} ${toursWord(s.count, 'ru')} ${l.subject} от ${s.operators} ${plural(s.operators, 'компании', 'компаний', 'компаний')}`];
+    if (s.cheapest) parts.push(`цены ${cheapestWords(s.cheapest, 'ru')}`);
+    parts.push(s.nearest
+      ? `ближайшая свободная дата — ${s.nearest.split('-').reverse().join('.')}`
+      : 'свободных дат в расписании нет, даты — по запросу');
+    return `${parts.join(', ')}.`;
+  }
+  const parts = [`Vedar currently lists ${s.count} ${toursWord(s.count, 'en')} ${l.subject} from ${s.operators} local ${s.operators === 1 ? 'operator' : 'operators'}`];
+  if (s.cheapest) parts.push(`prices ${cheapestWords(s.cheapest, 'en')}`);
+  parts.push(s.nearest ? `next open date ${s.nearest}` : 'no open dates in the schedule, dates on request');
+  return `${parts.join(', ')}.`;
 }

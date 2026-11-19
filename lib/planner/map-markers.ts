@@ -24,9 +24,9 @@
 import type { MapMarker } from '@/components/shared/leaflet-types';
 import { connectorLine, CONNECTOR_TITLES } from '@/lib/map/line-standard';
 import { markerHex, type MarkerColorName } from '@/lib/map/marker-colors';
-import { ZONE_IDS, type ZoneId } from '@/lib/planner/constants';
+import { PLANNER_ZONE_IDS, type ZoneId } from '@/lib/planner/constants';
 import {
-  asPlannerZone, zonePin, zoneName, zoneShortName,
+  asPlannerZone, plannerZoneOf, zonePin, zoneName, zoneShortName,
   NO_ZONE_PIN, PLAN_DAY_PIN, ZONE_NOT_RECORDED, ZONE_OUTSIDE,
 } from '@/lib/planner/zone-style';
 
@@ -164,7 +164,12 @@ export function groupDaysByPoint(days: readonly PlannerMapDay[]): DayPinGroup[] 
 export function sameZoneCount(routes: readonly PlannerMapRoute[], zone: string | null | undefined): number {
   const z = asPlannerZone(zone);
   if (!z) return 0;
-  return routes.filter(r => asPlannerZone(r.zone) === z).length;
+  return routes.filter(r => plannerZoneOf(r.zone, r.lat) === z).length;
+}
+
+/** Зона точки для цвета: южная по широте, иначе записанная (#3394 п.3). */
+function routeZone(r: Pick<PlannerMapRoute, 'zone' | 'lat'>): string | null | undefined {
+  return plannerZoneOf(r.zone, r.lat) ?? r.zone;
 }
 
 export const ROUTE_LINE_ID = 'route_line';
@@ -191,8 +196,8 @@ export function buildPlannerMarkers(input: {
   for (const r of routes) {
     // Замена дня: та же зона — своим цветом, остальные — серые.
     const color: MarkerColorName = editingDay
-      ? (editingZone !== null && asPlannerZone(r.zone) === editingZone ? zonePin(r.zone) : NO_ZONE_PIN)
-      : zonePin(r.zone);
+      ? (editingZone !== null && plannerZoneOf(r.zone, r.lat) === editingZone ? zonePin(routeZone(r)) : NO_ZONE_PIN)
+      : zonePin(routeZone(r));
     result.push({
       id: r.id,
       coords: [r.lat, r.lng],
@@ -259,13 +264,13 @@ export function plannerLegend(routes: readonly PlannerMapRoute[]): LegendEntry[]
   let notRecorded = 0;
   let outside = 0;
   for (const r of routes) {
-    const z = asPlannerZone(r.zone);
+    const z = plannerZoneOf(r.zone, r.lat);
     if (z) counts.set(z, (counts.get(z) ?? 0) + 1);
     else if (typeof r.zone === 'string' && r.zone.trim() !== '') outside += 1;
     else notRecorded += 1;
   }
   const entries: LegendEntry[] = [];
-  for (const z of ZONE_IDS) {
+  for (const z of PLANNER_ZONE_IDS) {
     const n = counts.get(z);
     if (n) entries.push({ zone: z, name: zoneShortName(z), hex: markerHex(zonePin(z)), count: n });
   }

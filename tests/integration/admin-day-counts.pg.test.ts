@@ -14,7 +14,13 @@
  *  - Кузьмич: ответы по поверхностям, чужие записи журнала мимо;
  *  - отказ одного запроса — «не загрузилось» у одного числа, прочие стоят;
  *  - расшифровка MCP: программа, разных вызывающих, инструменты, темы,
- *    род вызова, исход, пропуск суток, хвост тем числом.
+ *    род вызова, исход, пропуск суток, хвост тем числом;
+ *  - журнал ошибок прода: обрыв соединения узнаётся одинаково в SQL и в
+ *    коде, в перепись ошибок, объектив эволюции и счёт сорванных броней не
+ *    идёт (слово владельца 19.11 «1»);
+ *  - попытки оценки Кузьмича: место под оценку отдаёт номер строки, исход
+ *    пишется в неё же, перепись считает попытки по камчатским дням с исходами,
+ *    строки до 19.11 — «не записан» (#3179, слово владельца 19.11 «1 да»).
  *
  * Своя база `admin_day_counts_test`. Запуск ТРЕБУЕТ базы:
  * KERNEL_PG_TEST_URL=postgresql://user:pass@host/db. Без неё файл честно
@@ -477,5 +483,210 @@ withPg('числа суток в админке', () => {
       expect(recent.filter((r) => r.state === 'rejected').map((r) => r.reject_label)).toEqual(['нет согласия человека на обработку данных', 'нет согласия человека на обработку данных']);
       expect(recent.find((r) => r.state === 'completed')?.reject_label).toBeNull();
     });
+  });
+  // Слово владельца 19.11 «1»: обрыв соединения в журнале ошибок прода — не
+  // «Прод 500». Правило в SQL и в коде одно (lib/server-errors/connection-abort),
+  // и здесь оба судят одни и те же строки на настоящей базе.
+  describe('обрыв соединения в журнале ошибок', () => {
+    const MSG = 'controller[kState].transformAlgorithm is not a function';
+    const FRAME2 = 'at node:internal/webstreams/transformstream:568:16';
+    // Строка журнала прода 19.11 слово в слово (проверка прода, прогон 195).
+    const STACK =
+      'at transformStreamDefaultControllerPerformTransform (node:internal/webstreams/transformstream:527:37) | ' +
+      `${FRAME2} | at process.processTicksAndRejections (node:internal/process/task_queues:103:5)`;
+    const log = (route: string, message: string, stack: string | null) => pool.query(
+      `INSERT INTO ai_actions_log (action_type, metadata, created_at)
+       VALUES ('server_error', $1::jsonb, NOW() - INTERVAL '1 hour')`,
+      [JSON.stringify({ route, message, stack, method: 'GET', kind: 'render' })],
+    );
+    const saved = process.env.CRON_SECRET;
+
+    beforeAll(async () => {
+      process.env.CRON_SECRET = 'cron-pg-test';
+      await pool.query(`DELETE FROM ai_actions_log WHERE action_type = 'server_error'`);
+      await log('/map', MSG, STACK);
+      await log('/map', MSG, `  ${STACK}`);
+      await log('/catalog', MSG, STACK);
+      await log('/map', 'Cannot read properties of undefined (reading x)', 'at Page (/app/.next/server/app/map/page.js:1:2)');
+      await log('/routes/[id]', MSG, STACK.replace(FRAME2, 'at renderPage (/app/.next/server/chunks/1.js:1:2)'));
+      await log('/places/[id]', MSG, STACK.replace(FRAME2, 'at /app/.next/server/app/places/page.js:1:1'));
+      await log('/tours', MSG, null);
+      await log('/weather', MSG, STACK.replace(FRAME2, 'at node:internal/x (/app/lib/stream.js:1:1)'));
+      await log('/api/hub/bookings/create', MSG, STACK);
+      await log('/api/hub/bookings/create', 'duplicate key', 'at create (/app/.next/server/app/api/hub/bookings/create/route.js:1:1)');
+    });
+    afterAll(() => {
+      if (saved === undefined) delete process.env.CRON_SECRET; else process.env.CRON_SECRET = saved;
+    });
+
+    it('правило SQL совпадает с правилом кода на каждой строке', async () => {
+      const { CONNECTION_ABORT_SQL, isConnectionAbort } = await import('@/lib/server-errors/connection-abort');
+      const { rows } = await pool.query<{ route: string; m: string | null; s: string | null; a: boolean }>(
+        `SELECT metadata->>'route' AS route, metadata->>'message' AS m, metadata->>'stack' AS s,
+                ${CONNECTION_ABORT_SQL} AS a
+           FROM ai_actions_log WHERE action_type = 'server_error'`,
+      );
+      expect(rows).toHaveLength(10);
+      for (const r of rows) expect(r.a, `${r.route}: ${r.s}`).toBe(isConnectionAbort(r.m, r.s));
+      expect(rows.filter((r) => r.a).map((r) => r.route).sort())
+        .toEqual(['/api/hub/bookings/create', '/catalog', '/map', '/map']);
+    });
+
+    it('перепись: обрывы своим списком, в счёт ошибок не входят', async () => {
+      const { GET } = await import('@/app/api/cron/prod-errors/route');
+      const { NextRequest } = await import('next/server');
+      const body = await (await GET(new NextRequest('http://localhost/api/cron/prod-errors?hours=25', {
+        headers: { Authorization: 'Bearer cron-pg-test' },
+      }))).json() as {
+        ok: boolean; total: number; errors: Array<{ route: string; n: number }>;
+        connection_aborts: Array<{ route: string; n: number }>; connection_aborts_total: number;
+      };
+      expect(body.ok).toBe(true);
+      const byRoute = (list: Array<{ route: string; n: number }>) =>
+        Object.fromEntries(list.map((r) => [r.route, r.n]));
+      expect(byRoute(body.errors)).toEqual({
+        '/map': 1, '/routes/[id]': 1, '/places/[id]': 1, '/tours': 1, '/weather': 1, '/api/hub/bookings/create': 1,
+      });
+      expect(byRoute(body.connection_aborts)).toEqual({ '/map': 2, '/catalog': 1, '/api/hub/bookings/create': 1 });
+      expect(body.total).toBe(6);
+      expect(body.connection_aborts_total).toBe(4);
+    });
+
+    it('объектив эволюции: находки «Прод 500» из обрывов нет', async () => {
+      const { scanProdErrors } = await import('@/lib/agents/evo/growth-agent');
+      const found = await scanProdErrors();
+      const titles = Object.fromEntries(found.map((f) => [f.title, f.description]));
+      expect(Object.keys(titles).sort()).toEqual([
+        'Прод 500: /api/hub/bookings/create', 'Прод 500: /map', 'Прод 500: /places/[id]',
+        'Прод 500: /routes/[id]', 'Прод 500: /tours', 'Прод 500: /weather',
+      ]);
+      expect(titles['Прод 500: /map']).toContain('За сутки 1 серверных ошибок');
+      // Модуль объектива большой: первый импорт на холодном раннере дольше 5 с.
+    }, 60_000);
+
+    it('перепись попыток брони: обрыв — не сорванная попытка', async () => {
+      const { GET } = await import('@/app/api/cron/booking-attempts/route');
+      const { NextRequest } = await import('next/server');
+      const body = await (await GET(new NextRequest('http://localhost/api/cron/booking-attempts?days=7', {
+        headers: { Authorization: 'Bearer cron-pg-test' },
+      }))).json() as { failed_500_total: number | null; failed_with_500: Array<{ route: string; n: number }> | null };
+      expect(body.failed_500_total).toBe(1);
+      expect(body.failed_with_500).toEqual([expect.objectContaining({ route: '/api/hub/bookings/create', n: 1 })]);
+    }, 30_000);
+  });
+
+  // #3179, слово владельца 19.11 «1 да»: сколько раз звали оценщика и чем это
+  // кончилось. SQL берётся из исходника и исполняется здесь же.
+  describe('попытки оценки Кузьмича', () => {
+    const saved = process.env.CRON_SECRET;
+    beforeAll(() => { process.env.CRON_SECRET = 'cron-pg-test'; });
+    afterAll(() => {
+      if (saved === undefined) delete process.env.CRON_SECRET; else process.env.CRON_SECRET = saved;
+    });
+
+    it('место отдаёт номер строки, исход ложится в неё, перепись считает по дням', async () => {
+      const { TAKE_GRADE_SLOT_SQL, GRADE_SLOT_LOCK_SQL, MARK_GRADE_RESULT_SQL } = await import('@/lib/agents/managed/kuzmich-outcomes');
+      await pool.query(`DELETE FROM ai_actions_log WHERE action_type = 'kuzmich_grade'`);
+      // Строка до 19.11: места занимались и раньше, исхода у них нет.
+      await pool.query(`INSERT INTO ai_actions_log (action_type, metadata, created_at)
+                        VALUES ('kuzmich_grade', '{"surface":"web"}'::jsonb, NOW() - INTERVAL '3 days')`);
+      const take = async (cap: number) => {
+        const c = await pool.connect();
+        try {
+          await c.query('BEGIN');
+          await c.query(GRADE_SLOT_LOCK_SQL);
+          const r = await c.query<{ id: string }>(TAKE_GRADE_SLOT_SQL, [JSON.stringify({ surface: 'max' }), cap]);
+          await c.query('COMMIT');
+          return r;
+        } finally { c.release(); }
+      };
+      const a = await take(2);
+      const b = await take(2);
+      const over = await take(2);
+      expect([a.rowCount, b.rowCount, over.rowCount]).toEqual([1, 1, 0]);
+      expect(over.rows).toEqual([]);
+      const idA = a.rows[0]!.id;
+      const idB = b.rows[0]!.id;
+      expect(idA).not.toBe(idB);
+
+      await pool.query(MARK_GRADE_RESULT_SQL, [idA, 'saved']);
+      await pool.query(MARK_GRADE_RESULT_SQL, [idB, 'judge_no_json']);
+      // Чужая строка журнала с тем же номером рода не меняется.
+      const other = await pool.query<{ id: string }>(`INSERT INTO ai_actions_log (action_type, metadata) VALUES ('server_error', '{}'::jsonb) RETURNING id`);
+      const miss = await pool.query(MARK_GRADE_RESULT_SQL, [other.rows[0]!.id, 'saved']);
+      expect(miss.rowCount).toBe(0);
+      const { rows: marked } = await pool.query<{ id: string; metadata: Record<string, unknown> }>(
+        `SELECT id::text, metadata FROM ai_actions_log WHERE id = ANY($1::bigint[]) ORDER BY id`, [[idA, idB]]);
+      expect(marked.map((r) => r.metadata)).toEqual([
+        { surface: 'max', result: 'saved' },
+        { surface: 'max', result: 'judge_no_json' },
+      ]);
+
+      const { GET } = await import('@/app/api/cron/kuzmich-quality-census/route');
+      const { NextRequest } = await import('next/server');
+      const body = await (await GET(new NextRequest('http://localhost/api/cron/kuzmich-quality-census?days=7', {
+        headers: { Authorization: 'Bearer cron-pg-test' },
+      }))).json() as { ok: boolean; attempts_total: number; attempts_by_day: Array<Record<string, number | string>> };
+      expect(body.ok).toBe(true);
+      expect(body.attempts_total).toBe(3);
+      expect(body.attempts_by_day).toHaveLength(2);
+      const [today, older] = body.attempts_by_day;
+      expect(today).toMatchObject({ attempts: 2, saved: 1, judge_no_answer: 1, good_not_saved: 0, failed: 0, not_recorded: 0 });
+      expect(older).toMatchObject({ attempts: 1, saved: 0, not_recorded: 1 });
+      expect(String(today.day) > String(older.day)).toBe(true);
+      const { rows: [kam] } = await pool.query<{ d: string }>(
+        `SELECT to_char((NOW() AT TIME ZONE 'Asia/Kamchatka')::date, 'YYYY-MM-DD') AS d`);
+      expect(today.day).toBe(kam.d);
+    }, 30_000);
+  });
+
+  // Слово владельца 19.11 «у судьи баланса нет возьми на себя его работу пока»:
+  // выгрузка диалогов для оценки вместо судьи. Запросы — из исходника роута,
+  // на схеме из миграций; тексты наружу — только шифром.
+  describe('диалоги Кузьмича для оценки вместо судьи', () => {
+    const saved = process.env.CRON_SECRET;
+    beforeAll(() => { process.env.CRON_SECRET = 'cron-pg-test'; });
+    afterAll(() => {
+      if (saved === undefined) delete process.env.CRON_SECRET; else process.env.CRON_SECRET = saved;
+    });
+
+    it('веб-чат без виджета и завершённый A2A за окно; старое, виджет и сбой — мимо', async () => {
+      await pool.query('DELETE FROM chat_sessions');
+      await pool.query('DELETE FROM a2a_dialogs');
+      const msgs = (q: string, a: string) => JSON.stringify([{ role: 'user', content: q }, { role: 'assistant', content: a }]);
+      await pool.query(
+        `INSERT INTO chat_sessions (session_id, role, messages, updated_at, widget_origin) VALUES
+           ('rv-web', 'tourist', $1::jsonb, NOW() - INTERVAL '1 day', NULL),
+           ('rv-old', 'tourist', $2::jsonb, NOW() - INTERVAL '20 days', NULL),
+           ('rv-widget', 'tourist', $3::jsonb, NOW() - INTERVAL '1 day', '{"host":"example.org"}'::jsonb)`,
+        [msgs('Можно ли завтра на Горелый?', 'Завтра там ветер.'), msgs('старое', 'старый ответ'), msgs('виджет', 'ответ виджета')],
+      );
+      await pool.query(
+        `INSERT INTO a2a_dialogs (agent, ua_family, caller_hash, context_key, turn, question, answer, state, created_at) VALUES
+           ('TestAgent', 'other', 'h1', NULL, 1, 'volcano tours?', 'Туров к вулканам три.', 'completed', NOW() - INTERVAL '2 days'),
+           ('TestAgent', 'other', 'h1', NULL, 2, 'second?', 'сбой', 'failed', NOW() - INTERVAL '2 days')`,
+      );
+      const { REVIEW_WEB_SQL, REVIEW_A2A_SQL } = await import('@/app/api/cron/kuzmich-review-batch/route');
+      const web = await pool.query<{ day: string; role: string; messages: unknown }>(REVIEW_WEB_SQL, [7, 40]);
+      expect(web.rows).toHaveLength(1);
+      expect(web.rows[0]!.role).toBe('tourist');
+      expect(Array.isArray(web.rows[0]!.messages)).toBe(true);
+      expect(web.rows[0]!.day).toMatch(/^\d{4}-\d{2}-\d{2}$/);
+      const a2a = await pool.query<{ agent: string; is_self: boolean; question: string }>(REVIEW_A2A_SQL, [7, 40]);
+      expect(a2a.rows).toEqual([expect.objectContaining({ agent: 'TestAgent', is_self: false, question: 'volcano tours?' })]);
+      // Предел — параметром.
+      expect((await pool.query(REVIEW_WEB_SQL, [30, 1])).rows).toHaveLength(1);
+
+      const { GET } = await import('@/app/api/cron/kuzmich-review-batch/route');
+      const { NextRequest } = await import('next/server');
+      const res = await GET(new NextRequest('http://localhost/api/cron/kuzmich-review-batch?days=7', {
+        headers: { Authorization: 'Bearer cron-pg-test' },
+      }));
+      expect(res.status).toBe(200);
+      const raw = await res.text();
+      expect(raw).not.toContain('Горелый');
+      expect(raw).not.toContain('Туров к вулканам');
+      expect(JSON.parse(raw)).toMatchObject({ ok: true, web_sessions_read: 1, web_pairs: 1, a2a_read: 1, a2a_dialogs: 1 });
+    }, 30_000);
   });
 });

@@ -39,6 +39,12 @@ export interface SharedPlan {
   /** Только у черновика: до какого момента живёт ссылка (ISO). */
   expires_at?: string;
   /**
+   * Только у черновика: откуда он — чат, MCP, группа или личный кабинет
+   * (замена дня сохранённой поездки, #3394). Страница по нему говорит, где
+   * план менять.
+   */
+  draft_surface?: 'chat' | 'mcp' | 'group' | 'cabinet';
+  /**
    * Тур, который поставил в день сам план (номер дня → id тура). Страница
    * показывает его, а не «лучший тур по типу занятия»: иначе в чате или в
    * сохранённой поездке был бы один тур, а на странице того же плана — другой.
@@ -151,6 +157,7 @@ export async function readSharedPlan(token: string): Promise<SharedPlanRead> {
       days,
       transport_by_day: {},
       ...(draft.expiresAt ? { expires_at: draft.expiresAt } : {}),
+      ...(draft.surface ? { draft_surface: draft.surface } : {}),
       day_tour_ids: dayTourIdsOf(days),
       people: peopleOf({ adults: draft.params.adults, children: draft.params.children }),
     },

@@ -33,9 +33,20 @@
  */
 
 import { PARK_SCOPED_SQL } from '@/lib/services/safety/alert-place-scope';
-import { isIndefiniteClosure } from '@/lib/safety/park-closure';
+import { isIndefiniteClosure, isSeasonalClosure } from '@/lib/safety/park-closure';
 import { PARK_UNKNOWN_MAX_DAYS } from '@/lib/safety/park-closure-terms';
 import { UTC_WALL_NOW_SQL, utcWallIsoSql } from '@/lib/db/timestamp-iso';
+
+/**
+ * Межсезонье на дне плана и в ответе на заявку (слово владельца 19.11 «убрать
+ * межсезонье», #3487): то же правило, что у карточки места (`isSeasonalClosure`,
+ * #3517) — тропы парка закрыты до сезона, это не опасность дня. До этой правки
+ * карточка уже писала жёлтое «тропы закрыты», а план и заявка — «Закрытие
+ * парка» с пометкой «критично» при зимнем туре оператора по его календарю.
+ */
+export const SEASONAL_CLOSURE_NOTE =
+  'тропы парка закрыты на межсезонье по решению парка — это расписание троп, а не опасность дня; '
+  + 'туры операторов идут по своему календарю, дату подтверждает оператор';
 
 export type PlanParkQuery = <T>(sql: string, params: unknown[]) => Promise<{ rows: T[] }>;
 
@@ -154,6 +165,17 @@ export function parkNoteForDay(alert: PlanParkAlert, dayIso: string | null, toda
     };
   }
   const until = kamchatkaDateOf(alert.expires_iso);
+  // Сезонное закрытие (межсезонье) у дня с ТУРОМ — не опасность дня (слово
+  // владельца 19.11, #3487): «важно», и сказано, что туры операторов идут по
+  // своему календарю. У самостоятельного дня по тропе парка — по-прежнему
+  // закрытие: тропа закрыта, и идти по ней самому некуда.
+  const seasonal = alert.ref_kind === 'tour' && isSeasonalClosure(`${alert.title} ${alert.description ?? ''}`);
+  if ((until === null || day <= until) && seasonal) {
+    return {
+      severity: 'important',
+      text: `По сводке от ${ddmm(alert.published_iso)} ${SEASONAL_CLOSURE_NOTE}. Самостоятельный выход на тропы парка уточните у дирекции.`,
+    };
+  }
   if (until === null || day <= until) {
     return {
       severity: 'critical',
@@ -211,7 +233,11 @@ export function parkVerdicts(
       const note = parkNoteForDay(a, d.dayIso, todayIso);
       if (!note) continue;
       notes.push(note);
-      const key = `${a.alert_id}|${note.severity}`;
+      // Одна тревога говорит о разных днях разное («тропы закрыты на
+      // межсезонье» и «статус на этот день не известен» — обе «важно», 19.11):
+      // строка плана — на тревогу и её слова, иначе второй день получил бы
+      // текст первого.
+      const key = `${a.alert_id}|${note.severity}|${note.text}`;
       const entry = byAlert.get(key) ?? { note, days: [] };
       if (!entry.days.includes(d.day)) entry.days.push(d.day);
       byAlert.set(key, entry);

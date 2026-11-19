@@ -72,7 +72,7 @@ describe('Командоры', () => {
 
   it('карточка называет острова, а не «Авачинский»', () => {
     render(<PlaceFacts locationType="settlement" zone="commander" safety={SAFETY_EMPTY} terrainType={null} />);
-    expect(document.body.textContent).toMatch(/РайонКомандорские о-ва/);
+    expect(document.body.textContent).toMatch(/ЗонаКомандорские о-ва/);
     expect(document.body.textContent).not.toMatch(/Авачинск/);
   });
 });
@@ -112,7 +112,9 @@ describe('подпись зоны — словами, и правдивыми', 
     expect(placeZoneLabel('western')).toBe('Западная Камчатка');
     expect(placeZoneLabel('eastern')).toBe('Восточная Камчатка');
     render(<PlaceFacts locationType="hot_spring" zone="western" safety={SAFETY_EMPTY} terrainType={null} />);
-    expect(document.body.textContent).toMatch(/РайонЗападная Камчатка/);
+    expect(document.body.textContent).toMatch(/ЗонаЗападная Камчатка/);
+    // Подпись «Зона», не «Район» (#3473): зона Ведара — не административный район.
+    expect(document.body.textContent).not.toMatch(/Район/);
     expect(document.body.textContent).not.toMatch(/побережье/);
   });
 });

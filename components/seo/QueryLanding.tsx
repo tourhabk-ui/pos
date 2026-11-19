@@ -10,11 +10,21 @@ import { zhTourPath } from '@/lib/zh/pages';
 import { zhFactHeading } from '@/lib/zh/entry';
 import { siblingLandings, type LandingLang, type QueryLanding } from '@/lib/seo/query-landings';
 import type { LandingTourRow } from '@/lib/seo/query-landings-data';
+
+/**
+ * Страницы-ответы о цене и сезоне (#3539): русская посадочная ведёт на них
+ * из подвала, чтобы обход и человек доходили до них не только из меню.
+ */
+export const TRIP_GUIDE_LINKS = [
+  { path: '/skolko-stoit-poezdka-na-kamchatku', label: 'Сколько стоит поездка на Камчатку' },
+  { path: '/kogda-ehat-na-kamchatku', label: 'Когда ехать на Камчатку' },
+] as const;
 import { chronicleForTopic } from '@/lib/seo/query-landings-chronicle';
 import { CHRONICLE_ARTICLES } from '@/lib/chronicle/articles';
 import type { ParkListItem } from '@/lib/parks/list';
 import { OFFER_ORDER_NOTE } from '@/lib/tours/offer-order';
-import { landingDates, landingDuration, landingJsonLd, landingPrice, landingSeason } from '@/lib/seo/query-landing-view';
+import { landingFaq } from '@/lib/seo/query-landing-faq';
+import { landingDates, landingDuration, landingJsonLd, landingLead, landingPrice, landingSeason, type LandingSummary } from '@/lib/seo/query-landing-view';
 import { CharterPriceList } from '@/components/transfers/CharterPriceList';
 import { carrierPagePath, charterOrderPath, type CharterState } from '@/lib/transfers/charter-format';
 
@@ -52,6 +62,11 @@ const UI: Record<LandingLang, {
  * машину (CLAUDE.md §14). Прайс — та же вёрстка, что на /transfers и странице
  * перевозчика (CharterPriceList); отказ базы — «не загрузился», не «пусто».
  */
+/** У трансфера туров нет: вопросы с ответом из туров ему не нужны. */
+function transferOrTours(l: QueryLanding, tours: LandingTourRow[] | null): LandingTourRow[] | null {
+  return l.topic === 'transfer' ? null : tours;
+}
+
 function CarriersSection({ charter }: { charter: CharterState | null }) {
   const carriers = charter && charter.state === 'ok' ? charter.carriers : null;
   return (
@@ -77,9 +92,14 @@ function CarriersSection({ charter }: { charter: CharterState | null }) {
   );
 }
 
-export function QueryLandingView({ landing, tours, parks = [], charter = null }: {
+export function QueryLandingView({ landing, tours, parks = [], charter = null, summary = null }: {
   landing: QueryLanding; tours: LandingTourRow[] | null; parks?: ParkListItem[] | null; charter?: CharterState | null;
+  /** Числа страницы из её туров (landingSummary); нет — первой строки из базы нет. */
+  summary?: LandingSummary | null;
 }) {
+  const lead = landingLead(landing, summary);
+  // Вопросы с ответом из туров страницы — и на экране, и в разметке одни.
+  const faq = landingFaq(landing, transferOrTours(landing, tours), summary?.nearest ?? null);
   const ui = UI[landing.lang];
   const zh = landing.lang === 'zh-CN';
   const transfer = landing.topic === 'transfer';
@@ -87,10 +107,11 @@ export function QueryLandingView({ landing, tours, parks = [], charter = null }:
   const carriers = charter && charter.state === 'ok' ? charter.carriers : null;
   return (
     <main className="ds-page" lang={landing.lang} data-landing={landing.key}>
-      <JsonLd data={landingJsonLd(landing, transfer ? null : tours, SITE, carriers)} />
+      <JsonLd data={landingJsonLd(landing, transfer ? null : tours, SITE, carriers, faq)} />
       <div className="max-w-3xl mx-auto px-4 py-8 space-y-8">
         <header className="space-y-3">
           <h1 className="font-playfair text-3xl sm:text-4xl font-bold" style={{ color: 'var(--text-primary)' }}>{landing.h1}</h1>
+          {lead && <p className="text-base" style={{ color: 'var(--text-primary)' }} data-landing-lead>{lead}</p>}
           <p className="text-sm" style={{ color: 'var(--text-secondary)' }}>{landing.intro}</p>
         </header>
 
@@ -189,7 +210,7 @@ export function QueryLandingView({ landing, tours, parks = [], charter = null }:
         <section className="space-y-3">
           <h2 className="ds-h2">{ui.faq}</h2>
           <dl className="space-y-3">
-            {landing.faq.map((f) => (
+            {faq.map((f) => (
               <div key={f.q} className="ds-card p-4 text-sm">
                 <dt className="font-semibold" style={{ color: 'var(--text-primary)' }}>{f.q}</dt>
                 <dd style={{ color: 'var(--text-secondary)' }}>{f.a}</dd>
@@ -201,6 +222,7 @@ export function QueryLandingView({ landing, tours, parks = [], charter = null }:
         <footer className="text-sm space-x-3" style={{ color: 'var(--text-secondary)' }}>
           <span>{ui.more}:</span>
           {siblingLandings(landing).map((s) => <Link key={s.key} className="underline" href={s.path}>{s.h1}</Link>)}
+          {landing.lang === 'ru' && TRIP_GUIDE_LINKS.map((g) => <Link key={g.path} className="underline" href={g.path}>{g.label}</Link>)}
           <Link className="underline" href={zh ? '/zh' : '/catalog'}>{zh ? 'Vedar 中文首页' : landing.lang === 'ru' ? 'Каталог туров' : 'Full catalog (Russian)'}</Link>
         </footer>
       </div>

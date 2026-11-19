@@ -45,6 +45,8 @@ export interface PlaceRealtime {
   touristsHour: number | null;
   /** Вердикт пересчёта сводок (safety-ingest): red / yellow / green; читать через placeDayStatus. */
   status: string | null;
+  /** Причина цвета от пересчёта (1461): park_season — тропы парка закрыты на межсезонье. */
+  reason?: string | null;
   /** Вулканы, к которым место привязано поимённо (1029): их шкалы поднимают статус места. */
   linkedVolcanoes: string | null;
   updatedAt: string | null;

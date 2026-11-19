@@ -3,6 +3,7 @@
 import { kuzmichAskHref } from '@/lib/kuzmich/ask-link';
 import { tourAskQuestion } from '@/lib/kuzmich/tour-ask';
 import AskYourAi from '@/components/kuzmich/AskYourAi';
+import { CANONICAL_BASE_URL } from '@/lib/config';
 import { sellerRequisitesLine } from '@/lib/tours/seller-requisites';
 import { seasonLabel as formatSeasonLabel } from '@/lib/tours/season';
 import { wishlistFailureText } from '@/lib/wishlist/contract';
@@ -14,7 +15,7 @@ import {
   MapPin, Clock, CheckCircle2, XCircle, ChevronDown,
   ChevronRight, Users, Backpack, Shield, LifeBuoy,
   Calendar, Star, Share2, Heart, MessageSquare, PenLine,
-  Phone, Send, AlertTriangle, Check, Video, Globe, MessageCircle, RotateCcw, ArrowUpRight,
+  Phone, Send, AlertTriangle, Check, Video, Globe, MessageCircle, RotateCcw, ArrowUpRight, HelpCircle,
 } from 'lucide-react';
 import { shareLink, shareOutcomeMessage } from '@/lib/share';
 import { pickupForCard } from '@/lib/tours/pickup';
@@ -41,7 +42,7 @@ import { KuzmichActions } from '@/components/shared/KuzmichActions';
 import { Footer } from '@/components/layout/Footer';
 import DescriptionWithFishLinks from '@/components/shared/DescriptionWithFishLinks';
 import FishSeasonCalendar from '@/components/tours/FishSeasonCalendar';
-import { detectFishSpecies } from '@/lib/fish-species';
+import { detectFishSpecies, seasonMonthsBetween } from '@/lib/fish-species';
 import { plural } from '@/lib/home/data-freshness';
 import { UNKNOWN_ORIGIN_TEXT } from '@/lib/safety/alert-origin';
 
@@ -70,6 +71,8 @@ import { cardDuration } from '@/lib/tours/card-facts';
 import { tourSeasonWords, type CalendarRange } from '@/lib/tours/season-words';
 import { programSteps } from '@/lib/tours/describe';
 import { tourCancellation, SAFETY_NOTES_CANCELLATION_HEAD, CANCELLATION_REST_WITH_OPERATOR } from '@/lib/tours/cancellation-words';
+import { tourFaq, tourPaymentLine } from '@/lib/tours/tour-faq';
+import FaqSection from '@/components/faq/FaqSection';
 
 /* Шрифты платформы: Playfair — дисплей (голос края), JetBrains Mono — метки. */
 const FD = 'var(--font-playfair)';
@@ -535,6 +538,10 @@ export default function TourDetailClient({ tour, reviews = [], askSeatsFirst = f
 
   const program = useMemo(() => programSteps(tour.program), [tour.program]);
   const cancellation = useMemo(() => tourCancellation(tour), [tour]);
+  const faqItems = useMemo(
+    () => tourFaq(tour, { acceptsPayments: platformAcceptsPayments(), calendar: calendarRange }),
+    [tour, calendarRange],
+  );
   const contacts = useMemo(() => toContacts(tour.operator_contacts), [tour.operator_contacts]);
   const { primary: primaryContacts, more: moreContacts } = useMemo(() => splitOperatorContacts(contacts), [contacts]);
   // Часы звонков (contacts.phone_hours, миграция 840) — строка из БД как есть.
@@ -763,9 +770,7 @@ export default function TourDetailClient({ tour, reviews = [], askSeatsFirst = f
                   <span className="text-sm text-[var(--text-secondary)]">{priceLabel}</span>
                 </div>
                 <p className="mt-1.5 text-xs leading-relaxed text-[var(--text-secondary)]">
-                  {platformAcceptsPayments()
-                    ? 'Дату и детали подтверждает оператор — оплата только после подтверждения.'
-                    : 'Дату и детали подтверждает оператор. Оплата — ему напрямую, после подтверждения: Ведар платежи не принимает.'}
+                  {tourPaymentLine(platformAcceptsPayments())}
                 </p>
                 <a href="#booking" className="ds-btn ds-btn-primary w-full mt-4 justify-center text-sm" style={{ minHeight: 44 }}>
                   Узнать свободные даты
@@ -826,7 +831,10 @@ export default function TourDetailClient({ tour, reviews = [], askSeatsFirst = f
               <section>
                 <Eyebrow>Рыбалка по сезонам</Eyebrow>
                 <SectionTitle>Когда какая рыба клюёт?</SectionTitle>
-                <FishSeasonCalendar species={fishSpecies} />
+                <FishSeasonCalendar
+                  species={fishSpecies}
+                  tourMonths={seasonMonthsBetween(tour.season_start, tour.season_end)}
+                />
               </section>
             )}
 
@@ -1129,6 +1137,14 @@ export default function TourDetailClient({ tour, reviews = [], askSeatsFirst = f
               </div>
             </section>
 
+            {/* Вопросы и ответы (слово владельца 17.11 «2 да но аккуратно»):
+                ответы — теми же функциями, что разделы выше (lib/tours/tour-faq),
+                без ответа нет и вопроса; разметка FAQPage — из того же массива. */}
+            <FaqSection
+              items={faqItems}
+              heading={<SectionTitle icon={HelpCircle}>Вопросы и ответы</SectionTitle>}
+            />
+
             {/* Отзывы. id — якорь ссылки из просьбы об отзыве после тура
                 (lib/tours/tour-anchors): до 13.10 его не было, и ссылка
                 открывала карточку с начала. */}
@@ -1219,7 +1235,13 @@ export default function TourDetailClient({ tour, reviews = [], askSeatsFirst = f
                 primaryLabel="Спросить Кузьмича"
                 compact
               />
-              <AskYourAi className="mt-4" question={`Стоит ли ехать на тур «${tour.title}» на Камчатке?`} />
+              {/* Внешние ИИ — второй уровень, вопрос о самой странице (#3468): «стоит ли ехать»
+                  ChatGPT понял как «сравни с рынком» и ушёл к другим компаниям. */}
+              <AskYourAi
+                className="mt-4"
+                question={`Что входит в тур «${tour.title}», как проходят дни программы и что взять с собой?`}
+                pageUrl={`${CANONICAL_BASE_URL}/catalog/tours/${encodeURIComponent((tour as { slug?: string | null }).slug || tour.id)}`}
+              />
             </div>
           </div>
 

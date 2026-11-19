@@ -42,6 +42,29 @@ describe('lastmod списков', () => {
     expect(entries.find(e => e.url === 'https://vedarai.ru/places')).toBeTruthy();
   });
 
+  // 19.11 (задача индексации): посадочные под запросы стояли с `new Date()`.
+  it('посадочная под запрос — дата её туров; туров не прочиталось — даты нет, а не «сейчас»', async () => {
+    query.mockImplementation((sql: string) => {
+      if (String(sql).includes('FROM operator_tours')) {
+        return Promise.resolve({ rows: [
+          { id: 1, slug: 'tur-a', updated_at: OLD },
+          { id: 2, slug: 'tur-b', updated_at: NEW },
+        ] });
+      }
+      return Promise.resolve({ rows: [] });
+    });
+    const withTours = (await collectSitemapEntriesWithStatus()).entries;
+    const bears = withTours.find(e => e.url === 'https://vedarai.ru/tury-medvedi-kamchatka');
+    expect(new Date(bears!.lastModified!).toISOString()).toBe(NEW.toISOString());
+
+    query.mockImplementation((sql: string) =>
+      String(sql).includes('FROM operator_tours') ? Promise.reject(new Error('boom')) : Promise.resolve({ rows: [] }));
+    const noTours = (await collectSitemapEntriesWithStatus()).entries;
+    const bears2 = noTours.find(e => e.url === 'https://vedarai.ru/tury-medvedi-kamchatka');
+    expect(bears2).toBeTruthy();
+    expect(bears2!.lastModified).toBeUndefined();
+  });
+
   it('latestModified', () => {
     expect(latestModified([])).toBeNull();
     expect(latestModified([{ url: 'x', lastModified: OLD }, { url: 'y', lastModified: NEW }, { url: 'z' }])?.toISOString())

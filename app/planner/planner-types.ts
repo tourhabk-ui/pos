@@ -22,7 +22,7 @@ export interface SelectItem {
 export interface DayPlan {
   day: number;
   type: DayType;
-  zone: 'avachinsky' | 'western' | 'eastern' | 'northern';
+  zone: 'avachinsky' | 'western' | 'eastern' | 'northern' | 'southern';
   title: string;
   description: string;
   activityType: string;
@@ -51,6 +51,8 @@ export interface DayPlan {
   childFriendly: boolean;
   minChildAge: number;
   dayWarnings: string[];
+  /** Что взять по прогнозу — строка движка (lib/planner/weather-kit, #3394 п.6). */
+  weatherKit?: string;
   /** Род активного дня — производит движок (lib/planner/day-mode). */
   activityMode?: 'operator' | 'self' | 'open';
   /**

@@ -37,6 +37,7 @@ import { appendTourApplyLink } from '@/lib/kuzmich/tour-ask';
 import { recordSafetyReview } from '@/lib/kuzmich/safety-review-log';
 import { withSosBlock, type SosLang } from '@/lib/safety/sos-detector';
 import type { ToolRun } from '@/lib/agents/eval/grounding';
+import { fixWrongZhPlaceNames, type ZhNameFix } from '@/lib/zh/place-names';
 
 /** Где прозвучал ответ. Имя идёт в лог и в журнал проверок безопасности. */
 export type GuardSurface = 'telegram' | 'max' | 'web' | 'web-stream' | 'widget' | 'a2a';
@@ -106,8 +107,25 @@ function logGuards(surface: GuardSurface, distance: string[], safety: GuardResul
   }
 }
 
-/** Ответ ещё не показан: правим целиком, в порядке расстояния → безопасность → доставка → SOS. */
-export function finishKuzmichAnswer(input: FinishInput): FinishedAnswer {
+function logZhNames(surface: GuardSurface, fix: ZhNameFix): void {
+  if (fix.fixed.length > 0) console.error('[kuzmich-zh-place-names] ошибочное китайское название места', { surface, fixed: fix.fixed });
+}
+
+/**
+ * Поправка к ошибочному китайскому названию места, которое человек уже
+ * прочитал (#3382): «库页» — Сахалин, а не Курильское озеро.
+ */
+export function shownZhNameCorrection(fixed: ZhNameFix['fixed']): string {
+  return fixed.map((f) => `更正：上文的“${f.wrong}”应为“${f.right}”。`).join('\n');
+}
+
+/** Ответ ещё не показан: правим целиком, в порядке названия мест → расстояния → безопасность → доставка → SOS. */
+export function finishKuzmichAnswer(raw: FinishInput): FinishedAnswer {
+  // Ошибочное китайское название места (库页湖 вместо 库里尔湖) — первым: это
+  // замена написания, а не смысла, и сторожа ниже судят уже верный текст.
+  const zhNames = fixWrongZhPlaceNames(raw.answer);
+  logZhNames(raw.surface, zhNames);
+  const input: FinishInput = { ...raw, answer: zhNames.text };
   const distance = stripUngroundedDistanceClaims(input.answer, groundingContext(input.toolRuns, input.context));
   const safety = guardSafetyClaims(distance.cleaned, input.toolRuns);
   void recordSafetyReview(input.surface, safety, input.toolRuns);
@@ -176,6 +194,9 @@ export function correctShownAnswer(input: Omit<FinishInput, 'sos' | 'lang'>): Sh
   const banned = stripBannedAdvice(input.answer);
   const notes: string[] = [];
   if (distance.removed.length > 0) notes.push(DISTANCE_HONEST_LINE);
+  const zhNames = fixWrongZhPlaceNames(input.answer);
+  logZhNames(input.surface, zhNames);
+  if (zhNames.fixed.length > 0) notes.push(shownZhNameCorrection(zhNames.fixed));
   if (banned.removed.length > 0) notes.push(SHOWN_BANNED_ADVICE_CORRECTION);
   if (banned.ranking.length > 0) notes.push(SHOWN_SAFETY_RANKING_CORRECTION);
   if (safety.text.startsWith(banned.text) && safety.text.length > banned.text.length) {

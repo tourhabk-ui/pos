@@ -30,7 +30,7 @@ import { matchOfficialAlerts, type OfficialAlert } from '@/lib/agents/evo/rescue
 import { alertOrigin } from '@/lib/safety/alert-origin';
 import { UTC_WALL_NOW_SQL, utcWallIsoSql } from '@/lib/db/timestamp-iso';
 import { clipTitle, kamchatkaDateOf, type PlanParkQuery } from './park-status';
-import { ZONE_NAMES, type ZoneId } from './constants';
+import { ZONE_NAMES, alertZonesOf, type ZoneId } from './constants';
 
 /** Рода ленты, которые план берёт этой проверкой. */
 export const PLAN_OFFICIAL_TYPES = ['weather', 'flood', 'avalanche', 'landslide', 'tsunami_warning'] as const;
@@ -85,7 +85,8 @@ export interface OfficialPlanDay {
 
 /** Зоны дня: у переезда — обе, их названия стоят в заголовке; Петропавловск — Авачинская. */
 export function dayZones(d: { type: string; zone: ZoneId; title: string }): ZoneId[] {
-  const zones = new Set<ZoneId>([d.zone]);
+  // Южная зона — и тревоги Западной: Курильское озеро там по району (#3394 п.3).
+  const zones = new Set<ZoneId>(alertZonesOf(d.zone));
   if (d.type === 'travel') {
     for (const [id, name] of Object.entries(ZONE_NAMES) as Array<[ZoneId, string]>) {
       if (d.title.includes(name)) zones.add(id);

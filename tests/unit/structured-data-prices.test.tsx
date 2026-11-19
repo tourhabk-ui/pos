@@ -20,7 +20,7 @@ const SITE = 'https://vedarai.ru';
 
 function offer(p: Partial<RouteOfferInput> & { tourId: number }): RouteOfferInput {
   return {
-    tourSlug: null, priceBase: null, effectivePrice: null, priceUnit: 'per_person',
+    tourSlug: null, priceBase: null, priceUnit: 'per_person',
     operator: { name: 'Компания' }, ...p,
   };
 }
@@ -39,10 +39,13 @@ describe('routeAggregateOffer: цена маршрута — из туров к�
     expect(agg.offerCount).toBe(3);
   });
 
-  it('цена — та, что карточка показывает первой (действующая раньше базовой)', () => {
-    const agg = routeAggregateOffer([offer({ tourId: 1, priceBase: 20000, effectivePrice: 15000 })], SITE)!;
-    expect(agg.lowPrice).toBe(15000);
-    expect(agg.highPrice).toBe(15000);
+  it('цена — та, что на карточке тура (base_price); зачёркнутая старая не идёт (18.11)', () => {
+    // Вьюха отдаёт effective_price = COALESCE(price_old, base_price), а
+    // price_old — зачёркнутая старая цена. До 18.11 она шла в разметку ценой.
+    const withOld = { ...offer({ tourId: 1, priceBase: 20000 }), effectivePrice: 25000, priceOld: 25000 } as RouteOfferInput;
+    const agg = routeAggregateOffer([withOld], SITE)!;
+    expect(agg.lowPrice).toBe(20000);
+    expect(agg.highPrice).toBe(20000);
   });
 
   it('цена за группу и за день в сводку «за человека» не идёт', () => {

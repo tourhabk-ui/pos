@@ -16,30 +16,25 @@
  */
 import { PRICE_UNIT_LABELS } from '@/lib/tours/labels';
 import { tourPath } from '@/lib/tours/tour-url';
+import { offerShownPrice, ROUTE_PRICE_UNIT } from '@/lib/routes/route-tour-price';
 
 export interface RouteOfferInput {
   tourId: number;
   /** Адрес тура: по номеру карточка переадресует на slug, в разметку — сразу он. */
   tourSlug?: string | null;
+  /** Цена тура — та, что на его карточке (§11); зачёркнутая старая сюда не идёт. */
   priceBase: number | null;
-  /** Цена, которую карточка маршрута показывает первой, если она есть. */
-  effectivePrice: number | null;
   priceUnit: string | null;
   operator: { name: string | null } | null;
 }
 
-/** Цена тура так, как её показывает карточка маршрута: `effectivePrice ?? priceBase`. */
-function shownPrice(o: RouteOfferInput): number | null {
-  const p = o.effectivePrice ?? o.priceBase;
-  return typeof p === 'number' && Number.isFinite(p) && p > 0 ? p : null;
-}
 
 export function routeAggregateOffer(
   offers: readonly RouteOfferInput[],
   siteUrl: string,
 ): Record<string, unknown> | null {
   const priced = offers.flatMap((o) => {
-    const price = o.priceUnit === 'per_person' ? shownPrice(o) : null;
+    const price = o.priceUnit === ROUTE_PRICE_UNIT ? offerShownPrice(o) : null;
     return price === null ? [] : [{ o, price }];
   });
   if (priced.length === 0) return null;

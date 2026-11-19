@@ -1,6 +1,6 @@
 # Схема базы данных Ведара
 
-> Снято 2026-11-16 с настоящего PostgreSQL 18.7 (Debian 18.7-1.pgdg13+2): baseline прода (`lib/database/baseline/schema-baseline.sql`, снимок 2026-08-15) + миграции новее него, накатанные штатным раннером. Последняя миграция в снимке: `1458_booking_integrity_rules.sql`.
+> Снято 2026-11-19 с настоящего PostgreSQL 18.7 (Debian 18.7-1.pgdg13+2): baseline прода (`lib/database/baseline/schema-baseline.sql`, снимок 2026-08-15) + миграции новее него, накатанные штатным раннером. Последняя миграция в снимке: `1465_trip_plan_drafts_cabinet.sql`.
 > Файл порождён `scripts/gen-db-schema.ts` (`npm run db:schema-doc`); править руками бессмысленно — следующий прогон перепишет.
 > Что здесь НЕ учтено: дрейф прода после baseline, не отражённый миграциями. Судья дрейфа — `GET /api/cron/schema-drift` на проде (`lib/db/schema-drift.ts`). Значений данных в файле нет — только имена и типы.
 
@@ -8,7 +8,7 @@
 |---|---:|
 | Таблиц | 332 |
 | Представлений (VIEW) | 13 |
-| Колонок | 4306 |
+| Колонок | 4307 |
 | Внешних ключей | 393 |
 | Таблиц без единого FK в обе стороны | 91 |
 
@@ -445,9 +445,9 @@ SOS пишет `sos_events` (`app/api/safety/sos`, §7). Внешние сигн
 
 `id uuid!=` `category text!` `title text!` `description text` `lat numeric` `lng numeric` `source_url text` `source_name text` `metadata jsonb!=` `dedupe_key text` `created_at timestamptz!=` `updated_at timestamptz!=` `slug text` `ark_id uuid` `activity_type varchar` `zone varchar` `geometry jsonb` `difficulty varchar` `pdf_url text` `season varchar` `route_type varchar` `hazards text[]` `equipment text[]` `registration_required boolean=` `flora_fauna text` `distance_km numeric` `elevation_gain_m integer` `duration_hours numeric` `accessibility text` `mchs_registration_required boolean=` `mchs_phone varchar` `park_name varchar` `park_approval_url text` `search_count integer!=` `is_visible boolean!=` `view_count integer!=` `kuzmich_review text` `embedding jsonb` `official_passport_url text` `passport_agency varchar` `passport_verified_at timestamptz` `surface_types text[]` `elevation_loss_m integer` `elevation_min_m integer` `elevation_max_m integer` `duration_days integer` `route_version integer!=` `merged_into_id text` `merged_at timestamptz` `difficulty_source varchar` `route_kind text` `route_kind_reason text` `description_withdrawn text` `description_withdrawn_reason text` `description_withdrawn_at timestamptz`
 
-**location_real_time_status** · 14 кол. · PK id · agent_route_id → places.ark_id · индексов 3
+**location_real_time_status** · 15 кол. · PK id · agent_route_id → places.ark_id · индексов 3
 
-`id bigint!=` `agent_route_id uuid` `is_open boolean=` `current_crowds integer` `current_weather jsonb` `active_alerts text[]=` `alert_severity integer=` `alert_message varchar` `alert_source varchar` `alert_expires_at timestamp` `tourists_today integer` `tourists_hour integer` `recommender_status varchar=` `updated_at timestamp=`
+`id bigint!=` `agent_route_id uuid` `is_open boolean=` `current_crowds integer` `current_weather jsonb` `active_alerts text[]=` `alert_severity integer=` `alert_message varchar` `alert_source varchar` `alert_expires_at timestamp` `tourists_today integer` `tourists_hour integer` `recommender_status varchar=` `updated_at timestamp=` `status_reason text`
 
 **location_safety_profile** · 30 кол. · PK id · agent_route_id → places.ark_id · индексов 2
 
