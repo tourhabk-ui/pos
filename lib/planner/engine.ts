@@ -15,6 +15,7 @@ import {
   ZONE_NAMES, ACTIVITY_CONSTRAINTS, ACTIVITY_NAMES, nightZoneOf, activityDayNotes,
 } from '@/lib/planner/constants';
 import { ZONE_GRAPH, type ZoneEdge } from '@/lib/planner/zone-graph';
+import { weatherKitLine } from '@/lib/planner/weather-kit';
 import { zoneLegCost, legFits, legShortfallMessage, type ZoneLegCost } from '@/lib/planner/zone-leg';
 import {
   asTripOrigin, framingDays, activeBudget as framedActiveBudget,
@@ -229,6 +230,11 @@ export interface DayPlan {
     code: number;
     description: string;
   };
+  /**
+   * Что взять по прогнозу (#3394, п.6) — строка дня, только в пределах
+   * прогноза (lib/planner/weather-kit). Нет прогноза — нет строки.
+   */
+  weatherKit?: string;
   alternatives?: Array<{
     tourId: string;
     title: string;
@@ -2787,30 +2793,32 @@ export async function recommendTrip(profile: TripProfile, opts: RecommendTripOpt
   // брался от сегодня и раскладывался по номеру дня: при приезде через неделю
   // первый день плана получал сегодняшнюю погоду, и она же уходила в промпт.
   // Поездка за горизонтом прогноза или неполный день — погоды у дня нет.
+  // Прогноз — по зоне САМОГО дня, а не первой зоны поездки (#3394, п.6):
+  // день на Курильском озере не должен получать погоду Петропавловска.
   if (profile.arrivalDate && days.length > 0) {
-    const primaryZone = zones[0]?.zone ?? 'avachinsky';
     const window = tripForecastWindow(profile.arrivalDate, Math.max(...days.map((d) => d.day)));
     if (window) {
-      const forecast = await fetchForecastDays(
-        ZONE_COORDS[primaryZone][0],
-        ZONE_COORDS[primaryZone][1],
-        window.horizon,
-      );
-      if (forecast.ok) {
-        for (const day of days) {
-          const date = window.dates[day.day - 1];
-          const fc = date ? forecast.days.find((f) => f.date === date) : undefined;
-          if (!fc || fc.tempMax === null || fc.tempMin === null || fc.precipMm === null
-            || fc.windKmh === null || fc.weatherCode === null || fc.description === null) continue;
-          day.weatherForecast = {
-            tempMax: fc.tempMax,
-            tempMin: fc.tempMin,
-            precipMm: fc.precipMm,
-            windKmh: fc.windKmh,
-            code: fc.weatherCode,
-            description: fc.description,
-          };
-        }
+      const byZone = new Map<ZoneId, Awaited<ReturnType<typeof fetchForecastDays>>>();
+      for (const zone of new Set(days.map((d) => d.zone))) {
+        byZone.set(zone, await fetchForecastDays(ZONE_COORDS[zone][0], ZONE_COORDS[zone][1], window.horizon));
+      }
+      for (const day of days) {
+        const forecast = byZone.get(day.zone);
+        if (!forecast?.ok) continue;
+        const date = window.dates[day.day - 1];
+        const fc = date ? forecast.days.find((f) => f.date === date) : undefined;
+        if (!fc || fc.tempMax === null || fc.tempMin === null || fc.precipMm === null
+          || fc.windKmh === null || fc.weatherCode === null || fc.description === null) continue;
+        day.weatherForecast = {
+          tempMax: fc.tempMax,
+          tempMin: fc.tempMin,
+          precipMm: fc.precipMm,
+          windKmh: fc.windKmh,
+          code: fc.weatherCode,
+          description: fc.description,
+        };
+        const kit = weatherKitLine(day.weatherForecast, day.type === 'activity' ? day.activityType : null);
+        if (kit) day.weatherKit = kit;
       }
     }
   }

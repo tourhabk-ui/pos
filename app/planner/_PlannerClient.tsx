@@ -24,7 +24,7 @@ import {
   CheckCircle, Download, MessageCircle, Eye,
   Share2, Copy, Compass,
   ArrowLeft, Minus, CalendarDays, Accessibility, HeartPulse,
-  BedDouble, Bus, Car,
+  BedDouble, Bus, Car, CloudSun,
 } from 'lucide-react';
 import { planItemStatus, PLAN_ITEM_STATUS } from '@/lib/planner/item-status';
 import { PlanItemBadge } from '@/components/planner/PlanItemBadge';
@@ -658,6 +658,13 @@ function DayCard({
                 <span>{w}</span>
               </div>
             ))}
+          </div>
+        )}
+        {/* Что взять по прогнозу — только в пределах прогноза (#3394, п.6). */}
+        {day.weatherKit && (
+          <div className="mx-3 mb-2 flex items-start gap-1.5 px-2 py-1 rounded bg-[var(--bg-hover)] text-[10px] text-[var(--text-secondary)]">
+            <CloudSun className="w-3 h-3 shrink-0 mt-0.5" aria-hidden="true" />
+            <span>{day.weatherKit}</span>
           </div>
         )}
         {/* Expandable detail panel */}
@@ -2074,6 +2081,7 @@ export function PlannerClient({ initialUserId }: { initialUserId?: string | null
         description: d.description ?? '',
         meta: `${zoneName(shownZone(d))}${d.type === 'activity' ? ` | ${d.detailsUnknown ? 'сложность не записана' : DIFFICULTY_LABEL[d.difficulty] ?? d.difficulty}` : ''}`,
         warnings: d.dayWarnings ?? [],
+        weatherKit: d.weatherKit ?? null,
       })),
       estimate: estimate ?? null,
       warnings: recommendation?.warnings ?? [],

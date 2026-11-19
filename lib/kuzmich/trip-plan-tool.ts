@@ -992,6 +992,8 @@ export function formatTripPlanForChat(
     const otherWarn = dayWarn.filter((w) => !isOfferingNote(w));
     for (const w of [...mchsWarn, ...otherWarn.slice(0, DAY_WARNINGS_SHOWN)]) lines.push(`   ! ${w}`);
     if (otherWarn.length > DAY_WARNINGS_SHOWN) lines.push(`   …и ещё ${otherWarn.length - DAY_WARNINGS_SHOWN} — в планировщике`);
+    // Что взять по прогнозу — только в пределах прогноза (#3394, п.6).
+    if (d.weatherKit) lines.push(`   ${d.weatherKit}`);
     // Метка пункта — последней строкой дня: над ней цена, места и
     // предупреждения, из которых она выведена.
     const status = statusOf(d);

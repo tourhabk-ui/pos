@@ -28,6 +28,8 @@ export interface PrintPlanDay {
   /** Зона и сложность одной строкой. */
   meta: string;
   warnings: readonly string[];
+  /** Что взять по прогнозу (#3394, п.6); нет прогноза — нет строки. */
+  weatherKit?: string | null;
 }
 
 export interface PrintPlanEstimate {
@@ -94,6 +96,7 @@ export function buildPlanPrintHtml(input: PrintPlanInput): string {
   ${d.description ? `<div class="day-desc">${e(d.description)}</div>` : ''}
   <div class="day-meta">${e(d.meta)}</div>
   ${d.warnings.map((w) => `<div class="day-warn">${e(w)}</div>`).join('')}
+  ${d.weatherKit ? `<div class="day-meta">${e(d.weatherKit)}</div>` : ''}
 </div>`).join('\n');
 
   const est = input.estimate;

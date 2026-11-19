@@ -92,7 +92,7 @@ export async function refreshDatedSafety(
   const warnings: string[] = [];
   const moved = new Set(movedDays);
   const movedPlan = days.filter((d) => moved.has(d.day));
-  for (const d of movedPlan) delete d.weatherForecast;
+  for (const d of movedPlan) { delete d.weatherForecast; delete d.weatherKit; }
 
   if (movedPlan.length > 0) {
     // Пробный проход на копиях: при отказе чтения прежние строки остаются.
