@@ -48,32 +48,67 @@ export const TAKE_GRADE_SLOT_SQL = `INSERT INTO ai_actions_log (action_type, met
 SELECT 'kuzmich_grade', $1::jsonb
  WHERE (SELECT COUNT(*) FROM ai_actions_log
          WHERE action_type = 'kuzmich_grade'
-           AND created_at >= (date_trunc('day', NOW() AT TIME ZONE 'Asia/Kamchatka') AT TIME ZONE 'Asia/Kamchatka')) < $2::int`;
+           AND created_at >= (date_trunc('day', NOW() AT TIME ZONE 'Asia/Kamchatka') AT TIME ZONE 'Asia/Kamchatka')) < $2::int
+RETURNING id`;
 
 /** Замок счёта: одна транзакция за раз решает, есть ли ещё место. */
 export const GRADE_SLOT_LOCK_SQL = `SELECT pg_advisory_xact_lock(hashtext('kuzmich_grade'))`;
 
 /**
+ * Чем кончилась попытка оценки — пишется в ту же строку журнала, что заняла
+ * место (#3179, слово владельца 19.11 «1 да»). Свод оценок видит только
+ * СОХРАНЁННЫЕ записи, а сохраняется не всё; без исхода попытки неделя без
+ * записей не отличала «оценивать было нечего» от «судья отвечал мусором».
+ *  - `saved` — оценка записана;
+ *  - `good_not_saved` — хороший заземлённый ответ не попал в выборку (каждый десятый);
+ *  - `judge_empty` — судья не вернул текста;
+ *  - `judge_no_json` — в ответе судьи нет JSON;
+ *  - `judge_no_score` — в JSON нет числового балла;
+ *  - `failed` — вызов, разбор или запись оценки упали (причина — в логе).
+ * Строки до 19.11 исхода не несут: перепись называет их «не записан».
+ */
+export const GRADE_RESULTS = ['saved', 'good_not_saved', 'judge_empty', 'judge_no_json', 'judge_no_score', 'failed'] as const;
+export type GradeResult = typeof GRADE_RESULTS[number];
+
+export const MARK_GRADE_RESULT_SQL = `UPDATE ai_actions_log
+   SET metadata = COALESCE(metadata, '{}'::jsonb) || jsonb_build_object('result', $2::text)
+ WHERE id = $1::bigint AND action_type = 'kuzmich_grade'`;
+
+/** Записать исход попытки. Отказ записи оценку не отменяет, но называется. */
+async function markGradeResult(slotId: string, result: GradeResult): Promise<void> {
+  try {
+    await pool.query(MARK_GRADE_RESULT_SQL, [slotId, result]);
+  } catch (err) {
+    logSwallowedFailure('kuzmich-outcomes', `исход попытки оценки (${result})`, err);
+  }
+}
+
+/**
  * Три исхода, а не два (§4.0): «потолок не достигнут», «исчерпан» и «не смог
  * посчитать». Оценка идёт только при первом; два других — пропуск с логом.
  */
-async function takeGradeSlot(surface: GradeSurface | null): Promise<'granted' | 'exhausted' | 'unknown'> {
+type GradeSlot = { state: 'granted'; id: string | null } | { state: 'exhausted' } | { state: 'unknown' };
+
+async function takeGradeSlot(surface: GradeSurface | null): Promise<GradeSlot> {
   let client: PoolClient | null = null;
   try {
     client = await pool.connect();
     await client.query('BEGIN');
     await client.query(GRADE_SLOT_LOCK_SQL);
-    const res = await client.query(TAKE_GRADE_SLOT_SQL, [JSON.stringify({ surface }), GRADER_DAILY_CAP]);
+    const res = await client.query<{ id: string | number }>(TAKE_GRADE_SLOT_SQL, [JSON.stringify({ surface }), GRADER_DAILY_CAP]);
     await client.query('COMMIT');
-    if (res.rowCount === 1) return 'granted';
+    if (res.rowCount === 1) {
+      const id = res.rows[0]?.id;
+      return { state: 'granted', id: id === undefined || id === null ? null : String(id) };
+    }
     console.warn(`[kuzmich-outcomes] потолок оценок: ${GRADER_DAILY_CAP} за сутки по Камчатке исчерпан — оценка пропущена`);
-    return 'exhausted';
+    return { state: 'exhausted' };
   } catch (err) {
     await client?.query('ROLLBACK').catch((rbErr: unknown) => {
       logSwallowedFailure('kuzmich-outcomes', 'потолок оценок: откат', rbErr);
     });
     logSwallowedFailure('kuzmich-outcomes', 'потолок оценок: подсчёт за сутки', err);
-    return 'unknown';
+    return { state: 'unknown' };
   } finally {
     client?.release();
   }
@@ -325,27 +360,38 @@ export async function gradeKuzmichResponse(
   // Потолок — последним перед вызовом модели: отказы, обрывы и короткие
   // ответы модели не зовут и места не занимают. Исчерпан или не посчитан —
   // пропуск, причина уже в логе (takeGradeSlot).
-  if (await takeGradeSlot(opts?.surface ?? null) !== 'granted') return;
+  const slot = await takeGradeSlot(opts?.surface ?? null);
+  if (slot.state !== 'granted') return;
+  const mark = (result: GradeResult) => (slot.id ? markGradeResult(slot.id, result) : Promise.resolve());
+
+  // Судья ответил не тем, что просили: вызов оплачен, оценки нет. Молча
+  // выходить нельзя (#3179): неделя без оценок была неотличима от недели без
+  // вопросов. Лог — без текста вопроса и ответа.
+  const judgeSaidNothing = async (result: GradeResult, why: string) => {
+    console.warn(`[kuzmich-outcomes] оценка не получена: ${why}`, { surface: opts?.surface ?? null });
+    await mark(result);
+  };
 
   try {
     const { result: raw } = await runWithUsageTracking(GRADER_AGENT_ID, () => callAIFast([{
       role: 'user',
       content: buildJudgePrompt(question, answerText, opts?.toolRuns),
     }]));
-    if (!raw) return;
+    if (!raw) { await judgeSaidNothing('judge_empty', 'судья не вернул текста'); return; }
 
     // Извлекаем JSON из ответа
     const jsonMatch = raw.match(/\{[\s\S]*\}/);
-    if (!jsonMatch) return;
+    if (!jsonMatch) { await judgeSaidNothing('judge_no_json', 'в ответе судьи нет JSON'); return; }
     const result = JSON.parse(jsonMatch[0]) as OutcomeResult;
 
-    if (typeof result.score !== 'number') return;
+    if (typeof result.score !== 'number') { await judgeSaidNothing('judge_no_score', 'в ответе судьи нет числового балла'); return; }
+    if (!Array.isArray(result.issues)) result.issues = [];
 
     // Сохраняем проблемные (score < 7), незаземлённые и случайные выборки (каждый 10-й)
     // Непроверенность сохраняется тоже: её нельзя ни зачесть в нарушения, ни
     // спрятать — иначе «не смотрели» опять сольётся с «нарушений нет».
     const shouldSave = result.score < 7 || grounding.verdict !== 'grounded' || Math.random() < 0.1;
-    if (!shouldSave) return;
+    if (!shouldSave) { await mark('good_not_saved'); return; }
 
     if (grounding.verdict === 'ungrounded') {
       result.issues.push(`НЕЗАЗЕМЛЁННЫЕ ФАКТЫ (${grounding.signals.join(', ')}): ${grounding.reason}`);
@@ -387,11 +433,13 @@ export async function gradeKuzmichResponse(
         JSON.stringify(provenance),
       ],
     );
+    await mark('saved');
   } catch (err) {
     // Fire-and-forget — ошибка оценки не должна влиять на пользователя.
     // Но молчать нельзя (§4.0): без строки в логе сломанный грейдер
     // неотличим от грейдера, которому нечего сказать.
     logSwallowedFailure('kuzmich-outcomes', 'оценка ответа', err);
+    await mark('failed');
   }
 }
 

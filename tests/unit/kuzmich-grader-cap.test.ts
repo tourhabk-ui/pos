@@ -17,6 +17,9 @@
  *  3. Потолок: 300 оценок проходят, 301-я модель не зовёт и пишет в лог.
  *  4. Счёт не удался — оценка пропущена с логом, модель не зовётся.
  *  5. Отказ модели и короткий обрыв места под оценку не занимают.
+ *  6. Исход попытки (#3179, слово владельца 19.11 «1 да») пишется в ту же
+ *     строку журнала: сохранено, хороший не в выборке, судья ответил не тем
+ *     (с логом), упало. Сбой записи исхода оценку не отменяет.
  */
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
 
@@ -30,6 +33,10 @@ const { db, fast } = vi.hoisted(() => ({
     knowledge: [] as unknown[][],
     /** Порядок команд в транзакции места под оценку. */
     tx: [] as string[],
+    /** Параметры записи исхода попытки (UPDATE ai_actions_log). */
+    marks: [] as unknown[][],
+    /** Запись исхода падает. */
+    failMark: false,
   },
   fast: vi.fn(),
 }));
@@ -38,6 +45,10 @@ vi.mock('@/lib/db-pool', () => ({
   pool: {
     query: vi.fn(async (sql: string, params?: unknown[]) => {
       if (/INSERT INTO agent_knowledge/.test(sql)) db.knowledge.push(params ?? []);
+      if (/UPDATE ai_actions_log/.test(sql)) {
+        if (db.failMark) throw Object.assign(new Error('canceling statement due to statement timeout'), { code: '57014' });
+        db.marks.push(params ?? []);
+      }
       return { rows: [], rowCount: 1 };
     }),
     connect: vi.fn(async () => ({
@@ -48,7 +59,7 @@ vi.mock('@/lib/db-pool', () => ({
           // То же правило, что у SQL: вставка — только пока за сутки меньше потолка.
           if (db.gradesToday < Number(params?.[1])) {
             db.gradesToday += 1;
-            return { rows: [], rowCount: 1 };
+            return { rows: [{ id: String(100 + db.gradesToday) }], rowCount: 1 };
           }
           return { rows: [], rowCount: 0 };
         }
@@ -60,7 +71,7 @@ vi.mock('@/lib/db-pool', () => ({
 }));
 vi.mock('@/lib/ai/providers', () => ({ callAIFast: (...a: unknown[]) => fast(...a) }));
 
-import { gradeKuzmichResponse, conversationTag, GRADER_DAILY_CAP } from '@/lib/agents/managed/kuzmich-outcomes';
+import { gradeKuzmichResponse, conversationTag, GRADER_DAILY_CAP, TAKE_GRADE_SLOT_SQL, MARK_GRADE_RESULT_SQL } from '@/lib/agents/managed/kuzmich-outcomes';
 
 const PHONE = '+7 914 123-45-67';
 const EMAIL = 'ivan.petrov@mail.ru';
@@ -83,6 +94,8 @@ beforeEach(() => {
   db.failCount = false;
   db.knowledge = [];
   db.tx = [];
+  db.marks = [];
+  db.failMark = false;
   fast.mockReset();
   fast.mockResolvedValue('{"score": 4, "issues": ["нет статуса вулкана"]}');
   warn = vi.spyOn(console, 'warn').mockImplementation(() => {});
@@ -171,5 +184,73 @@ describe('грейдер: потолок оценок в сутки', () => {
     await gradeKuzmichResponse('Привет!', ANSWER, CHAT_ID, { surface: 'web' });
     expect(db.gradesToday).toBe(0);
     expect(fast).not.toHaveBeenCalled();
+  });
+});
+
+describe('грейдер: исход попытки — в строку журнала места (#3179)', () => {
+  const named = (spy: ReturnType<typeof vi.spyOn>, text: string) =>
+    spy.mock.calls.filter(([m]) => String(m).includes(text));
+
+  it('место отдаёт номер строки, исход пишется в неё же', () => {
+    expect(TAKE_GRADE_SLOT_SQL).toMatch(/RETURNING id\s*$/);
+    expect(MARK_GRADE_RESULT_SQL).toMatch(/WHERE id = \$1::bigint AND action_type = 'kuzmich_grade'/);
+  });
+
+  it('низкая оценка записана — исход «saved» той строке, что заняла место', async () => {
+    await gradeKuzmichResponse(QUESTION, ANSWER, CHAT_ID, { surface: 'web' });
+    expect(db.knowledge).toHaveLength(1);
+    expect(db.marks).toEqual([['101', 'saved']]);
+  });
+
+  it('хороший заземлённый ответ вне выборки — «good_not_saved», без записи оценки', async () => {
+    fast.mockResolvedValue('{"score": 9, "issues": []}');
+    vi.spyOn(Math, 'random').mockReturnValue(0.5);
+    // Без цен, телефонов и мест — заземлять нечего, ответ «grounded».
+    const plain = 'До Авачинского вулкана — от Петропавловска по грунтовке на Авачинский перевал, дальше пешком.';
+    await gradeKuzmichResponse(QUESTION, plain, CHAT_ID, { surface: 'web', toolRuns: [] });
+    expect(db.knowledge).toHaveLength(0);
+    expect(db.marks).toEqual([['101', 'good_not_saved']]);
+  });
+
+  it.each([
+    ['', 'judge_empty', 'судья не вернул текста'],
+    ['Оценка: хорошо', 'judge_no_json', 'в ответе судьи нет JSON'],
+    ['{"verdict": "ok"}', 'judge_no_score', 'в ответе судьи нет числового балла'],
+  ])('судья ответил «%s» — исход %s и строка в логе, без текста вопроса', async (reply, result, why) => {
+    fast.mockResolvedValue(reply);
+    await gradeKuzmichResponse(QUESTION, ANSWER, CHAT_ID, { surface: 'max' });
+    expect(db.knowledge).toHaveLength(0);
+    expect(db.marks).toEqual([['101', result]]);
+    const lines = named(warn, `оценка не получена: ${why}`);
+    expect(lines, 'тихий выход не назван в логе').toHaveLength(1);
+    expect(JSON.stringify(lines[0])).not.toContain('Авачинск');
+  });
+
+  it('балл есть, списка замечаний нет — оценка записана, а не потеряна', async () => {
+    fast.mockResolvedValue('{"score": 3}');
+    await gradeKuzmichResponse(QUESTION, ANSWER, CHAT_ID, { surface: 'web' });
+    expect(db.knowledge).toHaveLength(1);
+    expect(db.marks).toEqual([['101', 'saved']]);
+  });
+
+  it('вызов судьи упал — «failed» и строка в логе', async () => {
+    fast.mockRejectedValue(new Error('upstream 502'));
+    await gradeKuzmichResponse(QUESTION, ANSWER, CHAT_ID, { surface: 'web' });
+    expect(db.marks).toEqual([['101', 'failed']]);
+    expect(named(err, '[kuzmich-outcomes] оценка ответа не выполнен')).toHaveLength(1);
+  });
+
+  it('запись исхода упала — оценка остаётся, отказ назван', async () => {
+    db.failMark = true;
+    await gradeKuzmichResponse(QUESTION, ANSWER, CHAT_ID, { surface: 'web' });
+    expect(db.knowledge).toHaveLength(1);
+    expect(named(err, '[kuzmich-outcomes] исход попытки оценки (saved) не выполнен')).toHaveLength(1);
+  });
+
+  it('место не дано (потолок) — исход не пишется: попытки не было', async () => {
+    db.gradesToday = GRADER_DAILY_CAP;
+    await gradeKuzmichResponse(QUESTION, ANSWER, CHAT_ID, { surface: 'web' });
+    expect(fast).not.toHaveBeenCalled();
+    expect(db.marks).toEqual([]);
   });
 });

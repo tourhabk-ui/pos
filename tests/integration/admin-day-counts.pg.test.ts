@@ -17,7 +17,10 @@
  *    род вызова, исход, пропуск суток, хвост тем числом;
  *  - журнал ошибок прода: обрыв соединения узнаётся одинаково в SQL и в
  *    коде, в перепись ошибок, объектив эволюции и счёт сорванных броней не
- *    идёт (слово владельца 19.11 «1»).
+ *    идёт (слово владельца 19.11 «1»);
+ *  - попытки оценки Кузьмича: место под оценку отдаёт номер строки, исход
+ *    пишется в неё же, перепись считает попытки по камчатским дням с исходами,
+ *    строки до 19.11 — «не записан» (#3179, слово владельца 19.11 «1 да»).
  *
  * Своя база `admin_day_counts_test`. Запуск ТРЕБУЕТ базы:
  * KERNEL_PG_TEST_URL=postgresql://user:pass@host/db. Без неё файл честно
@@ -569,6 +572,71 @@ withPg('числа суток в админке', () => {
       }))).json() as { failed_500_total: number | null; failed_with_500: Array<{ route: string; n: number }> | null };
       expect(body.failed_500_total).toBe(1);
       expect(body.failed_with_500).toEqual([expect.objectContaining({ route: '/api/hub/bookings/create', n: 1 })]);
+    }, 30_000);
+  });
+
+  // #3179, слово владельца 19.11 «1 да»: сколько раз звали оценщика и чем это
+  // кончилось. SQL берётся из исходника и исполняется здесь же.
+  describe('попытки оценки Кузьмича', () => {
+    const saved = process.env.CRON_SECRET;
+    beforeAll(() => { process.env.CRON_SECRET = 'cron-pg-test'; });
+    afterAll(() => {
+      if (saved === undefined) delete process.env.CRON_SECRET; else process.env.CRON_SECRET = saved;
+    });
+
+    it('место отдаёт номер строки, исход ложится в неё, перепись считает по дням', async () => {
+      const { TAKE_GRADE_SLOT_SQL, GRADE_SLOT_LOCK_SQL, MARK_GRADE_RESULT_SQL } = await import('@/lib/agents/managed/kuzmich-outcomes');
+      await pool.query(`DELETE FROM ai_actions_log WHERE action_type = 'kuzmich_grade'`);
+      // Строка до 19.11: места занимались и раньше, исхода у них нет.
+      await pool.query(`INSERT INTO ai_actions_log (action_type, metadata, created_at)
+                        VALUES ('kuzmich_grade', '{"surface":"web"}'::jsonb, NOW() - INTERVAL '3 days')`);
+      const take = async (cap: number) => {
+        const c = await pool.connect();
+        try {
+          await c.query('BEGIN');
+          await c.query(GRADE_SLOT_LOCK_SQL);
+          const r = await c.query<{ id: string }>(TAKE_GRADE_SLOT_SQL, [JSON.stringify({ surface: 'max' }), cap]);
+          await c.query('COMMIT');
+          return r;
+        } finally { c.release(); }
+      };
+      const a = await take(2);
+      const b = await take(2);
+      const over = await take(2);
+      expect([a.rowCount, b.rowCount, over.rowCount]).toEqual([1, 1, 0]);
+      expect(over.rows).toEqual([]);
+      const idA = a.rows[0]!.id;
+      const idB = b.rows[0]!.id;
+      expect(idA).not.toBe(idB);
+
+      await pool.query(MARK_GRADE_RESULT_SQL, [idA, 'saved']);
+      await pool.query(MARK_GRADE_RESULT_SQL, [idB, 'judge_no_json']);
+      // Чужая строка журнала с тем же номером рода не меняется.
+      const other = await pool.query<{ id: string }>(`INSERT INTO ai_actions_log (action_type, metadata) VALUES ('server_error', '{}'::jsonb) RETURNING id`);
+      const miss = await pool.query(MARK_GRADE_RESULT_SQL, [other.rows[0]!.id, 'saved']);
+      expect(miss.rowCount).toBe(0);
+      const { rows: marked } = await pool.query<{ id: string; metadata: Record<string, unknown> }>(
+        `SELECT id::text, metadata FROM ai_actions_log WHERE id = ANY($1::bigint[]) ORDER BY id`, [[idA, idB]]);
+      expect(marked.map((r) => r.metadata)).toEqual([
+        { surface: 'max', result: 'saved' },
+        { surface: 'max', result: 'judge_no_json' },
+      ]);
+
+      const { GET } = await import('@/app/api/cron/kuzmich-quality-census/route');
+      const { NextRequest } = await import('next/server');
+      const body = await (await GET(new NextRequest('http://localhost/api/cron/kuzmich-quality-census?days=7', {
+        headers: { Authorization: 'Bearer cron-pg-test' },
+      }))).json() as { ok: boolean; attempts_total: number; attempts_by_day: Array<Record<string, number | string>> };
+      expect(body.ok).toBe(true);
+      expect(body.attempts_total).toBe(3);
+      expect(body.attempts_by_day).toHaveLength(2);
+      const [today, older] = body.attempts_by_day;
+      expect(today).toMatchObject({ attempts: 2, saved: 1, judge_no_answer: 1, good_not_saved: 0, failed: 0, not_recorded: 0 });
+      expect(older).toMatchObject({ attempts: 1, saved: 0, not_recorded: 1 });
+      expect(String(today.day) > String(older.day)).toBe(true);
+      const { rows: [kam] } = await pool.query<{ d: string }>(
+        `SELECT to_char((NOW() AT TIME ZONE 'Asia/Kamchatka')::date, 'YYYY-MM-DD') AS d`);
+      expect(today.day).toBe(kam.d);
     }, 30_000);
   });
 });
