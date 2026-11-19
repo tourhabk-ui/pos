@@ -3,6 +3,7 @@
 import { kuzmichAskHref } from '@/lib/kuzmich/ask-link';
 import { tourAskQuestion } from '@/lib/kuzmich/tour-ask';
 import AskYourAi from '@/components/kuzmich/AskYourAi';
+import { CANONICAL_BASE_URL } from '@/lib/config';
 import { sellerRequisitesLine } from '@/lib/tours/seller-requisites';
 import { seasonLabel as formatSeasonLabel } from '@/lib/tours/season';
 import { wishlistFailureText } from '@/lib/wishlist/contract';
@@ -1228,7 +1229,13 @@ export default function TourDetailClient({ tour, reviews = [], askSeatsFirst = f
                 primaryLabel="Спросить Кузьмича"
                 compact
               />
-              <AskYourAi className="mt-4" question={`Стоит ли ехать на тур «${tour.title}» на Камчатке?`} />
+              {/* Внешние ИИ — второй уровень, вопрос о самой странице (#3468): «стоит ли ехать»
+                  ChatGPT понял как «сравни с рынком» и ушёл к другим компаниям. */}
+              <AskYourAi
+                className="mt-4"
+                question={`Что входит в тур «${tour.title}», как проходят дни программы и что взять с собой?`}
+                pageUrl={`${CANONICAL_BASE_URL}/catalog/tours/${encodeURIComponent((tour as { slug?: string | null }).slug || tour.id)}`}
+              />
             </div>
           </div>
 
