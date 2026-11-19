@@ -2061,17 +2061,19 @@ withPg('кого накрывает предупреждение', () => {
           await pool.query(`UPDATE external_alerts SET description = $2 WHERE id::text = $1`, [id, `${title} ${CITE}`]);
           return id;
         };
-        await bare('b2', ['a2-b-cover1', 'a2-b-cover2'], 'Природный парк «Покровный» и «Укрытый» — маршруты закрыты');
-        await bare('b3', ['a2-b-alone'], 'Природный парк «Одинокий» — маршруты закрыты');
+        // Имена в тексте — настоящие парки сети: правило текста их и ждёт.
+        // Привязка к местам сцены — по affected_parks, а не по тексту.
+        await bare('b2', ['a2-b-cover1', 'a2-b-cover2'], 'Природный парк «Налычево» и «Быстринский» — маршруты закрыты');
+        await bare('b3', ['a2-b-alone'], 'Природный парк «Ключевской» — маршруты закрыты');
         // Один из двух парков межсезонным закрытием не покрыт.
-        await bare('b4', ['a2-b-cover3', 'a2-b-half'], 'Природный парк «Третий» и «Половинный» — маршруты закрыты');
+        await bare('b4', ['a2-b-cover3', 'a2-b-half'], 'Природный парк «Южно-Камчатский» и «Вилючинский» — маршруты закрыты');
         // «Временно» — признак внезапного закрытия: покрытие не помогает.
-        await bare('b5', ['a2-b-sudden'], 'Природный парк «Внезапный» — маршруты временно закрыты');
+        await bare('b5', ['a2-b-sudden'], 'Природный парк «Налычево» — маршруты временно закрыты');
 
         await recomputeStatus();
         const c1 = await statusOf(P['a2-b-cover1'].ark);
         expect(c1).toMatchObject({ status: 'yellow', reason: 'park_season', sev: 2 });
-        expect(c1.alerts).toContain('Природный парк «Покровный» и «Укрытый» — маршруты закрыты');
+        expect(c1.alerts).toContain('Природный парк «Налычево» и «Быстринский» — маршруты закрыты');
         expect(await statusOf(P['a2-b-cover2'].ark)).toMatchObject({ status: 'yellow', reason: 'park_season' });
         expect(await statusOf(P['a2-b-alone'].ark)).toMatchObject({ status: 'red', reason: null });
         expect(await statusOf(P['a2-b-half'].ark)).toMatchObject({ status: 'red', reason: null });

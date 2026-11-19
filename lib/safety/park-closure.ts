@@ -392,12 +392,13 @@ const SEASONAL_PARTS = [
   'до\\s+установлени[а-яё]*\\s+(?:[а-яё]+\\s+)?снежн[а-яё]*\\s+покров',
 ];
 const SEASONAL_RE = new RegExp(SEASONAL_PARTS.join('|'));
-/** Обороты без даты конца, которые сезона не называют: так закрывают и при извержении. */
-const NO_END_NOT_SEASON_PARTS = [
-  'до\\s+особого\\s+распоряжени',
-  'до\\s+(?:дальнейш|отдельн)[а-яё]*\\s+(?:уведомлени|распоряжени|решени)',
-];
-const INDEFINITE_RE = new RegExp([...SEASONAL_PARTS, ...NO_END_NOT_SEASON_PARTS].join('|'));
+const INDEFINITE_RE = new RegExp(
+  [
+    ...SEASONAL_PARTS,
+    'до\\s+особого\\s+распоряжени',
+    'до\\s+(?:дальнейш|отдельн)[а-яё]*\\s+(?:уведомлени|распоряжени|решени)',
+  ].join('|'),
+);
 
 /** Закрытие без даты конца: оборот стоит в предложении с глаголом закрытия и парком. */
 export function isIndefiniteClosure(text: string): boolean {
@@ -472,15 +473,27 @@ export function isSeasonalClosure(text: string): boolean {
     .some((s) => /парк|заповедник/.test(s) && CLOSURE_RE.test(s) && SEASONAL_RE.test(s));
 }
 
-/** Любая названная причина закрытия — та же граница, что у `causesAreSeason`. */
-const ANY_CAUSE_RE = new RegExp(CAUSE_MARKER_RE.source);
 /**
- * Признаки внезапного закрытия: «временно», «внепланово», «экстренно»,
- * «срочно», и срок без конца, не названный сезоном.
+ * Имена природных парков в кавычках, которые может назвать строка сводки. Только
+ * парки сети (NATURAL_PARK_SLUGS): межсезонное закрытие дирекции говорит о них.
+ * Вне кавычек имя не нужно: «природный парк Налычево» без кавычек — отказ.
  */
-const SUDDEN_CLOSURE_RE = new RegExp([
-  'временн', 'внепланов', 'экстренн', 'срочн', 'немедленн', ...NO_END_NOT_SEASON_PARTS,
-].join('|'));
+const BARE_PARK_NAME_RE = /^(?:налычево|южно-?\s?камчатский|быстринский|ключевской|вилючинский)$/;
+const BARE_QUOTED_RE = /«([^«»]{1,40})»|„([^„“”]{1,40})[“”]|"([^"]{1,40})"/g;
+/** Слова, из которых может состоять голое закрытие, кроме имён парков в кавычках. */
+const BARE_WORDS = new Set([
+  'природный', 'природного', 'природные', 'природных',
+  'парк', 'парка', 'парки', 'парков',
+  'и', 'туристические', 'туристических', 'маршрут', 'маршруты', 'маршрутов',
+  'посещение', 'закрыт', 'закрыта', 'закрыто', 'закрыты', 'приостановлено',
+]);
+/**
+ * Хвост, который пишет citeBulletin (lib/safety/mchs-bulletin.ts) к строке
+ * сводки: «Период сводки: 09:00 12.11–09:00 19.11. Источник: https://…».
+ * Снимается только в этой точной форме: другой текст остаётся и судится.
+ */
+const BARE_PERIOD_RE = /период сводки: \d{2}:\d{2} \d{2}\.\d{2}[–-]\d{2}:\d{2} \d{2}\.\d{2}\./g;
+const BARE_SOURCE_RE = /источник: https?:\/\/[^\s]+/g;
 
 /**
  * Закрытие парка, которое не сказало ничего, кроме самого закрытия (слово
@@ -494,19 +507,32 @@ const SUDDEN_CLOSURE_RE = new RegExp([
  *
  * Сама по себе такая строка ничего не решает: межсезонной её делает только
  * живое межсезонное закрытие КАЖДОГО названного в ней парка
- * (`seasonalParkClosureIds`, lib/services/safety/park-season.ts). Здесь —
- * только правило текста. Голым закрытие не считается, если в тексте есть
- * слово опасности, любая названная причина (даже сезон: такой текст судит
- * `isSeasonalClosure`), признак внезапности («временно», «внепланово»,
- * «экстренно», «срочно») или срок без конца, не названный сезоном («до
- * особого распоряжения»).
+ * (`seasonalClosureIdsOf`, lib/services/safety/park-season.ts). Здесь —
+ * только правило текста, и оно перечисляет, что МОЖНО, а не что нельзя
+ * (ревью безопасности #3522: «после подземных толчков», «возгорание»,
+ * «причиной стал сход грязевого потока» проходили мимо списков опасностей и
+ * причин). Голое закрытие — это имена природных парков в кавычках, слова из
+ * `BARE_WORDS`, знаки препинания и хвост сводки (`citeBulletin`). Любое
+ * другое слово, число или имя в кавычках — не голое закрытие.
  */
 export function isBareParkClosure(text: string): boolean {
-  const lower = text.toLowerCase().replace(/[‐-―−]/g, '-');
-  if (CLOSURE_HAZARD_RE.test(lower)) return false;
-  if (ANY_CAUSE_RE.test(lower)) return false;
-  if (SUDDEN_CLOSURE_RE.test(lower)) return false;
-  return sentencesOf(lower).some((s) => /парк|заповедник/.test(s) && CLOSURE_RE.test(s));
+  const lower = text.toLowerCase().replace(/[‐-―−]/g, '-').replace(/ё/g, 'е');
+  // Списка опасностей здесь нет намеренно: ни одно слово опасности не входит
+  // в BARE_WORDS, и любое из них даёт отказ ниже.
+  if (!sentencesOf(lower).some((s) => /парк/.test(s) && CLOSURE_RE.test(s))) return false;
+  let unknownName = false;
+  const rest = lower
+    .replace(BARE_PERIOD_RE, ' ')
+    .replace(BARE_SOURCE_RE, ' ')
+    .replace(BARE_QUOTED_RE, (_m, a?: string, b?: string, c?: string) => {
+      if (!BARE_PARK_NAME_RE.test((a ?? b ?? c ?? '').trim())) unknownName = true;
+      return ' ';
+    });
+  if (unknownName) return false;
+  // Остаток — только слова из списка и знаки препинания; цифры и латиница — отказ.
+  if (/[^а-яе\s,.;:—–\-]/.test(rest)) return false;
+  const words = rest.split(/[^а-яе]+/).filter(Boolean);
+  return words.length > 0 && words.every((w) => BARE_WORDS.has(w));
 }
 
 /** Полдень UTC названного дня = конец этого дня по Камчатке (UTC+12). */
