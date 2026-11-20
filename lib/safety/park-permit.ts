@@ -195,6 +195,15 @@ const VOLCANOES_DECREE = {
   url: 'https://www.interfax.ru/russia/1121613',
 } as const;
 
+/**
+ * Само постановление (Сыщик 21.11, сверено на government.ru): номер и
+ * официальная публикация — для /prepare и ответов, где нужен первоисточник.
+ */
+export const VOLCANOES_DECREE_DOC = {
+  title: 'постановление Правительства России от 9 октября 2026 г. № 1323 «О создании национального парка „Вулканы Камчатки“»',
+  url: 'http://government.ru/docs/all/166655/',
+} as const;
+
 export const FEDERALIZED_PARKS: readonly FederalizedPark[] = [
   { match: 'ключевск', name: '«Ключевской»', ...VOLCANOES_DECREE },
   { match: 'южно-камчат', name: '«Южно-Камчатский»', ...VOLCANOES_DECREE },

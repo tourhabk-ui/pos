@@ -145,7 +145,8 @@ describe('источники данных отдают slug и is_public ряд�
 
   it('кэш страницы плана сменил ключ вместе с формой строки тура', () => {
     // v4 (07.11, H16): в кэше — туры движка, подбор по виду и строка недобора.
-    expect(read('app/plans/[slug]/page.tsx')).toMatch(/\['plan-preset-v6'\]/);
+    // v7 (21.11): в строке тура — сезон (season_start/season_end) для оговорки о сезоне.
+    expect(read('app/plans/[slug]/page.tsx')).toMatch(/\['plan-preset-v7'\]/);
   });
 
   // Адрес оператора в JSON-LD рыбалки только у открытой карточки — проверяется

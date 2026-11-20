@@ -91,3 +91,22 @@ export function presetDayTour<T>(
   const kind = kindTours[day.activityType];
   return kind ? { tour: kind, source: 'kind' } : null;
 }
+
+const MONTHS_GEN = ['января', 'февраля', 'марта', 'апреля', 'мая', 'июня', 'июля', 'августа', 'сентября', 'октября', 'ноября', 'декабря'];
+
+/**
+ * Оговорка о сезоне тура на дне плана (Сыщик 21.11): план показывает тур и
+ * вне его сезона. Год не называется: сезон оператора повторяется. Сезона нет
+ * или он круглый год — null.
+ */
+export function tourSeasonNote(seasonStart: string | null | undefined, seasonEnd: string | null | undefined): string | null {
+  const parse = (v: string | null | undefined) => {
+    const m = v ? /^(\d{4})-(\d{2})-(\d{2})/.exec(v) : null;
+    return m ? { month: Number(m[2]), day: Number(m[3]) } : null;
+  };
+  const a = parse(seasonStart);
+  const b = parse(seasonEnd);
+  if (!a || !b) return null;
+  if (a.month === 1 && a.day === 1 && b.month === 12 && b.day === 31) return null;
+  return `Тур идёт только с ${a.day} ${MONTHS_GEN[a.month - 1]} по ${b.day} ${MONTHS_GEN[b.month - 1]}: в другие даты этого дня в плане не будет.`;
+}

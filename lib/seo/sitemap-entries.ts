@@ -148,7 +148,7 @@ export async function collectSitemapEntriesWithStatus(): Promise<{ entries: Meta
     // Дата ревизии текста справочника — та же, что Article.dateModified (Сыщик 21.11).
     { url: `${BASE}/fish`,                 lastModified: new Date(`${FISH_TEXT_REVISION}T00:00:00Z`), changeFrequency: 'monthly', priority: 0.7 },
     ...FISH_SPECIES.map((f) => ({
-      url: `${BASE}/fish/${f.id}`, lastModified: STABLE, changeFrequency: 'monthly' as const, priority: 0.6,
+      url: `${BASE}/fish/${f.id}`, lastModified: new Date(`${FISH_TEXT_REVISION}T00:00:00Z`), changeFrequency: 'monthly' as const, priority: 0.6,
     })),
     // Летопись Камчатки (03.10): оглавление и статьи; дата — последней сверки с источниками.
     { url: `${BASE}/letopis`,              lastModified: STABLE,      changeFrequency: 'monthly', priority: 0.6 },

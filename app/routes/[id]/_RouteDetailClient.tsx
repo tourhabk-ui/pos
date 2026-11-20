@@ -1,5 +1,7 @@
 'use client';
 
+import type { RouteClosure } from '@/lib/routes/closures';
+import { ClosureNotice } from '@/components/routes/ClosureNotice';
 import { seasonLabel } from '@/lib/routes/season-label';
 import { createElement, useState, useEffect, useCallback, useMemo } from 'react';
 import { useRouter } from 'next/navigation';
@@ -521,8 +523,10 @@ function OfferCard({ offer, activityType, onBook }: {
   );
 }
 
-export default function RouteDetailClient({ id, mapPackBaseUrl, summary = null, initialRoute = null, initialRelated = null, recordUpdatedAt = null }: {
+export default function RouteDetailClient({ id, mapPackBaseUrl, summary = null, initialRoute = null, initialRelated = null, recordUpdatedAt = null, closure = null }: {
   id: string;
+  /** Маршрут закрыт (lib/routes/closures, 21.11) — плашка под заголовком. */
+  closure?: RouteClosure | null;
   /**
    * Последняя правка записи маршрута (kamchatka_routes.updated_at, ISO) —
    * видимая дата в первом HTML (аудит 20.11). null — даты нет, строки нет.
@@ -1018,6 +1022,12 @@ export default function RouteDetailClient({ id, mapPackBaseUrl, summary = null, 
           </h1>
         </div>
       </div>
+
+      {closure && (
+        <div className="max-w-6xl mx-auto px-4 md:px-8 pt-4">
+          <ClosureNotice closure={closure} />
+        </div>
+      )}
 
       {/* ── БЫСТРЫЕ ФАКТЫ ────────────────────────────────────────────────────── */}
       <div className="bg-[var(--bg-card)] border-b border-[var(--border)] sm:sticky top-16 z-20">

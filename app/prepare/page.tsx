@@ -9,7 +9,7 @@ import { FAQJsonLd } from '@/components/seo/JsonLd';
 import {
   MCHS_SOURCE, MCHS_CHANNELS, MCHS_REQUIRED_DATA, MCHS_DEADLINE_SHORT, MCHS_LEAD_WORKING_DAYS, MCHS_AFTER_RETURN,
 } from '@/lib/safety/mchs-registration';
-import { PARK_PERMIT_SOURCE, PARK_PERMIT_CHANNELS, FREE_VISIT_AREAS } from '@/lib/safety/park-permit';
+import { PARK_PERMIT_SOURCE, PARK_PERMIT_CHANNELS, FREE_VISIT_AREAS, FEDERALIZED_PARKS, VOLCANOES_DECREE_DOC, FEDERAL_PERMIT_UNKNOWN_RU } from '@/lib/safety/park-permit';
 import { DIFFICULTY_SCALE } from '@/lib/routes/difficulty-scale';
 import { DIFFICULTY_WORDS } from '@/lib/tours/describe';
 import { alertGuidance } from '@/lib/safety/alert-guidance';
@@ -103,7 +103,7 @@ export default function PreparePage() {
     },
     {
       question: 'Нужно ли разрешение на посещение природного парка?',
-      answer: `Для посещения природного парка нужно разрешение парка; регистрация в МЧС его не заменяет. Оформить: ${PARK_PERMIT_CHANNELS.map((c) => c.title).join(', ')}. Источник: ${PARK_PERMIT_SOURCE.authority}.`,
+      answer: `Для посещения природного парка нужно разрешение парка; регистрация в МЧС его не заменяет. Оформить: ${PARK_PERMIT_CHANNELS.map((c) => c.title).join(', ')}. Источник: ${PARK_PERMIT_SOURCE.authority}. Парки ${FEDERALIZED_PARKS.map((p) => p.name).join(' и ')} по ${VOLCANOES_DECREE_DOC.title.split(' «')[0]} вошли в национальный парк «Вулканы Камчатки» в ведении Минприроды России. Как теперь выдаются разрешения на этих территориях, ещё не объявлено: положение о парке Минприроды должно утвердить в течение шести месяцев — уточните перед выходом.`,
     },
     {
       question: 'Что делать при встрече с медведем?',
@@ -154,6 +154,12 @@ export default function PreparePage() {
               Находиться на территории природного парка можно только с разрешением парка. Это
               отдельная обязанность: регистрация в МЧС её не заменяет, и наоборот.
               {FREE_VISIT_AREAS.length > 0 && <> Без разрешения можно посетить: {FREE_VISIT_AREAS.join(', ')}.</>}
+            </p>
+            <p data-federal-parks>
+              <span className="font-semibold text-[var(--text-primary)]">Парки {FEDERALIZED_PARKS.map((p) => p.name).join(' и ')} теперь федеральные.</span>{' '}
+              По{' '}
+              <a href={VOLCANOES_DECREE_DOC.url} className="text-[var(--ocean)] hover:underline" rel="noopener noreferrer" target="_blank">{VOLCANOES_DECREE_DOC.title.replace(/^постановление/, 'постановлению')}</a>{' '}
+              они вошли в национальный парк «Вулканы Камчатки» в ведении Минприроды России. {FEDERAL_PERMIT_UNKNOWN_RU}
             </p>
             <ul className="space-y-1.5">
               {PARK_PERMIT_CHANNELS.map((c) => (

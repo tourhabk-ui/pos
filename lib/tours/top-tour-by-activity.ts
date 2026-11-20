@@ -35,6 +35,13 @@ export interface TopTour {
   /** Зависимость от погоды — триггер «плана Б» на публичном плане (B-5). */
   weather_dependent: boolean;
   /**
+   * Сезон тура (operator_tours.season_start/season_end, ISO-дата) — оговорка
+   * на дне плана: план показывает тур и вне сезона (Сыщик 21.11, Авачинский
+   * «Днём 2» круглый год при сезоне 1.07–30.09). null — сезон не записан.
+   */
+  season_start?: string | null;
+  season_end?: string | null;
+  /**
    * Сколько живых туров этого вида всего (подбор по виду); у туров черновика
    * (toursByIds) не считается — там тур выбран самим планом.
    */
@@ -59,6 +66,7 @@ export async function topToursByActivity(
         SELECT
           ot.id, ot.slug, ot.title, ot.base_price::text,
           COALESCE(ot.weather_dependent, FALSE) AS weather_dependent,
+          ot.season_start::text AS season_start, ot.season_end::text AS season_end,
           p.name AS operator_name,
           p.slug AS operator_slug, p.is_public AS operator_public,
           ${nearestFreeDateSql('ot')} AS nearest_free_date, ${anyDayOpenSql('ot')} AS any_day_open
@@ -100,6 +108,7 @@ export async function toursByIds(ids: string[]): Promise<Record<string, TopTour>
       SELECT
         ot.id::text AS id, ot.slug, ot.title, ot.base_price::text,
         COALESCE(ot.weather_dependent, FALSE) AS weather_dependent,
+        ot.season_start::text AS season_start, ot.season_end::text AS season_end,
         p.name AS operator_name,
         p.slug AS operator_slug, p.is_public AS operator_public
       FROM operator_tours ot
