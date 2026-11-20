@@ -18,23 +18,17 @@
  * ── Какой снимок можно ставить ────────────────────────────────────────────
  *
  *   - тур на витрине (`publicTourSql`);
- *   - РАЗРЕШЕНИЕ: у партнёра действующее согласие той версии, что называет
- *     снимки на карточках мест и маршрутов (`partnerPlaceCardsConsentSql`,
- *     PLACE_CARDS_CONSENT_FROM). Своей колонки лицензии у снимков тура нет —
- *     лицензией служит подписанное согласие. Подпись прежней версии называет
- *     только «блоки туров», и снимок маршрута по ней не ставится — ровно как
- *     с галереей мест (1431, 1436);
- *   - АВТОР известен: снимок записан в `partners.gallery_credits` (адрес →
- *     автор). Нет записи — снимка нет: подписать кадр именем оператора по
- *     умолчанию значило бы утверждать авторство, которого никто не записывал
- *     (lib/tours/photo-credits);
- *   - от каждого партнёра — один снимок (первый подписанный по порядку тура),
+ *   - согласие партнёра и поле лицензии НЕ требуются — решение владельца
+ *     20.11 («делай без их согласия»; до него снимок ставился только по
+ *     согласию версии PLACE_CARDS_CONSENT_FROM, #3618);
+ *   - АВТОР: из `partners.gallery_credits` (адрес → автор); нет записи —
+ *     подпись «Фото: <партнёр>» со ссылкой на его страницу;
+ *   - от каждого партнёра — один снимок (подписанный автором — первым, затем по порядку тура),
  *     партнёры — по алфавиту имени: никаких предпочтений (§0).
  *
  * Сторож: tests/unit/route-tour-photos.test.tsx.
  */
 import { publicTourSql } from '@/lib/tours/public-visibility';
-import { partnerPlaceCardsConsentSql } from '@/lib/places/gallery-shown';
 import { authorFeedSlug, photoCreditFor, type PhotoCredit } from '@/lib/media/author-credit';
 
 export const TOUR_PHOTOS_LIMIT = 6;
@@ -63,10 +57,13 @@ export function routeTourLinksSql(routeIdExpr: string): string {
 /** Условие «снимок тура можно ставить на маршрут»; `ot` — тур, `pa` — партнёр, `x.url` — адрес. */
 export function tourPhotoAllowedSql(): string {
   return `${publicTourSql('ot')}
-     AND ${partnerPlaceCardsConsentSql('pa.id')}
-     AND NULLIF(btrim(x.url), '') IS NOT NULL
-     AND NULLIF(btrim(COALESCE(pa.gallery_credits, '{}'::jsonb)->>x.url), '') IS NOT NULL`;
+     AND NULLIF(btrim(x.url), '') IS NOT NULL`;
 }
+
+/** Автор снимка тура: запись `gallery_credits`, иначе имя партнёра. */
+export const TOUR_PHOTO_AUTHOR_SQL =
+  `COALESCE(NULLIF(btrim(COALESCE(pa.gallery_credits, '{}'::jsonb)->>x.url), ''), btrim(pa.name))`;
+const CREDITED_FIRST = `(NULLIF(btrim(COALESCE(pa.gallery_credits, '{}'::jsonb)->>x.url), '') IS NULL)`;
 
 /** $1 — kamchatka_routes.id маршрута. */
 export const ROUTE_TOUR_PHOTOS_SQL = `
@@ -76,13 +73,13 @@ export const ROUTE_TOUR_PHOTOS_SQL = `
            pa.is_public AS partner_public,
            ot.id::text AS tour_id, ot.title AS tour_title, ot.slug AS tour_slug,
            l.place_name, btrim(x.url) AS url,
-           btrim(pa.gallery_credits->>x.url) AS author
+           ${TOUR_PHOTO_AUTHOR_SQL} AS author
       FROM ${routeTourLinksSql('$1')} l
       JOIN operator_tours ot ON ot.id = l.tour_id
       JOIN partners pa ON pa.id = ot.operator_id
       CROSS JOIN LATERAL unnest(ot.photos) WITH ORDINALITY AS x(url, n)
      WHERE ${tourPhotoAllowedSql()}
-     ORDER BY pa.id, l.pos, ot.id, x.n
+     ORDER BY pa.id, ${CREDITED_FIRST}, l.pos, ot.id, x.n
   )
   SELECT * FROM shots ORDER BY partner_name, partner_id
   LIMIT ${TOUR_PHOTOS_LIMIT}`;
@@ -141,7 +138,7 @@ export const ROUTE_CARD_TOUR_PHOTOS_SQL = `
          c.rid AS route_view_id,
          pa.name AS partner_name, pa.slug AS partner_slug, pa.is_public AS partner_public,
          ot.title AS tour_title, ot.slug AS tour_slug, l.place_name,
-         btrim(x.url) AS url, btrim(pa.gallery_credits->>x.url) AS author
+         btrim(x.url) AS url, ${TOUR_PHOTO_AUTHOR_SQL} AS author
     FROM unnest($1::text[]) AS c(rid)
     JOIN kamchatka_routes kr ON (kr.id::text = c.rid OR kr.ark_id::text = c.rid) AND kr.merged_into_id IS NULL
     CROSS JOIN LATERAL ${routeTourLinksSql('kr.id')} l
@@ -149,7 +146,7 @@ export const ROUTE_CARD_TOUR_PHOTOS_SQL = `
     JOIN partners pa ON pa.id = ot.operator_id
     CROSS JOIN LATERAL unnest(ot.photos) WITH ORDINALITY AS x(url, n)
    WHERE ${tourPhotoAllowedSql()}
-   ORDER BY c.rid, pa.name, pa.id, l.pos, ot.id, x.n`;
+   ORDER BY c.rid, pa.name, pa.id, ${CREDITED_FIRST}, l.pos, ot.id, x.n`;
 
 export type RouteCardTourPhotos =
   | { state: 'ok'; photos: Map<string, RouteTourPhoto> }

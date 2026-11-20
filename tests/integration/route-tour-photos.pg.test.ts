@@ -4,12 +4,13 @@
  *
  * Мок ответил бы на любой SQL, поэтому отбор судится здесь, на схеме прода
  * (baseline + миграции):
- *   - снимок тура ставится на маршрут только при записанной связи (тур на
- *     маршрут или главное место тура — ТОЧКА ПУТИ), действующем согласии
- *     версии, что называет карточки маршрутов, и записанном авторе;
- *   - связь «рядом», подпись прежней версии и снимок без автора — снимка нет;
- *   - в ленту автора снимок места без лицензии НЕ попадает; снимок с
- *     лицензией попадает и ведёт на страницу места;
+ *   - решение владельца 20.11 («делай без их согласия»): согласие партнёра
+ *     и лицензия не нужны; снимок тура ставится на маршрут при записанной
+ *     связи (тур на маршрут или главное место тура — ТОЧКА ПУТИ); автор — из
+ *     gallery_credits, иначе имя партнёра со ссылкой на его страницу;
+ *   - связь «рядом» — снимка нет;
+ *   - в ленту автора-человека снимок места без лицензии тоже попадает и
+ *     ведёт на страницу места; партнёр ленты не получает;
  *
  * Своя база `route_tour_photos_test`. Запуск ТРЕБУЕТ базы:
  * KERNEL_PG_TEST_URL=postgresql://user:pass@host/db. Без неё файл честно
@@ -87,7 +88,7 @@ withPg('снимки туров на маршрутах и фотолента а
       );
     }
     const { PLACE_CARDS_CONSENT_FROM } = await import('@/lib/legal/partner-materials-consent');
-    for (const [p, version] of [[GUIDE, PLACE_CARDS_CONSENT_FROM], [OLD, '2026-10-23'], [NOCREDIT, PLACE_CARDS_CONSENT_FROM], [NEARBY_OP, PLACE_CARDS_CONSENT_FROM]] as const) {
+    for (const [p, version] of [[GUIDE, PLACE_CARDS_CONSENT_FROM], [OLD, '2026-10-23'], [NEARBY_OP, PLACE_CARDS_CONSENT_FROM]] as const) {
       await pool.query(
         `INSERT INTO partner_material_consents
            (partner_id, text_version, signed_text, signer_name, signer_role, source, pd_consent_at, pd_consent_ip, pd_consent_source, pd_consent_version)
@@ -124,16 +125,18 @@ withPg('снимки туров на маршрутах и фотолента а
     await pool?.end().catch(() => undefined);
   });
 
-  it('маршрут: один снимок — тура партнёра с согласием нужной версии и записанным автором', async () => {
+  it('маршрут: по снимку от партнёра, по алфавиту; согласие не нужно; без автора — партнёр', async () => {
     const { ROUTE_TOUR_PHOTOS_SQL, toRouteTourPhotos } = await import('@/lib/routes/tour-photos');
     const { rows } = await pool.query(ROUTE_TOUR_PHOTOS_SQL, [ROUTE]);
     const photos = toRouteTourPhotos(rows as never, { feedSlugs: new Set(), feedEnabled: true });
-    expect(photos.map((p) => p.url)).toEqual([url('guide-1')]);
+    // GUIDE — согласие новой версии, OLD — прежней, NOCREDIT — без согласия и без gallery_credits.
+    expect(photos.map((p) => p.url)).toEqual([url('guide-1'), url('nocredit-1'), url('old-1')]);
     expect(photos[0].credit).toEqual({ name: GUIDE.name, href: `/operators/${GUIDE.slug}`, kind: 'partner' });
     expect(photos[0].placeName).toBe(PEAK.name);
-    // Старая подпись, снимок без автора, связь «рядом» — не на маршруте.
-    const urls = rows.map((r) => (r as { url: string }).url);
-    for (const u of [url('old-1'), url('nocredit-1'), url('near-1'), url('guide-uncredited')]) expect(urls).not.toContain(u);
+    expect(photos[1].credit).toEqual({ name: NOCREDIT.name, href: `/operators/${NOCREDIT.slug}`, kind: 'partner' });
+    expect(photos[2].credit).toEqual({ name: OLD.name, href: `/operators/${OLD.slug}`, kind: 'partner' });
+    // Связь «рядом» — не на маршруте.
+    expect(rows.map((r) => (r as { url: string }).url)).not.toContain(url('near-1'));
   });
 
   it('маршрут только со связью «рядом» снимка тура не получает', async () => {
@@ -151,7 +154,7 @@ withPg('снимки туров на маршрутах и фотолента а
     expect(res.photos.has(ROUTE_NEARBY_ONLY)).toBe(false);
   });
 
-  it('лента: снимок с лицензией — есть, со ссылкой на место; без лицензии — ленты нет', async () => {
+  it('лента: снимки и с лицензией, и без — со ссылкой на место; партнёр ленты не получает', async () => {
     const { loadAuthorFeed } = await import('@/lib/media/author-feed');
     const { authorFeedSlug } = await import('@/lib/media/author-credit');
     const beta = await loadAuthorFeed(authorFeedSlug(TOURIST)!);
@@ -161,9 +164,11 @@ withPg('снимки туров на маршрутах и фотолента а
     const hrefs = beta.feed.photos.map((p) => p.href).sort();
     // Снимок места с лицензией и снимок тура, записанный за ней, — оба ведут на места.
     expect(hrefs).toEqual([`/places/${LAKE.slug}`, `/places/${PEAK.slug}`].sort());
-    expect(beta.feed.photos.every((p) => p.license.length > 0)).toBe(true);
 
-    expect((await loadAuthorFeed(authorFeedSlug(UNLICENSED)!)).state).toBe('none');
+    const gamma = await loadAuthorFeed(authorFeedSlug(UNLICENSED)!);
+    expect(gamma.state).toBe('ok');
+    if (gamma.state !== 'ok') return;
+    expect(gamma.feed.photos.map((p) => [p.href, p.license])).toEqual([[`/places/${NEAR.slug}`, null]]);
     // Партнёр ленты не получает — его подпись ведёт на его страницу.
     expect((await loadAuthorFeed(authorFeedSlug(GUIDE.name)!)).state).toBe('none');
   });

@@ -59,7 +59,7 @@ export interface CreditInput {
   author: string | null | undefined;
   /** Партнёр, чей это снимок (тура или галереи); нет — снимок не партнёра. */
   partner?: { name: string; slug: string | null; isPublic: boolean | null } | null;
-  /** Есть ли у автора лента (снимок с лицензией и без внешнего источника). */
+  /** Есть ли у автора лента (снимок человека без внешнего источника; лицензия не обязательна). */
   feedEligible: boolean;
   feedEnabled?: boolean;
 }

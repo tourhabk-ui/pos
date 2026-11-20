@@ -5,19 +5,17 @@
  *
  * ── Что попадает в ленту ──────────────────────────────────────────────────
  *
- * Только снимок, у которого ЕСТЬ разрешение и известен автор:
+ * Решение владельца 20.11 («делай без их согласия»): поле лицензии и
+ * согласие партнёра НЕ требуются (до него — требовались, #3618). Попадают:
  *   - снимок места (`ai_route_images`, `place_gallery_photos`), который
- *     карточка показывает (shownPhotoSql / galleryShownSql), с заполненной
- *     лицензией (`license`) и автором; без внешнего источника
- *     (`source_url`): имя автора с Викисклада и подобных площадок — это имя
- *     учётной записи там, а не человек на Ведаре, и его подпись ведёт, как и
- *     прежде, на страницу файла. Пустая лицензия — снимка в ленте нет, даже
- *     если на карточке места он стоит по слову владельца;
+ *     карточка показывает (shownPhotoSql / galleryShownSql), с автором; без
+ *     внешнего источника (`source_url`) и не с Викисклада: имя автора там —
+ *     имя учётной записи, а не человек на Ведаре, и его подпись ведёт, как и
+ *     прежде, на страницу файла. Лицензия, если записана, стоит под снимком;
  *   - снимок тура, записанный за человеком (`partners.gallery_credits`), а
- *     не за самим партнёром, — под действующим согласием партнёра версии,
- *     что называет карточки мест и маршрутов (lib/routes/tour-photos), и
- *     только если тур записан на место или маршрут: снимку без места
- *     перейти некуда.
+ *     не за самим партнёром, — только если тур записан на место или маршрут:
+ *     снимку без места перейти некуда.
+ * Подпись «владелец платформы» — не имя, ленты у неё нет.
  * Автор, чьё имя совпадает с именем партнёра, ленты не получает: его
  * подпись ведёт на страницу партнёра (lib/media/author-credit).
  *
@@ -58,12 +56,12 @@ export const AUTHOR_FEED_SQL = `
            '/api/images/route/' || p.ark_id || '?size=card' AS url,
            p.name AS alt,
            '/places/' || COALESCE(p.slug, p.ark_id::text) AS href,
-           btrim(ai.license) AS license, ai.created_at AS created
+           NULLIF(btrim(ai.license), '') AS license, ai.created_at AS created
       FROM ai_route_images ai
       JOIN places p ON p.ark_id = ai.route_id
      WHERE ${shownPhotoSql('ai.model')}
        AND p.is_visible IS NOT FALSE AND p.merged_into_id IS NULL
-       AND NULLIF(btrim(ai.license), '') IS NOT NULL
+       AND COALESCE(ai.model, '') NOT IN ('wikimedia', 'wikimedia-commons')
        AND NULLIF(btrim(ai.author), '') IS NOT NULL
        AND NULLIF(btrim(ai.source_url), '') IS NULL
        AND ${NOT_PARTNER('ai.author')}
@@ -72,13 +70,12 @@ export const AUTHOR_FEED_SQL = `
            '/api/images/place-gallery/' || g.ark_id || '/' || g.position || '?v=' || EXTRACT(EPOCH FROM g.created_at)::bigint,
            p.name,
            '/places/' || COALESCE(p.slug, p.ark_id::text),
-           btrim(g.license), g.created_at
+           NULLIF(btrim(g.license), ''), g.created_at
       FROM place_gallery_photos g
       JOIN places p ON p.ark_id = g.ark_id
      WHERE ${galleryShownSql('g')}
        AND g.partner_id IS NULL
        AND p.is_visible IS NOT FALSE AND p.merged_into_id IS NULL
-       AND NULLIF(btrim(g.license), '') IS NOT NULL
        AND NULLIF(btrim(g.author), '') IS NOT NULL
        AND NULLIF(btrim(g.source_url), '') IS NULL
        AND ${NOT_PARTNER('g.author')}
@@ -88,7 +85,7 @@ export const AUTHOR_FEED_SQL = `
            COALESCE(pm.name, kr.title),
            CASE WHEN pm.id IS NOT NULL THEN '/places/' || COALESCE(pm.slug, pm.ark_id::text)
                 ELSE 'route:' || COALESCE(kr.slug, COALESCE(kr.ark_id, kr.id)::text) END,
-           'по согласию партнёра «' || pa.name || '»',
+           'снимок с тура партнёра «' || pa.name || '»',
            ot.updated_at
       FROM operator_tours ot
       JOIN partners pa ON pa.id = ot.operator_id
@@ -97,6 +94,7 @@ export const AUTHOR_FEED_SQL = `
                          AND pm.is_visible IS NOT FALSE AND pm.merged_into_id IS NULL
       LEFT JOIN kamchatka_routes kr ON kr.id = ot.route_id AND kr.merged_into_id IS NULL
      WHERE ${tourPhotoAllowedSql()}
+       AND NULLIF(btrim(pa.gallery_credits->>x.url), '') IS NOT NULL
        AND (pm.id IS NOT NULL OR kr.id IS NOT NULL)
        AND lower(btrim(pa.gallery_credits->>x.url)) <> lower(btrim(pa.name))
        AND left(lower(btrim(pa.gallery_credits->>x.url)), length(btrim(pa.name)) + 2) <> lower(btrim(pa.name)) || '. '
@@ -111,8 +109,8 @@ export interface FeedPhoto {
   alt: string;
   /** Страница места или маршрута. */
   href: string;
-  /** Лицензия словами, как записана. */
-  license: string;
+  /** Лицензия словами, как записана; null — не записана. */
+  license: string | null;
 }
 
 export interface AuthorFeed {
@@ -124,13 +122,16 @@ export interface AuthorFeed {
 
 export interface FeedRow { author: unknown; url: unknown; alt: unknown; href: unknown; license: unknown }
 
+/** Подписи, которые не имя человека: ленты у них нет. */
+const NOT_A_NAME = new Set(['владелец платформы']);
+
 const str = (v: unknown): string | null => (typeof v === 'string' && v.trim() ? v.trim() : null);
 
 function hrefOf(raw: string): string {
   return raw.startsWith('route:') ? routeSlugPath(raw.slice('route:'.length)) : raw;
 }
 
-/** Строки → ленты по slug. Строка без автора, адреса или лицензии отбрасывается. */
+/** Строки → ленты по slug. Строка без автора или адреса отбрасывается; лицензия не обязательна. */
 export function groupFeeds(rows: readonly FeedRow[]): Map<string, AuthorFeed> {
   const feeds = new Map<string, AuthorFeed>();
   for (const r of rows) {
@@ -138,12 +139,13 @@ export function groupFeeds(rows: readonly FeedRow[]): Map<string, AuthorFeed> {
     const url = str(r.url);
     const license = str(r.license);
     const href = str(r.href);
-    if (!name || !url || !license || !href) continue;
+    if (!name || !url || !href) continue;
+    if (NOT_A_NAME.has(name.toLocaleLowerCase('ru'))) continue;
     const slug = authorFeedSlug(name);
     if (!slug) continue;
     const feed = feeds.get(slug) ?? { slug, name, photos: [] };
     if (feed.photos.some((p) => p.url === url)) continue;
-    feed.photos.push({ url, alt: str(r.alt) ?? name, href: hrefOf(href), license });
+    feed.photos.push({ url, alt: str(r.alt) ?? name, href: hrefOf(href), license: license ?? null });
     feeds.set(slug, feed);
   }
   return feeds;
