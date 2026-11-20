@@ -54,9 +54,13 @@ export function linkifyText<T extends Linkable>(
       let m: RegExpExecArray | null;
       while ((m = re.exec(text)) !== null) {
         const start = m.index;
-        const end = m.index + m[0].length;
+        // Ссылка — на слово целиком (Сыщик 21.11): паттерн ловит основу
+        // «лососе», и окончание оставалось снаружи ссылки — «<a>лососе</a>м»
+        // без тегов читалось как «лососе м». Дотягиваем конец до границы слова.
+        let end = m.index + m[0].length;
+        while (end < text.length && /\p{L}/u.test(text[end])) end++;
         if (!matches.some(e => e.start < end && e.end > start)) {
-          matches.push({ start, end, matched: m[0], entry });
+          matches.push({ start, end, matched: text.slice(start, end), entry });
         }
         // Пустое совпадение не двигает курсор — иначе вечный цикл.
         if (m[0].length === 0) re.lastIndex++;

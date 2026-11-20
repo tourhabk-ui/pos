@@ -13,6 +13,7 @@ import { ClosureNotice } from '@/components/routes/ClosureNotice';
 import { landingByKey } from '@/lib/seo/query-landings';
 import { VOLCANOES_DECREE_DOC } from '@/lib/safety/park-permit';
 import { tourSeasonNote } from '@/lib/plans/preset-plan';
+import { parseTextChunks } from '@/components/shared/DescriptionWithFishLinks';
 
 const root = process.cwd();
 const SQL = readFileSync(join(root, 'migrations/1485_syshchik_fixes_mutnovsky_kurile.sql'), 'utf-8');
@@ -53,5 +54,25 @@ describe('правки Сыщика 21.11', () => {
     expect(tourSeasonNote('2027-07-01', '2027-09-30')).toBe('Тур идёт только с 1 июля по 30 сентября: в другие даты этого дня в плане не будет.');
     expect(tourSeasonNote(null, '2027-09-30')).toBeNull();
     expect(tourSeasonNote('2027-01-01', '2027-12-31')).toBeNull();
+  });
+
+  it('ссылка на вид — на слово целиком: не «лососе м», а «лососем»', () => {
+    const chunks = parseTextChunks('её называют стальноголовым лососем, а из лососей — кижуча.', 'mikizha');
+    const linked = chunks.filter((c) => c.species).map((c) => c.text);
+    expect(linked).toContain('лососем');
+    expect(linked).toContain('лососей');
+    expect(chunks.map((c) => c.text).join('')).toBe('её называют стальноголовым лососем, а из лососей — кижуча.');
+  });
+
+  it('lastmod карточек рыб — дата ревизии текстов, а не 2026-06-01', () => {
+    const src = readFileSync(join(root, 'lib/seo/sitemap-entries.ts'), 'utf-8');
+    expect(src).toContain('url: `${BASE}/fish/${f.id}`, lastModified: new Date(`${FISH_TEXT_REVISION}T00:00:00Z`)');
+  });
+
+  it('1486: высота Авачинского на карточке — 2751 м по KVERT, идемпотентно', () => {
+    const sql = readFileSync(join(root, 'migrations/1486_avachinsky_height_place.sql'), 'utf-8');
+    expect(sql).toContain('высота — 2751 м');
+    expect(sql).toContain("position('2751' in description) = 0");
+    expect(sql.split('BEGIN;')[1]).not.toContain('2741');
   });
 });
