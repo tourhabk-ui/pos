@@ -1,3 +1,4 @@
+import { FEED_PATH, FEED_TITLE } from '@/lib/seo/rss-meta';
 import { Metadata, Viewport } from 'next';
 // Шрифты — с нашего сервера из пакетов Fontsource (05.11), не next/font/google:
 // тот скачивал их с Google при КАЖДОЙ сборке, и сбой сети Google ронял сборку
@@ -183,6 +184,9 @@ export default async function RootLayout({ children }: { children: React.ReactNo
         <link rel="icon" type="image/png" sizes="16x16" href="/icons/favicon-16.png" />
         <link rel="apple-touch-icon" href="/icons/apple-touch-icon.png" />
         <link rel="shortcut icon" href="/favicon.ico" />
+        {/* Лента статей и посадочных (Сыщик 21.11). На домене партнёра её нет:
+            в ней тексты Ведара. */}
+        {!onPartnerSite && <link rel="alternate" type="application/rss+xml" title={FEED_TITLE} href={FEED_PATH} />}
         {/* Манифест ARD (20.11): ссылка rel="ard" — второй путь, которым
             агент и «Агентный просмотр» Lighthouse находят каталог домена
             (спецификация ARD v0.91, §5.1: потребитель обязан её учесть).

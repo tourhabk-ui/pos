@@ -23,6 +23,12 @@ export const INDEXNOW_KEY = 'ed64b13e2286450aa82e6dfef6659834';
 
 const SITE_URL = process.env.NEXT_PUBLIC_SITE_URL || 'https://vedarai.ru';
 const ENDPOINT = 'https://yandex.com/indexnow';
+/**
+ * Bing — второй вход (Сыщик 21.11, разрыв цитирования в ответах ИИ): поиск
+ * Bing кормит ответы ассистентов, и подача туда напрямую не ждёт пересылки
+ * между участниками протокола.
+ */
+export const INDEXNOW_BING_ENDPOINT = 'https://www.bing.com/indexnow';
 
 /** До 10 000 адресов за один POST по спецификации; режем с запасом. */
 const MAX_URLS_PER_PING = 5000;
@@ -38,6 +44,8 @@ export const LOGGED_URLS_MAX = 20;
 export interface IndexNowOptions {
   /** Кто пингует — пишется в журнал рядом с адресами (например, 'indexnow-plans'). */
   source?: string;
+  /** Куда слать; по умолчанию — Яндекс. */
+  endpoint?: string;
 }
 
 export interface IndexNowResult {
@@ -63,12 +71,13 @@ export async function pingIndexNow(urls: string[], opts: IndexNowOptions = {}): 
   // Что именно пинговали — в журнал рядом с исходом (см. LOGGED_URLS_MAX).
   const trail = {
     ...(opts.source ? { source: opts.source } : {}),
+    ...(opts.endpoint ? { endpoint: opts.endpoint } : {}),
     urls: list.slice(0, LOGGED_URLS_MAX),
     ...(list.length > LOGGED_URLS_MAX ? { urls_more: list.length - LOGGED_URLS_MAX } : {}),
   };
 
   try {
-    const res = await fetch(ENDPOINT, {
+    const res = await fetch(opts.endpoint ?? ENDPOINT, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json; charset=utf-8' },
       body: JSON.stringify({
@@ -138,3 +147,41 @@ export function pingRoutesChanged(slugsOrIds: Array<string | number>): void {
   if (slugsOrIds.length === 0) return;
   void pingIndexNow([...slugsOrIds.map((s) => `/routes/${s}`), '/routes']).catch(() => {});
 }
+
+/**
+ * Тексты, которые меняет деплой (Сыщик 21.11): посадочные, статьи, тонкие
+ * страницы мест и маршрутов, рыбы, парки, планы. Их правят миграции и код, а
+ * не админка, поэтому попутного пинга у них нет — адреса берутся из карты
+ * сайта по lastmod после выката (роут /api/cron/indexnow-content).
+ */
+export const CONTENT_PATH_PREFIXES = ['/articles/', '/places/', '/routes/', '/fish/', '/park/', '/plans/', '/letopis/'] as const;
+
+export function contentUrlsChangedSince(
+  entries: ReadonlyArray<{ url: string; lastModified?: string | Date | null }>,
+  since: Date,
+  landingPaths: readonly string[] = [],
+): string[] {
+  const landings = new Set(landingPaths);
+  const out = new Set<string>();
+  for (const e of entries) {
+    if (!e.lastModified) continue;
+    const at = new Date(e.lastModified);
+    if (Number.isNaN(at.getTime()) || at < since) continue;
+    let path: string;
+    try { path = new URL(e.url).pathname; } catch { continue; }
+    if (landings.has(path) || CONTENT_PATH_PREFIXES.some((p) => path.startsWith(p))) out.add(e.url);
+  }
+  return [...out];
+}
+
+const DAY_MS = 24 * 60 * 60 * 1000;
+
+/** `since` из запроса: дата ISO; нет или мусор — двое суток назад. */
+export function parseSince(raw: string | null, now = new Date()): Date {
+  if (raw && /^\d{4}-\d{2}-\d{2}/.test(raw)) {
+    const d = new Date(raw.length === 10 ? `${raw}T00:00:00Z` : raw);
+    if (!Number.isNaN(d.getTime())) return d;
+  }
+  return new Date(now.getTime() - 2 * DAY_MS);
+}
+
