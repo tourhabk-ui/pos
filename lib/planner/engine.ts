@@ -67,6 +67,7 @@ import {
 import { loadActiveWarnings } from '@/lib/safety/active-warnings';
 import { applyPlanParkStatus } from '@/lib/planner/park-status';
 import { applyPlanOfficialAlerts, officialAlertsPlanWarning, OFFICIAL_ALERTS_UNREAD_NOTE } from '@/lib/planner/official-alerts';
+import { KRONOKI_ESCORT } from '@/lib/seo/query-landings';
 import type { TourCalendar } from '@/lib/planner/item-status';
 import {
   appendOfferingFlags, appendUnreadSafety, MCHS_UNREAD_NOTE, mchsBeforeTripNote, notesForPlanDay,
@@ -387,26 +388,76 @@ const INTEREST_TO_ZONES: Record<string, ZoneId[]> = {
 interface PermitInfo {
   type: 'reserve' | 'border' | 'license';
   name: string;
-  advanceDays: number;
+  /** Что сказать сверх названия — только с источником, иначе пусто. */
   note: string;
 }
 
+/*
+ * Сроков оформления («за 30 дней», «за 14 дней») здесь больше нет (20.11,
+ * #3552 п.6): у чисел не было источника, а турист видел их критическим
+ * предупреждением. Требование разрешения остаётся; сроки называет тот, кто
+ * его выдаёт, — оператор тура или заповедник. Сопровождение сотрудником
+ * заповедника — по правилам пребывания (KRONOKI_ESCORT, lib/seo/query-landings).
+ */
 const ZONE_PERMITS: Partial<Record<ZoneId, PermitInfo[]>> = {
   northern: [
-    { type: 'reserve', name: 'Кроноцкий государственный заповедник', advanceDays: 30,
-      note: 'Бронирование через kronoki.ru — Долина гейзеров, кальдера Узон' },
+    { type: 'reserve', name: 'Кроноцкий государственный заповедник',
+      note: `Долина гейзеров, кальдера Узон. ${KRONOKI_ESCORT}` },
   ],
   // Курильское озеро — в южной зоне (#3394 п.3); до 19.11 эта строка стояла
   // у Восточной, где озера нет.
   southern: [
-    { type: 'reserve', name: 'Южно-Камчатский федеральный заказник', advanceDays: 14,
-      note: 'Для посещения Курильского озера' },
+    { type: 'reserve', name: 'Южно-Камчатский федеральный заказник',
+      note: `Для посещения Курильского озера. ${KRONOKI_ESCORT}` },
   ],
   eastern: [
-    { type: 'border', name: 'Пограничная зона ФСБ', advanceDays: 30,
-      note: 'Мыс Лопатка и части восточного побережья — заявка через Госуслуги или ФСБ' },
+    { type: 'border', name: 'Пограничная зона ФСБ',
+      note: 'Мыс Лопатка и части восточного побережья.' },
   ],
 };
+
+/** Срок оформления разрешения не записан — одна фраза на план и справку. */
+const PERMIT_TERM_UNKNOWN = 'Срок оформления у нас не записан — уточните у оператора тура заранее.';
+
+/**
+ * Разрешения зон: для зон плана — критично, для зон-кандидатов вне плана —
+ * одной справочной строкой (решение владельца 27.09). Сроков оформления нет:
+ * у прежних чисел не было источника (#3552 п.6, 20.11).
+ */
+export function zonePermitWarnings(plannedZones: ReadonlySet<ZoneId>, candidateZones: readonly ZoneId[]): TripWarning[] {
+  const warnings: TripWarning[] = [];
+  // ── Разрешения: критично — только для зон ПЛАНА ──
+  for (const zone of plannedZones) {
+    const permits = ZONE_PERMITS[zone];
+    if (!permits) continue;
+    for (const p of permits) {
+      warnings.push({
+        type: 'permit', severity: 'critical',
+        message: `${ZONE_NAMES[zone]}: требуется ${p.name}. ${PERMIT_TERM_UNKNOWN} ${p.note}`.trim(),
+      });
+    }
+  }
+
+  // ── Требования зон, которые в план НЕ вошли ──
+  //
+  // Решение владельца 27.09: показать, но без веса «critical» и одной справочной
+  // строкой. Совсем молчать нельзя: человек может добавить такую зону руками
+  // или спросить оператора, и тогда разрешение на погранзону — новость,
+  // которую лучше узнать сейчас. Но и пугать требованиями к поездке, которой
+  // нет, нельзя: критическое предупреждение не по делу обесценивает все
+  // остальные.
+  const notPlanned = [...new Set(candidateZones)].filter((z) => !plannedZones.has(z));
+  const extraPermits = notPlanned.flatMap((zone) =>
+    (ZONE_PERMITS[zone] ?? []).map((p) => `${ZONE_NAMES[zone]} — ${p.name}`),
+  );
+  if (extraPermits.length > 0) {
+    warnings.push({
+      type: 'permit', severity: 'info',
+      message: `Если захотите добавить зоны, которых нет в этом плане, им нужны свои разрешения: ${extraPermits.join('; ')}.`,
+    });
+  }
+  return warnings;
+}
 
 // ─── Database helpers ────────────────────────────────────────────────────────
 
@@ -701,8 +752,8 @@ function collectWarnings(
   season: TripSeason,
   /**
    * Зоны ГОТОВОГО плана. Требования (разрешения, удалённость) относятся к ним,
-   * а не к зонам-кандидатам: человек не должен читать «нужна погранзона ФСБ за
-   * 30 дней» про зону, куда поездка не идёт.
+   * а не к зонам-кандидатам: человек не должен читать «нужна погранзона ФСБ»
+   * про зону, куда поездка не идёт.
    */
   plannedZones: Set<ZoneId>,
   /** В план встал резервный день на нелётную погоду (он ставится, только если влез). */
@@ -857,36 +908,7 @@ function collectWarnings(
     }
   }
 
-  // ── Разрешения: критично — только для зон ПЛАНА ──
-  for (const zone of plannedZones) {
-    const permits = ZONE_PERMITS[zone];
-    if (!permits) continue;
-    for (const p of permits) {
-      warnings.push({
-        type: 'permit', severity: 'critical',
-        message: `${ZONE_NAMES[zone]}: требуется ${p.name}. Оформление за ${p.advanceDays} дней. ${p.note}`,
-      });
-    }
-  }
-
-  // ── Требования зон, которые в план НЕ вошли ──
-  //
-  // Решение владельца 27.09: показать, но без веса «critical» и одной справочной
-  // строкой. Совсем молчать нельзя: человек может добавить такую зону руками
-  // или спросить оператора, и тогда тридцать дней на погранзону — новость,
-  // которую лучше узнать сейчас. Но и пугать требованиями к поездке, которой
-  // нет, нельзя: критическое предупреждение не по делу обесценивает все
-  // остальные.
-  const notPlanned = [...new Set(zones.map((z) => z.zone))].filter((z) => !plannedZones.has(z));
-  const extraPermits = notPlanned.flatMap((zone) =>
-    (ZONE_PERMITS[zone] ?? []).map((p) => `${ZONE_NAMES[zone]} — ${p.name} (за ${p.advanceDays} дней)`),
-  );
-  if (extraPermits.length > 0) {
-    warnings.push({
-      type: 'permit', severity: 'info',
-      message: `Если захотите добавить зоны, которых нет в этом плане, им нужны свои разрешения: ${extraPermits.join('; ')}.`,
-    });
-  }
+  warnings.push(...zonePermitWarnings(plannedZones, zones.map((z) => z.zone)));
 
   // Fishing license
   if (profile.interests.includes('fishing')) {
