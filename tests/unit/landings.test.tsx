@@ -25,9 +25,9 @@ const tour = (o: Partial<LandingBlockTour>): LandingBlockTour => ({
 });
 
 describe('реестр посадочных', () => {
-  it('21 текст: 17 новых адресов и 4 апгрейда тех же URL', () => {
-    expect(LANDINGS).toHaveLength(21);
-    expect(NEW_LANDINGS).toHaveLength(17);
+  it('31 текст: 27 новых адресов (17 + 10 второй партии) и 4 апгрейда тех же URL', () => {
+    expect(LANDINGS).toHaveLength(31);
+    expect(NEW_LANDINGS).toHaveLength(27);
     expect(LANDINGS.filter((l) => l.type === 'upgrade').map((l) => l.path).sort()).toEqual([
       '/dolina-gejzerov-ekskursiya', '/places/paratunskaya-zona-otdyha', '/plans/kamchatka-v-iyune', '/plans/kamchatka-v-sentyabre',
     ]);
