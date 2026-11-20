@@ -59,7 +59,8 @@ export async function runPassportEnrich(params: EnrichParams): Promise<EnrichRes
 
   const { rows } = await pool.query<Row>(`
     SELECT o.route_id, r.title, o.markdown,
-           r.distance_km, r.elevation_gain_m, r.duration_hours, r.duration_days,
+           r.distance_km, r.distance_note, r.passport_verified_at,
+           r.elevation_gain_m, r.duration_hours, r.duration_days,
            r.difficulty, r.season, r.route_type, r.mchs_registration_required,
            r.hazards, r.equipment, r.flora_fauna, r.accessibility, r.park_name
     FROM route_passport_ocr o
