@@ -1,5 +1,5 @@
 import Link from 'next/link';
-import type { FeedPhoto } from '@/lib/photos/author-feed';
+import type { FeedPhoto } from '@/lib/media/author-feed';
 
 /**
  * Сетка ленты автора: квадраты, с каждого — переход на место или маршрут.

@@ -35,7 +35,7 @@ import { publicReviewerName } from '@/lib/reviews/public-name';
 import { stripFillerLead } from '@/lib/text/filler-lead';
 import { WAYPOINT_PHOTOS_SQL, toWaypointPhotos, type WaypointPhotos } from '@/lib/routes/waypoint-photos';
 import { ROUTE_TOUR_PHOTOS_SQL, toRouteTourPhotos, type RouteTourPhoto, type TourPhotoRow } from '@/lib/routes/tour-photos';
-import { loadFeedAuthorSlugs } from '@/lib/photos/author-feed';
+import { loadFeedAuthorSlugs } from '@/lib/media/author-feed';
 import { payloadText, payloadStrings } from '@/lib/routes/payload-text';
 import { registryPassportPdf } from '@/lib/routes/distance-words';
 import { parseRegistryPassports } from '@/lib/routes/registry-passport';

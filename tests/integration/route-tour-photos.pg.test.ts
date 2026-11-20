@@ -1,6 +1,6 @@
 /**
  * Снимки туров на карточках маршрутов и фотолента автора — на настоящем
- * PostgreSQL (21.11, lib/routes/tour-photos, lib/photos/author-feed).
+ * PostgreSQL (21.11, lib/routes/tour-photos, lib/media/author-feed).
  *
  * Мок ответил бы на любой SQL, поэтому отбор судится здесь, на схеме прода
  * (baseline + миграции):
@@ -152,8 +152,8 @@ withPg('снимки туров на маршрутах и фотолента а
   });
 
   it('лента: снимок с лицензией — есть, со ссылкой на место; без лицензии — ленты нет', async () => {
-    const { loadAuthorFeed } = await import('@/lib/photos/author-feed');
-    const { authorFeedSlug } = await import('@/lib/photos/author-credit');
+    const { loadAuthorFeed } = await import('@/lib/media/author-feed');
+    const { authorFeedSlug } = await import('@/lib/media/author-credit');
     const beta = await loadAuthorFeed(authorFeedSlug(TOURIST)!);
     expect(beta.state).toBe('ok');
     if (beta.state !== 'ok') return;

@@ -1,8 +1,8 @@
 import Link from 'next/link';
-import type { PhotoCredit } from '@/lib/photos/author-credit';
+import type { PhotoCredit } from '@/lib/media/author-credit';
 
 /**
- * Имя автора снимка — ссылкой, если ей есть куда вести (lib/photos/
+ * Имя автора снимка — ссылкой, если ей есть куда вести (lib/media/
  * author-credit): страница партнёра или фотолента автора. Одинаково для всех
  * партнёров и авторов, без пометок и без порядка «лучших» (§0).
  */

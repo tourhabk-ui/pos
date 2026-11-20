@@ -18,7 +18,7 @@
  */
 import { shownPhotoSql } from '@/lib/images/origin';
 import { galleryShownSql } from '@/lib/places/gallery-shown';
-import { authorFeedSlug, photoCreditFor, type PhotoCredit } from '@/lib/photos/author-credit';
+import { authorFeedSlug, photoCreditFor, type PhotoCredit } from '@/lib/media/author-credit';
 
 export const WAYPOINT_PHOTOS_LIMIT = 8;
 

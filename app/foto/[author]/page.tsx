@@ -2,13 +2,13 @@ import type { Metadata } from 'next';
 import Link from 'next/link';
 import { notFound } from 'next/navigation';
 import { Header } from '@/components/layout/Header';
-import { authorFeedEnabled } from '@/lib/photos/author-credit';
-import { loadAuthorFeed } from '@/lib/photos/author-feed';
+import { authorFeedEnabled } from '@/lib/media/author-credit';
+import { loadAuthorFeed } from '@/lib/media/author-feed';
 import { AuthorPhotoGrid } from '@/components/media/AuthorPhotoGrid';
 
 /**
  * Фотолента автора — «маленькая инста» (владелец 21.11). Что в неё попадает
- * и почему страница закрыта от индекса — lib/photos/author-feed.
+ * и почему страница закрыта от индекса — lib/media/author-feed.
  * Адрес — транслит имени из подписи; ни контактов, ни учётной записи.
  */
 export const revalidate = 600;

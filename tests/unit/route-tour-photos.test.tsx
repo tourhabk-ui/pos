@@ -23,9 +23,9 @@ vi.mock('@/hooks/use-wishlist', () => ({
   WISHLIST_LOCAL_ONLY_HINT: '',
 }));
 
-import { photoCreditFor, authorFeedPath, authorFeedSlug, authorFeedEnabled } from '@/lib/photos/author-credit';
+import { photoCreditFor, authorFeedPath, authorFeedSlug, authorFeedEnabled } from '@/lib/media/author-credit';
 import { toRouteTourPhotos, ROUTE_TOUR_PHOTOS_SQL, ROUTE_CARD_TOUR_PHOTOS_SQL, routeTourLinksSql } from '@/lib/routes/tour-photos';
-import { AUTHOR_FEED_SQL, groupFeeds } from '@/lib/photos/author-feed';
+import { AUTHOR_FEED_SQL, groupFeeds } from '@/lib/media/author-feed';
 import { PLACE_CARDS_CONSENT_FROM } from '@/lib/legal/partner-materials-consent';
 import RoutePathCard from '@/components/routes/RoutePathCard';
 import { AuthorPhotoGrid } from '@/components/media/AuthorPhotoGrid';

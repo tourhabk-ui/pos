@@ -19,7 +19,7 @@
  *     только если тур записан на место или маршрут: снимку без места
  *     перейти некуда.
  * Автор, чьё имя совпадает с именем партнёра, ленты не получает: его
- * подпись ведёт на страницу партнёра (lib/photos/author-credit).
+ * подпись ведёт на страницу партнёра (lib/media/author-credit).
  *
  * ── Чего в ленте нет ──────────────────────────────────────────────────────
  *
@@ -39,7 +39,7 @@ import { shownPhotoSql } from '@/lib/images/origin';
 import { galleryShownSql } from '@/lib/places/gallery-shown';
 import { routeSlugPath } from '@/lib/routes/url-slug';
 import { tourPhotoAllowedSql } from '@/lib/routes/tour-photos';
-import { authorFeedSlug } from '@/lib/photos/author-credit';
+import { authorFeedSlug } from '@/lib/media/author-credit';
 import { logText } from '@/lib/log/log-text';
 
 export const AUTHOR_FEED_MAX = 600;
@@ -178,9 +178,4 @@ export async function loadFeedAuthorSlugs(): Promise<Set<string>> {
   } catch {
     return new Set();
   }
-}
-
-/** Сводка лент для проверки: slug и число снимков, без имён и без адресов. */
-export async function feedCensus(): Promise<Array<{ slug: string; photos: number }>> {
-  return (await loadAll()).map((f) => ({ slug: f.slug, photos: f.photos.length }));
 }

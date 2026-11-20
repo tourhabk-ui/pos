@@ -5,7 +5,7 @@ import { catalogHref } from '@/lib/routes/url-slug';
 import { useWishlist, wishlistLabel, WISHLIST_LOCAL_ONLY_HINT } from '@/hooks/use-wishlist';
 import type { RouteTourPrice } from '@/lib/routes/route-tour-price';
 import RouteTourPriceLine from './RouteTourPriceLine';
-import type { PhotoCredit } from '@/lib/photos/author-credit';
+import type { PhotoCredit } from '@/lib/media/author-credit';
 import { Heart, Flame, Thermometer, Anchor, Mountain, Leaf, Fish, Snowflake, Plane, Car, Wind, Footprints, PawPrint, MapPin, Waves, Droplets, Landmark, TreePine, Globe } from 'lucide-react';
 
 export interface RouteItem {

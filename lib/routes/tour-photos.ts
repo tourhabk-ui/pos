@@ -35,7 +35,7 @@
  */
 import { publicTourSql } from '@/lib/tours/public-visibility';
 import { partnerPlaceCardsConsentSql } from '@/lib/places/gallery-shown';
-import { authorFeedSlug, photoCreditFor, type PhotoCredit } from '@/lib/photos/author-credit';
+import { authorFeedSlug, photoCreditFor, type PhotoCredit } from '@/lib/media/author-credit';
 
 export const TOUR_PHOTOS_LIMIT = 6;
 
@@ -107,7 +107,7 @@ const s = (v: unknown): string | null => (typeof v === 'string' && v.trim() ? v.
 /**
  * Строки базы → снимки. Строка без адреса или без автора отбрасывается и
  * здесь, а не только в SQL: снимок без подписи на карточку не попадает.
- * Ссылка подписи — lib/photos/author-credit; `feedSlugs` — авторы с лентой.
+ * Ссылка подписи — lib/media/author-credit; `feedSlugs` — авторы с лентой.
  */
 export function toRouteTourPhotos(rows: readonly TourPhotoRow[], opts: { feedSlugs?: ReadonlySet<string>; feedEnabled?: boolean } = {}): RouteTourPhoto[] {
   const out: RouteTourPhoto[] = [];
@@ -119,7 +119,7 @@ export function toRouteTourPhotos(rows: readonly TourPhotoRow[], opts: { feedSlu
     const credit = photoCreditFor({
       author,
       partner: { name: partnerName, slug: s(r.partner_slug), isPublic: r.partner_public === true },
-      // Лента — только у автора, чьи снимки в неё прошли (lib/photos/author-feed).
+      // Лента — только у автора, чьи снимки в неё прошли (lib/media/author-feed).
       feedEligible: opts.feedSlugs?.has(authorFeedSlug(author) ?? '') ?? false,
       feedEnabled: opts.feedEnabled,
     });

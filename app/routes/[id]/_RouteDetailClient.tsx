@@ -36,7 +36,7 @@ import { registerFormHref } from '@/lib/safety/register-submit';
 import { type RouteItem } from '@/components/routes/RouteCard';
 import { RelatedRoutes } from '@/components/routes/RelatedRoutes';
 import { PhotoCreditLink } from '@/components/media/PhotoCreditLink';
-import type { PhotoCredit } from '@/lib/photos/author-credit';
+import type { PhotoCredit } from '@/lib/media/author-credit';
 import type { RouteTourPhoto } from '@/lib/routes/tour-photos';
 import { RecordModified } from '@/components/seo/RecordModified';
 import { useSourceTracker } from '@/hooks/useSourceTracker';
