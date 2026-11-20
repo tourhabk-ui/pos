@@ -1,4 +1,5 @@
 import Link from 'next/link';
+import { routeSlugPath } from '@/lib/routes/url-slug';
 import { MapPin, Route, TrendingUp, Eye } from 'lucide-react';
 import { locationTypeLabel } from '@/lib/places/location-types';
 import type { TrendingPlace, TrendingRoute } from '@/lib/trending/load';
@@ -112,7 +113,7 @@ export function TrendingLists({ places, routes, failed }: {
                 <ol className="grid grid-cols-1 sm:grid-cols-2 gap-4">
                   {routes.map((r, idx) => (
                     <li key={r.id}>
-                      <Link href={`/routes/${r.slug ?? r.id}`} className="ds-card group block h-full p-4 hover:shadow-md transition-all duration-200">
+                      <Link href={routeSlugPath(r.slug ?? r.id)} className="ds-card group block h-full p-4 hover:shadow-md transition-all duration-200">
                         <div className="flex items-start gap-3">
                           <span className="text-[var(--accent)] font-bold text-2xl font-playfair shrink-0 w-8">
                             {idx + 1}
