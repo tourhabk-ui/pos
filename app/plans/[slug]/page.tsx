@@ -210,7 +210,14 @@ export default async function PlanPresetPage({ params }: PageProps) {
                 </h3>
                 {price && <span className="text-xs flex-none" style={{ color: 'var(--text-secondary)' }}>{price}</span>}
               </div>
-              <p className="text-sm" style={{ color: 'var(--text-secondary)' }}>{day.description}</p>
+              {/* У дня без тура движка описание — справка вида (seasonNote); тур,
+                  подобранный страницей по виду (source 'kind'), — другой: под
+                  ним справка подписывала чужой тур (июнь: тур на Горелый под
+                  «Восхождение на Авачинский…», Сыщик 20.11; #3598 закрыл только
+                  тур движка). */}
+              {day.description && !(tour && picked?.source === 'kind') && (
+                <p className="text-sm" style={{ color: 'var(--text-secondary)' }}>{day.description}</p>
+              )}
               <div className="text-xs" style={{ color: 'var(--text-muted)' }}>
                 {ZONE_LABELS[day.zone] ?? day.zone}
               </div>
