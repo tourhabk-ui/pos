@@ -421,6 +421,21 @@ describe('отмена: слова оператора — из условий и
     expect(mcp).not.toMatch(/НЕ ЗАПИСАНЫ\. Не называй сроков/);
   });
 
+  it('правило о цунами «не возвращайтесь к берегу» — не условие отмены: блока нет, MCP «не записаны» (тур ID124, 20.11)', async () => {
+    const tsunami = 'При угрозе цунами: если на берегу почувствовали сильное землетрясение или получили предупреждение, '
+      + 'сразу уходите от воды вглубь суши, на возвышенность. Не задерживайтесь для съёмки и не возвращайтесь к берегу до официального отбоя тревоги.';
+    const t: Fixture = { ...UZON, id: 9124, safety_notes: [tsunami] };
+    const card = renderCard(t);
+    expect(card.querySelector('[data-tour-cancellation]')).toBeNull();
+    const form = flat(card.querySelector('#booking')?.textContent ?? card.textContent);
+    expect(form).not.toContain(SAFETY_NOTES_CANCELLATION_HEAD);
+    cleanup();
+    expect((await apiTour(t)).cancellationText ?? '').not.toContain('возвращайтесь');
+    const mcp = await mcpDetails(t);
+    expect(mcp).toMatch(/Условия отмены и возврата у этого тура НЕ ЗАПИСАНЫ/);
+    expect(mcp).not.toContain(SAFETY_NOTES_CANCELLATION_HEAD);
+  });
+
   it('условия записаны — одни и те же строки везде', async () => {
     const card = renderCard(PERVAL);
     const block = flat(card.querySelector('[data-tour-cancellation]')?.textContent);
