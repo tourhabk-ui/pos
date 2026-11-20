@@ -29,7 +29,26 @@ export function HeroPhoto({ src, alt, objectPosition, filter }: {
   filter?: string;
 }) {
   return (
-    <>
+    // Резкий кадр (LCP, priority) идёт в разметке первым, размытый фон — за
+    // ним, а слой задаёт z-index внутри изолированной обёртки. Прежде первым
+    // <img> страницы был фон с loading="lazy", и проверки LCP (seomator 20.11)
+    // принимали за героя его. Фон остаётся lazy: на телефоне он не качается.
+    <span data-hero-photo="" className="absolute inset-0 isolate">
+      <span
+        data-hero-frame=""
+        className="absolute inset-y-0 left-1/2 -translate-x-1/2 w-full max-w-6xl z-[1] lg:[mask-image:linear-gradient(to_right,transparent,black_6%,black_94%,transparent)]"
+      >
+        <Image
+          src={photoSrc(src, 1280)}
+          alt={alt}
+          fill
+          priority
+          fetchPriority="high"
+          sizes="(min-width: 1152px) 1152px, 100vw"
+          className="object-cover lg:object-contain"
+          style={{ objectPosition, filter }}
+        />
+      </span>
       {/* Фон широкого экрана. На телефоне его не видно — и не качается
           (display:none + lazy). Размытому кадру хватает нарезки 320. */}
       <Image
@@ -43,21 +62,6 @@ export function HeroPhoto({ src, alt, objectPosition, filter }: {
         className="hidden lg:block object-cover scale-110 blur-2xl"
         style={{ objectPosition }}
       />
-      <span
-        data-hero-frame=""
-        className="absolute inset-y-0 left-1/2 -translate-x-1/2 w-full max-w-6xl lg:[mask-image:linear-gradient(to_right,transparent,black_6%,black_94%,transparent)]"
-      >
-        <Image
-          src={photoSrc(src, 1280)}
-          alt={alt}
-          fill
-          priority
-          fetchPriority="high"
-          sizes="(min-width: 1152px) 1152px, 100vw"
-          className="object-cover lg:object-contain"
-          style={{ objectPosition, filter }}
-        />
-      </span>
-    </>
+    </span>
   );
 }

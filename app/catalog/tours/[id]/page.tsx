@@ -8,7 +8,7 @@ import { reachForTour } from '@/lib/partners/reach';
 import TourDetailClient from './_TourDetailClient';
 import { buildTourStructuredData } from '@/lib/seo/tour-structured-data';
 import { tourHeroImage } from '@/lib/tours/hero-image';
-import { countTourDates, availabilityFromDates } from '@/lib/tours/open-dates';
+import { countTourDates, offerAvailability } from '@/lib/tours/open-dates';
 import { formSeasonNote, requestWindow, seasonWindowView } from '@/lib/tours/request-window';
 import { calendarRangeOf } from '@/lib/tours/season-words';
 import { kamchatkaToday } from '@/lib/seat-requests/core';
@@ -124,7 +124,7 @@ export default async function CatalogTourDetailPage({ params }: Props) {
     canonicalUrl: `${SITE}${tourPath(tour)}`,
     siteUrl: SITE,
     activityLabel: activityLabel(tour.activity_type),
-    availability: availabilityFromDates(dates),
+    availability: offerAvailability(dates, requestWindow(seasonInput, kamchatkaToday())),
   });
   // Заявка как действие для агентов (schema.org ReserveAction): запрос
   // оператору, не мгновенная бронь.

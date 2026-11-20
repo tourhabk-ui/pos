@@ -206,6 +206,9 @@ export default async function RootLayout({ children }: { children: React.ReactNo
               {
                 "@context": "https://schema.org",
                 "@type": "WebSite",
+                // @id — чтобы страницы ссылались на сайт и организацию одним
+                // узлом, а не копией (seomator 20.11).
+                "@id": `${BASE_URL}/#website`,
                 "name": "Ведар Камчатка",
                 "url": BASE_URL,
                 "description": "Информационный портал о Камчатке: маршруты, карта, безопасность, AI-помощник и туры местных операторов. Не турагентство и не туроператор.",
@@ -245,6 +248,16 @@ export default async function RootLayout({ children }: { children: React.ReactNo
                 "logo": `${BASE_URL}/icons/icon-512.png`,
                 "email": REQUISITES.emailSupport,
                 "telephone": REQUISITES.phone,
+                // Контакт поддержки — те же телефон и почта из реквизитов
+                // (seomator 20.11: contactPoint не было).
+                "contactPoint": [{
+                  "@type": "ContactPoint",
+                  "contactType": "customer support",
+                  "telephone": REQUISITES.phone,
+                  "email": REQUISITES.emailSupport,
+                  "areaServed": "RU",
+                  "availableLanguage": ["ru"]
+                }],
                 "address": {
                   "@type": "PostalAddress",
                   "addressCountry": "RU",

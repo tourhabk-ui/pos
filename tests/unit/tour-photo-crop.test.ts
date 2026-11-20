@@ -33,7 +33,9 @@ describe('кроп фотографий туров прижат к верху', 
   // тура на мобильной главной: все туры теперь в ленте плат выше.
 
   it('тур недели на десктопе', () => {
-    expect(FEATURED).toMatch(/bg-cover bg-top/);
+    // С 21.11 — <img alt> вместо CSS-фона (seomator), кроп тот же: верх.
+    expect(FEATURED).toMatch(/object-cover object-top/);
+    expect(FEATURED).not.toMatch(/backgroundImage/);
   });
 });
 

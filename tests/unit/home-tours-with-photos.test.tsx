@@ -139,3 +139,16 @@ describe('подпись порядка видна на витрине (прав
     expect(byText(section, HOME_TOURS_PHOTO_NOTE)).toBeDefined();
   });
 });
+
+describe('снимки витрины — <img alt>, а не CSS-фон (seomator 20.11)', () => {
+  it('десктоп: у карточки тура картинка с подписью — названием тура', () => {
+    const p = plate('a', 'dates', '/images/a.jpg');
+    const { container } = render(<DeskTours plates={[p]} total={40} rentalDoor={false} />);
+    const section = container.querySelector('section[aria-labelledby="desk-tours-title"]')!;
+    const img = section.querySelector('img');
+    expect(img).not.toBeNull();
+    expect(img!.getAttribute('alt')).toBe(p.title);
+    expect(img!.getAttribute('src')).toContain('/images/a');
+    expect(section.querySelector('[style*="background-image"]')).toBeNull();
+  });
+});

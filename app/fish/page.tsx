@@ -7,6 +7,7 @@ import { FISH_SPECIES, formatSeasonMonths } from '@/lib/fish-species';
 import { defaultOgImages } from '@/lib/seo/og-image';
 import { FishingToursBlock } from '@/components/fish/FishingToursBlock';
 import { getFishingTours } from '@/lib/fish/fishing-tours';
+import { BreadcrumbJsonLd } from '@/components/seo/JsonLd';
 
 // Рендер на запросе, как у /fish/[id]: туры читаются из базы.
 export const dynamic = 'force-dynamic';
@@ -41,6 +42,11 @@ export default async function FishIndexPage() {
   return (
     <>
       <Header />
+      {/* Хлебные крошки (seomator 20.11: у места, маршрута и тура были, у /fish нет). */}
+      <BreadcrumbJsonLd items={[
+        { name: 'Главная', url: 'https://vedarai.ru' },
+        { name: 'Рыбы Камчатки', url: 'https://vedarai.ru/fish' },
+      ]} />
       {/* Витрина (lib/layout/page-width, 14.11): до этого у страницы не было ни
           ширины, ни полей — сетка видов шла от края до края окна. */}
       <main className="ds-page pb-16">

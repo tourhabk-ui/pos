@@ -63,6 +63,24 @@ export function availabilityFromDates(c: DatesCount | null): OfferAvailability |
   return c.open > 0 ? 'https://schema.org/InStock' : 'https://schema.org/SoldOut';
 }
 
+/**
+ * Offer.availability тура (новые проблемы seomator 20.11: у туров без
+ * календаря поля не было вовсе). Календарь записан — по свободным местам
+ * (availabilityFromDates). Календаря нет, а окно выездов по сезону открыто
+ * (lib/tours/request-window, `season`) — InStock: заявка принимается на любой
+ * день окна, дату подтверждает оператор. Сезона нет, он прошёл или счёт дат
+ * не прочитался — поля нет: «не знаем» не равно «в наличии».
+ */
+export function offerAvailability(
+  c: DatesCount | null,
+  window: { kind: 'season' } | { kind: 'unbounded' },
+): OfferAvailability | null {
+  if (c === null) return null;
+  const byDates = availabilityFromDates(c);
+  if (byDates) return byDates;
+  return window.kind === 'season' ? 'https://schema.org/InStock' : null;
+}
+
 export async function countTourDates(tourId: number): Promise<DatesCount | null> {
   try {
     const { rows } = await pool.query<{ recorded: string; open: string; first_date?: string | null; last_date?: string | null }>(

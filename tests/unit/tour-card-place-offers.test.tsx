@@ -78,7 +78,7 @@ describe('страница передаёт карточке то, что вер
       loadTourCard: async () => ({ tour: TOUR, byId: false }),
       getTourReviews: async () => [],
     }));
-    vi.doMock('@/lib/tours/open-dates', () => ({ countTourDates: async () => null, availabilityFromDates: () => undefined }));
+    vi.doMock('@/lib/tours/open-dates', () => ({ countTourDates: async () => null, availabilityFromDates: () => undefined, offerAvailability: () => null }));
     vi.doMock('@/lib/partners/reach', () => ({ reachForTour: async () => null }));
     vi.doMock('@/lib/places/place-tours', () => ({ loadPlaceOffersForTour }));
     vi.doMock('@/lib/seo/tour-structured-data', () => ({ buildTourStructuredData: () => ({}) }));

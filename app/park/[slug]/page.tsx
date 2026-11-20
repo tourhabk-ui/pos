@@ -7,7 +7,7 @@ import { loadParkPage, type ParkPageData } from '@/lib/parks/park-page';
 import { defaultOgImages } from '@/lib/seo/og-image';
 import { chronicleForPark } from '@/lib/chronicle/articles';
 import ParkClient from './_ParkClient';
-import { JsonLd } from '@/components/seo/JsonLd';
+import { JsonLd, BreadcrumbJsonLd } from '@/components/seo/JsonLd';
 import { parkJsonLd } from '@/lib/parks/park-jsonld';
 import { webPageModifiedJsonLd } from '@/lib/seo/record-modified';
 
@@ -73,6 +73,12 @@ export default async function ParkPage({ params }: { params: Promise<{ slug: str
       ) : (
         <>
         <JsonLd data={parkJsonLd(park, SITE)} />
+        {/* Хлебные крошки (seomator 20.11: у места, маршрута и тура были, у парка нет). */}
+        <BreadcrumbJsonLd items={[
+          { name: 'Главная', url: SITE },
+          { name: 'Парки, заповедники и заказники Камчатки', url: `${SITE}/park` },
+          { name: park.displayName, url: `${SITE}/park/${park.slug}` },
+        ]} />
         {/* Дата правки записи парка — узлом WebPage: у Park нет dateModified
             (lib/seo/record-modified). Поля нет — узла нет. */}
         {(() => {
