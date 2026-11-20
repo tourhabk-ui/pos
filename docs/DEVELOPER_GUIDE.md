@@ -366,6 +366,20 @@ CI (`ci.yml`): `ci` (tsc + vitest), `lint`, `kernel-pg` (pg-тесты на се
 PostgreSQL) — только при изменении `*.ts/tsx/js/mjs`. Маркер-онли PR получает
 лишь `gate` + `check`. После мержа `post-merge.yml` обновляет цифры README.
 
+### 4.7а WebMCP — инструменты Ведара на странице
+
+Агент, встроенный в Chrome, видит инструменты страницы через
+`document.modelContext` (черновик W3C CG, пробный запуск Chrome 149–156).
+`components/shared/WebMcpTools.tsx` в корневом макете регистрирует шесть
+инструментов чтения (`WEBMCP_TOOL_NAMES`, `lib/webmcp/page-tools.ts`): описание
+и схема — из `tools/list` нашего `/api/mcp`, вызов — его же `tools/call`.
+Своих правил у страницы нет. Заявок среди них нет: форма заявки на тур — только
+декларативный инструмент без `toolautosubmit` (`lib/webmcp/form-attrs.ts`):
+агент заполняет, галочку согласия и отправку делает человек. Нет API — нет ни
+запроса, ни ошибки; на сайте партнёра инструментов и ключа нет. Ключ пробного
+запуска — переменная `WEBMCP_ORIGIN_TRIAL_TOKEN` (пусто — тега нет). Сторожа:
+`tests/unit/webmcp-page-tools.test.ts`, `tests/unit/webmcp-form-attrs.test.tsx`.
+
 ### 4.8 Сторожа — как читать падение
 
 272 файла в `tests/unit/` — не юнит-тесты функций, а текстовые проверки правил:

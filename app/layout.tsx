@@ -138,6 +138,8 @@ import { OfflineBanner } from '@/components/PWA/OfflineBanner'
 import { GlobalSearchModal } from '@/components/search/GlobalSearchModal'
 import { LastPositionTracker } from '@/components/tracking/LastPositionTracker'
 import { ReferralCapture } from '@/components/shared/ReferralCapture'
+import { WebMcpTools } from '@/components/shared/WebMcpTools'
+import { webmcpOriginTrialToken } from '@/lib/webmcp/origin-trial'
 
 export default async function RootLayout({ children }: { children: React.ReactNode }) {
   // Язык документа — по первому сегменту пути (lib/i18n/root-lang): /en/* —
@@ -155,6 +157,11 @@ export default async function RootLayout({ children }: { children: React.ReactNo
   // организация, сайт vedarai.ru» на чужом домене приписала бы сайт партнёра
   // Ведару. Свою разметку организации ставит сама страница партнёра.
   const onPartnerSite = partnerSiteOfRequest(requestHeaders) !== null;
+  // WebMCP (lib/webmcp): ключ пробного запуска Chrome — из переменной
+  // окружения, пустая — тега нет. На домене партнёра нет ни ключа, ни
+  // инструментов: там его витрина (§0), а инструменты Ведара показали бы
+  // туры всех компаний.
+  const originTrialToken = onPartnerSite ? null : webmcpOriginTrialToken();
   return (
     <html lang={lang} suppressHydrationWarning>
       <head>
@@ -180,6 +187,7 @@ export default async function RootLayout({ children }: { children: React.ReactNo
             На домене партнёра её нет: каталог называет агентов Ведара, и
             ссылка приписала бы их сайту партнёра. */}
         {!onPartnerSite && <link rel="ard" href={ARD_PATH} type={ARD_MEDIA_TYPE} />}
+        {originTrialToken && <meta httpEquiv="origin-trial" content={originTrialToken} />}
       </head>
       <body className="min-h-screen transition-colors duration-300">
         <Providers>
@@ -189,6 +197,7 @@ export default async function RootLayout({ children }: { children: React.ReactNo
           <LastPositionTracker />
           {/* Приглашение приземляется на любую страницу, не только на главную. */}
           <ReferralCapture />
+          {!onPartnerSite && <WebMcpTools />}
         </Providers>
         {!onPartnerSite && <script
           type="application/ld+json"
