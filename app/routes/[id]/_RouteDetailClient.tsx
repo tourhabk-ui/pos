@@ -25,6 +25,8 @@ import AvailabilityCalendar from '@/components/routes/AvailabilityCalendar';
 import { RouteOfferSortBar } from '@/components/routes/RouteOfferSortBar';
 import { sortRouteOffers, type RouteOfferSort } from '@/lib/routes/route-offer-sort';
 import ParkPermitAction from '@/components/safety/ParkPermitAction';
+import { ParkApprovedRoute } from '@/components/routes/ParkApprovedRoute';
+import type { ApprovedRouteCase } from '@/lib/parks/approved-routes-words';
 import type { RoutePermitCardCase } from '@/lib/parks/route-permit-card';
 import ReliefChart from '@/components/routes/ReliefChart';
 import MchsRegistrationBlock from '@/components/safety/MchsRegistrationBlock';
@@ -235,6 +237,8 @@ export interface RouteDetail {
   parkApprovalUrl: string | null;
   /** Условия посещения территории — случай с сервера; у старой офлайн-копии поля нет. */
   permit?: RoutePermitCardCase | null;
+  /** Утверждённый маршрут парка (lib/parks/approved-routes); у старой офлайн-копии поля нет. */
+  approvedRoute?: ApprovedRouteCase | null;
   hazards: string[] | null;
   distanceKm: number | null;
   elevationGainM: number | null;
@@ -1835,6 +1839,15 @@ export default function RouteDetailClient({ id, mapPackBaseUrl, summary = null, 
               parkApprovalUrl={route.parkApprovalUrl}
               permit={route.permit ?? null}
             />
+          </div>
+        )}
+
+        {/* ── Утверждённый маршрут парка (20.11) ─────────────────────────────
+            Список парка «Туристические маршруты»: есть в нём — сезоны, способ
+            передвижения, паспорт и трек парка; не нашли — так и сказано. */}
+        {route.approvedRoute && (
+          <div className="mt-10 pt-8 border-t border-[var(--border)]">
+            <ParkApprovedRoute approved={route.approvedRoute} />
           </div>
         )}
 

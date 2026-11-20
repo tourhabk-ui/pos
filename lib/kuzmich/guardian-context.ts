@@ -25,6 +25,7 @@ import { PLACE_COLOR_WORD, PARK_SEASON_ANSWER, PARK_SEASON_NOTE, kamchatkaStamp,
 import type { GuardianPlaceStatus, GuardianRouteStatus, GuardianStructured } from '@/lib/mcp/place-status-schema';
 import { namedRouteAlerts, routeToday, routeTodayLines, ROUTE_TODAY_MARK, type RouteToday } from '@/lib/routes/route-today';
 import { permitLinesForRoutes, routePermitCasesFor } from '@/lib/parks/route-permit';
+import { approvedRouteCaseByParkName, approvedRouteLines } from '@/lib/parks/approved-routes';
 import { stemRu } from '@/lib/search/query-words';
 import { VERDICT_LABELS } from '@/lib/routes/go-verdict';
 import { KURIL_NORTH_NOTE, isOutsideKraiSources } from '@/lib/safety/kuril-north';
@@ -860,13 +861,16 @@ export async function getGuardianContextDetailed(placeNameRaw: string, opts: Gua
   }
   // Оценка дня и условия посещения территории читаются разом: это разные
   // таблицы, и ждать одну ради другой незачем.
-  const [subjectToday, subjectPermitCases, similarToday] = await Promise.all([
+  const [subjectToday, subjectPermitCases, similarToday, subjectApproved] = await Promise.all([
     Promise.all(subjectRoutes.map((r) => routeToday(r.db_id as string))),
     routePermitCasesFor(subjectRoutes),
     // У похожего маршрута оценка считается ради одного: не уронить запрет молча.
     Promise.all(similarRoutes.map((r) => routeToday(r.db_id as string))),
+    // Утверждённый маршрут парка (20.11) — те же слова, что на карточке и в MCP.
+    Promise.all(subjectRoutes.map((r) => approvedRouteCaseByParkName(r.db_id as string, (r.park_name as string | null | undefined) ?? null))),
   ]);
-  const subjectPermitLines = permitLinesForRoutes(subjectRoutes, subjectPermitCases);
+  const subjectPermitLines = permitLinesForRoutes(subjectRoutes, subjectPermitCases)
+    .map((lines, i) => [...lines, ...approvedRouteLines(subjectApproved[i] ?? null)]);
   const routeStatuses: GuardianRouteStatus[] = [];
 
   const parts: string[] = [];

@@ -21,6 +21,7 @@ import { MIN_ROUTE_WAYPOINTS } from '@/lib/routes/navigability';
 import { routeInParkSql } from '@/lib/parks/route-in-park';
 import { routePermitCaseFor } from '@/lib/parks/route-permit';
 import { permitCardCase } from '@/lib/parks/route-permit-card';
+import { approvedRouteCaseFor } from '@/lib/parks/approved-routes';
 import { routeCardNavigability, hasCoords, type WaypointRow } from '@/lib/routes/card-navigability';
 import { explainNavigability, type ExplainedDecision } from '@/lib/explain/navigability-explainer';
 import { deriveStages, NEAR_LINE_KM, type DerivedStagesResult } from '@/lib/routes/derived-stages';
@@ -108,6 +109,7 @@ export async function loadRouteDetail(id: string, opts: RouteDetailOptions) {
        -- это словами, а не молчит пустым местом.
        (kr.description_withdrawn IS NOT NULL) AS description_withdrawn,
        pk.slug AS park_slug,
+       pk.display_name AS park_display_name,
        COALESCE(kr.geometry, krs.geometry) AS geometry
      FROM agent_route_knowledge ark
      LEFT JOIN ai_route_images ari ON ari.route_id = ark.id
@@ -130,7 +132,7 @@ export async function loadRouteDetail(id: string, opts: RouteDetailOptions) {
        LIMIT 1
      ) krs ON TRUE
      LEFT JOIN LATERAL (
-       SELECT slug FROM parks
+       SELECT slug, display_name FROM parks
        WHERE kr.park_name IS NOT NULL
          AND ${routeInParkSql('kr.park_name', 'search_term', 'display_name')}
          AND is_active
@@ -159,6 +161,15 @@ export async function loadRouteDetail(id: string, opts: RouteDetailOptions) {
     title: r.title as string | null,
     park_name: r.park_name as string | null,
   }));
+
+  // Утверждённый маршрут парка (20.11, lib/parks/approved-routes): есть в
+  // списке парка — что и когда разрешено; парк из трёх, а в списке не нашли —
+  // так и сказано; отказ чтения — null, карточка молчит.
+  const approvedRoute = await approvedRouteCaseFor(
+    routeDbId,
+    (r.park_slug as string | null) ?? null,
+    (r.park_display_name as string | null) ?? null,
+  );
 
   // Increment view count (fire-and-forget)
   if (opts.countView) {
@@ -546,6 +557,8 @@ export async function loadRouteDetail(id: string, opts: RouteDetailOptions) {
        * «нужно разрешение парка» или сказать, что территория не записана.
        */
       permit: permitCase,
+      /** Утверждённый маршрут парка; null — вне трёх парков или не прочиталось. */
+      approvedRoute,
       hazards:         (r.hazards as string[] | null) ?? null,
       distanceKm:      r.distance_km != null ? Number(r.distance_km) : null,
       elevationGainM:  r.elevation_gain_m != null ? Number(r.elevation_gain_m) : null,

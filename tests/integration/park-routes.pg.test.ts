@@ -22,6 +22,9 @@ import { Pool } from 'pg';
 import { PARK_ROUTES_SQL } from '../../lib/parks/park-page';
 import { routeInParkSql } from '../../lib/parks/route-in-park';
 import { createTestDatabase } from '../helpers/pg-schema';
+import { readFileSync } from 'node:fs';
+import { join } from 'node:path';
+import { APPROVED_FOR_ROUTE_SQL } from '../../lib/parks/approved-routes';
 
 const PG_URL = process.env.KERNEL_PG_TEST_URL ?? '';
 const withPg = PG_URL ? describe : describe.skip;
@@ -114,5 +117,64 @@ withPg('маршруты парка и заказник-тёзка', () => {
     expect(await parkPageOf('Южно-Камчатский заказник имени Т.И. Шпиленка')).toBe('yuzhno-kamchatsky-zakaznik');
     expect(await parkPageOf('Природный парк «Ключевской»')).toBe('klyuchevskoy');
     expect(await parkPageOf(null)).toBeNull();
+  });
+
+  /**
+   * Утверждённые маршруты парков (1468, 20.11): список страницы парка ложится
+   * вариантами по сезонам, связь с нашим маршрутом — только по сверенному
+   * slug; маршрута с таким slug нет — связи нет; повтор ничего не меняет.
+   */
+  describe('утверждённые маршруты парков (1468)', () => {
+    const MIGRATION = readFileSync(join(process.cwd(), 'migrations/1468_park_approved_routes.sql'), 'utf-8');
+
+    beforeAll(async () => {
+      await pool.query(`INSERT INTO parks (slug, display_name, search_term) VALUES
+        ('nalychevo', 'Природный парк «Налычево»', 'Налычево'),
+        ('bystrinskiy', 'Природный парк «Быстринский»', 'Быстринск'),
+        ('vilyuchinsky', 'Природный парк «Вилючинский»', 'Вилючинск')
+        ON CONFLICT (slug) DO NOTHING`);
+      for (const slug of ['visitkamchatka-avachin-centre', 'voshozhdenie-na-avachinskij-vulkan', 'vilyuchinskij-vodopad']) {
+        await pool.query(
+          `INSERT INTO kamchatka_routes (category, title, slug, park_name) VALUES ('hiking', $1::text, $1::text, 'Природный парк Налычево')`,
+          [slug],
+        );
+      }
+      await pool.query(MIGRATION);
+      await pool.query(MIGRATION);
+    });
+
+    it('50 вариантов 32 маршрутов трёх парков; один открытый вариант статусом не записан', async () => {
+      const { rows } = await pool.query<{ park_slug: string; n: string; titles: string }>(
+        `SELECT park_slug, count(*)::text AS n, count(DISTINCT title)::text AS titles FROM park_approved_routes GROUP BY 1 ORDER BY 1`);
+      expect(rows).toEqual([
+        { park_slug: 'bystrinskiy', n: '26', titles: '14' },
+        { park_slug: 'nalychevo', n: '18', titles: '14' },
+        { park_slug: 'vilyuchinsky', n: '6', titles: '4' },
+      ]);
+    });
+
+    it('связи — только к существующим маршрутам по сверенному slug, с заметкой', async () => {
+      const { rows } = await pool.query<{ slug: string; title: string; note: string }>(
+        `SELECT r.slug, a.title, l.checked_note AS note
+           FROM park_approved_route_links l
+           JOIN park_approved_routes a ON a.id = l.approved_route_id
+           JOIN kamchatka_routes r ON r.id = l.route_id
+          ORDER BY r.slug, a.season`);
+      const slugs = [...new Set(rows.map((r) => r.slug))].sort();
+      expect(slugs).toEqual(['vilyuchinskij-vodopad', 'visitkamchatka-avachin-centre', 'voshozhdenie-na-avachinskij-vulkan']);
+      expect(rows.every((r) => r.note.length >= 8)).toBe(true);
+      // У водопада два варианта (лето и зима) — обе строки связаны.
+      expect(rows.filter((r) => r.slug === 'vilyuchinskij-vodopad').map((r) => r.title)).toEqual(['Вилючинский водопад', 'Вилючинский водопад']);
+    });
+
+    it('чтение карточки: варианты маршрута с парком, сезоном, паспортом и треком', async () => {
+      const { rows: [route] } = await pool.query<{ id: string }>(`SELECT id::text AS id FROM kamchatka_routes WHERE slug = 'vilyuchinskij-vodopad'`);
+      const { rows } = await pool.query<{ park_name: string; title: string; season: string; passport_urls: string[]; track_url: string | null; read_on: string }>(
+        APPROVED_FOR_ROUTE_SQL, [route!.id]);
+      expect(rows.map((r) => r.season)).toEqual(['summer', 'winter']);
+      expect(rows[0]).toMatchObject({ park_name: 'Природный парк «Вилючинский»', title: 'Вилючинский водопад', read_on: '2026-11-20' });
+      expect(rows[0]!.passport_urls[0]).toMatch(/^https:\/\/www\.vulcanikamchatki\.ru\//);
+      expect(rows[0]!.track_url).toMatch(/^https:\/\/www\.vulcanikamchatki\.ru\//);
+    });
   });
 });
