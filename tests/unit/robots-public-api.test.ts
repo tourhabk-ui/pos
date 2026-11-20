@@ -186,6 +186,7 @@ describe('robots.txt: адреса, которые называют агента
       ['/.well-known/mcp', () => import('@/app/.well-known/mcp/route')],
       ['/.well-known/agent-card.json', () => import('@/app/.well-known/agent-card.json/route')],
       ['/.well-known/ai-catalog.json', () => import('@/app/.well-known/ai-catalog.json/route')],
+      ['/.well-known/ard.json', () => import('@/app/.well-known/ard.json/route')],
       ['/.well-known/api-catalog', () => import('@/app/.well-known/api-catalog/route')],
       ['/openapi.json', () => import('@/app/openapi.json/route')],
       ['/api/mcp/server-card', () => import('@/app/api/mcp/server-card/route')],

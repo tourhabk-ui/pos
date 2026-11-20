@@ -364,7 +364,7 @@ ${parks.length ? parks.map((p) => `- [${p.displayName}](${BASE}/park/${p.slug})`
 - Эндпоинт: ${BASE}/api/mcp (JSON-RPC 2.0, streamable-http, анонимно)
 - Манифест: ${BASE}/.well-known/mcp.json
 - Карточка сервера (MCP Server Card, application/mcp-server-card+json): ${BASE}/api/mcp/server-card;
-  каталог домена (AI Catalog, application/ai-catalog+json): ${BASE}/.well-known/ai-catalog.json
+  каталог домена (манифест ARD): ${BASE}/.well-known/ard.json, прежний адрес ${BASE}/.well-known/ai-catalog.json
 - Страница о сервере (HTML): ${BASE}/mcp
 - Чтение: каталог туров (get_tours), детали (get_tour_details), реальная
   занятость по датам (get_tour_availability), сравнение 2–4 туров (compare_tours —

@@ -16,6 +16,7 @@ import { headers } from 'next/headers';
 import { htmlLangForPath, ROOT_LANG_HEADER } from '@/lib/i18n/root-lang';
 import { partnerSiteOfRequest } from '@/lib/partner-sites/request';
 import { jsonLdHtml } from '@/lib/seo/json-ld-html';
+import { ARD_PATH, ARD_MEDIA_TYPE } from '@/lib/mcp/server-card';
 
 const BASE_URL = process.env.NEXT_PUBLIC_SITE_URL ?? 'https://vedarai.ru';
 
@@ -173,6 +174,12 @@ export default async function RootLayout({ children }: { children: React.ReactNo
         <link rel="icon" type="image/png" sizes="16x16" href="/icons/favicon-16.png" />
         <link rel="apple-touch-icon" href="/icons/apple-touch-icon.png" />
         <link rel="shortcut icon" href="/favicon.ico" />
+        {/* Манифест ARD (20.11): ссылка rel="ard" — второй путь, которым
+            агент и «Агентный просмотр» Lighthouse находят каталог домена
+            (спецификация ARD v0.91, §5.1: потребитель обязан её учесть).
+            На домене партнёра её нет: каталог называет агентов Ведара, и
+            ссылка приписала бы их сайту партнёра. */}
+        {!onPartnerSite && <link rel="ard" href={ARD_PATH} type={ARD_MEDIA_TYPE} />}
       </head>
       <body className="min-h-screen transition-colors duration-300">
         <Providers>

@@ -112,6 +112,7 @@ Glama берёт сведения с сервера, реестр MCP — из �
 | Glama | владение подтверждено `/.well-known/glama.json`; оценка сервера — **A**, высшая (владелец, 25.10) | `lib/mcp/catalogs.ts` |
 | Карточка сервера (MCP Server Card, SEP-2127) | `https://vedarai.ru/api/mcp/server-card` | `agent-discovery-cards.test.ts` |
 | AI Catalog домена | `https://vedarai.ru/.well-known/ai-catalog.json` | `agent-discovery-cards.test.ts` |
+| Манифест ARD (преемник AI Catalog, тот же документ; его судит «Агентный просмотр» Lighthouse 13) | `https://vedarai.ru/.well-known/ard.json` | `agent-discovery-cards.test.ts` |
 | Манифест MCP | `https://vedarai.ru/.well-known/mcp.json` | `mcp-discovery.test.ts` |
 | Визитки A2A | `/.well-known/agent-card.json` (1.0), `/.well-known/agent.json` (0.3) | `a2a-discovery.test.ts` |
 | A2A Registry (a2a-registry.org) | запись `ru.vedarai.___vedar_kamchatka`, зарегистрирована 18.10; страница прочитана открытой 14.11 около 11:06 UTC — «DNS Verified» (проба с раннера, прогон 43588386053). Называется в манифесте и `llms.txt` со ссылкой (слово владельца 14.11 «только где проверена») | `lib/a2a/catalogs.ts`, `agent-discovery-cards.test.ts` |

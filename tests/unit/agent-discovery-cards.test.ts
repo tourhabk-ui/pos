@@ -13,6 +13,10 @@
  * 2. AI Catalog на /.well-known/ai-catalog.json: specVersion 1.0, записи на
  *    карточку MCP и визитки A2A обеих версий, URN-идентификаторы, пара
  *    identifier+version уникальна, артефакты по ссылке, не inline.
+ *    Тот же документ — на /.well-known/ard.json (ARD, преемник), и каждая
+ *    запись проходит правила ARD, которыми его судит Lighthouse 13 (аудит
+ *    ard-schema): displayName обязателен (20.11 PageSpeed назвал схему
+ *    недействительной без него), 2–5 representativeQueries.
  * 3. Реестр A2A: запись с id, адресом страницы, датой и статусом НА МОМЕНТ
  *    регистрации — не «сегодня», чтобы не врать после проверки реестром.
  * 4. Манифест MCP и llms.txt называют все три; оба новых входа считаются
@@ -28,9 +32,10 @@ import {
   buildServerCard, buildAiCatalog, weakEtag,
   SERVER_CARD_SCHEMA, SERVER_CARD_MEDIA_TYPE, AI_CATALOG_MEDIA_TYPE, A2A_CARD_MEDIA_TYPE,
   SERVER_CARD_PATH, AI_CATALOG_PATH, AI_CATALOG_SPEC_VERSION,
+  ARD_PATH, ARD_MEDIA_TYPE, ARD_CONTEXT,
 } from '@/lib/mcp/server-card';
 import { A2A_CATALOGS, A2A_REGISTRY_AGENT_ID, A2A_DASH_REGISTRY_AGENT_ID, publicCatalogEntry, catalogLine } from '@/lib/a2a/catalogs';
-import { AGENT_CARD_PATH, LEGACY_AGENT_CARD_PATH, A2A_PROTOCOL_VERSION, A2A_LEGACY_PROTOCOL_VERSION } from '@/lib/a2a/agent-card';
+import { AGENT_CARD_PATH, LEGACY_AGENT_CARD_PATH, A2A_PROTOCOL_VERSION, A2A_AGENT_NAME } from '@/lib/a2a/agent-card';
 import { AGENT_ENTRY_PATHS } from '@/lib/analytics/agent-entry-paths';
 
 vi.mock('@/lib/db-pool', () => ({ pool: { query: vi.fn(async () => ({ rows: [] })) } }));
@@ -92,31 +97,84 @@ describe('карточка MCP-сервера', () => {
 });
 
 describe('AI Catalog домена', () => {
-  it('specVersion, хост, три записи по ссылке с медиатипами, URN, пара identifier+version уникальна', () => {
+  it('specVersion, хост, две записи по ссылке с медиатипами, URN, identifier уникален', () => {
     const cat = buildAiCatalog(BASE);
     expect(cat.specVersion).toBe(AI_CATALOG_SPEC_VERSION);
     expect(cat.specVersion).toMatch(/^\d+\.\d+$/);
     expect(cat.host.displayName.length).toBeGreaterThan(0);
     expect(cat.host.url).toBe(BASE);
-    expect(cat.entries).toHaveLength(3);
+    expect(cat.entries).toHaveLength(2);
     for (const e of cat.entries) {
       expect(e.identifier).toMatch(/^urn:air:vedarai\.ru:(mcp|a2a):[a-z0-9-]+$/);
       expect(e.url.startsWith(`${BASE}/`)).toBe(true);
       expect(e).not.toHaveProperty('data');
-      // Название и описание — в самом артефакте, не дублируются (дрейф).
-      expect(e).not.toHaveProperty('displayName');
+      // Описание — в самом артефакте, не дублируется (дрейф); название ARD
+      // требует, и оно берётся из артефакта (проверка ниже).
       expect(e).not.toHaveProperty('description');
     }
     expect(cat.entries[0]).toMatchObject({ type: SERVER_CARD_MEDIA_TYPE, url: `${BASE}${SERVER_CARD_PATH}`, version: manifest.version });
     const a2a = cat.entries.filter((e) => e.type === A2A_CARD_MEDIA_TYPE);
-    expect(a2a.map((e) => e.url).sort()).toEqual([`${BASE}${AGENT_CARD_PATH}`, `${BASE}${LEGACY_AGENT_CARD_PATH}`].sort());
-    expect(a2a.map((e) => e.version).sort()).toEqual([A2A_PROTOCOL_VERSION, A2A_LEGACY_PROTOCOL_VERSION].sort());
-    // Один агент — один идентификатор на обе версии протокола; сервер MCP — свой.
-    expect(new Set(a2a.map((e) => e.identifier)).size).toBe(1);
+    // Одна запись A2A — визитка 1.0. Визитка 0.3 в каталог не входит: запись
+    // с тем же identifier нарушила бы уникальность (ARD §4.2), а она сама
+    // отдаётся по своему адресу и названа в mcp.json.
+    expect(a2a).toHaveLength(1);
+    expect(a2a[0]).toMatchObject({ url: `${BASE}${AGENT_CARD_PATH}`, version: A2A_PROTOCOL_VERSION });
+    expect(cat.entries.some((e) => e.url === `${BASE}${LEGACY_AGENT_CARD_PATH}`)).toBe(false);
     expect(a2a[0].identifier).toBe('urn:air:vedarai.ru:a2a:kuzmich');
     expect(cat.entries[0].identifier).toBe('urn:air:vedarai.ru:mcp:vedar');
-    const pairs = cat.entries.map((e) => `${e.identifier}@${e.version}`);
-    expect(new Set(pairs).size).toBe(pairs.length);
+    const ids = cat.entries.map((e) => e.identifier);
+    expect(new Set(ids).size).toBe(ids.length);
+    for (const e of cat.entries) expect(e['@context']).toBe(ARD_CONTEXT);
+  });
+
+  /**
+   * Правила ARD (agenticresourcediscovery.org/spec, схема ard-entry.schema.json
+   * и conformance-test), которыми Lighthouse 13.6 судит манифест: ошибка — у
+   * записи нет identifier по шаблону URN, displayName, type или ровно одного
+   * из url/data; предупреждение — representativeQueries нет или их не 2–5.
+   */
+  it('каждая запись проходит правила ARD: URN, displayName, type, ровно один из url/data, 2–5 запросов', () => {
+    const cat = buildAiCatalog(BASE) as unknown as { entries: Array<Record<string, unknown>> };
+    expect(Array.isArray(cat.entries)).toBe(true);
+    const URN = /^urn:air:([a-zA-Z0-9.-]+)(?::([a-zA-Z0-9._:-]+))?:([a-zA-Z0-9._-]+)$/;
+    for (const e of cat.entries) {
+      expect(String(e.identifier)).toMatch(URN);
+      expect(String(e.identifier)).toMatch(/^urn:air:[a-zA-Z0-9.-]+(:[a-zA-Z0-9._-]+)+$/);
+      expect(typeof e.displayName).toBe('string');
+      expect(String(e.displayName).trim().length).toBeGreaterThan(0);
+      expect(typeof e.type).toBe('string');
+      expect('url' in e !== 'data' in e).toBe(true);
+      expect(() => new URL(String(e.url))).not.toThrow();
+      const q = e.representativeQueries as unknown[];
+      expect(Array.isArray(q)).toBe(true);
+      expect(q.length).toBeGreaterThanOrEqual(2);
+      expect(q.length).toBeLessThanOrEqual(5);
+      for (const x of q) expect(typeof x === 'string' && x.trim().length > 0).toBe(true);
+      expect(e).not.toHaveProperty('collections');
+    }
+    // Название — из самого артефакта, второй копии нет.
+    const byType = (t: string) => cat.entries.filter((e) => e.type === t);
+    expect(byType(SERVER_CARD_MEDIA_TYPE).map((e) => e.displayName)).toEqual([manifest.title]);
+    expect(byType(A2A_CARD_MEDIA_TYPE).map((e) => e.displayName)).toEqual([A2A_AGENT_NAME]);
+  });
+
+  it('ard.json отдаёт тот же документ, что ai-catalog.json: свой медиатип, ETag и 304, CORS', async () => {
+    expect(ARD_PATH).toBe('/.well-known/ard.json');
+    const ard = await import('@/app/.well-known/ard.json/route');
+    const old = await import('@/app/.well-known/ai-catalog.json/route');
+    const res = await ard.GET(new Request(`${BASE}${ARD_PATH}`));
+    expect(res.status).toBe(200);
+    expect(res.headers.get('content-type')).toBe(`${ARD_MEDIA_TYPE}; charset=utf-8`);
+    expect(res.headers.get('cache-control')).toBe('public, max-age=3600');
+    expect(res.headers.get('access-control-allow-origin')).toBe('*');
+    const body = await res.text();
+    const oldBody = await (await old.GET(new Request(`${BASE}${AI_CATALOG_PATH}`))).text();
+    expect(body).toBe(oldBody);
+    expect(JSON.parse(body)).toEqual(buildAiCatalog(getPublicBaseUrl()));
+    const etag = res.headers.get('etag');
+    const again = await ard.GET(new Request(`${BASE}${ARD_PATH}`, { headers: { 'if-none-match': etag! } }));
+    expect(again.status).toBe(304);
+    expect((await ard.OPTIONS()).status).toBe(204);
   });
 
   it('роут: медиатип каталога, ETag и 304, CORS на чтение', async () => {
@@ -207,6 +265,8 @@ describe('поверхности называют карточку, катало
   it('оба новых входа считаются переписью краулеров и зовут счётчик', () => {
     expect(AGENT_ENTRY_PATHS).toContain('/api/mcp/server-card');
     expect(AGENT_ENTRY_PATHS).toContain('/.well-known/ai-catalog.json');
+    expect(AGENT_ENTRY_PATHS).toContain('/.well-known/ard.json');
+    expect(read('app/.well-known/ard.json/route.ts')).toContain('recordAgentEntryHit(ARD_PATH');
     expect(read('app/api/mcp/server-card/route.ts')).toContain('recordAgentEntryHit(SERVER_CARD_PATH');
     expect(read('app/.well-known/ai-catalog.json/route.ts')).toContain('recordAgentEntryHit(AI_CATALOG_PATH');
   });

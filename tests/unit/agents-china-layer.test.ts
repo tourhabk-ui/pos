@@ -293,6 +293,8 @@ describe('перепись входов для агентов', () => {
       '/llms-zh.txt', '/llms-en.txt',
       '/.well-known/mcp.json', '/.well-known/agent-card.json', '/.well-known/agent.json',
       '/api/mcp/server-card', '/.well-known/ai-catalog.json',
+      // 20.11: манифест ARD — преемник ai-catalog.json, тот же документ.
+      '/.well-known/ard.json',
       // Ступень 3 (12.10): OpenAPI для агентов без MCP и A2A и каталог API RFC 9727.
       '/openapi.json', '/.well-known/api-catalog',
       // 16.11 (#3459): документ обнаружения Poppy 1.0 для личных агентов.
@@ -339,6 +341,7 @@ describe('перепись входов для агентов', () => {
       // Карточка и каталог зовут счётчик константой пути (lib/mcp/server-card).
       '/api/mcp/server-card': ['app/api/mcp/server-card/route.ts', 'recordAgentEntryHit(SERVER_CARD_PATH'],
       '/.well-known/ai-catalog.json': ['app/.well-known/ai-catalog.json/route.ts', 'recordAgentEntryHit(AI_CATALOG_PATH'],
+      '/.well-known/ard.json': ['app/.well-known/ard.json/route.ts', 'recordAgentEntryHit(ARD_PATH'],
       // OpenAPI и каталог API зовут счётчик константами из lib/api/openapi.
       '/openapi.json': ['app/openapi.json/route.ts', 'recordAgentEntryHit(OPENAPI_PATH'],
       '/.well-known/api-catalog': ['app/.well-known/api-catalog/route.ts', 'recordAgentEntryHit(API_CATALOG_PATH'],
