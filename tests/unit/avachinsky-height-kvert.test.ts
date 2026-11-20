@@ -8,7 +8,7 @@ import { join } from 'node:path';
 import { LANDINGS } from '@/lib/landings/landings';
 
 const ROOT = process.cwd();
-const MIG = readFileSync(join(ROOT, 'migrations/1478_avachinsky_height_kvert.sql'), 'utf-8');
+const MIG = readFileSync(join(ROOT, 'migrations/1479_avachinsky_height_kvert.sql'), 'utf-8');
 
 /** Пары replace из pg_temp.ava_2751 — та же функция, что применит база. */
 function pairs(): Array<[string, string]> {
@@ -36,9 +36,9 @@ describe('Авачинский: 2751 м', () => {
     expect(all).toContain('Авачинский, 2751 м (так в каталоге KVERT ИВиС ДВО РАН и на сайте парка; в Википедии — 2741 м)');
   });
 
-  it('миграция 1478 переводит каждую фразу с 2741 из прежних миграций, повтор ничего не меняет', () => {
+  it('миграция 1479 переводит каждую фразу с 2741 из прежних миграций, повтор ничего не меняет', () => {
     const dir = join(ROOT, 'migrations');
-    const older = readdirSync(dir).filter((f) => /^\d+_.*\.sql$/.test(f) && parseInt(f) < 1478);
+    const older = readdirSync(dir).filter((f) => /^\d+_.*\.sql$/.test(f) && parseInt(f) < 1479);
     let seen = 0;
     for (const f of older) {
       const sql = readFileSync(join(dir, f), 'utf-8');
