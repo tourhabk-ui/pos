@@ -1,6 +1,6 @@
 # Схема базы данных Ведара
 
-> Снято 2026-11-20 с настоящего PostgreSQL 18.7 (Debian 18.7-1.pgdg13+5): baseline прода (`lib/database/baseline/schema-baseline.sql`, снимок 2026-08-15) + миграции новее него, накатанные штатным раннером. Последняя миграция в снимке: `1471_articles_rewritten_texts.sql`.
+> Снято 2026-11-20 с настоящего PostgreSQL 18.7 (Debian 18.7-1.pgdg13+5): baseline прода (`lib/database/baseline/schema-baseline.sql`, снимок 2026-08-15) + миграции новее него, накатанные штатным раннером. Последняя миграция в снимке: `1472_route_passports_batch1_seasons_length.sql`.
 > Файл порождён `scripts/gen-db-schema.ts` (`npm run db:schema-doc`); править руками бессмысленно — следующий прогон перепишет.
 > Что здесь НЕ учтено: дрейф прода после baseline, не отражённый миграциями. Судья дрейфа — `GET /api/cron/schema-drift` на проде (`lib/db/schema-drift.ts`). Значений данных в файле нет — только имена и типы.
 
@@ -8,7 +8,7 @@
 |---|---:|
 | Таблиц | 335 |
 | Представлений (VIEW) | 13 |
-| Колонок | 4337 |
+| Колонок | 4338 |
 | Внешних ключей | 397 |
 | Таблиц без единого FK в обе стороны | 91 |
 
@@ -441,9 +441,9 @@ SOS пишет `sos_events` (`app/api/safety/sos`, §7). Внешние сигн
 
 `id bigint!=` `entity_id uuid!` `entity_kind text!` `entity_title text` `written_by text!` `model text` `facts_given jsonb!=` `facts_count integer!=` `chars integer` `previous_chars integer` `written_at timestamptz!=`
 
-**kamchatka_routes** · 55 кол. · PK id · на неё ссылаются: operator_tours, park_approved_route_links, route_geometry_archive, route_passport_ocr, route_track_imports, route_waypoints, tours, transfer_trips, trip_preparation_plans · индексов 7 · триггеры: kamchatka_routes_assign_slug, trg_archive_route_geometry, trg_route_version_geometry
+**kamchatka_routes** · 56 кол. · PK id · на неё ссылаются: operator_tours, park_approved_route_links, route_geometry_archive, route_passport_ocr, route_track_imports, route_waypoints, tours, transfer_trips, trip_preparation_plans · индексов 7 · триггеры: kamchatka_routes_assign_slug, trg_archive_route_geometry, trg_route_version_geometry
 
-`id uuid!=` `category text!` `title text!` `description text` `lat numeric` `lng numeric` `source_url text` `source_name text` `metadata jsonb!=` `dedupe_key text` `created_at timestamptz!=` `updated_at timestamptz!=` `slug text` `ark_id uuid` `activity_type varchar` `zone varchar` `geometry jsonb` `difficulty varchar` `pdf_url text` `season varchar` `route_type varchar` `hazards text[]` `equipment text[]` `registration_required boolean=` `flora_fauna text` `distance_km numeric` `elevation_gain_m integer` `duration_hours numeric` `accessibility text` `mchs_registration_required boolean=` `mchs_phone varchar` `park_name varchar` `park_approval_url text` `search_count integer!=` `is_visible boolean!=` `view_count integer!=` `kuzmich_review text` `embedding jsonb` `official_passport_url text` `passport_agency varchar` `passport_verified_at timestamptz` `surface_types text[]` `elevation_loss_m integer` `elevation_min_m integer` `elevation_max_m integer` `duration_days integer` `route_version integer!=` `merged_into_id text` `merged_at timestamptz` `difficulty_source varchar` `route_kind text` `route_kind_reason text` `description_withdrawn text` `description_withdrawn_reason text` `description_withdrawn_at timestamptz`
+`id uuid!=` `category text!` `title text!` `description text` `lat numeric` `lng numeric` `source_url text` `source_name text` `metadata jsonb!=` `dedupe_key text` `created_at timestamptz!=` `updated_at timestamptz!=` `slug text` `ark_id uuid` `activity_type varchar` `zone varchar` `geometry jsonb` `difficulty varchar` `pdf_url text` `season varchar` `route_type varchar` `hazards text[]` `equipment text[]` `registration_required boolean=` `flora_fauna text` `distance_km numeric` `elevation_gain_m integer` `duration_hours numeric` `accessibility text` `mchs_registration_required boolean=` `mchs_phone varchar` `park_name varchar` `park_approval_url text` `search_count integer!=` `is_visible boolean!=` `view_count integer!=` `kuzmich_review text` `embedding jsonb` `official_passport_url text` `passport_agency varchar` `passport_verified_at timestamptz` `surface_types text[]` `elevation_loss_m integer` `elevation_min_m integer` `elevation_max_m integer` `duration_days integer` `route_version integer!=` `merged_into_id text` `merged_at timestamptz` `difficulty_source varchar` `route_kind text` `route_kind_reason text` `description_withdrawn text` `description_withdrawn_reason text` `description_withdrawn_at timestamptz` `distance_note text`
 
 **location_real_time_status** · 15 кол. · PK id · agent_route_id → places.ark_id · индексов 3
 
