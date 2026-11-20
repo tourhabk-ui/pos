@@ -24,6 +24,7 @@ const SITE = process.env.NEXT_PUBLIC_SITE_URL ?? 'https://vedarai.ru';
 /** Подписи — из единого словаря (lib/tours/labels), своих копий не держим. */
 import { activityLabel } from '@/lib/tours/labels';
 import { jsonLdHtml } from '@/lib/seo/json-ld-html';
+import { webPageModifiedJsonLd } from '@/lib/seo/record-modified';
 
 interface Props {
   params: Promise<{ id: string }>;
@@ -136,6 +137,21 @@ export default async function CatalogTourDetailPage({ params }: Props) {
       actionPlatform: ['https://schema.org/DesktopWebPlatform', 'https://schema.org/MobileWebPlatform'],
     },
   };
+
+  // Дата правки — узлом WebPage в том же @graph: у TouristTrip и Product
+  // нет dateModified (lib/seo/record-modified, аудит 20.11). Поля нет — узла нет.
+  const pageLd = webPageModifiedJsonLd({
+    url: `${SITE}${tourPath(tour)}`,
+    name: tour.title,
+    dateModified: tour.updated_at,
+    mainEntityId: `${SITE}${tourPath(tour)}#trip`,
+  });
+  const graph = (structuredData as { '@graph'?: unknown[] })['@graph'];
+  if (pageLd && Array.isArray(graph)) {
+    const { '@context': _ctx, ...node } = pageLd;
+    void _ctx;
+    graph.push(node);
+  }
 
   return (
     <>
