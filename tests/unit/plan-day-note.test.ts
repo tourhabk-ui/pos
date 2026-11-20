@@ -10,4 +10,9 @@ describe('описание дня плана', () => {
     expect(src).toContain("description: realTour ? (realTour.shortDescription ?? '') : (c.seasonNote ?? ''),");
     expect(src).not.toContain("description: realTour?.shortDescription ?? c.seasonNote ?? '',");
   });
+
+  it('у тура, подобранного страницей по виду, справки вида нет', () => {
+    const src = readFileSync(join(process.cwd(), 'app/plans/[slug]/page.tsx'), 'utf-8');
+    expect(src).toContain("{day.description && !(tour && picked?.source === 'kind') && (");
+  });
 });
