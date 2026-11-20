@@ -1,6 +1,7 @@
 'use client';
 
 import Link from 'next/link';
+import { RecordModified } from '@/components/seo/RecordModified';
 import { MapPin, Shield, Clock, Mountain, AlertTriangle, Download, FileText, Phone, Mail, Building2, Globe, Smartphone, ScrollText, ChevronRight } from 'lucide-react';
 import { EmergencyAction } from '@/components/shared/EmergencyAction';
 import { VERIFIED_REGIONAL } from '@/lib/safety/emergency-numbers';
@@ -261,6 +262,9 @@ export default function ParkClient({ park, chronicle = [] }: { park: ParkPageDat
             })}
           </div>
         )}
+
+        {/* Дата правки записи парка (lib/seo/record-modified, замечание Сыщика 21.11). */}
+        <RecordModified value={park.updatedAt} className="mt-8 text-xs text-[var(--text-muted)]" />
       </div>
     </div>
   );

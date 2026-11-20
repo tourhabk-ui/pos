@@ -162,7 +162,7 @@ async function getRouteRaw(idOrSlug: string) {
               -- нет (payload — это metadata), берём из мастер-таблицы.
               kr.zone AS kr_zone, kr.distance_km, kr.duration_hours, kr.duration_days AS kr_duration_days,
               kr.elevation_gain_m, kr.difficulty AS kr_difficulty, kr.season AS kr_season,
-              kr.mchs_registration_required,
+              kr.mchs_registration_required, kr.park_name AS kr_park_name, kr.elevation_max_m,
               -- Последняя правка записи маршрута — для dateModified и видимой
               -- даты (аудит 20.11); та же колонка, что lastmod в sitemap.
               kr.updated_at AS kr_updated_at
@@ -210,6 +210,8 @@ async function getRouteRaw(idOrSlug: string) {
       elevationGainM: r.elevation_gain_m != null ? Number(r.elevation_gain_m) : null,
       mchsRequired: r.mchs_registration_required === true,
       recordUpdatedAt: (r.kr_updated_at as string | Date | null) ?? null,
+      parkName: (r.kr_park_name as string | null) ?? null,
+      elevationMaxM: r.elevation_max_m != null ? Number(r.elevation_max_m) : null,
       bestMonths: payloadStrings(payload.best_months),
       // Не строка в og:image — тот же 500: Next склеивает адрес path.join'ом.
       photos: payloadStrings(payload.photos),
@@ -290,6 +292,8 @@ export async function generateMetadata({ params }: Props): Promise<Metadata> {
     season: route.season,
     mchsRequired: route.mchsRequired,
     description: route.description,
+    parkName: route.parkName,
+    elevationMaxM: route.elevationMaxM,
   }) || `Туристический маршрут на Камчатке: ${route.title}. Категория: ${route.category}.`;
 
   // SEO keywords: города + типы активностей + регион

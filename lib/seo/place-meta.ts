@@ -164,7 +164,17 @@ export interface RouteMetaFacts {
   season: string | null;
   mchsRequired: boolean;
   description: string | null;
+  /** Охраняемая территория маршрута (kamchatka_routes.park_name), как на карточке. */
+  parkName?: string | null;
+  /** Высшая точка трека, м (kamchatka_routes.elevation_max_m). */
+  elevationMaxM?: number | null;
 }
+
+/**
+ * Сниппет короче этого — «короткий» (замечание Сыщика 21.11): его добирают
+ * поля записи — территория и высшая точка трека. Только поля, ничего от себя.
+ */
+export const ROUTE_DESCRIPTION_SHORT = 120;
 
 const DIFFICULTY_RU: Record<string, string> = {
   easy: 'лёгкая', medium: 'средняя', hard: 'сложная', extreme: 'экстремальная',
@@ -226,5 +236,29 @@ export function routeDescription(f: RouteMetaFacts, max: number = META_DESCRIPTI
     const compact = compose(routeFactsLine({ ...f, elevationGainM: null, durationHours: null, durationDays: null, season: null }));
     if (compact.rest.length >= 30) out = compact;
   }
-  return metaDescription(out.text, max);
+  return metaDescription(withRouteRecordFacts(out.text, out.rest, f, max), max);
+}
+
+/**
+ * Короткий сниппет (описания нет или от него остался обрывок) добирается
+ * живыми полями записи маршрута — территорией и высшей точкой трека, если они
+ * записаны. Поля нет — ничего не добавляется; название территории, уже
+ * стоящее в названии маршрута, не повторяется. Каждая добавка — целиком или
+ * никак: обрубок «Территория: Природный па…» хуже короткой строки.
+ */
+function withRouteRecordFacts(text: string, rest: string, f: RouteMetaFacts, max: number): string {
+  if (rest.length >= 30 || text.length >= ROUTE_DESCRIPTION_SHORT) return text;
+  const extras: string[] = [];
+  const park = (f.parkName ?? '').replace(/\s+/g, ' ').trim().replace(/[.\s]+$/, '');
+  if (park && !(f.title ?? '').toLowerCase().includes(park.toLowerCase())) {
+    extras.push(`Территория: ${park}.`);
+  }
+  if (f.elevationMaxM != null && Number.isFinite(f.elevationMaxM) && f.elevationMaxM > 0) {
+    extras.push(`Высшая точка: ${Math.round(f.elevationMaxM)} м.`);
+  }
+  let out = text;
+  for (const e of extras) {
+    if (out.length + 1 + e.length <= max) out = `${out} ${e}`;
+  }
+  return out;
 }

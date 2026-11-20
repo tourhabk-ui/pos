@@ -9,6 +9,9 @@ import { chronicleForPark } from '@/lib/chronicle/articles';
 import ParkClient from './_ParkClient';
 import { JsonLd } from '@/components/seo/JsonLd';
 import { parkJsonLd } from '@/lib/parks/park-jsonld';
+import { webPageModifiedJsonLd } from '@/lib/seo/record-modified';
+
+const SITE = process.env.NEXT_PUBLIC_SITE_URL ?? 'https://vedarai.ru';
 
 // Карточка парка собирается на сервере (аудит 01.10): прежде страница была
 // оболочкой, а содержимое клиент тянул из API в браузере — поисковик видел
@@ -69,7 +72,18 @@ export default async function ParkPage({ params }: { params: Promise<{ slug: str
         </div>
       ) : (
         <>
-        <JsonLd data={parkJsonLd(park, process.env.NEXT_PUBLIC_SITE_URL ?? 'https://vedarai.ru')} />
+        <JsonLd data={parkJsonLd(park, SITE)} />
+        {/* Дата правки записи парка — узлом WebPage: у Park нет dateModified
+            (lib/seo/record-modified). Поля нет — узла нет. */}
+        {(() => {
+          const ld = webPageModifiedJsonLd({
+            url: `${SITE}/park/${park.slug}`,
+            name: park.displayName,
+            dateModified: park.updatedAt,
+            mainEntityId: `${SITE}/park/${park.slug}#park`,
+          });
+          return ld ? <JsonLd data={ld} /> : null;
+        })()}
         {/* В карточку уходят только заголовок, годы и лид: тексты статей
             летописи в клиентский бандл не нужны. */}
         <ParkClient
