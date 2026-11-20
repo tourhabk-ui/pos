@@ -153,8 +153,8 @@ describe('китайские краулеры: robots и метаданные в
   });
 
   it('htmlLimitedBots знает китайских обходчиков', () => {
-    const cfg = read('next.config.js');
-    const line = cfg.split('\n').find((l) => l.includes('htmlLimitedBots:')) ?? '';
+    const cfg = read('lib/seo/known-bots.ts');
+    const line = cfg.split('\n').find((l) => l.includes('KNOWN_BOTS =')) ?? '';
     for (const bot of ['baiduspider', 'sogou', 'Bytespider', 'PetalBot', 'YisouSpider', '360Spider']) {
       expect(line, bot).toContain(`|${bot}|`);
     }

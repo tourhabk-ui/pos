@@ -138,7 +138,14 @@ const nextConfig = {
   // 40 страницах из 94). Каждый поимённый бот robots.txt обязан быть в этом
   // списке — сторож tests/unit/robots-public-api.test.ts.
   // Цена — блокирующий рендер для этих ботов.
-  htmlLimitedBots: /Googlebot|[\w-]+-Google|Google-[\w-]+|Chrome-Lighthouse|Slurp|DuckDuckBot|baiduspider|yandex|sogou|Bytespider|PetalBot|YisouSpider|360Spider|GPTBot|ChatGPT-User|OAI-SearchBot|ClaudeBot|Claude-Web|Claude-User|Claude-SearchBot|anthropic-ai|PerplexityBot|Perplexity-User|meta-externalagent|YouBot|cohere-ai|DeepSeekBot|Amazonbot|DuckAssistBot|AI2Bot|MistralAI-User|Grok|bitlybot|tumblr|vkShare|quora link preview|redditbot|ia_archiver|Bingbot|BingPreview|applebot|facebookexternalhit|facebookcatalog|Twitterbot|LinkedInBot|Slackbot|Discordbot|WhatsApp|SkypeUriPreview|Yeti|googleweblight/i,
+  // 21.11 (Сыщик): обходчики вне списка (seomator, аудиторы, новые ИИ-боты) и
+  // обычный браузер получали title/canonical после </head> на /prepare,
+  // /routes, /weather, планах, летописи и посадочных — общий список ботов
+  // всего не покроет. Теперь метаданные блокирующие для любого UA: <head>
+  // всегда целиком. Цена — head уходит после generateMetadata (у страниц это
+  // один запрос к базе или ноль). Прежний поимённый список — lib/seo/known-bots
+  // (KNOWN_BOTS), его сверяет сторож robots-public-api.
+  htmlLimitedBots: /.*/,
   compress: true,
 
   // Здесь стоял experimental.serverActions.bodySizeLimit = '60mb'. Убрано

@@ -25,7 +25,7 @@ import { VERIFIED_REGIONAL } from '@/lib/safety/emergency-numbers';
 vi.mock('next/dynamic', () => ({
   default: (loader: () => unknown) => {
     const name = /components\/(?:[\w-]+\/)*(\w+)\.tsx?/.exec(String(loader))?.[1] ?? 'Dynamic';
-    const Stub = () => <div data-dyn={name} />;
+    const Stub = (p: { heading?: string }) => <div data-dyn={name} data-heading={p.heading} />;
     Stub.displayName = `Dyn(${name})`;
     return Stub;
   },
@@ -165,5 +165,20 @@ describe('карточка места: блок и разметка из одн�
       .find((j) => j['@type'] === 'FAQPage');
     expect(ld, 'разметки FAQPage нет').toBeDefined();
     expect(ld!.mainEntity!.map((q) => [q.name, q.acceptedAnswer.text])).toEqual(visible);
+  });
+});
+
+describe('карточка места с посадочной (Сыщик 21.11, Паратунка)', () => {
+  it('видимый H1 — заголовок посадочной, шаблонного FAQ и второй FAQPage нет', async () => {
+    const { default: PlaceDetailClient } = await import('@/app/places/[id]/_PlaceDetailClient');
+    const { container } = render(
+      <PlaceDetailClient id={PLACE.id} initialPlace={PLACE} landingHeading="Горелый: посадочная" />,
+    );
+    // PlaceHero (dynamic) рисует heading в H1 — здесь заглушка с его пропсом.
+    expect(container.querySelector('[data-dyn="PlaceHero"]')?.getAttribute('data-heading')).toBe('Горелый: посадочная');
+    expect(screen.queryByTestId('faq-section')).toBeNull();
+    const faq = [...container.querySelectorAll('script[type="application/ld+json"]')]
+      .filter((s) => (JSON.parse(s.textContent ?? '{}') as { '@type'?: string })['@type'] === 'FAQPage');
+    expect(faq.length).toBe(0);
   });
 });

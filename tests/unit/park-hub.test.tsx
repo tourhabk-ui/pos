@@ -67,7 +67,7 @@ describe('/park: ответ сразу, снимки, крошки (Сыщик 2
 
 describe('sitemap: /park и /calendar', () => {
   it('обе страницы в карте; дата /park — самая поздняя правка парков', async () => {
-    const NEW = new Date('2026-10-14T00:00:00Z');
+    const NEW = new Date('2099-10-14T00:00:00Z');
     query.mockImplementation((sql: string) => {
       if (String(sql).includes('FROM parks')) {
         return Promise.resolve({ rows: [{ slug: 'kronotsky', updated_at: new Date('2026-07-27T00:00:00Z') }, { slug: 'nalychevo', updated_at: NEW }] });
@@ -81,3 +81,31 @@ describe('sitemap: /park и /calendar', () => {
     expect(entries.find((e) => e.url === 'https://vedarai.ru/calendar')).toBeTruthy();
   });
 });
+
+describe('/park: первый экран (Сыщик 21.11)', () => {
+  it('вводный ответ — сразу под H1, до списка; первые два снимка без lazy, первый — fetchpriority high', async () => {
+    const MANY = ['kronotsky', 'nalychevo', 'bystrinsky', 'yuzhno-kamchatsky'].map((slug) => ({ slug, display_name: slug, zone: null, description: null }));
+    query.mockResolvedValue({ rows: MANY });
+    const { container } = render(await ParksIndexPage());
+    const main = container.querySelector('main')!;
+    const h1 = main.querySelector('section h1')!;
+    expect(h1.previousElementSibling, 'над H1 ничего').toBeNull();
+    expect(h1.nextElementSibling?.hasAttribute('data-park-intro')).toBe(true);
+    const imgs = [...main.querySelectorAll('img')];
+    expect(imgs.length).toBeGreaterThanOrEqual(1);
+    expect(imgs[0].getAttribute('fetchpriority')).toBe('high');
+    imgs.forEach((img, i) => expect(img.getAttribute('loading'), `снимок ${i}`).toBe(i < 2 ? 'eager' : 'lazy'));
+    imgs.slice(1).forEach((img) => expect(img.getAttribute('fetchpriority')).toBeNull());
+  });
+
+  it('без новых правок парков дата /park — ревизия вводного текста', async () => {
+    const { PARK_HUB_TEXT_REVISION } = await import('@/lib/parks/park-hub');
+    query.mockImplementation((sql: string) => String(sql).includes('FROM parks')
+      ? Promise.resolve({ rows: [{ slug: 'kronotsky', updated_at: new Date('2026-07-27T00:00:00Z') }] })
+      : Promise.resolve({ rows: [] }));
+    const { entries } = await collectSitemapEntriesWithStatus();
+    const park = entries.find((e) => e.url === 'https://vedarai.ru/park');
+    expect(new Date(park!.lastModified!).toISOString().slice(0, 10)).toBe(PARK_HUB_TEXT_REVISION);
+  });
+});
+

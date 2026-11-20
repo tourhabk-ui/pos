@@ -71,3 +71,26 @@ describe('lastmod списков', () => {
       .toBe(NEW.toISOString());
   });
 });
+
+describe('lastmod = dateModified страницы (Сыщик 21.11)', () => {
+  it('апгрейды посадочных и /fish — дата ревизии текста, не туров и не записи места', async () => {
+    const { landingByPath } = await import('@/lib/landings/landings');
+    const { FISH_TEXT_REVISION } = await import('@/lib/fish/fish-sources');
+    query.mockImplementation((sql: string) => {
+      if (String(sql).includes('FROM operator_tours')) return Promise.resolve({ rows: [{ id: 1, slug: 'tur-a', updated_at: NEW }] });
+      if (String(sql).includes('FROM places')) {
+        return Promise.resolve({ rows: [{ ark_id: 'p1', slug: 'paratunskaya-zona-otdyha', updated_at: OLD, location_type: 'hot_spring' }] });
+      }
+      return Promise.resolve({ rows: [] });
+    });
+    const { entries } = await collectSitemapEntriesWithStatus();
+    const day = (u: string) => {
+      const e = entries.find((x) => x.url === `https://vedarai.ru${u}`);
+      return e ? new Date(e.lastModified!).toISOString().slice(0, 10) : null;
+    };
+    expect(day('/dolina-gejzerov-ekskursiya')).toBe(landingByPath('/dolina-gejzerov-ekskursiya')!.date);
+    expect(day('/places/paratunskaya-zona-otdyha')).toBe(landingByPath('/places/paratunskaya-zona-otdyha')!.date);
+    expect(day('/fish')).toBe(FISH_TEXT_REVISION);
+  });
+});
+
