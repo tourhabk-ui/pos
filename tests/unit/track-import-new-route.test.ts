@@ -49,7 +49,7 @@ describe('очередь треков умеет заводить новый м�
   it('цель по-прежнему называется РОВНО одна', () => {
     // Иначе появилась бы запись, которая и переписывает старый маршрут, и
     // создаёт новый — два разных действия под одним вызовом.
-    expect(SRC).toMatch(/\[d\.route_id, d\.route_title, d\.new_route_title\]\.filter\(Boolean\)\.length === 1/);
+    expect(SRC).toMatch(/\[d\.route_id, d\.route_slug, d\.route_title, d\.new_route_title\]\.filter\(Boolean\)\.length === 1/);
   });
 
   it('имя проходит судью стандарта §13', () => {

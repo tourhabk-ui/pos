@@ -1,0 +1,293 @@
+{
+  "note": "20.11. Треки утверждённых маршрутов природных парков «Вулканы Камчатки» (страница «Туристические маршруты») — в очередь треков (route_track_imports) через публичный приём /api/field-check/track. Режим ingest ничего не применяет: записи ложатся со статусом pending. Применение к маршруту — режимом apply, сухой прогон по умолчанию.",
+  "run": 1,
+  "why": "Слово владельца 20.11: «Треки парка как линии» — только у маршрутов, сверенных с утверждёнными (миграция 1468).",
+  "mode": "ingest",
+  "source_page": "https://vulcanikamchatki.ru/v_pomow_gostyu/nomera_marshrutov/",
+  "trip_tag": "park-vulcanikamchatki",
+  "ingest": [
+    {
+      "park": "nalychevo",
+      "title": "Пиначево — Центральный",
+      "seasons": [
+        "summer",
+        "winter"
+      ],
+      "track_url": "https://www.vulcanikamchatki.ru/files/2024/gpx/1_pinachevo-central_nyj.zip"
+    },
+    {
+      "park": "nalychevo",
+      "title": "Авачинский — Центральный",
+      "seasons": [
+        "summer"
+      ],
+      "track_url": "https://www.vulcanikamchatki.ru/files/2024/gpx/2_avachinskij-central_nyj.zip"
+    },
+    {
+      "park": "nalychevo",
+      "title": "Пятая стройка — Центральный",
+      "seasons": [
+        "winter"
+      ],
+      "track_url": "https://www.vulcanikamchatki.ru/files/2025/gpx/5-ya_strojka_-_central_nyj.7z"
+    },
+    {
+      "park": "nalychevo",
+      "title": "Центральный — Таловские источники — вулкан Дзендзур",
+      "seasons": [
+        "summer"
+      ],
+      "track_url": "https://www.vulcanikamchatki.ru/files/2025/gpx/3_talovskie-dzendzur.zip"
+    },
+    {
+      "park": "nalychevo",
+      "title": "Центральный — Таловские источники",
+      "seasons": [
+        "winter"
+      ],
+      "track_url": "https://www.vulcanikamchatki.ru/files/2025/gpx/central_nyj_-_talovskie.zip"
+    },
+    {
+      "park": "nalychevo",
+      "title": "Центральный — Аагские нарзаны",
+      "seasons": [
+        "summer"
+      ],
+      "track_url": "https://www.vulcanikamchatki.ru/files/2025/gpx/anyconv_com_tsentr-aagskie-shumninskie.7z"
+    },
+    {
+      "park": "nalychevo",
+      "title": "Центральный — Аагские нарзаны",
+      "seasons": [
+        "winter"
+      ],
+      "track_url": "https://www.vulcanikamchatki.ru/files/2025/gpx/central_nyj_agskie.7z"
+    },
+    {
+      "park": "nalychevo",
+      "title": "Экструзия Верблюд",
+      "seasons": [
+        "summer"
+      ],
+      "track_url": "https://www.vulcanikamchatki.ru/files/2024/gpx/6_k_ekstruzii_verblyud.zip"
+    },
+    {
+      "park": "nalychevo",
+      "title": "Восхождение на Авачинский вулкан",
+      "seasons": [
+        "summer"
+      ],
+      "track_url": "https://www.vulcanikamchatki.ru/files/2024/gpx/7_voshozhdenie_na_avachinskij_vulkan.zip"
+    },
+    {
+      "park": "nalychevo",
+      "title": "На Авачинский перевал и экструзию Верблюд: зимний",
+      "seasons": [
+        "winter"
+      ],
+      "track_url": "https://www.vulcanikamchatki.ru/files/2025/gpx/na_pereval_i_verblyud_-_tropa_i_ob_ekty.7z"
+    },
+    {
+      "park": "nalychevo",
+      "title": "Радыгино — Центральный",
+      "seasons": [
+        "summer"
+      ],
+      "track_url": "https://www.vulcanikamchatki.ru/files/2024/gpx/4_radygino_central_nyj.zip"
+    },
+    {
+      "park": "nalychevo",
+      "title": "Река Налычева — Река Островная: Транзитный",
+      "seasons": [
+        "winter"
+      ],
+      "track_url": "https://www.vulcanikamchatki.ru/files/2025/gpx/kalagir_tranzit.7z"
+    },
+    {
+      "park": "bystrinskiy",
+      "title": "Пионерская сопка",
+      "seasons": [
+        "summer"
+      ],
+      "track_url": "https://www.vulcanikamchatki.ru/files/2025/gpx/1_bp_pionerskaya_sopka.zip"
+    },
+    {
+      "park": "bystrinskiy",
+      "title": "Белые скалы",
+      "seasons": [
+        "summer"
+      ],
+      "track_url": "https://www.vulcanikamchatki.ru/files/2024/gpx/2_bp_belye_skaly.zip"
+    },
+    {
+      "park": "bystrinskiy",
+      "title": "Тупикин ключ",
+      "seasons": [
+        "summer"
+      ],
+      "track_url": "https://www.vulcanikamchatki.ru/files/2024/gpx/3_bp_tupikin_klyuch.zip"
+    },
+    {
+      "park": "bystrinskiy",
+      "title": "Ручей Черемшанка",
+      "seasons": [
+        "summer"
+      ],
+      "track_url": "https://www.vulcanikamchatki.ru/files/2024/gpx/4_bp_cheremshanka.zip"
+    },
+    {
+      "park": "bystrinskiy",
+      "title": "Озеро Икар",
+      "seasons": [
+        "summer"
+      ],
+      "track_url": "https://www.vulcanikamchatki.ru/files/2024/gpx/5_bp_ikar.zip"
+    },
+    {
+      "park": "bystrinskiy",
+      "title": "Черный замок",
+      "seasons": [
+        "summer"
+      ],
+      "track_url": "https://www.vulcanikamchatki.ru/files/2024/gpx/6_bp_chyornyj_zamok.zip"
+    },
+    {
+      "park": "bystrinskiy",
+      "title": "Озеро Илмаган",
+      "seasons": [
+        "summer"
+      ],
+      "track_url": "https://www.vulcanikamchatki.ru/files/2024/gpx/7_bp_ilmagan.zip"
+    },
+    {
+      "park": "bystrinskiy",
+      "title": "Вулкашики",
+      "seasons": [
+        "summer"
+      ],
+      "track_url": "https://www.vulcanikamchatki.ru/files/2024/gpx/8_bp_vulkashiki.zip"
+    },
+    {
+      "park": "bystrinskiy",
+      "title": "Вулкашики",
+      "seasons": [
+        "winter",
+        "winter"
+      ],
+      "track_url": "https://www.vulcanikamchatki.ru/files/2022/12/gps/8_bp_vulkashiki_gpx.zip"
+    },
+    {
+      "park": "bystrinskiy",
+      "title": "Вулкан Дыгерен-Олегенде",
+      "seasons": [
+        "summer"
+      ],
+      "track_url": "https://www.vulcanikamchatki.ru/files/2024/gpx/10_bp_dygeren-olengende.zip"
+    },
+    {
+      "park": "bystrinskiy",
+      "title": "Озеро Галямаки",
+      "seasons": [
+        "summer"
+      ],
+      "track_url": "https://www.vulcanikamchatki.ru/files/2024/gpx/11_bp_galyamaki_leto.zip"
+    },
+    {
+      "park": "bystrinskiy",
+      "title": "Озеро Галямаки",
+      "seasons": [
+        "winter"
+      ],
+      "track_url": "https://www.vulcanikamchatki.ru/files/2022/12/gps/galyamaki_zim_cherez_krasnuyu_sop_1.zip"
+    },
+    {
+      "park": "bystrinskiy",
+      "title": "Димшиканский кордон",
+      "seasons": [
+        "summer"
+      ],
+      "track_url": "https://www.vulcanikamchatki.ru/files/2024/gpx/12_bp_dimshikanskij.zip"
+    },
+    {
+      "park": "bystrinskiy",
+      "title": "Димшиканский кордон",
+      "seasons": [
+        "winter"
+      ],
+      "track_url": "https://www.vulcanikamchatki.ru/files/2022/12/gps/12_bp_dimshikanskij_gpx.zip"
+    },
+    {
+      "park": "bystrinskiy",
+      "title": "Ичинский вулкан",
+      "seasons": [
+        "summer"
+      ],
+      "track_url": "https://www.vulcanikamchatki.ru/files/2024/gpx/14_bp_ichinskij_k_dal_nij.zip"
+    },
+    {
+      "park": "bystrinskiy",
+      "title": "Каньон сноубордистов",
+      "seasons": [
+        "summer"
+      ],
+      "track_url": "https://www.vulcanikamchatki.ru/files/2024/gpx/13_bp_kan_on_snoubordistov.zip"
+    },
+    {
+      "park": "bystrinskiy",
+      "title": "Каньон сноубордистов",
+      "seasons": [
+        "winter"
+      ],
+      "track_url": "https://www.vulcanikamchatki.ru/files/2025/gpx/kan_on_snoubordistov_1.7z"
+    },
+    {
+      "park": "vilyuchinsky",
+      "title": "Восхождение на вулкан Вилючинский",
+      "seasons": [
+        "all"
+      ],
+      "track_url": "https://www.vulcanikamchatki.ru/files/2024/gpx/2_trek_voshozhdenie_vilyuchinskij.zip"
+    },
+    {
+      "park": "vilyuchinsky",
+      "title": "Вилючинский водопад",
+      "seasons": [
+        "summer"
+      ],
+      "track_url": "https://www.vulcanikamchatki.ru/files/2024/gpx/1_trek_vilyuchinskij_vodopad.zip"
+    },
+    {
+      "park": "vilyuchinsky",
+      "title": "Вилючинский водопад",
+      "seasons": [
+        "winter"
+      ],
+      "track_url": "https://www.vulcanikamchatki.ru/files/2025/gpx/vilyuchinskij_vodopad.7z"
+    },
+    {
+      "park": "vilyuchinsky",
+      "title": "К озеру Тополовому",
+      "seasons": [
+        "winter"
+      ],
+      "track_url": "https://www.vulcanikamchatki.ru/files/2025/gpx/snegohodnyj_ozero_topolovoe.7z"
+    },
+    {
+      "park": "vilyuchinsky",
+      "title": "К озеру Зелёному",
+      "seasons": [
+        "winter"
+      ],
+      "track_url": "https://www.vulcanikamchatki.ru/files/2025/gpx/snegohodnyj_ozero_zelenoe.7z"
+    },
+    {
+      "park": "vilyuchinsky",
+      "title": "К озеру Зелёному",
+      "seasons": [
+        "summer"
+      ],
+      "track_url": "https://www.vulcanikamchatki.ru/files/2025/gpx/3_trek_ozero_zelenoe.zip"
+    }
+  ],
+  "apply": []
+}
