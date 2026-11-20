@@ -40,7 +40,10 @@ describe('safety-кластер существует для поиска (ауд
   // правила природы) — его видимость и есть SEO-стратегия платформы.
   it('страницы кластера объявлены в sitemap', () => {
     const sm = readFileSync(join(process.cwd(), 'lib/seo/sitemap-entries.ts'), 'utf-8');
-    for (const path of ['/register', '/safety/communication', '/eco']) {
+    // /register с 21.11 — noindex (спецификация Сыщика: служебная форма),
+    // поэтому из sitemap снят; остальной кластер — в нём.
+    expect(sm).not.toContain('${BASE}/register`');
+    for (const path of ['/safety/communication', '/eco']) {
       expect(sm, `${path} выпал из sitemap — страница снова невидима для поиска`)
         .toContain(`\${BASE}${path}\``);
     }
