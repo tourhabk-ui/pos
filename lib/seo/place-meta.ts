@@ -19,7 +19,7 @@
  */
 import { TITLE_LIMIT, BRAND_SUFFIX } from '@/lib/seo/title-fit';
 import { metaDescription, META_DESCRIPTION_MAX } from '@/lib/seo/meta-description';
-import { placeZoneLabel, ROUTE_SEASON_RU } from '@/lib/places/zone-labels';
+import { placeZoneLabel, routeSeasonLabel } from '@/lib/places/zone-labels';
 
 export interface PlaceMetaFacts {
   name: string;
@@ -170,7 +170,6 @@ const DIFFICULTY_RU: Record<string, string> = {
   easy: 'лёгкая', medium: 'средняя', hard: 'сложная', extreme: 'экстремальная',
 };
 
-const SEASON_RU = ROUTE_SEASON_RU;
 
 function fmtNum(n: number): string {
   return Number.isInteger(n) ? String(n) : n.toFixed(1).replace('.', ',');
@@ -185,7 +184,9 @@ export function routeFactsLine(f: RouteMetaFacts): string {
   else if (f.durationHours != null && f.durationHours > 0) parts.push(`${fmtNum(f.durationHours)} ч`);
   if (f.difficulty) parts.push(`сложность ${DIFFICULTY_RU[f.difficulty] ?? f.difficulty.toLowerCase()}`);
   // Сезон бывает списком («summer, autumn» — payloadText склеивает массив): переводится каждый.
-  if (f.season) parts.push(`сезон ${f.season.split(/\s*,\s*/).map((x) => SEASON_RU[x] ?? x.toLowerCase()).join(', ')}`);
+  // Код без перевода (`all` импорта, #3568) не печатается: «сезон all» — не сезон.
+  const season = routeSeasonLabel(f.season);
+  if (season) parts.push(`сезон ${season.toLowerCase()}`);
   return parts.join(' · ');
 }
 
