@@ -127,7 +127,7 @@ export function finishKuzmichAnswer(raw: FinishInput): FinishedAnswer {
   logZhNames(raw.surface, zhNames);
   const input: FinishInput = { ...raw, answer: zhNames.text };
   const distance = stripUngroundedDistanceClaims(input.answer, groundingContext(input.toolRuns, input.context));
-  const safety = guardSafetyClaims(distance.cleaned, input.toolRuns);
+  const safety = guardSafetyClaims(distance.cleaned, input.toolRuns, input.question);
   void recordSafetyReview(input.surface, safety, input.toolRuns);
   const delivery = guardDeliveryClaims(safety.text, input.toolRuns);
   logGuards(input.surface, distance.removed, safety, delivery);
@@ -183,7 +183,7 @@ export interface ShownCorrection {
  */
 export function correctShownAnswer(input: Omit<FinishInput, 'sos' | 'lang'>): ShownCorrection {
   const distance = stripUngroundedDistanceClaims(input.answer, groundingContext(input.toolRuns, input.context));
-  const safety = guardSafetyClaims(input.answer, input.toolRuns);
+  const safety = guardSafetyClaims(input.answer, input.toolRuns, input.question);
   void recordSafetyReview(input.surface, safety, input.toolRuns);
   const delivery = guardDeliveryClaims(input.answer, input.toolRuns);
   logGuards(input.surface, distance.removed, safety, delivery);

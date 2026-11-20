@@ -124,3 +124,20 @@ export const VERIFIED_REFERENCE: EmergencyNumber[] = [
     type: 'МЧС',
   },
 ];
+
+/**
+ * Номер из данных маршрута (`kamchatka_routes.mchs_phone`) — только если он
+ * среди проверенных: региональных экстренных или справочных (ЦУКС). Колонку
+ * заполнял импорт с чужих страниц, номера никто не сверял, а Кузьмич диктовал
+ * их для регистрации (разбор 19.11, #3179 п.1). Непроверенный номер — null:
+ * строки с телефоном нет, ответ называет 112 и форму МЧС.
+ */
+export function verifiedRouteMchsPhone(phone: string | null | undefined): EmergencyNumber | null {
+  const norm = (p: string) => {
+    const d = p.replace(/\D/g, '');
+    return d.length === 11 && (d.startsWith('7') || d.startsWith('8')) ? d.slice(1) : d;
+  };
+  const want = norm(phone ?? '');
+  if (!want) return null;
+  return [...VERIFIED_REGIONAL, ...VERIFIED_REFERENCE].find((n) => norm(n.phone) === want) ?? null;
+}

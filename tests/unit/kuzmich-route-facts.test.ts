@@ -72,11 +72,18 @@ describe('факты маршрута доходят до модели', () => {
     expect(ctx).toContain('Регистрация в МЧС по этим маршрутам в базе не записана — это не значит, что она не нужна.');
   });
 
-  it('регистрация true — «ОБЯЗАТЕЛЬНА» с телефоном, и строки «не записана» нет', async () => {
+  it('регистрация true — «ОБЯЗАТЕЛЬНА»; непроверенный телефон из базы модели не уходит (#3179 п.1)', async () => {
     db({ named: [{ ...koryakRoute, id: 'r-nal', title: 'Налычевское кольцо', mchs_registration_required: true, mchs_phone: '+7 4152 41-12-60' }] });
     const ctx = await getGuardianContext('Налычево');
-    expect(ctx).toContain('«Налычевское кольцо»: Регистрация в МЧС: ОБЯЗАТЕЛЬНА, телефон +7 4152 41-12-60');
+    expect(ctx).toContain('«Налычевское кольцо»: Регистрация в МЧС: ОБЯЗАТЕЛЬНА');
+    expect(ctx).not.toContain('41-12-60');
     expect(ctx).not.toContain('в базе не записана');
+  });
+
+  it('проверенный номер (ЦУКС из emergency-numbers) называется с тем, чья это линия', async () => {
+    db({ named: [{ ...koryakRoute, id: 'r-nal', title: 'Налычевское кольцо', mchs_registration_required: true, mchs_phone: '8 (4152) 30-10-81' }] });
+    const ctx = await getGuardianContext('Налычево');
+    expect(ctx).toContain('Регистрация в МЧС: ОБЯЗАТЕЛЬНА, телефон +7 (4152) 30-10-81 (ЦУКС ГУ МЧС Камчатки');
   });
 
   it('маршрут через место тоже даёт факты — и на MCP, где ссылок нет', async () => {
