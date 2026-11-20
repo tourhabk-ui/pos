@@ -128,7 +128,7 @@ const loadPresetPlan = unstable_cache(
   // v4 (07.11, H16): даты — N календарных дней; тур дня — движка; строка
   // недобора.
   // v5 (20.11): даты сезонного пресета — в его месяцах (preset.months).
-  ['plan-preset-v5'],
+  ['plan-preset-v6'],
   { revalidate: 86400 },
 );
 
