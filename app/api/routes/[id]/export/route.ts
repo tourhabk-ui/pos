@@ -7,6 +7,7 @@ import { NextRequest, NextResponse } from 'next/server';
 import { query } from '@/lib/database';
 import { extractTrackpoints } from '@/lib/routes/track';
 import { stripTags } from '@/lib/html/text';
+import { gpxContentDisposition } from '@/lib/routes/gpx-filename';
 
 export const dynamic = 'force-dynamic';
 
@@ -21,6 +22,11 @@ export async function GET(
 
   if (!id || !/^[0-9a-f-]{36}$/.test(id)) {
     return NextResponse.json({ error: 'Некорректный ID' }, { status: 400 });
+  }
+  // Отдаётся только GPX. Прежде любой format молча получал GPX — честнее
+  // назвать, что другого формата нет.
+  if (format !== 'gpx') {
+    return NextResponse.json({ error: 'Поддерживается только format=gpx' }, { status: 400 });
   }
 
   try {
@@ -120,12 +126,11 @@ export async function GET(
     lines.push('</gpx>');
 
     const gpxContent = lines.join('\n');
-    const filename = slugify(r.title as string) + '.gpx';
 
     return new NextResponse(gpxContent, {
       headers: {
         'Content-Type': 'application/gpx+xml',
-        'Content-Disposition': `attachment; filename="${filename}"`,
+        'Content-Disposition': gpxContentDisposition(r.title as string, r.id),
         'Cache-Control': 'public, max-age=86400',
       },
     });
@@ -142,12 +147,4 @@ function escapeXml(unsafe: string): string {
     .replace(/>/g, '&gt;')
     .replace(/"/g, '&quot;')
     .replace(/'/g, '&apos;');
-}
-
-function slugify(text: string): string {
-  return text
-    .toLowerCase()
-    .replace(/[^a-zа-яё0-9\s-]/gi, '')
-    .replace(/\s+/g, '_')
-    .slice(0, 50) || 'route';
 }
