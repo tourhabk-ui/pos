@@ -1,0 +1,103 @@
+name: Gemini — замер сетевого пути с прода (Cloudflare AI Gateway)
+
+# ── Зачем ─────────────────────────────────────────────────────────────────
+#
+# 20.11 владелец обновил GEMINI_API_KEY в Timeweb. Прямой путь с прода
+# закрыт: Google отвечает 400 «User location is not supported» (ai-debug
+# 04.09, 05.11, 06.11). Шлюз Cloudflare AI Gateway `vedar-ai` с прода довёл
+# запрос до Anthropic (anthropic-path-probe, прогон 8). Пропустит ли Google
+# запрос шлюза — только замером с прода, и вот он.
+#
+# Проба (/api/cron/gemini-path-probe) спрашивает список моделей по шлюзу и
+# напрямую и называет исход каждого пути: open / open_key_refused / blocked /
+# http / unreachable. Если путь открыт — одна генерация в один токен.
+# Открыт шлюз — владелец ставит в Timeweb GEMINI_BASE_URL на адрес шлюза
+# (lib/ai/gemini-endpoint.ts), и живой код идёт тем же путём.
+#
+# Прогон красный, если ни один путь с прода не открыт.
+#
+# Секреты: CRON_SECRET (обязателен), CLOUDFLARE_API_TOKEN и
+# CLOUDFLARE_ACCOUNT_ID (для адреса шлюза; без них меряется только прямой
+# путь). Id аккаунта маскируется в логе, ключи наружу не печатаются.
+
+on:
+  workflow_dispatch:
+  push:
+    branches: [main]
+    paths:
+      - '.github/triggers/gemini-path-probe.json'
+
+permissions:
+  contents: read
+  deployments: read   # запись выката для scripts/wait-for-deploy.sh
+
+jobs:
+  probe:
+    runs-on: ubuntu-latest
+    # Ожидание своей сборки — до 70 мин и одной попытки сверх (срок на часах,
+    # scripts/wait-for-deploy.sh), плюс сам замер — один curl до 2 минут.
+    timeout-minutes: 90
+    steps:
+      - uses: actions/checkout@v7
+        with:
+          # История за окно CODE_PATHS (65 мин) — запасной путь wait-for-deploy.sh.
+          fetch-depth: 200
+
+      # Ждём СВОЮ сборку: проба и адрес Gemini живут в коде этого прогона.
+      # Только для запуска маркером: при workflow_dispatch head_commit пуст.
+      - name: Wait for fresh deploy
+        if: github.event_name == 'push'
+        env:
+          BASE: https://vedarai.ru
+          WANT_SHA: ${{ github.sha }}
+          GH_TOKEN: ${{ github.token }}
+          NEED_AFTER: ${{ github.event.head_commit.timestamp }}
+          CODE_PATHS: 'app/api/cron/gemini-path-probe lib/ai/gemini-endpoint.ts lib/ai/key-identity.ts lib/security/timing-safe.ts lib/auth/cron.ts'
+        run: bash scripts/wait-for-deploy.sh
+
+      - name: Аккаунт Cloudflare для адреса шлюза
+        id: cf
+        env:
+          CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
+          CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
+        run: |
+          set -u
+          ACCOUNT="${CLOUDFLARE_ACCOUNT_ID:-}"
+          if [ -z "$ACCOUNT" ] && [ -n "${CLOUDFLARE_API_TOKEN:-}" ]; then
+            ACCOUNT=$(curl -s --max-time 30 -H "Authorization: Bearer $CLOUDFLARE_API_TOKEN" \
+              "https://api.cloudflare.com/client/v4/accounts" | jq -r '.result[0].id // empty')
+          fi
+          if [ -z "$ACCOUNT" ]; then
+            echo "::warning::Аккаунт Cloudflare не определён — с прода меряется только прямой путь."
+          else
+            echo "::add-mask::$ACCOUNT"
+          fi
+          echo "account=$ACCOUNT" >> "$GITHUB_OUTPUT"
+
+      - name: С прода — пути до Gemini
+        env:
+          CRON_SECRET: ${{ secrets.CRON_SECRET }}
+          ACCOUNT: ${{ steps.cf.outputs.account }}
+        run: |
+          set -u
+          if [ -z "${CRON_SECRET:-}" ]; then
+            echo "::error::CRON_SECRET не задан в секретах репозитория — проба не вызвана."
+            exit 1
+          fi
+          CODE=$(curl -s -o /tmp/probe.json -w '%{http_code}' --max-time 120 \
+            -H "Authorization: Bearer $CRON_SECRET" \
+            "https://vedarai.ru/api/cron/gemini-path-probe?account=${ACCOUNT}&gateway=vedar-ai")
+          echo "Проба с прода: HTTP $CODE"
+          jq . /tmp/probe.json 2>/dev/null || head -c 600 /tmp/probe.json
+          if [ "$CODE" != "200" ]; then
+            echo "::error::Проба ответила HTTP $CODE."
+            exit 1
+          fi
+          EXISTS=$(jq -r '.path_exists' /tmp/probe.json)
+          OPEN=$(jq -r '.open_paths | join(", ")' /tmp/probe.json)
+          GEN=$(jq -r '.generate.outcome // "не было"' /tmp/probe.json)
+          case "$EXISTS" in
+            true)  echo "Путь до Gemini с прода открыт: $OPEN. Генерация: $GEN." ;;
+            null)  echo "::warning::Ни одна проба не дошла (сеть или ключа нет) — открыт ли путь, неизвестно."; jq -r '.note // empty' /tmp/probe.json ;;
+            *)     echo "::error::Ни один путь до Gemini с прода не открыт."; exit 1 ;;
+          esac
