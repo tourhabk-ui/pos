@@ -33,6 +33,7 @@ import MchsRegistrationBlock from '@/components/safety/MchsRegistrationBlock';
 import { registerFormHref } from '@/lib/safety/register-submit';
 import { type RouteItem } from '@/components/routes/RouteCard';
 import { RelatedRoutes } from '@/components/routes/RelatedRoutes';
+import { RecordModified } from '@/components/seo/RecordModified';
 import { useSourceTracker } from '@/hooks/useSourceTracker';
 import { planRouteMap, saveRouteMap, type RouteMapProgress } from '@/lib/offline/route-map-save';
 import { parseSavedMap, savedMapKey } from '@/lib/offline/saved-map';
@@ -504,8 +505,13 @@ function OfferCard({ offer, activityType, onBook }: {
   );
 }
 
-export default function RouteDetailClient({ id, mapPackBaseUrl, summary = null, initialRoute = null, initialRelated = null }: {
+export default function RouteDetailClient({ id, mapPackBaseUrl, summary = null, initialRoute = null, initialRelated = null, recordUpdatedAt = null }: {
   id: string;
+  /**
+   * Последняя правка записи маршрута (kamchatka_routes.updated_at, ISO) —
+   * видимая дата в первом HTML (аудит 20.11). null — даты нет, строки нет.
+   */
+  recordUpdatedAt?: string | null;
   mapPackBaseUrl: string | null;
   summary?: RouteSummary | null;
   /**
@@ -1941,6 +1947,9 @@ export default function RouteDetailClient({ id, mapPackBaseUrl, summary = null, 
 
         {/* ── Похожие: соседи по кольцу с сервера (lib/routes/related) ───── */}
         <RelatedRoutes routes={relatedRoutes} activityType={route.activityType ?? null} />
+
+        {/* Дата правки записи (lib/seo/record-modified, аудит 20.11). */}
+        <RecordModified value={recordUpdatedAt} className="mt-6 text-xs text-[var(--text-muted)]" />
       </div>
 
       {/*

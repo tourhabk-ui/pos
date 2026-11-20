@@ -21,6 +21,7 @@
  * `publicTourSql`), своего здесь нет.
  */
 
+import { TEST_STAND_PARTNER_IDS } from '@/lib/seat-requests/test-stand';
 import { z } from 'zod';
 import { unstable_cache } from 'next/cache';
 import { query } from '@/lib/database';
@@ -76,6 +77,18 @@ export interface OperatorsResult {
 }
 
 /**
+ * Исключение тестового стенда. id берутся из кода (не из запроса) и
+ * проверяются на вид UUID — строка SQL не собирается из чужого ввода.
+ */
+function testStandExclusion(alias: string): string[] {
+  const ids = TEST_STAND_PARTNER_IDS.filter((id) => UUID_RE.test(id));
+  if (ids.length === 0) return [];
+  return [`${alias}.id::text NOT IN (${ids.map((id) => `'${id}'`).join(', ')})`];
+}
+
+const UUID_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
+
+/**
  * Кто входит в список «Операторы Камчатки». Одно определение на выдачу,
  * счёт и кнопки фильтра — иначе «Вертолёт · 2» на кнопке и выдача по ней
  * разошлись бы, как «13 туров» каталога (#1780).
@@ -83,6 +96,10 @@ export interface OperatorsResult {
 function listedPartner(alias: string): string[] {
   return [
     `${alias}.is_public = TRUE`,
+    // Тестовый стенд (lib/seat-requests/test-stand): компания «Тестовый
+    // оператор Ведар» нужна для прогона запросов мест, а не туристу. В списке
+    // она стояла ссылкой на 404 (аудит 20.11). Признак — id из кода стенда.
+    ...testStandExclusion(alias),
     `${alias}.slug IS NOT NULL`,
     `${alias}.category <> 'transfer'`,
     // Прокат автомобилей — не туроператор (23.10): его страница —

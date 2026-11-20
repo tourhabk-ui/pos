@@ -20,7 +20,7 @@
  */
 import type { LucideIcon } from 'lucide-react';
 import {
-  Shield, Radio, Siren, WifiOff, ClipboardCheck, Leaf, Ticket, CalendarDays, Flame, Layers, ListChecks, Route, BedDouble, Plane, Fish, Award, Bus, MapPin, Waypoints, Map, Newspaper, BookOpen, Info, CircleHelp, LifeBuoy, Briefcase, Handshake, UserPlus, Bot, MessageSquare, Smartphone, ShieldAlert, FileText, ScrollText, Receipt, Backpack, CloudSun, Heart, Languages, Car, PlaneTakeoff,
+  Shield, Radio, Siren, WifiOff, ClipboardCheck, Leaf, Ticket, CalendarDays, Flame, Layers, ListChecks, Route, BedDouble, Plane, Fish, Award, Bus, MapPin, Waypoints, Map, Newspaper, BookOpen, Info, CircleHelp, LifeBuoy, Briefcase, Handshake, UserPlus, Bot, MessageSquare, Smartphone, ShieldAlert, FileText, ScrollText, Receipt, Backpack, CloudSun, Heart, Languages, Car, PlaneTakeoff, Trees,
 } from 'lucide-react';
 
 export interface PlatformLink {
@@ -101,6 +101,8 @@ export const PLATFORM_SECTIONS: PlatformSection[] = [
       { label: 'Статьи о Камчатке',   href: '/articles',       icon: Newspaper },
       { label: 'Рыбы Камчатки',       href: '/fish',           icon: Fish },
       { label: 'Летопись Камчатки',   href: '/letopis',        icon: ScrollText },
+      // Список охраняемых территорий (аудит 20.11: адрес /park был 404).
+      { label: 'Парки и заповедники', href: '/park',           icon: Trees },
       { label: 'Блог',                href: '/blog',           icon: BookOpen },
       { label: 'Приложения в дорогу', href: '/ai-tools',       icon: Smartphone },
       { label: 'О платформе',         href: '/about',          icon: Info },

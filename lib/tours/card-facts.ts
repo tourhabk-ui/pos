@@ -77,3 +77,15 @@ export function groupSizeOf(v: unknown): number | null {
   const n = typeof v === 'number' ? v : typeof v === 'string' ? Number(v.trim()) : NaN;
   return Number.isInteger(n) && n > 0 ? n : null;
 }
+
+/**
+ * Строка блока «О туре», когда полного описания оператор не дал (ID119, ID121,
+ * #3487, 20.11): пустой блок с одним заголовком читался как сбой страницы.
+ * Краткое описание есть — оно уже стоит в начале страницы, и строка туда
+ * отсылает; нет и его — так и сказано (§4.0).
+ */
+export function aboutEmptyText(shortDescription: string | null | undefined): string {
+  return shortDescription?.trim()
+    ? 'Подробного описания оператор не дал — коротко о туре сказано в начале страницы.'
+    : 'Описания тура оператор не дал — подробности уточняйте у него.';
+}

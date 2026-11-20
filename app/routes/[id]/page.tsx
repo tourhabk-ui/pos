@@ -12,6 +12,7 @@ import { stripSourceAttribution } from '@/lib/text/source-attribution';
 import { stripFillerLead } from '@/lib/text/filler-lead';
 import { isUuid } from '@/lib/text/slugify';
 import { JsonLd } from '@/components/seo/JsonLd';
+import { webPageModifiedJsonLd } from '@/lib/seo/record-modified';
 import { routeAggregateOffer } from '@/lib/seo/route-offers';
 import { stripTags } from '@/lib/html/text';
 import { routeDescription } from '@/lib/seo/place-meta';
@@ -161,7 +162,10 @@ async function getRouteRaw(idOrSlug: string) {
               -- нет (payload — это metadata), берём из мастер-таблицы.
               kr.zone AS kr_zone, kr.distance_km, kr.duration_hours, kr.duration_days AS kr_duration_days,
               kr.elevation_gain_m, kr.difficulty AS kr_difficulty, kr.season AS kr_season,
-              kr.mchs_registration_required
+              kr.mchs_registration_required,
+              -- Последняя правка записи маршрута — для dateModified и видимой
+              -- даты (аудит 20.11); та же колонка, что lastmod в sitemap.
+              kr.updated_at AS kr_updated_at
        FROM agent_route_knowledge k
        LEFT JOIN kamchatka_routes kr ON COALESCE(kr.ark_id, kr.id) = k.id
        WHERE k.id = $1 AND k.is_visible = TRUE`,
@@ -205,6 +209,7 @@ async function getRouteRaw(idOrSlug: string) {
       durationHours: r.duration_hours != null ? Number(r.duration_hours) : null,
       elevationGainM: r.elevation_gain_m != null ? Number(r.elevation_gain_m) : null,
       mchsRequired: r.mchs_registration_required === true,
+      recordUpdatedAt: (r.kr_updated_at as string | Date | null) ?? null,
       bestMonths: payloadStrings(payload.best_months),
       // Не строка в og:image — тот же 500: Next склеивает адрес path.join'ом.
       photos: payloadStrings(payload.photos),
@@ -575,11 +580,22 @@ export default async function RouteOrCategoryPage({ params }: Props) {
     }
   }
 
+  // Дата правки — узлом WebPage: у TouristTrip нет dateModified
+  // (lib/seo/record-modified, аудит 20.11). Поля нет — узла нет.
+  const pageLd = webPageModifiedJsonLd({
+    url: `https://vedarai.ru/routes/${route.slug ?? id}`,
+    name: route.title,
+    dateModified: route.recordUpdatedAt,
+    mainEntityId: `https://vedarai.ru/routes/${id}`,
+  });
+
   return (
     <>
       <JsonLd data={tripLd} />
+      {pageLd && <JsonLd data={pageLd} />}
       <JsonLd data={breadcrumbLd} />
       <RouteDetailClient
+        recordUpdatedAt={route.recordUpdatedAt ? new Date(route.recordUpdatedAt).toISOString() : null}
         id={route.id}
         initialRoute={initialRoute}
         initialRelated={initialRelated}

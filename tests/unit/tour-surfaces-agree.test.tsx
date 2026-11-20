@@ -291,7 +291,10 @@ describe('группа: из min/max_participants, без умолчания 20'
       expect((await apiAvailability(f, '2027-07-01', '2027-07-02')).maxGroupSize).toBe(max);
 
       const card = flat(renderCard(f).textContent);
-      expect(card).toContain(min !== null ? `Группа: ${min}–${max} чел.` : `до ${max}`);
+      // Минимум в одного человека — не минимум: «до N» и в шапке, и в условиях (#3487, 20.11).
+      const range = min !== null && min > 1 ? `${min}–${max}` : `до ${max}`;
+      expect(card).toContain(`Группа: ${range} чел.`);
+      expect(card).toContain(`Группа${range}`);
       expect(card).not.toMatch(/Группа: \d+–(null|undefined)/);
       cleanup();
 
