@@ -104,9 +104,12 @@ jobs:
             done
           elif [ "$MODE" = "apply" ]; then
             if [ -z "$CRON_SECRET" ]; then echo "::error::CRON_SECRET не задан — применять нечем"; exit 1; fi
+            # dry_run — только явное false пишет: в jq «.dry_run // true» дал бы
+            # true и для false («//» считает false пустым) — так прогон 3 (20.11)
+            # прошёл сухим вместо записи.
             N=$(jq '.apply | length' "$M")
             for i in $(seq 0 $((N - 1))); do
-              BODY=$(jq -c ".apply[$i] | {id, route_slug, segment: (.segment // \"all\"), dry_run: (.dry_run // true), force: (.force // false), reapply: (.reapply // false)}" "$M")
+              BODY=$(jq -c ".apply[$i] | {id, route_slug, segment: (.segment // \"all\"), dry_run: (if .dry_run == false then false else true end), force: (.force // false), reapply: (.reapply // false)}" "$M")
               CODE=$(curl -sS -o /tmp/resp.json -w '%{http_code}' --max-time 60 -X POST \
                 -H "Authorization: Bearer $CRON_SECRET" -H 'Content-Type: application/json' \
                 --data "$BODY" https://vedarai.ru/api/cron/track-import-queue || echo 000)
