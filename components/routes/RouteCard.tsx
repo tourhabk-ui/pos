@@ -5,6 +5,7 @@ import { catalogHref } from '@/lib/routes/url-slug';
 import { useWishlist, wishlistLabel, WISHLIST_LOCAL_ONLY_HINT } from '@/hooks/use-wishlist';
 import type { RouteTourPrice } from '@/lib/routes/route-tour-price';
 import RouteTourPriceLine from './RouteTourPriceLine';
+import type { PhotoCredit } from '@/lib/photos/author-credit';
 import { Heart, Flame, Thermometer, Anchor, Mountain, Leaf, Fish, Snowflake, Plane, Car, Wind, Footprints, PawPrint, MapPin, Waves, Droplets, Landmark, TreePine, Globe } from 'lucide-react';
 
 export interface RouteItem {
@@ -15,6 +16,10 @@ export interface RouteItem {
   /** Готовый адрес карточки, если вызывающий знает его лучше (страница категории). */
   href?: string;
   imageUrl?: string;
+  /** Подпись автора обложки — снимка тура (21.11); имя и ссылка. */
+  photoCredit?: PhotoCredit | null;
+  /** alt обложки — название места на снимке. */
+  photoAlt?: string | null;
   hasRealImage?: boolean;
   category: string;
   locationType?: string | null;
@@ -79,9 +84,9 @@ import PlaceCard from './PlaceCard';
 import RoutePathCard from './RoutePathCard';
 import TourCard from './TourCard';
 
-export default function RouteCard({ route }: { route: RouteItem }) {
+export default function RouteCard({ route, eager = false }: { route: RouteItem; eager?: boolean }) {
   if (route.kind === 'place') return <PlaceCard route={route} />;
-  if (route.kind === 'route') return <RoutePathCard route={route} />;
+  if (route.kind === 'route') return <RoutePathCard route={route} eager={eager} />;
   if (route.kind === 'tour')  return <TourCard route={route} />;
   // fallback
   return <LegacyCard route={route} />;

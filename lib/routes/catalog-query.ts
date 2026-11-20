@@ -24,6 +24,9 @@ import { shownPhotoSql } from '@/lib/images/origin';
 import { cardImage } from '@/lib/routes/card-image';
 import { placeOnLiveRouteSql } from '@/lib/places/on-route';
 import { loadPlaceTourCounts } from '@/lib/places/place-tours';
+import { loadRouteCardTourPhotos } from '@/lib/routes/tour-photos';
+import { loadFeedAuthorSlugs } from '@/lib/photos/author-feed';
+import type { PhotoCredit } from '@/lib/photos/author-credit';
 import { stripFillerLead } from '@/lib/text/filler-lead';
 import { arkUrlSlugSql } from '@/lib/routes/url-slug';
 import { PLACE_TYPE_PARAM } from '@/lib/routes/place-type-param';
@@ -151,6 +154,14 @@ export type CatalogFilters = z.infer<typeof CatalogQuerySchema>;
 
 export interface CatalogItem {
   imageUrl?: string;
+  /**
+   * Подпись автора обложки, когда обложка — снимок тура по этому маршруту
+   * (21.11, lib/routes/tour-photos): имя и ссылка на страницу партнёра или
+   * фотоленту. Нет — обложка своя, точки пути или её нет.
+   */
+  photoCredit?: PhotoCredit | null;
+  /** alt обложки-снимка тура — место, к которому идёт тур. */
+  photoAlt?: string | null;
   id: string;
   /** Ключ дедупликации (route_dedupe_key), НЕ адрес — адрес в urlSlug. */
   slug: string;
@@ -584,6 +595,23 @@ export async function queryCatalog(filters: CatalogFilters): Promise<CatalogResu
       zone:    typeof r.zone === 'string' && r.zone.trim() !== '' ? r.zone.trim() : null,
     };
   });
+
+  // Маршрут без своего кадра и без кадра точки пути — обложка из снимка тура
+  // по этому пути с подписью автора (21.11). Отдельным запросом: сбой не
+  // роняет каталог, карточка остаётся без фото, причина в логе загрузчика.
+  const bareRoutes = items.filter((it) => it.kind === 'route' && !it.imageUrl).map((it) => it.id);
+  if (bareRoutes.length > 0) {
+    const shots = await loadRouteCardTourPhotos(bareRoutes, { feedSlugs: await loadFeedAuthorSlugs() });
+    if (shots.state === 'ok') {
+      for (const it of items) {
+        const shot = it.kind === 'route' && !it.imageUrl ? shots.photos.get(it.id) : undefined;
+        if (!shot) continue;
+        it.imageUrl = shot.url;
+        it.photoCredit = shot.credit;
+        it.photoAlt = shot.placeName ?? it.title;
+      }
+    }
+  }
 
   // Туры к местам страницы — отдельным запросом (слово владельца 20.11):
   // сбой счёта не роняет каталог, а только оставляет плитки без строки о

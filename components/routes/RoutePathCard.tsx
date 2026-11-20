@@ -6,6 +6,7 @@ import { useWishlist, wishlistLabel, WISHLIST_LOCAL_ONLY_HINT } from '@/hooks/us
 import { Heart, Clock, Footprints, ChevronUp, ChevronsUp, AlertTriangle, MapPin } from 'lucide-react';
 import type { RouteItem } from './RouteCard';
 import RouteTourPriceLine from './RouteTourPriceLine';
+import { PhotoCreditLink } from '@/components/media/PhotoCreditLink';
 
 const DIFFICULTY_CONFIG = {
   easy:   { label: 'Лёгкий',  color: 'var(--success)', Icon: ChevronUp },
@@ -27,7 +28,7 @@ function daysLabel(n: number) {
   return `${n} дней`;
 }
 
-export default function RoutePathCard({ route }: { route: RouteItem }) {
+export default function RoutePathCard({ route, eager = false }: { route: RouteItem; eager?: boolean }) {
   const diffKey      = (route.difficulty ?? 'easy') as keyof typeof DIFFICULTY_CONFIG;
   const diff         = DIFFICULTY_CONFIG[diffKey] ?? DIFFICULTY_CONFIG.easy;
   const DiffIcon     = diff.Icon;
@@ -54,8 +55,9 @@ export default function RoutePathCard({ route }: { route: RouteItem }) {
           // eslint-disable-next-line @next/next/no-img-element
           <img
             src={photoSrc}
-            alt={route.title}
-            loading="lazy"
+            alt={route.photoAlt || route.title}
+            loading={eager ? 'eager' : 'lazy'}
+            {...(eager ? { fetchPriority: 'high' as const } : {})}
             className="w-full h-full object-cover"
           />
         ) : (
@@ -90,6 +92,14 @@ export default function RoutePathCard({ route }: { route: RouteItem }) {
           />
         </button>
       </Link>
+
+      {/* Подпись снимка тура (21.11) — отдельной строкой ВНЕ ссылки на
+          маршрут: имя автора ведёт на его страницу или фотоленту. */}
+      {photoSrc && route.photoCredit && (
+        <p className="px-3 pt-1.5 text-[11px] leading-snug text-[var(--text-muted)] truncate" data-testid="route-card-photo-credit">
+          Фото: <PhotoCreditLink credit={route.photoCredit} />
+        </p>
+      )}
 
       {/* ── Тело ──────────────────────────────────────────── */}
       <Link href={route.href ?? catalogHref(route, '/routes')} className="block p-3 space-y-1.5">
