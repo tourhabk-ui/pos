@@ -14,7 +14,7 @@
  *
  * Сборка у самой Glama и её оценка отсюда не видны: докера в CI нет.
  */
-import { describe, it, expect } from 'vitest';
+import { describe, it, expect, beforeAll } from 'vitest';
 import { readFileSync } from 'node:fs';
 import { join } from 'node:path';
 import { spawnSync } from 'node:child_process';
@@ -85,7 +85,10 @@ describe('снимок определений', () => {
 });
 
 describe('сервер — поведение (настоящий node, команда формы)', () => {
-  const replies = talk([
+  let replies: RpcReply[] = [];
+  let byId = new Map<number | null, RpcReply>();
+  beforeAll(() => {
+    replies = talk([
     init(1, '2025-06-18'),
     { jsonrpc: '2.0', method: 'notifications/initialized' },
     { jsonrpc: '2.0', id: 2, method: 'tools/list' },
@@ -96,8 +99,9 @@ describe('сервер — поведение (настоящий node, кома
     { jsonrpc: '2.0', id: 7, method: 'ping' },
     init(8, '2099-01-01'),
     'not json',
-  ]);
-  const byId = new Map(replies.map((r) => [r.id, r]));
+    ]);
+    byId = new Map(replies.map((r) => [r.id, r]));
+  });
 
   it('уведомление без ответа; на каждый запрос — один ответ', () => {
     // 9 запросов с id + ошибка разбора (id null); notifications/initialized — без ответа
@@ -194,7 +198,35 @@ describe('запреты: ни моста, ни запросов наружу', 
     expect(serverSource).not.toMatch(/mcp-remote/);
   });
 
-  it('сервер не ходит в сеть и не тянет зависимостей', () => {
-    expect(serverSource).not.toMatch(/\bfetch\s*\(|node:https?['"]|node:net['"]|from ['"](?!node:)/);
+  // Белый список, а не перечень сетевых модулей: чёрный список пропускал
+  // node:http2, node:tls, node:dns, child_process, импорт ради побочного
+  // эффекта и require через createRequire (ревью безопасности PR 3612).
+  const ALLOWED_MODULES = ['node:fs', 'node:path', 'node:readline', 'node:url'];
+
+  it('сервер импортирует только модули из белого списка — ни сети, ни процессов, ни зависимостей', () => {
+    const specifiers = [...serverSource.matchAll(/(?:^|[\s;])import\s*(?:[^'"`;()]*?\bfrom\s*)?['"]([^'"]+)['"]/g)].map((m) => m[1]);
+    expect(specifiers.length).toBeGreaterThan(0);
+    for (const s of specifiers) expect(ALLOWED_MODULES, `модуль вне белого списка: ${s}`).toContain(s);
+  });
+
+  it('в сервере нет обходов белого списка: fetch, globalThis, require, import(), eval', () => {
+    expect(serverSource).not.toMatch(
+      /\bfetch\b|\bglobalThis\b|\brequire\b|createRequire|\bimport\s*\(|\beval\s*\(|new\s+Function|process\.binding|WebSocket|XMLHttpRequest|EventSource|\bmodule\b\.|process\.dlopen/,
+    );
+  });
+
+  it('белый список сторожа ловит то, что пропускал прежний (проверка самого сторожа)', () => {
+    const bad = [
+      "import { request } from 'node:http2';",
+      "import tls from 'node:tls';",
+      "import 'node:dns';",
+      "import 'some-package';",
+      "import { execSync } from 'node:child_process';",
+    ];
+    for (const line of bad) {
+      const [spec] = [...line.matchAll(/(?:^|[\s;])import\s*(?:[^'"`;()]*?\bfrom\s*)?['"]([^'"]+)['"]/g)].map((m) => m[1]);
+      expect(spec, line).toBeDefined();
+      expect(ALLOWED_MODULES.includes(spec), line).toBe(false);
+    }
   });
 });
