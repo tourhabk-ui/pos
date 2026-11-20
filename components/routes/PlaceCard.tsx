@@ -7,7 +7,7 @@ import { catalogHref } from '@/lib/routes/url-slug';
 import { useWishlist, wishlistLabel, WISHLIST_LOCAL_ONLY_HINT } from '@/hooks/use-wishlist';
 import {
   Heart, MapPin, Flame, Wind, Thermometer, Droplets,
-  Mountain, Waves, Anchor, TreePine, Landmark, Eye, Home,
+  Mountain, Waves, Anchor, TreePine, Landmark, Eye, Home, Ticket, ChevronRight,
 } from 'lucide-react';
 import type { RouteItem } from './RouteCard';
 import { LOCATION_TYPE_LABELS } from '@/components/places/types';
@@ -15,11 +15,18 @@ import { getElementForType, NEUTRAL_ELEMENT_COLOR } from '@/lib/stats/element-gr
 import { horizonPath, closedHorizon, bearingDeg, distanceKm, rumb16, seasonRoman } from './place-horizons';
 import { useAnchor } from './useAnchor';
 import { nearestZoneKey, ZONES, type ZoneKey } from '@/lib/services/safety/zone-weather';
+import { placeToursHref, placeToursLine } from '@/lib/places/place-tours-line';
 
 // Концепт Ω «Живые окна» (утверждён владельцем): место — существительное,
-// без цен и офферов. Кромка фото — силуэт горизонта по типу места, под
-// именем — честный пеленг и дистанция от якоря (геолокация — только по
-// тапу по прибору). Цвета — канон стихий lib/stats/element-groups.
+// без цен. Кромка фото — силуэт горизонта по типу места, под именем —
+// честный пеленг и дистанция от якоря (геолокация — только по тапу по
+// прибору). Цвета — канон стихий lib/stats/element-groups.
+//
+// Туры (слово владельца 20.11: «на карточки мест нужно добавить туры, если
+// они есть») — одной строкой «N туров к месту» внизу плитки, без цен и без
+// имён компаний: плитка называет факт и ведёт к блоку «Туры к этому месту»
+// на странице места, где туры стоят по правилу 1в. Туров нет или число не
+// прочиталось — строки нет.
 
 const LOCATION_ICONS: Record<string, React.ElementType> = {
   volcano:    Flame,
@@ -85,6 +92,8 @@ export default function PlaceCard({ route }: { route: RouteItem }) {
   }, [anchor, route.lat, route.lng]);
 
   const season = seasonRoman(route.bestMonths);
+  const placeHref = route.href ?? catalogHref(route, '/places');
+  const toursLine = placeToursLine(route.placeTours);
 
   // Живая погода ближайшей зоны (≤80 км) — окно в реальное место
   // Избранное — общий хук: тело запроса, вход гостя и текст ошибки
@@ -138,7 +147,7 @@ export default function PlaceCard({ route }: { route: RouteItem }) {
       }}
     >
       {/* ── Небо: фото/градиент + вырубка-горизонт ──────── */}
-      <Link href={route.href ?? catalogHref(route, '/places')} className="block">
+      <Link href={placeHref} className="block">
         <div className="pc-sky relative overflow-hidden" style={{ height: 132 }}>
           {photoSrc ? (
             <img
@@ -259,7 +268,7 @@ export default function PlaceCard({ route }: { route: RouteItem }) {
             </span>
           )}
         </div>
-        <Link href={route.href ?? catalogHref(route, '/places')} className="block">
+        <Link href={placeHref} className="block">
           <b
             className="block text-[var(--text-primary)] line-clamp-2 group-hover:text-[var(--accent)] transition-colors"
             style={{ fontFamily: 'var(--font-playfair)', fontSize: 14, lineHeight: 1.22, fontWeight: 600, letterSpacing: '-0.01em', textWrap: 'balance' }}
@@ -299,6 +308,19 @@ export default function PlaceCard({ route }: { route: RouteItem }) {
               </span>
             )}
           </div>
+        )}
+
+        {/* Туры к месту — факт и ссылка на блок туров страницы места. */}
+        {toursLine && (
+          <Link
+            href={placeToursHref(placeHref)}
+            className="pc-tours mt-2 flex items-center gap-1.5 text-[var(--ocean)] hover:text-[var(--accent)] transition-colors duration-200"
+            style={{ borderTop: '1px solid var(--border)', minHeight: 44, fontSize: 12, fontWeight: 600 }}
+          >
+            <Ticket className="w-3.5 h-3.5 shrink-0" aria-hidden="true" />
+            <span>{toursLine}</span>
+            <ChevronRight className="w-3.5 h-3.5 ml-auto shrink-0" aria-hidden="true" />
+          </Link>
         )}
       </div>
 

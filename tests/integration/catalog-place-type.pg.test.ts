@@ -19,7 +19,7 @@
  * Вход (Zod, 400 до SQL) и форма параметра — в юните
  * tests/unit/catalog-place-type.test.ts: он идёт в каждом прогоне CI.
  */
-import { describe, it, expect, beforeAll, afterAll } from 'vitest';
+import { describe, it, expect, beforeAll, afterAll, vi } from 'vitest';
 import type { Pool } from 'pg';
 import { createTestDatabase } from '../helpers/pg-schema';
 
@@ -414,6 +414,109 @@ withPg('поиск маршрута по виду места пути', () => {
         WHERE is_visible = TRUE AND kind = 'route' AND lat IS NOT NULL AND lng IS NOT NULL`,
     );
     expect(r.total).toBe(direct.rows[0].n);
+  });
+
+  // ── Туры на плитке места (слово владельца 20.11) ─────────────────────────
+  //
+  // «На карточки мест нужно добавить туры, если они есть»: плитка места в
+  // каталоге называет число туров тем же отбором, что блок «Туры к этому
+  // месту» на странице места. Судится сам queryCatalog на схеме прода.
+  describe('число туров к месту на плитке каталога (20.11)', () => {
+    const created = { tours: [] as string[], partners: [] as string[], routes: [] as string[], places: [] as string[] };
+    const ark: Record<string, string> = {};
+
+    beforeAll(async () => {
+      const partner = await pool.query<{ id: string }>(
+        `INSERT INTO partners (name, slug, category, contact, contacts, is_public, status)
+         VALUES ('тт-компания', 'тт-компания', 'operator', '{}'::jsonb, '{}'::jsonb, TRUE, 'active') RETURNING id::text`,
+      );
+      const op = partner.rows[0].id;
+      created.partners.push(op);
+      for (const key of ['a', 'b']) {
+        const r = await pool.query<{ ark_id: string }>(
+          `INSERT INTO places (id, ark_id, name, lat, lng, location_type, is_visible)
+           VALUES ($1::text, gen_random_uuid(), $2::text, 53.2, 158.8, 'volcano', TRUE) RETURNING ark_id::text`,
+          [`place-tt-${key}`, `ТТ место ${key}`],
+        );
+        created.places.push(`place-tt-${key}`);
+        ark[key] = r.rows[0].ark_id;
+      }
+      const route = async (title: string, kind: string) => {
+        const r = await pool.query<{ id: string }>(
+          `INSERT INTO kamchatka_routes (category, title, slug, is_visible) VALUES ('hiking', $1::text, $1::text, TRUE) RETURNING id::text`,
+          [title],
+        );
+        await pool.query(
+          `INSERT INTO route_waypoints (route_id, place_id, position, link_kind) VALUES ($1::uuid, 'place-tt-a', 0, $2)`,
+          [r.rows[0].id, kind],
+        );
+        created.routes.push(r.rows[0].id);
+        return r.rows[0].id;
+      };
+      const tour = async (title: string, opts: { route?: string; main?: string; published?: boolean }) => {
+        const r = await pool.query<{ id: string }>(
+          `INSERT INTO operator_tours (operator_id, title, base_price, price_unit, max_participants,
+                                       is_active, is_published, activity_type, duration_hours, route_id, main_place_id)
+           VALUES ($1, $2, 5000, 'per_person', 10, TRUE, $3, 'hiking', 6, $4::uuid, $5) RETURNING id::text`,
+          [op, title, opts.published ?? true, opts.route ?? null, opts.main ?? null],
+        );
+        created.tours.push(r.rows[0].id);
+      };
+      const way = await route('ТТ путь через место', 'waypoint');
+      const unknown = await route('ТТ связь не размечена', 'unknown');
+      const near = await route('ТТ место рядом', 'nearby');
+      // Главное место и точка пути одного тура — один тур, а не два.
+      await tour('ТТ главное место и путь', { main: 'place-tt-a', route: way });
+      await tour('ТТ по пути', { route: way });
+      // В блок «Туры к этому месту» не входят — и в число тоже.
+      await tour('ТТ неразмеченная связь', { route: unknown });
+      await tour('ТТ рядом', { route: near });
+      await tour('ТТ черновик', { main: 'place-tt-a', published: false });
+    });
+
+    afterAll(async () => {
+      await pool.query('DELETE FROM operator_tours WHERE id = ANY($1::bigint[])', [created.tours]);
+      await pool.query('DELETE FROM route_waypoints WHERE route_id = ANY($1::uuid[])', [created.routes]);
+      await pool.query('DELETE FROM kamchatka_routes WHERE id = ANY($1::uuid[])', [created.routes]);
+      await pool.query('DELETE FROM partners WHERE id = ANY($1::uuid[])', [created.partners]);
+      await pool.query('DELETE FROM places WHERE id = ANY($1::text[])', [created.places]);
+    });
+
+    async function placeTours(): Promise<Record<string, number | null | undefined>> {
+      const { items } = await queryCatalog(schema.parse({ kind: 'place', limit: '2000' }));
+      return Object.fromEntries(items.filter((i) => i.title.startsWith('ТТ ')).map((i) => [i.title, i.placeTours]));
+    }
+
+    it('туры по главному месту и по точке пути; «рядом», неразмеченная связь и черновик — нет; без туров — 0', async () => {
+      expect(await placeTours()).toEqual({ 'ТТ место a': 2, 'ТТ место b': 0 });
+    });
+
+    it('число — то же, что блок «Туры к этому месту» на странице места', async () => {
+      const { loadPlaceTours, goesToPlace } = await import('@/lib/places/place-tours');
+      const r = await loadPlaceTours('place-tt-a');
+      expect(r.state).toBe('ok');
+      const onPage = r.state === 'ok' ? r.offers.filter(goesToPlace).length : -1;
+      expect((await placeTours())['ТТ место a']).toBe(onPage);
+    });
+
+    it('число не прочиталось — каталог отвечает, у мест null, причина и SQLSTATE в логе', async () => {
+      const { pool: appPool } = await import('@/lib/db-pool');
+      const real = appPool.query.bind(appPool);
+      const spy = vi.spyOn(appPool, 'query').mockImplementation(((text: unknown, ...rest: unknown[]) => {
+        if (typeof text === 'string' && text.includes('COUNT(DISTINCT ot.id)')) {
+          return Promise.reject(Object.assign(new Error('canceling statement due to statement timeout'), { code: '57014' }));
+        }
+        return (real as (...a: unknown[]) => unknown)(text, ...rest);
+      }) as never);
+      const err = vi.spyOn(console, 'error').mockImplementation(() => {});
+      try {
+        expect(await placeTours()).toEqual({ 'ТТ место a': null, 'ТТ место b': null });
+        expect(err.mock.calls.find((c) => String(c[0]).includes('число туров мест'))?.[1]).toMatchObject({ sqlstate: '57014' });
+      } finally {
+        spy.mockRestore();
+        err.mockRestore();
+      }
+    });
   });
 });
 

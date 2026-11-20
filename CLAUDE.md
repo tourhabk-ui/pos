@@ -2016,6 +2016,12 @@ COPY --from=builder /app/start.js ./start.js
 - Три исхода чтения (§4.0): есть / пусто (раздела нет) / не загрузились (раздел есть, строка сбоя)
 - Сторожа: `tests/unit/place-tours-offers.test.tsx`, `tests/unit/place-tours-link-kind.test.tsx`,
   `tests/unit/place-know-section-always.test.tsx`
+- **Плитка места в каталоге** (`/places`, `/routes`, «Похожие»; слово владельца 20.11 «на карточки
+  мест нужно добавить туры, если они есть») — строка «N туров к месту» → `#tours` страницы места.
+  Число — тем же отбором, что «Туры к этому месту» (`loadPlaceTourCounts`, общие связи с
+  `PLACE_TOURS_SQL`), одним запросом на страницу каталога. Цен и компаний на плитке нет. Туров нет
+  или число не прочиталось — строки нет, сбой в логе. Сторожа: `tests/unit/place-card-tours.test.tsx`,
+  блок «число туров к месту» в `tests/integration/catalog-place-type.pg.test.ts`
 
 **12. Рядом:**
 - Ближайшие точки по координатам с расстоянием

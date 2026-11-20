@@ -30,6 +30,12 @@ export interface RouteItem {
    * 18.11 «1», lib/routes/route-tour-price); нет — цены нет.
    */
   tourPrice?: RouteTourPrice | null;
+  /**
+   * Сколько туров витрины идут к месту — тем же отбором, что блок «Туры к
+   * этому месту» на странице места (слово владельца 20.11). 0 или null —
+   * плитка о турах молчит.
+   */
+  placeTours?: number | null;
   difficulty: string | null;
   durationDays: number | null;
   bestMonths?: number[] | null;
