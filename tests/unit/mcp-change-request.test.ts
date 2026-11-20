@@ -7,6 +7,9 @@
  * Настоящий SQL права и записи — tests/integration/request-chat.pg.test.ts.
  *
  * Что здесь держится:
+ *   - вызов агента заявку не меняет (слово владельца 20.11 «1 для всех
+ *     агентов»): изменение — черновик и ссылка, исполняет нажатие человека
+ *     (applyPendingChange) тем же правом ключа;
  *   - право: менять заявку даёт только ключ новой заявки на тур на дату;
  *   - проба (`test: true`) ничего не пишет и никому ничего не шлёт;
  *   - оператору названо, что действие передал ИИ-агент, а не человек в чате;
@@ -15,7 +18,7 @@
  */
 import { describe, it, expect, vi, beforeEach } from 'vitest';
 
-const h = vi.hoisted(() => ({ query: vi.fn(), notify: vi.fn(), alert: vi.fn(), event: vi.fn(), log: vi.fn() }));
+const h = vi.hoisted(() => ({ query: vi.fn(), notify: vi.fn(), alert: vi.fn(), event: vi.fn(), log: vi.fn(), pending: vi.fn() }));
 
 vi.mock('@/lib/db-pool', () => ({
   pool: {
@@ -34,10 +37,15 @@ vi.mock('@/lib/crm/events', async (orig) => ({
 }));
 vi.mock('@/lib/kuzmich/core', () => ({ executeKuzmichTool: async () => 'ok' }));
 vi.mock('@/lib/mcp/call-log', () => ({ logMcpToolCall: (e: unknown) => h.log(e), logMcpClient: () => undefined }));
+vi.mock('@/lib/mcp/pending-request', async (orig) => ({
+  ...(await orig<typeof import('@/lib/mcp/pending-request')>()),
+  createPendingRequest: async (p: unknown) => h.pending(p),
+}));
 
 import {
-  changeRequest, CHANGE_KEY_SQL, CHANGE_CANCEL_LEAD_SQL, CHANGE_DATE_LEAD_SQL,
+  changeRequest, applyPendingChange, CHANGE_KEY_SQL, CHANGE_CANCEL_LEAD_SQL, CHANGE_DATE_LEAD_SQL,
 } from '@/lib/mcp/change-request';
+import { PENDING_CHANGE_TOOL, PENDING_REQUEST_TTL_MIN } from '@/lib/mcp/pending-request';
 import {
   CHANGE_OUTCOMES, CHANGE_TOLD, CHANGE_REQUEST_OUTPUT_SCHEMA, CHANGE_REQUEST_RULE, CHANGE_REQUEST_TOOL_NAME,
 } from '@/lib/mcp/change-request-schema';
@@ -55,6 +63,8 @@ import { runPublicTool } from '@/app/api/mcp/route';
 import { storableTask } from '@/lib/a2a/durable-store';
 
 const KEY = 'Zq3vT-xYLmK_aB7cDreFlgH8jNopRisU';
+/** Токен ссылки подтверждения, который «вернула» база черновиков. */
+const TOKEN = 'Tk3vT-xYLmK_aB7cDreFlgH8jNopRisZ';
 const LEAD = 'b3f0c7a2-1d4e-4f6a-9b8c-0a1b2c3d4e5f';
 const OPERATOR = '11111111-2222-4333-8444-555555555555';
 /** 01.06.2027 по UTC — «сегодня» для двери; даты заявки — после него. */
@@ -101,6 +111,7 @@ beforeEach(() => {
   h.alert.mockReset().mockResolvedValue({ channel: 'max', delivered: true, reason: 'доставлено' });
   h.event.mockReset().mockResolvedValue(undefined);
   h.log.mockReset();
+  h.pending.mockReset().mockResolvedValue(TOKEN);
   world = {
     key: tourKey(), lead: lead(), cancelNow: { log_id: '701', prev_status: 'new', operator_id: OPERATOR }, cancelRequest: '702',
     free: [{ date: '2027-07-18', free: 5 }, { date: '2099-07-18', free: 5 }], hasCalendar: true, changed: '801', requested: '802',
@@ -135,6 +146,24 @@ const refusalOf = async (p: Promise<unknown>): Promise<McpUserError> => {
   return err as McpUserError;
 };
 const sentToOperator = () => (h.notify.mock.calls[0]![0] as { text: (b: boolean) => string }).text(false);
+
+interface PendingDraft { tool: string; args: Record<string, unknown>; draftText: string; consentPurposes: unknown[]; via: 'mcp' | 'a2a' }
+const lastDraft = (): PendingDraft => h.pending.mock.calls.at(-1)![0] as PendingDraft;
+
+/**
+ * Вызов агента — ссылка и ни одной записи; нажатие человека на странице —
+ * изменение тем же правилом (20.11). Возвращает исход нажатия.
+ */
+const confirmed = async (args: Record<string, unknown>, via: 'mcp' | 'a2a' = 'mcp') => {
+  const before = writes().length;
+  const asked = await call(args, via);
+  expect(asked).toMatchObject({ outcome: 'confirm_on_page', changed: false, test: false });
+  expect(writes()).toHaveLength(before);
+  const draft = lastDraft();
+  const out = await applyPendingChange(draft.args, draft.via, { now: NOW });
+  if (out.kind !== 'done') throw new Error(`подтверждение не исполнено: ${JSON.stringify(out)}`);
+  return out.result;
+};
 
 describe('право: чей ключ меняет заявку', () => {
   it('условие права стоит в самом чтении заявки: живой ключ новой заявки на тур, не своя проба', () => {
@@ -234,46 +263,46 @@ describe('аргументы', () => {
 });
 
 describe('отмена', () => {
-  it('оператор не ответил — отменена сразу; оператору сказано, что передал ИИ-агент', async () => {
-    const r = await call({ action: 'cancel' });
+  it('оператор не ответил — после подтверждения отменена сразу; оператору сказано, что передал ИИ-агент', async () => {
+    const r = await confirmed({ action: 'cancel' });
     expect(callsOf(CANCEL_NOW_SQL)).toEqual([[LEAD, 'mcp']]);
     expect(r).toMatchObject({ action: 'cancel', outcome: 'cancelled', changed: true, test: false, told: 'operator', date: '2027-07-15' });
     expect(r.human).toBe('Заявка отменена: тур «Горелый & кратер <малый>», 15.07.2027, участников 3. Оператору ушло сообщение.');
     expect(r.next).toMatch(/Вернуть отменённую заявку нельзя/);
     const text = sentToOperator();
-    expect(text).toContain('Отмену передал ИИ-агент туриста по ключу заявки, пока вы не ответили.');
+    expect(text).toContain('Отмену передал ИИ-агент туриста, турист подтвердил её на странице Ведара, пока вы не ответили.');
     expect(text).not.toContain('в чате Ведара');
     // Журнал событий заявки называет дверь.
     expect(h.event.mock.calls[0]![0]).toMatchObject({ actorKind: 'tourist', payload: { to: 'cancelled', via: 'mcp' } });
   });
 
   it('дверь A2A пишется в журнал заявки своим словом', async () => {
-    await call({ action: 'cancel' }, 'a2a');
+    await confirmed({ action: 'cancel' }, 'a2a');
     expect(callsOf(CANCEL_NOW_SQL)).toEqual([[LEAD, 'a2a']]);
   });
 
   it('оператор не узнал — так и сказано, менеджер предупреждён', async () => {
     h.notify.mockResolvedValue('none');
-    const r = await call({ action: 'cancel' });
+    const r = await confirmed({ action: 'cancel' });
     expect(r).toMatchObject({ outcome: 'cancelled', changed: true, told: 'manager' });
     expect(r.human).toMatch(/Сообщить оператору сейчас не удалось.*Менеджер Ведара предупреждён\.$/);
     const manager = (h.alert.mock.calls[0]![0] as { text: string }).text;
-    expect(manager).toContain('Передал ИИ-агент клиента по ключу заявки.');
+    expect(manager).toContain('Передал ИИ-агент клиента, клиент подтвердил на странице Ведара.');
     // Не дошло и менеджеру — «никто».
     h.alert.mockResolvedValue({ channel: 'none', delivered: false, reason: 'нет чата' });
     const err = vi.spyOn(console, 'error').mockImplementation(() => undefined);
-    expect(await call({ action: 'cancel' })).toMatchObject({ outcome: 'cancelled', told: 'nobody' });
+    expect(await confirmed({ action: 'cancel' })).toMatchObject({ outcome: 'cancelled', told: 'nobody' });
     err.mockRestore();
   });
 
   it('оператор уже ответил — заявка не тронута, ему ушла просьба', async () => {
     world.lead = lead({ answered: true, status: 'contacted' });
-    const r = await call({ action: 'cancel' });
+    const r = await confirmed({ action: 'cancel' });
     expect(callsOf(CANCEL_NOW_SQL)).toHaveLength(0);
     expect(callsOf(CANCEL_REQUEST_SQL)).toEqual([[LEAD, 'mcp']]);
     expect(r).toMatchObject({ outcome: 'cancel_requested', changed: false, told: 'operator', date: '2027-07-15' });
     expect(r.human).toMatch(/отменяет он: просьба ему отправлена\. Заявка действует, пока он её не закроет\./);
-    expect(sentToOperator()).toContain('Просьбу передал ИИ-агент туриста по ключу заявки.');
+    expect(sentToOperator()).toContain('Просьбу передал ИИ-агент туриста, турист подтвердил её на странице Ведара.');
   });
 
   it('просьба не дошла никому — заявка в силе, вызов можно повторить', async () => {
@@ -281,7 +310,7 @@ describe('отмена', () => {
     h.notify.mockResolvedValue('none');
     h.alert.mockResolvedValue({ channel: 'none', delivered: false, reason: 'нет чата' });
     const err = vi.spyOn(console, 'error').mockImplementation(() => undefined);
-    const r = await call({ action: 'cancel' });
+    const r = await confirmed({ action: 'cancel' });
     expect(r).toMatchObject({ outcome: 'cancel_request_undelivered', changed: false, told: 'nobody' });
     expect(r.human).toMatch(/Заявка остаётся в силе\.$/);
     expect(r.next).toMatch(/Повторите вызов/);
@@ -304,10 +333,13 @@ describe('отмена', () => {
     expect(h.notify).not.toHaveBeenCalled();
   });
 
-  it('отмена не записалась за две попытки — исключение, а не «отменена»', async () => {
+  it('отмена не записалась за две попытки — «не удалось после записи», а не «отменена»', async () => {
     world.cancelNow = null;
     const err = vi.spyOn(console, 'error').mockImplementation(() => undefined);
-    await expect(call({ action: 'cancel' })).rejects.not.toBeInstanceOf(McpUserError);
+    await call({ action: 'cancel' });
+    const draft = lastDraft();
+    // Сбой при записи: повторять подтверждение нельзя — дошла ли запись, неизвестно.
+    expect(await applyPendingChange(draft.args, draft.via, { now: NOW })).toEqual({ kind: 'failed', beforeWrite: false });
     expect(h.notify).not.toHaveBeenCalled();
     err.mockRestore();
   });
@@ -315,24 +347,24 @@ describe('отмена', () => {
 
 describe('перенос', () => {
   it('оператор не ответил — дата меняется сразу, оператору названа дверь', async () => {
-    const r = await call({ action: 'change_date', date: '2027-07-18' });
+    const r = await confirmed({ action: 'change_date', date: '2027-07-18' });
     expect(callsOf(MY_TRIP_DATE_CHANGE_SQL)).toEqual([[LEAD, '2027-07-18', '2027-07-15', 'mcp']]);
     expect(r).toMatchObject({ action: 'change_date', outcome: 'date_changed', changed: true, told: 'operator', date: '2027-07-18' });
     expect(r.human).toBe('Дата в заявке изменена: тур «Горелый & кратер <малый>», было 15.07.2027, теперь 18.07.2027. Оператору ушло сообщение о переносе.');
     const text = sentToOperator();
     expect(text).toContain('Турист перенёс заявку на другую дату');
-    expect(text).toContain('Передал ИИ-агент туриста по ключу заявки.');
+    expect(text).toContain('Передал ИИ-агент туриста, турист подтвердил на странице Ведара.');
   });
 
   it('оператор уже ответил — просьба, в заявке прежняя дата; не дошла — сказано', async () => {
     world.lead = lead({ answered: true, status: 'contacted' });
-    const r = await call({ action: 'change_date', date: '2027-07-18' });
+    const r = await confirmed({ action: 'change_date', date: '2027-07-18' });
     expect(callsOf(MY_TRIP_DATE_CHANGE_SQL)).toHaveLength(0);
     expect(callsOf(MY_TRIP_DATE_REQUEST_LOG_SQL)).toEqual([[LEAD, '2027-07-15', '2027-07-18', 'mcp']]);
     expect(r).toMatchObject({ outcome: 'date_change_requested', changed: false, told: 'operator', date: '2027-07-15' });
-    expect(sentToOperator()).toContain('Передал ИИ-агент туриста по ключу заявки.');
+    expect(sentToOperator()).toContain('Передал ИИ-агент туриста, турист подтвердил на странице Ведара.');
     h.notify.mockResolvedValue('none');
-    const lost = await call({ action: 'change_date', date: '2027-07-18' });
+    const lost = await confirmed({ action: 'change_date', date: '2027-07-18' });
     expect(lost).toMatchObject({ outcome: 'date_change_request_undelivered', changed: false, told: 'nobody', date: '2027-07-15' });
     expect(lost.next).toMatch(/о просьбе оператор не знает/);
   });
@@ -362,7 +394,7 @@ describe('перенос', () => {
     expect(callsOf(CHANGE_DATE_LEAD_SQL)).toHaveLength(0);
     world.lead = lead({ operator_id: null });
     world.cancelNow = { log_id: '701', prev_status: 'new', operator_id: null };
-    expect(await call({ action: 'cancel' })).toMatchObject({ outcome: 'cancelled', changed: true });
+    expect(await confirmed({ action: 'cancel' })).toMatchObject({ outcome: 'cancelled', changed: true });
   });
 
   it('свободные даты не прочитались — исключение, не «мест нет»', async () => {
@@ -410,6 +442,87 @@ describe('проба (test: true) ничего не пишет и никому �
   });
 });
 
+describe('вызов агента — ссылка, а не изменение (слово владельца 20.11 «1 для всех агентов»)', () => {
+  it('отмена: заявка не тронута, черновик без ключа и ПД, ссылка и «заявка — не бронь»', async () => {
+    const r = await call({ action: 'cancel' });
+    expect(r).toMatchObject({ action: 'cancel', outcome: 'confirm_on_page', changed: false, test: false, told: null, date: '2027-07-15' });
+    expect(r.confirm_url).toMatch(new RegExp(`/confirm/change#${TOKEN}$`));
+    expect(r.human).toMatch(/^Заявка не изменена\. Отмену человек подтверждает сам на странице Ведара: /);
+    expect(r.human).toContain(`ссылка действует ${PENDING_REQUEST_TTL_MIN} минут`);
+    expect(r.human).toContain('После подтверждения: Оператор ещё не ответил по заявке');
+    expect(r.human).toMatch(/Заявка — не бронь\.$/);
+    expect(r.human).not.toMatch(/Проба/);
+    expect(r.next).toMatch(/только его нажатие на странице/);
+    expect(writes()).toHaveLength(0);
+    expect(h.notify).not.toHaveBeenCalled();
+    expect(h.alert).not.toHaveBeenCalled();
+    expect(h.event).not.toHaveBeenCalled();
+    const draft = lastDraft();
+    expect(draft).toMatchObject({ tool: PENDING_CHANGE_TOOL, consentPurposes: [], via: 'mcp' });
+    expect(Object.keys(draft.args).sort()).toEqual(['action', 'key_hash']);
+    expect(draft.args.key_hash).toMatch(/^[0-9a-f]{64}$/);
+    expect(JSON.stringify(draft)).not.toContain(KEY);
+    expect(draft.draftText).toMatch(/^Отменить заявку\. После подтверждения: Оператор ещё не ответил/);
+  });
+
+  it('перенос: в черновике действие и дата; у ответившего оператора — «просьба» после подтверждения', async () => {
+    world.lead = lead({ answered: true, status: 'contacted' });
+    const r = await call({ action: 'change_date', date: '2027-07-18' });
+    expect(r).toMatchObject({ outcome: 'confirm_on_page', changed: false, date: '2027-07-15' });
+    expect(r.human).toMatch(/^Заявка не изменена\. Перенос человек подтверждает сам/);
+    expect(r.human).toContain('ему уйдёт просьба перенести на 18.07.2027');
+    expect(lastDraft().args).toMatchObject({ action: 'change_date', date: '2027-07-18' });
+    expect(lastDraft().draftText).toMatch(/^Перенести заявку на 18\.07\.2027\./);
+    expect(writes()).toHaveLength(0);
+  });
+
+  it('менять нечего (отменена, закрыта, нет мест…) — исход как есть, без ссылки и черновика', async () => {
+    world.lead = lead({ status: 'cancelled' });
+    expect(await call({ action: 'cancel' })).toMatchObject({ outcome: 'already_cancelled', confirm_url: null, test: false });
+    world.lead = lead();
+    world.free = [];
+    expect(await call({ action: 'change_date', date: '2027-07-18' })).toMatchObject({ outcome: 'no_seats', confirm_url: null });
+    expect(h.pending).not.toHaveBeenCalled();
+  });
+
+  it('проба ссылки не даёт', async () => {
+    expect(await call({ action: 'cancel', test: true })).toMatchObject({ outcome: 'would_cancel', confirm_url: null, test: true });
+    expect(h.pending).not.toHaveBeenCalled();
+  });
+
+  it('черновик не сохранился — сбой у Ведара, а не «готово»', async () => {
+    h.pending.mockResolvedValue(null);
+    await expect(call({ action: 'cancel' })).rejects.not.toBeInstanceOf(McpUserError);
+    expect(writes()).toHaveLength(0);
+  });
+
+  it('подтверждение: тем же правом ключа — истёк ключ, нет заявки, нет оператора — отказ словами', async () => {
+    await call({ action: 'cancel' });
+    const draft = lastDraft();
+    world.key = null;
+    expect(await applyPendingChange(draft.args, draft.via, { now: NOW })).toMatchObject({ kind: 'refused', text: expect.stringMatching(/Ключ не найден или истёк/) });
+    world.key = tourKey({ opens_chat: false });
+    expect(await applyPendingChange(draft.args, draft.via, { now: NOW })).toMatchObject({ kind: 'refused', text: expect.stringMatching(/только показывает статус/) });
+    world.key = tourKey({ lead_addressed: false });
+    expect(await applyPendingChange({ ...draft.args, action: 'change_date', date: '2027-07-18' }, draft.via, { now: NOW }))
+      .toMatchObject({ kind: 'refused', text: expect.stringMatching(/подтверждать некому/) });
+    expect(writes()).toHaveLength(0);
+  });
+
+  it('подтверждение: черновик не той формы, прошедшая дата — отказ без базы; сбой чтения — «можно повторить»', async () => {
+    const err = vi.spyOn(console, 'error').mockImplementation(() => undefined);
+    expect(await applyPendingChange({ key_hash: KEY, action: 'cancel' }, 'mcp', { now: NOW })).toMatchObject({ kind: 'refused' });
+    expect(await applyPendingChange({ key_hash: 'a'.repeat(64), action: 'change_date' }, 'mcp', { now: NOW })).toMatchObject({ kind: 'refused' });
+    expect(await applyPendingChange({ key_hash: 'a'.repeat(64), action: 'change_date', date: '2027-05-01' }, 'mcp', { now: NOW }))
+      .toMatchObject({ kind: 'refused', text: expect.stringMatching(/уже прошла/) });
+    expect(h.query).not.toHaveBeenCalled();
+    world.lead = Object.assign(new Error('boom'), { code: '57014' });
+    expect(await applyPendingChange({ key_hash: 'a'.repeat(64), action: 'cancel' }, 'mcp', { now: NOW })).toEqual({ kind: 'failed', beforeWrite: true });
+    expect(writes()).toHaveLength(0);
+    err.mockRestore();
+  });
+});
+
 describe('ответ агенту', () => {
   it('поля — по схеме; ни ключа, ни номера заявки, ни адреса кабинета', async () => {
     const outcomes = new Set<string>(CHANGE_OUTCOMES);
@@ -448,11 +561,15 @@ describe('объявление инструмента', () => {
     const tool = PUBLIC_MCP_TOOLS.find((t) => t.name === CHANGE_REQUEST_TOOL_NAME)!;
     expect(tool.annotations).toMatchObject({ readOnlyHint: false, destructiveHint: true, idempotentHint: false, openWorldHint: false });
     expect(tool.outputSchema).toBe(CHANGE_REQUEST_OUTPUT_SCHEMA);
-    // Описание говорит главное: по просьбе человека, «зависит от ответа», необратимо.
+    // Описание говорит главное: по просьбе человека, вызов не меняет — ссылка,
+    // после подтверждения «зависит от ответа», необратимо.
     expect(tool.description).toMatch(/только когда человек сам попросил/);
-    expect(tool.description).toMatch(/Оператор ещё не ответил — заявка отменяется или дата меняется сразу/);
+    expect(tool.description).toMatch(/Вызов заявку не меняет.*confirm_url/);
+    expect(tool.description).toMatch(/После подтверждения: оператор ещё не ответил — заявка отменяется или дата меняется сразу/);
+    expect(tool.description).toMatch(/Заявка — не бронь/);
     expect(tool.description).toMatch(/Отменённую заявку вернуть нельзя/);
     expect(CHANGE_REQUEST_RULE).toMatch(/только по просьбе человека/);
+    expect(CHANGE_REQUEST_RULE).toMatch(/Вызов заявку не меняет: ответ даёт ссылку на страницу Ведара/);
   });
 });
 
@@ -466,18 +583,27 @@ describe('роут MCP', () => {
     world.lead = lead({ date: '2099-07-15' });
   });
 
-  it('вызов доходит до двери; объект уходит и текстом, и structuredContent', async () => {
+  it('вызов доходит до двери; объект уходит и текстом, и structuredContent; заявка не тронута', async () => {
     const out = await run({ action: 'cancel' });
     expect(out.kind).toBe('ok');
     if (out.kind !== 'ok') return;
-    expect(JSON.parse(out.text)).toMatchObject({ action: 'cancel', outcome: 'cancelled', changed: true });
+    expect(JSON.parse(out.text)).toMatchObject({ action: 'cancel', outcome: 'confirm_on_page', changed: false, confirm_url: expect.stringContaining(`/confirm/change#${TOKEN}`) });
     expect(out.structured).toEqual(JSON.parse(out.text));
     expect(out.handoffUrl).toBeNull();
+    expect(writes()).toHaveLength(0);
+    // Нажатие человека — тем же правилом, дверь записана своим словом.
+    const draft = lastDraft();
+    expect(draft.via).toBe('mcp');
+    await applyPendingChange(draft.args, draft.via);
     expect(callsOf(CANCEL_NOW_SQL)).toEqual([[LEAD, 'mcp']]);
   });
 
-  it('вызов по A2A пишет в журнал заявки дверь a2a', async () => {
+  it('вызов по A2A — черновик с дверью a2a; после подтверждения журнал заявки пишет a2a', async () => {
     await run({ action: 'change_date', date: '2099-07-18' }, 'a2a');
+    expect(callsOf(MY_TRIP_DATE_CHANGE_SQL)).toHaveLength(0);
+    const draft = lastDraft();
+    expect(draft.via).toBe('a2a');
+    await applyPendingChange(draft.args, draft.via);
     expect(callsOf(MY_TRIP_DATE_CHANGE_SQL)).toEqual([[LEAD, '2099-07-18', '2099-07-15', 'a2a']]);
   });
 
@@ -509,7 +635,7 @@ describe('роут MCP', () => {
     err.mockRestore();
   });
 
-  it('копия задачи A2A: ответ хранится как есть — ключа в нём нет', async () => {
+  it('копия задачи A2A: вместо ответа — заглушка, ссылки с токеном и ключа в ней нет', async () => {
     const out = await run({ action: 'cancel' }, 'a2a');
     if (out.kind !== 'ok') throw new Error('ожидался ответ');
     const part = { text: out.text };
@@ -518,9 +644,12 @@ describe('роут MCP', () => {
       statusMessage: null, artifacts: [{ artifactId: 'a-1', name: 'answer', parts: [part, { data: { tool: CHANGE_REQUEST_TOOL_NAME, result: out.structured } }] }],
       history: [], metadata: { input: 'tool', tool: CHANGE_REQUEST_TOOL_NAME },
     };
+    expect(out.text).toContain(TOKEN);
     const copy = storableTask(task as unknown as Parameters<typeof storableTask>[0]);
     expect(JSON.stringify(copy)).not.toContain(KEY);
-    // Не заглушка: ответ без ключа прятать незачем, агент прочтёт исход и после перезапуска.
-    expect(JSON.stringify(copy)).toContain('cancelled');
+    // По ссылке меняют заявку: в базе она была бы вторым ключом (20.11).
+    expect(JSON.stringify(copy)).not.toContain(TOKEN);
+    expect(JSON.stringify(copy)).not.toContain('/confirm/change');
+    expect(JSON.stringify(copy)).toContain(`Инструмент ${CHANGE_REQUEST_TOOL_NAME} ответил`);
   });
 });

@@ -14,7 +14,7 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { z } from 'zod';
 import { createRateLimiter, getTrustedClientIp } from '@/lib/rate-limit';
-import { readPendingRequest, maskedPhone, fromVedarPage } from '@/lib/mcp/pending-request';
+import { readPendingRequest, maskedPhone, fromVedarPage, PENDING_CHANGE_TOOL } from '@/lib/mcp/pending-request';
 import { consentPurposesForTool } from '@/lib/mcp/pending-confirm';
 
 export const dynamic = 'force-dynamic';
@@ -44,6 +44,11 @@ export async function POST(req: NextRequest) {
   }
   if (read.kind !== 'found') {
     return NextResponse.json({ success: true, data: { state: read.kind } });
+  }
+  // Отмена или перенос заявки (change_request, 20.11): ни имени, ни телефона,
+  // ни согласия — человек подтверждает изменение своей заявки на /confirm/change.
+  if (read.tool === PENDING_CHANGE_TOOL) {
+    return NextResponse.json({ success: true, data: { state: 'pending', kind: 'change', draft: read.draftText, expires_at: read.expiresAt } });
   }
   return NextResponse.json({
     success: true,

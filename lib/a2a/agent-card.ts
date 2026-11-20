@@ -65,12 +65,12 @@ export const A2A_DESCRIPTION =
   + 'a failure on Vedar\'s side is failed. '
   + 'Requests: six human-confirmed requests (create_trip_request, create_lead, create_booking_request, create_stay_request, request_charter, create_car_rental_request); '
   + 'the call returns a draft and a link, the person sends it on a Vedar page; no instant booking, no payment, no auth. '
-  + 'make_trip_plan and edit_trip_plan save an anonymous plan draft for 7 days; change_request cancels or moves a tour request by its status key when the person asks. '
+  + 'make_trip_plan and edit_trip_plan save an anonymous plan draft for 7 days; change_request prepares cancelling or moving a tour request by its status key; the person confirms on a Vedar page. '
   + 'Optional notify_url in a request tool gets a signed POST (Standard Webhooks). Details: /llms.txt. '
   + 'Русский: «Ведар Камчатка» — информационный портал и ИИ-проводник: туры с живой занятостью, безопасность, жильё, трансферы, погода, план поездки. '
   + 'Заявок шесть, все подтверждает человек: create_trip_request, create_lead, create_booking_request, create_stay_request, request_charter, '
   + 'create_car_rental_request — заявку отправляет сам человек на странице Ведара. make_trip_plan и edit_trip_plan сохраняют черновик плана: '
-  + 'анонимно, на 7 дней; change_request отменяет или переносит заявку на тур по её ключу. Брони и оплаты через агента нет. '
+  + 'анонимно, на 7 дней; change_request готовит отмену или перенос заявки на тур по её ключу — подтверждает человек на странице Ведара. Брони и оплаты через агента нет. '
   + 'Задача завершается в ответе и хранится час. '
   // Китайский хвост (12.10) — текст в lib/mcp/zh-layer, один на все поверхности.
   + A2A_DESCRIPTION_ZH;

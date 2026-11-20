@@ -10,6 +10,11 @@
  * ещё не ответил — сразу, уже ответил — просьбой ему. Правило одно на чат
  * «Моей поездки» и на этот инструмент: lib/requests/cancel-request и
  * lib/requests/my-trip-date.
+ *
+ * Слово владельца 20.11 «1 для всех агентов» (#3573, условия каталога плагинов
+ * Алисы): вызов агента заявку сам не меняет. Он проверяет, что произошло бы,
+ * и отдаёт ссылку на страницу Ведара (/confirm/change); отменяет или переносит
+ * заявку только нажатие человека там — тем же правилом, что выше.
  */
 
 export const CHANGE_REQUEST_TOOL_NAME = 'change_request';
@@ -21,8 +26,9 @@ export const CHANGE_REQUEST_TOOL_NAME = 'change_request';
  */
 export const CHANGE_REQUEST_RULE =
   'Отменить заявку на тур или перенести её на другую дату — change_request по ключу, который create_booking_request выдал при создании заявки, '
-  + 'и только по просьбе человека. Оператор ещё не ответил — заявка отменяется или дата меняется сразу; уже ответил, есть бронь или договорённость — '
-  + 'ему уходит просьба, заявка и бронь не меняются. Отменённую заявку вернуть нельзя.';
+  + 'и только по просьбе человека. Вызов заявку не меняет: ответ даёт ссылку на страницу Ведара, где человек подтверждает отмену или перенос сам. '
+  + 'После подтверждения: оператор ещё не ответил — заявка отменяется или дата меняется сразу; уже ответил, есть бронь или договорённость — '
+  + 'ему уходит просьба, заявка и бронь не меняются. Отменённую заявку вернуть нельзя. Заявка — не бронь.';
 
 export const CHANGE_ACTIONS = ['cancel', 'change_date'] as const;
 export type ChangeAction = (typeof CHANGE_ACTIONS)[number];
@@ -42,6 +48,8 @@ export const CHANGE_OUTCOMES = [
   'closed', 'past', 'no_data',
   // Проба: что произошло бы.
   'would_cancel', 'would_request_cancel', 'would_change_date', 'would_request_date_change',
+  // Вызов агента: заявка не изменена, подтверждает человек по ссылке (20.11).
+  'confirm_on_page',
 ] as const;
 export type ChangeOutcome = (typeof CHANGE_OUTCOMES)[number];
 
@@ -63,6 +71,8 @@ export interface ChangeRequestResult {
   told: ChangeTold | null;
   /** Действующая дата заявки после вызова, YYYY-MM-DD; null — не записана. */
   date: string | null;
+  /** Ссылка, где человек подтверждает отмену или перенос сам; null — подтверждать нечего. */
+  confirm_url: string | null;
 }
 
 export const CHANGE_REQUEST_OUTPUT_SCHEMA = {
@@ -76,7 +86,8 @@ export const CHANGE_REQUEST_OUTPUT_SCHEMA = {
         + 'cancel_request_undelivered — просьба никому не дошла, заявка действует, вызов можно повторить; date_changed — дата в заявке изменена; '
         + 'date_change_requested — дату меняет оператор, просьба ему отправлена; date_change_request_undelivered — просьба оператору не дошла; '
         + 'no_seats — на дату нет мест на число людей заявки; no_schedule — у тура нет расписания; daily_limit — за сутки по заявке уже три переноса или просьбы; '
-        + 'date_refused_by_operator — на эту дату оператор уже ответил «Нет мест»; closed, past, no_data — менять нечего; would_* — ответ пробного вызова',
+        + 'date_refused_by_operator — на эту дату оператор уже ответил «Нет мест»; closed, past, no_data — менять нечего; would_* — ответ пробного вызова; '
+        + 'confirm_on_page — заявка не изменена: человек подтверждает отмену или перенос сам по ссылке confirm_url',
     },
     changed: { type: 'boolean', description: 'true — заявка изменена этим вызовом (отменена или стоит новая дата). Просьба оператору заявку не меняет' },
     test: { type: 'boolean', description: 'true — пробный вызов: ничего не записано и никому не отправлено' },
@@ -88,6 +99,10 @@ export const CHANGE_REQUEST_OUTPUT_SCHEMA = {
       description: 'Кто узнал на деле: operator — оператору ушло сообщение; manager — оператор не узнал, менеджер Ведара предупреждён; nobody — не узнал никто; null — сообщать было не о чем',
     },
     date: { type: ['string', 'null'], description: 'Действующая дата заявки после вызова, YYYY-MM-DD' },
+    confirm_url: {
+      type: ['string', 'null'],
+      description: 'Страница Ведара, где человек сам подтверждает отмену или перенос; дайте её человеку как есть. null — подтверждать нечего',
+    },
   },
-  required: ['action', 'outcome', 'changed', 'test', 'human', 'next', 'told', 'date'],
+  required: ['action', 'outcome', 'changed', 'test', 'human', 'next', 'told', 'date', 'confirm_url'],
 } as const;

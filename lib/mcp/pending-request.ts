@@ -41,6 +41,18 @@ export function confirmPageUrl(token: string): string {
   return `${getPublicBaseUrl()}/confirm#${token}`;
 }
 
+/**
+ * Черновик отмены или переноса заявки (change_request, слово владельца 20.11
+ * «1 для всех агентов»). Лежит в той же таблице под именем инструмента; в
+ * аргументах — hash ключа заявки, действие и дата, без ПД и без самого ключа.
+ */
+export const PENDING_CHANGE_TOOL = 'change_request';
+
+/** Адрес страницы, где человек сам подтверждает отмену или перенос заявки. */
+export function confirmChangePageUrl(token: string): string {
+  return `${getPublicBaseUrl()}/confirm/change#${token}`;
+}
+
 /** Токен из ссылки: 32 знака base64url. Чужое — не токен. */
 export function isPendingToken(v: unknown): v is string {
   return typeof v === 'string' && /^[A-Za-z0-9_-]{32}$/.test(v);
@@ -122,13 +134,18 @@ export type PendingClaim =
  * Забрать заявку на отправку — один раз. В том же запросе отмечается
  * отправка и стираются аргументы: второе нажатие (или второй вкладкой)
  * получит 'gone'. Просроченная тоже 'gone'.
+ *
+ * `kind` — какая дверь забирает: отправка заявки ('request') черновик
+ * изменения не забирает, а подтверждение изменения ('change') — заявку.
+ * Условие стоит в самом запросе: чужая дверь видит 'gone' и ничего не стирает.
  */
-export async function claimPendingRequest(token: string): Promise<PendingClaim> {
+export async function claimPendingRequest(token: string, kind: 'request' | 'change' = 'request'): Promise<PendingClaim> {
   try {
     const { rows } = await pool.query<{ tool: string; args: Record<string, unknown>; plan_revision: string | null; via: string }>(
       `WITH old AS (
          SELECT id, tool, args, plan_revision, via FROM mcp_pending_requests
           WHERE token_hash = $1 AND sent_at IS NULL AND expires_at > NOW()
+            AND (tool = $3) = $2::boolean
           FOR UPDATE
        )
        UPDATE mcp_pending_requests t
@@ -136,7 +153,7 @@ export async function claimPendingRequest(token: string): Promise<PendingClaim> 
          FROM old
         WHERE t.id = old.id
        RETURNING old.tool, old.args, old.plan_revision, old.via`,
-      [hashToken(token)],
+      [hashToken(token), kind === 'change', PENDING_CHANGE_TOOL],
     );
     const r = rows[0];
     if (!r) return { kind: 'gone' };

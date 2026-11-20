@@ -261,9 +261,10 @@ export const TRIP_REQUEST_TOOL = {
  * Не заявка и не черновик — третий род записи. Имени и телефона не берёт и
  * согласия не просит, поэтому его нет в WRITE_TOOL_NAMES: там договор шести
  * заявок (consent, plan_id, общий счёт «5 заявок в час», структурный итог с
- * ключом). Но до человека доходит — оператору уходит сообщение, а отмену не
- * вернуть, — поэтому `destructiveHint: true`: хост спросит человека перед
- * вызовом. Правило и запись — те же, что у кнопок «Моей поездки»
+ * ключом). С 20.11 (слово владельца «1 для всех агентов») вызов заявку не
+ * меняет — отдаёт ссылку /confirm/change, исполняет нажатие человека. Но после
+ * него оператору уходит сообщение, а отмену не вернуть, — поэтому
+ * `destructiveHint: true` остаётся: хост спросит человека перед вызовом. Правило и запись — те же, что у кнопок «Моей поездки»
  * (lib/requests/cancel-request, lib/requests/my-trip-date); исполнение —
  * lib/mcp/change-request.
  *
@@ -273,11 +274,11 @@ export const TRIP_REQUEST_TOOL = {
 export const CHANGE_REQUEST_TOOL = {
   name: 'change_request',
   description: 'Отменить заявку на тур или перенести её на другую дату — по ключу статуса, который create_booking_request выдал при создании заявки. '
-    + 'Вызывайте, только когда человек сам попросил об отмене или переносе. '
-    + 'Оператор ещё не ответил — заявка отменяется или дата меняется сразу, оператору уходит сообщение. '
-    + 'Оператор уже ответил, есть бронь или договорённость — ему уходит просьба: заявка и бронь не меняются, решает он. '
-    + 'Отменённую заявку вернуть нельзя. Перенос — только на дату, где по календарю тура есть места на всех (get_tour_availability), и не больше трёх раз в сутки. '
-    + 'Ключ повторного вызова create_booking_request и ключи других заявок (подбор, машина, прокат, жильё) менять заявку не дают — ответ это скажет. '
+    + 'Вызывайте, только когда человек сам попросил. '
+    + 'Вызов заявку не меняет: ответ даёт ссылку confirm_url — передайте её человеку, меняет заявку только его нажатие на странице Ведара. '
+    + 'После подтверждения: оператор ещё не ответил — заявка отменяется или дата меняется сразу; уже ответил, есть бронь или договорённость — ему уходит просьба, решает он. '
+    + 'Заявка — не бронь. Отменённую заявку вернуть нельзя. Перенос — только на дату, где по календарю тура есть места на всех (get_tour_availability), и не больше трёх раз в сутки. '
+    + 'Ключ повторного вызова и ключи других заявок менять заявку не дают. '
     + 'Ответ называет исход (outcome), изменилась ли заявка (changed) и кто узнал на деле (told) — передайте человеку как есть. '
     + 'Узнать, что произойдёт, ничего не меняя, — test: true.',
   inputSchema: {
@@ -422,7 +423,7 @@ export const TOOL_ENGLISH: Record<string, { title: string; lead: string }> = {
   fetch:                 { title: 'Fetch (ChatGPT connector)',  lead: 'Full text of one Vedar Kamchatka record by id from search (tour, place, stay, route): description, price, program, safety facts; route: dated go/caution/no call, permit terms. Published records only.' },
   create_trip_request:   { title: 'Trip request',          lead: 'Whole Kamchatka trip in one request: tour + stay + charter vehicle under one trip id; each partner sees the rest. Human-confirmed, no payment. Sent by the person from a Vedar link.' },
   get_request_status:    { title: 'Request status',        lead: 'Kamchatka request status by key from create_lead, create_booking_request, create_stay_request, request_charter, create_car_rental_request, create_trip_request. No client name or phone.' },
-  change_request:        { title: 'Change request',        lead: 'Cancel a Kamchatka tour request or move it to another date by its status key, only when the person asks: done at once before the operator answers, sent to the operator as a request after.' },
+  change_request:        { title: 'Change request',        lead: 'Cancel or move a Kamchatka tour request by its status key when the person asks; the call returns a Vedar link, the person confirms there.' },
 };
 
 /**

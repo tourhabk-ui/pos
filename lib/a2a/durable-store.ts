@@ -33,6 +33,7 @@ import { pool } from '@/lib/db-pool';
 import { redactPII } from '@/lib/security/pii-redact';
 import { WRITE_TOOL_NAMES } from '@/lib/mcp/public-tools';
 import { REQUEST_STATUS_TOOL_NAME } from '@/lib/mcp/request-status-schema';
+import { CHANGE_REQUEST_TOOL_NAME } from '@/lib/mcp/change-request-schema';
 import { logText } from '@/lib/log/log-text';
 import { contextKey } from './journal';
 import { CONTEXT_TURNS_MAX, TASK_TTL_MS, createTaskStore, type A2ATaskStore, type ChatTurn, type TaskStore } from './task-store';
@@ -71,6 +72,19 @@ function statusToolStub(state: string): string {
       + 'после перезапуска сервиса Ведар её не хранит.';
 }
 
+/**
+ * Ответ отмены или переноса (change_request, с 20.11): в confirm_url — токен,
+ * по которому человек подтверждает изменение заявки. В открытом виде в базе
+ * он был бы вторым ключом от заявки — копия хранит заглушку.
+ */
+function changeToolStub(state: string): string {
+  return state === 'completed'
+    ? `Инструмент ${CHANGE_REQUEST_TOOL_NAME} ответил. Ответ (и ссылка подтверждения, если она была) был в ответе SendMessage; `
+      + 'после перезапуска сервиса Ведар его не хранит: по ссылке меняют заявку. Состояние заявки — get_request_status.'
+    : `Инструмент ${CHANGE_REQUEST_TOOL_NAME} ничего не сделал (${state}). Причина была в ответе SendMessage; `
+      + 'после перезапуска сервиса Ведар её не хранит.';
+}
+
 function cleanPart(p: OutPart): OutPart {
   if ('text' in p) return { text: redactPII(p.text) };
   const data: Record<string, unknown> = { ...p.data };
@@ -78,13 +92,14 @@ function cleanPart(p: OutPart): OutPart {
   return { data: redactDeep(data) as Record<string, unknown> };
 }
 
-/** Копия задачи для базы: без ПД, без токена handoff, у заявок и у статуса заявки — без ключа. */
+/** Копия задачи для базы: без ПД, без токена handoff, у заявок, статуса и изменения заявки — без ключа и ссылки. */
 export function storableTask(task: TaskRecord): TaskRecord {
   const tool = typeof task.metadata.tool === 'string' ? task.metadata.tool : null;
   const stub = tool === null ? null
     : WRITE_TOOL_NAMES.has(tool) ? writeToolStub(tool, task.state)
       : tool === REQUEST_STATUS_TOOL_NAME ? statusToolStub(task.state)
-        : null;
+        : tool === CHANGE_REQUEST_TOOL_NAME ? changeToolStub(task.state)
+          : null;
   const parts = (list: OutPart[]): OutPart[] => (stub !== null ? [{ text: stub }] : list.map(cleanPart));
   const message = (m: OutMessage): OutMessage => ({ ...m, contextId: redactPII(m.contextId), parts: parts(m.parts) });
   return {
