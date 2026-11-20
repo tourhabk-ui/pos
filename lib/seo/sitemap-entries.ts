@@ -82,7 +82,7 @@ export async function collectSitemapEntriesWithStatus(): Promise<{ entries: Meta
     // Safety-кластер — уникальный контент ниши (аудит 01.08): регистрация
     // МЧС, связь в поле, правила природы. Страницы существовали, но в
     // sitemap не попали и для поиска не существовали.
-    { url: `${BASE}/register`,             lastModified: STABLE,      changeFrequency: 'monthly', priority: 0.85 },
+    // /register — noindex с 21.11 (спецификация Сыщика): в sitemap не идёт.
     { url: `${BASE}/safety/communication`, lastModified: new Date('2026-07-31'), changeFrequency: 'monthly', priority: 0.75 },
     // Памятка перед поездкой (30.09): факты — импортом из справочников МЧС, парка, SOS.
     { url: `${BASE}/prepare`,             lastModified: new Date('2026-09-30'), changeFrequency: 'monthly', priority: 0.8 },
