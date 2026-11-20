@@ -1,0 +1,105 @@
+name: Data — треки природных парков в очередь треков
+
+# Треки утверждённых маршрутов природных парков «Вулканы Камчатки» (страница
+# парка «Туристические маршруты», слово владельца 20.11 «Треки парка как
+# линии»). Своего пути применения здесь нет: треки идут в ту же очередь,
+# что треки из поля, и применяются тем же эндпоинтом с тем же старшинством
+# источников (lib/routes/geometry-precedence).
+#
+# Режимы — поле `mode` маркера .github/triggers/park-tracks.json:
+#   ingest — скачать архивы парка (zip, 7z), достать GPX/KML и отдать каждый
+#            файл в публичный приём POST /api/field-check/track. Тот кладёт
+#            файл в хранилище целиком, меряет и сличает с маршрутами и ставит
+#            в очередь со статусом pending. НИЧЕГО не применяет.
+#   apply  — для записей из `apply` позвать POST /api/cron/track-import-queue
+#            с явным маршрутом (route_slug). dry_run по умолчанию true: сперва
+#            сухой прогон, решение о записи — отдельным маркером.
+#
+# Приём публичный и ограничен шестью файлами в минуту с адреса — пауза между
+# файлами 11 с. Скачанное с чужого сайта не исполняется: только распаковка и
+# чтение файлов треков.
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - '.github/triggers/park-tracks.json'
+
+concurrency:
+  group: park-tracks
+  cancel-in-progress: false
+
+permissions:
+  contents: read
+
+jobs:
+  park-tracks:
+    runs-on: ubuntu-latest
+    timeout-minutes: 60
+    steps:
+      - uses: actions/checkout@v7
+
+      - name: Install 7z
+        run: sudo apt-get install -y -q p7zip-full >/dev/null
+
+      - name: Ingest or apply
+        env:
+          CRON_SECRET: ${{ secrets.CRON_SECRET }}
+        run: |
+          set -uo pipefail
+          M=.github/triggers/park-tracks.json
+          MODE=$(jq -r '.mode' "$M")
+          TAG=$(jq -r '.trip_tag' "$M")
+          SRC=$(jq -r '.source_page' "$M")
+          FAILED=0
+          echo "mode=$MODE"
+
+          if [ "$MODE" = "ingest" ]; then
+            N=$(jq '.ingest | length' "$M")
+            for i in $(seq 0 $((N - 1))); do
+              URL=$(jq -r ".ingest[$i].track_url" "$M")
+              TITLE=$(jq -r ".ingest[$i].title" "$M")
+              SEASONS=$(jq -r ".ingest[$i].seasons | join(\",\")" "$M")
+              WORK=$(mktemp -d)
+              if ! curl -sSfL --max-time 120 -o "$WORK/archive" "$URL"; then
+                echo "::warning::не скачан: $URL"; FAILED=$((FAILED + 1)); continue
+              fi
+              mkdir -p "$WORK/x"
+              case "$URL" in
+                *.zip) unzip -qq -o "$WORK/archive" -d "$WORK/x" || { echo "::warning::не распакован zip: $URL"; FAILED=$((FAILED + 1)); continue; } ;;
+                *.7z)  7z x -y -o"$WORK/x" "$WORK/archive" >/dev/null || { echo "::warning::не распакован 7z: $URL"; FAILED=$((FAILED + 1)); continue; } ;;
+                *) echo "::warning::неизвестный архив: $URL"; FAILED=$((FAILED + 1)); continue ;;
+              esac
+              mapfile -d '' FILES < <(find "$WORK/x" -type f \( -iname '*.gpx' -o -iname '*.kml' -o -iname '*.kmz' \) -print0)
+              if [ "${#FILES[@]}" -eq 0 ]; then
+                echo "::warning::в архиве нет GPX/KML: $URL"; FAILED=$((FAILED + 1)); continue
+              fi
+              for f in "${FILES[@]}"; do
+                NOTE="Природный парк, утверждённый маршрут «$TITLE» ($SEASONS). Трек с сайта парка: $URL. Список маршрутов: $SRC"
+                jq -n --rawfile d <(base64 -w0 "$f") --arg fn "park: $TITLE ($SEASONS)" --arg note "${NOTE:0:600}" --arg tag "$TAG" \
+                  '{data: $d, filename: ($fn | .[0:200]), note: $note, trip_tag: $tag}' > "$WORK/body.json"
+                RESP=$(curl -sS --max-time 90 -H 'Content-Type: application/json' --data @"$WORK/body.json" https://vedarai.ru/api/field-check/track || echo '{"success":false,"error":"curl"}')
+                OK=$(echo "$RESP" | jq -r '.success // false' 2>/dev/null || echo false)
+                [ "$OK" = "true" ] || FAILED=$((FAILED + 1))
+                echo "$TITLE | $SEASONS | $(echo "$RESP" | jq -c '{success, id, error, points: .track.points, length_km: .track.length_km, ele_share: .track.ele_share, matched_route_id, off_by_km, problems}' 2>/dev/null || echo "$RESP" | head -c 300)"
+                sleep 11
+              done
+              rm -rf "$WORK"
+            done
+          elif [ "$MODE" = "apply" ]; then
+            if [ -z "$CRON_SECRET" ]; then echo "::error::CRON_SECRET не задан — применять нечем"; exit 1; fi
+            N=$(jq '.apply | length' "$M")
+            for i in $(seq 0 $((N - 1))); do
+              BODY=$(jq -c ".apply[$i] | {id, route_slug, segment: (.segment // \"all\"), dry_run: (.dry_run // true), force: (.force // false)}" "$M")
+              CODE=$(curl -sS -o /tmp/resp.json -w '%{http_code}' --max-time 60 -X POST \
+                -H "Authorization: Bearer $CRON_SECRET" -H 'Content-Type: application/json' \
+                --data "$BODY" https://vedarai.ru/api/cron/track-import-queue || echo 000)
+              [ "$CODE" = "200" ] || FAILED=$((FAILED + 1))
+              echo "$(jq -r ".apply[$i].label // .apply[$i].id" "$M") | HTTP $CODE | $(head -c 1500 /tmp/resp.json | tr -d '\0')"
+            done
+          else
+            echo "::error::неизвестный режим «$MODE»"; exit 1
+          fi
+
+          echo "отказов: $FAILED"
+          if [ "$FAILED" -gt 0 ]; then exit 1; fi

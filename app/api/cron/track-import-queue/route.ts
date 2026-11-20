@@ -165,6 +165,12 @@ export async function GET(request: NextRequest) {
 const ApplyBodySchema = z.object({
   id: z.string().uuid(),
   route_id: z.string().min(8).max(64).optional(),
+  /**
+   * Адрес маршрута (20.11, треки природных парков): точное совпадение slug,
+   * без поиска по похожему названию. Связи утверждённых маршрутов парка с
+   * нашими записаны именно адресами (миграция 1468).
+   */
+  route_slug: z.string().regex(/^[a-z0-9-]{3,120}$/).optional(),
   route_title: z.string().min(2).max(200).optional(),
   /**
    * Создать НОВЫЙ маршрут из этой записи (15.09).
@@ -197,9 +203,9 @@ const ApplyBodySchema = z.object({
    */
   reapply: z.boolean().default(false),
 }).refine(
-  d => [d.route_id, d.route_title, d.new_route_title].filter(Boolean).length === 1,
+  d => [d.route_id, d.route_slug, d.route_title, d.new_route_title].filter(Boolean).length === 1,
   {
-    message: 'Нужен ровно один из route_id / route_title / new_route_title — '
+    message: 'Нужен ровно один из route_id / route_slug / route_title / new_route_title — '
       + 'цель называется явно, matched_route_id не используется',
   },
 );
@@ -288,6 +294,12 @@ export async function POST(request: NextRequest) {
         `SELECT id::text AS id, title, geometry->>'source' AS geometry_source
          FROM kamchatka_routes WHERE id::text = $1 AND is_visible = TRUE AND merged_into_id IS NULL`,
         [data.route_id],
+      )
+    : data.route_slug
+    ? await pool.query<RouteRow>(
+        `SELECT id::text AS id, title, geometry->>'source' AS geometry_source
+         FROM kamchatka_routes WHERE slug = $1 AND is_visible = TRUE AND merged_into_id IS NULL`,
+        [data.route_slug],
       )
     : await pool.query<RouteRow>(
         `SELECT id::text AS id, title, geometry->>'source' AS geometry_source
