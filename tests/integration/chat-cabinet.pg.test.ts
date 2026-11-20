@@ -1132,7 +1132,10 @@ withPg('кабинет в чате на настоящем PostgreSQL', () => {
         `INSERT INTO guide_schedule (guide_id, tour_date, start_time, end_time, title, status)
          VALUES ($1, '2026-11-02', '09:00', '18:00', 'Выход на Авачу', 'scheduled')`, [gid],
       );
-      await pool.query(`INSERT INTO guide_earnings (guide_id, amount, payment_status, payment_date) VALUES ($1, 7000, 'paid', '2026-10-20')`, [gid]);
+      // Дата — от сегодняшнего дня базы: окно заработка — CURRENT_DATE − 30 дней
+      // (lib/guides/earnings-read.ts). Зашитая «2026-10-20» выпала из окна 20.11
+      // и сделала тест красным без правки кода.
+      await pool.query(`INSERT INTO guide_earnings (guide_id, amount, payment_status, payment_date) VALUES ($1, 7000, 'paid', CURRENT_DATE - 5)`, [gid]);
       const sch = await rpress('cb:s');
       expect(sch.text).toContain('09:00–18:00 Выход на Авачу (запланировано)');
       const earn = await rpress('cb:j');
