@@ -2,6 +2,7 @@ import { verifiedRouteMchsPhone } from '@/lib/safety/emergency-numbers';
 import { pool } from '@/lib/db-pool';
 import { expandQuery } from '@/lib/ai/query-expansion';
 import { logSwallowedFailure } from '@/lib/observability/swallowed';
+import { routeDistanceWords } from '@/lib/routes/distance-words';
 
 // ── In-memory TTL cache for route search results ─────────────────────────────
 
@@ -49,6 +50,7 @@ interface RouteRow {
   activity_type: string | null;
   difficulty: string | null;
   distance_km: string | null;
+  distance_note: string | null;
   elevation_gain_m: number | null;
   duration_hours: string | null;
   season: string | null;
@@ -76,7 +78,7 @@ async function searchRoutesOnce(q: string): Promise<RouteRow[]> {
   // видимости стоит свой.
   const { rows } = await pool.query<RouteRow>(
     `SELECT title, description, activity_type,
-            difficulty, distance_km, elevation_gain_m, duration_hours, season,
+            difficulty, distance_km, distance_note, elevation_gain_m, duration_hours, season,
             hazards, equipment,
             mchs_registration_required, mchs_phone, park_name
      FROM kamchatka_routes
@@ -146,6 +148,8 @@ export function seasonLabel(season: string | null | undefined): string | null {
 export function routeFacts(r: {
   difficulty: string | null;
   distance_km: string | null;
+  /** Пометка паспорта к длине (1472): «в одну сторону» / «в обе стороны». */
+  distance_note?: string | null;
   elevation_gain_m: number | null;
   duration_hours: string | null;
   season: string | null;
@@ -166,7 +170,7 @@ export function routeFacts(r: {
   // false и null — строки нет вовсе: не знаем (см. выше, миграция 933).
 
   const stats = [
-    r.distance_km      != null ? `дистанция ${r.distance_km} км`        : null,
+    routeDistanceWords(r.distance_km, r.distance_note) ? `дистанция ${routeDistanceWords(r.distance_km, r.distance_note)}` : null,
     r.elevation_gain_m != null ? `набор высоты ${r.elevation_gain_m} м` : null,
     r.duration_hours   != null ? `длительность ${r.duration_hours} ч`   : null,
     r.difficulty       ? `сложность ${r.difficulty}`                    : null,

@@ -107,6 +107,22 @@ describe('GET /api/routes/[id] — reviews + pdfUrl (объединение ка
     expect(reviewsCall[1]).toEqual([ARK_ID]);
   });
 
+  it('ссылки на паспорт нет, источник — PDF реестра паспортов: карточка показывает его как паспорт (#3568)', async () => {
+    const registry = 'https://visitkamchatka.ru/upload/route_passports/malkin_all_seasones.PDF';
+    const original = { ...ROUTE_ROW };
+    Object.assign(ROUTE_ROW, { pdf_url: null, source_url: registry });
+    try {
+      mockQueries([]);
+      expect((await (await GET(req(), ctx)).json()).data.pdfUrl).toBe(registry);
+
+      Object.assign(ROUTE_ROW, { source_url: 'https://extraguide.ru/route/1' });
+      mockQueries([]);
+      expect((await (await GET(req(), ctx)).json()).data.pdfUrl).toBeNull();
+    } finally {
+      Object.assign(ROUTE_ROW, original);
+    }
+  });
+
   it('нет отзывов → пустой массив, не выдуманные данные', async () => {
     mockQueries([]);
 

@@ -229,6 +229,19 @@ describe('fetch("route:…"): оценка на день с датой', () => {
     expect(calls.find((c) => c.sql.includes('zone, season, lat'))?.params).toEqual([DB_ID]);
   });
 
+  it('длина с пометкой паспорта: «Дистанция: 1.9 км в обе стороны»; пометка читается из таблицы по id строки (#3568)', async () => {
+    db({ viewRoute: [{ ...viewRoute, distance_note: 'в обе стороны' }] });
+    const doc = await fetchDocument('route:vilyuchinskij-vodopad', 'https://vedarai.ru');
+    expect(doc.text).toContain('Дистанция: 1.9 км в обе стороны');
+    expect(calls.find((c) => c.sql.includes('FROM v_kamchatka_routes_api'))?.sql)
+      .toMatch(/SELECT k\.distance_note FROM kamchatka_routes k WHERE k\.id = r\.id/);
+
+    db({ viewRoute: [viewRoute] });
+    const bare = await fetchDocument('route:vilyuchinskij-vodopad', 'https://vedarai.ru');
+    expect(bare.text).toContain('Дистанция: 1.9 км');
+    expect(bare.text).not.toContain('стороны');
+  });
+
   it('спокойный день — «Идти» и «не гарантия безопасности»; сбой чтения предупреждений — «Осторожно», не «Идти»', async () => {
     db({ viewRoute: [viewRoute] });
     const calm = await fetchDocument('route:vilyuchinskij-vodopad', 'https://vedarai.ru');
