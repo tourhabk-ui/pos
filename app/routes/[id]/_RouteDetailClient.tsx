@@ -242,6 +242,7 @@ export interface RouteDetail {
   approvedRoute?: ApprovedRouteCase | null;
   hazards: string[] | null;
   distanceKm: number | null;
+  distanceNote?: string | null;
   elevationGainM: number | null;
   elevationLossM: number | null;
   elevationMinM: number | null;
@@ -991,6 +992,15 @@ export default function RouteDetailClient({ id, mapPackBaseUrl, summary = null, 
               <div className="flex-shrink-0 px-4 py-3">
                 <p className="text-[11px] font-semibold text-[var(--text-muted)] mb-0.5">Цена</p>
                 <p className="text-sm font-bold text-[var(--accent)]">от {minPrice.toLocaleString('ru-RU')} ₽</p>
+              </div>
+            )}
+            {route.distanceKm != null && route.distanceKm > 0 && (
+              <div className="flex-shrink-0 px-4 py-3">
+                <p className="text-[11px] font-semibold text-[var(--text-muted)] mb-0.5">Длина</p>
+                <p className="text-sm font-semibold text-[var(--text-primary)]">
+                  {route.distanceKm.toLocaleString('ru-RU', { maximumFractionDigits: 1 })} км
+                  {route.distanceNote ? ` ${route.distanceNote}` : ''}
+                </p>
               </div>
             )}
             {route.durationDays != null && (

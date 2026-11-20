@@ -11,8 +11,9 @@
  * отведённое серверу время) — и рамка пустая до перезагрузки страницы, без
  * знака, что тут должна быть фотография.
  *
- * Теперь: сначала уменьшенная копия 640 (`photoSrc`); не загрузилась — один раз
- * исходный снимок другим запросом; не загрузился и он — заглушка-градиент,
+ * Теперь: сначала копия под рамку 4:3, если она есть (20.11), потом
+ * уменьшенная копия 640 (`photoSrc`); не загрузилась — следующий адрес другим
+ * запросом; не загрузился и исходный снимок — заглушка-градиент,
  * та же, что у плитки без снимка (`fallback`). Точка кадра — как у фона:
  * записанная (`photoFocusY`) или верх кадра, чтобы голова рыбака была цела.
  *
@@ -22,6 +23,7 @@
  */
 import { useEffect, useRef, useState, type ReactNode } from 'react';
 import { photoSrc } from '@/lib/images/variant';
+import { platePhotoSrc } from '@/lib/images/plate-photo';
 import { photoFocusY } from '@/lib/tours/photo-focus';
 
 interface Props {
@@ -32,10 +34,14 @@ interface Props {
   className?: string;
 }
 
-/** Адреса по очереди: копия 640, потом исходник (если он другой). */
+/**
+ * Адреса по очереди: копия под рамку 4:3 (20.11, #3564 п.1 — вертикальный
+ * кадр без строк, которые рамка всё равно срежет), копия 640, исходник.
+ * Повторов нет: чего у снимка нет, того в цепочке нет.
+ */
 export function platePhotoChain(src: string): string[] {
-  const small = photoSrc(src, 640);
-  return small && small !== src ? [small, src] : [src];
+  const chain = [platePhotoSrc(src), photoSrc(src, 640), src].filter((u): u is string => Boolean(u));
+  return [...new Set(chain)];
 }
 
 export function PlatePhoto({ src, fallback, className = 'plate-photo' }: Props) {
