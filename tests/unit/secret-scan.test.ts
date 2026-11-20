@@ -20,7 +20,7 @@ import { execFileSync } from 'node:child_process';
 import { mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
-import { addedLines, scanDiff, SECRET_PATTERNS } from '../../scripts/security/secret-scan.mjs';
+import { addedLines, isPlaceholderValue, scanDiff, SECRET_PATTERNS } from '../../scripts/security/secret-scan.mjs';
 
 const SCRIPT = join(process.cwd(), 'scripts/security/secret-scan.mjs');
 
@@ -41,7 +41,12 @@ const FAKE: Record<string, string> = {
   'JWT': 'eyJhbG' + 'ciOi' + 'x'.repeat(120),
   'Закрытый ключ': '-----BEGIN ' + 'RSA PRIVATE KEY-----',
   'Строка подключения с паролем': 'postgresql://app' + ':Zq7rT9vK2w' + '@db.internal:5432/main',
+  'Секрет по имени переменной': 'JWT' + '_SECRET=' + 'kT4qZ8wN' + '2vB6xL1mR9pC3',
+  'Токен Bearer': 'Authorization: Bea' + 'rer ' + 'kT4qZ8wN' + '2vB6xL1mR9pC3x9Qz7',
 };
+
+/** Случайное на вид значение для секретов по имени — собрано из кусков. */
+const RANDOM = 'kT4qZ8wN' + '2vB6xL1mR9pC3';
 
 /** Unified diff с одним новым файлом и заданными строками. */
 function diffOf(file: string, lines: string[]): string {
@@ -62,9 +67,72 @@ describe('каждый род ключа находится', () => {
   });
 
   it.each(Object.entries(FAKE))('%s', (name, key) => {
-    const findings = scanDiff(diffOf('config/app.ts', [`export const K = '${key}';`]));
+    const line = name === 'Секрет по имени переменной' || name === 'Токен Bearer' ? key : `export const K = '${key}';`;
+    const findings = scanDiff(diffOf('config/app.ts', [line]));
     expect(findings.map((f) => f.name)).toContain(name);
     expect(findings[0]).toMatchObject({ file: 'config/app.ts', line: 1 });
+  });
+});
+
+describe('секрет по имени переменной', () => {
+  // Случай 20.11: перепись истории нашла открытым текстом JWT_SECRET,
+  // CRON_SECRET, ключи S3, пароли площадок и токены — у них нет префикса
+  // провайдера, и прежний список шаблонов пропускал их все.
+  it.each([
+    ['файл окружения', `CRON${'_SECRET'}=${RANDOM}`],
+    ['export в shell', `export S3${'_SECRET_KEY'}=${RANDOM}`],
+    ['PowerShell', `$env:JWT${'_SECRET'} = "${RANDOM}"`],
+    ['поле объекта', `  pass${'word'}: '${RANDOM}',`],
+    ['константа', `const API${'_TOKEN'} = "${RANDOM}";`],
+    ['YAML', `  CSRF${'_SECRET'}: "${RANDOM}"`],
+    // Обходы из ревью безопасности PR 3611.
+    ['YAML без кавычек', `  POSTGRES${'_PASSWORD'}: ${RANDOM}`],
+    ['Dockerfile ENV', `ENV JWT${'_SECRET'}=${RANDOM}`],
+    ['compose', `      - JWT${'_SECRET'}=${RANDOM}`],
+    ['аннотация типа', `const CRON${'_SECRET'}: string = "${RANDOM}";`],
+    ['запасное значение', `const s = process.env.JWT${'_SECRET'} || "${RANDOM}";`],
+    ['поле через точку', `cfg.jwt${'Secret'} = "${RANDOM}";`],
+    ['ключ свойств', `spring.datasource.pass${'word'}=${RANDOM}`],
+    ['комментарий в конце', `S3${'_SECRET_KEY'}=${RANDOM} # прод`],
+    ['имя на PASS', `SMTP${'_PASS'}=${RANDOM}`],
+    ['имя на _KEY', `ENCRYPTION${'_KEY'}=${RANDOM}`],
+    ['заголовок через дефис', `x-api${'-key'}: ${RANDOM}`],
+    ['passphrase', `pass${'phrase'}: '${RANDOM}',`],
+    ['слово заглушки внутри значения', `JWT${'_SECRET'}=latest${RANDOM}`],
+    ['второе присваивание на строке', `{ token: 'your_token_here', sec${'ret'}: '${RANDOM}' }`],
+  ])('%s — находка', (_kind, line) => {
+    expect(scanDiff(diffOf('deploy/setup.sh', [line])).map((f) => f.name)).toEqual(['Секрет по имени переменной']);
+  });
+
+  it.each([
+    ['ссылка на окружение', `JWT${'_SECRET'}=\${JWT_SECRET}`],
+    ['секрет Actions', `  API${'_TOKEN'}: \${{ secrets.API_TOKEN }}`],
+    ['process.env', `const token = process.env.${'TELEGRAM_BOT_TOKEN'} ?? '';`],
+    ['заглушка', `JWT${'_SECRET'}=your_jwt_secret_here_2026`],
+    ['имя константы', `const TOKEN${'_KEY'} = 'VEDAR_SESSION_TOKEN';`],
+    ['описание по-русски', `pass${'word'}: 'Пароль от кабинета площадки 2026',`],
+    ['короткое значение', `pass${'word'}: 'Ab12cd34',`],
+    ['адрес', `TOKEN${'_URL'}=https://oauth.example.org/v2/token123`],
+    ['ссылка на поле', `cfg.jwt${'Secret'} = process.env.JWT_SECRET;`],
+    ['выражение JSX', `  access${'Token'}={msg.bookingConfirmed.accessToken}`],
+    ['исходник регулярного выражения', `const MONTH${'_TOKEN'} = '(январ[а-яё]*|феврал[а-яё]*|март7)';`],
+    ['слово заглушки целиком', `const SEC${'RET'} = 'cron-secret-for-tests-25-10';`],
+    ['passenger — не пароль', `passenger: '${RANDOM}',`],
+  ])('%s — не находка', (_kind, line) => {
+    expect(scanDiff(diffOf('docs/setup.md', [line]))).toEqual([]);
+  });
+
+  it('заглушки отличаются от значений по содержимому, а не по имени файла', () => {
+    expect(isPlaceholderValue(RANDOM)).toBe(false);
+    expect(isPlaceholderValue('$' + 'S3_SECRET_KEY_2026')).toBe(true);
+    expect(isPlaceholderValue('$' + '{S3_SECRET_KEY_2026}')).toBe(true);
+    expect(isPlaceholderValue('aaaaaaaaaaaa1111')).toBe(true);
+  });
+
+  it('токен Bearer в заголовке — находка без имени переменной', () => {
+    const line = `curl -H "Authorization: Bea${'rer'} ${RANDOM}x9Qz7" https://api.example.org`;
+    expect(scanDiff(diffOf('docs/api.md', [line])).map((f) => f.name)).toEqual(['Токен Bearer']);
+    expect(scanDiff(diffOf('docs/api.md', ['Authorization: Bearer ${TOKEN}']))).toEqual([]);
   });
 });
 
