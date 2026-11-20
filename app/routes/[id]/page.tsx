@@ -1,4 +1,6 @@
 import type { Metadata } from 'next';
+import { LANDING_CANONICAL } from '@/lib/landings/landings';
+import { LandingCrossLink } from '@/components/landings/LandingCrossLink';
 import { cache } from 'react';
 import { notFound, permanentRedirect } from 'next/navigation';
 import RouteDetailClient, { type RouteDetail } from './_RouteDetailClient';
@@ -340,7 +342,9 @@ export async function generateMetadata({ params }: Props): Promise<Metadata> {
     title: brandedTitle(title),
     description: desc,
     keywords,
-    alternates: { canonical: `https://vedarai.ru/routes/${canonicalId}` },
+    // Каннибализация (Сыщик, 20.11): маршрут, чью тему ведёт посадочная,
+    // объявляет канонической её (lib/landings, LANDING_CANONICAL).
+    alternates: { canonical: `https://vedarai.ru${LANDING_CANONICAL[`/routes/${canonicalId}`] ?? `/routes/${canonicalId}`}` },
     openGraph: {
       title,
       description: desc,
@@ -610,6 +614,7 @@ export default async function RouteOrCategoryPage({ params }: Props) {
           waypoints: waypoints.map((w) => ({ name: w.name, slug: w.slug })),
         }}
       />
+      <LandingCrossLink path={`/routes/${route.slug ?? id}`} />
     </>
   );
 }

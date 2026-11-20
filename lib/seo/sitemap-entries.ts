@@ -7,6 +7,7 @@
  * который как route-handler исполняется на запросе). Теперь XML отдаёт
  * app/sitemap.xml/route.ts с force-dynamic — тем же паттерном, что llms.txt.
  */
+import { NEW_LANDINGS, LANDING_CANONICAL } from '@/lib/landings/landings';
 import { tourPath } from '@/lib/tours/tour-url';
 import { publicTourSql } from '@/lib/tours/public-visibility';
 import { partnerSitemapRows } from '@/lib/seo/partner-sitemap';
@@ -128,6 +129,10 @@ export async function collectSitemapEntriesWithStatus(): Promise<{ entries: Meta
     // Две страницы, посчитанные из базы (разбор видимости в ответах ИИ, 19.11).
     { url: `${BASE}/skolko-stoit-poezdka-na-kamchatku`, lastModified: new Date(), changeFrequency: 'daily', priority: 0.8 },
     { url: `${BASE}/kogda-ehat-na-kamchatku`, lastModified: new Date(), changeFrequency: 'daily', priority: 0.8 },
+    // Посадочные Сыщика (20.11, lib/landings): lastmod — дата ревизии текста.
+    ...NEW_LANDINGS.map((l) => ({
+      url: `${BASE}${l.path}`, lastModified: new Date(`${l.date}T00:00:00Z`), changeFrequency: 'monthly' as const, priority: 0.7,
+    })),
     { url: `${BASE}/plans`,                lastModified: plansHubLastModified(), changeFrequency: 'weekly', priority: 0.85 },
     ...PLAN_PRESETS.map((p) => ({
       url: `${BASE}/plans/${p.slug}`, lastModified: planLastModified(p), changeFrequency: 'weekly' as const, priority: 0.8,
@@ -282,7 +287,8 @@ export async function collectSitemapEntriesWithStatus(): Promise<{ entries: Meta
       LIMIT 2000
     `);
 
-    routePages = rows.map(row => ({
+    // Маршрут с canonical на посадочную (LANDING_CANONICAL) sitemap не предлагает.
+    routePages = rows.filter(row => !LANDING_CANONICAL[`/routes/${row.slug ?? row.id}`]).map(row => ({
       url: `${BASE}/routes/${row.slug ?? row.id}`,
       lastModified: row.updated_at,
       changeFrequency: 'weekly' as const,
