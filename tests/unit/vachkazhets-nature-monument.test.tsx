@@ -227,7 +227,8 @@ describe('статья «Вачкажец»', () => {
 
   it('страница: главный кадр с автором и лицензией, лента дат, переходы', async () => {
     render(await ChronicleArticlePage({ params: Promise.resolve({ slug: SLUG }) }));
-    expect(screen.getByRole('heading', { level: 1 }).textContent).toBe('Вачкажец');
+    // H1 летописи объекта с парком — с хвостом (Сыщик 21.11, T4).
+    expect(screen.getByRole('heading', { level: 1 }).textContent).toBe('Вачкажец: история и летопись');
     const img = screen.getByRole('img', { name: article.hero!.alt });
     expect(img.getAttribute('src')).toContain('/api/images/s3/photos/vachkazhets/gora-vachkazhets-zimoj.jpg');
     const figure = img.closest('figure')!;

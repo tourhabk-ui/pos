@@ -179,12 +179,16 @@ describe('конспект тура: перевод помечен, оригин
     expect(desc.textContent).not.toContain('Вылет в 9:00');
   });
 
-  it('переводы не прочитались — заголовок из факта длительности, не русское название и не «перевода нет»', () => {
+  // С 21.11 (Сыщик, T6): без перевода H1 — официальное русское имя тура, а
+  // строка из факта длительности стоит под ним. Общее «堪察加团队游» давало
+  // пяти турам один заголовок.
+  it('переводы не прочитались — H1 русское имя тура, факт длительности под ним, не «перевода нет»', () => {
     const { container } = render(<ZhTourSummary tour={TOUR} translations={null} />);
     const h1 = screen.getByRole('heading', { level: 1 });
-    expect(h1.textContent).toBe(zhFactHeading(TOUR));
-    expect(h1.getAttribute('lang')).toBeNull();
+    expect(h1.textContent).toBe(TOUR.title);
+    expect(h1.querySelector('[lang="ru"]')).not.toBeNull();
     expect((container.querySelector('[data-zh-original-title]') as HTMLElement).textContent).toBe(TOUR.title);
+    expect((container.querySelector('[data-zh-fact-heading]') as HTMLElement).textContent).toBe(zhFactHeading(TOUR));
     expect((container.querySelector('[data-zh-field="description"]') as HTMLElement).getAttribute('data-zh-state')).toBe('unknown');
     expect(container.textContent).toContain(ZH_DETAIL.unknown);
     const note = container.querySelector('[data-zh-mt-note]') as HTMLElement;
@@ -335,7 +339,7 @@ describe('/zh/tours/[slug]: индексируется и получает па�
     expect(container.textContent).not.toContain('俄罗斯央行');
   });
 
-  it('перевода нет — index, hreflang и китайский заголовок из фактов; страница открывается', async () => {
+  it('перевода нет — index, hreflang и заголовок с русским именем тура; страница открывается', async () => {
     const mod = await import('@/app/zh/tours/[slug]/page');
     const meta = await mod.generateMetadata({ params: Promise.resolve({ slug: 'dolina-geyzerov' }) });
     expect(meta.robots).toMatchObject({ index: true });
@@ -343,7 +347,7 @@ describe('/zh/tours/[slug]: индексируется и получает па�
       ru: 'https://vedarai.ru/catalog/tours/dolina-geyzerov',
       'zh-CN': 'https://vedarai.ru/zh/tours/dolina-geyzerov',
     });
-    expect((meta.title as { absolute: string }).absolute).toContain(zhFactHeading(TOUR));
+    expect((meta.title as { absolute: string }).absolute).toBe(`${TOUR.title}｜堪察加团队游（中文摘要）｜Vedar 堪察加`);
     expect(meta.description).toBe(zhFactDescription(TOUR));
     expect(meta.description).not.toContain(TOUR.description);
     const page = await mod.default({ params: Promise.resolve({ slug: 'dolina-geyzerov' }) });

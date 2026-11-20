@@ -1,4 +1,5 @@
 import type { Metadata } from 'next';
+import { PLACE_CANONICAL_PARENT, PLACE_NOINDEX } from '@/lib/seo/h1-templates';
 import { notFound, permanentRedirect } from 'next/navigation';
 import { query } from '@/lib/database';
 import PlaceDetailClient from './_PlaceDetailClient';
@@ -81,7 +82,12 @@ export async function generateMetadata({ params }: Props): Promise<Metadata> {
     const desc = placeDescription(facts) || 'Место на Камчатке';
     // Canonical — ЧПУ места. До 29.09 его не было у всех 379 карточек (Н4):
     // место открывается по ark_id, id и slug, и без canonical это три адреса.
-    const canonical = `/places/${(r.slug as string | null) ?? (r.ark_id as string)}`;
+    const ownPath = `/places/${(r.slug as string | null) ?? (r.ark_id as string)}`;
+    // Тонкие смотровые (Сыщик 21.11): каноникал на однозначного родителя из
+    // sitemap; без родителя — noindex. Список — lib/seo/h1-templates.
+    const parentSlug = r.slug ? PLACE_CANONICAL_PARENT[r.slug as string] : undefined;
+    const canonical = parentSlug ? `/places/${parentSlug}` : ownPath;
+    const noindex = r.slug ? PLACE_NOINDEX.has(r.slug as string) : false;
     // Превью ссылки — только наш снимок и первым свой (14.10, «Только используй
     // наши фотографии»): до этого чужая ссылка импорта стояла впереди своего.
     const imgUrl = ownPlacePhoto((r.real_photo as string | null) ?? null, r.photo_url, r.images);
@@ -103,8 +109,9 @@ export async function generateMetadata({ params }: Props): Promise<Metadata> {
         canonical,
         ...(zh ? { languages: { ru: `${BASE}${canonical}`, 'zh-CN': `${BASE}${zh}` } } : {}),
       },
+      ...(noindex ? { robots: { index: false, follow: true } } : {}),
       openGraph: {
-        url: canonical,
+        url: ownPath,
         title: r.name as string,
         description: desc,
         // Нет снимка места — картинка сайта, а не голая ссылка: openGraph

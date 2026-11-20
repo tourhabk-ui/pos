@@ -7,6 +7,7 @@
  * который как route-handler исполняется на запросе). Теперь XML отдаёт
  * app/sitemap.xml/route.ts с force-dynamic — тем же паттерном, что llms.txt.
  */
+import { placeInSitemap } from '@/lib/seo/h1-templates';
 import { tourPath } from '@/lib/tours/tour-url';
 import { publicTourSql } from '@/lib/tours/public-visibility';
 import { partnerSitemapRows } from '@/lib/seo/partner-sitemap';
@@ -82,7 +83,7 @@ export async function collectSitemapEntriesWithStatus(): Promise<{ entries: Meta
     // Safety-кластер — уникальный контент ниши (аудит 01.08): регистрация
     // МЧС, связь в поле, правила природы. Страницы существовали, но в
     // sitemap не попали и для поиска не существовали.
-    { url: `${BASE}/register`,             lastModified: STABLE,      changeFrequency: 'monthly', priority: 0.85 },
+    // /register — noindex с 21.11 (Сыщик, решение владельца): в sitemap не идёт.
     { url: `${BASE}/safety/communication`, lastModified: new Date('2026-07-31'), changeFrequency: 'monthly', priority: 0.75 },
     // Памятка перед поездкой (30.09): факты — импортом из справочников МЧС, парка, SOS.
     { url: `${BASE}/prepare`,             lastModified: new Date('2026-09-30'), changeFrequency: 'monthly', priority: 0.8 },
@@ -219,7 +220,8 @@ export async function collectSitemapEntriesWithStatus(): Promise<{ entries: Meta
       ORDER BY updated_at DESC
       LIMIT 2000
     `);
-    placesPages = rows.map(row => ({
+    // Смотровые с каноникалом на родителя и noindex — не в sitemap (Сыщик 21.11).
+    placesPages = rows.filter((row) => placeInSitemap(row.slug)).map(row => ({
       url: `${BASE}/places/${row.slug ?? row.ark_id}`,
       lastModified: row.updated_at,
       changeFrequency: 'weekly' as const,

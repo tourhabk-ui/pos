@@ -19,6 +19,7 @@ import { routeDescription } from '@/lib/seo/place-meta';
 import { defaultOgImages } from '@/lib/seo/og-image';
 import { shownPhotoSql } from '@/lib/images/origin';
 import { brandedTitle, fitTitleRequired, ROUTE_TITLE_TAILS } from '@/lib/seo/title-fit';
+import { routeTitleFactsTail } from '@/lib/seo/h1-templates';
 import { payloadText, payloadStrings } from '@/lib/routes/payload-text';
 
 // ISR: реvalidate každый час для свежести контента в Google
@@ -278,7 +279,10 @@ export async function generateMetadata({ params }: Props): Promise<Metadata> {
 
   // Хвост обязателен: маршрут к источнику часто носит имя самого места, и без
   // хвоста заголовки страницы маршрута и места совпадали (аудит 01.10).
-  const title = fitTitleRequired(route.title, ROUTE_TITLE_TAILS);
+  // С 21.11 первым пробуется хвост с фактами записи (Сыщик: «{name}: маршрут
+  // 14 км, набор…»); не влез или фактов нет — прежние хвосты.
+  const factsTail = routeTitleFactsTail(route);
+  const title = fitTitleRequired(route.title, factsTail ? [factsTail, ...ROUTE_TITLE_TAILS] : ROUTE_TITLE_TAILS);
   // Сниппет: сначала факты (км, набор, время, сложность, сезон, МЧС), потом
   // описание — пока помещается (lib/seo/place-meta, срез 02.10). Для места,
   // открытого по адресу маршрута, фактов маршрута нет — остаётся описание.

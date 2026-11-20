@@ -47,6 +47,7 @@ import { trackLine } from '@/lib/map/line-standard';
 // маршрута с `extreme` бейдж выходил пустым, а `moderate` печатался
 // по-английски.
 import { difficultyLabel, difficultyColor } from '@/lib/tours/labels';
+import { routeHeading } from '@/lib/seo/h1-templates';
 import { lineOwnership } from '@/lib/routes/line-ownership';
 import { AssistantButton } from '@/components/shared/AssistantButton';
 import { MarkerType, type MapMarker } from '@/components/shared/leaflet-types';
@@ -978,7 +979,9 @@ export default function RouteDetailClient({ id, mapPackBaseUrl, summary = null, 
             className="text-3xl sm:text-4xl md:text-5xl font-bold text-[var(--text-primary)] leading-tight max-w-4xl"
             style={{ fontFamily: 'var(--font-playfair)' }}
           >
-            {route.title}
+            {/* Типизированный H1 из полей записи (Сыщик 21.11): голое имя
+                совпадало с H1 места-тёзки. */}
+            {routeHeading(route)}
           </h1>
         </div>
       </div>

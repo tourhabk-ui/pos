@@ -22,7 +22,7 @@ import { ZhTourSummary } from '@/components/zh/ZhDetail';
 import { loadZhTourPage, logZhFailure, zhTourIndexable } from '@/lib/zh/content';
 import { zhTourPath } from '@/lib/zh/pages';
 import { readField, ZH_TOUR_FIELDS } from '@/lib/zh/fields';
-import { zhFactDescription, zhFactHeading } from '@/lib/zh/entry';
+import { zhFactDescription } from '@/lib/zh/entry';
 import { tourPath } from '@/lib/tours/tour-url';
 import { recordZhEntryHit } from '@/lib/analytics/agent-entry-hits';
 import { defaultOgImages } from '@/lib/seo/og-image';
@@ -60,7 +60,9 @@ export async function generateMetadata({ params }: Props): Promise<Metadata> {
   const title = readField(ZH_TOUR_FIELDS.title, tour.title, translations, 'title');
   const short = readField(ZH_TOUR_FIELDS.short_description, tour.short_description, translations, 'short_description');
   const desc = readField(ZH_TOUR_FIELDS.description, tour.description, translations, 'description');
-  const zhTitle = title.state === 'fresh' ? (title.zh as string) : zhFactHeading(tour);
+  // Нет свежего перевода имени — официальное русское имя тура, а не общее
+  // «堪察加团队游» (Сыщик 21.11, T6: пять туров с одним заголовком).
+  const zhTitle = title.state === 'fresh' ? (title.zh as string) : tour.title;
   const zhDesc = short.state === 'fresh' ? snippet(short.zh as string)
     : desc.state === 'fresh' ? snippet(desc.zh as string)
       : zhFactDescription(tour);

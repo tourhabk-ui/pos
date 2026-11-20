@@ -129,7 +129,8 @@ async function tourTitle(title: string): Promise<unknown> {
 describe('карточка тура', { timeout: 30_000 }, () => {
   it('короткое имя — с полным хвостом, без второй черты и в пределе', async () => {
     const t = await tourTitle('Мыс Маячный');
-    expect(t).toBe('Мыс Маячный — тур на Камчатке');
+    // С 21.11 хвост — из полей записи (Сыщик, T3): здесь записан только оператор.
+    expect(t).toMatch(/^Мыс Маячный: тур /);
     expect(t).not.toContain('|');
     expect(shown(t).length).toBeLessThanOrEqual(TITLE_LIMIT);
   });

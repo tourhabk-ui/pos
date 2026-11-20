@@ -436,7 +436,13 @@ export async function loadPlaceDetail(id: string, opts: { countView: boolean }):
         // встречаются как «id места», а карточка знает ark_id.
         chronicle: [...new Map(
           [...chronicleForPlace(String(r.place_pk)), ...chronicleForPlace(String(r.ark_id))]
-            .map((a) => [a.slug, { slug: a.slug, title: a.title }]),
+            .map((a) => [a.slug, {
+              slug: a.slug,
+              title: a.title,
+              // Статья об ООПТ с парком, и место в ней первое — главный объект.
+              ooptMain: (a.parkSlugs?.length ?? 0) > 0
+                && (a.placeIds[0] === String(r.place_pk) || a.placeIds[0] === String(r.ark_id)),
+            }]),
         ).values()],
 
         coordSource: asCoordSource(r.coord_source as string | null),

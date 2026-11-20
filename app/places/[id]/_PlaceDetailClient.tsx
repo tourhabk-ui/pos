@@ -1,5 +1,6 @@
 'use client';
 
+import { placeHeading } from '@/lib/seo/h1-templates';
 import { RecordModified } from '@/components/seo/RecordModified';
 import { useState, useEffect } from 'react';
 import { ownPermitOf, permitNotRequired } from '@/lib/places/own-permit';
@@ -332,6 +333,7 @@ export default function PlaceDetailClient({ id, initialPlace = null }: { id: str
       <PlaceHero
         placeId={place.id}
         name={place.name}
+        heading={placeHeading(place.name, place.chronicle.some((c) => c.ooptMain))}
         locationType={place.locationType}
         lat={place.lat}
         lng={place.lng}

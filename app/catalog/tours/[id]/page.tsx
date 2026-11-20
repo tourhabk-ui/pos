@@ -2,6 +2,8 @@ import type { Metadata } from 'next';
 import { notFound, permanentRedirect } from 'next/navigation';
 import { metaDescription } from '@/lib/seo/meta-description';
 import { brandedTitle, fitTitleRequired, TOUR_TITLE_TAILS } from '@/lib/seo/title-fit';
+import { tourTitleTails } from '@/lib/seo/h1-templates';
+import { cardDuration } from '@/lib/tours/card-facts';
 import { loadTourCard, getTourReviews } from '@/lib/tours/tour-detail-query';
 import { tourPath } from '@/lib/tours/tour-url';
 import { reachForTour } from '@/lib/partners/reach';
@@ -65,7 +67,12 @@ export async function generateMetadata({ params }: Props): Promise<Metadata> {
   const zh = await zhTourAlternatePath(tour);
 
   return {
-    title: brandedTitle(fitTitleRequired(tour.title, TOUR_TITLE_TAILS)),
+    // Хвост с полями записи (Сыщик 21.11, T3): срок, цена, оператор — что
+    // заполнено и помещается; иначе прежний « — тур на Камчатке».
+    title: brandedTitle(fitTitleRequired(tour.title, [
+      ...tourTitleTails({ duration: cardDuration(tour), basePrice: tour.base_price, operatorName: tour.operator_name }),
+      ...TOUR_TITLE_TAILS,
+    ])),
     description: desc,
     alternates: {
       canonical: `${SITE}${tourPath(tour)}`,

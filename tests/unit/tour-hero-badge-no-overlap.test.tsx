@@ -61,6 +61,7 @@ describe('герой тура: плашка дня и название не на
     expect(text.className).not.toMatch(/\babsolute\b/);
     expect(status.compareDocumentPosition(text) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
     // Название и описание — внутри текстового блока, а не поверх плашки.
-    expect(text.querySelector('h1')?.textContent).toBe(TOUR.title);
+    // H1 = имя тура и оператор (Сыщик 21.11, T3).
+    expect(text.querySelector('h1')?.textContent).toBe(`${TOUR.title} — тур «${TOUR.operator_name}»`);
   });
 });

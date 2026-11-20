@@ -1,5 +1,6 @@
 'use client';
 
+import { collectionHeading } from '@/lib/seo/h1-templates';
 import Link from 'next/link';
 import { MapPin, Route, Eye, ArrowLeft, Share2, Copy } from 'lucide-react';
 import { useState } from 'react';
@@ -140,7 +141,7 @@ export function CollectionDetailClient({ collection, others = [] }: {
           </div>
           <div className="flex flex-col sm:flex-row sm:items-start sm:justify-between gap-4">
             <div>
-              <h1 className="ds-h1 mb-2">{collection.title}</h1>
+              <h1 className="ds-h1 mb-2">{collectionHeading(collection.title, { places: collection.places.length, routes: collection.routes.length })}</h1>
               {collection.description && (
                 <p className="text-[var(--text-secondary)] text-lg">{collection.description}</p>
               )}

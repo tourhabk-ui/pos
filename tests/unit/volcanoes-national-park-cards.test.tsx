@@ -356,7 +356,8 @@ describe('статья «Национальный парк „Вулканы К�
 
   it('страница: главного кадра нет до согласия партнёра (15.10); даты и переходы на месте', async () => {
     const { container } = render(await ChronicleArticlePage({ params: Promise.resolve({ slug: SLUG }) }));
-    expect(screen.getByRole('heading', { level: 1 }).textContent).toBe('Национальный парк «Вулканы Камчатки»');
+    // H1 летописи объекта с парком — с хвостом (Сыщик 21.11, T4).
+    expect(screen.getByRole('heading', { level: 1 }).textContent).toBe('Национальный парк «Вулканы Камчатки»: история и летопись');
     // Кадр «Местечка Камчатка» снят, своего снимка этих вулканов у владельца
     // нет — пустое место, а не чужой кадр и не подпись без снимка.
     expect(article.hero).toBeUndefined();

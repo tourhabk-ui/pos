@@ -73,7 +73,8 @@ beforeEach(() => {
 describe('страница прокатчика: блоки и порядок (без фото)', () => {
   it('сверху вниз по стандарту; герой без снимка; заявка — отдельной колонкой с якорем', () => {
     const { container } = render(<RentalCompanyPage data={DATA} />);
-    expect(screen.getByRole('heading', { level: 1 }).textContent).toBe('Лагуна Прокат');
+    // Тип услуги в H1 (Сыщик 21.11, T7).
+    expect(screen.getByRole('heading', { level: 1 }).textContent).toBe('Лагуна Прокат — аренда автомобилей');
     expect(container.querySelector('img')).toBeNull();
     expect(headings(container)).toEqual([
       'О прокатчике', 'Машины и цены', 'Условия проката', 'Прокатчик', 'Машина с водителем', 'Спросить Кузьмича', 'Заявка на машину',

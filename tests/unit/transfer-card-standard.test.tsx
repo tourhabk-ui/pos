@@ -86,7 +86,8 @@ beforeEach(() => {
 describe('страница перевозчика: блоки и порядок', () => {
   it('сверху вниз по стандарту; заявка — отдельной колонкой с якорем', () => {
     const { container } = render(<CarrierPage data={DATA} />);
-    expect(screen.getByRole('heading', { level: 1 }).textContent).toBe('Шатун');
+    // Тип услуги в H1 (Сыщик 21.11, T7).
+    expect(screen.getByRole('heading', { level: 1 }).textContent).toBe('Шатун — трансфер и машина с водителем');
     expect(headings(container)).toEqual([
       'О перевозчике', 'Прайс под заказ', 'Что входит в цену',
       'Безопасность по направлениям', 'Перевозчик', 'Отзывы', 'Спросить Кузьмича', 'Заявка на машину',

@@ -423,7 +423,8 @@ describe('статья «Природный парк „Налычево“»', 
 
   it('страница: заголовок, лента дат, переходы', async () => {
     render(await ChronicleArticlePage({ params: Promise.resolve({ slug: SLUG }) }));
-    expect(screen.getByRole('heading', { level: 1 }).textContent).toBe('Природный парк «Налычево»');
+    // H1 летописи объекта с парком — с хвостом (Сыщик 21.11, T4).
+    expect(screen.getByRole('heading', { level: 1 }).textContent).toBe('Природный парк «Налычево»: история и летопись');
     const img = screen.getByRole('img', { name: article.hero!.alt });
     expect(img.getAttribute('src')).toContain('/api/images/s3/photos/nalychevo/vladelec-koryakskaya-sopka-vecherom.jpg');
     const figure = img.closest('figure')!;
