@@ -27,7 +27,8 @@ export interface ScrapedRoute {
   title: string;
   filename: string;
   pdfUrl: string;
-  season: 'summer' | 'winter' | 'all';
+  /** По имени файла паспорта; не названо — null, а не «круглый год» (#3568). */
+  season: 'summer' | 'winter' | null;
   htmlSlug: string | null; // если есть HTML-страница
   description: string | null;
 }
@@ -57,7 +58,7 @@ function detectCategory(title: string): string {
   return 'ekskursii';
 }
 
-function detectActivityType(title: string, season: string): string {
+function detectActivityType(title: string, season: string | null): string {
   const t = title.toLowerCase();
   if (t.includes('sup')) return 'sup';
   if (t.includes('снегоход')) return 'snowmobile';
@@ -96,7 +97,7 @@ const HTML_ROUTES: Record<string, string> = {
 
 // ── Скрапинг списка маршрутов: Firecrawl → markdown, иначе raw HTML ──────────
 
-function parseRoutes(text: string, isMarkdown: boolean): ScrapedRoute[] {
+export function parseRoutes(text: string, isMarkdown: boolean): ScrapedRoute[] {
   const seen = new Set<string>();
   const routes: ScrapedRoute[] = [];
 
@@ -118,9 +119,12 @@ function parseRoutes(text: string, isMarkdown: boolean): ScrapedRoute[] {
     seen.add(filename);
 
     const fnLow = filename.toLowerCase();
+    // Имя файла без «winter»/«summer» о сезоне не говорит: `tolbachik.pdf`
+    // — паспорт на июнь–сентябрь. До 20.11 здесь ставилось 'all', и карточка
+    // писала «Круглый год» (#3568). Не названо — не записано.
     const season: ScrapedRoute['season'] =
       fnLow.includes('winter') ? 'winter' :
-      fnLow.includes('summer') ? 'summer' : 'all';
+      fnLow.includes('summer') ? 'summer' : null;
 
     const htmlSlug = Object.entries(HTML_ROUTES).find(([, t]) =>
       t.toLowerCase() === rawTitle.toLowerCase()

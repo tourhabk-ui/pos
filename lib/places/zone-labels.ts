@@ -66,9 +66,16 @@ export function routeDifficultyLabel(code: string | null | undefined): string | 
 /**
  * Сезон маршрута (kamchatka_routes.season): код или список через запятую
  * («summer, autumn»). Один словарь со сниппетом поиска (lib/seo/place-meta).
+ *
+ * Кода `all` в словаре нет намеренно (#3568, 20.11): его ставил импорт
+ * паспортов по умолчанию, когда в имени файла не было «summer»/«winter», и
+ * модель при разборе скана. Фактом он не бывает — сверка 20.11 нашла 36
+ * маршрутов с `all`, у которых паспорт сезонный (Плоский Толбачик — июнь–
+ * сентябрь). Круглый год, подтверждённый паспортом, пишется миграцией
+ * словами с источником (образец — 1385), и такой текст печатается как есть.
  */
 export const ROUTE_SEASON_RU: Record<string, string> = {
-  summer: 'лето', winter: 'зима', all: 'круглый год', spring: 'весна', autumn: 'осень',
+  summer: 'лето', winter: 'зима', spring: 'весна', autumn: 'осень',
 };
 
 export function routeSeasonLabel(code: string | null | undefined): string | null {

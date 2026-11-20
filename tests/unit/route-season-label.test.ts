@@ -3,7 +3,9 @@ import { seasonLabel } from '@/lib/routes/season-label';
 
 describe('сезон маршрута по-русски (02.11)', () => {
   it('коды переводятся', () => {
-    expect(seasonLabel('all')).toBe('Круглый год');
+    // `all` импорт ставил по умолчанию — не факт, не показываем (#3568).
+    expect(seasonLabel('all')).toBeNull();
+    expect(seasonLabel('all-year')).toBeNull();
     expect(seasonLabel('summer')).toBe('Лето');
     expect(seasonLabel('winter')).toBe('Зима');
   });
