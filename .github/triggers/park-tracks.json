@@ -1,6 +1,6 @@
 {
-  "note": "20.11. Треки утверждённых маршрутов природных парков «Вулканы Камчатки» (страница «Туристические маршруты») — в очередь треков (route_track_imports) через публичный приём /api/field-check/track. Режим ingest ничего не применяет: записи ложатся со статусом pending. Применение к маршруту — режимом apply, сухой прогон по умолчанию. Прогон 2 (20.11): сухое применение 22 треков к 30 сверенным маршрутам; из 35 архивов 9 сервер парка отдал с HTTP 500, в одном («Озеро Икар») линии нет.",
-  "run": 2,
+  "note": "20.11. Треки утверждённых маршрутов природных парков «Вулканы Камчатки» (страница «Туристические маршруты») — в очередь треков (route_track_imports) через публичный приём /api/field-check/track. Режим ingest ничего не применяет: записи ложатся со статусом pending. Применение к маршруту — режимом apply, сухой прогон по умолчанию. Прогон 2 (20.11): сухое применение 30 записей — все 200, старшинство источников замену разрешает. Прогон 3 (20.11): запись 13 треков на 18 маршрутов — только сплошные (разрывы до ~60 м), плотные (от 158 точек) и с длиной, близкой к нашей. Отложены: «Авачинский — Центральный» (разрывы 10–19 км: в файле несколько треков), «Восхождение на Авачинский вулкан» (разрыв 5,4 км), «Радыгино — Центральный» (115 км — длину не с чем сверить), «Вулкашики» (отдельная точка в 8,6 км от трека), «Ичинский вулкан» (заменил бы уже загруженный KML), «Вулкан Вилючинский», «Вилючинский водопад», «Экструзия Верблюд», «Центральный — Таловские источники» зимний (10–67 точек: тоньше линии, что стоит сейчас или чертежа), зимний маршрут к озеру Зелёному (трек летний).",
+  "run": 3,
   "why": "Слово владельца 20.11: «Треки парка как линии» — только у маршрутов, сверенных с утверждёнными (миграция 1468).",
   "mode": "apply",
   "source_page": "https://vulcanikamchatki.ru/v_pomow_gostyu/nomera_marshrutov/",
@@ -293,182 +293,115 @@
     {
       "id": "0bf1a1fa-8e48-49e3-9310-499deb3f154d",
       "route_slug": "visitkamchatka-pinachevo-centre",
-      "dry_run": true,
+      "dry_run": false,
       "label": "Пиначево — Центральный (summer,winter) → visitkamchatka-pinachevo-centre; 1187 точек, 37.83 км"
     },
     {
       "id": "0bf1a1fa-8e48-49e3-9310-499deb3f154d",
       "route_slug": "marshrut-pinachevo-tsentralnyy-25f624cb",
-      "dry_run": true,
-      "label": "Пиначево — Центральный (summer,winter) → marshrut-pinachevo-tsentralnyy-25f624cb; 1187 точек, 37.83 км"
-    },
-    {
-      "id": "03f81e3e-b242-470d-a969-cc883f4694f7",
-      "route_slug": "visitkamchatka-avachin-centre",
-      "dry_run": true,
-      "label": "Авачинский — Центральный (summer) → visitkamchatka-avachin-centre; 1279 точек, 82.69 км"
+      "dry_run": false,
+      "label": "Пиначево — Центральный (summer,winter) → marshrut-pinachevo-tsentralnyy-25f624cb; 1187 точек, 37.83 км",
+      "reapply": true
     },
     {
       "id": "bb1ad1f1-d2eb-4715-bcde-cb76a52eaa69",
       "route_slug": "visitkamchatka-talov-ist",
-      "dry_run": true,
+      "dry_run": false,
       "label": "Центральный — Таловские источники — вулкан Дзендзур (summer) → visitkamchatka-talov-ist; 158 точек, 11.11 км"
-    },
-    {
-      "id": "2bbbf16b-022a-486b-8f34-56d38537cf72",
-      "route_slug": "visitkamchatka-talovsk-centre",
-      "dry_run": true,
-      "label": "Центральный — Таловские источники (winter) → visitkamchatka-talovsk-centre; 67 точек, 10.29 км"
-    },
-    {
-      "id": "6355f12f-79d9-4cb3-a7a9-b59fd7f77061",
-      "route_slug": "ekstruziya-verblyud-2",
-      "dry_run": true,
-      "label": "Экструзия Верблюд (summer) → ekstruziya-verblyud-2; 30 точек, 8.56 км"
-    },
-    {
-      "id": "29a858c6-d800-4231-be9c-c3e0badcd103",
-      "route_slug": "voshozhdenie-na-avachinskij-vulkan",
-      "dry_run": true,
-      "label": "Восхождение на Авачинский вулкан (summer) → voshozhdenie-na-avachinskij-vulkan; 109 точек, 22.87 км"
-    },
-    {
-      "id": "29a858c6-d800-4231-be9c-c3e0badcd103",
-      "route_slug": "nochnoe-voshozhdenie-na-avachinskij-vulkan-marshrut",
-      "dry_run": true,
-      "label": "Восхождение на Авачинский вулкан (summer) → nochnoe-voshozhdenie-na-avachinskij-vulkan-marshrut; 109 точек, 22.87 км"
-    },
-    {
-      "id": "3632a3ab-36c0-4927-9715-960360478e5d",
-      "route_slug": "visitkamchatka-radyg-centre",
-      "dry_run": true,
-      "label": "Радыгино — Центральный (summer) → visitkamchatka-radyg-centre; 705 точек, 115.62 км"
     },
     {
       "id": "daea8b10-23b8-46d0-9bbf-fce72b02701e",
       "route_slug": "sopka-pionerskaya",
-      "dry_run": true,
+      "dry_run": false,
       "label": "Пионерская сопка (summer) → sopka-pionerskaya; 747 точек, 4.16 км"
     },
     {
       "id": "5b8b44dd-318f-47af-b77a-c96d5d57e6bd",
       "route_slug": "belye-skaly-marshrut",
-      "dry_run": true,
+      "dry_run": false,
       "label": "Белые скалы (summer) → belye-skaly-marshrut; 589 точек, 4.49 км"
     },
     {
       "id": "5a1255bf-72fd-4814-bcf2-622f7730ed3b",
       "route_slug": "visitkamchatka-tupikin",
-      "dry_run": true,
+      "dry_run": false,
       "label": "Тупикин ключ (summer) → visitkamchatka-tupikin; 542 точек, 4.43 км"
     },
     {
       "id": "5a1255bf-72fd-4814-bcf2-622f7730ed3b",
       "route_slug": "eko-tropa-tupikin-klyuch-2",
-      "dry_run": true,
-      "label": "Тупикин ключ (summer) → eko-tropa-tupikin-klyuch-2; 542 точек, 4.43 км"
+      "dry_run": false,
+      "label": "Тупикин ключ (summer) → eko-tropa-tupikin-klyuch-2; 542 точек, 4.43 км",
+      "reapply": true
     },
     {
       "id": "bc061fad-0c1c-4a7b-9692-fd274ab8dca2",
       "route_slug": "visitkamchatka-cheremshanka",
-      "dry_run": true,
+      "dry_run": false,
       "label": "Ручей Черемшанка (summer) → visitkamchatka-cheremshanka; 282 точек, 5.21 км"
     },
     {
       "id": "bc061fad-0c1c-4a7b-9692-fd274ab8dca2",
       "route_slug": "eko-tropa-cheremshanka",
-      "dry_run": true,
-      "label": "Ручей Черемшанка (summer) → eko-tropa-cheremshanka; 282 точек, 5.21 км"
+      "dry_run": false,
+      "label": "Ручей Черемшанка (summer) → eko-tropa-cheremshanka; 282 точек, 5.21 км",
+      "reapply": true
     },
     {
       "id": "238657ed-95b2-48e0-94e6-f1a6be2111ca",
       "route_slug": "visitkamchatka-chernyi-zamok",
-      "dry_run": true,
+      "dry_run": false,
       "label": "Черный замок (summer) → visitkamchatka-chernyi-zamok; 1957 точек, 12.62 км"
     },
     {
       "id": "238657ed-95b2-48e0-94e6-f1a6be2111ca",
       "route_slug": "skala-chernyj-zamok-marshrut",
-      "dry_run": true,
-      "label": "Черный замок (summer) → skala-chernyj-zamok-marshrut; 1957 точек, 12.62 км"
+      "dry_run": false,
+      "label": "Черный замок (summer) → skala-chernyj-zamok-marshrut; 1957 точек, 12.62 км",
+      "reapply": true
     },
     {
       "id": "676570b3-80d4-4a22-89c5-373d17f55ba3",
       "route_slug": "ozero-ilmagan-marshrut",
-      "dry_run": true,
+      "dry_run": false,
       "label": "Озеро Илмаган (summer) → ozero-ilmagan-marshrut; 2822 точек, 19.55 км"
-    },
-    {
-      "id": "8dc9f46e-8a38-4fed-adce-b31911f0d669",
-      "route_slug": "vulkashiki",
-      "dry_run": true,
-      "label": "Вулкашики (summer) → vulkashiki; 4460 точек, 23.26 км"
     },
     {
       "id": "41d5d832-c702-45cf-8a75-e4553b778114",
       "route_slug": "visitkamchatka-volcano-dygeren",
-      "dry_run": true,
+      "dry_run": false,
       "label": "Вулкан Дыгерен-Олегенде (summer) → visitkamchatka-volcano-dygeren; 962 точек, 22.77 км"
     },
     {
       "id": "41d5d832-c702-45cf-8a75-e4553b778114",
       "route_slug": "gora-dygeren-olengende-marshrut",
-      "dry_run": true,
-      "label": "Вулкан Дыгерен-Олегенде (summer) → gora-dygeren-olengende-marshrut; 962 точек, 22.77 км"
+      "dry_run": false,
+      "label": "Вулкан Дыгерен-Олегенде (summer) → gora-dygeren-olengende-marshrut; 962 точек, 22.77 км",
+      "reapply": true
     },
     {
       "id": "c7000b80-63de-4a92-86fc-dd9f9b69de44",
       "route_slug": "ozero-galyamaki-marshrut",
-      "dry_run": true,
+      "dry_run": false,
       "label": "Озеро Галямаки (summer) → ozero-galyamaki-marshrut; 6660 точек, 36.08 км"
     },
     {
       "id": "d10331d5-b5c7-4ff1-b44c-513dae9c0cb1",
       "route_slug": "dimshikanskij-kordon-marshrut",
-      "dry_run": true,
+      "dry_run": false,
       "label": "Димшиканский кордон (summer) → dimshikanskij-kordon-marshrut; 496 точек, 10.59 км"
-    },
-    {
-      "id": "f21a30bc-0bf2-49e7-b14e-015dbe5ab17e",
-      "route_slug": "vulkan-ichinskaya-sopka",
-      "dry_run": true,
-      "label": "Ичинский вулкан (summer) → vulkan-ichinskaya-sopka; 3680 точек, 74.34 км"
     },
     {
       "id": "0b6b5c31-c564-46c2-9804-d7be73461617",
       "route_slug": "kanon-snoubordistov-marshrut",
-      "dry_run": true,
+      "dry_run": false,
       "label": "Каньон сноубордистов (summer) → kanon-snoubordistov-marshrut; 446 точек, 9.03 км"
-    },
-    {
-      "id": "f98abfef-322c-470f-8478-62420eb9c475",
-      "route_slug": "visitkamchatka-viluch-volcano",
-      "dry_run": true,
-      "label": "Восхождение на вулкан Вилючинский (all) → visitkamchatka-viluch-volcano; 16 точек, 5.77 км"
-    },
-    {
-      "id": "f98abfef-322c-470f-8478-62420eb9c475",
-      "route_slug": "vulkan-vilyuchinskij-marshrut",
-      "dry_run": true,
-      "label": "Восхождение на вулкан Вилючинский (all) → vulkan-vilyuchinskij-marshrut; 16 точек, 5.77 км"
-    },
-    {
-      "id": "d81ed215-8ab1-4d2e-a32f-deaeaeec2e8c",
-      "route_slug": "vilyuchinskij-vodopad",
-      "dry_run": true,
-      "label": "Вилючинский водопад (summer) → vilyuchinskij-vodopad; 10 точек, 1.83 км"
     },
     {
       "id": "5f3cbb39-25db-4022-9725-8d8cd5ab9b71",
       "route_slug": "ozero-zelenoe-marshrut",
-      "dry_run": true,
+      "dry_run": false,
       "label": "К озеру Зелёному (summer) → ozero-zelenoe-marshrut; 572 точек, 4.86 км"
-    },
-    {
-      "id": "5f3cbb39-25db-4022-9725-8d8cd5ab9b71",
-      "route_slug": "visitkamchatka-green-lake-winter",
-      "dry_run": true,
-      "label": "К озеру Зелёному (summer) → visitkamchatka-green-lake-winter; 572 точек, 4.86 км"
     }
   ]
 }
