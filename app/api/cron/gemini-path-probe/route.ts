@@ -35,6 +35,7 @@ import {
   geminiEndpoint,
   geminiGatewayBase,
   geminiHeaders,
+  geminiModelIds,
   geminiUrl,
   GEMINI_DIRECT_BASE,
   type GeminiEndpoint,
@@ -102,12 +103,7 @@ async function probeList(target: ProbeTarget, apiKey: string): Promise<{ probe: 
     let ids: string[] = [];
     if (res.ok) {
       try {
-        const data = JSON.parse(body) as { models?: Array<{ name?: unknown; supportedGenerationMethods?: unknown }> };
-        ids = (data.models ?? [])
-          .filter((m) => Array.isArray(m.supportedGenerationMethods)
-            && (m.supportedGenerationMethods as unknown[]).includes('generateContent'))
-          .map((m) => (typeof m.name === 'string' ? m.name.replace(/^models\//, '') : ''))
-          .filter((id) => id.length > 0);
+        ids = geminiModelIds(JSON.parse(body));
       } catch (e) {
         console.error('[gemini-path-probe] список моделей не разобран:', e instanceof Error ? e.message : String(e));
       }

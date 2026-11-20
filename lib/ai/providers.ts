@@ -45,7 +45,7 @@ import type { ChatMessage } from '@/lib/ai/prompts';
 import { recordAiLegFailure, httpFailureReason, errorFailureReason, describeEmptyCompletion, reasoningAteTheAnswer } from '@/lib/ai/failure-trace';
 import { refusalNote } from '@/lib/ai/refusal-notes';
 import { getOpenRouterKey, getOpenRouterKeySource, describeOpenRouterKey, getMiMoKey, getDeepSeekKey, getAnthropicKey, getXaiKey, getGeminiKey, getYandexKey, getMiniMaxKey, getGLMKey, getMuseSparkKey, getNvidiaKey, getFuguKey, getGroqKey, getCerebrasKey, getMistralKey, getMoonshotKey, getTimewebAgents, type TimewebAgent } from '@/lib/ai/provider-config';
-import { geminiUrl, geminiHeaders } from '@/lib/ai/gemini-endpoint';
+import { geminiUrl, geminiHeaders, geminiModelIds } from '@/lib/ai/gemini-endpoint';
 import { AsyncLocalStorage } from 'node:async_hooks';
 import { pool } from '@/lib/db-pool';
 import { addUsage, currentAgentId } from '@/lib/ai/usage-context';
@@ -4244,16 +4244,10 @@ async function listGeminiModels(apiKey: string): Promise<string[]> {
       geminiListProblem = httpFailureReason(res.status, await res.text().catch(() => ''));
       return [];
     }
-    const data = await res.json() as {
-      models?: Array<{ name?: unknown; supportedGenerationMethods?: unknown }>;
-    };
-    const ids = (data.models ?? [])
-      .filter((m) => Array.isArray(m.supportedGenerationMethods)
-        && (m.supportedGenerationMethods as unknown[]).includes('generateContent'))
-      .map((m) => (typeof m.name === 'string' ? m.name.replace(/^models\//, '') : ''))
-      .filter((id) => id.length > 0);
+    const data = await res.json() as { models?: unknown[] };
+    const ids = geminiModelIds(data);
     geminiListProblem = ids.length === 0
-      ? `список пуст: ${(data.models ?? []).length} моделей, ни одной с generateContent`
+      ? `список пуст: ${Array.isArray(data.models) ? data.models.length : 0} моделей, ни одной с generateContent`
       : null;
     return ids;
   } catch (e) { geminiListProblem = errorFailureReason(e); return []; }

@@ -74,6 +74,23 @@ export function geminiHeaders(
   };
 }
 
+/**
+ * Модели с `generateContent` из ответа `GET models`, без префикса `models/`.
+ * Один разбор на живой код и пробу пути: список, который проба видит, — тот
+ * же, из которого живой код выбирает модель.
+ */
+export function geminiModelIds(data: unknown): string[] {
+  const models = typeof data === 'object' && data !== null ? (data as { models?: unknown }).models : undefined;
+  if (!Array.isArray(models)) return [];
+  return models
+    .filter((entry): entry is { name?: unknown; supportedGenerationMethods?: unknown } =>
+      typeof entry === 'object' && entry !== null)
+    .filter((entry) => Array.isArray(entry.supportedGenerationMethods)
+      && (entry.supportedGenerationMethods as unknown[]).includes('generateContent'))
+    .map((entry) => (typeof entry.name === 'string' ? entry.name.replace(/^models\//, '') : ''))
+    .filter((id) => id.length > 0);
+}
+
 /** Шлюзы, которые проба знает по имени. Значение — литерал, не ввод. */
 const GATEWAYS: Readonly<Record<string, string>> = {
   'vedar-ai': 'vedar-ai',

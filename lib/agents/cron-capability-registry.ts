@@ -180,6 +180,9 @@ export const CRON_CAPABILITIES: Record<string, readonly Capability[]> = {
   // что возможность пропала, а потому, что статика её больше не достаёт.
   // Перепись по-прежнему только читает и в сеть сама не ходит.
   'funnel-census': ['db_read', 'db_write'],
+  // 20.11: проба пути прод → Gemini (по шлюзу Cloudflare и напрямую): список
+  // моделей и одна генерация в один токен. Ходит наружу, базу не трогает.
+  'gemini-path-probe': ['net_out'],
   'guide-readiness': ['db_read', 'pd_direct'],
   // 15.10 (аудит, P4-01): pd_direct снят — его давал не ПД, а адрес
   // `api.telegram.org` в своём fetch (признак ловит «.telegram»). Отправка ушла
