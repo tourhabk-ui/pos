@@ -22,6 +22,11 @@ interface Props {
   maxM: number | null;
   /** Откуда высоты: null — из самого трека, строка — дозаполнены моделью. */
   source: string | null;
+  /**
+   * Подпись, когда длина маршрута на карточке взята из паспорта, а не из
+   * линии (`reliefPassportNote`, #3568): ось профиля может с ней не совпадать.
+   */
+  note?: string | null;
 }
 
 const W = 320;
@@ -29,7 +34,7 @@ const H = 112;
 const TOP = 10;
 const BOTTOM = 102;
 
-export default function ReliefChart({ points, minM, maxM, source }: Props) {
+export default function ReliefChart({ points, minM, maxM, source, note }: Props) {
   if (points.length < 2) return null;
   const maxD = points[points.length - 1].dM || 1;
   const zs = points.map((p) => p.zM);
@@ -68,6 +73,7 @@ export default function ReliefChart({ points, minM, maxM, source }: Props) {
         <span className="absolute left-1.5 top-1 text-[10px] tabular-nums text-[var(--text-secondary)]">{top} м</span>
         <span className="absolute left-1.5 bottom-1 text-[10px] tabular-nums text-[var(--text-secondary)]">{bottom} м</span>
       </div>
+      {note && <p className="mt-1.5 text-[11px] text-[var(--text-muted)] leading-snug">{note}</p>}
     </figure>
   );
 }
