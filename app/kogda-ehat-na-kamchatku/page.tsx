@@ -10,6 +10,8 @@ import { loadTripCost } from '@/lib/seo/trip-cost-data';
 import { fishByMonth } from '@/lib/seo/trip-cost';
 import { FISH_SPECIES } from '@/lib/fish-species';
 import { defaultOgImages } from '@/lib/seo/og-image';
+import { MonthsNav } from '@/components/landings/LandingContent';
+import { pageContainer } from '@/lib/layout/page-width';
 
 export const dynamic = 'force-dynamic';
 
@@ -32,6 +34,10 @@ export default async function Page() {
     <>
       <Header />
       <WhenToGoView tours={tours} fish={fishByMonth(FISH_SPECIES)} />
+      {/* Хаб месячных страниц (Сыщик, 20.11): каждая ссылается сюда и на соседей. */}
+      <div className={`${pageContainer('reading')} pb-10`}>
+        <MonthsNav current="/kogda-ehat-na-kamchatku" />
+      </div>
     </>
   );
 }

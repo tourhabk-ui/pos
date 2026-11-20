@@ -2,6 +2,7 @@
  * Заголовок плана помещается в выдачу (аудит vedarai.ru 01.10: 86–91 знак
  * при видимых ~60 — хвост и название сайта обрезались многоточием).
  */
+import { landingByPath } from '@/lib/landings/landings';
 import { describe, it, expect, vi } from 'vitest';
 import { brandedTitle, fitTitle, PLAN_TITLE_TAILS, TITLE_LIMIT, BRAND_SUFFIX } from '@/lib/seo/title-fit';
 import { PLAN_PRESETS } from '@/lib/plans/presets';
@@ -44,7 +45,9 @@ describe('fitTitle', () => {
     const { generateMetadata } = await import('@/app/plans/[slug]/page');
     for (const p of PLAN_PRESETS) {
       const { title } = await generateMetadata({ params: Promise.resolve({ slug: p.slug }) });
-      expect(title, p.slug).toEqual(brandedTitle(fitTitle(p.title, PLAN_TITLE_TAILS)));
+      // Июнь и сентябрь с 20.11 — посадочные Сыщика: заголовок из lib/landings.
+      const landing = landingByPath(`/plans/${p.slug}`);
+      expect(title, p.slug).toEqual(brandedTitle(landing ? landing.title : fitTitle(p.title, PLAN_TITLE_TAILS)));
       // Помещается с брендом — значит шаблон layout допишет « | Ведар».
       expect(typeof title, p.slug).toBe('string');
       expect(`${String(title)}${BRAND_SUFFIX}`.length, p.slug).toBeLessThanOrEqual(TITLE_LIMIT);
