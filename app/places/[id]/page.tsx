@@ -1,5 +1,10 @@
 import type { Metadata } from 'next';
 import { PLACE_CANONICAL_PARENT, PLACE_NOINDEX } from '@/lib/seo/h1-templates';
+import { landingByPath } from '@/lib/landings/landings';
+import { loadToursFor } from '@/lib/landings/tours';
+import { LandingContent } from '@/components/landings/LandingContent';
+import { LandingCrossLink } from '@/components/landings/LandingCrossLink';
+import { pageContainer } from '@/lib/layout/page-width';
 import { notFound, permanentRedirect } from 'next/navigation';
 import { query } from '@/lib/database';
 import PlaceDetailClient from './_PlaceDetailClient';
@@ -103,11 +108,12 @@ export async function generateMetadata({ params }: Props): Promise<Metadata> {
     return {
       // Хвост — из ответов карточки, и только если помещается в выдачу
       // (lib/seo/place-meta поверх lib/seo/title-fit).
-      title: brandedTitle(placeTitle(facts)),
-      description: desc,
+      // Текст места — посадочная Сыщика (lib/landings, 20.11): её заголовок и описание.
+      title: brandedTitle(landingByPath(ownPath)?.title ?? placeTitle(facts)),
+      description: landingByPath(ownPath)?.description ?? desc,
       alternates: {
         canonical,
-        ...(zh ? { languages: { ru: `${BASE}${canonical}`, 'zh-CN': `${BASE}${zh}` } } : {}),
+        ...(zh && !parentSlug ? { languages: { ru: `${BASE}${canonical}`, 'zh-CN': `${BASE}${zh}` } } : {}),
       },
       ...(noindex ? { robots: { index: false, follow: true } } : {}),
       openGraph: {
@@ -231,6 +237,9 @@ export default async function PlaceDetailPage({ params }: Props) {
     permanentRedirect(`/places/${slug}`);
   }
   const canonicalId = slug ?? id;
+  // Посадочная Сыщика на месте убранного описания (Паратунка, 20.11).
+  const landing = landingByPath(`/places/${canonicalId}`);
+  const landingTours = landing ? await loadToursFor(landing) : null;
 
   // Данные карточки — сразу в HTML: поисковик и человек без JS видят имя,
   // описание, факты и ссылки на маршруты (Н1). Браузер потом обновит их сам.
@@ -345,6 +354,12 @@ export default async function PlaceDetailPage({ params }: Props) {
       {pageLd && <JsonLd data={pageLd} />}
       {breadcrumbItems && <BreadcrumbJsonLd items={breadcrumbItems} />}
       <PlaceDetailClient id={arkId} initialPlace={initialPlace} />
+      {landing && (
+        <div className={`${pageContainer('reading')} pb-10`}>
+          <LandingContent landing={landing} tours={landingTours} showH1={false} />
+        </div>
+      )}
+      <LandingCrossLink path={`/places/${canonicalId}`} />
       <PlaceSOS />
     </>
   );

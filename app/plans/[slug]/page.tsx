@@ -31,6 +31,8 @@ import { PlanKindOffers, PlanTourRule } from '@/components/plans/PlanKindOffers'
 import { offerOrderDay } from '@/lib/tours/offer-order';
 import { brandedTitle, fitTitle, PLAN_TITLE_TAILS } from '@/lib/seo/title-fit';
 import { defaultOgImages } from '@/lib/seo/og-image';
+import { landingByPath } from '@/lib/landings/landings';
+import { LandingContent } from '@/components/landings/LandingContent';
 
 export const revalidate = 86400;
 export const dynamicParams = true;
@@ -50,6 +52,16 @@ export async function generateMetadata({ params }: PageProps): Promise<Metadata>
   const { slug } = await params;
   const preset = findPlanPreset(slug);
   if (!preset) return { title: 'План поездки' };
+  // Текст июня и сентября — посадочные Сыщика (lib/landings, 20.11).
+  const landing = landingByPath(`/plans/${preset.slug}`);
+  if (landing) {
+    return {
+      title: brandedTitle(landing.title),
+      description: landing.description,
+      alternates: { canonical: `${SITE}/plans/${preset.slug}` },
+      openGraph: { title: landing.title, description: landing.description, url: `${SITE}/plans/${preset.slug}`, images: defaultOgImages() },
+    };
+  }
   return {
     // Хвост — по длине: целиком в выдачу, а не с многоточием (аудит 01.10:
     // заголовки планов были по 86–91 знаку при видимых ~60).
@@ -115,7 +127,8 @@ const loadPresetPlan = unstable_cache(
   // появилось offers_of_kind.
   // v4 (07.11, H16): даты — N календарных дней; тур дня — движка; строка
   // недобора.
-  ['plan-preset-v4'],
+  // v5 (20.11): даты сезонного пресета — в его месяцах (preset.months).
+  ['plan-preset-v5'],
   { revalidate: 86400 },
 );
 
@@ -129,7 +142,8 @@ export default async function PlanPresetPage({ params }: PageProps) {
   let engineTours: Record<string, TopTour> = {};
   let kindTours: Record<string, TopTour> = {};
   let fillNote: string | null = null;
-  const { arrival, departure } = presetPlanDates(preset.days, preset.interests);
+  const landing = landingByPath(`/plans/${preset.slug}`);
+  const { arrival, departure } = presetPlanDates(preset.days, preset.interests, new Date(), preset.months);
   try {
     ({ days, engineTours, kindTours, fillNote } = await loadPresetPlan(slug, arrival, departure, offerOrderDay()));
   } catch (e) {
@@ -173,6 +187,66 @@ export default async function PlanPresetPage({ params }: PageProps) {
     url: `${SITE}/plans/${preset.slug}`,
   };
 
+  // «План по дням» — на месте блока туров посадочной, если у страницы есть её текст.
+  const planSection = (
+    calendar.length > 0 ? (
+      <section className="space-y-3">
+        <h2 className="ds-h2">План по дням</h2>
+        {/* Недобор — словами движка, а не молчанием (H16). */}
+        {fillNote && (
+          <p className="text-sm" data-testid="plan-fill-note" style={{ color: 'var(--warning)' }}>{fillNote}</p>
+        )}
+        {/* Туры, подобранные по виду, выбраны правилом 1в — оно названо (§0). */}
+        {anyKindTour && <PlanTourRule />}
+        {calendar.map((day, i) => {
+          const picked = dayTours[i];
+          const tour = picked?.tour;
+          const price = formatPrice(day.priceFrom, day.priceTo);
+          return (
+            <article key={day.day} className="ds-card p-4 space-y-2">
+              <div className="flex items-baseline justify-between gap-3">
+                <h3 className="font-medium" style={{ color: 'var(--text-primary)' }}>
+                  День {day.day}. {day.title}
+                </h3>
+                {price && <span className="text-xs flex-none" style={{ color: 'var(--text-secondary)' }}>{price}</span>}
+              </div>
+              <p className="text-sm" style={{ color: 'var(--text-secondary)' }}>{day.description}</p>
+              <div className="text-xs" style={{ color: 'var(--text-muted)' }}>
+                {ZONE_LABELS[day.zone] ?? day.zone}
+              </div>
+              {tour && (
+                <div className="relative flex items-center justify-between gap-2 px-3 py-2 rounded-md"
+                  style={{ background: 'var(--bg-hover)', border: '1px solid var(--border)' }}>
+                  {/* Ссылка на тур — слоем под содержимым, имя оператора — своей
+                      ссылкой поверх (владелец 13.10): <a> в <a> недопустим. */}
+                  <Link
+                    // Дата дня — в форму брони (B-3): availableDate движка
+                    // (реальный слот), иначе расчётная дата дня плана.
+                    href={`${tourPath(tour)}?date=${('availableDate' in day ? day.availableDate : undefined) ?? new Date(new Date(arrival).getTime() + (day.day - 1) * 86400000).toISOString().slice(0, 10)}`}
+                    className="absolute inset-0 z-[1] rounded-md"
+                    aria-label={`${tour.title}: оставить заявку`} />
+                  <span className="relative z-[2] pointer-events-none text-xs min-w-0 truncate" style={{ color: 'var(--text-primary)' }}>
+                    {tour.title} · <OperatorNameLink name={tour.operator_name} slug={tour.operator_slug} isPublic={tour.operator_public} className="pointer-events-auto" />
+                  </span>
+                  <span className="relative z-[2] pointer-events-none text-xs font-semibold whitespace-nowrap flex-none" style={{ color: 'var(--accent)' }}>
+                    от {Number(tour.base_price).toLocaleString('ru-RU')} ₽ · оставить заявку
+                  </span>
+                </div>
+              )}
+              {tour && picked?.source === 'kind' && <PlanKindOffers activityType={day.activityType} offers={tour.offers_of_kind} />}
+            </article>
+          );
+        })}
+      </section>
+    ) : (
+      <section className="ds-card p-5">
+        <p className="text-sm" style={{ color: 'var(--text-secondary)' }}>
+          Живой план по дням соберётся в планировщике — под ваши даты, состав группы и темп.
+        </p>
+      </section>
+    )
+  );
+
   return (
     <>
       <JsonLd data={jsonLd} />
@@ -185,11 +259,13 @@ export default async function PlanPresetPage({ params }: PageProps) {
 
           <header className="space-y-3">
             <h1 className="font-playfair text-3xl sm:text-4xl font-bold" style={{ color: 'var(--text-primary)' }}>
-              {preset.title}
+              {landing ? landing.h1 : preset.title}
             </h1>
-            <p className="text-base leading-relaxed" style={{ color: 'var(--text-secondary)' }}>
-              {preset.intro}
-            </p>
+            {!landing && (
+              <p className="text-base leading-relaxed" style={{ color: 'var(--text-secondary)' }}>
+                {preset.intro}
+              </p>
+            )}
             <div className="flex flex-wrap gap-3 text-sm" style={{ color: 'var(--text-secondary)' }}>
               <span>{tripLengthWords(preset.days)}</span>
               {priceFrom > 0 && <span>· активности от {priceFrom.toLocaleString('ru-RU')} ₽ на человека</span>}
@@ -198,7 +274,7 @@ export default async function PlanPresetPage({ params }: PageProps) {
                 (стратегия 14.08): в safety-first продукте страница без даты
                 неотличима от устаревшей, а устаревшая вредит сильнее
                 отсутствующей. */}
-            {preset.cluster && (
+            {preset.cluster && !landing && (
               <p className="text-xs" style={{ color: 'var(--text-muted)' }}>
                 Обновлено {preset.cluster.updated} · {preset.cluster.sourceNote}
               </p>
@@ -221,62 +297,7 @@ export default async function PlanPresetPage({ params }: PageProps) {
             </section>
           )}
 
-          {calendar.length > 0 ? (
-            <section className="space-y-3">
-              <h2 className="ds-h2">План по дням</h2>
-              {/* Недобор — словами движка, а не молчанием (H16). */}
-              {fillNote && (
-                <p className="text-sm" data-testid="plan-fill-note" style={{ color: 'var(--warning)' }}>{fillNote}</p>
-              )}
-              {/* Туры, подобранные по виду, выбраны правилом 1в — оно названо (§0). */}
-              {anyKindTour && <PlanTourRule />}
-              {calendar.map((day, i) => {
-                const picked = dayTours[i];
-                const tour = picked?.tour;
-                const price = formatPrice(day.priceFrom, day.priceTo);
-                return (
-                  <article key={day.day} className="ds-card p-4 space-y-2">
-                    <div className="flex items-baseline justify-between gap-3">
-                      <h3 className="font-medium" style={{ color: 'var(--text-primary)' }}>
-                        День {day.day}. {day.title}
-                      </h3>
-                      {price && <span className="text-xs flex-none" style={{ color: 'var(--text-secondary)' }}>{price}</span>}
-                    </div>
-                    <p className="text-sm" style={{ color: 'var(--text-secondary)' }}>{day.description}</p>
-                    <div className="text-xs" style={{ color: 'var(--text-muted)' }}>
-                      {ZONE_LABELS[day.zone] ?? day.zone}
-                    </div>
-                    {tour && (
-                      <div className="relative flex items-center justify-between gap-2 px-3 py-2 rounded-md"
-                        style={{ background: 'var(--bg-hover)', border: '1px solid var(--border)' }}>
-                        {/* Ссылка на тур — слоем под содержимым, имя оператора — своей
-                            ссылкой поверх (владелец 13.10): <a> в <a> недопустим. */}
-                        <Link
-                          // Дата дня — в форму брони (B-3): availableDate движка
-                          // (реальный слот), иначе расчётная дата дня плана.
-                          href={`${tourPath(tour)}?date=${('availableDate' in day ? day.availableDate : undefined) ?? new Date(new Date(arrival).getTime() + (day.day - 1) * 86400000).toISOString().slice(0, 10)}`}
-                          className="absolute inset-0 z-[1] rounded-md"
-                          aria-label={`${tour.title}: оставить заявку`} />
-                        <span className="relative z-[2] pointer-events-none text-xs min-w-0 truncate" style={{ color: 'var(--text-primary)' }}>
-                          {tour.title} · <OperatorNameLink name={tour.operator_name} slug={tour.operator_slug} isPublic={tour.operator_public} className="pointer-events-auto" />
-                        </span>
-                        <span className="relative z-[2] pointer-events-none text-xs font-semibold whitespace-nowrap flex-none" style={{ color: 'var(--accent)' }}>
-                          от {Number(tour.base_price).toLocaleString('ru-RU')} ₽ · оставить заявку
-                        </span>
-                      </div>
-                    )}
-                    {tour && picked?.source === 'kind' && <PlanKindOffers activityType={day.activityType} offers={tour.offers_of_kind} />}
-                  </article>
-                );
-              })}
-            </section>
-          ) : (
-            <section className="ds-card p-5">
-              <p className="text-sm" style={{ color: 'var(--text-secondary)' }}>
-                Живой план по дням соберётся в планировщике — под ваши даты, состав группы и темп.
-              </p>
-            </section>
-          )}
+          {landing ? <LandingContent landing={landing} tours={null} showH1={false} middle={planSection} /> : planSection}
 
           <section className="ds-card p-6 text-center space-y-3">
             <h2 className="font-playfair text-xl font-bold" style={{ color: 'var(--text-primary)' }}>

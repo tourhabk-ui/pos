@@ -98,7 +98,8 @@ describe('производители канонических ссылок ст�
     'lib/planner/day-tour-link.ts',
     'app/api/search/route.ts',
     'components/search/ToursForQuery.tsx',
-    'app/fish/[id]/page.tsx',
+    // Блок туров справочника рыб (/fish и /fish/[id], 20.11).
+    'components/fish/FishingToursBlock.tsx',
     'components/tourist/RecommendationCard.tsx',
     'lib/agents/sdk/tourist-tools.ts',
     'lib/planner/compose.ts',
@@ -131,7 +132,7 @@ describe('внутренние ссылки не ведут через /marketpl
   it('источники ссылок выбирают адрес тура', () => {
     for (const f of [
       'lib/tours/top-tour-by-activity.ts', 'app/_home/data.ts', 'lib/ai/booking-intent.ts',
-      'app/api/planner/tours-for-day/route.ts', 'app/fish/[id]/page.tsx', 'lib/search/tour-recommend.ts',
+      'app/api/planner/tours-for-day/route.ts', 'lib/fish/fishing-tours.ts', 'lib/search/tour-recommend.ts',
       'lib/agents/sdk/tourist-tools.ts', 'lib/planner/compose.ts', 'lib/notifications/tour-channel-post.ts',
       'lib/kuzmich/engagement.ts',
     ]) {
