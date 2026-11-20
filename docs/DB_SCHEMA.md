@@ -1,15 +1,15 @@
 # Схема базы данных Ведара
 
-> Снято 2026-11-19 с настоящего PostgreSQL 18.7 (Debian 18.7-1.pgdg13+2): baseline прода (`lib/database/baseline/schema-baseline.sql`, снимок 2026-08-15) + миграции новее него, накатанные штатным раннером. Последняя миграция в снимке: `1466_tour_promotions.sql`.
+> Снято 2026-11-20 с настоящего PostgreSQL 18.7 (Debian 18.7-1.pgdg13+2): baseline прода (`lib/database/baseline/schema-baseline.sql`, снимок 2026-08-15) + миграции новее него, накатанные штатным раннером. Последняя миграция в снимке: `1468_park_approved_routes.sql`.
 > Файл порождён `scripts/gen-db-schema.ts` (`npm run db:schema-doc`); править руками бессмысленно — следующий прогон перепишет.
 > Что здесь НЕ учтено: дрейф прода после baseline, не отражённый миграциями. Судья дрейфа — `GET /api/cron/schema-drift` на проде (`lib/db/schema-drift.ts`). Значений данных в файле нет — только имена и типы.
 
 | Что | Сколько |
 |---|---:|
-| Таблиц | 333 |
+| Таблиц | 335 |
 | Представлений (VIEW) | 13 |
-| Колонок | 4317 |
-| Внешних ключей | 394 |
+| Колонок | 4330 |
+| Внешних ключей | 397 |
 | Таблиц без единого FK в обе стороны | 91 |
 
 Обозначения в списках колонок: `!` — NOT NULL, `=` — есть DEFAULT, `PK` — первичный ключ, `→` — внешний ключ.
@@ -32,7 +32,7 @@
 | [Эко и лояльность](#эко-и-лояльность) | 10 | `eco_achievements` `eco_balances` `eco_compensation_claims` `eco_ledger` `eco_points` `loyalty_levels` `loyalty_transactions` `user_achievements` `user_eco_activities` `user_eco_points` |
 | [Контент, уведомления, поездки туриста](#контент-уведомления-поездки-туриста) | 21 | `articles` `assets` `email_templates` `faqs` `notification_log` `notification_preferences` `notifications` `page_views` `platform_settings` `push_subscriptions` `pwa_installs` `review_assets` `reviews` `smart_notifications_log` `support_tickets` `system_settings` `trip_preparation_events` `trip_preparation_items` `trip_preparation_plans` `trip_preparation_shares` `user_trips` |
 | [Служебные](#служебные) | 2 | `_migration_failures` `_migrations` |
-| [Прочее](#прочее) | 49 | `a2a_contexts` `a2a_dialogs` `a2a_requests` `a2a_tasks` `admin_chat_actions` `admin_max_bindings` `admin_max_link_tokens` `admin_tg_bindings` `admin_tg_link_tokens` `answer_notices` `car_rental_offers` `car_rental_terms` `carrier_review_invites` `carrier_reviews` `client_errors` `content_translations` `editor_no_write` `manager_queue_takes` `messenger_bind_codes` `model_catalog` `operator_chat_date_proposals` `operator_client_notes` `operator_members` `operator_notification_reads` `operator_price_changes` `other_offer_asks` `password_reset_tokens` `rental_car_busy` `rental_offer_edits` `request_chat_waits` `request_drafts` `request_handoff_codes` `request_messages` `retention_purge_log` `tourist_mail_failures` `tourist_notification_preferences` `tourist_wishlist` `tracker_links` `trip_group_members` `trip_groups` `trip_plan_drafts` `trip_situation_notices` `trip_situations` `trip_watch_flow` `ugms_forecasts` `user_last_login` `volcano_bulletin_kfegs` `weather_forecast_last_good` `widget_daily` |
+| [Прочее](#прочее) | 51 | `a2a_contexts` `a2a_dialogs` `a2a_requests` `a2a_tasks` `admin_chat_actions` `admin_max_bindings` `admin_max_link_tokens` `admin_tg_bindings` `admin_tg_link_tokens` `answer_notices` `car_rental_offers` `car_rental_terms` `carrier_review_invites` `carrier_reviews` `client_errors` `content_translations` `editor_no_write` `manager_queue_takes` `messenger_bind_codes` `model_catalog` `operator_chat_date_proposals` `operator_client_notes` `operator_members` `operator_notification_reads` `operator_price_changes` `other_offer_asks` `park_approved_route_links` `park_approved_routes` `password_reset_tokens` `rental_car_busy` `rental_offer_edits` `request_chat_waits` `request_drafts` `request_handoff_codes` `request_messages` `retention_purge_log` `tourist_mail_failures` `tourist_notification_preferences` `tourist_wishlist` `tracker_links` `trip_group_members` `trip_groups` `trip_plan_drafts` `trip_situation_notices` `trip_situations` `trip_watch_flow` `ugms_forecasts` `user_last_login` `volcano_bulletin_kfegs` `weather_forecast_last_good` `widget_daily` |
 
 ## ER-диаграмма ядра (две дороги туриста)
 
@@ -441,7 +441,7 @@ SOS пишет `sos_events` (`app/api/safety/sos`, §7). Внешние сигн
 
 `id bigint!=` `entity_id uuid!` `entity_kind text!` `entity_title text` `written_by text!` `model text` `facts_given jsonb!=` `facts_count integer!=` `chars integer` `previous_chars integer` `written_at timestamptz!=`
 
-**kamchatka_routes** · 55 кол. · PK id · на неё ссылаются: operator_tours, route_geometry_archive, route_passport_ocr, route_track_imports, route_waypoints, tours, transfer_trips, trip_preparation_plans · индексов 7 · триггеры: kamchatka_routes_assign_slug, trg_archive_route_geometry, trg_route_version_geometry
+**kamchatka_routes** · 55 кол. · PK id · на неё ссылаются: operator_tours, park_approved_route_links, route_geometry_archive, route_passport_ocr, route_track_imports, route_waypoints, tours, transfer_trips, trip_preparation_plans · индексов 7 · триггеры: kamchatka_routes_assign_slug, trg_archive_route_geometry, trg_route_version_geometry
 
 `id uuid!=` `category text!` `title text!` `description text` `lat numeric` `lng numeric` `source_url text` `source_name text` `metadata jsonb!=` `dedupe_key text` `created_at timestamptz!=` `updated_at timestamptz!=` `slug text` `ark_id uuid` `activity_type varchar` `zone varchar` `geometry jsonb` `difficulty varchar` `pdf_url text` `season varchar` `route_type varchar` `hazards text[]` `equipment text[]` `registration_required boolean=` `flora_fauna text` `distance_km numeric` `elevation_gain_m integer` `duration_hours numeric` `accessibility text` `mchs_registration_required boolean=` `mchs_phone varchar` `park_name varchar` `park_approval_url text` `search_count integer!=` `is_visible boolean!=` `view_count integer!=` `kuzmich_review text` `embedding jsonb` `official_passport_url text` `passport_agency varchar` `passport_verified_at timestamptz` `surface_types text[]` `elevation_loss_m integer` `elevation_min_m integer` `elevation_max_m integer` `duration_days integer` `route_version integer!=` `merged_into_id text` `merged_at timestamptz` `difficulty_source varchar` `route_kind text` `route_kind_reason text` `description_withdrawn text` `description_withdrawn_reason text` `description_withdrawn_at timestamptz`
 
@@ -453,7 +453,7 @@ SOS пишет `sos_events` (`app/api/safety/sos`, §7). Внешние сигн
 
 `id bigint!=` `agent_route_id uuid` `capacity_per_day integer=` `capacity_per_hour integer=` `optimal_group_size integer=` `open_from_date date` `open_to_date date` `closed_reason varchar` `hazard_types text[]=` `difficulty_level integer=` `altitude_m integer` `terrain_type varchar` `road_type varchar=` `road_accessibility integer=` `altitude_diff_m integer` `distance_km numeric` `nearest_medical_km numeric` `emergency_access text` `phone_ranger_mches varchar` `sat_communicator_required boolean=` `rules_required text` `weather_threshold jsonb` `updated_at timestamp=` `required_gear text[]` `connectivity jsonb` `registration_required boolean!=` `medical_info text` `tsunami_risk boolean!=` `profile_source varchar` `profile_source_at timestamptz`
 
-**parks** · 16 кол. · PK id · на неё ссылаются: place_park_links · индексов 2
+**parks** · 16 кол. · PK id · на неё ссылаются: park_approved_routes, place_park_links · индексов 2
 
 `id bigint!=` `slug varchar!` `display_name varchar!` `description text` `zone varchar` `mchs_phone varchar` `permit_url text` `search_term varchar!` `is_active boolean!=` `created_at timestamptz!=` `updated_at timestamptz!=` `permit_email varchar` `permit_office_address text` `permit_office_hours text` `permit_gosuslugi_url text` `permit_online_url text`
 
@@ -1584,6 +1584,14 @@ B2B-агенты, продающие туры за комиссию. Не пут
 **other_offer_asks** · 16 кол. · PK id · lead_id → leads.id, partner_id → partners.id, tour_id → operator_tours.id · индексов 3
 
 `id bigint!=` `lead_id uuid!` `partner_id uuid!` `tour_id bigint!` `ask_date date!` `people integer!` `asked_at timestamptz!=` `sent_via text` `send_note text` `answer text` `answered_at timestamptz` `answered_via text` `told_via text` `told_at timestamptz` `manager_via text` `manager_at timestamptz`
+
+**park_approved_route_links** · 3 кол. · PK approved_route_id, route_id · approved_route_id → park_approved_routes.id, route_id → kamchatka_routes.id · индексов 2
+
+`approved_route_id bigint!` `route_id uuid!` `checked_note text!`
+
+**park_approved_routes** · 10 кол. · PK id · park_slug → parks.slug · на неё ссылаются: park_approved_route_links · индексов 2
+
+`id bigint!=` `park_slug varchar!` `title text!` `season varchar!` `period text` `movement text` `passport_urls text[]!=` `track_url text` `source_url text!` `read_on date!`
 
 **password_reset_tokens** · 7 кол. · PK id · issued_by → users.id, user_id → users.id · индексов 3
 
