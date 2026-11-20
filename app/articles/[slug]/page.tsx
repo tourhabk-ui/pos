@@ -5,6 +5,7 @@
  * он показывается тем, что он есть: статьёй. Ни карты, ни кнопки «в путь» —
  * идти тут некуда, и предлагать это было бы обманом.
  */
+import { LandingCrossLink } from '@/components/landings/LandingCrossLink';
 import { pageContainer } from '@/lib/layout/page-width';
 import type { Metadata } from 'next';
 import Link from 'next/link';
@@ -186,6 +187,7 @@ export default async function ArticlePage({ params }: Props) {
         )}
       </div>
       </main>
+      <LandingCrossLink path={`/articles/${slug}`} />
     </>
   );
 }

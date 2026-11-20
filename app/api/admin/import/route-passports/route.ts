@@ -167,7 +167,10 @@ export async function POST(req: NextRequest) {
     await pool.query(
       `UPDATE kamchatka_routes SET
          description           = COALESCE(NULLIF($2, ''), description),
-         distance_km           = COALESCE($3::numeric,   distance_km),
+         -- Длину, сверенную по паспорту (distance_note или passport_verified_at),
+         -- извлечение из PDF не перетирает (миграция 1472).
+         distance_km           = CASE WHEN distance_note IS NOT NULL OR passport_verified_at IS NOT NULL
+                                      THEN distance_km ELSE COALESCE($3::numeric, distance_km) END,
          elevation_gain_m      = COALESCE($4::int,       elevation_gain_m),
          duration_hours        = COALESCE($5::numeric,   duration_hours),
          duration_days         = COALESCE($6::int,       duration_days),

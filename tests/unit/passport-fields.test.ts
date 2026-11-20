@@ -1,4 +1,6 @@
 import { describe, it, expect } from 'vitest';
+import { readFileSync } from 'node:fs';
+import { join } from 'node:path';
 import {
   parsePassportFields,
   buildRouteUpdate,
@@ -115,5 +117,47 @@ describe('buildRouteUpdate — только пустые поля, без зат
     const upd = buildRouteUpdate(f, EMPTY_EXISTING)!;
     upd.sets.forEach((s, i) => expect(s).toContain(`$${i + 1}`));
     expect(upd.params).toHaveLength(upd.sets.length);
+  });
+});
+
+
+describe('buildRouteUpdate — длина из сверенного паспорта не перезаписывается', () => {
+  const extracted = parsePassportFields(JSON.stringify({ distance_km: 20.2, season: 'summer' }))!;
+
+  it('не пишет distance_km, если задан distance_note, даже когда длина пустая', () => {
+    const existing: ExistingRouteFields = { ...EMPTY_EXISTING, distance_note: 'в одну сторону' };
+    const upd = buildRouteUpdate(extracted, existing)!;
+    expect(upd.sets.map((s) => s.split(' = ')[0])).not.toContain('distance_km');
+    expect(upd.sets.map((s) => s.split(' = ')[0])).toContain('season');
+  });
+
+  it('не пишет distance_km, если задан passport_verified_at', () => {
+    const existing: ExistingRouteFields = { ...EMPTY_EXISTING, passport_verified_at: '2026-11-21T00:00:00Z' };
+    const upd = buildRouteUpdate(extracted, existing)!;
+    expect(upd.sets.map((s) => s.split(' = ')[0])).not.toContain('distance_km');
+  });
+
+  it('пустой distance_note без сверки не запирает длину', () => {
+    const existing: ExistingRouteFields = { ...EMPTY_EXISTING, distance_note: '  ' };
+    const upd = buildRouteUpdate(extracted, existing)!;
+    expect(upd.sets.map((s) => s.split(' = ')[0])).toContain('distance_km');
+  });
+});
+
+describe('импорт паспортов — SQL не перетирает сверенную длину', () => {
+  const src = (path: string) => readFileSync(join(process.cwd(), path), 'utf8');
+
+  it.each([
+    'app/api/cron/import-route-passports/route.ts',
+    'app/api/admin/import/route-passports/route.ts',
+  ])('%s ставит длину только если нет distance_note и passport_verified_at', (path) => {
+    const sql = src(path);
+    expect(sql).toMatch(/distance_note IS NOT NULL OR passport_verified_at IS NOT NULL/);
+    expect(sql).toMatch(/THEN distance_km ELSE COALESCE\(\$3::numeric, distance_km\) END/);
+  });
+
+  it('раннер обогащения читает distance_note и passport_verified_at', () => {
+    const sql = src('lib/import/passport-enrich-runner.ts');
+    expect(sql).toMatch(/r\.distance_note, r\.passport_verified_at/);
   });
 });

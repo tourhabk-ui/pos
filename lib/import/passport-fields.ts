@@ -111,6 +111,10 @@ export function parsePassportFields(raw: string): PassportFields | null {
 /** Текущее (кураторское) состояние заполняемых полей маршрута. */
 export interface ExistingRouteFields {
   distance_km: number | null;
+  /** Пометка длины из паспорта («в одну сторону» и т.п.) — длина закреплена. */
+  distance_note?: string | null;
+  /** Сверка паспорта состоялась — длину импорт не переписывает. */
+  passport_verified_at?: string | Date | null;
   elevation_gain_m: number | null;
   duration_hours: number | null;
   duration_days: number | null;
@@ -143,7 +147,10 @@ export function buildRouteUpdate(
     sets.push(`${col} = $${params.length}`);
   };
 
-  if (existing.distance_km === null && extracted.distance_km !== null) add('distance_km', extracted.distance_km);
+  const lengthLocked =
+    (existing.distance_note != null && String(existing.distance_note).trim() !== '')
+    || existing.passport_verified_at != null;
+  if (existing.distance_km === null && !lengthLocked && extracted.distance_km !== null) add('distance_km', extracted.distance_km);
   if (existing.elevation_gain_m === null && extracted.elevation_gain_m !== null) add('elevation_gain_m', extracted.elevation_gain_m);
   if (existing.duration_hours === null && extracted.duration_hours !== null) add('duration_hours', extracted.duration_hours);
   if (existing.duration_days === null && extracted.duration_days !== null) add('duration_days', extracted.duration_days);

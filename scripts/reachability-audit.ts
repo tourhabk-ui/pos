@@ -100,7 +100,11 @@ function mentions(route: string, ownFile: string): { ui: string[]; other: string
     // футером и страницей /menu — это интерфейс, вынесенный в данные. Без
     // этой оговорки перенос списка из Footer.tsx в реестр сделал бы пять
     // страниц «недостижимыми», не изменив ни одной ссылки на экране.
-    const UI_REGISTRIES = new Set(['lib/navigation/platform-links.ts']);
+    //
+    // Посадочные Сыщика (20.11): тексты и связки месяцев лежат данными в
+    // lib/landings и рисуются целиком LandingContent / MonthsNav — ссылки в
+    // них такие же экранные, как в футере.
+    const UI_REGISTRIES = new Set(['lib/navigation/platform-links.ts', 'lib/landings/texts.ts', 'lib/landings/landings.ts']);
     const isUi = ((f.startsWith('app/') || f.startsWith('components/') || f.startsWith('hooks/'))
       && !f.includes('/api/') && !f.startsWith('tests/')) || UI_REGISTRIES.has(f);
     (isUi ? ui : other).push(f);
