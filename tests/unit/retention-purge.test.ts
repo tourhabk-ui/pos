@@ -51,7 +51,10 @@ describe('список уборки', () => {
       expect(s.column, s.table).toBe(target?.column);
       expect(s.why.length, s.table).toBeGreaterThan(20);
     }
-    expect(PURGE_STEPS.filter((s) => s.table !== 'agent_memory').every((s) => s.days === 90)).toBe(true);
+    // Свой срок (own_expiry) — память агентов и черновики заявок ИИ-агентов: удаляются в день истечения.
+    const own = RETENTION_TARGETS.filter((t) => t.term === 'own_expiry').map((t) => t.table);
+    expect(own).toEqual(['agent_memory', 'mcp_pending_requests']);
+    expect(PURGE_STEPS.filter((s) => !own.includes(s.table)).every((s) => s.days === 90)).toBe(true);
   });
 
   it('память агентов: удаляется истёкшее по её собственному сроку, бессрочное не трогается (#3433)', () => {

@@ -89,6 +89,10 @@ export const RETENTION_TARGETS: readonly RetentionTarget[] = [
   // Память агентов: срок ставит писатель, запись без срока бессрочна (NULL в
   // сравнении не участвует). До 16.11 истёкшее только пряталось при чтении.
   { table: 'agent_memory', column: 'expires_at', term: 'own_expiry', days: 0, pruned: 'в день истечения, уборкой сроков (lib/legal/retention-purge.ts)' },
+  // Черновик заявки ИИ-агента (#3573, 20.11): имя, телефон и комментарий до
+  // отправки человеком на /confirm. Срок ссылки ставит писатель (60 минут);
+  // до 20.11 просроченное удаляла только запись следующего черновика.
+  { table: 'mcp_pending_requests', column: 'expires_at', term: 'own_expiry', days: 0, pruned: 'при записи следующего черновика (lib/mcp/pending-request.ts) и уборкой сроков (lib/legal/retention-purge.ts)' },
 ];
 
 /**
