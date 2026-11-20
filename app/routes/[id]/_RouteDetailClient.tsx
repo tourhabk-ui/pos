@@ -49,7 +49,7 @@ import { trackLine } from '@/lib/map/line-standard';
 import { difficultyLabel, difficultyColor } from '@/lib/tours/labels';
 import { routeHeading } from '@/lib/seo/h1-templates';
 import { lineOwnership } from '@/lib/routes/line-ownership';
-import { approachCaption as approachCaptionText } from '@/lib/routes/approach-caption';
+import { approachCaption as approachCaptionText, reliefPassportNote } from '@/lib/routes/approach-caption';
 import { AssistantButton } from '@/components/shared/AssistantButton';
 import { MarkerType, type MapMarker } from '@/components/shared/leaflet-types';
 import DescriptionWithFishLinks from '@/components/shared/DescriptionWithFishLinks';
@@ -1131,6 +1131,7 @@ export default function RouteDetailClient({ id, mapPackBaseUrl, summary = null, 
                       minM={route.relief?.minM ?? null}
                       maxM={route.relief?.maxM ?? null}
                       source={route.relief?.elevationSource ?? null}
+                      note={reliefPassportNote(route.distanceNote)}
                     />
                   </div>
                 )}

@@ -24,11 +24,12 @@ vi.mock('@/components/shared/AssistantButton', () => ({ AssistantButton: () => n
 vi.mock('@/hooks/useSourceTracker', () => ({ useSourceTracker: () => undefined }));
 vi.mock('@/hooks/use-catalog-return', () => ({ useCatalogReturnHref: () => '/routes' }));
 
-import { approachCaption } from '@/lib/routes/approach-caption';
+import { approachCaption, reliefPassportNote } from '@/lib/routes/approach-caption';
 import RouteDetailClient, { type RouteDetail } from '@/app/routes/[id]/_RouteDetailClient';
 
 const BY_LINE = /Длина считается по всей линии, вместе с дорогой\./;
 const BY_PASSPORT = /Длина маршрута на карточке — из официального паспорта, а не по линии\./;
+const RELIEF_NOTE = 'Профиль — по линии на карте. Длина маршрута на карточке — из официального паспорта.';
 
 describe('approachCaption — правило', () => {
   it('длина из линии (пометки стороны нет) — прежние слова', () => {
@@ -43,6 +44,12 @@ describe('approachCaption — правило', () => {
     expect(s).toMatch(/^Линия включает подъезд: её дальний конец в 22 км от места\. /);
     expect(s).toMatch(BY_PASSPORT);
     expect(s).not.toMatch(BY_LINE);
+  });
+
+  it('подпись профиля высот — только при длине из паспорта', () => {
+    expect(reliefPassportNote('в одну сторону')).toBe(RELIEF_NOTE);
+    expect(reliefPassportNote(null)).toBeNull();
+    expect(reliefPassportNote(' ')).toBeNull();
   });
 
   it('дальнего конца не знаем — подписи нет', () => {
@@ -80,6 +87,12 @@ beforeEach(() => {
 });
 afterEach(() => { cleanup(); vi.unstubAllGlobals(); });
 
+// Профиль высот по линии ~20 км, как у озера Толмачева на живой карточке 20.11.
+const RELIEF = {
+  reliable: true, elevationSource: 'dem', minM: 600, maxM: 640,
+  points: [{ dM: 0, zM: 600 }, { dM: 10000, zM: 640 }, { dM: 20200, zM: 622 }],
+};
+
 describe('карточка маршрута: подпись о подъезде', () => {
   it('длина из линии — «по всей линии»', () => {
     render(<RouteDetailClient id="r1" initialRoute={route({})} initialRelated={[]} />);
@@ -92,5 +105,17 @@ describe('карточка маршрута: подпись о подъезде'
     expect(screen.getAllByText(BY_PASSPORT).length).toBeGreaterThan(0);
     expect(screen.queryByText(BY_LINE)).toBeNull();
     expect(screen.getByTestId('route-facts').textContent).toContain('17 км в одну сторону');
+  });
+
+  it('профиль высот при длине из паспорта подписан: «по линии на карте»', () => {
+    render(<RouteDetailClient id="r1" initialRoute={route({ distanceKm: 60, distanceNote: 'в одну сторону', relief: RELIEF } as Partial<RouteDetail>)} initialRelated={[]} />);
+    expect(screen.getByText(RELIEF_NOTE)).toBeTruthy();
+    expect(screen.getByText('20 км')).toBeTruthy();
+  });
+
+  it('профиль высот при длине из линии — без подписи', () => {
+    render(<RouteDetailClient id="r1" initialRoute={route({ relief: RELIEF } as Partial<RouteDetail>)} initialRelated={[]} />);
+    expect(screen.getByText('20 км')).toBeTruthy();
+    expect(screen.queryByText(RELIEF_NOTE)).toBeNull();
   });
 });
