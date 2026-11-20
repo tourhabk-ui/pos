@@ -106,3 +106,28 @@ describe('двери агента', () => {
     expect(out).not.toContain('Длительность: 1 день');
   });
 });
+
+describe('перепись: туры, у которых подпись сменилась', () => {
+  const row = (id: string, duration_type: string | null, multi_day_count: number | null, duration_hours: number | string | null) => ({
+    id, title: `Тур ${id}`, activity_type: null, partner_name: 'Компания', season_start: null, season_end: null,
+    duration_type, multi_day_count, duration_hours, keeps_schedule: false,
+  });
+
+  it('называет только туры, где бронь держит больше дня, а прежняя подпись говорила иное', async () => {
+    const { buildSeasonCensus } = await import('@/lib/tours/season-census');
+    const census = buildSeasonCensus([
+      row('1', 'day', 5, '8'),          // было «8 ч», стало «5 дней»
+      row('2', 'multi_day', 3, null),   // «3 дня» и до, и после
+      row('3', null, null, 30),         // было «1 день», стало «2 дня»
+      row('4', null, null, 48),         // «2 дня» и до, и после
+      row('5', 'day', null, 6),         // однодневный — не считается
+      row('6', 'multi_day', 1, 30),     // было «1 день», стало «2 дня»
+    ], '2026-11-20');
+    expect(census.duration_label_changed_total).toBe(3);
+    expect(census.duration_label_changed.map((c) => [c.id, c.before, c.after, c.booking_days])).toEqual([
+      ['1', '8 ч', '5 дней', 5],
+      ['3', '1 день', '2 дня', 2],
+      ['6', '1 день', '2 дня', 2],
+    ]);
+  });
+});

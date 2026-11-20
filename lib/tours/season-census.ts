@@ -22,6 +22,8 @@ import { pool } from '@/lib/db-pool';
 import { publicTourSql } from '@/lib/tours/public-visibility';
 import { keepsScheduleSql } from '@/lib/tours/schedule';
 import { requestWindow, type RequestWindow } from '@/lib/tours/request-window';
+import { cardDuration } from '@/lib/tours/card-facts';
+import { tourDurationDays } from '@/lib/bookings/duration';
 
 export const TOUR_SEASON_CENSUS_SQL = `
   SELECT ot.id::text AS id, ot.title, ot.activity_type,
@@ -91,7 +93,62 @@ export interface SeasonCensus {
   /** Без календаря и без действующего окна сезона: заявка на любую дату. */
   accepts_any_date_total: number;
   accepts_any_date: SeasonCensusTour[];
+  /**
+   * Туры, у которых подпись длины 20.11 сменилась: бронь держит больше одного
+   * дня, а прежняя подпись называла другое число (слово владельца
+   * «Исправить», PR 3555). Только чтение; поле считает весь ответ, не сезон.
+   */
+  duration_label_changed_total: number;
+  duration_label_changed: DurationLabelChange[];
   verdict: string;
+}
+
+export interface DurationLabelChange {
+  id: string;
+  title: string | null;
+  partner: string | null;
+  duration_type: string | null;
+  booking_days: number;
+  before: string | null;
+  after: string | null;
+}
+
+/**
+ * Подпись длины ДО 20.11 — для переписи, чтобы назвать туры, у которых она
+ * сменилась. Не для экрана: экран зовёт `cardDuration`. Удалить вместе с
+ * полем `duration_label_changed`, когда перепись своё отслужит.
+ */
+export function durationLabelBefore2011(t: {
+  duration_type: string | null; multi_day_count: number | null; duration_hours: number | null;
+}): string | null {
+  const days = (d: number) => `${d} ${plural(d, 'день', 'дня', 'дней')}`;
+  if (t.duration_type === 'multi_day' && t.multi_day_count && t.multi_day_count > 0) return days(t.multi_day_count);
+  const hours = t.duration_hours !== null && t.duration_hours > 0 ? t.duration_hours : null;
+  if (hours !== null && hours < 24) {
+    return `${Number.isInteger(hours) ? String(hours) : String(Math.round(hours * 10) / 10).replace('.', ',')} ч`;
+  }
+  if (t.duration_type === 'half_day') return 'Полдня';
+  if (t.duration_type === 'day') return '1 день';
+  if (hours !== null) return days(Math.round(hours / 24));
+  return null;
+}
+
+/** Туры, у которых бронь держит больше дня, а подпись до 20.11 говорила иное. */
+export function durationLabelChanges(rows: readonly SeasonCensusRow[]): DurationLabelChange[] {
+  const out: DurationLabelChange[] = [];
+  for (const r of rows) {
+    const t = { duration_type: r.duration_type, multi_day_count: num(r.multi_day_count), duration_hours: num(r.duration_hours) };
+    const booking = tourDurationDays({
+      multi_day_count: t.multi_day_count !== null && Number.isInteger(t.multi_day_count) ? t.multi_day_count : null,
+      duration_hours: t.duration_hours !== null && t.duration_hours > 0 ? t.duration_hours : null,
+    });
+    if (booking <= 1) continue;
+    const before = durationLabelBefore2011(t);
+    const after = cardDuration(t);
+    if (before === after) continue;
+    out.push({ id: r.id, title: r.title, partner: r.partner_name, duration_type: r.duration_type, booking_days: booking, before, after });
+  }
+  return out;
 }
 
 function plural(n: number, one: string, few: string, many: string): string {
@@ -125,6 +182,7 @@ export function buildSeasonCensus(rows: readonly SeasonCensusRow[], today: strin
 
   const total = rows.length;
   const without = total - withCalendar;
+  const labelChanges = durationLabelChanges(rows);
   let verdict: string;
   if (total === 0) {
     // Ноль при нулевом входе — не «всё хорошо» (§4.0).
@@ -145,6 +203,8 @@ export function buildSeasonCensus(rows: readonly SeasonCensusRow[], today: strin
     without_calendar_by_state: byState,
     accepts_any_date_total: anyDate.length,
     accepts_any_date: anyDate,
+    duration_label_changed_total: labelChanges.length,
+    duration_label_changed: labelChanges,
     verdict,
   };
 }
