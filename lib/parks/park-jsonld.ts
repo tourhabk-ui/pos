@@ -11,6 +11,8 @@ export function parkJsonLd(p: Pick<ParkPageData, 'slug' | 'displayName' | 'descr
   return {
     '@context': 'https://schema.org',
     '@type': ['Park', 'TouristAttraction'],
+    // @id — чтобы узел WebPage (dateModified) сослался на парк как mainEntity.
+    '@id': `${url}#park`,
     name: p.displayName,
     url,
     ...(description ? { description } : {}),

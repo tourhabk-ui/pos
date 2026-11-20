@@ -35,6 +35,8 @@ describe('/park', () => {
     const ld = JSON.parse(container.querySelector('script[type="application/ld+json"]')!.innerHTML);
     expect(ld['@type']).toBe('ItemList');
     expect(ld.itemListElement).toHaveLength(2);
+    // numberOfItems — число элементов списка, не выдуманное (замечание Сыщика 21.11).
+    expect(ld.numberOfItems).toBe(2);
   });
 
   it('база не ответила — так и сказано, разметки нет', async () => {

@@ -11,6 +11,7 @@
  * региональный номер берётся из lib/safety/emergency-numbers.ts (15.09,
  * сторож tests/unit/park-emergency-number.test.ts).
  */
+import { recordDateIso } from '@/lib/seo/record-modified';
 import { pool } from '@/lib/db-pool';
 import { routeInParkSql } from '@/lib/parks/route-in-park';
 
@@ -51,6 +52,8 @@ export interface ParkPageData {
   routes: ParkRoute[];
   /** Маршруты не прочитались — «маршрутов нет» и «не смогли спросить» разные ответы (§4.0). */
   routesFailed: boolean;
+  /** Последняя правка записи парка (parks.updated_at, ISO); null — даты нет. */
+  updatedAt?: string | null;
 }
 
 interface ParkRow {
@@ -65,6 +68,7 @@ interface ParkRow {
   permit_gosuslugi_url: string | null;
   permit_online_url: string | null;
   search_term: string;
+  updated_at?: string | Date | null;
 }
 
 /**
@@ -99,7 +103,7 @@ export async function loadParkPage(slug: string): Promise<ParkPageData | null> {
   const parkResult = await pool.query<ParkRow>(
     `SELECT slug, display_name, description, zone, permit_url,
             permit_email, permit_office_address, permit_office_hours,
-            permit_gosuslugi_url, permit_online_url, search_term
+            permit_gosuslugi_url, permit_online_url, search_term, updated_at
      FROM parks
      WHERE slug = $1 AND is_active = true
      LIMIT 1`,
@@ -136,5 +140,6 @@ export async function loadParkPage(slug: string): Promise<ParkPageData | null> {
     },
     routes,
     routesFailed,
+    updatedAt: recordDateIso(park.updated_at),
   };
 }

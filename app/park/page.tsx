@@ -60,6 +60,7 @@ export default async function ParksIndexPage() {
         '@context': 'https://schema.org',
         '@type': 'ItemList',
         name: TITLE,
+        numberOfItems: parks.length,
         itemListElement: parks.map((p, i) => ({
           '@type': 'ListItem',
           position: i + 1,
