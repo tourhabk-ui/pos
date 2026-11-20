@@ -79,7 +79,16 @@ export default function ParkClient({ park, chronicle = [] }: { park: ParkPageDat
         </Link>
         <p className="ds-label" style={{ marginBottom: 6 }}>{parkKindLabel(park.displayName)} · Камчатка</p>
         <h1 className="ds-h1" style={{ marginBottom: 12 }}>{parkHeading(park.displayName, chronicle.length > 0)}</h1>
-        <p style={{ color: 'var(--text-secondary)', fontSize: 15, lineHeight: 1.6 }}>{park.description}</p>
+        {/* Описание — абзацами: второй абзац о природе территории (21.11, 1483). */}
+        {(park.description ?? '')
+          .split('\n')
+          .map((para) => para.trim())
+          .filter(Boolean)
+          .map((para, i) => (
+            <p key={i} style={{ color: 'var(--text-secondary)', fontSize: 15, lineHeight: 1.6, marginTop: i > 0 ? 10 : 0 }}>
+              {para}
+            </p>
+          ))}
       </div>
 
       {/* Три действия — главный блок */}

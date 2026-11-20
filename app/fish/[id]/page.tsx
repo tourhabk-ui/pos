@@ -10,6 +10,7 @@ import { getFishingTours } from '@/lib/fish/fishing-tours';
 import { FISH_SPECIES, FISH_BY_ID, formatSeasonMonths } from '@/lib/fish-species';
 import DescriptionWithFishLinks from '@/components/shared/DescriptionWithFishLinks';
 import { FishGuide } from '@/components/fish/FishGuide';
+import { FishAbout } from '@/components/fish/FishAbout';
 import { defaultOgImages } from '@/lib/seo/og-image';
 import { fishMetaDescription } from '@/lib/seo/fish-description';
 import { jsonLdHtml } from '@/lib/seo/json-ld-html';
@@ -223,6 +224,9 @@ export default async function FishDetailPage({ params }: Props) {
 
           {/* Подробный разбор вида — если записан (12.11, кета). */}
           <FishGuide species={species} />
+
+          {/* Очерк о виде по источникам — если записан (21.11). */}
+          <FishAbout species={species} />
 
           {/* Интересный факт */}
           <section
