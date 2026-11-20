@@ -1,5 +1,6 @@
 'use client';
 
+import { RecordModified } from '@/components/seo/RecordModified';
 import { useState, useEffect } from 'react';
 import { ownPermitOf, permitNotRequired } from '@/lib/places/own-permit';
 import dynamic from 'next/dynamic';
@@ -692,10 +693,14 @@ export default function PlaceDetailClient({ id, initialPlace = null }: { id: str
 
           {/* Footer */}
           <div className="pt-4 mb-24 md:mb-12">
+            {/* Дата правки — в серверном HTML (аудит 20.11): подвал грузится
+                только в браузере (ssr: false), и поисковик даты не видел.
+                Подвал её больше не печатает — иначе строка вдвоём. */}
+            <RecordModified value={place.updatedAt} className="text-xs text-[var(--text-muted)] mb-2" />
             <PlaceFooter
               sourceUrl={place.sourceUrl}
               sourceName={place.sourceName}
-              updatedAt={place.updatedAt}
+              updatedAt={null}
             />
           </div>
 

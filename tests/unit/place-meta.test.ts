@@ -156,14 +156,16 @@ describe('сниппет маршрута — факты впереди', () => 
   it('строка фактов и регистрация в МЧС', () => {
     expect(routeFactsLine(r)).toBe('12 км · набор 700 м · 6,5 ч · сложность средняя · сезон лето');
     const d = routeDescription(r);
-    expect(d.startsWith('Маршрут на Камчатке, Мутновский район: 12 км · набор 700 м · 6,5 ч · сложность средняя · сезон лето. Регистрация в МЧС обязательна.')).toBe(true);
+    expect(d.startsWith('Вулкан Горелый — маршрут, Мутновский район: 12 км')).toBe(true);
+    expect(d).toContain('сложность средняя');
+    expect(d).toContain('Регистрация в МЧС обязательна.');
     expect(d.length).toBeLessThanOrEqual(META_DESCRIPTION_MAX);
   });
   it('многодневный — дни вместо часов; без фактов — только описание', () => {
     expect(routeFactsLine({ ...r, durationDays: 3 })).toContain('3 дн.');
     expect(routeFactsLine({ ...r, durationDays: 3 })).not.toContain('6,5 ч');
     const none = { ...r, zone: null, distanceKm: null, durationHours: null, elevationGainM: null, difficulty: null, season: null, mchsRequired: false };
-    expect(routeDescription(none)).toBe('Маршрут на Камчатке. Подъём по северному склону к кратерным озёрам. Тропа маркирована, воды по пути нет.');
+    expect(routeDescription(none)).toBe('Вулкан Горелый — маршрут на Камчатке. Подъём по северному склону к кратерным озёрам. Тропа маркирована, воды по пути нет.');
   });
 });
 

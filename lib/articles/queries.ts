@@ -31,11 +31,14 @@ export interface Article {
   topic: string | null;
   sourceUrl: string | null;
   sourceName: string | null;
+  /** Последняя правка записи (articles.updated_at); null — даты нет. */
+  updatedAt: string | null;
 }
 
 interface Row {
   id: string; slug: string; title: string; body: string | null;
   topic: string | null; source_url: string | null; source_name: string | null;
+  updated_at?: string | Date | null;
 }
 
 const toArticle = (r: Row): Article => ({
@@ -46,6 +49,7 @@ const toArticle = (r: Row): Article => ({
   topic: r.topic,
   sourceUrl: r.source_url,
   sourceName: r.source_name,
+  updatedAt: r.updated_at == null ? null : new Date(r.updated_at).toISOString(),
 });
 
 /**
@@ -87,7 +91,7 @@ export async function listArticleLinks(): Promise<ArticleLink[]> {
 /** Статья по адресу. null — статьи нет (страница отдаст 404). */
 export async function getArticle(slug: string): Promise<Article | null> {
   const { rows } = await pool.query<Row>(
-    `SELECT id::text, slug, title, body, topic, source_url, source_name
+    `SELECT id::text, slug, title, body, topic, source_url, source_name, updated_at
        FROM articles
       WHERE slug = $1 AND is_visible = TRUE
       LIMIT 1`,

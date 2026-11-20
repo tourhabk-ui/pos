@@ -190,17 +190,41 @@ export function routeFactsLine(f: RouteMetaFacts): string {
   return parts.join(' · ');
 }
 
+/**
+ * Начало сниппета — с названия маршрута (SEO-аудит 20.11.2026). Прежде все
+ * маршруты начинались одинаково: «Маршрут на Камчатке: 19,6 км · набор 901 м
+ * · сложность средняя.» — у 188 страниц, у 162 из них этим сниппет и
+ * кончался (описания нет). Для поисковика это шаблон, для человека — ни
+ * слова о том, куда маршрут. Название — поле записи, не сочинительство.
+ *
+ * «Озеро Зелёное — маршрут, Авачинский: …»; без района — «… — маршрут на
+ * Камчатке: …». Название уже начинается со слова «маршрут» — район в
+ * скобках, без повтора: «Маршрут на вулкан Дыгерен (Западная Камчатка): …».
+ */
+export function routeDescriptionHead(title: string | null | undefined, zoneLabel: string | null, facts: string): string {
+  const name = (title ?? '').replace(/\s+/g, ' ').trim().replace(/[.:;,\s]+$/, '');
+  const tail = facts ? `: ${facts}.` : '.';
+  if (!name) return `Маршрут на Камчатке${zoneLabel ? `, ${zoneLabel}` : ''}${tail}`;
+  if (/^маршрут/i.test(name)) return `${name}${zoneLabel ? ` (${zoneLabel})` : ''}${tail}`;
+  return `${name} — маршрут${zoneLabel ? `, ${zoneLabel}` : ' на Камчатке'}${tail}`;
+}
+
 export function routeDescription(f: RouteMetaFacts, max: number = META_DESCRIPTION_MAX): string {
   // Код зоны — подписью или никак (04.10, Кайныран: «…на Камчатке, avachinsky.»).
   const zoneLabel = placeZoneLabel(f.zone);
-  const where = zoneLabel ? `, ${zoneLabel}` : '';
-  const facts = routeFactsLine(f);
-  const head = facts
-    ? `Маршрут на Камчатке${where}: ${facts}.`
-    : `Маршрут на Камчатке${where}.`;
   const mchs = f.mchsRequired ? ' Регистрация в МЧС обязательна.' : '';
-  const factsText = `${head}${mchs}`;
-  const rest = f.description ? metaDescription(f.description, Math.max(0, max - factsText.length - 1)) : '';
-  const withRest = rest.length >= 30 ? `${factsText} ${rest}` : factsText;
-  return metaDescription(withRest, max);
+  const compose = (facts: string): { text: string; rest: string } => {
+    const factsText = `${routeDescriptionHead(f.title, zoneLabel, facts)}${mchs}`;
+    const rest = f.description ? metaDescription(f.description, Math.max(0, max - factsText.length - 1)) : '';
+    return { text: rest.length >= 30 ? `${factsText} ${rest}` : factsText, rest };
+  };
+  let out = compose(routeFactsLine(f));
+  // С названием впереди полная строка фактов может съесть место под начало
+  // описания. Описание есть, а не влезло — факты короче: длина и сложность
+  // (аудит 20.11: «название, район, длина, сложность, начало описания»).
+  if (f.description && out.rest.length < 30) {
+    const compact = compose(routeFactsLine({ ...f, elevationGainM: null, durationHours: null, durationDays: null, season: null }));
+    if (compact.rest.length >= 30) out = compact;
+  }
+  return metaDescription(out.text, max);
 }
