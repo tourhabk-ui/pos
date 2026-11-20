@@ -201,7 +201,7 @@ export const ACTIVITY_CONSTRAINTS: Record<string, ActivityConstraints> = {
     bestZones: ['southern'],
     months: [7, 8, 9],
     seasonNote: 'Курильское озеро: авг-сен. Речные медведи: июль-сен',
-    requiresPermit: 'Южно-Камчатский федеральный заказник — бронь за 14 дней',
+    requiresPermit: 'Южно-Камчатский федеральный заказник',
     safetyNotes: [
       'Только с аккредитованным гидом',
       'Минимальная дистанция от медведей — 50 м',
@@ -234,7 +234,7 @@ export const ACTIVITY_CONSTRAINTS: Record<string, ActivityConstraints> = {
     bestZones: ['northern'],
     months: [6, 7, 8, 9, 10],
     seasonNote: 'Только вертолёт. Бронь Кроноцкого заповедника обязательна',
-    requiresPermit: 'Кроноцкий заповедник — бронирование через kronoki.ru за 30 дней',
+    requiresPermit: 'Кроноцкий заповедник',
   },
   hot_spring: {
     allowedTransports: ['walking', 'jeep'],
