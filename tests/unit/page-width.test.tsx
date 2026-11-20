@@ -18,6 +18,7 @@ import { describe, it, expect, vi, afterEach } from 'vitest';
 import { render, cleanup } from '@testing-library/react';
 
 vi.mock('@/components/layout/Header', () => ({ Header: () => null }));
+vi.mock('@/lib/fish/fishing-tours', () => ({ getFishingTours: async () => [] }));
 
 import FishIndexPage from '@/app/fish/page';
 import { pageContainer, PAGE_MAX } from '@/lib/layout/page-width';
@@ -48,8 +49,8 @@ describe('правило ширины', () => {
 });
 
 describe('/fish: у витрины есть ширина и поля', () => {
-  it('сетка видов — внутри контейнера витрины, а не от края до края', () => {
-    const { container } = render(<FishIndexPage />);
+  it('сетка видов — внутри контейнера витрины, а не от края до края', async () => {
+    const { container } = render(await FishIndexPage());
     const grid = container.querySelector('a[href^="/fish/"]')?.closest('.grid') as HTMLElement;
     const shell = grid.parentElement as HTMLElement;
     expect(shell.className).toContain('max-w-[1280px]');

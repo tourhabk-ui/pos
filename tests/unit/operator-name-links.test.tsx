@@ -81,7 +81,7 @@ const SURFACES: Array<{ file: string; bare: RegExp }> = [
   // Хвост 13.10.
   { file: 'app/plans/[slug]/page.tsx', bare: /\{tour\.title\} · \{tour\.operator_name\}/ },
   { file: 'app/trip/[token]/_TripShareClient.tsx', bare: /^\s*\{tour\.operator_name\}\s*$/m },
-  { file: 'app/fish/[id]/page.tsx', bare: /^\s*\{tour\.operator_name\}\s*$/m },
+  { file: 'components/fish/FishingToursBlock.tsx', bare: /^\s*\{tour\.operator_name\}\s*$/m },
   { file: 'app/hub/fishing/_FishingPageClient.tsx', bare: /operators\.join\(', '\)/ },
   { file: 'app/kuzmich/_KuzmichClient.tsx', bare: /">\{tour\.operator_name\}<\/p>/ },
   { file: 'app/ai-assistant/_AIAssistantClient.tsx', bare: /">\{tour\.operator_name\}<\/p>/ },
@@ -128,7 +128,7 @@ describe('источники данных отдают slug и is_public ряд�
     ['app/api/hub/bookings/[id]/route.ts', /p\.is_public\s+AS operator_public/],
     ['lib/routes/route-detail.ts', /JOIN partners p ON p\.id = v\.operator_id[\s\S]*?p\.is_public AS operator_public|p\.is_public AS operator_public[\s\S]*?JOIN partners p ON p\.id = v\.operator_id/],
     // Хвост 13.10.
-    ['app/fish/[id]/page.tsx', /p\.slug AS operator_slug, p\.is_public AS operator_public/],
+    ['lib/fish/fishing-tours.ts', /p\.slug AS operator_slug, p\.is_public AS operator_public/],
     ['app/hub/fishing/page.tsx', /p\.slug AS operator_slug, p\.is_public AS operator_public/],
     ['app/_home/data.ts', /p\.slug AS operator_slug, p\.is_public AS operator_public, ob\.created_at::text/],
     ['app/api/planner/partners/route.ts', /p\.slug,\s*p\.is_public,/],

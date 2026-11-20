@@ -1,20 +1,15 @@
 import type { Metadata } from 'next';
 import { notFound } from 'next/navigation';
 import Link from 'next/link';
-import { OperatorNameLink } from '@/components/operators/OperatorNameLink';
 import {
-  Fish, Calendar, Trophy, MapPin, Target, Sparkles, ArrowLeft, ChevronRight,
+  Fish, Calendar, Trophy, MapPin, Target, Sparkles, ArrowLeft,
 } from 'lucide-react';
 import { Header } from '@/components/layout/Header';
+import { FishingToursBlock } from '@/components/fish/FishingToursBlock';
+import { getFishingTours } from '@/lib/fish/fishing-tours';
 import { FISH_SPECIES, FISH_BY_ID, formatSeasonMonths } from '@/lib/fish-species';
 import DescriptionWithFishLinks from '@/components/shared/DescriptionWithFishLinks';
 import { FishGuide } from '@/components/fish/FishGuide';
-import { query } from '@/lib/database';
-import { publicTourSql } from '@/lib/tours/public-visibility';
-import { nearestFreeDateSql } from '@/lib/tours/nearest-free-date';
-import { anyDayOpenSql } from '@/lib/tours/schedule-kind';
-import { OFFER_ORDER_NOTE, orderOffersBy } from '@/lib/tours/offer-order';
-import { tourPath } from '@/lib/tours/tour-url';
 import { defaultOgImages } from '@/lib/seo/og-image';
 import { fishMetaDescription } from '@/lib/seo/fish-description';
 import { jsonLdHtml } from '@/lib/seo/json-ld-html';
@@ -60,46 +55,6 @@ export async function generateMetadata({ params }: Props): Promise<Metadata> {
       type: 'article',
     },
   };
-}
-
-interface FishingTour {
-  id: number;
-  /** Адрес карточки (ЧПУ, миграция 1114); null — ссылка по числу. */
-  slug: string | null;
-  title: string;
-  base_price: number;
-  operator_name: string;
-  /** partners.slug / partners.is_public — страница оператора; закрыта или без адреса — имя текстом (13.10). */
-  operator_slug: string | null;
-  operator_public: boolean | null;
-  duration_hours: number;
-  /** Ближайшая дата со свободными местами ('YYYY-MM-DD'); нет — null. Ключ правила 1в. */
-  nearest_free_date?: string | null;
-  /** Тур «в любой день сезона» открыт сейчас (`anyDayOpenSql`). Ключ правила 1в. */
-  any_day_open?: boolean | null;
-}
-
-async function getFishingTours(): Promise<FishingTour[]> {
-  try {
-    const result = await query<FishingTour>(`
-      SELECT ot.id::int, ot.slug, ot.title, ot.base_price::float,
-             ot.duration_hours::float,
-             p.name AS operator_name, p.slug AS operator_slug, p.is_public AS operator_public,
-             ${nearestFreeDateSql('ot')} AS nearest_free_date, ${anyDayOpenSql('ot')} AS any_day_open
-      FROM operator_tours ot
-      JOIN partners p ON p.id = ot.operator_id
-      WHERE ot.activity_type = 'fishing'
-        AND ${publicTourSql('ot')}
-    `);
-    // Порядок — правило 1в (слово владельца 29.10), а не «дешевле выше»;
-    // шесть первых — после порядка.
-    return orderOffersBy(result.rows, (r) => ({ id: String(r.id), nearestFreeDate: r.nearest_free_date ?? null, anyDayOpen: r.any_day_open ?? null })).slice(0, 6);
-  } catch (e) {
-    // Без блока туров, а не с выдуманным, — но отказ виден (§4.0).
-    const err = e as { code?: string; message?: string };
-    console.error('[fish] туры на рыбалку не прочитаны:', `sqlstate=${err?.code ?? 'нет'}`, err?.message ?? String(e));
-    return [];
-  }
 }
 
 export default async function FishDetailPage({ params }: Props) {
@@ -288,53 +243,7 @@ export default async function FishDetailPage({ params }: Props) {
             </div>
           </section>
 
-          {/* Туры на рыбалку */}
-          {tours.length > 0 && (
-            <section>
-              <h2 className="text-2xl font-bold text-[var(--text-primary)] mb-4"
-                style={{ fontFamily: 'var(--font-playfair)' }}>
-                Туры на рыбалку
-              </h2>
-              <p className="-mt-2 mb-4 text-xs leading-relaxed text-[var(--text-secondary)]">{OFFER_ORDER_NOTE.ru}</p>
-              <div className="space-y-3">
-                {tours.map(tour => (
-                  <div
-                    key={tour.id}
-                    className="ds-card relative flex items-center justify-between gap-4 hover:shadow-md transition-all duration-200 group"
-                  >
-                    {/* Ссылка на тур — слоем, имя оператора — своей ссылкой поверх (13.10). */}
-                    <Link href={tourPath(tour)} className="absolute inset-0 z-[1] rounded-lg" aria-label={tour.title} />
-                    <div className="relative z-[2] pointer-events-none flex-1 min-w-0">
-                      <p className="font-semibold text-[var(--text-primary)] group-hover:text-[var(--accent)] transition-colors truncate">
-                        {tour.title}
-                      </p>
-                      <p className="text-xs text-[var(--text-muted)] mt-0.5">
-                        <OperatorNameLink name={tour.operator_name} slug={tour.operator_slug} isPublic={tour.operator_public} className="pointer-events-auto" />
-                        {tour.duration_hours > 0 && (
-                          <> · {tour.duration_hours >= 24
-                            ? `${Math.round(tour.duration_hours / 24)} дн`
-                            : `${tour.duration_hours} ч`}
-                          </>
-                        )}
-                      </p>
-                    </div>
-                    <div className="relative z-[2] pointer-events-none flex items-center gap-3 flex-shrink-0">
-                      <span className="font-bold text-[var(--text-primary)]">
-                        {tour.base_price.toLocaleString('ru-RU')} ₽
-                      </span>
-                      <ChevronRight className="w-4 h-4 text-[var(--text-muted)] group-hover:text-[var(--accent)] transition-colors" />
-                    </div>
-                  </div>
-                ))}
-              </div>
-              <Link
-                href="/routes?activity_type=fishing"
-                className="mt-4 inline-flex items-center gap-1 text-sm font-semibold text-[var(--accent)] hover:underline"
-              >
-                Все рыболовные туры <ChevronRight className="w-3.5 h-3.5" />
-              </Link>
-            </section>
-          )}
+          <FishingToursBlock tours={tours} />
 
           {/* Другие виды */}
           <section>
