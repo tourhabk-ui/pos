@@ -1,31 +1,20 @@
-/** Посадочная под запрос «восхождение на Авачинский вулкан» — lib/seo/query-landings (ru-avacha). */
-import { Header } from '@/components/layout/Header';
-import { QueryLandingView } from '@/components/seo/QueryLanding';
-import { landingByKey } from '@/lib/seo/query-landings';
-import { landingMetadata } from '@/lib/seo/query-landing-meta';
-import { loadLandingPage } from '@/lib/seo/query-landings-data';
-import { landingSummary } from '@/lib/seo/query-landing-view';
-import { loadLandingParks } from '@/lib/seo/query-landings-parks';
+/**
+ * «Восхождение на Авачинский вулкан» — текст Сыщика (третья партия 21.11,
+ * lib/landings) вместо прежней посадочной lib/seo/query-landings (ru-avacha).
+ * Туры — та же тема `avacha` из базы на запросе (lib/landings/tours).
+ * Высота — 2751 м по KVERT, как во всём сайте (1479).
+ */
+import { LandingPage, landingPageMetadata } from '@/components/landings/LandingPage';
+import { landingBySlug } from '@/lib/landings/landings';
 
 export const dynamic = 'force-dynamic';
 
-const LANDING = landingByKey('ru-avacha');
+const SLUG = 'voshozhdenie-na-avachinskij-vulkan';
 
-// Заголовок и описание — с числами из базы (разбор видимости в ответах ИИ, 19.11).
-export async function generateMetadata() {
-  const { tours, openYears } = await loadLandingPage(LANDING);
-  return landingMetadata(LANDING, undefined, landingSummary(tours, openYears));
+export function generateMetadata() {
+  return landingPageMetadata(landingBySlug(SLUG));
 }
 
-export default async function Page() {
-  const [{ tours, openYears }, parks] = await Promise.all([
-    loadLandingPage(LANDING),
-    loadLandingParks(LANDING.topic),
-  ]);
-  return (
-    <>
-      <Header />
-      <QueryLandingView landing={LANDING} tours={tours} parks={parks} summary={landingSummary(tours, openYears)} />
-    </>
-  );
+export default function Page() {
+  return <LandingPage slug={SLUG} />;
 }
