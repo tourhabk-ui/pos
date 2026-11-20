@@ -188,29 +188,29 @@ withPg('объектив схемы на настоящем PostgreSQL', () => {
     });
   });
 
-  it('миграция 1474: сезон Синичкина словом паспорта, дата чтения, ссылка на паспорт — только у своих маршрутов (#3568)', async () => {
-    const SQL = readFileSync(join(process.cwd(), 'migrations/1474_route_passports_batch1_followup.sql'), 'utf-8');
+  it('миграция 1476: сезон Синичкина словом паспорта, дата чтения, ссылка на паспорт — только у своих маршрутов (#3568)', async () => {
+    const SQL = readFileSync(join(process.cwd(), 'migrations/1476_route_passports_batch1_followup.sql'), 'utf-8');
     const NERKA = 'https://visitkamchatka.ru/upload/route_passports/nerka.pdf';
     await pool.query(`INSERT INTO kamchatka_routes
         (dedupe_key, slug, title, category, season, metadata, pdf_url, official_passport_url, passport_verified_at) VALUES
-      ('p1474_sin', 'ozero-sinichkino-marshrut', 'Озеро Синичкино', 'route', 'круглый год (паспорт)',
+      ('p1476_sin', 'ozero-sinichkino-marshrut', 'Озеро Синичкино', 'route', 'круглый год (паспорт)',
        '{"season":"круглый год (паспорт)"}', NULL, 'https://visitkamchatka.ru/upload/route_passports/lake_sinichkino.pdf',
        '2026-11-20 14:05:00+00'),
-      ('p1474_nerka', 'visitkamchatka-nerka', 'Царство нерки', 'route', 'весна - осень; июнь - октябрь',
+      ('p1476_nerka', 'visitkamchatka-nerka', 'Царство нерки', 'route', 'весна - осень; июнь - октябрь',
        '{"season":"весна - осень; июнь - октябрь"}', '${NERKA}', NULL, NULL),
-      ('p1474_other', 'p1474-other', 'Чужой маршрут', 'route', 'all', '{}', NULL, NULL, '2026-11-20 14:05:00+00')`);
+      ('p1476_other', 'p1476-other', 'Чужой маршрут', 'route', 'all', '{}', NULL, NULL, '2026-11-20 14:05:00+00')`);
     await pool.query(SQL);
     await pool.query(SQL); // повтор без вреда
     const { rows } = await pool.query<Record<string, unknown>>(
       `SELECT dedupe_key, season, metadata->>'season' AS meta_season, pdf_url, official_passport_url,
               to_char(passport_verified_at AT TIME ZONE 'UTC', 'YYYY-MM-DD HH24:MI') AS verified
-         FROM kamchatka_routes WHERE dedupe_key LIKE 'p1474_%' ORDER BY dedupe_key`);
+         FROM kamchatka_routes WHERE dedupe_key LIKE 'p1476_%' ORDER BY dedupe_key`);
     expect(rows).toEqual([
-      { dedupe_key: 'p1474_nerka', season: 'весна - осень; июнь - октябрь', meta_season: 'весна - осень; июнь - октябрь',
+      { dedupe_key: 'p1476_nerka', season: 'весна - осень; июнь - октябрь', meta_season: 'весна - осень; июнь - октябрь',
         pdf_url: NERKA, official_passport_url: NERKA, verified: '2026-11-20 13:18' },
-      { dedupe_key: 'p1474_other', season: 'all', meta_season: null, pdf_url: null, official_passport_url: null,
+      { dedupe_key: 'p1476_other', season: 'all', meta_season: null, pdf_url: null, official_passport_url: null,
         verified: '2026-11-20 14:05' },
-      { dedupe_key: 'p1474_sin', season: 'круглогодично', meta_season: 'круглогодично', pdf_url: null,
+      { dedupe_key: 'p1476_sin', season: 'круглогодично', meta_season: 'круглогодично', pdf_url: null,
         official_passport_url: 'https://visitkamchatka.ru/upload/route_passports/lake_sinichkino.pdf', verified: '2026-11-20 13:18' },
     ]);
   });
