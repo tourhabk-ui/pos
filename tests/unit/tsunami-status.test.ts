@@ -29,7 +29,9 @@ import {
   tsunamiStatus,
   classifyMessage,
   classifyMchsItem,
+  isStormSurgeNotTsunami,
 } from '@/lib/services/safety/seismic-parser';
+import { isMarineAlert } from '@/lib/safety/marine-alert';
 import { KRAI_WIDE_ZONES } from '@/lib/safety/alert-zones';
 import { KURIL_NORTH_ZONE } from '@/lib/safety/kuril-north';
 
@@ -265,5 +267,92 @@ describe('«не поступало» и «не было» — угрозы не
     expect(tsunamiStatus('Отбой угрозы цунами не был объявлен.')).toBe('warning');
     expect(tsunamiStatus('Объявлена угроза цунами. Информации об отбое пока не поступало.')).toBe('warning');
     expect(tsunamiStatus('Угроза цунами! Волн пока не было, уходите на высоту.')).toBe('warning');
+  });
+});
+
+/**
+ * 19.11: два поста МЧС о сгонно-нагонных явлениях ушли уведомлением «УГРОЗА
+ * ЦУНАМИ — Камчатка» высшего уровня (снимок владельца, 11:42 по Камчатке).
+ * Текст поста проба с раннера не прочитала (сайт МЧС не ответил), поэтому
+ * текст ниже собран по форме поста МЧС: подъём воды у берега и слово «цунами»
+ * рядом с признаком опасности — ровно то, на что широкое правило цунами
+ * отвечает тревогой.
+ */
+describe('сгонно-нагонные явления — не цунами (19.11)', () => {
+  const PUB = '2026-11-19T23:40:00Z';
+  const SURGE_TITLE = 'Экстренное предупреждение на 21 ноября 2026 г. (сгонно - нагонные явления)';
+  const SURGE_TEXT =
+    'По данным Камчатского управления по гидрометеорологии и мониторингу окружающей среды, 21 ноября в Авачинской губе ' +
+    'ожидаются сгонно-нагонные явления, подъём уровня воды до 1 м. Не находитесь на берегу и в цунамиопасной зоне.';
+
+  it('без правила нагона этот текст — тревога цунами (так было 19.11)', () => {
+    expect(tsunamiStatus(`${SURGE_TITLE} ${SURGE_TEXT}`)).toBe('warning');
+  });
+
+  it('пост о нагоне — морское погодное предупреждение до конца названного дня, не цунами', () => {
+    const e = classifyMchsItem('mchs/surge', SURGE_TITLE, SURGE_TEXT, PUB, 'https://x');
+    expect(e?.alert_type).toBe('weather');
+    expect(e?.severity).toBe(1);
+    // Конец 21 ноября по Камчатке — 12:00 UTC 21.11: от 23:40 UTC 19.11 — 37 ч.
+    expect(e?.expires_hours).toBe(37);
+    // Морская тревога не висит на вулканах и горах (marine-alert.ts).
+    expect(isMarineAlert(e?.alert_type, e?.title)).toBe(true);
+  });
+
+  it('слитное «сгонно-нагонные», «нагонные явления» и ё — то же правило', () => {
+    expect(isStormSurgeNotTsunami('Экстренное предупреждение (сгонно-нагонные явления)', SURGE_TEXT)).toBe(true);
+    expect(isStormSurgeNotTsunami('Ожидаются нагонные явления', SURGE_TEXT)).toBe(true);
+    expect(isStormSurgeNotTsunami('Экстренное предупреждение (сгонно-нагонные колебания уровня моря)', SURGE_TEXT)).toBe(true);
+    expect(isStormSurgeNotTsunami('Штормовой ветер', SURGE_TEXT)).toBe(false);
+  });
+
+  it('явное оповещение о цунами в тексте сильнее нагона в заголовке', () => {
+    const alarm = `${SURGE_TEXT} Объявлена угроза цунами на побережье Авачинского залива.`;
+    expect(isStormSurgeNotTsunami(SURGE_TITLE, alarm)).toBe(false);
+    expect(classifyMchsItem('mchs/surge-alarm', SURGE_TITLE, alarm, PUB, 'https://x')?.alert_type).toBe('tsunami_warning');
+  });
+
+  it('волна цунами в тексте — тоже цунами, даже без слова «объявлена»', () => {
+    const wave = `${SURGE_TEXT} Ожидается приход волны цунами высотой до 1 м.`;
+    expect(isStormSurgeNotTsunami(SURGE_TITLE, wave)).toBe(false);
+    expect(classifyMchsItem('mchs/surge-wave', SURGE_TITLE, wave, PUB, 'https://x')?.alert_type).toBe('tsunami_warning');
+  });
+
+  // Ревью безопасности #3546: первая редакция отпускала всё, кроме «объявлена
+  // угроза цунами», и пост о нагоне со словами «УГРОЗА ЦУНАМИ!» становился
+  // погодой без пуша.
+  for (const alarm of [
+    'УГРОЗА ЦУНАМИ! Жителям побережья подняться на высоту не менее 30 м.',
+    'Тревога цунами.',
+    'Ожидается цунами.',
+    'Возможна угроза цунами.',
+    'Внимание, цунами: уходите от берега.',
+  ]) {
+    it(`угроза цунами в тексте поста о нагоне — цунами: «${alarm}»`, () => {
+      const text = `${SURGE_TEXT} ${alarm}`;
+      expect(isStormSurgeNotTsunami(SURGE_TITLE, text)).toBe(false);
+      const e = classifyMchsItem('mchs/surge-real', SURGE_TITLE, text, PUB, 'https://x');
+      expect(e?.alert_type).toBe('tsunami_warning');
+      expect(e?.severity).toBe(3);
+    });
+  }
+
+  it('условная оговорка памятки и название зоны — не угроза цунами', () => {
+    for (const memo of [
+      'В случае угрозы цунами поднимитесь на высоту.',
+      'При объявлении угрозы цунами уходите от берега.',
+      'При цунами поднимитесь на возвышенность.',
+      'Не заходите в цунамиопасные зоны.',
+    ]) {
+      const text = `По данным Камчатского УГМС ожидаются сгонно-нагонные явления, подъём уровня воды до 1 м. ${memo}`;
+      expect(tsunamiStatus(text)).toBe('warning');
+      expect(isStormSurgeNotTsunami(SURGE_TITLE, text)).toBe(true);
+    }
+  });
+
+  it('заголовок, назвавший цунами, правилом нагона не судится', () => {
+    const title = 'Угроза цунами и нагонные явления';
+    expect(isStormSurgeNotTsunami(title, SURGE_TEXT)).toBe(false);
+    expect(classifyMchsItem('mchs/t-surge', title, SURGE_TEXT, PUB, 'https://x')?.alert_type).toBe('tsunami_warning');
   });
 });
