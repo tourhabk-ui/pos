@@ -91,7 +91,7 @@ describe('after-merge: ветка заново от main', () => {
     GIT_CONFIG_GLOBAL: '/dev/null', GIT_CONFIG_NOSYSTEM: '1',
     GIT_AUTHOR_NAME: 't', GIT_AUTHOR_EMAIL: 't@example.org', GIT_COMMITTER_NAME: 't', GIT_COMMITTER_EMAIL: 't@example.org',
   };
-  const git = (cwd: string, ...args: string[]) => execFileSync('git', args, { cwd, env, encoding: 'utf8' }).trim();
+  const git = (cwd: string, ...args: string[]) => execFileSync('git', ['-c', 'color.ui=false', ...args], { cwd, env, encoding: 'utf8' }).trim();
   const commit = (cwd: string, file: string, text: string, msg: string) => {
     writeFileSync(join(cwd, file), text);
     git(cwd, 'add', file);

@@ -72,7 +72,8 @@ export function planFor(changed, { existing = [], hasPg = false } = {}) {
 }
 
 function git(args) {
-  const r = spawnSync('git', args, { encoding: 'utf8' });
+  // Цвет выключен: при color.ui=always имена файлов пришли бы с кодами цвета.
+  const r = spawnSync('git', ['-c', 'color.ui=false', ...args], { encoding: 'utf8' });
   if (r.status !== 0) throw new Error(`git ${args.join(' ')}: ${r.stderr.trim()}`);
   return r.stdout.split('\n').map((s) => s.trim()).filter(Boolean);
 }
