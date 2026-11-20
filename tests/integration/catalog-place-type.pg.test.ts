@@ -424,6 +424,48 @@ withPg('поиск маршрута по виду места пути', () => {
     });
   });
 
+  it('паспорт реестра доходит до агентов: маршруты места, маршрут по названию, документ MCP, поиск Кузьмича (#3568, «1 да»)', async () => {
+    const P = 'https://visitkamchatka.ru/upload/route_passports/';
+    const refs = [{ url: `${P}vilyuchinsky_pereval_avto.pdf`, km: 76, side: 'в обе стороны', label: null }];
+    const CLAUSE = 'в официальном паспорте — 76 км в обе стороны; маршрут в паспорте может отличаться от этого маршрута каталога';
+    // Маршрут через вулкан сцены — с паспортом; отдельный маршрут с узнаваемым
+    // названием — для поиска по имени (слова «Т Путь через вулкан» общие).
+    await pool.query(
+      `UPDATE kamchatka_routes SET registry_passports = $1::jsonb, distance_km = 12.1 WHERE title = 'Т Путь через вулкан'`,
+      [JSON.stringify(refs)],
+    );
+    await pool.query(
+      `INSERT INTO kamchatka_routes (category, title, slug, is_visible, distance_km, distance_note, registry_passports)
+       VALUES ('hiking', 'Перевал Пробный', 'pereval-probnyj', TRUE, 12.1, 'в одну сторону', $1::jsonb)`,
+      [JSON.stringify(refs)],
+    );
+    try {
+      const { placeRoutesFor, placeRoutesLines } = await import('@/lib/places/place-routes');
+      const routes = await placeRoutesFor('place-volc');
+      expect(routes).not.toBeNull();
+      expect(placeRoutesLines(routes!).join('\n')).toContain(`«Т Путь через вулкан», длина маршрута 12.1 км (${CLAUSE})`);
+
+      const { routesNamedBy, namedRouteFactsLine } = await import('@/lib/kuzmich/guardian-context');
+      const named = await routesNamedBy('Перевал Пробный');
+      expect(named?.map((r) => r.title)).toEqual(['Перевал Пробный']);
+      expect(namedRouteFactsLine(named![0])).toContain(
+        `дистанция 12.1 км в одну сторону. В${CLAUSE.slice(1)} — паспорт (PDF): ${P}vilyuchinsky_pereval_avto.pdf`,
+      );
+
+      const { fetchDocument } = await import('@/lib/mcp/connector-tools');
+      const doc = await fetchDocument('route:pereval-probnyj', 'https://vedarai.ru');
+      expect(doc.text).toContain(`Дистанция: 12.1 км в одну сторону\nВ${CLAUSE.slice(1)} — паспорт (PDF): ${P}vilyuchinsky_pereval_avto.pdf\n`);
+
+      const { searchRoutes } = await import('@/lib/ai/route-knowledge');
+      expect(await searchRoutes('Перевал Пробный')).toContain(`В${CLAUSE.slice(1)} — паспорт (PDF): ${P}vilyuchinsky_pereval_avto.pdf`);
+    } finally {
+      await pool.query(`DELETE FROM kamchatka_routes WHERE slug = 'pereval-probnyj'`);
+      await pool.query(
+        `UPDATE kamchatka_routes SET registry_passports = NULL, distance_km = NULL WHERE title = 'Т Путь через вулкан'`,
+      );
+    }
+  });
+
   it('вид, которого на пути нет, — пусто, а не всё подряд', async () => {
     expect(await titles({ place_type: 'geyser', hasCoords: 'true' })).toEqual({ titles: [], total: 0 });
   });

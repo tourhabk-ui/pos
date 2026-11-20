@@ -15,6 +15,7 @@ import { pool } from '@/lib/db-pool';
 import { getPublicBaseUrl } from '@/lib/config';
 import { lineOwnership } from '@/lib/routes/line-ownership';
 import { routeDistanceWords } from '@/lib/routes/distance-words';
+import { parseRegistryPassports, registryPassportAgentClause } from '@/lib/routes/registry-passport';
 
 /**
  * $1 — places.id места. id маршрута — в пространстве VIEW
@@ -23,7 +24,7 @@ import { routeDistanceWords } from '@/lib/routes/distance-words';
  */
 export const PLACE_ROUTES_SQL = `
   SELECT COALESCE(kr.ark_id, kr.id) AS id, kr.slug, kr.title, kr.activity_type, kr.difficulty,
-         kr.distance_km, kr.distance_note, kr.duration_hours, rw.link_kind,
+         kr.distance_km, kr.distance_note, kr.registry_passports, kr.duration_hours, rw.link_kind,
          -- Факты §10 — для Кузьмича (lib/kuzmich/guardian-context, 14.10):
          -- без них он знал о маршрутах места только название и длину.
          kr.elevation_gain_m, kr.season, kr.hazards, kr.equipment,
@@ -54,6 +55,8 @@ export interface PlaceRouteRow {
   distance_km?: string | number | null;
   /** Пометка паспорта к длине (1472): «в одну сторону» / «в обе стороны». */
   distance_note?: string | null;
+  /** Паспорт реестра, к маршруту не привязанный (1478): колонка как есть. */
+  registry_passports?: unknown;
   duration_hours?: string | number | null;
   /** Род связи (миграция 874): waypoint / nearby / unknown. */
   link_kind?: string | null;
@@ -139,7 +142,12 @@ export function placeRoutesLines(routes: PlaceRouteRow[]): string[] {
     const km = r.distance_with_approach_km != null
       ? `, длина линии ${r.distance_with_approach_km} км вместе с подъездом — это не длина тропы`
       : routeDistanceWords(r.distance_km, r.distance_note) ? `, длина маршрута ${routeDistanceWords(r.distance_km, r.distance_note)}` : '';
-    return `«${r.title}»${km} — ${routePageUrl(r)}`;
+    // Паспорт реестра, где нитка может быть другой (#3568, слово владельца
+    // 20.11 «1 да»), — сразу после длины, в скобках: иначе число маршрута
+    // звучало бы без оговорки, которую показывает его карточка.
+    const clause = registryPassportAgentClause(parseRegistryPassports(r.registry_passports));
+    const passport = clause ? ` (${clause.charAt(0).toLowerCase()}${clause.slice(1)})` : '';
+    return `«${r.title}»${km}${passport} — ${routePageUrl(r)}`;
   };
   const lines: string[] = [];
   if (through.length) lines.push(`Маршруты через это место на сайте: ${through.map(fmt).join('; ')}`);

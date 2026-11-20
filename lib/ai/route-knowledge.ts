@@ -3,6 +3,7 @@ import { pool } from '@/lib/db-pool';
 import { expandQuery } from '@/lib/ai/query-expansion';
 import { logSwallowedFailure } from '@/lib/observability/swallowed';
 import { routeDistanceWords } from '@/lib/routes/distance-words';
+import { registryPassportAgentLine } from '@/lib/routes/registry-passport';
 
 // ── In-memory TTL cache for route search results ─────────────────────────────
 
@@ -51,6 +52,8 @@ interface RouteRow {
   difficulty: string | null;
   distance_km: string | null;
   distance_note: string | null;
+  /** Паспорт реестра, к маршруту не привязанный (1478): JSONB как есть. */
+  registry_passports: unknown;
   elevation_gain_m: number | null;
   duration_hours: string | null;
   season: string | null;
@@ -78,7 +81,7 @@ async function searchRoutesOnce(q: string): Promise<RouteRow[]> {
   // видимости стоит свой.
   const { rows } = await pool.query<RouteRow>(
     `SELECT title, description, activity_type,
-            difficulty, distance_km, distance_note, elevation_gain_m, duration_hours, season,
+            difficulty, distance_km, distance_note, registry_passports, elevation_gain_m, duration_hours, season,
             hazards, equipment,
             mchs_registration_required, mchs_phone, park_name
      FROM kamchatka_routes
@@ -150,6 +153,11 @@ export function routeFacts(r: {
   distance_km: string | null;
   /** Пометка паспорта к длине (1472): «в одну сторону» / «в обе стороны». */
   distance_note?: string | null;
+  /**
+   * Паспорт реестра, к маршруту не привязанный (1478, слово владельца 20.11
+   * «1 да»): колонка как есть, разбор — lib/routes/registry-passport.
+   */
+  registry_passports?: unknown;
   elevation_gain_m: number | null;
   duration_hours: string | null;
   season: string | null;
@@ -177,6 +185,11 @@ export function routeFacts(r: {
     seasonLabel(r.season) ? `сезон ${seasonLabel(r.season)}`             : null,
   ].filter(Boolean);
   if (stats.length) out.push(stats.join(' · '));
+
+  // Паспорт реестра с другой, возможно, ниткой (#3568): рядом с длиной, чтобы
+  // «76 км» паспорта не читалось длиной этого маршрута и не терялось вовсе.
+  const passport = registryPassportAgentLine(r.registry_passports);
+  if (passport) out.push(passport);
 
   const hazards = (r.hazards ?? []).filter(Boolean);
   if (hazards.length) out.push(`Опасности: ${hazards.join('; ')}`);

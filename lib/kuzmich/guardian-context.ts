@@ -306,6 +306,13 @@ export interface RouteFactsSource {
   title: string;
   difficulty?: string | null;
   distance_km?: string | number | null;
+  /**
+   * Пометка паспорта к длине (1472): «в одну сторону» / «в обе стороны». До
+   * 20.11 сюда не доходила, и «17 км» Дыгерена звучали длиной всей поездки.
+   */
+  distance_note?: string | null;
+  /** Паспорт реестра, к маршруту не привязанный (1478): колонка как есть. */
+  registry_passports?: unknown;
   elevation_gain_m?: number | null;
   duration_hours?: string | number | null;
   season?: string | null;
@@ -344,6 +351,8 @@ function routeFactsBody(r: RouteFactsSource): string {
   const facts = routeFacts({
     difficulty: r.difficulty ?? null,
     distance_km: asText(r.distance_km),
+    distance_note: r.distance_note ?? null,
+    registry_passports: r.registry_passports ?? null,
     elevation_gain_m: r.elevation_gain_m ?? null,
     duration_hours: asText(r.duration_hours),
     season: r.season ?? null,
@@ -452,7 +461,8 @@ async function routesByName(placeName: string): Promise<RouteFactsSource[] | nul
   try {
     const { rows } = await pool.query<RouteFactsSource>(
       `SELECT COALESCE(kr.ark_id, kr.id)::text AS id, kr.id::text AS db_id, kr.slug, kr.title, kr.description,
-              kr.difficulty, kr.distance_km, kr.elevation_gain_m, kr.duration_hours, kr.season,
+              kr.difficulty, kr.distance_km, kr.distance_note, kr.registry_passports,
+              kr.elevation_gain_m, kr.duration_hours, kr.season,
               kr.hazards, kr.equipment, kr.mchs_registration_required, kr.mchs_phone, kr.park_name
          FROM kamchatka_routes kr
         WHERE kr.is_visible = TRUE AND kr.merged_into_id IS NULL AND (${match.clause})

@@ -193,6 +193,21 @@ describe('ссылка «Продолжить в Ведаре» ведёт на 
     expect(await handoffTargetForTool('get_guardian_context', { place: 'Вилючинский водопад' })).toBeNull();
   });
 
+  it('паспорт реестра и сторона длины — в фактах маршрута (#3568, слово владельца 20.11 «1 да»)', async () => {
+    const P = 'https://visitkamchatka.ru/upload/route_passports/';
+    db({ named: [{
+      ...waterfall, distance_note: 'в обе стороны',
+      registry_passports: [
+        { url: `${P}vilyuchinsky_waterfall_summer.pdf`, km: 4, side: 'в обе стороны', label: 'летний' },
+        { url: `${P}vilyuchinsky_waterfall_winter.pdf`, km: 4, side: 'в обе стороны', label: 'зимний' },
+      ],
+    }] });
+    const text = await executeKuzmichTool('get_place_info', { name: 'Вилючинский водопад' }, { surface: 'mcp' });
+    expect(text).toContain('«Вилючинский водопад»: дистанция 1.9 км в обе стороны · набор высоты 325 м · сложность easy. '
+      + 'В обоих официальных паспортах — 4 км в обе стороны; маршрут в паспорте может отличаться от этого маршрута каталога — '
+      + `летний паспорт (PDF): ${P}vilyuchinsky_waterfall_summer.pdf, зимний паспорт (PDF): ${P}vilyuchinsky_waterfall_winter.pdf`);
+  });
+
   it('место есть — ссылка на место, как прежде; каталог маршрутов не спрашивается', async () => {
     db({ places: [{ id: 'place-1' }] });
     expect(await handoffTargetForTool('get_guardian_context', { place: 'Вилючинский водопад' }))
@@ -240,6 +255,21 @@ describe('fetch("route:…"): оценка на день с датой', () => {
     const bare = await fetchDocument('route:vilyuchinskij-vodopad', 'https://vedarai.ru');
     expect(bare.text).toContain('Дистанция: 1.9 км');
     expect(bare.text).not.toContain('стороны');
+  });
+
+  it('паспорт реестра — строкой сразу после длины; читается из таблицы (#3568, «1 да»)', async () => {
+    const P = 'https://visitkamchatka.ru/upload/route_passports/';
+    db({ viewRoute: [{ ...viewRoute, registry_passports: [
+      { url: `${P}vilyuchinsky_waterfall_summer.pdf`, km: 4, side: 'в обе стороны', label: 'летний' },
+      { url: `${P}vilyuchinsky_waterfall_winter.pdf`, km: 4, side: 'в обе стороны', label: 'зимний' },
+    ] }] });
+    const doc = await fetchDocument('route:vilyuchinskij-vodopad', 'https://vedarai.ru');
+    expect(doc.text).toContain('Дистанция: 1.9 км\nВ обоих официальных паспортах — 4 км в обе стороны; '
+      + 'маршрут в паспорте может отличаться от этого маршрута каталога — '
+      + `летний паспорт (PDF): ${P}vilyuchinsky_waterfall_summer.pdf, зимний паспорт (PDF): ${P}vilyuchinsky_waterfall_winter.pdf\n`);
+
+    db({ viewRoute: [viewRoute] });
+    expect((await fetchDocument('route:vilyuchinskij-vodopad', 'https://vedarai.ru')).text).not.toContain('паспорт');
   });
 
   it('спокойный день — «Идти» и «не гарантия безопасности»; сбой чтения предупреждений — «Осторожно», не «Идти»', async () => {
