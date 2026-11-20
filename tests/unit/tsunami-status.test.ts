@@ -318,6 +318,38 @@ describe('сгонно-нагонные явления — не цунами (19
     expect(classifyMchsItem('mchs/surge-wave', SURGE_TITLE, wave, PUB, 'https://x')?.alert_type).toBe('tsunami_warning');
   });
 
+  // Ревью безопасности #3546: первая редакция отпускала всё, кроме «объявлена
+  // угроза цунами», и пост о нагоне со словами «УГРОЗА ЦУНАМИ!» становился
+  // погодой без пуша.
+  for (const alarm of [
+    'УГРОЗА ЦУНАМИ! Жителям побережья подняться на высоту не менее 30 м.',
+    'Тревога цунами.',
+    'Ожидается цунами.',
+    'Возможна угроза цунами.',
+    'Внимание, цунами: уходите от берега.',
+  ]) {
+    it(`угроза цунами в тексте поста о нагоне — цунами: «${alarm}»`, () => {
+      const text = `${SURGE_TEXT} ${alarm}`;
+      expect(isStormSurgeNotTsunami(SURGE_TITLE, text)).toBe(false);
+      const e = classifyMchsItem('mchs/surge-real', SURGE_TITLE, text, PUB, 'https://x');
+      expect(e?.alert_type).toBe('tsunami_warning');
+      expect(e?.severity).toBe(3);
+    });
+  }
+
+  it('условная оговорка памятки и название зоны — не угроза цунами', () => {
+    for (const memo of [
+      'В случае угрозы цунами поднимитесь на высоту.',
+      'При объявлении угрозы цунами уходите от берега.',
+      'При цунами поднимитесь на возвышенность.',
+      'Не заходите в цунамиопасные зоны.',
+    ]) {
+      const text = `По данным Камчатского УГМС ожидаются сгонно-нагонные явления, подъём уровня воды до 1 м. ${memo}`;
+      expect(tsunamiStatus(text)).toBe('warning');
+      expect(isStormSurgeNotTsunami(SURGE_TITLE, text)).toBe(true);
+    }
+  });
+
   it('заголовок, назвавший цунами, правилом нагона не судится', () => {
     const title = 'Угроза цунами и нагонные явления';
     expect(isStormSurgeNotTsunami(title, SURGE_TEXT)).toBe(false);

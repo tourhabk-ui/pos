@@ -600,9 +600,10 @@ withPg('дедуп external_alerts на настоящем PostgreSQL', () => {
       const after = new Map((await read()).map((r) => [r.external_id, r]));
       expect(after.get('mig1467/old')).toMatchObject({ alert_type: 'tsunami_warning', ended_by: 'admin', live: false });
       expect(after.get('mig1467/now')).toMatchObject({ alert_type: 'weather', severity: 1, ended_by: null, live: true, after_21: true });
-      // Другой пост о нагоне — weather со своим сроком: дата ему не дописывается.
-      expect(after.get('mig1467/other')).toMatchObject({ alert_type: 'weather', severity: 1, ended_by: null, live: true });
-      expect(after.get('mig1467/other2')).toMatchObject({ alert_type: 'weather', severity: 1, ended_by: null, live: true });
+      // Миграция трогает только две известные строки: другой пост о нагоне —
+      // не её дело (ревью безопасности #3546: общего правила в SQL нет).
+      expect(after.get('mig1467/other')).toMatchObject({ alert_type: 'tsunami_warning', severity: 3, ended_by: null, live: true });
+      expect(after.get('mig1467/other2')).toMatchObject({ alert_type: 'tsunami_warning', severity: 3, ended_by: null, live: true });
       // Нагон в заголовке, но в тексте объявлена угроза цунами — остаётся цунами.
       expect(after.get('mig1467/alarm')).toMatchObject({ alert_type: 'tsunami_warning', severity: 3, ended_by: null, live: true });
       expect(after.get('mig1467/real')).toMatchObject({ alert_type: 'tsunami_warning', severity: 3, ended_by: null, live: true });
