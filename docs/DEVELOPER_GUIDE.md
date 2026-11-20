@@ -369,7 +369,9 @@ PostgreSQL) — только при изменении `*.ts/tsx/js/mjs`. Мар
 ### 4.7а WebMCP — инструменты Ведара на странице
 
 Агент, встроенный в Chrome, видит инструменты страницы через
-`document.modelContext` (черновик W3C CG, пробный запуск Chrome 149–156).
+`document.modelContext` (черновик W3C CG; пробный запуск Chrome 149–156,
+продлён до 162 на компьютере; версия выхода в обычный Chrome не названа —
+Chrome Status, запись от 11.11.2026).
 `components/shared/WebMcpTools.tsx` в корневом макете регистрирует шесть
 инструментов чтения (`WEBMCP_TOOL_NAMES`, `lib/webmcp/page-tools.ts`): описание
 и схема — из `tools/list` нашего `/api/mcp`, вызов — его же `tools/call`.
@@ -379,6 +381,10 @@ PostgreSQL) — только при изменении `*.ts/tsx/js/mjs`. Мар
 запроса, ни ошибки; на сайте партнёра инструментов и ключа нет. Ключ пробного
 запуска — переменная `WEBMCP_ORIGIN_TRIAL_TOKEN` (пусто — тега нет). Сторожа:
 `tests/unit/webmcp-page-tools.test.ts`, `tests/unit/webmcp-form-attrs.test.tsx`.
+Тег ключа на проде (проверено 20.11.2026 запросом страниц): `/`, `/catalog`,
+карточка тура, `/contact`, `/mcp`, карточки мест и маршрутов. Живой Chrome с
+WebMCP ещё не открывали — наличие `document.modelContext` и шести инструментов
+в браузере не проверено (#3563).
 
 ### 4.8 Сторожа — как читать падение
 
