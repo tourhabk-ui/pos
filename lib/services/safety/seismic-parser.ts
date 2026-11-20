@@ -1553,20 +1553,24 @@ export function volcanoesNamedIn(text: string): Array<{ key: string; zones: stri
 }
 
 /**
- * Граница у вершины: «ближе 10 км», «в радиусе не более, чем на 10 км»,
- * «10 км от вершины». Только рядом со словом о подходе (APPROACH_WORD):
- * «пепел до 10 км» — высота выброса, а не граница.
+ * Граница у вершины: число километров стоит при словах о подходе, а не где-то
+ * в той же фразе (ревью безопасности #3558: «пеплопад в радиусе 30 км, не
+ * рекомендуется приближаться» — радиус пеплопада и запрет, а не граница).
+ *   «не приближаться к вершине ближе 10 км» — «ближе N км» при слове о подходе;
+ *   «разрешено приближение радиусе не более, чем на 10 км» — радиус сразу за
+ *     словом о подходе;
+ *   «подходить не более чем на 5 км от вершины» — «N км от вершины» после него;
+ *   «ближе 10 км к вершине не подходить» — то же, слово о подходе после.
  */
 const SUMMIT_RADIUS_RES: readonly RegExp[] = [
-  /ближе\s+(\d+(?:[.,]\d+)?)\s*км/iu,
-  /радиус[а-яё]*[^.!?\d]{0,40}?(\d+(?:[.,]\d+)?)\s*км/iu,
-  /(\d+(?:[.,]\d+)?)\s*км\s+(?:от|к|до)\s+вершин/iu,
+  /(?:приближ|подход)[а-яё]*[^.!?\d]{0,40}?ближе\s+(\d+(?:[.,]\d+)?)\s*км/iu,
+  /ближе\s+(\d+(?:[.,]\d+)?)\s*км[^.!?\d]{0,25}?(?:приближ|подход)/iu,
+  /(?:приближ|подход)[а-яё]*\s+(?:в\s+)?радиус[а-яё]*[^.!?\d]{0,30}?(\d+(?:[.,]\d+)?)\s*км/iu,
+  /(?:приближ|подход)[а-яё]*[^.!?\d]{0,40}?(\d+(?:[.,]\d+)?)\s*км\s+(?:от|до)\s+вершин/iu,
 ];
-const APPROACH_WORD = /приближ|подход|ближе/iu;
 
 /** Граница у вершины в километрах, как её написал источник; null — фраза её не называет. */
 export function summitRadiusKm(sentence: string): string | null {
-  if (!APPROACH_WORD.test(sentence)) return null;
   for (const re of SUMMIT_RADIUS_RES) {
     const km = re.exec(sentence)?.[1];
     if (km) return km.replace('.', ',');
@@ -1615,7 +1619,9 @@ export function approachVolcanoEvents(
     !AMBIGUOUS_VOLCANO_KEYS.has(hit.key) || textNamesAVolcano(item)
   ));
 
-  // Фразы с границей у вершины и их вулканы.
+  // Фразы с границей у вершины и их вулканы. Граница — только у фразы об
+  // одном вулкане (своём или предыдущей фразы): «Шивелуч и Ключевской — …»
+  // одной границей двоим не раздаётся, там работает прежнее правило запрета.
   const radius = new Map<string, { km: string; text: string[] }>();
   const radiusSentences = new Set<number>();
   const sentences = sentencesOf(item);
@@ -1628,17 +1634,23 @@ export function approachVolcanoEvents(
       hits = named(sentences[i - 1]);
       text = [sentences[i - 1], sentence];
     }
-    if (hits.length === 0) return;
+    if (hits.length !== 1) return;
     radiusSentences.add(i);
-    for (const { key } of hits) {
-      if (!radius.has(key)) radius.set(key, { km, text });
-    }
+    if (!radius.has(hits[0].key)) radius.set(hits[0].key, { km, text });
   });
 
-  // Запрет — по строке без фраз границы: «не приближаться … ближе 10 км» сам
-  // по себе не запрет всем вулканам строки.
-  const rest = sentences.filter((_, i) => !radiusSentences.has(i)).join(' ');
-  const ban = APPROACH_BAN.test(rest);
+  // Запрет — по фразам без границы: «не приближаться … ближе 10 км» сам по
+  // себе не запрет всем вулканам строки.
+  const banSentences = sentences.filter((s, i) => !radiusSentences.has(i) && APPROACH_BAN.test(s));
+  const ban = banSentences.length > 0;
+  // Строже — запрет: вулкан, названный во фразе-запрете, получает запрет, даже
+  // если другая фраза дала ему границу. Фраза-запрет без имени («не
+  // рекомендуется приближаться к вулканам») касается всех вулканов строки.
+  const bannedByName = new Set(banSentences.flatMap((s) => {
+    const inBan = named(s);
+    return (inBan.length > 0 ? inBan : named(item)).map(({ key }) => key);
+  }));
+  for (const key of [...radius.keys()]) if (bannedByName.has(key)) radius.delete(key);
   // Порядок — как у вулканов в строке до 20.11 (volcanoesNamedIn).
   const hits = named(item).filter(({ key }) => radius.has(key) || ban);
   if (hits.length === 0) return [];
@@ -1658,7 +1670,7 @@ export function approachVolcanoEvents(
       title: bound ? summitRadiusTitle(volcanoLabel(key), bound.km) : `Вулкан ${volcanoLabel(key)}: не приближаться`,
       // У запрета — строка без чужих фраз границы: «Шивелуч — разрешено …»
       // в описании запрета Мутновского читалось бы как условие Мутновского.
-      description: (bound ? bound.text.join(' ') : radiusSentences.size > 0 ? rest : item).slice(0, 800),
+      description: (bound ? bound.text.join(' ') : radius.size > 0 ? sentences.filter((_, i) => !radiusSentences.has(i)).join(' ') : item).slice(0, 800),
       affected_zones: zones,
       volcano_name: volcanoLabel(key),
       volcano_scope: 'named' as const,
