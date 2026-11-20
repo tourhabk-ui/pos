@@ -160,7 +160,7 @@ async function getRouteRaw(idOrSlug: string) {
                          AND ${shownPhotoSql('ai.model')}) AS has_real_photo,
               -- Факты маршрута для сниппета (lib/seo/place-meta): во VIEW их
               -- нет (payload — это metadata), берём из мастер-таблицы.
-              kr.zone AS kr_zone, kr.distance_km, kr.duration_hours, kr.duration_days AS kr_duration_days,
+              kr.zone AS kr_zone, kr.distance_km, kr.distance_note, kr.duration_hours, kr.duration_days AS kr_duration_days,
               kr.elevation_gain_m, kr.difficulty AS kr_difficulty, kr.season AS kr_season,
               kr.mchs_registration_required, kr.park_name AS kr_park_name, kr.elevation_max_m,
               -- Последняя правка записи маршрута — для dateModified и видимой
@@ -206,6 +206,7 @@ async function getRouteRaw(idOrSlug: string) {
       difficulty: payloadText(payload.difficulty) ?? payloadText(r.kr_difficulty),
       zone: (r.kr_zone as string | null) ?? null,
       distanceKm: r.distance_km != null ? Number(r.distance_km) : null,
+      distanceNote: (r.distance_note as string | null) ?? null,
       durationHours: r.duration_hours != null ? Number(r.duration_hours) : null,
       elevationGainM: r.elevation_gain_m != null ? Number(r.elevation_gain_m) : null,
       mchsRequired: r.mchs_registration_required === true,
@@ -285,6 +286,7 @@ export async function generateMetadata({ params }: Props): Promise<Metadata> {
     title: route.title,
     zone: route.zone,
     distanceKm: route.distanceKm,
+    distanceNote: route.distanceNote,
     durationHours: route.durationHours,
     durationDays: route.durationDays,
     elevationGainM: route.elevationGainM,
