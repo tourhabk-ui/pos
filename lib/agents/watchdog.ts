@@ -1820,7 +1820,7 @@ export function mcpSilenceIssue(input: {
     details:
       `MCP-канал молчит: с публикации в каталогах (${MCP_CATALOG_LAUNCH_DATE}) ни одного вызова ` +
       `инструментов в mcp_tool_calls — ни чужого, ни нашего. Эндпоинт и каталоги здесь ни при чём, ` +
-      `вопрос в том, кто и как ищет: реестр, Smithery, Glama, список awesome-remote. Срез: /hub/admin/mcp.`,
+      `вопрос в том, кто и как ищет: реестр, Glama, список awesome-remote. Срез: /hub/admin/mcp.`,
   };
 }
 
