@@ -137,3 +137,13 @@ describe('автор снимков — один раз', () => {
     expect(tourPhotoCreditLine(['Фото: А. Б. Петров', 'Фото: Второй'])).toBe('Фото: А. Б. Петров, Второй');
   });
 });
+
+describe('«Вас заберут» не обещает бесплатной дороги', () => {
+  it('строка без «своим ходом добираться не нужно» — трансфер может быть платным (слово владельца 20.11 «1 да»)', () => {
+    const { container } = render(<TourDetailClient tour={{ ...TOUR, not_included: ['Трансфер до базы и обратно — от 7 000 ₽'] }} reviews={[]} />);
+    expect(container.textContent).toContain('Оператор забирает туриста сам.');
+    expect(container.textContent).not.toContain('своим ходом добираться не нужно');
+    expect(container.textContent).toContain('Трансфер до базы и обратно — от 7 000 ₽');
+    cleanup();
+  });
+});
