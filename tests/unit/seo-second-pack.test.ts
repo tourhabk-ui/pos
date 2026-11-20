@@ -23,6 +23,14 @@ describe('разметка организации и сайта', () => {
   });
 });
 
+describe('хлебные крошки /fish', () => {
+  it('справочник рыб выводит BreadcrumbList', () => {
+    const src = read('app/fish/page.tsx');
+    expect(src).toContain('BreadcrumbJsonLd');
+    expect(src).toContain("url: 'https://vedarai.ru/fish' }");
+  });
+});
+
 describe('хлебные крошки парка', () => {
   it('карточка парка выводит BreadcrumbList до /park', () => {
     const src = read('app/park/[slug]/page.tsx');
