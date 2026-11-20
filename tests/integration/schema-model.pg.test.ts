@@ -364,6 +364,10 @@ withPg('объектив схемы на настоящем PostgreSQL', () => {
       await pool.query(`INSERT INTO agent_memory (agent_id, memory_type, key, value, expires_at) VALUES
         ('evo', 'intelligence', 'purge-live', '{}', NOW() + INTERVAL '1 day'),
         ('evo', 'intelligence', 'purge-forever', '{}', NULL)`);
+      // Черновики заявок ИИ-агентов (#3573): просроченный с именем и телефоном — удаляется, живой — остаётся.
+      await pool.query(`INSERT INTO mcp_pending_requests (token_hash, tool, args, draft_text, expires_at) VALUES
+        ('purge-pending-old', 'create_lead', '{"name":"Тест","phone":"+70000000000"}', 'черновик', NOW() - INTERVAL '2 hours'),
+        ('purge-pending-live', 'create_lead', '{"name":"Тест","phone":"+70000000001"}', 'черновик', NOW() + INTERVAL '30 minutes')`);
 
       const query = (sql: string, params: unknown[]) => pool.query(sql, params);
       const run = await runRetentionPurge(query, { apply: true });
@@ -372,6 +376,9 @@ withPg('объектив схемы на настоящем PostgreSQL', () => {
       expect(mem.rows.map((r) => r.key)).toEqual(['purge-forever', 'purge-live']);
       expect((await pool.query('SELECT 1 FROM agent_memory_edits WHERE memory_id = $1::uuid', [expired.id])).rowCount).toBe(0);
       expect(run.rows.find((r) => r.table === 'agent_memory')).toMatchObject({ state: 'ok', rows: 1 });
+      const pending = await pool.query<{ token_hash: string }>(`SELECT token_hash FROM mcp_pending_requests WHERE token_hash LIKE 'purge-pending-%'`);
+      expect(pending.rows.map((r) => r.token_hash)).toEqual(['purge-pending-live']);
+      expect(run.rows.find((r) => r.table === 'mcp_pending_requests')).toMatchObject({ state: 'ok', rows: 1 });
 
       const rag = await pool.query<{ query: string }>('SELECT query FROM rag_quality_log ORDER BY created_at');
       expect(rag.rows.map((r) => r.query)).toEqual(['свежий вопрос']);

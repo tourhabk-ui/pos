@@ -46,7 +46,7 @@ export default function PrivacyPageEn() {
             <Link href="/legal/privacy" hrefLang="ru" lang="ru" className="text-[var(--ocean)] hover:underline">vedarai.ru/legal/privacy</Link>.
             Company details are given as registered, in Russian.
           </p>
-          <p className="text-sm text-[var(--text-muted)]">Version of 16 November 2026. Effective upon publication.</p>
+          <p className="text-sm text-[var(--text-muted)]">Version of 20 November 2026. Effective upon publication.</p>
 
           <section>
             <h2 className={h2}>1. General provisions</h2>
@@ -250,6 +250,80 @@ export default function PrivacyPageEn() {
               by the recognition model as they are. Therefore such requests are not fully anonymised: do not
               write in the chat anything you are not prepared to share.
             </p>
+
+            <h3 id="alice" className="text-lg font-semibold text-[var(--text-primary)] mt-6 mb-3">
+              Alice AI and the Yandex plugin platform
+            </h3>
+            <p>
+              If you use Vedar through Alice AI, a service of Yandex LLC, Alice calls Vedar’s tools through
+              the programming interface for AI agents (MCP) at <code>https://vedarai.ru/api/mcp</code>. Other
+              AI agents use the same interface; everything below applies to them as well.
+            </p>
+            <p>
+              <strong>What Vedar receives.</strong> Not your conversation with Alice, but a tool call: the
+              tool name and the parameters Alice composed from your question, such as search words, a place,
+              dates and the number of people. For a request, also the name, phone number and comment, if you
+              gave them to Alice. What goes into a free-text field (search words, comment) is decided by
+              Alice: it may include what you wrote about yourself. Each call also carries an IP address and
+              the name of the calling program. Vedar does not ask for your Yandex account data, and no Vedar
+              account is needed.
+            </p>
+            <p>
+              <strong>A request is not sent by itself.</strong> A request call saves a draft and returns a
+              link to a Vedar page. There you see what will be sent and to whom, give your consent to the
+              processing of personal data yourself and press “Send”. Vedar does not accept consent passed on
+              by an AI agent. A request is not a booking: the provider confirms it.
+            </p>
+            <p><strong>Who receives the data.</strong></p>
+            <ul className="list-disc pl-6 space-y-1 text-sm">
+              <li>
+                Yandex LLC receives Vedar’s answers to Alice’s calls. Vedar builds them from its own
+                database: tours, places, conditions, free dates. The answers contain no information about other
+                tourists; the answer to a request does not repeat your phone number. Yandex processes your
+                conversation with Alice under its own rules.
+              </li>
+              <li>
+                The provider of the request (tour operator, guide, carrier, accommodation host or rental
+                company) receives it only after you send it on the Vedar page. A request without a named
+                provider is seen by the tour operators on Vedar’s storefront, as stated above.
+              </li>
+              <li>Vedar staff receive a notification about the request via MAX, as stated above.</li>
+              <li>
+                External language models. No model is used when a tool is called: the answer is built from
+                the database. After a request is sent, its comment may go to a model, for machine translation
+                for the provider if it is not written in Russian, and for analysing the request and selecting
+                tours for it. Before that, phone numbers and email addresses are removed from the text; the
+                name and phone number from the request fields are not passed to the model.
+              </li>
+            </ul>
+            <p><strong>Legal bases and retention periods.</strong></p>
+            <ul className="list-disc pl-6 space-y-1 text-sm">
+              <li>
+                A request draft (name, phone number, comment and the other parameters) is processed as steps
+                you started yourself to conclude a contract (clause 5, part 1, Article 6 of 152-FZ). It is not
+                passed to anyone, and the link is valid for 60 minutes. When the request is sent, the name and
+                phone number are erased from the draft at once; a draft that was not sent is deleted after the
+                link expires, when the next draft is written or by the daily retention cleanup.
+              </li>
+              <li>
+                A sent request is processed with your consent (clause 1, part 1, Article 6 of 152-FZ) and kept
+                like a request from a website form: 3 years from its last change (section 4).
+              </li>
+              <li>
+                The log of calls to the interface is kept to run and protect the service (clause 7, part 1,
+                Article 6 of 152-FZ). It holds the tool name, the outcome, the duration, a daily hash of the
+                caller (computed from the IP address and the program name with a secret salt; the IP address
+                itself is not recorded) and the main call parameter: its name always, its value only for
+                tools that read. The name of the calling program and the same hash are also recorded per day.
+                After 90 days the hash and the parameter value are erased and the per-day records are deleted
+                (section 4).
+              </li>
+              <li>
+                To limit the number of requests from one number, Vedar keeps a hash of the phone number, not
+                the number itself. These records are deleted after 30 days when the next request arrives, and no
+                later than after 90 days, like technical logs (section 4).
+              </li>
+            </ul>
           </section>
 
           <section>
