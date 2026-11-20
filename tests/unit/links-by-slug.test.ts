@@ -50,7 +50,10 @@ describe('источники ссылок отдают ЧПУ', () => {
   });
 
   it('карточки каталога ссылаются через catalogHref', () => {
-    expect(code('components/routes/PlaceCard.tsx').match(/route\.href \?\? catalogHref\(route, '\/places'\)/g)).toHaveLength(2);
+    // Адрес места считается один раз (`placeHref`) и идёт во все ссылки
+    // плитки — фото, название и строку туров (20.11). Что ссылки ведут по
+    // ЧПУ, судит рендер: tests/unit/place-card-tours.test.tsx.
+    expect(code('components/routes/PlaceCard.tsx').match(/route\.href \?\? catalogHref\(route, '\/places'\)/g)).toHaveLength(1);
     expect(code('components/routes/RoutePathCard.tsx').match(/route\.href \?\? catalogHref\(route, '\/routes'\)/g)).toHaveLength(2);
     expect(code('components/routes/RouteCard.tsx')).toMatch(/route\.href \?\? catalogHref\(route, '\/routes'\)/);
   });

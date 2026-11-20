@@ -23,6 +23,7 @@ import { shownPhotoSql } from '@/lib/images/origin';
 // что перепись рассказывала владельцу про градиент.
 import { cardImage } from '@/lib/routes/card-image';
 import { placeOnLiveRouteSql } from '@/lib/places/on-route';
+import { loadPlaceTourCounts } from '@/lib/places/place-tours';
 import { stripFillerLead } from '@/lib/text/filler-lead';
 import { arkUrlSlugSql } from '@/lib/routes/url-slug';
 import { PLACE_TYPE_PARAM } from '@/lib/routes/place-type-param';
@@ -171,6 +172,12 @@ export interface CatalogItem {
    * это место.
    */
   tourPrice: RouteTourPrice | null;
+  /**
+   * Сколько туров витрины идут к месту — тем же отбором, что блок «Туры к
+   * этому месту» на его странице (lib/places/place-tours). 0 — туров нет;
+   * null — не место или число не прочиталось (плитка тогда молчит о турах).
+   */
+  placeTours: number | null;
   season: string | null;
   difficulty: string | null;
   durationDays: number | null;
@@ -552,7 +559,8 @@ export async function queryCatalog(filters: CatalogFilters): Promise<CatalogResu
       sourceUrl:    (r.source_url as string | null) ?? null,
       sourceName:   (r.source_name as string | null) ?? null,
       tourPrice:    routeTourPriceOf(r.tour_price_from, r.priced_tours),
-      season:       (r.season as string | null) ?? null,
+      placeTours:   null,
+      season:      (r.season as string | null) ?? null,
       difficulty:   (r.difficulty as string | null) ?? null,
       durationDays: r.duration_days != null ? Number(r.duration_days) : null,
       bestMonths:   (r.best_months as number[] | null) ?? null,
@@ -576,6 +584,18 @@ export async function queryCatalog(filters: CatalogFilters): Promise<CatalogResu
       zone:    typeof r.zone === 'string' && r.zone.trim() !== '' ? r.zone.trim() : null,
     };
   });
+
+  // Туры к местам страницы — отдельным запросом (слово владельца 20.11):
+  // сбой счёта не роняет каталог, а только оставляет плитки без строки о
+  // турах (null, причина в логе загрузчика).
+  const placeIds = items.filter((it) => it.kind === 'place').map((it) => it.id);
+  if (placeIds.length > 0) {
+    const counts = await loadPlaceTourCounts(placeIds);
+    for (const it of items) {
+      if (it.kind !== 'place') continue;
+      it.placeTours = counts.state === 'ok' ? (counts.counts.get(it.id) ?? 0) : null;
+    }
+  }
 
   return {
     items,

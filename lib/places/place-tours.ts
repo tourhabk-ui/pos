@@ -87,6 +87,31 @@ export type PlaceToursResult =
  * `DISTINCT ON`, чтобы из нескольких связей тура с местом осталась самая
  * сильная (главное место → точка пути → не размечено).
  */
+/**
+ * Связи «тур — место» для места `placeId` (places.id — параметр или колонка
+ * внешнего запроса): строки `(tour_id, link_kind)`. Одна на карточку места и
+ * на число туров в плитке каталога: две копии отбора разошлись бы, и плитка
+ * назвала бы не то число, что блок на странице места.
+ */
+function placeTourLinksSql(placeId: string): string {
+  return `(
+      SELECT ot_r.id AS tour_id, COALESCE(to_jsonb(rw)->>'link_kind', 'unknown') AS link_kind
+        FROM route_waypoints rw
+        JOIN kamchatka_routes kr ON kr.id = rw.route_id
+        JOIN operator_tours ot_r ON ot_r.route_id = kr.id
+       WHERE rw.place_id = ${placeId}
+         AND kr.merged_into_id IS NULL
+         -- «Туры сюда» — только по маршрутам, которые сюда ИДУТ (03.10):
+         -- связь «рядом» (§4.1, миграция 167) приводила на карточку тур к
+         -- месту в 15 км от центра своего маршрута.
+         AND COALESCE(to_jsonb(rw)->>'link_kind', 'unknown') <> 'nearby'
+      UNION ALL
+      SELECT ot_m.id, 'main_place'
+        FROM operator_tours ot_m
+       WHERE ot_m.main_place_id = ${placeId}
+    )`;
+}
+
 export const PLACE_TOURS_SQL = `
   SELECT DISTINCT ON (ot.id)
          ot.id::text AS id, ot.slug, ot.title,
@@ -98,22 +123,7 @@ export const PLACE_TOURS_SQL = `
          ${nearestFreeDateSql('ot')} AS nearest_free_date, ${anyDayOpenSql('ot')} AS any_day_open,
          ${keepsScheduleSql('ot.id')} AS keeps_schedule,
          link.link_kind
-    FROM (
-      SELECT ot_r.id AS tour_id, COALESCE(to_jsonb(rw)->>'link_kind', 'unknown') AS link_kind
-        FROM route_waypoints rw
-        JOIN kamchatka_routes kr ON kr.id = rw.route_id
-        JOIN operator_tours ot_r ON ot_r.route_id = kr.id
-       WHERE rw.place_id = $1
-         AND kr.merged_into_id IS NULL
-         -- «Туры сюда» — только по маршрутам, которые сюда ИДУТ (03.10):
-         -- связь «рядом» (§4.1, миграция 167) приводила на карточку тур к
-         -- месту в 15 км от центра своего маршрута.
-         AND COALESCE(to_jsonb(rw)->>'link_kind', 'unknown') <> 'nearby'
-      UNION ALL
-      SELECT ot_m.id, 'main_place'
-        FROM operator_tours ot_m
-       WHERE ot_m.main_place_id = $1
-    ) link
+    FROM ${placeTourLinksSql('$1')} link
     JOIN operator_tours ot ON ot.id = link.tour_id
     JOIN partners p ON p.id = ot.operator_id
    -- Шлюз витрины, а не копия флагов (15.10): копия не смотрела deleted_at.
@@ -191,6 +201,52 @@ export async function loadPlaceTours(placePk: string, opts?: { now?: Date }): Pr
 /** Связь «тур идёт к этому месту»: главное место или точка пути маршрута. */
 export function goesToPlace(o: Pick<PlaceTourOffer, 'linkKind'>): boolean {
   return o.linkKind === 'main_place' || o.linkKind === 'waypoint';
+}
+
+// ── Число туров к месту для плиток каталога (слово владельца 20.11) ──────
+
+/**
+ * Сколько туров витрины идут к каждому месту списка — тем же отбором, что
+ * блок «Туры к этому месту» на странице места: те же связи
+ * (`placeTourLinksSql`), тот же шлюз витрины, только связь «к этому месту»
+ * (`goesToPlace`: главное место или точка пути). Туры по маршрутам с
+ * неразмеченной связью в число не входят — на странице они идут отдельным
+ * блоком с оговоркой. `$1` — номера мест в каталоге (`places.ark_id`).
+ * Места без таких туров в ответ не попадают.
+ */
+export const PLACE_TOUR_COUNTS_SQL = `
+  SELECT pt.ark_id::text AS ark_id, COUNT(DISTINCT ot.id)::int AS tours
+    FROM places pt
+    CROSS JOIN LATERAL ${placeTourLinksSql('pt.id')} link
+    JOIN operator_tours ot ON ot.id = link.tour_id
+    JOIN partners p ON p.id = ot.operator_id
+   WHERE pt.ark_id = ANY($1::uuid[])
+     AND link.link_kind IN ('main_place', 'waypoint')
+     AND ${publicTourSql('ot')}
+   GROUP BY pt.ark_id`;
+
+export type PlaceTourCounts =
+  | { state: 'ok'; counts: Map<string, number> }
+  | { state: 'failed' };
+
+/**
+ * Число туров к местам списка одним запросом. Сбой — `failed` и причина в
+ * логе: плитки тогда молчат о турах, а не говорят «туров нет» (§4.0).
+ */
+export async function loadPlaceTourCounts(arkIds: string[]): Promise<PlaceTourCounts> {
+  if (arkIds.length === 0) return { state: 'ok', counts: new Map() };
+  try {
+    const { rows } = await pool.query<{ ark_id: string; tours: number }>(PLACE_TOUR_COUNTS_SQL, [arkIds]);
+    return { state: 'ok', counts: new Map(rows.map((r) => [r.ark_id, Number(r.tours)])) };
+  } catch (err) {
+    const code = (err as { code?: unknown })?.code;
+    console.error('[place-tours] число туров мест не прочитано', {
+      places: arkIds.length,
+      sqlstate: typeof code === 'string' ? logText(code, 10) : null,
+      message: logText(err instanceof Error ? err.message : err, 200),
+    });
+    return { state: 'failed' };
+  }
 }
 
 /**
