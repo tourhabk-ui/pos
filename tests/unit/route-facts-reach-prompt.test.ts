@@ -76,10 +76,14 @@ describe('незнание не выдаётся за «нет»', () => {
     expect(lines.join('\n')).not.toMatch(/МЧС/);
   });
 
-  it('регистрация обязательна — сказано заглавными и с телефоном', async () => {
+  it('регистрация обязательна — заглавными; непроверенный телефон из базы не печатается (#3179 п.1)', async () => {
     const lines = await facts({ mchs_registration_required: true, mchs_phone: '+7 415 000' });
-    expect(lines[0]).toContain('ОБЯЗАТЕЛЬНА');
-    expect(lines[0]).toContain('+7 415 000');
+    expect(lines[0]).toBe('Регистрация в МЧС: ОБЯЗАТЕЛЬНА');
+  });
+
+  it('регистрация обязательна — проверенный номер (ЦУКС) печатается с названием линии', async () => {
+    const lines = await facts({ mchs_registration_required: true, mchs_phone: '+74152301081' });
+    expect(lines[0]).toContain('ОБЯЗАТЕЛЬНА, телефон +7 (4152) 30-10-81 (ЦУКС ГУ МЧС Камчатки');
   });
 
   it('регистрация false — тоже незнание: у колонки DEFAULT false (миграция 933), «не требуется» не печатается', async () => {
