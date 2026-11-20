@@ -2,7 +2,6 @@ import type { Metadata } from 'next';
 import Link from 'next/link';
 import { ChevronRight, Rss } from 'lucide-react';
 import { Header } from '@/components/layout/Header';
-import { Footer } from '@/components/layout/Footer';
 import { pool } from '@/lib/db-pool';
 import { stripTags } from '@/lib/html/text';
 import { BLOG_DIGEST_SCOPE_SQL } from '@/lib/blog/digest-scope';
@@ -328,7 +327,6 @@ export default async function BlogPage() {
         </section>
 
       </main>
-      <Footer />
     </>
   );
 }

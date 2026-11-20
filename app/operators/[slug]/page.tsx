@@ -4,7 +4,6 @@ import Link from 'next/link';
 import { notFound, permanentRedirect } from 'next/navigation';
 import { ChevronRight, MapPin, ShieldCheck, BadgeCheck, Fish, Home, Calendar, Users, Star, Shield, Phone, Send } from 'lucide-react';
 import { Header } from '@/components/layout/Header';
-import { Footer } from '@/components/layout/Footer';
 import { OperatorRating } from '@/components/operator/OperatorRating';
 import { query } from '@/lib/database';
 import type { OperatorProfileRow, OperatorPageTourRow } from '@/lib/types/db-rows';
@@ -489,7 +488,6 @@ export default async function OperatorProfilePage(
 
         </div>
       </main>
-      <Footer />
     </div>
   );
 }

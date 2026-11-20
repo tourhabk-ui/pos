@@ -4,7 +4,6 @@ import { notFound } from 'next/navigation';
 import Link from 'next/link';
 import { ArrowLeft, Calendar, Tag } from 'lucide-react';
 import { Header } from '@/components/layout/Header';
-import { Footer } from '@/components/layout/Footer';
 import { pool } from '@/lib/db-pool';
 import { SHOWN_STATIC_ARTICLES } from '@/app/blog/page';
 import { BLOG_DIGEST_SCOPE_SQL } from '@/lib/blog/digest-scope';
@@ -135,7 +134,6 @@ export default async function BlogPostPage({ params }: Props) {
             </div>
           </article>
         </main>
-        <Footer />
       </>
     );
   }
@@ -184,7 +182,6 @@ export default async function BlogPostPage({ params }: Props) {
           </div>
         </article>
       </main>
-      <Footer />
     </>
   );
 }

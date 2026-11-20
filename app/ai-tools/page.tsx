@@ -1,6 +1,5 @@
 import type { Metadata } from 'next';
 import { Header } from '@/components/layout/Header';
-import { Footer } from '@/components/layout/Footer';
 import { defaultOgImages } from '@/lib/seo/og-image';
 import { TravelAppsList } from '@/components/travel-apps/TravelAppsList';
 import { listTravelApps, type ExternalTool } from '@/lib/agents/tools/taaft-search';
@@ -36,7 +35,6 @@ export default async function TravelAppsPage() {
       <main className="flex-1 pt-[56px]">
         <TravelAppsList apps={apps} />
       </main>
-      <Footer />
     </div>
   );
 }

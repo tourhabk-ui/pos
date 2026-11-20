@@ -24,7 +24,6 @@ import Image from 'next/image';
 import Link from 'next/link';
 import { Car, ChevronRight, ShieldCheck, Phone, Send, MessageCircle } from 'lucide-react';
 import { Header } from '@/components/layout/Header';
-import { Footer } from '@/components/layout/Footer';
 import { LazyClip } from '@/components/media/LazyClip';
 import { HazardBadgeStrip } from '@/components/shared/HazardBadgeStrip';
 import { CharterPhotos } from '@/components/transfers/CharterPhotos';
@@ -339,7 +338,6 @@ export function CarrierPage({ data, orderTo }: { data: CarrierPageData; orderTo?
           </aside>
         </div>
       </div>
-      <Footer />
     </div>
   );
 }

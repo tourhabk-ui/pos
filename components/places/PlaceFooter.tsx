@@ -27,7 +27,7 @@ const EXTERNAL_SOURCE_NAME = 'сторонний источник';
 
 export default function PlaceFooter({ sourceUrl, sourceName, updatedAt }: Props) {
   const updatedStr = updatedAt
-    ? new Date(updatedAt).toLocaleDateString('ru-RU', { day: 'numeric', month: 'long', year: 'numeric' })
+    ? new Date(updatedAt).toLocaleDateString('ru-RU', { day: 'numeric', month: 'long', year: 'numeric', timeZone: 'Asia/Kamchatka' })
     : null;
   const externalSource = sourceName === EXTERNAL_SOURCE_NAME;
 

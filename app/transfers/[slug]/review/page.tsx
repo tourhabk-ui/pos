@@ -4,7 +4,6 @@ import Link from 'next/link';
 import { notFound } from 'next/navigation';
 import { ChevronRight } from 'lucide-react';
 import { Header } from '@/components/layout/Header';
-import { Footer } from '@/components/layout/Footer';
 import { CarrierReviewForm } from '@/components/transfers/CarrierReviewForm';
 import { CARRIER_SLUG_RE, findPublicCarrier } from '@/lib/transfers/carrier-reviews';
 import { carrierPagePath } from '@/lib/transfers/charter-format';
@@ -56,7 +55,6 @@ export default async function CarrierReviewPage({ params }: { params: Promise<Pa
         </p>
         <CarrierReviewForm carrierSlug={carrier.slug} carrierName={carrier.name} />
       </main>
-      <Footer />
     </div>
   );
 }

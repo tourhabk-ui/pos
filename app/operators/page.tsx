@@ -1,6 +1,5 @@
 import type { Metadata } from 'next';
 import { Header } from '@/components/layout/Header';
-import { Footer } from '@/components/layout/Footer';
 import OperatorsPageClient from './_OperatorsClient';
 import { queryOperatorsForPage, type OperatorsFilters, type OperatorsResult } from '@/lib/operators/list-query';
 import { defaultOgImages } from '@/lib/seo/og-image';
@@ -88,7 +87,6 @@ export default async function OperatorsPage() {
           initialActivities={initial?.activities ?? null}
         />
       </main>
-      <Footer />
     </div>
   );
 }

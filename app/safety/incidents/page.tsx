@@ -3,7 +3,6 @@ import Link from 'next/link';
 import { AlertTriangle, Phone, ChevronRight } from 'lucide-react';
 import { Header } from '@/components/layout/Header';
 import { SectionSwipeBar, SAFETY_SECTION_ITEMS } from '@/components/layout/SectionSwipeBar';
-import { Footer } from '@/components/layout/Footer';
 import { pool } from '@/lib/db-pool';
 import { EMERGENCY_NUMBERS } from '@/lib/safety/emergency-numbers';
 import { MCHS_DEADLINE_SHORT } from '@/lib/safety/mchs-registration';
@@ -230,7 +229,6 @@ export default async function IncidentsPage() {
         </section>
 
       </main>
-      <Footer />
     </>
   );
 }

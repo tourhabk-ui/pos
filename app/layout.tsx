@@ -139,6 +139,8 @@ import { GlobalSearchModal } from '@/components/search/GlobalSearchModal'
 import { LastPositionTracker } from '@/components/tracking/LastPositionTracker'
 import { ReferralCapture } from '@/components/shared/ReferralCapture'
 import { WebMcpTools } from '@/components/shared/WebMcpTools'
+import { Footer } from '@/components/layout/Footer'
+import { SiteFooter } from '@/components/layout/SiteFooter'
 import { webmcpOriginTrialToken } from '@/lib/webmcp/origin-trial'
 
 export default async function RootLayout({ children }: { children: React.ReactNode }) {
@@ -193,6 +195,10 @@ export default async function RootLayout({ children }: { children: React.ReactNo
         <Providers>
           <OfflineBanner />
           {children}
+          {/* Подвал — в серверном HTML на всех страницах сайта (Сыщик 21.11);
+              исключения — lib/navigation/site-footer-paths. На домене партнёра
+              меню Ведара не ставится (§0). */}
+          {!onPartnerSite && <SiteFooter><Footer /></SiteFooter>}
           <GlobalSearchModal />
           <LastPositionTracker />
           {/* Приглашение приземляется на любую страницу, не только на главную. */}
