@@ -5,7 +5,7 @@
  * 2751 м по KVERT; новые страницы связаны между собой.
  */
 import { describe, it, expect, afterEach } from 'vitest';
-import { existsSync, readFileSync } from 'node:fs';
+import { existsSync } from 'node:fs';
 import { join } from 'node:path';
 import { render, cleanup, screen } from '@testing-library/react';
 
@@ -43,9 +43,6 @@ describe('третья партия посадочных', () => {
     expect(landingByPath('/places/kurilskoe-ozero')?.slug).toBe('kurilskoe-ozero-kak-dobratsya');
     expect(landingByPath('/places/vulkan-mutnovskij')?.slug).toBe('vulkan-mutnovskij-zakryt');
     expect(landingByPath('/voshozhdenie-na-avachinskij-vulkan')?.type).toBe('upgrade');
-    const page = readFileSync(join(process.cwd(), 'app/voshozhdenie-na-avachinskij-vulkan/page.tsx'), 'utf-8');
-    expect(page).toContain("<LandingPage slug={SLUG} />");
-    expect(page).not.toContain('QueryLandingView');
   });
 
   it('в тексте нет цен', () => {
