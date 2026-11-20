@@ -18,11 +18,25 @@
  * двадцать человек, которую форма не примет.
  */
 
-/** Сколько человек принимает одна заявка в форме брони (BookingFormClient). */
+/**
+ * Сколько человек принимает одна заявка на сайте у тура БЕЗ предела группы
+ * (признак 1342): у такого тура `max_participants` — не предел группы.
+ */
 export const BOOKING_FORM_MAX_PARTICIPANTS = 12;
+
+/**
+ * Сколько человек принимает дверь заявки (`participants_count` в
+ * `/api/hub/bookings/create`, `.max(100)`). У тура С пределом форма берёт его
+ * предел, но не больше этого числа. До 20.11 форма резала и такой тур до 12:
+ * карточка «Летней рыбалки на кижуча» писала «до 14», а заявку на 13 и 14
+ * человек отправить было нельзя (#3487).
+ */
+export const BOOKING_API_MAX_PARTICIPANTS = 100;
 
 export interface GroupSizeFacts {
   max_participants?: number | string | null;
+  /** operator_tours.min_participants. Нет, ноль или единица — минимума нет. */
+  min_participants?: number | string | null;
   /** operator_tours.group_size_unlimited (1342). Нет поля — как FALSE. */
   group_size_unlimited?: boolean | null;
 }
@@ -38,20 +52,28 @@ export function isGroupSizeUnlimited(t: GroupSizeFacts): boolean {
 }
 
 /**
- * Потолок одной заявки на сайте: меньшее из числа тура и потолка формы.
- * Числа у тура нет — null (форма тогда берёт своё умолчание, а слова его не
- * называют).
+ * Потолок одной заявки на сайте. У тура без предела группы — меньшее из числа
+ * тура и {@link BOOKING_FORM_MAX_PARTICIPANTS}; у тура с пределом — сам предел
+ * (не больше {@link BOOKING_API_MAX_PARTICIPANTS}): форма не должна резать
+ * группу, которую карточка обещает. Числа у тура нет — null (форма тогда
+ * берёт своё умолчание, а слова его не называют).
  */
-export function bookingRequestCeiling(maxParticipants: number | string | null | undefined): number | null {
+export function bookingRequestCeiling(
+  maxParticipants: number | string | null | undefined,
+  unlimited = false,
+): number | null {
   const max = positiveInt(maxParticipants);
-  return max === null ? null : Math.min(max, BOOKING_FORM_MAX_PARTICIPANTS);
+  if (max === null) return null;
+  return Math.min(max, unlimited ? BOOKING_FORM_MAX_PARTICIPANTS : BOOKING_API_MAX_PARTICIPANTS);
 }
 
-/** Значение для полосы фактов карточки («Группа · …»). Нечего сказать — null. */
+/**
+ * Значение для полосы фактов карточки («Группа · …»). То же правило, что у
+ * строки условий ({@link groupRangeShort}): до 20.11 шапка писала «до 14», а
+ * условия того же тура — «5–14 чел.» (#3487). Нечего сказать — null.
+ */
 export function groupStripValue(t: GroupSizeFacts): string | null {
-  if (isGroupSizeUnlimited(t)) return 'не ограничена';
-  const max = positiveInt(t.max_participants);
-  return max === null ? null : `до ${max}`;
+  return groupRangeShort(t);
 }
 
 /**
@@ -71,7 +93,7 @@ export function groupSentence(t: GroupSizeFacts): string | null {
  * Для мест, которые уже знают, что признак TRUE (карточка, SDK-инструменты).
  */
 export function unlimitedGroupSentence(maxParticipants: number | string | null | undefined): string {
-  const ceiling = bookingRequestCeiling(maxParticipants);
+  const ceiling = bookingRequestCeiling(maxParticipants, true);
   return ceiling === null
     ? 'Группа не ограничена.'
     : `Группа не ограничена (одна заявка на сайте — до ${ceiling} человек).`;
@@ -91,13 +113,15 @@ export function groupSentenceIfUnlimited(t: GroupSizeFacts): string | null {
 
 /**
  * Диапазон группы для плашки с иконкой людей (блок «Туры по маршруту»):
- * «1–12», «до 12» или «не ограничена». Нечего сказать — null.
+ * «5–14», «до 12» или «не ограничена». Минимум в один человек — не минимум:
+ * «1–18» и «до 18» говорят одно, и Узон (ID45) читался как два разных тура
+ * (#3487). Нечего сказать — null.
  */
-export function groupRangeShort(t: GroupSizeFacts & { min_participants?: number | string | null }): string | null {
+export function groupRangeShort(t: GroupSizeFacts): string | null {
   if (isGroupSizeUnlimited(t)) return 'не ограничена';
   const max = positiveInt(t.max_participants);
   const min = positiveInt(t.min_participants);
-  if (min !== null && max !== null) return `${min}–${max}`;
+  if (min !== null && min > 1 && max !== null && min <= max) return `${min}–${max}`;
   return max === null ? null : `до ${max}`;
 }
 
