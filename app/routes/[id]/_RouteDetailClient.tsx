@@ -989,16 +989,20 @@ export default function RouteDetailClient({ id, mapPackBaseUrl, summary = null, 
       {/* ── БЫСТРЫЕ ФАКТЫ ────────────────────────────────────────────────────── */}
       <div className="bg-[var(--bg-card)] border-b border-[var(--border)] sm:sticky top-16 z-20">
         <div className="max-w-6xl mx-auto px-4 md:px-8 overflow-x-auto">
-          {/* flex-wrap на телефоне (02.11): «Сезон» уходил за край ленты обрезанным. */}
+          {/* flex-wrap на телефоне (02.11): «Сезон» уходил за край ленты обрезанным.
+              max-w-full (20.11): плитка не сжимается и брала ширину своего текста —
+              сезон паспорта «апрель - сентябрь; с 1 мая по 1 июля гнездовые участки
+              закрыты» становился шире экрана и уезжал в прокрутку вбок. С пределом
+              в ширину ленты текст переносится внутри плитки. */}
           <div className="flex flex-wrap sm:flex-nowrap items-stretch gap-0 sm:divide-x divide-[var(--border)]" data-testid="route-facts">
             {minPrice > 0 && (
-              <div className="flex-shrink-0 px-4 py-3">
+              <div className="flex-shrink-0 max-w-full px-4 py-3">
                 <p className="text-[11px] font-semibold text-[var(--text-muted)] mb-0.5">Цена</p>
                 <p className="text-sm font-bold text-[var(--accent)]">от {minPrice.toLocaleString('ru-RU')} ₽</p>
               </div>
             )}
             {route.distanceKm != null && route.distanceKm > 0 && (
-              <div className="flex-shrink-0 px-4 py-3">
+              <div className="flex-shrink-0 max-w-full px-4 py-3">
                 <p className="text-[11px] font-semibold text-[var(--text-muted)] mb-0.5">Длина</p>
                 <p className="text-sm font-semibold text-[var(--text-primary)]">
                   {route.distanceKm.toLocaleString('ru-RU', { maximumFractionDigits: 1 })} км
@@ -1007,13 +1011,13 @@ export default function RouteDetailClient({ id, mapPackBaseUrl, summary = null, 
               </div>
             )}
             {route.durationDays != null && (
-              <div className="flex-shrink-0 px-4 py-3">
+              <div className="flex-shrink-0 max-w-full px-4 py-3">
                 <p className="text-[11px] font-semibold text-[var(--text-muted)] mb-0.5">Длительность</p>
                 <p className="text-sm font-semibold text-[var(--text-primary)]">{formatDuration(0, 'multi_day', route.durationDays)}</p>
               </div>
             )}
             {route.difficulty && (
-              <div className="flex-shrink-0 px-4 py-3">
+              <div className="flex-shrink-0 max-w-full px-4 py-3">
                 <p className="text-[11px] font-semibold text-[var(--text-muted)] mb-0.5">Сложность</p>
                 <p className="text-sm font-semibold" style={{ color: difficultyColor(route.difficulty) }}>
                   {difficultyLabel(route.difficulty, true)}
@@ -1021,25 +1025,25 @@ export default function RouteDetailClient({ id, mapPackBaseUrl, summary = null, 
               </div>
             )}
             {route.altitude != null && route.altitude > 0 && (
-              <div className="flex-shrink-0 px-4 py-3">
+              <div className="flex-shrink-0 max-w-full px-4 py-3">
                 <p className="text-[11px] font-semibold text-[var(--text-muted)] mb-0.5">Высота</p>
                 <p className="text-sm font-semibold text-[var(--text-primary)]">{route.altitude.toLocaleString('ru-RU')} м</p>
               </div>
             )}
             {route.groupSizeMax != null && (
-              <div className="flex-shrink-0 px-4 py-3">
+              <div className="flex-shrink-0 max-w-full px-4 py-3">
                 <p className="text-[11px] font-semibold text-[var(--text-muted)] mb-0.5">Группа</p>
                 <p className="text-sm font-semibold text-[var(--text-primary)]">до {route.groupSizeMax} чел.</p>
               </div>
             )}
             {seasonLabel(route.season) && (
-              <div className="flex-shrink-0 px-4 py-3">
+              <div className="flex-shrink-0 max-w-full px-4 py-3">
                 <p className="text-[11px] font-semibold text-[var(--text-muted)] mb-0.5">Сезон</p>
                 <p className="text-sm font-semibold text-[var(--text-primary)]">{seasonLabel(route.season)}</p>
               </div>
             )}
             {offers.length > 0 && (
-              <div className="flex-shrink-0 px-4 py-3 ml-auto">
+              <div className="flex-shrink-0 max-w-full px-4 py-3 ml-auto">
                 <p className="text-[11px] font-semibold text-[var(--text-muted)] mb-0.5">Туров</p>
                 <p className="text-sm font-semibold text-[var(--success)]">
                   {offers.length} {uniqueOperators > 1 ? `· ${uniqueOperators} операторов` : ''}
