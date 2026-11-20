@@ -58,18 +58,35 @@ const ALL_CLEAR_RE = /(?<![а-яё])(безопасн(?:о|а|ы|ен)|опас�
 
 const CONDITION_RE = /^[\s,]*(только|если|при условии|при хорошей|при ясной|с гидом|в сопровождении|когда)/i;
 
-/** Явление → как оно звучит в ответе и в сводках. Сводки Ведара пишут теми же корнями. */
-const HAZARDS: ReadonlyArray<{ key: string; re: RegExp; evidence: RegExp }> = [
-  { key: 'паводок', re: /(?<![а-яё])(паводо?к|подъ[её]м[а-яё]* уровн[яе]? воды|наводнени|подтоплени)/i, evidence: /паводо?к|уровн[яеи]? воды|наводнени|подтоплени|гидролог/i },
-  { key: 'перекрытие', re: /(?<![а-яё])(дорог[а-яё]*(?:\s+[^\s.,;!?]+){0,3}\s+(закрыт|перекрыт)|(закрыт|перекрыт)[а-яё]* (дорог|участ|проезд|трасс)|ограничен[а-яё]* (движени|проезд))/i, evidence: /закрыт|перекрыт|ограничен[а-яё]* (движени|проезд)/i },
-  { key: 'парк закрыт', re: /(?<![а-яё])(закрыт[а-яё]* (парк|маршрут)|посещени[а-яё]* (приостановлен|запрещен|запрещён))/i, evidence: /закрыт|приостановлен|запрещ/i },
-  { key: 'лавины', re: /(?<![а-яё])лавин/i, evidence: /лавин/i },
-  { key: 'извержение', re: /(?<![а-яё])(извержени|пеплов|выброс[а-яё]* пепла)/i, evidence: /извержени|пепел|пепл|оранжев|красн/i },
-  { key: 'цунами', re: /(?<![а-яё])цунами/i, evidence: /цунами/i },
-  { key: 'эвакуация', re: /(?<![а-яё])эвакуац/i, evidence: /эвакуац/i },
-  { key: 'медведи', re: /(?<![а-яё])медвед[а-яё]* (вышел|выход|замечен|у |в районе|на )/i, evidence: /медвед/i },
-  { key: 'шторм', re: /(?<![а-яё])(шторм|ураган)/i, evidence: /шторм|ураган|волнени[ея] моря|сильн[а-яё]* ветер/i },
-  { key: 'землетрясение', re: /(?<![а-яё])землетрясени/i, evidence: /землетрясени|магнитуд|сейсм/i },
+/**
+ * Явление → как оно звучит в ответе и в сводках. Сводки Ведара пишут теми же
+ * корнями. `about` — имя явления после «про» (винительный падеж: «про
+ * эвакуацию», а не «про эвакуация» — разбор 19.11, #3179 п.3). `advice` —
+ * слова перед упоминанием, при которых это совет, а не сведения об
+ * обстановке: «нужна эвакуация» в первой помощи при переохлаждении — не
+ * утверждение, что эвакуацию объявили. `report` — признаки сообщения об
+ * обстановке в том же предложении («объявлена», «МЧС», «жителей», «из
+ * района»): при них упоминание — утверждение, даже если рядом стоит слово
+ * совета («объявлена экстренная эвакуация» — ревью безопасности #3571).
+ * `reported` — человек сам сообщает о случившемся («было сильное
+ * землетрясение», «трясёт»): тогда упоминание в ответе — не утверждение без
+ * опоры. Только явное сообщение, не тема вопроса: «как вести себя при
+ * землетрясении?» и «не было землетрясения» его не включают.
+ */
+const HAZARDS: ReadonlyArray<{ key: string; about: string; re: RegExp; evidence: RegExp; advice?: RegExp; report?: RegExp; reported?: RegExp }> = [
+  { key: 'паводок', about: 'паводок', re: /(?<![а-яё])(паводо?к|подъ[её]м[а-яё]* уровн[яе]? воды|наводнени|подтоплени)/gi, evidence: /паводо?к|уровн[яеи]? воды|наводнени|подтоплени|гидролог/i },
+  { key: 'перекрытие', about: 'перекрытие', re: /(?<![а-яё])(дорог[а-яё]*(?:\s+[^\s.,;!?]+){0,3}\s+(закрыт|перекрыт)|(закрыт|перекрыт)[а-яё]* (дорог|участ|проезд|трасс)|ограничен[а-яё]* (движени|проезд))/gi, evidence: /закрыт|перекрыт|ограничен[а-яё]* (движени|проезд)/i },
+  { key: 'парк закрыт', about: 'закрытие парка или маршрута', re: /(?<![а-яё])(закрыт[а-яё]* (парк|маршрут)|посещени[а-яё]* (приостановлен|запрещен|запрещён))/gi, evidence: /закрыт|приостановлен|запрещ/i },
+  { key: 'лавины', about: 'лавины', re: /(?<![а-яё])лавин/gi, evidence: /лавин/i },
+  { key: 'извержение', about: 'извержение', re: /(?<![а-яё])(извержени|пеплов|выброс[а-яё]* пепла)/gi, evidence: /извержени|пепел|пепл|оранжев|красн/i },
+  { key: 'цунами', about: 'цунами', re: /(?<![а-яё])цунами/gi, evidence: /цунами/i },
+  { key: 'эвакуация', about: 'эвакуацию', re: /(?<![а-яё])эвакуац/gi, evidence: /эвакуац/i,
+    advice: /(нужн|нуж[её]н|требу|потребу|понадоб|вызыв|вызов|вызвать|вызови|медицинск|санитарн|санавиац|срочн|экстренн|ждать|ждите|дождит)[а-яё]*[^.!?\n]{0,25}$/i,
+    report: /объяв|введен|введён|ввел|ввёл|провод[ия]т|начал[аи]сь|идёт|идет|мчс|администрац|власт|жител|населени|посёл|посел|район|город|сёл|сел[аоу]|зон[аыеу]|из\s+(?:район|посёл|посел|зон|сёл|сел|город)/i },
+  { key: 'медведи', about: 'медведей', re: /(?<![а-яё])медвед[а-яё]* (вышел|выход|замечен|у |в районе|на )/gi, evidence: /медвед/i },
+  { key: 'шторм', about: 'шторм', re: /(?<![а-яё])(шторм|ураган)/gi, evidence: /шторм|ураган|волнени[ея] моря|сильн[а-яё]* ветер/i },
+  { key: 'землетрясение', about: 'землетрясение', re: /(?<![а-яё])землетрясени/gi, evidence: /землетрясени|магнитуд|сейсм/i,
+    reported: /(?<!не\s)(?:(?:было|был[оа]?|произошл[оа]?|почувствовал[аи]?|чувствуем|ощутил[аи]?)\s+(?:[а-яё]+\s+){0,2}(?:землетрясени|толчк|толчок)|(?<![а-яё])(?:трясёт|трясет|трясло|тряхнуло|качает|качнуло)(?![а-яё]))/i },
 ];
 
 /**
@@ -85,6 +102,13 @@ const HAZARDS: ReadonlyArray<{ key: string; re: RegExp; evidence: RegExp }> = [
  */
 const ACTIVE_ALERTS_RE = /Активные алерты:\s*\S|\[[^\]\n]*(?:КРАСНЫЙ|ОРАНЖЕВЫЙ|ЖЁЛТЫЙ|ЗАКРЫТО|ОСТОРОЖНО|НЕ СЕГОДНЯ)[^\]\n]*\]|Активных предупреждений по Камчатскому краю:\s*[1-9]|ДЕЙСТВУЮЩИЕ ПРЕДУПРЕЖДЕНИЯ|Повышенная активность хотя бы по одной шкале/;
 
+/** Предложение, в котором стоит позиция `i`. */
+function sentenceAt(text: string, i: number): string {
+  const start = Math.max(text.lastIndexOf('.', i - 1), text.lastIndexOf('!', i - 1), text.lastIndexOf('?', i - 1), text.lastIndexOf('\n', i - 1)) + 1;
+  const ends = ['.', '!', '?', '\n'].map((c) => text.indexOf(c, i)).filter((x) => x >= 0);
+  return text.slice(start, ends.length ? Math.min(...ends) : text.length);
+}
+
 /** Утверждения о безопасности в ответе. Под отрицанием — не утверждение. */
 export function findSafetyClaims(answer: string): SafetyClaim[] {
   const claims: SafetyClaim[] = [];
@@ -97,10 +121,13 @@ export function findSafetyClaims(answer: string): SafetyClaim[] {
     claims.push({ kind: 'all_clear', phrase: m[0] });
   }
   for (const h of HAZARDS) {
-    const m = h.re.exec(answer);
-    if (!m) continue;
-    if (isNegated(answer, m.index, m[0].length)) continue;
-    claims.push({ kind: 'hazard', phrase: m[0], hazard: h.key });
+    for (const m of answer.matchAll(h.re)) {
+      const i = m.index ?? 0;
+      if (isNegated(answer, i, m[0].length)) continue;
+      if (h.advice?.test(answer.slice(Math.max(0, i - 40), i)) && !h.report?.test(sentenceAt(answer, i))) continue;
+      claims.push({ kind: 'hazard', phrase: m[0], hazard: h.key });
+      break;
+    }
   }
   return claims;
 }
@@ -123,9 +150,10 @@ export const CONTRADICTED_ALL_CLEAR_NOTE =
   'Поправка: по сводкам этого ответа сейчас действуют предупреждения — «безопасно» без оговорок сказать нельзя. '
   + 'Перед выходом проверь их и при сомнении не выходи; экстренно — 112.';
 
-/** Пометка к предупреждению без опоры. Предупреждение остаётся. */
+/** Пометка к предупреждению без опоры. Предупреждение остаётся. `keys` — ключи HAZARDS. */
 export function unbackedHazardNote(keys: string[]): string {
-  return `Уточнение: про ${keys.join(', ')} в сводках, которые я смотрел для этого ответа, сведений нет. `
+  const about = keys.map((k) => HAZARDS.find((h) => h.key === k)?.about ?? k);
+  return `Уточнение: про ${about.join(', ')} в сводках, которые я смотрел для этого ответа, сведений нет. `
     + 'Предупреждение оставляю — лучше перестраховаться, — но проверь его в МЧС Камчатки (112) или спроси меня про конкретное место.';
 }
 
@@ -133,7 +161,15 @@ export function unbackedHazardNote(keys: string[]): string {
  * Сверить утверждения ответа с данными хода. `toolRuns === null` — ответ
  * пришёл без инструментов (запасной путь): сверять не с чем.
  */
-export function guardSafetyClaims(rawAnswer: string, toolRuns: readonly ToolRun[] | null): GuardResult {
+export function guardSafetyClaims(
+  rawAnswer: string, toolRuns: readonly ToolRun[] | null,
+  /**
+   * Вопрос человека. Явление, о котором он сообщил сам («было сильное
+   * землетрясение»), — не утверждение Кузьмича без опоры: пометка «в
+   * сводках сведений нет» под ним сбивала человека в беде (#3179 п.3).
+   */
+  question?: string,
+): GuardResult {
   // Опасный совет вырезается до сверки утверждений: этот сторож стоит на всех
   // поверхностях (чат, поток, виджет, Telegram/MAX, A2A), поэтому и запрет здесь.
   const banned = stripBannedAdvice(rawAnswer);
@@ -142,6 +178,9 @@ export function guardSafetyClaims(rawAnswer: string, toolRuns: readonly ToolRun[
   }
   if (banned.ranking.length > 0) {
     console.error('[kuzmich-banned-advice] вырезана выдуманная оценка безопасности способа или тура', { count: banned.ranking.length });
+  }
+  if (banned.sms112.length > 0) {
+    console.error('[kuzmich-banned-advice] вырезан совет писать SMS на 112 (не подтверждено)', { count: banned.sms112.length });
   }
   const answer = banned.text;
   const claims = findSafetyClaims(answer);
@@ -177,7 +216,10 @@ export function guardSafetyClaims(rawAnswer: string, toolRuns: readonly ToolRun[
   if (toolRuns !== null) {
     const unbacked = hazards.filter((h) => {
       const ev = HAZARDS.find((x) => x.key === h.hazard)?.evidence;
-      return ev ? !ev.test(allOutputs) : false;
+      if (!ev) return false;
+      const reported = HAZARDS.find((x) => x.key === h.hazard)?.reported;
+      if (question && reported?.test(question)) return false; // сообщил сам человек
+      return !ev.test(allOutputs);
     });
     if (unbacked.length > 0) {
       notes.push(unbackedHazardNote([...new Set(unbacked.map((h) => h.hazard as string))]));

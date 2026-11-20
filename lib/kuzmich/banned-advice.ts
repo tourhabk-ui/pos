@@ -43,6 +43,21 @@ export function hasSafetyRanking(text: string): boolean {
   return false;
 }
 
+/**
+ * Третий запрет — SMS на 112 как совет (разбор 19.11, #3179 п.4): «СМС на 112
+ * доходит при слабом сигнале лучше звонка». Работает ли SMS-112 на Камчатке,
+ * не подтверждено — вопрос ждёт ответа МЧС (.claude/MEMORY.md). Человек в беде
+ * отправит сообщение и будет ждать ответа, которого может не быть. Вырезается
+ * предложение, где SMS и 112 стоят рядом; оговорка «не работает», «не
+ * подтверждено» — не совет, она остаётся. Звонок 112 в ответе остаётся.
+ */
+const SMS_112_RE = /(?<![а-яёa-z])(?:смс|sms|эсэмэс)[^.!?\n]{0,60}112|112[^.!?\n]{0,60}(?<![а-яёa-z])(?:смс|sms|эсэмэс)/iu;
+const SMS_112_CAVEAT = /не\s+(?:работ|доход|подтвержд|проверен|гарантир)|неизвестно|не\s+знаем/iu;
+
+export function hasSms112Advice(sentence: string): boolean {
+  return SMS_112_RE.test(sentence) && !SMS_112_CAVEAT.test(sentence);
+}
+
 export const BANNED_ADVICE_NOTE = 'При нападении зверя звони 112: это работает без баланса и SIM.';
 
 export interface BannedAdviceResult {
@@ -51,6 +66,8 @@ export interface BannedAdviceResult {
   removed: string[];
   /** Вырезанная выдуманная оценка безопасности способа или тура. */
   ranking: string[];
+  /** Вырезанный совет писать SMS на 112 (работает ли на Камчатке — не подтверждено). */
+  sms112: string[];
 }
 
 function cut(answer: string, banned: (sentence: string) => boolean, into: string[]): string {
@@ -71,11 +88,14 @@ function cut(answer: string, banned: (sentence: string) => boolean, into: string
 export function stripBannedAdvice(answer: string): BannedAdviceResult {
   const hasPlayDead = PLAY_DEAD.test(answer);
   const hasRanking = hasSafetyRanking(answer);
-  if (!hasPlayDead && !hasRanking) return { text: answer, removed: [], ranking: [] };
+  const hasSms = SMS_112_RE.test(answer);
+  if (!hasPlayDead && !hasRanking && !hasSms) return { text: answer, removed: [], ranking: [], sms112: [] };
   const removed: string[] = [];
   const ranking: string[] = [];
+  const sms112: string[] = [];
   // Режем по предложениям, сохраняя абзацы.
   let text = hasPlayDead ? cut(answer, (x) => PLAY_DEAD.test(x), removed) : answer;
   if (hasRanking) text = cut(text, hasSafetyRanking, ranking);
-  return { text: removed.length > 0 ? `${text}\n\n${BANNED_ADVICE_NOTE}` : text, removed, ranking };
+  if (hasSms) text = cut(text, hasSms112Advice, sms112);
+  return { text: removed.length > 0 ? `${text}\n\n${BANNED_ADVICE_NOTE}` : text, removed, ranking, sms112 };
 }

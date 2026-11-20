@@ -1,3 +1,4 @@
+import { verifiedRouteMchsPhone } from '@/lib/safety/emergency-numbers';
 import { pool } from '@/lib/db-pool';
 import { expandQuery } from '@/lib/ai/query-expansion';
 import { logSwallowedFailure } from '@/lib/observability/swallowed';
@@ -157,7 +158,10 @@ export function routeFacts(r: {
   const out: string[] = [];
 
   if (r.mchs_registration_required === true) {
-    out.push(`Регистрация в МЧС: ОБЯЗАТЕЛЬНА${r.mchs_phone ? `, телефон ${r.mchs_phone}` : ''}`);
+    // Телефон — только проверенный (lib/safety/emergency-numbers): номер
+    // колонки никто не сверял, а модель его диктовала (#3179 п.1, 19.11).
+    const phone = verifiedRouteMchsPhone(r.mchs_phone);
+    out.push(`Регистрация в МЧС: ОБЯЗАТЕЛЬНА${phone ? `, телефон ${phone.phone} (${phone.name})` : ''}`);
   }
   // false и null — строки нет вовсе: не знаем (см. выше, миграция 933).
 
