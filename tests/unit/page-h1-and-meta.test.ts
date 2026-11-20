@@ -85,7 +85,7 @@ describe('описание укладывается в выдачу', () => {
 
   it('статья режется по предложению, а не посреди слова', () => {
     const src = code('app/articles/[slug]/page.tsx');
-    expect(src).toMatch(/const description = metaDescription\(article\.body\)/);
+    expect(src).toMatch(/metaDescription\(article\.body\)/);
     expect(src).not.toMatch(/\.slice\(0, 160\)/);
   });
 });
