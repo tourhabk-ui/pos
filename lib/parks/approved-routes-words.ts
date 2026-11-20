@@ -25,6 +25,13 @@ export interface ApprovedVariant {
   sourceUrl: string;
   /** Когда прочитана страница парка, 'YYYY-MM-DD'. */
   readOn: string;
+  /**
+   * Статус по колонке «Статус» страницы парка при последнем чтении (1469);
+   * null — не прочитан или старше трёх суток: «не проверено».
+   */
+  status: 'open' | 'closed' | null;
+  /** Дата того чтения по Камчатке, 'YYYY-MM-DD'; null вместе со статусом. */
+  statusReadOn: string | null;
 }
 
 export type ApprovedRouteCase =
@@ -43,9 +50,16 @@ export function variantWords(v: ApprovedVariant): string {
   return v.movement ? `${when}: ${v.movement.replace(/\.$/, '')}` : `${when}: способ передвижения на странице парка не указан`;
 }
 
+/** Статус варианта словами: «сейчас закрыт (по странице парка на 21.11)» или «статус не проверен». */
+export function variantStatusWords(v: Pick<ApprovedVariant, 'status' | 'statusReadOn'>): string {
+  if (!v.status || !v.statusReadOn) return 'статус на странице парка не проверен';
+  return `сейчас ${v.status === 'open' ? 'открыт' : 'закрыт'} (по странице парка на ${readOnWords(v.statusReadOn)})`;
+}
+
 /**
  * Строки для карточки, Кузьмича и MCP — одни слова на всех. Статус «открыт /
- * закрыт» здесь не утверждается: он меняется, и его читает отдельный слой.
+ * закрыт» — по последнему чтению страницы парка (1469); устаревший или не
+ * прочитанный называется «не проверен», а не «открыт».
  */
 export function approvedRouteLines(c: ApprovedRouteCase | null): string[] {
   if (!c) return [];
@@ -59,7 +73,7 @@ export function approvedRouteLines(c: ApprovedRouteCase | null): string[] {
   const lines: string[] = [];
   for (const vs of byTitle.values()) {
     const v0 = vs[0]!;
-    lines.push(`Утверждённый маршрут парка (${v0.parkName}): «${v0.title}» — ${vs.map(variantWords).join('; ')}.`);
+    lines.push(`Утверждённый маршрут парка (${v0.parkName}): «${v0.title}» — ${vs.map((v) => `${variantWords(v)}, ${variantStatusWords(v)}`).join('; ')}.`);
   }
   const first = c.variants[0]!;
   lines.push(`Паспорт маршрута и GPS-трек — на сайте парка; источник: ${first.sourceUrl} (прочитано ${readOnWords(first.readOn)}).`);

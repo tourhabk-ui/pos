@@ -14,7 +14,7 @@
  * `null` — не смогли узнать; пустой список — узнали, там ничего нет. Один
  * текст на оба случая свёл бы его к нулю на экране (§4.0).
  */
-import type { RouteSignals } from '@/lib/routes/go-verdict';
+import { parkRouteColor, type RouteSignals } from '@/lib/routes/go-verdict';
 import { CORRIDOR_VOLCANO_KM } from '@/lib/safety/corridor';
 
 /** Код KVERT словом. Неизвестный код печатается как есть, а не «зелёный». */
@@ -84,6 +84,23 @@ export function verdictFactLines(s: RouteSignals, opts: VerdictFactsOptions = {}
             value: s.closures.map((c) => (c.reason ? `${c.place} — ${c.reason}` : c.place)).join(' · '),
             dim: false,
           });
+  }
+
+  // Статус маршрута в парке (20.11) — только у маршрутов из списка парка.
+  // Цвет — шкалой KVERT теми же словами, что код вулкана.
+  if (s.park !== undefined) {
+    if (s.park === null) {
+      out.push({ label: 'Маршрут в парке', value: 'статус на странице парка не проверен', dim: true });
+    } else {
+      const color = parkRouteColor(s.park.status, s.alerts);
+      const when = s.park.readOn ? ` на ${s.park.readOn.split('-').reverse().slice(0, 2).join('.')}` : '';
+      out.push({
+        label: 'Маршрут в парке',
+        value: `«${s.park.title}» — ${s.park.status === 'open' ? 'открыт' : 'закрыт'} по странице парка${when}`
+          + (color ? ` · уровень ${ACC_RU[color]}` : ''),
+        dim: false,
+      });
+    }
   }
 
   if (s.inSeason !== null) {

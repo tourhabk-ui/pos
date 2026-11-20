@@ -279,6 +279,8 @@ export const CRON_CAPABILITIES: Record<string, readonly Capability[]> = {
   // 22.10: сайты партнёров против прошлого раза (1311) — читает страницы, пишет
   // снимки, изменения владельцу в Telegram.
   'partner-site-watch': ['db_read', 'db_write', 'net_out', 'telegram'],
+  // 20.11: читает страницу парка «Туристические маршруты», пишет статусы (1469).
+  'park-route-status': ['db_read', 'db_write', 'net_out'],
   'passport-flag-census': ['db_read', 'pd_direct'],
   'payment-config': [],
   'payment-test-setup': ['db_read', 'db_write', 'money'],

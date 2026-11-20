@@ -20,6 +20,7 @@
 import { pool } from '@/lib/db-pool';
 import { logText } from '@/lib/log/log-text';
 import { routeInParkSql } from '@/lib/parks/route-in-park';
+import { PARK_STATUS_FRESH_HOURS, type ParkRouteStatus } from '@/lib/parks/park-route-status';
 import {
   APPROVED_ROUTES_PARKS, APPROVED_ROUTES_SOURCE, type ApprovedRouteCase, type ApprovedSeason, type ApprovedVariant,
 } from '@/lib/parks/approved-routes-words';
@@ -29,7 +30,10 @@ export * from '@/lib/parks/approved-routes-words';
 
 export const APPROVED_FOR_ROUTE_SQL = `
   SELECT pk.display_name AS park_name, a.title, a.season, a.period, a.movement,
-         a.passport_urls, a.track_url, a.source_url, a.read_on::text AS read_on
+         a.passport_urls, a.track_url, a.source_url, a.read_on::text AS read_on,
+         CASE WHEN a.status_read_at > NOW() - make_interval(hours => $2::int) THEN a.status END AS status,
+         CASE WHEN a.status_read_at > NOW() - make_interval(hours => $2::int)
+              THEN to_char(a.status_read_at AT TIME ZONE 'Asia/Kamchatka', 'YYYY-MM-DD') END AS status_read_on
     FROM park_approved_route_links l
     JOIN park_approved_routes a ON a.id = l.approved_route_id
     JOIN parks pk ON pk.slug = a.park_slug
@@ -39,12 +43,14 @@ export const APPROVED_FOR_ROUTE_SQL = `
 interface Row {
   park_name: string; title: string; season: ApprovedSeason; period: string | null; movement: string | null;
   passport_urls: string[] | null; track_url: string | null; source_url: string; read_on: string;
+  status: ParkRouteStatus | null; status_read_on: string | null;
 }
 
 function toVariant(r: Row): ApprovedVariant {
   return {
     parkName: r.park_name, title: r.title, season: r.season, period: r.period, movement: r.movement,
     passportUrls: r.passport_urls ?? [], trackUrl: r.track_url, sourceUrl: r.source_url, readOn: r.read_on,
+    status: r.status_read_on ? r.status : null, statusReadOn: r.status_read_on,
   };
 }
 
@@ -58,7 +64,7 @@ export async function approvedRouteCaseFor(
   routeId: string, parkSlug: string | null, parkName: string | null,
 ): Promise<ApprovedRouteCase | null> {
   try {
-    const { rows } = await pool.query<Row>(APPROVED_FOR_ROUTE_SQL, [routeId]);
+    const { rows } = await pool.query<Row>(APPROVED_FOR_ROUTE_SQL, [routeId, PARK_STATUS_FRESH_HOURS]);
     if (rows.length > 0) return { kind: 'linked', variants: rows.map(toVariant) };
     if (parkSlug && (APPROVED_ROUTES_PARKS as readonly string[]).includes(parkSlug) && parkName) {
       return { kind: 'not_listed', parkName, sourceUrl: APPROVED_ROUTES_SOURCE };

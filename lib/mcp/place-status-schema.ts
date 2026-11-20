@@ -89,7 +89,8 @@ export interface GuardianStructured {
  * внесён сюда, и схема не отстанет от правила молча.
  */
 const VERDICT_CODES: Record<VerdictReasonCode, true> = {
-  alert_ban: true, point_closed: true, volcano_red: true, weather_severe: true, signals_unknown: true,
+  alert_ban: true, point_closed: true, park_closed_hazard: true, volcano_red: true, weather_severe: true,
+  signals_unknown: true, park_closed: true,
   volcano_orange: true, alert_warning: true, out_of_season: true, clear: true,
 };
 

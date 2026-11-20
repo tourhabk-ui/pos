@@ -1,11 +1,12 @@
 /**
  * Утверждённый маршрут природного парка на карточке маршрута (20.11, слово
  * владельца «Сверка и пометка»). Слова — те же, что у Кузьмича и MCP
- * (lib/parks/approved-routes); статус «открыт / закрыт» здесь не утверждается.
+ * (lib/parks/approved-routes). Статус варианта — по последнему чтению страницы
+ * парка (1469); цвет по шкале KVERT — в оценке дня на этой же карточке.
  */
 import { FileText, Route as RouteIcon } from 'lucide-react';
 import {
-  PARK_RULE_QUOTE, variantWords, type ApprovedRouteCase, type ApprovedVariant,
+  PARK_RULE_QUOTE, variantStatusWords, variantWords, type ApprovedRouteCase, type ApprovedVariant,
 } from '@/lib/parks/approved-routes-words';
 
 function readOnWords(d: string): string {
@@ -45,8 +46,10 @@ export function ParkApprovedRoute({ approved }: { approved: ApprovedRouteCase | 
           </p>
           <ul className="space-y-1">
             {vs.map((v) => (
-              <li key={v.season} style={{ color: 'var(--text-secondary)' }}>
+              <li key={v.season} style={{ color: 'var(--text-secondary)' }} data-park-status={v.status ?? 'unknown'}>
                 {variantWords(v)}
+                {' — '}
+                <span style={{ color: v.status ? 'var(--text-primary)' : 'var(--text-muted)' }}>{variantStatusWords(v)}</span>
                 {v.passportUrls.map((u, i) => (
                   <a key={u} className="ml-2 inline-flex items-center gap-1 underline" style={linkStyle} href={u} target="_blank" rel="noopener noreferrer">
                     <FileText className="w-3.5 h-3.5" aria-hidden="true" />паспорт{v.passportUrls.length > 1 ? ` ${i + 1}` : ''} (PDF)
@@ -64,7 +67,7 @@ export function ParkApprovedRoute({ approved }: { approved: ApprovedRouteCase | 
       ))}
       <p className="text-xs" style={{ color: 'var(--text-muted)' }}>
         Парк пишет: «{PARK_RULE_QUOTE}» Источник —{' '}
-        <a className="underline" style={linkStyle} href={first.sourceUrl} target="_blank" rel="noopener noreferrer">страница парка «Туристические маршруты»</a>, прочитано {readOnWords(first.readOn)}. Открыт ли маршрут сейчас, уточняйте у парка.
+        <a className="underline" style={linkStyle} href={first.sourceUrl} target="_blank" rel="noopener noreferrer">страница парка «Туристические маршруты»</a>, список прочитан {readOnWords(first.readOn)}. Статус парк меняет — перед выходом сверьтесь с его страницей.
       </p>
     </section>
   );
