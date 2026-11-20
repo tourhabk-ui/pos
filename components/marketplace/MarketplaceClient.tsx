@@ -1,5 +1,6 @@
 'use client';
 
+import { CATALOG_SEARCH_FORM_TOOL, isAgentInvokedSubmit, toolParam } from '@/lib/webmcp/form-attrs';
 import { useEffect, useState, useCallback, useRef, useMemo } from 'react';
 import Image from 'next/image';
 import Link from 'next/link';
@@ -965,10 +966,23 @@ export default function MarketplaceClient({
 
           {/* Поиск + сортировка + фильтры: на телефоне одна строка */}
           <div className="flex gap-2 sm:gap-3 mb-3 sm:mb-4">
-            <div className="relative flex-1 min-w-0">
+            {/* Форма — ради WebMCP (lib/webmcp/form-attrs): агент в браузере
+                ищет туры этим полем и открывает /catalog?search=… тем же
+                адресом, что разбирает страница. Человеку отбор приходит без
+                перезагрузки, как и раньше: свою отправку форма гасит. */}
+            <form
+              role="search"
+              action="/catalog"
+              method="get"
+              className="relative flex-1 min-w-0"
+              onSubmit={(e) => { if (!isAgentInvokedSubmit(e.nativeEvent)) e.preventDefault(); }}
+              {...CATALOG_SEARCH_FORM_TOOL}
+            >
               <Search className="absolute left-3.5 top-1/2 -translate-y-1/2 w-4 h-4 text-[var(--text-muted)]" aria-hidden />
               <input
                 type="search"
+                name="search"
+                {...toolParam('Слова из названия тура: вулкан, рыбалка, медведи, вертолёт')}
                 placeholder="Поиск по названию"
                 aria-label="Поиск тура по названию"
                 value={searchTerm}
@@ -985,7 +999,7 @@ export default function MarketplaceClient({
                   <X className="w-4 h-4" />
                 </button>
               )}
-            </div>
+            </form>
 
             {sortSelect('hidden sm:block w-auto')}
 

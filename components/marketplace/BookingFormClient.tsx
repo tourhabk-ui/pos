@@ -21,6 +21,8 @@ import { type TourRefundTerms } from '@/lib/payments/tour-refund';
 import { cancellationLineForForm, type CancellationFacts } from '@/lib/tours/cancellation-words';
 import { platformAcceptsPayments } from '@/lib/payments/accepting';
 import { BOOKING_FORM_MAX_PARTICIPANTS } from '@/lib/tours/group-size';
+import { TOUR_REQUEST_FORM_TOOL, toolParam } from '@/lib/webmcp/form-attrs';
+import { useWebMcpFormSync } from '@/hooks/use-webmcp-form-sync';
 
 interface BookingFormProps {
   tourId: number;
@@ -113,6 +115,9 @@ const DATE_CLOSED_BY_PLATFORM = 'DATE_CLOSED_BY_PLATFORM';
 /** Вопрос оператору отправлен: слова сервера и ссылки на страницу заявки и MAX (могут не выдаться). */
 interface AskedState { message: string; page: string | null; maxLink: string | null }
 
+/** Поля заявки, которые агент WebMCP может заполнить: по `name`, без галочки согласия. */
+const WEBMCP_FIELDS = ['participants_count', 'tourist_name', 'tourist_phone', 'tourist_email', 'special_requests'] as const;
+
 export default function BookingFormClient({ tourId, basePrice, maxParticipants = 10, groupSizeUnlimited = false, tourTitle, priceUnit, duration, initialDate, initialGuests, cancellationTerms, cancellationFacts = null, askSeatsFirst = false, seasonWindow = null, seasonNote = null }: BookingFormProps) {
   const router = useRouter();
   const [plainBooking, setPlainBooking] = useState(!askSeatsFirst || Boolean(initialDate || initialGuests));
@@ -125,6 +130,7 @@ export default function BookingFormClient({ tourId, basePrice, maxParticipants =
   const [asking, setAsking] = useState(false);
   const [asked, setAsked] = useState<AskedState | null>(null);
   const errorRef = useRef<HTMLDivElement>(null);
+  const formRef = useRef<HTMLFormElement>(null);
   // Сообщение об ошибке обязано оказаться на экране: кнопка внизу длинной
   // формы, над ней липкая панель, и отказ, выведенный вне видимой зоны,
   // для человека не существует. `center` оставляет его выше нижней панели.
@@ -259,6 +265,12 @@ export default function BookingFormClient({ tourId, basePrice, maxParticipants =
     setFormData(prev => ({ ...prev, [name]: value }));
     setError(null);
   };
+  // WebMCP (lib/webmcp/form-attrs): агент в браузере заполняет поля, но не
+  // отправляет форму. Что он вписал, перечитывается в состояние.
+  useWebMcpFormSync(formRef, WEBMCP_FIELDS, (values) => {
+    setFormData(prev => ({ ...prev, ...values }));
+    setError(null);
+  });
   const setDate = (date: string) => {
     setFormData(prev => ({ ...prev, booking_date: date }));
     setError(null);
@@ -505,7 +517,7 @@ export default function BookingFormClient({ tourId, basePrice, maxParticipants =
     // Без ds-card: форма стоит внутри карточки aside (_TourDetailClient), и
     // вторая рамка с p-6 съедала 48px ширины — итог рвался на «52 000 / ₽»,
     // кнопка на две строки, ячейки календаря 32px (аудит 24.09, П2).
-    <form onSubmit={handleSubmit} onFocusCapture={markFunnelStart} className="space-y-5">
+    <form ref={formRef} onSubmit={handleSubmit} onFocusCapture={markFunnelStart} className="space-y-5" {...TOUR_REQUEST_FORM_TOOL}>
       <div>
         <h2 className="ds-h2 mb-0.5">Оставить заявку на тур</h2>
         {tourTitle && <p className="text-sm text-[var(--text-secondary)]">{tourTitle}</p>}
@@ -549,6 +561,7 @@ export default function BookingFormClient({ tourId, basePrice, maxParticipants =
         <select
           id="booking-participants"
           name="participants_count"
+          {...toolParam('Сколько человек едет')}
           value={formData.participants_count}
           onChange={handleChange}
           className="ds-input w-full"
@@ -577,6 +590,7 @@ export default function BookingFormClient({ tourId, basePrice, maxParticipants =
             id="booking-name"
             type="text"
             name="tourist_name"
+            {...toolParam('Имя человека, оставляющего заявку')}
             autoComplete="name"
             value={formData.tourist_name}
             onChange={handleChange}
@@ -596,6 +610,7 @@ export default function BookingFormClient({ tourId, basePrice, maxParticipants =
             type="tel"
             inputMode="tel"
             name="tourist_phone"
+            {...toolParam('Телефон для связи с оператором, например +7 900 000 00 00')}
             autoComplete="tel"
             value={formData.tourist_phone}
             onChange={handleChange}
@@ -617,6 +632,7 @@ export default function BookingFormClient({ tourId, basePrice, maxParticipants =
             id="booking-email"
             type="email"
             name="tourist_email"
+            {...toolParam('Почта: сюда придёт ссылка на заявку и ответ оператора')}
             autoComplete="email"
             required
             value={formData.tourist_email}
@@ -642,6 +658,7 @@ export default function BookingFormClient({ tourId, basePrice, maxParticipants =
         <textarea
           id="booking-requests"
           name="special_requests"
+          {...toolParam('Пожелания и вопросы оператору, необязательно')}
           value={formData.special_requests}
           onChange={handleChange}
           className="ds-input w-full resize-none"
