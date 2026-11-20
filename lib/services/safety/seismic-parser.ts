@@ -58,6 +58,12 @@ export interface SeismicEvent {
   lng?: number;
   // Для вулканов
   volcano_name?: string;
+  /**
+   * Охват вулканической тревоги (`external_alerts.volcano_scope`, 1301):
+   * `named` — запрет подходить, красит сам вулкан и места, привязанные к нему
+   * поимённо; нет поля — `ring`, кольцо 25 км у извержения.
+   */
+  volcano_scope?: 'ring' | 'named';
   ash_height_m?: number;
   ash_direction?: string;
   expires_hours: number;
@@ -759,8 +765,14 @@ export function classifyEqkam(id: string, text: string, datetime: string): Seism
 export function isVolcanoApproachBan(event: Pick<SeismicEvent, 'alert_type' | 'volcano_name' | 'title'>): boolean {
   return event.alert_type === 'volcanic_eruption'
     && typeof event.volcano_name === 'string' && event.volcano_name.trim() !== ''
-    && /: не приближаться$/.test(event.title.trim());
+    && APPROACH_TITLE_RE.test(event.title.trim());
 }
+
+/**
+ * Заголовок запрета подходить: «Вулкан X: не приближаться» и граница у
+ * вершины «Вулкан X: не ближе 10 км к вершине» (20.11, summitRadiusTitle).
+ */
+export const APPROACH_TITLE_RE = /: (?:не приближаться|не ближе \d+(?:,\d+)? км к вершине)$/u;
 
 export async function saveEvent(event: SeismicEvent): Promise<'inserted' | 'skipped'> {
   const payloadHash = hashPayload({
@@ -885,9 +897,17 @@ export async function saveEvent(event: SeismicEvent): Promise<'inserted' | 'skip
               AND external_alerts.affected_zones IS DISTINCT FROM $6::text[]
              THEN $6::text[]
              ELSE external_alerts.affected_zones
+           END,
+           -- Охват запрета подходить (20.11): строка, записанная разбором до
+           -- правки кольцом, при повторе того же запрета получает named
+           -- (решение владельца 16.10, 1301). Иначе недельная сводка
+           -- продлевала бы кольцевую строку по заголовку из недели в неделю.
+           volcano_scope = CASE
+             WHEN $10::boolean AND $11::text = 'named' THEN 'named'
+             ELSE external_alerts.volcano_scope
            END
        FROM (
-         SELECT id, expires_at, severity, affected_zones, affected_parks, last_published_at, created_at
+         SELECT id, expires_at, severity, affected_zones, affected_parks, last_published_at, created_at, volcano_scope
            FROM external_alerts
           WHERE alert_type = $1
             AND regexp_replace(lower(trim(title)), '\\s+', ' ', 'g') = regexp_replace(lower(trim($2)), '\\s+', ' ', 'g')
@@ -905,12 +925,14 @@ export async function saveEvent(event: SeismicEvent): Promise<'inserted' | 'skip
                  (external_alerts.affected_zones IS DISTINCT FROM prev.affected_zones) AS rezoned,
                  (external_alerts.affected_parks IS DISTINCT FROM prev.affected_parks) AS reparked,
                  (external_alerts.last_published_at IS DISTINCT FROM COALESCE(prev.last_published_at, prev.created_at)) AS republished,
+                 (external_alerts.volcano_scope IS DISTINCT FROM prev.volcano_scope) AS rescoped,
                  prev.affected_zones AS prev_zones,
                  prev.affected_parks AS prev_parks`,
       [event.alert_type, event.title, event.description, expiresAt, event.severity, event.affected_zones, [...KRAI_FAR_ZONES],
         event.published_at_inferred ? null : event.published_at,
         event.affected_parks && event.affected_parks.length > 0 ? event.affected_parks : null,
-        isVolcanoApproachBan(event)]
+        isVolcanoApproachBan(event),
+        event.volcano_scope ?? null]
     );
     if ((dup.rowCount ?? 0) > 0) {
       // Запись только если срок ДЕЙСТВИТЕЛЬНО сдвинулся. Лента отдаёт один и
@@ -930,14 +952,19 @@ export async function saveEvent(event: SeismicEvent): Promise<'inserted' | 'skip
       // перемен — подтверждение, от которого считаются проходы парков.
       const reparked = dup.rows[0]?.reparked === true;
       const republished = dup.rows[0]?.republished === true;
-      if (dup.rows[0]?.extended || regraded || rezoned || reparked || republished) {
+      // Охват сузился до вулкана и его поимённых мест — места кольца
+      // перестают краснеть от этой строки, и в журнале остаётся, почему.
+      const rescoped = dup.rows[0]?.rescoped === true;
+      if (dup.rows[0]?.extended || regraded || rezoned || reparked || republished || rescoped) {
         await appendSafetyEvent({
           entityId: dup.rows[0]?.id != null ? String(dup.rows[0].id) : null,
           eventType: 'dedup_skipped',
           actorType: 'system',
           actorId: 'seismic-parser.saveEvent',
           payloadHash,
-          decisionReason: reparked
+          decisionReason: rescoped
+            ? 'тот же запрет подходить к вулкану — охват сужен до вулкана и мест, привязанных к нему поимённо'
+            : reparked
             ? 'контент совпал с активным закрытием парка — парки более поздней сводки возвращены в закрытие'
             : rezoned
             ? 'контент совпал с активным алертом — зоны заменены текущей оценкой классификатора'
@@ -953,6 +980,7 @@ export async function saveEvent(event: SeismicEvent): Promise<'inserted' | 'skip
             ...(rezoned ? { rezoned_from: dup.rows[0]?.prev_zones ?? null, rezoned_to: event.affected_zones } : {}),
             ...(reparked ? { reparked_from: dup.rows[0]?.prev_parks ?? null, reparked_with: event.affected_parks ?? null } : {}),
             ...(republished ? { last_published_at: event.published_at.toISOString() } : {}),
+            ...(rescoped ? { volcano_scope: 'named' } : {}),
           },
         });
       }
@@ -1018,8 +1046,9 @@ export async function saveEvent(event: SeismicEvent): Promise<'inserted' | 'skip
         alert_type, severity, title, description,
         affected_zones, created_at, expires_at,
         source_url, external_id,
-        magnitude, lat, lng, volcano_name, affected_parks, last_published_at
-      ) VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$6)
+        magnitude, lat, lng, volcano_name, affected_parks, last_published_at,
+        volcano_scope
+      ) VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$6,$15)
       ON CONFLICT (external_id) DO NOTHING
       RETURNING id`,
       [
@@ -1037,6 +1066,9 @@ export async function saveEvent(event: SeismicEvent): Promise<'inserted' | 'skip
         event.lng ?? null,
         event.volcano_name ?? null,
         event.affected_parks && event.affected_parks.length > 0 ? event.affected_parks : null,
+        // Охват (1301): колонка NOT NULL с умолчанием ring, поэтому «нет
+        // поля» пишется явным ring, а не NULL.
+        event.volcano_scope ?? 'ring',
       ]
     );
 
@@ -1521,9 +1553,56 @@ export function volcanoesNamedIn(text: string): Array<{ key: string; zones: stri
 }
 
 /**
+ * Граница у вершины: «ближе 10 км», «в радиусе не более, чем на 10 км»,
+ * «10 км от вершины». Только рядом со словом о подходе (APPROACH_WORD):
+ * «пепел до 10 км» — высота выброса, а не граница.
+ */
+const SUMMIT_RADIUS_RES: readonly RegExp[] = [
+  /ближе\s+(\d+(?:[.,]\d+)?)\s*км/iu,
+  /радиус[а-яё]*[^.!?\d]{0,40}?(\d+(?:[.,]\d+)?)\s*км/iu,
+  /(\d+(?:[.,]\d+)?)\s*км\s+(?:от|к|до)\s+вершин/iu,
+];
+const APPROACH_WORD = /приближ|подход|ближе/iu;
+
+/** Граница у вершины в километрах, как её написал источник; null — фраза её не называет. */
+export function summitRadiusKm(sentence: string): string | null {
+  if (!APPROACH_WORD.test(sentence)) return null;
+  for (const re of SUMMIT_RADIUS_RES) {
+    const km = re.exec(sentence)?.[1];
+    if (km) return km.replace('.', ',');
+  }
+  return null;
+}
+
+/**
+ * Заголовок границы у вершины. Тот же, что у сводки 16.10 (миграция 1298):
+ * «Шивелуч — разрешено приближение радиусе не более, чем на 10 км от
+ * вершины» — это разрешение с границей, а не запрет подходить.
+ */
+export function summitRadiusTitle(volcano: string, km: string): string {
+  return `Вулкан ${volcano}: не ближе ${km} км к вершине`;
+}
+
+/**
  * Строка «активные вулканы … не приближаться», которую однотемный
  * классификатор отбрасывал. По одному событию на названный вулкан.
  * Запрета нет или вулкан не назван — пусто, вулкан не выдумывается.
+ *
+ * Фраза с границей у вершины (20.11) — своё событие у своего вулкана.
+ * Сводка Минтура пишет одной строкой «Не рекомендуется приближаться к
+ * вулканам Мутновский, Безымянный, Ключевской, Крашенинникова. Шивелуч —
+ * разрешено приближение радиусе не более, чем на 10 км от вершины», и запрет
+ * первой фразы уходил всем пяти: в ленте стояло «Вулкан Шивелуч: не
+ * приближаться». Теперь у Шивелуча — «не ближе 10 км к вершине», уровень 1,
+ * описание — его фраза. Уровень и охват — как у той же записи сводки 16.10
+ * (1298, 1301): граница — разрешение, а не запрет; оранжевый KVERT красит
+ * карточку вулкана и без неё. Фраза границы без имени вулкана берёт вулкан
+ * предыдущей фразы («Шивелуч: выброс пепла. Туристам не приближаться к
+ * вершине ближе 10 км»); не нашлось и там — работает прежнее правило запрета.
+ *
+ * Охват всех этих событий — `named` (решение владельца 16.10, миграция 1301):
+ * запрет подходить красит сам вулкан и места, привязанные к нему поимённо, а
+ * не кольцо 25 км. До 20.11 разбор писал их с охватом по умолчанию — кольцом.
  */
 export function approachVolcanoEvents(
   id: string,
@@ -1532,27 +1611,60 @@ export function approachVolcanoEvents(
   link: string,
   sourcePrefix: string,
 ): SeismicEvent[] {
-  if (!APPROACH_BAN.test(item)) return [];
-  const named = volcanoesNamedIn(item).filter((hit) => (
+  const named = (text: string) => volcanoesNamedIn(text).filter((hit) => (
     !AMBIGUOUS_VOLCANO_KEYS.has(hit.key) || textNamesAVolcano(item)
   ));
-  if (named.length === 0) return [];
+
+  // Фразы с границей у вершины и их вулканы.
+  const radius = new Map<string, { km: string; text: string[] }>();
+  const radiusSentences = new Set<number>();
+  const sentences = sentencesOf(item);
+  sentences.forEach((sentence, i) => {
+    const km = summitRadiusKm(sentence);
+    if (!km) return;
+    let hits = named(sentence);
+    let text = [sentence];
+    if (hits.length === 0 && i > 0) {
+      hits = named(sentences[i - 1]);
+      text = [sentences[i - 1], sentence];
+    }
+    if (hits.length === 0) return;
+    radiusSentences.add(i);
+    for (const { key } of hits) {
+      if (!radius.has(key)) radius.set(key, { km, text });
+    }
+  });
+
+  // Запрет — по строке без фраз границы: «не приближаться … ближе 10 км» сам
+  // по себе не запрет всем вулканам строки.
+  const rest = sentences.filter((_, i) => !radiusSentences.has(i)).join(' ');
+  const ban = APPROACH_BAN.test(rest);
+  // Порядок — как у вулканов в строке до 20.11 (volcanoesNamedIn).
+  const hits = named(item).filter(({ key }) => radius.has(key) || ban);
+  if (hits.length === 0) return [];
+
   const publishedAt = new Date(pubDate);
   if (Number.isNaN(publishedAt.getTime())) return [];
   const day = publishedAt.toISOString().slice(0, 10);
   const sourceUrl = link || 'https://41.mchs.gov.ru';
-  return named.map(({ key, zones }) => ({
-    source_id: `${sourcePrefix}/${day}/v${titleFingerprint(key)}`,
-    source_url: sourceUrl,
-    published_at: publishedAt,
-    alert_type: 'volcanic_eruption' as const,
-    severity: 2 as const,
-    title: `Вулкан ${volcanoLabel(key)}: не приближаться`,
-    description: item.slice(0, 800),
-    affected_zones: zones,
-    volcano_name: volcanoLabel(key),
-    expires_hours: 48,
-  }));
+  return hits.map(({ key, zones }) => {
+    const bound = radius.get(key);
+    return {
+      source_id: `${sourcePrefix}/${day}/v${titleFingerprint(key)}`,
+      source_url: sourceUrl,
+      published_at: publishedAt,
+      alert_type: 'volcanic_eruption' as const,
+      severity: bound ? 1 as const : 2 as const,
+      title: bound ? summitRadiusTitle(volcanoLabel(key), bound.km) : `Вулкан ${volcanoLabel(key)}: не приближаться`,
+      // У запрета — строка без чужих фраз границы: «Шивелуч — разрешено …»
+      // в описании запрета Мутновского читалось бы как условие Мутновского.
+      description: (bound ? bound.text.join(' ') : radiusSentences.size > 0 ? rest : item).slice(0, 800),
+      affected_zones: zones,
+      volcano_name: volcanoLabel(key),
+      volcano_scope: 'named' as const,
+      expires_hours: 48,
+    };
+  });
 }
 
 export function mchs_zones(text: string): string[] {
@@ -1660,12 +1772,18 @@ export function titleFingerprint(title: string): string {
  * get_guardian_context заголовком «…до 40 сантиметров в сутки, на» и не
  * читался как предупреждение — обрыв на полуслове выглядит как сбой, а не
  * как сокращение. Полный текст остаётся в описании.
+ *
+ * Первая фраза — по sentencesOf, а не до первой точки (20.11): сводка Минтура
+ * легла в ленту заголовком «Автодорога «Палана — аэропорт»: подмыв у моста
+ * через р» — фраза кончалась на сокращении «р.». Фраза короче 10 знаков
+ * («Внимание!») заголовком не служит, как и прежде: тогда берётся весь текст.
  */
 export function titleFromText(text: string): string {
   const raw = cleanPostText(text);
   const noGreeting = stripGreeting(raw).trim();
   const clean = noGreeting.length >= 10 ? noGreeting : raw;
-  const first = headingLine(text) ?? (/^[^.!?]{10,}/.exec(clean)?.[0] ?? clean).trim();
+  const sentence = (sentencesOf(clean)[0] ?? clean).replace(/[.!?]+$/u, '').trim();
+  const first = headingLine(text) ?? (sentence.length >= 10 ? sentence : clean);
   if (first.length <= ALERT_TITLE_MAX) return first;
   // Место под многоточие; последнее слово, не влезшее целиком, и висящая
   // пунктуация перед ним уходят.
@@ -1746,6 +1864,52 @@ export function titleKeyFromText(text: string): string {
 /** Потолок заголовка алерта (`external_alerts.title`). */
 const ALERT_TITLE_MAX = 200;
 
+/**
+ * Сокращения перед названием: точка после них фразу не кончает — «р. Палана»,
+ * «п. Термальный», «оз. Курильское», «ул. Ленинская». Однобуквенные («с.»,
+ * «о.», «м.», «т. е.») — все, кроме «г.» после числа (ниже).
+ */
+const NAME_ABBREVIATIONS = new Set(['оз', 'пос', 'пгт', 'им', 'ул', 'ст', 'мкр', 'обл', 'руч', 'пер', 'просп', 'кв', 'вдхр']);
+
+/**
+ * Кончает ли точка фразу. Не кончает:
+ *  - после сокращения перед названием и после одной буквы («р. Палана»);
+ *  - перед строчной буквой — это сокращение, которого нет в списке.
+ * «г.» после числа — «год»: фраза кончается, если дальше заглавная
+ * («до 25 ноября 2026 г. Ожидается…»), а «г. Петропавловск» — город.
+ */
+function dotEndsSentence(text: string, dotIndex: number, after: number): boolean {
+  const before = text.slice(0, dotIndex);
+  const next = /^\s*(\S)/u.exec(text.slice(after))?.[1] ?? '';
+  if (/\p{Ll}/u.test(next)) return false;
+  const token = /(?:^|[^\p{L}])(\p{L}+)$/u.exec(before)?.[1]?.toLowerCase();
+  if (!token) return true;
+  if (token === 'г' && /\d\s*г$/iu.test(before)) return next === '' || /\p{Lu}/u.test(next);
+  return !(token.length === 1 || NAME_ABBREVIATIONS.has(token));
+}
+
+/**
+ * Фразы текста по порядку. Граница — «.», «!» или «?» с пробелом или концом
+ * строки после: «5.2» и «07:00.» внутри строки фразу не рвут, сокращение —
+ * тоже (dotEndsSentence). Знак конца остаётся при фразе.
+ */
+export function sentencesOf(text: string): string[] {
+  const out: string[] = [];
+  const re = /[.!?]+(?=\s|$)/gu;
+  let start = 0;
+  let m: RegExpExecArray | null;
+  while ((m = re.exec(text)) !== null) {
+    const end = m.index + m[0].length;
+    if (m[0] === '.' && !dotEndsSentence(text, m.index, end)) continue;
+    const sentence = text.slice(start, end).trim();
+    if (sentence) out.push(sentence);
+    start = end;
+  }
+  const tail = text.slice(start).trim();
+  if (tail) out.push(tail);
+  return out;
+}
+
 function cleanPostText(text: string): string {
   // Ведущие не-буквы снимаем: в постах МЧС строка начинается с булавки или
   // другого значка, и он уезжал в заголовок алерта на главную. Эмодзи в
@@ -1785,21 +1949,64 @@ export function splitSummaryItems(text: string): string[] {
  * Здесь строке раздела парков возвращается слово из её заголовка — «Природный
  * парк …»; дальше её судят те же правила закрытия и открытия, что и любую.
  * Раздел кончается на следующем заголовке (короткая строка с двоеточием).
+ *
+ * Слово «парк» возвращается только строке, которая начинается названием в
+ * кавычках (20.11). Строка вулканов «Не рекомендуется приближаться к вулканам
+ * …» стоит в разделе парков без своего заголовка, и в ленту она уходила с
+ * описанием «Природный парк Не рекомендуется…».
+ *
+ * Строка без маркера между двумя пунктами с одним и тем же маркером —
+ * продолжение верхнего пункта (20.11): синий кружок и «Проезд „п. Термальный —
+ * Вилючинский перевал“: строго по пропускам.», ниже «График работы КПП:
+ * 07:00–08:00, …», ниже снова кружок и «Автодорога …». Поодиночке график не узнавался ни
+ * как дорога, ни как что-то ещё и терялся. Только между одинаковыми
+ * маркерами: сводка 21.10 чередует пункты с маркером и без, и там строка без
+ * маркера — свой пункт («Природный парк „Ключевской“ – маршруты закрыты» под
+ * восклицательным знаком «Все маршруты „Налычево“ закрыты…»). Пустая строка и заголовок раздела
+ * продолжение обрывают.
  */
 export function minturSummaryItems(text: string): string[] {
+  const lines = text.split('\n').map((raw) => ({
+    marker: /^[^\p{L}\p{N}«„"\s]+/u.exec(raw.trimStart())?.[0] ?? '',
+    // Кавычку перед названием оставляем: «„Налычево“ и …» без неё читается обрывком.
+    line: raw.replace(/^[^\p{L}\p{N}«„"]+/u, '').trim(),
+  }));
+  const isHeader = (line: string) => /^[^.!?]{3,40}:$/.test(line);
+  const plain = (i: number) => i < lines.length && lines[i].line !== '' && lines[i].marker === '' && !isHeader(lines[i].line);
+  const continued = new Set<number>();
+  for (let i = 1; i < lines.length; i++) {
+    const above = lines[i - 1];
+    if (!plain(i) || above.marker === '' || above.line === '' || isHeader(above.line)) continue;
+    let j = i;
+    while (plain(j)) j++;
+    if (j < lines.length && lines[j].marker === above.marker) {
+      for (let k = i; k < j; k++) continued.add(k);
+    }
+    i = j - 1;
+  }
+
   const out: string[] = [];
   let parks = false;
-  for (const raw of text.split('\n')) {
-    // Кавычку перед названием оставляем: «„Налычево“ и …» без неё читается обрывком.
-    const line = raw.replace(/^[^\p{L}\p{N}«„"]+/u, '').trim();
-    if (!line) continue;
-    if (/^[^.!?]{3,40}:$/.test(line)) {
-      parks = /^природн[а-яё]*\s+парк/i.test(line);
-      continue;
+  // Пункт, к которому идёт продолжение: только что записанный.
+  let openItem = false;
+  lines.forEach(({ line }, i) => {
+    if (!line) {
+      openItem = false;
+      return;
     }
-    const item = parks && !/парк|заповедник/i.test(line) ? `Природный парк ${line}` : line;
-    if (item.length >= 25) out.push(item);
-  }
+    if (isHeader(line)) {
+      parks = /^природн[а-яё]*\s+парк/i.test(line);
+      openItem = false;
+      return;
+    }
+    if (continued.has(i) && openItem) {
+      out[out.length - 1] = `${out[out.length - 1]} ${line}`;
+      return;
+    }
+    const item = parks && /^[«„"]/u.test(line) && !/парк|заповедник/i.test(line) ? `Природный парк ${line}` : line;
+    openItem = item.length >= 25;
+    if (openItem) out.push(item);
+  });
   return out;
 }
 
@@ -1951,7 +2158,7 @@ export function classifyMchsItems(
     // Общее «не приближаться» не подменяет пеплопад или оползень той же
     // горы: заголовок остаётся у более конкретной строки, важность — у
     // более строгой.
-    const generic = (title: string) => /: не приближаться$/.test(title);
+    const generic = (title: string) => APPROACH_TITLE_RE.test(title);
     const severity = Math.max(prev.severity, ev.severity) as SeismicEvent['severity'];
     if (generic(prev.title) && !generic(ev.title)) {
       ev.severity = severity;

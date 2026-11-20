@@ -473,6 +473,72 @@ withPg('кого накрывает предупреждение', () => {
       expect(by.get('klyuchevskoy-park')?.volcano_scope).toBe('ring');
       expect(by.get('levashov-cape')?.volcano_scope).toBe('ring');
     });
+
+    /**
+     * 1470 (20.11): строки сводки Минтура 20.11 в том виде, в каком их записал
+     * разбор до правки, — к тексту сводки. Повтор миграции ничего не меняет.
+     */
+    it('1470: Шивелуч — граница 10 км и named, запреты — named без чужих слов, КПП и Палана — как в сводке', async () => {
+      const BANS = 'Природный парк Не рекомендуется приближаться к вулканам Мутновский, Безымянный, Ключевской, Крашенинникова. '
+        + 'Шивелуч — разрешено приближение радиусе не более, чем на 10 км от вершины.';
+      const row = async (id: string, f: {
+        type: string; severity: number; title: string; description: string; volcano?: string; ark?: string;
+        sourceUrl?: string; expired?: boolean;
+      }) => (await pool.query<{ id: string }>(
+        `INSERT INTO external_alerts (alert_type, severity, title, description, affected_zones,
+                                      created_at, last_published_at, expires_at, source_url, external_id,
+                                      volcano_name, volcano_ark_id)
+         VALUES ($1, $2, $3, $4, '{}',
+                 (NOW() AT TIME ZONE 'UTC'), (NOW() AT TIME ZONE 'UTC'),
+                 (NOW() AT TIME ZONE 'UTC') + CASE WHEN $8::boolean THEN INTERVAL '-1 hour' ELSE INTERVAL '7 days' END,
+                 $5, $9, $6, $7)
+         RETURNING id::text AS id`,
+        [f.type, f.severity, f.title, f.description, f.sourceUrl ?? 'https://t.me/visitkamchatka41/5010',
+          f.volcano ?? null, f.ark ?? null, f.expired === true, `test-1470-${id}`],
+      )).rows[0]!.id;
+
+      const shiv = await row('shiv', { type: 'volcanic_eruption', severity: 2, title: 'Вулкан Шивелуч: не приближаться', description: BANS, volcano: 'Шивелуч', ark: SHIVELUCH.ark });
+      const mut = await row('mut', { type: 'volcanic_eruption', severity: 2, title: 'Вулкан Мутновский: не приближаться', description: BANS, volcano: 'Мутновский' });
+      // Запрет МЧС о Шивелуче другими словами — граница не та фраза, заголовок не трогается.
+      const mchs = await row('mchs', { type: 'volcanic_eruption', severity: 2, title: 'Вулкан Шивелуч: не приближаться', description: 'Туристам не приближаться к вулкану Шивелуч.', volcano: 'Шивелуч', sourceUrl: 'https://vk.com/wall-1_1' });
+      const ash = await row('ash', { type: 'volcanic_eruption', severity: 2, title: 'Произошёл пепловый выброс из вулкана Шивелуч', description: 'Выброс пепла до 8 км.', volcano: 'Шивелуч' });
+      const gone = await row('gone', { type: 'volcanic_eruption', severity: 2, title: 'Вулкан Шивелуч: не приближаться', description: BANS, volcano: 'Шивелуч', expired: true });
+      const pass = await row('pass', { type: 'road_closure', severity: 1, title: 'Проезд «п. Термальный — Вилючинский перевал»: строго по пропускам.', description: 'Проезд «п. Термальный — Вилючинский перевал»: строго по пропускам.' });
+      const palana = await row('palana', { type: 'road_closure', severity: 1, title: 'Автодорога «Палана — аэропорт»: подмыв у моста через р', description: 'Автодорога «Палана — аэропорт»: подмыв у моста через р. Палана, ведутся восстановительные работы (введен режим повышенной готовности).' });
+
+      // До миграции Шивелуч накрывает место у подножия без связи — кольцом.
+      expect(await coveredBy(shiv)).toContain(NEAR_SHIVELUCH.id);
+
+      const sql = readFileSync(join(process.cwd(), 'migrations', '1470_mintur_bulletin_2026_11_20_fix.sql'), 'utf8');
+      await pool.query(sql);
+      await pool.query(sql); // повтор — без изменений
+
+      const get = async (id: string) => (await pool.query<{ title: string; severity: number; description: string; volcano_scope: string }>(
+        `SELECT title, severity::int AS severity, description, volcano_scope FROM external_alerts WHERE id::text = $1`, [id],
+      )).rows[0]!;
+      expect(await get(shiv)).toEqual({
+        title: 'Вулкан Шивелуч: не ближе 10 км к вершине', severity: 1, volcano_scope: 'named',
+        description: 'Шивелуч — разрешено приближение радиусе не более, чем на 10 км от вершины.',
+      });
+      // Граница красит вулкан и привязанное поимённо, но не место у подножия без связи.
+      expect(await coveredBy(shiv)).toContain(SHIVELUCH.id);
+      expect(await coveredBy(shiv)).toContain(LINKED_FAR.id);
+      expect(await coveredBy(shiv)).not.toContain(NEAR_SHIVELUCH.id);
+
+      expect(await get(mut)).toEqual({
+        title: 'Вулкан Мутновский: не приближаться', severity: 2, volcano_scope: 'named',
+        description: 'Не рекомендуется приближаться к вулканам Мутновский, Безымянный, Ключевской, Крашенинникова.',
+      });
+      expect(await get(mchs)).toMatchObject({ title: 'Вулкан Шивелуч: не приближаться', severity: 2, volcano_scope: 'named' });
+      expect(await get(ash)).toMatchObject({ title: 'Произошёл пепловый выброс из вулкана Шивелуч', volcano_scope: 'ring' });
+      expect(await get(gone)).toMatchObject({ title: 'Вулкан Шивелуч: не приближаться', volcano_scope: 'ring', description: BANS });
+      expect(await get(pass)).toMatchObject({
+        title: 'Проезд «п. Термальный — Вилючинский перевал»: строго по пропускам',
+        description: 'Проезд «п. Термальный — Вилючинский перевал»: строго по пропускам. График работы КПП: 07:00–08:00, 13:00–14:00, 19:00–20:00',
+      });
+      expect((await get(palana)).title).toBe('Автодорога «Палана — аэропорт»: подмыв у моста через р. Палана, ведутся восстановительные работы (введен режим повышенной готовности)');
+      await pool.query(`DELETE FROM external_alerts WHERE external_id LIKE 'test-1470-%'`);
+    });
   });
 
   it('дорожный алерт без координаты не красит места (решение владельца 27.09)', async () => {

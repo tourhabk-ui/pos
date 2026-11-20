@@ -92,7 +92,11 @@ function externalAlertsDdl(): string {
   // 1394 (06.11): дата последней сводки и кто погасил — saveEvent пишет
   // last_published_at и сверяет ended_by. Файл трогает только эту таблицу.
   const m1394 = readFileSync(join(process.cwd(), 'migrations', '1394_external_alerts_park_status.sql'), 'utf-8');
-  return `${block[0]}\n${m687}\n${m1044}\n${parksCol[0]}\n${m1212}\n${m1394}`;
+  // 1301 (16.10): охват вулканической тревоги — с 20.11 saveEvent пишет
+  // volcano_scope. Её UPDATE трогают только строки сводки 16.10, которых в
+  // этой базе нет.
+  const m1301 = readFileSync(join(process.cwd(), 'migrations', '1301_volcano_restriction_named_scope.sql'), 'utf-8');
+  return `${block[0]}\n${m687}\n${m1044}\n${parksCol[0]}\n${m1212}\n${m1394}\n${m1301}`;
 }
 
 // Даты — ОТНОСИТЕЛЬНО «сейчас», не литералом. Первая редакция (09.09) ставила
@@ -321,6 +325,52 @@ withPg('дедуп external_alerts на настоящем PostgreSQL', () => {
     await parser.saveEvent(sampleEvent({ ...HYDRO, affected_zones: ['avachinsky', 'krai_koryak'] }));
     await parser.saveEvent(sampleEvent({ ...HYDRO, source_id: 't.me/kbgsras/pg-test-far-4', affected_zones: ['krai_koryak'] }));
     expect(await zonesOf()).toEqual(['avachinsky', 'krai_koryak']);
+  });
+
+  // 20.11: запрет подходить к вулкану разбор пишет охватом named (1301).
+  // Строка, записанная до правки кольцом, получает named на повторе того же
+  // запрета — иначе недельная сводка продлевала бы кольцо по заголовку.
+  it('запрет подходить пишется охватом named; кольцевая строка того же запрета сужается на повторе, с записью в журнал', async () => {
+    const ban = (id: string, scope: 'named' | undefined, hoursLater: number) => sampleEvent({
+      source_id: `t.me/kbgsras/pg-test-scope-${id}`,
+      alert_type: 'volcanic_eruption', severity: 2,
+      title: 'Вулкан Мутновский: не приближаться', volcano_name: 'Мутновский',
+      description: `Сводка ${id}: не рекомендуется приближаться к вулкану Мутновский.`,
+      affected_zones: ['avachinsky'], expires_hours: 168, volcano_scope: scope,
+      published_at: new Date(PUBLISHED_AT.getTime() + hoursLater * HOUR),
+    });
+    const scopeOf = async (id: string) => (await pool.query(
+      `SELECT volcano_scope FROM external_alerts WHERE external_id = $1`, [`t.me/kbgsras/pg-test-scope-${id}`],
+    )).rows[0]?.volcano_scope;
+
+    // Новая запись разбора — сразу named.
+    expect(await parser.saveEvent(ban('a', 'named', 0))).toBe('inserted');
+    expect(await scopeOf('a')).toBe('named');
+    await pool.query(`DELETE FROM external_alerts WHERE external_id LIKE 't.me/kbgsras/pg-test-scope-%'`);
+
+    // Строка до правки (поля нет — кольцо), затем повтор того же запрета.
+    expect(await parser.saveEvent(ban('b', undefined, 0))).toBe('inserted');
+    expect(await scopeOf('b')).toBe('ring');
+    expect(await parser.saveEvent(ban('c', 'named', 1))).toBe('skipped');
+    expect(await scopeOf('b')).toBe('named');
+    const { rows } = await pool.query(
+      `SELECT decision_reason, details FROM safety_decision_events
+        WHERE event_type = 'dedup_skipped' AND details ? 'volcano_scope' ORDER BY occurred_at DESC LIMIT 1`,
+    );
+    expect(rows[0]?.decision_reason).toMatch(/охват сужен/);
+  });
+
+  it('пеплопад (не запрет) охват не сужает, даже с тем же заголовком повтора', async () => {
+    const ash = (id: string, scope: 'named' | undefined) => sampleEvent({
+      source_id: `t.me/kbgsras/pg-test-ashscope-${id}`,
+      alert_type: 'volcanic_eruption', severity: 2,
+      title: 'Пепловый выброс на вулкане Шивелуч', volcano_name: 'Шивелуч',
+      description: 'Выброс пепла до 8 км.', affected_zones: ['northern'], expires_hours: 24, volcano_scope: scope,
+    });
+    expect(await parser.saveEvent(ash('1', undefined))).toBe('inserted');
+    expect(await parser.saveEvent(ash('2', 'named'))).toBe('skipped');
+    const { rows } = await pool.query(`SELECT volcano_scope FROM external_alerts WHERE external_id = 't.me/kbgsras/pg-test-ashscope-1'`);
+    expect(rows[0].volcano_scope).toBe('ring');
   });
 
   it('повтор с тем же сроком ничего не меняет и не пишет dedup_skipped', async () => {
