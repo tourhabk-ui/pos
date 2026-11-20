@@ -66,6 +66,8 @@ const SHIVELUCH: ActiveWarning = {
   kind: 'volcano',
   place: 'Шивелуч',
   stems: ['шивелуч'],
+  // Сводка Минтура 20.11: граница у вершины, а не запрет подходить вовсе.
+  statement: 'не ближе 10 км к вершине',
   period: '06:00 24.10–06:00 25.10',
   sourceUrl: 'https://vk.com/mchs_kamchatka',
 };
@@ -82,11 +84,13 @@ describe('планер и действующие предупреждения М
     const day = rec.days.find((d) => d.title.includes('Шивелуч'));
     expect(day, 'тур на Шивелуч не попал в план').toBeDefined();
     expect(day!.dayWarnings.join('\n')).toMatch(/Шивелуч/);
-    expect(day!.dayWarnings.join('\n')).toMatch(/к вулкану Шивелуч рекомендовано не приближаться/);
+    expect(day!.dayWarnings.join('\n')).toMatch(/МЧС о вулкане Шивелуч: не ближе 10 км к вершине/);
+    expect(day!.dayWarnings.join('\n')).not.toMatch(/не приближаться/);
     expect(rec.warnings.some((w) => w.type === 'mchs' && /Шивелуч/.test(w.message))).toBe(true);
     // «Безопасный и без риска» в пересказе — поправка сводкой: какие места и почему.
     expect(rec.itinerary).toContain(DIGEST_TAIL);
-    expect(rec.itinerary).toMatch(/не приближаться к вулканам Шивелуч/);
+    expect(rec.itinerary).toMatch(/МЧС о вулканах — Шивелуч: не ближе 10 км к вершине/);
+    expect(rec.itinerary).not.toMatch(/не приближаться/);
   });
 
   it('сводка не прочиталась — план говорит об этом и не рисует спокойствие', async () => {

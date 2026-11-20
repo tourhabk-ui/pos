@@ -225,9 +225,9 @@ describe('тур и маршрут не называются свободным�
     const digest = warningDigest(warnings);
     expect(digest).toBeTruthy();
     const listed = appendOfferingFlags(`Восхождение на Шивелуч.\n${digest}`, warnings);
-    expect(listed).toMatch(/к вулкану Шивелуч/);
-    expect(listed).not.toMatch(/к вулкану Ключевской/);
-    expect(listed).not.toMatch(/к вулкану Безымянный/);
+    expect(listed).toMatch(/МЧС о вулкане Шивелуч: не приближаться/);
+    expect(listed).not.toMatch(/МЧС о вулкане Ключевской/);
+    expect(listed).not.toMatch(/МЧС о вулкане Безымянный/);
     const other = appendOfferingFlags(`В каталоге есть тур на Авачинский.\n${digest}`, warnings);
     expect(other).toBe(`В каталоге есть тур на Авачинский.\n${digest}`);
   });
@@ -235,6 +235,6 @@ describe('тур и маршрут не называются свободным�
   it('флаг не дублируется, если ответ его уже содержит', () => {
     const warnings = rows().filter((w) => w.place === 'Шивелуч');
     const once = appendOfferingFlags('На Шивелуч идти безопасно.', warnings);
-    expect(appendOfferingFlags(once, warnings).match(/МЧС: к вулкану Шивелуч/g)?.length).toBe(1);
+    expect(appendOfferingFlags(once, warnings).match(/МЧС о вулкане Шивелуч/g)?.length).toBe(1);
   });
 });
