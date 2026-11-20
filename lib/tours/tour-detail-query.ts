@@ -26,6 +26,8 @@ import { publicReviewerName } from '@/lib/reviews/public-name';
  *  если миграция 809 ещё не применилась — карточка это переживает. */
 export interface TourCardRow {
   id: number;
+  /** Последняя правка записи (operator_tours.updated_at); null — даты нет. */
+  updated_at?: string | Date | null;
   /** Адрес карточки (ЧПУ, миграция 1114). NULL — только по числу. */
   slug: string | null;
   title: string;
@@ -193,6 +195,8 @@ function buildSql(withOptional: boolean): string {
       ot.rating, ot.review_count,
       ot.route_id,
       ot.main_place_id,
+      -- Последняя правка записи тура — dateModified и видимая дата (аудит 20.11).
+      ot.updated_at,
       ${withOptional ? OPTIONAL_COLUMNS : ''}
       p.name AS operator_name, p.id AS operator_id,
       p.logo_image AS operator_logo,
