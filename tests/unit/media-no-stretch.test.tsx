@@ -79,6 +79,8 @@ describe('герой: резкий кадр не шире колонки, пол
     // На телефоне фона не видно — и снимок не качается; появляется там же, где вписывание.
     expect(backdrop.className.split(/\s+/)).toEqual(expect.arrayContaining(['hidden', 'lg:block', 'blur-2xl']));
     expect(backdrop.getAttribute('loading')).toBe('lazy');
+    // Первый <img> — резкий кадр с fetchPriority, а не lazy-фон (seomator 20.11).
+    expect(container.querySelector('img')).toBe(sharp);
     // Главный кадр грузится первым (аудит 09.11, п. 5): `priority` в Next 15
     // даёт preload и eager, но `fetchpriority` ставит только явный проп.
     // Фон — нет: он не главный и грузится лениво.

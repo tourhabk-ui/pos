@@ -61,10 +61,16 @@ function Featured({ p }: { p: Plate }) {
       />
       <div className="relative overflow-hidden bg-[var(--bg-hover)]">
         {p.imageUrl && (
-          <div
-            className="absolute inset-0 bg-cover bg-top transition-transform duration-500 group-hover:scale-[1.04]"
-            style={{ backgroundImage: `url('${photoSrc(p.imageUrl, 1280)}')` }}
-            aria-hidden
+          // Снимок — <img alt>, а не CSS-фон (seomator 20.11): фон робот
+          // картинок почти не видит. Подпись — название тура. lazy: десктопный
+          // блок на телефоне скрыт, а LCP главной — герой с fetchPriority.
+          // eslint-disable-next-line @next/next/no-img-element
+          <img
+            src={photoSrc(p.imageUrl, 1280)}
+            alt={p.title}
+            loading="lazy"
+            decoding="async"
+            className="absolute inset-0 h-full w-full object-cover object-top transition-transform duration-500 group-hover:scale-[1.04]"
           />
         )}
         <span className="absolute left-3.5 top-3.5"><Availability p={p} glass /></span>
@@ -112,10 +118,13 @@ function Row({ p }: { p: Plate }) {
       />
       <span className="relative h-24 w-24 overflow-hidden rounded-lg bg-[var(--bg-hover)]">
         {p.imageUrl && (
-          <span
-            className="absolute inset-0 bg-cover bg-top transition-transform duration-300 group-hover:scale-[1.06]"
-            style={{ backgroundImage: `url('${photoSrc(p.imageUrl, 640)}')` }}
-            aria-hidden
+          // eslint-disable-next-line @next/next/no-img-element
+          <img
+            src={photoSrc(p.imageUrl, 640)}
+            alt={p.title}
+            loading="lazy"
+            decoding="async"
+            className="absolute inset-0 h-full w-full object-cover object-top transition-transform duration-300 group-hover:scale-[1.06]"
           />
         )}
       </span>
@@ -144,10 +153,13 @@ function TransferRow({ t }: { t: TransferPlate }) {
     >
       <span className="relative grid h-24 w-24 place-items-center overflow-hidden rounded-lg bg-[var(--bg-hover)] text-[var(--ocean)]">
         {t.imageUrl ? (
-          <span
-            className="absolute inset-0 bg-cover bg-top transition-transform duration-300 group-hover:scale-[1.06]"
-            style={{ backgroundImage: `url('${photoSrc(t.imageUrl, 640)}')` }}
-            aria-hidden
+          // eslint-disable-next-line @next/next/no-img-element
+          <img
+            src={photoSrc(t.imageUrl, 640)}
+            alt={t.title}
+            loading="lazy"
+            decoding="async"
+            className="absolute inset-0 h-full w-full object-cover object-top transition-transform duration-300 group-hover:scale-[1.06]"
           />
         ) : <Bus size={28} aria-hidden />}
       </span>
@@ -173,10 +185,13 @@ function StayRow({ t }: { t: StayPlate }) {
       className="group grid grid-cols-[96px_minmax(0,1fr)] items-center gap-4 border-t border-[var(--border)] py-4 no-underline hover:no-underline focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-[var(--ocean)]"
     >
       <span className="relative h-24 w-24 overflow-hidden rounded-lg bg-[var(--bg-hover)]">
-        <span
-          className="absolute inset-0 bg-cover bg-top transition-transform duration-300 group-hover:scale-[1.06]"
-          style={{ backgroundImage: `url('${photoSrc(t.imageUrl, 640)}')` }}
-          aria-hidden
+        {/* eslint-disable-next-line @next/next/no-img-element */}
+        <img
+          src={photoSrc(t.imageUrl, 640)}
+          alt={t.title}
+          loading="lazy"
+          decoding="async"
+          className="absolute inset-0 h-full w-full object-cover object-top transition-transform duration-300 group-hover:scale-[1.06]"
         />
       </span>
       <span className="flex min-w-0 flex-col gap-1">

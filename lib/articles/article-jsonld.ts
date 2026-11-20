@@ -23,7 +23,8 @@ export interface ArticleJsonLdInput {
 export function articleJsonLd(input: ArticleJsonLdInput): Record<string, unknown> {
   const published = recordDateIso(input.datePublished);
   const modified = recordDateIso(input.dateModified);
-  const org = { '@type': 'Organization', name: 'Ведар', url: input.site };
+  // Тот же узел, что у организации в layout (@id, seomator 20.11).
+  const org = { '@type': 'Organization', '@id': `${input.site}/#organization`, name: 'Ведар Камчатка', url: input.site };
   const article: Record<string, unknown> = {
     '@type': 'Article',
     '@id': `${input.url}#article`,

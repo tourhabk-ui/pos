@@ -8,7 +8,7 @@
 import { describe, it, expect } from 'vitest';
 import { readFileSync, readdirSync } from 'node:fs';
 import { join } from 'node:path';
-import { availabilityFromDates } from '@/lib/tours/open-dates';
+import { availabilityFromDates, offerAvailability } from '@/lib/tours/open-dates';
 import { buildTourStructuredData } from '@/lib/seo/tour-structured-data';
 
 const ROOT = process.cwd();
@@ -22,6 +22,20 @@ describe('ответ по датам', () => {
   it('дат не записано или не сосчитали — утверждать нечего', () => {
     expect(availabilityFromDates({ recorded: 0, open: 0 })).toBeNull();
     expect(availabilityFromDates(null)).toBeNull();
+  });
+});
+
+describe('тур без календаря (seomator 20.11)', () => {
+  it('окно выездов по сезону открыто — InStock: заявка на любой день окна', () => {
+    expect(offerAvailability({ recorded: 0, open: 0 }, { kind: 'season' })).toBe('https://schema.org/InStock');
+  });
+  it('сезона нет или прошёл — поля нет; счёт не прочитан — тоже', () => {
+    expect(offerAvailability({ recorded: 0, open: 0 }, { kind: 'unbounded' })).toBeNull();
+    expect(offerAvailability(null, { kind: 'season' })).toBeNull();
+  });
+  it('календарь записан — решают свободные места, а не сезон', () => {
+    expect(offerAvailability({ recorded: 4, open: 0 }, { kind: 'season' })).toBe('https://schema.org/SoldOut');
+    expect(offerAvailability({ recorded: 4, open: 1 }, { kind: 'unbounded' })).toBe('https://schema.org/InStock');
   });
 });
 
@@ -49,7 +63,7 @@ describe('разметка карточки тура', () => {
     for (const f of ['app/catalog/tours/[id]/page.tsx']) {
       const src = read(f);
       expect(src, f).toMatch(/countTourDates\(tour\.id\)/);
-      expect(src, f).toMatch(/availability: availabilityFromDates\(dates\)/);
+      expect(src, f).toMatch(/availability: offerAvailability\(dates, requestWindow\(seasonInput, kamchatkaToday\(\)\)\)/);
     }
   });
 });
