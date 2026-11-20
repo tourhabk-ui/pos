@@ -18,13 +18,27 @@ import { fillCalendarGaps, isFreeDay, type CalendarDayLike, type FreeDay } from 
 const DAY_MS = 86_400_000;
 
 /**
- * Даты плана: ближайший старт В СЕЗОНЕ главного интереса пресета (первого в
- * его списке), иначе — через месяц. N дней — N календарных дней: отъезд —
- * прилёт + (N − 1).
+ * Даты плана: ближайший старт в месяцах пресета (`months` — у сезонных «в
+ * июне», «в сентябре», «зимой»), у остальных — В СЕЗОНЕ главного интереса
+ * (первого в списке), иначе — через месяц. N дней — N календарных дней:
+ * отъезд — прилёт + (N − 1).
+ *
+ * До 20.11 месяцы пресета сюда не доходили: «Камчатка в июне» и «Камчатка в
+ * сентябре» (главный интерес — вулканы, сезон 7–9) считались на 10 июля, и на
+ * июньской странице стояли восхождение на Авачинский (тур идёт с 1.07) и
+ * Курильское озеро (с 19.07), а на сентябрьской — рыбалка на чавычу и нерку
+ * (18.06–20.07). Замечание Сыщика 20.11.
  */
-export function presetPlanDates(days: number, interests: readonly string[], now: Date = new Date()): { arrival: string; departure: string } {
+export function presetPlanDates(
+  days: number,
+  interests: readonly string[],
+  now: Date = new Date(),
+  presetMonths?: readonly number[],
+): { arrival: string; departure: string } {
   const soon = now.getTime() + 30 * DAY_MS;
-  const months = ACTIVITY_CONSTRAINTS[interests[0] ?? '']?.months ?? [];
+  const months = presetMonths && presetMonths.length > 0
+    ? presetMonths
+    : ACTIVITY_CONSTRAINTS[interests[0] ?? '']?.months ?? [];
 
   let arrival = new Date(soon);
   if (months.length > 0) {

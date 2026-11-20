@@ -118,11 +118,13 @@ describe('обещание страницы /plans держится сезоно
   it('старт плана — в сезонном окне главного интереса пресета, в любой месяц пересборки', () => {
     let checked = 0;
     for (const preset of PLAN_PRESETS) {
-      const months = ACTIVITY_CONSTRAINTS[preset.interests[0] ?? '']?.months ?? [];
+      // Сезонный пресет («в июне») — в своих месяцах (замечание Сыщика 20.11),
+      // остальные — в сезоне главного интереса.
+      const months = preset.months ?? ACTIVITY_CONSTRAINTS[preset.interests[0] ?? '']?.months ?? [];
       if (months.length === 0) continue;
       for (let m = 0; m < 12; m++) {
         const now = new Date(Date.UTC(2026, m, 15));
-        const { arrival } = presetPlanDates(preset.days, preset.interests, now);
+        const { arrival } = presetPlanDates(preset.days, preset.interests, now, preset.months);
         const month = new Date(`${arrival}T00:00:00Z`).getUTCMonth() + 1;
         expect(months, `${preset.slug}, пересборка ${m + 1}-го месяца: старт ${arrival}`).toContain(month);
         expect(Date.parse(`${arrival}T00:00:00Z`)).toBeGreaterThan(now.getTime());
