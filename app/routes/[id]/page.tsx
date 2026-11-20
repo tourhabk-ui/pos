@@ -13,6 +13,7 @@ import { query } from '@/lib/database';
 import { stripSourceAttribution } from '@/lib/text/source-attribution';
 import { stripFillerLead } from '@/lib/text/filler-lead';
 import { isUuid } from '@/lib/text/slugify';
+import { routeClosure } from '@/lib/routes/closures';
 import { JsonLd } from '@/components/seo/JsonLd';
 import { webPageModifiedJsonLd } from '@/lib/seo/record-modified';
 import { routeAggregateOffer } from '@/lib/seo/route-offers';
@@ -616,6 +617,7 @@ export default async function RouteOrCategoryPage({ params }: Props) {
         initialRoute={initialRoute}
         initialRelated={initialRelated}
         mapPackBaseUrl={process.env[MAP_PACK_BASE_URL_ENV] || null}
+        closure={routeClosure(route.slug)}
         summary={{
           title: route.title,
           description: route.description ? stripTags(route.description).trim() || null : null,

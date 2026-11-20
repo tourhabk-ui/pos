@@ -22,7 +22,7 @@ import { Header } from '@/components/layout/Header';
 import { JsonLd } from '@/components/seo/JsonLd';
 import { recommendTrip, type DayPlan } from '@/lib/planner';
 import { topToursByActivity, toursByIds, type TopTour } from '@/lib/tours/top-tour-by-activity';
-import { presetPlanDates, planFillNote, presetCalendarDays, presetDayTour } from '@/lib/plans/preset-plan';
+import { presetPlanDates, planFillNote, presetCalendarDays, presetDayTour, tourSeasonNote } from '@/lib/plans/preset-plan';
 import { tripLengthWords } from '@/lib/planner/calendar-days';
 import { tourPath } from '@/lib/tours/tour-url';
 import { findPlanPreset, planLastModified } from '@/lib/plans/presets';
@@ -128,7 +128,8 @@ const loadPresetPlan = unstable_cache(
   // v4 (07.11, H16): даты — N календарных дней; тур дня — движка; строка
   // недобора.
   // v5 (20.11): даты сезонного пресета — в его месяцах (preset.months).
-  ['plan-preset-v6'],
+  // v7 (21.11): в строке тура — сезон (оговорка «тур идёт только с … по …»).
+  ['plan-preset-v7'],
   { revalidate: 86400 },
 );
 
@@ -239,6 +240,11 @@ export default async function PlanPresetPage({ params }: PageProps) {
                     от {Number(tour.base_price).toLocaleString('ru-RU')} ₽ · оставить заявку
                   </span>
                 </div>
+              )}
+              {tour && tourSeasonNote(tour.season_start, tour.season_end) && (
+                <p className="text-xs" data-testid="plan-tour-season" style={{ color: 'var(--warning)' }}>
+                  {tourSeasonNote(tour.season_start, tour.season_end)}
+                </p>
               )}
               {tour && picked?.source === 'kind' && <PlanKindOffers activityType={day.activityType} offers={tour.offers_of_kind} />}
             </article>

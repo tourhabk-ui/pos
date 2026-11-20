@@ -2,6 +2,8 @@
  * Посадочная страница под поисковый запрос (lib/seo/query-landings).
  * Серверный компонент: данные приходят готовыми и упорядоченными.
  */
+import { landingClosure } from '@/lib/routes/closures';
+import { ClosureNotice } from '@/components/routes/ClosureNotice';
 import Link from 'next/link';
 import { JsonLd } from '@/components/seo/JsonLd';
 import { OperatorNameLink } from '@/components/operators/OperatorNameLink';
@@ -98,6 +100,7 @@ export function QueryLandingView({ landing, tours, parks = [], charter = null, s
   summary?: LandingSummary | null;
 }) {
   const lead = landingLead(landing, summary);
+  const closure = landingClosure(landing.key);
   // Вопросы с ответом из туров страницы — и на экране, и в разметке одни.
   const faq = landingFaq(landing, transferOrTours(landing, tours), summary?.nearest ?? null);
   const ui = UI[landing.lang];
@@ -114,6 +117,8 @@ export function QueryLandingView({ landing, tours, parks = [], charter = null, s
           {lead && <p className="text-base" style={{ color: 'var(--text-primary)' }} data-landing-lead>{lead}</p>}
           <p className="text-sm" style={{ color: 'var(--text-secondary)' }}>{landing.intro}</p>
         </header>
+
+        {closure && <ClosureNotice closure={closure} />}
 
         {landing.related && landing.related.length > 0 && (
           <nav className="ds-card p-4 text-sm" aria-label="По теме" data-landing-related>
