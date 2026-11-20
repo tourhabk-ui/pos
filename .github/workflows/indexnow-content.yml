@@ -1,0 +1,80 @@
+name: IndexNow — тексты выката (посадочные, статьи, тонкие страницы)
+
+# Хук публикации и обновления текстов (Сыщик 21.11). Посадочные, статьи,
+# справки мест и маршрутов, рыбы и парки правят код и миграции, а не админка:
+# попутного пинга у них нет. После выката роут /api/cron/indexnow-content
+# берёт из карты сайта адреса с lastmod не раньше SINCE и подаёт их в Яндекс
+# и Bing. Пинг — только ПОСЛЕ того, как своя сборка поднялась на проде
+# (scripts/wait-for-deploy.sh): иначе поисковик переобойдёт старый текст.
+#
+# SINCE — более поздняя из даты в .github/triggers/indexnow-content.json и
+# «двое суток назад»: ручная подача за период — правкой файла-триггера.
+
+on:
+  workflow_dispatch:
+  push:
+    branches: [main]
+    paths:
+      - '.github/triggers/indexnow-content.json'
+      - 'lib/landings/**'
+      - 'lib/fish-species.ts'
+      - 'migrations/**'
+
+permissions:
+  contents: read
+  deployments: read   # запись выката для scripts/wait-for-deploy.sh
+
+concurrency:
+  group: indexnow-content
+  cancel-in-progress: false
+
+jobs:
+  ping:
+    runs-on: ubuntu-latest
+    # Ожидание сборки — до 70 минут (140 x 30 с) плюс запрос; таймаут обязан
+    # быть больше суммы (tests/unit/workflow-timeout-fits-wait.test.ts).
+    timeout-minutes: 80
+    steps:
+      - uses: actions/checkout@v7
+
+      - name: Секрет на месте
+        run: |
+          if [ -z "${{ secrets.CRON_SECRET }}" ]; then
+            echo "::error::секрет CRON_SECRET не задан — позвать роут нечем"
+            exit 1
+          fi
+
+      - name: Дождаться своей сборки на проде
+        env:
+          BASE: https://vedarai.ru
+          WANT_SHA: ${{ github.sha }}
+          # Запись выката (deploy.yml) читается с токеном — без него ждём по built_at.
+          GH_TOKEN: ${{ github.token }}
+          NEED_AFTER: ${{ github.event.head_commit.timestamp }}
+        run: bash scripts/wait-for-deploy.sh
+
+      - name: Пинг IndexNow по текстам выката
+        env:
+          CRON_SECRET: ${{ secrets.CRON_SECRET }}
+        run: |
+          set -euo pipefail
+          SINCE=$(python3 -c "import json,datetime as d;t=json.load(open('.github/triggers/indexnow-content.json')).get('since','');a=(d.datetime.utcnow()-d.timedelta(days=2)).strftime('%Y-%m-%d');print(max(t,a))")
+          echo "SINCE $SINCE"
+          HTTP=$(curl -sS -o /tmp/indexnow.json -w "%{http_code}" --max-time 90 \
+            -H "Authorization: Bearer $CRON_SECRET" \
+            "https://vedarai.ru/api/cron/indexnow-content?since=$SINCE") || HTTP="000"
+          echo "HTTP $HTTP"
+          python3 -m json.tool /tmp/indexnow.json || cat /tmp/indexnow.json || true
+          {
+            echo '## IndexNow — тексты выката'
+            echo ''
+            echo "SINCE $SINCE, HTTP $HTTP"
+            echo ''
+            echo '```json'
+            python3 -m json.tool /tmp/indexnow.json || cat /tmp/indexnow.json || true
+            echo '```'
+          } >> "$GITHUB_STEP_SUMMARY"
+          if [ "$HTTP" != "200" ]; then
+            echo "::error::IndexNow не принял тексты выката (HTTP $HTTP) — см. тело ответа выше"
+            exit 1
+          fi

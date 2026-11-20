@@ -210,6 +210,8 @@ export const CRON_CAPABILITIES: Record<string, readonly Capability[]> = {
   'hero-web-variant': ['db_read', 'db_write', 'net_out'],
   'import-route-passports': ['db_read', 'db_write', 'net_out', 'ai', 'pd_direct'],
   'import-routes': ['db_read', 'db_write', 'net_out'],
+  // Сыщик 21.11: пинг IndexNow (Яндекс и Bing) по текстам выката — карта сайта (db_read), журнал пинга (db_write), POST в IndexNow (net_out).
+  'indexnow-content': ['db_read', 'db_write', 'net_out'],
   // 18.09: пинг IndexNow по /plans после деплоя правок текстов; db_write — журнал отказов пинга (ai_actions_log) внутри lib/seo/indexnow.
   'indexnow-plans': ['db_read', 'db_write', 'net_out'],
   // 19.11: вся карта сайта в IndexNow после выката (задача индексации); db_read — сборка карты, db_write — журнал пинга.
