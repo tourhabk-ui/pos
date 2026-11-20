@@ -39,8 +39,40 @@ const MONTH = '(января|февраля|марта|апреля|мая|ию�
  * 4 октября». Берётся ПОСЛЕДНИЙ названный день.
  */
 const DATED_RE = new RegExp(
-  `(?:^|[^а-яё])на\\s+${PART}(\\d{1,2})(?:\\s*(?:[-–—]|и)\\s*${PART}(\\d{1,2}))?\\s+${MONTH}`,
+  `(?:^|[^а-яё])на\\s+${PART}(\\d{1,2})(?:\\s*(?:[-–—]|и)\\s*${PART}(\\d{1,2}))?\\s+${MONTH}(?:\\s+(\\d{4}))?`,
 );
+
+/**
+ * Конец названного дня по Камчатке (12:00 UTC того же числа) без проверок
+ * срока. Год — из заголовка, если он назван («на 5 декабря 2025 г.»), иначе
+ * год публикации с переходом через Новый год. До 20.11 год из заголовка не
+ * читался: прошлогоднее «на 5 декабря 2025 г.», перепубликованное лентой МЧС
+ * 19.11.2026, считалось предупреждением на 5 декабря 2026-го.
+ */
+function namedDayEnd(title: string, publishedAt: Date): number | null {
+  if (Number.isNaN(publishedAt.getTime())) return null;
+  const m = title.toLowerCase().match(DATED_RE);
+  if (!m) return null;
+  const day = Number(m[2] ?? m[1]);
+  const month = MONTHS[m[3]];
+  if (day < 1 || day > 31 || month === undefined) return null;
+  if (m[4]) return Date.UTC(Number(m[4]), month, day, 12, 0, 0);
+  const year = publishedAt.getUTCFullYear();
+  const end = Date.UTC(year, month, day, 12, 0, 0);
+  // «На 1 января», опубликовано 31 декабря — следующий год.
+  return end < publishedAt.getTime() - 30 * 86_400_000 ? Date.UTC(year + 1, month, day, 12, 0, 0) : end;
+}
+
+/**
+ * Предупреждение назвало свой день, и этот день кончился до публикации поста:
+ * лента перепубликовала старое (случай 19.11: «на 5 декабря 2025 г.» пришло
+ * как новое и ушло уведомлением «угроза цунами»). Такой пост — не действующее
+ * предупреждение. Дня в заголовке нет — `false`: судить не о чем.
+ */
+export function namedDayEnded(title: string, publishedAt: Date): boolean {
+  const end = namedDayEnd(title, publishedAt);
+  return end !== null && end <= publishedAt.getTime();
+}
 
 /** Названная дата дальше недели — скорее не про срок предупреждения. */
 export const DATED_WARNING_MAX_HOURS = 7 * 24;
@@ -50,20 +82,8 @@ export const DATED_WARNING_MAX_HOURS = 7 * 24;
  * того же числа. `null` — даты нет, она до публикации или дальше недели.
  */
 export function datedWarningEnd(title: string, publishedAt: Date): Date | null {
-  if (Number.isNaN(publishedAt.getTime())) return null;
-  const m = title.toLowerCase().match(DATED_RE);
-  if (!m) return null;
-  const day = Number(m[2] ?? m[1]);
-  const month = MONTHS[m[3]];
-  if (day < 1 || day > 31 || month === undefined) return null;
-
-  let year = publishedAt.getUTCFullYear();
-  let end = Date.UTC(year, month, day, 12, 0, 0);
-  // «На 1 января», опубликовано 31 декабря — следующий год.
-  if (end < publishedAt.getTime() - 30 * 86_400_000) {
-    year += 1;
-    end = Date.UTC(year, month, day, 12, 0, 0);
-  }
+  const end = namedDayEnd(title, publishedAt);
+  if (end === null) return null;
   const hours = (end - publishedAt.getTime()) / 3_600_000;
   if (hours <= 0 || hours > DATED_WARNING_MAX_HOURS) return null;
   return new Date(end);

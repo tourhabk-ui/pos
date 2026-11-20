@@ -564,4 +564,55 @@ withPg('дедуп external_alerts на настоящем PostgreSQL', () => {
       )).rejects.toMatchObject({ code: '23514' });
     });
   });
+
+  describe('миграция 1467: посты МЧС о нагоне — не цунами (19.11)', () => {
+    const m1467 = () => readFileSync(join(process.cwd(), 'migrations', '1467_retract_false_tsunami_storm_surge.sql'), 'utf-8');
+    const SURGE_TEXT = 'Ожидаются сгонно-нагонные явления, подъём уровня воды до 1 м. Не находитесь в цунамиопасной зоне.';
+    const rows = [
+      { id: 'mig1467/old', title: 'Экстренное предупреждение на 5 декабря 2025 г. (сгонно - нагонные явления)', description: SURGE_TEXT },
+      { id: 'mig1467/now', title: 'Экстренное предупреждение на 21 ноября 2026 г. (сгонно - нагонные явления)', description: SURGE_TEXT },
+      { id: 'mig1467/other', title: 'Экстренное предупреждение на 22 ноября 2026 г. (нагонные явления)', description: SURGE_TEXT },
+      { id: 'mig1467/other2', title: 'Экстренное предупреждение (сгонно-нагонные колебания уровня моря)', description: SURGE_TEXT },
+      { id: 'mig1467/alarm', title: 'Экстренное предупреждение (нагонные явления)', description: `${SURGE_TEXT} Объявлена угроза цунами на побережье.` },
+      { id: 'mig1467/real', title: 'Угроза цунами', description: 'Объявлена угроза цунами. Уходите от воды.' },
+      { id: 'mig1467/titled', title: 'Угроза цунами и нагонные явления', description: SURGE_TEXT },
+    ];
+    type Row = { external_id: string; alert_type: string; severity: number; ended_by: string | null; live: boolean; after_21: boolean; expires_at: string };
+    const read = async () => (await pool.query<Row>(
+      `SELECT external_id, alert_type, severity, ended_by,
+              expires_at > (NOW() AT TIME ZONE 'UTC') AS live,
+              expires_at >= TIMESTAMP '2026-11-21 12:00:00' AS after_21,
+              expires_at::text AS expires_at
+         FROM external_alerts WHERE external_id LIKE 'mig1467/%' ORDER BY external_id`,
+    )).rows;
+
+    it('прошлогодний гаснет, нагон — в weather до конца названного дня, настоящая тревога цунами не тронута; повтор ничего не меняет', async () => {
+      await pool.query(`DELETE FROM external_alerts WHERE external_id LIKE 'mig1467/%'`);
+      for (const r of rows) {
+        await pool.query(
+          `INSERT INTO external_alerts (external_id, alert_type, severity, title, description, affected_zones, created_at, expires_at)
+           VALUES ($1, 'tsunami_warning', 3, $2, $3, ARRAY['avachinsky'],
+                   (NOW() AT TIME ZONE 'UTC') - INTERVAL '1 hour', (NOW() AT TIME ZONE 'UTC') + INTERVAL '11 hours')`,
+          [r.id, r.title, r.description],
+        );
+      }
+      await pool.query(m1467());
+      const after = new Map((await read()).map((r) => [r.external_id, r]));
+      expect(after.get('mig1467/old')).toMatchObject({ alert_type: 'tsunami_warning', ended_by: 'admin', live: false });
+      expect(after.get('mig1467/now')).toMatchObject({ alert_type: 'weather', severity: 1, ended_by: null, live: true, after_21: true });
+      // Другой пост о нагоне — weather со своим сроком: дата ему не дописывается.
+      expect(after.get('mig1467/other')).toMatchObject({ alert_type: 'weather', severity: 1, ended_by: null, live: true });
+      expect(after.get('mig1467/other2')).toMatchObject({ alert_type: 'weather', severity: 1, ended_by: null, live: true });
+      // Нагон в заголовке, но в тексте объявлена угроза цунами — остаётся цунами.
+      expect(after.get('mig1467/alarm')).toMatchObject({ alert_type: 'tsunami_warning', severity: 3, ended_by: null, live: true });
+      expect(after.get('mig1467/real')).toMatchObject({ alert_type: 'tsunami_warning', severity: 3, ended_by: null, live: true });
+      // Заголовок сам называет цунами — правило нагона его не судит.
+      expect(after.get('mig1467/titled')).toMatchObject({ alert_type: 'tsunami_warning', severity: 3, ended_by: null, live: true });
+
+      const snapshot = await read();
+      await pool.query(m1467());
+      expect(await read()).toEqual(snapshot);
+      await pool.query(`DELETE FROM external_alerts WHERE external_id LIKE 'mig1467/%'`);
+    });
+  });
 });

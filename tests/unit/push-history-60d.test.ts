@@ -4,8 +4,8 @@ import { classifyMchsItem, classifyMchsItems, tsunamiStatus } from '@/lib/servic
 // Разбор 43 пушей за 60 дней (журнал traveller_notified, перепись 20.10).
 // Порог пуша: severity >= 2 или tsunami_warning (safety-ingest dispatchPushAlerts).
 const PUB = new Date().toISOString();
-const pushes = (title: string, text: string) =>
-  classifyMchsItems('t', title, text, PUB, '', 'vk_mchs').filter((e) => e.severity >= 2 || e.alert_type === 'tsunami_warning');
+const pushes = (title: string, text: string, pub: string = PUB) =>
+  classifyMchsItems('t', title, text, pub, '', 'vk_mchs').filter((e) => e.severity >= 2 || e.alert_type === 'tsunami_warning');
 
 const KNDR = `МЧС России и КНДР укрепляют партнерство в сфере защиты от чрезвычайных ситуаций
 В Пхеньянском дворце съездов состоялась двусторонняя встреча делегации МЧС России во главе с Министром РФ Александром Куренковым и Министром по делам стихийных бедствий КНДР Ким Чхоль Намом.
@@ -42,6 +42,10 @@ describe('ложные пуши из истории — на новом коде
 });
 
 describe('настоящие тревоги из истории — на новом коде уходят', () => {
+  // Пост, назвавший свой день, подаётся датой своей публикации: тот же текст с
+  // датой «сейчас» — перепубликация прошедшего предупреждения, и разбор его не
+  // берёт (19.11, lib/safety/dated-warning.ts, namedDayEnded).
+  const PUBLISHED: Record<string, string> = { flood: '2026-09-13T21:00:00Z' };
   const real: Array<[string, string]> = [
     ['road_closure', 'Внимание! Ограничение движения для всех видов транспорта! Закрыт участок автодороги Начикинский совхоз — село Усть-Большерецк — посёлок Октябрьский с подъездом к пристани Косоево'],
     ['weather', 'Штормовое предупреждение: в акваториях Тихого океана и Берингова моря прогнозируется штормовой ветер. По данным Камчатского управления по гидрометеорологии и мониторингу окружающей среды, 8 и 9 октября ожидается штормовой ветер.'],
@@ -51,7 +55,7 @@ describe('настоящие тревоги из истории — на нов�
   ];
   for (const [type, text] of real) {
     it(`${type}: ${text.slice(0, 50)}…`, () => {
-      const out = pushes('', text);
+      const out = pushes('', text, PUBLISHED[type] ?? PUB);
       expect(out.map((e) => e.alert_type)).toContain(type);
     });
   }

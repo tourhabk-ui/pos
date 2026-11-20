@@ -17,7 +17,7 @@ import { decodeHtmlEntities } from '@/lib/html/entities';
 import { stripTags } from '@/lib/html/text';
 import { appendSafetyEvent, hashPayload } from '@/lib/safety/ledger';
 import { BAN_AUDIENCE, BAN_VERB } from '@/lib/services/safety/tourist-ban';
-import { datedWarningHours, DATED_WARNING_TYPES } from '@/lib/safety/dated-warning';
+import { datedWarningHours, DATED_WARNING_TYPES, namedDayEnded } from '@/lib/safety/dated-warning';
 import { warningSystemTest, warningTestHours } from '@/lib/safety/warning-system-test';
 import { isPastForecast, isWarningEnded } from '@/lib/safety/resolution-notice';
 import { KRAI_SOUTH_ZONE, namesKraiSouth } from '@/lib/safety/krai-south';
@@ -536,6 +536,33 @@ const TSUNAMI_THREAT_CUE = /угроз|опасн|оповещ|предупре�
  * пропущенное цунами (решение владельца 20.10).
  */
 const TSUNAMI_REAL_ALARM = /объявлен[аоы]?\s+(?:угроз[аы]?|опасност[ьи])\s+цунами|угроз[аы]\s+цунами\s+объявл|оповещени[ея]\s+о\s+(?:угрозе\s+)?цунами|предупреждени[ея]\s+о\s+цунами|это\s+не\s+учени|не\s+учебн/;
+
+/**
+ * Сгонно-нагонные явления — не цунами (19.11, слово владельца «да исправь»).
+ *
+ * МЧС назвало явление в заголовке: «Экстренное предупреждение на 21 ноября
+ * 2026 г. (сгонно - нагонные явления)» — подъём и спад воды у берега от ветра
+ * и давления. Текст такого поста говорит о береге и воде и может назвать
+ * цунами рядом со словом опасности (например, «цунамиопасная зона»), а общее
+ * правило цунами (`tsunamiStatus`) нарочно широкое: лишний пуш дешевле
+ * пропущенного цунами. Так 19.11 два поста о нагоне — прошлогодний и
+ * сегодняшний — ушли уведомлением «УГРОЗА ЦУНАМИ» высшего уровня.
+ *
+ * Узко намеренно: только когда явление названо в ЗАГОЛОВКЕ, сам заголовок
+ * цунами не называет и в тексте нет ни явного оповещения о цунами
+ * (TSUNAMI_REAL_ALARM), ни волны цунами. Тогда это морское погодное
+ * предупреждение (`weather`), и правило морских тревог
+ * (lib/safety/marine-alert.ts) не вешает его на горные места.
+ */
+const STORM_SURGE_HEADING = /сгонно\s*[-–—]?\s*нагонн|нагонн[а-я]*\s+явлени/;
+const TSUNAMI_WAVE = /волн[а-я]*\s+цунами/;
+
+export function isStormSurgeNotTsunami(heading: string, text: string): boolean {
+  const h = String(heading || '').toLowerCase().replace(/ё/g, 'е');
+  if (!STORM_SURGE_HEADING.test(h) || /цунами|tsunami/.test(h)) return false;
+  const t = String(text || '').toLowerCase().replace(/ё/g, 'е');
+  return !TSUNAMI_REAL_ALARM.test(t) && !TSUNAMI_WAVE.test(t);
+}
 
 /**
  * Важность землетрясения по магнитуде. ОДНО правило на все источники.
@@ -2597,6 +2624,13 @@ export function classifyMchsItem(
   if (isWarningEnded(title || description.slice(0, 300)) || isPastForecast(title || description.slice(0, 300), description)) {
     return null;
   }
+  // Предупреждение, чей названный день кончился до публикации, — перепубликация
+  // старого, а не действующая угроза (19.11: «Экстренное предупреждение на
+  // 5 декабря 2025 г.» пришло в ленту 19.11.2026 и ушло уведомлением «угроза
+  // цунами»). Проверка стоит до определения типа — и до правила цунами.
+  if (namedDayEnded(title || description.slice(0, 200), new Date(pubDate))) {
+    return null;
+  }
 
   let alert_type: SeismicEvent['alert_type'] = 'info';
   let severity: 0 | 1 | 2 | 3 = 0;
@@ -2606,7 +2640,11 @@ export function classifyMchsItem(
   // тревога»: иначе «угрозы цунами нет» становилось тревогой цунами. «Угрозы
   // нет» проходит дальше по веткам — у такого поста обычно нет другой
   // категории, и он отбрасывается как неинтересный.
-  const tsunami = tsunamiStatus(text);
+  //
+  // Пост о сгонно-нагонных явлениях правилом цунами не судится вовсе
+  // (isStormSurgeNotTsunami, 19.11): у него своя ветка ниже.
+  const stormSurge = isStormSurgeNotTsunami(title || description.slice(0, 200), text);
+  const tsunami = stormSurge ? null : tsunamiStatus(text);
   const parkClosure = detectParkClosure(text);
   // Сводка об открытии (решение владельца 06.11) — только когда закрытия в
   // тексте нет: смешанное решается в пользу закрытия. Заголовок — отдельным
@@ -2651,6 +2689,13 @@ export function classifyMchsItem(
     // проход applyParkReopenings), а без неё после предела место —
     // «статус не известен» (park-reopening.ts).
     if (expires_hours === PARK_CLOSURE_DEFAULT_HOURS && isWeeklyBulletinSource(sourcePrefix)) expires_hours = 168;
+  } else if (stormSurge) {
+    // Сгонно-нагонные явления (19.11): морское погодное предупреждение, а не
+    // цунами и не речной паводок, — до ветки ветра и паводка, которые иначе
+    // забрали бы его по словам «шторм» или «уровень воды». Уровень — как у
+    // предупреждений Росгидромета (1); прямой запрет тургруппам поднимет его
+    // общим порогом ниже. Срок — до конца названного дня (dated-warning).
+    alert_type = 'weather'; severity = 1; expires_hours = 24;
   } else if (/лавин/.test(text)) {
     // Лавины — ДО погодной ветки, а не после: лавинное предупреждение МЧС
     // почти всегда идёт вместе с метелью и сильным ветром, и ветка «ураган |

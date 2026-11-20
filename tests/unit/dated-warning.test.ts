@@ -1,6 +1,6 @@
 import { describe, it, expect } from 'vitest';
 import { readFileSync } from 'node:fs';
-import { datedWarningEnd, datedWarningHours } from '@/lib/safety/dated-warning';
+import { datedWarningEnd, datedWarningHours, namedDayEnded } from '@/lib/safety/dated-warning';
 import { classifyMchsItem } from '@/lib/services/safety/seismic-parser';
 
 // Случай 03.10: «Экстренное предупреждение на 3 октября» висело паводком 120 ч.
@@ -66,5 +66,41 @@ describe('живые строки догоняет крон приёма', () =>
   it('уборка только сокращает срок', () => {
     const cap = readFileSync('lib/services/safety/dated-warning-cap.ts', 'utf8');
     expect(cap).toMatch(/LEAST\(ea\.expires_at, v\.end_at\)/);
+  });
+});
+
+// 19.11: лента МЧС перепубликовала «Экстренное предупреждение на 5 декабря
+// 2025 г. (сгонно-нагонные явления)» как новое — и оно ушло уведомлением
+// «угроза цунами». Год из заголовка не читался.
+describe('прошедший названный день — не действующее предупреждение', () => {
+  const NOV19 = new Date('2026-11-19T22:00:00Z'); // 20 ноября 10:00 по Камчатке
+
+  it('год из заголовка читается: «на 5 декабря 2025 г.» кончился, «на 5 декабря» — впереди', () => {
+    expect(namedDayEnded('Экстренное предупреждение на 5 декабря 2025 г. (сгонно - нагонные явления)', NOV19)).toBe(true);
+    expect(namedDayEnded('Экстренное предупреждение на 5 декабря (сгонно - нагонные явления)', NOV19)).toBe(false);
+    expect(namedDayEnded('Экстренное предупреждение на 20 ноября 2026 г. (штормовой ветер)', NOV19)).toBe(false);
+    expect(datedWarningEnd('Экстренное предупреждение на 5 декабря 2025 г.', NOV19)).toBeNull();
+  });
+
+  it('день до публикации без года — кончился; без дня — судить не о чем', () => {
+    expect(namedDayEnded('Экстренное предупреждение на 18 ноября', NOV19)).toBe(true);
+    expect(namedDayEnded('Экстренное предупреждение на 1 января', new Date('2026-12-31T05:00:00Z'))).toBe(false);
+    expect(namedDayEnded('Прогнозируется штормовой ветер', NOV19)).toBe(false);
+    expect(namedDayEnded('на 5 декабря 2025 г.', new Date('invalid'))).toBe(false);
+  });
+
+  it('классификатор не берёт перепубликованное старое предупреждение — и не делает из него цунами', () => {
+    const ev = classifyMchsItem('t-old',
+      'Экстренное предупреждение на 5 декабря 2025 г. (сгонно - нагонные явления)',
+      'По информации Камчатского ЦГМС 5 декабря ожидаются сгонно-нагонные явления. Возможна угроза цунами — уйдите от берега.',
+      NOV19.toUTCString(), 'https://41.mchs.gov.ru/x');
+    expect(ev).toBeNull();
+  });
+
+  it('то же предупреждение на день впереди проходит, как раньше', () => {
+    const ev = classifyMchsItem('t-new',
+      'Экстренное предупреждение на 20 ноября 2026 г. (штормовой ветер)',
+      'Ожидается штормовой ветер до 30 м/с.', NOV19.toUTCString(), 'https://41.mchs.gov.ru/y');
+    expect(ev).not.toBeNull();
   });
 });
