@@ -12,6 +12,8 @@
  * запросы (q) кэш обходят — неограниченное множество ключей загрязняло бы кэш.
  */
 
+import { searchTerms } from '@/lib/search/query-words';
+import { fuzzyMatchSql, normRu } from '@/lib/search/fuzzy';
 import { unstable_cache } from 'next/cache';
 import { z } from 'zod';
 import { query } from '@/lib/database';
@@ -246,9 +248,14 @@ export async function queryCatalog(filters: CatalogFilters): Promise<CatalogResu
   let idx = 1;
 
   if (q) {
-    conditions.push(`(ark.title ILIKE $${idx} OR ark.description ILIKE $${idx + 1})`);
-    params.push(`%${q}%`, `%${q}%`);
-    idx += 2;
+    // Строка целиком — в названии или описании, как раньше; плюс нечётко по
+    // словам в названии (lib/search/fuzzy, 21.11): «дигерен» находит
+    // «Дыгерен-Оленгендэ». Нечёткая ветка требует ВСЕ слова запроса.
+    const norms = searchTerms(q).map(normRu);
+    const fuzzy = norms.map((_, i) => fuzzyMatchSql('ark.title', `$${idx + 2 + i}`)).join(' AND ');
+    conditions.push(`(ark.title ILIKE $${idx} OR ark.description ILIKE $${idx + 1}${norms.length ? ` OR (${fuzzy})` : ''})`);
+    params.push(`%${q}%`, `%${q}%`, ...norms);
+    idx += 2 + norms.length;
   }
   if (kind) {
     conditions.push(`ark.kind = $${idx}`);

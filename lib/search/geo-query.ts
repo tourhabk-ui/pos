@@ -23,6 +23,7 @@
 import { containsPattern, escapeLike } from '@/lib/db/like';
 import { MATCHES_NAME_OR_ALIAS, NOT_MERGED } from '@/lib/places/aliases';
 import { searchTerms } from './query-words';
+import { fuzzyMatchSql, normRu } from './fuzzy';
 
 export interface SearchQuery {
   sql: string;
@@ -30,23 +31,26 @@ export interface SearchQuery {
 }
 
 /**
- * Общая часть: $1 — запрос целиком (точное имя — выше), $2..$(n+1) — слова,
- * последний — предел. `cond(p)` — условие совпадения одного слова.
+ * Общая часть: $1 — запрос целиком (точное имя — выше), $2..$(n+1) — слова
+ * шаблоном «содержит», $(n+2)..$(2n+1) — те же слова нормализованными для
+ * нечёткого совпадения (lib/search/fuzzy, 21.11), последний — предел.
+ * `cond(p, n)` — условие совпадения одного слова.
  */
-function byWords(q: string, limit: number, cond: (param: string) => string) {
+function byWords(q: string, limit: number, cond: (param: string, norm: string) => string) {
   const terms = searchTerms(q);
-  const conds = terms.map((_, i) => cond(`$${i + 2}`));
+  const k = terms.length;
+  const conds = terms.map((_, i) => cond(`$${i + 2}`, `$${i + 2 + k}`));
   return {
     where: conds.map((c) => `(${c})`).join(' OR '),
     hits: conds.map((c) => `(${c})::int`).join(' + '),
-    limit: `$${terms.length + 2}`,
-    params: [escapeLike(q.trim()), ...terms.map(containsPattern), limit] as Array<string | number>,
+    limit: `$${2 * k + 2}`,
+    params: [escapeLike(q.trim()), ...terms.map(containsPattern), ...terms.map(normRu), limit] as Array<string | number>,
   };
 }
 
 /** Места: имя или псевдоним, только видимые и не слитые. */
 export function placesSearchQuery(q: string, limit: number): SearchQuery {
-  const w = byWords(q, limit, (p) => MATCHES_NAME_OR_ALIAS('p', p));
+  const w = byWords(q, limit, (p, n) => `(${MATCHES_NAME_OR_ALIAS('p', p)} OR ${fuzzyMatchSql('p.name', n)})`);
   return {
     sql: `SELECT p.id, p.name AS title, p.location_type, (${w.hits}) AS hits
        FROM places p
@@ -66,7 +70,7 @@ export function placesSearchQuery(q: string, limit: number): SearchQuery {
  * (COALESCE(ark_id, id)): по нему строится ссылка /routes/[id].
  */
 export function routesSearchQuery(q: string, limit: number): SearchQuery {
-  const w = byWords(q, limit, (p) => `title ILIKE ${p}`);
+  const w = byWords(q, limit, (p, n) => `(title ILIKE ${p} OR ${fuzzyMatchSql('title', n)})`);
   return {
     sql: `SELECT COALESCE(ark_id, id) AS id, title, category, (${w.hits}) AS hits
        FROM kamchatka_routes
@@ -82,7 +86,7 @@ export function routesSearchQuery(q: string, limit: number): SearchQuery {
 
 /** Парки: справочник маленький, до трёх строк. */
 export function parksSearchQuery(q: string): SearchQuery {
-  const w = byWords(q, 3, (p) => `display_name ILIKE ${p}`);
+  const w = byWords(q, 3, (p, n) => `(display_name ILIKE ${p} OR ${fuzzyMatchSql('display_name', n)})`);
   return {
     sql: `SELECT slug, display_name, (${w.hits}) AS hits
        FROM parks

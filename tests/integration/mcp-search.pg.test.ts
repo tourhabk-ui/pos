@@ -132,6 +132,10 @@ withPg('поиск в шапке сайта по словам (lib/search/geo-qu
        VALUES ($1, 'trekking', 'Пробная тропа к Курильскому озеру', TRUE)`,
       [ROUTE_ID],
     );
+    await pool.query(
+      `INSERT INTO kamchatka_routes (id, category, title, is_visible)
+       VALUES (gen_random_uuid(), 'trekking', 'Пробный вулкан Дыгерен-Оленгендэ', TRUE)`,
+    );
   }, 300_000);
 
   afterAll(async () => {
@@ -164,6 +168,14 @@ withPg('поиск в шапке сайта по словам (lib/search/geo-qu
     const r = routesSearchQuery('Kurile Lake', 50);
     const routes = (await pool.query<{ id: string; title: string }>(r.sql, r.params)).rows;
     expect(routes.map((x) => x.title)).toContain('Пробная тропа к Курильскому озеру');
+  });
+
+  it('нечётко (21.11): «дигерен», «оленгенде» и опечатка «дигереен» находят «Дыгерен-Оленгендэ»', async () => {
+    for (const q of ['дигерен', 'Оленгенде', 'дигереен']) {
+      const r = routesSearchQuery(q, 20);
+      const titles = (await pool.query<{ title: string }>(r.sql, r.params)).rows.map((x) => x.title);
+      expect(titles, q).toContain('Пробный вулкан Дыгерен-Оленгендэ');
+    }
   });
 
   it('псевдоним тоже ищется по словам: «сопка Псевдонимная» находит место', async () => {

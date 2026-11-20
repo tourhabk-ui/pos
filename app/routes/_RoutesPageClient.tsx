@@ -11,6 +11,7 @@ import {
   Gem, Droplet, Navigation, Umbrella, Sailboat, Landmark, ScrollText, Tent,
 } from 'lucide-react';
 import RouteCard, { type RouteItem } from '@/components/routes/RouteCard';
+import { ROUTE_FALLBACK_HEADING, ROUTE_FALLBACK_LIMIT, showRouteFallback } from '@/lib/search/place-route-fallback';
 import ParksStrip from '@/components/routes/ParksStrip';
 import type { ParkLite } from '@/lib/parks/list';
 import CategoriesStrip from '@/components/routes/CategoriesStrip';
@@ -181,9 +182,11 @@ interface RoutesPageClientProps {
    * адреса (lib/routes/catalog-return, clampPage).
    */
   initialPage?: number;
+  /** Вкладка «Места», мест по запросу нет: маршруты по тому же запросу с сервера. */
+  initialRouteFallback?: RouteItem[];
 }
 
-export default function RoutesPageClient({ initialItems, initialMeta, initialError, initialKey, lockedKind, toursSlot, initialParks = null, initialCategories = null, initialPage }: RoutesPageClientProps) {
+export default function RoutesPageClient({ initialItems, initialMeta, initialError, initialKey, lockedKind, toursSlot, initialParks = null, initialCategories = null, initialPage, initialRouteFallback = [] }: RoutesPageClientProps) {
   const router       = useRouter();
   const searchParams = useSearchParams();
 
@@ -238,6 +241,10 @@ export default function RoutesPageClient({ initialItems, initialMeta, initialErr
   const [meta,      setMeta]      = useState(initialMeta);
   const [loading,   setLoading]   = useState(false);
   const [dbError,   setDbError]   = useState(initialError);
+  // Вкладка «Места» без мест по запросу — маршруты по тому же запросу
+  // (владелец 21.11). Первый экран — с сервера, дальше — запросом при смене q.
+  const [routeFallback, setRouteFallback] = useState<RouteItem[]>(initialRouteFallback);
+  const routeFallbackQ = useRef<string>(initialRouteFallback.length > 0 ? (searchParams.get('q') ?? '') : '');
   const [mapRoutes, setMapRoutes] = useState<MapRoute[]>([]);
   const [mapLoading, setMapLoading] = useState(false);
 
@@ -319,6 +326,23 @@ export default function RoutesPageClient({ initialItems, initialMeta, initialErr
     }
     setLoading(false);
   }, []);
+
+  // ── Маршруты, когда мест по запросу нет ─────────────────────
+  const fallbackOn = showRouteFallback({ kind, query, placesCount: routes.length, loading, error: dbError });
+  useEffect(() => {
+    if (!fallbackOn) return;
+    const q = query.trim();
+    if (routeFallbackQ.current === q) return;
+    routeFallbackQ.current = q;
+    setRouteFallback([]);
+    let cancelled = false;
+    const params = new URLSearchParams({ page: '1', limit: String(ROUTE_FALLBACK_LIMIT), sort: 'recommended', kind: 'route', q });
+    fetch(`/api/routes?${params}`)
+      .then((r) => r.json() as Promise<RoutesResponse>)
+      .then((json) => { if (!cancelled) setRouteFallback(json.success ? json.data : []); })
+      .catch(() => { if (!cancelled) setRouteFallback([]); });
+    return () => { cancelled = true; };
+  }, [fallbackOn, query]);
 
   // ── Fetch map pins ───────────────────────────────────────────
   const fetchMapRoutes = useCallback(async () => {
@@ -767,6 +791,18 @@ export default function RoutesPageClient({ initialItems, initialMeta, initialErr
                  найдено» уезжало ЗА нижний край, и пустой поиск выглядел как
                  сломанная страница. Сообщение об отсутствии результата обязано
                  попадать в тот же экран, что и поле поиска. */
+              fallbackOn && routeFallback.length > 0 && routeFallbackQ.current === query.trim() ? (
+                <section aria-labelledby="place-route-fallback" data-testid="place-route-fallback" className="py-4">
+                  <h2 id="place-route-fallback" className="text-sm font-semibold text-[var(--text-secondary)] mb-3">
+                    {ROUTE_FALLBACK_HEADING}
+                  </h2>
+                  <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-4 gap-3" onClickCapture={rememberBeforeCard}>
+                    {routeFallback.map(route => (
+                      <RouteCard key={route.id} route={route} />
+                    ))}
+                  </div>
+                </section>
+              ) :
               <div className="py-10 text-center">
                 <SlidersHorizontal className="w-10 h-10 mx-auto mb-3 text-[var(--text-muted)]" />
                 <p className="text-[var(--text-secondary)]">Ничего не найдено</p>

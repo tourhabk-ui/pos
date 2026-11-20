@@ -9,6 +9,8 @@
  *   - app/catalog/page.tsx и app/marketplace/page.tsx (серверный первый рендер).
  */
 
+import { searchTerms } from '@/lib/search/query-words';
+import { fuzzyMatchSql, normRu } from '@/lib/search/fuzzy';
 import { nearestFreeDateSql } from '@/lib/tours/nearest-free-date';
 import { anyDayOpenSql } from '@/lib/tours/schedule-kind';
 import { compareTourOffers, offerOrderDay, pinnedOfferDay } from '@/lib/tours/offer-order';
@@ -196,9 +198,13 @@ export async function queryMarketplaceTours(filters: MarketplaceToursFilters): P
     params.push(price_max);
   }
   if (search) {
-    conditions.push(`(ot.title ILIKE $${idx} OR ot.description ILIKE $${idx})`);
-    params.push(`%${search}%`);
-    idx++;
+    // Плюс нечётко по словам в названии (lib/search/fuzzy, 21.11): и/ы, е/ё/э,
+    // опечатки. Нечёткая ветка требует все слова запроса.
+    const norms = searchTerms(search).map(normRu);
+    const fuzzy = norms.map((_, i) => fuzzyMatchSql('ot.title', `$${idx + 1 + i}`)).join(' AND ');
+    conditions.push(`(ot.title ILIKE $${idx} OR ot.description ILIKE $${idx}${norms.length ? ` OR (${fuzzy})` : ''})`);
+    params.push(`%${search}%`, ...norms);
+    idx += 1 + norms.length;
   }
 
   const where = `WHERE ${conditions.join(' AND ')}`;
