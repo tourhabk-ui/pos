@@ -35,6 +35,7 @@ import { publicReviewerName } from '@/lib/reviews/public-name';
 import { stripFillerLead } from '@/lib/text/filler-lead';
 import { WAYPOINT_PHOTOS_SQL, toWaypointPhotos, type WaypointPhotos } from '@/lib/routes/waypoint-photos';
 import { payloadText, payloadStrings } from '@/lib/routes/payload-text';
+import { registryPassportPdf } from '@/lib/routes/distance-words';
 import { UTC_WALL_NOW_SQL } from '@/lib/db/timestamp-iso';
 import { loadNearestFreeDates } from '@/lib/tours/nearest-free-date';
 import { anyDayOpenSql } from '@/lib/tours/schedule-kind';
@@ -570,7 +571,9 @@ export async function loadRouteDetail(id: string, opts: RouteDetailOptions) {
       elevationMaxM:   r.elevation_max_m != null ? Number(r.elevation_max_m) : null,
       surfaceTypes:    (r.surface_types as string[] | null) ?? null,
       durationHours:   r.kr_duration_hours != null ? Number(r.kr_duration_hours) : null,
-      pdfUrl:          (r.pdf_url as string | null) ?? null,
+      // Нет ссылки на паспорт, а источником маршрута записан PDF реестра —
+      // это и есть паспорт (импорт клал его только в source_url, #3568).
+      pdfUrl:          (r.pdf_url as string | null) ?? registryPassportPdf(r.source_url as string | null),
       officialPassportUrl: (r.official_passport_url as string | null) ?? null,
       passportAgency:      (r.passport_agency as string | null) ?? null,
       /**

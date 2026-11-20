@@ -14,6 +14,7 @@
 import { pool } from '@/lib/db-pool';
 import { getPublicBaseUrl } from '@/lib/config';
 import { lineOwnership } from '@/lib/routes/line-ownership';
+import { routeDistanceWords } from '@/lib/routes/distance-words';
 
 /**
  * $1 — places.id места. id маршрута — в пространстве VIEW
@@ -22,7 +23,7 @@ import { lineOwnership } from '@/lib/routes/line-ownership';
  */
 export const PLACE_ROUTES_SQL = `
   SELECT COALESCE(kr.ark_id, kr.id) AS id, kr.slug, kr.title, kr.activity_type, kr.difficulty,
-         kr.distance_km, kr.duration_hours, rw.link_kind,
+         kr.distance_km, kr.distance_note, kr.duration_hours, rw.link_kind,
          -- Факты §10 — для Кузьмича (lib/kuzmich/guardian-context, 14.10):
          -- без них он знал о маршрутах места только название и длину.
          kr.elevation_gain_m, kr.season, kr.hazards, kr.equipment,
@@ -51,6 +52,8 @@ export interface PlaceRouteRow {
   activity_type?: string | null;
   difficulty?: string | null;
   distance_km?: string | number | null;
+  /** Пометка паспорта к длине (1472): «в одну сторону» / «в обе стороны». */
+  distance_note?: string | null;
   duration_hours?: string | number | null;
   /** Род связи (миграция 874): waypoint / nearby / unknown. */
   link_kind?: string | null;
@@ -135,7 +138,7 @@ export function placeRoutesLines(routes: PlaceRouteRow[]): string[] {
     // иначе 242,5 км дороги звучали бы как тропа к вулкану.
     const km = r.distance_with_approach_km != null
       ? `, длина линии ${r.distance_with_approach_km} км вместе с подъездом — это не длина тропы`
-      : r.distance_km != null && Number.isFinite(Number(r.distance_km)) ? `, длина маршрута ${Number(r.distance_km)} км` : '';
+      : routeDistanceWords(r.distance_km, r.distance_note) ? `, длина маршрута ${routeDistanceWords(r.distance_km, r.distance_note)}` : '';
     return `«${r.title}»${km} — ${routePageUrl(r)}`;
   };
   const lines: string[] = [];

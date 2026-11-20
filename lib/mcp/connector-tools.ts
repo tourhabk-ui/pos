@@ -71,6 +71,7 @@ import { kamchatkaToday } from '@/lib/seat-requests/core';
 import { placeZoneLabel, routeDifficultyLabel, routeSeasonLabel, routeTypeLabel } from '@/lib/places/zone-labels';
 import { groupSentenceIfUnlimited } from '@/lib/tours/group-size';
 import { cardDuration } from '@/lib/tours/card-facts';
+import { routeDistanceWords } from '@/lib/routes/distance-words';
 import {
   SEARCH_TOOL_NAME, FETCH_TOOL_NAME, CONNECTOR_TOOL_NAMES,
   SEARCH_RESULTS_MAX, QUERY_MIN_CHARS, QUERY_MAX_CHARS, FETCH_TEXT_MAX,
@@ -500,7 +501,7 @@ async function fetchStay(key: string, base: string): Promise<FetchResult> {
 interface RouteRow {
   /** `kamchatka_routes.id` — им считается оценка на сегодня (lib/routes/route-today). */
   db_id: string;
-  key: string; title: string; description: string | null; difficulty: string | null; distance_km: string | null;
+  key: string; title: string; description: string | null; difficulty: string | null; distance_km: string | null; distance_note: string | null;
   duration_hours: string | null; duration_days: number | null; elevation_gain_m: number | null; season: string | null;
   route_type: string | null; hazards: string[] | null; equipment: string[] | null; mchs_registration_required: boolean | null;
   park_name: string | null; zone: string | null;
@@ -510,7 +511,10 @@ async function fetchRoute(key: string, base: string): Promise<FetchResult> {
   const id = docId('route', key);
   const { rows: [r] } = await pool.query<RouteRow>(
     `SELECT r.id::text AS db_id, COALESCE(r.slug, r.ark_id::text, r.id::text) AS key, r.title, r.description, r.difficulty,
-            r.distance_km::text AS distance_km, r.duration_hours::text AS duration_hours, r.duration_days,
+            r.distance_km::text AS distance_km,
+            -- Пометка паспорта к длине (1472): в представлении её нет, читается из таблицы.
+            (SELECT k.distance_note FROM kamchatka_routes k WHERE k.id = r.id) AS distance_note,
+            r.duration_hours::text AS duration_hours, r.duration_days,
             r.elevation_gain_m, r.season, r.route_type, r.hazards, r.equipment, r.mchs_registration_required,
             r.park_name, r.zone
        FROM v_kamchatka_routes_api r
@@ -540,7 +544,7 @@ async function fetchRoute(key: string, base: string): Promise<FetchResult> {
     `Маршрут «${r.title}»${placeZoneLabel(r.zone) ? `, ${placeZoneLabel(r.zone)}` : ''}.`,
     line('Тип', routeTypeLabel(r.route_type)),
     line('Сложность', routeDifficultyLabel(r.difficulty)),
-    r.distance_km ? `Дистанция: ${Number(r.distance_km)} км` : null,
+    line('Дистанция', routeDistanceWords(r.distance_km, r.distance_note)),
     r.duration_days ? `Длительность: ${r.duration_days} дн.` : (r.duration_hours ? `Длительность: ${Number(r.duration_hours)} ч` : null),
     r.elevation_gain_m ? `Набор высоты: ${r.elevation_gain_m} м` : null,
     line('Сезон', routeSeasonLabel(r.season)),
