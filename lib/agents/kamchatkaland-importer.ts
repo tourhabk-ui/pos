@@ -197,6 +197,8 @@ async function upsertArticle(
        source_url  = COALESCE(EXCLUDED.source_url, articles.source_url),
        updated_at  = NOW()
      WHERE articles.source_name = EXCLUDED.source_name
+       -- Переписанная статья (миграция 1471) импортом не затирается.
+       AND articles.rewritten_at IS NULL
      RETURNING (xmax = 0) AS inserted`,
     [slug, title, body, meta.topic, url, SOURCE_NAME],
   );

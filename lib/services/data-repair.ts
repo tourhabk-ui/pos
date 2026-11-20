@@ -1297,7 +1297,10 @@ export async function runDataRepair(dryRunInput = true, only?: string): Promise<
              ON CONFLICT (slug) DO UPDATE
                 SET title = EXCLUDED.title,
                     body = COALESCE(EXCLUDED.body, articles.body),
-                    updated_at = NOW()`,
+                    updated_at = NOW()
+              -- Переписанный своими словами текст (миграция 1471) ремонт
+              -- справочника не затирает заметкой источника.
+              WHERE articles.rewritten_at IS NULL`,
             [slug, n.title, n.description, n.source_url, n.source_name, n.category],
           );
           // Точки маршрута — своей строкой: внешнего ключа у них нет, и без

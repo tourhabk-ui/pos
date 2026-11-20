@@ -228,16 +228,17 @@ export async function collectSitemapEntriesWithStatus(): Promise<{ entries: Meta
   let articlePages: MetadataRoute.Sitemap = [];
   let articlesUnread = false;
   try {
-    const { rows } = await pool.query<{ slug: string; updated_at: Date }>(`
-      SELECT slug, updated_at
+    const { rows } = await pool.query<{ slug: string; updated_at: Date; source_url: string | null }>(`
+      SELECT slug, updated_at, source_url
       FROM articles
       WHERE is_visible = TRUE
       ORDER BY updated_at DESC
       LIMIT 500
     `);
-    // Копии источника до переписывания (noindex, аудит 20.11) в карту не
-    // идут: lib/articles/noindex — снять статью = убрать slug из списка.
-    articlePages = rows.filter((row) => isArticleIndexable(row.slug)).map((row) => ({
+    // Копии источника (noindex, аудит 20.11) в карту не идут: slug в списке
+    // lib/articles/noindex или источник — kamchatkaland.ru. Переписанные
+    // (миграция 1471) возвращаются с lastmod = updated_at записи.
+    articlePages = rows.filter((row) => isArticleIndexable(row.slug, row.source_url)).map((row) => ({
       url: `${BASE}/articles/${row.slug}`,
       lastModified: row.updated_at,
       changeFrequency: 'monthly' as const,
