@@ -42,6 +42,7 @@ const FAKE: Record<string, string> = {
   'Закрытый ключ': '-----BEGIN ' + 'RSA PRIVATE KEY-----',
   'Строка подключения с паролем': 'postgresql://app' + ':Zq7rT9vK2w' + '@db.internal:5432/main',
   'Секрет по имени переменной': 'JWT' + '_SECRET=' + 'kT4qZ8wN' + '2vB6xL1mR9pC3',
+  'Токен Bearer': 'Authorization: Bea' + 'rer ' + 'kT4qZ8wN' + '2vB6xL1mR9pC3x9Qz7',
 };
 
 /** Случайное на вид значение для секретов по имени — собрано из кусков. */
@@ -66,7 +67,7 @@ describe('каждый род ключа находится', () => {
   });
 
   it.each(Object.entries(FAKE))('%s', (name, key) => {
-    const line = name === 'Секрет по имени переменной' ? key : `export const K = '${key}';`;
+    const line = name === 'Секрет по имени переменной' || name === 'Токен Bearer' ? key : `export const K = '${key}';`;
     const findings = scanDiff(diffOf('config/app.ts', [line]));
     expect(findings.map((f) => f.name)).toContain(name);
     expect(findings[0]).toMatchObject({ file: 'config/app.ts', line: 1 });
@@ -84,6 +85,21 @@ describe('секрет по имени переменной', () => {
     ['поле объекта', `  pass${'word'}: '${RANDOM}',`],
     ['константа', `const API${'_TOKEN'} = "${RANDOM}";`],
     ['YAML', `  CSRF${'_SECRET'}: "${RANDOM}"`],
+    // Обходы из ревью безопасности PR 3611.
+    ['YAML без кавычек', `  POSTGRES${'_PASSWORD'}: ${RANDOM}`],
+    ['Dockerfile ENV', `ENV JWT${'_SECRET'}=${RANDOM}`],
+    ['compose', `      - JWT${'_SECRET'}=${RANDOM}`],
+    ['аннотация типа', `const CRON${'_SECRET'}: string = "${RANDOM}";`],
+    ['запасное значение', `const s = process.env.JWT${'_SECRET'} || "${RANDOM}";`],
+    ['поле через точку', `cfg.jwt${'Secret'} = "${RANDOM}";`],
+    ['ключ свойств', `spring.datasource.pass${'word'}=${RANDOM}`],
+    ['комментарий в конце', `S3${'_SECRET_KEY'}=${RANDOM} # прод`],
+    ['имя на PASS', `SMTP${'_PASS'}=${RANDOM}`],
+    ['имя на _KEY', `ENCRYPTION${'_KEY'}=${RANDOM}`],
+    ['заголовок через дефис', `x-api${'-key'}: ${RANDOM}`],
+    ['passphrase', `pass${'phrase'}: '${RANDOM}',`],
+    ['слово заглушки внутри значения', `JWT${'_SECRET'}=latest${RANDOM}`],
+    ['второе присваивание на строке', `{ token: 'your_token_here', sec${'ret'}: '${RANDOM}' }`],
   ])('%s — находка', (_kind, line) => {
     expect(scanDiff(diffOf('deploy/setup.sh', [line])).map((f) => f.name)).toEqual(['Секрет по имени переменной']);
   });
@@ -97,6 +113,11 @@ describe('секрет по имени переменной', () => {
     ['описание по-русски', `pass${'word'}: 'Пароль от кабинета площадки 2026',`],
     ['короткое значение', `pass${'word'}: 'Ab12cd34',`],
     ['адрес', `TOKEN${'_URL'}=https://oauth.example.org/v2/token123`],
+    ['ссылка на поле', `cfg.jwt${'Secret'} = process.env.JWT_SECRET;`],
+    ['выражение JSX', `  access${'Token'}={msg.bookingConfirmed.accessToken}`],
+    ['исходник регулярного выражения', `const MONTH${'_TOKEN'} = '(январ[а-яё]*|феврал[а-яё]*|март7)';`],
+    ['слово заглушки целиком', `const SEC${'RET'} = 'cron-secret-for-tests-25-10';`],
+    ['passenger — не пароль', `passenger: '${RANDOM}',`],
   ])('%s — не находка', (_kind, line) => {
     expect(scanDiff(diffOf('docs/setup.md', [line]))).toEqual([]);
   });
@@ -106,6 +127,12 @@ describe('секрет по имени переменной', () => {
     expect(isPlaceholderValue('$' + 'S3_SECRET_KEY_2026')).toBe(true);
     expect(isPlaceholderValue('$' + '{S3_SECRET_KEY_2026}')).toBe(true);
     expect(isPlaceholderValue('aaaaaaaaaaaa1111')).toBe(true);
+  });
+
+  it('токен Bearer в заголовке — находка без имени переменной', () => {
+    const line = `curl -H "Authorization: Bea${'rer'} ${RANDOM}x9Qz7" https://api.example.org`;
+    expect(scanDiff(diffOf('docs/api.md', [line])).map((f) => f.name)).toEqual(['Токен Bearer']);
+    expect(scanDiff(diffOf('docs/api.md', ['Authorization: Bearer ${TOKEN}']))).toEqual([]);
   });
 });
 

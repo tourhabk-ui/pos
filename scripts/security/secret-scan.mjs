@@ -38,21 +38,36 @@ const PLACEHOLDER_PASSWORD =
   /^(?:password|passwd|pass|secret|changeme|test|example|postgres|\*+|x+|\.{3}|<[^>]*>|\$\{[^}]*\}|\$[A-Z_][A-Z0-9_]*|%[A-Z_]+%)$|your|here|change_?me|placeholder/i;
 
 /**
- * Имя переменной, по которому в значении ждут секрет: `JWT_SECRET`,
- * `CRON_SECRET`, `S3_SECRET_KEY`, `password`, `API_TOKEN`, `apiKey`.
+ * Слово в имени переменной, по которому в значении ждут секрет: `JWT_SECRET`,
+ * `CRON_SECRET`, `S3_SECRET_KEY`, `SMTP_PASS`, `ENCRYPTION_KEY`, `x-api-key`,
+ * `password`, `apiKey`. Голое `pass` — только последним слогом (`PGPASS`), не
+ * `passenger` и не `passport`.
  */
-const SECRET_NAME =
-  String.raw`[A-Za-z0-9_]*(?:secret|token|passw(?:or)?d|pwd|api_?key|access_?key|private_?key|auth_?key|signing_?key)[A-Za-z0-9_]*`;
+const SECRET_WORD = [
+  'secret', 'token', 'passw(?:or)?d', 'passphrase', 'pass(?![a-z])', 'pwd', 'credentials?',
+  'api[_-]?key', 'access[_-]?key', 'private[_-]?key', 'auth[_-]?key', 'signing[_-]?key',
+  'encryption[_-]?key', 'session[_-]?key', 'master[_-]?key', 'hmac[_-]?key', 'jwt[_-]?key',
+].join('|');
+
+/** Имя целиком: слово-секрет внутри идентификатора, ключа YAML или заголовка. */
+const SECRET_NAME = String.raw`[A-Za-z0-9_.-]*?(?:${SECRET_WORD})[A-Za-z0-9_-]*`;
 
 /**
- * Значение по имени: в кавычках (`JWT_SECRET = "…"`, `password: '…'`,
- * `$env:CRON_SECRET = "…"`) или строкой файла окружения (`S3_SECRET_KEY=…`).
- * Значение — группа 3 или группа 5.
+ * Значение по имени. Группа 3 — в кавычках: `JWT_SECRET = "…"`,
+ * `password: '…'`, `$env:CRON_SECRET = "…"`, `const CRON_SECRET: string = "…"`,
+ * `process.env.JWT_SECRET || "…"`, `cfg.jwtSecret = "…"`.
+ * Группа 5 — без кавычек, строкой конфига: `S3_SECRET_KEY=…`, `export …=…`,
+ * `ENV JWT_SECRET=…` (Dockerfile), `- JWT_SECRET=…` (compose),
+ * `POSTGRES_PASSWORD: …` (YAML), `spring.datasource.password=…`, с
+ * комментарием `# …` в конце или без.
+ *
+ * Флаг `g`: на строке судится каждое присваивание, а не только первое —
+ * заглушка слева не прячет настоящий ключ справа.
  */
 const NAMED_SECRET = new RegExp(
-  `(?<![A-Za-z0-9_.])(${SECRET_NAME})["']?\\s*(?::=|=>|:|=)\\s*(["'\x60])([^"'\x60\\s]{16,})\\2`
-    + `|^\\s*(?:export\\s+|\\$env:)?(${SECRET_NAME})\\s*=\\s*([^\\s"'\x60#]{16,})\\s*$`,
-  'i',
+  String.raw`(?<![A-Za-z0-9_-])(${SECRET_NAME})["']?\s*(?::\s*[A-Za-z_][\w<>\[\]|.]*\s*)?(?::=|=>|\|\||\?\?|:|=)\s*(["'\x60])([^"'\x60\s]{12,})\2`
+    + String.raw`|^\s*(?:export\s+|readonly\s+|local\s+|\$env:|ENV\s+|-\s+|Environment=)?["']?(${SECRET_NAME})["']?\s*[=:]\s*([^\s"'\x60#]{12,})\s*(?:#.*)?$`,
+  'gi',
 );
 
 /** Энтропия Шеннона значения, бит на знак. */
@@ -64,30 +79,56 @@ function entropy(s) {
   return h;
 }
 
+/** Слово-заглушка целиком: `test`, но не `latest`; `demo`, но не `ProdDemo`. */
+const PLACEHOLDER_WORD =
+  /(?:^|[^a-z])(?:tests?|demos?|dummy|fakes?|mocks?|samples?|here|todo|redacted|replace|changeme|change_me)(?:[^a-z]|$)/i;
+
 /**
  * Значение по секретному имени, которое секретом не является: ссылка на
- * окружение (`process.env.X`, `${{ secrets.X }}`, `$X`), заглушка
- * (`your_jwt_secret_here`, `xxxx`, `<токен>`), имя константы, адрес, слово
- * или описание по-русски. Остальное с энтропией от 3,5 бит на знак, буквами и
- * цифрами — секрет.
+ * окружение или переменную (`process.env.X`, `${{ secrets.X }}`, `$X`,
+ * `config.jwtSecret`), заглушка (`your_jwt_secret_here`, `xxxx`, `<токен>`,
+ * `test-cron-secret`), имя константы (`VEDAR_SESSION_TOKEN`), слово, адрес.
+ * Остальное с энтропией от 3 бит на знак — секрет.
  *
- * Замер 20.11 на истории репозитория: до этого правила сканер пропускал 42
+ * Значение с кириллицей или с классом знаков регулярного выражения
+ * (`[а-яё]`, `(?:`) — исходник шаблона, а не ключ.
+ *
+ * Чего правило не видит, сказано прямо: значение с пробелами
+ * («Correct Horse Battery»), значение из одних букв (`correcthorsebatterystaple`
+ * не отличить от имени переменной `hashedPasswordValue`), значение короче 12
+ * знаков, ключ без префикса провайдера под несекретным именем.
+ *
+ * Замер 20.11 на истории репозитория: до этого правила сканер пропускал 54
  * значения, которые лежали открытым текстом (JWT_SECRET, CRON_SECRET, ключи
- * S3, пароли площадок, токены), а за месяц main (311 тыс. новых строк) правило
- * дало бы две находки — обе фальшивые ключи в тестах.
+ * S3, пароли площадок, токены). На месяце main (311 тыс. добавленных строк) правило
+ * сработало бы 4 раза, все в тестах.
  *
  * @param {string} v
  */
 export function isPlaceholderValue(v) {
-  if (/your|exampl|placeholder|change_?me|replace|xxxx|\*\*\*|\.\.\.|[<>]|\$\{|\$\(|process\.env|import\.meta|secrets\.|vars\.|env\.|dummy|fake|sample|mock|redacted|here|todo|test|demo|1234567|abcdef|qwerty/i.test(v)) return true;
+  if (/your|exampl|placeholder|xxxx|\*\*\*|\.\.\.|[<>]|\$\{|\$\(|process\.env|import\.meta|secrets\.|vars\.|1234567|abcdef|qwerty/i.test(v)) return true;
+  if (PLACEHOLDER_WORD.test(v)) return true;
   if (/^\$\{?[A-Za-z_][A-Za-z0-9_]*\}?$/.test(v)) return true;
-  if (/[^\x21-\x7e]/.test(v)) return true;
-  if (/^[A-Za-z_]+$/.test(v)) return true;
-  if (/^[A-Z0-9_]+$/.test(v) && v.includes('_')) return true;
-  if (/^(?:[a-z]+:)?\/\//i.test(v) || v.startsWith('/')) return true;
-  if (!/[0-9]/.test(v) || !/[A-Za-z]/.test(v)) return true;
-  return entropy(v) < 3.5;
+  if (/[а-яё]/i.test(v) || /\[[^\]]+\]|\(\?/.test(v)) return true;
+  if (/^[A-Za-z_$][\w$]*(?:\.[A-Za-z_$][\w$]*)+[,;)]*$/.test(v)) return true;
+  if (/[,;)]$/.test(v)) return true;
+  if (/^\{.*\}$/.test(v)) return true;
+  if (/^[\p{L}_-]+$/u.test(v)) return true;
+  if (/^[A-Z]+[0-9]{0,4}(?:_(?:[A-Z]+[0-9]{0,4}|[0-9]{1,4}))+$/.test(v)) return true;
+  if (/^(?:[a-z][a-z0-9+.-]*:)?\/\//i.test(v) || v.startsWith('/') || v.startsWith('./')) return true;
+  if (/^[0-9.:-]+$/.test(v)) return true;
+  return entropy(v) < 3;
 }
+
+/** Значения по секретному имени на строке — все, а не первое. */
+function namedSecretValues(text) {
+  const out = [];
+  for (const m of text.matchAll(NAMED_SECRET)) out.push(m[3] ?? m[5] ?? '');
+  return out;
+}
+
+/** Токен в заголовке `Authorization: Bearer …` без имени переменной. */
+const BEARER = /\bBearer\s+([A-Za-z0-9._~+/=-]{20,})/gi;
 
 /**
  * Род ключа и его форма. Формы — опубликованные провайдерами префиксы и
@@ -96,7 +137,7 @@ export function isPlaceholderValue(v) {
  * место, где энтропия судит, — значение под секретным ИМЕНЕМ: там случайная
  * строка и есть секрет (`isPlaceholderValue`).
  *
- * @type {ReadonlyArray<{ name: string; re: RegExp; ignore?: (m: RegExpMatchArray) => boolean }>}
+ * @type {ReadonlyArray<{ name: string; re: RegExp; ignore?: (m: RegExpMatchArray) => boolean; found?: (text: string) => boolean }>}
  */
 export const SECRET_PATTERNS = [
   { name: 'Telegram: токен бота', re: /\b\d{8,10}:AA[A-Za-z0-9_-]{33}\b/ },
@@ -121,7 +162,12 @@ export const SECRET_PATTERNS = [
   {
     name: 'Секрет по имени переменной',
     re: NAMED_SECRET,
-    ignore: (m) => isPlaceholderValue(m[3] ?? m[5] ?? ''),
+    found: (text) => namedSecretValues(text).some((v) => !isPlaceholderValue(v)),
+  },
+  {
+    name: 'Токен Bearer',
+    re: BEARER,
+    found: (text) => [...text.matchAll(BEARER)].some((m) => !isPlaceholderValue(m[1] ?? '')),
   },
 ];
 
@@ -179,8 +225,12 @@ export function scanDiff(diff) {
   for (const { file, line, text } of addedLines(diff)) {
     if (text.includes('allow-secret:')) continue;
     for (const p of SECRET_PATTERNS) {
-      const m = text.match(p.re);
-      if (!m || (p.ignore && p.ignore(m))) continue;
+      if (p.found) {
+        if (!p.found(text)) continue;
+      } else {
+        const m = text.match(p.re);
+        if (!m || (p.ignore && p.ignore(m))) continue;
+      }
       findings.push({ file, line, name: p.name });
     }
   }
