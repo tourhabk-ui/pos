@@ -1,6 +1,6 @@
 # Схема базы данных Ведара
 
-> Снято 2026-11-20 с настоящего PostgreSQL 18.7 (Debian 18.7-1.pgdg13+2): baseline прода (`lib/database/baseline/schema-baseline.sql`, снимок 2026-08-15) + миграции новее него, накатанные штатным раннером. Последняя миграция в снимке: `1469_park_route_status.sql`.
+> Снято 2026-11-20 с настоящего PostgreSQL 18.7 (Debian 18.7-1.pgdg13+5): baseline прода (`lib/database/baseline/schema-baseline.sql`, снимок 2026-08-15) + миграции новее него, накатанные штатным раннером. Последняя миграция в снимке: `1471_articles_rewritten_texts.sql`.
 > Файл порождён `scripts/gen-db-schema.ts` (`npm run db:schema-doc`); править руками бессмысленно — следующий прогон перепишет.
 > Что здесь НЕ учтено: дрейф прода после baseline, не отражённый миграциями. Судья дрейфа — `GET /api/cron/schema-drift` на проде (`lib/db/schema-drift.ts`). Значений данных в файле нет — только имена и типы.
 
@@ -8,7 +8,7 @@
 |---|---:|
 | Таблиц | 335 |
 | Представлений (VIEW) | 13 |
-| Колонок | 4332 |
+| Колонок | 4337 |
 | Внешних ключей | 397 |
 | Таблиц без единого FK в обе стороны | 91 |
 
@@ -1383,9 +1383,9 @@ B2B-агенты, продающие туры за комиссию. Не пут
 
 Поездка туриста — `user_trips`; подготовка к походу — `trip_preparation_*` (миграция 864).
 
-**articles** · 10 кол. · PK id · индексов 3
+**articles** · 15 кол. · PK id · индексов 3
 
-`id uuid!=` `slug varchar!` `title text!` `body text` `source_url text` `source_name varchar` `topic varchar` `is_visible boolean!=` `created_at timestamptz!=` `updated_at timestamptz!=`
+`id uuid!=` `slug varchar!` `title text!` `body text` `source_url text` `source_name varchar` `topic varchar` `is_visible boolean!=` `created_at timestamptz!=` `updated_at timestamptz!=` `rewritten_at timestamptz` `meta_title text` `meta_description text` `body_withdrawn text` `source_url_withdrawn text`
 
 **assets** · 9 кол. · PK id · на неё ссылаются: accommodation_assets, partner_assets, review_assets, tour_assets · индексов 2
 
