@@ -35,6 +35,9 @@ import MchsRegistrationBlock from '@/components/safety/MchsRegistrationBlock';
 import { registerFormHref } from '@/lib/safety/register-submit';
 import { type RouteItem } from '@/components/routes/RouteCard';
 import { RelatedRoutes } from '@/components/routes/RelatedRoutes';
+import { PhotoCreditLink } from '@/components/media/PhotoCreditLink';
+import type { PhotoCredit } from '@/lib/media/author-credit';
+import type { RouteTourPhoto } from '@/lib/routes/tour-photos';
 import { RecordModified } from '@/components/seo/RecordModified';
 import { useSourceTracker } from '@/hooks/useSourceTracker';
 import { planRouteMap, saveRouteMap, type RouteMapProgress } from '@/lib/offline/route-map-save';
@@ -234,7 +237,13 @@ export interface RouteDetail {
    * Кадры точек пути, когда своих у маршрута нет (04.10, lib/routes/
    * waypoint-photos). Автор и место — у каждого кадра свои, тем же порядком.
    */
-  waypointPhotos?: { urls: string[]; authors: Array<string | null>; placeNames: string[] } | null;
+  waypointPhotos?: { urls: string[]; authors: Array<string | null>; placeNames: string[]; credits?: Array<PhotoCredit | null> } | null;
+  /**
+   * Снимки туров, записанных на маршрут или его точку пути, — когда нет ни
+   * своих кадров, ни кадров точек (21.11, lib/routes/tour-photos). У каждого
+   * подпись автора со ссылкой.
+   */
+  tourPhotos?: RouteTourPhoto[] | null;
   mchsRequired: boolean;
   mchsPhone: string | null;
   parkName: string | null;
@@ -883,7 +892,11 @@ export default function RouteDetailClient({ id, mapPackBaseUrl, summary = null, 
   const ownPhotos = [...new Set(route.photos ?? [])];
   // Своих кадров нет — кадры точек пути (§10: «без своего — фото точки»).
   const wpPhotos = ownPhotos.length === 0 && !route.hasRealImage ? route.waypointPhotos ?? null : null;
-  const photos = wpPhotos ? wpPhotos.urls : ownPhotos;
+  // Нет и кадров точек — снимки туров по этому пути (21.11).
+  const tourShots = ownPhotos.length === 0 && !route.hasRealImage && !wpPhotos?.urls.length
+    ? (route.tourPhotos ?? []).filter((t) => t.url && t.credit?.name)
+    : [];
+  const photos = wpPhotos ? wpPhotos.urls : tourShots.length > 0 ? tourShots.map((t) => t.url) : ownPhotos;
   const storedImageUrl = `/api/images/route/${route.id}`;
   const heroImage = photos[galleryIdx] ?? photos[0] ?? (route.hasRealImage ? storedImageUrl : null);
   const useGradient = heroImage == null;
@@ -918,7 +931,9 @@ export default function RouteDetailClient({ id, mapPackBaseUrl, summary = null, 
               showLabel={false}
             />
           ) : (
-            <Image src={heroImage!} alt={route.title} fill className="object-contain" priority fetchPriority="high" sizes="100vw" />
+            // Герой — LCP: без ленивой загрузки (priority). alt — название места:
+            // у кадра точки — сама точка, у кадра тура — точка, к которой он идёт.
+            <Image src={heroImage!} alt={heroAlt(route.title, photos.indexOf(heroImage!), wpPhotos, tourShots)} fill className="object-contain" priority fetchPriority="high" sizes="100vw" />
           )}
         </div>
 
@@ -955,9 +970,23 @@ export default function RouteDetailClient({ id, mapPackBaseUrl, summary = null, 
         const i = Math.max(0, photos.indexOf(heroImage));
         const place = wpPhotos.placeNames[i];
         const author = wpPhotos.authors[i];
+        const credit = wpPhotos.credits?.[i] ?? null;
         return (
-          <div className="mx-auto w-full max-w-5xl px-4 md:px-8 pt-1.5 text-right text-[11px] text-[var(--text-muted)]">
-            {place ? `Фото места «${place}»` : 'Фото места на маршруте'}{author ? `: ${author}` : ''}
+          <div className="mx-auto w-full max-w-5xl px-4 md:px-8 pt-1.5 text-right text-[11px] text-[var(--text-muted)]" data-testid="route-photo-credit">
+            {place ? `Фото места «${place}»` : 'Фото места на маршруте'}
+            {credit ? <>: <PhotoCreditLink credit={credit} /></> : author ? `: ${author}` : ''}
+          </div>
+        );
+      })()}
+      {/* Кадр взят у тура по этому пути (21.11): чей тур и чей снимок — под
+          тем кадром, что на экране; имя ведёт на страницу партнёра или на
+          фотоленту автора. */}
+      {!wpPhotos && tourShots.length > 0 && heroImage && (() => {
+        const shot = tourShots[Math.max(0, photos.indexOf(heroImage))] ?? tourShots[0];
+        return (
+          <div className="mx-auto w-full max-w-5xl px-4 md:px-8 pt-1.5 text-right text-[11px] text-[var(--text-muted)]" data-testid="route-photo-credit">
+            {`Снимок с тура «${shot.tourTitle}»${shot.placeName ? ` к месту «${shot.placeName}»` : ''} · Фото: `}
+            <PhotoCreditLink credit={shot.credit} />
           </div>
         );
       })()}
@@ -2027,4 +2056,21 @@ export default function RouteDetailClient({ id, mapPackBaseUrl, summary = null, 
       <AssistantButton pageContext={{ type: 'route', title: route.title, category: locLabel }} />
     </>
   );
+}
+
+
+/**
+ * alt героя — название места на снимке (21.11): у кадра точки пути — точка,
+ * у кадра тура — точка, к которой тур идёт; иначе — название маршрута.
+ */
+function heroAlt(
+  title: string,
+  i: number,
+  wp: { placeNames: string[] } | null,
+  tours: readonly RouteTourPhoto[],
+): string {
+  const at = Math.max(0, i);
+  if (wp) return wp.placeNames[at] || title;
+  const t = tours[at];
+  return t?.placeName || title;
 }

@@ -61,7 +61,7 @@ const loadRing = unstable_cache(
     const { items } = await queryCatalog(filters);
     return items.filter((i) => i.kind === 'route').map(light);
   },
-  ['related-routes-ring-v1'],
+  ['related-routes-ring-v2'],
   { revalidate: 600 },
 );
 

@@ -18,6 +18,7 @@
  */
 import { shownPhotoSql } from '@/lib/images/origin';
 import { galleryShownSql } from '@/lib/places/gallery-shown';
+import { authorFeedSlug, photoCreditFor, type PhotoCredit } from '@/lib/media/author-credit';
 
 export const WAYPOINT_PHOTOS_LIMIT = 8;
 
@@ -34,18 +35,22 @@ export const WAYPOINT_PHOTOS_SQL = `
        AND COALESCE(to_jsonb(rw)->>'link_kind', 'unknown') <> 'nearby'
      GROUP BY p.ark_id, p.name
   )
-  SELECT u.url, u.author, wp.name AS place_name
+  SELECT u.url, u.author, wp.name AS place_name,
+         u.partner_name, u.partner_slug, u.partner_public
     FROM wp
     JOIN LATERAL (
       SELECT '/api/images/route/' || wp.ark_id || '?v=' || EXTRACT(EPOCH FROM ai.created_at)::bigint AS url,
-             NULLIF(btrim(ai.author), '') AS author, 0 AS ord
+             NULLIF(btrim(ai.author), '') AS author, 0 AS ord,
+             NULL::text AS partner_name, NULL::text AS partner_slug, NULL::boolean AS partner_public
         FROM ai_route_images ai
        WHERE ai.route_id = wp.ark_id AND ${shownPhotoSql('ai.model')}
       UNION ALL
       SELECT '/api/images/place-gallery/' || g.ark_id || '/' || g.position
                || '?v=' || EXTRACT(EPOCH FROM g.created_at)::bigint,
-             NULLIF(btrim(g.author), ''), g.position
+             NULLIF(btrim(g.author), ''), g.position,
+             pa.name::text, pa.slug::text, pa.is_public
         FROM place_gallery_photos g
+        LEFT JOIN partners pa ON pa.id = g.partner_id
        WHERE g.ark_id = wp.ark_id AND ${galleryShownSql('g')}
     ) u ON TRUE
    ORDER BY wp.pos, u.ord
@@ -57,15 +62,35 @@ export interface WaypointPhotos {
   authors: Array<string | null>;
   /** Место, чей это кадр, тем же порядком — для подписи «Фото места …». */
   placeNames: string[];
+  /**
+   * Подпись автора со ссылкой тем же порядком (21.11): партнёр — его
+   * страница, человек с лентой — лента, иначе имя текстом; null — автора нет.
+   */
+  credits?: Array<PhotoCredit | null>;
 }
 
-export function toWaypointPhotos(rows: Array<{ url: unknown; author: unknown; place_name: unknown }>): WaypointPhotos {
-  const out: WaypointPhotos = { urls: [], authors: [], placeNames: [] };
+type WaypointPhotoRow = {
+  url: unknown; author: unknown; place_name: unknown;
+  partner_name?: unknown; partner_slug?: unknown; partner_public?: unknown;
+};
+
+export function toWaypointPhotos(rows: WaypointPhotoRow[], opts: { feedSlugs?: ReadonlySet<string>; feedEnabled?: boolean } = {}): WaypointPhotos {
+  const out: WaypointPhotos = { urls: [], authors: [], placeNames: [], credits: [] };
   for (const r of rows) {
     if (typeof r.url !== 'string' || out.urls.includes(r.url)) continue;
+    const author = typeof r.author === 'string' && r.author.trim() ? r.author.trim() : null;
     out.urls.push(r.url);
-    out.authors.push(typeof r.author === 'string' && r.author.trim() ? r.author.trim() : null);
+    out.authors.push(author);
     out.placeNames.push(typeof r.place_name === 'string' ? r.place_name : '');
+    const partnerName = typeof r.partner_name === 'string' && r.partner_name.trim() ? r.partner_name.trim() : null;
+    out.credits!.push(photoCreditFor({
+      author,
+      partner: partnerName
+        ? { name: partnerName, slug: typeof r.partner_slug === 'string' ? r.partner_slug : null, isPublic: r.partner_public === true }
+        : null,
+      feedEligible: author ? (opts.feedSlugs?.has(authorFeedSlug(author) ?? '') ?? false) : false,
+      feedEnabled: opts.feedEnabled,
+    }));
   }
   return out;
 }

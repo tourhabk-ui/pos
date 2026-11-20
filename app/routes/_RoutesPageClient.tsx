@@ -821,8 +821,10 @@ export default function RoutesPageClient({ initialItems, initialMeta, initialErr
                   </p>
                 )}
                 <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-4 gap-3" onClickCapture={rememberBeforeCard}>
-                  {routes.map(route => (
-                    <RouteCard key={route.id} route={route} />
+                  {/* Первая строка сетки — в первом экране, её снимки и есть LCP:
+                      без ленивой загрузки (21.11). Остальные — лениво. */}
+                  {routes.map((route, i) => (
+                    <RouteCard key={route.id} route={route} eager={i < 2} />
                   ))}
                 </div>
               </>

@@ -34,6 +34,8 @@ import { asProfileSource, honestSafetyFields } from '@/lib/safety/profile-source
 import { publicReviewerName } from '@/lib/reviews/public-name';
 import { stripFillerLead } from '@/lib/text/filler-lead';
 import { WAYPOINT_PHOTOS_SQL, toWaypointPhotos, type WaypointPhotos } from '@/lib/routes/waypoint-photos';
+import { ROUTE_TOUR_PHOTOS_SQL, toRouteTourPhotos, type RouteTourPhoto, type TourPhotoRow } from '@/lib/routes/tour-photos';
+import { loadFeedAuthorSlugs } from '@/lib/media/author-feed';
 import { payloadText, payloadStrings } from '@/lib/routes/payload-text';
 import { registryPassportPdf } from '@/lib/routes/distance-words';
 import { parseRegistryPassports } from '@/lib/routes/registry-passport';
@@ -361,9 +363,17 @@ export async function loadRouteDetail(id: string, opts: RouteDetailOptions) {
   // открывался компасом при трёх снимках места). Отказ не роняет карточку,
   // но и не глушится: в лог с именем части, на экране — честная заглушка.
   const ownPhotos = (Array.isArray(payload.photos) && payload.photos.length > 0) || Boolean(r.has_real_image);
+  const feedSlugs = ownPhotos ? new Set<string>() : await loadFeedAuthorSlugs();
   const waypointPhotos: WaypointPhotos | null = ownPhotos ? null : await query(WAYPOINT_PHOTOS_SQL, [routeDbId])
-    .then(res => toWaypointPhotos(res.rows as Array<{ url: unknown; author: unknown; place_name: unknown }>))
+    .then(res => toWaypointPhotos(res.rows as Array<{ url: unknown; author: unknown; place_name: unknown }>, { feedSlugs }))
     .catch((err: unknown) => { logQueryFailure('waypoint_photos', err, id); return null; });
+
+  // Ни своих кадров, ни кадров точек пути — снимки туров, записанных на
+  // маршрут или на его точку пути, с подписью автора (21.11, lib/routes/
+  // tour-photos): только под действующим согласием партнёра и с автором.
+  const tourPhotos: RouteTourPhoto[] = ownPhotos || (waypointPhotos?.urls.length ?? 0) > 0 ? [] : await query(ROUTE_TOUR_PHOTOS_SQL, [routeDbId])
+    .then(res => toRouteTourPhotos(res.rows as unknown as TourPhotoRow[], { feedSlugs }))
+    .catch((err: unknown) => { logQueryFailure('route_tour_photos', err, id); return []; });
 
   // Оперативные ограничения точек маршрута: точечные сообщения
   // (alert_message из PATCH /api/admin/places/[id]/status и миграций),
@@ -551,6 +561,7 @@ export async function loadRouteDetail(id: string, opts: RouteDetailOptions) {
       kuzmichReview: (r.kuzmich_review as string | null) ?? null,
       hasRealImage: Boolean(r.has_real_image),
       waypointPhotos: waypointPhotos && waypointPhotos.urls.length > 0 ? waypointPhotos : null,
+      tourPhotos:  tourPhotos.length > 0 ? tourPhotos : null,
       mchsRequired:    (r.mchs_registration_required as boolean | null) ?? false,
       mchsPhone:       (r.mchs_phone as string | null) ?? null,
       parkName:        (r.park_name as string | null) ?? null,

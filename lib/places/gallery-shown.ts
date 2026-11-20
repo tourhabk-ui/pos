@@ -29,3 +29,21 @@ export function galleryShownSql(g: string): string {
          AND pmc.revoked_at IS NULL
          AND pmc.text_version >= '${PLACE_CARDS_CONSENT_FROM}')))`;
 }
+
+/**
+ * SQL-условие «у партнёра действующее согласие версии, что называет карточки
+ * мест и маршрутов»; `partnerIdExpr` — выражение с id партнёра (`pa.id`).
+ * То же условие, что внутри `galleryShownSql`, — для снимков туров на
+ * карточках маршрутов (lib/routes/tour-photos): подпись прежней версии
+ * называет только «блоки туров», а не снимок самого маршрута.
+ */
+export function partnerPlaceCardsConsentSql(partnerIdExpr: string): string {
+  if (!/^[a-z_][a-z0-9_]*\.[a-z_][a-z0-9_]*$/i.test(partnerIdExpr)) {
+    throw new Error(`partnerPlaceCardsConsentSql: выражение «${partnerIdExpr}»`);
+  }
+  return `EXISTS (
+      SELECT 1 FROM partner_material_consents pmc
+       WHERE pmc.partner_id = ${partnerIdExpr}
+         AND pmc.revoked_at IS NULL
+         AND pmc.text_version >= '${PLACE_CARDS_CONSENT_FROM}')`;
+}
