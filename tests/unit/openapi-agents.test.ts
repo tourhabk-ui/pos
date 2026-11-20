@@ -355,13 +355,19 @@ describe('роуты /openapi.json и /.well-known/api-catalog', () => {
   });
 
   it('общий no-store из next.config не перебивает документы для агентов; HTML и похожие адреса — по-прежнему no-store', async () => {
-    const agentDocs = [OPENAPI_PATH, API_CATALOG_PATH, '/.well-known/mcp.json', AGENT_CARD_PATH, LEGACY_AGENT_CARD_PATH, AI_CATALOG_PATH, SERVER_CARD_PATH];
+    const agentDocs = [OPENAPI_PATH, API_CATALOG_PATH, '/.well-known/mcp.json', AGENT_CARD_PATH, LEGACY_AGENT_CARD_PATH, AI_CATALOG_PATH, '/.well-known/ard.json', SERVER_CARD_PATH];
     for (const p of agentDocs) {
       expect(await effective(p, 'Cache-Control'), p).toBeNull();
-      // Исключение заслужено: роут ставит час кэша сам.
+      // Исключение заслужено: роут ставит час кэша сам. Каталог домена
+      // (ai-catalog.json и ard.json, 20.11) отдаёт один общий ответ из
+      // lib/mcp/ai-catalog-response — заголовок стоит там.
       const file = routeFor(p);
       expect(file, p).not.toBeNull();
-      expect(readFileSync(file!, 'utf-8'), p).toMatch(/'Cache-Control': 'public, max-age=3600'/);
+      const src = readFileSync(file!, 'utf-8');
+      const text = src.includes("from '@/lib/mcp/ai-catalog-response'")
+        ? src + readFileSync(join(process.cwd(), 'lib/mcp/ai-catalog-response.ts'), 'utf-8')
+        : src;
+      expect(text, p).toMatch(/'Cache-Control': 'public, max-age=3600'/);
     }
     for (const p of ['/', '/mcp', '/openapi.json.bak', '/.well-known/api-catalogue', '/.well-known/openai-apps-challenge', '/api/mcp', `${A2A_REST_PATH}/message:send`, '/api/tours/123', '/api/toursx']) {
       expect(await effective(p, 'Cache-Control'), p).toMatch(/no-store/);
