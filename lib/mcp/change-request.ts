@@ -9,6 +9,12 @@
  * lib/requests/cancel-request (отмена) и lib/requests/my-trip-date (дата).
  * Второго правила «ответил ли оператор» здесь нет и быть не должно.
  *
+ * Слово владельца 20.11 «1 для всех агентов» (#3573): вызов агента заявку не
+ * меняет. Он считает то же, что проба, и если изменение было бы, кладёт
+ * черновик (hash ключа, действие, дата — без ПД и без самого ключа) и отдаёт
+ * ссылку /confirm/change. Исполняет `applyPendingChange` — только после
+ * нажатия человека на странице, тем же правом ключа и тем же правилом.
+ *
  * Право — у живого ключа НОВОЙ заявки на тур на дату: `opens_chat`, выдан
  * `create_booking_request`. То же условие, что у кнопок чата, только вместо
  * связи «чат ↔ ключ» — сам ключ. Ключ повтора (тот же телефон, тур и дата за
@@ -45,6 +51,9 @@ import {
   type DateLeadRow, type DatePreview,
 } from '@/lib/requests/my-trip-date';
 import { operatorTold } from '@/lib/requests/notify-request-operator';
+import {
+  PENDING_CHANGE_TOOL, PENDING_REQUEST_TTL_MIN, confirmChangePageUrl, createPendingRequest,
+} from '@/lib/mcp/pending-request';
 
 export { CHANGE_REQUEST_TOOL_NAME } from '@/lib/mcp/change-request-schema';
 
@@ -118,9 +127,19 @@ function logFail(what: string, err: unknown): void {
   );
 }
 
-/** Сбой базы — исключение, не отказ по входу: агент слышит «сбой у Ведара», а не «нельзя». */
-function failed(what: string): never {
-  throw new Error(`change_request: ${what}`);
+/**
+ * Сбой базы — исключение, не отказ по входу: агент слышит «сбой у Ведара», а не «нельзя».
+ * `beforeWrite` — сбой случился до записи (чтение): подтверждение на странице
+ * можно повторить, черновик возвращается в ожидание.
+ */
+export class ChangeFailed extends Error {
+  constructor(what: string, readonly beforeWrite: boolean) {
+    super(`change_request: ${what}`);
+  }
+}
+
+function failed(what: string, beforeWrite = true): never {
+  throw new ChangeFailed(what, beforeWrite);
 }
 
 const ISO_DAY = /^\d{4}-\d{2}-\d{2}$/;
@@ -339,7 +358,67 @@ export function dateSaid(o: Exclude<DatePreview, { kind: 'failed' | 'datesFailed
   }
 }
 
-/** Вызов инструмента: что сделано и что сказать. Отказ по входу — McpUserError; сбой базы — исключение. */
+/** Исходы, при которых заявка изменилась бы: их вызов агента отдаёт человеку на подтверждение. */
+const WOULD_CHANGE: ReadonlySet<ChangeOutcome> = new Set(['would_cancel', 'would_request_cancel', 'would_change_date', 'would_request_date_change']);
+
+const PROBE_PREFIX = 'Проба, ничего не изменено. ';
+
+/**
+ * Право ключа, заявка и исход — одно место на пробу, вызов агента и
+ * подтверждение человека. `apply` — записать (только из `applyPendingChange`);
+ * иначе — то, что произошло бы, без записи.
+ */
+async function runChange(
+  p: { hash: string; action: ChangeAction; date: string | null; via: ChangeVia; today: string; apply: boolean },
+): Promise<ChangeRequestResult> {
+  const { hash, action, date, via, today, apply } = p;
+  const k = await readKeyRow(hash);
+  if (!k) throw new McpUserError(KEY_GONE, 'key_not_found');
+  const refusal = keyRefusal(k);
+  if (refusal) throw refusal;
+
+  const out = (said: Said, lead: { booking_date: string | null; date: string | null }, dateNow?: string | null): ChangeRequestResult => ({
+    action, test: !apply, ...said, date: dateNow === undefined ? currentDate(lead) : dateNow, confirm_url: null,
+  });
+
+  if (action === 'cancel') {
+    const read = () => readByRight<CancelLeadRow>(CHANGE_CANCEL_LEAD_SQL, hash, 'заявка для отмены не прочиталась');
+    const lead = await read();
+    if (lead === 'failed') return failed('заявка не прочитана');
+    // Ключ годился мгновение назад, а строки нет: истёк или заявку закрыли между чтениями.
+    if (lead === null) throw new McpUserError(KEY_GONE, 'key_not_found');
+    if (!apply) return out(cancelPreview(lead, today), lead);
+    const outcome = await cancelLeadByClient({ lead, channel: via, today, reread: read });
+    if (outcome.kind === 'failed') return failed('отмена не записана', false);
+    return out(cancelSaid(outcome, headOf(lead)), lead);
+  }
+
+  if (k.lead_addressed !== true) {
+    throw new McpUserError(
+      'У заявки сейчас нет оператора (большую группу передали другим операторам или её ведёт менеджер Ведара) — дату по ней подтверждать некому, она не изменена. '
+      + 'Отменить такую заявку можно: action cancel.',
+      'no_addressee',
+    );
+  }
+  const read = () => readByRight<DateLeadRow>(CHANGE_DATE_LEAD_SQL, hash, 'заявка для переноса не прочиталась');
+  const lead = await read();
+  if (lead === 'failed') return failed('заявка не прочитана');
+  if (lead === null) throw new McpUserError(KEY_GONE, 'key_not_found');
+  const outcome: DatePreview = apply
+    ? await changeLeadDateByClient({ lead, date: date!, channel: via, today, reread: read })
+    : await previewLeadDateChange({ lead, date: date!, today });
+  if (outcome.kind === 'failed') return failed('дата не записана', false);
+  if (outcome.kind === 'datesFailed') return failed('свободные даты тура не прочитаны');
+  if (outcome.kind === 'gone') throw new McpUserError(KEY_GONE, 'key_not_found');
+  return out(dateSaid(outcome, headOf(lead)), lead, outcome.kind === 'changed' ? outcome.date : undefined);
+}
+
+/**
+ * Вызов инструмента: что сказать агенту. Заявку не меняет никогда (20.11):
+ * проба — что произошло бы; без пробы — то же, и если изменение было бы,
+ * черновик и ссылка, где человек подтверждает его сам. Отказ по входу —
+ * McpUserError; сбой базы — исключение.
+ */
 export async function changeRequest(rawArgs: Record<string, unknown>, via: ChangeVia, opts: { now?: number } = {}): Promise<ChangeRequestResult> {
   const key = readKey(rawArgs.key);
   const parsed = argsSchema.safeParse(rawArgs);
@@ -367,45 +446,72 @@ export async function changeRequest(rawArgs: Record<string, unknown>, via: Chang
   }
 
   const hash = requestKeyHash(key);
-  const k = await readKeyRow(hash);
-  if (!k) throw new McpUserError(KEY_GONE, 'key_not_found');
-  const refusal = keyRefusal(k);
-  if (refusal) throw refusal;
+  const preview = await runChange({ hash, action, date, via, today, apply: false });
+  // Проба отвечает как проба; исход «менять нечего» (отменена, закрыта, нет
+  // мест…) — правда и без подтверждения: ссылку на ничто человеку не дают.
+  if (test) return preview;
+  if (!WOULD_CHANGE.has(preview.outcome)) return { ...preview, test: false };
 
-  const out = (said: Said, lead: { booking_date: string | null; date: string | null }, dateNow?: string | null): ChangeRequestResult => ({
-    action, test, ...said, date: dateNow === undefined ? currentDate(lead) : dateNow,
+  const after = preview.human.startsWith(PROBE_PREFIX) ? preview.human.slice(PROBE_PREFIX.length) : preview.human;
+  const what = action === 'cancel' ? 'Отменить заявку' : `Перенести заявку на ${ruDate(date!)}`;
+  const token = await createPendingRequest({
+    tool: PENDING_CHANGE_TOOL,
+    args: { key_hash: hash, action, ...(date ? { date } : {}) },
+    draftText: `${what}. После подтверждения: ${after}`,
+    consentPurposes: [],
+    planRevision: null,
+    via,
   });
+  if (!token) return failed('черновик изменения не сохранён');
+  const url = confirmChangePageUrl(token);
+  const verb = action === 'cancel' ? 'отмену' : 'перенос';
+  return {
+    action, test: false, outcome: 'confirm_on_page', changed: false, told: null, date: preview.date, confirm_url: url,
+    human: `Заявка не изменена. ${action === 'cancel' ? 'Отмену' : 'Перенос'} человек подтверждает сам на странице Ведара: ${url} — `
+      + `ссылка действует ${PENDING_REQUEST_TTL_MIN} минут. После подтверждения: ${after} Заявка — не бронь.`,
+    next: `Дайте человеку ссылку confirm_url как есть: ${verb} делает только его нажатие на странице, без него заявка не меняется. `
+      + 'Итог — get_request_status. Ссылку не публикуйте: по ней меняют заявку.',
+  };
+}
 
-  if (action === 'cancel') {
-    const read = () => readByRight<CancelLeadRow>(CHANGE_CANCEL_LEAD_SQL, hash, 'заявка для отмены не прочиталась');
-    const lead = await read();
-    if (lead === 'failed') return failed('заявка не прочитана');
-    // Ключ годился мгновение назад, а строки нет: истёк или заявку закрыли между чтениями.
-    if (lead === null) throw new McpUserError(KEY_GONE, 'key_not_found');
-    if (test) return out(cancelPreview(lead, today), lead);
-    const outcome = await cancelLeadByClient({ lead, channel: via, today, reread: read });
-    if (outcome.kind === 'failed') return failed('отмена не записана');
-    return out(cancelSaid(outcome, headOf(lead)), lead);
-  }
+const PendingChangeArgs = z.object({
+  key_hash: z.string().regex(/^[0-9a-f]{64}$/),
+  action: z.enum(CHANGE_ACTIONS),
+  date: z.string().regex(/^\d{4}-\d{2}-\d{2}$/).optional(),
+});
 
-  if (k.lead_addressed !== true) {
-    throw new McpUserError(
-      'У заявки сейчас нет оператора (большую группу передали другим операторам или её ведёт менеджер Ведара) — дату по ней подтверждать некому, она не изменена. '
-      + 'Отменить такую заявку можно: action cancel.',
-      'no_addressee',
-    );
+export type PendingChangeOutcome =
+  | { kind: 'done'; result: ChangeRequestResult }
+  /** Изменить нельзя: ключ истёк, заявку закрыли, у неё нет оператора… — словами. */
+  | { kind: 'refused'; text: string }
+  /** Сбой базы; `beforeWrite` — до записи, подтверждение можно повторить. */
+  | { kind: 'failed'; beforeWrite: boolean };
+
+/**
+ * Человек нажал «Подтвердить» на /confirm/change: изменение исполняется тем
+ * же правом ключа (живой ключ новой заявки на тур) и тем же правилом, что
+ * «Моя поездка». Аргументы — из черновика, забранного один раз.
+ */
+export async function applyPendingChange(args: Record<string, unknown>, via: ChangeVia, opts: { now?: number } = {}): Promise<PendingChangeOutcome> {
+  const parsed = PendingChangeArgs.safeParse(args);
+  if (!parsed.success || (parsed.data.action === 'change_date' && !parsed.data.date)) {
+    console.error('[change-request] черновик изменения негодной формы');
+    return { kind: 'refused', text: 'Ссылка повреждена — заявка не изменена. Попросите помощника подготовить её заново.' };
   }
-  const read = () => readByRight<DateLeadRow>(CHANGE_DATE_LEAD_SQL, hash, 'заявка для переноса не прочиталась');
-  const lead = await read();
-  if (lead === 'failed') return failed('заявка не прочитана');
-  if (lead === null) throw new McpUserError(KEY_GONE, 'key_not_found');
-  const outcome: DatePreview = test
-    ? await previewLeadDateChange({ lead, date: date!, today })
-    : await changeLeadDateByClient({ lead, date: date!, channel: via, today, reread: read });
-  if (outcome.kind === 'failed') return failed('дата не записана');
-  if (outcome.kind === 'datesFailed') return failed('свободные даты тура не прочитаны');
-  if (outcome.kind === 'gone') throw new McpUserError(KEY_GONE, 'key_not_found');
-  return out(dateSaid(outcome, headOf(lead)), lead, outcome.kind === 'changed' ? outcome.date : undefined);
+  const today = kamchatkaToday(opts.now);
+  const date = parsed.data.action === 'change_date' ? parsed.data.date! : null;
+  if (date && date < today) {
+    return { kind: 'refused', text: `Дата ${ruDate(date)} уже прошла — заявка не изменена.` };
+  }
+  try {
+    const result = await runChange({ hash: parsed.data.key_hash, action: parsed.data.action, date, via, today, apply: true });
+    return { kind: 'done', result };
+  } catch (err) {
+    if (err instanceof McpUserError) return { kind: 'refused', text: err.message };
+    if (err instanceof ChangeFailed) return { kind: 'failed', beforeWrite: err.beforeWrite };
+    logFail('подтверждение изменения упало', err);
+    return { kind: 'failed', beforeWrite: false };
+  }
 }
 
 /** Исполнитель для роута MCP: JSON-строка того же объекта (как у get_request_status). */

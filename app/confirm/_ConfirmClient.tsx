@@ -22,6 +22,8 @@ type Loaded =
   | { state: 'bad_link' }
   | { state: 'error'; message: string }
   | { state: 'sent' | 'expired' | 'missing' }
+  /** Ссылка на отмену или перенос заявки (change_request) — подтверждается на своей странице. */
+  | { state: 'change' }
   | { state: 'pending'; draft: string; name: string; phone: string; comment: string; purposes: PdConsentPurpose[]; expiresAt: string };
 
 const GONE_WORDS: Record<'sent' | 'expired' | 'missing', string> = {
@@ -60,6 +62,7 @@ export function ConfirmClient() {
         const j = await r.json().catch(() => null) as { success?: boolean; error?: string; data?: Record<string, unknown> } | null;
         if (!r.ok || !j?.success || !j.data) { setLoaded({ state: 'error', message: j?.error ?? 'Не удалось загрузить заявку, попробуйте через минуту' }); return; }
         const d = j.data;
+        if (d.state === 'pending' && d.kind === 'change') { setLoaded({ state: 'change' }); return; }
         if (d.state === 'pending') {
           setLoaded({
             state: 'pending', draft: String(d.draft ?? ''), name: String(d.name ?? ''), phone: String(d.phone ?? ''), comment: String(d.comment ?? ''),
@@ -113,6 +116,12 @@ export function ConfirmClient() {
         )}
         {(loaded.state === 'sent' || loaded.state === 'expired' || loaded.state === 'missing') && (
           <p className="ds-card p-4 text-sm text-[var(--text-primary)]">{GONE_WORDS[loaded.state]}</p>
+        )}
+        {loaded.state === 'change' && token && (
+          <p className="ds-card p-4 text-sm text-[var(--text-primary)]">
+            Это ссылка на изменение заявки, а не на новую заявку.{' '}
+            <a href={`/confirm/change#${token}`} className="text-[var(--ocean)] underline">Открыть страницу подтверждения изменения</a>.
+          </p>
         )}
 
         {loaded.state === 'pending' && !result && (

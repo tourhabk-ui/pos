@@ -345,7 +345,7 @@ export type DateChannel = LinkChannel | 'mcp' | 'a2a';
 const viaAgent = (channel: DateChannel): boolean => channel === 'mcp' || channel === 'a2a';
 
 /** Оператору: перенос или просьбу передал не сам человек в чате, а его ИИ-агент. */
-const AGENT_LINE = 'Передал ИИ-агент туриста по ключу заявки.';
+const AGENT_LINE = 'Передал ИИ-агент туриста, турист подтвердил на странице Ведара.';
 
 /**
  * Сообщение оператору без ПД: тур, даты, люди, места на новую дату.

@@ -36,7 +36,7 @@ Read: `get_tours`, `get_tour_details`, `get_tour_availability`, `compare_tours`,
 
 Write, six requests confirmed by a human, no online payment: `create_trip_request`, `create_lead`, `create_booking_request`, `create_stay_request`, `request_charter`, `create_car_rental_request`.
 
-Change: `change_request` cancels a tour request or moves it to another date by its status key, only when the person asks.
+Change: `change_request` prepares cancelling a tour request or moving it to another date by its status key, only when the person asks; the call changes nothing and returns a Vedar link where the person confirms.
 
 Platform data is in Russian; tool arguments work best in Russian or English. Emergency number in Kamchatka: 112.
 

@@ -3117,8 +3117,9 @@ withPg('переписка по заявке на настоящем PostgreSQL'
       expect(status.shownAnswerRef(st2)).toBeNull();
     });
 
-    it('change_request (12.11): право — у ключа новой заявки на тур; правило, журнал и лимит — те же, что у кнопок', async () => {
-      const { changeRequest, CHANGE_CANCEL_LEAD_SQL, CHANGE_DATE_LEAD_SQL } = await import('@/lib/mcp/change-request');
+    it('change_request (12.11, 20.11): право — у ключа новой заявки на тур; вызов даёт ссылку, меняет нажатие человека; правило, журнал и лимит — те же, что у кнопок', async () => {
+      const { changeRequest, applyPendingChange, CHANGE_CANCEL_LEAD_SQL, CHANGE_DATE_LEAD_SQL } = await import('@/lib/mcp/change-request');
+      const { claimPendingRequest } = await import('@/lib/mcp/pending-request');
       const { McpUserError } = await import('@/lib/mcp/jsonrpc');
       const { MY_TRIP_DATE_REQUEST_LOG_SQL } = await import('@/lib/requests/my-trip-date');
       const { kamchatkaToday } = await import('@/lib/seat-requests/core');
@@ -3157,6 +3158,36 @@ withPg('переписка по заявке на настоящем PostgreSQL'
           WHERE lead_id = $1 AND action IN ('client_cancelled', 'cancel_requested', 'date_changed', 'date_change_requested') ORDER BY id`, [lead],
       )).rows;
       const rightRows = async (sql: string, k: string) => (await pool.query(sql, [status.requestKeyHash(k)])).rows.length;
+      /**
+       * Вызов агента (слово владельца 20.11 «1 для всех агентов») — черновик и
+       * ссылка, заявка не тронута; нажатие человека на /confirm/change — то же
+       * правило. Черновик — без ключа и ПД; забирается один раз и только своей дверью.
+       */
+      const viaPage = async (args: { key: string; action: string; date?: string }, via: 'mcp' | 'a2a') => {
+        const lead = (await pool.query<{ lead_id: string }>(`SELECT lead_id::text FROM agent_request_keys WHERE key_hash = $1`, [status.requestKeyHash(args.key)])).rows[0]!.lead_id;
+        const before = await stateOf(lead);
+        const journalBefore = (await journal(lead)).length;
+        const asked = await changeRequest(args, via);
+        expect(asked).toMatchObject({ outcome: 'confirm_on_page', changed: false, test: false });
+        expect(asked.human).toMatch(/Заявка — не бронь\.$/);
+        expect(await stateOf(lead)).toEqual(before);
+        expect(await journal(lead)).toHaveLength(journalBefore);
+        const token = asked.confirm_url!.split('/confirm/change#')[1]!;
+        const draft = (await pool.query<{ tool: string; args: string; via: string }>(
+          `SELECT tool, args::text AS args, via FROM mcp_pending_requests WHERE token_hash = encode(sha256($1::bytea), 'hex')`, [token],
+        )).rows[0]!;
+        expect(draft).toMatchObject({ tool: 'change_request', via });
+        expect(draft.args).not.toContain(args.key);
+        expect(draft.args).not.toMatch(/7999555|Ключ/);
+        // Дверь отправки заявки черновик изменения не забирает.
+        expect(await claimPendingRequest(token)).toEqual({ kind: 'gone' });
+        const claim = await claimPendingRequest(token, 'change');
+        if (claim.kind !== 'claimed') throw new Error(`черновик не забран: ${claim.kind}`);
+        expect(await claimPendingRequest(token, 'change')).toEqual({ kind: 'gone' });
+        const out = await applyPendingChange(claim.args, claim.via);
+        if (out.kind !== 'done') throw new Error(`подтверждение не исполнено: ${JSON.stringify(out)}`);
+        return out.result;
+      };
 
       // ── 1. Право — в самом чтении заявки ─────────────────────────────────
       const L1 = await mk('Кира Ключ', '+79995550701');
@@ -3205,13 +3236,13 @@ withPg('переписка по заявке на настоящем PostgreSQL'
       expect(await journal(L1.id)).toEqual([]);
       expect(sent.pd).toHaveLength(0);
 
-      // ── 3. Перенос до ответа оператора — сразу ───────────────────────────
-      const moved = await changeRequest({ key: fresh.key, action: 'change_date', date: D1 }, 'mcp');
+      // ── 3. Перенос до ответа оператора — сразу после подтверждения ──────
+      const moved = await viaPage({ key: fresh.key, action: 'change_date', date: D1 }, 'mcp');
       expect(moved).toMatchObject({ action: 'change_date', outcome: 'date_changed', changed: true, test: false, told: 'operator', date: D1 });
       expect(await stateOf(L1.id)).toEqual({ status: 'new', date: D1 });
       expect(sent.pd).toHaveLength(1);
       expect(sent.pd[0]!.text).toContain('Турист перенёс заявку на другую дату');
-      expect(sent.pd[0]!.text).toContain('Передал ИИ-агент туриста по ключу заявки.');
+      expect(sent.pd[0]!.text).toContain('Передал ИИ-агент туриста, турист подтвердил на странице Ведара.');
       expect(sent.pd[0]!.text).not.toMatch(/Кира|79995550701/);
       expect(await journal(L1.id)).toEqual([
         { action: 'date_changed', details: { from: D0, to: D1, channel: 'mcp', delivery: 'max' } },
@@ -3225,16 +3256,16 @@ withPg('переписка по заявке на настоящем PostgreSQL'
       // ── 4. Оператор ответил — просьба; лимит за сутки держит сам запрос ──
       await pool.query(`UPDATE leads SET status = 'contacted' WHERE id = $1`, [L1.id]);
       sent.pd.length = 0;
-      const asked = await changeRequest({ key: fresh.key, action: 'change_date', date: D2 }, 'a2a');
+      const asked = await viaPage({ key: fresh.key, action: 'change_date', date: D2 }, 'a2a');
       expect(asked).toMatchObject({ outcome: 'date_change_requested', changed: false, told: 'operator', date: D1 });
       expect(await stateOf(L1.id)).toEqual({ status: 'contacted', date: D1 });
       expect(sent.pd[0]!.text).toContain('Турист просит перенести заявку');
-      expect(sent.pd[0]!.text).toContain('Передал ИИ-агент туриста по ключу заявки.');
+      expect(sent.pd[0]!.text).toContain('Передал ИИ-агент туриста, турист подтвердил на странице Ведара.');
       expect((await journal(L1.id))[1]).toEqual(
         { action: 'date_change_requested', details: { from: D1, to: D2, channel: 'a2a', delivery: 'max' } },
       );
       // Третье действие за сутки проходит, четвёртое — нет, и оператору не уходит ничего.
-      expect(await changeRequest({ key: fresh.key, action: 'change_date', date: D3 }, 'mcp')).toMatchObject({ outcome: 'date_change_requested' });
+      expect(await viaPage({ key: fresh.key, action: 'change_date', date: D3 }, 'mcp')).toMatchObject({ outcome: 'date_change_requested' });
       sent.pd.length = 0;
       expect(await changeRequest({ key: fresh.key, action: 'change_date', date: D4 }, 'mcp')).toMatchObject({ outcome: 'daily_limit', changed: false, date: D1 });
       expect(await changeRequest({ key: fresh.key, action: 'change_date', date: D4, test: true }, 'mcp')).toMatchObject({ outcome: 'daily_limit', test: true });
@@ -3248,24 +3279,24 @@ withPg('переписка по заявке на настоящем PostgreSQL'
       const wouldAsk = await changeRequest({ key: fresh.key, action: 'cancel', test: true }, 'mcp');
       expect(wouldAsk).toMatchObject({ outcome: 'would_request_cancel', changed: false, test: true });
       expect(sent.pd).toHaveLength(0);
-      const cancelAsked = await changeRequest({ key: fresh.key, action: 'cancel' }, 'mcp');
+      const cancelAsked = await viaPage({ key: fresh.key, action: 'cancel' }, 'mcp');
       expect(cancelAsked).toMatchObject({ outcome: 'cancel_requested', changed: false, told: 'operator', date: D1 });
       expect((await stateOf(L1.id)).status).toBe('contacted');
       expect(sent.pd).toHaveLength(1);
       expect(sent.pd[0]!.text).toContain('Турист просит отменить заявку');
-      expect(sent.pd[0]!.text).toContain('Просьбу передал ИИ-агент туриста по ключу заявки.');
+      expect(sent.pd[0]!.text).toContain('Просьбу передал ИИ-агент туриста, турист подтвердил её на странице Ведара.');
       expect(await changeRequest({ key: fresh.key, action: 'cancel' }, 'a2a')).toMatchObject({ outcome: 'cancel_already_requested', changed: false, told: 'operator' });
       expect(sent.pd).toHaveLength(1);
 
-      // ── 6. Отмена до ответа — сразу и навсегда ───────────────────────────
+      // ── 6. Отмена до ответа — сразу после подтверждения и навсегда ──────
       const L2 = await mk('Лев Ключ', '+79995550702');
       const k2 = (await status.issueRequestKeyRecord({ leadId: L2.id }, 'create_booking_request', { opensChat: true }))!;
       sent.pd.length = 0;
-      const done = await changeRequest({ key: k2.key, action: 'cancel' }, 'a2a');
+      const done = await viaPage({ key: k2.key, action: 'cancel' }, 'a2a');
       expect(done).toMatchObject({ action: 'cancel', outcome: 'cancelled', changed: true, test: false, told: 'operator', date: D0 });
       expect((await stateOf(L2.id)).status).toBe('cancelled');
       expect(sent.pd).toHaveLength(1);
-      expect(sent.pd[0]!.text).toContain('Отмену передал ИИ-агент туриста по ключу заявки, пока вы не ответили.');
+      expect(sent.pd[0]!.text).toContain('Отмену передал ИИ-агент туриста, турист подтвердил её на странице Ведара, пока вы не ответили.');
       expect(sent.pd[0]!.text).not.toContain('в чате Ведара');
       expect(await journal(L2.id)).toEqual([
         { action: 'client_cancelled', details: { channel: 'a2a', from: 'new', delivery: 'max', manager: 'not_needed' } },

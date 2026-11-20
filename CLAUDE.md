@@ -2887,7 +2887,17 @@ NULL — поле не меняется; один pending на строку, в�
 - человек в чате — кнопки «Моей поездки» (MAX, Telegram): право — связь чата с
   заявкой;
 - ИИ-агент — инструмент `change_request` (MCP и A2A, `lib/mcp/change-request`):
-  право — сам ключ. Адресату названо, что действие передал ИИ-агент.
+  право — сам ключ. Адресату названо, что действие передал ИИ-агент, а
+  подтвердил человек на странице Ведара.
+
+**Вызов агента заявку не меняет** (слово владельца 20.11 «1 для всех агентов»,
+#3573, условия каталога плагинов Алисы). Он считает исход, как проба, и отдаёт
+ссылку `/confirm/change`; меняет заявку только нажатие человека там
+(`applyPendingChange`) — тем же правом ключа и тем же правилом. Черновик лежит
+в `mcp_pending_requests` без ключа и ПД (hash ключа, действие, дата), забирается
+один раз и только своей дверью; копия задачи A2A хранит заглушку вместо ссылки.
+Исход «менять нечего» (отменена, закрыта, нет мест) агент получает сразу, без
+ссылки.
 
 Право в обеих дверях — у живого ключа НОВОЙ заявки на тур на дату (`opens_chat`,
 `create_booking_request`): ключ повтора получил бы любой, кто знает чужой
@@ -2914,7 +2924,8 @@ NULL — поле не меняется; один pending на строку, в�
   заглушка. Инструмент с параметром `key` в схеме обязан стоять в наборе.
 
 Сторожа: `tests/unit/my-trip-cancel.test.ts`, `tests/unit/my-trip-date.test.ts`,
-`tests/unit/mcp-change-request.test.ts`, `tests/unit/cancelled-lead-not-revived.test.ts`,
+`tests/unit/mcp-change-request.test.ts`, `tests/unit/mcp-confirm-change-page.test.tsx`
+(дверь и страница подтверждения — вызовом и рендером), `tests/unit/cancelled-lead-not-revived.test.ts`,
 `tests/unit/mcp-call-reason.test.ts`, `tests/unit/mcp-key-not-in-journal.test.ts`
 (вызов роута: что ушло в базу); настоящий PostgreSQL —
 `tests/integration/request-chat.pg.test.ts` (сцены «Отменить заявку» и `change_request`).
