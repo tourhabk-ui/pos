@@ -1,5 +1,6 @@
 'use client';
 
+import { tourHeadingTail } from '@/lib/seo/h1-templates';
 import { RecordModified } from '@/components/seo/RecordModified';
 import { kuzmichAskHref } from '@/lib/kuzmich/ask-link';
 import { tourAskQuestion } from '@/lib/kuzmich/tour-ask';
@@ -677,6 +678,17 @@ export default function TourDetailClient({ tour, reviews = [], askSeatsFirst = f
 
             <h1 className="text-white max-w-[16ch]" style={{ fontFamily: FD, fontWeight: 700, fontSize: 'clamp(30px,5vw,56px)', lineHeight: 1.04, letterSpacing: '-0.02em', textShadow: '0 2px 34px rgba(0,0,0,.4)', textWrap: 'balance' }}>
               {tour.title}
+              {/* Оператор в H1 (Сыщик 21.11, T3): тур с именем места или
+                  маршрута повторял их H1. Тире — для текста заголовка, на
+                  экране оператор — второй строкой мельче. */}
+              {tourHeadingTail(tour.operator_name) && (
+                <>
+                  <span className="sr-only"> — </span>
+                  <span data-h1-operator="" className="block mt-2" style={{ fontSize: '0.42em', fontWeight: 500, letterSpacing: 0, opacity: 0.85 }}>
+                    {tourHeadingTail(tour.operator_name)}
+                  </span>
+                </>
+              )}
             </h1>
 
             {/* Самодостаточный ответ в первом экране (SEO-аудит 06.08): AI-поиск

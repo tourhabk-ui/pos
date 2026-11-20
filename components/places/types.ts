@@ -235,7 +235,8 @@ export interface PlaceData {
   updatedAt: string | null;
   kuzmichReview: string | null;
   /** Статьи «Летописи Камчатки» об этом месте (lib/chronicle) — только адрес и заголовок. */
-  chronicle: Array<{ slug: string; title: string }>;
+  /** ooptMain — место первым в статье об ООПТ со страницей парка (H1, Сыщик 21.11). */
+  chronicle: Array<{ slug: string; title: string; ooptMain?: boolean }>;
   eco: PlaceEco | null;
   indigenous: PlaceIndigenous | null;
   safety: PlaceSafety;

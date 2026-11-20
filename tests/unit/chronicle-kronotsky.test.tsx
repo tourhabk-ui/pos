@@ -63,7 +63,8 @@ describe('страница статьи', () => {
     expect(items).toHaveLength(article.timeline!.length);
     expect(items[0].textContent).toContain('1882');
     expect(items[items.length - 1].textContent).toContain('2013');
-    expect(screen.getByRole('heading', { level: 1 }).textContent).toBe('Кроноцкий заповедник');
+    // H1 летописи объекта с парком — с хвостом (Сыщик 21.11, T4).
+    expect(screen.getByRole('heading', { level: 1 }).textContent).toBe('Кроноцкий заповедник: история и летопись');
   });
 
   it('переходы к карточке места и маршрутам заповедника', async () => {

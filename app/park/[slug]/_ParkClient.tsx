@@ -1,5 +1,6 @@
 'use client';
 
+import { parkHeading } from '@/lib/seo/h1-templates';
 import Link from 'next/link';
 import { RecordModified } from '@/components/seo/RecordModified';
 import { MapPin, Shield, Clock, Mountain, AlertTriangle, Download, FileText, Phone, Mail, Building2, Globe, Smartphone, ScrollText, ChevronRight } from 'lucide-react';
@@ -76,7 +77,7 @@ export default function ParkClient({ park, chronicle = [] }: { park: ParkPageDat
           ← Все парки и заповедники
         </Link>
         <p className="ds-label" style={{ marginBottom: 6 }}>{parkKindLabel(park.displayName)} · Камчатка</p>
-        <h1 className="ds-h1" style={{ marginBottom: 12 }}>{park.displayName}</h1>
+        <h1 className="ds-h1" style={{ marginBottom: 12 }}>{parkHeading(park.displayName, chronicle.length > 0)}</h1>
         <p style={{ color: 'var(--text-secondary)', fontSize: 15, lineHeight: 1.6 }}>{park.description}</p>
       </div>
 

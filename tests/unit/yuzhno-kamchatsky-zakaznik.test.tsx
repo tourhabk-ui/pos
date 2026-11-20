@@ -449,7 +449,8 @@ describe('статья «Южно-Камчатский заказник»', () =
 
   it('страница: главный кадр владельца с подписью, цитата Крашенинникова, переходы', async () => {
     render(await ChronicleArticlePage({ params: Promise.resolve({ slug: SLUG }) }));
-    expect(screen.getByRole('heading', { level: 1 }).textContent).toBe('Южно-Камчатский заказник');
+    // H1 летописи объекта с парком — с хвостом (Сыщик 21.11, T4).
+    expect(screen.getByRole('heading', { level: 1 }).textContent).toBe('Южно-Камчатский заказник: история и летопись');
     const img = screen.getByRole('img', { name: article.hero!.alt });
     expect(img.getAttribute('src')).toContain('/api/images/s3/photos/yuzhno-kamchatskij-zakaznik/vladelec-kurilskoe-ozero.jpg');
     const figure = img.closest('figure')!;

@@ -10,6 +10,8 @@ import { RouteGradientPlaceholder } from '@/components/routes/RouteGradientPlace
 interface Props {
   placeId: string;
   name: string;
+  /** Текст H1, если отличается от имени (ООПТ, Сыщик 21.11); иначе — имя. */
+  heading?: string;
   locationType: string | null;
   lat: number;
   lng: number;
@@ -37,7 +39,7 @@ interface Props {
   onCurrentChange?: (src: string | null) => void;
 }
 
-export default function PlaceHero({ placeId, name, locationType, lat, lng, photoUrl, photoCount, images, facts, onCurrentChange }: Props) {
+export default function PlaceHero({ placeId, name, heading, locationType, lat, lng, photoUrl, photoCount, images, facts, onCurrentChange }: Props) {
   const [copied, setCopied] = useState(false);
   const [currentIdx, setCurrentIdx] = useState(0);
   const scrollRef = useRef<HTMLDivElement>(null);
@@ -195,7 +197,7 @@ export default function PlaceHero({ placeId, name, locationType, lat, lng, photo
             className="text-[36px] leading-[1.1] sm:text-5xl md:text-[56px] md:leading-[1.08] font-bold text-white"
             style={{ fontFamily: 'var(--font-playfair)', textShadow: '0 2px 24px rgba(0,0,0,0.45)' }}
           >
-            {name}
+            {heading ?? name}
           </h1>
 
           {/* Факты первого экрана — строкой, через тонкие разделители.

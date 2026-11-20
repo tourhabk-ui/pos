@@ -1,4 +1,5 @@
 import type { Metadata } from 'next';
+import { chronicleHeading } from '@/lib/seo/h1-templates';
 import { pageContainer } from '@/lib/layout/page-width';
 import { JsonLd } from '@/components/seo/JsonLd';
 import { notFound } from 'next/navigation';
@@ -131,7 +132,8 @@ export default async function ChronicleArticlePage({ params }: Props) {
             className="text-4xl md:text-5xl font-bold text-[var(--text-primary)] leading-tight mb-4"
             style={{ fontFamily: 'var(--font-playfair)' }}
           >
-            {a.title}
+            {/* У объекта со страницей парка — типизированный H1 (Сыщик 21.11, T4). */}
+            {chronicleHeading(a.title, a.parkSlugs)}
           </h1>
           <p className="text-lg text-[var(--text-secondary)] leading-relaxed mb-10">{a.lead}</p>
 

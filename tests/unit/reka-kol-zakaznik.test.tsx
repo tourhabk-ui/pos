@@ -159,7 +159,8 @@ describe('статья «Лососевый заказник «Река Коль
 
   it('страница: заголовок, источники, переходы', async () => {
     render(await ChronicleArticlePage({ params: Promise.resolve({ slug: SLUG }) }));
-    expect(screen.getByRole('heading', { level: 1 }).textContent).toBe('Лососевый заказник «Река Коль»');
+    // H1 летописи объекта с парком — с хвостом (Сыщик 21.11, T4).
+    expect(screen.getByRole('heading', { level: 1 }).textContent).toBe('Лососевый заказник «Река Коль»: история и летопись');
     expect(text()).toMatch(/Коль \(река, впадает в Охотское море\)/);
     const nav = screen.getByRole('navigation', { name: 'На карте и в маршрутах' });
     expect(within(nav).getAllByRole('link').map((a) => a.getAttribute('href'))).toEqual(

@@ -87,10 +87,12 @@ describe('карточка маршрута', { timeout: 30_000 }, () => {
     expect(m.openGraph?.title).toBe(`${name} — маршрут`);
   });
 
-  it('короткое имя — с полным хвостом и брендом, как прежде', async () => {
+  // С 21.11 первым идёт хвост с фактами записи (Сыщик, T2), если влезает.
+  it('короткое имя — хвост с фактами записи и бренд', async () => {
     const m = await meta('Вулкан Горелый');
-    expect(m.title).toBe('Вулкан Горелый — маршрут на Камчатке');
-    expect(shown(m.title)).toBe('Вулкан Горелый — маршрут на Камчатке | Ведар');
+    expect(m.title).toMatch(/^Вулкан Горелый: маршрут \d/);
+    expect(shown(m.title)).toBe(`${m.title as string} | Ведар`);
+    expect(shown(m.title).length).toBeLessThanOrEqual(TITLE_LIMIT);
   });
 });
 

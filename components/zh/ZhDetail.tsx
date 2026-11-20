@@ -193,12 +193,15 @@ export function ZhTourSummary({ tour, translations, cny = null }: { tour: ZhTour
           </>
         ) : (
           <>
-            <h1 className="font-playfair text-3xl sm:text-4xl font-bold" style={{ color: 'var(--text-primary)' }}>{factHeading}</h1>
+            {/* Перевода имени нет — H1 официальное русское имя тура, а не
+                общее «堪察加团队游»: пять туров давали один H1 (Сыщик 21.11, T6).
+                Строка фактов (срок) — под ним, с прежней пометкой. */}
+            <h1 className="font-playfair text-3xl sm:text-4xl font-bold" style={{ color: 'var(--text-primary)' }}>
+              <span lang="ru" data-zh-original-title>{tour.title}</span>
+            </h1>
+            <p className="text-base font-semibold" style={{ color: 'var(--text-secondary)' }} data-zh-fact-heading>{factHeading}</p>
             <p className="text-xs" style={{ color: 'var(--warning)' }} data-zh-note={v.title.state === 'fresh' ? 'missing' : v.title.state}>
               {ZH_DETAIL.factHeadingNote}
-            </p>
-            <p className="text-sm" style={{ color: 'var(--text-secondary)' }}>
-              {ZH_DETAIL.originalTitle}：<span lang="ru" data-zh-original-title>{tour.title}</span>
             </p>
           </>
         )}

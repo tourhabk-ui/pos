@@ -17,6 +17,7 @@
  * герой (просмотрщик фото), лента фото и форма заявки.
  */
 
+import { RENTAL_HEADING_TAIL } from '@/lib/seo/h1-templates';
 import Image from 'next/image';
 import Link from 'next/link';
 import { Bus, ChevronRight, Phone, Send, ShieldCheck } from 'lucide-react';
@@ -70,7 +71,13 @@ export function RentalCompanyPage({ data, orderCar }: { data: RentalPageData; or
         </nav>
         <PartnerLogo src={c.logo} name={c.name} size="hero" className="mb-3" />
         <p className="text-[12px] font-semibold uppercase tracking-[0.2em] text-white mb-2">Прокатчик · машины без водителя</p>
-        <h1 className="font-playfair text-white font-bold leading-tight" style={{ fontSize: 'clamp(30px,5vw,52px)' }}>{c.name}</h1>
+        <h1 className="font-playfair text-white font-bold leading-tight" style={{ fontSize: 'clamp(30px,5vw,52px)' }}>
+          {c.name}
+          {/* Тип услуги в H1 (Сыщик 21.11, T7): прокатчик и перевозчик с одним
+              именем давали одинаковый заголовок. На экране — второй строкой. */}
+          <span className="sr-only"> — </span>
+          <span data-h1-kind="" className="block mt-1 font-medium" style={{ fontSize: '0.42em', opacity: 0.85 }}>{RENTAL_HEADING_TAIL.replace(/^ — /, '')}</span>
+        </h1>
         {c.shortDescription && (
           <p className="mt-3 max-w-[56ch] text-[15px] leading-relaxed text-white/90">{c.shortDescription}</p>
         )}

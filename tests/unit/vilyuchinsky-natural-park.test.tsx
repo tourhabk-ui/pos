@@ -498,7 +498,8 @@ describe('статья «Природный парк «Вилючинский»�
 
   it('страница: главный кадр владельца с подписью, переходы (кадр партнёра снят до согласия, 15.10)', async () => {
     render(await ChronicleArticlePage({ params: Promise.resolve({ slug: SLUG }) }));
-    expect(screen.getByRole('heading', { level: 1 }).textContent).toBe('Природный парк «Вилючинский»');
+    // H1 летописи объекта с парком — с хвостом (Сыщик 21.11, T4).
+    expect(screen.getByRole('heading', { level: 1 }).textContent).toBe('Природный парк «Вилючинский»: история и летопись');
     const img = screen.getByRole('img', { name: article.hero!.alt });
     expect(img.getAttribute('src')).toContain('/api/images/s3/photos/vilyuchinsky/vladelec-oblachnyj-poyas.jpg');
     const figure = img.closest('figure')!;

@@ -7,6 +7,7 @@
  * который как route-handler исполняется на запросе). Теперь XML отдаёт
  * app/sitemap.xml/route.ts с force-dynamic — тем же паттерном, что llms.txt.
  */
+import { placeInSitemap } from '@/lib/seo/h1-templates';
 import { NEW_LANDINGS, LANDING_CANONICAL } from '@/lib/landings/landings';
 import { tourPath } from '@/lib/tours/tour-url';
 import { publicTourSql } from '@/lib/tours/public-visibility';
@@ -224,7 +225,8 @@ export async function collectSitemapEntriesWithStatus(): Promise<{ entries: Meta
       ORDER BY updated_at DESC
       LIMIT 2000
     `);
-    placesPages = rows.map(row => ({
+    // Смотровые с каноникалом на родителя и noindex — не в sitemap (Сыщик 21.11).
+    placesPages = rows.filter((row) => placeInSitemap(row.slug)).map(row => ({
       url: `${BASE}/places/${row.slug ?? row.ark_id}`,
       lastModified: row.updated_at,
       changeFrequency: 'weekly' as const,
