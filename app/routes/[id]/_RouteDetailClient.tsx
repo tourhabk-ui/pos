@@ -26,7 +26,7 @@ import { RouteOfferSortBar } from '@/components/routes/RouteOfferSortBar';
 import { sortRouteOffers, type RouteOfferSort } from '@/lib/routes/route-offer-sort';
 import ParkPermitAction from '@/components/safety/ParkPermitAction';
 import { ParkApprovedRoute } from '@/components/routes/ParkApprovedRoute';
-import type { ApprovedRouteCase } from '@/lib/parks/approved-routes';
+import type { ApprovedRouteCase } from '@/lib/parks/approved-routes-words';
 import type { RoutePermitCardCase } from '@/lib/parks/route-permit-card';
 import ReliefChart from '@/components/routes/ReliefChart';
 import MchsRegistrationBlock from '@/components/safety/MchsRegistrationBlock';

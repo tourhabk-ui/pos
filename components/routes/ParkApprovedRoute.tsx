@@ -6,7 +6,7 @@
 import { FileText, Route as RouteIcon } from 'lucide-react';
 import {
   PARK_RULE_QUOTE, variantWords, type ApprovedRouteCase, type ApprovedVariant,
-} from '@/lib/parks/approved-routes';
+} from '@/lib/parks/approved-routes-words';
 
 function readOnWords(d: string): string {
   return d.split('-').reverse().join('.');
