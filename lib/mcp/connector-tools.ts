@@ -66,6 +66,7 @@ import { describeForAgent } from '@/lib/places/description-voice';
 import { garbageSignature } from '@/lib/agents/evo/content-sanitizer';
 import { routeToday, routeTodayLines } from '@/lib/routes/route-today';
 import { routePermitCaseFor, routePermitLines } from '@/lib/parks/route-permit';
+import { approvedRouteCaseByParkName, approvedRouteLines } from '@/lib/parks/approved-routes';
 import { kamchatkaToday } from '@/lib/seat-requests/core';
 import { placeZoneLabel, routeDifficultyLabel, routeSeasonLabel, routeTypeLabel } from '@/lib/places/zone-labels';
 import { groupSentenceIfUnlimited } from '@/lib/tours/group-size';
@@ -524,7 +525,9 @@ async function fetchRoute(key: string, base: string): Promise<FetchResult> {
   // должен съесть запрет.
   // Условия посещения территории (разрешение парка) — рядом с её названием:
   // строки те же, что в get_guardian_context (lib/parks/route-permit).
-  const [today, permit] = await Promise.all([routeToday(r.db_id), routePermitCaseFor(r)]);
+  const [today, permit, approved] = await Promise.all([
+    routeToday(r.db_id), routePermitCaseFor(r), approvedRouteCaseByParkName(r.db_id, r.park_name ?? null),
+  ]);
   const [, mm, dd] = kamchatkaToday().split('-');
   const text = joinLines([
     // Район, вид, сложность и сезон — словами: код из данных агенту не
@@ -548,6 +551,8 @@ async function fetchRoute(key: string, base: string): Promise<FetchResult> {
     // Род не утверждается (14.10): park_name — и памятник природы, и национальный парк.
     line('Охраняемая территория', r.park_name),
     ...routePermitLines(permit),
+    // Утверждённый маршрут парка (20.11) — те же слова, что на карточке.
+    ...approvedRouteLines(approved),
     'Экстренный вызов на Камчатке — 112.',
   ]);
   return {
