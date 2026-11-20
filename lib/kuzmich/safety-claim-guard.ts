@@ -163,6 +163,9 @@ export function guardSafetyClaims(
   if (banned.ranking.length > 0) {
     console.error('[kuzmich-banned-advice] вырезана выдуманная оценка безопасности способа или тура', { count: banned.ranking.length });
   }
+  if (banned.sms112.length > 0) {
+    console.error('[kuzmich-banned-advice] вырезан совет писать SMS на 112 (не подтверждено)', { count: banned.sms112.length });
+  }
   const answer = banned.text;
   const claims = findSafetyClaims(answer);
   if (claims.length === 0) return { text: answer, verdict: 'none', claims, flagged: [] };

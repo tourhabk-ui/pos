@@ -165,6 +165,11 @@ export const SHOWN_BANNED_ADVICE_CORRECTION =
  * («единственный безопасный способ увидеть …», ночной эвал 17.11): сравнивать
  * туры по безопасности Ведару не по чему.
  */
+/** Поправка к уже показанному совету писать SMS на 112 (#3179 п.4). */
+export const SHOWN_SMS_112_CORRECTION =
+  'Поправка к сказанному выше: работает ли SMS на 112 на Камчатке, не подтверждено — не рассчитывай на ответ по SMS. '
+  + 'Звони 112: звонок проходит и без баланса и SIM.';
+
 export const SHOWN_SAFETY_RANKING_CORRECTION =
   'Поправка к сказанному выше: какой способ или тур безопаснее, в данных Ведара не сказано — это была не проверенная оценка. '
   + 'Обстановку на день выезда уточни у оператора и в сводках; экстренно — 112.';
@@ -199,6 +204,7 @@ export function correctShownAnswer(input: Omit<FinishInput, 'sos' | 'lang'>): Sh
   if (zhNames.fixed.length > 0) notes.push(shownZhNameCorrection(zhNames.fixed));
   if (banned.removed.length > 0) notes.push(SHOWN_BANNED_ADVICE_CORRECTION);
   if (banned.ranking.length > 0) notes.push(SHOWN_SAFETY_RANKING_CORRECTION);
+  if (banned.sms112.length > 0) notes.push(SHOWN_SMS_112_CORRECTION);
   if (safety.text.startsWith(banned.text) && safety.text.length > banned.text.length) {
     notes.push(safety.text.slice(banned.text.length).trim());
   }
