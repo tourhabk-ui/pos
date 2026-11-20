@@ -14,7 +14,8 @@ import type { Metadata } from 'next';
 import Link from 'next/link';
 import { BookOpen, ArrowRight } from 'lucide-react';
 import { Header } from '@/components/layout/Header';
-import { listArticles, listArticleLinks, groupByTopic } from '@/lib/articles/queries';
+import { listArticles, listArticleLinks, groupByTopic, type Article } from '@/lib/articles/queries';
+import { parseArticleMarkdown, shortAnswer } from '@/lib/articles/markdown';
 import { articlesHubIndexable, isArticleIndexable, NOINDEX_FOLLOW } from '@/lib/articles/noindex';
 import { defaultOgImages } from '@/lib/seo/og-image';
 
@@ -51,7 +52,7 @@ const HUB_METADATA: Metadata = {
 export async function generateMetadata(): Promise<Metadata> {
   try {
     const links = await listArticleLinks();
-    if (!articlesHubIndexable(links.map((a) => a.slug))) return { ...HUB_METADATA, robots: NOINDEX_FOLLOW };
+    if (!articlesHubIndexable(links)) return { ...HUB_METADATA, robots: NOINDEX_FOLLOW };
   } catch (e) {
     console.error('[articles] список для robots не прочитан:', e instanceof Error ? e.message : e);
   }
@@ -59,14 +60,19 @@ export async function generateMetadata(): Promise<Metadata> {
 }
 
 /**
- * Анонс карточки: первые предложения текста — только у статей, которые мы
- * готовы отдать в индекс. У статей из noindex-списка (копии kamchatkaland.ru,
- * lib/articles/noindex) анонса нет — название и ссылка: иначе чужой текст
+ * Анонс карточки: только у статей, которые мы готовы отдать в индекс. У копий
+ * (noindex-список или источник kamchatkaland.ru, lib/articles/noindex) анонса нет — название и ссылка: иначе чужой текст
  * попал бы в индекс через хаб, когда хаб снова станет index (замечание
  * Сыщика 21.11).
  */
-function teaser(slug: string, body: string | null): string {
-  return isArticleIndexable(slug) ? excerpt(body) : '';
+function teaser(a: Article): string {
+  if (!isArticleIndexable(a.slug, a.sourceUrl)) return '';
+  // Переписанная статья (миграция 1471) — выдержка из НОВОГО текста:
+  // описание сниппета или короткий ответ; markdown в выдержку не попадает.
+  if (a.rewrittenAt) {
+    return a.metaDescription ?? excerpt(shortAnswer(parseArticleMarkdown(a.body ?? '')));
+  }
+  return excerpt(a.body);
 }
 
 /** Первые предложения текста — чтобы по карточке было понятно, о чём статья. */
@@ -116,7 +122,7 @@ export default async function ArticlesIndexPage() {
                 </h2>
                 <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-3">
                   {group.items.map((a) => {
-                    const lead = teaser(a.slug, a.body);
+                    const lead = teaser(a);
                     return (
                     <Link
                       key={a.slug}

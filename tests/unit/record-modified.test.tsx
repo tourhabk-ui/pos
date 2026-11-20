@@ -91,7 +91,7 @@ describe('подключение на карточках', () => {
   });
 
   it('статьи: updated_at в getArticle → WebPage и видимая строка', () => {
-    expect(src('lib/articles/queries.ts')).toMatch(/source_name, updated_at\n\s+FROM articles\n\s+WHERE slug/);
+    expect(src('lib/articles/queries.ts')).toMatch(/source_name, updated_at/);
     const page = src('app/articles/[slug]/page.tsx');
     expect(page).toContain('webPageModifiedJsonLd');
   });

@@ -19,6 +19,10 @@ import { isArticleIndexable, NOINDEX_FOLLOW } from '@/lib/articles/noindex';
 import { JsonLd } from '@/components/seo/JsonLd';
 import { RecordModified } from '@/components/seo/RecordModified';
 import { webPageModifiedJsonLd } from '@/lib/seo/record-modified';
+import { brandedTitle } from '@/lib/seo/title-fit';
+import { parseArticleMarkdown, faqFromBlocks } from '@/lib/articles/markdown';
+import { articleJsonLd } from '@/lib/articles/article-jsonld';
+import { ArticleMarkdown } from '@/components/articles/ArticleMarkdown';
 
 export const dynamic = 'force-dynamic';
 
@@ -47,18 +51,21 @@ export async function generateMetadata({ params }: Props): Promise<Metadata> {
   const article = await getArticle(slug);
   if (!article) return { title: 'Статья не найдена' };
 
-  // По предложению или слову, а не slice(0, 160) посреди слова (lib/seo/meta-description).
-  const description = metaDescription(article.body);
+  // Переписанная статья (миграция 1471) несёт свои заголовок и описание
+  // сниппета. Прежняя — по предложению или слову, а не slice(0, 160) посреди
+  // слова (lib/seo/meta-description).
+  const description = article.metaDescription ?? metaDescription(article.body);
+  const title = article.metaTitle ?? article.title;
   return {
-    title: article.title,
+    title: article.metaTitle ? brandedTitle(article.metaTitle) : article.title,
     description: description || `${article.title}: материал о Камчатке.`,
     alternates: { canonical: `https://vedarai.ru/articles/${article.slug}` },
-    // Копия источника до переписывания — вне индекса, ссылки проходят
-    // (lib/articles/noindex, аудит 20.11).
-    ...(isArticleIndexable(article.slug) ? {} : { robots: NOINDEX_FOLLOW }),
+    // Копия чужого текста — вне индекса, ссылки проходят (lib/articles/noindex,
+    // аудит 20.11): slug в списке или источник — kamchatkaland.ru.
+    ...(isArticleIndexable(article.slug, article.sourceUrl) ? {} : { robots: NOINDEX_FOLLOW }),
     openGraph: {
       images: defaultOgImages(),
-      title: article.title,
+      title,
       description: description || undefined,
       url: `https://vedarai.ru/articles/${article.slug}`,
       siteName: 'Ведар',
@@ -74,18 +81,29 @@ export default async function ArticlePage({ params }: Props) {
   if (!article) notFound();
   const next = await readNext(article.slug);
 
-  // Абзацы — по пустым строкам. Текст пришёл из скрейпа, разметки в нём нет.
-  const paragraphs = (article.body ?? '')
+  const url = `https://vedarai.ru/articles/${article.slug}`;
+  // Переписанная статья (rewritten_at, миграция 1471) — markdown: разделы,
+  // списки, таблицы, сноски. Прежняя — абзацы по пустым строкам: текст пришёл
+  // из скрейпа, разметки в нём нет.
+  const blocks = article.rewrittenAt ? parseArticleMarkdown(article.body ?? '') : null;
+  const paragraphs = blocks ? [] : (article.body ?? '')
     .split(/\n{2,}/)
     .map((p) => p.trim())
     .filter(Boolean);
 
-  // Дата правки записи (lib/seo/record-modified, аудит 20.11). Поля нет — узла нет.
-  const pageLd = webPageModifiedJsonLd({
-    url: `https://vedarai.ru/articles/${article.slug}`,
-    name: article.title,
-    dateModified: article.updatedAt,
-  });
+  // Разметка: переписанная — Article (+ FAQPage из «Частых вопросов»), даты
+  // только из записи; прежняя — узел WebPage с датой правки (lib/seo/record-modified).
+  const pageLd = blocks
+    ? articleJsonLd({
+        url,
+        site: 'https://vedarai.ru',
+        headline: article.title,
+        description: article.metaDescription,
+        datePublished: article.rewrittenAt,
+        dateModified: article.updatedAt,
+        faq: faqFromBlocks(blocks),
+      })
+    : webPageModifiedJsonLd({ url, name: article.title, dateModified: article.updatedAt });
 
   return (
     <>
@@ -111,7 +129,9 @@ export default async function ArticlePage({ params }: Props) {
             {article.title}
           </h1>
 
-          {paragraphs.length === 0 ? (
+          {blocks ? (
+            <ArticleMarkdown blocks={blocks} />
+          ) : paragraphs.length === 0 ? (
             // Текста нет — так и сказано. Пустая страница читалась бы как сбой.
             <p className="text-[var(--text-secondary)]">
               Текст статьи не сохранился при переносе.

@@ -33,13 +33,28 @@ export interface Article {
   sourceName: string | null;
   /** Последняя правка записи (articles.updated_at); null — даты нет. */
   updatedAt: string | null;
+  /**
+   * Когда текст переписан своими словами (articles.rewritten_at, миграция
+   * 1471); null — текст прежний. Признак «переписана»: по нему страница
+   * рисует markdown и ставит разметку Article/FAQPage.
+   */
+  rewrittenAt: string | null;
+  /** Заголовок и описание сниппета из переписанного текста; null — нет. */
+  metaTitle: string | null;
+  metaDescription: string | null;
 }
 
 interface Row {
   id: string; slug: string; title: string; body: string | null;
   topic: string | null; source_url: string | null; source_name: string | null;
   updated_at?: string | Date | null;
+  rewritten_at?: string | Date | null;
+  meta_title?: string | null;
+  meta_description?: string | null;
 }
+
+const iso = (v: string | Date | null | undefined): string | null =>
+  v == null ? null : new Date(v).toISOString();
 
 const toArticle = (r: Row): Article => ({
   id: r.id,
@@ -49,8 +64,14 @@ const toArticle = (r: Row): Article => ({
   topic: r.topic,
   sourceUrl: r.source_url,
   sourceName: r.source_name,
-  updatedAt: r.updated_at == null ? null : new Date(r.updated_at).toISOString(),
+  updatedAt: iso(r.updated_at),
+  rewrittenAt: iso(r.rewritten_at),
+  metaTitle: r.meta_title?.trim() || null,
+  metaDescription: r.meta_description?.trim() || null,
 });
+
+const ARTICLE_COLUMNS = `id::text, slug, title, body, topic, source_url, source_name, updated_at,
+            rewritten_at, meta_title, meta_description`;
 
 /**
  * Все видимые статьи.
@@ -60,7 +81,7 @@ const toArticle = (r: Row): Article => ({
  */
 export async function listArticles(): Promise<Article[]> {
   const { rows } = await pool.query<Row>(
-    `SELECT id::text, slug, title, body, topic, source_url, source_name
+    `SELECT ${ARTICLE_COLUMNS}
        FROM articles
       WHERE is_visible = TRUE
       ORDER BY topic NULLS LAST, title`,
@@ -72,6 +93,8 @@ export interface ArticleLink {
   slug: string;
   title: string;
   topic: string | null;
+  /** Адрес источника: копия kamchatkaland.ru — вне индекса (lib/articles/noindex). */
+  source_url?: string | null;
 }
 
 /**
@@ -80,7 +103,7 @@ export interface ArticleLink {
  */
 export async function listArticleLinks(): Promise<ArticleLink[]> {
   const { rows } = await pool.query<ArticleLink>(
-    `SELECT slug, title, topic
+    `SELECT slug, title, topic, source_url
        FROM articles
       WHERE is_visible = TRUE
       ORDER BY topic NULLS LAST, title`,
@@ -91,7 +114,7 @@ export async function listArticleLinks(): Promise<ArticleLink[]> {
 /** Статья по адресу. null — статьи нет (страница отдаст 404). */
 export async function getArticle(slug: string): Promise<Article | null> {
   const { rows } = await pool.query<Row>(
-    `SELECT id::text, slug, title, body, topic, source_url, source_name, updated_at
+    `SELECT ${ARTICLE_COLUMNS}
        FROM articles
       WHERE slug = $1 AND is_visible = TRUE
       LIMIT 1`,
