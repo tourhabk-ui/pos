@@ -164,6 +164,8 @@ describe('сниппет маршрута — факты впереди', () => 
   it('многодневный — дни вместо часов; без фактов — только описание', () => {
     expect(routeFactsLine({ ...r, durationDays: 3 })).toContain('3 дн.');
     expect(routeFactsLine({ ...r, durationDays: 3 })).not.toContain('6,5 ч');
+    expect(routeFactsLine({ ...r, distanceKm: 60, distanceNote: 'в одну сторону' })).toContain('60 км в одну сторону');
+    expect(routeFactsLine({ ...r, distanceKm: 7.3, distanceNote: 'в обе стороны' })).toContain('7,3 км в обе стороны');
     const none = { ...r, zone: null, distanceKm: null, durationHours: null, elevationGainM: null, difficulty: null, season: null, mchsRequired: false };
     expect(routeDescription(none)).toBe('Вулкан Горелый — маршрут на Камчатке. Подъём по северному склону к кратерным озёрам. Тропа маркирована, воды по пути нет.');
   });

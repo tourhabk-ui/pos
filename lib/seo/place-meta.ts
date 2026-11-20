@@ -156,6 +156,8 @@ export interface RouteMetaFacts {
   title: string;
   zone: string | null;
   distanceKm: number | null;
+  /** Как в паспорте: «в одну сторону» / «в обе стороны». Нет — только число. */
+  distanceNote?: string | null;
   durationHours: number | null;
   durationDays: number | null;
   elevationGainM: number | null;
@@ -188,7 +190,10 @@ function fmtNum(n: number): string {
 /** Факты маршрута одной строкой: «12 км · набор 700 м · 6 ч · сложность средняя · сезон лето». */
 export function routeFactsLine(f: RouteMetaFacts): string {
   const parts: string[] = [];
-  if (f.distanceKm != null && f.distanceKm > 0) parts.push(`${fmtNum(f.distanceKm)} км`);
+  if (f.distanceKm != null && f.distanceKm > 0) {
+    const note = (f.distanceNote ?? '').trim();
+    parts.push(note ? `${fmtNum(f.distanceKm)} км ${note}` : `${fmtNum(f.distanceKm)} км`);
+  }
   if (f.elevationGainM != null && f.elevationGainM > 0) parts.push(`набор ${Math.round(f.elevationGainM)} м`);
   if (f.durationDays != null && f.durationDays > 1) parts.push(`${f.durationDays} дн.`);
   else if (f.durationHours != null && f.durationHours > 0) parts.push(`${fmtNum(f.durationHours)} ч`);

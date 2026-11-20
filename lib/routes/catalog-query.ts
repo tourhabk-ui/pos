@@ -463,7 +463,7 @@ export async function queryCatalog(filters: CatalogFilters): Promise<CatalogResu
          -- Цена маршрута — из его туров (lib/routes/route-tour-price).
          tp.price_from                  AS tour_price_from,
          tp.tours                       AS priced_tours,
-         ark.payload->'season'          AS season,
+         COALESCE(ark.payload->'season', to_jsonb(krl.season)) AS season,
          ark.payload->'difficulty'      AS difficulty,
          ark.payload->'duration_days'   AS duration_days,
          ark.payload->'best_months'     AS best_months,
