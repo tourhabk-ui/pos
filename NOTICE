@@ -1,0 +1,23 @@
+Ведар (vedarai.ru)
+Copyright (C) 2026 ООО «ПОС-СЕРВИС» (ИНН 4101147649, ОГРН 1114101005952)
+
+Исходный код этого репозитория распространяется на условиях GNU Affero
+General Public License версии 3 (AGPL-3.0-only). Полный текст — в файле
+LICENSE.
+
+Лицензия НЕ распространяется на:
+- снимки, видео, логотипы, тексты описаний и цены партнёров (туроператоров,
+  гидов, перевозчиков, хозяев жилья) — в том числе в public/images, media/
+  и в миграциях: права на них остаются у партнёров, Ведар показывает их с
+  их согласия;
+- тексты и данные из сторонних источников (описания мест и маршрутов,
+  треки, справочники), лежащие в migrations/ и данных платформы: права
+  остаются у их авторов, источник записан рядом с данными;
+- компоненты в подпапках со своим файлом лицензии (например,
+  integrations/dsh-vedar — MIT, .claude/skills/seo-* — их LICENSE.txt);
+- названия «Ведар» и «Vedar» и их знаки.
+
+The source code in this repository is licensed under the GNU Affero General
+Public License, version 3 only (see LICENSE). Partner photos, videos, logos,
+texts and prices, third-party texts and data, components that carry their
+own license file, and the Vedar name and marks are not covered by it.
