@@ -70,6 +70,7 @@ import { approvedRouteCaseByParkName, approvedRouteLines } from '@/lib/parks/app
 import { kamchatkaToday } from '@/lib/seat-requests/core';
 import { placeZoneLabel, routeDifficultyLabel, routeSeasonLabel, routeTypeLabel } from '@/lib/places/zone-labels';
 import { groupSentenceIfUnlimited } from '@/lib/tours/group-size';
+import { cardDuration } from '@/lib/tours/card-facts';
 import {
   SEARCH_TOOL_NAME, FETCH_TOOL_NAME, CONNECTOR_TOOL_NAMES,
   SEARCH_RESULTS_MAX, QUERY_MIN_CHARS, QUERY_MAX_CHARS, FETCH_TEXT_MAX,
@@ -350,7 +351,10 @@ async function fetchTour(key: string, base: string): Promise<FetchResult> {
   const price = t.base_price
     ? `${Math.round(Number(t.base_price))} ${t.currency ?? 'RUB'} ${(t.price_unit && PRICE_UNIT_LABELS[t.price_unit]) || '— за что назначена цена, не записано'}`
     : null;
-  const duration = t.duration_type === 'multi_day' && t.multi_day_count ? `${t.multi_day_count} дн.` : (t.duration_hours ? `${Number(t.duration_hours)} ч` : null);
+  // Длительность — правилом карточки и get_tours (cardDuration): дни
+  // считает правило брони при любом типе тура (20.11). Своя формула здесь
+  // называла тур «на день» с пятью днями часами или не называла вовсе.
+  const duration = cardDuration(t);
   const text = joinLines([
     `Тур «${t.title}»${t.operator_name ? ` — оператор ${t.operator_name}` : ''}.`,
     line('Место', t.location_name),
