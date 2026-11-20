@@ -155,6 +155,7 @@ describe('поверхности с жалобы владельца подклю
   it('статика фото кэшируется — повторный визит не платит второй раз', () => {
     const cfg = readFileSync(join(ROOT, 'next.config.js'), 'utf-8');
     expect(cfg).toMatch(/source: '\/images\/:path\*'/);
-    expect(cfg).toMatch(/max-age=604800/);
+    // Год и immutable (#3564): снимок под тем же именем не меняется.
+    expect(cfg).toMatch(/source: '\/images\/:path\*',\s*headers: \[\s*\{ key: 'Cache-Control', value: 'public, max-age=31536000, immutable' \}/);
   });
 });
