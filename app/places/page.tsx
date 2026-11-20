@@ -9,6 +9,7 @@ import { withCardExcerpts } from '@/lib/routes/card-excerpt';
 import { listActiveParks, type ParkLite } from '@/lib/parks/list';
 import { listLiveCategories, type CategoryLink } from '@/lib/routes/live-categories';
 import { jsonLdHtml } from '@/lib/seo/json-ld-html';
+import { ROUTE_FALLBACK_LIMIT } from '@/lib/search/place-route-fallback';
 
 const SITE = process.env.NEXT_PUBLIC_SITE_URL ?? 'https://vedarai.ru';
 const LIMIT = 24;
@@ -124,6 +125,18 @@ export default async function PlacesPage({ searchParams }: PageProps) {
     initial = null;
   }
 
+  // Мест по запросу нет — маршруты по тому же запросу (владелец 21.11:
+  // «дигерен» во вкладке «Места» был пуст, а маршрут «Дыгерен-Оленгендэ»
+  // есть). Отказ здесь не ломает страницу: блока просто нет, причина в логе.
+  let routeFallback: CatalogResult['items'] = [];
+  if (q && initial && initial.items.length === 0) {
+    try {
+      routeFallback = (await queryCatalogForPage({ q, kind: 'route', page: 1, limit: ROUTE_FALLBACK_LIMIT, sort: 'recommended' })).items;
+    } catch (err) {
+      console.error('[places] маршруты по запросу не прочитаны:', err instanceof Error ? err.message : String(err));
+    }
+  }
+
   const initialKey = JSON.stringify({
     kind: 'place',
     q,
@@ -165,6 +178,7 @@ export default async function PlacesPage({ searchParams }: PageProps) {
           initialKey={initialKey}
           initialPage={page}
           lockedKind="place"
+          initialRouteFallback={withCardExcerpts(routeFallback)}
           initialParks={await parksPromise}
           initialCategories={await categoriesPromise}
         />
