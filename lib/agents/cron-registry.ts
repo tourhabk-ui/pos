@@ -515,8 +515,16 @@ export const CRON_REGISTRY: CronEntry[] = [
   {
     key: 'routes-cache', label: 'Routes Cache Refresh',
     description: 'Обновление кэша описаний маршрутов.',
-    workflow: 'cron-routes-cache.yml', cron: '0 13 * * *', schedule: 'ежедневно · 13:00 UTC',
+    workflow: 'cron-routes-cache.yml', endpoint: 'routes-cache-refresh', cron: '0 13 * * *', schedule: 'ежедневно · 13:00 UTC',
     everyMin: DAY, tier: 'content', agentId: null, triggerable: false,
+  },
+  {
+    // 20.11, слово владельца «Статус открыт/закрыт»: колонка «Статус» страницы
+    // парка → park_approved_routes.status (1469) → оценка дня маршрута.
+    key: 'park-route-status', label: 'Park Route Status',
+    description: 'Статус «открыт / закрыт» утверждённых маршрутов природных парков со страницы парка.',
+    workflow: 'cron-routes-cache.yml', endpoint: 'park-route-status', cron: '0 13 * * *', schedule: 'ежедневно · 13:00 UTC',
+    everyMin: DAY, tier: 'quality', agentId: 'park-route-status', triggerable: false,
   },
   {
     key: 'kuzmich-places', label: 'Kuzmich Place Reviews',
@@ -726,6 +734,9 @@ export const CRON_IDLE_MEANING: Record<string, IdleMeaning> = {
   'editor-runner': 'normal',
   'enrich-routes': 'unknown',
   'routes-cache': 'unknown',
+  // Ноль записанных вариантов — поломка: роут тогда отвечает 502 (страница не
+  // прочиталась или разметка изменилась), и успешный ноль сюда не доезжает.
+  'park-route-status': 'broken',
   'kuzmich-places': 'unknown',
   'import-routes': 'unknown',
   'kuzmich-route': 'unknown',

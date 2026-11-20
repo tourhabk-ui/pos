@@ -22,6 +22,24 @@ jobs:
           echo "HTTP: $HTTP" && cat /tmp/out.json 2>/dev/null || true
           [ "$HTTP" = "200" ] && echo "OK" || { echo "FAIL $HTTP"; exit 1; }
 
+      # Статус «открыт / закрыт» утверждённых маршрутов природных парков со
+      # страницы парка (слово владельца 20.11). Тот же суточный прогон, а не
+      # своё расписание: GitHub душит очередь по числу расписаний (CLAUDE.md
+      # §8, 20.09). Отдельный шаг: отказ кэша описаний не отменяет чтение
+      # статусов, и наоборот. Статус старше трёх суток карточка и оценка дня
+      # читают «не проверено» — пропущенный прогон не выдаётся за свежий.
+      - name: Статус маршрутов природных парков
+        if: always()
+        env:
+          CRON_SECRET: ${{ secrets.CRON_SECRET }}
+        run: |
+          if [ -z "$CRON_SECRET" ]; then echo "::error::CRON_SECRET не задан — статус парка не прочитан. Это не «без перемен»."; exit 1; fi
+          HTTP=$(curl -s -o /tmp/park.json -w "%{http_code}" --max-time 120 \
+            "https://vedarai.ru/api/cron/park-route-status" \
+            -H "Authorization: Bearer $CRON_SECRET")
+          echo "HTTP: $HTTP" && cat /tmp/park.json 2>/dev/null || true
+          [ "$HTTP" = "200" ] || { echo "FAIL $HTTP"; exit 1; }
+
       - name: Notify on failure
         if: failure()
         run: |

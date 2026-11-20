@@ -1,7 +1,7 @@
 // @vitest-environment node
 /**
  * Утверждённые маршруты парков (20.11): одни слова на карточке, у Кузьмича и в
- * MCP; «не нашли» — не «запрещён»; статус открыт/закрыт не утверждается;
+ * MCP; «не нашли» — не «запрещён»; статус без свежего чтения — «не проверен»;
  * отказ чтения — молчание, а не «не значится».
  */
 import { describe, it, expect, vi, beforeEach } from 'vitest';
@@ -18,11 +18,11 @@ import {
 const v = (o: Partial<ApprovedVariant>): ApprovedVariant => ({
   parkName: 'Природный парк «Вилючинский»', title: 'Вилючинский водопад', season: 'summer', period: 'июнь-октябрь',
   movement: 'Пешком', passportUrls: ['https://www.vulcanikamchatki.ru/files/p1.pdf'], trackUrl: 'https://www.vulcanikamchatki.ru/files/t1.zip',
-  sourceUrl: APPROVED_ROUTES_SOURCE, readOn: '2026-11-20', ...o,
+  sourceUrl: APPROVED_ROUTES_SOURCE, readOn: '2026-11-20', status: null, statusReadOn: null, ...o,
 });
 const row = (o: Partial<ApprovedVariant>) => {
   const x = v(o);
-  return { park_name: x.parkName, title: x.title, season: x.season, period: x.period, movement: x.movement, passport_urls: x.passportUrls, track_url: x.trackUrl, source_url: x.sourceUrl, read_on: x.readOn };
+  return { park_name: x.parkName, title: x.title, season: x.season, period: x.period, movement: x.movement, passport_urls: x.passportUrls, track_url: x.trackUrl, source_url: x.sourceUrl, read_on: x.readOn, status: x.status, status_read_on: x.statusReadOn };
 };
 
 beforeEach(() => query.mockReset());
@@ -59,9 +59,9 @@ describe('слова', () => {
     expect(variantWords(v({}))).toBe('летом (июнь-октябрь): Пешком');
     expect(variantWords(v({ season: 'winter', period: null, movement: null }))).toBe('зимой: способ передвижения на странице парка не указан');
   });
-  it('связан: маршрут парка, варианты, источник с датой; статус не утверждается', () => {
+  it('связан: маршрут парка, варианты, источник с датой; без свежего чтения статус «не проверен»', () => {
     const lines = approvedRouteLines({ kind: 'linked', variants: [v({}), v({ season: 'winter', period: 'декабрь-май', movement: 'На лыжах' })] });
-    expect(lines[0]).toBe('Утверждённый маршрут парка (Природный парк «Вилючинский»): «Вилючинский водопад» — летом (июнь-октябрь): Пешком; зимой (декабрь-май): На лыжах.');
+    expect(lines[0]).toBe('Утверждённый маршрут парка (Природный парк «Вилючинский»): «Вилючинский водопад» — летом (июнь-октябрь): Пешком, статус на странице парка не проверен; зимой (декабрь-май): На лыжах, статус на странице парка не проверен.');
     expect(lines[1]).toContain('прочитано 20.11.2026');
     expect(lines.join(' ')).not.toMatch(/открыт|закрыт/);
   });
@@ -73,8 +73,8 @@ describe('блок на карточке', () => {
     expect(html).toContain('Утверждённый маршрут парка</h2>');
     expect(html).toContain('href="https://www.vulcanikamchatki.ru/files/p1.pdf"');
     expect(html).toContain('href="https://www.vulcanikamchatki.ru/files/t1.zip"');
-    expect(html).toContain('прочитано 20.11.2026');
-    expect(html).toContain('Открыт ли маршрут сейчас, уточняйте у парка.');
+    expect(html).toContain('список прочитан 20.11.2026');
+    expect(html).toContain('Статус парк меняет — перед выходом сверьтесь с его страницей.');
   });
   it('не нашли — так и сказано; нет случая — блока нет', () => {
     const html = renderToStaticMarkup(<ParkApprovedRoute approved={{ kind: 'not_listed', parkName: 'Природный парк «Налычево»', sourceUrl: APPROVED_ROUTES_SOURCE }} />);

@@ -65,9 +65,11 @@ export type Acc = 'green' | 'yellow' | 'orange' | 'red' | 'unassigned';
 export type VerdictReasonCode =
   | 'alert_ban'          // прямой запрет МЧС (severity >= 2)
   | 'point_closed'       // точка пути закрыта (location_real_time_status.is_open)
+  | 'park_closed_hazard' // парк закрыл маршрут, и на нём названная опасность (красный)
   | 'volcano_red'        // красный код KVERT на коридоре
   | 'weather_severe'     // опасная погода на окно выхода
   | 'signals_unknown'    // не знаем того, что способно скрыть запрет
+  | 'park_closed'        // парк отмечает маршрут закрытым (оранжевый)
   | 'volcano_orange'     // оранжевый код на коридоре
   | 'alert_warning'      // предупреждение важности 1
   | 'out_of_season'      // маршрут вне своего сезона
@@ -109,7 +111,18 @@ export interface RouteSignals {
    * зелёный: закрытие способно скрыть запрет.
    */
   closures: Array<{ place: string; reason: string | null }> | null;
+  /**
+   * Статус утверждённого маршрута парка по странице парка (20.11, слово
+   * владельца «Статус открыт/закрыт»). Поля нет (`undefined`) — маршрут не
+   * связан с утверждённым маршрутом парка, сигнала нет. `null` — связан, но
+   * статус не прочитан, устарел или чтение отказало: это запрещает зелёный,
+   * закрытие парком способно скрыть запрет.
+   */
+  park?: { status: 'open' | 'closed'; title: string; readOn: string } | null;
 }
+
+/** Цвет статуса маршрута в парке — шкала KVERT (слово владельца 20.11). */
+export type ParkColor = 'green' | 'yellow' | 'orange' | 'red';
 
 export interface Verdict {
   status: VerdictStatus;
@@ -137,6 +150,7 @@ function missingCritical(s: RouteSignals): string[] {
   if (s.alerts === null) gaps.push('предупреждения');
   if (s.volcanoes === null) gaps.push('вулканы на маршруте');
   if (s.closures === null) gaps.push('закрытые точки');
+  if (s.park === null) gaps.push('статус маршрута в парке');
   return gaps;
 }
 
@@ -184,6 +198,40 @@ function mostSpecific<T extends { severity: number; type?: string | null }>(
   return fit.find((a) => a.type != null && NAMED_HAZARD_TYPES.has(a.type)) ?? fit[0];
 }
 
+/**
+ * Предупреждения, которые вердикт ниже судит как «Осторожно»: важность от
+ * единицы, зональная единица не в счёт (#3334). Одно правило на вердикт и цвет.
+ */
+function warningsOf(alerts: NonNullable<RouteSignals['alerts']>) {
+  return alerts.filter((a) => a.severity >= 1 && (a.severity >= 2 || a.zonal !== true));
+}
+
+/**
+ * Опасность, названная предупреждением: категория из NAMED_HAZARD_TYPES,
+ * кроме самого закрытия парка — оно не причина закрытия, а оно же.
+ */
+function hazardOf(alerts: NonNullable<RouteSignals['alerts']>) {
+  return warningsOf(alerts).find((a) => a.type != null && a.type !== 'park_closure' && NAMED_HAZARD_TYPES.has(a.type));
+}
+
+/**
+ * Цвет маршрута в парке по шкале KVERT:
+ *   зелёный — парк отмечает открытым, предупреждений на маршруте нет;
+ *   жёлтый — открыт, но предупреждение действует;
+ *   оранжевый — парк отмечает закрытым, опасность не названа (межсезонье);
+ *   красный — закрыт, и предупреждение называет опасность.
+ * Статуса нет — цвета нет («не проверено»). Открыт, а предупреждения не
+ * прочитались — тоже нет: незнание зелёного не даёт.
+ */
+export function parkRouteColor(
+  status: 'open' | 'closed' | null, alerts: RouteSignals['alerts'],
+): ParkColor | null {
+  if (status === null) return null;
+  if (status === 'closed') return alerts && hazardOf(alerts) ? 'red' : 'orange';
+  if (alerts === null) return null;
+  return warningsOf(alerts).length > 0 ? 'yellow' : 'green';
+}
+
 export function goVerdict(s: RouteSignals): Verdict {
   const unknown = missingCritical(s);
 
@@ -208,6 +256,17 @@ export function goVerdict(s: RouteSignals): Verdict {
     return {
       status: 'no', code: 'point_closed',
       reason: `Закрыто: ${closed.place}${closed.reason ? ` — ${closed.reason}` : ''}`, unknown,
+    };
+  }
+
+  // Красный по шкале парка: парк закрыл маршрут, и предупреждение называет
+  // опасность. Само предупреждение могло быть зональной двойкой или единицей
+  // и запретом не стать — вместе с закрытием это «Не сегодня».
+  if (s.park && parkRouteColor(s.park.status, s.alerts) === 'red') {
+    const hazard = hazardOf(s.alerts ?? [])!;
+    return {
+      status: 'no', code: 'park_closed_hazard',
+      reason: `Парк закрыл маршрут «${s.park.title}»: ${hazard.title}`, unknown,
     };
   }
 
@@ -236,6 +295,16 @@ export function goVerdict(s: RouteSignals): Verdict {
     };
   }
 
+  // Оранжевый по шкале парка: закрыт без названной опасности — межсезонье
+  // или причина не указана. Ходить по закрытому маршруту парк не разрешает,
+  // но опасности дня это не называет.
+  if (s.park?.status === 'closed') {
+    return {
+      status: 'caution', code: 'park_closed',
+      reason: `Парк отмечает маршрут «${s.park.title}» закрытым`, unknown,
+    };
+  }
+
   const orangeVolcano = (s.volcanoes ?? []).find((v) => ACC_WARNING.includes(v.acc));
   if (orangeVolcano) {
     return {
@@ -249,7 +318,7 @@ export function goVerdict(s: RouteSignals): Verdict {
   // водоёмах края стоял «Осторожно» у маршрута к Вилючинскому водопаду.
   // Предупреждение остаётся в списке маршрута; зональная двойка — по-прежнему
   // «Осторожно» (#2195), признак не пришёл — судится как свой, строже.
-  const warn = mostSpecific((s.alerts ?? []).filter((a) => a.severity >= 2 || a.zonal !== true), 1);
+  const warn = mostSpecific(warningsOf(s.alerts ?? []), 1);
   if (warn) {
     return { status: 'caution', code: 'alert_warning', reason: warn.title, unknown };
   }

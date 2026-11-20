@@ -25,6 +25,10 @@ import { createTestDatabase } from '../helpers/pg-schema';
 import { readFileSync } from 'node:fs';
 import { join } from 'node:path';
 import { APPROVED_FOR_ROUTE_SQL } from '../../lib/parks/approved-routes';
+import { runParkStatusRead, type QueryFn } from '../../lib/parks/park-route-status-run';
+import { PARK_STATUS_FOR_ROUTE_SQL, collectRouteSignals } from '../../lib/routes/collect-signals';
+import { PARK_STATUS_FRESH_HOURS } from '../../lib/parks/park-route-status';
+import { goVerdict } from '../../lib/routes/go-verdict';
 
 const PG_URL = process.env.KERNEL_PG_TEST_URL ?? '';
 const withPg = PG_URL ? describe : describe.skip;
@@ -170,11 +174,83 @@ withPg('маршруты парка и заказник-тёзка', () => {
     it('чтение карточки: варианты маршрута с парком, сезоном, паспортом и треком', async () => {
       const { rows: [route] } = await pool.query<{ id: string }>(`SELECT id::text AS id FROM kamchatka_routes WHERE slug = 'vilyuchinskij-vodopad'`);
       const { rows } = await pool.query<{ park_name: string; title: string; season: string; passport_urls: string[]; track_url: string | null; read_on: string }>(
-        APPROVED_FOR_ROUTE_SQL, [route!.id]);
+        APPROVED_FOR_ROUTE_SQL, [route!.id, PARK_STATUS_FRESH_HOURS]);
       expect(rows.map((r) => r.season)).toEqual(['summer', 'winter']);
       expect(rows[0]).toMatchObject({ park_name: 'Природный парк «Вилючинский»', title: 'Вилючинский водопад', read_on: '2026-11-20' });
       expect(rows[0]!.passport_urls[0]).toMatch(/^https:\/\/www\.vulcanikamchatki\.ru\//);
       expect(rows[0]!.track_url).toMatch(/^https:\/\/www\.vulcanikamchatki\.ru\//);
+    });
+
+    /**
+     * Статус со страницы парка (1469): чтение пишет совпавшие варианты,
+     * называет несовпавшие; свежий статус доходит до карточки и оценки дня,
+     * устаревший читается «не проверено».
+     */
+    describe('статус «открыт / закрыт» (1469)', () => {
+      const STATUS = readFileSync(join(process.cwd(), 'migrations/1469_park_route_status.sql'), 'utf-8');
+      const q: QueryFn = ((sql: string, params: unknown[]) => pool.query(sql, params)) as never;
+      const row = (title: string, status: string, season: string) =>
+        `<tr><td>${title}</td><td>${status}</td><td>${season}</td><td></td><td></td><td></td><td></td></tr>`;
+      const page = (rows: string) => `<p><strong>Природный парк &laquo;Вилючинский&raquo;</strong></p>
+        <table><tr><td>Название</td><td>Статус</td><td>Сезон</td><td>Период</td><td>Способ</td><td>Паспорт</td><td>GPS</td></tr>${rows}</table>`;
+      let routeId = '';
+
+      beforeAll(async () => {
+        await pool.query(STATUS);
+        await pool.query(STATUS);
+        routeId = (await pool.query<{ id: string }>(`SELECT id::text AS id FROM kamchatka_routes WHERE slug = 'vilyuchinskij-vodopad'`)).rows[0]!.id;
+      });
+
+      it('чтение пишет совпавшие варианты и называет строку вне справочника', async () => {
+        const run = await runParkStatusRead({
+          query: q,
+          fetchHtml: async () => ({ html: page(
+            '<tr><td rowspan="2">Вилючинский водопад</td><td>закрыт</td><td>лето</td><td></td><td></td><td></td><td></td></tr>'
+            + '<tr><td>открыт</td><td>зима</td><td></td><td></td><td></td><td></td></tr>'
+            + row('Новый маршрут парка', 'открыт', 'лето'),
+          ) }),
+        });
+        expect(run).toMatchObject({ outcome: 'read', parsed: 3, written: 2, not_in_table: ['vilyuchinsky · Новый маршрут парка · summer'] });
+        if (run.outcome !== 'read') throw new Error('не прочитано');
+        expect(run.open).toEqual(['vilyuchinsky · Вилючинский водопад · winter']);
+        expect(run.not_on_page).toHaveLength(48);
+        const { rows } = await pool.query(`SELECT season, status FROM park_approved_routes WHERE title = 'Вилючинский водопад' ORDER BY season`);
+        expect(rows).toEqual([{ season: 'summer', status: 'closed' }, { season: 'winter', status: 'open' }]);
+      });
+
+      it('свежий статус: карточка видит его по вариантам, оценка дня — открыт', async () => {
+        const card = (await pool.query<{ season: string; status: string | null; status_read_on: string | null }>(
+          APPROVED_FOR_ROUTE_SQL, [routeId, PARK_STATUS_FRESH_HOURS])).rows;
+        expect(card.map((r) => [r.season, r.status])).toEqual([['summer', 'closed'], ['winter', 'open']]);
+        expect(card[0]!.status_read_on).toMatch(/^\d{4}-\d{2}-\d{2}$/);
+        const s = await collectRouteSignals(routeId, { query: q, month: 1 });
+        expect(s.park).toMatchObject({ status: 'open', title: 'Вилючинский водопад' });
+      });
+
+      it('все варианты закрыты — «Осторожно: парк отмечает маршрут закрытым»', async () => {
+        await pool.query(`UPDATE park_approved_routes SET status = 'closed' WHERE title = 'Вилючинский водопад'`);
+        const s = await collectRouteSignals(routeId, { query: q, month: 1 });
+        expect(s.park).toMatchObject({ status: 'closed' });
+        const v = goVerdict({ ...s, alerts: [], volcanoes: [], closures: [] });
+        expect(v).toMatchObject({ status: 'caution', code: 'park_closed' });
+      });
+
+      it('статус старше трёх суток — «не проверено»: на карточке нет статуса, в оценке — данных мало', async () => {
+        await pool.query(`UPDATE park_approved_routes SET status_read_at = NOW() - interval '4 days' WHERE title = 'Вилючинский водопад'`);
+        const card = (await pool.query<{ status: string | null }>(APPROVED_FOR_ROUTE_SQL, [routeId, PARK_STATUS_FRESH_HOURS])).rows;
+        expect(card.map((r) => r.status)).toEqual([null, null]);
+        const raw = (await pool.query<{ fresh: boolean }>(PARK_STATUS_FOR_ROUTE_SQL, [routeId, PARK_STATUS_FRESH_HOURS])).rows;
+        expect(raw.map((r) => r.fresh)).toEqual([false, false]);
+        const s = await collectRouteSignals(routeId, { query: q, month: 1 });
+        expect(s.park).toBeNull();
+        expect(goVerdict({ ...s, alerts: [], volcanoes: [], closures: [] })).toMatchObject({ code: 'signals_unknown' });
+      });
+
+      it('маршрут без связи с парком — поля нет: сигнала нет', async () => {
+        const other = (await pool.query<{ id: string }>(`SELECT id::text AS id FROM kamchatka_routes WHERE slug IS NULL OR slug NOT IN ('vilyuchinskij-vodopad', 'visitkamchatka-avachin-centre', 'voshozhdenie-na-avachinskij-vulkan') LIMIT 1`)).rows[0]!.id;
+        const s = await collectRouteSignals(other, { query: q, month: 1 });
+        expect('park' in s).toBe(false);
+      });
     });
   });
 });

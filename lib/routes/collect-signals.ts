@@ -27,6 +27,7 @@ import { TOURIST_BAN_SQL } from '@/lib/services/safety/tourist-ban';
 import { ALERT_MATCH_SQL, ALERT_ZONAL_ONLY_SQL } from '@/lib/services/safety/alert-place-scope';
 import { CORRIDOR_VOLCANO_KM } from '@/lib/safety/corridor';
 import { UTC_WALL_NOW_SQL } from '@/lib/db/timestamp-iso';
+import { PARK_STATUS_FRESH_HOURS, routeParkStatus, type ParkRouteStatus } from '@/lib/parks/park-route-status';
 
 /** Минимальный контракт запроса — ровно то, что нужно сборщику. */
 export type QueryFn = <T>(sql: string, params: unknown[]) => Promise<{ rows: T[] }>;
@@ -374,6 +375,44 @@ async function loadClosures(
 }
 
 /**
+ * Статус утверждённого маршрута парка (20.11): связь маршрута с вариантами
+ * списка парка (park_approved_route_links, 1468) и статус каждого варианта по
+ * последнему чтению страницы парка (1469).
+ *
+ * Связей нет — `undefined`: маршрут не из списка парка, сигнала нет. Отказ
+ * базы — `null` и строка в логе; статус не прочитан или старше
+ * PARK_STATUS_FRESH_HOURS — тоже `null`, «не проверено» (§4.0).
+ */
+export const PARK_STATUS_FOR_ROUTE_SQL = `
+  SELECT a.title, a.status,
+         (a.status_read_at IS NOT NULL AND a.status_read_at > NOW() - make_interval(hours => $2::int)) AS fresh,
+         to_char(a.status_read_at AT TIME ZONE 'Asia/Kamchatka', 'YYYY-MM-DD') AS read_on
+    FROM park_approved_route_links l
+    JOIN park_approved_routes a ON a.id = l.approved_route_id
+   WHERE l.route_id::text = $1::text
+   ORDER BY a.title, a.season`;
+
+interface ParkStatusRow { title: string; status: ParkRouteStatus | null; fresh: boolean | null; read_on: string | null }
+
+async function loadParkStatus(routeId: string, q: QueryFn): Promise<RouteSignals['park']> {
+  let rows: ParkStatusRow[];
+  try {
+    rows = (await q<ParkStatusRow>(PARK_STATUS_FOR_ROUTE_SQL, [routeId, PARK_STATUS_FRESH_HOURS])).rows;
+  } catch (err) {
+    const code = (err as { code?: string }).code ?? 'нет SQLSTATE';
+    console.error(`[collect-signals] статус маршрута в парке не прочитан, SQLSTATE ${code}`);
+    return null;
+  }
+  if (rows.length === 0) return undefined;
+  const status = routeParkStatus(rows.map((r) => ({ status: r.status, fresh: r.fresh === true })));
+  if (status === null) return null;
+  // Название и дата — того варианта, по которому статус решён: открытого,
+  // а у закрытого — любого (все закрыты и свежи).
+  const by = rows.find((r) => r.fresh === true && r.status === status) ?? rows[0]!;
+  return { status, title: by.title, readOn: by.read_on ?? '' };
+}
+
+/**
  * Собрать сигналы по маршруту.
  *
  * Погода намеренно не собирается: опасная погода доезжает до нас
@@ -398,10 +437,11 @@ export async function collectRouteSignals(
 
   // Тревоги и закрытия — по id найденной строки, а не по тому, что пришло:
   // пришёл мог id карточки (см. ROUTE_ROW_BY_ANY_ID_SQL).
-  const [alerts, volcanoes, closures] = await Promise.all([
+  const [alerts, volcanoes, closures, park] = await Promise.all([
     loadAlerts(shape.zones, shape.points, shape.dbId, q),
     loadVolcanoes(shape.points, q),
     loadClosures(shape.dbId, q),
+    loadParkStatus(shape.dbId, q),
   ]);
 
   return {
@@ -410,5 +450,7 @@ export async function collectRouteSignals(
     inSeason: isInSeason(shape.season, month),
     weather: null,
     closures,
+    // Поле только у маршрутов из списка парка: «нет поля» — сигнала нет.
+    ...(park !== undefined ? { park } : {}),
   };
 }
