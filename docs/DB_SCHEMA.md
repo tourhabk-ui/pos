@@ -1,6 +1,6 @@
 # Схема базы данных Ведара
 
-> Снято 2026-11-20 с настоящего PostgreSQL 18.7 (Debian 18.7-1.pgdg13+2): baseline прода (`lib/database/baseline/schema-baseline.sql`, снимок 2026-08-15) + миграции новее него, накатанные штатным раннером. Последняя миграция в снимке: `1468_park_approved_routes.sql`.
+> Снято 2026-11-20 с настоящего PostgreSQL 18.7 (Debian 18.7-1.pgdg13+2): baseline прода (`lib/database/baseline/schema-baseline.sql`, снимок 2026-08-15) + миграции новее него, накатанные штатным раннером. Последняя миграция в снимке: `1469_park_route_status.sql`.
 > Файл порождён `scripts/gen-db-schema.ts` (`npm run db:schema-doc`); править руками бессмысленно — следующий прогон перепишет.
 > Что здесь НЕ учтено: дрейф прода после baseline, не отражённый миграциями. Судья дрейфа — `GET /api/cron/schema-drift` на проде (`lib/db/schema-drift.ts`). Значений данных в файле нет — только имена и типы.
 
@@ -8,7 +8,7 @@
 |---|---:|
 | Таблиц | 335 |
 | Представлений (VIEW) | 13 |
-| Колонок | 4330 |
+| Колонок | 4332 |
 | Внешних ключей | 397 |
 | Таблиц без единого FK в обе стороны | 91 |
 
@@ -1589,9 +1589,9 @@ B2B-агенты, продающие туры за комиссию. Не пут
 
 `approved_route_id bigint!` `route_id uuid!` `checked_note text!`
 
-**park_approved_routes** · 10 кол. · PK id · park_slug → parks.slug · на неё ссылаются: park_approved_route_links · индексов 2
+**park_approved_routes** · 12 кол. · PK id · park_slug → parks.slug · на неё ссылаются: park_approved_route_links · индексов 2
 
-`id bigint!=` `park_slug varchar!` `title text!` `season varchar!` `period text` `movement text` `passport_urls text[]!=` `track_url text` `source_url text!` `read_on date!`
+`id bigint!=` `park_slug varchar!` `title text!` `season varchar!` `period text` `movement text` `passport_urls text[]!=` `track_url text` `source_url text!` `read_on date!` `status varchar` `status_read_at timestamptz`
 
 **password_reset_tokens** · 7 кол. · PK id · issued_by → users.id, user_id → users.id · индексов 3
 
