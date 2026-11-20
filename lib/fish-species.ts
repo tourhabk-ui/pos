@@ -338,10 +338,20 @@ export function getActiveSpecies(month: number): FishSpecies[] {
  * упомянут (замер на проде 29.09). Косвенные формы («гольца») ловил другой
  * шаблон — поэтому поломка выглядела как «у части туров гольца нет».
  */
+/**
+ * Имя места после слова места — «озеро Микижа», «р. Кижуч»: это топоним, а не
+ * рыба. Тур ID104 (новогодний, без рыбалки) получал на карточке календарь
+ * клёва и строку «в описании тура названы микижа» из-за «озера Микижа» в
+ * программе дня 1 (#3487, 20.11). Снимается только слово с заглавной буквы
+ * сразу после слова места: «рыбалка на микижу на озере» остаётся рыбой.
+ */
+const FISH_TOPONYM = /((?:[Оо]зер[оаеуы]?|[Оо]з\.|[Рр]ек[аиеуой]|[Рр]\.|[Рр]учей|[Рр]учья|[Бб]ухт[аыеуой]|[Зз]алив[аеу]?)\s+[«"]?)[А-ЯЁ][а-яё]+/g;
+
 export function detectFishSpecies(text: string): FishSpecies[] {
+  const bare = text.replace(FISH_TOPONYM, '$1');
   const found = FISH_SPECIES.filter(sp =>
     // Флаг g у паттернов делает test() статфульным (lastIndex) — сбрасываем.
-    sp.patterns.some(p => new RegExp(p.source, p.flags.replace('g', '')).test(text)),
+    sp.patterns.some(p => new RegExp(p.source, p.flags.replace('g', '')).test(bare)),
   );
   const specific = found.filter(sp => sp.id !== 'losos');
   return specific.length > 0 ? specific : found;

@@ -194,7 +194,7 @@ function durationCell(f: CompareTourFacts): Cell {
  */
 function groupCell(f: CompareTourFacts): Cell {
   if (isGroupSizeUnlimited(f)) {
-    return { text: unlimitedGroupSentence(f.max_participants).replace(/\.$/, ''), key: `unlimited|${bookingRequestCeiling(f.max_participants) ?? ''}` };
+    return { text: unlimitedGroupSentence(f.max_participants).replace(/\.$/, ''), key: `unlimited|${bookingRequestCeiling(f.max_participants, true) ?? ''}` };
   }
   const ceiling = bookingRequestCeiling(f.max_participants);
   return {

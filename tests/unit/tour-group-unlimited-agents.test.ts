@@ -233,9 +233,10 @@ describe('фид Авито и экспорт /api/tours-feed', () => {
 });
 
 describe('плашка группы в блоке «Туры по маршруту» (groupRangeShort)', () => {
-  it('TRUE — «не ограничена» вместо «1–12»; FALSE — прежние «1–12» и «до 12»', () => {
+  it('TRUE — «не ограничена»; FALSE — «5–12» при минимуме больше одного, иначе «до 12» (#3487)', () => {
     expect(groupRangeShort({ min_participants: 1, max_participants: 12, group_size_unlimited: true })).toBe('не ограничена');
-    expect(groupRangeShort({ min_participants: 1, max_participants: 12, group_size_unlimited: false })).toBe('1–12');
+    expect(groupRangeShort({ min_participants: 1, max_participants: 12, group_size_unlimited: false })).toBe('до 12');
+    expect(groupRangeShort({ min_participants: 5, max_participants: 12, group_size_unlimited: false })).toBe('5–12');
     expect(groupRangeShort({ min_participants: null, max_participants: 12 })).toBe('до 12');
     expect(groupRangeShort({ min_participants: null, max_participants: null })).toBeNull();
   });

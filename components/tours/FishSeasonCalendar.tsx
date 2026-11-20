@@ -136,7 +136,7 @@ export default function FishSeasonCalendar({ species, tourMonths = null }: Props
 
       {outside.length > 0 && tourMonths && (
         <p className="mt-3 text-sm text-[var(--text-secondary)] leading-relaxed">
-          {`В описании тура названы ${joinNames(outside)}, а календарь в сезон тура (${tourMonths
+          {`В текстах тура названы ${joinNames(outside)}, а календарь в сезон тура (${tourMonths
             .map(m => MONTH_SHORT[m - 1])
             .join(', ')}) ${outside.length === 1 ? 'этот вид' : 'эти виды'} не показывает. Календарь — общий справочник Ведара по сезонам клёва на Камчатке; что ловится в этом туре, говорит оператор — уточняйте у него.`}
         </p>
