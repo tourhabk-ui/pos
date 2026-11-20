@@ -397,6 +397,31 @@ withPg('поиск маршрута по виду места пути', () => {
       expect(cheap.priceBase).toBe(9500);
       expect(cheap).not.toHaveProperty('effectivePrice');
     });
+
+    it('карточка маршрута: паспорт реестра, к ней не привязанный, доходит до карточки разобранным (1478, #3568)', async () => {
+      const { loadRouteDetail } = await import('@/lib/routes/route-detail');
+      const P = 'https://visitkamchatka.ru/upload/route_passports/';
+      await pool.query(
+        `UPDATE kamchatka_routes SET registry_passports = $2::jsonb WHERE ark_id = $1`,
+        [id.ark, JSON.stringify([
+          { url: `${P}vilyuchinsky_pereval_avto.pdf`, km: 76, side: 'в обе стороны', label: null },
+          { url: 'javascript:alert(1)', km: 1, side: null, label: null },
+        ])],
+      );
+      try {
+        type Detail = { registryPassports?: unknown };
+        const r = (await loadRouteDetail(id.ark, { explain: false, countView: false })) as unknown as { data?: Detail } & Detail;
+        expect((r.data ?? r).registryPassports).toEqual([
+          { url: `${P}vilyuchinsky_pereval_avto.pdf`, km: 76, side: 'в обе стороны', label: null },
+        ]);
+      } finally {
+        await pool.query(`UPDATE kamchatka_routes SET registry_passports = NULL WHERE ark_id = $1`, [id.ark]);
+      }
+      // База держит форму: не список — отказ.
+      await expect(pool.query(
+        `UPDATE kamchatka_routes SET registry_passports = '{"url":"x"}'::jsonb WHERE ark_id = $1`, [id.ark],
+      )).rejects.toThrow(/kamchatka_routes_registry_passports_array/);
+    });
   });
 
   it('вид, которого на пути нет, — пусто, а не всё подряд', async () => {

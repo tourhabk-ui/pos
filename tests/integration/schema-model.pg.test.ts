@@ -262,6 +262,35 @@ withPg('объектив схемы на настоящем PostgreSQL', () => {
     ]);
   });
 
+  it('миграция 1478: паспорт реестра «может отличаться» — шести карточкам, длина карточки не тронута (#3568)', async () => {
+    const SQL = readFileSync(join(process.cwd(), 'migrations/1478_route_registry_passports_may_differ.sql'), 'utf-8');
+    const P = 'https://visitkamchatka.ru/upload/route_passports/';
+    await pool.query(`INSERT INTO kamchatka_routes (dedupe_key, slug, title, category, distance_km) VALUES
+      ('p1478_vod', 'vilyuchinskij-vodopad', 'Вилючинский водопад', 'route', 1.9),
+      ('p1478_per', 'vilyuchinskij-pereval-marshrut', 'Вилючинский перевал', 'route', 12.1),
+      ('p1478_other', 'p1478-other', 'Чужой маршрут', 'route', 3)
+      ON CONFLICT (slug) DO UPDATE SET dedupe_key = EXCLUDED.dedupe_key, distance_km = EXCLUDED.distance_km,
+        registry_passports = NULL, merged_into_id = NULL`); // адрес мог занять посев базы
+    await pool.query(SQL);
+    const stamp = `SELECT dedupe_key, updated_at FROM kamchatka_routes WHERE dedupe_key LIKE 'p1478_%' ORDER BY dedupe_key`;
+    const first = (await pool.query(stamp)).rows;
+    await pool.query(SQL); // повтор без вреда: ни одна строка не тронута
+    expect((await pool.query(stamp)).rows).toEqual(first);
+    const { rows } = await pool.query<Record<string, unknown>>(
+      `SELECT dedupe_key, distance_km::float8 AS km, registry_passports
+         FROM kamchatka_routes WHERE dedupe_key LIKE 'p1478_%' ORDER BY dedupe_key`);
+    expect(rows).toEqual([
+      { dedupe_key: 'p1478_other', km: 3, registry_passports: null },
+      { dedupe_key: 'p1478_per', km: 12.1, registry_passports: [
+        { url: `${P}vilyuchinsky_pereval_avto.pdf`, km: 76, side: 'в обе стороны', label: null },
+      ] },
+      { dedupe_key: 'p1478_vod', km: 1.9, registry_passports: [
+        { url: `${P}vilyuchinsky_waterfall_summer.pdf`, km: 4, side: 'в обе стороны', label: 'летний' },
+        { url: `${P}vilyuchinsky_waterfall_winter.pdf`, km: 4, side: 'в обе стороны', label: 'зимний' },
+      ] },
+    ]);
+  });
+
   it('миграция 1454: образец сообщений Telegram-группы снят из советов туристов, остальное на месте (ревью #3460)', async () => {
     const SQL = readFileSync(join(process.cwd(), 'migrations/1454_group_tips_sample_withdrawn.sql'), 'utf-8');
     await pool.query(`INSERT INTO kamchatka_routes (dedupe_key, slug, title, category, metadata, is_visible) VALUES
