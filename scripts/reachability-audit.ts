@@ -104,7 +104,7 @@ function mentions(route: string, ownFile: string): { ui: string[]; other: string
     // Посадочные Сыщика (20.11): тексты и связки месяцев лежат данными в
     // lib/landings и рисуются целиком LandingContent / MonthsNav — ссылки в
     // них такие же экранные, как в футере.
-    const UI_REGISTRIES = new Set(['lib/navigation/platform-links.ts', 'lib/landings/texts.ts', 'lib/landings/landings.ts']);
+    const UI_REGISTRIES = new Set(['lib/navigation/platform-links.ts', 'lib/landings/texts.ts', 'lib/landings/texts-batch2.ts', 'lib/landings/landings.ts']);
     const isUi = ((f.startsWith('app/') || f.startsWith('components/') || f.startsWith('hooks/'))
       && !f.includes('/api/') && !f.startsWith('tests/')) || UI_REGISTRIES.has(f);
     (isUi ? ui : other).push(f);

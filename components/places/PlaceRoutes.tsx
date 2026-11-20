@@ -1,4 +1,5 @@
 import Link from 'next/link';
+import { routeSlugPath } from '@/lib/routes/url-slug';
 import { Route, ChevronRight } from 'lucide-react';
 import type { PlaceRoute } from './types';
 import { routeDifficultyLabel } from '@/lib/places/zone-labels';
@@ -62,7 +63,7 @@ function RouteList({ title, note, routes }: { title: string; note?: string; rout
         {routes.map(r => (
           <Link
             key={r.id}
-            href={`/routes/${r.slug ?? r.id}`}
+            href={routeSlugPath(r.slug ?? r.id)}
             className="ds-card p-4 flex items-center justify-between gap-3 hover:border-[var(--accent)] transition-colors group"
           >
             <div className="flex-1 min-w-0">

@@ -87,6 +87,6 @@ describe('источники ссылок отдают ЧПУ', () => {
     expect(src).toMatch(/SELECT COALESCE\(ark_id, id\) AS id, slug, title/);
     const client = code('app/collections/[slug]/_CollectionDetailClient.tsx');
     expect(client).toMatch(/`\/places\/\$\{place\.slug \?\? place\.id\}`/);
-    expect(client).toMatch(/`\/routes\/\$\{route\.slug \?\? route\.id\}`/);
+    expect(client).toMatch(/routeSlugPath\(route\.slug \?\? route\.id\)/); // kl-* — сразу на статью (21.11)
   });
 });

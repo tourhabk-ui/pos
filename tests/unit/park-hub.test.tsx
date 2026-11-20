@@ -47,6 +47,24 @@ describe('/park', () => {
   });
 });
 
+describe('/park: ответ сразу, снимки, крошки (Сыщик 21.11)', () => {
+  it('вводный абзац — счёт из справочника и ЮНЕСКО со ссылкой; BreadcrumbList; снимок с лицензией и подписью', async () => {
+    query.mockResolvedValue({ rows: PARKS });
+    const { container } = render(await ParksIndexPage());
+    const intro = container.querySelector('[data-park-intro]')!;
+    expect(intro.textContent).toContain('В справочнике Ведара 2 охраняемые территории Камчатки: 1 заповедник, 1 памятник природы.');
+    expect(intro.querySelector('a[href="https://whc.unesco.org/en/list/765"]')).not.toBeNull();
+    const lds = [...container.querySelectorAll('script[type="application/ld+json"]')].map((s) => JSON.parse(s.innerHTML));
+    const crumbs = lds.find((l) => l['@type'] === 'BreadcrumbList');
+    expect(crumbs.itemListElement.map((i: { item: string }) => i.item)).toEqual(['https://vedarai.ru', 'https://vedarai.ru/park']);
+    // Кроноцкий: снимок летописи с лицензией — картинка с alt и подписью автора.
+    const kr = container.querySelector('a[href="/park/kronotsky"]')!;
+    const img = kr.querySelector('img');
+    expect(img?.getAttribute('alt')).toBeTruthy();
+    expect(kr.querySelector('[data-photo-credit]')?.textContent).toMatch(/^Фото: .+, .+/);
+  });
+});
+
 describe('sitemap: /park и /calendar', () => {
   it('обе страницы в карте; дата /park — самая поздняя правка парков', async () => {
     const NEW = new Date('2026-10-14T00:00:00Z');

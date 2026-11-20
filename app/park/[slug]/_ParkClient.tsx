@@ -1,5 +1,6 @@
 'use client';
 
+import { routeSlugPath } from '@/lib/routes/url-slug';
 import { parkHeading } from '@/lib/seo/h1-templates';
 import Link from 'next/link';
 import { RecordModified } from '@/components/seo/RecordModified';
@@ -215,7 +216,7 @@ export default function ParkClient({ park, chronicle = [] }: { park: ParkPageDat
               return (
                 <Link
                   key={route.id}
-                  href={`/routes/${route.slug ?? route.id}`}
+                  href={routeSlugPath(route.slug ?? route.id)}
                   className="ds-card"
                   style={{ padding: '14px 16px', textDecoration: 'none', display: 'block' }}
                 >

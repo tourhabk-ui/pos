@@ -1,5 +1,6 @@
 'use client';
 
+import { routeSlugPath } from '@/lib/routes/url-slug';
 import { collectionHeading } from '@/lib/seo/h1-templates';
 import Link from 'next/link';
 import { MapPin, Route, Eye, ArrowLeft, Share2, Copy } from 'lucide-react';
@@ -74,7 +75,7 @@ function PlaceCard({ place }: { place: Place }) {
 
 function RouteCard({ route }: { route: RouteItem }) {
   return (
-    <Link href={`/routes/${route.slug ?? route.id}`} className="ds-card group block hover:shadow-md transition-all duration-200 p-4">
+    <Link href={routeSlugPath(route.slug ?? route.id)} className="ds-card group block hover:shadow-md transition-all duration-200 p-4">
       <div className="flex items-start justify-between gap-2 mb-2">
         <h3 className="font-playfair font-bold text-[var(--text-primary)] group-hover:text-[var(--accent)] transition-colors">
           {route.title}

@@ -12,6 +12,7 @@ import { tourPath } from '@/lib/tours/tour-url';
 import { operatorPagePath } from '@/lib/operators/page-link';
 import { absolutePhotoUrls } from '@/lib/notifications/photo-urls';
 import { jsonLdHtml } from '@/lib/seo/json-ld-html';
+import { LandingCrossLink } from '@/components/landings/LandingCrossLink';
 
 export const dynamic = 'force-dynamic';
 
@@ -201,6 +202,8 @@ export default async function FishingPage() {
         <FishingPageClient tours={tours} failed={read.kind === 'failed'} />
         <FishingGuide />
       </div>
+      {/* Путёвка через Госуслуги41 — отдельная посадочная (Сыщик, 21.11). */}
+      <LandingCrossLink path="/hub/fishing" />
       <BottomNav activePath="/hub/fishing" />
     </>
   );

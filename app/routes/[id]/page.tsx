@@ -21,7 +21,7 @@ import { routeDescription } from '@/lib/seo/place-meta';
 import { defaultOgImages } from '@/lib/seo/og-image';
 import { shownPhotoSql } from '@/lib/images/origin';
 import { brandedTitle, fitTitleRequired, ROUTE_TITLE_TAILS } from '@/lib/seo/title-fit';
-import { routeTitleFactsTail } from '@/lib/seo/h1-templates';
+import { routeTitleFactsTail, ROUTE_NOINDEX } from '@/lib/seo/h1-templates';
 import { payloadText, payloadStrings } from '@/lib/routes/payload-text';
 
 // ISR: реvalidate každый час для свежести контента в Google
@@ -351,6 +351,8 @@ export async function generateMetadata({ params }: Props): Promise<Metadata> {
     // Каннибализация (Сыщик, 20.11): маршрут, чью тему ведёт посадочная,
     // объявляет канонической её (lib/landings, LANDING_CANONICAL).
     alternates: { canonical: `https://vedarai.ru${LANDING_CANONICAL[`/routes/${canonicalId}`] ?? `/routes/${canonicalId}`}` },
+    // Описание не подтверждается источниками (lib/seo/h1-templates, ROUTE_NOINDEX).
+    ...(ROUTE_NOINDEX.has(canonicalId) ? { robots: { index: false, follow: true } } : {}),
     openGraph: {
       title,
       description: desc,

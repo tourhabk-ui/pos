@@ -111,6 +111,25 @@ export const PLACE_NOINDEX: ReadonlySet<string> = new Set([
   'vid-na-vulkan-shmidta-s-gamchenskogo-dola',
 ]);
 
+/**
+ * Маршруты, чьё описание не подтверждается источниками, — noindex и вне
+ * sitemap, пока запись не перепишут по фактам (Сыщик, 21.11).
+ * visitkamchatka-krasnaya-sopka: «вулкан 1234 м из группы домашних, подъём
+ * 3–4 часа», охраняемая территория — Кроноцкий заповедник. В каталоге активных
+ * вулканов KVERT такого нет, домашние вулканы — Корякский, Авачинский,
+ * Козельский; «Красная сопка» в городе — горнолыжная база на сопке Петровская
+ * с верхней точкой 418 м (СШОР «Эдельвейс», visitkamchatka), а перевал
+ * Красная сопка — в Авачинской группе. Какая из них имелась в виду, по записи
+ * не понять: переписывать не на чем.
+ */
+export const ROUTE_NOINDEX: ReadonlySet<string> = new Set([
+  'visitkamchatka-krasnaya-sopka',
+]);
+
+export function routeInSitemap(slug: string | null): boolean {
+  return !slug || !ROUTE_NOINDEX.has(slug);
+}
+
 /** В sitemap — только индексируемые адреса со своим каноникалом. */
 export function placeInSitemap(slug: string | null): boolean {
   if (!slug) return true;

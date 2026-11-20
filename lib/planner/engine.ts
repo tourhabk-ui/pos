@@ -1957,7 +1957,11 @@ async function generateDayPlans(
       days.push({
         day: dayNum++, type: 'activity', zone: block.zone,
         title: dayTitle,
-        description: realTour?.shortDescription ?? c.seasonNote ?? '',
+        // Справка вида (seasonNote) — только когда тура нет: у тура без
+        // короткого описания она подписывала чужой тур — в плане июня день с
+        // туром на Горелый шёл под «Восхождение на Авачинский…», а сезон
+        // Авачинского в базе — с 1 июля (Сыщик 20.11).
+        description: realTour ? (realTour.shortDescription ?? '') : (c.seasonNote ?? ''),
         activityType: interest,
         // Цена дня — только цена тура оператора (слово владельца 14.11
         // «5 -1»): справочной вилки вида активности больше нет, её числа были
