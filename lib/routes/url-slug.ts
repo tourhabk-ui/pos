@@ -34,6 +34,17 @@ export function arkUrlSlugSql(arkAlias: string): string {
  * раздел вызывающего (как было до 01.10): ЧПУ места под /routes отвечал бы
  * тем же редиректом, от которого здесь и уходим.
  */
+/**
+ * Адрес маршрута по ЧПУ. Маршрут «kl-*» — двойник статьи «Камчатского
+ * лексикона»: его адрес отвечает 308 на /articles/{slug} (app/routes/[id],
+ * аудит 02.10), а в sitemap таких маршрутов нет вовсе. Ссылка ведёт сразу на
+ * статью — без лишнего редиректа (Сыщик 21.11: /routes/kl-esso и
+ * /routes/kl-ozero-azhabachje на /routes и в подборке).
+ */
+export function routeSlugPath(slugOrId: string): string {
+  return slugOrId.startsWith('kl-') && slugOrId.length > 3 ? `/articles/${slugOrId.slice(3)}` : `/routes/${slugOrId}`;
+}
+
 export function catalogHref(
   item: { id: string; kind?: string | null; urlSlug?: string | null },
   fallback: '/places' | '/routes',
@@ -41,5 +52,5 @@ export function catalogHref(
   const base = item.kind === 'route' ? '/routes' : item.kind === 'place' ? '/places' : fallback;
   // Без рода ЧПУ не подставляется: какой раздел его примет, неизвестно.
   const tail = item.kind === 'route' || item.kind === 'place' ? (item.urlSlug ?? item.id) : item.id;
-  return `${base}/${tail}`;
+  return base === '/routes' ? routeSlugPath(tail) : `${base}/${tail}`;
 }

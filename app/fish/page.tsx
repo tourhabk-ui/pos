@@ -7,7 +7,8 @@ import { FISH_SPECIES, formatSeasonMonths } from '@/lib/fish-species';
 import { defaultOgImages } from '@/lib/seo/og-image';
 import { FishingToursBlock } from '@/components/fish/FishingToursBlock';
 import { getFishingTours } from '@/lib/fish/fishing-tours';
-import { BreadcrumbJsonLd } from '@/components/seo/JsonLd';
+import { BreadcrumbJsonLd, JsonLd } from '@/components/seo/JsonLd';
+import { FISH_TEXT_REVISION, fishBaseUrl } from '@/lib/fish/fish-sources';
 
 // Рендер на запросе, как у /fish/[id]: туры читаются из базы.
 export const dynamic = 'force-dynamic';
@@ -42,6 +43,18 @@ export default async function FishIndexPage() {
   return (
     <>
       <Header />
+      {/* Article: справочник — текст редакции Ведара; источники — FishBase. */}
+      <JsonLd data={{
+        '@context': 'https://schema.org',
+        '@type': 'Article',
+        headline: 'Рыбы Камчатки — справочник видов',
+        url: 'https://vedarai.ru/fish',
+        inLanguage: 'ru',
+        dateModified: FISH_TEXT_REVISION,
+        author: { '@id': 'https://vedarai.ru/#organization' },
+        publisher: { '@id': 'https://vedarai.ru/#organization' },
+        citation: FISH_SPECIES.map((f) => fishBaseUrl(f.nameLatin)).filter((u): u is string => Boolean(u)),
+      }} />
       {/* Хлебные крошки (seomator 20.11: у места, маршрута и тура были, у /fish нет). */}
       <BreadcrumbJsonLd items={[
         { name: 'Главная', url: 'https://vedarai.ru' },
@@ -144,6 +157,23 @@ export default async function FishIndexPage() {
           </Link>
         </div>
         )}
+
+        {/* Источники и дата (Сыщик 21.11): латинские названия — по FishBase. */}
+        <section className="mt-12 text-sm text-[var(--text-secondary)]" aria-labelledby="fish-sources" data-fish-sources="">
+          <h2 id="fish-sources" className="ds-h3 mb-2">Источники</h2>
+          <p className="mb-2">Латинские названия видов — по карточкам FishBase:</p>
+          <ul className="flex flex-wrap gap-x-4 gap-y-1">
+            {FISH_SPECIES.map((f) => {
+              const url = fishBaseUrl(f.nameLatin);
+              return url ? (
+                <li key={f.id}>
+                  <a href={url} className="underline hover:text-[var(--accent)]" rel="noopener" target="_blank">{f.name} — <i>{f.nameLatin}</i></a>
+                </li>
+              ) : null;
+            })}
+          </ul>
+          <p className="mt-3 text-[var(--text-muted)]">Обновлено: <time dateTime={FISH_TEXT_REVISION}>{new Date(FISH_TEXT_REVISION).toLocaleDateString('ru-RU', { day: 'numeric', month: 'long', year: 'numeric', timeZone: 'UTC' })}</time></p>
+        </section>
         </div>
       </main>
     </>

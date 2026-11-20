@@ -250,7 +250,7 @@ describe('ссылки на маршрут — в пространстве id к
     expect(code('lib/places/place-routes.ts')).toMatch(/SELECT COALESCE\(kr\.ark_id, kr\.id\) AS id, kr\.slug, kr\.title/);
     expect(code('lib/places/place-detail.ts')).toContain('PLACE_ROUTES_SQL');
     expect(code('lib/places/place-detail.ts')).toMatch(/slug: \(rt\.slug as string \| null\) \?\? null/);
-    expect(code('components/places/PlaceRoutes.tsx')).toMatch(/href=\{`\/routes\/\$\{r\.slug \?\? r\.id\}`\}/);
+    expect(code('components/places/PlaceRoutes.tsx')).toMatch(/href=\{routeSlugPath\(r\.slug \?\? r\.id\)\}/); // kl-* — сразу на статью (21.11)
   });
 
   it('туры с карточки места — прямо на /catalog, без 308 через /marketplace', () => {

@@ -51,7 +51,7 @@ describe('страница парка не ходит за данными из �
   });
 
   it('ссылки на маршруты — по ЧПУ, иначе по id карточки маршрута', () => {
-    expect(code('app/park/[slug]/_ParkClient.tsx')).toMatch(/href=\{`\/routes\/\$\{route\.slug \?\? route\.id\}`\}/);
+    expect(code('app/park/[slug]/_ParkClient.tsx')).toMatch(/href=\{routeSlugPath\(route\.slug \?\? route\.id\)\}/); // kl-* — сразу на статью (21.11)
     expect(code('lib/parks/park-page.ts')).toMatch(/COALESCE\(ark_id, id\)::text AS id, slug/);
   });
 });
