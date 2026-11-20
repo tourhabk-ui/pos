@@ -6,10 +6,14 @@
  * Запорожец — на его страницу, если турист — на её фотоленту, типа маленькой
  * инсты, но с переходом на само место».
  *
- * Судится: куда ведёт подпись (партнёр / лента / текст), что снимок без
- * автора и без разрешения не ставится, что связь — только записанная (не по
- * похожести названий), что фото без лицензии в ленту не попадает, что
- * подпись на карточке стоит ВНЕ ссылки на маршрут и что alt — название места.
+ * Решение владельца 20.11 («делай без их согласия»): согласие партнёра и
+ * поле лицензии больше не требуются; автора нет — «Фото: <партнёр>».
+ *
+ * Судится: куда ведёт подпись (партнёр / лента / текст), что согласия и
+ * лицензии SQL не требует, а без записанного автора подпись — партнёр, что
+ * связь — только записанная (не по похожести названий), что лента — только
+ * людей (не Викисклад, не «владелец платформы»), что подпись на карточке
+ * стоит ВНЕ ссылки на маршрут и что alt — название места.
  * Отбор на настоящем PostgreSQL — tests/integration/route-tour-photos.pg.test.ts.
  */
 import React from 'react';
@@ -26,7 +30,6 @@ vi.mock('@/hooks/use-wishlist', () => ({
 import { photoCreditFor, authorFeedPath, authorFeedSlug, authorFeedEnabled } from '@/lib/media/author-credit';
 import { toRouteTourPhotos, ROUTE_TOUR_PHOTOS_SQL, ROUTE_CARD_TOUR_PHOTOS_SQL, routeTourLinksSql } from '@/lib/routes/tour-photos';
 import { AUTHOR_FEED_SQL, groupFeeds } from '@/lib/media/author-feed';
-import { PLACE_CARDS_CONSENT_FROM } from '@/lib/legal/partner-materials-consent';
 import RoutePathCard from '@/components/routes/RoutePathCard';
 import { AuthorPhotoGrid } from '@/components/media/AuthorPhotoGrid';
 
@@ -74,7 +77,7 @@ describe('подпись автора: куда ведёт', () => {
   });
 });
 
-describe('снимок тура на маршруте: только с автором и разрешением', () => {
+describe('снимок тура на маршруте: без согласия и лицензии, автор или партнёр', () => {
   const row = (url: string, author: string | null) => ({
     url, author, partner_name: 'Андрей Запорожец', partner_slug: 'andrey-zaporozhets', partner_public: true,
     tour_title: 'Ганальские Востряки', tour_slug: 'zaporozhets-ganalskie-vostryaki', place_name: 'Ганальские востряки',
@@ -87,13 +90,18 @@ describe('снимок тура на маршруте: только с авто�
     expect(out[0].placeName).toBe('Ганальские востряки');
   });
 
-  it('разрешение — подписанное согласие версии, что называет карточки маршрутов; автор — из gallery_credits', () => {
+  it('согласие партнёра и лицензия не требуются; автор — из gallery_credits, иначе имя партнёра', () => {
     for (const sql of [ROUTE_TOUR_PHOTOS_SQL, ROUTE_CARD_TOUR_PHOTOS_SQL]) {
-      expect(sql).toContain(`pmc.text_version >= '${PLACE_CARDS_CONSENT_FROM}'`);
-      expect(sql).toContain('pmc.revoked_at IS NULL');
-      expect(sql).toMatch(/NULLIF\(btrim\(COALESCE\(pa\.gallery_credits, '\{\}'::jsonb\)->>x\.url\), ''\) IS NOT NULL/);
+      expect(sql).not.toContain('partner_material_consents');
+      expect(sql).not.toMatch(/license/i);
+      expect(sql).toContain(`COALESCE(NULLIF(btrim(COALESCE(pa.gallery_credits, '{}'::jsonb)->>x.url), ''), btrim(pa.name)) AS author`);
       expect(sql).toContain('is_published = true');
     }
+  });
+
+  it('снимок без записанного автора → «Фото: <партнёр>» со ссылкой на /operators/<slug>', () => {
+    const out = toRouteTourPhotos([row('/c.jpg', 'Андрей Запорожец')], { feedEnabled: true });
+    expect(out[0].credit).toEqual({ name: 'Андрей Запорожец', href: '/operators/andrey-zaporozhets', kind: 'partner' });
   });
 
   it('связь — только записанная: тур на маршрут или главное место тура — точка пути; не «рядом», не по названию', () => {
@@ -113,12 +121,12 @@ describe('снимок тура на маршруте: только с авто�
   });
 });
 
-describe('фотолента: фото без лицензии не показывается', () => {
-  it('в SQL у обоих источников снимков мест лицензия обязательна, внешний источник исключён', () => {
-    const licenseChecks = AUTHOR_FEED_SQL.match(/NULLIF\(btrim\((ai|g)\.license\), ''\) IS NOT NULL/g) ?? [];
-    expect(licenseChecks).toHaveLength(2);
+describe('фотолента: без лицензии, только люди', () => {
+  it('в SQL лицензия не обязательна; внешний источник и Викисклад исключены', () => {
+    expect(AUTHOR_FEED_SQL).not.toMatch(/license\), ''\) IS NOT NULL/);
     expect(AUTHOR_FEED_SQL).toMatch(/NULLIF\(btrim\(ai\.source_url\), ''\) IS NULL/);
     expect(AUTHOR_FEED_SQL).toMatch(/NULLIF\(btrim\(g\.source_url\), ''\) IS NULL/);
+    expect(AUTHOR_FEED_SQL).toContain("COALESCE(ai.model, '') NOT IN ('wikimedia', 'wikimedia-commons')");
     expect(AUTHOR_FEED_SQL).toContain('g.partner_id IS NULL');
   });
 
@@ -126,16 +134,19 @@ describe('фотолента: фото без лицензии не показы
     expect(AUTHOR_FEED_SQL).not.toMatch(/email|phone|telegram|user_id|contact/i);
   });
 
-  it('строка без лицензии в ленту не попадает; с лицензией — со ссылкой на место', () => {
+  it('строка без лицензии попадает в ленту; «владелец платформы» ленты не получает', () => {
     const feeds = groupFeeds([
       { author: 'Алина Гусакова', url: '/api/images/route/1?size=card', alt: 'Лавовые пещеры', href: '/places/lavovye', license: null },
       { author: 'Алина Гусакова', url: '/api/images/route/2?size=card', alt: 'Вачкажец', href: '/places/vachkazhets', license: '  ' },
       { author: 'Мария Тестова', url: '/api/images/route/3?size=card', alt: 'Озеро', href: '/places/ozero', license: 'CC BY 4.0' },
       { author: 'Мария Тестова', url: '/x.jpg', alt: 'Маршрут', href: 'route:test-route', license: 'CC BY 4.0' },
+      { author: 'владелец платформы', url: '/y.jpg', alt: 'Бухта', href: '/places/buhta', license: null },
     ]);
-    expect(feeds.has('alina-gusakova')).toBe(false);
+    const a = feeds.get('alina-gusakova');
+    expect(a?.photos.map((p) => [p.href, p.license])).toEqual([['/places/lavovye', null], ['/places/vachkazhets', null]]);
     const m = feeds.get('mariya-testova');
     expect(m?.photos.map((p) => p.href)).toEqual(['/places/ozero', '/routes/test-route']);
+    expect([...feeds.keys()].some((k) => k.startsWith('vladelets'))).toBe(false);
   });
 
   it('сетка: с каждого снимка — переход на место, alt — название места, первые снимки без ленивой загрузки', () => {

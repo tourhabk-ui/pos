@@ -4,7 +4,7 @@ import type { FeedPhoto } from '@/lib/media/author-feed';
 /**
  * Сетка ленты автора: квадраты, с каждого — переход на место или маршрут.
  * Первые снимки — в первом экране (LCP): без ленивой загрузки.
- * alt — название места; лицензия — под снимком, как записана.
+ * alt — название места; лицензия — под снимком, если записана.
  */
 export function AuthorPhotoGrid({ photos }: { photos: readonly FeedPhoto[] }) {
   return (
@@ -25,7 +25,7 @@ export function AuthorPhotoGrid({ photos }: { photos: readonly FeedPhoto[] }) {
             </div>
             <p className="px-2 pt-1.5 text-xs font-semibold text-[var(--text-primary)] truncate group-hover:text-[var(--accent)]">{p.alt}</p>
           </Link>
-          <p className="px-2 pb-1.5 text-[11px] text-[var(--text-muted)] truncate">{p.license}</p>
+          {p.license && <p className="px-2 pb-1.5 text-[11px] text-[var(--text-muted)] truncate">{p.license}</p>}
         </li>
       ))}
     </ul>
