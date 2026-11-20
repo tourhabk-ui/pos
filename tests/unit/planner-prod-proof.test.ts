@@ -356,7 +356,7 @@ describe('сводка МЧС судится по датам поездки', ()
       ...PROOF, interests: ['hot_spring'], arrivalDate: isoIn(5), departureDate: isoIn(9),
     });
     const dayLines = rec.days.flatMap((d) => d.dayWarnings ?? []);
-    expect(dayLines.some((w) => w.includes('МЧС: к вулкану Мутновский'))).toBe(true);
+    expect(dayLines.some((w) => w.includes('МЧС о вулкане Мутновский'))).toBe(true);
     expect(dayLines.some((w) => w.includes('Безымянный'))).toBe(false);
     expect(rec.warnings.find((w) => w.type === 'mchs')?.message).toMatch(/Мутновский/);
     expect(rec.warnings.find((w) => w.message.startsWith('Сводки МЧС на сегодня'))?.message).toMatch(/Безымянный/);

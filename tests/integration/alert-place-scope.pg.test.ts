@@ -2269,7 +2269,11 @@ withPg('кого накрывает предупреждение', () => {
       )).rows.map((r) => r.id);
       try {
         const { rows } = await pool.query<AlertWarningRow>(ACTIVE_MCHS_WARNINGS_SQL);
-        const byPlace = new Map(warningsFromRows(rows).map((w) => [w.place, w.relevantUntil]));
+        const warnings = warningsFromRows(rows);
+        const byPlace = new Map(warnings.map((w) => [w.place, w.relevantUntil]));
+        // Слова строки (20.11): в заголовке одно имя — первая фраза описания,
+        // а не общее «рекомендовано не приближаться».
+        expect(warnings.find((w) => w.place === 'Срочный')?.statement).toBe('не приближаться');
         // 18:00 UTC 01.01 — это 06:00 02.01 по Камчатке.
         expect(byPlace.get('Срочный')).toBe('2099-01-02');
         // Срока нет: дата последней сводки (01.01) плюс горизонт.

@@ -2211,8 +2211,13 @@ export function classifyMchsItems(
       if (prev) {
         if (ev.severity > prev.severity) prev.severity = ev.severity;
         if (!prev.volcano_name && ev.volcano_name) prev.volcano_name = ev.volcano_name;
-        continue;
       }
+      // Правило подходить — своей строкой и тогда, когда о вулкане уже есть
+      // другая (пепловый выброс): её заголовок правила не несёт, а Кузьмич и
+      // план пересказывают ленту словами строки (20.11). Сводка МЧС 19–20.11:
+      // «выброс из вулкана Шивелуч» и «рекомендуют не приближаться» к нему же —
+      // до этой правки второе терялось. Повтор того же правила сливается по
+      // теме вулкана в `absorb`.
       absorb(ev, item);
     }
   }

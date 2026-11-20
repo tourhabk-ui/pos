@@ -78,12 +78,12 @@ describe('период сводки: истёк ли он', () => {
 });
 
 describe('строка МЧС — для человека', () => {
-  const live: ActiveWarning = { kind: 'volcano', place: 'Ключевской', stems: ['ключевск'], period: '06:00 06.11–06:00 07.11', sourceUrl: SOURCE, ended: false };
+  const live: ActiveWarning = { kind: 'volcano', place: 'Ключевской', stems: ['ключевск'], statement: 'не приближаться', period: '06:00 06.11–06:00 07.11', sourceUrl: SOURCE, ended: false };
 
   it('действующая — что и откуда; истёкшая — прошедшим, с советом проверить свежую; правила для модели нет', () => {
-    expect(offeringSentence(live)).toBe(`МЧС: к вулкану Ключевской рекомендовано не приближаться (сводка на 06:00 06.11–06:00 07.11, источник ${SOURCE}).`);
+    expect(offeringSentence(live)).toBe(`МЧС о вулкане Ключевской: не приближаться (сводка на 06:00 06.11–06:00 07.11; источник ${SOURCE}).`);
     const old = offeringSentence({ ...live, ended: true });
-    expect(old).toBe(`МЧС: к вулкану Ключевской рекомендовано не приближаться — по сводке на 06:00 06.11–06:00 07.11; её срок истёк, обстановку на сегодня проверьте в свежей сводке (источник ${SOURCE}).`);
+    expect(old).toBe(`МЧС о вулкане Ключевской: не приближаться (сводка на 06:00 06.11–06:00 07.11 — её срок истёк, обстановку на сегодня проверьте в свежей сводке; источник ${SOURCE}).`);
     for (const s of [offeringSentence(live), old]) {
       expect(s).not.toMatch(/нельзя называть/);
       expect(isOfferingNote(s)).toBe(true);
@@ -101,7 +101,7 @@ describe('строка МЧС — для человека', () => {
 
   it('место названо без запрета — строка дописывается; «о безопасности» — не «безопасно», «безопасный маршрут» — да', () => {
     const current = warningsFromRows(rows(), AT_0611);
-    expect(appendOfferingFlags('Подъём к Ключевской сопке идёт через Апахончич.', current)).toMatch(/к вулкану Ключевской рекомендовано не приближаться/);
+    expect(appendOfferingFlags('Подъём к Ключевской сопке идёт через Апахончич.', current)).toMatch(/МЧС о вулкане Ключевской: не приближаться/);
     expect(appendOfferingFlags('Сначала о безопасности — это главное. В каталоге три тура.', current)).toBe('Сначала о безопасности — это главное. В каталоге три тура.');
     expect(appendOfferingFlags('Маршрут безопасный.', current)).toContain(DIGEST_TAIL);
     expect(appendOfferingFlags('Там вы будете в безопасности.', current)).toContain(DIGEST_TAIL);

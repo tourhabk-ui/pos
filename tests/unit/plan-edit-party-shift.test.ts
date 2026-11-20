@@ -284,7 +284,7 @@ describe('сдвиг дат и строки безопасности дня', ()
 
   it('сводка МЧС, срок которой кончается до нового начала, со дня снимается; новая — ставится', async () => {
     const ended: ActiveWarning = { kind: 'road', place: 'Мутновская дорога', stems: ['мутнов'], period: 'до 12.07', sourceUrl: null, relevantUntil: '2027-07-12' };
-    const fresh: ActiveWarning = { kind: 'volcano', place: 'Авачинский', stems: ['авачин'], period: 'до 30.08', sourceUrl: null, relevantUntil: '2027-08-30' };
+    const fresh: ActiveWarning = { kind: 'volcano', place: 'Авачинский', stems: ['авачин'], statement: 'не приближаться', period: 'до 30.08', sourceUrl: null, relevantUntil: '2027-08-30' };
     const p = plan();
     p.days[1].dayWarnings = [offeringSentence(ended)];
     mchs = [ended, fresh];
@@ -292,7 +292,7 @@ describe('сдвиг дат и строки безопасности дня', ()
     if (!r.ok) throw new Error(r.reason);
     expect(r.plan.days[1].dayWarnings).not.toContain(offeringSentence(ended));
     expect(r.plan.days[5].dayWarnings).toContain(offeringSentence(fresh));
-    expect(r.warnings?.some((w) => w.startsWith('МЧС: не приближаться к вулканам Авачинский'))).toBe(true);
+    expect(r.warnings?.some((w) => w.startsWith('МЧС о вулканах — Авачинский: не приближаться'))).toBe(true);
   });
 
   it('сводки МЧС не прочитались — прежние строки на месте, план говорит «не прочитаны»', async () => {
@@ -309,11 +309,11 @@ describe('сдвиг дат и строки безопасности дня', ()
   // Разбор планера 14.11 (Кузьмич/MCP-2): сводка МЧС — в ответе каждой правки,
   // а не только сдвигающей начало поездки.
   it('правка без сдвига дат (удалить день) — сводка МЧС в ответе и строка на дне', async () => {
-    const fresh: ActiveWarning = { kind: 'volcano', place: 'Авачинский', stems: ['авачин'], period: 'до 30.08', sourceUrl: null, relevantUntil: '2027-08-30' };
+    const fresh: ActiveWarning = { kind: 'volcano', place: 'Авачинский', stems: ['авачин'], statement: 'не приближаться', period: 'до 30.08', sourceUrl: null, relevantUntil: '2027-08-30' };
     mchs = [fresh];
     const r = await applyPlanEdit(plan(), { kind: 'remove_day', day: 5 }, deps());
     if (!r.ok) throw new Error(r.reason);
-    expect(r.warnings?.some((w) => w.startsWith('МЧС: не приближаться к вулканам Авачинский'))).toBe(true);
+    expect(r.warnings?.some((w) => w.startsWith('МЧС о вулканах — Авачинский: не приближаться'))).toBe(true);
     const ava = r.plan.days.find((d) => d.title === 'Авачинский вулкан');
     expect(ava?.dayWarnings).toContain(offeringSentence(fresh));
   });

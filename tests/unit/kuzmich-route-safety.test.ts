@@ -51,7 +51,9 @@ describe('appendRouteSafety', () => {
 
   it('предупреждение о месте из вопроса берётся из живого блока', () => {
     const out = appendRouteSafety('Красивый маршрут.', Q, BLOCK);
-    expect(out).toContain('МЧС: к вулкану Шивелуч рекомендовано не приближаться');
+    // Строка ленты «Вулкан Шивелуч: выброс пепла» — её словами, не «не приближаться» (20.11).
+    expect(out).toContain('МЧС о вулкане Шивелуч: выброс пепла');
+    expect(out).not.toMatch(/не приближаться/);
     expect(out).toContain('https://41.mchs.gov.ru/x');
   });
 
