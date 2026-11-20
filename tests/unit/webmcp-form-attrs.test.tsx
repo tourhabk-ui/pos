@@ -17,9 +17,10 @@ import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
 import React from 'react';
 import { render, screen, fireEvent, cleanup, act, waitFor } from '@testing-library/react';
 
+const nav = vi.hoisted(() => ({ pathname: '/catalog' }));
 vi.mock('next/navigation', () => ({
   useRouter: () => ({ push: vi.fn(), replace: vi.fn(), prefetch: vi.fn() }),
-  usePathname: () => '/catalog',
+  usePathname: () => nav.pathname,
 }));
 vi.mock('next/image', () => ({
   default: (p: { src: string; alt: string }) => React.createElement('img', { src: p.src, alt: p.alt }),
@@ -215,6 +216,22 @@ describe('инструменты страницы в корневом макет
     await waitFor(() => expect(agent.registerTool).toHaveBeenCalledTimes(1));
     expect(fetchMock.mock.calls[0][0]).toBe('/api/mcp');
     expect(agent.registerTool.mock.calls[0][0]).toMatchObject({ name: 'get_weather', annotations: { readOnlyHint: true } });
+  });
+
+  it('виджет в iframe и сайт партнёра — витрина партнёра: инструментов Ведара нет', async () => {
+    const agent = installModelContext();
+    for (const path of ['/widget/fishingkam', '/partner-site']) {
+      nav.pathname = path;
+      try {
+        render(<WebMcpTools />);
+        await act(async () => { await Promise.resolve(); });
+      } finally {
+        nav.pathname = '/catalog';
+        cleanup();
+      }
+    }
+    expect(fetchMock).not.toHaveBeenCalled();
+    expect(agent.registerTool).not.toHaveBeenCalled();
   });
 
   it('список не прочитался — причина в лог, страница работает дальше', async () => {

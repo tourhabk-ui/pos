@@ -805,7 +805,7 @@ describe('платное ревью — только где ошибка сто�
     ],
     'витрина туров, планер, подборки': [
       'collections', 'explain', 'gear', 'home', 'planner', 'plans', 'search', 'svodka', 'tours', 'travel-apps',
-      'trending', 'trip', 'wishlist', 'fish-species.ts', 'planner-constants.ts',
+      'trending', 'trip', 'webmcp', 'wishlist', 'fish-species.ts', 'planner-constants.ts',
     ],
     'тексты, страницы, переводы, оформление': [
       'articles', 'blog', 'calendar', 'chronicle', 'currency', 'dates', 'docs', 'help', 'html', 'http', 'hub', 'i18n', 'layout',
