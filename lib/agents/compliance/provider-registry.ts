@@ -82,7 +82,7 @@ export const LLM_ENDPOINTS: readonly LLMEndpoint[] = [
   // /api/cron/anthropic-path-probe). Пока сюда уходит только замер без ПД;
   // но если ANTHROPIC_BASE_URL переставят на шлюз, сюда поедут те же промпты,
   // что и в api.anthropic.com. Хост и получатель — США, трансграничная.
-  { host: 'gateway.ai.cloudflare.com', jurisdiction: 'USA', domestic: false, provider: 'Cloudflare AI Gateway (прокси к Anthropic)' },
+  { host: 'gateway.ai.cloudflare.com', jurisdiction: 'USA', domestic: false, provider: 'Cloudflare AI Gateway (прокси к Anthropic и Gemini; тела запросов Gemini шлюз не хранит — cf-aig-collect-log-payload: false)' },
   // ── Внесены 04.09: их не видел ДОМЕННЫЙ ФИЛЬТР сканера ───────────────────
   //
   // Все шесть хостов ниже жили в providers.ts месяцами и получали текст
@@ -164,6 +164,13 @@ export const LLM_EGRESS_FILES: readonly string[] = [
   // литеральному адресу. В запросе только вшитые фразы без ПД, но егресс
   // зарубежный — под надзором D2 (находка ревью безопасности на #3410).
   'app/api/cron/voice-probe/route.ts',
+  // Адрес Gemini (20.11): Google напрямую или шлюз Cloudflare по
+  // GEMINI_BASE_URL. Литералы хостов переехали сюда из providers.ts, и без
+  // этой строки D2 перестал бы их видеть (находка ревью безопасности на #3553).
+  'lib/ai/gemini-endpoint.ts',
+  // Проба пути прод → Gemini: адрес из того же модуля, в запросе только
+  // «ok» в один токен без ПД, но егресс зарубежный — под надзором D2.
+  'app/api/cron/gemini-path-probe/route.ts',
 ] as const;
 
 /**

@@ -1,0 +1,6 @@
+{
+  "note": "Маркер запуска gemini-path-probe.yml: правка этого файла в main меряет с прода, открыт ли путь до Gemini через шлюз Cloudflare AI Gateway vedar-ai и напрямую.",
+  "run": 1,
+  "gateway_id": "vedar-ai",
+  "run1_reason": "20.11 владелец обновил GEMINI_API_KEY в Timeweb. Прямой путь с прода — 400 «User location is not supported» (ai-debug 04.09, 05.11, 06.11). Первый замер: дошёл ли новый ключ до контейнера (отпечаток), пропускает ли Google запрос через шлюз vedar-ai и отвечает ли генерация."
+}

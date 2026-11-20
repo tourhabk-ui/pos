@@ -6,7 +6,8 @@
  *   XIAOMI_API_KEY          — Xiaomi MiMo ($1/1M tokens, 1M context)
  *   OPENROUTER_API_KEY      — OpenRouter multi-model (GPT-4o-mini → DeepSeek → Claude Haiku)
  *   DEEPSEEK_API_KEY        — DeepSeek direct API
- *   GEMINI_API_KEY          — Google Gemini 2.0 Flash direct
+ *   GEMINI_API_KEY          — Google Gemini (модель — по /models); с прода гео-отказ Google
+ *   GEMINI_BASE_URL         — Gemini через шлюз Cloudflare AI Gateway (lib/ai/gemini-endpoint.ts)
  *   XAI_API_KEY             — xAI Grok-4 (geo-blocked RU)
  *   ANTHROPIC_API_KEY       — Claude Haiku direct (geo-blocked RU)
  *   MINIMAX_API_KEY         — Minimax (резерв)
@@ -44,6 +45,7 @@ import type { ChatMessage } from '@/lib/ai/prompts';
 import { recordAiLegFailure, httpFailureReason, errorFailureReason, describeEmptyCompletion, reasoningAteTheAnswer } from '@/lib/ai/failure-trace';
 import { refusalNote } from '@/lib/ai/refusal-notes';
 import { getOpenRouterKey, getOpenRouterKeySource, describeOpenRouterKey, getMiMoKey, getDeepSeekKey, getAnthropicKey, getXaiKey, getGeminiKey, getYandexKey, getMiniMaxKey, getGLMKey, getMuseSparkKey, getNvidiaKey, getFuguKey, getGroqKey, getCerebrasKey, getMistralKey, getMoonshotKey, getTimewebAgents, type TimewebAgent } from '@/lib/ai/provider-config';
+import { geminiUrl, geminiHeaders, geminiModelIds } from '@/lib/ai/gemini-endpoint';
 import { AsyncLocalStorage } from 'node:async_hooks';
 import { pool } from '@/lib/db-pool';
 import { addUsage, currentAgentId } from '@/lib/ai/usage-context';
@@ -4234,23 +4236,18 @@ export function geminiResolveProblem(): string | null { return geminiListProblem
 
 async function listGeminiModels(apiKey: string): Promise<string[]> {
   try {
-    const res = await fetch(`https://generativelanguage.googleapis.com/v1beta/models?key=${apiKey}`, {
+    const res = await fetch(geminiUrl('models'), {
+      headers: geminiHeaders(apiKey, undefined, false),
       signal: AbortSignal.timeout(8_000),
     });
     if (!res.ok) {
       geminiListProblem = httpFailureReason(res.status, await res.text().catch(() => ''));
       return [];
     }
-    const data = await res.json() as {
-      models?: Array<{ name?: unknown; supportedGenerationMethods?: unknown }>;
-    };
-    const ids = (data.models ?? [])
-      .filter((m) => Array.isArray(m.supportedGenerationMethods)
-        && (m.supportedGenerationMethods as unknown[]).includes('generateContent'))
-      .map((m) => (typeof m.name === 'string' ? m.name.replace(/^models\//, '') : ''))
-      .filter((id) => id.length > 0);
+    const data = await res.json() as { models?: unknown[] };
+    const ids = geminiModelIds(data);
     geminiListProblem = ids.length === 0
-      ? `список пуст: ${(data.models ?? []).length} моделей, ни одной с generateContent`
+      ? `список пуст: ${Array.isArray(data.models) ? data.models.length : 0} моделей, ни одной с generateContent`
       : null;
     return ids;
   } catch (e) { geminiListProblem = errorFailureReason(e); return []; }
@@ -4313,10 +4310,10 @@ export async function callGeminiDirect(
     }
 
     const res = await fetchWithRetry(
-      `https://generativelanguage.googleapis.com/v1beta/models/${model}:generateContent?key=${apiKey}`,
+      geminiUrl(`models/${model}:generateContent`),
       {
         method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
+        headers: geminiHeaders(apiKey),
         body: JSON.stringify(body),
       },
       { timeoutMs: opts?.timeoutMs ?? 20_000, label: `gemini-direct:${model}` },
@@ -4472,10 +4469,10 @@ export async function callVisionDetailed(
       } else {
         try {
           const res = await fetch(
-            `https://generativelanguage.googleapis.com/v1beta/models/${visionModel}:generateContent?key=${geminiKey}`,
+            geminiUrl(`models/${visionModel}:generateContent`),
             {
               method: 'POST',
-              headers: { 'Content-Type': 'application/json' },
+              headers: geminiHeaders(geminiKey),
               body: JSON.stringify({
                 system_instruction: { parts: [{ text: VISION_SYSTEM_HINT }] },
                 contents: [{
@@ -4726,10 +4723,10 @@ export async function callGeminiTranscribe(
   else {
     try {
       const res = await fetch(
-        `https://generativelanguage.googleapis.com/v1beta/models/${model}:generateContent?key=${geminiKey}`,
+        geminiUrl(`models/${model}:generateContent`),
         {
           method: 'POST',
-          headers: { 'Content-Type': 'application/json' },
+          headers: geminiHeaders(geminiKey),
           body: JSON.stringify({
             contents: [{
               parts: [
@@ -4810,10 +4807,10 @@ export async function callGeminiPDF(
   if (geminiKey && pdfModel) {
     try {
       const res = await fetch(
-        `https://generativelanguage.googleapis.com/v1beta/models/${pdfModel}:generateContent?key=${geminiKey}`,
+        geminiUrl(`models/${pdfModel}:generateContent`),
         {
           method: 'POST',
-          headers: { 'Content-Type': 'application/json' },
+          headers: geminiHeaders(geminiKey),
           body: JSON.stringify({
             contents: [{
               parts: [
@@ -5254,10 +5251,10 @@ export async function preflightProviders(): Promise<{
     if (!model) return { ok: false, error: `модель не разрешена: ${geminiResolveProblem() ?? 'список моделей недоступен'}` };
     try {
       const res = await fetch(
-        `https://generativelanguage.googleapis.com/v1beta/models/${model}:generateContent?key=${apiKey}`,
+        geminiUrl(`models/${model}:generateContent`),
         {
           method: 'POST',
-          headers: { 'Content-Type': 'application/json' },
+          headers: geminiHeaders(apiKey),
           body: JSON.stringify({ contents: [{ role: 'user', parts: [{ text: 'ok' }] }] }),
           signal: AbortSignal.timeout(5000),
         },
@@ -6215,8 +6212,8 @@ export async function callAIWaterfallDebug(messages: ChatMessage[]): Promise<Wat
         const reqBody: Record<string, unknown> = { contents };
         if (systemMsg) reqBody.systemInstruction = { parts: [{ text: systemMsg.content }] };
 
-        const res = await fetch(`https://generativelanguage.googleapis.com/v1beta/models/${gModel}:generateContent?key=${apiKey}`, {
-          method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(reqBody), signal: AbortSignal.timeout(15_000),
+        const res = await fetch(geminiUrl(`models/${gModel}:generateContent`), {
+          method: 'POST', headers: geminiHeaders(apiKey), body: JSON.stringify(reqBody), signal: AbortSignal.timeout(15_000),
         });
         const ms = Date.now() - start;
         if (!res.ok) {
