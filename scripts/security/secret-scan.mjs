@@ -54,7 +54,7 @@ const SECRET_NAME = String.raw`[A-Za-z0-9_.-]*?(?:${SECRET_WORD})[A-Za-z0-9_-]*`
 
 /**
  * Значение по имени. Группа 3 — в кавычках: `JWT_SECRET = "…"`,
- * `password: '…'`, `$env:CRON_SECRET = "…"`, `const CRON_SECRET: string = "…"`,
+ * `password: '<значение>'`, `$env:CRON_SECRET = "…"`, `const CRON_SECRET: string = "…"`,
  * `process.env.JWT_SECRET || "…"`, `cfg.jwtSecret = "…"`.
  * Группа 5 — без кавычек, строкой конфига: `S3_SECRET_KEY=…`, `export …=…`,
  * `ENV JWT_SECRET=…` (Dockerfile), `- JWT_SECRET=…` (compose),
