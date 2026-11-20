@@ -30,16 +30,21 @@ function img(container: HTMLElement): HTMLImageElement | null {
 }
 
 describe('снимок плитки главной', () => {
-  it('сначала копия 640, затем исходник', () => {
+  it('сначала копия под рамку 4:3, затем копия 640, затем исходник', () => {
     expect(platePhotoChain(WINTER)).toEqual([
+      '/api/images/s3/photos/fishingkam/2025-01-27_142818_1.plate0.webp',
       '/api/images/s3/photos/fishingkam/2025-01-27_142818_1.640.webp',
       WINTER,
     ]);
     expect(platePhotoChain(UNKNOWN)).toEqual([UNKNOWN]);
   });
 
-  it('копия не дошла — исходник, не дошёл и он — заглушка', () => {
+  it('копии не дошли — исходник, не дошёл и он — заглушка', () => {
     const { container, queryByTestId } = render(<PlatePhoto src={WINTER} fallback={fallback} />);
+    expect(img(container)?.getAttribute('src')).toBe('/api/images/s3/photos/fishingkam/2025-01-27_142818_1.plate0.webp');
+    expect(queryByTestId('noimg')).toBeNull();
+
+    fireEvent.error(img(container)!);
     expect(img(container)?.getAttribute('src')).toBe('/api/images/s3/photos/fishingkam/2025-01-27_142818_1.640.webp');
     expect(queryByTestId('noimg')).toBeNull();
 

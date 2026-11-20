@@ -115,7 +115,8 @@ const loadPresetPlan = unstable_cache(
   // появилось offers_of_kind.
   // v4 (07.11, H16): даты — N календарных дней; тур дня — движка; строка
   // недобора.
-  ['plan-preset-v4'],
+  // v5 (20.11): даты сезонного пресета — в его месяцах (preset.months).
+  ['plan-preset-v5'],
   { revalidate: 86400 },
 );
 
@@ -129,7 +130,7 @@ export default async function PlanPresetPage({ params }: PageProps) {
   let engineTours: Record<string, TopTour> = {};
   let kindTours: Record<string, TopTour> = {};
   let fillNote: string | null = null;
-  const { arrival, departure } = presetPlanDates(preset.days, preset.interests);
+  const { arrival, departure } = presetPlanDates(preset.days, preset.interests, new Date(), preset.months);
   try {
     ({ days, engineTours, kindTours, fillNote } = await loadPresetPlan(slug, arrival, departure, offerOrderDay()));
   } catch (e) {

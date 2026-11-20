@@ -5,6 +5,11 @@ import { Fish, Calendar, Trophy } from 'lucide-react';
 import { Header } from '@/components/layout/Header';
 import { FISH_SPECIES, formatSeasonMonths } from '@/lib/fish-species';
 import { defaultOgImages } from '@/lib/seo/og-image';
+import { FishingToursBlock } from '@/components/fish/FishingToursBlock';
+import { getFishingTours } from '@/lib/fish/fishing-tours';
+
+// Рендер на запросе, как у /fish/[id]: туры читаются из базы.
+export const dynamic = 'force-dynamic';
 
 export const metadata: Metadata = {
   title: 'Рыбы Камчатки — справочник видов',
@@ -26,7 +31,13 @@ export const metadata: Metadata = {
   },
 };
 
-export default function FishIndexPage() {
+// Метаданные в <head> (seomator 20.11): справочник был целиком синхронным, и
+// Next 15.5 отдавал людям и обходчикам вне htmlLimitedBots оболочку страницы
+// раньше метаданных — title, canonical и 29 meta уходили в <body>. У страниц с
+// запросом в базу (/fish/[id], /faq) метаданные успевают в <head>. Теперь и
+// индекс читает туры на рыбалку, как карточка вида, и показывает их блоком.
+export default async function FishIndexPage() {
+  const tours = await getFishingTours();
   return (
     <>
       <Header />
@@ -112,7 +123,12 @@ export default function FishIndexPage() {
           ))}
         </div>
 
-        {/* CTA */}
+        {/* Туры на рыбалку из базы; не прочитались — прежняя кнопка в каталог. */}
+        {tours.length > 0 ? (
+          <div className="mt-12">
+            <FishingToursBlock tours={tours} />
+          </div>
+        ) : (
         <div className="mt-12 text-center">
           <Link
             href="/routes?activity_type=fishing"
@@ -121,6 +137,7 @@ export default function FishIndexPage() {
             Туры на рыбалку
           </Link>
         </div>
+        )}
         </div>
       </main>
     </>

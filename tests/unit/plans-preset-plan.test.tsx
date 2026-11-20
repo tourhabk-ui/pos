@@ -46,6 +46,18 @@ describe('даты пресета — N календарных дней', () => 
     const one = presetPlanDates(1, [], new Date('2026-11-07T00:00:00Z'));
     expect(one.departure).toBe(one.arrival);
   });
+
+  it('сезонный пресет — в своём месяце, а не в сезоне главного интереса (Сыщик 20.11)', () => {
+    const now = new Date('2026-11-20T00:00:00Z');
+    // «Камчатка в июне»: главный интерес — вулканы (с июля), а план — июньский.
+    expect(presetPlanDates(7, ['volcano', 'thermal', 'bears'], now, [6])).toEqual({ arrival: '2027-06-10', departure: '2027-06-16' });
+    // «Камчатка в сентябре»: не июль, когда идёт летняя рыбалка на чавычу и нерку.
+    expect(presetPlanDates(7, ['volcano', 'fishing', 'trekking'], now, [9]).arrival).toBe('2027-09-10');
+    // «Зимой» в ноябре — ближайший декабрь.
+    expect(presetPlanDates(7, ['snowmobile'], now, [12, 1, 2]).arrival).toBe('2026-12-10');
+    // Без месяцев пресета — прежнее правило.
+    expect(presetPlanDates(7, ['volcano'], now, []).arrival).toBe('2027-07-10');
+  });
 });
 
 describe('строка недобора — от движка', () => {
