@@ -1,6 +1,6 @@
 {
-  "endpoint": "https://vedarai.ru/api/mcp",
-  "buildSteps": ["npm install -g mcp-remote@0.15.2"],
-  "cmdArguments": ["mcp-remote", "https://vedarai.ru/api/mcp", "--transport", "http-only"],
+  "server": "integrations/glama/server/server.mjs",
+  "buildSteps": ["node integrations/glama/server/server.mjs --self-check"],
+  "cmdArguments": ["node", "integrations/glama/server/server.mjs"],
   "mcpProxyVersion": "6.9.0"
 }
