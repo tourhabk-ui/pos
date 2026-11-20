@@ -271,8 +271,11 @@ export default function PrivacyPageEn() {
             <p>
               <strong>A request is not sent by itself.</strong> A request call saves a draft and returns a
               link to a Vedar page. There you see what will be sent and to whom, give your consent to the
-              processing of personal data yourself and press “Send”. Vedar does not accept consent passed on
-              by an AI agent. A request is not a booking: the provider confirms it.
+              processing of personal data yourself and press “Send”. Consent is recorded only from this page:
+              Vedar does not record a consent flag that an AI agent passes in a call. The page cannot prove that
+              a person, not a program, pressed “Send”: the AI agent sees the link too. Cancelling or moving a
+              request through an AI agent works the same way: it is confirmed on a Vedar page. A request is not
+              a booking: the provider confirms it.
             </p>
             <p><strong>Who receives the data.</strong></p>
             <ul className="list-disc pl-6 space-y-1 text-sm">

@@ -20,7 +20,7 @@ vi.mock('@/lib/db-pool', () => ({ pool: { query: vi.fn() } }));
 
 import PrivacyRu from '@/app/legal/privacy/page';
 import PrivacyEn from '@/app/en/legal/privacy/page';
-import { PENDING_REQUEST_TTL_MIN } from '@/lib/mcp/pending-request';
+import { PENDING_REQUEST_TTL_MIN, fromVedarPage } from '@/lib/mcp/pending-request';
 import { PURGE_STEPS } from '@/lib/legal/retention-purge';
 import { RETENTION_TARGETS, TECH_LOG_DAYS } from '@/lib/legal/retention-census';
 
@@ -57,10 +57,24 @@ describe('раздел «Алиса AI и платформа плагинов Я
     expect(text).toContain('имя, телефон и комментарий');
     expect(text).toContain('ООО «Яндекс» — ответы Ведара');
     expect(text).toContain('только после того, как вы отправите заявку на странице Ведара');
-    expect(text).toContain('Согласие, переданное ИИ-агентом, Ведар не принимает');
+    expect(text).toContain('отметку согласия, которую ИИ-агент передаёт в вызове, Ведар не записывает');
     expect(text).toContain('п. 5 ч. 1 ст. 6 152-ФЗ');
     expect(text).toContain('п. 1 ч. 1 ст. 6 152-ФЗ');
     expect(text).toContain('сам IP-адрес не записывается');
+  });
+
+  it('о странице подтверждения — не больше, чем она умеет (ревью безопасности #3575)', () => {
+    // Проверка «запрос со страницы Ведара» — барьер, не доказательство: серверный
+    // запрос без Sec-Fetch-Site с Origin сайта она пропускает. Пока это так,
+    // политика обязана это сказать и не может обещать «согласие агента не принимается».
+    const spoofable = fromVedarPage(new Headers({ origin: 'https://vedarai.ru' }));
+    expect(spoofable).toBe(true);
+    const ru = section(PrivacyRu).text;
+    const en = section(PrivacyEn).text;
+    expect(ru).toContain('Доказать, что «Отправить» нажал именно человек, страница не может: ссылку видит и ИИ-агент.');
+    expect(en).toContain('The page cannot prove that a person, not a program, pressed “Send”');
+    expect(ru).not.toMatch(/Согласие, переданное ИИ-агентом, Ведар не принимает/);
+    expect(en).not.toMatch(/does not accept consent passed on by an AI agent/);
   });
 
   it('срок ссылки черновика — тот, что ставит код; на английской странице — тот же', () => {
