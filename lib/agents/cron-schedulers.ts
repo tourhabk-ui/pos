@@ -228,7 +228,8 @@ export const MANUAL_ENDPOINTS: Record<string, SchedulerDeclaration> = {
   'safety-alert':              { kind: 'manual', writes: true,  note: 'приём предупреждения по зоне: публикация и снятие' },
   'field-check-photo':         { kind: 'manual', writes: false, note: 'снимок полевой проверки по id, только чтение' },
   'field-check-queue':         { kind: 'manual', writes: false, note: 'очередь полевых проверок с расхождениями, только чтение' },
-  'track-import-queue':        { kind: 'manual', writes: true, note: 'GET — очередь загруженных треков (чтение); POST — применяет один трек как geometry названного маршрута (30.08)' },
+  // 'track-import-queue' с 20.11 зовёт park-tracks.yml (треки природных парков) —
+  // объявления здесь быть не должно: два ответа на один вопрос.
   'route-kind-classify':       { kind: 'manual', writes: true,  note: 'разметка рода записи: путь или «как добраться»' },
   'schema-drift':              { kind: 'manual', writes: false, note: 'объявленные колонки против information_schema живой базы' },
   // 'ai-channel-check' тоже дёргает scout-diagnose-report.yml — объявления
