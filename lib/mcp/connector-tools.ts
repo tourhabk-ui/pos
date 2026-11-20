@@ -72,6 +72,7 @@ import { placeZoneLabel, routeDifficultyLabel, routeSeasonLabel, routeTypeLabel 
 import { groupSentenceIfUnlimited } from '@/lib/tours/group-size';
 import { cardDuration } from '@/lib/tours/card-facts';
 import { routeDistanceWords } from '@/lib/routes/distance-words';
+import { registryPassportAgentLine } from '@/lib/routes/registry-passport';
 import {
   SEARCH_TOOL_NAME, FETCH_TOOL_NAME, CONNECTOR_TOOL_NAMES,
   SEARCH_RESULTS_MAX, QUERY_MIN_CHARS, QUERY_MAX_CHARS, FETCH_TEXT_MAX,
@@ -502,6 +503,8 @@ interface RouteRow {
   /** `kamchatka_routes.id` — им считается оценка на сегодня (lib/routes/route-today). */
   db_id: string;
   key: string; title: string; description: string | null; difficulty: string | null; distance_km: string | null; distance_note: string | null;
+  /** Паспорт реестра, к маршруту не привязанный (1478): колонка как есть. */
+  registry_passports: unknown;
   duration_hours: string | null; duration_days: number | null; elevation_gain_m: number | null; season: string | null;
   route_type: string | null; hazards: string[] | null; equipment: string[] | null; mchs_registration_required: boolean | null;
   park_name: string | null; zone: string | null;
@@ -514,6 +517,8 @@ async function fetchRoute(key: string, base: string): Promise<FetchResult> {
             r.distance_km::text AS distance_km,
             -- Пометка паспорта к длине (1472): в представлении её нет, читается из таблицы.
             (SELECT k.distance_note FROM kamchatka_routes k WHERE k.id = r.id) AS distance_note,
+            -- Паспорт реестра (1478) — тоже только в таблице.
+            (SELECT k.registry_passports FROM kamchatka_routes k WHERE k.id = r.id) AS registry_passports,
             r.duration_hours::text AS duration_hours, r.duration_days,
             r.elevation_gain_m, r.season, r.route_type, r.hazards, r.equipment, r.mchs_registration_required,
             r.park_name, r.zone
@@ -545,6 +550,9 @@ async function fetchRoute(key: string, base: string): Promise<FetchResult> {
     line('Тип', routeTypeLabel(r.route_type)),
     line('Сложность', routeDifficultyLabel(r.difficulty)),
     line('Дистанция', routeDistanceWords(r.distance_km, r.distance_note)),
+    // Паспорт реестра, где нитка может быть другой (#3568, слово владельца
+    // 20.11 «1 да»): те же слова, что у Кузьмича, сразу после длины.
+    registryPassportAgentLine(r.registry_passports),
     r.duration_days ? `Длительность: ${r.duration_days} дн.` : (r.duration_hours ? `Длительность: ${Number(r.duration_hours)} ч` : null),
     r.elevation_gain_m ? `Набор высоты: ${r.elevation_gain_m} м` : null,
     line('Сезон', routeSeasonLabel(r.season)),

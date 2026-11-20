@@ -49,18 +49,56 @@ export function parseRegistryPassports(raw: unknown): RegistryPassportRef[] {
 
 const MAY_DIFFER = 'Маршрут в паспорте может отличаться от этой карточки.';
 
-/** «В официальном паспорте — 76 км в обе стороны. Маршрут в паспорте может отличаться…» */
-export function registryPassportNote(refs: RegistryPassportRef[]): string | null {
+/**
+ * Что в паспортах: «В официальном паспорте — 76 км в обе стороны»; разные
+ * длины — каждая со своей подписью, через `sep`. Паспортов нет — null.
+ */
+function passportsHead(refs: RegistryPassportRef[], sep: string): string | null {
   if (refs.length === 0) return null;
   const dist = refs.map((r) => routeDistanceWords(r.km, r.side) as string);
   if (dist.every((d) => d === dist[0])) {
     const head = refs.length === 1
       ? 'В официальном паспорте'
       : refs.length === 2 ? 'В обоих официальных паспортах' : `Во всех ${refs.length} официальных паспортах`;
-    return `${head} — ${dist[0]}. ${MAY_DIFFER}`;
+    return `${head} — ${dist[0]}`;
   }
   const parts = refs.map((r, i) => `${r.label ?? `паспорт ${i + 1}`} — ${dist[i]}`);
-  return `В официальных паспортах: ${parts.join('; ')}. ${MAY_DIFFER}`;
+  return `В официальных паспортах: ${parts.join(sep)}`;
+}
+
+/** «В официальном паспорте — 76 км в обе стороны. Маршрут в паспорте может отличаться…» */
+export function registryPassportNote(refs: RegistryPassportRef[]): string | null {
+  const head = passportsHead(refs, '; ');
+  return head ? `${head}. ${MAY_DIFFER}` : null;
+}
+
+/**
+ * Те же слова для Кузьмича и MCP (слово владельца 20.11 «1 да»): там, где
+ * агент называет длину маршрута, он узнаёт и длину паспорта — и что паспорт
+ * может описывать другую нитку. «Этой карточки» агенту не скажешь: у него
+ * маршрут каталога. Одно предложение без точки в конце — строка встаёт и в
+ * перечень фактов, и в скобки после длины.
+ */
+export function registryPassportAgentClause(refs: RegistryPassportRef[]): string | null {
+  const head = passportsHead(refs, ', ');
+  return head ? `${head}; маршрут в паспорте может отличаться от этого маршрута каталога` : null;
+}
+
+/** Ссылки на PDF для агента: «паспорт (PDF): …», «летний паспорт (PDF): …, зимний паспорт (PDF): …». */
+export function registryPassportAgentLinks(refs: RegistryPassportRef[]): string | null {
+  if (refs.length === 0) return null;
+  return refs.map((r) => `${r.label ? `${r.label.toLowerCase()} паспорт` : 'паспорт'} (PDF): ${r.url}`).join(', ');
+}
+
+/**
+ * Строка фактов маршрута для агента: сказанное и ссылки. Принимает колонку
+ * как есть (`kamchatka_routes.registry_passports`) — разбор тот же, что у
+ * карточки; неверная запись не печатается.
+ */
+export function registryPassportAgentLine(raw: unknown): string | null {
+  const refs = parseRegistryPassports(raw);
+  const clause = registryPassportAgentClause(refs);
+  return clause ? `${clause} — ${registryPassportAgentLinks(refs)}` : null;
 }
 
 /** Подпись ссылки: «Летний паспорт (PDF)», «Паспорт (PDF)». */
