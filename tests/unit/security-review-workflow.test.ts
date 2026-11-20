@@ -808,7 +808,7 @@ describe('платное ревью — только где ошибка сто�
       'trending', 'trip', 'webmcp', 'wishlist', 'fish-species.ts', 'planner-constants.ts',
     ],
     'тексты, страницы, переводы, оформление': [
-      'articles', 'blog', 'calendar', 'chronicle', 'currency', 'dates', 'docs', 'help', 'html', 'http', 'hub', 'i18n', 'layout',
+      'articles', 'blog', 'calendar', 'chronicle', 'currency', 'dates', 'docs', 'help', 'html', 'http', 'hub', 'i18n', 'landings', 'layout',
       'partner-sites', 'seo', 'text', 'ui', 'utils', 'zh', 'share.ts', 'text-links.ts', 'theme.ts',
     ],
     'снимки и видео': ['images', 'media'],
