@@ -15,6 +15,9 @@ import { getArticle, listArticleLinks, type ArticleLink } from '@/lib/articles/q
 import { circularNext } from '@/lib/seo/circular-links';
 import { defaultOgImages } from '@/lib/seo/og-image';
 import { metaDescription } from '@/lib/seo/meta-description';
+import { JsonLd } from '@/components/seo/JsonLd';
+import { RecordModified } from '@/components/seo/RecordModified';
+import { webPageModifiedJsonLd } from '@/lib/seo/record-modified';
 
 export const dynamic = 'force-dynamic';
 
@@ -73,8 +76,16 @@ export default async function ArticlePage({ params }: Props) {
     .map((p) => p.trim())
     .filter(Boolean);
 
+  // Дата правки записи (lib/seo/record-modified, аудит 20.11). Поля нет — узла нет.
+  const pageLd = webPageModifiedJsonLd({
+    url: `https://vedarai.ru/articles/${article.slug}`,
+    name: article.title,
+    dateModified: article.updatedAt,
+  });
+
   return (
     <>
+      {pageLd && <JsonLd data={pageLd} />}
       <Header />
       <main className="ds-page pt-20 pb-16">
       {/* Чтение (lib/layout/page-width, 14.11): статья стояла у левого края окна без полей. */}
@@ -124,6 +135,7 @@ export default async function ArticlePage({ params }: Props) {
               </a>
             </p>
           )}
+          <RecordModified value={article.updatedAt} className="mt-4 text-xs text-[var(--text-muted)]" />
         </article>
 
         {next.length > 0 && (

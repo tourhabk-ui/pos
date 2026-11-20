@@ -6,6 +6,7 @@ import PlaceSOS from '@/components/places/PlaceSOS';
 import { isUuid } from '@/lib/text/slugify';
 import { resolveMergedTarget } from '@/lib/places/aliases';
 import { JsonLd, BreadcrumbJsonLd } from '@/components/seo/JsonLd';
+import { webPageModifiedJsonLd } from '@/lib/seo/record-modified';
 import { stripTags } from '@/lib/html/text';
 // Словарь разделов — общий с контекстом Хранителя (lib/places/type-label.ts).
 import { PLACE_TYPE_LABEL } from '@/lib/places/type-label';
@@ -239,10 +240,11 @@ export default async function PlaceDetailPage({ params }: Props) {
   // JSON-LD для поисковых систем
   let jsonLd: Record<string, unknown> | null = null;
   let breadcrumbItems: Array<{ name: string; url: string }> | null = null;
+  let pageLd: Record<string, unknown> | null = null;
   try {
     const result = await query(
       `SELECT p.name, p.description, p.essence, p.location_type, p.lat, p.lng,
-              p.photo_url, p.images, p.ark_id,
+              p.photo_url, p.images, p.ark_id, p.updated_at,
               EXISTS(SELECT 1 FROM ai_route_images ai
                       WHERE ai.route_id = p.ark_id
                         AND ${shownPhotoSql('ai.model')}) AS has_real_photo,
@@ -307,6 +309,14 @@ export default async function PlaceDetailPage({ params }: Props) {
       // Хлебные крошки — отдельным узлом, а не свойством TouristAttraction:
       // у этого типа такого свойства нет, и поисковик их не читал (аудит 02.10:
       // BreadcrumbList был у 389 маршрутов и у 0 из 382 мест).
+      // Дата последней правки записи — узлом WebPage: у TouristAttraction
+      // свойства dateModified нет (lib/seo/record-modified, аудит 20.11).
+      pageLd = webPageModifiedJsonLd({
+        url: `${BASE}/places/${canonicalId}`,
+        name: r.name as string,
+        dateModified: r.updated_at as string | Date | null,
+        mainEntityId: `${BASE}/places/${canonicalId}`,
+      });
       breadcrumbItems = [
         { name: 'Главная', url: BASE },
         { name: 'Карта мест', url: `${BASE}/map` },
@@ -325,6 +335,7 @@ export default async function PlaceDetailPage({ params }: Props) {
       {jsonLd && (
         <JsonLd data={jsonLd} />
       )}
+      {pageLd && <JsonLd data={pageLd} />}
       {breadcrumbItems && <BreadcrumbJsonLd items={breadcrumbItems} />}
       <PlaceDetailClient id={arkId} initialPlace={initialPlace} />
       <PlaceSOS />
