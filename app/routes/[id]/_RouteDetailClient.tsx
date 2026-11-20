@@ -29,6 +29,8 @@ import { ParkApprovedRoute } from '@/components/routes/ParkApprovedRoute';
 import type { ApprovedRouteCase } from '@/lib/parks/approved-routes-words';
 import type { RoutePermitCardCase } from '@/lib/parks/route-permit-card';
 import ReliefChart from '@/components/routes/ReliefChart';
+import RegistryPassportNote from '@/components/routes/RegistryPassportNote';
+import type { RegistryPassportRef } from '@/lib/routes/registry-passport';
 import MchsRegistrationBlock from '@/components/safety/MchsRegistrationBlock';
 import { registerFormHref } from '@/lib/safety/register-submit';
 import { type RouteItem } from '@/components/routes/RouteCard';
@@ -245,6 +247,8 @@ export interface RouteDetail {
   hazards: string[] | null;
   distanceKm: number | null;
   distanceNote?: string | null;
+  /** Паспорт реестра, к карточке не привязанный: «маршрут в паспорте может отличаться» (1478, #3568). */
+  registryPassports?: RegistryPassportRef[];
   elevationGainM: number | null;
   elevationLossM: number | null;
   elevationMinM: number | null;
@@ -1059,6 +1063,16 @@ export default function RouteDetailClient({ id, mapPackBaseUrl, summary = null, 
           вопросом, и ответ на него не должен лежать под пятью секциями.
           Блок не исчезает при отказе сети — молчание читалось бы как
           «всё спокойно». */}
+      {/* ── ПАСПОРТ РЕЕСТРА, К КАРТОЧКЕ НЕ ПРИВЯЗАННЫЙ (#3568, слово владельца
+          20.11 «2 дописать»): тот ли это маршрут, по карточке не понять, и
+          паспортную длину мы на неё не переносим. Строка стоит у фактов, где
+          человек сравнивает длину, а не внизу у ссылок. */}
+      {(route.registryPassports?.length ?? 0) > 0 && (
+        <div className="max-w-6xl mx-auto px-4 md:px-8 pt-4">
+          <RegistryPassportNote refs={route.registryPassports ?? []} />
+        </div>
+      )}
+
       <div className="max-w-6xl mx-auto px-4 md:px-8 pt-6">
         <RouteVerdict routeId={route.id} data={verdictData} />
       </div>

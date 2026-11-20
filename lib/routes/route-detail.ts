@@ -36,6 +36,7 @@ import { stripFillerLead } from '@/lib/text/filler-lead';
 import { WAYPOINT_PHOTOS_SQL, toWaypointPhotos, type WaypointPhotos } from '@/lib/routes/waypoint-photos';
 import { payloadText, payloadStrings } from '@/lib/routes/payload-text';
 import { registryPassportPdf } from '@/lib/routes/distance-words';
+import { parseRegistryPassports } from '@/lib/routes/registry-passport';
 import { UTC_WALL_NOW_SQL } from '@/lib/db/timestamp-iso';
 import { loadNearestFreeDates } from '@/lib/tours/nearest-free-date';
 import { anyDayOpenSql } from '@/lib/tours/schedule-kind';
@@ -93,6 +94,7 @@ export async function loadRouteDetail(id: string, opts: RouteDetailOptions) {
        kr.equipment     AS kr_equipment,
        kr.distance_km,
        kr.distance_note,
+       kr.registry_passports,
        kr.season AS kr_season,
        kr.elevation_gain_m,
        kr.elevation_loss_m,
@@ -565,6 +567,8 @@ export async function loadRouteDetail(id: string, opts: RouteDetailOptions) {
       hazards:         (r.hazards as string[] | null) ?? null,
       distanceKm:      r.distance_km != null ? Number(r.distance_km) : null,
       distanceNote:    (r.distance_note as string | null) ?? null,
+      /** Паспорт реестра, к карточке не привязанный (1478, #3568): «может отличаться». */
+      registryPassports: parseRegistryPassports(r.registry_passports),
       elevationGainM:  r.elevation_gain_m != null ? Number(r.elevation_gain_m) : null,
       elevationLossM:  r.elevation_loss_m != null ? Number(r.elevation_loss_m) : null,
       elevationMinM:   r.elevation_min_m != null ? Number(r.elevation_min_m) : null,
