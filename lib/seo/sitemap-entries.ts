@@ -23,6 +23,7 @@ import { PLAN_PRESETS, planLastModified, plansHubLastModified } from '@/lib/plan
 import { NOT_MERGED } from '@/lib/places/aliases';
 import { FISH_SPECIES } from '@/lib/fish-species';
 import { CHRONICLE_ARTICLES } from '@/lib/chronicle/articles';
+import { isArticleIndexable } from '@/lib/articles/noindex';
 import { DEFAULT_WEATHER_SLUG, WEATHER_PLACES, weatherPlaceHref } from '@/lib/weather/places';
 import { ZH_STATIC_REVISION, zhPageUrls } from '@/lib/zh/pages';
 import { QUERY_LANDINGS } from '@/lib/seo/query-landings';
@@ -225,6 +226,7 @@ export async function collectSitemapEntriesWithStatus(): Promise<{ entries: Meta
   // Страницы статей (11.08). Оглавление без страниц — половина работы:
   // обходчик увидел бы раздел и ни одного текста в нём.
   let articlePages: MetadataRoute.Sitemap = [];
+  let articlesUnread = false;
   try {
     const { rows } = await pool.query<{ slug: string; updated_at: Date }>(`
       SELECT slug, updated_at
@@ -233,7 +235,9 @@ export async function collectSitemapEntriesWithStatus(): Promise<{ entries: Meta
       ORDER BY updated_at DESC
       LIMIT 500
     `);
-    articlePages = rows.map((row) => ({
+    // Копии источника до переписывания (noindex, аудит 20.11) в карту не
+    // идут: lib/articles/noindex — снять статью = убрать slug из списка.
+    articlePages = rows.filter((row) => isArticleIndexable(row.slug)).map((row) => ({
       url: `${BASE}/articles/${row.slug}`,
       lastModified: row.updated_at,
       changeFrequency: 'monthly' as const,
@@ -241,6 +245,7 @@ export async function collectSitemapEntriesWithStatus(): Promise<{ entries: Meta
     }));
   } catch (e) {
     // Без статей, а не выдуманный список адресов — но отказ виден.
+    articlesUnread = true;
     fail('статьи', e);
   }
 
@@ -474,6 +479,9 @@ export async function collectSitemapEntriesWithStatus(): Promise<{ entries: Meta
   // ни одного опубликованного объекта, в sitemap её не предлагаем (Н9).
   const staticLive = staticPages
     .filter((p) => accommodationPages.length > 0 || p.url !== `${BASE}/accommodations`)
+    // Оглавление статей закрыто noindex, пока в индексе нет ни одной статьи
+    // (lib/articles/noindex). Секция не прочиталась — оглавление остаётся.
+    .filter((p) => articlePages.length > 0 || articlesUnread || p.url !== `${BASE}/articles`)
     .filter((p) => publicGuides !== 0 || p.url !== `${BASE}/guides`);
 
   // Страница-список меняется, когда меняется её содержимое. `new Date()` у

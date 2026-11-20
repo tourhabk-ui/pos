@@ -15,6 +15,7 @@ import { getArticle, listArticleLinks, type ArticleLink } from '@/lib/articles/q
 import { circularNext } from '@/lib/seo/circular-links';
 import { defaultOgImages } from '@/lib/seo/og-image';
 import { metaDescription } from '@/lib/seo/meta-description';
+import { isArticleIndexable, NOINDEX_FOLLOW } from '@/lib/articles/noindex';
 
 export const dynamic = 'force-dynamic';
 
@@ -49,6 +50,9 @@ export async function generateMetadata({ params }: Props): Promise<Metadata> {
     title: article.title,
     description: description || `${article.title}: материал о Камчатке.`,
     alternates: { canonical: `https://vedarai.ru/articles/${article.slug}` },
+    // Копия источника до переписывания — вне индекса, ссылки проходят
+    // (lib/articles/noindex, аудит 20.11).
+    ...(isArticleIndexable(article.slug) ? {} : { robots: NOINDEX_FOLLOW }),
     openGraph: {
       images: defaultOgImages(),
       title: article.title,

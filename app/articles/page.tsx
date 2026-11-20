@@ -14,12 +14,13 @@ import type { Metadata } from 'next';
 import Link from 'next/link';
 import { BookOpen, ArrowRight } from 'lucide-react';
 import { Header } from '@/components/layout/Header';
-import { listArticles, groupByTopic } from '@/lib/articles/queries';
+import { listArticles, listArticleLinks, groupByTopic } from '@/lib/articles/queries';
+import { articlesHubIndexable, NOINDEX_FOLLOW } from '@/lib/articles/noindex';
 import { defaultOgImages } from '@/lib/seo/og-image';
 
 export const dynamic = 'force-dynamic';
 
-export const metadata: Metadata = {
+const HUB_METADATA: Metadata = {
   // Интент хаба — СПРАВОЧНИК о крае. Новости сезона и обстановки — в /blog
   // (срез 02.10: два хаба делили один запрос).
   title: 'Справочник о Камчатке: природа, рельеф, реки, сезоны',
@@ -40,6 +41,22 @@ export const metadata: Metadata = {
     type: 'website',
   },
 };
+
+/**
+ * Оглавление закрыто от индекса, пока все статьи — копии источника
+ * (lib/articles/noindex, аудит 20.11): тело страницы — их выдержки. Первая
+ * переписанная статья открывает и оглавление. Список не прочитался — robots
+ * не трогаем.
+ */
+export async function generateMetadata(): Promise<Metadata> {
+  try {
+    const links = await listArticleLinks();
+    if (!articlesHubIndexable(links.map((a) => a.slug))) return { ...HUB_METADATA, robots: NOINDEX_FOLLOW };
+  } catch (e) {
+    console.error('[articles] список для robots не прочитан:', e instanceof Error ? e.message : e);
+  }
+  return HUB_METADATA;
+}
 
 /** Первые предложения текста — чтобы по карточке было понятно, о чём статья. */
 function excerpt(body: string | null, limit = 160): string {
