@@ -14,12 +14,13 @@ import type { Metadata } from 'next';
 import Link from 'next/link';
 import { BookOpen, ArrowRight } from 'lucide-react';
 import { Header } from '@/components/layout/Header';
-import { listArticles, groupByTopic } from '@/lib/articles/queries';
+import { listArticles, listArticleLinks, groupByTopic } from '@/lib/articles/queries';
+import { articlesHubIndexable, isArticleIndexable, NOINDEX_FOLLOW } from '@/lib/articles/noindex';
 import { defaultOgImages } from '@/lib/seo/og-image';
 
 export const dynamic = 'force-dynamic';
 
-export const metadata: Metadata = {
+const HUB_METADATA: Metadata = {
   // Интент хаба — СПРАВОЧНИК о крае. Новости сезона и обстановки — в /blog
   // (срез 02.10: два хаба делили один запрос).
   title: 'Справочник о Камчатке: природа, рельеф, реки, сезоны',
@@ -40,6 +41,33 @@ export const metadata: Metadata = {
     type: 'website',
   },
 };
+
+/**
+ * Оглавление закрыто от индекса, пока все статьи — копии источника
+ * (lib/articles/noindex, аудит 20.11): тело страницы — их выдержки. Первая
+ * переписанная статья открывает и оглавление. Список не прочитался — robots
+ * не трогаем.
+ */
+export async function generateMetadata(): Promise<Metadata> {
+  try {
+    const links = await listArticleLinks();
+    if (!articlesHubIndexable(links.map((a) => a.slug))) return { ...HUB_METADATA, robots: NOINDEX_FOLLOW };
+  } catch (e) {
+    console.error('[articles] список для robots не прочитан:', e instanceof Error ? e.message : e);
+  }
+  return HUB_METADATA;
+}
+
+/**
+ * Анонс карточки: первые предложения текста — только у статей, которые мы
+ * готовы отдать в индекс. У статей из noindex-списка (копии kamchatkaland.ru,
+ * lib/articles/noindex) анонса нет — название и ссылка: иначе чужой текст
+ * попал бы в индекс через хаб, когда хаб снова станет index (замечание
+ * Сыщика 21.11).
+ */
+function teaser(slug: string, body: string | null): string {
+  return isArticleIndexable(slug) ? excerpt(body) : '';
+}
 
 /** Первые предложения текста — чтобы по карточке было понятно, о чём статья. */
 function excerpt(body: string | null, limit = 160): string {
@@ -87,7 +115,9 @@ export default async function ArticlesIndexPage() {
                   {group.topic}
                 </h2>
                 <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-3">
-                  {group.items.map((a) => (
+                  {group.items.map((a) => {
+                    const lead = teaser(a.slug, a.body);
+                    return (
                     <Link
                       key={a.slug}
                       href={`/articles/${a.slug}`}
@@ -96,14 +126,15 @@ export default async function ArticlesIndexPage() {
                       <h3 className="text-lg font-bold text-[var(--text-primary)] mb-2">
                         {a.title}
                       </h3>
-                      {excerpt(a.body) && (
-                        <p className="text-sm text-[var(--text-secondary)] mb-3">{excerpt(a.body)}</p>
+                      {lead && (
+                        <p className="text-sm text-[var(--text-secondary)] mb-3">{lead}</p>
                       )}
                       <span className="inline-flex items-center gap-1 text-sm text-[var(--ocean)]">
                         Читать <ArrowRight className="w-4 h-4" />
                       </span>
                     </Link>
-                  ))}
+                    );
+                  })}
                 </div>
               </section>
             ))}
