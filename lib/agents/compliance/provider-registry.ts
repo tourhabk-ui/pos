@@ -164,6 +164,13 @@ export const LLM_EGRESS_FILES: readonly string[] = [
   // литеральному адресу. В запросе только вшитые фразы без ПД, но егресс
   // зарубежный — под надзором D2 (находка ревью безопасности на #3410).
   'app/api/cron/voice-probe/route.ts',
+  // Адрес Gemini (20.11): Google напрямую или шлюз Cloudflare по
+  // GEMINI_BASE_URL. Литералы хостов переехали сюда из providers.ts, и без
+  // этой строки D2 перестал бы их видеть (находка ревью безопасности на #3553).
+  'lib/ai/gemini-endpoint.ts',
+  // Проба пути прод → Gemini: адрес из того же модуля, в запросе только
+  // «ok» в один токен без ПД, но егресс зарубежный — под надзором D2.
+  'app/api/cron/gemini-path-probe/route.ts',
 ] as const;
 
 /**

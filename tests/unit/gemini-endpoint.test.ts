@@ -12,7 +12,7 @@
  * - проба пути с прода называет исход каждого пути и не печатает адреса.
  */
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
-import { readFileSync } from 'node:fs';
+import { existsSync, readdirSync, readFileSync, statSync } from 'node:fs';
 import { join } from 'node:path';
 import { NextRequest } from 'next/server';
 import {
@@ -22,6 +22,7 @@ import {
   geminiUrl,
   GEMINI_DIRECT_BASE,
 } from '@/lib/ai/gemini-endpoint';
+import { LLM_EGRESS_FILES, LLM_ENDPOINTS, extractLLMHosts } from '@/lib/agents/compliance/provider-registry';
 
 const ACC = '0123456789abcdef0123456789abcdef';
 const GW = `https://gateway.ai.cloudflare.com/v1/${ACC}/vedar-ai/google-ai-studio`;
@@ -183,12 +184,60 @@ describe('живые пути Gemini идут по адресу из настр�
   });
 });
 
-describe('запрет: ключ Gemini в строке адреса', () => {
-  it('ни в живом коде, ни в пробах нет «?key=» к Gemini и прямого адреса Google мимо модуля', () => {
-    const PROVIDERS = readFileSync(join(process.cwd(), 'lib/ai/providers.ts'), 'utf-8');
-    expect(PROVIDERS).not.toMatch(/generativelanguage\.googleapis\.com/);
-    expect(PROVIDERS).not.toMatch(/generateContent\?key=/);
-    expect(PROVIDERS).not.toMatch(/models\?key=/);
+describe('запрет: ключ Gemini в строке адреса и адрес Google мимо модуля', () => {
+  // Обход всего кода, а не одного файла (находка 2 ревью безопасности на
+  // #3553): новый файл с самодельным адресом Gemini краснеет здесь.
+  const ROOTS = ['lib', 'app', 'scripts', 'components', 'hooks', 'infra'];
+  const SOURCE = /\.(?:ts|tsx|js|mjs|cjs)$/;
+  const files: string[] = [];
+  const walk = (dir: string) => {
+    for (const name of readdirSync(join(process.cwd(), dir))) {
+      if (name === 'node_modules' || name.startsWith('.')) continue;
+      const rel = `${dir}/${name}`;
+      if (statSync(join(process.cwd(), rel)).isDirectory()) walk(rel);
+      else if (SOURCE.test(name)) files.push(rel);
+    }
+  };
+  for (const root of ROOTS) if (existsSync(join(process.cwd(), root))) walk(root);
+
+  /** Где хост Google может стоять строкой: сам модуль адреса и реестр приёмников D2. */
+  const HOST_ALLOWED = new Set(['lib/ai/gemini-endpoint.ts', 'lib/agents/compliance/provider-registry.ts']);
+
+  it('обход видит код', () => {
+    expect(files).toContain('lib/ai/providers.ts');
+    expect(files).toContain('app/api/cron/gemini-path-probe/route.ts');
+    expect(files.length).toBeGreaterThan(500);
+  });
+
+  it('адрес Google — только в модуле адреса (и в реестре D2)', () => {
+    const offenders = files.filter((f) => !HOST_ALLOWED.has(f)
+      && /generativelanguage\.googleapis\.com/.test(readFileSync(join(process.cwd(), f), 'utf-8')));
+    expect(offenders).toEqual([]);
+  });
+
+  it('ключ к методу Gemini не дописывается в адрес ни в одном файле', () => {
+    const KEY_IN_URL = /(?:generateContent|streamGenerateContent|countTokens|embedContent|models)\?key=/;
+    const offenders = files.filter((f) => KEY_IN_URL.test(readFileSync(join(process.cwd(), f), 'utf-8')));
+    expect(offenders).toEqual([]);
+  });
+
+  it('модуль адреса и проба — под надзором D2, их хосты записаны в реестр приёмников', () => {
+    for (const f of ['lib/ai/gemini-endpoint.ts', 'app/api/cron/gemini-path-probe/route.ts']) {
+      expect(LLM_EGRESS_FILES, f).toContain(f);
+    }
+    const hosts = extractLLMHosts(readFileSync(join(process.cwd(), 'lib/ai/gemini-endpoint.ts'), 'utf-8'));
+    expect(hosts).toEqual(expect.arrayContaining(['generativelanguage.googleapis.com', 'gateway.ai.cloudflare.com']));
+    const registered = new Set(LLM_ENDPOINTS.map((e) => e.host));
+    expect(hosts.filter((h) => !registered.has(h))).toEqual([]);
+  });
+
+  it('модуль адреса ключа в адрес не кладёт: адрес — без ключа, ключ — в заголовке', () => {
+    for (const e of [geminiEndpoint(undefined), geminiEndpoint(GW)]) {
+      for (const method of ['models', 'models/gemini-x:generateContent']) {
+        expect(geminiUrl(method, e)).not.toMatch(/[?&]key=/);
+      }
+      expect(geminiHeaders(KEY, e)['x-goog-api-key']).toBe(KEY);
+    }
   });
 });
 
