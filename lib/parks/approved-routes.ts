@@ -46,10 +46,29 @@ interface Row {
   status: ParkRouteStatus | null; status_read_on: string | null;
 }
 
+/**
+ * Только абсолютные http(s)-ссылки. Справочник переписан со страницы парка
+ * «Номера маршрутов» (миграция 1468), и одна ссылка там относительная —
+ * `marshrut_voshozhdenie_na_avachinskij1.pdf`: битая уже на сайте парка
+ * (404), а у нас браузер достраивал её до `/routes/marshrut_….pdf` — 404 на
+ * карточке Авачинского (аудит 20.11). Достраивать адрес за источник нельзя:
+ * такого файла нет и там.
+ */
+export function absoluteHttpUrls(urls: readonly string[] | null | undefined): string[] {
+  return (urls ?? []).filter((u) => {
+    try {
+      const p = new URL(u).protocol;
+      return p === 'https:' || p === 'http:';
+    } catch {
+      return false;
+    }
+  });
+}
+
 function toVariant(r: Row): ApprovedVariant {
   return {
     parkName: r.park_name, title: r.title, season: r.season, period: r.period, movement: r.movement,
-    passportUrls: r.passport_urls ?? [], trackUrl: r.track_url, sourceUrl: r.source_url, readOn: r.read_on,
+    passportUrls: absoluteHttpUrls(r.passport_urls), trackUrl: r.track_url, sourceUrl: r.source_url, readOn: r.read_on,
     status: r.status_read_on ? r.status : null, statusReadOn: r.status_read_on,
   };
 }

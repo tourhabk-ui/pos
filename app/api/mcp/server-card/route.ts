@@ -9,7 +9,7 @@
  * /.well-known: там место доменного AI Catalog, который на эту карточку
  * ссылается. Медиатип, ETag с 304, час кэша и CORS только на чтение — по
  * docs/discovery.md расширения. Содержимое — lib/mcp/server-card из того же
- * server.json, что в реестре MCP и Smithery.
+ * server.json, что в официальном реестре MCP.
  */
 
 import { NextResponse } from 'next/server';

@@ -407,7 +407,6 @@ ${parks.length ? parks.map((p) => `- [${p.displayName}](${BASE}/park/${p.slug})`
 - Для коннекторов ChatGPT (и deep research) есть пара search / fetch: поиск по
   турам, местам, жилью и маршрутам и полный текст записи по id с адресом страницы
 - В каталогах: ${MCP_CATALOGS.map((c) => `${c.catalog} — ${c.name}`).join('; ')}.
-  Подключение из Smithery: ${MCP_CATALOGS.find((c) => c.install)?.install ?? '—'}
 - English: ${MCP_TITLE_EN}. ${MCP_DESCRIPTION_EN}. MCP endpoint
   ${BASE}/api/mcp (Streamable HTTP, no auth); manifest ${BASE}/.well-known/mcp.json
 - Connect: ${MCP_CONNECT_OPTIONS.find((o) => o.id === 'claude_code')?.value ?? '—'}

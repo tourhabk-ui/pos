@@ -20,7 +20,7 @@ import { agentReferralForBooking } from '@/lib/referral/agent-link';
 import { type TourRefundTerms } from '@/lib/payments/tour-refund';
 import { cancellationLineForForm, type CancellationFacts } from '@/lib/tours/cancellation-words';
 import { platformAcceptsPayments } from '@/lib/payments/accepting';
-import { BOOKING_FORM_MAX_PARTICIPANTS } from '@/lib/tours/group-size';
+import { BOOKING_FORM_MAX_PARTICIPANTS, bookingRequestCeiling } from '@/lib/tours/group-size';
 import { TOUR_REQUEST_FORM_TOOL, toolParam } from '@/lib/webmcp/form-attrs';
 import { useWebMcpFormSync } from '@/hooks/use-webmcp-form-sync';
 
@@ -120,6 +120,9 @@ const WEBMCP_FIELDS = ['participants_count', 'tourist_name', 'tourist_phone', 't
 
 export default function BookingFormClient({ tourId, basePrice, maxParticipants = 10, groupSizeUnlimited = false, tourTitle, priceUnit, duration, initialDate, initialGuests, cancellationTerms, cancellationFacts = null, askSeatsFirst = false, seasonWindow = null, seasonNote = null }: BookingFormProps) {
   const router = useRouter();
+  // Сколько человек принимает заявка: у тура с пределом — его предел, у тура
+  // без предела — потолок одной заявки (lib/tours/group-size, #3487).
+  const formCeiling = bookingRequestCeiling(maxParticipants, groupSizeUnlimited) ?? BOOKING_FORM_MAX_PARTICIPANTS;
   const [plainBooking, setPlainBooking] = useState(!askSeatsFirst || Boolean(initialDate || initialGuests));
   const [seatsOpen, setSeatsOpen] = useState(false);
   const [loading, setLoading] = useState(false);
@@ -150,7 +153,7 @@ export default function BookingFormClient({ tourId, basePrice, maxParticipants =
   // «спросить места») и прокручиваем к ней.
   useEffect(() => {
     try {
-      const pre = parseRequestPrefill(window.location.search, Math.min(maxParticipants, BOOKING_FORM_MAX_PARTICIPANTS));
+      const pre = parseRequestPrefill(window.location.search, formCeiling);
       if (pre.date) {
         const d = pre.date;
         setFormData(prev => (prev.booking_date ? prev : { ...prev, booking_date: d }));
@@ -180,7 +183,7 @@ export default function BookingFormClient({ tourId, basePrice, maxParticipants =
     tourist_name: '',
     tourist_email: '',
     tourist_phone: '',
-    participants_count: initialGuests && initialGuests > 0 ? String(Math.min(initialGuests, maxParticipants, BOOKING_FORM_MAX_PARTICIPANTS)) : '1',
+    participants_count: initialGuests && initialGuests > 0 ? String(Math.min(initialGuests, formCeiling)) : '1',
     booking_date: initialDate && /^\d{4}-\d{2}-\d{2}$/.test(initialDate) ? initialDate : '',
     special_requests: '',
   });
@@ -459,7 +462,7 @@ export default function BookingFormClient({ tourId, basePrice, maxParticipants =
     }
   };
 
-  const maxOpts = Math.min(maxParticipants, BOOKING_FORM_MAX_PARTICIPANTS);
+  const maxOpts = formCeiling;
   // Подсказка о большой группе связана со счётчиком: скринридер читает её при
   // фокусе на нём, а не только при чтении страницы подряд. Отказ по полю
   // добавляет свой id, а не заменяет подсказку.

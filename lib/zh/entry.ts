@@ -184,7 +184,7 @@ export function seasonZh(start: string | Date | null | undefined, end: string | 
  */
 export function groupZh(max: number | string | null | undefined, unlimited?: boolean | null): string | null {
   if (unlimited === true) {
-    const ceiling = bookingRequestCeiling(max);
+    const ceiling = bookingRequestCeiling(max, true);
     return ceiling === null ? '人数不限' : `人数不限（网站单次申请最多 ${ceiling} 人）`;
   }
   const n = Number(max);
