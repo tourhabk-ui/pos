@@ -49,6 +49,7 @@ import { trackLine } from '@/lib/map/line-standard';
 import { difficultyLabel, difficultyColor } from '@/lib/tours/labels';
 import { routeHeading } from '@/lib/seo/h1-templates';
 import { lineOwnership } from '@/lib/routes/line-ownership';
+import { approachCaption as approachCaptionText } from '@/lib/routes/approach-caption';
 import { AssistantButton } from '@/components/shared/AssistantButton';
 import { MarkerType, type MapMarker } from '@/components/shared/leaflet-types';
 import DescriptionWithFishLinks from '@/components/shared/DescriptionWithFishLinks';
@@ -748,9 +749,8 @@ export default function RouteDetailClient({ id, mapPackBaseUrl, summary = null, 
           coords: trackCoords.map(([lat, lng]) => [lng, lat]),
         })
       : null;
-    const approachCaption = ownership?.verdict === 'own_with_approach' && ownership.tailKm !== null
-      ? `Линия включает подъезд: её дальний конец в ${Math.round(ownership.tailKm)} км от места. ` +
-        'Длина считается по всей линии, вместе с дорогой.'
+    const approachCaption = ownership?.verdict === 'own_with_approach'
+      ? approachCaptionText(ownership.tailKm, route.distanceNote)
       : null;
     /**
      * Линия есть, но она не сходится с местом — не рисуем (решение

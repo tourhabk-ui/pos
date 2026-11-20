@@ -215,6 +215,53 @@ withPg('объектив схемы на настоящем PostgreSQL', () => {
     ]);
   });
 
+  it('миграция 1477: партия 2 паспортов — сезон, длина со стороной, ссылка; чужую официальную ссылку и длину кольца не трогает (#3568)', async () => {
+    const SQL = readFileSync(join(process.cwd(), 'migrations/1477_route_passports_batch2.sql'), 'utf-8');
+    const P = 'https://visitkamchatka.ru/upload/route_passports/';
+    await pool.query(`INSERT INTO kamchatka_routes
+        (dedupe_key, slug, title, category, season, metadata, distance_km, pdf_url, official_passport_url, passport_verified_at) VALUES
+      ('p1477_bird', 'visitkamchatka-bird-city', 'Птичий городок', 'route', 'all', '{"season":"all"}', NULL,
+       '${P}bird_city.pdf', NULL, NULL),
+      ('p1477_dyg', 'visitkamchatka-volcano-dygeren', 'Вулкан Дыгерен — Оленгендэ: зимний', 'route', 'winter', '{}', 22.77,
+       NULL, NULL, NULL),
+      ('p1477_sopka', 'visitkamchatka-krasnaya-sopka', 'Красная сопка', 'route', 'all', '{}', 16,
+       NULL, 'https://example.org/park-passport.pdf', '2026-11-19 10:00:00+00'),
+      ('p1477_gor', 'vulkan-gorelyy-3d0e808c', 'Вулкан Горелый', 'route', 'summer', '{}', 6.1, NULL, NULL, NULL),
+      ('p1477_vil', 'vilyuchinskij-vodopad', 'Вилючинский водопад', 'route', 'all', '{}', 1.9, NULL, NULL, NULL)`);
+    await pool.query(SQL);
+    const stamp = `SELECT dedupe_key, updated_at FROM kamchatka_routes WHERE dedupe_key LIKE 'p1477_%' ORDER BY dedupe_key`;
+    const first = (await pool.query(stamp)).rows;
+    await pool.query(SQL); // повтор без вреда: ни одна строка не тронута
+    expect((await pool.query(stamp)).rows).toEqual(first);
+    const { rows } = await pool.query<Record<string, unknown>>(
+      `SELECT dedupe_key, season, metadata->>'season' AS meta_season, distance_km::float8 AS km, distance_note,
+              pdf_url, official_passport_url,
+              to_char(passport_verified_at AT TIME ZONE 'UTC', 'YYYY-MM-DD HH24:MI') AS verified
+         FROM kamchatka_routes WHERE dedupe_key LIKE 'p1477_%' ORDER BY dedupe_key`);
+    expect(rows).toEqual([
+      { dedupe_key: 'p1477_bird',
+        season: 'апрель - сентябрь; с 1 мая по 1 июля гнездовые участки закрыты',
+        meta_season: 'апрель - сентябрь; с 1 мая по 1 июля гнездовые участки закрыты',
+        km: null, distance_note: null,
+        pdf_url: `${P}bird_city.pdf`, official_passport_url: `${P}bird_city.pdf`, verified: '2026-11-20 17:07' },
+      // Длина со стороной; сезон в этой партии не трогается — в сверке не расходился.
+      { dedupe_key: 'p1477_dyg', season: 'winter', meta_season: null, km: 17, distance_note: 'в одну сторону',
+        pdf_url: `${P}volcano_dygeren_winter.pdf`, official_passport_url: `${P}volcano_dygeren_winter.pdf`,
+        verified: '2026-11-20 17:07' },
+      // «Тот же» маршрут — только ссылка; длина карточки остаётся.
+      { dedupe_key: 'p1477_gor', season: 'summer', meta_season: null, km: 6.1, distance_note: null,
+        pdf_url: `${P}gorel_volcano_summer.pdf`, official_passport_url: `${P}gorel_volcano_summer.pdf`,
+        verified: '2026-11-20 17:07' },
+      // Кольцо «8 км в одну сторону» — длину не трогаем; чужая официальная ссылка остаётся.
+      { dedupe_key: 'p1477_sopka', season: 'июль - октябрь', meta_season: 'июль - октябрь', km: 16,
+        distance_note: null, pdf_url: null, official_passport_url: 'https://example.org/park-passport.pdf',
+        verified: '2026-11-19 10:00' },
+      // «Тот ли маршрут» не понять — ничего не пишется.
+      { dedupe_key: 'p1477_vil', season: 'all', meta_season: null, km: 1.9, distance_note: null,
+        pdf_url: null, official_passport_url: null, verified: null },
+    ]);
+  });
+
   it('миграция 1454: образец сообщений Telegram-группы снят из советов туристов, остальное на месте (ревью #3460)', async () => {
     const SQL = readFileSync(join(process.cwd(), 'migrations/1454_group_tips_sample_withdrawn.sql'), 'utf-8');
     await pool.query(`INSERT INTO kamchatka_routes (dedupe_key, slug, title, category, metadata, is_visible) VALUES
