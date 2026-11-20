@@ -2,7 +2,6 @@ import type { Metadata } from 'next';
 import Link from 'next/link';
 import { Shield, MapPin, Users, Zap, ChevronRight } from 'lucide-react';
 import { Header } from '@/components/layout/Header';
-import { Footer } from '@/components/layout/Footer';
 import { getPlatformCounts } from '@/lib/stats/platform-counts';
 import { queryCatalogSummaryForPage } from '@/lib/search';
 import { defaultOgImages } from '@/lib/seo/og-image';
@@ -255,7 +254,6 @@ export default async function AboutPage() {
         </section>
 
       </main>
-      <Footer />
     </>
   );
 }

@@ -1,7 +1,6 @@
 'use client';
 
 import { Header } from '@/components/layout/Header';
-import { Footer } from '@/components/layout/Footer';
 import RouteAffiliateBlock from '@/components/routes/RouteAffiliateBlock';
 
 export default function PartnersClient() {
@@ -43,7 +42,6 @@ export default function PartnersClient() {
         </section>
       </main>
 
-      <Footer />
     </div>
   );
 }

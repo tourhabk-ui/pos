@@ -2,7 +2,6 @@ import type { Metadata } from 'next';
 import { NextRequest } from 'next/server';
 import { AccommodationsClient, type AccommodationsInitial } from '../_AccommodationsClient';
 import { Header } from '@/components/layout/Header';
-import { Footer } from '@/components/layout/Footer';
 import { defaultOgImages } from '@/lib/seo/og-image';
 import { GET as getAccommodations } from '@/app/api/accommodations/route';
 import { ACCOMMODATIONS_FIRST_PAGE_QUERY } from '@/lib/stay/catalog-first-page';
@@ -62,7 +61,6 @@ export default async function AccommodationsPage() {
       <main className="flex-1 pt-[56px]">
         <AccommodationsClient initial={initial} />
       </main>
-      <Footer />
     </div>
   );
 }

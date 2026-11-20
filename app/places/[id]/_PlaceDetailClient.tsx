@@ -52,7 +52,8 @@ const PlaceNearby           = dynamic(() => import('@/components/places/PlaceNea
 const PlaceEco              = dynamic(() => import('@/components/places/PlaceEco'),              { ssr: false });
 const PlaceLNT              = dynamic(() => import('@/components/places/PlaceLNT'),              { ssr: false });
 const PlaceIndigenous       = dynamic(() => import('@/components/places/PlaceIndigenous'),       { ssr: false });
-const PlaceFooter           = dynamic(() => import('@/components/places/PlaceFooter'),           { ssr: false });
+// Подвал карточки (источник, дата правки) — в серверном HTML (Сыщик 21.11).
+const PlaceFooter           = dynamic(() => import('@/components/places/PlaceFooter'));
 const PlaceFieldReports     = dynamic(() => import('@/components/places/PlaceFieldReports'),     { ssr: false });
 const PhotoUpload           = dynamic(() => import('@/components/places/PhotoUpload').then(m => ({ default: m.PhotoUpload })), { ssr: false });
 const PlaceUserPhotos       = dynamic(() => import('@/components/places/PlaceUserPhotos'),       { ssr: false });

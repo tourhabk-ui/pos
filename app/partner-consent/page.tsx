@@ -1,7 +1,6 @@
 import type { Metadata } from 'next';
 import { pageContainer } from '@/lib/layout/page-width';
 import { Header } from '@/components/layout/Header';
-import { Footer } from '@/components/layout/Footer';
 import { PartnerConsentForm } from '@/components/partners/PartnerConsentForm';
 
 /**
@@ -31,7 +30,6 @@ export default function PartnerConsentPage() {
         </p>
         <PartnerConsentForm />
       </main>
-      <Footer />
     </div>
   );
 }

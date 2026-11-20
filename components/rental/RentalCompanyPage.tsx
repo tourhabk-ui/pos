@@ -22,7 +22,6 @@ import Image from 'next/image';
 import Link from 'next/link';
 import { Bus, ChevronRight, Phone, Send, ShieldCheck } from 'lucide-react';
 import { Header } from '@/components/layout/Header';
-import { Footer } from '@/components/layout/Footer';
 import { CharterPhotos } from '@/components/transfers/CharterPhotos';
 import { KuzmichActions } from '@/components/shared/KuzmichActions';
 import { RentalHero } from '@/components/rental/RentalHero';
@@ -237,7 +236,6 @@ export function RentalCompanyPage({ data, orderCar }: { data: RentalPageData; or
           </aside>
         </div>
       </div>
-      <Footer />
     </div>
   );
 }

@@ -2,7 +2,6 @@ import type { Metadata } from 'next'
 import { Header } from '@/components/layout/Header'
 import { OperatorPromo } from '@/components/homepage/OperatorPromo'
 import { AgentModelSection } from '@/components/homepage/AgentModelSection'
-import { Footer } from '@/components/layout/Footer'
 
 export const metadata: Metadata = {
   alternates: { canonical: '/for-operators' },
@@ -18,7 +17,6 @@ export default function ForOperatorsPage() {
         <OperatorPromo headingLevel="h1" />
         <AgentModelSection />
       </main>
-      <Footer />
     </div>
   )
 }

@@ -31,6 +31,7 @@ const HARMLESS_IN_WIDGET: Record<string, string> = {
   ReferralCapture: 'читает ?ref собственного адреса; у адреса виджета его нет',
   InstallTracker: 'слушает appinstalled и standalone-запуск — внутри iframe их не бывает',
   Toaster: 'рисует только всплывашки, которые кто-то вызвал; сам по себе пуст',
+  Footer: 'в layout рисуется только внутри SiteFooter, а тот спрашивает isForeignSurface и молчит в виджете и на сайте партнёра',
   ClientErrorTrap: 'ничего не рисует и не трогает UI, только докладывает об ошибках; падение внутри виджета — тоже наш баг, и его нужно видеть',
 };
 
