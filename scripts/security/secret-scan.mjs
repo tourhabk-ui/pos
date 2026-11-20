@@ -38,9 +38,63 @@ const PLACEHOLDER_PASSWORD =
   /^(?:password|passwd|pass|secret|changeme|test|example|postgres|\*+|x+|\.{3}|<[^>]*>|\$\{[^}]*\}|\$[A-Z_][A-Z0-9_]*|%[A-Z_]+%)$|your|here|change_?me|placeholder/i;
 
 /**
+ * Имя переменной, по которому в значении ждут секрет: `JWT_SECRET`,
+ * `CRON_SECRET`, `S3_SECRET_KEY`, `password`, `API_TOKEN`, `apiKey`.
+ */
+const SECRET_NAME =
+  String.raw`[A-Za-z0-9_]*(?:secret|token|passw(?:or)?d|pwd|api_?key|access_?key|private_?key|auth_?key|signing_?key)[A-Za-z0-9_]*`;
+
+/**
+ * Значение по имени: в кавычках (`JWT_SECRET = "…"`, `password: '…'`,
+ * `$env:CRON_SECRET = "…"`) или строкой файла окружения (`S3_SECRET_KEY=…`).
+ * Значение — группа 3 или группа 5.
+ */
+const NAMED_SECRET = new RegExp(
+  `(?<![A-Za-z0-9_.])(${SECRET_NAME})["']?\\s*(?::=|=>|:|=)\\s*(["'\x60])([^"'\x60\\s]{16,})\\2`
+    + `|^\\s*(?:export\\s+|\\$env:)?(${SECRET_NAME})\\s*=\\s*([^\\s"'\x60#]{16,})\\s*$`,
+  'i',
+);
+
+/** Энтропия Шеннона значения, бит на знак. */
+function entropy(s) {
+  const counts = new Map();
+  for (const ch of s) counts.set(ch, (counts.get(ch) ?? 0) + 1);
+  let h = 0;
+  for (const n of counts.values()) h -= (n / s.length) * Math.log2(n / s.length);
+  return h;
+}
+
+/**
+ * Значение по секретному имени, которое секретом не является: ссылка на
+ * окружение (`process.env.X`, `${{ secrets.X }}`, `$X`), заглушка
+ * (`your_jwt_secret_here`, `xxxx`, `<токен>`), имя константы, адрес, слово
+ * или описание по-русски. Остальное с энтропией от 3,5 бит на знак, буквами и
+ * цифрами — секрет.
+ *
+ * Замер 20.11 на истории репозитория: до этого правила сканер пропускал 42
+ * значения, которые лежали открытым текстом (JWT_SECRET, CRON_SECRET, ключи
+ * S3, пароли площадок, токены), а за месяц main (311 тыс. новых строк) правило
+ * дало бы две находки — обе фальшивые ключи в тестах.
+ *
+ * @param {string} v
+ */
+export function isPlaceholderValue(v) {
+  if (/your|exampl|placeholder|change_?me|replace|xxxx|\*\*\*|\.\.\.|[<>]|\$\{|\$\(|process\.env|import\.meta|secrets\.|vars\.|env\.|dummy|fake|sample|mock|redacted|here|todo|test|demo|1234567|abcdef|qwerty/i.test(v)) return true;
+  if (/^\$\{?[A-Za-z_][A-Za-z0-9_]*\}?$/.test(v)) return true;
+  if (/[^\x21-\x7e]/.test(v)) return true;
+  if (/^[A-Za-z_]+$/.test(v)) return true;
+  if (/^[A-Z0-9_]+$/.test(v) && v.includes('_')) return true;
+  if (/^(?:[a-z]+:)?\/\//i.test(v) || v.startsWith('/')) return true;
+  if (!/[0-9]/.test(v) || !/[A-Za-z]/.test(v)) return true;
+  return entropy(v) < 3.5;
+}
+
+/**
  * Род ключа и его форма. Формы — опубликованные провайдерами префиксы и
  * длины, а не «похоже на случайное»: энтропийный поиск на коде с хешами,
- * base64-снимками и UUID шумит так, что его перестают читать.
+ * base64-снимками и UUID шумит так, что его перестают читать. Единственное
+ * место, где энтропия судит, — значение под секретным ИМЕНЕМ: там случайная
+ * строка и есть секрет (`isPlaceholderValue`).
  *
  * @type {ReadonlyArray<{ name: string; re: RegExp; ignore?: (m: RegExpMatchArray) => boolean }>}
  */
@@ -63,6 +117,11 @@ export const SECRET_PATTERNS = [
     name: 'Строка подключения с паролем',
     re: /\b(?:postgres(?:ql)?|mysql|redis|rediss|mongodb(?:\+srv)?|amqps?):\/\/[^\s:/@'"`]+:([^\s@'"`]{6,})@/,
     ignore: (m) => PLACEHOLDER_PASSWORD.test(m[1] ?? ''),
+  },
+  {
+    name: 'Секрет по имени переменной',
+    re: NAMED_SECRET,
+    ignore: (m) => isPlaceholderValue(m[3] ?? m[5] ?? ''),
   },
 ];
 
