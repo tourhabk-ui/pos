@@ -76,15 +76,19 @@ describe('robots.txt: фото и читающие эндпоинты откры
 });
 
 describe('метаданные в <head> — каждому боту, которого robots.txt приглашает поимённо', () => {
-  it('каждый поимённый бот robots.txt — в htmlLimitedBots next.config.js', async () => {
+  it('каждый поимённый бот robots.txt — в KNOWN_BOTS, и метаданные блокирующие для любого UA', async () => {
     const cfg = require(join(process.cwd(), 'next.config.js')) as { htmlLimitedBots: RegExp };
+    const { KNOWN_BOTS } = await import('@/lib/seo/known-bots');
     const named = (await rules()).flatMap((r) => list(r.userAgent)).filter((ua) => ua !== '*');
     expect(named.length).toBeGreaterThan(20);
     for (const ua of named) {
+      expect(KNOWN_BOTS.test(`Mozilla/5.0 (compatible; ${ua}/1.0; +https://example.com/bot)`), ua).toBe(true);
       expect(cfg.htmlLimitedBots.test(`Mozilla/5.0 (compatible; ${ua}/1.0; +https://example.com/bot)`), ua).toBe(true);
     }
-    // Браузер человека — не бот: стриминг метаданных у людей сохраняется.
-    expect(cfg.htmlLimitedBots.test('Mozilla/5.0 (Linux; Android 14) AppleWebKit/537.36 Chrome/141 Mobile Safari/537.36')).toBe(false);
+    // С 21.11 (Сыщик) — и браузер, и любой обходчик вне списка: <head> целиком.
+    expect(KNOWN_BOTS.test('Mozilla/5.0 (Linux; Android 14) AppleWebKit/537.36 Chrome/141 Mobile Safari/537.36')).toBe(false);
+    expect(cfg.htmlLimitedBots.test('Mozilla/5.0 (Linux; Android 14) AppleWebKit/537.36 Chrome/141 Mobile Safari/537.36')).toBe(true);
+    expect(cfg.htmlLimitedBots.test('seomator/1.0')).toBe(true);
   });
 });
 

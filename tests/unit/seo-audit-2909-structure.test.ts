@@ -90,9 +90,10 @@ describe('Двойники мест под /routes/ — 308 на карточк�
 });
 
 describe('Н4: canonical', () => {
-  it('Googlebot получает метаданные в <head>: он в htmlLimitedBots вместе со списком Next по умолчанию', () => {
+  it('Googlebot получает метаданные в <head>: KNOWN_BOTS — надмножество списка Next, а htmlLimitedBots — любой UA', async () => {
     const cfg = require(join(ROOT, 'next.config.js')) as { htmlLimitedBots?: RegExp };
-    const re = cfg.htmlLimitedBots;
+    expect(cfg.htmlLimitedBots?.test('Mozilla/5.0 Chrome/141 Safari/537.36')).toBe(true);
+    const re: RegExp | undefined = (await import('@/lib/seo/known-bots')).KNOWN_BOTS;
     expect(re).toBeInstanceOf(RegExp);
     expect(re!.test('Mozilla/5.0 (compatible; Googlebot/2.1; +http://www.google.com/bot.html)')).toBe(true);
     // Список Next по умолчанию не потерян: наша строка — его надмножество.
@@ -134,7 +135,7 @@ describe('Н1: карточки несут текст в HTML', () => {
   it('место: данные с сервера, без счётчика просмотров от ботов', () => {
     const page = code('app/places/[id]/page.tsx');
     expect(page).toMatch(/loadPlaceDetail\(arkId, \{ countView: false \}\)/);
-    expect(page).toMatch(/<PlaceDetailClient id=\{arkId\} initialPlace=\{initialPlace\} \/>/);
+    expect(page).toMatch(/<PlaceDetailClient id=\{arkId\} initialPlace=\{initialPlace\}( landingHeading=\{[^}]+\})? \/>/);
     const client = code('app/places/[id]/_PlaceDetailClient.tsx');
     for (const c of ['PlaceHero', 'PlaceDescription', 'PlaceFacts', 'PlaceRoutes']) {
       expect(client, `${c} снова только на клиенте`).not.toMatch(new RegExp(`const ${c}\\s+= dynamic\\([^\\n]*ssr: false`));

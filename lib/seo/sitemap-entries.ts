@@ -8,7 +8,9 @@
  * app/sitemap.xml/route.ts с force-dynamic — тем же паттерном, что llms.txt.
  */
 import { placeInSitemap, routeInSitemap } from '@/lib/seo/h1-templates';
-import { NEW_LANDINGS, LANDING_CANONICAL } from '@/lib/landings/landings';
+import { NEW_LANDINGS, LANDINGS, LANDING_CANONICAL } from '@/lib/landings/landings';
+import { FISH_TEXT_REVISION } from '@/lib/fish/fish-sources';
+import { PARK_HUB_TEXT_REVISION } from '@/lib/parks/park-hub';
 import { tourPath } from '@/lib/tours/tour-url';
 import { publicTourSql } from '@/lib/tours/public-visibility';
 import { partnerSitemapRows } from '@/lib/seo/partner-sitemap';
@@ -143,7 +145,8 @@ export async function collectSitemapEntriesWithStatus(): Promise<{ entries: Meta
     // Посадочная «Рыбалка» из шапки сайта (открыта для индекса 29.09) и
     // справочник рыб — страницы были, в sitemap их не было (аудит SEO 29.09, Н9).
     { url: `${BASE}/hub/fishing`,          lastModified: new Date(),  changeFrequency: 'daily',   priority: 0.85 },
-    { url: `${BASE}/fish`,                 lastModified: STABLE,      changeFrequency: 'monthly', priority: 0.7 },
+    // Дата ревизии текста справочника — та же, что Article.dateModified (Сыщик 21.11).
+    { url: `${BASE}/fish`,                 lastModified: new Date(`${FISH_TEXT_REVISION}T00:00:00Z`), changeFrequency: 'monthly', priority: 0.7 },
     ...FISH_SPECIES.map((f) => ({
       url: `${BASE}/fish/${f.id}`, lastModified: STABLE, changeFrequency: 'monthly' as const, priority: 0.6,
     })),
@@ -520,6 +523,13 @@ export async function collectSitemapEntriesWithStatus(): Promise<{ entries: Meta
     const page = staticLive.find((e) => e.url === url);
     if (at && page) page.lastModified = at;
   }
+  // Хаб /park: вводный текст (21.11) — тоже правка страницы; дата — позднейшая
+  // из записей парков и ревизии текста.
+  {
+    const hub = staticLive.find((e) => e.url === `${BASE}/park`);
+    const rev = new Date(`${PARK_HUB_TEXT_REVISION}T00:00:00Z`);
+    if (hub && (!hub.lastModified || new Date(hub.lastModified) < rev)) hub.lastModified = rev;
+  }
   // Посадочные под запросы — списки туров (и одна — перевозчиков). Дата — самое
   // позднее изменение туров и перевозчиков; не прочиталось ничего — даты нет
   // вовсе: «не знаю» честнее, чем «изменено сейчас» (§4.0).
@@ -527,6 +537,15 @@ export async function collectSitemapEntriesWithStatus(): Promise<{ entries: Meta
   if (landingAt) {
     const landingUrls = new Set(QUERY_LANDINGS.map((l) => `${BASE}${l.path}`));
     for (const page of staticLive) if (landingUrls.has(page.url)) page.lastModified = landingAt;
+  }
+  // Апгрейды посадочных Сыщика (страница жила раньше, текст — посадочной):
+  // lastmod — дата ревизии текста, та же, что Article.dateModified на странице
+  // (Сыщик 21.11: у /dolina-gejzerov-ekskursiya стояла дата туров, у Паратунки —
+  // дата записи места).
+  const upgradeAt = new Map(LANDINGS.filter((l) => l.type === 'upgrade').map((l) => [`${BASE}${l.path}`, new Date(`${l.date}T00:00:00Z`)]));
+  for (const page of [...staticLive, ...placesPages]) {
+    const at = upgradeAt.get(page.url);
+    if (at) page.lastModified = at;
   }
 
   const entries: MetadataRoute.Sitemap = [

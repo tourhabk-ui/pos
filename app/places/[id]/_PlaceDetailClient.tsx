@@ -187,7 +187,12 @@ function isHeroPhoto(src: string): boolean {
   return src.startsWith('/api/images/route/');
 }
 
-export default function PlaceDetailClient({ id, initialPlace = null }: { id: string; initialPlace?: PlaceData | null }) {
+/**
+ * `landingHeading` — у места с посадочной (lib/landings, апгрейд) видимый H1 —
+ * заголовок посадочной, тот же, что Article.headline; шаблонные «Вопросы и
+ * ответы» тогда не рисуются: FAQPage один — из текста посадочной (Сыщик 21.11).
+ */
+export default function PlaceDetailClient({ id, initialPlace = null, landingHeading = null }: { id: string; initialPlace?: PlaceData | null; landingHeading?: string | null }) {
   // Ссылка «назад» — в тот список, откуда пришли (страница, фильтры), не в голый раздел.
   const backHref = useCatalogReturnHref('/places');
   // `?route=1` — человек уже нажал «Навигация» на листе места (карта) и
@@ -322,7 +327,7 @@ export default function PlaceDetailClient({ id, initialPlace = null }: { id: str
   const hasNext = place.routes.length > 0 || showTours || place.nearby.length > 0;
   // Вопросы и ответы (слово владельца 17.11 «2 да но аккуратно») — словами
   // разделов этой же карточки, без туров и обстановки дня (lib/places/place-faq).
-  const faqItems = placeFaq(place);
+  const faqItems = landingHeading ? [] : placeFaq(place);
 
   return (
     <>
@@ -333,7 +338,7 @@ export default function PlaceDetailClient({ id, initialPlace = null }: { id: str
       <PlaceHero
         placeId={place.id}
         name={place.name}
-        heading={placeHeading(place.name, place.chronicle.some((c) => c.ooptMain))}
+        heading={landingHeading ?? placeHeading(place.name, place.chronicle.some((c) => c.ooptMain))}
         locationType={place.locationType}
         lat={place.lat}
         lng={place.lng}

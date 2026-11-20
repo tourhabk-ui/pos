@@ -121,11 +121,8 @@ export default async function ParksIndexPage() {
       ]} />}
       <Header />
       <main className="ds-page px-4 pt-20 pb-16">
-        <div className="mb-10">
-          <p className="text-xs font-semibold text-[var(--accent)] uppercase tracking-widest mb-2">
-            Охраняемые территории
-          </p>
-          <h1 className="ds-h1 mb-3" style={{ fontFamily: 'var(--font-playfair)' }}>
+        <section className="mb-10" aria-labelledby="park-hub-title">
+          <h1 id="park-hub-title" className="ds-h1 mb-3" style={{ fontFamily: 'var(--font-playfair)' }}>
             {TITLE}
           </h1>
           {/* Ответ сразу (Сыщик 21.11): число и род территорий — из справочника,
@@ -142,7 +139,14 @@ export default async function ParksIndexPage() {
               На странице каждой территории — её маршруты, условия посещения (разрешение, если оно нужно) и регистрация в МЧС перед выходом.
             </p>
           </div>
-        </div>
+        </section>
+
+        {/* Список — своей секцией с заголовком (Сыщик 21.11: аудитор видел одну
+            секцию на всю страницу). */}
+        <section aria-labelledby="park-hub-list">
+        <h2 id="park-hub-list" className="text-xs font-semibold text-[var(--accent)] uppercase tracking-widest mb-4">
+          Охраняемые территории в справочнике
+        </h2>
 
         {parks === null ? (
           <p className="text-[var(--text-secondary)]">Не удалось загрузить список. Обновите страницу.</p>
@@ -150,10 +154,13 @@ export default async function ParksIndexPage() {
           <p className="text-[var(--text-secondary)]">В справочнике пока нет ни одной территории.</p>
         ) : (
           <ul className="grid grid-cols-1 gap-4 max-w-3xl">
-            {parks.map((p) => {
+            {parks.map((p, i) => {
               const zone = placeZoneLabel(p.zone);
               const lead = metaDescription(p.description, LEAD_MAX);
               const hero = licensedHero(p.slug);
+              // Первые снимки — в первом экране: без lazy, первый — с высоким
+              // приоритетом (Сыщик 21.11: первые <img> хаба были ленивыми).
+              const heroRank = parks.slice(0, i).filter((q) => licensedHero(q.slug)).length;
               return (
                 <li key={p.slug}>
                   <Link
@@ -168,7 +175,8 @@ export default async function ParksIndexPage() {
                         alt={hero.alt}
                         width={96}
                         height={72}
-                        loading="lazy"
+                        loading={heroRank < 2 ? 'eager' : 'lazy'}
+                        fetchPriority={heroRank === 0 ? 'high' : undefined}
                         decoding="async"
                         className="w-24 h-18 rounded-lg object-cover flex-shrink-0"
                         style={{ height: 72 }}
@@ -202,6 +210,7 @@ export default async function ParksIndexPage() {
             })}
           </ul>
         )}
+        </section>
       </main>
     </>
   );

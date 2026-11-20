@@ -330,7 +330,9 @@ export default async function PlaceDetailPage({ params }: Props) {
       pageLd = webPageModifiedJsonLd({
         url: `${BASE}/places/${canonicalId}`,
         name: r.name as string,
-        dateModified: r.updated_at as string | Date | null,
+        // У места с посадочной текст — её: дата ревизии та же, что у Article и
+        // lastmod в sitemap (Сыщик 21.11, Паратунка стояла с датой записи).
+        dateModified: landing ? landing.date : (r.updated_at as string | Date | null),
         mainEntityId: `${BASE}/places/${canonicalId}`,
       });
       breadcrumbItems = [
@@ -353,7 +355,7 @@ export default async function PlaceDetailPage({ params }: Props) {
       )}
       {pageLd && <JsonLd data={pageLd} />}
       {breadcrumbItems && <BreadcrumbJsonLd items={breadcrumbItems} />}
-      <PlaceDetailClient id={arkId} initialPlace={initialPlace} />
+      <PlaceDetailClient id={arkId} initialPlace={initialPlace} landingHeading={landing?.h1 ?? null} />
       {landing && (
         <div className={`${pageContainer('reading')} pb-10`}>
           <LandingContent landing={landing} tours={landingTours} showH1={false} />
