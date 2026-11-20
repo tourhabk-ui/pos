@@ -12,6 +12,10 @@
 > темой `gemini-cli-extension`, галерея обходит такие раз в сутки), Bing Webmaster,
 > заявка в Cline, статья по-китайски.
 
+## Smithery закрыт (20.11.2026)
+
+31.10.2026 Smithery закрыл прокси, аккаунты и API-ключи и остался только публичным реестром. Карточка `https://smithery.ai/server/tourhabk/vedar` и форма `https://smithery.ai/new` отвечают 404. Запись убрана из `lib/mcp/catalogs.ts` — оттуда же её читают манифест, `llms.txt`, страница `/mcp` и README. Workflow публикации `.github/workflows/smithery-publish.yml` удалён, чтобы не слать ключ в закрытый API. Строки ниже про Smithery (сверки 11.11 и 13–14.11) — история, не текущее состояние.
+
 ## Мост на Glama для главного списка (19.11.2026)
 
 `punkpeye/awesome-mcp-servers` #18155: проверяющий 17.11 просит запись
@@ -108,7 +112,7 @@ Glama берёт сведения с сервера, реестр MCP — из �
 |---|---|---|
 | MCP Registry (официальный) | `ru.vedarai/mcp`, манифест `server.json`, публикация маркером `.github/triggers/mcp-registry-publish.json` | `mcp-registry-publish.test.ts` |
 | Соседние репозитории владельца (`vedar-mcp`, `vedar-mcp-examples`, `vedar-kamchatka-mcp`, `dsh-vedar`) повторяют список инструментов, манифест и плагин | после публикации версии и после правки списка инструментов — обновить их; отстал ли кто, говорит прогон `sister-repos-census.yml` (CLAUDE.md §22) | `sister-repos.test.ts` |
-| Smithery | `tourhabk/vedar`, `npx -y smithery mcp add tourhabk/vedar` | `mcp-catalogs.test.ts` |
+| Smithery | закрыт 31.10.2026 (карточка и форма публикации — 404); запись убрана из `MCP_CATALOGS` 20.11.2026 | `mcp-catalogs.test.ts` |
 | Glama | владение подтверждено `/.well-known/glama.json`; оценка сервера — **A**, высшая (владелец, 25.10) | `lib/mcp/catalogs.ts` |
 | Карточка сервера (MCP Server Card, SEP-2127) | `https://vedarai.ru/api/mcp/server-card` | `agent-discovery-cards.test.ts` |
 | AI Catalog домена | `https://vedarai.ru/.well-known/ai-catalog.json` | `agent-discovery-cards.test.ts` |

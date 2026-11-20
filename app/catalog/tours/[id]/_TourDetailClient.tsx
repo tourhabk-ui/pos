@@ -68,7 +68,7 @@ import { groupRangeShort, groupStripValue, isGroupSizeUnlimited, unlimitedGroupS
 // Цена, длительность, сезон, программа и отмена — теми же функциями, что MCP
 // и /api/tours (#3487): одно поле — одна строка на всех поверхностях.
 import { priceSum, priceUnitWords } from '@/lib/tours/price-label';
-import { cardDuration } from '@/lib/tours/card-facts';
+import { aboutEmptyText, cardDuration } from '@/lib/tours/card-facts';
 import { tourSeasonWords, type CalendarRange } from '@/lib/tours/season-words';
 import { programSteps } from '@/lib/tours/describe';
 import { tourCancellation, SAFETY_NOTES_CANCELLATION_HEAD, CANCELLATION_REST_WITH_OPERATOR } from '@/lib/tours/cancellation-words';
@@ -804,11 +804,17 @@ export default function TourDetailClient({ tour, reviews = [], askSeatsFirst = f
                 за которую мы уже платили (§11, сторож дублирования). */}
             <section>
               <Eyebrow>О туре</Eyebrow>
-              {tour.description && (
+              {tour.description?.trim() ? (
                 <DescriptionWithFishLinks
                   paragraphs={tour.description.split('\n').filter(p => p.trim())}
                   className="text-[var(--text-secondary)] leading-relaxed space-y-3 text-[15.5px]"
                 />
+              ) : (
+                // Пустой «О туре» читался как сбой страницы (ID119, ID121, #3487):
+                // описания нет — так и сказано, коротко о туре — в начале страницы.
+                <p className="text-[var(--text-secondary)] leading-relaxed text-[15.5px]" data-testid="tour-no-description">
+                  {aboutEmptyText(tour.short_description)}
+                </p>
               )}
               <div className="flex flex-wrap gap-2 mt-5">
                 {diffBadge && (

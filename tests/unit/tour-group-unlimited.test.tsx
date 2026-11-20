@@ -58,10 +58,10 @@ describe('карточка тура: группа', () => {
     expect(container.textContent).toContain('Больше 12 человек — напишите в пожеланиях, оператор соберёт группу.');
   });
 
-  it('FALSE — прежние «до N» и «1–N чел.», подсказки о большой группе нет', () => {
+  it('FALSE — «до N» в полосе и в условиях (минимум в одного — не минимум, #3487), подсказки о большой группе нет', () => {
     const { container } = render(<TourDetailClient tour={{ ...TOUR, group_size_unlimited: false }} reviews={[]} />);
     expect(stripGroupValue(container)).toBe('до 12');
-    expect(container.textContent).toContain('Группа: 1–12 чел.');
+    expect(container.textContent).toContain('Группа: до 12 чел.');
     expect(container.textContent).not.toContain('не ограничена');
     expect(container.textContent).not.toContain('напишите в пожеланиях');
   });

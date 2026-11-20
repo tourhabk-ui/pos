@@ -106,7 +106,10 @@ export function Footer() {
             © {new Date().getFullYear()} ООО «ПОС-СЕРВИС» (ИНН 4101147649). Все права защищены.
           </p>
           <div className="flex items-center gap-4">
-            <Link href="/sos" className="text-xs text-red-500 hover:text-red-400 font-semibold transition-colors">
+            {/* Цвет — токен опасности: red-500 на светлом фоне давал 3,45:1
+                (ниже AA 4,5), и на компьютере это единственное нарушение
+                контраста главной (PageSpeed 20.11, #3564 п.6). */}
+            <Link href="/sos" className="text-xs text-[var(--danger)] hover:underline font-semibold transition-colors">
               SOS
             </Link>
             <p className="text-xs text-[var(--text-muted)]">

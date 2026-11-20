@@ -4,27 +4,22 @@
  * ── Откуда ────────────────────────────────────────────────────────────────
  *
  * 16.09 чужие агенты сказали владельцу: «к vedarai.ru/api/mcp не обращаемся —
- * его нет в каталоге». 17–18.09 сервер опубликован в двух: официальный реестр
- * MCP (`ru.vedarai/mcp`) и Smithery (`tourhabk/vedar`). Но агент, который
- * читает нас САМИХ — манифест, llms.txt, страницу /mcp, README, — об этом не
- * узнавал: идентификаторы жили только в workflow публикации. Найти по одному
- * каталогу и не найти подтверждения у первоисточника — повод счесть запись
- * чужой или устаревшей.
+ * его нет в каталоге». 17–18.09 сервер опубликован в официальном реестре MCP
+ * (`ru.vedarai/mcp`) и тогда же в Smithery (`tourhabk/vedar`). 31.10.2026
+ * Smithery закрыл прокси, аккаунты и API-ключи и остался только публичным
+ * реестром; карточка https://smithery.ai/server/tourhabk/vedar и
+ * https://smithery.ai/new отвечают 404. Живая запись в этом списке — только
+ * официальный реестр. Идентификаторы отсюда читают манифест, llms.txt,
+ * страница /mcp и README: одно место, без второй копии.
  *
  * ── Что здесь ─────────────────────────────────────────────────────────────
  *
  * Имя в реестре, заголовок и английское описание — из `server.json`, того же
- * манифеста, что ушёл в реестр и которым Smithery заполняет карточку: одно
- * описание на все каталоги, второго английского текста в репозитории нет.
- * Имя в Smithery — константа здесь; сторож (`tests/unit/mcp-catalogs.test.ts`)
- * держит её равной имени в маркере публикации, потому что маркер — то, чем
- * запись реально заводится.
+ * манифеста, что ушёл в реестр: одно описание на все каталоги, второго
+ * английского текста в репозитории нет.
  */
 
 import manifest from '@/server.json';
-
-/** Имя в Smithery: пространство владельца `tourhabk` (не org GitHub), сервер `vedar`. */
-export const SMITHERY_SERVER_NAME = 'tourhabk/vedar';
 
 export const MCP_TITLE_EN: string = manifest.title;
 export const MCP_DESCRIPTION_EN: string = manifest.description;
@@ -41,11 +36,12 @@ export interface McpCatalogEntry {
 }
 
 /**
- * День, с которого сервер стоит во всех трёх каталогах разом: реестр
- * (`ru.vedarai/mcp` active), Smithery (`tourhabk/vedar`, карточка с описанием)
- * и Glama (коннектор Healthy) — все три сверены владельцем 18.09.2026 с
- * телефона, не по памяти. От этого дня Watchdog отсчитывает окно, в котором
- * молчание журнала вызовов — сигнал «нас не нашли», а не «ещё рано».
+ * День, с которого сервер стоит в официальном реестре (`ru.vedarai/mcp`
+ * active) и на Glama (коннектор Healthy) — сверено владельцем 18.09.2026 с
+ * телефона, не по памяти. Тогда же запись была и в Smithery; 31.10.2026
+ * каталог закрыл публикации, и 20.11.2026 запись убрана из этого списка.
+ * От этого дня Watchdog отсчитывает окно, в котором молчание журнала
+ * вызовов — сигнал «нас не нашли», а не «ещё рано».
  * Переопубликовались заново — дата двигается видимым коммитом.
  */
 export const MCP_CATALOG_LAUNCH_DATE = '2026-09-18';
@@ -86,11 +82,5 @@ export const MCP_CATALOGS: readonly McpCatalogEntry[] = [
     catalog: 'MCP Registry (registry.modelcontextprotocol.io)',
     name: manifest.name,
     url: `https://registry.modelcontextprotocol.io/v0.1/servers?search=${encodeURIComponent(manifest.name)}`,
-  },
-  {
-    catalog: 'Smithery',
-    name: SMITHERY_SERVER_NAME,
-    url: `https://smithery.ai/servers/${SMITHERY_SERVER_NAME}`,
-    install: `npx -y smithery mcp add ${SMITHERY_SERVER_NAME}`,
   },
 ] as const;

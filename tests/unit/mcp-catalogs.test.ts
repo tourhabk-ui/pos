@@ -4,7 +4,7 @@
  *
  * ── Откуда ────────────────────────────────────────────────────────────────
  *
- * 18.09, после публикации в реестре и Smithery, владелец назвал приоритет:
+ * 18.09, после публикации в реестре MCP, владелец назвал приоритет:
  * «чтобы агент, которому сказали „Камчатка“, имел шанс тебя найти и счесть
  * надёжным источником». Найти — каталоги; счесть надёжным — подтверждение
  * у первоисточника: манифест, llms.txt, страница /mcp и README обязаны
@@ -14,8 +14,7 @@
  * ── Что держится ──────────────────────────────────────────────────────────
  *
  * · имя реестра и английское описание — из server.json, не второй копией;
- * · имя Smithery равно имени в маркере публикации (маркер — то, чем запись
- *   заводится; константа — то, что о ней говорят; разойдутся — сторож красный);
+ * · в живом списке нет Smithery: каталог закрыл публикации 31.10.2026;
  * · glama.json — по схеме Glama, с владельцем репозитория из server.json;
  * · манифест, llms.txt, /mcp и README читают список, а не держат свой.
  */
@@ -23,7 +22,7 @@ import { describe, it, expect } from 'vitest';
 import { readFileSync } from 'node:fs';
 import { join } from 'node:path';
 import {
-  MCP_CATALOGS, SMITHERY_SERVER_NAME, MCP_TITLE_EN, MCP_DESCRIPTION_EN, GLAMA_CLAIM, GLAMA_CONNECTOR_SCHEMA,
+  MCP_CATALOGS, MCP_TITLE_EN, MCP_DESCRIPTION_EN, GLAMA_CLAIM, GLAMA_CONNECTOR_SCHEMA,
 } from '@/lib/mcp/catalogs';
 import { GET as manifestGet } from '@/app/.well-known/mcp.json/route';
 import { GET as glamaClaimGet } from '@/app/.well-known/glama.json/route';
@@ -36,7 +35,6 @@ const read = (p: string) => readFileSync(join(ROOT, p), 'utf-8');
 const SERVER_JSON = JSON.parse(read('server.json')) as {
   name: string; title: string; description: string; repository: { url: string };
 };
-const SMITHERY_MARKER = JSON.parse(read('.github/triggers/smithery-publish.json')) as { name: string };
 const GLAMA = JSON.parse(read('glama.json')) as { $schema: string; maintainers: string[] };
 
 describe('список каталогов — один, и он совпадает с тем, чем записи заводятся', () => {
@@ -66,13 +64,12 @@ describe('список каталогов — один, и он совпадае
     expect(MCP_DESCRIPTION_EN).toMatch(/requests, not bookings/i);
   });
 
-  it('Smithery: имя равно имени в маркере публикации, команда подключения — по нему', () => {
-    const smithery = MCP_CATALOGS.find((c) => c.catalog === 'Smithery');
-    expect(smithery).toBeDefined();
-    expect(smithery!.name).toBe(SMITHERY_SERVER_NAME);
-    expect(SMITHERY_SERVER_NAME).toBe(SMITHERY_MARKER.name);
-    expect(smithery!.install).toBe(`npx -y smithery mcp add ${SMITHERY_SERVER_NAME}`);
-    expect(smithery!.url).toContain(SMITHERY_SERVER_NAME);
+  it('в живом списке нет Smithery: каталог закрыл публикации 31.10.2026', () => {
+    expect(MCP_CATALOGS.find((c) => c.catalog === 'Smithery')).toBeUndefined();
+    for (const c of MCP_CATALOGS) {
+      expect(c.url).not.toMatch(/smithery\.ai/i);
+      expect(c.install ?? '').not.toMatch(/smithery/i);
+    }
   });
 
   it('у каждой записи есть каталог, имя и адрес; имён не два одинаковых', () => {

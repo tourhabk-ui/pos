@@ -152,6 +152,12 @@ export async function collectSitemapEntriesWithStatus(): Promise<{ entries: Meta
     // Аренда автомобилей: машина без водителя за сутки (23.10, схема 1317).
     { url: `${BASE}/car-rental`,           lastModified: new Date('2026-10-23'), changeFrequency: 'daily', priority: 0.6 },
     { url: `${BASE}/collections`,          lastModified: STABLE,      changeFrequency: 'weekly',  priority: 0.75 },
+    // Список охраняемых территорий (аудит 20.11: /park отвечал 404) — дата
+    // ниже, по самой поздней правке карточек парков.
+    { url: `${BASE}/park`,                 changeFrequency: 'monthly', priority: 0.75 },
+    // Календарь туров (аудит 20.11): страница была в меню, но не в карте.
+    // Даты выездов — живые из каталога; дата — по турам, ниже.
+    { url: `${BASE}/calendar`,             changeFrequency: 'daily',   priority: 0.6 },
     { url: `${BASE}/trending`,             lastModified: new Date(),  changeFrequency: 'daily',   priority: 0.7 },
     { url: `${BASE}/blog`,                 lastModified: new Date(),  changeFrequency: 'daily',   priority: 0.75 },
     // Раздел статей (11.08): двадцать шесть текстов о природе и крае, до
@@ -498,6 +504,8 @@ export async function collectSitemapEntriesWithStatus(): Promise<{ entries: Meta
     [`${BASE}/collections`, collectionPages],
     [`${BASE}/operators`, operatorPages],
     [`${BASE}/articles`, articlePages],
+    [`${BASE}/park`, parkPages],
+    [`${BASE}/calendar`, marketplacePages],
   ];
   for (const [url, section] of listOf) {
     const at = latestModified(section);

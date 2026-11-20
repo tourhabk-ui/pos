@@ -70,6 +70,10 @@ export default function ParkClient({ park, chronicle = [] }: { park: ParkPageDat
 
       {/* Hero */}
       <div style={{ marginBottom: 28 }}>
+        {/* Дорога к списку территорий (аудит 20.11: /park был 404). */}
+        <Link href="/park" className="text-sm" style={{ color: 'var(--ocean)', display: 'inline-block', marginBottom: 12 }}>
+          ← Все парки и заповедники
+        </Link>
         <p className="ds-label" style={{ marginBottom: 6 }}>{parkKindLabel(park.displayName)} · Камчатка</p>
         <h1 className="ds-h1" style={{ marginBottom: 12 }}>{park.displayName}</h1>
         <p style={{ color: 'var(--text-secondary)', fontSize: 15, lineHeight: 1.6 }}>{park.description}</p>

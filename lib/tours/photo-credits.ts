@@ -33,10 +33,18 @@ export function tourPhotoCaptions(photos: readonly string[], credits: unknown): 
  */
 export function tourPhotoCreditLine(captions: readonly (string | null)[]): string | null {
   const authors: string[] = [];
+  // Подпись кадра бывает «Автор» и «Автор. Место съёмки». Строка под галереей
+  // говорит, ЧЬИ снимки, и одного автора называет один раз: до 20.11 у ID77
+  // выходило «Фото: X, X. Вилючинский перевал» (#3487). Место съёмки остаётся
+  // в подписи кадра в просмотрщике.
+  const sameAuthor = (a: string, b: string) => a === b || b.startsWith(`${a}. `);
   for (const c of captions) {
     if (!c) continue;
     const name = c.slice('Фото: '.length);
-    if (!authors.includes(name)) authors.push(name);
+    if (authors.some(a => sameAuthor(a, name))) continue;
+    const longer = authors.findIndex(a => sameAuthor(name, a));
+    if (longer >= 0) authors[longer] = name;
+    else authors.push(name);
   }
   return authors.length > 0 ? `Фото: ${authors.join(', ')}` : null;
 }
