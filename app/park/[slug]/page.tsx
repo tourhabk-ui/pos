@@ -10,6 +10,7 @@ import ParkClient from './_ParkClient';
 import { JsonLd, BreadcrumbJsonLd } from '@/components/seo/JsonLd';
 import { parkJsonLd } from '@/lib/parks/park-jsonld';
 import { webPageModifiedJsonLd } from '@/lib/seo/record-modified';
+import { LandingCrossLink } from '@/components/landings/LandingCrossLink';
 
 const SITE = process.env.NEXT_PUBLIC_SITE_URL ?? 'https://vedarai.ru';
 
@@ -96,6 +97,8 @@ export default async function ParkPage({ params }: { params: Promise<{ slug: str
           park={park}
           chronicle={chronicleForPark(slug).map(({ slug: s, title, period, lead }) => ({ slug: s, title, period, lead }))}
         />
+        {/* Посадочная по теме парка (Сыщик, 21.11: пропуск «Устой-М» у «Вилючинского»). */}
+        <LandingCrossLink path={`/park/${park.slug}`} />
         </>
       )}
     </>

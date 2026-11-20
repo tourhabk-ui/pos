@@ -1,5 +1,7 @@
 /**
- * Посадочные страницы Сыщика (20.11.2026): 17 новых адресов и 4 апгрейда
+ * Посадочные страницы Сыщика (20.11.2026): 17 новых адресов и 4 апгрейда;
+ * вторая партия (21.11.2026, lib/landings/texts-batch2.ts) — ещё 10 новых.
+ *
  * существующих (/plans/kamchatka-v-iyune, /plans/kamchatka-v-sentyabre,
  * /dolina-gejzerov-ekskursiya, /places/paratunskaya-zona-otdyha).
  *
@@ -10,6 +12,7 @@
  */
 import type { LandingTopic } from '@/lib/seo/query-landings';
 import { LANDING_TEXTS, type LandingText } from '@/lib/landings/texts';
+import { LANDING_TEXTS_BATCH2 } from '@/lib/landings/texts-batch2';
 
 /** Какие туры показывает блок страницы. */
 export type LandingTourSpec =
@@ -50,13 +53,24 @@ const TOUR_SPECS: Record<string, LandingTourSpec> = {
   'petropavlovsk-za-den': { kind: 'text', pattern: /(петропавловск|морск[а-яё]*\s+прогулк|три\s+брата|авачинск[а-яё]*\s+(бух|губ)|халактыр)/i },
   'kak-dobratsya-na-kamchatku': { kind: 'none' },
   'kamchatka-samostoyatelno': { kind: 'none' },
+  // Вторая партия (21.11): отбор по словам в названии и месте тура.
+  'chto-privezti-s-kamchatki': { kind: 'text', pattern: /(гастроном|рыбалк|рыболов|икр)/i },
+  'kamchatskaya-kukhnya-gde-poest': { kind: 'text', pattern: /(гастроном|кухн|рыбалк|рыболов)/i },
+  'gornolyzhnye-bazy-kamchatki': { kind: 'text', pattern: /(горнолыж|лыж|сноуборд|фрирайд|зимн)/i },
+  'heli-ski-kamchatka': { kind: 'text', pattern: /(хели|heli)/i },
+  'novyj-god-na-kamchatke': { kind: 'text', pattern: /(новогод|нов(ый|ого|ом)\s+год)/i },
+  'putevka-na-rybalku-gosuslugi41': { kind: 'topic', topic: 'fishing' },
+  'propusk-ustoj-m-vilyuchinskij-pereval': { kind: 'text', pattern: /вилючинск/i },
+  'tolbachik-samostoyatelno': { kind: 'topic', topic: 'tolbachik' },
+  'nepogoda-otmenili-vertolet': { kind: 'topic', topic: 'helicopter' },
+  'stoit-li-ekhat-na-kamchatku': { kind: 'all' },
 };
 
 export interface Landing extends LandingText {
   tours: LandingTourSpec;
 }
 
-export const LANDINGS: readonly Landing[] = LANDING_TEXTS.map((t) => ({ ...t, tours: TOUR_SPECS[t.slug] ?? { kind: 'none' } }));
+export const LANDINGS: readonly Landing[] = [...LANDING_TEXTS, ...LANDING_TEXTS_BATCH2].map((t) => ({ ...t, tours: TOUR_SPECS[t.slug] ?? { kind: 'none' } }));
 
 export function landingBySlug(slug: string): Landing {
   const l = LANDINGS.find((x) => x.slug === slug);
@@ -94,4 +108,10 @@ export const LANDING_CROSS_LINKS: Readonly<Record<string, { href: string; label:
   '/places/dolina-gejzerov': { href: '/dolina-gejzerov-ekskursiya', label: 'Как попасть в Долину гейзеров: экскурсии и туры' },
   '/articles/dolina-gejzerov': { href: '/dolina-gejzerov-ekskursiya', label: 'Как попасть в Долину гейзеров: экскурсии и туры' },
   '/routes/paratunka': { href: '/places/paratunskaya-zona-otdyha', label: 'Паратунка: термальные источники, бассейны, как добраться' },
+  // Вторая партия (21.11).
+  '/articles/zima': { href: '/novyj-god-na-kamchatke', label: 'Новый год на Камчатке 2026/27: туры, даты и праздники' },
+  '/hub/fishing': { href: '/putevka-na-rybalku-gosuslugi41', label: 'Путёвка на рыбалку через Госуслуги41: как оформить и закрыть' },
+  '/places/vilyuchinskij-pereval': { href: '/propusk-ustoj-m-vilyuchinskij-pereval', label: 'Пропуск «Устой-М» на Вилючинский перевал: официальный порядок' },
+  '/routes/vilyuchinskij-pereval-marshrut': { href: '/propusk-ustoj-m-vilyuchinskij-pereval', label: 'Пропуск «Устой-М» на Вилючинский перевал: официальный порядок' },
+  '/park/vilyuchinsky': { href: '/propusk-ustoj-m-vilyuchinskij-pereval', label: 'Пропуск «Устой-М» на Вилючинский перевал: официальный порядок' },
 };
