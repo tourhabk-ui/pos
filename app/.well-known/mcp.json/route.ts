@@ -34,7 +34,7 @@ export async function GET(request?: Request) {
     {
       ...MCP_SERVER_INFO,
       // Английские заголовок и описание — из server.json, того же текста, что
-      // в реестре и Smithery: агент, пришедший из каталога, узнаёт запись.
+      // в официальном реестре MCP: агент, пришедший из каталога, узнаёт запись.
       title: MCP_TITLE_EN,
       descriptionEn: MCP_DESCRIPTION_EN,
       // Китайский слой (12.10) — для чатов и поисковиков КНР, текст в lib/mcp/zh-layer.

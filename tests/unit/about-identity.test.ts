@@ -12,9 +12,10 @@ describe('/about identity and Organization sameAs', () => {
     expect(src).toContain('Model Context Protocol');
     expect(src).toContain('мгновенной брони и оплаты через');
   });
-  it('Organization JSON-LD links GitHub, MCP registry and Smithery', () => {
+  it('Organization JSON-LD links GitHub and the MCP registry', () => {
     const src = readFileSync('app/layout.tsx', 'utf8');
-    for (const u of ['https://t.me/kamchatka_real', 'https://github.com/tourhabk-ui/pos', 'registry.modelcontextprotocol.io', 'https://smithery.ai/servers/tourhabk/vedar', 'https://github.com/tourhabk-ui/vedar-mcp-examples', 'https://t.me/kuzmichai_bot', 'https://max.ru/id4101147649_bot']) {
+    for (const u of ['https://t.me/kamchatka_real', 'https://github.com/tourhabk-ui/pos', 'registry.modelcontextprotocol.io', 'https://github.com/tourhabk-ui/vedar-mcp-examples', 'https://t.me/kuzmichai_bot', 'https://max.ru/id4101147649_bot']) {
+      expect(src).not.toMatch(/smithery\.ai/i);
       expect(src).toContain(u);
     }
   });
