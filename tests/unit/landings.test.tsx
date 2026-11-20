@@ -25,11 +25,12 @@ const tour = (o: Partial<LandingBlockTour>): LandingBlockTour => ({
 });
 
 describe('реестр посадочных', () => {
-  it('31 текст: 27 новых адресов (17 + 10 второй партии) и 4 апгрейда тех же URL', () => {
-    expect(LANDINGS).toHaveLength(31);
-    expect(NEW_LANDINGS).toHaveLength(27);
+  it('43 текста: 36 новых адресов (17 + 10 + 9 третьей партии) и 7 апгрейдов тех же URL', () => {
+    expect(LANDINGS).toHaveLength(43);
+    expect(NEW_LANDINGS).toHaveLength(36);
     expect(LANDINGS.filter((l) => l.type === 'upgrade').map((l) => l.path).sort()).toEqual([
-      '/dolina-gejzerov-ekskursiya', '/places/paratunskaya-zona-otdyha', '/plans/kamchatka-v-iyune', '/plans/kamchatka-v-sentyabre',
+      '/dolina-gejzerov-ekskursiya', '/places/kurilskoe-ozero', '/places/paratunskaya-zona-otdyha', '/places/vulkan-mutnovskij',
+      '/plans/kamchatka-v-iyune', '/plans/kamchatka-v-sentyabre', '/voshozhdenie-na-avachinskij-vulkan',
     ]);
   });
 
