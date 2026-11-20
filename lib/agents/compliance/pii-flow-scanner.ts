@@ -106,7 +106,7 @@ export const EGRESS_DOORS: Readonly<Record<string, { doors: readonly string[]; o
     why: 'хост — адрес по умолчанию в конфиге, запроса нет',
   },
   'lib/ai/gemini-endpoint.ts': {
-    doors: [], others: ['geminiEndpoint', 'geminiUrl', 'geminiHeaders', 'geminiModelIds', 'geminiGatewayBase'],
+    doors: [], others: ['geminiEndpoint', 'geminiUrl', 'geminiHeaders', 'geminiModelIds', 'pickGeminiModel', 'geminiGatewayBase'],
     why: 'адрес, заголовки и разбор списка моделей Gemini; запрос с текстом шлют функции providers.ts, сам модуль ничего не отправляет',
   },
 };

@@ -37,6 +37,7 @@ import {
   geminiHeaders,
   geminiModelIds,
   geminiUrl,
+  pickGeminiModel,
   GEMINI_DIRECT_BASE,
   type GeminiEndpoint,
 } from '@/lib/ai/gemini-endpoint';
@@ -86,10 +87,14 @@ interface ProbeTarget {
   endpoint: GeminiEndpoint;
 }
 
-/** flash-модель для пробы генерации; без неё — первая из списка. */
+/**
+ * Модель для пробы генерации — та, которой пойдёт живой код
+ * (resolveGeminiModel): ручная GEMINI_MODEL, иначе pickGeminiModel. Проба 20.11
+ * брала первую flash-модель списка, gemini-2.5-flash, и получила 404 «no longer
+ * available to new users» — про модель, которой живой код не ходит.
+ */
 export function pickProbeModel(ids: readonly string[]): string | null {
-  const plain = ids.filter((id) => !/embed|tts|image|live|audio|thinking|vision/i.test(id));
-  return plain.find((id) => /flash/i.test(id)) ?? plain[0] ?? ids[0] ?? null;
+  return process.env.GEMINI_MODEL?.trim() || pickGeminiModel(ids);
 }
 
 async function probeList(target: ProbeTarget, apiKey: string): Promise<{ probe: GeminiPathProbe; ids: string[] }> {

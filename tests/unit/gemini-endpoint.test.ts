@@ -311,6 +311,39 @@ describe('проба пути с прода', () => {
     expect(calls.filter((c) => c.url.startsWith(GW)).every((c) => c.headers['cf-aig-collect-log-payload'] === 'false')).toBe(true);
   });
 
+  // Проба 20.11: первая flash-модель списка — gemini-2.5-flash, которую Google
+  // новым ключам не отдаёт (404). Живой код берёт сильнейшую flash-модель;
+  // проба обязана проверять ту же.
+  it('генерация — той моделью, которой пойдёт живой код, а не первой в списке', async () => {
+    const list = {
+      models: [
+        { name: 'models/gemini-2.5-flash', supportedGenerationMethods: ['generateContent'] },
+        { name: 'models/gemini-3.8-pro', supportedGenerationMethods: ['generateContent'] },
+        { name: 'models/gemini-3.8-flash', supportedGenerationMethods: ['generateContent'] },
+        { name: 'models/gemini-3.8-flash-image', supportedGenerationMethods: ['generateContent'] },
+      ],
+    };
+    vi.stubGlobal('fetch', vi.fn(async (input: RequestInfo | URL, init?: RequestInit) => {
+      const url = String(input);
+      calls.push({ url, headers: headersOf(init) });
+      if (url.startsWith(GEMINI_DIRECT_BASE)) return geo();
+      if (url.endsWith('/v1beta/models')) return new Response(JSON.stringify(list), { status: 200 });
+      return okGenerate();
+    }));
+    const { GET } = await import('@/app/api/cron/gemini-path-probe/route');
+    const body = await (await GET(req(`?account=${ACC}&gateway=vedar-ai`))).json();
+    expect(body.generate).toMatchObject({ path: 'gateway', model: 'gemini-3.8-flash' });
+    expect(calls.some((c) => c.url.endsWith('/models/gemini-3.8-flash:generateContent'))).toBe(true);
+    // То же правило у живого кода.
+    const { pickGeminiModel, geminiModelIds } = await import('@/lib/ai/gemini-endpoint');
+    expect(pickGeminiModel(geminiModelIds(list))).toBe('gemini-3.8-flash');
+
+    // Ручная GEMINI_MODEL у живого кода главнее списка — и у пробы тоже.
+    vi.stubEnv('GEMINI_MODEL', 'gemini-3.8-pro');
+    const forced = await (await GET(req(`?account=${ACC}&gateway=vedar-ai`))).json();
+    expect(forced.generate).toMatchObject({ model: 'gemini-3.8-pro' });
+  });
+
   it('адрес из строки запроса пробой не берётся — только аккаунт и имя шлюза', async () => {
     const OTHER = 'fedcba9876543210fedcba9876543210';
     const OTHER_GW = `https://gateway.ai.cloudflare.com/v1/${OTHER}/vedar-ai/google-ai-studio`;
