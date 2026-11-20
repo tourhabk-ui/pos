@@ -45,7 +45,7 @@ import type { ChatMessage } from '@/lib/ai/prompts';
 import { recordAiLegFailure, httpFailureReason, errorFailureReason, describeEmptyCompletion, reasoningAteTheAnswer } from '@/lib/ai/failure-trace';
 import { refusalNote } from '@/lib/ai/refusal-notes';
 import { getOpenRouterKey, getOpenRouterKeySource, describeOpenRouterKey, getMiMoKey, getDeepSeekKey, getAnthropicKey, getXaiKey, getGeminiKey, getYandexKey, getMiniMaxKey, getGLMKey, getMuseSparkKey, getNvidiaKey, getFuguKey, getGroqKey, getCerebrasKey, getMistralKey, getMoonshotKey, getTimewebAgents, type TimewebAgent } from '@/lib/ai/provider-config';
-import { geminiUrl, geminiHeaders, geminiModelIds } from '@/lib/ai/gemini-endpoint';
+import { geminiUrl, geminiHeaders, geminiModelIds, pickGeminiModel } from '@/lib/ai/gemini-endpoint';
 import { AsyncLocalStorage } from 'node:async_hooks';
 import { pool } from '@/lib/db-pool';
 import { addUsage, currentAgentId } from '@/lib/ai/usage-context';
@@ -4268,9 +4268,9 @@ export async function resolveGeminiModel(): Promise<string | null> {
   if (ids.length === 0) return null;
 
   // Для быстрой ноги гонки нужен flash-класс; общий отбор (без reasoner/vision/
-  // embed) делает тот же pickBestModel, что и у остальных провайдеров.
-  const flash = ids.filter((id) => /flash/i.test(id));
-  const picked = pickBestModel(flash.length > 0 ? flash : ids);
+  // embed) делает тот же pickBestModel, что и у остальных провайдеров. Правило
+  // одно с пробой пути (pickGeminiModel).
+  const picked = pickGeminiModel(ids);
   if (!picked) return null;
 
   geminiModelCache = { id: picked, at: Date.now() };

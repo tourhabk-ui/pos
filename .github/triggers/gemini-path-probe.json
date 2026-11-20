@@ -1,6 +1,8 @@
 {
   "note": "Маркер запуска gemini-path-probe.yml: правка этого файла в main меряет с прода, открыт ли путь до Gemini через шлюз Cloudflare AI Gateway vedar-ai и напрямую.",
-  "run": 1,
+  "run": 2,
   "gateway_id": "vedar-ai",
+  "run2_reason": "Проба 1 проверила генерацию не той моделью: первой flash-моделью списка (gemini-2.5-flash), а живой код берёт сильнейшую flash-модель. Теперь у пробы и живого кода одно правило (pickGeminiModel). Замер: отвечает ли генерация через шлюз той моделью, которой пойдёт живой код.",
+  "run1_result": "20.11 03:09 UTC (прогон Actions 44662762657, после выката #3553). Отпечаток ключа 003036fb. Шлюз vedar-ai: open, HTTP 200, 736 мс, 50 моделей с generateContent. Напрямую: blocked, HTTP 400 «User location is not supported for the API use.». Генерация через шлюз моделью gemini-2.5-flash: HTTP 404 «This model models/gemini-2.5-flash is no longer available to new users» — Google принял ключ и запрос, отказ про модель.",
   "run1_reason": "20.11 владелец обновил GEMINI_API_KEY в Timeweb. Прямой путь с прода — 400 «User location is not supported» (ai-debug 04.09, 05.11, 06.11). Первый замер: дошёл ли новый ключ до контейнера (отпечаток), пропускает ли Google запрос через шлюз vedar-ai и отвечает ли генерация."
 }

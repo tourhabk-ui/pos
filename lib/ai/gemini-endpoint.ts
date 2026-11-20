@@ -20,6 +20,8 @@
  * не хранит (документация Cloudflare AI Gateway, раздел о журнале).
  */
 
+import { pickBestModel } from '@/lib/ai/model-resolver';
+
 export const GEMINI_DIRECT_BASE = 'https://generativelanguage.googleapis.com';
 
 const GATEWAY_HOST = 'https://gateway.ai.cloudflare.com';
@@ -89,6 +91,18 @@ export function geminiModelIds(data: unknown): string[] {
       && (entry.supportedGenerationMethods as unknown[]).includes('generateContent'))
     .map((entry) => (typeof entry.name === 'string' ? entry.name.replace(/^models\//, '') : ''))
     .filter((id) => id.length > 0);
+}
+
+/**
+ * Модель Gemini из списка: сильнейшая flash-модель (`pickBestModel`), без
+ * flash — сильнейшая из всех. Одно правило на живой код (`resolveGeminiModel`)
+ * и пробу пути: проба 20.11 брала первую flash-модель списка —
+ * gemini-2.5-flash, которую Google новым ключам уже не отдаёт (404), и
+ * проверила не ту модель, которой ходит живой код.
+ */
+export function pickGeminiModel(ids: readonly string[]): string | null {
+  const flash = ids.filter((id) => /flash/i.test(id));
+  return pickBestModel(flash.length > 0 ? flash : ids);
 }
 
 /** Шлюзы, которые проба знает по имени. Значение — литерал, не ввод. */
