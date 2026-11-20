@@ -209,9 +209,9 @@ describe('запреты: ни моста, ни запросов наружу', 
     for (const s of specifiers) expect(ALLOWED_MODULES, `модуль вне белого списка: ${s}`).toContain(s);
   });
 
-  it('в сервере нет обходов белого списка: fetch, globalThis, require, import(), eval', () => {
+  it('в сервере нет обходов белого списка: fetch, globalThis, require, import(), eval, getBuiltinModule', () => {
     expect(serverSource).not.toMatch(
-      /\bfetch\b|\bglobalThis\b|\brequire\b|createRequire|\bimport\s*\(|\beval\s*\(|new\s+Function|process\.binding|WebSocket|XMLHttpRequest|EventSource|\bmodule\b\.|process\.dlopen/,
+      /\bfetch\b|\bglobalThis\b|\brequire\b|createRequire|\bimport\s*\(|\beval\s*\(|new\s+Function|process\.binding|WebSocket|XMLHttpRequest|EventSource|\bmodule\b\.|process\.dlopen|getBuiltinModule|\bprocess\s*\[/,
     );
   });
 
