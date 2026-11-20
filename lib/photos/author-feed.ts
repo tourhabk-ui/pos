@@ -99,6 +99,7 @@ export const AUTHOR_FEED_SQL = `
      WHERE ${tourPhotoAllowedSql()}
        AND (pm.id IS NOT NULL OR kr.id IS NOT NULL)
        AND lower(btrim(pa.gallery_credits->>x.url)) <> lower(btrim(pa.name))
+       AND left(lower(btrim(pa.gallery_credits->>x.url)), length(btrim(pa.name)) + 2) <> lower(btrim(pa.name)) || '. '
        AND ${NOT_PARTNER("pa.gallery_credits->>x.url")}
   ) feed
   ORDER BY author, alt, created

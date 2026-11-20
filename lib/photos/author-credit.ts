@@ -45,8 +45,14 @@ export function authorFeedPath(name: string): string | null {
   return slug ? `/foto/${slug}` : null;
 }
 
-function same(a: string, b: string): boolean {
-  return a.trim().toLocaleLowerCase('ru') === b.trim().toLocaleLowerCase('ru');
+/**
+ * Подпись принадлежит партнёру: «Партнёр» или «Партнёр. Место съёмки» — та же
+ * форма, что у подписей карточки тура (lib/tours/photo-credits).
+ */
+function byPartner(author: string, partner: string): boolean {
+  const a = author.trim().toLocaleLowerCase('ru');
+  const p = partner.trim().toLocaleLowerCase('ru');
+  return p !== '' && (a === p || a.startsWith(`${p}. `));
 }
 
 export interface CreditInput {
@@ -62,7 +68,7 @@ export interface CreditInput {
 export function photoCreditFor(input: CreditInput): PhotoCredit | null {
   const name = (input.author ?? '').trim();
   if (!name) return null;
-  if (input.partner && same(name, input.partner.name)) {
+  if (input.partner && byPartner(name, input.partner.name)) {
     const href = operatorPagePath({ slug: input.partner.slug, is_public: input.partner.isPublic });
     return { name, href, kind: href ? 'partner' : 'text' };
   }

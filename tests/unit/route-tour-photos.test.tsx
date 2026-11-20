@@ -40,6 +40,11 @@ describe('подпись автора: куда ведёт', () => {
       .toEqual({ name: 'Андрей Запорожец', href: '/operators/andrey-zaporozhets', kind: 'partner' });
   });
 
+  it('подпись «Партнёр. Место съёмки» — тоже партнёр', () => {
+    expect(photoCreditFor({ author: 'Андрей Запорожец. Кратер Чаша', partner: ZAP, feedEligible: true, feedEnabled: true }))
+      .toEqual({ name: 'Андрей Запорожец. Кратер Чаша', href: '/operators/andrey-zaporozhets', kind: 'partner' });
+  });
+
   it('партнёр без открытой страницы → имя текстом, не ссылка на 404', () => {
     expect(photoCreditFor({ author: 'Андрей Запорожец', partner: { ...ZAP, isPublic: false }, feedEligible: true, feedEnabled: true }))
       .toEqual({ name: 'Андрей Запорожец', href: null, kind: 'text' });
