@@ -11,6 +11,8 @@ interface Props {
   descriptionSource?: DescriptionSource | null;
   /** Описание снято как путевая заметка и ждёт переписи (миграция 1247). */
   descriptionWithdrawn?: boolean;
+  /** На той же странице есть посадочная статья — баннер «описание убрали» не нужен. */
+  hideWithdrawnBanner?: boolean;
   /** Описание написала модель (журнал происхождения, lib/places/description-by-model). */
   byModel?: boolean;
   /** Описание написано голосом впечатления, и источника у него нет (lib/places/description-voice). */
@@ -18,13 +20,13 @@ interface Props {
   placeId: string;
 }
 
-export default function PlaceDescription({ essence, description, descriptionSource, descriptionWithdrawn, byModel, impression, placeId }: Props) {
+export default function PlaceDescription({ essence, description, descriptionSource, descriptionWithdrawn, hideWithdrawnBanner, byModel, impression, placeId }: Props) {
   const [expanded, setExpanded] = useState(false);
 
   const paragraphs = description?.split('\n').filter(p => p.trim()) ?? [];
   const isLong = paragraphs.length > 3 || (description?.length ?? 0) > 600;
 
-  const withdrawn = Boolean(descriptionWithdrawn) && paragraphs.length === 0;
+  const withdrawn = Boolean(descriptionWithdrawn) && paragraphs.length === 0 && !hideWithdrawnBanner;
   if (!essence && paragraphs.length === 0 && !withdrawn) return null;
 
   return (
