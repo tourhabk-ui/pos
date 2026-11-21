@@ -115,12 +115,29 @@ export function asksTripPlan(text: string): boolean {
   return tripLength && whatToDo;
 }
 
+/**
+ * Вопрос сам называет, о чём он: тур, экскурсия, вулкан, трансфер, жильё,
+ * прокат. Такой вопрос — не ссылка на прошлый список.
+ */
+function namesOwnSubject(text: string): boolean {
+  if (isCarRentalAsk(text) || isTransferAsk(text) || isLodgingAsk(text)) return true;
+  return /(?<![а-яе])тур(?!ист)|экскурс|вулкан|рыбалк|восхожд|поход|сплав|вертол/.test(norm(text));
+}
+
+/**
+ * Вопрос о цене из прошлого ответа: «сколько это стоит», «сколько стоит
+ * первый вариант». «Сколько стоит экскурсия на вулкан Горелый?» — вопрос со
+ * своим предметом: прежде он шёл сюда, и гость без прошлого списка получал
+ * «Не вижу списка» при двух турах на Горелый в каталоге (чат гостя 21.11).
+ */
 function isPriceFollowUp(text: string): boolean {
   const t = norm(text);
-  if (/сколько\s+(это\s+|он[аи]?\s+|они\s+)?стоит/.test(t)) return true;
   // «первый вопрос» — не ссылка на прошлый список. Нужен номер варианта.
   const ordinal = /перв(ый|ого|ая|ое|ым)|втор(ой|ого|ая|ым)|трет(ий|ьего|ья|ьим)/.test(t);
-  return ordinal && /вариант|из них|из списка|пункт/.test(t);
+  if (ordinal && /вариант|из них|из списка|пункт/.test(t)) return true;
+  if (/сколько\s+(это|он[аи]?|они)\s+стоит/.test(t)) return true;
+  if (/сколько\s+стоит/.test(t)) return ordinal || !namesOwnSubject(text);
+  return false;
 }
 
 /**
