@@ -20,11 +20,13 @@ import { defaultOgImages } from '@/lib/seo/og-image';
 const SITE = process.env.NEXT_PUBLIC_SITE_URL ?? 'https://vedarai.ru';
 
 /**
- * Картинка превью: главный кадр страницы (крупнейший готовый вариант);
- * у страницы без кадра — общая картинка сайта.
+ * Картинка превью: свой кадр 1200×630 (`design.og`), иначе главный кадр
+ * страницы (крупнейший готовый вариант); у страницы без кадра — общая картинка сайта.
  */
 export function landingOgImages(landing: Landing): Array<{ url: string; width: number; height: number; alt: string }> {
-  const hero = landingDesign(landing.slug).hero;
+  const d = landingDesign(landing.slug);
+  if (d.og) return [{ url: `${SITE}${d.og.src}`, width: d.og.width, height: d.og.height, alt: d.og.alt }];
+  const hero = d.hero;
   if (!hero) return defaultOgImages();
   const path = landingOgImagePath(hero);
   const w = /\.(\d+)\.webp$/.exec(path);
