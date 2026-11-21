@@ -62,6 +62,8 @@ export interface LandingCallout {
 
 export interface LandingDesign {
   hero: LandingPhoto | null;
+  /** Превью 1200×630 для og:image; не показывается как герой страницы. */
+  og?: LandingPhoto;
   figures?: LandingFigure[];
   callouts?: LandingCallout[];
 }
@@ -75,6 +77,12 @@ export const CALLOUT_KICKER: Record<CalloutKind, string> = {
 const OWNER: LandingPhotoCredit = { name: 'владелец платформы', href: null, operator: null };
 const KV: LandingPhotoCredit = { name: 'Край Вулканов', href: '/operators/volcanoesland', operator: 'volcanoesland' };
 const LAGUNA: LandingPhotoCredit = { name: 'Лагуна Экспедиция', href: '/operators/laguna-expedition', operator: 'laguna-expedition' };
+// Публичный slug оператора не совпадает с папкой S3 — operator: null, иначе сторож ждёт оба.
+const ZAP: LandingPhotoCredit = { name: 'Андрей Запорожец', href: '/operators/andrey-zaporozhets', operator: null };
+const RAFT: LandingPhotoCredit = { name: 'Камчатка Семейный Рафтинг', href: '/operators/kamchatka-rafting', operator: null };
+const USHAKOV: LandingPhotoCredit = { name: 'Ushakovm83', href: null, operator: null };
+const EHRENSVARD: LandingPhotoCredit = { name: 'Martin Ehrensvärd', href: null, operator: null };
+const ROST: LandingPhotoCredit = { name: 'Rost.galis', href: null, operator: null };
 
 const p = (src: string, alt: string, caption: string, credit: LandingPhotoCredit, width: number, height: number, focus?: string): LandingPhoto =>
   ({ src, alt, caption, credit, width, height, ...(focus ? { focus } : {}) });
@@ -96,14 +104,27 @@ const GORELY = p('/images/marketplace/gorely_crater.jpg', 'Кратер вулк
 const VILYUCH = p('/api/images/route/164f612c-32da-4f0f-b261-c45c09dc2933', 'Вулкан Вилючинский со снежной вершиной', 'Вулкан Вилючинский, карточка места на Ведаре.', OWNER, 1280, 720, 'center 30%');
 const VILYUCH_2 = p('/api/images/place-gallery/164f612c-32da-4f0f-b261-c45c09dc2933/2', 'Склоны вулкана Вилючинский со снежниками', 'Склоны вулкана Вилючинский со снежниками, карточка места на Ведаре. Снимка самого водопада в каталоге пока нет.', OWNER, 1280, 720);
 const AVACHA = p('/api/images/route/3a98a68d-76c8-4835-8d6d-24f7dd867cb8', 'Заснеженный Авачинский вулкан над полем', 'Авачинский вулкан, карточка места на Ведаре.', OWNER, 1280, 720);
-const KV_TOLBACHIK = p('/api/images/s3/photos/volcanoesland/ploskiy-tolbachik-04.jpg', 'Красные шлаковые конусы и лавовое поле, вдали путник', 'Шлаковые конусы у Толбачика.', KV, 640, 427);
 const KV_TOLBACHIK_CAMP = p('/api/images/s3/photos/volcanoesland/treking-vokrug-ploskogo-tolbachika-01.jpg', 'Палатка и навес у подножия заснеженного вулкана', 'Стоянка у подножия Толбачика.', KV, 640, 427);
-const KV_GEYSERS = p('/api/images/s3/photos/volcanoesland/dolina-geyzerov-kaldera-uzon-04.jpg', 'Склоны с выходами пара над рекой', 'Долина гейзеров.', KV, 640, 427);
 const KV_GEYSERS_2 = p('/api/images/s3/photos/volcanoesland/dolina-geyzerov-kaldera-uzon-03.jpg', 'Долина реки с паром над склонами', 'Долина гейзеров: пар над склонами долины.', KV, 640, 427);
 const KV_KLYUCH = p('/api/images/s3/photos/volcanoesland/treking-podnozhie-klyuchevskoy-01.jpg', 'Заснеженный конус вулкана над тёмными шлаковыми полями', 'Ключевская сопка, вид с подножия.', KV, 640, 360);
 const LAGUNA_MALKI = p('/api/images/s3/photos/laguna-expedition/malkinskie-dikie-goryachie-mineralnye-istochniki-cover.jpg', 'Пруд с прозрачной водой среди голых деревьев', 'Малкинские источники, обложка тура.', LAGUNA, 640, 800, 'center 60%');
 const LAGUNA_ZELENOVSKIE = p('/api/images/s3/photos/laguna-expedition/zelenovskie-ozerki-cover.jpg', 'Бассейны под открытым небом у домиков, вдали вулкан', 'Зеленовские озерки, обложка тура.', LAGUNA, 640, 478);
 const BEARS_2 = p('/images/marketplace/bears_kurilskoye.jpg', 'Два бурых медведя стоят в воде озера', 'Медведи в воде Курильского озера.', OWNER, 550, 605);
+const OSENNIJ_COVER = p('/api/images/s3/photos/laguna-expedition/kamchatka-na-maksimum-osennij-marshrut-cover.jpg', 'Осенняя тундра и вулканы в облаках', 'Осенний пейзаж Камчатки.', LAGUNA, 1280, 854);
+const OSENNIJ_ROAD = p('/api/images/s3/photos/laguna-expedition/kamchatka-na-maksimum-osennij-marshrut-1.jpg', 'Вулканы над дорогой среди осенней тундры', 'Вулканы с дороги, осенний маршрут.', LAGUNA, 1280, 854);
+const SNEGOHOD_PEREVAL = p('/api/images/s3/photos/laguna-expedition/dva-vulkana-avachinskij-pereval-2.jpg', 'Снегоход на заснеженном перевале у вулканов', 'Снегоход на перевале. Это не склон конкретной горнолыжной базы.', LAGUNA, 1280, 854);
+const PITOMNIK_ODEZHDA = p('/api/images/s3/photos/laguna-expedition/pitomnik-ezdovykh-sobak-snezhnye-psy-4.jpg', 'Люди в традиционной меховой одежде у ездовых собак', 'Традиционная одежда в питомнике ездовых собак. Это не прилавок сувениров.', LAGUNA, 1280, 853);
+const PITOMNIK_SOBAKI = p('/api/images/s3/photos/laguna-expedition/pitomnik-ezdovykh-sobak-snezhnye-psy-1.jpg', 'Упряжка ездовых собак на снегу у домика', 'Ездовые собаки в питомнике.', LAGUNA, 1280, 854);
+const BERINGA_LETO = p('/api/images/s3/photos/komandorskie-ostrova/ostrov-beringa-letom.jpg', 'Зелёный берег острова Беринга, вдали посёлок у моря', 'Остров Беринга летом. Снимок на условиях CC BY-SA 2.0.', EHRENSVARD, 1280, 960);
+const BYSTRAYA_REKA = p('/api/images/s3/photos/tours/bystraya-rafting/01-river-volcanoes.jpg', 'Река среди сопок, вдали вулканы', 'Сплав по Быстрой, вид на вулканы с реки.', RAFT, 1280, 960);
+const NALYCHEVO_TERM = p('/api/images/s3/photos/nalychevo/termalnye-istochniki.jpg', 'Термальные ванны среди травы в долине Налычево', 'Термальные источники в долине Налычево. Снимок на условиях CC BY-SA 4.0.', ROST, 1280, 938);
+const PEREVAL_AVACHA = p('/api/images/s3/photos/laguna-expedition/v-gosti-k-evrazhkam-na-avachinskij-pereval-2.jpg', 'Авачинский вулкан над зелёным склоном перевала', 'Авачинский вулкан с дороги на перевал.', LAGUNA, 1280, 960, '75% 40%');
+const ZELENOVSKIE_STAY = p('/api/images/s3/photos/laguna-expedition/zelenovskie-ozerki-cover.jpg', 'Бассейны под открытым небом у домиков, вдали вулкан', 'Зеленовские озерки. Ведар жильё не бронирует — это кадр места, не каталог гостиниц.', LAGUNA, 1280, 956);
+const ZAP_DEAD_FOREST = p('/api/images/s3/photos/zaporozhets/tolbachik-dead-forest.jpg', 'Мёртвый лес у подножия Толбачика, вдали сопки', 'Мёртвый лес на подходе к Толбачику.', ZAP, 1280, 964);
+const KRON_GEYSERS = p('/api/images/s3/photos/kronotsky/dolina-gejzerov.jpg', 'Парящие склоны Долины гейзеров над рекой', 'Долина гейзеров. Снимок на условиях CC BY-SA 4.0.', USHAKOV, 1280, 848);
+
+const og = (slug: string, alt: string, credit: LandingPhotoCredit): LandingPhoto =>
+  p(`/images/og/landings/${slug}.jpg`, alt, alt, credit, 1200, 630);
 
 const fig = (photo: LandingPhoto, beforeH2: string): LandingFigure => ({ ...photo, beforeH2 });
 
@@ -117,7 +138,7 @@ export const LANDING_DESIGN: Readonly<Record<string, LandingDesign>> = {
   'kamchatka-v-mae': { hero: VOLCANOES },
   'kamchatka-v-iyule': { hero: BEARS },
   'kamchatka-v-avguste': { hero: BEARS },
-  'kamchatka-v-oktyabre': { hero: null },
+  'kamchatka-v-oktyabre': { hero: OSENNIJ_COVER, og: og('kamchatka-v-oktyabre', 'Осенняя тундра и вулканы в облаках', LAGUNA) },
   'kamchatka-v-noyabre': {
     hero: ROAD_WINTER,
     callouts: [{ starts: 'Ноябрь — межсезонье: летние маршруты закрыты', kind: 'warning', kicker: 'Маршрут закрыт' }],
@@ -130,22 +151,24 @@ export const LANDING_DESIGN: Readonly<Record<string, LandingDesign>> = {
     callouts: [{ starts: 'Не приближайтесь, не убегайте и не поворачивайтесь спиной', kind: 'danger' }],
   },
   'dolina-gejzerov-kak-popast': {
-    hero: KV_GEYSERS,
+    hero: KRON_GEYSERS,
+    og: og('dolina-gejzerov-kak-popast', 'Парящие склоны Долины гейзеров над рекой', USHAKOV),
     figures: [fig(KV_GEYSERS_2, 'Как проходит экскурсия в Долину гейзеров?')],
   },
   'morskie-progulki-kamchatka': { hero: SEA },
   'kamchatka-samostoyatelno': {
-    hero: null,
+    hero: OSENNIJ_ROAD,
+    og: og('kamchatka-samostoyatelno', 'Вулканы над дорогой среди осенней тундры', LAGUNA),
     callouts: [{ starts: 'Региональный портал настоятельно рекомендует пользоваться услугами', kind: 'tip' }],
   },
-  'kamchatka-s-detmi': { hero: null },
+  'kamchatka-s-detmi': { hero: null, og: og('kamchatka-s-detmi', 'Скалы Три брата в океане у берега Камчатки', OWNER) },
   'chto-posmotret-na-kamchatke': { hero: VOLCANOES },
   'petropavlovsk-za-den': { hero: CAPE },
   // Партия 2.
-  'chto-privezti-s-kamchatki': { hero: null },
-  'gornolyzhnye-bazy-kamchatki': { hero: null },
+  'chto-privezti-s-kamchatki': { hero: PITOMNIK_ODEZHDA, og: og('chto-privezti-s-kamchatki', 'Люди в традиционной меховой одежде у ездовых собак', LAGUNA) },
+  'gornolyzhnye-bazy-kamchatki': { hero: SNEGOHOD_PEREVAL, og: og('gornolyzhnye-bazy-kamchatki', 'Снегоход на заснеженном перевале у вулканов', LAGUNA) },
   'heli-ski-kamchatka': { hero: HELICOPTER },
-  'kamchatskaya-kukhnya-gde-poest': { hero: null },
+  'kamchatskaya-kukhnya-gde-poest': { hero: null, og: og('kamchatskaya-kukhnya-gde-poest', 'Скалы в прибое на рассвете', OWNER) },
   'nepogoda-otmenili-vertolet': {
     hero: HELICOPTER,
     callouts: [{ starts: 'Большинство музеев Камчатки работает только по предварительной записи', kind: 'tip' }],
@@ -158,20 +181,21 @@ export const LANDING_DESIGN: Readonly<Record<string, LandingDesign>> = {
       { starts: 'По новости сети природных парков «Вулканы Камчатки» от 02.11.2026', kind: 'warning', kicker: 'Маршрут закрыт' },
     ],
   },
-  'putevka-na-rybalku-gosuslugi41': { hero: null },
+  'putevka-na-rybalku-gosuslugi41': { hero: null, og: og('putevka-na-rybalku-gosuslugi41', 'Река среди сопок, вдали вулканы', RAFT) },
   'stoit-li-ekhat-na-kamchatku': { hero: HERO_MARKET },
   'tolbachik-samostoyatelno': {
-    hero: KV_TOLBACHIK,
+    hero: ZAP_DEAD_FOREST,
+    og: og('tolbachik-samostoyatelno', 'Плоский Толбачик и шлаковые конусы под голубым небом', ZAP),
     figures: [fig(KV_TOLBACHIK_CAMP, 'Когда ехать на Толбачик?')],
     callouts: [{ starts: 'На эту дату маршруты парка «Ключевской» закрыты', kind: 'warning', kicker: 'Маршрут закрыт' }],
   },
   // Партия 3.
   'skolko-dnej-nuzhno-na-kamchatku': { hero: VOLCANOES },
   'pogoda-na-kamchatke-po-mesyacam': { hero: SUNSET },
-  'chto-vzyat-s-soboj-na-kamchatku': { hero: null },
-  'svyaz-i-internet-na-kamchatke': { hero: null },
-  'komandorskie-ostrova-kak-popast': { hero: null },
-  'splav-na-kamchatke': { hero: null },
+  'chto-vzyat-s-soboj-na-kamchatku': { hero: null, og: og('chto-vzyat-s-soboj-na-kamchatku', 'Розовые облака на закате над горами', OWNER) },
+  'svyaz-i-internet-na-kamchatke': { hero: null, og: og('svyaz-i-internet-na-kamchatke', 'Стела с фигурами медведей, за ней заснеженные вулканы', OWNER) },
+  'komandorskie-ostrova-kak-popast': { hero: BERINGA_LETO, og: og('komandorskie-ostrova-kak-popast', 'Зелёный берег острова Беринга, вдали посёлок у моря', EHRENSVARD) },
+  'splav-na-kamchatke': { hero: BYSTRAYA_REKA, og: og('splav-na-kamchatke', 'Река среди сопок, вдали вулканы', RAFT) },
   'vulkany-kamchatki-yunesko': {
     hero: { ...AVACHA, caption: 'Авачинский вулкан, карточка места на Ведаре. Это один из вулканов, а не весь объект ЮНЕСКО.' },
   },
@@ -179,15 +203,16 @@ export const LANDING_DESIGN: Readonly<Record<string, LandingDesign>> = {
     hero: KHALAKTYR,
     callouts: [{ starts: 'Не рекомендуется: власти Петропавловска', kind: 'danger' }],
   },
-  'raznica-vo-vremeni-kamchatka-moskva': { hero: null },
+  'raznica-vo-vremeni-kamchatka-moskva': { hero: null, og: og('raznica-vo-vremeni-kamchatka-moskva', 'Закат над бухтой и силуэтами гор', OWNER) },
   'voshozhdenie-na-avachinskij-vulkan': {
     hero: AVACHA,
     callouts: [{ starts: 'Региональный портал называет регистрацию туристического маршрута в МЧС обязательной', kind: 'tip' }],
   },
   // Хабы.
-  'kogda-ehat-na-kamchatku': { hero: null },
+  'kogda-ehat-na-kamchatku': { hero: HERO_MARKET, og: og('kogda-ehat-na-kamchatku', 'Заснеженный вулкан над осенней тундрой и камнями', OWNER) },
   'voshozhdeniya-na-vulkany-kamchatki': {
-    hero: null,
+    hero: AVACHA,
+    og: og('voshozhdeniya-na-vulkany-kamchatki', 'Заснеженный Авачинский вулкан над полем', OWNER),
     callouts: [
       { starts: 'На эту дату летние маршруты парков закрыты на межсезонье', kind: 'warning', kicker: 'Маршрут закрыт' },
       { starts: 'Мутновский закрыт; минтуризма советует не подходить', kind: 'danger' },
@@ -198,10 +223,14 @@ export const LANDING_DESIGN: Readonly<Record<string, LandingDesign>> = {
     hero: { ...KHALAKTYR, caption: 'Чёрный песок Халактырского пляжа.' },
     callouts: [{ starts: 'В 2022 году власти Петропавловска просили не купаться', kind: 'danger' }],
   },
-  'sobachi-upryazhki-kamchatka': { hero: null },
-  'gonka-beringiya': { hero: null },
+  'sobachi-upryazhki-kamchatka': { hero: PITOMNIK_SOBAKI, og: og('sobachi-upryazhki-kamchatka', 'Упряжка ездовых собак на снегу у домика', LAGUNA) },
+  'gonka-beringiya': {
+    hero: { ...PITOMNIK_SOBAKI, caption: 'Ездовые собаки в питомнике. Это не финиш гонки «Берингия».' },
+    og: og('gonka-beringiya', 'Упряжка ездовых собак на снегу у домика', LAGUNA),
+  },
   'nalychevo-kak-dobratsya': {
-    hero: null,
+    hero: NALYCHEVO_TERM,
+    og: og('nalychevo-kak-dobratsya', 'Термальные ванны среди травы в долине Налычево', ROST),
     callouts: [{ starts: 'На 19 ноября 2026 года — нет', kind: 'warning', kicker: 'Маршрут закрыт' }],
   },
   'vachkazhets-kak-dobratsya': { hero: VACHKAZHETS },
@@ -209,7 +238,8 @@ export const LANDING_DESIGN: Readonly<Record<string, LandingDesign>> = {
   'zelenovskie-ozerki': { hero: LAGUNA_ZELENOVSKIE },
   // Кадры этого места в приложении ТЗ — только у оператора на паузе.
   'avachinskij-pereval-i-verblyud': {
-    hero: null,
+    hero: PEREVAL_AVACHA,
+    og: og('avachinskij-pereval-i-verblyud', 'Авачинский вулкан над зелёным склоном перевала', LAGUNA),
     callouts: [
       { starts: 'К перевалу ведёт грунтовая дорога; 19 ноября 2026 года', kind: 'warning' },
       { starts: 'Не пытайтесь объехать размытый участок', kind: 'danger' },
@@ -231,14 +261,15 @@ export const LANDING_DESIGN: Readonly<Record<string, LandingDesign>> = {
       { starts: 'Пока маршруты парка закрыты и действует рекомендация не приближаться', kind: 'warning', kicker: 'Маршрут закрыт' },
     ],
   },
-  'gde-ostanovitsya-na-kamchatke': { hero: null },
+  'gde-ostanovitsya-na-kamchatke': { hero: ZELENOVSKIE_STAY, og: og('gde-ostanovitsya-na-kamchatke', 'Бассейны под открытым небом у домиков, вдали вулкан', LAGUNA) },
 };
 
 export function landingDesign(slug: string): LandingDesign {
   return LANDING_DESIGN[slug] ?? { hero: null };
 }
 
-/** Все кадры оформления (герои и фото в тексте) — для сторожа. */
+/** Все кадры оформления (герои и фото в тексте) — для сторожа.
+ *  Превью og сюда не входят: это готовые 1200×630 JPEG, их нет в манифесте вариантов. */
 export function allLandingPhotos(): Array<{ slug: string; photo: LandingPhoto }> {
   return Object.entries(LANDING_DESIGN).flatMap(([slug, d]) => [
     ...(d.hero ? [{ slug, photo: d.hero }] : []),
