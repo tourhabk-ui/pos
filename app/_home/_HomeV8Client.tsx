@@ -625,7 +625,7 @@ export default function HomeV8Client({ data, weather }: { data: HomeV8Data; weat
               </div>
             )}
             {/* Правило порядка — словами под лентой (правило 1в, 29.10). */}
-            <p className="mt-3 text-xs leading-relaxed text-[var(--text-secondary)]">{HOME_PLATES_ORDER_NOTE}</p>
+            <p className="mt-3 text-sm leading-relaxed text-[var(--text-secondary)] max-w-[70ch]">{HOME_PLATES_ORDER_NOTE}</p>
             {intentChips}
             {feed.length > 0 && (
               <div className="arrivals">
@@ -830,7 +830,7 @@ export default function HomeV8Client({ data, weather }: { data: HomeV8Data; weat
               <div className="lfield">
                 <label htmlFor="lead-phone">Телефон или Telegram</label>
                 <div className="field">
-                  <input id="lead-phone" type="tel" inputMode="tel" autoComplete="tel" value={phone} onChange={(e) => setPhone(e.target.value)} placeholder="Телефон или Telegram" aria-label="Контакт" />
+                  <input id="lead-phone" type="tel" inputMode="tel" autoComplete="tel" value={phone} onChange={(e) => setPhone(e.target.value)} placeholder="+7 или @telegram" aria-label="Телефон или Telegram" />
                   <button onClick={submitLead} disabled={sending}>{sending ? '…' : 'Отправить'}</button>
                 </div>
               </div>
@@ -1352,7 +1352,7 @@ const CSS = `
    разнесли бы точки через весь экран. Ширина здесь ограничена шагом ряда, а
    высота — нет, и именно вертикального допуска пальцу не хватало. */
 .v7 .pl-dots{display:flex;gap:0;justify-content:center;margin-top:0}
-.v7 .pl-dots button{width:26px;height:44px;padding:0;border:0;background:none;display:grid;place-items:center;cursor:pointer}
+.v7 .pl-dots button{width:44px;height:44px;padding:0;border:0;background:none;display:grid;place-items:center;cursor:pointer}
 .v7 .pl-dots button::after{content:"";width:6px;height:6px;border-radius:50%;background:var(--border);transition:background .2s,transform .2s}
 .v7 .pl-dots button.on::after{background:var(--accent);transform:scale(1.25)}
 .v7 .pl-dots button.pl-pause{width:44px;color:var(--text-secondary)}
@@ -1414,13 +1414,15 @@ const CSS = `
 .v7 .lead .lfield{display:flex;flex-direction:column;gap:6px;min-width:0}
 .v7 .lead .lfield>label{font:600 12px/1.3 var(--font-outfit),system-ui,sans-serif;color:var(--text-secondary)}
 .v7 .lead .lfield>input{border:1px solid var(--border);background:var(--bg-card);padding:14px 13px;font:500 16px/1 var(--font-outfit),system-ui,sans-serif;color:var(--text-primary);outline:none}
-.v7 .lead .field{display:flex;border:1px solid var(--border);background:var(--bg-card)}
+.v7 .lead .field{display:flex;flex-wrap:wrap;border:1px solid var(--border);background:var(--bg-card)}
 /* min-width:0 (аудит 24.09, #3/#35): без него поле не ужималось ниже своей
    встроенной ширины, и «Отправить» выезжала за рамку (на 360px — за экран,
    scrollWidth 367). */
 .v7 .lead .field input{flex:1;min-width:0;border:0;background:none;padding:14px 13px;font:500 16px/1 var(--font-outfit),system-ui,sans-serif;color:var(--text-primary);outline:none}
 .v7 .lead .field input::placeholder,.v7 .lead .lfield>input::placeholder{color:var(--text-muted)}
 .v7 .lead .field button{flex:none;min-height:44px;border:0;background:var(--accent);color:var(--on-accent);font:700 12px/1 var(--font-outfit),system-ui,sans-serif;letter-spacing:.1em;text-transform:uppercase;padding:0 16px;cursor:pointer}
+.v7 .lead .field button{width:100%}
+@media (min-width:480px){.v7 .lead .field button{width:auto}}
 .v7 .lead .field button:disabled{opacity:.6}
 .v7 .lead .err{margin-top:6px;font:500 13px/1.4 var(--font-outfit),system-ui,sans-serif;color:var(--danger)}
 /* Сноски формы — Outfit 12px --text-secondary (было JetBrains Mono 8.5px

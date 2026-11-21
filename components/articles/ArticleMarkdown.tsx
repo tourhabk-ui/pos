@@ -6,7 +6,7 @@
  */
 import Link from 'next/link';
 import type { ReactNode } from 'react';
-import type { Block, Inline } from '@/lib/articles/markdown';
+import { hideDuplicateFaq, type Block, type Inline } from '@/lib/articles/markdown';
 
 function renderInline(nodes: Inline[], keyBase: string): ReactNode[] {
   return nodes.map((n, i) => {
@@ -36,9 +36,10 @@ function renderInline(nodes: Inline[], keyBase: string): ReactNode[] {
 export function ArticleMarkdown({ blocks }: { blocks: Block[] }) {
   // Нумерованный список сразу после «## Источники» — якоря для сносок [n].
   let inSources = false;
+  const visible = hideDuplicateFaq(blocks);
   return (
     <div className="space-y-4">
-      {blocks.map((b, i) => {
+      {visible.map((b, i) => {
         const k = `b${i}`;
         switch (b.t) {
           case 'h2':
@@ -70,12 +71,12 @@ export function ArticleMarkdown({ blocks }: { blocks: Block[] }) {
                 <table className="w-max min-w-full text-sm border-collapse">
                   {b.head.length > 0 && (
                     <thead>
-                      <tr>{b.head.map((c, j) => <th key={j} className="text-left font-semibold border-b border-[var(--border)] py-2 pr-3">{renderInline(c, `${k}.h${j}`)}</th>)}</tr>
+                      <tr>{b.head.map((c, j) => <th key={j} className={`text-left font-semibold border-b border-[var(--border)] py-2 pr-3${j === b.head.length - 1 ? " whitespace-nowrap" : ""}`}>{renderInline(c, `${k}.h${j}`)}</th>)}</tr>
                     </thead>
                   )}
                   <tbody>
                     {b.rows.map((r, j) => (
-                      <tr key={j}>{r.map((c, x) => <td key={x} className="border-b border-[var(--border)] py-2 pr-3 align-top">{renderInline(c, `${k}.${j}.${x}`)}</td>)}</tr>
+                      <tr key={j}>{r.map((c, x) => <td key={x} className={`border-b border-[var(--border)] py-2 pr-3 align-top${x === r.length - 1 ? " whitespace-nowrap" : ""}`}>{renderInline(c, `${k}.${j}.${x}`)}</td>)}</tr>
                     ))}
                   </tbody>
                 </table>

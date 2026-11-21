@@ -192,8 +192,44 @@ export function parseArticleMarkdown(md: string): Block[] {
 }
 
 /** Пары вопрос-ответ раздела «Частые вопросы» — для FAQPage. Ответы — простым текстом. */
+export function faqKey(s: string): string {
+  return s.toLowerCase().replace(/[^\p{L}\p{N}]+/gu, '');
+}
+
+const FAQ_HEADING = faqKey('Частые вопросы');
+
+/**
+ * Убрать из «Частых вопросов» те же формулировки, что уже были заголовком
+ * раздела выше (аудит вёрстки 21.11, A9). JSON-LD и экран читают один список.
+ */
+export function hideDuplicateFaq<T extends Block>(blocks: readonly T[]): T[] {
+  const seen = new Set<string>();
+  const kept: T[] = [];
+  for (const b of blocks) {
+    if (b.t === 'h2' || b.t === 'h3') {
+      const k = faqKey(b.text);
+      if (k !== FAQ_HEADING) seen.add(k);
+      kept.push(b);
+      continue;
+    }
+    if (b.t === 'qa') {
+      const k = faqKey(b.qText);
+      if (seen.has(k)) continue;
+      seen.add(k);
+    }
+    kept.push(b);
+  }
+  return kept.filter((b, i, arr) => {
+    if (b.t !== 'h2' || faqKey(b.text) !== FAQ_HEADING) return true;
+    const rest = arr.slice(i + 1);
+    const next = rest.findIndex((x) => x.t === 'h2');
+    const between = next === -1 ? rest : rest.slice(0, next);
+    return between.some((x) => x.t === 'qa');
+  });
+}
+
 export function faqFromBlocks(blocks: Block[]): Array<{ q: string; a: string }> {
-  return blocks
+  return hideDuplicateFaq(blocks)
     .filter((b): b is Extract<Block, { t: 'qa' }> => b.t === 'qa')
     .map((b) => ({ q: b.qText, a: b.a.map(inlineText).join(' ').trim() }))
     .filter((x) => x.q && x.a);

@@ -23,10 +23,10 @@ export function OtherPlans({ current, presets = PLAN_PRESETS }: {
   return (
     <section className="space-y-2" aria-labelledby="other-plans">
       <h2 id="other-plans" className="ds-h2">Другие готовые планы</h2>
-      <div className="flex flex-wrap gap-2">
+      <div className="grid grid-cols-1 sm:grid-cols-2 gap-2">
         {others.map((p) => (
           <Link key={p.slug} href={`/plans/${p.slug}`}
-            className="text-sm px-3 py-1.5 rounded-full"
+            className="text-sm px-3 py-2.5 min-h-11 rounded-lg inline-flex items-center"
             style={{ background: 'var(--bg-card)', border: '1px solid var(--border)', color: 'var(--ocean)' }}>
             {p.title}
           </Link>

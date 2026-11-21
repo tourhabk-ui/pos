@@ -223,7 +223,7 @@ export default async function PlanPresetPage({ params }: PageProps) {
                 {ZONE_LABELS[day.zone] ?? day.zone}
               </div>
               {tour && (
-                <div className="relative flex items-center justify-between gap-2 px-3 py-2 rounded-md"
+                <div className="relative flex flex-col sm:flex-row sm:items-start sm:justify-between gap-2 px-3 py-2 rounded-md"
                   style={{ background: 'var(--bg-hover)', border: '1px solid var(--border)' }}>
                   {/* Ссылка на тур — слоем под содержимым, имя оператора — своей
                       ссылкой поверх (владелец 13.10): <a> в <a> недопустим. */}
@@ -233,11 +233,11 @@ export default async function PlanPresetPage({ params }: PageProps) {
                     href={`${tourPath(tour)}?date=${('availableDate' in day ? day.availableDate : undefined) ?? new Date(new Date(arrival).getTime() + (day.day - 1) * 86400000).toISOString().slice(0, 10)}`}
                     className="absolute inset-0 z-[1] rounded-md"
                     aria-label={`${tour.title}: оставить заявку`} />
-                  <span className="relative z-[2] pointer-events-none text-xs min-w-0 truncate" style={{ color: 'var(--text-primary)' }}>
+                  <span className="relative z-[2] pointer-events-none text-sm min-w-0 break-words" style={{ color: 'var(--text-primary)' }}>
                     {tour.title} · <OperatorNameLink name={tour.operator_name} slug={tour.operator_slug} isPublic={tour.operator_public} className="pointer-events-auto" />
                   </span>
-                  <span className="relative z-[2] pointer-events-none text-xs font-semibold whitespace-nowrap flex-none" style={{ color: 'var(--accent)' }}>
-                    от {Number(tour.base_price).toLocaleString('ru-RU')} ₽ · оставить заявку
+                  <span className="relative z-[2] pointer-events-none text-sm font-semibold flex-none" style={{ color: 'var(--accent)' }}>
+                    {Number(tour.base_price).toLocaleString('ru-RU')} ₽ · оставить заявку
                   </span>
                 </div>
               )}

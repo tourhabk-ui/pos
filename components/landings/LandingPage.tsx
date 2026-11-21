@@ -53,7 +53,7 @@ export async function LandingPage({ slug, middle, footer }: {
       <main className="ds-page">
         <div className={`${pageContainer('reading')} py-8 space-y-6`}>
           <nav className="text-sm" style={{ color: 'var(--text-muted)' }} aria-label="Хлебные крошки">
-            <Link href="/">Главная</Link>
+            <Link href="/" className="inline-flex items-center min-h-11">Главная</Link>
           </nav>
           <LandingContent landing={landing} tours={tours} middle={middle} />
           {footer}
