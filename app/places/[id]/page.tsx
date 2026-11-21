@@ -114,16 +114,21 @@ export async function generateMetadata({ params }: Props): Promise<Metadata> {
       description: landingByPath(ownPath)?.description ?? desc,
       alternates: {
         canonical,
-        ...(zh && !parentSlug ? { languages: { ru: `${BASE}${canonical}`, 'zh-CN': `${BASE}${zh}` } } : {}),
+        ...(zh && !parentSlug ? { languages: { ru: `${BASE}${canonical}`, 'zh-CN': `${BASE}${zh}`, 'x-default': `${BASE}${canonical}` } } : {}),
       },
       ...(noindex ? { robots: { index: false, follow: true } } : {}),
       openGraph: {
         url: ownPath,
         title: r.name as string,
         description: desc,
+        // og:type/locale/site_name — как у парка и посадочных (Сыщик 21.11, §4.9);
+        // article — где на странице есть Article посадочной.
+        type: landingByPath(ownPath) ? 'article' : 'website',
+        locale: 'ru_RU',
+        siteName: 'Ведар',
         // Нет снимка места — картинка сайта, а не голая ссылка: openGraph
         // страницы заменяет картинку layout целиком (аудит 01.10).
-        images: imgUrl ? [{ url: imgUrl }] : defaultOgImages(),
+        images: imgUrl ? [{ url: imgUrl, alt: r.name as string }] : defaultOgImages(),
       },
     };
   } catch (e) {
@@ -338,7 +343,8 @@ export default async function PlaceDetailPage({ params }: Props) {
       });
       breadcrumbItems = [
         { name: 'Главная', url: BASE },
-        { name: 'Карта мест', url: `${BASE}/map` },
+        // Второй шаг — каталог мест, не карта (Сыщик 21.11, §4.7).
+        { name: 'Места', url: `${BASE}/places` },
         { name: r.name as string, url: `${BASE}/places/${canonicalId}` },
       ];
     }

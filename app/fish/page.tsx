@@ -5,7 +5,7 @@ import Link from 'next/link';
 import { Fish, Calendar, Trophy } from 'lucide-react';
 import { Header } from '@/components/layout/Header';
 import { FISH_SPECIES, formatSeasonMonths } from '@/lib/fish-species';
-import { defaultOgImages } from '@/lib/seo/og-image';
+import { DEFAULT_OG_IMAGE, defaultOgImages } from '@/lib/seo/og-image';
 import { FishingToursBlock } from '@/components/fish/FishingToursBlock';
 import { getFishingTours } from '@/lib/fish/fishing-tours';
 import { BreadcrumbJsonLd, JsonLd } from '@/components/seo/JsonLd';
@@ -51,10 +51,23 @@ export default async function FishIndexPage() {
         headline: 'Рыбы Камчатки — справочник видов',
         url: 'https://vedarai.ru/fish',
         inLanguage: 'ru',
+        // Ревизия текста справочника — единственная известная дата (Сыщик 21.11, §4.6).
+        datePublished: FISH_TEXT_REVISION,
         dateModified: FISH_TEXT_REVISION,
+        image: `https://vedarai.ru${DEFAULT_OG_IMAGE}`,
         author: { '@id': 'https://vedarai.ru/#organization' },
         publisher: { '@id': 'https://vedarai.ru/#organization' },
         citation: FISH_SPECIES.map((f) => fishBaseUrl(f.nameLatin)).filter((u): u is string => Boolean(u)),
+      }} />
+      {/* Список видов (Сыщик 21.11, §4.2): короткие имена, как на карточках. */}
+      <JsonLd data={{
+        '@context': 'https://schema.org',
+        '@type': 'ItemList',
+        '@id': 'https://vedarai.ru/fish#list',
+        name: 'Рыбы Камчатки',
+        url: 'https://vedarai.ru/fish',
+        numberOfItems: FISH_SPECIES.length,
+        itemListElement: FISH_SPECIES.map((f, i) => ({ '@type': 'ListItem', position: i + 1, name: f.name, url: `https://vedarai.ru/fish/${f.id}` })),
       }} />
       {/* Хлебные крошки (seomator 20.11: у места, маршрута и тура были, у /fish нет). */}
       <BreadcrumbJsonLd items={[

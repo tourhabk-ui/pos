@@ -146,6 +146,15 @@ export default async function CatalogPage() {
         />
       )}
       <script type="application/ld+json" dangerouslySetInnerHTML={{ __html: jsonLdHtml(faqJsonLd) }} />
+      {/* Хлебные крошки (Сыщик 21.11, §4.7): «Туры» — как второй шаг у карточек туров. */}
+      <script type="application/ld+json" dangerouslySetInnerHTML={{ __html: jsonLdHtml({
+        '@context': 'https://schema.org',
+        '@type': 'BreadcrumbList',
+        itemListElement: [
+          { '@type': 'ListItem', position: 1, name: 'Главная', item: SITE },
+          { '@type': 'ListItem', position: 2, name: 'Туры', item: `${SITE}/catalog` },
+        ],
+      }) }} />
       <Header />
       <MarketplaceClient
         initialTours={initial?.tours ?? []}

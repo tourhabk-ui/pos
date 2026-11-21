@@ -36,9 +36,10 @@ export const ZH_PAGE_PATHS: readonly string[] = [
 ];
 
 /** hreflang каталога: русская витрина и китайская, взаимно. */
-export function catalogHreflang(site: string): { ru: string; 'zh-CN': string } {
+export function catalogHreflang(site: string): { ru: string; 'zh-CN': string; 'x-default': string } {
   const root = site.replace(/\/+$/, '');
-  return { ru: `${root}/catalog`, 'zh-CN': `${root}${ZH_CATALOG_PATH}` };
+  // x-default — русская каноническая (Сыщик 21.11, §4.8).
+  return { ru: `${root}/catalog`, 'zh-CN': `${root}${ZH_CATALOG_PATH}`, 'x-default': `${root}/catalog` };
 }
 
 /**

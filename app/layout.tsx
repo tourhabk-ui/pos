@@ -187,6 +187,8 @@ export default async function RootLayout({ children }: { children: React.ReactNo
         {/* Лента статей и посадочных (Сыщик 21.11). На домене партнёра её нет:
             в ней тексты Ведара. */}
         {!onPartnerSite && <link rel="alternate" type="application/rss+xml" title={FEED_TITLE} href={FEED_PATH} />}
+        {/* llms.txt для ИИ-ассистентов (Сыщик 21.11, §4.10). */}
+        {!onPartnerSite && <link rel="llms" href="/llms.txt" type="text/plain" />}
         {/* Манифест ARD (20.11): ссылка rel="ard" — второй путь, которым
             агент и «Агентный просмотр» Lighthouse находят каталог домена
             (спецификация ARD v0.91, §5.1: потребитель обязан её учесть).

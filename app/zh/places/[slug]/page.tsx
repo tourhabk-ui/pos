@@ -63,7 +63,7 @@ export async function generateMetadata({ params }: Props): Promise<Metadata> {
     description: zhDesc,
     alternates: {
       canonical: self,
-      ...(indexable ? { languages: { ru: ruCard, 'zh-CN': self } } : {}),
+      ...(indexable ? { languages: { ru: ruCard, 'zh-CN': self, 'x-default': ruCard } } : {}),
     },
     openGraph: {
       url: self,

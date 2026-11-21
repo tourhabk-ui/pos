@@ -1,6 +1,7 @@
 import type { Metadata } from 'next';
 import { OfficialSeasonNote } from '@/components/fish/OfficialSeasonNote';
-import { SALMON_FISH_IDS } from '@/lib/fish/fish-sources';
+import { FISH_TEXT_REVISION, SALMON_FISH_IDS } from '@/lib/fish/fish-sources';
+import { BreadcrumbJsonLd } from '@/components/seo/JsonLd';
 import { notFound } from 'next/navigation';
 import Link from 'next/link';
 import {
@@ -13,7 +14,7 @@ import { FISH_SPECIES, FISH_BY_ID, formatSeasonMonths } from '@/lib/fish-species
 import DescriptionWithFishLinks from '@/components/shared/DescriptionWithFishLinks';
 import { FishGuide } from '@/components/fish/FishGuide';
 import { FishAbout } from '@/components/fish/FishAbout';
-import { defaultOgImages } from '@/lib/seo/og-image';
+import { DEFAULT_OG_IMAGE, defaultOgImages } from '@/lib/seo/og-image';
 import { fishMetaDescription } from '@/lib/seo/fish-description';
 import { jsonLdHtml } from '@/lib/seo/json-ld-html';
 
@@ -75,7 +76,14 @@ export default async function FishDetailPage({ params }: Props) {
     url: `https://vedarai.ru/fish/${id}`,
     inLanguage: 'ru',
     about: { '@type': 'Thing', name: species.name, alternateName: species.nameLatin },
-    publisher: { '@type': 'Organization', name: 'Ведар', url: 'https://vedarai.ru' },
+    // Обязательные поля Article (Сыщик 21.11, §4.6): дата — ревизия текста
+    // справочника, как lastmod в sitemap; картинка — своя, иначе og:image.
+    '@id': `https://vedarai.ru/fish/${id}#article`,
+    datePublished: FISH_TEXT_REVISION,
+    dateModified: FISH_TEXT_REVISION,
+    author: { '@id': 'https://vedarai.ru/#organization' },
+    publisher: { '@id': 'https://vedarai.ru/#organization' },
+    image: `https://vedarai.ru${species.image?.src ?? DEFAULT_OG_IMAGE}`,
   };
 
   // Other species (exclude current)
@@ -84,6 +92,11 @@ export default async function FishDetailPage({ params }: Props) {
   return (
     <>
       <script type="application/ld+json" dangerouslySetInnerHTML={{ __html: jsonLdHtml(jsonLd) }} />
+      <BreadcrumbJsonLd items={[
+        { name: 'Главная', url: 'https://vedarai.ru' },
+        { name: 'Рыбы Камчатки', url: 'https://vedarai.ru/fish' },
+        { name: species.name, url: `https://vedarai.ru/fish/${id}` },
+      ]} />
       <Header />
       <main className="pt-16 pb-16">
 
