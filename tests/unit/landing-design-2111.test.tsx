@@ -4,7 +4,7 @@
  * оборачивает готовый текст и берёт кадры по правилам владельца.
  */
 import { describe, it, expect, afterEach } from 'vitest';
-import { readFileSync } from 'node:fs';
+import { existsSync, readFileSync } from 'node:fs';
 import { join } from 'node:path';
 import { render, cleanup } from '@testing-library/react';
 
@@ -163,12 +163,19 @@ describe('герой и og:image', () => {
     const withHero = LANDINGS.filter((l) => landingDesign(l.slug).hero);
     expect(withHero.length).toBeGreaterThan(20);
     for (const l of withHero) {
-      const hero = landingDesign(l.slug).hero!;
-      const og = landingOgImagePath(hero);
+      const d = landingDesign(l.slug);
+      const hero = d.hero!;
+      const heroOg = landingOgImagePath(hero);
       const meta = landingPageMetadata(l);
-      const ogImages = (meta.openGraph?.images ?? []) as Array<{ url: string }>;
-      expect(ogImages[0]?.url, l.slug).toBe(`https://vedarai.ru${og}`);
-      expect(JSON.stringify(landingJsonLd(l)), l.slug).toContain(og);
+      const ogImages = (meta.openGraph?.images ?? []) as Array<{ url: string; width?: number; height?: number; alt?: string }>;
+      if (d.og) {
+        expect(ogImages[0]?.url, l.slug).toBe(`https://vedarai.ru${d.og.src}`);
+        expect(ogImages[0]?.width, l.slug).toBe(1200);
+        expect(ogImages[0]?.height, l.slug).toBe(630);
+      } else {
+        expect(ogImages[0]?.url, l.slug).toBe(`https://vedarai.ru${heroOg}`);
+      }
+      expect(JSON.stringify(landingJsonLd(l)), l.slug).toContain(heroOg);
     }
     const l = withHero[0];
     const { container } = render(<LandingHero h1={l.h1} photo={landingDesign(l.slug).hero} />);
@@ -185,5 +192,44 @@ describe('герой и og:image', () => {
     const { container } = render(<LandingHero h1={l.h1} photo={null} />);
     expect(container.querySelector('img')).toBeNull();
     expect(container.querySelector('h1')?.textContent).toBe(l.h1);
+  });
+
+  const OWN_OG = [
+    'kamchatka-v-oktyabre', 'kamchatka-samostoyatelno', 'kamchatka-s-detmi',
+    'chto-privezti-s-kamchatki', 'gornolyzhnye-bazy-kamchatki', 'kamchatskaya-kukhnya-gde-poest',
+    'putevka-na-rybalku-gosuslugi41', 'chto-vzyat-s-soboj-na-kamchatku', 'svyaz-i-internet-na-kamchatke',
+    'komandorskie-ostrova-kak-popast', 'splav-na-kamchatke', 'raznica-vo-vremeni-kamchatka-moskva',
+    'kogda-ehat-na-kamchatku', 'voshozhdeniya-na-vulkany-kamchatki', 'sobachi-upryazhki-kamchatka',
+    'gonka-beringiya', 'nalychevo-kak-dobratsya', 'avachinskij-pereval-i-verblyud',
+    'gde-ostanovitsya-na-kamchatke', 'tolbachik-samostoyatelno', 'dolina-gejzerov-kak-popast',
+  ];
+
+  it('свой og:image — абсолютный https, 1200×630, alt, twitter:card summary_large_image, не общая картинка сайта', () => {
+    for (const slug of OWN_OG) {
+      const d = landingDesign(slug);
+      expect(d.og, slug).toBeTruthy();
+      expect(d.og!.src, slug).toBe(`/images/og/landings/${slug}.jpg`);
+      expect(d.og!.width, slug).toBe(1200);
+      expect(d.og!.height, slug).toBe(630);
+      expect(d.og!.alt.length, slug).toBeGreaterThan(5);
+      const file = join(process.cwd(), 'public', 'images', 'og', 'landings', `${slug}.jpg`);
+      expect(existsSync(file), file).toBe(true);
+      const l = landingBySlug(slug);
+      const meta = landingPageMetadata(l);
+      const images = (meta.openGraph?.images ?? []) as Array<{ url: string; width?: number; height?: number; alt?: string }>;
+      expect(images[0]?.url, slug).toBe(`https://vedarai.ru/images/og/landings/${slug}.jpg`);
+      expect(images[0]?.width, slug).toBe(1200);
+      expect(images[0]?.height, slug).toBe(630);
+      expect((images[0]?.alt ?? '').length, slug).toBeGreaterThan(5);
+      expect(images[0]?.url, slug).not.toMatch(/vedar-1200x630/);
+      expect(meta.twitter?.card, slug).toBe('summary_large_image');
+    }
+  });
+
+  it('герои Толбачика и Долины гейзеров — исходник не меньше 1280 px по ширине', () => {
+    expect(landingDesign('tolbachik-samostoyatelno').hero!.width).toBeGreaterThanOrEqual(1280);
+    expect(landingDesign('tolbachik-samostoyatelno').hero!.src).toContain('tolbachik-dead-forest');
+    expect(landingDesign('dolina-gejzerov-kak-popast').hero!.width).toBeGreaterThanOrEqual(1280);
+    expect(landingDesign('dolina-gejzerov-kak-popast').hero!.src).toContain('kronotsky/dolina-gejzerov');
   });
 });
