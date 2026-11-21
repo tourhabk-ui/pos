@@ -61,7 +61,9 @@ describe('Permissions-Policy', () => {
 
   it('железо, которым сайт не пользуется, закрыто всем; оплата не тронута', async () => {
     const policy = (await policyFor('/'))!;
-    for (const f of ['usb', 'serial', 'bluetooth', 'hid', 'midi']) expect(policy.get(f), f).toBe('()');
+    for (const f of ['usb', 'serial', 'hid', 'midi']) expect(policy.get(f), f).toBe('()');
+    // bluetooth Chrome не узнаёт и ругается в консоли на каждой странице (аудит 21.11, A12).
+    expect(policy.has('bluetooth')).toBe(false);
     // Приём оплаты выключен; запрет payment ждал бы его возвращения тихой ловушкой.
     expect(policy.has('payment')).toBe(false);
     // Ни одна функция не открыта чужим источникам.

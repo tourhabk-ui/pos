@@ -47,7 +47,7 @@ export function LandingTours({ landing, tours }: { landing: Landing; tours: Land
         </p>
       ) : (
         <>
-          <p className="text-sm" style={{ color: 'var(--text-secondary)' }}>{tourBlockNote(landing.tours)}</p>
+          <p className="text-sm leading-relaxed" style={{ color: 'var(--text-secondary)' }}>{tourBlockNote(landing.tours)}</p>
           <ul className="space-y-2">
             {tours.map((t) => (
               <li key={t.id} className="ds-card p-4 text-sm space-y-1" data-landing-tour={t.id}>
@@ -61,7 +61,7 @@ export function LandingTours({ landing, tours }: { landing: Landing; tours: Land
               </li>
             ))}
           </ul>
-          <Link className="underline text-sm" style={{ color: 'var(--ocean)' }} href="/catalog">Все туры в каталоге</Link>
+          <Link className="inline-flex items-center min-h-11 mt-4 underline text-sm" style={{ color: 'var(--ocean)' }} href="/catalog">Все туры в каталоге</Link>
         </>
       )}
     </section>
@@ -71,18 +71,18 @@ export function LandingTours({ landing, tours }: { landing: Landing; tours: Land
 /** Перелинковка месяцев: двенадцать месяцев и хаб «Когда ехать». */
 export function MonthsNav({ current }: { current?: string }) {
   return (
-    <nav className="ds-card p-4 text-sm space-y-2" aria-label="Камчатка по месяцам" data-landing-months>
+    <nav className="ds-card p-4 text-sm space-y-3" aria-label="Камчатка по месяцам" data-landing-months>
       <p className="font-semibold" style={{ color: 'var(--text-primary)' }}>Камчатка по месяцам</p>
-      <ul className="flex flex-wrap gap-x-3 gap-y-1">
+      <ul className="grid grid-cols-3 sm:grid-cols-4 md:grid-cols-6 gap-x-3 gap-y-1">
         {monthLinks().map((m) => (
           <li key={m.href}>
             {m.href === current
-              ? <span aria-current="page" className="font-semibold">{m.label}</span>
-              : <Link className="underline" style={{ color: 'var(--ocean)' }} href={m.href}>{m.label}</Link>}
+              ? <span aria-current="page" className="inline-flex items-center min-h-11 font-semibold">{m.label}</span>
+              : <Link className="inline-flex items-center min-h-11 underline text-sm" style={{ color: 'var(--ocean)' }} href={m.href}>{m.label}</Link>}
           </li>
         ))}
       </ul>
-      <Link className="underline" style={{ color: 'var(--ocean)' }} href={MONTHS_HUB.href}>{MONTHS_HUB.label}</Link>
+      <Link className="inline-flex items-center min-h-11 mt-1 underline text-sm" style={{ color: 'var(--ocean)' }} href={MONTHS_HUB.href}>{MONTHS_HUB.label}</Link>
     </nav>
   );
 }

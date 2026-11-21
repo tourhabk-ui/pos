@@ -19,7 +19,9 @@ const DEV_EVAL = process.env.NODE_ENV === 'development' ? " 'unsafe-eval'" : '';
 const PERMISSIONS_POLICY = [
   'camera=(self)', 'microphone=(self)', 'geolocation=(self)',
   'accelerometer=(self)', 'gyroscope=(self)', 'magnetometer=(self)',
-  'usb=()', 'serial=()', 'bluetooth=()', 'hid=()', 'midi=()',
+  // bluetooth в заголовок не ставим: Chrome его не узнаёт и на каждой
+  // странице пишет «Unrecognized feature: 'bluetooth'» (аудит вёрстки 21.11, A12).
+  'usb=()', 'serial=()', 'hid=()', 'midi=()',
 ].join(', ');
 
 /**
