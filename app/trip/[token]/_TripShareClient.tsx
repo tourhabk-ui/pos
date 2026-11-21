@@ -36,6 +36,8 @@ interface DayPlan {
   realPrice?: number;
   priceMissing?: string;
   realTour?: { priceUnit?: string; priceLabel?: string };
+  /** Самостоятельный день из БД мест — ссылка на карточку места (21.11). */
+  placeHref?: string;
   /**
    * Предупреждения дня от движка: закрытие парка, «только с гидом», МЧС,
    * лимит парка. До пруфа с прода 06.11 страница их не показывала вовсе, и
@@ -357,7 +359,9 @@ export function TripShareClient({ trip, token }: { trip: Trip; token: string }) 
                     </div>
                     <div>
                       <div className="font-medium text-sm mb-1" style={{ color: 'var(--text-primary)' }}>
-                        {day.title}
+                        {day.placeHref && /^(https:\/\/[^/]+)?\/places\//.test(day.placeHref)
+                          ? <a href={day.placeHref} className="underline" style={{ color: 'var(--ocean)' }} data-trip-place-link>{day.title}</a>
+                          : day.title}
                       </div>
                       <div className="flex flex-wrap gap-2 text-xs" style={{ color: 'var(--text-secondary)' }}>
                         <span className="px-2 py-0.5 rounded-full"

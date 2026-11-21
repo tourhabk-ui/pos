@@ -121,3 +121,14 @@ describe('план на 7 дней — 7 дней', () => {
     expect(query.mock.calls[0][1][0]).not.toContain('volcano');
   });
 });
+
+describe('/trip хранит ссылку самостоятельного дня', () => {
+  it('схема поездки не срезает placeHref /places/…, а чужую ссылку не пускает', async () => {
+    const { TripDayPlanSchema } = await import('@/lib/trips/trip-schema');
+    const { selfPlaceDay } = await import('@/lib/planner/self-fill');
+    const day = selfPlaceDay(6, { id: 1, name: 'Краеведческий музей', type: 'museum', lat: 53.02, lng: 158.65, href: '/places/kraevedchesky-muzey' } as never, 'https://vedarai.ru');
+    const parsed = TripDayPlanSchema.parse(day);
+    expect(parsed.placeHref).toBe('https://vedarai.ru/places/kraevedchesky-muzey');
+    expect(TripDayPlanSchema.safeParse({ ...day, placeHref: 'https://evil.example/x' }).success).toBe(false);
+  });
+});
