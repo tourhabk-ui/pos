@@ -297,10 +297,11 @@ describe('гид со своими турами (29.10): помощник зна
 
     const schedule = query.mock.calls.find((c) => /operator_id = \$1::uuid/.test(String(c[0])));
     expect(schedule?.[1]?.[0]).toBe('p-1');
-    expect(schedule?.[1]?.[1]).toBe('Горелый');
+    // Чужой partner_id модели в запрос не попал: единственный параметр — карточка чата.
+    expect(schedule?.[1]).toEqual(['p-1']);
     expect(executeCrmTool).not.toHaveBeenCalled();
     const second = callToolsWaterfall.mock.calls[1][0] as Array<{ role: string; content: string }>;
-    expect(second.find((m) => m.role === 'tool')?.content).toMatch(/Среди своих туров нет подходящего под «Горелый»/);
+    expect(second.find((m) => m.role === 'tool')?.content).toMatch(/Своих туров нет ни одного/);
     expect(reply).toHaveBeenCalledWith(9, 'Такого тура нет.');
   });
 

@@ -18,7 +18,7 @@
 
 import { pool } from '@/lib/db-pool';
 import { createPlannerCache, fetchAvailabilityForTour } from '@/lib/planner';
-import { containsPattern } from '@/lib/db/like';
+import { tourTitleMatchesQuery } from '@/lib/operators/chat-dates/parse';
 import { kamchatkaToday } from '@/lib/seat-requests/core';
 import { nearestFreeDateSql } from '@/lib/tours/nearest-free-date';
 import { logSwallowedFailure } from '@/lib/observability/swallowed';
@@ -44,6 +44,10 @@ export const MY_TOURS_TOOL = {
 
 // 30, не 10 (05.11): у гида 13 туров, и «список моих туров» показывал 10.
 const TOURS_LIMIT = 30;
+// Свой тур с запросом ищется словами (из #3039): «вачкажец озерки» — это
+// «Вачкажец + Озёрки». Окончания и ё судит JS, а не ILIKE целой фразы,
+// поэтому с запросом читаются все свои туры, до этого предела.
+const OWN_READ_LIMIT = 200;
 const DATES_LIMIT = 20;
 
 interface OwnTour {
@@ -58,6 +62,14 @@ interface OwnTour {
   total_count?: string;
   /** Ближайшая дата со свободными местами в пределах года (правило 1в); null — нет. */
   nearest_free?: string | null;
+}
+
+/** Свой тур под запрос: номер («67», «ID67»), часть названия или слова названия. */
+export function ownTourMatches(q: string, t: { id: number; title: string }): boolean {
+  const qId = q.replace(/^id\s*/i, '');
+  return String(t.id) === qId
+    || t.title.toLowerCase().includes(q.toLowerCase())
+    || tourTitleMatchesQuery(q, t.title);
 }
 
 export function parseDays(v: unknown): number {
@@ -75,7 +87,7 @@ export async function runMyToursSchedule(
   const q = typeof args.tour === 'string' ? args.tour.trim().slice(0, 100) : '';
   const days = parseDays(args.days);
 
-  let tours: OwnTour[];
+  let all: OwnTour[];
   try {
     const { rows } = await pool.query<OwnTour>(
       `SELECT id, title, is_active, is_published, max_participants,
@@ -85,29 +97,44 @@ export async function runMyToursSchedule(
          FROM operator_tours ot
         WHERE operator_id = $1::uuid
           AND deleted_at IS NULL
-          AND ($2::text = '' OR id::text = $2::text OR title ILIKE $3::text)
         ORDER BY is_active DESC, created_at DESC, id
-        LIMIT ${TOURS_LIMIT}`,
-      [partnerId, q, containsPattern(q)],
+        LIMIT ${q ? OWN_READ_LIMIT : TOURS_LIMIT}`,
+      [partnerId],
     );
-    tours = rows;
+    all = rows;
   } catch (err) {
     console.error('[my-tours] свои туры партнёра не прочитаны, SQLSTATE', (err as { code?: string })?.code ?? 'нет');
     return 'НЕ УДАЛОСЬ ПРОЧИТАТЬ свои туры — не утверждай, что туров или дат нет; предложи спросить позже.';
   }
-  if (tours.length === 0) {
-    return q ? `Среди своих туров нет подходящего под «${q}».` : 'Своих туров нет ни одного (удалённые не считаются).';
+  if (all.length === 0) return 'Своих туров нет ни одного (удалённые не считаются).';
+
+  const ownTotal = parseInt(all[0].total_count ?? String(all.length), 10);
+  // Прочитаны не все свои туры — отбор по запросу неполон, и «нет» про
+  // непрочитанный тур было бы неправдой.
+  const unread = q && ownTotal > all.length
+    ? `Свои туры прочитаны не все (${all.length} из ${ownTotal}) — не утверждай, что тура нет.`
+    : '';
+  const found = q ? all.filter((t) => ownTourMatches(q, t)) : all;
+  if (found.length === 0) {
+    const listed = all.slice(0, TOURS_LIMIT).map((t) => `ID${t.id} «${t.title}»`).join('; ');
+    const more = all.length > TOURS_LIMIT ? `; и ещё ${all.length - TOURS_LIMIT}` : '';
+    return [
+      `Среди своих туров нет подходящего под «${q}». Свои туры (${ownTotal}): ${listed}${more}. Уточни у партнёра, какой из них он имел в виду.`,
+      unread,
+    ].filter(Boolean).join('\n');
   }
+  const tours = found.slice(0, TOURS_LIMIT);
 
   const from = kamchatkaToday(nowMs);
   const to = new Date(Date.parse(from) + (days - 1) * 86400000).toISOString().slice(0, 10);
   const cache = createPlannerCache();
-  const total = parseInt(tours[0].total_count ?? String(tours.length), 10);
+  const total = q ? found.length : ownTotal;
   const lines = [`Свои туры и открытые даты с ${from} по ${to} (свободные места — с учётом броней):`];
   // Предел сработал — так и сказано (05.11): иначе «тура нет» про отрезанный.
   if (total > tours.length) {
     lines.push(`Показаны ${tours.length} из ${total} — остальные не перечислены; не утверждай, что тура нет, спроси с его названием.`);
   }
+  if (unread) lines.push(unread);
   for (const t of tours) {
     const flags = [t.is_active ? 'активен' : 'неактивен', t.is_published ? 'на витрине' : 'скрыт с витрины'];
     const season = t.season_start || t.season_end ? ` | сезон ${t.season_start ?? '…'} — ${t.season_end ?? '…'}` : '';
