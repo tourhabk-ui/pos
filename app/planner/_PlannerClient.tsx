@@ -63,6 +63,8 @@ import { PlanZones } from '@/components/planner/PlanZones';
 import { platformAcceptsPayments } from '@/lib/payments/accepting';
 import { EMPTY_SELECTION, resolveChoices, toggleLodging, type ChoiceSelection } from '@/lib/planner/plan-choices';
 import { buildPlanPrintHtml } from '@/lib/planner/print-html';
+import { loadPrintPhotos } from '@/lib/planner/print-photos';
+import { tourPath } from '@/lib/tours/tour-url';
 import type {
   TransportType, DayType, FitnessLevel, BudgetTier,
   SelectItem, DayPlan, TripWarning, Recommendation,
@@ -2078,7 +2080,9 @@ export function PlannerClient({ initialUserId }: { initialUserId?: string | null
     // Сборка документа — чистой функцией, и каждое значение экранирует она
     // сама (lib/planner/print-html): название и описание тура пишет оператор,
     // а документ открывается в окне того же источника, что сайт (разбор 06.11).
-    const html = buildPlanPrintHtml({
+    const origin = typeof window !== 'undefined' ? window.location.origin : 'https://vedarai.ru';
+    const printInput = {
+      origin,
       dateRange: arrival && departure ? `${arrival} — ${departure}` : '',
       adults,
       childAges: knownChildAges,
@@ -2094,18 +2098,37 @@ export function PlannerClient({ initialUserId }: { initialUserId?: string | null
         meta: `${zoneName(shownZone(d))}${d.type === 'activity' ? ` | ${d.detailsUnknown ? 'сложность не записана' : DIFFICULTY_LABEL[d.difficulty] ?? d.difficulty}` : ''}`,
         warnings: d.dayWarnings ?? [],
         weatherKit: d.weatherKit ?? null,
+        // Макет 21.11: многодневный тур — одним блоком, ссылка и QR на тур.
+        dayType: d.type,
+        tourId: d.type === 'activity' ? d.realTour?.tourId ?? null : null,
+        tourTitle: d.type === 'activity' && d.realTour ? d.title : null,
+        tourHref: d.type === 'activity' && d.realTour ? `${origin}${tourPath({ id: d.realTour.tourId })}` : null,
       })),
       estimate: estimate ?? null,
       warnings: recommendation?.warnings ?? [],
       fmt,
-    });
+    };
+    const html = buildPlanPrintHtml(printInput);
 
     const win = window.open('', '_blank');
     if (!win) return;
     win.document.write(html);
     win.document.close();
-    // auto-print after a short delay for rendering
-    setTimeout(() => { win.print(); }, 400);
+    // Снимки туров с подписью автора (обложка и превью) — догружаются: окно
+    // открыто сразу (блокировщик окон), документ переписывается, когда кадры
+    // пришли; не пришли — печатается без них.
+    const tourIds = printInput.days.map((d) => d.tourId).filter((x): x is string => Boolean(x));
+    if (tourIds.length === 0) {
+      setTimeout(() => { win.print(); }, 400);
+      return;
+    }
+    void loadPrintPhotos(tourIds).then((photos) => {
+      const first = Object.values(photos)[0] ?? null;
+      if (!first) return;
+      win.document.open();
+      win.document.write(buildPlanPrintHtml({ ...printInput, photos, cover: first }));
+      win.document.close();
+    }).finally(() => { setTimeout(() => { win.print(); }, 600); });
   }
 
   /**

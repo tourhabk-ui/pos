@@ -59,9 +59,9 @@ describe('итога нет — так и сказано', () => {
 
   it('печать: «не посчитано», без «0 ₽»', () => {
     const html = printHtml(est);
-    expect(html).toContain('<span>Итого на группу</span><span>не посчитано</span>');
+    expect(html).toContain('<td colspan="2">Итого на группу</td><td class="sum">не посчитано</td>');
     expect(html).toContain(NO_PRICES_YET);
-    expect(html).not.toMatch(/Итого на группу<\/span><span>0/);
+    expect(html).not.toMatch(/Итого на группу<\/td><td class="sum">0/);
   });
 
   it('Кузьмич: «Итог не посчитан», без «0 ₽ на группу»', () => {
@@ -81,8 +81,8 @@ describe('итог есть — строки без цены названы', ()
       },
     ];
     const html = printHtml(estimateGroup(days, LOCAL));
-    expect(plain(html)).toContain('<span>Итого на группу</span><span>18000 ₽</span>');
-    expect(html).toContain('Не вошло в итог: ');
+    expect(plain(html)).toContain('<td colspan="2">Итого на группу</td><td class="sum">18000 ₽</td>');
+    expect(html).toMatch(/Посчитано \d+ из \d+ позиц[^—]*— не вошло в итог: /);
   });
 });
 

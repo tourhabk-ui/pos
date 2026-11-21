@@ -4,6 +4,7 @@ import { publicTourSql } from '@/lib/tours/public-visibility';
 import { publicRating } from '@/lib/reviews/public-rating';
 import { isUuid } from '@/lib/text/slugify';
 import { BEAR_FALLBACK } from '@/lib/media/wildlife-photos';
+import { tourPhotoCaptions } from '@/lib/tours/photo-credits';
 import { cardDuration, groupSizeOf } from '@/lib/tours/card-facts';
 import { priceWithUnitWords } from '@/lib/tours/price-label';
 import { calendarRangeOf, tourSeasonWords } from '@/lib/tours/season-words';
@@ -68,6 +69,9 @@ export async function GET(
         p.name         AS partner_name,
         p.rating       AS partner_rating,
         p.review_count AS partner_review_count,
+        -- Подписи снимков (адрес → автор): обложка PDF плана берёт снимок
+        -- только с автором (21.11) — карта та же, что у карточки тура.
+        p.gallery_credits AS operator_photo_credits,
         t.season_start::text AS season_start_day,
         t.season_end::text   AS season_end_day,
         (SELECT MIN(ta.date)::text FROM tour_availability ta WHERE ${calendarDatesWhereSql('ta', 't.id')}) AS cal_first,
@@ -171,6 +175,8 @@ export async function GET(
       reviewCount:      parseInt(String(row.review_count || row.reviewCount || 0)),
       isActive:         (row.is_active ?? true) as boolean,
       images,
+      // Подпись автора кадра по адресу (lib/tours/photo-credits); null — подписи нет.
+      imageCaptions: tourPhotoCaptions(images, row.operator_photo_credits),
       slug:             (row.slug || '') as string,
       locationName:     (row.locationName || row.location_name || '') as string,
       createdAt:        new Date(String(row.createdAt ?? row.created_at ?? Date.now())),
