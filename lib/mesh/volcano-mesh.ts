@@ -28,6 +28,37 @@ function genDeviceId(): string {
   return dedupId('mesh');
 }
 
+/**
+ * Хранилище устройства может отсутствовать вовсе: во встроенных браузерах
+ * (экран в машине, 21.11) `window.localStorage` равен null, и
+ * `localStorage.getItem` бросал «Cannot read properties of null» прямо в
+ * конструкторе — меш стартует, когда у /sos появились координаты, и экран
+ * SOS падал в «Произошла ошибка». Без хранилища id устройства живёт, пока
+ * открыта страница: соседи увидят новый id после перезагрузки — это лучше
+ * упавшего SOS.
+ */
+/** Может бросить (запрет хранилища) — зовут только из try ниже. */
+function deviceStorage(): Storage | null {
+  return typeof window !== 'undefined' ? window.localStorage ?? null : null;
+}
+
+function readDeviceId(): string | null {
+  try {
+    return deviceStorage()?.getItem('mesh-device-id') ?? null;
+  } catch {
+    // Хранилище закрыто — id будет новым на эту страницу.
+    return null;
+  }
+}
+
+function saveDeviceId(id: string): void {
+  try {
+    deviceStorage()?.setItem('mesh-device-id', id);
+  } catch {
+    // Квота или запрет хранилища — id живёт до перезагрузки страницы.
+  }
+}
+
 type PeerHandler = (peerId: string, peer: MeshPeer) => void;
 type MessageHandler = (msg: MeshMessage) => void;
 
@@ -77,8 +108,8 @@ export class VolcanoMesh {
 
   constructor() {
     if (typeof window === 'undefined') throw new Error('VolcanoMesh: client only');
-    this.deviceId = localStorage.getItem('mesh-device-id') ?? genDeviceId();
-    localStorage.setItem('mesh-device-id', this.deviceId);
+    this.deviceId = readDeviceId() ?? genDeviceId();
+    saveDeviceId(this.deviceId);
   }
 
   onStatus(fn: (s: MeshStatus) => void): void {
