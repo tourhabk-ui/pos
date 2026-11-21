@@ -1,10 +1,14 @@
-/** Страница посадочной целиком: шапка, хлебные крошки, тело (LandingContent). */
-import Link from 'next/link';
+/**
+ * Страница посадочной целиком: шапка, главный кадр с H1 и хлебными крошками
+ * (lib/landings/design, ТЗ Сыщика 21.11), тело (LandingContent).
+ */
 import type { Metadata } from 'next';
 import type { ReactNode } from 'react';
 import { Header } from '@/components/layout/Header';
 import { JsonLd } from '@/components/seo/JsonLd';
 import { LandingContent } from '@/components/landings/LandingContent';
+import { LandingHero } from '@/components/landings/LandingMedia';
+import { landingDesign, landingOgImagePath } from '@/lib/landings/design';
 import { pageContainer } from '@/lib/layout/page-width';
 import { landingBySlug, landingByPath, monthLinks, type Landing } from '@/lib/landings/landings';
 import { loadToursFor, loadPublicTours, type LandingBlockTour } from '@/lib/landings/tours';
@@ -15,13 +19,29 @@ import { defaultOgImages } from '@/lib/seo/og-image';
 
 const SITE = process.env.NEXT_PUBLIC_SITE_URL ?? 'https://vedarai.ru';
 
+/**
+ * Картинка превью: главный кадр страницы (крупнейший готовый вариант);
+ * у страницы без кадра — общая картинка сайта.
+ */
+export function landingOgImages(landing: Landing): Array<{ url: string; width: number; height: number; alt: string }> {
+  const hero = landingDesign(landing.slug).hero;
+  if (!hero) return defaultOgImages();
+  const path = landingOgImagePath(hero);
+  const w = /\.(\d+)\.webp$/.exec(path);
+  const width = w ? Math.min(Number(w[1]), hero.width) : hero.width;
+  const height = Math.round((width * hero.height) / hero.width);
+  return [{ url: `${SITE}${path}`, width, height, alt: hero.alt }];
+}
+
 export function landingPageMetadata(landing: Landing): Metadata {
   const url = `${SITE}${landing.path}`;
+  const images = landingOgImages(landing);
   return {
     title: brandedTitle(landing.title),
     description: landing.description,
     alternates: { canonical: url },
-    openGraph: { title: landing.title, description: landing.description, url, type: 'article', images: defaultOgImages() },
+    openGraph: { title: landing.title, description: landing.description, url, type: 'article', images },
+    twitter: { card: 'summary_large_image', title: landing.title, description: landing.description, images: images.map((i) => i.url) },
   };
 }
 
@@ -78,11 +98,9 @@ export async function LandingPage({ slug, middle, footer }: {
       {itemList && <JsonLd data={itemList} />}
       <Header />
       <main className="ds-page">
-        <div className={`${pageContainer('reading')} py-8 space-y-6`}>
-          <nav className="text-sm" style={{ color: 'var(--text-muted)' }} aria-label="Хлебные крошки">
-            <Link href="/">Главная</Link>
-          </nav>
-          <LandingContent landing={landing} tours={tours} middle={middle} />
+        <LandingHero h1={landing.h1} photo={landingDesign(landing.slug).hero} />
+        <div className={`${pageContainer('reading')} py-6 space-y-6`}>
+          <LandingContent landing={landing} tours={tours} middle={middle} showH1={false} kuzmich />
           {footer}
         </div>
       </main>
