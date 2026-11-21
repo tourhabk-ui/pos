@@ -473,7 +473,7 @@ export const PARAM_ENGLISH: Record<string, Record<string, { lead: string; exampl
   },
   get_tour_availability: {
     tour: { lead: 'Tour title, keyword or numeric ID from get_tours. A company or guide name returns their tour list without dates — then ask by tour ID.' },
-    date_from: { lead: 'Start of the window, YYYY-MM-DD; default today.', example: '2027-07-15' },
+    date_from: { lead: 'Start of the window, a real YYYY-MM-DD in Asia/Kamchatka; default today. An invalid date is an error, not today.', example: '2027-07-15' },
     days: { lead: 'Window length in days, 1–31; default 14.', example: '14' },
     people: { lead: 'Number of travellers, 1–30. When given, each date shows the full booking total — the same calculation the booking itself uses; if the window has no seats, the nearest date with seats for all of them.', example: '2' },
   },

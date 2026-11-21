@@ -36,6 +36,8 @@ import { GROUP_TOTAL_EXCLUDES_SENTENCE, groupTotalLabel, type GroupTotal } from 
 import { datesClosedByPlatform } from '@/lib/tours/date-closure';
 import { tourDurationDays } from '@/lib/bookings/duration';
 import { loadClosedDays, tripEnd, tripHitsClosed } from '@/lib/tours/closed-days';
+import { readCalendarDate, type CalendarDateRead } from '@/lib/analytics/kamchatka-day';
+import { McpUserError } from '@/lib/mcp/jsonrpc';
 
 export { groupTotalLabel, type GroupTotal } from '@/lib/tours/group-total';
 
@@ -1388,9 +1390,26 @@ async function shortGroupLines(
 /** context — вопрос человека этого хода (resolveTourChoice): явное имя продавца. */
 type AvailabilityArgs = { tour?: string; date_from?: string; days?: string; people?: string; context?: string };
 
+/**
+ * Отказ на явно переданную недату (#2793, аудит MCP 25.10). Пустое поле —
+ * «с сегодня»; «not-a-date» и 2026-02-30 сегодняшним окном не становятся:
+ * агент, получивший места на другой день, продолжил бы подбор так, будто
+ * его дата принята. 2026-13-01 раньше роняло ответ в «внутреннюю ошибку».
+ */
+export function invalidDateFromText(raw: string): string {
+  return `Дата «${raw}» не принята: нужен настоящий календарный день в виде ГГГГ-ММ-ДД по Камчатке. `
+    + 'Свободные места не проверены — уточни дату у человека.';
+}
+
 export async function getTourAvailabilityForKuzmich(args: AvailabilityArgs): Promise<string> {
   const tourQuery = (args.tour ?? '').trim();
   if (!tourQuery) return 'Укажи тур: название, ключевое слово или ID.';
+
+  // «Сегодня» — по Камчатке: даты туров местные. Дата проверяется раньше
+  // тура: «тур не найден» на недату читалось бы как принятая дата.
+  const today = kamchatkaToday();
+  const dateFrom = readCalendarDate(args.date_from, today);
+  if (dateFrom.kind === 'invalid') throw new McpUserError(invalidDateFromText(dateFrom.raw), 'invalid_date');
 
   const choice = await resolveTourChoice(tourQuery, { context: args.context });
   if (choice.kind === 'none') {
@@ -1402,23 +1421,25 @@ export async function getTourAvailabilityForKuzmich(args: AvailabilityArgs): Pro
   // Туры нескольких компаний: ответ — о первом по правилу 1в, а первой
   // строкой названы все (агент спрашивает человека, а не выбирает за него).
   const tour = choice.kind === 'one' ? choice.tour : choice.candidates[0];
-  const body = await availabilityForTour(tour, args);
+  const body = await availabilityForTour(tour, args, dateFrom, today);
   const head = choice.kind === 'ambiguous' ? [ambiguityNote(tourQuery, choice.candidates)] : [];
   const tail = choice.kind === 'one' ? await samePlaceOffersLine(choice.tour) : '';
   return [...head, body, ...(tail ? [tail] : [])].join('\n');
 }
 
-async function availabilityForTour(tour: ResolvedTour, args: AvailabilityArgs): Promise<string> {
+async function availabilityForTour(
+  tour: ResolvedTour,
+  args: AvailabilityArgs,
+  dateFrom: Exclude<CalendarDateRead, { kind: 'invalid' }>,
+  today: string,
+): Promise<string> {
 
   // «Сегодня» — по Камчатке: даты туров местные. По UTC с 12:00 до 24:00
   // сегодняшнее число на Камчатке уже следующее, и инструмент предлагал
   // вчерашний день как свободный (проба MCP 29.09, 22:05 UTC — «29.09
   // свободно 12» при 30.09 на Камчатке).
-  const today = kamchatkaToday();
-  const pastFrom = /^\d{4}-\d{2}-\d{2}$/.test(args.date_from ?? '') && (args.date_from as string) < today;
-  const from = /^\d{4}-\d{2}-\d{2}$/.test(args.date_from ?? '') && (args.date_from as string) >= today
-    ? (args.date_from as string)
-    : today;
+  const pastFrom = dateFrom.kind === 'date' && dateFrom.past;
+  const from = dateFrom.kind === 'date' && !dateFrom.past ? dateFrom.date : today;
   const daysRaw = Number(args.days);
   const days = Number.isFinite(daysRaw) ? Math.min(Math.max(Math.trunc(daysRaw), 1), 31) : 14;
   // Поправки запроса называются, а не делаются молча: агент должен знать,
