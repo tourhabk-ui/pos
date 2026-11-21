@@ -50,7 +50,7 @@ export async function GET(req: NextRequest) {
 
     const { rows } = await pool.query(
       `SELECT id, title, lat, lng, description, category,
-              activity_type, location_type, kind, source_url
+              activity_type, location_type, kind, source_url, source_name
        FROM agent_route_knowledge
        WHERE ${whereClauses.join(' AND ')}`,
       params,
@@ -67,7 +67,7 @@ export async function GET(req: NextRequest) {
         activityType: (r.activity_type as string | null) ?? '',
         locationType: (r.location_type as string | null) ?? '',
         kind: (r.kind as string | null) ?? '',
-        sourceUrl: publicSourceUrl(r.source_url as string | null) ?? '',
+        sourceUrl: publicSourceUrl(r.source_url as string | null, r.source_name as string | null) ?? '',
         distanceKm: distanceKm(
           { lat, lng },
           { lat: parseFloat(r.lat as string), lng: parseFloat(r.lng as string) },

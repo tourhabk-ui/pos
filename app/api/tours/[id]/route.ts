@@ -9,6 +9,7 @@ import { priceWithUnitWords } from '@/lib/tours/price-label';
 import { calendarRangeOf, tourSeasonWords } from '@/lib/tours/season-words';
 import { cancellationOperatorWords } from '@/lib/tours/cancellation-words';
 import { calendarDatesWhereSql } from '@/lib/tours/open-dates';
+import { publicSourceUrl } from '@/lib/text/source-attribution';
 
 export const dynamic = 'force-dynamic';
 
@@ -64,6 +65,7 @@ export async function GET(
         kr.lat         AS route_lat,
         kr.lng         AS route_lng,
         kr.source_url  AS route_source_url,
+        kr.source_name AS route_source_name,
         p.id           AS partner_id_val,
         p.name         AS partner_name,
         p.rating       AS partner_rating,
@@ -184,7 +186,9 @@ export async function GET(
         category:  row.route_category as string,
         lat:       row.route_lat != null ? parseFloat(row.route_lat as string) : null,
         lng:       row.route_lng != null ? parseFloat(row.route_lng as string) : null,
-        sourceUrl: (row.route_source_url as string | null) ?? null,
+        // Адрес источника маршрута — через тот же фильтр, что карточка и каталог:
+        // сайт конкурента и подпись «сторонний источник» наружу не уходят (#3652).
+        sourceUrl: publicSourceUrl(row.route_source_url as string | null, row.route_source_name as string | null),
       } : null,
 
       // Оператор из partners

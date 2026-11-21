@@ -119,7 +119,7 @@ async function getRouteRaw(idOrSlug: string) {
   const realId = resolved.id;
   try {
     const result = await query(
-      `SELECT k.id, k.category, k.title, k.description, k.lat, k.lng, k.source_url, k.payload,
+      `SELECT k.id, k.category, k.title, k.description, k.lat, k.lng, k.source_url, k.source_name, k.payload,
               k.location_type, k.activity_type,
               -- Есть ли настоящий снимок (не нарисованный моделью) — для
               -- превью ссылки; правило показа то же, что у карточки места.
@@ -165,7 +165,7 @@ async function getRouteRaw(idOrSlug: string) {
       description: stripFillerLead(stripSourceAttribution((r.description as string | null) ?? '')),
       lat: r.lat != null ? parseFloat(r.lat as string) : null,
       lng: r.lng != null ? parseFloat(r.lng as string) : null,
-      sourceUrl: publicSourceUrl(r.source_url as string | null),
+      sourceUrl: publicSourceUrl(r.source_url as string | null, r.source_name as string | null),
       durationDays: payload.duration_days != null ? Number(payload.duration_days)
         : r.kr_duration_days != null ? Number(r.kr_duration_days) : null,
       // Тип проверяется, а не обещается: у двух маршрутов season — массив, и
