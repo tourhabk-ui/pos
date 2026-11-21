@@ -17,6 +17,7 @@ import Image from 'next/image';
 import { paceIsShowable } from '@/lib/routes/route-contradiction';
 import { tourPhotoPosition } from '@/lib/tours/photo-focus';
 import { tourPath } from '@/lib/tours/tour-url';
+import { randomUuid } from '@/lib/security/random-uuid';
 
 interface TourSuggestion {
   id: number;
@@ -237,8 +238,10 @@ function AIAssistantContent({ initialQuery }: { initialQuery: string | null }) {
     if (typeof window === 'undefined') return '';
     const key = 'th_ai_assistant_session';
     let id = localStorage.getItem(key);
-    if (!id) { id = crypto.randomUUID(); localStorage.setItem(key, id); }
-    return id;
+    // Только криптостойкий id (старый браузер — через getRandomValues). Нет
+    // источника — пустой id: угадываемый не подставляем.
+    if (!id) { id = randomUuid(); if (id) localStorage.setItem(key, id); }
+    return id ?? '';
   });
   const [limitReached, setLimitReached] = useState(false);
   const [remainingFree, setRemainingFree] = useState<number | null>(null);

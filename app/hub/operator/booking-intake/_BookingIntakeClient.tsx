@@ -1,6 +1,7 @@
 'use client';
 
 import { useCallback, useRef, useState } from 'react';
+import { dedupId } from '@/lib/security/random-uuid';
 import {
   Bot, Send, Loader2, CheckCircle2, Clock, User,
 } from 'lucide-react';
@@ -66,7 +67,7 @@ export default function BookingIntakeClient() {
         // Добавляем заявку в список при первом сообщении пользователя
         if (messages.length === 0) {
           const newInquiry: Inquiry = {
-            id: crypto.randomUUID(),
+            id: dedupId('inquiry'),
             preview: text.slice(0, 80),
             status: 'new',
             createdAt: new Date().toISOString(),

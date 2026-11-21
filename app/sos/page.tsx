@@ -14,6 +14,7 @@ import { PushSafetyOffer } from '@/components/PWA/PushSafetyOffer';
 import RescueChat from '@/components/safety/RescueChat';
 import { geolocationOnce } from '@/lib/geo/current-position';
 import { reportClientError } from '@/lib/client-errors/report';
+import { dedupId } from '@/lib/security/random-uuid';
 
 type SendStatus = 'idle' | 'locating' | 'sending' | 'sent' | 'queued' | 'error';
 
@@ -225,8 +226,10 @@ export default function SosPage() {
   const [qrState, setQrState] = useState<{ key: string; svg: string } | null>(null);
   const [qrMode, setQrMode] = useState<'relay' | 'geo'>('relay');
   const qrSosIdRef = useRef<string>('');
-  if (!qrSosIdRef.current && typeof crypto !== 'undefined') {
-    qrSosIdRef.current = crypto.randomUUID();
+  // Не `crypto.randomUUID()` напрямую: в Chrome до 92 его нет, и экран SOS
+  // падал при открытии (экран в машине, 21.11). dedupId не падает никогда.
+  if (!qrSosIdRef.current) {
+    qrSosIdRef.current = dedupId('sos');
   }
   const relayUrl = useMemo(() => {
     if (!coords) return null;

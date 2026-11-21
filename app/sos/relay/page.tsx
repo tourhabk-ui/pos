@@ -20,6 +20,7 @@ import { useEffect, useState } from 'react';
 import { AlertTriangle, CheckCircle, Clock, MapPin, Phone } from 'lucide-react';
 import { parseRelayHash, type QrSosPayload } from '@/lib/mesh/qr-relay';
 import { queueSOS, registerSOSSync, installSOSFlush } from '@/lib/offline/pending-queue';
+import { dedupId } from '@/lib/security/random-uuid';
 
 type RelayState =
   | { phase: 'reading' }
@@ -34,7 +35,7 @@ function relayerId(): string {
     const key = 'mesh-device-id';
     const existing = localStorage.getItem(key);
     if (existing) return `qr:${existing.slice(0, 32)}`;
-    const fresh = crypto.randomUUID();
+    const fresh = dedupId('relay');
     localStorage.setItem(key, fresh);
     return `qr:${fresh.slice(0, 32)}`;
   } catch {

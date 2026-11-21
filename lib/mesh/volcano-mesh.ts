@@ -4,6 +4,7 @@ import type { MeshMessage, MeshMessageType, MeshPeer, MeshStatus, SosBroadcastPa
 import { roomOf } from './rooms';
 import { queueSOS, registerSOSSync } from '@/lib/offline/pending-queue';
 import { reportClientError } from '@/lib/client-errors/report';
+import { dedupId } from '@/lib/security/random-uuid';
 
 // STUN пробивает обычные NAT; за CGNAT мобильных операторов (типичный
 // случай в поле) соединение без TURN не собирается вовсе — обе стороны
@@ -22,7 +23,9 @@ const ICE_SERVERS: RTCIceServer[] = [
 ];
 
 function genDeviceId(): string {
-  return crypto.randomUUID();
+  // Не `crypto.randomUUID()` напрямую: в Chrome до 92 его нет (экран в машине,
+  // 21.11) — меш на /sos падал бы вместе со страницей.
+  return dedupId('mesh');
 }
 
 type PeerHandler = (peerId: string, peer: MeshPeer) => void;
@@ -393,7 +396,7 @@ export class VolcanoMesh {
       // Фолбэк sos_id для старого формата: from+timestamp дедуплицирует
       // копии одного сообщения; без timestamp — случайный (дубль лучше потери)
       const sosId = p.sos_id
-        ?? (typeof msg.timestamp === 'number' ? `${msg.from}-${msg.timestamp}` : crypto.randomUUID());
+        ?? (typeof msg.timestamp === 'number' ? `${msg.from}-${msg.timestamp}` : dedupId('sos'));
 
       // Store-and-forward: чужой SOS ложится в мою офлайн-очередь и уходит
       // через /api/mesh/sos-relay (дедуп по sos_id), когда Я доберусь до связи.
@@ -490,7 +493,7 @@ export class VolcanoMesh {
   private pendingSos: SosBroadcastPayload | null = null;
 
   sendSOS(sos?: Partial<SosBroadcastPayload['sos']>): string {
-    const sosId = crypto.randomUUID();
+    const sosId = dedupId('sos');
     const fields = {
       // Координаты формы; фолбэк — последняя известная позиция меша
       // (для спасателей устаревший фикс лучше, чем никакого)
