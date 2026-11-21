@@ -198,8 +198,12 @@ rounded-2xl        → rounded-lg (кроме glass-элементов и bento-
   `/emergency` (`components/shared/ErrorEmergencyLinks.tsx`), у /sos — своя
   граница, где звонок стоит первым. Service worker отдаёт `/sos` без копии
   копией `/emergency`, а не «Связи нет». `crypto.randomUUID` в клиентском коде —
-  через `lib/security/random-uuid.ts` (в Chrome до 92 его нет). Сторожа:
-  `tests/unit/error-screens-emergency.test.tsx`, `tests/unit/client-random-uuid.test.tsx`
+  через `lib/security/random-uuid.ts` (в Chrome до 92 его нет). Хранилища
+  устройства может не быть вовсе (`window.localStorage` равен null во
+  встроенных браузерах): в коде каркаса, главной, /sos и экранов ошибок каждое
+  обращение к нему — в try своей функции. Сторожа:
+  `tests/unit/error-screens-emergency.test.tsx`, `tests/unit/client-random-uuid.test.tsx`,
+  `tests/unit/sos-no-storage.test.tsx`
 - Футер: только desktop
 - Homepage: `components/homepage/` (HeroStatus, BentoSection, EditorialSection,
   FeaturedTour, KuzmichBriefing, LiveOnTrails, StatsBand, MoodEntry, OperatorPromo,
