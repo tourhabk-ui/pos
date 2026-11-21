@@ -10,6 +10,7 @@
  * вызовом с подменённым загрузчиком; часы — подложенные. Сторона агентов
  * (MCP, A2A) и чат Кузьмича — в `rental-site-pause-agents.test.ts`.
  */
+import { planEntryHref } from '@/lib/planner/plan-entry';
 import React from 'react';
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
 import { render } from '@testing-library/react';
@@ -61,6 +62,8 @@ const NO_WEATHER: HomeWeather = { kind: 'failed' };
 import type { HomeV8Data } from '@/app/_home/data';
 import type { RentalCompany, RentalCompanyProfile } from '@/lib/rental/rental-format';
 import type { CarrierProfile } from '@/lib/transfers/charter-format';
+// Гость (вход не проверен в тесте) — план в чате Кузьмича (21.11).
+const GUEST_PLAN_HREF = planEntryHref(null);
 
 /** Пятница 23.10, полдень по Камчатке — пауза идёт. */
 const DURING = new Date('2026-10-23T00:00:00Z');
@@ -241,10 +244,10 @@ describe('двери «Прокат» на главной', () => {
     };
     const doors = (c: HTMLElement) => [...c.querySelectorAll('nav[aria-label="Инструменты поездки"] > a')].map((a) => a.getAttribute('href'));
     const off = render(<HomeV8Client data={{ ...data, rentalDoor: false }} weather={NO_WEATHER} />);
-    expect(doors(off.container)).toEqual(['/planner', '/safety#radar', '/weather', '/catalog', '/transfers', '/accommodations']);
+    expect(doors(off.container)).toEqual([GUEST_PLAN_HREF, '/safety#radar', '/weather', '/catalog', '/transfers', '/accommodations']);
     off.unmount();
     const on = render(<HomeV8Client data={data} weather={NO_WEATHER} />);
-    expect(doors(on.container)).toEqual(['/planner', '/safety#radar', '/weather', '/catalog', '/transfers', '/accommodations', '/car-rental']);
+    expect(doors(on.container)).toEqual([GUEST_PLAN_HREF, '/safety#radar', '/weather', '/catalog', '/transfers', '/accommodations', '/car-rental']);
     vi.unstubAllGlobals();
   });
 });

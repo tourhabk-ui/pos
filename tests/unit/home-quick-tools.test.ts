@@ -61,8 +61,8 @@ describe('плитки на главной', () => {
     expect(HOME).not.toMatch(/className="planline"|<section className="live">/);
   });
 
-  it('планировщик ведёт в /planner, радар — прямо на радар /safety#radar (владелец 26.09, вечер)', () => {
-    expect(tools).toMatch(/href="\/planner" className="qt qt-plan"/);
+  it('«Своя поездка» — через PlanEntryLink (гость → план в чате, вошедший → /planner, 21.11), радар — прямо на радар /safety#radar', () => {
+    expect(tools).toMatch(/PlanEntryLink className="qt qt-plan"/);
     // Утром 26.09 плитка раскрывала сводку (вариант 1), вечером владелец:
     // «по кнопке радар должен открываться наш радар» и «сводка и
     // безопасность дублируется?». Плитка — ссылка, раскрывашки и сводки нет.

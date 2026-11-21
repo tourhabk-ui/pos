@@ -18,7 +18,7 @@ export const SPEECH_MAX_CHARS = 1200;
  * и сообщаем, что озвучено не всё.
  */
 export function prepareSpeechText(raw: string, max = SPEECH_MAX_CHARS): { text: string; truncated: boolean } {
-  const clean = plainResponse(raw)
+  const clean = plainResponse(raw.replace(/\[([^\]\n]{1,200})\]\((?:\/|https?:\/\/)[^\s()]*\)/g, '$1')) // «[тур](/catalog/…)» — вслух только название
     .replace(/https?:\/\/\S+/g, '')          // адрес вслух — шум, а не смысл
     .replace(/[ \t]{2,}/g, ' ')
     .trim();

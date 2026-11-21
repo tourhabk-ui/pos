@@ -596,7 +596,10 @@ export default function KuzmichClient() {
       )}
 
       {/* Чат */}
-      <div className={`flex-1 flex flex-col bg-[var(--bg-card)] border border-[var(--border)] rounded-xl overflow-hidden ${hasMessages ? 'min-h-[400px]' : ''}`}>
+      {/* overflow-clip, а не overflow-hidden: hidden делает карточку прокручиваемым
+          предком, и «липкое» поле ввода ниже прилипало бы к ней, а не к экрану
+          (тест 21.11: на телефоне поле уезжало вместе с ответом). */}
+      <div className={`flex-1 flex flex-col bg-[var(--bg-card)] border border-[var(--border)] rounded-xl overflow-clip ${hasMessages ? 'min-h-[400px]' : ''}`}>
 
         {/* Сообщения */}
         {hasMessages && (
@@ -732,8 +735,9 @@ export default function KuzmichClient() {
           </div>
         )}
 
-        {/* Ввод */}
-        <div className="flex items-center gap-3 p-4 border-t border-[var(--border)]">
+        {/* Ввод. Прилипает к низу экрана, пока листается ответ (тест 21.11,
+            390 px: поле уезжало), с отступом под жест «домой» у iPhone. */}
+        <div data-kuzmich-input className="sticky bottom-0 z-10 flex items-center gap-3 p-4 pb-[max(1rem,env(safe-area-inset-bottom))] border-t border-[var(--border)] bg-[var(--bg-card)]">
           <input
             ref={fileInputRef}
             type="file"
@@ -759,7 +763,7 @@ export default function KuzmichClient() {
             onChange={e => setInput(e.target.value)}
             onKeyDown={e => !isImeKeyEvent(e.nativeEvent) && e.key === 'Enter' && !e.shiftKey && send(input)}
             placeholder={imagePreview ? 'Добавьте вопрос или просто отправьте фото...' : 'Опишите мечту о путешествии...'}
-            className="flex-1 bg-transparent text-[var(--text-primary)] placeholder:text-[var(--text-muted)] text-sm outline-none"
+            className="flex-1 min-w-0 bg-transparent text-[var(--text-primary)] placeholder:text-[var(--text-muted)] text-base sm:text-sm outline-none"
           />
           <button type="button" onClick={() => send(input)} disabled={!input.trim() && !imageFile}
             className="p-2 rounded-lg bg-[var(--accent)] text-white disabled:opacity-40 transition-opacity hover:opacity-90">

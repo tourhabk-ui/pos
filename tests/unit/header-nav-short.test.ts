@@ -12,8 +12,9 @@ import { join } from 'node:path';
 import { HEADER_NAV } from '@/components/layout/Header';
 
 describe('меню шапки', () => {
-  it('не больше шести пунктов, «Туры» первым', () => {
-    expect(HEADER_NAV.length).toBeLessThanOrEqual(6);
+  it('не больше семи пунктов, «Туры» первым, Кузьмич в шапке (21.11)', () => {
+    expect(HEADER_NAV.length).toBeLessThanOrEqual(7);
+    expect(HEADER_NAV.some((i) => i.href === '/kuzmich')).toBe(true);
     expect(HEADER_NAV[0]).toEqual({ href: '/catalog', label: 'Туры' });
   });
 
