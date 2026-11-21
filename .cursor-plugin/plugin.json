@@ -1,0 +1,16 @@
+{
+  "name": "vedar",
+  "description": "Kamchatka travel MCP: live tours and availability, place safety, weather, stays, transfers; human-confirmed requests, not bookings",
+  "version": "2.10.2",
+  "author": {
+    "name": "Vedar",
+    "email": "info@vedarai.ru"
+  },
+  "homepage": "https://vedarai.ru/mcp",
+  "repository": "https://github.com/tourhabk-ui/pos",
+  "license": "AGPL-3.0",
+  "keywords": ["mcp", "kamchatka", "travel", "a2a"],
+  "logo": "public/icons/icon-512.png",
+  "skills": ["skills/vedar-kamchatka"],
+  "mcpServers": "mcp.json"
+}

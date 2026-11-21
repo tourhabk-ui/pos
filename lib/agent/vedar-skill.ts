@@ -41,7 +41,7 @@ export function vedarSkillMarkdown(acceptsPayments: boolean = platformAcceptsPay
   return `---
 name: ${VEDAR_SKILL_NAME}
 description: ${VEDAR_SKILL_DESCRIPTION}
-license: MIT
+license: AGPL-3.0
 metadata:
   author: vedarai.ru
   version: "0.1"
