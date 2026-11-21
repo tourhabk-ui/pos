@@ -44,6 +44,7 @@ import { loadNearestFreeDates } from '@/lib/tours/nearest-free-date';
 import { anyDayOpenSql } from '@/lib/tours/schedule-kind';
 import { orderOffersBy, offerOrderDay } from '@/lib/tours/offer-order';
 import { routeToursKeySql } from '@/lib/routes/route-tour-price';
+import { publicSourceUrl } from '@/lib/text/source-attribution';
 
 /**
  * Сбой запроса — в лог, с тем, чем его чинят.
@@ -546,7 +547,7 @@ export async function loadRouteDetail(id: string, opts: RouteDetailOptions) {
       descriptionWithdrawn: r.description_withdrawn === true && !stripFillerLead(r.description as string | null).trim(),
       lat:         r.lat != null ? parseFloat(r.lat as string) : null,
       lng:         r.lng != null ? parseFloat(r.lng as string) : null,
-      sourceUrl:   (r.source_url as string | null) ?? null,
+      sourceUrl:   publicSourceUrl(r.source_url as string | null, r.source_name as string | null),
       sourceName:  (r.source_name as string | null) ?? null,
       // payload — JSONB: season бывает массивом (перепись 13.10) — тип проверяется.
       season:      payloadText(payload.season) ?? payloadText(r.kr_season),

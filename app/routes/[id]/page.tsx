@@ -10,7 +10,6 @@ import { MAP_PACK_BASE_URL_ENV } from '@/lib/map/pack-source';
 import { CATEGORY_PAGES } from '@/lib/routes/category-meta';
 import CategoryPage from '@/components/routes/CategoryPage';
 import { query } from '@/lib/database';
-import { stripSourceAttribution } from '@/lib/text/source-attribution';
 import { stripFillerLead } from '@/lib/text/filler-lead';
 import { isUuid } from '@/lib/text/slugify';
 import { resolveToId } from '@/lib/routes/resolve-route-ref';
@@ -25,6 +24,7 @@ import { shownPhotoSql } from '@/lib/images/origin';
 import { brandedTitle, fitTitleRequired, ROUTE_TITLE_TAILS } from '@/lib/seo/title-fit';
 import { routeTitleFactsTail, ROUTE_NOINDEX } from '@/lib/seo/h1-templates';
 import { payloadText, payloadStrings } from '@/lib/routes/payload-text';
+import { publicSourceUrl, stripSourceAttribution } from '@/lib/text/source-attribution';
 
 // ISR: реvalidate každый час для свежести контента в Google
 export const revalidate = 3600;
@@ -165,7 +165,7 @@ async function getRouteRaw(idOrSlug: string) {
       description: stripFillerLead(stripSourceAttribution((r.description as string | null) ?? '')),
       lat: r.lat != null ? parseFloat(r.lat as string) : null,
       lng: r.lng != null ? parseFloat(r.lng as string) : null,
-      sourceUrl: (r.source_url as string | null) ?? null,
+      sourceUrl: publicSourceUrl(r.source_url as string | null),
       durationDays: payload.duration_days != null ? Number(payload.duration_days)
         : r.kr_duration_days != null ? Number(r.kr_duration_days) : null,
       // Тип проверяется, а не обещается: у двух маршрутов season — массив, и

@@ -13,7 +13,6 @@ import { chronicleForPlace } from '@/lib/chronicle/articles';
 import { PLACE_ROUTES_SQL, toPlaceRouteRow, type PlaceRouteLineFields, type PlaceRouteRow } from '@/lib/places/place-routes';
 import { NEARBY_PLACES_SQL } from '@/lib/places/nearby';
 import { pool } from '@/lib/db-pool';
-import { stripSourceAttribution } from '@/lib/text/source-attribution';
 import { describeDescriptionSource } from '@/lib/text/description-source';
 import { shownPhotoSql } from '@/lib/images/origin';
 import { isOwnImageUrl, ownImageUrls } from '@/lib/images/own-image-url';
@@ -32,6 +31,7 @@ import { loadFeedAuthorSlugs } from '@/lib/media/author-feed';
 import type { RouteTourPhoto } from '@/lib/routes/tour-photos';
 import { operatorPagePath } from '@/lib/operators/page-link';
 import type { PlacePhotoAttribution, PlacePhotoRights, PlaceTour } from '@/components/places/types';
+import { publicSourceUrl, stripSourceAttribution } from '@/lib/text/source-attribution';
 
 export interface PlaceDetailResult {
   status: number;
@@ -438,7 +438,7 @@ export async function loadPlaceDetail(id: string, opts: { countView: boolean }):
         bestSeason: r.best_season as string | null,
         seasonalNotes: r.seasonal_notes as Record<string, string> | null,
         accessInfo: r.access_info as string | null,
-        sourceUrl: r.source_url as string | null,
+        sourceUrl: publicSourceUrl(r.source_url as string | null, r.source_name as string | null),
         sourceName: r.source_name as string | null,
         updatedAt: r.updated_at as string | null,
         kuzmichReview: (r.kuzmich_review as string | null) ?? null,

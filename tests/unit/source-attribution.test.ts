@@ -1,5 +1,7 @@
 import { describe, it, expect } from 'vitest';
-import { stripSourceAttribution, hasSourceAttribution } from '@/lib/text/source-attribution';
+import { stripSourceAttribution, hasSourceAttribution, publicSourceUrl, EXTERNAL_SOURCE_NAME } from '@/lib/text/source-attribution';
+import { readFileSync } from 'node:fs';
+import { join } from 'node:path';
 
 describe('source-attribution: hasSourceAttribution', () => {
   it('ловит все формы имени источника', () => {
@@ -62,5 +64,40 @@ describe('source-attribution: stripSourceAttribution', () => {
     expect(stripSourceAttribution('')).toBe('');
     expect(stripSourceAttribution(null)).toBe('');
     expect(stripSourceAttribution(undefined)).toBe('');
+  });
+});
+
+describe('publicSourceUrl — адрес конкурента не уходит в ответ страницы', () => {
+  it('прячет idilesom.com и подпись «сторонний источник»', () => {
+    expect(publicSourceUrl('https://idilesom.com/kam/places/2772', EXTERNAL_SOURCE_NAME)).toBeNull();
+    expect(publicSourceUrl('https://www.idilesom.com/kam/places/1460')).toBeNull();
+    expect(publicSourceUrl('https://idilesom.com/kam/places/2748', null)).toBeNull();
+    expect(publicSourceUrl('https://example.com/page', EXTERNAL_SOURCE_NAME)).toBeNull();
+  });
+
+  it('оставляет прочие адреса и пустые значения', () => {
+    expect(publicSourceUrl('https://vulcanikamchatki.ru/page', 'Вулканы Камчатки')).toBe(
+      'https://vulcanikamchatki.ru/page',
+    );
+    expect(publicSourceUrl(null)).toBeNull();
+    expect(publicSourceUrl('')).toBeNull();
+  });
+
+  it('карточка маршрута, каталог, похожие и публичные API отдают sourceUrl через фильтр', () => {
+    const files = [
+      'lib/routes/route-detail.ts',
+      'lib/routes/catalog-query.ts',
+      'app/routes/[id]/page.tsx',
+      'app/api/kamchatka-routes/route.ts',
+      'app/api/routes/nearby/route.ts',
+      'app/api/routes/by-region/route.ts',
+      'lib/places/place-detail.ts',
+    ];
+    for (const f of files) {
+      const src = readFileSync(join(process.cwd(), f), 'utf-8');
+      expect(src, f).toMatch(/publicSourceUrl\(/);
+      // сырой source_url больше не кладётся в поле ответа как есть
+      expect(src, f).not.toMatch(/sourceUrl:\s*\(r\.source_url as string \| null\) \?\? null/);
+    }
   });
 });
