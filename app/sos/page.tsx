@@ -15,6 +15,7 @@ import RescueChat from '@/components/safety/RescueChat';
 import { geolocationOnce } from '@/lib/geo/current-position';
 import { reportClientError } from '@/lib/client-errors/report';
 import { dedupId } from '@/lib/security/random-uuid';
+import { SOS_SMS_LABEL, SOS_SMS_STEP, sosSmsHint, sosSmsHref } from '@/lib/safety/sos-sms';
 
 type SendStatus = 'idle' | 'locating' | 'sending' | 'sent' | 'queued' | 'error';
 
@@ -359,10 +360,6 @@ export default function SosPage() {
     }
   };
 
-  const smsBody = coords
-    ? `SOS! Мне нужна помощь. Мои координаты: ${coords.lat.toFixed(5)}, ${coords.lng.toFixed(5)} — vedarai.ru`
-    : 'SOS! Мне нужна помощь — vedarai.ru';
-
   return (
     <div style={{
       minHeight: '100dvh',
@@ -595,32 +592,36 @@ export default function SosPage() {
             {sendStatus === 'error' && 'Ошибка — позвоните 112 напрямую'}
           </button>
 
-          {/* SMS с координатами (без интернета).
+          {/* SMS на 112 — есть всегда, с координатами и без них (21.11:
+              кнопка появлялась только после того, как нашлись координаты, а
+              шаг «Что делать» звал её чужим именем; lib/safety/sos-sms.ts).
               112 официально принимает SMS во всех сетях РФ — раньше здесь
               стоял плейсхолдер +79000000000, сигнал бедствия уходил в никуда. */}
-          {coords && (
-            <a
-              href={`sms:112?body=${encodeURIComponent(smsBody)}`}
-              style={{
-                display: 'flex',
-                alignItems: 'center',
-                justifyContent: 'center',
-                gap: '8px',
-                width: '100%',
-                marginTop: '8px',
-                padding: '10px',
-                borderRadius: '10px',
-                border: '1px solid rgba(255,255,255,0.15)',
-                background: 'rgba(255,255,255,0.05)',
-                color: 'white',
-                fontWeight: 600,
-                fontSize: '13px',
-                textDecoration: 'none',
-              }}
-            >
-              SMS с координатами (без интернета)
-            </a>
-          )}
+          <a
+            href={sosSmsHref(coords)}
+            style={{
+              display: 'flex',
+              flexDirection: 'column',
+              alignItems: 'center',
+              justifyContent: 'center',
+              gap: '2px',
+              width: '100%',
+              marginTop: '8px',
+              padding: '10px',
+              borderRadius: '10px',
+              border: '1px solid rgba(255,255,255,0.15)',
+              background: 'rgba(255,255,255,0.05)',
+              color: 'white',
+              fontWeight: 600,
+              fontSize: '13px',
+              textDecoration: 'none',
+            }}
+          >
+            <span>{SOS_SMS_LABEL}</span>
+            <span style={{ fontWeight: 400, fontSize: '11px', color: 'rgba(255,255,255,0.6)' }}>
+              {sosSmsHint(coords !== null)}
+            </span>
+          </a>
         </div>
 
         {/* 4 шага — прямо на экране, человек в панике не уйдёт читать */}
@@ -639,7 +640,7 @@ export default function SosPage() {
               { n: 2, text: 'Нажми кнопку «Отправить координаты» выше', color: 'var(--danger)' },
               // Владельцы маяков в панике забывают про маяк — напоминание спасает.
               { n: 3, text: 'Есть спутниковый маяк (PLB, inReach) или трекер — активируй его сейчас', color: 'var(--danger)' },
-              { n: 4, text: 'Нет голоса — отправь SMS (кнопка «Без интернета»)', color: 'var(--warning)' },
+              { n: 4, text: SOS_SMS_STEP, color: 'var(--warning)' },
               { n: 5, text: 'Оставайся на месте, если оно безопасно, и жди помощи', color: 'var(--warning)' },
             ].map(({ n, text, color }) => (
               <li key={n} style={{ display: 'flex', alignItems: 'flex-start', gap: '10px' }}>
