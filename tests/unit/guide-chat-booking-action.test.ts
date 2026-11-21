@@ -373,11 +373,12 @@ describe('MAX: кто вправе нажать', () => {
     expect(m.change).not.toHaveBeenCalled();
   });
 
-  it('незаверенное нажатие — «не засчитано», карточка не читается, ничего не записано', async () => {
+  it('незаверенное нажатие (ключа нет) — fail-closed с 21.11: ни ответа, карточка не читается, ничего не записано', async () => {
     vi.stubEnv('MAX_WEBHOOK_SECRET', '');
     await postMax(UNVERIFIED, tap('bk:c:501'));
     await postMax(UNVERIFIED, tap('oc:y:00000000-0000-4000-8000-000000000009'));
-    expect(maxReplies().map((x) => x.text)).toEqual([UNVERIFIED_PRESS_REPLY.owner, UNVERIFIED_PRESS_REPLY.owner]);
+    expect(UNVERIFIED_PRESS_REPLY.owner).toBeTruthy();
+    expect(maxReplies()).toEqual([]);
     expect(m.findPartner).not.toHaveBeenCalled();
     expect(actionWrites()).toBe(0);
     expect(m.change).not.toHaveBeenCalled();

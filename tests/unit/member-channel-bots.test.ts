@@ -186,11 +186,12 @@ describe('MAX: /start om_ — только из заверенного апде�
     expect(m.processMessage).not.toHaveBeenCalled();
   });
 
-  it('незаверенный апдейт — чат не назначается, ответ «не смог проверить», а не приветствие', async () => {
+  it('незаверенный апдейт — чат не назначается, не здоровается (с 21.11 без ключа fail-closed — без ответа)', async () => {
     m.verifiedMax.mockReturnValue(false);
     await max.POST(maxUpdate('om_tok'));
     expect(m.memberStart).not.toHaveBeenCalled();
     expect(m.processMessage).not.toHaveBeenCalled();
-    expect(m.maxSend).toHaveBeenCalledWith(77, UNVERIFIED_START_REPLY.link, expect.anything());
+    expect(UNVERIFIED_START_REPLY.link).toBeTruthy();
+    expect(m.maxSend).not.toHaveBeenCalled();
   });
 });

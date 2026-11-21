@@ -13,6 +13,7 @@ import { jwtVerify } from 'jose';
 import { Ratelimit } from '@upstash/ratelimit';
 import { Redis } from '@upstash/redis/cloudflare';
 import { isPathMatch, isPublicApiPath } from '@/lib/auth/public-api-routes';
+import { getTrustedClientIp } from '@/lib/rate-limit';
 import { constantTimeEqual } from '@/lib/security/constant-time-equal';
 
 const JWT_ALGORITHM = 'HS256';
@@ -245,13 +246,10 @@ export async function middleware(request: NextRequest) {
 
   // Skip rate limiting if Redis is not configured (development mode)
   if (ratelimit) {
-    // x-real-ip — устанавливается nginx (нельзя подделать снаружи)
-    // cf-connecting-ip — устанавливается Cloudflare (надёжно только за CF CDN)
-    // x-forwarded-for — берём первый IP из списка (ближайший к клиенту)
-    const ip = request.headers.get('x-real-ip')
-      || request.headers.get('cf-connecting-ip')
-      || request.headers.get('x-forwarded-for')?.split(',')[0]?.trim()
-      || '127.0.0.1';
+    // Адрес — доверенный порядок lib/rate-limit (x-real-ip ставит start.js из
+    // правого элемента XFF от Caddy; присланные клиентом заголовки адреса
+    // start.js стирает — замер пробы client-ip-headers-probe 21.11).
+    const ip = getTrustedClientIp(request.headers);
     const { success } = await ratelimit.limit(ip);
 
     if (!success) {

@@ -132,12 +132,13 @@ describe('администратор в MAX: опознание', () => {
     expect(m.adminReply).not.toHaveBeenCalled();
   });
 
-  it('незаверенный апдейт (ключа нет) — администратора не узнают, брони не читаются', async () => {
+  it('незаверенный апдейт (ключа нет) — администратора не узнают, брони не читаются, модель не зовётся', async () => {
     vi.stubEnv('MAX_WEBHOOK_SECRET', '');
     await post(UNVERIFIED, message('брони'));
     expect(m.findAdmin).not.toHaveBeenCalled();
     expect(m.adminReply).not.toHaveBeenCalled();
-    expect(m.processMessage).toHaveBeenCalledWith(expect.objectContaining({ verifiedOrigin: false }));
+    // С 21.11 без ключа подписки вебхук fail-closed: ни ответа, ни хода модели.
+    expect(m.processMessage).not.toHaveBeenCalled();
   });
 
   it('не администратор — обычный путь Кузьмича', async () => {
@@ -363,7 +364,9 @@ describe('кнопки меню роли в MAX (rm:)', () => {
     await post(UNVERIFIED, roleTap('rm:ad:bk'));
     expect(m.findAdmin).not.toHaveBeenCalled();
     nothingRead();
-    expect(repliesTo(ADMIN_CHAT)).toEqual([UNVERIFIED_CHAT_REPLY.partner]);
+    // С 21.11 без ключа подписки вебхук fail-closed: ни ответа, ни хода модели.
+    expect(UNVERIFIED_CHAT_REPLY.partner).toBeTruthy();
+    expect(repliesTo(ADMIN_CHAT)).toEqual([]);
   });
 
   it('группа: «Брони» не выполняется, база администраторов не спрашивается', async () => {

@@ -380,10 +380,11 @@ describe('MAX: кто вправе отметить заявку', () => {
     });
   }
 
-  it('незаверенное нажатие — «не засчитано», карточка не читается, ничего не записано', async () => {
+  it('незаверенное нажатие (ключа нет) — fail-closed с 21.11: ни ответа, карточка не читается, ничего не записано', async () => {
     vi.stubEnv('MAX_WEBHOOK_SECRET', '');
     await postMax(UNVERIFIED, tap(`ld:w:${LEAD}`));
-    expect(maxReplies().map((x) => x.text)).toEqual([UNVERIFIED_PRESS_REPLY.owner]);
+    expect(UNVERIFIED_PRESS_REPLY.owner).toBeTruthy();
+    expect(maxReplies()).toEqual([]);
     expect(m.findPartner).not.toHaveBeenCalled();
     expect(actionWrites()).toBe(0);
     expect(m.changeLead).not.toHaveBeenCalled();
@@ -647,13 +648,13 @@ describe('MAX: «Отказ» — только с причиной (этап 3а
     expect(db.rows[0]).toMatchObject({ status: 'ready' });
   });
 
-  it('незаверенное нажатие причины — «не засчитано», ничего не записано', async () => {
+  it('незаверенное нажатие причины (ключа нет) — fail-closed с 21.11: ни ответа, ничего не записано', async () => {
     const { id } = await askLost();
     const before = actionWrites();
     m.maxSend.mockClear();
     vi.stubEnv('MAX_WEBHOOK_SECRET', '');
     await postMax(UNVERIFIED, tap(`oc:rs:${id}`));
-    expect(maxReplies().map((x) => x.text)).toEqual([UNVERIFIED_PRESS_REPLY.owner]);
+    expect(maxReplies()).toEqual([]);
     expect(actionWrites()).toBe(before);
     expect(m.changeLead).not.toHaveBeenCalled();
   });

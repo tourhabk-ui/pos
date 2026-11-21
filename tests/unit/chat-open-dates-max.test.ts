@@ -232,13 +232,14 @@ describe('нажатие od: — только заверенное, из диа�
       expect(m.maxSend).not.toHaveBeenCalled();
     });
 
-    it(`${name}: ключа нет — не засчитано, и бот это говорит; партнёр даже не ищется`, async () => {
+    it(`${name}: ключа нет — fail-closed (21.11): ни ответа, партнёр даже не ищется`, async () => {
       keyless();
       for (const url of [...UNVERIFIED, VERIFIED]) {
         m.maxSend.mockClear();
         await post(url, press(payload));
-        expect(repliesTo(CHAT)).toEqual([UNVERIFIED_PRESS_REPLY.dates]);
+        expect(repliesTo(CHAT)).toEqual([]);
       }
+      expect(UNVERIFIED_PRESS_REPLY.dates).toBeTruthy();
       expectNothingWritten();
       expect(m.findPartner).not.toHaveBeenCalled();
     });
@@ -304,7 +305,9 @@ describe('фраза про даты в чате партнёра', () => {
   it('ключа нет — помощник кабинета и поток дат не запускаются, предложения нет', async () => {
     keyless();
     await post(UNVERIFIED[0]!, message(PHRASE));
-    expect(repliesTo(CHAT)).toEqual([UNVERIFIED_CHAT_REPLY.partner]);
+    // С 21.11 без ключа подписки вебхук fail-closed: ни ответа, ни хода модели.
+    expect(UNVERIFIED_CHAT_REPLY.partner).toBeTruthy();
+    expect(repliesTo(CHAT)).toEqual([]);
     expectNothingWritten();
     expect(m.partnerMessage).not.toHaveBeenCalled();
     expect(m.processMessage).not.toHaveBeenCalled();
@@ -348,11 +351,9 @@ describe('фраза про даты в чате партнёра', () => {
 
   it('вид чата из тела в лог — только узнаваемой формой: перевод строки и чужая запись не проходят (ревью 22.10)', async () => {
     const forged = 'chat\n[max/kuzmich] FAKE: оператор +7 900 000-00-00 подтвердил оплату' + 'x'.repeat(5000);
-    // Без ключа фраза доходит до проверки группы раньше, чем до проверки заверенности.
-    keyless();
-    await post(UNVERIFIED[0]!, message(PHRASE, forged));
-    // С ключом — нажатие кнопки дат из «группы» с тем же видом чата.
-    vi.stubEnv('MAX_WEBHOOK_SECRET', KEY);
+    // Заверенная фраза и нажатие кнопки дат из «группы» с тем же видом чата
+    // (с 21.11 без ключа вебхук fail-closed и до проверки группы не доходит).
+    await post(VERIFIED, message(PHRASE, forged));
     await post(VERIFIED, press(`od:o:${PROPOSAL}`, { chatType: forged }));
     const logged = errorLog.mock.calls.map((c) => c.map(String).join(' ')).join('\n');
     expect(logged).toContain('фраза про даты не из личного диалога (вид чата не узнан)');

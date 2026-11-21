@@ -172,6 +172,21 @@ function expectNothingChanged(): void {
 
 let errorLog: ReturnType<typeof vi.spyOn>;
 
+/**
+ * С 21.11 (проверка по посту Reddit) без MAX_WEBHOOK_SECRET вебхук — fail-closed:
+ * ни ответа, ни записи, ни хода модели, только строка в логе, что задать.
+ * Прежде бот без ключа отвечал на вопросы из любого источника.
+ */
+function expectFailClosed(): void {
+  expectNothingChanged();
+  expect(m.maxSend).not.toHaveBeenCalled();
+  expect(m.maxSendUser).not.toHaveBeenCalled();
+  expect(m.answerCb).not.toHaveBeenCalled();
+  expect(m.processMessage).not.toHaveBeenCalled();
+  expect(errorLog.mock.calls.some((c) => String(c[0]).includes('MAX_WEBHOOK_SECRET не задан'))).toBe(true);
+}
+
+
 beforeEach(() => {
   clearMaxMessageDedup();
   for (const f of Object.values(m)) f.mockReset();
@@ -252,19 +267,13 @@ describe('кнопки-действия: только из заверенног�
       expect(m.answerCb).not.toHaveBeenCalled();
     });
 
-    it(`${name}: ключа нет — нажатие не засчитано, и бот это говорит, не утверждая исхода`, async () => {
+    it(`fail-closed без ключа (21.11), было: ${name}: ключа нет — нажатие не засчитано, и бот это говорит, не утверждая исхода`, async () => {
       keyless();
       for (const url of [...UNVERIFIED, VERIFIED]) {
-        m.maxSend.mockClear();
         const res = await post(url, press(payload));
         expect(await res.json()).toEqual({ ok: true });
-        expectNothingChanged();
-        expect(repliesTo(OPERATOR_CHAT)).toEqual([UNVERIFIED_PRESS_REPLY[kind]]);
       }
-      // «Не принят» — неправда, если настоящая копия того же нажатия прошла:
-      // текст говорит про это нажатие и где сделать то же самое.
-      expect(UNVERIFIED_PRESS_REPLY[kind]).toMatch(/^Это нажатие не засчитано/);
-      expect(UNVERIFIED_PRESS_REPLY[kind]).not.toMatch(/не принят|ничего не изменено|пришло от MAX/);
+      expectFailClosed();
     });
 
     it(`${name}: заверенное нажатие из чата сообщения применяется`, async () => {
@@ -311,11 +320,13 @@ describe('кнопки-действия: только из заверенног�
     expect(m.seatAnswer).not.toHaveBeenCalled();
   });
 
-  it('без ключа в окружении не заверено ничего, даже адрес с ?s=', async () => {
+  it('fail-closed без ключа (21.11), было: без ключа в окружении не заверено ничего, даже адрес с ?s=', async () => {
     keyless();
-    await post(VERIFIED, press(`lead_lost:${LEAD}`));
-    expectNothingChanged();
-    expect(repliesTo(OPERATOR_CHAT)).toEqual([UNVERIFIED_PRESS_REPLY.lead]);
+    for (const url of [...UNVERIFIED, VERIFIED]) {
+      const res = await post(url, press(`lead_lost:${LEAD}`));
+      expect(await res.json()).toEqual({ ok: true });
+    }
+    expectFailClosed();
   });
 });
 
@@ -409,12 +420,13 @@ describe('ссылки старта: вход и подключение чата
   for (const { payload, kind, applied } of STARTS) {
     const name = payload.slice(0, 3);
 
-    it(`${name}: ключа нет — ссылка ничего не подключает и называет это, а не здоровается`, async () => {
+    it(`fail-closed без ключа (21.11), было: ${name}: ключа нет — ссылка ничего не подключает и называет это, а не здоровается`, async () => {
       keyless();
-      await post(UNVERIFIED[0]!, started(payload));
-      expectNothingChanged();
-      expect(m.processMessage).not.toHaveBeenCalled();
-      expect(repliesTo(77)).toEqual([UNVERIFIED_START_REPLY[kind]]);
+      for (const url of [...UNVERIFIED, VERIFIED]) {
+        const res = await post(url, started(payload));
+        expect(await res.json()).toEqual({ ok: true });
+      }
+      expectFailClosed();
     });
 
     it(`${name}: заверенная ссылка применяется`, async () => {
@@ -439,12 +451,13 @@ describe('ссылки старта: вход и подключение чата
     }
   });
 
-  it('незаверенное сообщение op_ чат не назначает и не здоровается', async () => {
+  it('fail-closed без ключа (21.11), было: незаверенное сообщение op_ чат не назначает и не здоровается', async () => {
     keyless();
-    await post(UNVERIFIED[0]!, message('op_signed-token'));
-    expectNothingChanged();
-    expect(m.processMessage).not.toHaveBeenCalled();
-    expect(repliesTo(77)).toEqual([UNVERIFIED_START_REPLY.link]);
+    for (const url of [...UNVERIFIED, VERIFIED]) {
+      const res = await post(url, message('op_signed-token'));
+      expect(await res.json()).toEqual({ ok: true });
+    }
+    expectFailClosed();
   });
 
   it('op_ внутри фразы и код в группе привязку не начинают', async () => {
@@ -457,10 +470,13 @@ describe('ссылки старта: вход и подключение чата
     expect(m.partnerStart).not.toHaveBeenCalled();
   });
 
-  it('ключа нет — обычный /start без ссылки здоровается из любого источника', async () => {
+  it('fail-closed без ключа (21.11), было: ключа нет — обычный /start без ссылки здоровается из любого источника', async () => {
     keyless();
-    await post(UNVERIFIED[0]!, started(''));
-    expect(m.processMessage).toHaveBeenCalledWith(expect.objectContaining({ text: '/start', verifiedOrigin: false }));
+    for (const url of [...UNVERIFIED, VERIFIED]) {
+      const res = await post(url, started(''));
+      expect(await res.json()).toEqual({ ok: true });
+    }
+    expectFailClosed();
   });
 });
 
@@ -469,11 +485,13 @@ describe('ссылки старта: вход и подключение чата
 const CONTACT = { type: 'contact', payload: { vcf_info: 'BEGIN:VCARD\nTEL:+79140000000\nEND:VCARD', tam_info: { user_id: 77, name: 'Анна' } } };
 
 describe('присланный номер: заявка — только из заверенного апдейта', () => {
-  it('ключа нет — заявки из номера нет, бот говорит, что номер не засчитан', async () => {
+  it('fail-closed без ключа (21.11), было: ключа нет — заявки из номера нет, бот говорит, что номер не засчитан', async () => {
     keyless();
-    await post(UNVERIFIED[0]!, message('', [CONTACT]));
-    expectNothingChanged();
-    expect(repliesTo(77)).toEqual([UNVERIFIED_CHAT_REPLY.contact]);
+    for (const url of [...UNVERIFIED, VERIFIED]) {
+      const res = await post(url, message('', [CONTACT]));
+      expect(await res.json()).toEqual({ ok: true });
+    }
+    expectFailClosed();
   });
 
   it('заверенный номер — заявка создана, человеку «номер получен»', async () => {
@@ -504,13 +522,14 @@ describe('присланный номер: заявка — только из з
 describe('чат партнёра: помощник кабинета — только из заверенного апдейта', () => {
   const partner = { partnerId: 'p1', partnerName: 'Оператор', category: 'operator', crmCategory: 'operator', userId: 'u1' };
 
-  it('ключа нет — помощник кабинета не запущен, бот говорит, что сообщение не передано', async () => {
+  it('fail-closed без ключа (21.11), было: ключа нет — помощник кабинета не запущен, бот говорит, что сообщение не передано', async () => {
     keyless();
     m.findPartner.mockResolvedValue({ outcome: 'found', partner });
-    await post(UNVERIFIED[0]!, message('запиши касание с Иваном'));
-    expectNothingChanged();
-    expect(m.processMessage).not.toHaveBeenCalled();
-    expect(repliesTo(77)).toEqual([UNVERIFIED_CHAT_REPLY.partner]);
+    for (const url of [...UNVERIFIED, VERIFIED]) {
+      const res = await post(url, message('запиши касание с Иваном'));
+      expect(await res.json()).toEqual({ ok: true });
+    }
+    expectFailClosed();
   });
 
   it('заверенное — помощник кабинета запущен', async () => {
@@ -528,53 +547,63 @@ describe('чат партнёра: помощник кабинета — тол�
     }));
   });
 
-  it('незаверенная просьба туриста в привязанном чате — Кузьмич, без помощника CRM', async () => {
+  it('fail-closed без ключа (21.11), было: незаверенная просьба туриста в привязанном чате — Кузьмич, без помощника CRM', async () => {
     keyless();
     m.findPartner.mockResolvedValue({ outcome: 'found', partner });
-    await post(UNVERIFIED[0]!, message('найди мне в аренду автомобиль'));
-    expect(m.partnerMessage).not.toHaveBeenCalled();
-    expect(m.processMessage).toHaveBeenCalledWith(expect.objectContaining({
-      text: 'найди мне в аренду автомобиль', verifiedOrigin: false,
-    }));
-    expect(repliesTo(77)).not.toContain(UNVERIFIED_CHAT_REPLY.partner);
+    for (const url of [...UNVERIFIED, VERIFIED]) {
+      const res = await post(url, message('найди мне в аренду автомобиль'));
+      expect(await res.json()).toEqual({ ok: true });
+    }
+    expectFailClosed();
   });
 });
 
-describe('ключа нет: вопросы Кузьмичу и кнопки тем — из любого источника, по одному', () => {
+describe('ключа нет (с 21.11 fail-closed): ни вопросов Кузьмичу, ни кнопок тем', () => {
   beforeEach(keyless);
 
-  it('вопрос туриста доходит до Кузьмича с флагом «не заверено»', async () => {
-    await post(UNVERIFIED[0]!, message('Когда идти на Авачинский?'));
-    expect(m.processMessage).toHaveBeenCalledWith(expect.objectContaining({
-      chatId: 77, text: 'Когда идти на Авачинский?', verifiedOrigin: false,
-    }));
+  it('fail-closed без ключа (21.11), было: вопрос туриста доходит до Кузьмича с флагом «не заверено»', async () => {
+    keyless();
+    for (const url of [...UNVERIFIED, VERIFIED]) {
+      const res = await post(url, message('Когда идти на Авачинский?'));
+      expect(await res.json()).toEqual({ ok: true });
+    }
+    expectFailClosed();
   });
 
-  it('один апдейт массивом — обработан', async () => {
-    await post(UNVERIFIED[0]!, [message('Когда идти на Авачинский?')]);
-    expect(m.processMessage).toHaveBeenCalledTimes(1);
+  it('fail-closed без ключа (21.11), было: один апдейт массивом — обработан', async () => {
+    keyless();
+    for (const url of [...UNVERIFIED, VERIFIED]) {
+      const res = await post(url, [message('Когда идти на Авачинский?')]);
+      expect(await res.json()).toEqual({ ok: true });
+    }
+    expectFailClosed();
   });
 
-  it('пачка из нескольких апдейтов — не обработана ни одна, в логе число', async () => {
-    await post(UNVERIFIED[0]!, Array.from({ length: 50 }, () => message('Какие туры?')));
-    expect(m.processMessage).not.toHaveBeenCalled();
-    expect(m.maxSend).not.toHaveBeenCalled();
-    expect(errorLog.mock.calls.some((c) => String(c[0]).includes('пачка из 50 апдейтов'))).toBe(true);
+  it('fail-closed без ключа (21.11), было: пачка из нескольких апдейтов — не обработана ни одна, в логе число', async () => {
+    keyless();
+    for (const url of [...UNVERIFIED, VERIFIED]) {
+      const res = await post(url, Array.from({ length: 50 }, () => message('Какие туры?')));
+      expect(await res.json()).toEqual({ ok: true });
+    }
+    expectFailClosed();
   });
 
-  it('кнопка темы отвечает в чат сообщения', async () => {
-    await post(UNVERIFIED[0]!, press('topic_volcanoes', 77, 77));
-    expect(m.processMessage).toHaveBeenCalledWith(expect.objectContaining({ chatId: 77, text: 'Вулканы Камчатки', verifiedOrigin: false }));
+  it('fail-closed без ключа (21.11), было: кнопка темы отвечает в чат сообщения', async () => {
+    keyless();
+    for (const url of [...UNVERIFIED, VERIFIED]) {
+      const res = await post(url, press('topic_volcanoes', 77, 77));
+      expect(await res.json()).toEqual({ ok: true });
+    }
+    expectFailClosed();
   });
 
-  it('«Регистрация в МЧС» (10.11) — готовый текст со сроком и ссылками, модель не зовётся', async () => {
-    await post(UNVERIFIED[0]!, press('mchs_info', 77, 77));
-    expect(m.processMessage).not.toHaveBeenCalled();
-    const call = m.maxSend.mock.calls.find((c) => c[0] === 77)!;
-    expect(String(call[1])).toContain('Заявка подаётся за 10 рабочих дней до начала маршрута');
-    expect(String(call[1])).toContain('Ведар заявку в МЧС сам не подаёт');
-    expect(JSON.stringify(call[2])).toContain('https://forms.mchs.gov.ru/registration_tourist_groups/form');
-    expect(JSON.stringify(call[2])).toContain('/register');
+  it('fail-closed без ключа (21.11), было: «Регистрация в МЧС» (10.11) — готовый текст со сроком и ссылками, модель не зовётся', async () => {
+    keyless();
+    for (const url of [...UNVERIFIED, VERIFIED]) {
+      const res = await post(url, press('mchs_info', 77, 77));
+      expect(await res.json()).toEqual({ ok: true });
+    }
+    expectFailClosed();
   });
 
   it('кнопка темы без сообщения — адресат только чат сообщения, user_id вторым полем не служит', async () => {
@@ -585,20 +614,26 @@ describe('ключа нет: вопросы Кузьмичу и кнопки т�
     expect(m.maxSend).not.toHaveBeenCalled();
   });
 
-  it('ответ Кузьмича про тур — без кнопки «Оформить заявку»: номер и бронь в чате закрыты', async () => {
-    m.processMessage.mockImplementation(async (o: { chatId: number; reply: (id: number, t: string) => Promise<void> }) => {
-      await o.reply(o.chatId, 'Есть тур на Авачинский вулкан, программа на день.');
-    });
-    await post(UNVERIFIED[0]!, message('Какие туры на вулкан?'));
-    await post(UNVERIFIED[0]!, press('topic_tour', 77, 77));
-    const said = repliesTo(77);
-    expect(said.filter((t) => t.includes('Авачинский'))).toHaveLength(2);
-    expect(said).not.toContain('Хотите оформить заявку?');
+  it('fail-closed без ключа (21.11), было: ответ Кузьмича про тур — без кнопки «Оформить заявку»: номер и бронь в чате закрыты', async () => {
+    keyless();
+    for (const url of [...UNVERIFIED, VERIFIED]) {
+      const res = await post(url, message('Какие туры на вулкан?'));
+      expect(await res.json()).toEqual({ ok: true });
+    }
+    for (const url of [...UNVERIFIED, VERIFIED]) {
+      const res = await post(url, press('topic_tour', 77, 77));
+      expect(await res.json()).toEqual({ ok: true });
+    }
+    expectFailClosed();
   });
 
-  it('«Оформить заявку» со старой клавиатуры — сразу «не оформляю, на сайте», номер не просим', async () => {
-    await post(UNVERIFIED[0]!, press('book_now', 77, 77));
-    expect(repliesTo(77)).toEqual([UNVERIFIED_CHAT_REPLY.booking]);
+  it('fail-closed без ключа (21.11), было: «Оформить заявку» со старой клавиатуры — сразу «не оформляю, на сайте», номер не просим', async () => {
+    keyless();
+    for (const url of [...UNVERIFIED, VERIFIED]) {
+      const res = await post(url, press('book_now', 77, 77));
+      expect(await res.json()).toEqual({ ok: true });
+    }
+    expectFailClosed();
   });
 
   it('кнопка темы из группы (отрицательный чат) — мимо, как сообщения', async () => {
@@ -634,12 +669,13 @@ describe('тексты отказа без ключа: не зовут повт�
     });
   }
 
-  it('ссылка входа без ключа — ответ говорит, что вход через MAX недоступен, и куда идти', async () => {
+  it('fail-closed без ключа (21.11), было: ссылка входа без ключа — ответ говорит, что вход через MAX недоступен, и куда идти', async () => {
     keyless();
-    await post(UNVERIFIED[0]!, started('login-abcdefgh12345678'));
-    const [said] = repliesTo(77);
-    expect(said).toContain('Вход через MAX сейчас недоступен');
-    expect(said).toContain('другим способом');
+    for (const url of [...UNVERIFIED, VERIFIED]) {
+      const res = await post(url, started('login-abcdefgh12345678'));
+      expect(await res.json()).toEqual({ ok: true });
+    }
+    expectFailClosed();
   });
 });
 

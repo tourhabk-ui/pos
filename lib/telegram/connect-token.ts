@@ -18,8 +18,17 @@ import { telegramBot } from '@/lib/partners/channel-link';
 
 const TOKEN_TTL_MS = 30 * 60 * 1000; // 30 минут
 
-function getSecret(): string {
-  return process.env.CONNECT_TOKEN_SECRET ?? process.env.JWT_SECRET ?? 'dev-connect-secret';
+/**
+ * Ключ подписи. Запасного dev-ключа нет (21.11): без секрета ссылка не
+ * выдаётся и не проверяется — fail-closed. Раньше при пустых переменных
+ * подпись шла известной всем строкой из публичного репозитория, и токен
+ * привязки Telegram к чужому аккаунту мог выписать кто угодно. `||`, а не
+ * `??`: переменная, заданная пустой строкой, — это «не задана» (тот же
+ * приём, что в lib/partners/channel-link).
+ */
+function getSecret(): string | null {
+  const s = process.env.CONNECT_TOKEN_SECRET || process.env.JWT_SECRET || '';
+  return s.length >= 16 ? s : null;
 }
 
 /**
@@ -27,10 +36,12 @@ function getSecret(): string {
  * Формат: base64url(userId:expiry).hmac
  */
 export function generateConnectToken(userId: string): string {
+  const secret = getSecret();
+  if (!secret) throw new Error('Секрет подписи не задан (CONNECT_TOKEN_SECRET / JWT_SECRET) — ссылка привязки не выдаётся');
   const expiry = Date.now() + TOKEN_TTL_MS;
   const payload = `${userId}:${expiry}`;
   const encoded = Buffer.from(payload).toString('base64url');
-  const hmac = createHmac('sha256', getSecret()).update(encoded).digest('hex').slice(0, 16);
+  const hmac = createHmac('sha256', secret).update(encoded).digest('hex').slice(0, 16);
   return `${encoded}.${hmac}`;
 }
 
@@ -39,6 +50,8 @@ export function generateConnectToken(userId: string): string {
  */
 export function verifyConnectToken(token: string): string | null {
   try {
+    const secret = getSecret();
+    if (!secret) return null;
     const dot = token.lastIndexOf('.');
     if (dot === -1) return null;
 
@@ -46,7 +59,7 @@ export function verifyConnectToken(token: string): string | null {
     const receivedHmac = token.slice(dot + 1);
 
     // Timing-safe compare
-    const expectedHmac = createHmac('sha256', getSecret()).update(encoded).digest('hex').slice(0, 16);
+    const expectedHmac = createHmac('sha256', secret).update(encoded).digest('hex').slice(0, 16);
     if (!timingSafeEqual(Buffer.from(receivedHmac), Buffer.from(expectedHmac))) return null;
 
     const payload = Buffer.from(encoded, 'base64url').toString();

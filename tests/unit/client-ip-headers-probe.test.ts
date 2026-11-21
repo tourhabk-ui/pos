@@ -185,7 +185,9 @@ describe('проба называет тот же заголовок, из ко�
     if (trusted_source === 'none') {
       expect(ip).toBeNull();
     } else {
-      expect(headers.get(trusted_source)?.split(',')[0]?.trim()).toBe(ip);
+      // С 21.11: x-real-ip (его ставит start.js) или ПРАВЫЙ элемент XFF.
+      const items = (headers.get(trusted_source) ?? '').split(',').map((x) => x.trim()).filter(Boolean);
+      expect(trusted_source === 'x-real-ip' ? items[0] : items[items.length - 1]).toBe(ip);
     }
   });
 });

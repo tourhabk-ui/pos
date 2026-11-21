@@ -36,6 +36,7 @@
  */
 
 import { NextRequest, NextResponse } from 'next/server';
+import { verifyCronSecret } from '@/lib/auth/cron';
 import type { Api } from '@maxhub/max-bot-api';
 import { maxBot } from '@/lib/max/max-fetch';
 import { type PendingBooking, cleanupPending, hasLiveBookingFlow, processMessage } from '@/lib/kuzmich/core';
@@ -2209,15 +2210,17 @@ export async function POST(request: NextRequest): Promise<NextResponse> {
       );
       return NextResponse.json({ ok: true });
     }
-    // Ключа нет — вопросы Кузьмичу из любого источника, но по одному апдейту
-    // на запрос: MAX шлёт апдейты по одному, а пачку в тысячи апдейтов
-    // прислала бы только подделка, и каждый из них — ход модели на наши ключи.
-    if (updates.length !== 1) {
-      console.error(
-        `[max/kuzmich] пачка из ${updates.length} апдейтов без ключа подписки — не обработана (первый — ${kind})`,
-      );
-      return NextResponse.json({ ok: true });
-    }
+    // Ключа нет — fail-closed (21.11, проверка по посту Reddit). Раньше бот
+    // без ключа был «открытым ответчиком»: любой мог прислать поддельный
+    // апдейт, и Кузьмич отвечал (ход модели на наши ключи) в чат, названный
+    // телом. На проде ключ задан (замер timeweb-app-info 21.11), так что эта
+    // ветка — страховка на случай, если переменную потеряют: бот тогда
+    // молчит, а лог громко говорит, что задать.
+    console.error(
+      `[max/kuzmich] MAX_WEBHOOK_SECRET не задан — апдейт без ключа не обработан (fail-closed; первый — ${kind}). `
+      + 'Задайте MAX_WEBHOOK_SECRET в переменных приложения: подписка с ключом переставится при старте.',
+    );
+    return NextResponse.json({ ok: true });
   }
 
   // Каждый апдейт — в своей обёртке: сбой одного не съедает остальные.
@@ -2234,7 +2237,12 @@ export async function POST(request: NextRequest): Promise<NextResponse> {
 
 // ── GET: Long-polling endpoint (для cron или dev) ─────────────────────────────
 
-export async function GET(): Promise<NextResponse> {
+export async function GET(request: NextRequest): Promise<NextResponse> {
+  // Long-polling обрабатывает настоящие апдейты (заверенные по построению),
+  // поэтому дёргать его может только наш крон (21.11: был публичным).
+  if (!verifyCronSecret(request)) {
+    return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
+  }
   const api = getApi();
   if (!api) {
     return NextResponse.json({ error: 'MAX_BOT_TOKEN not set' }, { status: 500 });

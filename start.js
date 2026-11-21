@@ -27,6 +27,34 @@ function shouldGzip(method, status, headers, acceptEncoding) {
   return true;
 }
 // </shouldGzip>
+// ── Адрес клиента: только то, что поставил прокси ───────────────────────
+// Замер на проде 21.11 (проба client-ip-headers-probe, с подделкой и без):
+// Caddy перед контейнером ПЕРЕЗАПИСЫВАЕТ X-Forwarded-For одним элементом —
+// настоящим адресом клиента, а X-Real-IP и CF-Connecting-IP пропускает от
+// клиента как есть (документационные адреса пробы дошли до Next). Приложение
+// доверяло x-real-ip первым — любой лимит по IP (вход, MFA, чат Кузьмича)
+// обходился одним заголовком.
+// Здесь: присланные клиентом заголовки адреса стираются, а X-Real-IP и
+// X-Forwarded-For ставятся одним значением — ПРАВЫМ элементом XFF (его
+// дописывает ближайший прокси) или адресом сокета, если XFF нет.
+// Сторож: tests/unit/client-ip-trusted-proxy.test.ts.
+// <clientAddress>
+const SPOOFABLE_ADDR_HEADERS = ['x-real-ip', 'cf-connecting-ip', 'true-client-ip', 'x-client-ip', 'forwarded', 'x-forwarded-for'];
+function trustedClientAddress(xff, remoteAddress) {
+  const raw = Array.isArray(xff) ? xff.join(',') : String(xff || '');
+  const items = raw.split(',').map(s => s.trim()).filter(Boolean);
+  const last = items.length > 0 ? items[items.length - 1] : '';
+  return last || remoteAddress || '127.0.0.1';
+}
+function clientAddressHeaders(headers, remoteAddress) {
+  const out = { ...headers };
+  const ip = trustedClientAddress(headers['x-forwarded-for'], remoteAddress);
+  for (const h of SPOOFABLE_ADDR_HEADERS) delete out[h];
+  out['x-forwarded-for'] = ip;
+  out['x-real-ip'] = ip;
+  return out;
+}
+// </clientAddress>
 // ── Надзор за Next ────────────────────────────────────────────────────────
 // До 14.10 Next запускался голым spawn без обработчика выхода, а /api/health
 // прокси отвечал 200 безусловно. Умри Next (убит по памяти, упёрся в предел
@@ -149,12 +177,12 @@ const proxy = http.createServer((req, res) => {
   }
   // Next.js 15.5.16 DNS-rebinding check compares incoming Host header against HOSTNAME.
   // Override host to match the internal bind address; preserve real host via x-forwarded-host.
+  // Адрес клиента — только доверенный (clientAddressHeaders ниже).
   const forwardedHeaders = {
-    ...req.headers,
+    ...clientAddressHeaders(req.headers, req.socket.remoteAddress),
     'host':               '127.0.0.1:3001',
     'x-forwarded-host':  req.headers['x-forwarded-host']  || req.headers['host'] || '',
     'x-forwarded-proto': req.headers['x-forwarded-proto'] || 'https',
-    'x-forwarded-for':   req.headers['x-forwarded-for']   || req.socket.remoteAddress || '127.0.0.1',
   };
   const p = http.request({ hostname:'127.0.0.1', port:3001, path:req.url, method:req.method, headers:forwardedHeaders },
     r => {

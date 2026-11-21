@@ -58,6 +58,10 @@ import { newLoopTiming, answerTokens } from '@/lib/kuzmich/answer-ceiling';
 import { answerStall } from '@/lib/kuzmich/loop-stall';
 import { recordKuzmichAnswer } from '@/lib/kuzmich/answer-timing';
 import { saveChatSession } from '@/lib/kuzmich/chat-session-save';
+import {
+  anonChatGuard, trimHistory, MAX_MESSAGE_CHARS, MAX_HISTORY_ITEM_CHARS, MAX_IMAGE_BASE64_CHARS,
+  ANON_DAILY_STOP_TEXT, ANON_IP_LIMIT_TEXT,
+} from '@/lib/ai/anon-chat-guard';
 
 export const dynamic = 'force-dynamic';
 
@@ -122,18 +126,25 @@ async function saveSession(
 // ── POST handler ──────────────────────────────────────────────────
 const ChatMessageSchema = z.object({
   role: z.enum(['user', 'assistant']),
-  content: z.string(),
+  // Строка истории длиннее потолка не отвергается, а обрезается (trimHistory):
+  // клиент мог законно сохранить длинный ответ Кузьмича. Отвергается только
+  // явный мусор — вчетверо длиннее потолка.
+  content: z.string().max(MAX_HISTORY_ITEM_CHARS * 4, 'Слишком длинная строка истории'),
 });
 
 const AiChatSchema = z.object({
-  message: z.string().min(1, 'Сообщение обязательно'),
-  sessionId: z.string().optional(),
-  role: z.string().default('tourist'),
+  // Потолок длины (21.11, проверка по посту Reddit): без него один запрос
+  // гостя мог нести сотни тысяч токенов за счёт Ведара.
+  message: z.string().min(1, 'Сообщение обязательно')
+    .max(MAX_MESSAGE_CHARS, `Сообщение длиннее ${MAX_MESSAGE_CHARS} знаков — сократите, пожалуйста, или разбейте на несколько`),
+  sessionId: z.string().max(200).optional(),
+  role: z.string().max(40).default('tourist'),
   userId: z.string().nullable().default(null),
   // Client-side history fallback (used when DB session is unavailable)
   history: z.array(ChatMessageSchema).max(20).optional(),
   // Vision: base64-encoded image from user
-  imageBase64: z.string().max(8_000_000).optional(),
+  // ≈3 МБ фото (base64 длиннее двоичного на треть).
+  imageBase64: z.string().max(MAX_IMAGE_BASE64_CHARS, 'Фото больше 3 МБ — сожмите его или пришлите скриншот').optional(),
   imageMimeType: z.string().optional(),
   // Geo: user coordinates (from browser geolocation)
   userLocation: z.object({
@@ -233,7 +244,7 @@ async function handleChat(request: NextRequest, onStep?: (label: string) => void
     const storableSessionId = foreign ? null : (sessionId ?? null);
     const currentCount = session?.user_message_count ?? 0;
     const history: ChatMessage[] = (session?.messages?.length ? session.messages : null)
-      ?? (clientHistory as ChatMessage[] | undefined)
+      ?? (clientHistory?.length ? (trimHistory(clientHistory) as ChatMessage[]) : undefined)
       ?? [];
     const isNewSession = !session;
 
@@ -250,6 +261,43 @@ async function handleChat(request: NextRequest, onStep?: (label: string) => void
           remainingFree: 0,
         },
       });
+    }
+
+    // Предохранители гостя (lib/ai/anon-chat-guard, 21.11). Сессию клиент
+    // называет сам — новый sessionId давал новые 10 сообщений, поэтому
+    // бесплатный лимит ещё и на IP за сутки. И жёсткий суточный стоп: траты
+    // LLM за сегодня дошли до дневного бюджета — гостю отвечаем честно, без
+    // вызова модели. Порядок: сначала стоп (он не тратит место IP).
+    if (!isAuthenticated) {
+      if (await anonChatGuard.dailyStopped()) {
+        console.error('[ai-chat] суточный стоп гостевых вызовов LLM: дневной бюджет исчерпан');
+        return NextResponse.json({
+          success: true,
+          data: {
+            answer: ANON_DAILY_STOP_TEXT,
+            dailyStop: true,
+            sessionId: storableSessionId,
+            role: safeRole,
+            isAuthenticated: false,
+            remainingFree: Math.max(0, FREE_MESSAGE_LIMIT - currentCount),
+          },
+        });
+      }
+      if (!anonChatGuard.takeIpSlot(getClientIp(request.headers))) {
+        return NextResponse.json({
+          success: true,
+          data: {
+            limitReached: true,
+            authRequired: true,
+            answer: ANON_IP_LIMIT_TEXT,
+            message: ANON_IP_LIMIT_TEXT,
+            registerUrl: '/auth/login',
+            userMessageCount: currentCount,
+            remainingFree: 0,
+          },
+        });
+      }
+      anonChatGuard.countAnonCall();
     }
 
     // Долгосрочная память (только для авторизованных)
