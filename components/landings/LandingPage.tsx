@@ -1,12 +1,14 @@
 /** Страница посадочной целиком: шапка, хлебные крошки, тело (LandingContent). */
 import Link from 'next/link';
 import type { Metadata } from 'next';
+import type { ReactNode } from 'react';
 import { Header } from '@/components/layout/Header';
 import { JsonLd } from '@/components/seo/JsonLd';
 import { LandingContent } from '@/components/landings/LandingContent';
 import { pageContainer } from '@/lib/layout/page-width';
 import { landingBySlug, type Landing } from '@/lib/landings/landings';
-import { loadToursFor } from '@/lib/landings/tours';
+import { loadToursFor, loadPublicTours } from '@/lib/landings/tours';
+import { landingWithLiveText, hasLiveMarks } from '@/lib/landings/live-text';
 import { brandedTitle } from '@/lib/seo/title-fit';
 import { defaultOgImages } from '@/lib/seo/og-image';
 
@@ -33,9 +35,17 @@ export function landingBreadcrumbJsonLd(landing: Landing): Record<string, unknow
   };
 }
 
-export async function LandingPage({ slug }: { slug: string }) {
-  const landing = landingBySlug(slug);
-  const tours = await loadToursFor(landing);
+export async function LandingPage({ slug, middle, footer }: {
+  slug: string;
+  /** Свой блок на месте блока туров (у /kogda-ehat-na-kamchatku — «По месяцам»). */
+  middle?: ReactNode;
+  /** Блок под текстом (у хаба месяцев — навигация по месяцам). */
+  footer?: ReactNode;
+}) {
+  const base = landingBySlug(slug);
+  // Живые числа текста (метки {{…}}, lib/landings/live-text) — из базы на запросе.
+  const [tours, live] = await Promise.all([loadToursFor(base), hasLiveMarks(base) ? loadPublicTours() : Promise.resolve(null)]);
+  const landing = landingWithLiveText(base, live);
   return (
     <>
       <JsonLd data={landingBreadcrumbJsonLd(landing)} />
@@ -45,7 +55,8 @@ export async function LandingPage({ slug }: { slug: string }) {
           <nav className="text-sm" style={{ color: 'var(--text-muted)' }} aria-label="Хлебные крошки">
             <Link href="/">Главная</Link>
           </nav>
-          <LandingContent landing={landing} tours={tours} />
+          <LandingContent landing={landing} tours={tours} middle={middle} />
+          {footer}
         </div>
       </main>
     </>

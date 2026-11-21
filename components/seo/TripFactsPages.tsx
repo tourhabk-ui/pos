@@ -100,6 +100,37 @@ export function TripCostView({ data }: { data: TripCostData }) {
   );
 }
 
+/**
+ * Раздел «По месяцам»: число туров в месяц и виды — из базы на запросе, рыба —
+ * из справочника. Его же показывает хаб /kogda-ehat-na-kamchatku на месте
+ * блока туров, поэтому числа месяцев в тексте хаба не пишутся (они отсюда).
+ */
+export function WhenToGoMonths({ byMonth, fish }: { byMonth: ReturnType<typeof toursByMonth> | null; fish: ReadonlyMap<number, string[]> }) {
+  return (
+    <section className="space-y-3" aria-labelledby="when-months">
+      <h2 id="when-months" className="ds-h2">По месяцам</h2>
+      {byMonth === null ? <Muted>{NOT_LOADED}</Muted> : (
+        <ol className="space-y-2">
+          {byMonth.months.map((m) => {
+            const f = fish.get(m.month) ?? [];
+            return (
+              <li key={m.month} className="ds-card p-4 text-sm" data-month={m.month}>
+                <span className="font-semibold" style={{ color: 'var(--text-primary)' }}>{RU_MONTHS_NOM[m.month - 1]}</span>
+                <span style={{ color: 'var(--text-secondary)' }}>
+                  {' · '}{m.count > 0 ? `${m.count} ${plural(m.count, 'тур', 'тура', 'туров')}: ${m.kinds.join(', ').toLowerCase()}` : 'туров нет'}
+                  {f.length > 0 && ` · рыба в сезоне: ${f.join(', ').toLowerCase()}`}
+                </span>
+              </li>
+            );
+          })}
+        </ol>
+      )}
+      {byMonth && byMonth.unknown > 0 && <Muted>У {byMonth.unknown} {plural(byMonth.unknown, 'тура', 'туров', 'туров')} сезон не записан — они здесь не посчитаны.</Muted>}
+      <Muted>Сезоны рыб — из <Link className="underline" style={{ color: 'var(--ocean)' }} href="/fish">справочника рыб Камчатки</Link>; туры — в <Link className="underline" style={{ color: 'var(--ocean)' }} href="/catalog">каталоге</Link>.</Muted>
+    </section>
+  );
+}
+
 export function WhenToGoView({ tours, fish }: { tours: TripCostData['tours']; fish: ReadonlyMap<number, string[]> }) {
   const byMonth = tours ? toursByMonth(tours) : null;
   const faq = whenFaq(byMonth?.months ?? null, fish);
@@ -112,27 +143,7 @@ export function WhenToGoView({ tours, fish }: { tours: TripCostData['tours']; fi
           <Muted>По месяцам: сколько туров на Ведаре идёт в этот месяц по данным операторов, какие виды и какая рыба в сезоне по справочнику рыб Камчатки. Погоду на ближайшие дни показывает <Link className="underline" style={{ color: 'var(--ocean)' }} href="/weather">прогноз</Link>.</Muted>
         </header>
 
-        <section className="space-y-3" aria-labelledby="when-months">
-          <h2 id="when-months" className="ds-h2">По месяцам</h2>
-          {byMonth === null ? <Muted>{NOT_LOADED}</Muted> : (
-            <ol className="space-y-2">
-              {byMonth.months.map((m) => {
-                const f = fish.get(m.month) ?? [];
-                return (
-                  <li key={m.month} className="ds-card p-4 text-sm" data-month={m.month}>
-                    <span className="font-semibold" style={{ color: 'var(--text-primary)' }}>{RU_MONTHS_NOM[m.month - 1]}</span>
-                    <span style={{ color: 'var(--text-secondary)' }}>
-                      {' · '}{m.count > 0 ? `${m.count} ${plural(m.count, 'тур', 'тура', 'туров')}: ${m.kinds.join(', ').toLowerCase()}` : 'туров нет'}
-                      {f.length > 0 && ` · рыба в сезоне: ${f.join(', ').toLowerCase()}`}
-                    </span>
-                  </li>
-                );
-              })}
-            </ol>
-          )}
-          {byMonth && byMonth.unknown > 0 && <Muted>У {byMonth.unknown} {plural(byMonth.unknown, 'тура', 'туров', 'туров')} сезон не записан — они здесь не посчитаны.</Muted>}
-          <Muted>Сезоны рыб — из <Link className="underline" style={{ color: 'var(--ocean)' }} href="/fish">справочника рыб Камчатки</Link>; туры — в <Link className="underline" style={{ color: 'var(--ocean)' }} href="/catalog">каталоге</Link>.</Muted>
-        </section>
+        <WhenToGoMonths byMonth={byMonth} fish={fish} />
 
         <Faq faq={faq} />
         <Muted>Цены туров, жилья и машин — на странице <Link className="underline" style={{ color: 'var(--ocean)' }} href="/skolko-stoit-poezdka-na-kamchatku">«Сколько стоит поездка на Камчатку»</Link>.</Muted>

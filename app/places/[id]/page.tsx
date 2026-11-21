@@ -1,6 +1,7 @@
 import type { Metadata } from 'next';
 import { PLACE_CANONICAL_PARENT, PLACE_NOINDEX } from '@/lib/seo/h1-templates';
 import { landingByPath } from '@/lib/landings/landings';
+import { placeClosure } from '@/lib/routes/closures';
 import { loadToursFor } from '@/lib/landings/tours';
 import { LandingContent } from '@/components/landings/LandingContent';
 import { LandingCrossLink } from '@/components/landings/LandingCrossLink';
@@ -355,7 +356,7 @@ export default async function PlaceDetailPage({ params }: Props) {
       )}
       {pageLd && <JsonLd data={pageLd} />}
       {breadcrumbItems && <BreadcrumbJsonLd items={breadcrumbItems} />}
-      <PlaceDetailClient id={arkId} initialPlace={initialPlace} landingHeading={landing?.h1 ?? null} />
+      <PlaceDetailClient id={arkId} initialPlace={initialPlace} landingHeading={landing?.h1 ?? null} closure={placeClosure(canonicalId)} />
       {landing && (
         <div className={`${pageContainer('reading')} pb-10`}>
           <LandingContent landing={landing} tours={landingTours} showH1={false} />

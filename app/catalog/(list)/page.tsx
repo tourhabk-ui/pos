@@ -24,6 +24,11 @@ import { catalogHreflang } from '@/lib/zh/pages';
 import { plural } from '@/lib/home/data-freshness';
 import { jsonLdHtml } from '@/lib/seo/json-ld-html';
 import { loadOpenDateYears, openYearsLabel } from '@/lib/tours/nearest-free-date';
+import { LandingContent } from '@/components/landings/LandingContent';
+import { landingBySlug } from '@/lib/landings/landings';
+import { loadPublicTours } from '@/lib/landings/tours';
+import { landingWithLiveText } from '@/lib/landings/live-text';
+import { pageContainer } from '@/lib/layout/page-width';
 
 export const dynamic = 'force-dynamic';
 
@@ -86,14 +91,17 @@ export async function generateMetadata(): Promise<Metadata> {
  * где скелета нет, отдаёт список в первом HTML. Сторож:
  * tests/unit/list-pages-not-streamed.test.ts.
  */
+const CHOOSE_GUIDE = landingBySlug('kakie-tury-vybrat-na-kamchatke');
+
 export default async function CatalogPage() {
   const { filters, initialKey } = parseMarketplaceSearchParams({});
 
   // Отказ не глушится (§4.0): null — «не знаю», клиент дозапросит туры сам,
   // а в лог уходит имя запроса и SQLSTATE.
-  const [toursRes, summaryRes] = await Promise.allSettled([
+  const [toursRes, summaryRes, liveRes] = await Promise.allSettled([
     queryMarketplaceToursForPage(filters),
     queryCatalogSummaryForPage(),
+    loadPublicTours(),
   ]);
   const initial: MarketplaceToursResult | null = toursRes.status === 'fulfilled' ? toursRes.value : null;
   const summary: CatalogSummary | null = summaryRes.status === 'fulfilled' ? summaryRes.value : null;
@@ -146,6 +154,17 @@ export default async function CatalogPage() {
         initialKey={initial === null ? null : initialKey}
         summary={summary}
       />
+      {/* Блок «Какие туры выбрать» (хаб Сыщика 21.11, lib/landings/texts-hubs) —
+          под витриной, чтобы туры оставались первым экраном. Числа — из базы на
+          запросе; «туров всего» — тот же total, что у списка и FAQ. */}
+      <section aria-label="Какие туры выбрать на Камчатке" className={`${pageContainer('reading')} pb-8`}>
+        <LandingContent
+          landing={landingWithLiveText(CHOOSE_GUIDE, liveRes.status === 'fulfilled' ? liveRes.value : null, { total: initial?.total ?? null })}
+          tours={null}
+          showH1={false}
+          withJsonLd={false}
+        />
+      </section>
       <section aria-labelledby="catalog-faq" className="mx-auto w-full max-w-[1280px] px-6 xl:px-8 pb-6">
         <h2 id="catalog-faq" className="ds-h2 mb-3">Частые вопросы о турах на Камчатку</h2>
         <dl className="space-y-3">

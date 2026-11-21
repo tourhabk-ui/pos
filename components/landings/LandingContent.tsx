@@ -87,17 +87,19 @@ export function MonthsNav({ current }: { current?: string }) {
   );
 }
 
-export function LandingContent({ landing, tours, showH1 = true, middle }: {
+export function LandingContent({ landing, tours, showH1 = true, middle, withJsonLd = true }: {
   landing: Landing;
   tours: LandingBlockTour[] | null;
   /** H1 страницы — у своей страницы посадочной; у апгрейда H1 рисует страница. */
   showH1?: boolean;
   /** Свой блок на месте блока туров (у /plans — «План по дням»). */
   middle?: ReactNode;
+  /** false — у страницы своя разметка FAQPage (/catalog, витрина рыбалки): без дубля. */
+  withJsonLd?: boolean;
 }) {
   return (
     <article className="space-y-6" data-landing={landing.slug}>
-      <JsonLd data={landingJsonLd(landing)} />
+      {withJsonLd && <JsonLd data={landingJsonLd(landing)} />}
       {showH1 && (
         <h1 className="font-playfair text-3xl sm:text-4xl font-bold" style={{ color: 'var(--text-primary)' }}>{landing.h1}</h1>
       )}

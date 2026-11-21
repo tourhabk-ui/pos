@@ -254,7 +254,8 @@ export async function collectSitemapEntriesWithStatus(): Promise<{ entries: Meta
     // Копии источника (noindex, аудит 20.11) в карту не идут: slug в списке
     // lib/articles/noindex или источник — kamchatkaland.ru. Переписанные
     // (миграция 1471) возвращаются с lastmod = updated_at записи.
-    articlePages = rows.filter((row) => isArticleIndexable(row.slug, row.source_url)).map((row) => ({
+    // Статья с canonical на посадочную (LANDING_CANONICAL) в карту не идёт.
+    articlePages = rows.filter((row) => isArticleIndexable(row.slug, row.source_url) && !LANDING_CANONICAL[`/articles/${row.slug}`]).map((row) => ({
       url: `${BASE}/articles/${row.slug}`,
       lastModified: row.updated_at,
       changeFrequency: 'monthly' as const,

@@ -2,6 +2,7 @@
  * Посадочная страница под поисковый запрос (lib/seo/query-landings).
  * Серверный компонент: данные приходят готовыми и упорядоченными.
  */
+import type { ReactNode } from 'react';
 import { landingClosure } from '@/lib/routes/closures';
 import { ClosureNotice } from '@/components/routes/ClosureNotice';
 import Link from 'next/link';
@@ -94,10 +95,12 @@ function CarriersSection({ charter }: { charter: CharterState | null }) {
   );
 }
 
-export function QueryLandingView({ landing, tours, parks = [], charter = null, summary = null }: {
+export function QueryLandingView({ landing, tours, parks = [], charter = null, summary = null, guide = null }: {
   landing: QueryLanding; tours: LandingTourRow[] | null; parks?: ParkListItem[] | null; charter?: CharterState | null;
   /** Числа страницы из её туров (landingSummary); нет — первой строки из базы нет. */
   summary?: LandingSummary | null;
+  /** Гид над витриной (хаб Сыщика, lib/landings) — после шапки и ссылок «По теме». */
+  guide?: ReactNode;
 }) {
   const lead = landingLead(landing, summary);
   const closure = landingClosure(landing.key);
@@ -129,6 +132,8 @@ export function QueryLandingView({ landing, tours, parks = [], charter = null, s
             </ul>
           </nav>
         )}
+
+        {guide}
 
         {transfer ? <CarriersSection charter={charter} /> : (
         <section className="space-y-3" aria-labelledby="landing-tours">

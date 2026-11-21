@@ -4,6 +4,7 @@
  * (lib/tours/offer-order). Отказ базы — null и причина в лог: страница
  * говорит «не загрузилось», а не показывает пустой список (§4.0).
  */
+import { TOLBACHIK_DIFFICULTY_NOTE } from '@/lib/seo/query-landings';
 import { cache } from 'react';
 import { pool } from '@/lib/db-pool';
 import { publicTourSql } from '@/lib/tours/public-visibility';
@@ -65,11 +66,28 @@ const SQL = `SELECT ot.id::text AS id, ot.slug, ot.title, ot.base_price::text AS
        JOIN partners p ON ot.operator_id = p.id
       WHERE ${publicTourSql('ot')}`;
 
+/**
+ * Все опубликованные туры — один запрос на страницу (cache), без кэша между
+ * запросами: свободные места и даты меняются, их нельзя показывать вчерашними
+ * (Сыщик 21.11). null — база не ответила.
+ */
+export const loadPublicTours = cache(async (): Promise<LandingBlockTour[] | null> => {
+  try {
+    const { rows } = await pool.query<LandingBlockTour>(SQL);
+    return rows;
+  } catch (err) {
+    const code = (err as { code?: unknown })?.code;
+    console.error('[landing] туры не прочитаны:', typeof code === 'string' ? `SQLSTATE=${logText(code, 10)}` : '', logText(err instanceof Error ? err.message : err, 200));
+    return null;
+  }
+});
+
 /** Туры блока; null — база не ответила; [] — подходящих туров нет. Один раз на запрос. */
 export const loadLandingTours = cache(async (slug: string, spec: LandingTourSpec): Promise<LandingBlockTour[] | null> => {
   if (spec.kind === 'none') return [];
   try {
-    const { rows } = await pool.query<LandingBlockTour>(SQL);
+    const rows = await loadPublicTours();
+    if (rows === null) throw new Error('туры не прочитаны');
     const picked = rows.filter((r) => tourMatchesSpec(r, spec));
     return orderOffersBy(picked, (r) => ({ id: r.id, nearestFreeDate: r.next_open_date ?? null, anyDayOpen: r.any_day_open ?? null })).slice(0, LANDING_TOURS_MAX);
   } catch (err) {
@@ -93,6 +111,10 @@ export function tourBlockHeading(spec: LandingTourSpec): string {
 }
 
 export function tourBlockNote(spec: LandingTourSpec): string {
+  // Толбачик: «Лёгкий» и «Сложный» у одного направления — разные программы (Сыщик 21.11).
+  if (spec.kind === 'topic' && spec.topic === 'tolbachik') {
+    return `${TOLBACHIK_DIFFICULTY_NOTE} Цена «от» и даты — из карточки тура; итог называет оператор.`;
+  }
   switch (spec.kind) {
     case 'month': return 'Месяц — по сезону, который указал оператор, или по открытой дате выезда. Цена «от» и даты — из карточки тура; итог называет оператор.';
     case 'easy': return 'Признака «для детей» у туров на Ведаре нет. Здесь туры, которым оператор поставил сложность «лёгкая» и длительность до суток; про возраст спросите оператора в заявке.';

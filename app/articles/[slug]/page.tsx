@@ -5,6 +5,7 @@
  * он показывается тем, что он есть: статьёй. Ни карты, ни кнопки «в путь» —
  * идти тут некуда, и предлагать это было бы обманом.
  */
+import { LANDING_CANONICAL } from '@/lib/landings/landings';
 import { LandingCrossLink } from '@/components/landings/LandingCrossLink';
 import { pageContainer } from '@/lib/layout/page-width';
 import type { Metadata } from 'next';
@@ -60,7 +61,8 @@ export async function generateMetadata({ params }: Props): Promise<Metadata> {
   return {
     title: article.metaTitle ? brandedTitle(article.metaTitle) : article.title,
     description: description || `${article.title}: материал о Камчатке.`,
-    alternates: { canonical: `https://vedarai.ru/articles/${article.slug}` },
+    // Статья-двойник хаба объявляет канонической посадочную (LANDING_CANONICAL).
+    alternates: { canonical: `https://vedarai.ru${LANDING_CANONICAL[`/articles/${article.slug}`] ?? `/articles/${article.slug}`}` },
     // Копия чужого текста — вне индекса, ссылки проходят (lib/articles/noindex,
     // аудит 20.11): slug в списке или источник — kamchatkaland.ru.
     ...(isArticleIndexable(article.slug, article.sourceUrl) ? {} : { robots: NOINDEX_FOLLOW }),
