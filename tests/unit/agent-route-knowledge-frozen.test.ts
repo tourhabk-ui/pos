@@ -49,7 +49,6 @@ const KNOWN_READERS = new Set<string>([
   'app/api/safety/warnings/route.ts',
   'app/api/search/route.ts',
   'app/api/telegram/webhook/route.ts',
-  'app/api/tools/equipment/route.ts',
   'app/routes/[id]/page.tsx',
   'components/routes/CategoryPage.tsx',
   'lib/agents/agencies/danger-analyst-agency.ts',

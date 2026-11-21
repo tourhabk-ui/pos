@@ -145,7 +145,7 @@ const KNOWN_EMPTY_CATCHES: Record<string, number> = {
   'app/routes/_RoutesPageClient.tsx': 1,
   'app/sos/page.tsx': 1,
   'app/team/join/[token]/_JoinClient.tsx': 1,
-  'app/tools/equipment/_EquipmentClient.tsx': 2,
+  'app/tools/equipment/_EquipmentClient.tsx': 1,
   'app/trip/[token]/_OfflineSave.tsx': 1,
   'app/trip/[token]/_TripShareClient.tsx': 1,
   'app/watch/WatchClient.tsx': 3,
