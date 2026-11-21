@@ -1,0 +1,11 @@
+{
+  "name": "vedar",
+  "version": "2.10.2",
+  "description": "Kamchatka travel MCP: live tours and availability, place safety, weather, stays, transfers; human-confirmed requests, not bookings",
+  "mcpServers": {
+    "vedar": {
+      "type": "http",
+      "url": "https://vedarai.ru/api/mcp"
+    }
+  }
+}
