@@ -504,7 +504,7 @@ export default function PlaceDetailClient({ id, initialPlace = null, landingHead
                   называется словами: §4.0, третий исход. */}
               {/* 15.10: и для любого источника профиля — пустой список у
                   записи «не установлено» читался бы так же, «опасностей нет». */}
-              <PlaceHazardsUnknown hazards={place.safety.hazardTypes} source={place.safety.source} />
+              <PlaceHazardsUnknown hazards={place.safety.hazardTypes} source={place.safety.source} hasEssay={Boolean(place.essence || place.description)} />
 
               {/* Авиационный цветовой код вулкана (KVERT) */}
               {place.volcanoStatus && <VolcanoAccBadge status={place.volcanoStatus} />}

@@ -8,15 +8,21 @@ import type { SafetyProfileSource } from '@/lib/safety/profile-source';
  * «источник не установлен» пустой список молчал — и значил для читающего то
  * же самое «нет». Записанный пустой список тоже не значит «безопасно»: на
  * Камчатке такого обещания не даёт никто.
+ *
+ * 21.11 (повторный аудит Сыщика): история про снятый шаблонный набор нужна
+ * карточке, где больше ничего нет. Где очерк о месте уже написан, она
+ * читается как служебная заметка — там остаётся только общая строка.
  */
-export default function PlaceHazardsUnknown({ hazards, source }: {
+export default function PlaceHazardsUnknown({ hazards, source, hasEssay = false }: {
   hazards: string[];
   source: SafetyProfileSource | null | undefined;
+  /** У места есть очерк (описание или суть) — без истории про снятый набор. */
+  hasEssay?: boolean;
 }) {
   if (hazards.length > 0) return null;
   return (
     <p className="text-sm text-[var(--text-muted)]">
-      {source === 'type_template'
+      {source === 'type_template' && !hasEssay
         ? 'Опасности этого места у нас не записаны. Раньше здесь стоял набор, выведенный из типа места, а не проверенный на месте, — мы его убрали. '
         : 'Опасности этого места у нас не записаны — это не значит, что их нет. '}
       Спросите МЧС и оператора перед выходом.

@@ -12,6 +12,10 @@ import { landingSummary } from '@/lib/seo/query-landing-view';
 import { loadLandingParks } from '@/lib/seo/query-landings-parks';
 import { LandingContent } from '@/components/landings/LandingContent';
 import { landingBySlug } from '@/lib/landings/landings';
+import { JsonLd } from '@/components/seo/JsonLd';
+import { articleJsonLd } from '@/lib/articles/article-jsonld';
+
+const SITE = process.env.NEXT_PUBLIC_SITE_URL ?? 'https://vedarai.ru';
 
 export const dynamic = 'force-dynamic';
 
@@ -29,8 +33,20 @@ export default async function Page() {
     loadLandingPage(LANDING),
     loadLandingParks(LANDING.topic),
   ]);
+  const url = `${SITE}${LANDING.path}`;
   return (
     <>
+      {/* Гид над витриной — длинный текст: Article (повторный аудит Сыщика 21.11).
+          FAQPage остаётся одна — у витрины, поэтому здесь faq пустой. */}
+      <JsonLd data={articleJsonLd({ url, site: SITE, headline: LANDING.h1, description: GUIDE.description, datePublished: GUIDE.date, dateModified: GUIDE.date, faq: [] })} />
+      <JsonLd data={{
+        '@context': 'https://schema.org',
+        '@type': 'BreadcrumbList',
+        itemListElement: [
+          { '@type': 'ListItem', position: 1, name: 'Главная', item: SITE },
+          { '@type': 'ListItem', position: 2, name: LANDING.h1, item: url },
+        ],
+      }} />
       <Header />
       <QueryLandingView landing={LANDING} tours={tours} parks={parks} summary={landingSummary(tours, openYears)}
         guide={<LandingContent landing={GUIDE} tours={null} showH1={false} withJsonLd={false} />}

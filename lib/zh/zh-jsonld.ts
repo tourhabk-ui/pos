@@ -69,3 +69,36 @@ export function zhCatalogItemListJsonLd(site: string, tours: ReadonlyArray<{ pat
     itemListElement: tours.map((t, i) => ({ '@type': 'ListItem', position: i + 1, name: t.name, url: `${site}${t.path}` })),
   };
 }
+
+/**
+ * TouristAttraction китайского конспекта места (повторный аудит Сыщика 21.11,
+ * §4.8). Только то, что стоит на странице: имя (китайское — из OSM name:zh,
+ * иначе русское с пометкой), координаты из базы, описание — лишь перевод,
+ * сделанный с нынешнего текста; устаревшего перевода в разметке нет.
+ * sameAs — русская карточка того же места.
+ */
+export function zhPlaceJsonLd(
+  site: string,
+  place: { name: string; lat: string | null; lng: string | null },
+  path: string,
+  ruPath: string,
+  name: string,
+  freshDescription: string | null,
+): Record<string, unknown> {
+  const url = `${site}${path}`;
+  const lat = place.lat == null ? NaN : Number(place.lat);
+  const lng = place.lng == null ? NaN : Number(place.lng);
+  return {
+    '@context': 'https://schema.org',
+    '@type': 'TouristAttraction',
+    '@id': `${url}#place`,
+    name,
+    url,
+    inLanguage: 'zh-CN',
+    sameAs: `${site}${ruPath}`,
+    ...(freshDescription ? { description: freshDescription } : {}),
+    ...(Number.isFinite(lat) && Number.isFinite(lng) && !(lat === 0 && lng === 0)
+      ? { geo: { '@type': 'GeoCoordinates', latitude: lat, longitude: lng } }
+      : {}),
+  };
+}
