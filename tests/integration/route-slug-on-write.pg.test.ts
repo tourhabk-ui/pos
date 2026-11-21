@@ -572,6 +572,9 @@ withPg('слияние маршрутов Долины гейзеров (1492) �
         description text,
         distance_km numeric,
         distance_note text,
+        difficulty varchar,
+        difficulty_source varchar(24),
+        elevation_gain_m integer,
         is_visible boolean NOT NULL DEFAULT true,
         merged_into_id text,
         merged_at timestamptz,
@@ -592,6 +595,12 @@ withPg('слияние маршрутов Долины гейзеров (1492) �
       ('9e000000-0000-4000-8000-000000000002', 'valley', 0, 'waypoint'),
       ('9e000000-0000-4000-8000-000000000002', 'velikan', 1, 'waypoint')`);
     await pool.query(`INSERT INTO operator_tours (route_id) VALUES ('9e000000-0000-4000-8000-000000000002')`);
+    await pool.query(`INSERT INTO kamchatka_routes (title, slug, difficulty, distance_km, elevation_gain_m) VALUES
+      ('Вулкан Ключевская сопка', 'vulkan-klyuchevskaya-sopka-413a7499', 'easy', 3.5, 19),
+      ('Другой лёгкий', 'drugoj-legkij', 'easy', 3.5, 19)`);
+    const kl = readFileSync(join(MIGRATIONS, '1493_klyuchevskaya_route_not_easy.sql'), 'utf-8');
+    await pool.query(kl);
+    await pool.query(kl);
     const sql = readFileSync(join(MIGRATIONS, '1492_geyser_valley_route_merge_kronoki.sql'), 'utf-8');
     await pool.query(sql);
     // Повтор миграции ничего не меняет: guard'ы по слиянию, тексту и дистанции.
@@ -624,6 +633,14 @@ withPg('слияние маршрутов Долины гейзеров (1492) �
     const prov = await pool.query<{ written_by: string; facts_count: number; previous_chars: number }>(
       `SELECT written_by, facts_count, previous_chars FROM description_provenance`);
     expect(prov.rows).toEqual([{ written_by: 'fact-correction', facts_count: 10, previous_chars: OLD_TEXT.length }]);
+  });
+
+  it('Ключевская (1493): не «лёгкий», ложные километры и набор сняты; соседний маршрут не тронут', async () => {
+    const q = `SELECT difficulty, difficulty_source, distance_km::text AS km, elevation_gain_m AS gain FROM kamchatka_routes WHERE slug = $1`;
+    expect((await pool.query(q, ['vulkan-klyuchevskaya-sopka-413a7499'])).rows[0])
+      .toEqual({ difficulty: 'extreme', difficulty_source: 'owner-decision', km: null, gain: null });
+    expect((await pool.query(q, ['drugoj-legkij'])).rows[0])
+      .toEqual({ difficulty: 'easy', difficulty_source: null, km: '3.5', gain: 19 });
   });
 
   it('адрес слитого маршрута ведёт к выжившей; живой и цепочка в скрытую — без адреса', async () => {
