@@ -1,46 +1,57 @@
 'use client';
 
+/**
+ * Чек-лист снаряжения (/tools/equipment). С 21.11 список собирается из
+ * данных маршрута без модели (lib/preparation/gear-checklist.ts, слово владельца
+ * «го»): ответ сразу, своих слов и советов нет.
+ *
+ * Почему с этой страницы уходили (перепись 21.11, код):
+ *   — кнопка молча не нажималась, пока маршрут не выбран из подсказок, а
+ *     подсказка поля звала писать свободным текстом («…медведи»);
+ *   — подсказки появлялись только после набора, вперемешку места и маршруты;
+ *   — после списка не было следующего шага.
+ * Теперь: популярные маршруты видны при нажатии на поле, в подсказках только
+ * маршруты, у недоступной кнопки сказано, чего не хватает, под списком —
+ * карточка маршрута, подготовка к выходу, прокат снаряжения и печать.
+ */
 import React, { useState, useRef, useCallback, useEffect } from 'react';
 import Link from 'next/link';
-import { Search, Calendar, Backpack, ChevronLeft, AlertTriangle, CheckCircle, Circle } from 'lucide-react';
+import { Search, Calendar, Backpack, ChevronLeft, AlertTriangle, CheckCircle, Circle, Printer, MessageCircle } from 'lucide-react';
+import type { GearChecklist } from '@/lib/preparation/gear-checklist';
+import { kuzmichAskHref } from '@/lib/kuzmich/ask-link';
 
 interface RouteHit {
   id: string;
   title: string;
-  category: string | null;
-  locationType: string | null;
-  difficulty: string | null;
 }
 
-interface GearItem {
-  name: string;
-  required: boolean;
-  note?: string;
+type Result = GearChecklist & { dateFrom: string; essentialsSource: string };
+
+/** Подсказки поля: только маршруты. Пустой запрос — популярные. */
+export function routeSuggestUrl(q: string): string {
+  const query = q.trim();
+  return query
+    ? `/api/routes?kind=route&q=${encodeURIComponent(query)}&limit=6`
+    : '/api/routes?kind=route&sort=recommended&limit=6';
 }
 
-interface GearCategory {
-  id: string;
-  name: string;
-  items: GearItem[];
+/** Чего не хватает до кнопки — словами; всё есть — null. */
+export function missingForSubmit(route: RouteHit | null, date: string): string | null {
+  if (!route && !date) return 'Выберите маршрут из списка и дату поездки';
+  if (!route) return 'Выберите маршрут из списка под полем';
+  if (!date) return 'Укажите дату поездки';
+  return null;
 }
 
-interface Checklist {
-  summary: string;
-  categories: GearCategory[];
-  warnings: string[];
-  tip: string;
-}
-
-interface Result {
-  routeTitle: string;
-  dateFrom: string;
-  season: string;
-  checklist: Checklist;
+function isRouteHits(v: unknown): v is RouteHit[] {
+  return Array.isArray(v) && v.every((x) => typeof x === 'object' && x !== null && typeof (x as RouteHit).id === 'string' && typeof (x as RouteHit).title === 'string');
 }
 
 export function EquipmentClient() {
   const [query, setQuery] = useState('');
   const [suggestions, setSuggestions] = useState<RouteHit[]>([]);
+  const [suggestState, setSuggestState] = useState<'idle' | 'loading' | 'empty' | 'failed'>('idle');
+  const [open, setOpen] = useState(false);
   const [selectedRoute, setSelectedRoute] = useState<RouteHit | null>(null);
   const [dateFrom, setDateFrom] = useState('');
   const [loading, setLoading] = useState(false);
@@ -48,47 +59,60 @@ export function EquipmentClient() {
   const [error, setError] = useState<string | null>(null);
   const debounceRef = useRef<ReturnType<typeof setTimeout> | null>(null);
 
-  // Deep-link из «Подготовки к походу»: ?routeId= предзаполняет маршрут —
-  // человек пришёл с конкретным выходом, не заставляем искать заново.
-  // Query читается из window.location (приём формы брони, без Suspense).
+  // Deep-link из «Подготовки к походу» и кабинета: ?routeId= и ?date=.
   useEffect(() => {
     const qs = new URLSearchParams(window.location.search);
-    // ?date= — дата тура из карточки поездки кабинета: прогноз на нужный день.
     const qd = qs.get('date');
     if (qd && /^\d{4}-\d{2}-\d{2}$/.test(qd)) setDateFrom(qd);
     const rid = qs.get('routeId');
     if (!rid || !/^[0-9a-f-]{36}$/.test(rid)) return;
     fetch(`/api/routes/${rid}`)
-      .then(r => r.json())
+      .then((r) => r.json())
       .then((j: unknown) => {
         if (typeof j !== 'object' || j === null || !(j as Record<string, unknown>).success) return;
         const data = (j as Record<string, unknown>).data as Record<string, unknown>;
         if (typeof data.title !== 'string') return;
-        setSelectedRoute({
-          id: rid,
-          title: data.title,
-          category: (data.category as string | null) ?? null,
-          locationType: (data.locationType as string | null) ?? null,
-          difficulty: (data.difficulty as string | null) ?? null,
-        });
+        setSelectedRoute({ id: rid, title: data.title });
         setQuery(data.title);
       })
-      .catch(() => { /* нет сети — обычный поиск руками */ });
+      .catch(() => { /* нет сети — человек выберет маршрут сам, поле ему это скажет */ });
+  }, []);
+
+  const loadSuggestions = useCallback(async (value: string) => {
+    setSuggestState('loading');
+    try {
+      const res = await fetch(routeSuggestUrl(value));
+      const json = await res.json() as { success?: boolean; data?: unknown };
+      if (!res.ok || !json.success || !isRouteHits(json.data)) throw new Error(`HTTP ${res.status}`);
+      setSuggestions(json.data);
+      setSuggestState(json.data.length > 0 ? 'idle' : 'empty');
+    } catch {
+      setSuggestions([]);
+      setSuggestState('failed');
+    }
   }, []);
 
   const handleQueryChange = useCallback((value: string) => {
     setQuery(value);
     setSelectedRoute(null);
+    setOpen(true);
     if (debounceRef.current) clearTimeout(debounceRef.current);
-    if (!value.trim()) { setSuggestions([]); return; }
-    debounceRef.current = setTimeout(async () => {
-      try {
-        const res = await fetch(`/api/routes?q=${encodeURIComponent(value)}&limit=6`);
-        const json = await res.json() as { success: boolean; data: RouteHit[] };
-        if (json.success) setSuggestions(json.data);
-      } catch { /* silent */ }
-    }, 280);
-  }, []);
+    debounceRef.current = setTimeout(() => { void loadSuggestions(value); }, 280);
+  }, [loadSuggestions]);
+
+  const handleFocus = () => {
+    if (selectedRoute) return;
+    setOpen(true);
+    if (suggestions.length === 0 && suggestState !== 'loading') void loadSuggestions(query);
+  };
+
+  const pick = (s: RouteHit) => {
+    setSelectedRoute(s);
+    setQuery(s.title);
+    setOpen(false);
+  };
+
+  const missing = missingForSubmit(selectedRoute, dateFrom);
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
@@ -103,11 +127,8 @@ export function EquipmentClient() {
         body: JSON.stringify({ routeId: selectedRoute.id, dateFrom }),
       });
       const json = await res.json() as { success: boolean; data?: Result; error?: string };
-      if (json.success && json.data) {
-        setResult(json.data);
-      } else {
-        setError(json.error ?? 'Ошибка, попробуй ещё раз');
-      }
+      if (json.success && json.data) setResult(json.data);
+      else setError(json.error ?? 'Не получилось — попробуйте ещё раз');
     } catch {
       setError('Нет соединения с сервером');
     } finally {
@@ -118,203 +139,213 @@ export function EquipmentClient() {
   return (
     <div className="bg-[var(--bg-primary)] min-h-screen py-12">
       <div className="container mx-auto px-6 max-w-2xl">
-
-        {/* Back */}
-        <Link href="/tools" className="inline-flex items-center gap-2 text-[var(--text-muted)] hover:text-[var(--text-secondary)] text-sm mb-8 transition-colors">
+        <Link href="/tools" className="inline-flex items-center gap-2 text-[var(--text-muted)] hover:text-[var(--text-secondary)] text-sm mb-8 transition-colors print:hidden">
           <ChevronLeft size={16} />
           Все инструменты
         </Link>
 
-        {/* Header */}
         <div className="mb-8">
-          <span className="text-[var(--accent)] font-bold tracking-[0.4em] uppercase text-[10px] mb-3 inline-block">
+          <span className="text-[var(--accent)] font-bold tracking-[0.4em] uppercase text-[10px] mb-3 inline-block print:hidden">
             Мини-инструмент
           </span>
           <h1 className="font-playfair text-3xl md:text-4xl font-bold text-[var(--text-primary)] mb-2">
             Чек-лист снаряжения
           </h1>
-          <p className="text-[var(--text-secondary)] text-sm font-light">
-            Выбери маршрут и дату — Кузьмич составит список с учётом сезона и рельефа
+          <p className="text-[var(--text-secondary)] text-sm">
+            Выберите маршрут и дату — список соберётся из паспорта маршрута: снаряжение, опасности, обязательные шаги.
           </p>
         </div>
 
-        {/* Form */}
         {!result && (
           <form onSubmit={handleSubmit} className="space-y-4">
-            {/* Route autocomplete */}
             <div className="relative">
-              <label className="block text-xs font-bold uppercase tracking-[0.2em] text-[var(--text-muted)] mb-2">
+              <label htmlFor="gear-route" className="block text-xs font-bold uppercase tracking-[0.2em] text-[var(--text-muted)] mb-2">
                 Маршрут
               </label>
               <div className="relative">
-                <Search size={16} className="absolute left-3 top-1/2 -translate-y-1/2 text-[var(--text-muted)]" />
+                <Search size={16} className="absolute left-3 top-1/2 -translate-y-1/2 text-[var(--text-muted)]" aria-hidden="true" />
                 <input
+                  id="gear-route"
                   type="text"
-                  value={selectedRoute ? selectedRoute.title : query}
-                  onChange={e => handleQueryChange(e.target.value)}
-                  onFocus={() => { if (selectedRoute) { setSelectedRoute(null); setQuery(''); } }}
-                  placeholder="Мутновский вулкан, хели-ски, медведи..."
+                  value={query}
+                  onChange={(e) => handleQueryChange(e.target.value)}
+                  onFocus={handleFocus}
+                  placeholder="Например: Авачинский вулкан"
                   className="ds-input pl-9 w-full"
                   autoComplete="off"
+                  aria-autocomplete="list"
+                  aria-controls="gear-route-list"
                 />
               </div>
-              {suggestions.length > 0 && !selectedRoute && (
-                <div className="absolute z-10 w-full mt-1 bg-[var(--bg-card)] border border-[var(--border)] rounded-lg overflow-hidden shadow-lg">
-                  {suggestions.map(s => (
+              {open && !selectedRoute && (
+                <div id="gear-route-list" className="absolute z-10 w-full mt-1 bg-[var(--bg-card)] border border-[var(--border)] rounded-lg overflow-hidden shadow-lg">
+                  {!query.trim() && suggestions.length > 0 && (
+                    <p className="px-4 pt-3 pb-1 text-[10px] uppercase tracking-[0.2em] text-[var(--text-muted)]">Популярные маршруты</p>
+                  )}
+                  {suggestions.map((s) => (
                     <button
                       key={s.id}
                       type="button"
-                      onClick={() => { setSelectedRoute(s); setQuery(s.title); setSuggestions([]); }}
-                      className="w-full text-left px-4 py-3 hover:bg-[var(--bg-hover)] transition-colors border-b border-[var(--border)] last:border-0"
+                      onClick={() => pick(s)}
+                      className="w-full text-left px-4 py-3 min-h-[44px] hover:bg-[var(--bg-hover)] transition-colors border-b border-[var(--border)] last:border-0 text-sm text-[var(--text-primary)]"
                     >
-                      <p className="text-sm font-medium text-[var(--text-primary)] leading-tight">{s.title}</p>
-                      {(s.category || s.locationType) && (
-                        <p className="text-xs text-[var(--text-muted)] mt-0.5">
-                          {[s.category, s.locationType].filter(Boolean).join(' · ')}
-                        </p>
-                      )}
+                      {s.title}
                     </button>
                   ))}
+                  {suggestState === 'loading' && suggestions.length === 0 && (
+                    <p className="px-4 py-3 text-sm text-[var(--text-muted)]">Ищем маршруты…</p>
+                  )}
+                  {suggestState === 'empty' && (
+                    <p className="px-4 py-3 text-sm text-[var(--text-secondary)]">
+                      Маршрута с таким названием в каталоге нет. Попробуйте название вулкана или места —{' '}
+                      <Link href="/routes" className="text-[var(--ocean)] underline">все маршруты</Link>.
+                    </p>
+                  )}
+                  {suggestState === 'failed' && (
+                    <p className="px-4 py-3 text-sm text-[var(--danger)]">Список маршрутов не загрузился — проверьте связь и нажмите на поле ещё раз.</p>
+                  )}
                 </div>
               )}
             </div>
 
-            {/* Date */}
             <div>
-              <label className="block text-xs font-bold uppercase tracking-[0.2em] text-[var(--text-muted)] mb-2">
+              <label htmlFor="gear-date" className="block text-xs font-bold uppercase tracking-[0.2em] text-[var(--text-muted)] mb-2">
                 Дата поездки
               </label>
               <div className="relative">
-                <Calendar size={16} className="absolute left-3 top-1/2 -translate-y-1/2 text-[var(--text-muted)]" />
+                <Calendar size={16} className="absolute left-3 top-1/2 -translate-y-1/2 text-[var(--text-muted)]" aria-hidden="true" />
                 <input
+                  id="gear-date"
                   type="date"
                   value={dateFrom}
-                  onChange={e => setDateFrom(e.target.value)}
+                  onChange={(e) => setDateFrom(e.target.value)}
                   className="ds-input pl-9 w-full"
                 />
               </div>
             </div>
 
             {error && (
-              <p className="text-sm text-[var(--danger)] flex items-center gap-2">
-                <AlertTriangle size={14} /> {error}
+              <p className="text-sm text-[var(--danger)] flex items-center gap-2" role="alert">
+                <AlertTriangle size={14} aria-hidden="true" /> {error}
               </p>
             )}
 
             <button
               type="submit"
-              disabled={!selectedRoute || !dateFrom || loading}
+              disabled={missing !== null || loading}
+              aria-describedby={missing ? 'gear-missing' : undefined}
               className="ds-btn ds-btn-primary w-full flex items-center justify-center gap-2 py-3 disabled:opacity-40"
             >
-              {loading ? (
-                <>
-                  <span className="w-4 h-4 border-2 border-current border-t-transparent rounded-full animate-spin" />
-                  Кузьмич составляет список...
-                </>
-              ) : (
-                <>
-                  <Backpack size={18} />
-                  Составить чек-лист
-                </>
-              )}
+              <Backpack size={18} aria-hidden="true" />
+              {loading ? 'Собираем список…' : 'Собрать чек-лист'}
             </button>
+            {missing && <p id="gear-missing" className="text-xs text-[var(--text-muted)] text-center">{missing}</p>}
           </form>
         )}
 
-        {/* Skeleton */}
-        {loading && !result && (
-          <div className="mt-8 space-y-4">
-            {[1, 2, 3, 4, 5].map(i => (
-              <div key={i} className="bg-[var(--bg-card)] border border-[var(--border)] rounded-lg p-5">
-                <div className="ds-skeleton h-4 w-32 mb-3" />
-                <div className="space-y-2">
-                  {Array.from({ length: 3 }).map((_, j) => (
-                    <div key={j} className="ds-skeleton h-3 w-full" />
-                  ))}
-                </div>
-              </div>
-            ))}
-          </div>
-        )}
-
-        {/* Results */}
         {result && !loading && (
           <div className="space-y-6">
-            {/* Summary */}
-            <div className="bg-[var(--bg-card)] border border-[var(--border)] rounded-lg p-6">
+            <div className="ds-card p-6">
               <p className="text-[var(--text-muted)] text-[10px] uppercase tracking-[0.3em] font-bold mb-1">
-                {result.routeTitle} · {result.season}
+                {result.monthLabel}
               </p>
-              <p className="text-[var(--text-primary)] text-sm leading-relaxed">{result.checklist.summary}</p>
+              <h2 className="font-playfair text-2xl font-bold text-[var(--text-primary)]">
+                <Link href={result.routeHref} className="hover:underline">{result.routeTitle}</Link>
+              </h2>
+              <p className="text-sm text-[var(--text-secondary)] mt-2">
+                Обстановка на сегодня и оценка дня — <Link href={result.routeHref} className="text-[var(--ocean)] underline">на карточке маршрута</Link>.
+              </p>
             </div>
 
-            {/* Warnings */}
-            {result.checklist.warnings.length > 0 && (
-              <div className="bg-[var(--bg-card)] border border-[var(--warning)]/40 rounded-lg p-4 flex gap-3">
-                <AlertTriangle size={18} className="text-[var(--warning)] flex-shrink-0 mt-0.5" />
-                <div className="space-y-1">
-                  {result.checklist.warnings.map((w, i) => (
-                    <p key={i} className="text-sm text-[var(--warning)]">{w}</p>
-                  ))}
-                </div>
+            {result.offSeason && (
+              <div className="ds-card p-4 flex gap-3 border-[var(--warning)]">
+                <AlertTriangle size={18} className="text-[var(--warning)] flex-shrink-0 mt-0.5" aria-hidden="true" />
+                <p className="text-sm text-[var(--text-primary)]">{result.offSeason}</p>
               </div>
             )}
 
-            {/* Categories */}
-            {result.checklist.categories.map(cat => (
-              <div key={cat.id} className="bg-[var(--bg-card)] border border-[var(--border)] rounded-lg overflow-hidden">
-                <div className="px-5 py-3 border-b border-[var(--border)] bg-[var(--bg-hover)]">
-                  <h3 className="text-xs font-bold uppercase tracking-[0.2em] text-[var(--text-secondary)]">
-                    {cat.name}
-                  </h3>
-                </div>
-                <ul className="divide-y divide-[var(--border)]">
-                  {cat.items.map((item, i) => (
-                    <li key={i} className="px-5 py-3 flex items-start gap-3">
-                      {item.required
-                        ? <CheckCircle size={16} className="text-[var(--accent)] flex-shrink-0 mt-0.5" />
-                        : <Circle size={16} className="text-[var(--text-muted)] flex-shrink-0 mt-0.5" />
-                      }
-                      <div className="min-w-0">
-                        <span className="text-sm text-[var(--text-primary)]">{item.name}</span>
-                        {item.note && (
-                          <span className="ml-2 text-xs text-[var(--text-muted)]">{item.note}</span>
-                        )}
-                      </div>
-                      {!item.required && (
-                        <span className="ml-auto text-[10px] text-[var(--text-muted)] flex-shrink-0">по желанию</span>
-                      )}
+            {result.steps.length > 0 && (
+              <section className="ds-card p-5">
+                <h3 className="text-xs font-bold uppercase tracking-[0.2em] text-[var(--text-secondary)] mb-3">До выхода</h3>
+                <ul className="space-y-2">
+                  {result.steps.map((s) => (
+                    <li key={s.title} className="flex items-start gap-3 text-sm">
+                      <CheckCircle size={16} className="text-[var(--accent)] flex-shrink-0 mt-0.5" aria-hidden="true" />
+                      <Link href={s.href} className="text-[var(--text-primary)] hover:underline">{s.title}</Link>
                     </li>
                   ))}
                 </ul>
-              </div>
-            ))}
-
-            {/* Kuzmich tip */}
-            {result.checklist.tip && (
-              <div className="bg-[var(--accent)]/5 border border-[var(--accent)]/20 rounded-lg p-5">
-                <p className="text-[var(--text-muted)] text-[10px] uppercase tracking-[0.3em] font-bold mb-2">
-                  Кузьмич советует
-                </p>
-                <p className="text-sm text-[var(--text-primary)] italic leading-relaxed">
-                  &ldquo;{result.checklist.tip}&rdquo;
-                </p>
-              </div>
+              </section>
             )}
 
-            {/* Legend + Reset */}
-            <div className="flex items-center justify-between text-xs text-[var(--text-muted)]">
-              <span className="flex items-center gap-4">
-                <span className="flex items-center gap-1.5"><CheckCircle size={12} className="text-[var(--accent)]" /> Обязательно</span>
-                <span className="flex items-center gap-1.5"><Circle size={12} /> По желанию</span>
-              </span>
-              <button
-                onClick={() => { setResult(null); setSelectedRoute(null); setQuery(''); setDateFrom(''); }}
-                className="text-[var(--accent)] hover:underline"
-              >
-                Новый запрос
+            <section className="ds-card overflow-hidden">
+              <h3 className="px-5 py-3 border-b border-[var(--border)] bg-[var(--bg-hover)] text-xs font-bold uppercase tracking-[0.2em] text-[var(--text-secondary)]">
+                Снаряжение по паспорту маршрута
+              </h3>
+              {result.passportEquipment ? (
+                <ul className="divide-y divide-[var(--border)]">
+                  {result.passportEquipment.map((item) => (
+                    <li key={item} className="px-5 py-3 flex items-start gap-3 text-sm text-[var(--text-primary)]">
+                      <CheckCircle size={16} className="text-[var(--accent)] flex-shrink-0 mt-0.5" aria-hidden="true" />
+                      {item}
+                    </li>
+                  ))}
+                </ul>
+              ) : (
+                <p className="px-5 py-4 text-sm text-[var(--text-secondary)]">
+                  Паспорт маршрута снаряжение не называет. Ниже — общий минимум; что нужно сверх него, уточните у гида или оператора.
+                </p>
+              )}
+            </section>
+
+            {result.hazards.length > 0 && (
+              <section className="ds-card p-5">
+                <h3 className="text-xs font-bold uppercase tracking-[0.2em] text-[var(--text-secondary)] mb-3">Опасности маршрута</h3>
+                <ul className="flex flex-wrap gap-2">
+                  {result.hazards.map((h) => (
+                    <li key={h} className="ds-badge">{h}</li>
+                  ))}
+                </ul>
+                <p className="text-xs text-[var(--text-muted)] mt-3">Снаряжение под эти опасности подбирайте с гидом или оператором.</p>
+              </section>
+            )}
+
+            <section className="ds-card overflow-hidden">
+              <h3 className="px-5 py-3 border-b border-[var(--border)] bg-[var(--bg-hover)] text-xs font-bold uppercase tracking-[0.2em] text-[var(--text-secondary)]">
+                Общий минимум для любого выхода
+              </h3>
+              <ul className="divide-y divide-[var(--border)]">
+                {result.essentials.map((item) => (
+                  <li key={item.name} className="px-5 py-3 flex items-start gap-3">
+                    <Circle size={16} className="text-[var(--text-muted)] flex-shrink-0 mt-0.5" aria-hidden="true" />
+                    <span className="text-sm text-[var(--text-primary)]">
+                      {item.name}
+                      <span className="block text-xs text-[var(--text-muted)]">{item.why}</span>
+                    </span>
+                  </li>
+                ))}
+              </ul>
+              <p className="px-5 py-3 text-xs text-[var(--text-muted)] border-t border-[var(--border)]">Источник: {result.essentialsSource}.</p>
+            </section>
+
+            <nav aria-label="Что дальше" className="grid grid-cols-1 sm:grid-cols-2 gap-3 print:hidden">
+              <Link href={result.prepareHref} className="ds-btn ds-btn-primary justify-center">Подготовка к выходу</Link>
+              <Link href="/gear" className="ds-btn ds-btn-secondary justify-center">Прокат снаряжения</Link>
+              <Link href={kuzmichAskHref(`Что взять на маршрут «${result.routeTitle}»?`)} className="ds-btn ds-btn-secondary justify-center inline-flex items-center gap-2">
+                <MessageCircle size={16} aria-hidden="true" />Спросить Кузьмича
+              </Link>
+              <button type="button" onClick={() => window.print()} className="ds-btn ds-btn-secondary justify-center inline-flex items-center gap-2">
+                <Printer size={16} aria-hidden="true" />Распечатать
               </button>
-            </div>
+            </nav>
+
+            <button
+              type="button"
+              onClick={() => { setResult(null); setSelectedRoute(null); setQuery(''); setDateFrom(''); setSuggestions([]); setSuggestState('idle'); }}
+              className="text-sm text-[var(--accent)] hover:underline print:hidden"
+            >
+              Другой маршрут
+            </button>
           </div>
         )}
       </div>
