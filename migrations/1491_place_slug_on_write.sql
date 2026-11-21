@@ -115,7 +115,7 @@ BEGIN
       UPDATE places
          SET slug = s,
              updated_at = NOW()
-       WHERE id = r.id
+       WHERE id::text = r.id::text
          AND (slug IS NULL OR slug = '');
     END IF;
   END LOOP;
