@@ -27,6 +27,9 @@ import { loadPlaceTours, type PlaceTourOffer } from '@/lib/places/place-tours';
 import { offerOrderDay } from '@/lib/tours/offer-order';
 import { descriptionVoice } from '@/lib/places/description-voice';
 import { galleryShownSql } from '@/lib/places/gallery-shown';
+import { loadPlaceTourPhotos } from '@/lib/places/tour-photos';
+import { loadFeedAuthorSlugs } from '@/lib/media/author-feed';
+import type { RouteTourPhoto } from '@/lib/routes/tour-photos';
 import { operatorPagePath } from '@/lib/operators/page-link';
 import type { PlacePhotoAttribution, PlacePhotoRights, PlaceTour } from '@/components/places/types';
 
@@ -314,6 +317,12 @@ export async function loadPlaceDetail(id: string, opts: { countView: boolean }):
     const hazardTypes = templated.hazardTypes;
     const requiredGear = Array.isArray(r.required_gear) ? (r.required_gear as string[]) : [];
 
+    // Своего фото у места нет ни одного — снимки туров с записанной связью
+    // (21.11, lib/places/tour-photos): подпись автора со ссылкой на партнёра.
+    const tourShots = hasNoOwnPhoto(r)
+      ? await loadPlaceTourPhotos(String(r.place_pk), { feedSlugs: await loadFeedAuthorSlugs() })
+      : [];
+
     return { status: 200, body: {
       success: true,
       data: {
@@ -385,7 +394,7 @@ export async function loadPlaceDetail(id: string, opts: { countView: boolean }):
           const firstGallery = ((r.gallery_urls as unknown[] | null) ?? []).find((u): u is string => typeof u === 'string');
           if (firstGallery) return firstGallery;
           if (isOwnImageUrl(r.photo_url)) return r.photo_url;
-          return ownImageUrls(r.images)[0] ?? null;
+          return ownImageUrls(r.images)[0] ?? tourShots[0]?.url ?? null;
         })(),
         // Галерея героя. PlaceHero включает свайп при images.length > 1;
         // до 14.09 кормить его было нечем, кроме legacy-списка ССЫЛОК в
@@ -409,12 +418,13 @@ export async function loadPlaceDetail(id: string, opts: { countView: boolean }):
           // герой первым. До 14.10 список отдавался сырым: две чужие ссылки в
           // нём вытесняли наш снимок (PlaceHero при двух кадрах и больше
           // берёт только этот список).
+          if (tourShots.length > 0) return tourShots.map((t) => t.url);
           return [...hero, ...ownImageUrls(r.images)];
         })(),
         // Сколько снимков у места ВСЕГО — герой плюс галерея. Раньше число
         // означало «есть ли настоящее фото» и дальше единицы не росло;
         // счётчик «3/7» в PlaceHero по нему судить не мог.
-        photoCount: Number(r.photo_count) + ((r.gallery_urls as unknown[] | null)?.length ?? 0),
+        photoCount: Number(r.photo_count) + ((r.gallery_urls as unknown[] | null)?.length ?? 0) + tourShots.length,
         // Атрибуция фото — обязательна для CC-BY/CC-BY-SA (model=wikimedia).
         // Подпись идёт за ДАННЫМИ, а не за именем модели. Прежде условие
         // требовало `photo_model === 'wikimedia'`, и снимок ручной загрузки
@@ -423,8 +433,8 @@ export async function loadPlaceDetail(id: string, opts: { countView: boolean }):
         // «возьму фотки у вулканологов»), это прямое нарушение условий:
         // лицензия почти всегда требует видимого указания автора.
         photoAttribution: photoAttributionOf(r),
-        photoCredits: photoCreditsOf(r),
-        photoRights: photoRightsOf(r),
+        photoCredits: { ...photoCreditsOf(r), ...tourPhotoCreditsOf(tourShots) },
+        photoRights: { ...photoRightsOf(r), ...tourPhotoRightsOf(tourShots) },
         bestSeason: r.best_season as string | null,
         seasonalNotes: r.seasonal_notes as Record<string, string> | null,
         accessInfo: r.access_info as string | null,
@@ -689,4 +699,26 @@ export function photoRightsOf(r: Record<string, unknown>): Record<string, PlaceP
     if (one.license || one.licenseUrl || one.sourceUrl) rights[u] = one;
   });
   return rights;
+}
+
+/**
+ * У места нет ни одного своего кадра: ни показываемого главного, ни кадра
+ * галереи, ни своего адреса в прежних полях. Только тогда — снимки туров.
+ */
+export function hasNoOwnPhoto(r: Record<string, unknown>): boolean {
+  const gallery = Array.isArray(r.gallery_urls) ? r.gallery_urls : [];
+  return !(Number(r.photo_count) > 0)
+    && gallery.length === 0
+    && !isOwnImageUrl(r.photo_url)
+    && ownImageUrls(r.images).length === 0;
+}
+
+/** Автор снимка тура по адресу кадра — подпись «Фото: <автор>». */
+export function tourPhotoCreditsOf(shots: readonly RouteTourPhoto[]): Record<string, string | null> {
+  return Object.fromEntries(shots.map((t) => [t.url, t.credit.name]));
+}
+
+/** Ссылка подписи снимка тура: страница партнёра или фотолента автора; лицензии нет. */
+export function tourPhotoRightsOf(shots: readonly RouteTourPhoto[]): Record<string, PlacePhotoRights> {
+  return Object.fromEntries(shots.map((t) => [t.url, { license: null, licenseUrl: null, sourceUrl: t.credit.href }]));
 }

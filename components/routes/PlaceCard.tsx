@@ -16,6 +16,7 @@ import { horizonPath, closedHorizon, bearingDeg, distanceKm, rumb16, seasonRoman
 import { useAnchor } from './useAnchor';
 import { nearestZoneKey, ZONES, type ZoneKey } from '@/lib/services/safety/zone-weather';
 import { placeToursHref, placeToursLine } from '@/lib/places/place-tours-line';
+import { PhotoCreditLink } from '@/components/media/PhotoCreditLink';
 
 // Концепт Ω «Живые окна» (утверждён владельцем): место — существительное,
 // без цен. Кромка фото — силуэт горизонта по типу места, под именем —
@@ -65,7 +66,7 @@ function loadZonesWeather(): Promise<Map<string, ZoneWx>> {
   return wxPromise;
 }
 
-export default function PlaceCard({ route }: { route: RouteItem }) {
+export default function PlaceCard({ route, eager = false }: { route: RouteItem; eager?: boolean }) {
   const locType = route.locationType ?? 'other';
   const Icon    = LOCATION_ICONS[locType] ?? MapPin;
   const label   = LOCATION_TYPE_LABELS[locType] ?? 'Место';
@@ -152,8 +153,9 @@ export default function PlaceCard({ route }: { route: RouteItem }) {
           {photoSrc ? (
             <img
               src={photoSrc}
-              alt={route.title}
-              loading="lazy"
+              alt={route.photoAlt || route.title}
+              loading={eager ? 'eager' : 'lazy'}
+              fetchPriority={eager ? 'high' : undefined}
               className={`pc-img w-full h-full object-cover ${seq.current % 2 ? 'pc-kb-odd' : 'pc-kb-even'}`}
             />
           ) : (
@@ -241,6 +243,14 @@ export default function PlaceCard({ route }: { route: RouteItem }) {
           </button>
         </div>
       </Link>
+
+      {/* Подпись снимка тура (21.11) — ВНЕ ссылки на место: имя автора ведёт
+          на страницу партнёра или фотоленту. */}
+      {photoSrc && route.photoCredit && (
+        <p className="px-3 pt-1 text-[10px] leading-snug text-[var(--text-muted)] truncate" data-testid="place-card-photo-credit">
+          Фото: <PhotoCreditLink credit={route.photoCredit} />
+        </p>
+      )}
 
       {/* ── Тело ────────────────────────────────────────── */}
       <div className="px-3 pb-3 pt-0.5">

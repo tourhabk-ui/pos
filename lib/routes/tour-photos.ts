@@ -63,7 +63,8 @@ export function tourPhotoAllowedSql(): string {
 /** Автор снимка тура: запись `gallery_credits`, иначе имя партнёра. */
 export const TOUR_PHOTO_AUTHOR_SQL =
   `COALESCE(NULLIF(btrim(COALESCE(pa.gallery_credits, '{}'::jsonb)->>x.url), ''), btrim(pa.name))`;
-const CREDITED_FIRST = `(NULLIF(btrim(COALESCE(pa.gallery_credits, '{}'::jsonb)->>x.url), '') IS NULL)`;
+/** Внутри партнёра — сначала снимок с записанным автором. */
+export const CREDITED_FIRST = `(NULLIF(btrim(COALESCE(pa.gallery_credits, '{}'::jsonb)->>x.url), '') IS NULL)`;
 
 /** $1 — kamchatka_routes.id маршрута. */
 export const ROUTE_TOUR_PHOTOS_SQL = `

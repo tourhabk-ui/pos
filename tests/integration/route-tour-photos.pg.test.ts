@@ -172,4 +172,33 @@ withPg('снимки туров на маршрутах и фотолента а
     // Партнёр ленты не получает — его подпись ведёт на его страницу.
     expect((await loadAuthorFeed(authorFeedSlug(GUIDE.name)!)).state).toBe('none');
   });
+
+  // Места (21.11, «и на местах тоже»): та же записанная связь — главное место
+  // тура или точка пути маршрута тура без своего главного места.
+  it('место: снимки туров — главное место тура и точка пути маршрута тура; «рядом» — нет; по алфавиту', async () => {
+    const { PLACE_TOUR_PHOTOS_SQL } = await import('@/lib/places/tour-photos');
+    const { toRouteTourPhotos } = await import('@/lib/routes/tour-photos');
+    const peak = toRouteTourPhotos((await pool.query(PLACE_TOUR_PHOTOS_SQL, [PEAK.id])).rows as never, { feedEnabled: true });
+    expect(peak.map((p) => p.url)).toEqual([url('guide-1'), url('nocredit-1'), url('old-1')]);
+    expect(peak[1].credit).toEqual({ name: NOCREDIT.name, href: `/operators/${NOCREDIT.slug}`, kind: 'partner' });
+    // NEAR — «рядом» у маршрута: тур маршрута сюда не идёт; свой тур (главное место) — идёт.
+    const near = (await pool.query(PLACE_TOUR_PHOTOS_SQL, [NEAR.id])).rows.map((r) => (r as { url: string }).url);
+    expect(near).toEqual([url('near-1')]);
+  });
+
+  it('карточки мест: снимок тура только у места без своего кадра', async () => {
+    await pool.query(
+      `INSERT INTO operator_tours (operator_id, title, slug, activity_type, base_price, price_unit,
+                                   min_participants, max_participants, duration_hours, difficulty,
+                                   is_active, is_published, photos, main_place_id)
+       VALUES ($1, 'test-rtp-guide-lake', 'test-rtp-guide-lake', 'trekking', 15000, 'per_person', 1, 10, 8, 'medium', TRUE, TRUE, $2::text[], $3)`,
+      [GUIDE.id, [url('guide-lake')], LAKE.id],
+    );
+    const { loadPlaceCardTourPhotos } = await import('@/lib/places/tour-photos');
+    const shots = await loadPlaceCardTourPhotos([PEAK.ark, LAKE.ark], { feedEnabled: true });
+    expect(shots.get(PEAK.ark)?.url).toBe(url('guide-1'));
+    expect(shots.get(PEAK.ark)?.credit.href).toBe(`/operators/${GUIDE.slug}`);
+    // У озера свой снимок — обложка тура ему не нужна.
+    expect(shots.has(LAKE.ark)).toBe(false);
+  });
 });
