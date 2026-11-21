@@ -35,6 +35,9 @@ vi.mock('@/components/safety/SafetyWarnings', () => ({ default: () => null }));
 vi.stubGlobal('fetch', vi.fn(async () => ({ ok: false, status: 404, json: async () => ({}) })));
 
 import { HeroPhoto } from '@/components/media/HeroPhoto';
+import PlaceHero from '@/components/places/PlaceHero';
+import fs from 'fs';
+import path from 'path';
 import { CarrierHero } from '@/components/transfers/CarrierHero';
 import { CarrierVideo } from '@/components/transfers/CarrierVideo';
 import { CharterCard } from '@/components/transfers/CharterCard';
@@ -65,9 +68,12 @@ describe('герой: резкий кадр не шире колонки, пол
     const frame = container.querySelector('[data-hero-frame]') as HTMLElement;
     expect(frame.className).toMatch(/\bmax-w-6xl\b/);
     expect(frame.className).toMatch(/\bw-full\b/);
+    // 21.11: на десктопе рамка не растёт вместе с длинным заголовком (замер: 751 px).
+    expect(frame.className).toMatch(/lg:max-h-\[32rem\]/);
     const sharp = within(frame).getByAltText('Шатун');
     expect(fileOf(sharp)).toBe(photoSrc(SHATUN, 1280));
     expect((sharp as HTMLImageElement).style.objectPosition).toBe('50% 40%');
+    expect((sharp as HTMLImageElement).getAttribute('sizes')).toBe('(min-width: 1152px) 1152px, 100vw');
     // На широком экране снимок вписан в рамку, а не обрезан ею: узкий и
     // портретный кадр не растягивается и не теряет голову; на телефоне — обрезка, как было.
     expect(sharp.className.split(/\s+/)).toEqual(expect.arrayContaining(['object-cover', 'lg:object-contain']));
@@ -122,6 +128,40 @@ describe('герой: резкий кадр не шире колонки, пол
     expect(fileOf(sharp)).toBe(photoSrc(SHATUN, 1280));
     expect(sharp.style.objectPosition).toBe('50% 30%');
     expect(sharp.style.filter).toContain('saturate(1.1)');
+  });
+});
+
+
+describe('карточка места и маршрут: тот же герой, что у тура', () => {
+  it('PlaceHero: рамка 72rem и 32rem, cover на телефоне, contain на широком', () => {
+    const { container } = render(
+      <div>
+        <PlaceHero
+          placeId="avachinsky"
+          name="Авачинский вулкан"
+          locationType="volcano"
+          lat={53.255}
+          lng={158.83}
+          photoUrl="/api/images/route/avachinsky"
+          photoCount={1}
+        />
+      </div>,
+    );
+    const frame = container.querySelector('[data-hero-frame]') as HTMLElement;
+    expect(frame, 'герой места снова рисует снимок во всю ширину').not.toBeNull();
+    expect(frame.className).toMatch(/\bmax-w-6xl\b/);
+    expect(frame.className).toMatch(/lg:max-h-\[32rem\]/);
+    const sharp = within(frame).getByAltText('Авачинский вулкан') as HTMLImageElement;
+    expect(sharp.className.split(/\s+/)).toEqual(expect.arrayContaining(['object-cover', 'lg:object-contain']));
+    expect(sharp.getAttribute('sizes')).toBe('(min-width: 1152px) 1152px, 100vw');
+    expect(sharp.getAttribute('fetchpriority')).toBe('high');
+    expect(container.querySelector('[data-hero-backdrop]')).toBeTruthy();
+  });
+
+  it('маршрут: герой через HeroPhoto, на телефоне contain как было', () => {
+    const src = fs.readFileSync(path.join(process.cwd(), 'app/routes/[id]/_RouteDetailClient.tsx'), 'utf8');
+    expect(src, 'герой маршрута снова тянет кадр на 100vw').toMatch(/<HeroPhoto[\s\S]*fitMobile="contain"/);
+    expect(src).not.toMatch(/fill className="object-contain" priority fetchPriority="high" sizes="100vw"/);
   });
 });
 

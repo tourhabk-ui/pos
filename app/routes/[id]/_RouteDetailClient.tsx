@@ -11,6 +11,7 @@ import { operatorPagePath } from '@/lib/operators/page-link';
 import { linkKindLabel } from '@/lib/routes/link-kind';
 import { activityIcon } from '@/lib/tours/activity-icons';
 import Image from 'next/image';
+import { HeroPhoto } from '@/components/media/HeroPhoto';
 import {
   ArrowLeft, MapPin, Clock, Calendar, AlertTriangle, Users, Send,
   Star, CheckCircle, Phone, ChevronLeft, ChevronRight,
@@ -937,7 +938,12 @@ export default function RouteDetailClient({ id, mapPackBaseUrl, summary = null, 
           ) : (
             // Герой — LCP: без ленивой загрузки (priority). alt — название места:
             // у кадра точки — сама точка, у кадра тура — точка, к которой он идёт.
-            <Image src={heroImage!} alt={heroAlt(route.title, photos.indexOf(heroImage!), wpPhotos, tourShots)} fill className="object-contain" priority fetchPriority="high" sizes="100vw" />
+            <HeroPhoto
+              src={heroImage!}
+              alt={heroAlt(route.title, photos.indexOf(heroImage!), wpPhotos, tourShots)}
+              objectPosition="50% 50%"
+              fitMobile="contain"
+            />
           )}
         </div>
 
