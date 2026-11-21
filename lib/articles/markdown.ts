@@ -35,6 +35,53 @@ export function safeHref(raw: string): string | null {
   return null;
 }
 
+/**
+ * Голый http(s)-адрес: скобки в пути (статьи Википедии вроде
+ * «Елизово_(аэропорт)») входят в ссылку, хвостовая пунктуация и лишние
+ * закрывающие скобки фразы — нет.
+ */
+export function takeBareUrl(rest: string): string | null {
+  const m = rest.match(/^https?:\/\/[^\s<>]+/i);
+  if (!m) return null;
+  let url = m[0].replace(/[.,;:!?»"']+$/u, '');
+  let open = 0;
+  let close = 0;
+  for (const ch of url) {
+    if (ch === '(') open += 1;
+    else if (ch === ')') close += 1;
+  }
+  while (url.endsWith(')') && close > open) {
+    url = url.slice(0, -1);
+    close -= 1;
+  }
+  return url;
+}
+
+/** [текст](адрес) — в адресе допустимы парные скобки и форма <адрес>. */
+export function takeMdLink(rest: string): { text: string; href: string; raw: string } | null {
+  if (rest[0] !== '[') return null;
+  const close = rest.indexOf(']');
+  if (close < 1 || rest[close + 1] !== '(') return null;
+  const text = rest.slice(1, close);
+  const start = close + 2;
+  if (rest[start] === '<') {
+    const end = rest.indexOf('>', start + 1);
+    if (end < 0 || rest[end + 1] !== ')') return null;
+    return { text, href: rest.slice(start + 1, end), raw: rest.slice(0, end + 2) };
+  }
+  let depth = 1;
+  for (let j = start; j < rest.length; j++) {
+    if (rest[j] === '(') depth += 1;
+    else if (rest[j] === ')') {
+      depth -= 1;
+      if (depth === 0) {
+        return { text, href: rest.slice(start, j).trim(), raw: rest.slice(0, j + 1) };
+      }
+    }
+  }
+  return null;
+}
+
 /** Строка → inline-узлы: **жирный**, *курсив*, [текст](адрес), голый http(s), [n]. */
 export function parseInline(src: string): Inline[] {
   const out: Inline[] = [];
@@ -53,19 +100,21 @@ export function parseInline(src: string): Inline[] {
     if ((m = rest.match(/^\[(\d{1,3})\]/))) {
       flush(); out.push({ t: 'ref', n: Number(m[1]) }); i += m[0].length; continue;
     }
-    if ((m = rest.match(/^\[([^\]]+)\]\(([^)\s]+)\)/))) {
-      const href = safeHref(m[2]);
+    const md = takeMdLink(rest);
+    if (md) {
+      const href = safeHref(md.href);
       flush();
-      if (href) out.push({ t: 'link', href, c: parseInline(m[1]) });
-      else out.push(...parseInline(m[1]));
-      i += m[0].length; continue;
+      if (href) out.push({ t: 'link', href, c: parseInline(md.text) });
+      else out.push(...parseInline(md.text));
+      i += md.raw.length; continue;
     }
-    if ((m = rest.match(/^https?:\/\/[^\s<>()]+[^\s<>().,;:!?»"']/i)) && !/[\p{L}\p{N}]$/u.test(buf)) {
-      const href = safeHref(m[0]);
+    const bare = takeBareUrl(rest);
+    if (bare && !/[\p{L}\p{N}]$/u.test(buf)) {
+      const href = safeHref(bare);
       flush();
-      if (href) out.push({ t: 'link', href, c: [{ t: 'text', v: m[0] }] });
-      else buf += m[0];
-      i += m[0].length; continue;
+      if (href) out.push({ t: 'link', href, c: [{ t: 'text', v: bare }] });
+      else buf += bare;
+      i += bare.length; continue;
     }
     buf += src[i]; i += 1;
   }

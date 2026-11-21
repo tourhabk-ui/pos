@@ -98,7 +98,7 @@ export function LandingContent({ landing, tours, showH1 = true, middle, withJson
   withJsonLd?: boolean;
 }) {
   return (
-    <article className="space-y-6" data-landing={landing.slug}>
+    <article className="space-y-6 max-w-[70ch]" data-landing={landing.slug}>
       {withJsonLd && <JsonLd data={landingJsonLd(landing)} />}
       {showH1 && (
         <h1 className="font-playfair text-3xl sm:text-4xl font-bold" style={{ color: 'var(--text-primary)' }}>{landing.h1}</h1>
