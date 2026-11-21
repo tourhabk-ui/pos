@@ -128,3 +128,25 @@ describe('ссылки со скобками на живых посадочны�
     }
   });
 });
+
+describe('Долина гейзеров: расхождения из комментария к #3487, 21.11.2026', () => {
+  it('посадочная опирается на заповедник и не цитирует оператора на паузе', () => {
+    const l = landingBySlug('dolina-gejzerov-kak-popast');
+    expect(l.path).toBe('/dolina-gejzerov-ekskursiya');
+    expect(l.date).toBe('2026-11-21');
+    const text = `${l.before}\n${l.after}`;
+    expect(text).toMatch(/2–2,5 часа/);
+    expect(text).toMatch(/котловина размером 9×12 км/);
+    expect(text).toMatch(/Список туроператоров, организующих туры в заповедник/);
+    expect(text).toMatch(/в названную на карточке цену не входят/);
+    expect(text).toMatch(/месячник тишины/);
+    expect(text).toMatch(/Сезонное окно на странице тура — рамка/);
+    expect(text).not.toMatch(/аккредитованн/);
+    expect(text).not.toMatch(/крупнейших гейзерных полей/);
+    expect(text).not.toMatch(/Местечко/);
+    expect(text).not.toMatch(/mestechko-dolina-geyzerov/);
+    expect(text).not.toMatch(/зимние вылеты/);
+    expect(text).toContain('kronoki.ru/ru/visit/information-for-all/excursions/147.html');
+    expect(text).toContain('kronoki.ru/ru/visit/information-for-all/excursions/158.html');
+  });
+});
