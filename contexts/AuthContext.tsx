@@ -4,6 +4,21 @@ import React, { createContext, useContext, useState, useEffect } from 'react';
 import { sessionState, resetSessionState } from '@/lib/auth/session-state';
 import { clearFormDraft } from '@/lib/planner/form-draft';
 
+/**
+ * Роли — в хранилище устройства, если оно есть. Во встроенных браузерах
+ * (экран в машине, 21.11) `window.localStorage` равен null, а запись могла
+ * бросить и уронить вход. Не записали — вход идёт дальше без копии ролей
+ * на устройстве, а причина уходит в лог.
+ */
+function saveRolesToStorage(roles: unknown): void {
+  if (typeof window === 'undefined') return;
+  try {
+    window.localStorage?.setItem('user_roles', JSON.stringify(roles));
+  } catch (err) {
+    console.warn('[AuthContext] роли не сохранены:', err instanceof Error ? err.name : 'неизвестно');
+  }
+}
+
 export interface User {
   id: string;
   email: string;
@@ -219,9 +234,7 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
     await saveUserToStorage(userData);
     resetSessionState();
 
-    if (typeof window !== 'undefined') {
-      localStorage.setItem('user_roles', JSON.stringify(userData.roles));
-    }
+    saveRolesToStorage(userData.roles);
   };
 
   const signIn = async (email: string, password: string) => {
@@ -391,9 +404,7 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
     // В localStorage['user'] пишем только Bearer-сессию (как в signIn) —
     // cookie-only не сохраняем, иначе загрузка пойдёт Bearer-веткой с пустым токеном.
     if (token) await saveUserToStorage(updatedUser);
-    if (typeof window !== 'undefined') {
-      localStorage.setItem('user_roles', JSON.stringify(roles));
-    }
+    saveRolesToStorage(roles);
     return redirect;
   };
 

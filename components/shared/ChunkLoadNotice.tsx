@@ -6,9 +6,11 @@
  * стили сайта могли не прийти.
  *
  * Пока идёт автоперезагрузка, кнопки нет — второй щелчок её только
- * перебьёт. В остальных исходах кнопка обновляет страницу целиком.
+ * перебьёт. В остальных исходах кнопка обновляет страницу целиком. Звонок
+ * 112 и экран SOS — при любом исходе (экран в машине, 21.11).
  */
 import { WifiOff } from 'lucide-react';
+import { ErrorEmergencyLinks } from '@/components/shared/ErrorEmergencyLinks';
 import {
   CHUNK_TEXT,
   browserPage,
@@ -31,6 +33,7 @@ export function ChunkLoadNotice({ decision }: { decision: ChunkReloadDecision | 
             {CHUNK_TEXT.button}
           </button>
         )}
+        <ErrorEmergencyLinks />
       </div>
     </div>
   );

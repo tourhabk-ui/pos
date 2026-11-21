@@ -4,6 +4,7 @@ import type { MeshMessage, MeshMessageType, MeshPeer, MeshStatus, SosBroadcastPa
 import { roomOf } from './rooms';
 import { queueSOS, registerSOSSync } from '@/lib/offline/pending-queue';
 import { reportClientError } from '@/lib/client-errors/report';
+import { dedupId } from '@/lib/security/random-uuid';
 
 // STUN пробивает обычные NAT; за CGNAT мобильных операторов (типичный
 // случай в поле) соединение без TURN не собирается вовсе — обе стороны
@@ -22,7 +23,41 @@ const ICE_SERVERS: RTCIceServer[] = [
 ];
 
 function genDeviceId(): string {
-  return crypto.randomUUID();
+  // Не `crypto.randomUUID()` напрямую: в Chrome до 92 его нет (экран в машине,
+  // 21.11) — меш на /sos падал бы вместе со страницей.
+  return dedupId('mesh');
+}
+
+/**
+ * Хранилище устройства может отсутствовать вовсе: во встроенных браузерах
+ * (экран в машине, 21.11) `window.localStorage` равен null, и
+ * `localStorage.getItem` бросал «Cannot read properties of null» прямо в
+ * конструкторе — меш стартует, когда у /sos появились координаты, и экран
+ * SOS падал в «Произошла ошибка». Без хранилища id устройства живёт, пока
+ * открыта страница: соседи увидят новый id после перезагрузки — это лучше
+ * упавшего SOS.
+ */
+/** Может бросить (запрет хранилища) — зовут только из try ниже. */
+function deviceStorage(): Storage | null {
+  return typeof window !== 'undefined' ? window.localStorage ?? null : null;
+}
+
+function readDeviceId(): string | null {
+  try {
+    return deviceStorage()?.getItem('mesh-device-id') ?? null;
+  } catch {
+    // Хранилище закрыто — id будет новым на эту страницу.
+    return null;
+  }
+}
+
+function saveDeviceId(id: string): void {
+  try {
+    deviceStorage()?.setItem('mesh-device-id', id);
+  } catch (err) {
+    // Квота или запрет хранилища — id живёт до перезагрузки страницы.
+    console.warn('[volcano-mesh] id устройства не сохранён:', err instanceof Error ? err.name : 'неизвестно');
+  }
 }
 
 type PeerHandler = (peerId: string, peer: MeshPeer) => void;
@@ -74,8 +109,8 @@ export class VolcanoMesh {
 
   constructor() {
     if (typeof window === 'undefined') throw new Error('VolcanoMesh: client only');
-    this.deviceId = localStorage.getItem('mesh-device-id') ?? genDeviceId();
-    localStorage.setItem('mesh-device-id', this.deviceId);
+    this.deviceId = readDeviceId() ?? genDeviceId();
+    saveDeviceId(this.deviceId);
   }
 
   onStatus(fn: (s: MeshStatus) => void): void {
@@ -393,7 +428,7 @@ export class VolcanoMesh {
       // Фолбэк sos_id для старого формата: from+timestamp дедуплицирует
       // копии одного сообщения; без timestamp — случайный (дубль лучше потери)
       const sosId = p.sos_id
-        ?? (typeof msg.timestamp === 'number' ? `${msg.from}-${msg.timestamp}` : crypto.randomUUID());
+        ?? (typeof msg.timestamp === 'number' ? `${msg.from}-${msg.timestamp}` : dedupId('sos'));
 
       // Store-and-forward: чужой SOS ложится в мою офлайн-очередь и уходит
       // через /api/mesh/sos-relay (дедуп по sos_id), когда Я доберусь до связи.
@@ -490,7 +525,7 @@ export class VolcanoMesh {
   private pendingSos: SosBroadcastPayload | null = null;
 
   sendSOS(sos?: Partial<SosBroadcastPayload['sos']>): string {
-    const sosId = crypto.randomUUID();
+    const sosId = dedupId('sos');
     const fields = {
       // Координаты формы; фолбэк — последняя известная позиция меша
       // (для спасателей устаревший фикс лучше, чем никакого)

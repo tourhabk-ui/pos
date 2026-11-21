@@ -928,7 +928,7 @@ function navigateWithTimeout(request, shouldCache, afterCache) {
     const done = (value) => { if (!settled) { settled = true; resolve(value); } };
 
     if (recentlyStalled(new URL(request.url).pathname)) {
-      caches.match(request).then((cached) => { if (cached) done(cached); }).catch(() => {});
+      cachedCopy(request).then((cached) => { if (cached) done(cached); }).catch(() => {});
     }
 
     fetch(request).then((response) => {
@@ -940,7 +940,7 @@ function navigateWithTimeout(request, shouldCache, afterCache) {
 
     setTimeout(() => {
       if (settled) return;
-      caches.match(request).then((cached) => { if (cached) done(cached); }).catch(() => {});
+      cachedCopy(request).then((cached) => { if (cached) done(cached); }).catch(() => {});
     }, NAV_TIMEOUT_MS);
   });
 }
@@ -1171,7 +1171,23 @@ function offlineDocument() {
 }
 
 function cachedOrOffline(request) {
-  return caches.match(request).then((cached) => cached || offlineDocument(), () => offlineDocument());
+  return cachedCopy(request).then((cached) => cached || offlineDocument(), () => offlineDocument());
+}
+
+/**
+ * Экран SOS без своей копии — простой экран SOS, а не «Связи нет» (экран в
+ * машине, 21.11: «и сос не та страница»). /emergency — HTML без React и без
+ * сети, лежит в CRITICAL_URLS; «Связи нет» звонок 112 даёт, но координат и
+ * протоколов на нём нет. Обычные страницы ищут только свою копию.
+ */
+const SOS_FALLBACK = { '/sos': '/emergency' };
+
+function cachedCopy(request) {
+  const alt = SOS_FALLBACK[new URL(request.url).pathname];
+  return caches.match(request).then((hit) => {
+    if (hit || !alt) return hit;
+    return caches.match(alt);
+  });
 }
 
 // ── Web Push ──────────────────────────────────────────────────────────────────

@@ -3,6 +3,7 @@
 import Link from 'next/link';
 import { useBoundaryError } from '@/hooks/use-boundary-error';
 import { ChunkLoadNotice } from '@/components/shared/ChunkLoadNotice';
+import { ErrorEmergencyLinks } from '@/components/shared/ErrorEmergencyLinks';
 
 export default function Error({
   error,
@@ -14,6 +15,8 @@ export default function Error({
   // Ошибка рендера, пойманная границей, до window.onerror не доходит —
   // докладывает сама граница (ловушка ошибок, 13.10); не догрузившийся кусок
   // кода — свой экран и одна автоперезагрузка (06.11).
+  // 112 и экран SOS — на любом исходе: упавшая страница закрывает собой
+  // шапку с кнопкой SOS (экран в машине, 21.11).
   const { chunk, decision } = useBoundaryError(error);
   if (chunk) return <ChunkLoadNotice decision={decision} />;
   return (
@@ -84,6 +87,7 @@ export default function Error({
             На главную
           </Link>
         </div>
+        <ErrorEmergencyLinks />
       </div>
     </div>
   );

@@ -35,8 +35,15 @@ export function InstallPrompt() {
   const [hidden, setHidden] = useState(true);
 
   useEffect(() => {
-    // Не показывать если пользователь уже отклонил (14 дней)
-    const wasDismissed = localStorage.getItem('pwa-install-dismissed');
+    // Не показывать если пользователь уже отклонил (14 дней). Хранилища
+    // может не быть вовсе (встроенный браузер, экран в машине 21.11:
+    // localStorage равен null) — тогда отказа не помним, а каркас не падает.
+    let wasDismissed: string | null = null;
+    try {
+      wasDismissed = window.localStorage?.getItem('pwa-install-dismissed') ?? null;
+    } catch (err) {
+      console.warn('[InstallPrompt] хранилище недоступно:', err instanceof Error ? err.name : 'неизвестно');
+    }
     if (wasDismissed) {
       const dismissedAt = parseInt(wasDismissed, 10);
       if (Date.now() - dismissedAt < 14 * 24 * 60 * 60 * 1000) {
@@ -66,7 +73,11 @@ export function InstallPrompt() {
   };
 
   const handleDismiss = () => {
-    localStorage.setItem('pwa-install-dismissed', Date.now().toString());
+    try {
+      window.localStorage?.setItem('pwa-install-dismissed', Date.now().toString());
+    } catch (err) {
+      console.warn('[InstallPrompt] отказ не сохранён:', err instanceof Error ? err.name : 'неизвестно');
+    }
     setShow(false);
   };
 

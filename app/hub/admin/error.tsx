@@ -3,6 +3,7 @@
 import Link from 'next/link';
 import { useBoundaryError } from '@/hooks/use-boundary-error';
 import { ChunkLoadNotice } from '@/components/shared/ChunkLoadNotice';
+import { ErrorEmergencyLinks } from '@/components/shared/ErrorEmergencyLinks';
 
 export default function AdminHubError({
   error,
@@ -47,6 +48,7 @@ export default function AdminHubError({
             Назад
           </Link>
         </div>
+        <ErrorEmergencyLinks />
       </div>
     </div>
   );

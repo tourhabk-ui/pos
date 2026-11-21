@@ -192,6 +192,18 @@ rounded-2xl        → rounded-lg (кроме glass-элементов и bento-
   СОС — фиксированная кнопка в шапке на каждом экране (`components/shared/EmergencyAction.tsx`,
   решение владельца 29.07, #887) — в таб-баре его НЕТ и возвращать нельзя:
   две кнопки одного действия расходятся поведением (уже случалось)
+- Экран ошибки — не тупик (экран в машине, 21.11: «sos должна без интернета
+  работать»). На старом Chrome /sos падал при открытии, а экран ошибки шапки с
+  SOS не показывает. Теперь каждая граница ошибок даёт звонок 112 и ссылку на
+  `/emergency` (`components/shared/ErrorEmergencyLinks.tsx`), у /sos — своя
+  граница, где звонок стоит первым. Service worker отдаёт `/sos` без копии
+  копией `/emergency`, а не «Связи нет». `crypto.randomUUID` в клиентском коде —
+  через `lib/security/random-uuid.ts` (в Chrome до 92 его нет). Хранилища
+  устройства может не быть вовсе (`window.localStorage` равен null во
+  встроенных браузерах): в коде каркаса, главной, /sos и экранов ошибок каждое
+  обращение к нему — в try своей функции. Сторожа:
+  `tests/unit/error-screens-emergency.test.tsx`, `tests/unit/client-random-uuid.test.tsx`,
+  `tests/unit/sos-no-storage.test.tsx`
 - Футер: только desktop
 - Homepage: `components/homepage/` (HeroStatus, BentoSection, EditorialSection,
   FeaturedTour, KuzmichBriefing, LiveOnTrails, StatsBand, MoodEntry, OperatorPromo,

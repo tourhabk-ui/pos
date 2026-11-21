@@ -2,6 +2,7 @@
 
 import { useBoundaryError } from '@/hooks/use-boundary-error';
 import { CHUNK_TEXT, browserPage, chunkNoticeBody } from '@/lib/client-errors/chunk-load';
+import { ErrorEmergencyLinks } from '@/components/shared/ErrorEmergencyLinks';
 
 export default function GlobalError({
   error,
@@ -25,6 +26,8 @@ export default function GlobalError({
             --text-secondary: #595959;
             --text-muted: #6B6B6B;
             --accent: #006CE4;
+            --danger: #B91C1C;
+            --on-danger: #FFFFFF;
           }
         `}</style>
       </head>
@@ -70,6 +73,8 @@ export default function GlobalError({
               {chunk ? CHUNK_TEXT.button : 'Попробовать снова'}
             </button>
           )}
+          {/* Шапки с SOS здесь нет: корневая граница рисует свой документ (21.11). */}
+          <ErrorEmergencyLinks />
         </div>
       </body>
     </html>

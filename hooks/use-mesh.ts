@@ -30,7 +30,16 @@ export function useMesh(
     const pos = positionRef.current;
     if (!pos) return;
 
-    const mesh = new VolcanoMesh();
+    // Меш — добавка к SOS, а не его условие: отказ здесь не роняет экран
+    // (21.11, экран в машине: конструктор бросал на браузере без хранилища).
+    let mesh: VolcanoMesh;
+    try {
+      mesh = new VolcanoMesh();
+    } catch (err) {
+      console.error('[use-mesh] меш не создан:', err instanceof Error ? err.message : String(err));
+      setStatus('error');
+      return;
+    }
     meshRef.current = mesh;
 
     mesh.onStatus(setStatus);
