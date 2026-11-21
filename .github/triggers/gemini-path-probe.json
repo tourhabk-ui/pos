@@ -1,7 +1,9 @@
 {
   "note": "Маркер запуска gemini-path-probe.yml: правка этого файла в main меряет с прода, открыт ли путь до Gemini через шлюз Cloudflare AI Gateway vedar-ai и напрямую.",
-  "run": 6,
+  "run": 7,
   "gateway_id": "vedar-ai",
+  "run7_reason": "Замер 6: адрес из GEMINI_BASE_URL — снова 401 «Unauthorized», шлюз vedar-ai аккаунта пробы открыт; основная модель gemini-flash-latest — 503, закреплённая gemini-3.8-flash ответила. Живой код теперь берёт закреплённую модель. Замер: какая часть адреса из настройки другая (аккаунт или имя шлюза), откуда модель генерации (GEMINI_MODEL или список) и отвечает ли закреплённая модель основной.",
+  "run6_result": "21.11 22:39 UTC (прогон Actions 44954120585, после выката 382572f46 в 22:38). current_via gateway, current_rejected null. Путь current (адрес из GEMINI_BASE_URL): HTTP 401, AiGatewayError 2009 «Unauthorized». Путь gateway (vedar-ai аккаунта пробы): open, HTTP 200, 286 мс, 49 моделей. Напрямую: blocked, HTTP 400 гео. Генерация через gateway: gemini-flash-latest — HTTP 503 за 5568 мс «high demand»; запасная gemini-3.8-flash — open, HTTP 200 за 3423 мс.",
   "run6_reason": "21.11 владелец выбрал вариант 1: в GEMINI_BASE_URL — адрес рабочего шлюза vedar-ai того же аккаунта. Замер после выката: открыт ли путь current и отвечает ли генерация; не ответила основная модель — ещё до двух запасных flash-моделей.",
   "run5_result": "21.11 15:30 UTC (прогон Actions 44919457948, после выката 15:18). current_via gateway, current_rejected null. Путь current (адрес из GEMINI_BASE_URL): HTTP 401, AiGatewayError 2009 «Unauthorized». Путь gateway (аккаунт из секрета, шлюз vedar-ai): open, HTTP 200, 379 мс, 49 моделей. Напрямую: blocked, HTTP 400 гео. Генерация через путь gateway моделью gemini-flash-latest: unreachable, нет ответа за 40 с.",
   "run5_reason": "Прогон 4 прошёл в 14:45 UTC, до перезапуска контейнера: ожидание выката пропустило коммит, менявший только .github/, и прод ещё ходил напрямую. Переменная вступает в силу при перезапуске; выкаты после неё — 15:06 и 15:18 UTC. Замер: принят ли адрес (current_via = gateway, current_rejected = null) и отвечает ли генерация через шлюз.",

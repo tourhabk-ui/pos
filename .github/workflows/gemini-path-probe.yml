@@ -97,6 +97,8 @@ jobs:
           OPEN=$(jq -r '.open_paths | join(", ")' /tmp/probe.json)
           GEN=$(jq -r '.generate.outcome // "не было"' /tmp/probe.json)
           ALT=$(jq -r '[.generate_alternates[]? | "\(.model): \(.outcome)"] | join("; ")' /tmp/probe.json)
+          DIFF=$(jq -r 'if .current_vs_gateway then "аккаунт \(if .current_vs_gateway.account == "same" then "тот же" else "другой" end), имя шлюза \(if .current_vs_gateway.gateway == "same" then "то же" else "другое" end)" else empty end' /tmp/probe.json)
+          if [ -n "$DIFF" ]; then echo "Адрес из GEMINI_BASE_URL против шлюза пробы: $DIFF."; fi
           case "$EXISTS" in
             true)  echo "Путь до Gemini с прода открыт: $OPEN. Генерация: $GEN.${ALT:+ Запасные модели: $ALT.}" ;;
             null)  echo "::warning::Ни одна проба не дошла (сеть или ключа нет) — открыт ли путь, неизвестно."; jq -r '.note // empty' /tmp/probe.json ;;
