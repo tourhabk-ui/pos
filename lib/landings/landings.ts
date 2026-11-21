@@ -187,4 +187,6 @@ export const LANDING_CROSS_LINKS: Readonly<Record<string, { href: string; label:
   '/places/malkinskie-goryachie-istochniki': { href: '/malkinskie-istochniki-kak-dobratsya', label: 'Малкинские источники: как добраться и можно ли купаться' },
   '/routes/vilyuchinskij-vodopad': { href: '/vilyuchinskij-vodopad', label: 'Вилючинский водопад: как добраться и когда ехать' },
   '/places/halaktyrskij-plyazh': { href: '/serfing-na-kamchatke', label: 'Серфинг на Камчатке: Халактырский пляж и сезон' },
+  // Журнал 21.11: у посадочной «где остановиться» не было входа с хаба жилья.
+  '/accommodations': { href: '/gde-ostanovitsya-na-kamchatke', label: 'Где остановиться на Камчатке: Петропавловск, Елизово или Паратунка' },
 };
