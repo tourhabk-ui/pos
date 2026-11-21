@@ -12,7 +12,7 @@ import CategoryPage from '@/components/routes/CategoryPage';
 import { query } from '@/lib/database';
 import { stripFillerLead } from '@/lib/text/filler-lead';
 import { isUuid } from '@/lib/text/slugify';
-import { resolveToId } from '@/lib/routes/resolve-route-ref';
+import { resolveToId, resolveMergedRoute } from '@/lib/routes/resolve-route-ref';
 import { routeClosure } from '@/lib/routes/closures';
 import { JsonLd } from '@/components/seo/JsonLd';
 import { webPageModifiedJsonLd } from '@/lib/seo/record-modified';
@@ -363,7 +363,19 @@ export default async function RouteOrCategoryPage({ params }: Props) {
   if (!id) notFound();
 
   const route = await getRoute(decodeSlug(id));
-  if (!route) notFound();
+  if (!route) {
+    // Слитый маршрут уходит из витрины, а его адрес остаётся в выдаче — 308 на
+    // выжившую запись, как у мест (#3566 п.1). Отказ базы — лог и 404, как было.
+    let mergedTo: string | null = null;
+    try {
+      mergedTo = await resolveMergedRoute(decodeSlug(id));
+    } catch (err) {
+      const e = err as { code?: string; message?: string };
+      console.error('[routes/[id]] проверка слияния маршрута не удалась', { id, sqlstate: e?.code, message: e?.message });
+    }
+    if (mergedTo) permanentRedirect(`/routes/${mergedTo}`);
+    notFound();
+  }
 
   // Двойник карточки места: место, открытое под адресом маршрута, или
   // маршрут с тем же slug, что у видимого места (скрейп «как добраться» носил

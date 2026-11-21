@@ -47,3 +47,37 @@ export async function resolveToId(idOrSlug: string): Promise<{ id: string; kind:
     return null;
   }
 }
+
+/**
+ * Куда ведёт адрес слитого маршрута: по цепочке merged_into_id — до видимой
+ * несклеенной записи, не дальше пяти шагов (21.11, #3566 п.1).
+ *
+ * У мест это делает resolveMergedTarget (lib/places/aliases.ts), у маршрутов
+ * не делал никто: слитый маршрут уходил из VIEW, и его адрес из выдачи
+ * поисковиков отвечал 404 — склейка дублей убивала адрес, а не переносила.
+ * Ответ — slug выжившего, без slug — его id VIEW (COALESCE(ark_id, id)).
+ */
+export const MERGED_ROUTE_SQL = `
+  WITH RECURSIVE chain AS (
+    SELECT r.id, r.merged_into_id, r.slug, r.ark_id, r.is_visible, 0 AS hop
+      FROM kamchatka_routes r
+     WHERE (r.slug = $1 OR r.id::text = $1 OR r.ark_id::text = $1)
+       AND r.merged_into_id IS NOT NULL
+    UNION ALL
+    SELECT n.id, n.merged_into_id, n.slug, n.ark_id, n.is_visible, c.hop + 1
+      FROM chain c
+      JOIN kamchatka_routes n ON n.id::text = c.merged_into_id::text
+     WHERE c.hop < 5
+  )
+  SELECT COALESCE(slug, COALESCE(ark_id, id)::text) AS canonical
+    FROM chain
+   WHERE hop > 0 AND merged_into_id IS NULL AND is_visible = TRUE
+   ORDER BY hop
+   LIMIT 1`;
+
+/** Отказ базы бросается: «не смогли спросить» — не «не слито» (§4.0), решает вызывающий. */
+export async function resolveMergedRoute(idOrSlug: string): Promise<string | null> {
+  const r = await query(MERGED_ROUTE_SQL, [idOrSlug]);
+  const canonical = r.rows[0]?.canonical;
+  return typeof canonical === 'string' && canonical ? canonical : null;
+}
