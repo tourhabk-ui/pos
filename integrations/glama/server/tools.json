@@ -780,7 +780,7 @@
           },
           "date_from": {
             "type": "string",
-            "description": "Start of the window, YYYY-MM-DD; default today. С какой даты смотреть, YYYY-MM-DD. Не сказано — с сегодня.",
+            "description": "Start of the window, a real YYYY-MM-DD in Asia/Kamchatka; default today. An invalid date is an error, not today. С какой даты смотреть, YYYY-MM-DD по Камчатке. Не сказано — с сегодня. Недата — отказ, а не сегодняшнее окно.",
             "examples": [
               "2027-07-15"
             ]

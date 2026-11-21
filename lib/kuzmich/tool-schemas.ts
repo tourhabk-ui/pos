@@ -602,7 +602,7 @@ export const TOOL_REGISTRY: Record<string, ToolSpec> = {
           type: 'object',
           properties: {
             tour: { type: 'string', description: 'Название тура, ключевое слово или числовой ID. Имя компании или гида — ответ список их туров без дат: даты смотри по номеру тура.' },
-            date_from: { type: 'string', description: 'С какой даты смотреть, YYYY-MM-DD. Не сказано — с сегодня.' },
+            date_from: { type: 'string', description: 'С какой даты смотреть, YYYY-MM-DD по Камчатке. Не сказано — с сегодня. Недата — отказ, а не сегодняшнее окно.' },
             days: { type: 'string', description: 'Окно в днях (1–31). Не сказано — 14.' },
             people: { type: 'string', description: 'Сколько человек (1–30). Дано — к каждой дате итоговая сумма поездки, тем же расчётом, что при оформлении заявки; если в окне мест нет — ближайшая дата, где мест хватит на всех.' },
           },
