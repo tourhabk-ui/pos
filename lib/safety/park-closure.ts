@@ -473,6 +473,33 @@ export function isSeasonalClosure(text: string): boolean {
     .some((s) => /парк|заповедник/.test(s) && CLOSURE_RE.test(s) && SEASONAL_RE.test(s));
 }
 
+/** Самая длинная часть фразы, которую человек увидит словами источника. */
+export const HAZARD_CLAUSE_MAX = 160;
+
+/**
+ * Опасность, названная в тексте закрытия, — словами источника (#3607, 21.11).
+ *
+ * Закрытие с названной опасностью остаётся красным (правило 19.11), но
+ * человеку красный без причины ничего не говорит: заголовок «Природный парк
+ * «Ключевской» — маршруты закрыты на зимний сезон» опасности не называет, а
+ * описание сводки Минтура — называет: «передвижение в районах вулканов крайне
+ * опасно». Возвращается часть предложения между запятыми, двоеточиями и
+ * тире, где стоит слово опасности (`CLOSURE_HAZARD_RE`), — та же проверка,
+ * что снимает с закрытия признак межсезонья. Своих слов здесь нет: длиннее
+ * HAZARD_CLAUSE_MAX — null, обрезанная фраза могла бы сказать не то.
+ */
+export function closureHazardClause(text: string): string | null {
+  for (const sentence of text.split(/[.!?;\n]+/)) {
+    for (const part of sentence.split(/[,:]|\s[‐-―−-]\s/)) {
+      const clause = part.trim();
+      const lower = clause.toLowerCase().replace(/[‐-―−]/g, '-');
+      if (!clause || !CLOSURE_HAZARD_RE.test(lower)) continue;
+      return clause.length <= HAZARD_CLAUSE_MAX ? clause : null;
+    }
+  }
+  return null;
+}
+
 /**
  * Имена природных парков в кавычках, которые может назвать строка сводки. Только
  * парки сети (NATURAL_PARK_SLUGS): межсезонное закрытие дирекции говорит о них.

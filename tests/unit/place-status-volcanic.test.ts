@@ -44,7 +44,7 @@ describe('recommender_status поднимается вулканическими
   });
 
   it('устаревшая шкала не голосует — пороги из тех же констант, что у остальной платформы', () => {
-    expect(FN).toMatch(/\[VOLCANO_STALE_DAYS, KFEGS_MAX_AGE_DAYS \+ 1(?:, \w+)?\]/);
+    expect(FN).toMatch(/\[VOLCANO_STALE_DAYS, KFEGS_MAX_AGE_DAYS \+ 1(?:, [\w.]+)*\]/);
     expect(FN).toMatch(/vs\.observed_at > NOW\(\) - INTERVAL '1 day' \* \$1::int/);
     expect(FN).toMatch(/NOW\(\) - INTERVAL '1 day' \* \$2::int/);
   });

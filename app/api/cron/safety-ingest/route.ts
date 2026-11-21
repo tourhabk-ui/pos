@@ -13,7 +13,7 @@ import { sourceReport, TRIGGER_LABEL, type IngestTrigger, ingestRunStatus, inges
 import { pruneRejectedGenres, type PruneResult } from '@/lib/services/safety/alert-prune';
 import { capDatedWarnings, type DatedCapResult } from '@/lib/services/safety/dated-warning-cap';
 import { holdParkClosures, type ParkHoldResult } from '@/lib/services/safety/park-closure-hold';
-import { seasonalParkClosureIds } from '@/lib/services/safety/park-season';
+import { parkClosureKinds } from '@/lib/services/safety/park-season';
 import { applyParkReopenings, markParkStatusUnknown, type ParkReopeningResult, type ParkStatusUnknownResult } from '@/lib/services/safety/park-reopening';
 import { sameParksParam, sameParksSql } from '@/lib/services/safety/push-same-kind';
 import { ingestFirmsWildfires } from '@/lib/services/safety/wildfire-firms';
@@ -356,9 +356,9 @@ export const RT_STATUS_LOCK_TIMEOUT_MS = 10_000;
 
 async function updateRealTimeStatus(): Promise<{ updated: number; error?: string }> {
   try {
-    // Межсезонные закрытия парков (#3487, 19.11) — до транзакции: отказ чтения
-    // даёт пустой список (все закрытия красные), а не обрыв пересчёта.
-    const seasonal = await seasonalParkClosureIds(query);
+    // Закрытия парков (#3487, #3607) — до транзакции: отказ чтения даёт
+    // пустые списки (все красные), а не обрыв пересчёта.
+    const closures = await parkClosureKinds(query);
     const r = await transaction(async (client) => {
     await client.query(`SET LOCAL statement_timeout = ${RT_STATUS_STATEMENT_TIMEOUT_MS}`);
     await client.query(`SET LOCAL lock_timeout = ${RT_STATUS_LOCK_TIMEOUT_MS}`);
@@ -370,7 +370,10 @@ async function updateRealTimeStatus(): Promise<{ updated: number; error?: string
         -- прогоном и останется со вчерашним значением.
         SELECT
           lrs.id AS lrs_id,
-          ea.title,
+          -- Закрытие парка, красное по опасности из описания (#3607): строка
+          -- тревоги называет эту опасность словами источника. Заголовок
+          -- «маршруты закрыты на зимний сезон» красного не объясняет.
+          CASE WHEN hz.phrase IS NOT NULL THEN ea.title || ': ' || hz.phrase ELSE ea.title END AS title,
           ea.severity,
           -- Пришёл ли алерт только по зоне края (решение владельца 03.10,
           -- #2195): зональный уровня 2 даёт жёлтый, а не красный.
@@ -388,6 +391,7 @@ async function updateRealTimeStatus(): Promise<{ updated: number; error?: string
         LEFT JOIN external_alerts ea
           ON ea.expires_at > ${UTC_WALL_NOW_SQL}
           AND (${ALERT_MATCH_SQL})
+        LEFT JOIN unnest($4::text[], $5::text[]) AS hz(id, phrase) ON hz.id = ea.id::text
       ),
       dedup AS (
         -- DISTINCT: RSS-перепубликации одного предупреждения (разные guid,
@@ -416,8 +420,10 @@ async function updateRealTimeStatus(): Promise<{ updated: number; error?: string
         -- человек сверяет одно с другим и перестаёт верить обоим.
         SELECT
           lrs_id,
+          -- При равном уровне межсезонное закрытие — после прочих: первой
+          -- стоит тревога, которая решила цвет (#3607, 21.11).
           COALESCE(
-            array_agg(title ORDER BY severity DESC, title)
+            array_agg(title ORDER BY severity DESC, park_season, title)
               FILTER (WHERE title IS NOT NULL),
             '{}'
           ) AS alerts,
@@ -530,7 +536,7 @@ async function updateRealTimeStatus(): Promise<{ updated: number; error?: string
         updated_at = NOW()
       FROM decided
       WHERE decided.lrs_id = lrs.id
-    `, [VOLCANO_STALE_DAYS, KFEGS_MAX_AGE_DAYS + 1, seasonal]);
+    `, [VOLCANO_STALE_DAYS, KFEGS_MAX_AGE_DAYS + 1, closures.seasonal, closures.hazardIds, closures.hazardPhrases]);
     });
     // Safety Decision Ledger (925): одно событие на прогон, не на алерт — сам
     // SQL агрегатный (array_agg/MAX(severity) по CTE), per-alert разбивка
