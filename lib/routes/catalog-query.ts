@@ -621,8 +621,9 @@ export async function queryCatalog(filters: CatalogFilters): Promise<CatalogResu
     }
   }
 
-  // Место без своего кадра (ни главного, ни галереи) — обложка из снимка тура
-  // с записанной связью (21.11, lib/places/tour-photos). Сбой — без фото.
+  // Место без главного кадра — обложка из своей галереи (в т.ч. кадр партнёра,
+  // 1431/1436), а без неё — из снимка тура с записанной связью (21.11,
+  // lib/places/tour-photos). Сбой — без фото.
   const barePlaces = items.filter((it) => it.kind === 'place' && !it.imageUrl).map((it) => it.id);
   if (barePlaces.length > 0) {
     const shots = await loadPlaceCardTourPhotos(barePlaces, { feedSlugs: await loadFeedAuthorSlugs() });
@@ -630,7 +631,7 @@ export async function queryCatalog(filters: CatalogFilters): Promise<CatalogResu
       const shot = it.kind === 'place' && !it.imageUrl ? shots.get(it.id) : undefined;
       if (!shot) continue;
       it.imageUrl = shot.url;
-      it.photoCredit = shot.credit;
+      it.photoCredit = shot.credit.name ? shot.credit : null;
       it.photoAlt = it.title;
     }
   }

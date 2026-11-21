@@ -201,4 +201,31 @@ withPg('снимки туров на маршрутах и фотолента а
     // У озера свой снимок — обложка тура ему не нужна.
     expect(shots.has(LAKE.ark)).toBe(false);
   });
+
+  it('карточки мест: без главного кадра — первый кадр своей галереи (кадр партнёра — без согласия), а не снимок тура', async () => {
+    const GAL = { id: 'b2110000-0000-4000-8000-000000000009', ark: 'a2110000-0000-4000-8000-000000000009' };
+    await pool.query(
+      `INSERT INTO places (id, name, slug, lat, lng, ark_id, location_type, zone, is_visible)
+       VALUES ($1, 'Тестовый кратер с галереей', 'test-rtp-gal', 53.4, 157.7, $2, 'mountain', 'avachinsky', TRUE)`,
+      [GAL.id, GAL.ark],
+    );
+    await pool.query(
+      `INSERT INTO place_gallery_photos (ark_id, position, s3_url, width, height, caption, author, partner_id)
+       VALUES ($1, 1, 'https://s3.example.test/g1.jpg', 1200, 800, 'Кадр партнёра', $2, $3)`,
+      [GAL.ark, OLD.name, OLD.id],
+    );
+    await pool.query(
+      `INSERT INTO operator_tours (operator_id, title, slug, activity_type, base_price, price_unit,
+                                   min_participants, max_participants, duration_hours, difficulty,
+                                   is_active, is_published, photos, main_place_id)
+       VALUES ($1, 'test-rtp-guide-gal', 'test-rtp-guide-gal', 'trekking', 15000, 'per_person', 1, 10, 8, 'medium', TRUE, TRUE, $2::text[], $3)`,
+      [GUIDE.id, [url('guide-gal')], GAL.id],
+    );
+    const { loadPlaceCardTourPhotos } = await import('@/lib/places/tour-photos');
+    const shots = await loadPlaceCardTourPhotos([GAL.ark, PEAK.ark], { feedEnabled: true });
+    expect(shots.get(GAL.ark)?.url).toMatch(new RegExp(`^/api/images/place-gallery/${GAL.ark}/1\\?v=`));
+    expect(shots.get(GAL.ark)?.credit).toEqual({ name: OLD.name, href: `/operators/${OLD.slug}`, kind: 'partner' });
+    // Место без галереи — по-прежнему снимок тура.
+    expect(shots.get(PEAK.ark)?.url).toBe(url('guide-1'));
+  });
 });
