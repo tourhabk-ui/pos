@@ -13,8 +13,9 @@
  *
  * ЧТО МЕРЯЕТ. По каждому пути — список моделей тем же адресом и заголовком,
  * что у живого кода (`lib/ai/gemini-endpoint.ts`). Если хоть один путь
- * открыт — одна генерация в один токен по первой flash-модели списка: на ней
- * держатся зрение, расшифровка голоса и разбор PDF. Пять исходов на путь:
+ * открыт — одна генерация в один токен моделью живого кода (pickProbeModel),
+ * а если она не ответила — ещё до двух запасных flash-моделей списка: на
+ * Gemini держатся зрение, расшифровка голоса и разбор PDF. Пять исходов на путь:
  * open, open_key_refused (дошли до Google, ключ отвергнут), blocked
  * (гео-отказ), http (чужой ответ), unreachable («не смог», а не «закрыто»).
  *
@@ -31,6 +32,7 @@ import { NextRequest, NextResponse } from 'next/server';
 import { timingSafeCompare } from '@/lib/security/timing-safe';
 import { getCronSecret } from '@/lib/auth/cron';
 import { keyIdentity } from '@/lib/ai/key-identity';
+import { classifyModels } from '@/lib/ai/model-resolver';
 import {
   geminiEndpoint,
   geminiGatewayBase,
@@ -43,9 +45,9 @@ import {
 } from '@/lib/ai/gemini-endpoint';
 
 export const dynamic = 'force-dynamic';
-// До трёх проб списка по 10 с и генерация до 40 с — 70 с в худшем случае
-// (ревью #3664); запас до 90, раннер ждёт ответа 120 с.
-export const maxDuration = 90;
+// До трёх проб списка по 10 с, генерация основной моделью до 40 с и две
+// запасные по 20 с — 110 с в худшем случае; запас до 120, раннер ждёт 150 с.
+export const maxDuration = 120;
 
 export type GeminiPathOutcome =
   | 'open'              // 2xx: дошли и ответили
@@ -146,12 +148,29 @@ async function probeList(target: ProbeTarget, apiKey: string): Promise<{ probe: 
  * проба 2 (20.11) кончилась на нём: «не ответила за 20 с» не отличает
  * медленный ответ от зависшего (слово владельца «карт-бланш» 21.11: замерить
  * с запасом). 40 с — вдвое больше срока живого кода; вместе с пробами
- * списка (до трёх по 10 с) — 70 с в худшем случае, под `maxDuration`.
+ * списка (до трёх по 10 с) и запасными моделями — под `maxDuration`.
  * Время ответа идёт в `latency_ms`, срок — в `timeout_ms`.
  */
 export const GENERATE_PROBE_TIMEOUT_MS = 40_000;
 
-async function probeGenerate(target: ProbeTarget, apiKey: string, model: string) {
+/**
+ * Запасные модели генерации (замер 5, 21.11): основная модель живого кода
+ * (gemini-flash-latest) за четыре замера не ответила ни разу — 20 с и 40 с
+ * без ответа, дважды 503 «перегружена». Отвечает ли через шлюз хоть одна
+ * модель, одной моделью не узнать. Если основная не ответила, проба пробует
+ * ещё до двух flash-моделей списка — закреплённых версий, не скользящих
+ * алиасов, сильнейших первыми. Живой код при этом не меняется: какая модель
+ * ему нужна, решается по замеру.
+ */
+export const GENERATE_ALT_MAX = 2;
+export const GENERATE_ALT_TIMEOUT_MS = 20_000;
+
+export function pickProbeAlternates(ids: readonly string[], primary: string): string[] {
+  const flash = ids.filter((id) => /flash/i.test(id) && id !== primary && !/(^|[-_])latest(\b|[-_]|$)/i.test(id));
+  return classifyModels(flash).filter((m) => m.eligible).slice(0, GENERATE_ALT_MAX).map((m) => m.id);
+}
+
+async function probeGenerate(target: ProbeTarget, apiKey: string, model: string, timeoutMs = GENERATE_PROBE_TIMEOUT_MS) {
   const started = Date.now();
   try {
     const res = await fetch(geminiUrl(`models/${model}:generateContent`, target.endpoint), {
@@ -161,13 +180,13 @@ async function probeGenerate(target: ProbeTarget, apiKey: string, model: string)
         contents: [{ role: 'user', parts: [{ text: 'ok' }] }],
         generationConfig: { maxOutputTokens: 1 },
       }),
-      signal: AbortSignal.timeout(GENERATE_PROBE_TIMEOUT_MS),
+      signal: AbortSignal.timeout(timeoutMs),
     });
     const body = await res.text().catch(() => '');
     return {
       path: target.path,
       model,
-      timeout_ms: GENERATE_PROBE_TIMEOUT_MS,
+      timeout_ms: timeoutMs,
       outcome: classifyGemini(res.status, body),
       status: res.status,
       latency_ms: Date.now() - started,
@@ -177,7 +196,7 @@ async function probeGenerate(target: ProbeTarget, apiKey: string, model: string)
     return {
       path: target.path,
       model,
-      timeout_ms: GENERATE_PROBE_TIMEOUT_MS,
+      timeout_ms: timeoutMs,
       outcome: 'unreachable' as const,
       status: null,
       latency_ms: Date.now() - started,
@@ -238,6 +257,15 @@ export async function GET(request: NextRequest) {
 
   const model = firstOpen ? pickProbeModel(firstOpen.ids) : null;
   const generate = firstOpen && model ? await probeGenerate(firstOpen.target, apiKey, model) : null;
+  // Основная не ответила — запасные по очереди, до первой ответившей.
+  const generateAlternates: Array<Awaited<ReturnType<typeof probeGenerate>>> = [];
+  if (firstOpen && model && generate && generate.outcome !== 'open') {
+    for (const alt of pickProbeAlternates(firstOpen.ids, model)) {
+      const attempt = await probeGenerate(firstOpen.target, apiKey, alt, GENERATE_ALT_TIMEOUT_MS);
+      generateAlternates.push(attempt);
+      if (attempt.outcome === 'open') break;
+    }
+  }
 
   const open = results.filter((r) => OPEN_OUTCOMES.has(r.outcome));
   return NextResponse.json({
@@ -252,5 +280,6 @@ export async function GET(request: NextRequest) {
     open_paths: open.map((r) => r.path),
     results,
     generate,
+    generate_alternates: generateAlternates,
   });
 }

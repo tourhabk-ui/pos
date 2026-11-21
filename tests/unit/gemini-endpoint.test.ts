@@ -357,14 +357,77 @@ describe('проба пути с прода', () => {
       expect(GENERATE_PROBE_TIMEOUT_MS).toBeGreaterThan(20_000);
       // Срок, с которым ушёл запрос генерации, — тот, что назван.
       expect(timeouts.mock.calls.map((c) => c[0])).toContain(GENERATE_PROBE_TIMEOUT_MS);
-      // Худший случай — три пробы списка по 10 с и генерация — укладывается
-      // в предел маршрута (ревью #3664).
-      const { maxDuration } = await import('@/app/api/cron/gemini-path-probe/route');
-      expect(3 * 10 + GENERATE_PROBE_TIMEOUT_MS / 1000).toBeLessThanOrEqual(maxDuration);
+      // Худший случай — три пробы списка по 10 с, генерация основной моделью и
+      // все запасные — укладывается в предел маршрута (ревью #3664).
+      const { maxDuration, GENERATE_ALT_MAX, GENERATE_ALT_TIMEOUT_MS } = await import('@/app/api/cron/gemini-path-probe/route');
+      expect(3 * 10 + GENERATE_PROBE_TIMEOUT_MS / 1000 + GENERATE_ALT_MAX * GENERATE_ALT_TIMEOUT_MS / 1000).toBeLessThanOrEqual(maxDuration);
       expect(typeof body.generate.latency_ms).toBe('number');
     } finally {
       timeouts.mockRestore();
     }
+  });
+
+  // Замер 5 (21.11): основная модель живого кода за четыре замера не ответила
+  // ни разу. Отвечает ли через шлюз хоть одна модель — проба пробует запасные.
+  describe('запасные модели генерации', () => {
+    const LIST = {
+      models: [
+        { name: 'models/gemini-flash-latest', supportedGenerationMethods: ['generateContent'] },
+        { name: 'models/gemini-flash-lite-latest', supportedGenerationMethods: ['generateContent'] },
+        { name: 'models/gemini-3.8-flash', supportedGenerationMethods: ['generateContent'] },
+        { name: 'models/gemini-3.8-flash-lite', supportedGenerationMethods: ['generateContent'] },
+        { name: 'models/gemini-2.5-flash', supportedGenerationMethods: ['generateContent'] },
+        { name: 'models/gemini-3.8-flash-image', supportedGenerationMethods: ['generateContent'] },
+        { name: 'models/gemini-3.8-pro', supportedGenerationMethods: ['generateContent'] },
+      ],
+    };
+    const overloaded = () => new Response(
+      '{"error":{"code":503,"message":"This model is currently experiencing high demand.","status":"UNAVAILABLE"}}',
+      { status: 503 },
+    );
+    function stub(answer: (model: string) => Response) {
+      vi.stubGlobal('fetch', vi.fn(async (input: RequestInfo | URL, init?: RequestInit) => {
+        const url = String(input);
+        calls.push({ url, headers: headersOf(init) });
+        if (url.startsWith(GEMINI_DIRECT_BASE)) return geo();
+        if (url.endsWith('/v1beta/models')) return new Response(JSON.stringify(LIST), { status: 200 });
+        const m = /models\/([^:]+):generateContent/.exec(url);
+        return answer(m ? m[1] : '');
+      }));
+    }
+    const generated = () => calls.map((c) => /models\/([^:]+):generateContent/.exec(c.url)?.[1]).filter(Boolean);
+
+    it('основная не ответила — пробуются закреплённые flash-модели, до первой ответившей', async () => {
+      stub((model) => (model === 'gemini-3.8-flash' ? okGenerate() : overloaded()));
+      const { GET, GENERATE_ALT_TIMEOUT_MS } = await import('@/app/api/cron/gemini-path-probe/route');
+      const body = await (await GET(req(`?account=${ACC}&gateway=vedar-ai`))).json();
+      // Основная — та, которой пойдёт живой код; её исход в generate, как раньше.
+      expect(body.generate).toMatchObject({ model: 'gemini-flash-latest', outcome: 'http', status: 503 });
+      expect(body.generate_alternates.map((a: { model: string; outcome: string }) => `${a.model}:${a.outcome}`))
+        .toEqual(['gemini-3.8-flash:open']);
+      expect(body.generate_alternates[0].timeout_ms).toBe(GENERATE_ALT_TIMEOUT_MS);
+      // После ответившей — стоп.
+      expect(generated()).toEqual(['gemini-flash-latest', 'gemini-3.8-flash']);
+    });
+
+    it('основная ответила — запасные не спрашиваются', async () => {
+      stub(() => okGenerate());
+      const { GET } = await import('@/app/api/cron/gemini-path-probe/route');
+      const body = await (await GET(req(`?account=${ACC}&gateway=vedar-ai`))).json();
+      expect(body.generate).toMatchObject({ model: 'gemini-flash-latest', outcome: 'open' });
+      expect(body.generate_alternates).toEqual([]);
+      expect(generated()).toEqual(['gemini-flash-latest']);
+    });
+
+    it('запасных не больше двух, даже если не ответил никто', async () => {
+      stub(() => overloaded());
+      const { GET, GENERATE_ALT_MAX } = await import('@/app/api/cron/gemini-path-probe/route');
+      const body = await (await GET(req(`?account=${ACC}&gateway=vedar-ai`))).json();
+      expect(body.generate_alternates).toHaveLength(GENERATE_ALT_MAX);
+      // Скользящие алиасы, картинки и не-flash в запасные не идут; сильнейшие первыми.
+      expect(body.generate_alternates.map((a: { model: string }) => a.model)).toEqual(['gemini-3.8-flash', 'gemini-3.8-flash-lite']);
+      expect(generated()).toHaveLength(1 + GENERATE_ALT_MAX);
+    });
   });
 
   it('адрес из строки запроса пробой не берётся — только аккаунт и имя шлюза', async () => {
