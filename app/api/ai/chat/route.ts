@@ -14,6 +14,8 @@ import { holdChatRequest, hasPendingChatRequest, takeChatRequest, dropChatReques
 import { runPublicTool } from '@/app/api/mcp/route';
 import { journaledWrite, sessionRefFrom } from '@/lib/kuzmich/write-journal';
 import { finishKuzmichAnswer } from '@/lib/kuzmich/answer-guards';
+import { withUntrustedRun } from '@/lib/ai/untrusted';
+import { isDailyLlmBudgetStopped, isDailyBudgetStopped, KUZMICH_DAILY_REST_TEXT } from '@/lib/ai/daily-spend-gate';
 import type { ToolRun } from '@/lib/agents/eval/grounding';
 import { safeMsg } from '@/lib/errors/sanitize';
 import { NextRequest, NextResponse } from 'next/server';
@@ -263,6 +265,21 @@ async function handleChat(request: NextRequest, onStep?: (label: string) => void
       });
     }
 
+    if (await isDailyLlmBudgetStopped()) {
+      console.error('[ai-chat] суточный стоп вызовов LLM: дневной бюджет исчерпан');
+      return NextResponse.json({
+        success: true,
+        data: {
+          answer: KUZMICH_DAILY_REST_TEXT,
+          dailyStop: true,
+          sessionId: storableSessionId,
+          role: safeRole,
+          isAuthenticated,
+          remainingFree: isAuthenticated ? undefined : Math.max(0, FREE_MESSAGE_LIMIT - currentCount),
+        },
+      });
+    }
+
     // Предохранители гостя (lib/ai/anon-chat-guard, 21.11). Сессию клиент
     // называет сам — новый sessionId давал новые 10 сообщений, поэтому
     // бесплатный лимит ещё и на IP за сутки. И жёсткий суточный стоп: траты
@@ -369,6 +386,7 @@ async function handleChat(request: NextRequest, onStep?: (label: string) => void
     const mchsBlock = turnFacts?.mchsBlock ?? '';
     // Поверхность добавляет своё: место человека (сайт знает его по
     // геолокации), память вошедшего, предупреждения агентов платформы.
+    return await withUntrustedRun(async () => {
     const kuzmichParts = turnFacts
       ? kuzmichSystemContent(turnFacts, { lead: [chatPlanContext(chatPlanId)], tail: [geoContext, memContext, agentInsights] })
       : null;
@@ -757,7 +775,11 @@ async function handleChat(request: NextRequest, onStep?: (label: string) => void
         ...(bookingFormTour ? { bookingForm: { tourId: bookingFormTour.id, tourTitle: bookingFormTour.title, tourPrice: bookingFormTour.base_price, priceUnit: bookingFormTour.price_unit, duration: { multi_day_count: bookingFormTour.multi_day_count, duration_hours: bookingFormTour.duration_hours }, tourImage: bookingFormTour.tour_image, operatorName: bookingFormTour.operator_name, prefillDate: bookingPrefill.date ?? null, prefillGuests: bookingPrefill.guests ?? null } } : {}),
       },
     });
+    });
   } catch (error) {
+    if (isDailyBudgetStopped(error)) {
+      return NextResponse.json({ success: true, data: { answer: KUZMICH_DAILY_REST_TEXT, dailyStop: true } });
+    }
     const msg = safeMsg(error);
     return NextResponse.json(
       { success: false, error: 'Внутренняя ошибка сервера', details: msg },

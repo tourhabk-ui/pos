@@ -21,6 +21,8 @@
 
 import { pool } from '@/lib/db-pool';
 import { callAIWaterfallOrNull, callToolsWaterfall } from '@/lib/ai/providers';
+import { withUntrustedRun } from '@/lib/ai/untrusted';
+import { assertDailyLlmBudget, isDailyBudgetStopped, KUZMICH_DAILY_REST_TEXT } from '@/lib/ai/daily-spend-gate';
 import { getHistory, saveMsg } from '@/lib/kuzmich/core';
 import { travelFactsBlock } from '@/lib/kuzmich/travel-facts';
 import { seasonFactsBlock } from '@/lib/kuzmich/season-facts';
@@ -423,6 +425,7 @@ async function partnerToolLoop(
   operatorTours = false,
   rentalFleet: { partnerName: string; slug: string | null } | null = null,
 ): Promise<string | null> {
+  return withUntrustedRun(async () => {
   const msgs: ToolMsg[] = [
     { role: 'system', content: system },
     ...history.map((m) => ({ role: m.role === 'assistant' ? 'assistant' : 'user', content: m.content } as ToolMsg)),
@@ -458,6 +461,7 @@ async function partnerToolLoop(
     }
   }
   return null;
+  });
 }
 
 export async function processPartnerMessage(opts: {
@@ -566,6 +570,15 @@ export async function processPartnerMessage(opts: {
   // все роли: в старой реплике помощника мог остаться номер из описания.
   const history = storedHistory.map((m) => ({ ...m, content: clean(m.content) }));
 
+  try {
+    await assertDailyLlmBudget();
+  } catch (err) {
+    if (!isDailyBudgetStopped(err)) throw err;
+    await saveAnswer(KUZMICH_DAILY_REST_TEXT);
+    await reply(chatId, KUZMICH_DAILY_REST_TEXT);
+    return;
+  }
+
   let answer = '';
   const writes: string[] = [];
   if (partner.crmCategory) {
@@ -591,6 +604,11 @@ export async function processPartnerMessage(opts: {
         fleetCtx,
       ))?.trim() ?? '';
     } catch (err) {
+      if (isDailyBudgetStopped(err)) {
+        await saveAnswer(KUZMICH_DAILY_REST_TEXT);
+        await reply(chatId, KUZMICH_DAILY_REST_TEXT);
+        return;
+      }
       console.error('[partner-chat] цикл инструментов упал:', err instanceof Error ? err.message : String(err));
       answer = '';
     }
@@ -610,6 +628,11 @@ export async function processPartnerMessage(opts: {
     try {
       answer = (await callAIWaterfallOrNull(messages))?.trim() ?? '';
     } catch (err) {
+      if (isDailyBudgetStopped(err)) {
+        await saveAnswer(KUZMICH_DAILY_REST_TEXT);
+        await reply(chatId, KUZMICH_DAILY_REST_TEXT);
+        return;
+      }
       console.error('[partner-chat] водопад без инструментов упал:', err instanceof Error ? err.message : String(err));
       answer = '';
     }
