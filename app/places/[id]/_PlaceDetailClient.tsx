@@ -2,6 +2,7 @@
 
 import { ClosureNotice } from '@/components/routes/ClosureNotice';
 import type { RouteClosure } from '@/lib/routes/closures';
+import type { PlaceSearchMeta } from '@/lib/seo/place-search-meta';
 import { pageContainer } from '@/lib/layout/page-width';
 import { placeHeading } from '@/lib/seo/h1-templates';
 import { RecordModified } from '@/components/seo/RecordModified';
@@ -197,7 +198,7 @@ function isHeroPhoto(src: string): boolean {
  * заголовок посадочной, тот же, что Article.headline; шаблонные «Вопросы и
  * ответы» тогда не рисуются: FAQPage один — из текста посадочной (Сыщик 21.11).
  */
-export default function PlaceDetailClient({ id, initialPlace = null, landingHeading = null, closure = null }: { id: string; initialPlace?: PlaceData | null; landingHeading?: string | null; closure?: RouteClosure | null }) {
+export default function PlaceDetailClient({ id, initialPlace = null, landingHeading = null, closure = null, leadAnswer = null }: { id: string; initialPlace?: PlaceData | null; landingHeading?: string | null; closure?: RouteClosure | null; leadAnswer?: PlaceSearchMeta['leadAnswer'] | null }) {
   // Ссылка «назад» — в тот список, откуда пришли (страница, фильтры), не в голый раздел.
   const backHref = useCatalogReturnHref('/places');
   // `?route=1` — человек уже нажал «Навигация» на листе места (карта) и
@@ -354,6 +355,24 @@ export default function PlaceDetailClient({ id, initialPlace = null, landingHead
         facts={heroFacts}
         onCurrentChange={setCurrentPhoto}
       />
+
+      {/* Прямой ответ на вопрос из выдачи — первым абзацем под героем, с
+          источником (lib/seo/place-search-meta, Сыщик 21.11, GSC). */}
+      {leadAnswer && (
+        <div className={`${pageContainer('reading')} pt-4`}>
+          <p className="text-lg leading-relaxed text-[var(--text-primary)]" data-lead-answer>
+            {leadAnswer.text}{' '}
+            <a
+              href={leadAnswer.source.url}
+              target="_blank"
+              rel="noopener noreferrer"
+              className="text-sm text-[var(--text-muted)] underline hover:text-[var(--accent)]"
+            >
+              Источник: {leadAnswer.source.title}
+            </a>
+          </p>
+        </div>
+      )}
 
       {/* Статус вулкана (lib/routes/closures, Сыщик 21.11) — сразу под героем. */}
       {closure && (

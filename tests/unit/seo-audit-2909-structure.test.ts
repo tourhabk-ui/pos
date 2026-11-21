@@ -135,7 +135,7 @@ describe('Н1: карточки несут текст в HTML', () => {
   it('место: данные с сервера, без счётчика просмотров от ботов', () => {
     const page = code('app/places/[id]/page.tsx');
     expect(page).toMatch(/loadPlaceDetail\(arkId, \{ countView: false \}\)/);
-    expect(page).toMatch(/<PlaceDetailClient id=\{arkId\} initialPlace=\{initialPlace\}( landingHeading=\{[^}]+\})?( closure=\{[^}]+\})? \/>/);
+    expect(page).toMatch(/<PlaceDetailClient id=\{arkId\} initialPlace=\{initialPlace\}( landingHeading=\{[^}]+\})?( closure=\{[^}]+\})?( leadAnswer=\{leadAnswer\})? \/>/);
     const client = code('app/places/[id]/_PlaceDetailClient.tsx');
     for (const c of ['PlaceHero', 'PlaceDescription', 'PlaceFacts', 'PlaceRoutes']) {
       expect(client, `${c} снова только на клиенте`).not.toMatch(new RegExp(`const ${c}\\s+= dynamic\\([^\\n]*ssr: false`));
