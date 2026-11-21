@@ -1,8 +1,8 @@
 /**
  * Тело посадочной страницы Сыщика (lib/landings): текст до блока туров, блок
  * туров из базы (или свой блок страницы — «План по дням» у /plans), текст
- * после, перелинковка месяцев и разметка Article + FAQPage. Дата правки —
- * дата ревизии текста из исходника (`date`), видимая и в dateModified.
+ * после, перелинковка месяцев и разметка Article + FAQPage. Дата правки — дата ревизии текста из исходника (`date`); видимая строка
+ * «Редакция Vedar · факты проверены …» и dateModified совпадают.
  *
  * Оформление (ТЗ Сыщика 21.11, lib/landings/design): «Коротко» в рамке,
  * оглавление с якорями, цветные блоки, фото в тексте, карточки туров с
@@ -212,7 +212,8 @@ export function LandingContent({ landing, tours, showH1 = true, middle, withJson
       )}
       {formatRecordDate(landing.date) && (
         <p className="text-xs text-[var(--text-muted)]" data-record-modified="">
-          Обновлено: <time dateTime={recordDateIso(landing.date) ?? undefined}>{formatRecordDate(landing.date)}</time>
+          Редакция Vedar · факты проверены{' '}
+          <time dateTime={recordDateIso(landing.date) ?? undefined}>{formatRecordDate(landing.date)}</time>
         </p>
       )}
       <LandingBody blocks={before} ids={ids} callouts={callouts} figures={figures} afterLead={toc} openQa={firstQa} />

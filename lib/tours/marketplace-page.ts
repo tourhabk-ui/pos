@@ -90,6 +90,9 @@ export function buildToursItemListJsonLd(
     itemListElement: tours.map((t, i) => ({
       '@type': 'ListItem',
       position: i + 1,
+      // name и абсолютный url — на самом ListItem (Rich Results / сверка Сыщика 22.11).
+      name: t.title,
+      url: `${site}${tourPath(t)}`,
       item: {
         '@type': 'TouristTrip',
         // Адрес по имени (ЧПУ), как у sitemap и канонического адреса карточки:

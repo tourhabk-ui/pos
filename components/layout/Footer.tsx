@@ -6,6 +6,7 @@ import { Send } from 'lucide-react';
 // как расходились две SOS-кнопки. Ссылка на /mcp остаётся здесь по требованию
 // сторожа mcp-landing — теперь через реестр.
 import { PLATFORM_LINKS as PLATFORM, LEGAL_LINKS as LEGAL } from '@/lib/navigation/platform-links';
+import { ORGANIZATION_PROFILES } from '@/lib/seo/organization-profiles';
 
 export function Footer() {
   return (
@@ -32,7 +33,16 @@ export function Footer() {
             </p>
 <div className="flex flex-col gap-2 mt-3">
               <a
-                href="https://t.me/kamchatka_real"
+                href={ORGANIZATION_PROFILES.telegramSupport}
+                target="_blank"
+                rel="noopener noreferrer"
+                className="inline-flex items-center gap-1.5 text-xs text-[var(--ocean)] hover:underline transition-colors"
+              >
+                <Send className="w-3.5 h-3.5" />
+                Поддержка Telegram @kuzmichai_bot
+              </a>
+              <a
+                href={ORGANIZATION_PROFILES.telegramChannel}
                 target="_blank"
                 rel="noopener noreferrer"
                 className="inline-flex items-center gap-1.5 text-xs text-[var(--ocean)] hover:underline transition-colors"
@@ -41,7 +51,7 @@ export function Footer() {
                 Telegram-канал
               </a>
               <a
-                href="https://max.ru/id4101147649_biz"
+                href={ORGANIZATION_PROFILES.maxChannel}
                 target="_blank"
                 rel="noopener noreferrer"
                 className="inline-flex items-center gap-1.5 text-xs text-[var(--ocean)] hover:underline transition-colors"
