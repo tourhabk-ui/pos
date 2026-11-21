@@ -6,8 +6,9 @@ import { Header } from '@/components/layout/Header';
 import { JsonLd } from '@/components/seo/JsonLd';
 import { LandingContent } from '@/components/landings/LandingContent';
 import { pageContainer } from '@/lib/layout/page-width';
-import { landingBySlug, type Landing } from '@/lib/landings/landings';
-import { loadToursFor, loadPublicTours } from '@/lib/landings/tours';
+import { landingBySlug, landingByPath, monthLinks, type Landing } from '@/lib/landings/landings';
+import { loadToursFor, loadPublicTours, type LandingBlockTour } from '@/lib/landings/tours';
+import { tourPath } from '@/lib/tours/tour-url';
 import { landingWithLiveText, hasLiveMarks } from '@/lib/landings/live-text';
 import { brandedTitle } from '@/lib/seo/title-fit';
 import { defaultOgImages } from '@/lib/seo/og-image';
@@ -35,6 +36,30 @@ export function landingBreadcrumbJsonLd(landing: Landing): Record<string, unknow
   };
 }
 
+/**
+ * ItemList подборки (спецификация разметки Сыщика §4.4–4.5, повторный аудит
+ * 21.11): у страницы с блоком туров — те же туры и в том же порядке, что на
+ * экране (из базы на запросе, без кэша); у хаба «Когда ехать» — двенадцать
+ * месяцев. Пустой блок — узла нет: список без элементов не размечается.
+ */
+export function landingItemListJsonLd(landing: Landing, tours: LandingBlockTour[] | null): Record<string, unknown> | null {
+  const items: Array<{ name: string; url: string }> =
+    landing.slug === 'kogda-ehat-na-kamchatku'
+      ? monthLinks().map((m) => ({ name: landingByPath(m.href)?.h1 ?? m.label, url: `${SITE}${m.href}` }))
+      : landing.tours.kind !== 'none' && tours && tours.length > 0
+        ? tours.map((t) => ({ name: t.title, url: `${SITE}${tourPath(t)}` }))
+        : [];
+  if (items.length === 0) return null;
+  return {
+    '@context': 'https://schema.org',
+    '@type': 'ItemList',
+    '@id': `${SITE}${landing.path}#list`,
+    name: landing.h1,
+    numberOfItems: items.length,
+    itemListElement: items.map((it, i) => ({ '@type': 'ListItem', position: i + 1, name: it.name, url: it.url })),
+  };
+}
+
 export async function LandingPage({ slug, middle, footer }: {
   slug: string;
   /** Свой блок на месте блока туров (у /kogda-ehat-na-kamchatku — «По месяцам»). */
@@ -46,9 +71,11 @@ export async function LandingPage({ slug, middle, footer }: {
   // Живые числа текста (метки {{…}}, lib/landings/live-text) — из базы на запросе.
   const [tours, live] = await Promise.all([loadToursFor(base), hasLiveMarks(base) ? loadPublicTours() : Promise.resolve(null)]);
   const landing = landingWithLiveText(base, live);
+  const itemList = landingItemListJsonLd(landing, tours);
   return (
     <>
       <JsonLd data={landingBreadcrumbJsonLd(landing)} />
+      {itemList && <JsonLd data={itemList} />}
       <Header />
       <main className="ds-page">
         <div className={`${pageContainer('reading')} py-8 space-y-6`}>

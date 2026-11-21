@@ -26,6 +26,8 @@ import { readField, ZH_PLACE_FIELDS } from '@/lib/zh/fields';
 import { ZH_DETAIL } from '@/lib/zh/detail-text';
 import { recordZhEntryHit } from '@/lib/analytics/agent-entry-hits';
 import { defaultOgImages } from '@/lib/seo/og-image';
+import { JsonLd } from '@/components/seo/JsonLd';
+import { zhPlaceJsonLd } from '@/lib/zh/zh-jsonld';
 
 export const dynamic = 'force-dynamic';
 
@@ -85,8 +87,12 @@ export default async function ZhPlacePage({ params }: Props) {
   if (!data) notFound();
   // Пришли по id, а у места есть ЧПУ — 308 на него: один адрес на конспект.
   if (data.place.slug && decodePathParam(slug) !== data.place.slug) permanentRedirect(zhPlacePath(data.place));
+  const desc = readField(ZH_PLACE_FIELDS.description, data.place.description, data.translations, 'description');
+  const fresh = desc.state === 'fresh' ? (desc.zh as string).replace(/\s+/g, ' ').trim() : null;
+  const name = data.zhName?.name ?? `${data.place.name}${ZH_DETAIL.ruName}`;
   return (
     <>
+      <JsonLd data={zhPlaceJsonLd(SITE, data.place, zhPlacePath(data.place), ruPlacePath(data.place), name, fresh)} />
       <Header />
       <main className="ds-page" lang="zh-CN">
         <ZhPlaceSummary place={data.place} zhName={data.zhName} translations={data.translations} rule={ZH_PLACES_RULE} />
