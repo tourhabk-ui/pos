@@ -17,7 +17,9 @@
  *
  * ── Какой снимок можно ставить ────────────────────────────────────────────
  *
- *   - тур на витрине (`publicTourSql`);
+ *   - тур на витрине (`publicTourSql`), оператор не на паузе витринных
+ *     блоков и не отклонён (`operatorShownInTourBlocksSql`, владелец 21.11:
+ *     «Местечко» на паузе — его снимков нет);
  *   - согласие партнёра и поле лицензии НЕ требуются — решение владельца
  *     20.11 («делай без их согласия»; до него снимок ставился только по
  *     согласию версии PLACE_CARDS_CONSENT_FROM, #3618);
@@ -29,6 +31,7 @@
  * Сторож: tests/unit/route-tour-photos.test.tsx.
  */
 import { publicTourSql } from '@/lib/tours/public-visibility';
+import { operatorPausedOnTourBlocks, operatorShownInTourBlocksSql } from '@/lib/operators/site-pause';
 import { authorFeedSlug, photoCreditFor, type PhotoCredit } from '@/lib/media/author-credit';
 
 export const TOUR_PHOTOS_LIMIT = 6;
@@ -57,6 +60,7 @@ export function routeTourLinksSql(routeIdExpr: string): string {
 /** Условие «снимок тура можно ставить на маршрут»; `ot` — тур, `pa` — партнёр, `x.url` — адрес. */
 export function tourPhotoAllowedSql(): string {
   return `${publicTourSql('ot')}
+     AND ${operatorShownInTourBlocksSql('pa')}
      AND NULLIF(btrim(x.url), '') IS NOT NULL`;
 }
 
@@ -114,6 +118,8 @@ export function toRouteTourPhotos(rows: readonly TourPhotoRow[], opts: { feedSlu
     const author = s(r.author);
     const partnerName = s(r.partner_name);
     if (!url || !author || !partnerName || out.some((p) => p.url === url)) continue;
+    // Пауза оператора — и здесь, не только в SQL: снимок «Местечка» не проходит ни одним путём.
+    if (operatorPausedOnTourBlocks(s(r.partner_slug))) continue;
     const credit = photoCreditFor({
       author,
       partner: { name: partnerName, slug: s(r.partner_slug), isPublic: r.partner_public === true },

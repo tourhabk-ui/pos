@@ -27,6 +27,7 @@
 import { shownPhotoSql } from '@/lib/images/origin';
 import { galleryShownSql } from '@/lib/places/gallery-shown';
 import { authorFeedSlug, photoCreditFor } from '@/lib/media/author-credit';
+import { operatorPausedOnTourBlocks } from '@/lib/operators/site-pause';
 import {
   CREDITED_FIRST, TOUR_PHOTO_AUTHOR_SQL, TOUR_PHOTOS_LIMIT, tourPhotoAllowedSql, toRouteTourPhotos,
   type RouteTourPhoto, type TourPhotoRow,
@@ -140,7 +141,7 @@ const str = (v: unknown): string | null => (typeof v === 'string' && v.trim() ? 
 /** Строка галереи → обложка: подпись — партнёр со ссылкой на его страницу или автор; автора нет — без подписи. */
 export function toGalleryCardPhoto(r: TourPhotoRow, opts: FeedOpts = {}): RouteTourPhoto | null {
   const url = str(r.url);
-  if (!url) return null;
+  if (!url || operatorPausedOnTourBlocks(str(r.partner_slug))) return null;
   const author = str(r.author);
   const partnerName = str(r.partner_name);
   const credit = photoCreditFor({
