@@ -90,3 +90,20 @@ describe('страница «Когда ехать»', () => {
     expect(html).not.toContain('Зимних туров');
   });
 });
+
+describe('fishByMonth и вид «лосось»', () => {
+  it('не ставит род «Лосось» в список видов по месяцам рядом с чавычей и кетой', () => {
+    const fish = fishByMonth([
+      { name: 'Чавыча', seasonMonths: [5, 6, 7] },
+      { name: 'Лосось', seasonMonths: [5, 6, 7, 8, 9, 10] },
+      { name: 'Кета', seasonMonths: [7, 8, 9, 10] },
+    ]);
+    expect(fish.get(5)).toEqual(['Чавыча']);
+    expect(fish.get(6)).toEqual(['Чавыча']);
+    expect(fish.get(7)).toEqual(['Чавыча', 'Кета']);
+    expect(fish.get(10)).toEqual(['Кета']);
+    for (const m of [5, 6, 7, 8, 9, 10]) {
+      expect(fish.get(m), `месяц ${m}`).not.toContain('Лосось');
+    }
+  });
+});
