@@ -1,7 +1,17 @@
-import { describe, it, expect } from 'vitest';
+import { describe, it, expect, vi, beforeEach } from 'vitest';
+import { NextRequest } from 'next/server';
 import { stripSourceAttribution, hasSourceAttribution, publicSourceUrl, EXTERNAL_SOURCE_NAME } from '@/lib/text/source-attribution';
-import { readFileSync } from 'node:fs';
+import { readFileSync, readdirSync, statSync } from 'node:fs';
 import { join } from 'node:path';
+
+// Обработчики ниже читают базу двумя путями — подменяем оба (ревью #3652:
+// судить вызовом обработчика, а не строкой в исходнике).
+const db = vi.hoisted(() => ({ rows: [] as Array<Record<string, unknown>> }));
+vi.mock('@/lib/db-pool', () => ({ pool: { query: vi.fn(async () => ({ rows: db.rows })) } }));
+vi.mock('@/lib/database', () => ({ query: vi.fn(async (sql: string) => ({ rows: /FROM operator_tours t/.test(sql) ? db.rows : [] })) }));
+
+import { GET as nearbyGET } from '@/app/api/routes/nearby/route';
+import { GET as tourGET } from '@/app/api/tours/[id]/route';
 
 describe('source-attribution: hasSourceAttribution', () => {
   it('ловит все формы имени источника', () => {
@@ -70,7 +80,7 @@ describe('source-attribution: stripSourceAttribution', () => {
 describe('publicSourceUrl — адрес конкурента не уходит в ответ страницы', () => {
   it('прячет idilesom.com и подпись «сторонний источник»', () => {
     expect(publicSourceUrl('https://idilesom.com/kam/places/2772', EXTERNAL_SOURCE_NAME)).toBeNull();
-    expect(publicSourceUrl('https://www.idilesom.com/kam/places/1460')).toBeNull();
+    expect(publicSourceUrl('https://www.idilesom.com/kam/places/1460', null)).toBeNull();
     expect(publicSourceUrl('https://idilesom.com/kam/places/2748', null)).toBeNull();
     expect(publicSourceUrl('https://example.com/page', EXTERNAL_SOURCE_NAME)).toBeNull();
   });
@@ -79,25 +89,65 @@ describe('publicSourceUrl — адрес конкурента не уходит 
     expect(publicSourceUrl('https://vulcanikamchatki.ru/page', 'Вулканы Камчатки')).toBe(
       'https://vulcanikamchatki.ru/page',
     );
-    expect(publicSourceUrl(null)).toBeNull();
-    expect(publicSourceUrl('')).toBeNull();
+    expect(publicSourceUrl(null, null)).toBeNull();
+    expect(publicSourceUrl('', null)).toBeNull();
   });
 
-  it('карточка маршрута, каталог, похожие и публичные API отдают sourceUrl через фильтр', () => {
-    const files = [
-      'lib/routes/route-detail.ts',
-      'lib/routes/catalog-query.ts',
-      'app/routes/[id]/page.tsx',
-      'app/api/kamchatka-routes/route.ts',
-      'app/api/routes/nearby/route.ts',
-      'app/api/routes/by-region/route.ts',
-      'lib/places/place-detail.ts',
+  it('код, читающий маршруты и места, не кладёт в sourceUrl сырой source_url (запрет)', () => {
+    const roots = ['app', 'lib', 'components'];
+    const skip = /(^|\/)(api\/admin|api\/cron|api\/hub|hub)(\/|$)/;
+    const bad: string[] = [];
+    const walk = (dir: string) => {
+      for (const name of readdirSync(dir)) {
+        const p = join(dir, name);
+        if (statSync(p).isDirectory()) { if (!skip.test(p)) walk(p); continue; }
+        if (!/\.(ts|tsx)$/.test(name)) continue;
+        const src = readFileSync(p, 'utf-8');
+        // Только файлы, читающие маршруты и места: у проката, статей, сейсмики
+        // и паспортов парка свой источник, к сайту конкурента не относящийся.
+        if (!/(FROM|JOIN)\s+(agent_route_knowledge|kamchatka_routes|places)\b/.test(src)) continue;
+        // sourceUrl: <что-то>.source_url / route_source_url — без фильтра.
+        if (/sourceUrl:\s*\(?\s*\w+\.(route_)?source_url\b/.test(src)) bad.push(p);
+      }
+    };
+    roots.forEach((r) => walk(join(process.cwd(), r)));
+    expect(bad).toEqual([]);
+  });
+});
+
+describe('публичные API — вызовом обработчика (ревью безопасности #3652)', () => {
+  const ROW = { id: 'r1', title: 'Лежбище сивучей', lat: '53.1', lng: '158.6', description: '', category: 'route',
+    activity_type: null, location_type: null, kind: 'route' };
+  beforeEach(() => { db.rows = []; });
+
+  it('/api/routes/nearby: подпись «сторонний источник» прячет и адрес не с хоста idilesom; прочий источник виден', async () => {
+    db.rows = [
+      { ...ROW, id: 'a', source_url: 'https://mirror.example/page', source_name: EXTERNAL_SOURCE_NAME },
+      { ...ROW, id: 'b', source_url: 'https://idilesom.com/kam/places/2772', source_name: null },
+      { ...ROW, id: 'c', source_url: 'https://vulcanikamchatki.ru/page', source_name: 'Вулканы Камчатки' },
     ];
-    for (const f of files) {
-      const src = readFileSync(join(process.cwd(), f), 'utf-8');
-      expect(src, f).toMatch(/publicSourceUrl\(/);
-      // сырой source_url больше не кладётся в поле ответа как есть
-      expect(src, f).not.toMatch(/sourceUrl:\s*\(r\.source_url as string \| null\) \?\? null/);
-    }
+    const res = await nearbyGET(new NextRequest('http://localhost/api/routes/nearby?lat=53&lng=158.6'));
+    const body = await res.json() as { routes: Array<{ id: string; sourceUrl: string }> };
+    const by = Object.fromEntries(body.routes.map((r) => [r.id, r.sourceUrl]));
+    expect(by).toEqual({ a: '', b: '', c: 'https://vulcanikamchatki.ru/page' });
+    expect(JSON.stringify(body)).not.toMatch(/idilesom|mirror\.example/);
+  });
+
+  it('/api/tours/[id]: адрес источника маршрута тура идёт через фильтр', async () => {
+    const tourRow = (url: string, name: string | null) => ({
+      id: 7, title: 'Тур', description: '', base_price: 1000, price_unit: 'per_person', photos: [],
+      route_id: 'r1', route_kr_id: 'r1', route_title: 'Маршрут', route_category: 'route', route_lat: '53', route_lng: '158',
+      route_source_url: url, route_source_name: name,
+    });
+    const call = async () => {
+      const res = await tourGET(new NextRequest('http://localhost/api/tours/7'), { params: Promise.resolve({ id: '7' }) });
+      return (await res.json()) as { data?: { route?: { sourceUrl: string | null } } };
+    };
+    db.rows = [tourRow('https://idilesom.com/kam/places/2748', null)];
+    expect((await call()).data?.route?.sourceUrl).toBeNull();
+    db.rows = [tourRow('https://mirror.example/page', EXTERNAL_SOURCE_NAME)];
+    expect((await call()).data?.route?.sourceUrl).toBeNull();
+    db.rows = [tourRow('https://vulcanikamchatki.ru/page', 'Вулканы Камчатки')];
+    expect((await call()).data?.route?.sourceUrl).toBe('https://vulcanikamchatki.ru/page');
   });
 });

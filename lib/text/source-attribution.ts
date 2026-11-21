@@ -85,9 +85,15 @@ export function stripSourceAttribution(text: string | null | undefined): string 
  */
 export const EXTERNAL_SOURCE_NAME = 'сторонний источник';
 
+/**
+ * Подпись обязательна (21.11, ревью безопасности #3652): вызов без неё
+ * пропускал правило «подпись «сторонний источник» — ссылки наружу нет», и
+ * адрес не с хоста idilesom уходил наружу. Теперь компилятор не даст позвать
+ * фильтр, не выбрав `source_name`; нет подписи у строки — передать null явно.
+ */
 export function publicSourceUrl(
   sourceUrl: string | null | undefined,
-  sourceName?: string | null,
+  sourceName: string | null | undefined,
 ): string | null {
   if (!sourceUrl) return null;
   if (sourceName === EXTERNAL_SOURCE_NAME) return null;

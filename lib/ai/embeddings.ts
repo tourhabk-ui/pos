@@ -14,6 +14,7 @@
  */
 
 import { query } from '@/lib/database';
+import { publicSourceUrl } from '@/lib/text/source-attribution';
 import {
   SemanticSearchDisabledError,
   markModelLoadFailed,
@@ -150,7 +151,9 @@ async function loadEmbeddingCache(): Promise<CachedRoute[]> {
     title: row.title,
     description: row.description,
     category: row.category,
-    sourceUrl: row.source_url,
+    // Тот же фильтр, что у витрины (#3652): поиск сейчас берёт отсюда только id,
+    // но адрес конкурента не должен лежать там, откуда его отдаст следующий читатель.
+    sourceUrl: publicSourceUrl(row.source_url, row.source_name),
     sourceName: row.source_name,
     lat: row.lat != null ? parseFloat(String(row.lat)) : null,
     lng: row.lng != null ? parseFloat(String(row.lng)) : null,
