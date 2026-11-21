@@ -45,6 +45,7 @@ import {
   routeSlugHolder,
   type RouteSlugCensusRow,
 } from '../../lib/routes/slug-census';
+import { MERGED_ROUTE_SQL } from '../../lib/routes/resolve-route-ref';
 
 const PG_URL = process.env.KERNEL_PG_TEST_URL ?? '';
 const withPg = PG_URL ? describe : describe.skip;
@@ -542,5 +543,118 @@ withPg('адрес по имени месту при записи (1491) на н
     const route = (await pool.query<{ slug: string | null }>(`SELECT slug FROM kamchatka_routes WHERE title = 'Бухта Спорная'`)).rows[0]?.slug ?? null;
     // Имя принадлежит месту, маршрут к нему — `<имя>-marshrut` (правило 1239).
     expect([place, route]).toEqual(['buhta-spornaya', 'buhta-spornaya-marshrut']);
+  });
+});
+
+withPg('слияние маршрутов Долины гейзеров (1492) и адрес слитого маршрута на настоящем PostgreSQL', () => {
+  const MERGE_SCHEMA = 'route_merge_1492_test';
+  let pool: Pool;
+  const OLD_TEXT = 'Долина гейзеров — одно из самых впечатляющих мест Камчатки, расположенное в Кроноцком биосферном заповеднике. Более 40 гейзеров.';
+  const merged = async (ref: string) =>
+    (await pool.query<{ canonical: string }>(MERGED_ROUTE_SQL, [ref])).rows[0]?.canonical ?? null;
+  const row = async (slug: string) =>
+    (await pool.query<{ id: string; is_visible: boolean; merged_into_id: string | null; description: string | null; distance_km: string | null; distance_note: string | null }>(
+      `SELECT id::text AS id, is_visible, merged_into_id, description, distance_km::text AS distance_km, distance_note
+         FROM kamchatka_routes WHERE slug = $1`, [slug])).rows[0];
+
+  beforeAll(async () => {
+    const bootstrap = new Pool({ connectionString: PG_URL, max: 1 });
+    await bootstrap.query(`DROP SCHEMA IF EXISTS ${MERGE_SCHEMA} CASCADE`);
+    await bootstrap.query(`CREATE SCHEMA ${MERGE_SCHEMA}`);
+    await bootstrap.end();
+    pool = new Pool({ connectionString: PG_URL, max: 2, options: `-c search_path=${MERGE_SCHEMA}` });
+    await pool.query(`
+      CREATE TABLE kamchatka_routes (
+        id uuid PRIMARY KEY DEFAULT gen_random_uuid(),
+        ark_id uuid,
+        title text NOT NULL,
+        slug text UNIQUE,
+        description text,
+        distance_km numeric,
+        distance_note text,
+        difficulty varchar,
+        difficulty_source varchar(24),
+        elevation_gain_m integer,
+        is_visible boolean NOT NULL DEFAULT true,
+        merged_into_id text,
+        merged_at timestamptz,
+        updated_at timestamptz NOT NULL DEFAULT now()
+      );
+      CREATE TABLE route_waypoints (
+        route_id uuid NOT NULL, place_id text NOT NULL, position int NOT NULL,
+        link_kind text, link_kind_at timestamptz, UNIQUE (route_id, place_id)
+      );
+      CREATE TABLE operator_tours (id serial PRIMARY KEY, route_id uuid);
+    `);
+    await pool.query(readFileSync(join(MIGRATIONS, '911_description_provenance.sql'), 'utf-8'));
+    await pool.query(`INSERT INTO kamchatka_routes (id, title, slug, description, distance_km) VALUES
+      ('385d1c98-0000-4000-8000-000000000001', 'Долина гейзеров', 'dolina-geyzerov-385d1c98', $1, 1.4),
+      ('9e000000-0000-4000-8000-000000000002', 'Гейзеры Камчатки', 'geyzery-kamchatki', 'Более 20 крупных гейзеров.', NULL)`, [OLD_TEXT]);
+    await pool.query(`INSERT INTO route_waypoints (route_id, place_id, position, link_kind) VALUES
+      ('385d1c98-0000-4000-8000-000000000001', 'valley', 0, 'waypoint'),
+      ('9e000000-0000-4000-8000-000000000002', 'valley', 0, 'waypoint'),
+      ('9e000000-0000-4000-8000-000000000002', 'velikan', 1, 'waypoint')`);
+    await pool.query(`INSERT INTO operator_tours (route_id) VALUES ('9e000000-0000-4000-8000-000000000002')`);
+    await pool.query(`INSERT INTO kamchatka_routes (title, slug, difficulty, distance_km, elevation_gain_m) VALUES
+      ('Вулкан Ключевская сопка', 'vulkan-klyuchevskaya-sopka-413a7499', 'easy', 3.5, 19),
+      ('Другой лёгкий', 'drugoj-legkij', 'easy', 3.5, 19)`);
+    const kl = readFileSync(join(MIGRATIONS, '1493_klyuchevskaya_route_not_easy.sql'), 'utf-8');
+    await pool.query(kl);
+    await pool.query(kl);
+    const sql = readFileSync(join(MIGRATIONS, '1492_geyser_valley_route_merge_kronoki.sql'), 'utf-8');
+    await pool.query(sql);
+    // Повтор миграции ничего не меняет: guard'ы по слиянию, тексту и дистанции.
+    await pool.query(sql);
+  });
+  afterAll(async () => {
+    await pool.query(`DROP SCHEMA IF EXISTS ${MERGE_SCHEMA} CASCADE`);
+    await pool.end();
+  });
+
+  it('дубль скрыт и слит, точки и туры у выжившей, без повторов', async () => {
+    const loser = await row('geyzery-kamchatki');
+    expect(loser.is_visible).toBe(false);
+    expect(loser.merged_into_id).toBe('385d1c98-0000-4000-8000-000000000001');
+    const wp = await pool.query<{ place_id: string }>(
+      `SELECT place_id FROM route_waypoints WHERE route_id = '385d1c98-0000-4000-8000-000000000001' ORDER BY position`);
+    expect(wp.rows.map((r) => r.place_id)).toEqual(['valley', 'velikan']);
+    const tours = await pool.query<{ route_id: string }>(`SELECT route_id::text AS route_id FROM operator_tours`);
+    expect(tours.rows.map((r) => r.route_id)).toEqual(['385d1c98-0000-4000-8000-000000000001']);
+  });
+
+  it('описание — факты заповедника со ссылкой, журнал записан один раз; дистанция — 1 км по настилам', async () => {
+    const keep = await row('dolina-geyzerov-385d1c98');
+    expect(keep.description).toMatch(/около 60 гейзеров/);
+    expect(keep.description).toMatch(/более 30/);
+    expect(keep.description).toMatch(/государственный инспектор/);
+    expect(keep.description).toMatch(/Источник: Кроноцкий заповедник, kronoki\.ru/);
+    expect(keep.description).not.toMatch(/Великан|более 40|квадратных/);
+    expect([keep.distance_km, keep.distance_note]).toEqual(['1', 'по настилам']);
+    const prov = await pool.query<{ written_by: string; facts_count: number; previous_chars: number }>(
+      `SELECT written_by, facts_count, previous_chars FROM description_provenance`);
+    expect(prov.rows).toEqual([{ written_by: 'fact-correction', facts_count: 10, previous_chars: OLD_TEXT.length }]);
+  });
+
+  it('Ключевская (1493): не «лёгкий», ложные километры и набор сняты; соседний маршрут не тронут', async () => {
+    const q = `SELECT difficulty, difficulty_source, distance_km::text AS km, elevation_gain_m AS gain FROM kamchatka_routes WHERE slug = $1`;
+    expect((await pool.query(q, ['vulkan-klyuchevskaya-sopka-413a7499'])).rows[0])
+      .toEqual({ difficulty: 'extreme', difficulty_source: 'owner-decision', km: null, gain: null });
+    expect((await pool.query(q, ['drugoj-legkij'])).rows[0])
+      .toEqual({ difficulty: 'easy', difficulty_source: null, km: '3.5', gain: 19 });
+  });
+
+  it('адрес слитого маршрута ведёт к выжившей; живой и цепочка в скрытую — без адреса', async () => {
+    expect(await merged('geyzery-kamchatki')).toBe('dolina-geyzerov-385d1c98');
+    expect(await merged('9e000000-0000-4000-8000-000000000002')).toBe('dolina-geyzerov-385d1c98');
+    expect(await merged('dolina-geyzerov-385d1c98')).toBeNull();
+    // Цепочка: A → B (слит в C) → C видим без slug — ответ id C; в скрытую цель — null.
+    await pool.query(`INSERT INTO kamchatka_routes (id, title, slug, is_visible, merged_into_id) VALUES
+      ('c0000000-0000-4000-8000-00000000000c', 'Цель без адреса', NULL, true, NULL),
+      ('b0000000-0000-4000-8000-00000000000b', 'Промежуток', 'promezhutok', false, 'c0000000-0000-4000-8000-00000000000c'),
+      ('a0000000-0000-4000-8000-00000000000a', 'Начало', 'nachalo', false, 'b0000000-0000-4000-8000-00000000000b'),
+      ('d0000000-0000-4000-8000-00000000000d', 'Скрытая цель', 'skrytaya', false, NULL),
+      ('e0000000-0000-4000-8000-00000000000e', 'В скрытую', 'v-skrytuyu', false, 'd0000000-0000-4000-8000-00000000000d')`);
+    expect(await merged('nachalo')).toBe('c0000000-0000-4000-8000-00000000000c');
+    expect(await merged('v-skrytuyu')).toBeNull();
   });
 });
