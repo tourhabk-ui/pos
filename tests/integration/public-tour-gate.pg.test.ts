@@ -1692,13 +1692,15 @@ withPg('витрина туров: снятый тур не в плане и н�
       await expect(pool.query(`UPDATE operator_tours SET main_place_source = 'guess' WHERE slug = $1`, [T.gorelyM]))
         .rejects.toMatchObject({ code: '23514' });
 
-      // Карточка Горелого: два тура разных компаний.
+      // Карточка Горелого: тур «Местечка» в блоке места не показывается
+      // (оператор на паузе, lib/operators/site-pause). Связь в базе остаётся
+      // (snap выше); прямая ссылка на карточку тура и каталог не закрываются.
       const { loadPlaceTours } = await import('@/lib/places/place-tours');
       const r = await loadPlaceTours('2886ce3b-0753-41fb-bacc-f80e3f75d1aa');
       expect(r.state).toBe('ok');
       if (r.state === 'ok') {
-        expect(r.offers.map((o) => o.slug).sort()).toEqual([T.gorelyM, T.gorelyZ].sort());
-        expect(new Set(r.offers.map((o) => o.partnerId)).size).toBe(2);
+        expect(r.offers.map((o) => o.slug).sort()).toEqual([T.gorelyZ]);
+        expect(r.offers.map((o) => o.slug)).not.toContain(T.gorelyM);
       }
     });
 
