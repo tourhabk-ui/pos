@@ -150,6 +150,11 @@ export interface DayPlan {
    * (lib/planner/park-status); у дня с туром ссылка — `realTour.tourId`.
    */
   routeId?: string;
+  /**
+   * Самостоятельный день по месту из базы (lib/planner/self-fill, 21.11):
+   * полный адрес карточки места. Ставится, когда движок день не наполнил.
+   */
+  placeHref?: string;
   // Reality-aware fields (all optional for backward compat)
   realTour?: {
     tourId: string;
@@ -2435,8 +2440,15 @@ export async function recommendTrip(profile: TripProfile, opts: RecommendTripOpt
   // Туры без календаря (08.10): их даты свободны для заявки в любом месяце,
   // и месяц они открывают — но только турам оператора. «Сам» туров не берёт,
   // ему месяц открывает лишь наш сезонный ориентир.
-  const onRequest = (profile.travelStyle ?? 'mixed') === 'self' ? new Set<string>() : await fetchActivitiesOnRequest(cache);
-  const season = buildTripSeason(months, scheduled, onRequest);
+  // По месяцам (21.11): тур без календаря открывает занятие только в месяцы
+  // своего сезона — иначе «Медведи, Курильское озеро» вставали в январь.
+  const selfOnly = (profile.travelStyle ?? 'mixed') === 'self';
+  const onRequestByMonth = new Map<number, Set<string> | null>();
+  for (const m of months) onRequestByMonth.set(m, selfOnly ? new Set<string>() : await fetchActivitiesOnRequest(cache, m));
+  const onRequest: Set<string> | null = [...onRequestByMonth.values()].some((v) => v === null)
+    ? null
+    : new Set([...onRequestByMonth.values()].flatMap((v) => [...(v ?? [])]));
+  const season = buildTripSeason(months, scheduled, onRequestByMonth);
   /** Открытое каталогом хотя бы в одном месяце поездки; `null` — ни один месяц не прочитался. */
   const catalogueOpen = months.every((m) => season.openIn(m) === null)
     ? null

@@ -39,6 +39,7 @@ import { nightLodgingIncluded } from '@/lib/planner/lodging-included';
 import { EDIT_NOT_RECHECKED_NOTE, planWideAfterEdit } from '@/lib/planner/plan-edit-warnings';
 import { isOfferingNote } from '@/lib/safety/mchs-bulletin';
 import { MAX_ADULTS } from '@/lib/planner/party-limits';
+import { fetchSelfFillPlaces, fillEmptyDays } from '@/lib/planner/self-fill';
 
 /**
  * Как ехать — из слова модели. Принимаются и коды (self/operator/mixed), и
@@ -977,6 +978,8 @@ export function formatTripPlanForChat(
     const price = d.realPrice != null && d.realPrice > 0 ? ` — ${priceWithUnitWords(d.realPrice, d.realTour?.priceUnit)}` : '';
     lines.push(`День ${d.day}. ${capitalize(d.title)}${price}`);
     if (d.priceMissing) lines.push(`   ${d.priceMissing}`);
+    // Самостоятельный день по месту — ссылка на карточку места (21.11).
+    if (d.placeHref) lines.push(`   Без тура и без цены, карточка места: ${d.placeHref}`);
     const planDayIso = context?.arrivalIso
       ? new Date(Date.parse(`${context.arrivalIso}T00:00:00Z`) + (d.day - 1) * 86400000).toISOString().slice(0, 10)
       : null;
@@ -1085,6 +1088,21 @@ export async function makeTripPlanForKuzmich(
     travelStyle,
     restDays,
   }, { itinerary: 'plain' });
+
+  // План на N дней — N дней и в чате, и на странице /trip (тест 21.11): дни,
+  // которые движок не наполнил, — самостоятельными местами из базы
+  // (lib/planner/self-fill). Черновик ниже сохраняется уже с ними.
+  if (rec.days.length > 0 && rec.days.length < daysNum) {
+    const places = await fetchSelfFillPlaces(arrival.getUTCMonth() + 1);
+    const fill = fillEmptyDays(rec.days, daysNum, places, SITE);
+    if (fill.filled.length > 0) {
+      rec.days = fill.days;
+      if (rec.days.length >= daysNum) {
+        // «Наполнили 6 из 7 … не придумываем» — уже неправда.
+        rec.warnings = rec.warnings.filter((w) => !(w.type === 'duration' && /^Наполнили /.test(w.message)));
+      }
+    }
+  }
 
   // Жильё и машина к плану — настоящие варианты тем же подбором, что экран
   // планера (аудит 07.11, 4.3; lib/kuzmich/plan-offers). Параллельно с

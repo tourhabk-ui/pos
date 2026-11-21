@@ -6,7 +6,8 @@
 import { occupiedOnDaySql } from '@/lib/bookings/occupancy';
 import { pool } from '@/lib/db-pool';
 import type { ZoneId } from '@/lib/planner/engine';
-import { rawTypesFor, normalizeActivity } from '@/lib/planner/constants';
+import { rawTypesFor, normalizeActivity, ACTIVITY_CONSTRAINTS } from '@/lib/planner/constants';
+import { seasonCoversMonth } from '@/lib/tours/season-month';
 import { keepsScheduleSql } from '@/lib/tours/schedule';
 import { publicTourSql } from '@/lib/tours/public-visibility';
 import { nearestFreeDateSql, nearestFreeDateInWindowSql } from '@/lib/tours/nearest-free-date';
@@ -544,11 +545,15 @@ export async function fetchActivitiesBookableInMonth(
  * Правило «ведёт расписание» — общее (`keepsScheduleSql`): то же, что у
  * get_tour_availability и каталога. `null` — спросить не вышло.
  */
-export async function fetchActivitiesOnRequest(cache: PlannerCache): Promise<Set<string> | null> {
-  return cached(cache, 'on-request-activities', async () => {
+export async function fetchActivitiesOnRequest(cache: PlannerCache, month?: number): Promise<Set<string> | null> {
+  // Месяц (21.11): тур без календаря открывает своё занятие только в месяцы
+  // своего сезона (season_start/season_end, lib/tours/season-month). Сезона
+  // в данных нет — только месяцы нашего ориентира: иначе тур медведей без
+  // дат открывал медведей в январе. Без месяца — прежний ответ (все занятия).
+  return cached(cache, `on-request-activities:${month ?? '-'}`, async () => {
     try {
-      const { rows } = await pool.query<{ activity_type: string }>(
-        `SELECT DISTINCT ot.activity_type
+      const { rows } = await pool.query<{ activity_type: string; season_start: string | null; season_end: string | null }>(
+        `SELECT DISTINCT ot.activity_type, ot.season_start::text AS season_start, ot.season_end::text AS season_end
            FROM operator_tours ot
            JOIN partners p ON p.id = ot.operator_id
           WHERE ${publicTourSql('ot')}
@@ -556,7 +561,15 @@ export async function fetchActivitiesOnRequest(cache: PlannerCache): Promise<Set
             AND ot.activity_type IS NOT NULL
             AND NOT ${keepsScheduleSql('ot.id')}`,
       );
-      return new Set(rows.map((r) => normalizeActivity(r.activity_type)));
+      const out = new Set<string>();
+      for (const r of rows) {
+        const activity = normalizeActivity(r.activity_type);
+        if (month === undefined) { out.add(activity); continue; }
+        const covers = seasonCoversMonth(r.season_start, r.season_end, month);
+        const floor = ACTIVITY_CONSTRAINTS[activity]?.months.includes(month) ?? false;
+        if (covers === true || (covers === null && floor)) out.add(activity);
+      }
+      return out;
     } catch (err) {
       const message = err instanceof Error ? err.message : String(err);
       console.error('[planner] туры без календаря не прочитались:', message);

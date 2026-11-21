@@ -101,7 +101,8 @@ describe('каталог расширяет сезонное окно', () => {
     expect(ENGINE.match(/fetchActivitiesBookableInMonth\(/g)).toHaveLength(1);
     // Туры без календаря (08.10) подмешиваются в тот же единственный сезон,
     // а не становятся вторым свидетелем, которого одно из трёх мест не спросит.
-    expect(ENGINE).toMatch(/const season = buildTripSeason\(months, scheduled, onRequest\)/);
+    // С 21.11 — по месяцам: у каждого месяца свои туры без календаря (по сезону тура).
+    expect(ENGINE).toMatch(/const season = buildTripSeason\(months, scheduled, onRequestByMonth\)/);
     // С 08.10 зоны и дни считаются по профилю без занятий не по возрасту детей
     // (planProfile) — сезон передаётся тот же.
     expect(ENGINE).toMatch(/scoreZones\(planProfile, cache, season\)/);

@@ -81,11 +81,20 @@ export interface TripSeason {
 export function buildTripSeason(
   months: readonly number[],
   scheduled: ReadonlyMap<number, Set<string> | null>,
-  onRequest: ReadonlySet<string> | null,
+  /**
+   * Одно множество — на все месяцы (как до 21.11); карта по месяцам — у
+   * каждого месяца свои занятия туров без календаря, по сезону тура
+   * (fetchActivitiesOnRequest с месяцем): тур медведей июнь–октябрь январь
+   * не открывает.
+   */
+  onRequestAll: ReadonlySet<string> | ReadonlyMap<number, ReadonlySet<string> | null> | null,
 ): TripSeason {
   const open = new Map<number, Set<string> | null>();
   const requestOnly = new Map<number, Set<string>>();
   for (const m of months) {
+    const onRequest: ReadonlySet<string> | null = onRequestAll instanceof Map
+      ? (onRequestAll.get(m) ?? null)
+      : (onRequestAll as ReadonlySet<string> | null);
     const sch = scheduled.get(m) ?? null;
     open.set(m, sch === null ? null : new Set([...sch, ...(onRequest ?? [])]));
     requestOnly.set(m, new Set([...(onRequest ?? [])].filter((k) => {
