@@ -76,8 +76,15 @@ describe('имя инструмента — только из реестра', (
     // Запрошенное имя — отдельно и только если похоже на идентификатор.
     expect(safeRequestedName('getTours')).toBe('getTours');
     expect(safeRequestedName('get-weather.v2')).toBe('get-weather.v2');
-    expect(safeRequestedName('<script>alert(1)</script>')).toBe('не-идентификатор');
-    expect(safeRequestedName('x'.repeat(41))).toBe('не-идентификатор');
+    // Не-идентификатор — с родом (21.11), но без самого текста.
+    expect(safeRequestedName('<script>alert(1)</script>')).toBe('не-идентификатор: символы');
+    expect(safeRequestedName('x'.repeat(41))).toBe('не-идентификатор: длиннее 40');
+    expect(safeRequestedName('')).toBe('не-идентификатор: пусто');
+    expect(safeRequestedName('find tours in August')).toBe('не-идентификатор: фраза');
+    expect(safeRequestedName('查询旅游')).toBe('не-идентификатор: не латиница');
+    expect(safeRequestedName('vedar:get_tours')).toBe('не-идентификатор: префикс');
+    expect(safeRequestedName('vedar-kamchatka/get_tours')).toBe('не-идентификатор: префикс');
+    for (const kind of ['', 'x'.repeat(41), 'a b', '查询', 'a:b', '<x>']) expect(safeRequestedName(kind).length).toBeLessThanOrEqual(40);
     expect(ROUTE).toMatch(/errorKind: 'unknown_tool', errorCode: 'unknown_tool', requestedTool: toolName/);
     expect(read('migrations/1141_mcp_tool_calls_requested_tool.sql')).toMatch(/ADD COLUMN IF NOT EXISTS requested_tool VARCHAR\(40\)/);
     expect(safeToolName('nonexistent_evil_tool_'.repeat(10))).toBe('unknown');

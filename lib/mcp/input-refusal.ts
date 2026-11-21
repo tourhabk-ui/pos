@@ -37,6 +37,8 @@ export interface InputProblem {
   en: string;
   /** Русская строка — слова самой схемы (они обычно уже называют поле), а не общий оборот. */
   own?: boolean;
+  /** Поля в запросе нет вовсе — оно попадает в сводную строку «Не хватает: …». */
+  missing?: boolean;
 }
 
 /** Ошибка проверки схемы — то, что нужно от записи Zod. */
@@ -71,7 +73,7 @@ const CONSENT: Record<ConsentCase, { ru: string; en: string }> = {
 };
 
 export function consentProblem(kind: ConsentCase): InputProblem {
-  return { field: 'consent', ...CONSENT[kind] };
+  return { field: 'consent', ...CONSENT[kind], ...(kind === 'missing' ? { missing: true } : {}) };
 }
 
 /** Что не так с полем consent в сыром запросе; null — согласие дано. */
@@ -168,6 +170,7 @@ export function problemsFromIssues(issues: ReadonlyArray<SchemaIssue>, raw: Read
       ru: own ? words : genericRu(issue, missing),
       en: genericEn(issue, missing),
       own,
+      ...(missing ? { missing: true } : {}),
     });
   }
   return out;
@@ -204,17 +207,52 @@ export function inputRefusalText(
   head: RefusalHead = REQUEST_NOT_CREATED,
 ): string {
   const one = problems.length === 1;
+  const missing = missingFields(problems);
+  const ask = askPersonHint(problems);
   const ru = [
     `${head.ru} — ${one ? 'исправьте и повторите вызов' : 'исправьте всё из списка и повторите вызов'}:`,
+    missing.length > 0 ? `Не хватает: ${missing.join(', ')}.` : '',
     ...problems.map((p) => line(p, 'ru')),
     unknown.length > 0 ? `В запросе есть поля, которых у инструмента нет: ${unknown.join(', ')} — проверьте названия полей по схеме инструмента.` : '',
+    ask?.ru ?? '',
   ];
   const en = [
     `${head.en} — ${one ? 'fix this and call again' : 'fix everything listed and call again'}:`,
+    missing.length > 0 ? `Missing: ${missing.join(', ')}.` : '',
     ...problems.map((p) => line(p, 'en')),
     unknown.length > 0 ? `Unknown fields in the request: ${unknown.join(', ')} — check field names against the tool schema.` : '',
+    ask?.en ?? '',
   ];
   return [...ru.filter(Boolean), '', ...en.filter(Boolean)].join('\n');
+}
+
+/** Поля, которых в запросе нет вовсе, — сводной строкой над списком (21.11). */
+export function missingFields(problems: ReadonlyArray<InputProblem>): string[] {
+  return problems.filter((p) => p.missing).map((p) => p.field);
+}
+
+/**
+ * Что спросить у ЧЕЛОВЕКА (21.11, панель владельца: 297 отказов на входе за
+ * 30 дней — нет телефона, нет согласия, пустая заявка). Имя, телефон и
+ * согласие агент сам не знает и не должен придумывать: отказ говорит ему
+ * спросить человека и повторить вызов. Правило согласия не ослабляется —
+ * без `consent: true` от человека заявки нет (152-ФЗ); подсказка только
+ * называет, кого и о чём спросить. null — среди проблем нет данных человека.
+ */
+export function askPersonHint(problems: ReadonlyArray<InputProblem>): RefusalHead | null {
+  const fields = new Set(problems.map((p) => p.field));
+  const ru: string[] = [];
+  const en: string[] = [];
+  if (fields.has('name')) { ru.push('имя'); en.push('name'); }
+  if (fields.has('phone')) { ru.push('номер телефона'); en.push('phone number'); }
+  if (fields.has('consent')) { ru.push('явное согласие на обработку персональных данных'); en.push('explicit consent to personal-data processing'); }
+  if (ru.length === 0) return null;
+  const join = (xs: string[], and: string): string => xs.length < 2 ? xs.join('') : `${xs.slice(0, -1).join(', ')} ${and} ${xs[xs.length - 1]}`;
+  const withConsent = fields.has('consent');
+  return {
+    ru: `Что делать: спросите у человека ${join(ru, 'и')}, затем повторите вызов${withConsent ? ' с consent: true' : ''}. Не придумывайте их за человека; проверить интеграцию, не отправляя заявку, — test: true.`,
+    en: `Next step: ask the person for their ${join(en, 'and')}, then call again${withConsent ? ' with consent: true' : ''}. Do not make these up for them; to test the integration without sending a request, pass test: true.`,
+  };
 }
 
 /**

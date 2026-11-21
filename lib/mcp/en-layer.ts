@@ -8,6 +8,7 @@ import { platformAcceptsPayments } from '@/lib/payments/accepting';
 import { VEDAR_SKILL_PATH } from '@/lib/agent/vedar-skill';
 import { paymentRuleEn } from '@/lib/mcp/payment-rule';
 import { agentSendRuleEn } from '@/lib/mcp/human-confirmation';
+import { writeToolRequirementsEn } from '@/lib/mcp/write-tool-requirements';
 
 export const MCP_TITLE_EN_FILE = 'Vedar Kamchatka — Kamchatka travel information portal';
 
@@ -28,6 +29,7 @@ export function llmsEnFile(base: string, acceptsPayments: boolean = platformAcce
     '- The only new records are six human-confirmed requests: create_trip_request (whole trip: tour + stay + vehicle), create_lead (tour selection), create_booking_request (specific tour and date), create_stay_request (accommodation), request_charter (whole-vehicle charter), create_car_rental_request (self-drive car rental).',
     '- change_request cancels a tour request or moves it to another date by the status key issued when the request was created, and only when the person asks: before the operator answers it is done at once; after, it goes to the operator as a request and nothing changes until they act. A cancelled request cannot be restored.',
     `- ${agentSendRuleEn(base)}`,
+    `- ${writeToolRequirementsEn()}`,
     '- When the person has sent it, tell them: "Request sent. The operator will contact you to confirm. There is no instant booking — a human confirms." This is by design, not an outage: never say the database is unavailable, access is temporarily limited, or requests are handled manually because of a restriction.',
     '- Platform content is primarily in Russian; tour names and data are in Russian. Tool arguments work best in Russian or English.',
     '',

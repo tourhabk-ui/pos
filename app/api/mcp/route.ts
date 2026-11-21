@@ -63,7 +63,7 @@ import { normalizeToolHeadcount } from '@/lib/agent/headcount';
 import { runTripRequest, type TripManagerPart } from '@/lib/agent/trip-request';
 import { TRIP_MANAGER_LEAD_KIND } from '@/lib/leads/followup-scope';
 import { readToolArguments, argsRefusal, type ReadArguments } from '@/lib/mcp/tool-arguments';
-import { unknownToolResponse } from '@/lib/mcp/unknown-tool';
+import { resolveToolAlias, unknownToolResponse } from '@/lib/mcp/unknown-tool';
 import { normalizePhone, implausiblePhone } from '@/lib/mcp/normalize-phone';
 import {
   CONSENT_ALSO_NOTE, argsRefusalEn, consentProblem, inputRefusalText, phoneProblem, problemsFromIssues, unknownFields,
@@ -1588,7 +1588,13 @@ export async function planRevisionOf(planId: string): Promise<string> {
  * инструмент доходят до записи заявки (lib/leads/entry-context), исполнители
  * о нём не знают.
  */
-export async function runPublicTool(call: PublicToolCall): Promise<PublicToolOutcome> {
+export async function runPublicTool(call0: PublicToolCall): Promise<PublicToolOutcome> {
+  // Живое имя под чужим написанием (`vedar:get_tours`, `get-tours`, `getTours`)
+  // — тот же инструмент (lib/mcp/unknown-tool, 21.11): совпадение только целиком,
+  // проверки входа не меняются. Всё прочее идёт дальше как есть и получает
+  // отказ со списком имён.
+  const alias = resolveToolAlias(call0.toolName);
+  const call = alias && alias !== call0.toolName ? { ...call0, toolName: alias } : call0;
   return withLeadEntry({ entry: leadEntryOf(call), tool: call.toolName }, () => runPublicToolCore(call));
 }
 
