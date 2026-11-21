@@ -137,9 +137,11 @@ describe('источники данных отдают slug и is_public ряд�
   });
 
   it('у резолверов с двумя SELECT поля стоят в обоих: туры плана и подсказки чата', () => {
-    for (const file of ['lib/tours/top-tour-by-activity.ts', 'lib/ai/booking-intent.ts']) {
+    // booking-intent: третий SELECT — карточки туров, названных в ответе (21.11).
+    for (const [file, selects] of [['lib/tours/top-tour-by-activity.ts', 2], ['lib/ai/booking-intent.ts', 3]] as const) {
       const n = (read(file).match(/p\.slug AS operator_slug, p\.is_public AS operator_public/g) ?? []).length;
-      expect(n, `${file}: slug и is_public в каждом SELECT`).toBe(2);
+      expect(n, `${file}: slug и is_public в каждом SELECT`).toBe(selects);
+      expect((read(file).match(/FROM operator_tours ot/g) ?? []).length).toBe(selects);
     }
   });
 

@@ -144,7 +144,7 @@ describe('недобор дней не называет причину, кото
     // Состав возвращаемого объекта с тех пор вырос (длительность туров),
     // поэтому сверяется присутствие поля, а не форма всей строки.
     expect(ENGINE).toMatch(/return \{ days, unchecked: \[\.\.\.unchecked\]/);
-    expect(ENGINE).toMatch(/const \{ days, unchecked[^}]*\} = await generateDayPlans/);
+    expect(ENGINE).toMatch(/const generated = await generateDayPlans[^\n]*\n\s*const \{ unchecked[^}]*\} = generated/);
   });
 
   it('о непроверенном говорится вслух отдельным предупреждением', () => {

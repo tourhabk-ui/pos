@@ -484,9 +484,17 @@ function plannerZones(warning: ActiveWarning): string[] {
 export function notesForPlanDay(text: string, zones: readonly string[], warnings: readonly ActiveWarning[]): string[] {
   const notes: string[] = [];
   for (const warning of warnings) {
+    // Кейс владельца 21.11: термальный спа-тур в Авачинской зоне получал
+    // «Мутновский: не приближаться» только потому, что вулкан в той же зоне.
+    // День красится сводкой, лишь когда место названо в его программе; вся
+    // зона и истёкшие сводки — один раз в блоке «Безопасность и разрешения»
+    // (warningDigest в предупреждениях плана), не на каждом дне.
+    // Перекрытая дорога — про путь по зоне, а не про место программы: она
+    // остаётся на днях зоны (переезд через запад), вулкан — только по имени.
+    if (warning.ended) continue;
     const byName = offeringMatches(text, warning);
-    const byZone = plannerZones(warning).some((zone) => zones.includes(zone));
-    if (!byName && !byZone) continue;
+    const byRoadZone = warning.kind === 'road' && plannerZones(warning).some((zone) => zones.includes(zone));
+    if (!byName && !byRoadZone) continue;
     const sentence = offeringSentence(warning);
     if (!notes.includes(sentence)) notes.push(sentence);
   }

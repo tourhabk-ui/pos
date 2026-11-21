@@ -80,7 +80,7 @@ describe('движок не размножает день', () => {
     const before = ENGINE.slice(idx - 600, idx);
     // Раньше здесь стоял while, добивавший поездку копиями той же строки.
     expect(before).not.toMatch(/while \(dayNum <= tripDays - departureDays\)/);
-    expect(before).toMatch(/if \(dayNum <= tripDays - departureDays\)/);
+    expect(before).toMatch(/if \(dayNum <= tripDays - departureDays( - bufferWanted)?\)/);
   });
 });
 

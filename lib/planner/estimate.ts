@@ -299,6 +299,16 @@ export interface GroupEstimate {
  * тур — карточка тура, занятие без тура — исполнитель, жильё — хозяин,
  * переезд и трансфер — перевозчик.
  */
+/**
+ * «Посчитано X из Y позиций» (кейс владельца 21.11: итог 170 000 ₽ при шести
+ * строках «цены нет» читался как цена поездки). Одна строка для экрана,
+ * печати и Кузьмича.
+ */
+export function countedLine(lines: readonly Pick<EstimateLine, 'total'>[]): string {
+  const priced = lines.filter((l) => l.total).length;
+  return `Посчитано ${priced} из ${lines.length} позиций`;
+}
+
 export function unpricedTail(lines: readonly EstimateLine[]): string {
   const open = lines.filter((l) => !l.total);
   const parts: string[] = [];

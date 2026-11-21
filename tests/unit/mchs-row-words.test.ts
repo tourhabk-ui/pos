@@ -121,7 +121,8 @@ describe('строки ленты 20.11 — каждая своими слова
 
   it('день плана у Шивелуча: обе строки, своими словами', () => {
     const notes = notesForPlanDay('Восхождение к подножию Шивелуча', [], ws);
-    expect(notes).toEqual(shiveluch(ws).map(offeringSentence));
+    // Истёкшая строка на день не идёт — она один раз в блоке безопасности (21.11).
+    expect(notes).toEqual(shiveluch(ws).filter((w) => !w.ended).map(offeringSentence));
   });
 
   it('сводка-итог: вулканы с одинаковыми словами вместе, у Шивелуча — его слова, оба источника', () => {
@@ -249,7 +250,7 @@ describe('сохранённый план со строкой в прежней 
     const notes = days[0].dayWarnings;
     expect(notes).not.toContain(stale);
     expect(notes[0]).toBe('Возьмите палки.');
-    expect(notes).toEqual(expect.arrayContaining(shiveluch(ws).map(offeringSentence)));
+    expect(notes).toEqual(expect.arrayContaining(shiveluch(ws).filter((w) => !w.ended).map(offeringSentence)));
     expect(notes.filter((n) => n.includes('Шивелуч')).join('\n')).not.toMatch(/не приближаться/);
   });
 });

@@ -81,6 +81,8 @@ import { planDayDate, planDayTourHref } from '@/lib/planner/day-tour-link';
 import { maxShareUrl, telegramShareUrl } from '@/lib/trips/share-links';
 import { nightLodgingIncluded } from '@/lib/planner/lodging-included';
 import { adultsFromParam, MAX_ADULTS } from '@/lib/planner/party-limits';
+import { dayCardWarning, planShapeWarnings, runLabel, safetyBlock, shortWeather, tourRuns, type TourRun } from '@/lib/planner/day-card-view';
+import { SafetyBlock } from '@/components/planner/SafetyBlock';
 
 const LeafletMap = dynamic(() => import('@/components/shared/LeafletMap'), { ssr: false });
 
@@ -470,6 +472,8 @@ interface DayCardProps {
    * пересоздалась бы под пальцем.
    */
   onDragDone?: () => void;
+  /** Многодневный тур одним блоком (21.11): дни отрезка и первый ли это день. */
+  run?: TourRun;
 }
 
 /**
@@ -491,8 +495,12 @@ function DayPriceTag({ day }: { day: DayPlan }) {
 function DayCard({
   day, idx, isEditing, transport, flightBadge, isLocked, isConfirmed, topTour, requestArrival, requestGuests,
   onToggleEdit, onTransportChange, onShowPartners, onDelete, onShowMap, onConfirm, onRef, onAskSeats,
-  editRefusal = null, onDragDone,
+  editRefusal = null, onDragDone, run,
 }: DayCardProps) {
+  // Продолжение многодневного тура — в блоке его первого дня (21.11).
+  const continuation = run !== undefined && run.first !== day.day;
+  const cardWarning = dayCardWarning(day);
+  const weatherShort = shortWeather(day);
   // Свободный день (lib/planner/calendar-days): убирать нечего, операторов
   // под «ничего» нет — только заменить маршрутом с карты.
   const free = isFreeDay(day);
@@ -526,7 +534,8 @@ function DayCard({
           ? 'bg-[var(--bg-card)] border-2 border-[var(--accent)] ring-2 ring-[var(--accent)]/20'
           : 'bg-[var(--bg-card)] border border-[var(--border)]'
       }`}
-      style={{ listStyle: 'none' }}
+      style={{ listStyle: 'none', ...(continuation ? { display: 'none' } : {}) }}
+      data-day-continuation={continuation ? 'true' : undefined}
     >
       <div ref={onRef}>
         {/* Row 1 — clickable to toggle edit */}
@@ -564,6 +573,11 @@ function DayCard({
           </div>
           <div className="flex-1 min-w-0">
             <div className="flex items-center gap-1.5 min-w-0">
+              {run && (
+                <span className="px-1.5 py-0.5 rounded text-[9px] font-bold shrink-0 whitespace-nowrap bg-[var(--accent)]/15 text-[var(--accent)]" data-tour-run>
+                  {runLabel(run)}
+                </span>
+              )}
               <p className="text-xs font-medium text-[var(--text-primary)] min-w-0 line-clamp-2 break-words" title={day.title}>{day.title}</p>
               {isSpecialDay && (
                 <span className="flex items-center gap-0.5 px-1.5 py-0.5 rounded text-[9px] font-bold shrink-0 whitespace-nowrap"
@@ -650,22 +664,19 @@ function DayCard({
             Уточнить места у оператора
           </button>
         )}
-        {/* Day warnings */}
-        {day.dayWarnings && day.dayWarnings.length > 0 && (
-          <div className="mx-3 mb-2 space-y-1">
-            {day.dayWarnings.map((w, i) => (
-              <div key={i} className="flex items-start gap-1.5 px-2 py-1 rounded bg-[var(--warning)]/8 text-[10px] text-[var(--warning)]">
-                <AlertTriangle className="w-3 h-3 shrink-0 mt-0.5" />
-                <span>{w}</span>
-              </div>
-            ))}
+        {/* Не больше одной строки-предупреждения — и только о месте из программы
+            дня (21.11). Остальное — в блоке «Безопасность и разрешения» под планом. */}
+        {cardWarning && (
+          <div className="mx-3 mb-2 flex items-start gap-1.5 px-2 py-1 rounded bg-[var(--warning)]/8 text-[10px] text-[var(--warning)]" data-day-warning>
+            <AlertTriangle className="w-3 h-3 shrink-0 mt-0.5" />
+            <span>{cardWarning}</span>
           </div>
         )}
-        {/* Что взять по прогнозу — только в пределах прогноза (#3394, п.6). */}
-        {day.weatherKit && (
-          <div className="mx-3 mb-2 flex items-start gap-1.5 px-2 py-1 rounded bg-[var(--bg-hover)] text-[10px] text-[var(--text-secondary)]">
-            <CloudSun className="w-3 h-3 shrink-0 mt-0.5" aria-hidden="true" />
-            <span>{day.weatherKit}</span>
+        {/* Погода — одной короткой строкой; совет по одежде — в общем блоке. */}
+        {weatherShort && (
+          <div className="mx-3 mb-2 flex items-center gap-1.5 text-[10px] text-[var(--text-secondary)]" data-day-weather>
+            <CloudSun className="w-3 h-3 shrink-0" aria-hidden="true" />
+            <span>{weatherShort}</span>
           </div>
         )}
         {/* Expandable detail panel */}
@@ -2967,6 +2978,8 @@ export function PlannerClient({ initialUserId }: { initialUserId?: string | null
     </div>
   );
 
+  // Многодневный тур — одним блоком «Дни 1–5» (21.11).
+  const runs = tourRuns(days);
   const resultsView = (
     <div className="p-4 space-y-4" style={{ paddingBottom: CONTENT_BOTTOM_CLEARANCE }}>
       {summaryCard}
@@ -2975,9 +2988,9 @@ export function PlannerClient({ initialUserId }: { initialUserId?: string | null
       {/* Results */}
       {recommendation && (
         <>
-          {recommendation.warnings && recommendation.warnings.length > 0 && (
+          {planShapeWarnings(recommendation.warnings ?? []).length > 0 && (
             <div className="space-y-1.5">
-              {recommendation.warnings.filter(w => w.severity === 'critical').map((w, i) => (
+              {planShapeWarnings(recommendation.warnings ?? []).filter(w => w.severity === 'critical').map((w, i) => (
                 <div key={`crit-${i}`} className="flex items-start gap-2 p-3 bg-[var(--danger)]/10 border border-[var(--danger)]/30 rounded-lg">
                   <ShieldAlert className="w-4 h-4 text-[var(--danger)] shrink-0 mt-0.5" />
                   <p className="text-xs text-[var(--danger)]">
@@ -2986,7 +2999,7 @@ export function PlannerClient({ initialUserId }: { initialUserId?: string | null
                   </p>
                 </div>
               ))}
-              {recommendation.warnings.filter(w => w.severity === 'important').map((w, i) => (
+              {planShapeWarnings(recommendation.warnings ?? []).filter(w => w.severity === 'important').map((w, i) => (
                 <div key={`imp-${i}`} className="flex items-start gap-2 p-3 bg-[var(--warning)]/10 border border-[var(--warning)]/30 rounded-lg">
                   <AlertTriangle className="w-4 h-4 text-[var(--warning)] shrink-0 mt-0.5" />
                   <p className="text-xs text-[var(--warning)]">
@@ -2996,7 +3009,7 @@ export function PlannerClient({ initialUserId }: { initialUserId?: string | null
                   </p>
                 </div>
               ))}
-              {recommendation.warnings.filter(w => w.severity === 'info').map((w, i) => (
+              {planShapeWarnings(recommendation.warnings ?? []).filter(w => w.severity === 'info').map((w, i) => (
                 <div key={`info-${i}`} className="flex items-start gap-2 p-3 bg-[var(--ocean)]/10 border border-[var(--ocean)]/20 rounded-lg">
                   <Info className="w-4 h-4 text-[var(--ocean)] shrink-0 mt-0.5" />
                   <p className="text-xs text-[var(--ocean)]">
@@ -3070,6 +3083,7 @@ export function PlannerClient({ initialUserId }: { initialUserId?: string | null
                     onConfirm={confirmDay}
                     editRefusal={day.day === editingDayId ? (editingDayInfo?.refusalShort ?? null) : null}
                     onDragDone={finishReorder}
+                    run={runs.get(day.day)}
                     onRef={(el) => {
                       if (el) dayRefs.current.set(day.day, el as HTMLElement);
                       else dayRefs.current.delete(day.day);
@@ -3077,6 +3091,8 @@ export function PlannerClient({ initialUserId }: { initialUserId?: string | null
                   />
                 ))}
               </Reorder.Group>
+
+              <SafetyBlock items={safetyBlock(days, recommendation.warnings ?? [])} />
 
               {editNote && (
                 <p role="status" className="px-3 py-2 rounded-lg text-xs font-medium mt-1.5 flex items-start gap-2 bg-[var(--warning)]/10 text-[var(--warning)] border border-[var(--warning)]/20">

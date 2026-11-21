@@ -20,6 +20,8 @@ import { dayAvailabilityLine, type TripDayAvailability } from '@/lib/trips/day-a
 // Подпись зоны — общим словарём (#3199): свой давал «Мильковская» западной
 // зоне и «Тигильская» северной — округа, которые база относит к другим зонам.
 import { zoneName } from '@/lib/planner/zone-style';
+import { dayCardWarning, runLabel, safetyBlock, tourRuns } from '@/lib/planner/day-card-view';
+import { SafetyBlock } from '@/components/planner/SafetyBlock';
 
 const LeafletMap = dynamic(() => import('@/components/shared/LeafletMap'), { ssr: false });
 
@@ -35,7 +37,7 @@ interface DayPlan {
   /** Тур дня от движка — цена с единицей (lib/planner/day-price, #2304). */
   realPrice?: number;
   priceMissing?: string;
-  realTour?: { priceUnit?: string; priceLabel?: string };
+  realTour?: { tourId?: string; priceUnit?: string; priceLabel?: string };
   /** Самостоятельный день из БД мест — ссылка на карточку места (21.11). */
   placeHref?: string;
   /**
@@ -165,6 +167,7 @@ export function TripShareClient({ trip, token }: { trip: Trip; token: string }) 
   const myCode = useMyReferralCode();
   const shareUrl = withReferral(rawShareUrl, myCode);
   const shareText = `${trip.title} — маршрут по Камчатке на ${trip.days.length} дней`;
+  const runs = tourRuns(trip.days);
 
   const handleCopy = async () => {
     await navigator.clipboard.writeText(shareUrl);
@@ -340,6 +343,10 @@ export function TripShareClient({ trip, token }: { trip: Trip; token: string }) 
           {/* Туры, подобранные по виду, выбраны правилом 1в — оно названо (§0). */}
           {Object.keys(trip.top_tours ?? {}).length > 0 && <PlanTourRule />}
           {trip.days.map((day) => {
+            // Многодневный тур — одним блоком «Дни 1–5» (21.11).
+            const run = runs.get(day.day);
+            if (run && run.first !== day.day) return null;
+            const cardWarning = dayCardWarning(day);
             const transport = trip.transport_by_day?.[String(day.day)] || day.defaultTransport;
             const zoneColor = ZONE_COLORS[day.zone] || 'var(--text-secondary)';
             // Цена — с единицей, как в каталоге: тур «за группу» не читается
@@ -359,6 +366,7 @@ export function TripShareClient({ trip, token }: { trip: Trip; token: string }) 
                     </div>
                     <div>
                       <div className="font-medium text-sm mb-1" style={{ color: 'var(--text-primary)' }}>
+                        {run && <span className="mr-1.5 text-xs font-semibold" style={{ color: 'var(--accent)' }}>{runLabel(run)}:</span>}
                         {day.placeHref && /^(https:\/\/[^/]+)?\/places\//.test(day.placeHref)
                           ? <a href={day.placeHref} className="underline" style={{ color: 'var(--ocean)' }} data-trip-place-link>{day.title}</a>
                           : day.title}
@@ -405,15 +413,13 @@ export function TripShareClient({ trip, token }: { trip: Trip; token: string }) 
                     мест — честная занятость на эту дату (B-4). */}
                 {/* Предупреждения дня — первыми под заголовком: закрытие парка,
                     «только с гидом», МЧС (пруф с прода 06.11). */}
-                {day.dayWarnings && day.dayWarnings.length > 0 && (
-                  <ul className="mt-3 space-y-1.5" aria-label={`Важно в день ${day.day}`}>
-                    {day.dayWarnings.map((w, i) => (
-                      <li key={i} className="flex items-start gap-1.5 text-xs" style={{ color: 'var(--text-primary)' }}>
-                        <ShieldAlert className="w-3.5 h-3.5 flex-none mt-0.5" style={{ color: 'var(--warning)' }} aria-hidden="true" />
-                        <span>{w}</span>
-                      </li>
-                    ))}
-                  </ul>
+                {/* С 21.11: на дне — одна строка и только о месте его программы;
+                    всё остальное — в блоке «Безопасность и разрешения» ниже. */}
+                {cardWarning && (
+                  <p className="mt-3 flex items-start gap-1.5 text-xs" style={{ color: 'var(--text-primary)' }} aria-label={`Важно в день ${day.day}`}>
+                    <ShieldAlert className="w-3.5 h-3.5 flex-none mt-0.5" style={{ color: 'var(--warning)' }} aria-hidden="true" />
+                    <span>{cardWarning}</span>
+                  </p>
                 )}
                 {tour && (() => {
                   const avail = trip.availability?.[String(day.day)];
@@ -482,6 +488,7 @@ export function TripShareClient({ trip, token }: { trip: Trip; token: string }) 
               </div>
             );
           })}
+          <SafetyBlock items={safetyBlock(trip.days, [])} />
         </div>
 
         <div className="rounded-lg p-6 text-center space-y-3"
