@@ -10,6 +10,7 @@ import { renderToStaticMarkup } from 'react-dom/server';
 
 import { Footer } from '@/components/layout/Footer';
 import { KamchatkaGuide, RelatedLandings } from '@/components/landings/KamchatkaGuide';
+import { LandingContent } from '@/components/landings/LandingContent';
 import {
   LANDINGS,
   guideAnchor,
@@ -76,13 +77,11 @@ describe('гид по Камчатке — блок', () => {
     }
   });
 
-  it('главная и /articles ставят полный блок; подвал — компактный', () => {
-    const home = readFileSync(join(ROOT, 'app/page.tsx'), 'utf-8');
-    const articles = readFileSync(join(ROOT, 'app/articles/page.tsx'), 'utf-8');
-    const footer = readFileSync(join(ROOT, 'components/layout/Footer.tsx'), 'utf-8');
-    expect(home).toMatch(/<KamchatkaGuide variant="full" \/>/);
-    expect(articles).toMatch(/<KamchatkaGuide variant="full" \/>/);
-    expect(footer).toMatch(/<KamchatkaGuide variant="compact" \/>/);
+  it('главная, /articles и подвал берут блок из одного компонента', () => {
+    const imp = "from '@/components/landings/KamchatkaGuide'";
+    expect(readFileSync(join(ROOT, 'app/page.tsx'), 'utf-8')).toContain(imp);
+    expect(readFileSync(join(ROOT, 'app/articles/page.tsx'), 'utf-8')).toContain(imp);
+    expect(readFileSync(join(ROOT, 'components/layout/Footer.tsx'), 'utf-8')).toContain(imp);
   });
 });
 
@@ -102,8 +101,14 @@ describe('читайте также на посадочных', () => {
     expect(html).not.toContain('href="/splav-na-kamchatke"');
   });
 
-  it('шаблон посадочной ставит блок «Читайте также»', () => {
+  it('шаблон посадочной рендерит блок «Читайте также»', () => {
     const src = readFileSync(join(ROOT, 'components/landings/LandingContent.tsx'), 'utf-8');
-    expect(src).toMatch(/<RelatedLandings landing=\{landing\} \/>/);
+    expect(src).toContain("from '@/components/landings/KamchatkaGuide'");
+    const html = renderToStaticMarkup(
+      <LandingContent landing={landingBySlug('splav-na-kamchatke')} tours={[]} />,
+    );
+    expect(html).toContain('data-related-landings');
+    expect(html).toContain('Читайте также');
   });
 });
+
