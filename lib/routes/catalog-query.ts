@@ -27,6 +27,7 @@ import { cardImage } from '@/lib/routes/card-image';
 import { placeOnLiveRouteSql } from '@/lib/places/on-route';
 import { loadPlaceTourCounts } from '@/lib/places/place-tours';
 import { loadRouteCardTourPhotos } from '@/lib/routes/tour-photos';
+import { loadPlaceCardTourPhotos } from '@/lib/places/tour-photos';
 import { loadFeedAuthorSlugs } from '@/lib/media/author-feed';
 import type { PhotoCredit } from '@/lib/media/author-credit';
 import { stripFillerLead } from '@/lib/text/filler-lead';
@@ -617,6 +618,20 @@ export async function queryCatalog(filters: CatalogFilters): Promise<CatalogResu
         it.photoCredit = shot.credit;
         it.photoAlt = shot.placeName ?? it.title;
       }
+    }
+  }
+
+  // Место без своего кадра (ни главного, ни галереи) — обложка из снимка тура
+  // с записанной связью (21.11, lib/places/tour-photos). Сбой — без фото.
+  const barePlaces = items.filter((it) => it.kind === 'place' && !it.imageUrl).map((it) => it.id);
+  if (barePlaces.length > 0) {
+    const shots = await loadPlaceCardTourPhotos(barePlaces, { feedSlugs: await loadFeedAuthorSlugs() });
+    for (const it of items) {
+      const shot = it.kind === 'place' && !it.imageUrl ? shots.get(it.id) : undefined;
+      if (!shot) continue;
+      it.imageUrl = shot.url;
+      it.photoCredit = shot.credit;
+      it.photoAlt = it.title;
     }
   }
 

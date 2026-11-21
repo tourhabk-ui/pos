@@ -85,7 +85,7 @@ import RoutePathCard from './RoutePathCard';
 import TourCard from './TourCard';
 
 export default function RouteCard({ route, eager = false }: { route: RouteItem; eager?: boolean }) {
-  if (route.kind === 'place') return <PlaceCard route={route} />;
+  if (route.kind === 'place') return <PlaceCard route={route} eager={eager} />;
   if (route.kind === 'route') return <RoutePathCard route={route} eager={eager} />;
   if (route.kind === 'tour')  return <TourCard route={route} />;
   // fallback
