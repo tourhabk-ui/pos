@@ -778,6 +778,38 @@ describe('туры разных компаний (слово владельца 
   });
 });
 
+describe('«сколько стоит» со своим предметом — не вопрос к прошлому списку (чат гостя 21.11)', () => {
+  const GORELY: CatalogTour = {
+    id: 31,
+    slug: 'gorely-caves',
+    title: 'Восхождение на вулкан Горелый и лавовые пещеры',
+    base_price: 15000,
+    price_unit: 'per_person',
+    multi_day_count: 1,
+    activity_type: 'volcano',
+    season_start: '2026-06-01',
+    season_end: '2027-05-31',
+  };
+  const GUEST = 'Привет! Сколько стоит экскурсия на вулкан Горелый? Ответь одной фразой.';
+
+  it('первый вопрос гостя: тур из каталога с ценой, а не «Не вижу списка»', () => {
+    const ask = { ...input(GUEST, ''), surface: 'web' as const, tours: { ok: true as const, tours: [AVA, GORELY] } };
+    expect(commercialSources(GUEST).tours).toBe(true);
+    const answer = composeCommercial(ask);
+    expect(answer?.visible).not.toMatch(/Не вижу списка/);
+    expect(answer?.visible).toContain('Восхождение на вулкан Горелый и лавовые пещеры');
+    expect(answer?.visible).toMatch(/15\s000 ₽/);
+    expect(answer?.visible).toContain('https://vedarai.ru/catalog/tours/gorely-caves');
+  });
+
+  it('без предмета и с номером — по-прежнему к прошлому списку', () => {
+    for (const q of ['Сколько это стоит?', 'Сколько стоит первый вариант?', 'А сколько стоит первый из них?', 'Сколько стоит второй тур?', 'Сколько стоит?']) {
+      expect(commercialSources(q), q).toEqual({ tours: false, transfers: false, stays: false, stayZones: [] });
+      expect(composeCommercial(input(q, ''))?.visible, q).toMatch(/Не вижу списка/);
+    }
+  });
+});
+
 describe('жильё у вулкана из сводки: строка под объектом и итог внизу (21.11)', () => {
   // До 21.11 итог внизу ставился, только если в строке объекта было «МЧС:»,
   // а строка о вулкане начинается «… о вулкане X:» — итога не было, и у

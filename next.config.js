@@ -350,6 +350,12 @@ const nextConfig = {
       // а адрес в выдаче Google отдавал 404 (#3566 п.4). Термальная зона Паратунки —
       // место «Паратунская зона отдыха».
       { source: '/places/paratunka', destination: '/places/paratunskaya-zona-otdyha', permanent: true },
+      // Журнал просмотров 19–21.11.2026: /vulkan-mutnovskij-zakryt отдавал 404.
+      // Текст «Мутновский закрыт» — апгрейд карточки /places/vulkan-mutnovskij
+      // (slug посадочной не является публичным адресом).
+      { source: '/vulkan-mutnovskij-zakryt', destination: '/places/vulkan-mutnovskij', permanent: true },
+      // Та же выгрузка: /places/vulkan-avachinskiy — 404, канон с «j» на конце.
+      { source: '/places/vulkan-avachinskiy', destination: '/places/vulkan-avachinskij', permanent: true },
       // Листинг операторов канонический на /operators: после SSR (шаг 3, #460)
       // дубли отдавали идентичный контент и каннибалили бы друг друга в индексе.
       // marketplace-вариант — до общего :path*-правила, чтобы редирект был одним хопом.

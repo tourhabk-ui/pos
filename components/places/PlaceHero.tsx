@@ -1,11 +1,11 @@
 'use client';
 
-import Image from 'next/image';
 import Link from 'next/link';
 import { ArrowLeft, Copy, Check, Images } from 'lucide-react';
 import { useState, useRef, useEffect } from 'react';
 import { LOCATION_TYPE_LABELS } from './types';
 import { RouteGradientPlaceholder } from '@/components/routes/RouteGradientPlaceholder';
+import { HeroPhoto } from '@/components/media/HeroPhoto';
 
 interface Props {
   placeId: string;
@@ -104,12 +104,12 @@ export default function PlaceHero({ placeId, name, heading, locationType, lat, l
         >
           {gallery.map((src, i) => (
             <div key={i} className="flex-shrink-0 w-full snap-start relative h-full">
-              <Image src={src} alt={`${name} ${i + 1}`} fill className="object-cover" priority={i === 0} fetchPriority={i === 0 ? 'high' : undefined} sizes="100vw" onError={() => markBroken(src)} />
+              <HeroPhoto src={src} alt={`${name} ${i + 1}`} objectPosition="50% 50%" priority={i === 0} onError={() => markBroken(src)} />
             </div>
           ))}
         </div>
       ) : gallery.length === 1 ? (
-        <Image src={gallery[0]} alt={name} fill className="object-cover" priority fetchPriority="high" sizes="100vw" onError={() => markBroken(gallery[0])} />
+        <HeroPhoto src={gallery[0]} alt={name} objectPosition="50% 50%" onError={() => markBroken(gallery[0])} />
       ) : (
         <RouteGradientPlaceholder title={name} locationType={locationType} className="w-full h-full" showLabel={false} />
       )}

@@ -112,6 +112,9 @@ export async function collectSitemapEntriesWithStatus(): Promise<{ entries: Meta
     // Человекочитаемый первоисточник о MCP-сервере: поисковые AI-ответы читают
     // HTML, а не JSON-манифест (диагноз 15.08 — Алиса галлюцинировала «MCP нет»).
     { url: `${BASE}/mcp`,                  lastModified: new Date('2026-08-15'), changeFrequency: 'monthly', priority: 0.7 },
+    // Журнал 21.11: /kuzmich открывается из Google, robots index, follow,
+    // в карте сайта страницы не было. Достижима с таб-бара (mobile-two-taps).
+    { url: `${BASE}/kuzmich`,              lastModified: new Date('2026-11-21'), changeFrequency: 'weekly',  priority: 0.7 },
     // Китайский HTML-вход (12.10): поисковики КНР индексируют HTML, а не llms.txt.
     // Список китайских страниц один — lib/zh/pages (аудит 15.10, CN-quick): тот
     // же читает пинг IndexNow, и новая /zh/<…> не разъедется между ними.

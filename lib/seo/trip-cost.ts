@@ -138,9 +138,12 @@ export function whenFaq(months: readonly MonthTours[] | null, fishByMonth: Reado
   return out;
 }
 
-/** Виды рыб по месяцам из справочника (lib/fish-species). */
+/** Виды рыб по месяцам из справочника (lib/fish-species).
+ *  «Лосось» в справочнике — род Oncorhynchus, не отдельный вид; в таблице
+ *  «По месяцам» его не ставим рядом с чавычей, кетой и кижучем. */
 export function fishByMonth(species: readonly { name: string; seasonMonths: readonly number[] }[]): Map<number, string[]> {
+  const kinds = species.filter((s) => s.name !== 'Лосось');
   const map = new Map<number, string[]>();
-  for (let m = 1; m <= 12; m++) map.set(m, species.filter((s) => s.seasonMonths.includes(m)).map((s) => s.name));
+  for (let m = 1; m <= 12; m++) map.set(m, kinds.filter((s) => s.seasonMonths.includes(m)).map((s) => s.name));
   return map;
 }
