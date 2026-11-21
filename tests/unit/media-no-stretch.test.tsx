@@ -158,10 +158,22 @@ describe('карточка места и маршрут: тот же герой,
     expect(container.querySelector('[data-hero-backdrop]')).toBeTruthy();
   });
 
-  it('маршрут: герой через HeroPhoto, на телефоне contain как было', () => {
+  it('HeroPhoto fitMobile=contain: кадр вписан целиком, как у маршрута на телефоне', () => {
+    const { container } = render(
+      <div style={{ position: 'relative' }}>
+        <HeroPhoto src={SHATUN} alt="Шатун" objectPosition="50% 40%" fitMobile="contain" />
+      </div>,
+    );
+    const sharp = within(container.querySelector('[data-hero-frame]') as HTMLElement).getByAltText('Шатун');
+    expect(sharp.className.split(/\s+/)).toContain('object-contain');
+    expect(sharp.className.split(/\s+/)).not.toContain('object-cover');
+  });
+
+  it('маршрут подключает HeroPhoto с contain на телефоне, без sizes=100vw на всю полосу', () => {
     const src = fs.readFileSync(path.join(process.cwd(), 'app/routes/[id]/_RouteDetailClient.tsx'), 'utf8');
-    expect(src, 'герой маршрута снова тянет кадр на 100vw').toMatch(/<HeroPhoto[\s\S]*fitMobile="contain"/);
-    expect(src).not.toMatch(/fill className="object-contain" priority fetchPriority="high" sizes="100vw"/);
+    expect(src.includes("from '@/components/media/HeroPhoto'"), 'герой маршрута больше не через HeroPhoto').toBe(true);
+    expect(src.includes('fitMobile="contain"'), 'у маршрута пропал contain на телефоне').toBe(true);
+    expect(src.includes('sizes="100vw"') && src.includes('object-contain'), 'герой маршрута снова тянет кадр на 100vw').toBe(false);
   });
 });
 

@@ -76,8 +76,8 @@ describe('свой снимок выбирается раньше чужой с�
 
 describe('мёртвая ссылка не оставляет дыру', () => {
   it('каждый кадр героя умеет сообщить о своём отказе', () => {
-    const images = HERO.match(/<Image\s[^>]*>/g) ?? [];
-    expect(images.length).toBeGreaterThan(0);
+    const images = HERO.match(/<HeroPhoto\s[^>]*>/g) ?? [];
+    expect(images.length, 'герой места больше не через HeroPhoto').toBeGreaterThan(0);
     const silent = images.filter(tag => !tag.includes('onError'));
     expect(silent, 'кадр без onError оставит пустой прямоугольник вместо градиента').toEqual([]);
   });
