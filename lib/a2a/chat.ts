@@ -22,6 +22,8 @@ import { agentOffTopic, offTopicReply } from '@/lib/kuzmich/agent-off-topic';
 import { agentHandshake, handshakeReply } from '@/lib/kuzmich/agent-handshake';
 import { aiChatAgentLoop, KUZMICH_SYSTEM, isAIErrorResponse, kuzmichTurnFacts, kuzmichSystemContent } from '@/lib/kuzmich/core';
 import { finishKuzmichAnswer } from '@/lib/kuzmich/answer-guards';
+import { withUntrustedRun } from '@/lib/ai/untrusted';
+import { assertDailyLlmBudget, isDailyBudgetStopped, KUZMICH_DAILY_REST_TEXT } from '@/lib/ai/daily-spend-gate';
 import { recordKuzmichAnswer } from '@/lib/kuzmich/answer-timing';
 import { newLoopTiming, answerTokens } from '@/lib/kuzmich/answer-ceiling';
 import { answerStall } from '@/lib/kuzmich/loop-stall';
@@ -70,6 +72,13 @@ export async function answerAgentMessage(
   // без времени и источника. Визитка называет входы MCP/A2A/OpenAPI,
   // ограничения и одно проверяемое действие (lib/kuzmich/agent-handshake).
   if (agentHandshake(text)) return { ok: true, text: handshakeReply(text) };
+  try {
+    await assertDailyLlmBudget();
+  } catch (err) {
+    if (!isDailyBudgetStopped(err)) throw err;
+    return { ok: true, text: KUZMICH_DAILY_REST_TEXT };
+  }
+  return withUntrustedRun(async () => {
   // Данные хода — те же, что у Кузьмича на сайте, в Telegram и MAX
   // (kuzmichTurnFacts, слово владельца 15.11 «на сайте и в тг разные
   // ответы»). Отказ одного источника не отменяет ответ: цикл инструментов
@@ -97,6 +106,7 @@ export async function answerAgentMessage(
       { agent: true },
     );
   } catch (err) {
+    if (isDailyBudgetStopped(err)) return { ok: true, text: KUZMICH_DAILY_REST_TEXT };
     console.error('[a2a] цикл инструментов упал:', logText(err instanceof Error ? err.message : err, 300));
   }
   if (!answer || !answer.trim() || isAIErrorResponse(answer)) {
@@ -140,4 +150,5 @@ export async function answerAgentMessage(
   // называет это не каждый раз (lib/a2a/request-needs-note, 13.11).
   const needs = requestNeedsNote(text, finished.text);
   return { ok: true, text: needs ? `${finished.text}\n\n${needs}` : finished.text };
+  });
 }

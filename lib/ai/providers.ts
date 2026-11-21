@@ -57,6 +57,7 @@ import { runPlace, keyReport, type RunPlace, type KeyReport } from '@/lib/ai/key
 import { openRouterAttribution } from '@/lib/ai/attribution';
 import { isFreeQuotaExhausted, markFreeQuotaExhausted, isMarkedExhausted, exhaustedModels, freeQuotaSiblings, firstUnexhausted } from '@/lib/ai/qwen-free-quota';
 import { isQwenRetired } from '@/lib/ai/qwen-retired';
+import { assertDailyLlmBudget } from '@/lib/ai/daily-spend-gate';
 
 // ── Региональный релей (обход гео-блокировок RU) ──────────────────────────
 // Timeweb-хостинг в РФ: openrouter.ai и api.anthropic.com гео-блокируют РФ-IP,
@@ -1515,6 +1516,7 @@ export async function callToolsWaterfall(
   tools: ToolDefinition[],
   turnUsage?: Array<ParsedUsage | null>,
 ): Promise<ToolsCallResult | null> {
+  await assertDailyLlmBudget();
   const run = () => firstNonNullToolLabelled([
     { provider: 'deepseek',   run: () => callDeepSeekWithTools(messages, tools) },   // первичный: доступен из РФ
     { provider: 'timeweb-gateway', run: () => callTimewebGatewayWithTools(messages, tools) }, // 06.11: шлюз Timeweb, путь российский
@@ -1531,6 +1533,7 @@ export async function callAIWithModel(
   preferredModel?: string | null,
   opts?: OpenRouterModelOptions,
 ): Promise<{ text: string; model_used: string }> {
+  await assertDailyLlmBudget();
   if (preferredModel) {
     const result = await callOpenRouterModel(messages, preferredModel, opts ?? 15_000);
     if (result) return result;
@@ -5446,6 +5449,7 @@ export async function callAIWaterfall(messages: ChatMessage[]): Promise<string> 
  * дорого стоит.
  */
 export async function callAIWaterfallDetailed(input: ChatMessage[]): Promise<WaterfallOutcome> {
+  await assertDailyLlmBudget();
   // Маркер кэша — служебная строка Anthropic (buildSystemBlocks режет по нему
   // сама). Остальным ногам он уходил буквально, посреди правил Кузьмича, на
   // каждый ответ запасным путём и сразу нескольким провайдерам (ревью 29.10).

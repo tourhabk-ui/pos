@@ -19,6 +19,7 @@ import { freeSlotsSql, occupiedOnDaySql } from '@/lib/bookings/occupancy';
 import { reserveBooking, ReserveError, type ReserveErrorCode } from '@/lib/bookings/reserve';
 import { SAFETY_TOOLS } from '@/lib/kuzmich/safety-claim-guard';
 import { finishKuzmichAnswer } from '@/lib/kuzmich/answer-guards';
+import { catalogToolRuns } from '@/lib/kuzmich/offer-claim-guard';
 import { appendRouteSafety, ROUTE_SAFETY_SOURCE } from '@/lib/kuzmich/route-safety';
 import { asksTripPlan, checkAnswerPrices } from '@/lib/kuzmich/answer-quality';
 import { asksTourComparison } from '@/lib/kuzmich/tour-ask';
@@ -94,7 +95,8 @@ import { TOOL_EXECUTION_FAILED } from '@/lib/kuzmich/tool-failure';
 import { McpUserError } from '@/lib/mcp/jsonrpc';
 import { logText } from '@/lib/log/log-text';
 import { redactPII, redactUserTurns } from '@/lib/security/pii-redact';
-import { wrapUntrusted, untrustedField } from '@/lib/ai/untrusted';
+import { wrapUntrusted, untrustedField, currentUntrustedMark, untrustedMarkInstructions, withUntrustedRun } from '@/lib/ai/untrusted';
+import { assertDailyLlmBudget, isDailyBudgetStopped, KUZMICH_DAILY_REST_TEXT } from '@/lib/ai/daily-spend-gate';
 
 /** Потолки чужих полей в строке каталога: колонка short_description — VARCHAR(500). */
 const SHORT_DESCRIPTION_MAX = 500;
@@ -3421,7 +3423,11 @@ export function kuzmichSystemContent(
   // судье выдумок как «приложенный контекст» (askKuzmichForEval), и фраза
   // части «упомяни Дачные источники рядом» засчитывалась бы ответу как
   // доказательство (ревью безопасности #3416).
-  const below = [turn.modules ?? '', turn.mchsBlock, dynamic].filter(Boolean).join('\n\n');
+  // Метка untrusted — инструкция хода, не данные: ниже кеша, вне guardContext
+  // (иначе судья выдумок принял бы её за доказательство, как части промпта).
+  const mark = currentUntrustedMark();
+  const markBlock = mark ? untrustedMarkInstructions(mark) : '';
+  const below = [markBlock, turn.modules ?? '', turn.mchsBlock, dynamic].filter(Boolean).join('\n\n');
   return {
     system: below ? `${cacheable}\n\n${CACHE_BREAK_MARKER}\n\n${below}` : cacheable,
     dynamic,
@@ -3467,6 +3473,17 @@ export async function aiChat(opts: {
   const { chatId, text, mode, reply, userId, userName, visionDescription, platform, afterReply, contextNote, shownFacts } = opts;
   const persist = opts.persist !== false;
 
+  try {
+    await assertDailyLlmBudget();
+  } catch (err) {
+    if (!isDailyBudgetStopped(err)) throw err;
+    await reply(chatId, KUZMICH_DAILY_REST_TEXT);
+    if (afterReply) await afterReply(chatId, KUZMICH_DAILY_REST_TEXT);
+    return;
+  }
+
+  return withUntrustedRun(async () => {
+  try {
   // Сохраняем сообщение пользователя
   const userContent = visionDescription
     ? `[Фото: ${visionDescription}]\n${text || ''}`.trim()
@@ -3505,7 +3522,8 @@ export async function aiChat(opts: {
           surface: platform === 'max' ? 'max' : 'telegram',
           answer: turn.visible,
           question: userContent,
-          toolRuns: [],
+          // Витрина этого хода — свои данные, не выдумка модели.
+          toolRuns: catalogToolRuns(turn.visible),
           context: [mchsBlock, turn.visible].filter(Boolean).join('\n\n'),
         });
         if (persist && !isAIErrorResponse(finished.text)) {
@@ -3567,7 +3585,11 @@ export async function aiChat(opts: {
     // Отказ цикла инструментов называется в логе, как на сайте, в стриме и в
     // A2A (#3199, K9): молча он неотличим от «все ноги вернули пусто», а
     // турист получает запасной ответ без данных.
-    .catch((err: unknown) => { logSwallowedFailure('kuzmich', 'цикл инструментов', err); return ''; });
+    .catch((err: unknown) => {
+      if (isDailyBudgetStopped(err)) throw err;
+      logSwallowedFailure('kuzmich', 'цикл инструментов', err);
+      return '';
+    });
 
   // Ответ ли это агентного цикла — от этого зависит, заземляют ли его вызовы
   // инструментов. Запасной путь идёт БЕЗ них, и приписывать ему чужие вызовы
@@ -3689,6 +3711,12 @@ export async function aiChat(opts: {
       void synthesizeBotNotes(chatId, platform, allMsgs, botMemory?.ai_notes ?? null);
     }
   }
+  } catch (err) {
+    if (!isDailyBudgetStopped(err)) throw err;
+    await reply(chatId, KUZMICH_DAILY_REST_TEXT);
+    if (afterReply) await afterReply(chatId, KUZMICH_DAILY_REST_TEXT);
+  }
+  });
 }
 
 // ── Eval entry point (Roitman §16.8.3 faithfulness-регрессия) ───────────────

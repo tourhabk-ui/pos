@@ -45,6 +45,9 @@ import { buildRAGContext } from '@/lib/ai/rag-context';
 import { getCurrentSafetyStatus, formatSafetyStatusForAgent } from '@/lib/safety/current-status';
 import { mchsPromptBlock } from '@/lib/safety/active-warnings';
 import { finishKuzmichAnswer } from '@/lib/kuzmich/answer-guards';
+import { catalogToolRuns } from '@/lib/kuzmich/offer-claim-guard';
+import { withUntrustedRun, wrapUntrusted } from '@/lib/ai/untrusted';
+import { isDailyLlmBudgetStopped, isDailyBudgetStopped, KUZMICH_DAILY_REST_TEXT } from '@/lib/ai/daily-spend-gate';
 import { detectEmergency, withSosBlock } from '@/lib/safety/sos-detector';
 import { getPublicBaseUrl } from '@/lib/config';
 import { logText } from '@/lib/log/log-text';
@@ -199,6 +202,10 @@ export async function POST(request: NextRequest) {
     const origin = request.headers.get('origin');
     const corsHeaders = getCorsHeaders(origin, partner.widget_domains ?? []);
 
+    if (await isDailyLlmBudgetStopped()) {
+      return NextResponse.json({ success: true, data: { answer: KUZMICH_DAILY_REST_TEXT, dailyStop: true } }, { headers: corsHeaders });
+    }
+
     const emergency = detectEmergency(message).detected;
 
     // Три источника данных порознь: отказ одного не отменяет ответ, но
@@ -213,16 +220,22 @@ export async function POST(request: NextRequest) {
       mchsPromptBlock(),
     ]);
     const safetyText = formatSafetyStatusForAgent(safetyStatus);
+    const toursText = partnerToursBlock(partner.name, tours, getPublicBaseUrl(), emergency);
     const toolRuns: ToolRun[] = [
       { name: 'safety_status', producedData: safetyStatus !== null, output: safetyText },
+      ...catalogToolRuns(toursText),
     ];
 
     // Данные хода: туры партнёра, сводка, маршруты. Ими же сверяется
     // километраж в ответе (аудит 15.10, 1.14).
-    const widgetContext = partnerToursBlock(partner.name, tours, getPublicBaseUrl(), emergency)
+    return await withUntrustedRun(async () => {
+    const widgetContext = wrapUntrusted(
+      'widget-context',
+      toursText
       + safetyBlock(safetyText)
       + (mchsBlock ? `\n${mchsBlock}\n` : '')
-      + routesCtx;
+      + routesCtx,
+    );
     const messages: ChatMessage[] = [
       {
         role: 'system',
@@ -297,7 +310,11 @@ export async function POST(request: NextRequest) {
       { success: true, data: { answer: sos.text, emergency: sos.emergency, modelFailed } },
       { headers: corsHeaders }
     );
+    });
   } catch (error: unknown) {
+    if (isDailyBudgetStopped(error)) {
+      return NextResponse.json({ success: true, data: { answer: KUZMICH_DAILY_REST_TEXT, dailyStop: true } });
+    }
     // Причина — только в лог. Публичному чату на чужом сайте детали отказа
     // (имена таблиц, тексты базы) не нужны: посетителю хватает «не получилось»,
     // а разбору — строки лога (аудит 15.10, W3-widget, ревью WID-safety).

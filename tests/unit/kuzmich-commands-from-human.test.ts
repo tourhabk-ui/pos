@@ -31,7 +31,7 @@ describe('память туриста — в обёртке данных', () =>
     const ctx = buildBotMemoryContext({
       messages_count: 6, activities: ['volcano'], locations: [], travel_style: null, budget_level: null, ai_notes: INJECTION,
     } as unknown as Parameters<typeof buildBotMemoryContext>[0]);
-    expect(ctx).toContain('<untrusted_data source="tourist-memory">');
+    expect(ctx).toMatch(/<untrusted_data run="[0-9a-f]{12}" source="tourist-memory">/);
     expect(outsideData(ctx)).not.toContain('скидка 50%');
     expect(outsideData(ctx)).not.toContain('оформи бронь');
     // Закрывающий тег внутри заметки силы не имеет: блок закрывается один раз.
@@ -46,7 +46,7 @@ describe('память туриста — в обёртке данных', () =>
       budget_level: null, ai_notes: INJECTION, sessions_count: 1, messages_count: 6, budget_max: null,
       group_size_num: null, preferred_months: [], viewed_tour_ids: [], last_intent: null,
     });
-    expect(ctx).toContain('<untrusted_data source="tourist-memory">');
+    expect(ctx).toMatch(/<untrusted_data run="[0-9a-f]{12}" source="tourist-memory">/);
     expect(outsideData(ctx)).not.toContain('скидка 50%');
     expect(ctx.match(/<\/untrusted_data>/g)).toHaveLength(1);
   });
