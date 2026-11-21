@@ -72,7 +72,7 @@ import type { TourCalendar } from '@/lib/planner/item-status';
 import { replaceIdeaDays } from '@/lib/planner/honest-days';
 import {
   appendOfferingFlags, appendUnreadSafety, MCHS_UNREAD_NOTE, mchsBeforeTripNote, notesForPlanDay,
-  splitWarningsForTrip, warningDigest, type ActiveWarning,
+  splitWarningsForTrip, warningDigest, warningsForPlanZones, type ActiveWarning,
 } from '@/lib/safety/mchs-bulletin';
 
 // ─── Public types ────────────────────────────────────────────────────────────
@@ -1399,6 +1399,16 @@ async function generateDayPlans(
   };
   let tailTried = false;
 
+  /** Дальше по раскладке нет зоны, где у интересов есть тур (запрос — тот же, что у блока, из кэша). */
+  const laterBlocksHaveNoTours = async (from: number): Promise<boolean> => {
+    for (const b of zoneBlocks.slice(from + 1)) {
+      if (b.zone === 'avachinsky' || b.onlyTour || b.tail) return false;
+      const lists = await Promise.all([...new Set(b.interests)].map((i) =>
+        fetchRealToursForZone(b.zone, i, b.activeDays + 2, cache, tripWindow(profile))));
+      if (!lists.every((l) => Array.isArray(l) && l.length === 0)) return false;
+    }
+    return true;
+  };
   for (let bi = 0; ; bi++) {
     if (bi >= zoneBlocks.length) {
       if (tailTried) break;
@@ -1731,6 +1741,26 @@ async function generateDayPlans(
       // следующий тур; у маршрутов свой счёт: курсор на двоих сбивался,
       // когда тур возвращался в очередь после общего дня.
       lineUpForDate(m, (t) => fitsOn(t, planDate), placedTours);
+      // Кейс владельца 24.11–04.12 (22.11): в чужие зоны план не едет (туров
+      // там нет), а у интереса есть многодневный тур, который поездка
+      // вмещает вместе с днём на каждое ещё не поставленное занятие и
+      // резервом под вертолёт, — он идёт первым, пока дни есть: иначе
+      // однодневные туры съедали дни, и «термальный маршрут» на 5 дней
+      // «не помещался» в 11-дневную поездку при свободных днях в конце.
+      const servedNow = new Set(days.filter((x) => x.type === 'activity').map((x) => x.activityType));
+      const othersWaiting = new Set(block.interests.filter((i) => i !== interest && !servedNow.has(i))).size;
+      const heliReserve = needsHeliBuffer && !days.some((x) => x.type === 'buffer') ? 1 : 0;
+      const longFits = (t: RealTour): boolean => {
+        const sp = tourPlanSpan(t.durationHours, t.multiDayCount) ?? 1;
+        return sp > 1 && sp + othersWaiting + heliReserve <= lastDay - dayNum + 1 && fitsOn(t, planDate) && !placedTours.has(t.tourId);
+      };
+      if (style !== 'self' && block.zone === 'avachinsky' && !block.tail && m.tours.length > 1) {
+        const head = m.tours[0];
+        const long = m.tours.find(longFits);
+        if (long && head && (tourPlanSpan(head.durationHours, head.multiDayCount) ?? 1) === 1 && await laterBlocksHaveNoTours(bi)) {
+          m.tours = [long, ...m.tours.filter((t) => t !== long)];
+        }
+      }
       const realTour: RealTour | null = m.tours[0] ?? null;
       const route = realTour || requestOnlyToday ? null : m.routes[m.routeCursor] ?? null;
 
@@ -1764,7 +1794,23 @@ async function generateDayPlans(
       // последние два дня блока, резался — третьего дня не было, а цена в
       // смете оставалась полной.
       const room = tourRoom({ blockDays: block.activeDays, used, tripDays, departureDays: departureDays + backReserve, dayNum });
-      if (span > room) {
+      // Кейс владельца 24.11–04.12 (22.11): пятидневный «Камчатка: термальный
+      // маршрут» «не помещался» в 11 дней. Блок Авачинской зоны был урезан
+      // раскладкой под Западную и Северную, а туда план не едет (туров нет,
+      // правило 21.11), и их дни становились свободными. Если дальше нет ни
+      // одной зоны с туром, а поездка тур вмещает, — блок растягивается под
+      // тур, как растяжка в начале блока (08.10), и это сказано.
+      // Растяжка не вытесняет другие просьбы: после тура остаётся хотя бы по
+      // дню на каждое ещё не поставленное занятие блока (иначе 12-дневная
+      // Ключевская съела бы треккинг двухнедельной поездки — тест 08.10).
+      let rescued = false;
+      if (span > room && realTour && style !== 'self' && block.zone === 'avachinsky' && !block.tail
+        && span + othersWaiting + heliReserve <= lastDay - dayNum + 1 && await laterBlocksHaveNoTours(bi)) {
+        extendedForTour.push({ title: realTour.title, span, zone: block.zone, planned: block.activeDays });
+        block.activeDays = used + span;
+        rescued = true;
+      }
+      if (span > room && !rescued) {
         if (realTour) {
           tooLong.add(`${realTour.title} (${span} дн.)`);
           missFor(interest, `«${realTour.title}» — ${span} дн., длиннее оставшихся дней поездки`);
@@ -2523,10 +2569,15 @@ export async function recommendTrip(profile: TripProfile, opts: RecommendTripOpt
   if (!mchs.ok) {
     warnings.push({ type: 'mchs', severity: 'important', message: MCHS_UNREAD_NOTE });
   } else {
-    const digest = warningDigest(mchsTrip.forTrip);
+    // Только сводки о зонах плана (слово владельца 22.11): Ключевской и
+    // Шивелуч не пишутся плану, где Северной зоны нет.
+    const planZones = [...new Set(days.map((d) => d.zone))];
+    const dayNotes = days.flatMap((d) => d.dayWarnings ?? []);
+    const digest = warningDigest(warningsForPlanZones(mchsTrip.forTrip, planZones, dayNotes));
     if (digest) warnings.push({ type: 'mchs', severity: 'important', message: digest });
-    if (mchsTrip.endedBefore.length > 0 && profile.arrivalDate) {
-      warnings.push({ type: 'safety', severity: 'info', message: mchsBeforeTripNote(mchsTrip.endedBefore, profile.arrivalDate) });
+    const endedHere = warningsForPlanZones(mchsTrip.endedBefore, planZones, dayNotes);
+    if (endedHere.length > 0 && profile.arrivalDate) {
+      warnings.push({ type: 'safety', severity: 'info', message: mchsBeforeTripNote(endedHere, profile.arrivalDate) });
     }
   }
 

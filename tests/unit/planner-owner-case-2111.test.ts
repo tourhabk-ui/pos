@@ -100,7 +100,11 @@ describe('кейс владельца 21.11: план 24.11–04.12, 11 дней
       { type: 'season', severity: 'critical', message: 'Гейзеры: недоступно в выбранный период.' },
     ];
     const items = safetyBlock(OWNER_PLAN, warnings).map(safetyItemText);
-    expect(items.filter((t) => t.startsWith('Турпортал края о вулкане Мутновский'))).toEqual([`${MUTNOVSKY_ENDED} (дни 1–7)`]);
+    // Мутновский — один раз: сводкой плана; строка дня о том же вулкане в
+    // блок второй раз не идёт (22.11).
+    expect(items.filter((t) => t.includes('Мутновский'))).toEqual(['Сводки (МЧС, Турпортал края) о вулканах — Мутновский: не приближаться.']);
+    expect(safetyBlock(OWNER_PLAN, warnings.filter((w) => w.type !== 'mchs')).map(safetyItemText)
+      .filter((t) => t.startsWith('Турпортал края о вулкане Мутновский'))).toEqual([`${MUTNOVSKY_ENDED} (дни 1–7)`]);
     expect(items.filter((t) => t.startsWith('Медведи'))).toEqual([`${BEARS} (дни 1–5, 8)`]);
     expect(items.some((t) => t.startsWith('Кроноцкий'))).toBe(true);
     // Сезон — про сам план: над днями, не в блоке безопасности.

@@ -20,7 +20,8 @@ import { dayAvailabilityLine, type TripDayAvailability } from '@/lib/trips/day-a
 // Подпись зоны — общим словарём (#3199): свой давал «Мильковская» западной
 // зоне и «Тигильская» северной — округа, которые база относит к другим зонам.
 import { zoneName } from '@/lib/planner/zone-style';
-import { dayCardWarning, runLabel, safetyBlock, tourRuns } from '@/lib/planner/day-card-view';
+import { dayCardWarning, runLabel, safetyBlock, shortWeatherLine, tourRuns } from '@/lib/planner/day-card-view';
+import { placeTouchesZones } from '@/lib/safety/place-zones';
 import { SafetyBlock } from '@/components/planner/SafetyBlock';
 
 const LeafletMap = dynamic(() => import('@/components/shared/LeafletMap'), { ssr: false });
@@ -88,32 +89,40 @@ export interface Trip {
   plan_b?: Record<string, Array<{ tour_id: string; slug?: string | null; title: string }>>;
 }
 
-/** «12.08» из YYYY-MM-DD — для строки доступности. */
-function shortDate(iso: string): string {
-  const [, m, d] = iso.split('-');
-  return `${d}.${m}`;
-}
 
 /** Статус дня из safety-слоя платформы (fail-soft: нет данных — блока нет). */
-function useDayStatus(): { title: string | null; hasAlert: boolean } | null {
+function useDayStatus(planZones: readonly string[]): { title: string | null; hasAlert: boolean } | null {
   const [status, setStatus] = useState<{ title: string | null; hasAlert: boolean } | null>(null);
+  const zonesKey = planZones.join(',');
   useEffect(() => {
     const ctrl = new AbortController();
     fetch('/api/public/safety-status', { signal: ctrl.signal })
       .then(r => (r.ok ? r.json() : null))
       .then((d: unknown) => {
-        const data = (d as { data?: { topTitle?: unknown; hasAlert?: unknown; unavailable?: unknown } } | null)?.data;
+        const data = (d as { data?: { topTitle?: unknown; hasAlert?: unknown; unavailable?: unknown; feedTitles?: unknown } } | null)?.data;
         if (!data) return;
         // Источник недоступен — статуса дня нет (fail-soft), а не «спокойно».
         if (data.unavailable === true) return;
-        setStatus({
-          title: typeof data.topTitle === 'string' ? data.topTitle : null,
-          hasAlert: data.hasAlert === true,
-        });
+        // Сводка — только о зонах плана (слово владельца 22.11: «Ключевской»
+        // вверху плана без Северной зоны). Место без привязки к зоне — сводка
+        // остаётся: зону не угадываем.
+        const zones = zonesKey ? zonesKey.split(',') : [];
+        const titles = [
+          ...(Array.isArray(data.feedTitles) ? data.feedTitles.filter((t): t is string => typeof t === 'string') : []),
+          ...(typeof data.topTitle === 'string' ? [data.topTitle] : []),
+        ];
+        const title = zones.length === 0
+          ? (typeof data.topTitle === 'string' ? data.topTitle : null)
+          : titles.find((t) => placeTouchesZones(t, zones)) ?? null;
+        if (data.hasAlert === true && title === null) {
+          setStatus({ title: 'В зонах этого плана сводок нет — данные safety-мониторинга платформы', hasAlert: false });
+          return;
+        }
+        setStatus({ title, hasAlert: data.hasAlert === true });
       })
       .catch(() => { /* нет данных — нет блока */ });
     return () => ctrl.abort();
-  }, []);
+  }, [zonesKey]);
   return status;
 }
 
@@ -134,7 +143,7 @@ const TRANSPORT_LABELS: Record<string, string> = {
 
 export function TripShareClient({ trip, token }: { trip: Trip; token: string }) {
   const [copied, setCopied] = useState(false);
-  const dayStatus = useDayStatus();
+  const dayStatus = useDayStatus([...new Set(trip.days.map((d) => d.zone).filter((z): z is string => typeof z === 'string' && z.length > 0))].sort());
 
   // Регистрация МЧС из плана (C-7): маршрут и даты уже в плане — несём их в
   // /register предзаполнением. В query только название, дни и даты; ПД (имена,
@@ -235,7 +244,7 @@ export function TripShareClient({ trip, token }: { trip: Trip; token: string }) 
               {dayStatus.hasAlert
                 ? <ShieldAlert className="w-4 h-4 flex-none" />
                 : <ShieldCheck className="w-4 h-4 flex-none" />}
-              <span>{dayStatus.hasAlert && dayStatus.title ? dayStatus.title : 'На Камчатке спокойно — данные safety-мониторинга платформы'}</span>
+              <span>{dayStatus.title ?? 'На Камчатке спокойно — данные safety-мониторинга платформы'}</span>
             </div>
           )}
         </div>
@@ -466,8 +475,8 @@ export function TripShareClient({ trip, token }: { trip: Trip; token: string }) 
                   return (
                     <div className="mt-2 space-y-1.5">
                       <div className="text-xs" style={{ color: w.bad ? 'var(--warning)' : 'var(--text-muted)' }}>
-                        Прогноз на {shortDate(w.date)}: {w.tempMin}…{w.tempMax} °C · ветер {w.windKmh} км/ч
-                        {w.precipMm > 0 ? ` · осадки ${w.precipMm} мм` : ''} · {w.description}
+                        {/* Коротко, как в тексте плана (слово владельца 22.11). */}
+                        {shortWeatherLine(w.tempMin, w.tempMax, w.description) ?? ''}
                       </div>
                       {alts && alts.length > 0 && (
                         <div className="text-xs" style={{ color: 'var(--text-secondary)' }}>

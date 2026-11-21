@@ -1,9 +1,9 @@
 /**
  * Планер: тур без календаря, записанный сезон которого кончился (#3347, 14.11).
  *
- * Такой тур принимает заявку на любую дату (правило 08.10) и встаёт в план.
- * День плана обязан сказать, что о следующем сезоне в данных нет ни слова:
- * иначе «тур 20 июля» читается как обещание, которого оператор не давал.
+ * Такой тур принимает заявку на любую дату (правило 08.10), но в план он
+ * больше не встаёт (слово владельца 22.11: тур с сезоном до 15.09 стоял в
+ * ноябрьском плане). Тур с календарём ставится по своим датам.
  * Вызовом настоящего `recommendTrip` на подменённом хранилище.
  *
  * Правило строки и форма заявки — tests/unit/tour-season-past.test.tsx.
@@ -90,10 +90,12 @@ async function tourDay(tour: Tour, noCalendar: boolean) {
 beforeEach(() => { TOURS = {}; NO_CALENDAR = new Set(); });
 
 describe('день плана с туром, чей записанный сезон кончился', () => {
-  it('календаря нет, сезон записан на прошлый год — день говорит, что следующего сезона в данных нет', async () => {
-    const day = await tourDay(TREK(LAST_YEAR), true);
-    expect(day.dayWarnings).toContain(NOTE);
-    expect(day.dayWarnings!.filter((w) => w === NOTE)).toHaveLength(1);
+  it('календаря нет, сезон записан на прошлый год — тур в план не встаёт вовсе (слово владельца 22.11)', async () => {
+    TOURS = { 'avachinsky:trekking': [TREK(LAST_YEAR)] };
+    NO_CALENDAR = new Set(['t-trek']);
+    const rec = await recommendTrip(trip());
+    expect(rec.days.find((d) => d.realTour?.tourId === 't-trek')).toBeUndefined();
+    expect(JSON.stringify(rec)).not.toContain(NOTE);
   });
 
   it('у тура календарь — его даты называет оператор, строки о сезоне нет', async () => {

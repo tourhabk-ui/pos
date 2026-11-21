@@ -47,6 +47,12 @@ export function tourFitsDate(info: TourDates | undefined, date: string, today: s
     season_start: info.seasonStart,
     season_end: info.seasonEnd,
   }, today);
+  // Записанный сезон тура кончился раньше дня плана (слово владельца 22.11,
+  // тур «Семейный тур выходного дня» с сезоном до 15.09 в ноябрьском плане):
+  // в план такой тур не ставится вовсе. Форма на карточке тура по-прежнему
+  // примет заявку (правило 08.10, pastSeasonNote) — но план не предлагает
+  // выезд, о котором в данных нет ни слова.
+  if (window.kind === 'unbounded' && window.why === 'past') return false;
   return dateInWindow(window, date);
 }
 
