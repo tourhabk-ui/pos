@@ -3,6 +3,7 @@ import Link from 'next/link';
 import FaqSection from '@/components/faq/FaqSection';
 import {
   KUZMICH_FAQ,
+  KUZMICH_FAQ_HEADING,
   KUZMICH_LEAD,
   KUZMICH_PAGE_H1,
   KUZMICH_RELATED_HEADING,
@@ -90,7 +91,7 @@ export default function KuzmichAbout() {
         items={KUZMICH_FAQ}
         heading={
           <h2 className="ds-h2 mb-3" style={{ fontFamily: 'var(--font-playfair)' }}>
-            Вопросы и ответы
+            {KUZMICH_FAQ_HEADING}
           </h2>
         }
       />

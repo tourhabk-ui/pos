@@ -12,11 +12,16 @@ import {
   KUZMICH_PAGE_H1,
   KUZMICH_PAGE_TITLE,
   KUZMICH_RELATED_LINKS,
+  KUZMICH_SECTIONS,
   KUZMICH_TEXT_LINKS,
   kuzmichVisibleText,
   kuzmichWebApplicationJsonLd,
   kuzmichWordCount,
 } from '@/lib/seo/kuzmich-page';
+
+function words(text: string): string[] {
+  return text.split(/\s+/).filter((w) => /[A-Za-zА-Яа-я0-9]/.test(w));
+}
 
 const BRAND = ' | Ведар';
 const page = readFileSync('app/kuzmich/page.tsx', 'utf8');
@@ -46,10 +51,33 @@ describe('мета /kuzmich', () => {
 
 describe('текст /kuzmich', () => {
   it('первый абзац сразу отвечает, кто такой Кузьмич и что он умеет', () => {
-    expect(KUZMICH_LEAD).toMatch(/^Кузьмич — AI-помощник туристической платформы Ведар/);
-    expect(KUZMICH_LEAD).toMatch(/туры местных операторов/);
+    expect(KUZMICH_LEAD).toMatch(/^Кузьмич — AI-помощник платформы Ведар/);
+    expect(KUZMICH_LEAD).toMatch(/туры с витрины/);
     expect(KUZMICH_LEAD).toMatch(/@kuzmichai_bot/);
     expect(KUZMICH_PAGE_H1).toBe(KUZMICH_PAGE_TITLE);
+  });
+
+
+  it('прямой ответ умещается в первые 40 слов, H2 — вопросы, текст в серверном HTML', () => {
+    const first = words(`${KUZMICH_PAGE_H1} ${KUZMICH_LEAD}`).slice(0, 40).join(' ');
+    expect(first).toMatch(/Кузьмич/);
+    expect(first).toMatch(/AI-помощник/);
+    expect(first).toMatch(/Ведар/);
+    expect(first).toMatch(/туры/);
+    expect(first).toMatch(/места/);
+    expect(first).toMatch(/погоду|обстановку/);
+    expect(words(KUZMICH_LEAD).length).toBeLessThanOrEqual(40);
+    for (const s of KUZMICH_SECTIONS) expect(s.heading, s.id).toMatch(/\?$/);
+    expect(about).not.toMatch(/['"]use client['"]/);
+    expect(page).not.toMatch(/['"]use client['"]/);
+    expect(readFileSync('components/faq/FaqSection.tsx', 'utf8')).not.toMatch(/['"]use client['"]/);
+    const intro = page.indexOf('<KuzmichIntro');
+    const article = page.indexOf('<KuzmichAbout');
+    const chat = page.indexOf('<KuzmichClient');
+    expect(intro).toBeGreaterThan(0);
+    expect(article).toBeGreaterThan(intro);
+    expect(chat).toBeGreaterThan(article);
+    expect(page).toMatch(/order-last/);
   });
 
   it('видимый текст длиннее 400 слов', () => {
