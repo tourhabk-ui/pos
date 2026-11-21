@@ -14,9 +14,12 @@ describe('/about identity and Organization sameAs', () => {
   });
   it('Organization JSON-LD links GitHub and the MCP registry', () => {
     const src = readFileSync('app/layout.tsx', 'utf8');
-    for (const u of ['https://t.me/kamchatka_real', 'https://github.com/tourhabk-ui/pos', 'registry.modelcontextprotocol.io', 'https://github.com/tourhabk-ui/vedar-mcp-examples', 'https://t.me/kuzmichai_bot', 'https://max.ru/id4101147649_bot']) {
-      expect(src).not.toMatch(/smithery\.ai/i);
-      expect(src).toContain(u);
+    expect(src).toContain("import { ORGANIZATION_PROFILES, ORGANIZATION_SAME_AS } from '@/lib/seo/organization-profiles'");
+    expect(src).toContain('"sameAs": ORGANIZATION_SAME_AS');
+    expect(src).not.toMatch(/smithery\.ai/i);
+    const profiles = readFileSync('lib/seo/organization-profiles.ts', 'utf8');
+    for (const u of ['https://t.me/kamchatka_real', 'https://github.com/tourhabk-ui/pos', 'registry.modelcontextprotocol.io', 'https://github.com/tourhabk-ui/vedar-mcp-examples', 'https://t.me/kuzmichai_bot', 'https://max.ru/id4101147649_biz', 'https://max.ru/id4101147649_bot']) {
+      expect(profiles).toContain(u);
     }
   });
 });

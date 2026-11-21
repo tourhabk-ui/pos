@@ -97,7 +97,10 @@ describe('разметка и дата', () => {
     const l = landingBySlug('medvedi-kamchatki');
     const ld = landingJsonLd(l) as { '@graph': Array<Record<string, unknown>> };
     const article = ld['@graph'].find((n) => n['@type'] === 'Article')!;
-    expect(String(article.dateModified)).toMatch(/^2026-11-20/);
+    expect(String(article.dateModified)).toMatch(/^2026-11-21/);
+    const author = article.author as { '@type': string; name: string };
+    expect(author['@type']).toBe('Organization');
+    expect(author.name).toMatch(/Vedar|Ведар/);
     expect(article.url).toBe('https://vedarai.ru/medvedi-kamchatki');
     const faq = ld['@graph'].find((n) => n['@type'] === 'FAQPage') as { mainEntity: unknown[] } | undefined;
     expect(faq?.mainEntity.length).toBeGreaterThan(0);
@@ -106,7 +109,10 @@ describe('разметка и дата', () => {
   it('видимая дата — та же', () => {
     const l = landingBySlug('kamchatka-v-mae');
     render(<LandingContent landing={l} tours={[]} />);
-    expect(document.querySelector('[data-record-modified] time')?.getAttribute('dateTime')).toMatch(new RegExp('^' + l.date));
+    const line = document.querySelector('[data-record-modified]');
+    expect(line?.textContent).toMatch(/^Редакция Vedar · факты проверены /);
+    expect(line?.querySelector('time')?.getAttribute('dateTime')).toMatch(new RegExp('^' + l.date));
+    expect(line?.querySelector('time')?.textContent).toBeTruthy();
   });
 });
 

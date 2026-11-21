@@ -92,9 +92,13 @@ describe('ItemList каталога', () => {
 
   it('@id и url предложения — адрес по имени; картинка — абсолютным URL', () => {
     const ld = buildToursItemListJsonLd([row({})], 'https://vedarai.ru', '/catalog') as {
-      itemListElement: Array<{ item: { '@id': string; image?: string; offers: { url: string } } }>;
+      itemListElement: Array<{ position: number; name: string; url: string; item: { '@id': string; image?: string; offers: { url: string } } }>;
     };
-    const item = ld.itemListElement[0].item;
+    const li = ld.itemListElement[0];
+    expect(li.position).toBe(1);
+    expect(li.name).toBe('Сплав');
+    expect(li.url).toBe('https://vedarai.ru/catalog/tours/splav-po-bystroy');
+    const item = li.item;
     expect(item['@id']).toBe('https://vedarai.ru/catalog/tours/splav-po-bystroy');
     expect(item.offers.url).toBe('https://vedarai.ru/catalog/tours/splav-po-bystroy');
     expect(item.image).toBe('https://vedarai.ru/images/tours/rafting.jpg');

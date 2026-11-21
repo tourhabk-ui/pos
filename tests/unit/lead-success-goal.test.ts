@@ -84,7 +84,10 @@ describe('вызовы стоят после успешного ответа с�
 describe('футер', () => {
   it('Telegram-канал — t.me/kamchatka_real, старого kamchatourhub нет', () => {
     const footer = read('components/layout/Footer.tsx');
-    expect(footer).toMatch(/href="https:\/\/t\.me\/kamchatka_real"/);
+    expect(footer).toContain('ORGANIZATION_PROFILES.telegramChannel');
+    expect(footer).toContain('ORGANIZATION_PROFILES.telegramSupport');
+    expect(footer).toContain('ORGANIZATION_PROFILES.maxChannel');
+    expect(footer).toContain('@kuzmichai_bot');
     expect(footer).not.toMatch(/kamchatourhub/);
   });
 });

@@ -12,6 +12,7 @@ import '@fontsource-variable/inter/wght.css';
 import '@fontsource-variable/jetbrains-mono/wght.css';
 import { defaultOgImages } from '@/lib/seo/og-image';
 import { REQUISITES } from '@/lib/legal/requisites';
+import { ORGANIZATION_PROFILES, ORGANIZATION_SAME_AS } from '@/lib/seo/organization-profiles';
 import { siteVerification } from '@/lib/seo/site-verification';
 import { headers } from 'next/headers';
 import { htmlLangForPath, ROOT_LANG_HEADER } from '@/lib/i18n/root-lang';
@@ -269,6 +270,13 @@ export default async function RootLayout({ children }: { children: React.ReactNo
                   "email": REQUISITES.emailSupport,
                   "areaServed": "RU",
                   "availableLanguage": ["ru"]
+                }, {
+                  "@type": "ContactPoint",
+                  "contactType": "customer support",
+                  "name": "@kuzmichai_bot",
+                  "url": ORGANIZATION_PROFILES.telegramSupport,
+                  "areaServed": "RU",
+                  "availableLanguage": ["ru"]
                 }],
                 "address": {
                   "@type": "PostalAddress",
@@ -289,16 +297,9 @@ export default async function RootLayout({ children }: { children: React.ReactNo
                   "Халактырский пляж",
                   "экотуризм Камчатки"
                 ],
-                "sameAs": [
-                  "https://t.me/kamchatka_real",
-                  "https://github.com/tourhabk-ui/pos",
-                  "https://registry.modelcontextprotocol.io/v0.1/servers?search=ru.vedarai%2Fmcp",
-                  // Владелец 24.10: «карт-бланш на продвижение» — открытые
-                  // примеры подключения MCP и боты Кузьмича в Telegram и MAX.
-                  "https://github.com/tourhabk-ui/vedar-mcp-examples",
-                  "https://t.me/kuzmichai_bot",
-                  "https://max.ru/id4101147649_bot"
-                ]
+                // Каналы, реестр и боты — из lib/seo/organization-profiles,
+                // те же ссылки, что в подвале (NAP). Канала Дзена в репозитории нет.
+                "sameAs": ORGANIZATION_SAME_AS
               }
             ])
           }}
