@@ -15,7 +15,7 @@ const { query } = vi.hoisted(() => ({ query: vi.fn() }));
 vi.mock('@/lib/db-pool', () => ({ pool: { query } }));
 
 import {
-  findSafetyClaims, guardSafetyClaims, UNCHECKED_ALL_CLEAR_NOTE, CONTRADICTED_ALL_CLEAR_NOTE,
+  findSafetyClaims, guardSafetyClaims, UNCHECKED_ALL_CLEAR_NOTE, CONTRADICTED_ALL_CLEAR_NOTE, UNBACKED_SEASON_NOTE,
 } from '@/lib/kuzmich/safety-claim-guard';
 import { recordSafetyReview } from '@/lib/kuzmich/safety-review-log';
 import type { ToolRun } from '@/lib/agents/eval/grounding';
@@ -133,6 +133,54 @@ describe('сверка с данными хода', () => {
 
   it('нет утверждений — текст как был, вердикт none', () => {
     expect(guardSafetyClaims('Тур стоит 60 000 ₽.', [])).toMatchObject({ verdict: 'none', text: 'Тур стоит 60 000 ₽.' });
+  });
+});
+
+// #3179 п. 8 (ответы туристам 11–12.11): «Дачные источники закрыты по сезону»,
+// а ниже в том же ответе туры к Дачным; «сезон морских экскурсий закрыт» —
+// а в плане 18.11 морская прогулка в ноябре. Слова без опоры в данных хода.
+describe('«закрыто по сезону» сверяется с данными хода', () => {
+  const TOURS = run('get_tours', 'ID7: Дачные горячие источники — 9 000 ₽ — сезон: круглый год — https://vedarai.ru/catalog/tours/dachnye');
+
+  it.each([
+    'Дачные источники сейчас закрыты по сезону.',
+    'Сезон морских экскурсий закрыт.',
+    'Сейчас не сезон для этого маршрута.',
+    'Тропа закрыта на межсезонье.',
+  ])('«%s» без опоры — пометка про сезон, предупреждение остаётся', (answer) => {
+    const r = guardSafetyClaims(answer, [TOURS]);
+    expect(r.verdict).toBe('unbacked');
+    expect(r.text.startsWith(answer)).toBe(true);
+    expect(r.text).toContain(UNBACKED_SEASON_NOTE);
+    // О сезоне знает оператор: звонок в МЧС по такому вопросу — неверный совет.
+    expect(UNBACKED_SEASON_NOTE).not.toMatch(/112|МЧС/);
+  });
+
+  it('данные хода говорят о конце сезона или межсезонье — пометки нет', () => {
+    for (const out of [
+      'Авачинский перевал [ЖЁЛТЫЙ — ЗАКРЫТО]: Тропы парка закрыты на межсезонье.',
+      'ID9: Морская прогулка — Сезон завершён, даты по запросу.',
+    ]) {
+      const r = guardSafetyClaims('Сейчас не сезон: тропы закрыты на межсезонье.', [run('get_guardian_context', out)]);
+      expect(r.text).not.toContain(UNBACKED_SEASON_NOTE);
+    }
+  });
+
+  it('«сезон» в строке тура — не опора; «не закрыты по сезону» — не утверждение', () => {
+    expect(guardSafetyClaims('Дачные закрыты по сезону.', [TOURS]).text).toContain(UNBACKED_SEASON_NOTE);
+    const neg = guardSafetyClaims('Дачные источники не закрыты по сезону, туда ходят круглый год.', [TOURS]);
+    expect(neg.text).not.toContain(UNBACKED_SEASON_NOTE);
+    expect(findSafetyClaims('Сезон: июнь–сентябрь. Цена 9 000 ₽.')).toEqual([]);
+  });
+
+  it('вместе со штормом — две пометки, и пометка о сезоне без 112', () => {
+    const r = guardSafetyClaims('Сезон морских экскурсий закрыт, шторма.', [TOURS]);
+    expect(r.text).toContain('про шторм в сводках');
+    expect(r.text).toContain(UNBACKED_SEASON_NOTE);
+  });
+
+  it('ответ без инструментов — пометки нет: сверять не с чем', () => {
+    expect(guardSafetyClaims('Дачные закрыты по сезону.', null).text).toBe('Дачные закрыты по сезону.');
   });
 });
 
