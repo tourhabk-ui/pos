@@ -157,6 +157,7 @@ describe('тур и маршрут не называются свободным�
     title: e.title,
     description: e.description,
     source_url: e.source_url,
+    external_id: e.source_id,
     volcano_name: e.volcano_name,
   })));
 

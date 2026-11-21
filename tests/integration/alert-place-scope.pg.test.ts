@@ -2289,6 +2289,28 @@ withPg('кого накрывает предупреждение', () => {
     });
   });
 
+  describe('строка предупреждения называет, кто сообщил: номер записи читается запросом (21.11)', () => {
+    it('турпортал края — «Турпортал края», МЧС — «МЧС»; строка не подписана чужим именем', async () => {
+      const inserted = (await pool.query<{ id: string }>(
+        `INSERT INTO external_alerts (alert_type, severity, title, description, affected_zones, volcano_name,
+                                      created_at, last_published_at, expires_at, external_id, source_url)
+         VALUES ('volcanic_eruption', 1, 'Вулкан Порталов: не ближе 10 км к вершине', '', '{}', 'Порталов',
+                 TIMESTAMP '2099-01-01 00:00:00', TIMESTAMP '2099-01-01 00:00:00', NULL, 'visitkamchatka/2099-01-01/vtest', 'https://t.me/visitkamchatka41/1'),
+                ('volcanic_eruption', 1, 'Вулкан Эмчеэсов: не приближаться', '', '{}', 'Эмчеэсов',
+                 TIMESTAMP '2099-01-01 00:00:00', TIMESTAMP '2099-01-01 00:00:00', NULL, 'vk_mchs/2099-01-01/vtest', 'https://vk.com/wall-1_1')
+         RETURNING id::text AS id`,
+      )).rows.map((r) => r.id);
+      try {
+        const { rows } = await pool.query<AlertWarningRow>(ACTIVE_MCHS_WARNINGS_SQL);
+        const bySpeaker = new Map(warningsFromRows(rows).map((w) => [w.place, w.speaker]));
+        expect(bySpeaker.get('Порталов')).toBe('Турпортал края');
+        expect(bySpeaker.get('Эмчеэсов')).toBe('МЧС');
+      } finally {
+        await pool.query(`DELETE FROM external_alerts WHERE id::text = ANY($1::text[])`, [inserted]);
+      }
+    });
+  });
+
   describe('сводка МЧС отдаёт свой срок: план судит по нему, говорит ли она о датах поездки (разбор 06.11)', () => {
     it('строка со сроком — день Камчатки срока; без срока — горизонт от даты сводки', async () => {
       const inserted = (await pool.query<{ id: string }>(
@@ -2311,6 +2333,9 @@ withPg('кого накрывает предупреждение', () => {
         expect(byPlace.get('Срочный')).toBe('2099-01-02');
         // Срока нет: дата последней сводки (01.01) плюс горизонт.
         expect(byPlace.get('Бессрочный')).toBe(`2099-01-${String(1 + UNDATED_ALERT_HORIZON_DAYS).padStart(2, '0')}`);
+        // Номер записи не узнан правилом происхождения — «кто сообщил» не
+        // назван (21.11), а не подставлен «МЧС».
+        expect(warnings.find((w) => w.place === 'Срочный')?.speaker).toBeNull();
       } finally {
         await pool.query(`DELETE FROM external_alerts WHERE id::text = ANY($1::text[])`, [inserted]);
       }

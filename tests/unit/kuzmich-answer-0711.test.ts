@@ -37,8 +37,8 @@ const SOURCE = 'https://vk.com/wall-45534680_11543';
 const PERIOD_TEXT = 'в период с 06:00 06.11 до 06:00 07.11 не рекомендуется приближаться к вулканам';
 /** Строки сводки 06.11, опубликованной утром по Камчатке (05.11 21:00 UTC). */
 const rows = (): AlertWarningRow[] => [
-  { alert_type: 'volcanic_eruption', title: 'Вулкан Ключевской: не приближаться', description: PERIOD_TEXT, source_url: SOURCE, volcano_name: 'Ключевской', published_iso: '2026-11-05T21:00:00Z' },
-  { alert_type: 'volcanic_eruption', title: 'Вулкан Безымянный: не приближаться', description: PERIOD_TEXT, source_url: SOURCE, volcano_name: 'Безымянный', published_iso: '2026-11-05T21:00:00Z' },
+  { alert_type: 'volcanic_eruption', title: 'Вулкан Ключевской: не приближаться', description: PERIOD_TEXT, source_url: SOURCE, external_id: 'vk_mchs/2026-11-05/vkl', volcano_name: 'Ключевской', published_iso: '2026-11-05T21:00:00Z' },
+  { alert_type: 'volcanic_eruption', title: 'Вулкан Безымянный: не приближаться', description: PERIOD_TEXT, source_url: SOURCE, external_id: 'vk_mchs/2026-11-05/vbz', volcano_name: 'Безымянный', published_iso: '2026-11-05T21:00:00Z' },
 ];
 /** 07.11 12:50 по Камчатке. */
 const AT_1250 = Date.parse('2026-11-07T00:50:00Z');
@@ -78,7 +78,7 @@ describe('период сводки: истёк ли он', () => {
 });
 
 describe('строка МЧС — для человека', () => {
-  const live: ActiveWarning = { kind: 'volcano', place: 'Ключевской', stems: ['ключевск'], statement: 'не приближаться', period: '06:00 06.11–06:00 07.11', sourceUrl: SOURCE, ended: false };
+  const live: ActiveWarning = { kind: 'volcano', place: 'Ключевской', stems: ['ключевск'], statement: 'не приближаться', period: '06:00 06.11–06:00 07.11', sourceUrl: SOURCE, ended: false, speaker: 'МЧС' };
 
   it('действующая — что и откуда; истёкшая — прошедшим, с советом проверить свежую; правила для модели нет', () => {
     expect(offeringSentence(live)).toBe(`МЧС о вулкане Ключевской: не приближаться (сводка на 06:00 06.11–06:00 07.11; источник ${SOURCE}).`);

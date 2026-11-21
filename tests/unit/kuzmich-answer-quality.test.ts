@@ -25,6 +25,7 @@ import {
 } from '@/lib/kuzmich/answer-quality';
 import { questionWindow, catalogFacts } from '@/lib/telegram/tourist-tours';
 import { OFFER_ORDER_NOTE_SHORT_RU } from '@/lib/tours/offer-order';
+import { DIGEST_TAIL, warningsFromRows } from '@/lib/safety/mchs-bulletin';
 import { calendarDay, overlapsWindow, seasonAccusative, windowForMonths } from '@/lib/kuzmich/season-window';
 import { pickToursForAnswer, type CatalogTour } from '@/lib/telegram/tourist-tours';
 import { asksTourComparison, namedTourInQuestion, tourAskQuestion } from '@/lib/kuzmich/tour-ask';
@@ -774,5 +775,28 @@ describe('туры разных компаний (слово владельца 
       tours: { ok: true, tours: [autumn(61, 'Местечко Камчатка', 'vulkan-gorelyy'), autumn(72, 'Лагуна Экспедиция', null)] },
     })!;
     expect(requestButton(answer.visible)).toEqual({ text: 'Выбрать тур и отправить запрос', url: `${BASE}/catalog` });
+  });
+});
+
+describe('жильё у вулкана из сводки: строка под объектом и итог внизу (21.11)', () => {
+  // До 21.11 итог внизу ставился, только если в строке объекта было «МЧС:»,
+  // а строка о вулкане начинается «… о вулкане X:» — итога не было, и у
+  // турпортала края «МЧС» не стоит вовсе.
+  const warnings = warningsFromRows([{
+    alert_type: 'volcanic_eruption', title: 'Вулкан Мутновский: не приближаться', volcano_name: 'Мутновский',
+    description: '', source_url: 'https://t.me/visitkamchatka41/4983', external_id: 'visitkamchatka/2026-11-19/vmut',
+  }]);
+
+  it('у объекта — строка с подписью турпортала, внизу — итог сводки', () => {
+    const answer = composeCommercial({
+      ...input('Где жить на 2 ночи?', ''),
+      stays: { ok: true, items: [{
+        name: 'База у Мутновского', priceText: 'от 5000 руб/ночь', url: `${BASE}/accommodations/m1`, zone: null, mentionsSprings: false,
+      }] },
+      warnings: { ok: true, warnings },
+    })!;
+    expect(answer.visible).toContain('Турпортал края о вулкане Мутновский: не приближаться');
+    expect(answer.visible).toContain(DIGEST_TAIL);
+    expect(answer.visible).not.toMatch(/МЧС о вулкане/);
   });
 });
