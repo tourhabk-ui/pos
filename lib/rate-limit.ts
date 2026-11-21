@@ -86,15 +86,25 @@ export function createRateLimiter({ windowMs, max }: RateLimiterOptions): RateLi
 }
 
 /**
- * IP клиента для мест, где от него зависит доказательство или потолок:
- * лимит публичной записи, обстоятельства согласия на ПД.
+ * IP клиента для лимитов, согласий и журналов.
  *
- * `getClientIp` берёт ПЕРВЫЙ элемент X-Forwarded-For — то есть то, что клиент
- * написал сам (сервер дописывает свой адрес в конец). Скрипт, меняющий
- * заголовок с каждым запросом, обходил лимит и подделывал IP в записи
- * согласия (обзор 29.09). Порядок здесь тот же, что у middleware.ts:
- * x-real-ip (ставит прокси, снаружи не подделать) → cf-connecting-ip →
- * X-Forwarded-For как последнее средство.
+ * Замер на проде 21.11 (проба `client-ip-headers-probe`, прогоны Actions с
+ * подделкой и без): прокси перед контейнером (Caddy) ПЕРЕЗАПИСЫВАЕТ
+ * X-Forwarded-For одним элементом — настоящим адресом клиента, присланный
+ * клиентом XFF до приложения не доходит. А X-Real-IP и CF-Connecting-IP
+ * прокси пропускает как есть: документационные адреса из запроса пробы
+ * дошли до приложения. До этой правки доверенный порядок брал x-real-ip
+ * первым — и любой лимит по IP (вход, MFA, чат Кузьмича) обходился одной
+ * строкой заголовка.
+ *
+ * Теперь адрес решает один человек — прокси контейнера `start.js`: он стирает
+ * присланные клиентом X-Real-IP / CF-Connecting-IP / True-Client-IP /
+ * X-Client-IP / Forwarded и ставит X-Real-IP и X-Forwarded-For одним
+ * значением — ПРАВЫМ элементом XFF от Caddy (или адресом сокета, если XFF
+ * нет). Next слушает только 127.0.0.1:3001, мимо start.js к нему не попасть.
+ * Здесь: x-real-ip (его ставит start.js) → правый элемент XFF. CF-Connecting-IP
+ * не читается вовсе: Cloudflare перед Ведаром нет. Сторож:
+ * tests/unit/client-ip-trusted-proxy.test.ts.
  */
 export function getTrustedClientIp(headers: Headers): string {
   return getTrustedClientIpOrNull(headers) ?? '127.0.0.1';
@@ -104,17 +114,25 @@ export function getTrustedClientIp(headers: Headers): string {
  * Тот же доверенный порядок, но без выдуманного запаса: null — ни один
  * заголовок адреса не пришёл. Для ЗАПИСИ адреса (согласие, журнал событий,
  * клики), где '127.0.0.1' был бы ложью о том, откуда пришёл человек, а не
- * безобидным ключом лимита (§4.0). Находка P3-02 аудита 15.10: три роута
- * читали XFF руками раньше x-real-ip, один писал всю цепочку целиком.
+ * безобидным ключом лимита (§4.0).
  */
 export function getTrustedClientIpOrNull(headers: Headers): string | null {
   return headers.get('x-real-ip')?.trim()
-    || headers.get('cf-connecting-ip')?.trim()
-    || headers.get('x-forwarded-for')?.split(',')[0]?.trim()
+    || lastForwardedFor(headers.get('x-forwarded-for'))
     || null;
 }
 
-/** Extract client IP from NextRequest headers */
+/** Правый элемент X-Forwarded-For — его дописывает ближайший к нам прокси. */
+export function lastForwardedFor(value: string | null | undefined): string | null {
+  if (!value) return null;
+  const items = value.split(',').map((s) => s.trim()).filter(Boolean);
+  return items.length > 0 ? items[items.length - 1] : null;
+}
+
+/**
+ * Старое имя, 57 вызовов. С 21.11 — тот же доверенный порядок: первый
+ * элемент XFF, который брался раньше, пишет клиент.
+ */
 export function getClientIp(headers: Headers): string {
-  return headers.get('x-forwarded-for')?.split(',')[0]?.trim() ?? '127.0.0.1';
+  return getTrustedClientIp(headers);
 }

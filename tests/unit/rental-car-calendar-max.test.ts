@@ -136,10 +136,11 @@ describe('нажатие rb:', () => {
     expect(sqls().some((s) => /INSERT INTO rental_car_busy/.test(s))).toBe(false);
   });
 
-  it('ключа нет — нажатие не засчитано и отметка не пишется', async () => {
+  it('ключа нет — fail-closed (21.11): ни ответа, отметка не пишется', async () => {
     vi.stubEnv('MAX_WEBHOOK_SECRET', '');
     await post(VERIFIED, press(payload()));
-    expect(m.maxSend.mock.calls.map((c) => String(c[1]))).toContain(UNVERIFIED_PRESS_REPLY.rental);
+    expect(UNVERIFIED_PRESS_REPLY.rental).toBeTruthy();
+    expect(m.maxSend).not.toHaveBeenCalled();
     expect(sqls().some((s) => /INSERT INTO rental_car_busy/.test(s))).toBe(false);
   });
 

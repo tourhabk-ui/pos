@@ -171,13 +171,13 @@ export function describeClientIpHeaders(headers: Headers, forgedSent: boolean): 
 
   // Тот же порядок, что в getTrustedClientIp (lib/rate-limit.ts): пустой
   // заголовок там пропускается, поэтому и здесь решает непустота.
+  // С 21.11 cf-connecting-ip не читается вовсе (Cloudflare перед Ведаром
+  // нет, а прокси пропускает его от клиента), XFF — правый элемент.
   const trusted_source = xriRaw?.trim()
     ? 'x-real-ip'
-    : cfRaw?.trim()
-      ? 'cf-connecting-ip'
-      : xffRaw?.split(',')[0]?.trim()
-        ? 'x-forwarded-for'
-        : 'none';
+    : xffItems.length > 0
+      ? 'x-forwarded-for'
+      : 'none';
 
   return {
     x_real_ip: xri,

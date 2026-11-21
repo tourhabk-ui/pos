@@ -79,8 +79,10 @@ describe('/api/analytics/affiliate-clicks: один адрес, не цепоч�
     expect(paramOf('INSERT INTO affiliate_clicks', 4)).toBe(PROXY_IP);
   });
 
-  it('длинная цепочка XFF — пишется первый адрес и влезает в varchar(45)', async () => {
-    const chain = '2001:db8:aaaa:bbbb:cccc:dddd:eeee:1, 2001:db8:aaaa:bbbb:cccc:dddd:eeee:2, 10.0.0.1';
+  // С 21.11 из цепочки берётся ПРАВЫЙ элемент — его дописал ближайший прокси;
+  // левые пишет клиент (замер client-ip-headers-probe на проде).
+  it('длинная цепочка XFF — пишется правый адрес (от прокси) и влезает в varchar(45)', async () => {
+    const chain = '10.0.0.1, 2001:db8:aaaa:bbbb:cccc:dddd:eeee:2, 2001:db8:aaaa:bbbb:cccc:dddd:eeee:1';
     await affiliateClick(post(url, { 'x-forwarded-for': chain }, body));
     const written = paramOf('INSERT INTO affiliate_clicks', 4);
     expect(written).toBe('2001:db8:aaaa:bbbb:cccc:dddd:eeee:1');

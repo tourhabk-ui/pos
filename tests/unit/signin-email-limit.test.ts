@@ -29,7 +29,8 @@ function signin(email: string, password = 'wrong-password'): Promise<Response> {
     method: 'POST',
     headers: {
       'Content-Type': 'application/json',
-      'x-forwarded-for': `203.0.113.${hop % 250}, 10.0.0.1`,
+      // Разные настоящие адреса: с 21.11 адрес — ПРАВЫЙ элемент XFF (его ставит прокси).
+      'x-forwarded-for': `10.0.0.1, 203.0.113.${hop % 250}`,
     },
     body: JSON.stringify({ email, password }),
   }) as unknown as NextRequest);

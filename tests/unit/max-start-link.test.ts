@@ -108,11 +108,17 @@ describe('кнопка MAX на сайте ведёт на старт бота',
     expect(statusTokenFromStart('lead')).toBeNull();
   });
 
+  it('без ключа подписки — fail-closed (21.11): ни приветствия, ни модели', async () => {
+    vi.stubEnv('MAX_WEBHOOK_SECRET', '');
+    const { POST } = await import('@/app/api/max/kuzmich/route');
+    await POST(new NextRequest('http://localhost/api/max/kuzmich', { method: 'POST', body: JSON.stringify(started('lead')) }));
+    expect(replies()).toEqual([]);
+    expect(m.tools).not.toHaveBeenCalled();
+  });
+
   it.each([
     ['заверенный апдейт', VERIFIED],
-    ['без ключа подписки', 'http://localhost/api/max/kuzmich'],
   ])('старт по ссылке (%s) — приветствие и меню тем, модель не зовётся', async (_kind, url) => {
-    if (url !== VERIFIED) vi.stubEnv('MAX_WEBHOOK_SECRET', '');
     const { POST } = await import('@/app/api/max/kuzmich/route');
     await POST(new NextRequest(url, { method: 'POST', body: JSON.stringify(started('lead')) }));
     const texts = replies();

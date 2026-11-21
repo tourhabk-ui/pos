@@ -25,7 +25,6 @@ const ROOT = process.cwd();
 const ALLOWED: Record<string, string> = {
   'lib/rate-limit.ts': 'единственное место доверенного порядка и старый getClientIp (часть 2 P3-02 — после замера пробой client-ip-headers-probe)',
   'lib/security/client-ip-headers.ts': 'проба описывает заголовки как они пришли — родами и флагами, без значений',
-  'middleware.ts': '§7 НЕ ТРОГАТЬ: Edge-лимит Upstash, порядок уже доверенный',
   'app/api/safety/sos/route.ts': '§7: SOS только через staging; ключ лимита анонима — отдельный разбор P1-01',
   'app/api/carrier-trips/route.ts': 'порядок уже доверенный (x-real-ip первым), переписан руками; перевести на getTrustedClientIp при следующем касании',
   'app/api/push/subscribe/route.ts': 'порядок уже доверенный (x-real-ip первым), переписан руками; перевести на getTrustedClientIp при следующем касании',

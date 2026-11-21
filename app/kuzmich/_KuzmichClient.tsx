@@ -357,7 +357,7 @@ export default function KuzmichClient() {
   }, [messages, loading]);
 
   // Выбор изображения. Большое фото не отклоняем, а прозрачно сжимаем в браузере
-  // под лимит 5 МБ — турист просто отправляет снимок, не думая про мегабайты.
+  // под лимит 3 МБ — турист просто отправляет снимок, не думая про мегабайты.
   async function onFileChange(e: React.ChangeEvent<HTMLInputElement>) {
     const file = e.target.files?.[0];
     if (!file) return;
@@ -365,9 +365,9 @@ export default function KuzmichClient() {
     setPreparingImage(true);
     setImageNote(null);
     try {
-      const { file: prepared, dataUrl, compressed } = await compressImageToLimit(file, 5_000_000);
-      if (prepared.size > 5_000_000) {
-        alert('Не удалось сжать фото до 5 МБ. Попробуйте снимок поменьше или сделайте скриншот.');
+      const { file: prepared, dataUrl, compressed } = await compressImageToLimit(file, 3_000_000);
+      if (prepared.size > 3_000_000) {
+        alert('Не удалось сжать фото до 3 МБ. Попробуйте снимок поменьше или сделайте скриншот.');
         return;
       }
       imageFileRef.current = prepared;

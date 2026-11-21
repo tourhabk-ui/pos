@@ -381,7 +381,8 @@ export default function KuzmichWidget() {
   function onFileChange(e: React.ChangeEvent<HTMLInputElement>) {
     const file = e.target.files?.[0];
     if (!file) return;
-    if (file.size > 5_000_000) return;
+    // Потолок сервера — 3 МБ (/api/ai/chat, 21.11).
+    if (file.size > 3_000_000) { alert('Фото больше 3 МБ — пришлите снимок поменьше или скриншот.'); return; }
     setImageFile(file);
     const reader = new FileReader();
     reader.onload = ev => setImagePreview(ev.target?.result as string);

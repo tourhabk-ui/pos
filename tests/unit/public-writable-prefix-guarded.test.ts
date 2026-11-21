@@ -31,7 +31,6 @@ const GUARD = /secret|Secret|SECRET|verifyCronSecret|require(Admin|Auth|Role)\(|
  * секретом, иначе бот замолчит. Решение владельца, не этой правки.
  */
 const KNOWN_UNGUARDED: Record<string, string> = {
-  'app/api/max/kuzmich/route.ts': 'действия — только с заверенного адреса; вопросы Кузьмичу — из любого; закрыть их — после проверки подписки MAX',
 };
 
 function routes(dir: string): string[] {
