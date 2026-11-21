@@ -3,9 +3,10 @@
 import React, { useCallback, useEffect, useState } from 'react';
 import Link from 'next/link';
 import { Footprints, RefreshCw, ExternalLink, ArrowRight, Bot, TriangleAlert, Layers, Filter, LogOut, Download } from 'lucide-react';
-import { internalHref, externalHref } from '@/lib/analytics/traffic-links';
+import { externalHref } from '@/lib/analytics/traffic-links';
 import FunnelWindow from './_FunnelWindow';
 import SelfVisitToggle from './_SelfVisitToggle';
+import { PageBehaviorTable, PathLink, pct, DWELL_COLUMNS_NOTE, type PageBehaviorRow } from './_PageBehaviorTable';
 import { ADDRESS_BURST_OVER, ENGAGED_DWELL_MS } from '@/lib/analytics/address-burst';
 
 /** Порог адреса словами — из того же правила, что метит строки (lib/analytics/address-burst). */
@@ -29,8 +30,8 @@ interface TrafficData {
   top_paths: Array<{ path: string; hits: number }>;
   top_referrers: Array<{ referrer: string; hits: number }>;
   edges: Array<{ from: string; to: string; hits: number }>;
-  pages: Array<{ path: string; views: number; medianMs: number | null; exits: number }>;
-  top_exit_pages: Array<{ path: string; views: number; medianMs: number | null; exits: number }>;
+  pages: PageBehaviorRow[];
+  top_exit_pages: PageBehaviorRow[];
   sessions: { total: number; onePage: number; avgDepth: number | null };
   not_found: Array<{ path: string; hits: number }>;
   funnel: Array<{ tourId: number; title: string; isPublished: boolean; views: number; viewerDays: number; bookings: number }>;
@@ -47,37 +48,7 @@ function fmtDate(iso: string): string {
   return `${d}.${m}`;
 }
 
-/** Время на странице: секунды до минуты, дальше м:сс. Прочерк — если не досказано. */
-function fmtDwell(ms: number | null): string {
-  if (ms == null) return '—';
-  const sec = Math.round(ms / 1000);
-  if (sec < 60) return `${sec} с`;
-  return `${Math.floor(sec / 60)}:${String(sec % 60).padStart(2, '0')}`;
-}
 
-function pct(part: number, whole: number): number {
-  return whole > 0 ? Math.round((part / whole) * 100) : 0;
-}
-
-/**
- * Путь из журнала — ссылкой на саму страницу, в новой вкладке: сводка остаётся
- * открытой (владелец 25.09). Не путь сайта — текстом (lib/analytics/traffic-links).
- */
-function PathLink({ path, className }: { path: string; className: string }) {
-  const href = internalHref(path);
-  if (!href) return <span className={className} title={path}>{path}</span>;
-  return (
-    <a
-      href={href}
-      target="_blank"
-      rel="noopener"
-      title={`Открыть ${path}`}
-      className={`${className} hover:text-[var(--ocean)] hover:underline underline-offset-2`}
-    >
-      {path}
-    </a>
-  );
-}
 
 export default function AdminTrafficPage() {
   const [data, setData] = useState<TrafficData | null>(null);
@@ -379,35 +350,11 @@ export default function AdminTrafficPage() {
               Время — медиана видимой вкладки, не среднее: одна забытая вкладка сдвигает среднее в выдумку.
               Уход — визит закончился на этой странице.
             </p>
+            <p className="text-[11px] text-[var(--text-muted)] mb-3">{DWELL_COLUMNS_NOTE}</p>
             {data.pages.length === 0 ? (
               <p className="text-xs text-[var(--text-muted)]">Данных пока мало — нужно хотя бы три просмотра страницы.</p>
             ) : (
-              <div className="overflow-x-auto">
-                <table className="w-full text-xs">
-                  <thead>
-                    <tr className="text-[10px] uppercase tracking-wider text-[var(--text-muted)]">
-                      <th className="text-left font-medium pb-2">Страница</th>
-                      <th className="text-right font-medium pb-2">Просмотры</th>
-                      <th className="text-right font-medium pb-2">Время</th>
-                      <th className="text-right font-medium pb-2">Уход</th>
-                    </tr>
-                  </thead>
-                  <tbody>
-                    {data.pages.map(p => (
-                      <tr key={p.path} className="border-t border-[var(--border)]">
-                        <td className="py-1.5 pr-3 max-w-0 truncate">
-                          <PathLink path={p.path} className="font-mono text-[var(--text-secondary)]" />
-                        </td>
-                        <td className="py-1.5 text-right font-mono text-[var(--text-primary)] tabular-nums">{p.views}</td>
-                        <td className="py-1.5 text-right font-mono text-[var(--text-primary)] tabular-nums">{fmtDwell(p.medianMs)}</td>
-                        <td className="py-1.5 text-right font-mono tabular-nums" style={{ color: pct(p.exits, p.views) >= 70 ? 'var(--warning)' : 'var(--text-primary)' }}>
-                          {pct(p.exits, p.views)}%
-                        </td>
-                      </tr>
-                    ))}
-                  </tbody>
-                </table>
-              </div>
+              <PageBehaviorTable rows={data.pages} warnExitAt={70} />
             )}
           </div>
 
@@ -427,32 +374,7 @@ export default function AdminTrafficPage() {
             {data.top_exit_pages.length === 0 ? (
               <p className="text-xs text-[var(--text-muted)]">Данных пока мало — нужно хотя бы восемь просмотров страницы.</p>
             ) : (
-              <div className="overflow-x-auto">
-                <table className="w-full text-xs">
-                  <thead>
-                    <tr className="text-[10px] uppercase tracking-wider text-[var(--text-muted)]">
-                      <th className="text-left font-medium pb-2">Страница</th>
-                      <th className="text-right font-medium pb-2">Просмотры</th>
-                      <th className="text-right font-medium pb-2">Время</th>
-                      <th className="text-right font-medium pb-2">Уход</th>
-                    </tr>
-                  </thead>
-                  <tbody>
-                    {data.top_exit_pages.map(p => (
-                      <tr key={p.path} className="border-t border-[var(--border)]">
-                        <td className="py-1.5 pr-3 max-w-0 truncate">
-                          <PathLink path={p.path} className="font-mono text-[var(--text-secondary)]" />
-                        </td>
-                        <td className="py-1.5 text-right font-mono text-[var(--text-primary)] tabular-nums">{p.views}</td>
-                        <td className="py-1.5 text-right font-mono text-[var(--text-primary)] tabular-nums">{fmtDwell(p.medianMs)}</td>
-                        <td className="py-1.5 text-right font-mono tabular-nums" style={{ color: 'var(--warning)' }}>
-                          {pct(p.exits, p.views)}%
-                        </td>
-                      </tr>
-                    ))}
-                  </tbody>
-                </table>
-              </div>
+              <PageBehaviorTable rows={data.top_exit_pages} warnExitAt={0} />
             )}
           </div>
 

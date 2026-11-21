@@ -27,6 +27,7 @@ import { safeMsg } from '@/lib/errors/sanitize';
 import { AI_FAMILY_NAMES } from '@/lib/analytics/bot-detect';
 import { queryAddressTop } from '@/lib/analytics/address-top';
 import { kamchatkaDayBounds } from '@/lib/analytics/kamchatka-day';
+import { PAGE_DWELL_COLUMNS, pageDwellCounts } from '@/lib/analytics/page-dwell';
 
 export const dynamic = 'force-dynamic';
 
@@ -130,7 +131,7 @@ export async function GET(request: NextRequest) {
       `),
       // Поведение на странице: время и доля выходов.
       // Выход = просмотр, после которого в этом же визите ничего не было.
-      pool.query<{ path: string; views: string; median_ms: string | null; exits: string }>(`
+      pool.query<{ path: string; views: string; median_ms: string | null; exits: string; with_dwell: string; with_dwell_exits: string }>(`
         WITH v AS (
           SELECT id, path, session_id, dwell_ms, created_at,
                  LEAD(id) OVER (PARTITION BY session_id ORDER BY created_at) AS next_id
@@ -143,7 +144,8 @@ export async function GET(request: NextRequest) {
                -- на минуты и превращает метрику в выдумку.
                percentile_cont(0.5) WITHIN GROUP (ORDER BY dwell_ms)
                  FILTER (WHERE dwell_ms IS NOT NULL)::bigint AS median_ms,
-               COUNT(*) FILTER (WHERE session_id IS NOT NULL AND next_id IS NULL) AS exits
+               COUNT(*) FILTER (WHERE session_id IS NOT NULL AND next_id IS NULL) AS exits,
+               ${PAGE_DWELL_COLUMNS}
           FROM v
          GROUP BY path
         HAVING COUNT(*) >= 3
@@ -157,7 +159,7 @@ export async function GET(request: NextRequest) {
       // (не 3, как выше) — при малой базе один случайный visitor даёt 100%.
       // Это ГДЕ и КАК БЫСТРО уходят, не ПОЧЕМУ — причину без опроса или
       // записи сессий из page_views не вывести, придумывать её нельзя (§4.0).
-      pool.query<{ path: string; views: string; median_ms: string | null; exits: string }>(`
+      pool.query<{ path: string; views: string; median_ms: string | null; exits: string; with_dwell: string; with_dwell_exits: string }>(`
         WITH v AS (
           SELECT id, path, session_id, dwell_ms, created_at,
                  LEAD(id) OVER (PARTITION BY session_id ORDER BY created_at) AS next_id
@@ -168,7 +170,8 @@ export async function GET(request: NextRequest) {
                COUNT(*) AS views,
                percentile_cont(0.5) WITHIN GROUP (ORDER BY dwell_ms)
                  FILTER (WHERE dwell_ms IS NOT NULL)::bigint AS median_ms,
-               COUNT(*) FILTER (WHERE session_id IS NOT NULL AND next_id IS NULL) AS exits
+               COUNT(*) FILTER (WHERE session_id IS NOT NULL AND next_id IS NULL) AS exits,
+               ${PAGE_DWELL_COLUMNS}
           FROM v
          GROUP BY path
         HAVING COUNT(*) >= 8
@@ -287,12 +290,14 @@ export async function GET(request: NextRequest) {
           views: Number(r.views),
           medianMs: r.median_ms == null ? null : Number(r.median_ms),
           exits: Number(r.exits),
+          ...pageDwellCounts(r),
         })),
         top_exit_pages: topExitPages.rows.map(r => ({
           path: r.path,
           views: Number(r.views),
           medianMs: r.median_ms == null ? null : Number(r.median_ms),
           exits: Number(r.exits),
+          ...pageDwellCounts(r),
         })),
         sessions: {
           total: Number(s?.sessions ?? 0),
