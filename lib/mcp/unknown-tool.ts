@@ -64,8 +64,14 @@ export function nearestToolName(requested: string, names: Iterable<string> = PUB
  * остаются отказом. Проверки пишущих инструментов (согласие, телефон) алиас
  * не обходит: исполняется тот же инструмент с тем же входом.
  */
-export function resolveToolAlias(requested: string, names: ReadonlySet<string> = PUBLIC_MCP_TOOL_NAMES): string | null {
-  if (names.has(requested)) return requested;
+export type ToolAliasKind = 'префикс' | 'написание';
+
+/** Живое имя и род алиаса: префикс сервера или иное написание; null — не алиас и не живое имя. */
+export function resolveToolAliasDetailed(
+  requested: string,
+  names: ReadonlySet<string> = PUBLIC_MCP_TOOL_NAMES,
+): { name: string; kind: ToolAliasKind | null } | null {
+  if (names.has(requested)) return { name: requested, kind: null };
   const raw = requested.trim();
   if (raw === '' || raw.length > 80) return null;
   const norm = (x: string): string => x
@@ -73,11 +79,27 @@ export function resolveToolAlias(requested: string, names: ReadonlySet<string> =
     .toLowerCase()
     .replace(/[\s-]+/g, '_');
   const whole = norm(raw);
-  if (names.has(whole)) return whole;
+  if (names.has(whole)) return { name: whole, kind: 'написание' };
   // Префикс сервера: берётся хвост после последнего разделителя `:` `/` `.` `__`.
   const tail = raw.split(/[:/.]|__/).filter(Boolean).pop() ?? '';
   const t = norm(tail);
-  return t && names.has(t) ? t : null;
+  return t && names.has(t) ? { name: t, kind: 'префикс' } : null;
+}
+
+export function resolveToolAlias(requested: string, names: ReadonlySet<string> = PUBLIC_MCP_TOOL_NAMES): string | null {
+  return resolveToolAliasDetailed(requested, names)?.name ?? null;
+}
+
+/**
+ * Вместо имени инструмента — текст вопроса (A2A DataPart `tool`, 21.11, слово
+ * владельца «го карт-бланш»): фраза с пробелами или не латиницей, которая не
+ * сводится к живому имени. A2A отвечает на неё как на TextPart; MCP tools/call
+ * по-прежнему отказывает с подсказкой (unknownToolResponse).
+ */
+export function toolNameIsQuestion(requested: string): boolean {
+  const raw = requested.trim();
+  if (raw === '' || resolveToolAlias(raw) !== null) return false;
+  return /\s/.test(raw) || /[^\x00-\x7F]/.test(raw);
 }
 
 /** Похоже на фразу, а не на имя: агент прислал слова вместо имени инструмента. */

@@ -53,3 +53,14 @@ describe('unknownToolResponse', () => {
     expect(r.message).toContain('Available tools: ');
   });
 });
+
+describe('resolveToolAliasDetailed — род алиаса', () => {
+  it('живое имя без рода; префикс и написание различаются', async () => {
+    const { resolveToolAliasDetailed } = await import('@/lib/mcp/unknown-tool');
+    expect(resolveToolAliasDetailed('get_tours')).toEqual({ name: 'get_tours', kind: null });
+    expect(resolveToolAliasDetailed('vedar:get_tours')).toEqual({ name: 'get_tours', kind: 'префикс' });
+    expect(resolveToolAliasDetailed('mcp__vedar__get_tours')).toEqual({ name: 'get_tours', kind: 'префикс' });
+    expect(resolveToolAliasDetailed('getTours')).toEqual({ name: 'get_tours', kind: 'написание' });
+    expect(resolveToolAliasDetailed('no_such_tool')).toBeNull();
+  });
+});

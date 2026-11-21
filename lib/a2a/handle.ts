@@ -35,6 +35,8 @@ import type { PublicToolOutcome } from '@/lib/mcp/tool-outcome';
 import type { AgentAnswer } from './chat';
 import type { A2ATaskStore, ChatTurn, TaskLookup } from './task-store';
 import { safeRejectCode } from './reject-reason';
+import { toolNameIsQuestion } from '@/lib/mcp/unknown-tool';
+import { nonIdentifierKind } from '@/lib/mcp/call-log';
 import {
   a2aError, encodeSendMessageResult, encodeTask, readSendMessageParams, readTaskIdParams,
   TERMINAL_STATES,
@@ -65,6 +67,21 @@ export function readToolCall(parts: InboundPart[]): ToolCallPart | null {
   for (const p of parts) {
     if (p.kind === 'data' && typeof p.data.tool === 'string' && p.data.tool.trim() !== '') {
       return { tool: p.data.tool.trim().slice(0, 80), arguments: p.data.arguments ?? {} };
+    }
+  }
+  return null;
+}
+
+/**
+ * Вопрос словами в поле `tool` DataPart (21.11, слово владельца «го
+ * карт-бланш»): текст целиком, не обрезанный до 80 знаков имени. null — в
+ * поле имя (живое, алиас или просто неизвестное), а не вопрос.
+ */
+export function readToolPhrase(parts: InboundPart[]): string | null {
+  for (const p of parts) {
+    if (p.kind === 'data' && typeof p.data.tool === 'string' && p.data.tool.trim() !== '') {
+      const raw = p.data.tool.trim();
+      return toolNameIsQuestion(raw) ? raw : null;
     }
   }
   return null;
@@ -137,7 +154,11 @@ async function sendMessage(params: unknown, ctx: A2AContext, deps: Deps): Promis
 
   const contextId = message.contextId ?? ids();
   const taskId = ids();
-  const call = readToolCall(message.parts);
+  // Вопрос словами вместо имени инструмента (панель 20.11: 18 «не-идентификаторов»
+  // за день) — не отказ, а тот же разговор, что у TextPart. Род («фраза»,
+  // «не латиница») — в metadata задачи и оттуда в журнал A2A; текст — нет.
+  const phrase = readToolPhrase(message.parts);
+  const call = phrase ? null : readToolCall(message.parts);
 
   if (call) {
     const outcome = await deps.executors.runTool(call.tool, call.arguments);
@@ -175,13 +196,14 @@ async function sendMessage(params: unknown, ctx: A2AContext, deps: Deps): Promis
     return { ok: true, result: encodeSendMessageResult(task, ctx.version, historyLength) };
   }
 
-  const text = readText(message.parts);
+  const plain = readText(message.parts);
+  const text = phrase ? [phrase, plain].filter((x, i, xs) => x && xs.indexOf(x) === i).join('\n') : plain;
   if (!text) {
     const hasFile = message.parts.some((p) => p.kind === 'file');
     return { ok: false, error: a2aError(hasFile ? 'ContentTypeNotSupported' : 'InvalidParams', hasFile ? FILES_NOT_ACCEPTED : EMPTY_MESSAGE) };
   }
   const answer = await deps.executors.chat(text, await deps.store.historyFor(contextId), contextId);
-  const metadata = { input: 'text' };
+  const metadata: Record<string, unknown> = phrase ? { input: 'text', tool_kind: nonIdentifierKind(phrase) } : { input: 'text' };
   // Отказ текстовому вопросу один — лимит на адрес (app/api/a2a/_shared).
   const task = answer.ok
     ? makeTask({ ids, now, id: taskId, contextId, state: 'completed', text: answer.text, metadata })

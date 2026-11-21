@@ -63,7 +63,7 @@ import { normalizeToolHeadcount } from '@/lib/agent/headcount';
 import { runTripRequest, type TripManagerPart } from '@/lib/agent/trip-request';
 import { TRIP_MANAGER_LEAD_KIND } from '@/lib/leads/followup-scope';
 import { readToolArguments, argsRefusal, type ReadArguments } from '@/lib/mcp/tool-arguments';
-import { resolveToolAlias, unknownToolResponse } from '@/lib/mcp/unknown-tool';
+import { resolveToolAliasDetailed, unknownToolResponse, type ToolAliasKind } from '@/lib/mcp/unknown-tool';
 import { normalizePhone, implausiblePhone } from '@/lib/mcp/normalize-phone';
 import {
   CONSENT_ALSO_NOTE, argsRefusalEn, consentProblem, inputRefusalText, phoneProblem, problemsFromIssues, unknownFields,
@@ -1561,6 +1561,8 @@ export interface PublicToolCall {
    * Вход заявки остаётся mcp или a2a — откуда она пришла.
    */
   sentByHuman?: { ip: string | null };
+  /** Имя пришло алиасом (lib/mcp/unknown-tool): род — в журнал, сам текст — нет. */
+  aliasKind?: ToolAliasKind | null;
 }
 
 /**
@@ -1593,8 +1595,8 @@ export async function runPublicTool(call0: PublicToolCall): Promise<PublicToolOu
   // — тот же инструмент (lib/mcp/unknown-tool, 21.11): совпадение только целиком,
   // проверки входа не меняются. Всё прочее идёт дальше как есть и получает
   // отказ со списком имён.
-  const alias = resolveToolAlias(call0.toolName);
-  const call = alias && alias !== call0.toolName ? { ...call0, toolName: alias } : call0;
+  const alias = resolveToolAliasDetailed(call0.toolName);
+  const call = alias && alias.kind ? { ...call0, toolName: alias.name, aliasKind: alias.kind } : call0;
   return withLeadEntry({ entry: leadEntryOf(call), tool: call.toolName }, () => runPublicToolCore(call));
 }
 
@@ -1639,7 +1641,7 @@ async function runPublicToolCore(call: PublicToolCall): Promise<PublicToolOutcom
   const draftsLeft = !draftStep || draftLimiter.check(`d:${ip}`);
   if (!draftsLeft || !limiter.check(`${isWrite && !draftStep ? 'w' : 'r'}:${ip}`)) {
     if (rateLimitedLogGate.check(ip)) {
-      logMcpToolCall({ tool: toolName, ok: false, errorKind: 'rate_limited', errorCode: 'rate_limited', argKey: arg.key, ip, userAgent, self });
+      logMcpToolCall({ tool: toolName, aliasKind: call.aliasKind, ok: false, errorKind: 'rate_limited', errorCode: 'rate_limited', argKey: arg.key, ip, userAgent, self });
     }
     // Окно записи — десять минут, чтения — минута; общий текст «подождите
     // минуту» на записи обещал неправду (проверка MCP 29.09).
@@ -1662,7 +1664,7 @@ async function runPublicToolCore(call: PublicToolCall): Promise<PublicToolOutcom
   // tools, «Error Handling»): агент, перепутавший имя, должен перечитать
   // tools/list, а не пересказывать человеку «инструмент не сработал».
   if (!PUBLIC_MCP_TOOL_NAMES.has(toolName)) {
-    logMcpToolCall({ tool: toolName, ok: false, errorKind: 'unknown_tool', errorCode: 'unknown_tool', requestedTool: toolName, argKey: arg.key, ip, userAgent, self });
+    logMcpToolCall({ tool: toolName, aliasKind: call.aliasKind, ok: false, errorKind: 'unknown_tool', errorCode: 'unknown_tool', requestedTool: toolName, argKey: arg.key, ip, userAgent, self });
     // Списком живых имён и ближайшим по написанию, а не голым отказом:
     // клиенты зовут старые названия и не узнают, чем заменить (02.10).
     const unknown = unknownToolResponse(toolName);
@@ -1694,7 +1696,7 @@ async function runPublicToolCore(call: PublicToolCall): Promise<PublicToolOutcom
     // панель MCP и сторож молчания), и никакой ссылки «продолжить» к
     // несостоявшемуся ответу (проверка MCP 29.09).
     if (text === TOOL_EXECUTION_FAILED) {
-      logMcpToolCall({ tool: toolName, ok: false, errorKind: 'execution', errorCode: 'tool_failed', durationMs: Date.now() - startedAt, argKey: arg.key, argValue: arg.value, ip, userAgent, self });
+      logMcpToolCall({ tool: toolName, aliasKind: call.aliasKind, ok: false, errorKind: 'execution', errorCode: 'tool_failed', durationMs: Date.now() - startedAt, argKey: arg.key, argValue: arg.value, ip, userAgent, self });
       return { kind: 'failed', text: 'Инструмент сейчас не смог получить данные — это сбой на стороне Ведара, а не ответ «ничего нет». Повторите позже.' };
     }
     // Черновик дошёл до записи — заявка откладывается до нажатия человека,
@@ -1713,13 +1715,13 @@ async function runPublicToolCore(call: PublicToolCall): Promise<PublicToolOutcom
         via: call.via === 'a2a' ? 'a2a' : 'mcp',
       });
       if (!token) {
-        logMcpToolCall({ tool: toolName, ok: false, errorKind: 'refused', errorCode: 'confirm_unavailable', argKey: arg.key, ip, userAgent, self });
+        logMcpToolCall({ tool: toolName, aliasKind: call.aliasKind, ok: false, errorKind: 'refused', errorCode: 'confirm_unavailable', argKey: arg.key, ip, userAgent, self });
         return { kind: 'refused', text: CONFIRM_UNAVAILABLE_TEXT, code: 'confirm_unavailable' };
       }
       confirmUrl = confirmPageUrl(token);
       shown = `${text}\n\n${askHumanToSend(confirmUrl)}`;
     }
-    logMcpToolCall({ tool: toolName, ok: true, durationMs: Date.now() - startedAt, argKey: arg.key, argValue: arg.value, ip, userAgent, self });
+    logMcpToolCall({ tool: toolName, aliasKind: call.aliasKind, ok: true, durationMs: Date.now() - startedAt, argKey: arg.key, argValue: arg.value, ip, userAgent, self });
 
     // Мост «ответ агента → действие человека»: отдельная проверяемая
     // ссылка с непрозрачным токеном. Сбой выпуска не ломает ответ, но
@@ -1765,6 +1767,7 @@ async function runPublicToolCore(call: PublicToolCall): Promise<PublicToolOutcom
     // Отказ по входу и падение — разные исходы журнала (§4.0): первый
     // говорит «агент передал не то», второй — «наш код упал».
     logMcpToolCall({
+      aliasKind: call.aliasKind,
       tool: toolName,
       ok: false,
       errorKind: userFacing ? 'refused' : 'execution',

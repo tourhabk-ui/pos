@@ -654,6 +654,10 @@ describe('отказ говорит, чего не хватает и кого с
     expect(r.isError).toBe(true);
     expect(bullets(halves(r.text).en)).toEqual(['phone', 'consent']);
     expect(await journalCode()).toBe('bad_phone');
+    // Род алиаса — в requested_tool (21.11), самого имени там нет.
+    const row = query.mock.calls.filter(([sql]) => /INSERT INTO mcp_tool_calls/.test(String(sql))).at(-1)?.[1] as unknown[];
+    expect(row[0]).toBe('create_lead');
+    expect(row[5]).toBe('алиас: префикс');
     nothingSent();
   });
 });

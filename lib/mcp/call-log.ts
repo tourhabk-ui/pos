@@ -49,6 +49,13 @@ export interface McpCallLogEntry {
   userAgent: string;
   /** Имя, которое просил клиент, когда инструмента нет (unknown_tool). */
   requestedTool?: string;
+  /**
+   * Имя пришло алиасом (21.11): род пишется в requested_tool как
+   * `алиас: префикс` / `алиас: написание` — без самого текста, без миграции.
+   * Панель неизвестных имён читает только error_kind = 'unknown_tool', поэтому
+   * эти строки туда не попадают.
+   */
+  aliasKind?: 'префикс' | 'написание' | null;
   /** Свой клиент: метка владельца в адресе коннектора (self-visit, 02.10). */
   self?: boolean;
   /** Причина ошибки машинным кодом (1143): no_consent, pg:42P08, timeout… */
@@ -75,6 +82,12 @@ export function safeToolName(name: string): string {
  * Панель 02.10: 21 запрос несуществующих инструментов одной строкой 'unknown',
  * и какие имена просили — неизвестно.
  */
+/** Значение колонки requested_tool: имя при unknown_tool, род алиаса у остальных, иначе null. */
+export function requestedToolColumn(entry: Pick<McpCallLogEntry, 'errorKind' | 'requestedTool' | 'aliasKind'>): string | null {
+  if (entry.errorKind === 'unknown_tool') return entry.requestedTool ? safeRequestedName(entry.requestedTool) : null;
+  return entry.aliasKind === 'префикс' || entry.aliasKind === 'написание' ? `алиас: ${entry.aliasKind}` : null;
+}
+
 export function safeRequestedName(name: string): string {
   if (/^[A-Za-z][A-Za-z0-9_.-]{0,39}$/.test(name)) return name;
   return `не-идентификатор: ${nonIdentifierKind(name)}`;
@@ -158,7 +171,7 @@ export function logMcpToolCall(entry: McpCallLogEntry): void {
         entry.errorKind ?? null,
         entry.durationMs ?? null,
         hash,
-        entry.errorKind === 'unknown_tool' && entry.requestedTool ? safeRequestedName(entry.requestedTool) : null,
+        requestedToolColumn(entry),
         entry.self === true,
         entry.ok ? null : (entry.errorCode ?? entry.errorKind ?? null)?.slice(0, 40) ?? null,
         entry.argKey?.slice(0, 40) ?? null,
