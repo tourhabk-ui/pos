@@ -509,13 +509,16 @@ withPg('вход через MAX подтверждается вопросом в
       expect(rows).toHaveLength(0);
     });
 
-    it('незаверенный апдейт со ссылкой ничего не привязывает и говорит это', async () => {
+    // 21.11: без MAX_WEBHOOK_SECRET вебхук закрыт (fail-closed) — незаверенный
+    // апдейт не обрабатывается вовсе: ни ответа, ни привязки, ни траты ссылки.
+    // Было: отвечал UNVERIFIED_START_REPLY.admin.
+    it('незаверенный апдейт со ссылкой ничего не привязывает (fail-closed без ключа, 21.11)', async () => {
       vi.stubEnv('MAX_WEBHOOK_SECRET', '');
       try {
         const arg = startArg((await issueLink()).link!);
+        sent.length = 0;
         await startWith(arg, ADMIN_MAX, false);
-        const { UNVERIFIED_START_REPLY } = await import('@/lib/max/verified-press');
-        expect(sent[sent.length - 1].text).toBe(UNVERIFIED_START_REPLY.admin);
+        expect(sent).toHaveLength(0);
         expect(await binding()).toBeUndefined();
         const { rows } = await pool.query<{ used: boolean }>('SELECT used_at IS NOT NULL AS used FROM admin_max_link_tokens');
         expect(rows.map((r) => r.used)).toEqual([false]);
@@ -812,13 +815,16 @@ withPg('вход через MAX подтверждается вопросом в
         }
       });
 
-      it('незаверенное нажатие не засчитано', async () => {
+      // 21.11: незаверенный апдейт (без ключа подписки) не обрабатывается
+      // вовсе — ни ответа, ни записи. Было: отвечал «не засчитано».
+      it('незаверенное нажатие не засчитано и не обработано (21.11)', async () => {
+        const before = sent.length;
         await bot({
           update_type: 'message_callback', timestamp: Date.now(),
           callback: { timestamp: Date.now(), callback_id: 'cb-unverified', payload: await mark('contacted'), user: { user_id: ADMIN_MAX, name: 'Админ' } },
           message: { recipient: { chat_id: ADMIN_MAX + 5, chat_type: 'dialog' }, body: { mid: 'm-unv', seq: 1, text: null } },
         }, false);
-        expect(lastText()).toContain('не засчитано');
+        expect(sent.length).toBe(before);
         expect(await actionRows()).toEqual([]);
       });
     });
