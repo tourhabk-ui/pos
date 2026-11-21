@@ -166,4 +166,12 @@ jobs:
                   print(f'  {name}: {str(value).strip()}')
               else:
                   print(f'  {name}: задана, но не похожа на id модели — значение не печатается')
+
+          # Переменные защиты (21.11, проверка по посту Reddit): только
+          # «задана / не задана», значения не печатаются никогда.
+          print('')
+          print('Переменные защиты (только задана/не задана):')
+          for name in ['AI_DAILY_BUDGET_USD', 'AI_ANON_DAILY_MAX', 'MAX_WEBHOOK_SECRET', 'UPSTASH_REDIS_REST_URL', 'UPSTASH_REDIS_REST_TOKEN', 'CONNECT_TOKEN_SECRET', 'JWT_SECRET', 'CRON_SECRET', 'TTS_DAILY_MAX', 'MAX_BOT_TOKEN']:
+              value = model_var(name)
+              print(f'  {name}: ' + ('не задана' if value is None or str(value).strip() == '' else 'задана'))
           PY

@@ -75,6 +75,13 @@ jobs:
             case "$URL" in
               https://vedarai.ru/api/cron/*) [ -n "$CRON_SECRET" ] && AUTH=(-H "Authorization: Bearer $CRON_SECRET") ;;
             esac
+            # Проба подделки адреса (client-ip-headers-probe?forged=1):
+            # документационные адреса RFC 5737 во все три заголовка — дошли
+            # до приложения, значит прокси пропускает клиентское.
+            case "$URL" in
+              https://vedarai.ru/api/cron/client-ip-headers-probe*forged=1*)
+                AUTH+=(-H "X-Real-IP: 198.51.100.7" -H "CF-Connecting-IP: 198.51.100.8" -H "X-Forwarded-For: 198.51.100.9") ;;
+            esac
             CODE=$(curl -s -o /tmp/body -w "%{http_code}" --max-time 60 -L "${AUTH[@]}" "$URL")
             BYTES=$(wc -c < /tmp/body)
             echo "HTTP $CODE, bytes: $BYTES"
