@@ -44,7 +44,9 @@ describe('страница «Сколько стоит»', () => {
     const html = sp(renderToStaticMarkup(<TripCostView data={{ tours, stays: [{ price_per_night_from: '3000' }], carriers }} />));
     expect(html).toContain('Сколько стоит поездка на Камчатку</h1>');
     expect(html).toContain('На Ведаре сейчас 5 туров местных операторов.');
-    expect(html).toContain('href="/planning"');
+    // Смету складывает конструктор /planner (после входа), а не /planning, где сметы нет (21.11).
+    expect(html).toContain('href="/planner"');
+    expect(html).not.toContain('href="/planning"');
     expect(html).toContain('Цен на билеты у Ведара нет');
     expect(html).toContain('"@type":"FAQPage"');
     expect(html).not.toMatch(/за неделю[^»]*\d/);
