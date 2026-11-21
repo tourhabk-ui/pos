@@ -25,7 +25,7 @@ describe('вход в план с главной', () => {
 
   it('кнопки главной не ведут гостя прямо на /planner', () => {
     const desk = read('components/homepage/desk/DeskHero.tsx');
-    expect(desk).toMatch(/<PlanEntryLink[\s\S]*?Собрать план[\s\S]*?<\/PlanEntryLink>/);
+    expect(desk).toMatch(/PlanEntryLink[\s\S]*?Собрать план[\s\S]*?\/PlanEntryLink>/);
     expect(desk).not.toMatch(/href="\/planner"/);
     const mobile = read('app/_home/_HomeV8Client.tsx');
     expect(mobile).not.toMatch(/href="\/planner"/);
