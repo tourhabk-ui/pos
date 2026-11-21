@@ -96,7 +96,7 @@ describe('Ключевская Сопка, Толбачик, лосось', () =
   it('плашка о статусе вулкана — на месте, маршруте и турах', () => {
     const p = placeClosure('vulkan-klyuchevskaya-sopka');
     expect(p?.text).toContain('15');
-    expect(p?.text).toContain('12.11.2026');
+    expect(p?.text).toContain('19.11.2026');
     expect(routeClosure('vulkan-klyuchevskaya-sopka-413a7499')).toBe(p);
     expect(tourClosure('volcanoesland-voskhozhdenie-klyuchevskaya-sopka')).toBe(p);
     expect(placeClosure('vulkan-avachinskij')).toBeNull();

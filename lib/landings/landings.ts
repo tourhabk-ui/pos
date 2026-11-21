@@ -3,7 +3,8 @@
  * вторая партия (21.11.2026, lib/landings/texts-batch2.ts) — ещё 10 новых;
  * третья (21.11.2026, lib/landings/texts-batch3.ts) — 9 новых и 3 апгрейда
  * (/places/kurilskoe-ozero, /places/vulkan-mutnovskij,
- * /voshozhdenie-na-avachinskij-vulkan).
+ * /voshozhdenie-na-avachinskij-vulkan); четвёртая (21.11.2026,
+ * lib/landings/texts-batch4.ts) — 12 новых.
  *
  * существующих (/plans/kamchatka-v-iyune, /plans/kamchatka-v-sentyabre,
  * /dolina-gejzerov-ekskursiya, /places/paratunskaya-zona-otdyha).
@@ -17,6 +18,7 @@ import type { LandingTopic } from '@/lib/seo/query-landings';
 import { LANDING_TEXTS, type LandingText } from '@/lib/landings/texts';
 import { LANDING_TEXTS_BATCH2 } from '@/lib/landings/texts-batch2';
 import { LANDING_TEXTS_BATCH3 } from '@/lib/landings/texts-batch3';
+import { LANDING_TEXTS_BATCH4 } from '@/lib/landings/texts-batch4';
 import { LANDING_TEXTS_HUBS } from '@/lib/landings/texts-hubs';
 
 /** Какие туры показывает блок страницы. */
@@ -90,6 +92,22 @@ const TOUR_SPECS: Record<string, LandingTourSpec> = {
   'kakie-tury-vybrat-na-kamchatke': { kind: 'none' },
   'rybalka-na-kamchatke-gde-i-kogda-lovit': { kind: 'none' },
   'voshozhdeniya-na-vulkany-kamchatki': { kind: 'topic', topic: 'volcano' },
+  // Четвёртая партия (21.11): отбор по словам в названии и месте тура.
+  'serfing-na-kamchatke': { kind: 'text', pattern: /(халактыр|серф)/i },
+  'sobachi-upryazhki-kamchatka': { kind: 'text', pattern: /(упряжк|ездов[а-яё]*\s+соба|каюр)/i },
+  'gonka-beringiya': { kind: 'text', pattern: /(упряжк|ездов[а-яё]*\s+соба|каюр|берингия)/i },
+  'nalychevo-kak-dobratsya': { kind: 'text', pattern: /налыч/i },
+  'voshozhdenie-na-vulkan-gorelyj': { kind: 'text', pattern: /горел/i },
+  // Восхождение на Ключевской минтуризм не рекомендует (сводка 19.11): блока
+  // туров нет, статус — в тексте и на плашке lib/routes/closures.
+  'klyuchevskaya-sopka-izverzhenie': { kind: 'none' },
+  'vachkazhets-kak-dobratsya': { kind: 'text', pattern: /вачкаж/i },
+  'malkinskie-istochniki-kak-dobratsya': { kind: 'text', pattern: /малкин/i },
+  'zelenovskie-ozerki': { kind: 'text', pattern: /зеленовск/i },
+  'avachinskij-pereval-i-verblyud': { kind: 'text', pattern: /(авачинск[а-яё]*\s+перевал|верблюд)/i },
+  'vilyuchinskij-vodopad': { kind: 'text', pattern: /вилючинск/i },
+  // Жилья в базе нет — витрины «лучший отель» не делаем.
+  'gde-ostanovitsya-na-kamchatke': { kind: 'none' },
 };
 
 export interface Landing extends LandingText {
@@ -99,7 +117,7 @@ export interface Landing extends LandingText {
 export const LANDINGS: readonly Landing[] = [
   // Хаб «Как добраться» (21.11) заменяет текст первой партии под тем же адресом.
   ...LANDING_TEXTS.filter((t) => !LANDING_TEXTS_HUBS.some((h) => h.slug === t.slug)),
-  ...LANDING_TEXTS_BATCH2, ...LANDING_TEXTS_BATCH3, ...LANDING_TEXTS_HUBS,
+  ...LANDING_TEXTS_BATCH2, ...LANDING_TEXTS_BATCH3, ...LANDING_TEXTS_BATCH4, ...LANDING_TEXTS_HUBS,
 ].map((t) => ({ ...t, tours: TOUR_SPECS[t.slug] ?? { kind: 'none' } }));
 
 export function landingBySlug(slug: string): Landing {
@@ -159,4 +177,14 @@ export const LANDING_CROSS_LINKS: Readonly<Record<string, { href: string; label:
   '/places/koryakskaya-sopka': { href: '/voshozhdeniya-na-vulkany-kamchatki', label: 'Восхождения на вулканы Камчатки: какой выбрать и когда' },
   '/places/vulkan-ploskij-tolbachik': { href: '/voshozhdeniya-na-vulkany-kamchatki', label: 'Восхождения на вулканы Камчатки: какой выбрать и когда' },
   '/places/vulkan-klyuchevskaya-sopka': { href: '/voshozhdeniya-na-vulkany-kamchatki', label: 'Восхождения на вулканы Камчатки: какой выбрать и когда' },
+  // Четвёртая партия (21.11).
+  '/park/nalychevo': { href: '/nalychevo-kak-dobratsya', label: 'Налычево: как добраться, источники и разрешения' },
+  '/places/avachinskij-pereval': { href: '/avachinskij-pereval-i-verblyud', label: 'Авачинский перевал и Верблюд: как добраться' },
+  '/places/ekstruziya-verblyud': { href: '/avachinskij-pereval-i-verblyud', label: 'Авачинский перевал и Верблюд: как добраться' },
+  '/places/zelenovskie-ozerki': { href: '/zelenovskie-ozerki', label: 'Зеленовские озерки: как добраться и чем отличаются' },
+  '/places/vachkazhets': { href: '/vachkazhets-kak-dobratsya', label: 'Вачкажец: как добраться и что посмотреть за день' },
+  '/park/vachkazhets': { href: '/vachkazhets-kak-dobratsya', label: 'Вачкажец: как добраться и что посмотреть за день' },
+  '/places/malkinskie-goryachie-istochniki': { href: '/malkinskie-istochniki-kak-dobratsya', label: 'Малкинские источники: как добраться и можно ли купаться' },
+  '/routes/vilyuchinskij-vodopad': { href: '/vilyuchinskij-vodopad', label: 'Вилючинский водопад: как добраться и когда ехать' },
+  '/places/halaktyrskij-plyazh': { href: '/serfing-na-kamchatke', label: 'Серфинг на Камчатке: Халактырский пляж и сезон' },
 };

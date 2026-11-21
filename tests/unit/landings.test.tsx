@@ -25,10 +25,10 @@ const tour = (o: Partial<LandingBlockTour>): LandingBlockTour => ({
 });
 
 describe('реестр посадочных', () => {
-  it('47 текстов: 37 новых адресов (17 + 10 + 9 третьей партии + хаб восхождений) и 10 апгрейдов тех же URL', () => {
+  it('59 текстов: 49 новых адресов (17 + 10 + 9 третьей партии + хаб восхождений + 12 четвёртой) и 10 апгрейдов тех же URL', () => {
     // Хаб «Как добраться» (21.11) заменил текст первой партии под тем же адресом.
-    expect(LANDINGS).toHaveLength(47);
-    expect(NEW_LANDINGS).toHaveLength(37);
+    expect(LANDINGS).toHaveLength(59);
+    expect(NEW_LANDINGS).toHaveLength(49);
     expect(LANDINGS.filter((l) => l.type === 'upgrade').map((l) => l.path).sort()).toEqual([
       '/catalog', '/dolina-gejzerov-ekskursiya', '/kogda-ehat-na-kamchatku', '/places/kurilskoe-ozero', '/places/paratunskaya-zona-otdyha', '/places/vulkan-mutnovskij',
       '/plans/kamchatka-v-iyune', '/plans/kamchatka-v-sentyabre', '/rybalka-na-kamchatke-tury', '/voshozhdenie-na-avachinskij-vulkan',
