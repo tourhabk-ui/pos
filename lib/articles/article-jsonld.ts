@@ -18,6 +18,8 @@ export interface ArticleJsonLdInput {
   datePublished: string | null;
   dateModified: string | null;
   faq: Array<{ q: string; a: string }>;
+  /** Свой кадр страницы (путь сайта или абсолютный адрес); нет — картинка по умолчанию. */
+  image?: string | null;
 }
 
 export function articleJsonLd(input: ArticleJsonLdInput): Record<string, unknown> {
@@ -33,7 +35,7 @@ export function articleJsonLd(input: ArticleJsonLdInput): Record<string, unknown
     inLanguage: 'ru',
     mainEntityOfPage: { '@type': 'WebPage', '@id': input.url },
     url: input.url,
-    image: `${input.site}${DEFAULT_OG_IMAGE}`,
+    image: input.image ? (input.image.startsWith('/') ? `${input.site}${input.image}` : input.image) : `${input.site}${DEFAULT_OG_IMAGE}`,
     author: org,
     publisher: org,
     ...(published ? { datePublished: published } : {}),

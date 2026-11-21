@@ -15,11 +15,20 @@ import { nearestFreeDateSql } from '@/lib/tours/nearest-free-date';
 import { anyDayOpenSql } from '@/lib/tours/schedule-kind';
 import { orderOffersBy } from '@/lib/tours/offer-order';
 import { logText } from '@/lib/log/log-text';
+import { tourHeroImageSql } from '@/lib/tours/hero-image';
+import { isOwnImageUrl } from '@/lib/images/own-image-url';
 import { matchesTopic, type LandingTourRow } from '@/lib/seo/query-landings-data';
 import type { Landing, LandingTourSpec } from '@/lib/landings/landings';
 
 export interface LandingBlockTour extends LandingTourRow {
   difficulty?: string | null;
+  /**
+   * Обложка тура — то же правило, что у каталога (lib/tours/hero-image):
+   * первый кадр галереи, иначе tour_image. Только наш адрес
+   * (lib/images/own-image-url); чужой или пустой — null, и карточка рисует
+   * градиент, а не битую картинку.
+   */
+  cover?: string | null;
 }
 
 /** Сколько туров показывает блок. */
@@ -62,7 +71,7 @@ export function tourMatchesSpec(t: LandingBlockTour, spec: LandingTourSpec): boo
 export const LANDING_PUBLIC_TOURS_SQL = `SELECT ot.id::text AS id, ot.slug, ot.title, ot.base_price::text AS base_price, ot.price_unit,
             ot.duration_hours::text AS duration_hours, ot.difficulty,
             ot.season_start::text AS season_start, ot.season_end::text AS season_end,
-            ot.activity_type, ot.location_name,
+            ot.activity_type, ot.location_name, ${tourHeroImageSql('ot')} AS cover,
             p.name AS operator_name, p.slug AS operator_slug, p.is_public AS operator_public,
             ${nearestFreeDateSql('ot')} AS next_open_date, ${anyDayOpenSql('ot')} AS any_day_open
        FROM operator_tours ot
@@ -78,7 +87,7 @@ export const LANDING_PUBLIC_TOURS_SQL = `SELECT ot.id::text AS id, ot.slug, ot.t
 export const loadPublicTours = cache(async (): Promise<LandingBlockTour[] | null> => {
   try {
     const { rows } = await pool.query<LandingBlockTour>(LANDING_PUBLIC_TOURS_SQL);
-    return rows;
+    return rows.map((r) => ({ ...r, cover: isOwnImageUrl(r.cover) ? r.cover.trim() : null }));
   } catch (err) {
     const code = (err as { code?: unknown })?.code;
     console.error('[landing] туры не прочитаны:', typeof code === 'string' ? `SQLSTATE=${logText(code, 10)}` : '', logText(err instanceof Error ? err.message : err, 200));
