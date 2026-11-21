@@ -15,7 +15,7 @@
  * в эту сторону ничего не прячет. Отказ пишется в лог.
  */
 
-import { isBareParkClosure, isSeasonalClosure } from '@/lib/safety/park-closure';
+import { closureHazardClause, isBareParkClosure, isSeasonalClosure } from '@/lib/safety/park-closure';
 import { DESCRIPTION_CLIP, TITLE_CLIP } from '@/lib/services/safety/park-closure-hold';
 import type { QueryFn } from '@/lib/services/safety/alert-prune';
 import { UTC_WALL_NOW_SQL } from '@/lib/db/timestamp-iso';
@@ -61,7 +61,47 @@ export function seasonalClosureIdsOf(rows: readonly Row[]): string[] {
   return [...seasonal, ...bare].map((r) => r.id);
 }
 
-export async function seasonalParkClosureIds(query: QueryFn): Promise<string[]> {
+/**
+ * Закрытия, красные потому, что источник назвал опасность (#3607, 21.11), — с
+ * этой опасностью словами источника (`closureHazardClause`). Пересчёт
+ * дописывает её к строке тревоги места: «Природный парк «Ключевской» —
+ * маршруты закрыты на зимний сезон» без неё красного не объясняет, опасность
+ * стоит только в описании сводки. Межсезонные (`seasonalIds`) сюда не входят:
+ * у них опасности нет по правилу.
+ */
+export function hazardClosuresOf(
+  rows: readonly Row[],
+  seasonalIds: readonly string[],
+): { ids: string[]; phrases: string[] } {
+  const seasonal = new Set(seasonalIds);
+  const ids: string[] = [];
+  const phrases: string[] = [];
+  for (const r of rows) {
+    if (seasonal.has(r.id)) continue;
+    // Заголовок называет опасность сам — дописывать нечего.
+    if (closureHazardClause(r.title ?? '')) continue;
+    const phrase = closureHazardClause(r.description ?? '');
+    if (!phrase) continue;
+    ids.push(r.id);
+    phrases.push(phrase);
+  }
+  return { ids, phrases };
+}
+
+export interface ParkClosureKinds {
+  /** Межсезонные закрытия: место жёлтое с причиной park_season. */
+  seasonal: string[];
+  /** Закрытия с опасностью в описании и сама опасность — тем же порядком. */
+  hazardIds: string[];
+  hazardPhrases: string[];
+}
+
+/**
+ * Живые закрытия парков одним чтением: какие межсезонные и какие называют
+ * опасность в описании. Отказ — пустые списки: все закрытия красные, строки
+ * тревог без дописанной опасности, как до 19.11.
+ */
+export async function parkClosureKinds(query: QueryFn): Promise<ParkClosureKinds> {
   try {
     const res = await query<Row>(
       `SELECT id::text AS id, title, description, affected_parks
@@ -70,10 +110,12 @@ export async function seasonalParkClosureIds(query: QueryFn): Promise<string[]> 
           AND expires_at > ${UTC_WALL_NOW_SQL}`,
       [],
     );
-    return seasonalClosureIdsOf(res.rows);
+    const seasonal = seasonalClosureIdsOf(res.rows);
+    const hazard = hazardClosuresOf(res.rows, seasonal);
+    return { seasonal, hazardIds: hazard.ids, hazardPhrases: hazard.phrases };
   } catch (e) {
     const code = (e as { code?: string }).code ?? null;
-    console.error('[safety-ingest] межсезонные закрытия парков не прочитались — все закрытия считаются красными:', code ?? (e as Error).message);
-    return [];
+    console.error('[safety-ingest] закрытия парков не прочитались — все закрытия считаются красными, опасность не дописана:', code ?? (e as Error).message);
+    return { seasonal: [], hazardIds: [], hazardPhrases: [] };
   }
 }

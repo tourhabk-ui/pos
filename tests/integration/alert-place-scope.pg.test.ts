@@ -48,7 +48,8 @@ import { VOLCANO_STALE_DAYS } from '@/lib/services/safety/kvert-vona';
 import { KFEGS_MAX_AGE_DAYS } from '@/lib/services/safety/volcano-scales';
 import { sameParksParam, sameParksSql } from '@/lib/services/safety/push-same-kind';
 import { PARK_CLOSURE_HOLD_HOURS } from '@/lib/safety/park-closure';
-import { seasonalParkClosureIds } from '@/lib/services/safety/park-season';
+import { parkClosureKinds } from '@/lib/services/safety/park-season';
+import { alertLineIsTitleSql } from '@/lib/safety/alert-line';
 import { PARK_SEASON_ANSWER, PARK_SEASON_NOTE } from '@/lib/safety/place-day-status';
 import { createTestDatabase } from '../helpers/pg-schema';
 import { applyPlanParkStatus, loadPlanParkAlerts, PARK_STATUS_UNREAD_NOTE } from '@/lib/planner/park-status';
@@ -1700,8 +1701,9 @@ withPg('кого накрывает предупреждение', () => {
         if (!(name in subs)) throw new Error(`в запросе пересчёта новая подстановка \${${name}} — добавь её в тест`);
         return subs[name];
       });
-      // Межсезонные закрытия — тем же чтением, что крон перед пересчётом (#3487).
-      await pool.query(sql, [VOLCANO_STALE_DAYS, KFEGS_MAX_AGE_DAYS + 1, await seasonalParkClosureIds(q)]);
+      // Закрытия парков — тем же чтением, что крон перед пересчётом (#3487, #3607).
+      const closures = await parkClosureKinds(q);
+      await pool.query(sql, [VOLCANO_STALE_DAYS, KFEGS_MAX_AGE_DAYS + 1, closures.seasonal, closures.hazardIds, closures.hazardPhrases]);
     }
     const statusOf = async (ark: string) => (await pool.query<{ status: string; alerts: string[]; sev: number; reason: string | null }>(
       `SELECT recommender_status AS status, active_alerts AS alerts, alert_severity::int AS sev, status_reason AS reason
@@ -2029,6 +2031,7 @@ withPg('кого накрывает предупреждение', () => {
         { slug: 'a2-s-mixed', name: 'Природный парк «Двоякий»', term: 'Двоякий' },
         { slug: 'a2-s-clip', name: 'Природный парк «Обрезной»', term: 'Обрезной' },
         { slug: 'a2-s-crowd', name: 'Природный парк «Людный»', term: 'Людный' },
+        { slug: 'a2-s-volc', name: 'Природный парк «Вулканный»', term: 'Вулканный' },
       ];
       const placeOf = (term: string, i: number) => ({
         id: `Природный парк ${term} (тест)`, ark: `c0000000-0000-4000-8000-0000000000b${i}`, lat: 53.1 + i / 100, lng: 158.1,
@@ -2060,6 +2063,17 @@ withPg('кого накрывает предупреждение', () => {
         await alertRow({ type: 'park_closure', externalId: feedId('s6'), parks: ['a2-s-crowd'], ageHours: 24,
           title: 'Маршруты природного парка «Людный» закрыты на период межсезонья' });
         await pool.query(`UPDATE location_real_time_status SET tourists_today = 40 WHERE agent_route_id = $1`, [P['a2-s-crowd'].ark]);
+        // #3607: заголовок — межсезонный, опасность только в описании сводки
+        // (парк «Ключевской», сводка Минтура 16.10). Рядом — межсезонное
+        // закрытие того же парка.
+        const VOLC_TITLE = 'Природный парк «Вулканный» — маршруты закрыты на зимний сезон';
+        const volc = await alertRow({ type: 'park_closure', externalId: feedId('s7'), parks: ['a2-s-volc'], ageHours: 24, title: VOLC_TITLE });
+        await pool.query(
+          `UPDATE external_alerts SET description = 'Сводка министерства туризма: в парке «Вулканный» маршруты закрыты на зимний сезон, передвижение в районах вулканов крайне опасно.' WHERE id::text = $1`,
+          [volc],
+        );
+        await alertRow({ type: 'park_closure', externalId: feedId('s8'), parks: ['a2-s-volc'], ageHours: 24,
+          title: 'Маршруты природного парка «Вулканный» закрыты на период межсезонья' });
 
         await recomputeStatus();
         const w = await statusOf(P['a2-s-winter'].ark);
@@ -2069,6 +2083,25 @@ withPg('кого накрывает предупреждение', () => {
         expect(await statusOf(P['a2-s-mixed'].ark)).toMatchObject({ status: 'red', reason: null });
         expect(await statusOf(P['a2-s-clip'].ark)).toMatchObject({ status: 'red', reason: null });
         expect(await statusOf(P['a2-s-crowd'].ark)).toMatchObject({ status: 'yellow', reason: null });
+        // Красный по опасности из описания — и опасность названа первой строкой.
+        const v = await statusOf(P['a2-s-volc'].ark);
+        expect(v).toMatchObject({ status: 'red', reason: null });
+        expect(v.alerts).toEqual([
+          `${VOLC_TITLE}: передвижение в районах вулканов крайне опасно`,
+          'Маршруты природного парка «Вулканный» закрыты на период межсезонья',
+        ]);
+        const dv = await getGuardianContextDetailed('Природный парк Вулканный (тест)');
+        expect(dv.text).toContain('передвижение в районах вулканов крайне опасно');
+        // Читатели, ищущие тревогу места по заголовку (офлайн-пакет маршрута,
+        // уборка тревог), находят и строку с дописанной опасностью (ревью #3631).
+        const found = await pool.query<{ id: string }>(
+          `SELECT ea.id::text AS id
+             FROM location_real_time_status lrs
+             JOIN external_alerts ea ON EXISTS (SELECT 1 FROM unnest(lrs.active_alerts) AS line WHERE ${alertLineIsTitleSql('line', 'ea.title')})
+            WHERE lrs.agent_route_id = $1`,
+          [P['a2-s-volc'].ark],
+        );
+        expect(found.rows.map((r) => r.id)).toContain(volc);
 
         // Кузьмич и MCP читают ту же строку: причина — полем и словами карточки.
         const d = await getGuardianContextDetailed('Природный парк Зимовье (тест)');

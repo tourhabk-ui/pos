@@ -38,6 +38,7 @@
 import { isDailyBulletin, isRescueOperationReport, isServiceStatistics, isServiceDuties, isRetrospectivePost, isPublicOutreachPost } from '@/lib/services/safety/seismic-parser';
 import { isPastForecast, isWarningEnded } from '@/lib/safety/resolution-notice';
 import { UTC_WALL_NOW_SQL } from '@/lib/db/timestamp-iso';
+import { alertLineIsTitleSql } from '@/lib/safety/alert-line';
 
 export type RejectedGenre =
   | 'daily_bulletin' | 'rescue_report' | 'service_statistics'
@@ -199,7 +200,8 @@ export async function pruneRejectedGenres(query: QueryFn): Promise<PruneResult> 
 
   // Тот же текст уже разложен по точкам массивом — снять его надо и там,
   // иначе запись исчезнет из источника и останется на карточках (миграция
-  // 846 напоролась ровно на это).
+  // 846 напоролась ровно на это). Строка места может нести дописанную
+  // опасность (#3607) — сравнение правилом alertLineIsTitle.
   let places_cleaned = 0;
   if (doomedTitles.length > 0) {
     const upd = await query<{ id: string }>(
@@ -207,10 +209,10 @@ export async function pruneRejectedGenres(query: QueryFn): Promise<PruneResult> 
           SET active_alerts = (
             SELECT COALESCE(array_agg(a), ARRAY[]::TEXT[])
               FROM unnest(active_alerts) AS a
-             WHERE NOT (a = ANY($1::text[]))
+             WHERE NOT EXISTS (SELECT 1 FROM unnest($1::text[]) AS t WHERE ${alertLineIsTitleSql('a', 't')})
           )
         WHERE EXISTS (
-          SELECT 1 FROM unnest(active_alerts) AS a WHERE a = ANY($1::text[])
+          SELECT 1 FROM unnest(active_alerts) AS a, unnest($1::text[]) AS t WHERE ${alertLineIsTitleSql('a', 't')}
         )
         RETURNING id::text`,
       [doomedTitles],

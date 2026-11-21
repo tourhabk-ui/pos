@@ -2,6 +2,7 @@ import { query } from '@/lib/database';
 import { lonToTile, latToTile, TILE_HOST } from '@/lib/offline/tiles';
 import { planCorridor, estimateTilesMb, CORRIDOR_ZOOMS, type TrackPoint } from '@/lib/offline/route-corridor';
 import { UTC_WALL_NOW_SQL } from '@/lib/db/timestamp-iso';
+import { alertLineIsTitleSql } from '@/lib/safety/alert-line';
 
 // AUTH: Public — данные маршрута публичные, тайлы публичные
 export const dynamic = 'force-dynamic';
@@ -57,13 +58,14 @@ export async function GET(_req: Request, { params }: { params: Promise<{ id: str
     //
     // Берём через точки маршрута: у алерта зона, у точки — своя строка статуса,
     // связь уже посчитана кроном safety-ingest. DISTINCT — один и тот же алерт
-    // висит на нескольких точках маршрута.
+    // висит на нескольких точках маршрута. Строка места может нести дописанную
+    // опасность (#3607): сравнение — правилом alertLineIsTitle, не равенством.
     query(
       `SELECT DISTINCT ea.alert_type, ea.severity, ea.title, ea.expires_at::text
          FROM route_waypoints rw
          JOIN places p            ON p.id = rw.place_id
          JOIN location_real_time_status lrs ON lrs.agent_route_id = p.ark_id
-         JOIN external_alerts ea  ON ea.title = ANY(lrs.active_alerts)
+         JOIN external_alerts ea  ON EXISTS (SELECT 1 FROM unnest(lrs.active_alerts) AS line WHERE ${alertLineIsTitleSql('line', 'ea.title')})
         WHERE rw.route_id = $1
           AND ea.expires_at > ${UTC_WALL_NOW_SQL}
         ORDER BY ea.severity DESC

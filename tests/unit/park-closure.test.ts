@@ -12,7 +12,9 @@ import { readFileSync } from 'node:fs';
 import {
   detectParkClosure, detectParkReopening, isIndefiniteClosure, NATURAL_PARK_SLUGS, parkClosureHours,
   PARK_CLOSURE_DEFAULT_HOURS, PARK_CLOSURE_HOLD_HOURS, PARK_CLOSURE_MAX_HOURS,
+  closureHazardClause,
 } from '@/lib/safety/park-closure';
+import { hazardClosuresOf } from '@/lib/services/safety/park-season';
 import { alertTerm } from '@/lib/safety/alert-dates';
 import { alertOrigin } from '@/lib/safety/alert-origin';
 import { feedWhenLine } from '@/lib/safety/current-status';
@@ -573,5 +575,37 @@ describe('«статус парка не известен»: слова, сро�
       expect(fn.indexOf(red), red).toBeLessThan(yellow);
     }
     expect(yellow).toBeLessThan(fn.indexOf("ELSE 'green'"));
+  });
+});
+
+// #3607, 21.11: закрытие красное по опасности из описания — опасность словами
+// источника, без своих слов.
+describe('closureHazardClause — опасность закрытия словами источника', () => {
+  it('часть предложения с опасностью, между запятыми и двоеточиями', () => {
+    expect(closureHazardClause(
+      'Еженедельная сводка министерства туризма Камчатского края, полученная 16 октября: в парке «Ключевской» маршруты закрыты на зимний сезон, передвижение в районах вулканов крайне опасно.',
+    )).toBe('передвижение в районах вулканов крайне опасно');
+    expect(closureHazardClause('Порывы ветра до 30 м/с')).toBe('Порывы ветра до 30 м/с');
+  });
+
+  it('опасности нет, межсезонье «безопасно» не опасность, слишком длинная фраза — null', () => {
+    expect(closureHazardClause('Маршруты природного парка «Налычево» закрыты на период межсезонья')).toBeNull();
+    expect(closureHazardClause('Безопасное передвижение возможно только с гидом')).toBeNull();
+    expect(closureHazardClause('')).toBeNull();
+    expect(closureHazardClause(`передвижение крайне опасно ${'и далее '.repeat(30)}`)).toBeNull();
+  });
+});
+
+describe('hazardClosuresOf — какие закрытия дописывают опасность', () => {
+  const row = (id: string, title: string, description: string | null) => ({ id, title, description, affected_parks: ['klyuchevskoy'] });
+
+  it('опасность только в описании — дописывается; межсезонное, опасность в заголовке и описание без опасности — нет', () => {
+    const rows = [
+      row('k', 'Природный парк «Ключевской» — маршруты закрыты на зимний сезон', 'В парке маршруты закрыты, передвижение в районах вулканов крайне опасно.'),
+      row('s', 'Маршруты природного парка «Ключевской» закрыты на период межсезонья', null),
+      row('t', 'Из-за циклона закрыты маршруты парка «Ключевской»', 'Циклон, порывы до 30 м/с'),
+      row('b', 'Природный парк «Ключевской» — маршруты закрыты', 'Подробности в сводке'),
+    ];
+    expect(hazardClosuresOf(rows, ['s'])).toEqual({ ids: ['k'], phrases: ['передвижение в районах вулканов крайне опасно'] });
   });
 });
