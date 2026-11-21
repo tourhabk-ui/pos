@@ -1,5 +1,5 @@
 /**
- * Тексты тонких страниц, партия 8 (Сыщик 21.11): миграция 1489. Держит то,
+ * Тексты тонких страниц, партия 8 (Сыщик 21.11): миграция 1490 (номер сдвинут из-за столкновения с 1489_geyser_valley_facts_3487.sql). Держит то,
  * что велел владелец: без цен, телефонов и разметки, без служебных фраз и
  * названия стороннего каталога на экране, сомнительное не публикуется,
  * числа карточек не перебиваются, решение владельца не затирается.
@@ -9,7 +9,7 @@ import { readFileSync } from 'fs';
 import { join } from 'path';
 import { descriptionVoice } from '@/lib/places/description-voice';
 
-const SQL = readFileSync(join(__dirname, '../../migrations/1489_thin_texts_batch8.sql'), 'utf-8');
+const SQL = readFileSync(join(__dirname, '../../migrations/1490_thin_texts_batch8.sql'), 'utf-8');
 
 interface Row { slug: string; txt: string; sources: string[] }
 function rows(block: string): Row[] {
@@ -26,7 +26,7 @@ const places = rows(placesBlock);
 const routes = rows(routesBlock);
 const all = [...places, ...routes];
 
-describe('миграция 1489: тексты тонких страниц, партия 8', () => {
+describe('миграция 1490: тексты тонких страниц, партия 8', () => {
   it('2 места и 2 маршрута — те, что прислал Сыщик; у каждого текста есть источник', () => {
     expect(places.map((r) => r.slug).sort()).toEqual(['geologicheskij-muzej', 'vodopad-tahkoloch']);
     expect(routes.map((r) => r.slug).sort()).toEqual(['gora-letnyaya-poperechnaya', 'lezhbishche-sivuchej-marshrut']);
