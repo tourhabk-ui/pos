@@ -550,7 +550,7 @@ export default function KuzmichClient() {
   const hasMessages = messages.length > 0;
 
   return (
-    <main className="flex-1 flex flex-col max-w-3xl w-full mx-auto px-2 sm:px-4 pb-6 pt-20">
+    <section aria-label="Чат с Кузьмичем" className="flex-1 flex flex-col">
       {/* Поля на телефоне (владелец 03.10: «поля забирают очень много полезного
           места»). Отступ страницы, рамка карточки, внутренний отступ, аватар с
           зазором и предел 85 % складывались: из 390 px под ответ оставалось
@@ -586,11 +586,8 @@ export default function KuzmichClient() {
             <span className="w-2 h-2 rounded-full bg-[var(--success)] animate-pulse" />
             <span className="text-xs font-medium text-[var(--success)]">Кузьмич онлайн</span>
           </div>
-          <h1 className="font-playfair text-3xl md:text-4xl font-bold text-[var(--text-primary)] mb-3">
-            Спросите что угодно
-          </h1>
           <p className="text-[var(--text-secondary)] text-sm md:text-base max-w-md mx-auto">
-            Кузьмич помогает спланировать поездку по-честному: маршрут, риски, сезон и реальные туры.
+            Напишите вопрос в чат — про тур, место, погоду или обстановку.
           </p>
         </div>
       )}
@@ -794,6 +791,6 @@ export default function KuzmichClient() {
         </Link>{' '}
         — менеджер перезвонит в течение часа.
       </p>
-    </main>
+    </section>
   );
 }
