@@ -26,6 +26,7 @@
  */
 import { shownPhotoSql } from '@/lib/images/origin';
 import { galleryShownSql } from '@/lib/places/gallery-shown';
+import { authorFeedSlug, photoCreditFor } from '@/lib/media/author-credit';
 import {
   CREDITED_FIRST, TOUR_PHOTO_AUTHOR_SQL, TOUR_PHOTOS_LIMIT, tourPhotoAllowedSql, toRouteTourPhotos,
   type RouteTourPhoto, type TourPhotoRow,
@@ -89,6 +90,28 @@ export const PLACE_CARD_TOUR_PHOTOS_SQL = `
      AND NOT EXISTS (SELECT 1 FROM place_gallery_photos g WHERE g.ark_id = p.ark_id AND ${galleryShownSql('g')})
    ORDER BY c.aid, pa.name, pa.id, ${CREDITED_FIRST}, l.pos, ot.id, x.n`;
 
+/**
+ * Обложка плитки места из его же галереи (21.11): кадр партнёра в галерее
+ * места (1431/1436) с 21.11 показывается без согласия, а плитка брала только
+ * главный кадр — у таких мест страница с фото, а плитка пустая. Первый
+ * показываемый кадр по позиции; подпись — партнёр или автор, как на странице.
+ * `$1` — places.ark_id карточек, текстом.
+ */
+export const PLACE_CARD_GALLERY_PHOTOS_SQL = `
+  SELECT DISTINCT ON (c.aid)
+         c.aid AS place_view_id,
+         '/api/images/place-gallery/' || g.ark_id || '/' || g.position
+           || '?v=' || EXTRACT(EPOCH FROM g.created_at)::bigint AS url,
+         COALESCE(NULLIF(btrim(pa.name), ''), NULLIF(btrim(g.author), '')) AS author,
+         COALESCE(pa.name, '') AS partner_name, pa.slug AS partner_slug, pa.is_public AS partner_public,
+         NULL::text AS tour_title, NULL::text AS tour_slug, p.name AS place_name
+    FROM unnest($1::text[]) AS c(aid)
+    JOIN places p ON p.ark_id::text = c.aid AND p.merged_into_id IS NULL
+    JOIN place_gallery_photos g ON g.ark_id = p.ark_id AND ${galleryShownSql('g')}
+    LEFT JOIN partners pa ON pa.id = g.partner_id
+   WHERE NOT EXISTS (SELECT 1 FROM ai_route_images ai WHERE ai.route_id = p.ark_id AND ${shownPhotoSql('ai.model')})
+   ORDER BY c.aid, g.position`;
+
 type FeedOpts = { feedSlugs?: ReadonlySet<string>; feedEnabled?: boolean };
 
 function logFail(what: string, n: number, err: unknown): void {
@@ -112,16 +135,40 @@ export async function loadPlaceTourPhotos(placeId: string, opts: FeedOpts = {}):
   }
 }
 
-/** Обложки карточек мест одним запросом. Сбой — пустая карта. */
+const str = (v: unknown): string | null => (typeof v === 'string' && v.trim() ? v.trim() : null);
+
+/** Строка галереи → обложка: подпись — партнёр со ссылкой на его страницу или автор; автора нет — без подписи. */
+export function toGalleryCardPhoto(r: TourPhotoRow, opts: FeedOpts = {}): RouteTourPhoto | null {
+  const url = str(r.url);
+  if (!url) return null;
+  const author = str(r.author);
+  const partnerName = str(r.partner_name);
+  const credit = photoCreditFor({
+    author,
+    partner: partnerName ? { name: partnerName, slug: str(r.partner_slug), isPublic: r.partner_public === true } : null,
+    feedEligible: author ? opts.feedSlugs?.has(authorFeedSlug(author) ?? '') ?? false : false,
+    feedEnabled: opts.feedEnabled,
+  });
+  return { url, credit: credit ?? { name: '', href: null, kind: 'text' }, tourTitle: '', tourSlug: null, placeName: str(r.place_name) };
+}
+
+/**
+ * Обложки карточек мест одним запросом на источник: сначала свой кадр
+ * галереи, у места без него — снимок тура. Сбой — пустая карта.
+ */
 export async function loadPlaceCardTourPhotos(placeViewIds: string[], opts: FeedOpts = {}): Promise<Map<string, RouteTourPhoto>> {
   const photos = new Map<string, RouteTourPhoto>();
   if (placeViewIds.length === 0) return photos;
   try {
     const { pool } = await import('@/lib/db-pool');
-    const { rows } = await pool.query<TourPhotoRow & { place_view_id: string }>(PLACE_CARD_TOUR_PHOTOS_SQL, [placeViewIds]);
-    for (const r of rows) {
-      const [p] = toRouteTourPhotos([r], opts);
-      if (p) photos.set(String(r.place_view_id), p);
+    for (const sql of [PLACE_CARD_GALLERY_PHOTOS_SQL, PLACE_CARD_TOUR_PHOTOS_SQL]) {
+      const rest = placeViewIds.filter((id) => !photos.has(id));
+      if (rest.length === 0) break;
+      const { rows } = await pool.query<TourPhotoRow & { place_view_id: string }>(sql, [rest]);
+      for (const r of rows) {
+        const p = sql === PLACE_CARD_GALLERY_PHOTOS_SQL ? toGalleryCardPhoto(r, opts) : toRouteTourPhotos([r], opts)[0];
+        if (p) photos.set(String(r.place_view_id), p);
+      }
     }
   } catch (err) {
     logFail('обложки карточек мест не прочитаны', placeViewIds.length, err);

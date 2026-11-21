@@ -25,7 +25,7 @@ vi.mock('@/components/routes/useAnchor', () => ({
   useAnchor: () => ({ anchor: { lat: 53.0195, lng: 158.6505 }, label: 'от Петропавловска', requestGeo: () => {} }),
 }));
 
-import { PLACE_TOUR_PHOTOS_SQL, PLACE_CARD_TOUR_PHOTOS_SQL, placeTourLinksSql } from '@/lib/places/tour-photos';
+import { PLACE_TOUR_PHOTOS_SQL, PLACE_CARD_TOUR_PHOTOS_SQL, PLACE_CARD_GALLERY_PHOTOS_SQL, placeTourLinksSql, toGalleryCardPhoto } from '@/lib/places/tour-photos';
 import { galleryShownSql } from '@/lib/places/gallery-shown';
 import { hasNoOwnPhoto, tourPhotoCreditsOf, tourPhotoRightsOf } from '@/lib/places/place-detail';
 import PlaceCard from '@/components/routes/PlaceCard';
@@ -66,6 +66,27 @@ describe('связь тура с местом — только записанн�
   it('плитка: снимок тура только у места без своего главного кадра и без кадра галереи', () => {
     expect(PLACE_CARD_TOUR_PHOTOS_SQL).toMatch(/NOT EXISTS \(SELECT 1 FROM ai_route_images ai/);
     expect(PLACE_CARD_TOUR_PHOTOS_SQL).toMatch(/NOT EXISTS \(SELECT 1 FROM place_gallery_photos g/);
+  });
+});
+
+describe('плитка места: кадр своей галереи первым', () => {
+  it('галерея — только показываемые кадры места без главного кадра, первый по позиции; согласия нет', () => {
+    expect(PLACE_CARD_GALLERY_PHOTOS_SQL).toContain('g.hidden_reason IS NULL');
+    expect(PLACE_CARD_GALLERY_PHOTOS_SQL).toMatch(/NOT EXISTS \(SELECT 1 FROM ai_route_images ai/);
+    expect(PLACE_CARD_GALLERY_PHOTOS_SQL).toMatch(/ORDER BY c\.aid, g\.position/);
+    expect(PLACE_CARD_GALLERY_PHOTOS_SQL).not.toContain('partner_material_consents');
+  });
+
+  it('подпись: партнёр → его страница; автор не партнёр → текст; автора нет → без имени', () => {
+    const row = (author: string | null, partner: string | null) => ({
+      url: '/api/images/place-gallery/a/1?v=1', author, partner_name: partner ?? '', partner_slug: partner ? 'volcanoesland' : null,
+      partner_public: partner ? true : null, tour_title: null, tour_slug: null, place_name: 'Долина гейзеров',
+    });
+    expect(toGalleryCardPhoto(row('Край Вулканов', 'Край Вулканов'), { feedEnabled: true })?.credit)
+      .toEqual({ name: 'Край Вулканов', href: '/operators/volcanoesland', kind: 'partner' });
+    expect(toGalleryCardPhoto(row('Иван Петров', null), { feedEnabled: true })?.credit)
+      .toEqual({ name: 'Иван Петров', href: null, kind: 'text' });
+    expect(toGalleryCardPhoto(row(null, null), { feedEnabled: true })?.credit.name).toBe('');
   });
 });
 
