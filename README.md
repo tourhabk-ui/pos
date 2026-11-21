@@ -50,9 +50,9 @@ B2C/B2B платформа: туристы ищут маршруты и брон
 | Страниц | 337 |
 | API routes | 953 |
 | UI компонентов | 354 |
-| lib-модулей | 1659 |
+| lib-модулей | 1660 |
 | SQL миграций | 942 (последняя `1494`) |
-| Юнит-тестов | 31416 в 2669 файлах |
+| Юнит-тестов | 31419 в 2670 файлах |
 | GitHub Actions | 198 workflow |
 <!-- STATS:END -->
 
@@ -62,7 +62,7 @@ B2C/B2B платформа: туристы ищут маршруты и брон
 | Сущность | Живых |
 |----------|-------|
 | Мест (`places`) | 385 |
-| Маршрутов (`kamchatka_routes`) | 365 |
+| Маршрутов (`kamchatka_routes`) | 364 |
 | Гидов с действующей аттестацией | 112 |
 
 <sub>places: is_visible = true и merged_into_id IS NULL · kamchatka_routes: is_visible = true и merged_into_id IS NULL · guide_certifications: различных guide_id с is_verified = true и неистёкшим expiry_date</sub>
