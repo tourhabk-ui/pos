@@ -313,7 +313,8 @@ export default function PlaceDetailClient({ id, initialPlace = null, landingHead
     || place.safety.registrationRequired
     || Boolean(place.volcanoStatus)
     || (place.locationType === 'volcano' && hasVolcanoCamera(place.name));
-  const hasAbout = Boolean(place.essence || place.description || place.descriptionWithdrawn)
+  const hideWithdrawnBanner = Boolean(landingHeading);
+  const hasAbout = Boolean(place.essence || place.description || (place.descriptionWithdrawn && !hideWithdrawnBanner))
     || Boolean(place.indigenous)
     || place.safety.hazardTypes.length > 0
     || place.safety.altitudeM != null
@@ -538,6 +539,7 @@ export default function PlaceDetailClient({ id, initialPlace = null, landingHead
                 description={place.description}
                 descriptionSource={place.descriptionSource}
                 descriptionWithdrawn={place.descriptionWithdrawn}
+                hideWithdrawnBanner={hideWithdrawnBanner}
                 byModel={place.descriptionByModel}
                 impression={place.descriptionImpression}
                 placeId={place.id}

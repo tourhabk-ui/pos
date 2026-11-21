@@ -94,9 +94,19 @@ describe('карточка места', () => {
     expect(container.textContent).toBe('');
   });
 
+  it('при посадочной статье баннер «описание убрали» не показывается', () => {
+    const { container } = render(
+      <PlaceDescription name="Паратунка" essence={null} description={null} descriptionWithdrawn hideWithdrawnBanner placeId="p" />,
+    );
+    expect(container.textContent).toBe('');
+    expect(container.textContent).not.toMatch(/написано не по источникам/);
+  });
+
   it('раздел «О месте» открывается и ради строки о снятии', () => {
     const src = readFileSync(join(ROOT, 'app/places/[id]/_PlaceDetailClient.tsx'), 'utf-8');
-    expect(src).toMatch(/hasAbout = Boolean\(place\.essence \|\| place\.description \|\| place\.descriptionWithdrawn\)/);
+    expect(src).toMatch(/hideWithdrawnBanner = Boolean\(landingHeading\)/);
+    expect(src).toMatch(/place\.descriptionWithdrawn && !hideWithdrawnBanner/);
+    expect(src).toMatch(/hideWithdrawnBanner=\{hideWithdrawnBanner\}/);
     expect(src).toMatch(/descriptionWithdrawn=\{place\.descriptionWithdrawn\}/);
   });
 
