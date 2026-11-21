@@ -70,6 +70,7 @@ const SHIVELUCH: ActiveWarning = {
   statement: 'не ближе 10 км к вершине',
   period: '06:00 24.10–06:00 25.10',
   sourceUrl: 'https://vk.com/mchs_kamchatka',
+  speaker: 'МЧС',
 };
 
 beforeEach(() => {

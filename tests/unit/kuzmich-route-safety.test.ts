@@ -14,7 +14,7 @@ import { finishKuzmichAnswer } from '@/lib/kuzmich/answer-guards';
 import { formatWarningBlock, warningsFromRows, MCHS_UNREAD_NOTE } from '@/lib/safety/mchs-bulletin';
 
 const BLOCK = formatWarningBlock(warningsFromRows([
-  { alert_type: 'volcanic_eruption', title: 'Вулкан Шивелуч: выброс пепла', description: '', volcano_name: 'Шивелуч', source_url: 'https://41.mchs.gov.ru/x' },
+  { alert_type: 'volcanic_eruption', title: 'Вулкан Шивелуч: выброс пепла', description: '', volcano_name: 'Шивелуч', source_url: 'https://41.mchs.gov.ru/x', external_id: 'mchs/2026-11-20/x' },
 ]));
 
 describe('isRouteQuestion', () => {

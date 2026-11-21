@@ -162,7 +162,7 @@ vi.mock('@/lib/db-pool', () => ({
 import { recommendTrip, SAFETY_ALERTS_UNREAD_NOTE, type TripProfile } from '@/lib/planner/engine';
 import { planWarningLines } from '@/lib/kuzmich/trip-plan-tool';
 import {
-  mchsBeforeTripNote, relevantUntilOf, splitWarningsForTrip, warningsFromRows,
+  isOfferingNote, mchsBeforeTripNote, relevantUntilOf, splitWarningsForTrip, warningsFromRows,
 } from '@/lib/safety/mchs-bulletin';
 
 const NEXT_JULY = new Date().getUTCFullYear() + 1;
@@ -333,18 +333,18 @@ describe('сводка МЧС судится по датам поездки', ()
   const ROWS = () => [
     // Вулкан без срока, сводка вчера: говорит о ближайших двух неделях.
     { alert_type: 'volcanic_eruption', title: 'Вулкан Мутновский', description: 'Рекомендовано не приближаться',
-      source_url: 'https://example.org/mchs/1', volcano_name: 'Мутновский', expires_iso: null, published_iso: atIn(-1) },
+      source_url: 'https://example.org/mchs/1', external_id: 'vk_mchs/1/v1', volcano_name: 'Мутновский', expires_iso: null, published_iso: atIn(-1) },
     // Сводка со сроком до завтра.
     { alert_type: 'volcanic_eruption', title: 'Вулкан Безымянный', description: 'Рекомендовано не приближаться',
-      source_url: 'https://example.org/mchs/2', volcano_name: 'Безымянный', expires_iso: atIn(1), published_iso: atIn(-1) },
+      source_url: 'https://example.org/mchs/2', external_id: 'vk_mchs/2/v2', volcano_name: 'Безымянный', expires_iso: atIn(1), published_iso: atIn(-1) },
   ];
 
   it('поездка через полгода: ни день, ни общая сводка не несут сегодняшнего МЧС; агенту — «проверьте ближе к выезду»', async () => {
     MCHS_ROWS = ROWS();
     const rec = await recommendTrip(PROOF);
-    expect(rec.days.flatMap((d) => d.dayWarnings ?? []).some((w) => w.startsWith('МЧС:'))).toBe(false);
+    expect(rec.days.flatMap((d) => d.dayWarnings ?? []).some((w) => isOfferingNote(w))).toBe(false);
     expect(rec.warnings.some((w) => w.type === 'mchs')).toBe(false);
-    const note = rec.warnings.find((w) => w.message.startsWith('Сводки МЧС на сегодня'));
+    const note = rec.warnings.find((w) => w.message.startsWith('Сводки на сегодня'));
     expect(note?.message).toMatch(/Мутновский/);
     expect(note?.message).toMatch(/Безымянный/);
     expect(planWarningLines(rec)).toContain(note?.message);
@@ -359,7 +359,7 @@ describe('сводка МЧС судится по датам поездки', ()
     expect(dayLines.some((w) => w.includes('МЧС о вулкане Мутновский'))).toBe(true);
     expect(dayLines.some((w) => w.includes('Безымянный'))).toBe(false);
     expect(rec.warnings.find((w) => w.type === 'mchs')?.message).toMatch(/Мутновский/);
-    expect(rec.warnings.find((w) => w.message.startsWith('Сводки МЧС на сегодня'))?.message).toMatch(/Безымянный/);
+    expect(rec.warnings.find((w) => w.message.startsWith('Сводки на сегодня'))?.message).toMatch(/Безымянный/);
   });
 
   it('срок строки: срок — по дню Камчатки; без срока — горизонт от сводки; ничего — не известно', () => {

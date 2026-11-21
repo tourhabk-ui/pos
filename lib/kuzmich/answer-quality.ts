@@ -503,10 +503,10 @@ function composeStays(input: ComposeInput): CommercialAnswer {
   }
   const shown = pool.slice(0, 8);
   const stayCta = shown.length === 1 ? shown[0].url : board;
-  const lines = shown.map((item) => {
-    const flag = offeringLine(`${item.name} ${item.zone ?? ''}`, input);
-    return `- ${item.name} — ${item.priceText ?? 'цена не указана'} — ${item.url}${flag}`;
-  });
+  // Строка сводки под объектом — признак, что сводка-итог внизу нужна. До 21.11
+  // это узнавалось по «МЧС:» в строке, и строка «… о вулкане …» его не давала.
+  const flags = shown.map((item) => offeringLine(`${item.name} ${item.zone ?? ''}`, input));
+  const lines = shown.map((item, i) => `- ${item.name} — ${item.priceText ?? 'цена не указана'} — ${item.url}${flags[i]}`);
   const nights = nightCount(input.question);
   const perNight = nights
     ? `Цена — за сутки, как в витрине. Сумму за ${nights} ночи не считаю.`
@@ -520,7 +520,7 @@ function composeStays(input: ComposeInput): CommercialAnswer {
   return {
     visible: dedupeParagraphs([
       todayLine(input.now),
-      ['Жильё из витрины:', ...lines, more, warningFooter(input, lines.some((l) => l.includes('МЧС:')))].filter(Boolean).join('\n'),
+      ['Жильё из витрины:', ...lines, more, warningFooter(input, flags.some(Boolean))].filter(Boolean).join('\n'),
       perNight,
       springs,
       requestCta('владельцу жилья', stayCta, input.surface),

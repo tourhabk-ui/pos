@@ -284,7 +284,7 @@ describe('сдвиг дат и строки безопасности дня', ()
 
   it('сводка МЧС, срок которой кончается до нового начала, со дня снимается; новая — ставится', async () => {
     const ended: ActiveWarning = { kind: 'road', place: 'Мутновская дорога', stems: ['мутнов'], period: 'до 12.07', sourceUrl: null, relevantUntil: '2027-07-12' };
-    const fresh: ActiveWarning = { kind: 'volcano', place: 'Авачинский', stems: ['авачин'], statement: 'не приближаться', period: 'до 30.08', sourceUrl: null, relevantUntil: '2027-08-30' };
+    const fresh: ActiveWarning = { kind: 'volcano', place: 'Авачинский', stems: ['авачин'], statement: 'не приближаться', period: 'до 30.08', sourceUrl: null, relevantUntil: '2027-08-30', speaker: 'МЧС' };
     const p = plan();
     p.days[1].dayWarnings = [offeringSentence(ended)];
     mchs = [ended, fresh];
@@ -309,7 +309,7 @@ describe('сдвиг дат и строки безопасности дня', ()
   // Разбор планера 14.11 (Кузьмич/MCP-2): сводка МЧС — в ответе каждой правки,
   // а не только сдвигающей начало поездки.
   it('правка без сдвига дат (удалить день) — сводка МЧС в ответе и строка на дне', async () => {
-    const fresh: ActiveWarning = { kind: 'volcano', place: 'Авачинский', stems: ['авачин'], statement: 'не приближаться', period: 'до 30.08', sourceUrl: null, relevantUntil: '2027-08-30' };
+    const fresh: ActiveWarning = { kind: 'volcano', place: 'Авачинский', stems: ['авачин'], statement: 'не приближаться', period: 'до 30.08', sourceUrl: null, relevantUntil: '2027-08-30', speaker: 'МЧС' };
     mchs = [fresh];
     const r = await applyPlanEdit(plan(), { kind: 'remove_day', day: 5 }, deps());
     if (!r.ok) throw new Error(r.reason);
