@@ -58,7 +58,7 @@ export function TripCostView({ data }: { data: TripCostData }) {
         <header className="space-y-3">
           <h1 className="font-playfair text-3xl sm:text-4xl font-bold" style={{ color: 'var(--text-primary)' }}>Сколько стоит поездка на Камчатку</h1>
           {lead && <p className="text-base" style={{ color: 'var(--text-primary)' }} data-trip-lead>{lead}</p>}
-          <Muted>Общей суммы «за неделю» здесь нет: она зависит от того, что вы выберете. Смету из выбранных туров и жилья по их ценам складывает <Link className="underline" style={{ color: 'var(--ocean)' }} href="/planning">планер Ведара</Link>.</Muted>
+          <Muted>Общей суммы «за неделю» здесь нет: она зависит от того, что вы выберете. Смету из выбранных туров и жилья по их ценам складывает <Link className="underline" style={{ color: 'var(--ocean)' }} href="/planner">планер Ведара</Link> (после входа: план хранится в личном кабинете).</Muted>
         </header>
 
         <section className="space-y-3" aria-labelledby="cost-tours">

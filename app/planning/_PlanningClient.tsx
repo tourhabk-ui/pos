@@ -5724,8 +5724,13 @@ function PlanningTab({ onStartTrail }: { onStartTrail?: (routeId: string) => voi
           <Link href="/planner"
             className="flex items-center justify-center gap-2 w-full py-3 rounded-xl font-semibold text-sm text-white transition-opacity hover:opacity-90"
             style={{ background: 'var(--accent)' }}>
-            Собрать маршрут <ChevronRight className="w-4 h-4" />
+            Собрать поездку по дням <ChevronRight className="w-4 h-4" />
           </Link>
+          {/* Конструктор открывается после входа (слово владельца 14.11 «6-3»):
+              сказать это до нажатия, а не экраном входа после (21.11). */}
+          <p className="text-xs text-center mt-2" style={{ color: 'var(--text-muted)' }}>
+            Конструктор поездки — после входа: план сохранится в личном кабинете.
+          </p>
         </div>
       </div>
 
@@ -5782,6 +5787,23 @@ function PlanningTab({ onStartTrail }: { onStartTrail?: (routeId: string) => voi
           </div>
         )}
       </div>
+
+      {/* Популярные маршруты — сразу под поиском, до чек-листа (21.11, разбор уходов:
+          на телефоне они стояли за первым экраном, и без набора текста человек
+          не видел ни одного маршрута). */}
+      {routes.length > 0 && (
+        <div>
+          <div className="flex items-center justify-between mb-3">
+            <h2 className="font-bold text-[var(--text-primary)]">Популярные маршруты</h2>
+            <Link href="/routes" className="text-sm text-[var(--ocean)] hover:underline flex items-center gap-0.5">
+              Все маршруты <ChevronRight className="w-3.5 h-3.5" />
+            </Link>
+          </div>
+          <div className="flex gap-3 overflow-x-auto pb-2" style={{ scrollbarWidth: 'none' }}>
+            {routes.map(route => <RouteCard key={route.id} route={route} onNavigate={onStartTrail} />)}
+          </div>
+        </div>
+      )}
 
       {/* Checklist */}
       <div className="rounded-lg p-5" style={{ background: 'var(--bg-card)', border: '1px solid var(--border)' }}>
@@ -5870,21 +5892,6 @@ function PlanningTab({ onStartTrail }: { onStartTrail?: (routeId: string) => voi
           })}
         </div>
       </div>
-
-      {/* Popular routes */}
-      {routes.length > 0 && (
-        <div>
-          <div className="flex items-center justify-between mb-3">
-            <h2 className="font-bold text-[var(--text-primary)]">Популярные маршруты</h2>
-            <Link href="/routes" className="text-sm text-[var(--ocean)] hover:underline flex items-center gap-0.5">
-              Все маршруты <ChevronRight className="w-3.5 h-3.5" />
-            </Link>
-          </div>
-          <div className="flex gap-3 overflow-x-auto pb-2" style={{ scrollbarWidth: 'none' }}>
-            {routes.map(route => <RouteCard key={route.id} route={route} onNavigate={onStartTrail} />)}
-          </div>
-        </div>
-      )}
 
       {/* Gear checklist modal */}
       {showGearModal && (
