@@ -54,8 +54,9 @@ function readDeviceId(): string | null {
 function saveDeviceId(id: string): void {
   try {
     deviceStorage()?.setItem('mesh-device-id', id);
-  } catch {
+  } catch (err) {
     // Квота или запрет хранилища — id живёт до перезагрузки страницы.
+    console.warn('[volcano-mesh] id устройства не сохранён:', err instanceof Error ? err.name : 'неизвестно');
   }
 }
 
