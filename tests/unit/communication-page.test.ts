@@ -16,11 +16,10 @@ import { join } from 'node:path';
 const read = (p: string) => readFileSync(join(process.cwd(), p), 'utf-8');
 
 describe('напоминание про маяк на обеих SOS-поверхностях', () => {
-  it('/sos: шаг «активируй маяк» есть и стоит до SMS-шага', () => {
-    const src = read('app/sos/page.tsx');
-    expect(src).toContain('активируй его сейчас');
-    expect(src.indexOf('активируй его сейчас')).toBeLessThan(src.indexOf('отправь SMS'));
-  });
+  // /sos: шаг «активируй маяк» стоит до шага SMS — проверяется рендером
+  // экрана в tests/unit/sos-sms-button.test.tsx (21.11: текст шага SMS
+  // переехал в lib/safety/sos-sms.ts, и поиск строки в исходнике экрана
+  // перестал видеть порядок, который видит человек).
 
   it('/emergency: напоминание есть, согласованный баннер не тронут', () => {
     const html = read('public/emergency.html');
