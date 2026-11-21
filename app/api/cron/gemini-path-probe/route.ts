@@ -139,6 +139,16 @@ async function probeList(target: ProbeTarget, apiKey: string): Promise<{ probe: 
   }
 }
 
+/**
+ * Срок пробы генерации. 20 с — столько же ждёт живой код (`callGemini`), и
+ * проба 2 (20.11) кончилась на нём: «не ответила за 20 с» не отличает
+ * медленный ответ от зависшего (слово владельца «карт-бланш» 21.11: замерить
+ * с запасом). 40 с — вдвое больше срока живого кода, и вместе с пробами
+ * списка (по 10 с, обычно меньше секунды) укладывается в `maxDuration`;
+ * время ответа идёт в `latency_ms`, срок — в `timeout_ms`.
+ */
+export const GENERATE_PROBE_TIMEOUT_MS = 40_000;
+
 async function probeGenerate(target: ProbeTarget, apiKey: string, model: string) {
   const started = Date.now();
   try {
@@ -149,12 +159,13 @@ async function probeGenerate(target: ProbeTarget, apiKey: string, model: string)
         contents: [{ role: 'user', parts: [{ text: 'ok' }] }],
         generationConfig: { maxOutputTokens: 1 },
       }),
-      signal: AbortSignal.timeout(20_000),
+      signal: AbortSignal.timeout(GENERATE_PROBE_TIMEOUT_MS),
     });
     const body = await res.text().catch(() => '');
     return {
       path: target.path,
       model,
+      timeout_ms: GENERATE_PROBE_TIMEOUT_MS,
       outcome: classifyGemini(res.status, body),
       status: res.status,
       latency_ms: Date.now() - started,
@@ -164,6 +175,7 @@ async function probeGenerate(target: ProbeTarget, apiKey: string, model: string)
     return {
       path: target.path,
       model,
+      timeout_ms: GENERATE_PROBE_TIMEOUT_MS,
       outcome: 'unreachable' as const,
       status: null,
       latency_ms: Date.now() - started,
