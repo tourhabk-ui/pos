@@ -190,3 +190,48 @@ export const LANDING_CROSS_LINKS: Readonly<Record<string, { href: string; label:
   // Журнал 21.11: у посадочной «где остановиться» не было входа с хаба жилья.
   '/accommodations': { href: '/gde-ostanovitsya-na-kamchatke', label: 'Где остановиться на Камчатке: Петропавловск, Елизово или Паратунка' },
 };
+
+/** Тематические посадочные для блока «Гид по Камчатке»: реестр LANDINGS без
+ *  месячных страниц (у месяцев своя перелинковка MonthsNav и хаб «Когда ехать»). */
+export function guideLandings(): Landing[] {
+  return LANDINGS.filter((l) => !isMonthLanding(l));
+}
+
+/** Короткая подпись ссылки: часть H1 (или title) до двоеточия, без новых формулировок. */
+export function guideAnchor(l: Landing): string {
+  const beforeColon = (s: string): string | null => {
+    const i = s.indexOf(':');
+    return i === -1 ? null : s.slice(0, i).trim();
+  };
+  return beforeColon(l.h1) ?? beforeColon(l.title) ?? l.h1.trim();
+}
+
+const MD_HREF = /\]\((\/[^)\s#]+)(?:#[^)]*)?\)/g;
+
+/** Ссылки на другие посадочные из текста страницы; если меньше лимита —
+ *  те, что сами ссылаются сюда; остаток — из гида, без месяцев и без себя. */
+export function relatedLandings(current: Landing, limit = 5): Landing[] {
+  const seen = new Set<string>([current.path]);
+  const out: Landing[] = [];
+  const add = (l: Landing | null | undefined): boolean => {
+    if (!l || seen.has(l.path)) return out.length >= limit;
+    seen.add(l.path);
+    out.push(l);
+    return out.length >= limit;
+  };
+  const text = `${current.before}\n${current.after}`;
+  for (const m of text.matchAll(MD_HREF)) {
+    if (add(landingByPath(m[1]))) return out;
+  }
+  for (const l of LANDINGS) {
+    if (l.path === current.path) continue;
+    const t = `${l.before}\n${l.after}`;
+    if (t.includes(`](${current.path})`) || t.includes(`](${current.path}#`)) {
+      if (add(l)) return out;
+    }
+  }
+  for (const l of guideLandings()) {
+    if (add(l)) return out;
+  }
+  return out;
+}

@@ -18,6 +18,7 @@ import { listArticles, listArticleLinks, groupByTopic, type Article } from '@/li
 import { parseArticleMarkdown, shortAnswer } from '@/lib/articles/markdown';
 import { articlesHubIndexable, isArticleIndexable, NOINDEX_FOLLOW } from '@/lib/articles/noindex';
 import { defaultOgImages } from '@/lib/seo/og-image';
+import { KamchatkaGuide } from '@/components/landings/KamchatkaGuide';
 
 export const dynamic = 'force-dynamic';
 
@@ -146,6 +147,10 @@ export default async function ArticlesIndexPage() {
             ))}
           </div>
         )}
+
+        <div className="mt-14">
+          <KamchatkaGuide variant="full" />
+        </div>
       </div>
       </main>
     </>

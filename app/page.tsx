@@ -3,6 +3,7 @@ import { headers } from 'next/headers'
 import { Header } from '@/components/layout/Header'
 import { HOME_CONTAINER } from '@/lib/home/desktop-layout'
 import { Footer } from '@/components/layout/Footer'
+import { KamchatkaGuide } from '@/components/landings/KamchatkaGuide'
 import { OnSiteBanner } from '@/components/geo/OnSiteBanner'
 import { SectionErrorBoundary } from '@/components/shared/SectionErrorBoundary'
 import BottomNav from '@/components/shared/BottomNav'
@@ -149,6 +150,10 @@ export default async function Page() {
 
           {/* О платформе и дороги в остальные разделы (владелец 30.09). */}
           <DeskAbout counts={counts} />
+
+          {/* Сыщик 22.11: гид по посадочным — в основном потоке, потому что
+              подвал главной скрыт на телефоне (hidden md:block, issue #43). */}
+          <KamchatkaGuide variant="full" />
         </div>
       </main>
       {/* Футер — только desktop (CLAUDE.md §2); на мобильном — своя нижняя навигация v8 */}
