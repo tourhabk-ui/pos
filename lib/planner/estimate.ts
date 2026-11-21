@@ -304,7 +304,7 @@ export interface GroupEstimate {
  * строках «цены нет» читался как цена поездки). Одна строка для экрана,
  * печати и Кузьмича.
  */
-export function countedLine(lines: readonly Pick<EstimateLine, 'total'>[]): string {
+export function countedLine(lines: ReadonlyArray<{ total: unknown }>): string {
   const priced = lines.filter((l) => l.total).length;
   return `Посчитано ${priced} из ${lines.length} позиций`;
 }
