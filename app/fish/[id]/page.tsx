@@ -132,6 +132,21 @@ export default async function FishDetailPage({ params }: Props) {
               </div>
             </div>
 
+            {/* Прямой ответ на вопрос из выдачи — первым абзацем, с источником (Сыщик 21.11, GSC). */}
+            {species.leadAnswer && (
+              <p className="mt-6 max-w-2xl text-lg text-[var(--text-primary)] leading-relaxed" data-lead-answer>
+                {species.leadAnswer.text}{' '}
+                <a
+                  href={species.leadAnswer.source.url}
+                  target="_blank"
+                  rel="noopener noreferrer"
+                  className="text-sm text-[var(--text-muted)] underline hover:text-[var(--accent)]"
+                >
+                  Источник: {species.leadAnswer.source.title}
+                </a>
+              </p>
+            )}
+
             {/* Season bar */}
             <div className="mt-8">
               <p className="text-xs font-semibold text-[var(--text-muted)] uppercase tracking-widest mb-2">
