@@ -2,14 +2,16 @@
  * Цена, места и статус маршрута — только из вывода инструмента этого хода.
  */
 import { describe, it, expect } from 'vitest';
-import { guardOfferClaims, OFFER_HONEST_LINE, catalogToolRuns } from '@/lib/kuzmich/offer-claim-guard';
+import { guardOfferClaims, OFFER_HONEST_LINE, OFFER_PRICE_LINE, catalogToolRuns } from '@/lib/kuzmich/offer-claim-guard';
 import { finishKuzmichAnswer } from '@/lib/kuzmich/answer-guards';
 import type { ToolRun } from '@/lib/agents/eval/grounding';
 
 describe('guardOfferClaims', () => {
-  it('цену без инструмента заменяет честной строкой', () => {
+  it('цену без инструмента заменяет честной строкой на месте цифры', () => {
     const out = guardOfferClaims('Тур стоит 28 000 ₽ за день.', []);
-    expect(out.text).toBe(OFFER_HONEST_LINE);
+    expect(out.text).toBe(`Тур — ${OFFER_PRICE_LINE}.`);
+    expect(out.text).toContain(OFFER_HONEST_LINE);
+    expect(out.text).not.toContain('28 000');
     expect(out.removed).toHaveLength(1);
   });
 
@@ -21,7 +23,9 @@ describe('guardOfferClaims', () => {
 
   it('другая сумма, чем в инструменте, не проходит', () => {
     const runs: ToolRun[] = [{ name: 'get_tour', producedData: true, output: 'цена 28 000 ₽' }];
-    expect(guardOfferClaims('Тур стоит 35 000 ₽.', runs).text).toBe(OFFER_HONEST_LINE);
+    const out = guardOfferClaims('Тур стоит 35 000 ₽.', runs).text;
+    expect(out).toContain(OFFER_HONEST_LINE);
+    expect(out).not.toContain('35 000');
   });
 
   it('каталог в контексте промпта цену не обосновывает — нужен инструмент', () => {
@@ -37,7 +41,9 @@ describe('guardOfferClaims', () => {
   });
 
   it('«мест нет» без инструмента заменяется', () => {
-    expect(guardOfferClaims('На эти даты мест нет.', null).text).toBe(OFFER_HONEST_LINE);
+    const out = guardOfferClaims('На эти даты мест нет.', null).text;
+    expect(out).toContain(OFFER_HONEST_LINE);
+    expect(out).not.toMatch(/мест нет\./);
   });
 
   it('«мест нет» опирается на вывод get_tour_availability', () => {
@@ -47,7 +53,9 @@ describe('guardOfferClaims', () => {
   });
 
   it('«маршрут закрыт» без инструмента заменяется', () => {
-    expect(guardOfferClaims('Сейчас маршрут закрыт из-за снега.', []).text).toBe(OFFER_HONEST_LINE);
+    const out = guardOfferClaims('Сейчас маршрут закрыт из-за снега.', []).text;
+    expect(out).toContain(OFFER_HONEST_LINE);
+    expect(out).not.toMatch(/закрыт|снег/);
   });
 
   it('статус маршрута из инструмента остаётся', () => {
@@ -86,6 +94,52 @@ describe('guardOfferClaims', () => {
 
   it('пустой вывод инструмента цену не обосновывает', () => {
     const runs: ToolRun[] = [{ name: 'get_tour', producedData: false, output: 'не нашли. 12 000 ₽' }];
-    expect(guardOfferClaims('Стоит 12 000 ₽.', runs).text).toBe(OFFER_HONEST_LINE);
+    const out = guardOfferClaims('Стоит 12 000 ₽.', runs).text;
+    expect(out).toContain(OFFER_HONEST_LINE);
+    expect(out).not.toContain('12 000');
+  });
+});
+
+// Тест планировщика владельца 21.11: строка «не подтверждаю…» висела первой
+// строкой ответа без контекста. Защита та же, место — рядом с цифрой.
+describe('guardOfferClaims: строка рядом с цифрой, без ложных срабатываний', () => {
+  it('строка встаёт на место цены в пункте плана, пункт и его смысл на месте', () => {
+    const out = guardOfferClaims('- День 2. Горелый — 15 000 ₽ за человека (Андрей Запорожец).\n- День 3. Отдых.', []);
+    expect(out.text).toBe(`- День 2. Горелый — ${OFFER_PRICE_LINE} (Андрей Запорожец).\n- День 3. Отдых.`);
+  });
+
+  it('переводы строк сохраняются: список не склеивается в одну строку', () => {
+    const text = 'Два момента:\n- День 6 пустой, план соберётся полнее.\n- Тур стоит 99 000 ₽.';
+    const out = guardOfferClaims(text, []).text;
+    expect(out.split('\n')).toHaveLength(3);
+    expect(out).not.toMatch(/полнее\. -/);
+  });
+
+  it('цены из инструмента плана — текст цел (копейки в выводе, пробелы в ответе)', () => {
+    const runs: ToolRun[] = [{ name: 'make_trip_plan', producedData: true, output: 'День 2. Горелый — от 15000.00 ₽/чел.\nИтого на группу из 2 чел.: 70 000 ₽' }];
+    const text = 'День 2. Горелый — от 15 000 ₽ за человека. Итого на двоих 70 000 ₽.';
+    const out = guardOfferClaims(text, runs);
+    expect(out.text).toBe(text);
+    expect(out.removed).toHaveLength(0);
+  });
+
+  it('«от 5 лет», «от 7 дней» — не цена: без инструмента предложение цело', () => {
+    const text = 'Облёт подойдёт детям от 5 лет. Берите поездку от 7 дней.';
+    expect(guardOfferClaims(text, []).text).toBe(text);
+  });
+
+  it('выдуманная цена рядом с подтверждённой — заменяется только она', () => {
+    const runs: ToolRun[] = [{ name: 'make_trip_plan', producedData: true, output: 'Горелый — 15 000 ₽' }];
+    const out = guardOfferClaims('Горелый — 15 000 ₽, бухта — 22 000 ₽.', runs).text;
+    expect(out).toContain('15 000 ₽');
+    expect(out).not.toContain('22 000');
+    expect(out).toContain(OFFER_PRICE_LINE);
+  });
+
+  it('ни одного голого OFFER_HONEST_LINE отдельной строкой', () => {
+    const answer = 'Собрал план.\n\nТур стоит 28 000 ₽.\n\nНа даты мест нет.\n\nМаршрут закрыт.';
+    const out = guardOfferClaims(answer, []).text;
+    for (const para of out.split(/\n+/)) expect(para.trim()).not.toBe(OFFER_HONEST_LINE);
+    expect(out).not.toMatch(/28 000|мест нет\.|Маршрут закрыт/);
   });
 });

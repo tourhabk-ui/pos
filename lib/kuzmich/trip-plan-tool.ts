@@ -31,6 +31,7 @@ import { estimateGroup, unpricedTail, type GroupEstimate } from '@/lib/planner/e
 import { priceWithUnitWords } from '@/lib/tours/price-label';
 import { kamchatkaStamp } from '@/lib/safety/place-day-status';
 import { kamchatkaDate } from '@/lib/analytics/kamchatka-day';
+import { dayCardWarning, runLabel, SAFETY_BLOCK_TITLE, shortWeather, tourRuns } from '@/lib/planner/day-card-view';
 import { saveDraft, loadDraft, updateDraft, isDraftId, type DraftSurface } from '@/lib/planner/plan-drafts';
 import { McpUserError } from '@/lib/mcp/jsonrpc';
 import { parsePlanStart, rangeDays, planStartRefusal, type PlanStart } from '@/lib/kuzmich/plan-start';
@@ -39,6 +40,7 @@ import { nightLodgingIncluded } from '@/lib/planner/lodging-included';
 import { EDIT_NOT_RECHECKED_NOTE, planWideAfterEdit } from '@/lib/planner/plan-edit-warnings';
 import { isOfferingNote } from '@/lib/safety/mchs-bulletin';
 import { MAX_ADULTS } from '@/lib/planner/party-limits';
+import { fetchSelfFillPlaces, fillEmptyDays } from '@/lib/planner/self-fill';
 
 /**
  * Как ехать — из слова модели. Принимаются и коды (self/operator/mixed), и
@@ -852,7 +854,6 @@ export function tourAvailabilityLine(
   return `${id}: свободных дат в ваши даты не нашли, а ведёт ли тур расписание, проверить не смогли — места не подтверждены, не утверждайте, что мест нет`;
 }
 
-const DAY_WARNINGS_SHOWN = 3;
 /**
  * Восемь, а не шесть (07.11): до агента теперь доходит и «зона не вошла» —
  * справка уровня info, которая раньше отсекалась фильтром. Порядок ниже
@@ -919,6 +920,19 @@ function calendarOf(keeps: boolean | null | undefined): TourCalendar | undefined
   return keeps === true ? 'dated' : keeps === false ? 'request' : undefined;
 }
 
+/** «дни 1–5, 8» — номера дней строки блока безопасности. */
+function daysShort(days: readonly number[]): string {
+  const sorted = [...new Set(days)].sort((a, b) => a - b);
+  const parts: string[] = [];
+  for (let i = 0; i < sorted.length; i++) {
+    let j = i;
+    while (j + 1 < sorted.length && sorted[j + 1] === sorted[j] + 1) j++;
+    parts.push(j > i ? `${sorted[i]}–${sorted[j]}` : String(sorted[i]));
+    i = j;
+  }
+  return `${sorted.length > 1 ? 'дни' : 'день'} ${parts.join(', ')}`;
+}
+
 /** План по дням → текст для чата (Telegram/MAX/веб). Чистая, под тестом. */
 export function formatTripPlanForChat(
   days: DayPlan[],
@@ -955,7 +969,17 @@ export function formatTripPlanForChat(
     '',
   ];
   let prevDay = 0;
+  // Многодневный тур — одним блоком «Дни 1–5» (кейс владельца 21.11).
+  const runs = tourRuns(days);
+  // Строки дней, не вставшие на день, — один раз в «Безопасность и разрешения».
+  const daySafety = new Map<string, number[]>();
   for (const d of days) {
+    const run = runs.get(d.day);
+    if (run && run.first !== d.day) {
+      for (const w of (d.dayWarnings ?? []).filter(Boolean)) daySafety.set(w, [...(daySafety.get(w) ?? []), d.day]);
+      prevDay = d.day;
+      continue;
+    }
     // Разрыв в нумерации — дни, которые движок не наполнил и не придумал
     // (19.09). Молча пропущенные, они читались как «День 5 → День 7» (аудит
     // MCP 29.09): человек не понимал, куда делся шестой.
@@ -975,8 +999,10 @@ export function formatTripPlanForChat(
     // группу агент читал как цену с человека. Цены для группы нет (вне ступеней
     // оператора) — так и сказано строкой ниже, без числа.
     const price = d.realPrice != null && d.realPrice > 0 ? ` — ${priceWithUnitWords(d.realPrice, d.realTour?.priceUnit)}` : '';
-    lines.push(`День ${d.day}. ${capitalize(d.title)}${price}`);
+    lines.push(`${run ? runLabel(run) : `День ${d.day}`}. ${capitalize(d.title)}${price}`);
     if (d.priceMissing) lines.push(`   ${d.priceMissing}`);
+    // Самостоятельный день по месту — ссылка на карточку места (21.11).
+    if (d.placeHref) lines.push(`   Без тура и без цены, карточка места: ${d.placeHref}`);
     const planDayIso = context?.arrivalIso
       ? new Date(Date.parse(`${context.arrivalIso}T00:00:00Z`) + (d.day - 1) * 86400000).toISOString().slice(0, 10)
       : null;
@@ -987,13 +1013,18 @@ export function formatTripPlanForChat(
     // Строки сводки МЧС потолком не режутся и идут первыми (разбор 14.11,
     // Кузьмич/MCP-2): движок кладёт их на день последними, и у дня «медведи»
     // без тура три строки до МЧС съедали её — у агента MCP планировщика нет.
+    // С 21.11 (слово владельца): на дне — не больше одной короткой строки и
+    // только о месте из его программы; всё остальное — один раз, без
+    // повторов, в «Безопасность и разрешения» под планом. Ничего не теряется.
     const dayWarn = (d.dayWarnings ?? []).filter(Boolean);
-    const mchsWarn = dayWarn.filter((w) => isOfferingNote(w));
-    const otherWarn = dayWarn.filter((w) => !isOfferingNote(w));
-    for (const w of [...mchsWarn, ...otherWarn.slice(0, DAY_WARNINGS_SHOWN)]) lines.push(`   ! ${w}`);
-    if (otherWarn.length > DAY_WARNINGS_SHOWN) lines.push(`   …и ещё ${otherWarn.length - DAY_WARNINGS_SHOWN} — в планировщике`);
-    // Что взять по прогнозу — только в пределах прогноза (#3394, п.6).
-    if (d.weatherKit) lines.push(`   ${d.weatherKit}`);
+    const onDay = dayCardWarning(d);
+    if (onDay) lines.push(`   ! ${onDay}`);
+    for (const w of dayWarn) daySafety.set(w, [...(daySafety.get(w) ?? []), d.day]);
+    // Погода — коротко; совет по одежде — в общем блоке.
+    const weather = shortWeather(d);
+    if (weather) lines.push(`   Погода: ${weather}`);
+    const kit = d.weatherKit ? /Возьмите [^.]+\./.exec(d.weatherKit)?.[0] : null;
+    if (kit) daySafety.set(`Одежда по прогнозу: ${kit.replace(/^Возьмите /, 'возьмите ')}`, [...(daySafety.get(`Одежда по прогнозу: ${kit.replace(/^Возьмите /, 'возьмите ')}`) ?? []), d.day]);
     // Метка пункта — последней строкой дня: над ней цена, места и
     // предупреждения, из которых она выведена.
     const status = statusOf(d);
@@ -1002,6 +1033,11 @@ export function formatTripPlanForChat(
   if (unchecked) lines.push('', unchecked);
   if (context?.priceLines && context.priceLines.length > 0) {
     lines.push('', ...context.priceLines);
+  }
+  if (daySafety.size > 0) {
+    // Сводки МЧС — первыми: у агента MCP планировщика нет (разбор 14.11).
+    const entries = [...daySafety].sort(([a], [b]) => Number(isOfferingNote(b)) - Number(isOfferingNote(a)));
+    lines.push('', `${SAFETY_BLOCK_TITLE}:`, ...entries.map(([w, ds]) => `- ${w} (${daysShort(ds)})`));
   }
   if (warnings.length > 0) {
     // Без молчаливого потолка: прежний slice(0, 2) отрезал третье и
@@ -1085,6 +1121,21 @@ export async function makeTripPlanForKuzmich(
     travelStyle,
     restDays,
   }, { itinerary: 'plain' });
+
+  // План на N дней — N дней и в чате, и на странице /trip (тест 21.11): дни,
+  // которые движок не наполнил, — самостоятельными местами из базы
+  // (lib/planner/self-fill). Черновик ниже сохраняется уже с ними.
+  if (rec.days.length > 0 && rec.days.length < daysNum) {
+    const places = await fetchSelfFillPlaces(arrival.getUTCMonth() + 1);
+    const fill = fillEmptyDays(rec.days, daysNum, places, SITE);
+    if (fill.filled.length > 0) {
+      rec.days = fill.days;
+      if (rec.days.length >= daysNum) {
+        // «Наполнили 6 из 7 … не придумываем» — уже неправда.
+        rec.warnings = rec.warnings.filter((w) => !(w.type === 'duration' && /^Наполнили /.test(w.message)));
+      }
+    }
+  }
 
   // Жильё и машина к плану — настоящие варианты тем же подбором, что экран
   // планера (аудит 07.11, 4.3; lib/kuzmich/plan-offers). Параллельно с

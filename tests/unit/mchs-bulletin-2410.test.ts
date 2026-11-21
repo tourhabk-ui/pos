@@ -167,8 +167,14 @@ describe('тур и маршрут не называются свободным�
     expect(notes.join('\n')).toMatch(/Ключевской/);
     expect(notes.join('\n')).toContain(PERIOD);
     expect(notes.join('\n')).toContain(SOURCE);
-    const day = notesForPlanDay('Горячие источники', ['northern'], warnings);
-    expect(day.some((n) => /Шивелуч|Ключевской|Безымянный/.test(n))).toBe(true);
+    // Кейс владельца 21.11: вулкан красит день, только если он назван в его
+    // программе; вся зона — в сводке плана (warningDigest), не на каждом дне.
+    expect(notesForPlanDay('Горячие источники', ['northern'], warnings).some((n) => /Шивелуч|Ключевской|Безымянный/.test(n))).toBe(false);
+    const live = warnings.filter((w) => !w.ended && w.kind === 'volcano');
+    if (live.length > 0) {
+      const named = notesForPlanDay(`Подход к вулкану ${live[0].place}`, ['northern'], warnings);
+      expect(named.some((n) => n.includes(live[0].place))).toBe(true);
+    }
     expect(notesForPlanDay('Прогулка по Петропавловску', ['avachinsky'], warnings)).toEqual([]);
   });
 

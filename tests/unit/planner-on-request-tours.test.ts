@@ -169,10 +169,11 @@ describe('«Сам» и «Вперемешку»: месяц без операт
     TOURS['avachinsky:trekking'] = [];
     try {
       const rec = await recommendTrip({ ...OCTOBER, travelStyle: 'mixed' });
-      // Общие дни — «на выбор» (open); свободный день в городе — не треккинг.
-      const open = rec.days.filter((d) => d.activityMode === 'open');
-      expect(open.length).toBeGreaterThan(0);
-      for (const d of open) expect(d.dayWarnings).toContain(OUT_OF_SEASON_DAY_NOTE);
+      // Кейс владельца 21.11: общий день без тура в несезон в план не ставится
+      // вовсе — на его месте «подходящего тура на эти даты нет».
+      expect(rec.days.filter((d) => d.activityMode === 'open')).toEqual([]);
+      expect(rec.days.flatMap((d) => d.dayWarnings ?? [])).not.toContain(OUT_OF_SEASON_DAY_NOTE);
+      expect(rec.days.some((d) => d.title === 'Подходящего тура на эти даты нет')).toBe(true);
     } finally {
       TOURS['avachinsky:trekking'] = [{ tourId: 't-trek', title: 'Трекинг к подножию вулкана', zone: 'avachinsky', activityType: 'trekking' }];
     }

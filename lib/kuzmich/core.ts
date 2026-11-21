@@ -20,6 +20,8 @@ import { reserveBooking, ReserveError, type ReserveErrorCode } from '@/lib/booki
 import { SAFETY_TOOLS } from '@/lib/kuzmich/safety-claim-guard';
 import { finishKuzmichAnswer } from '@/lib/kuzmich/answer-guards';
 import { catalogToolRuns } from '@/lib/kuzmich/offer-claim-guard';
+import { monthsNamedIn } from '@/lib/tours/season-month';
+import { filterToursByMonth } from '@/lib/kuzmich/tour-season-filter';
 import { appendRouteSafety, ROUTE_SAFETY_SOURCE } from '@/lib/kuzmich/route-safety';
 import { asksTripPlan, checkAnswerPrices } from '@/lib/kuzmich/answer-quality';
 import { asksTourComparison } from '@/lib/kuzmich/tour-ask';
@@ -330,6 +332,9 @@ interface TourContextRow {
 /** Тур каталога: строка, как её видят агент и модель, и указатель слов его полей. */
 export interface CatalogTourEntry extends TourMatchEntry {
   line: string;
+  /** Сезон тура (season_start/season_end) — для отбора по месяцу (21.11). */
+  seasonStart?: string | null;
+  seasonEnd?: string | null;
   /** Ключи порядка тура: правило 1в и компания для круга (get_tours). */
   order: OfferKeyInput & { partnerId: string | null };
 }
@@ -797,7 +802,7 @@ export async function loadTourCatalogEntries(): Promise<TourCatalog | null> {
       const line = `ID${r.id}: "${untrustedField(r.title, TITLE_MAX)}"${loc} ${cat} ${dur} ${price}${op}${slots}${nextDate}${brief}${details}`;
       // Указатель — из полей той же строки базы, не из напечатанной строки:
       // в ней имя компании и служебный текст (lib/search/tour-match).
-      entries.set(String(r.id), { line, ...tourMatchEntry(r), order: orderKey(r) });
+      entries.set(String(r.id), { line, ...tourMatchEntry(r), order: orderKey(r), seasonStart: r.season_start ?? null, seasonEnd: r.season_end ?? null });
       return line;
     });
 
@@ -2900,6 +2905,14 @@ async function executeTool(name: string, args: Record<string, string>, opts: Too
         );
         text = filterTourCatalog(ctx, want, { activityLabel, entries: catalog.entries, farCap: wholeInChat ? FAR_CHAT_CAP : undefined, orderLines });
       }
+      // Сезон — до модели (тест 21.11): месяц из реплики человека; туры с
+      // записанным сезоном вне этого месяца не показываются. Схему инструмента
+      // (и снимок MCP) не трогаем: месяц берётся из самого вопроса.
+      const months = monthsNamedIn(opts.question);
+      if (months.length > 0) {
+        const seasons = new Map([...catalog.entries].map(([id, e]) => [id, { seasonStart: e.seasonStart ?? null, seasonEnd: e.seasonEnd ?? null }]));
+        text = filterToursByMonth(text, seasons, months).text;
+      }
       if (wholeInChat) return text;
       return paginateTourText(text, askedPage ? page : 1);
     }
@@ -3076,11 +3089,13 @@ export async function completeAnswerTours(
 ): Promise<{ text: string; source: string }> {
   const seller = await resolveSellerInText(question);
   const sellerNamed = seller?.kind === 'seller' && !seller.partialName;
-  const catalog = await executeTool('get_tours', {}, surface);
+  // Вопрос — инструменту: месяц из него отбирает туры по сезону (21.11).
+  const asked: ToolSurface = { ...surface, question };
+  const catalog = await executeTool('get_tours', {}, asked);
   const extra: ToursCall[] = [];
   for (const q of sellerNamed ? [] : questionQueries(question, catalog)) {
     if (toursCalls.some((c) => c.query.toLowerCase() === q)) continue;
-    extra.push({ query: q, output: await executeTool('get_tours', { activity_type: q }, surface) });
+    extra.push({ query: q, output: await executeTool('get_tours', { activity_type: q }, asked) });
   }
   const text = completeTourList(answer, question, [...toursCalls, ...extra], catalog, { seller: sellerNamed });
   return { text, source: completionSources(answer, text, [...extra.map((c) => c.output), catalog]) };
@@ -3269,7 +3284,10 @@ export async function aiChatAgentLoop(
       // о плане — тоже: ответ и есть план (аудит планировщика 07.11, K1).
       // Сравнение названных туров — тоже: ответ и есть они (ai-debug run 23).
       let final = result.content;
-      if (final && !detectEmergency(userText).detected && !asksTripPlan(userText) && !asksTourComparison(userText)) {
+      // План собран инструментом в этом ходе — ответ и есть план, даже если
+      // слова «план» в вопросе нет («7 дней в августе, вулканы и море», 21.11).
+      const planBuilt = msgs.some((m) => m.role === 'assistant' && (m.tool_calls ?? []).some((c) => PLAN_TOOLS.includes(c.function?.name as never)));
+      if (final && !planBuilt && !detectEmergency(userText).detected && !asksTripPlan(userText) && !asksTourComparison(userText)) {
         try {
           const done = await completeAnswerTours(final, userText, toursCalls, toolSurface);
           final = done.text;

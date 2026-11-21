@@ -40,7 +40,7 @@ import {
   synthesizeUserNotes,
   addViewedTour,
 } from '@/lib/ai/user-memory';
-import { detectTourIntent, findRelevantTours, wantsTourCards, type TourSuggestion } from '@/lib/ai/booking-intent';
+import { detectTourIntent, findRelevantTours, findToursByIds, wantsTourCards, type TourSuggestion } from '@/lib/ai/booking-intent';
 import { recordEngagementSignal } from '@/lib/kuzmich/engagement';
 import { buildRAGContext, buildGeoContext } from '@/lib/ai/rag-context';
 import { recordTouristDemand } from '@/lib/ai/tourist-demand-aggregator';
@@ -48,7 +48,10 @@ import { runSDKAgent } from '@/lib/agents/sdk/sdk-runner';
 import { getOperatorTools } from '@/lib/agents/sdk/operator-tools';
 import { partnerContextFor } from '@/lib/crm/partner-context';
 import { pickChatBookingTour } from '@/lib/ai/chat-booking-tour';
-import { aiChatAgentLoop, KUZMICH_SYSTEM, isAIErrorResponse, kuzmichTurnFacts, kuzmichSystemContent } from '@/lib/kuzmich/core';
+import { aiChatAgentLoop, KUZMICH_SYSTEM, isAIErrorResponse, kuzmichTurnFacts, kuzmichSystemContent, loadTourCatalogEntries } from '@/lib/kuzmich/core';
+import { toursNamedInAnswer, linkNamedTours, type NamedTourRef } from '@/lib/kuzmich/answer-tour-cards';
+import { parseTourLines } from '@/lib/agents/eval/commercial-checks';
+import { tourPath } from '@/lib/tours/tour-url';
 import { isYes, isNo } from '@/lib/kuzmich/yes-no';
 import { checkAnswerPrices } from '@/lib/kuzmich/answer-quality';
 import { resolveCommercialTurn } from '@/lib/kuzmich/commercial-turn';
@@ -588,6 +591,7 @@ async function handleChat(request: NextRequest, onStep?: (label: string) => void
     // Tour suggestions — only for tourist role, и никогда при признаках ЧП.
     // Карточки — те же туры, что в тексте. Чужой срез «три из поиска» не подмешивается.
     let tourSuggestions: TourSuggestion[] = [];
+    let namedInAnswer: NamedTourRef[] = [];
     if (commercialHit) {
       tourSuggestions = commercialTours.flatMap((tour) => {
         const price = Number(tour.base_price);
@@ -611,6 +615,18 @@ async function handleChat(request: NextRequest, onStep?: (label: string) => void
         };
         return [card];
       });
+    } else if (safeRole === 'tourist' && !emergencyNow && loopAnswered && answer) {
+      // Ответ цикла Кузьмича (план, список, совет): карточки — ровно туры,
+      // названные в тексте (тест планировщика 21.11). Поиск по слову вопроса
+      // сюда больше не подмешивается: под планом «Горелый и бухта Русская» он
+      // ставил «Вулканы 5 дней» и вертолёты.
+      try {
+        const catalog = await loadTourCatalogEntries();
+        namedInAnswer = catalog ? toursNamedInAnswer(answer, parseTourLines(catalog.text)) : [];
+        tourSuggestions = (await findToursByIds(namedInAnswer.map((t) => t.id))).filter((t) => Number(t.base_price) > 0);
+      } catch (err) {
+        logSwallowedFailure('ai-chat', 'карточки названных туров', err);
+      }
     } else if (safeRole === 'tourist' && !emergencyNow) {
       const intentResult = detectTourIntent(rawMessage);
       if (intentResult.detected && wantsTourCards(rawMessage)) {
@@ -668,6 +684,15 @@ async function handleChat(request: NextRequest, onStep?: (label: string) => void
         ?? [mchsBlock, geoContext, ragContext, memContext, agentInsights].filter(Boolean).join('\n\n'),
     });
     answer = finished.text;
+    // Туры, названные в тексте, — ссылками на свои страницы (21.11). После
+    // сторожей: они правят текст, а ссылка должна стоять на итоговом.
+    if (namedInAnswer.length > 0 && answer) {
+      const byId = new Map(tourSuggestions.map((t) => [String(t.id), t]));
+      answer = linkNamedTours(answer, namedInAnswer.flatMap((t) => {
+        const card = byId.get(t.id);
+        return card ? [{ ...t, href: tourPath(card) }] : [];
+      }));
+    }
     // Заявка создана — ответом становится её итог: текст модели до заявки
     // («оставить заявку?», «занятость не прочитана») ему противоречит.
     if (chatRequestText) answer = chatRequestText;

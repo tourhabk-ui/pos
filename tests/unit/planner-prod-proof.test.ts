@@ -217,8 +217,9 @@ describe('просьба получает день: рыбалка не тоне
     // В чате подготовку никто не называет: движок считает на среднюю, и
     // «у вас указана средняя» Кузьмич пересказывал как слова человека.
     const rec = await recommendTrip(PROOF);
+    // Строка о подготовке шла от общего дня вулканов без тура; с 21.11 такого
+    // дня в плане нет — проверяется форма строки, когда она есть.
     const fitness = rec.warnings.filter((w) => w.type === 'fitness').map((w) => w.message);
-    expect(fitness.length).toBeGreaterThan(0);
     for (const line of fitness) {
       expect(line).toMatch(/нужна хорошая подготовка, в расчёте плана — средняя/);
       expect(line).not.toMatch(/у вас/);
@@ -350,13 +351,15 @@ describe('сводка МЧС судится по датам поездки', ()
     expect(planWarningLines(rec)).toContain(note?.message);
   });
 
-  it('поездка через пять дней: действующая сводка — на дне своей зоны, кончившаяся — строкой', async () => {
+  it('поездка через пять дней: действующая сводка — в сводке плана, не на термах той же зоны (21.11); кончившаяся — строкой', async () => {
     MCHS_ROWS = ROWS();
     const rec = await recommendTrip({
       ...PROOF, interests: ['hot_spring'], arrivalDate: isoIn(5), departureDate: isoIn(9),
     });
     const dayLines = rec.days.flatMap((d) => d.dayWarnings ?? []);
-    expect(dayLines.some((w) => w.includes('МЧС о вулкане Мутновский'))).toBe(true);
+    // Кейс владельца 21.11: термам в Авачинской зоне «Мутновский: не
+    // приближаться» не пишется — вулкан в их программе не назван.
+    expect(dayLines.some((w) => w.includes('Мутновский'))).toBe(false);
     expect(dayLines.some((w) => w.includes('Безымянный'))).toBe(false);
     expect(rec.warnings.find((w) => w.type === 'mchs')?.message).toMatch(/Мутновский/);
     expect(rec.warnings.find((w) => w.message.startsWith('Сводки на сегодня'))?.message).toMatch(/Безымянный/);
@@ -398,6 +401,10 @@ describe('что план говорит о себе (аудит планиро�
   });
 
   it('вертолёт: «запасной день добавлен» — только когда он стоит в плане', async () => {
+    // С 21.11 день без тура в план не ставится: вертолётный день — туром.
+    TOURS['avachinsky:helicopter'] = [{ tourId: 't-heli', title: 'Вертолётная экскурсия', durationHours: 8, zone: 'avachinsky', activityType: 'helicopter' }];
+    TOURS['northern:geyser'] = [{ tourId: 't-geyser', title: 'Долина гейзеров на вертолёте', durationHours: 8, zone: 'northern', activityType: 'geyser' }];
+    SLOTS['t-heli'] = 5; SLOTS['t-geyser'] = 5;
     const heli = (departureDate: string) => recommendTrip({ ...PROOF, interests: ['helicopter'], departureDate });
     const heliNote = (rec: Awaited<ReturnType<typeof recommendTrip>>) =>
       rec.warnings.find((w) => w.type === 'weather' && w.message.startsWith('Вертолётные экскурсии'))?.message;

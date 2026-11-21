@@ -10,7 +10,7 @@
  * переезды, трансфер — говорят, кто называет цену, и в итог не входят.
  */
 // Кто назовёт цену строк без суммы — правило сметы, общее с ответом Кузьмича.
-import { NO_PRICES_YET, unpricedTail, type GroupEstimate } from '@/lib/planner/estimate';
+import { countedLine, NO_PRICES_YET, unpricedTail, type GroupEstimate } from '@/lib/planner/estimate';
 
 const fmt = (n: number) => Math.round(n).toLocaleString('ru-RU');
 const range = ([a, b]: [number, number]) => (a === b ? `${fmt(a)} ₽` : `${fmt(a)} — ${fmt(b)} ₽`);
@@ -60,6 +60,8 @@ export function GroupEstimateBlock({ estimate }: { estimate: GroupEstimate }) {
         <span className="text-xs font-medium text-[var(--text-secondary)]">Итого на группу</span>
         <span className="text-sm font-semibold text-[var(--accent)]">{priced ? range(total) : 'не посчитано'}</span>
       </div>
+      {/* Сколько строк вошло в итог (кейс владельца 21.11). */}
+      <p className="text-[10px] text-[var(--text-muted)] px-1" data-estimate-counted>{countedLine(lines)}</p>
       {priced ? (
         <div className="flex items-center justify-between px-1">
           <span className="text-[10px] text-[var(--text-muted)]">На человека</span>

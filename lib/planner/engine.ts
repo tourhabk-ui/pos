@@ -69,6 +69,7 @@ import { applyPlanParkStatus } from '@/lib/planner/park-status';
 import { applyPlanOfficialAlerts, officialAlertsPlanWarning, OFFICIAL_ALERTS_UNREAD_NOTE } from '@/lib/planner/official-alerts';
 import { KRONOKI_ESCORT } from '@/lib/seo/query-landings';
 import type { TourCalendar } from '@/lib/planner/item-status';
+import { replaceIdeaDays } from '@/lib/planner/honest-days';
 import {
   appendOfferingFlags, appendUnreadSafety, MCHS_UNREAD_NOTE, mchsBeforeTripNote, notesForPlanDay,
   splitWarningsForTrip, warningDigest, type ActiveWarning,
@@ -150,6 +151,11 @@ export interface DayPlan {
    * (lib/planner/park-status); у дня с туром ссылка — `realTour.tourId`.
    */
   routeId?: string;
+  /**
+   * Самостоятельный день по месту из базы (lib/planner/self-fill, 21.11):
+   * полный адрес карточки места. Ставится, когда движок день не наполнил.
+   */
+  placeHref?: string;
   // Reality-aware fields (all optional for backward compat)
   realTour?: {
     tourId: string;
@@ -1532,7 +1538,10 @@ async function generateDayPlans(
       // этой зоны — ехать туда не за чем. День без тура дома — свободный день
       // рядом с жильём; в чужой зоне — день дороги туда и день обратно ради
       // него (пруф: «Переезд → Треккинг без тура → Возвращение»).
-      if (style === 'operator' && !block.onlyTour && [...material.values()].every((mt) => mt.tours.length === 0)) {
+      // Кейс владельца 21.11: 7 ч внедорожником в Западную и вертолёт на
+      // 600 км в Северную — ради «идеи без тура». В чужую зону без тура
+      // оператора не едут в любом стиле; дома — по правилу стиля, как было.
+      if ((style === 'operator' || block.zone !== 'avachinsky') && !block.onlyTour && [...material.values()].every((mt) => mt.tours.length === 0)) {
         skippedNoTour.push({ zone: block.zone, interests: block.interests.slice() });
         continue;
       }
@@ -2112,23 +2121,14 @@ async function generateDayPlans(
   // вертолёте вне сезона, в «Сам» (вертолёт не ставится) и при убранных по
   // возрасту гейзерах. Теперь — только если вертолётный день в плане есть.
   const heliDayPlanned = days.some((d) => d.type === 'activity' && d.defaultTransport === 'helicopter');
-  if (needsHeliBuffer && heliDayPlanned && dayNum <= tripDays - departureDays) {
-    days.push({
-      day: dayNum++, type: 'buffer', zone: 'avachinsky',
-      title: 'Резервный день (нелётная погода)',
-      description: 'Если все вертолётные экскурсии состоялись — свободный день: термальные источники, город, сувениры.',
-      activityType: 'hot_spring',
-      priceFrom: 0, priceTo: 0,
-      coords: PKC_COORDS, defaultTransport: 'walking',
-      allowedTransports: ['walking', 'jeep'], difficulty: 'easy',
-      childFriendly: true, minChildAge: 0,
-      dayWarnings: ['Резерв на случай отмены вертолётных рейсов из-за погоды'],
-    });
-  }
+  // Резерву день оставлен первым, а встаёт он последним — перед вылетом
+  // (21.11: свободный день вставал после резерва, когда дальняя зона без
+  // тура перестала съедать дни).
+  const bufferWanted = needsHeliBuffer && heliDayPlanned && dayNum <= tripDays - departureDays ? 1 : 0;
 
   // ── Отдых по просьбе, не вставший между активными днями ──
   // (блоки кончились раньше, чем подошла его очередь). Сверх срока — нет.
-  while (restLeft > 0 && dayNum <= tripDays - departureDays) {
+  while (restLeft > 0 && dayNum <= tripDays - departureDays - bufferWanted) {
     days.push(requestedRestDay(dayNum++, 'avachinsky'));
     restLeft--;
   }
@@ -2140,7 +2140,7 @@ async function generateDayPlans(
   // одинаковых свободных дней — не план, а заполненная пустота. Один день
   // выдаётся, остаток честно остаётся незаполненным: о нём говорит
   // предупреждение в `recommendTrip`.
-  if (dayNum <= tripDays - departureDays) {
+  if (dayNum <= tripDays - departureDays - bufferWanted) {
     days.push({
       day: dayNum++, type: 'activity', zone: 'avachinsky',
       title: 'Свободный день. Город, сувениры, рыбный рынок',
@@ -2152,6 +2152,20 @@ async function generateDayPlans(
       dayWarnings: style === 'operator' ? ['Свободный день: тур оператора на него не ставили.'] : [],
       // Город пешком — самостоятельный день, тура за ним нет.
       activityMode: 'self',
+    });
+  }
+
+  if (bufferWanted > 0) {
+    days.push({
+      day: dayNum++, type: 'buffer', zone: 'avachinsky',
+      title: 'Резервный день (нелётная погода)',
+      description: 'Если все вертолётные экскурсии состоялись — свободный день: термальные источники, город, сувениры.',
+      activityType: 'hot_spring',
+      priceFrom: 0, priceTo: 0,
+      coords: PKC_COORDS, defaultTransport: 'walking',
+      allowedTransports: ['walking', 'jeep'], difficulty: 'easy',
+      childFriendly: true, minChildAge: 0,
+      dayWarnings: ['Резерв на случай отмены вертолётных рейсов из-за погоды'],
     });
   }
 
@@ -2435,8 +2449,15 @@ export async function recommendTrip(profile: TripProfile, opts: RecommendTripOpt
   // Туры без календаря (08.10): их даты свободны для заявки в любом месяце,
   // и месяц они открывают — но только турам оператора. «Сам» туров не берёт,
   // ему месяц открывает лишь наш сезонный ориентир.
-  const onRequest = (profile.travelStyle ?? 'mixed') === 'self' ? new Set<string>() : await fetchActivitiesOnRequest(cache);
-  const season = buildTripSeason(months, scheduled, onRequest);
+  // По месяцам (21.11): тур без календаря открывает занятие только в месяцы
+  // своего сезона — иначе «Медведи, Курильское озеро» вставали в январь.
+  const selfOnly = (profile.travelStyle ?? 'mixed') === 'self';
+  const onRequestByMonth = new Map<number, Set<string> | null>();
+  for (const m of months) onRequestByMonth.set(m, selfOnly ? new Set<string>() : await fetchActivitiesOnRequest(cache, m));
+  const onRequest: Set<string> | null = [...onRequestByMonth.values()].some((v) => v === null)
+    ? null
+    : new Set([...onRequestByMonth.values()].flatMap((v) => [...(v ?? [])]));
+  const season = buildTripSeason(months, scheduled, onRequestByMonth);
   /** Открытое каталогом хотя бы в одном месяце поездки; `null` — ни один месяц не прочитался. */
   const catalogueOpen = months.every((m) => season.openIn(m) === null)
     ? null
@@ -2464,7 +2485,11 @@ export async function recommendTrip(profile: TripProfile, opts: RecommendTripOpt
   const mchsTrip = mchs.ok
     ? splitWarningsForTrip(mchs.warnings, profile.arrivalDate ?? null)
     : { forTrip: [] as ActiveWarning[], endedBefore: [] as ActiveWarning[] };
-  const { days, unchecked, spanUnknown, tooLong, extendedForTour, overLimit, preferenceNotes, selfSkipped, selfSafetyUnchecked, skippedLegs, returnLegMissing, offDays, missReasons, skippedNoTour } = await generateDayPlans(planProfile, zones, tripDays, cache, season, mchsTrip.forTrip);
+  const generated = await generateDayPlans(planProfile, zones, tripDays, cache, season, mchsTrip.forTrip);
+  const { unchecked, spanUnknown, tooLong, extendedForTour, overLimit, preferenceNotes, selfSkipped, selfSafetyUnchecked, skippedLegs, returnLegMissing, offDays, missReasons, skippedNoTour } = generated;
+  // День без тура и без маршрута — честный пустой слот, а не «идея» (21.11).
+  const honest = replaceIdeaDays(generated.days);
+  const days = honest.days;
   const plannedZones = new Set<ZoneId>(days.map((d) => d.zone));
   const warnings = collectWarnings(profile, zones, tripDays, alerts, season, plannedZones, days.some((d) => d.type === 'buffer'),
     days.some((d) => d.type === 'activity' && d.defaultTransport === 'helicopter'),
@@ -2513,7 +2538,10 @@ export async function recommendTrip(profile: TripProfile, opts: RecommendTripOpt
   // он несёт и безопасность, не только коммерцию.
   // Записью оператора — по строкам расписания этого месяца; туры без
   // календаря называются отдельно ниже, другими словами.
-  const catalogueOnly = [...new Set(months.flatMap((m) => openedByCatalogueOnly(profile.interests, m, scheduled.get(m) ?? null)))];
+  // «Не сезон, но оператор открыл запись» — только при реальном туре этого
+  // занятия в плане (21.11): без тура строка обещала то, чего в плане нет.
+  const catalogueOnly = [...new Set(months.flatMap((m) => openedByCatalogueOnly(profile.interests, m, scheduled.get(m) ?? null)))]
+    .filter((i) => days.some((d) => d.realTour && d.activityType === i));
   if (catalogueOnly.length > 0) {
     const names = catalogueOnly.map(i => ACTIVITY_NAMES[i] ?? i).join(', ');
     warnings.push({
@@ -2604,7 +2632,7 @@ export async function recommendTrip(profile: TripProfile, opts: RecommendTripOpt
       type: 'zone_days',
       severity: dropsRequest ? 'important' : 'info',
       message: `${ZONE_NAMES[z.zone]} в план не вошла: туров операторов там под ${listShort(z.interests.map((i) => ACTIVITY_NAMES[i] ?? i))} в ваши даты нет, `
-        + 'а ехать туда ради дня без тура план не ставит (стиль «с оператором»).',
+        + 'а ехать туда ради дня без тура план не ставит.',
     });
   }
   // Причина — настоящая (разбор 08.11): «дня не нашлось» печаталось при

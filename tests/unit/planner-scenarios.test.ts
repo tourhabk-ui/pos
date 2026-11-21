@@ -279,8 +279,8 @@ describe('разбор 08.11: «вулканы», 6 дней, группа, «с
   it('тур длиннее поездки назван у интереса, которому он принадлежал', async () => {
     TOURS['avachinsky:volcano'] = [LONG];
     const rec = await recommendTrip(operator(6, ['volcano']));
-    // День интереса встал общим днём, тур длиннее поездки — назван словами.
-    expect(rec.days.some((d) => d.type === 'activity' && d.activityType === 'volcano')).toBe(true);
+    // Тур длиннее поездки — назван словами; общего дня без тура нет (21.11).
+    expect(rec.days.some((d) => d.type === 'activity' && d.activityType === 'volcano' && !d.realTour)).toBe(false);
     expect(rec.warnings.map((w) => w.message).join('\n')).toContain('Ключевская на 12 дней (12 дн.)');
   });
 

@@ -155,9 +155,11 @@ describe('страница плана: предупреждения дня и ч
     };
     render(<TripShareClient trip={trip} token={TOKEN} />);
 
-    const warn = screen.getByRole('list', { name: 'Важно в день 2' });
+    // С 21.11: на дне — одна строка о месте программы (закрытие парка этого
+    // места); остальное — в блоке «Безопасность и разрешения» с номером дня.
+    const warn = screen.getByLabelText('Важно в день 2');
     expect(within(warn).getByText(/^Закрытие парка по сводке от 02\.11/)).toBeTruthy();
-    expect(within(warn).getByText('Рекомендуется гид — активная вулканическая зона')).toBeTruthy();
+    expect(screen.getByText('Рекомендуется гид — активная вулканическая зона (день 2)')).toBeTruthy();
 
     const gorely = screen.getByRole('link', { name: `Горелый и пещеры: заявка на ${ddmm(dayDate(6))}` });
     expect(gorely.getAttribute('href')).toMatch(new RegExp(`\\?date=${dayDate(6)}$`));

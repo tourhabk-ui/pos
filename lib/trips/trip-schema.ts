@@ -52,6 +52,8 @@ export const TripDayPlanSchema = z.object({
    * показывала день без них.
    */
   dayWarnings: z.array(z.string().max(2000)).max(50).optional(),
+  /** Самостоятельный день — карточка места /places/… (тест 21.11). Чужие ссылки не храним. */
+  placeHref: z.string().max(300).regex(/^(https:\/\/[^/\s]+)?\/places\/[^\s]+$/).optional(),
 });
 
 /**

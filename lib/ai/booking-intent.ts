@@ -333,3 +333,38 @@ async function findRelevantToursUncached(
     return [];
   }
 }
+
+/**
+ * Туры по номерам — карточки под ответом Кузьмича ровно из названных в тексте
+ * (lib/kuzmich/answer-tour-cards, 21.11). Только витрина (publicTourSql), без
+ * кэша: занятость и цена — на этот ход. Порядок — порядок `ids`.
+ */
+export async function findToursByIds(ids: readonly string[]): Promise<TourSuggestion[]> {
+  const nums = [...new Set(ids.map((x) => Number(x)).filter((n) => Number.isInteger(n) && n > 0))];
+  if (nums.length === 0) return [];
+  try {
+    const { rows } = await pool.query<TourSuggestion>(
+      `SELECT
+         ot.id, ot.slug, ot.title,
+         LEFT(ot.description, 120) AS description,
+         ot.base_price, ot.price_unit, ot.multi_day_count, ot.duration_hours::float AS duration_hours,
+         ot.activity_type, ot.location_type, ot.location_name AS location, ot.tour_image,
+         p.name AS operator_name, p.slug AS operator_slug, p.is_public AS operator_public,
+         ${nearestFreeDateSql('ot')} AS nearest_free_date, ${anyDayOpenSql('ot')} AS any_day_open
+       FROM operator_tours ot
+       JOIN partners p ON ot.operator_id = p.id
+       WHERE ${publicTourSql('ot')} AND ot.id = ANY($1::int[])`,
+      [nums],
+    );
+    const byId = new Map(rows.map((r) => [Number(r.id), r]));
+    return nums.flatMap((n) => {
+      const r = byId.get(n);
+      return r ? [r] : [];
+    });
+  } catch (e) {
+    console.error('[booking-intent] туры по номерам не прочитались', {
+      code: (e as { code?: string })?.code, message: e instanceof Error ? e.message : String(e),
+    });
+    return [];
+  }
+}

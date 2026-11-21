@@ -18,7 +18,10 @@ const ALREADY_HONEST =
 
 const PRICE_RE =
   /(\d(?:[\s\u00a0]?\d){0,8}(?:[.,]\d+)?)\s*(?:₽|руб(?:л[а-яё]*)?|yuan|cny|usd|eur|¥|\$|€)(?![а-яё])/gi;
-const PRICE_VERB_RE = /(?<![а-яё])(цена(?![а-яё])|(?:стоит|стоят)\s+\d|от\s+\d)/i;
+// «от 5 лет», «от 7 дней», «от 2 человек» — не цена (тест 21.11): без
+// инструмента такое предложение затиралось целиком.
+const NOT_MONEY_AFTER = '(?![\\d\\s\\u00a0]*(?:лет|год|дн|день|недел|час|ч(?![а-яё])|км|м(?![а-яё])|чел|человек|мест|°|%|раз|ночей|ноч|сут))';
+const PRICE_VERB_RE = new RegExp(`(?<![а-яё])(цена(?![а-яё])|(?:стоит|стоят)\\s+\\d${NOT_MONEY_AFTER}|от\\s+\\d${NOT_MONEY_AFTER})`, 'i');
 
 const AVAIL_RE =
   /(?<![а-яё])(мест\s+нет|нет\s+мест|есть\s+места|свободн[а-яё]*\s+мест[а-яё]*|места\s+законч[а-яё]*|набор\s+открыт|группа\s+набрана|остал(?:ось|ись)\s+\d+[^\n.]{0,20}мест)/i;
@@ -31,7 +34,9 @@ function splitSentences(paragraph: string): string[] {
 }
 
 function normalizeAmount(raw: string): string {
-  return raw.replace(/[\s\u00a0]/g, '').replace(',', '.');
+  // «60000.00» в выводе и «60 000» в ответе — одна сумма (тест 21.11: копейки
+  // из базы давали ложное «не подтверждаю» при цене из инструмента).
+  return raw.replace(/[\s\u00a0]/g, '').replace(',', '.').replace(/\.0+$/, '');
 }
 
 function evidenceFromTools(toolRuns: readonly ToolRun[] | null): string {
@@ -109,23 +114,37 @@ export function catalogToolRuns(output: string): ToolRun[] {
   return [{ name: 'catalog', producedData: true, output: text }];
 }
 
-const FILLER_RE =
-  /(?<![а-яё])(?:тур[а-яё]*|стоит|стоят|цена|цены|стоимост[а-яё]*|от|за|день|дня|дней|дн|чел(?:овека)?|сутк[а-яё]*|на|эти|даты|мест[а-яё]*|нет|есть|сейчас|один|одна|одно|и|в|к|с|по|из|до|или|это|вот)(?![а-яё])/gi;
+/**
+ * Строка на месте неподтверждённой цифры (тест планировщика 21.11). До этого
+ * предложение без «сути» после вырезания цены менялось на голую строку
+ * OFFER_HONEST_LINE, и она висела первой строкой ответа без контекста: не
+ * понять, какую цену не подтверждаем. Теперь строка встаёт на место самой
+ * цифры, и рядом остаётся, о чём она: «Горелый — цену не подтверждаю, …».
+ */
+export const OFFER_PRICE_LINE = `цену ${OFFER_HONEST_LINE}`;
+const OFFER_SEATS_LINE = `наличие мест ${OFFER_HONEST_LINE}`;
+const OFFER_ROUTE_LINE = `Статус маршрута ${OFFER_HONEST_LINE}.`;
+const OFFER_PRICE_SENTENCE = `Цену ${OFFER_HONEST_LINE}.`;
 
-/** После вырезания цены осталось имя тура или другая суть — не затираем всё предложение. */
-function leftoverSubstantial(text: string): boolean {
-  const withoutHonest = text.split(OFFER_HONEST_LINE).join(' ');
-  if (/[«"]/.test(withoutHonest)) return true;
-  const rest = withoutHonest.replace(FILLER_RE, ' ').replace(/[^\p{L}\p{N}]+/gu, ' ').trim();
-  return rest.split(/\s+/).some((w) => w.length >= 5);
-}
+/** Цена вместе со своими словами: «от», «около», «стоит», единица после. */
+const PRICE_PHRASE_RE = new RegExp(
+  `(?:(?:стоит|стоят|стоимость|цена|по\\s+цене)[\\s:—–-]*)?(?:(?:от|около|примерно|~|≈)\\s*)?${PRICE_RE.source}`
+  + `(?:\\s*(?:\\/\\s*)?(?:за|с|на)?\\s*(?:чел(?:овека|\\.)?|человек|группу|группа|день|сутки|ночь|тур|персону)(?![а-яё]))?(?:\\s*(?:в|за)\\s+(?:день|сутки))?`,
+  'gi',
+);
 
 function replaceUnbackedPrices(sentence: string, evidence: string): string {
   const have = new Set(amountsIn(evidence));
-  return sentence.replace(new RegExp(PRICE_RE.source, 'gi'), (full, raw: string) => {
+  return sentence.replace(PRICE_PHRASE_RE, (full: string, raw: string, offset: number) => {
     if (have.has(normalizeAmount(raw))) return full;
-    return OFFER_HONEST_LINE;
+    // «Тур стоит 28 000 ₽» → «Тур — цену не подтверждаю…»: после слова — тире.
+    const before = sentence.slice(0, offset);
+    return /[\p{L}\d»"]\s*$/u.test(before) ? `— ${OFFER_PRICE_LINE}` : OFFER_PRICE_LINE;
   });
+}
+
+function replaceUnbackedSeats(sentence: string): string {
+  return sentence.replace(new RegExp(AVAIL_RE.source, 'gi'), OFFER_SEATS_LINE);
 }
 
 function redactSentence(sentence: string, evidence: string): { text: string; removed: boolean } {
@@ -133,24 +152,32 @@ function redactSentence(sentence: string, evidence: string): { text: string; rem
   PRICE_RE.lastIndex = 0;
   if (sentenceBacked(sentence, evidence)) return { text: sentence, removed: false };
 
-  const claimed = amountsIn(sentence);
-  if (claimed.length > 0) {
-    let out = replaceUnbackedPrices(sentence, evidence);
-    out = out.replace(new RegExp(`(?:${OFFER_HONEST_LINE}\\s*){2,}`, 'g'), `${OFFER_HONEST_LINE} `).trim();
-    // Места и статус в том же предложении без опоры — предложение целиком.
-    PRICE_RE.lastIndex = 0;
-    if (AVAIL_RE.test(out) && !availBacked(out, evidence)) {
-      return { text: OFFER_HONEST_LINE, removed: true };
-    }
-    if (ROUTE_STATUS_RE.test(out) && !routeStatusBacked(out, evidence)) {
-      return { text: OFFER_HONEST_LINE, removed: true };
-    }
-    if (!leftoverSubstantial(out)) return { text: OFFER_HONEST_LINE, removed: true };
-    return { text: out, removed: true };
+  // Статус маршрута без опоры — предложение целиком: он и есть его суть, а
+  // причина рядом («из-за снега») без статуса тоже утверждение. Строка
+  // называет, что не подтверждено.
+  if (ROUTE_STATUS_RE.test(sentence) && !routeStatusBacked(sentence, evidence)) {
+    return { text: OFFER_ROUTE_LINE, removed: true };
   }
 
-  // Цена словами без цифры, места или статус — заменяем предложение.
-  return { text: OFFER_HONEST_LINE, removed: true };
+  let out = sentence;
+  if (amountsIn(out).length > 0) out = replaceUnbackedPrices(out, evidence);
+  PRICE_RE.lastIndex = 0;
+  if (AVAIL_RE.test(out) && !availBacked(out, evidence)) out = replaceUnbackedSeats(out);
+  PRICE_RE.lastIndex = 0;
+  // Цена словами без цифры («цена ниже, чем у…») без опоры — предложение
+  // целиком, но со словом «цену»: понятно, что именно не подтверждено.
+  if (amountsIn(sentence).length === 0 && (PRICE_VERB_RE.test(out)) && !priceBacked(out, evidence)) {
+    return { text: OFFER_PRICE_SENTENCE, removed: true };
+  }
+  // Повторы строки подряд («… цену не подтверждаю … цену не подтверждаю») — одна.
+  const twice = new RegExp(`(${OFFER_PRICE_LINE.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')})(?:[\\s,;и–—-]+\\1)+`, 'g');
+  out = out.replace(twice, '$1');
+  // Предложение начиналось с заглавной — и после замены тоже.
+  if (/^\p{Lu}/u.test(sentence.trimStart()) && /^\p{Ll}/u.test(out.trimStart())) {
+    const lead = out.length - out.trimStart().length;
+    out = out.slice(0, lead) + out.charAt(lead).toUpperCase() + out.slice(lead + 1);
+  }
+  return { text: out, removed: out !== sentence };
 }
 
 export interface OfferGuardResult {
@@ -158,23 +185,28 @@ export interface OfferGuardResult {
   removed: string[];
 }
 
+/** Предложения строки и разделители между ними — чтобы собрать строку как была. */
+function sentencePieces(line: string): string[] {
+  return line.split(/(?<=[.!?])([ \t]+)/);
+}
+
 /**
- * Предложения с ценой, местами или статусом маршрута без опоры в выводе
- * инструментов этого хода заменяются честной строкой. Если в предложении
- * есть имя тура, вырезается только неподтверждённая цена.
+ * Цена, места или статус маршрута без опоры в выводе инструментов этого хода
+ * заменяются честной строкой на месте самого утверждения. Переводы строк
+ * сохраняются: до 21.11 предложения абзаца склеивались пробелом, и список
+ * «- пункт.\n- пункт» становился одной строкой «- пункт. - пункт».
  */
 export function guardOfferClaims(answer: string, toolRuns: readonly ToolRun[] | null): OfferGuardResult {
   const evidence = evidenceFromTools(toolRuns);
   const removed: string[] = [];
-  const paragraphs = answer.split(/\n{2,}/);
-  const next = paragraphs.map((p) => {
-    const parts = splitSentences(p);
-    const kept = parts.map((s) => {
-      const out = redactSentence(s, evidence);
-      if (out.removed) removed.push(s);
+  const lines = answer.split('\n').map((line) => {
+    if (!line.trim()) return line;
+    return sentencePieces(line).map((piece, i) => {
+      if (i % 2 === 1) return piece; // разделитель
+      const out = redactSentence(piece, evidence);
+      if (out.removed) removed.push(piece);
       return out.text;
-    });
-    return kept.join(' ');
+    }).join('');
   });
-  return { text: next.join('\n\n'), removed };
+  return { text: lines.join('\n'), removed };
 }

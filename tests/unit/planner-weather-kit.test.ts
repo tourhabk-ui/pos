@@ -98,6 +98,9 @@ describe('движок и ответ Кузьмича', () => {
     expect(fc.calls).toEqual(zones.map((z) => [ZONE_COORDS[z][0], ZONE_COORDS[z][1]]));
 
     const text = formatTripPlanForChat(rec.days, [], null, { refusal: '', plannedFor: plus(0), arrivalIso: plus(0) });
-    expect(text).toContain(`   ${withKit[0]!.weatherKit}`);
+    // С 21.11: на дне — короткая строка погоды, совет по одежде — один раз в блоке.
+    expect(text).toContain('   Погода: 1…7 °C, дождь');
+    expect(text).toMatch(/Безопасность и разрешения:[\s\S]*- Одежда по прогнозу: возьмите дождевик/);
+    expect(text.match(/Одежда по прогнозу/g)).toHaveLength(1);
   });
 });
