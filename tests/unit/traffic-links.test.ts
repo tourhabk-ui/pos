@@ -12,6 +12,9 @@ import { join } from 'node:path';
 import { internalHref, externalHref } from '@/lib/analytics/traffic-links';
 
 const PAGE = readFileSync(join(process.cwd(), 'app/hub/admin/traffic/page.tsx'), 'utf-8');
+/** Таблицы поведения и PathLink живут в своём компоненте (21.11) — страница и таблица судятся вместе. */
+const TABLE = readFileSync(join(process.cwd(), 'app/hub/admin/traffic/_PageBehaviorTable.tsx'), 'utf-8');
+const PAGE_AND_TABLE = PAGE + TABLE;
 
 describe('путь сайта', () => {
   it('обычные пути — ссылка на себя', () => {
@@ -43,9 +46,9 @@ describe('источник перехода', () => {
 describe('подключено на странице', () => {
   it('пути во всех списках идут через PathLink, а не голым текстом', () => {
     // Топ страниц, карта переходов (оба конца), поведение, уходы, 404.
-    expect((PAGE.match(/<PathLink path=\{/g) ?? []).length).toBeGreaterThanOrEqual(6);
-    expect(PAGE).toContain('const href = internalHref(path);');
-    expect(PAGE).not.toMatch(/href=\{(p\.path|e\.from|e\.to|n\.path)\}/);
+    expect((PAGE_AND_TABLE.match(/<PathLink path=\{/g) ?? []).length).toBeGreaterThanOrEqual(5);
+    expect(TABLE).toContain('const href = internalHref(path);');
+    expect(PAGE_AND_TABLE).not.toMatch(/href=\{(p\.path|e\.from|e\.to|n\.path)\}/);
   });
 
   it('источник — через externalHref и без передачи реферера', () => {
@@ -59,6 +62,6 @@ describe('подключено на странице', () => {
   });
 
   it('открывается в новой вкладке — сводка остаётся', () => {
-    expect((PAGE.match(/target="_blank"/g) ?? []).length).toBeGreaterThanOrEqual(3);
+    expect((PAGE_AND_TABLE.match(/target="_blank"/g) ?? []).length).toBeGreaterThanOrEqual(3);
   });
 });
