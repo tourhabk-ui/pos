@@ -22,8 +22,8 @@
  *     и стоят в node_modules.
  */
 import { describe, it, expect } from 'vitest';
-import { mkdtempSync, mkdirSync, writeFileSync, readFileSync, existsSync } from 'node:fs';
-import { join } from 'node:path';
+import { mkdtempSync, mkdirSync, writeFileSync, readFileSync, existsSync, readdirSync } from 'node:fs';
+import { join, relative } from 'node:path';
 import { tmpdir } from 'node:os';
 import { spawnSync } from 'node:child_process';
 import { createRequire } from 'node:module';
@@ -142,7 +142,7 @@ function fakeBuild(home: string, opts: { dropRoute?: string; noMap?: boolean } =
   writeFileSync(join(dir, 'static/chunks/main.js'), OLD_OK);
   writeFileSync(join(dir, 'static/chunks/polyfills.js'), 'var x = 1;');
   writeFileSync(join(dir, 'static/chunks/app/home.js'), home);
-  if (!opts.noMap) writeFileSync(join(dir, 'static/chunks/37ccfc09.js'), `var s="maplibre"; ${NEWER.nullish}`);
+  if (!opts.noMap) writeFileSync(join(dir, 'static/chunks/37ccfc09.js'), `var s="maplibregl-ctrl"; ${NEWER.nullish}`);
   return dir;
 }
 
@@ -189,6 +189,26 @@ describe('исключения названы с причиной', () => {
       expect(existsSync(join(ROOT, 'node_modules', k.pkg, 'package.json')), k.pkg).toBe(true);
       expect(k.reason.length).toBeGreaterThan(40);
     }
+  });
+
+  it('метки исключения нет в нашем коде — кусок приложения за кусок карты не сойдёт', () => {
+    const roots = ['app', 'components', 'contexts', 'hooks', 'lib'];
+    const hits: string[] = [];
+    const walk = (dir: string) => {
+      for (const e of readdirSync(dir, { withFileTypes: true })) {
+        if (e.name === 'node_modules' || e.name.startsWith('.')) continue;
+        const p = join(dir, e.name);
+        if (e.isDirectory()) walk(p);
+        else if (/\.(ts|tsx|js|jsx|mjs|css)$/.test(e.name)) {
+          const src = readFileSync(p, 'utf8');
+          for (const k of KNOWN_UNLOWERED as { pkg: string; marker: RegExp }[]) {
+            if (k.marker.test(src)) hits.push(`${relative(ROOT, p)} ~ ${k.pkg}`);
+          }
+        }
+      }
+    };
+    for (const r of roots) walk(join(ROOT, r));
+    expect(hits).toEqual([]);
   });
 
   it('пакет исключения не понижается сборкой — иначе запись лишняя', () => {
