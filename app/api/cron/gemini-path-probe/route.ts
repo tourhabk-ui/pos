@@ -43,7 +43,9 @@ import {
 } from '@/lib/ai/gemini-endpoint';
 
 export const dynamic = 'force-dynamic';
-export const maxDuration = 60;
+// До трёх проб списка по 10 с и генерация до 40 с — 70 с в худшем случае
+// (ревью #3664); запас до 90, раннер ждёт ответа 120 с.
+export const maxDuration = 90;
 
 export type GeminiPathOutcome =
   | 'open'              // 2xx: дошли и ответили
@@ -143,9 +145,9 @@ async function probeList(target: ProbeTarget, apiKey: string): Promise<{ probe: 
  * Срок пробы генерации. 20 с — столько же ждёт живой код (`callGemini`), и
  * проба 2 (20.11) кончилась на нём: «не ответила за 20 с» не отличает
  * медленный ответ от зависшего (слово владельца «карт-бланш» 21.11: замерить
- * с запасом). 40 с — вдвое больше срока живого кода, и вместе с пробами
- * списка (по 10 с, обычно меньше секунды) укладывается в `maxDuration`;
- * время ответа идёт в `latency_ms`, срок — в `timeout_ms`.
+ * с запасом). 40 с — вдвое больше срока живого кода; вместе с пробами
+ * списка (до трёх по 10 с) — 70 с в худшем случае, под `maxDuration`.
+ * Время ответа идёт в `latency_ms`, срок — в `timeout_ms`.
  */
 export const GENERATE_PROBE_TIMEOUT_MS = 40_000;
 

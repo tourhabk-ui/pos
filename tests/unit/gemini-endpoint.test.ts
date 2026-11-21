@@ -357,6 +357,10 @@ describe('проба пути с прода', () => {
       expect(GENERATE_PROBE_TIMEOUT_MS).toBeGreaterThan(20_000);
       // Срок, с которым ушёл запрос генерации, — тот, что назван.
       expect(timeouts.mock.calls.map((c) => c[0])).toContain(GENERATE_PROBE_TIMEOUT_MS);
+      // Худший случай — три пробы списка по 10 с и генерация — укладывается
+      // в предел маршрута (ревью #3664).
+      const { maxDuration } = await import('@/app/api/cron/gemini-path-probe/route');
+      expect(3 * 10 + GENERATE_PROBE_TIMEOUT_MS / 1000).toBeLessThanOrEqual(maxDuration);
       expect(typeof body.generate.latency_ms).toBe('number');
     } finally {
       timeouts.mockRestore();
