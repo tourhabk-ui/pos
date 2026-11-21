@@ -104,8 +104,9 @@ describe('разметка и дата', () => {
   });
 
   it('видимая дата — та же', () => {
-    render(<LandingContent landing={landingBySlug('kamchatka-v-mae')} tours={[]} />);
-    expect(document.querySelector('[data-record-modified] time')?.getAttribute('dateTime')).toMatch(/^2026-11-20/);
+    const l = landingBySlug('kamchatka-v-mae');
+    render(<LandingContent landing={l} tours={[]} />);
+    expect(document.querySelector('[data-record-modified] time')?.getAttribute('dateTime')).toMatch(new RegExp('^' + l.date));
   });
 });
 

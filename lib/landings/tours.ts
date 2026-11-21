@@ -1,13 +1,16 @@
 /**
  * Туры блока посадочной (lib/landings/landings) — из базы на запросе.
- * Витрина — тот же предикат, что каталог (publicTourSql), порядок — правило 1в
- * (lib/tours/offer-order). Отказ базы — null и причина в лог: страница
- * говорит «не загрузилось», а не показывает пустой список (§4.0).
+ * Витрина тура — тот же предикат, что каталог (publicTourSql), плюс отбор
+ * оператора: из блока уходят туры на паузе и со статусом suspended/rejected
+ * (lib/operators/site-pause). Порядок — правило 1в (lib/tours/offer-order).
+ * Отказ базы — null и причина в лог: страница говорит «не загрузилось»,
+ * а не показывает пустой список (§4.0).
  */
 import { TOLBACHIK_DIFFICULTY_NOTE } from '@/lib/seo/query-landings';
 import { cache } from 'react';
 import { pool } from '@/lib/db-pool';
 import { publicTourSql } from '@/lib/tours/public-visibility';
+import { operatorShownInTourBlocksSql } from '@/lib/operators/site-pause';
 import { nearestFreeDateSql } from '@/lib/tours/nearest-free-date';
 import { anyDayOpenSql } from '@/lib/tours/schedule-kind';
 import { orderOffersBy } from '@/lib/tours/offer-order';
@@ -56,7 +59,7 @@ export function tourMatchesSpec(t: LandingBlockTour, spec: LandingTourSpec): boo
   }
 }
 
-const SQL = `SELECT ot.id::text AS id, ot.slug, ot.title, ot.base_price::text AS base_price, ot.price_unit,
+export const LANDING_PUBLIC_TOURS_SQL = `SELECT ot.id::text AS id, ot.slug, ot.title, ot.base_price::text AS base_price, ot.price_unit,
             ot.duration_hours::text AS duration_hours, ot.difficulty,
             ot.season_start::text AS season_start, ot.season_end::text AS season_end,
             ot.activity_type, ot.location_name,
@@ -64,7 +67,8 @@ const SQL = `SELECT ot.id::text AS id, ot.slug, ot.title, ot.base_price::text AS
             ${nearestFreeDateSql('ot')} AS next_open_date, ${anyDayOpenSql('ot')} AS any_day_open
        FROM operator_tours ot
        JOIN partners p ON ot.operator_id = p.id
-      WHERE ${publicTourSql('ot')}`;
+      WHERE ${publicTourSql('ot')}
+        AND ${operatorShownInTourBlocksSql('p')}`;
 
 /**
  * Все опубликованные туры — один запрос на страницу (cache), без кэша между
@@ -73,7 +77,7 @@ const SQL = `SELECT ot.id::text AS id, ot.slug, ot.title, ot.base_price::text AS
  */
 export const loadPublicTours = cache(async (): Promise<LandingBlockTour[] | null> => {
   try {
-    const { rows } = await pool.query<LandingBlockTour>(SQL);
+    const { rows } = await pool.query<LandingBlockTour>(LANDING_PUBLIC_TOURS_SQL);
     return rows;
   } catch (err) {
     const code = (err as { code?: unknown })?.code;
@@ -113,11 +117,11 @@ export function tourBlockHeading(spec: LandingTourSpec): string {
 export function tourBlockNote(spec: LandingTourSpec): string {
   // Толбачик: «Лёгкий» и «Сложный» у одного направления — разные программы (Сыщик 21.11).
   if (spec.kind === 'topic' && spec.topic === 'tolbachik') {
-    return `${TOLBACHIK_DIFFICULTY_NOTE} Цена «от» и даты — из карточки тура; итог называет оператор.`;
+    return `${TOLBACHIK_DIFFICULTY_NOTE} Цена и даты — из карточки тура, без добавленного «от»; итог называет оператор.`;
   }
   switch (spec.kind) {
-    case 'month': return 'Месяц — по сезону, который указал оператор, или по открытой дате выезда. Цена «от» и даты — из карточки тура; итог называет оператор.';
+    case 'month': return 'Месяц — по сезону, который указал оператор, или по открытой дате выезда. Цена и даты — из карточки тура, без добавленного «от»; итог называет оператор.';
     case 'easy': return 'Признака «для детей» у туров на Ведаре нет. Здесь туры, которым оператор поставил сложность «лёгкая» и длительность до суток; про возраст спросите оператора в заявке.';
-    default: return 'Цена «от» и даты — из карточки тура; итог называет оператор.';
+    default: return 'Цена и даты — из карточки тура, без добавленного «от»; итог называет оператор.';
   }
 }

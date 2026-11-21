@@ -17,8 +17,8 @@ function renderInline(nodes: Inline[], keyBase: string): ReactNode[] {
       case 'em': return <em key={key}>{renderInline(n.c, key)}</em>;
       case 'ref':
         return (
-          <sup key={key}>
-            <a href={`#source-${n.n}`} className="text-[var(--ocean)] no-underline">[{n.n}]</a>
+          <sup key={key} className="inline-block">
+            <a href={`#source-${n.n}`} className="text-[var(--ocean)] no-underline inline-flex items-center justify-center min-w-6 min-h-6 px-1 mx-0.5 text-[13px] leading-none">[{n.n}]</a>
           </sup>
         );
       case 'link':
@@ -56,7 +56,7 @@ export function ArticleMarkdown({ blocks }: { blocks: Block[] }) {
             );
           case 'ol':
             return (
-              <ol key={k} className={`list-decimal pl-6 space-y-1 leading-relaxed ${inSources ? 'text-sm text-[var(--text-secondary)]' : 'text-[var(--text-primary)]'}`}>
+              <ol key={k} className={`list-decimal pl-6 space-y-1 leading-relaxed ${inSources ? 'text-sm text-[var(--text-secondary)] break-words [overflow-wrap:anywhere]' : 'text-[var(--text-primary)]'}`}>
                 {b.items.map((it, j) => (
                   <li key={j} id={inSources ? `source-${j + 1}` : undefined}>{renderInline(it, `${k}.${j}`)}</li>
                 ))}
@@ -64,8 +64,10 @@ export function ArticleMarkdown({ blocks }: { blocks: Block[] }) {
             );
           case 'table':
             return (
-              <div key={k} className="overflow-x-auto">
-                <table className="w-full text-sm border-collapse">
+              <div key={k} className="relative" data-table-scroll="">
+                <p className="sm:hidden text-xs mb-1" style={{ color: 'var(--text-muted)' }}>Таблица прокручивается вправо</p>
+                <div className="overflow-x-auto [mask-image:linear-gradient(to_right,black_calc(100%-1.25rem),transparent)] sm:[mask-image:none]">
+                <table className="w-max min-w-full text-sm border-collapse">
                   {b.head.length > 0 && (
                     <thead>
                       <tr>{b.head.map((c, j) => <th key={j} className="text-left font-semibold border-b border-[var(--border)] py-2 pr-3">{renderInline(c, `${k}.h${j}`)}</th>)}</tr>
@@ -77,6 +79,7 @@ export function ArticleMarkdown({ blocks }: { blocks: Block[] }) {
                     ))}
                   </tbody>
                 </table>
+                </div>
               </div>
             );
           case 'qa':

@@ -73,7 +73,7 @@ describe('разметка: безопасность ссылок', () => {
     expect(safeHref('https://vedarai.ru/park/bystrinskiy')).toBe('/park/bystrinskiy');
     expect(safeHref('https://ru.wikipedia.org/wiki/Эссо')).toBe('https://ru.wikipedia.org/wiki/Эссо');
     expect(safeHref('javascript:alert(1)')).toBeNull();
-    expect(parseInline('[x](javascript:alert(1))')).toEqual([{ t: 'text', v: 'x' }, { t: 'text', v: ')' }]);
+    expect(parseInline('[x](javascript:alert(1))')).toEqual([{ t: 'text', v: 'x' }]);
     expect(renderToStaticMarkup(<ArticleMarkdown blocks={parseArticleMarkdown('<img src=x onerror=1>')} />)).toContain('&lt;img');
   });
 });

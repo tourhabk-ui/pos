@@ -35,6 +35,7 @@
 
 import { pool } from '@/lib/db-pool';
 import { publicTourSql } from '@/lib/tours/public-visibility';
+import { operatorShownInTourBlocksSql } from '@/lib/operators/site-pause';
 import { nearestFreeDateSql } from '@/lib/tours/nearest-free-date';
 import { anyDayOpenSql } from '@/lib/tours/schedule-kind';
 import { keepsScheduleSql } from '@/lib/tours/schedule';
@@ -127,7 +128,9 @@ export const PLACE_TOURS_SQL = `
     JOIN operator_tours ot ON ot.id = link.tour_id
     JOIN partners p ON p.id = ot.operator_id
    -- Шлюз витрины, а не копия флагов (15.10): копия не смотрела deleted_at.
+   -- Операторы на паузе и suspended/rejected — lib/operators/site-pause.
    WHERE ${publicTourSql('ot')}
+     AND ${operatorShownInTourBlocksSql('p')}
    ORDER BY ot.id,
      CASE link.link_kind WHEN 'main_place' THEN 0 WHEN 'waypoint' THEN 1 ELSE 2 END`;
 
@@ -223,6 +226,7 @@ export const PLACE_TOUR_COUNTS_SQL = `
    WHERE pt.ark_id = ANY($1::uuid[])
      AND link.link_kind IN ('main_place', 'waypoint')
      AND ${publicTourSql('ot')}
+     AND ${operatorShownInTourBlocksSql('p')}
    GROUP BY pt.ark_id`;
 
 export type PlaceTourCounts =
