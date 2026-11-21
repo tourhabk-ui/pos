@@ -2,7 +2,7 @@
 
 import React, { useCallback, useEffect, useState } from 'react';
 import Link from 'next/link';
-import { Footprints, RefreshCw, ExternalLink, ArrowRight, Bot, TriangleAlert, Layers, Filter, LogOut } from 'lucide-react';
+import { Footprints, RefreshCw, ExternalLink, ArrowRight, Bot, TriangleAlert, Layers, Filter, LogOut, Download } from 'lucide-react';
 import { internalHref, externalHref } from '@/lib/analytics/traffic-links';
 import FunnelWindow from './_FunnelWindow';
 import SelfVisitToggle from './_SelfVisitToggle';
@@ -111,12 +111,23 @@ export default function AdminTrafficPage() {
           <Footprints className="w-4 h-4 text-[var(--text-muted)]" />
           <h1 className="text-sm font-semibold text-[var(--text-primary)] tracking-tight">Посещаемость и поведение</h1>
         </div>
-        <button
-          onClick={fetchData}
-          className="flex items-center gap-1.5 px-2.5 py-1.5 text-xs text-[var(--text-secondary)] bg-[var(--bg-card)] border border-[var(--border)] rounded-md hover:bg-[var(--bg-hover)] transition-colors"
-        >
-          <RefreshCw className="w-3 h-3" /> Обновить
-        </button>
+        <div className="flex items-center gap-2">
+          {/* Журнал просмотров за 48 часов файлом (21.11, «для Сыщика»): без IP,
+              полного User-Agent и параметров адреса — только то, что хранит page_views. */}
+          <a
+            href="/api/admin/analytics/visits-export?hours=48"
+            download
+            className="flex items-center gap-1.5 px-2.5 py-1.5 text-xs text-[var(--text-secondary)] bg-[var(--bg-card)] border border-[var(--border)] rounded-md hover:bg-[var(--bg-hover)] transition-colors"
+          >
+            <Download className="w-3 h-3" aria-hidden="true" /> Журнал за 48 ч (CSV)
+          </a>
+          <button
+            onClick={fetchData}
+            className="flex items-center gap-1.5 px-2.5 py-1.5 text-xs text-[var(--text-secondary)] bg-[var(--bg-card)] border border-[var(--border)] rounded-md hover:bg-[var(--bg-hover)] transition-colors"
+          >
+            <RefreshCw className="w-3 h-3" /> Обновить
+          </button>
+        </div>
       </div>
 
       <p className="text-xs text-[var(--text-muted)]">
