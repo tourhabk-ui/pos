@@ -1,5 +1,7 @@
 'use client';
 
+import { ClosureNotice } from '@/components/routes/ClosureNotice';
+import type { RouteClosure } from '@/lib/routes/closures';
 import { tourHeadingTail } from '@/lib/seo/h1-templates';
 import { RecordModified } from '@/components/seo/RecordModified';
 import { kuzmichAskHref } from '@/lib/kuzmich/ask-link';
@@ -372,7 +374,7 @@ function SectionTitle({ children, icon: Icon, iconColor }: {
 
 /* ─── Main Component ─── */
 
-export default function TourDetailClient({ tour, reviews = [], askSeatsFirst = false, seasonWindow = null, seasonNote = null, placeOffers = null, calendarRange = null, promotions = [], prefill = {} }: { prefill?: { date?: string; guests?: number }; tour: TourFull; reviews?: TourReview[]; askSeatsFirst?: boolean; seasonWindow?: SeasonWindowView | null; seasonNote?: string | null; placeOffers?: PlaceOffersView | null; /** Первая и последняя дата календаря — подпись сезона, когда он не записан (#3487). */ calendarRange?: CalendarRange | null; promotions?: TourPromotionView[] }) {
+export default function TourDetailClient({ tour, reviews = [], askSeatsFirst = false, seasonWindow = null, seasonNote = null, placeOffers = null, calendarRange = null, promotions = [], prefill = {}, closure = null }: { prefill?: { date?: string; guests?: number }; closure?: RouteClosure | null; tour: TourFull; reviews?: TourReview[]; askSeatsFirst?: boolean; seasonWindow?: SeasonWindowView | null; seasonNote?: string | null; placeOffers?: PlaceOffersView | null; /** Первая и последняя дата календаря — подпись сезона, когда он не записан (#3487). */ calendarRange?: CalendarRange | null; promotions?: TourPromotionView[] }) {
   const router = useRouter();
   const dayStatus = useDayStatus();
   const [wishlisted, setWishlisted] = useState(false);
@@ -740,6 +742,8 @@ export default function TourDetailClient({ tour, reviews = [], askSeatsFirst = f
         <div className="grid grid-cols-1 lg:grid-cols-12 gap-8 lg:gap-14 pt-5">
 
           <div className="lg:col-span-8 space-y-12">
+            {/* Статус вулкана (lib/routes/closures, Сыщик 21.11) — первым в колонке. */}
+            {closure && <ClosureNotice closure={closure} />}
             <div className={`space-y-5${stripPhotos.length > 0 || photoCreditLine ? '' : ' lg:hidden'}`}>
               {/* ═══ Филмстрип остальных фото ═══
                   Внутри колонки 8/12, а не над сеткой: колонка брони начинается

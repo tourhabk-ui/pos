@@ -1,4 +1,6 @@
 import type { Metadata } from 'next';
+import { OfficialSeasonNote } from '@/components/fish/OfficialSeasonNote';
+import { SALMON_FISH_IDS } from '@/lib/fish/fish-sources';
 import { notFound } from 'next/navigation';
 import Link from 'next/link';
 import {
@@ -151,6 +153,7 @@ export default async function FishDetailPage({ params }: Props) {
                   ? 'доступна круглый год'
                   : `активный сезон: ${formatSeasonMonths(species.seasonMonths)}`}
               </p>
+              {SALMON_FISH_IDS.has(species.id) && <OfficialSeasonNote />}
             </div>
           </div>
         </div>

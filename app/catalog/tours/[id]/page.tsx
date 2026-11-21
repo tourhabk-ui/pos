@@ -1,4 +1,5 @@
 import type { Metadata } from 'next';
+import { tourClosure } from '@/lib/routes/closures';
 import { notFound, permanentRedirect } from 'next/navigation';
 import { metaDescription } from '@/lib/seo/meta-description';
 import { brandedTitle, fitTitleRequired, TOUR_TITLE_TAILS } from '@/lib/seo/title-fit';
@@ -166,7 +167,7 @@ export default async function CatalogTourDetailPage({ params }: Props) {
         type="application/ld+json"
         dangerouslySetInnerHTML={{ __html: jsonLdHtml(structuredData) }}
       />
-      <TourDetailClient prefill={prefill} tour={tour} reviews={reviews} askSeatsFirst={askSeatsFirst} seasonWindow={seasonWindow} seasonNote={seasonNote} placeOffers={placeOffers} calendarRange={calendarRangeOf(dates?.first, dates?.last)} promotions={promotions} />
+      <TourDetailClient prefill={prefill} tour={tour} reviews={reviews} askSeatsFirst={askSeatsFirst} seasonWindow={seasonWindow} seasonNote={seasonNote} placeOffers={placeOffers} calendarRange={calendarRangeOf(dates?.first, dates?.last)} promotions={promotions} closure={tourClosure((tour as { slug?: string | null }).slug)} />
     </>
   );
 }

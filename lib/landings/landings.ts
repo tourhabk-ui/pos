@@ -17,6 +17,7 @@ import type { LandingTopic } from '@/lib/seo/query-landings';
 import { LANDING_TEXTS, type LandingText } from '@/lib/landings/texts';
 import { LANDING_TEXTS_BATCH2 } from '@/lib/landings/texts-batch2';
 import { LANDING_TEXTS_BATCH3 } from '@/lib/landings/texts-batch3';
+import { LANDING_TEXTS_HUBS } from '@/lib/landings/texts-hubs';
 
 /** Какие туры показывает блок страницы. */
 export type LandingTourSpec =
@@ -83,13 +84,23 @@ const TOUR_SPECS: Record<string, LandingTourSpec> = {
   'vulkan-mutnovskij-zakryt': { kind: 'text', pattern: /(горел|дачн|облёт|облет)/i },
   'vulkany-kamchatki-yunesko': { kind: 'topic', topic: 'volcano' },
   'raznica-vo-vremeni-kamchatka-moskva': { kind: 'none' },
+  // Хабы (21.11). У /kogda-ehat-na-kamchatku на месте блока — живой раздел
+  // «По месяцам»; у /catalog и /rybalka-na-kamchatke-tury блок — сама витрина.
+  'kogda-ehat-na-kamchatku': { kind: 'none' },
+  'kakie-tury-vybrat-na-kamchatke': { kind: 'none' },
+  'rybalka-na-kamchatke-gde-i-kogda-lovit': { kind: 'none' },
+  'voshozhdeniya-na-vulkany-kamchatki': { kind: 'topic', topic: 'volcano' },
 };
 
 export interface Landing extends LandingText {
   tours: LandingTourSpec;
 }
 
-export const LANDINGS: readonly Landing[] = [...LANDING_TEXTS, ...LANDING_TEXTS_BATCH2, ...LANDING_TEXTS_BATCH3].map((t) => ({ ...t, tours: TOUR_SPECS[t.slug] ?? { kind: 'none' } }));
+export const LANDINGS: readonly Landing[] = [
+  // Хаб «Как добраться» (21.11) заменяет текст первой партии под тем же адресом.
+  ...LANDING_TEXTS.filter((t) => !LANDING_TEXTS_HUBS.some((h) => h.slug === t.slug)),
+  ...LANDING_TEXTS_BATCH2, ...LANDING_TEXTS_BATCH3, ...LANDING_TEXTS_HUBS,
+].map((t) => ({ ...t, tours: TOUR_SPECS[t.slug] ?? { kind: 'none' } }));
 
 export function landingBySlug(slug: string): Landing {
   const l = LANDINGS.find((x) => x.slug === slug);
@@ -119,6 +130,9 @@ export function isMonthLanding(l: Landing): boolean {
  * `link` — видимая ссылка «Подробнее» на посадочную.
  */
 export const LANDING_CANONICAL: Readonly<Record<string, string>> = {
+  // Сыщик 21.11: статья отвечает на тот же запрос, что хаб «Когда ехать», и
+  // сама ссылается на него как на источник — каноническим объявлен хаб.
+  '/articles/kogda-luchshe-ehat-na-kamchatku': '/kogda-ehat-na-kamchatku',
   '/routes/medvedi-kamchatki': '/medvedi-kamchatki',
 };
 
@@ -139,4 +153,10 @@ export const LANDING_CROSS_LINKS: Readonly<Record<string, { href: string; label:
   '/articles/vulkany-kamchatki': { href: '/vulkany-kamchatki-yunesko', label: 'Вулканы Камчатки — объект ЮНЕСКО: что входит и как посетить' },
   '/places/vulkan-avachinskij': { href: '/voshozhdenie-na-avachinskij-vulkan', label: 'Восхождение на Авачинский вулкан: высота, сложность, сезон' },
   '/routes/vulkan-mutnovskiy-874283be': { href: '/places/vulkan-mutnovskij', label: 'Вулкан Мутновский: открыт ли маршрут, высота, как доехать' },
+  // Хабы (21.11).
+  '/articles/kogda-luchshe-ehat-na-kamchatku': { href: '/kogda-ehat-na-kamchatku', label: 'Когда ехать на Камчатку: лучшее время по месяцам и целям' },
+  '/places/vulkan-gorelyj': { href: '/voshozhdeniya-na-vulkany-kamchatki', label: 'Восхождения на вулканы Камчатки: какой выбрать и когда' },
+  '/places/koryakskaya-sopka': { href: '/voshozhdeniya-na-vulkany-kamchatki', label: 'Восхождения на вулканы Камчатки: какой выбрать и когда' },
+  '/places/vulkan-ploskij-tolbachik': { href: '/voshozhdeniya-na-vulkany-kamchatki', label: 'Восхождения на вулканы Камчатки: какой выбрать и когда' },
+  '/places/vulkan-klyuchevskaya-sopka': { href: '/voshozhdeniya-na-vulkany-kamchatki', label: 'Восхождения на вулканы Камчатки: какой выбрать и когда' },
 };

@@ -1,4 +1,5 @@
 import type { Metadata } from 'next';
+import { OfficialSeasonNote } from '@/components/fish/OfficialSeasonNote';
 import { pageContainer } from '@/lib/layout/page-width';
 import Link from 'next/link';
 import { Fish, Calendar, Trophy } from 'lucide-react';
@@ -80,6 +81,9 @@ export default async function FishIndexPage() {
             {FISH_SPECIES.length} видов — от чавычи до камчатского краба. Сезоны, методы ловли, рекорды и маршруты.
           </p>
         </div>
+
+        {/* Сроки в карточках — по ходу рыбы; официальные сроки лова — рядом (Сыщик 21.11). */}
+        <div className="mb-6"><OfficialSeasonNote /></div>
 
         {/* Grid */}
         <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-4">

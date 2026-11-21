@@ -1,5 +1,8 @@
 'use client';
 
+import { ClosureNotice } from '@/components/routes/ClosureNotice';
+import type { RouteClosure } from '@/lib/routes/closures';
+import { pageContainer } from '@/lib/layout/page-width';
 import { placeHeading } from '@/lib/seo/h1-templates';
 import { RecordModified } from '@/components/seo/RecordModified';
 import { useState, useEffect } from 'react';
@@ -193,7 +196,7 @@ function isHeroPhoto(src: string): boolean {
  * заголовок посадочной, тот же, что Article.headline; шаблонные «Вопросы и
  * ответы» тогда не рисуются: FAQPage один — из текста посадочной (Сыщик 21.11).
  */
-export default function PlaceDetailClient({ id, initialPlace = null, landingHeading = null }: { id: string; initialPlace?: PlaceData | null; landingHeading?: string | null }) {
+export default function PlaceDetailClient({ id, initialPlace = null, landingHeading = null, closure = null }: { id: string; initialPlace?: PlaceData | null; landingHeading?: string | null; closure?: RouteClosure | null }) {
   // Ссылка «назад» — в тот список, откуда пришли (страница, фильтры), не в голый раздел.
   const backHref = useCatalogReturnHref('/places');
   // `?route=1` — человек уже нажал «Навигация» на листе места (карта) и
@@ -349,6 +352,13 @@ export default function PlaceDetailClient({ id, initialPlace = null, landingHead
         facts={heroFacts}
         onCurrentChange={setCurrentPhoto}
       />
+
+      {/* Статус вулкана (lib/routes/closures, Сыщик 21.11) — сразу под героем. */}
+      {closure && (
+        <div className={`${pageContainer('reading')} pt-4`}>
+          <ClosureNotice closure={closure} />
+        </div>
+      )}
 
       {/* Атрибуция фото. Автор и лицензия — что записано, без умолчаний.
           До 14.09 здесь стояло `author || 'Wikimedia Commons'`: у снимка без

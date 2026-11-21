@@ -30,8 +30,37 @@ export const MUTNOVSKY_CLOSURE: RouteClosure = {
 };
 
 /** По slug маршрута. */
+/**
+ * Ключевская Сопка (Сыщик 21.11): маршрут не закрыт приказом, но вулкан
+ * извергался этим летом, и к нему советуют не подходить. Плашка — о статусе
+ * вулкана, а не о запрете: факты KVERT и сводки минтуризма края, с датой.
+ */
+export const KLYUCHEVSKOY_NOTICE: RouteClosure = {
+  title: 'Ключевская Сопка: статус вулкана',
+  text:
+    'По данным KVERT, последнее извержение Ключевского вулкана шло с 15 по 30 августа 2026 года. ' +
+    '12.11.2026 туристам советовали не приближаться к вулканам Мутновский, Безымянный, Ключевской ' +
+    'и Крашенинникова, а природный парк «Ключевской» не принимает посетителей на зимний сезон. ' +
+    'Перед поездкой сверяйте активность вулкана на сайте KVERT.',
+  asOf: '21.11.2026',
+  sources: [
+    { label: 'KVERT, ИВиС ДВО РАН: Ключевской', url: 'http://kvert.febras.net/volc?lang=ru&name=Klyuchevskoy' },
+    { label: 'Кам 24, 12.11.2026', url: 'https://kam24.ru/news/main/20261112/134130.html' },
+  ],
+};
+
 const BY_ROUTE: Readonly<Record<string, RouteClosure>> = {
   'vulkan-mutnovskiy-874283be': MUTNOVSKY_CLOSURE,
+  'vulkan-klyuchevskaya-sopka-413a7499': KLYUCHEVSKOY_NOTICE,
+};
+
+const BY_PLACE: Readonly<Record<string, RouteClosure>> = {
+  'vulkan-klyuchevskaya-sopka': KLYUCHEVSKOY_NOTICE,
+};
+
+const BY_TOUR: Readonly<Record<string, RouteClosure>> = {
+  'volcanoesland-voskhozhdenie-klyuchevskaya-sopka': KLYUCHEVSKOY_NOTICE,
+  'volcanoesland-treking-podnozhie-klyuchevskoy': KLYUCHEVSKOY_NOTICE,
 };
 
 /** По ключу посадочной lib/seo/query-landings. */
@@ -41,6 +70,14 @@ const BY_LANDING: Readonly<Record<string, RouteClosure>> = {
 
 export function routeClosure(slug: string | null | undefined): RouteClosure | null {
   return slug ? BY_ROUTE[slug] ?? null : null;
+}
+
+export function placeClosure(slug: string | null | undefined): RouteClosure | null {
+  return slug ? BY_PLACE[slug] ?? null : null;
+}
+
+export function tourClosure(slug: string | null | undefined): RouteClosure | null {
+  return slug ? BY_TOUR[slug] ?? null : null;
 }
 
 export function landingClosure(key: string): RouteClosure | null {
