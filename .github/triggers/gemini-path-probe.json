@@ -1,7 +1,9 @@
 {
   "note": "Маркер запуска gemini-path-probe.yml: правка этого файла в main меряет с прода, открыт ли путь до Gemini через шлюз Cloudflare AI Gateway vedar-ai и напрямую.",
-  "run": 3,
+  "run": 4,
   "gateway_id": "vedar-ai",
+  "run4_reason": "21.11 владелец поставил GEMINI_BASE_URL в Timeweb («GEMINI_BASE_URL поставил ждем выкат»). Замер после выката: принят ли адрес (current_via = gateway, current_rejected = null) и отвечает ли генерация через шлюз.",
+  "run3_result": "21.11 14:13 UTC (прогон Actions 44910565576, после выката #3664). Отпечаток ключа 003036fb, current_via direct. Шлюз vedar-ai: open, HTTP 200, 759 мс, 49 моделей. Напрямую: blocked, HTTP 400 «User location is not supported for the API use.». Генерация через шлюз моделью gemini-flash-latest (срок 40 с): HTTP 503 за 7568 мс, ответ Google «This model is currently experiencing high demand» — запрос дошёл до Google, отказ про перегрузку модели.",
   "run3_reason": "Проба 2 не дождалась генерации за 20 с — столько же ждёт живой код, и «не ответила» не отличает медленный ответ от зависшего. Слово владельца «карт-бланш» 21.11 на вопрос «замерить с запасом или включить шлюз сразу»: сначала замер. Срок генерации пробы — 40 с; ответ называет время ответа и срок.",
   "run2_result": "20.11 04:46 UTC: шлюз vedar-ai — open, 50 моделей с generateContent, 348 мс; напрямую — blocked, HTTP 400 «User location is not supported»; генерация через шлюз моделью gemini-flash-latest не ответила за 20 с.",
   "run2_reason": "Проба 1 проверила генерацию не той моделью: первой flash-моделью списка (gemini-2.5-flash), а живой код берёт сильнейшую flash-модель. Теперь у пробы и живого кода одно правило (pickGeminiModel). Замер: отвечает ли генерация через шлюз той моделью, которой пойдёт живой код.",
