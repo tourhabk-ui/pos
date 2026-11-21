@@ -97,7 +97,9 @@ const TABLES = `
     name text,
     slug text,
     is_visible boolean NOT NULL DEFAULT true,
-    merged_into_id text
+    merged_into_id text,
+    created_at timestamptz NOT NULL DEFAULT now(),
+    updated_at timestamptz NOT NULL DEFAULT now()
   );
   CREATE UNIQUE INDEX places_slug_u ON places (slug) WHERE slug IS NOT NULL;
   CREATE TABLE kamchatka_routes (
@@ -446,5 +448,99 @@ withPg('адрес по имени маршруту при записи (1237, 1
       await insertConcurrently('Халактырский пляж', 'Халактырский пляж');
       expect(await slugsOf('Халактырский пляж')).toEqual(['halaktyrskij-plyazh', null]);
     });
+  });
+});
+
+/**
+ * Адрес по имени МЕСТУ при записи (1491, #3566 п.2): в индексе Google места по
+ * UUID — заведённые после разовой раздачи 1111 адреса не получали. Правило то
+ * же, что у маршрутов: свободный адрес — месту, тёзки и адрес, занятый
+ * маршрутом, — без адреса; добор и триггер; место и маршрут одного имени в
+ * двух транзакциях не делят адрес. Исполняется файл миграции, не копия.
+ */
+withPg('адрес по имени месту при записи (1491) на настоящем PostgreSQL', () => {
+  const PLACE_SCHEMA = 'place_slug_on_write_test';
+  let pool: Pool;
+  const slugOf = async (id: string) =>
+    (await pool.query<{ slug: string | null }>(`SELECT slug FROM places WHERE id = $1`, [id])).rows[0]?.slug ?? null;
+
+  beforeAll(async () => {
+    const bootstrap = new Pool({ connectionString: PG_URL, max: 1 });
+    await bootstrap.query(`DROP SCHEMA IF EXISTS ${PLACE_SCHEMA} CASCADE`);
+    await bootstrap.query(`CREATE SCHEMA ${PLACE_SCHEMA}`);
+    await bootstrap.end();
+    pool = new Pool({ connectionString: PG_URL, max: 4, options: `-c search_path=${PLACE_SCHEMA}` });
+    await pool.query(TABLES);
+    await pool.query(latestFunctionDdl('translit_ru_slug'));
+    // До миграции: адреса раздавала 1111, у новых мест их нет.
+    await pool.query(`INSERT INTO places (id, name, slug, is_visible, merged_into_id) VALUES
+      ('chik', 'Вулкан Чикурачки', NULL, true, NULL),
+      ('ks1', 'Вулкан Ксудач', NULL, true, NULL),
+      ('twin1', 'Озеро Тёзка', NULL, true, NULL),
+      ('twin2', 'Озеро Тёзка', NULL, true, NULL),
+      ('hidden', 'Скрытое место', NULL, false, NULL),
+      ('merged', 'Слитое место', NULL, true, 'chik'),
+      ('point', 'Точка маршрута (начало)', NULL, true, NULL),
+      ('own', 'Своё место', 'svoj-adres', true, NULL)`);
+    await pool.query(`INSERT INTO kamchatka_routes (title, slug) VALUES ('Вулкан Ксудач', 'vulkan-ksudach')`);
+    // Правило маршрутов тоже на месте: гонку места и маршрута судит их общий ключ блокировки.
+    for (const f of RULE_MIGRATIONS) await pool.query(readFileSync(join(MIGRATIONS, f), 'utf-8'));
+    await pool.query(readFileSync(join(MIGRATIONS, '1491_place_slug_on_write.sql'), 'utf-8'));
+  });
+  afterAll(async () => {
+    await pool.query(`DROP SCHEMA IF EXISTS ${PLACE_SCHEMA} CASCADE`);
+    await pool.end();
+  });
+
+  it('добор: свободный адрес выдан; тёзки, адрес маршрута, скрытое, слитое и служебное — без адреса; свой адрес не тронут', async () => {
+    expect(await slugOf('chik')).toBe('vulkan-chikurachki');
+    expect(await slugOf('ks1')).toBeNull();
+    expect([await slugOf('twin1'), await slugOf('twin2')]).toEqual([null, null]);
+    expect(await slugOf('hidden')).toBeNull();
+    expect(await slugOf('merged')).toBeNull();
+    expect(await slugOf('point')).toBeNull();
+    expect(await slugOf('own')).toBe('svoj-adres');
+  });
+
+  it('повторный прогон миграции ничего не меняет', async () => {
+    const before = (await pool.query(`SELECT id, slug FROM places ORDER BY id`)).rows;
+    await pool.query(readFileSync(join(MIGRATIONS, '1491_place_slug_on_write.sql'), 'utf-8'));
+    expect((await pool.query(`SELECT id, slug FROM places ORDER BY id`)).rows).toEqual(before);
+  });
+
+  it('триггер: новое место и ставшее видимым — с адресом; адрес писателя и смена имени не трогаются', async () => {
+    await pool.query(`INSERT INTO places (id, name) VALUES ('new1', 'Новое озеро')`);
+    expect(await slugOf('new1')).toBe('novoe-ozero');
+    await pool.query(`UPDATE places SET is_visible = true WHERE id = 'hidden'`);
+    expect(await slugOf('hidden')).toBe('skrytoe-mesto');
+    await pool.query(`INSERT INTO places (id, name, slug) VALUES ('new2', 'Ещё место', 'dannyj-adres')`);
+    expect(await slugOf('new2')).toBe('dannyj-adres');
+    await pool.query(`UPDATE places SET name = 'Переименованное озеро' WHERE id = 'new1'`);
+    expect(await slugOf('new1')).toBe('novoe-ozero');
+  });
+
+  it('место и маршрут одного имени в двух транзакциях: маршрут ждёт место, имя у места, маршруту — суффикс', async () => {
+    const t1 = await pool.connect();
+    const t2 = await pool.connect();
+    try {
+      await t1.query('BEGIN');
+      await t2.query('BEGIN');
+      await t1.query(`INSERT INTO places (id, name) VALUES ('race', 'Бухта Спорная')`);
+      let routeDone = false;
+      const pending = t2.query(`INSERT INTO kamchatka_routes (title) VALUES ('Бухта Спорная')`).then(() => { routeDone = true; });
+      await new Promise((r) => setTimeout(r, 300));
+      // Маршрут ждёт решения места на общем ключе адреса, а не проверяет его вслепую.
+      expect(routeDone).toBe(false);
+      await t1.query('COMMIT');
+      await pending;
+      await t2.query('COMMIT');
+    } finally {
+      t1.release();
+      t2.release();
+    }
+    const place = await slugOf('race');
+    const route = (await pool.query<{ slug: string | null }>(`SELECT slug FROM kamchatka_routes WHERE title = 'Бухта Спорная'`)).rows[0]?.slug ?? null;
+    // Имя принадлежит месту, маршрут к нему — `<имя>-marshrut` (правило 1239).
+    expect([place, route]).toEqual(['buhta-spornaya', 'buhta-spornaya-marshrut']);
   });
 });

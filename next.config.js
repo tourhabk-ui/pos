@@ -346,6 +346,10 @@ const nextConfig = {
       // Опечатка в имени места: «Нальчева» вместо «Налычева» (#3487, миграция
       // 1459 сменила имя и адрес по имени). Старый адрес уже в индексе.
       { source: '/places/termalnye-istochniki-nalcheva', destination: '/places/termalnye-istochniki-nalycheva', permanent: true },
+      // Места с адресом /places/paratunka нет и не было (есть маршрут /routes/paratunka),
+      // а адрес в выдаче Google отдавал 404 (#3566 п.4). Термальная зона Паратунки —
+      // место «Паратунская зона отдыха».
+      { source: '/places/paratunka', destination: '/places/paratunskaya-zona-otdyha', permanent: true },
       // Листинг операторов канонический на /operators: после SSR (шаг 3, #460)
       // дубли отдавали идентичный контент и каннибалили бы друг друга в индексе.
       // marketplace-вариант — до общего :path*-правила, чтобы редирект был одним хопом.
