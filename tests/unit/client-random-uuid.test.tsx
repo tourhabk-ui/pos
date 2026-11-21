@@ -98,10 +98,11 @@ describe('экран SOS в браузере без randomUUID (Chrome до 92)'
 });
 
 /**
- * Клиентские файлы, где `randomUUID` зовут со своей проверкой наличия.
- * Новый клиентский вызов — через lib/security/random-uuid.ts.
+ * Клиентские файлы, где к `randomUUID` обращаются со своей проверкой наличия.
+ * Новое клиентское обращение — через lib/security/random-uuid.ts.
  */
 const CLIENT_GUARDED: Record<string, string> = {
+  'lib/security/random-uuid.ts': 'сам запасной путь: typeof === function, запас getRandomValues',
   'components/kuzmich/KuzmichWidget.tsx': 'проверка c?.randomUUID, запас getRandomValues с префиксом w-',
   'components/shared/PageViewTracker.tsx': 'проверка typeof === function, запас getRandomValues',
   'components/PWA/InstallTracker.tsx': 'проверка if (crypto.randomUUID)',
@@ -119,6 +120,14 @@ function isServer(rel: string, src: string): boolean {
     || /\bimport\s*\{[^}]*\bpool\b[^}]*\}\s*from/.test(src);
 }
 
+/**
+ * Где лежит код, который исполняет браузер: каталоги приложения, провайдеры
+ * `contexts/` (их рендерит корневой layout) и скрипты `public/` (service
+ * worker, виджет, офлайн-модули SOS). Ревью безопасности #3634: первая
+ * редакция читала только app, components, hooks и lib.
+ */
+const CLIENT_ROOTS = ['app', 'components', 'contexts', 'hooks', 'lib', 'public'];
+
 function sourceFiles(): string[] {
   const out: string[] = [];
   const walk = (dir: string) => {
@@ -126,23 +135,43 @@ function sourceFiles(): string[] {
       if (e.name === 'node_modules' || e.name.startsWith('.')) continue;
       const p = join(dir, e.name);
       if (e.isDirectory()) walk(p);
-      else if (/\.(ts|tsx)$/.test(e.name) && !/\.test\.tsx?$/.test(e.name)) out.push(relative(ROOT, p));
+      else if (/\.(ts|tsx|js|jsx|mjs)$/.test(e.name) && !/\.test\.[jt]sx?$/.test(e.name)) out.push(relative(ROOT, p));
     }
   };
-  for (const d of ['app', 'components', 'hooks', 'lib']) walk(join(ROOT, d));
+  for (const d of CLIENT_ROOTS) walk(join(ROOT, d));
   return out.sort();
 }
 
-/** Вызов randomUUID в коде, без комментариев. */
-function callsRandomUuid(src: string): boolean {
+/**
+ * Любое обращение к randomUUID в коде, без строк-комментариев: вызов,
+ * деструктуризация (`const { randomUUID: rid } = crypto`), индекс
+ * (`crypto['randomUUID']`), `.call` / `.bind`. Ревью безопасности #3634:
+ * первая редакция ловила только форму `randomUUID(`.
+ */
+function mentionsRandomUuid(src: string): boolean {
   const code = src.split('\n').filter((l) => !/^\s*(\/\/|\*|\/\*)/.test(l)).join('\n');
-  return /randomUUID\s*(\?\.)?\s*\(/.test(code);
+  return /randomUUID/.test(code);
 }
 
-describe('запрет: клиентский код не зовёт crypto.randomUUID сам', () => {
+describe('запрет: клиентский код не обращается к crypto.randomUUID сам', () => {
+  it('корни включают провайдеры и скрипты public', () => {
+    const files = sourceFiles();
+    expect(files.some((f) => f.startsWith('contexts/'))).toBe(true);
+    expect(files).toContain('public/sw.js');
+  });
+
+  it('деструктуризация, индекс и .call — тоже обращение', () => {
+    for (const src of [
+      'const { randomUUID: rid } = crypto; rid();',
+      "const rid = crypto['randomUUID']; rid();",
+      'const id = crypto.randomUUID.call(crypto);',
+    ]) expect(mentionsRandomUuid(src)).toBe(true);
+    expect(mentionsRandomUuid('// randomUUID в комментарии\nconst x = 1;')).toBe(false);
+  });
+
   const callers = sourceFiles()
     .map((rel) => ({ rel, src: readFileSync(join(ROOT, rel), 'utf8') }))
-    .filter(({ rel, src }) => callsRandomUuid(src) && !isServer(rel, src))
+    .filter(({ rel, src }) => mentionsRandomUuid(src) && !isServer(rel, src))
     .map(({ rel }) => rel);
 
   it('каждый клиентский вызов — в записанном файле со своей проверкой', () => {
