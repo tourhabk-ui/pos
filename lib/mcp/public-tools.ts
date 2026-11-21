@@ -427,6 +427,17 @@ export const TOOL_ENGLISH: Record<string, { title: string; lead: string }> = {
 };
 
 /**
+ * Телефон и имя у шести заявок — откуда их брать (21.11, панель владельца:
+ * 297 отказов на входе за 30 дней — нет телефона, нет согласия, пустая
+ * заявка). Схема называла поле обязательным, но не говорила, что его знает
+ * только человек: агент слал заявку без телефона или с выдуманным номером.
+ * Примера номера в `examples` нет намеренно: модель подставила бы его как
+ * настоящий.
+ */
+const PHONE_ASK_ENGLISH = 'ask the person for their own number in international format (country code first, +7 for Russia, 10–15 digits) and never invent one.';
+const NAME_ASK_ENGLISH = 'ask the person.';
+
+/**
  * Английский слой для ПАРАМЕТРОВ — тем же правилом, что для описаний:
  * английская фраза впереди, русское описание Кузьмича следом целиком, схемы
  * Кузьмича не тронуты. Glama TDQS 18.09: Completeness 4/5 — параметры были
@@ -531,8 +542,8 @@ export const PARAM_ENGLISH: Record<string, Record<string, { lead: string; exampl
     shift_days: { lead: 'For shift_dates without start_date: how many days to move the trip, signed — 7 is a week later, -3 is three days earlier.', example: '7' },
   },
   create_lead: {
-    name: { lead: "Traveller's name." },
-    phone: { lead: 'Contact phone, required.' },
+    name: { lead: `Traveller's name, required; ${NAME_ASK_ENGLISH}` },
+    phone: { lead: `Contact phone, required; ${PHONE_ASK_ENGLISH}` },
     comment: { lead: 'The request: dates, group size, interests.' },
     interest: { lead: 'Tour or route name, if already chosen.' },
     plan_id: { lead: 'Plan ID from make_trip_plan when the request is for that plan: the manager gets the whole plan (group, tours by day, estimate).', example: '1b9d6bcd-bbfd-4b2d-9b5d-ab8dfbbd4bed' },
@@ -544,8 +555,8 @@ export const PARAM_ENGLISH: Record<string, Record<string, { lead: string; exampl
     tour: { lead: 'Numeric tour ID or tour title from get_tours / get_tour_availability. A company or guide name, or a partial word match, creates no request: the reply lists tours by ID.' },
     date: { lead: 'Tour date, YYYY-MM-DD.', example: '2027-07-15' },
     participants: { lead: 'Number of people, 1–30; default 1.', example: '2' },
-    name: { lead: "Traveller's name." },
-    phone: { lead: 'Phone for confirmation, required.' },
+    name: { lead: `Traveller's name, required; ${NAME_ASK_ENGLISH}` },
+    phone: { lead: `Phone for confirmation, required; ${PHONE_ASK_ENGLISH}` },
     comment: { lead: 'Wishes, questions, group composition.' },
     plan_id: { lead: 'Plan ID from make_trip_plan when this tour is part of that plan: the operator sees the whole trip.', example: '1b9d6bcd-bbfd-4b2d-9b5d-ab8dfbbd4bed' },
     notify_url: { lead: NOTIFY_URL_ENGLISH },
@@ -563,8 +574,8 @@ export const PARAM_ENGLISH: Record<string, Record<string, { lead: string; exampl
     transfer_date: { lead: 'Transfer date, YYYY-MM-DD.', example: '2026-11-15' },
     transfer_date_to: { lead: 'Last day of the charter, YYYY-MM-DD, if several days.' },
     carrier: { lead: 'Carrier name from search_transfers; omit and a Vedar manager picks one.' },
-    name: { lead: "Traveller's name." },
-    phone: { lead: 'Phone partners will call back, required.' },
+    name: { lead: `Traveller's name, required; ${NAME_ASK_ENGLISH}` },
+    phone: { lead: `Phone partners will call back, required; ${PHONE_ASK_ENGLISH}` },
     comment: { lead: 'Wishes for all partners of the trip.' },
     plan_id: { lead: 'Plan ID from make_trip_plan when the trip follows that plan: every part carries the plan; omitted people, tour date (for a tour ID from the plan) and stay dates are taken from the plan.', example: '1b9d6bcd-bbfd-4b2d-9b5d-ab8dfbbd4bed' },
     notify_url: { lead: NOTIFY_URL_ENGLISH },
@@ -576,8 +587,8 @@ export const PARAM_ENGLISH: Record<string, Record<string, { lead: string; exampl
     check_in: { lead: 'Check-in date, YYYY-MM-DD; with plan_id, omitted means the first day of the plan.', example: '2027-07-15' },
     check_out: { lead: 'Check-out date, YYYY-MM-DD, after check-in, at most 60 nights; with plan_id, omitted means the last day of the plan.', example: '2027-07-17' },
     guests: { lead: 'Number of guests, 1–50; default from the plan, otherwise 1.', example: '4' },
-    name: { lead: "Guest's name." },
-    phone: { lead: 'Phone the owner will call back, required.' },
+    name: { lead: `Guest's name, required; ${NAME_ASK_ENGLISH}` },
+    phone: { lead: `Phone the owner will call back, required; ${PHONE_ASK_ENGLISH}` },
     comment: { lead: 'Wishes for the owner.' },
     plan_id: { lead: 'Plan ID from make_trip_plan when the request belongs to that plan: the owner sees the whole trip; omitted dates and guests are taken from the plan, and a mismatch with the plan is named in the reply.', example: '1b9d6bcd-bbfd-4b2d-9b5d-ab8dfbbd4bed' },
     test: WRITE_TEST_ENGLISH,
@@ -589,8 +600,8 @@ export const PARAM_ENGLISH: Record<string, Record<string, { lead: string; exampl
     date_from: { lead: 'Rental start, YYYY-MM-DD; with plan_id, omitted means the first day of the plan.', example: '2026-11-10' },
     date_to: { lead: 'Rental end, inclusive, YYYY-MM-DD; with plan_id, omitted means the last day of the plan.', example: '2026-11-14' },
     pickup: { lead: 'Pickup place if the person named one: airport, town, address.', example: 'аэропорт Елизово' },
-    name: { lead: "Renter's name." },
-    phone: { lead: 'Contact phone, required.' },
+    name: { lead: `Renter's name, required; ${NAME_ASK_ENGLISH}` },
+    phone: { lead: `Contact phone, required; ${PHONE_ASK_ENGLISH}` },
     comment: { lead: 'Wishes: child seat, drop-off elsewhere, etc.' },
     plan_id: { lead: 'Plan ID from make_trip_plan when the request belongs to that plan: the manager and the rental company see the whole trip; omitted dates are taken from the plan, and a mismatch with the plan is named in the reply.', example: '1b9d6bcd-bbfd-4b2d-9b5d-ab8dfbbd4bed' },
     notify_url: { lead: NOTIFY_URL_ENGLISH },
@@ -602,8 +613,8 @@ export const PARAM_ENGLISH: Record<string, Record<string, { lead: string; exampl
     date_from: { lead: 'Departure date, YYYY-MM-DD.', example: '2027-07-15' },
     date_to: { lead: 'Return date, YYYY-MM-DD, if known.', example: '2027-07-17' },
     passengers: { lead: 'Number of people, 1–60; with plan_id, omitted means the people of the plan.', example: '8' },
-    name: { lead: "Customer's name." },
-    phone: { lead: 'Contact phone, required.' },
+    name: { lead: `Customer's name, required; ${NAME_ASK_ENGLISH}` },
+    phone: { lead: `Contact phone, required; ${PHONE_ASK_ENGLISH}` },
     carrier: { lead: 'Carrier name or slug from search_transfers; required when there is more than one carrier.', example: 'shatun' },
     comment: { lead: 'Wishes: how many days the vehicle is needed, what to carry, pickup place.' },
     plan_id: { lead: 'Plan ID from make_trip_plan when the request belongs to that plan: the manager and the carrier see the whole trip; an omitted number of people is taken from the plan, and a mismatch with the plan is named in the reply.', example: '1b9d6bcd-bbfd-4b2d-9b5d-ab8dfbbd4bed' },

@@ -75,7 +75,7 @@ vi.mock('@/lib/mcp/pending-request', async (orig) => (await import('../helpers/m
 
 import { POST } from '@/app/api/mcp/route';
 import {
-  CONSENT_ALSO_NOTE, REQUEST_NOT_CHANGED, argsRefusalEn, consentCase, consentProblem, inputRefusalText, phoneProblem,
+  CONSENT_ALSO_NOTE, REQUEST_NOT_CHANGED, argsRefusalEn, askPersonHint, consentCase, consentProblem, inputRefusalText, missingFields, phoneProblem,
   problemsFromIssues, unknownFields,
 } from '@/lib/mcp/input-refusal';
 import { NO_CONSENT_MESSAGE } from '@/lib/mcp/write-guard';
@@ -207,7 +207,7 @@ describe('сборщик отказа', () => {
 
   it('пропавшее поле названо, стандартной строки Zod в отказе нет', () => {
     const p = problems({ date: '2027-01-01', name: 'Иван', consent: true });
-    expect(p).toEqual([{ field: 'tour', ru: 'обязательное поле, в запросе его нет', en: 'required field is missing', own: false }]);
+    expect(p).toEqual([{ field: 'tour', ru: 'обязательное поле, в запросе его нет', en: 'required field is missing', own: false, missing: true }]);
     expect(inputRefusalText(p)).not.toMatch(/Invalid input|expected string|received undefined/);
   });
 
@@ -532,7 +532,7 @@ describe('читающий инструмент: поле названо, ряд
     if (v.ok) return;
     expect(v.error).toContain('query — обязательное поле, в запросе его нет');
     expect(v.error).not.toMatch(/Invalid input|received undefined/);
-    expect(v.problems).toEqual([{ field: 'query', ru: 'обязательное поле, в запросе его нет', en: 'required field is missing', own: false }]);
+    expect(v.problems).toEqual([{ field: 'query', ru: 'обязательное поле, в запросе его нет', en: 'required field is missing', own: false, missing: true }]);
   });
 
   it('свои слова схемы имя поля не дублируют; английская строка называет поле и что оно пропало', () => {
@@ -588,5 +588,76 @@ describe('change_request: негодные поля — все разом, с и
     expect(r.text).toMatch(/^• action — /m);
     expect(r.text).toContain('Request not changed — fix this and call again:');
     expect(r.text).not.toMatch(/Invalid input|received undefined/);
+  });
+});
+
+// ── 21.11: сводка «не хватает» и что спросить у человека ─────────────────────
+//
+// Панель владельца 21.11: 297 отказов на входе за 30 дней (нет телефона, нет
+// согласия, пустая заявка). Отказ называл поля, но не говорил агенту, что
+// имя, телефон и согласие берут у человека, — агент повторял вызов вслепую.
+
+describe('отказ говорит, чего не хватает и кого спросить', () => {
+  it('сборщик: пропавшие поля — сводной строкой на обоих языках, порядок как в списке', () => {
+    const p = [
+      { field: 'phone', ru: 'обязательное поле, в запросе его нет', en: 'required field is missing', missing: true },
+      consentProblem('missing'),
+      { field: 'date', ru: 'неверный формат', en: 'invalid format' },
+    ];
+    expect(missingFields(p)).toEqual(['phone', 'consent']);
+    const text = inputRefusalText(p);
+    expect(text).toContain('Не хватает: phone, consent.');
+    expect(text).toContain('Missing: phone, consent.');
+  });
+
+  it('сборщик: подсказка называет только то, что не так, и не ослабляет согласие', () => {
+    expect(askPersonHint([phoneProblem('bad')])?.en).toBe(
+      'Next step: ask the person for their phone number, then call again. Do not make these up for them; to test the integration without sending a request, pass test: true.',
+    );
+    const both = askPersonHint([phoneProblem('bad'), consentProblem('refused')]);
+    expect(both?.en).toContain('ask the person for their phone number and explicit consent to personal-data processing, then call again with consent: true');
+    expect(both?.ru).toContain('спросите у человека номер телефона и явное согласие на обработку персональных данных, затем повторите вызов с consent: true');
+    // Не про человека (дата, тур) — подсказки нет: спрашивать человека не о чем.
+    expect(askPersonHint([{ field: 'date', ru: 'x', en: 'y' }])).toBeNull();
+  });
+
+  it('сборщик: строк по-русски и по-английски по-прежнему поровну', () => {
+    const text = inputRefusalText([phoneProblem('bad'), consentProblem('missing')]);
+    const [ru, en] = text.split('\n\n');
+    expect(ru.split('\n').length).toBe(en.split('\n').length);
+  });
+
+  it('пустая заявка create_lead через /api/mcp: все поля, сводка и «спросите у человека»; заявки нет', async () => {
+    const r = await call('create_lead', {});
+    expect(r.isError).toBe(true);
+    const { ru, en } = halves(r.text);
+    expect(new Set(bullets(en))).toEqual(new Set(['name', 'phone', 'comment', 'consent']));
+    expect(en).toMatch(/^Missing: (name|phone|comment|consent)(, (name|phone|comment|consent)){3}\.$/m);
+    expect(en).toContain('Next step: ask the person for their name, phone number and explicit consent to personal-data processing, then call again with consent: true.');
+    expect(ru).toContain('Что делать: спросите у человека имя, номер телефона и явное согласие на обработку персональных данных, затем повторите вызов с consent: true.');
+    expect(String(await journalCode())).toMatch(/^invalid_args:/);
+    nothingSent();
+  });
+
+  it('нет телефона и согласия у create_booking_request — «Missing: phone, consent» и подсказка', async () => {
+    const { phone: _p, consent: _c, ...rest } = ARGS.create_booking_request;
+    const r = await call('create_booking_request', rest);
+    expect(r.isError).toBe(true);
+    const { en } = halves(r.text);
+    expect(en).toContain('Missing: phone, consent.');
+    expect(en).toContain('ask the person for their phone number and explicit consent to personal-data processing, then call again with consent: true');
+    nothingSent();
+  });
+
+  it('имя инструмента с префиксом сервера исполняется как сам инструмент — и с теми же проверками входа', async () => {
+    const r = await call('vedar:create_lead', { ...ARGS.create_lead, phone: 'привет', consent: false });
+    expect(r.isError).toBe(true);
+    expect(bullets(halves(r.text).en)).toEqual(['phone', 'consent']);
+    expect(await journalCode()).toBe('bad_phone');
+    // Род алиаса — в requested_tool (21.11), самого имени там нет.
+    const row = query.mock.calls.filter(([sql]) => /INSERT INTO mcp_tool_calls/.test(String(sql))).at(-1)?.[1] as unknown[];
+    expect(row[0]).toBe('create_lead');
+    expect(row[5]).toBe('алиас: префикс');
+    nothingSent();
   });
 });

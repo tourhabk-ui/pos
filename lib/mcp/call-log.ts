@@ -49,6 +49,13 @@ export interface McpCallLogEntry {
   userAgent: string;
   /** Имя, которое просил клиент, когда инструмента нет (unknown_tool). */
   requestedTool?: string;
+  /**
+   * Имя пришло алиасом (21.11): род пишется в requested_tool как
+   * `алиас: префикс` / `алиас: написание` — без самого текста, без миграции.
+   * Панель неизвестных имён читает только error_kind = 'unknown_tool', поэтому
+   * эти строки туда не попадают.
+   */
+  aliasKind?: 'префикс' | 'написание' | null;
   /** Свой клиент: метка владельца в адресе коннектора (self-visit, 02.10). */
   self?: boolean;
   /** Причина ошибки машинным кодом (1143): no_consent, pg:42P08, timeout… */
@@ -70,12 +77,38 @@ export function safeToolName(name: string): string {
 /**
  * Запрошенное имя для колонки requested_tool (миграция 1141): только если
  * похоже на идентификатор — латиница, цифры, `_ . -`, до 40 знаков. Всё
- * прочее — 'не-идентификатор': факт запроса виден, мусор в панель не идёт.
+ * прочее — 'не-идентификатор: <род>' (род — nonIdentifierKind): факт запроса
+ * виден, мусор в панель не идёт.
  * Панель 02.10: 21 запрос несуществующих инструментов одной строкой 'unknown',
  * и какие имена просили — неизвестно.
  */
+/** Значение колонки requested_tool: имя при unknown_tool, род алиаса у остальных, иначе null. */
+export function requestedToolColumn(entry: Pick<McpCallLogEntry, 'errorKind' | 'requestedTool' | 'aliasKind'>): string | null {
+  if (entry.errorKind === 'unknown_tool') return entry.requestedTool ? safeRequestedName(entry.requestedTool) : null;
+  return entry.aliasKind === 'префикс' || entry.aliasKind === 'написание' ? `алиас: ${entry.aliasKind}` : null;
+}
+
 export function safeRequestedName(name: string): string {
-  return /^[A-Za-z][A-Za-z0-9_.-]{0,39}$/.test(name) ? name : 'не-идентификатор';
+  if (/^[A-Za-z][A-Za-z0-9_.-]{0,39}$/.test(name)) return name;
+  return `не-идентификатор: ${nonIdentifierKind(name)}`;
+}
+
+/**
+ * Род «не-идентификатора» (21.11). Панель 20.11 показала 18 таких запросов за
+ * день одной строкой — и понять, ЧТО клиент слал (пустое имя, фразу, имя с
+ * префиксом сервера, иероглифы), было нельзя. Сам текст по-прежнему не пишется
+ * (мусор и инъекции в панель не идут), пишется только род — короткое слово из
+ * закрытого списка, до 40 знаков вместе с меткой.
+ */
+export type NonIdentifierKind = 'пусто' | 'длиннее 40' | 'фраза' | 'не латиница' | 'префикс' | 'символы';
+
+export function nonIdentifierKind(name: string): NonIdentifierKind {
+  if (name.trim() === '') return 'пусто';
+  if (/\s/.test(name.trim())) return 'фраза';
+  if (/[^\x00-\x7F]/.test(name)) return 'не латиница';
+  if (name.length > 40) return 'длиннее 40';
+  if (/^[A-Za-z0-9_.-]+([:/][A-Za-z0-9_.-]+)+$/.test(name)) return 'префикс';
+  return 'символы';
 }
 
 /**
@@ -138,7 +171,7 @@ export function logMcpToolCall(entry: McpCallLogEntry): void {
         entry.errorKind ?? null,
         entry.durationMs ?? null,
         hash,
-        entry.errorKind === 'unknown_tool' && entry.requestedTool ? safeRequestedName(entry.requestedTool) : null,
+        requestedToolColumn(entry),
         entry.self === true,
         entry.ok ? null : (entry.errorCode ?? entry.errorKind ?? null)?.slice(0, 40) ?? null,
         entry.argKey?.slice(0, 40) ?? null,

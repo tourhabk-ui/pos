@@ -149,7 +149,9 @@ export function sendMessageFacts(result: Record<string, unknown>): SendMessageFa
   const state: A2aTaskState | null = rawState === 'completed' || rawState === 'rejected' || rawState === 'failed' ? rawState : null;
   const metadata = (task.metadata ?? {}) as Record<string, unknown>;
   const input: A2aInput | null = metadata.input === 'text' || metadata.input === 'tool' ? metadata.input : null;
-  const tool = typeof metadata.tool === 'string' ? safeToolName(metadata.tool) : null;
+  // Вопрос словами в поле tool (21.11) — род из закрытого списка вместо имени.
+  const toolKind = metadata.tool_kind === 'фраза' || metadata.tool_kind === 'не латиница' ? `не-идентификатор: ${metadata.tool_kind}` : null;
+  const tool = typeof metadata.tool === 'string' ? safeToolName(metadata.tool) : toolKind;
   const contextId = typeof task.contextId === 'string' ? task.contextId : null;
   const reason = state === 'rejected' ? safeRejectCode(metadata.reason) : null;
   return { contextId, state, input, tool, reason };

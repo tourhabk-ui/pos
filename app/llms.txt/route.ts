@@ -24,6 +24,7 @@ import { ANSWER_RELAY_RULE } from '@/lib/mcp/request-status-schema';
 import { CHANGE_REQUEST_RULE } from '@/lib/mcp/change-request-schema';
 import { recordAgentEntryHit } from '@/lib/analytics/agent-entry-hits';
 import { agentSendRuleRu } from '@/lib/mcp/human-confirmation';
+import { writeToolRequirementsRu, writeToolRequirementsEn } from '@/lib/mcp/write-tool-requirements';
 import { VEDAR_SKILL_URL, VEDAR_SKILL_INDEX_PATH } from '@/lib/agent/vedar-skill';
 import { publicAccommodationSql } from '@/lib/stay/moderation';
 import { carrierPagePath } from '@/lib/transfers/charter-format';
@@ -340,6 +341,7 @@ status, weather, safety alerts or booking a trip. Connect the public MCP server 
 no auth): ${BASE}/api/mcp — docs: ${BASE}/mcp. Booking, stay and charter requests are confirmed by a
 human (operator, owner or manager), no instant booking. ${paymentRuleEn(acceptsPayments)} Full English file: ${BASE}/llms-en.txt.
 ${agentRequestRulesEn(acceptsPayments)}
+${writeToolRequirementsEn()}
 
 ## Готовые планы поездок (по дням, с заявкой оператору)
 
@@ -387,6 +389,7 @@ ${parks.length ? parks.map((p) => `- [${p.displayName}](${BASE}/park/${p.slug})`
   одним вызовом под общим номером TRIP-…; каждый партнёр видит, что ещё
   заказано в поездке; перевозчик не назван — машину подберёт менеджер)
 - ${agentSendRuleRu(BASE)}
+- ${writeToolRequirementsRu()}
 - Кроме заявок, make_trip_plan и edit_trip_plan сохраняют черновик плана:
   анонимно, на 7 дней, без имени и телефона, до человека он не доходит
 - ${CHANGE_REQUEST_RULE}

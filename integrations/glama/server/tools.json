@@ -1631,11 +1631,11 @@
         "properties": {
           "name": {
             "type": "string",
-            "description": "Traveller's name. Имя туриста"
+            "description": "Traveller's name, required; ask the person. Имя туриста"
           },
           "phone": {
             "type": "string",
-            "description": "Contact phone, required. Телефон для связи (обязателен)"
+            "description": "Contact phone, required; ask the person for their own number in international format (country code first, +7 for Russia, 10–15 digits) and never invent one. Телефон для связи (обязателен)"
           },
           "comment": {
             "type": "string",
@@ -1965,11 +1965,11 @@
           },
           "name": {
             "type": "string",
-            "description": "Traveller's name. Имя туриста"
+            "description": "Traveller's name, required; ask the person. Имя туриста"
           },
           "phone": {
             "type": "string",
-            "description": "Phone for confirmation, required. Телефон для подтверждения (обязателен)"
+            "description": "Phone for confirmation, required; ask the person for their own number in international format (country code first, +7 for Russia, 10–15 digits) and never invent one. Телефон для подтверждения (обязателен)"
           },
           "comment": {
             "type": "string",
@@ -2303,11 +2303,11 @@
           },
           "name": {
             "type": "string",
-            "description": "Guest's name. Имя гостя"
+            "description": "Guest's name, required; ask the person. Имя гостя"
           },
           "phone": {
             "type": "string",
-            "description": "Phone the owner will call back, required. Телефон гостя — по нему перезвонит владелец (обязателен)"
+            "description": "Phone the owner will call back, required; ask the person for their own number in international format (country code first, +7 for Russia, 10–15 digits) and never invent one. Телефон гостя — по нему перезвонит владелец (обязателен)"
           },
           "comment": {
             "type": "string",
@@ -2639,11 +2639,11 @@
           },
           "name": {
             "type": "string",
-            "description": "Customer's name. Имя заказчика"
+            "description": "Customer's name, required; ask the person. Имя заказчика"
           },
           "phone": {
             "type": "string",
-            "description": "Contact phone, required. Телефон для связи (обязателен)"
+            "description": "Contact phone, required; ask the person for their own number in international format (country code first, +7 for Russia, 10–15 digits) and never invent one. Телефон для связи (обязателен)"
           },
           "carrier": {
             "type": "string",
@@ -2994,11 +2994,11 @@
           },
           "name": {
             "type": "string",
-            "description": "Renter's name. Имя арендатора"
+            "description": "Renter's name, required; ask the person. Имя арендатора"
           },
           "phone": {
             "type": "string",
-            "description": "Contact phone, required. Телефон для связи (обязателен)"
+            "description": "Contact phone, required; ask the person for their own number in international format (country code first, +7 for Russia, 10–15 digits) and never invent one. Телефон для связи (обязателен)"
           },
           "comment": {
             "type": "string",
@@ -3364,11 +3364,11 @@
           },
           "name": {
             "type": "string",
-            "description": "Traveller's name. Имя туриста"
+            "description": "Traveller's name, required; ask the person. Имя туриста"
           },
           "phone": {
             "type": "string",
-            "description": "Phone partners will call back, required. Телефон для связи (обязателен)"
+            "description": "Phone partners will call back, required; ask the person for their own number in international format (country code first, +7 for Russia, 10–15 digits) and never invent one. Телефон для связи (обязателен)"
           },
           "comment": {
             "type": "string",
