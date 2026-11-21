@@ -17,6 +17,7 @@ import { formatRecordDate, recordDateIso } from '@/lib/seo/record-modified';
 import { parseArticleMarkdown, faqFromBlocks, type Block } from '@/lib/articles/markdown';
 import { articleJsonLd } from '@/lib/articles/article-jsonld';
 import { isMonthLanding, monthLinks, MONTHS_HUB, type Landing } from '@/lib/landings/landings';
+import { RelatedLandings } from '@/components/landings/KamchatkaGuide';
 import { tourBlockHeading, tourBlockNote, type LandingBlockTour } from '@/lib/landings/tours';
 import { landingDesign, landingOgImagePath, reviewedTourCover } from '@/lib/landings/design';
 import { landingDates, landingDuration, landingPrice, landingSeason } from '@/lib/seo/query-landing-view';
@@ -223,6 +224,7 @@ export function LandingContent({ landing, tours, showH1 = true, middle, withJson
       )}
       {kuzmich && !hasSources && <LandingKuzmich />}
       {isMonthLanding(landing) && <MonthsNav current={landing.path} />}
+      <RelatedLandings landing={landing} />
     </article>
   );
 }

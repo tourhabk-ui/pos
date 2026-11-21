@@ -7,6 +7,7 @@ import { Send } from 'lucide-react';
 // сторожа mcp-landing — теперь через реестр.
 import { PLATFORM_LINKS as PLATFORM, LEGAL_LINKS as LEGAL } from '@/lib/navigation/platform-links';
 import { ORGANIZATION_PROFILES } from '@/lib/seo/organization-profiles';
+import { KamchatkaGuide } from '@/components/landings/KamchatkaGuide';
 
 export function Footer() {
   return (
@@ -100,6 +101,12 @@ export function Footer() {
             </ul>
           </div>
 
+        </div>
+
+        {/* Сыщик 22.11: перелинковка тематических посадочных. Компактный
+            список из реестра LANDINGS; на главной и в /articles — полный блок. */}
+        <div className="mt-10">
+          <KamchatkaGuide variant="compact" />
         </div>
 
         {/* Статус платформы — решение владельца 05.10: информационная система,
