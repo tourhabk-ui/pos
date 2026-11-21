@@ -350,6 +350,9 @@ const nextConfig = {
       // а адрес в выдаче Google отдавал 404 (#3566 п.4). Термальная зона Паратунки —
       // место «Паратунская зона отдыха».
       { source: '/places/paratunka', destination: '/places/paratunskaya-zona-otdyha', permanent: true },
+      // Пустая карточка «Под Козельский вулкан» скрыта (миграция 1494, #3566 п.1):
+      // её адрес в выдаче ведёт на карточку места — оттуда видны маршруты и туры.
+      { source: '/routes/pod-kozelskij-vulkan-marshrut', destination: '/places/kozelskij', permanent: true },
       // Журнал просмотров 19–21.11.2026: /vulkan-mutnovskij-zakryt отдавал 404.
       // Текст «Мутновский закрыт» — апгрейд карточки /places/vulkan-mutnovskij
       // (slug посадочной не является публичным адресом).

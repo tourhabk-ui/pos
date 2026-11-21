@@ -38,3 +38,11 @@ describe('/places/paratunka', () => {
     expect(rule).toMatchObject({ destination: '/places/paratunskaya-zona-otdyha', permanent: true });
   });
 });
+
+describe('/routes/pod-kozelskij-vulkan-marshrut (скрыт миграцией 1494)', () => {
+  it('постоянный редирект на карточку места «Козельский»', async () => {
+    const config = (await import('../../next.config.js')).default as { redirects: () => Promise<Array<{ source: string; destination: string; permanent?: boolean }>> };
+    const rule = (await config.redirects()).find((r) => r.source === '/routes/pod-kozelskij-vulkan-marshrut');
+    expect(rule).toMatchObject({ destination: '/places/kozelskij', permanent: true });
+  });
+});

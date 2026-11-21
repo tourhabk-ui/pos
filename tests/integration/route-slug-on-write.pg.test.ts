@@ -643,6 +643,21 @@ withPg('слияние маршрутов Долины гейзеров (1492) �
       .toEqual({ difficulty: 'easy', difficulty_source: null, km: '3.5', gain: 19 });
   });
 
+  it('пустой «Под Козельский вулкан» (1494): с туром остаётся, без тура скрыт, не слит', async () => {
+    const vis = async () => (await pool.query<{ is_visible: boolean; merged_into_id: string | null }>(
+      `SELECT is_visible, merged_into_id FROM kamchatka_routes WHERE slug = 'pod-kozelskij-vulkan-marshrut'`)).rows[0];
+    const hide = readFileSync(join(MIGRATIONS, '1494_pod_kozelskij_route_hidden.sql'), 'utf-8');
+    const id = (await pool.query<{ id: string }>(
+      `INSERT INTO kamchatka_routes (title, slug, description) VALUES ('Под Козельский вулкан', 'pod-kozelskij-vulkan-marshrut', NULL) RETURNING id::text AS id`)).rows[0].id;
+    await pool.query(`INSERT INTO operator_tours (route_id) VALUES ($1)`, [id]);
+    await pool.query(hide);
+    expect(await vis()).toEqual({ is_visible: true, merged_into_id: null });
+    await pool.query(`DELETE FROM operator_tours WHERE route_id = $1`, [id]);
+    await pool.query(hide);
+    await pool.query(hide);
+    expect(await vis()).toEqual({ is_visible: false, merged_into_id: null });
+  });
+
   it('адрес слитого маршрута ведёт к выжившей; живой и цепочка в скрытую — без адреса', async () => {
     expect(await merged('geyzery-kamchatki')).toBe('dolina-geyzerov-385d1c98');
     expect(await merged('9e000000-0000-4000-8000-000000000002')).toBe('dolina-geyzerov-385d1c98');
