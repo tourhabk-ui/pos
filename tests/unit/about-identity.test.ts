@@ -12,6 +12,13 @@ describe('/about identity and Organization sameAs', () => {
     expect(src).toContain('Model Context Protocol');
     expect(src).toContain('мгновенной брони и оплаты через');
   });
+  it('Organization JSON-LD: name «Ведар Камчатка», alternateName включает Vedar', () => {
+    const src = readFileSync('app/layout.tsx', 'utf8');
+    const org = src.split('"@type": "Organization"')[1] ?? '';
+    expect(org).toContain('"name": "Ведар Камчатка"');
+    expect(org).toMatch(/"alternateName": \[[^\]]*"Vedar"/);
+  });
+
   it('Organization JSON-LD links GitHub and the MCP registry', () => {
     const src = readFileSync('app/layout.tsx', 'utf8');
     expect(src).toContain("import { ORGANIZATION_PROFILES, ORGANIZATION_SAME_AS } from '@/lib/seo/organization-profiles'");

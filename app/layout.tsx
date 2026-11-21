@@ -248,11 +248,11 @@ export default async function RootLayout({ children }: { children: React.ReactNo
                 "@type": "Organization",
                 "@id": `${BASE_URL}/#organization`,
                 "name": "Ведар Камчатка",
-                // Полное имя, а не голое «Ведар»: короткое написание сталкивается
-                // с чужими сущностями в поиске. Те же формы, что в шапке, MCP,
-                // A2A и на /zh. Транслитерация 维达尔 оставлена, чтобы уже известное
-                // написание вело сюда (владелец 14.10).
-                "alternateName": ["Vedar Kamchatka", "Vedar 堪察加", "维达尔"],
+                // Официальное name — «Ведар Камчатка». alternateName «Vedar» —
+                // по замечанию Сыщика 22.11; полные формы (Vedar Kamchatka,
+                // Vedar 堪察加) и транслитерация 维达尔 остаются, чтобы уже
+                // известные написания вели сюда (владелец 14.10).
+                "alternateName": ["Vedar", "Vedar Kamchatka", "Vedar 堪察加", "维达尔"],
                 // Реквизиты — из единого источника lib/legal/requisites.
                 "legalName": REQUISITES.shortName,
                 "taxID": REQUISITES.inn,

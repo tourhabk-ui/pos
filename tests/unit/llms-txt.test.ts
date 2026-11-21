@@ -77,6 +77,8 @@ describe('/llms.txt — актуально и честно', () => {
     expect(text).not.toMatch(/высочайш/i);
     expect(text).not.toMatch(/уникальн/i);
     expect(text).not.toMatch(/лучш/i);
+    expect(text).not.toMatch(/крупнейш/i);
+    expect(text).toMatch(/Долина гейзеров[^\n]*гейзерное поле Евразии/);
     expect(text).toContain('Ключевская сопка — действующий вулкан высотой 4 750 м');
     expect(text).toContain('Флора и фауна: бурые медведи, камчатский краб, лосось всех видов');
   });
