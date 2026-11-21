@@ -242,6 +242,11 @@ const nextConfig = {
       // переносится сам). Короткая ссылка для постов и ИИ-ответов: турист
       // ничего не подключает (путь без MCP, 31.10). Не постоянный — 307.
       { source: '/', has: [{ type: 'query', key: 'ask' }], destination: '/kuzmich', permanent: false },
+      // Черновые адреса хабов Сыщика (21.11): тексты выложены на существующих
+      // страницах — «какие туры выбрать» блоком на /catalog, гид рыбалки над
+      // витриной /rybalka-na-kamchatke-tury. Дубля страниц нет, адрес не 404.
+      { source: '/kakie-tury-vybrat-na-kamchatke', destination: '/catalog', permanent: true },
+      { source: '/rybalka-na-kamchatke-gde-i-kogda-lovit', destination: '/rybalka-na-kamchatke-tury', permanent: true },
       // ── Канон домена ────────────────────────────────────────────────────
       // tourhab.ru и vedarai.ru отдавали один и тот же сайт. Для поисковика и
       // для ИИ-агента это два разных сайта с одинаковым содержимым: ссылки,
@@ -470,10 +475,17 @@ const nextConfig = {
           value: [
             '</.well-known/api-catalog>; rel="api-catalog"',
             '</llms.txt>; rel="describedby"; type="text/plain"',
+            '</llms.txt>; rel="llms"; type="text/plain"',
             '</openapi.json>; rel="service-desc"; type="application/json"',
             '</.well-known/mcp.json>; rel="mcp"; type="application/json"',
           ].join(', '),
         }],
+      },
+      // llms.txt — заголовком Link на всех страницах, не только на главной
+      // (спецификация разметки Сыщика 21.11, §4.10); у главной он в списке выше.
+      {
+        source: '/:path+',
+        headers: [{ key: 'Link', value: '</llms.txt>; rel="llms"; type="text/plain"' }],
       },
       // Китайский раздел (аудит 15.10, CN-quick): корневой <html lang="ru">
       // общий для всех страниц и не трогается (читать язык из запроса в корне

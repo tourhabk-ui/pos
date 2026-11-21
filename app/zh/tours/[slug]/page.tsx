@@ -21,6 +21,8 @@ import { Header } from '@/components/layout/Header';
 import { ZhTourSummary } from '@/components/zh/ZhDetail';
 import { loadZhTourPage, logZhFailure, zhTourIndexable } from '@/lib/zh/content';
 import { zhTourPath } from '@/lib/zh/pages';
+import { JsonLd } from '@/components/seo/JsonLd';
+import { zhTourJsonLd } from '@/lib/zh/zh-jsonld';
 import { readField, ZH_TOUR_FIELDS } from '@/lib/zh/fields';
 import { zhFactDescription } from '@/lib/zh/entry';
 import { tourPath } from '@/lib/tours/tour-url';
@@ -77,7 +79,7 @@ export async function generateMetadata({ params }: Props): Promise<Metadata> {
       canonical: self,
       // Пара языков — у каждого живого тура; у русской карточки ответная
       // ссылка ставится тем же правилом (zhTourAlternatePath).
-      ...(indexable ? { languages: { ru: `${SITE}${tourPath(tour)}`, 'zh-CN': self } } : {}),
+      ...(indexable ? { languages: { ru: `${SITE}${tourPath(tour)}`, 'zh-CN': self, 'x-default': `${SITE}${tourPath(tour)}` } } : {}),
     },
     openGraph: {
       url: self,
@@ -99,8 +101,13 @@ export default async function ZhTourPage({ params }: Props) {
   if (!data) notFound();
   // Пришли по числу, а у тура есть адрес — 308 на адрес: один адрес на конспект.
   if (data.byId && data.tour.slug) permanentRedirect(zhTourPath(data.tour));
+  // Разметка (Сыщик 21.11): TouristTrip + Offer по фактам этой страницы и
+  // хлебные; имя — H1 страницы (китайское, если перевод свежий).
+  const zhTitle = readField(ZH_TOUR_FIELDS.title, data.tour.title, data.translations, 'title');
+  const name = zhTitle.state === 'fresh' ? (zhTitle.zh as string) : data.tour.title;
   return (
     <>
+      {zhTourJsonLd(SITE, data.tour, zhTourPath(data.tour), name).map((ld, i) => <JsonLd key={i} data={ld} />)}
       <Header />
       <main className="ds-page" lang="zh-CN">
         <ZhTourSummary tour={data.tour} translations={data.translations} cny={cny} />

@@ -309,6 +309,7 @@ describe('/zh/tours/[slug]: индексируется и получает па�
     expect(meta.alternates?.languages).toEqual({
       ru: 'https://vedarai.ru/catalog/tours/dolina-geyzerov',
       'zh-CN': 'https://vedarai.ru/zh/tours/dolina-geyzerov',
+      'x-default': 'https://vedarai.ru/catalog/tours/dolina-geyzerov',
     });
     // absolute: бренд Vedar в строке, русского « | Ведар» шаблона layout нет (prod-check 137).
     const title = (meta.title as { absolute: string }).absolute;
@@ -346,6 +347,7 @@ describe('/zh/tours/[slug]: индексируется и получает па�
     expect(meta.alternates?.languages).toEqual({
       ru: 'https://vedarai.ru/catalog/tours/dolina-geyzerov',
       'zh-CN': 'https://vedarai.ru/zh/tours/dolina-geyzerov',
+      'x-default': 'https://vedarai.ru/catalog/tours/dolina-geyzerov',
     });
     expect((meta.title as { absolute: string }).absolute).toBe(`${TOUR.title}｜堪察加团队游（中文摘要）｜Vedar 堪察加`);
     expect(meta.description).toBe(zhFactDescription(TOUR));
@@ -417,6 +419,7 @@ describe('/zh/places/[slug]: та же пара по тому же правил�
     expect(after.alternates?.languages).toEqual({
       ru: 'https://vedarai.ru/places/kronotskij-zapovednik',
       'zh-CN': 'https://vedarai.ru/zh/places/kronotskij-zapovednik',
+      'x-default': 'https://vedarai.ru/places/kronotskij-zapovednik',
     });
   });
 });
@@ -430,6 +433,7 @@ describe('/zh/places/[slug]: адрес русской карточки и би�
     expect(meta.alternates?.languages).toEqual({
       ru: `https://vedarai.ru/places/${PLACE.ark_id}`,
       'zh-CN': `https://vedarai.ru/zh/places/${PLACE.id}`,
+      'x-default': `https://vedarai.ru/places/${PLACE.ark_id}`,
     });
     const { container } = render(await mod.default({ params: Promise.resolve({ slug: PLACE.id }) }));
     const note = container.querySelector('[data-zh-mt-note]') as HTMLElement;
@@ -458,6 +462,7 @@ describe('русские карточки: у тура ответная ссыл
     const pair = {
       ru: 'https://vedarai.ru/catalog/tours/dolina-geyzerov',
       'zh-CN': 'https://vedarai.ru/zh/tours/dolina-geyzerov',
+      'x-default': 'https://vedarai.ru/catalog/tours/dolina-geyzerov',
     };
     const without = await generateMetadata({ params: Promise.resolve({ id: 'dolina-geyzerov' }) });
     expect(without.alternates?.canonical).toBe('https://vedarai.ru/catalog/tours/dolina-geyzerov');
@@ -485,6 +490,7 @@ describe('русские карточки: у тура ответная ссыл
     expect(withZh.alternates?.languages).toEqual({
       ru: 'https://vedarai.ru/places/kronotskij-zapovednik',
       'zh-CN': 'https://vedarai.ru/zh/places/kronotskij-zapovednik',
+      'x-default': 'https://vedarai.ru/places/kronotskij-zapovednik',
     });
   });
 });

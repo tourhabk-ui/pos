@@ -10,7 +10,9 @@ import { Header } from '@/components/layout/Header';
 import { ZhTourList } from '@/components/zh/ZhTourList';
 import { ZH_CATALOG } from '@/lib/zh/catalog-copy';
 import { loadZhTours } from '@/lib/zh/entry';
-import { ZH_CATALOG_PATH, catalogHreflang } from '@/lib/zh/pages';
+import { ZH_CATALOG_PATH, catalogHreflang, zhTourPath } from '@/lib/zh/pages';
+import { JsonLd } from '@/components/seo/JsonLd';
+import { zhCatalogBreadcrumbJsonLd, zhCatalogItemListJsonLd } from '@/lib/zh/zh-jsonld';
 import { recordZhEntryHit } from '@/lib/analytics/agent-entry-hits';
 import { defaultOgImages } from '@/lib/seo/og-image';
 import { loadCnyRate } from '@/lib/currency/cbr-rate';
@@ -43,6 +45,11 @@ export default async function ZhCatalogPage() {
   const [tours, cny] = await Promise.all([loadZhTours(), loadCnyRate()]);
   return (
     <>
+      {/* Разметка (Сыщик 21.11): хлебные и список туров — имена, как в списке. */}
+      <JsonLd data={zhCatalogBreadcrumbJsonLd(SITE)} />
+      {tours && tours.length > 0 && (
+        <JsonLd data={zhCatalogItemListJsonLd(SITE, tours.map((t) => ({ path: zhTourPath(t), name: t.title_zh ?? t.title })))} />
+      )}
       <Header />
       <main className="ds-page" lang="zh-CN">
         <div className={`${pageContainer('showcase')} py-8 space-y-8`}>

@@ -77,7 +77,7 @@ export async function generateMetadata({ params }: Props): Promise<Metadata> {
     description: desc,
     alternates: {
       canonical: `${SITE}${tourPath(tour)}`,
-      ...(zh ? { languages: { ru: `${SITE}${tourPath(tour)}`, 'zh-CN': `${SITE}${zh}` } } : {}),
+      ...(zh ? { languages: { ru: `${SITE}${tourPath(tour)}`, 'zh-CN': `${SITE}${zh}`, 'x-default': `${SITE}${tourPath(tour)}` } } : {}),
     },
     openGraph: {
       title: tour.title,

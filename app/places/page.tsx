@@ -9,6 +9,7 @@ import { withCardExcerpts } from '@/lib/routes/card-excerpt';
 import { listActiveParks, type ParkLite } from '@/lib/parks/list';
 import { listLiveCategories, type CategoryLink } from '@/lib/routes/live-categories';
 import { jsonLdHtml } from '@/lib/seo/json-ld-html';
+import { loadPlacesForItemList, placesItemListJsonLd } from '@/lib/seo/places-item-list';
 import { ROUTE_FALLBACK_LIMIT } from '@/lib/search/place-route-fallback';
 
 const SITE = process.env.NEXT_PUBLIC_SITE_URL ?? 'https://vedarai.ru';
@@ -149,21 +150,39 @@ export default async function PlacesPage({ searchParams }: PageProps) {
     radius: '',
   });
 
-  const itemListJsonLd = initial && initial.items.length > 0
-    ? {
-        '@context': 'https://schema.org',
-        '@type': 'ItemList',
-        itemListElement: initial.items.map((it, i) => ({
-          '@type': 'ListItem',
-          position: (page - 1) * LIMIT + i + 1,
-          name: it.title,
-          url: `${SITE}/places/${it.id}`,
-        })),
-      }
-    : null;
+  // ItemList (Сыщик 21.11, §4.1): на первой странице без фильтров — весь
+  // каталог мест канонические слагами; на прочих — видимая порция, тоже по
+  // слагам (адрес карточки), без UUID.
+  let itemListJsonLd: Record<string, unknown> | null = null;
+  const hasFilters = ['q', 'location_type', 'difficulty', 'radius', 'sort'].some(k => first(sp[k]) !== '');
+  if (!hasFilters && page === 1) {
+    try {
+      itemListJsonLd = placesItemListJsonLd(await loadPlacesForItemList(), SITE);
+    } catch (err) {
+      console.error('[places] список мест для разметки не прочитан:', err instanceof Error ? err.message : String(err));
+    }
+  }
+  if (!itemListJsonLd && initial && initial.items.length > 0) {
+    const els = initial.items.map((it, i) => ({
+      '@type': 'ListItem',
+      position: (page - 1) * LIMIT + i + 1,
+      name: it.title,
+      url: `${SITE}/places/${it.urlSlug ?? it.id}`,
+    }));
+    itemListJsonLd = { '@context': 'https://schema.org', '@type': 'ItemList', '@id': `${SITE}/places#list`, name: 'Места Камчатки', url: `${SITE}/places`, numberOfItems: els.length, itemListElement: els };
+  }
+  const breadcrumbJsonLd = {
+    '@context': 'https://schema.org',
+    '@type': 'BreadcrumbList',
+    itemListElement: [
+      { '@type': 'ListItem', position: 1, name: 'Главная', item: SITE },
+      { '@type': 'ListItem', position: 2, name: 'Места', item: `${SITE}/places` },
+    ],
+  };
 
   return (
     <>
+      <script type="application/ld+json" dangerouslySetInnerHTML={{ __html: jsonLdHtml(breadcrumbJsonLd) }} />
       {itemListJsonLd && (
         <script
           type="application/ld+json"

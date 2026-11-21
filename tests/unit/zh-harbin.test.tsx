@@ -63,6 +63,7 @@ describe('харбинский рейс', () => {
     expect(catalogHreflang('https://vedarai.ru/')).toEqual({
       ru: 'https://vedarai.ru/catalog',
       'zh-CN': 'https://vedarai.ru/zh/catalog',
+      'x-default': 'https://vedarai.ru/catalog',
     });
     expect(ZH_CATALOG.description.length).toBeLessThanOrEqual(160);
     expect(HARBIN_PAGE.description.length).toBeLessThanOrEqual(160);

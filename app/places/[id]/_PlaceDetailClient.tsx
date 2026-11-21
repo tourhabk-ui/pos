@@ -62,7 +62,8 @@ const PhotoUpload           = dynamic(() => import('@/components/places/PhotoUpl
 const PlaceUserPhotos       = dynamic(() => import('@/components/places/PlaceUserPhotos'),       { ssr: false });
 const PlaceActionBar        = dynamic(() => import('@/components/places/PlaceActionBar').then(m => ({ default: m.PlaceActionBar })), { ssr: false });
 const PlaceOwnRoute         = dynamic(() => import('@/components/places/PlaceOwnRoute').then(m => ({ default: m.PlaceOwnRoute })), { ssr: false });
-const Header                = dynamic(() => import('@/components/layout/Header').then(m => ({ default: m.Header })), { ssr: false });
+// Шапка с меню — в серверном HTML, как на парке и посадочных (Сыщик 21.11, §4.11).
+const Header                = dynamic(() => import('@/components/layout/Header').then(m => ({ default: m.Header })));
 
 function Skeleton() {
   return (

@@ -18,7 +18,7 @@ import { circularNext } from '@/lib/seo/circular-links';
 import { defaultOgImages } from '@/lib/seo/og-image';
 import { metaDescription } from '@/lib/seo/meta-description';
 import { isArticleIndexable, NOINDEX_FOLLOW } from '@/lib/articles/noindex';
-import { JsonLd } from '@/components/seo/JsonLd';
+import { BreadcrumbJsonLd, JsonLd } from '@/components/seo/JsonLd';
 import { RecordModified } from '@/components/seo/RecordModified';
 import { webPageModifiedJsonLd } from '@/lib/seo/record-modified';
 import { brandedTitle } from '@/lib/seo/title-fit';
@@ -111,6 +111,12 @@ export default async function ArticlePage({ params }: Props) {
   return (
     <>
       {pageLd && <JsonLd data={pageLd} />}
+      {/* Хлебные крошки (Сыщик 21.11, §4.7). */}
+      <BreadcrumbJsonLd items={[
+        { name: 'Главная', url: 'https://vedarai.ru' },
+        { name: 'Статьи о Камчатке', url: 'https://vedarai.ru/articles' },
+        { name: article.title, url },
+      ]} />
       <Header />
       <main className="ds-page pt-20 pb-16">
       {/* Чтение (lib/layout/page-width, 14.11): статья стояла у левого края окна без полей. */}
