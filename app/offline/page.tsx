@@ -12,8 +12,8 @@ export const metadata: Metadata = {
 // в «ещё службы». Первый проверенный региональный МЧС — одной строкой сразу.
 const PRIMARY = FEDERAL_EMERGENCY[0];                 // 112
 const OTHER_FEDERAL = FEDERAL_EMERGENCY.slice(1);     // 101 / 102 / 103
-const REGIONAL_LEAD = VERIFIED_REGIONAL[0] ?? null;   // МЧС Камчатки — СОД
-const REGIONAL_REST = VERIFIED_REGIONAL.slice(1);     // резерв СОД, НДС
+const REGIONAL_LEAD = VERIFIED_REGIONAL[0] ?? null;   // ЦУКС — старший оперативный дежурный
+const REGIONAL_REST = VERIFIED_REGIONAL.slice(1);     // происшествие на маршруте, начальник смены, доп. номер
 
 /**
  * Экран, который service worker отдаёт офлайн вне кэша (caches.match('/offline')).
