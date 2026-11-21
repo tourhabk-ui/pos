@@ -150,7 +150,7 @@ type KindValue      = 'place' | 'route';
 // сразу: заголовок не говорил, что на странице, и совпадал у двух разделов
 // (аудит SEO 29.09, вечер).
 const KIND_TABS: { value: KindValue; label: string; desc: string; heading: string }[] = [
-  { value: 'route', label: 'Маршруты', desc: 'пеших и автомобильных маршрутов', heading: 'Маршруты по Камчатке' },
+  { value: 'route', label: 'Маршруты', desc: 'пеших и автомобильных маршрутов', heading: 'Маршруты к вулканам, источникам и озёрам Камчатки' },
   { value: 'place', label: 'Места',    desc: 'природных мест и достопримечательностей', heading: 'Места Камчатки' },
 ];
 

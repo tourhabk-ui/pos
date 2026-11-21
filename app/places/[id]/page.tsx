@@ -1,6 +1,7 @@
 import type { Metadata } from 'next';
 import { PLACE_CANONICAL_PARENT, PLACE_NOINDEX } from '@/lib/seo/h1-templates';
 import { landingByPath } from '@/lib/landings/landings';
+import { placeSearchMeta } from '@/lib/seo/place-search-meta';
 import { placeClosure } from '@/lib/routes/closures';
 import { loadToursFor } from '@/lib/landings/tours';
 import { LandingContent } from '@/components/landings/LandingContent';
@@ -110,8 +111,9 @@ export async function generateMetadata({ params }: Props): Promise<Metadata> {
       // Хвост — из ответов карточки, и только если помещается в выдачу
       // (lib/seo/place-meta поверх lib/seo/title-fit).
       // Текст места — посадочная Сыщика (lib/landings, 20.11): её заголовок и описание.
-      title: brandedTitle(landingByPath(ownPath)?.title ?? placeTitle(facts)),
-      description: landingByPath(ownPath)?.description ?? desc,
+      // Под запросы Google — lib/seo/place-search-meta (Сыщик 21.11, GSC).
+      title: brandedTitle(landingByPath(ownPath)?.title ?? placeSearchMeta(r.slug as string | null)?.title ?? placeTitle(facts)),
+      description: landingByPath(ownPath)?.description ?? placeSearchMeta(r.slug as string | null)?.description ?? desc,
       alternates: {
         canonical,
         ...(zh && !parentSlug ? { languages: { ru: `${BASE}${canonical}`, 'zh-CN': `${BASE}${zh}`, 'x-default': `${BASE}${canonical}` } } : {}),
@@ -246,6 +248,8 @@ export default async function PlaceDetailPage({ params }: Props) {
   // Посадочная Сыщика на месте убранного описания (Паратунка, 20.11).
   const landing = landingByPath(`/places/${canonicalId}`);
   const landingTours = landing ? await loadToursFor(landing) : null;
+  // Прямой ответ на вопрос из выдачи (lib/seo/place-search-meta); у посадочной — её текст.
+  const leadAnswer = landing ? null : (placeSearchMeta(canonicalId)?.leadAnswer ?? null);
 
   // Данные карточки — сразу в HTML: поисковик и человек без JS видят имя,
   // описание, факты и ссылки на маршруты (Н1). Браузер потом обновит их сам.
@@ -362,7 +366,7 @@ export default async function PlaceDetailPage({ params }: Props) {
       )}
       {pageLd && <JsonLd data={pageLd} />}
       {breadcrumbItems && <BreadcrumbJsonLd items={breadcrumbItems} />}
-      <PlaceDetailClient id={arkId} initialPlace={initialPlace} landingHeading={landing?.h1 ?? null} closure={placeClosure(canonicalId)} />
+      <PlaceDetailClient id={arkId} initialPlace={initialPlace} landingHeading={landing?.h1 ?? null} closure={placeClosure(canonicalId)} leadAnswer={leadAnswer} />
       {landing && (
         <div className={`${pageContainer('reading')} pb-10`}>
           <LandingContent landing={landing} tours={landingTours} showH1={false} />

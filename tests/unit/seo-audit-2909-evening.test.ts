@@ -123,7 +123,7 @@ describe('/routes и /places — разные страницы с разными
   it('H1 каталога называет раздел, а не одно слово «Камчатка»', () => {
     const client = code('app/routes/_RoutesPageClient.tsx');
     expect(client).not.toMatch(/<h1[^>]*>\s*Камчатка\s*<\/h1>/);
-    expect(client).toMatch(/heading: 'Маршруты по Камчатке'/);
+    expect(client).toMatch(/heading: 'Маршруты к вулканам, источникам и озёрам Камчатки'/);
     expect(client).toMatch(/heading: 'Места Камчатки'/);
     expect(client).toMatch(/<h1[^>]*>\{KIND_TABS\.find\(t => t\.value === kind\)\?\.heading/);
   });
