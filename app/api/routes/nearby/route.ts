@@ -13,6 +13,7 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { pool } from '@/lib/db-pool';
 import { distanceKm } from '@/lib/geo/kamchatka';
+import { publicSourceUrl } from '@/lib/text/source-attribution';
 
 const VALID_KINDS = new Set(['place', 'route', 'tour']);
 
@@ -66,7 +67,7 @@ export async function GET(req: NextRequest) {
         activityType: (r.activity_type as string | null) ?? '',
         locationType: (r.location_type as string | null) ?? '',
         kind: (r.kind as string | null) ?? '',
-        sourceUrl: (r.source_url as string | null) ?? '',
+        sourceUrl: publicSourceUrl(r.source_url as string | null) ?? '',
         distanceKm: distanceKm(
           { lat, lng },
           { lat: parseFloat(r.lat as string), lng: parseFloat(r.lng as string) },

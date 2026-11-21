@@ -33,6 +33,7 @@ import type { PhotoCredit } from '@/lib/media/author-credit';
 import { stripFillerLead } from '@/lib/text/filler-lead';
 import { arkUrlSlugSql } from '@/lib/routes/url-slug';
 import { PLACE_TYPE_PARAM } from '@/lib/routes/place-type-param';
+import { publicSourceUrl } from '@/lib/text/source-attribution';
 import {
   routeTourPriceFromSql,
   routeTourPriceLateralSql,
@@ -575,7 +576,7 @@ export async function queryCatalog(filters: CatalogFilters): Promise<CatalogResu
       description:  stripFillerLead(r.description as string | null),
       lat:          r.lat != null ? parseFloat(r.lat as string) : null,
       lng:          r.lng != null ? parseFloat(r.lng as string) : null,
-      sourceUrl:    (r.source_url as string | null) ?? null,
+      sourceUrl:    publicSourceUrl(r.source_url as string | null, r.source_name as string | null),
       sourceName:   (r.source_name as string | null) ?? null,
       tourPrice:    routeTourPriceOf(r.tour_price_from, r.priced_tours),
       placeTours:   null,

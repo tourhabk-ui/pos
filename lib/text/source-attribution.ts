@@ -72,3 +72,33 @@ export function stripSourceAttribution(text: string | null | undefined): string 
 
   return out;
 }
+
+/**
+ * Адрес стороннего источника не уходит в ответ страницы и в JSON.
+ *
+ * Подвал карточки места уже не ставит ссылку, когда подпись — «сторонний
+ * источник» (решение 17.08, PlaceFooter). Но `source_url` (idilesom.com)
+ * всё ещё попадал в серверный payload карточки маршрута и в блок
+ * «похожие» — скрытая ссылка на сайт конкурента в HTML/JSON, хотя на
+ * экране кликабельной её не было. В базе адрес остаётся (миграция 871:
+ * это проверяемость, а не витрина).
+ */
+export const EXTERNAL_SOURCE_NAME = 'сторонний источник';
+
+export function publicSourceUrl(
+  sourceUrl: string | null | undefined,
+  sourceName?: string | null,
+): string | null {
+  if (!sourceUrl) return null;
+  if (sourceName === EXTERNAL_SOURCE_NAME) return null;
+  let host = '';
+  try {
+    host = new URL(sourceUrl).hostname.replace(/^www\./, '').toLowerCase();
+  } catch {
+    host = '';
+  }
+  if (host === 'idilesom.com' || host.endsWith('.idilesom.com') || /idilesom\.com/i.test(sourceUrl)) {
+    return null;
+  }
+  return sourceUrl;
+}

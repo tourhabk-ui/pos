@@ -6,6 +6,7 @@
 
 import { NextRequest, NextResponse } from 'next/server';
 import { query } from '@/lib/database';
+import { publicSourceUrl } from '@/lib/text/source-attribution';
 
 export const dynamic = 'force-dynamic';
 
@@ -56,7 +57,7 @@ export async function GET(request: NextRequest) {
         description: (r.description as string | null) ?? '',
         lat: r.lat != null ? parseFloat(r.lat as string) : null,
         lng: r.lng != null ? parseFloat(r.lng as string) : null,
-        sourceUrl: (r.source_url as string | null) ?? null,
+        sourceUrl: publicSourceUrl(r.source_url as string | null, r.source_name as string | null),
         sourceName: (r.source_name as string | null) ?? null,
       })),
       total: result.rows.length,
