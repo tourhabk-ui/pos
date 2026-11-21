@@ -102,11 +102,12 @@ describe('NAP: подвал и Organization sameAs', () => {
     expect(hrefs.some((h) => h?.includes('kamchatourhub'))).toBe(false);
   });
 
-  it('sameAs содержит канал Telegram, канал MAX _biz и бота поддержки; Дзен не выдуман', () => {
+  it('sameAs содержит канал Telegram, канал MAX _biz, бота поддержки и канал Дзена', () => {
     expect(ORGANIZATION_SAME_AS).toContain(ORGANIZATION_PROFILES.telegramChannel);
     expect(ORGANIZATION_SAME_AS).toContain(ORGANIZATION_PROFILES.maxChannel);
     expect(ORGANIZATION_SAME_AS).toContain(ORGANIZATION_PROFILES.telegramSupport);
-    expect(ORGANIZATION_SAME_AS.some((u) => /dzen\.ru|zen\.yandex/.test(u))).toBe(false);
+    expect(ORGANIZATION_SAME_AS).toContain(ORGANIZATION_PROFILES.dzenChannel);
+    expect(ORGANIZATION_PROFILES.dzenChannel).toBe('https://dzen.ru/id/6adbca4abefc9746e6422d74');
     const layout = readFileSync('app/layout.tsx', 'utf8');
     expect(layout).toContain('ORGANIZATION_SAME_AS');
     expect(layout).toContain('ORGANIZATION_PROFILES.telegramSupport');

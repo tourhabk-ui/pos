@@ -298,7 +298,7 @@ export default async function RootLayout({ children }: { children: React.ReactNo
                   "экотуризм Камчатки"
                 ],
                 // Каналы, реестр и боты — из lib/seo/organization-profiles,
-                // те же ссылки, что в подвале (NAP). Канала Дзена в репозитории нет.
+                // те же ссылки, что в подвале (NAP), плюс канал Дзена в sameAs.
                 "sameAs": ORGANIZATION_SAME_AS
               }
             ])
