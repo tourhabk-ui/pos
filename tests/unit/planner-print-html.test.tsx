@@ -32,7 +32,9 @@ const HOSTILE_WARN = '<b onmouseover="x()">предупреждение</b>';
 
 /** Разметка, которой в документе быть не должно, — как её прочитал бы браузер. */
 function rawTags(html: string): string[] {
-  return [...html.matchAll(/<(img|script|b|iframe|svg)\b/gi)].map((m) => m[0]);
+  // Свои теги макета 21.11 — снимок с подписью автора и QR тура — помечены
+  // data-print-*; всё остальное было бы чужой разметкой.
+  return [...html.matchAll(/<(img|script|b|iframe|svg)\b(?![^>]*\bdata-print-(?:photo|qr)\b)/gi)].map((m) => m[0]);
 }
 
 describe('сборка документа экранирует каждое значение', () => {
@@ -60,7 +62,7 @@ describe('сборка документа экранирует каждое зн
     expect(html).toContain('&lt;script&gt;window.__y=1&lt;/script&gt;Описание');
     // Класс строки — только из закрытого списка: чужое значение не выходит из атрибута.
     expect(html).not.toContain('onclick');
-    expect(html).toContain('class="warning warning-info"');
+    expect(html).toMatch(/class="warning warning-(?:critical|important|info)"/);
   });
 
   it('обычный план читается как прежде: номер, название, цена, смета', () => {
@@ -69,19 +71,21 @@ describe('сборка документа экранирует каждое зн
       days: [{ num: 2, confirmed: false, title: 'Паратунка', badge: 'Тур оператора', priceLine: 'от 13 000 ₽', description: 'Купание', meta: 'Авачинская зона', warnings: [] }],
       warnings: [{ severity: 'important', message: 'Медведи' }],
     });
-    expect(html).toContain('<div class="day-num">2</div>');
-    expect(html).toContain('<div class="day-title">Паратунка</div>');
+    expect(html).toContain('<div class="day-num">День 2</div>');
+    expect(html).toContain('<span class="day-title">Паратунка</span>');
     expect(html).toContain('<span class="day-badge">Тур оператора</span>');
     expect(html).toContain('1 000 — 2 000 ₽');
     expect(html).toContain('class="warning warning-important">Медведи</div>');
   });
 
-  it('что взять по прогнозу — строкой дня, текстом; нет прогноза — нет строки (#3394, п.6)', () => {
-    const kit = 'Прогноз для зоны дня: Дождь, +1…+7 °C, осадки 6 мм, ветер до 15 м/с. Возьмите дождевик <b>';
+  it('погода — короткой строкой дня, совет по одежде — один раз в «Безопасность и разрешения» (макет 21.11)', () => {
+    const kit = 'Прогноз для зоны дня: Дождь, +1…+7 °C, осадки 6 мм, ветер до 15 м/с. Возьмите дождевик <b>.';
     const day = { num: 1, confirmed: false, title: 'Авачинский', badge: null, priceLine: '', description: '', meta: 'Авачинская зона', warnings: [] };
-    const html = buildPlanPrintHtml({ ...base, days: [{ ...day, weatherKit: kit }] });
-    expect(html).toContain('<div class="day-meta">Прогноз для зоны дня: Дождь, +1…+7 °C, осадки 6 мм, ветер до 15 м/с. Возьмите дождевик &lt;b&gt;</div>');
-    expect(buildPlanPrintHtml({ ...base, days: [day] })).not.toContain('Прогноз для зоны дня');
+    const html = buildPlanPrintHtml({ ...base, days: [{ ...day, weatherKit: kit }, { ...day, num: 2, weatherKit: kit }] });
+    expect(html).toContain('<div class="day-meta">Авачинская зона · 1…7 °C, дождь</div>');
+    expect(html.match(/Одежда по прогнозу: возьмите дождевик &lt;b&gt;\. \(дни 1–2\)/g)).toHaveLength(1);
+    expect(html).not.toContain('Прогноз для зоны дня');
+    expect(buildPlanPrintHtml({ ...base, days: [day] })).not.toContain('°C');
   });
 
   it('смета без вилки — одна сумма, а не «X — X ₽» (#3199, E12)', () => {
@@ -96,6 +100,38 @@ describe('сборка документа экранирует каждое зн
     expect(html).toContain('<span>20 000 ₽</span>');
     expect(html).toContain('<span>10 000 ₽</span>');
     expect(html).not.toContain('20 000 — 20 000');
+  });
+
+  it('макет 21.11: обложка, многодневный тур одним блоком, QR и ссылка на тур, смета «посчитано X из Y», безопасность одной страницей, подвал «заявка — не бронь»', () => {
+    const tourDay = (num: number) => ({
+      num, confirmed: false, title: 'Камчатка: термальный маршрут', badge: null, priceLine: num === 1 ? 'от 120 000 ₽' : '',
+      description: '', meta: 'Авачинская зона', dayType: 'activity', tourId: '77', tourTitle: 'Камчатка: термальный маршрут',
+      tourHref: 'https://vedarai.ru/catalog/tours/termalnyj', warnings: ['Медведи: держитесь группой.', 'Турпортал края о вулкане Мутновский: не приближаться.'],
+    });
+    const html = buildPlanPrintHtml({
+      ...base,
+      dateRange: '2026-11-24 — 2026-12-04',
+      days: [1, 2, 3, 4, 5].map(tourDay),
+      estimate: { ...base.estimate!, lines: [{ label: 'Тур', basis: '2 чел.', source: 'tour', total: [170000, 170000] }, { label: 'Жильё', basis: '10 ночей', source: 'open', total: null }] },
+      cover: { src: '/uploads/a.jpg', caption: 'Фото: Автор' },
+      photos: { '77': { src: 'javascript:alert(1)', caption: 'Фото: Автор' } },
+    });
+    expect(html).toContain('24 ноября — 4 декабря 2026');
+    expect(html).toContain('<img data-print-photo src="https://vedarai.ru/uploads/a.jpg" alt=""/><figcaption>Фото: Автор</figcaption>');
+    // Чужая схема адреса снимка не проходит.
+    expect(html).not.toContain('javascript:');
+    expect(html.match(/<div class="day-num">/g)).toHaveLength(1);
+    expect(html).toContain('<div class="day-num">Дни 1–5</div>');
+    expect(html.match(/<svg data-print-qr/g)).toHaveLength(1);
+    expect(html).toContain('vedarai.ru/catalog/tours/termalnyj');
+    expect(html).toContain('Посчитано 1 из 2 позиций');
+    expect(html).toContain('<h2>Безопасность и разрешения</h2>');
+    expect(html.match(/Медведи: держитесь группой\./g)).toHaveLength(1);
+    expect(html).toContain('Медведи: держитесь группой. (дни 1–5)');
+    // Сводка о Мутновском термам не пишется на день — только в блоке.
+    expect(html).not.toMatch(/class="day-warn">Турпортал/);
+    expect(html).toContain('Заявка — не бронь, подтверждает оператор');
+    expect(html).toContain('/fonts/print/inter-cyrillic-wght-normal.woff2');
   });
 
   it('в компоненте планера нет своего HTML-документа: он собирается только здесь', () => {
