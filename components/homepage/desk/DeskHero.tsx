@@ -10,6 +10,7 @@ import type { DeskBrief } from '@/lib/home/desk-brief';
 import { keepDailyDescription } from '@/lib/weather/day-parts';
 import { photoSrc, photoSrcSet } from '@/lib/images/variant';
 import { DeskFreshness } from './DeskFreshness';
+import { PlanEntryLink } from '@/components/planner/PlanEntryLink';
 
 /**
  * Первый экран десктопной главной — «сводка дня поверх фото» (доска
@@ -187,14 +188,14 @@ export function DeskHero({ brief }: { brief: DeskBrief }) {
             сегодня, — справа и ниже, с источником у каждой строки.
           </p>
           <div className="mt-2 flex flex-wrap items-center gap-3">
-            <Link
-              href="/planner"
+            {/* Гостю — план в чате Кузьмича, вошедшему — /planner (21.11). */}
+            <PlanEntryLink
               className="inline-flex h-12 items-center gap-2 rounded-full px-6 text-[15px] font-semibold text-white shadow-lg shadow-black/30 transition-all duration-200 hover:brightness-110 focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-white active:scale-[0.98]"
               style={{ background: 'var(--accent)' }}
             >
               <CalendarDays size={18} aria-hidden />
               Собрать план
-            </Link>
+            </PlanEntryLink>
             <Link
               href="/catalog"
               className="fx-glass inline-flex h-12 items-center gap-2 rounded-full px-6 text-[15px] font-semibold transition-all duration-200 hover:bg-black/55 focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-white active:scale-[0.98]"

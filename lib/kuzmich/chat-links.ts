@@ -59,6 +59,30 @@ function labeledLine(line: string): { prefix: string | null; items: string[] } |
 }
 
 /**
+ * Пункты, слипшиеся в одну строку (тест планировщика 21.11): «…полнее. -
+ * Восхождение на Горелый…» на 390 px читалось абзацем с «-», на десктопе
+ * пункт прилипал к строке. Маркер « - » после конца предложения — начало
+ * нового пункта: переносим его на свою строку. Тире «—» внутри фразы
+ * («Горелый — 15 000 ₽») и дефис в слове не трогаем: нужен конец
+ * предложения перед маркером и пробелы с обеих сторон.
+ */
+const INLINE_ITEM = /([.!?…])[ \t]+[-•–][ \t]+(?=[\p{Lu}\d«"(])/gu;
+
+export function expandInlineItems(text: string): string {
+  return text
+    .split('\n')
+    .map((line) => {
+      if (!INLINE_ITEM.test(line)) return line;
+      INLINE_ITEM.lastIndex = 0;
+      const indent = /^\s*/.exec(line)?.[0] ?? '';
+      const parts = line.replace(INLINE_ITEM, '$1\n- ').split('\n');
+      // Строка без маркера: первая часть — текст, остальное — пункты списка.
+      return parts.map((p, i) => (i === 0 ? p : `${indent}${p}`)).join('\n');
+    })
+    .join('\n');
+}
+
+/**
  * Строки «- …» и «Заголовок: …» — список, «1. …» — нумерованный список со
  * своими номерами. Остальное — абзацы. Пустая строка список закрывает.
  */
@@ -72,7 +96,7 @@ export function chatBlocks(text: string): ChatBlock[] {
     items = [];
     steps = [];
   };
-  for (const raw of text.split('\n')) {
+  for (const raw of expandInlineItems(text).split('\n')) {
     const line = raw.trim();
     if (!line) {
       flush();
@@ -118,7 +142,43 @@ const URL_RE = /https?:\/\/[^\s<>"«»]+/gi;
 const TRAILING = /[.,;:!?)\]}»'"]+$/;
 const OWN_HOSTS = new Set(['vedarai.ru', 'www.vedarai.ru']);
 
+/**
+ * Ссылка «[текст](адрес)» — так сервер подписывает туры в ответе ссылкой на
+ * их страницу (21.11, тест планировщика). Адрес — свой путь «/…» или http(s);
+ * прочие схемы остаются текстом.
+ */
+const MD_LINK_RE = /\[([^\]\n]{1,200})\]\((\/[^\s()]*|https?:\/\/[^\s()]+)\)/g;
+
 export function chatLinkChunks(text: string): ChatChunk[] {
+  const out: ChatChunk[] = [];
+  let last = 0;
+  for (const m of text.matchAll(MD_LINK_RE)) {
+    const start = m.index ?? 0;
+    const label = m[1];
+    const target = m[2];
+    let chunk: ChatChunk | null = null;
+    if (target.startsWith('/') && !target.startsWith('//')) {
+      chunk = { text: label, href: target };
+    } else {
+      try {
+        const url = new URL(target);
+        if (url.protocol === 'https:' || url.protocol === 'http:') {
+          chunk = OWN_HOSTS.has(url.hostname.toLowerCase())
+            ? { text: label, href: `${url.pathname}${url.search}${url.hash}` || '/' }
+            : { text: label, href: url.href, external: true };
+        }
+      } catch { chunk = null; }
+    }
+    if (!chunk) continue;
+    if (start > last) out.push(...plainLinkChunks(text.slice(last, start)));
+    out.push(chunk);
+    last = start + m[0].length;
+  }
+  if (last < text.length) out.push(...plainLinkChunks(text.slice(last)));
+  return out;
+}
+
+function plainLinkChunks(text: string): ChatChunk[] {
   const out: ChatChunk[] = [];
   let last = 0;
   for (const m of text.matchAll(URL_RE)) {

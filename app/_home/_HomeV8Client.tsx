@@ -13,6 +13,7 @@
  * Данные приходят из серверного data-слоя (app/_home/data.ts).
  */
 
+import { PlanEntryLink } from '@/components/planner/PlanEntryLink';
 import { useModalDialog } from '@/hooks/use-modal-dialog';
 import { useEffect, useRef, useState, type MouseEvent } from 'react';
 import Link from 'next/link';
@@ -446,10 +447,10 @@ export default function HomeV8Client({ data, weather }: { data: HomeV8Data; weat
           {/* «Своя поездка» (владелец 25.09: «сегодня сам, завтра с оператором,
               потом отдых — на всё время на Камчатке»). Обещание подписи
               держит движок: день плана несёт род (lib/planner/day-mode). */}
-          <Link href="/planner" className="qt qt-plan" aria-label="Своя поездка по дням: дни самостоятельно, туры операторов и отдых на всё время на Камчатке">
+          <PlanEntryLink className="qt qt-plan" aria-label="Своя поездка по дням: дни самостоятельно, туры операторов и отдых на всё время на Камчатке">
             <span className="qt-ic"><CalendarDays size={19} strokeWidth={1.8} aria-hidden /></span>
             <span className="qt-tx"><b>Своя поездка</b><span>сам, тур, отдых</span></span>
-          </Link>
+          </PlanEntryLink>
           {/* Радар — дверь на сам радар (владелец 26.09, вечер: «по кнопке
               радар должен открываться наш радар»). Утром того же дня плитка
               раскрывала сводку, а на радар вела ссылка внутри сводки — лишний
