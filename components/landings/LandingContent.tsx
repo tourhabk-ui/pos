@@ -70,7 +70,7 @@ export function LandingToc({ items }: { items: Array<{ id: string; label: string
     <nav className="landing-toc" aria-label="Оглавление" data-landing-toc="">
       <p className="landing-toc-title">На этой странице</p>
       <ol>
-        {items.map((it) => <li key={it.id}><a href={`#${it.id}`}>{it.label}</a></li>)}
+        {items.map((it) => <li key={it.id}><a className="landing-toc-link" href={`#${it.id}`}>{it.label}</a></li>)}
       </ol>
     </nav>
   );

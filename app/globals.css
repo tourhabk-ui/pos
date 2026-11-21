@@ -1008,8 +1008,8 @@ body {
 .landing-toc-title { font-size: 13px; font-weight: 700; color: var(--text-secondary); margin: 0 0 6px; }
 .landing-toc ol { list-style: decimal; margin: 0; padding-left: 1.25rem; }
 .landing-toc li { margin: 2px 0; }
-.landing-toc a { display: inline-flex; min-height: 32px; align-items: center; color: var(--text-primary); text-decoration: none; }
-.landing-toc a:hover { color: var(--accent); text-decoration: underline; }
+.landing-toc-link { display: inline-flex; min-height: 32px; align-items: center; color: var(--text-primary); text-decoration: none; }
+.landing-toc-link:hover { color: var(--accent); text-decoration: underline; }
 .landing-callout { border: 1px solid var(--border); border-left-width: 4px; border-radius: .5rem; padding: 12px 16px; background: var(--bg-card); }
 .landing-callout--danger { border-left-color: var(--danger); background: color-mix(in srgb, var(--danger) 8%, var(--bg-card)); }
 .landing-callout--warning { border-left-color: var(--warning); background: color-mix(in srgb, var(--warning) 10%, var(--bg-card)); }
@@ -1047,7 +1047,7 @@ body {
 .landing-kuzmich p { margin: 0 0 10px; font-size: 14px; color: var(--text-secondary); }
 .landing-btn { display: inline-flex; align-items: center; min-height: 44px; padding: 0 16px; border-radius: .5rem; background: var(--accent); color: var(--on-accent, #fff); font-weight: 600; font-size: 14px; text-decoration: none; }
 .landing-btn:hover { opacity: .92; }
-@media (prefers-reduced-motion: no-preference) { .landing-btn, .landing-toc a { transition: opacity .15s, color .15s; } }
+@media (prefers-reduced-motion: no-preference) { .landing-btn, .landing-toc-link { transition: opacity .15s, color .15s; } }
 
 /* Поле ввода на телефоне — не мельче 16 px (разбор meta/astryx 10.11, контракт
    mobile-typography, DR1: размер поля на телефоне = max(основной, 16), MIT).
