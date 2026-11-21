@@ -125,6 +125,25 @@ const nextConfig = {
   reactStrictMode: true,
   poweredByHeader: false,
 
+  // Пакеты анимации — через ту же сборку, что код приложения (21.11, экран в
+  // машине). Next понижает до своей цели (Chrome 64, browserslist в проекте
+  // нет) только наш код, а node_modules кладёт в куски как есть. framer-motion
+  // 13 написан с `??`, `?.` и статическими блоками классов, и старый Chrome на
+  // Android куски главной не разбирал: ловушка ошибок поймала ChunkLoadError
+  // «(missing: …/chunks/54449-….js)», человек видел «Страница не догрузилась».
+  // Сборка с этими пакетами тоже даёт куски Chrome 64.
+  //
+  // maplibre-gl сюда не входит намеренно. MapLibre 6 поднимает воркер модулем
+  // (`new Worker(blob, { type: 'module' })`) из public/vendor
+  // (lib/map/maplibre-worker.ts) — старый браузер его не поднимет, сколько ни
+  // понижай главный кусок. Не разобрался кусок — VedarMap ловит отказ импорта
+  // и говорит «Карта не загрузилась.» (components/shared/VedarMap.tsx), экран
+  // при этом живёт. Куски карты грузятся только там, где карта есть.
+  //
+  // Сторож — scripts/check-chunk-syntax.mjs шагом CI после сборки и
+  // tests/unit/chunk-syntax-check.test.ts.
+  transpilePackages: ['framer-motion', 'motion-dom', 'motion-utils'],
+
   // Метаданные — в <head> и для Googlebot. Next 15.5 отдаёт title/canonical/
   // robots стримингом в <body> всем, кроме списка htmlLimitedBots, а в
   // списке по умолчанию есть yandex и Bingbot, но НЕТ Googlebot. Google
