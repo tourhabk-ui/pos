@@ -38,6 +38,7 @@ import { recordSafetyReview } from '@/lib/kuzmich/safety-review-log';
 import { withSosBlock, type SosLang } from '@/lib/safety/sos-detector';
 import type { ToolRun } from '@/lib/agents/eval/grounding';
 import { fixWrongZhPlaceNames, type ZhNameFix } from '@/lib/zh/place-names';
+import { guardOfferClaims, OFFER_HONEST_LINE } from '@/lib/kuzmich/offer-claim-guard';
 
 /** Где прозвучал ответ. Имя идёт в лог и в журнал проверок безопасности. */
 export type GuardSurface = 'telegram' | 'max' | 'web' | 'web-stream' | 'widget' | 'a2a';
@@ -134,8 +135,10 @@ export function finishKuzmichAnswer(raw: FinishInput): FinishedAnswer {
   // Выдуманный «сбой базы» вместо штатной заявки (снимок CTO 31.10).
   const outage = guardOutageClaims(delivery.text);
   if (outage.removed.length > 0) console.error('[kuzmich-outage-claim-guard] выдуманный сбой вместо заявки', { surface: input.surface, removed: outage.removed });
+  const offer = guardOfferClaims(outage.text, input.toolRuns);
+  if (offer.removed.length > 0) console.error('[kuzmich-offer-claim-guard] цена, места или статус маршрута без вывода инструмента', { surface: input.surface, removed: offer.removed });
   const offered = appendUnreadSafety(
-    appendOfferingFlags(outage.text, warningsFromBlock(input.context)),
+    appendOfferingFlags(offer.text, warningsFromBlock(input.context)),
     input.context.includes(MCHS_UNREAD_NOTE),
   );
   // Строка безопасности под ответом о маршруте (lib/kuzmich/route-safety) — по-русски.
@@ -209,6 +212,8 @@ export function correctShownAnswer(input: Omit<FinishInput, 'sos' | 'lang'>): Sh
     notes.push(safety.text.slice(banned.text.length).trim());
   }
   if (delivery.verdict === 'unbacked') notes.push(DELIVERY_HONEST_LINE);
+  const offer = guardOfferClaims(input.answer, input.toolRuns);
+  if (offer.removed.length > 0) notes.push(OFFER_HONEST_LINE);
   const flagged = appendUnreadSafety(
     appendOfferingFlags(input.answer, warningsFromBlock(input.context)),
     input.context.includes(MCHS_UNREAD_NOTE),
@@ -225,3 +230,5 @@ export function correctShownAnswer(input: Omit<FinishInput, 'sos' | 'lang'>): Sh
     delivery,
   };
 }
+
+export { guardOfferClaims, OFFER_HONEST_LINE } from '@/lib/kuzmich/offer-claim-guard';

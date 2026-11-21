@@ -12,6 +12,7 @@ import {
   finishKuzmichAnswer, correctShownAnswer, groundingContext, SHOWN_BANNED_ADVICE_CORRECTION,
 } from '@/lib/kuzmich/answer-guards';
 import { DISTANCE_HONEST_LINE } from '@/lib/kuzmich/distance-guard';
+import { OFFER_HONEST_LINE } from '@/lib/kuzmich/offer-claim-guard';
 import { DELIVERY_HONEST_LINE } from '@/lib/kuzmich/delivery-claim-guard';
 import { recordSafetyReview } from '@/lib/kuzmich/safety-review-log';
 import type { ToolRun } from '@/lib/agents/eval/grounding';
@@ -98,5 +99,21 @@ describe('correctShownAnswer — текст уже у человека', () => {
     expect(safetyNote.length).toBeGreaterThan(0);
     expect(withAdvice.tail).toContain(SHOWN_BANNED_ADVICE_CORRECTION);
     expect(withAdvice.tail).toContain(safetyNote);
+  });
+});
+
+
+describe('fail-closed цены в одном выходе', () => {
+  it('в finishKuzmichAnswer цена без инструмента заменяется, остальной текст остаётся', () => {
+    const out = finishKuzmichAnswer({
+      surface: 'telegram',
+      answer: 'Озеро красивое. Тур стоит 22 000 ₽.',
+      question: 'Сколько стоит?',
+      toolRuns: [],
+      context: '',
+    });
+    expect(out.text).toContain('Озеро красивое.');
+    expect(out.text).toContain(OFFER_HONEST_LINE);
+    expect(out.text).not.toContain('22 000');
   });
 });

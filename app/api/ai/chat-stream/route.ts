@@ -44,6 +44,8 @@ import { aiChatAgentLoop, KUZMICH_SYSTEM, kuzmichTurnFacts, kuzmichSystemContent
 import { checkAnswerPrices } from '@/lib/kuzmich/answer-quality';
 import { resolveCommercialTurn } from '@/lib/kuzmich/commercial-turn';
 import { finishKuzmichAnswer } from '@/lib/kuzmich/answer-guards';
+import { createUntrustedMark, runWithUntrustedMark } from '@/lib/ai/untrusted';
+import { isDailyLlmBudgetStopped, isDailyBudgetStopped, KUZMICH_DAILY_REST_TEXT } from '@/lib/ai/daily-spend-gate';
 import { recordKuzmichAnswer } from '@/lib/kuzmich/answer-timing';
 import { saveChatSession } from '@/lib/kuzmich/chat-session-save';
 import { newLoopTiming, answerTokens } from '@/lib/kuzmich/answer-ceiling';
@@ -192,6 +194,13 @@ export async function POST(request: NextRequest) {
     const currentCount = session?.user_message_count ?? 0;
     const isNewSession = !session;
 
+    if (await isDailyLlmBudgetStopped()) {
+      return NextResponse.json({
+        success: true,
+        data: { answer: KUZMICH_DAILY_REST_TEXT, dailyStop: true, role: safeRole, isAuthenticated },
+      });
+    }
+
     if (!isAuthenticated && currentCount >= FREE_MESSAGE_LIMIT) {
       return NextResponse.json(
         {
@@ -246,7 +255,10 @@ export async function POST(request: NextRequest) {
     // Мозг Кузьмича для туристов — та же связка, что в /api/ai/chat:
     // KUZMICH_SYSTEM (обязательный get_guardian_context) + данные хода; место
     // человека, память и предупреждения агентов — своё у этой поверхности.
-    const kuzmichParts = turnFacts ? kuzmichSystemContent(turnFacts, { tail: [geoContext, memContext, agentInsights] }) : null;
+    const untrustedMark = createUntrustedMark();
+    const kuzmichParts = runWithUntrustedMark(untrustedMark, () => (
+      turnFacts ? kuzmichSystemContent(turnFacts, { tail: [geoContext, memContext, agentInsights] }) : null
+    ));
     const kuzmichSystem = kuzmichParts?.system ?? '';
 
     // Серверная SOS-страховка (как в /api/ai/chat): признаки ЧП известны из
@@ -258,6 +270,7 @@ export async function POST(request: NextRequest) {
     const encoder = new TextEncoder();
     const stream = new ReadableStream({
       async start(controller) {
+        await runWithUntrustedMark(untrustedMark, async () => {
         controller.enqueue(encoder.encode(`data: ${JSON.stringify({ type: 'start' })}\n\n`));
 
         let fullAnswer = '';
@@ -335,6 +348,7 @@ export async function POST(request: NextRequest) {
               fullAnswer = (await aiChatAgentLoop(message.trim(), kuzmichSystem, history.slice(-10), [], streamToolRuns, streamProvenance, streamTiming)) ?? '';
               loopAnswered = Boolean(fullAnswer.trim());
             } catch (err) {
+              if (isDailyBudgetStopped(err)) throw err;
               // Фолбэк на прежний стрим ниже; отказ цикла — в лог, не молча (§4.0).
               logSwallowedFailure('ai-chat-stream', 'цикл инструментов Кузьмича', err);
               fullAnswer = '';
@@ -447,7 +461,15 @@ export async function POST(request: NextRequest) {
             `data: ${JSON.stringify({ type: 'end', finalResponse: sosHead + fullAnswer, ...(sosDetection.detected ? { emergency: true } : {}) })}\n\n`,
           ));
           controller.close();
-        } catch {
+        } catch (err) {
+          if (isDailyBudgetStopped(err)) {
+            flushWords(KUZMICH_DAILY_REST_TEXT);
+            controller.enqueue(encoder.encode(
+              `data: ${JSON.stringify({ type: 'end', finalResponse: sosHead + KUZMICH_DAILY_REST_TEXT })}\n\n`,
+            ));
+            controller.close();
+            return;
+          }
           // Даже при полном отказе генерации человек в ЧП уже получил
           // SOS-блок первыми токенами — теряется только ответ модели
           controller.enqueue(encoder.encode(
@@ -455,6 +477,7 @@ export async function POST(request: NextRequest) {
           ));
           controller.close();
         }
+        });
       },
     });
 
@@ -467,6 +490,9 @@ export async function POST(request: NextRequest) {
       },
     });
   } catch (error) {
+    if (isDailyBudgetStopped(error)) {
+      return NextResponse.json({ success: true, data: { answer: KUZMICH_DAILY_REST_TEXT, dailyStop: true } });
+    }
     const msg = safeMsg(error);
     return NextResponse.json({ error: 'Ошибка сервера', details: msg }, { status: 500 });
   }

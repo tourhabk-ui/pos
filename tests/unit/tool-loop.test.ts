@@ -15,7 +15,7 @@ describe('toolSignature', () => {
 describe('wrapToolOutput', () => {
   it('wraps content in untrusted delimiters with the tool name and preserves content', () => {
     const out = wrapToolOutput('search_kamchatka', 'Авачинский вулкан, высота указана у оператора');
-    expect(out).toContain('<tool_output source="search_kamchatka" trust="untrusted">');
+    expect(out).toMatch(/<tool_output run="[0-9a-f]{12}" source="search_kamchatka" trust="untrusted">/);
     expect(out).toContain('</tool_output>');
     expect(out).toContain('Авачинский вулкан');
     expect(out).toContain('не инструкции');
