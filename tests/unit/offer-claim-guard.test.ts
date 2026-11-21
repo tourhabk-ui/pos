@@ -2,7 +2,7 @@
  * Цена, места и статус маршрута — только из вывода инструмента этого хода.
  */
 import { describe, it, expect } from 'vitest';
-import { guardOfferClaims, OFFER_HONEST_LINE } from '@/lib/kuzmich/offer-claim-guard';
+import { guardOfferClaims, OFFER_HONEST_LINE, catalogToolRuns } from '@/lib/kuzmich/offer-claim-guard';
 import { finishKuzmichAnswer } from '@/lib/kuzmich/answer-guards';
 import type { ToolRun } from '@/lib/agents/eval/grounding';
 
@@ -66,6 +66,22 @@ describe('guardOfferClaims', () => {
     expect(out.text).toContain('Озеро красивое.');
     expect(out.text).toContain(OFFER_HONEST_LINE);
     expect(out.text).not.toContain('40 000');
+  });
+
+  it('имя тура рядом с выдуманной ценой остаётся, цена — нет', () => {
+    const out = guardOfferClaims(
+      'У «Местечка Камчатка» один тур: «Вулкан Толбачик (вертолёт)» — 165 000 ₽.',
+      [],
+    );
+    expect(out.text).toContain('Вулкан Толбачик (вертолёт)');
+    expect(out.text).toContain(OFFER_HONEST_LINE);
+    expect(out.text).not.toContain('165 000');
+  });
+
+  it('витрина этого хода (catalog) обосновывает свою цену', () => {
+    const text = '«К вулкану» — 180 000 ₽.';
+    const runs = catalogToolRuns(text);
+    expect(guardOfferClaims(text, runs).text).toBe(text);
   });
 
   it('пустой вывод инструмента цену не обосновывает', () => {

@@ -45,6 +45,7 @@ import { buildRAGContext } from '@/lib/ai/rag-context';
 import { getCurrentSafetyStatus, formatSafetyStatusForAgent } from '@/lib/safety/current-status';
 import { mchsPromptBlock } from '@/lib/safety/active-warnings';
 import { finishKuzmichAnswer } from '@/lib/kuzmich/answer-guards';
+import { catalogToolRuns } from '@/lib/kuzmich/offer-claim-guard';
 import { withUntrustedRun, wrapUntrusted } from '@/lib/ai/untrusted';
 import { isDailyLlmBudgetStopped, isDailyBudgetStopped, KUZMICH_DAILY_REST_TEXT } from '@/lib/ai/daily-spend-gate';
 import { detectEmergency, withSosBlock } from '@/lib/safety/sos-detector';
@@ -219,8 +220,10 @@ export async function POST(request: NextRequest) {
       mchsPromptBlock(),
     ]);
     const safetyText = formatSafetyStatusForAgent(safetyStatus);
+    const toursText = partnerToursBlock(partner.name, tours, getPublicBaseUrl(), emergency);
     const toolRuns: ToolRun[] = [
       { name: 'safety_status', producedData: safetyStatus !== null, output: safetyText },
+      ...catalogToolRuns(toursText),
     ];
 
     // Данные хода: туры партнёра, сводка, маршруты. Ими же сверяется
@@ -228,7 +231,7 @@ export async function POST(request: NextRequest) {
     return await withUntrustedRun(async () => {
     const widgetContext = wrapUntrusted(
       'widget-context',
-      partnerToursBlock(partner.name, tours, getPublicBaseUrl(), emergency)
+      toursText
       + safetyBlock(safetyText)
       + (mchsBlock ? `\n${mchsBlock}\n` : '')
       + routesCtx,

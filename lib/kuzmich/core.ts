@@ -19,6 +19,7 @@ import { freeSlotsSql, occupiedOnDaySql } from '@/lib/bookings/occupancy';
 import { reserveBooking, ReserveError, type ReserveErrorCode } from '@/lib/bookings/reserve';
 import { SAFETY_TOOLS } from '@/lib/kuzmich/safety-claim-guard';
 import { finishKuzmichAnswer } from '@/lib/kuzmich/answer-guards';
+import { catalogToolRuns } from '@/lib/kuzmich/offer-claim-guard';
 import { appendRouteSafety, ROUTE_SAFETY_SOURCE } from '@/lib/kuzmich/route-safety';
 import { asksTripPlan, checkAnswerPrices } from '@/lib/kuzmich/answer-quality';
 import { asksTourComparison } from '@/lib/kuzmich/tour-ask';
@@ -3521,7 +3522,8 @@ export async function aiChat(opts: {
           surface: platform === 'max' ? 'max' : 'telegram',
           answer: turn.visible,
           question: userContent,
-          toolRuns: [],
+          // Витрина этого хода — свои данные, не выдумка модели.
+          toolRuns: catalogToolRuns(turn.visible),
           context: [mchsBlock, turn.visible].filter(Boolean).join('\n\n'),
         });
         if (persist && !isAIErrorResponse(finished.text)) {

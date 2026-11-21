@@ -14,6 +14,7 @@ import { holdChatRequest, hasPendingChatRequest, takeChatRequest, dropChatReques
 import { runPublicTool } from '@/app/api/mcp/route';
 import { journaledWrite, sessionRefFrom } from '@/lib/kuzmich/write-journal';
 import { finishKuzmichAnswer } from '@/lib/kuzmich/answer-guards';
+import { catalogToolRuns } from '@/lib/kuzmich/offer-claim-guard';
 import { withUntrustedRun } from '@/lib/ai/untrusted';
 import { isDailyLlmBudgetStopped, isDailyBudgetStopped, KUZMICH_DAILY_REST_TEXT } from '@/lib/ai/daily-spend-gate';
 import type { ToolRun } from '@/lib/agents/eval/grounding';
@@ -662,7 +663,7 @@ async function handleChat(request: NextRequest, onStep?: (label: string) => void
       surface: 'web',
       answer,
       question: rawMessage,
-      toolRuns: loopAnswered ? webToolRuns : null,
+      toolRuns: commercialHit ? catalogToolRuns(answer) : (loopAnswered ? webToolRuns : null),
       context: kuzmichParts?.guardContext
         ?? [mchsBlock, geoContext, ragContext, memContext, agentInsights].filter(Boolean).join('\n\n'),
     });

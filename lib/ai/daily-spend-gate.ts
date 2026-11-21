@@ -54,10 +54,6 @@ export function configureDailySpendGateForTests(opts: {
   spendCache = null;
 }
 
-export function resetDailySpendGateCache(): void {
-  spendCache = null;
-}
-
 /**
  * Потрачено за сегодня (USD), с коротким кэшем.
  * При ошибке чтения возвращает последнюю известную сумму или 0.

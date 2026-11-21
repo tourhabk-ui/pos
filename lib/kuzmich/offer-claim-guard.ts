@@ -102,6 +102,57 @@ function sentenceBacked(sentence: string, evidence: string): boolean {
   return true;
 }
 
+/** Журнал «своих данных хода»: витрина, собранная этим ходом без модели. */
+export function catalogToolRuns(output: string): ToolRun[] {
+  const text = output.trim();
+  if (!text) return [];
+  return [{ name: 'catalog', producedData: true, output: text }];
+}
+
+const FILLER_RE =
+  /(?<![а-яё])(?:тур[а-яё]*|стоит|стоят|цена|цены|стоимост[а-яё]*|от|за|день|дня|дней|дн|чел(?:овека)?|сутк[а-яё]*|на|эти|даты|мест[а-яё]*|нет|есть|сейчас|один|одна|одно|и|в|к|с|по|из|до|или|это|вот)(?![а-яё])/gi;
+
+/** После вырезания цены осталось имя тура или другая суть — не затираем всё предложение. */
+function leftoverSubstantial(text: string): boolean {
+  const withoutHonest = text.split(OFFER_HONEST_LINE).join(' ');
+  if (/[«"]/.test(withoutHonest)) return true;
+  const rest = withoutHonest.replace(FILLER_RE, ' ').replace(/[^\p{L}\p{N}]+/gu, ' ').trim();
+  return rest.split(/\s+/).some((w) => w.length >= 5);
+}
+
+function replaceUnbackedPrices(sentence: string, evidence: string): string {
+  const have = new Set(amountsIn(evidence));
+  return sentence.replace(new RegExp(PRICE_RE.source, 'gi'), (full, raw: string) => {
+    if (have.has(normalizeAmount(raw))) return full;
+    return OFFER_HONEST_LINE;
+  });
+}
+
+function redactSentence(sentence: string, evidence: string): { text: string; removed: boolean } {
+  if (!sentenceNeedsOffer(sentence)) return { text: sentence, removed: false };
+  PRICE_RE.lastIndex = 0;
+  if (sentenceBacked(sentence, evidence)) return { text: sentence, removed: false };
+
+  const claimed = amountsIn(sentence);
+  if (claimed.length > 0) {
+    let out = replaceUnbackedPrices(sentence, evidence);
+    out = out.replace(new RegExp(`(?:${OFFER_HONEST_LINE}\\s*){2,}`, 'g'), `${OFFER_HONEST_LINE} `).trim();
+    // Места и статус в том же предложении без опоры — предложение целиком.
+    PRICE_RE.lastIndex = 0;
+    if (AVAIL_RE.test(out) && !availBacked(out, evidence)) {
+      return { text: OFFER_HONEST_LINE, removed: true };
+    }
+    if (ROUTE_STATUS_RE.test(out) && !routeStatusBacked(out, evidence)) {
+      return { text: OFFER_HONEST_LINE, removed: true };
+    }
+    if (!leftoverSubstantial(out)) return { text: OFFER_HONEST_LINE, removed: true };
+    return { text: out, removed: true };
+  }
+
+  // Цена словами без цифры, места или статус — заменяем предложение.
+  return { text: OFFER_HONEST_LINE, removed: true };
+}
+
 export interface OfferGuardResult {
   text: string;
   removed: string[];
@@ -109,7 +160,8 @@ export interface OfferGuardResult {
 
 /**
  * Предложения с ценой, местами или статусом маршрута без опоры в выводе
- * инструментов этого хода заменяются честной строкой.
+ * инструментов этого хода заменяются честной строкой. Если в предложении
+ * есть имя тура, вырезается только неподтверждённая цена.
  */
 export function guardOfferClaims(answer: string, toolRuns: readonly ToolRun[] | null): OfferGuardResult {
   const evidence = evidenceFromTools(toolRuns);
@@ -118,12 +170,9 @@ export function guardOfferClaims(answer: string, toolRuns: readonly ToolRun[] | 
   const next = paragraphs.map((p) => {
     const parts = splitSentences(p);
     const kept = parts.map((s) => {
-      if (!sentenceNeedsOffer(s)) return s;
-      // lastIndex у глобального PRICE_RE сбивает повторную проверку.
-      PRICE_RE.lastIndex = 0;
-      if (sentenceBacked(s, evidence)) return s;
-      removed.push(s);
-      return OFFER_HONEST_LINE;
+      const out = redactSentence(s, evidence);
+      if (out.removed) removed.push(s);
+      return out.text;
     });
     return kept.join(' ');
   });

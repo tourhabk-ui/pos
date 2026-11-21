@@ -44,6 +44,7 @@ import { aiChatAgentLoop, KUZMICH_SYSTEM, kuzmichTurnFacts, kuzmichSystemContent
 import { checkAnswerPrices } from '@/lib/kuzmich/answer-quality';
 import { resolveCommercialTurn } from '@/lib/kuzmich/commercial-turn';
 import { finishKuzmichAnswer } from '@/lib/kuzmich/answer-guards';
+import { catalogToolRuns } from '@/lib/kuzmich/offer-claim-guard';
 import { createUntrustedMark, runWithUntrustedMark } from '@/lib/ai/untrusted';
 import { isDailyLlmBudgetStopped, isDailyBudgetStopped, KUZMICH_DAILY_REST_TEXT } from '@/lib/ai/daily-spend-gate';
 import { recordKuzmichAnswer } from '@/lib/kuzmich/answer-timing';
@@ -371,7 +372,7 @@ export async function POST(request: NextRequest) {
               surface: 'web-stream',
               answer: fullAnswer,
               question: message.trim(),
-              toolRuns: streamToolRuns,
+              toolRuns: commercialHit ? catalogToolRuns(fullAnswer) : streamToolRuns,
               context: turnContext,
               sos: false,
             });
