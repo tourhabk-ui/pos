@@ -228,4 +228,27 @@ withPg('снимки туров на маршрутах и фотолента а
     // Место без галереи — по-прежнему снимок тура.
     expect(shots.get(PEAK.ark)?.url).toBe(url('guide-1'));
   });
+
+  it('оператор на паузе витринных блоков («Местечко», 21.11) — его снимков нет ни у места, ни у маршрута', async () => {
+    // Партнёр со slug 'mestechko' мог прийти с посевом миграций — берётся он.
+    const have = await pool.query<{ id: string }>(`SELECT id::text FROM partners WHERE slug = 'mestechko'`);
+    const PAUSED = have.rows[0]?.id ?? (await pool.query<{ id: string }>(
+      `INSERT INTO partners (name, category, contact, slug, is_public, is_verified, status, gallery_credits)
+       VALUES ('Аа Тест Местечко', 'operator', '{}'::jsonb, 'mestechko', TRUE, TRUE, 'active', '{}'::jsonb) RETURNING id::text`,
+    )).rows[0]!.id;
+    await pool.query(
+      `INSERT INTO operator_tours (operator_id, title, slug, activity_type, base_price, price_unit,
+                                   min_participants, max_participants, duration_hours, difficulty,
+                                   is_active, is_published, photos, main_place_id)
+       VALUES ($1, 'test-rtp-paused', 'test-rtp-paused', 'trekking', 15000, 'per_person', 1, 10, 8, 'medium', TRUE, TRUE, $2::text[], $3)`,
+      [PAUSED, [url('paused-1')], PEAK.id],
+    );
+    const { PLACE_TOUR_PHOTOS_SQL } = await import('@/lib/places/tour-photos');
+    const { ROUTE_TOUR_PHOTOS_SQL } = await import('@/lib/routes/tour-photos');
+    for (const [sql, arg] of [[PLACE_TOUR_PHOTOS_SQL, PEAK.id], [ROUTE_TOUR_PHOTOS_SQL, ROUTE]] as const) {
+      const urls = (await pool.query(sql, [arg])).rows.map((r) => (r as { url: string }).url);
+      expect(urls).not.toContain(url('paused-1'));
+      expect(urls).toContain(url('guide-1'));
+    }
+  });
 });

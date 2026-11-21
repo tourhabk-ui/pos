@@ -23,7 +23,9 @@
  *     называющей карточки мест; владелец 20–21.11 («делай без их согласия»,
  *     «и на местах тоже») — согласие больше не условие: кадр партнёра виден
  *     на карточке, у маршрута и по адресу, с подписью и ссылкой на партнёра,
- *     и подпись или отзыв согласия этого не меняют.
+ *     и подпись или отзыв согласия этого не меняют. Кадр оператора на паузе
+ *     витринных блоков («Местечко», lib/operators/site-pause, 21.11) не
+ *     показывается нигде.
  *
  * Мок ответил бы на любой SQL, поэтому сцена разыгрывается на схеме baseline
  * прода плюс всех миграций; 1263 и 1265 затем прогоняются ещё дважды по
@@ -364,25 +366,31 @@ withPg('снимки партнёров без согласия: спрятан�
     // Решение владельца 20–21.11 («делай без их согласия», «и на местах
     // тоже»): согласие больше не условие показа кадра партнёра.
     it('без подписи (21.11) — кадр партнёра на карточке, у маршрута и по адресу, с подписью и ссылкой на партнёра', async () => {
-      for (const { partner, place } of CASES) {
-        const s0 = await shown(place);
-        expect(s0, partner).toMatchObject({ onCard: true, onRoute: true, direct: 302 });
-        expect(s0.credits, partner).toContain(partner);
-        expect(s0.sources, partner).toContain(`/operators/${SLUGS[partner]}`);
-        expect(await galleryStatus(place.ark, 2)).toBe(302);
-      }
+      const s0 = await shown(LAKE);
+      expect(s0).toMatchObject({ onCard: true, onRoute: true, direct: 302 });
+      expect(s0.credits).toContain(VOLCANOESLAND.partner);
+      expect(s0.sources).toContain('/operators/volcanoesland');
+      for (const { place } of CASES) expect(await galleryStatus(place.ark, 2)).toBe(302);
+    });
+
+    it('оператор на паузе витринных блоков (21.11, «Местечко») — его кадра нет нигде; кадр владельца на месте', async () => {
+      const s0 = await shown(SPRINGS);
+      expect(s0).toMatchObject({ onCard: false, onRoute: false, direct: 404 });
+      expect(s0.credits).not.toContain(MESTECHKO.partner);
+      expect(await galleryStatus(SPRINGS.ark, 2)).toBe(302);
     });
 
     it('подпись любой версии и её отзыв на показ не влияют', async () => {
       const { PLACE_CARDS_CONSENT_FROM } = await import('@/lib/legal/partner-materials-consent');
-      const before = await shown(SPRINGS);
-      await sign(partnerIds[MESTECHKO.partner]!, '2026-10-23');
-      expect(await shown(SPRINGS)).toEqual(before);
-      await revokeAll(partnerIds[MESTECHKO.partner]!);
-      await sign(partnerIds[MESTECHKO.partner]!, PLACE_CARDS_CONSENT_FROM);
-      expect(await shown(SPRINGS)).toEqual(before);
-      await revokeAll(partnerIds[MESTECHKO.partner]!);
-      expect(await shown(SPRINGS)).toEqual(before);
+      const id = partnerIds[VOLCANOESLAND.partner]!;
+      const before = await shown(LAKE);
+      await sign(id, '2026-10-23');
+      expect(await shown(LAKE)).toEqual(before);
+      await revokeAll(id);
+      await sign(id, PLACE_CARDS_CONSENT_FROM);
+      expect(await shown(LAKE)).toEqual(before);
+      await revokeAll(id);
+      expect(await shown(LAKE)).toEqual(before);
     });
 
     it('загрузка из админки (ревью #3291): снимок с именем партнёра получает партнёра и ложится в галерею, даже у места без главного кадра', async () => {
@@ -421,11 +429,12 @@ withPg('снимки партнёров без согласия: спрятан�
         { position: 1, partner_id: partnerIds[MESTECHKO.partner] },
         { position: 2, partner_id: partnerIds[VOLCANOESLAND.partner] },
       ]);
-      // Без подписи (21.11) оба показываются — на карточке и по адресу.
+      // Без подписи (21.11) кадр «Края Вулканов» показывается; «Местечко» на паузе — нет.
       const before = await card(NOHERO.id);
-      expect(before.images.filter((u) => u.includes('/place-gallery/'))).toHaveLength(2);
+      expect(before.images.filter((u) => u.includes('/place-gallery/')).map((u) => u.split('?')[0]))
+        .toEqual([`/api/images/place-gallery/${NOHERO.ark}/2`]);
       // Байты в базе — отдаются сами (200); объект хранилища был бы 302.
-      expect(await galleryStatus(NOHERO.ark, 1)).toBe(200);
+      expect(await galleryStatus(NOHERO.ark, 1)).toBe(404);
       expect(await galleryStatus(NOHERO.ark, 2)).toBe(200);
     });
 
@@ -501,12 +510,13 @@ withPg('снимки партнёров без согласия: спрятан�
       await pool.query(M1436);
       expect(await rows()).toEqual(once);
 
-      // Подписи нет ни у кого (21.11) — оба снимка партнёров на карточке, по алфавиту 1436, с подписями.
+      // Подписи нет ни у кого (21.11) — снимок Запорожца на карточке; «Местечко» на паузе — нет.
       await pool.query(`DELETE FROM partner_material_consents WHERE partner_id = $1`, [zapId]);
       const c = await card(GORELY.id);
       expect(c.images.filter((u) => u.includes('/place-gallery/')).map((u) => u.split('?')[0]))
-        .toEqual([`/api/images/place-gallery/${GORELY.ark}/1`, `/api/images/place-gallery/${GORELY.ark}/2`]);
-      expect(Object.values(c.photoCredits)).toEqual(expect.arrayContaining(['Андрей Запорожец', MESTECHKO.partner]));
+        .toEqual([`/api/images/place-gallery/${GORELY.ark}/1`]);
+      expect(Object.values(c.photoCredits)).toContain('Андрей Запорожец');
+      expect(Object.values(c.photoCredits)).not.toContain(MESTECHKO.partner);
 
       // Удаление партнёра уносит его кадры (CASCADE), а не открывает их без
       // согласия (SET NULL показал бы кадр всем).

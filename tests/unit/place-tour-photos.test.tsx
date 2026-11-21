@@ -27,6 +27,8 @@ vi.mock('@/components/routes/useAnchor', () => ({
 
 import { PLACE_TOUR_PHOTOS_SQL, PLACE_CARD_TOUR_PHOTOS_SQL, PLACE_CARD_GALLERY_PHOTOS_SQL, placeTourLinksSql, toGalleryCardPhoto } from '@/lib/places/tour-photos';
 import { galleryShownSql } from '@/lib/places/gallery-shown';
+import { operatorShownInTourBlocksSql } from '@/lib/operators/site-pause';
+import { tourPhotoAllowedSql, toRouteTourPhotos, ROUTE_TOUR_PHOTOS_SQL, ROUTE_CARD_TOUR_PHOTOS_SQL } from '@/lib/routes/tour-photos';
 import { hasNoOwnPhoto, tourPhotoCreditsOf, tourPhotoRightsOf } from '@/lib/places/place-detail';
 import PlaceCard from '@/components/routes/PlaceCard';
 import type { RouteItem } from '@/components/routes/RouteCard';
@@ -91,9 +93,29 @@ describe('плитка места: кадр своей галереи первы
 });
 
 describe('кадр галереи партнёра — без согласия (21.11)', () => {
-  it('условие показа — только ручная причина скрытия', () => {
-    expect(galleryShownSql('g')).toBe('(g.hidden_reason IS NULL)');
+  it('условие показа — ручная причина скрытия и пауза оператора; согласия нет', () => {
+    expect(galleryShownSql('g')).toContain('g.hidden_reason IS NULL');
+    expect(galleryShownSql('g')).toContain(operatorShownInTourBlocksSql('gp'));
     expect(galleryShownSql('g')).not.toContain('partner_material_consents');
+  });
+});
+
+describe('оператор на паузе витринных блоков (21.11, «Местечко») — его снимков нет', () => {
+  it('снимки туров мест и маршрутов, плитки — через фильтр паузы', () => {
+    expect(tourPhotoAllowedSql()).toContain(operatorShownInTourBlocksSql('pa'));
+    for (const sql of [PLACE_TOUR_PHOTOS_SQL, PLACE_CARD_TOUR_PHOTOS_SQL, ROUTE_TOUR_PHOTOS_SQL, ROUTE_CARD_TOUR_PHOTOS_SQL]) {
+      expect(sql).toContain("<> ALL(ARRAY['mestechko']::text[])");
+    }
+    expect(PLACE_CARD_GALLERY_PHOTOS_SQL).toContain("<> ALL(ARRAY['mestechko']::text[])");
+  });
+
+  it('и в разборе строк: строка «Местечка» отбрасывается, даже если SQL её пропустил', () => {
+    const row = {
+      url: '/m.jpg', author: 'Местечко Камчатка', partner_name: 'Местечко Камчатка', partner_slug: 'mestechko',
+      partner_public: true, tour_title: 'Т', tour_slug: null, place_name: 'Место',
+    };
+    expect(toRouteTourPhotos([row], { feedEnabled: true })).toEqual([]);
+    expect(toGalleryCardPhoto(row, { feedEnabled: true })).toBeNull();
   });
 });
 
