@@ -282,6 +282,8 @@ export const CRON_CAPABILITIES: Record<string, readonly Capability[]> = {
   // снимки, изменения владельцу в Telegram.
   'partner-site-watch': ['db_read', 'db_write', 'net_out', 'telegram'],
   // 20.11: читает страницу парка «Туристические маршруты», пишет статусы (1469).
+  // pd_direct — хэши адреса и посетителя только в подсчёте, наружу одни счётчики (21.11).
+  'page-visits-census': ['db_read', 'pd_direct'],
   'park-route-status': ['db_read', 'db_write', 'net_out'],
   'passport-flag-census': ['db_read', 'pd_direct'],
   'payment-config': [],
