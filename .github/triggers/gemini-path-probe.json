@@ -1,7 +1,9 @@
 {
   "note": "Маркер запуска gemini-path-probe.yml: правка этого файла в main меряет с прода, открыт ли путь до Gemini через шлюз Cloudflare AI Gateway vedar-ai и напрямую.",
-  "run": 4,
+  "run": 5,
   "gateway_id": "vedar-ai",
+  "run5_reason": "Прогон 4 прошёл в 14:45 UTC, до перезапуска контейнера: ожидание выката пропустило коммит, менявший только .github/, и прод ещё ходил напрямую. Переменная вступает в силу при перезапуске; выкаты после неё — 15:06 и 15:18 UTC. Замер: принят ли адрес (current_via = gateway, current_rejected = null) и отвечает ли генерация через шлюз.",
+  "run4_result": "21.11 14:45 UTC (прогон Actions 44915545620), до перезапуска контейнера. Отпечаток ключа 003036fb, current_via direct, current_rejected null. Шлюз vedar-ai: open, HTTP 200, 414 мс, 49 моделей. Напрямую: blocked, HTTP 400 «User location is not supported for the API use.». Генерация через шлюз моделью gemini-flash-latest (срок 40 с): HTTP 503 за 5545 мс, «This model is currently experiencing high demand».",
   "run4_reason": "21.11 владелец поставил GEMINI_BASE_URL в Timeweb («GEMINI_BASE_URL поставил ждем выкат»). Замер после выката: принят ли адрес (current_via = gateway, current_rejected = null) и отвечает ли генерация через шлюз.",
   "run3_result": "21.11 14:13 UTC (прогон Actions 44910565576, после выката #3664). Отпечаток ключа 003036fb, current_via direct. Шлюз vedar-ai: open, HTTP 200, 759 мс, 49 моделей. Напрямую: blocked, HTTP 400 «User location is not supported for the API use.». Генерация через шлюз моделью gemini-flash-latest (срок 40 с): HTTP 503 за 7568 мс, ответ Google «This model is currently experiencing high demand» — запрос дошёл до Google, отказ про перегрузку модели.",
   "run3_reason": "Проба 2 не дождалась генерации за 20 с — столько же ждёт живой код, и «не ответила» не отличает медленный ответ от зависшего. Слово владельца «карт-бланш» 21.11 на вопрос «замерить с запасом или включить шлюз сразу»: сначала замер. Срок генерации пробы — 40 с; ответ называет время ответа и срок.",
