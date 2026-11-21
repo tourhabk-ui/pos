@@ -344,6 +344,29 @@ describe('проба пути с прода', () => {
     expect(forced.generate).toMatchObject({ model: 'gemini-3.8-pro' });
   });
 
+  // Проба 2 (20.11) не дождалась генерации за 20 с — столько же ждёт живой
+  // код, и «не ответила» не отличало медленный ответ от зависшего. Проба ждёт
+  // дольше живого кода и называет свой срок (слово владельца 21.11).
+  it('генерация ждёт дольше живого кода и называет срок в ответе', async () => {
+    const timeouts = vi.spyOn(AbortSignal, 'timeout');
+    try {
+      const { GET, GENERATE_PROBE_TIMEOUT_MS } = await import('@/app/api/cron/gemini-path-probe/route');
+      const body = await (await GET(req(`?account=${ACC}&gateway=vedar-ai`))).json();
+      expect(body.generate.timeout_ms).toBe(GENERATE_PROBE_TIMEOUT_MS);
+      // Срок живого кода — 20 с (callGemini, fetchWithRetry timeoutMs).
+      expect(GENERATE_PROBE_TIMEOUT_MS).toBeGreaterThan(20_000);
+      // Срок, с которым ушёл запрос генерации, — тот, что назван.
+      expect(timeouts.mock.calls.map((c) => c[0])).toContain(GENERATE_PROBE_TIMEOUT_MS);
+      // Худший случай — три пробы списка по 10 с и генерация — укладывается
+      // в предел маршрута (ревью #3664).
+      const { maxDuration } = await import('@/app/api/cron/gemini-path-probe/route');
+      expect(3 * 10 + GENERATE_PROBE_TIMEOUT_MS / 1000).toBeLessThanOrEqual(maxDuration);
+      expect(typeof body.generate.latency_ms).toBe('number');
+    } finally {
+      timeouts.mockRestore();
+    }
+  });
+
   it('адрес из строки запроса пробой не берётся — только аккаунт и имя шлюза', async () => {
     const OTHER = 'fedcba9876543210fedcba9876543210';
     const OTHER_GW = `https://gateway.ai.cloudflare.com/v1/${OTHER}/vedar-ai/google-ai-studio`;
