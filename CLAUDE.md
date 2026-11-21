@@ -201,9 +201,13 @@ rounded-2xl        → rounded-lg (кроме glass-элементов и bento-
   через `lib/security/random-uuid.ts` (в Chrome до 92 его нет). Хранилища
   устройства может не быть вовсе (`window.localStorage` равен null во
   встроенных браузерах): в коде каркаса, главной, /sos и экранов ошибок каждое
-  обращение к нему — в try своей функции. Сторожа:
+  обращение к нему — в try своей функции. Куски сборки — синтаксис Chrome 64:
+  Next понижает только код приложения, поэтому framer-motion понижает сборка
+  (`transpilePackages` в `next.config.js`), а шаг CI
+  `scripts/check-chunk-syntax.mjs` разбирает каждый кусок; исключение с
+  причиной — только карта maplibre-gl, и не в каркасе, главной и SOS. Сторожа:
   `tests/unit/error-screens-emergency.test.tsx`, `tests/unit/client-random-uuid.test.tsx`,
-  `tests/unit/sos-no-storage.test.tsx`
+  `tests/unit/sos-no-storage.test.tsx`, `tests/unit/chunk-syntax-check.test.ts`
 - Футер: только desktop
 - Homepage: `components/homepage/` (HeroStatus, BentoSection, EditorialSection,
   FeaturedTour, KuzmichBriefing, LiveOnTrails, StatsBand, MoodEntry, OperatorPromo,
