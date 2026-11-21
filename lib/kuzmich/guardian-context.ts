@@ -29,6 +29,7 @@ import { approvedRouteCaseByParkName, approvedRouteLines } from '@/lib/parks/app
 import { stemRu } from '@/lib/search/query-words';
 import { VERDICT_LABELS } from '@/lib/routes/go-verdict';
 import { KURIL_NORTH_NOTE, isOutsideKraiSources } from '@/lib/safety/kuril-north';
+import { alertLineIsTitle } from '@/lib/safety/alert-line';
 
 interface GuardianPlaceRow {
   /** id места — для ссылки на его карточку (только в чате, см. pageLinks). */
@@ -1219,9 +1220,10 @@ export async function getGuardianContextDetailed(placeNameRaw: string, opts: Gua
   });
 
   for (const a of alertsRes.rows) {
-    // active_alerts мест хранит те же ea.title (safety-ingest) — алерт, уже
-    // показанный в строке места, здесь не повторяем.
-    if (shownAlerts.has(a.title)) continue;
+    // active_alerts мест хранит те же ea.title (safety-ingest), у закрытия
+    // парка — с дописанной опасностью (#3607) — алерт, уже показанный в строке
+    // места, здесь не повторяем.
+    if ([...shownAlerts].some((line) => alertLineIsTitle(line, a.title))) continue;
     shownAlerts.add(a.title);
     // Источник — по ленте, из которой пришла тревога, а не одной подписью
     // «КБГС/МЧС» на все шесть лент (проверка MCP 29.09).

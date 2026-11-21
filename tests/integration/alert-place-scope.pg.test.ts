@@ -49,6 +49,7 @@ import { KFEGS_MAX_AGE_DAYS } from '@/lib/services/safety/volcano-scales';
 import { sameParksParam, sameParksSql } from '@/lib/services/safety/push-same-kind';
 import { PARK_CLOSURE_HOLD_HOURS } from '@/lib/safety/park-closure';
 import { parkClosureKinds } from '@/lib/services/safety/park-season';
+import { alertLineIsTitleSql } from '@/lib/safety/alert-line';
 import { PARK_SEASON_ANSWER, PARK_SEASON_NOTE } from '@/lib/safety/place-day-status';
 import { createTestDatabase } from '../helpers/pg-schema';
 import { applyPlanParkStatus, loadPlanParkAlerts, PARK_STATUS_UNREAD_NOTE } from '@/lib/planner/park-status';
@@ -2091,6 +2092,16 @@ withPg('кого накрывает предупреждение', () => {
         ]);
         const dv = await getGuardianContextDetailed('Природный парк Вулканный (тест)');
         expect(dv.text).toContain('передвижение в районах вулканов крайне опасно');
+        // Читатели, ищущие тревогу места по заголовку (офлайн-пакет маршрута,
+        // уборка тревог), находят и строку с дописанной опасностью (ревью #3631).
+        const found = await pool.query<{ id: string }>(
+          `SELECT ea.id::text AS id
+             FROM location_real_time_status lrs
+             JOIN external_alerts ea ON EXISTS (SELECT 1 FROM unnest(lrs.active_alerts) AS line WHERE ${alertLineIsTitleSql('line', 'ea.title')})
+            WHERE lrs.agent_route_id = $1`,
+          [P['a2-s-volc'].ark],
+        );
+        expect(found.rows.map((r) => r.id)).toContain(volc);
 
         // Кузьмич и MCP читают ту же строку: причина — полем и словами карточки.
         const d = await getGuardianContextDetailed('Природный парк Зимовье (тест)');
