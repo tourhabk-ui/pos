@@ -15,6 +15,7 @@ import { formatKamchatkaDate } from '@/lib/admin/kamchatka-date';
 import { stayLink } from '@/lib/stay/stay-link';
 import { TripActions } from '@/components/trips/TripActions';
 import { TripNowCheck } from '@/components/trips/TripNowCheck';
+import { TripGroupVote } from '@/components/trips/TripGroupVote';
 import { ruCalendarDate } from '@/lib/trips/trip-dates';
 import { plannerRebuildHref } from '@/lib/trips/rebuild-link';
 import {
@@ -360,6 +361,9 @@ export function TripDetailClient({ tripId }: { tripId: string }) {
 
         {/* Тот же план, перепроверенный сейчас: что изменилось с дня сохранения (#3394). */}
         <TripNowCheck tripId={trip.id} savedAt={trip.updated_at} rebuildHref={plannerRebuildHref(trip)} />
+        {trip.days.length > 0 && (
+          <TripGroupVote tripId={trip.id} days={trip.days.map((d, i) => ({ day: d.day ?? i + 1, title: d.title, activityType: d.activityType ?? null }))} />
+        )}
 
         {trip.warnings && trip.warnings.length > 0 && <PlanWarnings warnings={trip.warnings} savedAt={trip.updated_at} />}
 
