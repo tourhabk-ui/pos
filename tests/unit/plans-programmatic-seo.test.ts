@@ -131,8 +131,10 @@ describe('страница /plans/[slug]', () => {
 
 describe('хаб /plans отвечает на запрос «Камчатка туры план» прямо (GEO, 18.09)', () => {
   it('заголовок и H1 — в форме запроса, прямой ответ в первом экране', () => {
-    expect(HUB).toMatch(/title: 'Туры на Камчатку: готовые планы поездки/);
-    expect(HUB).toMatch(/Туры на Камчатку: готовые планы поездки\s*<\/h1>/);
+    // Имена 22.11 (Сыщик): title — «Маршрут по Камчатке на 5, 7, 10 и 14 дней»,
+    // H1 — PLANS_NAME из lib/navigation/tool-names.
+    expect(HUB).toMatch(/title: 'Маршрут по Камчатке на 5, 7, 10 и 14 дней'/);
+    expect(HUB).toMatch(/\{PLANS_NAME\}\s*<\/h1>/);
     // Число планов — из PLAN_PRESETS, не напечатано руками.
     expect(HUB).toMatch(/\{PLAN_PRESETS\.length\} готовых планов/);
   });

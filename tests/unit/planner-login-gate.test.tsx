@@ -36,7 +36,8 @@ describe('страница /planner', () => {
   it('без входа — экран входа с возвратом в планер; планера нет', async () => {
     await page();
     expect(screen.queryByTestId('planner')).toBeNull();
-    expect(screen.getByRole('heading', { name: 'Планер поездки — после входа' })).toBeTruthy();
+    expect(screen.getByRole('heading', { level: 1, name: 'План поездки с Кузьмичом' })).toBeTruthy();
+    expect(screen.getByText('Открывается после входа')).toBeTruthy();
     expect(screen.getByText(/План поездки хранится в личном кабинете/)).toBeTruthy();
     expect(screen.getByRole('link', { name: /Войти/ }).getAttribute('href')).toBe('/auth/login?next=%2Fplanner');
     expect(screen.getByRole('link', { name: /Зарегистрироваться/ }).getAttribute('href')).toBe('/auth/login?mode=register&next=%2Fplanner');
@@ -56,7 +57,8 @@ describe('страница /planner', () => {
     verifyMock.mockResolvedValue({ status: 'unchecked' });
     await page();
     expect(screen.queryByTestId('planner')).toBeNull();
-    expect(screen.getByRole('heading', { name: 'Не смогли проверить вход' })).toBeTruthy();
+    expect(screen.getByRole('heading', { level: 1, name: 'План поездки с Кузьмичом' })).toBeTruthy();
+    expect(screen.getByText('Не смогли проверить вход')).toBeTruthy();
     expect(screen.getByText(/Это не значит, что вы не вошли/)).toBeTruthy();
     expect(screen.queryByRole('link', { name: /Войти/ })).toBeNull();
     expect(screen.getByRole('link', { name: /Обновить/ }).getAttribute('href')).toBe('/planner');

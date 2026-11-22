@@ -41,8 +41,9 @@ describe('один H1', () => {
     expect(code('components/homepage/OperatorPromo.tsx')).toMatch(/headingLevel = 'h2'/);
   });
 
-  it('/planning: H1 есть', () => {
-    expect(code('app/planning/page.tsx')).toMatch(/<h1 className="sr-only">Планирование похода по Камчатке<\/h1>/);
+  it('/planning: H1 есть — видимый, серверной разметкой (22.11)', () => {
+    expect(code('app/planning/page.tsx')).toMatch(/intro=\{<PlanningIntro \/>\}/);
+    expect(code('app/planning/PlanningIntro.tsx')).toMatch(/<h1 className="font-playfair[^"]*">\{PLANNING_NAME\}<\/h1>/);
   });
 });
 

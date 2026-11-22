@@ -17,16 +17,17 @@ import { JsonLd } from '@/components/seo/JsonLd';
 import { PLAN_PRESETS, plansHubLastModified } from '@/lib/plans/presets';
 import { buildPlansFaq } from '@/lib/plans/faq';
 import { defaultOgImages } from '@/lib/seo/og-image';
+import { PLANS_NAME } from '@/lib/navigation/tool-names';
 
 const SITE = process.env.NEXT_PUBLIC_SITE_URL ?? 'https://vedarai.ru';
 
 export const metadata: Metadata = {
-  title: 'Туры на Камчатку: готовые планы на 5, 7, 10 и 14 дней',
-  description: 'Готовые планы поездки на Камчатку по дням: вулканы, рыбалка, медведи, океан. У каждого дня — тур оператора с ценой, статус безопасности и заявка.',
+  title: 'Маршрут по Камчатке на 5, 7, 10 и 14 дней',
+  description: 'Готовые маршруты по Камчатке по дням: вулканы, рыбалка, медведи, океан. Для каждого дня — тур местного оператора, статус безопасности и заявка.',
   alternates: { canonical: `${SITE}/plans` },
   openGraph: {
     images: defaultOgImages(),
-    title: 'Туры на Камчатку: готовые планы поездки',
+    title: 'Маршрут по Камчатке на 5, 7, 10 и 14 дней',
     description: 'Планы на 5, 7, 10 и 14 дней с реальными турами, ценами и статусом безопасности.',
     url: `${SITE}/plans`,
   },
@@ -75,7 +76,7 @@ export default function PlansHubPage() {
         <div className={`${pageContainer('reading')} py-8 space-y-8`}>
           <header className="space-y-3">
             <h1 className="font-playfair text-3xl sm:text-4xl font-bold" style={{ color: 'var(--text-primary)' }}>
-              Туры на Камчатку: готовые планы поездки
+              {PLANS_NAME}
             </h1>
             {/* Прямой ответ на запрос — в первом экране, чтобы его можно было
                 процитировать целиком. Числа — из пресетов. */}

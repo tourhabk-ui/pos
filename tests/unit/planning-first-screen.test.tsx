@@ -63,6 +63,6 @@ describe('первый экран /planning', () => {
     const popular = await waitFor(() => screen.getByRole('heading', { name: 'Популярные маршруты' }));
     const readiness = screen.getByRole('heading', { name: 'Готовность к походу' });
     expect(popular.compareDocumentPosition(readiness) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
-    expect(screen.getByText(/Конструктор поездки — после входа/)).toBeTruthy();
+    expect(screen.getByText(/с турами операторов — после входа/)).toBeTruthy();
   });
 });

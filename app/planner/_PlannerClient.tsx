@@ -85,6 +85,7 @@ import { nightLodgingIncluded } from '@/lib/planner/lodging-included';
 import { adultsFromParam, MAX_ADULTS } from '@/lib/planner/party-limits';
 import { dayCardWarning, planShapeWarnings, runLabel, safetyBlock, shortWeather, tourRuns, type TourRun } from '@/lib/planner/day-card-view';
 import { SafetyBlock } from '@/components/planner/SafetyBlock';
+import { PLANNER_NAME, PLANNING_MENU } from '@/lib/navigation/tool-names';
 import { DayPhoto } from '@/components/planner/DayPhoto';
 import { NotInPlan } from '@/components/planner/NotInPlan';
 import { PlanOverview } from '@/components/planner/PlanOverview';
@@ -2531,7 +2532,7 @@ export function PlannerClient({ initialUserId }: { initialUserId?: string | null
         {/* H1 страницы — что это за страница, а не название шага: поисковик
             видел H1 «Когда» (аудит 29.09, Н14). Название шага — H2 ниже. */}
         <h1 className="text-xs font-medium text-[var(--text-secondary)]">
-          Конструктор маршрута по Камчатке · <span aria-live="polite">шаг {step} из 4</span>
+          {PLANNER_NAME} · <span aria-live="polite">шаг {step} из 4</span>
         </h1>
         {recommendation && (
           <button type="button" onClick={() => { setFormOpen(false); setStepError(''); }}
@@ -3260,6 +3261,10 @@ export function PlannerClient({ initialUserId }: { initialUserId?: string | null
                 <Download className="w-4 h-4" />
                 Скачать PDF маршрута
               </button>
+              {/* Взаимная ссылка (22.11): поход — чек-лист и офлайн-карта. */}
+              <p className="text-[11px] text-center text-[var(--text-muted)]">
+                Идёте в поход сами? <Link href="/planning" className="text-[var(--ocean)] hover:underline">{PLANNING_MENU}</Link>: чек-лист и карта без интернета.
+              </p>
             </div>
           )}
 
