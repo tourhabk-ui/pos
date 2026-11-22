@@ -16,12 +16,15 @@
  *     тура — в точку первого дня. Пины с равными координатами Leaflet
  *     кладёт один на другой: виден последний, номер первого не виден и не
  *     нажимается ни на каком зуме (ревью 22.10: «7» закрывала «1»);
- *   • линия между зонами плана — построение, а не путь (lib/map/line-standard).
+ *   • линия по дням плана в их порядке — построение, а не путь
+ *     (lib/map/line-standard); на смене зоны — плашка с временем в пути и
+ *     транспортом из zone-graph («≈ 7 ч · джип», «только вертолёт»).
  *
  * Легенда собирается из тех же точек и тех же цветов: зона, которой нет на
  * карте, в легенду не попадает, и цвет в легенде — ровно цвет пина.
  */
 import type { MapMarker } from '@/components/shared/leaflet-types';
+import { ZONE_GRAPH } from '@/lib/planner/zone-graph';
 import { connectorLine, CONNECTOR_TITLES } from '@/lib/map/line-standard';
 import { markerHex, type MarkerColorName } from '@/lib/map/marker-colors';
 import { PLANNER_ZONE_IDS, type ZoneId } from '@/lib/planner/constants';
@@ -52,6 +55,11 @@ export interface PlannerMapDay {
    */
   zoneShown?: string | null;
   coords: [number, number];
+  /**
+   * Точка — ориентир по описанию места тура (lib/planner/map-tour-points),
+   * а не точка, которую знает движок. Подпись пина говорит об этом.
+   */
+  approx?: boolean;
 }
 
 /**
@@ -139,6 +147,8 @@ interface DayPinGroup {
   titles: string[];
   /** Подпись зоны первого дня группы. */
   zoneLabel: string;
+  /** Точка — ориентир по описанию тура. */
+  approx: boolean;
 }
 
 /** Дни плана, сведённые по точкам: одна точка — один пин. Порядок — по первому дню. */
@@ -154,6 +164,7 @@ export function groupDaysByPoint(days: readonly PlannerMapDay[]): DayPinGroup[] 
       groups.push({
         coords: d.coords, keys: [d.day], numbers: [i + 1], titles: [d.title],
         zoneLabel: zoneName(dayShownZone(d)),
+        approx: d.approx === true,
       });
     }
   });
@@ -173,6 +184,76 @@ function routeZone(r: Pick<PlannerMapRoute, 'zone' | 'lat'>): string | null | un
 }
 
 export const ROUTE_LINE_ID = 'route_line';
+
+/** Подпись пина, чья точка — ориентир по описанию тура. */
+export const APPROX_NOTE = 'место — по описанию тура';
+
+/** Вершины линии плана: точки дней по порядку, повтор подряд — один раз. */
+export function dayPath(days: readonly PlannerMapDay[]): [number, number][] {
+  const path: [number, number][] = [];
+  for (const d of days) {
+    const last = path[path.length - 1];
+    if (!last || !samePoint(last, d.coords)) path.push(d.coords);
+  }
+  return path;
+}
+
+const TRANSPORT_WORD: Record<string, string> = {
+  jeep: 'джип', helicopter: 'вертолёт', boat: 'катер', walking: 'пешком',
+};
+
+/**
+ * Плашка переезда между зонами по zone-graph: «≈ 7 ч · джип»,
+ * «≈ 5 ч · джип или вертолёт», «только вертолёт · 400 км». Ребра нет — null.
+ */
+export function zoneLegNote(from: string, to: string): string | null {
+  const a = asPlannerZone(from);
+  const b = asPlannerZone(to);
+  if (!a || !b || a === b) return null;
+  const edge = ZONE_GRAPH[a]?.[b] ?? ZONE_GRAPH[b]?.[a];
+  if (!edge) return null;
+  const ways = edge.transports.map(t => TRANSPORT_WORD[t] ?? t);
+  if (edge.travelHours === null) return `только вертолёт · ${edge.distanceKm} км`;
+  const hours = Number.isInteger(edge.travelHours) ? String(edge.travelHours) : edge.travelHours.toFixed(1).replace('.', ',');
+  return `≈ ${hours} ч · ${ways.join(' или ')}`;
+}
+
+export interface ZoneLeg {
+  fromDay: number;
+  toDay: number;
+  mid: [number, number];
+  note: string;
+  title: string;
+}
+
+/** Смены зоны между соседними днями — с плашкой из zone-graph. */
+export function zoneLegs(days: readonly PlannerMapDay[]): ZoneLeg[] {
+  const legs: ZoneLeg[] = [];
+  for (let i = 1; i < days.length; i += 1) {
+    const prev = days[i - 1];
+    const cur = days[i];
+    if (prev.zone === cur.zone) continue;
+    const note = zoneLegNote(prev.zone, cur.zone);
+    if (!note) continue;
+    legs.push({
+      fromDay: prev.day,
+      toDay: cur.day,
+      mid: [(prev.coords[0] + cur.coords[0]) / 2, (prev.coords[1] + cur.coords[1]) / 2],
+      note,
+      title: `${zoneName(prev.zone)} → ${zoneName(cur.zone)}: ${note}`,
+    });
+  }
+  return legs;
+}
+
+/** Куда смотреть карте: точка открытого дня, иначе все точки плана. */
+export function planFocusPoints(days: readonly PlannerMapDay[], dayKey: number | null): [number, number][] {
+  if (dayKey !== null) {
+    const d = days.find(x => x.day === dayKey);
+    if (d) return [d.coords];
+  }
+  return dayPath(days);
+}
 
 export function buildPlannerMarkers(input: {
   routes: readonly PlannerMapRoute[];
@@ -214,7 +295,7 @@ export function buildPlannerMarkers(input: {
       id: dayPinId(g.keys),
       coords: g.coords,
       title: g.numbers.map((n, k) => `${n}. ${g.titles[k]}`).join(' · '),
-      description: g.zoneLabel,
+      description: g.approx ? `${g.zoneLabel} · ${APPROX_NOTE}` : g.zoneLabel,
       color: PLAN_DAY_PIN,
       label: dayPinLabel(g.numbers),
       emphasis: editingDayId !== null && g.keys.includes(editingDayId),
@@ -222,24 +303,36 @@ export function buildPlannerMarkers(input: {
     });
   }
 
-  // Линия между днями плана — ПОСТРОЕНИЕ, а не путь (lib/map/line-standard).
-  // Она соединяет центры зон, между которыми бывает триста километров и
-  // хребет. Сплошная оранжевая под словом «Маршрут» читалась как проход:
-  // и вид, и подпись обещали то, чего никто не снимал.
-  const seen = new Set<string>();
-  const zoneOrder: PlannerMapDay[] = [];
-  for (const d of days) {
-    if (!seen.has(d.zone)) { seen.add(d.zone); zoneOrder.push(d); }
-  }
-  if (zoneOrder.length >= 2) {
+  // Линия по дням плана — ПОСТРОЕНИЕ, а не путь (lib/map/line-standard):
+  // между точками дней бывает триста километров и хребет. Идёт по дням в
+  // порядке плана, соседние дни в одной точке — одна вершина.
+  const path = dayPath(days);
+  if (path.length >= 2) {
     result.push({
       id: ROUTE_LINE_ID,
-      coords: zoneOrder[0].coords,
+      coords: path[0],
       title: CONNECTOR_TITLES.planOrder,
-      geometry: { type: 'polyline', coordinates: zoneOrder.map(d => d.coords), ...connectorLine() },
+      geometry: { type: 'polyline', coordinates: path, ...connectorLine() },
       // Держатель линии, не место: без флага LeafletMap ставил под кружок
       // первого дня ещё и синий пин без смысла (виден на снимке 22.10).
       geometryOnly: true,
+    });
+  }
+
+  // Переезды между зонами — плашкой посреди отрезка: сколько ехать и на чём.
+  // Туда и обратно тем же отрезком — одна плашка: две подряд ложились
+  // друг на друга (стенд 22.11). В полосе дней остаются обе.
+  const placedNotes: ZoneLeg[] = [];
+  for (const leg of zoneLegs(days)) {
+    if (placedNotes.some(p => p.note === leg.note
+      && Math.abs(p.mid[0] - leg.mid[0]) < 0.3 && Math.abs(p.mid[1] - leg.mid[1]) < 0.5)) continue;
+    placedNotes.push(leg);
+    result.push({
+      id: `leg_${leg.fromDay}_${leg.toDay}`,
+      coords: leg.mid,
+      title: leg.title,
+      note: leg.note,
+      suppressBalloon: true,
     });
   }
 

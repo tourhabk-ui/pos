@@ -697,7 +697,7 @@ describe('на настоящем экране планировщика', () => 
     await buildPlan();
     tap('r5');
     fireEvent.click(await screen.findByRole('button', { name: /Добавить в план/ }));
-    const card = (await screen.findByText('Маршрут без зоны')).closest('li') as HTMLElement;
+    const card = (await screen.findByText('Маршрут без зоны', { selector: '[data-day-title]' })).closest('li') as HTMLElement;
     expect(within(card).getByText(/Зона не записана/)).toBeTruthy();
     expect(card.textContent).not.toMatch(/Авачинская зона/);
   });

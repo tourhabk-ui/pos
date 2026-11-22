@@ -76,6 +76,13 @@ interface LeafletMapProps {
    * lib/map/fit-when-sized (fitPaddingTop, cornerRefitTop).
    */
   fitClearOf?: { readonly current: HTMLElement | null };
+  /**
+   * Куда показать карту по требованию вызывающего: одна точка — приблизить
+   * к ней, несколько — подогнать вид под все. Срабатывает при смене `key`
+   * (карта плана: открыли день — карта едет к его пину). Контейнер скрыт
+   * (вкладка «Карта» на телефоне) — откладывается до первого размера.
+   */
+  focus?: { key: string; points: [number, number][] } | null;
   onMarkerClick?: (id: string) => void;
   /**
    * Тап по свободной точке карты — сырые координаты под пальцем, не
@@ -132,6 +139,17 @@ export interface LeafletZoomHandle {
 
 /** Сдвиг z-index пинов с подписью: выделенный — над обычными (см. отрисовку маркеров). */
 export const LABEL_Z = { normal: 1000, emphasis: 2000 } as const;
+
+/** Зум, ближе которого показ одной точки (проп `focus`) не отдаляет. */
+const FOCUS_MIN_ZOOM = 9;
+
+/** Плашка-подпись (MapMarker.note): текст по центру точки, без пина. */
+function notePillHtml(text: string): string {
+  return `<div style="transform:translate(-50%,-50%);display:inline-block;white-space:nowrap;`
+    + `padding:3px 8px;border-radius:999px;background:rgba(255,255,255,0.95);color:#1f2328;`
+    + `border:1px solid rgba(0,0,0,0.15);box-shadow:0 1px 4px rgba(0,0,0,0.25);`
+    + `font-size:11px;font-weight:600;line-height:1.2;font-family:inherit">${escapeHtml(text)}</div>`;
+}
 
 /** Поля подгонки вида, когда сверху ничего не лежит. */
 const FIT_PADDING = 50;
@@ -200,6 +218,7 @@ export default function LeafletMap({
   topInset = 0,
   bottomInset = 0,
   fitClearOf,
+  focus = null,
   onMarkerClick,
   onMapClick,
   showUserLocation = false,
@@ -325,6 +344,22 @@ export default function LeafletMap({
     if (top !== FIT_PADDING) return;
     const refit = cornerRefitTop(panelBox, mapBox, FIT_PADDING, points.map(p => map.latLngToContainerPoint(p)));
     if (refit !== null) fitWith(refit);
+  });
+  // Показ по требованию (проп `focus`), отложенный до размера контейнера.
+  const pendingFocusRef = useRef<[number, number][] | null>(null);
+  // Последний показ: вкладку с картой спрятали посреди него (телефон: нажали
+  // пин — открылась вкладка «План») — при новом показе повторяем его.
+  const lastFocusRef = useRef<[number, number][] | null>(null);
+  const hiddenRef = useRef(false);
+  const applyFocusRef = useRef((map: LMap, points: [number, number][]) => {
+    // Свой показ отменяет автоподгонку: иначе она догнала бы и увела вид.
+    fitDoneRef.current = true;
+    pendingFitRef.current = null;
+    if (points.length === 1) {
+      map.setView(points[0], Math.max(map.getZoom(), FOCUS_MIN_ZOOM), { animate: true });
+    } else {
+      fitViewRef.current(map, points);
+    }
   });
   const onMarkerClickRef = useRef(onMarkerClick);
   const onMapClickRef = useRef(onMapClick);
@@ -657,6 +692,21 @@ export default function LeafletMap({
       if (typeof ResizeObserver !== 'undefined' && containerRef.current) {
         resizeObserver = new ResizeObserver(() => {
           map.invalidateSize();
+          const now = map.getSize();
+          const hidden = now.x === 0 || now.y === 0;
+          if (hiddenRef.current && !hidden && !pendingFocusRef.current && lastFocusRef.current) {
+            pendingFocusRef.current = lastFocusRef.current;
+          }
+          hiddenRef.current = hidden;
+          const focusPending = pendingFocusRef.current;
+          if (focusPending) {
+            const sz = map.getSize();
+            if (sz.x > 0 && sz.y > 0) {
+              pendingFocusRef.current = null;
+              applyFocusRef.current(map, focusPending);
+              return;
+            }
+          }
           // Отложенная подгонка: маркеры пришли, пока контейнер был скрыт
           // (см. эффект маркеров). Подгоняется один раз — как и обычная.
           const pending = pendingFitRef.current;
@@ -858,6 +908,24 @@ export default function LeafletMap({
     }
   }, [topInset, bottomInset, mapEpoch]);
 
+  const focusKey = focus?.key ?? null;
+  const focusPointsRef = useRef(focus?.points ?? null);
+  const focusPoints = focus?.points ?? null;
+  useEffect(() => { focusPointsRef.current = focusPoints; });
+  useEffect(() => {
+    const map = mapRef.current;
+    const points = focusPointsRef.current;
+    if (!map || focusKey === null || !points || points.length === 0) return;
+    lastFocusRef.current = points;
+    const size = map.getSize();
+    if (size.x === 0 || size.y === 0) {
+      pendingFocusRef.current = points;
+      return;
+    }
+    pendingFocusRef.current = null;
+    applyFocusRef.current(map, points);
+  }, [focusKey, mapEpoch]);
+
   /**
    * Отрисовка маркеров НА ЖИВОЙ карте — без пересоздания инстанса.
    *
@@ -943,6 +1011,18 @@ export default function LeafletMap({
       // выше и в fitBounds попала — рисовать поверх неё пин значило бы
       // ставить точку там, где точки нет.
       if (marker.geometryOnly) return;
+
+      // Плашка-подпись — текст на карте, не место: не нажимается, не в кластер.
+      if (typeof marker.note === 'string' && marker.note.length > 0) {
+        drawn.push(L.marker(marker.coords, {
+          icon: L.divIcon({ html: notePillHtml(marker.note), className: 'kh-note', iconSize: [0, 0] }),
+          interactive: false,
+          keyboard: false,
+          title: marker.title,
+          zIndexOffset: LABEL_Z.normal - 1,
+        }).addTo(map));
+        return;
+      }
 
       // Пин с подписью (день плана, 22.10) — кружок с числом, крупнее точки
       // и поверх неё. Без подписи — прежний пин по виду места.
