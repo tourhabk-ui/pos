@@ -124,3 +124,71 @@ describe('галерея мест тоже едет в хранилище (13.10
     expect(route).toContain('async function backfillUrls()');
   });
 });
+
+// Владелец 22.11, снимок с телефона: «фото не адаптированы». Копия 480 px под
+// карточку (scope thumb, миграция 1138) делалась только рукой, одним прогоном
+// 02.10; снимки позже остались без копии, и карточка тянула оригинал. Теперь
+// копии делает тот же ночной прогон. Шаг судится исполнением: настоящий bash,
+// подложенный curl отвечает заданной очередью ответов двери.
+describe('ночной прогон делает копии под карточку', () => {
+  const doc = load(read(SWEEPER)) as { jobs: Record<string, { steps: Array<{ name?: string; run?: string }> }> };
+  const step = Object.values(doc.jobs).flatMap((j) => j.steps).find((s) => s.name === 'Копии снимков под карточку');
+
+  const runStep = async (responses: Array<{ code: number; body: unknown }>) => {
+    const { mkdtempSync, writeFileSync, chmodSync, readFileSync: rd, existsSync } = await import('node:fs');
+    const { tmpdir } = await import('node:os');
+    const { spawnSync } = await import('node:child_process');
+    const dir = mkdtempSync(join(tmpdir(), 'thumb-step-'));
+    responses.forEach((r, i) => {
+      writeFileSync(join(dir, `resp${i + 1}.json`), JSON.stringify(r.body));
+      writeFileSync(join(dir, `code${i + 1}`), String(r.code));
+    });
+    // curl: -o <файл> -d <тело>; тело — в журнал, ответ — следующий по очереди.
+    writeFileSync(join(dir, 'curl'), `#!/usr/bin/env bash
+out=''; body=''
+while [ $# -gt 0 ]; do case "$1" in -o) out="$2"; shift 2;; -d) body="$2"; shift 2;; *) shift;; esac; done
+n=$(( $(cat "${dir}/n" 2>/dev/null || echo 0) + 1 )); echo "$n" > "${dir}/n"
+printf '%s\\n' "$body" >> "${dir}/bodies"
+if [ -f "${dir}/resp$n.json" ]; then cp "${dir}/resp$n.json" "$out"; printf '%s' "$(cat "${dir}/code$n")"; else echo '{}' > "$out"; printf '500'; fi
+`);
+    chmodSync(join(dir, 'curl'), 0o755);
+    const summary = join(dir, 'summary.md');
+    const res = spawnSync('bash', ['-e', '-c', step!.run!], {
+      env: { ...process.env, PATH: `${dir}:${process.env.PATH}`, CRON_SECRET: 'test-secret', BASE: 'https://example.test', GITHUB_STEP_SUMMARY: summary },
+      encoding: 'utf8',
+    });
+    const bodies = existsSync(join(dir, 'bodies')) ? rd(join(dir, 'bodies'), 'utf8').trim().split('\n') : [];
+    return { status: res.status, out: `${res.stdout}${res.stderr}`, bodies, summary: existsSync(summary) ? rd(summary, 'utf8') : '' };
+  };
+  const ok = (made: number, skipped: number, failed: number, pending: number) =>
+    ({ code: 200, body: { ok: true, scope: 'thumb', recompressed_count: made, skipped_count: skipped, failed_count: failed, pending_before: pending } });
+
+  it('шаг есть и ходит после переезда', () => {
+    const names = Object.values(doc.jobs).flatMap((j) => j.steps).map((s) => s.name);
+    expect(step).toBeDefined();
+    expect(names.indexOf('Копии снимков под карточку')).toBeGreaterThan(names.indexOf('Перевезти остаток снимков в хранилище'));
+  });
+
+  it('просит дверь копий боевой партией scope thumb с причиной', async () => {
+    const r = await runStep([ok(10, 0, 0, 25), ok(10, 0, 0, 15), ok(4, 1, 0, 5), ok(0, 0, 0, 0)]);
+    expect(r.status).toBe(0);
+    const body = JSON.parse(r.bodies[0]) as Record<string, unknown>;
+    expect(body).toMatchObject({ scope: 'thumb', dry_run: false });
+    expect(String(body.reason).length).toBeGreaterThanOrEqual(10);
+    expect(r.bodies).toHaveLength(4);
+    expect(r.summary).toContain('сделано копий: **24**');
+  });
+
+  it('партия без прогресса — конец, а не круг пустых партий; отказы названы', async () => {
+    const r = await runStep([ok(3, 0, 2, 5), ok(0, 0, 2, 2), ok(0, 0, 0, 0)]);
+    expect(r.status).toBe(0);
+    expect(r.bodies).toHaveLength(2);
+    expect(r.out).toMatch(/::warning::копии под карточку: не сделано 4/);
+  });
+
+  it('дверь ответила не 200 — шаг красный', async () => {
+    const r = await runStep([ok(2, 0, 0, 3), { code: 503, body: { ok: false } }]);
+    expect(r.status).toBe(1);
+    expect(r.out).toMatch(/::error::копии под карточку: дверь ответила HTTP 503 на партии 2/);
+  });
+});

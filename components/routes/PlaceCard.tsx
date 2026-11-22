@@ -15,6 +15,7 @@ import { distanceKm } from './place-horizons';
 import { useAnchor } from './useAnchor';
 import { placeToursHref, placeToursLine } from '@/lib/places/place-tours-line';
 import { PhotoCreditLink } from '@/components/media/PhotoCreditLink';
+import { ownCardPhotoUrl } from '@/lib/routes/card-image';
 
 /*
  * Карточка места в каталоге — как в каталогах туристических сервисов
@@ -57,8 +58,11 @@ export default function PlaceCard({ route, eager = false }: { route: RouteItem; 
   const element = getElementForType(locType);
   const elColor = element?.color ?? NEUTRAL_ELEMENT_COLOR;
 
+  // Свой снимок — копией под карточку, тем же адресом, что у плитки маршрута
+  // и подборок (ownCardPhotoUrl). Оригинал на телефоне грузился долго, и рамка
+  // стояла белой снизу, пока он не докачается (владелец 22.11).
   const photoSrc = route.hasRealImage
-    ? `/api/images/route/${route.id}`
+    ? ownCardPhotoUrl(route.id)
     : (route.imageUrl ?? null);
 
   // Расстояние — от Петропавловска; если человек раньше разрешил геопозицию,
@@ -75,7 +79,9 @@ export default function PlaceCard({ route, eager = false }: { route: RouteItem; 
 
   return (
     <article className="group flex flex-col overflow-hidden rounded-lg border border-[var(--border)] bg-[var(--bg-card)] transition-all duration-200 hover:border-[var(--accent)]/40 hover:shadow-sm">
-      <Link href={placeHref} className="relative block aspect-[4/3] overflow-hidden">
+      {/* Заливка рамки — пока снимок грузится, место под ним видно как место,
+          а не как белая дыра посреди карточки. */}
+      <Link href={placeHref} className="relative block aspect-[4/3] overflow-hidden bg-[var(--bg-hover)]">
         {photoSrc ? (
           // eslint-disable-next-line @next/next/no-img-element
           <img
@@ -83,6 +89,7 @@ export default function PlaceCard({ route, eager = false }: { route: RouteItem; 
             alt={route.photoAlt || route.title}
             loading={eager ? 'eager' : 'lazy'}
             fetchPriority={eager ? 'high' : undefined}
+            decoding="async"
             className="h-full w-full object-cover transition-transform duration-300 group-hover:scale-[1.03]"
           />
         ) : (

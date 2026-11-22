@@ -103,3 +103,35 @@ describe('карточка места', () => {
     expect([...none.querySelectorAll('a')].some((a) => a.getAttribute('href')?.endsWith('#tours'))).toBe(false);
   });
 });
+
+// Владелец 22.11, снимок с телефона: «фото не адаптированы». Плитка места
+// просила оригинал снимка, а не копию под карточку: тяжёлый файл на телефоне
+// догружался сверху вниз, и низ рамки стоял белым.
+describe('снимок плитки места — копия под карточку', () => {
+  const place = (over: Partial<RouteItem> = {}): RouteItem => ({
+    id: '33333333-3333-4333-8333-333333333333', kind: 'place', urlSlug: 'ozero-mikizha',
+    category: 'lakes', locationType: 'lake', title: 'Озеро Микижа', description: '',
+    lat: 53.2, lng: 158.4, difficulty: null, durationDays: null, ...over,
+  });
+
+  it('свой снимок — тем же адресом копии, что у плитки маршрута', async () => {
+    const { ownCardPhotoUrl, cardImage } = await import('@/lib/routes/card-image');
+    const p = place({ hasRealImage: true, imageUrl: '/somewhere/full.jpg' });
+    const src = render(<PlaceCard route={p} />).container.querySelector('img')?.getAttribute('src');
+    expect(src).toBe(ownCardPhotoUrl(p.id));
+    expect(src).toBe(cardImage({ hasShownPhoto: true, id: p.id, kind: 'place' }).url);
+    expect(src).toMatch(/\?size=card$/);
+  });
+
+  it('своего снимка нет — адрес из каталога как есть', () => {
+    const src = render(<PlaceCard route={place({ hasRealImage: false, imageUrl: '/api/images/place-gallery/a/1' })} />)
+      .container.querySelector('img')?.getAttribute('src');
+    expect(src).toBe('/api/images/place-gallery/a/1');
+  });
+
+  it('пока снимок грузится, рамка залита, а не белая', () => {
+    const frame = render(<PlaceCard route={place({ hasRealImage: true })} />).container.querySelector('img')?.parentElement;
+    expect(frame?.getAttribute('class')).toContain('bg-[var(--bg-hover)]');
+    expect(frame?.querySelector('img')?.getAttribute('decoding')).toBe('async');
+  });
+});

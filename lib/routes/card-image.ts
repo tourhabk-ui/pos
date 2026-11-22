@@ -161,10 +161,20 @@ export interface CardImage {
   url: string | null;
 }
 
+/**
+ * Свой снимок записи для карточки: копия 480 px (`?size=card`, миграция 1138,
+ * аудит 01.10), пока копии нет — оригинал с коротким кэшем. Один адрес на все
+ * карточки: до 22.11 плитка места собирала свой и просила оригинал — на
+ * телефоне тяжёлый снимок догружался сверху вниз, и низ рамки стоял белым
+ * (снимок владельца 22.11, «Озеро Микижа»).
+ */
+export function ownCardPhotoUrl(id: string): string {
+  return `/api/images/route/${id}?size=card`;
+}
+
 export function cardImage(input: CardImageInput): CardImage {
   if (input.hasShownPhoto) {
-    // ?size=card — копия 480 px, когда она есть (миграция 1138, аудит 01.10).
-    return { kind: 'own', url: `/api/images/route/${input.id}?size=card` };
+    return { kind: 'own', url: ownCardPhotoUrl(input.id) };
   }
 
   const fromPayload = pickPayloadImage(input.payload ?? {});

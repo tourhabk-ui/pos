@@ -31,6 +31,16 @@
 # Спешить некуда: снимок, пролежавший в базе лишние часы, ничего не ломает.
 # Прогон идёт партиями по 10 до исчерпания, ночью по UTC — это утро Камчатки
 # до выхода людей на маршруты, и заливка не делит полосу с полевым трафиком.
+#
+# ── Копия под карточку — тем же прогоном (владелец 22.11) ─────────────────
+#
+# Карточки каталога просят копию 480 px (`?size=card`, миграция 1138). Её
+# делает `POST /api/cron/hero-web-variant` (scope thumb), но звали его только
+# рукой: одним прогоном 02.10. Снимок, приехавший позже, копии не получал, и
+# раздача отдавала карточке оригинал — на телефоне он догружался сверху вниз,
+# низ рамки стоял белым («фото не адаптированы», снимок владельца 22.11).
+# Теперь копии делает тот же ночной прогон, сразу после переезда: новый
+# снимок к утру получает копию. Оригинал не трогается, копия ложится рядом.
 name: Cron — снимки мест в хранилище
 
 on:
@@ -48,7 +58,7 @@ concurrency:
 jobs:
   move:
     runs-on: ubuntu-latest
-    timeout-minutes: 30
+    timeout-minutes: 55
     steps:
       - uses: actions/checkout@v7
 
@@ -105,6 +115,78 @@ jobs:
             echo 'Последний ответ:'
             echo '```json'
             python3 -m json.tool /tmp/s3.json 2>/dev/null | head -c 4000 || head -c 4000 /tmp/s3.json
+            echo ''
+            echo '```'
+          } >> "$GITHUB_STEP_SUMMARY"
+
+      # Копии 480 px для карточек (scope thumb). После переезда: копия делается
+      # только снимку, который уже лежит в хранилище. Партия — 10 (предел двери).
+      # Прогресс партии — сделанные копии и записанное «копия не нужна»
+      # (оригинал легче копии). Партия без прогресса — конец: дальше остались
+      # только снимки, которые не режутся, — их называет предупреждение, а не
+      # круг пустых партий. Бюджет времени — 20 минут: что не успело, доделает
+      # следующая ночь.
+      - name: Копии снимков под карточку
+        env:
+          CRON_SECRET: ${{ secrets.CRON_SECRET }}
+          BASE: https://vedarai.ru
+        run: |
+          set -u
+          if [ -z "${CRON_SECRET:-}" ]; then
+            echo '::error::CRON_SECRET не задан в секретах репозитория'
+            exit 1
+          fi
+
+          THUMB_REASON='Плановая копия снимка под карточку каталога: на телефоне оригинал догружался сверху вниз и низ рамки стоял белым (владелец 22.11)'
+          MADE=0
+          SKIPPED=0
+          FAILED=0
+          ROUND=0
+          LEFT=0
+
+          while [ "$ROUND" -lt 30 ] && [ "$SECONDS" -lt 1200 ]; do
+            ROUND=$((ROUND + 1))
+            CODE=$(curl -s -o /tmp/thumb.json -w '%{http_code}' --max-time 300 \
+              -X POST "$BASE/api/cron/hero-web-variant" \
+              -H "Authorization: Bearer $CRON_SECRET" \
+              -H 'Content-Type: application/json' \
+              -d "{\"reason\": \"$THUMB_REASON\", \"scope\": \"thumb\", \"dry_run\": false}" || echo 000)
+
+            if [ "$CODE" != '200' ]; then
+              echo "::error::копии под карточку: дверь ответила HTTP $CODE на партии $ROUND"
+              head -c 1000 /tmp/thumb.json || true
+              exit 1
+            fi
+
+            read -r DID SKIP FAIL LEFT < <(
+              python3 - <<'PY'
+          import json
+          a = json.load(open('/tmp/thumb.json'))
+          print(a.get('recompressed_count', 0), a.get('skipped_count', 0), a.get('failed_count', 0), a.get('pending_before', 0))
+          PY
+            )
+            MADE=$((MADE + DID))
+            SKIPPED=$((SKIPPED + SKIP))
+            FAILED=$((FAILED + FAIL))
+            echo "партия $ROUND: копий $DID, не нужна $SKIP, не смог $FAIL, ждало копии до партии $LEFT"
+
+            [ $((DID + SKIP)) -gt 0 ] || break
+          done
+
+          if [ "$FAILED" -gt 0 ]; then
+            echo "::warning::копии под карточку: не сделано $FAILED (причины — в последнем ответе ниже); такие снимки карточка получает оригиналом"
+          fi
+
+          {
+            echo '### Копии снимков под карточку'
+            echo "- сделано копий: **$MADE**"
+            echo "- копия не нужна (оригинал легче): $SKIPPED"
+            echo "- не смог: $FAILED"
+            echo "- партий: $ROUND"
+            echo ''
+            echo 'Последний ответ:'
+            echo '```json'
+            python3 -m json.tool /tmp/thumb.json 2>/dev/null | head -c 4000 || head -c 4000 /tmp/thumb.json
             echo ''
             echo '```'
           } >> "$GITHUB_STEP_SUMMARY"
