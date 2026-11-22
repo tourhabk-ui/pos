@@ -10,6 +10,7 @@
  */
 import React from 'react';
 import { describe, it, expect, vi } from 'vitest';
+import { readFileSync } from 'node:fs';
 import { render } from '@testing-library/react';
 
 vi.mock('@/lib/db-pool', () => ({ pool: { query: vi.fn(async () => ({ rows: [] })) } }));
@@ -70,8 +71,19 @@ describe('страница о разрешениях — факты из спр�
     expect(links).toContain(ROUTE_PASSPORTS_REGISTRY.url);
   });
 
-  it('FAQPage — те же вопросы и ответы, что видит человек', () => {
-    const faq = ld.find((x) => x['@type'] === 'FAQPage');
+  it('Article, хлебные крошки и строка редакции; FAQPage — те же вопросы, что видит человек', () => {
+    const graph = ld.flatMap((x) => (Array.isArray(x['@graph']) ? x['@graph'] : [x]));
+    const article = graph.find((x) => x['@type'] === 'Article');
+    expect(article?.author).toMatchObject({ '@type': 'Organization', name: 'Редакция Vedar' });
+    expect(article?.dateModified).toMatch(/^2026-11-21/);
+    const crumbs = graph.find((x) => x['@type'] === 'BreadcrumbList');
+    expect(crumbs).toBeTruthy();
+    expect(t).toContain('факты проверены');
+    expect(t).toContain('Редакция Vedar');
+    const page = readFileSync('app/razreshenie-na-poseshchenie/page.tsx', 'utf-8');
+    expect(page).not.toMatch(/absolute:\s*TITLE|absolute:\s*PERMIT_GUIDE_TITLE/);
+    expect(page).toContain('PERMIT_GUIDE_TITLE');
+    const faq = graph.find((x) => x['@type'] === 'FAQPage');
     const qs = (faq?.mainEntity as Array<{ name: string; acceptedAnswer: { text: string } }>).map((q) => q.name);
     expect(qs).toEqual(permitFaq().map((f) => f.q));
     for (const f of permitFaq()) expect(t).toContain(f.a);

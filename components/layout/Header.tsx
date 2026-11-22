@@ -253,7 +253,7 @@ export function Header({ overPhoto = false }: HeaderProps = {}) {
           style={{ marginLeft: 8, fontFamily: 'var(--font-playfair)', fontWeight: 600 }}
         >
           <span className="truncate" style={{ fontSize: 16 }}>{brand.first}</span>
-          <span className="truncate text-[11px] md:text-[16px]" style={{ fontWeight: 500 }}>{brand.second}</span>
+          <span className="truncate text-xs md:text-[16px]" style={{ fontWeight: 500 }}>{brand.second}</span>
         </span>
       </Link>
 

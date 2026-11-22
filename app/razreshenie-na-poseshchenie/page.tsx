@@ -7,17 +7,16 @@ import type { Metadata } from 'next';
 import { Header } from '@/components/layout/Header';
 import { PermitGuideView } from '@/components/seo/PermitGuide';
 import { defaultOgImages } from '@/lib/seo/og-image';
-import { PERMIT_GUIDE_PATH } from '@/lib/seo/permit-guide';
+import { PERMIT_GUIDE_DESCRIPTION, PERMIT_GUIDE_PATH, PERMIT_GUIDE_TITLE } from '@/lib/seo/permit-guide';
 
 const SITE = process.env.NEXT_PUBLIC_SITE_URL ?? 'https://vedarai.ru';
-const TITLE = 'Нужно ли разрешение на посещение мест Камчатки';
-const DESCRIPTION = 'Кто и как выдаёт разрешение в парки «Вулканы Камчатки», Долину гейзеров и на Курильское озеро — по официальным страницам. Разрешение — не регистрация в МЧС.';
 
 export const metadata: Metadata = {
-  title: { absolute: TITLE },
-  description: DESCRIPTION,
+  // Без absolute: шаблон layout добавит «| Ведар».
+  title: PERMIT_GUIDE_TITLE,
+  description: PERMIT_GUIDE_DESCRIPTION,
   alternates: { canonical: `${SITE}${PERMIT_GUIDE_PATH}` },
-  openGraph: { url: `${SITE}${PERMIT_GUIDE_PATH}`, title: TITLE, description: DESCRIPTION, images: defaultOgImages(), type: 'article', siteName: 'Ведар', locale: 'ru_RU' },
+  openGraph: { url: `${SITE}${PERMIT_GUIDE_PATH}`, title: `${PERMIT_GUIDE_TITLE} | Ведар`, description: PERMIT_GUIDE_DESCRIPTION, images: defaultOgImages(), type: 'article', siteName: 'Ведар', locale: 'ru_RU' },
   robots: { index: true, follow: true },
 };
 

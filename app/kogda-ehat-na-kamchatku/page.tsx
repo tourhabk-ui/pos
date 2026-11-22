@@ -6,6 +6,7 @@
  */
 import { LandingPage, landingPageMetadata } from '@/components/landings/LandingPage';
 import { MonthsNav } from '@/components/landings/LandingContent';
+import { KamchatkaGuide } from '@/components/landings/KamchatkaGuide';
 import { WhenToGoMonths } from '@/components/seo/TripFactsPages';
 import { landingBySlug } from '@/lib/landings/landings';
 import { loadTripCost } from '@/lib/seo/trip-cost-data';
@@ -27,7 +28,12 @@ export default async function Page() {
       slug={SLUG}
       middle={<WhenToGoMonths byMonth={tours ? toursByMonth(tours) : null} fish={fishByMonth(FISH_SPECIES)} />}
       /* Хаб месячных страниц (Сыщик, 20.11): каждая ссылается сюда и на соседей. */
-      footer={<MonthsNav current="/kogda-ehat-na-kamchatku" />}
+      footer={
+        <>
+          <MonthsNav current="/kogda-ehat-na-kamchatku" />
+          <KamchatkaGuide variant="index" />
+        </>
+      }
     />
   );
 }

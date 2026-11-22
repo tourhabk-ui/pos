@@ -198,6 +198,40 @@ export function guideLandings(): Landing[] {
   return LANDINGS.filter((l) => !isMonthLanding(l));
 }
 
+/**
+ * Короткая навигация гида (15–20 ссылок) для подвала и блока вне <main>.
+ * Полный реестр guideLandings() остаётся для «Читайте также» и перелинковки.
+ * Порядок — частые запросы туриста: когда ехать, дорога, самостоятельно,
+ * дети, что посмотреть, вулканы, медведи, рыбалка, Паратунка.
+ */
+export const FEATURED_GUIDE_PATHS = [
+  '/kogda-ehat-na-kamchatku',
+  '/kak-dobratsya-na-kamchatku',
+  '/kamchatka-samostoyatelno',
+  '/kamchatka-s-detmi',
+  '/stoit-li-ekhat-na-kamchatku',
+  '/skolko-dnej-nuzhno-na-kamchatku',
+  '/chto-posmotret-na-kamchatke',
+  '/chto-vzyat-s-soboj-na-kamchatku',
+  '/gde-ostanovitsya-na-kamchatke',
+  '/medvedi-kamchatki',
+  '/voshozhdeniya-na-vulkany-kamchatki',
+  '/dolina-gejzerov-ekskursiya',
+  '/rybalka-na-kamchatke-tury',
+  '/places/paratunskaya-zona-otdyha',
+  '/morskie-progulki-kamchatka',
+  '/pogoda-na-kamchatke-po-mesyacam',
+  '/serfing-na-kamchatke',
+  '/petropavlovsk-za-den',
+  '/svyaz-i-internet-na-kamchatke',
+  '/splav-na-kamchatke',
+] as const;
+
+export function featuredGuideLandings(): Landing[] {
+  const byPath = new Map(guideLandings().map((l) => [l.path, l]));
+  return FEATURED_GUIDE_PATHS.map((path) => byPath.get(path)).filter((l): l is Landing => l != null);
+}
+
 /** Короткая подпись ссылки: часть H1 (или title) до двоеточия, без новых формулировок. */
 export function guideAnchor(l: Landing): string {
   const beforeColon = (s: string): string | null => {

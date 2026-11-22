@@ -7,9 +7,13 @@ import Link from 'next/link';
 import { JsonLd } from '@/components/seo/JsonLd';
 import {
   FEDERAL_PERMIT_UNKNOWN_RU, FEDERALIZED_PARKS, FREE_VISIT_AREAS, GREEN_BUTTON, KRONOKI_ORDER_RU, KRONOKI_REQUESTS,
-  KRONOKI_TERRITORIES, NO_PERMIT_TERRITORIES, PARK_PERMIT_CHANNELS, PARK_PERMIT_SOURCE, PERMIT_NOT_MCHS_RU,
-  ROUTE_PASSPORTS_REGISTRY, VOLCANOES_DECREE_DOC, federalizedParksRu, permitFaq,
+  KRONOKI_TERRITORIES, NO_PERMIT_TERRITORIES, PARK_PERMIT_CHANNELS, PARK_PERMIT_SOURCE, PERMIT_GUIDE_AUTHOR,
+  PERMIT_GUIDE_DATE, PERMIT_GUIDE_H1, PERMIT_NOT_MCHS_RU,
+  ROUTE_PASSPORTS_REGISTRY, VOLCANOES_DECREE_DOC, federalizedParksRu, permitArticleJsonLd, permitBreadcrumbJsonLd, permitFaq,
 } from '@/lib/seo/permit-guide';
+import { formatRecordDate, recordDateIso } from '@/lib/seo/record-modified';
+
+const SITE = process.env.NEXT_PUBLIC_SITE_URL ?? 'https://vedarai.ru';
 
 function Muted({ children }: { children: React.ReactNode }) {
   return <p className="text-sm" style={{ color: 'var(--text-secondary)' }}>{children}</p>;
@@ -26,19 +30,27 @@ function Source({ href, children }: { href: string; children: React.ReactNode })
 export function PermitGuideView() {
   const faq = permitFaq();
   const federal = FEDERALIZED_PARKS[0];
+  const reviewed = formatRecordDate(PERMIT_GUIDE_DATE);
   return (
     <main className="ds-page" data-permit-guide>
-      <JsonLd data={{
-        '@context': 'https://schema.org',
-        '@type': 'FAQPage',
-        inLanguage: 'ru',
-        mainEntity: faq.map((f) => ({ '@type': 'Question', name: f.q, acceptedAnswer: { '@type': 'Answer', text: f.a } })),
-      }} />
+      <JsonLd data={permitArticleJsonLd(SITE)} />
+      <JsonLd data={permitBreadcrumbJsonLd(SITE)} />
       <div className="max-w-3xl mx-auto px-4 py-8 space-y-8">
         <header className="space-y-3">
+          <nav className="landing-crumbs text-sm" aria-label="Хлебные крошки">
+            <Link href="/">Главная</Link>
+            <span aria-hidden="true"> · </span>
+            <span aria-current="page">{PERMIT_GUIDE_H1}</span>
+          </nav>
           <h1 className="font-playfair text-3xl sm:text-4xl font-bold" style={{ color: 'var(--text-primary)' }}>
-            Нужно ли разрешение на посещение мест Камчатки
+            {PERMIT_GUIDE_H1}
           </h1>
+          {reviewed && (
+            <p className="text-xs text-[var(--text-muted)]" data-record-modified="">
+              {PERMIT_GUIDE_AUTHOR} · факты проверены{' '}
+              <time dateTime={recordDateIso(PERMIT_GUIDE_DATE) ?? undefined}>{reviewed}</time>
+            </p>
+          )}
           <p className="text-base" style={{ color: 'var(--text-primary)' }}>
             Многие маршруты края проходят по охраняемым территориям — природным паркам, заповедникам и заказникам.
             Туда нужно разрешение того, кто управляет территорией. Ниже — кто и как его выдаёт, по официальным страницам, с датой сверки.

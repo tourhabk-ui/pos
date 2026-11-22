@@ -37,7 +37,6 @@ function words(text: string): string[] {
 const page = readFileSync('app/safety/page.tsx', 'utf8');
 const aboutSrc = readFileSync('app/safety/SafetyAbout.tsx', 'utf8');
 const client = readFileSync('app/safety/_SafetyClient.tsx', 'utf8');
-const loading = readFileSync('app/safety/loading.tsx', 'utf8');
 const incidents = readFileSync('app/safety/incidents/page.tsx', 'utf8');
 const pageBody = page.slice(page.indexOf('export default function'));
 
@@ -162,12 +161,16 @@ describe('рендер без JS: H1, FAQ и ссылки в серверном 
     }
   });
 
-  it('в клиенте и на странице нет второго H1; loading отдаёт тот же лид', () => {
+  it('в клиенте и на странице нет второго H1; loading.tsx не дублирует лид', () => {
     expect(client).not.toMatch(/<h1\b/);
     expect(pageBody).not.toMatch(/<h1\b/);
-    expect(loading).toMatch(/SafetyIntro/);
-    expect(loading).toMatch(/SafetyLiveIntro/);
+    // Скелет перехода нужен (navigation-loading), но без SafetyIntro:
+    // иначе в исходном HTML два H1 и дубль текста (аудит 23.11).
+    const loading = readFileSync('app/safety/loading.tsx', 'utf8');
     expect(loading).toMatch(/Загрузка обстановки/);
+    expect(loading).not.toMatch(/SafetyIntro/);
+    expect(loading).not.toMatch(/SafetyLiveIntro/);
+    expect(loading).not.toMatch(/<h1\b/);
   });
 
   it('на телефоне над радаром только короткий лид: мелкий H1, короткая врезка, подпись и уведомления ниже', () => {

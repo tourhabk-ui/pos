@@ -9,7 +9,7 @@ import { PLATFORM_LINKS as PLATFORM, LEGAL_LINKS as LEGAL } from '@/lib/navigati
 import { ORGANIZATION_PROFILES } from '@/lib/seo/organization-profiles';
 import { KamchatkaGuide } from '@/components/landings/KamchatkaGuide';
 
-export function Footer() {
+export function Footer({ showGuide = true }: { showGuide?: boolean } = {}) {
   return (
     <footer className="border-t border-[var(--border)] bg-[var(--bg-primary)]">
       <div className="mx-auto w-full max-w-[1280px] px-6 xl:px-8 py-12">
@@ -65,7 +65,7 @@ export function Footer() {
 
           {/* Platform links */}
           <div className="md:col-span-2 lg:col-span-3">
-            <p className="text-[10px] font-semibold uppercase tracking-widest text-[var(--text-muted)] mb-4">
+            <p className="text-xs font-semibold uppercase tracking-widest text-[var(--text-muted)] mb-4">
               Платформа
             </p>
             <ul className="columns-2 lg:columns-3 gap-x-8 [&>li]:mb-2.5 [&>li]:break-inside-avoid">
@@ -84,7 +84,7 @@ export function Footer() {
 
           {/* Legal links */}
           <div>
-            <p className="text-[10px] font-semibold uppercase tracking-widest text-[var(--text-muted)] mb-4">
+            <p className="text-xs font-semibold uppercase tracking-widest text-[var(--text-muted)] mb-4">
               Правовые документы
             </p>
             <ul className="space-y-2.5">
@@ -103,11 +103,13 @@ export function Footer() {
 
         </div>
 
-        {/* Сыщик 22.11: перелинковка тематических посадочных. Компактный
-            список из реестра LANDINGS; на главной и в /articles — полный блок. */}
-        <div className="mt-10">
-          <KamchatkaGuide variant="compact" />
-        </div>
+        {/* Сыщик 23.11: короткий гид (15–20 ссылок). На главной блок стоит
+            вне <main> отдельно, поэтому сюда его не ставим. */}
+        {showGuide && (
+          <div className="mt-10">
+            <KamchatkaGuide variant="compact" />
+          </div>
+        )}
 
         {/* Статус платформы — решение владельца 05.10: информационная система,
             оплату не принимает (lib/payments/accepting). */}

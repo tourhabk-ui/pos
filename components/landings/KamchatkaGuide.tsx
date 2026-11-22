@@ -1,11 +1,14 @@
 /**
  * Блок «Гид по Камчатке» (Сыщик, 22.11): ссылки на тематические посадочные
- * из единого реестра lib/landings/landings (guideLandings). Полный вид —
- * на главной и в /articles; компактный — в подвале. «Читайте также» —
- * на самих посадочных, 3–5 соседних страниц из текста и реестра.
+ * из lib/landings/landings (featuredGuideLandings, 15–20 ссылок). Полный
+ * вид — вне <main> на главной (подвал главной скрыт на телефоне, issue #43);
+ * компактный — в подвале остальных страниц. Полный указатель (index) —
+ * на хабах /articles и /kogda-ehat-na-kamchatku, чтобы все посадочные
+ * сохраняли входящие ссылки. «Читайте также» берёт полный реестр.
  */
 import Link from 'next/link';
 import {
+  featuredGuideLandings,
   guideAnchor,
   guideLandings,
   relatedLandings,
@@ -14,12 +17,12 @@ import {
 
 const LINK = 'text-sm text-[var(--text-secondary)] hover:text-[var(--accent)] transition-colors';
 
-export function KamchatkaGuide({ variant }: { variant: 'full' | 'compact' }) {
-  const items = guideLandings();
+export function KamchatkaGuide({ variant }: { variant: 'full' | 'compact' | 'index' }) {
+  const items = variant === 'index' ? guideLandings() : featuredGuideLandings();
   if (variant === 'compact') {
     return (
       <nav aria-label="Гид по Камчатке" data-kamchatka-guide="compact">
-        <p className="text-[10px] font-semibold uppercase tracking-widest text-[var(--text-muted)] mb-3">
+        <p className="text-xs font-semibold uppercase tracking-widest text-[var(--text-muted)] mb-3">
           Гид по Камчатке
         </p>
         <ul className="flex flex-wrap gap-x-3 gap-y-1.5">
@@ -36,18 +39,17 @@ export function KamchatkaGuide({ variant }: { variant: 'full' | 'compact' }) {
   }
 
   return (
-    <section
+    <nav
       className="border-t border-[var(--border)] pt-10"
-      aria-labelledby="kamchatka-guide-heading"
-      data-kamchatka-guide="full"
+      aria-label="Гид по Камчатке"
+      data-kamchatka-guide={variant}
     >
-      <h2
-        id="kamchatka-guide-heading"
+      <p
         className="ds-h2 mb-5"
         style={{ fontFamily: 'var(--font-playfair)' }}
       >
         Гид по Камчатке
-      </h2>
+      </p>
       <ul className="columns-2 md:columns-3 gap-x-8 [&>li]:mb-2 [&>li]:break-inside-avoid">
         {items.map((l) => (
           <li key={l.path}>
@@ -57,7 +59,7 @@ export function KamchatkaGuide({ variant }: { variant: 'full' | 'compact' }) {
           </li>
         ))}
       </ul>
-    </section>
+    </nav>
   );
 }
 
