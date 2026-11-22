@@ -26,6 +26,7 @@ import { POST as validate } from '@/app/api/planner/validate/route';
 import { POST as tripExtras } from '@/app/api/planner/trip-extras/route';
 import { POST as companion } from '@/app/api/planner/companion/route';
 import { GET as dayOptions } from '@/app/api/planner/day-options/route';
+import { POST as editPhrase } from '@/app/api/planner/edit-phrase/route';
 import { isPublicApiPath } from '@/lib/auth/public-api-routes';
 import { PLANNER_LOGIN_REQUIRED, PLANNER_SESSION_UNCHECKED } from '@/lib/planner/require-session';
 
@@ -38,6 +39,7 @@ const DOORS: Array<{ path: string; method: 'GET' | 'POST'; handler: Handler; bod
   { path: '/api/planner/validate', method: 'POST', handler: validate, body: { days: [] } },
   { path: '/api/planner/trip-extras', method: 'POST', handler: tripExtras, body: { needs: { lodging: true }, days: [] } },
   { path: '/api/planner/day-options', method: 'GET', handler: dayOptions, query: '?mode=same&activity_type=helicopter&zone=avachinsky&date=2026-11-26&participants=2' },
+  { path: '/api/planner/edit-phrase', method: 'POST', handler: editPhrase, body: { phrase: 'без рыбалки', params: {}, days: [] } },
 ];
 
 let ip = 0;
