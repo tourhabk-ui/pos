@@ -1967,6 +1967,11 @@ async function generateDayPlans(
       if (bundle && realTour && span + legDays > tourRoom({ blockDays: block.activeDays, used, tripDays, departureDays: departureDays + backReserve, dayNum })) {
         farTourLines.set(realTour.tourId, farBundleNoRoomLine(realTour.title, bundle, span + legDays));
         missFor(interest, farDayTourReason(realTour.title, bundle));
+        // Не «дней не осталось» навсегда: блоки дальше могут не состояться
+        // (прод 22.11, лето: ID5 снят, а дни 4–5 и 7–11 остались без тура) —
+        // связка ждёт хвоста, как тур без выезда в днях блока. Встанет —
+        // строка отказа снимается (placedTours).
+        waitingTours.push({ tour: realTour, interest, zone: block.zone });
         m.tours.splice(m.tours.indexOf(realTour), 1);
         continue;
       }
@@ -2449,6 +2454,9 @@ async function generateDayPlans(
   const named = new Set<string>();
   for (const w of waitingTours) {
     if (placedTours.has(w.tour.tourId) || named.has(w.tour.tourId)) continue;
+    // Связка далёкого тура названа своей строкой (farTours) — «нет выезда»
+    // о ней было бы догадкой: выезд может быть, не нашлось трёх дней подряд.
+    if (farBundle.has(w.tour.tourId)) continue;
     named.add(w.tour.tourId);
     const info = tourDates.get(w.tour.tourId);
     offDays.push({ title: w.tour.title, dates: info?.kind === 'dated' ? [...info.dates] : [] });

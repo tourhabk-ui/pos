@@ -179,6 +179,23 @@ describe('аудит дорог 22.11: однодневный тур дальш�
     expect(rec.warnings.map((w) => w.message).join('\n')).toMatch(/нужна связка из 3 дней|однодневный тур, а до его места/);
   });
 
+  it('прод 22.11, лето (ID5): блок короток, а дальние зоны без туров отпали — связка встаёт хвостом, без «дней не осталось»', async () => {
+    const V1: Tour = { tourId: 't-v1', title: 'Вулкан один', zone: 'avachinsky', activityType: 'volcanoes', lat: 53.25, lng: 158.8 };
+    const V2: Tour = { tourId: 't-v2', title: 'Вулкан два', zone: 'avachinsky', activityType: 'volcanoes', lat: 53.26, lng: 158.8 };
+    KEEPS = { 't-fish36': false, 't-v1': false, 't-v2': false };
+    ON_REQUEST = new Set(['fishing', 'volcanoes']);
+    TOURS = { 'avachinsky:fishing': [FISH_FAR], 'avachinsky:volcanoes': [V1, V2] };
+    const rec = await recommendTrip({ ...WINTER, interests: ['volcanoes', 'fishing', 'geysers', 'bears'],
+      arrivalDate: `${NEXT}-07-10`, departureDate: `${NEXT}-07-17` });
+    const text = rec.warnings.map((w) => w.message).join('\n');
+    const placed = rec.days.some((d) => d.realTour?.tourId === 't-fish36');
+    // До правки (прод 22.11): тур снимался с «дней не осталось», дни оставались пустыми.
+    expect(placed).toBe(true);
+    expect(text).toContain('стоит связкой из трёх дней');
+    expect(text).not.toContain('нужна связка из 3 дней');
+    expect(text).not.toContain('дней не осталось');
+  });
+
   it('далёкий тур вне сезона поездки строкой не называется (прод 22.11: «Летняя рыбалка на кижуча» в ноябре)', async () => {
     const SUMMER_FAR: Tour = { ...FISH_FAR, tourId: 't-fish-summer', title: 'Летняя рыбалка на кижуча',
       seasonStart: `${NEXT}-07-20`, seasonEnd: `${NEXT}-09-30` };
