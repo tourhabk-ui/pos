@@ -2674,6 +2674,28 @@ ${warningsSummary ? `Предупреждения:\n${warningsSummary}` : ''}
 - Не нумеруй дни, пиши связным текстом`;
 }
 
+/**
+ * «Подробная программа» — текст модели по готовому плану. С 23.11 (фича 7)
+ * веб-планер зовёт его по кнопке (/api/planner/itinerary), а не на каждую
+ * сборку: план показывается сразу. Нет ответа — `null`, отказ назван в логе.
+ */
+export async function aiItineraryText(
+  profile: TripProfile, zones: ZoneRecommendation[], days: DayPlan[], warnings: TripWarning[],
+): Promise<string | null> {
+  try {
+    const messages: ChatMessage[] = [
+      { role: 'system', content: 'Ты ассистент по туристическому планированию Камчатки.' },
+      { role: 'user', content: buildAIPrompt(profile, zones, days, warnings) },
+    ];
+    const aiResponse = await callAIWithModelDirect(messages, getModelForAgent('planner'));
+    return aiResponse?.trim() ? aiResponse : null;
+  } catch (err) {
+    // Запасной текст уже стоит; отказ модели называется в логе (§4.0).
+    console.error('[planner] AI-маршрут не получен:', err instanceof Error ? err.message : String(err));
+    return null;
+  }
+}
+
 // ─── Main export ─────────────────────────────────────────────────────────────
 
 /**
@@ -3284,18 +3306,8 @@ export async function recommendTrip(profile: TripProfile, opts: RecommendTripOpt
   let itinerary = `Маршрут на ${tripDays} дней по Камчатке: ${zones.map(z => ZONE_NAMES[z.zone]).join(', ')}.`;
 
   if (opts.itinerary !== 'plain') {
-    try {
-      const aiPrompt = buildAIPrompt(profile, zones, days, warnings);
-      const messages: ChatMessage[] = [
-        { role: 'system', content: 'Ты ассистент по туристическому планированию Камчатки.' },
-        { role: 'user', content: aiPrompt },
-      ];
-      const aiResponse = await callAIWithModelDirect(messages, getModelForAgent('planner'));
-      if (aiResponse?.trim()) itinerary = aiResponse;
-    } catch (err) {
-      // Запасной текст уже стоит; отказ модели называется в логе (§4.0).
-      console.error('[planner] AI-маршрут не получен:', err instanceof Error ? err.message : String(err));
-    }
+    const aiResponse = await aiItineraryText(profile, zones, days, warnings);
+    if (aiResponse) itinerary = aiResponse;
   }
   mark('ai_itinerary');
   itinerary = mchs.ok
