@@ -154,7 +154,9 @@ export const MANUAL_ENDPOINTS: Record<string, SchedulerDeclaration> = {
   // с вулканом бывает парковка.
   'images-oversize':           { kind: 'manual', writes: false, note: 'перепись тяжёлых снимков: раскладка по весу и по происхождению. Только чтение — удаление по весу убрано ответом самой переписи: за порогом оказались настоящие фотографии, а вес лежит в генерации' },
   // 'images-recompress', 'images-generated', 'images-to-s3' и 'hero-web-variant'
-  // объявлений здесь не несут: их зовёт images-repack.yml по маркеру — объявление было бы
+  // объявлений здесь не несут: их зовёт images-repack.yml по маркеру, а
+  // 'images-to-s3' и копии под карточку ('hero-web-variant', scope thumb, с
+  // 22.11) — ещё и ночной cron-images-to-s3.yml. Объявление было бы
   // вторым ответом на тот же вопрос (тот же довод, что у 'tochka-check' и
   // 'ai-channel-check'). Переезд в хранилище был объявлен ручным до 18.09,
   // пока звать его действительно было нечем; в тот день владелец решил
