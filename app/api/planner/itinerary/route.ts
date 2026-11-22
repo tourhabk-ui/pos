@@ -32,7 +32,7 @@ const Body = z.object({
   zones: z.array(z.object({ zone: ZONE, score: z.number().min(0).max(100) })).max(5),
   days: z.array(z.object({
     day: z.number().int().min(1).max(60),
-    type: z.string().max(20),
+    type: z.enum(['arrival', 'activity', 'travel', 'rest', 'buffer', 'departure']),
     title: z.string().max(200),
     zone: ZONE,
     realTour: z.object({ operatorName: z.string().max(120), priceUnit: z.string().max(40).optional() }).optional(),

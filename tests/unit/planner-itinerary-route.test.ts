@@ -70,4 +70,14 @@ describe('itinerary', () => {
     expect(warnings).toEqual([body.warnings[0]]);
     expect((days as Array<{ title: string }>)[0].title).toBe('День 1');
   });
+  it('тип дня — только из списка движка; слова вроде «сердечно-сосудистые», «инсульт» ловятся (ревью #3743, заход 3)', async () => {
+    const r = await call({ ...body, days: [{ ...body.days[0], type: 'астма' }] });
+    expect(r.status).toBe(400);
+    expect(ai).not.toHaveBeenCalled();
+    ai.mockResolvedValueOnce('ok');
+    await call({ ...body, days: [{ ...body.days[0], realTour: { operatorName: 'Оператор', priceUnit: 'после инсульта' } }],
+      warnings: [{ type: 'season', severity: 'important', message: 'при сердечно-сосудистых заболеваниях' }] });
+    const all = JSON.stringify(ai.mock.calls[0].slice(2));
+    expect(all).not.toMatch(/инсульт|сердечн|заболев/i);
+  });
 });
