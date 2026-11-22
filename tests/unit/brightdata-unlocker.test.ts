@@ -100,7 +100,7 @@ describe('KVERT зовёт Unlocker строго как фолбэк', () => {
   });
   it('путь получения данных фиксируется (direct/brightdata)', () => {
     expect(sync).toMatch(/via = 'brightdata'/);
-    expect(sync).toMatch(/unmatched: \[\], via,/);
+    expect(sync).toMatch(/unmatched: \[\], via \}/);
   });
 });
 
