@@ -55,7 +55,8 @@ describe('где подвал', () => {
     };
     walk(join(ROOT, 'app'));
     walk(join(ROOT, 'components'));
-    expect(users.sort()).toEqual(['app/catalog/(list)/page.tsx', 'app/catalog/tours/[id]/_TourDetailClient.tsx', 'app/layout.tsx', 'app/page.tsx', 'components/marketplace/CatalogFooter.tsx'].sort());
-    expect([...OWN_FOOTER_PATHS].sort()).toEqual(['/', '/catalog', '/catalog/tours/[id]']);
+    expect(users.sort()).toEqual(['app/catalog/(list)/page.tsx', 'app/catalog/tours/[id]/_TourDetailClient.tsx', 'app/layout.tsx', 'app/page.tsx', 'app/planner/page.tsx', 'components/marketplace/CatalogFooter.tsx'].sort());
+    // /planner (22.11): подвал ставит экран входа сам, полноэкранный планер — без подвала.
+    expect([...OWN_FOOTER_PATHS].sort()).toEqual(['/', '/catalog', '/catalog/tours/[id]', '/planner'].sort());
   });
 });

@@ -8,7 +8,7 @@ import Link from 'next/link';
 import { Map, LogIn, UserPlus, RefreshCw, MessageCircle, Compass } from 'lucide-react';
 import { plannerLoginHref, PLANNER_PATH, type PlannerGate } from '@/lib/planner/login-gate';
 import { kuzmichAskHref } from '@/lib/kuzmich/ask-link';
-import { PLANNER_NAME, PLANNING_MENU } from '@/lib/navigation/tool-names';
+import { PLANNER_NAME, PLANNING_MENU, PLANS_MENU } from '@/lib/navigation/tool-names';
 
 /**
  * Без входа — не тупик (21.11, разбор уходов: на экране входа визит
@@ -66,6 +66,9 @@ export function PlannerLoginGate({ gate }: { gate: PlannerGate }) {
               </Link>
               <Link href="/routes" className="ds-btn ds-btn-secondary inline-flex items-center gap-2">
                 <Map className="w-4 h-4" aria-hidden="true" />Маршруты
+              </Link>
+              <Link href="/plans" className="ds-btn ds-btn-secondary inline-flex items-center gap-2">
+                <Compass className="w-4 h-4" aria-hidden="true" />{PLANS_MENU}
               </Link>
             </div>
             <p className="text-xs text-[var(--text-muted)]">План из чата в личном кабинете не сохраняется.</p>

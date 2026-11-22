@@ -17,7 +17,7 @@ import { JsonLd } from '@/components/seo/JsonLd';
 import { PLAN_PRESETS, plansHubLastModified } from '@/lib/plans/presets';
 import { buildPlansFaq } from '@/lib/plans/faq';
 import { defaultOgImages } from '@/lib/seo/og-image';
-import { PLANS_NAME } from '@/lib/navigation/tool-names';
+import { PARTNERS_MENU, PLANNING_MENU, PLANS_NAME } from '@/lib/navigation/tool-names';
 
 const SITE = process.env.NEXT_PUBLIC_SITE_URL ?? 'https://vedarai.ru';
 
@@ -133,6 +133,10 @@ export default function PlansHubPage() {
             <Link href="/planner" className="ds-btn ds-btn-primary inline-flex px-6 py-3">
               Открыть планировщик
             </Link>
+            <p className="text-sm" style={{ color: 'var(--text-secondary)' }}>
+              Идёте в поход сами — <Link href="/planning" className="underline" style={{ color: 'var(--ocean)' }}>{PLANNING_MENU.toLowerCase()}</Link>: чек-лист и карта без интернета.
+              Билеты до Петропавловска и отели — <Link href="/partners" className="underline" style={{ color: 'var(--ocean)' }}>{PARTNERS_MENU.toLowerCase()}</Link>.
+            </p>
           </section>
         </div>
       </main>

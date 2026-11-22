@@ -3,6 +3,7 @@ import { Suspense } from 'react';
 import { cookies } from 'next/headers';
 import { verifySessionToken } from '@/lib/auth/jwt';
 import { Header } from '@/components/layout/Header';
+import { Footer } from '@/components/layout/Footer';
 import { PlannerClient } from './_PlannerClient';
 import { PlannerLoginGate } from '@/components/planner/PlannerLoginGate';
 import { PLANNER_NAME } from '@/lib/navigation/tool-names';
@@ -36,7 +37,12 @@ export default async function PlannerPage() {
           <PlannerClient initialUserId={session.payload.userId} />
         </Suspense>
       ) : (
-        <PlannerLoginGate gate={session?.status === 'unchecked' ? 'unchecked' : 'sign_in'} />
+        <>
+          <PlannerLoginGate gate={session?.status === 'unchecked' ? 'unchecked' : 'sign_in'} />
+          {/* Подвал — в серверном HTML (Сыщик 22.11): общий подвал layout на
+              /planner не ставится, полноэкранному планеру он мешает. */}
+          <Footer />
+        </>
       )}
     </>
   );

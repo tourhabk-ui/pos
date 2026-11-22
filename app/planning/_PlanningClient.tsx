@@ -5691,7 +5691,7 @@ function PlanningTab({ onStartTrail, intro }: { onStartTrail?: (routeId: string)
   const doneCount = effectiveChecklist.filter(i => i.done).length;
 
   return (
-    <div className="max-w-2xl mx-auto px-4 py-6 pb-32 space-y-6">
+    <main className="max-w-2xl mx-auto px-4 py-6 pb-32 space-y-6">
       {intro}
       {/* Kuzmich recommendation banner */}
       <div className="rounded-lg overflow-hidden"
@@ -5957,7 +5957,7 @@ function PlanningTab({ onStartTrail, intro }: { onStartTrail?: (routeId: string)
           label="112"
         />
       </div>
-    </div>
+    </main>
   );
 }
 
