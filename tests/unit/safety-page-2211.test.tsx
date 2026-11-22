@@ -91,9 +91,9 @@ describe('текст /safety', () => {
     expect(page).not.toMatch(/['"]use client['"]/);
     expect(readFileSync('components/faq/FaqSection.tsx', 'utf8')).not.toMatch(/['"]use client['"]/);
     expect(pageBody.indexOf('<SafetyIntro')).toBeGreaterThan(0);
-    expect(pageBody.indexOf('<SafetyAbout')).toBeGreaterThan(pageBody.indexOf('<SafetyIntro'));
-    expect(pageBody.indexOf('<SafetyLiveIntro')).toBeGreaterThan(pageBody.indexOf('<SafetyAbout'));
+    expect(pageBody.indexOf('<SafetyLiveIntro')).toBeGreaterThan(pageBody.indexOf('<SafetyIntro'));
     expect(pageBody.indexOf('<SafetyLive ')).toBeGreaterThan(pageBody.indexOf('<SafetyLiveIntro'));
+    expect(pageBody.indexOf('<SafetyAbout')).toBeGreaterThan(pageBody.indexOf('<SafetyLive '));
   });
 
   it('видимый текст длиннее 400 слов и опирается на официальные источники', () => {
@@ -116,8 +116,8 @@ describe('рендер без JS: H1, FAQ и ссылки в серверном 
   const html = renderToStaticMarkup(
     <>
       <SafetyIntro />
-      <SafetyAbout />
       <SafetyLiveIntro />
+      <SafetyAbout />
     </>,
   );
 
@@ -132,6 +132,12 @@ describe('рендер без JS: H1, FAQ и ссылки в серверном 
     expect(html).toContain(SAFETY_LIVE_HEADING);
     expect(html).toContain('id="radar"');
     expect(html).toContain(SAFETY_FAQ_HEADING);
+    const leadAt = html.indexOf('Ехать на Камчатку можно');
+    const radarAt = html.indexOf('id="radar"');
+    const firstArticleH2 = html.indexOf(SAFETY_SECTIONS[0].heading);
+    expect(leadAt).toBeGreaterThan(0);
+    expect(radarAt).toBeGreaterThan(leadAt);
+    expect(firstArticleH2).toBeGreaterThan(radarAt);
   });
 
   it('FAQ и ссылки видны в том же HTML, разметка FAQPage совпадает с текстом', () => {
@@ -156,11 +162,21 @@ describe('рендер без JS: H1, FAQ и ссылки в серверном 
     expect(client).not.toMatch(/<h1\b/);
     expect(pageBody).not.toMatch(/<h1\b/);
     expect(loading).toMatch(/SafetyIntro/);
+    expect(loading).toMatch(/SafetyLiveIntro/);
     expect(loading).toMatch(/Загрузка обстановки/);
   });
 });
 
 describe('FAQ и JSON-LD', () => {
+  it('ссылки на живую сводку в статье и FAQ говорят «выше»', () => {
+    const volcano = SAFETY_SECTIONS.find((s) => s.id === 'volcanoes' || /вулкан/i.test(s.heading));
+    const weather = SAFETY_SECTIONS.find((s) => s.id === 'weather' || /погод/i.test(s.heading));
+    expect(volcano?.paragraphs.join(' ')).toMatch(/живой сводкой выше на этой странице/);
+    expect(weather?.paragraphs.join(' ')).toMatch(/блоке обстановки выше/);
+    expect(SAFETY_FAQ.some((f) => /Живая сводка также стоит выше на этой странице/.test(f.answer))).toBe(true);
+    expect(safetyVisibleText()).not.toMatch(/сводк\w* ниже на этой странице|блоке обстановки ниже/);
+  });
+
   it('5–7 вопросов из того же массива, что рендер', () => {
     expect(SAFETY_FAQ.length).toBeGreaterThanOrEqual(5);
     expect(SAFETY_FAQ.length).toBeLessThanOrEqual(7);

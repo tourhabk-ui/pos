@@ -8,8 +8,11 @@
 import { rentalPauseForTourist, rentalSitePauseActive } from '@/lib/rental/site-pause';
 import { MCHS_CHAT_BUTTON } from '@/lib/safety/mchs-chat';
 import { MY_TRIP_BUTTON } from '@/lib/requests/my-trip-ask';
+import { WIZARD_BUTTON } from '@/lib/chat/trip-wizard';
 
 export const TOURIST_BUTTONS = [
+  // «Спланировать поездку» (22.11): план по дням кнопками, без модели — lib/chat/trip-wizard.
+  WIZARD_BUTTON,
   'Подобрать тур',
   'Погода',
   'Аренда авто',
@@ -33,6 +36,7 @@ export function touristReplyMarkup(myTrip = false): {
   return {
     keyboard: [
       ...(myTrip ? [[{ text: MY_TRIP_BUTTON }]] : []),
+      [{ text: WIZARD_BUTTON }],
       [{ text: 'Подобрать тур' }, { text: 'Погода' }],
       [{ text: 'Аренда авто' }, { text: 'Операторы' }],
       [{ text: MCHS_CHAT_BUTTON }, { text: 'Задать вопрос' }],

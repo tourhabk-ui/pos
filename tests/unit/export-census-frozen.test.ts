@@ -76,9 +76,12 @@ const SCRIPT = join(process.cwd(), 'scripts', 'export-census.ts');
  *   (buildDayPlaceCards в usePlannerDayCards); экрана бота ещё нет — уйдёт
  *   из сирот, когда он появится. Причина записана и рядом с функцией.
  *
+ * 22.11 (−1, до 7): dayPlaceCardsOnServer зовёт мастер «Спланировать
+ *   поездку» ботов (lib/chat/trip-wizard-run).
+ *
  * Потолок — не цель: уменьшать можно и нужно.
  */
-const ORPHAN_CEILING = 8;
+const ORPHAN_CEILING = 7;
 
 describe('перепись экспортов: число сирот заморожено', () => {
   it(`сирот не больше ${ORPHAN_CEILING}`, () => {
