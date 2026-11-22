@@ -54,6 +54,17 @@ export const TripDayPlanSchema = z.object({
   dayWarnings: z.array(z.string().max(2000)).max(50).optional(),
   /** Самостоятельный день — карточка места /places/… (тест 21.11). Чужие ссылки не храним. */
   placeHref: z.string().max(300).regex(/^(https:\/\/[^/\s]+)?\/places\/[^\s]+$/).optional(),
+  /**
+   * День дороги к месту далёкого тура или обратно (этап 3 аудита дорог,
+   * 22.11): без поля сохранённая поездка искала бы на ночь у места жильё в городе.
+   */
+  roadLeg: z.object({
+    tourId: z.string().max(64),
+    direction: z.enum(['to', 'back']),
+    km: z.number().min(0).max(5000),
+    hours: z.number().min(0).max(200),
+    nightOnSite: z.literal('tour'),
+  }).optional(),
 });
 
 /**
