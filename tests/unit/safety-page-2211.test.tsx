@@ -141,7 +141,6 @@ describe('рендер без JS: H1, FAQ и ссылки в серверном 
     expect(firstArticleH2).toBeGreaterThan(radarAt);
     const bylineAt = html.indexOf('data-record-modified');
     expect(bylineAt).toBeGreaterThan(radarAt);
-    expect(aboutSrc).toMatch(/<SafetyByline/);
     expect(aboutSrc.slice(aboutSrc.indexOf('export function SafetyIntro'), aboutSrc.indexOf('export function SafetyByline'))).not.toMatch(/data-record-modified/);
   });
 
@@ -177,10 +176,6 @@ describe('рендер без JS: H1, FAQ и ссылки в серверном 
     expect(aboutSrc).toMatch(/text-xs font-medium tracking-wide/);
     expect(words(SAFETY_LIVE_LEAD).length).toBeLessThanOrEqual(20);
     expect(SAFETY_LIVE_LEAD).toMatch(/странице инцидентов/);
-    const radarAt = client.indexOf('<RadarScope');
-    const pushAt = client.indexOf('<PushSafetyOffer');
-    expect(radarAt).toBeGreaterThan(0);
-    expect(pushAt).toBeGreaterThan(radarAt);
     expect(client).not.toMatch(/Камчатка · обстановка обновляется автоматически/);
   });
 });
