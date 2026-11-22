@@ -19,7 +19,7 @@
 
 import { pool } from '@/lib/db-pool';
 import { parseVonaFeed, parseAccSummary, parseActivitySections, normalizeVolcanoName, latestVonaNumber, type AccColor, type ParsedVona } from '@/lib/services/safety/kvert-vona';
-import { buildKvertColorAlert } from '@/lib/services/safety/kvert-color-alerts';
+import { buildKvertColorAlert, isAccColor } from '@/lib/services/safety/kvert-color-alerts';
 import { saveEvent } from '@/lib/services/safety/seismic-parser';
 import { describeActivityRu, describeVonaRu } from '@/lib/services/safety/kvert-activity-ru';
 import { brightDataFetch, brightDataAvailable } from '@/lib/services/ingest/brightdata-unlocker';
@@ -312,7 +312,7 @@ async function loadAviationColors(): Promise<Map<string, AccColor>> {
   const map = new Map<string, AccColor>();
   for (const r of rows) {
     const c = r.aviation_color_code;
-    if (c === 'green' || c === 'yellow' || c === 'orange' || c === 'red' || c === 'unassigned') {
+    if (isAccColor(c)) {
       map.set(r.name_normalized, c);
     }
   }
@@ -382,7 +382,7 @@ export async function syncKvertAcc(): Promise<KvertSyncResult> {
   }
 
   if (!text) throw new Error('KVERT недоступен: прямой fetch и Unlocker не дали ответа');
-  const result: KvertSyncResult = { fetched: parsed.length, upserted: 0, matched: 0, unmatched: [], via, alerts_inserted: 0 };
+  const result: KvertSyncResult = { fetched: parsed.length, upserted: 0, matched: 0, alerts_inserted: 0, unmatched: [], via };
 
   // Бюллетени между сводками. Отказ ленты не роняет синк: сводка всё равно
   // пишется, а отказ назван в ответе и в логе — не выдан за «бюллетеней нет».
