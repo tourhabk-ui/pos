@@ -4,6 +4,7 @@ import {
   parkHeading, placeHeading, collectionHeading, PLACE_CANONICAL_PARENT, PLACE_NOINDEX, placeInSitemap,
 } from '@/lib/seo/h1-templates';
 import { CHRONICLE_ARTICLES } from '@/lib/chronicle/articles';
+import { priceWithUnitWords } from '@/lib/tours/price-label';
 
 // Спецификация Сыщика 21.11: дубли H1 закрываются шаблонами из полей записи.
 const route = { distanceKm: null, elevationGainM: null, durationHours: null, durationDays: null, difficulty: null };
@@ -30,10 +31,28 @@ describe('T3: тур', () => {
     expect(tourHeadingTail('  ')).toBeNull();
   });
   it('хвосты title — только заполненные поля', () => {
-    const t = tourTitleTails({ duration: '8 ч', basePrice: '12000', operatorName: 'Оператор' });
-    expect(t[0]).toBe(': тур 8 ч, от 12 000 ₽, Оператор');
-    expect(tourTitleTails({ duration: null, basePrice: null, operatorName: 'Оператор' })).toEqual([': тур Оператор']);
-    expect(tourTitleTails({ duration: null, basePrice: '0', operatorName: null })).toEqual([]);
+    const t = tourTitleTails({ duration: '8 ч', basePrice: '12000', priceUnit: 'per_person', operatorName: 'Оператор' });
+    expect(t[0]).toBe(`: тур 8 ч, ${priceWithUnitWords('12000', 'per_person')}, Оператор`);
+    expect(tourTitleTails({ duration: null, basePrice: null, priceUnit: 'per_person', operatorName: 'Оператор' })).toEqual([': тур Оператор']);
+    expect(tourTitleTails({ duration: null, basePrice: '0', priceUnit: 'per_person', operatorName: null })).toEqual([]);
+  });
+
+  // Сверка 21.11 (#3487): «Первый рассвет» — «от 11 000 ₽» в title при одной
+  // цене «11 000 ₽ за человека» на карточке. У тура одна цена: «от» в
+  // заголовке — слово шаблона, а не оператора.
+  it('цена в title — та же строка, что на карточке: без «от», с единицей', () => {
+    const tails = tourTitleTails({ duration: '5 ч', basePrice: '11000', priceUnit: 'per_person', operatorName: 'Лагуна Экспедиция' });
+    expect(tails.every((x) => !/(^|[\s,])от\s/.test(x))).toBe(true);
+    expect(tails).toContain(`: тур 5 ч, ${priceWithUnitWords('11000', 'per_person')}, Лагуна Экспедиция`);
+    expect(tourTitleTails({ duration: null, basePrice: '48000', priceUnit: 'per_tour', operatorName: null }))
+      .toEqual([`: тур ${priceWithUnitWords('48000', 'per_tour')}`]);
+    expect(priceWithUnitWords('48000', 'per_tour')).toMatch(/^48\s000 ₽ за группу$/);
+  });
+
+  it('единица не записана — цены в title нет (голая сумма читалась бы как с человека)', () => {
+    const tails = tourTitleTails({ duration: '5 ч', basePrice: '11000', priceUnit: null, operatorName: 'Оператор' });
+    expect(tails.some((x) => x.includes('₽'))).toBe(false);
+    expect(tails[0]).toBe(': тур 5 ч, Оператор');
   });
 });
 
