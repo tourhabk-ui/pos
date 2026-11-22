@@ -16,6 +16,7 @@ import {
 } from 'lucide-react';
 import DaySummaryStrip from './_DaySummary';
 import AdminMessengers from './_AdminMessengers';
+import { formatRuPercent } from '@/lib/format/ru-percent';
 
 /* ═══════════════════════════════════════════
    Types
@@ -89,7 +90,7 @@ function plural(n: number, one: string, few: string, many: string) {
 
 function Trend({ change, trend }: { change: number; trend: string }) {
   if (trend === 'neutral' || change === 0) {
-    return <span className="text-[11px] text-[var(--text-muted)] tabular-nums">0.0%</span>;
+    return <span className="text-[11px] text-[var(--text-muted)] tabular-nums">{formatRuPercent(0)}</span>;
   }
   const up = trend === 'up';
   return (
@@ -97,7 +98,7 @@ function Trend({ change, trend }: { change: number; trend: string }) {
       up ? 'text-[var(--success)]' : 'text-[var(--danger)]'
     }`}>
       {up ? <TrendingUp className="w-3.5 h-3.5" /> : <TrendingDown className="w-3.5 h-3.5" />}
-      {Math.abs(change).toFixed(1)}%
+      {formatRuPercent(Math.abs(change))}
     </span>
   );
 }
@@ -133,7 +134,7 @@ const KPI_DEFS: KpiDef[] = [
   },
   {
     key: 'conversionRate', href: '/hub/admin/analytics', label: 'Конверсия', icon: Percent,
-    format: (v) => v.toFixed(1), suffix: '%',
+    format: (v) => formatRuPercent(v),
   },
   {
     key: 'pwaInstalls', href: '/hub/admin/analytics', label: 'Установки PWA', icon: Smartphone,
