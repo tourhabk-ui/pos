@@ -54,6 +54,12 @@ export function routeDifficultySql(a: string): string {
                    ${a}.payload->>'difficulty')`;
 }
 
+/** Число из базы — только положительное: 0 и мусор у дистанции — «не записано», а не «0 км». */
+function positiveOrNull(v: unknown): number | null {
+  const n = typeof v === 'number' ? v : typeof v === 'string' ? Number(v) : NaN;
+  return Number.isFinite(n) && n > 0 ? n : null;
+}
+
 /** Определение опасностей на основе данных точки/маршрута. */
 function resolveHazards(row: Record<string, unknown>): string[] {
   const hazards: string[] = [];
@@ -208,6 +214,14 @@ export interface CatalogItem {
   season: string | null;
   difficulty: string | null;
   durationDays: number | null;
+  /**
+   * Цифры маршрута для карточки каталога (22.11) — из kamchatka_routes, как
+   * на карточке маршрута. null — не записано: карточка цифру не выдумывает.
+   */
+  distanceKm: number | null;
+  distanceNote: string | null;
+  elevationGainM: number | null;
+  durationHours: number | null;
   bestMonths: number[] | null;
   /**
    * Линия/полигон из payload — только ФОРМА (type + coordinates). Стиль
@@ -513,6 +527,10 @@ export async function queryCatalog(filters: CatalogFilters): Promise<CatalogResu
          -- Строка маршрута ищется по обоим id: id VIEW = COALESCE(ark_id, id).
          (krl.geometry IS NOT NULL)  AS has_line,
          krl.geometry->>'source'     AS geometry_source,
+         krl.distance_km             AS route_distance_km,
+         krl.distance_note           AS route_distance_note,
+         krl.elevation_gain_m        AS route_elevation_gain_m,
+         krl.duration_hours          AS route_duration_hours,
          (krl.id IS NOT NULL AND EXISTS (
             SELECT 1 FROM route_waypoints rww WHERE rww.route_id = krl.id
          )) AS has_route_waypoints,
@@ -596,6 +614,10 @@ export async function queryCatalog(filters: CatalogFilters): Promise<CatalogResu
       season:      (r.season as string | null) ?? null,
       difficulty:   difficultyCode(r.difficulty),
       durationDays: r.duration_days != null ? Number(r.duration_days) : null,
+      distanceKm:     positiveOrNull(r.route_distance_km),
+      distanceNote:   (r.route_distance_note as string | null) ?? null,
+      elevationGainM: positiveOrNull(r.route_elevation_gain_m),
+      durationHours:  positiveOrNull(r.route_duration_hours),
       bestMonths:   (r.best_months as number[] | null) ?? null,
       // Стиль (color/weight) из payload намеренно НЕ пробрасывается: вид линии
       // назначает стандарт §12 (lib/map/line-standard) на экране, а не данные.

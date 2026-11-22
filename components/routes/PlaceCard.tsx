@@ -1,33 +1,34 @@
 'use client';
 
-import { isImeKeyEvent } from '@/lib/ui/ime';
-import { useState, useCallback, useEffect, useMemo, useRef } from 'react';
+import { useMemo } from 'react';
 import Link from 'next/link';
 import { catalogHref } from '@/lib/routes/url-slug';
 import { useWishlist, wishlistLabel, WISHLIST_LOCAL_ONLY_HINT } from '@/hooks/use-wishlist';
 import {
   Heart, MapPin, Flame, Wind, Thermometer, Droplets,
-  Mountain, Waves, Anchor, TreePine, Landmark, Eye, Home, Ticket, ChevronRight,
+  Mountain, Waves, Anchor, TreePine, Landmark, Eye, Home, Ticket, ChevronRight, Navigation,
 } from 'lucide-react';
 import type { RouteItem } from './RouteCard';
 import { LOCATION_TYPE_LABELS } from '@/components/places/types';
 import { getElementForType, NEUTRAL_ELEMENT_COLOR } from '@/lib/stats/element-groups';
-import { horizonPath, closedHorizon, bearingDeg, distanceKm, rumb16, seasonRoman } from './place-horizons';
+import { distanceKm } from './place-horizons';
 import { useAnchor } from './useAnchor';
-import { nearestZoneKey, ZONES, type ZoneKey } from '@/lib/services/safety/zone-weather';
 import { placeToursHref, placeToursLine } from '@/lib/places/place-tours-line';
 import { PhotoCreditLink } from '@/components/media/PhotoCreditLink';
 
-// Концепт Ω «Живые окна» (утверждён владельцем): место — существительное,
-// без цен. Кромка фото — силуэт горизонта по типу места, под именем —
-// честный пеленг и дистанция от якоря (геолокация — только по тапу по
-// прибору). Цвета — канон стихий lib/stats/element-groups.
-//
-// Туры (слово владельца 20.11: «на карточки мест нужно добавить туры, если
-// они есть») — одной строкой «N туров к месту» внизу плитки, без цен и без
-// имён компаний: плитка называет факт и ведёт к блоку «Туры к этому месту»
-// на странице места, где туры стоят по правилу 1в. Туров нет или число не
-// прочиталось — строки нет.
+/*
+ * Карточка места в каталоге — как в каталогах туристических сервисов
+ * (22.11, слово владельца: «перемудрили, сделай по стандартам индустрии»).
+ * Пересматривает концепт «Живые окна»: погода зоны на каждой плитке (запрос
+ * из каждой карточки), пеленг с градусами моноширинным шрифтом 8–10 px,
+ * силуэт горизонта с бегущим свечением, медленный зум снимка, каскад
+ * появления и сезон римскими цифрами. Место — существительное, без цен:
+ * снимок, вид, название, сколько ехать, туры к месту. Погода и сезон — на
+ * странице места, где у них есть подпись и источник.
+ *
+ * Туры (слово владельца 20.11) — строкой «N туров к месту», без цен и имён
+ * компаний; туров нет или число не прочиталось — строки нет.
+ */
 
 const LOCATION_ICONS: Record<string, React.ElementType> = {
   volcano:    Flame,
@@ -49,331 +50,114 @@ const LOCATION_ICONS: Record<string, React.ElementType> = {
   other:      MapPin,
 };
 
-const MONO = "'JetBrains Mono', ui-monospace, monospace";
-
-// Каскад появления и чёт/нечет кен-бёрнса — из порядка монтирования
-let mountCounter = 0;
-
-// Погода зон — ОДИН запрос на всю сетку (модульный синглтон), сервер кэширует
-// 30 минут. Зоны без ответа честно отсутствуют — чип не показывается.
-interface ZoneWx { key: string; tempC: number; windKmh: number; gustKmh?: number | null; descRu: string }
-let wxPromise: Promise<Map<string, ZoneWx>> | null = null;
-function loadZonesWeather(): Promise<Map<string, ZoneWx>> {
-  wxPromise ??= fetch('/api/weather/zones')
-    .then((r) => (r.ok ? r.json() : { zones: [] }))
-    .then((d: { zones?: ZoneWx[] }) => new Map((d.zones ?? []).map((z) => [z.key, z])))
-    .catch(() => { wxPromise = null; return new Map<string, ZoneWx>(); });
-  return wxPromise;
-}
-
 export default function PlaceCard({ route, eager = false }: { route: RouteItem; eager?: boolean }) {
   const locType = route.locationType ?? 'other';
   const Icon    = LOCATION_ICONS[locType] ?? MapPin;
   const label   = LOCATION_TYPE_LABELS[locType] ?? 'Место';
-
-  const element  = getElementForType(locType);
-  const elColor  = element?.color ?? NEUTRAL_ELEMENT_COLOR;
-  const hzOpen   = horizonPath();
-  const hzClosed = closedHorizon(hzOpen);
-
-  const seq = useRef(-1);
-  if (seq.current < 0) seq.current = mountCounter++;
+  const element = getElementForType(locType);
+  const elColor = element?.color ?? NEUTRAL_ELEMENT_COLOR;
 
   const photoSrc = route.hasRealImage
     ? `/api/images/route/${route.id}`
     : (route.imageUrl ?? null);
 
-  // Прибор: пеленг и дистанция от якоря (ПК → по тапу — позиция телефона)
-  const { anchor, label: anchorLabel, requestGeo } = useAnchor();
-  const inst = useMemo(() => {
+  // Расстояние — от Петропавловска; если человек раньше разрешил геопозицию,
+  // useAnchor отдаёт её. Без пеленга и градусов: их читают в поле, не в каталоге.
+  const { anchor, label: anchorLabel } = useAnchor();
+  const km = useMemo(() => {
     if (route.lat == null || route.lng == null) return null;
-    const place = { lat: route.lat, lng: route.lng };
-    const brg = bearingDeg(anchor, place);
-    return { km: distanceKm(anchor, place), brg, rumb: rumb16(brg) };
+    return distanceKm(anchor, { lat: route.lat, lng: route.lng });
   }, [anchor, route.lat, route.lng]);
 
-  const season = seasonRoman(route.bestMonths);
   const placeHref = route.href ?? catalogHref(route, '/places');
   const toursLine = placeToursLine(route.placeTours);
-
-  // Живая погода ближайшей зоны (≤80 км) — окно в реальное место
-  // Избранное — общий хук: тело запроса, вход гостя и текст ошибки
-  // живут в одном месте (диалекты карточек ломали кнопку до 09.08).
   const fav = useWishlist('place', route.id);
-  const [wx, setWx] = useState<ZoneWx | null>(null);
-  useEffect(() => {
-    if (route.lat == null || route.lng == null) return;
-    const zoneKey = nearestZoneKey(route.lat, route.lng);
-    if (!zoneKey) return;
-    let alive = true;
-    loadZonesWeather().then((zones) => {
-      if (alive) setWx(zones.get(zoneKey) ?? null);
-    });
-    return () => { alive = false; };
-  }, [route.lat, route.lng]);
-
-  // Каскад появления
-  const [visible, setVisible] = useState(false);
-  const artRef = useRef<HTMLElement>(null);
-  useEffect(() => {
-    const el = artRef.current;
-    if (!el) return;
-    const io = new IntersectionObserver(([entry]) => {
-      if (entry.isIntersecting) { setVisible(true); io.disconnect(); }
-    }, { threshold: 0.12 });
-    io.observe(el);
-    return () => io.disconnect();
-  }, []);
-
-  const [popped, setPopped] = useState(false);
-
-  // Удаление мест — только в /hub/admin/places, не на туристской витрине.
-
-  const handleInstTap = useCallback((e: React.MouseEvent) => {
-    e.preventDefault();
-    e.stopPropagation();
-    requestGeo();
-  }, [requestGeo]);
 
   return (
-    <article
-      ref={artRef}
-      className={`pc group relative overflow-hidden ${visible ? 'pc-in' : ''}`}
-      style={{
-        borderRadius: 12,
-        background: 'var(--bg-card)',
-        border: '1px solid var(--border)',
-        transitionDelay: visible ? `${(seq.current % 6) * 95}ms` : '0ms',
-        ['--el' as string]: elColor,
-      }}
-    >
-      {/* ── Небо: фото/градиент + вырубка-горизонт ──────── */}
-      <Link href={placeHref} className="block">
-        <div className="pc-sky relative overflow-hidden" style={{ height: 132 }}>
-          {photoSrc ? (
-            <img
-              src={photoSrc}
-              alt={route.photoAlt || route.title}
-              loading={eager ? 'eager' : 'lazy'}
-              fetchPriority={eager ? 'high' : undefined}
-              className={`pc-img w-full h-full object-cover ${seq.current % 2 ? 'pc-kb-odd' : 'pc-kb-even'}`}
-            />
-          ) : (
-            <div
-              className="pc-ph w-full h-full flex items-start justify-end p-2"
-              style={{
-                background: `linear-gradient(160deg, color-mix(in srgb, ${elColor} 30%, #10151c) 0%, color-mix(in srgb, ${elColor} 10%, #0b0f14) 100%)`,
-                backgroundSize: '170% 170%',
-              }}
-            >
-              <Icon className="w-5 h-5 text-white opacity-25" />
-            </div>
-          )}
-
-          {/* Погода ЗОНЫ — glass-чип поверх фото. Чья она — сказано в
-              подписи (15.10, §0): одна из шести точек прогноза до 100 км от
-              места, а не погода у самого места. */}
-          {wx && (
-            <span
-              className="absolute left-2 z-10 px-1.5 py-0.5 rounded-full backdrop-blur-md bg-black/40 border border-white/15 text-white"
-              style={{ bottom: 50, fontFamily: MONO, fontSize: 9 }}
-              title={`Прогноз для района «${ZONES[wx.key as ZoneKey]?.name ?? 'ближайшая зона'}», а не у самого места: ${wx.descRu}`}
-            >
-              {wx.tempC > 0 ? `+${wx.tempC}` : wx.tempC}° · {wx.gustKmh != null && wx.gustKmh > wx.windKmh ? `${wx.windKmh}–${wx.gustKmh}` : wx.windKmh} км/ч
-            </span>
-          )}
-
-          {/* Мягкая подсветка цветом стихии снизу фото — цвет несёт различие */}
-          <div
-            className="absolute inset-x-0 bottom-0 pointer-events-none"
-            style={{
-              height: '58%',
-              background: `linear-gradient(to top, color-mix(in srgb, ${elColor} 38%, transparent), transparent)`,
-            }}
+    <article className="group flex flex-col overflow-hidden rounded-lg border border-[var(--border)] bg-[var(--bg-card)] transition-all duration-200 hover:border-[var(--accent)]/40 hover:shadow-sm">
+      <Link href={placeHref} className="relative block aspect-[4/3] overflow-hidden">
+        {photoSrc ? (
+          // eslint-disable-next-line @next/next/no-img-element
+          <img
+            src={photoSrc}
+            alt={route.photoAlt || route.title}
+            loading={eager ? 'eager' : 'lazy'}
+            fetchPriority={eager ? 'high' : undefined}
+            className="h-full w-full object-cover transition-transform duration-300 group-hover:scale-[1.03]"
           />
-
-          {/* Кромка: заливка фоном карточки + самообрисовка дуги цветом стихии */}
-          <svg
-            className="absolute bottom-0 left-0 w-full"
-            style={{ height: 46, display: 'block' }}
-            viewBox="0 0 200 46"
-            preserveAspectRatio="none"
-            aria-hidden="true"
+        ) : (
+          <div
+            className="flex h-full w-full items-center justify-center"
+            style={{ background: `color-mix(in srgb, ${elColor} 14%, var(--bg-hover))` }}
           >
-            <path d={hzClosed} fill="var(--bg-card)" />
-            <path
-              d={hzOpen}
-              className={visible ? 'pc-hz-draw' : ''}
-              pathLength={1}
-              fill="none"
-              stroke={elColor}
-              strokeOpacity={0.9}
-              strokeWidth={2.2}
-              strokeLinecap="round"
-              vectorEffect="non-scaling-stroke"
-            />
-            {/* Редкий пробег свечения вдоль кромки цветом стихии */}
-            <path
-              d={hzOpen}
-              className="pc-hz-glow"
-              pathLength={1}
-              fill="none"
-              stroke={elColor}
-              strokeWidth={2.6}
-              strokeLinecap="round"
-              vectorEffect="non-scaling-stroke"
-              style={{ animationDelay: `${(seq.current % 6) * 1.4}s` }}
-            />
-          </svg>
-
-          {/* Сердце */}
-          <button
-            type="button"
-            onClick={fav.toggle}
-            aria-label={wishlistLabel(fav)}
-            title={fav.localOnly ? WISHLIST_LOCAL_ONLY_HINT : undefined}
-            className={`pc-hrt pc-hit absolute top-2 right-2 z-10 w-8 h-8 rounded-full flex items-center justify-center ${popped ? 'pc-hrt-pop' : ''}`}
-            onAnimationEnd={() => setPopped(false)}
-            style={{ background: fav.on ? 'var(--accent)' : 'rgba(0,0,0,0.45)', opacity: fav.busy ? 0.6 : 1 }}
-          >
-            <Heart
-              className="w-3.5 h-3.5"
-              style={{ color: 'white', fill: fav.on ? 'white' : 'none' }}
-            />
-          </button>
-        </div>
+            <Icon className="h-9 w-9 opacity-40" style={{ color: elColor }} aria-hidden="true" />
+          </div>
+        )}
+        <button
+          type="button"
+          onClick={fav.toggle}
+          aria-label={wishlistLabel(fav)}
+          title={fav.localOnly ? WISHLIST_LOCAL_ONLY_HINT : undefined}
+          className="absolute right-2 top-2 flex h-9 w-9 items-center justify-center rounded-full border border-white/15 backdrop-blur-md transition-all duration-200"
+          style={{ background: fav.on ? 'var(--accent)' : 'rgba(0,0,0,0.4)', opacity: fav.busy ? 0.6 : 1 }}
+        >
+          <Heart className="h-4 w-4" style={{ color: 'white', fill: fav.on ? 'white' : 'none' }} />
+        </button>
       </Link>
 
       {/* Подпись снимка тура (21.11) — ВНЕ ссылки на место: имя автора ведёт
           на страницу партнёра или фотоленту. */}
       {photoSrc && route.photoCredit && (
-        <p className="px-3 pt-1 text-[10px] leading-snug text-[var(--text-muted)] truncate" data-testid="place-card-photo-credit">
+        <p className="px-3 pt-1.5 text-[11px] leading-snug text-[var(--text-muted)] truncate" data-testid="place-card-photo-credit">
           Фото: <PhotoCreditLink credit={route.photoCredit} />
         </p>
       )}
 
-      {/* ── Тело ────────────────────────────────────────── */}
-      <div className="px-3 pb-3 pt-0.5">
+      <div className="flex flex-1 flex-col gap-1.5 p-3">
         <div className="flex items-center justify-between gap-2">
           <Link
             href={element?.href ?? '/routes?kind=place'}
-            className="inline-block text-[9px] font-semibold uppercase"
-            style={{ color: elColor, letterSpacing: '0.2em' }}
+            className="text-xs font-semibold transition-opacity duration-200 hover:opacity-80"
+            style={{ color: elColor }}
           >
             {label}
           </Link>
-          {/* Только закрытие. TRUE в is_open — значение по умолчанию у всех
-              мест (070/0645): «никто не закрыл», а не «проверили — открыто».
-              Зелёное мигающее «открыто» на каждой карточке выдавало умолчание
-              за живой статус (15.10, §0). Закрывает администратор — это факт. */}
+          {/* Только закрытие. TRUE в is_open — умолчание у всех мест: «никто
+              не закрыл», а не «проверили — открыто» (15.10, §0). */}
           {route.isOpen === false && (
-            <span
-              className="inline-flex items-center gap-1 text-[8px] font-semibold uppercase"
-              style={{ color: 'var(--danger)', letterSpacing: '0.12em' }}
-            >
-              <span
-                style={{ width: 5, height: 5, borderRadius: '50%', background: 'currentColor', display: 'inline-block' }}
-              />
-              закрыто
+            <span className="text-xs font-semibold" style={{ color: 'var(--danger)' }}>
+              Закрыто
             </span>
           )}
         </div>
         <Link href={placeHref} className="block">
-          <b
-            className="block text-[var(--text-primary)] line-clamp-2 group-hover:text-[var(--accent)] transition-colors"
-            style={{ fontFamily: 'var(--font-playfair)', fontSize: 14, lineHeight: 1.22, fontWeight: 600, letterSpacing: '-0.01em', textWrap: 'balance' }}
+          <h3
+            className="line-clamp-2 font-semibold leading-snug text-[var(--text-primary)] transition-colors group-hover:text-[var(--accent)]"
+            style={{ fontFamily: 'var(--font-playfair)', fontSize: '1.0625rem' }}
           >
             {route.title}
-          </b>
+          </h3>
         </Link>
-
-        {/* Прибор: пеленг + дистанция; тап — предложить точность (геолокация) */}
-        {inst && (
-          <div
-            className="pc-inst mt-2 pt-2 flex items-center gap-2"
-            style={{ borderTop: '1px solid var(--border)', cursor: 'pointer' }}
-            onClick={handleInstTap}
-            role="button"
-            tabIndex={0}
-            aria-label="Уточнить пеленг и дистанцию от вашей позиции"
-            onKeyDown={(e) => { if (!isImeKeyEvent(e.nativeEvent) && (e.key === 'Enter' || e.key === ' ')) { e.preventDefault(); requestGeo(); } }}
-            title="Уточнить от вашей позиции"
-          >
-            <svg width="24" height="24" viewBox="0 0 24 24" aria-hidden="true" style={{ flexShrink: 0 }}>
-              <circle cx="12" cy="12" r="10.5" fill="none" stroke="var(--border)" strokeWidth="1" />
-              <g style={{ transform: `rotate(${inst.brg}deg)`, transformOrigin: '12px 12px', transition: 'transform .5s ease' }}>
-                <g className="pc-needle">
-                  <path d="M12,4.5 L14.2,13 L12,11.4 L9.8,13 Z" fill={elColor} />
-                </g>
-              </g>
-            </svg>
-            <span className="min-w-0" style={{ fontFamily: MONO, fontSize: 10, color: 'var(--text-secondary)' }}>
-              <b style={{ color: 'var(--text-primary)', fontWeight: 700 }}>{inst.km} км</b>
-              {' '}{inst.rumb} · {Math.round(inst.brg)}°
-              <span className="block" style={{ fontSize: 8, color: 'var(--text-muted)' }}>{anchorLabel}</span>
-            </span>
-            {season && (
-              <span className="ml-auto" style={{ fontFamily: MONO, fontSize: 8, color: 'var(--text-muted)' }}>
-                {season}
-              </span>
-            )}
-          </div>
+        {km != null && (
+          <p className="inline-flex items-center gap-1 text-[13px] text-[var(--text-secondary)] tabular-nums" data-testid="place-card-distance">
+            <Navigation className="h-3.5 w-3.5 text-[var(--text-muted)]" aria-hidden="true" />
+            {km} км {anchorLabel}
+          </p>
         )}
 
         {/* Туры к месту — факт и ссылка на блок туров страницы места. */}
         {toursLine && (
           <Link
             href={placeToursHref(placeHref)}
-            className="pc-tours mt-2 flex items-center gap-1.5 text-[var(--ocean)] hover:text-[var(--accent)] transition-colors duration-200"
-            style={{ borderTop: '1px solid var(--border)', minHeight: 44, fontSize: 12, fontWeight: 600 }}
+            className="mt-auto flex items-center gap-1.5 border-t border-[var(--border)] pt-2 text-[13px] font-semibold text-[var(--ocean)] transition-colors duration-200 hover:text-[var(--accent)]"
+            style={{ minHeight: 44 }}
           >
-            <Ticket className="w-3.5 h-3.5 shrink-0" aria-hidden="true" />
+            <Ticket className="h-3.5 w-3.5 shrink-0" aria-hidden="true" />
             <span>{toursLine}</span>
-            <ChevronRight className="w-3.5 h-3.5 ml-auto shrink-0" aria-hidden="true" />
+            <ChevronRight className="ml-auto h-3.5 w-3.5 shrink-0" aria-hidden="true" />
           </Link>
         )}
       </div>
-
-      <style jsx>{`
-        .pc:hover { border-color: color-mix(in srgb, var(--el) 45%, var(--border)); }
-        /* Фокус с клавиатуры виден на всех интерактивных (§10 доступность).
-           outline следует border-radius кнопок — на круглых иконках круглый. */
-        .pc a:focus-visible,
-        .pc button:focus-visible,
-        .pc-inst:focus-visible {
-          outline: 2px solid var(--accent);
-          outline-offset: 2px;
-        }
-        /* Комфортная тач-цель ≥44px для иконок-кнопок 32px без раздутия вида:
-           невидимая расширенная зона тапа (§10, палец в поле). */
-        .pc-hit::after {
-          content: '';
-          position: absolute;
-          inset: -6px;
-          border-radius: 9999px;
-        }
-        /* Без анимации (reduced-motion) пробег свечения не рисуется вовсе */
-        .pc-hz-glow { opacity: 0; }
-        @media (prefers-reduced-motion: no-preference) {
-          .pc { opacity: 0; transform: translateY(14px); transition: opacity .6s ease, transform .6s ease, border-color .2s ease; }
-          .pc.pc-in { opacity: 1; transform: translateY(0); }
-          .pc:active { transform: scale(.975); }
-          .pc-kb-even { animation: pc-kb-a 28s ease-in-out infinite alternate; }
-          .pc-kb-odd  { animation: pc-kb-b 34s ease-in-out infinite alternate; }
-          @keyframes pc-kb-a { from { transform: scale(1) translateX(0); } to { transform: scale(1.09) translateX(-2.5%); } }
-          @keyframes pc-kb-b { from { transform: scale(1.09) translateX(2%); } to { transform: scale(1) translateX(0); } }
-          .pc-hz-draw { stroke-dasharray: 1; stroke-dashoffset: 1; animation: pc-draw 1.9s ease-out forwards; }
-          @keyframes pc-draw { to { stroke-dashoffset: 0; } }
-          .pc-hrt-pop { animation: pc-pop .45s cubic-bezier(.3,1.6,.5,1); }
-          @keyframes pc-pop { 0% { transform: scale(1); } 40% { transform: scale(1.35); } 100% { transform: scale(1); } }
-          .pc-ph { animation: pc-sky-drift 22s ease-in-out infinite alternate; }
-          @keyframes pc-sky-drift { from { background-position: 0% 0%; } to { background-position: 100% 100%; } }
-          .pc-hz-glow { stroke-dasharray: 0.16 0.84; stroke-dashoffset: 1.16; opacity: .7; animation: pc-glow 8s linear infinite; }
-          @keyframes pc-glow { 0% { stroke-dashoffset: 1.16; } 55% { stroke-dashoffset: -1; } 100% { stroke-dashoffset: -1; } }
-          .pc-needle { animation: pc-breathe 3.4s ease-in-out infinite alternate; transform-origin: 12px 12px; }
-          @keyframes pc-breathe { from { transform: rotate(-2.5deg); } to { transform: rotate(2.5deg); } }
-        }
-      `}</style>
     </article>
   );
 }

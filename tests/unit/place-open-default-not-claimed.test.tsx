@@ -60,15 +60,15 @@ describe('карточка места в каталоге', () => {
   });
 });
 
-describe('погода на плитке — района, и сказано, что района', () => {
-  it('подпись называет район прогноза, а не место', async () => {
-    vi.resetModules();
-    globalThis.fetch = vi.fn(async () => new Response(JSON.stringify({
-      zones: [{ key: 'avachinsky', tempC: 3, windKmh: 12, gustKmh: null, descRu: 'облачно' }],
-    }), { status: 200 })) as typeof fetch;
-    const { default: FreshPlaceCard } = await import('@/components/routes/PlaceCard');
-    const { findByTitle } = render(<FreshPlaceCard route={{ ...place(null), lat: 53.26, lng: 158.83 }} />);
-    const chip = await findByTitle(/Прогноз для района «Авачинский вулкан», а не у самого места/);
-    expect(chip.textContent).toContain('+3°');
+describe('погоды на плитке нет (22.11)', () => {
+  // «Перемудрили» (владелец 22.11): прогноз района на каждой плитке звал API
+  // из каждой карточки и выдавал погоду зоны рядом с именем места. Погода —
+  // на странице места, с подписью и источником.
+  it('карточка не запрашивает погоду и не рисует градусы', () => {
+    const f = vi.fn(async () => new Response(JSON.stringify({ zones: [] }), { status: 200 }));
+    globalThis.fetch = f as unknown as typeof fetch;
+    const { container } = render(<PlaceCard route={{ ...place(null), lat: 53.26, lng: 158.83 }} />);
+    expect(f).not.toHaveBeenCalled();
+    expect(container.textContent).not.toMatch(/°/);
   });
 });
