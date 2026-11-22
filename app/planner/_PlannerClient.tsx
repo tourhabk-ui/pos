@@ -45,6 +45,9 @@ import { PLANNER_HEADER_OFFSET, CONTENT_BOTTOM_CLEARANCE, PAGE_ACTION_BAR_VAR } 
 import { buildPlannerMarkers, plannerLegend, ROUTE_LINE_ID, parseDayPinId, nextDayOnPin, sameZoneCount, planFocusPoints } from '@/lib/planner/map-markers';
 import { usePlannerMapDays } from '@/components/planner/usePlannerMapDays';
 import { PlannerDayStrip } from '@/components/planner/PlannerDayStrip';
+import { usePlannerDayCards } from '@/components/planner/usePlannerDayCards';
+import { DayPlaceCard } from '@/components/planner/DayPlaceCard';
+import type { DayPlaceCard as DayPlaceCardData } from '@/lib/planner/day-place-cards';
 import { loadBackgroundRoutes, BG_DEFAULT_TYPES, type BgRoutesResult } from '@/lib/planner/bg-routes';
 import { zoneName, zoneHex, planDayHex } from '@/lib/planner/zone-style';
 import { placeTypeLabel } from '@/lib/places/type-label';
@@ -458,6 +461,8 @@ interface DayCardProps {
   photo?: PrintPhoto | null;
   /** «ср, 26 ноя» — дата дня по началу поездки; дат нет — пусто. */
   dateLabel?: string;
+  /** Карточка места/маршрута дня (lib/planner/day-place-cards); нет — null. */
+  placeCard?: DayPlaceCardData | null;
   idx: number;
   isEditing: boolean;
   transport: TransportType;
@@ -515,7 +520,7 @@ function DayPriceTag({ day }: { day: DayPlan }) {
 function DayCard({
   day, idx, isEditing, transport, flightBadge, isLocked, isConfirmed, topTour, requestArrival, requestGuests,
   onToggleEdit, onTransportChange, onShowPartners, onDelete, onShowMap, onConfirm, onRef, onAskSeats,
-  editRefusal = null, onDragDone, run, photo = null, dateLabel = '', extra = null,
+  editRefusal = null, onDragDone, run, photo = null, dateLabel = '', placeCard = null, extra = null,
 }: DayCardProps) {
   // Продолжение многодневного тура — в блоке его первого дня (21.11).
   const continuation = run !== undefined && run.first !== day.day;
@@ -645,6 +650,8 @@ function DayCard({
         {day.description && !showDetail && (
           <p className="px-3 pb-1 text-[12.5px] leading-snug text-[var(--text-secondary)] line-clamp-2" data-day-desc>{day.description}</p>
         )}
+        {/* Место или маршрут дня — миниатюрой со ссылкой на его страницу (22.11). */}
+        {placeCard && <DayPlaceCard card={placeCard} />}
         {/* Row 2 — transport + actions */}
         <div className="flex items-center gap-2 px-3 pb-2.5 pt-0.5">
           {/* У дня с туром транспорт — часть тура: выбирать нечего (#3347). */}
@@ -1889,6 +1896,8 @@ export function PlannerClient({ initialUserId }: { initialUserId?: string | null
   // линия между зонами — построение. Правило — lib/planner/map-markers.
   // Дни с туром без своей точки — в место тура по каталогу (map-tour-points).
   const mapDays = usePlannerMapDays(days);
+  // Карточки мест/маршрутов у дней (day-place-cards) — в списке и в полосе карты.
+  const dayCards = usePlannerDayCards(days);
   const mapMarkers = useMemo(
     () => buildPlannerMarkers({
       routes: bgRoutes, days: mapDays, editingDayId,
@@ -1903,8 +1912,8 @@ export function PlannerClient({ initialUserId }: { initialUserId?: string | null
     return { key: editingDayId !== null ? `day_${editingDayId}` : `plan_${points.flat().join(',')}`, points };
   }, [mapDays, editingDayId]);
   const stripDays = useMemo(
-    () => mapDays.map(d => ({ ...d, dateLabel: arrival ? dayDateShort(dayDateFrom(arrival, d)) : '' })),
-    [mapDays, arrival],
+    () => mapDays.map(d => ({ ...d, dateLabel: arrival ? dayDateShort(dayDateFrom(arrival, d)) : '', place: dayCards[d.day] ?? null })),
+    [mapDays, arrival, dayCards],
   );
   // Полоса дней: день открывается/закрывается, карта едет к пину (mapFocus).
   const pickDayFromStrip = useCallback((key: number) => {
@@ -2209,6 +2218,7 @@ export function PlannerClient({ initialUserId }: { initialUserId?: string | null
         meta: `${zoneName(shownZone(d))}${d.type === 'activity' ? ` | ${d.detailsUnknown ? 'сложность не записана' : DIFFICULTY_LABEL[d.difficulty] ?? d.difficulty}` : ''}`,
         warnings: d.dayWarnings ?? [],
         weatherKit: d.weatherKit ?? null,
+        place: dayCards[d.day] ? { kind: dayCards[d.day].kind, title: dayCards[d.day].title, href: dayCards[d.day].href } : null,
         // Макет 21.11: многодневный тур — одним блоком, ссылка и QR на тур.
         dayType: d.type,
         tourId: d.type === 'activity' ? d.realTour?.tourId ?? null : null,
@@ -3228,6 +3238,7 @@ export function PlannerClient({ initialUserId }: { initialUserId?: string | null
                     onDragDone={finishReorder}
                     run={runs.get(day.day)}
                     photo={day.realTour ? dayPhotos[day.realTour.tourId] ?? null : null}
+                    placeCard={dayCards[day.day] ?? null}
                     dateLabel={arrival ? dayDateShort(dayDateFrom(arrival, day)) : ''}
                     extra={(
                       // key по дате: после обмена дней варианты прежней даты не остаются (ревью #3708).
