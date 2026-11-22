@@ -122,7 +122,7 @@ describe('«Написать оператору» с карточки тура �
     // плюс bookingId: старый контракт роута его принимал.
     const res = await POST(
       jsonReq('http://localhost/api/chat/conversations', {
-        operatorPartnerId: 'partner-5',
+        operatorPartnerId: 'c3300000-0000-4000-8000-000000000005',
         tourId: 51,
         bookingId: '77',
         subject: 'Вулкан Горелый',
