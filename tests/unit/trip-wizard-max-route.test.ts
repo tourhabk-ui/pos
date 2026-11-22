@@ -80,8 +80,8 @@ vi.mock('@/lib/max/admin-link', async (importOriginal) => ({
   findMaxAdmin: (...a: unknown[]) => m.findAdmin(...a),
 }));
 
-vi.mock('@/lib/messenger/trip-wizard-run', async (orig) => ({
-  ...(await orig<typeof import('@/lib/messenger/trip-wizard-run')>()),
+vi.mock('@/lib/chat/trip-wizard-run', async (orig) => ({
+  ...(await orig<typeof import('@/lib/chat/trip-wizard-run')>()),
   runWizardPlan: (...a: unknown[]) => m.run(...a),
 }));
 

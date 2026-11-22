@@ -53,7 +53,7 @@ import { appendMenu, menuRows, type MenuButton } from '@/lib/roles/chat-menu';
 import {
   WIZARD_BUTTON, WIZARD_START, decodeWizard, encodeWizard, isWizardPayload, wizardScreen, wizardStale,
   type WizardScreen,
-} from '@/lib/messenger/trip-wizard';
+} from '@/lib/chat/trip-wizard';
 import { adminMenu, menuRoleOf, parseRoleMenuPress, partnerMenu, roleMenuAsk } from '@/lib/roles/role-menu';
 import { PARTNER_PD_UNDELIVERED, roleMenuScreen, type RoleScreen } from '@/lib/roles/role-screen';
 import { sellsOwnTours } from '@/lib/partners/tour-seller';
@@ -539,7 +539,7 @@ async function handleLeadCallback(payload: string, chatId: number): Promise<void
 // ── «Спланировать поездку» ────────────────────────────────────────────────────
 
 /**
- * Экран мастера (lib/messenger/trip-wizard): правкой нажатого сообщения, не
+ * Экран мастера (lib/chat/trip-wizard): правкой нажатого сообщения, не
  * принята — новым. Кнопки-ссылки — `link`, шаги — `callback` с кодами без ПД.
  */
 async function sendWizardMax(chatId: number, screen: WizardScreen, editMid: string | null): Promise<void> {
@@ -568,7 +568,7 @@ const WIZARD_UNVERIFIED = 'План кнопками в MAX сейчас не с
 // ── Стартовое меню ────────────────────────────────────────────────────────────
 
 const START_MENU: MaxButton[][] = [
-  // «Спланировать поездку» (22.11): план по дням кнопками, без модели — lib/messenger/trip-wizard.
+  // «Спланировать поездку» (22.11): план по дням кнопками, без модели — lib/chat/trip-wizard.
   [{ type: 'callback', text: WIZARD_BUTTON, payload: encodeWizard(WIZARD_START), intent: 'positive' }],
   [
     { type: 'callback', text: 'Рыбалка', payload: 'topic_fishing' },
@@ -2167,7 +2167,7 @@ async function handleUpdate(update: MaxUpdate, opts?: { verifiedOrigin?: boolean
         await maxReply(resolvedChatId, WIZARD_UNVERIFIED);
         return;
       }
-      const { runWizardPlan, wizardBuildAllowed, WIZARD_BUSY_TEXT } = await import('@/lib/messenger/trip-wizard-run');
+      const { runWizardPlan, wizardBuildAllowed, WIZARD_BUSY_TEXT } = await import('@/lib/chat/trip-wizard-run');
       if (!wizardBuildAllowed('max', resolvedChatId, now)) {
         await maxReply(resolvedChatId, WIZARD_BUSY_TEXT);
         return;

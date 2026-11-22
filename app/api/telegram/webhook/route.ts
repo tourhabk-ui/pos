@@ -39,7 +39,7 @@ import { telegramService } from '@/lib/notifications/telegram';
 import {
   WIZARD_BUTTON, WIZARD_START, decodeWizard, isWizardPayload, wizardScreen, wizardStale,
   type WizardButton, type WizardScreen,
-} from '@/lib/messenger/trip-wizard';
+} from '@/lib/chat/trip-wizard';
 import { verifyWebhookSecret, refuseUnconfiguredWebhook } from '@/lib/telegram/webhook-secret';
 import { isRepeatedTelegramUpdate } from '@/lib/telegram/update-dedup';
 import { admitInbound, markInboundDone, claimStaleTelegram } from '@/lib/chat/inbound-seen';
@@ -1969,7 +1969,7 @@ async function deliverTelegramUpdate(update: TelegramUpdate): Promise<void> {
     const data           = press.payload;
 
     // «Спланировать поездку» (22.11): шаги кнопками и сборка плана без модели
-    // (lib/messenger/trip-wizard). Только личный чат; в данных кнопки — коды, без ПД.
+    // (lib/chat/trip-wizard). Только личный чат; в данных кнопки — коды, без ПД.
     if (isWizardPayload(data)) {
       await telegramService.answerCallback(cq.id);
       const pressChat = cq.message?.chat;
@@ -1986,7 +1986,7 @@ async function deliverTelegramUpdate(update: TelegramUpdate): Promise<void> {
         await sendWizardTg(wizChat, wizardScreen(state, now), mid);
         return;
       }
-      const { runWizardPlan, wizardBuildAllowed, WIZARD_BUSY_TEXT } = await import('@/lib/messenger/trip-wizard-run');
+      const { runWizardPlan, wizardBuildAllowed, WIZARD_BUSY_TEXT } = await import('@/lib/chat/trip-wizard-run');
       if (!wizardBuildAllowed('telegram', pressChat.id, now)) {
         await sendHTML(wizChat, WIZARD_BUSY_TEXT);
         return;

@@ -3,7 +3,7 @@
  * через инструмент Кузьмича (тот же `recommendTrip`, черновик плана), дни —
  * из сохранённого черновика. Модель не зовётся.
  */
-import { buildWizardPlan, type WizardScreen, type WizardState } from '@/lib/messenger/trip-wizard';
+import { buildWizardPlan, type WizardScreen, type WizardState } from '@/lib/chat/trip-wizard';
 
 /** Не чаще одной сборки в 15 секунд на чат: движок ходит в базу. */
 const BUILD_GAP_MS = 15_000;

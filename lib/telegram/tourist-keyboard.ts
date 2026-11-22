@@ -8,10 +8,10 @@
 import { rentalPauseForTourist, rentalSitePauseActive } from '@/lib/rental/site-pause';
 import { MCHS_CHAT_BUTTON } from '@/lib/safety/mchs-chat';
 import { MY_TRIP_BUTTON } from '@/lib/requests/my-trip-ask';
-import { WIZARD_BUTTON } from '@/lib/messenger/trip-wizard';
+import { WIZARD_BUTTON } from '@/lib/chat/trip-wizard';
 
 export const TOURIST_BUTTONS = [
-  // «Спланировать поездку» (22.11): план по дням кнопками, без модели — lib/messenger/trip-wizard.
+  // «Спланировать поездку» (22.11): план по дням кнопками, без модели — lib/chat/trip-wizard.
   WIZARD_BUTTON,
   'Подобрать тур',
   'Погода',

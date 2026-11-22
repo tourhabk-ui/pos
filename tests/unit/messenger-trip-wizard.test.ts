@@ -9,7 +9,7 @@ import {
   CALLBACK_DATA_MAX_BYTES, WIZARD_BUTTON, daysWord, WIZARD_START, buildWizardPlan, decodeWizard, encodeWizard,
   isWizardPayload, startOptions, wizardPlanArgs, wizardPlannerHref, wizardScreen, wizardStale,
   type WizardScreen, type WizardState,
-} from '@/lib/messenger/trip-wizard';
+} from '@/lib/chat/trip-wizard';
 import { TOURIST_BUTTONS, touristReplyMarkup } from '@/lib/telegram/tourist-keyboard';
 
 // 22.11.2026 18:00 по Камчатке.
