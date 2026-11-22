@@ -8,6 +8,8 @@
  * нет хвоста, ничего не сочиняется.
  */
 
+import { priceUnitKnown, priceWithUnitWords } from '@/lib/tours/price-label';
+
 const DIFFICULTY_RU: Record<string, string> = {
   easy: 'лёгкая', medium: 'средняя', hard: 'сложная', extreme: 'экстремальная',
 };
@@ -137,12 +139,22 @@ export function placeInSitemap(slug: string | null): boolean {
 }
 
 /**
- * T3. Хвосты title тура: `: тур {срок}, от {цена} ₽, {оператор}` — только
- * заполненные поля, от полного к короткому; дальше — прежние хвосты.
+ * T3. Хвосты title тура: `: тур {срок}, {цена с единицей}, {оператор}` —
+ * только заполненные поля, от полного к короткому; дальше — прежние хвосты.
+ *
+ * Цена — та же строка, что на карточке (`priceWithUnitWords`): «11 000 ₽ за
+ * человека», без «от». У тура одна цена, и «от» дописывал шаблон, а не
+ * оператор (сверка 21.11 в #3487: «Первый рассвет» — «от 11 000 ₽» в title
+ * при «11 000 ₽ за человека» на карточке). Единица не записана — цены в
+ * заголовке нет: голая сумма читается как цена с человека.
  */
-export function tourTitleTails(f: { duration: string | null; basePrice: string | number | null; operatorName: string | null }): string[] {
-  const price = f.basePrice != null && Number(f.basePrice) > 0
-    ? `от ${Math.round(Number(f.basePrice)).toLocaleString('ru-RU').replace(/\s/g, ' ')} ₽` : null;
+export function tourTitleTails(f: {
+  duration: string | null;
+  basePrice: string | number | null;
+  priceUnit: string | null;
+  operatorName: string | null;
+}): string[] {
+  const price = priceUnitKnown(f.priceUnit) ? priceWithUnitWords(f.basePrice, f.priceUnit) : null;
   const op = (f.operatorName ?? '').trim() || null;
   const dur = (f.duration ?? '').trim() || null;
   const variants = [
