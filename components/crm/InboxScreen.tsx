@@ -12,7 +12,7 @@
 import { useEffect, useState } from 'react';
 import { Inbox, Clock, ArrowUpRight, MessageSquare, AlertTriangle } from 'lucide-react';
 import type { Inbox as InboxData, InboxItem } from '@/lib/crm/inbox';
-import { INBOX_KIND_LABELS, INBOX_SLOW_MINUTES, RESPONSE_MIN_SAMPLE, inboxActionFor } from '@/lib/crm/inbox-kinds';
+import { INBOX_KIND_LABELS, INBOX_SLOW_MINUTES, RESPONSE_MIN_SAMPLE, inboxActionFor, inboxChatHint } from '@/lib/crm/inbox-kinds';
 import type { PartnerCategory } from '@/lib/crm/partner-context';
 import { CRM_INBOX_API } from './api';
 import { formatSourceDate } from './labels';
@@ -120,6 +120,22 @@ function ItemRow({ item, category, onOpenContact, onAnswered }: {
   );
 }
 
+/** Непрочитанное в чате с туристами и где его открыть (lib/crm/inbox-kinds, partnerChatPath). */
+function ChatUnreadLine({ unread, category }: { unread: number; category: PartnerCategory }) {
+  const hint = inboxChatHint(category);
+  return (
+    <p className="flex items-center gap-2 text-xs text-[var(--text-secondary)]">
+      <MessageSquare className="w-4 h-4 text-[var(--ocean)]" />
+      Непрочитанных сообщений в чате: {unread} —{' '}
+      {hint.href ? (
+        <a href={hint.href} className="text-[var(--accent)] hover:underline">{hint.text}</a>
+      ) : (
+        <>{hint.text}.</>
+      )}
+    </p>
+  );
+}
+
 export function InboxScreen() {
   const [reload, setReload] = useState(0);
   const [result, setResult] = useState<{ key: number; state: LoadState } | null>(null);
@@ -194,10 +210,7 @@ export function InboxScreen() {
           )}
 
           {state.data.chat.state === 'ok' && state.data.chat.unread > 0 && (
-            <p className="flex items-center gap-2 text-xs text-[var(--text-secondary)]">
-              <MessageSquare className="w-4 h-4 text-[var(--ocean)]" />
-              Непрочитанных сообщений в чате: {state.data.chat.unread} — чат открывается кнопкой внизу экрана.
-            </p>
+            <ChatUnreadLine unread={state.data.chat.unread} category={state.data.category} />
           )}
           {state.data.chat.state === 'failed' && (
             <p className="text-xs text-[var(--warning)]">Непрочитанные сообщения чата не посчитались.</p>

@@ -66,7 +66,8 @@ describe('notifyPartnerOfChatMessageQuietly', () => {
     expect(arg.stub).not.toContain('Иван Турист');
     // Telegram (30.10, с маской ПД): текст есть, имени нет; «Ответить» — кнопкой.
     expect(arg.stub).toContain('Есть ли места');
-    expect(arg.buttons?.find((b) => b.url)?.url).toMatch(/\/hub\/operator$/);
+    // «Открыть чат» — страница «Сообщения» с этой беседой (22.11, #2770).
+    expect(arg.buttons?.find((b) => b.url)?.url).toMatch(/\/hub\/operator\/messages\?c=conv-1$/);
     expect(arg.buttons?.[0]).toEqual({ text: 'Ответить', payload: 'cv:r:conv-1' });
   });
 
