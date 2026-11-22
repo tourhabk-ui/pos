@@ -10,11 +10,13 @@ import { countedLine, NO_PRICES_YET, type GroupEstimate } from '@/lib/planner/es
 const fmt = (n: number) => Math.round(n).toLocaleString('ru-RU');
 const rub = ([a, b]: [number, number]) => (a === b ? `${fmt(a)} ₽` : `${fmt(a)} — ${fmt(b)} ₽`);
 
-export function PlanOverview({ title, sub, estimate, estimateAnchor }: {
+export function PlanOverview({ title, sub, estimate, estimateAnchor, onShowMap }: {
   title: string;
   sub: string;
   estimate: GroupEstimate | null;
   estimateAnchor?: string;
+  /** Телефон: открыть маршрут на карте (на компьютере карта и так рядом). */
+  onShowMap?: () => void;
 }) {
   const priced = estimate ? estimate.lines.some((l) => l.total) : false;
   return (
@@ -23,6 +25,12 @@ export function PlanOverview({ title, sub, estimate, estimateAnchor }: {
         <p className="text-[11px] font-semibold uppercase tracking-[0.14em] text-[var(--accent)]">Ваш план</p>
         <h2 className="mt-1 text-xl font-semibold leading-tight text-[var(--text-primary)]">{title}</h2>
         {sub && <p className="mt-1 text-[13px] text-[var(--text-secondary)]">{sub}</p>}
+        {onShowMap && (
+          <button type="button" onClick={onShowMap} data-overview-map
+            className="lg:hidden mt-3 w-full rounded-lg border border-[var(--accent)] px-3 py-2.5 text-[14px] font-semibold text-[var(--accent)]">
+            Маршрут на карте — дни по точкам
+          </button>
+        )}
       </div>
       {estimate && (
         <a href={estimateAnchor ? `#${estimateAnchor}` : undefined} data-overview-estimate

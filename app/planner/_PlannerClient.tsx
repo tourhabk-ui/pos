@@ -42,7 +42,9 @@ import { tripCalendarDays, dateOfTripDay } from '@/lib/planner/flow-balance';
 import { TRAVEL_STYLES, TRAVEL_STYLE_LABEL, REST_EVERY_DAYS, suggestRestDays, type TravelStyle } from '@/lib/planner/travel-style';
 import { TRIP_ORIGINS, TRIP_ORIGIN_LABEL, activeBudget, type TripOrigin } from '@/lib/planner/trip-origin';
 import { PLANNER_HEADER_OFFSET, CONTENT_BOTTOM_CLEARANCE, PAGE_ACTION_BAR_VAR } from './planner-layout';
-import { buildPlannerMarkers, plannerLegend, ROUTE_LINE_ID, parseDayPinId, nextDayOnPin, sameZoneCount } from '@/lib/planner/map-markers';
+import { buildPlannerMarkers, plannerLegend, ROUTE_LINE_ID, parseDayPinId, nextDayOnPin, sameZoneCount, planFocusPoints } from '@/lib/planner/map-markers';
+import { usePlannerMapDays } from '@/components/planner/usePlannerMapDays';
+import { PlannerDayStrip } from '@/components/planner/PlannerDayStrip';
 import { loadBackgroundRoutes, BG_DEFAULT_TYPES, type BgRoutesResult } from '@/lib/planner/bg-routes';
 import { zoneName, zoneHex, planDayHex } from '@/lib/planner/zone-style';
 import { placeTypeLabel } from '@/lib/places/type-label';
@@ -1885,13 +1887,38 @@ export function PlannerClient({ initialUserId }: { initialUserId?: string | null
 
   // Карта: фоновые точки цветом своей зоны, дни плана — кружками с номером,
   // линия между зонами — построение. Правило — lib/planner/map-markers.
+  // Дни с туром без своей точки — в место тура по каталогу (map-tour-points).
+  const mapDays = usePlannerMapDays(days);
   const mapMarkers = useMemo(
     () => buildPlannerMarkers({
-      routes: bgRoutes, days, editingDayId,
+      routes: bgRoutes, days: mapDays, editingDayId,
       editingReplaceable: editingDayInfo?.refusal === null,
     }),
-    [days, bgRoutes, editingDayId, editingDayInfo],
+    [mapDays, bgRoutes, editingDayId, editingDayInfo],
   );
+  // Открыли день — карта едет к его пину; закрыли — показывает весь план.
+  const mapFocus = useMemo(() => {
+    const points = planFocusPoints(mapDays, editingDayId);
+    if (points.length === 0) return null;
+    return { key: editingDayId !== null ? `day_${editingDayId}` : `plan_${points.flat().join(',')}`, points };
+  }, [mapDays, editingDayId]);
+  const stripDays = useMemo(
+    () => mapDays.map(d => ({ ...d, dateLabel: arrival ? dayDateShort(dayDateFrom(arrival, d)) : '' })),
+    [mapDays, arrival],
+  );
+  // Полоса дней: день открывается/закрывается, карта едет к пину (mapFocus).
+  const pickDayFromStrip = useCallback((key: number) => {
+    setSelectedRoute(null);
+    setEditingDayId(prev => (prev === key ? null : key));
+    if (typeof window !== 'undefined' && window.matchMedia('(min-width: 1024px)').matches) {
+      dayRefs.current.get(key)?.scrollIntoView({ behavior: 'smooth', block: 'center' });
+    }
+  }, []);
+  const openDayFromStrip = useCallback((key: number) => {
+    setEditingDayId(key);
+    setMobileTab('plan');
+    requestAnimationFrame(() => dayRefs.current.get(key)?.scrollIntoView({ behavior: 'smooth', block: 'center' }));
+  }, []);
   const mapLegend = useMemo(() => plannerLegend(bgRoutes), [bgRoutes]);
   // Что карта искала — подписями плиток (lib/planner/bg-routes): плитка
   // места — маршруты через место этого вида, занятие — маршруты этого вида.
@@ -1931,10 +1958,10 @@ export function PlannerClient({ initialUserId }: { initialUserId?: string | null
       setSelectedRoute(null);
       setEditingDayId(next);
       if (next !== null) {
-        const el = dayRefs.current.get(next);
-        if (el) el.scrollIntoView({ behavior: 'smooth', block: 'center' });
-        // На телефоне — вкладка «План», где этот день виден.
+        // На телефоне — вкладка «План», где этот день виден. Прокрутка — после
+        // показа вкладки: в скрытой колонке scrollIntoView не двигал ничего.
         setMobileTab('plan');
+        requestAnimationFrame(() => dayRefs.current.get(next)?.scrollIntoView({ behavior: 'smooth', block: 'center' }));
       }
       return;
     }
@@ -3106,6 +3133,7 @@ export function PlannerClient({ initialUserId }: { initialUserId?: string | null
           title={`${days.length} ${pluralDaysRu(days.length)} на Камчатке`}
           sub={[tripDays ? `${shortDate(arrival)} — ${shortDate(departure)}` : '', `${planProfile?.adults ?? adults} взр.${(planProfile?.children ?? childAges).length > 0 ? `, детей ${(planProfile?.children ?? childAges).length}` : ''}`].filter(Boolean).join(' · ')}
           estimate={estimate ?? null}
+          onShowMap={() => setMobileTab('map')}
           estimateAnchor="plan-estimate"
         />
       )}
@@ -3432,7 +3460,16 @@ export function PlannerClient({ initialUserId }: { initialUserId?: string | null
         // Подгонка вида оставляет плашки карты над точками: на телефоне
         // легенда поперёк верха закрывала север края.
         fitClearOf={mapOverlayRef}
+        focus={mapFocus}
+        bottomInset={days.length > 0 && !selectedRoute ? (editingDayId !== null ? 104 : 72) : 0}
       />
+
+      {/* Дни плана полосой внизу карты (components/planner/PlannerDayStrip). */}
+      {days.length > 0 && !selectedRoute && (
+        <div className="absolute left-2 right-[4.25rem] bottom-2 lg:left-4 lg:right-4 lg:bottom-3 z-10 pointer-events-none">
+          <PlannerDayStrip days={stripDays} activeDay={editingDayId} onPick={pickDayFromStrip} onOpen={openDayFromStrip} />
+        </div>
+      )}
 
       {/* Что на карте — словами: замена дня, загрузка/отказ/пусто, легенда зон
           тем же цветом, что пины, и что делать с точкой. */}
