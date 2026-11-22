@@ -171,6 +171,7 @@ describe('аудит дорог 22.11: однодневный тур дальш�
     TREK_ROUTES = [
       { id: 'r-far', title: 'Дальняя тропа', zone: 'avachinsky', activity_type: 'trekking', lat: 52.0, lng: 157.9, location_type: null },
       { id: 'r-mid', title: 'Мутновско-Гореловская группа', zone: 'avachinsky', activity_type: 'trekking', lat: 52.55, lng: 158.1, location_type: null },
+      { id: 'r-off', title: 'Тропа без подъезда', zone: 'avachinsky', activity_type: 'trekking', lat: 52.3, lng: 158.4, location_type: null },
     ];
     try {
       const rec = await recommendTrip({ ...WINTER, interests: ['trekking'], travelStyle: 'self',
@@ -179,6 +180,10 @@ describe('аудит дорог 22.11: однодневный тур дальш�
       const mid = rec.days.find((d) => d.routeId === 'r-mid');
       expect(mid).toBeDefined();
       expect(mid!.dayWarnings.join('\n')).toContain('107 км, ≈2,1 ч по дороге в одну сторону (оценка');
+      // Старт далеко от дорог графа (прод 22.11: Горелый, 13,7 км) — не молчание, а «не оценили».
+      const off = rec.days.find((d) => d.routeId === 'r-off');
+      expect(off).toBeDefined();
+      expect(off!.dayWarnings.join('\n')).toContain('Подъезд к началу маршрута по дороге мы не оценили');
       const text = rec.warnings.map((w) => w.message).join('\n');
       expect(text).toContain('Маршрут «Дальняя тропа» (самостоятельно): до него от Петропавловска 260 км, ≈4,4 ч');
     } finally {

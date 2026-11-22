@@ -49,7 +49,7 @@ import { returnLegMissingMessage } from '@/lib/planner/plan-edit-warnings';
 import { calculatePriceBreakdown, type PriceBreakdown } from '@/lib/planner/estimate';
 import { tourPlanSpan, tourRoom } from '@/lib/planner/tour-span';
 import {
-  ROAD_CHECK_MIN_KM, tooFarForDayTrip, farDayTourLine, farSelfRouteLine, farDayTourReason, noRoadLine, roadUnreadLine,
+  ROAD_CHECK_MIN_KM, tooFarForDayTrip, farDayTourLine, farSelfRouteLine, selfNoRoadDayLine, farDayTourReason, noRoadLine, roadUnreadLine,
   pointUnknownLine, adjacentToursLine, isAirTour, roadDayLine, type RoadEstimate,
 } from '@/lib/planner/road-reach';
 import { roadEstimate } from '@/lib/planner/road-hours';
@@ -1304,6 +1304,8 @@ async function generateDayPlans(
   const roadOfTour = new Map<string, { km: number; hours: number }>();
   /** То же для самостоятельного маршрута (этап 3, п. 2): id маршрута → дорога. */
   const roadOfRoute = new Map<string, { km: number; hours: number }>();
+  /** Маршруты «сам», к началу которых дорога в графе не строится (прод 22.11: Мутновско-Гореловская группа, старт в 13,7 км от дороги). */
+  const noRoadRoutes = new Set<string>();
   /**
    * Однодневный тур Авачинской зоны с точкой дальше ROAD_CHECK_MIN_KM от
    * Петропавловска: сколько до него ехать по дороге. Дальше порога в одну
@@ -1755,6 +1757,7 @@ async function generateDayPlans(
             continue;
           }
           if (road?.kind === 'unread') roadUnreadTours.set(`route:${r.id}`, r.title);
+          if (road?.kind === 'no_road') noRoadRoutes.add(r.id);
           keptRoutes.push(r);
         }
         routes = keptRoutes;
@@ -2141,7 +2144,8 @@ async function generateDayPlans(
         dayWarnings: withGroupMinimum(
           realTour && roadOfTour.has(realTour.tourId) ? [...dayWarnings, roadDayLine(roadOfTour.get(realTour.tourId)!)]
             : !realTour && route && roadOfRoute.has(route.id) ? [...dayWarnings, roadDayLine(roadOfRoute.get(route.id)!, true)]
-              : dayWarnings,
+              : !realTour && route && noRoadRoutes.has(route.id) ? [...dayWarnings, selfNoRoadDayLine()]
+                : dayWarnings,
           realTour?.minParticipants, groupSize(profile)),
         activityMode: activityMode({ realTour, route }),
         ...(route ? { routeId: route.id } : {}),
