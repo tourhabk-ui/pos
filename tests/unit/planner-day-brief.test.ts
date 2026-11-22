@@ -1,6 +1,6 @@
 /** «В поездке» (фича 4): сегодня/завтра по датам плана, без догадок. */
 import { describe, it, expect } from 'vitest';
-import { tripBrief, briefWeatherLine, type BriefDayInput } from '@/lib/planner/day-brief';
+import { tripBrief, briefWeatherLine, kitAdvice, type BriefDayInput } from '@/lib/planner/day-brief';
 
 const days: BriefDayInput[] = [
   { day: 1, title: 'Прилёт', zone: 'avacha' },
@@ -35,5 +35,13 @@ describe('tripBrief', () => {
   });
   it('погода без числа — строки нет', () => {
     expect(briefWeatherLine({ tempMin: NaN, tempMax: 1 })).toBeNull();
+  });
+});
+
+describe('kitAdvice', () => {
+  it('прогноз не повторяется, остаётся совет', () => {
+    expect(kitAdvice('Прогноз для зоны дня: Пасмурно, -18…-9 °C, без осадков. Возьмите тёплый слой.')).toBe('Возьмите тёплый слой.');
+    expect(kitAdvice('Прогноз для зоны дня: Ясно, 5…9 °C.')).toBeNull();
+    expect(kitAdvice(null)).toBeNull();
   });
 });

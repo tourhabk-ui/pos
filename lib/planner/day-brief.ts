@@ -42,6 +42,8 @@ export interface BriefItem {
   weatherLine: string | null;
   /** Тур зависит от погоды и прогноз плохой — человеку сказать прямо. */
   weatherRisk: boolean;
+  /** Совет «что взять» без повтора прогноза. */
+  advice: string | null;
 }
 
 export type TripBrief =
@@ -60,6 +62,18 @@ export function briefWeatherLine(w: BriefWeather | null | undefined): string | n
   if (Number.isFinite(w.windKmh) && (w.windKmh as number) >= 30) parts.push(`ветер ${Math.round(w.windKmh as number)} км/ч`);
   if (Number.isFinite(w.precipMm) && (w.precipMm as number) >= 1) parts.push(`осадки ${Math.round(w.precipMm as number)} мм`);
   return parts.join(', ');
+}
+
+/**
+ * Совет «что взять» без повтора прогноза: строка weather-kit начинается с
+ * «Прогноз для зоны дня: …» — погода уже стоит своей строкой, остаётся совет.
+ */
+export function kitAdvice(kit: string | null | undefined): string | null {
+  const t = kit?.trim();
+  if (!t) return null;
+  const i = t.indexOf('Возьмите');
+  if (i >= 0) return t.slice(i);
+  return /^Прогноз для зоны дня:/.test(t) ? null : t;
 }
 
 function daysBetween(a: string, b: string): number {
@@ -86,6 +100,7 @@ export function tripBrief(days: readonly BriefDayInput[], arrival: string | null
       day,
       weatherLine: briefWeatherLine(day.weather),
       weatherRisk: Boolean(day.weatherDependent && day.weather?.bad),
+      advice: kitAdvice(day.kit),
     });
   }
   return { state: 'during', items };

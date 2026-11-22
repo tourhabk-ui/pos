@@ -42,7 +42,7 @@ export function TripToday({ days, arrival, zoneLabel }: {
             {it.weatherLine
               ? <p className="mt-1 flex items-start gap-1 text-[var(--text-secondary)]"><CloudSnow className="w-3.5 h-3.5 mt-px shrink-0" />{it.weatherLine}</p>
               : <p className="mt-1 text-[var(--text-muted)]">Прогноза на этот день в плане нет.</p>}
-            {it.day.kit && <p className="mt-0.5 text-[var(--text-secondary)]">Взять: {it.day.kit}</p>}
+            {it.advice && <p className="mt-0.5 text-[var(--text-secondary)]">{it.advice}</p>}
             {it.weatherRisk && (
               <p className="mt-1 flex items-start gap-1 text-[var(--warning)]"><Umbrella className="w-3.5 h-3.5 mt-px shrink-0" />Тур зависит от погоды, прогноз плохой — уточните у оператора с утра.</p>
             )}
