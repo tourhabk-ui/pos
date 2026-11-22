@@ -768,6 +768,23 @@ function groupSize(profile: TripProfile): number {
  */
 const HEALTH_DERIVED = new WeakSet<TripWarning>();
 
+/**
+ * Тексты тех же предупреждений. С 23.11 «Подробная программа» зовётся
+ * отдельным роутом: предупреждения едут в браузер и обратно новыми
+ * объектами, тождество WeakSet через JSON не переживает. Поэтому признак —
+ * ещё и сам текст (ревью безопасности #3743).
+ */
+const HEALTH_WARNING_TEXT = {
+  wheelchair: 'Камчатка имеет крайне ограниченную безбарьерную инфраструктуру. Доступные варианты: термальные источники Паратунки, обзорные вертолётные экскурсии.',
+  limited: 'Ограниченная подвижность: маршруты адаптированы, исключены многочасовые переходы и крутые подъёмы.',
+} as const;
+const HEALTH_TEXTS = new Set<string>(Object.values(HEALTH_WARNING_TEXT));
+
+/** Выведено из данных о здоровье — в промпт модели не идёт. */
+export function isHealthDerivedWarning(w: TripWarning): boolean {
+  return HEALTH_DERIVED.has(w) || HEALTH_TEXTS.has(String(w.message ?? '').trim());
+}
+
 function collectWarnings(
   profile: TripProfile,
   zones: ZoneRecommendation[],
@@ -990,14 +1007,14 @@ function collectWarnings(
   if (profile.mobilityLevel === 'wheelchair') {
     const w: TripWarning = {
       type: 'safety', severity: 'critical',
-      message: 'Камчатка имеет крайне ограниченную безбарьерную инфраструктуру. Доступные варианты: термальные источники Паратунки, обзорные вертолётные экскурсии.',
+      message: HEALTH_WARNING_TEXT.wheelchair,
     };
     HEALTH_DERIVED.add(w);
     warnings.push(w);
   } else if (profile.mobilityLevel === 'limited') {
     const w: TripWarning = {
       type: 'fitness', severity: 'important',
-      message: 'Ограниченная подвижность: маршруты адаптированы, исключены многочасовые переходы и крутые подъёмы.',
+      message: HEALTH_WARNING_TEXT.limited,
     };
     HEALTH_DERIVED.add(w);
     warnings.push(w);
@@ -2645,7 +2662,7 @@ function buildAIPrompt(profile: TripProfile, zones: ZoneRecommendation[], days: 
   }).join('\n');
 
   const warningsSummary = warnings
-    .filter(w => !HEALTH_DERIVED.has(w))
+    .filter(w => !isHealthDerivedWarning(w))
     .filter(w => w.severity === 'critical' || w.severity === 'important')
     .map(w => `- ${w.message}`)
     .join('\n');

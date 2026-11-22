@@ -78,7 +78,7 @@ import type {
 import { planStaleReasons, planStaleText, type PlanSnapshot } from '@/lib/planner/plan-stale';
 import { PhraseEdit, type PhraseApplied } from './PhraseEdit';
 import { TripToday } from '@/components/planner/TripToday';
-import { PlanProgram } from '@/components/planner/PlanProgram';
+import { PlanProgram } from './PlanProgram';
 import type { BriefWeather } from '@/lib/planner/day-brief';
 import { PlanStaleNotice } from '@/components/planner/PlanStaleNotice';
 import { dayFrame } from '@/lib/planner/day-frame';
