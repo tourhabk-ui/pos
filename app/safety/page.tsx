@@ -43,16 +43,16 @@ export default function SafetyPage() {
     <>
       <Header />
       <JsonLd data={safetyArticleJsonLd(SITE)} />
-      {/* Статья и FAQ — в серверном HTML до живой карты, чтобы бот без JS
-          прочитал прямой ответ. Карта и радар — ниже текста. */}
+      {/* H1 и прямой ответ — в серверном HTML сразу, затем живая обстановка
+          (радар), затем статья и FAQ. Бот без JS читает лид в первых абзацах. */}
       <div className="ds-page px-4" style={{ maxWidth: 680, margin: '0 auto', paddingBottom: 96 }}>
         <SectionSwipeBar items={SAFETY_SECTION_ITEMS} label="Разделы безопасности" className="-mx-4" />
         <SafetyIntro />
-        <SafetyAbout />
         <SafetyLiveIntro />
         <Suspense fallback={<p role="status" className="text-sm" style={{ color: 'var(--text-muted)' }}>Загрузка обстановки…</p>}>
           <SafetyLive />
         </Suspense>
+        <SafetyAbout />
       </div>
       <BottomNav activePath="/safety" />
     </>
