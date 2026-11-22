@@ -34,7 +34,9 @@ describe('/routes и /places: поиск первым', () => {
   });
 
   it('парки, категории и чипы типов — только пока не ищут', () => {
-    expect(CLIENT).toMatch(/\{!searching && \(\s*<>\s*<ParksStrip initialParks=\{initialParks\} \/>\s*<CategoriesStrip categories=\{initialCategories\} \/>\s*<\/>\s*\)\}/);
+    // 22.11: полосы парков и подборок переехали под выдачу — правило «пока
+    // ищут, их нет» осталось.
+    expect(CLIENT).toMatch(/\{!searching && \(\s*<div[^>]*data-testid="catalog-more-links">\s*<ParksStrip initialParks=\{initialParks\} \/>\s*<CategoriesStrip categories=\{initialCategories\} \/>\s*<\/div>\s*\)\}/);
     expect(CLIENT).toMatch(/\{kind === 'place' && !searching && \(/);
     expect(CLIENT).toMatch(/\{kind === 'route' && !searching && \(/);
   });
