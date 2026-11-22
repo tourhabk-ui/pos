@@ -3,6 +3,7 @@
 import { useEffect, useRef } from 'react';
 import { usePathname } from 'next/navigation';
 import { isForeignSurface } from '@/lib/embed/widget-frame';
+import { stripPathToken, stripUrlToken } from '@/lib/analytics/token-path';
 
 /**
  * Первичный счётчик платформы. Пишет не только факт захода, но и поведение:
@@ -111,10 +112,10 @@ export default function PageViewTracker() {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({
-        path: pathname,
-        referrer: document.referrer || undefined,
+        path: stripPathToken(pathname),
+        referrer: stripUrlToken(document.referrer) || undefined,
         sessionId: sessionId(),
-        fromPath: prevPath,
+        fromPath: stripPathToken(prevPath),
         // Next рендерит not-found.tsx, не меняя адрес: страницу опознаём по
         // маркеру, который она сама ставит (см. app/not-found.tsx).
         notFound: document.documentElement.dataset.notFound === '1' || undefined,

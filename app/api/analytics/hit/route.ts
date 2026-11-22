@@ -17,6 +17,7 @@ import { isSelfVisit } from '@/lib/analytics/self-visit';
 import { isStaffOwnVisit } from '@/lib/analytics/staff-visit';
 import { isPlatformBoxIp } from '@/lib/analytics/box-ip';
 import { classifyPageHit } from '@/lib/analytics/visit-class';
+import { stripPathToken, stripUrlToken } from '@/lib/analytics/token-path';
 import { classifyAddressBurst, ENGAGED_DWELL_MS } from '@/lib/analytics/address-burst';
 import { kamchatkaDayBounds } from '@/lib/analytics/kamchatka-day';
 import { deviceClass } from '@/lib/analytics/visit-sources';
@@ -52,7 +53,11 @@ export async function POST(req: NextRequest) {
   const parsed = HitSchema.safeParse(body);
   if (!parsed.success) return NextResponse.json({ ok: false }, { status: 400 });
 
-  const { path, referrer, sessionId, fromPath, notFound } = parsed.data;
+  // Ключ из адреса (/vote/<токен>) в аналитику не пишется — и от старого клиента тоже.
+  const path = stripPathToken(parsed.data.path);
+  const referrer = stripUrlToken(parsed.data.referrer);
+  const fromPath = stripPathToken(parsed.data.fromPath);
+  const { sessionId, notFound } = parsed.data;
 
   // Не трекаем системные и админские пути
   if (path.startsWith('/api/') || path.startsWith('/_next/') || path.startsWith('/hub/admin')) {
