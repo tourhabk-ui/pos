@@ -129,13 +129,12 @@ beforeEach(() => {
 afterEach(() => { vi.restoreAllMocks(); vi.unstubAllEnvs(); vi.unstubAllGlobals(); });
 
 describe('«Спланировать поездку» в MAX', () => {
-  it('кнопка меню — первый шаг правкой нажатого сообщения, модель не зовётся', async () => {
+  it('кнопка меню — первый шаг новым сообщением (меню остаётся), модель не зовётся', async () => {
     await press('tp:0:-:-:-:-:0');
-    expect(m.edit).toHaveBeenCalledTimes(1);
-    const [mid, extra] = m.edit.mock.calls[0] as [string, { text: string; attachments: unknown[] }];
-    expect(mid).toMatch(/^m-tp-/);
-    expect(extra.text).toContain('Когда едете?');
-    expect(JSON.stringify(extra.attachments)).toMatch(/"payload":"tp:1:\d{6}:/);
+    expect(m.edit).not.toHaveBeenCalled();
+    const sent = m.maxSend.mock.calls.find((c) => String(c[1]).includes('Когда едете?'));
+    expect(sent).toBeTruthy();
+    expect(JSON.stringify(sent![2])).toMatch(/"payload":"tp:1:\d{6}:/);
     expect(m.tools).not.toHaveBeenCalled();
     expect(m.run).not.toHaveBeenCalled();
   });
@@ -151,9 +150,11 @@ describe('«Спланировать поездку» в MAX', () => {
     await press(`tp:5:${future}:5:2:0:1`);
     expect(m.run).toHaveBeenCalledTimes(1);
     expect(m.tools).not.toHaveBeenCalled();
-    const sentPlan = m.maxSend.mock.calls.find((c) => String(c[1]).startsWith('План на'));
-    expect(sentPlan).toBeTruthy();
-    expect(JSON.stringify(sentPlan![2])).toContain('"type":"link"');
+    // «Собираю план…», затем план правкой того же сообщения — заглушка не остаётся.
+    const edits = m.edit.mock.calls as Array<[string, { text: string; attachments: unknown[] }]>;
+    expect(edits.map(([, e]) => e.text.split('\n')[0])).toEqual(['Собираю план по дням…', 'План на 5 дней с …:']);
+    expect(edits[0]![0]).toBe(edits[1]![0]);
+    expect(JSON.stringify(edits[1]![1].attachments)).toContain('"type":"link"');
   });
 
   it('без заверения апдейта — план не собирается', async () => {

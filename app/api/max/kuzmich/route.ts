@@ -2160,7 +2160,8 @@ async function handleUpdate(update: MaxUpdate, opts?: { verifiedOrigin?: boolean
         return;
       }
       if (state.step < 5) {
-        await sendWizardMax(resolvedChatId, wizardScreen(state, now), editMid);
+        // Шаг 0 — новым сообщением: стартовое меню и готовый план остаются.
+        await sendWizardMax(resolvedChatId, wizardScreen(state, now), state.step === 0 ? null : editMid);
         return;
       }
       if (opts?.verifiedOrigin !== true) {
@@ -2173,7 +2174,8 @@ async function handleUpdate(update: MaxUpdate, opts?: { verifiedOrigin?: boolean
         return;
       }
       await sendWizardMax(resolvedChatId, { text: 'Собираю план по дням…', buttons: [] }, editMid);
-      await sendWizardMax(resolvedChatId, await runWizardPlan(state), null);
+      // План встаёт на место «Собираю план…» — заглушка без кнопок не остаётся.
+      await sendWizardMax(resolvedChatId, await runWizardPlan(state), editMid);
       return;
     }
 

@@ -1840,7 +1840,8 @@ async function deliverTelegramUpdate(update: TelegramUpdate): Promise<void> {
         await Promise.resolve(telegramService.editMessageText({ chatId: wizChat, messageId: mid, text: 'Собираю план по дням…', parseMode: 'HTML', replyMarkup: { inline_keyboard: [] } }))
           .catch((err) => logSwallowedFailure('telegram/webhook', 'правка «Собираю план»', err));
       }
-      await sendWizardTg(wizChat, await runWizardPlan(state), null);
+      // План встаёт на место «Собираю план…» (сбой правки — новым сообщением).
+      await sendWizardTg(wizChat, await runWizardPlan(state), mid);
       return;
     }
 
