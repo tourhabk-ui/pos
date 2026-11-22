@@ -2,9 +2,21 @@ import { describe, expect, it } from 'vitest';
 import {
   aviationColorChanged,
   buildKvertColorAlert,
+  isAccColor,
 } from '@/lib/services/safety/kvert-color-alerts';
 
+describe('isAccColor', () => {
+  it('принимает коды KVERT и отвергает пустое и чужое', () => {
+    expect(isAccColor('green')).toBe(true);
+    expect(isAccColor('unassigned')).toBe(true);
+    expect(isAccColor('blue')).toBe(false);
+    expect(isAccColor(null)).toBe(false);
+    expect(isAccColor('')).toBe(false);
+  });
+});
+
 describe('aviationColorChanged', () => {
+
   it('не пишет повтор того же кода', () => {
     expect(aviationColorChanged('orange', 'orange')).toBe(false);
   });
